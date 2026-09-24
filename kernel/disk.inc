@@ -1139,13 +1139,13 @@ disk_write_x:
                                 ; register AND the flags, which dsk_xfer's
                                 ; "clobbers nothing but CF" requires
 dsk_xfer:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentc_bp               ; KENT: push ax..bp
+
+
+
+
+
+
 
     call KERNEL_SEG:fpg_busy    ; **EVERY SECTOR IN THE MACHINE PASSES HERE,
                                 ; SO THIS IS WHERE THE PROGRESS WIDGET IS PUT
@@ -2740,13 +2740,13 @@ dsk_fat_window:
 ; the boot sector is readable before the true geometry is known.
 ; -----------------------------------------------------------------------------
 disk_mount_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentc_bp               ; KENT: push ax..bp
+
+
+
+
+
+
     push es
 %ifdef DISK_COUNTERS
     inc word [dsk_dbg_mnt]
@@ -3448,12 +3448,12 @@ disk_mount_x:
 ; hang with sch_lock held and a read landing outside its buffer.
 ; -----------------------------------------------------------------------------
 dsk_bpb_check:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     push es
 
     ; A BANKED head skips rule 1 and the staging, and only those (SPEC.md
@@ -4018,12 +4018,12 @@ dsk_synth_up:
 ; es: overrides instead.
 ; -----------------------------------------------------------------------------
 dsk_sortdir:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     cmp cx, 2
     jb .out                     ; 0 or 1 entries are already in order
     mov ax, cx
@@ -6662,13 +6662,13 @@ dsk_write_chain_x:              ; which is kern_big's (SPEC.md 18.4.7.4)
 %endif
 
 dsk_read_chain_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentc_bp               ; KENT: push ax..bp
+
+
+
+
+
+
 
     push ax                     ; the whole file's extent IS the widget's
     push dx                     ; scale, and this is the only place that knows

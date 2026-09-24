@@ -1013,13 +1013,13 @@ cp_tick_due_x:
 ; -----------------------------------------------------------------------------
 %ifdef KERN_BIG
 cp_onkey_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentc_bp               ; KENT: push ax..bp
+
+
+
+
+
+
     mov bl, al                  ; the KEY, banked: every test below answers in
     mov bh, ah                  ; AL and the page wants both halves back
     mov al, [cp_sel]

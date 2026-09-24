@@ -465,12 +465,12 @@ assoc_app_of:
 ; sector buffer), which SPEC.md 2.1 forbids reaching through DS.
 ; -----------------------------------------------------------------------------
 assoc_reduce:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     mov ch, 8                   ; output rows left
 .row:
     mov ax, [es:si]             ; the two source rows this one reduces
@@ -691,12 +691,12 @@ section .cold
 ; guard it would silently undo the user's own choice every time they browsed.
 ; -----------------------------------------------------------------------------
 assoc_declare:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     mov dl, al                  ; DL = the app slot
     mov si, dsk_secbuf + 32     ; the block: after the header, and after the
     test byte [assoc_hflags], 1 ; icon when there is one
@@ -738,12 +738,12 @@ assoc_declare:
 ; I/O - the read already happened.
 ; -----------------------------------------------------------------------------
 assoc_note_app_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     call assoc_stem_of          ; DI -> assoc_stemb; SI untouched
     mov dx, si                  ; bank the entry
     mov si, di
@@ -1100,13 +1100,13 @@ assoc_locate:
 ; document's directory when the entry proc runs.
 ; -----------------------------------------------------------------------------
 assoc_run_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentc_bp               ; KENT: push ax..bp
+
+
+
+
+
+
     push es
 
     mov al, [assoc_dapp]
@@ -1372,12 +1372,12 @@ osapi_arg_file_x:
 ; folder.
 ; -----------------------------------------------------------------------------
 osapi_assoc_set_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     mov di, assoc_extb          ; stage both halves into the kernel, the
     mov cx, 3                   ; dsk_get_dir idiom - everything below reads
     call assoc_stage            ; through DS
@@ -1624,12 +1624,12 @@ ASC_KB       equ 3              ; 32*88 + 16 + 24*4 = 2,928 bytes
 ; directory change.
 ; -----------------------------------------------------------------------------
 asc_use_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     push es
     mov al, [disk_drive]
     cmp al, [asc_vol]
@@ -1803,12 +1803,12 @@ asc_use_x:
 ; (SPEC.md 54.4.2). That is what makes a cache safe to seed from at all.
 ; -----------------------------------------------------------------------------
 asc_seed:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     mov cx, [asc_n]
     jcxz .out
     call ico_need               ; **THE STORE'S CLAIM, BEFORE THE WALK** (SPEC.md
@@ -1891,12 +1891,12 @@ asc_seed:
 ; generic icon a miss that already draws it.
 ; -----------------------------------------------------------------------------
 asc_row_take:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     cmp word [ico_seg], 0       ; NO STORE, so nothing to absorb into - and
     je .out                     ; asking `ico_need` again would RETRY the
                                 ; claim, which compacts, under a walk holding
@@ -2037,12 +2037,12 @@ asc_root_find:
 ; declaration has: a runtime claim (ASSOC_STICKY) outranks them.
 ; -----------------------------------------------------------------------------
 asc_merge_ext:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     mov cx, [asc_ne]
     jcxz .out
     mov ax, [asc_n]             ; the ext rows begin past the app rows - the

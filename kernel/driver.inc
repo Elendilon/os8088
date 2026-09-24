@@ -2097,13 +2097,13 @@ drv_cp_call_x:
 ; instructions later, and a detach frees strictly more than this does.
 ; -----------------------------------------------------------------------------
 drv_cp_closed_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentc_bp               ; KENT: push ax..bp
+
+
+
+
+
+
     mov cl, 1                   ; classes are 1..DRVC_MAX
 .cls:
     mov al, cl
@@ -2332,12 +2332,12 @@ drv_blob_of:
                                 ; row. The hard disk's Format and Install do
                                 ; NOT use it: they type their own names
 osapi_drv_dlg_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     cmp word [fdlg_win], 0      ; ...ALREADY UP, which is the header's third
     jne .no                     ; refusal and fdlg_open_x's own gate asked one
                                 ; call earlier: a second request that got as
@@ -2631,13 +2631,13 @@ section .cold                   ; ...and the section drvvol.inc left us in is
 ; page calls this holding both as its pane origin.
 ; -----------------------------------------------------------------------------
 drv_load_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentc_bp               ; KENT: push ax..bp
+
+
+
+
+
+
     push es
 
     call drv_vol_bank           ; this goes to A: to find the .DRV, and the
@@ -2675,13 +2675,13 @@ drv_load_x:
 ; nothing in kern_small wants it.
 ; -----------------------------------------------------------------------------
 drv_load_at:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentc_bp               ; KENT: push ax..bp
+
+
+
+
+
+
     push es
     call drv_vol_bank
 drv_load_row:
@@ -2942,12 +2942,12 @@ drv_check:
 ; some other tool wrote.
 ; -----------------------------------------------------------------------------
 drv_bss:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     push es
     mov es, [bx+DRVR_SEG]
     mov al, [es:DRV_H_BSSP]
@@ -3208,13 +3208,13 @@ drv_publish:
 ; BP as its pane origin.
 ; -----------------------------------------------------------------------------
 drv_unload_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentc_bp               ; KENT: push ax..bp
+
+
+
+
+
+
     call drv_row_x
     cmp word [bx+DRVR_SEG], 0
     je .out

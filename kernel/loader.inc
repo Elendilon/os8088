@@ -584,13 +584,13 @@ ld_owed:
 ; goes through disk_mount.
 ; -----------------------------------------------------------------------------
 loader_run_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentc_bp               ; KENT: push ax..bp
+
+
+
+
+
+
     push es
 
     mov byte [ld_painted], 0    ; HOISTED above the arms: the refusal below

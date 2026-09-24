@@ -1055,12 +1055,12 @@ mem_rank_bh:
                                 ; unlikely, for one byte and one compare
 
 mem_shed_one:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     pushf
     cli
     call mem_rank_bh            ; AL = the claimant's own rank, which is what
@@ -2895,13 +2895,13 @@ section .cold
 ; the compactor is not re-entrant ([mem_cp_busy]) and runs with [sch_lock]
 ; raised.
 mem_reloc_call:
-    push ax
-    push bx                     ; ALL of them, because the proc is a window
-    push cx                     ; callback in every other respect and a window
-    push dx                     ; callback may clobber AX/BX/CX/DX/SI/DI/ES
-    push si                     ; (SPEC.md 13). mem_cp_run reads SI - the
-    push di                     ; record - straight after this returns, and a
-    push bp                     ; proc that used SI would have moved the fill
+    call kentc_bp               ; KENT: push ax..bp
+                                ; ALL of them, because the proc is a window
+                                ; callback in every other respect and a window
+                                ; callback may clobber AX/BX/CX/DX/SI/DI/ES
+                                ; (SPEC.md 13). mem_cp_run reads SI - the
+                                ; record - straight after this returns, and a
+                                ; proc that used SI would have moved the fill
     push ds                     ; point onto a live block
     push es
     mov ax, KERNEL_SEG
@@ -3016,12 +3016,12 @@ mem_compact:
     stc                         ; make HEAPCOMPACT=0: the A/B, with the body
     ret                         ; gone and not merely the call (SPEC.md 66.8)
 %else
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     cmp byte [mem_cp_busy], 0
     jne .none                   ; a relocation proc that claimed would arrive
                                 ; here inside the walk it is being driven by,

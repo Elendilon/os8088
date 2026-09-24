@@ -290,6 +290,31 @@ section .cold
 ; a proc jumps into it at the rung matching how much it pushed. It is entered
 ; by a near JUMP and not a call, so it costs no stack - which is why the size
 ; pass could factor it at all.
+kentc_di:
+    ; STKBALANCE-NET: +6 - banks AX..DI on the CALLER's stack; its epilogue pops them
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov di, sp
+    push word [ss:di+10]
+    mov [ss:di+10], ax
+    mov di, [ss:di]
+    ret
+kentc_bp:
+    ; STKBALANCE-NET: +7 - banks AX..BP on the CALLER's stack; its epilogue pops them
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    mov bp, sp
+    push word [bp+12]
+    mov [bp+12], ax
+    mov bp, [bp]
+    ret
 kretc_es:         pop es
 kretc_bp:         pop bp
 kretc_di:         pop di

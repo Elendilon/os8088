@@ -444,12 +444,12 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; resident now and desk_init far-calls it like any other overlay->text step.
 ; -----------------------------------------------------------------------------
 desk_rowcalc_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
 
     ; --- which ICON, and therefore how tall a zone is (SPEC.md 26.4) --------
     ; The CGA's pixels are 2.4:1 tall, so the 32-row diskette renders as a
@@ -1035,12 +1035,12 @@ desk_zones_paint_x:
 ; outs: none (all registers preserved)
 ; -----------------------------------------------------------------------------
 desk_click_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
 
     mov di, cx                  ; DI/SI = the click, and CL = the volume:
     mov si, dx                  ; desk_zone_xy ANSWERS in AX and DX, so the

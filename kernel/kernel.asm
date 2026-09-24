@@ -7455,6 +7455,42 @@ kret_ret:         ret         ; NAMED so a test can breakpoint the RETURN.
                               ; needs.
 
 section .cold
+; --- THE SHARED-PROLOGUE HELPERS (size pass 4 prototype) -------------------
+; `call kentc_di` IS `push ax / bx / cx / dx / si / di`, and `call kentc_bp`
+; the same and `push bp`: the words land exactly where the pushes would put
+; them, so the routine's own pops and the ladder below end it unchanged. Stack
+; only - re-entrant under the pre-emptive scheduler - and no flag moves. The
+; return address is moved out from under the banked registers by pushing a copy
+; and storing AX over the original: every write is at or above SP, so an
+; interrupt can land anywhere in here. apps/word/word.asm's wd_sv6 is the same
+; idea, and was first.
+kentc_di:
+    ; STKBALANCE-NET: +6 - banks AX..DI on the CALLER's stack; its epilogue pops them
+    push bx
+    push cx
+    push dx
+    push si
+    push di                     ; [di][si][dx][cx][bx][ret]
+    mov di, sp
+    push word [ss:di+10]        ; [ret][di][si][dx][cx][bx][ret]
+    mov [ss:di+10], ax          ; ...[bx][ax]
+    mov di, [ss:di]             ; DI back
+    ret
+
+kentc_bp:
+    ; STKBALANCE-NET: +7 - banks AX..BP on the CALLER's stack; its epilogue pops them
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp                     ; [bp][di][si][dx][cx][bx][ret]
+    mov bp, sp
+    push word [bp+12]           ; [ret][bp]...[bx][ret]
+    mov [bp+12], ax             ; ...[bx][ax]
+    mov bp, [bp]                ; BP back
+    ret
+
 kretc_es:         pop es
 kretc_bp:         pop bp
 kretc_di:         pop di

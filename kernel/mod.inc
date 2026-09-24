@@ -382,13 +382,13 @@ mod_fpr:
 ; 139 of those deleted the shims this file was written against.
 ; -----------------------------------------------------------------------------
 mod_need:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentc_bp               ; KENT: push ax..bp
+
+
+
+
+
+
     push es
 
     mov di, ax                  ; THE ID, FOR THE WHOLE ROUTINE, and in a
@@ -632,12 +632,12 @@ mod_free_row:
 ; purgeable-claim design that would need a pin; it is deliberately not built.
 ; -----------------------------------------------------------------------------
 mod_drop:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si                     ; SI is pushed so the run is a SUFFIX of the
-    push di                     ; shared ladder's es/bp/di/si/dx/cx/bx/ax -
+    call kentc_di               ; KENT: push ax..di
+
+
+
+                                ; SI is pushed so the run is a SUFFIX of the
+                                ; shared ladder's es/bp/di/si/dx/cx/bx/ax -
     call mod_row                ; which mod_drop already preserved in fact
     call mod_free_row           ; (mod_free_row clobbers AX, BX, CX, DX, DI),
     jmp kretc_di                ; so no contract weakens. .cold's copy of the

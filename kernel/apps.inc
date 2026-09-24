@@ -486,12 +486,12 @@ app_tmr_task_x:
 ; clobbers: nothing (flags only)
 ; -----------------------------------------------------------------------------
 app_tmr_paint_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
 
     call app_state_of           ; BX = window, DI = time state
     jc .done
@@ -520,12 +520,12 @@ app_tmr_paint_x:
 ; letter freely (the SPEC.md 22.2 argument, one module over).
 ; -----------------------------------------------------------------------------
 app_tmr_onclick_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
 
     call app_state_of           ; BX = window, DI = time state
     jc app_tmr_edge_out
@@ -609,12 +609,12 @@ app_tmr_track:
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 app_tmr_onup_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     call os88ui_fire ; AX = what the press armed, and it is CLEARED
     call app_tmr_track
     jc app_tmr_edge_out
@@ -631,12 +631,12 @@ app_tmr_onup_x:
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 app_tmr_ondrag_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     call os88ui_armed ; PEEK: the arm is the release's to spend
     call app_tmr_track
     jc app_tmr_edge_out
@@ -681,12 +681,12 @@ app_tmr_setdown:
 ; kern_small from the press, and neither has an opinion the other does not.
 ; -----------------------------------------------------------------------------
 app_tmr_act:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     call app_tmr_bok            ; a greyed control explains itself, so a
     jc .done                    ; refused click says nothing more (SPEC.md 47
                                 ; rule 6) - no beep, no notice
@@ -779,13 +779,13 @@ app_tmr_btns:
 ; call from anywhere.
 ; -----------------------------------------------------------------------------
 app_tmr_btn:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentc_bp               ; KENT: push ax..bp
+
+
+
+
+
+
 
     xor ah, ah
     mov bp, ax                  ; BP = the index for the whole routine, and a
@@ -1173,13 +1173,13 @@ app_bounce_task_x:
 %endif
 
 app_ball_wipe:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentc_bp               ; KENT: push ax..bp
+
+
+
+
+
+
 
     mov si, [ss:di+BAL_X]
     sub si, cx                  ; SI = ddx, new - old

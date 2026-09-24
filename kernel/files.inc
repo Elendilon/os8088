@@ -1055,12 +1055,12 @@ fmv_winof:
 ; navigation - so no new one can forget (SPEC.md 22.14).
 ; -----------------------------------------------------------------------------
 fmv_store:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     call fmv_winof              ; BEFORE the .none early-out: a window with no
     jc .nowin                   ; view claim paints from the global snapshot,
     call KERNEL_SEG:wm_su_stale  ; which is changing under it too - and it is
@@ -1437,12 +1437,12 @@ fmv_icorefs:
 ; entered is a lie the user could act on.
 ; -----------------------------------------------------------------------------
 fmv_load:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
 
     mov bl, al                  ; dsk_chdir wants the drive in DL and the
     mov ax, dx                  ; cluster in AX
@@ -3022,12 +3022,12 @@ fm_bhit:
 ; refuse).
 ; -----------------------------------------------------------------------------
 fm_btn1:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     push ax                     ; fm_brect EATS AX - it is the one register it
     call fm_brect               ; documents clobbering, and the id is needed
     pop ax                      ; twice more below. (pop leaves CF alone)
@@ -3512,12 +3512,12 @@ fm_onclick_x:
 ; that is not the last one anything painted.
 ; -----------------------------------------------------------------------------
 fm_onup_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
 %ifdef OS88UI_SBDRAG
     call os88ui_sbdragging      ; SPEC.md 13.10.5: the release COMMITS, and it
     jc .btn                     ; commits unconditionally - a position the rate
@@ -3588,12 +3588,12 @@ fm_onup_x:
 ; pixels.
 ; -----------------------------------------------------------------------------
 fm_ondrag_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
 %ifdef OS88UI_SBDRAG
     call os88ui_sbdragging      ; SPEC.md 13.10.5: a live thumb drag owns this
     jc .btn                     ; movement whole - a header button cannot also
@@ -4613,12 +4613,12 @@ section .cold                   ; ...and back to cold code
 ; the kernel does not repaint after an AM_ONCMD returns (SPEC.md 12.2).
 ; -----------------------------------------------------------------------------
 fm_oncmd_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
 
     mov [fm_cmdwin], si
     mov bx, si
@@ -4918,12 +4918,12 @@ fm_fmt_sizeable:
 ; points at have changed underneath it (SPEC.md 11.92).
 ; -----------------------------------------------------------------------------
 fm_fmt_home:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     mov dl, al
     call fmv_ifirst
     jc .done
@@ -5359,12 +5359,12 @@ fm_c_wimg:
 ; here at all.
 ; -----------------------------------------------------------------------------
 fm_img_done_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     mov bx, si                  ; SI = the REQUESTER window, fdlg_commit's
     call fm_vp_set              ; contract (SPEC.md 38.6) - and [fm_vp] is
                                 ; re-aimed at ITS view FIRST, because the
@@ -5723,12 +5723,12 @@ section .cold                   ; ...and back to cold code
 ; package the user never opened (SPEC.md 13).
 ; -----------------------------------------------------------------------------
 fm_rclick_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
 
     mov [fm_cmdwin], si         ; fm_rcmd acts on this window; fm_docmd's
     mov bx, si                  ; repaint needs it too
@@ -5813,12 +5813,12 @@ fm_rclick_x:
 ; that need the lock this handler is standing on.
 ; -----------------------------------------------------------------------------
 fm_rcmd_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     mov bl, [fm_rcmdid]
     xor bh, bh
     call fm_docmd
@@ -6680,12 +6680,12 @@ fm_paste_res:
 ; exist.
 ; -----------------------------------------------------------------------------
 fmv_repaint_all:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     mov byte [fmv_uany], 0
     mov si, wm_zord
     mov cl, [wm_zn]
@@ -6770,12 +6770,12 @@ fmv_uadd:
 ; that would otherwise be silently wrong.
 ; -----------------------------------------------------------------------------
 fmv_reload_all:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     call fmv_ifirst
     jc .done
 .scan:
@@ -7234,13 +7234,13 @@ fm_stage_name:
 ; and the header is truncated to stop 8px short of the leftmost button.
 ; -----------------------------------------------------------------------------
 fm_draw_core:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentc_bp               ; KENT: push ax..bp
+
+
+
+
+
+
 
     call fm_layout
 
@@ -7898,12 +7898,12 @@ fm_sel_bar:
 ; at fm_listb, two rows above, and the selection bands stop with it.
 ; -----------------------------------------------------------------------------
 fm_status_only:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
 
     mov bx, si
     call fm_layout              ; fm_cx/fm_cy/fm_cw/fm_rgt/fm_staty, and the
@@ -7994,13 +7994,13 @@ fm_status_only:
 ; drawing below is a function of - a PgDn two rows from the end moves two.
 ; -----------------------------------------------------------------------------
 fm_scroll_by:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si                     ; the two tiers below clobber freely and bank
-    push di                     ; nothing: this is their only caller, so one
-    push bp                     ; prologue serves both (they are 14 bytes of
+    call kentc_bp               ; KENT: push ax..bp
+
+
+
+                                ; the two tiers below clobber freely and bank
+                                ; nothing: this is their only caller, so one
+                                ; prologue serves both (they are 14 bytes of
                                 ; .cold apiece otherwise, and the budget is
                                 ; measured in 512-byte rungs)
     mov bx, [fm_lscr]           ; where the SCREEN stands
@@ -8307,12 +8307,12 @@ fm_sb_thumb:
 ; that needs an erase is fm_status_only, which does its own.
 ; -----------------------------------------------------------------------------
 fm_draw_status:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
     mov al, [fm_ledit]          ; ...and RECORD whether this paint leaves a
     call fm_2line               ; line up in the row area (SPEC.md 22.20.1).
     mov al, 0                   ; Here rather than at the three branches that
