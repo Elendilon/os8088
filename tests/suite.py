@@ -464,7 +464,7 @@ FAST = [
         " panel. "
         "SOAK and not fast: CLEAR SKIES is ONE package, so this belongs "
         "beside a change to it - `soak -k 'cs*'`"),
-    Row("paccman", "fast", py("tests/unit/t_paccman.py"), 0.3,
+    Row("pmcrom", "fast", py("tests/unit/t_paccman.py"), 0.3,
         "PACCMAN's generated arcade tables say what they claim to (SPEC.md "
         "91). apps/paccman/pmc_rom.c is the build's TRUTH - the reference is "
         "not vendored (CONTRIBUTING.md 6) and an ordinary build never reads "

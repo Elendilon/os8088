@@ -323,6 +323,21 @@ def main():
             if part.startswith("tests/") and part.endswith(".py"):
                 reg[os.path.basename(part)] = r.name
 
+    # ONE NAME, ONE ROW, across every tier. `tools/os88soak.py` journals a
+    # run BY NAME and `--resume` excludes by name, so two rows sharing one
+    # made the second's verdict vanish: the fast `paccman` reported ok in
+    # 0.0s, the soak `paccman` FAILED an hour later, and `status` and
+    # done.txt both said ok - the failure was only in run.log's tail.
+    seen = {}
+    for r in suite.rows():
+        if r.name in seen:
+            check(False, "row name %r is registered twice (%s and %s)"
+                  % (r.name, seen[r.name], r.tier),
+                  "the soak journals and resumes BY NAME, so the second "
+                  "row's verdict is lost - rename one",
+                  got="two rows", want="one")
+        seen[r.name] = r.tier
+
     # BOTH directories. This walked the top level only, so a t_*.py added to
     # tests/unit/ with no row was invisible to the one gate meant to see it -
     # the same failure one level down. Names are unique across the two (a

@@ -53,7 +53,6 @@ import argparse
 import os
 import subprocess
 import sys
-import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -74,6 +73,10 @@ def gifpath():
 def gifname():
     return os.path.basename(gifpath())
 from os88geom import TITLE_H                                  # noqa: E402
+
+PARK = (4, 24)      # the desktop's top-left under the menu bar: outside Paint,
+                    # which the harness has at x >= 64, and outside the Disk
+                    # window at (103, 80)
 
 MIN_GAIN = 3.0                  # measured 6.2x even / 4.9x odd (Set 107).
                                 # Three is the floor a REGRESSION has to break
@@ -145,7 +148,10 @@ def shots(image, apps, machine, tree=None):
         # provokes the refusal, so it both selects the rcr pass and is what
         # puts Paint into the mode the rest of this gate needs.
         mo.dblclick(rx, ry)
-        time.sleep(6)
+        # GUEST seconds, not host ones: six host seconds were ~20 of the
+        # guest's on an idle box and a third of that under a soak, which is
+        # the difference between a decoded picture and one still loading.
+        os88marty.guest_sleep(m, 20.0)
         os88marty.settle(m)
         pw = [w for w in dispcp.win_list(m, S) if w != disk][-1]
         px, py, pwid, _ = dispcp.win_rect(m, S, pw)
@@ -158,10 +164,18 @@ def shots(image, apps, machine, tree=None):
                     x.to_bytes(2, "little"))
             m.run()
             mo.click(dx + 60, dy + 9)                # behind the disk window
-            time.sleep(4)
+            os88marty.guest_sleep(m, 14.0)
             cyc, g = _bracket(          # ...and in front
                 m, kbase,
                 lambda: mo.click(x + pwid // 2, py + TITLE_H // 2))
+            # THE POINTER LEAVES BEFORE THE CAPTURE. The raise is a click on
+            # the title bar's centre and the arrow hangs sixteen rows down from
+            # there - its last three into the canvas's first three - and
+            # whether the frame shows it depends on where the capture falls
+            # against the cursor's lazy hide. So one arm carried seventeen
+            # arrow pixels the other did not, in a lane four wide, and the
+            # row reported the DECODER as drawing them.
+            mo.to(*PARK)
             os88marty.settle(m)
             return cyc, g, m.fbuf(card=0)[2]
 
