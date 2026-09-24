@@ -253,7 +253,15 @@ def leg_f(tag, ui, p, say):
     # dd_pilt counts down with `jns`, so it is SIGNED and 250 is -6.
     seg = p.seg
     m.key("Enter")
-    os88marty.pace(m, 4)                # let the game get going
+    # ...until the game has its board: dd_level_begin sets READY and asks
+    # for a whole-board frame, and that frame clearing dd_full is the board
+    # being on the glass. A blind 18 guest seconds before.
+    try:
+        os88marty.until(m, lambda _: p.b("dd_state") != 0
+                        and p.b("dd_full") == 0,
+                        "the game's first board", poll=0.1, limit=10)
+    except os88marty.MartyError:
+        pass                            # ...the forced frame below says so
     m.pause()
     for n, v in (("dd_paused", 1), ("dd_full", 1)):
         m.write((seg << 4) + p.names[n], bytes([v]))
@@ -727,6 +735,8 @@ def run_arm(tag, machine, want_tile, a, say, floor=FPS_FLOOR):
         seen = set()
         for _ in range(14):
             seen.add(screen(m)[2])
+            if len(seen) >= 2:          # alive is all this asks
+                break
             os88marty.pace(m, 0.35)
         if len(seen) < 2:
             fail.append("%s: the screen never changed over five seconds - "
@@ -734,7 +744,14 @@ def run_arm(tag, machine, want_tile, a, say, floor=FPS_FLOOR):
 
         # --- C: Enter starts a game and Smiles eats -------------------------
         m.key("Enter")
-        os88marty.pace(m, 3)
+        # Until READY is over - the state that ends the wait, where this
+        # was a blind 13.5 guest seconds. A game that never starts times
+        # out here and the state test below says so.
+        try:
+            os88marty.until(m, lambda _: p.b("dd_state") not in (0, 1),
+                            "READY to end", poll=0.1, limit=15)
+        except os88marty.MartyError:
+            pass
         # READY, PLAY, DIE or the flash between boards - anything but the
         # title. NOT `== PLAY`: nobody is steering Smiles for these three
         # seconds and since SPEC.md 93.8's ghosts hunt by line of sight one of
@@ -750,11 +767,21 @@ def run_arm(tag, machine, want_tile, a, say, floor=FPS_FLOOR):
         # is the whole point of polling rather than eventing. Left is where he
         # starts facing and a wall is where that ends, so a game nobody drives
         # eats a handful of dots and then stands still for ever.
+        # Each hold ends as soon as he has eaten - the assertion is only
+        # that he does - and is at most what it always was.
+        ate = lambda: (p.w("dd_ndots") < dots0
+                       and p.w("dd_score") > score0)
         for k in ("ArrowUp", "ArrowLeft", "ArrowDown", "ArrowRight",
                   "ArrowUp", "ArrowRight"):
             m.key(k, down=True, up=False)
-            os88marty.pace(m, 1.2)
+            try:
+                os88marty.until(m, lambda _: ate(), "Smiles to eat",
+                                poll=0.1, guest=1.2 * os88marty.GUEST_PACE)
+            except os88marty.MartyError:
+                pass
             m.key(k, down=False, up=True)
+            if ate():
+                break
         dots1, score1 = p.w("dd_ndots"), p.w("dd_score")
         if dots1 >= dots0 or score1 <= score0:
             fail.append("%s: six seconds of steered play ate %d dots and "
@@ -801,7 +828,10 @@ def run_arm(tag, machine, want_tile, a, say, floor=FPS_FLOOR):
                 c0, t0, f0 = (m.status()["cycles"], p.w("dd_anim"),
                               p.w("dd_frames"))
                 u0 = p.w("dd_fulls")
-                os88marty.pace(m, 8)    # a rate: its span is read in cycles
+                # A RATE, and its span is read in cycles. 10 guest seconds
+                # is ~182 ticks, so a frame either way is half a point -
+                # it was 36, which only made a repaint likelier to land in it
+                os88marty.guest_sleep(m, 10.0)
                 c1, t1, f1 = (m.status()["cycles"], p.w("dd_anim"),
                               p.w("dd_frames"))
                 if p.w("dd_fulls") == u0:

@@ -110,6 +110,29 @@ def main():
             raw = m.read(base + items[1], 24)
             return raw.split(b"\0")[0]
 
+        # Every key below is waited out on the byte it moves and then on the
+        # whole of what the checks read going still - each used to be a blind
+        # 3 to 16 seconds (up to 72 GUEST seconds for a Play), which is what
+        # this row spent most of its time doing.
+        STATE = ("mp_xt", "trk_txw", "trk_rsel", "trk_fs", "trk_tx",
+                 "mp_playing", "mp_mixrate")
+
+        def state():
+            return (tuple(m.read(base + P["@" + n], 2) for n in STATE),
+                    rate_cell(), text_row(),
+                    w2(P["trk_e_rate"] + AMENU_NITEM))
+
+        def press(key, name, want):
+            m.key(key)
+            try:
+                os88marty.until(m, lambda _: b(name) == want,
+                                "%s -> [%s] = %d" % (key, name, want),
+                                poll=0.2, limit=60)
+            except os88marty.MartyError as e:
+                print("  (%s)" % e)     # the check below names it
+            os88marty.quiesce(m, state, guest=1.0,
+                              what="Tracker to finish %s" % key)
+
         print("1. the defaults on a tier-0 machine")
         check("mp_xt (pre-armed, SPEC.md 45.9)", b("mp_xt"), 1)
         check("trk_txw (bss arrives zeroed)", b("trk_txw"), 0)
@@ -118,7 +141,7 @@ def main():
               text_row()[:1], b"\x01")
 
         print("2. X takes XT mode off")
-        m.key("KeyX"); os88marty.pace(m, 6)
+        press("KeyX", "mp_xt", 0)
         check("mp_xt after X", b("mp_xt"), 0)
         # 11/22 kHz, and 33/44 ONLY where the card can play them: the
         # count is the guest's own SND_CAP_PCM_HI, read off the kernel's
@@ -133,7 +156,7 @@ def main():
               text_row(), b"  Text Screen")
 
         print("3. V picks the text surface, XT mode still off")
-        m.key("KeyV"); os88marty.pace(m, 3)
+        press("KeyV", "trk_txw", 1)
         check("trk_txw after V", b("trk_txw"), 1)
         check("mp_xt is untouched by V", b("mp_xt"), 0)
         check("the row is starred and still live", text_row(), b"* Text Screen")
@@ -145,17 +168,17 @@ def main():
         # would not do: TRK_RATE_XT2 is 11,000 as well, so the two ladders
         # collide on that value and a pass there proves nothing.
         print("4. R takes the rate somewhere XT mode cannot go")
-        m.key("KeyR"); os88marty.pace(m, 4)
+        press("KeyR", "trk_rsel", 1)
         check("trk_rsel after R (45.10 row 1)", b("trk_rsel"), 1)
 
         print("5. F reaches the TEXT screen with XT mode OFF")
-        m.key("KeyF"); os88marty.pace(m, 6)
+        press("KeyF", "trk_fs", 1)
         check("trk_fs", b("trk_fs"), 1)
         check("trk_tx  <- the decoupling", b("trk_tx"), 1)
         check("mp_xt still 0 under it", b("mp_xt"), 0)
 
         print("6. ...at 22 kHz, which is what the section is FOR")
-        m.key("Enter"); os88marty.pace(m, 16)
+        press("Enter", "mp_playing", 1)
         check("mp_playing", b("mp_playing"), 1)
         check("mp_mixrate  <- no XT mode reaches this", w("mp_mixrate"), 22050)
         # The nameplate was the CONSTANT 'XT 5500 Hz', on the reasoning that
@@ -164,31 +187,31 @@ def main():
         # about its own state - so the cell is stamped, and delta-drawn from
         # inside the bracket because Play opens the stream after ttx_name ran.
         check("the nameplate rate followed Play", rate_cell(), b"   22050 Hz")
-        m.key("Space"); os88marty.pace(m, 4)
-        m.key("Escape"); os88marty.pace(m, 5)
+        press("Space", "mp_playing", 0)
+        press("Escape", "trk_fs", 0)
         check("trk_fs after Esc", b("trk_fs"), 0)
         check("trk_tx after Esc", b("trk_tx"), 0)
 
         print("7. V again clears it, and F is the graphics bracket")
-        m.key("KeyV"); os88marty.pace(m, 3)
+        press("KeyV", "trk_txw", 0)
         check("trk_txw after the second V", b("trk_txw"), 0)
-        m.key("KeyF"); os88marty.pace(m, 6)
+        press("KeyF", "trk_fs", 1)
         check("trk_fs", b("trk_fs"), 1)
         check("trk_tx is 0 - the FT2 screen", b("trk_tx"), 0)
-        m.key("Escape"); os88marty.pace(m, 5)
+        press("Escape", "trk_fs", 0)
 
         print("8. the pick survives an XT round trip (SPEC.md 45.9.3's rule)")
-        m.key("KeyV"); os88marty.pace(m, 3)
+        press("KeyV", "trk_txw", 1)
         check("trk_txw picked again", b("trk_txw"), 1)
-        m.key("KeyX"); os88marty.pace(m, 8)            # XT on  - forces the surface
+        press("KeyX", "mp_xt", 1)                      # XT on  - forces the surface
         check("mp_xt on", b("mp_xt"), 1)
         check("trk_txw is NOT cleared by the toggle", b("trk_txw"), 1)
-        m.key("KeyF"); os88marty.pace(m, 6)            # ...and the header says XT now
-        m.key("Enter"); os88marty.pace(m, 16)
+        press("KeyF", "trk_fs", 1)                     # ...and the header says XT now
+        press("Enter", "mp_playing", 1)
         check("the nameplate says XT again", rate_cell(), b"XT  5500 Hz")
-        m.key("Space"); os88marty.pace(m, 4)
-        m.key("Escape"); os88marty.pace(m, 6)
-        m.key("KeyX"); os88marty.pace(m, 8)            # XT off - and the pick stands
+        press("Space", "mp_playing", 0)
+        press("Escape", "trk_fs", 0)
+        press("KeyX", "mp_xt", 0)                      # XT off - and the pick stands
         check("mp_xt off", b("mp_xt"), 0)
         check("trk_txw still stands", b("trk_txw"), 1)
         check("the row is starred and live again", text_row(), b"* Text Screen")

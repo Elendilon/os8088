@@ -144,24 +144,37 @@ def main():
             sc.pclick(mo, win.x + win.w // 2, win.y + win.h - 30)
             os88marty.settle(m)
             m.write(m.sym('osapi_seed'), struct.pack('<H', 0x2A17))
-            m.key('KeyN')
-            os88marty.pace(m, 3)
-        os88marty.settle(m)
+            m.key('KeyN')                   # the settle's stillness window
+        os88marty.settle(m)                 # outlasts a key's latency
         win = [w for w in su.windows(m) if w.visible and w.i == win.i][0]
         print('dragging %r by its title bar' % (win,))
 
         p = sc.titlebar(m, win)
-        mo.to(*p)
-        os88marty.pace(m, 0.4)
+        mo.to(*p)                           # `to` proves the arrow is there
+        os88marty.guest_sleep(m, 0.1)
         mo._edge(True)
         mo.to(p[0] + ddx, p[1] + ddy, l=True)
-        os88marty.pace(m, 1.0)
+        # the drag's outline caught up with the pointer: `ui_drag_step` has
+        # put it at orig + (mouse - start), which is exactly the window's
+        # rect moved by what `to` just proved the pointer moved. The outline
+        # is redrawn every pass whether it moved or not, so there is no
+        # stillness to wait for - only this
+        want = (win.x + ddx, win.y + ddy)
+        os88marty.until(m, lambda _: (su.word(m, 'ui_curx'),
+                                      su.word(m, 'ui_cury')) == want,
+                        'the drag outline to reach %r' % (want,), poll=0.05,
+                        limit=30)
 
         # The release is what starts the repaint, and it goes INSIDE the
         # block - the pump is armed and watching before the trigger is pulled.
         hits = burst(m, PRIMS, lambda: mo._pk(l=False))
-        os88marty.pace(m, 1.5)
-        now = [w for w in su.windows(m) if w.i == win.i][0]
+        # the burst ends on 0.4 guest seconds of no drawing, so the move is
+        # done: the record holding still is only the read below being safe
+        def rec():
+            return [w for w in su.windows(m) if w.i == win.i][0]
+        os88marty.quiesce(m, lambda: (rec().x, rec().y), guest=0.25,
+                          what="the window record")
+        now = rec()
         print('moved (%d,%d) -> (%d,%d): dx=%d (dx&7=%d) dy=%d'
               % (win.x, win.y, now.x, now.y, now.x - win.x,
                  (now.x - win.x) & 7, now.y - win.y))

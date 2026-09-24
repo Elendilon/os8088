@@ -2328,7 +2328,7 @@ SOAK = [
         "it. In soak and not fast for docs/WRITING-TESTS.md 2.1's reason: it "
         "is about one package",
         needs=("nasm",)),
-    Row("dotdel", "soak", py("tests/dotdel.py"), 245.0,
+    Row("dotdel", "soak", py("tests/dotdel.py"), 150.0,
         "DOT DELIRIUM on the glass, on all three adapters (SPEC.md 93): the "
         "title screen's four compositors, the blink, Enter starting a game "
         "that actually EATS, the tile cut from each adapter's own pixel shape "
@@ -6844,7 +6844,7 @@ SOAK = [
         "strips itself afterwards and a toggle measures nothing.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
-    Row("wdenter", "soak", py("tests/wdenter.py"), 450.0,
+    Row("wdenter", "soak", py("tests/wdenter.py"), 90.0,
         "SPEC.md 27.4.5: an Enter pushes the note below the split down with "
         "one gfx_scroll instead of erasing to the content bottom and "
         "lettering every row in it (448.2 -> 133.3 ms). Leg A is the one that "
@@ -8123,12 +8123,12 @@ SOAK = [
         "Does TeXPad's INCREMENTAL source redraw draw what a full repaint"
         "draws? (SPEC.md 69.8)",
         needs=("marty",), serial=True),
-    Row("trkrate", "soak", py("tests/trkrate.py"), 120.0,
+    Row("trkrate", "soak", py("tests/trkrate.py"), 45.0,
         "trkrate - XT mode's second rate, and the surface it refuses (SPEC.md"
         "45.9.3)",
         needs=("marty",), serial=True,
         wants=("build/trklog360.img",)),
-    Row("trktxsurf", "soak", py("tests/trktxsurf.py"), 180.0,
+    Row("trktxsurf", "soak", py("tests/trktxsurf.py"), 70.0,
         "The fullscreen SURFACE is a pick, not XT mode's - text at a 45.10"
         "rate (SPEC.md 45.13.7)",
         needs=("marty",), serial=True,

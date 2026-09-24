@@ -82,19 +82,62 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     dispcp.open_drive(m, mo, S, M.settle, "B")
     w = dispcp.win_list(m, S)[-1]; dx, dy = dispcp.win_rect(m, S, w)[:2]
     dispcp.open_named(m, mo, S, M.settle, dx, dy, "WELCOME.DOC")
-    M.pace(m, 2.5); M.settle(m)
+    # The window is up; what is left is the document read, which ends when
+    # the floppy goes quiet.
+    M.quiesce(m, lambda: m.disk().get("reads"), guest=1.0,
+              what="Word to finish reading WELCOME.DOC")
 
-    raw = m.read(S("inst_tab"), 32*12); seg = None
-    for i in range(12):
-        b = i*32
-        if raw[b] == 1 and (raw[b+2] & 0x80):
-            c = u16(raw, b+6)
-            if m.read(c*16+syms["wd_mact"], 48) == image[syms["wd_mact"]:syms["wd_mact"]+48]:
-                seg = c; break
+    def find_seg():
+        raw = m.read(S("inst_tab"), 32*12)
+        for i in range(12):
+            b = i*32
+            if raw[b] == 1 and (raw[b+2] & 0x80):
+                c = u16(raw, b+6)
+                if m.read(c*16+syms["wd_mact"], 48) == image[syms["wd_mact"]:syms["wd_mact"]+48]:
+                    return c
+        return None
+    try:
+        M.until(m, lambda _: find_seg() is not None, "Word's instance record",
+                poll=0.1, limit=10)
+    except M.MartyError:
+        pass
+    seg = find_seg()
     if seg is None:
         sys.exit("could not locate the running package (stale build/word.o88?)")
     base = seg*16; P = lambda n: base + syms[n]
     rw = lambda n: u16(m.read(P(n), 2)); rb = lambda n: m.read(P(n), 1)[0]
+
+    # ---- waiting on the guest, not on a clock (tests/wdtype.py's shape) ----
+    # A gesture is finished when its input is out of both queues (the BIOS
+    # keyboard ring and the kernel's event ring) and nobody holds the gfx
+    # lock, which ui_task takes around every handler it dispatches - twice, a
+    # twentieth of a guest second apart, because ui_task pops an event a few
+    # instructions before it takes the lock for it.
+    KBUF = 0x41A                        # 0040:001A/001C - the BIOS ring's head, tail
+    evtail = lambda: m.read(S("evq_tail"), 1)[0]
+    cyc = lambda: int(m.status()["cycles"])
+
+    def ui_idle():
+        kb = m.read(KBUF, 4)
+        return (kb[0:2] == kb[2:4] and m.read(S("evq_count"), 1)[0] == 0
+                and m.read(S("gfx_lock_flag"), 1)[0] == 0)
+
+    def done(arrived=None, what="the UI to finish with the gesture", idle=True):
+        fin = ui_idle if idle else (lambda: m.read(S("evq_count"), 1)[0] == 0)
+        M.until(m, lambda _: (arrived is None or arrived()) and fin(), what,
+                poll=0.05, limit=30)
+        c0 = cyc()
+        M.until(m, lambda _: cyc() - c0 >= M.GUEST_HZ / 20 and fin(), what,
+                poll=0.05, limit=30)
+
+    def key(k):
+        h = m.read(KBUF, 2); m.key(k)
+        done(lambda: m.read(KBUF, 2) != h, "the %s key to be handled" % k)
+
+    def click(x, y):
+        t = evtail(); mo.click(x, y, settle=0)
+        done(lambda: evtail() != t, "the click at (%d,%d) to be handled" % (x, y))
+
     for _ in range(600):
         if rb("wd_hdirty") == 0:
             break
@@ -111,10 +154,16 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
 
     # press on row 1 and park the pointer just below the text band, which is
     # where a hand parks it to make the view run
-    mo.to(tx + 40, ryb(1) + 2); M.pace(m, 0.4)
-    mo._edge(True); M.pace(m, 0.5)
+    mo.to(tx + 40, ryb(1) + 2)
+    t = evtail(); mo._edge(True)
+    done(lambda: evtail() != t, "the press to be dispatched", idle=False)
     mo.to(tx + 200, bot + 3, l=True)
-    M.pace(m, 1.0)
+    # ...and let the view RUN. Not idle time - the guest is auto-scrolling
+    # throughout - and a FIXED amount on purpose: where it leaves the view is
+    # where every later leg starts (sampled from its first step instead, the
+    # drag stops at top 6, PageDown then ends at 23 and leg E reads a 2 s
+    # Down at top 1 - a different scenario, not this row's).
+    M.guest_sleep(m, 4.5)
 
     def band_ink(y, cells):
         # DARK pixels over the row's own CELL AREA, wherever alignment put
@@ -147,7 +196,9 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
         stops += 1
         m.run(); M.pace(m, 0.05)
     m.bp_exec(); m.run()
-    mo.to(tx + 200, bot - 40); M.pace(m, 0.3); mo._edge(False); M.pace(m, 1.0)
+    mo.to(tx + 200, bot - 40)
+    mo._edge(False)                     # the drag loop reads the button
+    done(what="the drag's release to be handled")   # itself: no event
 
     check("the drag scrolled through six steps (case, not assertion)", stops == 6)
     check("A: every row wholly inside the selection is inverted", not unsel,
@@ -184,14 +235,12 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # one-pass walk entered the row past its bound, read it as a row that
     # MOVED or a range that outran the drawing, and repainted the window:
     # 1.5-2.3 s where its neighbours took 0.3.
-    mo.to(tx + 8, ryb(0) + 2); M.pace(m, 0.3)
-    m.mouse(l=True); M.pace(m, 0.1); m.mouse(l=False); M.pace(m, 1.0)
+    click(tx + 8, ryb(0) + 2)
     for _ in range(12):
         if rw("wd_top") == 0:
             break
         m.key("PageUp"); M.quiesce(m, lambda: (rw("wd_top"), rw("wd_cur")))
-    mo.to(tx + 8, ryb(0) + 2); M.pace(m, 0.3)
-    m.mouse(l=True); M.pace(m, 0.1); m.mouse(l=False); M.pace(m, 1.0)
+    click(tx + 8, ryb(0) + 2)
     mo.to(4, 4); M.settle(m)
     ENT, XIT = P("wd_onkey"), P("wd_onkey.out")
     worst = (0, 0)
@@ -209,7 +258,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
         with M.bp_trace(m, ENT, XIT, on_hit=stampk, cap=16):
             m.key("ArrowDown")
             M.quiesce(m, lambda: (rw("wd_cur"), rw("wd_top")))
-            M.pace(m, 0.2)
+            done(lambda: "out" in T, "the Down's handler to return")
         if "in" in T and "out" in T:
             ms = (T["out"] - T["in"]) / 4772.7
             if ms > worst[0]:
@@ -224,17 +273,16 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # Make the note shorter than the window, then click in the paper under
     # its last line. The row lookup found a blank row banked past the end, or
     # nothing, and both fell to the walk from index 0: 556-857 ms on a 5150.
-    mo.to(tx + 4, ryb(3) + 2); M.pace(m, 0.3)
-    m.mouse(l=True); M.pace(m, 0.1); m.mouse(l=False); M.pace(m, 1.0)
-    m.key("F8"); M.pace(m, 0.5)
+    click(tx + 4, ryb(3) + 2)
+    key("F8")
     for _ in range(rw("wd_drows") + 4):
         c0 = rw("wd_cur")
         m.key("ArrowDown")
         M.quiesce(m, lambda: (rw("wd_cur"), rw("wd_top")))
         if rw("wd_cur") == c0:
             break
-    m.key("End"); M.pace(m, 0.8)
-    m.key("Delete"); M.pace(m, 2.0)
+    key("End")
+    key("Delete")
     M.quiesce(m, lambda: (rw("wd_len"), rw("wd_top"), rw("wd_drows")))
     for _ in range(600):
         if rb("wd_hdirty") == 0:
@@ -255,9 +303,9 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
             elif "in" in T:
                 T.setdefault("out", cyc)
             return None
-        mo.to(tx + 60, y); M.pace(m, 0.3)
+        mo.to(tx + 60, y)
         with M.bp_trace(m, P("wd_onclick"), P("wd_dragsel.pass"), on_hit=stamp, cap=50):
-            m.mouse(l=True); M.pace(m, 0.1); m.mouse(l=False); M.pace(m, 2.0)
+            click(tx + 60, y)
         ms = (T["out"] - T["in"]) / 4772.7 if "in" in T and "out" in T else None
         check("D: a click %dpx above the band's foot lands at the end" % (bot - y),
               rw("wd_cur") == rw("wd_len"), "[wd_cur] %d of %d" % (rw("wd_cur"), rw("wd_len")))

@@ -216,12 +216,29 @@ def main():
         # vector check below would be vacuous on it. This is the state the IVT
         # patch actually exists for: a card that has played and is now idle.
         # It has to come AFTER the driver shuffle, because an unmount unhooks.
+        def snd_held():
+            """Heap claims the sound driver owns - its ring, its grant."""
+            MC_SIZE, MEM_MAX = os88geom.MC_SIZE, os88geom.MEM_MAX
+            raw = m.read(S("mem_tab"), MEM_MAX * MC_SIZE)
+            return [i for i in range(MEM_MAX)
+                    if u16(raw, i * MC_SIZE) and
+                    u16(raw, i * MC_SIZE + 4) == seg(SND_ROW)]
+
         mo.click(sbw.x + sbw.w // 2, sbw.y + sbw.h - 20)     # open the stream
-        M.pace(m, 6)
-        M.settle(m)
+        try:        # the open hooks the card's vector (sbl_f_irqdisc)...
+            M.until(m, lambda _: ivt_names(seg(SND_ROW)),
+                    "the stream to open", poll=0.1, limit=30)
+        except M.MartyError:
+            pass                        # ...5b below says so
+        M.guest_sleep(m, 2.5)           # ...and SBTEST's tone is 2 s: played
         mo.click(sbw.x + sbw.w // 2, sbw.y + sbw.h - 20)     # ...and close it
-        M.pace(m, 4)
-        M.settle(m)
+        try:        # the close frees the grant and the ring, and the stream's
+            M.until(m, lambda _: not snd_held()          # task goes (1 and 3
+                    and not m.read(S("drv_wcnt"), 1)[0],  # below read them;
+                    "the stream to close", poll=0.1,     # an idle box's
+                    guest=4 * M.GUEST_PACE)              # pause is the bound)
+        except M.MartyError:
+            pass
         mo.click(sbw.x + 8, sbw.y + 9)                       # ...and the app:
         M.settle(m)                                          # the hole opens
         sndseg = seg(SND_ROW)                   # a claim of sbtest's could

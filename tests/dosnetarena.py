@@ -164,8 +164,16 @@ def main():
         wins = dispcp.win_list(m, eth.S)
         wx, wy = dispcp.win_rect(m, eth.S, wins[-1])[:2]
         dispcp.open_named(m, mouse, eth.S, eth.settle, wx, wy, PROG)
-        os88qemu.pace(m, 4.0)       # the program up and on int 16h: it says
-                                    # so nowhere this row can read
+        # the program up and on int 16h. It prints READY on the text screen
+        # under the bracket and its next instruction is the int 16h, so that
+        # word is the state - and the four guest seconds this used to sleep
+        # are the bound, should the screen not be readable from here
+        up = os88qemu.acted(m, lambda: b"READY" in m.read(0xB8000,
+                                                          4000)[::2],
+                            secs=4.0, what="DOSPKT's READY", poll=0.25)
+        say("dosnetarena: %s" % ("the program is up (READY on its screen)"
+                                 if up else "no READY seen in 4 guest "
+                                 "seconds - going on as the sleep did"))
         dm = dosmap.package()
 
         def base():
@@ -257,7 +265,8 @@ def main():
                 u16(m.read((sg << 4) + dm["dos_akb"], 2)) != got
         if os88qemu.acted(m, relaunched, secs=8, what="the relaunch",
                           poll=0.25):
-            os88qemu.pace(m, 1)
+            os88qemu.quiesce(m, lambda: word("dos_akb"), secs=0.25,
+                             what="the relaunched arena")
         got2 = word("dos_akb")
         say("dosnetarena: Network CLEARED - page ~%d K, program got %d K"
             % (promised2, got2))

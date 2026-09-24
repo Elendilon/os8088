@@ -87,6 +87,15 @@ def refbyte(m, row=0):
     return m.readseg(vseg, off, 1)[0]
 
 
+def quiet(m):
+    """The store, the window's state block and the disk all holding still -
+    the aftermath of a mount, an exit or a close, read in GUEST time rather
+    than slept through."""
+    os88marty.quiesce(m, lambda: (store(m), slot0(m), refbyte(m),
+                                  m.disk().get("reads")),
+                      guest=1.0, what="the store and the window's state")
+
+
 def main():
     for p in (SYS, APPS):
         if not os.path.exists(p):
@@ -95,8 +104,8 @@ def main():
     with os88ui.boot(SYS, apps=APPS, machine=MACHINE) as ui:
         m = ui.m
         ui.open_drive("B")
-        os88marty.pace(m, 1)
-        ui.settle()
+        # the mount's icon rows and the window's cache: what is read next
+        quiet(m)
 
         seg0, n0 = store(m)
         fsn, vseg, iofh, dirty = slot0(m)
@@ -147,12 +156,10 @@ def main():
                        "will repair the references" % (dirty1, FSD_ICONS))
 
         # --- and back --------------------------------------------------------
-        m.key("Escape")
-        os88marty.pace(m, 4)
-        ui.settle()
+        m.key("Escape")                 # the program's key: it exits, and
+        quiet(m)                        # the box puts the drivers back
         ui.close(w)
-        os88marty.pace(m, 3)
-        ui.settle()
+        quiet(m)                        # ...and the repair's ASSOC.DAT read
 
         seg2, n2 = store(m)
         _, _, _, dirty2 = slot0(m)

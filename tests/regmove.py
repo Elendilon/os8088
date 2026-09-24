@@ -222,9 +222,16 @@ def main():
         os88marty.settle(m)
         for i in range(5):                  # fill, ask, fill, ask...
             m.key("KeyA")
-            os88marty.pace(m, 6)            # a fill or an ask, and its
-                                            # compaction: nothing to watch
-                                            # that is not also still before
+            try:                            # a fill or an ask: the move it
+                os88marty.until(            # forces, bounded by what an idle
+                    m, lambda _: pkg_seg(m, S, "Sheet")[0] != sh_seg,  # box's
+                    "Sheet's region to move", poll=0.25,       # pause gave it
+                    guest=6 * os88marty.GUEST_PACE)
+            except os88marty.MartyError:
+                pass                        # ...press again
+            # ...and the rest of its compaction: the arena holding still
+            os88marty.quiesce(m, lambda: claims(m, S), guest=1.0,
+                              what="the compaction")
             os88marty.settle(m)
             if pkg_seg(m, S, "Sheet")[0] != sh_seg:
                 break

@@ -80,7 +80,8 @@ def boot(m):
         raise SystemExit("postboot: never reached a desktop - this machine "
                          "did not boot, so nothing below would mean what it "
                          "says")
-    os88marty.pace(m, 3.0)              # ...and the first paint after it
+    os88marty.settle(m)                 # ...and the first paint after it:
+                                        # its window is guest time now
 
 
 def main():
@@ -101,7 +102,13 @@ def main():
             dispcp.open_drive(m, mo, S, os88marty.settle)
         except Exception as e:                  # a wedged guest fails in here
             fail.append("opening drive B: raised %s" % str(e)[:150])
-        os88marty.pace(m, 3.0)
+        try:    # a live machine's clock moves on; a wedged one's never does,
+            os88marty.until(          # and an idle box's pause is the bound
+                m, lambda _: int.from_bytes(m.read(lin_ticks, 2), "little")
+                != t0, "[ticks] to advance", poll=0.05,
+                guest=3.0 * os88marty.GUEST_PACE)
+        except os88marty.MartyError:
+            pass                                # ...reported below
 
         t1 = int.from_bytes(m.read(lin_ticks, 2), "little")
         try:
