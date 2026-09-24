@@ -101,35 +101,21 @@ BUSY = 6.0                      # ...and how long a repaint may hold the guest
                                 # straddling two displays repainting on a
                                 # 4.77MHz 8088 is the worst case measured
 
-# --- GUEST PACING (off by default) ------------------------------------------
+# --- GUEST PACING ------------------------------------------------------------
 #
-# `click(settle=1.5)` waits 1.5 HOST seconds for the guest to act on the
-# press.  How much guest work that buys is a property of the box.  Measured on
-# this container over 118 waits in each arm - the same waits in the same
-# scripts - the median HOST cost was 2.2s in both and the GUEST cost 7.3s
-# against 5.9s, up to -37% per script.  The row does not get slower (measured: 1.06x
-# wall across twelve rows), it gets LESS THOROUGH, and then fails somewhere
-# further on looking like the thing under test.  That is the mechanism behind
-# the host-clock trap, and it is why "it passed alone" has been
-# such an unsatisfying diagnosis: the wall times never showed anything.
-#
-# `OS88_GUEST_PACE=<ratio>` spends the same wait in GUEST seconds instead -
-# `settle * ratio` of the machine's own time - so a click buys the same work
-# whatever else the box is doing.
-#
-# IT IS OFF BY DEFAULT, and that is deliberate rather than timid.  B5 says
-# rewriting these waits onto guest time "reaches 194 files, changes how much
-# guest work every row gets per settle, and would want a full soak behind it".
-# That is right, and a knob is how this project takes a change of that shape:
-# the arm exists, it is measurable against the default, and the flip is a
-# decision somebody makes with a soak behind it rather than one that happens
-# quietly here.  Set it to the box's own idle ratio to reproduce today's
-# coverage exactly; below that and rows get less guest time than they do now.
-GUEST_PACE = float(os.environ.get("OS88_GUEST_PACE", "0"))
+# `click(settle=1.5)` waits 1.5 idle-box seconds' worth of the GUEST's time
+# for it to act on the press: os88marty.GUEST_PACE guest seconds a second.
+# It was 1.5 HOST seconds, and how much guest work that bought was a property
+# of the box - measured over 118 waits in each arm, the median host cost was
+# 2.2s in both and the GUEST cost 7.3s against 5.9s, up to -37% per script.
+# The row did not get slower, it got LESS THOROUGH, and failed further on
+# looking like the thing under test. OS88_GUEST_PACE=0 puts the host sleeps
+# back for an A/B.
+GUEST_PACE = os88marty.GUEST_PACE
 
 
 def _wait(m, secs, why="click"):
-    """Spend `secs`, in host time or - under OS88_GUEST_PACE - in guest time.
+    """Spend `secs` of idle-box time, as GUEST time (os88marty.pace).
 
     One function so that every wait in this file moves together: a run where
     the click is guest-paced and the drag is not is a run whose contention
@@ -156,10 +142,7 @@ def _wait(m, secs, why="click"):
         except Exception:
             c0 = None
     t0 = time.time()
-    if GUEST_PACE > 0 and m is not None:
-        os88marty.guest_sleep(m, secs * GUEST_PACE)
-    else:
-        time.sleep(secs)
+    os88marty.pace(m, secs)
     if log:
         try:
             c1 = int(m.status().get("cycles", 0))
@@ -302,7 +285,7 @@ class Mouse:
     # --- moving ------------------------------------------------------------
     def _pk(self, dx=0, dy=0, l=False, r=False):
         self.m.mouse(dx, dy, l=l, r=r)
-        time.sleep(GAP)
+        os88marty.pace(self.m, GAP)     # a packet in flight drops the next
 
     def _landed(self, was, guest=PKT_GUEST):
         """Wait for the published pointer to leave `was`. Did it?
