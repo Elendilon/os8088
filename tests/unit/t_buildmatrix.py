@@ -203,6 +203,19 @@ KNOBS = [
     # single spender in the sector.
     ("bootmark",    ["BOOTMARK=1"]),
     ("boothalt",    ["BOOTMARK=1", "BOOTHALT=20"]),
+    # ...and on kern_small, which is a different blob: SPEC.md 2.5.3.3 put
+    # kmain's boot half in it, so every MARKW site is blob bytes, and the
+    # shipped kern_small leaves the blob ~40 of them. What keeps these arms
+    # assembling is 2.5.3.3.1's knob-only room (the mouse probe in the padded
+    # window, the split 96 bytes lower) - and these rows are the only thing
+    # that builds them: `make small` is the product, `covered()` counts
+    # KERN_SMALL as built by it, and no other row pairs it with a knob.
+    # BOOTPROF and MOUDIAG are here for the same reason: both were 14 and 1
+    # bytes over the blob before that room existed.
+    ("bootmark-small", ["KERN_SMALL=1", "BOOTMARK=1"]),
+    ("boothalt-small", ["KERN_SMALL=1", "BOOTMARK=1", "BOOTHALT=20"]),
+    ("bootprof-small", ["KERN_SMALL=1", "BOOTPROF=1"]),
+    ("moudiag-small",  ["KERN_SMALL=1", "MOUDIAG=1"]),
     ("bootstop",    ["BOOTSTOP=2"], "boot360.bin"),
     ("bootstop1",   ["BOOTSTOP=1"], "boot360.bin"),
     ("bootdiag",    ["BOOTDIAG=1"], "boot360.bin"),

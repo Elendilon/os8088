@@ -679,7 +679,8 @@ sectors once §25.9 took the icon bodies out of it); since
 docs/plans/LISTING-HOME-PLAN.md §13 took the listing out of it altogether the
 only mount-owned buffer left is the 512-byte `dsk_secbuf`, so on kern_big the
 region is **5,120 — 4,608 + 512, ten whole sectors, all of it readable** —
-against a `.ovlw` of **5,110**, ten bytes short of the ceiling. The guard at
+against a `.ovlw` of **5,104**, sixteen bytes short of the ceiling (it was
+5,110 until §2.5.3.3 unrolled `dsk_bootltr`). The guard at
 the foot of `kernel.asm` is against that, with `OVLW_SIZE` rounded up to a
 whole sector, so the next byte `.ovlw` gains on this build is refused there.
 
@@ -744,14 +745,17 @@ and the two kernels answer it differently.
   `OVLGATE1`'s **9**. It is not free any more: the region is **5,120** bytes
   (the 4,608-byte FAT window plus the 512-byte `dsk_secbuf`, §2.1.2 — this
   bullet once read 11,328, which counted the FAT window twice, against a
-  region of 6,720 that has since lost its listing) against a **5,110**-byte
-  `.ovlw`, so there are **ten bytes** spare and the next body that joins this
-  half on kern_big crosses the sector rounding the guard compares against.
+  region of 6,720 that has since lost its listing) against a **5,104**-byte
+  `.ovlw`, so there are **sixteen bytes** spare and the next body of any size
+  that joins this half on kern_big crosses the sector rounding the guard
+  compares against.
 - On `kern_small` the region is **1,536** bytes: `DSK_FAT_SECS` is 2, so the
   FAT window is 1,024 and cannot fall (a 360KB floppy declares a 2-sector FAT,
   and §18.2 rule 10 is an acceptance threshold, so 1 would refuse every volume
   the kernel can mount), and `dsk_secbuf`'s 512 is the whole of the rest.
-  `.ovlw` is **1,412**, which rounds to 1,536 with **124** spare. While the
+  `.ovlw` is **1,502** (1,412 until §2.5.3.3 moved `wm_init` and
+  `files_init_x` here to make blob room), which rounds to 1,536 with **34**
+  spare. While the
   window carried the Disk window's listing (2,336 bytes, `disk_dir` and
   `dsk_icoix` above `dsk_secbuf`) every byte of the region was that listing's,
   and while `.ovlw` needed them they could not shrink.
@@ -775,10 +779,16 @@ section .ovl                    ; kern_small: the bytes the region needs back
 %endif
 ```
 
-…and its call site is `OVBCALL`, which is `OVWCALL` on one build and
-`OVLGATE1` on the other. **It is not a third kind of entry** — it expands to
-one of the two §2.5.3 already defines — and the four resident bytes a site
-costs `kern_small` are the whole price of the move.
+…and its call site is `OVBCALL`, which is `OVWCALL` on one build and a blob
+entry on the other. **It is not a third kind of entry** — it expands to one of
+the kinds §2.5.3 and §2.5.3.3 already define. It was `OVLGATE1` from `kmain`
+until §2.5.3.3, and the four resident bytes a site then cost `kern_small` were
+the whole price of the move; every `OVBCALL` site is inside `kmain_o` now,
+which is itself in the blob, so the small arm is `BLOBCALL` and costs no
+resident byte at all. **The probe is the exception** — `mouse_init`'s blocks
+test `MOU_IN_BLOB` rather than `KERN_SMALL`, which is `kern_small` minus its
+knob builds (§2.5.3.3) — and `OVBCALL` reads the same symbol for that one
+target, so the section and the entry still cannot disagree.
 
 **Two bodies took it first**, chosen for size against call sites rather than
 for subject: `mouse.inc`'s serial probe (`mouse_init` and the four routines
@@ -788,8 +798,10 @@ only it reaches — **648 bytes**, one site) and `vidsel.inc`'s adapter probe
 which rounded to 2,048 and fit a 32-entry listing's 2,336 with 288 to spare.
 Six more followed when the listing left the window (§2.1.2: `sched_init`,
 `mem_init_x`, `font_init`, `wm_init`, `files_init_x`, `snd_init`), so the
-`OVBCALL` set is eight bodies and kern_small's `.ovlw` is 1,412 against a
-1,536-byte region.
+`OVBCALL` set was eight bodies and kern_small's `.ovlw` 1,412 against a
+1,536-byte region. §2.5.3.3 sent `wm_init` and `files_init_x` (106 bytes) back
+to `.ovlw` on both kernels to make blob room for `kmain_o`, so the set is six
+bodies and that `.ovlw` is 1,502.
 
 **It costs no disk read and no boot time**, which is the part that makes it a
 better trade than it was proposed as. The blob is `BOOT2_SECS` sectors
@@ -821,6 +833,134 @@ Three rules bind a body that takes this:
 - **`OVBCALL` is held to the `.ovl` arm by rule 2d**, so aiming it at a body
   that did *not* move fails the build, and aiming a plain `OVWCALL` at one
   that did fails it the other way. Both were verified by breaking them.
+
+##### 2.5.3.3 `kmain`'s own boot half is a blob body, and a knob build is given the room it costs
+
+Everything `kmain` does between its segment set-up and the blob's release is
+boot-only by construction — it runs once and nothing re-enters it — yet it sat
+in `.text`, resident for the life of the machine, making one gated call after
+another *into* the blob. It is the blob body **`kmain_o`** now: from
+`dsk_boot_from_x` through `drv_boot_x`, `hb_probe_x`, `xm_boot_x`, the palette
+and **`spl_finish` itself**. `kmain` keeps what cannot move — the prologue that
+builds DS and the stack, one `OVLGATE1 kmain_o`, and the tail after the release
+(`mem_unblob_x`, the first paint, the boot timer, `drv_notice_x`, `ui_task`).
+`kmain_o` ends by calling `spl_finish` and returns before `mem_unblob_x`, so
+the blob is live for its whole body without any argument beyond its shape.
+
+**The entry that made it cheap is `BLOBCALL`**: `push cs` + a near `call`,
+**4 bytes**. `.boot2` and `.ovl` are one segment, and a caller *inside* the
+blob is by construction running while the blob is aboard, so it needs neither
+the pointer nor the liveness guard every other blob entry pays for
+(`OVLGATE1` is 9 bytes, `SPLGATE` 3 plus an 8-byte stub, `OVLCALL` 20). The
+target owns a `retf`, and `os88ovlchk.py`'s return-kind rule reads `BLOBCALL`
+as the far call it is. `MARKW` and `BPMARKW` are `MARK`/`BPMARK` spelled for a
+blob caller: `MARKW` keeps MARK's four-byte shape with a blob-local landing
+(`kmo_mark`) that reads the index byte `cs:`, and a `BOOTHALT=n` build halts
+at the same numbers it always did.
+
+What moved with it, and why each is boot-only:
+
+- **`vid_detect` and `vid_init`** (and `spw_vid_detect`, deleted). Both
+  callers are in the blob — `spl_chrome`'s first tick and `vid_init` — and
+  `vid_switch` re-probes nothing. §2.5.2's register once refused `vid_detect`
+  *on the route*: the splash's first tick calls it while only `SPL_RESIDENT`
+  sectors of the kernel are aboard. A `BLOBCALL` has no `.text` on the path
+  at all, which is what flips that row.
+- **`hb_probe_x`** (kern_big): one caller, after `drv_boot` and before
+  `spl_finish`. It reaches the three routines it needs through the existing
+  `drvf_`/`dkf_` far shims plus one new one, `drvf_drv_find` (4 bytes).
+- **`wm_init` and `files_init_x` went the OTHER way**, `.ovl` → `.ovlw` on
+  kern_small, to make the blob room: `kmain_o` reaches them before the mount,
+  which is all `.ovlw` asks.
+
+…and three small resident items the same audit proved boot-only:
+**`dsk_ltrtab`** (10 bytes of `.text` read only by `dsk_bootltr`, an `.ovlw`
+body — five `mov [label], al` stores are *smaller* than the table walk they
+replace, so `.ovlw` shrank by 6 as well), and the **`dsk_flop_add` and
+`dsk_vol_slot` thunks** (6 bytes each of `.text`, whose one caller was
+`desk_init` in `.ovlw` — it far-calls `dsk_flop_add_x` in its own half and
+`dkf_dsk_vol_slot` in `.cold` directly now).
+
+**What it bought, measured** (`tools/kernsize.py`, against the tree it landed
+on):
+
+| | kern_big | kern_small |
+|---|---:|---:|
+| `.text` | 49,194 → 48,921 (**−273**) | 36,397 → 36,149 (**−248**) |
+| `.cold` | 40,337 → 40,276 (**−61**) | 26,066 (0) |
+| **resident** | **−334** | **−248** |
+| `.ovl` (of the blob's 1,984) | 1,511 → 1,832, **152 free** | 1,857 → 1,942, **42 free** |
+| `.ovlw` (of the region) | 5,110 → 5,104 of 5,120 | 1,412 → 1,502 of 1,536 |
+
+The pieces: the pre-mount half −209 / −208 (`.text`) and `hb_probe_x` −61
+(`.cold`, kern_big); folding the post-mount half through `spl_finish` into the
+same body −42 / −18; `dsk_ltrtab` −10 / −10; the two thunks −12 / −12. No
+512-byte rung moved on either kernel, which is the banner in CLAUDE.md: 334 and
+248 bytes are what the next feature does not have to ask for.
+
+**It breaks one rule the blob used to keep**: *"kern_big is what binds the
+blob"* (docs/plans/LAST-DROP-BYTES.md). kern_small's blob now has 42 bytes to
+kern_big's 152, so **kern_small binds the blob** and kern_big binds `.ovlw`.
+
+**Rule 2e follows the order into the blob.** `drv_boot_x` is called from
+`kmain_o` now, so `os88ovlchk.py` looks for the mount in `kmain` *or*
+`kmain_o` and scans the body it finds it in — and **refuses** when it finds it
+in neither, where it used to `continue` past a `kmain` it could not parse and
+pass. It also refuses a call, after the mount, to a blob body that itself
+reaches `.ovlw`: a window call by proxy is the same defect one level down.
+Both were verified by breaking them.
+
+###### 2.5.3.3.1 The knob builds get room the shipped builds do not pay for
+
+Moving `kmain`'s body into the blob moved every **`BOOTMARK=1` `MARKW` site**
+into it too — about 220 bytes on kern_small — and kern_small's blob had 42.
+`BOOTMARK=1` and `BOOTMARK=1 BOOTHALT=n` stopped assembling there by ~177
+bytes, `BOOTPROF=1` by 14 and `MOUDIAG=1` by 1, and kern_big's `BOOTHALT` arm
+was left one byte inside its blob. **Every shipped build keeps ONE blob
+length** — the boot canary's file sector is a memory offset plus
+`BOOT2_SECS`, and SPEC.md 15.3.8.5 and the Makefile's `KSIG_OFF` block are the
+history of what a second length cost — so the room comes from two places a
+KNOB build already has and a shipped build does not use:
+
+- **The window pad.** A knob build's window is `DSK_OVLPAD` = 1,024 bytes
+  wider than a shipped one's (`dskwin.inc`: *"the room a knob build needs is
+  room a knob build can pay for"*). On a kern_small knob build the serial
+  mouse probe — `mouse_init` and its four helpers, 648 bytes, the largest
+  `OVBCALL` body — takes kern_big's arrangement and goes in `.ovlw`. One
+  symbol, `MOU_IN_BLOB` (`kernel.asm`, above the `%include`s: `KERN_SMALL`
+  and not `KERN_KNOB`), decides both the probe's three `section` blocks and
+  `OVBCALL`'s arm for `mouse_init`. It is the probe and not all six `OVBCALL`
+  bodies because all six are ~1,340 bytes and overflow even the padded
+  window.
+- **The loader's slack.** `OVL_AT` is where `.ovl` starts in the blob and
+  moving it costs nothing (§2.9.6). A knob build's `.boot2` tops out at
+  **2,507** (`BOOTDIAG=1 MOUDIAG=1`, with pass 2's decoder arguments), so on
+  a knob build `.ovl` starts `OVL_KNOBGIVE` = **96** bytes lower, at
+  `OVL_BASE` = 2,528. `SPLSTARS=1` is the one knob whose `.boot2` is above
+  that (2,562 with `NOKZIP=1`) — it is what sets `OVL_AT`'s floor — so it
+  keeps the shipped split. `OVL_AT` stays the one literal, which is what
+  `tools/os88ladder.py` reads and what describes every kernel a disk carries.
+
+Both are compiled out of every shipped kernel, so `make`, `make small` and
+`make emu` are exactly what they would be without them. Measured (blob `.ovl`
+of 1,984 shipped / 2,080 knob; `.ovlw` region 2,560 on a kern_small knob):
+
+| arm | kern_big `.ovl` | kern_small `.ovl` | kern_small `.ovlw` |
+|---|---:|---:|---:|
+| `BOOTMARK=1` | 1,979 (101 free) | 1,442 | 2,258 |
+| `BOOTMARK=1 BOOTHALT=20` | 1,983 (97 free) | 1,446 | 2,258 |
+| `BOOTPROF=1` | 1,888 | 1,351 | 2,150 |
+| `MOUDIAG=1` | 1,850 | 1,313 | 2,175 |
+| `BOOTMARK` + `BOOTPROF` + `MOUDIAG` | 2,053 (27 free) | 1,516 | 2,283 |
+
+**A knob build is a different blob layout from the kernel it diagnoses**, and
+that is the price: the probe runs from the window on a kern_small `BOOTMARK=1`
+build where the shipped one runs it from the blob — the same code at a
+different segment, and kern_big's shipped arrangement exactly. What is NOT
+different is what a boot diagnostic is for: the blob's length, the sectors
+stage 1 reads, the canary, and every call `kmain_o` makes, in order.
+`tests/unit/t_buildmatrix.py` carries kern_small's `BOOTMARK` and `BOOTHALT`
+arms as rows of their own, because nothing else assembles them.
 
 ### 2.6 Cold code — resident, but not in the segment
 
@@ -84750,7 +84890,7 @@ so the letter is not a hint about where to search but the whole answer to
 `A:` is **stamped** at boot (§52.10.3) because the system volume is not A: on
 a machine booted from a hard disk, and a message naming the wrong drive is
 worse than one naming none. This is the only string in the kernel that needs
-it, and `dsk_ltrtab`'s third entry exists for it.
+it, and one of `dsk_bootltr`'s five stores exists for it.
 
 `cp_drv_cap` is gone with it, and with it a full-width wipe plus a `font_str`
 on every Drivers-page paint, and `CP_DCAPY`. `[cp_dsave]` survives for its

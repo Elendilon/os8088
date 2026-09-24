@@ -472,7 +472,7 @@ mou_pall:
 ;     the inline form is DS-relative data and an indirect far call, so it drops
 ;     into any section. It costs 17 bytes a site, twice.
 ; =============================================================================
-%ifndef KERN_SMALL
+%ifndef MOU_IN_BLOB             ; kern_big, AND a kern_small knob build (kernel.asm)
 section .ovlw                   ; kern_big: the WINDOW half (SPEC.md 2.5.3) -
                                 ; forfeit at the first mount, and this build's
                                 ; window has room to spare
@@ -1541,7 +1541,7 @@ mou_p2wr:
     pop ax
     ret
 
-%ifndef KERN_SMALL
+%ifndef MOU_IN_BLOB             ; kern_big, AND a kern_small knob build (kernel.asm)
 section .ovlw
 %else
 section .ovl                    ; ...SPLIT WITH mou_uart's BLOCK ABOVE, and
@@ -1632,7 +1632,7 @@ mou_p2wcmd:
 .out:
     ret
 
-%ifndef KERN_SMALL
+%ifndef MOU_IN_BLOB             ; kern_big, AND a kern_small knob build (kernel.asm)
 section .ovlw
 %else
 section .ovl                    ; ...SPLIT WITH mou_uart's BLOCK ABOVE, and

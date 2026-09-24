@@ -1853,53 +1853,39 @@ dsk_boot_from_x:
 ;
 ; STAMPED once rather than composed per use, because the boot volume is
 ; settled here and cannot change afterwards: the alternative is a buffer and
-; a format call at three sites, for one byte. The table holds the address of
-; the letter BYTE, and each of those is its own LABEL inside its string -
-; an offset would silently drift the first time somebody reworded a message.
+; a format call at three sites, for one byte. Each store below names the
+; letter BYTE, and each of those is its own LABEL inside its string - an
+; offset would silently drift the first time somebody reworded a message.
 ;
 ; Called from dsk_boot_from's .out, so a floppy machine runs it too and
 ; writes back the 'A' that was already there.
 ; -----------------------------------------------------------------------------
 dsk_bootltr:
     push ax
-    push bx
-    push cx
-    push si
     mov al, [dsk_bootvol]
     add al, 'A'
-    mov bx, dsk_ltrtab
-    mov cx, DSK_LTRN
-.next:
-    mov si, [bx]
-    mov [si], al
-    add bx, 2
-    loop .next
-    pop si
-    pop cx
-    pop bx
+    ; FIVE STORES, NOT A TABLE. This used to walk `dsk_ltrtab`, five words of
+    ; `.text` naming the letter bytes - and since this body is in `.ovlw` and
+    ; runs once, that table was the only part of the stamp still RESIDENT: ten
+    ; bytes kept for the life of the machine to serve one boot-time loop. A
+    ; `mov [moffs], al` is three bytes, so the unrolled stamp is SMALLER than
+    ; the loop it replaces (no BX/CX/SI to bank) and the table is gone
+    ; (kernel size pass 5). Each target is still a LABEL on the letter byte
+    ; inside its string, never an offset, for the reason above.
+    mov [ui_s_nodisk_l], al     ; the Task Manager's notice (SPEC.md 28.3)
+    mov [cp_s_dsdrv], al        ; the Control Panel's save refusal (51.5.1)
+    mov [drv_e1_l], al          ; DRVE_DISK, the Drivers page's status (51)
+    mov [cp_s_nodrv], al        ; ...and its OPEN refusal (SPEC.md 2.8.4), now
+                                ; that the panel's own code is a file on that
+                                ; same disk
+    mov [fm_s_swapnd], al       ; ...and the formatter's REFUSAL toast (2.8.5).
+                                ; Its swap PROMPT names the volume too, and is
+                                ; the one standalone 'A:' of the six - it is
+                                ; `fm_s_swapd equ ui_s_nodisk_l` now, so the
+                                ; first store stamps both and there is no sixth
     pop ax
     ret
 %endif                              ; KD_BUILD
-section .text                   ; DATA, so back to the kernel segment
-                                ; (SPEC.md 2.6 rule 1)
-
-
-dsk_ltrtab:                     ; every message that names the system disk
-    dw ui_s_nodisk_l            ; the Task Manager's notice (SPEC.md 28.3)
-    dw cp_s_dsdrv               ; the Control Panel's save refusal (51.5.1)
-    dw drv_e1_l                 ; DRVE_DISK, the Drivers page's status (51)
-    dw cp_s_nodrv               ; ...and its OPEN refusal (SPEC.md 2.8.4), now
-                                ; that the panel's own code is a file on that
-                                ; same disk
-    dw fm_s_swapnd              ; ...and the formatter's REFUSAL toast (2.8.5).
-                                ; Its swap PROMPT names the volume too, and is
-                                ; the one standalone 'A:' of the six - it is
-                                ; `fm_s_swapd equ ui_s_nodisk_l` now, so row 0
-                                ; above stamps both and there is no sixth row
-DSK_LTRN equ 5
-%if DSK_LTRN * 2 != $ - dsk_ltrtab
-%error "DSK_LTRN does not match the table above - the stamp loop would miss a message, or walk past the end"
-%endif
 section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
                                 ; segment of its own. DS is still KERNEL_SEG,
                                 ; so the DATA stays in .text at every toggle

@@ -136,6 +136,16 @@ the day the small build has less, a body added to `.ovl` breaks one kernel and
 not the other, and the cheap answer — move an `.ovlw` body across — stops
 being available in the direction it is needed.
 
+> **THE RULE IS BROKEN, ON PURPOSE, SINCE SPEC.md 2.5.3.3.** `kmain`'s boot
+> half is a blob body (`kmain_o`) on both kernels now, and it cost kern_small's
+> blob more than kern_big's: on that tree `.ovl` is 1,942 of 1,984 on
+> kern_small (**42 free**) against 1,832 on kern_big (152 free), so
+> **kern_small binds the blob**. The owner took the trade for 334 / 248
+> resident bytes. The way back the paragraph above worries about is still
+> there, smaller: an `OVBCALL` body can go to kern_small's `.ovlw`, which has
+> 34 bytes of its 1,536-byte region left. The figures in the table above are
+> the older tree's; re-measure.
+
 **Those bytes are ONE POOL.** `OVL_AT` is a byte offset with no alignment
 requirement — the only constraints are the two `%if`s above — and moving it costs
 nothing at all: `kernel.asm` says so in the file's own words, *"the blob is

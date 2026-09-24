@@ -301,6 +301,9 @@ section .cold
 ; machine pays eight compares and no I/O; a machine with a hard disk pays
 ; one quiet mount of its root.
 ; -----------------------------------------------------------------------------
+section .ovl                    ; IN THE BLOB (SPEC.md 2.5.3.3): kmain_o is its
+                                ; one caller, after drv_boot and before its own
+                                ; BLOBCALL spl_finish
 hb_probe_x:
     push ax
     push dx
@@ -326,22 +329,23 @@ hb_probe_x:
     call COLD_SEG:hb_pick_x     ; AL = the volume
     jc .out
     mov [hb_vol], al
-    call drv_vol_bank
+    call COLD_SEG:drvf_drv_vol_bank
     mov dl, al
     xor ax, ax                  ; the root
-    call dsk_chdir_q_x
+    call COLD_SEG:dkf_dsk_chdir_q
     jc .back
     mov si, hb_s_ptr
-    call drv_find               ; the directory sectors themselves
+    call COLD_SEG:drvf_drv_find ; the directory sectors themselves
     jc .back
     mov byte [ui_rebootq], UI_RBQ_ASK
 .back:
-    call drv_vol_back
+    call COLD_SEG:drvf_drv_vol_back
 .out:
     pop si
     pop dx
     pop ax
     retf
+section .cold
 
 ; -----------------------------------------------------------------------------
 ; drv_suspend_x - slot 0x042E's three verbs (SPEC.md 51.11): THE MACHINE, OUT

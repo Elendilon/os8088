@@ -265,7 +265,7 @@ desk_init:
     xor cl, cl
 .zloop:
     mov bl, cl
-    call KERNEL_SEG:dsk_vol_slot      ; FAR: overlay -> resident. It clobbers
+    call COLD_SEG:dkf_dsk_vol_slot ; FAR: window -> cold, no .text thunk. It clobbers
     xor al, al                  ; "BX (the output), flags", so AL is free
     cmp byte [bx+DV_KIND], DVK_FREE
     je .zskip                   ; the probe retired it - do not hand it back.
@@ -319,7 +319,10 @@ desk_init:
     call dsk_fdd_probe          ; preserves BX, CX, DX and ES: CL and the
 %endif                          ; count in DH both survive it. AL is IGNORED
     mov al, cl
-    call KERNEL_SEG:dsk_flop_add        ; FAR: overlay -> resident
+    OVWCALL dsk_flop_add_x      ; window -> window: both bodies are `.ovlw`,
+                                ; so the far call names FAT_SEG itself and the
+                                ; `.text` thunk it used to bounce through is
+                                ; gone (kernel size pass 5, -6 resident)
 .eskip:
     inc cl
     cmp cl, 4
@@ -336,7 +339,7 @@ desk_init:
     xor cl, cl
 .kloop:
     mov bl, cl
-    call KERNEL_SEG:dsk_vol_slot      ; FAR: overlay -> resident; BX = the row
+    call COLD_SEG:dkf_dsk_vol_slot ; FAR: window -> cold; BX = the row
     cmp byte [bx+DV_KIND], DVK_BIOS
     jne .knext                  ; a driver's volume, or a free row
     mov dl, [bx+DV_UNIT]

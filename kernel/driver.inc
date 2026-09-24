@@ -4645,6 +4645,10 @@ drvf_drv_vol_bank:       call drv_vol_bank
                     retf
 drvf_drv_vol_back:       call drv_vol_back
                     retf
+%ifdef KERN_BIG
+drvf_drv_find:           call drv_find   ; hb_probe_x, from the blob
+                         retf
+%endif
 drvf_drv_mounted:        call drv_mounted
                     retf
 drvf_ss_mins2idle:       call ss_mins2idle

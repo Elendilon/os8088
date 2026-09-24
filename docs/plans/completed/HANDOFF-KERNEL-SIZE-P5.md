@@ -124,7 +124,7 @@ the callback are unchanged.
 | candidate | kern_big | kern_small | why not taken |
 |---|---:|---:|---|
 | `rect_get`/`rect_put` for 37 four-word load/store sites | −298 | −245 | ~30 µs a rect on repaint and raise paths; the 12 cold sites alone are ~−70 |
-| boot-only code into the blob (`kmain`'s pre-mount half, `vid_detect`, `vid_init`, `hb_probe_x`; a `BLOBCALL` macro and three `os88ovlchk` rules) | −270 | −208 | built and green, but leaves kern_small's blob 50 bytes and breaks kern_small's `BOOTMARK=1` build by 157. Prototype and reachability tool in the pass's scratch findings |
+| boot-only code into the blob (`kmain`'s pre-mount half, `vid_detect`, `vid_init`, `hb_probe_x`; a `BLOBCALL` macro and three `os88ovlchk` rules) | −270 | −208 | **TAKEN AFTER THE CLOSE, as SPEC.md 2.5.3.3** — at −334 / −248 with the post-mount half, `dsk_ltrtab` and two `desk_init` thunks folded in. The owner took kern_small's blob at 42 bytes free, and the knob builds that overflowed it got knob-only room (2.5.3.3.1) rather than a second blob length |
 | the extended desktop's WM code as a kern_big on-demand module | ~−850 | 0 | `MOD_NENT` = 7 entry points; a design decision |
 | inline cells whose routine fits in 8 bytes (`get_ticks`, `set_color`, …) | −55 | −55 | FASTER; needs an INLINE shape in `t_api_abi.py` |
 | `ui_tm_errs` duplicates `fm_stattab` | −125 | | changes the Task Manager's error wording — the owner's call |

@@ -661,8 +661,8 @@ cp_s_dsdrv: db 'A:', 0          ; the letter, stamped (SPEC.md 52.10.3): the
                                 ; from a hard disk, and a message that names
                                 ; the wrong drive is worse than one that names
                                 ; none. This is the only string in the kernel
-                                ; that needs it, and dsk_ltrtab's third entry
-                                ; exists for it
+                                ; that needs it, and dsk_bootltr's second
+                                ; store exists for it
 cp_s_dserr: db 'Not saved: disk error', 0
 ; Indexed by [cp_dsave] + 1, so slot 0 keeps toast_say's "nothing to say" and
 ; SUCCESS gets a message of its own - a save is a thing the user asked for and

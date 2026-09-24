@@ -354,10 +354,10 @@ kilobyte of that is SPEC.md 22.6.2's `DSK_NENT` cut, which took `.lowbss`
 reporting 639KB has ~528 KB under `kern_big` before any driver or read-ahead
 claim.
 
-**Not in the span**: the boot overlay (`.ovl` 1,511 bytes in stage 2's blob,
-`.ovlw` 5,110 bytes loaded onto the FAT window and `dsk_secbuf`, both
+**Not in the span**: the boot overlay (`.ovl` 1,832 bytes in stage 2's blob,
+`.ovlw` 5,104 bytes loaded onto the FAT window and `dsk_secbuf`, both
 dead by the first desktop — see below; on `kern_small` the split is a BUILD
-CHOICE and reads 1,857 / 1,412, SPEC.md §2.5.3.2), the on-demand modules (files read
+CHOICE and reads 1,942 / 1,502, SPEC.md §2.5.3.2), the on-demand modules (files read
 into a heap claim when asked for, §2.8), and the menu save-under, which is a
 heap claim taken by `menu_drop` and released before the picked item runs,
 sized from the rect actually dropped (`menu_save_kb`, §12.4; `MENU_SAVE_KB`
@@ -862,15 +862,31 @@ it is two sections, because the two halves die at different times:
 
 | | bytes | lives until | lands on | reached by |
 |---|---:|---|---|---|
-| `.ovl` | 1,511 | `spl_finish` | stage 2's blob, at `OVL_AT` = 2,624 of `BOOT2_PAD` = 4,096 | `[spl_fseg]`, the pair of §2.9.5.1 |
-| `.ovlw` | 5,110 | **the first mount** | `FAT_SEG`, off the kernel's own contiguous read, spilling into `dsk_secbuf`, the one mount-owned buffer left (4,608 + 512 = 5,120 bytes, all readable — SPEC.md §2.1.2), so **10 bytes** spare | `call FAT_SEG:`, a constant |
+| `.ovl` | 1,832 | `spl_finish` | stage 2's blob, at `OVL_AT` = 2,624 of `BOOT2_PAD` = 4,608, so **152 bytes** spare | `[spl_fseg]`, the pair of §2.9.5.1 — or `BLOBCALL` from a caller already in the blob |
+| `.ovlw` | 5,104 | **the first mount** | `FAT_SEG`, off the kernel's own contiguous read, spilling into `dsk_secbuf`, the one mount-owned buffer left (4,608 + 512 = 5,120 bytes, all readable — SPEC.md §2.1.2), so **16 bytes** spare | `call FAT_SEG:`, a constant |
 
 Those are kern_big's figures (`tools/kernsize.py --json`). On `kern_small`
-(`--json -DKERN_SMALL`) `.ovl` is 1,857 and `.ovlw` 1,412, against a window of
-1,024 (a two-sector FAT) + 512 = 1,536, so 124 spare; SPEC.md §2.5.3.2 is why
-that build puts more of the overlay in the blob.
+(`--json -DKERN_SMALL`) `.ovl` is 1,942 of the blob's 1,984 (**42 spare** —
+kern_small binds the blob) and `.ovlw` 1,502, against a window of 1,024 (a
+two-sector FAT) + 512 = 1,536, so 34 spare; SPEC.md §2.5.3.2 is why that build
+puts more of the overlay in the blob.
 
-The blob is 8 sectors; whatever the loader is not using below `OVL_AT` the
+**Most of `kmain` is in there too** (SPEC.md §2.5.3.3): everything from its
+first far call through `spl_finish` is the blob body `kmain_o`, so the part of
+`kmain` that is resident is its prologue, one gate, and the tail after the
+blob's release — 87 bytes on kern_big. That is 334 resident bytes on kern_big
+and 248 on kern_small, with `vid_detect`, `vid_init`, `hb_probe_x`,
+`dsk_ltrtab` and two `desk_init` thunks.
+
+**A KNOB build is given more room than a shipped one, never a longer blob**
+(SPEC.md §2.5.3.3.1): the blob length is one constant for every build because
+the boot canary rests on it, so a knob build's extra room comes from its
+1,024-byte `DSK_OVLPAD` (a kern_small knob build puts the mouse probe there,
+kern_big's arrangement) and from the loader's slack (`.ovl` starts at
+`OVL_BASE` = `OVL_AT` − 96 on a knob build other than `SPLSTARS=1`). Neither
+reaches a shipped byte.
+
+The blob is 9 sectors; whatever the loader is not using below `OVL_AT` the
 overlay can have for the cost of moving that one line, and the two assertions
 at the foot of `kernel.asm` say which half ran out. `.ovlw`'s bound is the
 window: docs/plans/KERN-SMALL-CUT-PLAN.md §7 is why `kern_small`'s two-sector
