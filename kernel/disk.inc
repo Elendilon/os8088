@@ -149,6 +149,9 @@ DVOL_MAX     equ 8               ; the FLOPPIES the machine has, and one per
                                  ; every one of them scales off this constant
                                  ; rather than being written out
 %endif
+%if DVOL_MAX > 8
+  %error "assoc_go (assoc.inc) keeps one bit a volume in the byte [assoc_dead]"
+%endif
 ; ...and the purge protocol's array has to be exactly as long as the volume
 ; table (SPEC.md 18.8.4), or mem_shed_one gives a claim away that a volume
 ; above the end still holds. It was written `!= 8` because DVOL_MAX was not

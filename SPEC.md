@@ -83419,7 +83419,9 @@ heuristic. Preferring volumes of the document's own kind — hard disk before
 floppy for a document on C: — is plausible and would sometimes skip an empty
 floppy drive's retries, and it is exactly the kind of unmeasured ordering rule
 this tree has learned to refuse (PERFORMANCE.md Part 4). What it would buy is
-bounded by the case below, which removes the repeat entirely.
+bounded by the case below, which removes the repeat entirely. **§54.4.2.1
+tries the BOOT volume ahead of the sweep**, which is not that rule, and says
+why: the bound below never reaches the first open of a session.
 
 **A successful locate writes the hint back**, which is new and is what keeps
 the sweep from being paid twice. `assoc_try` navigates with `dsk_chdir_q`
@@ -83437,6 +83439,65 @@ program's directory index`. It never did: `assoc_try` restores AX across its
 own frame, and §21.4 removed the last consumer when `ld_run_name` started
 resolving by name. The contract now says what the code does, which is what
 frees `.found` to spend AX on the hint.
+
+### 54.4.2.1 …an empty drive is asked once, the boot volume first, and a folder move is a word
+
+Reported from the field, on an installed machine: *"no disk in any floppy
+drive, go to E:, double-click a `.MOD` - 11 to 14 seconds before Tracker
+begins to load"*, with `TRACKER.O88` in `C:\APPS` where the installer put it.
+`tests/assocsweep.py` is the measurement and it found three separate costs,
+none of which was the program's load.
+
+**An empty floppy drive was mounted TWICE, and a third time behind a hint.**
+A drive with no disk is a live volume row - `dsk_vol_row_x` skips only a FREE
+one - and its mount fails on the BIOS's retries, which is seconds on the
+target machine. `assoc_tryvol` asks each volume for its root and then for
+`APPS` through the root again, so each empty drive paid its retries twice, and
+rung 1's hint can name a drive the sweep then visits a third time. A locate
+now keeps `[assoc_dead]`, one bit a volume, set when a move answers
+`FERR_NODISK` - a failed MOUNT, and nothing else: a hint's out-of-range
+cluster answers `FERR_IO` and does not condemn the volume it names.
+
+**The boot volume is tried right after the document's own.** §54.4.2 refused
+a *kind* ordering (hard disk before floppy) as an unmeasured heuristic, on the
+ground that the hint write-back bounds it. The bound is real and it is the
+FIRST open of each type in a session that it does not reach: a fresh boot has
+no hint, so the first `.MOD` swept A: and B: before C: every time. This is not
+a kind rule. The boot volume is the one volume known to have a disk in it -
+the machine booted off it and loads its drivers and modules from it - and it
+is where §52.10's install puts every program. On a floppy boot it is A:, which
+the sweep reached first anyway, so that machine's order is unchanged; on an
+installed one it is C:, and no floppy drive is touched. `.found` then reads
+C:'s `ASSOC.DAT` (§54.7.2), which seeds every hint on the volume, so the next
+document of any type the installer associated is rung 1.
+
+**A folder move inside a mounted volume is a word.** Every rung navigated
+with `dsk_chdir_q`, which answers a move to a different folder with a REMOUNT
+- the boot sector read again, one `int 13h`, to learn that the disk whose
+motor is still turning is still the disk. A locate is mostly such moves (the
+document's folder, that volume's root, its `APPS`, and back), so rungs now
+move with `fcp_goto`, the package path's quiet stand (§18.9.1.1): the media
+half of §18.9.1's predicate and a word when it holds, and the same
+`dsk_chdir_q` as before when it does not. `assoc_back` takes it too.
+
+MEASURED ON MARTYPC (a 4.77MHz 8088, GLaBIOS), `assoc_run_x` to
+`ld_run_name_x`:
+
+| machine | before | after |
+|---|---:|---:|
+| hard-disk boot, A: EMPTY, document in B:\MEDIA, program in C:\ | 2,335-2,390 ms, mounts B B A A C | **155-210 ms**, mounts B C |
+| floppy boot, document in A:\, program in B:\APPS | 3,390-3,712 ms, 18 `int 13h`, mounts A A B B | 3,250-3,356 ms, 16 `int 13h`, mounts A B |
+
+Each failed mount of the empty A: is ~1 s under GLaBIOS; the field's 11-14
+seconds is two empty drives at four failed mounts, which is ~3 s apiece on
+that machine's ROM, and all four are gone. The floppy row is a range because
+what is left of it is not the locate's: B:'s first mount reads its FAT as one
+eight-sector run that answers `80h` three times before §18.91's per-sector
+fallback takes it - the same on the tree before this change, ~800 ms on
+MartyPC - and `ASSOC.DAT`'s read-ahead fill (§18.95) lands wherever the disk's
+layout put the file, so both move with rotational phase. `tests/assocsweep.py`
+asserts the MOUNTS, which are exact, and not the milliseconds; it is red on
+the kernel before this section on both legs.
 
 ### 54.5 The API: the app PULLS its document, and may claim an extension
 
@@ -138270,9 +138331,10 @@ rows the user filled in, which is a parser that has to *count* to find a field.
 
 `ExtraData` is a sequence of `{size, signature, data}` blocks whose consumers
 are specified to **skip signatures they do not recognise**, so a second block
-is what the mechanism is for. It is a fixed twelve bytes — size, signature, the
-cap as a word, the choice as a byte, one of padding — and its fields are at
-fixed offsets inside it. `dos_lnk_ext`'s walk gained one compare and now keeps
+is what the mechanism is for. It was a fixed twelve bytes — size, signature, the
+cap as a word, the choice as a byte, one of padding (since taken by the cache
+dial, §96.36.6) — and is fourteen now that it carries the page's boxes
+(§96.25.2.1); its fields are at fixed offsets inside it. `dos_lnk_ext`'s walk gained one compare and now keeps
 walking after the environment block instead of stopping at it, so **a link
 written by an older build still reads**: it simply has not got a second block,
 and the defaults stand.
@@ -138290,6 +138352,45 @@ still reads because 0 and 1 mean what they always meant.
 **A `DOS_MEM_WHOLE` read out of a link is clamped a second time, by the
 predicate rather than by the range** — §96.36.1 — because the machine that
 wrote the link is not the machine reading it.
+
+##### 96.25.2.1 …and the page's three BOXES, which the block did not carry
+
+§96.36.7.1 argues that `Hard drives` and `Network` are **requests about the
+program** rather than reports about the machine, and names the `.LNK` as the
+reason — a shortcut outlives the setup it was saved under. The block did not
+carry them, and neither did it carry §96.36.8's `Disable the mouse`, so all
+three came back at their defaults from every shortcut. The field reported the
+mouse box: tick it under `Shut down the OS`, Save Shortcut, open the shortcut,
+and the box is clear again and the pointer is hooked.
+
+**The block grows to 14 bytes rather than a third block being added**, because
+its fields are at fixed offsets and appending one at a fixed offset is
+exactly what a fixed-size block allows: byte 12 is the boxes and byte 13 is
+padding. Both directions still read:
+
+- **an older link** is 12 bytes, and `dos_lnk_memr` reads byte 12 only when
+  the block's own size word says 14 — so the boxes keep `dos_fld_init`'s
+  defaults, which is what the link was saved against;
+- **an older reader** already accepted any size of at least 12 and reads its
+  three fields at fixed offsets, so it steps over two bytes it has never
+  heard of. `LNK_EXT2MIN` is the 12 the reader still takes, `LNK_EXT2SZ` the
+  14 the writer emits.
+
+**Each bit is set when its box has moved OFF its default** — `LNK_BX_NOHDD`
+(0x01) and `LNK_BX_NONET` (0x02) for an unticked driver box, `LNK_BX_NOMOU`
+(0x04) for a ticked mouse box — so a zero byte is the page exactly as a
+double click opens it, and the one-byte and absent forms mean the same thing.
+The byte is hostile input like every other one in the file, and it cannot do
+harm: each bit becomes a 0 or a 1 in its record's `OS88UI_CK_ON`, the other
+five are ignored, and a box in either state is one the page can draw.
+
+**A box is carried whatever the arm.** The mouse box belongs to arm 1 and is
+greyed under arm 0 (§96.36.9), and `dos_mem_fix` may demote a link's arm 1 on
+a machine that cannot do it — but the tick is the user's request for the
+machine that can, which is §96.36.7.1's argument one arm along, so it is
+written and read either way. `tests/doslnk.py` saves with `Network` unticked
+and the mouse box ticked, reads both bits off the flushed floppy with its own
+parser, and asserts both boxes in the relaunched instance.
 
 ### 96.35 Sizing the arena: unmount, ask twice, and come back for the answer
 

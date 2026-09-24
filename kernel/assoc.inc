@@ -902,6 +902,58 @@ assoc_stemcpy:
     ret
 
 ; -----------------------------------------------------------------------------
+; assoc_go - stand at (DL, AX) to look a name up (SPEC.md 54.4.2.1)
+; in:  DL = volume, AX = directory cluster (0 = the root)
+; out: CF=0 = standing there; CF=1 = not reachable
+; clobbers: AX, CF
+;
+; **fcp_goto AND NOT dsk_chdir_q**, which is the whole of the first half. A
+; locate walks FOLDERS of one volume - the document's, then that volume's root,
+; then its APPS - and dsk_chdir_q answers every one of those moves with a
+; remount, which on a floppy is the boot sector read again: one int 13h, ~400
+; ms on the target machine, to learn that the disk the motor is still turning
+; is still the disk. fcp_goto is the package path's quiet stand (SPEC.md
+; 18.9.1.1): inside a mounted volume whose medium cannot have changed it is a
+; WORD, and anything else is the same dsk_chdir_q as before.
+;
+; **AND A VOLUME WHOSE MOUNT FAILED IS NOT ASKED AGAIN IN THIS LOCATE**, which
+; is the second. An empty floppy drive is a live volume row - dsk_vol_row_x
+; cannot skip it - and its failure is the BIOS's retries, seconds on a 4.77MHz
+; machine. assoc_tryvol asks each volume twice (its root, then APPS through
+; the root again) and rung 1's hint can name a drive the sweep then visits, so
+; one empty drive cost its retries two and three times over. [assoc_dead] is
+; one bit a volume, cleared by assoc_locate; FERR_NODISK is fcp_goto's answer
+; for a failed MOUNT only, so a hint's out-of-range cluster (FERR_IO) does not
+; condemn the volume it names. DVOL_MAX is 8 on kern_big, which is exactly a
+; byte; disk.inc asserts it, being where DVOL_MAX is defined.
+; -----------------------------------------------------------------------------
+%ifdef FCP_MOD
+  %error "assoc_go near-calls fcp_goto, which is resident .cold only while FILECP is not a module"
+%endif
+assoc_go:
+    push bx
+    push cx
+    mov cl, dl
+    mov ch, 1
+    shl ch, cl                  ; CH = this volume's bit
+    test [assoc_dead], ch
+    stc                         ; (stc leaves the ZF test just made)
+    jnz .out
+    mov bx, ax
+    mov al, dl                  ; fcp_goto takes AL = volume, BX = cluster
+    call fcp_goto
+    jnc .out
+    cmp ax, FERR_NODISK
+    stc
+    jne .out
+    or [assoc_dead], ch
+    stc
+.out:
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
 ; assoc_try - is the program in THIS directory? (one rung of SPEC.md 54.4)
 ; in:  DL = volume, AX = directory cluster (0 = the root)
 ; out: CF=0 = yes, with that volume+directory CURRENT; CF=1 = not here (and
@@ -921,7 +973,7 @@ assoc_try:
     push cx
     push dx
     push si
-    call dsk_chdir_q_x            ; QUIET (SPEC.md 18.9): the question here is
+    call assoc_go               ; QUIET (SPEC.md 18.9): the question here is
     jc .out                     ; whether a FILE is in this directory, and
                                 ; dskw_stat walks the directory sectors to
                                 ; answer it. A listing would be a scan, a sort
@@ -952,7 +1004,7 @@ assoc_tryfold:
 .named:
     push si
     xor ax, ax                  ; the volume's root first
-    call dsk_chdir_q_x            ; quiet, for assoc_try's reason
+    call assoc_go               ; quiet, for assoc_try's reason
     pop si
     jc .no
     call dskw_stat_x              ; AL = attribute, BX = the FOLDER's own first
@@ -1016,6 +1068,7 @@ assoc_locate:
     push si
     push di
     call assoc_fname            ; assoc_fnb = '<STEM>.O88'
+    mov byte [assoc_dead], 0    ; every volume may be asked, once (assoc_go)
     mov bl, al
     xor bh, bh
     mov di, bx                  ; DI = the slot, wanted after the shifts
@@ -1046,10 +1099,18 @@ assoc_locate:
     mov dl, [assoc_ddrv]
     call assoc_tryvol           ; its own volume first: already mounted, and
     jnc .found                  ; skipped below so nothing is visited twice
-    xor cl, cl                  ; CL = the volume index of the sweep
-.vol:
+    mov dl, [dsk_bootvol]       ; ...then the BOOT volume (SPEC.md 54.4.2.1):
+    cmp dl, [assoc_ddrv]        ; the one volume known to have a disk in it,
+    je .sweep                   ; and where an install put every program. On
+    call assoc_tryvol           ; a floppy boot it is A:, which the sweep
+    jnc .found                  ; reached first anyway; on an installed
+.sweep:                         ; machine it is C:, reached BEFORE the empty
+    xor cl, cl                  ; floppy drives in front of it
+.vol:                           ; CL = the volume index of the sweep
     mov bl, cl
     cmp bl, [assoc_ddrv]
+    je .volnext
+    cmp bl, [dsk_bootvol]
     je .volnext
     call dsk_vol_row_x            ; a FREE row is skipped for the TIME, not for
     jc .volnext                 ; correctness: mounting one fails anyway, but
@@ -1242,24 +1303,28 @@ assoc_handover:
 ; remount leaves that volume mount-failed at its root with the write gate
 ; shut, which is survivable and is exactly ui_tm_back's contract.
 ;
-; clobbers AX and DX. Two callers, both in assoc_run_x, and NEITHER is
+; clobbers AX and BX. Two callers, both in assoc_run_x, and NEITHER is
 ; followed by the epilogue - so this one is argued site by site rather than by
-; assoc_handover's rule: AX and DX are dead at both. After the first, the only
+; assoc_handover's rule: AX and BX are dead at both. After the first, the only
 ; instructions before .out are `cmp byte [ld_painted],0` and a call to
 ; assoc_handover (no register inputs) or files_refresh_x (takes none, clobbers
 ; nothing). After the second, `pop ax` kills AX before any read, and
-; assoc_progname takes AL and preserves everything; DX is unread throughout.
+; assoc_progname takes AL and preserves everything; BX is unread throughout.
+;
+; fcp_goto and not dsk_chdir_q, for assoc_go's reason: when the program was
+; found on the document's own volume, coming back is a folder move inside a
+; volume that is still spinning, and that is a word rather than a remount.
 assoc_back:
-    mov ax, [assoc_dclus]
-    mov dl, [assoc_ddrv]
-    jmp dsk_chdir_q_x           ; QUIET (SPEC.md 18.9/54.9): this restores the
+    mov bx, [assoc_dclus]
+    mov al, [assoc_ddrv]
+    jmp fcp_goto                ; QUIET (SPEC.md 18.9/54.9): this restores the
                                 ; volume so the app can READ ITS DOCUMENT, and
                                 ; a read resolves by NAME through dskw_find's
                                 ; directory walk - it never touches the global
                                 ; listing. The scan, the sort and one icon
                                 ; harvest per file were bought for nothing.
                                 ; A TAIL CALL: its ret is this routine's, and
-                                ; disk.inc's `.cold` is this file's, so near
+                                ; filecp.inc's `.cold` is this file's, so near
 
 section .text                   ; DATA, so back to the kernel segment: cold
                                 ; code addresses its data through DS, which is
@@ -1310,6 +1375,8 @@ assoc_doc    equ assoc_dblk     ; 13: the pending document's 8.3 name
 assoc_dclus  equ assoc_dblk+13  ; ...and where it lives: directory cluster
 assoc_ddrv   equ assoc_dblk+15  ; ...and volume
 assoc_fnb:   resb 13            ; '<STEM>.O88', built by assoc_fname
+assoc_dead:  resb 1             ; volumes whose mount failed in this locate,
+                                ; one bit each (assoc_go)
 assoc_pwin:  resw 1             ; the posting Disk window's STATE BLOCK, not
                                 ; its window record - FS_DRV/FS_CWD are read
                                 ; off it (SPEC.md 54.9.1), as ld_pwin is
