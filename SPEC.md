@@ -1523,8 +1523,9 @@ kernel image.** It is read into a heap claim when its feature is asked for,
 far-called through a table of entry pointers, and freed when the feature is
 finished. Both builds carry `CTRL.DRV`, the Control Panel (§31),
 `FORMAT.DRV`, the floppy formatter (§18.96), and `CLONE.DRV`, the disk cloner
-(§18.99). `kern_big` also carries `HIBER.DRV` (§87) and the optional
-`DOCK.DRV`, advanced Dock behavior (§30.5); `kern_small` instead carries
+(§18.99). `kern_big` also carries `HIBER.DRV` (§87), the optional
+`DOCK.DRV`, advanced Dock behavior (§30.5), and `EXTD.DRV`, the extended
+desktop's placement policy (§39.19.6); `kern_small` instead carries
 `FILECP.DRV` and `FDLG.DRV` (§22.3, §38.0), bodies `kern_big` keeps resident.
 **On the disk every one is a `'CZ'` container** (§20.13.5): `os88mod.py`
 checks each image the way `mod_check` will and then wraps it, `mod_need`
@@ -1606,17 +1607,20 @@ in the tree.
   **7**, which is what the largest module declares — §38.0's Standard File
   dialog on `kern_small` (`FD_NENT` 7). The others: `HB_NENT` 7 (§87,
   `kern_big` only), `CP_NENT` 7 on `kern_big`
-  and 6 on `kern_small`, `FM_NENT` 4, `FCP_NENT` 3, `CLO_NENT` 2, and one
-  Dock dispatcher entry. Every module
+  and 6 on `kern_small`, `EXT_NENT` 7 (§39.19.6, `kern_big` only),
+  `FM_NENT` 4, `FCP_NENT` 3, `CLO_NENT` 2, and the Dock's two
+  (`dkx_hook`/`dkx_unhook`, §30.5). Every module
   header ends `times MOD_NENT - X dw 0`, which makes an eighth entry a **hard
   NASM error in the file that grew** rather than an overrun. It is **not**
   per-build, and that was tried: `tools/os88mod.py` scrapes the first
   `MOD_NENT equ` out of `mod.inc` and cannot evaluate an `%ifdef`. It was 8
   for as long as the scale factor had to be a power of two so `mod_fpr` could
   shift; ×7 is `×8 − ×1`, four instructions, and the power of two was buying
-  12 `.bss` bytes per module that nothing could declare. `MOD_MAX` is 5 on
-  `kern_big` and 6 on `kern_small`. BIG has `MOD_HIBER` 3 and `MOD_DOCK` 4;
-  SMALL has `MOD_FCP` 3, `MOD_FDLG` 4 and `MOD_DOCK` 5.
+  12 `.bss` bytes per module that nothing could declare. `MOD_MAX` is 6 on
+  `kern_big` and 5 on `kern_small`. BIG has `MOD_HIBER` 3, `MOD_DOCK` 4 and
+  `MOD_EXT` 5; SMALL has `MOD_FCP` 3 and `MOD_FDLG` 4. (This line read 5 and
+  6 the other way round, with a `MOD_DOCK` 5 on SMALL, until `EXTD.DRV`
+  landed: SMALL has no Dock module and never had one.)
 - The loader itself is **`.cold`**. In `.text` it would be ~430 bytes against
   a `KERN_CODE_MAX` nobody can raise, and being cold also means the thunks
   that call it reach it with a near call.
@@ -3135,6 +3139,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/desk.inc`   | desktop drive icons: detect, paint, click/open (§26)    |
 | `kernel/dock.inc`   | basic bottom Dock, shared state, advanced-module dispatch and lifetime (§30) |
 | `kernel/dockmod.inc` | optional DOCK.DRV: placement, auto-hide, advanced painting and input (§30.5–30.6) |
+| `kernel/extmod.inc` | EXTD.DRV, `kern_big` only: the extended desktop's placement policy — bringing display 1 up, landing and the straddle fit, which display a window is on, the fsx bracket's collapse — prefix `ext_`/`exk_`; the resident half is `exf_sync` in **`.cold`** and the `EXTCALL` sites (§39.19.6) |
 | `kernel/ctrl.inc`   | Control Panel window: two-pane item list + settings pages (§31), prefix `cp_`. **`.cold`** (§2.6) |
 | `kernel/snd.inc`    | sound core (§34): driver table + router, tone tier, speaker driver (tone + PWM clips), `snd_tick`, the five API slot targets, `snd_release_inst`/`snd_unhook` — prefix `snd_`, lands Phases 1–2 |
 | `kernel/fsx.inc`    | fullscreen exclusive (§53): the bracket, the scheduler freeze arming, foreign mode set + info block, and the frame clock/present — prefix `fsx_` |
@@ -61845,6 +61850,121 @@ The clamp goes in `dock_force_x` rather than in its callers, which is what
 makes it true of every caller instead of the ones that remembered — and a
 span wholly past the primary returns having marked nothing at all. **The
 second monitor carries no menu bar (§39.19.3) and it carries no dock either.**
+
+#### 39.19.6 `EXTD.DRV` — the extended desktop is an on-demand module
+
+**Everything §39.13–§39.19 runs on a DECISION is a §2.8 module now**, and a
+machine that is not extended carries none of it. `kern_big` resident `.text`
+**−914**, `.cold` **+35**, `.bss` **+28** — **−851 resident bytes** on every
+kern_big machine, measured with `tools/kernsize.py --json` against the tree
+it landed on (plus +5 of `.ovl`, which is the boot overlay and goes away).
+`kern_small` is byte-identical: it has no second display at all, and every
+site is inside `%ifdef KERN_BIG`. The image is `kernel/extmod.inc`,
+`section .modx`, 1,271 bytes cut out of `kernel.bin` by `os88mod.py` and
+shipped as a 1,126-byte `'CZ'` file on every `kern_big` system disk, the emu
+disk and the live media, beside `CTRL.DRV` and `DOCK.DRV`.
+
+**What moved** is the policy half — 951 bytes of `.text`: `vid_disp_init`'s
+Extend arm (bringing the second card up, placing it Right or Below,
+§39.19.2–39.19.3), the landing and the straddle fit (`wm_land_fit` and the
+eleven routines under it, §39.16.3), `ui_drag_size` (§11.100.3/.4),
+`wm_disp_now`/`wm_disp_rest` (§39.16.4.1) and the fsx bracket's three
+(`vid_fsx_enter`/`_leave`/`_unblank`, §39.18). **What did NOT move** is
+everything that runs per primitive, per glyph cell or inside the mouse ISR —
+`GFXDISP`, `gfx_disp_run`, the blit seam cut (§39.14.7.2), `font_ch_cut`
+(§39.14.11), `cur_move_multi`, the clip in display space — ~2,150 bytes that
+would put a far call under every primitive of an extended machine, and most of
+which is code GENERALISED in place rather than gated, so it runs on every
+`kern_big` machine and only its difference could ever come out.
+
+**THE INVARIANT: `[vid_ndisp]` > 1 only while `EXTD.DRV` is mounted.** The one
+routine that makes it 2 is the image's own Extend arm (and `vid_fsx_leave`,
+also in the image, restoring it), and the image is dropped only once the
+relayout has put it back to 1. That is what lets the kernel call the image with
+**no thunk at all**: `EXTCALL k` is `call far [mod_fp + MOD_EXT*MODFP_STRIDE +
+k*4]`, four bytes, straight at the slot `mod_need` armed. A slot at rest is
+`mod_gone` — CF = 1, every register kept (§2.8.1) — and every one of the seven
+callers is either behind a `[vid_ndisp]` test it already had, or takes that
+refusal as the one-display answer:
+
+| # | entry | resident caller | with no image (`mod_gone`) |
+|---|---|---|---|
+| 0 | `EXT_EXTEND` — the Extend arm | `vid_disp_init` `.extend` | CF = 1 → `jc .single`, with AL/AH the two kinds `.single` wants: the arrangement is Single. This IS the refusal path |
+| 1 | `EXT_LAND` — `ui_drag_size` | `ui_drag`, `ui_grow` | the image answers CF **inverted** (1 = NOT moved) and `ui_drag` follows the call with `cmc`, so `mod_gone` reads "not moved" and the drag cache survives on one display. `ui_grow` ignores CF |
+| 2 | `EXT_STRADS` | `wm_snap_far` | CF = 1 is "not straddling" — the one-display answer |
+| 3 | `EXT_APPLY` — straddle test + fit | `wm_apply_wh` | CF = 1 → its existing `jc .one` |
+| 4 | `EXT_FITBOX` | `wm_fit` | registers kept = the primary's box = the one-display answer |
+| 5 | `EXT_DISPNOW` | `wm_kind_now`, `wm_display` | never reached: both keep their `[vid_ndisp]` gate |
+| 6 | `EXT_FSX`, AH = enter/leave/unblank | `fsx_mode`, `fsx_restore` ×2 | no flags read; each is a no-op on one display |
+
+`mod_init_x` rests the slots on `mod_gone` before `wm_init`, which is before
+the first of these can run; the early `vid_disp_init` in `kmain_o`, before
+`SYSTEM.CFG` is read, cannot reach `.extend` because `[vid_dmode]` is still 0.
+The image reaches the kernel through `exk_*` stubs of its own —
+`dockmod.inc`'s `dkk_*` device, a `push cs` + near call whose target's near
+`ret` lands on `cw_kretf` — so it costs no resident shim.
+
+**THE GATE IS `os88ovlchk`**, whose `MODS` list names `.modx`: a near `call`
+from `.text` into `.modx` ASSEMBLES — both sections have `vstart=0` — and runs
+into the wrong segment, so a routine that moved and a caller the sweep missed
+is exactly the defect nothing else would report. Broken on purpose both ways
+(`call wm_strads` from `wm_snap_far`, `call wm_fit` from inside the image) and
+refused both times, naming the line.
+
+##### 39.19.6.1 Lifetime: pinned while extended, dropped on the way back to Single
+
+One resident routine, **`exf_sync`** (`.cold`, far, 35 bytes), reconciles the
+image with `[vid_dmode]`, `dkf_apply`'s shape: Extend → `mod_need(MOD_EXT)`,
+and a refusal puts `[vid_dmode]` back to Single and answers CF = 1; Single →
+`mod_drop`, but **only once `[vid_ndisp]` ≤ 1** — the drop waits for the
+collapse, which is the invariant kept by construction rather than by care.
+
+- **The Control Panel** (§31.10.2's arrangement row, inside `CTRL.DRV`, +50
+  image bytes and no resident ones) calls `exf_sync`, then
+  `vid_disp_relayout`, then `exf_sync` again: the first loads before anything
+  moves and the second drops after the collapse. A refusal skips the relayout
+  and toasts the panel's own `Needs Sys Disk A:` (§2.8.4) — the panel is
+  itself a module, so the system disk is normally in the drive at the click,
+  which is ONDEMAND-PLAN §1's test passed exactly as `DOCK.DRV` passes it.
+  Heap exhaustion gets the same words.
+- **The boot** (`drv_boot_x`, in `.ovl`, +5 bytes and none resident) calls it
+  once, right after `SYSTEM.CFG`'s two arrangement bytes are stored and before
+  `vid_switch`/`cw_vid_disp_init` can extend — after `drvf_drv_mounted` and
+  the settings read that requests `DOCK.DRV`, and reaching nothing in `.ovlw`
+  after that mount (os88ovlchk rule 2e). A Single machine drops an empty row and reads no disk.
+  **A refused boot load is Single, with `SYSTEM.CFG` untouched** until the
+  panel next writes it — `DOCK.DRV`'s documented behaviour (§30.5) — and no
+  toast.
+- **It is not dropped** when `vid_switch` moves the primary to an adapter that
+  cannot pair (§39.24's EGA): `[vid_ndisp]` collapses, `[vid_dmode]` stays
+  Extend so switching back re-extends, and the claim stays meanwhile.
+- **An fsx bracket needs the image across it** (`vid_fsx_leave`/`_unblank`
+  put the second display back) and has it: nothing drops it while
+  `[vid_dmode]` is Extend, and the UI task does not run inside a bracket.
+- Nothing drops it while any of it can be on a stack: the panel holds the
+  graphics lock at the second `exf_sync`, and every entry returns before the
+  UI task can reach the panel again.
+
+**What an Extend user pays**: a 2KB heap claim (the image rounded to whole KB
+by `mem_bytes_kb_x`), pinned and top-down like every module — so an exclusive
+fullscreen program on an Extend machine sees a 2KB smaller arena; the image's
+3 sectors once per session when Extend is applied, which is 1–2 `int 13h` and
+so ~0.4–0.8 s on the XT, PREDICTED from PERFORMANCE.md's per-call figure and
+not measured on iron; and on each crossing ~+100 cycles for the far frame and
+~+100 per `exk_` hop — a drag release makes a few dozen, ~0.5 ms against a
+release that repaints for tens of milliseconds. **Nothing per frame and
+nothing per mouse move**: `ui_track`'s loop never enters the image, the clamps
+running on RELEASE. A one-display machine far-calls `mod_gone` at the ungated
+sites instead of near-calling a gated routine — ~+20 cycles on a create, fit,
+resize or drag release. `OSAPI_WM_DISPLAY` on an extended desktop goes one far
+frame (~10 bytes of stack) deeper, which is the only thing that runs on a
+worker slice. And there is a new failure: Extend can be REFUSED, with a reason,
+when the system disk or the heap is not there — which it could never be
+before.
+
+`tests/extdmod.py` (soak) is the lifecycle gate: load and drop through the
+real panel with every slot back on `mod_gone` after the drop, the refusal with
+the file gone, and a boot with Extend saved both with and without the file.
 
 ### 39.21 The colour path, read back — what a recolour is and is not
 

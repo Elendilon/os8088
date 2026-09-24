@@ -2677,6 +2677,9 @@ section .modd    start=MODD_START vstart=0
 %ifdef DOCK_OPT
 section .modk    start=MODK_START vstart=0
 %endif
+%ifdef KERN_BIG
+section .modx    start=MODX_START vstart=0
+%endif
 section .modmap  start=MODMAP_START vstart=0
 section .text
 
@@ -6272,6 +6275,28 @@ section .text
                                 ; and four shims. This used to say "must be
                                 ; resident within the image's opening
                                 ; SPL_RESIDENT sectors (SPEC.md 15)
+%ifdef KERN_BIG
+; EXTD.DRV's entries (SPEC.md 39.19.6, kernel/extmod.inc). EXTCALL is the
+; whole dispatch: a far call straight at the slot mod_need armed, with no
+; thunk, because a slot at rest is mod_gone (CF = 1, registers kept) and
+; every caller either sits behind a [vid_ndisp] > 1 test - which cannot be
+; true without the image - or takes that refusal as the one-display answer.
+; Here and not in extmod.inc because vidsel.inc, wm.inc, ui.inc and fsx.inc
+; all call it and every one of them is %included first.
+EXT_EXTEND  equ 0               ; vid_disp_init's Extend arm; CF = 1 Single
+EXT_LAND    equ 1               ; ui_drag_size, CF INVERTED (1 = not moved)
+EXT_STRADS  equ 2               ; wm_strads: CF = 1 not straddling
+EXT_APPLY   equ 3               ; wm_strads + wm_strad_fit; CF = 1 not
+EXT_FITBOX  equ 4               ; wm_fit_box: registers kept = the primary
+EXT_DISPNOW equ 5               ; wm_disp_now, behind its callers' gates
+EXT_FSX     equ 6               ; the fsx bracket's three, by AH:
+EXTF_ENTER  equ 0               ;   vid_fsx_enter (AL = the display)
+EXTF_LEAVE  equ 1               ;   vid_fsx_leave
+EXTF_UNBLANK equ 2              ;   vid_fsx_unblank
+%macro EXTCALL 1
+    call far [mod_fp + MOD_EXT*MODFP_STRIDE + %1*4]
+%endmacro
+%endif
 %include "vidsel.inc"           ; which adapters the machine HAS, and moving
                                 ; between them at run time (SPEC.md 39.11).
                                 ; AFTER splash.inc and not beside viddet.inc,
@@ -6433,6 +6458,8 @@ section .text
 %include "desk.inc"
 %include "dock.inc"
 %include "dockmod.inc"            ; empty unless DOCK_OPT (kern_big)
+%include "extmod.inc"             ; EXTD.DRV, the extended desktop
+                                  ; (SPEC.md 39.19.6) - kern_big only
 %include "ctrl.inc"
 %include "hiber.inc"            ; hibernate and resume (SPEC.md 87): the
                                 ; resident thunks, the probe, and HIBER.DRV.
@@ -7765,7 +7792,7 @@ OVL_SIZE equ ovl_end - $$       ; `$$` is the SECTION's base, which is OVL_BASE
 ;               34 bytes of payload spare.
 ;
 ; So KERN_BIG binds this guard. The blob is the other home for a boot body:
-; since SPEC.md 2.5.3.3 put kmain's boot half in it, `.ovl` leaves 152 bytes
+; since SPEC.md 2.5.3.3 put kmain's boot half in it, `.ovl` leaves 147 bytes
 ; of it on kern_big and 42 on kern_small, so kern_small binds the blob. A KNOB
 ; build has DSK_OVLPAD's 1,024 more here, and 2.5.3.3.1 is what spends it.
 %if ((OVLW_SIZE + 511) / 512) * 512 > FAT_PARA * 16 + DSK_WIN_BYTES
@@ -7795,10 +7822,16 @@ MODMAP_START equ MODD_START + MODD_SIZE   ; no Dock module (SPEC.md 30.5)
                                           ; own: it rides in the cloner's
                                           ; (SPEC.md 20.15.3)
 
-%ifdef DOCK_OPT
-MODMAP_START equ MODK_START + MODK_SIZE
+%ifdef DOCK_OPT                           ; DOCK_OPT is KERN_BIG, so
+MODX_START   equ MODK_START + MODK_SIZE   ; EXTD.DRV (SPEC.md 39.19.6) is
+MODMAP_START equ MODX_START + MODX_SIZE   ; always the last image there
 %endif
 
+%ifdef KERN_BIG
+section .modx
+modx_end:
+MODX_SIZE equ modx_end - $$
+%endif
 %ifdef DOCK_OPT
 section .modk
 modk_end:
@@ -7912,6 +7945,9 @@ mod_map:
 %endif
 %ifdef DOCK_OPT
     dd MODK_START, MODK_SIZE    ; optional advanced Dock (kern_big)
+%endif
+%ifdef KERN_BIG
+    dd MODX_START, MODX_SIZE    ; the extended desktop (SPEC.md 39.19.6)
 %endif
     dd MODMAP_START             ; ...where the table began, and
     dw 0x384F                   ; the last two bytes of the file

@@ -354,7 +354,7 @@ kilobyte of that is SPEC.md 22.6.2's `DSK_NENT` cut, which took `.lowbss`
 reporting 639KB has ~528 KB under `kern_big` before any driver or read-ahead
 claim.
 
-**Not in the span**: the boot overlay (`.ovl` 1,832 bytes in stage 2's blob,
+**Not in the span**: the boot overlay (`.ovl` 1,837 bytes in stage 2's blob,
 `.ovlw` 5,104 bytes loaded onto the FAT window and `dsk_secbuf`, both
 dead by the first desktop — see below; on `kern_small` the split is a BUILD
 CHOICE and reads 1,942 / 1,502, SPEC.md §2.5.3.2), the on-demand modules (files read
@@ -862,7 +862,7 @@ it is two sections, because the two halves die at different times:
 
 | | bytes | lives until | lands on | reached by |
 |---|---:|---|---|---|
-| `.ovl` | 1,832 | `spl_finish` | stage 2's blob, at `OVL_AT` = 2,624 of `BOOT2_PAD` = 4,608, so **152 bytes** spare | `[spl_fseg]`, the pair of §2.9.5.1 — or `BLOBCALL` from a caller already in the blob |
+| `.ovl` | 1,837 | `spl_finish` | stage 2's blob, at `OVL_AT` = 2,624 of `BOOT2_PAD` = 4,608, so **147 bytes** spare (152 until EXTD.DRV's boot call, SPEC.md 39.19.6) | `[spl_fseg]`, the pair of §2.9.5.1 — or `BLOBCALL` from a caller already in the blob |
 | `.ovlw` | 5,104 | **the first mount** | `FAT_SEG`, off the kernel's own contiguous read, spilling into `dsk_secbuf`, the one mount-owned buffer left (4,608 + 512 = 5,120 bytes, all readable — SPEC.md §2.1.2), so **16 bytes** spare | `call FAT_SEG:`, a constant |
 
 Those are kern_big's figures (`tools/kernsize.py --json`). On `kern_small`
@@ -983,7 +983,9 @@ the reason rather than a silent one (§47 rule 3).
 **An ON-DEMAND MODULE** (§2.8, `kernel/mod.inc`) — kernel code cut out of
 `KERNEL.SYS` into a file, read into a heap claim when the feature is asked
 for and freed when it is done: `CTRL.DRV`, `FORMAT.DRV`, `CLONE.DRV`,
-`HIBER.DRV` (which carries the compressor too, §20.15.3), and on `kern_small`
+`HIBER.DRV` (which carries the compressor too, §20.15.3), on `kern_big`
+`DOCK.DRV` and `EXTD.DRV` (§30.5, §39.19.6 - the second held for as long as
+the desktop is extended rather than for one action), and on `kern_small`
 `FILECP.DRV` and `FDLG.DRV` too. What stays resident is the menu item, the greying predicate and the
 thunks (`MOD_NENT` = 7 far-pointer slots per module). A feature qualifies
 when the system disk is already required to use it, or can be required

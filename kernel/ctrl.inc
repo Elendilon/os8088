@@ -4012,12 +4012,37 @@ cp_vid_click:
     ; close (SPEC.md 31.8). NOTHING IS REDRAWN, for the Activate button's
     ; reason one screen up: vid_disp_init moves the desktop and re-fits every
     ; window, so DI/BP describe a rectangle that may no longer exist.
+    call COLD_SEG:exf_sync      ; Extend: EXTD.DRV FIRST (SPEC.md 39.19.6)
+    jc .mref                    ; refused, and [vid_dmode] is Single again
     call KERNEL_SEG:vid_disp_relayout
+    call COLD_SEG:exf_sync      ; Single: the image goes AFTER the collapse
     mov byte [cp_wdirty], 1
     mov byte [cp_dirty], 1
     mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
 %endif
     jmp short .done
+
+%ifdef KERN_BIG
+.mref:                          ; EXTD.DRV refused (SPEC.md 39.19.6): the
+    push cx                     ; panel's own load string - put the system
+    push si                     ; disk in. The radio still reads Single,
+    push es                     ; [vid_dmode] having been put back, and
+    push ds                     ; nothing moved.
+    pop es                      ; **NOT CPSTAGE**: cp_s_noload is RESIDENT -
+    mov si, cp_s_noload         ; cp_open_x's refusal letters it with no image
+                                ; loaded, and disk.inc stamps its drive at the
+                                ; mount - so it is DS's, and cp_stage reads
+                                ; [cs:si], THIS IMAGE at that offset. The
+                                ; first build did exactly that and toasted an
+                                ; empty string; tests/extdmod.py's arm B is
+                                ; what saw it
+    xor cx, cx
+    call KERNEL_SEG:cw_toast_show
+    pop es
+    pop si
+    pop cx
+    jmp .done
+%endif
 
 .rows:                          ; --- the radio rows ---
     cmp dx, CPV_B0Y1
