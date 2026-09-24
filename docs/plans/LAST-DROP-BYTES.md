@@ -742,6 +742,11 @@ justification.
 
 #### 7.7.7 OPEN — the SIXTEEN refusal cells `kern_small` carries for features it does not have (128 bytes of table, plus their bodies)
 
+*Since kernel size pass 4 three of the sixteen (`gfx_line`, `gfx_lstep`,
+`gfx_lstepv`) are DELETED and the table has two cell sizes (SPEC.md 20.3), so
+the 8-byte arithmetic below is the old table's: the thirteen left cost 6 bytes
+each if rare and 7 or 8 if hot.*
+
 **SPEC.md §20.8 rule 4 says a slot's cell exists in BOTH kernels and the small
 one refuses**, so that a package built against `kern_big`'s SDK gets a refusal
 rather than a wrong routine. That rule has a standing price nobody had
@@ -761,7 +766,11 @@ and `osapi_mouse_feed`.
 
 **Two constraints make it hard, and the second is the one that is not obvious.**
 
-1. **Only a TAIL cell can be retired without holing the table.** Retiring one
+1. **Only a TAIL cell can be retired without holing the table.** *(True of
+   the uniform 8-byte table this was written against. Kernel size pass 4
+   renumbered the whole table when it went to two cell sizes, and a withdrawn
+   cell is now deleted wherever it sits — SPEC.md §20.3.1; the renumber this
+   item priced has been paid.)* Retiring one
    in the middle leaves a hole that SPEC.md §20.3.1's free list has to carry;
    retiring the last one SHRINKS the table and the free list stays empty. This
    tree has shrunk the tail three times — `OSAPI_MEM_COMPACT_WAKE` became

@@ -26,13 +26,19 @@ place that knows - so a slot's address is its file offset plus that, and the cel
 can simply be decoded:
 
     OSAPI_SLOT   1E 0E 1F  E8 lo hi  1F CB     push ds/push cs/pop ds/
-                                               call near/pop ds/retf
-    OSAPI_CSLOT  1E E8 lo hi  1F CB  tt tt     push ds/call api_sc/pop ds/
-                                               retf/dw <cold target>
-    OSAPI_JSLOT  E9 lo hi  00 00 00 00 00      jmp near <stub>
-    OSAPI_X/CX/NCELL 55 BD tt tt E9 lo hi 00   push bp/mov bp,<target>/
-                                               jmp near api_x|api_xc|api_n
-    OSAPI_FARCELL 9A tt tt ss ss  CB  00 00    call COLD_SEG:<target>/retf
+                                               call near/pop ds/retf (hot, 8)
+    OSAPI_XCELL  55 BD tt tt E9 lo hi          push bp/mov bp,<target>/
+                                               jmp near api_x   (hot, 7)
+    OSAPI_R*     55 E8 lo hi tt tt             push bp/call api_r<kind>/
+                                               dw <target>      (rare, 6)
+    OSAPI_JCELL  E9 lo hi                      jmp near <stub>  (3)
+    OSAPI_FCELL  9A tt tt ss ss CB             call COLD_SEG:<target>/retf (6)
+
+The cells are VARIABLE LENGTH since kernel size pass 4 (SPEC.md 20.3), so
+the table is walked by each cell's decoded length and never by a stride.
+For a rare cell the `E8` displacement names WHICH body (api_rs, api_rx,
+api_rxc, api_rn, api_rsc), and the body decides the section the `dw` target
+is resolved in.
 
 THE BP FAMILY'S TARGET IS THE `BD` IMMEDIATE, NOT THE `E9` DISPLACEMENT.
 The jump goes to the family's ONE shared body, which is the same address for
@@ -40,8 +46,8 @@ every cell of it; decoding it as the target would make check 6 fail on every
 one of them and check 4 pass for the wrong reason.  What the `E9` DOES say
 is WHICH body, and that decides the segment the target lives in: `api_x`
 near-calls a `.text` routine, `api_xc` and `api_n` far-call a `.cold` one
-through `api_far` (SPEC.md 20.3.2).  A CSLOT's word and a FARCELL's offset
-are `.cold` by construction, and a FARCELL's segment word must BE COLD_SEG -
+through `api_far` (SPEC.md 20.3.2).  An FCELL's offset is `.cold` by
+construction, and its segment word must BE COLD_SEG -
 a cell that far-calls anywhere else is a cell somebody has mistyped.
 
 So a target is resolved in the section its shape names, never "somewhere in
@@ -59,7 +65,8 @@ between what the source says and what got assembled.
 SIX THINGS ARE CHECKED, and the last is the one worth the file.
 
   1. No two published names share an address, and no name is published twice.
-  2. Every address is a real cell: 0x0010 + 8n, inside the table.
+  2. Every address is a real cell boundary, walking the table by each
+     cell's decoded length (8, 7, 6 or 3 bytes - SPEC.md 20.3).
   3. Every cell decodes to one of the two shapes above - a cell that is
      neither is a table somebody has written data into.
   4. Every call target lands on a real `.text` symbol.  A displacement into
@@ -107,7 +114,7 @@ from harness import check, eq, done                       # noqa: E402
 import os88build                                       # noqa: E402
 
 TABLE_BASE = 0x0010
-CELL = 8
+CELL = 8                # the LONGEST cell: the decode window, not the stride
 
 # Cells that exist in the kernel and are deliberately NOT published by this
 # branch's SDK. 0x01B8..0x01C8 are `main`'s three paragraph-counting arena
@@ -253,7 +260,7 @@ def decode(blob, addr, bodies, cold_seg):
     if c[0:3] == b"\x1e\x0e\x1f" and c[3] == 0xE8 and c[6:8] == b"\x1f\xcb":
         return "SLOT", rel(addr + 6, 4), ".text"
     if c[0] == 0x55 and c[1] == 0xE8:
-        # PROTOTYPE: the 6-byte rare cell, push bp / call <kind> / dw target
+        # the 6-byte RARE cell (SPEC.md 20.3): push bp / call <kind> / dw target
         body = rel(addr + 4, 2)
         kind = {bodies.get("api_rs"): ("RSLOT", ".text"),
                 bodies.get("api_rx"): ("RXCELL", ".text"),
@@ -331,7 +338,7 @@ def main():
     for addr, (name, _) in sorted(by_addr.items()):
         check(addr in startset,
               "%s at 0x%04X is not a cell boundary" % (name, addr),
-              "cells are 8 bytes from 0x%04X; a misaligned address lands "
+              "cells are walked by length from 0x%04X; a misaligned address lands "
               "mid-cell and far-calls into the middle of a DS switch" % TABLE_BASE)
 
     # 3/4/6. shape, target, and the name/routine agreement

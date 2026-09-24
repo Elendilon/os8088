@@ -2762,10 +2762,17 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
 ; =============================================================================
 ; os8088 API jump table (SPEC.md 20.3)
 ;
-; Loaded programs FAR-call these pinned absolute offsets: 8-byte cells at
-; 0x0010 + 8n, each one a complete DS switch around a near call into the
-; kernel routine named in the comment. The slot order below IS the ABI -
-; never reorder.
+; Loaded programs FAR-call these absolute offsets, starting at 0x0010. Since
+; kernel size pass 4 there are TWO cell sizes (SPEC.md 20.3): a HOT cell -
+; one some package calls per frame, per draw or per event - keeps the 8-byte
+; OSAPI_SLOT (or the 7-byte OSAPI_XCELL), the fastest segment switch there
+; is; every other cell is the 6-byte rare form, `push bp / call api_r<kind> /
+; dw target`, which trades ~18 us a call for two bytes. The offsets are
+; therefore NOT 0x0010 + 8n: apps/os88api.inc is the address map, and
+; tests/unit/t_api_abi.py decodes this table by cell length and checks every
+; published name against it. The order below IS the ABI for as long as it
+; stands; renumbering it is a flag day that rebuilds every package in the
+; tree (SPEC.md 20.8 rule 4).
 ;
 ; Why 8 bytes and a DS switch. Since SPEC.md 20.1 a package lives in its OWN
 ; segment, so CS and DS are the package's on the way in and must be the
@@ -2786,7 +2793,7 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
 ;      for by a data buffer - the stub STAGES the name into kernel scratch,
 ;      the dsk_get_dir idiom of SPEC.md 2.1
 ; =============================================================================
-%macro OSAPI_SLOT 1                 ; 8 bytes exactly
+%macro OSAPI_SLOT 1                 ; 8 bytes exactly (a hot cell)
     push ds
     push cs
     pop ds
@@ -2795,30 +2802,7 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
     retf
 %endmacro
 
-%macro OSAPI_JSLOT 1                ; a cell that defers to a longer stub
-    ; STRICT, and the whole slot depends on it. Without it NASM shortens the
-    ; jump to EB rel8 whenever the target is within 127 bytes - which
-    ; api_icon_draw became - and the slot emits 2 + 5 = SEVEN bytes. The
-    ; padding here is a fixed `times 5`, so it cannot absorb the difference:
-    ; every slot after the shortened one slides down a byte and answers at the
-    ; wrong address. That is the whole reason the length assertion below
-    ; exists, and it is what caught this.
-    jmp strict near %1              ; E9 rel16 = 3 bytes, always
-    times 5 db 0
-%endmacro
-
-; ...and the X and N families, whose cells differ ONLY in which routine they
-; call - so the cell carries that routine in BP and there is one body each,
-; not one per cell (SPEC.md 20.3). Still exactly 8 bytes, so no published
-; offset moves; the five spare bytes a JSLOT padded with are what pays for it.
-;
-; BP IS THE MACHINE'S EXISTING CONVENTION for "the near proc I want you to
-; call": PKG_DISP is `call bp / retf` in every .o88 header and cw_mem_disp is
-; the same three bytes. No cell takes BP as an input - the three slots that
-; document BP as an argument (OSAPI_GFX_BLIT4/_BLITP/_BLIT1) are plain
-; OSAPI_SLOTs and OSAPI_DRV_CALL publishes "BP, DS and ES come back yours".
-; Seven of the forty targets use BP internally and all seven push it first.
-%macro OSAPI_XCELL 1                ; 8 bytes exactly: %1 is a .text routine
+%macro OSAPI_XCELL 1                ; 7 bytes: %1 is a .text routine (hot)
     push bp                         ; 55        the CALLER's, under the frame
     mov bp, %1                      ; BD lo hi
     jmp strict near api_x           ; E9 lo hi
@@ -2827,58 +2811,25 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
 ; **A CELL WHOSE ROUTINE IS `.cold` NAMES THE COLD BODY** (SPEC.md 20.3.2).
 ; It used to name a resident thunk - `foo: call COLD_SEG:foo_x / ret`, six
 ; bytes of .text - and forty of those thunks were reached by NOTHING but their
-; own cell. The three shapes below reach the cold body through `api_far`
-; instead, one eight-byte trampoline that builds COLD_SEG:BP on the caller's
-; stack the way drv_pkg_disp builds a driver's far call: the body's own
-; `retf` returns through the far frame the `call KERNEL_SEG:api_far` pushed,
-; so the thunk's `call far` + `ret` pair is simply gone. `push` and `retf`
-; touch no flags, so a CF answer still survives. tests/unit/t_api_abi.py
-; decodes every one of these shapes out of kernel.bin.
-%macro OSAPI_CXCELL 1               ; 8 bytes exactly: X, %1 is a .cold routine
-    push bp
-    mov bp, %1
-    jmp strict near api_xc
-    db 0
-%endmacro
-
-%macro OSAPI_NCELL 1                ; 8 bytes exactly: N, %1 is a .cold routine
-    push bp                         ; (every N target is a file door, and the
-    mov bp, %1                      ; file modules are cold - so api_n is the
-    jmp strict near api_n           ; cold-calling body outright and there is
-    db 0                            ; no near N body at all)
-%endmacro
-
-; The plain SLOT's semantics - DS = KERNEL, ES and every register but the
-; answer untouched - for a cold routine. No register is free to carry the
-; target (BP is an INPUT to nothing here, but the SLOT contract does not
-; clobber it and the cell keeps that), so the cell carries it as DATA behind
-; its own `retf`, and api_sc reads the word off the return address that the
-; `call` pushed. The word is never executed: `retf` stands before it.
-%macro OSAPI_CSLOT 1                ; 8 bytes exactly: SLOT, %1 a .cold routine
-    push ds                         ; 1E
-    call api_sc                     ; E8 lo hi  DS = KERNEL, then COLD_SEG:%1
-    pop ds                          ; 1F
-    retf                            ; CB
-    dw %1                           ; lo hi     the target, read by api_sc
-%endmacro
-
-; ...and the one cell with NOTHING to do but cross: the routine takes the
-; caller's own DS and ES as arguments (lz_decomp_x's DS:SI and ES:DI), so the
-; far call IS the whole cell. 9A lo hi seg seg CB, and two bytes over.
-%macro OSAPI_FARCELL 1              ; 8 bytes exactly: the cell is the far call
-    call COLD_SEG:%1
-    retf                            ; neither far return touches the flags
-    times 2 db 0
-%endmacro
+; own cell. The rare cold shapes below (RCXCELL, RNCELL, RCSLOT) reach the
+; cold body through `api_far` instead, one trampoline that builds COLD_SEG:BP
+; on the caller's stack the way drv_pkg_disp builds a driver's far call: the
+; body's own `retf` returns through the far frame the `call KERNEL_SEG:
+; api_far` pushed. `push` and `retf` touch no flags, so a CF answer still
+; survives. No hot cell's routine is `.cold`, so there is no 8-byte cold
+; shape any more. OSAPI_FCELL is the one cell with nothing to do but cross:
+; lz_decomp_x takes the caller's own DS:SI and ES:DI, so the far call IS the
+; whole cell. tests/unit/t_api_abi.py decodes every one of these shapes out
+; of kernel.bin.
 
 ; **`apic_*` NAMES A CELL, for a caller inside the kernel**
 ; (docs/plans/MODULE-SELFCONTAIN-PLAN.md 5). An on-demand module runs from a
 ; heap claim with a CS of its own, so it reaches kernel code through a far
 ; call - and where a cell ALREADY publishes the routine it wants, that cell is
-; the door and the private `cw_*` shim below is a second one. A cell is EIGHT
-; bytes and a shim is four, so this is only ever worth doing where the cell
-; exists already: publishing a routine in order to delete its shim spends 8 to
-; save 4 and commits the SDK for ever.
+; the door and the private `cw_*` shim below is a second one. A new cell is at
+; least six bytes (the rare form) and a shim is four, so this is only ever
+; worth doing where the cell exists already: publishing a routine in order to
+; delete its shim spends 6 to save 4 and commits the SDK for ever.
 ;
 ; The label is what makes it safe to say. A `%define` of the slot NUMBER would
 ; be that number written down twice - tests/unit/t_mirror.py's whole subject -
@@ -2891,7 +2842,7 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
 ; survives. `OSAPI_XCELL` additionally sets ES = the caller's DS and restores
 ; it, which for a module is ES = KERNEL_SEG - what a kernel-owned template
 ; wants, and what the one XCELL caller here used to do by hand.
-; ---- PROTOTYPE (kernel size pass 4, glue): variable-length cells ------------
+; ---- the RARE cells (SPEC.md 20.3): six bytes, the target behind the call ----
 %macro OSAPI_RCELL 2                ; 6 bytes: push bp / call <kind> / dw target
     push bp
     call %1
@@ -4463,12 +4414,12 @@ api_xc:
     call KERNEL_SEG:api_far     ; COLD_SEG:BP, and the body's retf lands here
     jmp short api_x.done
 
-; The cold-SLOT body (OSAPI_CSLOT): DS = KERNEL and NOTHING else changed,
-; which is the plain SLOT's contract. The cell is `push ds / call api_sc /
-; pop ds / retf / dw target`, so the target sits two bytes past the return
-; address this call pushed - [bp+2] on the stack is that address, and the
-; word two past it is the cold offset. BP is the only register borrowed and
-; it goes back before the ret; BP is an INPUT to no cell of this shape.
+; The rare SLOT bodies (OSAPI_RCSLOT for a .cold routine, OSAPI_RSLOT for a
+; .text one): DS = KERNEL and NOTHING else changed, which is the plain SLOT's
+; contract. The cell is `push bp / call api_rs[c] / dw target`, so the return
+; address the call pushed IS the address of the target word: pop it, read
+; the word through CS, and the BP the cell pushed is what the `pop bp` before
+; the retf gives back. BP is an INPUT to no cell of this shape.
 api_rsc:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the target word's address, and the push bp the cell made is the frame
     pop bp
     mov bp, [cs:bp]

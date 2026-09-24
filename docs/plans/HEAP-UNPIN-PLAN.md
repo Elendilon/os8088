@@ -1044,8 +1044,9 @@ that will bite:
    interpreter it is not, and Frotz will not declare.
 
 **What it costs the SDK.** One appended API cell. `kernel/kernel.asm:3849`
-asserts the table is exactly 161 8-byte slots, so the assert and the SDK mirror
-change — but **appending moves no published offset, so no package needs
+asserted the table was exactly 161 8-byte slots when this was written (it
+asserts only the table's start now, and cells come in two sizes — SPEC.md
+20.3), so the SDK mirror changes — but **appending moves no published offset, so no package needs
 rebuilding**, and a package built before this simply never declares and stays
 pinned. One word per instance for the offset (`INST_MAX*2` = 24 bytes of `.bss`,
 a side table like `inst_parksafe`, because `I_RECSZ` is full).
@@ -2019,7 +2020,7 @@ past it and it is an ABI change.
 ### 10.10 Piece F — a worker-owning region moves, and the worker comes back
 
 **BUILT. SPEC.md 66.6.2 is the contract.** `OSAPI_TASK_RESTARTABLE`
-(`inst_restart_set`, slot `0x0518`) declares a near offset; `mem_frameless`
+(`inst_restart_set`, slot `0x0401`) declares a near offset; `mem_frameless`
 accepts a region whose worker has one **and is parked**; `mem_wk_restart` finds
 the instance at the new base and `sch_wk_restart` rebuilds the frame.
 
