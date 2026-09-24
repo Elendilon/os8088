@@ -47973,6 +47973,56 @@ were left set.
 the A/B, and it is what still exercises `[wd_sbkeep]` — leg D of that gate used
 to BE the refusal.
 
+#### 27.7.2.3 …and it keeps the rows it shifted
+
+An upward scroll letters the rows it exposes at the top (the band, `[wd_bd0]`
+to `[wd_bd1]`). It carries every other row down with a blit, and
+`wd_shiftrows` moves their `wd_rows`, `wd_sig` and `wd_ryb` entries with them.
+Those rows are still described. But the walk that letters the band is bounded
+at `[wd_bd1]`, and a bounded walk that did not resume from a seed sets
+`[wd_rowsn]` to the row it stopped on (`wd_walk`'s `.stop`, §27.7). For a
+scroll that LOWERS the table: after a PageUp to the top it read 14 of 25 rows. The code
+after the walk only ever raised `[wd_rowsn]`, and only to the band's end.
+
+The cost was every caret key below the cut. `wd_seedrow` refuses a row past
+`[wd_rowsn]`, and §27.4.13's bank refuses a target row off the table. So a
+Down from row 14 onward measured, sought and redrew with no seed:
+**0.9–1.25 s a keystroke on a 5150**, for rows the table had described all
+along. It was intermittent in `wddrag` leg E only because the test's own
+history decided whether its last scroll had been an upward page.
+
+`wd_scrollpaint` now banks `[wd_rowsn]` as it finds it (`[wd_srsn]`, 0 if
+`[wd_rowsok]` was clear). After an upward scroll it raises the table to the
+old rows plus |d|, capped at `[wd_vrows]`, which is how far `wd_shiftrows`
+carries it. Leg E asserts the table covers the glass after the PageUp:
+without the raise it reads 14 against 20 rows on the glass, and a Down takes
+1,252 ms. With the raise, the slowest Down through the note is the known
+578 ms scroll at top 13.
+
+#### 27.7.2.4 …and a downward scroll moves the rows by the heights that left
+
+A formatted downward scroll paint computed its blit as `ryb[d] − ryb[0]`.
+That lands row d at old row 0's glyph y, which assumes the two rows have the
+same height. They don't when the row arriving at the top carries different
+space: a row's extra height (its line spacing, its paragraph's space-before)
+sits ABOVE its glyphs (`wd_advy`: row r's glyphs are at `ryb[r−1] + h(r)`,
+and row 0's at `ty + h(0) − gh`). So a drag that auto-scrolled a heading up
+to the top left the whole view 8 px too high, which is that heading's
+space-before. A full repaint at the same `[wd_top]` disagreed by 20,000–46,000
+pixels. §27.8.2.6's deselect is what exposed it. The old slow deselect
+re-lettered the view and hid the offset; the fast one XORs in place, so
+`tests/wdunsel.py` leg H reads the glass as the drag left it. It failed 4 to
+8 attempts in 16 under load.
+
+The retained rows move by the heights of the rows that left, rows 0..d−1:
+`ryb[d−1] + [wd_gh] − [wd_ty]`, the band bottom of the last row leaving,
+less the view's top. The form before `ryb[d] − ryb[0]` was this one with a
+literal 8 in place of `[wd_gh]`. That is the substitution §68.6.2 made in the
+walk's own copies of the arithmetic, and the likeliest reading of the 16 px
+that form was measured short over a paragraph with a gap (not re-measured). After the change, 16 scrolling
+drags at tops 3 to 10 each equal a repaint to the pixel, and leg H passed
+64 attempts of 64 under load.
+
 ### 27.7.3 The height is counted a chunk at a time
 
 §27.7.1 bounded every walk that draws to the bottom of the view, which left
@@ -48634,6 +48684,73 @@ The bytes came from a shared epilogue ladder (`wd_rdisdcba` / `wd_rsdcba` /
 `wd_rdcba`: 88 procs end in one jump instead of five to seven bytes of pops),
 and `wd_shl3` for thirteen inline copies of ×8. Word lives against
 `APP_MAX_SIZE`, and that is where the room came from.
+
+#### 27.8.2.6 A deselect takes the highlight off with the XORs that put it on
+
+A click that cleared a selection re-lettered every row the selection covered,
+and on the way it walked the view twice. A 6-row selection took 1.5 s on a
+5150 and a 15-row one 2.2 s, whatever the rows held. Yet every selected row
+reached the glass the same way: upright glyphs, then **one XOR fill** over its
+selected span (`wd_selxor`, or the selection-only delta of §27.8.2). A second
+fill over the same rectangle restores the row exactly, and no layout is needed
+to know where the fill went.
+
+So the glass's inversion is banked as it is drawn. `wd_sxr` holds one dword
+per visible row: the first and last pixel column inverted, or 0 for none.
+`wd_sxrec` writes an entry for every row `wd_rflush` puts on the glass,
+including an empty row, while that row's own `wd_px[]` is still in place.
+`wd_shiftrows` carries the entries with `wd_sig`, `wd_rows` and `wd_ryb` when
+a scroll blits the view; the y is not stored, because `wd_ryb[r]` is exactly
+the band the fill used. The bank lives in **part 1** (§68.10), 240 bytes of
+the segment's top, so part 0's slack is untouched.
+
+`wd_sxdesel` replays it. `wd_onclick` calls it right after `wd_selclr` and,
+when it succeeds, drops `[wd_kr0]`/`[wd_kr1]`. Those are the rows §27.8.4
+makes a click walk to un-invert, so without them the click is an ordinary
+caret move. `wd_redraw`'s normal path calls it too, for any other caret move
+that clears a selection.
+
+**A click INSIDE the selection is the other door, and the one a hand uses
+most.** `wd_onclick` hands such a press to `wd_dragmove`, because it may be
+the start of a drag-and-drop, and a release that never left the dead zone is
+resolved there as a click. That branch cleared the selection and called
+`wd_redraw` with no kind at all: a two-pass repaint of the view, 2.5 s and 52
+rows flushed on a 5150, and 31 rows for a selection of part of ONE line. It
+was reported from the field three ways: a click in the middle of a large
+selection, a click inside a partial line, and a click in the gap under
+WELCOME.DOC's flush-right line after a drag that scrolled past it. The gap
+names the next row, so that click also lands inside the selection. The branch
+now banks the index the caret leaves, tries `wd_sxdesel`, and on success is a
+plain caret move through `wd_clickcm`, exactly as `wd_onclick` is. It does so
+only when the pointer never left the dead zone, so nothing has drawn or
+scrolled since the press and `[wd_cmrow]` still names its row. It applies only while `[wd_rowsok]` holds and
+`[wd_top]` = `[wd_ptop]`, and to a row only when that row is on the glass,
+inside the table, and meets the selection the screen shows.
+
+**The rows it clears keep their signatures**, and a signature folds a
+selected cell differently (§27.8). The fold is a rotate-and-add chain, which
+does not distribute over addition, so the unselected signature cannot be
+derived without a walk. The next walk that passes such a row reads it as
+changed and letters it once, upright. That is correct, and it is paid only by
+rows something later walks anyway.
+
+Measured on the Hercules 5150, `tests/wdunsel.py`:
+
+| | before | after |
+|---|---:|---:|
+| a 16-row selection, clicked below | — | 221 ms (a plain click there: 124) |
+| the same selection and click, A/B in one boot | 1,226 ms | 168 ms |
+| a chosen face | — | 121 ms |
+
+Each fill costs about 6 ms a row there. It is 56 bytes of part 0 and 457 of
+part 1, 240 of them the bank. The gate compares every leg's glass with a
+repaint that the scroll bar forces, which moves no caret: ragged ends, a
+drag that auto-scrolled, Downs across the cleared rows, a chosen face, and
+the refused arm, and legs F to H for the three inside-selection clicks. Three
+breaks were confirmed red. Without the shift, the scrolled drag reads 12,992
+pixels off. With the span one cell short, every leg is off. With
+`wd_dragmove`'s branch back on the old path, F to H flush 45, 31 and 50
+rows.
 
 ### 27.8 A selection, and the two things a drag can mean
 

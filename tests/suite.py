@@ -6744,7 +6744,33 @@ SOAK = [
         "wd_pastend taken out. Leg E is SPEC.md 27.4.12: Down through the "
         "whole note, every keystroke under 900 guest ms - after a one-row "
         "scroll the next Down read the stale tables past the glass as rows "
-        "that moved and repainted the window, 2,284 ms with the guards out.",
+        "that moved and repainted the window, 2,284 ms with the guards out. "
+        "It also asserts SPEC.md 27.7.2.3 as a STATE: after the PageUp to the "
+        "top the row table covers the glass - an upward scroll paint's walk "
+        "cut [wd_rowsn] to its band, 14 of 25, and every Down below it paid "
+        "0.9-1.25 s, which is why this leg failed intermittently: whether it "
+        "did depended on the leg's own last scroll. Red without the raise "
+        "(14 against 20, and a 1,252 ms Down).",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WELCOME.DOC")),
+    Row("wdunsel", "soak", py("tests/wdunsel.py"), 360.0,
+        "SPEC.md 27.8.2.6: A DESELECT TAKES THE HIGHLIGHT OFF WITH THE XORS "
+        "THAT PUT IT ON. A click that cleared a selection re-lettered every "
+        "row it covered and walked the view twice (1.5 s for six rows on a "
+        "5150); every selected row reached the glass as upright glyphs plus "
+        "one XOR fill, so wd_sxrec banks each visible row's inverted span, "
+        "wd_shiftrows carries the bank on a scroll and wd_sxdesel replays it. "
+        "Every leg compares the glass with a repaint the scroll bar forces: "
+        "A ragged ends (and the click costs a plain click plus its fills), B a "
+        "drag that auto-scrolled, C Downs across the cleared rows, D a chosen "
+        "face, E the refused arm as an A/B in one boot (168 ms against 1,226 "
+        "on a Hercules), F-H a click INSIDE the selection - wd_dragmove's "
+        "release, which redrew the view twice (2.5 s, 52 rows; 31 for part "
+        "of one line): most of the page, part of a line, and the field's gap "
+        "under the flush-right line after a scrolling drag. Red with the "
+        "shift taken out (B, 12,992 pixels), with the span one cell short "
+        "(every leg), and with wd_dragmove's branch on the old path (F-H, "
+        "45/31/50 rows). Measured at 342s.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
     Row("wdparts", "soak", py("tests/wdparts.py"), 45.0,
