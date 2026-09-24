@@ -31432,7 +31432,7 @@ the file's size.
 |---|---|
 | `SI` | a NUL 8.3 name in the current directory |
 | `ES:BX` | the bytes |
-| `CX` | how many — at least 1, and a multiple of **512** unless the write reaches the end of the file (§18.4.7.2) |
+| `CX` | how many — a multiple of **512** unless the write reaches the end of the file (§18.4.7.2). **0 truncates** (§18.4.7.5, `kern_big`) |
 | `DX:AX` | the byte offset — a multiple of the volume's **cluster** |
 
 Out `CF=0` with `AX=0`, or `CF=1` with `AX = FERR_*`.
@@ -31557,6 +31557,34 @@ entries: **395 bytes of that kernel** (`.text` −11, `.bss` −1, `.cold` −38
 The append door keeps the whole body; it only ever arrives with the size for
 an offset, which is the allocated end by its own precondition, so the arm the
 stub removes is one it could never reach.
+
+#### 18.4.7.5 A count of ZERO truncates
+
+**`CX = 0` means the file ENDS at the offset** — DOS's own spelling of it,
+`AH=40h` with `CX=0` (§96.11.6.2), arriving one layer down. The offset is
+still a cluster multiple, it may not be past the file's size (the growing door
+is the one above), and the file keeps `offset / cluster` clusters and takes
+the offset as its size. The ENTRY is written first and the FAT after, which is
+`dskw_dbody`'s order and §18.4's reason for it: a crash between the two leaks
+the freed clusters, where the other order would leave an entry naming clusters
+the allocator may hand to somebody else. A chain shorter than the entry's size
+says is refused `FERR_IO` before anything is written.
+
+**It is 106 bytes of `.cold` on `kern_big` and nothing else** — measured with
+and without at one commit: `.text` and `.bss` byte-identical, no cell and no
+shim, because the door is `OSAPI_FILE_WRITE_AT`'s and everything in front of
+it — the mount, the redirected-volume refusal, the name, the entry, the
+protection mask, the cluster size and the offset's alignment — is that
+body's, already paid for. `kern_small` has no write-at door and carries none
+of it (§18.4.7.4). It is what the DOS box costed at 285 resident bytes as a
+slot of its own and refused (docs/plans/DOS-EXEC-PLAN.md §15.12) — the cost
+was the lookup, and a zero count is the one argument the lookup was already
+refusing.
+
+Its first consumer is streamed Compress (§22.22.5). Before it, a count of 0
+was `FERR_NAME` — *"the caller has miscomputed"* — and nothing in the tree
+passes one: the DOS box's flush returns on an empty window before it gets
+here.
 
 #### 18.4.7.1 What it cost, and where
 
@@ -44026,33 +44054,44 @@ does not and every one of these holds:
   whole clusters on both (§18.4.4);
 - the heap holds the windows at the smallest dial.
 
-**TWO PASSES, BECAUSE THE CUT COMES LAST.** The stream is cut at the first peak
-of the lead and everything after it is thrown away and sent raw (§20.15.2), and
-where that peak is is not known until the end. Keeping everything after the
-current cut in memory would bound nothing — a stretch of noise in the middle
-of a file holds the cut still for as long as it lasts — and writing it and
-taking it back would need a truncate this file layer does not have. So:
+**ONE PASS, AND THE CUT IS DEALT WITH AT THE END.** The stream is cut at the
+first peak of the lead and everything after it is thrown away and sent raw
+(§20.15.2), and where that peak is is not known until the end. So the pass
+writes as it goes — each 16KB of output as the window slides, the first with a
+WRITE (so `dskw_czstamp` sees the `'CZ'` header, which sits in the paragraph
+in front of the window) and the rest with APPENDs, whose rule (the file a
+whole number of clusters) the 16KB chunks keep — to `CMPRESS~.TMP` in the same
+folder, named in `fm_ebuf` (the status line's edit buffer, idle while a menu
+verb runs, and in `DS` where the file layer wants a name). At the end:
 
-1. **Pass 1** parses the whole file through the windows and keeps only the
-   numbers: the cut, the tail and the packed length. A refusal — not smaller,
-   `Its end won't compress` — costs one read of the file and writes nothing.
-2. **Pass 2** parses it again. It is the same parse byte for byte — same
-   bytes, same tables, same slides — so it reaches the cut on a symbol
-   boundary with the output exactly where pass 1's was, and stops there. Each
-   16KB of output is written as the output window slides, the first with a
-   WRITE (so `dskw_czstamp` sees the `'CZ'` header, which sits in the
-   paragraph in front of the window) and the rest with APPENDs, whose rule
-   (the file a whole number of clusters) the 16KB chunks keep until the last.
-   The tail then runs through the same two windows a byte at a time, and the
-   last partial chunk goes out.
-3. The **original is deleted and the new file renamed over it** —
-   `CMPRESS~.TMP`, in the same folder, named in `fm_ebuf` (the status line's
-   edit buffer, idle while a menu verb runs, and in `DS` where the file layer
-   wants a name). A rename patches the name in the staged entry, so the hint
-   survives it. A read-only original refuses the delete and the new file is
-   removed; a failed write removes the half-written one. The one gap is a
-   rename that fails after the delete, which leaves the result under the
-   temporary name, on the listing, and says the `FERR_*`.
+1. **The cut is still in the output window** — the common case, a file whose
+   lead keeps rising: `DI` goes back to it and the bytes past it are dropped.
+2. **The window has already written past it** — a stretch that would not
+   compress held the cut still for more than a window: the window goes out
+   whole, the cluster below the cut is read back, and the file is **truncated
+   there** (`OSAPI_FILE_WRITE_AT` with a count of 0, §18.4.7.5) — so the
+   window starts again exactly at the cut.
+3. **The tail**: the source window is refilled from the 16KB boundary below
+   the cut, and the raw tail goes through the same two windows a byte at a
+   time. The last partial chunk goes out, and the **T word** — written as 0
+   with the first 16KB — is put into the first sector in place, with the same
+   door.
+4. The **original is deleted and the new file renamed over it**. A rename
+   patches the name in the staged entry, so the hint survives it. A refusal at
+   the end — not smaller, `Its end won't compress` — or a failed read or write
+   deletes the new file; a read-only original refuses the delete and the new
+   file goes too. The one gap is a rename that fails after the delete, which
+   leaves the result under the temporary name, on the listing, and says the
+   `FERR_*`.
+
+It was two passes for a day — the first finding the cut and writing nothing,
+the second the same parse again, stopping at it — because without a truncate
+the only way to not write past the cut was to know where it was first. That
+was twice the parse on every streamed file for the sake of the rare one:
+**a 250KB file took 438 guest seconds in two passes and takes 238 in one**
+(`tests/lzbig.py`), and the one that does write past its cut — 230KB of text
+then 45KB of noise — takes 284 with the truncate and leaves a volume
+`os88disk --verify` passes.
 
 **The windows move by COPYING, not by moving a segment**, and that is the
 whole difference from a whole compress: `cmz_sslide` and `cmz_oslide` do the
@@ -44064,9 +44103,9 @@ window no longer holds it. A failed read or write unwinds from wherever it
 happened to `cmz_pack`'s own frame (`cmz_ioerr`) with the `FERR_*` for the
 caller to say.
 
-**What it costs is time**: two parses where whole makes one, at ~1,600 cycles
-a byte — a 250KB file is about three minutes of 4.77MHz 8088 where whole
-would have been one and a half, had it fitted. `kern_small` does not reach
+**What it costs is disk and a little time**: the result beside the original
+until the rename, and the windows' copying and refills on top of whole's one
+parse at ~1,600 cycles a byte. `kern_small` does not reach
 this path at all: 91KB of windows is more than its heap. The bar is scaled
 to both passes, and since every `dskw_*` call arms the widget to its own
 length and ends it (§12.8), `cmz_rearm` puts the verb's scale back after each
@@ -44085,9 +44124,9 @@ top of `cmz_pack` and drops it around everything that paints — each progress
 step (`cmz_prog`), each `cmz_rearm` — and around every read and write, which
 bracket their own `int 13h` and clear it after. `CMZ_TRACK` is the module's
 own macro, because the flag is kernel `.text` and the parse's `DS` is the
-source; `NOCURDISK=1` compiles it away. The streaming and this together
-cost `CLONE.DRV` **1,228 bytes of image** (6,488 → 7,716) and 901 of disk,
-measured, and the kernel nothing. Uncompress is a read and a write and tracks through both
+source; `NOCURDISK=1` compiles it away. All of §22.22.5 and this cost
+`CLONE.DRV` **1,402 bytes of image** (6,488 → 7,890) and 1,037 of disk,
+measured, and the kernel §18.4.7.5's 106 bytes of `kern_big` `.cold`. Uncompress is a read and a write and tracks through both
 already; the decode between them is inside the kernel's read and is not
 bracketed.
 

@@ -22,11 +22,17 @@ different half of what had to change:
 
   BIG3.TXT   250KB: too big to hold TWICE on a 640KB machine (the whole
              path wants 2U + 41KB), so Compress STREAMS it (SPEC.md 22.22.5)
-             - two passes through 48KB and 33KB windows and a new file that
-             takes the name at the end. Same byte-for-byte assertion: the
-             parse is the same parse, which is the whole design. That it
-             really streamed is read off fm_ebuf, which holds the temporary
-             name only if the streamed path ran.
+             - one pass through 48KB and 33KB windows, written as it goes to
+             a new file that takes the name at the end. Same byte-for-byte
+             assertion: the parse is the same parse, which is the whole
+             design. That it really streamed is read off fm_ebuf, which holds
+             the temporary name only if the streamed path ran - and its cut
+             stays in the output window, so the truncate must NOT run.
+  BIG4.TXT   230KB of text and 45KB of noise: the cut falls before the noise,
+             ~50KB of output before the end, so the window has written past it
+             and the file must be TRUNCATED back (OSAPI_FILE_WRITE_AT with a
+             count of 0, 18.4.7.5) - and the kernel's truncate is breakpointed
+             to prove it ran, exactly once.
 
 Then all three big files are uncompressed and must come back as the original
 bytes - the round trip is the only assertion that covers the decoder, the
@@ -50,6 +56,7 @@ or hand the verb a short read and a wrong answer.
 """
 import argparse
 import os
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
@@ -159,6 +166,74 @@ def watched(m, mo, wx, wy, fails):
         fails.append("the watched Compress of BIG2.TXT never finished")
 
 
+def streamed(m, mo, wx, wy, fl, name, want, trunc, fails):
+    """Compress `name` on the STREAMED path, counting the kernel's truncate.
+
+    `lzcomp.compress` waits on the toast, which a breakpoint would stop the
+    guest under - so this is its gesture with a wait of its own: every hit on
+    dskw_wabody's `.trunc` is counted and the machine let go again, until the
+    verdict is up.
+    """
+    os88marty.settle(m)
+    m.write(S("toast_buf"), b"\0")
+    m.write(S("fm_ebuf"), b"\0")
+    row = dispcp.row_of(m, S, name)
+    x, y = dispcp.row_xy(wx, wy, row)
+    mo.click(x, y)
+    os88marty.settle(m)
+    m.bp_exec("dskw_wabody.trunc")
+    lzcomp.menu_pick(m, mo, 1, lzcomp.FM_ICOMP)
+    hits, c0 = 0, int(m.status()["cycles"])
+    while True:
+        m.run()
+        st = m.wait_stop(limit=2.0)
+        if st == "breakpoint":
+            hits += 1
+            continue
+        t = lzcomp.verdict(m)
+        if t:
+            break
+        if (int(m.status()["cycles"]) - c0) / 4772727.0 > QUIET:
+            fails.append("%s: the streamed Compress never finished" % name)
+            break
+    m.bp_exec()
+    m.run()
+    say("   [%s took %.1f guest s]"
+        % (name, (int(m.status()["cycles"]) - c0) / 4772727.0))
+    os88marty.settle(m)
+    got = fl.volume(1).read(name)
+    eb = m.read(S("fm_ebuf"), 13).split(b"\0")[0]
+    ok = (t.startswith("Compressed") and got == want and
+          eb == b"CMPRESS~.TMP" and hits == trunc)
+    say("  %-9s %s  %r  (%d bytes, wanted %d; streamed %s, truncated %d "
+        "time(s), wanted %d)" % (name.split(".")[0].lower(),
+                                 "ok " if ok else "BAD", t, len(got),
+                                 len(want), eb == b"CMPRESS~.TMP", hits,
+                                 trunc))
+    if not ok:
+        fails.append("%s streamed: said %r, %d bytes against %d, fm_ebuf %r, "
+                     "the truncate ran %d time(s) where %d was the point"
+                     % (name, t, len(got), len(want), eb, hits, trunc))
+    names = [n for n, _ in dispcp.listing(m, S)]
+    if "CMPRESS~.TMP" in names:
+        fails.append("the streamed Compress of %s left CMPRESS~.TMP behind"
+                     % name)
+    # ...AND THE VOLUME IS STILL A VOLUME. A truncate that freed one cluster
+    # too few leaks it, and one too many cross-links the next file: the bytes
+    # of THIS file read back perfectly either way, so os88disk's fsck is asked
+    img = "/tmp/lzbig-fsck-%d.img" % os.getpid()
+    fl.save(1, img)
+    r = subprocess.run([sys.executable,
+                        os.path.join(HERE, "..", "tools", "os88disk.py"),
+                        "--verify", img], capture_output=True, text=True)
+    os.remove(img)
+    say("  fsck      %s  after %s" % ("ok " if r.returncode == 0 else "BAD",
+                                      name))
+    if r.returncode:
+        fails.append("the volume after streaming %s fails os88disk --verify: "
+                     "%s" % (name, (r.stdout + r.stderr).strip()[-300:]))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.parse_args()
@@ -170,9 +245,11 @@ def main():
     big2 = half_text(160000, 11)
     tail = half_text(40000, 3) + noise(70000, 5)
     big3 = half_text(250000, 13)
+    big4 = half_text(230000, 17) + noise(45000, 19)
     want1 = cz(os88lz.lzb_compress_machine(big1), len(big1))
     want2 = cz(os88lz.lzb_compress_machine(big2), len(big2))
     want3 = cz(os88lz.lzb_compress_machine(big3), len(big3))
+    want4 = cz(os88lz.lzb_compress_machine(big4), len(big4))
     try:
         os88lz.lzb_compress_machine(tail)
         sys.exit("lzbig: the mirror packs TAIL.DAT, so the refusal leg would "
@@ -199,6 +276,7 @@ def main():
         lzcomp.stage(d, "BIG2.TXT", big2),
         lzcomp.stage(d, "TAIL.DAT", tail),
         lzcomp.stage(d, "BIG3.TXT", big3),
+        lzcomp.stage(d, "BIG4.TXT", big4),
         size=1440)
     fails = []
 
@@ -239,18 +317,11 @@ def main():
             fails.append("big2 BIG2.TXT: %d bytes against %d"
                          % (len(got), len(want2)))
         leg("tail", "TAIL.DAT", tail, expect="Its end")
-        m.write(S("fm_ebuf"), b"\0")
-        leg("big3", "BIG3.TXT", want3)
-        eb = m.read(S("fm_ebuf"), 13).split(b"\0")[0]
-        ok = eb == b"CMPRESS~.TMP"
-        say("  streamed  %s  (fm_ebuf %r)" % ("ok " if ok else "BAD", eb))
-        if not ok:
-            fails.append("BIG3.TXT did not take the STREAMED path - fm_ebuf "
-                         "reads %r, so the whole path fitted and the leg "
-                         "tested nothing new (or the route is broken)" % eb)
-        names = [n for n, _ in dispcp.listing(m, S)]
-        if "CMPRESS~.TMP" in names:
-            fails.append("the streamed Compress left CMPRESS~.TMP behind")
+        for name, want, trunc in (("BIG3.TXT", want3, 0),
+                                  ("BIG4.TXT", want4, 1)):
+            streamed(m, mo, wx, wy, fl, name, want, trunc, fails)
+        leg("unbig4", "BIG4.TXT", big4, item=FM_IUNCOMP,
+            expect="Uncompressed")
         leg("unbig3", "BIG3.TXT", big3, item=FM_IUNCOMP,
             expect="Uncompressed")
         leg("unbig2", "BIG2.TXT", big2, item=FM_IUNCOMP,

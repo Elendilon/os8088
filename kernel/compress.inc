@@ -137,15 +137,17 @@ section .modl                   ; the cloner's image (SPEC.md 2.8, 18.99) -
 ;      DI = the window's MASK - a power of two less one, 1,023 to 16,383
 ;      SI:CX = the source's length, 32 bits (SPEC.md 20.15.4)
 ;      [cs:cmz_mode] = 0 WHOLE: the source is all in memory and the stream is
-;         left whole at DX:0. 1 and 2 are STREAMED (SPEC.md 22.22.5): the
-;         source is fm_onam, read through a CMZ_SBUF window at AX:0, and the
-;         output a 33KB window at DX:0 - pass 1 finds the cut and writes
-;         nothing, pass 2 stops at the cut [cs:cmz_cut] and appends the whole
-;         file, 'CZ' header (already at DX:-8) first, to fm_ebuf
+;         left whole at DX:0. 1 is STREAMED (SPEC.md 22.22.5): the source is
+;         fm_onam, read through a CMZ_SBUF window at AX:0, and the output a
+;         33KB window at DX:0 written to fm_ebuf as it slides, 'CZ' header
+;         (already at DX:-8) first - and at the end taken back to the cut,
+;         truncated if it had to be, given the tail and its T word
 ; out: CF=0, DX:AX = the packed length (which is < SI:CX): a whole stream, T
 ;         word and raw tail included (SPEC.md 20.13.7). [cs:cmz_ksa] is the
 ;         cut in the source and [cs:cmz_tl] the tail's length
 ;      CF=1, AX = 0: it did not get smaller, and the output is undefined
+;         (STREAMED, the container counts, and the new file is the caller's
+;         to delete)
 ;      CF=1, AX = 1: the raw tail would be over 64KB, which the T word cannot
 ;         count - the file's last 64KB do not compress
 ;      CF=1, AX = 2: a streamed read or write failed, FERR_* in [cs:cmz_err]
@@ -195,7 +197,7 @@ cmz_pack:
     mov [cs:cmz_rn], cx         ; ...and its END, from the source's current
     mov [cs:cmz_rn+2], si       ; segment - which is the same number until
     mov [cs:cmz_rstop], cx      ; the first slide - and where the parse
-    mov [cs:cmz_rstop+2], si    ; STOPS, which is the end too except in pass 2
+    mov [cs:cmz_rstop+2], si    ; STOPS, which is the same end
     sub cx, CMZ_SLACK
     sbb si, 0
     mov [cs:cmz_rlim], cx       ; the bail, from the output's current segment
@@ -213,13 +215,6 @@ cmz_pack:
     mov [cs:cmz_ksa+2], ax
     mov word [cs:cmz_koa], 2
     mov [cs:cmz_koa+2], ax
-    cmp byte [cs:cmz_mode], 2
-    jne .stop
-    mov ax, [cs:cmz_cut]        ; pass 2 stops at pass 1's cut. The parse is
-    mov [cs:cmz_rstop], ax      ; the same one - same bytes, same tables - so
-    mov ax, [cs:cmz_cut+2]      ; it arrives there on a symbol boundary with
-    mov [cs:cmz_rstop+2], ax    ; the output exactly where pass 1's was
-.stop:
 
     ; --- head[] starts EMPTY, and prev[] DOES NOT NEED TO -------------------
     ; A head slot left from the last file names a position in a buffer that is
@@ -252,11 +247,7 @@ cmz_pack:
     xor bx, bx
     mov cx, CMZ_SBUF
     call cmz_sfetch
-    cmp byte [cs:cmz_mode], 2
-    jne .armed
-    mov ax, [cs:cmz_tl]         ; ...and pass 2 knows the T word already,
-    mov [es:0], ax              ; which must be in place before the first
-.armed:                         ; 16KB goes to the disk
+.armed:
     call cmz_sarm
     call cmz_oarm
     CMZ_TRACK 1                 ; the pointer moves from here to the end
@@ -381,23 +372,26 @@ cmz_pack:
     or dx, dx
     jnz .tail                   ; a tail the T word cannot count
     mov [cs:cmz_tl], ax
-    cmp byte [cs:cmz_mode], 2
-    je .p2
     mov cx, ax
     mov ax, [cs:cmz_koa]        ; the symbols' length, T word included...
     mov dx, [cs:cmz_koa+2]
     add ax, cx
     adc dx, 0                   ; ...and the whole stream's
+    cmp byte [cs:cmz_mode], 0
+    je .cmp
+    add ax, DSK_CZ_HDR          ; STREAMED, the verb cannot look at the answer
+    adc dx, 0                   ; before the file is written, so the container
+.cmp:                           ; is counted here: a plain source's P is U
     cmp dx, [cs:cmz_nabs+2]
     ja .no
     jb .less
     cmp ax, [cs:cmz_nabs]
     jae .no
 .less:
-    cmp byte [cs:cmz_mode], 0
-    jne .ok                     ; pass 1: the numbers ARE the answer
     push ax
     push dx
+    cmp byte [cs:cmz_mode], 0
+    jne .sfin
     mov es, [cs:cmz_oseg]
     mov [es:0], cx              ; the T word, at the stream's first byte
     mov ax, [cs:cmz_ksa]        ; ...and the tail, from the cut to the cut,
@@ -413,6 +407,7 @@ cmz_pack:
     mov es, bx
     mov di, ax
     call cmz_move               ; the tail, raw, however long
+.pop:
     pop dx
     pop ax
 .ok:
@@ -422,11 +417,54 @@ cmz_pack:
     pop ds
     clc
     ret
-.p2:                            ; PASS 2 has stopped exactly at the cut, so
-    mov cx, ax                  ; the tail goes through the same pipeline
-.tb:                            ; the symbols did: the source window slides
-    jcxz .tend                  ; and refills under it, the output window
-    or si, si                   ; slides and flushes under it
+
+    ; --- STREAMED: the file on the disk is everything the output window has
+    ; --- slid past, and it may run past the cut (SPEC.md 22.22.5). Back to
+    ; --- the cut on both sides, then the tail through the same two windows
+.sfin:
+    mov ax, [cs:cmz_koa]
+    mov dx, [cs:cmz_koa+2]
+    sub ax, [cs:cmz_obase]
+    sbb dx, [cs:cmz_obase+2]
+    jb .cutout                  ; the cut is already on the disk
+    xchg di, ax                 ; ...or still in the window: DI goes back to
+    jmp short .src              ; it and what was past it is simply dropped
+.cutout:
+    mov cx, di                  ; EVERYTHING to the disk, then back to the
+    add cx, 8                   ; cluster below the cut: re-read from there,
+    call cmz_oflush             ; truncate there (OSAPI_FILE_WRITE_AT with a
+    mov ax, [cs:cmz_clb]        ; count of 0, 18.4.7.5), and the window
+    neg ax                      ; starts again at it
+    and ax, [cs:cmz_koa]
+    mov dx, [cs:cmz_koa+2]
+    mov di, [cs:cmz_koa]
+    sub di, ax                  ; the window's DI at the cut: under a cluster
+    push dx                     ; plus the header's eight
+    push ax
+    mov cx, [cs:cmz_clb]
+    shl cx, 1                   ; two clusters' worth may be wanted back
+    mov bx, dwf_dskw_read_at
+    call cmz_tio
+    pop ax
+    pop dx
+    xor cx, cx
+    mov bx, dwf_dskw_write_at
+    call cmz_tio                ; ...and the file ends there
+.src:
+    mov ax, [cs:cmz_ksa]        ; the SOURCE back to the cut too: the window
+    and ax, 0xC000              ; refilled from the 16KB boundary below it
+    mov dx, [cs:cmz_ksa+2]
+    mov [cs:cmz_sfill], ax
+    mov [cs:cmz_sfill+2], dx
+    mov si, [cs:cmz_ksa]
+    sub si, ax
+    xor bx, bx
+    mov cx, CMZ_SBUF
+    call cmz_sfetch
+    mov cx, [cs:cmz_tl]
+.tb:                            ; the tail, a byte at a time: the source
+    jcxz .tend                  ; window slides and refills under it, the
+    or si, si                   ; output window slides and flushes under it
     jns .t1
     push cx
     call cmz_sslide
@@ -442,10 +480,30 @@ cmz_pack:
     dec cx
     jmp short .tb
 .tend:
+    cmp byte [cs:cmz_wrote], 0
+    jne .late
+    mov ax, [cs:cmz_tl]         ; nothing written yet: the T word goes in
+    mov [es:0], ax              ; with the stream's first bytes
+.late:
     mov cx, di                  ; ...and the last of it, header's 8 bytes
     add cx, 8                   ; included while nothing has been written
+    push word [cs:cmz_wrote]
     call cmz_oflush
-    jmp short .ok
+    pop ax
+    or al, al
+    jz .pop
+    xor ax, ax                  ; the T word was written as 0 with the first
+    xor dx, dx                  ; 16KB, so the first sector comes back, takes
+    mov cx, [cs:cmz_clb]        ; it, and goes out again IN PLACE
+    mov bx, dwf_dskw_read_at
+    call cmz_tio
+    mov ax, [cs:cmz_tl]
+    mov [es:0], ax              ; ES:-8 is the file's byte 0, so ES:0 is its 8
+    xor ax, ax
+    mov cx, 512
+    mov bx, dwf_dskw_write_at
+    call cmz_tio
+    jmp .pop
 .tail:
     mov ax, 1
     jmp short .fail
@@ -468,6 +526,34 @@ cmz_ioerr:
     mov sp, [cs:cmz_sp]
     mov ax, 2
     jmp short cmz_pack.fail
+
+; cmz_tio - one file call on the NEW file, fm_ebuf (module internal)
+; in:  BX = the dwf_ shim (read_at or write_at), DX:AX = the offset, CX = the
+;      count, the buffer at (ES-1):8 - the output window's first byte
+; out: nothing; a failure never returns (cmz_ioerr). clobbers: AX DX, flags
+cmz_tio:
+    CMZ_TRACK 0
+    push bx
+    push si
+    push ds
+    push es
+    mov si, es
+    dec si
+    mov es, si
+    mov si, KERNEL_SEG
+    mov ds, si
+    mov si, fm_ebuf
+    mov [cs:cmz_tsh], bx
+    mov bx, 8
+    call far [cs:cmz_tfp]
+    jc cmz_ioerr
+    call cmz_rearm
+    pop es
+    pop ds
+    pop si
+    pop bx
+    CMZ_TRACK 1
+    ret
 
 ; cmz_far - DX:AX bytes past the segment BX -> BX:AX, AX 0..15 (module
 ;           internal). clobbers: DX, flags
@@ -538,7 +624,7 @@ cmz_move:
 ; cmz_n is the source's end from DS, clamped to 0xFFFF - what cmz_probe and
 ; cmz_fill measure "bytes left" against, and a clamp is exact for both because
 ; neither asks past SI + CMZ_MAXM. cmz_nchk is where the parse STOPS - the end,
-; or pass 2's cut - clamped to 32KB: SI reaching it is either the stop or the
+; clamped to 32KB: SI reaching it is either the stop or the
 ; moment to slide. cmz_lim is the bail from ES, clamped to 32KB the same way.
 ; -----------------------------------------------------------------------------
 cmz_sarm:
@@ -644,15 +730,13 @@ cmz_sslide:
 
 ; cmz_oslide - DI is past 32KB: move the output 16KB on (module internal).
 ;              WHOLE, the segment moves up; STREAMED, the window stays put,
-;              pass 2 writes its first 16KB (header's 8 bytes first) and the
+;              the first 16KB goes to the new file (header's 8 first) and the
 ;              rest moves down. The open tag byte is at most a symbol behind
 ;              DI, so it survives either. clobbers: AX, flags
 cmz_oslide:
     cmp byte [cs:cmz_mode], 0
     je .adj
     push cx
-    cmp byte [cs:cmz_mode], 2
-    jne .move
     mov cx, 0x4000
     call cmz_oflush             ; (ES-1):8 - the header, then the stream
 .move:
@@ -1466,6 +1550,9 @@ cmz_route:
     jc .whole
     cmp bx, 0x4000 / 512
     ja .whole
+    mov cl, 9
+    shl bx, cl
+    mov [cs:cmz_clb], bx        ; ...kept, for the ending's re-read
     pop bx
     stc
     ret
@@ -1478,15 +1565,15 @@ cmz_route:
 ; -----------------------------------------------------------------------------
 ; cmz_stream - Compress, for a file too big to hold twice (SPEC.md 22.22.5)
 ;
-; TWO PASSES OVER THE FILE, because the stream's cut (SPEC.md 20.15.2) is not
-; known until the end and everything after it is thrown away: pass 1 parses
-; the whole file through the windows and keeps nothing but the numbers, pass 2
-; parses it again - the same parse, byte for byte - and writes each 16KB to a
-; NEW file as it goes, stopping at the cut and sending the tail across raw.
-; Only then does the original go and the new file take its name. So a refusal
-; - not smaller, a tail over 64KB - costs a read and writes nothing, and the
-; disk needs room for the result beside the original, not for the original
-; twice.
+; ONE PASS, written as it goes to a NEW file, and the stream's cut (SPEC.md
+; 20.15.2) - which is only known at the end, and after which everything is
+; thrown away - is dealt with at the end: when it is still in the output
+; window the bytes past it are simply dropped, and when the window has already
+; written past it the file is TRUNCATED back (OSAPI_FILE_WRITE_AT with a count
+; of 0, SPEC.md 18.4.7.5) and the tail sent after. Only then does the original
+; go and the new file take its name. A refusal - not smaller, a tail over 64KB
+; - deletes what was written; the disk needs room for the result beside the
+; original, not for the original twice.
 ; -----------------------------------------------------------------------------
 cmz_stream:
     mov word [cs:cmz_w], CMZ_WMAX
@@ -1515,10 +1602,8 @@ cmz_stream:
     inc si
     stosb
     loop .cp
-    mov ax, [cs:cmz_u]          ; the bar: BOTH passes, U each
+    mov ax, [cs:cmz_u]          ; the bar: one pass over U
     mov dx, [cs:cmz_u+2]
-    add ax, ax
-    adc dx, dx
     mov [cs:cmz_utot], ax
     mov [cs:cmz_utot+2], dx
     xor ax, ax
@@ -1526,37 +1611,21 @@ cmz_stream:
     mov [cs:cmz_done+2], ax
     mov [cs:cmz_wrote], al
     call cmz_rearm
-
-    mov byte [cs:cmz_mode], 1   ; --- pass 1: where is the cut? ----------
-    call .pass                  ; DX:AX = the stream
-    jc .pfail
-    add ax, DSK_CZ_HDR
-    adc dx, 0
-    cmp dx, [cs:cmz_p+2]
-    ja .worse
-    jb .smaller
-    cmp ax, [cs:cmz_p]
-    jae .worse                  ; the container counts, as it does whole
-.smaller:
-    mov [cs:cmz_z], ax
-    mov [cs:cmz_z+2], dx
-    mov ax, [cs:cmz_ksa]
-    mov [cs:cmz_cut], ax
-    mov ax, [cs:cmz_ksa+2]
-    mov [cs:cmz_cut+2], ax
     mov ax, [cs:cmz_b]          ; the 'CZ' header, in the paragraph in front
-    add ax, CMZ_SBUF / 16       ; of the output window: the first flush
-    mov es, ax                  ; writes it first
-    mov word [es:8], DSK_CZ_MAG
+    add ax, CMZ_SBUF / 16       ; of the output window: the first 16KB out
+    mov es, ax                  ; carries it, and dskw_czstamp reads it there.
+    mov word [es:8], DSK_CZ_MAG ; T goes in at the end (cmz_pack's .sfin)
     mov word [es:10], LZ_LZB    ; the format, and the reserved zero
     mov ax, [cs:cmz_u]
     mov [es:12], ax
     mov ax, [cs:cmz_u+2]
     mov [es:14], ax
 
-    mov byte [cs:cmz_mode], 2   ; --- pass 2: the same parse, written -----
-    call .pass
+    mov byte [cs:cmz_mode], 1   ; --- ONE pass, written as it goes --------
+    call .pass                  ; DX:AX = the file, header included
     jc .pfail
+    mov [cs:cmz_z], ax
+    mov [cs:cmz_z+2], dx
     mov si, fm_onam             ; --- and the new file takes the name -----
     call COLD_SEG:dwf_dskw_delete
     jc .rmtmp                   ; (a read-only original, say: nothing lost)
@@ -1585,6 +1654,9 @@ cmz_stream:
 .pfail:
     cmp ax, 2
     je .ioerr
+    push ax                     ; a refusal at the END of the pass: whatever
+    call .rmnew                 ; went to the disk goes
+    pop ax
     or ax, ax
     jz .worse
     mov ax, cmz_s_tail
@@ -1592,11 +1664,8 @@ cmz_stream:
 .ioerr:
     mov ax, [cs:cmz_err]
 .rmtmp:
-    cmp byte [cs:cmz_wrote], 0
-    je .ferr
-    push ax                     ; the half-written file goes: it is not the
-    mov si, fm_ebuf             ; user's and it is not finished
-    call COLD_SEG:dwf_dskw_delete
+    push ax
+    call .rmnew
     pop ax
 .ferr:
     push ax
@@ -1606,6 +1675,16 @@ cmz_stream:
     ret
 .worse:
     mov ax, cmz_s_worse
+    jmp short .rsay
+.rmnew:                         ; the new file, if one was started: it is
+    cmp byte [cs:cmz_wrote], 0  ; not the user's and it is not finished
+    je .rmno
+    push si
+    mov si, fm_ebuf
+    call COLD_SEG:dwf_dskw_delete
+    pop si
+.rmno:
+    ret
 .rsay:
     push ax
     call cmz_drop
@@ -2231,12 +2310,15 @@ cmz_obase:  dd 0                ; ...and the output
 cmz_rstop:  dd 0                ; where the parse stops, from DS
 cmz_sseg:   dw 0                ; the source's FIRST segment
 cmz_mode:   db 0                ; 0 whole, 1 and 2 the streamed passes
-cmz_wrote:  db 0                ; pass 2 has created its file
+cmz_wrote:  db 0                ; the streamed pass has created its file
 cmz_sp:     dw 0                ; cmz_pack's frame, for cmz_ioerr
 cmz_err:    dw 0                ; ...and the FERR_* it unwound with
 cmz_sfill:  dd 0                ; the file offset of the next window refill
-cmz_cut:    dd 0                ; pass 1's cut, which pass 2 stops at
-cmz_tl:     dw 0                ; ...and the tail it left
+cmz_tl:     dw 0                ; the tail's length, T
+cmz_clb:    dw 0                ; the volume's cluster, bytes (streamed)
+cmz_tfp:                        ; cmz_tio's far call: the shim...
+cmz_tsh:    dw 0
+            dw COLD_SEG         ; ...in the cold segment
 cmz_utot:   dd 0                ; the bar's scale, both passes...
 cmz_done:   dd 0                ; ...and how far along it
 cmz_nextp:  dw 0                ; the SI the next progress report is owed at

@@ -2922,8 +2922,13 @@ dskw_wabody:
                                 ; store would zap the slot after ITS entry
     mov ax, [dskw_len]
     test ax, ax
+%ifndef KERN_SMALL
+    jz .trunc                   ; nothing to write: THE FILE ENDS HERE, which
+                                ; is DOS's own spelling of it (SPEC.md 18.4.7.5)
+%else
     jz .badarg                  ; nothing to write is a bad argument here, not
                                 ; a no-op: the caller has miscomputed
+%endif
 
     add ax, [dwr_off]           ; --- END = offset + count, and it DECIDES ---
     mov [dwr_end], ax           ; whether the tail may be rounded and whether
@@ -2950,7 +2955,60 @@ dskw_wabody:
 .ioerr:
     mov ax, FERR_IO
     stc
+.tret:
     ret
+%ifndef KERN_SMALL
+    ; --- A COUNT OF ZERO TRUNCATES (SPEC.md 18.4.7.5) ----------------------
+    ; The file keeps offset/cluster clusters - the offset being a cluster
+    ; multiple, checked above - and takes the offset as its size. The ENTRY is
+    ; written first and the FAT after (18.4, dskw_dbody's order): a crash
+    ; between the two leaks the freed clusters rather than leaving an entry
+    ; that names clusters somebody else may be handed. Only DOWN: a size past
+    ; the file's own is refused, the growing door being the one above.
+.trunc:
+    mov ax, [dwr_off]
+    mov dx, [dwr_off+2]
+    cmp dx, [dskw_raw+DSK_R_SIZE+2]
+    ja .badarg
+    jb .tsize
+    cmp ax, [dskw_raw+DSK_R_SIZE]
+    ja .badarg
+.tsize:
+    mov [dskw_raw+DSK_R_SIZE], ax
+    mov [dskw_raw+DSK_R_SIZE+2], dx
+    div bx                      ; the clusters kept - one div, for .in's reason
+    xchg cx, ax
+    mov ax, [dskw_raw+DSK_R_CLUS]
+    jcxz .tnone                 ; none: the entry gives up its whole chain
+    dec cx
+    jcxz .tlast
+.tskip:
+    call dsk_next_clus_x        ; to the LAST cluster kept. A chain shorter
+    jc .corrupt                 ; than the entry's size says ends in a value
+    loop .tskip                 ; this refuses on the next step
+.tlast:
+    mov si, ax
+    call dsk_next_clus_x        ; ...the first one freed, or the end mark
+    jc .corrupt
+    xchg ax, si
+    mov dx, 0xFFFF              ; setfat keeps 12 bits of it on FAT12
+    call dskw_setfat            ; the chain ENDS here
+    jc .corrupt
+    jmp short .tstore
+.tnone:
+    mov [dskw_raw+DSK_R_CLUS], cx
+    mov si, ax                  ; SI = the first cluster freed, both arms
+.tstore:
+    call dskw_ent_store         ; THE COMMIT - AX its FERR_* if it fails
+    jc .tret
+    mov ax, si
+    call dskw_free_chain        ; an end mark frees nothing (dskw_clok)
+    call dskw_flush_x
+    jc .tret
+    call dskw_sync_x
+    xor ax, ax
+    ret
+%endif
 .up:
     inc si
 .loose:                         ; ...at or past the size, where a rounded tail
