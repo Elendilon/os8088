@@ -140459,6 +140459,15 @@ began the turn on whatever P1 left it at — and in hot-seat that is both a
 leak and a trap, since it is where P2's first card would go. `tg_redraw`, which
 draws a new planner's window, sets it back.
 
+**AND THE WORKER TAKES THE LARGEST STACK CLASS**, `OS88_STACK_384`, on the
+owner's call: TITHE is a heavy game and one to a machine. A card's composition
+is ~60 ms of an 8088 — over a tick — and the music step between composing it
+and putting it down puts `tm_run`'s chain under the frame's deepest, which the
+256 class refused by 6 bytes. With it, a toggle's card slice no longer puts
+two music ticks together on fullscreen VGA or windowed VGA; Hercules read one
+2-tick step in two toggles, with the worker off the CPU between slices rather
+than inside one.
+
 `tests/tithefs.py` holds the toggle to a worst music gap of two ticks with the
 hand exactly a whole repaint after it (21 ticks with the redraw put back on the
 UI task), and `tests/tithegame.py` that P2 starts on FRONT after P1 left REAR.
@@ -141167,9 +141176,10 @@ but a COMPOSITION of the hovered card read `ti_clock[card]`, a board cell's, so
 a repaint mid-animation drew a different pose whenever the two differed. Both
 composers read the feature's clock now.
 
-`tests/tithefs.py` holds a fullscreen play's worst music gap to one tick,
-through the click and the whole reveal (three ticks with the click's frames and
-music steps put back).
+`tests/tithefs.py` holds a fullscreen play's worst music gap to two ticks,
+through the click and the whole reveal: it measures one, reads two now and
+then when a step late in its tick meets a frame, and read three with the
+click's frames and music steps put back.
 
 #### 97.4.12 THE FULLSCREEN HAND — seven portrait cards along the bottom
 
@@ -142346,8 +142356,9 @@ screen and stopping the music:
    time — a cascade rather than a freeze.
 3. **The music is stepped inside the long calls** (`tm_run` between cells
    and between the opening's three draws - not per list row, whose music
-   chain under a board repaint was 22 bytes past the worker's 256-byte slice,
-   `tests/unit/t_stkclass.py`). The worker steps it at the top of
+   chain under a board repaint was 22 bytes past the worker's 256-byte slice
+   at the time, `tests/unit/t_stkclass.py`; the worker is 384 since
+   §97.4.8.2). The worker steps it at the top of
    its loop, and a frame that holds the lock for a quarter of a second held
    the tune with it.
 

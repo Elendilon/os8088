@@ -41,13 +41,17 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'TITHE', ti_entry, 1 | OS88_F_PARTS, OS88_STACK_256
-                                ; the worker's stack class (SPEC.md 8.7):
-                                ; ti_worker's chain is 4 deep and its deepest
-                                ; leaf is the band blit, which pushes eight
-                                ; registers in front of a far call. Measured
-                                ; static 88 over the 64-byte interrupt floor
-                                ; is 152; 256 gives 1.7x
+    OS88_HEADER 'TITHE', ti_entry, 1 | OS88_F_PARTS, OS88_STACK_384
+                                ; the worker's stack class (SPEC.md 8.7): THE
+                                ; LARGEST, on purpose. TITHE is a heavy game
+                                ; and one to a machine, and its frame steps
+                                ; the music from inside its longest draws
+                                ; (timus.inc) - a card's composition, a board
+                                ; repaint's rows - which puts tm_run's chain
+                                ; under the frame's deepest. At 256 that was
+                                ; refused by 6 bytes (t_stkclass), and the
+                                ; music went two ticks at a time across a
+                                ; card composed in one piece (SPEC.md 97.4.8.2)
 
     OS88_ICON16
     dw 0x0000                   ; a shield over a coin: the tithe

@@ -534,6 +534,11 @@ ti_card_draw:
     call ti_cb_unit
 .composed:
     TIPROF ti_punit
+%ifndef TICARDPROF
+    call tm_run                     ; A CARD IS ~60 ms OF AN 8088, over a
+%endif                              ; tick: the music between composing it
+                                    ; and putting it down (97.4.8.2) - which
+                                    ; is what the worker's 384 class buys
 
     ; --- AND THE HOVER INVERTS IN THE BAND, not in the pen -----------------
     ; Which is what makes it INVERT AT ALL on the two adapters the pen does
