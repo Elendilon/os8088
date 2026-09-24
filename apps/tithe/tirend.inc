@@ -1682,6 +1682,11 @@ ti_cell_rec:
 
 
 ti_board:
+    call ti_rv_atk_flush            ; A PLAYED CELL STILL OWED ITS FRAMES is
+                                    ; held at pose 0 by the wheel while its
+                                    ; clock runs (tirv.inc): a whole board
+                                    ; draws it at that clock, so the frames
+                                    ; come first and the clock back to 0
     push ax
     push bx
     push cx
@@ -1721,6 +1726,43 @@ ti_board:
     pop es
     pop bp
     pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_res_mine - the PLANNER's resource block alone: what a play moves (its
+; gold, its souls, its swaps) and nothing else - the other side's block and
+; both HPs are the same bytes they were. ~10 ms of an 8088 where ti_res_all
+; is ~30, on the reveal's last frame (SPEC.md 97.4.11.1).
+; Preserves every register.
+; -----------------------------------------------------------------------------
+ti_res_mine:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov dl, [ti_swaps]
+    cmp byte [tg_side], 0
+    jne .p2
+    mov ax, [ti_p1x]
+    mov bx, [ti_p1y]
+    mov cl, [ti_p1gold]
+    mov ch, [ti_p1soul]
+    mov si, ti_s_p1
+    jmp short .draw
+.p2:
+    mov ax, [ti_p2x]
+    mov bx, [ti_p2y]
+    mov cl, [ti_p2gold]
+    mov ch, [ti_p2soul]
+    mov si, ti_s_p2
+.draw:
+    call ti_res_draw
     pop si
     pop dx
     pop cx

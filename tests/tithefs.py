@@ -31,6 +31,15 @@ WHAT IT ASSERTS, and each one went red on purpose first:
 
   5. LEAVING FULLSCREEN PUTS THE STRIP BACK.
 
+  7. THE TOGGLE KEEPS THE MUSIC (SPEC.md 97.4.8.2). FRONT/REAR rebuilds
+     every card's figure and composes all seven; it did that with the lock
+     held and the music stopped for 22 ticks. The worker does it a slice a
+     frame now: the music's worst gap through it is at most 2 ticks, and the
+     hand it ends on is exactly a whole repaint.
+
+  8. A PLAY KEEPS THE MUSIC (SPEC.md 97.4.11.1): through the click and the
+     whole reveal the music's worst gap is ONE tick.
+
   6. A HOVER CHANGE IS TWO BANKED CARDS (SPEC.md 97.4.12.1). The cycle counter
      brackets the hover's share of the frame - `ti_frame` to its `.credit` -
      over four changes, and the worst must be under 30 ms. It was ~131: both
@@ -59,7 +68,9 @@ SYMS = ("ti_horiz", "ti_hy", "ti_cardh", "ti_cardw", "ti_cardpitch",
         "ti_ox", "ti_oy", "ti_cw_box", "ti_ch_box", "ti_nlay", "ti_rpq",
         "ti_hover", "ti_rv", "ti_nframe", "ti_rvcard", "ti_played",
         "ti_cardn", "TI_HLIFT", "tg_fillq",
-        "ti_frame", "ti_frame.credit", "ti_card_fast")
+        "ti_frame", "ti_frame.credit", "ti_card_fast", "tm_gapmax",
+        "tm_song", "ti_hx", "ti_tg1x", "ti_tg0x", "ti_hty", "ti_rowst",
+        "ti_row")
 EQUS = ("TI_HLIFT",)
 MACHINES = ("os8088_xt_vga", "os8088_5150_herc_gla", "os8088_5150_cga_gla")
 
@@ -235,12 +246,50 @@ def run(mach, off):
               "%d px, first %s" % (len(d), d[:4]))
         m.key("KeyP")
         os88marty.guest_sleep(m, 1.0)
-        # 4. a click plays it
+        # 7. the toggle keeps the music, and ends on a whole repaint
+        m.key("KeyM")
+        os88marty.until(m, lambda _: rb("tm_song") != 255, "the music",
+                        poll=0.2, limit=30.0)
+        os88marty.guest_sleep(m, 1.0)
+        ty = rw("ti_oy") + rw("ti_hty") + 3
+        for want, tx in ((1, rw("ti_hx") + rw("ti_tg1x") + 4),
+                         (0, rw("ti_hx") + rw("ti_tg0x") + 4)):
+            m.write(seg * 16 + off["tm_gapmax"], b"\0\0")
+            mo.click(tx, ty, settle=0.2)
+            os88marty.until(m, lambda _: rb("ti_rowst") == 0
+                            and rw("ti_row") == want, "the toggle's redraw",
+                            poll=0.2, limit=30.0)
+            os88marty.guest_sleep(m, 0.5)   # a stall is RECORDED at the next
+            gap = rw("tm_gapmax")           # step after it, not during it
+            mo.to(*park)
+            os88marty.guest_sleep(m, 0.5)
+            m.key("KeyP")
+            os88marty.guest_sleep(m, 0.5)
+            _, _, a = te.mono(m)
+            repaint()
+            _, _, b = te.mono(m)
+            m.key("KeyP")
+            d = diff(a, b, (g["ti_ox"], g["ti_oy"], g["ti_ox"] + g["ti_cw_box"],
+                            g["ti_oy"] + g["ti_ch_box"]))
+            check(gap <= 2 and not d, "7. a toggle to %s keeps the music (worst "
+                  "gap <= 2 ticks) and ends on a whole repaint"
+                  % ("REAR" if want else "FRONT"),
+                  "gap %d ticks, %d px differ, first %s" % (gap, len(d), d[:4]))
+        mo.to(bx + cw // 2, hy + g["ti_cbrows"] // 2)
+        os88marty.until(m, lambda _: rw("ti_hover") == k, "the hover",
+                        poll=0.2, limit=20.0)
+        os88marty.guest_sleep(m, 1.0)
+        # 4. a click plays it - and 8., the music through it
         n0 = rw("ti_nframe")
+        m.write(seg * 16 + off["tm_gapmax"], b"\0\0")
         mo.click(bx + cw // 2, hy + g["ti_cbrows"] // 2, settle=0.2)
         os88marty.until(
             m, lambda _: (rw("ti_nframe") - n0) & 0xFFFF > 12
             and rb("ti_rv") == 0, "the reveal to finish", poll=0.2)
+        os88marty.guest_sleep(m, 0.5)
+        gap = rw("tm_gapmax")
+        check(gap <= 1, "8. a play keeps the music: its worst gap through the "
+              "click and the reveal is one tick", "%d ticks" % gap)
         mo.to(*park)
         os88marty.guest_sleep(m, 1.0)
         check(rw("ti_rvcard") == k and rb("ti_played") & (1 << k),

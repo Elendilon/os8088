@@ -140421,6 +140421,48 @@ layout decision, not a second code path.
 than on the board: P1's drops by the lift and P2's rises by it, so each reads as
 standing on the same ground as the lanes in front of it.
 
+#### 97.4.8.2 THE TOGGLE IS A CHOICE AT ONCE AND A PICTURE OVER FRAMES
+
+**FRONT/REAR is a gameplay choice** — it is the column a played card goes to —
+and it also decides which pair of stats every card shows and which item every
+figure holds (§97.4.9). So a toggle rebuilds every hand card's art and composes
+all seven cards, and it did that in the click handler: **1.4 seconds on a
+fullscreen VGA with the gfx lock held** (1.1 on Hercules), the worker blocked
+on the lock and the music stopped for **22 ticks**. Measured stage by stage:
+
+| on fullscreen VGA | ms |
+|---|---:|
+| the strip's mini units — which a fullscreen hand never draws | 200 |
+| the portrait figures, 7 cards × 4 poses | 703 |
+| the HUD | 52 |
+| seven card compositions | ~420 |
+
+**The click now only records the choice** (`ti_row_apply`), so it takes effect
+at once, and the worker redraws it **a slice a frame** in the frame's place
+(`ti_row_step`), with the music stepped before and after each slice:
+
+1. the HUD, so the click is answered on the next frame;
+2. for each card, its resting pose (~25 ms), then the card itself (~60 ms);
+3. with the hand already right, the three poses only the hovered card's
+   animation reads, one a frame — feature 22 waits for them.
+
+The hand is fully redrawn **~0.8 s after the click** and the music's worst gap
+through it is **one tick** on fullscreen VGA, fullscreen Hercules and windowed
+VGA. `ti_units_build` builds only the store the layout draws — the portraits
+on the fullscreen hand, the units on the strip — which also took 200 ms off
+every relayout and every hand-over on a fullscreen VGA. It is one routine per
+card and pose now, `ti_art_one`, which the full build loops over and the
+toggle calls a slice at a time.
+
+**A NEW PLANNER STARTS ON FRONT.** The row carried over the hand-over, so P2
+began the turn on whatever P1 left it at — and in hot-seat that is both a
+leak and a trap, since it is where P2's first card would go. `tg_redraw`, which
+draws a new planner's window, sets it back.
+
+`tests/tithefs.py` holds the toggle to a worst music gap of two ticks with the
+hand exactly a whole repaint after it (21 ticks with the redraw put back on the
+UI task), and `tests/tithegame.py` that P2 starts on FRONT after P1 left REAR.
+
 #### 97.4.9 PIXEL ART, IN LAYERS — a body and an item, ink and mask, composed per cell
 
 **The first idles were silhouettes** — a solid white shape per faction out of
@@ -140957,15 +140999,12 @@ arrive, and the character forms as they pour in:
 | 7–8 | the tail pours in | | three-quarters, **whole** |
 | 9 | | | its numbers |
 
-**THE TRAIL TWIRLS.** Eight sparks: a five-pixel head on the line from the
-card's centre to the cell's, and seven behind it a quarter of a frame apart,
-each on an ORBIT of the line — three, five or seven pixels out the older it is,
-three sixteenths of a turn a frame, neighbours five sixteenths apart. So the
-trail is a turning spiral that widens as it fades. A spark that has reached the
-cell is drawn no more, which is how the tail follows the head home. The orbit is
-a table of sixteen signed bytes of sine, a lookup and an `IMUL` a spark:
-microseconds, against the ~2 ms of a spark's two XOR fills. ~70 pixels a frame
-on a windowed VGA, where a bolt goes 24.
+**THE TRAIL IS A COMET.** Six sparks: a five-pixel head on the line from the
+card's centre to the cell's, and five behind it a quarter of a frame apart,
+three pixels and then two, all on the line. A spark that has reached the cell
+is drawn no more, which is how the tail follows the head home. ~70 pixels a
+frame on a windowed VGA, where a bolt goes 24. *(It TWIRLED until §97.4.11.1 —
+eight sparks each orbiting the line — and nobody could see it turn.)*
 
 **THE DISSOLVES ARE A 4×4 ORDERED DITHER** — a quarter, a half, three
 quarters — the character's between its column's ground and its pose 0, the card's
@@ -141068,6 +141107,69 @@ read the unit's pose from `ti_clock[card]` — the clock of the BOARD CELL with
 the card's index — so a repainted hand froze each card's figure wherever that
 cell happened to be, and no repaint was the picture the last one left. A
 resting card's unit stands in pose 0 now; only the hovered card animates.
+
+#### 97.4.11.1 THE REVEAL PRICES ITSELF — and the sparks are a comet
+
+**Playing a card cost frames and put the music two ticks at a time on a
+fullscreen VGA**, and the trace says why: the click was **134 ms** of the UI
+task with the lock held, and the reveal's nine frames ran 40-72 ms — so they
+landed every OTHER tick. The reveal was meant to be paid for out of the idle's
+credit, but its price was a MODEL that knew the blits and not what surrounds
+them, and the wheel spent its whole credit on top of it.
+
+| fullscreen VGA | before | after |
+|---|---:|---:|
+| the click (engine, card, cell, vacate) | 134 ms | **81** (Hercules 112 → 70) |
+| the card composed for its fade | 28 | **0** — its bank (§97.4.12.1) |
+| the cell's frames at the click | 41 (four poses) | **17** (pose 0) |
+| a fade step's thinning | 15 | **~9** |
+| the reveal's last frame | 72 | **36**, and **23** after it |
+| frames of the reveal on their own tick | about half | **all** |
+| the music's worst gap, click to end | 2-3 ticks | **1** |
+
+What changed:
+
+1. **The played card is its bank** — the hovered twin if it was hovered —
+   copied into the fade's band, where it used to be composed again.
+2. **Only pose 0 is built at the click.** The dissolve forms pose 0 and
+   nothing else; the other three idle poses follow the reveal a frame at a
+   time with the four attack frames (`ti_rv_atk`), the wheel holding the cell
+   at pose 0 until they are built and its clock coming back to 0 with the last
+   of them. `ti_cell_build` grounds the idle slots only from pose 0 — it
+   grounded all four for any build below the attack frames, which wiped the
+   poses a one-at-a-time build had already made. A whole board paint takes
+   what is owed first (`ti_board` → `ti_rv_atk_flush`).
+3. **The fade's thinning is unrolled**: a run of `and [di+n], ax` entered
+   part way down per row, no `loop` a word, and not over the band's ground
+   rows. The fade's step no longer clears a band it does not blit.
+4. **The last frame is two**: the cell's numbers, then the PLANNER's own
+   resource block (`ti_res_mine`) where it redrew both players' and both HPs.
+5. **The reveal prices itself.** Each frame's reveal work — the erase at the
+   top of the frame included — is timed with the PIT, and the next frame's
+   idle credit pays it IN FULL (`ti_rv_cost_sub`). It paid only what a modelled
+   "slack" could not; the slack was not there on the glass. The played cell's
+   owed frames after the reveal are priced the same way. The board's breathing
+   slows for the half second a reveal lasts; the frame keeps its tick.
+6. **A frame that ends past its tick does not sleep** (`ti_worker`): the tick
+   a sleep waits for has already turned, so a sleep waited out the whole next
+   one and a frame that finished 2 ms late cost a frame and two music ticks
+   together. It yields instead, so the UI task still runs.
+
+**THE SPARKS ARE A COMET NOW, NOT A SPIRAL.** Each one orbited the line three
+to seven pixels out, a turn every ~five frames — and a reveal is nine frames,
+so no spark was ever seen going round; what the glass showed was a ragged
+line. The orbit and its sine table are gone, the tail is on the line, and it is
+**six sparks where it was eight**, each being two XOR fills a frame.
+
+**AND THE HOVERED CARD'S POSE HAS ONE CLOCK.** `ti_pic_anim` drew the hovered
+portrait from the hand feature's clock, `ti_clock[TI_CELLS]`, as §97.4.12 says —
+but a COMPOSITION of the hovered card read `ti_clock[card]`, a board cell's, so
+a repaint mid-animation drew a different pose whenever the two differed. Both
+composers read the feature's clock now.
+
+`tests/tithefs.py` holds a fullscreen play's worst music gap to one tick,
+through the click and the whole reveal (three ticks with the click's frames and
+music steps put back).
 
 #### 97.4.12 THE FULLSCREEN HAND — seven portrait cards along the bottom
 

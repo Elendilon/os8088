@@ -1321,6 +1321,10 @@ tg_resume:
 ; cell whose art moved, and the whole board. Preserves every register.
 tg_redraw:
     push ax
+    mov word [ti_row], TI_ROW_FRONT ; A NEW PLANNER STARTS ON FRONT: the row
+                                    ; is where a played card goes, and the
+                                    ; last player's REAR carried over to the
+                                    ; next (SPEC.md 97.4.8.2)
     call tg_idle
     mov word [ti_hover], -1
     mov word [ti_hovc], -1

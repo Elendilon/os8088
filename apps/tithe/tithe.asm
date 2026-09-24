@@ -95,6 +95,10 @@ TI_FEATURES equ 21                ; WHAT THE IDLE WHEEL WALKS: 20 characters and
                                   ; out of it - they are a lane of their own
                                   ; below, on their own clock
 TI_HOVWAIT  equ 3                   ; frames a hovered card stands still
+TI_RS_HUD   equ 1                   ; ti_row_step's slices: the HUD...
+TI_RS_POSE  equ 2                   ; ...a card's resting pose...
+TI_RS_CARD  equ 3                   ; ...that card...
+TI_RS_REST  equ 4                   ; ...and every card's other three poses
 TI_IDLEFPS10 equ 44               ; THE IDLE'S TARGET RATE, in tenths of a pose
                                   ; a second a feature (SPEC.md 97.5.2): the
                                   ; rate the XT's VGA and Hercules arms were
@@ -480,29 +484,89 @@ ti_onclick:
     ret
 
 ; ti_row_apply - the toggle moved, so the HUD and every card say so
-; Preserves every register.
+; Preserves every register. The UI task's half: it POSTS, and the worker
+; does the work a slice a frame (ti_row_step, SPEC.md 97.4.8.2).
 ;
-; EVERY CARD AND NOT ONLY THE HOVERED ONE: the row decides which pair of
-; variable stats a card shows (97.4.8), so a toggle that redrew one card would
-; leave six saying what they would have been in the other row. Seven blits and
-; a HUD, once, on a control nobody clicks in a frame.
+; IT WAS 1.4 SECONDS WITH THE LOCK HELD. Every card's four figure poses
+; rebuilt with the other item, the strip's units rebuilt beside them, the HUD
+; and seven compositions - on the UI task, so the worker sat on the gfx lock
+; and the music stopped for 22 ticks. The row is a gameplay choice (it is the
+; column a played card goes to) and it takes effect the moment it is clicked;
+; only the PICTURE of it follows over the next frames.
+; -----------------------------------------------------------------------------
 ti_row_apply:
-    push ax
     cmp byte [ti_ok], 0
     je .out
-    call ti_units_build             ; ...and which ITEM every card's unit
-                                    ; holds (SPEC.md 97.4.9)
-    call ti_hud_draw
-    xor ax, ax
-.card:
-    cmp ax, [ti_cardn]
-    jae .out
-    push ax
-    call ti_card_draw
-    pop ax
-    inc ax
-    jmp short .card
+    call ti_card_inval              ; every bank shows the other row now
+    mov word [ti_rowk], 0
+    mov byte [ti_rowst], TI_RS_HUD  ; (a second click restarts it)
 .out:
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_row_step - one slice of the toggle's redraw, in a frame of the worker's
+; in:  the gfx lock is held; [ti_rowst] <> 0
+; Preserves every register.
+;
+; THE HUD FIRST, so the click is answered on the next frame. Then each card's
+; resting pose - the one a card at rest shows - and the card itself, a frame
+; each: the pose is ~25 ms of an 8088 and the composition ~60. Then, with the
+; hand already right, the three poses only the HOVERED card's animation reads,
+; one a frame; feature 22 waits for them (ti_frame). A frame that takes a
+; slice skips the wheel, which would otherwise overrun the tick on top of it.
+; -----------------------------------------------------------------------------
+ti_row_step:
+    push ax
+    push bx
+    push dx
+    call tm_run                     ; the music before the slice as well as
+    mov ax, [ti_rowk]               ; after it
+    cmp byte [ti_rowst], TI_RS_HUD
+    jne .n_hud
+    call ti_hud_draw
+    mov byte [ti_rowst], TI_RS_POSE
+    jmp short .out
+.n_hud:
+    cmp byte [ti_rowst], TI_RS_POSE
+    jne .n_pose
+    xor bx, bx
+    call ti_art_one
+    mov byte [ti_rowst], TI_RS_CARD
+    jmp short .out
+.n_pose:
+    cmp byte [ti_rowst], TI_RS_CARD
+    jne .rest
+    call ti_card_draw
+    inc ax
+    mov [ti_rowk], ax
+    mov byte [ti_rowst], TI_RS_POSE
+    cmp ax, [ti_cardn]
+    jb .out
+    mov word [ti_rowk], 0
+    mov byte [ti_rowst], TI_RS_REST
+    jmp short .out
+.rest:                              ; ...poses 1-3, one a frame
+    mov ax, [ti_rowk]               ; the k'th of TI_HAND * 3, card-major
+    xor dx, dx
+    push cx
+    mov cx, TI_POSES - 1
+    div cx
+    pop cx
+    xchg ax, dx                     ; AX = the pose less one, DX = the card
+    inc ax
+    push bx
+    mov bx, ax
+    mov ax, dx
+    call ti_art_one
+    pop bx
+    inc word [ti_rowk]
+    cmp word [ti_rowk], TI_HAND * (TI_POSES - 1)
+    jb .out
+    mov byte [ti_rowst], 0          ; ...and the redraw is done
+.out:
+    call tm_run
+    pop dx
+    pop bx
     pop ax
     ret
 
@@ -881,7 +945,13 @@ ti_worker:
     cmp byte [tg_ph], TG_PH_RES     ; for it has put the pass screen up, and a
     jne .nofr                       ; frame now would draw a base over it
 .fr:
+    cmp byte [ti_rowst], 0          ; THE TOGGLE'S REDRAW, a slice a frame -
+    je .wheel                       ; in the frame's place (ti_row_step)
+    call ti_row_step
+    jmp short .rsdone
+.wheel:
     call ti_frame
+.rsdone:
     call tg_res_step                ; ...and a round being fought, a step of
     call tm_run                     ; it a frame (tigame.inc) - and THE MUSIC
 .nofr:                              ; AGAIN AFTER THE FRAME. The step at the
@@ -894,6 +964,15 @@ ti_worker:
     call OSAPI_WM_CLIP_CLEAR
 .unlk:
     call OSAPI_GFX_UNLOCK
+    call OSAPI_GET_TICKS            ; A FRAME THAT RAN PAST ITS TICK does not
+    cmp ax, [ti_last]               ; sleep: the tick it would wait for has
+    je .sleep                       ; already turned, and a sleep then waits
+    call OSAPI_TASK_YIELD           ; out the WHOLE of the next one - a frame
+    jmp .loop                       ; that ended 2 ms late cost a frame and
+                                    ; put two music ticks together (SPEC.md
+                                    ; 97.4.11.1). It yields instead, so the UI
+                                    ; task still runs, and the next frame
+                                    ; starts on the tick it is owed
 .sleep:
     mov ax, 1
     call OSAPI_TASK_SLEEP
@@ -1156,10 +1235,12 @@ ti_feature:
     jmp .out
 .hov:                               ; feature that is not a character - and
     cmp byte [ti_hovage], TI_HOVWAIT ; (THE FIGURE WAITS for the pointer to
-    jae .hovgo                      ; stand on the card a few frames: a sweep
-    jmp .out                        ; crosses a card a frame, and a figure
-.hovgo:                             ; that starts moving under it is a band
-                                    ; drawn for nobody - SPEC.md 97.4.12.1)
+    jb .hovno                       ; stand on the card a few frames: a sweep
+    cmp byte [ti_rowst], 0          ; crosses a card a frame, and a figure
+    je .hovgo                       ; that starts moving under it is a band
+.hovno:                             ; drawn for nobody - SPEC.md 97.4.12.1 -
+    jmp .out                        ; and for its poses to be rebuilt after
+.hovgo:                             ; a toggle, 97.4.8.2)
     mov bl, [ti_clock + TI_CELLS]   ; what animates on it is the UNIT, not the
     xor bh, bh                      ; card, on THIS FEATURE's clock - the one
                                     ; the wheel just stepped. It read the
@@ -1188,9 +1269,15 @@ ti_feature:
     jmp .out
 .cell:
     cmp byte [ti_rv], 0             ; THE REVEAL OWNS ITS TARGET CELL until the
-    je .cown                        ; character has dissolved in (tirv.inc),
+    je .cpose                       ; character has dissolved in (tirv.inc),
     cmp ax, [ti_rvcell]             ; and a paint in the meantime shows the
-    jne .cown                       ; ground the board strip already drew
+    jne .cpose                      ; ground the board strip already drew
+    jmp .out
+.cpose:
+    cmp ax, [ti_atkcell]            ; ...AND STANDS IN POSE 0 until its other
+    jne .cown                       ; idle poses are built, a frame each after
+    cmp word [ti_atkfr], TI_POSES   ; the reveal (ti_rv_atk, SPEC.md
+    jae .cown                       ; 97.4.11.1)
     jmp .out
 .cown:
     mov [ti_ci], ax
@@ -1921,6 +2008,8 @@ ti_cpap:    db 0
 ti_hover:   dw -1                   ; the card under the pointer, -1 for none
 ti_hovold:  dw -1                   ; ...and the one it just left
 ti_hovage:  db 0                    ; frames the hover has stood (TI_HOVWAIT)
+ti_rowst:   db 0                    ; the toggle's redraw: TI_RS_*, 0 = none
+ti_rowk:    dw 0                    ; ...the card, or the pose, it is on
 ti_hstat:   db 0                    ; the status line is owed, when it settles
 ti_cvalid:  times TI_HAND db 0      ; which cards' banks are good (ti_card_bank)
 ti_cbbw:    dw 0                    ; the width a card's blit takes

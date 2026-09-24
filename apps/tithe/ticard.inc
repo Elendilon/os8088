@@ -472,6 +472,16 @@ ti_card_draw:
     call ti_pit
     mov [ti_cp0], ax
 %endif
+    cmp byte [ti_cfsave], 0         ; A FADING CARD'S STEP puts its bank down
+    je .clear                       ; and composes nothing, so the band it
+    cmp byte [ti_cfade], 0          ; would clear is not the one it blits
+    je .clear                       ; (tirv.inc) - ~3 ms of each of four
+    mov ax, [ti_cardi]              ; frames that have the sparks in them
+    call ti_rv_played
+    jnc .clear
+    mov word [ti_cbsrc], ti_cfband
+    jmp .blit
+.clear:
     mov di, ti_cardband             ; a clean band
     mov ax, [ti_cbs]
     mul word [ti_cbrows]
@@ -1324,13 +1334,11 @@ ti_cb_unit:
     push di
     push word [ti_pi]
     xor bx, bx                      ; A RESTING CARD'S UNIT STANDS IN POSE 0.
-    cmp word [ti_cx], 0             ; Only the hovered card animates, and the
-    je .pose                        ; clock it reads was a BOARD CELL's -
-    mov bx, [ti_cardi]              ; ti_clock[card] - so a redrawn resting
-    add bx, ti_clock                ; card froze at whatever pose that cell
-    mov bl, [bx]                    ; was on, and a repaint was never the
-    xor bh, bh                      ; picture the one before it left
-.pose:
+    cmp word [ti_cx], 0             ; Only the hovered card animates, on the
+    je .pose                        ; HAND FEATURE's clock - the one feature
+    mov bl, [ti_clock + TI_CELLS]   ; 22 steps and draws from (97.4.12). It
+    xor bh, bh                      ; read ti_clock[card], a BOARD CELL's, so
+.pose:                              ; a repaint drew a pose the wheel had not
     mov [ti_pi], bx
     mov ax, [ti_cardi]              ; ...and the character this card plays
     call ti_ck_card                 ; (SPEC.md 97.4.9)
@@ -1415,11 +1423,9 @@ ti_cb_portrait:
     mov [ti_picy], ax
     push word [ti_pi]
     xor bx, bx                      ; a resting card stands in pose 0 and the
-    cmp word [ti_cx], 0             ; hovered one on its own clock, as the
-    je .pose                        ; strip's unit does
-    mov bx, [ti_cardi]
-    add bx, ti_clock
-    mov bl, [bx]
+    cmp word [ti_cx], 0             ; hovered one on the hand feature's clock,
+    je .pose                        ; which is the one ti_pic_anim draws from
+    mov bl, [ti_clock + TI_CELLS]
     xor bh, bh
 .pose:
     mov [ti_pi], bx
@@ -1466,7 +1472,7 @@ ti_cb_portrait:
 ; card is centred four pixels off a byte, and this used to take the half-byte
 ; here - a shift by CL both ways for every byte, which an 8088 prices at 8 + 4
 ; clocks a bit: 14 ms of VGA figure, in every card composition and in every
-; step of the hovered card's animation. ti_figs_build shifts each pose ONCE
+; step of the hovered card's animation. ti_art_one shifts each pose ONCE
 ; into a row a byte wider (ti_fig_shift), so this is a plain OR of bs + 1
 ; bytes a row (SPEC.md 97.4.12.1).
 ti_cb_pic:
@@ -1652,158 +1658,130 @@ ti_pic_anim:
     ret
 
 ; -----------------------------------------------------------------------------
-; ti_figs_build - every card's PORTRAIT figure, four poses each (97.4.12)
+; ti_units_build - every hand card's art, four poses each (SPEC.md 97.4.9,
+; 97.4.12): the fullscreen hand's PORTRAIT figures, or the strip's mini units
+; - whichever the layout draws, and not both
 ; Preserves every register.
 ;
-; The board's own surface on black, into ti_fseg: the same records ti_char_put
-; composes a cell from, with the card's item for the row the toggle names -
-; so it is rebuilt where the strip's units are, at a layout and at a toggle.
+; THE CARD'S OWN ANIMATION (TITHE-PLAN 3.3), and the LAYER MODEL's clearest
+; demonstration: FRONT/REAR decides which pair of stats a card shows (97.4.8),
+; and it decides which ITEM the figure holds too, so flipping the toggle turns
+; the pikeman's sword into a pitchfork on the card in the hand. It built BOTH
+; stores on every toggle - 200 ms of strip units a fullscreen hand never
+; reads, beside its own 700 ms of portraits - and a relayout builds whichever
+; the new layout wants anyway. A toggle does not come here at all now: the
+; worker rebuilds it a pose at a time (ti_row_step, SPEC.md 97.4.8.2).
 ; -----------------------------------------------------------------------------
-ti_figs_build:
-    call ti_card_inval              ; the figures under every bank move
-    cmp byte [ti_horiz], 0
-    jne .go
-    ret
-.go:
+ti_units_build:
+    call ti_card_inval              ; the art under every bank moves
+    mov byte [ti_rowst], 0          ; ...and a toggle's rebuild is overtaken
     push ax
+    push bx
+    xor ax, ax                      ; ONE PER HAND SLOT (tigame.inc): the card
+.card:                              ; in the slot, whoever it is this round
+    cmp ax, TI_HAND
+    jae .done
+    xor bx, bx
+.pose:
+    cmp bx, TI_POSES
+    jae .next
+    call tm_run                     ; the music a pose at a time
+    call ti_art_one
+    inc bx
+    jmp short .pose
+.next:
+    inc ax
+    jmp short .card
+.done:
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_art_one - hand card AX's pose BX into its store: the PORTRAIT figure on
+; the fullscreen hand (the claim ti_fseg, at the card's nibble - ti_fig_shift),
+; the strip's mini UNIT otherwise (the scratch part, TI_S_UNIT)
+; Preserves every register.
+;
+; The board's own records on black, through ti_char_put, with the item the
+; FRONT/REAR toggle names. A unit is a surface of its own - 24 wide where the
+; board's band is 64 - and `TI_CHAR_BG` is where its records start.
+; -----------------------------------------------------------------------------
+ti_art_one:
+    push ax
+    push bx
     push cx
+    push dx
     push di
     push es
-    cld
     push word [ti_pi]
     push word [ti_ck]
     push word [ti_uk]
-    mov ax, [ti_bs]                 ; A ROW IS A BYTE WIDER than the board's
-    mov [ti_fa_wb], ax              ; band, because the figure is STORED at
-    inc ax                          ; the card's own nibble (ti_fig_shift)
+    cld
+    mov [ti_pi], bx
+    mov [ti_cfr], bx
+    call ti_ck_card                 ; [ti_uk] = the hand slot's store
+    mov word [ti_cdx], 0
+    mov word [ti_cdy], 0
+    mov byte [ti_fa_mir], 0
+    mov ax, [ti_row]
+    mov [ti_cst], ax
+    cmp byte [ti_horiz], 0
+    je .unit
+    mov ax, [ti_bs]                 ; A PORTRAIT ROW IS A BYTE WIDER than the
+    mov [ti_fa_wb], ax              ; board's band, because the figure is
+    inc ax                          ; STORED at the card's own nibble
     mov [ti_fa_stride], ax
     mul word [ti_bh]
     mov [ti_uslot], ax
     mov ax, [ti_bh]
     mov [ti_fa_h], ax
     mov [ti_cbh], ax
-    mov word [ti_cdx], 0
-    mov word [ti_cdy], 0
-    mov byte [ti_fa_mir], 0
     mov ax, [ti_gidx]               ; the BOARD's surface, not the unit's
     mov [ti_csurf], ax
-    mov ax, [ti_row]
-    mov [ti_cst], ax
+    mov ax, [ti_uk]
+    mov cx, TI_POSES
+    mul cx
+    add ax, [ti_pi]
+    mul word [ti_uslot]
+    mov di, ax
     mov es, [ti_fseg]
-    xor di, di
-    xor ax, ax                      ; ONE PER HAND SLOT: the card in slot N,
-.card:                              ; whoever that is this round
-    cmp ax, TI_HAND
-    jae .done
-    call ti_ck_card
-    mov word [ti_pi], 0
-.pose:
-    cmp word [ti_pi], TI_POSES
-    jae .next
-    push ax
-    push di
-    mov cx, [ti_uslot]
-    xor al, al
-    rep stosb
-    pop di
-    mov ax, [ti_pi]
-    mov [ti_cfr], ax
-    call ti_char_put                ; (nothing, for an order or an empty slot)
-    call ti_fig_shift
-    add di, [ti_uslot]
-    inc word [ti_pi]
-    pop ax
-    jmp short .pose
-.next:
-    inc ax
-    jmp short .card
-.done:
-    pop word [ti_uk]
-    pop word [ti_ck]
-    pop word [ti_pi]
-    pop es
-    pop di
-    pop cx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; ti_units_build - the mini unit on every card: its four idle poses, carrying
-; the item for the row the HUD's toggle names (SPEC.md 97.4.9)
-; Preserves every register.
-;
-; THE CARD'S OWN ANIMATION (TITHE-PLAN 3.3), and now the LAYER MODEL's
-; clearest demonstration: FRONT/REAR decides which pair of stats a card shows
-; (97.4.8), and it decides which ITEM the unit holds too, so flipping the
-; toggle turns the pikeman's sword into a pitchfork on the card in the hand.
-; A unit is a surface of its own - 24 wide where the board's band is 64 - and
-; `TI_CHAR_BG` is where its records start. The card is black, so the slot is
-; cleared to black and the character masked over it like any other.
-; -----------------------------------------------------------------------------
-ti_units_build:
-    call ti_card_inval              ; ...and the units under every bank
-    push ax
-    push cx
-    push di
-    push es
-    call ti_ess                     ; the caches are the scratch part's
-    cld
-    push word [ti_pi]
-    push word [ti_ck]
-    push word [ti_uk]
+    jmp short .put
+.unit:
     mov ax, [ti_unitb]              ; the slot's own pitch, and the window
-    mul word [ti_unith]
-    mov [ti_uslot], ax
-    mov ax, [ti_unitb]
     mov [ti_fa_stride], ax
     mov [ti_fa_wb], ax
+    mul word [ti_unith]
+    mov [ti_uslot], ax
     mov ax, [ti_unith]
     mov [ti_fa_h], ax
     mov [ti_cbh], ax
-    mov word [ti_cdx], 0
-    mov word [ti_cdy], 0
-    mov byte [ti_fa_mir], 0
     mov ax, TI_CHAR_BG
     add ax, [ti_gidx]
     mov [ti_csurf], ax
-    mov ax, [ti_row]
-    mov [ti_cst], ax
-    xor ax, ax                      ; ONE PER HAND SLOT (tigame.inc): the card
-.card:                              ; in the slot, whoever it is this round
-    cmp ax, TI_HAND
-    jae .done
-    call ti_ck_card
-    mov word [ti_pi], 0
-.pose:
-    cmp word [ti_pi], TI_POSES
-    jae .next
-    call tm_run                     ; the music a unit pose at a time
-    push ax
-    call ti_unit_addr               ; DI = this pose's slot: cleared to the
-    push di                         ; card's black, then the character
-    mov cx, [ti_uslot]
+    call ti_ess                     ; the units are the scratch part's
+    call ti_unit_addr
+.put:
+    push di                         ; the slot, cleared to the card's black,
+    mov cx, [ti_uslot]              ; then the character
     xor al, al
     rep stosb
     pop di
-    mov ax, [ti_pi]
-    mov [ti_cfr], ax
-    call ti_char_put                ; ES = DS: the unit lives in the package
-    inc word [ti_pi]
-    pop ax
-    jmp short .pose
-.next:
-    inc ax
-    jmp short .card
-.done:
+    call ti_char_put                ; (nothing, for an order or an empty slot)
+    cmp byte [ti_horiz], 0
+    je .out
+    call ti_fig_shift
+.out:
     pop word [ti_uk]
     pop word [ti_ck]
     pop word [ti_pi]
     pop es
     pop di
+    pop dx
     pop cx
+    pop bx
     pop ax
-    jmp ti_figs_build               ; ...and the portraits, which follow the
-                                    ; same toggle (a no-op off the full hand)
+    ret
 
 ti_unit_addr:
     push ax

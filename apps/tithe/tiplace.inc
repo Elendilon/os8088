@@ -658,8 +658,11 @@ ti_cell_build:
 .noart:
     call ti_cell_gsrc               ; [ti_gsrc] = the band's first ground byte
     ; --- THE GROUND under every slot the range covers ----------------------
-    cmp word [ti_cfbeg], TI_POSES
-    jae .kground
+    cmp word [ti_cfbeg], 0          ; THE IDLE SLOTS ARE GROUNDED ONCE, by a
+    jne .kground                    ; build that starts at pose 0: poses 1-3
+                                    ; follow a play a frame at a time
+                                    ; (ti_rv_atk), and grounding all four
+                                    ; again for each wiped the ones built
     mov es, [ti_aseg]               ; the idle poses' four slots...
     call ti_cell_ground
     cmp word [ti_cfend], TI_POSES

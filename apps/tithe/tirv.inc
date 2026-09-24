@@ -5,9 +5,9 @@
 ; hand reaches its cell. Three things, OVERLAPPED, and the whole of it is
 ; nine frames where a clash is sixteen:
 ;
-;   1. a TRAIL OF SPARKS from the card to the cell, TWIRLING about the line
-;      as it flies - the head arrives on frame TI_RVTRAVEL and the tail pours
-;      in over the two after;
+;   1. a TRAIL OF SPARKS from the card to the cell, a comet down the line -
+;      the head arrives on frame TI_RVTRAVEL and the tail pours in over the
+;      two after;
 ;   2. the card DISSOLVING OUT of the hand while the trail leaves it, gone
 ;      before the sparks arrive;
 ;   3. the character DISSOLVING IN over its cell's ground as the tail pours
@@ -36,12 +36,18 @@ TI_RVTRAVEL equ 6                 ; frames of flight: a clash is sixteen, and a
                                   ; where this goes ~70
 TI_RVCARD   equ 1                 ; the card fades on frames 1-4: 3, 2, 1, gone
 TI_RVCELL   equ 5                 ; the character forms on frames 5-8: 1 to 4
-TI_RVEND    equ 9                 ; its numbers, and the reveal is over
-TI_RVSPK    equ 8                 ; sparks a frame: the head and seven behind,
-                                  ; a quarter frame apart - a tail two frames
-                                  ; long. It was twelve, and the four it lost
-                                  ; are what lets the idle keep breathing
-                                  ; through a reveal rather than stopping
+TI_RVEND    equ 9                 ; its numbers...
+TI_RVDONE   equ 10                ; ...the planner's gold, and it is over
+TI_RVSPK    equ 6                 ; sparks a frame: the head and five behind,
+                                  ; a quarter frame apart - a tail a frame and
+                                  ; a half long. It was twelve, then eight;
+                                  ; each is two XOR fills a frame, ~2 ms of an
+                                  ; 8088, which is what lets the idle keep
+                                  ; breathing through a reveal (97.4.11.1)
+TI_THMAX    equ 16                ; the most words the fade's unrolled run
+                                  ; ANDs a row: the strip's band is the panel's
+                                  ; width, 152 pixels at the widest (20 bytes,
+                                  ; 10 words), and a portrait's is 11 bytes
 TI_RVMAX    equ 352               ; the largest cell band, a VGA's 64 x 44
 
 ; -----------------------------------------------------------------------------
@@ -132,18 +138,24 @@ ti_rv_play:
     jmp .out
 .placed:
     mov [ti_rvcell], ax
+    call tm_run                     ; THE CLICK IS ~80 ms WITH THE LOCK HELD:
+                                    ; the music from here, as the relayout
+                                    ; steps it (timus.inc)
 
     ; --- the CARD is composed now and banked for its fade, AS IT IS ON THE
     ; GLASS - hovered, if it is - rather than on the fade's first step: ~22 ms
     ; of an 8088 is room a trail frame has not got, and here it is latency
     ; before the first spark instead of a stutter in the middle
     mov byte [ti_cfsave], 0
-    mov byte [ti_cfade], 3
-    mov word [ti_calconly], 1       ; compose, bank - and put nothing down
     mov ax, [ti_rvcard]
-    call ti_card_draw
-    mov word [ti_calconly], 0
+    call ti_rv_frombank             ; THE CARD IS ALREADY COMPOSED: its bank
+    jnc .banked                     ; (SPEC.md 97.4.12.1), hovered or not, is
+    mov byte [ti_cfade], 3          ; the picture on the glass - ~28 ms of
+    mov word [ti_calconly], 1       ; the click that was a composition
+    call ti_card_draw               ; ...else compose, bank - and put nothing
+    mov word [ti_calconly], 0       ; down
     mov byte [ti_cfade], 0
+.banked:
     mov word [ti_hover], -1         ; ...and it stops being the hovered card,
                                     ; so the wheel stops animating its unit
 
@@ -151,12 +163,13 @@ ti_rv_play:
     mov bx, [ti_rvcell]
     push word [ti_ci]
     mov [ti_ci], bx
-    mov word [ti_cfbeg], 0          ; ITS IDLE POSES ONLY: the four attack
-    mov word [ti_cfend], TI_POSES   ; frames are nobody's until a clash, so they
-    call ti_cell_build              ; follow the reveal a frame at a time
-    mov word [ti_cfend], 2 * TI_POSES ; (ti_rv_atk) instead of standing
-    mov [ti_atkcell], bx            ; between the click and the first spark
-    mov word [ti_atkfr], TI_POSES
+    mov word [ti_cfbeg], 0          ; ITS RESTING POSE ONLY: the dissolve
+    mov word [ti_cfend], 1          ; forms pose 0, and the other three idle
+    call ti_cell_build              ; poses and the four attack frames follow
+    mov word [ti_cfend], 2 * TI_POSES ; the reveal a frame at a time
+    mov [ti_atkcell], bx            ; (ti_rv_atk) - where all eight stood
+    mov word [ti_atkfr], 1          ; between the click and the first spark
+    call tm_run
     mov byte [bx + ti_clock], 0     ; ...and it will idle from its first pose
 
     ; --- the two ends of the trail -----------------------------------------
@@ -203,6 +216,7 @@ ti_rv_play:
     mov byte [ti_rv], 1
     mov byte [ti_rvt], 0
     mov word [ti_rvn], 0
+    mov word [ti_rvlast], 0         ; no frame of it measured yet
 .out:
     pop dx
     pop cx
@@ -211,15 +225,18 @@ ti_rv_play:
     ret
 
 ; -----------------------------------------------------------------------------
-; ti_rv_atk - one of the played cell's owed ATTACK frames, a frame at a time
-; once the reveal is over. Preserves every register.
+; ti_rv_atk - one of the played cell's owed frames - its idle poses 1 to 3,
+; then its four ATTACK frames - a frame at a time once the reveal is over.
+; Preserves every register.
 ;
-; A PLAY IS THE IDLE POSES AND NOTHING ELSE, and the attack frames come after.
-; Composing all eight at the click was ~81 ms of the 112 between the click and
-; the first spark, and nothing needs the four attack frames until the cell
-; swings. One a frame, when no reveal is running, is ~10 ms of a frame that has
-; room for it; a clash, a relayout or the next play takes the rest at once
-; (ti_rv_atk_flush) rather than swing with frames that are not there.
+; A PLAY IS POSE 0 AND NOTHING ELSE. Composing all eight at the click was ~81
+; ms of the 112 between the click and the first spark; the attack frames came
+; out first, and since SPEC.md 97.4.11.1 the idle poses too - ~20 ms each on a
+; VGA's cell, which put a reveal frame over its tick. The wheel holds the cell
+; at pose 0 until they are built (ti_frame), and its clock comes back to 0
+; with the last of them. One a frame, when no reveal is running; a clash, a
+; relayout or the next play takes the rest at once (ti_rv_atk_flush) rather
+; than swing with frames that are not there.
 ; -----------------------------------------------------------------------------
 ti_rv_atk:
     cmp byte [ti_rv], 0
@@ -227,7 +244,11 @@ ti_rv_atk:
     cmp word [ti_atkcell], -1
     je .out
     push ax
-    push word [ti_ci]
+    push bx
+    push dx
+    call ti_pit                     ; TIMED, for the next frame's credit
+    mov [ti_rvp0], ax               ; (ti_rv_cost): ~18 ms on a VGA's cell,
+    push word [ti_ci]               ; after the wheel had spent its own
     mov ax, [ti_atkcell]
     mov [ti_ci], ax
     mov ax, [ti_atkfr]
@@ -238,23 +259,51 @@ ti_rv_atk:
     mov word [ti_cfbeg], 0
     mov word [ti_cfend], 2 * TI_POSES
     inc word [ti_atkfr]
+    cmp word [ti_atkfr], TI_POSES   ; THE LAST IDLE POSE: the wheel has held
+    jne .held                       ; the cell at pose 0 while its clock ran,
+    call ti_rv_clock0               ; so its clock comes back to the glass
+.held:
     cmp word [ti_atkfr], 2 * TI_POSES
     jb .more
     mov word [ti_atkcell], -1       ; ...all four: the cell is whole
 .more:
     pop word [ti_ci]
+    call ti_pit
+    mov bx, [ti_rvp0]
+    sub bx, ax
+    mov ax, bx
+    mov bx, 8381
+    mul bx
+    mov bx, 10000
+    div bx
+    mov [ti_rvlast], ax
+    pop dx
+    pop bx
     pop ax
 .out:
     ret
 
-; ti_rv_atk_flush - every attack frame still owed, now. Preserves every
+; ti_rv_clock0 - the played cell [ti_atkcell] back on pose 0, which is what
+; the glass shows while the wheel holds it (ti_frame). Preserves every
 ; register.
+ti_rv_clock0:
+    push bx
+    mov bx, [ti_atkcell]
+    mov byte [bx + ti_clock], 0
+    pop bx
+    ret
+
+; ti_rv_atk_flush - every frame still owed, now. Preserves every register.
 ti_rv_atk_flush:
     push ax
     push word [ti_ci]
     mov ax, [ti_atkcell]
     cmp ax, -1
     je .out
+    cmp word [ti_atkfr], TI_POSES   ; (its idle poses too: the clock comes
+    jae .idle                       ; back to the pose 0 the glass shows)
+    call ti_rv_clock0
+.idle:
     mov [ti_ci], ax
     mov ax, [ti_atkfr]
     mov [ti_cfbeg], ax
@@ -276,6 +325,8 @@ ti_rv_erase:
     push cx
     push dx
     push si
+    call ti_pit                     ; TIMED, for the next frame's price
+    mov [ti_rvp0], ax               ; (ti_rv_cost)
     mov si, ti_rvsp
 .next:
     cmp word [ti_rvn], 0
@@ -289,6 +340,10 @@ ti_rv_erase:
     dec word [ti_rvn]
     jmp short .next
 .out:
+    call ti_pit
+    mov bx, [ti_rvp0]
+    sub bx, ax
+    mov [ti_rvera], bx              ; PIT counts
     pop si
     pop dx
     pop cx
@@ -317,7 +372,13 @@ ti_rv_lost:
 ti_rv_step:
     push ax
     cmp byte [ti_rv], 0
-    je .out
+    jne .on
+    jmp .out
+.on:
+    push bx
+    push dx
+    call ti_pit                     ; TIMED, for the next frame's price
+    mov [ti_rvp0], ax               ; (ti_rv_cost)
     cmp byte [ti_rvfull], 0         ; an expose landed on the sparks: the
     je .go                          ; whole window again, now, under the
     mov byte [ti_rvfull], 0         ; region the worker armed
@@ -340,18 +401,92 @@ ti_rv_step:
     mov byte [ti_cfade], 0
 .cell:
     cmp al, TI_RVCELL               ; --- THE CHARACTER, as the sparks pour in
-    jb .out
+    jb .timed
     cmp al, TI_RVEND
     jae .nums
     sub al, TI_RVCELL - 1
     call ti_rv_cell
-    jmp short .out
+    jmp short .timed
 .nums:
-    call ti_rv_nums                 ; ...and its NUMBERS a frame after it is
-    call ti_res_all                 ; whole, and the gold it cost off the HUD.
-    call ti_rv_home                 ; Done: the wheel has the cell back
-    mov byte [ti_rv], 0
+    jne .done
+    call ti_rv_nums                 ; ...its NUMBERS a frame after it is whole
+    jmp short .timed
+.done:
+    call ti_res_mine                ; ...and the gold it cost off the HUD, a
+    call ti_rv_home                 ; frame after that: the two were ~50 ms of
+    mov byte [ti_rv], 0             ; one frame. Done: the wheel has the cell
+.timed:                             ; back
+    call ti_pit                     ; THE PRICE OF THIS FRAME'S REVEAL, the
+    mov bx, [ti_rvp0]               ; erase at the top of the frame included:
+    sub bx, ax                      ; the next frame's credit pays it first
+    add bx, [ti_rvera]              ; (ti_rv_cost). PIT counts to us as
+    mov ax, bx                      ; ti_cal_card converts them
+    mov bx, 8381
+    mul bx
+    mov bx, 10000
+    div bx
+    mov [ti_rvlast], ax
+    pop dx
+    pop bx
 .out:
+    pop ax
+    ret
+
+; ti_rv_frombank - the played card's BANK (ti_card_bank) into ti_cfband as
+; the fade's picture: the hovered twin if it is the hovered card, the resting
+; one otherwise. CF=1 if it has no bank (ti_card_draw composes it instead).
+; in: AX = the card. Preserves every register.
+ti_rv_frombank:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push ds
+    push es
+    mov si, ax
+    cmp byte [si + ti_cvalid], 0
+    je .none
+    mov [ti_cardi], ax
+    call ti_card_pos
+    mov [ti_cposx], ax
+    mov [ti_cardy], bx
+    call ti_card_geo                ; the geometry the fade will blit with
+    call ti_card_slot               ; SI = the resting bank
+    mov ax, [ti_cardi]
+    cmp ax, [ti_hover]
+    jne .rest
+    add si, TI_HAND * TI_CARDBANDMAX
+.rest:
+    mov ax, [ti_cbs]
+    mul word [ti_cbrows]
+    mov cx, ax
+    push ds
+    pop es
+    mov di, ti_cfband
+    call ti_ess                     ; ES = the scratch part...
+    push es
+    pop ds                          ; ...as the source
+    push cs                         ; (the package's own segment: the near
+    pop es                          ; model)
+    cld
+    rep movsb
+    pop es
+    pop ds
+    mov byte [ti_cfsave], 1
+    clc
+    jmp short .out2
+.none:
+    pop es
+    pop ds
+    stc
+.out2:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
     pop ax
     ret
 
@@ -367,7 +502,19 @@ ti_rv_cost:
     push dx
     xor ax, ax
     cmp byte [ti_rv], 0
-    je .out
+    jne .rv
+    cmp word [ti_atkcell], -1       ; ...and the played cell's owed frames
+    je .out                         ; after it, one a frame (ti_rv_atk)
+    mov ax, [ti_rvlast]
+    jmp short .out
+.rv:
+    mov ax, [ti_rvlast]             ; WHAT THE LAST FRAME OF IT REALLY TOOK,
+    or ax, ax                       ; from the PIT (ti_rv_step): the model
+    jnz .out                        ; below priced a blit and not the thin in
+    xor ax, ax                      ; front of it or a pose's build, and the
+                                    ; idle spent the difference - frames of
+                                    ; 50-58 ms and the music two ticks at a
+                                    ; time. The first frame has only this:
     mov ax, [ti_arrus]              ; the trail: every spark twice, down and up
     mov bx, 2 * TI_RVSPK            ; - and on the last frame, which has none,
     mul bx                          ; the numbers, which cost about as much
@@ -398,55 +545,39 @@ ti_rv_cost:
 ; ti_rv_cost_sub - AX = the idle's credit AX less what the reveal owes it
 ; this frame, floored at nothing. Preserves every other register.
 ;
-; THE REVEAL PAYS OUT OF THE TICK'S SLACK FIRST. The idle's credit is its
-; SPEED - a share of the tick, sized for how fast a figure should breathe -
-; and not the tick's spare room, so charging a reveal to it slowed the board
-; while ~11 ms of every reveal frame sat unused. So the reveal is charged first
-; to what no lane has claimed - TI_FRAMEMAX of the tick, less the combat and
-; base lanes' allowances and the idle's own credit - and the idle pays only
-; what is left over. The costs are the calibrated ones (ti_arrus, ti_rowus),
-; so this is the same answer on every adapter without a constant per machine.
+; THE IDLE PAYS FOR THE REVEAL, ALL OF IT (SPEC.md 97.4.11.1). It used to pay
+; only what a "slack" could not - TI_FRAMEMAX of the tick less the other
+; lanes' allowances and the idle's own credit, ~11 ms - because a reveal
+; charged in full slowed the board while that room sat unused. The room was a
+; MODEL's: measured on a 4.77 MHz VGA the reveal's frames ran 45-58 ms, the
+; wheel spending its whole credit on top of a reveal it believed fitted, and
+; the music went two ticks at a time. The cost is MEASURED now (ti_rv_cost),
+; so the board's breathing slows for the half second a reveal lasts and the
+; frame keeps its tick.
 ti_rv_cost_sub:
     push bx
-    push cx
-    push dx
     mov bx, ax                      ; BX = the idle's credit
     call ti_rv_cost                 ; AX = what the reveal costs
-    push ax
-    mov ax, TI_FRAMEUS / 100        ; CX = the slack: the tick's usable share
-    mov cx, TI_FRAMEMAX - TI_COMBAT - TI_BASESHARE
-    mul cx                          ; less the other lanes'...
-    sub ax, bx                      ; ...less the idle's own
-    jnc .slack
-    xor ax, ax
-.slack:
-    mov cx, ax
-    pop ax
-    sub ax, cx                      ; what the slack cannot cover
-    jnc .over
-    xor ax, ax
-.over:
     sub bx, ax
     jnc .have
     xor bx, bx
 .have:
     mov ax, bx
-    pop dx
-    pop cx
     pop bx
     ret
 
 ; -----------------------------------------------------------------------------
 ; ti_rv_sparks - frame [ti_rvt] of the trail: the head at t/T of the way, and
 ; each spark behind it a quarter of a frame further back, smaller the older it
-; is and ORBITING the line - further out the older it is, and a turn round it
-; every ~five frames, neighbours a third of a turn apart, so the trail TWIRLS.
-; A spark that has reached the cell is poured in and drawn no more, which is
-; how the tail follows the head home. Every rect is recorded for the erase.
+; is. A spark that has reached the cell is poured in and drawn no more, which
+; is how the tail follows the head home. Every rect is recorded for the erase.
 ; Preserves every register.
 ;
-; THE TWIRL IS A TABLE: sixteen signed bytes of sine, a lookup and an IMUL a
-; spark - microseconds against the ~2 ms of a spark's two XOR fills.
+; THE TWIRL IS GONE (SPEC.md 97.4.11.1). Each spark ORBITED the line, three to
+; seven pixels out and a turn every ~five frames - and a reveal is nine frames
+; at the rate a reveal runs, so no spark was ever seen going round: the owner
+; saw a ragged line and asked whether it twirled at all. A comet down the
+; line is what was on the glass anyway, without the table and the IMULs.
 ; -----------------------------------------------------------------------------
 ti_rv_sparks:
     push ax
@@ -486,48 +617,9 @@ ti_rv_sparks:
     mov bx, [ti_rvy1]
     call ti_rv_lerp
     mov [ti_rvpy], ax
-    mov cx, 5                       ; the HEAD: five pixels, on the line
-    or bp, bp
-    jz .size
-    mov cx, 3                       ; ...a SPARK: on an ORBIT of the line,
-    cmp bp, 2                       ; wider the older it is - the trail
-    jbe .orbit                      ; spreads as it fades
-    mov cx, 5
-    cmp bp, 5
-    jbe .orbit
-    mov cx, 7
-.orbit:
-    mov al, [ti_rvt]                ; the angle: three sixteenths a frame, and
-    mov bl, 3                       ; five between neighbours
-    mul bl
-    mov bx, bp
-    mov bh, bl
-    shl bl, 1
-    shl bl, 1
-    add bl, bh
-    add al, bl
-    and ax, 15
-    mov bx, ax
-    push bx
-    mov al, [ti_rvsin + bx]         ; dy = R sin
-    cbw
-    imul cx
-    push cx
-    mov cl, 6
-    sar ax, cl
-    pop cx
-    add [ti_rvpy], ax
-    pop bx
-    add bx, 4                       ; dx = R cos
-    and bx, 15
-    mov al, [ti_rvsin + bx]
-    cbw
-    imul cx
-    push cx
-    mov cl, 6
-    sar ax, cl
-    pop cx
-    add [ti_rvpx], ax
+    mov cx, 5                       ; the HEAD: five pixels, and the tail
+    or bp, bp                       ; behind it three and then two, all ON
+    jz .size                        ; the line - a comet and not a spiral
     mov cx, 3
     cmp bp, 2
     jbe .size
@@ -772,30 +864,62 @@ ti_rv_cardfade:
     cld
     rep movsw
     mov byte [ti_cfsave], 1
-    jmp short .out
+    jmp .out
 .thin:
     mov al, [ti_cfade]
     xor ah, ah
     shl ax, 1
     shl ax, 1
     add ax, ti_rv_dith
-    mov bx, ax
-    mov di, ti_cfband
+    mov bx, ax                      ; BX = this level's four row masks
+    mov cx, [ti_cbs]                ; UNROLLED: the row's words are ANDed by a
+    shr cx, 1                       ; run of `and [di+n], ax` entered part
+    cmp cx, TI_THMAX                ; (a band wider than the run is thinned
+    jbe .wok                        ; across the run's width and no further:
+    mov cx, TI_THMAX                ; entered before its first instruction it
+.wok:                               ; would run the code in front of it)
+    mov ax, TI_THMAX                ; way down, so there is no `loop` a word -
+    sub ax, cx                      ; the loop was most of the cost, ~13 ms of
+    mov cx, ax                      ; a VGA card a step against ~6 now
+    shl ax, 1
+    add ax, cx
+    add ax, .unroll
+    mov [ti_thjmp], ax
+    mov di, [ti_cbase]              ; the CARD's rows: the band's TI_HLIFT above
+    sub di, ti_cardband             ; a portrait card are ground and stay so
+    mov ax, di
     xor dx, dx
+    div word [ti_cbs]
+    mov dx, ax                      ; DX = the band row (the dither's phase)
+    add di, ti_cfband
+    mov si, [ti_cardh]
+    add si, dx                      ; SI = the row to stop at
 .row:
-    cmp dx, [ti_cbrows]
+    cmp dx, si
     jae .out
-    push bx
-    mov ax, dx
-    and ax, 3
-    add bx, ax
-    mov al, [bx]
-    pop bx
-    mov cx, [ti_cbs]
-.byte:
-    and [di], al
-    inc di
-    loop .byte
+    push si
+    mov si, dx
+    and si, 3
+    mov al, [bx + si]
+    mov ah, al
+    pop si
+    jmp word [ti_thjmp]
+.unroll:
+%assign ti_th TI_THMAX - 1
+%rep TI_THMAX
+    and [byte di + ti_th * 2], ax
+%assign ti_th ti_th - 1
+%endrep
+    test byte [ti_cbs], 1           ; ...and an odd band's last byte
+    jz .rowdone
+    push si
+    mov si, [ti_cbs]
+    dec si
+    add si, di
+    and [si], al
+    pop si
+.rowdone:
+    add di, [ti_cbs]
     inc dx
     jmp short .row
 .out:
@@ -807,10 +931,6 @@ ti_rv_cardfade:
     pop bx
     pop ax
     ret
-
-; sine, sixteen steps a turn, x 64
-ti_rvsin:
-    db 0, 24, 45, 59, 64, 59, 45, 24, 0, -24, -45, -59, -64, -59, -45, -24
 
 ; A 4x4 BAYER MATRIX at five levels - 0/16, 4, 8, 12 and 16/16 - one byte a
 ; row, the 4-pixel pattern twice. A set bit is the NEW picture.
@@ -841,5 +961,9 @@ ti_rvrow:   dw 0                    ; the dissolve's band row
 ti_atkcell: dw -1                   ; the played cell whose attack frames are
 ti_atkfr:   dw 0                    ; still owed, and the next of them
 ti_rvn:     dw 0                    ; sparks on the glass
+ti_rvp0:    dw 0                    ; the PIT when the timed stretch began
+ti_rvera:   dw 0                    ; ...the erase's counts, this frame
+ti_rvlast:  dw 0                    ; ...and the last frame's reveal, in us
+ti_thjmp:   dw 0                    ; ti_rv_cardfade's way into its unrolled run
 ti_rvsp:    times TI_RVSPK * 4 dw 0
 ti_rvband:  times TI_RVMAX db 0

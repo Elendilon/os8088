@@ -4367,7 +4367,11 @@ look, **overlapped and twirling**: the card is gone by the time the sparks
 arrive, the character forms as they pour in, and the trail's sparks orbit the
 line as it flies. **Nine frames, ~0.5 s, against a clash's sixteen**, and every
 frame of it inside the tick on a 4.77 MHz 8088 (the heaviest is 43.9 ms of
-54.9). Three things it decided:
+54.9). *After wave 3 the owner reported the twirl never showed and the
+fullscreen reveal dropped frames and music; SPEC.md §97.4.11.1 made the trail
+a comet, took the card from its bank, moved the cell's other frames after the
+reveal and priced the reveal off the PIT - every frame on its tick, the music's
+worst gap one tick.* Three things it decided:
 
 - **The sparks are XOR and not a composed band.** The bolt composes over the
   ground because a lane is ground and nothing else in its rows; a card-to-cell

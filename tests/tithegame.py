@@ -58,7 +58,8 @@ SYMS = ("tg_fillq", "tg_tseed", "tg_plan0", "tg_plan1", "ti_cards",
         "ti_cardx", "ti_cardw", "ti_cardh", "ti_cardpitch", "ti_by", "ti_bx",
         "ti_cw", "ti_ch", "ti_rise", "ti_insx", "ti_insy", "ti_bs", "ti_bh",
         "ti_fw", "ti_fh", "ti_ox", "ti_oy", "ti_cw_box", "ti_ch_box",
-        "ti_rpq", "ti_row", "ti_rv", "ti_nframe",
+        "ti_rpq", "ti_row", "ti_rv", "ti_nframe", "ti_hx", "ti_tg1x",
+        "ti_hty", "ti_rowst",
         "TI_C_SIZE", "TI_C_CARD", "TI_C_HP", "TI_HAND")
 EQUS = ("TI_C_SIZE", "TI_C_CARD", "TI_C_HP", "TI_HAND")
 BCOL = (1, 0, 2, 3)     # side x 2 + column -> the board's column (tg_bcol)
@@ -240,6 +241,13 @@ def run(mach, off):
               "%d px, first %s" % (len(d), d[:4]))
         m.key("KeyL")
         settle(1.5)
+        # ...P1 leaves the toggle on REAR, by its own box on the HUD
+        mo.click(rw("ti_hx") + rw("ti_tg1x") + 4, rw("ti_oy") + rw("ti_hty") + 3,
+                 settle=0.2)
+        os88marty.until(m, lambda _: rb("ti_rowst") == 0, "the toggle's "
+                        "redraw", poll=0.2, limit=30.0)
+        check(rw("ti_row") == 1, "P1 can leave the toggle on REAR",
+              "row %d" % rw("ti_row"))
 
         # 4. the pass screen, and P2 on the frozen board
         m.key("Enter")
@@ -258,6 +266,9 @@ def run(mach, off):
         settle(4.0)
         check(board() == {}, "...P2 plans on the FROZEN board: none of P1's "
               "characters on it", "%s" % board())
+        check(rw("ti_row") == 0, "...and starts on FRONT, not on P1's REAR "
+              "(SPEC.md 97.4.8.2): the row is where a played card goes",
+              "row %d" % rw("ti_row"))
         check(rb("ti_p1gold") == 6, "...and P1's pool unspent",
               "%d" % rb("ti_p1gold"))
         sm = sim_match()
