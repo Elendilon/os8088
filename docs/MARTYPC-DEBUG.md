@@ -238,7 +238,11 @@ mknod /dev/null.new c 1 3 && chmod 666 /dev/null.new \
 wrong on the container this was found on — `zero`, `full`, `random`,
 `urandom`, `tty` and the loop devices were all correct character or block
 nodes carrying the image's build date, so the node had been *replaced*
-during the session rather than shipped broken. A regular-file `/dev/null`
+during the session rather than shipped broken. **What replaced it was nasm
+itself**, run by this repo's tests as root: nasm unlinks a FAILED `-o` target
+and replaces a `-l` target even on success, and `tests/kerndos.py` passed
+`-l /dev/null` on every soak (docs/plans/SOAK-PARALLEL.md 16 has the
+measurement; `tests/unit/t_nulldev.py` now refuses the argument). A regular-file `/dev/null`
 silently accumulates everything redirected into it, gives the wrong answer
 to `diff`, `cmp` and `test -s` against it, feeds junk to anything reading
 `< /dev/null` instead of EOF, and at mode 0644 refuses non-root writers

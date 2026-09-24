@@ -16146,8 +16146,46 @@ dos_fh_shrink:
 .body:
     mov ax, [si+FH_POS]
     or ax, [si+FH_POS+2]
-    jnz .b1
+    jnz .b0
     jmp dos_fh_touch                ; nothing kept: the zero-length replace
+.b0:
+    ; --- THE KERNEL TRUNCATES, where it can (SPEC.md 18.4.7.5) -------------
+    ; OSAPI_FILE_WRITE_AT with CX=0 ends the file at a CLUSTER boundary, so
+    ; the cluster the new end falls in is read into the window first, the file
+    ; is cut at its start, and the kept part of it goes back on as an append
+    ; - which the cut size, a cluster multiple, is exactly what APPEND wants.
+    ; No temporary, no free space, and no instant where the data is under
+    ; another name. kern_small has no such door and a redirected volume
+    ; refuses it: either answers CF=1 BEFORE touching the file, and the three
+    ; arms below are what they always were
+    mov ax, [dos_cbytes]
+    neg ax
+    and ax, [si+FH_POS]             ; C: the new end, rounded down to a
+    mov dx, [si+FH_POS+2]           ; cluster (dos_cbytes is a power of two)
+    push ax
+    push dx
+    call .brd                       ; the cluster C starts, into the window
+    pop dx
+    pop ax
+    jc .b1
+    push ax
+    push si
+    add si, FH_NAME
+    xor cx, cx
+    call dos_be_wrat                ; ...and the file ENDS at C
+    pop si
+    pop bx
+    jc .b1
+    mov cx, [si+FH_POS]
+    sub cx, bx                      ; the kept part of that cluster
+    jcxz .bz                        ; (CF=0: `sub` did not borrow)
+    mov al, 1
+    push si                         ; push/pop and not `sub si`: the CF .bput
+    add si, FH_NAME                 ; answers is the whole verdict
+    call .bput
+    pop si
+.bz:
+    ret
 .b1:
     cmp word [si+FH_POS+2], 0
     jne .bcopy

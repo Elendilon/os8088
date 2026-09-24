@@ -61,17 +61,6 @@ MAP_MAGIC = b"O8MM"
 MOD_H_IMG, MOD_H_NENT = 8, 10
 
 
-def _mod_nent():
-    """MOD_NENT, READ OUT OF kernel/mod.inc rather than copied - which is the
-    lesson tools/os88mod.py records against itself after a bare 4 here failed
-    a build with a message naming a constant this side did not have."""
-    import re as _re
-    src = open(os.path.join(ROOT, "kernel/mod.inc"), errors="replace").read()
-    m = _re.search(r"^MOD_NENT\s+equ\s+(\d+)", src, _re.M)
-    return int(m.group(1)) if m else 8
-
-
-MOD_NENT = _mod_nent()
 
 
 def app(blob, nm, flags, entry, image, bss):
@@ -129,7 +118,12 @@ def module(blob, nm):
     assumption about a format it had not read.
     """
     ver, ident, img, nent = blob[2], blob[3], struct.unpack_from("<H", blob, MOD_H_IMG)[0], blob[MOD_H_NENT]
-    check(1 <= nent <= MOD_NENT, "%s: declares 1..%d entries" % (nm, MOD_NENT),
+    # There is no MOD_NENT (SPEC.md 2.8.1): the KERNEL's count for this
+    # module rides in kernel.bin's O8MM map and tools/os88mod.py demands
+    # equality there. What is checkable from the file alone is that it has
+    # an entry and that its entry table fits inside it.
+    check(nent >= 1 and 12 + 2 * nent <= img,
+          "%s: declares at least one entry, and its table fits" % nm,
           "mod_check refuses anything else at run time, and a module the kernel "
           "refuses is a Control Panel page that does not open", got=nent)
     check(img <= len(blob), "%s: header image size is inside the file" % nm,

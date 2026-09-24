@@ -541,10 +541,11 @@ box does not shorten what the wait allows — and a guest that has STOPPED
 executing fails in ~2 seconds naming the machine (`it is 'paused' at
 0060:3C19`) instead of sitting out the whole budget.
 
-The mouse's own residual waits are host-timed by default; `OS88_GUEST_PACE=
-<ratio>` (`tools/os88mouse.py`) spends them in guest seconds instead. It is off
-by default because flipping it changes how much guest work every row gets per
-click, and that wants a soak behind it.
+The harness's own pauses - `settle`'s stillness window, a click's settle, the
+gap between mouse packets - are GUEST time: `os88marty.pace(m, secs)` spends
+what `time.sleep(secs)` bought on an idle box (`GUEST_PACE`, 4.5 guest seconds
+a second, measured), whatever the box is doing. Use it yourself only where
+there is genuinely nothing to wait ON; 7.1 below is the rule.
 
 ### 7.1 Wait for the thing, not for a duration
 

@@ -47,7 +47,7 @@ The machine wants a Sound Blaster in it, which in a container means
 `os8088_5150_sb_gla` - the IBM-ROM `os8088_5150_sb` needs a ROM this tree
 cannot ship.
 """
-import sys, os, re, time, subprocess, argparse
+import sys, os, re, subprocess, argparse
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -175,7 +175,9 @@ def main():
                          "the reads then land on the wrong words - which reads "
                          "as XT mode being off on a machine that armed it")
     ap.add_argument("--secs", type=float, default=60.0,
-                    help="sampling span per rate, in HOST seconds")
+                    help="sampling span per rate, in seconds of an IDLE "
+                         "box - spent as GUEST time (x os88marty.GUEST_PACE), "
+                         "so a loaded host samples the same span of music")
     ap.add_argument("--rates", default="0,2",
                     help="K indices: 0 = 5,500  1 = 4,000  2 = 11,000")
     ap.add_argument("--fullscreen", action="store_true",
@@ -213,15 +215,23 @@ def main():
         wx, wy, _, _ = dispcp.win_rect(m, S, slot)
         dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "BEVERLY.MOD")
 
-        seg = None
-        for _ in range(60):
-            time.sleep(2)
-            seg, drv = scan(m)
-            if seg:
-                break
+        try:
+            os88marty.until(m, lambda mm: scan(mm)[0], "Tracker to load",
+                            poll=2, limit=120)
+        except os88marty.MartyError:
+            pass
+        seg, drv = scan(m)
         if not seg:
             print("FAIL: Tracker never loaded"); return 1
-        time.sleep(25)                    # 116KB of module off a 360KB floppy
+        # 116KB of module off a 360KB floppy: its own flag says when, and the
+        # floppy going quiet says it on a listing without one
+        if "@mp_loaded" in P:
+            os88marty.until(m, lambda mm: mm.read(seg * 16 + P["@mp_loaded"],
+                                                  1)[0],
+                            "the module to load", poll=1.0, limit=120)
+        else:
+            os88marty.quiesce(m, lambda: m.disk().get("reads"), guest=2.0,
+                              budget=300.0, what="the module's reads")
         base = seg * 16
         imgend = int.from_bytes(m.read(base + 8, 2), "little")
 
@@ -245,27 +255,42 @@ def main():
                 for _ in range(3):
                     if b("trk_xhi") == want:
                         break
-                    m.key("KeyR"); time.sleep(1.5)
+                    m.key("KeyR")
+                    try:
+                        os88marty.until(m, lambda _: b("trk_xhi") == want,
+                                        "R", poll=0.25,
+                                        guest=1.5 * os88marty.GUEST_PACE)
+                    except os88marty.MartyError:
+                        pass            # ...press again
                 else:
                     raise SystemExit("R never reached trk_xhi %d" % want)
             else:
                 for _ in range(6):        # K is windowed-only: set it FIRST
                     if b("tlog_xr") == ki:
                         break
-                    m.key("KeyK"); time.sleep(1.0)
+                    m.key("KeyK")
+                    try:
+                        os88marty.until(m, lambda _: b("tlog_xr") == ki,
+                                        "K", poll=0.25,
+                                        guest=1.0 * os88marty.GUEST_PACE)
+                    except os88marty.MartyError:
+                        pass            # ...press again
                 else:
                     raise SystemExit("K never reached index %d" % ki)
             if a.fullscreen:
-                m.key("KeyF"); time.sleep(4)
+                m.key("KeyF"); os88marty.pace(m, 4)
             m.key("Enter")                # play
-            time.sleep(12)                # ...past the pre-roll (SPEC.md 45.18)
+            os88marty.pace(m, 12)         # ...past the pre-roll (SPEC.md 45.18)
 
             rate = w("mp_mixrate")
             c0, t0 = w("trk_consumed"), m.cmd(cmd="status")["cycles"]
             hits, tot, leads, wraps, last = {}, 0, [], 0, c0
-            t = time.time()
-            while time.time() - t < a.secs:
-                ip = m.cmd(cmd="status")["flat_ip"]
+            span = a.secs * os88marty.GUEST_PACE * GUEST_HZ
+            while True:
+                st = m.cmd(cmd="status")
+                if st["cycles"] - t0 >= span:
+                    break
+                ip = st["flat_ip"]
                 tot += 1
                 for n, sg, sz in drv:
                     if sg * 16 <= ip < sg * 16 + sz:
@@ -319,9 +344,9 @@ def main():
             print("  ...by symbol:")
             for n, c in sorted(hits.items(), key=lambda kv: -kv[1])[:18]:
                 print("    %-28s %5.1f%%" % (n, 100.0 * c / tot))
-            m.key("Space"); time.sleep(3)         # stop, so K can take effect
+            m.key("Space"); os88marty.pace(m, 3)  # stop, so K can take effect
             if a.fullscreen:
-                m.key("Escape"); time.sleep(4)    # ...and windowed, so K works
+                m.key("Escape"); os88marty.pace(m, 4)   # ...windowed, so K works
     return 0
 
 

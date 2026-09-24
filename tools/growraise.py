@@ -47,7 +47,6 @@ Exit status is 0 when the box is present, 1 when it is not.
 """
 import os
 import sys
-import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -65,6 +64,16 @@ ROW_MINES = 3               # GAMES/: `..` is slot 0 (SPEC.md 19.5) and the
                             # the wrong game and reported "Minesweeper did not
                             # launch" - a row ORDINAL is exactly what SPEC.md
                             # 19.4 says nothing may be built on
+
+
+def up(m, cond, what, limit=60):
+    """Wait for `cond()` on the GUEST's clock. A miss is left to the caller,
+    which names it in its own words. No `settle` after it: once Minesweeper
+    is up its window animates and the screen never stops."""
+    try:
+        os88marty.until(m, lambda _m: cond(), what, poll=0.3, limit=limit)
+    except os88marty.MartyError:
+        pass
 
 
 def named(m, title):
@@ -133,9 +142,14 @@ def main():
                           apps=os.path.join(imgs, "apps360.img"),
                           machine=machine) as m:
         mo = Mouse(marty=m)
+        # its waits are GUEST time now, and a saver that wakes mid-run draws
+        # for ever and no `settle` returns
+        os88marty.no_saver(m)
 
         # 1. a Disk window on B:
-        mo.dblclick(*drive_pt(m, VOL_B)); time.sleep(4)
+        mo.dblclick(*drive_pt(m, VOL_B))
+        up(m, lambda: named(m, "Disk"), "the Disk window")
+        os88marty.settle(m)             # the reference is pixels, taken next
         disk = named(m, "Disk")
         if not disk:
             print("growraise: no Disk window opened"); return 2
@@ -152,8 +166,9 @@ def main():
               % (rect, sum(1 for p in want if p), len(want)))
 
         # 2. Minesweeper, out of GAMES/, which opens ON TOP of it
-        mo.dblclick(*row_xy(disk, ROW_GAMES)); time.sleep(4)
-        mo.dblclick(*row_xy(slot(m, ds), ROW_MINES)); time.sleep(12)
+        mo.dblclick(*row_xy(disk, ROW_GAMES)); os88marty.pace(m, 4)
+        mo.dblclick(*row_xy(slot(m, ds), ROW_MINES))
+        up(m, lambda: named(m, "Mines"), "Minesweeper")
         mines = named(m, "Mines")
         if not mines:
             print("growraise: Minesweeper did not launch"); return 2
@@ -167,7 +182,7 @@ def main():
         dx = disk.x + disk.w + 8 - mines.x       # clear of the Disk window
         mo.drag(mines.x + mines.w // 2, mines.y + 6,
                 mines.x + mines.w // 2 + dx, mines.y + 6)
-        time.sleep(4)
+        os88marty.pace(m, 4)
         disk, mines = slot(m, ds), slot(m, ms)
         print("growraise: moved  %r" % (mines,))
         over = not (mines.x > disk.x + disk.w or mines.x + mines.w < disk.x
@@ -177,7 +192,9 @@ def main():
             return 2
 
         # 4. ...and call the Disk window to the front by its title bar
-        mo.click(disk.x + disk.w // 2, disk.y + 6); time.sleep(3)
+        mo.click(disk.x + disk.w // 2, disk.y + 6)
+        os88marty.pace(m, 3)            # the raise AND its repaint, which
+                                        # is what the grab below reads
 
         disk = slot(m, ds)
         if winptr(m, disk) != top(m):

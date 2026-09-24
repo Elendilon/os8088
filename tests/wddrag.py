@@ -37,7 +37,7 @@ row table, three ways:
          the view stops at its clamp. A walk seeded on one of the blank rows
          banked below the end called the note 48 rows of 36 (SPEC.md 27.7.11)
 """
-import os, sys, time, subprocess, tempfile, argparse, functools
+import os, sys, subprocess, tempfile, argparse, functools
 print = functools.partial(print, flush=True)
 os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, "tools"); sys.path.insert(0, "tests")
@@ -82,7 +82,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     dispcp.open_drive(m, mo, S, M.settle, "B")
     w = dispcp.win_list(m, S)[-1]; dx, dy = dispcp.win_rect(m, S, w)[:2]
     dispcp.open_named(m, mo, S, M.settle, dx, dy, "WELCOME.DOC")
-    time.sleep(2.5); M.settle(m)
+    M.pace(m, 2.5); M.settle(m)
 
     raw = m.read(S("inst_tab"), 32*12); seg = None
     for i in range(12):
@@ -111,10 +111,10 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
 
     # press on row 1 and park the pointer just below the text band, which is
     # where a hand parks it to make the view run
-    mo.to(tx + 40, ryb(1) + 2); time.sleep(0.4)
-    mo._edge(True); time.sleep(0.5)
+    mo.to(tx + 40, ryb(1) + 2); M.pace(m, 0.4)
+    mo._edge(True); M.pace(m, 0.5)
     mo.to(tx + 200, bot + 3, l=True)
-    time.sleep(1.0)
+    M.pace(m, 1.0)
 
     def band_ink(y, cells):
         # DARK pixels over the row's own CELL AREA, wherever alignment put
@@ -145,9 +145,9 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
             if f < 0.5:
                 unsel.append((top, r, a0, round(f, 2)))
         stops += 1
-        m.run(); time.sleep(0.05)
+        m.run(); M.pace(m, 0.05)
     m.bp_exec(); m.run()
-    mo.to(tx + 200, bot - 40); time.sleep(0.3); mo._edge(False); time.sleep(1.0)
+    mo.to(tx + 200, bot - 40); M.pace(m, 0.3); mo._edge(False); M.pace(m, 1.0)
 
     check("the drag scrolled through six steps (case, not assertion)", stops == 6)
     check("A: every row wholly inside the selection is inverted", not unsel,
@@ -184,14 +184,14 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # one-pass walk entered the row past its bound, read it as a row that
     # MOVED or a range that outran the drawing, and repainted the window:
     # 1.5-2.3 s where its neighbours took 0.3.
-    mo.to(tx + 8, ryb(0) + 2); time.sleep(0.3)
-    m.mouse(l=True); time.sleep(0.1); m.mouse(l=False); time.sleep(1.0)
+    mo.to(tx + 8, ryb(0) + 2); M.pace(m, 0.3)
+    m.mouse(l=True); M.pace(m, 0.1); m.mouse(l=False); M.pace(m, 1.0)
     for _ in range(12):
         if rw("wd_top") == 0:
             break
         m.key("PageUp"); M.quiesce(m, lambda: (rw("wd_top"), rw("wd_cur")))
-    mo.to(tx + 8, ryb(0) + 2); time.sleep(0.3)
-    m.mouse(l=True); time.sleep(0.1); m.mouse(l=False); time.sleep(1.0)
+    mo.to(tx + 8, ryb(0) + 2); M.pace(m, 0.3)
+    m.mouse(l=True); M.pace(m, 0.1); m.mouse(l=False); M.pace(m, 1.0)
     mo.to(4, 4); M.settle(m)
     ENT, XIT = P("wd_onkey"), P("wd_onkey.out")
     worst = (0, 0)
@@ -209,7 +209,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
         with M.bp_trace(m, ENT, XIT, on_hit=stampk, cap=16):
             m.key("ArrowDown")
             M.quiesce(m, lambda: (rw("wd_cur"), rw("wd_top")))
-            time.sleep(0.2)
+            M.pace(m, 0.2)
         if "in" in T and "out" in T:
             ms = (T["out"] - T["in"]) / 4772.7
             if ms > worst[0]:
@@ -224,17 +224,17 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # Make the note shorter than the window, then click in the paper under
     # its last line. The row lookup found a blank row banked past the end, or
     # nothing, and both fell to the walk from index 0: 556-857 ms on a 5150.
-    mo.to(tx + 4, ryb(3) + 2); time.sleep(0.3)
-    m.mouse(l=True); time.sleep(0.1); m.mouse(l=False); time.sleep(1.0)
-    m.key("F8"); time.sleep(0.5)
+    mo.to(tx + 4, ryb(3) + 2); M.pace(m, 0.3)
+    m.mouse(l=True); M.pace(m, 0.1); m.mouse(l=False); M.pace(m, 1.0)
+    m.key("F8"); M.pace(m, 0.5)
     for _ in range(rw("wd_drows") + 4):
         c0 = rw("wd_cur")
         m.key("ArrowDown")
         M.quiesce(m, lambda: (rw("wd_cur"), rw("wd_top")))
         if rw("wd_cur") == c0:
             break
-    m.key("End"); time.sleep(0.8)
-    m.key("Delete"); time.sleep(2.0)
+    m.key("End"); M.pace(m, 0.8)
+    m.key("Delete"); M.pace(m, 2.0)
     M.quiesce(m, lambda: (rw("wd_len"), rw("wd_top"), rw("wd_drows")))
     for _ in range(600):
         if rb("wd_hdirty") == 0:
@@ -255,9 +255,9 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
             elif "in" in T:
                 T.setdefault("out", cyc)
             return None
-        mo.to(tx + 60, y); time.sleep(0.3)
+        mo.to(tx + 60, y); M.pace(m, 0.3)
         with M.bp_trace(m, P("wd_onclick"), P("wd_dragsel.pass"), on_hit=stamp, cap=50):
-            m.mouse(l=True); time.sleep(0.1); m.mouse(l=False); time.sleep(2.0)
+            m.mouse(l=True); M.pace(m, 0.1); m.mouse(l=False); M.pace(m, 2.0)
         ms = (T["out"] - T["in"]) / 4772.7 if "in" in T and "out" in T else None
         check("D: a click %dpx above the band's foot lands at the end" % (bot - y),
               rw("wd_cur") == rw("wd_len"), "[wd_cur] %d of %d" % (rw("wd_cur"), rw("wd_len")))

@@ -39,7 +39,6 @@ the cache claim itself and look at it, which is what identified both this and
 """
 import os
 import sys
-import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -79,15 +78,15 @@ def main():
         mo = Mouse(marty=m)
         print("machine %s -> %s" % (machine, out))
 
-        mo.dblclick(*su.zone(m, 0)); time.sleep(4)      # 1. Drive A
+        mo.dblclick(*su.zone(m, 0)); os88marty.pace(m, 4)      # 1. Drive A
         sc.shot(m, "1-drive-a", out, log, mo)
-        mo.dblclick(*su.zone(m, 1)); time.sleep(4)      # 2. Drive B
+        mo.dblclick(*su.zone(m, 1)); os88marty.pace(m, 4)      # 2. Drive B
         sc.shot(m, "2-drive-b", out, log, mo)
 
         b = [w for w in su.windows(m) if w.visible][-1]  # the newest is B:
         b = sc.zorder(m)[-1]
         b = [w for w in su.windows(m) if w.i == b][0]
-        mo.dblclick(*su.row(b, ROW_APPS)); time.sleep(5)  # 3. into APPS
+        mo.dblclick(*su.row(b, ROW_APPS)); os88marty.pace(m, 5)  # 3. into APPS
         sc.shot(m, "3-apps", out, log, mo)
 
         # 4. drag some windows: move APPS down-left, so both are reachable
@@ -104,7 +103,7 @@ def main():
 
         # 6. double-click README.TXT in Drive A -> Note Pad
         a = [w for w in su.windows(m) if w.visible and w.i == a.i][0]
-        mo.dblclick(*su.row(a, ROW_README)); time.sleep(20)
+        mo.dblclick(*su.row(a, ROW_README)); os88marty.pace(m, 20)
         np = named(m, "NOTE") or named(m, "README")
         sc.shot(m, "6-notepad", out, log, mo)
         if np is None:

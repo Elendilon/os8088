@@ -25,7 +25,7 @@ build with no guard at all.
          `wd_mbar` zero times) - and the bar must come out solid
   leg B  ...and a click in the text, which is glyphs too
 """
-import os, sys, time, subprocess, tempfile, argparse, functools
+import os, sys, subprocess, tempfile, argparse, functools
 print = functools.partial(print, flush=True)
 os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, "tools"); sys.path.insert(0, "tests")
@@ -70,7 +70,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     dispcp.open_drive(m, mo, S, M.settle, "B")
     w = dispcp.win_list(m, S)[-1]; dx, dy = dispcp.win_rect(m, S, w)[:2]
     dispcp.open_named(m, mo, S, M.settle, dx, dy, "WELCOME.DOC")
-    time.sleep(2.5); M.settle(m)
+    M.pace(m, 2.5); M.settle(m)
 
     raw = m.read(S("inst_tab"), 32*12); seg = None
     for i in range(12):
@@ -123,7 +123,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
             return 1
         with M.bp_trace(m, base + syms[sym], on_hit=on_hit, cap=4000):
             act()
-        time.sleep(1.0); M.settle(m)
+        M.pace(m, 1.0); M.settle(m)
         print("      armed the pen at %s %d time(s) (%s)" % (sym, n[0], what))
         return n[0]
 
@@ -151,12 +151,12 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
           % (wdw, wx, wy, ww, wh, gx, gy))
 
     def resize(dy):
-        mo.to(gx, gy); time.sleep(0.3)
-        m.mouse(l=True); time.sleep(0.3)
-        mo.to(gx, gy + dy, l=True); time.sleep(0.5)
-        m.mouse(l=False); time.sleep(1.5)
+        mo.to(gx, gy); M.pace(m, 0.3)
+        m.mouse(l=True); M.pace(m, 0.3)
+        mo.to(gx, gy + dy, l=True); M.pace(m, 0.5)
+        m.mouse(l=False); M.pace(m, 1.5)
 
-    n = poked("wd_chrome", lambda: (resize(-24), time.sleep(0.6), resize(24)),
+    n = poked("wd_chrome", lambda: (resize(-24), M.pace(m, 0.6), resize(24)),
               "a window resize")
     check("the chrome really redrew (case, not assertion)", n > 0,
           "wd_chrome never ran, so nothing was tested")
@@ -168,8 +168,8 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     print("      menu bar ink %d (was %d)" % (got_mb, base_mb))
 
     def click_text():
-        mo.to(tx + 60, ryb(3) + 2); time.sleep(0.3)
-        m.mouse(l=True); time.sleep(0.1); m.mouse(l=False); time.sleep(1.2)
+        mo.to(tx + 60, ryb(3) + 2); M.pace(m, 0.3)
+        m.mouse(l=True); M.pace(m, 0.1); m.mouse(l=False); M.pace(m, 1.2)
 
     n2 = poked("wd_onclick", click_text, "a click in the text")
     check("the click really ran (case, not assertion)", n2 > 0,

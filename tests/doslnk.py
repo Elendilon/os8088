@@ -45,7 +45,6 @@ import os
 import re
 import struct
 import sys
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 import os88geom                                                # noqa: E402
@@ -177,12 +176,16 @@ def dos_state(m, ui):
 
 
 def wait_ready(m, limit=120.0, why=None):
-    end = time.time() + limit
-    while time.time() < end:
-        rows = m.screen() or []
-        if any("READY" in r for r in rows):
-            return "\n".join(r.rstrip() for r in rows)
-        time.sleep(0.3)
+    rows = []
+
+    def _ready(_m):
+        rows[:] = m.screen() or []
+        return any("READY" in r for r in rows)
+    try:                            # GUEST time: `limit` is idle-box seconds
+        os88marty.until(m, _ready, "READY", poll=0.3, limit=limit)
+        return "\n".join(r.rstrip() for r in rows)
+    except os88marty.MartyError:
+        pass
     # **`why` NAMES THE MECHANISM, because a program that never started looks
     # the same from here whatever stopped it.** Step 5's own failure is a box
     # that found no program to run, and "never reached READY" points at the

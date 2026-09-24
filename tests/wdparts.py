@@ -25,7 +25,7 @@ about WHERE the bytes are, then that the code in them runs.
          pattern in wd_pcomp - part 1 - and calls back into part 0 on the way.
          A breakpoint there must fire, and the selection must be the word
 """
-import os, sys, time, subprocess, tempfile, argparse, functools
+import os, sys, subprocess, tempfile, argparse, functools
 print = functools.partial(print, flush=True)
 os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, "tests"); sys.path.insert(0, "tools")   # tools/heapmap, not tests/
@@ -78,16 +78,24 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     dispcp.open_drive(m, mo, S, M.settle, "B")
     w = dispcp.win_list(m, S)[-1]; dx, dy = dispcp.win_rect(m, S, w)[:2]
     dispcp.open_named(m, mo, S, M.settle, dx, dy, "WELCOME.DOC")
-    time.sleep(2.5); M.settle(m)
 
-    seg = slot = None
-    for i in range(12):
-        r = m.read(S("inst_tab") + i * os88geom.I_RECSZ, os88geom.I_RECSZ)
-        c = u16(r, os88geom.I_SPTR)
-        if c and m.read(c*16 + syms["wd_mact"], 48) == \
-                image[syms["wd_mact"]:syms["wd_mact"] + 48]:
-            seg, slot, rec = c, i, r
-            break
+    def word_inst():
+        """(segment, slot, record) of the instance running this word.asm.
+        I_SPTR is published after the entry proc - and its wd_arg - return."""
+        for i in range(12):
+            r = m.read(S("inst_tab") + i * os88geom.I_RECSZ, os88geom.I_RECSZ)
+            c = u16(r, os88geom.I_SPTR)
+            if c and m.read(c*16 + syms["wd_mact"], 48) == \
+                    image[syms["wd_mact"]:syms["wd_mact"] + 48]:
+                return c, i, r
+        return None, None, None
+    try:
+        M.until(m, lambda _: word_inst()[0], "Word's instance", poll=0.3,
+                limit=60)
+    except M.MartyError:
+        pass                            # check A says so
+    M.settle(m)
+    seg, slot, rec = word_inst()
     check("A: WELCOME.DOC opened Word through the loader", seg is not None,
           "no running instance carries this tree's word.asm (ld_status %d)"
           % m.read(S("ld_status"), 1)[0])
@@ -127,14 +135,14 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
           "no %r in WELCOME.DOC" % word)
     hits = []
     m.key("ControlLeft", down=True, up=False); m.key("Home")
-    m.key("ControlLeft", down=False, up=True); time.sleep(1.0); M.settle(m)
+    m.key("ControlLeft", down=False, up=True); M.pace(m, 1.0); M.settle(m)
     with M.bp_trace(m, base + syms["wd_pcomp"],
                     on_hit=lambda mm, r: hits.append(1), cap=10):
         m.key("AltLeft", down=True, up=False); m.key("KeyE")
-        m.key("AltLeft", down=False, up=True); time.sleep(0.8)
-        m.key("KeyS"); time.sleep(1.2); M.settle(m)
-        m.type_text(word.decode()); time.sleep(0.5)
-        m.key("Enter"); time.sleep(2.0)
+        m.key("AltLeft", down=False, up=True); M.pace(m, 0.8)
+        m.key("KeyS"); M.pace(m, 1.2); M.settle(m)
+        m.type_text(word.decode()); M.pace(m, 0.5)
+        m.key("Enter"); M.pace(m, 2.0)
     M.settle(m)
     s0, s1 = u16(m.read(base + syms["wd_sel0"], 2)), u16(m.read(base + syms["wd_sel1"], 2))
     check("E: wd_pcomp - part 1 - ran", bool(hits),

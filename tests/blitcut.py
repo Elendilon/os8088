@@ -168,7 +168,7 @@ def run(image, apps, machine, defines, tree=None):
                                                 card=0))
         mo.dblclick(rx, ry)
         settle(m, card=0, limit=300.0)
-        time.sleep(4)
+        os88marty.pace(m, 4)
         pw = [w for w in dispcp.win_list(m, S) if w != disk][-1]
         wx, wy, ww, wh = dispcp.win_rect(m, S, pw)
 
@@ -178,7 +178,7 @@ def run(image, apps, machine, defines, tree=None):
         mo.drag(wx + ww // 2, wy + TITLE_H // 2,
                 tgt + ww // 2, wy + TITLE_H // 2)
         settle(m, card=0, limit=300.0)
-        time.sleep(4)
+        os88marty.pace(m, 4)
         wx2, wy2 = dispcp.win_rect(m, S, pw)[:2]
         if not (wx2 < seam < wx2 + ww):
             sys.exit("blitcut: the window ended at x=%d, which does not "
@@ -283,7 +283,10 @@ def run(image, apps, machine, defines, tree=None):
         settle(m, card=0, limit=300.0)
         mo.to(4, 4)
         settle(m, card=0, limit=200.0)
-        time.sleep(6)
+        # ...and the FAR card too: both framebuffers are read below, and the
+        # settles above only watched card 0.
+        for c in m.cards():
+            settle(m, card=c["idx"], limit=200.0)
         fbs = []
         for c in m.cards():
             fw, fh, fb = m.fbuf(card=c["idx"])   # what the card RASTERISED:

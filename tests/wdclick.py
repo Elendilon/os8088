@@ -63,7 +63,7 @@ out from its top row TWICE to move one caret bar: measured on a cycle-accurate
          which made a bold cell a refusal, and a style is not a reason to
          cache less
 """
-import os, sys, time, subprocess, tempfile, argparse, functools
+import os, sys, subprocess, tempfile, argparse, functools
 print = functools.partial(print, flush=True)
 os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, "tools"); sys.path.insert(0, "tests")
@@ -133,7 +133,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     dispcp.open_drive(m, mo, S, M.settle, "B")
     w = dispcp.win_list(m, S)[-1]; dx, dy = dispcp.win_rect(m, S, w)[:2]
     dispcp.open_named(m, mo, S, M.settle, dx, dy, "WELCOME.DOC")
-    time.sleep(2.5); M.settle(m)
+    M.pace(m, 2.5); M.settle(m)
 
     raw = m.read(S("inst_tab"), 32*12); seg = None
     for i in range(12):
@@ -172,13 +172,13 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
         return u16(m.read(P("wd_ryb") + 2*r, 2))
 
     def click_at(r, col=20, hold=0.25):
-        m.run(); mo.to(tx + col*8, ryb(r) + 2); time.sleep(0.35)
-        m.mouse(l=True); time.sleep(hold); m.mouse(l=False); time.sleep(1.0)
+        m.run(); mo.to(tx + col*8, ryb(r) + 2); M.pace(m, 0.35)
+        m.mouse(l=True); M.pace(m, hold); m.mouse(l=False); M.pace(m, 1.0)
 
     def click_walks(r, col=20):
         """ROWS the wd_redraw of ONE click walks, and what it costs."""
         settle_height()
-        m.run(); mo.to(tx + col*8, ryb(r) + 2); time.sleep(0.35)
+        m.run(); mo.to(tx + col*8, ryb(r) + 2); M.pace(m, 0.35)
         m.bp_exec(P("wd_redraw")); m.mouse(l=True)
         if not m.wait_stop(30):
             m.bp_exec(); m.mouse(l=False); m.run(); return None, None, None
@@ -196,18 +196,18 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
             n += 1
         c = m.status()["cycles"] - c0
         kind = rb("wd_ekind")
-        m.bp_exec(); m.mouse(l=False); m.run(); time.sleep(0.8)
+        m.bp_exec(); m.mouse(l=False); m.run(); M.pace(m, 0.8)
         return n, c, kind
 
     def page_round_trip(top0):
-        mo.to(sbx, ydn); time.sleep(0.25)
-        m.mouse(l=True); time.sleep(0.08); m.mouse(l=False); time.sleep(1.5)
+        mo.to(sbx, ydn); M.pace(m, 0.25)
+        m.mouse(l=True); M.pace(m, 0.08); m.mouse(l=False); M.pace(m, 1.5)
         for _ in range(12):
             if rw("wd_top") <= top0:
                 break
-            mo.to(sbx, yup); time.sleep(0.25)
-            m.mouse(l=True); time.sleep(0.08); m.mouse(l=False); time.sleep(1.5)
-        mo.to(4, 4); time.sleep(1.0); M.settle(m)
+            mo.to(sbx, yup); M.pace(m, 0.25)
+            m.mouse(l=True); M.pace(m, 0.08); m.mouse(l=False); M.pace(m, 1.5)
+        mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
         return rw("wd_top") == top0
 
     # ---- leg A: one walk, not two -----------------------------------------
@@ -227,7 +227,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     def pixels_match(name, r0, r1):
         click_at(r0, col=8)
         click_at(r1, col=24)
-        mo.to(4, 4); time.sleep(1.0); M.settle(m)
+        mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
         moved = shot(m)
         top0 = rw("wd_top")
         if not page_round_trip(top0):
@@ -276,17 +276,17 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
 
     # ---- leg D: the refusal - a selection is not a caret move --------------
     click_at(0, col=4)
-    m.run(); mo.to(tx + 4*8, ryb(0) + 2); time.sleep(0.3)
-    m.mouse(l=True); time.sleep(0.2)
-    mo.to(tx + 28*8, ryb(LAST) + 2, l=True); time.sleep(0.4)
-    m.mouse(l=False); time.sleep(1.2)
+    m.run(); mo.to(tx + 4*8, ryb(0) + 2); M.pace(m, 0.3)
+    m.mouse(l=True); M.pace(m, 0.2)
+    mo.to(tx + 28*8, ryb(LAST) + 2, l=True); M.pace(m, 0.4)
+    m.mouse(l=False); M.pace(m, 1.2)
     check("D: the drag made a selection", rb("wd_selon") == 1,
           "[wd_selon] = %d" % rb("wd_selon"))
     n3, c3, k3 = click_walks(1, col=16)
     check("D: clicking away from a selection is NOT kind 4", k3 != 4,
           "[wd_ekind] = %s - the pair says nothing about the "
           "selection's rows" % k3)
-    mo.to(4, 4); time.sleep(1.0); M.settle(m)
+    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
     moved = shot(m)
     top0 = rw("wd_top")
     if page_round_trip(top0):
@@ -314,18 +314,18 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
             if pc == ret: break
             n += 1
         kind = rb("wd_ekind")
-        m.bp_exec(); m.run(); time.sleep(1.0)
+        m.bp_exec(); m.run(); M.pace(m, 1.0)
         return n, kind
 
     click_at(0, col=4)
     settle_height()
-    m.run(); mo.to(tx + 4*8, ryb(1) + 2); time.sleep(0.35)
-    m.mouse(l=True); time.sleep(1.2)
-    mo.to(tx + 4*8 + 40, ryb(1) + 2, l=True); time.sleep(1.5)
+    m.run(); mo.to(tx + 4*8, ryb(1) + 2); M.pace(m, 0.35)
+    m.mouse(l=True); M.pace(m, 1.2)
+    mo.to(tx + 4*8 + 40, ryb(1) + 2, l=True); M.pace(m, 1.5)
     nA, kA = drag_step_walks(8)
     nB, kB = drag_step_walks(8)
     nC, kC = drag_step_walks(-8)
-    m.mouse(l=False); time.sleep(1.2)
+    m.mouse(l=False); M.pace(m, 1.2)
     check("E: a drag step walks at most TWO rows",
           nA is not None and nA <= 2, "%s rows on the first step" % nA)
     check("E: ...and the arming survives the NEXT step",
@@ -338,7 +338,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # ---- leg F: and the selection it left is right to the pixel -----------
     check("F: the drag left a selection", rb("wd_selon") == 1,
           "[wd_selon] = %d" % rb("wd_selon"))
-    mo.to(4, 4); time.sleep(1.0); M.settle(m)
+    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
     moved = shot(m)
     top0 = rw("wd_top")
     if page_round_trip(top0):
@@ -366,13 +366,13 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # THE CELL FACE IS THE REFUSAL, and it is where this starts: WELCOME.DOC
     # opens on the kernel's 8x8, which composes no band at all.
     click_at(1, col=6)
-    mo.to(4, 4); time.sleep(0.6)
-    m.key("ArrowRight"); time.sleep(1.2); M.settle(m)
+    mo.to(4, 4); M.pace(m, 0.6)
+    m.key("ArrowRight"); M.pace(m, 1.2); M.settle(m)
     check("G: a CELL face banks too", rb("wd_cbok") == 1,
           "[wd_cbok]=0 with [wd_pxon]=%d - the bank is PIXELS now, so the "
           "face it was drawn in cannot matter (SPEC.md 27.17)"
           % rb("wd_pxon"))
-    m.key("ArrowLeft"); time.sleep(1.0)
+    m.key("ArrowLeft"); M.pace(m, 1.0)
 
     Rf = base + syms["wd_dfont"]
     cl, ct = rw("wd_cl"), rw("wd_ct")
@@ -383,7 +383,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # [wd_nfont] IS 0 UNTIL THE LIST IS FIRST OPENED - wd_fontscan walks
     # SYSTEM/FONTS on that gesture and not before - so the count is read AFTER
     # the open and not used to decide whether to make it.
-    m.run(); mo.to(fbx, fboxtop + 6); time.sleep(0.3)
+    m.run(); mo.to(fbx, fboxtop + 6); M.pace(m, 0.3)
     mo._edge(True)
     M.until(m, lambda _m: fopen() == 1,
             "the Font list to come down", guest=40.0)       # a FONTS walk
@@ -398,7 +398,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     mo._edge(False)
     M.until(m, lambda _m: fopen() == 0, "the face pick to complete",
             guest=40.0)
-    time.sleep(1.5); M.settle(m); settle_height()
+    M.pace(m, 1.5); M.settle(m); settle_height()
     check("G: the document is on a chosen face", rb("wd_pxon") == 1,
           "[wd_pxon] = %d, Font list had %d item(s) and [wd_nfont] is %d - "
           "the band path is not running, so leg G would pass vacuously"
@@ -421,8 +421,8 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # click reaches the same place, but where it PUTS the caret under a
     # proportional face is a second question this leg has no business asking.
     click_at(1, col=6)
-    mo.to(4, 4); time.sleep(0.6)
-    m.key("ArrowRight"); time.sleep(1.2)
+    mo.to(4, 4); M.pace(m, 0.6)
+    m.key("ArrowRight"); M.pace(m, 1.2)
     M.settle(m); settle_height()
     print("      caret at (%d,%d) row %d; bank ok=%d at (%d,%d) y2=%d"
           % (rw("wd_curx"), rw("wd_cury"), rw("wd_ckpr"), rb("wd_cbok"),
@@ -461,8 +461,8 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # BOLD centred heading, and an earlier build - which banked the character
     # and re-lettered it - could not erase a caret there at all.
     click_at(0, col=4)
-    mo.to(4, 4); time.sleep(0.6)
-    m.key("ArrowRight"); time.sleep(1.2); M.settle(m)
+    mo.to(4, 4); M.pace(m, 0.6)
+    m.key("ArrowRight"); M.pace(m, 1.2); M.settle(m)
     check("G: ...and a STYLED cell banks like any other",
           rb("wd_cbok") == 1 and rb("wd_cherr") == 0,
           "[wd_cbok]=%d [wd_cherr]=%d on the bold heading - the bank is "
@@ -470,7 +470,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
           % (rb("wd_cbok"), rb("wd_cherr")))
 
     # the refusals, so an always-void bank cannot pass leg G vacuously
-    m.key("ArrowRight"); time.sleep(1.2); M.settle(m)
+    m.key("ArrowRight"); M.pace(m, 1.2); M.settle(m)
     check("G: ...and it re-banks as the bar moves", rb("wd_cbok") == 1,
           "[wd_cbok] = 0 after a second move - the bank is armed once and "
           "not maintained")
@@ -483,14 +483,14 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     check("H: the overlay put a bar up", rb("wd_curshown") == 1,
           "[wd_curshown] = 0 - wd_curshow never ran or refused")
     settle_height()
-    m.key("ArrowDown"); time.sleep(1.4); M.settle(m)
+    m.key("ArrowDown"); M.pace(m, 1.4); M.settle(m)
     dr0, dr1 = rw("wd_dr0"), rw("wd_dr1")
     check("H: a caret move dirties ONE row, not two",
           dr0 != 0xFFFF and dr0 == dr1,
           "dirty range %d..%d - the row the caret LEFT is in it, so the "
           "caret is still in its signature" % (dr0, dr1))
     print("      caret move dirtied rows %d..%d" % (dr0, dr1))
-    mo.to(4, 4); time.sleep(1.0); M.settle(m)
+    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
 
     # ---- leg I: one row, for a key and for a caret off the view ----------
     def key_walks(key):
@@ -516,7 +516,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
             rb("wd_ekind"), rb("wd_cherr"), rb("wd_cbok"), rb("wd_curshown"),
             rb("wd_selon"), rb("wd_ckok"), rw("wd_cur"), rw("wd_ckpi"),
             rw("wd_ckpr"), rw("wd_mvbot"), rb("wd_rowsok"), rw("wd_rowsn")))
-        m.bp_exec(); m.run(); time.sleep(0.6)
+        m.bp_exec(); m.run(); M.pace(m, 0.6)
         return n, c, why
 
     click_at(1, col=12)
@@ -534,9 +534,9 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # the caret is above it, which is what makes [wd_ckpr] negative.
     top0 = rw("wd_top")
     for _ in range(6):
-        mo.to(sbx, ydn); time.sleep(0.25)
-        m.mouse(l=True); time.sleep(0.08); m.mouse(l=False); time.sleep(1.5)
-    mo.to(4, 4); time.sleep(0.8); M.settle(m)
+        mo.to(sbx, ydn); M.pace(m, 0.25)
+        m.mouse(l=True); M.pace(m, 0.08); m.mouse(l=False); M.pace(m, 1.5)
+    mo.to(4, 4); M.pace(m, 0.8); M.settle(m)
     scrolled = rw("wd_top") > top0
     check("I: the view really scrolled past the caret (case, not assertion)",
           scrolled, "top %d -> %d" % (top0, rw("wd_top")))

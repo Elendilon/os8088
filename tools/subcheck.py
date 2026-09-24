@@ -66,7 +66,6 @@ Four things cost a run each, and all four are REDRAW-SPEC Part 3's:
 import os
 import struct
 import sys
-import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -150,7 +149,7 @@ def pclick(mo, x, y, settle=2.5):
         mo._edge(False)
     mo._edge(True)
     mo._edge(False)
-    time.sleep(settle)
+    os88marty.pace(mo.m, settle)
 
 
 def pdrag(mo, x0, y0, x1, y1, settle=2.5):
@@ -162,7 +161,7 @@ def pdrag(mo, x0, y0, x1, y1, settle=2.5):
     mo._edge(True)
     mo.to(x1, y1, l=True)
     mo._edge(False)
-    time.sleep(settle)
+    os88marty.pace(mo.m, settle)
 
 
 def zorder(m):
@@ -208,9 +207,9 @@ def capture(out, machine, defines=()):
         shot(m, "desktop", out, log, mo)
 
         # Two Disk windows, cascaded 16px apart by wm_create.
-        mo.dblclick(*su.zone(m, 1)); time.sleep(4)
+        mo.dblclick(*su.zone(m, 1)); su.idle(m)
         shot(m, "disk-b", out, log, mo)
-        mo.dblclick(*su.zone(m, 0)); time.sleep(4)
+        mo.dblclick(*su.zone(m, 0)); su.idle(m)
         shot(m, "disk-a", out, log, mo)
 
         w = wins(m)

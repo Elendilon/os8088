@@ -359,8 +359,8 @@ DSV_CAPS    equ 0               ; dw: capability bits it ADDS (SND_CAP_*)
                                 ; ...OR, on a DRVC_FILE driver, FSCAP_* below:
                                 ; one word, read per class, and the two
                                 ; classes can never both own it
-DSV_FM      equ 2               ; dw: near proc behind slot 0x00EA, 0 = none
-DSV_STREAM  equ 4               ; dw: near proc behind slot 0x00F1, 0 = none
+DSV_FM      equ 2               ; dw: near proc behind slot 0x00E3, 0 = none
+DSV_STREAM  equ 4               ; dw: near proc behind slot 0x00EA, 0 = none
 DSV_TICK    equ 6               ; dw: near proc called from snd_tick, 0 = none
 DSV_RELINST equ 8               ; dw: near proc, release one instance's grants
 DSV_NAME    equ 10              ; dw: -> a NUL sink name, in ITS segment
@@ -1919,29 +1919,22 @@ drv_fs_call:
                                 ; the verb and SI the name on the way in, and
                                 ; CF plus AX are the driver's answer on the
                                 ; way out
+    call drv_fs_has             ; a table, a verb inside its length and a
+    jc drv_svc_none             ; non-zero cell - or the refusal. drv_fs_has
+                                ; IS that test, written once: what the two
+                                ; answer must agree, or a caller that probes
+                                ; and then calls would reach a cell the call
+                                ; refuses (SPEC.md 62.9.1.1). An absent verb
+                                ; is an ordinary answer and not a fault: a
+                                ; read-only volume publishes no FSV_WRITE
     push es
     push di
     mov di, [drv_svc + (DRVC_FILE-2)*DSV_SIZE + DSV_FS]
-    or di, di
-    jz .none                    ; a DRVC_FILE driver that published no table
     add di, bp                  ; ...+ the verb
     mov es, [drv_fseg5]
-    push ax                     ; ...IF ITS TABLE REACHES THAT FAR (SPEC.md
-    mov ax, [es:DRV_H_FSV]      ; 62.9.1.1): the driver says how long a table
-    or ax, ax                   ; it was built with, 0 meaning the 28 bytes
-    jnz .len                    ; every released driver has, and a verb past
-    mov ax, FSV_TAB0            ; it is refused like an unpublished one - not
-.len:                           ; read out of whatever the driver put after
-    cmp bp, ax                  ; its table
-    pop ax
-    jae .none
     mov bp, [es:di]             ; BP = the near proc, in the driver's segment
     pop di
     pop es
-    or bp, bp
-    jz drv_svc_none             ; a verb this driver does not implement, which
-                                ; is an ordinary answer and not a fault: a
-                                ; read-only volume publishes no FSV_WRITE
     push word [snd_inst]        ; **THE DRIVER IS ASKING, NOT THE APP THAT
                                 ; HAPPENED TO BE DISPATCHING** (SPEC.md
                                 ; 51.2.3). drv_call and drv_cp_call both
@@ -1977,10 +1970,6 @@ drv_fs_call:
     call wm_nest_pop            ; ...and DS names the kernel again, which is
     pop word [snd_inst]         ; the segment the pop reads. Neither touches a
     ret                         ; flag, so the driver's CF still comes back out
-.none:
-    pop di
-    pop es
-    jmp drv_svc_none
 
 ; -----------------------------------------------------------------------------
 ; drv_fs_has - does the DRVC_FILE driver publish this verb? (SPEC.md 62.9.1)
@@ -2005,13 +1994,13 @@ drv_fs_has:
     jz .no                      ; a DRVC_FILE driver that published no table
     add di, bp                  ; ...+ the verb
     mov es, [drv_fseg5]
-    push ax                     ; the same length test as drv_fs_call's, for
-    mov ax, [es:DRV_H_FSV]      ; the same reason: what the two answer must
-    or ax, ax                   ; agree, or a caller that probes here and then
-    jnz .len                    ; calls would reach a cell the call refuses
-    mov ax, FSV_TAB0
-.len:
-    cmp bp, ax
+    push ax                     ; ...IF ITS TABLE REACHES THAT FAR (SPEC.md
+    mov ax, [es:DRV_H_FSV]      ; 62.9.1.1): the driver says how long a table
+    or ax, ax                   ; it was built with, 0 meaning the 28 bytes
+    jnz .len                    ; every released driver has, and a verb past
+    mov ax, FSV_TAB0            ; it is refused like an unpublished one - not
+.len:                           ; read out of whatever the driver put after
+    cmp bp, ax                  ; its table. drv_fs_call asks HERE first
     pop ax
     jae .no
     cmp word [es:di], 0
@@ -2692,6 +2681,7 @@ drv_load_row:
                                 ; drv_check - out of kern_small. It assembled
                                 ; without a word, because every label the
                                 ; guarded region defined was also inside it
+    DDG 1
     cmp word [bx+DRVR_SEG], 0
     jne .already
     cmp word [bx+DRVR_FILE], 0
@@ -2699,9 +2689,11 @@ drv_load_row:
 
     call drv_mounted
     jc .nodisk
+    DDG 2
     mov si, [bx+DRVR_FILE]
     call drv_find               ; AX = the file's size
     jc .noent
+    DDG 3
     cmp ax, DRV_HDR_SZ
     jb .bad
     mov bp, ax                  ; THE FILE'S BYTE SIZE, in the register both
@@ -2729,6 +2721,7 @@ drv_load_row:
     call mem_claim_hi_x           ; a driver's base IS its CS - top-down, like
     pop bx                      ; a package's region, and movable for the same
     jc .nomem                   ; reason (SPEC.md 66.6.3)
+    DDG 4
     mov [bx+DRVR_SEG], dx       ; ...which also arms drv_call
     mov [bx+DRVR_KB], ax
 
@@ -2750,6 +2743,7 @@ drv_load_row:
                                 ; mem_claim_x banks SI/DI around everything
                                 ; including the compaction
     xor dx, dx                  ; DX:CX = the capacity, DX:AX the answer -
+    DDG 5
     call dskw_read_x              ; the whole file, by name, in A:'s root
     pop bx
     jc .ioerr
@@ -2758,6 +2752,7 @@ drv_load_row:
 
     call drv_check              ; the header, against the image that arrived
     jc .badfree                 ; - which a compressed driver already IS: a
+    DDG 6
                                 ; .DRV is a 'CZ' file (SPEC.md 20.13.3.1) and
                                 ; dskw_read_x expanded it into the claim
     call drv_bss                ; ...and the zeros it did NOT ship. IT CAN
@@ -2799,8 +2794,10 @@ drv_load_row:
                                 ; reported a bug. Every earlier failure path
                                 ; returns before here with its own code, and
                                 ; .nohwal below still overwrites this one
+    DDG 8
     call drv_attach             ; the far call into the driver itself
     jc .nohwal                  ; ...which may say WHY in AL (SPEC.md 51.2)
+    DDG 9
     clc
     jmp short .out
 
@@ -4362,7 +4359,9 @@ drv_boot_x:
     ja .vdone2
     mov [vid_dlay], al
 .vdone2:
-%endif
+    call COLD_SEG:exf_sync      ; EXTD.DRV before the switch can extend
+%endif                          ; (SPEC.md 39.19.6): a refusal is Single,
+                                ; SYSTEM.CFG untouched until the panel writes
     ; THE ADAPTER, AND THEN WHATEVER THE SWITCH DID NOT DO. vid_switch answers
     ; CF = 0 both for a switch that HAPPENED and for one that was not needed,
     ; and only the first re-runs vid_disp_init - so [vid_kind] is banked and
@@ -4425,6 +4424,10 @@ drv_boot_x:
     mov ah, dh
     mov si, [bx+DRVR_TITLE]
     call ovl_spl_msg_drv
+%ifdef DRV_DIAG
+    mov [ddg_row], cl
+    mov byte [ddg_step], 0
+%endif
     mov al, cl
     call COLD_SEG:drvf_drv_load
     jnc .skip
@@ -4434,6 +4437,7 @@ drv_boot_x:
     cmp cl, DRV_MAX
     jb .next
 
+    DDG 0x0F                    ; DRVDIAG: every load returned
     call ovl_spl_msg_boot    ; the loads are done and the desktop is not up
                                 ; yet: xm_boot, the palette and the first
                                 ; wm_paint_all are still to come, and a line

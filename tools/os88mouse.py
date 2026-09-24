@@ -101,35 +101,21 @@ BUSY = 6.0                      # ...and how long a repaint may hold the guest
                                 # straddling two displays repainting on a
                                 # 4.77MHz 8088 is the worst case measured
 
-# --- GUEST PACING (off by default) ------------------------------------------
+# --- GUEST PACING ------------------------------------------------------------
 #
-# `click(settle=1.5)` waits 1.5 HOST seconds for the guest to act on the
-# press.  How much guest work that buys is a property of the box.  Measured on
-# this container over 118 waits in each arm - the same waits in the same
-# scripts - the median HOST cost was 2.2s in both and the GUEST cost 7.3s
-# against 5.9s, up to -37% per script.  The row does not get slower (measured: 1.06x
-# wall across twelve rows), it gets LESS THOROUGH, and then fails somewhere
-# further on looking like the thing under test.  That is the mechanism behind
-# the host-clock trap, and it is why "it passed alone" has been
-# such an unsatisfying diagnosis: the wall times never showed anything.
-#
-# `OS88_GUEST_PACE=<ratio>` spends the same wait in GUEST seconds instead -
-# `settle * ratio` of the machine's own time - so a click buys the same work
-# whatever else the box is doing.
-#
-# IT IS OFF BY DEFAULT, and that is deliberate rather than timid.  B5 says
-# rewriting these waits onto guest time "reaches 194 files, changes how much
-# guest work every row gets per settle, and would want a full soak behind it".
-# That is right, and a knob is how this project takes a change of that shape:
-# the arm exists, it is measurable against the default, and the flip is a
-# decision somebody makes with a soak behind it rather than one that happens
-# quietly here.  Set it to the box's own idle ratio to reproduce today's
-# coverage exactly; below that and rows get less guest time than they do now.
-GUEST_PACE = float(os.environ.get("OS88_GUEST_PACE", "0"))
+# `click(settle=1.5)` waits 1.5 idle-box seconds' worth of the GUEST's time
+# for it to act on the press: os88marty.GUEST_PACE guest seconds a second.
+# It was 1.5 HOST seconds, and how much guest work that bought was a property
+# of the box - measured over 118 waits in each arm, the median host cost was
+# 2.2s in both and the GUEST cost 7.3s against 5.9s, up to -37% per script.
+# The row did not get slower, it got LESS THOROUGH, and failed further on
+# looking like the thing under test. OS88_GUEST_PACE=0 puts the host sleeps
+# back for an A/B.
+GUEST_PACE = os88marty.GUEST_PACE
 
 
 def _wait(m, secs, why="click"):
-    """Spend `secs`, in host time or - under OS88_GUEST_PACE - in guest time.
+    """Spend `secs` of idle-box time, as GUEST time (os88marty.pace).
 
     One function so that every wait in this file moves together: a run where
     the click is guest-paced and the drag is not is a run whose contention
@@ -156,10 +142,7 @@ def _wait(m, secs, why="click"):
         except Exception:
             c0 = None
     t0 = time.time()
-    if GUEST_PACE > 0 and m is not None:
-        os88marty.guest_sleep(m, secs * GUEST_PACE)
-    else:
-        time.sleep(secs)
+    os88marty.pace(m, secs)
     if log:
         try:
             c1 = int(m.status().get("cycles", 0))
@@ -302,7 +285,7 @@ class Mouse:
     # --- moving ------------------------------------------------------------
     def _pk(self, dx=0, dy=0, l=False, r=False):
         self.m.mouse(dx, dy, l=l, r=r)
-        time.sleep(GAP)
+        os88marty.pace(self.m, GAP)     # a packet in flight drops the next
 
     def _landed(self, was, guest=PKT_GUEST):
         """Wait for the published pointer to leave `was`. Did it?
@@ -495,29 +478,96 @@ class Mouse:
             % ("right" if btn == 2 else "left",
                "press" if down else "release", self.where()[2]))
 
+    # A DOUBLE-CLICK'S TWO PRESSES ARE SPACED IN GUEST CYCLES, NOT HOST ROUND
+    # TRIPS. `_edge` proves an edge by polling the guest while it runs freely,
+    # so the gap between the first press and the second was however much
+    # guest time elapsed while the host sent a packet, polled, slept and sent
+    # again - a quantity of the BOX. On a loaded box that crossed the kernel's
+    # 9-tick window and the guest saw two first clicks; the Weave family grew
+    # a navigation retry for it and documented it as the thing that flakes.
+    # Stepped instead: the guest is paused, each packet is sent and the
+    # machine advanced DBL_STEP cycles at a time until the published button
+    # level agrees, so the span is the UART's and the ISR's and nothing else -
+    # a packet is 3 bytes at 1200 baud, 25 ms, and the whole gesture is about
+    # one tick of the window's nine whatever the host is doing.
+    DBL_STEP = 20000                # cycles an advance: ~4 ms of a 4.77 MHz 8088
+    DBL_RESEND = 12                 # ...and a re-send every 240k (~50 ms), two
+                                    # packet times, so a re-send never lands on
+                                    # a packet still in flight (see `_edge`)
+    DBL_TRIES = 240                 # ~1 guest second an edge before it is lost
+
+    def _gedge(self, down, btn=1):
+        """`_edge`, with the guest PAUSED and advanced by cycles between polls.
+
+        The same proof - the published mouse_btn agrees - and the same
+        idempotent re-send, but no guest time passes that the loop did not
+        hand out itself.
+        """
+        want = btn if down else 0
+        for i in range(self.DBL_TRIES):
+            if i % self.DBL_RESEND == 0:
+                self.m.mouse(0, 0, l=down and btn == 1, r=down and btn == 2)
+            st = self.m.advance(cycles=self.DBL_STEP)
+            if st.get("state") == "breakpoint":
+                raise MartyError(
+                    "a breakpoint stopped the guest inside a double-click at "
+                    "%04X:%04X - arm it inside a bp_trace block, whose pump "
+                    "services it, or after the gesture"
+                    % (st.get("cs", 0), st.get("ip", 0)))
+            if (self.where()[2] & btn) == want:
+                self._last_edge = self.ticks()
+                return
+        raise MartyError(
+            "the %s %s was never decoded across %d guest cycles (mouse_btn = "
+            "%02x) with the packet re-sent every %d - the guest is running, "
+            "so this is the serial path and not the host"
+            % ("right" if btn == 2 else "left", "press" if down else "release",
+               self.DBL_TRIES * self.DBL_STEP, self.where()[2],
+               self.DBL_RESEND * self.DBL_STEP))
+
     def dblclick(self, x, y, settle=2.0):
         """Two presses inside the kernel's own double-click window.
 
         NOT two `click`s: that spelling is a second and a half apart and reads
-        as two first clicks. See the module docstring.
+        as two first clicks. See the module docstring, and DBL_STEP above for
+        why the presses are stepped in guest cycles.
         """
         self.to(x, y)
         if self.where()[2] & 1:         # a button left down by something else
             self._edge(False)           # would make the first press no edge
         self._sep()                     # ...the FIRST press is separated from
-        self._edge(True)                # whatever came before; the second is
-        t1 = self.ticks()               # deliberately not (see _sep)
-        self._edge(False)
-        self._edge(True)
-        t2 = self.ticks()
-        self._edge(False)
+                                        # whatever came before; the second is
+                                        # deliberately not (see _sep)
+        if getattr(self.m, "_pumping", 0):
+            # A bp_trace pump resumes breakpoint stops from its own thread,
+            # and a paused guest would take its stops away from it. Inside a
+            # pump the edges run free, as they always did.
+            self._edge(True)
+            t1 = self.ticks()
+            self._edge(False)
+            self._edge(True)
+            t2 = self.ticks()
+            self._edge(False)
+        else:
+            was = self.m.status().get("state")
+            self.m.pause()
+            try:
+                self._gedge(True)
+                t1 = self.ticks()
+                self._gedge(False)
+                self._gedge(True)
+                t2 = self.ticks()
+                self._gedge(False)
+            finally:
+                if was == "running":
+                    self.m.go()
         span = (t2 - t1) & 0xFFFFFFFF
         if span >= DBL_TICKS:
             raise MartyError(
                 "the two presses were %d ticks apart and the window is %d: "
                 "the guest saw two FIRST clicks, not a double-click. Something "
-                "between them was slow - a mount, a package load, or a host "
-                "that cannot keep up." % (span, DBL_TICKS))
+                "between them was slow - a mount or a package load holding the "
+                "mouse ISR off for half a second." % (span, DBL_TICKS))
         if self.verbose:
             print("  double-click at (%d,%d): %d tick(s) apart" % (x, y, span))
         _wait(self.m, settle, "dblclick")

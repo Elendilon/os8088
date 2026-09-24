@@ -37,7 +37,7 @@ standing below it - a picture that still reads as text.
          is the whole feature turned off inside one boot. Same pixels, and the
          cycles say the push is doing something
 """
-import os, sys, time, subprocess, tempfile, argparse, functools
+import os, sys, subprocess, tempfile, argparse, functools
 print = functools.partial(print, flush=True)
 os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, "tools"); sys.path.insert(0, "tests")
@@ -99,7 +99,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     dispcp.open_drive(m, mo, S, M.settle, "B")
     w = dispcp.win_list(m, S)[-1]; dx, dy = dispcp.win_rect(m, S, w)[:2]
     dispcp.open_named(m, mo, S, M.settle, dx, dy, "WELCOME.DOC")
-    time.sleep(2.5); M.settle(m)
+    M.pace(m, 2.5); M.settle(m)
 
     raw = m.read(S("inst_tab"), 32*12); seg = None
     for i in range(12):
@@ -133,19 +133,19 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     yup = ty + (sbb-ty)//4
 
     def click_row(r, col=20):
-        m.run(); mo.to(tx + col*8, ty + r*8 + 3); time.sleep(0.35)
-        m.mouse(l=True); time.sleep(0.08); m.mouse(l=False); time.sleep(1.0)
+        m.run(); mo.to(tx + col*8, ty + r*8 + 3); M.pace(m, 0.35)
+        m.mouse(l=True); M.pace(m, 0.08); m.mouse(l=False); M.pace(m, 1.0)
 
     def page_round_trip(top0):
         """Page down and back, which a formatted note repaints in full."""
-        mo.to(sbx, ydn); time.sleep(0.25)
-        m.mouse(l=True); time.sleep(0.08); m.mouse(l=False); time.sleep(1.5)
+        mo.to(sbx, ydn); M.pace(m, 0.25)
+        m.mouse(l=True); M.pace(m, 0.08); m.mouse(l=False); M.pace(m, 1.5)
         for _ in range(12):
             if rw("wd_top") <= top0:
                 break
-            mo.to(sbx, yup); time.sleep(0.25)
-            m.mouse(l=True); time.sleep(0.08); m.mouse(l=False); time.sleep(1.5)
-        mo.to(4, 4); time.sleep(1.0); M.settle(m)
+            mo.to(sbx, yup); M.pace(m, 0.25)
+            m.mouse(l=True); M.pace(m, 0.08); m.mouse(l=False); M.pace(m, 1.5)
+        mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
         return rw("wd_top") == top0
 
     def settle_height():
@@ -178,7 +178,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
         if not m.wait_stop(30):
             m.bp_exec(); m.run(); return None
         c = m.status()["cycles"] - c0
-        m.bp_exec(); m.run(); time.sleep(0.8)
+        m.bp_exec(); m.run(); M.pace(m, 0.8)
         return c
 
     # ---- leg A: the push fires at all -------------------------------------
@@ -188,17 +188,17 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     fired = m.wait_stop(25)
     m.bp_exec()
     if fired: m.run()
-    time.sleep(1.2)
+    M.pace(m, 1.2)
     check("A: the Enter push FIRES on a mid-line Enter", bool(fired),
           "wd_nlpush.d1 never reached - the note below is still redrawn")
-    m.key("Backspace"); time.sleep(1.2)
+    m.key("Backspace"); M.pace(m, 1.2)
 
     # ---- leg B: pixels, against a repaint the push never touched ----------
     click_row(1, col=20)
-    m.key("Enter"); time.sleep(1.6)
+    m.key("Enter"); M.pace(m, 1.6)
     nl = rw("wd_nlrow")
     cur_split = rw("wd_cur")
-    mo.to(4, 4); time.sleep(1.0); M.settle(m)
+    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
     pushed = shot(m)
     top0 = rw("wd_top")
     check("B: the push took this Enter (case, not assertion)", nl != 0xFFFF,
@@ -212,8 +212,8 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
 
     # ---- leg C: the bytes come back ---------------------------------------
     m.write(P("wd_cur"), bytes([cur_split & 0xFF, (cur_split >> 8) & 0xFF]))
-    time.sleep(0.3)
-    m.key("Backspace"); time.sleep(1.2)
+    M.pace(m, 0.3)
+    m.key("Backspace"); M.pace(m, 1.2)
     ln2 = rw("wd_len")
     t2 = m.read(rw("wd_dseg")*16, ln2); c2 = m.read(rw("wd_cseg")*16, ln2)
     bad = next((i for i in range(min(len(t2), len(txt0))) if t2[i] != txt0[i]), None)
@@ -227,11 +227,11 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     click_row(1, col=20)
     fired3 = 0
     for _ in range(3):
-        m.key("Enter"); time.sleep(1.5)
+        m.key("Enter"); M.pace(m, 1.5)
         if rw("wd_nlrow") != 0xFFFF:
             fired3 += 1
     cur3 = rw("wd_cur")
-    mo.to(4, 4); time.sleep(1.0); M.settle(m)
+    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
     three = shot(m)
     top3 = rw("wd_top")
     check("D: all three Enters were pushed (case, not assertion)", fired3 == 3,
@@ -243,9 +243,9 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     check("D: three pushed Enters equal a full repaint", d3 == 0,
           "%d differing pixels" % d3)
     m.write(P("wd_cur"), bytes([cur3 & 0xFF, (cur3 >> 8) & 0xFF]))
-    time.sleep(0.3)
+    M.pace(m, 0.3)
     for _ in range(3):
-        m.key("Backspace"); time.sleep(1.0)
+        m.key("Backspace"); M.pace(m, 1.0)
 
     # ---- leg E: an Enter that makes the view SCROLL ------------------------
     # The push repairs the tables for a layout the glass has not been given,
@@ -254,10 +254,10 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # wrong rather than slow.
     click_row(vrows - 1, col=10)
     top_before = rw("wd_top")
-    m.key("Enter"); time.sleep(2.0)
+    m.key("Enter"); M.pace(m, 2.0)
     scrolled = rw("wd_top") != top_before
     cur_e = rw("wd_cur")
-    mo.to(4, 4); time.sleep(1.0); M.settle(m)
+    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
     lastrow = shot(m)
     topE = rw("wd_top")
     print("   last-row Enter: top %d -> %d, nlrow=0x%04X"
@@ -269,8 +269,8 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     check("E: an Enter on the last visible row equals a full repaint", dE == 0,
           "%d differing pixels%s" % (dE, " (the view scrolled)" if scrolled else ""))
     m.write(P("wd_cur"), bytes([cur_e & 0xFF, (cur_e >> 8) & 0xFF]))
-    time.sleep(0.3)
-    m.key("Backspace"); time.sleep(1.2)
+    M.pace(m, 0.3)
+    m.key("Backspace"); M.pace(m, 1.2)
 
     # ---- leg F: the A/B, inside one boot ----------------------------------
     # wd_nlband is the whole arming: refusing there leaves [wd_eorow] 0, so
@@ -281,15 +281,15 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     con_nl = rw("wd_nlrow")
     check("F: the timed Enter was pushed (case, not assertion)",
           con_nl != 0xFFFF, "wd_nlrow = 0x%04X" % con_nl)
-    m.key("Backspace"); time.sleep(1.2)
+    m.key("Backspace"); M.pace(m, 1.2)
     click_row(1, col=20)
-    m.key("Enter"); time.sleep(1.6)
+    m.key("Enter"); M.pace(m, 1.6)
     curF = rw("wd_cur")
-    mo.to(4, 4); time.sleep(1.0); M.settle(m)
+    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
     with_push = shot(m)
     m.write(P("wd_cur"), bytes([curF & 0xFF, (curF >> 8) & 0xFF]))
-    time.sleep(0.3)
-    m.key("Backspace"); time.sleep(1.4)
+    M.pace(m, 0.3)
+    m.key("Backspace"); M.pace(m, 1.4)
 
     keep = m.read(P("wd_nlband"), 2)
     m.write(P("wd_nlband"), bytes([0xF9, 0xC3]))       # stc; ret - refuse
@@ -297,11 +297,11 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     coff = enter_cost()
     check("F: the timed A/B Enter was NOT pushed (case, not assertion)",
           rw("wd_nlrow") == 0xFFFF, "wd_nlrow = 0x%04X" % rw("wd_nlrow"))
-    m.key("Backspace"); time.sleep(1.2)
+    m.key("Backspace"); M.pace(m, 1.2)
     click_row(1, col=20)
-    m.key("Enter"); time.sleep(1.6)
+    m.key("Enter"); M.pace(m, 1.6)
     off_nl = rw("wd_nlrow")
-    mo.to(4, 4); time.sleep(1.0); M.settle(m)
+    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
     without = shot(m)
     m.write(P("wd_nlband"), keep)
 

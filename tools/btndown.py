@@ -24,7 +24,6 @@ only end-to-end launch test in tools/: drive zone, APPS, CALC.O88.
 import argparse
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -109,13 +108,13 @@ def main():
 
         wide = (m.vram()[0] if mono else m.fbuf()[0])
         mo.dblclick(wide - 44, 46)              # the first drive zone
-        time.sleep(3)
+        os88marty.pace(m, 3)
         disk = top_window(m)
         dx, dy = _word(m, disk + W_X), _word(m, disk + W_Y)
         mo.dblclick(dx + 57, dy + ROW0_DY)      # APPS
-        time.sleep(4)
+        os88marty.pace(m, 4)
         mo.dblclick(dx + 57, dy + ROW0_DY + ROW_H)      # CALC.O88
-        time.sleep(9)
+        os88marty.pace(m, 9)
 
         rec = top_window(m)
         if rec == disk:
@@ -143,7 +142,7 @@ def main():
         # --- 1. a keypad button draws DOWN under the press -----------------
         mo.to(kx, ky)
         mo._edge(True)
-        time.sleep(1.0)
+        os88marty.pace(m, 1.0)
         held = Fb(m, mono).bits(*content)
         moved = sum(1 for p, q in zip(before, held) if p != q)
         check("a keypad button changes under the press",
@@ -163,7 +162,7 @@ def main():
         # --- 3. the release ON the button leaves it upright ----------------
         mo._edge(False)
         mo.to(*park)
-        time.sleep(2.0)
+        os88marty.pace(m, 2.0)
         after = Fb(m, mono).bits(*content)
         # The key was pressed, so the DISPLAY has changed - that is the app
         # working. What must be back is the BUTTON, so the comparison is the
@@ -184,10 +183,10 @@ def main():
         # exactly these three, which is what makes them worth their runtime.
         mo.to(kx, ky)
         mo._edge(True)
-        time.sleep(0.9)
+        os88marty.pace(m, 0.9)
         down = Fb(m, mono).bits(*content)
         mo.to(cx - 40, ky, l=True)      # off the key, STILL HELD
-        time.sleep(1.2)
+        os88marty.pace(m, 1.2)
         away = Fb(m, mono).bits(*content)
         check("the pressed key comes UP when the pointer slides off",
               sum(1 for p, q in zip(pre_track, away) if p != q) <
@@ -196,17 +195,17 @@ def main():
               "it on" % (sum(1 for p, q in zip(pre_track, away) if p != q),
                          sum(1 for p, q in zip(pre_track, down) if p != q)))
         mo.to(kx, ky, l=True)           # ...and back on, STILL HELD
-        time.sleep(1.2)
+        os88marty.pace(m, 1.2)
         back = Fb(m, mono).bits(*content)
         check("...and goes back DOWN on sliding back on",
               sum(1 for p, q in zip(down, back) if p != q) == 0,
               "%d pixels differ from the first held frame"
               % sum(1 for p, q in zip(down, back) if p != q))
         mo.to(cx - 40, ky, l=True)      # off again, then release: CANCELLED
-        time.sleep(1.0)
+        os88marty.pace(m, 1.0)
         mo._edge(False)
         mo.to(*park)
-        time.sleep(2.0)
+        os88marty.pace(m, 2.0)
         endt = Fb(m, mono).bits(*content)
         check("...and a slide-off release fires nothing",
               endt == pre_track,
@@ -222,16 +221,16 @@ def main():
         pre = Fb(m, mono).bits(*content)
         mo.to(kx, ky)
         mo._edge(True)
-        time.sleep(0.8)
+        os88marty.pace(m, 0.8)
         mo.to(cx - 40, ky, l=True)      # l=True: STILL HELD. A plain `to`
-        time.sleep(1.0)                 # releases and measures the wrong
+        os88marty.pace(m, 1.0)          # releases and measures the wrong
                                         # thing. Sideways off the window
                                         # rather than downwards: the CGA
                                         # desktop is 200 rows and a slide
                                         # below the window runs off it
         mo._edge(False)
         mo.to(*park)
-        time.sleep(2.0)
+        os88marty.pace(m, 2.0)
         post = Fb(m, mono).bits(*content)
         diff = sum(1 for p, q in zip(pre, post) if p != q)
         check("a CANCELLED press leaves the content pixel-identical",
@@ -246,7 +245,7 @@ def main():
         # fail. The pointer is parked away from the pad throughout so nothing
         # here can be the mouse arrow.
         mo.to(*park)
-        time.sleep(1.0)
+        os88marty.pace(m, 1.0)
         idle = Fb(m, mono).bits(*keypad)
         m.key("Digit7", down=True, up=False)
         lit_seen = 0
@@ -260,7 +259,7 @@ def main():
               "%d keypad pixels differed at the peak" % lit_seen)
 
         # ...and it lets go by itself. A full second is six flash windows.
-        time.sleep(1.5)
+        os88marty.pace(m, 1.5)
         rested = Fb(m, mono).bits(*keypad)
         check("...and the timer lets it back up with no further input",
               rested == idle,

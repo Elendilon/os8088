@@ -42,19 +42,13 @@ HBE_KINIT   equ 4
 HBE_PERFORM equ 5
 HBE_OPEN    equ 6
 HB_NENT     equ 7
-%if HB_NENT > MOD_NENT
-  %error "hiber: more entries than mod_fp has slots for"
-%endif
 ; --- the two verbs OSAPI_DRV_SUSPEND adds to hbm_perform (SPEC.md 51.11) ----
 ; The slot's AL is 0 resume / 1 suspend / 2 handoff. drv_suspend_x adds
 ; HB_P_RESUME to the first two so the module's perform entry tells them from
-; the UI_RBQ_* it already dispatches, and the module gains no eighth entry -
-; MOD_NENT is 7 and HB_NENT is 7. The handoff never enters the module at all.
+; the UI_RBQ_* it already dispatches, and the module gains no eighth entry.
+; The handoff never enters the module at all.
 HB_P_RESUME  equ UI_RBQ_DOSRUN + 1
 HB_P_SUSPEND equ UI_RBQ_DOSRUN + 2
-%ifdef KERN_BIG
-HBFP        equ mod_fp + MOD_HIBER * MODFP_STRIDE
-%endif
 
 ; --- API cells the module calls (SPEC.md 20.3); the kernel has no copy of
 ; --- apps/os88api.inc, so the four it needs are named here ------------------
@@ -348,7 +342,7 @@ hb_probe_x:
 section .cold
 
 ; -----------------------------------------------------------------------------
-; drv_suspend_x - slot 0x042E's three verbs (SPEC.md 51.11): THE MACHINE, OUT
+; drv_suspend_x - slot 0x0419's three verbs (SPEC.md 51.11): THE MACHINE, OUT
 ;                 OF MY WAY. Entered from kernel.asm's thunk under api_x, so
 ;                 ES = the caller's DS and DS = KERNEL_SEG
 ; in:  AL = 1 suspend the hardware drivers, ES:DI = a DQ_SIZE-record buffer
@@ -691,7 +685,6 @@ modh_hdr:
     dw modh_e_kinit             ; HBE_KINIT
     dw modh_e_perform           ; HBE_PERFORM
     dw modh_e_open              ; HBE_OPEN
-    times MOD_NENT - HB_NENT dw 0
 
 modh_e_paint:   call hbm_paint
                 retf

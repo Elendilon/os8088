@@ -45,7 +45,8 @@ CELL = re.compile(r'^\s*OSAPI_(?:SLOT|JSLOT|NSTUB|XSTUB)\s+(?:\w+\s*,\s*)?'
 # targets were not merely untested above - they were not in the label map at
 # all, which is how adding JSLOT alone would have bought nothing.
 CELLDEF = re.compile(r'^\s*OSAPI_(?:NSTUB|XSTUB)\s+([A-Za-z_]\w*)\s*,')
-MODS = ('.modc', '.modf', '.modl', '.modh', '.modp', '.modd', '.modk')  # module images (2.8).
+MODS = ('.modc', '.modf', '.modl', '.modh', '.modp', '.modd', '.modk',
+        '.modx')  # module images (2.8).
 # `.modp` is Cut/Copy/Paste and kern_small's ALONE (SPEC.md 22.3,
 # docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md 9.2): filecp.inc emits its bodies there on
 # that build and into `.cold` on kern_big, which is the first conditional
@@ -55,6 +56,10 @@ MODS = ('.modc', '.modf', '.modl', '.modh', '.modp', '.modd', '.modk')  # module
 # through its FCPX/FCPXJ macros. A near call inside the body is then
 # `.modp -> .modp` and true on either build. `.modd` is fdlg.inc on the same
 # terms (SPEC.md 38.0) and obeys the same three rules.
+# `.modx` is extmod.inc's EXTD.DRV (SPEC.md 39.19.6), kern_big's alone, and
+# the check below is the whole of what stops a resident caller near-calling a
+# routine that moved into it: nasm assembles that call happily (both sections
+# have vstart=0) and it runs into the wrong segment.
 # `.modh` is hiber.inc's HIBER.DRV (SPEC.md 87) - a stub on kern_small - and
 # was missing from this list when it shipped, so every label in it filed as
 # `.text` and a near call from the module into the kernel passed in silence.

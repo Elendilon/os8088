@@ -41,10 +41,10 @@ emulator here runs one.
 import os
 import struct
 import sys
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import os88marty                                               # noqa: E402
 import os88ui                                                  # noqa: E402
 
 SYS = "build/os8088-360.img"
@@ -95,7 +95,7 @@ def main():
     with os88ui.boot(SYS, apps=APPS, machine=MACHINE) as ui:
         m = ui.m
         ui.open_drive("B")
-        time.sleep(1)
+        os88marty.pace(m, 1)
         ui.settle()
 
         seg0, n0 = store(m)
@@ -116,7 +116,16 @@ def main():
         w = ui.path("B:/" + NAME)
         if not w:
             fail("double-clicking %s opened no window" % NAME)
-        time.sleep(5)
+        # The shed and the notice it raises, in the GUEST time an idle box's
+        # five seconds bought; what is there at the end is what is checked.
+        try:
+            os88marty.until(m, lambda _m: store(m)[0] == 0
+                            and slot0(m)[3] == FSD_ICONS,
+                            "the store shed", poll=0.3,
+                            limit=5 * os88marty.GUEST_PACE
+                            / os88marty.GUEST_BUDGET_RATIO)
+        except os88marty.MartyError:
+            pass
 
         seg1, n1 = store(m)
         _, _, _, dirty1 = slot0(m)
@@ -139,10 +148,10 @@ def main():
 
         # --- and back --------------------------------------------------------
         m.key("Escape")
-        time.sleep(4)
+        os88marty.pace(m, 4)
         ui.settle()
         ui.close(w)
-        time.sleep(3)
+        os88marty.pace(m, 3)
         ui.settle()
 
         seg2, n2 = store(m)

@@ -72,7 +72,7 @@ at 18.2 that ruled out the generator all four draw from.
 ON A 5150 UNDER MARTYPC, because the tick, the pass and the halt are all cycle
 counts at 4.77 MHz and QEMU cannot time anything (docs/TESTING.md).
 """
-import sys, os, re, time, argparse, subprocess, tempfile
+import sys, os, re, argparse, subprocess, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -172,15 +172,17 @@ def measure(m, o, name, bit, secs, windows):
     m.write(m.sym("ss_secs"), b"\xff")       # one long turn: never re-picks
     m.write(m.sym("ss_idle"), b"\x1c\x00")   # ~1.5s of idle
     m.key("Space")
-    t = time.time()
-    while time.time() - t < 60 and m.read(m.sym("blk_sv"), 1)[0] != 1:
-        time.sleep(0.2)
+    try:                                     # the start is the GUEST's work
+        os88marty.until(m, lambda mm: mm.read(mm.sym("blk_sv"), 1)[0] == 1,
+                        "the saver session to start", poll=0.2, limit=60.0)
+    except os88marty.MartyError:
+        pass                                 # ...and NEVER STARTED says so
     if m.read(m.sym("blk_sv"), 1)[0] != 1:
         print("  %-10s NEVER STARTED" % name)
         return None
     seg = int.from_bytes(m.read(m.sym("ss_row") + 2, 2), "little")
     idle = m.read(m.sym("sch_idleslot"), 1)[0]
-    time.sleep(2.0)                          # let the opening settle
+    os88marty.pace(m, 2.0)                   # let the opening settle
     ival = m.readseg(seg, o["sv_ival"], 1)[0] or 1
 
     nf = nt = 0
@@ -199,10 +201,10 @@ def measure(m, o, name, bit, secs, windows):
         prev = cur
 
     m.run()                                  # advance() leaves it PAUSED, and
-                                             # the teardown below is wall clock
+                                             # the teardown below needs it running
     m.write(m.sym("ss_idle"), b"\x00\x40")   # a quarter hour: back to a desktop
     m.key("Space")
-    time.sleep(2.0)
+    os88marty.pace(m, 2.0)
     if not nt or not busy:
         print("  %-10s no window could be counted" % name)
         return None

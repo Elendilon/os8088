@@ -2020,7 +2020,7 @@ past it and it is an ABI change.
 ### 10.10 Piece F — a worker-owning region moves, and the worker comes back
 
 **BUILT. SPEC.md 66.6.2 is the contract.** `OSAPI_TASK_RESTARTABLE`
-(`inst_restart_set`, slot `0x0401`) declares a near offset; `mem_frameless`
+(`inst_restart_set`, slot `0x03EC`) declares a near offset; `mem_frameless`
 accepts a region whose worker has one **and is parked**; `mem_wk_restart` finds
 the instance at the new base and `sch_wk_restart` rebuilds the frame.
 

@@ -221,6 +221,14 @@ def _kernel_sources():
 # fast - host-side, no emulator, no build. Runs on every `make`.
 # --------------------------------------------------------------------------
 FAST = [
+    Row("nulldev", "fast", py("tests/unit/t_nulldev.py"), 0.3,
+        "NOTHING HANDS /dev/null TO NASM AS -o OR -l. NASM unlinks a failed "
+        "-o target and replaces a -l target even on success, so as root "
+        "either one turns the container's /dev/null into a regular file - "
+        "which is docs/plans/SOAK-PARALLEL.md 16's 'the layer under the "
+        "repo', and was tests/kerndos.py's `-l /dev/null` on every soak, with "
+        "eleven more sites one failed assembly away. The argument is gated "
+        "and not the device, so it is caught at the edit"),
     Row("retired", "fast", py("tests/unit/t_retired.py"), 0.3,
         "every package under apps/ ships, or apps/RETIRED.txt says why not "
         "(SPEC.md 20.16). CLAUDE.md's Layout section states the invariant - "
@@ -456,7 +464,7 @@ FAST = [
         " panel. "
         "SOAK and not fast: CLEAR SKIES is ONE package, so this belongs "
         "beside a change to it - `soak -k 'cs*'`"),
-    Row("paccman", "fast", py("tests/unit/t_paccman.py"), 0.3,
+    Row("pmcrom", "fast", py("tests/unit/t_paccman.py"), 0.3,
         "PACCMAN's generated arcade tables say what they claim to (SPEC.md "
         "91). apps/paccman/pmc_rom.c is the build's TRUTH - the reference is "
         "not vendored (CONTRIBUTING.md 6) and an ordinary build never reads "
@@ -1594,9 +1602,7 @@ SOAK = [
         "and the native surface END TO END - weavevm cannot reach any of "
         "them, having no runtime under it. 90s is 55s MEASURED here for one "
         "boot, one navigation, one launch and eleven gestures per adapter, "
-        "MEASURED at 135s over two clean runs and 150s over one that lost a "
-        "double-click to host load and spent its three navigation retries. "
-        "It is not the 90s this row was declared at before it had ever been "
+        "MEASURED at 135s over two clean runs. It is not the 90s this row was declared at before it had ever been "
         "run, and a declared figure nobody has taken is the thing this "
         "registry's budgets exist to stop drifting",
         needs=("marty", "cc"), serial=True, timeout=360,
@@ -1643,15 +1649,10 @@ SOAK = [
         "looked at on one. The ink-presence half is what makes the text "
         "half honest: an unlearned glyph reads '?' and is skipped, so a "
         "component that drew nothing would otherwise pass a comparison made "
-        "entirely of question marks. 240s is 122s MEASURED CLEAN over three "
-        "consecutive runs (121, 122) and 190s on the third, which spent "
-        "weavesmoke's three navigation retries and then failed - FOUR "
-        "sessions is four double-clicks, so this row carries twice "
-        "weavesession's exposure to the one thing that flakes in this "
-        "family: a double-click whose two presses straddle the kernel's "
-        "9-tick window is seen as two FIRST clicks, and on a loaded host "
-        "that happens. The retry is weavesmoke's and is not loosened here - "
-        "a gate that hid it would hide a host that had really got slower",
+        "entirely of question marks. 240s is 122s MEASURED over consecutive "
+        "runs (121, 122) with room for the demo growing. FOUR sessions is "
+        "four double-clicks, each stepped in guest cycles by os88mouse "
+        "(Mouse.DBL_STEP), so none of them depends on the host keeping up",
         needs=("marty", "cc"), serial=True, timeout=600,
         wants=("build/weave360.img",)),
     Row("weaveprev", "soak", py("tests/weaveprev.py"), 240.0,
@@ -1674,10 +1675,7 @@ SOAK = [
         "one flag rather than the test being taught to ignore two "
         "components. Both 1bpp adapters - six sessions, 180 checks. 260s is "
         "239s MEASURED over three consecutive runs (238.7 inside the tier, "
-        "238.5 and 238.6 standalone) with a margin for the one thing that "
-        "flakes in this family, a double-click whose two presses straddle "
-        "the kernel's 9-tick window; the retry is weavesmoke's and is not "
-        "loosened here",
+        "238.5 and 238.6 standalone) with a margin for the demo growing",
         needs=("marty", "cc"), serial=True, timeout=600,
         wants=("build/loom360.img",)),
     Row("weaveone", "soak", py("tests/weaveone.py"), 60.0,
@@ -1722,8 +1720,7 @@ SOAK = [
         "on TIME - wireflick's rule, that a number which fails a build when a "
         "harness gets slower teaches nobody anything - so the fps is printed "
         "and the FIELD RUN (docs/FIELD-MACHINES.md, WEAVE-PLAN 4.2) is what "
-        "turns it into a claim. 50s is 34s MEASURED plus room for the one "
-        "navigation retry weavesmoke's own flake can cost",
+        "turns it into a claim. 50s is 34s MEASURED plus margin",
         needs=("marty", "cc"), serial=True, timeout=300),
     Row("weavepack", "soak", py("tests/weavepack.py"), 1500.0,
         "WEAVE-SPEC 11.1's gate and the one wave 6 closes on: LOOM packs "
@@ -2280,14 +2277,19 @@ SOAK = [
         "expensive sea from a quantised one: it is slow AND halted, which no "
         "content can produce. The other three modes are the control and are "
         "counted off [sv_due], which cannot see a re-anchored mode - so they "
-        "catch a mode that stopped drawing and not one that was quantised.",
-        needs=("marty",), serial=True, alone=True),
+        "catch a mode that stopped drawing and not one that was quantised. "
+        "It shares the lane: both figures are guest counters over "
+        "m.advance(cycles=) windows, and its one host deadline (the saver "
+        "starting) is an until() on guest time.",
+        needs=("marty",), serial=True),
     Row("deskbench", "soak", py("tests/deskbench.py"), 180.0,
         "THE STANDARD BUSY DESKTOP, priced: what a full-screen redraw, a "
         "window move and a raise cost with four windows open (PERFORMANCE.md "
         "Part 3). A measurement, not a gate - it asserts its own SCENE and "
-        "prints numbers. `--all` runs one per adapter.",
-        needs=("marty",), serial=True, alone=True),
+        "prints numbers. `--all` runs one per adapter. Every figure is GUEST "
+        "milliseconds off the cycle counter, sampled per displayed frame by "
+        "m.flicker, so it shares the lane: a busy box cannot move one.",
+        needs=("marty",), serial=True),
     Row("arkpuwipe", "soak", py("tests/arkpuwipe.py"), 80.0,
         "Does a capsule the blit REFUSED leave a streak behind it? (SPEC.md "
         "44.10.6.2). VGA on purpose - on CGA ARK_PUFALL floors to 1 and the "
@@ -2678,6 +2680,13 @@ SOAK = [
     Row("dockmodule", "soak", py("tests/dockmodule.py"), 120.0,
         "Optional Dock module: missing/corrupt file refusal and saved-setting "
         "boot fallback, with no live callback into an unloaded claim",
+        needs=("marty",), serial=True),
+    Row("extdmod", "soak", py("tests/extdmod.py"), 60.0,
+        "EXTD.DRV (SPEC.md 39.19.6): Extend loads the extended desktop's "
+        "module and Single drops it with every slot back on mod_gone; with "
+        "the file gone the panel refuses to Single with a toast and a boot "
+        "with Extend saved comes up Single - and two displays with no image "
+        "is a failure wherever it is seen",
         needs=("marty",), serial=True),
     Row("dockpos", "soak", py("tests/dockpos.py", "--cga"), 300.0,
         "Does the dock stand on every edge and hide? (SPEC.md 30.5, 30.6,"
@@ -4438,7 +4447,11 @@ SOAK = [
         "/ 7, which is six int 13h at ~400 ms apiece on a 4.77 MHz XT. "
         "VERIFIED TO FAIL BOTH WAYS: fmv_sync_x put back takes B to 10 "
         "reads, and the 'already standing there' test taken out takes A "
-        "to 3.",
+        "to 3. ARM A'S BAR IS THE PACKAGE'S OWN FILLS, READ OFF THE GUEST: "
+        "every BIOS read is a SPEC.md 18.95 read-ahead fill, and since "
+        "18.95.7 the cache takes no 64KB page head, so a slot that straddles "
+        "a page is TWO int 13h wherever the heap put it - a constant of 2 "
+        "read that as a mount the day a kernel size pass moved the heap.",
         needs=("marty",), serial=True),
     Row("dosargs", "soak", py("tests/dosargs.py"), 90.0,
         "CAN A DOS PROGRAM BE GIVEN ARGUMENTS? (SPEC.md 96.19). Half the DOS "
@@ -5963,7 +5976,10 @@ SOAK = [
         "SPEC.md 7.3: how long a click waits while a worker draws, bracketed"
         "by two memory breakpoints because the mouse harness has a half-second"
         "floor and cannot see it (7.3.1)",
-        needs=("marty", "wiredisk"), serial=True, alone=True,
+        # It shares the lane: the latency is the CYCLE count between two
+        # memory breakpoints the guest itself hits, so the box's load cannot
+        # move it.
+        needs=("marty", "wiredisk"), serial=True,
         wants=("build/wire360.img",)),
     Row("evqfull", "soak", py("tests/evqfull.py"), 20.0,
         "SPEC.md 10.1: a full event ring discards its OLDEST input, and never"
@@ -6147,15 +6163,12 @@ SOAK = [
         "never `paused`, a cap that overflows instead of wedging, and an "
         "on_hit that reads the .bss while the guest is still inside the "
         "routine",
-        # ALONE, for minesrc's reason one layer in: this row PARKS the guest
-        # on a breakpoint and then asserts that it is parked. MEASURED: it
-        # FAILS at --marty-jobs 4 with `the guest is parked at a stop
-        # ('running')` and PASSES at 1, and the two checks that DEPEND on the
-        # park pass in both - so the park happens and the assertion simply
-        # looked too early. A breakpoint's arrival is guest-paced and the
-        # look is host-paced, which is the one pairing contention can always
-        # break.
-        needs=("marty",), serial=True, alone=True),
+        # It shares the lane. It ran `alone` because section 11 SAMPLED the
+        # park once, straight after the gesture that causes it, and at four
+        # emulators the sample landed first and read 'running' - a host-paced
+        # look at a guest-paced arrival. It waits for the stop on the guest's
+        # clock now, as section 1 already did.
+        needs=("marty",), serial=True),
     Row("altenter", "soak", py("tests/altenter.py"), 33.0,
         "SPEC.md 11.2.1.1: Alt+Enter reaches full screen in BOTH of the "
         "mechanisms apps use - ArtfulType on SPEC.md 11.2's LATCH, where one "
@@ -6326,6 +6339,40 @@ SOAK = [
         "same job and got it wrong (52.10.13.1); tests/instdeep.py is that "
         "half",
         needs=("marty",), serial=True, wants=("build/hello.o88",)),
+    Row("lzbig", "soak", py("tests/lzbig.py"), 330.0,
+        "SPEC.md 20.15.4 and 22.22.4: File > Compress and Uncompress on "
+        "files PAST 64KB, which used to answer 'Too large'. The machine's "
+        "file against os88lz.lzb_compress_machine's BYTE FOR BYTE, as "
+        "tests/lzcomp.py does for small ones: BIG1.TXT (100KB, packs under "
+        "64KB) slides the encoder's source; BIG2.TXT (160KB, packs to 86KB) "
+        "slides both sides, and its Uncompress hands the transparent read a "
+        "'CZ' file whose PACKED bytes cross a segment - the decoder's "
+        "checkpoint (20.14.5.1), which no shipped file reaches because every "
+        "one is LZ4 and packed under 64KB. TAIL.DAT is text then 70KB of "
+        "noise: a raw tail the T word cannot count, refused as `Its end "
+        "won't compress` with the file untouched, and the mirror is asked "
+        "first so the fixture cannot drift into testing nothing. Both big "
+        "files then round-trip to the original bytes. It went red twice "
+        "while it was written, on real defects: a write handed a segment "
+        "as its count's high word (FERR_BIG, said as 'Too large'), and a "
+        "tail length whose low byte a shift count overwrote (12 bytes of "
+        "junk past a zero-length tail, which the decoder then refused). A "
+        "1.44MB XT (os8088_xt_vga_144): the fixtures are 900KB and every "
+        "720KB profile here is 40-cylinder. BIG3.TXT (250KB) and BIG4.TXT "
+        "(230KB of text, 45KB of noise) are too big to hold twice and are "
+        "STREAMED (22.22.5) - one pass to a temporary file renamed over the "
+        "original - and must still equal the mirror byte for byte, fm_ebuf "
+        "proving the streamed path ran. BIG4's cut is ~50KB of output before "
+        "its end, so the window has written past it and the file is "
+        "TRUNCATED back (OSAPI_FILE_WRITE_AT with a count of 0, 18.4.7.5): "
+        "the kernel's .trunc is breakpointed and must fire once for BIG4 and "
+        "never for BIG3, and os88disk --verify must pass the volume after "
+        "each, because a truncate off by one cluster reads this file back "
+        "perfectly and leaks or cross-links another. And BIG2's "
+        "Compress is WATCHED (22.22.6): the mouse swings through the parse and "
+        "the arrow must move with the lock held (144 moves; the first build, "
+        "whose toast spent the hide, read 6) while `Compressing...` stays up",
+        needs=("marty",), serial=True, wants=("build/os8088.img",)),
     Row("lzmod", "soak", py("tests/lzmod.py"), 30.0,
         "SPEC.md 20.14.5: BEVERLY.MOD, COMPRESSED, opened by a double-click. "
         "The file this whole feature is for - 116,085 bytes is 114 of a 360KB "
@@ -7054,15 +7101,12 @@ SOAK = [
         "with a DAEMONISED `make test` left a qemu holding the floppy image "
         "and made every later QEMU row die at once - three of which "
         "os88bisect read as this row failing.",
-        # ALONE, STILL, and now for a reason that is the HARNESS's rather than
-        # the row's: every QEMU row in the tree opens the same fixed
-        # build/qmp.sock (tests/ethernet.py), so two of them can never run
-        # together whatever the lane says. The suite never puts a qemu row in
-        # the shared lane anyway - that lane is built from `marty` in needs -
-        # so this flag costs the run nothing and says the true thing. The
-        # row's own Mouse helper still carries a fixed time.sleep(0.4) per
-        # press; the reads no longer trust it.
-        needs=("qemu", "nasm"), serial=True, alone=True, timeout=900,
+        # NOT `alone`: every QEMU row opens the same fixed build/qmp.sock
+        # (tests/ethernet.py), and the runner already keeps any row without
+        # `marty` out of the shared lane - so it runs one at a time as a
+        # SERIAL row, which is the true statement. Every read is on the
+        # guest's own [ticks].
+        needs=("qemu", "nasm"), serial=True, timeout=900,
         wants=("build/os8088.img", "build/apps.img")),
     Row("tmsmall", "soak", py("tests/tmsmall.py"), 30.0,
         "SPEC.md 28.12: the APP_SMALL Task Manager gates out two of its three "
@@ -7093,7 +7137,7 @@ SOAK = [
         "unreachable on that arm by mou_apply's own first compare, and a "
         "one-armed reading could not tell that from a test that never "
         "reached a freeze at all.",
-        needs=("marty",), alone=True, serial=True, timeout=900),
+        needs=("marty",), serial=True, timeout=900),
     Row("fddpark", "soak", py("tests/fddpark.py"), 300.0,
         "SPEC.md 18.100: a Restart leaves the floppy heads on TRACK 0. int "
         "19h resets no hardware, so the next boot inherits drive B's head "
@@ -7105,7 +7149,7 @@ SOAK = [
         "ui_cmd_reboot's own int 19h and reads ST3 off the emulated 765 from "
         "the host. It builds NOFDDPARK=1 itself: reading TRK0 set on one arm "
         "says only that SOMETHING parked the head.",
-        needs=("marty",), alone=True, serial=True, timeout=900),
+        needs=("marty",), serial=True, timeout=900),
     Row("uiblock", "soak", py("tests/uiblock.py"), 20.0,
         "SPEC.md 8.1.2: ui_task blocks instead of spinning, so an idle "
         "desktop is 97% HALTED and the loop runs 18 times a second instead "
@@ -7887,6 +7931,26 @@ SOAK = [
         "name for tests/ethernet.py's reason: MartyPC has no NIC, so this "
         "package's receive path cannot be reached on it at all",
         needs=("qemu",), serial=True, builds=True),
+    Row("ethernet", "soak", py("tests/ethernet.py"), 40.0,
+        "SPEC.md 72.9: ETHER.DRV up before the first paint off a SYSTEM.CFG "
+        "that asks for it, DHCP bound to slirp's address, and the browser "
+        "fetching a page the row serves itself. QEMU by name: MartyPC has no "
+        "NIC of any kind. It was UNREGISTERED ('needs make ethertest and "
+        "QEMU'), which is what needs= and wants= are for - a row nobody can "
+        "find is a row nobody runs.",
+        needs=("qemu",), serial=True, builds=True,
+        wants=("build/brtest360.img",)),
+    Row("ethcfg", "soak", py("tests/ethcfg.py"), 90.0,
+        "SPEC.md 72.7: the Ethernet Setup window - Manual, an address typed "
+        "into its field, Ok applying it to the driver's LIVE addresses, the "
+        "mode greying Renew, and the setting SURVIVING A REBOOT once the "
+        "Control Panel is closed; then Automatic again. It was unregistered "
+        "and so it was BROKEN UNSEEN: it found the window by W_W == 216, and "
+        "the kernel puts a window's content on a multiple of 8 (SPEC.md "
+        "11.94), so the template's 216 comes up 218 wide and the row said "
+        "'Set Up opened no window' with the window on the screen. It "
+        "matches the TITLE now.",
+        needs=("qemu",), serial=True, builds=True),
     Row("telzm", "soak", py("tests/telzm.py"), 300.0,
         "SPEC.md 70.11/70.12: ZMODEM RECEIVE end to end, with the bytes read "
         "back OFF THE DISK. tools/os88bbs.py's pure-Python sender sends two "
@@ -7973,16 +8037,13 @@ SOAK = [
     Row("tmrepair", "soak", py("tests/tmrepair.py"), 80.0,
         "SPEC.md 28.11: the Task Manager's quiet pages hold a raise cache by "
         "REPAIRING at the restore - a whole-content band, and tm_update "
-        "spends the debt W_PAINT is handed. **IT IS INTERMITTENT AND HAS "
-        "BEEN FOR A WHILE**, which is worth knowing before anybody calls a "
-        "red one a regression: rated with tools/os88bisect.py it fails 3 of "
-        "4 at b49fff1 - a tree where one soak reported it PASSING - 2 of 3 "
-        "at b5cef54, 1 of 3 at 7f5c07a and 1 of 4 at dc3b200, so today's head "
-        "is the best of every point measured. The failing leg is REPAIR: the "
-        "promise is made (WF_SAVEU and a whole-content band) and is gone by "
-        "the uncover with ZERO wm_su_drop calls for it, so whatever "
-        "withdraws it is not that path. A rate is not a side, so there is "
-        "nothing here to bisect until the row is 0/N or N/N",
+        "spends the debt W_PAINT is handed. The REPAIR leg names the "
+        "refusal when it fails - it arms wm_su_ck, wm_su_vset, wm_su_scrset, "
+        "wm_su_occl and wm_su_tno together and prints the path, so a red run "
+        "says which of the four gates answered CF. Its pump counts only the "
+        "rounds that ADVANCED, so the observation window is a fixed amount of "
+        "guest time however many breakpoints fire: 12 of 12 at 335e584, eight "
+        "of them four-wide beside a full soak",
         needs=("marty",), serial=True),
     Row("tmselfsu", "soak", py("tests/tmselfsu.py"), 300.0,
         "SPEC.md 28.8.1: the Task Manager stops repainting for ITS OWN raise "
@@ -8059,6 +8120,16 @@ SOAK = [
         "The fullscreen SURFACE is a pick, not XT mode's - text at a 45.10"
         "rate (SPEC.md 45.13.7)",
         needs=("marty",), serial=True,
+        wants=("build/trkship360.img",)),
+    Row("trklcd", "soak", py("tests/trklcd.py"), 45.0,
+        "Tracker on an XT: the visualiser button is VU Meter / Spectrum / Off"
+        " and greys only at 11 kHz (SPEC.md 45.23.1); the XT spectrum is 12"
+        " bars at 17+ fps with the ring half full, and a 286 marker falls to"
+        " its held bar (45.24.1); the LCD is"
+        " composed by its KEYS"
+        " and lettered by its changed cells, and the glass equals a forced"
+        " full repaint pixel for pixel (45.21.8). Measured 50s",
+        needs=("marty",),
         wants=("build/trkship360.img",)),
     Row("wmchrome", "soak", py("tests/wmchrome.py"), 180.0,
         "chrome that is WHOLLY obstructed is not drawn - a covered drop "

@@ -147,7 +147,7 @@ toast_scn:   dw 0               ; and how many cells it takes there - 0 meaning
                                 ; drv_boot, before any init routine of ours
 
 ; -----------------------------------------------------------------------------
-; toast_show - say one line in the menu bar for a few seconds (API 0x02B6)
+; toast_show - say one line in the menu bar for a few seconds (API 0x02AA)
 ; in:       ES:SI = a NUL string, CX = ticks to live (0 = TOAST_TICKS)
 ; out:      CF = 0 taken, CF = 1 refused - and NOTHING refuses today, the
 ;           widget interlock below having been the only one. The flag stays in

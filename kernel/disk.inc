@@ -2120,7 +2120,7 @@ dsk_vol_slot_x:
 ; clobbers: AL (the output), flags
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
-; osapi_vol_at - is this PARTITION already a volume? (slot 0x0303, SPEC 52.10.3)
+; osapi_vol_at - is this PARTITION already a volume? (slot 0x02F6, SPEC 52.10.3)
 ; in:  DL = an int 13h drive number, BX:CX = the partition's 32-bit base LBA
 ;      (BX = the high word, CX = the low - dsk_boot_from's own argument shape)
 ; out: CF = 0 and AL = the volume index that covers it; CF = 1 = none does
@@ -2443,7 +2443,7 @@ osapi_vol_fence:
     ret
 
 ; -----------------------------------------------------------------------------
-; osapi_vol_add - slot 0x0201 (X: ES = the caller's segment)
+; osapi_vol_add - slot 0x01F8 (X: ES = the caller's segment)
 ; in:  AL = the driver's volume handle, CX = sectors, DX = a listing claim's
 ;      segment (0 = the floor), ES:SI = a NUL label or SI = 0
 ; out: CF = 0 and AL = the volume index; CF = 1 refused
@@ -2458,7 +2458,7 @@ osapi_vol_add_x:
     retf
 
 ; -----------------------------------------------------------------------------
-; osapi_fs_ent - slot 0x02E5 (X: ES = the caller's segment), SPEC.md 62.9.1
+; osapi_fs_ent - slot 0x02D9 (X: ES = the caller's segment), SPEC.md 62.9.1
 ; in:  ES:SI -> a DSK_DE_SIZE-byte staged SPEC.md 19.1 entry, in the DRIVER's
 ;      own segment
 ; out: CF = 0 and AX = the index it landed at; CF = 1 = the listing is full,
@@ -2529,7 +2529,7 @@ osapi_fs_ent_x:
     retf
 
 ; -----------------------------------------------------------------------------
-; osapi_vol_del - slot 0x0207 (X).  in AL = volume index
+; osapi_vol_del - slot 0x01FE (X).  in AL = volume index
 ; -----------------------------------------------------------------------------
 osapi_vol_del_x:
     call osapi_vol_fence
@@ -2539,7 +2539,7 @@ osapi_vol_del_x:
     retf
 
 ; -----------------------------------------------------------------------------
-; osapi_vol_mount - slot 0x020D (X).  in AL = volume index; out CF = 1 refused
+; osapi_vol_mount - slot 0x0204 (X).  in AL = volume index; out CF = 1 refused
 ;
 ; The Mount button (SPEC.md 51.8). UI-task context only, exactly like every
 ; other file slot: it takes [sch_lock] around int 13h and rewrites the one
@@ -5131,9 +5131,10 @@ dsk_dirw_next_x:
 ; **The fill re-enters `dsk_xfer`**, with `[dsk_rah_busy]` stopping it caching
 ; its own fill. That is why the fill needs no CHS conversion, no retry ladder
 ; and no EOT handling of its own: it asks for a normal read into the cache's
-; own claim, and the one transfer routine does what it always did. The claim
-; is page-safe by construction (`mem_claim_dma` takes the WHOLE of it as the
-; head), so `dsk_runcap` never splits a fill and a fill is exactly one call.
+; own claim, and the one transfer routine does what it always did. That
+; includes `dsk_runcap`: the claim takes NO 64KB page head (§18.95.7), so a
+; slot can straddle a physical page, and a fill into one is then TWO calls
+; cut at the boundary - which slots do is wherever the heap put the claim.
 ;
 ; **Reads only, BIOS volumes only.** A write must reach the platter. And a
 ; `DVK_DRV` volume leaves `dsk_xfer` before the run loop for its driver, which

@@ -236,25 +236,25 @@ had added.
 ```json
 {
   "big": {
-    "boot2": 2250,
+    "boot2": 2249,
     "bootmax": 192000,
-    "bss": 5552,
+    "bss": 5524,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 40337,
+    "cold": 40204,
     "coldpara": 2528,
     "fatpara": 288,
-    "imgpara": 3424,
-    "kend": 6816,
+    "imgpara": 3328,
+    "kend": 6720,
     "kseg": 96,
-    "ksize": 107520,
+    "ksize": 105984,
     "lowbss": 6366,
     "lowpara": 448,
     "minramkb": 196,
-    "ovl": 1511,
-    "ovlw": 5110,
+    "ovl": 1837,
+    "ovlw": 5104,
     "stk0": 512,
-    "text": 49194,
+    "text": 47223,
     "vgabuf": 336,
     "vgabufpara": 32
   },
@@ -282,25 +282,25 @@ had added.
     "vgabufpara": 64
   },
   "small": {
-    "boot2": 2250,
+    "boot2": 2249,
     "bootmax": 122368,
-    "bss": 3539,
+    "bss": 3485,
     "budget": 107520,
     "codemax": 65536,
-    "cold": 26066,
+    "cold": 25948,
     "coldpara": 1632,
     "fatpara": 64,
-    "imgpara": 2496,
-    "kend": 4576,
+    "imgpara": 2464,
+    "kend": 4544,
     "kseg": 96,
-    "ksize": 71680,
+    "ksize": 71168,
     "lowbss": 3636,
     "lowpara": 288,
     "minramkb": 128,
-    "ovl": 1857,
-    "ovlw": 1412,
+    "ovl": 1942,
+    "ovlw": 1502,
     "stk0": 512,
-    "text": 36397,
+    "text": 35698,
     "vgabuf": 0,
     "vgabufpara": 0
   }
@@ -354,7 +354,7 @@ kilobyte of that is SPEC.md 22.6.2's `DSK_NENT` cut, which took `.lowbss`
 reporting 639KB has ~528 KB under `kern_big` before any driver or read-ahead
 claim.
 
-**Not in the span**: the boot overlay (`.ovl` 1,832 bytes in stage 2's blob,
+**Not in the span**: the boot overlay (`.ovl` 1,837 bytes in stage 2's blob,
 `.ovlw` 5,104 bytes loaded onto the FAT window and `dsk_secbuf`, both
 dead by the first desktop — see below; on `kern_small` the split is a BUILD
 CHOICE and reads 1,942 / 1,502, SPEC.md §2.5.3.2), the on-demand modules (files read
@@ -671,59 +671,60 @@ there and nowhere else.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 32,627 | 36.4% |
-| the window system and its furniture | 24,417 | 27.3% |
-| drawing: adapters, primitives, glyphs, icons | 13,464 | 15.0% |
-| hardware: drivers, clock, mouse, sound, CPU, XMS | 9,090 | 10.2% |
-| the kernel proper: API table, heap, scheduler, events | 7,868 | 8.8% |
+| the file system, end to end | 32,532 | 37.2% |
+| the window system and its furniture | 23,086 | 26.4% |
+| drawing: adapters, primitives, glyphs, icons | 13,113 | 15.0% |
+| hardware: drivers, clock, mouse, sound, CPU, XMS | 9,015 | 10.3% |
+| the kernel proper: API table, heap, scheduler, events | 7,652 | 8.8% |
 | the three built-in kinds | 1,483 | 1.7% |
-| the Control Panel | 582 | 0.7% |
-| **total** | **89,531** | |
+| the Control Panel | 546 | 0.6% |
+| **total** | **87,427** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
 | module | `.text` | `.cold` | code | `.bss` | `.lowbss` | `.boot2` |
 |---|---:|---:|---:|---:|---:|---:|
-| `wm.inc` — the window manager (§11) | 11,413 | 142 | **11,555** | 1,140 | — | — |
-| `files.inc` — the Disk window (§22) | 1,078 | 8,233 | **9,311** | 465 | — | — |
-| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 385 | 6,380 | **6,765** | 418 | — | — |
-| `vga12.inc` — the VGA planar primitives (§5) | 5,716 | 734 | **6,450** | 107 | 526 | — |
+| `wm.inc` — the window manager (§11) | 10,503 | 142 | **10,645** | 1,140 | — | — |
+| `files.inc` — the Disk window (§22) | 1,066 | 8,233 | **9,299** | 465 | — | — |
+| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 375 | 6,380 | **6,755** | 418 | — | — |
+| `vga12.inc` — the VGA planar primitives (§5) | 5,708 | 734 | **6,442** | 107 | 526 | — |
 | `fdlg.inc` — the Standard File dialog (§38) | 101 | 5,031 | **5,132** | 188 | — | — |
-| `diskw.inc` — the FAT write path (§18.4–18.6) | 82 | 4,883 | **4,965** | 162 | — | — |
+| `diskw.inc` — the FAT write path (§18.4–18.6) | 82 | 4,798 | **4,880** | 160 | — | — |
 | `mouse.inc` — serial mouse and the cursor (§9) | 4,167 | — | **4,167** | 151 | 128 | — |
-| `ui.inc` — the UI task and the event ladder (§13) | 3,364 | 38 | **3,402** | 58 | — | — |
 | `memory.inc` — the claim heap (§50) | 217 | 2,957 | **3,174** | 26 | 324 | — |
-| `menu.inc` — the menu bar and pull-downs (§12) | 2,818 | 177 | **2,995** | 197 | 84 | — |
-| `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 563 | 2,049 | **2,612** | 301 | — | — |
-| `assoc.inc` — file type associations (§54) | 482 | 2,111 | **2,593** | 43 | — | — |
+| `ui.inc` — the UI task and the event ladder (§13) | 3,033 | — | **3,033** | 58 | — | — |
+| `menu.inc` — the menu bar and pull-downs (§12) | 2,763 | 177 | **2,940** | 197 | 84 | — |
+| `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 563 | 2,029 | **2,592** | 301 | — | — |
+| `assoc.inc` — file type associations (§54) | 420 | 2,093 | **2,513** | 43 | — | — |
 | `filecp.inc` — Cut/Copy/Paste (§22.3–22.5) | — | 2,242 | **2,242** | 160 | — | — |
 | `font.inc` — the 8×8 glyph renderer (§6) | 2,199 | — | **2,199** | 19 | 784 | — |
-| `instance.inc` — instances and the built-in kinds (§29) | 1,957 | 160 | **2,117** | 724 | — | — |
+| `instance.inc` — instances and the built-in kinds (§29) | 1,947 | 160 | **2,107** | 724 | — | — |
 | `apps.inc` — the three built-in kinds (§14) | 282 | 1,201 | **1,483** | 11 | 240 | — |
 | `sched.inc` — pre-emptive scheduling (§7–8) | 1,410 | — | **1,410** | 207 | 2,944 | — |
 | `softgfx.inc` — the software renderer, §39.5's 1bpp driver (§32) | 1,297 | — | **1,297** | 20 | — | — |
 | `loader.inc` — the package loader (§21) | 4 | 1,233 | **1,237** | 46 | — | — |
-| `vidsel.inc` — which adapters the machine HAS, and switching between them (§39.11) | 1,153 | — | **1,153** | 74 | — | — |
-| `desk.inc` — the desktop and volume zones (§14/§26.1) | 21 | 1,053 | **1,074** | 79 | — | — |
-| `icons.inc` — the icon renderer (§10) | 1,049 | — | **1,049** | 281 | — | — |
+| `desk.inc` — the desktop and volume zones (§14/§26.1) | 21 | 1,053 | **1,074** | 53 | — | — |
+| `icons.inc` — the icon renderer (§10) | 1,045 | — | **1,045** | 281 | — | — |
 | `snd.inc` — the sound layer (§34) | 1,035 | — | **1,035** | 287 | — | — |
-| `fsx.inc` — fullscreen exclusive (§53) | 1,000 | — | **1,000** | 9 | — | — |
 | `dock.inc` — the dock strip (§30) | 941 | 45 | **986** | 59 | — | — |
-| `viddet.inc` — adapter detection and geometry (§39) | 888 | — | **888** | — | 696 | 3 |
+| `fsx.inc` — fullscreen exclusive (§53) | 978 | — | **978** | 9 | — | — |
+| `vidsel.inc` — which adapters the machine HAS, and switching between them (§39.11) | 894 | — | **894** | 74 | — | — |
+| `viddet.inc` — adapter detection and geometry (§39) | 808 | — | **808** | — | 696 | 3 |
 | `fprog.inc` — the file-operation progress widget (§12.8) | 676 | — | **676** | — | — | — |
 | `clock.inc` — the clock ladder (§37) | 606 | — | **606** | 59 | — | — |
-| `ctrl.inc` — the Control Panel (§31) | 351 | 231 | **582** | 28 | — | — |
+| `ctrl.inc` — the Control Panel (§31) | 351 | 195 | **546** | 28 | — | — |
 | `toast.inc` — the menu bar's transient message (§59) | 433 | — | **433** | 25 | — | — |
+| `lz.inc` — the LZ decoder for packages, drivers, files and the kernel itself (§20.13) | — | 432 | **432** | — | — | — |
 | `blank.inc` — the idle screen blanker (§64) | 200 | 228 | **428** | — | — | — |
-| `hiber.inc` — hibernate, the resident half of `HIBER.DRV` (§87) | 45 | 377 | **422** | 38 | — | — |
-| `mod.inc` — on-demand kernel modules (§2.8) | 69 | 302 | **371** | 140 | — | — |
-| `lz.inc` — the LZ decoder for packages, drivers, files and the kernel itself (§20.13) | — | 340 | **340** | — | — | — |
+| `mod.inc` — on-demand kernel modules (§2.8) | 82 | 304 | **386** | — | — | — |
+| `hiber.inc` — hibernate, the resident half of `HIBER.DRV` (§87) | 59 | 312 | **371** | 178 | — | — |
 | `xmem.inc` — memory above 1MB (§41.4–41.5) | 242 | — | **242** | 22 | — | — |
 | `clip.inc` — the system clipboard (§55) | 179 | — | **179** | 5 | — | — |
-| `events.inc` — the event ring (§10) | 159 | — | **159** | 3 | 128 | — |
+| `events.inc` — the event ring (§10) | 154 | — | **154** | 3 | 128 | — |
 | `clone.inc` — the disk cloner (§18.99) | 15 | 27 | **42** | — | — | — |
-| `cpudet.inc` — CPU tiers and the A20 gate (§41.1–41.3) | 6 | — | **6** | — | — | — |
-| `splash.inc` — the boot splash (§15) | — | — | **0** | — | — | 1,826 |
+| `extmod.inc` — **(undescribed)** | — | 35 | **35** | — | — | — |
+| `cpudet.inc` — CPU tiers and the A20 gate (§41.1–41.3) | 2 | — | **2** | — | — | — |
+| `splash.inc` — the boot splash (§15) | — | — | **0** | — | — | 1,825 |
 | `dskwin.inc` — the mount-owned window at the bottom of `.lowbss` (§2.1.2) | — | — | **0** | — | 512 | — |
 | `band.inc` — the 1bpp band composer (§5.9), `BAND=1` | — | — | **0** | — | — | — |
 | `mouproto.inc` — **(undescribed)** | — | — | **0** | — | — | — |
@@ -733,8 +734,8 @@ there and nowhere else.
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
 | `compress.inc` — the LZB compressor (§20.15), an on-demand module and 0 resident | — | — | **0** | — | — | — |
 | `dockmod.inc` — **(undescribed)** | — | — | **0** | — | — | — |
-| `kernel.asm` — API table, entry points, `kmain`, the shims | 2,591 | 163 | **2,754** | — | — | 421 |
-| **total** | **49,194** | **40,337** | **89,531** | **5,552** | **6,366** | **2,250** |
+| `kernel.asm` — API table, entry points, `kmain`, the shims | 2,365 | 163 | **2,528** | — | — | 421 |
+| **total** | **47,223** | **40,204** | **87,427** | **5,524** | **6,366** | **2,249** |
 <!-- END generated table -->
 
 ### Reading it
@@ -862,7 +863,7 @@ it is two sections, because the two halves die at different times:
 
 | | bytes | lives until | lands on | reached by |
 |---|---:|---|---|---|
-| `.ovl` | 1,832 | `spl_finish` | stage 2's blob, at `OVL_AT` = 2,624 of `BOOT2_PAD` = 4,608, so **152 bytes** spare | `[spl_fseg]`, the pair of §2.9.5.1 — or `BLOBCALL` from a caller already in the blob |
+| `.ovl` | 1,837 | `spl_finish` | stage 2's blob, at `OVL_AT` = 2,624 of `BOOT2_PAD` = 4,608, so **147 bytes** spare (152 until EXTD.DRV's boot call, SPEC.md 39.19.6) | `[spl_fseg]`, the pair of §2.9.5.1 — or `BLOBCALL` from a caller already in the blob |
 | `.ovlw` | 5,104 | **the first mount** | `FAT_SEG`, off the kernel's own contiguous read, spilling into `dsk_secbuf`, the one mount-owned buffer left (4,608 + 512 = 5,120 bytes, all readable — SPEC.md §2.1.2), so **16 bytes** spare | `call FAT_SEG:`, a constant |
 
 Those are kern_big's figures (`tools/kernsize.py --json`). On `kern_small`
@@ -982,15 +983,18 @@ the reason rather than a silent one (§47 rule 3).
 
 **An ON-DEMAND MODULE** (§2.8, `kernel/mod.inc`) — kernel code cut out of
 `KERNEL.SYS` into a file, read into a heap claim when the feature is asked
-for and freed when it is done: `CTRL.DRV`, `FORMAT.DRV`, `CLONE.DRV`,
-`HIBER.DRV` (which carries the compressor too, §20.15.3), and on `kern_small`
+for and freed when it is done: `CTRL.DRV`, `FORMAT.DRV`, `CLONE.DRV`
+(which carries the compressor too, §20.15.3), on `kern_big` `HIBER.DRV`,
+`DOCK.DRV` and `EXTD.DRV` (§30.5, §39.19.6 - the second held for as long as
+the desktop is extended rather than for one action), and on `kern_small`
 `FILECP.DRV` and `FDLG.DRV` too. What stays resident is the menu item, the greying predicate and the
-thunks (`MOD_NENT` = 7 far-pointer slots per module). A feature qualifies
+thunks (one 4-byte far-pointer slot per ENTRY the module declares, SPEC.md 2.8.1). A feature qualifies
 when the system disk is already required to use it, or can be required
 without interrupting what the user was doing. **What the mechanism refuses**
 is in docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md: `mod_need`'s own
-transitive cone (assoc had to be GATED, not moved), and a layer with more
-entry points than `MOD_NENT` (diskw). A module's DATA must stay in `.text`,
+transitive cone (assoc had to be GATED, not moved), and a layer with 33 entry
+points called from everywhere (diskw) - which since SPEC.md 2.8.1 is no longer
+a CAP, only 132 bytes of slots and a far call at every site. A module's DATA must stay in `.text`,
 because `DS = KERNEL_SEG` is the whole of how it reaches anything.
 
 **An OVERLAY DRIVER** — the screen saver (§79, `SAVER.DRV`, `DRVC_OVL` like
@@ -1059,7 +1063,7 @@ answer for anything a single driver consumes.
 | `KERN_BUDGET` moves 1–35 | 64 → 119.5 KB (big), → 105 KB (small) | — |
 | kernel size passes 2 and 3 (docs/plans/completed/HANDOFF-KERNEL-SIZE-P2.md, -P4.md) | unchanged | −5,632 (big) |
 | rule 3 makes big's budget DERIVED; `MIN_RAM_KB` per configuration | big 126.5 KB | — |
-| kernel size pass 4 (docs/plans/completed/HANDOFF-KERNEL-SIZE-P5.md): resident sections −2,921 big / −2,004 small, the segment −1,726 big | unchanged | −3,584 (big, 107,520), −2,560 (small, 71,680) |
+| kernel size pass 4 (docs/plans/completed/HANDOFF-KERNEL-SIZE-P5.md): resident sections −4,661 big / −2,646 small, the segment −3,384 big | unchanged | −5,120 (big, 105,984), −3,072 (small, 71,168) |
 | `kern_small` stops supporting VGA, on-demand `FILECP.DRV`/`FDLG.DRV`, the two-sector FAT window (docs/plans/completed/KERN-SMALL-CUT-BUILT.md) | small 105 KB | small 76.5 KB |
 
 **The 35-move ledger of `KERN_BUDGET` lives in `kernel/kernel.asm`**, in the

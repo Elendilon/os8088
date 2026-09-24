@@ -35,7 +35,6 @@ stands on its reasoning and not on this row.
 import argparse
 import os
 import sys
-import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -86,7 +85,9 @@ def main(argv):
 
         ui = os88ui.UI(m)
         ui.path(PKG)
-        time.sleep(2)
+        # Every pause below is GUEST time: Dot Delirium animates, so no
+        # settle returns, and its layout signals no "done" of its own.
+        os88marty.pace(m, 2)
         p = Probe(ui, names)
 
         def now(tag):
@@ -101,7 +102,7 @@ def main(argv):
 
         # --- A: straddling, both cards carry a share -----------------------
         ui.move_window(w0, SEAM - w0.w // 2, 20)
-        time.sleep(3)
+        os88marty.pace(m, 3)
         w1, t1, c1 = now("straddling the seam")
         if w1.x >= SEAM or w1.x + w1.w <= SEAM:
             fail.append("the window at (%d..%d) does not cross the seam at %d "
@@ -115,7 +116,7 @@ def main(argv):
 
         # --- C: the bracket takes the display the window is on --------------
         m.key("KeyF")
-        time.sleep(4)
+        os88marty.pace(m, 4)
         surf = (p.w("dd_cw"), p.w("dd_ch"), p.w("dd_cx"), p.w("dd_cy"))
         say("bracket from a straddle: %dx%d at (%d,%d)" % surf)
         if surf[:2] not in ((640, 200), (720, 348)):
@@ -123,7 +124,7 @@ def main(argv):
                         "owns ONE display and must ask which (SPEC.md 53.7.1)"
                         % surf[:2])
         m.key("Escape")
-        time.sleep(4)
+        os88marty.pace(m, 4)
         _, t2, _ = now("back from fullscreen")
         if t2 != t1:
             fail.append("leaving the bracket left the tile at %dx%d, not the "
@@ -132,35 +133,35 @@ def main(argv):
         # --- B: wholly onto display 1, and the tile follows ----------------
         w = ui.window("Dot Delirium")
         ui.move_window(w, SEAM + 55, 20)
-        time.sleep(3)
+        os88marty.pace(m, 3)
         w3, t3, _ = now("wholly on display 1")
         if t3 == t0:
             fail.append("the tile is still %dx%d on the Hercules - a window "
                         "moved between two adapters of different PIXEL SHAPE "
                         "must be re-cut (SPEC.md 93.3, 93.4)" % t0)
         m.key("KeyF")
-        time.sleep(4)
+        os88marty.pace(m, 4)
         s1 = (p.w("dd_cw"), p.w("dd_ch"))
         say("bracket on display 1: %dx%d at (%d,%d)"
             % (s1[0], s1[1], p.w("dd_cx"), p.w("dd_cy")))
         m.key("Escape")
-        time.sleep(4)
+        os88marty.pace(m, 4)
 
         # --- D: ...and all the way home ------------------------------------
         w = ui.window("Dot Delirium")
         ui.move_window(w, 40, 20)
-        time.sleep(3)
+        os88marty.pace(m, 3)
         _, t4, _ = now("back on the primary")
         if t4 != t0:
             fail.append("home again, the tile is %dx%d and not the %dx%d it "
                         "opened with" % (t4 + t0))
         m.key("KeyF")
-        time.sleep(4)
+        os88marty.pace(m, 4)
         s0 = (p.w("dd_cw"), p.w("dd_ch"))
         say("bracket on display 0: %dx%d at (%d,%d)"
             % (s0[0], s0[1], p.w("dd_cx"), p.w("dd_cy")))
         m.key("Escape")
-        time.sleep(3)
+        os88marty.pace(m, 3)
         if s0 == s1:
             fail.append("the bracket took the SAME %dx%d surface from both "
                         "displays - it is not following the window "

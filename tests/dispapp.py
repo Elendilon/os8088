@@ -80,7 +80,8 @@ with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
     before_sec = mono(m)                     # the secondary BEFORE Arkanoid
     dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "ARKANOID.O88",
                       card=pri)
-    import time; time.sleep(3)
+    os88marty.pace(m, 3)                # a game: it animates, so nothing
+                                        # to settle on - give it its start
     wins = dispcp.win_list(m, S)
     print("windows now:", [(s,) + dispcp.win_rect(m, S, s) for s in wins])
     ark = wins[-1]

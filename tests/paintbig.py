@@ -36,7 +36,6 @@ at one of them.
 import argparse
 import os
 import sys
-import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "tools"))
@@ -141,7 +140,7 @@ def main():
         if r is None:
             sys.exit("paintbig: no %s as wide as the picture" % a.blit)
         pkgbase = got["base"]
-        time.sleep(6)
+        os88marty.pace(m, 6)
         pw = [w for w in dispcp.win_list(m, S) if w != disk][-1]
         wx, wy, ww, wh = dispcp.win_rect(m, S, pw)
 
@@ -150,7 +149,7 @@ def main():
                                                   636, 476),
                                iw, syms=(a.blit,), regs=True)
         os88marty.settle(m)
-        time.sleep(8)
+        os88marty.pace(m, 8)
         if r is None:
             sys.exit("paintbig: the picture never blitted after the grow, so "
                      "there is nowhere to read it back from")
@@ -202,11 +201,11 @@ def main():
         tx, ty = tool_xy(ox, oy, PT_T_SEL)
         mo.click(tx, ty)
         os88marty.settle(m)
-        time.sleep(2)
+        os88marty.pace(m, 2)
         mo.drag(ox + SRC_X, oy + SRC_Y,
                 ox + SRC_X + SEL_W - 1, oy + SRC_Y + SEL_H - 1)
         os88marty.settle(m)
-        time.sleep(4)
+        os88marty.quiesce(m, selrect, guest=1.0, what="the marquee")
         sx1, sy1, sx2, sy2 = selrect()
         print("   source selection (%d,%d)-(%d,%d), %dx%d, x phase %d"
               % (sx1, sy1, sx2, sy2, sx2 - sx1 + 1, sy2 - sy1 + 1, sx1 & 7))
@@ -214,20 +213,20 @@ def main():
         m.key("KeyC")
         m.key("ControlLeft", down=False, up=True)
         os88marty.settle(m)
-        time.sleep(8)
+        os88marty.pace(m, 8)
 
         # --- the destination: a marquee in the blank ground BELOW the
         # picture, so nothing here is comparing the block against itself.
         mo.drag(ox + DST_X, oy + DST_Y, ox + DST_X + 8, oy + DST_Y + 8)
         os88marty.settle(m)
-        time.sleep(4)
+        os88marty.quiesce(m, selrect, guest=1.0, what="the marquee")
         dx1, dy1 = selrect()[:2]
         print("   destination corner (%d,%d), x phase %d" % (dx1, dy1, dx1 & 7))
         m.key("ControlLeft", down=True, up=False)
         m.key("KeyV")
         m.key("ControlLeft", down=False, up=True)
         os88marty.settle(m)
-        time.sleep(10)
+        os88marty.pace(m, 10)
         # The marquee is a LATCHED XOR (SPEC.md 11.90.2) and pt_paste re-shows
         # it over the block it just laid down, so the outline is in the
         # framebuffer and 4n-4 pixels of the compare below are it. Picking a
@@ -235,7 +234,7 @@ def main():
         tx, ty = tool_xy(ox, oy, PT_T_PENCIL)
         mo.click(tx, ty)
         os88marty.settle(m)
-        time.sleep(3)
+        os88marty.pace(m, 3)
         mo.to(4, 4)
         os88marty.settle(m)
         fw, fh, fb = m.fbuf(card=0)
