@@ -31581,10 +31581,11 @@ slot of its own and refused (docs/plans/DOS-EXEC-PLAN.md §15.12) — the cost
 was the lookup, and a zero count is the one argument the lookup was already
 refusing.
 
-Its first consumer is streamed Compress (§22.22.5). Before it, a count of 0
-was `FERR_NAME` — *"the caller has miscomputed"* — and nothing in the tree
-passes one: the DOS box's flush returns on an empty window before it gets
-here.
+Its consumers are streamed Compress (§22.22.5) and the DOS box's `AH=40h
+CX=0` (§96.11.6.2), which rounds any size down to a cluster, cuts there and
+appends the rest back. Before it, a count of 0 was `FERR_NAME` — *"the caller
+has miscomputed"* — and nothing in the tree passed one: the DOS box's flush
+returns on an empty window before it gets here.
 
 #### 18.4.7.1 What it cost, and where
 
@@ -135873,6 +135874,19 @@ It is not taken: 285 resident bytes on every machine for ever, for a call this
 box makes, is how a kernel that boots on 128KB stops doing so a couple of
 hundred bytes at a time. `docs/plans/DOS-EXEC-PLAN.md` carries the costing for
 whoever wants to revisit it.
+
+**AND ON `kern_big` THE KERNEL DOES IT NOW** (§18.4.7.5): `OSAPI_FILE_WRITE_AT`
+with a count of 0 ends a file at a cluster boundary, for 106 resident bytes
+rather than 285, so `dos_fh_shrink`'s first arm reads the cluster the new end
+falls in into the window, cuts the file at that cluster's start, and appends
+the kept part of it back — the cut size being a cluster multiple is exactly
+`APPEND`'s precondition. No temporary, no free space, no instant where the data
+is under another name, and **52 package bytes**. `tests/dosfile.py`'s two
+truncations short of zero both take it (the kernel's truncate breakpointed:
+two hits), the one to 100 bytes being a cut to **zero clusters** followed by
+an append onto the empty file. `kern_small` has no write-at door and a
+redirected volume refuses it — both answer `CF=1` before touching the file —
+and then the three arms below run exactly as they did:
 
 So `dos_fh_shrink` copies the kept prefix out under a temporary name and swaps
 the two, which is what a DOS utility does by hand — and every door it needs
