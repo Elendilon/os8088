@@ -362,6 +362,7 @@ KNOBS = [
     ("moudiag",     ["MOUDIAG=1"]),
     ("nounal",      ["NOUNAL=1"]),
     ("lddiag",      ["LDDIAG=1"]),
+    ("drvdiag",     ["DRVDIAG=1"]),
     # The three this PR added and nothing else names: NOFLUSHR is SPEC.md
     # 11.95.3's A/B for the right border alone, FATWGATE moves 18.8.2's heap
     # gate, FDDSLOW puts the pre-18.92 floppy timing back. None of them has a
