@@ -670,6 +670,9 @@ ti_onkey:
     xor ax, ax
 .terrset:
     mov [ti_terr], ax
+    mov bx, ax                      ; each board has its own RESOLUTION
+    mov al, [ti_terr_res + bx]      ; (SPEC.md 97.10.7): the next `R` cuts
+    mov [tm_rsel], al               ; in the new board's, and `E` still steps
     mov byte [ti_laid], 0
     call ti_relayout_ck
     call ti_paint_now
@@ -1735,6 +1738,12 @@ ti_ck:      dw 0                    ; the CHARACTER a band is being built
                                     ; for (SPEC.md 97.4.9)
 ti_uslot:   dw 0                    ; ...and the mini unit's slot pitch
 ti_terr:    dw 0                    ; which BOARD we are fighting on
+ti_terr_res:                        ; ...and the resolution each one cuts in
+    db TM_R_RESCHARGE               ; THE MARCH: the gallop across open ground
+    db TM_R_RESTOLL                 ; THE CLOISTER: the bell over the stones
+%if $ - ti_terr_res != TI_TERRAINS
+%error "a board without a resolution: ti_terr_res wants a row per terrain"
+%endif
                                     ; (SPEC.md 97.4.10)
 %ifdef TICARDPROF
 ; TICARDPROF - what each stage of ONE card costs, in PIT counts (0.8381 us

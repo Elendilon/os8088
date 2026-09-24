@@ -37,11 +37,22 @@ bass BT = o2 d2 <a2> |
 chord CT = o3 [d a >d]1 |
 drum DT = b4 t8 t8 k4 r4 |
 
-order RH BH CH DH
-order R1 B1 C1 D1             ; 1: the loop
-order R2 B2 C2 D1
-order R3 B1 C1 D1
-order R4 B2 C2 D2
-order RT BT CT DT             ; 5: the tail
+; --- THE SPEAKER'S OWN LEAD (SPEC.md 97.10.7): every bar is the whole piece in
+; one voice - the TOLL struck on the downbeat, the timpani as two low blips,
+; the bass's D and its leaning E-flat, then the choir's note - where the FM
+; lead's long notes with rests between were the only part the speaker had.
+lead SH = @spbell o5 d4 @sdrum o2 a16 r16 a16 r16 d16 r16 d16 r16 a16 a16 a16 a16 |
+lead S1 = @spbell o5 d4 @sdrum o2 a16 r16 a16 r16 @choir o3 d8. e-16 o5 e-4 |
+lead S2 = @spbell o5 d4 @sdrum o2 a16 r16 a16 r16 @choir o3 d8. e-16 d8 o2 a8 |
+lead S3 = @spbell o5 d4 @sdrum o2 a16 r16 a16 r16 @choir o3 d8. e-16 o4 b-4 |
+lead S4 = @spbell o5 d4 @sdrum o2 a16 r16 a16 r16 a16 r16 o3 d16 d16 @choir o4 a4 |
+lead ST = @spbell o5 d4 @sdrum o2 a16 r16 a16 r16 @choir o4 a4 @sdrum o2 d16 r16 r8 |
+
+order RH BH CH DH SH
+order R1 B1 C1 D1 S1          ; 1: the loop
+order R2 B2 C2 D1 S2
+order R3 B1 C1 D1 S3
+order R4 B2 C2 D2 S4
+order RT BT CT DT ST          ; 5: the tail
 loop 1
 tail 5

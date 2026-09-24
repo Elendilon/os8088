@@ -47,11 +47,22 @@ bass BT = o2 d4 r4 <a4> r4 |
 chord CT = o3 [d a >d]2 [a >e a]2 |
 drum DT = k8 k8 s8 s8 k4 r4 |
 
-order RH BH CH DH
-order R1 B1 C1 D1             ; 1: the loop comes back here
-order R2 B2 C1 D1
-order R3 B1 C1 D1
-order R4 B4 C4 D4
-order RT BT CT DT             ; 5: the tail
+; --- THE SPEAKER'S OWN LEAD (SPEC.md 97.10.7): the horn's stabs alone were a
+; blip and three beats of nothing on the one voice, so this line folds the
+; drums into the gaps - the kick a low D held a tick, the toms an A, the
+; snare roll a high D - and the FM arm never plays it.
+lead SH = o5 @horn d8 @sdrum o2 d16 r16 o3 d16 r16 d16 r16 o2 a16 r16 a16 r16 o6 d16 d16 d16 d16 |
+lead S1 = o4 @horn d8. d16 a8 @sdrum o2 a16 r16 d16 r16 d16 r16 o4 @horn g8 a8 |
+lead S2 = o4 @horn d8. d16 >d8< @sdrum o2 a16 r16 d16 r16 d16 r16 o4 @horn c8 a8 |
+lead S3 = o4 @horn d8. d16 a8 @sdrum o2 a16 r16 d16 r16 d16 r16 o5 @horn c8 d8 |
+lead S4 = o4 @horn g8. g16 >c8< @sdrum o2 a16 r16 o6 d16 d16 d16 d16 o4 @horn a8 g8 |
+lead ST = o4 @horn d4 @sdrum o6 d16 r16 d16 r16 o4 @horn a4 @sdrum o2 d16 r16 r8 |
+
+order RH BH CH DH SH
+order R1 B1 C1 D1 S1          ; 1: the loop comes back here
+order R2 B2 C1 D1 S2
+order R3 B1 C1 D1 S3
+order R4 B4 C4 D4 S4
+order RT BT CT DT ST          ; 5: the tail
 loop 1
 tail 5

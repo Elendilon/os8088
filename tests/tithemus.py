@@ -271,6 +271,13 @@ def run(mach, want_arm, off, part, nsong, record, marks):
             the board on the UI task with the gfx lock held for seconds - the
             worker is blocked on that lock the whole time - and the song must
             still advance one tick a tick, never more than TM_LATE late."""
+            war, toll, charge = (tm.RESOLUTIONS.index(f) for f in
+                                 ("reswar.tmu", "restoll.tmu", "rescharge.tmu"))
+            for _ in range(len(tm.RESOLUTIONS) + 1):    # a resolution NO
+                if rb("tm_rsel")[0] == war:             # board has, so the
+                    break                               # G below must MOVE it
+                m.key("KeyE")
+                os88marty.guest_sleep(m, 0.2)
             ticks = m.sym("ticks")
             m.write(seg * 16 + off["tm_gapmax"], b"\0\0")
             k0, t0, f0 = (struct.unpack("<H", bytes(m.read(ticks, 2)))[0],
@@ -290,8 +297,12 @@ def run(mach, want_arm, off, part, nsong, record, marks):
             gap = rw("tm_gapmax")
             check(gap <= TM_LATE, "...and no step came more than %d ticks "
                   "late (worst %d)" % (TM_LATE, gap), gap)
+            check(rb("tm_rsel")[0] == toll, "...and THE CLOISTER's resolution "
+                  "is The Toll (SPEC.md 97.10.7)", rb("tm_rsel")[0])
             m.key("KeyG")               # ...and the board it was, back
             os88marty.guest_sleep(m, 5.0)
+            check(rb("tm_rsel")[0] == charge, "...and THE MARCH's is The Charge",
+                  rb("tm_rsel")[0])
 
         # --- item 2's first half: SONG 0's WHOLE COMMAND STREAM, every call
         # the sequencer makes, against the model's - exact, where a sample a

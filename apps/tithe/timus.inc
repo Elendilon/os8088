@@ -292,7 +292,7 @@ tm_start:
     shl bx, 1
     mov si, [es:TMP_SONGS + bx]
     mov di, tm_hdr
-    mov cx, TMS_PTAB + 2
+    mov cx, TMS_SPK + 1
 .hdr:
     mov al, [es:si]
     mov [di], al
@@ -553,9 +553,16 @@ tm_pattern:
     push di
     mov al, [tm_states]
     add al, 3                       ; an order row: bass, chord, drum, leads
+    add al, [tm_spk]                ; ...and the speaker's own (SPEC.md 97.10.7)
     mul byte [tm_ord]
     add ax, [tm_order]
     mov si, ax
+    mov bl, [tm_states]             ; the speaker's lead is the column after
+    cmp byte [tm_spk], 0            ; the states', and only the speaker arm
+    je .state                       ; plays it - FM keeps the state's
+    cmp byte [tm_arm], 0
+    je .st
+.state:
     mov bl, [tm_state]              ; the lead the state names (TITHE-PLAN
     cmp bl, [tm_states]             ; 13.4) - a title has one
     jb .st
@@ -1115,7 +1122,7 @@ tm_slur:    db 0
 tm_busy:    db 0                    ; the try-lock across tm_run
 tm_quiet:   db 0                    ; a CHASE: step, touch no hardware
 tm_keep:    db 0                    ; a RESYNC: leave a right voice ringing
-tm_rsel:    db 0                    ; `E`: which resolution `R` cuts in
+tm_rsel:    db TM_R_RESCHARGE       ; `E`: which resolution `R` cuts in - board 0's to start (tithe.asm's ti_terr_res)
 tm_resing:  db 0                    ; a resolution is playing...
 tm_rend:    db 0                    ; ...and has been asked to end
 tm_hand:    db 0                    ; ...and its tail has played: hand back
@@ -1127,7 +1134,7 @@ tm_seekrow: db TM_FIN               ; top (TM_FIN: at the top)
 tm_gapmax:  dw 0                    ; the most ticks one tm_run has stepped
 tm_last:    dw 0                    ; the tick the sequencer last stepped at
 tm_ticks:   dw 0                    ; ticks since the song began
-tm_hdr:     times TMS_PTAB + 2 db 0 ; the song's header, copied at tm_start
+tm_hdr:     times TMS_SPK + 1 db 0  ; the song's header, copied at tm_start
 tm_glen     equ tm_hdr + TMS_GLEN   ; ...and named by the offsets tisong.inc
 tm_groove   equ tm_hdr + TMS_GROOVE ; publishes, so this copy cannot drift
 tm_rows     equ tm_hdr + TMS_ROWS   ; from the part's own layout
@@ -1137,6 +1144,7 @@ tm_loop     equ tm_hdr + TMS_LOOP
 tm_order    equ tm_hdr + TMS_ORDER
 tm_ptab     equ tm_hdr + TMS_PTAB
 tm_tail     equ tm_hdr + TMS_TAIL
+tm_spk      equ tm_hdr + TMS_SPK    ; 1: every order row ends in a SPEAKER lead
 tm_freq:    dw 0
 tm_insts:   dw 0
 tm_macros:  dw 0

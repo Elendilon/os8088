@@ -141407,12 +141407,12 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 | `V` | play a card — the REVEAL (§97.4.11): the hovered card, else the first left in the hand, into the planner's topmost empty cell of the column the FRONT/REAR toggle names (§97.12.2). Keys, clicks and the toggle are ignored for the half second a reveal runs |
 | `U` / `Enter` | UNDO the last action / COMMIT the plan — the round loop's (§97.12.4) |
 | *click a card* | play THAT card, the same way — which is what a player does, and the card that dissolves out is then the HOVERED one, expanded and in its own polarity |
-| `G` | step the BOARD — THE MARCH and THE CLOISTER (§97.4.10). A relayout, so the strips and all eighty poses are re-composed |
+| `G` | step the BOARD — THE MARCH and THE CLOISTER (§97.4.10). A relayout, so the strips and all eighty poses are re-composed. It also picks the board's RESOLUTION (§97.10.7) for the next `R` |
 | `A` | sustained projectile fire down a lane (§97.4.5): one bolt a side, crossing — the resolution's worst ranged case, and sustained because the number wave 1a wants is the COMBAT frame's and one bolt is a photograph |
 | `B` | step the BASE, naming its FACTION in the HUD (§97.2.1). One per faction is now chosen — the rampart for THE BULWARK, the pyre and its skull for THE EMBER CHOIR, the cathedral for THE COVENANT — so this is for looking at them, not for picking |
 | `P` | pause the wheel, for looking at one frame |
 | `M` | the next piece of MUSIC (§97.10) — the title, campaign, deck-builder and three faction themes, then silence, then the first again. The window's title names the one playing and its arm |
-| `E` | which RESOLUTION `R` cuts in (§97.10.6), named in the title |
+| `E` | which RESOLUTION `R` cuts in (§97.10.6), named in the title — the board's own until pressed (§97.10.7) |
 | `R` | a fake ROUND: the resolution cuts into whatever is playing; `R` again ends it — its tail at the next bar, then the theme back at the row it was cut at |
 | `S` | the ONE-VOICE arm where FM is there: the lead alone through `OSAPI_SND_TONE`, the song restarting on it — so the speaker's version can be heard on a machine with a card. Where a sound driver holds the tone route (§34.8) that voice is the card's channel 8 rather than the speaker itself |
 | `Esc` | leave fullscreen, else close |
@@ -141528,8 +141528,10 @@ the source's, tick for tick, and is a fast row.
 +10  dw chord shapes        two intervals above a root (0 = no note)
 +12  dw per song            its header
 song +0 groove length, four tick counts, rows, states, order length, loop,
-        pad, dw order, dw phrase table
-order row   bass, chord, drum phrase, then one LEAD phrase per state
+        tail, dw order, dw phrase table, then +14: 1 if every order row
+        carries a SPEAKER lead (§97.10.7), and a pad byte
+order row   bass, chord, drum phrase, then one LEAD phrase per state, then
+            the speaker's own lead where +14 says so
             (0xFF = that channel is silent for the pattern)
 phrase      events: a note (1..127) then rows and gate; 00 rest, rows;
             80|i instrument; A0|s chord shape; C0 slur; FF end
@@ -141610,7 +141612,8 @@ A tick, in the order `timus.inc` and the tool's `Seq` both keep:
 
 TITHE-PLAN §13.4.1: **planning has the faction theme; reveal to spoils has the
 resolution piece**, one for the whole game. Three candidates are in the part
-after the songs (`RESOLUTIONS` in the tool, `TM_NRES`), for the owner to pick:
+after the songs (`RESOLUTIONS` in the tool, `TM_NRES`), and **the owner kept
+all three, one per BOARD** (§97.10.7):
 
 | `E` | | tempo | |
 |---|---|---|---|
@@ -141654,6 +141657,39 @@ cuts each option into a faction theme at a different point, holds the piece to
 the model, ends it, and holds the RESUMED theme to the model sought to the
 banked row, tick for tick; restarting the theme from its top instead fails it
 on every option.
+
+#### 97.10.7 THE SPEAKER'S OWN LEAD, and a resolution per board
+
+**The speaker arm plays the lead and nothing else** (§97.10.3), and a
+resolution's lead was written to LEAVE ROOM — stabs and long notes over
+drums. So on the speaker the three pieces were exactly what the owner heard:
+*"a blip then blank"*. The FM lead with the drums taken away leaves a silence
+of **29 ticks** in War Drums, **37** in The Toll and **10** in The Charge,
+1.6, 2.0 and 0.55 seconds of nothing in a phase that is meant to be the
+game's most urgent.
+
+**The fix is a second SCORE, not a second renderer.** A song may end every
+order row with one more phrase (`order ... <spk>`, all rows or none), the
+header's byte 14 (`TMS_SPK`) says so, and `tm_pattern` takes that column in
+place of the state's lead when `[tm_arm]` is the speaker. The FM arm never
+reads it, so the card's music is byte for byte what it was. What goes in it is
+an arranger's decision the machine cannot make: the lead's own notes where
+they carry the tune, and in its gaps the DRUMS FOLDED INTO THE ONE VOICE —
+`sdrum`, an instrument with no pitch movement, a low D held a tick for the
+kick, the A above it for the toms, a high D for the snare roll — with The
+Toll's bell (`spbell`, an octave-up strike settling into a shimmer) on every
+downbeat. The longest silence falls to **8**, **11** and **2** ticks. The
+share of ticks with a tone is LOWER, 55/69/56% against 71/83/56%, and that is
+the point: a blip that states the beat reads as rhythm where a held note
+followed by two seconds of nothing reads as the music stopping.
+
+It costs 598 bytes of the part and 6 of code. A theme may take the same
+column; none needs it yet, their leads being tunes rather than stabs.
+
+**One resolution per board.** `ti_terr_res` in `tithe.asm` is a row per
+terrain, asserted against `TI_TERRAINS` at assembly: THE MARCH cuts in The
+Charge, THE CLOISTER The Toll, and `G` sets `[tm_rsel]` from it. War Drums is
+kept for a board not yet drawn. `E` still steps them all, for auditioning.
 
 #### 97.10.5 What it costs
 

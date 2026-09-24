@@ -3729,7 +3729,13 @@ the same thing whatever they are playing. ~3KB, ~1.5KB packed.
 row and row, and the hand-back that resumes it there by a quiet seek, with
 THREE CANDIDATES on the demo's `E` and `R` for the owner to pick from: War
 Drums, The Toll and The Charge, all on D in open fifths so they cut cleanly
-into the three chosen faction themes.
+into the three chosen faction themes. **The owner kept all three, one per
+BOARD** — THE MARCH cuts in The Charge, THE CLOISTER The Toll, and War Drums
+waits for a board not yet drawn — after each was given a SPEAKER lead of its
+own (SPEC.md §97.10.7): the FM lead's stabs over drums were *"a blip then
+blank"* on the one voice, so the speaker arm now plays a second score with the
+drums folded into the gaps. This departs from "one resolution piece for the
+whole game" above, deliberately and at the owner's word.
 
 **Handing back is where this pays for itself.** The resolution piece has a
 **loop body and a TAIL**: when the round's animation finishes, the sequencer

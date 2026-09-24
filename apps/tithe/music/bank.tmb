@@ -44,6 +44,18 @@ inst choir              ; the Ember Choir's voice: a slow swell and the chip's
   fm  61 1C 64 14 00 / 61 00 55 05 00 / 06      ; vibrato - an "aah", not a flute
   spk macro 0 vib 6 7
 
+; --- THE SPEAKER'S OWN (SPEC.md 97.10.7) ----------------------------------------
+; Voices only a SPEAKER lead uses, so their `fm` is never sounded - it is the
+; driver's own default patch, there because every record has one.
+
+inst sdrum              ; the drums, folded into the one voice: a note held
+  fm  21 28 F0 07 00 / 21 00 F0 07 01 / 00      ; for a tick - low D is the kick,
+  spk macro 0                                   ; A the tom, a high D the snare
+
+inst spbell             ; a toll: an octave-up strike settling into a shimmer
+  fm  21 28 F0 07 00 / 21 00 F0 07 01 / 00
+  spk macro 12 0 vib 3 6
+
 ; --- ACCOMPANIMENT ------------------------------------------------------------
 
 inst strings            ; a pad: a slow swell, vibrato, three voices of it

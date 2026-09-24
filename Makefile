@@ -2123,7 +2123,11 @@ all: checkdocs $(SHIPIMGS) $(BUILD)/wire.o88 $(BUILD)/recorder.o88 \
 # redraw change kept the picture (SPEC.md 12.9's argument). Skipping is right
 # rather than passing the defines through: the other nine tests are about the
 # SHIPPED artifacts, and a knob build is not one.
-test-fast: $(SHIPIMGS) $(WEAVEWABS)
+# `$(BUILD)/tithe.o88` because `stkclass` assembles apps/tithe/tithe.asm from
+# SOURCE, and three of its includes are generated beside the parts it packs:
+# no shipped image carries Tithe, so without it a score change left `stkclass`
+# assembling a stale tisong.inc and failing on a symbol the new one defines.
+test-fast: $(SHIPIMGS) $(WEAVEWABS) $(BUILD)/tithe.o88
 ifeq ($(KNOBS),)
 	@OS88_PKGDEFS="$(PKGSBDEF)" python3 tools/os88test.py fast
 else

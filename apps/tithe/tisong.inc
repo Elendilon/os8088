@@ -5,10 +5,13 @@
 
 TM_NSONG    equ 6                   ; the songs `M` steps through...
 TM_NRES     equ 3                   ; ...and the resolutions after them
+TM_R_RESWAR  equ 0                   ; `E`'s index of reswar.tmu, for the board table
+TM_R_RESTOLL equ 1                   ; `E`'s index of restoll.tmu, for the board table
+TM_R_RESCHARGE equ 2                   ; `E`'s index of rescharge.tmu, for the board table
 TM_NOTE0    equ 24                  ; the frequency table's first note (C1)
 TM_NNOTE    equ 84
 TM_INSTREC  equ 16                  ; an instrument record's bytes
-TM_P_SIZE   equ 6817                ; bytes in the part
+TM_P_SIZE   equ 7415                ; bytes in the part
 
 ; the part's own layout (SPEC.md 97.10.2) - this tool is its one source
 TMP_FREQ    equ 4                   ; dw: the frequency table
@@ -23,6 +26,7 @@ TMS_STATES  equ 6                   ; ...leads an order row carries,
 TMS_ORDLEN  equ 7                   ; ...order rows,
 TMS_LOOP    equ 8                   ; ...the row the order loops to,
 TMS_TAIL    equ 9                   ; ...the row the TAIL starts at (0: none),
+TMS_SPK     equ 14                  ; ...1: every order row ends in a SPEAKER lead
 TMS_ORDER   equ 10                  ; ...dw the order,
 TMS_PTAB    equ 12                  ; ...dw the phrase table
 TMI_VDELAY  equ 11                  ; an instrument: the vibrato's delay,

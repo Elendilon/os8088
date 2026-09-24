@@ -280,15 +280,20 @@ def parse_song(path, insts, drums):
             s.phrases[t[1]] = (KINDS[k], parse_phrase(body, KINDS[k], s, insts,
                                                       drums, "%s %s" % (where, t[1])))
         elif k == "order":
-            if len(t) != 5:
-                raise ScoreError("%s: order LEAD BASS CHORD DRUM" % where)
+            if len(t) not in (5, 6):
+                raise ScoreError("%s: order LEAD BASS CHORD DRUM [SPEAKER]" % where)
             leads = t[1].split("/")
             if len(leads) == 1:
                 leads = leads * s.states
             if len(leads) != s.states:
                 raise ScoreError("%s: %d states want %d leads" % (where, s.states, s.states))
-            row = (leads, t[2], t[3], t[4])
+            spk = t[5] if len(t) == 6 else None
+            if s.order and (spk is None) != (s.order[-1][4] is None):
+                raise ScoreError("%s: a SPEAKER lead on every order row or on none"
+                                 % where)
+            row = (leads, t[2], t[3], t[4], spk)
             for kind, nm in ([(CH_LEAD, x) for x in leads] +
+                             ([(CH_LEAD, spk)] if spk else []) +
                              [(CH_BASS, t[2]), (CH_CHORD, t[3]), (CH_DRUM, t[4])]):
                 if nm == "-":
                     continue
@@ -554,10 +559,11 @@ def build_part():
         hdr_at = len(part)
         part += bytes(16)
         order_at = len(part)
-        for leads, b, c, d in s.order:
+        for leads, b, c, d, spk in s.order:
             def ix(nm):
                 return PH_NONE if nm == "-" else pidx[nm]
-            part += bytes([ix(b), ix(c), ix(d)] + [ix(x) for x in leads])
+            part += bytes([ix(b), ix(c), ix(d)] + [ix(x) for x in leads]
+                          + ([ix(spk)] if spk else []))
         ptab_at = len(part)
         part += bytes(2 * len(blobs))
         for i, b in enumerate(blobs):
@@ -566,6 +572,7 @@ def build_part():
         g = s.groove + [0] * (4 - len(s.groove))
         struct.pack_into("<5B5BHH", part, hdr_at, len(s.groove), *g, s.rows,
                          s.states, len(s.order), s.loop, s.tail, order_at, ptab_at)
+        part[hdr_at + 14] = 1 if s.order[0][4] else 0    # TMS_SPK
     part[0:4] = DIR_MAGIC + bytes([VERSION, len(songs)])
     struct.pack_into("<HHHH", part, 4, lab["freq"], lab["inst"], lab["macro"], lab["shape"])
     for i, o in enumerate(songoffs):
@@ -620,6 +627,7 @@ class Seq:
         self.ordlen = u8(part, so + 7)
         self.loop = u8(part, so + 8)
         self.tail = u8(part, so + 9)
+        self.spk = u8(part, so + 14)    # the order rows carry a SPEAKER lead
         self.ending = False          # end() asked for the tail
         self.finished = False        # ...and it has played: hand back
         self.order = u16(part, so + 10)
@@ -673,8 +681,11 @@ class Seq:
         return u16(self.p, self.freq + 2 * (note - NOTE0))
 
     def load_pattern(self):
-        o = self.order + self.ord * (3 + self.states)
-        lead = self.p[o + 3 + (self.state if self.states > 1 else 0)]
+        o = self.order + self.ord * (3 + self.states + self.spk)
+        if self.spk and self.arm == "spk":
+            lead = self.p[o + 3 + self.states]      # the speaker's own lead
+        else:
+            lead = self.p[o + 3 + (self.state if self.states > 1 else 0)]
         for c, ph in ((CH_LEAD, lead), (CH_BASS, self.p[o]),
                       (CH_CHORD, self.p[o + 1]), (CH_DRUM, self.p[o + 2])):
             ch = self.ch[c]
@@ -1010,6 +1021,8 @@ def emit(inc_path, bin_path):
          "",
          "TM_NSONG    equ %d                   ; the songs `M` steps through..." % len(SONGS),
          "TM_NRES     equ %d                   ; ...and the resolutions after them" % len(RESOLUTIONS),
+         ] + ["TM_R_%-7s equ %d                   ; `E`'s index of %s, for the board table"
+              % (f[:-4].upper(), i, f) for i, f in enumerate(RESOLUTIONS)] + [
          "TM_NOTE0    equ %d                  ; the frequency table's first note (C1)" % NOTE0,
          "TM_NNOTE    equ %d" % NNOTE,
          "TM_INSTREC  equ %d                  ; an instrument record's bytes" % INST_REC,
@@ -1028,6 +1041,7 @@ def emit(inc_path, bin_path):
          "TMS_ORDLEN  equ 7                   ; ...order rows,",
          "TMS_LOOP    equ 8                   ; ...the row the order loops to,",
          "TMS_TAIL    equ 9                   ; ...the row the TAIL starts at (0: none),",
+         "TMS_SPK     equ 14                  ; ...1: every order row ends in a SPEAKER lead",
          "TMS_ORDER   equ 10                  ; ...dw the order,",
          "TMS_PTAB    equ 12                  ; ...dw the phrase table",
          "TMI_VDELAY  equ 11                  ; an instrument: the vibrato's delay,",
@@ -1066,14 +1080,14 @@ def listing():
                  nxt - u16(part, 12 + 2 * si)))
 
 
-def expected_log(s):
+def expected_log(s, arm="fm"):
     """the (tick, channel, note) stream the SOURCE says - the independent side"""
     rt = row_ticks(s.groove, s.rows)
     ptick = rt[-1]
     out = []
     kinds = [CH_LEAD, CH_BASS, CH_CHORD, CH_DRUM]
-    for oi, (leads, b, c, d) in enumerate(s.order):
-        names = [leads[0], b, c, d]
+    for oi, (leads, b, c, d, spk) in enumerate(s.order):
+        names = [spk if (spk and arm == "spk") else leads[0], b, c, d]
         for kind, nm in zip(kinds, names):
             if nm == "-":
                 continue
@@ -1140,6 +1154,17 @@ def selfcheck():
             else:
                 bad.append("%s: %d notes in the part against %d in the source"
                            % (s.id, len(got_notes), len(exp_notes)))
+        if s.order[0][4]:               # ...and the SPEAKER's own lead, the
+            sp = Seq(part, si, "spk")   # same way against its own source
+            for _ in range(ticks):
+                if s.tail and sp.ord == s.tail - 1:
+                    sp.end()
+                sp.step()
+            g2 = sorted(x for x in sp.notes_log if x[2] and x[1] == CH_LEAD)
+            e2 = [x for x in expected_log(s, "spk") if x[2] and x[1] == CH_LEAD]
+            if g2 != e2:
+                bad.append("%s: the speaker lead plays %d notes against the "
+                           "source's %d" % (s.id, len(g2), len(e2)))
         # every lead note fits the speaker and every FM note the OPL2
         for (t, c, n) in exp_notes:
             if hz_of(n) > 6208 or hz_of(n) < 19:

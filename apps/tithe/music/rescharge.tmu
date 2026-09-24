@@ -36,11 +36,22 @@ bass BT = o2 d4. <a4.> |
 chord CT = o3 [d a >d]4. [a >e a]4. |
 drum DT = k8 k8 k8 k4. |
 
-order RH BH CH DH
-order R1 B1 C1 D1             ; 1: the loop
-order R2 B1 C1 D1
-order R3 B3 C3 D1
-order R4 B1 C1 D4
-order RT BT CT DT             ; 5: the tail
+; --- THE SPEAKER'S OWN LEAD (SPEC.md 97.10.7): the fiddle's call, then the
+; gallop itself as blips where the FM lead holds its last note - and the cut
+; is the gallop from its first bar, where the FM lead's opening was one note
+; and a bar of rest: the "blip then blank" the owner heard.
+lead SH = @fiddle o5 d8 @sdrum q2 o2 d8 d8 o3 d8 d8 d8 q1 |
+lead S1 = @fiddle o4 d8 e8 g8 a8 @sdrum q2 o2 a8 a8 q1 |
+lead S2 = @fiddle o4 a8 g8 e8 d8 @sdrum q2 o2 a8 a8 q1 |
+lead S3 = @fiddle o5 d8 c8 o4 a8 g8 @sdrum q2 o2 a8 a8 q1 |
+lead S4 = @fiddle o4 a8 g8 e8 d8 @sdrum q2 o2 a8 q1 @fiddle o4 a8 |
+lead ST = @fiddle o4 d8 @sdrum q2 o2 d8 d8 q1 @fiddle o4 a4. |
+
+order RH BH CH DH SH
+order R1 B1 C1 D1 S1          ; 1: the loop
+order R2 B1 C1 D1 S2
+order R3 B3 C3 D1 S3
+order R4 B1 C1 D4 S4
+order RT BT CT DT ST          ; 5: the tail
 loop 1
 tail 5
