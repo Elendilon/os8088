@@ -48,7 +48,6 @@ coordinates there samples the wrong pixels).
 import argparse
 import os
 import sys
-import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "tools"))
@@ -154,7 +153,9 @@ def run(a, case, iw, ih, px, sym):
         mo.to(rx, ry)
         settle(m, card=pcard)
         mo.dblclick(rx, ry)
-        time.sleep(10)
+        # GUEST time, and a pause rather than a settle: a decode holds the
+        # screen perfectly still for as long as it runs
+        os88marty.pace(m, 10)
         settle(m, card=pcard)
 
         # ...and find it. gfx_blitp is the tell for a planar canvas, but on the
@@ -193,7 +194,13 @@ def run(a, case, iw, ih, px, sym):
             mo.drag(wx + ww // 2, wy + TITLE_H // 2,
                     far + ww // 2, wy + TITLE_H // 2)
             settle(m, card=1 - vcard)
-            time.sleep(8)
+            try:                        # the conversion's last store is
+                os88marty.until(        # [pt_planar]; a GUEST-time budget
+                    m, lambda _: m.read(base + sym["pt_planar"], 1)[0] == 0,
+                    "Paint to convert to nibbles", poll=0.25, limit=10.0)
+            except os88marty.MartyError:
+                pass                    # ...and a miss is reported below
+            settle(m, card=1 - vcard)
             gone = m.read(base + sym["pt_planar"], 1)[0]
             print("   on the Hercules: [pt_planar] = %d" % gone)
             if gone:
@@ -207,7 +214,16 @@ def run(a, case, iw, ih, px, sym):
         mo.drag(wx + ww // 2, wy + TITLE_H // 2,
                 tgt + ww // 2, wy + TITLE_H // 2)
         settle(m, card=vcard)
-        time.sleep(10)
+        if "pt_wantpl" in sym:          # home means planes again, and the
+            try:                        # conversion's last store says so
+                os88marty.until(
+                    m, lambda _: m.read(base + sym["pt_planar"], 1)[0] == 1,
+                    "Paint to convert back to planes", poll=0.25, limit=12.0)
+            except os88marty.MartyError:
+                pass                    # ...and a miss is reported below
+        else:
+            os88marty.pace(m, 10)       # nothing to wait on in this build
+        settle(m, card=vcard)
         back = m.read(base + sym["pt_planar"], 1)[0]
         nest = m.read(S("gfx_dnest"), 1)[0]
         armed = m.read(base + sym["pt_wantpl"], 1)[0] \

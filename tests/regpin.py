@@ -74,7 +74,6 @@ region packs with the rest.
 import argparse
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "tools"))
@@ -165,7 +164,7 @@ def main():
             slot is the only way to tell them apart."""
             before = set(w.i for w in os88geom.windows(m, S) if w.visible)
             dispcp.open_named(m, mo, S, os88marty.settle, *disk, name=name)
-            time.sleep(secs)
+            os88marty.pace(m, secs)     # its start-up claims, in GUEST time
             os88marty.settle(m)
             new = [w for w in os88geom.windows(m, S)
                    if w.visible and w.i not in before]
@@ -233,7 +232,8 @@ def main():
         front(fl, "the Filler")
         for _ in range(5):
             m.key("KeyA")
-            time.sleep(6)
+            os88marty.pace(m, 6)        # the whole of the compaction it
+                                        # posts, not just the first move
             os88marty.settle(m)
             if pkg_seg(m, S, "Sheet")[0] not in (sh_seg, None):
                 break

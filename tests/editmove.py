@@ -42,7 +42,7 @@ kernel picks between them by the base in BX. A proc that fixed the wrong word
 would leave one of the two stale, so both are checked by address AND by
 content.
 """
-import sys, os, time, hashlib, argparse, subprocess, tempfile
+import sys, os, hashlib, argparse, subprocess, tempfile
 # THIS TREE'S root, DERIVED - never a hard-coded path. A literal is right in the
 # checkout it was written in and wrong in a git worktree, which is how parallel
 # work is done here: os88sym re-assembles ROOT/kernel/kernel.asm and compares it
@@ -250,7 +250,9 @@ def main():
 
         # --- heapfrag first, so it owns the floor of the arena --------------
         dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, rows["heapfrag"])
-        time.sleep(22)
+        # Every pause here is GUEST time (os88marty.pace): each lets a program
+        # get on with work that publishes no "done" of its own.
+        os88marty.pace(m, 22)
         os88marty.settle(m)
         hf_seg, hf_win = pkg_seg(m, S, "Heap")
         print("heapfrag at %04x" % (hf_seg or 0))
@@ -258,7 +260,7 @@ def main():
         # --- then the app, which lands ABOVE it -----------------------------
         raise_disk()
         dispcp.open_named(m, mo, S, os88marty.settle, *disk, name=rows[a.app])
-        time.sleep(cfg["wait"])
+        os88marty.pace(m, cfg["wait"])
         os88marty.settle(m)
         seg, win = pkg_seg(m, S, cfg["title"])
         if seg is None:
@@ -273,17 +275,17 @@ def main():
             mo.click(cx0 + 20, cy0 + 12)
             os88marty.settle(m)
             m.type_text("the quick brown fox jumps over the lazy dog")
-            time.sleep(3)
+            os88marty.pace(m, 3)
             # ...and DELETE some of it, which is what claims the undo arena.
             # An insert records a count and no bytes; only a deletion has a
             # blob to store, so an insert-only session leaves [np_useg] at 0
             # and the two-claims-one-proc half of this test vacuous.
             for _ in range(12):
                 m.key("Backspace")
-            time.sleep(3)
+            os88marty.pace(m, 3)
             os88marty.settle(m)
         elif a.app == "fractal":
-            time.sleep(25)          # let the cache fill with computed rows
+            os88marty.pace(m, 25)   # let the cache fill with computed rows
             os88marty.settle(m)
         elif a.app == "frotz":
             # the story is already loaded: Frotz owns .Z5 (SPEC.md 54), so the
@@ -291,7 +293,7 @@ def main():
             # few seconds to boot and run to its first prompt, so [zf_pcseg]
             # is a live PC INTO the claim rather than 0 - which is the word
             # 66.5.9 is actually about
-            time.sleep(12)
+            os88marty.pace(m, 12)
             os88marty.settle(m)
         elif a.app == "modplug":
             # 'l' is ModPlug's Open (SPEC.md 56), and it has to be the DIALOG
@@ -301,7 +303,7 @@ def main():
             mo.click(cx0 + 20, cy0 + 20)     # focus the player first
             os88marty.settle(m)
             m.key("KeyL")
-            time.sleep(3)
+            os88marty.pace(m, 3)
             os88marty.settle(m)
             # MATCH ON THE TITLE, not the size: wm_fit clamps the template's
             # 170 rows to 155 on a 640x200 screen (SPEC.md 39.7), so a size
@@ -317,7 +319,7 @@ def main():
             # dialog opens on this instance's own folder (SPEC.md 38.10),
             # which is B:'s root because MEDIA does not exist on this image
             mo.dblclick(fx0 + FD_TEXTX + 20, fy0 + FD_ROW0 + FD_ROWH // 2)
-            time.sleep(20)          # 116KB off a 360KB floppy
+            os88marty.pace(m, 20)   # 116KB off a 360KB floppy
             os88marty.settle(m)
         else:
             # ArtfulType is the SPLASH windowed (SPEC.md 46); 'w' takes the
@@ -327,10 +329,10 @@ def main():
             # document without ever testing OSAPI_MEM_PARKSAFE - passing for
             # the wrong reason, which is the failure this file exists to avoid
             m.key("KeyW")
-            time.sleep(4)
+            os88marty.pace(m, 4)
             os88marty.settle(m)
             m.type_text("hello from the compactor")
-            time.sleep(3)
+            os88marty.pace(m, 3)
             os88marty.settle(m)
             # ...and Esc back to the splash. The fullscreen surface covers the
             # dock, so heapfrag's tile - the only handle on a window nothing
@@ -338,7 +340,7 @@ def main():
             # freed by leaving, and the caret worker keeps running, so this
             # costs the test nothing it was measuring
             m.key("Escape")
-            time.sleep(2)
+            os88marty.pace(m, 2)
             os88marty.settle(m)
 
         P = pkg_syms(cfg["src"], cfg["incs"],
@@ -431,7 +433,7 @@ def main():
         raise_disk()
         dispcp.open_named(m, mo, S, os88marty.settle, *disk,
                           name=rows["heapfrag"])
-        time.sleep(22)
+        os88marty.pace(m, 22)
         os88marty.settle(m)
 
         # heapfrag's OWN verdict plus the whole map, so a claim that did not
@@ -583,7 +585,7 @@ def main():
             pre = band(m.vram("cga"))
             m.type_text("look")
             m.key("Enter")
-            time.sleep(6)
+            os88marty.pace(m, 6)
             os88marty.settle(m)
             ran = band(m.vram("cga")) != pre
             print("  %d VM still running   %s" % (n, "OK" if ran else "STUCK"))
