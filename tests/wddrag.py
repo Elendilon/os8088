@@ -193,6 +193,19 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     mo.to(tx + 8, ryb(0) + 2); time.sleep(0.3)
     m.mouse(l=True); time.sleep(0.1); m.mouse(l=False); time.sleep(1.0)
     mo.to(4, 4); M.settle(m)
+    # ...and the PAGE UP that got here must leave the table describing every
+    # row on the glass (SPEC.md 27.7.2.3): the rows below the band it lettered
+    # were blitted down with their entries, and the walk's stop cut
+    # [wd_rowsn] to the band - 14 of 25 - so every Down from row 14 on could
+    # not seed and paid 0.9-1.25 s. Stated as the table, because the timing
+    # below only catches it when the rows the loop happens to land on are
+    # the ones past the cut.
+    glass = 0
+    while glass < vrows and ryb(glass) + gh - 1 <= bot:
+        glass += 1
+    check("E: after PageUp to the top the table covers the glass",
+          rb("wd_rowsok") and rw("wd_rowsn") >= glass,
+          "[wd_rowsn] = %d, the glass shows %d rows" % (rw("wd_rowsn"), glass))
     ENT, XIT = P("wd_onkey"), P("wd_onkey.out")
     worst = (0, 0)
     for _ in range(rw("wd_drows") + 2):

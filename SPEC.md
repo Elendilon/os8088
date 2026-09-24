@@ -47973,6 +47973,32 @@ were left set.
 the A/B, and it is what still exercises `[wd_sbkeep]` — leg D of that gate used
 to BE the refusal.
 
+#### 27.7.2.3 …and it keeps the rows it shifted
+
+An upward scroll letters the rows it exposes at the top (the band, `[wd_bd0]`
+to `[wd_bd1]`). It carries every other row down with a blit, and
+`wd_shiftrows` moves their `wd_rows`, `wd_sig` and `wd_ryb` entries with them.
+Those rows are still described. But the walk that letters the band is bounded
+at `[wd_bd1]`, and a bounded walk that did not resume from a seed sets
+`[wd_rowsn]` to the row it stopped on (`wd_walk`'s `.stop`, §27.7). For a
+scroll that LOWERS the table: after a PageUp to the top it read 14 of 25 rows. The code
+after the walk only ever raised `[wd_rowsn]`, and only to the band's end.
+
+The cost was every caret key below the cut. `wd_seedrow` refuses a row past
+`[wd_rowsn]`, and §27.4.13's bank refuses a target row off the table. So a
+Down from row 14 onward measured, sought and redrew with no seed:
+**0.9–1.25 s a keystroke on a 5150**, for rows the table had described all
+along. It was intermittent in `wddrag` leg E only because the test's own
+history decided whether its last scroll had been an upward page.
+
+`wd_scrollpaint` now banks `[wd_rowsn]` as it finds it (`[wd_srsn]`, 0 if
+`[wd_rowsok]` was clear). After an upward scroll it raises the table to the
+old rows plus |d|, capped at `[wd_vrows]`, which is how far `wd_shiftrows`
+carries it. Leg E asserts the table covers the glass after the PageUp:
+without the raise it reads 14 against 20 rows on the glass, and a Down takes
+1,252 ms. With the raise, the slowest Down through the note is the known
+578 ms scroll at top 13.
+
 ### 27.7.3 The height is counted a chunk at a time
 
 §27.7.1 bounded every walk that draws to the bottom of the view, which left

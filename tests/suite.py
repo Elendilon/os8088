@@ -6742,7 +6742,13 @@ SOAK = [
         "wd_pastend taken out. Leg E is SPEC.md 27.4.12: Down through the "
         "whole note, every keystroke under 900 guest ms - after a one-row "
         "scroll the next Down read the stale tables past the glass as rows "
-        "that moved and repainted the window, 2,284 ms with the guards out.",
+        "that moved and repainted the window, 2,284 ms with the guards out. "
+        "It also asserts SPEC.md 27.7.2.3 as a STATE: after the PageUp to the "
+        "top the row table covers the glass - an upward scroll paint's walk "
+        "cut [wd_rowsn] to its band, 14 of 25, and every Down below it paid "
+        "0.9-1.25 s, which is why this leg failed intermittently: whether it "
+        "did depended on the leg's own last scroll. Red without the raise "
+        "(14 against 20, and a 1,252 ms Down).",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
     Row("wdunsel", "soak", py("tests/wdunsel.py"), 360.0,

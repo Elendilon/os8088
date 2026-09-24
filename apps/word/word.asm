@@ -1842,6 +1842,12 @@ wd_scrollpaint:
     sub ax, [wd_ptop]               ; AX = d, signed
     jz .nope                        ; the view did not actually move
     mov [wd_sdlt], ax
+    mov bx, [wd_rowsn]              ; the rows the table held BEFORE this
+    cmp byte [wd_rowsok], 0         ; scroll, for an upward one to keep
+    jne .rsbank                     ; (SPEC.md 27.7.2.3)
+    xor bx, bx
+.rsbank:
+    mov [wd_srsn], bx
     mov bx, ax
     or bx, bx
     jns .abs
@@ -2199,6 +2205,28 @@ wd_scrollpaint:
     jbe .rsdone
     mov [wd_rowsn], ax
 .rsdone:
+    ; ...AND AN UPWARD SCROLL KEEPS EVERY ROW IT SHIFTED (SPEC.md 27.7.2.3).
+    ; The rows below the band are the old view's, carried down by the blit
+    ; with their wd_rows entries beside them - but the walk that letters the
+    ; band stops at its bottom, and its .stop sets [wd_rowsn] to the row it
+    ; stopped on. After a PageUp to the top that was 14 of 25 rows, and every
+    ; Down from row 14 on could not seed: 0.9-1.25 s a keystroke on a 5150,
+    ; for rows the table described all along.
+    cmp byte [wd_rowsok], 0
+    je .rsup
+    mov ax, [wd_sdlt]
+    or ax, ax
+    jns .rsup
+    neg ax
+    add ax, [wd_srsn]               ; the old rows, |d| further down
+    cmp ax, [wd_vrows]
+    jbe .rsu1
+    mov ax, [wd_vrows]              ; wd_shiftrows carries the view and no more
+.rsu1:
+    cmp ax, [wd_rowsn]
+    jbe .rsup
+    mov [wd_rowsn], ax
+.rsup:
 
     mov ax, [wd_top]
     mov [wd_ptop], ax               ; the screen shows this view now
@@ -21801,6 +21829,8 @@ wd_sury2  equ wd_mnrec + 46     ; word } way back cannot disagree by a pixel
                             ; gap of a spaced row belongs to that row
     WDVAR wd_currow, 2      ; word: the caret's VISIBLE row, signed, banked by
                             ; wd_ask beside wd_curx/wd_cury
+    WDVAR wd_srsn,  2       ; word: [wd_rowsn] as a scroll paint found it,
+                            ; 0 if the table was not sound (SPEC.md 27.7.2.3)
     WDVAR wd_cxcur, 2       ; word } the [wd_cur] and the [wd_top] those
     WDVAR wd_cxtop, 2       ; word } three were measured at - wd_vmove's key
                             ; (SPEC.md 27.4.13)
