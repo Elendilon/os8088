@@ -142097,10 +142097,11 @@ and the rules engine are ~11 KB of it, the plan list, the planning actions
 and the fought round ~3.5 KB, and the plans, the frozen board, the log and
 the 27 views ~2 KB. Two things left the segment to make the room: the **base
 bands** went to a claim of their own, `TI_BASEKB` (8 KB), and the unit cache
-went from one per art to one per hand slot. **What is left of the 64 KB
-segment is ~5.5 KB**, and that is the number wave 4's AI is sized against: its
-lookahead state wants a second board, and the likely answer is a claim rather
-than the segment.
+went from one per art to one per hand slot. **With the 86 bytes of bss that is
+60,089 of `APP_MAX_SIZE`'s 61,440 - 1,351 bytes left.** The ceiling is the
+SDK's 60 KB and not the segment's 64, which is a correction: this section first
+said ~5.5 KB. TITHE-PLAN §16.4 lists what wave 3 still owes, and making room
+is the next work (TITHE-PLAN §4.3).
 
 #### 97.12.8 THE ROUND, FOUGHT ON THE GLASS
 

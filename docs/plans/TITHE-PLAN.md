@@ -4352,6 +4352,81 @@ Recorded so their absence is a decision rather than an oversight:
 ---
 
 
+### 16.4 Wave 3 — what it is still missing (the open list)
+
+Wave 3 is built for its gate (SPEC.md §97.12), and this is everything known to
+be short of the design above, so that a gap reads as a gap and not as a
+decision. **The owner's playtest feedback is added here too**, under its own
+heading, as it arrives. Each line names the section it falls short of.
+
+**Planning (§6.3)**
+
+- **Refusals are silent.** A card that cannot be afforded, a full column, a
+  refused order or swap simply does nothing. §6.3 and SPEC.md §47 want the card
+  greyed with the shortfall in its corner and the column button greyed when
+  full.
+- **No destination preview.** §6.3's "the destination cell highlights before
+  you commit, and the stat block and pose that will be live there are shown"
+  is not built; nor is the hover preview of what a character will DO this
+  round (its action, a healer's chain).
+- **The stance badge is never greyed** when its lane is walled on the frozen
+  board (§5.4, §6.3).
+- **An order names only the planner's own characters.** `tr_order` searches
+  one side; §5.9.1's "or theirs, where a card says so" needs an engine change
+  and a card that says so.
+- **No right-click full card** (`OSAPI_WM_ONRCLICK`, §6.3's Inspect).
+- **No CONCEDE.**
+- **COMMIT does not confirm** when gold or souls are left unspent.
+- **No MULLIGAN offer** at match start (§6.1). The engine has `tr_mulligan`;
+  there is no screen that asks.
+- **The plan list does not scroll.** A plan longer than the box is unreachable
+  past its last row — ~9 rows on CGA, ~21 on Hercules, 16 actions a plan.
+- **Upkeep is invisible**: the card drawn, the income, and §6.2's over-limit
+  discard toast are not shown; the next planner just finds them.
+- **Undo, swaps and stance changes do not animate** — an undone play's
+  character vanishes and its card reappears; §16.2 item 7 owes the reveal's
+  reverse, and a swap and a stance change their own smaller ones.
+
+**The round (§6.4, §6.5)**
+
+- **The opponent's plan arrives with no animation of its own** — its new
+  characters, swaps, stances and orders simply appear together. It is the
+  moment §6.4 says is worth animating properly.
+- **The animation is coarse.** A lane's melee is ONE clash in which both front
+  cells swing whoever landed; bolts fly from the rear cells whichever cell
+  shot; heals, deaths and the gold and soul roll-ups have no animation - a
+  character that falls is removed at the casualties step.
+- **A round cannot be SKIPPED** (§6.5: any key or click, when Fast Combat is
+  off), and there is no Fast Combat setting.
+- **The log is diff-derived and short-lived.** It says what changed (`NAME -3`,
+  `P2 -1 HP`, `NAME FALLS`, spoils), not who did it or which keyword fired
+  (KINDLE, ABSOLVE, INTERCEDE, MARTYR); and it is gone with the pass screen,
+  where §6.3's *Read the log* is something a planner can open.
+- **The controls stay live during the round** - the FRONT/REAR toggle and the
+  PLAN / COMMIT buttons are drawn and do nothing - and P1's swap count is
+  still shown.
+
+**The match**
+
+- **The decks are fixed** - THE BULWARK against THE EMBER CHOIR, seeded off
+  the clock. Choosing is the front menu's (wave 6).
+- **The match's end is a line of text** and a click for a new one.
+
+**Not measured on the target machine**
+
+- The cost of a plan edit's replay and redraw on a 4.77 MHz 8088, the
+  opponent's arrival (every changed cell composed at once), and a lane's step.
+  QEMU and the tests say they are correct, not how long they take.
+
+**Not tested**
+
+- The plan list and the log in the **fullscreen** hand are looked at
+  (VGA), not held by a row; no row plays a WHOLE match to its end.
+
+**And the package is at its ceiling**: 60,003 bytes of image and 86 of bss
+against `APP_MAX_SIZE`'s 61,440 - **1,351 bytes left**. §4.3's rule applies
+and is the next work.
+
 ## 17. The refusals, recorded now
 
 - **Any choice taken while a round resolves.** §5.0: no activated abilities, no
