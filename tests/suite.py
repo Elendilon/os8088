@@ -6832,7 +6832,7 @@ SOAK = [
         "strips itself afterwards and a toggle measures nothing.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
-    Row("wdenter", "soak", py("tests/wdenter.py"), 450.0,
+    Row("wdenter", "soak", py("tests/wdenter.py"), 90.0,
         "SPEC.md 27.4.5: an Enter pushes the note below the split down with "
         "one gfx_scroll instead of erasing to the content bottom and "
         "lettering every row in it (448.2 -> 133.3 ms). Leg A is the one that "
@@ -8111,7 +8111,7 @@ SOAK = [
         "Does TeXPad's INCREMENTAL source redraw draw what a full repaint"
         "draws? (SPEC.md 69.8)",
         needs=("marty",), serial=True),
-    Row("trkrate", "soak", py("tests/trkrate.py"), 120.0,
+    Row("trkrate", "soak", py("tests/trkrate.py"), 45.0,
         "trkrate - XT mode's second rate, and the surface it refuses (SPEC.md"
         "45.9.3)",
         needs=("marty",), serial=True,
