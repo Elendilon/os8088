@@ -7931,6 +7931,26 @@ SOAK = [
         "name for tests/ethernet.py's reason: MartyPC has no NIC, so this "
         "package's receive path cannot be reached on it at all",
         needs=("qemu",), serial=True, builds=True),
+    Row("ethernet", "soak", py("tests/ethernet.py"), 40.0,
+        "SPEC.md 72.9: ETHER.DRV up before the first paint off a SYSTEM.CFG "
+        "that asks for it, DHCP bound to slirp's address, and the browser "
+        "fetching a page the row serves itself. QEMU by name: MartyPC has no "
+        "NIC of any kind. It was UNREGISTERED ('needs make ethertest and "
+        "QEMU'), which is what needs= and wants= are for - a row nobody can "
+        "find is a row nobody runs.",
+        needs=("qemu",), serial=True, builds=True,
+        wants=("build/brtest360.img",)),
+    Row("ethcfg", "soak", py("tests/ethcfg.py"), 90.0,
+        "SPEC.md 72.7: the Ethernet Setup window - Manual, an address typed "
+        "into its field, Ok applying it to the driver's LIVE addresses, the "
+        "mode greying Renew, and the setting SURVIVING A REBOOT once the "
+        "Control Panel is closed; then Automatic again. It was unregistered "
+        "and so it was BROKEN UNSEEN: it found the window by W_W == 216, and "
+        "the kernel puts a window's content on a multiple of 8 (SPEC.md "
+        "11.94), so the template's 216 comes up 218 wide and the row said "
+        "'Set Up opened no window' with the window on the screen. It "
+        "matches the TITLE now.",
+        needs=("qemu",), serial=True, builds=True),
     Row("telzm", "soak", py("tests/telzm.py"), 300.0,
         "SPEC.md 70.11/70.12: ZMODEM RECEIVE end to end, with the bytes read "
         "back OFF THE DISK. tools/os88bbs.py's pure-Python sender sends two "

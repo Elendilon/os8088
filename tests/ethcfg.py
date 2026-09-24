@@ -54,6 +54,7 @@ sys.path.insert(0, os.path.join(_OS88_ROOT, "tools"))
 sys.path.insert(0, os.path.join(_OS88_ROOT, "tests"))
 sys.path.insert(0, _OS88_ROOT)
 import dispcp                                          # noqa: E402
+import os88geom                                        # noqa: E402
 from ethernet import (Qemu, ether_syms, u16, dotted, S, Mouse,  # noqa: E402
                       type_url)
 import os88qemu                                              # noqa: E402
@@ -70,7 +71,6 @@ CP_I0Y, CP_IROWH, CP_RX = 6, 14, 96
 # the Ethernet page's two buttons (drivers/ether/etherui.inc)
 EU_BX, EU_B2X, EU_BW, EU_BY, EU_BH = 2, 76, 68, 108, 16
 # the Setup window (drivers/ether/ethcfg.inc)
-EC_FW, EC_FH = 216, 141
 EC_R2X, EC_F0Y, EC_FPIT, EC_FHT = 108, 20, 20, 14
 EC_B1X, EC_B2X, EC_BY, EC_BW, EC_BH = 72, 140, 106, 60, 16
 TITLE_H = 18
@@ -128,9 +128,25 @@ def find_cp(m):
     return cp
 
 
+EC_TITLE = b"Ethernet Setup"             # drivers/ether/ethcfg.inc's ec_s_title
+
+
 def setup_wins(m):
-    return [w for w in dispcp.win_list(m, S)
-            if dispcp.win_rect(m, S, w)[2] == EC_FW]
+    """The Setup window(s), matched on the TITLE through W_SEG:W_TITLE.
+
+    It was matched on W_W == EC_FW, and the window is not that wide: the
+    kernel puts a window's CONTENT on a multiple of 8 (SPEC.md 11.94), so the
+    template's (60, 30, 216, 141) comes up at (55, 30, 218, 141) - and this
+    row reported "`Set Up` opened no window" with the window on the screen.
+    A title is the one field the kernel does not adjust."""
+    out = []
+    for w in dispcp.win_list(m, S):
+        rec = m.read(S("wm_wins") + w * os88geom.WIN_SIZE, os88geom.WIN_SIZE)
+        seg = u16(rec[os88geom.W_SEG:os88geom.W_SEG + 2])
+        tp = u16(rec[os88geom.W_TITLE:os88geom.W_TITLE + 2])
+        if seg and m.readseg(seg, tp, len(EC_TITLE) + 1) == EC_TITLE + b"\0":
+            out.append(w)
+    return out
 
 
 def open_cp(m):
@@ -257,8 +273,7 @@ def main():
     if dip("eth_mask") != "255.255.255.0":
         fails.append("the subnet mask came out %s: a field that was NOT edited "
                      "did not survive Ok" % dip("eth_mask"))
-    if [w for w in dispcp.win_list(m, S)
-            if dispcp.win_rect(m, S, w)[2] == EC_FW]:
+    if setup_wins(m):
         fails.append("the Setup window is still up after Ok")
 
     # --- close the panel: THAT is what writes it (SPEC.md 31.8) ------------

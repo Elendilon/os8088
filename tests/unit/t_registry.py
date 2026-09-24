@@ -160,9 +160,6 @@ UNREGISTERED = {
     "brreload.py": "needs `make browsertest` (build/brtest360.img)",
     "brtest.py": "needs `make browsertest` (build/brtest360.img)",
     "brtoolbar.py": "needs `make browsertest` (build/brtest360.img)",
-    "ethernet.py": "needs `make ethertest` and QEMU - MartyPC has no NIC "
-                   "(SPEC.md 72.9)",
-    "ethcfg.py": "needs `make ethertest` and QEMU",
     "netprof.py": "needs QEMU, and it leaves ETHPROF=1 KNOB builds of "
                   "ether.drv and the ethertest disk in build/ - a suite row "
                   "running before the next `make` would test the wrong "

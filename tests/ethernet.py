@@ -352,14 +352,21 @@ MEM_MAX = 32
 
 
 def claims(m, S):
-    """Every live heap claim: (base, paragraphs, owner, dma, rloc, hi)."""
+    """Every live heap claim: (base, paragraphs, owner, dma, rloc, hi).
+
+    HI IS MC_DMA's BIT 15 (MC_DMA_HI), and the record is os88geom's MC_SIZE.
+    It was a byte of its own at +10 until the record shrank to ten bytes, and
+    this row, unregistered then, went on reading byte 10 and died on an
+    IndexError nobody saw. The layout comes from the kernel's own equates."""
     raw = m.read(S("mem_tab"), MEM_MAX * MC_SIZE)
     out = []
     for i in range(MEM_MAX):
         r = raw[i * MC_SIZE:(i + 1) * MC_SIZE]
         if u16(r, 0):
-            out.append((u16(r, 0), u16(r, 2), u16(r, 4), u16(r, 6),
-                        u16(r, 8), r[10]))
+            dma = u16(r, 6)
+            out.append((u16(r, 0), u16(r, 2), u16(r, 4),
+                        dma & os88geom.MC_DMA_HEAD, u16(r, 8),
+                        1 if dma & os88geom.MC_DMA_HI else 0))
     return sorted(out)
 
 
@@ -523,7 +530,7 @@ def main():
                              "OSAPI_MEM_MOVABLE call in sk_claim was REFUSED "
                              "and the driver cannot tell (SPEC.md 66.5.6.2)")
             if not hi_:
-                fails.append("the socket pool's MC_HI is 0: it came in "
+                fails.append("the socket pool's MC_DMA_HI is 0: it came in "
                              "through the low door, so SPEC.md 66.4.1's "
                              "descending pass will never reach it")
 
