@@ -138270,9 +138270,10 @@ rows the user filled in, which is a parser that has to *count* to find a field.
 
 `ExtraData` is a sequence of `{size, signature, data}` blocks whose consumers
 are specified to **skip signatures they do not recognise**, so a second block
-is what the mechanism is for. It is a fixed twelve bytes — size, signature, the
-cap as a word, the choice as a byte, one of padding — and its fields are at
-fixed offsets inside it. `dos_lnk_ext`'s walk gained one compare and now keeps
+is what the mechanism is for. It was a fixed twelve bytes — size, signature, the
+cap as a word, the choice as a byte, one of padding (since taken by the cache
+dial, §96.36.6) — and is fourteen now that it carries the page's boxes
+(§96.25.2.1); its fields are at fixed offsets inside it. `dos_lnk_ext`'s walk gained one compare and now keeps
 walking after the environment block instead of stopping at it, so **a link
 written by an older build still reads**: it simply has not got a second block,
 and the defaults stand.
@@ -138290,6 +138291,45 @@ still reads because 0 and 1 mean what they always meant.
 **A `DOS_MEM_WHOLE` read out of a link is clamped a second time, by the
 predicate rather than by the range** — §96.36.1 — because the machine that
 wrote the link is not the machine reading it.
+
+##### 96.25.2.1 …and the page's three BOXES, which the block did not carry
+
+§96.36.7.1 argues that `Hard drives` and `Network` are **requests about the
+program** rather than reports about the machine, and names the `.LNK` as the
+reason — a shortcut outlives the setup it was saved under. The block did not
+carry them, and neither did it carry §96.36.8's `Disable the mouse`, so all
+three came back at their defaults from every shortcut. The field reported the
+mouse box: tick it under `Shut down the OS`, Save Shortcut, open the shortcut,
+and the box is clear again and the pointer is hooked.
+
+**The block grows to 14 bytes rather than a third block being added**, because
+its fields are at fixed offsets and appending one at a fixed offset is
+exactly what a fixed-size block allows: byte 12 is the boxes and byte 13 is
+padding. Both directions still read:
+
+- **an older link** is 12 bytes, and `dos_lnk_memr` reads byte 12 only when
+  the block's own size word says 14 — so the boxes keep `dos_fld_init`'s
+  defaults, which is what the link was saved against;
+- **an older reader** already accepted any size of at least 12 and reads its
+  three fields at fixed offsets, so it steps over two bytes it has never
+  heard of. `LNK_EXT2MIN` is the 12 the reader still takes, `LNK_EXT2SZ` the
+  14 the writer emits.
+
+**Each bit is set when its box has moved OFF its default** — `LNK_BX_NOHDD`
+(0x01) and `LNK_BX_NONET` (0x02) for an unticked driver box, `LNK_BX_NOMOU`
+(0x04) for a ticked mouse box — so a zero byte is the page exactly as a
+double click opens it, and the one-byte and absent forms mean the same thing.
+The byte is hostile input like every other one in the file, and it cannot do
+harm: each bit becomes a 0 or a 1 in its record's `OS88UI_CK_ON`, the other
+five are ignored, and a box in either state is one the page can draw.
+
+**A box is carried whatever the arm.** The mouse box belongs to arm 1 and is
+greyed under arm 0 (§96.36.9), and `dos_mem_fix` may demote a link's arm 1 on
+a machine that cannot do it — but the tick is the user's request for the
+machine that can, which is §96.36.7.1's argument one arm along, so it is
+written and read either way. `tests/doslnk.py` saves with `Network` unticked
+and the mouse box ticked, reads both bits off the flushed floppy with its own
+parser, and asserts both boxes in the relaunched instance.
 
 ### 96.35 Sizing the arena: unmount, ask twice, and come back for the answer
 
