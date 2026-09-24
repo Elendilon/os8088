@@ -73194,6 +73194,59 @@ Every §45.7 key is unchanged. Added, on both surfaces unless noted:
 | H | Shuffle |
 | + (=) / − | master volume, a sixteenth of the range a press |
 
+#### 45.21.8 The LCD is drawn by its inputs, and then by its cells
+
+The four LCD lines and the status line used to be **composed every frame**
+into `tw_line`, padded to fifty cells and hashed. When the hash moved, the
+whole line was lettered again. Each line was only redrawn when it changed,
+but finding that out was the expensive part. On a 5150 in XT mode at
+5.5 kHz, the composing and hashing were **17.2% of the whole machine** with
+the VU meter up and 18.8% with it off. That is more than the needles cost,
+and it is why the face ran at 15.6 frames a second where the tick allows
+18.2 (`docs/reports/TRACKER-XT-SPECTRUM-2026-09-24.md`).
+
+Each line now does two things in turn:
+
+1. **A key per line (`tw_lkey`).** Before composing anything, the frame
+   gathers the handful of values the line is made from into `tw_kbuf` and
+   compares them with the key the line was last drawn from. A line whose key
+   has not moved costs a 16-byte compare and nothing else.
+
+   | line | its key |
+   |---|---|
+   | title | the load generation, `mp_loaded` |
+   | time + file | the load generation, `mp_loaded`, the elapsed **second** |
+   | format | the load generation, the rate, `mp_xt`, `mp_master` |
+   | position | `tui_apos`, `mp_songlen`, `tui_apat`, `tui_aspd`, `tui_abpm`, `tpl_n`, `tpl_cur` |
+   | status | the load generation, `[tui_msgp]` |
+
+   **`[tw_gen]` is the load generation.** It covers the one thing a key
+   cannot see: text that changes under an unchanged pointer. `mp_title` is
+   both the title line's source and a status message, and a new module
+   rewrites it in place. So `[tw_gen]` is in every key, and three places bump
+   it: `mp_load`'s return (either way), the copy of the chosen name into
+   `trk_fname`, and `tui_msg` (with the one direct store of `[tui_msgp]`).
+2. **A shadow per line (`tw_ldiff`).** A line whose key moved is composed as
+   before and compared with a 50-byte shadow of what the glass shows.
+   `repe cmpsb` from each end finds the first and the last cell that differ,
+   and **one `font_run` letters that span**. The cells between two changes
+   are redrawn rather than split into two calls, because a call costs more
+   than a cell. The clock ticking is **one or two cells**, where it was fifty.
+
+A full paint zeroes every shadow and key (`tw_keys` follows `tw_shad`, so
+this is one `stosw`). No composed cell is NUL and every real key starts with
+1, so nothing matches after a full paint and everything is drawn.
+
+Measured on a 5150 in XT mode at 5.5 kHz with the VU meter up: line
+compositions went from **62 a second to 1.1**. The face went from **15.6 to
+18.2 frames a second**, which is every tick. The LCD's share of the machine
+went from **17.2% to ~1.7%**, and the machine's idle share from **5.6% to
+19.5%**. It costs 240 bytes of image and 336 of bss, all in the package. The
+gate forces a full repaint mid-song and requires the diff-drawn LCD and
+status line to match it pixel for pixel (`soak -k trklcd`). A build that
+letters the span one cell short fails it, with 182 and 59 pixels wrong in two
+runs.
+
 ### 45.22 The PlayList (`trklist.inc`)
 
 ModPlug Player's list and its editor (§56.8), moved to the player that

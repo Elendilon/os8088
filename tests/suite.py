@@ -8099,6 +8099,13 @@ SOAK = [
         "rate (SPEC.md 45.13.7)",
         needs=("marty",), serial=True,
         wants=("build/trkship360.img",)),
+    Row("trklcd", "soak", py("tests/trklcd.py"), 45.0,
+        "Tracker on an XT: the visualiser button is VU Meter / Off and greys"
+        " only at 11 kHz (SPEC.md 45.23.1); the LCD is composed by its KEYS"
+        " and lettered by its changed cells, and the glass equals a forced"
+        " full repaint pixel for pixel (45.21.8). Measured 35s",
+        needs=("marty",),
+        wants=("build/trkship360.img",)),
     Row("wmchrome", "soak", py("tests/wmchrome.py"), 180.0,
         "chrome that is WHOLLY obstructed is not drawn - a covered drop "
         "shadow (SPEC.md 11.97.3) and a covered title strip (11.97.4) - and "

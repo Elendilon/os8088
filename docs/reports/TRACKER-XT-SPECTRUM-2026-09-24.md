@@ -8,6 +8,14 @@ Hercules, Sound Blaster, GLaBIOS. Every figure is GUEST time, so it is exact
 at any host load. It is true of that tree and is not maintained against later
 ones.
 
+> **CORRECTED the same day, and the correction is at the end.** The *lines
+> only* arm below was the wrong experiment. It put a line at the bar's own
+> LEVEL, which falls six steps every frame, so every line moved every frame.
+> What the owner asked about is the PEAK MARKERS without the bars, and that
+> arm is cheaper than the full spectrum, as it has to be: **10.8 frames a
+> second against 7.7**. The section *Correction* has the numbers, and those
+> taken after SPEC.md 45.21.8's LCD fix.
+
 The question was the owner's: *with the recent sound work, does an XT at XT
 mode's 5,500 Hz have room for the Spectrum? Thinner lines and no bars would
 do if that keeps up.*
@@ -135,3 +143,38 @@ a different binary.
 - `TRKXTHALF`: skip `call tw_scol` when `(band ^ [tw_hpar]) & 1` and the
   pane is not owed whole, and flip `[tw_hpar]` once per `tw_spec`. Add a
   `TRKB tw_hpar` beside `tw_viz`.
+
+## Correction: the markers without the bars, and after the LCD fix
+
+Same machine and module, same day. The tree is `4ac28d6` plus the working
+tree that became SPEC.md 45.21.8. `tw_fills` is counted by breakpoint, like
+the frames.
+
+| arm | LCD | frames/s | fills/s |
+|---|---|---|---|
+| Spectrum, bars + markers | old (hash) | 7.7 | 125 |
+| **Markers only, no bars** (`xor si, si` before `call tw_scol`) | old (hash) | **10.8** | **76** |
+| Spectrum, bars + markers | **keyed + diffed** | 8.4 | 152 |
+| **Markers only, no bars** | **keyed + diffed** | **12.9** | 103 |
+| VU, thin XT meter (shipped) | keyed + diffed | **18.2** (every tick) | — |
+
+- **Drawing less costs less.** A marker holds for four frames and then steps,
+  so most frames draw nothing in most columns. The *lines only* arm above
+  moved every line every frame, and so it measured a different design.
+- **The LCD fix raised both spectrum arms.** The fills per second rose with
+  them because more frames ran, and the audio stayed at 100.5% throughout.
+- **Frame rates come in steps.** A frame that runs past a tick waits for the
+  next one, so the rates cluster at 18.2 / 2 = 9.1 and 18.2 / 3 = 6.1. The
+  full spectrum sits just over one tick a frame and pays for a whole second
+  tick. The markers-only arm is a mix of one-tick and two-tick frames.
+- **What is still wrong at 12.9 fps is the decay, not the drawing.**
+  `tw_vtick` decays per FRAME, so markers step and fall at 12.9 / 18.2 = 71%
+  of their designed speed on this machine. Decaying per tick
+  (`ttx_vu`'s rule, SPEC.md 45.16.1) would make the timing right at any
+  frame rate.
+
+The profile of the shipped VU arm after 45.21.8 puts the LCD (`tw_lkey`,
+`tw_lkey.cmp`) at ~1.7% of the machine, where `tw_pad` and `tw_put` were
+17.2%. The idle share went from 5.6% to **19.5%**. So "fix the LCD first"
+from the section above is done, and the room it found is real.
+

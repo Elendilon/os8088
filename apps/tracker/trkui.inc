@@ -797,6 +797,7 @@ tui_rdout:
 tui_msg:                            ; SI = NUL string; lock held
     push si
     mov [tui_msgp], si
+    inc byte [tw_gen]               ; the same pointer can carry new text
     call tui_msg_draw
     pop si
     ret

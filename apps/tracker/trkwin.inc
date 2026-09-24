@@ -55,6 +55,12 @@ TW_OW       equ 80                  ; ...and a button's width
 TW_TX       equ 8                   ; every text run's x - on the byte grid,
 TW_CELLS    equ 50                  ; so font_run takes its one-store path
 TW_LPITCH   equ 10                  ; LCD line pitch
+TW_SHLN     equ 4                   ; LCD lines with a shadow: the most any
+                                    ; layout shows (TWL_LN), then the status
+TW_KEY      equ 16                  ; a line's key, bytes (tw_lkey): 1, the
+TW_KEYSH    equ 4                   ; generation, up to nine inputs; a power
+                                    ; of two so a slot's is a shift away
+TWK_STAT    equ 0FFh                ; tw_lkey's kind for the status line
 TW_THW      equ 8                   ; a slider thumb's width
 TW_VUFALL   equ 2                   ; the needles' fall per frame (tui_vu_step)
 TW_SPFALL   equ 3 * TW_VUFALL       ; the spectrum's bars fall THREE times as
@@ -614,7 +620,11 @@ tw_buttons:
     ret
 
 ; =============================================================================
-; The LCD and the status line - composed every frame, drawn on a hash change
+; The LCD and the status line (SPEC.md 45.21.8). A frame asks each line for
+; its KEY - the handful of values it is composed from - and a line whose key
+; has not moved costs a ten-byte compare and nothing else. One that moved is
+; composed and compared with a SHADOW of what is on the glass, and only the
+; cells that differ are drawn: the clock ticking is two cells, not fifty.
 ; =============================================================================
 
 ; tw_put - append the NUL string at SI to [DI], printable ASCII only (a module
@@ -647,46 +657,95 @@ tw_dec2:
     pop ax
     ret
 
-; tw_pad - pad [DI] with spaces to tw_line + TW_CELLS and terminate; then
-; hash the line into AX (never 0, SPEC.md 56.12 rule 3)
+; tw_pad - pad [DI] with spaces to tw_line + TW_CELLS and terminate.
+; Preserves all but DI.
 tw_pad:
+    push ax
     push cx
-    push si
-.p:
-    cmp di, tw_line + TW_CELLS
-    jae .t
-    mov byte [di], ' '
-    inc di
-    jmp short .p
+    push es
+    push ds
+    pop es
+    mov cx, tw_line + TW_CELLS
+    sub cx, di
+    jbe .t                          ; full already
+    mov al, ' '
+    cld
+    rep stosb
 .t:
     mov byte [tw_line + TW_CELLS], 0
-    push dx
-    mov si, tw_line
-    xor ax, ax
-    mov cx, TW_CELLS
-.h:
-    mov dx, ax                      ; h = h * 33 + c, in sixteen bits
-    shl ax, 1
-    shl ax, 1
-    shl ax, 1
-    shl ax, 1
-    shl ax, 1
-    add ax, dx
-    add al, [si]
-    adc ah, 0
-    inc si
-    loop .h
-    pop dx
-    or ax, ax
-    jnz .out
-    inc ax
-.out:
-    pop si
+    pop es
     pop cx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
-; tw_lcd_line - compose LCD line kind AL into tw_line; AX = its hash
+; tw_ldiff - draw tw_line where it differs from the shadow at BX (TW_CELLS
+; bytes of what the glass shows), at content row DX in ink AL on ground AH,
+; then bring the shadow up to date. Preserves all.
+;
+; The shadow is what replaced the line's HASH: a hash could only say "the
+; line moved" and so the whole fifty cells were lettered again every second
+; for a clock that moved two of them, and it cost the composing frame a
+; 250-byte multiply loop every time whether anything moved or not - 10% of an
+; 8088 at XT mode's 5.5 kHz (docs/reports/TRACKER-XT-SPECTRUM-2026-09-24.md).
+; `repe cmpsb` finds the first and the last cell that differ and ONE
+; font_run letters that span: the cells between two changes are redrawn
+; rather than split into two calls, because a call costs more than a cell.
+; A shadow of zeroes is never equal - no composed cell is NUL - which is how
+; a full paint forgets it.
+; -----------------------------------------------------------------------------
+tw_ldiff:
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    cld
+    mov si, tw_line
+    mov di, bx
+    mov cx, TW_CELLS
+    repe cmpsb
+    je .out                         ; every cell as on the glass
+    lea cx, [si - 1]                ; CX = the first cell that differs
+    mov si, tw_line + TW_CELLS - 1
+    lea di, [bx + TW_CELLS - 1]
+    push cx
+    mov cx, TW_CELLS
+    std                             ; ...and from the other end, the last
+    repe cmpsb                      ; (there is one: the forward pass found
+    cld                             ; it), SI = one BEFORE it
+    pop cx
+    lea di, [si + 2]                ; DI = one past the last that differs,
+    push word [di - 1]              ; terminated for the run. The word saved
+    mov byte [di], 0                ; is the last cell and the one after, so
+    mov si, cx                      ; it never reaches past tw_line's NUL
+    sub cx, tw_line                 ; SI = the span
+    shl cx, 1
+    shl cx, 1
+    shl cx, 1
+    add cx, TW_TX                   ; CX = its x: cells are 8 px, so the run
+    call tw_run                     ; stays on the byte grid (SPEC.md 6.1)
+    pop word [di - 1]
+    mov si, tw_line                 ; the shadow takes the whole line: the
+    mov di, bx                      ; cells that did not differ are equal
+    mov cx, TW_CELLS / 2
+    rep movsw
+.out:
+    pop es
+    pop di
+    pop si
+    pop cx
+    ret
+%if TW_CELLS & 1
+  %error "tw_ldiff copies the shadow in words: TW_CELLS must be even"
+%endif
+%if TW_KEY != 1 << TW_KEYSH
+  %error "TW_KEYSH is log2 of TW_KEY"
+%endif
+
+; -----------------------------------------------------------------------------
+; tw_lcd_line - compose LCD line kind AL into tw_line
 ; -----------------------------------------------------------------------------
 tw_lcd_line:
     push bx
@@ -714,18 +773,7 @@ tw_lcd_line:
     jmp .done
 .time:
     ; --- 1: the elapsed time and the file ------------------------------------
-    mov ax, [tw_el]                 ; bytes HEARD, over the rate they play at
-    mov dx, [tw_el + 2]
-    mov bx, [mp_mixrate]
-    or bx, bx
-    jz .z
-    cmp dx, bx
-    jb .dv                          ; a quotient that fits a word
-.z:
-    xor ax, ax
-    xor dx, dx
-.dv:
-    div bx                          ; AX = seconds
+    call tw_secs                    ; AX = seconds
     mov bl, 60
     div bl                          ; AL = minutes, AH = seconds
     cmp al, 99
@@ -848,6 +896,131 @@ tw_lcd_line:
     pop bx
     ret
 
+; tw_secs - AX = the elapsed seconds: bytes HEARD over the rate they play at.
+; Preserves the rest.
+tw_secs:
+    push bx
+    push dx
+    mov ax, [tw_el]
+    mov dx, [tw_el + 2]
+    mov bx, [mp_mixrate]
+    or bx, bx
+    jz .z
+    cmp dx, bx
+    jb .dv                          ; a quotient that fits a word
+.z:
+    xor ax, ax
+    xor dx, dx
+.dv:
+    div bx
+    pop dx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; tw_lkey - is line kind AL (TWK_STAT: the status line) still as slot BX drew
+; it? Its key is every value the line is composed from, gathered into tw_kbuf
+; and compared with the slot's. CF = 0 unchanged; CF = 1 moved, and the
+; slot's key now says what it moved to. Preserves all but the flags.
+;
+; What the key cannot see - a title, a file name or a message whose TEXT
+; changes under the same pointer - moves [tw_gen] instead, which is in every
+; key: mp_load, the name copy and tui_msg bump it. A zeroed key (a full paint)
+; never matches, because a real one starts with 1.
+; -----------------------------------------------------------------------------
+tw_lkey:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    cld
+    mov di, tw_kbuf
+    push ax
+    xor ax, ax
+    mov cx, TW_KEY / 2
+    rep stosw
+    pop ax
+    mov di, tw_kbuf
+    mov ah, [tw_gen]
+    xchg al, ah                     ; AL = the generation, AH = the kind
+    mov byte [di], 1
+    mov [di + 1], al
+    add di, 2
+    cmp ah, 1
+    je .time
+    cmp ah, 2
+    je .fmt
+    cmp ah, 3
+    je .pos
+    cmp ah, TWK_STAT
+    je .stat
+    mov al, [mp_loaded]             ; 0: the title
+    stosb
+    jmp short .cmp
+.time:
+    mov al, [mp_loaded]
+    stosb
+    call tw_secs
+    stosw
+    jmp short .cmp
+.fmt:
+    call tw_rate_now
+    stosw
+    mov al, [mp_xt]
+    stosb
+    mov al, [mp_master]
+    stosb
+    jmp short .cmp
+.pos:
+    mov al, [tui_apos]
+    stosb
+    mov al, [mp_songlen]
+    stosb
+    mov al, [tui_apat]
+    stosb
+    mov al, [tui_aspd]
+    stosb
+    mov al, [tui_abpm]
+    stosb
+    mov al, [tpl_n]
+    stosb
+    mov al, [tpl_cur]
+    stosb
+    jmp short .cmp
+.stat:
+    mov ax, [tui_msgp]
+    stosw
+.cmp:
+    mov di, bx                      ; DI = the slot's key: BX * TW_KEY
+    mov cl, TW_KEYSH
+    shl di, cl
+    add di, tw_keys
+    mov si, tw_kbuf
+    mov cx, TW_KEY / 2
+    repe cmpsw
+    je .same
+    mov di, bx                      ; moved: bring the slot's key up to date
+    mov cl, TW_KEYSH
+    shl di, cl
+    add di, tw_keys
+    mov si, tw_kbuf
+    mov cx, TW_KEY / 2
+    rep movsw
+    stc
+    jmp short .out
+.same:
+    clc
+.out:
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
 ; tw_rate_now - AX = the rate in Hz: the stream's while one is open, else the
 ; one the next Play will ask for (trk_play's own choice, trk_rate_pick)
 tw_rate_now:
@@ -859,7 +1032,7 @@ tw_rate_now:
     ret
 
 ; -----------------------------------------------------------------------------
-; tw_lcd - every LCD line whose hash moved. With [tw_full] set, also the
+; tw_lcd - every LCD cell that moved. With [tw_full] set, also the
 ; well's bevel and the black strips between the lines - which is the whole
 ; of the well's ground: the lines are opaque and cover the rest (rule 1).
 ; preserves all
@@ -921,23 +1094,23 @@ tw_lcd:
     jae .out
     mov bx, [tw_lay + TWL_KND]
     mov al, [bx + di]
-    call tw_lcd_line                ; AX = the hash
     mov bx, di
-    shl bx, 1
-    cmp ax, [tw_lh + bx]
-    je .n
-    mov [tw_lh + bx], ax
+    call tw_lkey                    ; CF = 0: nothing it is made of moved
+    jnc .n
+    call tw_lcd_line
+    mov ax, TW_CELLS
+    mul di
+    add ax, tw_shad
+    mov bx, ax                      ; BX = this line's shadow
     mov ax, di
     mov dx, TW_LPITCH
     mul dx
     add ax, [tw_lay + TWL_LY1]
     add ax, 3
     mov dx, ax
-    mov cx, TW_TX
-    mov si, tw_line
     mov al, [tw_ink]
     mov ah, CBLACK
-    call tw_run
+    call tw_ldiff
 .n:
     inc di
     jmp short .l
@@ -955,10 +1128,15 @@ tw_lcd:
 ; -----------------------------------------------------------------------------
 tw_status:
     push ax
+    push bx
     push cx
     push dx
     push si
     push di
+    mov al, TWK_STAT
+    mov bx, TW_SHLN
+    call tw_lkey
+    jnc .out                        ; the same message as drawn
     mov si, [tui_msgp]
     or si, si
     jnz .have
@@ -967,20 +1145,17 @@ tw_status:
     mov di, tw_line
     call tw_put
     call tw_pad
-    cmp ax, [tw_hst]
-    je .out
-    mov [tw_hst], ax
-    mov si, tw_line
-    mov cx, TW_TX
+    mov bx, tw_shad + TW_SHLN * TW_CELLS
     mov dx, [tw_lay + TWL_STY]
     mov al, CBLACK
     mov ah, [tw_body]
-    call tw_run
+    call tw_ldiff
 .out:
     pop di
     pop si
     pop dx
     pop cx
+    pop bx
     pop ax
     ret
 
@@ -2264,10 +2439,11 @@ tw_update:
     mov byte [tw_vfull], 1          ; that are about to be replaced: forget
     push ds                         ; them all here, the one "pixels died"
     pop es                          ; site (SPEC.md 56.12 rule 2)
-    mov di, tw_lh
-    mov cx, 5
+    mov di, tw_shad
+    mov cx, (TW_SHLN + 1) * (TW_CELLS + TW_KEY) / 2
     xor ax, ax
-    rep stosw                       ; tw_lh[4] and tw_hst, which follows it
+    rep stosw                       ; every shadow and every key (tw_keys
+                                    ; follows tw_shad)
     mov di, tw_lastf
     mov cx, TW_NBTN
     dec ax
@@ -3167,9 +3343,14 @@ tw_line     equ tui_rbuf            ; one composed LCD, status or list line:
 %if TW_CELLS + 1 > TUI_RDCELLS + 1  ; the FT2 screen's readout buffer, which
   %error "tw_line no longer fits tui_rbuf"  ; only the FULLSCREEN surfaces use
 %endif                              ; now - and both are drawn under the lock
-    TRKBUF tw_lh, 8                 ; each LCD line's hash as drawn...
-    TRKW tw_hst                     ; ...and the status line's. FOLLOWS tw_lh:
-                                    ; tw_update clears the five in one stosw
+    TRKBUF tw_shad, (TW_SHLN + 1) * TW_CELLS ; each LCD line AS DRAWN, and
+                                    ; the status line's after them (tw_ldiff)
+    TRKBUF tw_keys, (TW_SHLN + 1) * TW_KEY  ; ...and what each was composed
+                                    ; from (tw_lkey). FOLLOWS tw_shad: a full
+                                    ; paint clears both in one stosw
+    TRKBUF tw_kbuf, TW_KEY          ; the key being asked about
+    TRKB tw_gen                     ; bumped when LCD TEXT changes under an
+                                    ; unchanged key: a load, a name, a message
     TRKW tw_vthx                    ; each thumb's drawn x, 0FFFFh = never
     TRKW tw_sthx
     TRKB tw_drag                    ; 0 none, 1 the volume, 2 the scrubber
