@@ -111,9 +111,6 @@
   %macro UI_PEN 0
     call KERNEL_SEG:cw_gfx_pen_cf
   %endmacro
-  %macro UI_PIXEL 0
-    call KERNEL_SEG:cw_gfx_pixel
-  %endmacro
   %macro UI_ICON 0                  ; SPEC.md 25.6: the masked 1bpp sprite
     call KERNEL_SEG:cw_icon_draw    ; pass - CX = x, DX = y, SI -> record
   %endmacro

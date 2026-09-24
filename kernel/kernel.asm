@@ -4962,8 +4962,10 @@ ovw_font_run_x:     call font_run_x     ; SPEC.md 15.6's status line composes
 cw_clk_ns_put:      call clk_ns_put     ; gated with the rungs it writes to
                     retf
 %endif
+%ifdef KERN_BIG                 ; its callers are kern_big only
 cw_clk_tobcd:       call clk_tobcd
                     retf
+%endif
 ; -----------------------------------------------------------------------------
 api_copyname:
     push ax                     ; AX and CX ONLY, and both are arguments the
@@ -6850,8 +6852,10 @@ cw_gfx_clip_query:      call gfx_clip_query ; CLIPQF: shared region query
 ; 30.3.2) - and a saver session has drawn over both. fsx_restore is the other
 ; caller that has to say so, and for the identical reason: an app that owned
 ; the whole screen really did overdraw them.
+%ifdef KERN_BIG                 ; its callers are kern_big only
 cw_blk_relit:           call blk_relit
                     retf
+%endif
 cw_gfx_frame:           call gfx_frame
                     retf
 cw_gfx_hline:           call gfx_hline
@@ -6861,8 +6865,6 @@ cw_gfx_lock:            call gfx_lock
 cw_gfx_pen_cf:          call gfx_pen_cf
                     retf
 cw_gfx_pen_live:        call gfx_pen_live
-                    retf
-cw_gfx_pixel:           call gfx_pixel
                     retf
 cw_gfx_rowbase:         call gfx_rowbase
                     retf
@@ -6875,8 +6877,6 @@ cw_icon_draw:           call icon_draw
 cw_icon_draw_ix:        call icon_draw_ix   ; the INDEXED kind (SPEC.md 25.7),
                     retf                    ; desk.inc's volume icons and no
                                             ; other caller in the tree
-cw_icon_pen:            call icon_pen
-                    retf
 cw_icon_draw16:         call icon_draw16
                     retf
 cw_inst_find_kind:      call inst_find_kind
@@ -6890,12 +6890,18 @@ cw_inst_win_owner:      call inst_win_owner
 ; RETURNS - both Timer and Bounce end their loop on it - and it is still a
 ; `call` rather than a `jmp`, for drv_task's reason: a jmp to a shim pops the
 ; jumping routine's near frame as CS:IP the day the target does come back.
+%ifdef KERN_BIG                 ; its callers are kern_big only
 cw_inst_of_win:         call inst_of_win
                     retf
+%endif
+%ifdef KERN_BIG                 ; its callers are kern_big only
 cw_inst_ptr:            call inst_ptr
                     retf
+%endif
+%ifdef KERN_BIG                 ; its callers are kern_big only
 cw_inst_task_die:       call inst_task_die
                     retf
+%endif
 cw_mem_disp:            call bp
                     retf
 cw_menu_activate:       call menu_activate
@@ -6920,12 +6926,16 @@ cw_snd_beep:            call snd_beep
                     retf
 cw_snd_disp_set:        call snd_disp_set
                     retf
+%ifdef KERN_BIG                 ; its callers are kern_big only
 cw_task_exit:            call task_exit
                      retf
+%endif
 cw_task_spawn:           call task_spawn
                      retf
+%ifdef KERN_BIG                 ; its callers are kern_big only
 cw_task_sleep:           call task_sleep     ; the Timer's 9 ticks and Bounce's
                      retf                    ; 2 (SPEC.md 14), from .cold
+%endif
 cw_task_yield:          call task_yield
                     retf
 cw_toast_show:          call toast_show
@@ -6970,17 +6980,20 @@ cw_wm_clip_clear:        call wm_clip_clear
                      retf
 cw_wm_clip_rows:        call wm_clip_rows
                     retf
+%ifdef KERN_BIG                 ; its callers are kern_big only
 cw_wm_clip_set:         call wm_clip_set
                     retf
+%endif
 cw_wm_clip_test:        call wm_clip_test
                     retf
 cw_wm_content:          call wm_content
                     retf
 cw_wm_minsize:          call wm_minsize
                     retf
-cw_wm_snap:             call wm_snap    ; OUTSIDE the KERN_BIG gate below:
-                    retf                    ; app_tmr_kinit asks for the snap
-                                            ; on every kernel (SPEC.md 11.94)
+%ifdef KERN_BIG                 ; its callers are kern_big only
+cw_wm_snap:             call wm_snap    ; app_tmr_kinit asks for the snap
+                    retf                ; (SPEC.md 11.94), and Timer is
+%endif                                  ; kern_big's alone (SPEC.md 14.6)
 %ifdef KERN_BIG
 cw_wm_onmouseup:        call wm_onmouseup
                     retf

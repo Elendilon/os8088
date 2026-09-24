@@ -4591,8 +4591,10 @@ mmf_osapi_mem_claim_dma_hi: call osapi_mem_claim_dma_hi_x
                           retf
 mmf_mem_free:             call mem_free_x
                       retf
+%ifdef KERN_BIG                 ; its callers are kern_big only
 mmf_mem_movable:          call mem_movable_x
                       retf
+%endif
 mmf_osapi_claim_snapshot: call osapi_claim_snapshot_x
                       retf
 mmf_osapi_mem_avail:      mov bh, MEM_LVL_TOP     ; an ordinary claim's rank...
