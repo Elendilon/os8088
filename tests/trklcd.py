@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""trklcd - the XT visualiser button and spectrum, and the LCD drawn by its
-inputs (SPEC.md 45.23.1, 45.24.1, 45.21.8)
+"""trklcd - the XT visualiser button and spectrum, the 286 face's markers, and
+the LCD drawn by its inputs (SPEC.md 45.23.1, 45.24.1, 45.21.8)
 
     make trkrate && python3 tests/trklcd.py
 
@@ -14,10 +14,16 @@ at 5.5 kHz:
 
   THE XT SPECTRUM (45.24.1) - bars only, TW_XTNB of them, decayed by the
   clock and held at the top, and it KEEPS UP: 17 frames a second or better
-  (it reads 18.0-18.1, every tick) with the ring never under half full
-  (TRK_DEEP - it reads 6,144 of 8,192, the same as with the pane off). The
-  286's 16-band spectrum with markers, forced onto the XT, reads 15.0 and a
-  ring down to 2,048, so either threshold alone catches that regression.
+  (it reads 17.8-17.9) with the ring never under half full (TRK_DEEP, where
+  the worker turns to mixing first - at the 2-tick hold it touches 4,096 and
+  stops there, in every run). The 286's 16-band spectrum with markers, forced
+  onto the XT, reads 15.0 and a ring down to 2,048, so either threshold alone
+  catches that regression.
+
+  THE 286 FACE'S MARKERS (45.24.1) - reached on the 8088 by [trk_cpu0] = 0 and
+  XT mode off: a bar HELD low must let its peak marker fall to it. The first
+  build skipped a held band's whole step, marker included, and leaves the
+  staged marker at 60 where this wants 16.
 
   THE LCD (45.21.8) - a line is composed only when its KEY moves, and then
   only the cells that differ from its shadow are lettered:
@@ -76,7 +82,8 @@ def immediates(lst):
     which os88rate.symbols() cannot see - it scrapes [name] operands."""
     out = {}
     pats = [(r"BF\[([0-9A-F]{2})([0-9A-F]{2})\]\s+(?:<\d+>)?\s*mov di, (tw_rects_b|tw_flags_b)\s*$", 3),
-            (r"81C7\[([0-9A-F]{2})([0-9A-F]{2})\]\s+(?:<\d+>)?\s*add di, (tw_keys)\b", 3)]
+            (r"81C7\[([0-9A-F]{2})([0-9A-F]{2})\]\s+(?:<\d+>)?\s*add di, (tw_keys)\b", 3),
+            (r"BF\[([0-9A-F]{2})([0-9A-F]{2})\]\s+(?:<\d+>)?\s*mov di, (tw_band)\s", 3)]
     for L in open(lst):
         for pat, g in pats:
             mo = re.search(pat, L)
@@ -96,7 +103,7 @@ def main():
         imm = immediates(os88rate.LST)
     finally:
         os.unlink(os88rate.LST)
-    for n in ("tw_rects_b", "tw_flags_b", "tw_keys"):
+    for n in ("tw_rects_b", "tw_flags_b", "tw_keys", "tw_band"):
         if n not in imm:
             print("FAIL: no address for %s in the listing" % n)
             return 1
@@ -252,6 +259,36 @@ def main():
             break
         else:
             check("found a moment with no line's inputs moving", False, True)
+
+        # THE 286 FACE'S MARKERS (45.24.1), on the 8088: [trk_cpu0] = 0 and XT
+        # mode off is the face a 286 gets. A bar HELD low under a high marker
+        # - a neighbour band kicked at half level every row - must let the
+        # marker fall to the bar. The hold used to skip the band's whole step,
+        # marker included, so it stood frozen at the old peak for as long as
+        # the neighbour kept playing. Staged with playback stopped, so no kick
+        # moves anything but the decay under test.
+        print("the 286 face's markers (SPEC.md 45.24.1)")
+        m.write(base + P["@trk_cpu0"], b"\0")
+        m.key("KeyX")                  # stops, and takes XT mode off
+        guest(3.0)
+        check("XT mode off, stopped", (b("mp_xt"), b("mp_playing")), (0, 0))
+        for _ in range(4):
+            if b("tw_vizm") == 1:
+                break
+            click()
+        check("the 286 spectrum: 16 bands with markers",
+              (b("tw_vizm"), b("tw_nb"), b("tw_mk")), (1, 16, 1))
+        band = imm["tw_band"]          # tw_peak, tw_phold, tw_bhold follow it
+        BAND, PEAK, PHOLD, BHOLD = (band + 16 * i + 5 for i in range(4))
+        m.pause()
+        for off, v in ((BAND, 16), (BHOLD, 250), (PEAK, 60), (PHOLD, 0)):
+            m.write(base + off, bytes([v]))
+        m.advance(cycles=int(2.5 * HZ))
+        rd = lambda off: m.read(base + off, 1)[0]
+        got = (rd(BAND), rd(BHOLD) < 250, rd(PEAK))
+        m.run()
+        check("bar held at 16 while the ticks ran", got[:2], (16, True))
+        check("...and its marker fell to it (was 60)", got[2], 16)
 
     print("trklcd: %s" % ("pass" if not fails else "%d FAILED" % len(fails)))
     return 1 if fails else 0

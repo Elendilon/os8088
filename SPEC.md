@@ -73418,13 +73418,25 @@ to the 286+ face too.
    (`TW_XTPIT` = 18, `TW_XTBW` = 15), and `tw_vgeom` sets the shape from
    whether the meter is forced. A spectrum already up when XT mode toggles
    changes shape and starts again.
-4. **A struck bar holds `TW_BHOLD` = 3 ticks** before it falls (both faces).
+4. **A struck bar holds `TW_BHOLD` = 2 ticks** before it falls (both faces).
    It was hyperactive at the top: a note struck every row at the same level
    fell one frame and was kicked back the next, so a fill down and a fill up
    every row, for a bar that should have stood still. A strike at the bar's
-   level renews the hold. Three ticks (~165 ms) outlast a row at the common
-   tempos (BEVERLY.MOD's speed 7 at 125 BPM is 140 ms) and are still short of
-   a peak marker's 0.2 s.
+   level renews the hold. It shipped at 3 ticks (~165 ms), which outlasts a
+   row at BEVERLY.MOD's tempo (speed 7 at 125 BPM is 140 ms) and was **too
+   long on other songs**. Two ticks (~110 ms) cost ~15% more fills (see the
+   table) and still hold a steady note through most rows.
+
+   **The hold is the BAR's and not the band's.** The first build skipped a
+   held band's whole decay step, its peak marker included. On the 286 face a
+   note kicks its two neighbours at half level, which renews THEIR hold every
+   row, so a side band's marker stood frozen at an old, higher peak for as
+   long as the middle note kept playing. The marker now takes its own
+   hold-and-fall every tick whatever its bar is doing. It falls to the bar,
+   and a bar at or over it resets it there. The gate stages exactly that on
+   the 286 face (`[trk_cpu0]` = 0, XT mode off, on the 8088): a bar held at 16
+   under a marker at 60 must bring the marker to 16 inside 2.5 seconds. The
+   first build leaves it at 60.
 
 **The decay now runs on the clock, not the frame** (`tw_vtick`, both faces).
 It steps once per TICK elapsed since the last frame, up to `TW_TKMAX` = 8.
@@ -73444,14 +73456,17 @@ fills counted in `tw_fills` and the shares taken from the scheduler's own
 | 8 bars, hold 2 | 18.0 | 49.9 | 7.6% |
 | 8 bars, hold 3 | 17.8 | 37.9 | 8.9% |
 | 16 bars, hold 3 | 17.9 | 45.9 | 5.1% |
-| **shipped: 12 bars, hold 3** | **18.1** | **42.8** | **6.5%** |
+| 12 bars, hold 3 (first shipped) | 18.1 | 42.8 | 6.5% |
+| **shipped: 12 bars, hold 2** (four runs) | **17.8–17.9** | **51–58** | **4.9–6.2%** |
 | (VU Meter / Off, for scale) | 18.1 / 18.1 | 33.6 / 0.1 | 21.5% / 24.2% |
 
-On CGA the shipped spectrum reads 17.9 frames a second with 9.0% idle. In
-every row the ring lead's minimum stays at **6,144 of 8,192**, the same as with
-the pane off, so the music gives up nothing to the picture. That is
-`trk_deep` doing its job (§45.16.2): the worker draws first only while the ring
-is deep, so the picture is what gets less time if anything must.
+On CGA the shipped spectrum reads 17.9 frames a second with 7.5% idle. The
+ring lead's minimum is **4,096 of 8,192** at hold 2, in all four Hercules runs
+and never lower (6,144 at hold 3 and with the pane off). 4,096 is `TRK_DEEP`,
+the line where the worker stops drawing first and mixes first (§45.16.2). So
+the ring touches half full and the design catches it there, with 0.74 s of
+music still buffered, and the picture is what gets less time if anything
+must. Nothing is dropped: every run delivered the song whole.
 
 **Where the idle went.** The worker paces itself one frame a tick
 (`trk_worker`). It sleeps only when a frame and its feed pass finish inside
@@ -73462,9 +73477,10 @@ overran every tick would lose whole ticks rather than use the slack: the old
 one's 7.7 frames a second is two and three ticks a frame.
 
 `tests/trklcd.py` gates it. It picks Spectrum on the XT, requires 17 frames
-a second and a ring that stays at least half full (`TRK_DEEP`), and checks
+a second and a ring that never goes under half full (`TRK_DEEP`), and checks
 bars only at `TW_XTNB`. The 286's shape forced onto the XT fails all three:
-15.0 frames a second, a ring down to 2,048, and 16 bands with markers. That
+15.0 frames a second, a ring down to 2,048, and 16 bands with markers. It
+then checks the 286 face's markers against a held bar (point 4). That
 15.0 is itself news, since the same spectrum drew 7.7 before this section and
 45.21.8: the LCD, the hold and the clock took half its cost away too. `TW_XTNB` and `TW_BHOLD` are `%ifndef`-overridable, so the table's
 arms can be rebuilt.

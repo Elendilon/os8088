@@ -144,12 +144,13 @@ TW_XTBW     equ TW_XTPIT * TW_BANDW / TW_BPITCH2   ; ...and proportions
   %error "TW_XTNB is 2..TW_NBAND"
 %endif
 %ifndef TW_BHOLD
-TW_BHOLD    equ 3                   ; a struck bar holds this many TICKS
+TW_BHOLD    equ 2                   ; a struck bar holds this many TICKS
 %endif                              ; before it falls (SPEC.md 45.24.1): a
                                     ; note struck again at the same level
                                     ; keeps it still instead of a fill down
-                                    ; and a fill up every row. Three ticks
-                                    ; outlast a row at the common tempos
+                                    ; and a fill up every row. Two ticks
+                                    ; (~110 ms): three held too long on the
+                                    ; songs that are not BEVERLY.MOD
 TW_TKMAX    equ 8                   ; the most ticks one frame decays by
 TW_SCW      equ 232                 ; the scope band: 29 bytes a row
 TW_SCSTR    equ TW_SCW / 8
@@ -2427,23 +2428,18 @@ tw_vstep:
     xor bx, bx                      ; each one's recent high (SPEC.md 45.24)
 .s:
     mov al, [tw_band + bx]
-    cmp byte [tw_bhold + bx], 0     ; a bar just struck holds (45.24.1)
-    je .nohold
-    dec byte [tw_bhold + bx]
-    jmp short .nx
-.nohold:
     cmp byte [tw_mk], 0
-    je .bfall                       ; the XT's bars carry no marker
-    cmp al, [tw_peak + bx]
-    jb .pfall
-    mov [tw_peak + bx], al          ; a new high: the marker jumps to it and
-    mov byte [tw_phold + bx], TW_PKHOLD ; holds there a while
-    jmp short .bfall
-.pfall:
-    cmp byte [tw_phold + bx], 0
-    je .pdrop
+    je .bar                         ; the XT's bars carry no marker
+    cmp al, [tw_peak + bx]          ; THE MARKER FIRST, and whatever its bar
+    jb .pfall                       ; is doing: the bar's hold is the bar's.
+    mov [tw_peak + bx], al          ; A neighbour kicked at half level every
+    mov byte [tw_phold + bx], TW_PKHOLD ; row holds its bar for ever, and a
+    jmp short .bar                  ; marker behind that hold never fell
+.pfall:                             ; (SPEC.md 45.24.1). A new high: the
+    cmp byte [tw_phold + bx], 0     ; marker jumps to it and holds a while;
+    je .pdrop                       ; under it, it falls to the bar's level
     dec byte [tw_phold + bx]
-    jmp short .bfall
+    jmp short .bar
 .pdrop:
     mov byte [tw_phold + bx], TW_PKEVERY - 1 ; the next step's wait
     mov ah, [tw_peak + bx]
@@ -2452,6 +2448,11 @@ tw_vstep:
     xor ah, ah
 .pst:
     mov [tw_peak + bx], ah
+.bar:
+    cmp byte [tw_bhold + bx], 0     ; a bar just struck holds (45.24.1)
+    je .bfall
+    dec byte [tw_bhold + bx]
+    jmp short .nx
 .bfall:
     sub al, TW_SPFALL
     jnc .st
