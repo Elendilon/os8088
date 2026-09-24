@@ -6832,14 +6832,6 @@ cw_icon_pen:            call icon_pen
                     retf
 cw_icon_draw16:         call icon_draw16
                     retf
-cw_inst_alloc:          call inst_alloc
-                    retf
-cw_inst_bind_win:       call inst_bind_win
-                    retf
-cw_inst_caller:         call inst_caller    ; OSAPI_PKG_START reads its name
-                    retf                    ; argument through the CALLING
-                                            ; instance's segment (SPEC.md
-                                            ; 21.5), and loader.inc is cold
 cw_inst_find_kind:      call inst_find_kind
                     retf
 cw_inst_fhome_idx:      call inst_fhome_idx
@@ -6890,8 +6882,6 @@ cw_task_sleep:           call task_sleep     ; the Timer's 9 ticks and Bounce's
 cw_task_yield:          call task_yield
                     retf
 cw_toast_show:          call toast_show
-                    retf
-cw_ui_note:             call ui_note
                     retf
 %ifdef KERN_BIG
 cw_ui_svc_open:         call ui_svc_open    ; the service zone's double-click

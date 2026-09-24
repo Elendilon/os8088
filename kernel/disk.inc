@@ -2130,17 +2130,6 @@ dsk_vol_slot_x:
 ; out: AL = DVK_*, or DVK_FREE if [disk_drive] names no live row
 ; clobbers: AL (the output), flags
 ; -----------------------------------------------------------------------------
-dsk_vol_kind:
-    push bx
-    mov bl, [disk_drive]
-    call dsk_vol_row_x
-    mov al, DVK_FREE
-    jc .out
-    mov al, [bx+DV_KIND]
-.out:
-    pop bx
-    ret
-
 ; -----------------------------------------------------------------------------
 ; osapi_vol_at - is this PARTITION already a volume? (slot 0x03E8, SPEC 52.10.3)
 ; in:  DL = an int 13h drive number, BX:CX = the partition's 32-bit base LBA
@@ -6383,25 +6372,6 @@ dsk_dest_x:
 ; Cheap and idempotent when nothing is owed, which is what lets the copy
 ; engine call it on every exit path without asking whether it switched.
 ; -----------------------------------------------------------------------------
-dsk_relist_x:
-    cmp byte [dsk_lstale], 0
-    je .out
-    mov byte [dsk_lstale], 0    ; cleared FIRST: a mount that fails published
-                                ; an empty listing, which is exactly what the
-                                ; flag exists to stop being wrong about, so
-                                ; there is nothing left to owe
-    jmp dskw_remount_x          ; the remount-where-we-stand half of dskw_sync
-                                ; (18.4) - a tail call, and it preserves
-                                ; everything.
-                                ;
-                                ; dskw_remount and NOT dskw_sync, which is the
-                                ; whole reason those two are separate routines:
-                                ; dskw_sync DEFERS when nothing on screen is
-                                ; drawn from the global listing, so this pair
-                                ; would clear the debt and then decline to pay
-                                ; it - and this is the payment.
-.out:
-    ret
 
 ; -----------------------------------------------------------------------------
 ; dsk_path - the calling directory's path from the volume root (SPEC.md 19.2.4)
@@ -6924,15 +6894,6 @@ dsk_copy_in_x:
 ; out:      nothing
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
-dsk_copy_low:
-    push ax
-    push dx
-    mov dx, LOW_SEG
-    mov ax, dx
-    call dsk_copy_seg_x
-    pop dx
-    pop ax
-    ret
 
 ; -----------------------------------------------------------------------------
 ; dsk_streq - do the NUL strings at DS:SI and DS:DI match? (SPEC.md 4)
@@ -7111,12 +7072,6 @@ dsk_docpass:                    ; `dsk_icopass`'s reason for having no
 ; out:      nothing
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
-dsk_copy_out:
-    push dx
-    mov dx, LOW_SEG
-    call dsk_copy_seg_x
-    pop dx
-    ret
 
 ; -----------------------------------------------------------------------------
 ; dsk_get_dir - stage one synthesized directory entry in the kernel segment

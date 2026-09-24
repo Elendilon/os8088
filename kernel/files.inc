@@ -3737,10 +3737,6 @@ fm_onkey_x:
 
     cmp al, 13
     je .enter
-    cmp al, 'v'
-    je .vtoggle
-    cmp al, 'V'
-    je .vtoggle
     cmp al, 8                   ; Backspace goes up, the way it does in every
     je .updir                   ; file manager since (SPEC.md 22)
     cmp al, 0x18                ; Ctrl+X / Ctrl+C / Ctrl+V (SPEC.md 22.3).
@@ -3749,22 +3745,22 @@ fm_onkey_x:
     je .copy                    ; and int 16h hands these straight over
     cmp al, 0x16
     je .paste
-    cmp al, 'n'
-    je .newfld
+    and al, 0xDF                ; ONE case fold for the letters below, AFTER
+                                ; the control codes (a fold would turn '-'
+                                ; into 13). Only 'x'/'X' reach 'X'; AL = 0
+                                ; (a bare scan code) stays 0 for the Delete
+                                ; word test; AH is untouched for the scroll
+                                ; keys; AL is pushed at entry
+    cmp al, 'V'
+    je .vtoggle
     cmp al, 'N'
     je .newfld
     mov dl, 0
-    cmp al, 'a'
-    je .mount
     cmp al, 'A'
     je .mount
     mov dl, 1
-    cmp al, 'b'
-    je .mount
     cmp al, 'B'
     je .mount
-    cmp al, 'r'
-    je .remount
     cmp al, 'R'
     je .remount
     cmp ax, 0x5300              ; Delete, tested as the WHOLE word: AH is the

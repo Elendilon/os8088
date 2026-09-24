@@ -2819,19 +2819,13 @@ drv_load_row:
     mov al, DRVE_NOENT
     jmp short .fail
 .bad:
+.ioerr:                         ; three names, one answer: DRVE_BAD
+.badfree:
     mov al, DRVE_BAD
     jmp short .fail
 .nomem:
+.big:                           ; ...and two for DRVE_MEM
     mov al, DRVE_MEM
-    jmp short .fail
-.big:
-    mov al, DRVE_MEM
-    jmp short .fail
-.ioerr:
-    mov al, DRVE_BAD
-    jmp short .fail
-.badfree:
-    mov al, DRVE_BAD
     jmp short .fail
 .nohwal:
     ; A refusing attach MAY hand back a DRVE_* in AL, and most do not: the

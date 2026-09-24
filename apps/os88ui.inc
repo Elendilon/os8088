@@ -1381,6 +1381,7 @@ section .cold
 ; word (SPEC.md 2.6 rule 1), which is the trap os88ui_krect's own comment
 ; records costing eight bytes through the middle of sch_isr.
 
+%ifndef OS88UI_KERNEL              ; the kernel walks its own rects (fdlg_bhit, fm_bhit)
 ; -----------------------------------------------------------------------------
 ; os88ui_bfind - which button of a table is the point in?
 ; in:  BX = an array of 4-word rects, AX = how many, CX = x, DX = y
@@ -1436,6 +1437,7 @@ os88ui_bfind:
 ; equ offsets (OS88_BSS), and a shared include cannot reserve part of that
 ; without the package agreeing about where. Two bytes of image is cheaper
 ; than a convention.
+%endif                          ; OS88UI_KERNEL: os88ui_bfind is a package's
 ; -----------------------------------------------------------------------------
 os88ui_arm:
     mov [os88ui_armw], ax
@@ -1622,6 +1624,7 @@ os88ui_btlist: dw 0             ; the head of this package's record list -
 ; paint could have moved the window.
 ; -----------------------------------------------------------------------------
 %ifndef OS88UI_NOGEST
+%ifndef OS88UI_KERNEL          ; os88ui_btnclick is their only caller, and it is a package's
 os88ui_btnpress:
     push bx
     push si
@@ -1738,6 +1741,7 @@ os88ui_btnup:
     pop si
     pop bx
     ret
+%endif                          ; OS88UI_KERNEL
 %endif                          ; OS88UI_NOGEST
 %endif                          ; OS88UI_ARM
 
