@@ -1594,9 +1594,7 @@ SOAK = [
         "and the native surface END TO END - weavevm cannot reach any of "
         "them, having no runtime under it. 90s is 55s MEASURED here for one "
         "boot, one navigation, one launch and eleven gestures per adapter, "
-        "MEASURED at 135s over two clean runs and 150s over one that lost a "
-        "double-click to host load and spent its three navigation retries. "
-        "It is not the 90s this row was declared at before it had ever been "
+        "MEASURED at 135s over two clean runs. It is not the 90s this row was declared at before it had ever been "
         "run, and a declared figure nobody has taken is the thing this "
         "registry's budgets exist to stop drifting",
         needs=("marty", "cc"), serial=True, timeout=360,
@@ -1643,15 +1641,10 @@ SOAK = [
         "looked at on one. The ink-presence half is what makes the text "
         "half honest: an unlearned glyph reads '?' and is skipped, so a "
         "component that drew nothing would otherwise pass a comparison made "
-        "entirely of question marks. 240s is 122s MEASURED CLEAN over three "
-        "consecutive runs (121, 122) and 190s on the third, which spent "
-        "weavesmoke's three navigation retries and then failed - FOUR "
-        "sessions is four double-clicks, so this row carries twice "
-        "weavesession's exposure to the one thing that flakes in this "
-        "family: a double-click whose two presses straddle the kernel's "
-        "9-tick window is seen as two FIRST clicks, and on a loaded host "
-        "that happens. The retry is weavesmoke's and is not loosened here - "
-        "a gate that hid it would hide a host that had really got slower",
+        "entirely of question marks. 240s is 122s MEASURED over consecutive "
+        "runs (121, 122) with room for the demo growing. FOUR sessions is "
+        "four double-clicks, each stepped in guest cycles by os88mouse "
+        "(Mouse.DBL_STEP), so none of them depends on the host keeping up",
         needs=("marty", "cc"), serial=True, timeout=600,
         wants=("build/weave360.img",)),
     Row("weaveprev", "soak", py("tests/weaveprev.py"), 240.0,
@@ -1674,10 +1667,7 @@ SOAK = [
         "one flag rather than the test being taught to ignore two "
         "components. Both 1bpp adapters - six sessions, 180 checks. 260s is "
         "239s MEASURED over three consecutive runs (238.7 inside the tier, "
-        "238.5 and 238.6 standalone) with a margin for the one thing that "
-        "flakes in this family, a double-click whose two presses straddle "
-        "the kernel's 9-tick window; the retry is weavesmoke's and is not "
-        "loosened here",
+        "238.5 and 238.6 standalone) with a margin for the demo growing",
         needs=("marty", "cc"), serial=True, timeout=600,
         wants=("build/loom360.img",)),
     Row("weaveone", "soak", py("tests/weaveone.py"), 60.0,
@@ -1722,8 +1712,7 @@ SOAK = [
         "on TIME - wireflick's rule, that a number which fails a build when a "
         "harness gets slower teaches nobody anything - so the fps is printed "
         "and the FIELD RUN (docs/FIELD-MACHINES.md, WEAVE-PLAN 4.2) is what "
-        "turns it into a claim. 50s is 34s MEASURED plus room for the one "
-        "navigation retry weavesmoke's own flake can cost",
+        "turns it into a claim. 50s is 34s MEASURED plus margin",
         needs=("marty", "cc"), serial=True, timeout=300),
     Row("weavepack", "soak", py("tests/weavepack.py"), 1500.0,
         "WEAVE-SPEC 11.1's gate and the one wave 6 closes on: LOOM packs "
@@ -4445,7 +4434,11 @@ SOAK = [
         "/ 7, which is six int 13h at ~400 ms apiece on a 4.77 MHz XT. "
         "VERIFIED TO FAIL BOTH WAYS: fmv_sync_x put back takes B to 10 "
         "reads, and the 'already standing there' test taken out takes A "
-        "to 3.",
+        "to 3. ARM A'S BAR IS THE PACKAGE'S OWN FILLS, READ OFF THE GUEST: "
+        "every BIOS read is a SPEC.md 18.95 read-ahead fill, and since "
+        "18.95.7 the cache takes no 64KB page head, so a slot that straddles "
+        "a page is TWO int 13h wherever the heap put it - a constant of 2 "
+        "read that as a mount the day a kernel size pass moved the heap.",
         needs=("marty",), serial=True),
     Row("dosargs", "soak", py("tests/dosargs.py"), 90.0,
         "CAN A DOS PROGRAM BE GIVEN ARGUMENTS? (SPEC.md 96.19). Half the DOS "
@@ -8014,16 +8007,13 @@ SOAK = [
     Row("tmrepair", "soak", py("tests/tmrepair.py"), 80.0,
         "SPEC.md 28.11: the Task Manager's quiet pages hold a raise cache by "
         "REPAIRING at the restore - a whole-content band, and tm_update "
-        "spends the debt W_PAINT is handed. **IT IS INTERMITTENT AND HAS "
-        "BEEN FOR A WHILE**, which is worth knowing before anybody calls a "
-        "red one a regression: rated with tools/os88bisect.py it fails 3 of "
-        "4 at b49fff1 - a tree where one soak reported it PASSING - 2 of 3 "
-        "at b5cef54, 1 of 3 at 7f5c07a and 1 of 4 at dc3b200, so today's head "
-        "is the best of every point measured. The failing leg is REPAIR: the "
-        "promise is made (WF_SAVEU and a whole-content band) and is gone by "
-        "the uncover with ZERO wm_su_drop calls for it, so whatever "
-        "withdraws it is not that path. A rate is not a side, so there is "
-        "nothing here to bisect until the row is 0/N or N/N",
+        "spends the debt W_PAINT is handed. The REPAIR leg names the "
+        "refusal when it fails - it arms wm_su_ck, wm_su_vset, wm_su_scrset, "
+        "wm_su_occl and wm_su_tno together and prints the path, so a red run "
+        "says which of the four gates answered CF. Its pump counts only the "
+        "rounds that ADVANCED, so the observation window is a fixed amount of "
+        "guest time however many breakpoints fire: 12 of 12 at 335e584, eight "
+        "of them four-wide beside a full soak",
         needs=("marty",), serial=True),
     Row("tmselfsu", "soak", py("tests/tmselfsu.py"), 300.0,
         "SPEC.md 28.8.1: the Task Manager stops repainting for ITS OWN raise "
