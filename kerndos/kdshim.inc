@@ -176,6 +176,7 @@ mod_drop:
 ; Decompression (SPEC.md 20.13) is for packages, drivers and the kernel's own
 ; modules.  A DOS program's file is bytes on a disk.
 lz_decomp_x:
+lz_decomp_big:
 kd_refuse:
     stc
     ret

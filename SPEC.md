@@ -31431,7 +31431,7 @@ the file's size.
 |---|---|
 | `SI` | a NUL 8.3 name in the current directory |
 | `ES:BX` | the bytes |
-| `CX` | how many — at least 1, and a multiple of **512** unless the write reaches the end of the file (§18.4.7.2) |
+| `CX` | how many — a multiple of **512** unless the write reaches the end of the file (§18.4.7.2). **0 truncates** (§18.4.7.5, `kern_big`) |
 | `DX:AX` | the byte offset — a multiple of the volume's **cluster** |
 
 Out `CF=0` with `AX=0`, or `CF=1` with `AX = FERR_*`.
@@ -31556,6 +31556,35 @@ entries: **395 bytes of that kernel** (`.text` −11, `.bss` −1, `.cold` −38
 The append door keeps the whole body; it only ever arrives with the size for
 an offset, which is the allocated end by its own precondition, so the arm the
 stub removes is one it could never reach.
+
+#### 18.4.7.5 A count of ZERO truncates
+
+**`CX = 0` means the file ENDS at the offset** — DOS's own spelling of it,
+`AH=40h` with `CX=0` (§96.11.6.2), arriving one layer down. The offset is
+still a cluster multiple, it may not be past the file's size (the growing door
+is the one above), and the file keeps `offset / cluster` clusters and takes
+the offset as its size. The ENTRY is written first and the FAT after, which is
+`dskw_dbody`'s order and §18.4's reason for it: a crash between the two leaks
+the freed clusters, where the other order would leave an entry naming clusters
+the allocator may hand to somebody else. A chain shorter than the entry's size
+says is refused `FERR_IO` before anything is written.
+
+**It is 106 bytes of `.cold` on `kern_big` and nothing else** — measured with
+and without at one commit: `.text` and `.bss` byte-identical, no cell and no
+shim, because the door is `OSAPI_FILE_WRITE_AT`'s and everything in front of
+it — the mount, the redirected-volume refusal, the name, the entry, the
+protection mask, the cluster size and the offset's alignment — is that
+body's, already paid for. `kern_small` has no write-at door and carries none
+of it (§18.4.7.4). It is what the DOS box costed at 285 resident bytes as a
+slot of its own and refused (docs/plans/DOS-EXEC-PLAN.md §15.12) — the cost
+was the lookup, and a zero count is the one argument the lookup was already
+refusing.
+
+Its consumers are streamed Compress (§22.22.5) and the DOS box's `AH=40h
+CX=0` (§96.11.6.2), which rounds any size down to a cluster, cuts there and
+appends the rest back. Before it, a count of 0 was `FERR_NAME` — *"the caller
+has miscomputed"* — and nothing in the tree passed one: the DOS box's flush
+returns on an empty window before it gets here.
 
 #### 18.4.7.1 What it cost, and where
 
@@ -38996,8 +39025,10 @@ defect, as the `image + bss` carry fence one test along (§21 step 4).
           past the declared length was written
 ```
 
-The **output crosses 64KB and the input does not** — §20.14.5 is why, and what
-each half costs.
+The **output crosses 64KB and, through this cell, the input does not** —
+§20.14.5 is why. The kernel's own file read has a second door that takes
+`AH:CX`, 24 bits of input, for an LZB stream (§20.14.5.1); the cell's contract
+is unchanged, and `AH` is not an input to it.
 
 **It is a plain `OSAPI_JSLOT` and not an X or N cell**, and the reason is that
 the decompressor **reads no kernel data at all**. Every other cell needs
@@ -39397,9 +39428,10 @@ Four refusals fall out of the shape and each is checked rather than assumed:
 - **the destination must be paragraph-aligned.** `lz_decomp_x` requires
   `DI = 0` (§20.13.3), so a buffer whose offset is not a multiple of 16 is
   `FERR_PROT`. Every caller in the tree hands over a claim's base;
-- **a packed size of 64KB or more is `FERR_IO`.** That is the decoder's
-  *source* limit (§20.14.5), and a file that compressed that badly is one
-  `os88lz.py` stores plain instead;
+- **a packed size of 64KB or more is accepted for LZB and is `FERR_IO` for
+  LZ4** — the decoder's *source* crosses a segment for the first and not the
+  second (§20.14.5.1), so the refusal comes from the decoder rather than from
+  a size test here;
 - **`R` past a megabyte is `FERR_BIG`** — not an address in this machine, and
   the one piece of the arithmetic below that could otherwise wrap;
 - **a hint claiming an expansion no larger than the file** is `FERR_IO`: a
@@ -39573,18 +39605,66 @@ the wrapped `DI` needs no arithmetic of its own. Three consequences:
 The expected output length is therefore **`BX:DX`, 32 bits**, and the frame
 counts **what is left to produce** rather than where the end is.
 
-**The input does NOT cross, and that is a decision.** `CX` stays 16 bits and
-`SI + CX` wrapping is refused at entry, which keeps the tail bound a plain
-offset in one segment — and that compare is tested once per symbol and is the
-hottest one in the routine. What it costs is that a file which compresses to
-64KB or more is stored plain; `cz_wrap` enforces the same rule at the other
-end. A file that compressed that badly was not worth the decode time anyway.
+**The input did NOT cross, and that was a decision** — kept for LZ4 and
+reversed for LZB by §20.14.5.1. `SI + CX` wrapping was refused at entry, which
+kept the tail bound a plain offset in one segment, and that compare is tested
+once per symbol and is the hottest one in the routine. The reversal keeps the
+compare exactly as it is and changes what it means.
 
 The fast path pays **two carries per copy** for all of this, in the one copy
 routine both arms share, and a 32-bit remaining counter in place of a 16-bit
 end compare. The crossing itself is a byte loop: it is one symbol per 64KB of
 output, so a few hundred cycles once per segment against sixty bytes of
 kernel for ever.
+
+##### 20.14.5.1 …and an LZB INPUT crosses too, at a checkpoint
+
+**A file that packs to 64KB or more used to be stored plain**, which was a
+fine rule for the build — nothing it ships packs that badly — and a wrong one
+for `Compress` (§22.22), which is somebody asking for a *200KB* document to be
+made smaller and being told `Too large`. So the decoder's source crosses a
+segment now, and **the hot path does not gain an instruction**.
+
+**The tail bound became a CHECKPOINT.** `LZ_F_TSI` is still the one source
+bound both arms test, with the same `cmp si, [bp+LZ_F_TSI]` at the head of
+every symbol; what changed is what is in it. The frame carries where the tail
+begins as a **32-bit offset from the current `DS`**, and `LZ_F_TSI` is that
+offset when it is under `LZ_CHK` = `0xF000` and `LZ_CHK` when it is not.
+`SI` reaching it goes down the arm's end path — which was already out of line,
+being where the stream used to finish — and there `lz_at` **slides `DS` up by
+a fixed 32KB** while `SI` is in the top half of its segment, takes the same
+constant off the tail's offset, re-arms the checkpoint, and answers the arm's
+own three-way compare: *below* is more symbols, *equal* is the tail, *above*
+is a stream that ran past it. A 100KB stream takes the detour three times; a
+40KB one takes it once, at its tail, exactly where it always stopped. The
+entry arms `LZ_F_TSI` at 0, so the first symbol arms it for real.
+
+**The 4KB above the checkpoint is the in-line budget.** Nothing an arm reads
+between two tests may carry `SI` past `0xFFFF`: an LZB symbol reads at most
+two gammas' worth of tag bytes and an offset byte, and a hostile stream that
+reads further only READS — every write is still bounded by `lz_take` and the
+match-offset test. A stream that slides past its own tail cannot reach it
+again and runs out of declared output instead, which `lz_take` refuses; there
+is no branch of its own for that case, and needs none.
+
+**LZ4 is still one segment of input**, refused at entry exactly where the old
+`add cx, si / jc` refused it. Its literal RUNS go through `lz_copy`, whose slow
+arm bumps `DS` by 64KB when `SI` wraps, and a bump there would leave the
+checkpoint describing a segment nobody is reading. LZB has no such run — its
+literals are single bytes and its matches read the output — and LZB is the
+format this machine writes (§20.15). `os88lz.cz_wrap` says the same thing on
+the host: an LZ4 packed form past 64KB is stored plain, and an LZB one is not.
+
+**The cell (§20.13.3) is unchanged** and zeroes `AH` on the way in; the file
+read enters one instruction later at `lz_decomp_big` with `AH:CX` = the
+stream's 24-bit length, and `dskw_rbody` no longer refuses a compressed file
+whose packed size is 64KB or more. **Cost: 94 bytes of `.cold`**, resident on
+both kernels (`kern_big` 40,220 → 40,314 and `kern_small` 26,028 → 26,122, no rung crossed on either), and **2 bytes of
+stack** — the frame is seven words where it was five, `lz_at`'s two pushes
+sitting shallower than `lz_match`'s chain. A multi-block container was the
+alternative and is still refused on §20.14.5's measurement: each block
+boundary throws the history away, which cost `BEVERLY.MOD` 44% of its win,
+and a container is a read-path change too.
 ##### 20.14.6 The hint is a CACHE, so the read path has a MISS path now
 
 §20.14 has said since it was written that a foreign tool may drop those four
@@ -39770,12 +39850,14 @@ this module.
 
 ```
 in:  AX = the SOURCE segment, the source at AX:0000
-     DX = the OUTPUT segment, the output at DX:0000, CX bytes of room
-     BX = a scratch segment of CMZ_TBL (8,192) bytes, at BX:0000
-     CX = the source's length, 1..0xFFFF
-out: CF=0 and AX = the packed length, which is < CX — a whole stream, T
-     word and raw tail included (§20.13.7)
-     CF=1 = it did not get smaller, and the output is undefined
+     DX = the OUTPUT segment, the output at DX:0000, SI:CX bytes of room
+     BX = a scratch segment: head[] 8KB and prev[] 2 x window, at BX:0000
+     DI = the window's mask, 1,023 to 16,383
+     SI:CX = the source's length, 32 bits (§20.15.4)
+out: CF=0 and DX:AX = the packed length, which is < SI:CX — a whole stream,
+     T word and raw tail included (§20.13.7)
+     CF=1, AX = 0: it did not get smaller, and the output is undefined
+     CF=1, AX = 1: the raw tail is over 64KB, which the T word cannot count
 ```
 
 **Segments and not pointers**, because the far pointer this is reached through
@@ -39799,9 +39881,8 @@ Over the seven files of docs/plans/O88-COMPRESSION-PLAN.md §13.11.0:
 | the host's shortest-path parse | 63.9% |
 
 so **re-compressing a shipped file gains 3.9 to 10.3 points**, which is what
-the verb is for. `BEVERLY.MOD` — 116,085 bytes — is the one file in that set the
-verb cannot reach at all: `CX` is 16 bits, so a source of 64KB or more is
-refused before anything is claimed.
+the verb is for. `BEVERLY.MOD` — 116,085 bytes — was the one file in that set
+the verb could not reach, `CX` being 16 bits; §20.15.4 is how it can now.
 
 **There is no lookahead**, and that is a measurement rather than an omission:
 at every work budget tried, a deeper chain without one beat a shallower chain
@@ -39877,6 +39958,50 @@ run rather than two. A verb somebody waits seconds for does not notice.
 The cloner is the right host and not merely the one with room: both are
 `files.inc` verbs on the system volume, both take a claim and run to
 completion, and neither is ever wanted while the other runs.
+
+#### 20.15.4 Any length: the parse SLIDES, and decides nothing differently
+
+`SI` and `DI` stay 16-bit offsets, and each is **slid back into the low half of
+its segment** when it passes 32KB, its segment moving up to match. Everything
+that is a length rather than an offset — the source's end, the bail limit, the
+lead the cut is chosen by — is carried 32 bits wide and **re-armed as the same
+16-bit compare** after each slide (`cmz_sarm`, `cmz_oarm`), so the loop tests
+exactly what it tested before and a file under 32KB never slides at all.
+
+- **The source slides by a multiple of 16KB** (`cmz_sslide`): `S = (SI − 16KB)`
+  rounded down to one, which leaves `SI` in `[16KB, 32KB)`. Sixteen KB is the
+  largest window the verb can choose and every window is a power of two, so
+  `position & mask` — the `prev[]` slot — is the same number before and after,
+  and the slide is one pass over `head[]` and `prev[]` taking `S` off every
+  position in them. **A position that would go below zero goes to `NIL`, and
+  that changes no decision**: it was already below `SI − mask`, the oldest the
+  window accepts, so the chain walk would have stopped there anyway. What it
+  costs is ~20,000 word updates once per 16KB of input, against a parse of
+  ~1,600 cycles a byte.
+- **The output slides by exactly 16KB** (`cmz_oslide`), which the open tag
+  byte — at most a symbol behind `DI` — survives.
+- **The cut is two FAR POINTERS** (`cmz_ksi:cmz_kds`, `cmz_kdi:cmz_kes`),
+  because either side may slide past it before the end; the lead it is chosen
+  by is `SI − DI` plus the difference of the two bases, 32 bits, and the
+  compare is the same strictly-greater one (§20.15.2). The tail is copied in
+  32KB pieces with both pointers normalised before each (`cmz_move`).
+- **No match is longer than `CMZ_MAXM` = 16,368**, which is the one thing a
+  slide asks of the parse: `SI` is under 32KB at every probe, and every byte a
+  probe compares or a hash reads must stay under **48KB** — the source window
+  a streamed Compress holds (§22.22.5). It is the only change a slide makes to
+  the STREAM, and `os88lz.lzb_compress_machine` carries it, so the mirror is
+  still statement for statement and does no sliding of its own. (It was
+  32,767 for a day, which kept `SI` plus a match inside the segment and no
+  more; a longer match is split in two, which a file has to hold 16KB of one
+  repeated pattern to notice.)
+
+**The one new refusal is the tail.** The `T` word is 16 bits, so a cut more
+than 64KB before the end — a file whose last 64KB or more is net-expanding,
+text followed by already-compressed data — has no stream. `cmz_pack` answers
+`CF=1, AX=1` and the verb says `Its end won't compress`; `os88lz._cut` raises
+for the same file. Taking a later peak would not help: the cut is the FIRST
+peak of the lead, and a later one of the same height would leave a tail just
+as long.
 
 ### 20.16 A package that DOES NOT SHIP says so in `apps/RETIRED.txt`
 
@@ -43871,7 +43996,8 @@ own on the `fm_ztab` table — the verb's, not `fm_errtab`'s, because those are
 |---|---|---|
 | a folder, or the parent link | nothing — a no-op, silently, exactly as Rename and Delete | the image, which is fetched to find out |
 | `CLONE.DRV` not on the system disk | `No disk` | the kernel — it is the one thing the image cannot say about itself |
-| 64KB or more, or a package region past `APP_MAX_SIZE` | `Too large` | the image |
+| over 16MB unpacked (the hint's 24 bits, §20.14.1), or a package region past `APP_MAX_SIZE` | `Too large` | the image |
+| a raw tail over 64KB (§20.15.4) | `Its end won't compress` | the image |
 | already stored LZB, or a package with a compression bit set | `Already compressed` | the image |
 | a package with PARTS, or whose `image` is not its file | `Cannot compress this one` | the image |
 | no claim, at any window size | `Not enough memory` | the image |
@@ -43976,6 +44102,136 @@ not exist, and the space it needs is `P`, not a second copy. `dskw_czstamp`
 then derives the directory hint from the bytes (§20.14.4), so the verb writes
 no hint of its own.
 
+#### 22.22.4 Any size the machine can hold
+
+**The 64KB ceiling is gone, and it was never the write's.** `dskw_write_x`
+has taken `DX:CX` since §18.4.1; what stopped at a segment was the verb's own
+16-bit bookkeeping, the encoder's `CX` (§20.15.4) and the decoder's source
+(§20.14.5.1) — so a file packing to 64KB or more could not be read back even
+if it had been written. Every size in the verb is 32 bits now: `U`, `P` and
+the packed length, the read's check that it got what the entry promised, the
+widget's scale, the `'CZ'` header's `U` and the write's count. The percentage
+shifts both sizes right together until the old one is a word, which loses
+nothing two digits can show.
+
+**Whole, it is bounded by memory, and §22.22.5 is what happens past that.**
+§22.22.2's one block is `2·U + tables`, so a 640KB machine with ~440KB of heap
+free compresses a file up to about 200KB in one pass; past that a plain file
+is STREAMED. `U` over 16MB is `Too large` before anything is claimed — the
+directory hint that tells every reader what a file expands to is 24 bits
+(§20.14.1). A **package** stays under 64KB by `APP_MAX_SIZE` and is refused
+past it in its own words.
+
+#### 22.22.5 Too big to hold twice: it STREAMS, in two passes
+
+A file whose whole claim will not fit is read through a **48KB source window**
+and written through a **33KB output window**, so what it costs is **89KB plus
+the tables** — 121KB at the full window, 91KB at the smallest dial — whatever
+the file's size. The limit becomes the DISK: the result is written beside the
+original before the original goes.
+
+**`cmz_route` decides, and it decides on `mem_avail`** — the number a claim
+would be served, asked without claiming, so asking sheds nothing (§66.4). Whole
+when `2·U + 41KB` fits: it is one pass and streaming is two. Streamed when it
+does not and every one of these holds:
+
+- the source is **plain** — a `'CZ'` source expands on the way in (§20.14.2)
+  and can only be read whole, so one that does not fit is `Not enough memory`;
+- it is **not a package** and is **over 64KB** (under it, whole is always the
+  cheaper claim);
+- the volume's cluster is **16KB or less**, because the refills are 16KB and
+  32KB at offsets that are multiples of 16KB, and `OSAPI_FILE_READ_AT` takes
+  whole clusters on both (§18.4.4);
+- the heap holds the windows at the smallest dial.
+
+**ONE PASS, AND THE CUT IS DEALT WITH AT THE END.** The stream is cut at the
+first peak of the lead and everything after it is thrown away and sent raw
+(§20.15.2), and where that peak is is not known until the end. So the pass
+writes as it goes — each 16KB of output as the window slides, the first with a
+WRITE (so `dskw_czstamp` sees the `'CZ'` header, which sits in the paragraph
+in front of the window) and the rest with APPENDs, whose rule (the file a
+whole number of clusters) the 16KB chunks keep — to `CMPRESS~.TMP` in the same
+folder, named in `fm_ebuf` (the status line's edit buffer, idle while a menu
+verb runs, and in `DS` where the file layer wants a name). At the end:
+
+1. **The cut is still in the output window** — the common case, a file whose
+   lead keeps rising: `DI` goes back to it and the bytes past it are dropped.
+2. **The window has already written past it** — a stretch that would not
+   compress held the cut still for more than a window: the window goes out
+   whole, the cluster below the cut is read back, and the file is **truncated
+   there** (`OSAPI_FILE_WRITE_AT` with a count of 0, §18.4.7.5) — so the
+   window starts again exactly at the cut.
+3. **The tail**: the source window is refilled from the 16KB boundary below
+   the cut, and the raw tail goes through the same two windows a byte at a
+   time. The last partial chunk goes out, and the **T word** — written as 0
+   with the first 16KB — is put into the first sector in place, with the same
+   door.
+4. The **original is deleted and the new file renamed over it**. A rename
+   patches the name in the staged entry, so the hint survives it. A refusal at
+   the end — not smaller, `Its end won't compress` — or a failed read or write
+   deletes the new file; a read-only original refuses the delete and the new
+   file goes too. The one gap is a rename that fails after the delete, which
+   leaves the result under the temporary name, on the listing, and says the
+   `FERR_*`.
+
+It was two passes for a day — the first finding the cut and writing nothing,
+the second the same parse again, stopping at it — because without a truncate
+the only way to not write past the cut was to know where it was first. That
+was twice the parse on every streamed file for the sake of the rare one:
+**a 250KB file took 438 guest seconds in two passes and takes 238 in one**
+(`tests/lzbig.py`), and the one that does write past its cut — 230KB of text
+then 45KB of noise — takes 284 with the truncate and leaves a volume
+`os88disk --verify` passes.
+
+**The windows move by COPYING, not by moving a segment**, and that is the
+whole difference from a whole compress: `cmz_sslide` and `cmz_oslide` do the
+same address arithmetic either way (§20.15.4), and the streamed arm moves the
+bytes down instead of the segment up — the source then refilled behind them,
+the output first written out in pass 2. The cut is kept as positions in the
+FILE (`cmz_ksa`, `cmz_koa`) rather than as far pointers, because a streamed
+window no longer holds it. A failed read or write unwinds from wherever it
+happened to `cmz_pack`'s own frame (`cmz_ioerr`) with the `FERR_*` for the
+caller to say.
+
+**What it costs is disk and a little time**: the result beside the original
+until the rename, and the windows' copying and refills on top of whole's one
+parse at ~1,600 cycles a byte. `kern_small` does not reach
+this path at all: 91KB of windows is more than its heap. The bar is scaled
+to both passes, and since every `dskw_*` call arms the widget to its own
+length and ends it (§12.8), `cmz_rearm` puts the verb's scale back after each
+read and write.
+
+#### 22.22.6 The pointer tracks and the bar says `Compressing...`
+
+**The parse is CPU work with no disk in it, and the pointer used to freeze for
+all of it** — a 160KB file is a minute of 8088 inside a lock hold (§12.8.3).
+§7.4's bracket is what lets the arrow track through an `int 13h`, and the
+argument for it holds here unchanged: `[cur_inxfer]` set means *this task holds
+the gfx lock and is not inside a drawing primitive*, so the mouse ISR may draw
+the arrow itself (with §7.4.2's other conditions: our lock, no clip region, not
+onto the bar). The parse draws nothing, so the module raises the flag at the
+top of `cmz_pack` and drops it around everything that paints — each progress
+step (`cmz_prog`), each `cmz_rearm` — and around every read and write, which
+bracket their own `int 13h` and clear it after. `CMZ_TRACK` is the module's
+own macro, because the flag is kernel `.text` and the parse's `DS` is the
+source; `NOCURDISK=1` compiles it away. All of §22.22.5 and this cost
+`CLONE.DRV` **1,402 bytes of image** (6,488 → 7,890) and 1,037 of disk,
+measured, and the kernel §18.4.7.5's 106 bytes of `kern_big` `.cold`. Uncompress is a read and a write and tracks through both
+already; the decode between them is inside the kernel's read and is not
+bracketed.
+
+**`Compressing...` goes up before the work starts** — after the refusals that
+need no work, so `Already compressed` does not flash it first — and it goes up
+**inside fpg's bar bracket** (`CURBAR_ON`, §7.4.3). The strip is drawn by
+`menu_draw_bar`, and without the bracket that composition spends `gfx_lock`'s
+promised hide: the arrow leaves the glass and a hidden arrow cannot track, so
+the first build of this read **6 moves in 150 looks** through a parse — every
+one inside the file's own read — against **144** with it (`tests/lzbig.py`). `OSAPI_TOAST`
+draws at once when the UI task holds the lock (`toast_now`, §59), and nothing
+takes it down: the progress widget no longer retires a toast (§59.8.1 keeps
+the two apart by geometry), and expiry is the idle pass's, which does not run
+until the verb returns — by which time the verdict has replaced it.
+
 ### 22.23 `Uncompress` — and it is the same module
 
 The other half of §22.22, and since the second size pass it lives in the
@@ -44028,7 +44284,6 @@ the hint, and `U` is enough (§20.14.2).
 |---|---|
 | a folder, or the parent link | nothing — a no-op, silently, exactly as `Compress` |
 | no `'CZ'` mark and no package compression bit | `Not compressed` |
-| 64KB or more unpacked | `Too large` |
 | an `image` no bigger than the file it is packed into | `Cannot expand this one` |
 | a stream `lz_decomp_x` refuses, or one that produces the wrong length | `Cannot expand this one` |
 | either claim | `Not enough memory` |
@@ -44044,6 +44299,16 @@ The **flag bits are cleared on the expanded copy** before it is written — bits
 `ld_check_hdr` reads without a decoder, and `dskw_czstamp` clears the
 directory hint on the `'CZ'` arm for the same reason and by the same route it
 sets one: it looks at the bytes.
+
+#### 22.23.4 Any size, for §22.22.4's reasons
+
+The `'CZ'` arm is a transparent read and a write, and neither has had a 64KB
+ceiling since §18.4.1 — the verb's `Too large` was its own 16-bit
+bookkeeping, and a packed form past 64KB could not have been read anyway until
+the decoder's input crossed (§20.14.5.1). The claim is `U` rounded up, so a
+file expands if the heap holds `U`. A package is under 64KB by construction,
+and one longer than that on the disk is not a compressed package and is
+`Not compressed` without being read.
 
 
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)
@@ -135814,6 +136079,19 @@ It is not taken: 285 resident bytes on every machine for ever, for a call this
 box makes, is how a kernel that boots on 128KB stops doing so a couple of
 hundred bytes at a time. `docs/plans/DOS-EXEC-PLAN.md` carries the costing for
 whoever wants to revisit it.
+
+**AND ON `kern_big` THE KERNEL DOES IT NOW** (§18.4.7.5): `OSAPI_FILE_WRITE_AT`
+with a count of 0 ends a file at a cluster boundary, for 106 resident bytes
+rather than 285, so `dos_fh_shrink`'s first arm reads the cluster the new end
+falls in into the window, cuts the file at that cluster's start, and appends
+the kept part of it back — the cut size being a cluster multiple is exactly
+`APPEND`'s precondition. No temporary, no free space, no instant where the data
+is under another name, and **52 package bytes**. `tests/dosfile.py`'s two
+truncations short of zero both take it (the kernel's truncate breakpointed:
+two hits), the one to 100 bytes being a cut to **zero clusters** followed by
+an append onto the empty file. `kern_small` has no write-at door and a
+redirected volume refuses it — both answer `CF=1` before touching the file —
+and then the three arms below run exactly as they did:
 
 So `dos_fh_shrink` copies the kept prefix out under a temporary name and swaps
 the two, which is what a DOS utility does by hand — and every door it needs
