@@ -35,7 +35,6 @@ fails.  Drop 19.2.3's window (`make DIRW1=1`) and 3 fails.
 import os
 import struct
 import sys
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 import os88geom                                                # noqa: E402
@@ -106,19 +105,24 @@ def main():
             raw = m.read(base + off, 128)
             return raw.split(b"\0")[0].decode("latin1")
 
+        def wait(cond, what, poll):
+            # GUEST time bounds it; a miss is judged by the caller's own check
+            try:
+                os88marty.until(m, lambda _: cond(), what, poll=poll,
+                                limit=60.0)
+            except os88marty.MartyError:
+                pass
+
         # --- arm A, in TWO brackets: cold, then warm ------------------------
         os88marty.settle(m)
         m.disk(reset=True)
         m.type_text("p")
-        end = time.time() + 60.0
-        while time.time() < end and not b(R_MARK):
-            time.sleep(0.05)
+        wait(lambda: b(R_MARK), "the first OSAPI_FILE_PATH", 0.05)
         if not b(R_MARK):
             fail("the first OSAPI_FILE_PATH never returned")
         cold = m.disk(reset=True)               # ...and the second call starts
-        end = time.time() + 60.0                # its own bracket here
-        while time.time() < end and b(R_DONE) != 0xA5:
-            time.sleep(0.05)
+        wait(lambda: b(R_DONE) == 0xA5,         # its own bracket here
+             "the second OSAPI_FILE_PATH", 0.05)
         if b(R_DONE) != 0xA5:
             fail("the second OSAPI_FILE_PATH never returned")
         warm = m.disk()
@@ -173,9 +177,7 @@ def main():
         # --- 4: a same-volume chdir really is free ---------------------------
         m.disk(reset=True)
         m.type_text("g")
-        end = time.time() + 60.0
-        while time.time() < end and b(R_MDONE) == 0:
-            time.sleep(0.1)
+        wait(lambda: b(R_MDONE) != 0, "arm B", 0.1)
         if b(R_MDONE) != 0xA5:
             fail("arm B did not finish (marker %02X) - OSAPI_FILE_HERE or "
                  "GOTO_QM refused" % b(R_MDONE))

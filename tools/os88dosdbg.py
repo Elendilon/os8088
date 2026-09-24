@@ -50,7 +50,6 @@ import struct
 import subprocess
 import sys
 import tempfile
-import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -517,7 +516,9 @@ def drive(m, script, label):
 
     `--keys` is a comma-separated list of steps:
 
-        wait:8          sleep that many seconds of HOST time
+        wait:8          pause what 8 seconds bought an IDLE box, spent in
+                        GUEST time (os88marty.pace), so a loaded host
+                        does not hand the program less of it
         key:AltLeft     one MartyKey by name (W3C KeyboardEvent.code)
         text:hello      ASCII through type_text, shifted characters included
         move:40;24      a RELATIVE mouse move, in mouse units. The pair is
@@ -553,6 +554,7 @@ def drive(m, script, label):
     """
     if not script:
         return
+    import os88marty                                                  # noqa: E402
     mo = [None]
 
     def mouse():
@@ -567,8 +569,8 @@ def drive(m, script, label):
         if not step:
             continue
         kind, _, arg = step.partition(":")
-        if kind == "wait":
-            time.sleep(float(arg))
+        if kind == "wait":              # an idle box's seconds, in GUEST time
+            os88marty.pace(m, float(arg))
         elif kind == "key":
             m.key(arg)
         elif kind == "text":
@@ -654,12 +656,13 @@ def cmd_trace(a):
                     return struct.unpack_from("<H", raw, os88geom.W_SEG)[0]
             return None
 
-        base, end = None, time.time() + a.timeout
-        while time.time() < end and base is None:
-            sg = arena()
-            if sg:
-                base = (sg << 4) + imgsz
-            time.sleep(0.2)
+        try:
+            os88marty.until(m, lambda _: arena(), "a DOS window", poll=0.2,
+                            limit=a.timeout)
+        except os88marty.MartyError:
+            pass
+        sg = arena()
+        base = (sg << 4) + imgsz if sg else None
         if base is None:
             raise SystemExit("os88dosdbg: no DOS window appeared in %ds" % a.timeout)
 
@@ -668,8 +671,10 @@ def cmd_trace(a):
 
         drive(m, a.keys, "keys")
 
-        last, end = None, time.time() + a.timeout
-        while time.time() < end:
+        # One poll of the trace; True ends it. The deadline is GUEST time.
+        got = [None]
+
+        def poll(_):
             total = w16(sym["dos_tracen"])
             trseg = w16(sym["dos_trseg"])
             if total and not trseg:
@@ -689,15 +694,21 @@ def cmd_trace(a):
                 # index cannot collide with [dos_tracei]'s "no call in
                 # flight" sentinel (SPEC.md 96.29.1.1). It is asked for by
                 # name for that reason.
-                last = (total, w16(sym["dos_tracew"]),
-                        bytes(m.read((trseg << 4) + sym["DOS_TRB_OFF"],
-                                     nent * stride)),
-                        w16(sym["dos_ldpsp"]))
+                got[0] = (total, w16(sym["dos_tracew"]),
+                          bytes(m.read((trseg << 4) + sym["DOS_TRB_OFF"],
+                                       nent * stride)),
+                          w16(sym["dos_ldpsp"]))
             if a.until and total >= a.until:
-                break
+                return True
             if not a.until and m.read(base + sym["dos_state"], 1)[0] == 3:
-                break                                    # the program exited
-            time.sleep(a.poll)
+                return True                              # the program exited
+            return False
+        try:
+            os88marty.until(m, poll, "the trace", poll=a.poll,
+                            limit=a.timeout)
+        except os88marty.MartyError:
+            pass                                         # ...what it holds
+        last = got[0]
         if last is None:
             raise SystemExit("os88dosdbg: the program made no INT 21h call at all")
         total, wr, ring, psp = last
@@ -900,7 +911,7 @@ def cmd_ref(a):
                               boot=a.boot_secs) as m:
             for _ in range(a.boot_keys):
                 m.key("Enter")
-                time.sleep(3)
+                os88marty.pace(m, 3)
             # --- ANYTHING THAT HAS TO BE RESIDENT FIRST, and the ORDER is the
             # point: a mouse driver loaded AFTER this TSR owns INT 33h above
             # it and the histogram records nothing, while one loaded BEFORE
@@ -909,10 +920,16 @@ def cmd_ref(a):
             for cmd in a.pre:
                 m.type_text(cmd)
                 m.key("Enter")
-                time.sleep(4)
+                os88marty.pace(m, 4)
             m.type_text("DOSTRAP")
             m.key("Enter")
-            time.sleep(4)
+            try:
+                os88marty.until(m, lambda mm: any(
+                    "DOSTRAP" in r and "installed" in r
+                    for r in (mm.screen() or [])), "DOSTRAP to install",
+                    poll=0.5, limit=30)
+            except os88marty.MartyError:
+                pass                                # ...said just below
             screen = [r.rstrip() for r in (m.screen() or []) if "DOSTRAP" in r]
             if not any("installed" in r for r in screen):
                 raise SystemExit(
@@ -921,7 +938,7 @@ def cmd_ref(a):
                     "(the default); one that does not needs 0." % (screen[:3],))
             m.type_text("%s:" % a.drive)
             m.key("Enter")
-            time.sleep(3)
+            os88marty.pace(m, 3)
             if a.cd:
                 # A PROGRAM THAT DEMANDS ITS OWN DIRECTORY cannot be compared
                 # by naming a path, because the two sides would then be doing
@@ -932,7 +949,7 @@ def cmd_ref(a):
                 # start the program where it expects to be.
                 m.type_text("CD \\%s" % a.cd.replace("/", "\\"))
                 m.key("Enter")
-                time.sleep(2)
+                os88marty.pace(m, 2)
             # **THE SAME ENVIRONMENT, OR THE TWO SIDES RUN DIFFERENT
             # PROGRAMS** (SPEC.md 96.44.13.1).  COMMAND.COM hands out
             # `COMSPEC=` and nothing else; the box hands out `BLASTER=` when a
@@ -945,7 +962,7 @@ def cmd_ref(a):
             for kv in a.set:
                 m.type_text("SET " + kv)
                 m.key("Enter")
-                time.sleep(2)
+                os88marty.pace(m, 2)
             # A PATHED PROGRAM NEEDS DOS's OWN SEPARATOR.  `trace` hands
             # `PRINCE/PRINCE.EXE` to os88ui.path(), which wants forward
             # slashes; COMMAND.COM reads one as a SWITCH character and answers
@@ -957,14 +974,15 @@ def cmd_ref(a):
             seg = struct.unpack("<HH", bytes(m.read(0x21 * 4, 4)))[1]
             base = seg << 4
             drive(m, a.keys, "keys")
-            end = time.time() + a.timeout
-            while time.time() < end:
-                total = struct.unpack("<H", bytes(m.read(base + lay["total"], 2)))[0]
-                if a.until and total >= a.until:
-                    break
-                if total >= lay["nent"]:
-                    break
-                time.sleep(a.poll)
+            def full(mm):
+                total = struct.unpack("<H", bytes(mm.read(base + lay["total"],
+                                                          2)))[0]
+                return (a.until and total >= a.until) or total >= lay["nent"]
+            try:
+                os88marty.until(m, full, "the reference trace", poll=a.poll,
+                                limit=a.timeout)
+            except os88marty.MartyError:
+                pass                                # ...what it holds
             total = struct.unpack("<H", bytes(m.read(base + lay["total"], 2)))[0]
             ring = bytes(m.read(base + lay["ring"], lay["nent"] * lay["entsz"]))
             psp = struct.unpack_from("<H", ring, 6)[0]   # entry 0's DX

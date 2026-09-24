@@ -215,8 +215,7 @@ def main():
         # something: an instrument that reports hits for a symbol nothing
         # calls is reporting noise, and every count above would be worthless.
         with os88marty.bp_trace(m, "wm_show") as tr3:
-            time.sleep(0.5)                 # nothing opens a window here
-            os88marty.guest_sleep(m, 2.0)
+            os88marty.guest_sleep(m, 2.0)   # nothing opens a window here
         check(tr3.n == 0, "no window shown, no stop recorded (n=%d)" % tr3.n)
 
         # --- 7. a hot symbol overflows rather than wedging --------------------

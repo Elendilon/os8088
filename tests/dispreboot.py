@@ -256,7 +256,12 @@ def main():
         bx, by, bw, bh = dispcp.win_rect(m, S, disk)
         dispcp.open_named(m, mo, S, os88marty.settle, bx, by, "NOTEPAD.O88",
                           card=pri)
-        time.sleep(2)
+        try:
+            os88marty.until(m, lambda _: len(dispcp.win_list(m, S)) >= 2,
+                            "notepad's window", poll=0.2, limit=60)
+            os88marty.settle(m, card=pri)
+        except os88marty.MartyError:
+            pass                            # ...reported just below
         wins = dispcp.win_list(m, S)
         if len(wins) < 2:
             sys.exit("notepad did not launch")
@@ -280,10 +285,21 @@ def main():
         # So every wait below is spent here, resuming ui_task's own accesses.
         state = {"benign": 0}
 
+        # `secs` is what the window was on an idle box, and it is spent in
+        # GUEST time: a stop resumes at once, so the clock only stands still
+        # if the machine has stopped for good, and that ends the watch too.
         def pump(secs):
-            t0 = time.time()
-            while time.time() - t0 < secs:
+            c0 = last = m.status()["cycles"]
+            moved = time.time()
+            while True:
                 st = m.status()
+                if (st["cycles"] - c0) / os88marty.GUEST_HZ >= \
+                        secs * os88marty.GUEST_PACE:
+                    break
+                if st["cycles"] != last:
+                    last, moved = st["cycles"], time.time()
+                elif time.time() - moved > 10.0:
+                    break
                 if st["state"] != "breakpoint":     # state_name(), NOT the
                     # THE DIFFERENTIAL. A `mem` breakpoint is a check inside
                     # the CPU's own bus cycle, so it sees CPU writes and
@@ -443,7 +459,7 @@ def main():
                 return 1
             m.run()
             k2, kb2 = ticks(m), bios_ticks(m)
-            time.sleep(1.2)
+            os88marty.pace(m, 1.2)
             k3, kb3 = ticks(m), bios_ticks(m)
             how = ("ALIVE" if k3 != k2 else
                    "*** REBOOTED (kernel tick dead, BIOS tick alive) ***"

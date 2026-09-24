@@ -66,7 +66,6 @@ into any more and 5b reports a pass that proves nothing.
 import argparse
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "tools"))
@@ -159,10 +158,16 @@ def main():
 
         def drvrow(r):
             cp, x0, y0 = panel()
+            was = seg(r)
             mo.click(x0 + heaphi.CP_RX + 40,
                      y0 + heaphi.CP_DBY1 + r * heaphi.CP_DROWH
                      + heaphi.CP_DROWH // 2)
-            time.sleep(8)
+            try:                                # a load is a floppy read,
+                M.until(m, lambda _: seg(r) != was,     # which a screen
+                        "driver row %d to (un)mount" % r,   # settle takes
+                        poll=0.25, limit=60)                # for "done"
+            except M.MartyError:
+                pass                            # ...judged by the caller
             heaphi.quiet(m)
             mo.click(cp[1] + 8, cp[2] + 9)      # close the panel: CTRL.DRV is
             heaphi.quiet(m)                     # a module and would be a wall
@@ -183,7 +188,12 @@ def main():
         def open_named(name, secs):
             before = set(w.i for w in os88geom.windows(m, S) if w.visible)
             dispcp.open_named(m, mo, S, M.settle, *disk, name=name)
-            time.sleep(secs)
+            try:
+                M.until(m, lambda _: any(w.visible and w.i not in before
+                                         for w in os88geom.windows(m, S)),
+                        "%s's window" % name, poll=0.25, limit=secs * 10)
+            except M.MartyError:
+                pass                            # ...reported just below
             M.settle(m)
             new = [w for w in os88geom.windows(m, S)
                    if w.visible and w.i not in before]
@@ -207,10 +217,10 @@ def main():
         # patch actually exists for: a card that has played and is now idle.
         # It has to come AFTER the driver shuffle, because an unmount unhooks.
         mo.click(sbw.x + sbw.w // 2, sbw.y + sbw.h - 20)     # open the stream
-        time.sleep(6)
+        M.pace(m, 6)
         M.settle(m)
         mo.click(sbw.x + sbw.w // 2, sbw.y + sbw.h - 20)     # ...and close it
-        time.sleep(4)
+        M.pace(m, 4)
         M.settle(m)
         mo.click(sbw.x + 8, sbw.y + 9)                       # ...and the app:
         M.settle(m)                                          # the hole opens
@@ -321,7 +331,12 @@ def main():
             # lowest run big enough, so a fill would seal it - pinned, and
             # against the very block the ask needs moved (tests/filler).
             m.key("KeyS")
-            time.sleep(6)
+            try:
+                M.until(m, lambda _: seg(SND_ROW) not in (sndseg, 0),
+                        "the sound image to move", poll=0.25,
+                        guest=6 * M.GUEST_PACE)
+            except M.MartyError:
+                pass                            # ...ask again
             M.settle(m)
             if seg(SND_ROW) not in (sndseg, 0):
                 break
