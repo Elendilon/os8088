@@ -162,24 +162,26 @@ sleeping through a dead machine.
 
 ---
 
-## 3. THE ONE THING LEFT AS A KNOB, and why
+## 3. THE PACE IS GUEST TIME - it was the one thing left as a knob
 
-`OS88_GUEST_PACE=<ratio>` routes `os88mouse`'s three fixed settles through
-`guest_sleep`. It is **off by default.**
+`os88marty.GUEST_PACE` is how many GUEST seconds a harness pause spends per
+second the caller wrote, and every pause in the harness goes through
+`os88marty.pace()`: `settle`'s stillness window, `os88mouse`'s click, drag and
+menu settles and its gap between packets, `os88mouserel`'s wall pacing,
+`bp_count`'s arm, quiet and first windows, and `launch(boot=<secs>)`. The
+default is **4.5**, the idle ratio measured on this container (4.4-4.8 over
+three samples, idle desktop), so every existing call spends what it spent on a
+quiet box - and now spends it on a busy one too.
 
-It is true that rewriting these waits onto
-guest time "reaches 194 files, changes how much guest work every row gets per
-settle, and would want a full soak behind it". A knob is how this project
-takes a change of that shape: the arm exists, it is measurable against the
-default, and the flip is a decision somebody makes **with a soak behind it**
-rather than one that happens quietly.
+It was a knob, **off by default**, while it waited for "a full soak behind
+it"; the flip came with a sweep of the individual `time.sleep` calls in
+`tests/` onto guest state and guest time, validated row by row.
+`OS88_GUEST_PACE=0` puts the host sleeps back, for an A/B and nothing else.
 
-Set it to the box's own idle ratio (~4.8 here) to reproduce today's coverage
-exactly. Below that and rows get less guest time than they do now.
-
-**The asymmetry that makes this safe to flip when somebody does:** raising the
-guest time a wait spends can only turn a failure into a pass. It cannot change
-what a passing row measures. What it costs is wall clock under load.
+**The asymmetry that made it safe to flip:** raising the guest time a wait
+spends can only turn a failure into a pass. It cannot change what a passing
+row measures. What it costs is wall clock under load, which is the honest
+price of asking for the same work.
 
 ---
 
@@ -378,8 +380,9 @@ Both re-declared at 60.
   ("one passing run is not a classification"); this is the same lesson
   arriving from the other side, and it is a row for the test-fixing pass
   rather than for this one.
-* **The `guest_sleep` sweep across 99 files has not been taken**, and should
-  not be until `OS88_GUEST_PACE` has a soak behind it (§3).
+* **The `guest_sleep` sweep has been taken** (§3): the harness pauses are
+  guest time by default and the individual sleeps in `tests/` wait on guest
+  state or spend guest time.
 * **`GUEST_BUDGET_RATIO` is set from one box's measurement.** `OS88_WAITLOG`
   on the next full soak is what confirms or moves it; the widest wait seen so
   far leaves 17x of headroom, so it is not close.

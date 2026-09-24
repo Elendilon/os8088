@@ -155,6 +155,37 @@ HOST_BACKSTOP = 10.0
 # none gets looser because the box is busy.
 GUEST_BUDGET_RATIO = float(os.environ.get("OS88_GUEST_RATIO", "3.0"))
 
+# THE PACE: how many GUEST seconds a host-second pause in this harness spends.
+# A pause - the gap between two `settle` captures, a click's settle, the space
+# between two mouse packets - is a quantity every caller wrote in HOST seconds,
+# tuned on an idle box where a host second bought 4.4-4.8 guest seconds
+# (measured on this container, idle desktop, three samples). Spent as
+# `time.sleep` it bought a third of that under a four-wide soak, so the same
+# line handed the machine less work exactly when the box was busy and the row
+# then failed looking like the feature. `pace()` spends the idle figure's worth
+# of GUEST time instead, so a pause is the same amount of the machine's work on
+# any box - it costs more host seconds under load, which is the honest price.
+# 4.5 is the idle measurement, not a margin; OS88_GUEST_PACE=0 puts the host
+# sleeps back, for an A/B and nothing else.
+GUEST_PACE = float(os.environ.get("OS88_GUEST_PACE", "4.5"))
+
+
+def pace(m, secs):
+    """Pause for what `time.sleep(secs)` bought on an idle box, in GUEST time.
+
+    The drop-in for a host sleep whose only job was to let the guest get on
+    with something and which has no state of its own to wait on. When there IS
+    a state - a word that moves, a window that appears, disk traffic that
+    stops - wait on that with `until` or `quiesce` instead; a fixed pause is
+    the fallback, not the tool. The guest must be running: a pause over a
+    paused machine is `guest_sleep`'s stall and raises in GUEST_STALL seconds.
+    """
+    import time
+    if GUEST_PACE > 0 and m is not None:
+        return guest_sleep(m, secs * GUEST_PACE)
+    time.sleep(secs)
+    return 0.0
+
 # Where a run records what its waits actually cost, in guest seconds, when
 # OS88_WAITLOG names a file. Nothing reads it at run time: it is how the
 # numbers above get re-derived from a real soak instead of argued about.
@@ -2414,15 +2445,18 @@ def settle(m, quiet=1.0, stable=2, gate=None, limit=120.0, card=None,
     # seconds. Measured rather than assumed, because the ratio is a property
     # of this host, and only when the window is wide enough to be at risk.
     if quiet * stable > 4.0:
-        c0 = m.status()["cycles"]
-        time.sleep(0.5)
-        # 4.772727 MHz is every machine in this tree bar --turbo, which only
-        # makes this over-estimate and so err towards raising.
-        rate = (m.status()["cycles"] - c0) / 0.5 / 4772727.0
+        if GUEST_PACE > 0:
+            rate = GUEST_PACE           # the window IS guest time (pace())
+        else:
+            c0 = m.status()["cycles"]
+            time.sleep(0.5)
+            # 4.772727 MHz is every machine in this tree bar --turbo, which
+            # only makes this over-estimate and so err towards raising.
+            rate = (m.status()["cycles"] - c0) / 0.5 / 4772727.0
         if rate > 0.0 and quiet * stable * rate >= 55.0:
             raise MartyError(
                 "settle(quiet=%g, stable=%d) asks for %.0f GUEST seconds of "
-                "unchanged screen (this host runs the guest at %.1fx), and the "
+                "unchanged screen (%.1f guest seconds a quiet second), and the "
                 "menu bar's clock changes every 60 - so this can never return "
                 "and would wait out the whole %.0fs limit. Use a smaller "
                 "`quiet`; and if you are waiting on something that holds the "
@@ -2483,7 +2517,7 @@ def settle(m, quiet=1.0, stable=2, gate=None, limit=120.0, card=None,
             cur = None
         if cur is not None and gate is not None and not gate(cur):
             seen, last, run = cur, None, 0       # not up yet: stillness before
-            time.sleep(quiet)                    # the gate means nothing
+            pace(m, quiet)                       # the gate means nothing
             continue
         same = (cur is not None and last is not None
                 and cur.bytes == last.bytes)
@@ -2502,7 +2536,11 @@ def settle(m, quiet=1.0, stable=2, gate=None, limit=120.0, card=None,
             prog.done("settle")
             return time.time() - t0
         last = cur
-        time.sleep(quiet)
+        # THE WINDOW IS GUEST TIME (see GUEST_PACE). Two identical captures
+        # `quiet` HOST seconds apart covered a third as much of the machine's
+        # time under a soak as on an idle box, so a repaint with a long gap
+        # could read as settled exactly when the box was busy.
+        pace(m, quiet)
 
 
 # HOW MANY TIMES DID ONE GESTURE REACH A ROUTINE? Two tests wrote this loop by
@@ -2558,20 +2596,31 @@ def bp_count(m, target, act, arm=0.6, quiet=3.0, first=14.0, limit=120.0):
     # above at the other end of the loop, and the same mark answers it: every
     # stop this gesture makes is NEWER than the one the machine was found at.
     mark = m._mark(m.status())
-    threading.Thread(target=lambda: (time.sleep(arm), act(), done.append(1)),
+    # ALL FOUR WINDOWS ARE GUEST TIME. `arm`, `quiet`, `first` and `limit` are
+    # idle-box seconds as every caller wrote them, spent as GUEST_PACE guest
+    # seconds each: measured on the host clock, `quiet` covered a third as
+    # much of the machine under a soak, so a gesture whose second entry came
+    # late in guest terms was cut off and counted short - the half of an A/B
+    # meant to answer TWO then answered ONE.
+    threading.Thread(target=lambda: (pace(m, arm), act(), done.append(1)),
                      daemon=True).start()
-    t0, last = time.time(), None
-    while time.time() - t0 < limit:
+    per = GUEST_HZ * (GUEST_PACE if GUEST_PACE > 0 else GUEST_BUDGET_RATIO)
+    c0 = int(m.status().get("cycles", 0))
+    last = None
+    while True:
         st = m.status()                 # ONE call: the guest is stopped, so a
-        if st.get("state", "running") == "breakpoint":   # second would be a
-            if m._newer(st, mark):                       # round trip for the
-                seen.add(st.get("stops", st.get("cycles")))   # same answer
-                last = time.time()
+        now = int(st.get("cycles", 0))  # second would be a round trip for the
+        if (now - c0) / per >= limit:   # same answer
+            break
+        if st.get("state", "running") == "breakpoint":
+            if m._newer(st, mark):
+                seen.add(st.get("stops", st.get("cycles")))
+                last = now
             m.run()
             continue
-        if done and last is not None and time.time() - last > quiet:
+        if done and last is not None and (now - last) / per > quiet:
             break
-        if done and last is None and time.time() - t0 > first:
+        if done and last is None and (now - c0) / per > first:
             break
         time.sleep(0.05)
     m.breakpoints([])
@@ -2844,14 +2893,18 @@ class BpTrace:
         already confirmed - a repaint that outlives the click's own proof.
         Returns True, or False on the deadline.
         """
-        t0 = time.time()
-        while time.time() - t0 < limit:
+        # A GUEST budget, like every other wait here: `limit` idle-box
+        # seconds converted at GUEST_BUDGET_RATIO, so a loaded box cannot cut
+        # it short. The pump keeps resuming, so the clock keeps moving.
+        c0 = int(self.m.status().get("cycles", 0))
+        budget = limit * GUEST_BUDGET_RATIO
+        while (int(self.m.status().get("cycles", 0)) - c0) / GUEST_HZ < budget:
             if self.error is not None:
                 raise self.error
             if self.count(name) >= n:
                 return True
             time.sleep(0.02)
-        return False
+        return self.count(name) >= n
 
     # --- the block -----------------------------------------------------------
 
@@ -3317,7 +3370,7 @@ def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
             if boot is True:
                 settle(m, gate=desktop_up, card=card)
             else:
-                time.sleep(boot)
+                pace(m, boot)           # idle-box seconds, as guest time
         except BaseException:                    # ...or the caller never gets
             m.close()                            # the object that owns the
             raise                                # process, and it survives
