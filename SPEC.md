@@ -83419,7 +83419,9 @@ heuristic. Preferring volumes of the document's own kind — hard disk before
 floppy for a document on C: — is plausible and would sometimes skip an empty
 floppy drive's retries, and it is exactly the kind of unmeasured ordering rule
 this tree has learned to refuse (PERFORMANCE.md Part 4). What it would buy is
-bounded by the case below, which removes the repeat entirely.
+bounded by the case below, which removes the repeat entirely. **§54.4.2.1
+tries the BOOT volume ahead of the sweep**, which is not that rule, and says
+why: the bound below never reaches the first open of a session.
 
 **A successful locate writes the hint back**, which is new and is what keeps
 the sweep from being paid twice. `assoc_try` navigates with `dsk_chdir_q`
@@ -83437,6 +83439,65 @@ program's directory index`. It never did: `assoc_try` restores AX across its
 own frame, and §21.4 removed the last consumer when `ld_run_name` started
 resolving by name. The contract now says what the code does, which is what
 frees `.found` to spend AX on the hint.
+
+### 54.4.2.1 …an empty drive is asked once, the boot volume first, and a folder move is a word
+
+Reported from the field, on an installed machine: *"no disk in any floppy
+drive, go to E:, double-click a `.MOD` - 11 to 14 seconds before Tracker
+begins to load"*, with `TRACKER.O88` in `C:\APPS` where the installer put it.
+`tests/assocsweep.py` is the measurement and it found three separate costs,
+none of which was the program's load.
+
+**An empty floppy drive was mounted TWICE, and a third time behind a hint.**
+A drive with no disk is a live volume row - `dsk_vol_row_x` skips only a FREE
+one - and its mount fails on the BIOS's retries, which is seconds on the
+target machine. `assoc_tryvol` asks each volume for its root and then for
+`APPS` through the root again, so each empty drive paid its retries twice, and
+rung 1's hint can name a drive the sweep then visits a third time. A locate
+now keeps `[assoc_dead]`, one bit a volume, set when a move answers
+`FERR_NODISK` - a failed MOUNT, and nothing else: a hint's out-of-range
+cluster answers `FERR_IO` and does not condemn the volume it names.
+
+**The boot volume is tried right after the document's own.** §54.4.2 refused
+a *kind* ordering (hard disk before floppy) as an unmeasured heuristic, on the
+ground that the hint write-back bounds it. The bound is real and it is the
+FIRST open of each type in a session that it does not reach: a fresh boot has
+no hint, so the first `.MOD` swept A: and B: before C: every time. This is not
+a kind rule. The boot volume is the one volume known to have a disk in it -
+the machine booted off it and loads its drivers and modules from it - and it
+is where §52.10's install puts every program. On a floppy boot it is A:, which
+the sweep reached first anyway, so that machine's order is unchanged; on an
+installed one it is C:, and no floppy drive is touched. `.found` then reads
+C:'s `ASSOC.DAT` (§54.7.2), which seeds every hint on the volume, so the next
+document of any type the installer associated is rung 1.
+
+**A folder move inside a mounted volume is a word.** Every rung navigated
+with `dsk_chdir_q`, which answers a move to a different folder with a REMOUNT
+- the boot sector read again, one `int 13h`, to learn that the disk whose
+motor is still turning is still the disk. A locate is mostly such moves (the
+document's folder, that volume's root, its `APPS`, and back), so rungs now
+move with `fcp_goto`, the package path's quiet stand (§18.9.1.1): the media
+half of §18.9.1's predicate and a word when it holds, and the same
+`dsk_chdir_q` as before when it does not. `assoc_back` takes it too.
+
+MEASURED ON MARTYPC (a 4.77MHz 8088, GLaBIOS), `assoc_run_x` to
+`ld_run_name_x`:
+
+| machine | before | after |
+|---|---:|---:|
+| hard-disk boot, A: EMPTY, document in B:\MEDIA, program in C:\ | 2,335-2,390 ms, mounts B B A A C | **155-210 ms**, mounts B C |
+| floppy boot, document in A:\, program in B:\APPS | 3,390-3,712 ms, 18 `int 13h`, mounts A A B B | 3,250-3,356 ms, 16 `int 13h`, mounts A B |
+
+Each failed mount of the empty A: is ~1 s under GLaBIOS; the field's 11-14
+seconds is two empty drives at four failed mounts, which is ~3 s apiece on
+that machine's ROM, and all four are gone. The floppy row is a range because
+what is left of it is not the locate's: B:'s first mount reads its FAT as one
+eight-sector run that answers `80h` three times before §18.91's per-sector
+fallback takes it - the same on the tree before this change, ~800 ms on
+MartyPC - and `ASSOC.DAT`'s read-ahead fill (§18.95) lands wherever the disk's
+layout put the file, so both move with rotational phase. `tests/assocsweep.py`
+asserts the MOUNTS, which are exact, and not the milliseconds; it is red on
+the kernel before this section on both legs.
 
 ### 54.5 The API: the app PULLS its document, and may claim an extension
 

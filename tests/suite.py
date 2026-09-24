@@ -1787,6 +1787,18 @@ SOAK = [
         "FOLDER open beside it is the control that says the breakpoint "
         "fires at all.",
         needs=("marty",), serial=True),
+    Row("assocsweep", "soak", py("tests/assocsweep.py"), 30.0,
+        "SPEC.md 54.4.2.1: what a document double-click costs BEFORE its "
+        "program loads. Field: an installed machine with every floppy drive "
+        "EMPTY took 11-14 s to start Tracker for a .MOD on E:, because "
+        "assoc_locate swept the empty drives in index order before C: and "
+        "mounted each one TWICE (root, then APPS), and re-read a floppy's "
+        "boot sector for every folder it moved between. Breakpoints on "
+        "dsk_chdir_x count the mounts: a hard-disk boot with A: empty must "
+        "never mount A: (was B B A A C, 2,335 ms; now B C), and a floppy "
+        "locate must mount no volume twice (was A A B B). VERIFIED RED on "
+        "the kernel before the fix.",
+        needs=("marty",)),
     Row("fontview", "soak", py("tests/fontview.py"), 60.0,
         "SPEC.md 90: an F88 association launches FONT VIEWER with that family "
         "selected, every installed face is listed, typing edits the specimen, "
