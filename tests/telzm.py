@@ -474,24 +474,42 @@ def main():
             #
             # ...and then HALF A SECOND OF THE MACHINE before it is answered:
             # nobody answers a dialog the moment it appears, and a host sleep
-            # here would be a different amount of the guest at every load. It
-            # does NOT cure the lost Escape - on a loaded box a cancel in the
-            # mangle batch is sometimes never taken (the dialog and [tz_dlg]
-            # stay up the full 25 seconds), and the harness as it was before
-            # this wait did exactly that too, so it is the machine's to explain
+            # here would be a different amount of the guest at every load.
             if not os88qemu.acted(m, lambda: rb("tz_dlg") and fdlg_up(),
                                   secs=timeout, what="the Save dialog",
                                   poll=0.2):
                 return False
             os88qemu.pace(m, 0.5)
+            dlg["id"] = dlg_id()
             return True
 
         def fdlg_up():
             return u16(m.read(S("fdlg_win"), 2)) != 0
 
+        # WHICH dialog: tz_dlgopen stamps [tz_dlgt] with the tick it went up
+        # at, beside the name it asks about.
+        dlg = {"id": None}
+
+        def dlg_id():
+            return (rw("tz_dlgt"), rstr("tz_name", 16))
+
         def wait_nodlg(timeout=30.0):
-            return os88qemu.acted(m, lambda: not rb("tz_dlg"), secs=timeout,
-                                  what="[tz_dlg] clear", poll=0.2)
+            """THE DIALOG wait_dlg FOUND is finished - [tz_dlg] clear, OR a
+            different dialog up in its place.
+
+            It was `[tz_dlg] == 0`, polled, and that is a TRANSIENT: an answer
+            clears the byte, and in a batch the receiver asks about the next
+            file at once and sets it again. On an idle box the 0.2s poll landed
+            in the gap; on a loaded one it did not, and the row waited out 25
+            seconds on a dialog already gone - then reported an Escape that
+            never reached the dialog, while the screen showed the NEXT file's
+            dialog with the cancelled one written off and its successor
+            arriving whole. That was read as a lost keystroke 'for the machine
+            to explain' for as long as this row has run under load."""
+            was = dlg["id"]
+            return os88qemu.acted(
+                m, lambda: not rb("tz_dlg") or dlg_id() != was,
+                secs=timeout, what="the dialog to be answered", poll=0.2)
 
         def wait_off(timeout=180.0):
             return os88qemu.acted(m, lambda: not rb("te_zon"), secs=timeout,
