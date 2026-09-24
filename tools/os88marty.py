@@ -1024,7 +1024,8 @@ class Marty:
         (SPEC.md 9.7.1) and enqueues nothing. What always reaches the guest is
         the SCANCODES, which is what the kernel's key-state map reads.
 
-        `hold` is SECONDS THE KEY STAYS DOWN, and it is not padding: a guest
+        `hold` is idle-box SECONDS THE KEY STAYS DOWN, spent as GUEST time
+        (`pace`), and it is not padding: a guest
         that reads this combination off the key-state map is asking "are both
         down" on a POLL (SPEC.md 9.7), so a press and release inside one of
         its poll intervals is invisible to it - correctly, because no finger
@@ -1037,8 +1038,7 @@ class Marty:
                 self.key(name)
             else:
                 self.key(name, down=True, up=False)
-                import time as _t
-                _t.sleep(hold)
+                pace(self, hold)        # GUEST time: the poll it has to span
                 self.key(name, down=False, up=True)
         finally:
             self.key("AltLeft", down=False, up=True)     # ...ALWAYS: a stuck
