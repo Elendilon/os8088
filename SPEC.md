@@ -1328,7 +1328,9 @@ meant converting what the thunks used to reach: the `retf` bodies (`fm_paint_x`,
 `fm_onkey_x`, `cpf_cp_paint`, `hbf_paint`, ...) end in `ret` now, the bodies
 that had a far wrapper for the thunk's sake (`fm_onclick_x`, `fdlg_onup_x`,
 `cp_onkey_x`, `drv_dlg_done_x`, ...) are named directly and the wrappers are
-deleted, and the notice window's paint — the one kernel callback that was in
+deleted (`cp_onkey_x` has since gone into `CTRL.DRV`, and the template names
+`cpf_cp_onkey`, a near proc in front of its slot - §31.9.2), and the notice
+window's paint — the one kernel callback that was in
 `.text` — moved to `.cold` as `ui_note_paint_x`. The file dialog's key and
 click bodies are near on **both** kernels, so on `kern_small` FDLG.DRV's
 header wraps them (`modd_e_onkey`, `modd_e_onclick`) exactly as it already
@@ -3132,7 +3134,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/desk.inc`   | desktop drive icons: detect, paint, click/open (§26)    |
 | `kernel/dock.inc`   | basic bottom Dock, shared state, advanced-module dispatch and lifetime (§30) |
 | `kernel/dockmod.inc` | optional DOCK.DRV: placement, auto-hide, advanced painting and input (§30.5–30.6) |
-| `kernel/extmod.inc` | EXTD.DRV, `kern_big` only: the extended desktop's placement policy — bringing display 1 up, landing and the straddle fit, which display a window is on, the fsx bracket's collapse — prefix `ext_`/`exk_`; the resident half is `exf_sync` in **`.cold`** and the `EXTCALL` sites (§39.19.6) |
+| `kernel/extmod.inc` | EXTD.DRV, `kern_big` only: the extended desktop's placement policy — bringing display 1 up, landing and the straddle fit, which display a window is on, the fsx bracket's collapse, and the second display's arms that run on a user's action (its ground, the zoom and fullscreen boxes, a drag's floor, fsx caps) — prefix `ext_`/`exk_`; the resident half is `exf_sync` in **`.cold`** and the `EXTCALL` sites (§39.19.6) |
 | `kernel/ctrl.inc`   | Control Panel window: two-pane item list + settings pages (§31), prefix `cp_`. **`.cold`** (§2.6) |
 | `kernel/snd.inc`    | sound core (§34): driver table + router, tone tier, speaker driver (tone + PWM clips), `snd_tick`, the five API slot targets, `snd_release_inst`/`snd_unhook` — prefix `snd_`, lands Phases 1–2 |
 | `kernel/fsx.inc`    | fullscreen exclusive (§53): the bracket, the scheduler freeze arming, foreign mode set + info block, and the frame clock/present — prefix `fsx_` |
@@ -55324,13 +55326,19 @@ still blinking to say the machine is listening.
 **A driver's page only**, and that is not a gap to be filled in later: a key
 that reached a static page would have nothing to do there.
 
-**It is resident, and that is a size decision.** The obvious home is the
-on-demand module beside `cp_item_click` — and `MOD_NENT` is four far-pointer
-slots per module with all four spent (paint, click, flush, tick), so a fifth
-doubles that table for *every* module, in `.bss` every machine carries. Forty
-resident bytes is the cheaper of the two, and `cp_drv_gone_x` is the same trade
-already taken: it carries its own copy of `cp_drv_item`'s record-space test
-rather than far-calling into the module, and so does this.
+**It is in the image, beside `cp_item_click`, as `CPE_ONKEY`** — and it was
+resident for most of its life, as a size decision that has since expired. When
+it was written `MOD_NENT` was four far-pointer slots per module with all four
+spent (paint, click, flush, tick), so a fifth doubled that table for *every*
+module, in `.bss` every machine carries, and forty-one resident bytes was the
+cheaper of the two. §2.8.1's per-module blocks retired the cap: an entry costs
+`CTRL.DRV`'s own four bytes, so the body moved and what stays resident is
+`cpf_cp_onkey`, a far call and a `ret` — **−32 resident bytes on `kern_big`**
+(`kern_small` has no key handler, §62.9.15). It does NOT call `mod_need`: a key
+reaches the panel only while its window is up, and the image is loaded before
+the window opens and dropped when it closes, so a load here could only ever be
+a floppy read on a keystroke — and a slot resting on `mod_gone` drops the key,
+which is what an unclaimed key does anyway.
 
 **An unclaimed key is dropped and not beeped at.** A Control Panel is not a
 text window; every key arriving while a button page is showing would otherwise
@@ -62226,15 +62234,41 @@ would put a far call under every primitive of an extended machine, and most of
 which is code GENERALISED in place rather than gated, so it runs on every
 `kern_big` machine and only its difference could ever come out.
 
+**The second wave took the ARMS**, once §2.8.1's per-module slot blocks made
+an entry cost this module's own four bytes of `.bss` rather than four for
+every module: **−225 resident bytes on `kern_big`** (`.text` −213, `.cold`
+−36, `.bss` +24, `tools/kernsize.py --json`), of which −193 is this image and
+−32 is `CTRL.DRV`'s key handler (§31.9.2) moving the same way. What came in is
+every second-display arm that runs at the rate of a user's action:
+`vid_disp_desk` (the other card's ground, §39.14.4) −27, `wm_disp_span` (the
+zoom box, §39.17.2) −28, `wm_fs_setrect`'s arm (the fullscreen rect,
+§39.17.1) −31, `wm_display`'s secondary arm −18, `wm_kind_now`'s arm −13 (in
+`EXT_DISPNOW`'s slot, which it retired), `ui_ylow` (§39.16.2) −21, and
+`fsx_caps`/`fsx_mode`'s per-display kind −24/−11 as two more `AH` selectors on
+`EXT_FSX`. `wm_zoom_xmax` lost its own copy of `wm_disp_xw` for −20 without an
+entry at all. `kern_small` moves −2, a `push di` its arm of `wm_zoom_xmax`
+never needed.
+
+**What the second wave REFUSED is the half of the brief that is performance**,
+and every refusal is a path rather than a size: `wm_disp_of` and `wm_disp_xw`'s
+arm, because `wm_bord` reaches them under every window's content rect and
+`OSAPI_WM_CONTENT` is what Tracker and others ask at the top of every draw;
+`wm_fs_vis`'s arm, under every bar and dock paint (and worth +1 byte moved);
+`fsx_surf`'s arm, which Tracker and DOT DELIRIUM ask per frame inside a
+bracket; `ui_drag_dead` and `ui_drag_phase`, on the drag; and ui_task's two
+secondary-click tests, six bytes each on every press, where an `EXTCALL` is
+four and a far call per click on one display buys two. `fsx_run`'s
+`wm_disp_of` stays a near call to the resident routine, which is the same
+bytes either way.
+
 **THE INVARIANT: `[vid_ndisp]` > 1 only while `EXTD.DRV` is mounted.** The one
 routine that makes it 2 is the image's own Extend arm (and `vid_fsx_leave`,
 also in the image, restoring it), and the image is dropped only once the
 relayout has put it back to 1. That is what lets the kernel call the image with
-**no thunk at all**: `EXTCALL k` is `call far [mod_fp + MOD_EXT*MODFP_STRIDE +
-k*4]`, four bytes, straight at the slot `mod_need` armed. A slot at rest is
-`mod_gone` — CF = 1, every register kept (§2.8.1) — and every one of the seven
-callers is either behind a `[vid_ndisp]` test it already had, or takes that
-refusal as the one-display answer:
+**no thunk at all**: `EXTCALL k` is `call far [EXFP + k*4]`, four bytes,
+straight at the slot `mod_need` armed. A slot at rest is `mod_gone` — CF = 1,
+every register kept (§2.8.1) — and every call site is either behind a
+`[vid_ndisp]` test, or takes that refusal as the one-display answer:
 
 | # | entry | resident caller | with no image (`mod_gone`) |
 |---|---|---|---|
@@ -62243,8 +62277,13 @@ refusal as the one-display answer:
 | 2 | `EXT_STRADS` | `wm_snap_far` | CF = 1 is "not straddling" — the one-display answer |
 | 3 | `EXT_APPLY` — straddle test + fit | `wm_apply_wh` | CF = 1 → its existing `jc .one` |
 | 4 | `EXT_FITBOX` | `wm_fit` | registers kept = the primary's box = the one-display answer |
-| 5 | `EXT_DISPNOW` | `wm_kind_now`, `wm_display` | never reached: both keep their `[vid_ndisp]` gate |
-| 6 | `EXT_FSX`, AH = enter/leave/unblank | `fsx_mode`, `fsx_restore` ×2 | no flags read; each is a no-op on one display |
+| 5 | `EXT_KINDNOW` — `wm_kind_now`'s arm | `wm_kind_now`, UNGATED (a create, fit or resize) | AL kept, and the caller loaded `[vid_kind]`: the primary's kind |
+| 6 | `EXT_FSX`, AH = enter/leave/unblank, and `EXTF_KIND`/`EXTF_CAPS` | `fsx_mode` ×2, `fsx_restore` ×2, `fsx_caps` | the bracket's three read no flags and are no-ops on one display; the two queries keep BL/DL, which the caller loaded with `[vid_kind]` |
+| 7 | `EXT_DISPLAY` — `wm_display`'s secondary arm | `wm_display`, GATED: Tracker asks `OSAPI_WM_DISPLAY` at the top of every draw | never reached; CF = 1 from the image means display 0, whose numbers the caller loads |
+| 8 | `EXT_SPAN` — `wm_disp_span` | `wm_zoom` | registers kept = the primary's standard state |
+| 9 | `EXT_FSRECT` — `wm_fs_setrect`'s arm | `wm_fs_setrect` | CF = 1 → the primary's rect, written by the caller |
+| 10 | `EXT_DESK` — `vid_disp_desk` | `wm_paint_all` ×2 | CF = 1 = nothing painted, which the fullscreen arm reads in place of the `[vid_ndisp]` test it made |
+| 11 | `EXT_YLOW` — `ui_ylow`'s arm | `ui_drag`, GATED (the release) | never reached; the caller loaded `MBAR_H` into SI |
 
 `mod_init_x` rests the slots on `mod_gone` before `wm_init`, which is before
 the first of these can run; the early `vid_disp_init` in `kmain_o`, before
@@ -62305,9 +62344,14 @@ release that repaints for tens of milliseconds. **Nothing per frame and
 nothing per mouse move**: `ui_track`'s loop never enters the image, the clamps
 running on RELEASE. A one-display machine far-calls `mod_gone` at the ungated
 sites instead of near-calling a gated routine — ~+20 cycles on a create, fit,
-resize or drag release. `OSAPI_WM_DISPLAY` on an extended desktop goes one far
-frame (~10 bytes of stack) deeper, which is the only thing that runs on a
-worker slice. And there is a new failure: Extend can be REFUSED, with a reason,
+resize, zoom, drag release, whole-desktop repaint or fsx bracket, and on an
+`OSAPI_FSX_CAPS`; the second wave's two paths that ARE per draw
+(`OSAPI_WM_DISPLAY`, the drag release) are gated, so one display pays nothing
+there. `EXT_DISPLAY` names display 1's record in line rather than through an
+`exk_` hop, so an extended desktop's `OSAPI_WM_DISPLAY` costs the one far
+call `EXT_DISPNOW` already cost it. `OSAPI_WM_DISPLAY` and `OSAPI_FSX_CAPS` on
+an extended desktop go one far frame (~10 bytes of stack) deeper, and are the
+only two that can run on a worker slice. And there is a new failure: Extend can be REFUSED, with a reason,
 when the system disk or the heap is not there — which it could never be
 before.
 

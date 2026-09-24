@@ -6357,11 +6357,18 @@ EXT_LAND    equ 1               ; ui_drag_size, CF INVERTED (1 = not moved)
 EXT_STRADS  equ 2               ; wm_strads: CF = 1 not straddling
 EXT_APPLY   equ 3               ; wm_strads + wm_strad_fit; CF = 1 not
 EXT_FITBOX  equ 4               ; wm_fit_box: registers kept = the primary
-EXT_DISPNOW equ 5               ; wm_disp_now, behind its callers' gates
-EXT_FSX     equ 6               ; the fsx bracket's three, by AH:
+EXT_KINDNOW equ 5               ; wm_kind_now's arm: AL kept = the primary's
+EXT_FSX     equ 6               ; fsx.inc's second-display arms, by AH:
 EXTF_ENTER  equ 0               ;   vid_fsx_enter (AL = the display)
 EXTF_LEAVE  equ 1               ;   vid_fsx_leave
 EXTF_UNBLANK equ 2              ;   vid_fsx_unblank
+EXTF_KIND   equ 3               ;   fsx_mode: BL = [fsx_wdisp]'s kind
+EXTF_CAPS   equ 4               ;   fsx_caps: DL = window BX's display's kind
+EXT_DISPLAY equ 7               ; wm_display's secondary arm, behind its gate
+EXT_SPAN    equ 8               ; wm_disp_span: registers kept = the primary
+EXT_FSRECT  equ 9               ; wm_fs_setrect's arm: CF = 1 one display
+EXT_DESK    equ 10              ; vid_disp_desk: CF = 1 nothing painted
+EXT_YLOW    equ 11              ; ui_ylow's arm, behind its caller's gate
 %macro EXTCALL 1
     call far [EXFP + %1*4]
 %endmacro

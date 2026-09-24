@@ -637,32 +637,8 @@ wm_disp_of:
     pop bx
     ret
 
-; -----------------------------------------------------------------------------
-; wm_disp_span - that display's standard-state box (SPEC.md 39.17.2)
-; in:       BX = the window; AX/CX/SI/DX = the primary's (x0, width, y0,
-;           band height), already loaded
-; out:      AX = x0, CX = width, SI = y0, DX = band height (one pixel short,
-;           wm_fit's drop-shadow rule)
-; clobbers: AX, CX, SI, DX, flags
-; -----------------------------------------------------------------------------
-wm_disp_span:
-    cmp byte [vid_ndisp], 1
-    jbe .out                    ; one display: the caller's numbers stand
-    push di
-    call wm_disp_of
-    call vid_ctx_ptr
-    or al, al                   ; (the movs leave the flags for the jz)
-    mov ax, [di+VID_CTX_VX]
-    mov cx, [di+VID_CTX_CW]
-    jz .prim                    ; the PRIMARY keeps the caller's band: bar to
-                                ; dock, which its context record cannot know
-    mov si, [di+VID_CTX_VY]     ; a secondary has no bar and no dock, so its
-    mov dx, [di+VID_CTX_CH]     ; whole height is desktop - wm_fit_box's own
-    dec dx                      ; rule (SPEC.md 39.16.1), one short like it
-.prim:
-    pop di
-.out:
-    ret
+; (wm_disp_span, that display's standard-state box: EXTD.DRV's EXT_SPAN,
+; kernel/extmod.inc - SPEC.md 39.19.6)
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -674,25 +650,21 @@ wm_disp_span:
 ; -----------------------------------------------------------------------------
 wm_zoom_xmax:
     push ax
-    push di
+%ifdef KERN_BIG
+    push cx
+    call wm_disp_xw             ; AX = its display's left edge, CX = its width
+    mov dx, ax                  ; - the primary's on one display, where the
+    add dx, cx                  ; desktop IS the primary - and DX one past its
+    pop cx                      ; right. The same question wm_disp_xw answers
+%else                           ; for wm_flush_ck, asked once (SPEC.md 39.17.2)
     xor ax, ax                  ; the primary's left edge...
     mov dx, [vid_pw]            ; ...and one past its right
-%ifdef KERN_BIG
-    cmp byte [vid_ndisp], 1
-    jbe .have
-    call wm_disp_of
-    call vid_ctx_ptr
-    mov ax, [di+VID_CTX_VX]
-    mov dx, ax
-    add dx, [di+VID_CTX_CW]
-.have:
 %endif
     sub dx, cx
     cmp dx, ax                  ; ...floored at THAT edge, not at 0
     jge .out
     mov dx, ax
 .out:
-    pop di
     pop ax
     ret
 
@@ -706,22 +678,9 @@ wm_zoom_xmax:
 wm_fs_setrect:
     push ax
 %ifdef KERN_BIG
-    push di
-    cmp byte [vid_ndisp], 1
-    jbe .one
-    call wm_disp_of
-    call vid_ctx_ptr
-    mov ax, [di+VID_CTX_VX]
-    mov [bx+W_X], ax
-    mov ax, [di+VID_CTX_VY]
-    mov [bx+W_Y], ax
-    mov ax, [di+VID_CTX_CW]
-    mov [bx+W_W], ax
-    mov ax, [di+VID_CTX_CH]
-    mov [bx+W_H], ax
-    jmp short .out
-.one:
-%endif
+    EXTCALL EXT_FSRECT          ; CF = 0: EXTD.DRV wrote the rect of the display
+    jnc .out                    ; the window is ON. CF = 1 - one display, and
+%endif                          ; mod_gone's answer - is the primary's, below
     xor ax, ax
     mov [bx+W_X], ax
     mov [bx+W_Y], ax
@@ -729,10 +688,7 @@ wm_fs_setrect:
     mov [bx+W_W], ax
     mov ax, [vid_ph]
     mov [bx+W_H], ax
-%ifdef KERN_BIG
 .out:
-    pop di
-%endif
     pop ax
     ret
 
@@ -1704,20 +1660,17 @@ wm_pref_take:
 ; that is a question about the corner the clamps are written from.
 ; -----------------------------------------------------------------------------
 wm_kind_now:
-%ifdef KERN_BIG
-    cmp byte [vid_ndisp], 1
-    jbe .prim
-    push di                     ; round wm_disp_now, whose callees name DI -
-    EXTCALL EXT_DISPNOW         ; vid_kind_of banks its own
-    call vid_kind_of
-    pop di
-    ret
-.prim:
-%endif
     mov al, [vid_kind]
+%ifdef KERN_BIG
+    EXTCALL EXT_KINDNOW         ; UNGATED: every caller is a create, a fit or a
+                                ; resize, never a paint, so one display pays
+                                ; one far call to mod_gone there - which keeps
+                                ; AL, the primary's kind (SPEC.md 39.19.6)
+%endif
     ret
 
-; (wm_disp_now / wm_disp_rest: EXTD.DRV's EXT_DISPNOW, kernel/extmod.inc)
+; (wm_disp_now / wm_disp_rest, and the two-display half of this: EXTD.DRV's
+; EXT_KINDNOW, kernel/extmod.inc)
 
 ; -----------------------------------------------------------------------------
 ; wm_pref_now - take this window's preference for the adapter it is standing on
@@ -1795,29 +1748,20 @@ wm_display:
                                 ; instead of a claim - and osapi_video touches
                                 ; no DI, so the contract holds without a frame
 %else
-    push di
-    cmp byte [vid_ndisp], 1
-    jbe .prim
-    EXTCALL EXT_DISPNOW         ; --- which display is this window's? (39.16.4.1)
-                                ; THE SAME ANSWER wm_kind_now uses, so a
+    cmp byte [vid_ndisp], 1     ; GATED: packages ask this from their own
+    jbe .prim                   ; paint and layout paths
+    EXTCALL EXT_DISPLAY         ; --- which display is this window's? (39.16.4.1)
+    jnc .bpp                    ; THE SAME ANSWER wm_kind_now uses, so a
                                 ; straddling window is told about the display
-                                ; it was sized for
-    call vid_ctx_ptr            ; DI = its record (preserves AX and DX)
-    or al, al
-    jnz .second
+                                ; it was sized for. CF = 0: a SECONDARY's -
+                                ; its own width and height, no dock and no
+                                ; menu bar, its kind - and DI kept
 .prim:                          ; display 0 IS the primary, so this arm is
     mov ax, [vid_pw]            ; the two-display answer for a window on the
-    mov bx, [vid_ph]            ; near card
+    mov bx, [vid_ph]            ; near card too
     mov cx, [vid_dock_y0]
     mov si, MBAR_H
     mov dl, [vid_kind]
-    jmp short .bpp
-.second:
-    mov ax, [di+VID_CTX_CW]
-    mov bx, [di+VID_CTX_CH]
-    mov cx, bx                  ; NO DOCK, so the last row is the last row...
-    xor si, si                  ; ...and NO MENU BAR, so the band starts at 0
-    mov dl, [di+VID_CTX_KIND]
 .bpp:
     mov dh, 4
     or dl, dl
@@ -1826,7 +1770,6 @@ wm_display:
     je .r                       ; VID_EGA -> 4 planes too, mode 10h (39.24)
     mov dh, 1                    ; HERC / CGA / a secondary's mono kind (39.4)
 .r:
-    pop di
 %endif
     ret
 
@@ -2958,11 +2901,13 @@ wm_zoom:
     mov dx, [vid_dock_y0]       ; one pixel short of the dock - wm_fit's
     sub dx, MBAR_H + 1          ; clamp, for wm_fit's reason
 %ifdef KERN_BIG
-    call wm_disp_span           ; ...ALL FOUR of the DISPLAY this window is on
+    EXTCALL EXT_SPAN            ; ...ALL FOUR of the DISPLAY this window is on
                                 ; (SPEC.md 39.17.2), or a zoom would move it
                                 ; to the other monitor - which the x half
                                 ; alone once guaranteed only until the y half
-                                ; wrote MBAR_H onto a BELOW-layout secondary
+                                ; wrote MBAR_H onto a BELOW-layout secondary.
+                                ; UNGATED - a zoom is a click - and mod_gone
+                                ; keeps all four, the primary's (39.19.6)
 %endif
     call wm_snap_want
     jnc .nosnap
@@ -5563,10 +5508,11 @@ wm_paint_all:
 %endif
                                 ; every tile had to be rebuilt afterwards
 %ifdef KERN_BIG
-    call vid_disp_desk        ; ...and every OTHER display, whole (SPEC.md
+    EXTCALL EXT_DESK            ; ...and every OTHER display, whole (SPEC.md
                                 ; 39.14.4): the chrome is the primary's, so a
-                                ; second monitor is pure desktop. One compare
-                                ; on a machine with one card
+                                ; second monitor is pure desktop. One far call
+                                ; to mod_gone on a machine with one card, in a
+                                ; routine that repaints the whole desktop
 %endif
     call COLD_SEG:desk_paint_x  ; drive icons live on the desktop, under
                                 ; every window (SPEC.md 26)
@@ -5597,12 +5543,11 @@ wm_paint_all:
     call wm_zwalk               ; BP = frontmost visible, SI = the bottom of
                                 ; the z-order, DI = one past the front
 %ifdef KERN_BIG
-    cmp byte [vid_ndisp], 1
-    jbe .fsone
-    call vid_disp_desk        ; wm_fs_vis said display 0, so the OTHER
+    EXTCALL EXT_DESK            ; wm_fs_vis said display 0, so the OTHER
                                 ; display is not under it (SPEC.md 39.17.1):
-                                ; its desktop still dithers...
-    jmp short .win              ; ...and its windows still draw - the walk
+                                ; its desktop still dithers (CF = 0; CF = 1 is
+                                ; one display, mod_gone's answer too)...
+    jnc .win                    ; ...and its windows still draw - the walk
                                 ; starts at the BOTTOM, and wm_covered skips
                                 ; everything the fullscreen window really
                                 ; covers. That is one region pass per covered
@@ -5610,7 +5555,6 @@ wm_paint_all:
                                 ; repaint; started AT the fullscreen window
                                 ; it skipped every display-1 window below it
                                 ; in z and left that monitor stale for good
-.fsone:
 %endif
     call wm_fs_zpos             ; SI = the fullscreen window's slot in wm_zord
 .win:

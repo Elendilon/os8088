@@ -80,32 +80,15 @@ FSIF_BANKED equ 4
 fsx_caps:
     push bx
     mov dl, [vid_kind]
-%ifdef KERN_BIG
-    cmp byte [vid_ndisp], 1     ; ...of the display the ASKED-ABOUT window is
-    jbe .kind                   ; on (SPEC.md 39.18.1). ONE DISPLAY covers a
-                                ; mode-setting bracket too, which is what
-                                ; collapsed the machine (39.18.3) and moved
-                                ; [vid_kind] to the bracket's own card - so
-                                ; there is no second test for that, and a
-                                ; SAME-MODE bracket, which does not collapse,
-                                ; correctly falls through and answers about
-                                ; the window it was handed
-    push ax
-    or bx, bx                   ; BX = 0: no window to ask about - an entry
-    jnz .win                    ; proc, or a caller that has none. Fall back
-    call wm_top                 ; to the frontmost, and to the primary below
-    or bx, bx                   ; if nothing is visible at all
-    jz .notop
-.win:
-    push di                     ; round wm_disp_of, which names DI -
-    call wm_disp_of             ; vid_kind_of banks its own.  The CENTRE, then
-    call vid_kind_of            ; the origin, then the primary (SPEC.md 39.17)
-    mov dl, al                  ; - so a straddling window belongs to the
-    pop di                      ; display holding more of it, the same rule
-.notop:                         ; and wm_zoom ask
-    pop ax
-.kind:
-%endif
+%ifdef KERN_BIG                 ; ...of the display the ASKED-ABOUT window is
+                                ; on (SPEC.md 39.18.1)
+    mov ah, EXTF_CAPS           ; AX is an output, so AH is free for the
+    EXTCALL EXT_FSX             ; selector. BX = 0 is the frontmost window,
+                                ; and the primary if nothing is visible; the
+%endif                          ; CENTRE, then the origin (SPEC.md 39.17) -
+                                ; EXTD.DRV's ext_fsx_caps. UNGATED: an app
+                                ; asks this once to grey a menu, and one
+                                ; display keeps DL = [vid_kind] (39.19.6)
     mov bl, dl
     xor bh, bh
     shl bx, 1
@@ -414,15 +397,13 @@ fsx_mode:
     jae .fail
     mov bl, [vid_kind]          ; the caps bit - the same predicate the
 %ifdef KERN_BIG                 ; app's greying used (SPEC.md 47), and for
-    cmp byte [vid_ndisp], 1     ; THE DISPLAY THIS BRACKET IS ON rather than
-    jbe .kind                   ; the primary (SPEC.md 39.18.3/39.18.2). Once
-    push ax                     ; the collapse below has run there is only one
-    mov al, [fsx_wdisp]         ; display left and [vid_kind] IS that one, so
-    call vid_kind_of            ; a second fsx_mode call takes the short path.
-    mov bl, al                  ; NO DI BANK: vid_kind_of does its own, and
-                                ; nothing else here names DI
-    pop ax
-.kind:
+    mov ah, EXTF_KIND           ; THE DISPLAY THIS BRACKET IS ON rather than
+    EXTCALL EXT_FSX             ; the primary (SPEC.md 39.18.3/39.18.2). Once
+                                ; the collapse below has run there is only one
+                                ; display left and [vid_kind] IS that one, so a
+                                ; second fsx_mode call keeps BL - as does one
+                                ; display, mod_gone's answer. AH is free: the
+                                ; id is AL, and AX is restored at .out
 %endif
     xor bh, bh
     shl bx, 1

@@ -1706,58 +1706,8 @@ fsx_vndisp  db 1                ; ...and how many displays there were. 1 means
                                 ; "no bracket state to undo", which is the
                                 ; boot value and what vid_fsx_unblank leaves
 
-; -----------------------------------------------------------------------------
-; vid_disp_desk - the desktop on every display but the primary
-;                 (SPEC.md 39.14.4)
-;
-; in:       nothing; the caller holds the gfx lock
-; out:      nothing
-; clobbers: flags
-;
-; wm_paint_all draws display 0's band itself - menu bar to dock, the call that
-; has always been there - and this is the rest. Each is ONE ground fill in
-; VIRTUAL coordinates, and GFXDISP is what puts it on the right card; nothing
-; here knows which card that is, or that there is more than one way to be a
-; framebuffer.
-;
-; A secondary display gets its ground WHOLE, because SPEC.md 39.14's chrome -
-; the menu bar, the dock, the drive column - lives on the primary alone.
-;
-; **IT IS thm_desk AND NOT gfx_fill_gray, AND THE NAME IS WHY IT WAS NOT**
-; (SPEC.md 76.2.1). This routine was called vid_disp_dither, SPEC.md 76.1's own
-; list of the four themed desktop sites NAMES it, and 76.2 says thm_desk
-; replaced gfx_fill_gray at all of them - and this one kept the dither, so
-; switching to Dark left the second monitor in Bright's ground for ever. A
-; routine whose name says DITHER does not read as a themed site to whoever is
-; converting them.
-;
-; This is the only caller in the kernel that draws in virtual coordinates.
-; Everything else is inside the chrome or inside a window, and both are on
-; display 0, where virtual and local are the same numbers (39.14.4).
-; -----------------------------------------------------------------------------
-vid_disp_desk:
-    cmp byte [vid_ndisp], 1
-    jbe .out
-    push ax
-    push bx
-    push cx
-    push dx
-    push di
-    mov al, 1                   ; NOT A LOOP: VID_NDISP_MAX is 2 (the %if at
-                                ; its equ), the guard above has already
-                                ; returned for [vid_ndisp] <= 1, and display 0
-                                ; is wm_paint_all's own - so the general loop
-                                ; ran exactly once by construction
-    call vid_ctx_rect           ; AX/BX/CX/DX = its inclusive virtual rect
-    call thm_desk               ; the THEME's ground (SPEC.md 76.2), not a
-                                ; hard-coded dither
-    pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-.out:
-    ret
+; (vid_disp_desk, the second display's ground: EXTD.DRV's EXT_DESK,
+; kernel/extmod.inc - SPEC.md 39.19.6)
 
 ; -----------------------------------------------------------------------------
 ; vid_disp_of - which display holds the virtual point (AX, BX)? (SPEC.md 39.14)

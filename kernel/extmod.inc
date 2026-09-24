@@ -7,7 +7,13 @@
 ; bringing display 1 up (vid_disp_init's Extend arm), where a window lands
 ; when it is put down on the other card or across the seam (39.16.3), which
 ; display a window is told it is on (39.16.4.1) and the fsx bracket's
-; collapse and restore (39.18). What is NOT here is everything that runs per
+; collapse and restore (39.18) - and, since the second wave, every other
+; second-display ARM that runs at the rate of a user's action: the other
+; card's ground in a whole-desktop repaint (39.14.4), the zoom and fullscreen
+; boxes of a window's own display (39.17), the kind and geometry a window is
+; told (wm_kind_now, OSAPI_WM_DISPLAY), a drag's floor on the other card
+; (39.16.2) and fsx's caps and kind for the bracket's display (39.18.2).
+; What is NOT here is everything that runs per
 ; primitive, per glyph cell or inside the mouse ISR - GFXDISP, font_ch_cut,
 ; cur_move_multi - because a far call under every primitive of an extended
 ; machine is the wrong trade, and that half is generalised in place rather
@@ -64,7 +70,7 @@ exf_sync:
     retf
 
 section .modx
-EXT_NENT    equ 7
+EXT_NENT    equ 12
 modx_hdr:
     dw 0x384F                   ; MOD_H_MAGIC
     db MOD_VER, MOD_EXT         ; MOD_H_VER, MOD_H_ID
@@ -75,8 +81,33 @@ modx_hdr:
     dw ext_e_strads             ; EXT_STRADS
     dw ext_e_apply              ; EXT_APPLY
     dw ext_e_fitbox             ; EXT_FITBOX
-    dw ext_e_dispnow            ; EXT_DISPNOW
+    dw ext_e_kindnow            ; EXT_KINDNOW
     dw ext_e_fsx                ; EXT_FSX
+    dw ext_e_display            ; EXT_DISPLAY
+    dw ext_e_span               ; EXT_SPAN
+    dw ext_e_fsrect             ; EXT_FSRECT
+    dw ext_e_desk               ; EXT_DESK
+    dw ext_e_ylow               ; EXT_YLOW
+
+; THE TWO KINDS OF CALL SITE (SPEC.md 39.19.6). Two entries are GATED - reached
+; only behind a resident `cmp byte [vid_ndisp], 1 / jbe` - because their paths
+; are ones a one-display machine must not pay a far call on: EXT_DISPLAY is
+; OSAPI_WM_DISPLAY, which Tracker asks at the top of every draw, and EXT_YLOW
+; is the drag's release. Every other entry is UNGATED: far-called on every
+; machine from a path that runs at the rate of a user's action - a window
+; created, fitted, zoomed, dropped or made fullscreen, a whole-desktop repaint,
+; an fsx bracket or one of its queries - where mod_gone's answer (CF = 1,
+; registers kept) IS the one-display answer. The ungated ones that compute
+; test [vid_ndisp] themselves as well, because the image stays mounted for as
+; long as [vid_dmode] is Extend, and a primary that cannot pair (EGA)
+; collapses the desktop to one display underneath it.
+;
+; WHAT STAYS RESIDENT of the same subject, and why: wm_disp_of and
+; wm_disp_xw's arm, because wm_bord reaches them under every window's content
+; rect (OSAPI_WM_CONTENT, again at the top of every draw) and wm_fs_vis under
+; every bar and dock paint; fsx_surf's arm, which Tracker and DOT DELIRIUM ask
+; per frame inside a bracket; ui_drag_dead and ui_drag_phase, on the drag; and
+; the two secondary-click tests in ui_task, six bytes each on every press.
 
 ext_e_extend:                   ; EXT_EXTEND: vid_disp_init's Extend arm.
     call ext_extend_b           ; mod_gone's CF = 1 is that routine's
@@ -98,19 +129,244 @@ ext_e_apply:                    ; EXT_APPLY: wm_apply_wh's straddle arm, the
 ext_e_fitbox:                   ; EXT_FITBOX: wm_fit's box. Not loaded, the
     call wm_fit_box             ; registers come back untouched, which is the
     retf                        ; primary's box and the one-display answer
-ext_e_dispnow:                  ; EXT_DISPNOW: both callers keep their
-    call wm_disp_now            ; [vid_ndisp] gate
+ext_e_kindnow:                  ; EXT_KINDNOW: wm_kind_now, UNGATED. The caller
+    cmp byte [vid_ndisp], 1     ; has loaded AL = [vid_kind], so one display -
+    jbe .r                      ; mod_gone, or this image over a collapsed
+    call ext_kind_now           ; desktop - keeps the primary's kind
+.r: retf
+ext_e_fsx:                      ; EXT_FSX: AH = EXTF_*, fsx.inc's five. The
+    cmp ah, EXTF_LEAVE          ; bracket's three read no flags and are no-ops
+    jb .e                       ; on one display; the two queries are UNGATED
+    je .l                       ; and answer mod_gone's way there
+    cmp ah, EXTF_KIND
+    jb .u
+    je .k
+    call ext_fsx_caps           ; EXTF_CAPS
     retf
-ext_e_fsx:                      ; EXT_FSX: AH = EXTF_*, the bracket's three.
-    cmp ah, EXTF_LEAVE          ; No flags are read and every one is a no-op
-    je .l                       ; on one display
-    ja .u
-    call vid_fsx_enter
+.e: call vid_fsx_enter
     retf
 .l: call vid_fsx_leave
     retf
 .u: call vid_fsx_unblank
     retf
+.k: cmp byte [vid_ndisp], 1     ; EXTF_KIND: BL kept = the caller's [vid_kind]
+    jbe .r
+    push ax
+    mov al, [fsx_wdisp]
+    push cs
+    call exk_vid_kind_of        ; (banks DI itself)
+    mov bl, al
+    pop ax
+.r: retf
+ext_e_display:                  ; EXT_DISPLAY: wm_display's second arm, behind
+    push di                     ; its gate. CF = 1: the window is on display
+    call wm_disp_now            ; 0, whose numbers the caller loads itself
+    or al, al
+    stc
+    jz .p
+    mov di, vid_ctx + VID_CTX_SZ ; DI = display 1's record, in line: AL is 1,
+                                ; there being two displays at most (below),
+                                ; and an exk_ hop here would be a second far
+                                ; call on a package's paint path
+    mov ax, [di+VID_CTX_CW]
+    mov bx, [di+VID_CTX_CH]
+    mov cx, bx                  ; NO DOCK, so the last row is the last row...
+    xor si, si                  ; ...and NO MENU BAR, so the band starts at 0
+    mov dl, [di+VID_CTX_KIND]   ; (and the xor cleared CF)
+.p: pop di
+    retf
+ext_e_span:                     ; EXT_SPAN: wm_disp_span, UNGATED (wm_zoom)
+    call wm_disp_span
+    retf
+ext_e_fsrect:                   ; EXT_FSRECT: wm_fs_setrect's arm, UNGATED.
+    cmp byte [vid_ndisp], 1     ; CF = 1: one display, and the caller writes
+    jbe .one                    ; the primary's rect itself
+    push ax
+    push di
+    push cs
+    call exk_wm_disp_of
+    push cs
+    call exk_vid_ctx_ptr
+    mov ax, [di+VID_CTX_VX]
+    mov [bx+W_X], ax
+    mov ax, [di+VID_CTX_VY]
+    mov [bx+W_Y], ax
+    mov ax, [di+VID_CTX_CW]
+    mov [bx+W_W], ax
+    mov ax, [di+VID_CTX_CH]
+    mov [bx+W_H], ax
+    pop di
+    pop ax
+    clc
+    retf
+.one:
+    stc
+    retf
+ext_e_desk:                     ; EXT_DESK: vid_disp_desk, UNGATED - a whole
+    call vid_disp_desk          ; desktop repaint, where one far call is noise
+    retf
+ext_e_ylow:                     ; EXT_YLOW: ui_ylow's arm, behind its caller's
+    push ax                     ; gate - ui_drag's release, the drag path
+    push bx
+    push di
+    mov ax, [ui_curx]           ; the drag's PROPOSED x, not W_X
+    mov bx, MBAR_H              ; any row the primary's band contains, so a
+                                ; point on display 0 resolves to it
+    push cs
+    call exk_vid_disp_of
+    or al, al
+    jz .done                    ; display 0 keeps the chrome's floor, which
+    push cs                     ; the caller loaded into SI
+    call exk_vid_ctx_ptr
+    mov si, [di+VID_CTX_VY]
+.done:
+    pop di
+    pop bx
+    pop ax
+    retf
+
+; ==== which display, from wm.inc, fsx.inc and vidsel.inc ===================
+%if VID_NDISP_MAX != 2
+  %error "ext_e_display names display 1's record in line: one secondary"
+%endif
+; -----------------------------------------------------------------------------
+; ext_kind_now - AL = the adapter kind window BX is standing on (wm_kind_now's
+;                two-display half)
+; in:  BX = window ptr; [vid_ndisp] > 1
+; out: AL = a VID_* kind; every other register preserved
+;
+; The display wm_disp_now names and not wm_disp_of's, because this decides
+; which size a frame is clamped against - a question about the corner the
+; clamps are written from - and because wm_display asks wm_disp_now too, so a
+; window is sized for exactly the display it is then told it is on.
+; -----------------------------------------------------------------------------
+ext_kind_now:
+    push di                     ; round wm_disp_now, whose callees name DI -
+    call wm_disp_now            ; vid_kind_of banks its own
+    push cs
+    call exk_vid_kind_of
+    pop di
+    ret
+
+; -----------------------------------------------------------------------------
+; ext_fsx_caps - fsx_caps' second-display half (SPEC.md 53.8, 39.18.2)
+; in:  BX = the window to ask ABOUT, or 0 for the frontmost; DL = [vid_kind]
+; out: DL = the kind of the display that window is on; everything else kept
+;
+; ONE DISPLAY covers a mode-setting bracket too, which is what collapsed the
+; machine (39.18.3) and moved [vid_kind] to the bracket's own card - so there
+; is no second test for that, and a SAME-MODE bracket, which does not
+; collapse, correctly falls through and answers about the window it was
+; handed. BX = 0 is an entry proc, or a caller that has no window: the
+; frontmost, and the primary if nothing is visible at all.
+; -----------------------------------------------------------------------------
+ext_fsx_caps:
+    cmp byte [vid_ndisp], 1
+    jbe .out
+    push ax
+    push bx
+    or bx, bx
+    jnz .win
+    push cs
+    call exk_wm_top
+    or bx, bx
+    jz .notop
+.win:
+    push cs
+    call exk_wm_disp_of         ; the CENTRE, then the origin, then the
+    push cs                     ; primary (SPEC.md 39.17) - so a straddling
+    call exk_vid_kind_of        ; window belongs to the display holding more
+    mov dl, al                  ; of it, the same rule both fullscreens and
+.notop:                         ; wm_zoom ask
+    pop bx
+    pop ax
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; wm_disp_span - that display's standard-state box (SPEC.md 39.17.2)
+; in:       BX = the window; AX/CX/SI/DX = the primary's (x0, width, y0,
+;           band height), already loaded
+; out:      AX = x0, CX = width, SI = y0, DX = band height (one pixel short,
+;           wm_fit's drop-shadow rule)
+; clobbers: AX, CX, SI, DX, flags
+; -----------------------------------------------------------------------------
+wm_disp_span:
+    cmp byte [vid_ndisp], 1
+    jbe .out                    ; one display: the caller's numbers stand
+    push di
+    push cs
+    call exk_wm_disp_of
+    push cs
+    call exk_vid_ctx_ptr
+    or al, al                   ; (the movs leave the flags for the jz)
+    mov ax, [di+VID_CTX_VX]
+    mov cx, [di+VID_CTX_CW]
+    jz .prim                    ; the PRIMARY keeps the caller's band: bar to
+                                ; dock, which its context record cannot know
+    mov si, [di+VID_CTX_VY]     ; a secondary has no bar and no dock, so its
+    mov dx, [di+VID_CTX_CH]     ; whole height is desktop - wm_fit_box's own
+    dec dx                      ; rule (SPEC.md 39.16.1), one short like it
+.prim:
+    pop di
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; vid_disp_desk - the desktop ground of every display but the primary
+;                 (SPEC.md 39.14.4)
+; in:       nothing
+; out:      CF = 0 it painted one; CF = 1 there is one display and nothing to
+;           paint - mod_gone's answer too, which wm_paint_all's fullscreen
+;           arm reads in place of the [vid_ndisp] test it used to make
+; clobbers: flags
+;
+; A secondary display gets its ground WHOLE, because SPEC.md 39.14's chrome -
+; the menu bar, the dock, the drive column - lives on the primary alone.
+;
+; **IT IS thm_desk AND NOT gfx_fill_gray, AND THE NAME IS WHY IT WAS NOT**
+; (SPEC.md 76.2.1). This routine was called vid_disp_dither, SPEC.md 76.1's own
+; list of the four themed desktop sites NAMES it, and 76.2 says thm_desk
+; replaced gfx_fill_gray at all of them - and this one kept the dither, so
+; switching to Dark left the second monitor in Bright's ground for ever. A
+; routine whose name says DITHER does not read as a themed site to whoever is
+; converting them.
+;
+; wm_paint_all draws display 0's band itself - menu bar to dock, the call that
+; has always been there - and this is the rest: ONE ground fill in VIRTUAL
+; coordinates, and GFXDISP is what puts it on the right card. This is the only
+; caller in the kernel that draws in virtual coordinates. Everything else is
+; inside the chrome or inside a window, and both are on display 0, where
+; virtual and local are the same numbers (39.14.4).
+; -----------------------------------------------------------------------------
+vid_disp_desk:
+    cmp byte [vid_ndisp], 1
+    jbe .one
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    mov al, 1                   ; NOT A LOOP: VID_NDISP_MAX is 2 (the %if at
+                                ; its equ), the guard above has already
+                                ; returned for [vid_ndisp] <= 1, and display 0
+                                ; is wm_paint_all's own - so the general loop
+                                ; ran exactly once by construction
+    push cs
+    call exk_vid_ctx_rect       ; AX/BX/CX/DX = its inclusive virtual rect
+    push cs
+    call exk_thm_desk           ; the THEME's ground (SPEC.md 76.2), not a
+                                ; hard-coded dither
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+.one:
+    stc
+    ret
 
 ; ==== the landing and the straddle (SPEC.md 39.16.3), from wm.inc =========
 ; -----------------------------------------------------------------------------
@@ -168,8 +424,7 @@ wm_land_fit:
     mov [wm_lf_disp], al        ; asked and spent at .fin, so the resize this
     mov [wm_lf_win], bx         ; routine applies cannot change the answer under
     pop ax                      ; the steps that follow it
-    push cs
-    call exk_wm_kind_now        ; **NEITHER OF THESE MAY BE BANKED IN AH.**
+    call ext_kind_now           ; **NEITHER OF THESE MAY BE BANKED IN AH.**
     mov dl, al                  ; wm_kind_was goes through wm_ptr2idx, which
     call wm_kind_was            ; answers AL = index and AH = 0, so `mov ah,al`
     cmp al, dl                  ; before it compared the banked kind against
@@ -1087,6 +1342,10 @@ exk_vid_ctx_capture:
     ; STKBALANCE-NET: -1
     push word [cs:exk_kretf]
     jmp KERNEL_SEG:vid_ctx_capture
+exk_vid_ctx_rect:
+    ; STKBALANCE-NET: -1
+    push word [cs:exk_kretf]
+    jmp KERNEL_SEG:vid_ctx_rect
 exk_vid_ctx_ptr:
     ; STKBALANCE-NET: -1
     push word [cs:exk_kretf]
@@ -1111,6 +1370,10 @@ exk_vid_setmode:
     ; STKBALANCE-NET: -1
     push word [cs:exk_kretf]
     jmp KERNEL_SEG:vid_setmode
+exk_thm_desk:
+    ; STKBALANCE-NET: -1
+    push word [cs:exk_kretf]
+    jmp KERNEL_SEG:thm_desk
 exk_vid_unblank_kind:
     ; STKBALANCE-NET: -1
     push word [cs:exk_kretf]
@@ -1119,6 +1382,10 @@ exk_wm_ask_size:
     ; STKBALANCE-NET: -1
     push word [cs:exk_kretf]
     jmp KERNEL_SEG:wm_ask_size
+exk_wm_disp_of:
+    ; STKBALANCE-NET: -1
+    push word [cs:exk_kretf]
+    jmp KERNEL_SEG:wm_disp_of
 exk_wm_fit:
     ; STKBALANCE-NET: -1
     push word [cs:exk_kretf]
@@ -1127,10 +1394,10 @@ exk_wm_kind_bank:
     ; STKBALANCE-NET: -1
     push word [cs:exk_kretf]
     jmp KERNEL_SEG:wm_kind_bank
-exk_wm_kind_now:
+exk_wm_top:
     ; STKBALANCE-NET: -1
     push word [cs:exk_kretf]
-    jmp KERNEL_SEG:wm_kind_now
+    jmp KERNEL_SEG:wm_top
 exk_wm_min_ax:
     ; STKBALANCE-NET: -1
     push word [cs:exk_kretf]
