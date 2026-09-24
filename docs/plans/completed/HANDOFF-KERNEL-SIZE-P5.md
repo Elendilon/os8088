@@ -1,6 +1,6 @@
 # Kernel size pass 4: the record, and what is left for a fifth
 
-**PASS 4 HAS LANDED.** Ten batches and a fix on `kernel-size-p4`, cut from
+**PASS 4 HAS LANDED.** Nineteen batches and a fix on `kernel-size-p4`, cut from
 `elendilon` at `6519baaa`. The brief was *"reduce kernel size by 2KB or more"*,
 with the owner's permission to look at the kernel as a WHOLE, to change the
 ABI (every package in the tree is rebuilt), and to spawn agents on targets
@@ -28,18 +28,25 @@ the sum of the RESIDENT sections (`.text` + `.bss` + `.cold` + `.lowbss` +
 
 | | kern_big base | kern_big close | Δ | kern_small base | kern_small close | Δ |
 |---|---:|---:|---:|---:|---:|---:|
-| `.text` | 50,358 | 47,534 | −2,824 | 37,423 | 35,793 | −1,630 |
-| `.bss` | 6,114 | 5,554 | −560 | 4,189 | 3,539 | −650 |
-| `.cold` | 41,020 | 40,255 | −765 | 26,394 | 26,028 | −366 |
+| `.text` | 50,358 | 47,223 | −3,135 | 37,423 | 35,698 | −1,725 |
+| `.bss` | 6,114 | 5,524 | −590 | 4,189 | 3,485 | −704 |
+| `.cold` | 41,020 | 40,004 | −1,016 | 26,394 | 25,854 | −540 |
 | `.lowbss` | 6,366 | 6,366 | 0 | 3,636 | 3,636 | 0 |
 | `.vgabuf` | 848 | 336 | −512 | 0 | 0 | 0 |
-| **resident** | **104,706** | **100,045** | **−4,661** | **71,642** | **68,996** | **−2,646** |
-| `.text`+`.bss` (the binding segment) | 56,472 | 53,088 | **−3,384** | 41,612 | 39,332 | −2,280 |
+| **resident** | **104,706** | **99,453** | **−5,253** | **71,642** | **68,673** | **−2,969** |
+| `.text`+`.bss` (the binding segment) | 56,472 | 52,747 | **−3,725** | 41,612 | 39,183 | −2,429 |
 | `KERN_SIZE` | 111,104 | **105,984** | −5,120 | 74,240 | **71,168** | −3,072 |
 
-The pass ran in two rounds. Batches 1-10 took it past 2KB on both kernels
+The pass ran in three rounds. Batches 1-10 took it past 2KB on both kernels
 (−2,921 / −2,004); the owner then reviewed what was left and took five more
-(batches 11-15, −1,740 / −642), which is what the table closes on.
+(batches 11-15, −1,740 / −642); and a third round (batches 16-19, −592 /
+−323) took the inline cells, the near-duplicate blocks, the removal of the
+module entry cap and the extended desktop's second wave. The table is the
+pass's OWN work. The branch also carries the compression session's streamed
+Compress and kernel truncate, merged in after batch 18, which cost `.cold`
++200 on kern_big and +94 on kern_small; `kernsize` on the branch therefore
+reads 99,653 and 68,767, and that difference is theirs rather than a
+regression of this pass.
 
 `KERN_SIZE` moved further than the byte sum because rungs round separately —
 the banner in CLAUDE.md is why that figure is quoted beside the byte sum and
@@ -73,7 +80,12 @@ extended.
 | 13 | **boot-only code into the stage-2 blob**: `kmain_o`, `BLOBCALL`, `vid_detect`/`vid_init`/`hb_probe_x`; knob builds get room of their own (SPEC.md 2.5.3.3) | −334 | −248 |
 | 14 | a document's missing program is a toast, `Needs TRACKER.O88`, and `ui_note` is gone | −197 | −113 |
 | 15 | **the extended desktop is an on-demand module, `EXTD.DRV`** (SPEC.md 39.19.6) | −851 | 0 |
-| | **total** | **−4,661** | **−2,646** |
+| | *round two* | *−1,740* | *−642* |
+| 16 | **the inline cell**: fifteen API cells whose routine is one memory access ARE that access (`2E <mov> [cbw] CB`), and are faster for it (SPEC.md 20.3) | −89 | −82 |
+| 17 | near-duplicate blocks share one body: the file layer's seven by-name bodies, its data loops, its two directory scans, its shared release tail, `drv_fs_call`, `wm_covered` | −242 | −201 |
+| 18 | **`MOD_NENT` is gone**: each module's slot block is its own entry count, so an entry costs 4 bytes of `.bss` plus a byte a call site and there is no ceiling (SPEC.md 2.8.1) | −36 | −38 |
+| 19 | the extended desktop's second wave: nine more second-display pieces into `EXTD.DRV` (12 entries), and the Control Panel's key handler into `CTRL.DRV` | −225 | −2 |
+| | **total** | **−5,253** | **−2,969** |
 
 ### 1.1 The two ideas that were new
 
@@ -132,16 +144,51 @@ COLD_SEG:wm_cbd`**, where `wm_cbd` in `.cold` is `call bp / retf` — the old
 thunk's four transfers in the other order, so the cost and the stack depth at
 the callback are unchanged.
 
+### 1.5 Batches 18 and 19: the cap, and what the cap was hiding
+
+`MOD_NENT` = 7 was a uniform slot count per module. It left 13 slots
+allocated and never armed on each kernel, made an eighth entry a hard NASM
+error in whichever module grew, and could not be per-build because
+`tools/os88mod.py` scraped it with a regex. It had bitten three times; the
+last was a compression session in another branch the same day. Each
+module's block is now its own `X_NENT` (kernel.asm's `MODFP` macro, which
+refuses a block out of `MOD_*` order or a count below one), `mod_fpt` maps a
+row to its block, `mod_check` demands the header's count EQUAL the kernel's,
+and the `O8MM` map carries the kernel's count to the host tool. Removing the
+cap SAVED bytes (−36 / −38) rather than costing them.
+
+Batch 19 then took the extended desktop's second wave at −225, **minus the
+performance-sensitive calls**, as the owner asked. Moved: `vid_disp_desk`,
+`wm_disp_span`, `wm_fs_setrect`'s arm, `wm_display`'s secondary arm (gated),
+`wm_kind_now`'s arm, `ui_ylow` (gated), `fsx_caps`'s and `fsx_mode`'s arms
+as `EXT_FSX` selectors, and `wm_zoom_xmax` shares `wm_disp_xw` rather than
+copying it. `cp_onkey_x` went into `CTRL.DRV` on kern_big (kern_small's
+panel has no key handler). Refused, and staying resident:
+- `wm_disp_of` and `wm_disp_xw`'s arm are reached under every window's
+  content rect, `OSAPI_WM_CONTENT` included, which Tracker calls per draw;
+- `fsx_surf`'s arm is asked per frame inside a bracket;
+- `ui_drag_dead`/`ui_drag_phase` are the drag loop;
+- the two secondary-click tests in `ui_task` would put a far call on every
+  press on a one-display machine.
+
+A one-display machine pays ~+20 cycles (a far call to `mod_gone`) only on
+create, fit, resize, zoom, the fullscreen toggle, a whole-desktop repaint and
+`fsx_caps`/`fsx_mode`; nothing per frame, move, tick, primitive or glyph.
+
+No registered row types into a driver's Control Panel page; the agent drove
+it with an ad-hoc MartyPC script (RAMDISK.DRV's size box, with a negative
+control), which is a row worth registering if that path changes again.
+
 ## 2. WHAT IS LEFT, costed
 
 | candidate | kern_big | kern_small | why not taken |
 |---|---:|---:|---|
 | `rect_get`/`rect_put` for 37 four-word load/store sites | −298 | −245 | **S1 TAKEN as batch 12** (19 sites, −142) after the sites were COUNTED on MartyPC; S2 (damage repaint, ~80) and S3 (save-under, ~70) held in LAST-DROP-BYTES 7.10 |
 | boot-only code into the blob (`kmain`'s pre-mount half, `vid_detect`, `vid_init`, `hb_probe_x`; a `BLOBCALL` macro and three `os88ovlchk` rules) | −270 | −208 | **TAKEN AFTER THE CLOSE, as SPEC.md 2.5.3.3** — at −334 / −248 with the post-mount half, `dsk_ltrtab` and two `desk_init` thunks folded in. The owner took kern_small's blob at 42 bytes free, and the knob builds that overflowed it got knob-only room (2.5.3.3.1) rather than a second blob length |
-| the extended desktop's WM code as a kern_big on-demand module | ~−850 | 0 | **TAKEN as batch 15**, `EXTD.DRV`, at −851. About 440 more bytes are movable and would need entries past seven: a second wave might net 150-250 |
-| inline cells whose routine fits in 8 bytes (`get_ticks`, `set_color`, …) | −55 | −55 | FASTER; needs an INLINE shape in `t_api_abi.py` |
+| the extended desktop's WM code as a kern_big on-demand module | ~−850 | 0 | **TAKEN as batch 15**, `EXTD.DRV`, at −851, and the second wave as batch 19 at −225 once batch 18 removed the entry cap. What stays resident is §1.5's list |
+| inline cells whose routine fits in 8 bytes (`get_ticks`, `set_color`, …) | −55 | −55 | **TAKEN as batch 16**, fifteen cells, −89 / −82, and faster |
 | `ui_tm_errs` duplicates `fm_stattab` | −125 | | **TAKEN, and further, as batches 11 and 14** — the owner folded four verdicts into `Load failed`, made every failed launch a toast and retired `ui_note` |
-| eleven near-identical block pairs (`dskw_mkbody`/`rmbody`/`dbody`, `dskw_wdata`/`rdata`, …) | ~−280 | | eleven separate edits, each small |
+| eleven near-identical block pairs (`dskw_mkbody`/`rmbody`/`dbody`, `dskw_wdata`/`rdata`, …) | ~−280 | | **TAKEN as batch 17** where it paid, −242 / −201; the refusals are in its commit message (per-move `W_ONDRAG`, IRQ0's `snd_tick` path, and doors whose code costs what it saves) |
 | `mov word [wm_clip_n], 0` → `call wm_clip_clear` at ~18 non-hot sites | ~−54 | | |
 | `inst_icobuf` onto `ico_ibuf` | −64 | | REFUSED: it is filled on a dying package's WORKER while task 0 may be staging |
 
@@ -206,3 +253,13 @@ and `buildmatrix` (four new kern_small knob rows); batch 15 ran 47 rows -
 every `disp*` row but `dispfit`, which fails identically at the base (its
 second adapter switch never takes), plus the new `extdmod`, `kernmods`,
 `fsxdisp` and the Control Panel, dock and association rows - 47/47.
+
+**Round three**: batch 16 ran `pkgrun`, `pkgbig`, `tank`, `evqfull`, `telpen`
+and nine more (15/15); batch 17 ran 22 file-layer rows in the agent's tree
+and 12 on the merged one plus an ad-hoc RAM-disk and rmtree run; batch 18 ran
+the eleven module rows (`cpup`, `fcpsmall`, `fcpcopy`, `extdmod`,
+`fdlgdrop`, `dockmodule`, `hibernate`, `diskclone`, `lzcomp`, `bootsmoke`,
+`small128`) and `buildmatrix`; the merge with the compression work ran
+`lzbig` and seven more; batch 19 ran 35 rows in the agent's tree (every
+`disp*`/`fsx*` row; `dispfit` fails at base as always) and 14 on the merged
+tree, plus `buildmatrix`.
