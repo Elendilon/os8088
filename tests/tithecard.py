@@ -54,6 +54,8 @@ import os88marty                                          # noqa: E402
 import os88geom                                           # noqa: E402
 import os88mouse                                          # noqa: E402
 import os88titheface                                      # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import titheterr as te                                    # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 SYMS = ("ti_cardx", "ti_cardw", "ti_cardh", "ti_cardpitch", "ti_cardn",
@@ -62,7 +64,8 @@ SYMS = ("ti_cardx", "ti_cardw", "ti_cardh", "ti_cardpitch", "ti_cardn",
         "ti_hnx", "ti_nrows", "ti_hovc", "ti_bx", "ti_cw", "ti_ch",
         "TI_CELLROWS", "ti_aseg", "ti_cslot", "TI_POSES",
         "ti_bs", "ti_bh",
-        "ti_oy", "ti_hud", "ti_tg0x", "ti_tg1x", "TI_FACES", "TI_UNITW")
+        "ti_oy", "ti_hud", "ti_tg0x", "ti_tg1x", "TI_FACES", "TI_UNITW",
+        "tg_fillq", "TI_ROWS")
 MACHINES = ("os8088_xt_vga", "os8088_5150_herc_gla", "os8088_5150_cga_gla")
 # The ability line of the card the hover checks land on - hand row 5, the
 # HERALD. Kept here rather than scraped out of the source, so a change to the
@@ -74,22 +77,30 @@ MACHINES = ("os8088_xt_vga", "os8088_5150_herc_gla", "os8088_5150_cga_gla")
 # round where `+ , - . /` fell to the index's refusal. A row chosen without
 # looking at its punctuation passed the break that this check exists for.
 HOVER_ROW = 5
-ABILITY = "CALL: ONE MORE PLAY THIS ROUND, PAID IN GOLD"
+import os88tithecards as tcards                          # noqa: E402
 
-# ...and the whole set, because a BOARD hover names a card by the cell it is
-# over and the test cannot choose which cell the pointer lands on.
-ABILITIES = [
-    "BRACES: THE FIRST CHARGE INTO THIS LANE IS HALVED",
-    "VOLLEY: STRIKES THE REAR RANK FROM BEHIND THE LINE",
-    "HOLD: THE LANE DOES NOT BREAK WHILE THE WARDEN STANDS",
-    "TITHE: TAKES A SOUL FROM EVERY DEATH IN THIS LANE",
-    "BREACH: A GATE, AND WHATEVER IS STANDING BEHIND IT",
-    "CALL: ONE MORE PLAY THIS ROUND, PAID IN GOLD",
-    "NOTHING PASSES WHILE IT STANDS. NOTHING.",
-]
-POWER = [1, 2, 3, 2, 4, 2, 5]           # TI_C_PWR, card by card
-NAMES = ["PIKEMAN", "ARCHER", "WARDEN", "ACOLYTE", "RAM", "HERALD", "BULWARK"]
-HAND = 7
+# WHAT A CARD SAYS IS THE CARD TABLE'S (SPEC.md 97.11): the status line is its
+# keywords, `NAME n` two spaces apart, off the block for the row it is in -
+# and the tests' full board (titheterr.fill) stands the first card of art N in
+# cell N and in hand slot N, so both are named by the table and not by a list
+# kept here.
+CARDS = tcards.load()[0]
+_ART = tcards.art_combos(CARDS)[1]
+FIRST = [_ART.index(k) for k in range(max(a for a in _ART if a != 255) + 1)]
+KWNAME = {k[1]: k[0] for k in tcards.KEYWORDS}
+
+
+def ability(cid, col):
+    """tigame.inc's tg_abil, host side: col 0 FRONT, 1 REAR."""
+    c = CARDS[cid]
+    rec = tcards.record(c)
+    o = 6 + (tcards.BLK if col and c.kind != tcards.KIND_ORDER else 0)
+    parts = [KWNAME[b & 31] + (" %02d" % (b >> 5) if b >> 5 else "")
+             for b in rec[o + 6:o + tcards.BLK] if b & 31]
+    return "  ".join(parts) or "NO SPECIAL ABILITY"
+
+
+ABILITY = ability(FIRST[HOVER_ROW], 0)
 
 fails = []
 
@@ -147,6 +158,7 @@ def run(mach, off):
         ui.raise_window(win)
         os88marty.guest_sleep(m, 4.0)
         rw = lambda n: struct.unpack("<H", bytes(m.readseg(seg, off[n], 2)))[0]
+        te.fill(m, seg, off)            # seven cards and twenty figures
 
         rows_seen = []
         for face in range(off["TI_FACES"]):
@@ -361,8 +373,9 @@ def run(mach, off):
               "%d pixel(s) differ from the host's own render" % wrong)
 
         # --- THREE BODIES, THREE FIGURES (SPEC.md 97.4.9) -----------------
-        # The bands themselves, out of the ARENA: pose 0 of cells 0, 1 and 5,
-        # which play the soldier, the hooded caster and the nun. A card whose
+        # The bands themselves, out of the ARENA: pose 0 of cells 0, 6 and 12,
+        # the first art of each faction on the full board - the soldier, the
+        # hooded caster and the nun. A card whose
         # record collapsed into another - a manifest read at the wrong stride,
         # a body table indexed by the item - draws a board of identical
         # figures. (That each cell is the RIGHT figure, body and item, to the
@@ -370,7 +383,7 @@ def run(mach, off):
         np_ = off["TI_POSES"]
         span = rw("ti_cslot")
         banks = [bytes(m.readseg(rw("ti_aseg"), c * np_ * span, span))
-                 for c in (0, 1, 5)]
+                 for c in (0, 6, 12)]
         same = [(a, b) for a in range(len(banks)) for b in range(a + 1, len(banks))
                 if banks[a] == banks[b]]
         check(not same, "the three faction idles are three PICTURES",
@@ -395,13 +408,15 @@ def run(mach, off):
         os88marty.guest_sleep(m, 2.0)
         cell = rw("ti_hovc")
         if cell != 0xFFFF:
-            card = cell % HAND
+            card = FIRST[cell]
+            col = 0 if cell // off["TI_ROWS"] in (1, 2) else 1
             # `NAME  <soul>PP  ABILITY` - the board's line NAMES the
             # character, because a figure at 64 pixels cannot and will not,
             # and it carries the POWER on every adapter: a cost falls back to
             # the card and power has nowhere to fall back to (97.4.8.1).
-            want_s = "%s  \x03%02d  %s" % (NAMES[card], POWER[card],
-                                           ABILITIES[card])
+            want_s = "%s  \x03%02d  %s" % (CARDS[card].name.upper(),
+                                           CARDS[card].power,
+                                           ability(card, col))
             want = os88titheface.render(face[1], face[2], want_s)
             f = mono(m)[2]
             y = rw("ti_oy") + (rw("ti_hud") - rw("ti_fh")) // 2

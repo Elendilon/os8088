@@ -60,10 +60,9 @@ import os88tithechar as tc                                # noqa: E402
 SYMS = ("ti_terr", "ti_gidx", "ti_aseg", "ti_kseg", "ti_bx", "ti_by", "ti_cw", "ti_ch",
         "ti_rise", "ti_boardh", "ti_sb", "ti_sh", "ti_spitch", "ti_sbase",
         "ti_cslot", "ti_bs", "ti_bh", "ti_insx", "ti_insy",
-        "TI_COLS", "TI_ROWS")
+        "TI_COLS", "TI_ROWS", "tg_fillq")
 EQUS = ("TI_COLS", "TI_ROWS")
 MACHINES = ("os8088_xt_vga", "os8088_5150_herc_gla", "os8088_5150_cga_gla")
-HAND = 7                          # a cell plays card (index mod the hand)
 
 fails = []
 
@@ -116,14 +115,14 @@ def pack(rows):
 def model_pose(geo, terr, strip, g, ci, pi, attack=False, card=None):
     """A cell's composed pose - or attack frame - as the machine should have
     it: the card's body, the item for its column (FRONT in 1 and 2, REAR in 0
-    and 3), over the column's own ground. `card` is who stands there - the
-    cell's index mod the hand until a reveal (tests/titherv.py) puts one
-    there."""
+    and 3), over the column's own ground. `card` is the ART that stands
+    there - art N in cell N on the tests' full board (fill), until a reveal
+    (tests/titherv.py) puts one there."""
     c, r = divmod(ci, g["TI_ROWS"])
     x0 = g["ti_insx"]
     rows = []
     stance = tc.FRONT if c in (1, 2) else tc.REAR
-    fig = tc.compose(ci % HAND if card is None else card, stance,
+    fig = tc.compose(ci if card is None else card, stance,
                      [s for s in tc.SURFACES if s[0] == geo[0]][0], pi, attack)
     if c >= g["TI_COLS"] // 2:          # P2: the band MIRRORED, at CW-INSX-BW
         x0 = g["ti_cw"] - g["ti_insx"] - g["ti_bs"] * 8
@@ -136,6 +135,17 @@ def model_pose(geo, terr, strip, g, ci, pi, attack=False, card=None):
             row.append(gr[bx] if v == tc.T else (1 if v == tc.I else 0))
         rows.append(row)
     return pack(rows)
+
+
+def fill(m, seg, off, mode=1):
+    """THE TESTS' FULL BOARD (SPEC.md 97.12.6). A match starts empty, and
+    every check here is about twenty figures: `tg_fillq` is a byte the worker
+    services, standing the first card of art N in cell N and seven of them in
+    each hand. Mode 2 leaves P1's FRONT column empty for a row that plays."""
+    m.write(seg * 16 + off["tg_fillq"], bytes([mode]))
+    os88marty.until(m, lambda _: m.readseg(seg, off["tg_fillq"], 1)[0] == 0,
+                    "the full board", poll=0.2, limit=60.0)
+    os88marty.guest_sleep(m, 1.0)
 
 
 def run(mach, off):
@@ -152,6 +162,8 @@ def run(mach, off):
 
         def rw(name):
             return struct.unpack("<H", bytes(m.readseg(seg, off[name], 2)))[0]
+
+        fill(m, seg, off)
 
         def state():
             return {s: (off[s] if s in EQUS else rw(s)) for s in SYMS}

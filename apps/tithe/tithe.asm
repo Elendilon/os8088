@@ -179,6 +179,9 @@ ti_entry:
                                     ; it (SPEC.md 20.12, os88parts.inc rule 1).
                                     ; A refusal has already said why
     push si
+    call tg_new                     ; THE MATCH: every view the renderer draws
+                                    ; is the engine's (tigame.inc), so it is
+                                    ; dealt before anything is built from them
     call ti_arena_claim             ; THE ARENA NEXT (tiplace.inc): a machine
     jc .out                         ; that cannot hold the board is refused
                                     ; before a window exists to be empty
@@ -353,6 +356,11 @@ ti_paint:
                                     ; this is where the layout happens at all
     cmp byte [ti_ok], 0
     je .refuse
+    cmp byte [tg_ph], TG_PH_PLAN    ; BETWEEN TWO PLANNERS the window shows
+    je .board                       ; the pass screen and nothing of either
+    call tg_screen                  ; plan (tigame.inc)
+    jmp short .out
+.board:
     call ti_ground                  ; WF_OWNBG's other half, and only on a
                                     ; W_PAINT: the worker's frames touch the
                                     ; features and nothing around them
@@ -397,11 +405,27 @@ ti_onclick:
     jne .out                        ; reveal's sparks may be over
     cmp byte [ti_ok], 0
     je .step
+    cmp byte [tg_ph], TG_PH_PLAN    ; the PASS screen: a click is the next
+    je .plan                        ; player sitting down
+    call tg_resume
+    jmp short .out
+.plan:
     call OSAPI_MOUSE                ; CX = x, DX = y
     call ti_card_hit                ; A CARD CLICKED IS A CARD PLAYED
     cmp ax, -1                      ; (SPEC.md 97.4.11) - the hovered one,
-    je .hud                         ; which is the one the pointer is on
+    je .btn                         ; which is the one the pointer is on
     call ti_rv_play
+    jmp short .out
+.btn:
+    call tg_btn_hit                 ; UNDO and COMMIT (tigame.inc)
+    cmp al, 1
+    jne .ncommit
+    call tg_undo
+    jmp short .out
+.ncommit:
+    cmp al, 2
+    jne .hud
+    call tg_commit
     jmp short .out
 .hud:
     mov ax, [ti_oy]
@@ -484,6 +508,21 @@ ti_onkey:
     jne .n_fs
     jmp .fs
 .n_fs:
+    cmp byte [tg_ph], TG_PH_PLAN    ; THE PASS SCREEN takes Enter or Space as
+    je .plankeys                    ; the next player sitting down, and gives
+    cmp al, 13                      ; nothing else away
+    je .resume
+    cmp al, ' '
+    je .resume
+    cmp bl, 'm'
+    je .music
+    cmp bl, 's'
+    je .arm
+    jmp .out
+.resume:
+    call tg_resume
+    jmp .out
+.plankeys:
     cmp bl, 'a'
     jne .n_fire
     jmp .fire
@@ -508,6 +547,16 @@ ti_onkey:
     jne .n_mus
     jmp .music
 .n_mus:
+    cmp bl, 'u'                     ; SPEC.md 97.7's `U`: the last action back
+    jne .n_undo
+    call tg_undo
+    jmp .out
+.n_undo:
+    cmp al, 13                      ; ...and Enter commits
+    jne .n_commit
+    call tg_commit
+    jmp .out
+.n_commit:
     cmp bl, 's'
     jne .n_arm
     jmp .arm
@@ -614,6 +663,11 @@ ti_paint_now:
     push si
     cmp byte [ti_ok], 0
     je .out
+    cmp byte [tg_ph], TG_PH_PLAN
+    je .board
+    call tg_screen
+    jmp short .out
+.board:
     call ti_board
     call ti_all
 .out:
@@ -700,17 +754,32 @@ ti_worker:
     mov bx, [ti_win]                ; arm; a key is a player's, a byte is not
     call OSAPI_WM_CLIP_SET
     jc .rpun
-    call ti_board
-    call ti_all
+    call ti_paint_now
     call OSAPI_WM_CLIP_CLEAR
 .rpun:
     mov byte [ti_rpq], 0
     call OSAPI_GFX_UNLOCK
 .norp:
+    cmp byte [tg_fillq], 0          ; THE TESTS' FULL BOARD (tigame.inc's
+    je .nofill                      ; tg_fill), the same way
+    cmp byte [ti_ok], 0
+    je .nofill
+    call OSAPI_GFX_LOCK
+    mov bx, [ti_win]
+    call OSAPI_WM_CLIP_SET
+    jc .flun
+    call tg_fill
+    call OSAPI_WM_CLIP_CLEAR
+.flun:
+    mov byte [tg_fillq], 0
+    call OSAPI_GFX_UNLOCK
+.nofill:
     cmp byte [ti_paused], 0
     jne .sleep
     cmp byte [ti_ok], 0
     je .sleep
+    cmp byte [tg_ph], TG_PH_PLAN    ; the pass screen has no frame to draw
+    jne .sleep
     call OSAPI_GET_TICKS
     cmp ax, [ti_last]
     je .sleep                       ; the tick has not turned over: nothing is
@@ -723,7 +792,10 @@ ti_worker:
                                     ; one, so without this the frame draws
                                     ; straight over whatever is on top of us,
                                     ; and CF=1 means the window has gone
-    call ti_frame
+    cmp byte [tg_ph], TG_PH_PLAN    ; ...AND ASKED AGAIN UNDER THE LOCK: a
+    jne .nofr                       ; commit that landed while this task waited
+    call ti_frame                   ; for it has put the pass screen up, and a
+.nofr:                              ; frame now would draw a base over it
     call OSAPI_WM_CLIP_CLEAR
 .unlk:
     call OSAPI_GFX_UNLOCK
@@ -1021,6 +1093,12 @@ ti_feature:
     mov [ti_pi], ax
     mov ax, [ti_ci]                 ; ...and WHICH CHARACTER stands here
     call ti_ck_cell                 ; (SPEC.md 97.4.9)
+    cmp word [ti_ck], 0FFh          ; AN EMPTY CELL IS NOT A FEATURE on the
+    jne .occ                        ; wheel - its bands are ground and nothing
+    cmp byte [ti_dok], 0            ; moves on them - but a whole repaint owes
+    je .occ                         ; its ground like any other
+    jmp .out
+.occ:
     call ti_cellpose_addr           ; DI = THIS CELL's pose, in the arena -
     mov si, di                      ; composed over its own column's ground
     mov ax, [ti_ci]                 ; ...which item it holds, for its rows
@@ -1352,6 +1430,14 @@ ti_lane:
 ti_cost:
     push bx
     push dx
+    cmp word [ti_wpos], TI_CELLS    ; an empty cell committed nothing
+    jae .occ
+    mov ax, [ti_wpos]
+    call ti_ck_cell
+    mov ax, 1
+    cmp word [ti_ck], 0FFh
+    je .out
+.occ:
     mov ax, [ti_bh]                 ; WHAT THE COMMIT PUT DOWN, and the dirty
                                     ; rect is always on (SPEC.md 97.4.3) - bar
     push ax                         ; a fighter's swing, which is the band
@@ -1402,6 +1488,9 @@ ti_pit:
 %include "tipj.inc"
 %include "ticl.inc"
 %include "tirv.inc"
+%include "ticards.inc"
+%include "tirule.inc"
+%include "tigame.inc"
 %include "tiplace.inc"
 %include "tisong.inc"
 %include "timus.inc"
@@ -1467,90 +1556,25 @@ ti_ic_hp:   db 066h, 0FFh, 0FFh, 0FFh, 07Eh, 03Ch, 018h, 000h   ; a heart
 ti_ic_soul: db 03Ch, 07Eh, 0DBh, 0FFh, 0E7h, 07Eh, 03Ch, 018h   ; a soul
 
 ti_s_commit: db 'COMMIT', 0
-ti_n_1:     db 'PIKEMAN', 0
-ti_n_2:     db 'ARCHER', 0
-ti_n_3:     db 'WARDEN', 0
-ti_n_4:     db 'ACOLYTE', 0
-ti_n_5:     db 'RAM', 0
-ti_n_6:     db 'HERALD', 0
-ti_n_7:     db 'BULWARK', 0
-                                    ; cost, atk, def, name - a fixed hand,
-                                    ; because wave 1a has no deck behind it and
-ti_cards:
-    ;    gold  soul | FRONT i1,v1  i2,v2 | REAR i1,v1  i2,v2 |  HP  PWR
-    db 2, 1
-    db TI_IC_MELEE, 3, TI_IC_SHIELD, 2
-    db TI_IC_MELEE, 1, TI_IC_SHIELD, 2
-    db 5, 1
-    dw ti_n_1, ti_a_1
-    db 3, 0
-    db TI_IC_MELEE, 1, TI_IC_SHIELD, 1
-    db TI_IC_BOW,   4, TI_IC_SHIELD, 1
-    db 6, 2
-    dw ti_n_2, ti_a_2
-    db 4, 1
-    db TI_IC_SHIELD, 6, TI_IC_MELEE, 2
-    db TI_IC_SHIELD, 4, TI_IC_GOLD,  1
-    db 7, 3
-    dw ti_n_3, ti_a_3
-    db 2, 2
-    db TI_IC_MELEE, 1, TI_IC_STAR, 1
-    db TI_IC_SOUL,  3, TI_IC_STAR, 2
-    db 4, 2
-    dw ti_n_4, ti_a_4
-    db 5, 0
-    db TI_IC_MELEE, 7, TI_IC_SHIELD, 2
-    db TI_IC_MELEE, 2, TI_IC_SHIELD, 1
-    db 9, 4
-    dw ti_n_5, ti_a_5
-    db 3, 1
-    db TI_IC_MELEE, 2, TI_IC_STAR, 3
-    db TI_IC_GOLD,  3, TI_IC_STAR, 3
-    db 5, 2
-    dw ti_n_6, ti_a_6
-    db 6, 0
-    db TI_IC_SHIELD, 8, TI_IC_MELEE, 1
-    db TI_IC_SHIELD, 5, TI_IC_GOLD,  2
-    db 11, 5
-    dw ti_n_7, ti_a_7
-
-; THE ABILITY LINE, which the HUD shows for whatever the pointer is over
-; (SPEC.md 97.4.8). Wave 1a has no rules behind them, so these say what the
-; card WOULD do rather than what any code does - the thing being judged is
-; whether a strip of prose reads at every surface size, and a placeholder that
-; is the wrong LENGTH would answer that question wrongly.
-; WHICH CHARACTER EACH CARD IS. Wave 1a has three faction idles and seven
-; cards, so the three go round - which is a fiction like every other number
-; here and a STABLE one, so the same card always stands the same way. The
-; card's own faction is what this becomes (TITHE-PLAN 7.1).
-
-ti_a_1:     db 'BRACES: THE FIRST CHARGE INTO THIS LANE IS HALVED', 0
-ti_a_2:     db 'VOLLEY: STRIKES THE REAR RANK FROM BEHIND THE LINE', 0
-ti_a_3:     db 'HOLD: THE LANE DOES NOT BREAK WHILE THE WARDEN STANDS', 0
-ti_a_4:     db 'TITHE: TAKES A SOUL FROM EVERY DEATH IN THIS LANE', 0
-ti_a_5:     db 'BREACH: A GATE, AND WHATEVER IS STANDING BEHIND IT', 0
-ti_a_6:     db 'CALL: ONE MORE PLAY THIS ROUND, PAID IN GOLD', 0
-ti_a_7:     db 'NOTHING PASSES WHILE IT STANDS. NOTHING.', 0
 
 ti_s_p1:    db 'P1', 0
 ti_s_p2:    db 'P2', 0
 ti_s_round: db 'ROUND ', 0
-ti_s_phase: db '   PLAN', 0
 ti_s_undo:  db 'UNDO', 0
 ti_s_front: db 'FRONT', 0
 ti_s_rear:  db 'REAR', 0
 ti_s_swap:  db 'SWAP ', 0
 
-ti_p1hp:    db 20                  ; wave 1a has no rules behind it, so these
-ti_p1gold:  db 7                   ; are a fixed position rather than a running
-ti_p1soul:  db 4                   ; game. What is being judged is whether the
-ti_p2hp:    db 18                  ; LAYOUT reads at all four surface sizes
-ti_p2gold:  db 5                   ; (TITHE-PLAN 16.1)
-ti_p2soul:  db 2
-ti_round:   db 3
+ti_p1hp:    db 0                   ; what the HUD shows, written by tigame.inc
+ti_p1gold:  db 0                   ; off the engine's state at every edit
+ti_p1soul:  db 0
+ti_p2hp:    db 0
+ti_p2gold:  db 0
+ti_p2soul:  db 0
+ti_round:   db 0
 
 ti_ttl:     db 'Tithe', 0
-ti_about:   db 'TITHE - wave 1b, the renderer and the music. SPEC.md 97.', 0
+ti_about:   db 'TITHE - wave 3, the round loop: hot-seat. SPEC.md 97.', 0
 ti_s_small: db 'This window is too small for a board.', 0
 
 ti_win:     dw 0
@@ -1671,6 +1695,8 @@ ti_nrows:   dw 0                    ; how many rows of it are used,
 ti_nh:      dw 0                    ; how tall that is,
 ti_nrec:    dw 0                    ; the card behind the cell,
 ti_nrow:    dw 0                    ; and which of its two stat pairs
+ti_uk:      dw 0                    ; the hand slot whose unit and portrait
+                                    ; cache a card view draws from
 ti_ck:      dw 0                    ; the CHARACTER a band is being built
                                     ; for (SPEC.md 97.4.9)
 ti_uslot:   dw 0                    ; ...and the mini unit's slot pitch
@@ -1843,15 +1869,14 @@ ti_hudn:    dw 0
 ti_hudbuf:  times TI_HUDMAX db 0
 ti_numbuf:  times 4 db 0
 ti_cardbuf: times 24 db 0
-ti_unit:    times TI_UNITMAX * TI_POSES * TI_CARDS db 0
+ti_unit:    times TI_UNITMAX * TI_POSES * TI_HAND db 0 ; one per HAND SLOT
 ti_pjband:  times TI_PJMAX * TI_PJN db 0
 
 ; THE POSES AND THE BOARD'S GROUND ARE NOT HERE: they are per cell and per
 ; column now, and live in the ARENA, a heap claim (tiplace.inc). What stays in
 ; the segment is the bases' eight bands.
-TI_BSS      equ TI_BASEMAX * TI_BASEPOSES
+TI_BSS      equ 0                 ; the bases' bands went to a claim
 
     OS88_BSS OP_BSS + TI_BSS
     OS88_IMAGE_END
 
-ti_base     equ os88_image_end + OP_BSS

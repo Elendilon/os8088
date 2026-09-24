@@ -11,8 +11,10 @@ animates (look at it) but that it ENDS where it should, on all three adapters.
 
 WHAT IT ASSERTS, and each one went red on purpose first:
 
-  1. THE CARD WENT WHERE THE PLAY SAYS: into the next lane of P1's column
-     for the toggle's row, and the cell table names it there.
+  1. THE CARD WENT WHERE THE PLAY SAYS: into the topmost empty cell of P1's
+     column for the toggle's row, and the cell's VIEW names it there. The
+     board is the tests' full one with P1's FRONT column left empty
+     (titheterr.fill, mode 2), so the two plays take lanes 0 and 1.
 
   2. THE CELL IS THE NEW CHARACTER, TO THE BYTE: its four idle poses and four
      attack frames are the model's for the card that now stands there - so
@@ -49,11 +51,12 @@ import os88mouse                                          # noqa: E402
 import os88tithebg as bg                                  # noqa: E402
 import titheterr as te                                    # noqa: E402
 
-SYMS = te.SYMS + ("ti_rv", "ti_rvcell", "ti_rvcard", "ti_played", "ti_cellcard",
+SYMS = te.SYMS + ("ti_rv", "ti_rvcell", "ti_rvcard", "ti_played", "ti_cards",
+                  "TI_C_SIZE", "TI_C_ART", "TI_HAND",
                   "ti_hover", "ti_row", "ti_boardw", "ti_panx", "ti_b2x",
                   "ti_basew", "ti_cardx", "ti_cardw", "ti_cardh",
                   "ti_cardpitch", "ti_nframe", "ti_rpq")
-EQUS = te.EQUS
+EQUS = te.EQUS + ("TI_C_SIZE", "TI_C_ART", "TI_HAND")
 
 fails = []
 
@@ -107,12 +110,17 @@ def run(mach, off):
             "<H", bytes(m.read(os88geom.winptr(m, win) + os88geom.W_SEG, 2)))[0]
         ui.raise_window(win)
         os88marty.guest_sleep(m, 8.0)
+        te.fill(m, seg, off, mode=2)     # a full board with P1's FRONT empty
 
         def rw(name):
             return struct.unpack("<H", bytes(m.readseg(seg, off[name], 2)))[0]
 
         def rb(name, i=0):
             return m.readseg(seg, off[name] + i, 1)[0]
+
+        def cellart(cell):              # the ART the cell's view names
+            return rb("ti_cards", (off["TI_HAND"] + cell) * off["TI_C_SIZE"]
+                      + off["TI_C_ART"])
 
         g = {s: (off[s] if s in EQUS else rw(s)) for s in SYMS}
         geo = bg.GEO[g["ti_gidx"]]
@@ -155,12 +163,13 @@ def run(mach, off):
             w, h, after = te.mono(m)
 
             # 1. the card went where the play says
+            # (the full board's hand slot N is the card that wears art N)
             check(rw("ti_rvcell") == cell and rw("ti_rvcard") == card
-                  and rb("ti_cellcard", cell) == card,
-                  "%s: card %d is in cell %d, and the cell table says so"
+                  and cellart(cell) == card,
+                  "%s: card %d is in cell %d, and the cell's view says so"
                   % (how, card, cell),
-                  "rvcell %d rvcard %d table %d" % (
-                      rw("ti_rvcell"), rw("ti_rvcard"), rb("ti_cellcard", cell)))
+                  "rvcell %d rvcard %d view art %d" % (
+                      rw("ti_rvcell"), rw("ti_rvcard"), cellart(cell)))
 
             # 2. the cell's eight frames are the new character's
             strip = bg.strip(geo, g["ti_terr"], col)

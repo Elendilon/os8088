@@ -9475,7 +9475,8 @@ apps/tithe/tifaces.inc: tools/os88titheface.py fonts/tallx.f8 fonts/tithe6.f6
 # kept the part it was first built with while the package was assembled
 # against the .inc a later commit brought, and every TITHE row on the machine
 # drew nothing - seven of them at once, reading like a broken worker.
-$(BUILD)/tiart.bin: tools/os88tithechar.py tools/os88tithebase.py | $(BUILD)
+$(BUILD)/tiart.bin: tools/os88tithechar.py tools/os88tithebase.py \
+                    tools/os88tithecards.py apps/tithe/cards.txt | $(BUILD)
 	python3 tools/os88tithechar.py emit --bin $@
 apps/tithe/tiart.inc: $(BUILD)/tiart.bin ;
 
@@ -9511,6 +9512,8 @@ $(BUILD)/tithe.bin: apps/tithe/tithe.asm apps/tithe/tilay.inc \
                     apps/tithe/tiart.inc apps/tithe/tiground.inc \
                     apps/tithe/tiplace.inc apps/tithe/titxt.inc \
                     apps/tithe/tisong.inc apps/tithe/timus.inc \
+                    apps/tithe/ticards.inc apps/tithe/tirule.inc \
+                    apps/tithe/tigame.inc \
                     apps/os88parts.inc apps/os88partsbody.inc \
                     apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error $(TITHEDEF) -I apps/ -I apps/tithe/ -o $@ apps/tithe/tithe.asm

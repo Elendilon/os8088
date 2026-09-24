@@ -212,6 +212,49 @@ def unpack_block(rec, o):
     return st
 
 
+# THE ART A CARD WEARS (SPEC.md 97.11.1, TITHE-PLAN 4.2.1). Until wave 5
+# draws a body set a card, a card is its FACTION's body with an item a column
+# chosen from what that column DOES - so the art says the role the stat block
+# says, and a card that is a farmer at the rear and a swordsman in front looks
+# it. tools/os88tithechar.py builds one art record per distinct combination,
+# and the package finds a card's by the byte ti_cardart holds for it.
+ART_BODY = {"BULWARK": "soldier", "CHOIR": "hooded", "COVENANT": "nun"}
+
+
+def art_item(block, faction):
+    """The item for a stat block: its biggest job, ties to the fight."""
+    jobs = [("melee", block["m"]), ("ranged", block["r"]), ("shield", block["s"]),
+            ("heal", block["h"]), ("gold", block["g"])]
+    job, v = max(jobs, key=lambda j: j[1])        # max keeps the FIRST tie
+    if v == 0:
+        return ("staff" if KWID["PYRE"] in block["kw"] or faction == "COVENANT"
+                else "fork")
+    if job == "ranged":
+        return "wisp" if faction == "CHOIR" else "bow"
+    if job == "heal":
+        return "censer" if faction == "COVENANT" else "book"
+    if job == "gold":                             # a nun's fork does not move
+        return "staff" if faction == "COVENANT" else "fork"   # at CGA's unit
+    return {"melee": "sword", "shield": "shield"}[job]
+
+
+def art_combos(cards):
+    """([(name, body, front item, rear item)], [art index per card, 255 for
+    an order]) - the combinations in first-use order."""
+    combos, index, per = [], {}, []
+    for c in cards:
+        if c.kind == KIND_ORDER:
+            per.append(255)
+            continue
+        f = FACTIONS[c.faction]
+        key = (ART_BODY[f], art_item(c.front, f), art_item(c.rear, f))
+        if key not in index:
+            index[key] = len(combos)
+            combos.append(("A%d" % len(combos),) + key)
+        per.append(index[key])
+    return combos, per
+
+
 def pure(c):
     """TITHE-PLAN 7.1.2: exactly one of MELEE RANGED SHIELD GOLD HEAL non-zero
     across BOTH blocks together - HP never counts."""
@@ -354,6 +397,24 @@ def emit(path=OUT, write=True):
     for c in cards:
         L.append("    db " + ", ".join("%d" % b for b in c.rec)
                  + "   ; %d %s" % (c.id, c.name))
+    L += ["", "; the KEYWORDS' names, by id, for the status line (SPEC.md 97.4.8)",
+          "ti_kwname:", "    dw 0"]
+    for i in range(0, len(KEYWORDS), 8):
+        L.append("    dw " + ", ".join("ti_kn_%d" % k[1] for k in KEYWORDS[i:i + 8]))
+    for name, kid, _, _ in KEYWORDS:
+        L.append("ti_kn_%d: db '%s', 0" % (kid, name))
+    L += ["", "; the ART each card wears: an index into the art part's card table",
+          "; (tools/os88tithechar.py), 255 for an order, which has no figure",
+          "ti_cardart:"]
+    per = art_combos(cards)[1]
+    for i in range(0, len(per), 16):
+        L.append("    db " + ", ".join("%d" % a for a in per[i:i + 16]))
+    L += ["", "; ...and the other way: the FIRST card to wear each art, which is what",
+          "; the tests' full board stands in its twenty cells (tigame.inc's tg_fill)",
+          "ti_artcard:"]
+    first = [per.index(k) for k in range(max(a for a in per if a != 255) + 1)]
+    for i in range(0, len(first), 16):
+        L.append("    db " + ", ".join("%d" % a for a in first[i:i + 16]))
     L += ["", "ti_cardname:"]
     for i in range(0, len(cards), 8):
         L.append("    dw " + ", ".join("ti_cn_%d" % c.id for c in cards[i:i + 8]))

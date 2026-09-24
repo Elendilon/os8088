@@ -49,7 +49,7 @@ SYMS = ("ti_horiz", "ti_hy", "ti_cardh", "ti_cardw", "ti_cardpitch",
         "ti_panx", "ti_cmx", "ti_cmw", "ti_cbrows", "ti_by", "ti_boardh",
         "ti_ox", "ti_oy", "ti_cw_box", "ti_ch_box", "ti_nlay", "ti_rpq",
         "ti_hover", "ti_rv", "ti_nframe", "ti_rvcard", "ti_played",
-        "ti_cardn", "TI_HLIFT")
+        "ti_cardn", "TI_HLIFT", "tg_fillq")
 EQUS = ("TI_HLIFT",)
 MACHINES = ("os8088_xt_vga", "os8088_5150_herc_gla", "os8088_5150_cga_gla")
 
@@ -90,6 +90,7 @@ def run(mach, off):
             "<H", bytes(m.read(os88geom.winptr(m, win) + os88geom.W_SEG, 2)))[0]
         ui.raise_window(win)
         os88marty.guest_sleep(m, 6.0)
+        te.fill(m, seg, off, mode=2)     # seven cards, and room to play one
 
         def rw(name):
             return struct.unpack("<H", bytes(m.readseg(seg, off[name], 2)))[0]

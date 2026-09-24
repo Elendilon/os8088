@@ -59,6 +59,7 @@ def run(mach, off):
             "<H", bytes(m.read(os88geom.winptr(m, win) + os88geom.W_SEG, 2)))[0]
         ui.raise_window(win)
         os88marty.guest_sleep(m, 8.0)
+        te.fill(m, seg, off)             # the bolts cross FIGURES: a full board
 
         def rw(name):
             return struct.unpack("<H", bytes(m.readseg(seg, off[name], 2)))[0]

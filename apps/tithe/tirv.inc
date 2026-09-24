@@ -76,8 +76,9 @@ ti_rv_key:
 
 ; -----------------------------------------------------------------------------
 ; ti_rv_play - PLAY hand card AX (or, AX = -1, the hovered card else the first
-; still in the hand) into the next of P1's cells in the row the FRONT/REAR
-; toggle names. A CLICK on a card is this, and so is `V`.
+; still in the hand) into the topmost empty cell of the planner's column that
+; the FRONT/REAR toggle names (tigame.inc's tg_play, TITHE-PLAN 5.6). A CLICK
+; on a card is this, and so is `V`.
 ; in:  a window callback, the gfx lock held. Preserves every register.
 ;
 ; THE CARD THAT DISSOLVES IS THE ONE ON THE GLASS. A click lands on the
@@ -111,28 +112,24 @@ ti_rv_play:
     xor ax, ax
 .find:
     cmp ax, [ti_cardn]
-    jae .deal
+    jae .out                        ; nothing left in the hand
     call ti_rv_played
     jnc .have
     inc ax
     jmp short .find
-.deal:
-    mov byte [ti_played], 0         ; wave 1a has no deck: the hand comes back
-    xor ax, ax
-.redraw:
-    cmp ax, [ti_cardn]
-    jae .out
-    call ti_card_draw
-    inc ax
-    jmp short .redraw
 .have:
     mov [ti_rvcard], ax
     call ti_rv_atk_flush            ; the LAST play's attack frames, if any are
                                     ; still owed (ti_rv_atk)
-    mov cl, al                      ; ...it leaves the hand
-    mov al, 1
-    shl al, cl
-    or [ti_played], al
+    ; --- THE ENGINE SAYS WHETHER AND WHERE (tigame.inc): the play goes on the
+    ; end of the plan and the plan is applied again, and a refusal - no gold,
+    ; a full column - is the rules' own and moves nothing. Past this the card
+    ; is marked played and its cell's VIEW already names who stands there.
+    call tg_play
+    jnc .placed
+    jmp .out
+.placed:
+    mov [ti_rvcell], ax
 
     ; --- the CARD is composed now and banked for its fade, AS IT IS ON THE
     ; GLASS - hovered, if it is - rather than on the fade's first step: ~22 ms
@@ -148,29 +145,8 @@ ti_rv_play:
     mov word [ti_hover], -1         ; ...and it stops being the hovered card,
                                     ; so the wheel stops animating its unit
 
-    ; --- WHERE: P1's column for the toggle's row, the next lane in turn ----
-    xor ax, ax                      ; REAR is column 0
-    cmp word [ti_row], TI_ROW_FRONT
-    jne .col
-    mov ax, 1                       ; ...FRONT is column 1
-.col:
-    mov bx, TI_ROWS
-    mul bx
-    mov bl, [ti_rvlane]
-    xor bh, bh
-    add ax, bx
-    mov [ti_rvcell], ax
-    inc bl                          ; the next reveal takes the next lane
-    cmp bl, TI_ROWS
-    jb .lane
-    xor bl, bl
-.lane:
-    mov [ti_rvlane], bl
-
     ; --- WHO: the card now stands there, composed into the cell ------------
     mov bx, [ti_rvcell]
-    mov al, [ti_rvcard]
-    mov [ti_cellcard + bx], al
     push word [ti_ci]
     mov [ti_ci], bx
     mov word [ti_cfbeg], 0          ; ITS IDLE POSES ONLY: the four attack
@@ -370,7 +346,8 @@ ti_rv_step:
     jmp short .out
 .nums:
     call ti_rv_nums                 ; ...and its NUMBERS a frame after it is
-    call ti_rv_home                 ; whole. Done: the wheel has the cell back
+    call ti_res_all                 ; whole, and the gold it cost off the HUD.
+    call ti_rv_home                 ; Done: the wheel has the cell back
     mov byte [ti_rv], 0
 .out:
     pop ax
@@ -845,8 +822,8 @@ ti_rv_dith:
 ti_rv:      db 0                    ; 1 while a reveal runs
 ti_rvt:     db 0                    ; the frame within the phase
 ti_rvfull:  db 0                    ; an expose landed on the sparks
-ti_rvlane:  db 0                    ; the lane the next reveal takes
-ti_played:  db 0                    ; hand cards played, a bit each
+ti_played:  db 0                    ; hand slots EMPTY: played, or past the
+                                    ; hand's end (tigame.inc's tg_views)
 ti_cfade:   db 0                    ; ti_card_draw's dissolve level, or 0
 ti_cfsave:  db 0                    ; ...and is the card's composition banked
 ti_rvcard:  dw 0
@@ -864,9 +841,3 @@ ti_atkfr:   dw 0                    ; still owed, and the next of them
 ti_rvn:     dw 0                    ; sparks on the glass
 ti_rvsp:    times TI_RVSPK * 4 dw 0
 ti_rvband:  times TI_RVMAX db 0
-ti_cellcard:
-%assign ti_i 0
-%rep TI_CELLS
-    db ti_i % TI_HAND
-%assign ti_i ti_i + 1
-%endrep

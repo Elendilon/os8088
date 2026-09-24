@@ -213,7 +213,7 @@ ti_layout:
     jb .strip
     mov ax, [ti_bs]                 ; ...and the portraits fit their claim
     mul word [ti_bh]
-    mov cx, TI_CARDS * TI_POSES
+    mov cx, TI_HAND * TI_POSES      ; one figure per hand SLOT
     mul cx
     or dx, dx
     jnz .strip

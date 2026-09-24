@@ -140,6 +140,52 @@ ti_cardtab:
     db 5, 0, 7, 2, 2, 6, 2, 0, 7, 2, 0, 2, 21, 0, 0, 0, 0, 7, 1, 0, 3, 21, 0, 0   ; 88 Abbot
     db 5, 3, 9, 2, 2, 6, 3, 0, 8, 2, 0, 3, 22, 0, 0, 0, 1, 8, 1, 0, 4, 22, 0, 0   ; 89 Saint
 
+; the KEYWORDS' names, by id, for the status line (SPEC.md 97.4.8)
+ti_kwname:
+    dw 0
+    dw ti_kn_1, ti_kn_2, ti_kn_3, ti_kn_4, ti_kn_5, ti_kn_6, ti_kn_7, ti_kn_8
+    dw ti_kn_9, ti_kn_10, ti_kn_11, ti_kn_12, ti_kn_13, ti_kn_14, ti_kn_15, ti_kn_16
+    dw ti_kn_17, ti_kn_18, ti_kn_19, ti_kn_20, ti_kn_21, ti_kn_22, ti_kn_23
+ti_kn_1: db 'GUARD', 0
+ti_kn_2: db 'BULWARK', 0
+ti_kn_3: db 'RAMPART', 0
+ti_kn_4: db 'LEVY', 0
+ti_kn_5: db 'PYRE', 0
+ti_kn_6: db 'PIERCE', 0
+ti_kn_7: db 'VOLLEY', 0
+ti_kn_8: db 'SCORCH', 0
+ti_kn_9: db 'KINDLE', 0
+ti_kn_10: db 'VIGIL', 0
+ti_kn_11: db 'BLESS', 0
+ti_kn_12: db 'INTERCEDE', 0
+ti_kn_13: db 'ABSOLVE', 0
+ti_kn_14: db 'MUSTER', 0
+ti_kn_15: db 'STANDFAST', 0
+ti_kn_16: db 'STEWARD', 0
+ti_kn_17: db 'HYMN', 0
+ti_kn_18: db 'CHORUS', 0
+ti_kn_19: db 'REQUIEM', 0
+ti_kn_20: db 'SANCTUARY', 0
+ti_kn_21: db 'MERCY', 0
+ti_kn_22: db 'MARTYR', 0
+ti_kn_23: db 'WARD', 0
+
+; the ART each card wears: an index into the art part's card table
+; (tools/os88tithechar.py), 255 for an order, which has no figure
+ti_cardart:
+    db 0, 0, 0, 1, 0, 2, 1, 1, 2, 2, 1, 0, 3, 3, 3, 0
+    db 4, 0, 0, 4, 5, 1, 3, 1, 255, 255, 255, 1, 1, 0, 6, 7
+    db 6, 6, 6, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 8, 7, 10
+    db 8, 11, 6, 8, 8, 8, 255, 255, 255, 8, 8, 8, 12, 13, 13, 14
+    db 12, 15, 15, 15, 15, 15, 16, 17, 17, 17, 17, 12, 18, 13, 13, 18
+    db 19, 19, 19, 19, 255, 255, 255, 12, 12, 12
+
+; ...and the other way: the FIRST card to wear each art, which is what
+; the tests' full board stands in its twenty cells (tigame.inc's tg_fill)
+ti_artcard:
+    db 0, 3, 5, 12, 16, 20, 30, 31, 35, 40, 47, 49, 60, 61, 63, 65
+    db 70, 71, 76, 80
+
 ti_cardname:
     dw ti_cn_0, ti_cn_1, ti_cn_2, ti_cn_3, ti_cn_4, ti_cn_5, ti_cn_6, ti_cn_7
     dw ti_cn_8, ti_cn_9, ti_cn_10, ti_cn_11, ti_cn_12, ti_cn_13, ti_cn_14, ti_cn_15

@@ -141404,7 +141404,8 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 |---|---|
 | `F` | fullscreen on/off — `wm_fullscreen` (§11.2), a real window. On VGA and Hercules the hand goes along the bottom (§97.4.12); on CGA it stays a strip |
 | `C` | a melee clash in one lane's front line (§97.4.7) |
-| `V` | play a card — the REVEAL (§97.4.11): the hovered card, else the first left in the hand, into P1's next cell in the row the FRONT/REAR toggle names. An empty hand is dealt again. Keys, clicks and the toggle are ignored for the half second a reveal runs |
+| `V` | play a card — the REVEAL (§97.4.11): the hovered card, else the first left in the hand, into the planner's topmost empty cell of the column the FRONT/REAR toggle names (§97.12.2). Keys, clicks and the toggle are ignored for the half second a reveal runs |
+| `U` / `Enter` | UNDO the last action / COMMIT the plan — the round loop's (§97.12.4) |
 | *click a card* | play THAT card, the same way — which is what a player does, and the card that dissolves out is then the HOVERED one, expanded and in its own polarity |
 | `G` | step the BOARD — THE MARCH and THE CLOISTER (§97.4.10). A relayout, so the strips and all eighty poses are re-composed |
 | `A` | sustained projectile fire down a lane (§97.4.5): one bolt a side, crossing — the resolution's worst ranged case, and sustained because the number wave 1a wants is the COMBAT frame's and one bolt is a photograph |
@@ -141438,7 +141439,9 @@ refusal rather than a window that never draws.
 movable: the **parts carve**, 23 KB, the art part (§97.4.9) unpacked, whose
 segment is read with `op_seg` at the point of use; the **ARENA**, 45 KB, the four
 column strips and eighty idle poses (§97.4.10); and the **attack claim**,
-30 KB, the eighty attack frames. Each proc is one store. The table above is the
+30 KB, the eighty attack frames. Wave 3 added two more when the rules engine
+needed the segment's room (§97.12.7): the **base bands**, `TI_BASEKB`, and the
+fullscreen hand's **portraits**, `TI_FIGKB`. Each proc is one store. The table above is the
 plan's for the final game, and the arena is where its sprite bank already went.
 
 **The index stores offsets and not segments**, which is what makes the
@@ -141455,7 +141458,7 @@ is the full table and this is the part that binds the code:
 | **1a** | **this section** — layout, board, bands, the wheel, the two renderers |
 | **1b** | **§97.10** — the sequencer (`timus.inc`), both arms, and four candidate title themes on `M`; the faction theme in three states and the resolution piece follow once one is picked |
 | 2 | the rules engine and `tools/duelsim.py`, from one card table, no graphics |
-| 3 | the round loop, hot-seat |
+| **3** | **§97.12** — the round loop, hot-seat. **STARTED**: plays, undo, commit, the pass screen and resolution |
 | 4 | the AI on the worker |
 | 5 | the rest of the art and music |
 | 6 | the front menu — and the package joins the live media here, not before |
@@ -141806,3 +141809,138 @@ starter decks come out Bulwark 47%, Choir 25%, Covenant 78% over 120 matches,
 median 8 rounds, and a Bulwark–Covenant pairing can stalemate. Those are the
 first numbers wave 11's harness will move, and wave 4's AI is what makes them
 mean anything.
+
+### 97.12 THE ROUND LOOP — `apply(plan, frozen board)` (wave 3)
+
+`docs/plans/TITHE-PLAN.md` §5.0.2 and §6 are the design, and `apps/tithe/tigame.inc`
+is the code. **One sentence is the whole of it**: the board a planner sees is
+the engine's state at the end of UPKEEP, copied aside (the FROZEN board), with
+their own plan applied to a fresh copy of it — and every edit re-applies the
+whole plan from scratch. There is no undo stack and no inverse of any action,
+and the preview IS the engine (§97.11): nothing on the glass can disagree with
+what the commit will do, because nothing on the glass was computed any other
+way.
+
+#### 97.12.1 The views — what the renderer reads
+
+Everything the renderer draws — a card in the hand, a board cell, the numbers
+on either, the status line — reads a **VIEW RECORD**, `ticard.inc`'s `TI_C_*`
+layout, and `tigame.inc` is the only writer of them. Views 0–6 are the
+planner's hand, views 7–26 the board's twenty cells in the renderer's own order
+(`ti_cell_card` is a sum). A view carries the costs, two stat pairs per row,
+HP, POWER, the name, and three things the renderer never had: the **ART** the
+character wears (§97.11.1's mapping, `0FFh` for nobody), the engine's **CARD**,
+and a cell's **COLUMN** and **STANCE** flags.
+
+| | a hand card | a board cell |
+|---|---|---|
+| the pairs | both blocks, and the FRONT/REAR toggle picks which the card shows | the LIVE block's, ABSOLVE's permanent gains and this round's orders added — the same pair in both slots, because a character on the board has one position |
+| HP | the block's | what it has left |
+| the stance cell | — | the engine's, for a shooter (`TI_CF_RANGED`, `TI_CF_SNIPE`) |
+| the status line | its keywords for the toggle's row | `NAME  POWER  KEYWORDS` for its column (§97.4.8.1) |
+
+A pair is the first two of melee, ranged, shield, heal and gold that are not
+zero, and a **zero icon draws as nothing** — so a healer with no second job
+shows one pair and not a `0`. An ORDER has no body: no HP, no POWER, no figure.
+
+**The board mapping is one table**, `tg_bcol`: the renderer draws P1's REAR
+first (columns 0, 1, 2, 3 are P1 rear, P1 front, P2 front, P2 rear, §97.2.1)
+where the engine counts each side's front first, so the map swaps the first two
+and is its own inverse.
+
+**An EMPTY cell is not a feature on the wheel.** Its eight frames are the
+column's ground and nothing moves on them, so the wheel steps past it for a
+cost of one; a whole repaint still owes its ground. Its numbers band goes down
+bare, which is what takes a dead character's off. **The same-as table has no
+row for nobody** and was read anyway: the first build copied another LANE's
+ground into an empty cell's frames, which showed as a fence line one lane out
+of step for exactly as long as that pose was on the glass. `ti_cell_build`
+skips the copy for an empty cell, whose frames `ti_cell_ground` has already
+laid.
+
+**A plan edit redraws what moved.** `tg_vput` compares each new record with the
+old one and marks the cells whose record changed; `tg_cart` holds the art each
+cell's poses were composed with, which `ti_cell_build` records itself — so an
+undo composes the cells whose ART moved and redraws the numbers whose RECORD
+did, and nothing else.
+
+**The unit and portrait caches are one per HAND SLOT**, not one per art: the
+card in slot N this round is whoever was dealt there, and its unit is built
+when the hand is. Twenty arts cached per surface would have been 13 KB of the
+package segment for a hand that shows seven.
+
+#### 97.12.2 The plan
+
+A plan is `tr_apply`'s own format — a count, then `(op, a, b)` actions
+(§97.11.6) — with the HAND SLOT each play came from beside it (`tg_pslot`),
+which is what marks the slot empty and puts the card back where it was on an
+undo. **A play appends and re-applies; an action the engine refused comes
+straight back off**, so a refusal (no gold, a full column) is the rules' own.
+The play lands in the topmost empty cell of the column the FRONT/REAR toggle
+names, **as this plan leaves it** — which is TITHE-PLAN §6.3's "counting your
+own plan so far" for nothing extra.
+
+#### 97.12.3 Hot-seat, and why it does not leak
+
+P1 plans; COMMIT seals the plan and puts up the **PASS SCREEN**; P2 plans on
+**the same frozen board**, not on P1's result; P2's COMMIT applies both plans
+to the frozen board and resolves the round. TITHE-PLAN §6.3.1's rule needs no
+hot-seat special case, and the code has none: the second planner is shown
+`apply(their plan, frozen board)`, so P1's plays, spend and swaps are nowhere
+in it, and every pool on the HUD is the post-upkeep value both players watched
+being computed. **The swaps counter is the planner's alone** — the other side's
+is not theirs to see (§97.2.1's resource block already hid it; `ti_res_all`
+now hides whichever side is not planning).
+
+**The pass screen is the whole content black and two lines**, and nothing of
+either plan: *PLAYER 1 HAS COMMITTED / PASS TO PLAYER 2*, or after a round
+*ROUND n  P1 HP a  P2 HP b / PASS TO PLAYER 1*, or the match's end. A click,
+Enter or Space is the next player sitting down. **The worker draws no frame
+while it is up**, and asks again UNDER THE LOCK: a commit that lands while the
+worker waits for the gfx lock has put the screen up by the time it gets it,
+and a frame then drew P1's base over the screen — which is how the check came
+to be asked twice.
+
+#### 97.12.4 The controls
+
+| | |
+|---|---|
+| *click a card* / `V` | PLAY it into the toggle's column (§97.4.11's reveal) |
+| *click* UNDO / `U` | the planner's LAST action back |
+| *click* COMMIT / `Enter` | seal the plan: P1's hands the machine over, P2's resolves the round |
+| *click* / `Enter` / `Space` on the pass screen | the next planner sits down; after the match's end, a new match |
+
+The match is **THE BULWARK against THE EMBER CHOIR**, the two starter decks,
+seeded off the clock at launch; the front menu (wave 6) is what will choose.
+
+#### 97.12.5 What wave 3 still owes
+
+Built so far: the views, the plan, plays, UNDO of the last action, COMMIT, the
+pass screen, resolution, the next round's upkeep, and the match's end. **Still
+to come in this wave**: swaps, stances and orders as planning actions; the plan
+as a list any entry of which can be removed, with its orphans dropped
+(TITHE-PLAN §5.0.2); RESET; the resolution ANIMATED lane by lane with the
+opponent's plan arriving all at once (§6.4, §6.5); and the log. Today a round
+resolves between the commit and the pass screen, in one step.
+
+#### 97.12.6 The tests' full board
+
+A match starts with an EMPTY board, and every renderer row (`titheframe`,
+`titheterr`, `tithepj`, `titherv`, `tithecard`, `tithefs`) is about twenty
+figures — so they would have been measuring nothing. `tg_fillq` is a byte the
+worker services the way it services `ti_rpq`: set to 1 it stands **the first
+card of art N in cell N** and seven of them in each hand (`ti_artcard`,
+generated beside `ti_cardart`), with both pools full; set to 2 it leaves P1's
+FRONT column empty, for a row that plays into it. It is a legal engine state —
+HP and shields off the cards' own blocks, instances unique — so the numbers
+and the status line are the game's, and `tithecard` checks them against the
+CARD TABLE (`tools/os88tithecards.py`) rather than against a list of its own.
+
+#### 97.12.7 What it costs
+
+The image is **55,997 bytes** against 44,035 before the wave (the music session's themes landed in between): the card table
+and the rules engine are ~11 KB of it, and the plans, the frozen board and the
+27 views ~1.4 KB. Two things left the segment to make the room: the **base
+bands** went to a claim of their own, `TI_BASEKB` (8 KB), and the unit cache
+went from one per art to one per hand slot. What is left of the 64 KB segment
+is ~9 KB, which is wave 4's AI's to spend.

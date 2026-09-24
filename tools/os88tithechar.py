@@ -900,21 +900,14 @@ ITEMS = [
 IX = {n: i for i, (n, _) in enumerate(ITEMS)}
 BX = {n: i for i, (n, _, _) in enumerate(BODIES)}
 
-# THE HAND, as cards: a body, the item it carries in the FRONT column and the
+# THE CARDS, as art: a body, the item it carries in the FRONT column and the
 # one it carries at the REAR (TITHE-PLAN 5.2 - "the same man with a different
-# tool"). Seven cards, three bodies, eight items, and every item but two on
-# more than one card - the SWORD on a soldier and a hooded caster, the SHIELD on
-# two soldiers and a nun, the BOOK in two factions' hands - because whether a
-# shared item looks right on different builds is the question wave 1a asks.
-CARDS = [
-    ("PIKEMAN", "soldier", "sword",  "fork"),
-    ("ARCHER",  "hooded",  "sword",  "bow"),
-    ("WARDEN",  "soldier", "shield", "fork"),
-    ("ACOLYTE", "hooded",  "wisp",   "book"),
-    ("RAM",     "soldier", "sword",  "shield"),
-    ("HERALD",  "nun",     "censer", "staff"),
-    ("BULWARK", "nun",     "shield", "book"),
-]
+# tool"). Derived from the CARD TABLE (apps/tithe/cards.txt) by
+# tools/os88tithecards.py: a faction's body, and each column's item from what
+# that column does - one record a distinct combination, which is twenty for
+# ninety cards, and the package reads a card's out of ti_cardart.
+import os88tithecards as _tc                               # noqa: E402
+CARDS = _tc.art_combos(_tc.load()[0])[0]
 FRONT, REAR = 0, 1
 LUNGE = 8          # pixels an attack's STRIKE and FOLLOW-THROUGH step toward
                    # the enemy - inside the band, so it stays self-erasing

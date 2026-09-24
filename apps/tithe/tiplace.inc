@@ -40,6 +40,7 @@ TI_FIGKB    equ 10                ; the hand's portraits: 7 cards x 4 poses
                                   ; x the biggest band, 352 bytes on a VGA -
                                   ; 9,856, and ti_layout refuses the hand on
                                   ; a surface that would not fit
+TI_BASEKB   equ (TI_BASEMAX * TI_BASEPOSES + 1023) / 1024
 TI_ATTACKKB equ 37                ; 20 cells x 4 attack frames x the biggest
                                   ; band, 352 bytes on a VGA - and then the
                                   ; twenty cells' numbers at 480
@@ -68,6 +69,12 @@ ti_arena_claim:
     mov [ti_kseg], dx
     mov ax, ti_attack_move
     call OSAPI_MEM_MOVABLE
+    mov ax, TI_BASEKB               ; ...and THE BASES' eight poses, which were
+    call OSAPI_MEM_CLAIM            ; 8K of the package's own segment and are
+    jc .out                         ; the room the rules engine needed
+    mov [ti_bseg], dx
+    mov ax, ti_bases_move
+    call OSAPI_MEM_MOVABLE
     mov ax, TI_FIGKB                ; ...and THE HAND'S PORTRAITS: every card's
     call OSAPI_MEM_CLAIM            ; figure at the BOARD's size on black, four
     jc .out                         ; poses each, for the fullscreen hand
@@ -91,6 +98,10 @@ ti_attack_move:
 
 ti_fig_move:
     mov [ti_fseg], dx
+    ret
+
+ti_bases_move:
+    mov [ti_bseg], dx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -637,6 +648,12 @@ ti_cell_build:
     push word [ti_pi]
     mov ax, [ti_ci]
     call ti_ck_cell                 ; [ti_ck] = who stands here
+    cmp word [ti_cfbeg], 0          ; ...which is what its poses are OF, for
+    jne .noart                      ; tigame.inc's to compare the next plan
+    mov bx, ax                      ; against (the idle poses are the art)
+    mov al, [ti_ck]
+    mov [tg_cart + bx], al
+.noart:
     call ti_cell_gsrc               ; [ti_gsrc] = the band's first ground byte
     ; --- THE GROUND under every slot the range covers ----------------------
     cmp word [ti_cfbeg], TI_POSES
@@ -719,7 +736,11 @@ ti_cell_build:
     jb .fgo
     jmp .fdone
 .fgo:
-    mov ax, [ti_cfr]
+    cmp word [ti_ck], 0FFh          ; NOBODY STANDS HERE: every frame is the
+    jne .fwho                       ; ground ti_cell_ground just laid, and the
+    jmp .fnext                      ; same-as table has no row for nobody - it
+.fwho:                              ; was read anyway, and copied a frame of
+    mov ax, [ti_cfr]                ; another lane's ground into this one
     call ti_frame_slot              ; ES:DI = where frame AX goes
     push es
     mov al, 0
@@ -887,6 +908,10 @@ ti_dirty_rows:
 ; parts it from the torso and the body's halo parts it from the ground.
 ; -----------------------------------------------------------------------------
 ti_char_put:
+    cmp word [ti_ck], 0FFh          ; NOBODY: an empty cell, an order's card
+    jne .who                        ; (tigame.inc) - the ground stays as it is
+    ret
+.who:
     push ax
     push bx
     push cx
@@ -1981,6 +2006,7 @@ ti_fa_lo:   dw 0
 ti_fa_hi:   dw 0
 ti_kseg:    dw 0                  ; the ATTACK frames' claim
 ti_fseg:    dw 0                  ; the hand's portraits (SPEC.md 97.4.12)
+ti_bseg:    dw 0                  ; the bases' poses (SPEC.md 97.5.1)
 ti_pseg:    dw 0                  ; the art part, as op_seg last answered
 ti_cst:     dw 0                  ; the stance: TI_ROW_FRONT or TI_ROW_REAR
 ti_cfr:     dw 0                  ; the frame: 0-3 idle, 4-7 attack

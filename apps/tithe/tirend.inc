@@ -77,12 +77,13 @@ ti_art_build:
 ti_ck_card:
     push ax
     push bx
-    push dx
-    xor dx, dx
-    mov bx, TI_HAND
-    div bx
-    mov [ti_ck], dx
-    pop dx
+    mov [ti_uk], ax                 ; ...and a HAND view's cache slot is its
+    mov bl, TI_C_SIZE               ; own index (ticard.inc's unit and portrait
+    mul bl                          ; stores are one per slot)
+    mov bx, ax
+    mov al, [ti_cards + bx + TI_C_ART]
+    xor ah, ah                      ; 0FFh: nobody, and ti_char_put draws no one
+    mov [ti_ck], ax
     pop bx
     pop ax
     ret
@@ -95,22 +96,16 @@ ti_ck_cell:
     pop ax
     ret
 
-; ti_cell_card - AX = a CELL index -> AX = the CARD standing there. Preserves
+; ti_cell_card - AX = a CELL index -> AX = the VIEW that shows it. Preserves
 ; every other register.
 ;
-; A TABLE AND NOT ARITHMETIC, because a REVEAL (tirv.inc) puts a card in a
-; cell. It starts as wave 1a's stable fiction - a cell shows the card at its
-; index mod the hand - and the figure, the numbers and the status line all ask
-; this, so the three cannot disagree about who stands where.
+; THE VIEWS ARE THE GAME'S (tigame.inc): the hand's seven, then the board's
+; twenty in the renderer's order, so a cell's view is a sum. The figure, the
+; numbers and the status line all ask this, so the three cannot disagree about
+; who stands where.
 ti_cell_card:
-    push bx
-    mov bx, ax
-    mov al, [ti_cellcard + bx]
-    xor ah, ah
-    pop bx
+    add ax, TI_HAND
     ret
-
-
 
 ; -----------------------------------------------------------------------------
 ; ti_base_build - every pose of the CHOSEN base, out of tibases.inc
@@ -138,10 +133,9 @@ ti_cell_card:
 ; -----------------------------------------------------------------------------
 ti_base_build:
     push es
-    push ds
-    pop es
-    cld
-    mov ax, [ti_bas]                ; the slot pitch, which is NOT TI_BASEMAX -
+    mov es, [ti_bseg]               ; THE BASES LIVE IN A CLAIM (tiplace.inc):
+    cld                             ; eight poses of the biggest base were 8K
+    mov ax, [ti_bas]                ; of the package's own segment                ; the slot pitch, which is NOT TI_BASEMAX -
     mul word [ti_baseh]             ; that is the largest slot any geometry
     mov [ti_bslot], ax              ; asks for and this is the one in use
 
@@ -174,11 +168,16 @@ ti_base_build:
     mov ax, TI_BASEPOSES - 1
     mul cx
     mov cx, ax
+    mov bx, [ti_bslot]              ; read before DS leaves the package
+    push ds
+    mov ds, [ti_bseg]               ; the copy's SOURCE is the claim too
     rep movsw
-    test word [ti_bslot], 1         ; an odd slot leaves one byte a pose
-    jz .moves
+    test bx, 1                      ; an odd slot leaves one byte a pose
+    jz .even
     mov cx, TI_BASEPOSES - 1
     rep movsb
+.even:
+    pop ds
 
 .moves:                             ; --- ...AND EACH POSE'S MOVE ON TOP -----
     mov word [ti_pi], 0
@@ -205,8 +204,7 @@ ti_base_build:
 ; -----------------------------------------------------------------------------
 ti_base_move:
     push es
-    push ds
-    pop es
+    mov es, [ti_bseg]
     cld
     mov si, [ti_brec]               ; the pose's record
     mov ax, [ti_pi]
@@ -251,7 +249,7 @@ ti_base_move:
     mov cx, [ti_mb]
 .byte:
     lodsb
-    or [di], al                     ; PURE OR - the ground stays where the
+    or [es:di], al                  ; PURE OR - the ground stays where the
     inc di                          ; move does not reach
     loop .byte
     pop di
@@ -270,8 +268,8 @@ ti_base_addr:
     and ax, TI_BASEPOSES - 1
     mul word [ti_bas]
     mul word [ti_baseh]             ; frame * stride * rows, and both halves
-    mov di, ti_base                 ; of a base band fit 16 bits by TI_BASEMAX
-    add di, ax
+    mov di, ax                      ; of a base band fit 16 bits by TI_BASEMAX,
+                                    ; and DI is an offset into ti_bseg
     pop dx
     pop ax
     ret
@@ -543,8 +541,7 @@ ti_base_draw:
     push di
     push bp
     push es
-    push ds
-    pop es
+    mov es, [ti_bseg]               ; OSAPI_GFX_BLIT1 reads ES:SI
     call ti_base_addr
     mov si, di
     mov bx, [ti_basey]
@@ -710,7 +707,7 @@ ti_hud_draw:
     call ti_poke
     mov al, [ti_round]
     call ti_u8
-    mov si, ti_s_phase
+    mov si, [tg_phs]                ; whose plan it is (tigame.inc)
     call ti_poke
     mov byte [di], 0
     mov di, ti_hudband
@@ -1111,17 +1108,25 @@ ti_status:
     cmp bx, -1
     je .base
     mov ax, bx                      ; a cell shows the card standing in it
+    call ti_ck_cell                 ; - and an EMPTY one names the ground, as
+    cmp word [ti_ck], 0FFh          ; nothing under the pointer does
+    je .base
     call ti_cell_card
     mov bx, ax
     mov dx, ax
     jmp .cellline                   ; ...and the board's line NAMES it (97.4.8.1)
 .card:
-    mov ax, bx
-    mov cl, TI_C_SIZE
-    mul cl
+    mov ax, bx                      ; A CARD IN THE HAND says what it DOES,
+    mov cl, TI_C_SIZE               ; in the row the toggle names - its name
+    mul cl                          ; is already on it
     mov si, ti_cards
     add si, ax
-    mov si, [si + TI_C_ABIL]
+    mov al, [ti_row]
+    mov [si + TI_C_COL], al
+    mov di, ti_hudbuf
+    call tg_abil
+    mov byte [di], 0
+    mov si, ti_hudbuf
     jmp short .out
 .cellline:
     ; A BOARD CHARACTER'S LINE IS `NAME  POWER  ABILITY` (SPEC.md 97.4.8.1).
@@ -1161,8 +1166,7 @@ ti_status:
     mov al, ' '
     stosb
     stosb
-    mov si, [si + TI_C_ABIL]
-    call ti_poke
+    call tg_abil
     mov byte [di], 0
     mov si, ti_hudbuf
     jmp short .out
@@ -1485,6 +1489,11 @@ ti_cellnum:
     xor al, al
     rep stosb
 
+    mov ax, [ti_ci]                 ; AN EMPTY CELL has no numbers, and the
+    call ti_ck_cell                 ; band goes down bare - which is what
+    cmp word [ti_ck], 0FFh          ; takes a dead character's off
+    je .put
+
     call ti_cell_rec                ; SI -> the card behind this cell, BX = the
     mov [ti_nrec], si               ; offset of its own row's stat pair
     mov [ti_nrow], bx
@@ -1544,6 +1553,10 @@ ti_cellnum:
 ; in:  AL = the icon, AH = the value; DI = the band, BP = its stride
 ; Preserves every register.
 ti_cn_pair:
+    or al, al                       ; a pair the character has not got
+    jnz .go
+    ret
+.go:
     push ax
     push bx
     push cx
@@ -1576,19 +1589,13 @@ ti_cn_stance:
     push cx
     push si
     push di
-    mov si, [ti_nrec]
-    add si, [ti_nrow]
-    mov al, [si]                    ; ...ranged if either variable stat is
-    cmp al, TI_IC_BOW               ; the bow
-    je .yes
-    mov al, [si + 2]
-    cmp al, TI_IC_BOW
-    jne .out
-.yes:
-    mov al, TI_IC_SFRONT            ; wave 1a has no orders behind it, so the
-    mov bx, [ti_ci]                 ; stance is derived like every other number
-    test bl, 4                      ; here - but it is STABLE, so the same cell
-    jz .have                        ; always reads the same way
+    mov si, [ti_nrec]               ; a SHOOTER shows its stance, and the
+    mov ah, [si + TI_C_FLAGS]       ; engine says which (tigame.inc)
+    test ah, TI_CF_RANGED
+    jz .out
+    mov al, TI_IC_SFRONT
+    test ah, TI_CF_SNIPE
+    jz .have
     mov al, TI_IC_SNIPE
 .have:
     mov [ti_numbuf], al
@@ -1673,18 +1680,55 @@ ti_board:
 .done:
     call ti_hud_draw
     call tm_run                     ; the HUD is ~100 ms on a Hercules 5150
+    call ti_res_all
+    call tm_run
+    call ti_panel                   ; ...and the hand, which redraws with the
+                                    ; board for the numbers' reason: nothing in
+                                    ; it changes more than once a round bar the
+                                    ; hovered row, and that one is a FEATURE
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_res_all - both players' resource blocks and HP (SPEC.md 97.2.1): what a
+; play, an undo or a round moves. Preserves every register.
+;
+; THE SWAPS ARE THE PLANNER'S ALONE: the other side's are not theirs to see,
+; and in hot-seat the other side is sitting next to them (TITHE-PLAN 6.3.1).
+; -----------------------------------------------------------------------------
+ti_res_all:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
     mov ax, [ti_p1x]                ; each player's gold and souls, in the
     mov bx, [ti_p1y]                ; corner the shear left them
     mov cl, [ti_p1gold]
     mov ch, [ti_p1soul]
     mov dl, [ti_swaps]
+    cmp byte [tg_side], 0
+    je .s1
+    mov dl, 0FFh
+.s1:
     mov si, ti_s_p1
     call ti_res_draw
     mov ax, [ti_p2x]
     mov bx, [ti_p2y]
     mov cl, [ti_p2gold]
     mov ch, [ti_p2soul]
-    mov dl, 0FFh                    ; the opponent's swaps are not ours to see
+    mov dl, [ti_swaps]
+    cmp byte [tg_side], 1
+    je .s2
+    mov dl, 0FFh
+.s2:
     mov si, ti_s_p2
     call ti_res_draw
     mov ax, [ti_b1x]                ; ...and their HP above their own base
@@ -1695,14 +1739,6 @@ ti_board:
     mov bx, [ti_basey2]
     mov cl, [ti_p2hp]
     call ti_hp_draw
-    call tm_run
-    call ti_panel                   ; ...and the hand, which redraws with the
-                                    ; board for the numbers' reason: nothing in
-                                    ; it changes more than once a round bar the
-                                    ; hovered row, and that one is a FEATURE
-    pop es
-    pop bp
-    pop di
     pop si
     pop dx
     pop cx

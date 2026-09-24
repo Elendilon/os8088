@@ -38,8 +38,15 @@ TI_C_RV2    equ 9
 TI_C_HP     equ 10
 TI_C_PWR    equ 11                  ; the souls a kill of it pays
 TI_C_NAME   equ 12
-TI_C_ABIL   equ 14                  ; ...and the line the HUD shows (97.4.8)
-TI_C_SIZE   equ 16
+TI_C_ART    equ 14                  ; the art it wears, 0FFh for nobody
+TI_C_CARD   equ 15                  ; the engine's card, TR_EMPTY for none
+TI_C_FLAGS  equ 16                  ; TI_CF_*
+TI_C_COL    equ 17                  ; a board cell's column: 0 FRONT, 1 REAR
+TI_C_INST   equ 18                  ; ...and the instance an ORDER names
+TI_C_SIZE   equ 20
+
+TI_CF_RANGED equ 1                  ; a shooter: it has a stance to show
+TI_CF_SNIPE  equ 2                  ; ...and it is SNIPE
 
 TI_ROW_FRONT equ 0
 TI_ROW_REAR  equ 1
@@ -982,6 +989,8 @@ ti_cb_pair:
     push di
     cmp word [ti_tfull], 0
     jne .out
+    or al, al                       ; a ZERO ICON is a pair the card has not
+    jz .out                         ; got (tigame.inc's tg_pick)
     push di                         ; ...THE BAND POINTER, BANKED TWICE. DI is
                                     ; both what ti_text draws into and what
                                     ; stosb builds the string with.
@@ -1039,6 +1048,10 @@ ti_cb_stats:
     mov si, [ti_cardp]
     mov ah, [si + TI_C_HP]
     mov al, TI_IC_HP
+    or ah, ah                       ; an ORDER has no body to have HP
+    jnz .hp
+    xor al, al
+.hp:
     call ti_cb_pair
     mov si, [ti_cardp]
     add si, bx
@@ -1051,6 +1064,10 @@ ti_cb_stats:
     mov si, [ti_cardp]
     mov ah, [si + TI_C_PWR]
     mov al, TI_IC_SOUL              ; POWER is what a kill of it PAYS, so it is
+    cmp byte [si + TI_C_HP], 0      ; (nothing to kill, on an order)
+    jne .pw
+    xor al, al
+.pw:
     call ti_cb_pair                 ; the soul and not the star - the star is a
     pop si                          ; special ABILITY, which is one of the
     pop bx                          ; things a variable stat can BE
@@ -1223,7 +1240,11 @@ ti_cb_pic:
     pop es                          ; the band is the package's...
     mov ax, [ti_cardi]
     call ti_ck_card
-    mov ax, [ti_ck]
+    cmp word [ti_ck], 0FFh          ; an ORDER has no figure
+    jne .fig
+    jmp .out
+.fig:
+    mov ax, [ti_uk]
     mov dx, TI_POSES
     mul dx
     add ax, [ti_pi]
@@ -1381,6 +1402,7 @@ ti_figs_build:
     cld
     push word [ti_pi]
     push word [ti_ck]
+    push word [ti_uk]
     mov ax, [ti_bs]
     mov [ti_fa_stride], ax
     mov [ti_fa_wb], ax
@@ -1398,14 +1420,16 @@ ti_figs_build:
     mov [ti_cst], ax
     mov es, [ti_fseg]
     xor di, di
-    mov word [ti_ck], 0
-.card:
-    cmp word [ti_ck], TI_CARDS
+    xor ax, ax                      ; ONE PER HAND SLOT: the card in slot N,
+.card:                              ; whoever that is this round
+    cmp ax, TI_HAND
     jae .done
+    call ti_ck_card
     mov word [ti_pi], 0
 .pose:
     cmp word [ti_pi], TI_POSES
     jae .next
+    push ax
     push di
     mov cx, [ti_uslot]
     xor al, al
@@ -1413,14 +1437,16 @@ ti_figs_build:
     pop di
     mov ax, [ti_pi]
     mov [ti_cfr], ax
-    call ti_char_put
+    call ti_char_put                ; (nothing, for an order or an empty slot)
     add di, [ti_uslot]
     inc word [ti_pi]
+    pop ax
     jmp short .pose
 .next:
-    inc word [ti_ck]
+    inc ax
     jmp short .card
 .done:
+    pop word [ti_uk]
     pop word [ti_ck]
     pop word [ti_pi]
     pop es
@@ -1452,6 +1478,7 @@ ti_units_build:
     cld
     push word [ti_pi]
     push word [ti_ck]
+    push word [ti_uk]
     mov ax, [ti_unitb]              ; the slot's own pitch, and the window
     mul word [ti_unith]
     mov [ti_uslot], ax
@@ -1469,15 +1496,17 @@ ti_units_build:
     mov [ti_csurf], ax
     mov ax, [ti_row]
     mov [ti_cst], ax
-    mov word [ti_ck], 0
-.card:
-    cmp word [ti_ck], TI_CARDS
+    xor ax, ax                      ; ONE PER HAND SLOT (tigame.inc): the card
+.card:                              ; in the slot, whoever it is this round
+    cmp ax, TI_HAND
     jae .done
+    call ti_ck_card
     mov word [ti_pi], 0
 .pose:
     cmp word [ti_pi], TI_POSES
     jae .next
     call tm_run                     ; the music a unit pose at a time
+    push ax
     call ti_unit_addr               ; DI = this pose's slot: cleared to the
     push di                         ; card's black, then the character
     mov cx, [ti_uslot]
@@ -1488,11 +1517,13 @@ ti_units_build:
     mov [ti_cfr], ax
     call ti_char_put                ; ES = DS: the unit lives in the package
     inc word [ti_pi]
+    pop ax
     jmp short .pose
 .next:
-    inc word [ti_ck]
+    inc ax
     jmp short .card
 .done:
+    pop word [ti_uk]
     pop word [ti_ck]
     pop word [ti_pi]
     pop es
@@ -1505,7 +1536,7 @@ ti_units_build:
 ti_unit_addr:
     push ax
     push dx
-    mov ax, [ti_ck]
+    mov ax, [ti_uk]                 ; the hand SLOT's cache, not the art's
     mov dx, TI_POSES
     mul dx
     add ax, [ti_pi]

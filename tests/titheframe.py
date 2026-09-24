@@ -46,9 +46,9 @@ import os88mouse                                          # noqa: E402
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 SYMS = ("ti_ncommit", "ti_nframe", "ti_npj", "ti_nbase", "ti_nbadv", "ti_bw", "ti_bh",
         "ti_panx", "ti_by", "ti_cardpitch", "ti_cardh", "ti_ccardus",
-        "ti_calfull", "ti_calone", "ti_base", "ti_bslot",
+        "ti_calfull", "ti_calone", "ti_bseg", "ti_bslot",
         "TI_BASEPOSES", "ti_clock", "ti_bclock", "TI_ROWS", "TI_COLS",
-        "ti_nlay", "ti_fps10")
+        "ti_nlay", "ti_fps10", "tg_fillq")
 SPAN = 5.0
 
 fails = []
@@ -101,6 +101,13 @@ def main():
         # frames a second - which then made a bolt look like it had sped the
         # idle up by 92% when it had not moved it at all.
         os88marty.guest_sleep(m, 5.0)
+        # A MATCH STARTS WITH AN EMPTY BOARD, and every number below is about
+        # twenty figures: the tests' full board is a byte the worker services
+        # (SPEC.md 97.12.6), every art once.
+        m.write(seg * 16 + off["tg_fillq"], bytes([1]))
+        os88marty.until(m, lambda _: rw(m, seg, "tg_fillq") & 0xFF == 0,
+                        "the full board", poll=0.2, limit=60.0)
+        os88marty.guest_sleep(m, 2.0)
 
         full = rw(m, seg, "ti_calfull")
         one = rw(m, seg, "ti_calone")
@@ -197,8 +204,11 @@ def main():
         # Read out of the band store, so it tests the ART and not the lane.
         n = off["TI_BASEPOSES"]
         slot = rw(m, seg, "ti_bslot")
-        bands = {bytes(m.readseg(seg, off["ti_base"] + i * slot, slot))
-                 for i in range(n)}
+        # ...IN THEIR OWN CLAIM: the bands left the package segment when the
+        # rules engine needed the room (SPEC.md 97.8), and a pose's offset
+        # there is its index times the slot
+        bseg = rw(m, seg, "ti_bseg")
+        bands = {bytes(m.readseg(bseg, i * slot, slot)) for i in range(n)}
         print("  base art: %d distinct of %d poses (%d bytes each)"
               % (len(bands), n, slot))
         check(len(bands) >= (n + 1) // 2,
