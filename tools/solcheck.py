@@ -49,7 +49,6 @@ import os
 import re
 import struct
 import sys
-import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -282,7 +281,7 @@ def shot(m, win, path, tag, mo=None):
     if mo is not None:
         px = win.x - 40 if win.x >= 40 else win.x + win.w + 24
         mo.to(max(0, px), max(su.DESK_ZY0 // 2, win.y + 60))
-        time.sleep(0.5)
+        os88marty.pace(m, 0.5)
     w, bpp, data = su.fb(m)
     h = len(data) // (w * bpp)
     x1, y1 = max(0, win.x), max(0, win.y)
@@ -312,10 +311,10 @@ def capture(outdir, img, machine):
         mo = Mouse(marty=m)
         print("machine %s / %s -> %s" % (machine, img, outdir))
         mo.dblclick(*su.zone(m, 1))
-        time.sleep(4)
+        os88marty.pace(m, 4)
         disk = [w for w in su.windows(m) if w.visible][0]
         mo.dblclick(*su.row(disk, 0))
-        time.sleep(30)
+        os88marty.pace(m, 30)
         sol = [w for w in su.windows(m) if w.visible
                and w.title.upper().startswith("SOL")]
         if not sol:
@@ -329,7 +328,7 @@ def capture(outdir, img, machine):
         os88marty.settle(m)
         m.write(m.sym("osapi_seed"), struct.pack("<H", SEED))
         m.key("KeyN")
-        time.sleep(3)
+        os88marty.pace(m, 3)
         os88marty.settle(m)
         s = [w for w in su.windows(m) if w.visible and w.i == sol.i][0]
         shot(m, s, os.path.join(outdir, "deal.raw"), "deal", mo)
@@ -347,7 +346,7 @@ def capture(outdir, img, machine):
         # ...and once more in place, so a pile left inside another pile's slot
         # is compared against the same position drawn a second time
         m.key("KeyR")                       # Restart Deal: the SAME deal
-        time.sleep(3)
+        os88marty.pace(m, 3)
         os88marty.settle(m)
         s = [w for w in su.windows(m) if w.visible and w.i == sol.i][0]
         shot(m, s, os.path.join(outdir, "restart.raw"), "restart", mo)
@@ -383,7 +382,7 @@ def capture(outdir, img, machine):
                 # nothing to play: deal. The stock is 24 cards, so a dead game
                 # needs a full cycle of it before the session gives up
                 m.key("Space")
-                time.sleep(2)
+                os88marty.pace(m, 2)
                 os88marty.settle(m)
                 b.reload()
                 dry += 1
@@ -412,7 +411,7 @@ def capture(outdir, img, machine):
         # (§43.6) - a long run of sol_domove with no drag in it at all, which
         # is the other way a column empties
         m.key("KeyA")
-        time.sleep(6)
+        os88marty.pace(m, 6)
         os88marty.settle(m)
         s = [w for w in su.windows(m) if w.visible and w.i == sol.i][0]
         shot(m, s, os.path.join(outdir, "play98_auto.raw"), "auto", mo)

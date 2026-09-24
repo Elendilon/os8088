@@ -34,7 +34,6 @@ Build the disk with:
 import os
 import struct
 import sys
-import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -81,9 +80,9 @@ def capture(out, machine, defines=()):
             plain = m.sym
             m.sym = lambda n, d=tuple(defines): plain(n, d)
         mo = Mouse(marty=m)
-        mo.dblclick(*su.zone(m, 1)); time.sleep(4)
+        mo.dblclick(*su.zone(m, 1)); os88marty.pace(m, 4)
         disk = [w for w in su.windows(m) if w.visible][0]
-        mo.dblclick(*su.row(disk, ROW_TEXTURE)); time.sleep(45)
+        mo.dblclick(*su.row(disk, ROW_TEXTURE)); os88marty.pace(m, 45)
         pt = [w for w in su.windows(m) if w.visible
               and w.title.upper().startswith("PAINT")]
         if not pt:

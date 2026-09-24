@@ -52,7 +52,6 @@ both ends and the geometry moved anyway, and that is what is tested.
 import argparse
 import subprocess
 import sys
-import time
 
 import os
 # THIS TREE'S root, DERIVED - never a hard-coded path. A literal is right in the
@@ -216,7 +215,7 @@ def main():
         bx, by = dispcp.win_rect(m, S, disk)[:2]
         dispcp.open_named(m, mo, S, os88marty.settle, bx, by, pkg,
                           card=pri)
-        time.sleep(6)
+        os88marty.pace(m, 6)
         t = [w for w in dispcp.win_list(m, S) if w != disk]
         if not t:
             sys.exit("%s did not launch - is %s on %s?"
@@ -247,7 +246,7 @@ def main():
             mo.to(wx + ww // 2, wy + wh // 2)
             os88marty.settle(m, card=pri if not a.far else sec)
             m.key("KeyX")                   # SPEC.md 45.9's toggle
-            time.sleep(3)
+            os88marty.pace(m, 3)
             os88marty.settle(m, card=pri if not a.far else sec)
         m.pause()
         if a.app == "tracker":
@@ -279,7 +278,7 @@ def main():
 
         # --- F ---------------------------------------------------------------
         m.key(fskey)
-        time.sleep(5)
+        os88marty.pace(m, 5)
         m.pause()
         fs_flag = m.read(S("wm_fs"), 2)
         print("   [wm_fs]=%d  (neither app takes the 11.2 surface; the "
@@ -293,7 +292,10 @@ def main():
 
         # --- and out --------------------------------------------------------
         m.key("Escape")
-        time.sleep(5)
+        # [fsx_task] goes back to 0xFF when fsx_restore disarms the bracket
+        # (kernel/fsx.inc); the settle below is the repaint after it
+        os88marty.until(m, lambda mm: mm.read(S("fsx_task"), 1)[0] == 0xFF,
+                        "the fsx bracket to end", poll=0.1, limit=20.0)
         os88marty.settle(m, card=sec)
         mo.to(*park)
         os88marty.settle(m, card=sec)

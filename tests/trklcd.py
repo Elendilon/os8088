@@ -37,7 +37,6 @@ import os
 import re
 import sys
 import tempfile
-import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -102,12 +101,12 @@ def main():
         slot = dispcp.win_list(m, S)[-1]
         wx, wy, _, _ = dispcp.win_rect(m, S, slot)
         dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "BEVERLY.MOD")
-        seg = None
-        for _ in range(60):
-            time.sleep(2)
-            seg, _drv = scan(m)
-            if seg:
-                break
+        try:                           # the launch is the GUEST's work
+            os88marty.until(m, lambda mm: scan(mm)[0],
+                            "Tracker's instance", poll=0.5, limit=120.0)
+        except os88marty.MartyError:
+            pass
+        seg, _drv = scan(m)
         if not seg:
             print("FAIL: Tracker never loaded")
             return 1
