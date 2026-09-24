@@ -66,7 +66,6 @@ its proven-edge click and drag are reused rather than re-rolled.
 import os
 import struct
 import sys
-import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -86,6 +85,17 @@ def segs(m):
     """wm_su_segs - one word per window slot, 0 = this window has no cache."""
     raw = m.read(m.sym("wm_su_segs"), MAX_WIN * 2)
     return list(struct.unpack("<%dH" % MAX_WIN, raw))
+
+
+def up(m, cond, what, limit=60):
+    """Wait for `cond()` on the GUEST's clock, then for the screen to stop -
+    every step here is followed by a pixel capture. A miss is left to the
+    capture that follows, which shows it."""
+    try:
+        os88marty.until(m, lambda _m: cond(), what, poll=0.3, limit=limit)
+    except os88marty.MartyError:
+        pass
+    os88marty.settle(m)
 
 
 def note(log, text):
@@ -110,14 +120,20 @@ def capture(out, machine, defines=()):
         sc.shot(m, "desktop", out, shots, mo)
 
         # --- the reported sequence -------------------------------------------
-        mo.dblclick(*su.zone(m, VOL_B)); time.sleep(4)
+        n0 = len(sc.wins(m))
+        mo.dblclick(*su.zone(m, VOL_B))
+        up(m, lambda: len(sc.wins(m)) > n0, "the Disk window")
         sc.shot(m, "disk-b", out, shots, mo)
         b = sc.wins(m)[-1]
-        mo.dblclick(*su.row(b, ROW_GAMES)); time.sleep(5)
+        mo.dblclick(*su.row(b, ROW_GAMES))
+        os88marty.pace(m, 5)            # the folder re-listed in place:
+        os88marty.settle(m)             # no new window to wait for
         sc.shot(m, "into-games", out, shots, mo)
 
         b = [w for w in sc.wins(m) if w.i == b.i][0]
-        mo.dblclick(*su.row(b, ROW_MINES)); time.sleep(9)
+        mo.dblclick(*su.row(b, ROW_MINES))
+        os88marty.pace(m, 9)            # a launch AND its first paint, and
+                                        # no settle: Minesweeper animates
         sc.shot(m, "mines-launched", out, shots, mo)
 
         # --- CHECK 1: the poster kept a cache through the launch (22.17) -----

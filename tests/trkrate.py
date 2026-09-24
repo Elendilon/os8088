@@ -19,7 +19,7 @@ fullscreen it cannot feed.
 
 It wants a Sound Blaster, which in a container means os8088_5150_sb_gla.
 """
-import sys, os, time
+import sys, os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -69,16 +69,29 @@ def main():
         slot = dispcp.win_list(m, S)[-1]
         wx, wy, _, _ = dispcp.win_rect(m, S, slot)
         dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "BEVERLY.MOD")
-        seg = None
-        for _ in range(60):
-            time.sleep(2)
-            seg, _drv = scan(m)
-            if seg:
-                break
+        # THE MODULE LOADED, on guest state: the image found in memory, its
+        # [mp_loaded] set, and the open's own tail after it (trk_play, the
+        # completion repaint) gone quiet. This was a 2s poll on a host clock
+        # and then a blind 25s.
+        found = [None]
+
+        def _loaded(_m):
+            found[0] = scan(m)[0]
+            return bool(found[0]) and m.read(
+                found[0] * 16 + P["@mp_loaded"], 1)[0] == 1
+        try:
+            os88marty.until(m, _loaded, "Tracker to load BEVERLY.MOD",
+                            poll=1.0, limit=150)
+        except os88marty.MartyError:
+            pass
+        seg = found[0]
         if not seg:
             print("FAIL: Tracker never loaded"); return 1
-        time.sleep(25)
         base = seg * 16
+        os88marty.quiesce(m, lambda: tuple(
+            m.read(base + P["@" + n], 2) for n in
+            ("mp_loaded", "mp_playing", "mp_mixrate", "mp_xt", "trk_fs")),
+            guest=1.0, what="Tracker's open to finish")
         b = lambda n: m.read(base + P["@" + n], 1)[0]
         w = lambda n: int.from_bytes(m.read(base + P["@" + n], 2), "little")
         w2 = lambda off: int.from_bytes(m.read(base + off, 2), "little")
@@ -88,26 +101,26 @@ def main():
         check("trk_xhi (bss arrives zeroed = 5,500)", b("trk_xhi"), 0)
 
         print("2. fullscreen at 5,500")
-        m.key("KeyF"); time.sleep(4)
+        m.key("KeyF"); os88marty.pace(m, 4)
         check("trk_fs after F", b("trk_fs"), 1)
-        m.key("Escape"); time.sleep(4)
+        m.key("Escape"); os88marty.pace(m, 4)
         check("trk_fs after Esc", b("trk_fs"), 0)
 
         print("3. R picks the high rate")
-        m.key("KeyR"); time.sleep(2)
+        m.key("KeyR"); os88marty.pace(m, 2)
         check("trk_xhi after R", b("trk_xhi"), 1)
         if not SHIPPED:
             check("the bench sweep followed it", w("tlog_xrate"), 11000)
 
         print("4. ...and the text screen is refused while it is picked")
-        m.key("KeyF"); time.sleep(4)
+        m.key("KeyF"); os88marty.pace(m, 4)
         check("trk_fs after F at 11 kHz", b("trk_fs"), 0)
 
         print("5. the stream opens at the rate the control names")
-        m.key("Enter"); time.sleep(14)
+        m.key("Enter"); os88marty.pace(m, 14)
         check("mp_mixrate while playing", w("mp_mixrate"), 11000)
         check("mp_playing", b("mp_playing"), 1)
-        m.key("Space"); time.sleep(4)
+        m.key("Space"); os88marty.pace(m, 4)
 
         print("6. the Rate MENU is the mode's own rows (SPEC.md 45.9.3)")
         # Walked the way the kernel walks it: the set entry -> AMENU_ITEMS ->
@@ -127,17 +140,17 @@ def main():
         check("View > Fullscreen is MENU_DIS at 11 kHz", item0_byte("trk_e_view"), 1)
 
         print("7. R back, and the surface comes back with it")
-        m.key("KeyR"); time.sleep(2)
+        m.key("KeyR"); os88marty.pace(m, 2)
         check("trk_xhi after R", b("trk_xhi"), 0)
         if not SHIPPED:
             check("the bench sweep followed it", w("tlog_xrate"), 5500)
         check("View > Fullscreen is live again", item0_byte("trk_e_view"), ord("F"))
-        m.key("KeyF"); time.sleep(4)
+        m.key("KeyF"); os88marty.pace(m, 4)
         check("trk_fs after F at 5.5 kHz", b("trk_fs"), 1)
-        m.key("Escape"); time.sleep(3)
+        m.key("Escape"); os88marty.pace(m, 3)
 
         print("8. ...and XT mode off puts the other mode's rows back")
-        m.key("KeyX"); time.sleep(3)
+        m.key("KeyX"); os88marty.pace(m, 3)
         check("mp_xt after X", b("mp_xt"), 0)
         # 11/22 kHz, and 33/44 ONLY where the card can play them: the
         # count is the guest's own SND_CAP_PCM_HI, read off the kernel's

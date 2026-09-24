@@ -120,7 +120,7 @@ def content(ui, p):
     """
     m = ui.m
     ui.mo.to(712, 170)
-    time.sleep(0.4)
+    os88marty.pace(m, 0.4)
     m.pause()
     x, y, w, h = (p.w("dd_cx"), p.w("dd_cy"), p.w("dd_cw"), p.w("dd_ch"))
     top = p.w("dd_ply") - y

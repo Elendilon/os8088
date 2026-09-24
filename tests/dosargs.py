@@ -186,10 +186,14 @@ def run_and_read(m, limit=120.0, after=0, want=None, had=0, quiet=3):
     early.
 
     `quiet` identical screens is stillness; the DOS console is static between
-    events, so this costs nothing once the output has landed."""
-    end = time.time() + limit
+    events, so this costs nothing once the output has landed. Both the
+    deadline and the gap between screens are GUEST time: `limit` idle-box
+    seconds at GUEST_BUDGET_RATIO, and a fixed gap of guest seconds, so
+    stillness is the same amount of the machine's work on any box."""
+    budget = limit * os88marty.GUEST_BUDGET_RATIO
+    c0 = m.status()["cycles"]
     prev, still = None, 0
-    while time.time() < end:
+    while (m.status()["cycles"] - c0) / os88marty.GUEST_HZ < budget:
         text = "\n".join(r.rstrip() for r in (m.screen() or []))
         ready = sum(1 for r in text.splitlines() if "READY" in r)
         fresh = want is None or len(
@@ -199,11 +203,13 @@ def run_and_read(m, limit=120.0, after=0, want=None, had=0, quiet=3):
             if still >= quiet:
                 return text
         prev = text
-        time.sleep(0.3)
-    fail("no %dth READY line%s that then stood still inside %.0fs; the last "
-         "screen was %r"
+        os88marty.guest_sleep(m, 1.35)  # 0.3 idle-box seconds; RAISES on a
+                                        # stopped guest, which a cycle-bounded
+                                        # loop needs or it never ends
+    fail("no %dth READY line%s that then stood still inside %.0f guest "
+         "seconds; the last screen was %r"
          % (after + 1, "" if want is None else " with a new %s line" % want,
-            limit,
+            budget,
             [r.rstrip() for r in (m.screen() or []) if r.strip()][:10]))
 
 

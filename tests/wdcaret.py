@@ -40,7 +40,7 @@ The screen still read as text - 419 differing bits on a Right arrow.
          [wd_cxcur] poked stale before each key - and the carets must land on
          the same indices, keystroke for keystroke
 """
-import os, sys, time, subprocess, tempfile, argparse, functools
+import os, sys, subprocess, tempfile, argparse, functools
 print = functools.partial(print, flush=True)
 os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, "tools"); sys.path.insert(0, "tests")
@@ -102,15 +102,23 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     dispcp.open_drive(m, mo, S, M.settle, "B")
     w = dispcp.win_list(m, S)[-1]; dx, dy = dispcp.win_rect(m, S, w)[:2]
     dispcp.open_named(m, mo, S, M.settle, dx, dy, "WELCOME.DOC")
-    time.sleep(2.5); M.settle(m)
 
-    raw = m.read(S("inst_tab"), 32*12); seg = None
-    for i in range(12):
-        b = i*32
-        if raw[b] == 1 and (raw[b+2] & 0x80):
-            c = u16(raw, b+6)
-            if m.read(c*16+syms["wd_mact"], 48) == image[syms["wd_mact"]:syms["wd_mact"]+48]:
-                seg = c; break
+    def find_seg():
+        raw = m.read(S("inst_tab"), 32*12)
+        for i in range(12):
+            b = i*32
+            if raw[b] == 1 and (raw[b+2] & 0x80):
+                c = u16(raw, b+6)
+                if m.read(c*16+syms["wd_mact"], 48) == image[syms["wd_mact"]:syms["wd_mact"]+48]:
+                    return c
+        return None
+    try:                                # the package up, on guest state
+        M.until(m, lambda _m: find_seg() is not None, "Word to be running",
+                poll=0.5, limit=60)
+    except M.MartyError:
+        pass
+    M.settle(m)
+    seg = find_seg()
     if seg is None:
         sys.exit("could not locate the running package (stale build/word.o88?)")
     base = seg*16; P = lambda n: base + syms[n]
@@ -136,18 +144,18 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     yup = ty + (sbb-ty)//4
 
     def click_row(r, col=20):
-        m.run(); mo.to(tx + col*8, ty + r*8 + 3); time.sleep(0.35)
-        m.mouse(l=True); time.sleep(0.08); m.mouse(l=False); time.sleep(1.0)
+        m.run(); mo.to(tx + col*8, ty + r*8 + 3); M.pace(m, 0.35)
+        m.mouse(l=True); M.pace(m, 0.08); m.mouse(l=False); M.pace(m, 1.0)
 
     def page_round_trip(top0):
-        mo.to(sbx, ydn); time.sleep(0.25)
-        m.mouse(l=True); time.sleep(0.08); m.mouse(l=False); time.sleep(1.5)
+        mo.to(sbx, ydn); M.pace(m, 0.25)
+        m.mouse(l=True); M.pace(m, 0.08); m.mouse(l=False); M.pace(m, 1.5)
         for _ in range(12):
             if rw("wd_top") <= top0:
                 break
-            mo.to(sbx, yup); time.sleep(0.25)
-            m.mouse(l=True); time.sleep(0.08); m.mouse(l=False); time.sleep(1.5)
-        mo.to(4, 4); time.sleep(1.0); M.settle(m)
+            mo.to(sbx, yup); M.pace(m, 0.25)
+            m.mouse(l=True); M.pace(m, 0.08); m.mouse(l=False); M.pace(m, 1.5)
+        mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
         return rw("wd_top") == top0
 
     def key_walks(key):
@@ -169,7 +177,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
                 break
             n += 1
         c = m.status()["cycles"] - c0
-        m.bp_exec(); m.run(); time.sleep(0.8)
+        m.bp_exec(); m.run(); M.pace(m, 0.8)
         return n, c
 
     # ---- leg A: one walk, not two -----------------------------------------
@@ -177,7 +185,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     n1, c1 = key_walks("ArrowRight")
     check("A: a Right arrow makes ONE wd_walk", n1 == 1,
           "%s walks - the two-pass redraw is still running" % n1)
-    m.key("ArrowLeft"); time.sleep(1.0)
+    m.key("ArrowLeft"); M.pace(m, 1.0)
 
     # ---- leg B: pixels, against a repaint the one pass never touched ------
     for name, keys, row in (("Right",  ["ArrowRight"]*4,             1),
@@ -187,8 +195,8 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
                             ("Down/Up",["ArrowDown", "ArrowUp"],     1)):
         click_row(row, col=20)
         for k in keys:
-            m.key(k); time.sleep(0.9)
-        mo.to(4, 4); time.sleep(1.0); M.settle(m)
+            m.key(k); M.pace(m, 0.9)
+        mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
         moved = shot(m)
         top0 = rw("wd_top")
         if not page_round_trip(top0):
@@ -205,9 +213,9 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     click_row(vrows - 1, col=10)
     top_before = rw("wd_top")
     for _ in range(3):
-        m.key("ArrowDown"); time.sleep(1.2)
+        m.key("ArrowDown"); M.pace(m, 1.2)
     scrolled = rw("wd_top") != top_before
-    mo.to(4, 4); time.sleep(1.0); M.settle(m)
+    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
     afterscroll = shot(m)
     topD = rw("wd_top")
     check("D: the Down actually scrolled the view (case, not assertion)",
@@ -225,9 +233,9 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # view, so pass 1 walked the whole view to learn nothing had moved - 450
     # ms of an 850 ms Up on a 5150. Count the rows wd_redraw's FIRST walk lays
     # out: the row the caret left is the bound now.
-    mo.to(sbx, ydn); time.sleep(0.25)
-    m.mouse(l=True); time.sleep(0.08); m.mouse(l=False); time.sleep(1.5)
-    mo.to(4, 4); time.sleep(0.8); M.settle(m)
+    mo.to(sbx, ydn); M.pace(m, 0.25)
+    m.mouse(l=True); M.pace(m, 0.08); m.mouse(l=False); M.pace(m, 1.5)
+    mo.to(4, 4); M.pace(m, 0.8); M.settle(m)
     check("E: the view is paged down (case, not assertion)", rw("wd_top") > 0,
           "top %d" % rw("wd_top"))
     click_row(0, col=10); settle_height()
@@ -240,7 +248,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     with M.bp_trace(m, *[P(nm) for nm in ("wd_redraw", "wd_walk", "wd_rstart",
                                           "wd_caretnet", "wd_seecaret")],
                     on_hit=lambda mm, rec: seqE.append(NM.get(rec.get("name"))), cap=400):
-        m.key("ArrowUp"); time.sleep(2.5)
+        m.key("ArrowUp"); M.pace(m, 2.5)
     names = [x for x in seqE if x]
     p1 = None
     if "wd_redraw" in names:
@@ -258,7 +266,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
           p1 is not None and p1 <= 3,
           "wd_redraw's first walk laid out %s rows of a %d-row view" % (p1, vrows))
     print("      pass-1 rows on a scrolling Up: %s" % p1)
-    mo.to(4, 4); time.sleep(1.0); M.settle(m)
+    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
     afterE = shot(m); topE = rw("wd_top")
     if page_round_trip(topE):
         rpE = shot(m)
@@ -277,7 +285,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     def downs(stale):
         page_round_trip(0) if rw("wd_top") else None
         click_row(1, col=20)
-        m.key("ArrowDown"); time.sleep(1.0); M.settle(m)
+        m.key("ArrowDown"); M.pace(m, 1.0); M.settle(m)
         out = []
         for _ in range(4):
             if stale:
@@ -318,25 +326,25 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # ---- leg C: the A/B, inside one boot ----------------------------------
     click_row(1, col=20)
     for _ in range(4):
-        m.key("ArrowRight"); time.sleep(0.9)
-    mo.to(4, 4); time.sleep(1.0); M.settle(m)
+        m.key("ArrowRight"); M.pace(m, 0.9)
+    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
     one = shot(m)
     for _ in range(4):
-        m.key("ArrowLeft"); time.sleep(0.9)
-    time.sleep(0.6); M.settle(m)
+        m.key("ArrowLeft"); M.pace(m, 0.9)
+    M.pace(m, 0.6); M.settle(m)
     click_row(1, col=20)
     non, con = key_walks("ArrowRight")
-    m.key("ArrowLeft"); time.sleep(1.0)
+    m.key("ArrowLeft"); M.pace(m, 1.0)
 
     keep = m.read(P("wd_1pok"), 2)
     m.write(P("wd_1pok"), bytes([0xF9, 0xC3]))       # stc; ret - refuse
     click_row(1, col=20)
     ntwo, ctwo = key_walks("ArrowRight")
-    m.key("ArrowLeft"); time.sleep(1.0)
+    m.key("ArrowLeft"); M.pace(m, 1.0)
     click_row(1, col=20)
     for _ in range(4):
-        m.key("ArrowRight"); time.sleep(0.9)
-    mo.to(4, 4); time.sleep(1.0); M.settle(m)
+        m.key("ArrowRight"); M.pace(m, 0.9)
+    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
     two = shot(m)
     m.write(P("wd_1pok"), keep)
 
@@ -352,8 +360,8 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     m.write(P("wd_1pok"), bytes([0xF9, 0xC3]))
     click_row(3, col=20)
     for k in ("End", "Home"):
-        m.key(k); time.sleep(0.9)
-    mo.to(4, 4); time.sleep(1.0); M.settle(m)
+        m.key(k); M.pace(m, 0.9)
+    mo.to(4, 4); M.pace(m, 1.0); M.settle(m)
     twoEH = shot(m)
     topEH = rw("wd_top")
     if page_round_trip(topEH):
