@@ -1033,7 +1033,7 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
 ; card, and a desktop icon whose art sat in every kernel would be carried by
 ; every machine that cannot use it.
 %define OSAPI_DESK_SVC      KERNEL_SEG:0x040D   ; AL = 1 add / 0 withdraw;
-                                 ; ES:SI = a 65-byte record in YOUR segment
+                                 ; ES:SI = a 39-byte record in YOUR segment
                                  ; (add only):
                                  ;   +0  12  the caption, NUL (<= 11 chars)
                                  ;   +12 13  the 8.3 file the zone launches,
@@ -1048,8 +1048,9 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ;           your other verbs
                                  ;   +27 12  the package's HEADER name, NUL -
                                  ;           what makes the zone a singleton
-                                 ;   +39 26  the failure notice's lead line,
-                                 ;           NUL ('Cannot open Wire:')
+                                 ;           (a failed launch is a toast, so
+                                 ;           the record carries no lead line
+                                 ;           since kernel size pass 4)
                                  ; out CF=1 refused: not a published driver
                                  ; (OSAPI_VOL_ADD's own fence), a second
                                  ; registration - there is ONE zone and

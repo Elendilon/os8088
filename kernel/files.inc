@@ -2103,11 +2103,25 @@ fm_btab:      dw 76, 67         ; would carry a table nothing reads
 
 fm_s_empty:   db 0              ; status line strings, indexed by [ld_status]
 fm_s_dskerr:  db 'Disk error', 0
-fm_s_badpkg:  db 'Bad package', 0
 fm_s_toobig:  db 'Too large', 0
 fm_s_ldfail:  db 'Load failed', 0
 fm_s_nomem:   db 'Out of memory', 0
+; **THE LOADER'S VERDICTS ARE TWO TO A USER** (kernel size pass 4, the
+; owner's call): a disk error, a file that is not a package, one too large for
+; a segment (image + bss over APP_MAX_SIZE - a property of the FILE, which no
+; amount of RAM fixes) and an entry proc that refused are all things that
+; should not happen to a normal user and all mean "this program will not
+; start" - so they read `Load failed`. Only running out of memory (the
+; instance table or the heap) is a different answer, because the user can do
+; something about it. `make LDDIAG=1` puts the four reasons back for whoever
+; is debugging one. The SAME table is the Task Manager's and the desktop
+; service zone's toast (ui.inc's ui_sys_open), so there is one wording.
+%ifdef LD_DIAG
+fm_s_badpkg:  db 'Bad package', 0
 fm_stattab:   dw fm_s_empty, fm_s_dskerr, fm_s_badpkg, fm_s_toobig, fm_s_ldfail
+%else
+fm_stattab:   dw fm_s_empty, fm_s_ldfail, fm_s_ldfail, fm_s_ldfail, fm_s_ldfail
+%endif
               dw fm_s_nomem
 LD_NSTAT      equ 6             ; LD_OK .. LD_ENOMEM. The bound toast_say
                                 ; tests, and it is DERIVED FROM THE TABLE

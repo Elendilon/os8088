@@ -62,7 +62,7 @@ Read first: [§21 loader.inc](../SPEC.md#21-loaderinc); [§26 desk.inc — deskt
 | slot | call | takes |
 |---|---|---|
 | `0x0407` | `OSAPI_PKG_START` | SI = a NUL-terminated 8.3 name, at most 12 characters, in YOUR segment... |
-| `0x040D` | `OSAPI_DESK_SVC` | AL = 1 add / 0 withdraw; ES:SI = a 65-byte record in YOUR segment (add only): +0 12 the caption, NUL (<= 11 chars) +12 13 the 8.3 file the zone... |
+| `0x040D` | `OSAPI_DESK_SVC` | AL = 1 add / 0 withdraw; ES:SI = a 39-byte record in YOUR segment (add only): +0 12 the caption, NUL (<= 11 chars) +12 13 the 8.3 file the zone... |
 | `0x0413` | `OSAPI_PKG_REHOME` | DX = the segment your program part's IMAGE starts at (op_seg answers it), AX = the bytes available there... |
 
 ### Menus and the menu bar

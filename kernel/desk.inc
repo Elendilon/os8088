@@ -99,11 +99,10 @@ DSV_R_LEAD  equ 39              ; 26: the failure notice's lead line, NUL
                                 ;     the words and the composer on every
                                 ;     machine, including the ones with no such
                                 ;     driver at all
-DSV_R_SIZE  equ 65
+DSV_R_SIZE  equ 39
 DSV_CAPMAX  equ 12              ; the four field widths, named because the copy
 DSV_FILEMAX equ 13              ; and the .bss cells must agree
 DSV_NAMEMAX equ 12
-DSV_LEADMAX equ 26
 %else
 DESK_NZ     equ DVOL_MAX
 %endif
@@ -1571,9 +1570,6 @@ desk_svc_file resb DSV_FILEMAX  ; the 8.3 file it launches out of SYSTEM/
 desk_svc_cls  resb 1            ; its DRVC_* class...
 desk_svc_vrb  resb 1            ; ...and the verb that paints the icon
 desk_svc_name resb DSV_NAMEMAX  ; the package's header name - the singleton
-desk_svc_lead resb DSV_LEADMAX  ; 'Cannot open <caption>:' - the driver's own
-                                ; words, so the kernel carries neither them
-                                ; nor a composer for them
 %if ($ - desk_svc_rec) != DSV_R_SIZE
   %error "the .bss mirror and the registered record must be the same shape: osapi_desk_svc copies DSV_R_SIZE bytes into it with one rep movsb"
 %endif

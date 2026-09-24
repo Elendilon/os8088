@@ -2453,7 +2453,7 @@ ui_pcmd:    dw 0                ; posted CMD_*, 0 = none (see above)
 ; on TASKMGR.O88 in a Disk window is unaffected and still opens as many as
 ; you like - that is the package rule, and this is the menu item's rule.
 ; =============================================================================
-ui_s_nofile: db 'It is not in '   ; ONE 'SYSTEM',0 serves both the
+ui_s_nofile: db 'Not in '        ; ONE 'SYSTEM',0 serves both the
 ui_s_tmdir:  db 'SYSTEM', 0      ; folder name and the tail of the notice that
                                  ; says the file is not in it - two labels
                                  ; over one `db`, so nothing may be inserted
@@ -2477,32 +2477,30 @@ ui_s_tmname: db 'TaskMgr', 0     ; the 16-byte header name inst_set_name_x
 ; It exists because the Wire's desktop zone (SPEC.md 26.7) opens a package out
 ; of SYSTEM by exactly the Task Manager's route - front the running instance
 ; by name, else bank the volume, mount the boot disk, step into SYSTEM,
-; ld_run_name, put the volume back, and say why in a notice on failure - and a
+; ld_run_name, put the volume back, and say why in a TOAST on failure - and a
 ; second copy of eighty bytes of that is the kind of copy that drifts.
 ; -----------------------------------------------------------------------------
 UO_FILE  equ 0                  ; dw -> the 8.3 file name, in SYSTEM
 UO_NAME  equ 2                  ; dw -> the 16-byte header name a running
                                 ;       instance carries (SPEC.md 20.2)
-UO_TTL   equ 4                  ; dw -> the failure notice's title
-UO_LEAD  equ 6                  ; dw -> ...and its lead line
-UO_ERRS  equ 8                  ; dw -> six words, indexed by LD_*
-UO_NOFI  equ 10                 ; dw -> the "not in SYSTEM" reason, which is
-                                ;       not an LD_* code (SPEC.md 21.4 gives
-                                ;       LD_EBAD for both "not a package" and
-                                ;       "not there")
-UO_SIZE  equ 12
+UO_SIZE  equ 4
+; A failure is a TOAST now (kernel size pass 4), exactly what a Disk window's
+; launch says: `No system disk in drive A:`, `Not in SYSTEM`, or the Disk
+; window's own fm_stattab verdict. It used to be a notice WINDOW with a title
+; and a lead line naming the program - the Task Manager predated toasts
+; (SPEC.md 59) - so the descriptor carried a title, a lead line, a verdict
+; table and a not-there string, and the service zone's driver registered its
+; own lead line. The user has just clicked the thing; the toast need not name
+; it.
 
 ui_d_tm:
-    dw ui_s_tmfile, ui_s_tmname, ui_s_tmttl, ui_s_tmlead, ui_tm_errs
-    dw ui_s_nofile
+    dw ui_s_tmfile, ui_s_tmname
 %ifndef KERN_SMALL
-; ...and the DESKTOP SERVICE zone's (SPEC.md 26.7), whose first four words
-; are .bss the registering driver filled: the file it launches, its package's
-; header name, the caption (which is the notice's title too) and the lead line
-; 'Cannot open <caption>:' the slot composed. Only the two tables are .text.
+; ...and the DESKTOP SERVICE zone's (SPEC.md 26.7), whose two words are .bss
+; the registering driver filled: the file it launches and its package's
+; header name.
 ui_d_svc:
-    dw desk_svc_file, desk_svc_name, desk_svc_cap, desk_svc_lead, ui_tm_errs
-    dw ui_s_nofile
+    dw desk_svc_file, desk_svc_name
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -2579,7 +2577,7 @@ ui_sys_open:
     jc .fail
     call ui_tm_sysdir           ; into SYSTEM (SPEC.md 28.3); CF=1 = no such
     mov bx, [ui_desc]           ; folder, which reads to the user as the file
-    mov si, [bx+UO_NOFI]        ; not being there, because it is not
+    mov si, ui_s_nofile         ; not being there, because it is not
     jc .fail
 
     mov word [ld_pwin], 0       ; no poster: this is not a Disk window's load,
@@ -2605,25 +2603,28 @@ ui_sys_open:
     call COLD_SEG:dwf_dskw_stat ; one message to a user (SPEC.md 28.3). The
     jnc .code                   ; index resolver could tell them apart because
     pop ax                      ; dsk_find_name failed first; by name they
-    mov bx, [ui_desc]           ; arrive as one code, so ask - on the FAILURE
-    mov si, [bx+UO_NOFI]        ; path only, still standing in SYSTEM, and for
-    jmp short .fail             ; the sector ld_res_name has just read.
+    mov si, ui_s_nofile         ; arrive as one code, so ask - on the FAILURE
+    jmp short .fail             ; path only, still standing in SYSTEM, and for
+                                ; the sector ld_res_name has just read.
 .code:                          ; dwf_dskw_stat is a far call and answers in
     pop ax                      ; BX, so the descriptor is re-read after it
+    cmp byte [ld_said], 0       ; SPEC.md 20.12.4: the entry proc's own toast
+    je .tab                     ; is up and names the reason better - say
+    mov byte [ld_said], 0       ; nothing, as ld_say_status does for a Disk
+    jmp short .back             ; window's load
+.tab:
     mov bl, al
     xor bh, bh
     shl bx, 1
-    mov si, [ui_desc]
-    add bx, [si+UO_ERRS]
-    mov si, [bx]
+    mov si, [bx+fm_stattab]     ; the Disk window's verdicts (SPEC.md 21)
 .fail:
-    push si                     ; the volume FIRST, then the notice: putting
-    call ui_tm_back             ; it back touches the floppy and the notice
-    pop si                      ; takes the gfx lock, and neither wants the
-    mov bx, [ui_desc]           ; other held while it runs
-    mov di, [bx+UO_TTL]
-    mov bx, [bx+UO_LEAD]
-    call ui_note
+    push si                     ; the volume FIRST, then the toast: putting
+    call ui_tm_back             ; it back touches the floppy
+    pop si
+    push ds
+    pop es                      ; toast_show reads ES:SI; kret_es restores ES
+    xor cx, cx                  ; TOAST_TICKS
+    call toast_show
     jmp short .out
 .back:
     call ui_tm_back
@@ -2700,19 +2701,7 @@ ui_tm_cwd:  dw 0                ; the directory and drive to go back to. In
 ui_tm_drv:  db 0                ; .text: -f bin zeroes no .bss, and A:'s root
                                 ; is the right answer before the first load
 
-ui_tm_errs:                     ; indexed by LD_* (loader.inc)
-    dw ui_s_nofile              ; LD_OK never reaches here
-    dw ui_s_dskerr              ; LD_EDISK
-    dw ui_s_badpkg              ; LD_EBAD
-    dw ui_s_toobig              ; LD_EBIG
-    dw ui_s_abort               ; LD_EABORT - it loaded and refused itself,
-                                ; and for this package the dominant cause is
-                                ; wm_create failing (window table full), so
-                                ; "not a valid package" would be a lie
-    dw ui_s_nomem               ; LD_ENOMEM
-
 ui_s_tmttl:  db 'Task Manager', 0
-ui_s_tmlead: db 'Cannot open the Task Manager:', 0
 ui_s_nodisk: db 'No system disk in drive '
 ui_s_nodisk_l: db 'A:', 0       ; the LETTER, stamped once by dsk_boot_from
                                 ; (SPEC.md 52.10.3) - a label rather than an
@@ -2722,11 +2711,6 @@ ui_s_nodisk_l: db 'A:', 0       ; the LETTER, stamped once by dsk_boot_from
                                 ; `equ` this, the formatter's swap prompt
                                 ; being the only standalone 'A:' of the six.
                                 ; Reword the message; do not delete the label
-ui_s_dskerr: db 'Disk error reading it', 0
-ui_s_badpkg: db 'It is not a valid package', 0
-ui_s_toobig: db 'It is too large', 0
-ui_s_abort:  db 'It refused to start', 0
-ui_s_nomem:  db 'Not enough memory to open it', 0
 
 ui_desc:    dw ui_d_tm          ; ui_sys_open's descriptor for the load in
                                 ; hand. In .text with a resting value for the
@@ -2793,13 +2777,10 @@ ui_sys_find:
 ;      UI task, no lock held
 ; out: nothing (all registers preserved)
 ;
-; All three strings come from the CALLER. They used to be one caller's: the
-; title was 'Task Manager' and the lead 'Cannot open the Task Manager:',
-; baked in because ui_tm_open was the only thing that raised a notice. When
-; assoc_run (SPEC.md 54.4) became the second, a document whose program was
-; not on the disk reported "Cannot open the Task Manager" over a window
-; titled Task Manager - a message about a component the user had not
-; mentioned, in place of the one that had actually failed.
+; All three strings come from the CALLER, and there is ONE caller now:
+; assoc_run's "this document opens with STEM.O88 - not on this disk" (SPEC.md
+; 54.4.1). ui_sys_open (the Task Manager and the service zone) was the first
+; and toasts instead since kernel size pass 4, as a Disk window's launch does.
 ;
 ; The species is the file dialog's (SPEC.md 38): a bare wm_create'd window
 ; this module owns, with no instance behind it - so no dock tile, no Task

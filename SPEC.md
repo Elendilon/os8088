@@ -39898,6 +39898,15 @@ on entry. Steps:
    launch, purely to correct one line of text.
 10. Set `[ld_status]`, and **say it** — `toast_say` over `fm_stattab`
     (§59.5), because a verdict belongs to the moment and not to a window.
+    **Since kernel size pass 4 a user is told only two things**: `LD_EDISK`,
+    `LD_EBAD`, `LD_EBIG` and `LD_EABORT` all read `Load failed` - none of
+    them should happen to a normal user, and none is something the user can
+    act on differently - and `LD_ENOMEM` reads `Out of memory`. `LD_EBIG` is
+    NOT a memory verdict: it is a file whose image + bss exceeds
+    `APP_MAX_SIZE`, a property of the file that no RAM fixes. `make
+    LDDIAG=1` restores the four reasons (`Disk error`, `Bad package`, `Too
+    large`, `Load failed`). The `Bad package` sections elsewhere in this spec
+    describe a `LDDIAG` build, or the verdict as it read before the pass.
     Then draw nothing, with one exception: `LD_EABORT` calls
     `files_refresh` (§22), the full pass, because an entry proc that
     declared itself broken may have put pixels anywhere before it did.
@@ -45889,14 +45898,13 @@ zone, and the only thing a cardless machine pays at runtime is one compare in
 
 ```
   in   AL    = 1 add / 0 withdraw
-       ES:SI = (add) a 65-byte record in the DRIVER's own segment:
+       ES:SI = (add) a 39-byte record in the DRIVER's own segment:
                +0  12  caption, NUL (<= 11 chars; 'Wire')
                +12 13  the 8.3 file the zone launches, from the BOOT
                        volume's SYSTEM/ ('THEWIRE.O88')
                +25  1  the driver's DRVC_* class
                +26  1  the verb the kernel calls to PAINT the icon
                +27 12  the package's HEADER name, NUL ('The Wire')
-               +39 26  the failure notice's lead ('Cannot open Wire:')
   out  CF = 1 refused: not a published driver, a SECOND registration, or a
               withdraw of somebody else's zone
 ```
@@ -45925,10 +45933,13 @@ ever. The other three are used once each and the driver is trusted about them
 exactly as it is about the offsets in its own DSV table, which the kernel
 far-calls without looking.
 
-**The lead line is the driver's, not the kernel's.** `Cannot open Wire:` names
-the driver's own program; a kernel that composed it would carry both the words
-and the composer on every machine. That one decision is 47 bytes of `.text`
-and `.cold` that a cardless machine does not pay.
+**There is no lead line any more** (kernel size pass 4). The record ended
+with `+39 26`, the driver's own `Cannot open Wire:` for the failure notice,
+because a kernel that composed it would have carried the words and the
+composer on every machine. A failed launch is a TOAST now (§28.3), exactly
+what a Disk window's launch says - the user has just clicked the zone, so the
+line need not name it - and the field, its 26-byte `.bss` mirror and the
+driver's string went with the notice.
 
 #### The zone itself
 
@@ -50155,11 +50166,13 @@ the current volume and directory, mounts A:, steps into `SYSTEM`
 CURRENT directory (§19.2), which is wherever the user last browsed to.
 Greying the item would mean answering "can this be loaded?" without loading
 it, and §47 rule 3 forbids exactly that: the only honest test is the load.
-So it is always clickable, and a failure puts up `ui_note` — a one-line
-notice window of the file dialog's species (§38: a bare `wm_create`d window
-with no instance behind it, whose close box reduces to `wm_hide`) naming the
-reason, out of the same `LD_*` codes a Disk window's status line uses. A
-menu item has no status line, which is why the notice exists at all.
+So it is always clickable, and a failure is a **toast** (§59) naming the
+reason: `No system disk in drive A:`, `Not in SYSTEM`, or the Disk window's
+own `LD_*` verdict (`Load failed` / `Out of memory`, §21 step 10). It was a
+notice WINDOW (`ui_note`) until kernel size pass 4, because the Task Manager
+predated toasts and a menu item has no status line; a toast is exactly what a
+Disk window's launch already says, and the user has just clicked the item, so
+the line need not name it.
 
 From that menu it is a **singleton**: an already-open one is fronted rather
 than loading a second seven kilobytes and a second task slot to say the same
@@ -50849,10 +50862,9 @@ Four things about the placement:
   package that follow it — and §28.3.1 is why neither of them is a full
   mount any more.
 - **A missing folder and a missing file report the same thing**, because to
-  the user they are the same thing: `TASKMGR.O88 is not in SYSTEM`. The
-  message is 28 characters for a reason — `ui_note` centres it in a 288px
-  window and `font_str` stops at the screen edge, not the window's, so a
-  path spelled out in full would have drawn through the frame.
+  the user they are the same thing: `Not in SYSTEM` (it read `TASKMGR.O88
+  is not in SYSTEM` in the notice window this was until kernel size pass 4;
+  a toast holds 24 characters).
 - **It is still a package like any other.** A double-click on the row opens
   as many as you like; the singleton rule is the *menu item's*, not the
   file's (§28), and neither cares which volume or folder it came off.
@@ -50953,41 +50965,41 @@ caller (`disk_mount`, `dsk_find_name`, `ld_run_body` — all three were
 The Wire's desktop zone (§26.7) opens `SYSTEM/THEWIRE.O88` by exactly the
 route above: front the running instance by name, else bank the user's volume
 and folder, quiet-mount the boot volume's root, step into `SYSTEM`,
-`ld_run_name`, put the volume back, and on failure raise `ui_note` with a
-lead line and the `LD_*` reason. That is eighty bytes of sequencing with six
-strings threaded through it, and a second copy of it would drift from this one
-the first time either changed.
+`ld_run_name`, put the volume back, and on failure say why. That is eighty
+bytes of sequencing, and a second copy of it would drift from this one the
+first time either changed.
 
 So `ui_tm_open` is now a two-instruction entry into `ui_sys_open`, which takes
-`SI` -> a **descriptor**: six words in `.text`, one per surface the routine
-touches.
+`SI` -> a **descriptor**: two words in `.text`.
 
 ```
 UO_FILE   dw -> the 8.3 file name, in SYSTEM
 UO_NAME   dw -> the 16-byte header name a running instance carries (§20.2)
-UO_TTL    dw -> the failure notice's title
-UO_LEAD   dw -> ...and its lead line
-UO_ERRS   dw -> six words, indexed by LD_*
-UO_NOFI   dw -> the "not in SYSTEM" reason, which is not an LD_* code
 ```
 
-`UO_NOFI` is a field of its own because §21.4 answers `LD_EBAD` both for a
-file that is not a package and for one that is not there, and those are not
-one message to a user; the disambiguation — `dskw_stat` asked on the failure
-path only, still standing in `SYSTEM` — is unchanged and now reads the name to
-ask about out of `UO_FILE`.
+**It was six words until kernel size pass 4**: a title and a lead line for
+the failure notice (`ui_note`), a verdict table and a "not in SYSTEM" string.
+A failure is a TOAST now, and the same one for both descriptors - `No system
+disk in drive A:`, `Not in SYSTEM`, or the Disk window's own `fm_stattab`
+verdict (`Load failed` / `Out of memory`; §21 step 10 has the reasoning and
+the `LDDIAG=1` knob) - so none of the four is per-descriptor any more. An
+entry proc that refused with a toast of its own is left to say it
+(§20.12.4's `[ld_said]`, exactly as a Disk window's load is).
+
+§21.4 answers `LD_EBAD` both for a file that is not a package and for one
+that is not there, and those are not one message to a user; the
+disambiguation — `dskw_stat` asked on the failure path only, still standing in
+`SYSTEM` — is unchanged and reads the name to ask about out of `UO_FILE`.
 
 `ui_tm_find` is `ui_sys_find`, matching `UO_NAME` instead of a baked
 `ui_s_tmname`; the descriptor pointer lives in `[ui_desc]` for `[ui_tm_cwd]`'s
 reason — this is UI-task-only and one load at a time, and every register in
 the routine is spoken for.
 
-**The two descriptors do not share their reason strings, and the Wire's name
-no file.** The Task Manager's three say `TASKMGR.O88 is not a valid package`
-and so on; the Wire's say `It is not a valid package`. The lead line above
-them already names the program, and the brand is `The Wire` with a desktop
-caption of `Wire` — `THEWIRE.O88 is too large` would be the only place in the
-whole interface where the user is shown the Wire's file name at all.
+**Neither descriptor names a file**, and never did for the Wire: the brand is
+`The Wire` with a desktop caption of `Wire`, and `THEWIRE.O88 is too large`
+would have been the only place in the whole interface where the user is shown
+the Wire's file name at all.
 
 ### 28.4 The heap page — every claim, grouped under the app that holds it
 
@@ -82509,6 +82521,14 @@ Unable to open Task Manager"*.
 
 The window is created once and reused, so `W_TITLE` is restamped per call,
 before `wm_show` — which draws the frame whole, so nothing else is owed.
+
+**It has one caller now** (kernel size pass 4): `ui_sys_open` - the Task
+Manager and the desktop service zone - toasts its failure instead (§28.3.2),
+which leaves this document-open notice as `ui_note`'s only use. Its line,
+`'TRACKER.O88 - not on this disk'`, is 30 characters against a toast's 24
+(`TOAST_MAX`), so it stays a window until somebody decides a shorter one
+(e.g. `Needs TRACKER.O88`) says enough - at which point `ui_note`, its
+template and its paint callback go too.
 
 **And the message names the program**, which is the half that turns a correct
 error into a useful one. The reporting disk was a `make trklog` build
