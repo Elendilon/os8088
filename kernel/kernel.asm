@@ -2348,7 +2348,7 @@ VGABUF_SEG  equ LOW_SEG + LOW_PARA   ; THE PLANAR DECODER'S BUFFERS (SPEC.md
                                 ; that could miss is one with under 1KB of
                                 ; heap, which is a machine that does not run.
 %ifdef GFX_PLANE
-VGABUF_PARA equ 64              ; 1,024 bytes, and A MULTIPLE OF 32
+VGABUF_PARA equ 32              ; 512 bytes, and A MULTIPLE OF 32
                                 ; PARAGRAPHS on purpose: the mono floor is
                                 ; HEAP_SEG - VGABUF_PARA, so 32-alignment
                                 ; holds in BOTH cases by construction and
@@ -4404,7 +4404,7 @@ api_x:
 api_rxc:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the target word's address, and the push bp the cell made is the frame
     pop bp
     mov bp, [cs:bp]
-api_xc:
+                                ; (was api_xc: the cold X body, reached only by falling through from api_rxc)
     push ds
     push es
     push ds
@@ -4476,7 +4476,7 @@ api_coldseg: dw COLD_SEG
 api_rn:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the target word's address, and the push bp the cell made is the frame
     pop bp
     mov bp, [cs:bp]
-api_n:
+                                ; (was api_n: the N body, reached only by falling through from api_rn)
     push ds
     push si
     push di

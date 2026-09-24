@@ -61627,7 +61627,9 @@ own at the very top of the kernel:
 
 `mem_init` seeds `[mem_base]` at `KERN_END` when `[vid_avail] & VID_A_VGA` is
 set, and at `KERN_END − VGABUF_PARA` when it is not. **On a mono machine the
-1,024 bytes are simply never reserved and the heap starts under them.**
+rung is simply never reserved and the heap starts under it.** Since §39.22.1
+the rung holds `vga_pbuf` alone - 336 bytes, a 512-byte rung - because the
+table moved back into `.lowbss` as a UNION with the mono pair tables.
 
 **Why this rung and not some other.** `.lowbss` is the LAST rung before the
 heap — `HEAP_SEG = KERN_END` — so a byte that leaves it lowers the heap floor
@@ -61697,6 +61699,37 @@ was.
 **unchanged at 119,296**, which is the trade and not a disappointment: the KB
 came out of `.lowbss`'s rung and went into `.vgabuf`'s. A VGA machine pays
 exactly what it always did; a mono one starts its heap 1,024 bytes lower.
+
+#### 39.22.1 `vga_p4tab` is a UNION with the pair tables (kernel size pass 4)
+
+`vga_p4tab` (512 bytes) and §5.4.1.1's `gfx_pairtab0`/`gfx_pairtab1` (2 x 256,
+in `.lowbss`) serve **different adapters**: the pair tables only a 1bpp blit,
+the decode table only a VGA one. So `vga_p4tab` is now an `equ` of
+`gfx_pairtab0` and occupies both pair tables, and `VGABUF_PARA` is 32: the
+rung holds `vga_pbuf` alone. **VGA machines get 512 bytes back; mono machines
+are unchanged** - they never reserved the rung and still hold the pair
+tables.
+
+Each builder clears the OTHER table's built flag (`vga_p4build` clears
+`[gfx_pairbuilt]`, `sw_pairbuild` clears `[vga_p4built]`), and both flags are
+tested at every `gfx_blit4` call before a row is drawn, under the gfx lock -
+no ISR reads either table. So a clobbered table is always rebuilt before it
+is read. On a single-adapter machine a table is built once a boot, as before.
+On §39.12's extended desktop with a VGA beside a mono card, blits that
+alternate between the two displays rebuild the table each time they switch
+(~6 ms for the VGA one, ~1 ms for the pair tables) - a straddled blit runs
+its setup once per half, which is exactly that alternation.
+
+**What it costs the decoder, measured** (`tests/blitplane.py`, MartyPC
+`os8088_xt_vga`, `OS8088.GIF`'s 466x110 canvas): the table is reached
+through `SS` now while `DS` still banks `VGABUF_SEG` for the plane rows, so
+the four table loads per eight pixels each carry an `ss:` prefix. Even phase
+5,405,546 -> 5,543,959 cycles (**+2.6%**), odd phase 7,341,227 -> 7,481,582
+(**+1.9%**), pixels identical; the decoder is still **6.2x / 4.6x** faster
+than the span writer it replaced. Nothing but `gfx_blit4`'s planar row
+decoder is touched - text, fills, lines, the cursor and every 1bpp path
+draw exactly as before. The owner took the trade: 2-3% off an optimisation
+that is itself 5-6x, for 512 bytes of every VGA machine.
 
 ### 40.1 The restore cache
 

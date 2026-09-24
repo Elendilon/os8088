@@ -45,7 +45,7 @@ The jump goes to the family's ONE shared body, which is the same address for
 every cell of it; decoding it as the target would make check 6 fail on every
 one of them and check 4 pass for the wrong reason.  What the `E9` DOES say
 is WHICH body, and that decides the segment the target lives in: `api_x`
-near-calls a `.text` routine, `api_xc` and `api_n` far-call a `.cold` one
+near-calls a `.text` routine, `api_rxc` and `api_rn` far-call a `.cold` one
 through `api_far` (SPEC.md 20.3.2).  An FCELL's offset is `.cold` by
 construction, and its segment word must BE COLD_SEG -
 a cell that far-calls anywhere else is a cell somebody has mistyped.
@@ -243,7 +243,7 @@ def stem(name):
 def decode(blob, addr, bodies, cold_seg):
     """(kind, target, section) for the cell at `addr`, or (None, why, None).
 
-    `bodies` maps the shared bodies' names (api_x, api_xc, api_n, api_sc) to
+    `bodies` maps the shared bodies' names (api_x, api_rs, api_rx, api_rxc, api_rn, api_rsc) to
     their .text offsets; `cold_seg` is COLD_SEG's value.  The section is the
     one the shape says the target lives in - see the header.
     """
