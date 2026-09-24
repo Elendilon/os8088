@@ -114,7 +114,7 @@ CELL = 8
 # slots, kept live so a main-era package still runs and answered through
 # converting wrappers (apps/os88api.inc's "KB-counting memory slots" note);
 # new code uses the KB slots at 0x0200+. They are not a free list.
-COMPAT = {0x01B8: "main's OSAPI_MEM_ALLOC (paragraphs)",
+COMPAT_OLD = {0x01B8: "main's OSAPI_MEM_ALLOC (paragraphs)",
           0x01C0: "main's OSAPI_MEM_FREE (paragraphs)",
           0x01C8: "main's OSAPI_MEM_AVAIL (paragraphs)",
           # SPEC.md 20.3.1's free list: it was OSAPI_FILE_MOVE, folded into
@@ -124,6 +124,7 @@ COMPAT = {0x01B8: "main's OSAPI_MEM_ALLOC (paragraphs)",
           # floor as an argument, retired the day the floor became a thing a
           # task SETS (OSAPI_MEM_FLOOR, 0x0560). stc/ret, not published.
           0x0568: "OSAPI_MEM_CLAIM_LVL, retired (SPEC.md 50.6.6.1)"}
+COMPAT = {}
 
 # Slots whose published name is not its routine's name. Every entry is a
 # deliberate ABI decision; adding one means the SDK and the kernel have
@@ -251,30 +252,28 @@ def decode(blob, addr, bodies, cold_seg):
 
     if c[0:3] == b"\x1e\x0e\x1f" and c[3] == 0xE8 and c[6:8] == b"\x1f\xcb":
         return "SLOT", rel(addr + 6, 4), ".text"
-    if c[0] == 0x1E and c[1] == 0xE8 and c[4:6] == b"\x1f\xcb":
-        # CSLOT: the call must reach api_sc, which reads the word at 6..7
+    if c[0] == 0x55 and c[1] == 0xE8:
+        # PROTOTYPE: the 6-byte rare cell, push bp / call <kind> / dw target
         body = rel(addr + 4, 2)
-        if body != bodies.get("api_sc"):
-            return None, "CSLOT shape calling 0x%04X, which is not api_sc" % body, None
-        return "CSLOT", imm(6), ".cold"
-    if c[0] == 0x55 and c[1] == 0xBD and c[4] == 0xE9 and c[7] == 0x00:
-        # the BP family: the target is the immediate at 2..3 and the jump
-        # says which body, which says which segment the target is in
-        body = rel(addr + 7, 5)
-        kind = {bodies.get("api_x"): ("XCELL", ".text"),
-                bodies.get("api_xc"): ("CXCELL", ".cold"),
-                bodies.get("api_n"): ("NCELL", ".cold")}.get(body)
+        kind = {bodies.get("api_rs"): ("RSLOT", ".text"),
+                bodies.get("api_rx"): ("RXCELL", ".text"),
+                bodies.get("api_rxc"): ("RCXCELL", ".cold"),
+                bodies.get("api_rn"): ("RNCELL", ".cold"),
+                bodies.get("api_rsc"): ("RCSLOT", ".cold")}.get(body)
         if kind is None:
-            return None, "BP-family shape jumping to 0x%04X, which is none of api_x/api_xc/api_n" % body, None
-        return kind[0], imm(2), kind[1]
-    if c[0] == 0x9A and c[5] == 0xCB and c[6:8] == b"\x00\x00":
+            return None, "rare cell calling 0x%04X, which is no rare body" % body, None
+        return kind[0], imm(4), kind[1]
+    if c[0] == 0x55 and c[1] == 0xBD and c[4] == 0xE9:
+        body = rel(addr + 7, 5)
+        if body != bodies.get("api_x"):
+            return None, "BP-family shape jumping to 0x%04X, which is not api_x" % body, None
+        return "XCELL", imm(2), ".text"
+    if c[0] == 0x9A and c[5] == 0xCB:
         seg = imm(3)
         if seg != cold_seg:
             return None, "FARCELL to segment 0x%04X, which is not COLD_SEG (0x%04X)" % (seg, cold_seg), None
         return "FARCELL", imm(1), ".cold"
-    if c[0] == 0xE9 and c[3:8] == b"\x00" * 5:
-        # ...and the JSLOT shape stays: four cells still reach a hand-written
-        # stub (rename, the file dialog, the two fenced SYS writes, file_find).
+    if c[0] == 0xE9:
         return "JSLOT", rel(addr + 3, 1), ".text"
     return None, c.hex(), None
 
@@ -293,7 +292,20 @@ def main():
     for n, o in off.items():
         if sect.get(n) in (".text", ".cold"):
             label_at.setdefault((sect[n], o), []).append(n)
-    bodies = {b: off[b] for b in ("api_x", "api_xc", "api_n", "api_sc")}
+    bodies = {b: off[b] for b in ("api_x", "api_rs", "api_rx", "api_rxc", "api_rn", "api_rsc")}
+    LEN = {"SLOT": 8, "RSLOT": 6, "RXCELL": 6, "RCXCELL": 6, "RNCELL": 6, "RCSLOT": 6,
+           "XCELL": 7, "FARCELL": 6, "JSLOT": 3}
+    tend = off["osapi_table_end"]
+    starts = []
+    a = TABLE_BASE
+    while a < tend:
+        k, t, w = decode(blob, a, bodies, cold_seg)
+        if not check(k is not None, "the table does not decode at 0x%04X" % a, "a cell of no known shape", got=t):
+            break
+        starts.append(a)
+        a += LEN[k]
+    check(a == tend, "the table walk ends at 0x%04X, not osapi_table_end 0x%04X" % (a, tend), "cell lengths disagree")
+    startset = set(starts)
 
     pub = slots()
 
@@ -317,7 +329,7 @@ def main():
     # 2. every address is a real cell
     top = max(by_addr)
     for addr, (name, _) in sorted(by_addr.items()):
-        check(addr >= TABLE_BASE and (addr - TABLE_BASE) % CELL == 0,
+        check(addr in startset,
               "%s at 0x%04X is not a cell boundary" % (name, addr),
               "cells are 8 bytes from 0x%04X; a misaligned address lands "
               "mid-cell and far-calls into the middle of a DS switch" % TABLE_BASE)
@@ -352,7 +364,7 @@ def main():
               got="/".join(names), want=" or ".join(sorted(want)))
 
     # 5. nothing unaccounted for inside the table
-    for addr in range(TABLE_BASE, top + 1, CELL):
+    for addr in starts:
         if addr in by_addr or addr in COMPAT:
             continue
         kind, tgt, where = decode(blob, addr, bodies, cold_seg)

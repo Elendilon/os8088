@@ -1144,7 +1144,7 @@ tm_hire:
 ; over the whole of it.
 
 ; -----------------------------------------------------------------------------
-; tm_about - the OSAPI_ABOUT_SET handler (slot 0x01E0)
+; tm_about - the OSAPI_ABOUT_SET handler (slot 0x0192)
 ; in:  SI = our window ptr; the UI task, gfx lock HELD
 ; out: nothing; preserves all registers
 ; -----------------------------------------------------------------------------

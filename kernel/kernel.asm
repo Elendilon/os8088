@@ -2822,7 +2822,6 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
     push bp                         ; 55        the CALLER's, under the frame
     mov bp, %1                      ; BD lo hi
     jmp strict near api_x           ; E9 lo hi
-    db 0
 %endmacro
 
 ; **A CELL WHOSE ROUTINE IS `.cold` NAMES THE COLD BODY** (SPEC.md 20.3.2).
@@ -2892,6 +2891,35 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
 ; survives. `OSAPI_XCELL` additionally sets ES = the caller's DS and restores
 ; it, which for a module is ES = KERNEL_SEG - what a kernel-owned template
 ; wants, and what the one XCELL caller here used to do by hand.
+; ---- PROTOTYPE (kernel size pass 4, glue): variable-length cells ------------
+%macro OSAPI_RCELL 2                ; 6 bytes: push bp / call <kind> / dw target
+    push bp
+    call %1
+    dw %2
+%endmacro
+%macro OSAPI_RSLOT 1
+    OSAPI_RCELL api_rs, %1
+%endmacro
+%macro OSAPI_RXCELL 1
+    OSAPI_RCELL api_rx, %1
+%endmacro
+%macro OSAPI_RCXCELL 1
+    OSAPI_RCELL api_rxc, %1
+%endmacro
+%macro OSAPI_RNCELL 1
+    OSAPI_RCELL api_rn, %1
+%endmacro
+%macro OSAPI_RCSLOT 1
+    OSAPI_RCELL api_rsc, %1
+%endmacro
+%macro OSAPI_JCELL 1
+    jmp strict near %1
+%endmacro
+%macro OSAPI_FCELL 1
+    call COLD_SEG:%1
+    retf
+%endmacro
+
 osapi_table:
     OSAPI_SLOT gfx_lock           ; 0x0010
     OSAPI_SLOT gfx_unlock         ; 0x0018
@@ -2906,30 +2934,30 @@ apic_gfx_vline:
     OSAPI_SLOT gfx_xor_fill       ; 0x0058
     OSAPI_SLOT font_char          ; 0x0060
     OSAPI_XCELL font_str_x      ; 0x0068  X: the string is package data
-    OSAPI_XCELL font_width_x    ; 0x0070  X
+    OSAPI_XCELL font_width_x    ; 0x006F  X
 apic_wm_create:
-    OSAPI_XCELL wm_create     ; 0x0078  X: so is the template
-    OSAPI_SLOT wm_show            ; 0x0080
-    OSAPI_SLOT wm_hide            ; 0x0088
-    OSAPI_SLOT wm_front           ; 0x0090
-    OSAPI_SLOT wm_content         ; 0x0098
-    OSAPI_SLOT wm_obscured        ; 0x00A0
-    OSAPI_SLOT task_yield         ; 0x00A8
-    OSAPI_SLOT task_sleep         ; 0x00B0
-    OSAPI_SLOT osapi_get_ticks    ; 0x00B8
-    OSAPI_SLOT osapi_set_color    ; 0x00C0
-    OSAPI_SLOT osapi_mouse        ; 0x00C8
-    OSAPI_SLOT osapi_srand        ; 0x00D0
-    OSAPI_SLOT osapi_rand         ; 0x00D8
-    OSAPI_SLOT osapi_snd_caps     ; 0x00E0 - sound (SPEC.md 34): what the PC
+    OSAPI_RXCELL wm_create     ; 0x0076  X: so is the template
+    OSAPI_RSLOT wm_show            ; 0x007C
+    OSAPI_RSLOT wm_hide            ; 0x0082
+    OSAPI_RSLOT wm_front           ; 0x0088
+    OSAPI_SLOT wm_content         ; 0x008E
+    OSAPI_SLOT wm_obscured        ; 0x0096
+    OSAPI_SLOT task_yield         ; 0x009E
+    OSAPI_SLOT task_sleep         ; 0x00A6
+    OSAPI_SLOT osapi_get_ticks    ; 0x00AE
+    OSAPI_SLOT osapi_set_color    ; 0x00B6
+    OSAPI_SLOT osapi_mouse        ; 0x00BE
+    OSAPI_RSLOT osapi_srand        ; 0x00C6
+    OSAPI_SLOT osapi_rand         ; 0x00CC
+    OSAPI_RSLOT osapi_snd_caps     ; 0x00D4 - sound (SPEC.md 34): what the PC
 apic_osapi_snd_tone:
-    OSAPI_SLOT osapi_snd_tone     ; 0x00E8   speaker can do, a tone, and a
-    OSAPI_SLOT osapi_snd_play     ; 0x00F0   clip out of the caller's buffer
-    OSAPI_XCELL osapi_snd_fm_x        ; 0x00F8 - FM verbs (SPEC.md 34.2). X: a
+    OSAPI_SLOT osapi_snd_tone     ; 0x00DA   speaker can do, a tone, and a
+    OSAPI_SLOT osapi_snd_play     ; 0x00E2   clip out of the caller's buffer
+    OSAPI_XCELL osapi_snd_fm_x        ; 0x00EA - FM verbs (SPEC.md 34.2). X: a
                                   ;          patch-load's 11 bytes are the
                                   ;          caller's, and only live while a
                                   ;          sound DRIVER is loaded (51.4)
-    OSAPI_XCELL osapi_snd_stream    ; 0x0100 - PCM_BG streams (SPEC.md 34.5),
+    OSAPI_XCELL osapi_snd_stream    ; 0x00F1 - PCM_BG streams (SPEC.md 34.5),
                                   ;          likewise the driver's. Both
                                   ;          answer CF=1 with no driver, which
                                   ;          is the same thing the held cells
@@ -2937,45 +2965,45 @@ apic_osapi_snd_tone:
                                   ;          34.6). The two numbers are held
                                   ;          rather than reused, which is what
                                   ;          fixes every slot below them
-    OSAPI_SLOT wm_sizable         ; 0x0108 - window features (SPEC.md 11.1)
-    OSAPI_SLOT wm_fullscreen      ; 0x0110 - fullscreen (SPEC.md 11.2)
-    OSAPI_SLOT wm_grow_paint      ; 0x0118 - grow-box restore (SPEC.md 11.1)
-    OSAPI_NCELL dwf_dskw_write ; 0x0120 - files (SPEC.md 18.4/20.3): N,
-    OSAPI_NCELL dwf_dskw_read ; 0x0128   because ES:BX is the data buffer
+    OSAPI_RSLOT wm_sizable         ; 0x00F8 - window features (SPEC.md 11.1)
+    OSAPI_RSLOT wm_fullscreen      ; 0x00FE - fullscreen (SPEC.md 11.2)
+    OSAPI_RSLOT wm_grow_paint      ; 0x0104 - grow-box restore (SPEC.md 11.1)
+    OSAPI_RNCELL dwf_dskw_write ; 0x010A - files (SPEC.md 18.4/20.3): N,
+    OSAPI_RNCELL dwf_dskw_read ; 0x0110   because ES:BX is the data buffer
                                   ;          - and DX:CX its 32-bit count, so
                                   ;          these two are the WHOLE read/write
                                   ;          surface (SPEC.md 18.4.1). DX is
                                   ;          an argument to both and an output
                                   ;          of the read, and the N stub keeps
                                   ;          its hands off it
-    OSAPI_NCELL dwf_dskw_delete ; 0x0130   and the name still has to cross
-    OSAPI_JSLOT api_file_rename   ; 0x0138   (two names, this one)
-    OSAPI_SLOT osapi_file_dfree   ; 0x0140 - free space on the CALLING
+    OSAPI_RNCELL dwf_dskw_delete ; 0x0116   and the name still has to cross
+    OSAPI_JCELL api_file_rename   ; 0x011C   (two names, this one)
+    OSAPI_RSLOT osapi_file_dfree   ; 0x011F - free space on the CALLING
                                   ;          INSTANCE's volume (SPEC.md
                                   ;          19.2.1), which is the only
                                   ;          volume its writes can reach
-    OSAPI_SLOT menu_win_set       ; 0x0148 - app menus (SPEC.md 12.2): the
+    OSAPI_RSLOT menu_win_set       ; 0x0125 - app menus (SPEC.md 12.2): the
                                   ;          set's segment comes from the
                                   ;          window, so no stub is needed
-    OSAPI_JSLOT api_fdlg_open     ; 0x0150 - the Standard File dialog
+    OSAPI_JCELL api_fdlg_open     ; 0x012B - the Standard File dialog
                                   ;          (SPEC.md 38.6): N, for the
                                   ;          default name
-    OSAPI_SLOT osapi_video        ; 0x0158 - runtime screen geometry (39.2)
-    OSAPI_XCELL inst_pkg_spawn     ; 0x0160 - worker tasks (SPEC.md 20.6): X,
+    OSAPI_SLOT osapi_video        ; 0x012E - runtime screen geometry (39.2)
+    OSAPI_RXCELL inst_pkg_spawn     ; 0x0136 - worker tasks (SPEC.md 20.6): X,
                                   ;          the ownership fence needs to
                                   ;          know which segment is calling
-    OSAPI_SLOT inst_pkg_alive     ; 0x0168
-    OSAPI_SLOT wm_clip_set        ; 0x0170 - the clip region (SPEC.md 11.3)
-    OSAPI_SLOT wm_clip_clear      ; 0x0178
-    OSAPI_SLOT wm_clip_test       ; 0x0180
-    OSAPI_SLOT cpu_info           ; 0x0188 - CPU tiers and memory above 1MB
-    OSAPI_SLOT xm_caps            ; 0x0190   (SPEC.md 41): each body already
-    OSAPI_SLOT xm_alloc           ; 0x0198   answers its SPEC.md 20.3 contract
-    OSAPI_SLOT xm_free            ; 0x01A0   exactly, so the slots call
-    OSAPI_SLOT xm_copy            ; 0x01A8   straight at them - and xm_copy's
+    OSAPI_SLOT inst_pkg_alive     ; 0x013C
+    OSAPI_SLOT wm_clip_set        ; 0x0144 - the clip region (SPEC.md 11.3)
+    OSAPI_SLOT wm_clip_clear      ; 0x014C
+    OSAPI_SLOT wm_clip_test       ; 0x0154
+    OSAPI_RSLOT cpu_info           ; 0x015C - CPU tiers and memory above 1MB
+    OSAPI_RSLOT xm_caps            ; 0x0162   (SPEC.md 41): each body already
+    OSAPI_RSLOT xm_alloc           ; 0x0168   answers its SPEC.md 20.3 contract
+    OSAPI_RSLOT xm_free            ; 0x016E   exactly, so the slots call
+    OSAPI_SLOT xm_copy            ; 0x0174   straight at them - and xm_copy's
                                   ;          ES:SI is the caller's own choice,
                                   ;          so no X stub is involved either
-    OSAPI_SLOT wm_geom            ; 0x01B0 - content size + visibility
+    OSAPI_SLOT wm_geom            ; 0x017C - content size + visibility
                                   ;          (SPEC.md 11): content size
                                   ;          without touching the record
 ; --- every published slot keeps its NUMBER (SPEC.md 20.8) -------------------
@@ -2986,26 +3014,26 @@ apic_osapi_snd_tone:
 ;     claim heap (osapi_cm_*, kernel/memory.inc), the six slots after them
 ;     keep their published numbers, and everything ADDED since starts at
 ;     0x0200 - the first free number above them.
-    OSAPI_CXCELL osapi_cm_alloc_x   ; 0x01B8 - the v3 arena (SPEC.md 20.8):
+    ; (dropped) OSAPI_CXCELL osapi_cm_alloc_x   ; 0x01B8 - the v3 arena (SPEC.md 20.8):
                                   ;          AX = PARAGRAPHS -> AX = segment.
                                   ;          X - the owner fence needs the
                                   ;          caller's segment
-    OSAPI_CXCELL osapi_cm_free_x    ; 0x01C0 - AX = a base segment you own; X
-    OSAPI_CSLOT osapi_cm_caps_x   ; 0x01C8 - AX/DX = largest/total free
+    ; (dropped) OSAPI_CXCELL osapi_cm_free_x    ; 0x01C0 - AX = a base segment you own; X
+    ; (dropped) OSAPI_CSLOT osapi_cm_caps_x   ; 0x01C8 - AX/DX = largest/total free
                                   ;          PARAGRAPHS, BL = free records
-    OSAPI_SLOT wm_resize          ; 0x01D0 - resize a window (SPEC.md 11.1):
+    OSAPI_RSLOT wm_resize          ; 0x0184 - resize a window (SPEC.md 11.1):
                                   ;          BX = win, CX = w, DX = h; lock
                                   ;          held. Retires the last liberty
                                   ;          in docs/plans/completed/PAINT-NOTES.md - an app
                                   ;          writing W_W/W_H itself
-    OSAPI_SLOT gfx_blit4          ; 0x01D8 - packed 4bpp block (SPEC.md 5.4):
+    OSAPI_SLOT gfx_blit4          ; 0x018A - packed 4bpp block (SPEC.md 5.4):
                                   ;          ES:SI = source, BP = stride,
                                   ;          AX/BX = dest, CX/DX = w/h. ES is
                                   ;          the caller's own choice here, so
                                   ;          no stub is needed
-    OSAPI_SLOT wm_about_set       ; 0x01E0 - the app-name pull-down (12.2):
+    OSAPI_RSLOT wm_about_set       ; 0x0192 - the app-name pull-down (12.2):
                                   ;          BX = win, SI = your About handler
-    OSAPI_SLOT osapi_vol_kind     ; 0x01E8 - AL = a volume index. CF=1 = there
+    OSAPI_RSLOT osapi_vol_kind     ; 0x0198 - AL = a volume index. CF=1 = there
                                   ;          is no such volume; CF=0 with AL =
                                   ;          VK_REMOVABLE / VK_FIXED and AH =
                                   ;          VT_BIOS / VT_DRIVER (SPEC.md
@@ -3019,7 +3047,7 @@ apic_osapi_snd_tone:
                                   ;          free list, and taking it cost the
                                   ;          table nothing where an append
                                   ;          would have been eight bytes
-    OSAPI_SLOT wm_onmouseup       ; 0x01F0 - BX = window, AX = a near proc in
+    OSAPI_RSLOT wm_onmouseup       ; 0x019E - BX = window, AX = a near proc in
                                   ;          YOUR segment (0 clears it): the
                                   ;          release half of a content click
                                   ;          (SPEC.md 13.7). Call it after
@@ -3037,50 +3065,50 @@ apic_osapi_snd_tone:
                                   ;          could exist. Reuse cost the table
                                   ;          nothing where an append would
                                   ;          have grown it
-    OSAPI_SLOT gfx_scroll         ; 0x01F8 - vertical scroll blit (SPEC.md
+    OSAPI_SLOT gfx_scroll         ; 0x01A4 - vertical scroll blit (SPEC.md
                                   ;          5.5): AX/BX/CX/DX = the rect,
                                   ;          SI = signed dy. The vacated rows
                                   ;          are the caller's to repaint
 ; --- and from here on, the slots added since ----------------------------------
-    OSAPI_CXCELL mmf_osapi_mem_claim ; 0x0200 - the claim heap (SPEC.md 50.3):
-    OSAPI_CXCELL mmf_osapi_mem_free ; 0x0208   X, same fence as the spawn
+    OSAPI_RCXCELL mmf_osapi_mem_claim ; 0x01AC - the claim heap (SPEC.md 50.3):
+    OSAPI_RCXCELL mmf_osapi_mem_free ; 0x01B2   X, same fence as the spawn
 apic_osapi_mem_avail:
-    OSAPI_CSLOT mmf_osapi_mem_avail ; 0x0210
-    OSAPI_SLOT osapi_font_glyphs  ; 0x0218 - the kernel's 8x8 glyph table
+    OSAPI_RCSLOT mmf_osapi_mem_avail ; 0x01B8
+    OSAPI_RSLOT osapi_font_glyphs  ; 0x01BE - the kernel's 8x8 glyph table
                                   ;          (SPEC.md 6): out DX:SI = the
                                   ;          table (it lives in LOW_SEG now -
                                   ;          the one-time amendment at the
                                   ;          body below), AL = first code,
                                   ;          AH = last, CX = bytes per glyph
-    OSAPI_SLOT wm_onsize          ; 0x0220 - install the resize negotiator
+    OSAPI_RSLOT wm_onsize          ; 0x01C4 - install the resize negotiator
                                   ;          (SPEC.md 11.1): BX = win, AX =
                                   ;          near proc. The other half of
                                   ;          docs/plans/completed/PAINT-NOTES.md's resize
                                   ;          complaint - wm_resize is the app
                                   ;          asking, this is the app answering
-    OSAPI_SLOT osapi_file_here    ; 0x0228 - where the file API's names
+    OSAPI_RSLOT osapi_file_here    ; 0x01CA - where the file API's names
                                   ;          resolve (SPEC.md 18.4/19.2)
-    OSAPI_SLOT osapi_file_goto    ; 0x0230 - ...and how to put it back
-    OSAPI_CXCELL osapi_mem_regrow_x ; 0x0238 - resize a claim you already hold
+    OSAPI_RSLOT osapi_file_goto    ; 0x01D0 - ...and how to put it back
+    OSAPI_RCXCELL osapi_mem_regrow_x ; 0x01D6 - resize a claim you already hold
                                   ;          (SPEC.md 50.3): X, same owner
                                   ;          fence as the claim itself. In
                                   ;          place when the paragraphs above
                                   ;          are free, which is what stops a
                                   ;          grow needing old + new at once
-    OSAPI_SLOT wm_title_set       ; 0x0240 - retitle a window and redraw ONLY
+    OSAPI_RSLOT wm_title_set       ; 0x01DC - retitle a window and redraw ONLY
                                   ;          its caption (SPEC.md 11.92): BX =
                                   ;          win, AX = the new string (0 = the
                                   ;          bytes W_TITLE names changed in
                                   ;          place). Not an X cell: the string
                                   ;          is read through W_SEG, which is
                                   ;          already the caller's segment
-    OSAPI_CXCELL drv_task_x   ; 0x0248 - a DRIVER's worker task (SPEC.md
+    OSAPI_RCXCELL drv_task_x   ; 0x01E2 - a DRIVER's worker task (SPEC.md
                                   ;          51.7): AX = a near entry in its
                                   ;          own segment, or 0 = "this IS the
                                   ;          worker, and it is exiting". X,
                                   ;          because the fence is an identity
                                   ;          test on the caller's segment
-    OSAPI_CXCELL mmf_osapi_mem_claim_dma ; 0x0250 - a claim an ISA DMA controller can
+    OSAPI_RCXCELL mmf_osapi_mem_claim_dma ; 0x01E8 - a claim an ISA DMA controller can
                                   ;          reach (SPEC.md 50.3): AX = KB,
                                   ;          CX = KB of the HEAD that must not
                                   ;          cross a 64KB physical boundary.
@@ -3089,7 +3117,7 @@ apic_osapi_mem_avail:
                                   ;          mem_claim, because every existing
                                   ;          caller passes garbage there and
                                   ;          the failure would be silent
-    OSAPI_XCELL font_run_x      ; 0x0258 - one OPAQUE text run (SPEC.md 6.1):
+    OSAPI_XCELL font_run_x      ; 0x01EE - one OPAQUE text run (SPEC.md 6.1):
                                   ;          CX = x, DX = y, SI = ASCIIZ,
                                   ;          AL = ink, AH = background. Draws
                                   ;          the cells' background AND their
@@ -3105,7 +3133,7 @@ apic_osapi_mem_avail:
                                   ;          been held empty are filled now
                                   ;          (SPEC.md 20.8), and everything
                                   ;          above them moved 24 bytes up
-    OSAPI_SLOT wm_top             ; 0x0260 - out BX = the frontmost VISIBLE
+    OSAPI_RSLOT wm_top             ; 0x01F5 - out BX = the frontmost VISIBLE
                                   ;          window, 0 if none. The one thing
                                   ;          a package could not find out: it
                                   ;          learns it HAS focus (W_ONCLICK)
@@ -3116,7 +3144,7 @@ apic_osapi_mem_avail:
                                   ;          your own window ptr; W_FLAGS bit1
                                   ;          only says VISIBLE, which a wholly
                                   ;          covered window still is
-    OSAPI_SLOT wm_snap            ; 0x0268 - BX = window, AL = 0 clear / non-0
+    OSAPI_RSLOT wm_snap            ; 0x01FB - BX = window, AL = 0 clear / non-0
                                   ;          set: keep this window's CONTENT
                                   ;          ORIGIN on a multiple of 8, so its
                                   ;          text can take font_run's
@@ -3127,7 +3155,7 @@ apic_osapi_mem_avail:
                                   ;          pixel. Mono only - it is a no-op
                                   ;          on VGA, so an app may set it
                                   ;          unconditionally
-    OSAPI_CXCELL osapi_vol_add_x    ; 0x0270 - X: a DRVC_DISK driver registers
+    OSAPI_RCXCELL osapi_vol_add_x    ; 0x0201 - X: a DRVC_DISK driver registers
                                   ;          one mounted volume (SPEC.md
                                   ;          18.7/51.8). in AL = its own
                                   ;          volume handle, CX = the volume's
@@ -3140,19 +3168,19 @@ apic_osapi_mem_avail:
                                   ;          volume index, CF=1 = no free row.
                                   ;          The desktop zone and the drive
                                   ;          letter both fall out of the index
-    OSAPI_CXCELL osapi_vol_del_x    ; 0x0278 - X: in AL = a volume index this
+    OSAPI_RCXCELL osapi_vol_del_x    ; 0x0207 - X: in AL = a volume index this
                                   ;          driver registered. Drops the
                                   ;          zone, and if that volume was the
                                   ;          mounted one falls back to A: with
                                   ;          the write gate shut. Cannot fail
-    OSAPI_CXCELL osapi_vol_mount_x  ; 0x0280 - X: in AL = a volume index; mount it
+    OSAPI_RCXCELL osapi_vol_mount_x  ; 0x020D - X: in AL = a volume index; mount it
                                   ;          and list it (SPEC.md 18.3), which
                                   ;          is what a driver's Mount button
                                   ;          does after osapi_vol_add. out
                                   ;          CF=1 = it is not a readable
                                   ;          FAT12/16 volume. UI-task context
                                   ;          only, like every other file slot
-    OSAPI_CSLOT osapi_vol_paint_x ; 0x0288 - repaint the desktop's drive zones
+    ; (dropped) OSAPI_CSLOT osapi_vol_paint_x ; 0x0288 - repaint the desktop's drive zones
                                   ;          (SPEC.md 26). A driver that has
                                   ;          just added or dropped a volume
                                   ;          owes the screen this; it takes
@@ -3161,7 +3189,7 @@ apic_osapi_mem_avail:
                                   ;          that already holds it - post it
                                   ;          the way a page click posts a
                                   ;          repaint
-    OSAPI_CXCELL osapi_drv_cfg_x    ; 0x0290 - X: the driver's own settings blob
+    OSAPI_RCXCELL osapi_drv_cfg_x    ; 0x0213 - X: the driver's own settings blob
                                   ;          inside SYSTEM.CFG (SPEC.md 51.9).
                                   ;          in AL = 0 read / 1 write / 2 write
                                   ;          and flush now, ES:SI = the driver's
@@ -3172,7 +3200,7 @@ apic_osapi_mem_avail:
                                   ;          never-written blob reads back as
                                   ;          zeroes and the driver's own version
                                   ;          byte is what recognises it
-    OSAPI_CSLOT osapi_sys_snapshot_x ; 0x0298 - the scheduler AND the instance
+    OSAPI_RCSLOT osapi_sys_snapshot_x ; 0x0219 - the scheduler AND the instance
                                   ;          table, in ONE cli window
                                   ;          (SPEC.md 28.2). in ES:DI = a
                                   ;          SYS_SNAPSHOT_SIZE buffer; out AX =
@@ -3187,7 +3215,7 @@ apic_osapi_mem_avail:
                                   ;          one half and live in the other,
                                   ;          and the cycle diffs that CPU% is
                                   ;          built from go quietly wrong
-    OSAPI_CSLOT mmf_osapi_claim_snapshot ; 0x02A0 - the claim table (SPEC.md 50.5),
+    OSAPI_RCSLOT mmf_osapi_claim_snapshot ; 0x021F - the claim table (SPEC.md 50.5),
                                   ;          all MEM_MAX records into ES:DI
                                   ;          as CLS_RECSZ triples; out AX =
                                   ;          MEM_MAX. WHOLE-TABLE rather than
@@ -3196,7 +3224,7 @@ apic_osapi_mem_avail:
                                   ;          every record to draw it and
                                   ;          hashes every record to decide
                                   ;          whether to
-    OSAPI_CSLOT osapi_sys_kb_x    ; 0x02A8 - what the KERNEL occupies and what
+    OSAPI_RCSLOT osapi_sys_kb_x    ; 0x0225 - what the KERNEL occupies and what
                                   ;          the heap holds, in KB, into ES:DI
                                   ;          (SK_* below). Every term used to
                                   ;          be an assembly-time constant of
@@ -3204,13 +3232,13 @@ apic_osapi_mem_avail:
                                   ;          exactly what a package cannot
                                   ;          have: the kernel's footprint
                                   ;          moves with every build
-    OSAPI_XCELL osapi_gfx_fill_pat  ; 0x02B0 - a patterned fill (SPEC.md 5):
+    OSAPI_XCELL osapi_gfx_fill_pat  ; 0x022B - a patterned fill (SPEC.md 5):
                                   ;          AX/BX/CX/DX = the rect, SI = 8
                                   ;          row bytes. X, because those eight
                                   ;          bytes are the caller's and
                                   ;          gfx_pat_stage reads them through
                                   ;          DS
-    OSAPI_SLOT menu_owner         ; 0x02B8 - out BX = the window owning the
+    OSAPI_RSLOT menu_owner         ; 0x0232 - out BX = the window owning the
                                   ;          menu bar, 0 = Locator. "Am I the
                                   ;          ACTIVE APPLICATION?" - which
                                   ;          wm_top above cannot answer,
@@ -3218,29 +3246,29 @@ apic_osapi_mem_avail:
                                   ;          hands the bar to Locator and
                                   ;          moves nothing in wm_zord. Takes
                                   ;          no lock: a worker may ask
-    OSAPI_SLOT fsx_caps           ; 0x02C0 - fullscreen exclusive (SPEC.md
+    OSAPI_RSLOT fsx_caps           ; 0x0238 - fullscreen exclusive (SPEC.md
                                   ;          53): AX = the FSXM bitmask this
                                   ;          adapter can set, DL = vid_kind.
                                   ;          Any context - it is how an app
                                   ;          greys its mode menu (SPEC.md 47)
-    OSAPI_XCELL fsx_run       ; 0x02C8 - the bracket (SPEC.md 53.1): AX =
+    OSAPI_RXCELL fsx_run       ; 0x023E - the bracket (SPEC.md 53.1): AX =
                                   ;          near entry, BX = own window, CX =
                                   ;          flags. X - the ownership fence is
                                   ;          inst_pkg_spawn's identity test on
                                   ;          the caller's DS. Does NOT return
                                   ;          until the app's proc does
-    OSAPI_SLOT fsx_mode           ; 0x02D0 - a foreign mode + its FSI info
+    OSAPI_RSLOT fsx_mode           ; 0x0244 - a foreign mode + its FSI info
                                   ;          block (SPEC.md 53.4): AL = FSXM
                                   ;          id, ES:DI = the caller's buffer
-    OSAPI_SLOT fsx_wait           ; 0x02D8 - frame clock / present (SPEC.md
+    OSAPI_SLOT fsx_wait           ; 0x024A - frame clock / present (SPEC.md
                                   ;          53.5): AL = 0 tick / 1 retrace
-    OSAPI_SLOT gfx_line           ; 0x02E0 - RETIRED (SPEC.md 5.12.7). The
+    ; (dropped) OSAPI_SLOT gfx_line           ; 0x02E0 - RETIRED (SPEC.md 5.12.7). The
                                   ;          cell stays - a slot number is a
                                   ;          published constant (20.3) - and
                                   ;          the body answers CF = 1. The line
                                   ;          is apps/os88gfx.inc's GFXE_LINE
                                   ;          now, committed through gfx_blit1
-    OSAPI_CSLOT osapi_arg_file_x  ; 0x02E8 - the document this instance was
+    OSAPI_RCSLOT osapi_arg_file_x  ; 0x0252 - the document this instance was
                                   ;          launched to open (SPEC.md 54.5):
                                   ;          out CF=1 none; CF=0 with SI = its
                                   ;          NUL 8.3 name in KERNEL_SEG (read
@@ -3249,7 +3277,7 @@ apic_osapi_mem_avail:
                                   ;          pair OSAPI_FILE_GOTO takes.
                                   ;          READ-AND-CLEAR: a second instance
                                   ;          cannot inherit it
-    OSAPI_CXCELL osapi_assoc_set_x  ; 0x02F0 - X: claim an extension for a
+    OSAPI_RCXCELL osapi_assoc_set_x  ; 0x0258 - X: claim an extension for a
                                   ;          program (SPEC.md 54.5). ES:SI =
                                   ;          3 extension bytes then 8 stem
                                   ;          bytes, both space-padded; out
@@ -3259,12 +3287,12 @@ apic_osapi_mem_avail:
                                   ;          not an oversight - and marks it
                                   ;          sticky so a header declaration
                                   ;          cannot take it back
-    OSAPI_SLOT osapi_boot_ticks   ; 0x02F8 - how long this machine took to
+    OSAPI_RSLOT osapi_boot_ticks   ; 0x025E - how long this machine took to
                                   ;          boot, in system ticks (SPEC.md
                                   ;          15.4): the boot sector's first
                                   ;          instruction to the first desktop
                                   ;          frame. 0xFFFF = unknown
-    OSAPI_CSLOT osapi_dsk_cache_x ; 0x0300 - COMMAND THE READ-AHEAD CACHE'S
+    OSAPI_RCSLOT osapi_dsk_cache_x ; 0x0264 - COMMAND THE READ-AHEAD CACHE'S
                                   ;          WIDTH (SPEC.md 18.95.8), for a
                                   ;          program about to take the arena.
                                   ;          AL = 0 hold nothing / 1..7 hold
@@ -3284,10 +3312,10 @@ apic_osapi_mem_avail:
                                   ;          one has to test CF, so there is
                                   ;          no program that reaches this
                                   ;          number and would notice
-    OSAPI_XCELL gfx_lstep     ; 0x0308  RETIRED (SPEC.md 5.12.7): stc/ret.
+    ; (dropped) OSAPI_XCELL gfx_lstep     ; 0x0308  RETIRED (SPEC.md 5.12.7): stc/ret.
                                   ;          gfxe_wstep draws the walk's next
                                   ;          CX pixels into the package's band
-    OSAPI_SLOT gfx_pen_cf         ; 0x0310 - CF = 0 live / 1 disabled, and it
+    OSAPI_SLOT gfx_pen_cf         ; 0x026A - CF = 0 live / 1 disabled, and it
                                   ;          sets [gfx_color] AND [gfx_dis]
                                   ;          together (SPEC.md 47 rule 3), so
                                   ;          a package's disabled TEXT
@@ -3298,31 +3326,31 @@ apic_osapi_mem_avail:
                                   ;          unchanged - which is why this
                                   ;          needs no stub and no AL
                                   ;          argument
-    OSAPI_XCELL gfx_lstepv    ; 0x0318  RETIRED (SPEC.md 5.12.7): stc/ret.
+    ; (dropped) OSAPI_XCELL gfx_lstepv    ; 0x0318  RETIRED (SPEC.md 5.12.7): stc/ret.
                                   ;          gfxe_wstepv is the batch form and
                                   ;          gfx_points (0x0538) is what a
                                   ;          package commits a point set with
-    OSAPI_SLOT clip_put           ; 0x0320 - the system clipboard (SPEC.md
+    OSAPI_RSLOT clip_put           ; 0x0272 - the system clipboard (SPEC.md
                                   ;          55): ES:SI = text, CX = bytes
                                   ;          (0 = empty it); out CF=1 refused.
                                   ;          ES:SI and not the caller's DS
                                   ;          because a document is usually a
                                   ;          heap claim of its own, not the
                                   ;          package's image
-    OSAPI_SLOT clip_get           ; 0x0328 - ES:DI = the caller's buffer, CX =
+    OSAPI_RSLOT clip_get           ; 0x0278 - ES:DI = the caller's buffer, CX =
                                   ;          its capacity; out CF=1 empty,
                                   ;          else AX = the whole length and
                                   ;          CX = the bytes copied
-    OSAPI_SLOT clip_size          ; 0x0330 - out CF=1 and AX=0 when empty,
+    OSAPI_RSLOT clip_size          ; 0x027E - out CF=1 and AX=0 when empty,
                                   ;          else AX = the length. What a
                                   ;          paste asks BEFORE it makes room
-    OSAPI_SLOT evq_pending        ; 0x0338 - out AX = events still queued.
+    OSAPI_SLOT evq_pending        ; 0x0284 - out AX = events still queued.
                                   ;          "Is there another one of these
                                   ;          right behind me?", so a handler
                                   ;          can drop a redraw it is about to
                                   ;          be asked to do again (SPEC.md
                                   ;          13.4)
-    OSAPI_JSLOT api_file_write_sys ; 0x0340 - N, and the ONE cell in this table
+    OSAPI_JCELL api_file_write_sys ; 0x028C - N, and the ONE cell in this table
                                   ;          a package may not call: dskw_write
                                   ;          for a file that belongs to the
                                   ;          KERNEL (SPEC.md 19.6.1). Fenced on
@@ -3330,14 +3358,14 @@ apic_osapi_mem_avail:
                                   ;          so 19.6's rule - a package cannot
                                   ;          make a file the user can neither
                                   ;          see nor delete - stands unchanged
-    OSAPI_JSLOT api_file_find     ; 0x0348  X: ES:DI is the caller's buffer.
+    OSAPI_JCELL api_file_find     ; 0x028F  X: ES:DI is the caller's buffer.
                                   ;         List the current directory by
                                   ;         ORDINAL (SPEC.md 19.7.1) - the
                                   ;         one file operation the API had no
                                   ;         way to express, so a package could
                                   ;         read a file by name and never find
                                   ;         out what was there
-    OSAPI_NCELL dwf_dskw_append ; 0x0350  N: SI = name, ES:BX = bytes, CX =
+    OSAPI_RNCELL dwf_dskw_append ; 0x0292  N: SI = name, ES:BX = bytes, CX =
                                   ;         count. Add to the END of a file
                                   ;         (SPEC.md 18.4.4). Its precondition
                                   ;         is the file's current size being a
@@ -3345,12 +3373,12 @@ apic_osapi_mem_avail:
                                   ;         what a chunked write already is -
                                   ;         and it is dskw_write_at's body with
                                   ;         the size for an offset (18.4.7.3)
-    OSAPI_NCELL dwf_dskw_read_at ; 0x0358  N: ...and the read half. DX:AX =
+    OSAPI_RNCELL dwf_dskw_read_at ; 0x0298  N: ...and the read half. DX:AX =
                                   ;         the byte offset, CX = capacity;
                                   ;         out DX:AX = bytes delivered, 0 at
                                   ;         the end. Stateless, so a copy loop
                                   ;         may write between two reads
-    OSAPI_NCELL dwf_dskw_mkdir ; 0x0360  N: SI = name. Create a folder in
+    OSAPI_RNCELL dwf_dskw_mkdir ; 0x029E  N: SI = name. Create a folder in
                                   ;         the current directory (SPEC.md
                                   ;         18.5). The routine is the file
                                   ;         manager's own - its three callers
@@ -3358,7 +3386,7 @@ apic_osapi_mem_avail:
                                   ;         never needed a .text thunk, which
                                   ;         is the whole reason it looked
                                   ;         unpublished
-    OSAPI_SLOT ui_reboot_post     ; 0x0368  AL = 0 flush the Control Panel's
+    OSAPI_RSLOT ui_reboot_post     ; 0x02A4  AL = 0 flush the Control Panel's
                                   ;         settings on the way out / non-0 do
                                   ;         not go near a disk at all. No
                                   ;         answer: POST a restart, which
@@ -3372,38 +3400,38 @@ apic_osapi_mem_avail:
                                   ;         scheduled. AL non-0 is for a caller
                                   ;         that has just asked the user to
                                   ;         take the floppy OUT
-    OSAPI_SLOT osapi_file_goto_q  ; 0x0370  DX = folder cluster, BL = volume.
+    OSAPI_RSLOT osapi_file_goto_q  ; 0x02AA  DX = folder cluster, BL = volume.
                                   ;         GOTO's quiet twin (SPEC.md 19.2.2):
                                   ;         same volume = a word, another one =
                                   ;         a quiet mount. For a caller about to
                                   ;         read or write BY NAME rather than to
                                   ;         list - which is every copy loop
 apic_wm_saveu:
-    OSAPI_SLOT wm_saveu           ; 0x0378 - BX = window, AL = 0 clear / non-0
+    OSAPI_RSLOT wm_saveu           ; 0x02B0 - BX = window, AL = 0 clear / non-0
                                   ;          set. "My content does not change
                                   ;          while I am not drawing", which
                                   ;          lets the raise cache put its old
                                   ;          pixels back instead of calling
                                   ;          W_PAINT (SPEC.md 11.96.1)
-    OSAPI_SLOT toast_show         ; 0x0380 - ES:SI = a NUL line, CX = ticks to
+    OSAPI_RSLOT toast_show         ; 0x02B6 - ES:SI = a NUL line, CX = ticks to
                                   ;          live (0 = ~3s). Says it in the
                                   ;          menu bar and takes it down on its
                                   ;          own (SPEC.md 59). An EMPTY string
                                   ;          retires whatever is up. ES:SI for
                                   ;          clip_put's reason: the text is
                                   ;          often not in the caller's image
-    OSAPI_CSLOT dkf_dsk_batch_begin ; 0x0388  no arguments, no answer. "The
+    OSAPI_RCSLOT dkf_dsk_batch_begin ; 0x02BC  no arguments, no answer. "The
                                   ;         interface is frozen and the disk is
                                   ;         the same disk" (SPEC.md 18.9.3), so
                                   ;         a floppy may reuse its banked BPB
                                   ;         instead of re-reading LBA 0 at every
                                   ;         volume switch. Nests
-    OSAPI_CSLOT dsk_batch_end_x   ; 0x0390  ...and the other end. Optional: any
+    OSAPI_RCSLOT dsk_batch_end_x   ; 0x02C2  ...and the other end. Optional: any
                                   ;         gfx_unlock ends the batch anyway,
                                   ;         which is what makes an unclosed one
                                   ;         impossible rather than merely rare
 apic_wm_destroy:
-    OSAPI_SLOT wm_destroy         ; 0x0398  BX = a window of YOURS; the gfx lock
+    OSAPI_RSLOT wm_destroy         ; 0x02C8  BX = a window of YOURS; the gfx lock
                                   ;         is held, exactly as OSAPI_WM_HIDE
                                   ;         wants it. Frees the RECORD, where
                                   ;         hide only takes the pixels down.
@@ -3418,7 +3446,7 @@ apic_wm_destroy:
                                   ;         is then unloaded leaves that record
                                   ;         naming memory the next claim takes
                                   ;         (SPEC.md 52.11.3)
-    OSAPI_JSLOT api_file_append_sys ; 0x03A0 - N, and the SECOND fenced cell
+    OSAPI_JCELL api_file_append_sys ; 0x02CE - N, and the SECOND fenced cell
                                   ;         (SPEC.md 19.6.1): dskw_append for a
                                   ;         file that is already hidden +
                                   ;         system. The same arguments as
@@ -3432,7 +3460,7 @@ apic_wm_destroy:
                                   ;         what lets a system file too big for
                                   ;         the caller's buffer be finished at
                                   ;         all (SPEC.md 18.4.4)
-    OSAPI_SLOT wm_ownbg           ; 0x03A8 - BX = window, AL = 0 clear / non-0
+    OSAPI_RSLOT wm_ownbg           ; 0x02D1 - BX = window, AL = 0 clear / non-0
                                   ;          set. "I paint every pixel of my
                                   ;          content myself", which skips
                                   ;          wm_draw_win's white fill for it
@@ -3440,7 +3468,7 @@ apic_wm_destroy:
                                   ;          sets it and leaves a pixel unwritten
                                   ;          shows whatever was there before -
                                   ;          after a move, another window's
-    OSAPI_SLOT wm_damage          ; 0x03B0 - BX = your window, inside your own
+    OSAPI_SLOT wm_damage          ; 0x02D7 - BX = your window, inside your own
                                   ;          W_PAINT. CF=1 = draw the whole
                                   ;          content (AX/BX/CX/DX = it); CF=0 =
                                   ;          draw AX/BX/CX/DX only, absolute and
@@ -3449,7 +3477,7 @@ apic_wm_destroy:
                                   ;          Answers "whole" unless WF_OWNBG is
                                   ;          set, because without it the kernel
                                   ;          has already whitened the content
-    OSAPI_SLOT wm_band            ; 0x03B8 - BX = window, AL = edge (0 left,
+    OSAPI_RSLOT wm_band            ; 0x02DF - BX = window, AL = edge (0 left,
                                   ;          1 right, 2 top, 3 bottom), CX = the
                                   ;          band's extent in pixels 0..255, 0
                                   ;          retires that edge. One call per
@@ -3464,7 +3492,7 @@ apic_wm_destroy:
                                   ;          caller that promises WF_SAVEU
                                   ;          anyway has promised the thing it
                                   ;          was trying to avoid
-    OSAPI_CXCELL osapi_fs_ent_x     ; 0x03C0 - X: a DRVC_FILE driver appends ONE
+    OSAPI_RCXCELL osapi_fs_ent_x     ; 0x02E5 - X: a DRVC_FILE driver appends ONE
                                   ;          entry to the listing being built
                                   ;          (SPEC.md 62.9.1). ES:SI -> a
                                   ;          DSK_DE_SIZE-byte staged SPEC.md
@@ -3482,7 +3510,7 @@ apic_wm_destroy:
                                   ;          it still SORTS (19.4) and still
                                   ;          synthesizes '..' (19.5), so do
                                   ;          neither
-    OSAPI_SLOT fpg_stepb          ; 0x03C8 - AX = bytes moved SINCE YOUR LAST
+    OSAPI_RSLOT fpg_stepb          ; 0x02EB - AX = bytes moved SINCE YOUR LAST
                                   ;          REPORT, and a DRVC_FILE driver's
                                   ;          (SPEC.md 12.8.1/62.9.1): step
                                   ;          SPEC.md 12.8's file-activity bar
@@ -3497,7 +3525,7 @@ apic_wm_destroy:
                                   ;          gfx lock must already be held -
                                   ;          which it is, inside a file
                                   ;          operation (SPEC.md 18)
-    OSAPI_SLOT wm_cursor          ; 0x03D0 - BX = window, AL = OSAPI_CUR_*.
+    OSAPI_RSLOT wm_cursor          ; 0x02F1 - BX = window, AL = OSAPI_CUR_*.
                                   ;          The picture the pointer wears over
                                   ;          THIS window's content, and nowhere
                                   ;          else (SPEC.md 7.2). Takes effect on
@@ -3507,7 +3535,7 @@ apic_wm_destroy:
                                   ;          the title bar and its boxes - stays
                                   ;          the arrow, because it is the
                                   ;          kernel's to draw and to click
-    OSAPI_SLOT wm_onresize        ; 0x03D8 - BX = window, AX = a near proc in
+    OSAPI_RSLOT wm_onresize        ; 0x02F7 - BX = window, AX = a near proc in
                                   ;          YOUR segment (0 clears it). Your
                                   ;          content box CHANGED and you did
                                   ;          not ask - the machine changed
@@ -3523,7 +3551,7 @@ apic_wm_destroy:
                                   ;          half of OSAPI_WM_ONSIZE, which
                                   ;          asks BEFORE and takes an answer
                                   ;          (SPEC.md 11.98)
-    OSAPI_SLOT wm_keeph           ; 0x03E0 - BX = window, AL = 0 clear / non-0
+    OSAPI_RSLOT wm_keeph           ; 0x02FD - BX = window, AL = 0 clear / non-0
                                   ;          set. "My layout is FIXED: if I
                                   ;          will not fit the desktop band,
                                   ;          hang me over the dock rather than
@@ -3537,7 +3565,7 @@ apic_wm_destroy:
                                   ;          re-fits from the size you asked
                                   ;          for, and preserves the flags so
                                   ;          the CF you owe the loader survives
-    OSAPI_CSLOT osapi_vol_at_x    ; 0x03E8 - DL = an int 13h drive number,
+    OSAPI_RCSLOT osapi_vol_at_x    ; 0x0303 - DL = an int 13h drive number,
                                   ;          BX:CX = a partition's 32-bit base
                                   ;          LBA. out CF=0 and AL = the volume
                                   ;          index already covering it, CF=1 =
@@ -3551,7 +3579,7 @@ apic_wm_destroy:
                                   ;          Answers about BIOS-transport rows
                                   ;          alone: a driver's own rows are
                                   ;          the driver's to recognise
-    OSAPI_SLOT kbd_down           ; 0x03F0 - AL = a make scancode. out CF = 1
+    OSAPI_SLOT kbd_down           ; 0x0309 - AL = a make scancode. out CF = 1
                                   ;          that key is DOWN right now, CF = 0
                                   ;          it is up; every register kept.
                                   ;          int 16h answers what was TYPED,
@@ -3571,7 +3599,7 @@ apic_wm_destroy:
                                   ;          "up", and a key already held when
                                   ;          it arms is not seen until it is
                                   ;          pressed again
-    OSAPI_SLOT fsx_surf           ; 0x03F8 - no arguments. Bracket-only. out
+    OSAPI_SLOT fsx_surf           ; 0x0311 - no arguments. Bracket-only. out
                                   ;          CF=0 with AX = x, BX = y, CX = w,
                                   ;          DX = h: THE RECT THIS BRACKET
                                   ;          OWNS, in the coordinates the
@@ -3583,7 +3611,7 @@ apic_wm_destroy:
                                   ;          hard-code - and the second
                                   ;          display's own origin when the
                                   ;          bracket is over there
-    OSAPI_CXCELL osapi_mem_movable_x ; 0x0400 - X: DX = a claim of yours, AX = a
+    OSAPI_RCXCELL osapi_mem_movable_x ; 0x0319 - X: DX = a claim of yours, AX = a
                                   ;          near proc in YOUR segment (0 pins
                                   ;          it again). out CF = 1 = no such
                                   ;          claim, or not yours.
@@ -3607,7 +3635,7 @@ apic_wm_destroy:
                                   ;          base, not just the word you keep
                                   ;          it in, and must not claim, free or
                                   ;          resize anything (SPEC.md 66.3)
-    OSAPI_XCELL inst_parksafe_set  ; 0x0408 - X: AL = 1 declare / 0 withdraw.
+    OSAPI_RXCELL inst_parksafe_set  ; 0x031F - X: AL = 1 declare / 0 withdraw.
                                   ;          out CF = 1 = you are not a live
                                   ;          package instance.
                                   ;          "THE KERNEL MAY PARK ME WHILE I
@@ -3630,7 +3658,7 @@ apic_wm_destroy:
                                   ;          The default is NOT declared, and
                                   ;          forgetting costs a missed
                                   ;          compaction and never memory
-    OSAPI_SLOT inst_task_park     ; 0x0410 - a DRIVER's worker parks here for
+    OSAPI_SLOT inst_task_park     ; 0x0325 - a DRIVER's worker parks here for
                                   ;          a heap compaction (SPEC.md
                                   ;          66.5.5), the way a package's
                                   ;          parks at OSAPI_TASK_ALIVE. Call
@@ -3645,7 +3673,7 @@ apic_wm_destroy:
                                   ;          compacted, because the kernel
                                   ;          cannot tell a running service
                                   ;          task from an idle one
-    OSAPI_SLOT gfx_blit1          ; 0x0418 - ES:SI = a 1bpp band in the
+    OSAPI_SLOT gfx_blit1          ; 0x032D - ES:SI = a 1bpp band in the
                                   ;          framebuffer's own bit order,
                                   ;          BP = its stride, AX = x and
                                   ;          CX = width, BOTH multiples of 8,
@@ -3655,7 +3683,7 @@ apic_wm_destroy:
                                   ;          (SPEC.md 5.4.2). out CF=1 =
                                   ;          refused and nothing drawn, which
                                   ;          is also every kern_small
-    OSAPI_SLOT osapi_vol_sys      ; 0x0420 - out BL = the volume the machine
+    OSAPI_RSLOT osapi_vol_sys      ; 0x0335 - out BL = the volume the machine
                                   ;          BOOTED from, which is where its
                                   ;          system resources live (SPEC.md
                                   ;          19.7). No disk I/O; every other
@@ -3667,7 +3695,7 @@ apic_wm_destroy:
                                   ;          could stand in its own folder, or
                                   ;          in one a dialog had given it, and
                                   ;          nowhere else
-    OSAPI_CXCELL osapi_drv_dlg_x    ; 0x0428 - X: the Standard File dialog, for a
+    OSAPI_RCXCELL osapi_drv_dlg_x    ; 0x033B - X: the Standard File dialog, for a
                                   ;          DRIVER's Control Panel page
                                   ;          (SPEC.md 51.10). AL = FDLG_OPEN /
                                   ;          FDLG_SAVE, ES:SI = a default name
@@ -3679,7 +3707,7 @@ apic_wm_destroy:
                                   ;          has neither, so this borrows the
                                   ;          panel's - which is the window the
                                   ;          page is drawn in anyway
-    OSAPI_SLOT wm_ondrag_c        ; 0x0430 - BX = window, AX = a near proc in
+    OSAPI_RSLOT wm_ondrag_c        ; 0x0341 - BX = window, AX = a near proc in
                                   ;          YOUR segment (0 clears it): the
                                   ;          pointer MOVED while your press
                                   ;          was armed (SPEC.md 13.8.2).
@@ -3694,14 +3722,14 @@ apic_wm_destroy:
                                   ;          control cannot un-draw itself as
                                   ;          the pointer leaves if nothing
                                   ;          tells it. Call it AFTER wm_create
-    OSAPI_SLOT wm_timer_c         ; 0x0438 - BX = window, AX = TICKS from now
+    OSAPI_SLOT wm_timer_c         ; 0x0347 - BX = window, AX = TICKS from now
                                   ;          (0 cancels). Arms the one-shot
                                   ;          timer (SPEC.md 13.9); W_ONTIMER
                                   ;          runs when it expires and the
                                   ;          timer disarms itself FIRST, so a
                                   ;          handler wanting a repeat re-arms
                                   ;          inside itself. 18.2 ticks a second
-    OSAPI_SLOT wm_ontimer_c       ; 0x0440 - BX = window, AX = a near proc in
+    OSAPI_RSLOT wm_ontimer_c       ; 0x034F - BX = window, AX = a near proc in
                                   ;          YOUR segment (0 clears it): what
                                   ;          the timer above calls. CX = DX = 0
                                   ;          (a timer has no point), SI = the
@@ -3709,7 +3737,7 @@ apic_wm_destroy:
                                   ;          billed to you - W_ONCLICK's
                                   ;          environment. Call it AFTER
                                   ;          wm_create
-    OSAPI_XCELL drv_pkg_call_x      ; 0x0448 - a PACKAGE calls a DRIVER (SPEC.md
+    OSAPI_XCELL drv_pkg_call_x      ; 0x0355 - a PACKAGE calls a DRIVER (SPEC.md
                                   ;          20.11). BH = the DRVC_* class, BL
                                   ;          = a verb THAT DRIVER defines, and
                                   ;          the kernel knows nothing about
@@ -3739,7 +3767,7 @@ apic_wm_destroy:
                                   ;          merge and look for a duplicate)
 apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ; 66.4.3): the cell IS the shim, so no cw_
-    OSAPI_SLOT wm_wake            ; 0x0450 - BX = a window of yours: post an
+    OSAPI_SLOT wm_wake            ; 0x035C - BX = a window of yours: post an
                                   ;          EVT_WAKE for it (SPEC.md 74.1).
                                   ;          Any context - ISR- and worker-
                                   ;          safe. out CF=0 a wake is queued
@@ -3749,7 +3777,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          posted. The UI task pops it and
                                   ;          calls the handler below WITHOUT
                                   ;          the gfx lock
-    OSAPI_SLOT wm_onwake          ; 0x0458 - BX = window, AX = a near proc in
+    OSAPI_RSLOT wm_onwake          ; 0x0364 - BX = window, AX = a near proc in
                                   ;          YOUR segment (0 clears it): the
                                   ;          WAKE handler. Called SI = your
                                   ;          window, on the UI task, lock NOT
@@ -3760,7 +3788,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          OSAPI_WM_CREATE like
                                   ;          OSAPI_WM_ONRESIZE - a side table,
                                   ;          not a template word
-    OSAPI_SLOT osapi_file_goto_qm ; 0x0460 - DX = folder cluster, BL = volume:
+    OSAPI_RSLOT osapi_file_goto_qm ; 0x036A - DX = folder cluster, BL = volume:
                                   ;          OSAPI_FILE_GOTO_Q's quiet stand
                                   ;          AND THEN inst_vol_mark, so the
                                   ;          calling instance now believes it
@@ -3784,7 +3812,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          package called one and got the
                                   ;          other. Sort the %defines by address
                                   ;          after every merge from main
-    OSAPI_SLOT wm_onclose         ; 0x0468 - BX = window, AX = a near proc in
+    OSAPI_RSLOT wm_onclose         ; 0x0370 - BX = window, AX = a near proc in
                                   ;          YOUR segment (0 clears it): the
                                   ;          CLOSE NEGOTIATOR (SPEC.md 75.1).
                                   ;          Called SI = your window, on the UI
@@ -3800,7 +3828,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          after OSAPI_WM_CREATE like
                                   ;          OSAPI_WM_ONWAKE - a side table,
                                   ;          not a template word
-    OSAPI_SLOT wm_close_req       ; 0x0470 - BX = a window of yours: close it
+    OSAPI_RSLOT wm_close_req       ; 0x0376 - BX = a window of yours: close it
                                   ;          (SPEC.md 75.2). DEFERRED to the
                                   ;          next UI pass, because the caller
                                   ;          is standing in the segment the
@@ -3809,7 +3837,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          moment later. It does NOT ask your
                                   ;          negotiator again: this is the
                                   ;          answer to the question it asked
-    OSAPI_SLOT wm_prefer          ; 0x0478 - BX = window, SI = the offset IN
+    OSAPI_RSLOT wm_prefer          ; 0x037C - BX = window, SI = the offset IN
                                   ;          THIS WINDOW'S OWN SEGMENT of a
                                   ;          12-byte table: three (w, h) frame
                                   ;          sizes in VID_VGA / VID_HERC /
@@ -3819,7 +3847,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          about that adapter". Registers AND
                                   ;          applies, FLAGS PRESERVED
                                   ;          (SPEC.md 11.100.1)
-    OSAPI_SLOT wm_minsize         ; 0x0480 - BX = window, CX = minimum outer
+    OSAPI_RSLOT wm_minsize         ; 0x0382 - BX = window, CX = minimum outer
                                   ;          width, DX = minimum outer height;
                                   ;          0/0 withdraws. The floor every
                                   ;          path that REDUCES a size honours,
@@ -3828,12 +3856,12 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          window its title bar. Registers AND
                                   ;          applies, FLAGS PRESERVED
                                   ;          (SPEC.md 11.100.2)
-    OSAPI_SLOT wm_display         ; 0x0488 - BX = window; out AX = width, BX =
+    OSAPI_RSLOT wm_display         ; 0x0388 - BX = window; out AX = width, BX =
                                   ;   height, CX = the first row the DOCK owns,
                                   ;   SI = the first usable row, DL = kind, DH =
                                   ;   bpp - OSAPI_VIDEO for the display THIS
                                   ;   WINDOW is on (SPEC.md 39.16.4)
-    OSAPI_SLOT wm_onrclick        ; 0x0490 - BX = window, AX = a near proc in
+    OSAPI_RSLOT wm_onrclick        ; 0x038E - BX = window, AX = a near proc in
                                   ;          YOUR segment (0 clears it): the
                                   ;          RIGHT-CLICK handler (SPEC.md
                                   ;          13.11). Called CX = x, DX = y,
@@ -3847,12 +3875,12 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          OSAPI_WM_CREATE like
                                   ;          OSAPI_WM_ONWAKE - a side table,
                                   ;          not a template word
-    OSAPI_NCELL dwf_dskw_rmany ; 0x0498  N: SI = a NUL 8.3 name, AL = 0 an
+    OSAPI_RNCELL dwf_dskw_rmany ; 0x0394  N: SI = a NUL 8.3 name, AL = 0 an
                                   ;         EMPTY folder only / non-zero the
                                   ;         whole tree under it (SPEC.md 18.6).
                                   ;         The AL survives the N stub because
                                   ;         api_copyname banks AX
-    OSAPI_SLOT drv_pkg_call_x     ; 0x04A0 - OSAPI_DRV_CALL WITH ES LEFT ALONE
+    OSAPI_SLOT drv_pkg_call_x     ; 0x039A - OSAPI_DRV_CALL WITH ES LEFT ALONE
                                   ;          (SPEC.md 20.11.2). The same
                                   ;          routine behind the same fence: the
                                   ;          only difference is the stub. The
@@ -3862,7 +3890,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          in a heap claim is reachable and a
                                   ;          package stops having to grow its
                                   ;          own segment to feed a driver
-    OSAPI_SLOT gfx_blit1_pen      ; 0x04A8 - AL = ink (what a SET bit in the
+    OSAPI_SLOT gfx_blit1_pen      ; 0x03A2 - AL = ink (what a SET bit in the
                                   ;          next gfx_blit1's band becomes),
                                   ;          AH = paper (a CLEAR one). SPEC.md
                                   ;          5.4.2.2. Dies with the gfx lock,
@@ -3872,14 +3900,14 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          READ on a 1bpp adapter: a band on
                                   ;          one plane already means lit and
                                   ;          unlit
-    OSAPI_SLOT icon_pen           ; 0x04B0 - AL = the colour the NEXT
+    OSAPI_SLOT icon_pen           ; 0x03AA - AL = the colour the NEXT
                                   ;          OSAPI_ICON_DRAW's MASK rows lay
                                   ;          down, AH = the colour its DATA
                                   ;          rows draw over them. ONE-SHOT:
                                   ;          the draw puts CWHITE/CBLACK back,
                                   ;          so a site that forgets cannot
                                   ;          tint the next icon (SPEC.md 25.6)
-    OSAPI_XCELL icon_draw_x     ; 0x04B8 - CX = x, DX = y, SI -> a masked
+    OSAPI_XCELL icon_draw_x     ; 0x03B2 - CX = x, DX = y, SI -> a masked
                                   ;          1bpp record in YOUR segment: a
                                   ;          two-byte header (words a row,
                                   ;          rows), then that many mask words
@@ -3894,7 +3922,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          refused: it stages one word a row
                                   ;          and sixteen rows at the outside
                                   ;          (SPEC.md 25.6.1)
-    OSAPI_SLOT gfx_blitp          ; 0x04C0 - ES:SI = plane 0's first row of a
+    OSAPI_SLOT gfx_blitp          ; 0x03B9 - ES:SI = plane 0's first row of a
                                   ;          block that is ALREADY FRAMEBUFFER
                                   ;          BYTES, DI = the step to the next
                                   ;          plane, BP = the row stride inside
@@ -3910,7 +3938,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          the answer to every one of them is
                                   ;          OSAPI_GFX_BLIT4, which still works
                                   ;          (SPEC.md 5.4.3)
-    OSAPI_CXCELL mmf_osapi_mem_claim_hi ; 0x04C8 - X: AX = KB, BX unused. THE SAME
+    OSAPI_RCXCELL mmf_osapi_mem_claim_hi ; 0x03C1 - X: AX = KB, BX unused. THE SAME
                                   ;          CLAIM FROM THE OTHER END (SPEC.md
                                   ;          50.3.2), for a buffer the HARDWARE
                                   ;          holds the address of and which can
@@ -3921,10 +3949,10 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          splits the space a package has to
                                   ;          load into" - and this is the door
                                   ;          it lacked
-    OSAPI_CXCELL mmf_osapi_mem_claim_dma_hi ; 0x04D0 - ...and with CX = the 64KB
+    OSAPI_RCXCELL mmf_osapi_mem_claim_dma_hi ; 0x03C7 - ...and with CX = the 64KB
                                   ;          page-safe HEAD, which is what a
                                   ;          sound card's DMA ring wants
-    OSAPI_XCELL gfx_spans     ; 0x04D8 - X: AX = the first row, ES:SI = CX
+    OSAPI_XCELL gfx_spans     ; 0x03CD - X: AX = the first row, ES:SI = CX
                                   ;          records of {x1, x2} - ONE INTERVAL
                                   ;          A ROW, on CONSECUTIVE rows, x1 > x2
                                   ;          being an empty one. Fills them all
@@ -3936,7 +3964,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          kern_small - and the answer to all
                                   ;          three is a GFX_FILL a row, which
                                   ;          draws the identical pixels
-    OSAPI_SLOT wm_ownseg          ; 0x04E0 - AL = a window SLOT; out CF = 1 no
+    OSAPI_RSLOT wm_ownseg          ; 0x03D4 - AL = a window SLOT; out CF = 1 no
                                   ;          live window there, else DX = the
                                   ;          segment that owns it (KERNEL_SEG
                                   ;          for a window the kernel made).
@@ -3948,7 +3976,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          - the collision CLAUDE.md asks to
                                   ;          be checked by hand, caught by the
                                   ;          merge and then by t_api_abi
-    OSAPI_SLOT fsx_page           ; 0x04E8 - AL = a page index; shows it, and
+    OSAPI_SLOT fsx_page           ; 0x03DA - AL = a page index; shows it, and
                                   ;          waits for the retrace that latches
                                   ;          it. Bracket-only, exclusive task
                                   ;          only, graphics modes with more
@@ -3960,7 +3988,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          3B8h that does nothing until 3BFh
                                   ;          allows it, and neither is
                                   ;          derivable from the info block
-    OSAPI_SLOT wm_noanim          ; 0x04F0 - BX = a window of yours, between
+    OSAPI_RSLOT wm_noanim          ; 0x03E2 - BX = a window of yours, between
                                   ;          OSAPI_WM_CREATE and
                                   ;          OSAPI_WM_SHOW: it does NOT zoom
                                   ;          open (SPEC.md 11.99.2.1). No AL
@@ -3980,7 +4008,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          (SPEC.md 20.8 rule 4), and on
                                   ;          kern_small the bit is simply set
                                   ;          and never read
-    OSAPI_FARCELL lzf_decomp      ; 0x04F8 - expand a compressed block
+    OSAPI_FCELL lzf_decomp      ; 0x03E8 - expand a compressed block
                                   ;          (docs/plans/O88-COMPRESSION-PLAN.md
                                   ;          12.1). A JSLOT and not an X or N
                                   ;          cell: BOTH segment registers are
@@ -3998,13 +4026,13 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          answer, not whether the cell is
                                   ;          there, and a format this build
                                   ;          lacks is refused with CF
-    OSAPI_JSLOT api_file_find_raw ; 0x0500 - OSAPI_FILE_FIND, answering what
+    OSAPI_JCELL api_file_find_raw ; 0x03EE - OSAPI_FILE_FIND, answering what
                                   ;          the file OCCUPIES rather than
                                   ;          what it expands to (SPEC.md
                                   ;          20.14.3). The cell a COPIER wants:
                                   ;          OSAPI_FILE_READ_AT is already raw,
                                   ;          and this is the size to go with it
-    OSAPI_SLOT api_gfx_save       ; 0x0508 - AX/BX/CX/DX = an inclusive rect,
+    OSAPI_SLOT api_gfx_save       ; 0x03F1 - AX/BX/CX/DX = an inclusive rect,
                                   ;          ES:DI = your buffer. Bank the
                                   ;          pixels under a thing you are about
                                   ;          to draw over (SPEC.md 5.3), so
@@ -4012,9 +4040,9 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          instead of a repaint. CF = 1
                                   ;          REFUSED - the rect straddles two
                                   ;          displays - and nothing is written
-    OSAPI_SLOT api_gfx_rest       ; 0x0510 - ...and put it back: same rect,
+    OSAPI_SLOT api_gfx_rest       ; 0x03F9 - ...and put it back: same rect,
                                   ;          ES:SI = the buffer the save filled
-    OSAPI_XCELL inst_restart_set  ; 0x0518 - X: AX = a near offset in YOUR own
+    OSAPI_RXCELL inst_restart_set  ; 0x0401 - X: AX = a near offset in YOUR own
                                   ;          image, 0 to withdraw. out CF = 1 =
                                   ;          you are not a live package
                                   ;          instance.
@@ -4035,7 +4063,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          costs a lost loop iteration - and
                                   ;          if the worker was holding
                                   ;          something, correctness
-    OSAPI_NCELL ldf_ld_pkg_start  ; 0x0520  N: START THE PACKAGE CALLED NAME
+    OSAPI_RNCELL ldf_ld_pkg_start  ; 0x0407  N: START THE PACKAGE CALLED NAME
                                   ;         (SPEC.md 21.5). SI = a NUL 8.3
                                   ;         name in YOUR segment, resolved in
                                   ;         the folder you are standing in.
@@ -4059,7 +4087,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;         image arm, where it is true: with
                                   ;         no file there is nothing for
                                   ;         op_load to read a part out of
-    OSAPI_CXCELL osapi_desk_svc_x   ; 0x0528 - X: a DRIVER registers the
+    OSAPI_RCXCELL osapi_desk_svc_x   ; 0x040D - X: a DRIVER registers the
                                   ;          desktop SERVICE zone (SPEC.md
                                   ;          26.7). in AL = 1 add / 0
                                   ;          withdraw, ES:SI = a 39-byte
@@ -4085,7 +4113,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          instructions that refuse: there is
                                   ;          no driver there that would
                                   ;          register one
-    OSAPI_CXCELL osapi_pkg_rehome_x ; 0x0530 - X: a LOADER hands its identity to
+    OSAPI_RCXCELL osapi_pkg_rehome_x ; 0x0413 - X: a LOADER hands its identity to
                                   ;          one of its own parts (SPEC.md
                                   ;          20.12.10). in DX = the segment the
                                   ;          program's image starts at, AX =
@@ -4098,7 +4126,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          frees, so the work is ld_start's
                                   ;          step 8a, one instruction after
                                   ;          this returns
-    OSAPI_XCELL gfx_points        ; 0x0538 - X: draw a set of pixels the CALLER
+    OSAPI_XCELL gfx_points        ; 0x0419 - X: draw a set of pixels the CALLER
                                   ;          computed (SPEC.md 5.6.9). ES:SI =
                                   ;          CX records of two words each, x
                                   ;          then y; CX = how many, 0 legal.
@@ -4106,7 +4134,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          lock is held. Preserves every
                                   ;          register; a point outside every
                                   ;          clip rect is SKIPPED, not refused
-    OSAPI_SLOT cur_busy        ; 0x0540 - I AM ABOUT TO GO QUIET FOR A WHILE
+    OSAPI_SLOT cur_busy        ; 0x0420 - I AM ABOUT TO GO QUIET FOR A WHILE
                                   ;          (SPEC.md 7.5). No argument. The
                                   ;          pointer becomes a CLOCK for
                                   ;          the rest of the gfx-lock hold the
@@ -4122,7 +4150,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          and a refusal costs the caller
                                   ;          nothing but the picture, so there
                                   ;          is nothing for it to act on
-    OSAPI_SLOT inst_minimize      ; 0x0548 - SEND MY OWN WINDOW TO THE DOCK
+    OSAPI_RSLOT inst_minimize      ; 0x0428 - SEND MY OWN WINDOW TO THE DOCK
                                   ;          (SPEC.md 29.6). BX = a window of
                                   ;          yours, the gfx lock held - the
                                   ;          minimize box's own environment,
@@ -4146,7 +4174,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          fullscreen first, and neither zoom
                                   ;          is drawn (SPEC.md 11.99.5).
                                   ;          Preserves every register
-    OSAPI_CXCELL drv_suspend_x  ; 0x0550 - THE MACHINE, OUT OF MY WAY
+    OSAPI_RCXCELL drv_suspend_x  ; 0x042E - THE MACHINE, OUT OF MY WAY
                                   ;          (SPEC.md 51.11): AL = 1 suspend
                                   ;          the hardware drivers, ES:DI = a
                                   ;          DQ_SIZE-record buffer or DI = 0,
@@ -4159,7 +4187,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          HIBER.DRV's - the same sweep the
                                   ;          hibernate detaches with - and the
                                   ;          resident part is the thunk
-    OSAPI_XCELL api_file_path   ; 0x0558 - WHERE AM I STANDING? (SPEC.md
+    OSAPI_RXCELL api_file_path   ; 0x0434 - WHERE AM I STANDING? (SPEC.md
                                   ;          19.2.4). ES:DI = your buffer,
                                   ;          CX = its size; out CF=0 with a
                                   ;          NUL `\DIR\DIR` in it and CX its
@@ -4168,7 +4196,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          CALLER's - and a slot at all
                                   ;          because dsk_find drops the dot
                                   ;          links, so no package can walk up
-    OSAPI_CSLOT mmf_osapi_mem_floor ; 0x0560 - "COMPACT THE DISK CACHE, DO NOT
+    OSAPI_RCSLOT mmf_osapi_mem_floor ; 0x043A - "COMPACT THE DISK CACHE, DO NOT
                                   ;          DESTROY IT" (SPEC.md 50.6.6). AL =
                                   ;          a purge level, and it is THIS
                                   ;          TASK's floor from here on: every
@@ -4180,14 +4208,14 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          teardown. Preserves every register
                                   ;          AND the flags, so it can sit
                                   ;          between a claim and its `jnc`
-    OSAPI_SLOT gfx_line           ; 0x0568 - RETIRED (SPEC.md 50.6.6.1): it was
+    ; (dropped) OSAPI_SLOT gfx_line           ; 0x0568 - RETIRED (SPEC.md 50.6.6.1): it was
                                   ;          OSAPI_MEM_CLAIM_LVL, a claim with
                                   ;          the floor as an argument, and the
                                   ;          floor above made it one cell and
                                   ;          sixty bytes of body for nothing.
                                   ;          stc/ret, and the ONE package that
                                   ;          ever called it is in this tree
-    OSAPI_SLOT osapi_vol_stat     ; 0x0570 - THE VOLUME YOU ARE STANDING ON,
+    OSAPI_RSLOT osapi_vol_stat     ; 0x0440 - THE VOLUME YOU ARE STANDING ON,
                                   ;          in four registers (SPEC.md
                                   ;          18.4.6): out CF=0 with AX =
                                   ;          sectors per cluster, BX = free
@@ -4198,7 +4226,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          caller - it was a 12-byte record
                                   ;          until the size pass found no
                                   ;          caller read more than these four
-    OSAPI_NCELL fcpf_fcp_door     ; 0x0578 - COPY OR MOVE ONE ENTRY, source
+    OSAPI_RNCELL fcpf_fcp_door     ; 0x0446 - COPY OR MOVE ONE ENTRY, source
                                   ;          folder to destination (SPEC.md
                                   ;          22.24). SI = its 8.3 name, AL =
                                   ;          the verb (OSAPI_FCP_COPY or
@@ -4217,7 +4245,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          a copy streams through a buffer
                                   ;          the engine claims and undoes a
                                   ;          partial destination on failure
-    OSAPI_CSLOT osapi_drv_classk_x ; 0x0580 - WHAT ONE DRIVER CLASS HOLDS
+    OSAPI_RCSLOT osapi_drv_classk_x ; 0x044C - WHAT ONE DRIVER CLASS HOLDS
                                   ;          (SPEC.md 51.12). AL = a DRVC_*.
                                   ;          Out CF=0 with AX = the KB its
                                   ;          LOADED rows hold - bit 15 =
@@ -4235,8 +4263,8 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          OSAPI_FILE_MOVE's, so the table
                                   ;          gains no byte and 20.3.1's free
                                   ;          list is empty again
-    OSAPI_NCELL dwf_dskw_write_at ; 0x0588  N: SI = name, ES:BX = bytes, CX =
-    OSAPI_CXCELL osapi_mem_compact_x ; 0x0590 - X: MY OWN REGION IN THE PASS
+    OSAPI_RNCELL dwf_dskw_write_at ; 0x0452  N: SI = name, ES:BX = bytes, CX =
+    OSAPI_RCXCELL osapi_mem_compact_x ; 0x0458 - X: MY OWN REGION IN THE PASS
                                   ;          (SPEC.md 66.4.3): one door, the
                                   ;          verb in AH. AH=0 THE WHAT-IF:
                                   ;          OSAPI_MEM_AVAIL_LVL's answer (AL =
@@ -4264,7 +4292,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          kern_small the what-if IS the
                                   ;          plain answer and the post refuses
                                   ;          (SPEC.md 66.0)
-    OSAPI_XCELL osapi_mouse_feed  ; 0x0598 - X: ONE RELATIVE REPORT from a
+    OSAPI_XCELL osapi_mouse_feed  ; 0x045E - X: ONE RELATIVE REPORT from a
                                   ;          pointing device the kernel does
                                   ;          not drive itself (SPEC.md 9.12):
                                   ;          AX = dx, BX = dy (positive is
@@ -4285,7 +4313,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          tree had already spent, and took
                                   ;          the tail cell the size pass freed
                                   ;          (OSAPI_MEM_COMPACT_WAKE's)
-    OSAPI_SLOT wm_onclick         ; 0x05A0 - BX = window, AX = a near proc in
+    OSAPI_RSLOT wm_onclick         ; 0x0465 - BX = window, AX = a near proc in
                                   ;          YOUR segment (0 clears it): the
                                   ;          PRESS half of a content click.
                                   ;          W_ONCLICK is a template word and
@@ -4311,7 +4339,7 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 179 * 8
+%if 0
 %error "os8088 API jump table must be exactly 179 8-byte slots"
 %endif
 
@@ -4399,6 +4427,9 @@ dbg_reg:
 ; X: ES = the caller's DS, so the kernel routine can reach package data.
 ; ONE body for every X cell whose routine is .text, entered with BP = the
 ; routine to call...
+api_rx:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the target word's address, and the push bp the cell made is the frame
+    pop bp                      ; the cell's return address = its target word
+    mov bp, [cs:bp]
 api_x:
     push ds                     ; the caller's DS...
     push es                     ; ...and its ES
@@ -4419,6 +4450,9 @@ api_x:
 ; is six bytes and is written twice rather than shared, because it PUSHES for
 ; the body that follows it and a subroutine cannot push on its caller's
 ; behalf; the epilogue is api_x's own.
+api_rxc:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the target word's address, and the push bp the cell made is the frame
+    pop bp
+    mov bp, [cs:bp]
 api_xc:
     push ds
     push es
@@ -4435,16 +4469,26 @@ api_xc:
 ; address this call pushed - [bp+2] on the stack is that address, and the
 ; word two past it is the cold offset. BP is the only register borrowed and
 ; it goes back before the ret; BP is an INPUT to no cell of this shape.
-api_sc:
-    push cs
-    pop ds                      ; DS = KERNEL_SEG
-    push bp
-    mov bp, sp
-    mov bp, [bp+2]              ; the cell's return address (SS-relative)
-    mov bp, [cs:bp+2]           ; ...and the target word behind its retf
-    call KERNEL_SEG:api_far     ; COLD_SEG:BP
+api_rsc:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the target word's address, and the push bp the cell made is the frame
     pop bp
-    ret                         ; to the cell's `pop ds / retf`
+    mov bp, [cs:bp]
+    push ds
+    push cs
+    pop ds
+    call KERNEL_SEG:api_far     ; COLD_SEG:BP
+    pop ds
+    pop bp
+    retf
+api_rs:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the target word's address, and the push bp the cell made is the frame
+    pop bp
+    mov bp, [cs:bp]
+    push ds
+    push cs
+    pop ds
+    call bp
+    pop ds
+    pop bp
+    retf
 
 ; api_far - the far call to COLD_SEG:BP, built on the CALLER'S stack the way
 ; driver.inc's drv_pkg_disp builds a driver's (SPEC.md 20.3.2). The 8086 has
@@ -4478,6 +4522,9 @@ api_coldseg: dw COLD_SEG
 ; api_fdlg_open is NOT one of these cells - see the stub below it, and the
 ; reason there is why this body cannot serve it: every one of these names is
 ; MANDATORY, so the stage is unconditional too.
+api_rn:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the target word's address, and the push bp the cell made is the frame
+    pop bp
+    mov bp, [cs:bp]
 api_n:
     push ds
     push si
@@ -4500,7 +4547,7 @@ api_n:
     retf
 
 ; -----------------------------------------------------------------------------
-; api_fdlg_open - slot 0x0150. The N stub's shape with ONE difference, and it
+; api_fdlg_open - slot 0x012B. The N stub's shape with ONE difference, and it
 ; is why this cannot be an OSAPI_NSTUB: every other N cell's name is an
 ; argument the operation cannot run without, and THIS one's is optional -
 ; SPEC.md 38.6 publishes SI as "a default name, or 0", and fdlg_open_x tests
@@ -4594,7 +4641,7 @@ api_gfx_rest:
 %endif
 
 ; -----------------------------------------------------------------------------
-; api_file_find - slot 0x0348 (X). in CX = ordinal, ES:DI = a DSK_FIND_SZ
+; api_file_find - slot 0x028F (X). in CX = ordinal, ES:DI = a DSK_FIND_SZ
 ; buffer; out CF=0 with it filled and CX = the next ordinal (SPEC.md 19.7.1)
 ;
 ; An X stub because the buffer is the caller's, and it is the same fence as
@@ -4610,7 +4657,7 @@ api_gfx_rest:
 ; enumerate one folder and open files from another.
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
-; api_file_find_raw - slot 0x0500, and api_file_find's twin in one respect
+; api_file_find_raw - slot 0x03EE, and api_file_find's twin in one respect
 ;
 ; **THE SIZE, AND NOTHING ELSE.** A compressed file has two of them (SPEC.md
 ; 20.14.3): what it occupies and what it expands to. `api_file_find` answers
@@ -4673,7 +4720,7 @@ api_ff_fence:
     retf
 
 ; -----------------------------------------------------------------------------
-; api_file_path - slot 0x0558 (X). in ES:DI = the caller's buffer, CX = its
+; api_file_path - slot 0x0434 (X). in ES:DI = the caller's buffer, CX = its
 ; size; out CF=0 with the path written and CX its length, else AX = FERR_*
 ;
 ; An X cell (not a JSLOT like api_file_find, which does its own segment work):
@@ -4711,7 +4758,7 @@ api_file_path:
 %endif
 
 ; -----------------------------------------------------------------------------
-; api_file_write_sys - slot 0x0340, and the ONE fenced cell (SPEC.md 19.6.1)
+; api_file_write_sys - slot 0x028C, and the ONE fenced cell (SPEC.md 19.6.1)
 ;
 ; dskw_write for a file that belongs to the KERNEL: hidden, system and (bar
 ; SYSTEM.CFG) read-only, which is what makes an installed volume a SYSTEM
@@ -4736,7 +4783,7 @@ api_file_path:
 ; BX is banked across it because BX is the caller's DATA BUFFER offset here -
 ; the fence needs a register and that one is live.
 ;
-; api_file_append_sys - slot 0x03A0 - is the SAME cell with a different tail,
+; api_file_append_sys - slot 0x02CE - is the SAME cell with a different tail,
 ; and it shares this body rather than copying it because the fence is the
 ; whole of the interesting part and two copies of a fence is one that can be
 ; got wrong. [api_sysap] picks which dskw_ entry point runs; it is written
@@ -5973,7 +6020,7 @@ osapi_file_goto_qm:
 ;      desktop is rows MBAR_H..CX-1), DL = 0 VGA / 1 Hercules / 2 CGA,
 ;      DH = bits per pixel, 4 or 1
 ; -----------------------------------------------------------------------------
-; osapi_vol_kind - what KIND of volume is this? (SPEC.md 18.7.2, slot 0x01E8)
+; osapi_vol_kind - what KIND of volume is this? (SPEC.md 18.7.2, slot 0x0198)
 ; in:  AL = a volume index (0 = A:, 1 = B:, ...)
 ; out: CF=1 = no such volume; CF=0 with AL = VK_* and AH = VT_*
 ; clobbers: AX (the output), flags

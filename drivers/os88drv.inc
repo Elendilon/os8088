@@ -510,7 +510,7 @@ FSV_SIZE     equ 30
 ;      frees your image the moment detach returns, and a worker still on the
 ;      run queue leaves the scheduler holding a stack frame whose CS points
 ;      at memory the next heap claim takes.
-%define OSAPI_DRV_TASK      KERNEL_SEG:0x0248
+%define OSAPI_DRV_TASK      KERNEL_SEG:0x01E2
 
 ; --- volumes a DRVC_DISK driver mounts (SPEC.md 18.7/51.8) -------------------
 ; A volume is a small INDEX - 0 = A:, 1 = B:, 2 = C: - and the desktop zone,

@@ -409,7 +409,7 @@ menu_activate:
     ret
 
 ; -----------------------------------------------------------------------------
-; menu_owner - who is the ACTIVE APPLICATION? (API 0x02B8, SPEC.md 12/12.6)
+; menu_owner - who is the ACTIVE APPLICATION? (API 0x0232, SPEC.md 12/12.6)
 ; in:  nothing
 ; out: BX = the window owning the menu bar, 0 = Locator. Every other
 ;      register, and FLAGS, preserved.
@@ -430,7 +430,7 @@ menu_owner:
     ret
 
 ; -----------------------------------------------------------------------------
-; menu_win_set - attach an app menu set to a window (API 0x0148, SPEC 12.2)
+; menu_win_set - attach an app menu set to a window (API 0x0125, SPEC 12.2)
 ; in:  BX = window ptr, SI = menu set ptr (0 = no menus of its own)
 ; out: nothing (all registers preserved, FLAGS INCLUDED)
 ;

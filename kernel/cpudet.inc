@@ -45,7 +45,7 @@
 ; cpu_detect is BOOT OVERLAY (SPEC.md 2.5): it runs once from kmain, first
 ; thing, before sched_init hooks an ISR and before anything may key off the
 ; tier, and is then written over by the first mount's FAT. Only cpu_info stays
-; in .text: it is API slot 0x0188 and answers all session. Both are plain 8086
+; in .text: it is API slot 0x015C and answers all session. Both are plain 8086
 ; code - cpu_detect by necessity, since it runs before the tier it publishes
 ; is known.
 ; =============================================================================
@@ -104,7 +104,7 @@ cpu_feat        db 0            ; CPU_F_* - what actually verified, as
 section .ovlw                   ; the boot overlay (SPEC.md 2.5): runs once from
                                 ; kmain and is written over by the first
                                 ; mount. cpu_info stays resident below: it is
-                                ; API slot 0x0188 and answers all session
+                                ; API slot 0x015C and answers all session
                                 ; long. Nothing here calls out of the overlay
                                 ; and nothing here has data of its own -
                                 ; cpu_tier and cpu_feat are .text, written
@@ -218,7 +218,7 @@ cpu_detect:
 
 
 ; -----------------------------------------------------------------------------
-; cpu_info - the published tier and feature bits (osapi slot 0x0188's body)
+; cpu_info - the published tier and feature bits (osapi slot 0x015C's body)
 ;
 ; in:       -
 ; out:      AL = CPU_8086 / CPU_286 / CPU_386, AH = feature bits (CPU_F_*)

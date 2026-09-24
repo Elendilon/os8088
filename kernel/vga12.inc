@@ -3597,7 +3597,7 @@ gfx_fill_gray_raw:                              ; only renderer gfx_fill_gray ha
 ; the wrong PLACE.
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
-; osapi_gfx_fill_pat - API slot 0x02B0's X body (SPEC.md 20.9)
+; osapi_gfx_fill_pat - API slot 0x022B's X body (SPEC.md 20.9)
 ; in:  AX/BX/CX/DX = the rect, ES:SI = the caller's 8 pattern bytes
 ; out: nothing; SI preserved
 ;
@@ -4696,7 +4696,7 @@ gfx_unlock:
 
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
-; gfx_scroll - vertical scroll blit (SPEC.md 5.5; API slot 0x01E0)
+; gfx_scroll - vertical scroll blit (SPEC.md 5.5; API slot 0x0192)
 ;
 ; in:       AX = x1, BX = y1, CX = x2, DX = y2 (inclusive, absolute screen
 ;           coords), SI = dy SIGNED: positive moves the rect's content UP dy

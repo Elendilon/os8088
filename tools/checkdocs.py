@@ -100,7 +100,7 @@ RULE_REFS = {"1.6", "1.7", "29.2.8", "45", "49"}
 # (18.7.2). Both are published names again, so prose naming either number is
 # checkable the ordinary way. Put a number back here only for a cell the SDK
 # deliberately does not define, and say which section retired it.
-HELD = set()
+HELD = {"0x01b8", "0x01c0", "0x01c8", "0x0288", "0x02e0", "0x0308", "0x0318", "0x0568"}  # PROTOTYPE: retired by the compaction
 
 # --- 4. THE TRANSPARENT-TEXT TOTALS, which are prose about a FILE ------------
 #

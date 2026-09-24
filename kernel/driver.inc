@@ -359,8 +359,8 @@ DSV_CAPS    equ 0               ; dw: capability bits it ADDS (SND_CAP_*)
                                 ; ...OR, on a DRVC_FILE driver, FSCAP_* below:
                                 ; one word, read per class, and the two
                                 ; classes can never both own it
-DSV_FM      equ 2               ; dw: near proc behind slot 0x00F8, 0 = none
-DSV_STREAM  equ 4               ; dw: near proc behind slot 0x0100, 0 = none
+DSV_FM      equ 2               ; dw: near proc behind slot 0x00EA, 0 = none
+DSV_STREAM  equ 4               ; dw: near proc behind slot 0x00F1, 0 = none
 DSV_TICK    equ 6               ; dw: near proc called from snd_tick, 0 = none
 DSV_RELINST equ 8               ; dw: near proc, release one instance's grants
 DSV_NAME    equ 10              ; dw: -> a NUL sink name, in ITS segment

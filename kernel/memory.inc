@@ -359,7 +359,7 @@ MEM_P_DIRW  equ MEM_PG_HIGH<<8 | 0x02   ; the directory read-ahead window:
 
 MEM_PARA_KB equ 64              ; paragraphs per KB
 
-; --- osapi_claim_snapshot's buffer, API slot 0x02A0 (SPEC.md 20.9) ----------------
+; --- osapi_claim_snapshot's buffer, API slot 0x021F (SPEC.md 20.9) ----------------
 ; The three fields of a claim record that mean anything outside this module.
 ; MC_DMA is not one of them: it is how a claim that MOVES keeps the page
 ; property it was granted for, and nothing outside can move a claim.
@@ -369,7 +369,7 @@ CLS_OWN    equ 4                ; word: owner (SPEC.md 50.2)
 CLS_RECSZ  equ 6
 CLAIM_SNAPSHOT_SIZE equ MEM_MAX * CLS_RECSZ
 
-; --- osapi_sys_kb's buffer, API slot 0x02A8 (SPEC.md 20.9) --------------------
+; --- osapi_sys_kb's buffer, API slot 0x0225 (SPEC.md 20.9) --------------------
 ; The kernel's own footprint broken into its parts, then the heap's totals.
 ; The parts sum to SK_KERN exactly - see the routine at the foot of this file
 ; for how the rounding is arranged so that they do, and why none of them is a
@@ -4128,7 +4128,7 @@ osapi_mem_movable_x:
 
 %ifdef OS88_COMPACT
 ; -----------------------------------------------------------------------------
-; osapi_mem_compact - API slot 0x0590: MY OWN REGION IN THE PASS (SPEC.md 66.4.3)
+; osapi_mem_compact - API slot 0x0458: MY OWN REGION IN THE PASS (SPEC.md 66.4.3)
 ; in:  AH = the verb, ES = the caller's segment (the X stub's own contract):
 ;        MEMC_WHATIF (0): AL = a purge level, exactly as OSAPI_MEM_AVAIL_LVL's
 ;        MEMC_POST   (1): BX = a window of yours, AL = the shed rank the pass
@@ -4285,66 +4285,6 @@ mmf_osapi_mem_floor:
 ; A package built against main's SDK runs on this kernel unchanged; one built
 ; against this SDK uses the KB slots directly (SPEC.md 50.3).
 ; -----------------------------------------------------------------------------
-osapi_cm_alloc_x:
-    push cx
-    push dx
-    add ax, 63                  ; paragraphs -> KB, rounded up; 0 asks for
-    jc .refuse                  ; 1KB (main's "0 is rounded up to 1"), and a
-    mov cl, 6                   ; carry is >0xFFC0 paragraphs - nothing that
-    shr ax, cl                  ; big exists below 1MB
-    or ax, ax
-    jnz .ask
-    inc ax
-.ask:
-    call osapi_mem_claim_x        ; CF/DX by the heap's rules, ES the identity
-    jc .refuse
-    mov ax, dx                  ; main's contract: AX = the base segment
-    pop dx
-    pop cx
-    retf
-.refuse:
-    xor ax, ax                  ; main's failure codes: 0 = no arena at all,
-    mov dx, [mem_top]           ; 1 = no record, 2 = no run. The heap does
-    cmp dx, [mem_base]          ; not tell 1 from 2 apart (and no shipped
-    je .code                    ; caller ever did): 2, or 0 on a machine
-    mov ax, 2                   ; whose heap is empty
-.code:
-    pop dx
-    pop cx
-    stc
-    retf
-
-osapi_cm_free_x:
-    push dx                     ; in: AX = the base segment; out: CF, with
-    mov dx, ax                  ; AX preserved - main's contract, so the
-    call osapi_mem_free_x         ; heap's DX-in shape is hidden here
-    pop dx
-    retf
-
-osapi_cm_caps_x:
-    push cx
-    push si
-    mov ch, bh                  ; BH survives in CH (CX itself is banked)
-    call mem_avail_x              ; AX = largest free KB, BX = total free KB
-    mov dx, bx
-    mov cl, 6
-    shl ax, cl                  ; KB -> paragraphs: a 640KB heap is 0xA000
-    shl dx, cl                  ; paragraphs, so the shifts never carry
-    xor bx, bx                  ; BL = free claim records (main: free
-    mov si, mem_tab             ; block-table entries)
-.rec:
-    cmp word [ss:si+MC_SEG], 0
-    jne .used
-    inc bx
-.used:
-    add si, MC_SIZE
-    cmp si, mem_tab + MEM_MAX*MC_SIZE
-    jb .rec
-    mov bh, ch                  ; the caller's BH back (BL <= MEM_MAX)
-    pop si
-    pop cx
-    retf
-
 ; -----------------------------------------------------------------------------
 ; mem_own - the calling package's owner word (module-internal)
 ; in:  ES = the caller's segment, stamped by the API stub
@@ -4473,7 +4413,7 @@ mem_own_drv:
     ret
 
 ; =============================================================================
-; osapi_claim_snapshot - API slot 0x02A0: the whole claim table into the caller's
+; osapi_claim_snapshot - API slot 0x021F: the whole claim table into the caller's
 ;                    buffer (SPEC.md 20.9/50.5)
 ;
 ; in:  ES:DI = a CLAIM_SNAPSHOT_SIZE buffer the caller owns
@@ -4520,7 +4460,7 @@ osapi_claim_snapshot_x:
     ret
 
 ; =============================================================================
-; osapi_sys_kb - API slot 0x02A8: what the KERNEL occupies and what the heap
+; osapi_sys_kb - API slot 0x0225: what the KERNEL occupies and what the heap
 ;                holds, in KB (SPEC.md 20.9/2/50)
 ;
 ; in:  ES:DI = a SYSKB_SIZE buffer the caller owns

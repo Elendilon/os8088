@@ -7,7 +7,7 @@
 ; dskw_read, dskw_delete, dskw_rename, dskw_dfree - are the whole surface,
 ; and read and write are ONE routine each: both take a far pointer and a
 ; 32-bit count, so there is no separate big-file entry point any more
-; (SPEC.md 18.4.1; its slot 0x01E8 has since gone to OSAPI_VOL_KIND),
+; (SPEC.md 18.4.1; its slot 0x0198 has since gone to OSAPI_VOL_KIND),
 ; for the OS and for packages alike (they ARE the API cells 0x0120..0x0140,
 ; SPEC.md 20.3): whole files, by name, in the volume's CURRENT directory
 ; (SPEC.md 19.2 - [dsk_cwd], which dsk_chdir moves). No handles, no seek,
@@ -214,7 +214,7 @@ dskw_pmask:
     ret
 
 ; -----------------------------------------------------------------------------
-; dskw_write - create or replace a whole file (SPEC.md 18.4, slot 0x0120)
+; dskw_write - create or replace a whole file (SPEC.md 18.4, slot 0x010A)
 ; in:  SI -> NUL-terminated 8.3 name, ES:BX -> the bytes, DX:CX = byte count
 ;      (32-bit, DX high; 0 = an empty file)
 ; out: CF=0, AX = 0; CF=1, AX = FERR_*
@@ -282,7 +282,7 @@ dskw_write_sys_x:
     jmp short dskw_write_x      ; ...which clears it again on the way out
 
 ; -----------------------------------------------------------------------------
-; dskw_read - read a whole file by name (SPEC.md 18.4, slot 0x0128)
+; dskw_read - read a whole file by name (SPEC.md 18.4, slot 0x0110)
 ; in:  SI -> name, ES:BX -> destination, DX:CX = its capacity in bytes
 ;      (32-bit, DX high)
 ; out: CF=0, DX:AX = bytes read (the file's 32-bit size); CF=1, AX = FERR_* -
@@ -319,7 +319,7 @@ dskw_read_x:
     ret
 
 ; -----------------------------------------------------------------------------
-; dskw_delete - delete a file by name (SPEC.md 18.4, slot 0x0130)
+; dskw_delete - delete a file by name (SPEC.md 18.4, slot 0x0116)
 ; in:  SI -> name
 ; out: CF=0, AX = 0; CF=1, AX = FERR_*
 ; clobbers: AX (the output), CF
@@ -329,7 +329,7 @@ dskw_delete_x:
     jmp short dskw_wrap7
 
 ; -----------------------------------------------------------------------------
-; dskw_rename - rename a file in place (SPEC.md 18.4, slot 0x0138)
+; dskw_rename - rename a file in place (SPEC.md 18.4, slot 0x011C)
 ; in:  SI -> old name, DI -> new name
 ; out: CF=0, AX = 0; CF=1, AX = FERR_*
 ; clobbers: AX (the output), CF
@@ -362,7 +362,7 @@ dskw_wrap7:
     ret
 
 ; -----------------------------------------------------------------------------
-; dskw_dfree - free space on the mounted volume (SPEC.md 18.4, slot 0x0140)
+; dskw_dfree - free space on the mounted volume (SPEC.md 18.4, slot 0x011F)
 ; in:  nothing
 ; out: CF=0, DX:AX = free bytes, BX = SECTORS per cluster (spc*512 overflows
 ;      16 bits at the SPEC.md 18.2-legal spc = 128); CF=1, AX = FERR_*
@@ -2795,7 +2795,7 @@ dskw_read_at_x:
 ; out: CF=0 with AX=0; CF=1 with AX = FERR_*
 ; clobbers: AX (the output), CF
 ;
-; dskw_append - add CX bytes to the END of a file (SPEC.md 18.4.4, slot 0x0350)
+; dskw_append - add CX bytes to the END of a file (SPEC.md 18.4.4, slot 0x0292)
 ; in:  SI -> a NUL 8.3 name, ES:BX -> the bytes, CX = count (>= 1)
 ; out/clobbers: dskw_write_at's
 ;
