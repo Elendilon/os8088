@@ -167,8 +167,17 @@ def run(image, apps, machine, defines, tree=None):
                                                               gifname()),
                                                 card=0))
         mo.dblclick(rx, ry)
+        # Paint's window, the drive going quiet, then the glass - a decode
+        # holds the screen still, so a settle alone can end inside one
+        try:
+            os88marty.until(m, lambda _: any(w != disk for w in
+                                             dispcp.win_list(m, S)),
+                            "Paint's window", poll=0.2, limit=60)
+        except os88marty.MartyError:
+            pass
+        os88marty.quiesce(m, lambda: m.disk().get("reads"), guest=1.0,
+                          stable=3, what="the picture to load")
         settle(m, card=0, limit=300.0)
-        os88marty.pace(m, 4)
         pw = [w for w in dispcp.win_list(m, S) if w != disk][-1]
         wx, wy, ww, wh = dispcp.win_rect(m, S, pw)
 
@@ -178,8 +187,8 @@ def run(image, apps, machine, defines, tree=None):
         mo.drag(wx + ww // 2, wy + TITLE_H // 2,
                 tgt + ww // 2, wy + TITLE_H // 2)
         settle(m, card=0, limit=300.0)
-        os88marty.pace(m, 4)
-        wx2, wy2 = dispcp.win_rect(m, S, pw)[:2]
+        wx2, wy2 = os88marty.quiesce(m, lambda: dispcp.win_rect(m, S, pw),
+                                     guest=0.5, what="the dragged window")[:2]
         if not (wx2 < seam < wx2 + ww):
             sys.exit("blitcut: the window ended at x=%d, which does not "
                      "straddle the seam at %d" % (wx2, seam))

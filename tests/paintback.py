@@ -153,9 +153,24 @@ def run(a, case, iw, ih, px, sym):
         mo.to(rx, ry)
         settle(m, card=pcard)
         mo.dblclick(rx, ry)
-        # GUEST time, and a pause rather than a settle: a decode holds the
-        # screen perfectly still for as long as it runs
-        os88marty.pace(m, 10)
+        # NOT a settle first: a decode holds the screen perfectly still for as
+        # long as it runs. Paint's window, then its drive and its canvas
+        # going quiet, is the load being done - where this was a blind 45
+        # guest seconds - and the settle after it is the paint
+        def _paint():
+            return [w for w in dispcp.win_list(m, S)
+                    if w != disk and win_title(m, w) == "Paint"]
+        try:
+            os88marty.until(m, lambda _: bool(_paint()), "Paint's window",
+                            poll=0.2, limit=60)
+        except os88marty.MartyError:
+            pass                        # ...the title check below says so
+        if _paint():
+            b0 = pkg_base(m, _paint()[-1])
+            os88marty.quiesce(m, lambda: (m.disk().get("reads"),) + tuple(
+                bytes(m.read(b0 + sym[n], 2)) for n in
+                ("pt_cw", "pt_ch", "pt_planar", "pt_cx0", "pt_cy0")),
+                guest=1.0, stable=3, what="the picture to load")
         settle(m, card=pcard)
 
         # ...and find it. gfx_blitp is the tell for a planar canvas, but on the
@@ -222,7 +237,9 @@ def run(a, case, iw, ih, px, sym):
             except os88marty.MartyError:
                 pass                    # ...and a miss is reported below
         else:
-            os88marty.pace(m, 10)       # nothing to wait on in this build
+            os88marty.quiesce(          # no conversion flag in this build
+                m, lambda: m.read(base + sym["pt_planar"], 1)[0], guest=1.0,
+                what="Paint's canvas format")
         settle(m, card=vcard)
         back = m.read(base + sym["pt_planar"], 1)[0]
         nest = m.read(S("gfx_dnest"), 1)[0]
