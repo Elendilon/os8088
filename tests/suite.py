@@ -6326,6 +6326,27 @@ SOAK = [
         "same job and got it wrong (52.10.13.1); tests/instdeep.py is that "
         "half",
         needs=("marty",), serial=True, wants=("build/hello.o88",)),
+    Row("lzbig", "soak", py("tests/lzbig.py"), 140.0,
+        "SPEC.md 20.15.4 and 22.22.4: File > Compress and Uncompress on "
+        "files PAST 64KB, which used to answer 'Too large'. The machine's "
+        "file against os88lz.lzb_compress_machine's BYTE FOR BYTE, as "
+        "tests/lzcomp.py does for small ones: BIG1.TXT (100KB, packs under "
+        "64KB) slides the encoder's source; BIG2.TXT (160KB, packs to 86KB) "
+        "slides both sides, and its Uncompress hands the transparent read a "
+        "'CZ' file whose PACKED bytes cross a segment - the decoder's "
+        "checkpoint (20.14.5.1), which no shipped file reaches because every "
+        "one is LZ4 and packed under 64KB. TAIL.DAT is text then 70KB of "
+        "noise: a raw tail the T word cannot count, refused as `Its end "
+        "won't compress` with the file untouched, and the mirror is asked "
+        "first so the fixture cannot drift into testing nothing. Both big "
+        "files then round-trip to the original bytes. It went red twice "
+        "while it was written, on real defects: a write handed a segment "
+        "as its count's high word (FERR_BIG, said as 'Too large'), and a "
+        "tail length whose low byte a shift count overwrote (12 bytes of "
+        "junk past a zero-length tail, which the decoder then refused). A "
+        "1.44MB XT (os8088_xt_vga_144): the fixtures are 330KB and every "
+        "720KB profile here is 40-cylinder",
+        needs=("marty",), serial=True, wants=("build/os8088.img",)),
     Row("lzmod", "soak", py("tests/lzmod.py"), 30.0,
         "SPEC.md 20.14.5: BEVERLY.MOD, COMPRESSED, opened by a double-click. "
         "The file this whole feature is for - 116,085 bytes is 114 of a 360KB "

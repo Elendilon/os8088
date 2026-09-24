@@ -38907,8 +38907,10 @@ defect, as the `image + bss` carry fence one test along (§21 step 4).
           past the declared length was written
 ```
 
-The **output crosses 64KB and the input does not** — §20.14.5 is why, and what
-each half costs.
+The **output crosses 64KB and, through this cell, the input does not** —
+§20.14.5 is why. The kernel's own file read has a second door that takes
+`AH:CX`, 24 bits of input, for an LZB stream (§20.14.5.1); the cell's contract
+is unchanged, and `AH` is not an input to it.
 
 **It is a plain `OSAPI_JSLOT` and not an X or N cell**, and the reason is that
 the decompressor **reads no kernel data at all**. Every other cell needs
@@ -39308,9 +39310,10 @@ Four refusals fall out of the shape and each is checked rather than assumed:
 - **the destination must be paragraph-aligned.** `lz_decomp_x` requires
   `DI = 0` (§20.13.3), so a buffer whose offset is not a multiple of 16 is
   `FERR_PROT`. Every caller in the tree hands over a claim's base;
-- **a packed size of 64KB or more is `FERR_IO`.** That is the decoder's
-  *source* limit (§20.14.5), and a file that compressed that badly is one
-  `os88lz.py` stores plain instead;
+- **a packed size of 64KB or more is accepted for LZB and is `FERR_IO` for
+  LZ4** — the decoder's *source* crosses a segment for the first and not the
+  second (§20.14.5.1), so the refusal comes from the decoder rather than from
+  a size test here;
 - **`R` past a megabyte is `FERR_BIG`** — not an address in this machine, and
   the one piece of the arithmetic below that could otherwise wrap;
 - **a hint claiming an expansion no larger than the file** is `FERR_IO`: a
@@ -39484,18 +39487,66 @@ the wrapped `DI` needs no arithmetic of its own. Three consequences:
 The expected output length is therefore **`BX:DX`, 32 bits**, and the frame
 counts **what is left to produce** rather than where the end is.
 
-**The input does NOT cross, and that is a decision.** `CX` stays 16 bits and
-`SI + CX` wrapping is refused at entry, which keeps the tail bound a plain
-offset in one segment — and that compare is tested once per symbol and is the
-hottest one in the routine. What it costs is that a file which compresses to
-64KB or more is stored plain; `cz_wrap` enforces the same rule at the other
-end. A file that compressed that badly was not worth the decode time anyway.
+**The input did NOT cross, and that was a decision** — kept for LZ4 and
+reversed for LZB by §20.14.5.1. `SI + CX` wrapping was refused at entry, which
+kept the tail bound a plain offset in one segment, and that compare is tested
+once per symbol and is the hottest one in the routine. The reversal keeps the
+compare exactly as it is and changes what it means.
 
 The fast path pays **two carries per copy** for all of this, in the one copy
 routine both arms share, and a 32-bit remaining counter in place of a 16-bit
 end compare. The crossing itself is a byte loop: it is one symbol per 64KB of
 output, so a few hundred cycles once per segment against sixty bytes of
 kernel for ever.
+
+##### 20.14.5.1 …and an LZB INPUT crosses too, at a checkpoint
+
+**A file that packs to 64KB or more used to be stored plain**, which was a
+fine rule for the build — nothing it ships packs that badly — and a wrong one
+for `Compress` (§22.22), which is somebody asking for a *200KB* document to be
+made smaller and being told `Too large`. So the decoder's source crosses a
+segment now, and **the hot path does not gain an instruction**.
+
+**The tail bound became a CHECKPOINT.** `LZ_F_TSI` is still the one source
+bound both arms test, with the same `cmp si, [bp+LZ_F_TSI]` at the head of
+every symbol; what changed is what is in it. The frame carries where the tail
+begins as a **32-bit offset from the current `DS`**, and `LZ_F_TSI` is that
+offset when it is under `LZ_CHK` = `0xF000` and `LZ_CHK` when it is not.
+`SI` reaching it goes down the arm's end path — which was already out of line,
+being where the stream used to finish — and there `lz_at` **slides `DS` up by
+a fixed 32KB** while `SI` is in the top half of its segment, takes the same
+constant off the tail's offset, re-arms the checkpoint, and answers the arm's
+own three-way compare: *below* is more symbols, *equal* is the tail, *above*
+is a stream that ran past it. A 100KB stream takes the detour three times; a
+40KB one takes it once, at its tail, exactly where it always stopped. The
+entry arms `LZ_F_TSI` at 0, so the first symbol arms it for real.
+
+**The 4KB above the checkpoint is the in-line budget.** Nothing an arm reads
+between two tests may carry `SI` past `0xFFFF`: an LZB symbol reads at most
+two gammas' worth of tag bytes and an offset byte, and a hostile stream that
+reads further only READS — every write is still bounded by `lz_take` and the
+match-offset test. A stream that slides past its own tail cannot reach it
+again and runs out of declared output instead, which `lz_take` refuses; there
+is no branch of its own for that case, and needs none.
+
+**LZ4 is still one segment of input**, refused at entry exactly where the old
+`add cx, si / jc` refused it. Its literal RUNS go through `lz_copy`, whose slow
+arm bumps `DS` by 64KB when `SI` wraps, and a bump there would leave the
+checkpoint describing a segment nobody is reading. LZB has no such run — its
+literals are single bytes and its matches read the output — and LZB is the
+format this machine writes (§20.15). `os88lz.cz_wrap` says the same thing on
+the host: an LZ4 packed form past 64KB is stored plain, and an LZB one is not.
+
+**The cell (§20.13.3) is unchanged** and zeroes `AH` on the way in; the file
+read enters one instruction later at `lz_decomp_big` with `AH:CX` = the
+stream's 24-bit length, and `dskw_rbody` no longer refuses a compressed file
+whose packed size is 64KB or more. **Cost: 94 bytes of `.cold`**, resident on
+both kernels (`kern_big` 40,220 → 40,314 and `kern_small` 26,028 → 26,122, no rung crossed on either), and **2 bytes of
+stack** — the frame is seven words where it was five, `lz_at`'s two pushes
+sitting shallower than `lz_match`'s chain. A multi-block container was the
+alternative and is still refused on §20.14.5's measurement: each block
+boundary throws the history away, which cost `BEVERLY.MOD` 44% of its win,
+and a container is a read-path change too.
 ##### 20.14.6 The hint is a CACHE, so the read path has a MISS path now
 
 §20.14 has said since it was written that a foreign tool may drop those four
@@ -39681,12 +39732,14 @@ this module.
 
 ```
 in:  AX = the SOURCE segment, the source at AX:0000
-     DX = the OUTPUT segment, the output at DX:0000, CX bytes of room
-     BX = a scratch segment of CMZ_TBL (8,192) bytes, at BX:0000
-     CX = the source's length, 1..0xFFFF
-out: CF=0 and AX = the packed length, which is < CX — a whole stream, T
-     word and raw tail included (§20.13.7)
-     CF=1 = it did not get smaller, and the output is undefined
+     DX = the OUTPUT segment, the output at DX:0000, SI:CX bytes of room
+     BX = a scratch segment: head[] 8KB and prev[] 2 x window, at BX:0000
+     DI = the window's mask, 1,023 to 16,383
+     SI:CX = the source's length, 32 bits (§20.15.4)
+out: CF=0 and DX:AX = the packed length, which is < SI:CX — a whole stream,
+     T word and raw tail included (§20.13.7)
+     CF=1, AX = 0: it did not get smaller, and the output is undefined
+     CF=1, AX = 1: the raw tail is over 64KB, which the T word cannot count
 ```
 
 **Segments and not pointers**, because the far pointer this is reached through
@@ -39710,9 +39763,8 @@ Over the seven files of docs/plans/O88-COMPRESSION-PLAN.md §13.11.0:
 | the host's shortest-path parse | 63.9% |
 
 so **re-compressing a shipped file gains 3.9 to 10.3 points**, which is what
-the verb is for. `BEVERLY.MOD` — 116,085 bytes — is the one file in that set the
-verb cannot reach at all: `CX` is 16 bits, so a source of 64KB or more is
-refused before anything is claimed.
+the verb is for. `BEVERLY.MOD` — 116,085 bytes — was the one file in that set
+the verb could not reach, `CX` being 16 bits; §20.15.4 is how it can now.
 
 **There is no lookahead**, and that is a measurement rather than an omission:
 at every work budget tried, a deeper chain without one beat a shallower chain
@@ -39788,6 +39840,46 @@ run rather than two. A verb somebody waits seconds for does not notice.
 The cloner is the right host and not merely the one with room: both are
 `files.inc` verbs on the system volume, both take a claim and run to
 completion, and neither is ever wanted while the other runs.
+
+#### 20.15.4 Any length: the parse SLIDES, and decides nothing differently
+
+`SI` and `DI` stay 16-bit offsets, and each is **slid back into the low half of
+its segment** when it passes 32KB, its segment moving up to match. Everything
+that is a length rather than an offset — the source's end, the bail limit, the
+lead the cut is chosen by — is carried 32 bits wide and **re-armed as the same
+16-bit compare** after each slide (`cmz_sarm`, `cmz_oarm`), so the loop tests
+exactly what it tested before and a file under 32KB never slides at all.
+
+- **The source slides by a multiple of 16KB** (`cmz_sslide`): `S = (SI − 16KB)`
+  rounded down to one, which leaves `SI` in `[16KB, 32KB)`. Sixteen KB is the
+  largest window the verb can choose and every window is a power of two, so
+  `position & mask` — the `prev[]` slot — is the same number before and after,
+  and the slide is one pass over `head[]` and `prev[]` taking `S` off every
+  position in them. **A position that would go below zero goes to `NIL`, and
+  that changes no decision**: it was already below `SI − mask`, the oldest the
+  window accepts, so the chain walk would have stopped there anyway. What it
+  costs is ~20,000 word updates once per 16KB of input, against a parse of
+  ~1,600 cycles a byte.
+- **The output slides by exactly 16KB** (`cmz_oslide`), which the open tag
+  byte — at most a symbol behind `DI` — survives.
+- **The cut is two FAR POINTERS** (`cmz_ksi:cmz_kds`, `cmz_kdi:cmz_kes`),
+  because either side may slide past it before the end; the lead it is chosen
+  by is `SI − DI` plus the difference of the two bases, 32 bits, and the
+  compare is the same strictly-greater one (§20.15.2). The tail is copied in
+  32KB pieces with both pointers normalised before each (`cmz_move`).
+- **No match is longer than `CMZ_MAXM` = 32,767**, which is the one thing a
+  slide asks of the parse: `SI` is under 32KB at every probe and `SI` plus a
+  match must stay inside the segment. It is the only change a slide makes to
+  the STREAM, and `os88lz.lzb_compress_machine` carries it, so the mirror is
+  still statement for statement and does no sliding of its own.
+
+**The one new refusal is the tail.** The `T` word is 16 bits, so a cut more
+than 64KB before the end — a file whose last 64KB or more is net-expanding,
+text followed by already-compressed data — has no stream. `cmz_pack` answers
+`CF=1, AX=1` and the verb says `Its end won't compress`; `os88lz._cut` raises
+for the same file. Taking a later peak would not help: the cut is the FIRST
+peak of the lead, and a later one of the same height would leave a tail just
+as long.
 
 ### 20.16 A package that DOES NOT SHIP says so in `apps/RETIRED.txt`
 
@@ -43782,7 +43874,8 @@ own on the `fm_ztab` table — the verb's, not `fm_errtab`'s, because those are
 |---|---|---|
 | a folder, or the parent link | nothing — a no-op, silently, exactly as Rename and Delete | the image, which is fetched to find out |
 | `CLONE.DRV` not on the system disk | `No disk` | the kernel — it is the one thing the image cannot say about itself |
-| 64KB or more, or a package region past `APP_MAX_SIZE` | `Too large` | the image |
+| over 16MB unpacked (the hint's 24 bits, §20.14.1), or a package region past `APP_MAX_SIZE` | `Too large` | the image |
+| a raw tail over 64KB (§20.15.4) | `Its end won't compress` | the image |
 | already stored LZB, or a package with a compression bit set | `Already compressed` | the image |
 | a package with PARTS, or whose `image` is not its file | `Cannot compress this one` | the image |
 | no claim, at any window size | `Not enough memory` | the image |
@@ -43887,6 +43980,26 @@ not exist, and the space it needs is `P`, not a second copy. `dskw_czstamp`
 then derives the directory hint from the bytes (§20.14.4), so the verb writes
 no hint of its own.
 
+#### 22.22.4 Any size the machine can hold
+
+**The 64KB ceiling is gone, and it was never the write's.** `dskw_write_x`
+has taken `DX:CX` since §18.4.1; what stopped at a segment was the verb's own
+16-bit bookkeeping, the encoder's `CX` (§20.15.4) and the decoder's source
+(§20.14.5.1) — so a file packing to 64KB or more could not be read back even
+if it had been written. Every size in the verb is 32 bits now: `U`, `P` and
+the packed length, the read's check that it got what the entry promised, the
+widget's scale, the `'CZ'` header's `U` and the write's count. The percentage
+shifts both sizes right together until the old one is a word, which loses
+nothing two digits can show.
+
+**What bounds it is MEMORY, and the claim says so.** §22.22.2's one block is
+`2·U + tables`, so a 640KB machine with ~440KB of heap free compresses a file
+up to about 200KB and answers `Not enough memory` above that; a 128KB machine
+reaches ~20KB. `U` over 16MB is `Too large` before anything is claimed — the
+directory hint that tells every reader what a file expands to is 24 bits
+(§20.14.1), and no heap here could hold one that big anyway. A **package**
+stays under 64KB by `APP_MAX_SIZE` and is refused past it in its own words.
+
 ### 22.23 `Uncompress` — and it is the same module
 
 The other half of §22.22, and since the second size pass it lives in the
@@ -43939,7 +44052,6 @@ the hint, and `U` is enough (§20.14.2).
 |---|---|
 | a folder, or the parent link | nothing — a no-op, silently, exactly as `Compress` |
 | no `'CZ'` mark and no package compression bit | `Not compressed` |
-| 64KB or more unpacked | `Too large` |
 | an `image` no bigger than the file it is packed into | `Cannot expand this one` |
 | a stream `lz_decomp_x` refuses, or one that produces the wrong length | `Cannot expand this one` |
 | either claim | `Not enough memory` |
@@ -43955,6 +44067,16 @@ The **flag bits are cleared on the expanded copy** before it is written — bits
 `ld_check_hdr` reads without a decoder, and `dskw_czstamp` clears the
 directory hint on the `'CZ'` arm for the same reason and by the same route it
 sets one: it looks at the bytes.
+
+#### 22.23.4 Any size, for §22.22.4's reasons
+
+The `'CZ'` arm is a transparent read and a write, and neither has had a 64KB
+ceiling since §18.4.1 — the verb's `Too large` was its own 16-bit
+bookkeeping, and a packed form past 64KB could not have been read anyway until
+the decoder's input crossed (§20.14.5.1). The claim is `U` rounded up, so a
+file expands if the heap holds `U`. A package is under 64KB by construction,
+and one longer than that on the disk is not a compressed package and is
+`Not compressed` without being read.
 
 
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)

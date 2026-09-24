@@ -1863,12 +1863,11 @@ dskw_rbody:
     mov cl, [dskw_raw+DSK_R_CZM]        ; the hint: the mark LESS its format,
     sub cl, DSK_CZ_MARK                 ; so 0x5A and 0x5B pass and nothing
     cmp cl, LZ_LZB                      ; else (SPEC.md 20.14.1)
-    ja .sizes                           ; a plain file becomes what it is
-    or dx, dx
-    jnz .czbad                          ; P past 64KB cannot be one of ours:
-                                        ; the decoder's source is one segment
-                                        ; (SPEC.md 20.14.5), and a file that
-                                        ; compressed so badly is stored plain
+    ja .sizes                           ; a plain file becomes what it is.
+                                        ; P PAST 64KB IS FINE: the decoder's
+                                        ; source crosses too (SPEC.md
+                                        ; 20.14.5.1), and the hint's U being
+                                        ; bigger than P is checked below
     mov ax, [dskw_raw+DSK_R_CZL]        ; U, 24 bits out of the hint. A hint
     mov dl, [dskw_raw+DSK_R_CZH]        ; no bigger than the file it describes
     mov dh, 0                           ; has drifted from it, and it is caught
@@ -2152,9 +2151,11 @@ dskw_czexp:
     mov dx, [dskw_uz]           ; every kernel word FIRST, while DS reaches
     mov bx, [dskw_uzhi]         ; them: BX:DX = the 32-bit expected output...
     mov cx, [dskw_len]
-    sub cx, DSK_CZ_HDR          ; ...CX = the stream, past the header (a file
-                                ; shorter than the header wraps CX, and the
-                                ; decoder refuses a source that wraps)...
+    mov ax, [dskw_lenhi]        ; ...AH:CX = the stream, past the header, 24
+    sub cx, DSK_CZ_HDR          ; bits (SPEC.md 20.14.5.1). P is under the
+    sbb al, 0                   ; hint's U, so the top byte is all there is -
+    jc .bad                     ; and a file shorter than the header borrows
+    mov ah, al                  ; out of it and is refused here...
     mov es, [dskw_czseg]        ; ...ES:0 = where it expands: source and
     xor di, di                  ; destination are one buffer, the packed bytes
                                 ; R paragraphs up and the expansion walking
@@ -2166,7 +2167,7 @@ dskw_czexp:
     jne .bad
     mov al, [si+2]              ; the format, which the decoder checks
     add si, DSK_CZ_HDR
-    call lz_decomp_x
+    call lz_decomp_big          ; ...AH being the length's top byte
     pop ds
     ret
 .bad:
