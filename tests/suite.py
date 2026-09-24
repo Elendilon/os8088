@@ -2277,8 +2277,11 @@ SOAK = [
         "expensive sea from a quantised one: it is slow AND halted, which no "
         "content can produce. The other three modes are the control and are "
         "counted off [sv_due], which cannot see a re-anchored mode - so they "
-        "catch a mode that stopped drawing and not one that was quantised.",
-        needs=("marty",), serial=True, alone=True),
+        "catch a mode that stopped drawing and not one that was quantised. "
+        "It shares the lane: both figures are guest counters over "
+        "m.advance(cycles=) windows, and its one host deadline (the saver "
+        "starting) is an until() on guest time.",
+        needs=("marty",), serial=True),
     Row("deskbench", "soak", py("tests/deskbench.py"), 180.0,
         "THE STANDARD BUSY DESKTOP, priced: what a full-screen redraw, a "
         "window move and a raise cost with four windows open (PERFORMANCE.md "
@@ -6160,15 +6163,12 @@ SOAK = [
         "never `paused`, a cap that overflows instead of wedging, and an "
         "on_hit that reads the .bss while the guest is still inside the "
         "routine",
-        # ALONE, for minesrc's reason one layer in: this row PARKS the guest
-        # on a breakpoint and then asserts that it is parked. MEASURED: it
-        # FAILS at --marty-jobs 4 with `the guest is parked at a stop
-        # ('running')` and PASSES at 1, and the two checks that DEPEND on the
-        # park pass in both - so the park happens and the assertion simply
-        # looked too early. A breakpoint's arrival is guest-paced and the
-        # look is host-paced, which is the one pairing contention can always
-        # break.
-        needs=("marty",), serial=True, alone=True),
+        # It shares the lane. It ran `alone` because section 11 SAMPLED the
+        # park once, straight after the gesture that causes it, and at four
+        # emulators the sample landed first and read 'running' - a host-paced
+        # look at a guest-paced arrival. It waits for the stop on the guest's
+        # clock now, as section 1 already did.
+        needs=("marty",), serial=True),
     Row("altenter", "soak", py("tests/altenter.py"), 33.0,
         "SPEC.md 11.2.1.1: Alt+Enter reaches full screen in BOTH of the "
         "mechanisms apps use - ArtfulType on SPEC.md 11.2's LATCH, where one "

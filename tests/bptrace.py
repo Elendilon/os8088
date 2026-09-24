@@ -324,8 +324,19 @@ def main():
         # attributes a stop to a gesture that had not been made yet.
         closed(ui)
         m.bp_exec("wm_draw_win")
-        ui.open_drive("B")                  # ...freezes the guest, as in 1
+        try:
+            ui.open_drive("B")              # ...freezes the guest, as in 1
+        except MartyError:
+            pass
+        # THE GESTURE IS NOT THE STOP (section 1's note): open_drive confirms
+        # on the window record, which wm_draw_win is reached after, so the
+        # stop is waited for on the GUEST's clock rather than sampled once.
+        # Sampled once, this was the whole of why the row ran `alone`: at four
+        # emulators it read 'running' and failed, with the park happening a
+        # moment later.
         was = m.status().get("state")
+        if was == "running":
+            was = m.wait_stop(limit=A_LIMIT) or m.status().get("state")
         check(was == "breakpoint", "the guest is parked at a stop (%r)" % was)
         with os88marty.bp_trace(m, "wm_show") as tr10:
             os88marty.guest_sleep(m, 1.0)   # nothing opens a window here
