@@ -348,7 +348,7 @@ hb_probe_x:
 section .cold
 
 ; -----------------------------------------------------------------------------
-; drv_suspend_x - slot 0x042E's three verbs (SPEC.md 51.11): THE MACHINE, OUT
+; drv_suspend_x - slot 0x0419's three verbs (SPEC.md 51.11): THE MACHINE, OUT
 ;                 OF MY WAY. Entered from kernel.asm's thunk under api_x, so
 ;                 ES = the caller's DS and DS = KERNEL_SEG
 ; in:  AL = 1 suspend the hardware drivers, ES:DI = a DQ_SIZE-record buffer

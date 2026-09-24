@@ -1422,17 +1422,18 @@ wm_create:
     ret
 
 ; -----------------------------------------------------------------------------
-; wm_onsize - install (or clear) a window's resize negotiator (SPEC.md 11.1)
+; OSAPI_WM_ONSIZE - install (or clear) a window's resize negotiator (SPEC.md 11.1)
 ; in:  BX = window ptr, AX = near ptr in the window's OWN segment, 0 to clear
 ; out: nothing (all registers preserved)
+;
+; AN INLINE CELL (SPEC.md 20.3), and there is no body here: OSAPI_WM_ONSIZE's cell is
+; `mov [cs:bx+W_ONSIZE], ax / retf`, the whole routine - the record is in
+; KERNEL_SEG and so is the cell's CS, and neither instruction writes a flag.
 ; -----------------------------------------------------------------------------
-wm_onsize:
-    mov [bx+W_ONSIZE], ax
-    ret
 
 ; -----------------------------------------------------------------------------
-; wm_onresize - install (or clear) a window's size-CHANGED handler
-;               (public; API 0x02F7, SPEC.md 11.98)
+; OSAPI_WM_ONRESIZE - install (or clear) a window's size-CHANGED handler
+;               (public; API 0x02EB, SPEC.md 11.98)
 ; in:  BX = window ptr, AX = near ptr in the window's OWN segment, 0 to clear
 ; out: nothing (all registers preserved)
 ;
@@ -1457,10 +1458,11 @@ wm_onsize:
 ; wm_about (SPEC.md 12.2) is the precedent for a per-slot HANDLER living
 ; beside the table rather than in it. It also costs no .o88 a rebuild, which a
 ; record that grew would.
+;
+; AN INLINE CELL (SPEC.md 20.3), and there is no body here: OSAPI_WM_ONRESIZE's cell is
+; `mov [cs:bx+W_ONSZ], ax / retf`, the whole routine - the record is in
+; KERNEL_SEG and so is the cell's CS, and neither instruction writes a flag.
 ; -----------------------------------------------------------------------------
-wm_onresize:
-    mov [bx+W_ONSZ], ax
-    ret
 
 ; -----------------------------------------------------------------------------
 ; The window's own idea of its size: a PREFERENCE and a FLOOR (SPEC.md 11.100)
@@ -1849,7 +1851,7 @@ wm_prefer:
                                 ; touches no flag, so the contract holds
 
 ; -----------------------------------------------------------------------------
-; wm_minsize - "do not cut me past this" (public; API 0x0382, SPEC.md 11.100.2)
+; wm_minsize - "do not cut me past this" (public; API 0x0374, SPEC.md 11.100.2)
 ; in:  BX = window ptr, CX = minimum outer width, DX = minimum outer height
 ;      (0/0 withdraws)
 ; out: nothing - every register preserved, FLAGS INCLUDED
@@ -1994,7 +1996,7 @@ wm_onmouseup:
     ret
 
 ; -----------------------------------------------------------------------------
-; wm_onclick - install (or clear) a window's CONTENT CLICK handler
+; OSAPI_WM_ONCLICK - install (or clear) a window's CONTENT CLICK handler
 ; in:  BX = window ptr, AX = near ptr in the window's OWN segment, 0 to clear
 ; out: nothing (all registers preserved)
 ;
@@ -2011,10 +2013,11 @@ wm_onmouseup:
 ; Five bytes, because the word is already there and already dispatched: this
 ; only lets it be written late, which is what W_ONMOUSEUP and W_ONDRAG already
 ; allow for their own halves.
+;
+; AN INLINE CELL (SPEC.md 20.3), and there is no body here: OSAPI_WM_ONCLICK's cell is
+; `mov [cs:bx+W_ONCLICK], ax / retf`, the whole routine - the record is in
+; KERNEL_SEG and so is the cell's CS, and neither instruction writes a flag.
 ; -----------------------------------------------------------------------------
-wm_onclick:
-    mov [bx+W_ONCLICK], ax
-    ret
 
 ; -----------------------------------------------------------------------------
 ; wm_ondrag - install (or clear) a window's tracking handler (SPEC.md 13.8.2)
@@ -2079,7 +2082,7 @@ wm_timer:
 %endif                          ; KERN_BIG
 
 ; -----------------------------------------------------------------------------
-; wm_onwake - install (or clear) a window's WAKE handler (SPEC.md 74.1)
+; OSAPI_WM_ONWAKE - install (or clear) a window's WAKE handler (SPEC.md 74.1)
 ; in:  BX = window ptr, AX = near ptr in the window's OWN segment, 0 to clear
 ; out: nothing (all registers AND the flags preserved)
 ;
@@ -2095,10 +2098,11 @@ wm_timer:
 ; wm_wkh_slot's `div` writes them. Every associated app installs one now
 ; (SPEC.md 54.10), so the alternative was a pushf/popf pair at nine call sites
 ; and a silent aborted launch at whichever one forgot.
+;
+; AN INLINE CELL (SPEC.md 20.3), and there is no body here: OSAPI_WM_ONWAKE's cell is
+; `mov [cs:bx+W_ONWK], ax / retf`, the whole routine - the record is in
+; KERNEL_SEG and so is the cell's CS, and neither instruction writes a flag.
 ; -----------------------------------------------------------------------------
-wm_onwake:
-    mov [bx+W_ONWK], ax
-    ret
 
 ; -----------------------------------------------------------------------------
 ; wm_onclose - install (or clear) a window's CLOSE negotiator (SPEC.md 75.1)
@@ -2123,7 +2127,7 @@ wm_onclose:
 ; (wm_clh_slot is gone: the negotiator is W_ONCL, in the record)
 
 ; -----------------------------------------------------------------------------
-; wm_onrclick - install (or clear) a window's RIGHT-CLICK handler (SPEC.md
+; OSAPI_WM_ONRCLICK - install (or clear) a window's RIGHT-CLICK handler (SPEC.md
 ;               13.11, slot OSAPI_WM_ONRCLICK)
 ; in:  BX = window ptr, AX = near ptr in the window's OWN segment, 0 to clear
 ; out: nothing (all registers preserved)
@@ -2143,10 +2147,11 @@ wm_onclose:
 ; wm_onclose does: this is installed from an entry proc, where the CF a
 ; package owes the loader is still riding in them (SPEC.md 21), and
 ; wm_ptr2idx's div writes them.
+;
+; AN INLINE CELL (SPEC.md 20.3), and there is no body here: OSAPI_WM_ONRCLICK's cell is
+; `mov [cs:bx+W_ONRC], ax / retf`, the whole routine - the record is in
+; KERNEL_SEG and so is the cell's CS, and neither instruction writes a flag.
 ; -----------------------------------------------------------------------------
-wm_onrclick:
-    mov [bx+W_ONRC], ax
-    ret
 
 ; -----------------------------------------------------------------------------
 ; wm_rch_slot - SI -> this window's right-click handler word (module internal)
@@ -3824,7 +3829,7 @@ wm_fs_drop:
 
 ; -----------------------------------------------------------------------------
 ; wm_snap - opt a window OUT of content-origin alignment, or back in
-;           (public; API 0x01FB, SPEC.md 11.94)
+;           (public; API 0x01F2, SPEC.md 11.94)
 ; in:  BX = window ptr, AL = 0 = do NOT keep me aligned / non-zero = do
 ; out: nothing - every register preserved, FLAGS INCLUDED (see below)
 ;
@@ -4319,7 +4324,7 @@ wm_snap_w:
 
 
 ; -----------------------------------------------------------------------------
-; wm_sizable - set or clear a window's WF_SIZABLE bit (public; API 0x00F8)
+; wm_sizable - set or clear a window's WF_SIZABLE bit (public; API 0x00F1)
 ; in:  BX = window ptr, AL = 0 clear / non-zero set
 ; out: nothing (all registers preserved)
 ; No repaint: the grow box appears at the next paint. UI-task context only
@@ -4335,7 +4340,7 @@ wm_sizable:
     ret
 
 ; -----------------------------------------------------------------------------
-; wm_fullscreen - enter or leave fullscreen (public; API 0x00FE, SPEC.md 11.2)
+; wm_fullscreen - enter or leave fullscreen (public; API 0x00F7, SPEC.md 11.2)
 ; in:  AL = 1 enter / 0 exit; BX = the caller's OWN window ptr either way;
 ;      caller HOLDS the gfx lock
 ; out: CF = 1 refused (the screen is another window's, entering or leaving),
@@ -5642,7 +5647,7 @@ wm_content:
     ret
 
 ; -----------------------------------------------------------------------------
-; wm_about_set - register a window's About handler (public; API 0x0192,
+; wm_about_set - register a window's About handler (public; API 0x018A,
 ;                SPEC.md 12.2)
 ; in:  BX = window ptr, SI = the handler's offset in the CALLER's segment
 ;      (0 = this window has no About)
@@ -5685,7 +5690,7 @@ wm_about_get:
 
 ; -----------------------------------------------------------------------------
 ; wm_geom - a window's CONTENT size, and whether it is on screen (public;
-;           API 0x017C, SPEC.md 11)
+;           API 0x0174, SPEC.md 11)
 ; in:  BX = window ptr
 ; out: CX = content width, DX = content height, both in pixels;
 ;      CF = 1 the window is not visible (CX/DX are still filled in).
@@ -8125,7 +8130,7 @@ wm_title_set:
 ; (SPEC.md 8.1/28).
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
-; wm_saveu - API 0x028C: BX = window, AL = 0 clear / non-0 set
+; wm_saveu - API 0x0280: BX = window, AL = 0 clear / non-0 set
 ; The window's promise that its content does not change while it is not
 ; drawing (SPEC.md 11.96.1). Preserves the flags for wm_snap's reason: an
 ; entry proc calls this after wm_create and the carry riding in is its own
@@ -8174,7 +8179,7 @@ wm_saveu:
     ret
 
 ; -----------------------------------------------------------------------------
-; wm_band - API 0x02D1: "cache THIS BAND of my content and hand me the rest"
+; wm_band - API 0x02C5: "cache THIS BAND of my content and hand me the rest"
 ; in:  BX = window ptr, AL = edge (0 left, 1 right, 2 top, 3 bottom),
 ;      CX = the band's extent in pixels, measured in from that edge.
 ;      CX = 0 retires the band, and the cache goes back to the whole content.
@@ -8278,7 +8283,7 @@ wm_ownbg:
 
 ; -----------------------------------------------------------------------------
 ; wm_keeph - "my layout is fixed: hang me over the dock rather than shorten me"
-;            (public; API 0x02FD, SPEC.md 11.93)
+;            (public; API 0x02F0, SPEC.md 11.93)
 ; in:  BX = window ptr, AL = 0 clear / non-0 set
 ; out: nothing - every register preserved, FLAGS INCLUDED
 ;
@@ -11513,7 +11518,7 @@ wm_an_n     dw WM_ANIM_N        ; idiv takes a memory or register operand, not
 ; out: nothing; every register preserved. The `or` writes FLAGS, which is
 ;      free here because this cell has no CF answer to lose
 ;
-; API slot 0x03E2, and the only reason the kernel owes one: fdlg.inc and
+; API slot 0x03CD, and the only reason the kernel owes one: fdlg.inc and
 ; ui.inc set WF_NOANIM with this same `or` written out where they stand, but
 ; the SDK's alert (SPEC.md 20.5.1) - the 'Save changes?' dialog Note Pad and
 ; Paint raise out of their close negotiator, and the one window in the machine

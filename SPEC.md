@@ -3190,11 +3190,11 @@ Mode set and teardown are not in this module: `vid_setmode` / `vid_text` in
 | `gfx_fill_gray` | AX=x1, BX=y1, CX=x2, DX=y2           | 50% dither: black/white checkerboard (pixel parity (x+y)&1: even=white, odd=black) — ignores gfx_color |
 | `gfx_fill_pat`  | AX=x1, BX=y1, CX=x2, DX=y2, `[gfx_pat]` = near ptr to 8 pattern bytes | 8×8 dither fill, screen-aligned: row y uses byte `pat[y&7]`, bit 7 = leftmost pixel of each screen byte, bit set = white (15), clear = black (0) — ignores gfx_color. Writes only colors 0/15, so it is a pattern rather than a solid colour |
 | `gfx_blit4`     | ES:SI=source, BP=source stride (bytes), AX=dest x, BX=dest y, CX=width px, DX=height rows | draw a block of packed 4bpp pixels (§5.4) |
-| `gfx_blit1`     | ES:SI=band, BP=band stride (bytes), AX=dest x (**×8**), BX=dest y, CX=width px (**×8**), DX=height rows | put a 1bpp band on the screen in one call, in the framebuffer's own bit order (§5.4.2). API slot 0x032D. `kern_big` only — the small build refuses with CF=1 |
+| `gfx_blit1`     | ES:SI=band, BP=band stride (bytes), AX=dest x (**×8**), BX=dest y, CX=width px (**×8**), DX=height rows | put a 1bpp band on the screen in one call, in the framebuffer's own bit order (§5.4.2). API slot 0x0320. `kern_big` only — the small build refuses with CF=1 |
 | `gfx_xor_rect`  | AX=x1, BX=y1, CX=x2, DX=y2           | 1px outline, XOR 0Fh (drag outline)   |
 | `gfx_xor_fill`  | AX=x1, BX=y1, CX=x2, DX=y2           | filled rect, XOR 0Fh (menu highlight) |
-| `gfx_save`      | AX=x1, BX=y1, CX=x2, DX=y2, ES:DI=buf| copy region to buffer; x1 is rounded **down** to a byte boundary and x2 **up** internally. Buffer layout: plane 0 rows, plane 1 rows, plane 2, plane 3 — all four on VGA, the single plane at 1bpp (§39.3). Returns DI advanced past data. API slot 0x03F1 through `api_gfx_save`, which adds the straddle refusal (§5.3); **both builds** |
-| `gfx_restore`   | AX=x1, BX=y1, CX=x2, DX=y2, ES:SI=buf| write region back (same rounding/layout). Returns SI advanced. API slot 0x03F9 through `api_gfx_rest` |
+| `gfx_save`      | AX=x1, BX=y1, CX=x2, DX=y2, ES:DI=buf| copy region to buffer; x1 is rounded **down** to a byte boundary and x2 **up** internally. Buffer layout: plane 0 rows, plane 1 rows, plane 2, plane 3 — all four on VGA, the single plane at 1bpp (§39.3). Returns DI advanced past data. API slot 0x03DC through `api_gfx_save`, which adds the straddle refusal (§5.3); **both builds** |
+| `gfx_restore`   | AX=x1, BX=y1, CX=x2, DX=y2, ES:SI=buf| write region back (same rounding/layout). Returns SI advanced. API slot 0x03E4 through `api_gfx_rest` |
 | `gfx_lock`      | —                                    | acquire drawing mutex + hide cursor (§7) |
 | `gfx_unlock`    | —                                    | show cursor, release mutex (§7) |
 
@@ -3203,7 +3203,7 @@ Save/restore for a W-px-wide, H-px-tall rect uses
 adapter (§39.2). Buffers are budgeted for the VGA worst case, so no routine
 computes the size at run time.
 
-### 5.3 The save-under pair is published — slots 0x03F1 and 0x03F9
+### 5.3 The save-under pair is published — slots 0x03DC and 0x03E4
 
 `gfx_save` and `gfx_restore` have been in the kernel since the menu save-under
 (§12.4) and, unlike `gfx_blit1`, they are outside every `KERN_BIG` guard: the
@@ -3738,7 +3738,7 @@ a set bit, 0 for a clear one. `gfx_fill_gray` already turns on exactly that.
 contract rather than left to drift.** Every other primitive reduces colour or
 dithers per §47 inside `font_ink`; this one cannot, because it never sees a
 colour. **§47's dither is the caller's to apply, before the band is handed
-over** — `gfx_pen_cf` (slot 0x026A) is published precisely so a package reads
+over** — `gfx_pen_cf` (slot 0x0260) is published precisely so a package reads
 `[gfx_dis]` the way the kernel does, and `gfx_unlock` clears it, so the flag is
 valid for exactly the lock hold the blit runs inside.
 
@@ -3906,7 +3906,7 @@ a caller may now say **which two colours** the band's set and clear bits mean.
 ```
 gfx_blit1_pen   AL = ink   (what a SET band bit becomes)
                 AH = paper (what a CLEAR one becomes)
-                API slot 0x03A2. Preserves every register.
+                API slot 0x0393. Preserves every register.
 ```
 
 **It is a call rather than an argument because `gfx_blit1` has no register
@@ -5204,7 +5204,7 @@ is the agreement PERFORMANCE.md Part 6 rule 7 asks for. What this section
 adds is the *size* of the per-call part, and it is smaller than the pixel it
 guards.
 
-#### 5.6.9 `gfx_points` — a set of pixels the CALLER computed (0x0419)
+#### 5.6.9 `gfx_points` — a set of pixels the CALLER computed (0x0404)
 
 ```
 in:       ES:SI = CX records of two words each, x then y (screen px)
@@ -6286,7 +6286,7 @@ a per-adapter default would have made the bar's own polarity a fact about the
 card rather than about the build — §5.9.3.1 is what that costs when a machine
 has two of them.
 
-### 5.10 `gfx_spans` — a RUN OF SCAN LINES, one call (API slot 0x03CD)
+### 5.10 `gfx_spans` — a RUN OF SCAN LINES, one call (API slot 0x03B8)
 
 §5.7 says a drawing call costs almost the same whatever it draws. **This is
 the primitive that stops paying it once a shape is known.** It takes one x
@@ -6300,7 +6300,7 @@ in:   AX    = the y of the FIRST span
 out:  CF = 0 drawn. CF = 1 REFUSED, and nothing was drawn
 ```
 
-`ES` is the caller's own segment — slot 0x03CD is an X cell (§20.3), so the
+`ES` is the caller's own segment — slot 0x03B8 is an X cell (§20.3), so the
 list lives in the package's data and no staging buffer exists or is wanted.
 
 #### 5.10.1 It is not a batched `gfx_fill`, and the measurement is why
@@ -6360,7 +6360,7 @@ its parity in `sw_ink`: a run drawn in a middle grey alternates AA/55 down the
 rows exactly as a tall rect does.
 
 **`gfx_sp_next` puts `ES` back to the framebuffer before it returns**, and that
-is not tidiness. The list is the *caller's* segment — slot 0x03CD is an X cell
+is not tidiness. The list is the *caller's* segment — slot 0x03B8 is an X cell
 — and both row writers write through `ES`, so leaving it on the list writes the
 picture into the package's own image. It shipped that way for one build and
 `tests/paintundo.py` caught it: the stroke drew 1,786 pixels instead of 2,794
@@ -6840,8 +6840,8 @@ bytes are hard-coded — **unless the build asks for some: §6.2.**
 | `font_str`   | CX=x, DX=y, SI=NUL str   | draw string left→right               |
 | `font_width` | SI=NUL str               | out AX = pixel width (8 × length)    |
 | `font_str_x` / `font_width_x` | ES:SI = NUL str | the same two, reading the string through **ES** — what the `X` stubs of §20.3 call so a package's string can live in its own segment |
-| `font_run` / `font_run_x` | CX=x, DX=y, SI (ES:SI) = NUL str, AL=ink, AH=background | one **opaque** run: the cells' background AND their glyphs, in a single pass (§6.1). API slot 0x01EE |
-| `osapi_font_glyphs` | — | out **DX:SI** = the `font_glyphs` table (DX = LOW_SEG — the table left the kernel's own segment when it moved to `.lowbss`), AL = FONT_FIRST (32), AH = FONT_LAST (126), CX = 8 bytes per glyph. API slot 0x01BE, amended from SI-only as a recorded one-time exception to §20.8 rule 4 |
+| `font_run` / `font_run_x` | CX=x, DX=y, SI (ES:SI) = NUL str, AL=ink, AH=background | one **opaque** run: the cells' background AND their glyphs, in a single pass (§6.1). API slot 0x01E5 |
+| `osapi_font_glyphs` | — | out **DX:SI** = the `font_glyphs` table (DX = LOW_SEG — the table left the kernel's own segment when it moved to `.lowbss`), AL = FONT_FIRST (32), AH = FONT_LAST (126), CX = 8 bytes per glyph. API slot 0x01B6, amended from SI-only as a recorded one-time exception to §20.8 rule 4 |
 
 **Handing out the bitmaps** (`osapi_font_glyphs`) is for an app that draws
 text into its OWN pixels rather than onto the screen — apps/paint's text tool
@@ -7248,7 +7248,7 @@ it breaks even at 2 and wins from 3.
 
 #### 6.1.9 The deferred hide is spent in `font_run_x`, not in `font_run`
 
-**Slot 0x01EE is an X CELL, so it lands on `font_run_x` and never
+**Slot 0x01E5 is an X CELL, so it lands on `font_run_x` and never
 on `font_run`** — and the `call fnt_unlazy` was on `font_run`. So every
 `OSAPI_FONT_RUN` a PACKAGE made drew with `gfx_lock`'s promised hide (§7.1.4)
 **unspent**: the run wrote its cells straight over the mouse pointer, and
@@ -8248,7 +8248,7 @@ system face rather than to a different code path.
 
 **`ty_flush` reads `[gfx_dis]` for the caller.** §5.4.2's blit is the one
 drawing primitive in the tree that is greying-blind, and rather than leave that
-to every author, `ty_flush` asks `OSAPI_GFX_PEN_CF` (slot 0x026A, published for
+to every author, `ty_flush` asks `OSAPI_GFX_PEN_CF` (slot 0x0260, published for
 exactly this) and dithers the band itself when the flag is set — so §47's
 "grey a fact, never a guess" survives on the band path without a package having
 to remember it. `gfx_unlock` clears the flag, so the answer is valid for
@@ -9331,7 +9331,7 @@ the hide above everything.
 
 ### 7.2 A window names the pointer's picture, and it wears it over that window only
 
-`OSAPI_WM_CURSOR` (slot 0x02F1) takes `BX` = a window and `AL` = one of
+`OSAPI_WM_CURSOR` (slot 0x02E5) takes `BX` = a window and `AL` = one of
 `CUR_NSHAPE` built-in shapes; the pointer wears that shape over that window's
 **content** and nowhere else. It exists because an application that wanted a
 different pointer had exactly one move available — draw a second one — and
@@ -10102,7 +10102,7 @@ the disk freeze, not about a package that says it is busy.
 
 #### 7.5.4 …and the window half is one slot with no argument
 
-`OSAPI_CUR_BUSY` (slot 0x0420) takes nothing and **answers nothing, flags
+`OSAPI_CUR_BUSY` (slot 0x040B) takes nothing and **answers nothing, flags
 included**. It is for the case the kernel cannot see: **a package about to spend seconds inside its own code
 without drawing** — Paint's LZW decode of a GIF and its row-by-row BMP read
 (§42.6) are the first two callers — where the callback holds the lock the UI
@@ -10234,7 +10234,7 @@ spend, and their samples dominate.
   (saved SP), `T_WAKE` (tick count to wake at), `T_INST` at offset 6
   (byte: owning instance index, §29; 0xFF = none — the Task Manager
   resolves slot → instance → name through it), `T_FLAGS` at offset 7
-  (byte, was padding; bit 0 = `TF_SERVICE`, set only by the 0x01E2
+  (byte, was padding; bit 0 = `TF_SERVICE`, set only by the 0x01D9
   driver-worker cell — the §53.2 freeze whitelist reads it, and
   `task_spawn` zeroes the byte for everyone else). `T_SIZE equ 8`.
   When `[fsx_task]` is armed (§53.2), `sch_switch`'s scan passes only the
@@ -13311,7 +13311,7 @@ did**: a make code and its break code differ by bit 7, and the kernel is
 already inside int 09h for §9.6.4's keypad 5.
 
 So `kbd_track`, called from `kbm_isr`, keeps one bit per key in a 16-byte map,
-and **`kbd_down` (slot 0x0309)** reads it: `AL` = a make scancode, `CF = 1`
+and **`kbd_down` (slot 0x02FC)** reads it: `AL` = a make scancode, `CF = 1`
 down. It takes no lock, touches no port and reads no VRAM, so it is legal from
 a **worker task** — which is where a game loop that needs it actually runs.
 
@@ -14532,7 +14532,7 @@ per-switch cost** (§9.12.5).
 | file | `USBMOUSE.DRV`, on every `kern_big` system disk |
 | class | **`DRVC_POINT` = 6**, a real publication slot (42 bytes: §51.2.1's price) |
 | row | `drv_tab` row 5 on `kern_big`, row 6 on `kern_emu` (after the absolute mouse); **`SYSTEM.CFG` bit 6** on both; not wanted by default (§51.3) |
-| kernel | **`OSAPI_MOUSE_FEED`**, slot **`0x045E`** — drivers only |
+| kernel | **`OSAPI_MOUSE_FEED`**, slot **`0x0449`** — drivers only |
 | hooks | **nothing**: no vector, no IRQ line. A worker task polls the chip |
 
 #### 9.12.1 Why a worker and a slot, and not §9.11's pump
@@ -14562,7 +14562,7 @@ also gets the Drivers page's tick and untick, `drv_shutdown` before `int 19h`
 and hibernate's detach (§87.4) for free.
 
 ```
-OSAPI_MOUSE_FEED  KERNEL_SEG:0x045E   X cell
+OSAPI_MOUSE_FEED  KERNEL_SEG:0x0449   X cell
 in:  AX = dx, BX = dy, signed; POSITIVE dy IS DOWN (the HID convention, which
      is the screen's); CL = buttons in mouse_btn's own bits (1 left, 2 right)
 out: CF = 0 applied; CF = 1 refused - the caller's segment is not the one
@@ -14768,7 +14768,7 @@ row shows a name, and the panel's column is nine glyphs, which truncates it to
 ##### 9.12.5.3 Four things costed and REFUSED, with the arithmetic
 
 *The addresses and cell sizes in this subsection are the uniform 8-byte
-table's, as the arithmetic was done; `OSAPI_MOUSE_FEED` is 0x045E today and
+table's, as the arithmetic was done; `OSAPI_MOUSE_FEED` is 0x0449 today and
 a rare cell is six bytes (§20.3).*
 
 - **Retiring the cell.** `0x0598` is the **last** cell — `osapi_table_end` is
@@ -15210,27 +15210,27 @@ W_ONSIZE equ 24  ; word: near ptr or 0 - the resize negotiator (§11.1).
                  ; Called BEFORE a new size is committed, with SI = window,
                  ; CX/DX = the proposed frame size; answers in CX/DX with the
                  ; size it will accept. NOT a template word: wm_create zeroes
-                 ; it, `wm_onsize` (API slot 0x01C4) sets it.
+                 ; it, `wm_onsize` (API slot 0x01BC) sets it.
 W_ONMOUSEUP equ 26 ; word: near ptr or 0 - the RELEASE half of a content
                  ; click (§13.7). CX = x, DX = y, SI = window, the same
                  ; environment as W_ONCLICK. Called ONLY if this window's
                  ; W_ONCLICK ran for the matching press, and called EVEN IF
                  ; the release landed outside the window. NOT a template
                  ; word: wm_create zeroes it, `wm_onmouseup` (API slot
-                 ; 0x019E) sets it.
+                 ; 0x0196) sets it.
 W_ONDRAG equ 28  ; word: near ptr or 0 - the pointer MOVED while your press
                  ; was armed (§13.8.2). CX = x, DX = y, SI = window, the same
                  ; environment again. Called between the W_ONCLICK and the
                  ; W_ONMOUSEUP of one gesture, only when the point CHANGED,
                  ; and outside the window as freely as the release. NOT a
                  ; template word: wm_create zeroes it, `wm_ondrag` (API slot
-                 ; 0x0341) sets it.
+                 ; 0x0334) sets it.
 W_ONTIMER equ 30 ; word: near ptr or 0 - the one-shot timer's handler
                  ; (§13.9). CX = DX = 0, SI = window; W_ONCLICK's environment.
                  ; NOT a template word: wm_create zeroes it, `wm_ontimer`
-                 ; (API slot 0x034F) sets it.
+                 ; (API slot 0x0342) sets it.
 W_TIMER  equ 32  ; word: the deadline in [ticks], 0 = disarmed. Written by
-                 ; `wm_timer` (API slot 0x0347) and cleared by the scan
+                 ; `wm_timer` (API slot 0x033A) and cleared by the scan
                  ; BEFORE it dispatches, so a handler may re-arm.
 W_SIDE   equ 34  ; on kern_big: where the per-slot KERNEL state begins.
                  ; THE THREE WORDS ABOVE ARE KERN_BIG's ALONE: the 128KB
@@ -15375,21 +15375,21 @@ Frame drawing (paint-all does this before calling W_PAINT):
 | `wm_paint_chrome` | the dock and the menu bar and nothing else, for a change that revealed no pixels. Declines to `wm_paint_dmg` over the dock strip when a window hangs over it. Caller holds the gfx lock. |
 | `wm_covered`   | in BX = win ptr; out CF=1 = every pixel of its **frame** rect (drop shadow included) is covered by visible windows above it, so a back-to-front painter may skip it entirely — **W_PAINT included**. Overflow of the 16-rect list answers "not covered". Leaves the clip list disarmed. Caller holds the gfx lock. §11.91. |
 | `wm_win_rect`  | in SI = win ptr; out AX,BX,CX,DX = its occupied rect, inclusive, drop shadow included (WF_FULL: no shadow). Clobbers only those four. |
-| `wm_top`       | out BX = frontmost visible window ptr, 0 if none. Takes no lock, touches no VRAM and reads only `wm_zord`, so a **worker task** may call it — which is what API slot 0x01F5 (§20.3) is for: a package is told when it *gains* the front (`W_ONCLICK`, `W_PAINT`) and never when it loses it, and `W_FLAGS` bit 1 answers *visible*, which a covered window still is. apps/arkanoid pauses on it (§44.8) — together with `menu_owner` (§12.6), which answers the other half: a click on the bare desktop changes the active application without touching `wm_zord`, so this routine correctly reports that nothing moved. |
+| `wm_top`       | out BX = frontmost visible window ptr, 0 if none. Takes no lock, touches no VRAM and reads only `wm_zord`, so a **worker task** may call it — which is what API slot 0x01EC (§20.3) is for: a package is told when it *gains* the front (`W_ONCLICK`, `W_PAINT`) and never when it loses it, and `W_FLAGS` bit 1 answers *visible*, which a covered window still is. apps/arkanoid pauses on it (§44.8) — together with `menu_owner` (§12.6), which answers the other half: a click on the bare desktop changes the active application without touching `wm_zord`, so this routine correctly reports that nothing moved. |
 | `wm_hit`       | in CX=x, DX=y; out BX = topmost visible window ptr containing the point (0 if none), AL = 0 content, 1 title bar, 2 close box, 3 minimize box, 4 grow box. AL=2/AL=3 only when BX is the frontmost visible window (the only one with the boxes drawn); on any other window those regions report AL=1. AL=4 only when BX is the frontmost visible window **and** has WF_SIZABLE (and not WF_FULL): the 13×13 grow-box rect of the frame drawing above; anywhere else that region is plain content (AL=0). A WF_FULL window reports AL=0 for every point — it has no chrome. |
 | `wm_paint_all` | full repaint: desktop gray (below menu bar), then `desk_paint` (§26 — desktop icons sit on the desktop, under every window), then `dock_paint` (§30 — the dock strip sits on the desktop under every window, like the icons), menu bar, every visible window back→front (frame + white content + W_PAINT) — **except** one `wm_covered` answers yes about, which is skipped whole (§11.91). Caller holds gfx lock. |
 | `wm_content`   | in BX = win ptr; out AX = content left, DX = content top. WF_FULL set → AX = W_X, DX = W_Y (no border, no title bar — §11.2). |
-| `wm_sizable`   | in BX = win ptr, AL = 0 clear / non-zero set WF_SIZABLE. No repaint (the grow box appears at the next paint). UI-task context only (entry procs and window callbacks qualify); safe with or without the gfx lock there — every W_FLAGS writer runs on the UI task or under the lock. API slot 0x00F8 (§20.3). |
-| `wm_grow_paint`| in BX = win ptr (caller holds the gfx lock): draw the grow box **iff** BX is the frontmost visible window with WF_SIZABLE set and WF_FULL clear; a no-op otherwise, so it is always safe to call. wm_draw_win uses it after W_PAINT, and a resizable window's **self-initiated content repaint must end with it** — the white-fill idiom (§22) erases the corner, and without the call the box vanishes until the next full repaint while wm_hit still reports AL=4 there. Packages reach it through API slot 0x0104 (§20.3). |
+| `wm_sizable`   | in BX = win ptr, AL = 0 clear / non-zero set WF_SIZABLE. No repaint (the grow box appears at the next paint). UI-task context only (entry procs and window callbacks qualify); safe with or without the gfx lock there — every W_FLAGS writer runs on the UI task or under the lock. API slot 0x00F1 (§20.3). |
+| `wm_grow_paint`| in BX = win ptr (caller holds the gfx lock): draw the grow box **iff** BX is the frontmost visible window with WF_SIZABLE set and WF_FULL clear; a no-op otherwise, so it is always safe to call. wm_draw_win uses it after W_PAINT, and a resizable window's **self-initiated content repaint must end with it** — the white-fill idiom (§22) erases the corner, and without the call the box vanishes until the next full repaint while wm_hit still reports AL=4 there. Packages reach it through API slot 0x00FD (§20.3). |
 | `wm_zoom`      | in BX = win ptr (resizable and not fullscreen — the CALLER's check); **caller holds the gfx lock**. Toggles the window between the **standard** state — the whole desktop band, full width, `MBAR_H` down to one pixel short of the dock, honouring `WF_SNAP` — and the **user** state it was in before, banked in the record's `W_ZOOMR`. Which state it is in is derived from the record, never tracked; `wm_ask_size` is asked for both, and a refused shrink leaves it standard with its bank intact. All registers preserved. Not `wm_fullscreen`: the window keeps its chrome and its place in the z-order. §11.95. |
-| `wm_fullscreen`| in AL = 1 enter / AL = 0 exit, **BX = the caller's own win ptr either way**; **caller holds the gfx lock** (the intended callers are W_ONKEY/W_ONCLICK handlers, which already do). See §11.2. Out CF=1 refused (the screen is another window's — entering *or* leaving), CF=0 done. API slot 0x00FE (§20.3). |
+| `wm_fullscreen`| in AL = 1 enter / AL = 0 exit, **BX = the caller's own win ptr either way**; **caller holds the gfx lock** (the intended callers are W_ONKEY/W_ONCLICK handlers, which already do). See §11.2. Out CF=1 refused (the screen is another window's — entering *or* leaving), CF=0 done. API slot 0x00F7 (§20.3). |
 | `wm_ptr2idx`   | in BX = win ptr (record-aligned); out AL = window index, AH = 0. Clobbers nothing else. The one public home of the `(ptr − wm_wins) / WIN_SIZE` idiom. |
 | `wm_zabove`    | in BX = win ptr; out CF=0 with `SI` → the first `wm_zord` entry **above** it, `CX` = how many are above, `AL` = its own index; CF=1 = not in the z-order (which cannot happen for a used window). Clobbers AX, CX, SI. The one home of the "find me in the z-order and walk what covers me" idiom — five routines had it written out, and two of them (`wm_lift`, `wm_destroy`) want the entry itself and take a `dec si`. |
 | `wm_obscured`  | in BX = win ptr; out CF=1 if BX is not visible at all, or any visible window above it in z-order overlaps its frame rect (§11.3.1 — the visibility half is part of the answer, and was not). Result is only trustworthy while the caller holds the gfx lock — the UI task mutates `wm_zord`/window rects under it. Kept, but **no longer the right answer for a background painter**: it vetoes a whole frame for one covered pixel. Use `wm_clip_set` (§11.3). |
-| `wm_clip_set`  | in BX = win ptr; **caller holds the gfx lock**. Builds BX's visible region — its content rect less every visible window above it in `wm_zord`, drop shadows included — into the clip list, and arms clipping. out CF=1 the window is entirely invisible: nothing is armed, draw nothing this frame (also the answer when the region needs more than 16 rects, and — since §11.3.1 — when the window is *hidden*, which this always claimed and did not deliver). CF=0 armed. Preserves every register. The region is valid only until the next `gfx_unlock`, which clears it (§11.3). API slot 0x0144 (§20.3). |
+| `wm_clip_set`  | in BX = win ptr; **caller holds the gfx lock**. Builds BX's visible region — its content rect less every visible window above it in `wm_zord`, drop shadows included — into the clip list, and arms clipping. out CF=1 the window is entirely invisible: nothing is armed, draw nothing this frame (also the answer when the region needs more than 16 rects, and — since §11.3.1 — when the window is *hidden*, which this always claimed and did not deliver). CF=0 armed. Preserves every register. The region is valid only until the next `gfx_unlock`, which clears it (§11.3). API slot 0x013D (§20.3). |
 | `wm_clip_rect` | in AX = x1, BX = y1, CX = x2, DX = y2 (inclusive); **caller holds the gfx lock**. `wm_clip_set`'s arithmetic for a rect that belongs to no window: the seed is the caller's rect and the occluders are **every** visible window, because the thing under it is the DESKTOP and nothing is below that. out CF=1 the region needs more than 16 rects — nothing is armed and the caller must fall back to something unconditional; CF=0 armed, and **ZF=1 means the rect is wholly covered** (the list is empty, i.e. disarmed: draw nothing at all). Preserves every register. The two degradations are `wm_clip_set`'s, split apart because a caller can act on them differently — an overflow says nothing is *known*, an empty list is a *fact*. Kernel-internal; §26.2 is its consumer. |
-| `wm_clip_clear`| disarm clipping. Preserves every register. `gfx_unlock` already does this, so a painter only needs it to go back to drawing unclipped inside the same lock hold. API slot 0x014C (§20.3). |
-| `wm_clip_test` | in AX = x1, BX = y1, CX = x2, DX = y2 (inclusive); out CF=0 the whole rect lies inside **one** clip fragment, or nothing is armed; CF=1 it does not. Preserves every register. This is the question `font_char` and `icon_draw16` ask themselves, exposed so a caller that **erases a rect and then draws glyphs into it** can ask it first — see the granularity rule in §11.3. API slot 0x0154 (§20.3). |
+| `wm_clip_clear`| disarm clipping. Preserves every register. `gfx_unlock` already does this, so a painter only needs it to go back to drawing unclipped inside the same lock hold. API slot 0x0145 (§20.3). |
+| `wm_clip_test` | in AX = x1, BX = y1, CX = x2, DX = y2 (inclusive); out CF=0 the whole rect lies inside **one** clip fragment, or nothing is armed; CF=1 it does not. Preserves every register. This is the question `font_char` and `icon_draw16` ask themselves, exposed so a caller that **erases a rect and then draws glyphs into it** can ask it first — see the granularity rule in §11.3. API slot 0x014D (§20.3). |
 
 Paint procs and key handlers run on the **UI task** (via wm_paint_all /
 dispatch) or on the window's own background task — which, since §20.6, may
@@ -15406,7 +15406,7 @@ guarded by the package's own once-flag.
 A window is resizable iff W_FLAGS bit2 (`WF_SIZABLE`) is set. The bit is
 **not** part of the 16-byte template: built-ins get it from their kind row's
 `KD_WFLAG` byte (§29.3, OR-ed into W_FLAGS by app_launch right after
-wm_create), packages call `wm_sizable` (API slot 0x00F8) from their entry
+wm_create), packages call `wm_sizable` (API slot 0x00F1) from their entry
 proc after OSAPI_WM_CREATE. Fixed-layout windows — dialogs, the Control
 Panel, Minesweeper — simply never set it and nothing about them changes.
 
@@ -15428,7 +15428,7 @@ resizable window's procs are required to lay out from the live record (record
 note above). Self-initiated repaints (the fm_repaint idiom, §22) must
 white-fill using the live W_W/W_H for the same reason.
 
-**`wm_resize` (API slot 0x0184) — an app changing its own size.** In:
+**`wm_resize` (API slot 0x017C) — an app changing its own size.** In:
 BX = window, CX = new outer width, DX = new outer height; the caller holds
 the gfx lock. Clamps exactly as a drag does (never below WMIN_W/WMIN_H, never
 past the live screen or the dock row, §39.2), re-fits the origin the way
@@ -15450,7 +15450,7 @@ the record changes — which is the whole point: nothing has been drawn at
 either size yet, so a refusal costs no repaint. The answer is a SIZE and not
 a yes/no because the case that motivated it is per-axis: apps/paint refuses a
 drag that would crop artwork, and a drag that would lose columns but not rows
-should still get its rows. Install it with `wm_onsize` (API slot 0x01C4,
+should still get its rows. Install it with `wm_onsize` (API slot 0x01BC,
 BX = window, AX = a near proc in the window's own segment, 0 clears).
 The negotiator runs under the gfx lock and **must not draw** — it decides,
 returns, and draws in the W_PAINT that immediately follows.
@@ -15524,7 +15524,7 @@ everything, because wm_obscured (which gates every unbidden background
 drawer: Timer, Bounce, the Task Manager sampler) sees a frame covering the
 entire screen and reports "covered" to everyone beneath it.
 
-`wm_fullscreen` (API slot 0x00FE; caller holds the gfx lock):
+`wm_fullscreen` (API slot 0x00F7; caller holds the gfx lock):
 
 - **Enter** (AL=1, BX = win ptr): another window already owns the screen
   (`[wm_fs]` non-zero and ≠ BX) → CF=1, nothing changes. Else save
@@ -15808,7 +15808,7 @@ map drawing the wrong SHAPE rather than in the wrong PLACE. A primitive not
 in this table is not "unclipped by design"; it is a hole.
 
 **Two are still holes, and they are named here so they are not silent.**
-`gfx_blit4` (0x018A) and `gfx_scroll` (0x01A4) take no hook, because
+`gfx_blit4` (0x0182) and `gfx_scroll` (0x019C) take no hook, because
 `GFXCLIP` re-enters a body with a sub-rect and neither can honour one
 without also advancing its SOURCE to match — a blit is not a fill. Nothing
 in the tree reaches them from a clipped context today: both are package
@@ -16379,7 +16379,7 @@ the call and unions against it afterwards.
 `wm_draw_win` fills the whole content white and *then* calls `W_PAINT`. That is
 unconditional, for every window, and until now there was no way out of it —
 REDRAW-SPEC Part 1's point 1, and the oldest unexamined thing in the redraw
-path. `WF_OWNBG` (slot **0x02D1**, `OSAPI_WM_OWNBG`) is the way out: *I paint
+path. `WF_OWNBG` (slot **0x02C5**, `OSAPI_WM_OWNBG`) is the way out: *I paint
 every pixel of my content myself.*
 
 **The flash is the reason, ahead of the milliseconds.** The fill is one
@@ -16417,7 +16417,7 @@ of its own because two lines of black text is not every pixel of anything.
 §11.96.6 computes, per window, everything a repaint pass has painted; the raise
 cache spends it to restore a strip instead of a window. This hands the same
 answer to the **application** instead, for the windows that hold their own
-pixels: `OSAPI_WM_DAMAGE` (slot **0x02D7**), BX = your window, called from inside
+pixels: `OSAPI_WM_DAMAGE` (slot **0x02CB**), BX = your window, called from inside
 your own `W_PAINT`.
 
 - **CF = 1** — draw the whole content, and `AX/BX/CX/DX` are that content rect.
@@ -16901,7 +16901,7 @@ escalated its next `fm_repaint` from the content to the whole frame, and
 before that to `wm_paint_all`. Either way, a window's listing, its chrome
 and everything overlapping it were redrawn to fix 17 rows.
 
-`wm_title_set` (**API slot 0x01DC**) is the direct answer: in BX = window
+`wm_title_set` (**API slot 0x01D3**) is the direct answer: in BX = window
 ptr, AX = the new `W_TITLE` offset — or **0**, meaning the bytes `W_TITLE`
 already names changed underneath it, which is the file manager's case
 because its caption *is* the instance record's `I_NAME` (§29.1). Caller
@@ -16945,7 +16945,7 @@ happened to repaint in between.
 
 ### 11.93 `WF_KEEPH` — a fixed layout hangs over the dock rather than be cut
 
-**`wm_keeph` (API slot 0x02FD), BX = window, AL = 0 clear / non-0 set: "my
+**`wm_keeph` (API slot 0x02F0), BX = window, AL = 0 clear / non-0 set: "my
 layout is FIXED, so my height is not the kernel's to reduce."** A window that
 sets it and will not fit the desktop band is clamped against the **display's
 own bottom** instead of against the row the dock starts on — so it hangs over
@@ -17027,7 +17027,7 @@ reference build's `.hcut` is literally the pre-§11.93 instruction stream.
 ### 11.94 `WF_SNAP` — a window that keeps its content on a byte boundary
 
 **Opt-in, EVERY ADAPTER, and the whole of it is one `and`.** `wm_snap` (API
-slot 0x01FB) sets `WF_SNAP` on a window, and every site that writes `W_X` then
+slot 0x01F2) sets `WF_SNAP` on a window, and every site that writes `W_X` then
 keeps that window's **content origin** on a multiple of 8 — so every
 `font_run` the window makes reaches the single-store fast path (§6.1) instead
 of the erase-and-letter fallback. §6.1.1 measures what that is worth: the
@@ -18016,7 +18016,7 @@ else needs it, and `mem_shed_one` zeroes `[wm_su_seg]` on the way out so
 `wm_su_ck`'s first test is the notice. A machine with no room behaves exactly
 as it did before this existed, because the fallback *is* the old code.
 
-**It is opt-in, `WF_SAVEU` through `OSAPI_WM_SAVEU` (0x02B0), and §11.96.1
+**It is opt-in, `WF_SAVEU` through `OSAPI_WM_SAVEU` (0x02A4), and §11.96.1
 is why** — the first cut had no opt-in and that was wrong.
 
 **One cache for the machine**, like the menu's save-under: it covers the case
@@ -18320,7 +18320,7 @@ that showed: it decodes the range, prints `WinSave`, and cannot say *whose* —
 so several tens of KB of a 640KB machine appear on the one page that reports
 memory as an anonymous row under **System**, whoever actually caused it.
 
-`OSAPI_WM_OWNSEG` (slot **0x03D4**) is the door. `AL` is a window slot; `CF = 1`
+`OSAPI_WM_OWNSEG` (slot **0x03BF**) is the door. `AL` is a window slot; `CF = 1`
 means no live window is in it, and otherwise `DX` is the segment that owns it —
 `[W_SEG]`, or `KERNEL_SEG` when that word is 0, which is what a window the
 kernel itself created carries. It is 38 bytes of `.text` and **it crossed the
@@ -18634,7 +18634,7 @@ sites that already exist:
 |-----------------|-------------------------------------------------------------|
 | `menu_init`     | boot: `[menu_win]` = 0 and one `menu_relayout`, so the very first `wm_paint_all` already draws Locator's bar. Called from kmain after `wm_init`. |
 | `menu_activate` | in: BX = window ptr, or 0 for Locator. Out: **CF = 1 if the active application changed** (the caller owes the bar a repaint), CF = 0 if it was already active. Draws nothing, takes no lock, preserves every register. |
-| `menu_owner`    | out: BX = `[menu_win]` — the window owning the bar, 0 = Locator. Every other register **and the flags** preserved; takes no lock and touches no VRAM, so a worker task may call it, exactly like `wm_top`. The read half of `menu_activate`, and API slot 0x0232 (§20.3) — see §12.6 for why a package needs it and `wm_top` is not the same question. |
+| `menu_owner`    | out: BX = `[menu_win]` — the window owning the bar, 0 = Locator. Every other register **and the flags** preserved; takes no lock and touches no VRAM, so a worker task may call it, exactly like `wm_top`. The read half of `menu_activate`, and API slot 0x0229 (§20.3) — see §12.6 for why a package needs it and `wm_top` is not the same question. |
 | `menu_relayout` | recompute `[menu_set]`, `[menu_namep]` and the whole `menu_bar` from `[menu_win]`. Preserves all registers. |
 | `menu_win_set`  | in: BX = window ptr, SI = menu set ptr (0 = none) — stores `[bx+W_MENUS]` and relayouts if BX is the active window. The `OSAPI_MENU_SET` target (§20.3). Preserves every register **and the flags**: its intended call site sits between a package's `wm_create` and the `ret` that owes the loader that call's CF (§20.2). |
 | `menu_check`    | if `[menu_win]` names a window that is no longer visible, `menu_activate` on `wm_top` — the promoted window, or 0 for Locator when none is left. No-op while the owner is visible or already Locator. Preserves every register. Called only from `menu_draw_bar`, so it always runs under the gfx lock on the UI task. |
@@ -19229,7 +19229,7 @@ the content. The bottom strip is 131 and everything else 22. The palette is
 eight wells, eight 16×16 icons and the size boxes, redrawn *by drawing them*,
 every time, and none of it has changed since the window opened.
 
-So `wm_band` (slot 0x02DF) lets a window name **one band on one edge** as the
+So `wm_band` (slot 0x02D3) lets a window name **one band on one edge** as the
 part the kernel should bank. The raise cache then covers the band alone —
 Paint's is ~1 KB on 1bpp and ~13 KB on VGA — and §11.90.2's `wm_damage` hands
 the app the content **minus** the band, so the app skips what came back as a
@@ -20851,7 +20851,7 @@ surplus rows are drawn through the bottom of its own frame and onto the
 desktop. **The kernel is the only thing that knows the box moved, so the
 kernel has to say so.**
 
-`OSAPI_WM_ONRESIZE`, slot **0x02F7** today — appended when it landed, the
+`OSAPI_WM_ONRESIZE`, slot **0x02EB** today — appended when it landed, the
 free list §20.3.1 then kept being empty.
 
 **It is a word in the record, `W_ONSZ`, and not a template word.** It was
@@ -21143,7 +21143,7 @@ So the opt-out was reachable from inside the kernel and from nowhere else, and
 the one window in the system whose animation nobody asked for was the one
 window that could not decline it.
 
-Slot **0x03E2**, `wm_noanim`: `BX` = the window, no other argument and no
+Slot **0x03CD**, `wm_noanim`: `BX` = the window, no other argument and no
 answer. The body is the whole of it —
 
 ```nasm
@@ -21395,7 +21395,7 @@ without one has only what its author asked for. That split is why §11.99.3 and
 docs/plans/completed/WINDOW-SIZING-PLAN.md is the investigation this came out of, including the
 survey of what all 24 packages did before it.
 
-#### 11.100.1 `OSAPI_WM_PREFER` (slot 0x037C) — a frame size per adapter kind
+#### 11.100.1 `OSAPI_WM_PREFER` (slot 0x036E) — a frame size per adapter kind
 
 **BX = window, SI = the offset, in the window's own segment, of a 12-byte
 table: three `(w, h)` pairs in `VID_VGA`, `VID_HERC`, `VID_CGA` order** — which
@@ -21442,7 +21442,7 @@ entry and then declares it. What changes is not whether it derives but **how
 many answers it writes down**: before this it patched `WT_W`/`WT_H` with the one
 answer for the screen it happened to boot on.
 
-#### 11.100.2 `OSAPI_WM_MINSIZE` (slot 0x0382) — a floor the kernel may not cut through
+#### 11.100.2 `OSAPI_WM_MINSIZE` (slot 0x0374) — a floor the kernel may not cut through
 
 **BX = window, CX = minimum outer width, DX = minimum outer height**;
 `CX = DX = 0` withdraws. Two words of the record (`W_MINW`/`W_MINH`, adjacent
@@ -22347,13 +22347,13 @@ where the old tag outranked every cache in the system.
 `MenuSav`, and tests/unit/t_ktags.py holds the kernel, the SDK and the Task
 Manager to one list.
 
-### 12.6 "Am I active?" is not "am I frontmost" — `menu_owner`, slot 0x0232
+### 12.6 "Am I active?" is not "am I frontmost" — `menu_owner`, slot 0x0229
 
 Two facts about focus exist and they are not the same fact. `wm_top` (§11)
 answers **who is frontmost visible**, out of `wm_zord`. `menu_owner` answers
 **who is the active application**, out of `[menu_win]`. Every ordinary
 transition moves both together, because raising a window activates it — so
-for a long time one of them was published (slot 0x01F5) and that seemed
+for a long time one of them was published (slot 0x01EC) and that seemed
 enough.
 
 **Clicking the bare desktop is the case where they part.** That branch calls
@@ -22366,10 +22366,10 @@ unclipped" and wrong for one asking "is the player still here" — apps/arkanoid
 was reading Locator's File menu.
 
 So the slot is a second question rather than a change to the first: `wm_top`
-keeps its number and its contract exactly (§20.8 rule 4), and 0x0232 is
-`menu_owner`. It is one word read behind an ordinary slot, so it costs what
-`wm_top` costs and carries the same two properties a worker needs — no lock,
-no VRAM. A real-time app wanting "did the player walk away" asks **both**, and
+keeps its number and its contract exactly (§20.8 rule 4), and 0x0229 is
+`menu_owner`. It is one word read — since kernel size pass 4 an INLINE cell
+(§20.3), `mov bx, [cs:menu_win]` and a `retf`, so it costs less than `wm_top`
+— and carries the same two properties a worker needs — no lock, no VRAM. A real-time app wanting "did the player walk away" asks **both**, and
 continues only while both name its own window; a raise is caught by either,
 and the desktop click by this one alone.
 
@@ -22394,7 +22394,7 @@ at most two items and the second one is the point:
 
 | item | present when | dispatched by |
 |------|--------------|----------------|
-| `About <Name>` | the window registered a handler with `wm_about_set` (slot 0x0192) | the application, through its own dispatcher, exactly like `W_ONCLICK` |
+| `About <Name>` | the window registered a handler with `wm_about_set` (slot 0x018A) | the application, through its own dispatcher, exactly like `W_ONCLICK` |
 | `Close` | **always** | the kernel |
 
 **One duplicate had to go with it, and exactly one.** A Disk window OWNS the
@@ -22500,7 +22500,7 @@ itself.
 |-------------|---------------------------------------------------------------|
 | `fpg_begin` | in: `DX:CX` = the **bytes** this operation expects (0 refuses). Arms the widget and draws the **whole** of the expensive part — the white bed, the document icon and the box frame. Preserves all registers and the flags. §12.8.1. |
 | `fpg_step`  | in: nothing. One 512-byte unit done. Preserves **every register and the flags** — its caller is the middle of `dsk_xfer`'s per-sector loop, `spl_step`'s contract exactly. |
-| `fpg_stepb` | in: AX = bytes moved **since the last report**. The byte-shaped step, for a producer with no sectors; API slot 0x02EB (`OSAPI_FS_PROG`). §12.8.1. |
+| `fpg_stepb` | in: AX = bytes moved **since the last report**. The byte-shaped step, for a producer with no sectors; API slot 0x02DF (`OSAPI_FS_PROG`). §12.8.1. |
 | `fpg_end`   | in: nothing. Disarms and gives the bar back: white-fills the rows of its own bed that carry no menu text, `menu_inval`s the bed's cells, and calls `menu_draw_bar`. Preserves all registers and the flags. |
 
 **The chrome is drawn once and the bar is the only thing that moves.** A
@@ -22612,7 +22612,7 @@ geometry.
   and takes it away again. The kernel *cannot* step it: a redirected read is
   **one far call**, not a loop the kernel is standing in, so between
   `FSV_READ` going out and coming back only the driver knows how far the
-  file has got. So it is an API slot (0x02EB, `OSAPI_FS_PROG`), and the
+  file has got. So it is an API slot (0x02DF, `OSAPI_FS_PROG`), and the
   driver calls it from inside the verb.
 - **"Since the last report", never a running total.** A driver that reports
   cumulative bytes advances the bar by the whole file on every call. The
@@ -23538,7 +23538,7 @@ All wm_* calls that repaint are made under gfx_lock by the UI task.
 
 ### 13.4 A handler can ask whether another event is right behind it
 
-`OSAPI_EVQ_PENDING` (slot 0x0284) answers `AX` = the events still queued.
+`OSAPI_EVQ_PENDING` (slot 0x027A) answers `AX` = the events still queued.
 
 Events are dispatched one at a time, so a callback that REDRAWS has no way to
 know it is about to be asked to do the same thing again. For a handler whose
@@ -23646,7 +23646,7 @@ want the release. Rows, icons and title bars have one: §22.2's file row,
 §26.2's drive zone, §38.3's dialog row and §11.95's title bar all select or
 raise first and open or zoom second.
 
-### 13.7 A package's mouse-up — `W_ONMOUSEUP` (API 0x019E)
+### 13.7 A package's mouse-up — `W_ONMOUSEUP` (API 0x0196)
 
 `W_ONMOUSEUP` is the release half of a content click. Installed with
 `OSAPI_WM_ONMOUSEUP` (BX = window, AX = a near proc in the caller's segment,
@@ -23799,7 +23799,7 @@ tracks live already (§11.1.1, MOUSEUP-PLAN §1.1); the title bar; and region 0,
 a package's content release, where the kernel has no widget to light and
 §13.7's contract is that the package decides identity.
 
-#### 13.8.2 A package tracks too — `W_ONDRAG` (API 0x0341)
+#### 13.8.2 A package tracks too — `W_ONDRAG` (API 0x0334)
 
 The kernel can track because it has a pass, and this section used to say a
 package could not: it has `W_ONCLICK` and `W_ONMOUSEUP` and nothing in
@@ -24195,7 +24195,7 @@ its two shape routines, ~300 bytes every button user carries, for a package
 that draws neither. It refuses to assemble beside `OS88UI_CHK` or
 `OS88UI_RAD`. Tracker (§45.21) is the first consumer of both.
 
-### 13.9 A window's TIMER — `W_ONTIMER` (API 0x034F)
+### 13.9 A window's TIMER — `W_ONTIMER` (API 0x0342)
 
 **Call me back in N ticks.** `OSAPI_WM_TIMER` (BX = window, AX = ticks from
 now, 0 cancels) arms one; `W_ONTIMER` — installed with `OSAPI_WM_ONTIMER`
@@ -24528,7 +24528,8 @@ already uses one macro up.
 because `cpu_info` answers the tier and the feature bits in one word (§41.1).
 So `os88ui_sbrate` documents AH as undefined on the way out, and nothing may
 rely on either arm's incidental behaviour. Unlike `UI_ISMONO` it banks nothing
-else: `cpu_info` is `mov ax, [cpu_tier]` and a `ret`, and three shipped
+else: `cpu_info` is `mov ax, [cs:cpu_tier]` and a `retf` (an inline cell,
+§20.3), and three shipped
 packages already call the slot mid-routine with registers live.
 
 ###### Who gets what — and it is ONE number
@@ -25436,7 +25437,7 @@ its `cmp`/`mov`/`call` left this ladder with the write half they called.
 **equality** test against a free-running word: garbage costs one extra pass and
 nothing else, there is no ordering to get wrong and no wrap to survive.
 
-### 13.11 A package's RIGHT click — `W_ONRCLICK` (API 0x038E)
+### 13.11 A package's RIGHT click — `W_ONRCLICK` (API 0x0380)
 
 Until this slot existed the right button reached **no package at all**.
 `ui_rdown` (§12.4) raises a background window, skips the chrome and the bar
@@ -26313,7 +26314,7 @@ on any rect wider than the box — a fill that wide is a fill that spans the lab
 group's own rows. Both were verified red against the first version.
 
 **`font_run_x` and not `font_run`**, and that is the trap worth writing down:
-slot 0x01EE's cell names the `_x` entry, so a breakpoint on `font_run` is one a
+slot 0x01E5's cell names the `_x` entry, so a breakpoint on `font_run` is one a
 package never reaches. The assertion was a **false green** on that symbol and
 only the deliberate breakage refusing to go red found it — docs/WRITING-TESTS.md
 §1 earning its place.
@@ -28330,7 +28331,7 @@ rounding: since §2.9.12 the loader's slack and the overlay's are **one pool**,
 
 **How long this machine took to boot, in system ticks**, from the boot
 sector's first instruction to the first desktop frame being on the glass.
-`OSAPI_BOOT_TICKS` (slot 0x025E) answers it; `sysbench` prints it as ticks
+`OSAPI_BOOT_TICKS` (slot 0x0255) answers it; `sysbench` prints it as ticks
 and as milliseconds.
 
 It exists because a boot is the one thing this project could never measure.
@@ -29423,7 +29424,7 @@ volume could hold. Neither is reachable from a legal floppy.
 **What went, and what it cost.** `dskw_readbig` and its two private bodies
 are gone, and so is the "the buffer must not wrap its segment" argument
 check that both pipelines used to open with — a buffer that spans segments
-is now the *normal* case, not an error. **API slot 0x0198 was retired here**
+is now the *normal* case, not an error. **API slot 0x0190 was retired here**
 (§20.8 rule 4): the cell was left answering CF=1 with `FERR_NAME`, so every
 slot above it kept its number, and `apps/os88api.inc` published no
 `OSAPI_FILE_READBIG`, so a package source that still named it failed to
@@ -29876,7 +29877,7 @@ and the only verb for that is **`FSV_ENUM`**, which the RAM disk publishes and
 **`NET.DRV` does not** (its table carries 0 there). A recursive delete over
 the cable is a change at both ends of the protocol, not a branch here.
 
-### 18.90.2 …and a package may remove one — `OSAPI_FILE_RMDIR` (slot 0x0394)
+### 18.90.2 …and a package may remove one — `OSAPI_FILE_RMDIR` (slot 0x0385)
 
 §18.5.1's shape for the other direction, and it publishes **both** §18.6 and
 §18.90 behind one cell:
@@ -30083,7 +30084,7 @@ volume, CF=0 with AL = 0 removable / 1 fixed. It is `DVK_DRV` *or* a BIOS unit
 with bit 7 set — `disk_mount`'s own test, in the one place that owns it. The
 desktop and the API call it, so they cannot drift.
 
-**`OSAPI_VOL_KIND` (slot 0x0198)** publishes it: AL = a volume index in,
+**`OSAPI_VOL_KIND` (slot 0x0190)** publishes it: AL = a volume index in,
 CF=1 = no such volume, CF=0 with **AL = `VK_REMOVABLE` / `VK_FIXED`** and
 **AH = `VT_BIOS` / `VT_DRIVER`**. Two answers because they are two questions —
 a package asking *is this a hard disk* wants the medium, one asking *will this
@@ -30802,8 +30803,8 @@ So the assertion is the **caller's**:
 > *"I am in the middle of a batched operation with the user interface frozen,
 > so the disk is the same disk."*
 
-`dsk_batch_begin` / `dsk_batch_end`, nesting, published as API slots 0x02BC
-and 0x02C2 because the installer is a driver and reaches the kernel the same
+`dsk_batch_begin` / `dsk_batch_end`, nesting, published as API slots 0x02B0
+and 0x02B6 because the installer is a driver and reaches the kernel the same
 way a package does. (They were drafted at 0x0380/0x0388 and moved when they
 met §59's `OSAPI_TOAST` at the merge — §20.8 rule 4 working as written: neither
 had shipped, so neither was frozen, and the one that had not yet reached the
@@ -31610,7 +31611,7 @@ Spelled out, that is **a machine short of heap cannot install os8088**, and
 the same sentence for both, `A file is too big for this machine`, about a
 file the disk it booted from is carrying.
 
-`OSAPI_FILE_APPEND_SYS` (slot 0x02CE) is `dskw_append` with `DSKW_SPROT` in
+`OSAPI_FILE_APPEND_SYS` (slot 0x02C2) is `dskw_append` with `DSKW_SPROT` in
 place of `DSKW_PROT` — the identical relaxation `dskw_write_sys`'s replace
 already takes, keyed off the identical `[dskw_syswr]` byte, one shot and
 cleared on the way out. **Read-only, a volume label and a subdirectory still
@@ -32240,7 +32241,7 @@ walker's cursor is three module words shared with everything, and the caller's
 loop is find → read → write → find, so the operations *between* two calls
 destroy it. The standing proposal was a **caller-held cursor the kernel
 validates**, with the re-seek as the fallback, at the price of changing slot
-0x028F's contract and adding invariant surface to the file path.
+0x0283's contract and adding invariant surface to the file path.
 
 **Simulated against the install's and the copy's own traces (§18.94.3), it is
 worth five calls and three.** The model is a cursor that never re-reads
@@ -32707,7 +32708,7 @@ outside it.
 #### 18.95.8 …and a program about to take the arena may COMMAND the width
 
 Everything above sizes the cache from what the kernel can see. `OSAPI_DSK_CACHE`
-(cell **0x0264**) is the one case where that is the wrong instrument: a program
+(cell **0x025A**) is the one case where that is the wrong instrument: a program
 whose next act is to claim every byte of the heap knows something the kernel
 does not, and knows it *before* the claim rather than after.
 
@@ -34782,13 +34783,13 @@ naming scheme.
 
 ### 19.2.2 Standing somewhere to WORK is not navigating — `OSAPI_FILE_GOTO_Q`
 
-`OSAPI_FILE_GOTO` (slot 0x01D0) is a **navigation**: a full `dsk_chdir`, which
+`OSAPI_FILE_GOTO` (slot 0x01C7) is a **navigation**: a full `dsk_chdir`, which
 is the BPB, the FAT window, the directory scan, the sort, one icon harvest per
 file, and a move of the calling instance's own folder (§19.2.1). That is right
 for an app that is about to *show* a folder and wrong for every copy loop
 ever written, which stands somewhere only to read or write **by name**.
 
-`OSAPI_FILE_GOTO_Q` (slot 0x02AA) is the same move with none of that. It is
+`OSAPI_FILE_GOTO_Q` (slot 0x029E) is the same move with none of that. It is
 `fcp_goto`'s two paths, which the kernel's own copy engine has had since
 §22.5, published because a copy engine *outside* the kernel needs them just
 as much — **and it is now `fcp_goto`, not a second transcription of it.** The
@@ -35466,7 +35467,7 @@ rebuilding the disk, not by the running system.
 
 ### 19.6.1 …and a DRIVER may call it, which a package may not
 
-`OSAPI_FILE_WRITE_SYS` (slot 0x028C) is `dskw_write_sys` published, and it is
+`OSAPI_FILE_WRITE_SYS` (slot 0x0280) is `dskw_write_sys` published, and it is
 the one cell in the table with a caller test in front of it. It exists for
 §52.10's installer: making a hard-disk partition **bootable** means putting
 `KERNEL.SYS`, `SYSTEM.CFG` and every `*.DRV` on it with the attributes this
@@ -35514,7 +35515,7 @@ Two consequences worth stating, because both are load-bearing for §52.10:
   underneath it would scatter them.
 
 **There are TWO cells behind this fence, and the second is what lets the
-first finish its job.** `OSAPI_FILE_APPEND_SYS` (slot 0x02CE) is
+first finish its job.** `OSAPI_FILE_APPEND_SYS` (slot 0x02C2) is
 `dskw_append` with the same `DSKW_SPROT` relaxation, and §18.4.4.1 is the
 whole argument: without it a system file could be *created* and never
 *extended*, so one bigger than the caller's buffer could not be written at
@@ -35581,7 +35582,7 @@ system disk needs no copy of it. And the `sys_attr` rule above stamps the
 file read-only, so it lists like an ordinary document and cannot be deleted
 or saved over.
 
-### 18.5.1 …and a package may create one — `OSAPI_FILE_MKDIR` (slot 0x029E)
+### 18.5.1 …and a package may create one — `OSAPI_FILE_MKDIR` (slot 0x0292)
 
 `dskw_mkdir` published, and it is **only wiring**: the routine is exactly the
 one the Folder menu, the Standard File dialog's New Folder button and
@@ -35605,7 +35606,7 @@ on the installed volume.
 has ever wanted it; a slot that exists for symmetry is a permanent promise
 bought for nothing (§20.8 rule 4).
 
-### 19.7.1 Listing a directory — `OSAPI_FILE_FIND` (slot 0x028F)
+### 19.7.1 Listing a directory — `OSAPI_FILE_FIND` (slot 0x0283)
 
 **These are not the numbers this block was written with, and §55.4's
 paragraph is the precedent.** `OSAPI_FILE_WRITE_SYS`, `FILE_FIND`,
@@ -35740,7 +35741,7 @@ is the rung this decision was checked against: a family is ~1.5 KB a style, so
 the whole set is a rounding error there and would have been 27% of the apps
 floppy's free space.
 
-**`OSAPI_VOL_SYS` (slot 0x0335) is what makes it reachable, and it had to be
+**`OSAPI_VOL_SYS` (slot 0x0328) is what makes it reachable, and it had to be
 new.** A package stands in the folder it was launched from, or in one a Standard
 File dialog gave it (§19.2.1); **nothing told it where the SYSTEM's files were**.
 `OSAPI_FILE_GOTO` has always taken a volume and a cluster, so the missing half
@@ -36134,7 +36135,7 @@ W_ONKEY / W_ONCLICK / W_ONSIZE / `AM_ONCMD` procs run under the gfx lock per
 worker task (§20.6), which then runs pre-emptively alongside them under the
 §7 rules.
 
-### 20.3 The os8088 API jump table (kernel.asm, two cell sizes)
+### 20.3 The os8088 API jump table (kernel.asm, two cell sizes and the inline cell)
 
 At KERNEL_SEG:0x0010, **one cell per slot, packed end to end, in two sizes**.
 A package owns a segment (§20.1), so every cell is a **far call** made with
@@ -36181,8 +36182,91 @@ against the renumbered SDK (§20.8 rule 4) and the cost of that is a rebuild.
 
 Kernel size pass 4 took the table from 179 uniform cells and 1,432 bytes to
 171 cells and 1,115: 48 plain SLOTs and 11 X cells hot, 105 rare cells, six
-jump cells and the one far cell. Those counts are the tree it landed on, not a
-contract; `t_api_abi` prints the span it walked.
+jump cells and the one far cell. Its last change (C3, below) then made fifteen
+cells **inline** and took the table to **1,093 bytes**: 43 plain SLOTs and 11
+X cells hot, 95 rare cells, 15 inline cells, six jump cells and the far cell.
+Those counts are the tree it landed on, not a contract; `t_api_abi` prints
+the span it walked.
+
+**A THIRD SHAPE sits beside the two sizes, and it is decided by the routine
+rather than by heat: the INLINE cell, where the cell IS the routine.** When a
+routine is one memory access and a `ret` — a getter, a setter, a word of the
+window record — and nothing but its own cell calls it, the DS switch is the
+whole of the work and the routine is none of it. The cell runs with CS =
+KERNEL_SEG (every caller far-calls `KERNEL_SEG:cell`), so it reaches the
+kernel's variable through a `cs:` override and returns:
+
+```nasm
+    OSAPI_ICELL 5                   ; OSAPI_GET_TICKS: out AX = [ticks]
+    mov ax, [cs:ticks]              ; 2E A1 lo hi
+    OSAPI_IEND                      ; CB (retf), and the length check
+```
+
+It keeps the SLOT contract to the letter: DS, ES and BP come back the
+caller's because nothing touches them, every register but the documented
+output is untouched, and neither a `mov` nor a `retf` (nor `evq_pending`'s
+`cbw`) writes a flag. It is **shorter** than either sized cell and deletes a
+body besides — and it is **faster than a hot SLOT**, which is the one thing
+the table had never offered: no `push ds / push cs / pop ds`, no near `call`,
+no `ret`, no `pop ds`. MEASURED on MartyPC's 4.77 MHz 8088, from the cell's
+first instruction to the one its `retf` returns to, over the Calculator's
+key path: `OSAPI_SET_COLOR` is **52-57 cycles inline against 159-162** as the
+hot SLOT it was (two instructions against eight), so **~22 µs a call**; a
+rare cell, which ten of the fifteen were, is ~85 cycles dearer than a hot one
+again (estimated from the instruction timings).
+`OSAPI_SET_COLOR` and `OSAPI_GET_TICKS` are per-frame in dozens of packages,
+and are the two that pay.
+
+The fifteen, each with the access `t_api_abi`'s INLINE ledger checks it for:
+
+| slot | the whole routine |
+|---|---|
+| `OSAPI_GET_TICKS` | `mov ax, [cs:ticks]` |
+| `OSAPI_SET_COLOR` | `mov [cs:gfx_color], al` |
+| `OSAPI_SRAND` | `mov [cs:osapi_seed], ax` |
+| `OSAPI_BOOT_TICKS` | `mov ax, [cs:boot_ticks]` |
+| `OSAPI_CPU_INFO` | `mov ax, [cs:cpu_tier]` — AH is `[cpu_feat]`, the byte after (§60) |
+| `OSAPI_MENU_OWNER` | `mov bx, [cs:menu_win]` |
+| `OSAPI_VOL_SYS` | `mov bl, [cs:dsk_bootvol]` |
+| `OSAPI_EVQ_PENDING` | `mov al, [cs:evq_count]` / `cbw` |
+| `OSAPI_ICON_PEN` | `mov [cs:ico_c1], ax` — AH to `[ico_c2]`, adjacent (§25.6) |
+| `OSAPI_GFX_BLIT1_PEN` | `mov [cs:gfx_b1ink], ax` — AH to `[gfx_b1pap]`, adjacent (§5.4.2.2) |
+| `OSAPI_WM_ONSIZE` | `mov [cs:bx+W_ONSIZE], ax` |
+| `OSAPI_WM_ONCLICK` | `mov [cs:bx+W_ONCLICK], ax` |
+| `OSAPI_WM_ONRESIZE` | `mov [cs:bx+W_ONSZ], ax` |
+| `OSAPI_WM_ONWAKE` | `mov [cs:bx+W_ONWK], ax` |
+| `OSAPI_WM_ONRCLICK` | `mov [cs:bx+W_ONRC], ax` |
+
+Their old routine names (`osapi_get_ticks`, `evq_pending`, `menu_owner`,
+`cpu_info`, `wm_onwake` and the rest) survive in prose elsewhere in this
+document as the names of the CELLS; there is no symbol by any of them, and a
+near `call` to one no longer assembles — which is also how "no other caller"
+was proved, on every build.
+
+**Three rules bind an inline cell**, and each is a way it can go wrong
+silently:
+
+1. **Its routine has no other caller** — in the kernel, a module or an
+   overlay. A caller of the CELL is fine, because the cell still keeps the
+   contract: `hiber.inc`'s `HB_API_COLOR` far-calls `apic_osapi_set_color`
+   and gets exactly what it got before. A body with a second caller stays a
+   body.
+   `wm_onmouseup`, `wm_onclose`, `clip_size` and `wm_clip_clear` are
+   exactly that shape and have kernel callers, so they are not inline.
+2. **Its data is reached through CS**, never DS: DS is the CALLER's inside
+   the cell. Only KERNEL_SEG data qualifies — `.text` or `.bss`, the two
+   sections a `cs:` offset names — never `.lowbss` or a `.cold` variable.
+3. **Its length is ABI, on EVERY build.** One SDK serves kern_big,
+   kern_small, kern_emu and every knob, so a cell whose body is `%ifdef`'d
+   must come out the same length on each, or every slot after it answers at a
+   different address on one kernel and nothing says so. `OSAPI_ICELL n`
+   declares the length and `OSAPI_IEND` refuses to assemble a cell that is
+   not exactly `n` (two `times` that go negative on a mismatch — NASM's `%if`
+   cannot read a context-local label). `OSAPI_GFX_BLIT1_PEN` is the one cell
+   that needs it: the pen is kern_big's alone, so kern_small's cell is four
+   `nop`s and the `retf`, and `BAND=1`'s third store does not fit, so that
+   knob's cell is `jmp strict near` to a body that does all three and
+   `retf`s on the caller's frame.
 
 **Hot SLOT** — the plain DS switch:
 
@@ -36345,6 +36429,13 @@ a rare cold SLOT two bytes *shallower* than the `api_sc` cell it replaced.
   do but cross: `OSAPI_DECOMP`'s routine takes the caller's own DS:SI and
   ES:DI as arguments, so the cell is `call COLD_SEG:lzf_decomp / retf` — the
   far call *is* the whole cell.
+- **Inline cells** (`OSAPI_ICELL n` … `OSAPI_IEND`, 5 or 6 bytes today) are
+  the routine itself, above: `2E`, one `mov` with one memory operand, an
+  optional `cbw`, `CB`. `t_api_abi` decodes exactly that and nothing looser,
+  and checks the operand against its INLINE ledger — the variable by name
+  through the symbol map, or a window-record field by its equate — along with
+  the direction and the register, so a cell that loads AL where the contract
+  says AX fails as loudly as a SLOT calling the wrong routine.
 
 The 8-byte cold forms these replaced (`OSAPI_CXCELL`, `OSAPI_NCELL`,
 `OSAPI_CSLOT`, `OSAPI_FARCELL`, `OSAPI_JSLOT`) are still defined in
@@ -36427,10 +36518,10 @@ the four retired `stc`/`ret` cells — `gfx_line`, `gfx_lstep` and `gfx_lstepv`
 While the table was uniform 8-byte cells at `0x0010 + 8n`, deleting a cell
 from the middle moved every number above it, so a retired cell was kept
 answering `CF=1` and the next new contract *reused* its number rather than
-append eight bytes: `wm_onmouseup` (§13.7, 0x019E today) took what had been
-`gfx_dbuf_gone` (§32), `OSAPI_VOL_KIND` (§18.7.2, 0x0198) took the retired
-`dskw_readbig` (§18.4.1), `OSAPI_DSK_CACHE` (§18.95.8, 0x0264) took
-`gfx_linit`'s, and `OSAPI_DRV_CLASSK` (§51.12, 0x044C) took
+append eight bytes: `wm_onmouseup` (§13.7, 0x0196 today) took what had been
+`gfx_dbuf_gone` (§32), `OSAPI_VOL_KIND` (§18.7.2, 0x0190) took the retired
+`dskw_readbig` (§18.4.1), `OSAPI_DSK_CACHE` (§18.95.8, 0x025A) took
+`gfx_linit`'s, and `OSAPI_DRV_CLASSK` (§51.12, 0x0437) took
 `OSAPI_FILE_MOVE`'s (§22.25). With variable-length cells there is nothing to
 preserve — no stride, no hole to fill, and every number moves at the next
 resize anyway — so a withdrawn cell simply goes, and a new cell is appended
@@ -36717,10 +36808,10 @@ with the rest (§20.3.1).
 
 | symbol           | contract                                            |
 |------------------|------------------------------------------------------|
-| `osapi_get_ticks` | out AX = [ticks]                                     |
-| `osapi_set_color` | in AL → [gfx_color]                                  |
+| `OSAPI_GET_TICKS` | out AX = [ticks] — an inline cell (§20.3), no body    |
+| `OSAPI_SET_COLOR` | in AL → [gfx_color] — an inline cell, no body         |
 | `osapi_mouse`     | out CX=[mouse_x], DX=[mouse_y], AL=[mouse_btn]       |
-| `osapi_srand`     | in AX → [osapi_seed]                                  |
+| `OSAPI_SRAND`     | in AX → [osapi_seed] — an inline cell, no body        |
 | `osapi_rand`      | seed = seed×25173 + 13849; out AX = seed             |
 
 ### 20.5 apps/os88api.inc — the program-side SDK
@@ -36766,8 +36857,8 @@ gfx lock with AL = item, AH = menu, SI = window, BX = the set — and every
 string it points at is read by the kernel through the **menu's own segment**
 (§12.2), which is what `MB_SEG` in the bar's runtime table carries.
 
-**Worker support (§20.6).** The SDK mirrors `OSAPI_TASK_SPAWN` (0x0136)
-and `OSAPI_TASK_ALIVE` (0x013C) and carries the seven author rules as a
+**Worker support (§20.6).** The SDK mirrors `OSAPI_TASK_SPAWN` (0x012F)
+and `OSAPI_TASK_ALIVE` (0x0135) and carries the seven author rules as a
 comment block beside them — rule 2 (never return, never self-exit) and rule
 4 (ALIVE under the lock deadlocks) especially, because neither is
 detectable from the kernel and both are unrecoverable.
@@ -37044,7 +37135,7 @@ its own call site — where it protected exactly one button.
 The cost is one `gfx_fill` per button per draw, which every caller that had
 thought about the problem was already paying.
 
-#### 20.5.1.3.3 The PRESS is the library's — `OSAPI_WM_ONCLICK` (API 0x0465)
+#### 20.5.1.3.3 The PRESS is the library's — `OSAPI_WM_ONCLICK` (API 0x0450)
 
 `os88ui_btninit` installs all three of a gesture's edges, and until this cell
 existed it could only install two. `W_ONMOUSEUP` and `W_ONDRAG` have slots;
@@ -37566,7 +37657,7 @@ without anyone noticing it was a rule.
 
 ### 20.9 Snapshots — a table at a time, into a buffer the caller owns
 
-Four cells (0x0219..0x022B) exist for one reason: the Task Manager was the
+Four cells (0x0210..0x0222) exist for one reason: the Task Manager was the
 only built-in that could not be lifted out of the kernel, and every reason
 was the same reason. It read `sch_cycles`, `sch_tasks`, `sch_cur`,
 `inst_tab`, `mem_tab` and seven assembly-time constants of the memory ladder
@@ -37583,9 +37674,9 @@ that a table has grown rather than walk off the end of its own buffer.
 
 | slot | fills | answers |
 |------|-------|---------|
-| 0x0298 `sys_snapshot`   | `SS_*` header + `INST_MAX` × `SSI_RECSZ` records | AX = `MAX_TASKS`, BX = `INST_MAX` |
-| 0x02A0 `claim_snapshot` | `MEM_MAX` × `CLS_RECSZ` records                  | AX = `MEM_MAX` |
-| 0x02A8 `sys_kb`     | the `SK_*` block, KB                             | — (everything preserved) |
+| 0x0210 `sys_snapshot`   | `SS_*` header + `INST_MAX` × `SSI_RECSZ` records | AX = `MAX_TASKS`, BX = `INST_MAX` |
+| 0x0216 `claim_snapshot` | `MEM_MAX` × `CLS_RECSZ` records                  | AX = `MEM_MAX` |
+| 0x021C `sys_kb`     | the `SK_*` block, KB                             | — (everything preserved) |
 
 Three things about them are load-bearing.
 
@@ -37726,7 +37817,7 @@ claim territory the list bills to `Code+data`: `dsk_secbuf` is inside the
 `LOW` rung and is billed to `Code+data`, so the band stops at the top of the
 FAT window. 8 KB on `kern_big`, 2 on `kern_small`.
 
-The fourth cell, 0x022B `gfx_fill_pat`, is not a snapshot — it is the one
+The fourth cell, 0x0222 `gfx_fill_pat`, is not a snapshot — it is the one
 drawing primitive (§5) that had no slot, because its eight pattern bytes
 reach `vga_pat_stage` through `[gfx_pat]`, a **near** pointer read against
 DS. Giving that variable a segment would put one on every kernel caller of a
@@ -37736,7 +37827,7 @@ stages the eight bytes into the kernel's own segment first — the
 
 ### 20.10 Restart is POSTED, never performed
 
-`OSAPI_REBOOT` (slot 0x02A4) takes `AL`, answers nothing and **sets a
+`OSAPI_REBOOT` (slot 0x0298) takes `AL`, answers nothing and **sets a
 byte**. `ui_task` spends it at the top of its pass, before the keyboard poll
 and with nothing held; the body is the System menu's own `CMD_REBOOT` path,
 reached at a second label rather than copied.
@@ -37805,7 +37896,7 @@ whole job is to set a byte and get out of the way.
 
 ### 20.11 A package calls a DRIVER, and the kernel learns nothing
 
-`OSAPI_DRV_CALL` (slot 0x0355) takes `BH` = a `DRVC_*` class and `BL` = **a
+`OSAPI_DRV_CALL` (slot 0x0348) takes `BH` = a `DRVC_*` class and `BL` = **a
 verb that driver defines**, and hands both to the driver's own dispatcher.
 Everything else — `AX`, `CX`, `DX`, `SI`, `DI` — is the driver's to define
 and the driver's to answer in. `DI`, `BP`, `DS` and `ES` come back the
@@ -37952,7 +38043,7 @@ driver buffer has had to grow its own segment for it**. `apps/tracker` and
 which is the worse deal: memory it cannot do without, in order to hold
 something it can.
 
-`OSAPI_DRV_CALL_AT` (0x039A) is the **same routine behind the same fence**,
+`OSAPI_DRV_CALL_AT` (0x038B) is the **same routine behind the same fence**,
 reached through the ordinary `OSAPI_SLOT` stub — which is
 `push ds / push cs / pop ds / call / pop ds / retf` and does not touch ES. So
 this is not a second implementation, a second ABI, or a flag: it is one more
@@ -38519,7 +38610,7 @@ for as long as the program runs. On a package whose real body is itself a
 part, that is **2 KB of a 640 KB machine spent on a program that has finished
 its job.**
 
-`OSAPI_PKG_REHOME` (0x0413, an X cell) is the way out. The loader tells the
+`OSAPI_PKG_REHOME` (0x03FE, an X cell) is the way out. The loader tells the
 kernel *"the program is at DX, not at me"*, returns, and:
 
 * its own region is **freed**;
@@ -38809,7 +38900,7 @@ because a package may not compact its own region — `mem_frameless` asks
 `mem_in_nest`, and a package reaches `mem_claim` only from inside its own
 callback. **That is true of a synchronous claim and it is NOT the situation
 here**, because §66.4.3's posted request exists precisely for it and is
-BUILT: `OSAPI_MEM_COMPACT`'s post (0x0458) records the wish and returns,
+BUILT: `OSAPI_MEM_COMPACT`'s post (0x0443) records the wish and returns,
 `ui_task` step 0 spends it through `mem_cpq_run_x` with nothing held, and
 `apps/dos/dos.asm` has posted one since §96.35. `[dos_cpw]` reads 1 on the
 machine, so the pass really runs.
@@ -38902,7 +38993,7 @@ proved `image > file`. Every byte off a disk is hostile (§19) and `os88pkg.py`
 is not a gate on a foreign `.O88` — the same rule, and the same class of
 defect, as the `image + bss` carry fence one test along (§21 step 4).
 
-#### 20.13.3 `OSAPI_DECOMP` (0x03E8) — a plain cell, and why
+#### 20.13.3 `OSAPI_DECOMP` (0x03D3) — a plain cell, and why
 
 ```
     DS:SI = the compressed bytes          CX = compressed bytes (under 64KB)
@@ -39401,7 +39492,7 @@ would cost every entry of every volume on every machine, to answer a question
 asked once per dialog.
 
 **`OSAPI_FILE_READ_AT` IS THE RAW PATH AND STAYS RAW**, and it has a SIZE cell
-to go with it: `OSAPI_FILE_FIND_RAW` (0x03EE) is the same walk into the same
+to go with it: `OSAPI_FILE_FIND_RAW` (0x03D9) is the same walk into the same
 24-byte record with **+18 the size the file OCCUPIES**. Bit 0 of +22 still says
 *compressed* on both cells — that is a fact about the file, not about which
 number was reported, and a caller knows which it got from which cell it called.
@@ -39665,7 +39756,7 @@ do is a near `call` into the kernel, so the services it wants go through the
 far shims the cloner already established: `COLD_SEG:dwf_dskw_stat` /
 `dwf_dskw_read` / `dwf_dskw_write` for the file layer, `COLD_SEG:mmf_mem_claim`
 / `mmf_mem_free` for the heap, `COLD_SEG:lzf_decomp` for the decoder a
-package's expansion needs, and `KERNEL_SEG:0x02B6` — `OSAPI_TOAST` — for its
+package's expansion needs, and `KERNEL_SEG:0x02AA` — `OSAPI_TOAST` — for its
 own verdicts, that slot taking `ES:SI` rather than `DS:SI` precisely so the
 text can live in a heap claim, which a module image is. **The sizing question
 is the module's own** (`cmz_sizes`): `dskw_stat` leaves the raw directory
@@ -40119,10 +40210,10 @@ that survives a build and a review.
 
 **Start the package called NAME.** If you happen to be holding its bytes, hand
 them over and the kernel will not read the file; if you are not, it will.
-Slot **`KERNEL_SEG:0x0407`**:
+Slot **`KERNEL_SEG:0x03F2`**:
 
 ```
-OSAPI_PKG_START KERNEL_SEG:0x0407        ; an N cell
+OSAPI_PKG_START KERNEL_SEG:0x03F2        ; an N cell
   in   SI     = a NUL-terminated 8.3 name, at most 12 characters, in YOUR
                 segment. It is the file to start AND what the new instance is
                 told it was launched from (its entry proc's SI, §20.2)
@@ -40292,7 +40383,7 @@ no-consumer path, which is a worse spec than the one the freeze was
 defending.* Two published cells whose names both mean *run a package* is a
 question at every call site that has no good answer, and the table is
 **unfrozen** precisely so a wrong contract is edited rather than shipped
-around. The second cell is withdrawn; the merged cell takes 0x0407 today, which the
+around. The second cell is withdrawn; the merged cell takes 0x03F2 today, which the
 re-contract rule permits here because `apps/`, `drivers/` and `tests/` are the
 complete set of callers and `make` rebuilds every one of them.
 
@@ -40894,7 +40985,7 @@ UI ladder routes rows 0..19 to `wm_hit` and the bar is neither drawn nor
 clickable, so a fullscreen file-manager window would have no menu bar at all: the
 context menu and the keyboard would be its entire command surface. **That
 state is not reachable today** — `wm_fullscreen`'s only caller is API slot
-0x00FE, a package can only fullscreen its own window, and no shipped `.o88`
+0x00F7, a package can only fullscreen its own window, and no shipped `.o88`
 does; `ui_rdown`'s `[wm_fs]` test is insurance against a Locator Fullscreen
 command that does not exist yet. It is written down because the day that
 command lands, the context menu is what makes the mode usable at all. That is also
@@ -42832,7 +42923,7 @@ mount must not leave the previous volume's number on screen, and a blank
 would read as *no free space* — the one thing it must not be mistaken for.
 
 **`dsk_free_clus` is the counting body, and it is the reason this is
-affordable.** `dskw_dfree` (slot 0x011F) is rewired onto it, so the API cell
+affordable.** `dskw_dfree` (slot 0x0118) is rewired onto it, so the API cell
 and the status line cannot disagree. What it replaced was a `dsk_next_clus`
 call per cluster — ~850 clocks of push/pop, window revalidation and two
 variable shifts around ~15 clocks of actual FAT read, which is **over half a
@@ -45208,7 +45299,7 @@ wants — and it drew in two hardcoded colours, `CWHITE` then `CBLACK`, written
 into GC0 as immediates.
 
 The two colours come from `[ico_c1]` / `[ico_c2]` now, and `icon_pen` sets them
-(**API slot 0x03AA**; `icon_draw` is **0x03B2**):
+(**API slot 0x0398**; `icon_draw` is **0x039D**):
 **AL = the mask pass's colour, AH = the data pass's**. It is **one-shot** —
 `icon_draw` puts the icon pair back on the way out, exactly as `gfx_blit1_pen`
 is cleared by `gfx_unlock` (§5.4.2.2) — so every existing icon site is untouched
@@ -46039,7 +46130,7 @@ register the Wire's out of the shared `drivers/wirezone.inc`. No driver, no
 zone, and the only thing a cardless machine pays at runtime is one compare in
 `desk_svflag`.
 
-#### `OSAPI_DESK_SVC` — slot `KERNEL_SEG:0x040D`
+#### `OSAPI_DESK_SVC` — slot `KERNEL_SEG:0x03F8`
 
 ```
   in   AL    = 1 add / 0 withdraw
@@ -46534,7 +46625,7 @@ built-in Note Pad kind, moved out of the kernel to reclaim the 1,383 bytes
 it cost there — 281 of code and 1,036 of .bss, nearly all of the latter a
 fixed two-instance text pool. Behaviour matches §14 plus resizing: one
 window "Note Pad" 260×180 at (60,60), **resizable** — the entry calls
-`wm_sizable` (slot 0x00F8) right after wm_create, making it the first
+`wm_sizable` (slot 0x00F1) right after wm_create, making it the first
 package to exercise §11.1 and the proof that the SDK path works. Paint
 renders the buffer at 8px per char with a 6px left/top margin, wrapping at
 the content width, dropping any row whose bottom would pass the content
@@ -46605,9 +46696,9 @@ document name seeded to `NOTES.TXT` at launch, and four File commands:
 | command | behaviour |
 |---------|-----------|
 | **New** | empties the buffer and resets the name to `NOTES.TXT` |
-| **Open…** (`Ctrl-O`) | slot 0x012B in Open mode, default = the current name; the callback stores the chosen name and loads it |
+| **Open…** (`Ctrl-O`) | slot 0x0124 in Open mode, default = the current name; the callback stores the chosen name and loads it |
 | **Save** (`Ctrl-S`) | writes `np_name` — no dialog, the second and later saves of a document are silent |
-| **Save As…** | slot 0x012B in Save mode; the callback stores the chosen name and writes it |
+| **Save As…** | slot 0x0124 in Save mode; the callback stores the chosen name and writes it |
 
 The load key is **Open…**, i.e. it raises the dialog rather than re-reading
 a fixed file — the one behaviour change to an existing key, and the reason
@@ -46657,7 +46748,7 @@ that was already there: the `np_smsg`/`np_smsgn` shadow is published
 **before** `np_toast` runs, so the next paint compares 0 against the toast
 the screen was drawn with, mismatches, and redraws the rows underneath.
 
-Save is `ES = DS` + slot 0x010A; load is slot 0x0110 with the buffer
+Save is `ES = DS` + slot 0x0103; load is slot 0x0109 with the buffer
 capacity, mapping `FERR_BIG` to the same "Too big" toast the truncation
 path uses. Neither call happens in the paint proc — both run in onkey,
 which already holds the gfx lock, so the write's stall (§18.4) lands on a
@@ -49887,7 +49978,7 @@ and this is its first wave — **banking only, with the bar still drawn exactly
 as before.**
 
 The bank is **`OSAPI_GFX_SAVE` of the 8-px byte column the bar stands in**
-(§5.3, 0x03F1/0x03F9 — published, in both builds, with 1bpp twins). 64 bytes of
+(§5.3, 0x03DC/0x03E4 — published, in both builds, with 1bpp twins). 64 bytes of
 Word's bss: one byte a row per plane, so 1 × `TY_BROWS` × 4 on VGA and a
 quarter of that at 1bpp.
 
@@ -49921,7 +50012,7 @@ so writing a banked column back while another window overlaps it would paint
 over *that window* — and §5.8's companion point is sharper: **a clipped restore
 does not report that it was clipped.**
 
-`OSAPI_WM_CLIP_TEST` (0x0154) is exactly that question — CF = 0 the whole rect
+`OSAPI_WM_CLIP_TEST` (0x014D) is exactly that question — CF = 0 the whole rect
 is drawable, including when no clip is armed — and the rect here is **one pixel
 wide**, so it is one far call that answers yes in the ordinary case of an
 unobscured window. A no is a refusal like any other.
@@ -52263,7 +52354,7 @@ run this cost:
   100, correctly. The memory page's rows are instances.
 * **A drag, not a close.** Closing the cover ends an instance, which moves the
   memory page's rows for the same reason.
-* **`font_run_x` reached through the X cell at slot 0x01EE.** That cell goes
+* **`font_run_x` reached through the X cell at slot 0x01E5.** That cell goes
   straight to `font_run_x`, so a breakpoint on the kernel's own `font_run`
   counts **2** calls for a whole repaint of this window; and the return
   address is what separates this window's calls from the Finder redrawing its
@@ -52823,8 +52914,8 @@ init-less:
 | `inst_task_die` | in DI = the CURRENT task's instance record; no lock held; **never returns**: `inst_rel_rec`, `toast_owner_gone`, gfx_lock, wm_destroy I_WIN (clears wm_owner), I_WIN ← 0, `inst_sweep_seg`, gfx_unlock, `mem_free_rec`, then `jmp task_exit` with BX = record ptr (I_STATE is offset 0 — the release byte). **I_WIN = 0 is a case it answers itself** — the destroy is skipped and everything else runs, because `wm_destroy` with BX = 0 would zero the cold-entry `jmp` at 0800:0000 — so `inst_pkg_alive` has one leg where it used to carry a second copy of this routine. Reached from Timer's and Bounce's own loops (§14) and, for packages, from `inst_pkg_alive` (§20.6). |
 | `inst_wchk` | module-internal (§20.6). in BX = an untrusted window ptr; out CF=0 if BX lies inside `wm_wins` and is record-aligned, CF=1 otherwise. Preserves everything but the flags. The fence in front of `inst_of_win` for package-supplied pointers, whose `div cl` would otherwise fault. |
 | `inst_pkg_fence` | module-internal (§20.6, §53.1). in AX = a near entry offset, BX = an untrusted window ptr, ES = the caller's DS; out CF=1 refused, or CF=0 and DI = the instance record. `inst_wchk`, `inst_of_win`, I_STATE = 1, I_KIND bit 7, `ES == I_SPTR`, `AX < I_SIZE`. Clobbers DX (the ES scratch) and DI; both callers write DX immediately after it, which is why the scratch costs no bank. Written out twice until size pass 2 — `inst_pkg_spawn` below and `fsx_run` (§53.1), whose copy carried the comment "the fence is `inst_pkg_spawn`'s, verbatim". `inst_pkg_spawn`'s own `I_TASK = 0xFF` test is NOT part of it and now runs after it rather than between the I_STATE and I_KIND arms; every arm answers the same CF=1 with nothing changed, so the order is not observable. |
-| `inst_pkg_spawn` | API slot 0x0136 (§20.6). in AX = near worker entry, BX = the package's own window ptr; **caller holds the gfx lock** (exclusion against another *spawner* is `task_spawn`'s own IF=0 window, §8, not this lock). Refuses (CF=1, nothing created) when BX fails `inst_wchk`, names no owner, names a record with I_STATE ≠ 1, that record already has I_TASK ≠ 0xFF, or the **ownership fence** rejects it — the record must be a package (I_KIND bit 7) and AX must satisfy I_SPTR ≤ AX < I_SPTR + I_SIZE, which is what ties the spawn to the *calling* instance — or when `task_spawn` finds the table full. Else `task_spawn` (AX = entry, DX = instance index, off `inst_fhome_idx` — the one place that `(record − inst_tab) >> 5` lives), I_TASK ← slot, CF=0, AL = slot. Preserves every register but AL and the flags. No rollback exists or is needed — the instance is already published and stays live on refusal. |
-| `inst_pkg_alive` | API slot 0x013C (§20.6). in BX = the package's own window ptr; **gfx lock NOT held**; called from the worker only. Returns with every register and the flags preserved while BX names a record with I_STATE = 1 — and returns unconditionally, without exiting anything, when `sch_cur` = 0: the UI task must never `task_exit` (§8), so a wrong-context call is refused. Otherwise recovers the *running task's* record from `T_INST` (§8) and `jmp inst_task_die` — never returns. A record with I_WIN = 0 (corrupt table: nothing to `wm_destroy`, and BX = 0 there would zero the cold-entry `jmp` at 0800:0000) still exits with BX = the record, so the record, its region and its dock/tm rows are released — that case is `inst_task_die`'s own guard now rather than a second copy of it here, which also means such a record's toast goes with it like any other's. Only T_INST ≥ INST_MAX exits with BX = 0 — no release byte because there is no record — the `sbl_refill_task` precedent (§34.5). |
+| `inst_pkg_spawn` | API slot 0x012F (§20.6). in AX = near worker entry, BX = the package's own window ptr; **caller holds the gfx lock** (exclusion against another *spawner* is `task_spawn`'s own IF=0 window, §8, not this lock). Refuses (CF=1, nothing created) when BX fails `inst_wchk`, names no owner, names a record with I_STATE ≠ 1, that record already has I_TASK ≠ 0xFF, or the **ownership fence** rejects it — the record must be a package (I_KIND bit 7) and AX must satisfy I_SPTR ≤ AX < I_SPTR + I_SIZE, which is what ties the spawn to the *calling* instance — or when `task_spawn` finds the table full. Else `task_spawn` (AX = entry, DX = instance index, off `inst_fhome_idx` — the one place that `(record − inst_tab) >> 5` lives), I_TASK ← slot, CF=0, AL = slot. Preserves every register but AL and the flags. No rollback exists or is needed — the instance is already published and stays live on refusal. |
+| `inst_pkg_alive` | API slot 0x0135 (§20.6). in BX = the package's own window ptr; **gfx lock NOT held**; called from the worker only. Returns with every register and the flags preserved while BX names a record with I_STATE = 1 — and returns unconditionally, without exiting anything, when `sch_cur` = 0: the UI task must never `task_exit` (§8), so a wrong-context call is refused. Otherwise recovers the *running task's* record from `T_INST` (§8) and `jmp inst_task_die` — never returns. A record with I_WIN = 0 (corrupt table: nothing to `wm_destroy`, and BX = 0 there would zero the cold-entry `jmp` at 0800:0000) still exits with BX = the record, so the record, its region and its dock/tm rows are released — that case is `inst_task_die`'s own guard now rather than a second copy of it here, which also means such a record's toast goes with it like any other's. Only T_INST ≥ INST_MAX exits with BX = 0 — no release byte because there is no record — the `sbl_refill_task` precedent (§34.5). |
 | `inst_launch_post` | in AL = kind: one atomic word store of kind+1 into `inst_launch` — the deferred launch channel for lock-held posters (drained by ui_task step 3, §13). Rapid double posts coalesce (last wins). |
 
 **Sound teardown (§34.3, Phase 1).** Both free points release the
@@ -52882,7 +52973,7 @@ cursor — UI task only). All zeroed by `inst_init`.
 
 ### 29.6 `OSAPI_WM_MINIMIZE` — a package sends its own window to the dock
 
-**Slot 0x0428. `BX` = a window of yours, the gfx lock held** — the minimize
+**Slot 0x0413. `BX` = a window of yours, the gfx lock held** — the minimize
 box's own environment, which is `W_ONCLICK`'s. The tile inverts, the window
 hides, and a click on the tile brings it back. It is `inst_minimize` published
 and nothing else: a six-byte rare cell (§20.3), no thunk, because the routine's
@@ -52920,7 +53011,7 @@ been 150KB.
 
 ### 29.9 `osapi_sys_snapshot` is cold, behind the ordinary thunk
 
-Slot 0x0219 fills the Task Manager's whole table in one interrupts-off window
+Slot 0x0210 fills the Task Manager's whole table in one interrupts-off window
 (§20.9). It is 258 bytes and the Task Manager asks about **once a second**, so
 the body is `.cold` — `osapi_sys_snapshot_x`.
 
@@ -55301,7 +55392,7 @@ differing bytes** on CGA (128,000), Hercules (250,560), VGA mode 12h (921,600
 rendered) and on the dual-display machine's **both** cards.
 
 **Its cell (then 0x01F0) was retired here and has since been REUSED** — it
-carries `wm_onmouseup` (§13.7, 0x019E today), taken under the free-list rule
+carries `wm_onmouseup` (§13.7, 0x0196 today), taken under the free-list rule
 §20.3.1 had then: a withdrawn contract whose SDK name was deleted has no caller
 that can exist, so the number was the next one to hand rather than an append. What follows is the retirement as it
 stood, and the reason the cell was safe to take: it answered CF=1,
@@ -55496,7 +55587,7 @@ that is what the kernel carries.
 
 Everything beyond it is a **loadable driver** (§51). `SOUND.DRV` on the
 system disk fills the two API slots the kernel holds empty without it —
-`OSAPI_SND_FM` (0x00EA) and `OSAPI_SND_STREAM` (0x00F1) — and may take the
+`OSAPI_SND_FM` (0x00E3) and `OSAPI_SND_STREAM` (0x00EA) — and may take the
 tone tier with it. A machine with an AdLib in it and the driver loaded has
 FM; a 128KB machine with neither card pays nothing for the code that would
 have driven them. That split is the point: the card tiers used to be
@@ -55527,7 +55618,7 @@ quarter of the RAM handed back. The speaker tiers need no kernel buffer at
 all: a tone is two `out`s, and `osapi_snd_play` paces samples out of the
 **caller's** `ES:SI`. A future package that plays a WAV over the speaker
 therefore needs nothing new from the kernel — it holds its own samples,
-claims its own memory (§50) and calls slot 0x00E2.
+claims its own memory (§50) and calls slot 0x00DB.
 
 Module (§4): `snd.inc`, prefix `snd_` (the speaker driver's own routines
 are `spk_`). `%include`d after `ctrl.inc`; the file ends on `section .text`
@@ -55976,7 +56067,7 @@ than a property the address had by construction. It was taken at attach and
 held for the session; since §34.5.2 it is taken per stream, and a ring stream
 the card can reach needs none at all.
 
-The stream verbs reach it through `osapi_snd_stream` (slot `0x00F1`), which is
+The stream verbs reach it through `osapi_snd_stream` (slot `0x00EA`), which is
 the one slot where **DX is an input on some verbs and an output on another**:
 the rate on 0 and 4, the consumed count on 3. The stub banks it for the
 former and must not for the latter — getting that wrong made every poller
@@ -57546,7 +57637,7 @@ Save, Esc is Cancel. In **Open** mode the keyboard drives the list instead
 (Up/Down/PgUp/PgDn, Enter, Esc); there is no field to type in, which is
 what the Standard File dialog this is modelled on did too.
 
-### 38.6 The API slot 0x012B and the completion callback
+### 38.6 The API slot 0x0124 and the completion callback
 
 The table-span assertion in `kernel.asm` goes 40 × 4 → **41 × 4** (42 × 4
 since §39.8 appended `OSAPI_VIDEO`, and 44 × 4 since §20.6 appended the
@@ -57674,7 +57765,7 @@ driver and never writes `dskw_raw`.
 
 ### 38.7 Lifecycle
 
-1. **Ask.** The application calls slot 0x012B from a menu command or a key
+1. **Ask.** The application calls slot 0x0124 from a menu command or a key
    handler, under the lock it already holds. `fdlg_open` refuses if
    `[fdlg_win]` ≠ 0, else records the request, seeds `fdlg_name` from SI,
    re-mounts the current directory, creates the window and `wm_show`s it.
@@ -57764,7 +57855,7 @@ no longer always reaches it.
 
 | symbol | contract |
 |--------|-----------|
-| `fdlg_open` | API slot 0x012B, above. The only entry point applications have. Caller holds the gfx lock. |
+| `fdlg_open` | API slot 0x0124, above. The only entry point applications have. Caller holds the gfx lock. |
 | `fdlg_gate` | Internal. Drops the gate (and destroys the window) if `[fdlg_win]` is not used-and-visible. In: AL = 1 if the caller holds the gfx lock, 0 if not — it needs the lock to destroy and takes its own when it must. Out: CF=0 and BX = the dialog if one is live, CF=1 if none. |
 | `fdlg_reap` | UI task, no lock held. `fdlg_gate` for its side effect alone, once per loop pass. Preserves all registers. |
 | `fdlg_grab` | In: CX/DX = press point. Out: CF=1 = swallow (beeped). Preserves all registers. Called with no lock held. |
@@ -57891,7 +57982,7 @@ Seven things about it:
   document the app is actually on; the remembered name is what fills the box
   when `SI` is 0, which is the case that used to give an empty box.
 - **...and `SI = 0` has to SURVIVE THE STUB, which for a while it did not.**
-  Slot 0x012B was an `OSAPI_NSTUB`, and that macro stages the caller's
+  Slot 0x0124 was an `OSAPI_NSTUB`, and that macro stages the caller's
   `DS:SI` into `api_name` **unconditionally** — right for the six file cells
   it also serves, where a name is an argument the operation cannot run
   without, and wrong here, where the published contract is *"a name, or 0"*.
@@ -58181,7 +58272,7 @@ Three sites are worth knowing because they are not obviously renderer:
 
 #### 39.2.1.1 …and `OSAPI_VIDEO` answers the PRIMARY, not the desktop union
 
-Slot 0x012E returns the **primary display's** width and height
+Slot 0x0127 returns the **primary display's** width and height
 (`[vid_pwm1]+1`, `[vid_phm1]+1`), never `[vid_w]`/`[vid_h]`. On every machine
 with one display those are the same words; on an extended desktop `[vid_w]` is
 the whole virtual desktop, and **a package has no use for that number**:
@@ -58772,7 +58863,7 @@ the screen and not merely invisible.
 
 ### 39.8 The package ABI
 
-`OSAPI_VIDEO` (slot **0x012E**) — no
+`OSAPI_VIDEO` (slot **0x0127**) — no
 inputs;
 out AX = width, BX = height, CX = the first row the dock owns (so the usable
 desktop is rows `MBAR_H`..CX-1), DL = `vid_kind`, DH = bits per pixel (4 or
@@ -60685,7 +60776,7 @@ screen the moment its window was **dragged** across. `sol_onresize` on a
 `pt_scrh` = 348 with its window on a 200-row display. They followed **Activate
 Mode** correctly — that is a change of *primary* — and did not follow a drag.
 
-`OSAPI_WM_DISPLAY` (slot 0x0388) is `OSAPI_VIDEO` for the display *your
+`OSAPI_WM_DISPLAY` (slot 0x037A) is `OSAPI_VIDEO` for the display *your
 window* is on: `BX` = the window, out `AX` = width, `BX` = height, `CX` = the
 first row the dock owns, `SI` = the first row the desktop band has, `DL` =
 kind, `DH` = bits per pixel.
@@ -63064,7 +63155,7 @@ this*, in both builds, and this one is purely *the store*, in `kern_big`
 (§41.11).
 
 **Four slots** — `OSAPI_XMEM_CAPS` / `_ALLOC` / `_FREE` / `_COPY` (§41.8);
-`OSAPI_CPU_INFO` at 0x015C belongs to §60.
+`OSAPI_CPU_INFO` at 0x0155 belongs to §60.
 
 **None of it exists on tier 0, which is the target machine.** An 8088 has no
 A20 line and nothing above linear 0x0FFFFF; `xm_init` publishes zero KB and
@@ -63359,9 +63450,9 @@ after the window has gone.
 
 ### 41.8 The package ABI
 
-Five slots: `OSAPI_CPU_INFO` (0x015C), `OSAPI_XMEM_CAPS`
-(0x0162), `OSAPI_XMEM_ALLOC` (0x0168), `OSAPI_XMEM_FREE` (0x016E) and
-`OSAPI_XMEM_COPY` (0x0174). What ALLOC returns is an **opaque 32-bit token**,
+Five slots: `OSAPI_CPU_INFO` (0x0155), `OSAPI_XMEM_CAPS`
+(0x015A), `OSAPI_XMEM_ALLOC` (0x0160), `OSAPI_XMEM_FREE` (0x0166) and
+`OSAPI_XMEM_COPY` (0x016C). What ALLOC returns is an **opaque 32-bit token**,
 not a pointer: every byte crosses through COPY. UI-task context — the entry
 proc or any window callback, **and the gfx lock may be held** (a callback
 always holds it, and a callback copying a buffer to or from the store is the
@@ -63423,8 +63514,8 @@ by *what the code is for*, not by which file it is in:
 
 | in both builds | `kern_big` only |
 |---|---|
-| `cpu_detect`, `cpu_info` (slot 0x015C), `[cpu_tier]`, `[cpu_feat]` — §60 | the whole of `xmem.inc`: `xm_init`, `xm_arm`, the allocator, `xm_copy` and both transports |
-| the four slots 0x0162..0x0174, as cells | their real bodies |
+| `cpu_detect`, `cpu_info` (slot 0x0155), `[cpu_tier]`, `[cpu_feat]` — §60 | the whole of `xmem.inc`: `xm_init`, `xm_arm`, the allocator, `xm_copy` and both transports |
+| the four slots 0x015A..0x016C, as cells | their real bodies |
 | — | `xm_a20_probe`/`_settle`, `xm_kbc_wait`, `xm_fast_a20`, `xm_kbc_a20`, `xm_a20_enable`, `xm_hma_claim` |
 
 **The seam ran THROUGH `cpudet.inc` when this landed, and does not any more.**
@@ -63436,7 +63527,7 @@ guard covering the whole feature, and `cpudet.inc` has none at all. Preserve
 that property if any of this moves again.
 
 **The TIER stays in both and must.** It is a fact about the CPU, not about
-this store: slot 0x015C is a published ABI that Note Pad (§27.3), Missile
+this store: slot 0x0155 is a published ABI that Note Pad (§27.3), Missile
 Command, Paint and `tests/sysbench` all read to pick a code path, and none of
 them is asking about extended memory. **The A20 and HMA routines go**, because
 they exist only to make a store above 1MB reachable and sizeable —
@@ -63491,8 +63582,8 @@ of this feature that ever cost the machine time rather than bytes.
 - `make kernsplit`: `kern_big` byte-identical to the pre-split build, and
   `kern_small` smaller. A `kern_small` size that moves in a commit about
   `kern_big` is the whole failure mode of the design.
-- The four cells at 0x0162..0x0174 exist in both, and **the slot after them
-  (0x017C, `wm_geom`) has the same body in both** — that is what says the
+- The four cells at 0x015A..0x016C exist in both, and **the slot after them
+  (0x0174, `wm_geom`) has the same body in both** — that is what says the
   table did not shift.
 - One `.o88` on both kernels: `make small` does not rebuild the apps disks.
 - Verified by **calling the slots on the running kernel** (a planted
@@ -63665,7 +63756,7 @@ each:
   would need an API slot of its own. `BL` and not `AL` because `AX` is the low
   half of a 32-bit argument to two of the three callers.
 - **The copy's two ends travel as 32-bit LINEAR addresses in a parameter
-  block**, and that is forced rather than chosen. Slot 0x0174 takes the
+  block**, and that is forced rather than chosen. Slot 0x016C takes the
   conventional end as `ES:SI`, and the dispatcher loads `ES` with
   `KERNEL_SEG` on its way in, so the caller's segment cannot survive the
   crossing. The kernel folds it down — arithmetic `xm_copy` did internally
@@ -63677,7 +63768,7 @@ each:
 `_UNREAL` have no readers outside these two modules (§41.11 established that
 by grep), so the image is their only writer; it hands them to the kernel in
 `DL` at attach and the kernel stamps `[cpu_feat]`, so `cpu_info`'s AH (slot
-0x015C) keeps meaning what it always meant. On a machine where the overlay
+0x0155) keeps meaning what it always meant. On a machine where the overlay
 never loads it reads 0 — no gate verified, no HMA claimed, no unreal mode
 armed — which is true, and is exactly what tier 0 answers.
 
@@ -69235,9 +69326,9 @@ moves. If `[ark_mode]` is `M_PLAY` it asks **two** questions, and banks
 `M_PLAY` in `[ark_wasmode]`, drops to `M_PAUSE` and raises `[ark_full]` unless
 both answer this window:
 
-- `OSAPI_WM_TOP` (slot 0x01F5, §20.3) — **is this window frontmost?** Catches
+- `OSAPI_WM_TOP` (slot 0x01EC, §20.3) — **is this window frontmost?** Catches
   a window raised over the game.
-- `OSAPI_MENU_OWNER` (slot 0x0232, §12.6) — **is this the active
+- `OSAPI_MENU_OWNER` (slot 0x0229, §12.6) — **is this the active
   application?** Catches the click on the **bare desktop**, which hands the
   menu bar to Locator and moves nothing in `wm_zord`. `wm_top` reads that as
   nothing having happened, correctly and uselessly: the game is still the
@@ -69875,7 +69966,7 @@ up after a stall without starving the machine.
 
 BEVERLY.MOD is 116,085 bytes. `dskw_read`'s count was 16-bit, so a file
 ≥ 65,536 bytes was `FERR_BIG` *unconditionally*, and this app is why the
-kernel grew a second entry point for it — `dskw_readbig`, at slot 0x0198,
+kernel grew a second entry point for it — `dskw_readbig`, at slot 0x0190,
 which §18.4.1 has since folded back into `dskw_read` itself. Nothing about
 the load path changed with it but the name and a `xor bx, bx`. It is the
 whole client story of §50 + §18.4 + §38 in one proc (`trk_fdone`, the fdlg
@@ -72610,7 +72701,7 @@ edge are no longer erased. Text can only ever occupy whole 8px cells from
 this way since the run path was written**, which is what says the shape is sound
 rather than newly assumed.
 
-**Cost: nothing outside this file.** No kernel byte, no new API slot — slot 0x01EE
+**Cost: nothing outside this file.** No kernel byte, no new API slot — slot 0x01E5
 was already called from `tui_runc` two routines up — and no other package. The
 package itself is *smaller*, **16,342 → 16,288 bytes**: deleting `.pair`'s
 fill-and-letter pair pays for `tui_runo`'s five pushes and a `jmp`.
@@ -74250,7 +74341,7 @@ means.
    rule 2, but it is no longer a *substitute* for greying the label: a control
    whose frame dithers and whose label does not is rule 2's own failure, two
    halves disagreeing, and that is precisely what a package shipped for as long
-   as the flag was kernel-only. **`gfx_pen_cf` is published at slot 0x026A**
+   as the flag was kernel-only. **`gfx_pen_cf` is published at slot 0x0260**
    (§20.3), so a package reaches the flag the same way the kernel does and its
    disabled text dithers on mono like everything else.
 
@@ -74313,7 +74404,7 @@ Conformant, and worth reading as the reference:
 
 - **`cp_snd_rowok` / `cp_snd_radios` / `cp_snd_paint`** (§31.7) — one
   predicate, glyph and label both, dotted ring on mono.
-- **`rc_btn`** (Recorder) — takes the pen through slot 0x026A, so the frame
+- **`rc_btn`** (Recorder) — takes the pen through slot 0x0260, so the frame
   dithers *and* the label does, and the button reads as disabled on every
   adapter. It greyed the frame with a bare `CDGRAY` until the slot existed,
   which left a dotted frame around a solid-black caption on mono.
@@ -74357,7 +74448,7 @@ refusals *ought* to grey and do not, and three answer no:
 **Owed:** nothing else identified. §47.2 is the standing obligation — a greying
 change is not finished until it has been looked at on a mono adapter.
 
-**Packages reach `[gfx_dis]` through slot 0x026A**, and the reasoning that
+**Packages reach `[gfx_dis]` through slot 0x0260**, and the reasoning that
 withheld it was wrong twice over. It said a package's disabled control was
 covered by rule 2's non-text mark, which dithers through `gfx_ink` without
 help — true, but rule 2 asks for the *whole* control, and a package could only
@@ -76533,7 +76624,7 @@ can be relocated by anything short of re-arming the hardware from a compaction
 callback. They were in the *data* arena for one reason and it was not a design
 decision: `OSAPI_MEM_CLAIM` was the only door a driver had.
 
-`OSAPI_MEM_CLAIM_HI` (0x03C1) and `OSAPI_MEM_CLAIM_DMA_HI` (0x03C7) are the
+`OSAPI_MEM_CLAIM_HI` (0x03AC) and `OSAPI_MEM_CLAIM_DMA_HI` (0x03B2) are the
 other one. Nothing about the allocator changes — same scan, same 64KB page
 bump, same record — only `mem_dir`, and `mem_claim_dma_hi` reaches it by
 setting the direction itself where `mem_claim_dma` asks the tag (§50.6.1.1).
@@ -76700,7 +76791,7 @@ while claims existed below it would strand them silently.
 Growing a claim used to mean claim-new, copy, free-old, which needs **old +
 new free at once and contiguously**. A heap with plenty of total room refused
 resizes it could afford, and the app reported "not enough memory" over
-hundreds of free KB. `mem_regrow` (slot 0x01D6) takes three paths, and the
+hundreds of free KB. `mem_regrow` (slot 0x01CD) takes three paths, and the
 first two move nothing:
 
 1. **Shrink or level** — the record's length changes and that is all. The
@@ -77395,7 +77486,7 @@ answer is a floor rather than a smaller cache.
 
 ##### 50.6.6.1 One slot, set once — because BL on the old doors is whatever was left there
 
-`OSAPI_MEM_FLOOR` (`0x043A`) takes `AL` = the level and **stores it against the
+`OSAPI_MEM_FLOOR` (`0x0425`) takes `AL` = the level and **stores it against the
 running task**. From then on every door the task already calls honours it:
 `mem_rank_bh` derives a claim's rank as `min(own rank, floor)` for the shed and
 the compactor's drop, and `OSAPI_MEM_AVAIL` asks `mem_rank_bh` the same
@@ -77844,8 +77935,8 @@ attach so every later dispatch is a near read plus one far call:
 
 ```
 DSV_CAPS    dw  capability bits it ADDS to OSAPI_SND_CAPS
-DSV_FM      dw  near proc behind slot 0x00EA      (0 = none)
-DSV_STREAM  dw  near proc behind slot 0x00F1      (0 = none)
+DSV_FM      dw  near proc behind slot 0x00E3      (0 = none)
+DSV_STREAM  dw  near proc behind slot 0x00EA      (0 = none)
 DSV_TICK    dw  near proc called from snd_tick - INSIDE IRQ0, at IF=0
 DSV_RELINST dw  near proc: AL = an instance slot being torn down
 DSV_NAME    dw  -> a NUL sink name, in ITS segment
@@ -78405,7 +78496,7 @@ believe a setting had been kept.
 that makes that call safe: `inst_pkg_spawn`'s fence is a chain of five tests
 all keyed on an **instance record** (§20.6), and a driver has none — no
 window, no record, no `I_SPTR` to be identical to. `OSAPI_DRV_TASK`
-(slot **0x01E2**) is its own slot with its own fence of the same shape: the
+(slot **0x01D9**) is its own slot with its own fence of the same shape: the
 caller's segment must be the segment of the driver whose services are
 published (`ES == [drv_fseg]`), which is an identity test rather than an
 approximation.
@@ -78796,7 +78887,7 @@ published. Same sentence, one rung further in.
 
 A driver has settings the kernel has no business understanding — the geometry
 of a hard disk the probe could not measure, which partitions were mounted — and
-they have to survive a reboot. `OSAPI_DRV_CFG` (slot **0x0213**, X, fenced on
+they have to survive a reboot. `OSAPI_DRV_CFG` (slot **0x020A**, X, fenced on
 the same identity test as the four volume slots) carries them:
 
 ```
@@ -78895,7 +78986,7 @@ went up (§38.6). A driver has no instance, and a window it creates itself has
 no owner, so every driver-side call was refused. The only way a page could ask
 for a name was to grow a typed name box of its own.
 
-`OSAPI_DRV_DLG` (slot **0x033B**, X, fenced on `drv_pub_seg` like every other
+`OSAPI_DRV_DLG` (slot **0x032E**, X, fenced on `drv_pub_seg` like every other
 driver cell) is that call with the window supplied:
 
 ```
@@ -79202,7 +79293,7 @@ because both halves look like details and neither is:
 - **It did not show.** A bare `CDGRAY` glyph rounds to black on the two 1bpp
   adapters, so looked at on CGA per §47.2 the greyed row was pixel-identical to
   the live row beneath it. The fix for a *control* is the pen — `gfx_pen_cf`,
-  slot 0x026A, which sets `[gfx_dis]` and makes the glyph a checkerboard — and
+  slot 0x0260, which sets `[gfx_dis]` and makes the glyph a checkerboard — and
   `hd_page_button` takes it, so its frame and its label both read as disabled
   on every adapter. A **row is not a control** and so takes no pen at all;
   its State column is the signal.
@@ -79286,7 +79377,7 @@ said it would not.** The distinction §52.2.2 turns on is that a *row* is not a
 control and a button is. Every rule that refused the greying there permits it
 here: the predicate is a fact already printed in the row and not a guess (rule
 4), one `hd_tw_delok` serves the greying and the click refusal (rule 2), and
-the pen comes from `gfx_pen_cf` (slot 0x026A) so it carries `[gfx_dis]` as well
+the pen comes from `gfx_pen_cf` (slot 0x0260) so it carries `[gfx_dis]` as well
 as `CDGRAY` — the button's frame goes dotted and its label goes to a
 checkerboard, and the two halves of the control cannot disagree on mono. The
 refused click still sets the caption, as the page's does: the reason is already
@@ -79837,7 +79928,7 @@ The driver could not have got this right on its own, which is why it did not.
 `hd_already` — its only "is this mounted?" test — walks `hd_vols`, the rows
 **this driver** registered, and the kernel's adoption is by construction not
 one of them: it happened before the driver was loaded, out of a table the
-driver cannot see. **`OSAPI_VOL_AT` (slot 0x0303)** is that half made askable:
+driver cannot see. **`OSAPI_VOL_AT` (slot 0x02F6)** is that half made askable:
 DL = an int 13h drive number, BX:CX = a 32-bit partition base, out CF = 0 and
 AL = the volume index already covering it.
 
@@ -81214,7 +81305,7 @@ testing it would pin the image until detach, which is the thing this exists to
 stop. `OSAPI_WM_GEOM`'s CF is the question already published.
 
 **This is the one kernel change the split had avoided**, and §52.11.3 named it
-in advance: `OSAPI_WM_DESTROY`, slot 0x02C8, **8 bytes** of jump table
+in advance: `OSAPI_WM_DESTROY`, slot 0x02BC, **8 bytes** of jump table
 (measured — `.text` +8, `KERN_BUDGET` spare unchanged at
 2,560). Without it, `HDT_SHUT` can only hide, every load leaks a window record
 holding a `W_SEG` that names a freed claim, and twelve open/close cycles
@@ -81566,7 +81657,7 @@ then repaints it again as a window, and the first of those two is spare.
 
 ### 53.1 The bracket (binding)
 
-`fsx_run` (slot 0x023E) is called from a window callback — UI-task context,
+`fsx_run` (slot 0x0235) is called from a window callback — UI-task context,
 gfx lock held, the `wm_fullscreen` contract — and **does not return until
 the app is done being fullscreen**. In: AX = a near entry inside the
 caller's own image, BX = the caller's own window ptr, CX = flags (bit 0 =
@@ -81647,7 +81738,7 @@ worker — the §51.7 hazard both snd.inc and the SB driver name. Instead:
 
 - **`T_FLAGS`** — the task record's byte at offset 7 (it was padding;
   `T_SIZE` stays 8). Bit 0 = `TF_SERVICE`: set on tasks spawned through
-  the driver-worker cell (0x01E2) and nowhere else; `task_spawn` zeroes
+  the driver-worker cell (0x01D9) and nowhere else; `task_spawn` zeroes
   the byte for everyone else.
 - **`[fsx_task]`** — one `.bss` byte, 0xFF = off, else the exclusive
   task's slot. **`[fsx_worker]`** beside it: 0xFF, or the caller's own
@@ -81779,7 +81870,7 @@ The EGA column is the **CGA-compatible modes only** (§39.24). Its own mode
 nothing — and 0Dh, which the card does have, is a safe later addition rather
 than pass 1.
 
-`fsx_caps` (slot 0x0238) — out AX = the bitmask of settable ids (bit n =
+`fsx_caps` (slot 0x022F) — out AX = the bitmask of settable ids (bit n =
 id n), DL = `vid_kind`; callable from any context, lock held or not (the
 `osapi_video` precedent), so an app can grey its mode menu per §47
 *before* entering. The masks: VGA 0x1EF, CGA 0x00F, HERC 0x011, EGA 0x00F.
@@ -81787,7 +81878,7 @@ The approximation that used to stand here — *"`vid_detect` admits EGA-class
 cards as `VID_VGA`"* — is gone: §39.24 gave the EGA its own kind and its own
 row of `fsx_capstab`, and this is the finer probe that paragraph asked for.
 
-`fsx_mode` (slot 0x0244) — in AL = id, ES:DI = a 16-byte `FSI_*` block the
+`fsx_mode` (slot 0x023B) — in AL = id, ES:DI = a 16-byte `FSI_*` block the
 kernel fills (ES is the caller's own, like `gfx_blit4`). Legal only inside
 the bracket, from the exclusive task. Refusals, CF=1: not in a bracket;
 not this task; id ≥ 9 or its caps bit clear. The mode set clears the
@@ -81845,7 +81936,7 @@ cost 2,567 glyph cells a second in pixels.
 
 ### 53.5 `fsx_wait` — the frame clock, and the present
 
-`fsx_wait` (slot 0x024A) — in AL: `FSXW_TICK` (0) = return at the next
+`fsx_wait` (slot 0x0241) — in AL: `FSXW_TICK` (0) = return at the next
 `[ticks]` change (`hlt` between polls — the tick wakes it);
 `FSXW_VSYNC` (1) = return in vertical retrace: 3DAh bit 3 for the VGA/CGA
 family, 3BAh bit 7 for Hercules, the port chosen by the **current fsx
@@ -82082,7 +82173,7 @@ invisible to a round-trip test, because §53.6's exit `wm_paint_all`
 repaints the world: what the defect costs is the whole of the fullscreen
 session and nothing after it.
 
-**`fsx_surf` (slot 0x0311) is the answer, and it is handed over rather than
+**`fsx_surf` (slot 0x0304) is the answer, and it is handed over rather than
 derived.** It was drafted at **0x03F0** and moved when it met `kbd_down`
 (§9.7) at the same number — §55's clipboard, exactly: neither had shipped, so
 neither was frozen, and **the one that had not yet reached the integration
@@ -82121,19 +82212,19 @@ onto a 350-row Hercules loses its bottom third.
 ### 53.8 The package ABI (§20.3 slots)
 
 ```
-0x0238 fsx_caps   out AX = FSXM bitmask for the live adapter, DL =
+0x022F fsx_caps   out AX = FSXM bitmask for the live adapter, DL =
                   vid_kind. Any context. Everything else preserved.
-0x023E fsx_run    in AX = near entry, BX = own window ptr, CX = flags
+0x0235 fsx_run    in AX = near entry, BX = own window ptr, CX = flags
                   (bit 0 FSXF_KEEPWORKER, bit 1 FSXF_FASTTICK). X — the
                   fence reads the caller's DS. UI-task window callback,
                   lock held. Does not return until the app's proc does.
                   CF=1 refused.
-0x0244 fsx_mode   in AL = FSXM_* id, ES:DI = FSI_SIZE buffer (caller's
+0x023B fsx_mode   in AL = FSXM_* id, ES:DI = FSI_SIZE buffer (caller's
                   ES). Bracket-only. CF=0 mode set + block filled;
                   CF=1 refused (id, adapter, context).
-0x024A fsx_wait   in AL = 0 next tick / 1 vertical retrace. Bracket-only
+0x0241 fsx_wait   in AL = 0 next tick / 1 vertical retrace. Bracket-only
                   (CF=1 outside). The frame clock (§53.5).
-0x0311 fsx_surf   no inputs. Bracket-only. CF=0 with AX = x, BX = y,
+0x0304 fsx_surf   no inputs. Bracket-only. CF=0 with AX = x, BX = y,
                   CX = w, DX = h: the rect this bracket owns, in the
                   coordinates the drawing slots take (§53.7.1). CF=1
                   outside a bracket, registers untouched.
@@ -82190,7 +82281,7 @@ offsets.
 
 ### 53.10 `fsx_page` — the only supported way to spend `FSI_PAGES`
 
-`fsx_page` (slot 0x03DA) — in AL = a page index; out CF=0 with that page on
+`fsx_page` (slot 0x03C5) — in AL = a page index; out CF=0 with that page on
 the glass, CF=1 refused with nothing written. Bracket-only, exclusive task
 only, and only in a **graphics** mode that offers more than one page: Mode X
 (3) and Hercules (2).
@@ -82491,7 +82582,7 @@ claim.
   `fm_open_sel` falls through to the package route and answers *"Bad
   package"*, which §54.4 already calls the truthful verdict for a data file
   with no association. Double-clicking a **program** is untouched.
-- **`OSAPI_ARG_FILE` (0x0252) and `OSAPI_ASSOC_SET` (0x0258)** keep their
+- **`OSAPI_ARG_FILE` (0x0249) and `OSAPI_ASSOC_SET` (0x024F)** keep their
   slot cells and share a `stc`/`ret` stub — the ABI parity rule
   (docs/history/KERN-SPLIT-PLAN.md §0), so one `.o88` still serves both kernels. **No
   package needs changing**, and that is a property of the two contracts
@@ -82895,8 +82986,8 @@ Two cells, **appended past the last one**, so no `.o88` is invalidated
 
 | slot | contract |
 |---|---|
-| `OSAPI_ARG_FILE` **0x0252** | no inputs. Out CF=1 = launched empty, the ordinary case; CF=0 with SI → the document's NUL 8.3 name **in the kernel segment** (read it through ES, which is `KERNEL_SEG` on entry to every package proc — §20.2), DX = the directory cluster it lives in, BL = its volume. **READ-AND-CLEAR.** |
-| `OSAPI_ASSOC_SET` **0x0258** | an **X stub**. ES:SI → 3 extension bytes then 8 stem bytes, both space-padded (`OS88_ASSOC` lays it out). Out CF=1 = the tables are full and nothing was stored. |
+| `OSAPI_ARG_FILE` **0x0249** | no inputs. Out CF=1 = launched empty, the ordinary case; CF=0 with SI → the document's NUL 8.3 name **in the kernel segment** (read it through ES, which is `KERNEL_SEG` on entry to every package proc — §20.2), DX = the directory cluster it lives in, BL = its volume. **READ-AND-CLEAR.** |
+| `OSAPI_ASSOC_SET` **0x024F** | an **X stub**. ES:SI → 3 extension bytes then 8 stem bytes, both space-padded (`OS88_ASSOC` lays it out). Out CF=1 = the tables are full and nothing was stored. |
 
 **DX and BL are exactly the pair `OSAPI_FILE_HERE` answers and
 `OSAPI_FILE_GOTO` takes**, so the whole of accepting a document is: copy the
@@ -83737,9 +83828,9 @@ elsewhere:
 
 | slot | routine | in | out |
 | --- | --- | --- | --- |
-| 0x0272 | `clip_put` | `ES:SI` = text, `CX` = bytes (0 = empty) | `CF=1` refused; every register preserved |
-| 0x0278 | `clip_get` | `ES:DI` = buffer, `CX` = its capacity | `CF=1` empty; else `AX` = whole length, `CX` = bytes copied |
-| 0x027E | `clip_size` | — | `CF=1` and `AX=0` empty; else `AX` = the length |
+| 0x0268 | `clip_put` | `ES:SI` = text, `CX` = bytes (0 = empty) | `CF=1` refused; every register preserved |
+| 0x026E | `clip_get` | `ES:DI` = buffer, `CX` = its capacity | `CF=1` empty; else `AX` = whole length, `CX` = bytes copied |
+| 0x0274 | `clip_size` | — | `CF=1` and `AX=0` empty; else `AX` = the length |
 
 These are **not** the numbers this section was written with. The clipboard was
 drafted at 0x0310..0x0320 and moved up when it met `gfx_pen_cf` and
@@ -84249,7 +84340,7 @@ assemble and every difference was silent.
 
 **The greying was wrong, and it was invisible on the adapter it was wrong
 on.** §47 rule 1 is that disabled is a **flag** and not a colour, and
-`OSAPI_GFX_PEN` (slot 0x026A) is the only way to set `[gfx_color]` = `CDGRAY`
+`OSAPI_GFX_PEN` (slot 0x0260) is the only way to set `[gfx_color]` = `CDGRAY`
 and `[gfx_dis]` together. That slot does not exist on `main`, so this package
 did what every package here did before it was published: put `CDGRAY` in `AL`
 and nothing else. On VGA that is a real grey and looks right, which is exactly
@@ -84790,7 +84881,7 @@ bit 7 (§27.8).
 
 ### 59.3 `toast_show` stages; `toast_pass` draws
 
-**Slot 0x02B6.** `ES:SI` = a NUL string, `CX` = ticks to live (0 =
+**Slot 0x02AA.** `ES:SI` = a NUL string, `CX` = ticks to live (0 =
 `TOAST_TICKS`, 55 ≈ 3.0 s at 18.2 Hz). `CF = 1` refused. Preserves every
 register. **Nothing refuses today** — the file-activity interlock below was
 the only refusal and §59.8 removed it — and the flag stays in the contract so
@@ -85706,14 +85797,15 @@ binding: clear bits 12..15 and read them back (still set = 8086/8088, whose
 
 **`[cpu_feat]` is written by `xmem.inc` and published here**, which is the one
 seam left between the two modules and is deliberate: the bits are reported
-through `cpu_info`'s AH (slot 0x015C), so the byte belongs beside the routine
+through `cpu_info`'s AH (slot 0x0155), so the byte belongs beside the routine
 that publishes it. On `kern_small` nothing ever writes it and it reads 0 — no
 gate verified, no HMA, no unreal mode — which is true, and is also exactly
 what tier 0 answers.
 
 `cpu_detect` is **boot overlay** (§2.5): once from `kmain`, first thing,
 before `sched_init` hooks an ISR and before anything may key off the tier.
-Only `cpu_info` stays in `.text` — it is API slot 0x015C and answers all
+Only `cpu_info` stays in `.text` — it is API slot 0x0155, an inline cell
+that IS the one word read (§20.3), and answers all
 session.
 
 ### 60.2 The tier is INFORMATION, not permission (binding)
@@ -85732,7 +85824,7 @@ processor *is*, never about what memory *exists*.
 ### 60.3 Acceptance
 
 - The module contains no `%ifdef`: `kern_big` and `kern_small` assemble the
-  same source here, and slot 0x015C answers on both.
+  same source here, and slot 0x0155 answers on both.
 - On the target machine the whole module is a stored byte and two returns:
   `CPU_8086`, feature bits 0.
 - `make test` (a 386-class QEMU machine): tier 2, and `[cpu_feat]` reads
@@ -86993,7 +87085,7 @@ holding. So the driver **appends**, one entry at a time, through a cell of its
 own:
 
 ```
-OSAPI_FS_ENT   0x02E5   ES:SI -> a DSK_DE_SIZE-byte §19.1 staged entry, in
+OSAPI_FS_ENT   0x02D9   ES:SI -> a DSK_DE_SIZE-byte §19.1 staged entry, in
                YOUR OWN segment (so ES = your DS)
                out: CF=0 and AX = the index it landed at
                     CF=1 = the listing is full (§19's 32-entry cap, or
@@ -87034,7 +87126,7 @@ loop. So a redirected read of a 116KB module over a 3,741 bytes/second cable
 became bytes and this cell existed:
 
 ```
-OSAPI_FS_PROG  0x02EB   AX = bytes moved SINCE YOUR LAST REPORT
+OSAPI_FS_PROG  0x02DF   AX = bytes moved SINCE YOUR LAST REPORT
                         (never a running total: the bar would advance by
                         the whole file on every call)
                         out: nothing, every register and the flags kept
@@ -87999,7 +88091,7 @@ is condition 2's predicate again — and that is what makes the field the whole
 of the damage.
 
 **It is entirely the driver's.** No kernel routine changed and no slot was
-added: `OSAPI_FONT_RUN` (0x01EE) has been published since §6.1, and a Control
+added: `OSAPI_FONT_RUN` (0x01E5) has been published since §6.1, and a Control
 Panel page draws itself unclipped with the gfx lock held, so a page redrawing
 part of its own pane needs no permission it did not already have.
 
@@ -91151,7 +91243,7 @@ MC_RLOC  8  word  0 = PINNED; else the near offset of the holder's
                   relocation proc, called through the owner's dispatcher
 ```
 
-**`OSAPI_MEM_MOVABLE` (slot 0x0319)** — `DX` = a claim you hold, `AX` = the
+**`OSAPI_MEM_MOVABLE` (slot 0x030C)** — `DX` = a claim you hold, `AX` = the
 proc (0 pins it again), the `mem_own` fence in `ES` exactly as `osapi_mem_free`
 has it. Separate from the claim rather than an argument to it, for three
 reasons that are the same reason: there are three claim entries (`mem_claim`,
@@ -91537,7 +91629,7 @@ nothing can ever merge.
 
 **The fix is not a new predicate. It is a later moment.**
 
-`OSAPI_MEM_COMPACT` (slot `0x0458`) is **one door with the verb in `AH`**,
+`OSAPI_MEM_COMPACT` (slot `0x0443`) is **one door with the verb in `AH`**,
 because its two halves are two halves of one question:
 
 > `AH = MEMC_WHATIF` (0): `AL` = a purge level, exactly as
@@ -92095,7 +92187,7 @@ which `apps/paint`'s `pt_wait` shows is ordinary.
 
 ### 66.5.4 `OSAPI_MEM_PARKSAFE` — the rule that lifts §66.5.3
 
-**Slot 0x031F**, `AL` = 1 declare / 0 withdraw, the `mem_own`-style fence in
+**Slot 0x0312**, `AL` = 1 declare / 0 withdraw, the `mem_own`-style fence in
 `ES`. It says one thing:
 
 > **No register and no stack slot of mine holds a pointer *derived* from one
@@ -92169,7 +92261,7 @@ driver-owned claim unconditionally. Three things close it:
   `MAX_TASKS` bytes). That is more correct independently of drivers: an
   instance can own a package worker *and* be the client of a driver's stream
   task at the same time, and one byte cannot answer for both.
-- **`OSAPI_TASK_PARK` (slot 0x0325)** is the driver's equivalent of
+- **`OSAPI_TASK_PARK` (slot 0x0318)** is the driver's equivalent of
   `OSAPI_TASK_ALIVE`'s park — its own slot for `drv_task`'s reason, that
   ALIVE's whole body is a chain of tests on an instance record. `sbl_refill_task`
   calls it at the top of its outer loop, the one point in that task that
@@ -93025,7 +93117,7 @@ claim against the base the loader recorded before the kernel touched it.
 
 #### 66.6.2 …and past the worker: the package gives its worker back
 
-`OSAPI_TASK_RESTARTABLE` (slot `0x0401`, `inst_restart_set`) — `AX` = a near
+`OSAPI_TASK_RESTARTABLE` (slot `0x03EC`, `inst_restart_set`) — `AX` = a near
 offset in the caller's own image, `0` to withdraw. It says:
 
 > *While this stands, my worker's stack holds nothing that matters. If you have
@@ -98003,7 +98095,7 @@ lettered a cell at a time is **1.8 seconds**. The row is composed instead:
    the glass once.
 4. The row is then blitted **once per ATTRIBUTE RUN** — a maximal run of
    adjacent cells sharing an attribute byte — with `OSAPI_GFX_BLIT1_PEN`
-   (0x03A2) set to that run's (ink, paper) and `OSAPI_GFX_BLIT1` (0x032D)
+   (0x0393) set to that run's (ink, paper) and `OSAPI_GFX_BLIT1` (0x0320)
    given the run's byte column, its width in pixels and eight rows.
 
 **Both of the blit's alignment demands are satisfied by construction**: a cell
@@ -98129,7 +98221,7 @@ can see it. The test now lives at the head of `con_emit`, which answers for the
 whole row before it walks a single run.
 
 **The fallback that was NOT needed, kept for the record: `OSAPI_GFX_BLIT4`
-(0x018A) for that run, and never an approximation.** A 4bpp band carries a colour per pixel, so
+(0x0182) for that run, and never an approximation.** A 4bpp band carries a colour per pixel, so
 the pair cannot be refused and the colours are exact. What it costs, priced off
 §5.4.1.3's planar row decoder at **~106.9 cycles a pixel** (PERFORMANCE.md
 Set 107) against the 1bpp emit's ~12.5 clocks a *byte*, i.e. ~1.6 a pixel:
@@ -98143,7 +98235,7 @@ Arithmetic off PERFORMANCE.md's own figures, **not measured**. It is the price
 of correctness on a path that is only taken when the kernel could not afford
 the split, and it is bounded — only refused runs pay it, and a board's ordinary
 text is a colour on black, which was never refused. The masked alternative is
-worse and stays rejected: a fill in `paper` then `OSAPI_ICON_DRAW` (0x03B2) two
+worse and stays rejected: a fill in `paper` then `OSAPI_ICON_DRAW` (0x039D) two
 cells at a time is ~6.7 ms a call (PERFORMANCE.md Set 84), so the same run is
 **134 ms**, and it needs a fill nothing else needs.
 
@@ -98212,13 +98304,13 @@ a coincidence.
 #### 70.8.5 `OSAPI_SAVEU_1BPP` comes off the promise on a colour adapter
 
 §70.7 grants the raise cache per DEBT and banks it with `OSAPI_SAVEU_1BPP`
-(0x02B0) set, on the stated ground that the window's content is **two
+(0x02A4) set, on the stated ground that the window's content is **two
 colours**: `CBLACK` and `CWHITE`, four uses each. §11.96.17 is what that flag
 promises — *every pixel of my content is colour 0 or colour 15* — and after
 §70.8 it is **false on a colour adapter**, where the content is whatever
 sixteen colours the board chose.
 
-So the flag is set per adapter, off `OSAPI_VIDEO` (0x012E) and its `DH`:
+So the flag is set per adapter, off `OSAPI_VIDEO` (0x0127) and its `DH`:
 **dropped on a 4bpp screen, kept on a 1bpp one**, where it is still true and
 still buys a quarter of the memory and a quarter of the blit. §11.96.17 warns
 that the depth claim is RE-STATED on every `wm_saveu` call, so this is decided
@@ -98243,7 +98335,7 @@ package is what CLAUDE.md's index exists to prevent.
 
 #### 70.8.6 Two hundred and fifty-six glyphs, and where they come from
 
-`OSAPI_FONT_GLYPHS` (0x01BE) answers the kernel's own face, and `kernel/font.inc`
+`OSAPI_FONT_GLYPHS` (0x01B6) answers the kernel's own face, and `kernel/font.inc`
 keeps **32..126 only** — `FONT_FIRST` and `FONT_LAST`, 95 glyphs, 760 bytes.
 A terminal needs 0..255, and it needs them to be **CP437** rather than the
 system face: a `make FONT=` kernel replaces the OS's letters, and a board's
@@ -98311,7 +98403,7 @@ hooked the wrong way (`⌠` over `⌡` drew an S rather than one integral), and
 #### 70.8.7 The full-screen renderer IS the board's screen
 
 §70.6's bracket stays exactly as it is — `FSXM_TEXT80`, `FSXF_KEEPWORKER`,
-`FSXW_FRAME`, `[te_txm]` set before `OSAPI_FSX_RUN` (0x023E) and cleared inside
+`FSXW_FRAME`, `[te_txm]` set before `OSAPI_FSX_RUN` (0x0235) and cleared inside
 the bracket proc — and what changes is what it draws.
 
 **The buffer maps 1:1 onto text VRAM.** 80 columns by 25 rows against 80 by
@@ -98501,7 +98593,7 @@ that does nothing.
 
 **And MDA is what the attribute has to be mapped to**, because `FSXM_TEXT80`
 on Hercules is mode 7 at B000 — the FSI block's `FSI_SEG` is the one field
-that varies, and `OSAPI_FSX_CAPS` (0x0238) answers `DL` = that display's
+that varies, and `OSAPI_FSX_CAPS` (0x022F) answers `DL` = that display's
 `VID_*` kind, which §53.7.1 names as the sanctioned way to ask (`osapi_video`
 answers about the PRIMARY, and a bracket on the Hercules of a VGA-primary
 desktop would be told the wrong thing). The mapping:
@@ -98794,7 +98886,7 @@ is the difference between a clean screen and a screen with `?7h` in it.
 | byte | effect |
 |---|---|
 | 0x00 | dropped — **the only byte GROUND drops** |
-| 0x07 BEL | a short `OSAPI_SND_TONE` (0x00DA) — **and never a block** |
+| 0x07 BEL | a short `OSAPI_SND_TONE` (0x00D3) — **and never a block** |
 | 0x08 BS | cursor left one, stopping at column 0. **No erase** |
 | 0x09 TAB | to the next multiple of eight; **clamped to column 79** if that would be 80 or more. **No erase**, and it never sets `[con_pwrap]` |
 | 0x0A LF | cursor down one; at row 24 the screen scrolls. **An INDEX only — no implicit carriage return**, so `A` LF `B` puts the `B` in column 1 |
@@ -99499,7 +99591,7 @@ and this follows it byte protocol for byte protocol.
     worker                                    UI task (tz_wake)
     ------                                    -----------------
     fill tz_arg*, then [tz_req] = TZ_*   -->  sees [tz_req], does the file work,
-    OSAPI_WM_WAKE (0x035C)                    writes tz_rst, clears [tz_req] LAST
+    OSAPI_WM_WAKE (0x034F)                    writes tz_rst, clears [tz_req] LAST
     poll until [tz_req] == TZ_NONE       <--
 
 **One byte, and a byte store is atomic on an 8086.** The producer writes every
@@ -99511,7 +99603,7 @@ request's outstanding-ness is the request's argument.
 |---|---|
 | `TZ_NONE` (0) | nothing is outstanding |
 | `TZ_NAME` (1) | ask `OSAPI_FILE_DFREE`, size the chunk, open the Save dialog (§70.11.4) |
-| `TZ_DATA` (2) | write `[tz_un]` bytes of half `[tz_uh]` — `OSAPI_FILE_WRITE` (0x010A) for the first chunk, `OSAPI_FILE_APPEND` (0x0292) for every later one |
+| `TZ_DATA` (2) | write `[tz_un]` bytes of half `[tz_uh]` — `OSAPI_FILE_WRITE` (0x0103) for the first chunk, `OSAPI_FILE_APPEND` (0x0286) for every later one |
 | `TZ_DONE` (3) | the file is complete; nothing to close, because neither slot holds a handle |
 
 **AND THE WORKER KICKS FOR AS LONG AS A REQUEST IS OUTSTANDING.**
@@ -99525,14 +99617,14 @@ half written. `tz_poll` kicks every `TZ_KICK` = 9 ticks while `[tz_req]` is not
 `TZ_NONE`, which IS the retry the SDK asks for; the first version kicked only
 while a dialog was up, which is the one case a human was waiting on.
 
-`OSAPI_WM_ONWAKE` (0x0364) is what makes any of it possible (§74.1): the
+`OSAPI_WM_ONWAKE` (0x0357) is what makes any of it possible (§74.1): the
 handler runs on the UI task, billed to this instance, **without the gfx lock**,
 and it is expressly allowed to call the file slots. Nothing else in the SDK
 is. It is registered from `te_entry`, and the slot **preserves the flags**,
 which matters there because the CF owed to the loader is still in flight.
 
 **The staging area is 8,192 bytes in the PACKAGE'S OWN SEGMENT**, two 4,096-byte
-halves, and the segment is not a choice: `OSAPI_DRV_CALL` (0x0355) is an X stub
+halves, and the segment is not a choice: `OSAPI_DRV_CALL` (0x0348) is an X stub
 and puts the caller's segment in ES, so a buffer in a heap claim is read out of
 the package's own image instead — which reads as memory corruption rather than
 as a wrong segment register, because the bytes really are ours (§77.2).
@@ -99543,7 +99635,7 @@ does not call `NETV_RECV`** — TCP holds the sender, the sender blocks, and
 nothing is dropped. Downloads are bounded only by the disk.
 
 **The chunk is a whole number of the DESTINATION's clusters** (§18.4.4), asked
-**once** per transfer rather than per chunk: `OSAPI_FILE_DFREE` (0x011F) answers
+**once** per transfer rather than per chunk: `OSAPI_FILE_DFREE` (0x0118) answers
 `BX` = **sectors** per cluster, so the cluster is `BX × 512` bytes, and the call
 walks the whole resident FAT snapshot — about 105 ms on a 20 MB hard disk at
 4.77 MHz. §77.40 is the precedent: FTPD called it per chunk and spent 44% of an
@@ -99594,7 +99686,7 @@ with `FERR_NAME`, and the rule above is exactly what keeps that from happening.
 
 #### 70.11.4 The destination is the standard Save dialog, and a cancel calls nothing back
 
-**`OSAPI_FILE_DLG` (0x012B) with AL = 1**, opened by the UI task when the worker
+**`OSAPI_FILE_DLG` (0x0124) with AL = 1**, opened by the UI task when the worker
 has parsed `ZFILE`, pre-filled with the sender's name mangled to 8.3. The
 contract, which shapes everything around it:
 
@@ -99633,7 +99725,7 @@ run.
 **THE SLOT DECIDES, AND THE PAINT IS ITS FALLBACK.** Three things can say a
 dialog is gone, and they are ordered by how much they know.
 
-1. **The dialog's own window SLOT.** `OSAPI_WM_OWNSEG` (0x03D4) answers CF=1
+1. **The dialog's own window SLOT.** `OSAPI_WM_OWNSEG` (0x03BF) answers CF=1
    for a free slot and CF=0 with the owning segment for a live one. `tz_wmap`
    builds a BITMAP of the twelve slots immediately before `OSAPI_FILE_DLG` and
    another immediately after a successful open; the bit that appeared names the
@@ -103613,9 +103705,9 @@ landed; the addresses below are today's), and their contracts, which
 
 | slot | routine | contract |
 |---|---|---|
-| **0x035C** | `wm_wake` (`OSAPI_WM_WAKE`) | in BX = a window of yours. Posts `EVT_WAKE {a = BX}`; any context, ISR- and worker-safe. out CF=0 a wake is queued for that window (posted now, or one already waited — coalesced, at most one per window), CF=1 the ring was full and nothing was posted. Every register preserved |
-| **0x0364** | `wm_onwake` (`OSAPI_WM_ONWAKE`) | in BX = window, AX = a near proc in your segment, 0 clears. A record word (`W_ONWK`; a side table, `wm_onwk`, until kernel size pass 4) zeroed by `wm_create` with the rest of the record's tail, not a template word. The handler is called SI = your window, on the UI task, billed to your instance, **without the gfx lock**: it may call the file slots and may take the lock for a stated burst; nothing is delivered with it, and one stale wake after a slot's reuse is possible. **A handler re-posts itself only while it has work** — a wake round trip is at least one task switch (693 µs), so a handler that always re-posts spins the UI task at ~1,400 wakes a second and paints whatever it paints ~90 times a second on the target; RunCPM's re-posts when the slice ran out with the Z80 still running or output is pending, and NOT when the Z80 is blocked in CONIN on an empty key ring — then the next kick is `os88_onkey`'s. (Wave 1's counter re-posted unconditionally as scaffolding; wave 2's slice driver keeps this rule - `rc_wants_wake()` is the one place it is decided.) A CF=1 answer is not retried: every callback that can run — paint, key, click — kicks again, which is why RUNCPM declares `os88_onclick` though the terminal has no mouse |
-| **0x036A** | `osapi_file_goto_qm` (`OSAPI_FILE_GOTO_QM`) | in DX = folder cluster, BL = volume; out exactly as `OSAPI_FILE_GOTO_Q` (CF=0 AX=0 / CF=1 AX=FERR_*). GOTO_Q's quiet stand and then `inst_vol_mark`, so the calling instance now stands there and its next file cell's `inst_vol_enter` does not undo the move |
+| **0x034F** | `wm_wake` (`OSAPI_WM_WAKE`) | in BX = a window of yours. Posts `EVT_WAKE {a = BX}`; any context, ISR- and worker-safe. out CF=0 a wake is queued for that window (posted now, or one already waited — coalesced, at most one per window), CF=1 the ring was full and nothing was posted. Every register preserved |
+| **0x0357** | `wm_onwake` (`OSAPI_WM_ONWAKE`) | in BX = window, AX = a near proc in your segment, 0 clears. A record word (`W_ONWK`; a side table, `wm_onwk`, until kernel size pass 4) zeroed by `wm_create` with the rest of the record's tail, not a template word. The handler is called SI = your window, on the UI task, billed to your instance, **without the gfx lock**: it may call the file slots and may take the lock for a stated burst; nothing is delivered with it, and one stale wake after a slot's reuse is possible. **A handler re-posts itself only while it has work** — a wake round trip is at least one task switch (693 µs), so a handler that always re-posts spins the UI task at ~1,400 wakes a second and paints whatever it paints ~90 times a second on the target; RunCPM's re-posts when the slice ran out with the Z80 still running or output is pending, and NOT when the Z80 is blocked in CONIN on an empty key ring — then the next kick is `os88_onkey`'s. (Wave 1's counter re-posted unconditionally as scaffolding; wave 2's slice driver keeps this rule - `rc_wants_wake()` is the one place it is decided.) A CF=1 answer is not retried: every callback that can run — paint, key, click — kicks again, which is why RUNCPM declares `os88_onclick` though the terminal has no mouse |
+| **0x035C** | `osapi_file_goto_qm` (`OSAPI_FILE_GOTO_QM`) | in DX = folder cluster, BL = volume; out exactly as `OSAPI_FILE_GOTO_Q` (CF=0 AX=0 / CF=1 AX=FERR_*). GOTO_Q's quiet stand and then `inst_vol_mark`, so the calling instance now stands there and its next file cell's `inst_vol_enter` does not undo the move |
 
 `ui_task` pops `EVT_WAKE` in order with the mouse events (`ui.inc`, `.wake`)
 and calls `wm_wake_disp` (`wm.inc`): the slot's flag is cleared first so the
@@ -104432,7 +104524,7 @@ writes over the kernel, and it is why the SDK's wording on `OSAPI_WM_ONCLOSE`
 is *"you now owe the user a way out"* rather than a description of a
 mechanism.
 
-### 75.1 `W_ONCLOSE` — the window may refuse (API 0x0370)
+### 75.1 `W_ONCLOSE` — the window may refuse (API 0x0362)
 
 `wm_onclose` (BX = window, AX = a near proc in that window's own segment, 0
 clears it) installs a **close negotiator**. `wm_ask_close` calls it from the
@@ -104497,7 +104589,7 @@ something ought to happen — and it is wrong: a window that is asking *"save
 the changes?"* has to stay on screen to be answered, and the alert is on top
 of it anyway.
 
-### 75.2 `OSAPI_WM_CLOSE` — and it is DEFERRED (API 0x0376)
+### 75.2 `OSAPI_WM_CLOSE` — and it is DEFERRED (API 0x0368)
 
 `wm_close_req` (BX = a window of the caller's) records the window in one word;
 `wm_close_pass`, in the UI task's idle section beside `fdlg_reap`, spends it.
@@ -107947,7 +108039,7 @@ that is about to show a folder and wrong for every copy loop ever written,
 which stands somewhere only to read or write by name."*
 
 So every `OSAPI_FILE_GOTO` in ftpd becomes **`OSAPI_FILE_GOTO_QM`** (§19.2.2,
-slot 0x036A), all sixteen of them. **`_QM` and not `_Q`**: the plain quiet twin
+slot 0x035C), all sixteen of them. **`_QM` and not `_Q`**: the plain quiet twin
 does not move the instance, and the API says what happens then — *"`GOTO_Q`
 alone is undone by that next cell, which first re-stands the machine in your
 instance's folder"*. `_QM` is the quiet stand **and** the move, and its own note
@@ -111166,7 +111258,7 @@ literal is too small or too large.
 ### 81.10.1 The name menu
 
 Sheet and Chart both declare an About handler through `OSAPI_ABOUT_SET` (slot
-0x0192, §12.2), so the bar carries the package's name as a pull-down with
+0x018A, §12.2), so the bar carries the package's name as a pull-down with
 `About Sheet` / `About Chart` above `Close`.
 
 Neither did, for a long time. Sheet had a `Help > About Sheet...` item of its
@@ -112097,7 +112189,7 @@ stray sign is not worth a blank chart.
 
 ### 82.7 Text in the canvas, and the elements it unblocks
 
-**The glyphs come from the kernel**, through `OSAPI_FONT_GLYPHS` (slot 0x01BE).
+**The glyphs come from the kernel**, through `OSAPI_FONT_GLYPHS` (slot 0x01B6).
 That is worth stating because the obvious move is wrong twice.
 `OSAPI_FONT_CHAR` draws to the *screen*, and this canvas is a private 4bpp
 buffer blitted later, so a drawn character cannot help. The tempting fallback
@@ -112648,7 +112740,7 @@ range. The optimisation was the bug.
 ### 84.6 The coprocessor: probed at boot, gated at every call
 
 `CPU_F_X87` (0x08) joins `CPU_F_A20`/`HMA`/`UNREAL` in `OSAPI_CPU_INFO`'s AH
-(slot 0x015C). It needed **no new slot** — the byte had the bit free, a
+(slot 0x0155). It needed **no new slot** — the byte had the bit free, a
 package that wants it already calls that slot for the tier, and one more
 capability bit is what that byte is for.
 
@@ -138300,7 +138392,7 @@ other and gets counted rather than footnoted.
 
 **It took the retired cell at `0x0580` when it landed** — `OSAPI_FILE_MOVE`'s,
 withdrawn into `OSAPI_FILE_COPY`'s verb byte (§22.25) — so the table gained no
-byte; the cell is `0x044C` today (§20.3). On `kern_small` it is `xor ax,ax` / `stc` / `retf`:
+byte; the cell is `0x0437` today (§20.3). On `kern_small` it is `xor ax,ax` / `stc` / `retf`:
 nothing of any class is loaded there, for ever, and the refusal states the
 answer rather than leaving the caller's register looking like a figure.
 

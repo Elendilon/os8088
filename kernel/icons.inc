@@ -1119,15 +1119,10 @@ ico_c2:     db CBLACK           ; ...and the data pass's: the picture
   %error "ico_c1/ico_c2 must stay adjacent: icon_pen sets both in one word store"
 %endif
 
-; -----------------------------------------------------------------------------
-; icon_pen - set the pair the NEXT icon_draw uses (SPEC.md 25.6)
-; in:       AL = the mask pass's colour, AH = the data pass's
-; out:      nothing
-; clobbers: nothing (flags)
-; -----------------------------------------------------------------------------
-icon_pen:
-    mov [ico_c1], ax
-    ret
+; OSAPI_ICON_PEN - set the pair the NEXT icon_draw uses (SPEC.md 25.6)
+; in AL = the mask pass's colour, AH = the data pass's; nothing else touched,
+; flags included. AN INLINE CELL (SPEC.md 20.3): `mov [cs:ico_c1], ax / retf`
+; is the whole routine, so there is no body here.
 
 
 section .bss

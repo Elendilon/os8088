@@ -361,7 +361,7 @@ fdk_dx:     pop dx
 
 
 ; -----------------------------------------------------------------------------
-; fdlg_open - API slot 0x012B (SPEC.md 38.6)
+; fdlg_open - API slot 0x0124 (SPEC.md 38.6)
 ; in:  AL = 0 Open / 1 Save, BX = requester window ptr, DI = completion proc
 ;      (near, in the caller's image), SI = default name (NUL, <= 12) or 0.
 ;      THE CALLER HOLDS THE GFX LOCK - every legal caller is a window
