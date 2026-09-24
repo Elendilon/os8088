@@ -1470,13 +1470,16 @@ are **30,253 bytes**, taking the package to 41,717 of image and 12,088 of bss:
 reached by the throwaway art of the prototype, and a faction's ~30 characters
 through §4.2.1's layers is an order of magnitude past it.
 
-**Wave 1a's `apps/tithe/tibases.inc` is a deliberate, temporary exception** and
-the only one this document grants: it is a *selection* build whose whole job is
-to be looked at and discarded. It is in the image because five candidates that
-must be switched between by a keypress are simpler resident than as five parts,
-and because it dies the day a base is picked. **It does not survive wave 5.**
-Nothing else goes in the image, and the rule to apply is the one that broke it:
-if the bytes are pictures, they are a part.
+**Wave 1a's `apps/tithe/tibases.inc` was a deliberate, temporary exception**,
+and it is CLOSED: when wave 3 left the package 1.2 KB of room, the base art
+became part 2 (SPEC.md §97.8) and took 10.8 KB out of the image with it. The
+`.inc` keeps only the counts and the names. **Nothing else goes in the image,
+and the rule to apply is the one that broke it: if the bytes are pictures,
+they are a part.** One small exception stands and is on record: the board's
+ground textures, `tiground.inc`, 1.9 KB, stay in the image until wave 5 builds
+terrain as tile sets in `BOARD` - their reader is interleaved with the
+package's own variables through the whole strip builder, and 1.9 KB did not
+pay for that rewrite on its own.
 
 **The first part is built** (SPEC.md §97.4.9): wave 1a's character art is an
 `OP_ASSET, OP_COMP` part, 22,789 bytes lz4-packed to ~9.4 KB, loaded into the
@@ -1493,6 +1496,61 @@ factions to split it by.
 **Music rides in the part that needs it** rather than in one of its own, so it
 is claimed and dropped with the art it belongs to and costs no new mechanism
 (§13.6).
+
+**The package today** (SPEC.md §97.8): part 0 the characters, part 1 the
+music, part 2 the bases, part 3 a SCRATCH part - `OP_ZERO`, no disk bytes at
+all - holding the bands that were zeros in the image (the hand's unit caches
+and the HUD strip). Image and bss are 44,246 of `APP_MAX_SIZE`'s 61,440.
+
+#### 4.3.0 SCREENS ARE PARTS - code, art and music together
+
+**The owner's direction, taken when the image first reached its ceiling**: the
+program's code will pass 60 KB before the waves are done - the AI, the menu,
+the deck builder, the campaign, the match file and the network are all still
+to come - and the answer is not one second segment but **a part per SCREEN**,
+each carrying the code, the art and the music that only that screen uses. The
+front menu is a part; the campaign map is a part; the deck builder is a part.
+It is §4.3.1's swap schedule extended from pictures to programs: a screen's
+part is fetched when the screen is entered and dropped when it is left, so
+what a screen costs is paid only while the player is on it.
+
+**Two conditions, and they are the owner's:**
+
+1. **No significant duplication on the disk.** A part is a unit of loading,
+   so anything two screens both use must NOT be copied into both. It lives
+   in the primary (the match's hot path, the parts loader, the fonts, the
+   engine) or in one SHARED part both screens need resident - never twice.
+   The build owes a GATE for this, `tools/os88tithe*.py`'s own job: it reads
+   every part's symbols and refuses a routine or a picture that is present in
+   two, above a small stated allowance (a few shared tables may be cheaper
+   copied than shared, and the gate prints what it allowed).
+2. **They fit together.** Every set of parts that is resident at once - the
+   primary, the match's `BOARD` and two `FACTION`s, whichever screen part is
+   up - is summed against the heap on the floor machine (§1.5) by the same
+   tool, from the table, before a sector is read (§20.12.4's refusal rule).
+   A screen part's CODE is one far-called segment and therefore under 64 KB
+   by construction; the gate states each part's figure so the headroom is on
+   record the way the image's is.
+
+**The mechanism, sketched, to be built when the first screen that needs it
+arrives (the front menu, wave 6)** - `OP_SEG | OP_COMP | OP_LAZY` exists in
+the standard (SPEC.md §20.12.4) and the C SDK's overlays (§73.14) are the
+working precedent:
+
+- **CS is the part's, DS stays the primary's.** A screen part's code reaches
+  the package's state, the engine and the views exactly as the primary's
+  does, so nothing is copied to make it work. Calls INTO a part go through
+  a small entry table at the part's offset 0; calls OUT to the primary go
+  through far thunks it exports. Both are counted, not assumed free.
+- **Fetched on the UI task, never the worker** (§20.6 rule 7). The worker
+  may CALL a fetched part - an animated menu button - but not fetch one.
+- **A code part must not move while its code is on the stack.** A far return
+  address is a segment the relocation proc cannot see. Either the part never
+  claims memory while one of its frames is live (the primary does every
+  claim), or the part is pinned; which is decided when it is built, and the
+  rule is written into the part's own header.
+- **Its art and music ride in the same part**, at offsets its own code
+  knows, so a screen has one fetch and one drop.
 
 #### 4.3.1 The swap schedule, and the peak is what has to fit
 
@@ -4423,9 +4481,10 @@ heading, as it arrives. Each line names the section it falls short of.
 - The plan list and the log in the **fullscreen** hand are looked at
   (VGA), not held by a row; no row plays a WHOLE match to its end.
 
-**And the package is at its ceiling**: 60,003 bytes of image and 86 of bss
-against `APP_MAX_SIZE`'s 61,440 - **1,351 bytes left**. §4.3's rule applies
-and is the next work.
+**The package was at its ceiling** - 60,003 bytes of image and 86 of bss
+against `APP_MAX_SIZE`'s 61,440 - and that is fixed: the base art and the
+scratch bands went to parts (§4.3), leaving **17,194 bytes**. §4.3.0 is what
+comes after, once the code itself outgrows the segment.
 
 ## 17. The refusals, recorded now
 

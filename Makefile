@@ -9455,8 +9455,11 @@ titherules: $(BUILD)/titherule360.img
 # the candidates on the host and emits the bands this includes, so the art has
 # one source and the .inc is never hand-edited. It is committed like any other
 # generated file, so a tree with no Python change rebuilds nothing.
-apps/tithe/tibases.inc: tools/os88tithebase.py
-	python3 tools/os88tithebase.py emit
+# THE ART ITSELF IS A PART (SPEC.md 97.8): one run writes both, keyed on the
+# tool - tiart's idiom - and the .inc carries only the counts and the names.
+$(BUILD)/tibase.bin: tools/os88tithebase.py | $(BUILD)
+	python3 tools/os88tithebase.py emit --bin $@
+apps/tithe/tibases.inc: $(BUILD)/tibase.bin ;
 
 # ...and so are its FACES (SPEC.md 97.4.1): the package draws its own text, so
 # tools/os88titheface.py packs fonts/*.f* into 48 consecutive glyphs a face.
@@ -9523,9 +9526,10 @@ $(BUILD)/tithe.bin: apps/tithe/tithe.asm apps/tithe/tilay.inc \
 	$(NASM) -f bin -w+error $(TITHEDEF) -I apps/ -I apps/tithe/ -o $@ apps/tithe/tithe.asm
 	@echo "tithe: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/tithe.o88: $(BUILD)/tithe.bin $(BUILD)/tiart.bin $(BUILD)/timus.bin tools/os88pkg.py
+$(BUILD)/tithe.o88: $(BUILD)/tithe.bin $(BUILD)/tiart.bin $(BUILD)/timus.bin \
+                    $(BUILD)/tibase.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/tithe.bin -o $@ --part $(BUILD)/tiart.bin \
-	    --part $(BUILD)/timus.bin
+	    --part $(BUILD)/timus.bin --part $(BUILD)/tibase.bin
 
 tithe: $(BUILD)/tithe.o88
 

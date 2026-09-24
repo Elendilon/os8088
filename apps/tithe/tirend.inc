@@ -135,28 +135,32 @@ ti_base_build:
     push es
     mov es, [ti_bseg]               ; THE BASES LIVE IN A CLAIM (tiplace.inc):
     cld                             ; eight poses of the biggest base were 8K
-    mov ax, [ti_bas]                ; of the package's own segment                ; the slot pitch, which is NOT TI_BASEMAX -
-    mul word [ti_baseh]             ; that is the largest slot any geometry
-    mov [ti_bslot], ax              ; asks for and this is the one in use
+    mov ax, [ti_bas]                ; of the package's own segment - the slot
+    mul word [ti_baseh]             ; pitch, which is NOT TI_BASEMAX: that is
+    mov [ti_bslot], ax              ; the largest slot any geometry asks for
 
+    mov al, TI_BASE_PART            ; ...AND THE ART THEY ARE BUILT FROM IS A
+    call op_seg                     ; PART (SPEC.md 97.8), read at the point of
+    mov [ti_bpseg], ax              ; use: a part's segment is not cached
+
+    mov word [ti_pi], 0             ; --- THE GROUND, INTO SLOT 0 ------------
+    call ti_base_addr               ; (DI, while DS is still ours)
+    mov cx, [ti_bslot]
     mov ax, [ti_bart]               ; the record: candidate x surface
     mov bx, TI_BART_G
     mul bx
     add ax, [ti_gidx]
     shl ax, 1
-    mov si, ti_bart_tab
-    add si, ax
-    mov si, [si]
-    mov [ti_brec], si
-
-    mov word [ti_pi], 0             ; --- THE GROUND, INTO SLOT 0 ------------
-    call ti_base_addr
+    mov bx, ax
+    push ds
+    mov ds, [ti_bpseg]
+    mov si, [bx]                    ; the part's table names the record...
+    mov [cs:ti_brec], si
+    mov si, [si]                    ; ...and the record its ground
     push di
-    mov si, [ti_brec]
-    mov si, [si]
-    mov cx, [ti_bslot]
     rep movsb
     pop di
+    pop ds
 
     ; --- ...REPLICATED INTO THE REST ---------------------------------------
     ; SI trails DI by exactly one slot, so slot 1 is copied from 0, slot 2
@@ -206,57 +210,51 @@ ti_base_move:
     push es
     mov es, [ti_bseg]
     cld
-    mov si, [ti_brec]               ; the pose's record
-    mov ax, [ti_pi]
-    inc ax                          ; +0 is the ground's pointer
-    shl ax, 1
-    add si, ax
-    mov si, [si]
+    call ti_base_addr               ; DI = this pose's slot
+    mov si, [ti_pi]
+    inc si                          ; +0 is the ground's pointer
+    shl si, 1
+    add si, [ti_brec]
+    push ds
+    mov ds, [ti_bpseg]              ; THE RECORD IS THE PART'S, and what is
+    mov si, [si]                    ; ours is reached through CS from here on
     mov al, [si + 2]                ; w
     xor ah, ah
     or ax, ax
     jz .out
-    mov [ti_mw], ax
     shr ax, 1
     shr ax, 1
     shr ax, 1
-    mov [ti_mb], ax                 ; ...in BYTES, w being a multiple of 8
+    mov [cs:ti_mb], ax              ; ...in BYTES, w being a multiple of 8
     mov al, [si + 3]                ; h
-    xor ah, ah
-    mov [ti_mh], ax
+    mov [cs:ti_mh], ax
     mov al, [si + 0]                ; x, likewise a multiple of 8
-    xor ah, ah
     shr ax, 1
     shr ax, 1
     shr ax, 1
-    mov [ti_mx], ax
+    mov bx, ax
     mov al, [si + 1]                ; y
-    xor ah, ah
-    mov [ti_my], ax
-    add si, 4                       ; SI -> the bytes
-
-    call ti_base_addr               ; DI = this pose's slot
-    mov ax, [ti_my]
-    mul word [ti_bas]
+    mul word [cs:ti_bas]
     add di, ax
-    add di, [ti_mx]                 ; ...at the sub-band's own corner
-
-    mov dx, [ti_mh]
+    add di, bx                      ; ...at the sub-band's own corner
+    add si, 4                       ; SI -> the bytes
+    mov dx, [cs:ti_mh]
 .row:
     or dx, dx
     jz .out
     push di
-    mov cx, [ti_mb]
+    mov cx, [cs:ti_mb]
 .byte:
     lodsb
     or [es:di], al                  ; PURE OR - the ground stays where the
     inc di                          ; move does not reach
     loop .byte
     pop di
-    add di, [ti_bas]
+    add di, [cs:ti_bas]
     dec dx
     jmp short .row
 .out:
+    pop ds
     pop es
     ret
 
@@ -659,9 +657,9 @@ ti_hud_draw:
     push di
     push bp
     push es
-    push ds
-    pop es
-    cld
+    call ti_ess                     ; THE BAND IS THE SCRATCH PART'S (97.8):
+    cld                             ; ES is it for the whole strip, and only
+                                    ; the string building below borrows ours
 
     ; THE BAND'S X IS ALIGNED AND THE CONTENT ORIGIN IS NOT NECESSARILY.
     ; `OSAPI_GFX_BLIT1` refuses an x that is not a multiple of 8 (SPEC.md
@@ -688,7 +686,7 @@ ti_hud_draw:
     jbe .fit
     jmp .out                        ; a surface this wide cannot occur, but a
 .fit:                               ; band that overran would be silent
-    mov di, ti_hudband
+    mov di, TI_S_HUD
     mov cx, ax
     push di
     xor al, al
@@ -702,6 +700,9 @@ ti_hud_draw:
     mov [ti_hty], ax
 
     ; --- hard left: the round and the phase --------------------------------
+    push es                         ; (the line is built in OUR segment)
+    push ds
+    pop es
     mov di, ti_hudbuf
     mov si, ti_s_round
     call ti_poke
@@ -710,7 +711,8 @@ ti_hud_draw:
     mov si, [tg_phs]                ; whose plan it is (tigame.inc)
     call ti_poke
     mov byte [di], 0
-    mov di, ti_hudband
+    pop es
+    mov di, TI_S_HUD
     mov bx, 4
     mov dx, [ti_hty]
     mov si, ti_hudbuf
@@ -722,7 +724,7 @@ ti_hud_draw:
 
     ; --- and the status, centred between them ------------------------------
     call ti_hb_status
-    mov si, ti_hudband              ; ...then the WHOLE strip, this being the
+    mov si, TI_S_HUD                ; ...then the WHOLE strip, this being the
     mov ax, [ti_hx]                 ; call that composed all three blocks
     mov bx, [ti_oy]
     mov cx, [ti_hw]
@@ -768,8 +770,7 @@ ti_hud_status:
     push di
     push bp
     push es
-    push ds
-    pop es
+    call ti_ess                     ; the band is the scratch part's
     cld
     cmp word [ti_hbs], 0            ; nothing has composed the strip yet
     je .out
@@ -777,7 +778,7 @@ ti_hud_status:
     call ti_hb_status               ; ...which leaves the rectangle to put down
     cmp word [ti_hsw], 0
     je .out
-    mov si, ti_hudband              ; ...and the band's own row and byte
+    mov si, TI_S_HUD                ; ...and the band's own row and byte
     mov ax, [ti_hty]
     mul word [ti_hbs]
     add si, ax
@@ -862,7 +863,7 @@ ti_hb_status:
     mov ax, dx                      ; It is the third time in this package: a
     mul bp                          ; multiply lands its high half there, so a
     pop dx                          ; loop that counts rows in DX and resolves
-    mov di, ti_hudband              ; a row address inside itself clears
+    mov di, TI_S_HUD                ; a row address inside itself clears
     add di, ax                      ; exactly ONE row and leaves the rest of
     mov ax, [ti_hleft]              ; the last line under the new one - which
     add ax, 7                       ; on the glass is a status strip with a
@@ -926,7 +927,7 @@ ti_hb_status:
     mov ax, [ti_hnr]
     mov [ti_hpr], ax
 
-    mov di, ti_hudband              ; ...and then it is lettered
+    mov di, TI_S_HUD                ; ...and then it is lettered
     mov bx, [ti_hnx]
     mov dx, [ti_hty]
     call ti_status
@@ -1065,7 +1066,7 @@ ti_hb_set:                          ; BX = x, DX = y, in the HUD band
     jae .out
     mov ax, dx
     mul word [ti_hbs]
-    mov di, ti_hudband
+    mov di, TI_S_HUD
     add di, ax
     mov ax, bx
     mov cl, 3
@@ -1075,7 +1076,7 @@ ti_hb_set:                          ; BX = x, DX = y, in the HUD band
     and cx, 7
     mov al, 080h
     shr al, cl
-    or [di], al
+    or [es:di], al                  ; (ES: the scratch part, 97.8)
 .out:
     pop di
     pop dx
@@ -1101,6 +1102,9 @@ ti_status:
     push cx                         ; ...CX and DX, which the divide below uses
     push dx                         ; and which ti_hud_draw has already set up
     push di
+    push es                         ; THE LINE IS BUILT IN OUR SEGMENT, whatever
+    push ds                         ; ES the caller composes the band through
+    pop es                          ; (the scratch part's, 97.8)
     mov si, [tg_prompt]             ; A PENDING ACTION'S QUESTION outranks the
     or si, si                       ; pointer: an armed order, a swap's first
     jz .ask                         ; end (tigame.inc)
@@ -1197,6 +1201,7 @@ ti_status:
     mov byte [di], 0
     mov si, ti_hudbuf
 .out:
+    pop es
     pop di
     pop dx
     pop cx

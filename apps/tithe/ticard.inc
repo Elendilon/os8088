@@ -1118,6 +1118,8 @@ ti_cb_unit:
     mul word [ti_cbs]
     add di, ax
     mov dx, [ti_unith]
+    push es                         ; THE CACHE IS THE SCRATCH PART'S (97.8):
+    call ti_ess                     ; read through ES, into our card band
 .row:
     or dx, dx
     jz .done
@@ -1125,7 +1127,8 @@ ti_cb_unit:
     push si
     mov cx, [ti_unitb]
 .b:
-    lodsb
+    mov al, [es:si]
+    inc si
     or [di], al
     inc di
     loop .b
@@ -1136,6 +1139,7 @@ ti_cb_unit:
     dec dx
     jmp short .row
 .done:
+    pop es
     pop word [ti_pi]
     pop di
     pop si
@@ -1473,8 +1477,7 @@ ti_units_build:
     push cx
     push di
     push es
-    push ds
-    pop es
+    call ti_ess                     ; the caches are the scratch part's
     cld
     push word [ti_pi]
     push word [ti_ck]
@@ -1536,13 +1539,15 @@ ti_units_build:
 ti_unit_addr:
     push ax
     push dx
-    mov ax, [ti_uk]                 ; the hand SLOT's cache, not the art's
+    mov ax, [ti_uk]                 ; the hand SLOT's cache, not the art's -
+                                    ; in the SCRATCH part (97.8), so DI is an
+                                    ; offset there and ES must be ti_ess's
     mov dx, TI_POSES
     mul dx
     add ax, [ti_pi]
     mov dx, TI_UNITMAX
     mul dx
-    mov di, ti_unit
+    mov di, TI_S_UNIT
     add di, ax
     pop dx
     pop ax
@@ -1566,8 +1571,7 @@ ti_unit_draw:
     push di
     push bp
     push es
-    push ds
-    pop es
+    call ti_ess                     ; ES:SI = the cache, in the scratch part
     call ti_unit_addr
     mov si, di
     mov ax, [ti_cbx]

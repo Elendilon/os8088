@@ -1590,10 +1590,30 @@ ti_pit:
 ; THE MUSIC IS A PART TOO (TITHE-PLAN 13.6, SPEC.md 97.10): the score lives
 ; with what it belongs to rather than in the image, and tools/os88tithemus.py
 ; builds it. Every song in it is sequenced out of the part where it lies.
-    OS88_PARTS_BEGIN 2
+TI_BASE_PART equ 2                  ; the BASE art (tools/os88tithebase.py)
+TI_SCR_PART equ 3                   ; SCRATCH: bands that were zeros in the
+                                    ; image (SPEC.md 97.8) - no disk at all
+TI_S_UNIT   equ 0                   ; the hand's unit caches, a slot each
+TI_S_HUD    equ TI_S_UNIT + TI_UNITMAX * TI_POSES * TI_HAND
+TI_S_BYTES  equ TI_S_HUD + TI_HUDBANDMAX
+TI_SCR_KB   equ (TI_S_BYTES + 1023) / 1024
+    OS88_PARTS_BEGIN 4
       OS88_PART OP_ASSET, OP_COMP     ; 0 the characters
       OS88_PART OP_ASSET, OP_COMP     ; 1 the music (TM_PART)
+      OS88_PART OP_ASSET, OP_COMP     ; 2 the bases (TI_BASE_PART)
+      OS88_PART OP_ASSET, OP_ZERO, TI_SCR_KB ; 3 scratch (TI_SCR_PART)
     OS88_PARTS_END
+
+; ti_ess - ES = the SCRATCH part's segment, read at the point of use because a
+; part's segment is not a thing to cache (TITHE-PLAN 4.3.2). Preserves every
+; register bar ES.
+ti_ess:
+    push ax
+    mov al, TI_SCR_PART
+    call op_seg
+    mov es, ax
+    pop ax
+    ret
 
 ; =============================================================================
 ; data
@@ -1750,7 +1770,6 @@ ti_cardband: times TI_CARDBANDMAX db 0
 ti_cbsrc:   dw ti_cardband          ; what ti_card_draw puts down
 ti_cfband:  times TI_CARDBANDMAX db 0 ; a card the reveal is fading, composed
                                     ; once (tirv.inc)
-ti_hudband: times TI_HUDBANDMAX db 0
 ti_cellband: times TI_CELLBANDMAX db 0
 ti_cellout: times TI_CELLBANDMAX db 0 ; ...and the same rows over their ground
 ti_stmask:  times TI_CELLBANDMAX db 0 ; ...and their halo, which the stat bank
@@ -1895,10 +1914,8 @@ ti_bart:    dw 0                    ; WHICH BASE CANDIDATE (SPEC.md 97.2.1) -
 ti_gidx:    dw 0                    ; ...and which SURFACE's set of it, an
                                     ; index into ti_bart_tab's rows
 ti_brec:    dw 0                    ; the record in play
-ti_mx:      dw 0                    ; a move sub-band, unpacked from its four
-ti_my:      dw 0                    ; header bytes
-ti_mw:      dw 0
-ti_mb:      dw 0
+ti_mb:      dw 0                    ; a move sub-band's bytes a row and rows
+ti_bpseg:   dw 0                    ; the base art PART's segment, at a build
 ti_mh:      dw 0
 ti_nbase:   dw 0                    ; ...and BASE LANE commits (SPEC.md 97.5.1)
 ti_nbadv:   dw 0                    ; ...of which this many ADVANCED a pose -
@@ -1960,7 +1977,6 @@ ti_hudn:    dw 0
 ti_hudbuf:  times TI_HUDMAX db 0
 ti_numbuf:  times 4 db 0
 ti_cardbuf: times 24 db 0
-ti_unit:    times TI_UNITMAX * TI_POSES * TI_HAND db 0 ; one per HAND SLOT
 ti_pjband:  times TI_PJMAX * TI_PJN db 0
 
 ; THE POSES AND THE BOARD'S GROUND ARE NOT HERE: they are per cell and per

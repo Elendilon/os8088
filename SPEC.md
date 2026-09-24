@@ -141444,7 +141444,26 @@ segment is read with `op_seg` at the point of use; the **ARENA**, 45 KB, the fou
 column strips and eighty idle poses (§97.4.10); and the **attack claim**,
 30 KB, the eighty attack frames. Wave 3 added two more when the rules engine
 needed the segment's room (§97.12.7): the **base bands**, `TI_BASEKB`, and the
-fullscreen hand's **portraits**, `TI_FIGKB`. Each proc is one store. The table above is the
+fullscreen hand's **portraits**, `TI_FIGKB`. Each proc is one store.
+
+**The parts** (§20.12), in the carve:
+
+| part | | what |
+|---|---|---|
+| 0 | `OP_COMP` | the characters: bodies, items, the card manifest, the dirty rows |
+| 1 | `OP_COMP` | the music (§97.10) |
+| 2 | `OP_COMP` | **the BASE art**, `TI_BASE_PART` - the table and every record, offsets from the part's own start. It was 10.8 KB of the image until wave 3 left the package 1.2 KB of room; `tools/os88tithebase.py emit` writes the part and a `tibases.inc` holding only the counts and the names |
+| 3 | `OP_ZERO` | **SCRATCH**, `TI_SCR_PART`, ~6 KB and no disk bytes at all: the hand's unit caches (`TI_S_UNIT`) and the HUD strip's band (`TI_S_HUD`), which were zeros in the image and counted against `APP_MAX_SIZE` like code |
+
+**The scratch bands are reached through ES and nothing else.** `ti_ess` loads
+it from `op_seg` at the point of use (a part's segment is not cached); the
+blit already takes its band at `ES:SI`; the glyph writer already writes at
+`ES:DI`; and the one string builder in the HUD's path, `ti_status`, switches
+ES back to the package around its own `stosb` work - so the composer runs
+with ES on the scratch part from its first byte to its blit. The card bands
+stay in the image for now: the card composer writes them through DS in a
+dozen places and builds strings through ES in the same breath, which is a
+rewrite rather than a move, and it is 3 KB. The table above is the
 plan's for the final game, and the arena is where its sprite bank already went.
 
 **The index stores offsets and not segments**, which is what makes the
@@ -142092,16 +142111,16 @@ CARD TABLE (`tools/os88tithecards.py`) rather than against a list of its own.
 
 #### 97.12.7 What it costs
 
-The image is **60,003 bytes** against 44,035 before the wave: the card table
-and the rules engine are ~11 KB of it, the plan list, the planning actions
-and the fought round ~3.5 KB, and the plans, the frozen board, the log and
-the 27 views ~2 KB. Two things left the segment to make the room: the **base
-bands** went to a claim of their own, `TI_BASEKB` (8 KB), and the unit cache
-went from one per art to one per hand slot. **With the 86 bytes of bss that is
-60,089 of `APP_MAX_SIZE`'s 61,440 - 1,351 bytes left.** The ceiling is the
-SDK's 60 KB and not the segment's 64, which is a correction: this section first
-said ~5.5 KB. TITHE-PLAN §16.4 lists what wave 3 still owes, and making room
-is the next work (TITHE-PLAN §4.3).
+The image was **60,003 bytes** at the end of the wave against 44,035 before
+it: the card table and the rules engine are ~11 KB of it, the plan list, the
+planning actions and the fought round ~3.5 KB, and the plans, the frozen
+board, the log and the 27 views ~2 KB. With the bss that reached 60,089 of
+`APP_MAX_SIZE`'s 61,440 (the SDK's 60 KB, not the segment's 64 - this section
+first said ~5.5 KB were left, which was wrong). **So the next change was room,
+not features**: the base art became part 2 and the unit caches and the HUD
+band a scratch part (§97.8), and the image is **44,160 bytes - 17,194 left**.
+TITHE-PLAN §4.3.0 is what follows when the code itself outgrows the segment,
+and TITHE-PLAN §16.4 lists what wave 3 still owes.
 
 #### 97.12.8 THE ROUND, FOUGHT ON THE GLASS
 
