@@ -6192,19 +6192,8 @@ wm_covered:
     push dx
     push si
     mov word [wm_clip_n], 0
-    mov ax, [bx+W_X]
-    mov dx, [bx+W_Y]
-    mov cx, ax
-    add cx, [bx+W_W]            ; x .. x+w and y .. y+h: the frame plus the
-    mov si, dx                  ; 1px drop shadow, which wm_draw_win draws
-    add si, [bx+W_H]
-    test byte [bx+W_FLAGS], WF_FULL
-    jz .seed
-    dec cx                      ; fullscreen has no shadow (SPEC.md 11.2)
-    dec si
-.seed:
-    call wm_clip_seed
-    call wm_clip_occl
+    call wm_seed_frame          ; the frame plus the 1px drop shadow, which
+    call wm_clip_occl           ; wm_draw_win draws
     jc .no
     cmp word [wm_clip_n], 0
     jne .no
@@ -6374,6 +6363,21 @@ wm_ttl_rect:
     add dx, TITLE_H-1
     ret
 
+; wm_seed_frame - BX = window: seed the list with its FRAME, drop shadow
+; included - x .. x+w and y .. y+h, one short each way on a fullscreen
+; window, which has no shadow (SPEC.md 11.2). AX/DX/CX/SI = that rect after.
+; wm_covered and wm_chrome_clip each built it; it falls into the seed.
+wm_seed_frame:
+    mov ax, [bx+W_X]
+    mov dx, [bx+W_Y]
+    mov cx, ax
+    add cx, [bx+W_W]
+    mov si, dx
+    add si, [bx+W_H]
+    test byte [bx+W_FLAGS], WF_FULL
+    jz wm_clip_seed
+    dec cx
+    dec si
 wm_clip_seed:
     mov [wm_clip_tab+WCR_X1], ax
     mov [wm_clip_tab+WCR_Y1], dx
@@ -8811,18 +8815,8 @@ wm_chrome_clip:
                                 ; themselves, and the cursor is not confined to
                                 ; this window - so without this it is drawn over
                                 ; and smeared at the next cur_move
-    mov ax, [di+W_X]
-    mov dx, [di+W_Y]
-    mov cx, ax
-    add cx, [di+W_W]            ; x .. x+w and y .. y+h: the frame plus its 1px
-    mov si, dx                  ; drop shadow, which wm_draw_win draws
-    add si, [di+W_H]
-    test byte [di+W_FLAGS], WF_FULL
-    jz .seed
-    dec cx                      ; fullscreen has no shadow (SPEC.md 11.2)
-    dec si
-.seed:
-    call wm_clip_seed
+    call wm_seed_frame          ; BX = DI = us: the frame plus its 1px drop
+                                ; shadow, which wm_draw_win draws
     call wm_clip_occlf          ; BX = us; subtract every visible window above,
                                 ; BY THE FRAME each of them REPAINTS and not by
                                 ; the box it occupies (SPEC.md 11.97.2). The

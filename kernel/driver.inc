@@ -1919,29 +1919,22 @@ drv_fs_call:
                                 ; the verb and SI the name on the way in, and
                                 ; CF plus AX are the driver's answer on the
                                 ; way out
+    call drv_fs_has             ; a table, a verb inside its length and a
+    jc drv_svc_none             ; non-zero cell - or the refusal. drv_fs_has
+                                ; IS that test, written once: what the two
+                                ; answer must agree, or a caller that probes
+                                ; and then calls would reach a cell the call
+                                ; refuses (SPEC.md 62.9.1.1). An absent verb
+                                ; is an ordinary answer and not a fault: a
+                                ; read-only volume publishes no FSV_WRITE
     push es
     push di
     mov di, [drv_svc + (DRVC_FILE-2)*DSV_SIZE + DSV_FS]
-    or di, di
-    jz .none                    ; a DRVC_FILE driver that published no table
     add di, bp                  ; ...+ the verb
     mov es, [drv_fseg5]
-    push ax                     ; ...IF ITS TABLE REACHES THAT FAR (SPEC.md
-    mov ax, [es:DRV_H_FSV]      ; 62.9.1.1): the driver says how long a table
-    or ax, ax                   ; it was built with, 0 meaning the 28 bytes
-    jnz .len                    ; every released driver has, and a verb past
-    mov ax, FSV_TAB0            ; it is refused like an unpublished one - not
-.len:                           ; read out of whatever the driver put after
-    cmp bp, ax                  ; its table
-    pop ax
-    jae .none
     mov bp, [es:di]             ; BP = the near proc, in the driver's segment
     pop di
     pop es
-    or bp, bp
-    jz drv_svc_none             ; a verb this driver does not implement, which
-                                ; is an ordinary answer and not a fault: a
-                                ; read-only volume publishes no FSV_WRITE
     push word [snd_inst]        ; **THE DRIVER IS ASKING, NOT THE APP THAT
                                 ; HAPPENED TO BE DISPATCHING** (SPEC.md
                                 ; 51.2.3). drv_call and drv_cp_call both
@@ -1977,10 +1970,6 @@ drv_fs_call:
     call wm_nest_pop            ; ...and DS names the kernel again, which is
     pop word [snd_inst]         ; the segment the pop reads. Neither touches a
     ret                         ; flag, so the driver's CF still comes back out
-.none:
-    pop di
-    pop es
-    jmp drv_svc_none
 
 ; -----------------------------------------------------------------------------
 ; drv_fs_has - does the DRVC_FILE driver publish this verb? (SPEC.md 62.9.1)
@@ -2005,13 +1994,13 @@ drv_fs_has:
     jz .no                      ; a DRVC_FILE driver that published no table
     add di, bp                  ; ...+ the verb
     mov es, [drv_fseg5]
-    push ax                     ; the same length test as drv_fs_call's, for
-    mov ax, [es:DRV_H_FSV]      ; the same reason: what the two answer must
-    or ax, ax                   ; agree, or a caller that probes here and then
-    jnz .len                    ; calls would reach a cell the call refuses
-    mov ax, FSV_TAB0
-.len:
-    cmp bp, ax
+    push ax                     ; ...IF ITS TABLE REACHES THAT FAR (SPEC.md
+    mov ax, [es:DRV_H_FSV]      ; 62.9.1.1): the driver says how long a table
+    or ax, ax                   ; it was built with, 0 meaning the 28 bytes
+    jnz .len                    ; every released driver has, and a verb past
+    mov ax, FSV_TAB0            ; it is refused like an unpublished one - not
+.len:                           ; read out of whatever the driver put after
+    cmp bp, ax                  ; its table. drv_fs_call asks HERE first
     pop ax
     jae .no
     cmp word [es:di], 0
