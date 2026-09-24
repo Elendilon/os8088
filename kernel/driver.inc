@@ -2681,6 +2681,7 @@ drv_load_row:
                                 ; drv_check - out of kern_small. It assembled
                                 ; without a word, because every label the
                                 ; guarded region defined was also inside it
+    DDG 1
     cmp word [bx+DRVR_SEG], 0
     jne .already
     cmp word [bx+DRVR_FILE], 0
@@ -2688,9 +2689,11 @@ drv_load_row:
 
     call drv_mounted
     jc .nodisk
+    DDG 2
     mov si, [bx+DRVR_FILE]
     call drv_find               ; AX = the file's size
     jc .noent
+    DDG 3
     cmp ax, DRV_HDR_SZ
     jb .bad
     mov bp, ax                  ; THE FILE'S BYTE SIZE, in the register both
@@ -2718,6 +2721,7 @@ drv_load_row:
     call mem_claim_hi_x           ; a driver's base IS its CS - top-down, like
     pop bx                      ; a package's region, and movable for the same
     jc .nomem                   ; reason (SPEC.md 66.6.3)
+    DDG 4
     mov [bx+DRVR_SEG], dx       ; ...which also arms drv_call
     mov [bx+DRVR_KB], ax
 
@@ -2739,6 +2743,7 @@ drv_load_row:
                                 ; mem_claim_x banks SI/DI around everything
                                 ; including the compaction
     xor dx, dx                  ; DX:CX = the capacity, DX:AX the answer -
+    DDG 5
     call dskw_read_x              ; the whole file, by name, in A:'s root
     pop bx
     jc .ioerr
@@ -2747,6 +2752,7 @@ drv_load_row:
 
     call drv_check              ; the header, against the image that arrived
     jc .badfree                 ; - which a compressed driver already IS: a
+    DDG 6
                                 ; .DRV is a 'CZ' file (SPEC.md 20.13.3.1) and
                                 ; dskw_read_x expanded it into the claim
     call drv_bss                ; ...and the zeros it did NOT ship. IT CAN
@@ -2788,8 +2794,10 @@ drv_load_row:
                                 ; reported a bug. Every earlier failure path
                                 ; returns before here with its own code, and
                                 ; .nohwal below still overwrites this one
+    DDG 8
     call drv_attach             ; the far call into the driver itself
     jc .nohwal                  ; ...which may say WHY in AL (SPEC.md 51.2)
+    DDG 9
     clc
     jmp short .out
 
@@ -4416,6 +4424,10 @@ drv_boot_x:
     mov ah, dh
     mov si, [bx+DRVR_TITLE]
     call ovl_spl_msg_drv
+%ifdef DRV_DIAG
+    mov [ddg_row], cl
+    mov byte [ddg_step], 0
+%endif
     mov al, cl
     call COLD_SEG:drvf_drv_load
     jnc .skip
@@ -4425,6 +4437,7 @@ drv_boot_x:
     cmp cl, DRV_MAX
     jb .next
 
+    DDG 0x0F                    ; DRVDIAG: every load returned
     call ovl_spl_msg_boot    ; the loads are done and the desktop is not up
                                 ; yet: xm_boot, the palette and the first
                                 ; wm_paint_all are still to come, and a line

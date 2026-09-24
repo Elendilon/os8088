@@ -6278,6 +6278,14 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
 ; live across blk_wake and kbm_key - which `mov` gives for free, and CS = DS
 ; in the kernel's near model so the store needs no segment setup.
 ; =============================================================================
+; DDG - DRVDIAG=1's step mark (Makefile, sched.inc's ddg_paint): which step
+; of loading a driver the boot is in. A plain store, flags untouched.
+%macro DDG 1
+%ifdef DRV_DIAG
+    mov byte [ddg_step], %1
+%endif
+%endmacro
+
 %macro KFZ 1
 %ifdef KFZTRACE
     mov byte [khb_kfz], %1
