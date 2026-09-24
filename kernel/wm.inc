@@ -97,10 +97,48 @@ W_TIMER  equ 32                 ; word: the deadline in [ticks], 0 = DISARMED.
                                 ; a repeat re-arms inside itself and one that
                                 ; does not fires exactly once. Clearing after
                                 ; would silently cancel that re-arm
-WIN_SIZE equ 34                 ; NOT a power of two: never shift, multiply
+W_SIDE   equ 34                 ; where the per-slot state below begins
 %else
-WIN_SIZE equ 28                 ; ...and kern_small stops where SPEC.md 13.7
+W_SIDE   equ 28                 ; ...and kern_small stops where SPEC.md 13.7
 %endif                          ; left it
+; --- the per-slot state, IN THE RECORD (kernel size pass 4) ------------------
+; These were eleven parallel side tables indexed by wm_ptr2idx (a `div`) and
+; scaled per table; in the record each one is one [bx+disp8]. wm_create zeroes
+; W_MENUS..WIN_SIZE in one run, so a reused slot inherits nothing and no clear
+; is owed at wm_destroy except W_WKQ (wm_wake_redo walks dead slots too).
+; NONE of these is a template word and none is ABI: a package is handed a
+; record pointer and reads W_X..W_ONMOUSEUP, and nothing outside kernel/ (bar
+; the host mirror in tools/os88geom.py) strides the table.
+W_ONSZ   equ W_SIDE+0           ; size-CHANGED handler, 0 = none (SPEC.md 11.98)
+W_ONWK   equ W_SIDE+2           ; WAKE handler (SPEC.md 74.1)
+W_ONCL   equ W_SIDE+4           ; CLOSE negotiator (SPEC.md 75.1)
+W_ONRC   equ W_SIDE+6           ; RIGHT-CLICK handler (SPEC.md 13.11)
+W_ABOUT  equ W_SIDE+8           ; About handler (SPEC.md 12.2)
+W_PREF   equ W_SIDE+10          ; per-adapter size table offset (SPEC.md 11.100.1)
+W_MINW   equ W_SIDE+12          ; minimum frame, 0 = the system floor
+W_MINH   equ W_SIDE+14          ; (SPEC.md 11.100.2); MINH MUST follow MINW
+W_ZOOMR  equ W_SIDE+16          ; 8: the zoom bank, ZR_* (SPEC.md 11.95)
+W_NATR   equ W_SIDE+24          ; 8: the natural rect, NR_* (SPEC.md 39.11.2.1)
+W_SUEXT  equ W_SIDE+32          ; 4: the raise cache's band extents (11.96.11)
+W_WKQ    equ W_SIDE+36          ; byte: WKQ_NONE / WKQ_RING / WKQ_EATEN
+%ifdef KERN_BIG
+W_PKIND  equ W_SIDE+37          ; byte: adapter kind last sized for (11.100.4)
+WIN_SIZE equ 72                 ; NOT a power of two: never shift, multiply.
+%if WIN_SIZE != W_PKIND + 1     ; A LITERAL, because tools/os88geom.py
+  %error "WIN_SIZE must end the record" ; mirrors it and t_mirror reads it
+%endif
+%else
+WIN_SIZE equ 65
+%if WIN_SIZE != W_WKQ + 1
+  %error "WIN_SIZE must end the record"
+%endif
+%endif
+%if W_MINH - W_MINW != 2
+  %error "wm_min_ax reads W_MINH as W_MINW + 2"
+%endif
+%if WIN_SIZE > 127
+  %error "every per-slot field is addressed [bx+disp8]; past 127 each costs a byte"
+%endif
 %ifdef KERN_SMALL
 MAX_WIN  equ 6                  ; SIX windows on kern_small (SPEC.md 11.102).
                                 ; The SDK's copy STAYS AT 12, on MAX_TASKS'
@@ -411,7 +449,7 @@ wm_init:
     pop es
     xor ax, ax
     mov di, wm_pkgd             ; pkgd + pkgs + wins + zord + zn are contiguous
-    mov cx, 2 + WM_PKGD_MAX*2 + MAX_WIN*WIN_SIZE + MAX_WIN + 1 + MAX_WIN*2
+    mov cx, wm_clask + 2 - wm_pkgd  ; ...through wm_clreq/wm_clask
     rep stosb                   ; in .bss. THE NEST STACK IS IN THE RUN
                                 ; (SPEC.md 66.6.1): .bss is never zeroed at
                                 ; boot and int 19h keeps the LAST kernel's, so
@@ -425,10 +463,9 @@ wm_init:
     mov word [wm_fs], 0         ; no fullscreen window (SPEC.md 11.2); .bss
                                 ; is never zeroed at boot, so this is not
                                 ; redundant
-    xor ax, ax                  ; the close negotiators, the right-click
-    mov di, wm_oncl             ; handlers and the two words of SPEC.md 75.2's
-    mov cx, MAX_WIN*4 + 4       ; request (contiguous in .bss). UNLIKE wm_onwk
-    rep stosb                   ; and wm_onsz above, these ARE read before any
+                                ; (the close negotiators, the right-click
+                                ; handlers and SPEC.md 75.2's request are all
+                                ; in the one run above now)
                                 ; wm_create writes them: wm_ask_close asks
                                 ; EVERY window on its way out, handler or not,
                                 ; ui_rdown reads wm_onrc for every frontmost
@@ -1618,16 +1655,7 @@ NR_SIZE equ 8
 ; out: SI = wm_natr + index * NR_SIZE; every other register preserved
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
-wm_nat_slot:
-    push ax
-    call wm_ptr2idx             ; AL = index, AH = 0
-    mov si, ax
-    shl si, 1
-    shl si, 1
-    shl si, 1                   ; x8: NR_SIZE, and an 8086 has no shl by imm
-    add si, wm_natr
-    pop ax
-    ret
+; (wm_nat_slot is gone: the bank is W_NATR, in the record)
 
 ; -----------------------------------------------------------------------------
 ; wm_nat_bank - this window's rect is the one it wants (module internal)
@@ -1638,20 +1666,24 @@ wm_nat_slot:
 ; that reads it (ui_drag's "did it move", wm_create's CF), and a bank is
 ; bookkeeping that no caller should have to make room for.
 ; -----------------------------------------------------------------------------
+%ifdef KERN_BIG
+wm_nat_bank_xy:                 ; SPEC.md 11.100.3 - see its header below: the
+    pushf                       ; POSITION only. Entered here, it shares the
+    push ax                     ; tail of wm_nat_bank
+    jmp short wm_nb_xy
+%endif
 wm_nat_bank:
     pushf
     push ax
-    push si
-    call wm_nat_slot
-    mov ax, [bx+W_X]
-    mov [si+NR_X], ax
-    mov ax, [bx+W_Y]
-    mov [si+NR_Y], ax
     mov ax, [bx+W_W]
-    mov [si+NR_W], ax
+    mov [bx+W_NATR+NR_W], ax
     mov ax, [bx+W_H]
-    mov [si+NR_H], ax
-    pop si
+    mov [bx+W_NATR+NR_H], ax
+wm_nb_xy:
+    mov ax, [bx+W_X]
+    mov [bx+W_NATR+NR_X], ax
+    mov ax, [bx+W_Y]
+    mov [bx+W_NATR+NR_Y], ax
     pop ax
     popf
     ret
@@ -1663,23 +1695,15 @@ wm_nat_bank:
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
 wm_nat_take:
-    push ax
-    push si
-    call wm_nat_slot
-    mov ax, [si+NR_W]
-    or ax, ax
-    jz .out                     ; nothing banked: whatever is in the record is
-    mov [bx+W_W], ax            ; the best answer there is
-    mov ax, [si+NR_X]
+    cmp word [bx+W_NATR+NR_W], 0
+    je wm_nat_take_wh           ; nothing banked: whatever is in the record is
+    push ax                     ; the best answer there is (and take_wh then
+    mov ax, [bx+W_NATR+NR_X]    ; agrees and does nothing)
     mov [bx+W_X], ax
-    mov ax, [si+NR_Y]
+    mov ax, [bx+W_NATR+NR_Y]
     mov [bx+W_Y], ax
-    mov ax, [si+NR_H]
-    mov [bx+W_H], ax
-.out:
-    pop si
-    pop ax
-    ret
+    pop ax                      ; ...and the SIZE is wm_nat_take_wh's: it
+                                ; FOLLOWS, and nothing but comment is between
 
 ; -----------------------------------------------------------------------------
 ; wm_nat_bank_xy - bank this window's POSITION and leave its size alone
@@ -1692,22 +1716,7 @@ wm_nat_take:
 ; and 39.16.3's hole rule - are clamps: banking their output would make the
 ; clamp its own source, which is the one thing the bank exists to stop.
 ; -----------------------------------------------------------------------------
-%ifdef KERN_BIG
-wm_nat_bank_xy:
-    pushf
-    push ax
-    push si
-    call wm_nat_slot
-    mov ax, [bx+W_X]
-    mov [si+NR_X], ax
-    mov ax, [bx+W_Y]
-    mov [si+NR_Y], ax
-    pop si
-    pop ax
-    popf
-    ret
-
-%endif
+; (wm_nat_bank_xy is an entry to wm_nat_bank now, above)
 
 ; -----------------------------------------------------------------------------
 ; wm_nat_take_wh - put the banked SIZE back, leaving the position where it is
@@ -1720,16 +1729,13 @@ wm_nat_bank_xy:
 ; -----------------------------------------------------------------------------
 wm_nat_take_wh:
     push ax
-    push si
-    call wm_nat_slot
-    mov ax, [si+NR_W]
+    mov ax, [bx+W_NATR+NR_W]
     or ax, ax
     jz .out                     ; nothing banked: what is in the record is the
     mov [bx+W_W], ax            ; best answer there is
-    mov ax, [si+NR_H]
+    mov ax, [bx+W_NATR+NR_H]
     mov [bx+W_H], ax
 .out:
-    pop si
     pop ax
     ret
 
@@ -1914,21 +1920,17 @@ wm_create:
     push es
     pop ds
     pop es
-    mov word [bx+W_MENUS], 0    ; menus are NOT a template word (SPEC 11/12.2)
-    mov word [bx+W_ONSIZE], 0   ; ...and neither is the resize negotiator
-    mov word [bx+W_ONMOUSEUP], 0    ; ...nor the release handler (SPEC.md 13.7).
+    push es                     ; W_MENUS..WIN_SIZE: NOT template words
+    push ds                     ; (SPEC 11/12.2) - menus, the negotiators,
+    pop es                      ; every handler, the timer, the per-slot
+    lea di, [bx+W_MENUS]        ; state - so a reused slot inherits nothing
+    mov cx, WIN_SIZE - W_MENUS  ; of its last tenant's. W_DISP/W_SEG are in
+    xor ax, ax                  ; the run and written just below
+    rep stosb
+    pop es
                                 ; The template copy above is EIGHT words and
                                 ; must stay eight: growing it would read one
                                 ; word past every existing package's template
-%ifdef KERN_BIG
-    mov word [bx+W_ONDRAG], 0   ; ...nor the tracking edge (SPEC.md 13.8.2),
-                                ; for that same reason and no other
-    mov word [bx+W_ONTIMER], 0  ; ...nor the timer's handler, nor its deadline
-    mov word [bx+W_TIMER], 0    ; (SPEC.md 13.9) - and the deadline especially,
-                                ; because a REUSED slot inheriting a live one
-                                ; would fire a stranger's handler at a window
-                                ; that has only just been made
-%endif
     mov word [bx+W_DISP], PKG_DISP  ; the far pointer wm_pkgcall uses: the
     mov ax, es                      ; dispatcher's fixed offset, and the
     mov cx, cs                      ; segment the caller called us in. Ours
@@ -1939,8 +1941,8 @@ wm_create:
     mov [bx+W_SEG], ax
     mov cx, 8                   ; (wm_fit and the index math below want CX
                                 ; free; the rep consumed it)
-    xor ax, ax                  ; ...and NO size-changed handler (SPEC.md
-    call wm_onresize            ; 11.98). The `xor` is NOT redundant: three
+                                ; (no size-changed handler either: W_ONSZ
+                                ; was in the zero run. Formerly:)
                                 ; lines up AX is 0 only for a KERNEL window and
                                 ; is the PACKAGE's own segment otherwise, so
                                 ; passing it through would install a handler at
@@ -1957,12 +1959,12 @@ wm_create:
                                 ; window created on the CGA could never grow
                                 ; back when the machine returns to its VGA
                                 ; (SPEC.md 39.11.2.1)
-    push si                     ; ...and a fresh slot owns NO preference and NO
-    call wm_pm_slot             ; minimum of the last tenant's (SPEC.md 11.100):
-    mov word [wm_pref+si], 0    ; cleared HERE rather than in wm_destroy,
-    mov word [wm_minw+si], 0    ; because wm_create is the one routine that
-    mov word [wm_minh+si], 0    ; takes a slot - so no slot can be read before
-    pop si                      ; it has been written, whatever memory the
+                                ; ...and a fresh slot owns NO preference and NO
+                                ; minimum of the last tenant's (SPEC.md 11.100):
+                                ; the zero run above, which is in wm_create
+                                ; because wm_create is the one routine that
+                                ; takes a slot - so no slot can be read before
+                                ; it has been written, whatever memory the
                                 ; machine came up holding. WF_USRSZ needs no
                                 ; line here: the `mov word [bx+W_FLAGS], 1`
                                 ; above already put it down
@@ -2029,10 +2031,7 @@ wm_onsize:
 ; record that grew would.
 ; -----------------------------------------------------------------------------
 wm_onresize:
-    push si
-    call wm_szh_slot
-    mov [si], ax
-    pop si
+    mov [bx+W_ONSZ], ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2064,13 +2063,7 @@ PREF_SIZE equ 12                ; three (w, h) pairs, VID_VGA / VID_HERC /
 ; out: SI = index*2 (add the table's own base); every other register preserved
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
-wm_pm_slot:
-    push ax
-    call wm_ptr2idx             ; AL = index, AH = 0
-    mov si, ax
-    shl si, 1
-    pop ax
-    ret
+; (wm_pm_slot is gone: W_PREF / W_MINW / W_MINH are in the record)
 
 ; -----------------------------------------------------------------------------
 ; wm_min_ax - the minimum this window will accept on one axis, capped
@@ -2098,15 +2091,14 @@ wm_pm_slot:
 wm_min_ax:
     push cx
     push si
-    mov cx, ax                  ; the cap, before wm_pm_slot needs AX
-    call wm_pm_slot             ; SI = index*2 (preserves AX)
+    mov cx, ax                  ; the cap
+    mov si, bx
     or dl, dl
     jz .x
-    mov ax, [wm_minh+si]
-    jmp short .cap
+    inc si                      ; W_MINH = W_MINW + 2 (asserted at the
+    inc si                      ; record)
 .x:
-    mov ax, [wm_minw+si]
-.cap:
+    mov ax, [si+W_MINW]
     or ax, ax
     jz .out                     ; nothing declared: no floor, and no change
     or cx, cx
@@ -2234,8 +2226,7 @@ wm_pref_take:
                                 ; 11.100.5): once somebody has sized this window
                                 ; by hand, the size it publishes is not the
                                 ; kernel's to put back
-    call wm_pm_slot
-    mov si, [wm_pref+si]
+    mov si, [bx+W_PREF]
     or si, si
     jz .no                      ; no table: one word, and this is the whole cost
                                 ; to a window that declared nothing
@@ -2414,12 +2405,8 @@ wm_pref_now:
 wm_kind_bank:
     pushf
     push ax
-    push si
-    call wm_ptr2idx             ; AL = index, AH = 0
-    mov si, ax
     call wm_kind_now            ; AL = the kind it is standing on
-    mov [wm_pkind+si], al
-    pop si
+    mov [bx+W_PKIND], al
     pop ax
     popf
     ret
@@ -2431,11 +2418,7 @@ wm_kind_bank:
 ; clobbers: AX, flags
 ; -----------------------------------------------------------------------------
 wm_kind_was:
-    push si
-    call wm_ptr2idx
-    mov si, ax
-    mov al, [wm_pkind+si]
-    pop si
+    mov al, [bx+W_PKIND]
     ret
 %endif
 
@@ -2528,20 +2511,11 @@ wm_display:
 ; loader's return value, so a cmp in here would abort the launch.
 ; -----------------------------------------------------------------------------
 wm_prefer:
-    pushf
-    push ax
-    push si
-    push di
-    mov di, si
-    call wm_pm_slot
-    mov [wm_pref+si], di
-    call wm_apply_wh            ; ...and take it now, WITHOUT moving the window
-                                ; (SPEC.md 11.100.9)
-    pop di
-    pop si
-    pop ax
-    popf
-    ret
+    mov [bx+W_PREF], si
+    jmp wm_apply_wh             ; ...and take it now, WITHOUT moving the window
+                                ; (SPEC.md 11.100.9). wm_apply_wh preserves
+                                ; every register and the flags, and `mov`
+                                ; touches no flag, so the contract holds
 
 ; -----------------------------------------------------------------------------
 ; wm_minsize - "do not cut me past this" (public; API 0x0382, SPEC.md 11.100.2)
@@ -2550,18 +2524,10 @@ wm_prefer:
 ; out: nothing - every register preserved, FLAGS INCLUDED
 ; -----------------------------------------------------------------------------
 wm_minsize:
-    pushf
-    push ax
-    push si
-    call wm_pm_slot
-    mov [wm_minw+si], cx
-    mov [wm_minh+si], dx
-    call wm_apply_wh            ; SPEC.md 11.100.9: a floor is a size and says
+    mov [bx+W_MINW], cx
+    mov [bx+W_MINH], dx
+    jmp wm_apply_wh             ; SPEC.md 11.100.9: a floor is a size and says
                                 ; nothing about where the window is
-    pop si
-    pop ax
-    popf
-    ret
 
 ; -----------------------------------------------------------------------------
 ; wm_apply_size - replay the bank, take the preference, re-fit (module internal)
@@ -2629,14 +2595,7 @@ wm_apply_out:                   ; NOT a local label: wm_apply_pf sits between
 ; out: SI = wm_onsz + index*2; every other register preserved
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
-wm_szh_slot:
-    push ax
-    call wm_ptr2idx             ; AL = index, AH = 0
-    mov si, ax
-    shl si, 1
-    add si, wm_onsz
-    pop ax
-    ret
+; (wm_szh_slot is gone: the handler is W_ONSZ, in the record)
 
 ; -----------------------------------------------------------------------------
 ; wm_sz_notify - tell BX its environment moved, if it asked to be told
@@ -2675,8 +2634,7 @@ wm_sz_notify:
     push si
     push di
     push bp
-    call wm_szh_slot
-    mov bp, [si]
+    mov bp, [bx+W_ONSZ]
     or bp, bp
     jz .out                     ; never asked to be told: one word, and this is
                                 ; the whole cost to every window that has not
@@ -2808,12 +2766,7 @@ wm_timer:
 ; and a silent aborted launch at whichever one forgot.
 ; -----------------------------------------------------------------------------
 wm_onwake:
-    pushf
-    push si
-    call wm_wkh_slot
-    mov [si], ax
-    pop si
-    popf
+    mov [bx+W_ONWK], ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2828,33 +2781,15 @@ wm_onwake:
 ; a window that never installed anything.
 ; -----------------------------------------------------------------------------
 wm_onclose:
-    pushf                       ; ...and the FLAGS, which the other installers
-                                ; do not promise: this one is called from an
-                                ; entry proc, where the CF a package owes the
-                                ; loader is still riding in them (SPEC.md 21),
-                                ; and wm_ptr2idx's shift writes them
-    push ax
-    push si
-    push ax                     ; the handler, banked: wm_clh_slot spends AX
-    call wm_clh_slot            ; SI -> this window's word
-    pop ax
-    mov [si], ax
-    pop si
-    pop ax
-    popf
-    ret
+    mov [bx+W_ONCL], ax         ; (and the FLAGS, which the other installers
+    ret                         ; keep: a `mov` touches none)
 
 ; -----------------------------------------------------------------------------
 ; wm_clh_slot - SI -> this window's close-negotiator word (module internal)
 ; in:  BX = window ptr
 ; out: SI = wm_oncl + index*2; AX clobbered, every other register preserved
 ; -----------------------------------------------------------------------------
-wm_clh_slot:
-    call wm_ptr2idx             ; AL = index, AH = 0
-    mov si, ax
-    shl si, 1
-    add si, wm_oncl
-    ret
+; (wm_clh_slot is gone: the negotiator is W_ONCL, in the record)
 
 ; -----------------------------------------------------------------------------
 ; wm_onrclick - install (or clear) a window's RIGHT-CLICK handler (SPEC.md
@@ -2879,12 +2814,7 @@ wm_clh_slot:
 ; wm_ptr2idx's div writes them.
 ; -----------------------------------------------------------------------------
 wm_onrclick:
-    pushf
-    push si
-    call wm_rch_slot
-    mov [si], ax
-    pop si
-    popf
+    mov [bx+W_ONRC], ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2900,12 +2830,7 @@ wm_onrclick:
 ; this feature and has 1 after it, which is the whole reason five bytes were
 ; worth writing down - and is the number the next change here has to beat.
 ; -----------------------------------------------------------------------------
-wm_rch_slot:
-    push ax                     ; wm_clh_slot spends it; the caller's AX is
-    call wm_clh_slot            ; the handler being installed
-    pop ax
-    add si, wm_onrc - wm_oncl
-    ret
+; (wm_rch_slot is gone: the handler is W_ONRC, in the record)
 
 ; -----------------------------------------------------------------------------
 ; wm_ask_close - put the close to the window before it happens (SPEC.md 75.1)
@@ -2943,10 +2868,8 @@ wm_ask_close:
     push si
     push di
     push bp
-    mov si, bx
-    call wm_clh_slot            ; SI -> the word... and BX must stay the window
-    mov bp, [si]
     mov si, bx                  ; SI = the window: wm_pkgcall's contract
+    mov bp, [bx+W_ONCL]         ; ...and BX must stay the window
     or bp, bp
     jz .yes                     ; no negotiator: the close goes ahead
     cmp [wm_clask], si
@@ -3048,14 +2971,7 @@ wm_close_pass:
 ; out: SI = wm_onwk + index*2; every other register preserved
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
-wm_wkh_slot:
-    push ax
-    call wm_ptr2idx             ; AL = index, AH = 0
-    mov si, ax
-    shl si, 1
-    add si, wm_onwk
-    pop ax
-    ret
+; (wm_wkh_slot is gone: the handler is W_ONWK, in the record)
 
 ; -----------------------------------------------------------------------------
 ; wm_wake - post an EVT_WAKE for a window (SPEC.md 74.1, slot OSAPI_WM_WAKE)
@@ -3092,13 +3008,10 @@ WKQ_RING    equ 1               ; ...owed, and the record is in the ring
 WKQ_EATEN   equ 2               ; ...owed, and a drain ate the record
 
 wm_wake:
-    push ax
     push si
-    call wm_ptr2idx             ; AL = index (AH = 0)
-    mov si, ax
     pushf
     cli
-    cmp byte [wm_wkq+si], WKQ_RING
+    cmp byte [bx+W_WKQ], WKQ_RING
     je  .queued                 ; one is already in the ring: same promise.
                                 ; **`je 1`, NOT `jne 0`** - WKQ_EATEN is the
                                 ; state where the promise is owed and the
@@ -3107,7 +3020,7 @@ wm_wake:
     jae .full                   ; is banked at entry and dead on both arms -
                                 ; .full goes popf/stc/.out: pop si/pop ax/ret.
                                 ; evq_push would drop it silently; say so
-    mov byte [wm_wkq+si], WKQ_RING
+    mov byte [bx+W_WKQ], WKQ_RING
     mov word [wm_wk_rec+EV_TYPE], EVT_WAKE
     mov [wm_wk_rec+EV_A], bx
     mov si, wm_wk_rec
@@ -3121,7 +3034,6 @@ wm_wake:
     stc
 .out:
     pop si
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3142,21 +3054,15 @@ wm_wake:
 wm_wake_eaten:
     cmp word [di+EV_TYPE], EVT_WAKE
     jne .out
-    push ax
     push bx
-    push si
     mov bx, [di+EV_A]
-    call wm_ptr2idx             ; AL = index (AH = 0)
-    mov si, ax
-    cmp byte [wm_wkq+si], WKQ_RING
+    cmp byte [bx+W_WKQ], WKQ_RING
     jne .pop                    ; not ours to downgrade: a stale record for a
                                 ; slot already re-promised, or already eaten
-    mov byte [wm_wkq+si], WKQ_EATEN
+    mov byte [bx+W_WKQ], WKQ_EATEN
     mov byte [wm_wkdef], 1      ; ...and the one byte ui_task tests per pass
 .pop:
-    pop si
     pop bx
-    pop ax
 .out:
     ret
 
@@ -3173,37 +3079,31 @@ wm_wake_eaten:
 wm_wake_redo:
     cmp byte [wm_wkdef], 0
     je  .out                    ; the whole cost on every other pass
-    push ax
     push bx
     push cx
-    push si
     mov byte [wm_wkdef], 0
-    xor si, si
+    mov bx, wm_wins
     mov cx, MAX_WIN
 .l:
     pushf                       ; the test and the clear are ONE decision, and
     cli                         ; wm_wake runs on WORKERS (OSAPI_WM_WAKE): a
-    cmp byte [wm_wkq+si], WKQ_EATEN ; switch between them lets one post a
+    cmp byte [bx+W_WKQ], WKQ_EATEN ; switch between them lets one post a
     je  .redo                   ; record and set WKQ_RING for this slot, and
     popf                        ; the clear would then drop that record's flag
     jmp short .n                ; on the floor and post a SECOND for it
 .redo:
-    mov byte [wm_wkq+si], WKQ_NONE  ; ...so wm_wake below really posts
+    mov byte [bx+W_WKQ], WKQ_NONE  ; ...so wm_wake below really posts
     popf                            ; released BEFORE the call below, which
                                     ; takes its own guard
-    mov ax, si
-    call wm_idx2ptr             ; BX = the window record
     call wm_wake
     jnc .n
-    mov byte [wm_wkq+si], WKQ_EATEN ; the ring was full: still owed, and the
+    mov byte [bx+W_WKQ], WKQ_EATEN ; the ring was full: still owed, and the
     mov byte [wm_wkdef], 1          ; next pass tries again
 .n:
-    inc si
+    add bx, WIN_SIZE
     loop .l
-    pop si
     pop cx
     pop bx
-    pop ax
 .out:
     ret
 
@@ -3223,14 +3123,11 @@ wm_wake_redo:
 ; handler's own instance's folder, not the machine's.
 ; -----------------------------------------------------------------------------
 wm_wake_disp:
-    mov bx, si
-    test byte [bx+W_FLAGS], 1
-    jz wm_wk_none               ; the record is free: a wake for the dead
-    call wm_ptr2idx             ; AL = index, AH = 0
-    mov si, ax
-    mov byte [wm_wkq+si], 0     ; the promise is spent by this dispatch
-    shl si, 1
-    jmp short wm_wk_go
+    mov byte [si+W_WKQ], 0      ; the promise is spent by this dispatch. On a
+                                ; FREE record this is a no-op - wm_destroy left
+                                ; it 0 and nothing posts for a dead slot - so
+                                ; it needs no used test of its own, and the
+                                ; rest is wm_wake_call's, which follows
 
 ; -----------------------------------------------------------------------------
 ; wm_wake_call - call a window's wake handler NOW (SPEC.md 54.10)
@@ -3254,11 +3151,8 @@ wm_wake_call:
     mov bx, si
     test byte [bx+W_FLAGS], 1
     jz wm_wk_none               ; the record is free, the entry proc's window
-    call wm_ptr2idx             ; having failed or gone
-    mov si, ax
-    shl si, 1
-wm_wk_go:
-    mov bp, [wm_onwk+si]
+                                ; having failed or gone (or a wake for the dead)
+    mov bp, [bx+W_ONWK]
     or bp, bp
     jz wm_wk_none               ; never asked to be woken
     mov si, bx
@@ -3775,7 +3669,7 @@ wm_zoom:
     ; The banked rect needs no clamping - every writer of it clamped already -
     ; and the negotiator's answer is trusted the same way ui_grow trusts it:
     ; the proposal was legal, so the reply is written as given.
-    call wm_zoom_slot           ; SI -> this window's bank
+    lea si, [bx+W_ZOOMR]        ; SI -> this window's bank
     mov cx, [si+ZR_W]
     or cx, cx                   ; nothing banked - the window was CREATED this
     jz .out                     ; size and has never been anywhere else, so
@@ -3852,7 +3746,7 @@ wm_zoom:
 .go:
     ; --- it is not: bank where it stands, and go to the standard state -------
     push si                     ; the standard y, which wm_zoom_slot spends SI on
-    call wm_zoom_slot
+    lea si, [bx+W_ZOOMR]
     call wm_rz_bank             ; ...for the REPAINT as well as for the user
                                 ; state - and it has to happen here, before
                                 ; the origin moves, or wm_resize would bank
@@ -3889,16 +3783,7 @@ wm_zoom:
 ; out: SI = wm_zoomr + index * ZR_SIZE; every other register preserved
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
-wm_zoom_slot:
-    push ax
-    call wm_ptr2idx             ; AL = index, AH = 0
-    mov si, ax
-    shl si, 1
-    shl si, 1
-    shl si, 1                   ; x8: ZR_SIZE, and an 8086 has no shl by imm
-    add si, wm_zoomr
-    pop ax
-    ret
+; (gone: the bank is W_ZOOMR, in the record - `lea si, [bx+W_ZOOMR]`)
 
 ; -----------------------------------------------------------------------------
 ; wm_destroy - free a window record and repaint everything
@@ -3942,36 +3827,37 @@ wm_destroy:
     mov word [wm_clreq], 0      ; this slot is closed by a stale pointer
 .noclreq:
     mov word [bx+W_FLAGS], 0    ; free the record slot
+    mov byte [bx+W_WKQ], 0      ; wm_wake_redo walks DEAD slots too
     call wm_ptr2idx             ; AL = window index
     mov si, ax                  ; orphan the slot's owner entry so a future
     mov byte [wm_owner+si], 0xFF; wm_create reuse starts unowned (SPEC.md 11)
-    shl si, 1                   ; ...and its About handler with it, or a
-    mov word [wm_about+si], 0   ; reused slot inherits a stranger's (12.2)
-    mov word [wm_onsz+si], 0    ; ...and its size-changed handler, which is the
+                                ; The per-slot handlers below are zeroed by
+                                ; wm_create's run now, when the slot is TAKEN;
+                                ; the rules they were cleared here for stand:
                                 ; same rule again and the same index (11.98):
                                 ; a stranger's near pointer called in a new
                                 ; tenant's segment is not a wrong answer, it is
                                 ; a jump into the middle of its image
-    mov word [wm_onwk+si], 0    ; ...and its wake handler (SPEC.md 74.1), the
+;   mov word [wm_onwk+si], 0    ; ...and its wake handler (SPEC.md 74.1), the
                                 ; same rule a third time
-    mov word [wm_onrc+si], 0    ; ...and its right-click handler (SPEC.md
+;   mov word [wm_onrc+si], 0    ; ...and its right-click handler (SPEC.md
                                 ; 13.11), which ui_rdown reads for every
                                 ; frontmost window a right press lands on -
                                 ; so a stale one is a far call into a new
                                 ; tenant's image, exactly as below
-    mov word [wm_oncl+si], 0    ; ...and its close negotiator (SPEC.md 75.1),
+;   mov word [wm_oncl+si], 0    ; ...and its close negotiator (SPEC.md 75.1),
                                 ; a fourth - and here the rule is sharper than
                                 ; elsewhere, because wm_ask_close reads this
                                 ; word for EVERY window on its way out, so a
                                 ; stale one is not a missed feature but a far
                                 ; call into a new tenant's image on the first
                                 ; click of its close box
-    shr si, 1
-    mov byte [wm_wkq+si], 0     ; ...and its "a wake is queued" flag, or the
-    shl si, 1                   ; next tenant of this slot could never post one
-    shl si, 1                   ; ...and the four BAND extents (SPEC.md
-    mov word [wm_su_ext+si], 0  ; 11.96.11), which is the same rule a fourth
-    mov word [wm_su_ext+si+2], 0; time: the fragment layout is a function of
+;   shr si, 1
+;   mov byte [wm_wkq+si], 0     ; ...and its "a wake is queued" flag, or the
+;   shl si, 1                   ; next tenant of this slot could never post one
+;   shl si, 1                   ; ...and the four BAND extents (SPEC.md
+;   mov word [wm_su_ext+si], 0  ; 11.96.11), which is the same rule a fourth
+;   mov word [wm_su_ext+si+2], 0; time: the fragment layout is a function of
                                 ; them, so a new tenant that named no band has
                                 ; its cache laid out for the last one's and
                                 ; restores the wrong rows into the middle of
@@ -3979,11 +3865,11 @@ wm_destroy:
                                 ; four zero is what every window has "by
                                 ; construction rather than by initialisation",
                                 ; and that is true of a VIRGIN slot only
-    shl si, 1                   ; ...and its zoom bank, for the same reason:
+;   shl si, 1                   ; ...and its zoom bank, for the same reason:
                                 ; a reused slot must not restore to the rect
                                 ; the last tenant was zoomed out of (11.95).
-    mov word [wm_zoomr+si+ZR_W], 0  ; the sentinel word is the whole of it
-    mov word [wm_natr+si+NR_W], 0   ; ...and its natural rect, for the same
+;   mov word [wm_zoomr+si+ZR_W], 0  ; the sentinel word is the whole of it
+;   mov word [wm_natr+si+NR_W], 0   ; ...and its natural rect, for the same
                                 ; reason again (SPEC.md 39.11.2.1). The two
                                 ; tables share a stride, so they share the
                                 ; index SI already holds
@@ -6457,18 +6343,11 @@ wm_content:
 ; -----------------------------------------------------------------------------
 wm_about_set:
     pushf
-    push ax
-    push di
-    call wm_ptr2idx             ; AX = window index (AH = 0)
-    mov di, ax
-    shl di, 1
-    mov [wm_about+di], si
+    mov [bx+W_ABOUT], si
     cmp bx, [menu_win]
     jne .out
     call menu_relayout          ; the active application's bar changed
 .out:
-    pop di
-    pop ax
     popf
     ret
 
@@ -6480,12 +6359,7 @@ wm_about_set:
 ; clobbers: flags only
 ; -----------------------------------------------------------------------------
 wm_about_get:
-    push di
-    call wm_ptr2idx             ; AX = window index (AH = 0)
-    mov di, ax
-    shl di, 1
-    mov ax, [wm_about+di]
-    pop di
+    mov ax, [bx+W_ABOUT]
     ret
 
 ; -----------------------------------------------------------------------------
@@ -8990,10 +8864,7 @@ wm_band:
                                 ; owns its background" a property of the build
                                 ; rather than a rule for a reader to keep
 .idx:
-    push di                     ; wm_su_eptr answers about DI, and every other
-    mov di, bx                  ; caller here already has the window there
-    call wm_su_eptr             ; SI = &wm_su_ext[slot]
-    pop di
+    lea si, [bx+W_SUEXT]        ; SI = this window's four extents
     xor ah, ah                  ; AX = the edge, so SI names its byte
     add si, ax
     cmp cl, [si]
@@ -9283,7 +9154,8 @@ wm_su_segs: times MAX_WIN dw 0  ; the banked content, one word per window
                                 ; record, 0 = none. In .text with real
                                 ; initialisers: -f bin zeroes nothing and
                                 ; wm_su_try reads one before anything sets it
-wm_su_ext: times MAX_WIN*4 db 0 ; ...and the four BAND extents each window
+                                ; (wm_su_ext is W_SUEXT in the record now:)
+                                ; ...and the four BAND extents each window
                                 ; asked to have cached (SPEC.md 11.96.11):
                                 ; left, right, top, bottom, in pixels, per
                                 ; window slot. All four zero is "no bands",
@@ -10033,18 +9905,7 @@ wm_su_rect:
 
 ; wm_su_eptr - SI = &wm_su_ext[DI's slot], four bytes: left, right, top, bottom
 ; clobbers: SI and flags
-wm_su_eptr:
-    push ax
-    push bx
-    mov bx, di
-    call wm_ptr2idx             ; AL = the slot, AH = 0
-    mov si, ax
-    add si, si
-    add si, si
-    add si, wm_su_ext
-    pop bx
-    pop ax
-    ret
+; (gone: the extents are W_SUEXT, in the record - `lea si, [di+W_SUEXT]`)
 
 ; wm_su_flay - lay DI's cached region out (SPEC.md 11.96.11.1)
 ; in:  DI = window ptr
@@ -10149,7 +10010,7 @@ wm_su_flay:
 %endif                          ; kern_small: WM_SU_PW IS [vid_planes_w] and
                                 ; there is nothing to establish
 
-    call wm_su_eptr
+    lea si, [di+W_SUEXT]
     mov ax, cx
     sub ax, [wm_su_x1]
     inc ax                      ; AX = the content's width...
@@ -10459,7 +10320,7 @@ wm_su_scrset:
 wm_su_bget:
     push ax
     push si
-    call wm_su_eptr
+    lea si, [di+W_SUEXT]
     mov al, [si]
     or al, [si+1]
     or al, [si+2]
@@ -12487,19 +12348,19 @@ wm_rz_oh:   resw 1              ; Not per-slot: it never outlives the call.
 %if W_Y - W_X != 2 || W_W - W_X != 4 || W_H - W_X != 6
   %error "W_X..W_H must stay four adjacent words: wm_rz_swap walks them"
 %endif
-wm_zoomr:   resb MAX_WIN * ZR_SIZE  ; per slot: the USER state a zoomed window
+;m_zoomr:   resb MAX_WIN * ZR_SIZE  ; per slot: the USER state a zoomed window
                                     ; goes back to (SPEC.md 11.95). A side
                                     ; table, not four more words in the record,
                                     ; because WIN_SIZE is the stride every
                                     ; reader of a window pays
-wm_natr:    resb MAX_WIN * NR_SIZE  ; per slot: the rect a window ASKED for, so
+;m_natr:    resb MAX_WIN * NR_SIZE  ; per slot: the rect a window ASKED for, so
                                     ; an adapter change can put back what its
                                     ; clamp took (SPEC.md 39.11.2.1). Same
                                     ; stride and the same argument as the zoom
                                     ; bank above, and OUTSIDE wm_init's zero
                                     ; run like it - nothing reads a slot before
                                     ; wm_create has written one (see the header)
-wm_pref:    resw MAX_WIN            ; per slot: the OFFSET, in the window's own
+;m_pref:    resw MAX_WIN            ; per slot: the OFFSET, in the window's own
                                     ; segment, of its 12-byte per-adapter size
                                     ; table; 0 = no preference (SPEC.md
                                     ; 11.100.1). The offset and not a copy - 12
@@ -12508,30 +12369,30 @@ wm_pref:    resw MAX_WIN            ; per slot: the OFFSET, in the window's own
                                     ; Written by wm_create for every slot it
                                     ; takes, which is what makes a reused slot
                                     ; safe without a second clear in wm_destroy
-wm_minw:    resw MAX_WIN            ; per slot: the smallest frame this window
-wm_minh:    resw MAX_WIN            ; will accept, 0 = the system floor
+;m_minw:    resw MAX_WIN            ; per slot: the smallest frame this window
+;m_minh:    resw MAX_WIN            ; will accept, 0 = the system floor
                                     ; (WMIN_W/WMIN_H, SPEC.md 11.100.2)
 %ifdef KERN_BIG
-wm_pkind:   resb MAX_WIN            ; per slot: the adapter kind the window was
+;m_pkind:   resb MAX_WIN            ; per slot: the adapter kind the window was
                                     ; last SIZED for, so 11.100.4's adoption can
                                     ; tell a drag onto another card from a drag
                                     ; inside one display. KERN_BIG only - a
                                     ; machine with one display never moves
 %endif
-wm_about:   resw MAX_WIN            ; per-slot About handler offset, 0 = none
+;m_about:   resw MAX_WIN            ; per-slot About handler offset, 0 = none
                                     ; (SPEC.md 12.2); inside wm_init's zero
                                     ; run, so a fresh slot has no About
-wm_onsz:    resw MAX_WIN            ; per-slot size-CHANGED handler offset, 0 =
+;m_onsz:    resw MAX_WIN            ; per-slot size-CHANGED handler offset, 0 =
                                     ; none (SPEC.md 11.98). wm_about's shape
                                     ; exactly, for wm_about's reason: a handler
                                     ; is per SLOT and a wider record is paid for
                                     ; by every reader of a window
-wm_onwk:    resw MAX_WIN            ; per-slot WAKE handler offset, 0 = none
+;m_onwk:    resw MAX_WIN            ; per-slot WAKE handler offset, 0 = none
                                     ; (SPEC.md 74.1); wm_onsz's shape and reason
-wm_oncl:    resw MAX_WIN            ; per-slot CLOSE negotiator offset, 0 = none
+;m_oncl:    resw MAX_WIN            ; per-slot CLOSE negotiator offset, 0 = none
                                     ; (SPEC.md 75.1); wm_onwk's shape and reason
                                     ; a fourth time
-wm_onrc:    resw MAX_WIN            ; per-slot RIGHT-CLICK handler offset, 0 =
+;m_onrc:    resw MAX_WIN            ; per-slot RIGHT-CLICK handler offset, 0 =
                                     ; none (SPEC.md 13.11); the same shape a
                                     ; fifth time, and inside wm_init's zero run
                                     ; below for wm_oncl's reason: ui_rdown reads
@@ -12543,7 +12404,7 @@ wm_clreq:   resw 1                  ; the window a package asked to have closed
                                     ; nothing can queue a second inside one
 wm_clask:   resw 1                  ; the window whose negotiator is running
                                     ; RIGHT NOW, 0 = none: the re-entry fence
-wm_wkq:     resb MAX_WIN            ; per slot: WKQ_NONE / WKQ_RING (a record is
+;m_wkq:     resb MAX_WIN            ; per slot: WKQ_NONE / WKQ_RING (a record is
                                     ; in the ring) / WKQ_EATEN (a drain took
                                     ; the record; wm_wake_redo owes one back)
 wm_wkdef:   resb 1                  ; ...1 = at least one slot is WKQ_EATEN, so

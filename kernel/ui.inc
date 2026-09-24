@@ -1262,10 +1262,10 @@ ui_rdown:
     jnz .ret                    ; title bar, close/minimize/grow box: the
                                 ; chrome has no context menu
 
-    push si                     ; A WINDOW THAT ASKED FOR THE RIGHT BUTTON
-    call wm_rch_slot            ; ITSELF (SPEC.md 13.11) gets it before any of
-    mov bp, [si]                ; the below, and instead of it: the handler is
-    pop si                      ; a side-table word, so a window that never
+                                ; A WINDOW THAT ASKED FOR THE RIGHT BUTTON
+                                ; ITSELF (SPEC.md 13.11) gets it before any of
+    mov bp, [bx+W_ONRC]         ; the below, and instead of it: the handler is
+                                ; a record word, so a window that never
                                 ; installed one costs this path one read. BX
                                 ; is already SI - the compare above is what
                                 ; brought us here - so wm_rch_slot's input is
@@ -1374,16 +1374,29 @@ ui_tdbl:
 ; on a 4.77MHz machine as a wait. The outline is XOR-erased before the clamps
 ; below, so when neither coordinate changes the screen is already correct.
 ; -----------------------------------------------------------------------------
-ui_drag:
-    KFZ 26                      ; a title-bar drag
+; -----------------------------------------------------------------------------
+; ui_track - the XOR-outline tracking loop ui_drag and ui_grow SHARE (size
+;            pass 4: it was written out twice, word for word bar the step)
+; in:  BX = window, CX/DX = the press point, SI = the per-pass STEP (a near
+;      proc that turns [mouse_x]/[mouse_y] into ui_curx/cury/dragw/dragh; it
+;      may clobber AX/BX/CX/DX and must keep SI), DI = W_X for a drag (the
+;      origin is the window's POSITION) or W_W for a grow (its SIZE)
+; out: the outline ERASED and the gfx lock HELD; AX..DX, DI clobbered
+; SI survives the loop because every routine in it preserves it: gfx_lock,
+; gfx_unlock, kbm_pollm, task_yield and evq_mup clobber flags only, and
+; ui_drag_xor only AX..DX.
+; -----------------------------------------------------------------------------
+ui_track:
     mov [ui_dragwin], bx
-    mov [ui_startx], cx         ; mousedown point = drag origin
+    mov [ui_startx], cx         ; mousedown point
     mov [ui_starty], dx
-    mov ax, [bx + W_X]
+    mov ax, [bx + di]           ; drag: orig = the position; grow: the size
     mov [ui_origx], ax
+    mov ax, [bx + di + 2]
+    mov [ui_origy], ax
+    mov ax, [bx + W_X]
     mov [ui_curx], ax           ; outline starts on the window rect
     mov ax, [bx + W_Y]
-    mov [ui_origy], ax
     mov [ui_cury], ax
     mov ax, [bx + W_W]
     mov [ui_dragw], ax
@@ -1394,7 +1407,6 @@ ui_drag:
     call ui_drag_xor            ; draw the outline (VRAM-direct, SPEC.md 32:
                                 ; a transient overlay never enters the back
                                 ; buffer, so no flush is needed here)
-
 .track:
     ; The linger below stretches each pass to a whole tick, so the button is
     ; tracked by EDGE, not level: the ISR queues every press/release, and a
@@ -1403,11 +1415,7 @@ ui_drag:
     mov di, ui_ev
     call evq_mup                ; ...and ANYTHING ELSE is dropped on the floor
     jnc .release                ; inside it (SPEC.md 74.1.1), the wake among
-                                ; them owed back through wm_wake_eaten - its
-                                ; promise would otherwise outlive its record
-                                ; and deafen the window for good. Exits with
-                                ; the outline drawn and the lock held
-.no_evt:
+                                ; them owed back through wm_wake_eaten
     test byte [mouse_btn], 1    ; fallback: the EVT_MUP was dropped
     jz .release                 ; (queue full) - the level still says so
     call ui_drag_xor            ; erase...
@@ -1415,7 +1423,22 @@ ui_drag:
     call kbm_pollm              ; the keyboard mouse drags too (SPEC.md 9.6)
     call task_yield             ; background tasks stay live here
     call gfx_lock
-    mov ax, [mouse_x]           ; outline pos = orig + (mouse - start)
+    call si                     ; the step: where the outline is now
+    call ui_drag_xor            ; redraw every pass, moved or not
+    ; Linger with the outline drawn (lock held) until the next timer tick:
+    ; without it the cursor blits inside gfx_unlock/gfx_lock dominate the
+    ; loop and the outline is dark more often than lit.
+    mov ax, [ticks]
+.linger:
+    call task_yield
+    cmp ax, [ticks]
+    je .linger
+    jmp .track
+.release:
+    jmp ui_drag_xor             ; erase; the lock stays held to the end
+
+ui_drag_step:                   ; outline pos = orig + (mouse - start)
+    mov ax, [mouse_x]
     sub ax, [ui_startx]
     add ax, [ui_origx]
     mov [ui_curx], ax
@@ -1423,22 +1446,13 @@ ui_drag:
     sub ax, [ui_starty]
     add ax, [ui_origy]
     mov [ui_cury], ax
-    call ui_drag_xor            ; redraw every pass, moved or not
+    ret
 
-    ; Linger with the outline drawn (lock held) until the next timer tick.
-    ; The erase window that follows is short but includes the unlock/yield
-    ; that lets background tasks draw; without this linger the cursor blits
-    ; inside gfx_unlock/gfx_lock dominate the loop and the outline is dark
-    ; more often than lit.
-    mov ax, [ticks]
-.linger:
-    call task_yield
-    cmp ax, [ticks]
-    je .linger
-    jmp .track
-
-.release:
-    call ui_drag_xor            ; erase; lock stays held to the end
+ui_drag:
+    KFZ 26                      ; a title-bar drag
+    mov si, ui_drag_step
+    mov di, W_X
+    call ui_track               ; ...returns with the outline erased, locked
 
     ; clamp x: 0 <= x and x + w <= [vid_w] (signed - x may have gone negative)
     mov ax, [ui_curx]
@@ -1921,39 +1935,7 @@ ui_drag_dead:
 ; release. The gfx lock is only ever released while the outline is erased,
 ; and the release path never re-takes the held lock (SPEC.md 7/13).
 ; -----------------------------------------------------------------------------
-ui_grow:
-    mov [ui_dragwin], bx
-    mov [ui_startx], cx         ; mousedown point
-    mov [ui_starty], dx
-    mov ax, [bx + W_X]
-    mov [ui_curx], ax           ; outline origin: fixed for the whole grow
-    mov ax, [bx + W_Y]
-    mov [ui_cury], ax
-    mov ax, [bx + W_W]
-    mov [ui_origx], ax          ; frame size at mousedown...
-    mov [ui_dragw], ax          ; ...and the tracked outline size
-    mov ax, [bx + W_H]
-    mov [ui_origy], ax
-    mov [ui_dragh], ax
-
-    call gfx_lock
-    call ui_drag_xor            ; draw the outline (VRAM-direct, SPEC.md 32)
-
-.track:
-    mov di, ui_ev               ; button tracked by EDGE, like ui_drag: a
-    call evq_mup                ; release + fast re-press inside one pass
-    jnc .release                ; must still end the resize. Anything else is
-                                ; drained mid-resize and a wake among them is
-                                ; owed back (SPEC.md 74.1.1). Exits with the
-                                ; outline drawn and the lock held
-.no_evt:
-    test byte [mouse_btn], 1    ; fallback: the EVT_MUP was dropped
-    jz .release
-    call ui_drag_xor            ; erase...
-    call gfx_unlock             ; ...only then may the lock drop
-    call kbm_pollm              ; ...and resizes (SPEC.md 9.6)
-    call task_yield
-    call gfx_lock
+ui_grow_step:
     mov ax, [mouse_x]           ; tracked size = orig + (mouse - start),
     sub ax, [ui_startx]         ; clamped low so the XOR rect stays
     add ax, [ui_origx]          ; well-formed
@@ -1962,10 +1944,10 @@ ui_grow:
     mov ax, WMIN_W
 .wok:
 %ifndef NOSIZESNAP
-    push bx                     ; THE OUTLINE SNAPS TOO (SPEC.md 11.94.5), so
+                                ; THE OUTLINE SNAPS TOO (SPEC.md 11.94.5), so
     mov bx, [ui_dragwin]        ; the frame that lands is the frame the hand
     call wm_snap_w              ; let go of - the release below already ends in
-    pop bx                      ; wm_snap_win, so without this the window would
+                                ; wm_snap_win, so without this the window would
 %endif                          ; jump up to 7px inside the rectangle on the
     mov [ui_dragw], ax          ; glass. The grow box then steps 8px across
     mov ax, [mouse_y]
@@ -1976,17 +1958,12 @@ ui_grow:
     mov ax, WMIN_H
 .hok:
     mov [ui_dragh], ax
-    call ui_drag_xor            ; redraw every pass, moved or not
+    ret
 
-    mov ax, [ticks]             ; linger lit until the next tick (the same
-.linger:                        ; duty-cycle fix as ui_drag)
-    call task_yield
-    cmp ax, [ticks]
-    je .linger
-    jmp .track
-
-.release:
-    call ui_drag_xor            ; erase; lock stays held to the end
+ui_grow:
+    mov si, ui_grow_step
+    mov di, W_W
+    call ui_track               ; ...returns with the outline erased, locked
     mov bx, [ui_dragwin]
 
     ; Where it WAS is the whole of what a resize can have uncovered (SPEC.md

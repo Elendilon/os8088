@@ -221,6 +221,21 @@ inst_kinds:                     ; indexed by KIND_* * 16; caps are binding
 ; the dock (SPEC.md 30). KD_ICON 0 still means "the generic icon" and still
 ; works; nothing in the tree uses it now except a package that ships without
 ; one, which apps/hello does deliberately.
+; inst_ico_pool - the row VALUES the five icons below are RUNS over (size pass 4):
+; each icon is bytes of (count-1) << 6 | index into this table, 32 rows in all
+; (16 mask then 16 data, icon_draw16's layout), and inst_icon_ptr expands one
+; into inst_icobuf - the slot a PACKAGE icon is already staged through. The
+; kern_small kinds' rows come first so its table stops short.
+inst_ico_pool:
+    dw 0x0000, 0x3FFC, 0xFFFF, 0x1E78, 0x7FFE, 0x1FF8, 0xFF00, 0x7E00
+    dw 0x43FE, 0x4002, 0x5FFA, 0x4C02, 0x4032, 0x4182
+%ifdef KERN_BIG
+    dw 0x03C0, 0x07E0, 0x0FF0, 0x0C30, 0x1818, 0x310C, 0x6106, 0x4102
+    dw 0x41E2, 0x6006, 0x300C, 0xFF80, 0x7FC0, 0x03E0, 0x01F0, 0x00F8
+    dw 0x007C, 0x003E, 0x001F, 0x000F, 0x3C00, 0x0100, 0x0080, 0x0040
+    dw 0x0020, 0x0010, 0x0008, 0x0004, 0x0002
+%endif
+
 ; inst_ico_about - the os8088 DIP chip, the same logo the System menu
 ; carries (menu_logo_bmp) at icon size
 ;   ................
@@ -240,38 +255,8 @@ inst_kinds:                     ; indexed by KIND_* * 16; caps are binding
 ;   ................
 ;   ................
 inst_ico_about:
-    dw 0x0000                       ; 16 mask rows
-    dw 0x3FFC
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0x3FFC
-    dw 0x0000
-    dw 0x0000
-    dw 0x0000                       ; 16 data rows
-    dw 0x0000
-    dw 0x1E78
-    dw 0x7FFE
-    dw 0x1FF8
-    dw 0x7FFE
-    dw 0x1FF8
-    dw 0x7FFE
-    dw 0x1FF8
-    dw 0x7FFE
-    dw 0x1FF8
-    dw 0x7FFE
-    dw 0x1FF8
-    dw 0x0000
-    dw 0x0000
-    dw 0x0000
+    db 0x00, 0x01, 0xC2, 0xC2, 0x82, 0x01, 0xC0, 0x03, 0x04, 0x05
+    db 0x04, 0x05, 0x04, 0x05, 0x04, 0x05, 0x04, 0x05, 0x80
 %ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 
 ; inst_ico_timer - a stopwatch: crown on top, hands at 12 and 3
@@ -292,38 +277,9 @@ inst_ico_about:
 ;   ....##oooo##....
 ;   .....######.....
 inst_ico_timer:
-    dw 0x03C0                       ; 16 mask rows
-    dw 0x03C0
-    dw 0x07E0
-    dw 0x0FF0
-    dw 0x1FF8
-    dw 0x3FFC
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x3FFC
-    dw 0x1FF8
-    dw 0x0FF0
-    dw 0x07E0
-    dw 0x03C0                       ; 16 data rows
-    dw 0x03C0
-    dw 0x07E0
-    dw 0x0C30
-    dw 0x1818
-    dw 0x310C
-    dw 0x6106
-    dw 0x4102
-    dw 0x4102
-    dw 0x41E2
-    dw 0x4002
-    dw 0x6006
-    dw 0x300C
-    dw 0x1818
-    dw 0x0C30
-    dw 0x07E0
+    db 0x4E, 0x0F, 0x10, 0x05, 0x01, 0xC4, 0x44, 0x01, 0x05, 0x10
+    db 0x0F, 0x4E, 0x0F, 0x11, 0x12, 0x13, 0x14, 0x55, 0x16, 0x09
+    db 0x17, 0x18, 0x12, 0x11, 0x0F
 
 ; inst_ico_bounce - a ball, its trajectory and the floor it will come off
 ;   ................
@@ -343,38 +299,9 @@ inst_ico_timer:
 ;   .##############.
 ;   ................
 inst_ico_bounce:
-    dw 0x7E00                       ; 16 mask rows
-    dw 0xFF00
-    dw 0xFF00
-    dw 0xFF00
-    dw 0xFF80
-    dw 0x7FC0
-    dw 0x03E0
-    dw 0x01F0
-    dw 0x00F8
-    dw 0x007C
-    dw 0x003E
-    dw 0x001F
-    dw 0x000F
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0x0000                       ; 16 data rows
-    dw 0x3C00
-    dw 0x7E00
-    dw 0x7E00
-    dw 0x3C00
-    dw 0x0100
-    dw 0x0080
-    dw 0x0040
-    dw 0x0020
-    dw 0x0010
-    dw 0x0008
-    dw 0x0004
-    dw 0x0002
-    dw 0x0000
-    dw 0x7FFE
-    dw 0x0000
+    db 0x07, 0x86, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20
+    db 0x21, 0x82, 0x00, 0x22, 0x47, 0x22, 0x23, 0x24, 0x25, 0x26
+    db 0x27, 0x28, 0x29, 0x2A, 0x00, 0x04, 0x00
 %endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 
 ; inst_ico_disk - a folder: the Disk window browses a volume, so it is
@@ -397,38 +324,8 @@ inst_ico_bounce:
 ;   ................
 ;   ................
 inst_ico_disk:
-    dw 0xFF00                       ; 16 mask rows
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0x0000
-    dw 0x0000                       ; 16 data rows
-    dw 0x7E00
-    dw 0x43FE
-    dw 0x4002
-    dw 0x4002
-    dw 0x4002
-    dw 0x4002
-    dw 0x4002
-    dw 0x4002
-    dw 0x4002
-    dw 0x4002
-    dw 0x4002
-    dw 0x4002
-    dw 0x7FFE
-    dw 0x0000
-    dw 0x0000
+    db 0x06, 0xC2, 0xC2, 0xC2, 0x42, 0x40, 0x07, 0x08, 0xC9, 0xC9
+    db 0x49, 0x04, 0x40
 
 ; inst_ico_ctrl - a panel of three sliders, each knob somewhere else
 ;   ................
@@ -448,38 +345,8 @@ inst_ico_disk:
 ;   ................
 ;   ................
 inst_ico_ctrl:
-    dw 0xFFFF                       ; 16 mask rows
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0x0000
-    dw 0x0000
-    dw 0x0000                       ; 16 data rows
-    dw 0x7FFE
-    dw 0x4002
-    dw 0x5FFA
-    dw 0x4C02
-    dw 0x4002
-    dw 0x5FFA
-    dw 0x4032
-    dw 0x4002
-    dw 0x5FFA
-    dw 0x4182
-    dw 0x4002
-    dw 0x7FFE
-    dw 0x0000
-    dw 0x0000
-    dw 0x0000
+    db 0xC2, 0xC2, 0xC2, 0x42, 0x80, 0x04, 0x09, 0x0A, 0x0B, 0x09
+    db 0x0A, 0x0C, 0x09, 0x0A, 0x0D, 0x09, 0x04, 0x80
 
 ; -----------------------------------------------------------------------------
 ; inst_init - clear the instance table and the deferred-launch word
@@ -1512,7 +1379,7 @@ inst_icon_ptr:
     or si, si
     jz .none
     cmp si, I_ICO_PKG
-    jne .have                   ; a .text pointer: nothing to stage
+    jne .runs                   ; a built-in's RUN record: expand it below
     cmp word [di+I_SIZE], 0
     je .none                    ; not a package: I_SPTR is a state block
     mov dx, [di+I_SPTR]         ; the REGION, and byte 32 of it is the body
@@ -1525,6 +1392,31 @@ inst_icon_ptr:
 .have:                          ; so it cannot be dsk_ico's fifth tenant
     clc
     jmp short .out
+.runs:                          ; SI -> (count-1) << 6 | pool index, bytes,
+    push bx                     ; until 32 rows are down (inst_ico_pool)
+    mov di, inst_icobuf
+    cld
+.run:
+    lodsb
+    mov bl, al
+    and bx, 0x3F
+    shl bx, 1
+    mov bx, [inst_ico_pool+bx]
+    mov cl, 6
+    shr al, cl
+    cbw
+    xchg ax, cx                 ; CX = count - 1
+    inc cx
+.row:
+    mov [di], bx
+    inc di
+    inc di
+    loop .row
+    cmp di, inst_icobuf + DSK_ICO_SIZE
+    jb .run
+    pop bx
+    mov si, inst_icobuf
+    jmp short .have
 .none:
     stc
 .out:

@@ -171,14 +171,14 @@ def main(argv):
         # those: wm_refit visits used records only, wm_create banks into the
         # one slot it fills, wm_destroy clears the one it frees. Do not open
         # more windows after this point.
-        code_at = S("wm_natr") + 10 * 8 - KSEG_BASE     # a NEAR offset: the
-        rec_at = S("wm_zoomr") + 10 * 8 - KSEG_BASE     # handler is called in
+        code_at = os88sym.wfield(10, "W_NATR") - KSEG_BASE     # a NEAR offset: the
+        rec_at = os88sym.wfield(10, "W_ZOOMR") - KSEG_BASE     # handler is called in
         handler = (b"\x89\x0e" + rec_at.to_bytes(2, "little") +      # mov [],cx
                    b"\x89\x16" + (rec_at + 2).to_bytes(2, "little")  # mov [],dx
                    + b"\xc3")                                        # ret
-        m.write(S("wm_natr") + 10 * 8, handler)
-        m.write(S("wm_zoomr") + 10 * 8, b"\0\0\0\0")
-        m.write(S("wm_onsz") + keep * 2, code_at.to_bytes(2, "little"))
+        m.write(os88sym.wfield(10, "W_NATR"), handler)
+        m.write(os88sym.wfield(10, "W_ZOOMR"), b"\0\0\0\0")
+        m.write(os88sym.wfield(keep, "W_ONSZ"), code_at.to_bytes(2, "little"))
         say("handler for window %d poked at %04x, recording to %04x"
             % (keep, code_at, rec_at))
 
@@ -192,7 +192,7 @@ def main(argv):
         during = rects(m, slots)
         say("CGA    %r" % (during,))
 
-        got = m.read(S("wm_zoomr") + 10 * 8, 4)
+        got = m.read(os88sym.wfield(10, "W_ZOOMR"), 4)
         gw = int.from_bytes(got[0:2], "little")
         gh = int.from_bytes(got[2:4], "little")
         want = (during[keep][2] - 2, during[keep][3] - TITLE_H - 1)
