@@ -561,6 +561,40 @@ ti_onkey:
     jne .n_arm
     jmp .arm
 .n_arm:
+    cmp bl, 'e'
+    jne .n_rsel
+    jmp .rsel
+.n_rsel:
+    cmp bl, 'r'
+    jne .n_res
+    jmp .res
+.n_res:
+    jmp .out
+.rsel:                              ; SPEC.md 97.7's `E`: which RESOLUTION `R`
+    mov al, [tm_rsel]               ; cuts in, named in the title
+    inc al
+    cmp al, TM_NRES
+    jb .rs
+    xor al, al
+.rs:
+    mov [tm_rsel], al
+    add al, TM_NSONG
+    call tm_title
+    jmp .out
+.res:                               ; SPEC.md 97.7's `R`: a fake ROUND - the
+    cmp byte [tm_resing], 0         ; resolution cuts into whatever plays, and
+    jne .rend                       ; the second press ends it: its tail, then
+    mov al, TM_RQ_RES               ; the theme back where it was cut
+    call tm_post
+    mov al, [tm_rsel]
+    add al, TM_NSONG
+    call tm_title
+    jmp .out
+.rend:
+    mov al, TM_RQ_END
+    call tm_post
+    mov al, [tm_sel]
+    call tm_title
     jmp .out
 .music:                             ; SPEC.md 97.7's `M`: the next title theme,
     mov al, [tm_sel]                ; and after the last of them, silence. The

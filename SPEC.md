@@ -141411,7 +141411,9 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 | `A` | sustained projectile fire down a lane (§97.4.5): one bolt a side, crossing — the resolution's worst ranged case, and sustained because the number wave 1a wants is the COMBAT frame's and one bolt is a photograph |
 | `B` | step the BASE, naming its FACTION in the HUD (§97.2.1). One per faction is now chosen — the rampart for THE BULWARK, the pyre and its skull for THE EMBER CHOIR, the cathedral for THE COVENANT — so this is for looking at them, not for picking |
 | `P` | pause the wheel, for looking at one frame |
-| `M` | the next piece of MUSIC (§97.10) — the title theme, the campaign theme and two candidates a faction, then silence, then the first again. The window's title names the one playing and its arm |
+| `M` | the next piece of MUSIC (§97.10) — the title, campaign, deck-builder and three faction themes, then silence, then the first again. The window's title names the one playing and its arm |
+| `E` | which RESOLUTION `R` cuts in (§97.10.6), named in the title |
+| `R` | a fake ROUND: the resolution cuts into whatever is playing; `R` again ends it — its tail at the next bar, then the theme back at the row it was cut at |
 | `S` | the ONE-VOICE arm where FM is there: the lead alone through `OSAPI_SND_TONE`, the song restarting on it — so the speaker's version can be heard on a machine with a card. Where a sound driver holds the tone route (§34.8) that voice is the card's channel 8 rather than the speaker itself |
 | `Esc` | leave fullscreen, else close |
 
@@ -141603,6 +141605,55 @@ A tick, in the order `timus.inc` and the tool's `Seq` both keep:
    sounds G whole ticks; otherwise the gate runs down and a note whose gate
    reaches zero is keyed off, and the speaker's lead re-sounds only if its
    macro or vibrato has moved the frequency.
+
+#### 97.10.6 THE RESOLUTION — a cut, a tail and a hand-back
+
+TITHE-PLAN §13.4.1: **planning has the faction theme; reveal to spoils has the
+resolution piece**, one for the whole game. Three candidates are in the part
+after the songs (`RESOLUTIONS` in the tool, `TM_NRES`), for the owner to pick:
+
+| `E` | | tempo | |
+|---|---|---|---|
+| 1 | **War Drums** | 136 BPM, a 16th = 2 ticks | toms and snare, the bass pulsing D, the horn in stabs |
+| 2 | **The Toll** | 91 BPM — the themes' own pulse | a bell on every downbeat, the bass leaning on E-flat |
+| 3 | **The Charge** | 6/8 at 121 BPM | a bodhran gallop, a fiddle calling D-E-G-A |
+
+**All three are on D, in OPEN FIFTHS**, because D is the one note the chosen
+faction themes share — the fifth of Steadfast's G, the tonic of Kindling's D
+minor, the sixth of Intercession's F — and a fifth with no third is neither
+major nor minor, so the cut clashes with nothing it interrupts. Each tail ends
+on D and A, which leads back into all three. And each leaves ROOM: the lead is
+stabs and long notes, because on the speaker an impact PREEMPTS it (§13.8's
+priority), so the effects punch their holes in the music by the same mechanism
+that arbitrates them.
+
+**A piece with a `tail`** (the song header's byte 9, `TMS_TAIL`) has three
+parts in its order: the rows before `loop` (the CUT, a bar that lands on the
+downbeat), the body from `loop` to `tail` - 1, which LOOPS for as long as the
+round takes, and the tail from `tail` to the end. `tm_nextord` is the whole
+rule, and the tool's `Seq.next_ord` is the same one:
+
+- not ending: the body wraps at the tail, never reaching it;
+- ending (`[tm_rend]`): the next pattern boundary jumps to the tail;
+- past the tail's last row: FINISHED — `[tm_hand]`, and `tm_tick` steps no more.
+
+**The cut BANKS the theme** as an order row and a row (`[tm_bord]`,
+`[tm_brow]`): mid-row it resumes at the next row, in a pattern's last row at
+the next pattern's first. **The hand-back is a SEEK**: `tm_start` loads the
+banked order row, steps the rows before the banked one QUIETLY — the chase of
+§97.10.4 — and resyncs, so a note HELD across that row is sounding when the
+theme comes back, which a plain jump to the row would drop. The theme then
+picks up mid-phrase rather than from its top, which is the plan's point: a
+twenty-round match does not open with the same eight bars twenty times. A cut
+into silence hands back to silence; `M` or `S` during one abandons it.
+
+**The state change rides the hand-back** in the plan (§13.7), and `[tm_state]`
+is read by `tm_pattern` there — no theme has three leads yet, so it is the
+place it will happen rather than a thing that does. `tests/tithemus.py` item 7
+cuts each option into a faction theme at a different point, holds the piece to
+the model, ends it, and holds the RESUMED theme to the model sought to the
+banked row, tick for tick; restarting the theme from its top instead fails it
+on every option.
 
 #### 97.10.5 What it costs
 

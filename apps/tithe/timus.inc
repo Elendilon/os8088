@@ -38,6 +38,9 @@
 TM_PART     equ 1                   ; the MUSIC part's index (tithe.asm)
 TM_OFF      equ 0xFF                ; [tm_song]: nothing is playing
 TM_NOREQ    equ 0xFE                ; [tm_req]: nothing is asked for
+TM_RQ_RES   equ 0xFD                ; ...cut the resolution [tm_rsel] in
+TM_RQ_END   equ 0xFC                ; ...end it: the tail, then the hand-back
+TM_FIN      equ 0xFF                ; tm_nextord: a piece with a tail is done
 TM_PRIO     equ 0x20                ; under the package default 0x40, so any
                                     ; effect preempts the music (TITHE-PLAN 13.8)
 TM_NCH      equ 4
@@ -77,9 +80,9 @@ tm_title:
     push di
     mov di, tm_tbuf
     mov si, ti_ttl
-    cmp byte [tm_sel], TM_OFF
+    cmp al, TM_OFF
     je .last
-    mov bl, [tm_sel]
+    mov bl, al
     xor bh, bh
     shl bx, 1
     mov si, [tm_names + bx]
@@ -170,6 +173,18 @@ tm_run:
     xchg al, [tm_req]               ; instruction: a key cannot land between
     cmp al, TM_NOREQ
     je .noreq
+    cmp al, TM_RQ_RES
+    jne .nres
+    call tm_cut                     ; THE RESOLUTION CUTS IN (TITHE-PLAN
+    jmp short .noreq                ; 13.4.1)...
+.nres:
+    cmp al, TM_RQ_END
+    jne .song
+    cmp byte [tm_resing], 0         ; ...and ENDS: the tail at the next
+    je .noreq                       ; pattern boundary, then the hand-back
+    mov byte [tm_rend], 1
+    jmp short .noreq
+.song:
     call tm_start
 .noreq:
     cmp byte [tm_song], TM_OFF
@@ -203,6 +218,18 @@ tm_run:
 .t:
     call tm_tick
     loop .t
+    cmp byte [tm_hand], 0           ; THE HAND-BACK: the tail has played, and
+    je .out                         ; the theme resumes at the row it was
+    mov byte [tm_hand], 0           ; cut at, not from its top
+    mov al, [tm_theme]
+    cmp al, TM_OFF
+    je .tosil                       ; ...or silence, if silence was what it cut
+    mov ah, [tm_bord]
+    mov [tm_seekord], ah
+    mov ah, [tm_brow]
+    mov [tm_seekrow], ah
+.tosil:
+    call tm_start
 .out:
     mov byte [tm_busy], 0
 .held:
@@ -241,9 +268,12 @@ tm_start:
     push di
     push es
     call tm_silence
+    mov byte [tm_resing], 0         ; whatever was cut in is over
+    mov byte [tm_rend], 0
+    mov byte [tm_hand], 0
     cmp al, TM_OFF
     je .out
-    cmp al, TM_NSONG
+    cmp al, TM_NSONG + TM_NRES
     jae .out
     mov ah, al
     call tm_seg
@@ -291,6 +321,35 @@ tm_start:
     mov byte [tm_gi], 0
     mov word [tm_ticks], 0
     call tm_pattern
+    mov cl, [tm_seekrow]            ; A SEEK - the hand-back's (SPEC.md
+    cmp cl, TM_FIN                  ; 97.10.6): the order row, loaded, and the
+    je .noseek                      ; rows before `row` stepped QUIETLY, then
+    mov byte [tm_seekrow], TM_FIN   ; resynced - so a note HELD across the
+    mov al, [tm_seekord]            ; row it resumes at is sounding, which a
+    mov [tm_ord], al                ; plain jump would drop
+    call tm_pattern
+    xor ch, ch
+    xor bx, bx
+    xor ax, ax
+    jcxz .seeked
+.srow:
+    add al, [tm_groove + bx]        ; T(row): the groove summed over the rows
+    adc ah, 0
+    inc bl
+    cmp bl, [tm_glen]
+    jb .sg
+    xor bl, bl
+.sg:
+    loop .srow
+    mov cx, ax
+    mov byte [tm_quiet], 1
+.sq:
+    call tm_tick
+    loop .sq
+    mov byte [tm_quiet], 0
+    call tm_resync
+.seeked:
+.noseek:
     call OSAPI_GET_TICKS            ; the first tick is NOW
     mov [tm_last], ax
     call tm_tick
@@ -357,18 +416,21 @@ tm_tick:
     push ax
     push bx
     push di
+    cmp byte [tm_hand], 0           ; a finished tail steps nothing more: the
+    jne .held                       ; hand-back is tm_run's, after the ticks
     cmp byte [tm_tleft], 0
     jne .ticks
     mov al, [tm_row]
     cmp al, [tm_rows]
     jb .row
-    mov byte [tm_row], 0            ; the pattern is over: the next order row
-    mov al, [tm_ord]
-    inc al
-    cmp al, [tm_ordlen]
-    jb .ord
-    mov al, [tm_loop]
+    mov al, [tm_ord]                ; the pattern is over: the next order row
+    call tm_nextord
+    cmp al, TM_FIN
+    jne .ord
+    mov byte [tm_hand], 1           ; ...or none: the tail has played
+    jmp short .held
 .ord:
+    mov byte [tm_row], 0
     mov [tm_ord], al
     call tm_pattern
 .row:
@@ -406,8 +468,79 @@ tm_tick:
     cmp bx, TM_NCH
     jb .ct
     inc word [tm_ticks]
+.held:
     pop di
     pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tm_nextord - AL = an order row, AL = the one after it (TM_FIN: none).
+; A piece with a TAIL loops its body back at the tail while it is not ending,
+; and JUMPS to the tail at the next boundary once it is; past its last row it
+; is FINISHED rather than looping. One without a tail loops as it always did.
+; tools/os88tithemus.py's Seq.next_ord is the same rule (SPEC.md 97.10.6).
+; Preserves every other register.
+; -----------------------------------------------------------------------------
+tm_nextord:
+    cmp byte [tm_tail], 0
+    je .plain
+    cmp byte [tm_rend], 0
+    je .plain
+    cmp al, [tm_tail]
+    jae .plain
+    mov al, [tm_tail]               ; ending: the tail, now
+    ret
+.plain:
+    inc al
+    cmp byte [tm_tail], 0
+    je .end
+    cmp byte [tm_rend], 0
+    jne .end
+    cmp al, [tm_tail]
+    jne .end
+    mov al, [tm_loop]               ; the body loops round, short of the tail
+    ret
+.end:
+    cmp al, [tm_ordlen]
+    jb .ok
+    mov al, [tm_loop]
+    cmp byte [tm_tail], 0
+    je .ok
+    mov al, TM_FIN
+.ok:
+    ret
+
+; -----------------------------------------------------------------------------
+; tm_cut - the resolution [tm_rsel] cuts in, and what it cut is BANKED as an
+; order row and a row (TITHE-PLAN 13.4.1): the theme resumes there. A cut
+; mid-row resumes at the next row; one in a pattern's last row, at the next
+; pattern's first. Nothing is banked for a cut into silence. Worker or UI
+; task, inside tm_run. Preserves every register.
+; -----------------------------------------------------------------------------
+tm_cut:
+    push ax
+    cmp byte [tm_resing], 0         ; already cut in: a second cut is nothing
+    jne .out
+    mov al, [tm_song]
+    mov [tm_theme], al
+    cmp al, TM_OFF
+    je .go
+    mov al, [tm_ord]
+    mov ah, [tm_row]
+    cmp ah, [tm_rows]
+    jb .bank
+    call tm_nextord                 ; a theme has no tail, so this cannot be
+    xor ah, ah                      ; TM_FIN
+.bank:
+    mov [tm_bord], al
+    mov [tm_brow], ah
+.go:
+    mov al, [tm_rsel]
+    add al, TM_NSONG
+    call tm_start
+    mov byte [tm_resing], 1
+.out:
     pop ax
     ret
 
@@ -982,6 +1115,15 @@ tm_slur:    db 0
 tm_busy:    db 0                    ; the try-lock across tm_run
 tm_quiet:   db 0                    ; a CHASE: step, touch no hardware
 tm_keep:    db 0                    ; a RESYNC: leave a right voice ringing
+tm_rsel:    db 0                    ; `E`: which resolution `R` cuts in
+tm_resing:  db 0                    ; a resolution is playing...
+tm_rend:    db 0                    ; ...and has been asked to end
+tm_hand:    db 0                    ; ...and its tail has played: hand back
+tm_theme:   db TM_OFF               ; what it cut, to hand back to...
+tm_bord:    db 0                    ; ...at this order row
+tm_brow:    db 0                    ; ...and this row
+tm_seekord: db 0                    ; tm_start: begin HERE rather than at the
+tm_seekrow: db TM_FIN               ; top (TM_FIN: at the top)
 tm_gapmax:  dw 0                    ; the most ticks one tm_run has stepped
 tm_last:    dw 0                    ; the tick the sequencer last stepped at
 tm_ticks:   dw 0                    ; ticks since the song began
@@ -994,6 +1136,7 @@ tm_ordlen   equ tm_hdr + TMS_ORDLEN
 tm_loop     equ tm_hdr + TMS_LOOP
 tm_order    equ tm_hdr + TMS_ORDER
 tm_ptab     equ tm_hdr + TMS_PTAB
+tm_tail     equ tm_hdr + TMS_TAIL
 tm_freq:    dw 0
 tm_insts:   dw 0
 tm_macros:  dw 0

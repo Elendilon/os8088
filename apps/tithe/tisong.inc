@@ -3,11 +3,12 @@
 ; reads the MUSIC PART by, and the names the window shows. The part
 ; itself is timus.bin in the build tree, built from apps/tithe/music/.
 
-TM_NSONG    equ 6
+TM_NSONG    equ 6                   ; the songs `M` steps through...
+TM_NRES     equ 3                   ; ...and the resolutions after them
 TM_NOTE0    equ 24                  ; the frequency table's first note (C1)
 TM_NNOTE    equ 84
 TM_INSTREC  equ 16                  ; an instrument record's bytes
-TM_P_SIZE   equ 5760                ; bytes in the part
+TM_P_SIZE   equ 6817                ; bytes in the part
 
 ; the part's own layout (SPEC.md 97.10.2) - this tool is its one source
 TMP_FREQ    equ 4                   ; dw: the frequency table
@@ -21,6 +22,7 @@ TMS_ROWS    equ 5                   ; ...rows a pattern,
 TMS_STATES  equ 6                   ; ...leads an order row carries,
 TMS_ORDLEN  equ 7                   ; ...order rows,
 TMS_LOOP    equ 8                   ; ...the row the order loops to,
+TMS_TAIL    equ 9                   ; ...the row the TAIL starts at (0: none),
 TMS_ORDER   equ 10                  ; ...dw the order,
 TMS_PTAB    equ 12                  ; ...dw the phrase table
 TMI_VDELAY  equ 11                  ; an instrument: the vibrato's delay,
@@ -35,7 +37,8 @@ TME_SLUR    equ 0xC0                ; ...the next note slurs
 TME_END     equ 0xFF                ; ...the phrase is over
 TM_PHNONE   equ 0xFF                ; an order row's silent channel
 
-; the window's title per song, in the order `M` steps through them
+; the window's title per song, in the order `M` steps through them,
+; then the resolutions' in the order `E` does
 tm_names:
     dw tm_name0
     dw tm_name1
@@ -43,9 +46,15 @@ tm_names:
     dw tm_name3
     dw tm_name4
     dw tm_name5
+    dw tm_name6
+    dw tm_name7
+    dw tm_name8
 tm_name0: db 'Tithe - Title: The Procession', 0
 tm_name1: db 'Tithe - Campaign: The Reckoning', 0
 tm_name2: db 'Tithe - Deck builder: The Tollkeeper', 0
 tm_name3: db 'Tithe - Bulwark: Steadfast', 0
 tm_name4: db 'Tithe - Ember Choir: Kindling', 0
 tm_name5: db 'Tithe - Covenant: Intercession', 0
+tm_name6: db 'Tithe - Resolution: War Drums', 0
+tm_name7: db 'Tithe - Resolution: The Toll', 0
+tm_name8: db 'Tithe - Resolution: The Charge', 0

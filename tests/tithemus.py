@@ -52,6 +52,13 @@ both arms, for every title theme `M` steps through:
      ticks of song in 75 of clock before the fix, with a worst gap of 876
      ms after it until the relayout's own loops stepped the music too.
 
+  7. THE RESOLUTION CUTS IN AND HANDS BACK (SPEC.md 97.10.6). Each option
+     is cut into a faction theme at a different point by `R`, is the model
+     tick for tick, and `R` again plays its tail and hands back - and the
+     theme must RESUME at the order row and row it was cut at, the model
+     sought there, tick for tick. Resuming from the theme's top instead
+     fails every option. Recorded, each option cuts into all three themes.
+
 Broken on purpose before it was registered: a gate that starts counting on
 the note-on tick (every note one tick short) fails every song's samples; the
 speaker's macro step off by one fails the command stream - and PASSED the
@@ -84,7 +91,7 @@ import os88tithemus as tm                                 # noqa: E402
 
 SYMS = ("tm_song", "tm_arm", "tm_ticks", "tm_ord", "tm_row", "tm_ch",
         "tm_sel", "ti_nframe", "tm_busy", "tm_tone", "tm_last",
-        "tm_gapmax")
+        "tm_gapmax", "tm_rsel", "tm_resing", "tm_theme", "tm_bord", "tm_brow")
 TM_LATE = 3                                     # ticks: a note's worst lateness
 FM_CELL = os88marty.KERNEL_SEG * 16 + 0x00F8    # OSAPI_SND_FM's cell
 STREAM = {"spk": 80, "fm": 240}                 # calls of song 0 compared
@@ -142,6 +149,122 @@ def run(mach, want_arm, off, part, nsong, record, marks):
             return ((rw("ti_nframe") - f) & 0xFFFF) / spent
 
         quiet = fps(4.0)
+
+        def stepped(sq, T):
+            for _ in range(T):
+                sq.step()
+            return sq
+
+        def sample(model_of, bad, spk_bad):
+            """The machine PAUSED between ticks, against model_of(tm_ticks)."""
+            m.pause()
+            ticks = m.sym("ticks")
+            for _ in range(50):         # never read a tick half-stepped, nor
+                if not rb("tm_busy")[0] and \
+                        bytes(m.read(ticks, 2)) == rb("tm_last", 2):
+                    break               # one the timer has begun and the
+                                        # worker not yet stepped (item 2)
+                m.run()
+                os88marty.guest_sleep(m, 0.003)
+                m.pause()
+            T = rw("tm_ticks")
+            chs = rb("tm_ch", 4 * 12)
+            ordr, row = rb("tm_ord")[0], rb("tm_row")[0]
+            gate61 = m.inb(0x61) & 3 if want_arm == "spk" else None
+            m.run()
+            sq = model_of(T)
+            model = [c.note for c in sq.ch]
+            guest = [chs[12 * c + 3] for c in range(4)]
+            if want_arm == "spk":       # ...and the lead's FREQUENCY, which is
+                model.append(sq.ch[0].last_f)           # where the macro and
+                guest.append(chs[10] | chs[11] << 8)    # the vibrato live
+            if (model, sq.ord, sq.row) != (guest, ordr, row):
+                bad.append("T=%d guest ord %d row %d %s, model ord %d row %d %s"
+                           % (T, ordr, row, guest, sq.ord, sq.row, model))
+            if gate61 is not None and (gate61 == 3) != bool(model[0]):
+                spk_bad.append("T=%d 61h&3=%d lead %d" % (T, gate61, model[0]))
+
+        def to_song(si):
+            for _ in range(nsong + 2):
+                if rb("tm_sel")[0] == si:
+                    break
+                m.key("KeyM")
+                os88marty.guest_sleep(m, 0.3)
+            os88marty.guest_sleep(m, 0.3)
+
+        def resolutions():
+            """Item 7: THE RESOLUTION CUTS IN AND HANDS BACK (TITHE-PLAN
+            13.4.1). Each option cuts into a different faction theme at a
+            different point; the piece is the model tick for tick; `R` again
+            plays its tail and the theme RESUMES AT THE ROW IT WAS CUT AT -
+            the model sought to the banked order row and row, tick for tick."""
+            themes = [tm.SONGS.index(f) for f in
+                      ("bulsteadfast.tmu", "emberkindle.tmu", "covinter.tmu")]
+            plan = [(r, themes[r % len(themes)]) for r in range(len(tm.RESOLUTIONS))]
+            if record:                  # ...and recorded, every option into
+                plan = [(r, th) for r in range(len(tm.RESOLUTIONS))  # every
+                        for th in themes]                            # theme
+            tour = None
+            for r, th in plan:
+                ri = nsong + r
+                rid = tm.RESOLUTIONS[r][:-4]
+                to_song(th)
+                os88marty.guest_sleep(m, (6.0 if record else 2.5) + 0.7 * r)
+                for _ in range(len(tm.RESOLUTIONS) + 1):
+                    if rb("tm_rsel")[0] == r:
+                        break
+                    m.key("KeyE")
+                    os88marty.guest_sleep(m, 0.2)
+                t0 = gsecs() - (5.0 if record else 0.0)
+                if tour is None or tour[0] != r:
+                    tour = (r, t0)
+                m.key("KeyR")
+                os88marty.guest_sleep(m, 0.4)
+                ok = (rb("tm_resing")[0], rb("tm_song")[0], rb("tm_theme")[0]) \
+                    == (1, ri, th)
+                check(ok, "%s: R cuts %s into %s" % (mach, rid, tm.SONGS[th][:-4]),
+                      (rb("tm_resing")[0], rb("tm_song")[0], rb("tm_theme")[0]))
+                if not ok:
+                    continue
+                bord, brow = rb("tm_bord")[0], rb("tm_brow")[0]
+                bad, spk_bad = [], []
+                for _ in range(3):
+                    os88marty.guest_sleep(m, 0.9)
+                    sample(lambda T: stepped(tm.Seq(part, ri, want_arm), T),
+                           bad, spk_bad)
+                check(not bad and not spk_bad,
+                      "...the resolution is the model tick for tick", (bad + spk_bad)[:2])
+                if record:
+                    os88marty.guest_sleep(m, 3.0)
+                m.key("KeyR")
+                back = False
+                for _ in range(60):
+                    os88marty.guest_sleep(m, 0.25)
+                    if not rb("tm_resing")[0] and rb("tm_song")[0] == th:
+                        back = True
+                        break
+                check(back, "...R again: the tail, then %s is back"
+                      % tm.SONGS[th][:-4], (rb("tm_resing")[0], rb("tm_song")[0]))
+                if not back:
+                    continue
+
+                def resumed(T, th=th, bord=bord, brow=brow):
+                    sq = tm.Seq(part, th, want_arm)
+                    sq.seek(bord, brow)
+                    return stepped(sq, T - tm.row_ticks(
+                        sq.groove[:sq.glen], sq.rows)[brow])
+                bad, spk_bad = [], []
+                for _ in range(3):
+                    os88marty.guest_sleep(m, 0.9)
+                    sample(resumed, bad, spk_bad)
+                check(not bad and not spk_bad,
+                      "...RESUMED at the row it was cut at (order %d, row %d), "
+                      "tick for tick" % (bord, brow), (bad + spk_bad)[:2])
+                if record:
+                    os88marty.guest_sleep(m, 5.0)
+                    if th == themes[-1]:    # one recording an option: its cut
+                        marks.append((mach, want_arm, "cut-%s" % rid,  # into
+                                      tour[1], gsecs()))  # all three themes
 
         def tempo():
             """Item 6: THE TEMPO IS THE CLOCK'S, not the frame's. `G` rebuilds
@@ -225,35 +348,9 @@ def run(mach, want_arm, off, part, nsong, record, marks):
             bad, spk_bad, n = [], [], 0
             for _ in range(SAMPLES):
                 os88marty.guest_sleep(m, 1.0)
-                m.pause()
-                ticks = m.sym("ticks")
-                for _ in range(50):     # never read a tick half-stepped, nor
-                    if not rb("tm_busy")[0] and \
-                            bytes(m.read(ticks, 2)) == rb("tm_last", 2):
-                        break           # one the timer has begun and the
-                                        # worker not yet stepped (below)
-                    m.run()
-                    os88marty.guest_sleep(m, 0.003)
-                    m.pause()
-                T = rw("tm_ticks")
-                chs = rb("tm_ch", 4 * 12)
-                ordr, row = rb("tm_ord")[0], rb("tm_row")[0]
-                gate61 = m.inb(0x61) & 3 if want_arm == "spk" else None
-                m.run()
-                sq = tm.Seq(part, si, want_arm)
-                for _ in range(T):
-                    sq.step()
-                model = [c.note for c in sq.ch]
-                guest = [chs[12 * c + 3] for c in range(4)]
-                if want_arm == "spk":   # ...and the lead's FREQUENCY, which is
-                    model.append(sq.ch[0].last_f)       # where the macro and
-                    guest.append(chs[10] | chs[11] << 8)  # the vibrato live
                 n += 1
-                if (model, sq.ord, sq.row) != (guest, ordr, row):
-                    bad.append("T=%d guest ord %d row %d %s, model ord %d row %d %s"
-                               % (T, ordr, row, guest, sq.ord, sq.row, model))
-                if gate61 is not None and (gate61 == 3) != bool(model[0]):
-                    spk_bad.append("T=%d 61h&3=%d lead %d" % (T, gate61, model[0]))
+                sample(lambda T: stepped(tm.Seq(part, si, want_arm), T),
+                       bad, spk_bad)
             check(not bad, "...%d samples, the machine is the model tick for tick"
                   % n, bad[:2])
             if want_arm == "spk":
@@ -269,6 +366,8 @@ def run(mach, want_arm, off, part, nsong, record, marks):
                 one = tm.Seq(part, si, want_arm).song_ticks() / tm.TICK_HZ
                 os88marty.guest_sleep(m, max(0.0, one + 2.0 - SAMPLES - 0.5))
             marks.append((mach, want_arm, name, t0, gsecs()))
+        resolutions()
+        to_song(nsong - 1)
         m.key("KeyM")
         os88marty.guest_sleep(m, 0.5)
         check(rb("tm_song")[0] == 0xFF, "%s: M past the last song is silence" % mach,
@@ -335,7 +434,7 @@ def main():
     a = ap.parse_args()
     off = offsets()
     part = open(os.path.join(ROOT, "build", "timus.bin"), "rb").read()
-    nsong = part[3]
+    nsong = len(tm.SONGS)               # `M`'s; the resolutions follow them
     marks, capture = [], {}
     for mach, arm in MACHINES:
         if a.machines and mach not in a.machines:

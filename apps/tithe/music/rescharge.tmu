@@ -1,0 +1,46 @@
+; TITHE - the RESOLUTION, option 3: THE CHARGE
+;
+; The same D and the same open fifths (reswar.tmu says why), at a GALLOP: 6/8
+; at 121 BPM, an eighth three ticks - the campaign jig's own pulse, pushed
+; into a charge. The bodhran gallops, the bass gallops with it, and a fiddle
+; calls D-E-G-A up and down, the pentatonic with no third, over lute stabs
+; on the beats. One bar a pattern, so the tail is never more than a bar away.
+
+song rescharge "Resolution: The Charge"
+groove 3
+unit 8
+rows 6
+measure 6
+voice lead fiddle
+voice bass pluckbass
+voice chord lute
+
+lead RH = o5 d4. r4. |
+bass BH = o2 d4. d4. |
+chord CH = o3 [d a >d]4. r4. |
+drum DH = k8 k8 k8 T8 T8 T8 |
+
+lead R1 = o4 d8 e8 g8 a4. |
+lead R2 = o4 a8 g8 e8 d4. |
+lead R3 = o5 d8 c8< a8 g4. |
+lead R4 = o4 a8 g8 e8 d4 a8 |
+bass B1 = o2 d8 r8 d8 d8 r8 d8 |
+bass B3 = o2 c8 r8 c8 d8 r8 d8 |
+chord C1 = o3 [d a >d]8 r4 [d a >d]8 r4 |
+chord C3 = o3 [c g >c]8 r4 [d a >d]8 r4 |
+drum D1 = k8 p8 p8 t8 p8 p8 |
+drum D4 = k8 p8 p8 T8 T8 T8 |
+
+lead RT = o4 d4. a4. |
+bass BT = o2 d4. <a4.> |
+chord CT = o3 [d a >d]4. [a >e a]4. |
+drum DT = k8 k8 k8 k4. |
+
+order RH BH CH DH
+order R1 B1 C1 D1             ; 1: the loop
+order R2 B1 C1 D1
+order R3 B3 C3 D1
+order R4 B1 C1 D4
+order RT BT CT DT             ; 5: the tail
+loop 1
+tail 5

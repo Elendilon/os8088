@@ -3725,6 +3725,12 @@ the *game's* voice rather than a faction's, so it lives in the `BOARD` part
 (§4.3), loads once at match start, and both machines in a networked match hear
 the same thing whatever they are playing. ~3KB, ~1.5KB packed.
 
+**BUILT** (SPEC.md §97.10.6) — the tail, the cut that banks the theme's order
+row and row, and the hand-back that resumes it there by a quiet seek, with
+THREE CANDIDATES on the demo's `E` and `R` for the owner to pick from: War
+Drums, The Toll and The Charge, all on D in open fifths so they cut cleanly
+into the three chosen faction themes.
+
 **Handing back is where this pays for itself.** The resolution piece has a
 **loop body and a TAIL**: when the round's animation finishes, the sequencer
 plays out the current pattern, plays the tail once, and then **the faction theme

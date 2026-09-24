@@ -1,0 +1,57 @@
+; TITHE - the RESOLUTION, option 1: WAR DRUMS
+;
+; TITHE-PLAN 13.4.1: one piece for the whole game, from the reveal to the
+; spoils, and it CUTS INTO whichever faction theme was playing. All three are
+; built on D because D is the one note the chosen themes share - the fifth
+; of Steadfast's G, the tonic of Kindling's D minor, the sixth of
+; Intercession's F - and in OPEN FIFTHS, no third, so it is neither major nor
+; minor and clashes with nothing it interrupts. The tail lands on D and A,
+; which leads back into all three.
+;
+; The drums ARE the piece: toms and snare at 136 BPM (a 16th = 2 ticks), the
+; bass pulsing D, the horn only in short stabs - the gaps are where the
+; impacts go (TITHE-PLAN 13.8: on the speaker an effect PREEMPTS the lead,
+; so a stab-and-rest lead is one the impacts punch holes in for free).
+
+song reswar "Resolution: War Drums"
+groove 2
+unit 16
+rows 16
+measure 16
+voice lead horn
+voice bass bass
+voice chord strings
+
+; --- the cut: one bar that lands on the downbeat --------------------------------
+lead RH = o5 d8 r8 r4 r2 |
+bass BH = o2 d4 r4 d8 d8 d8 d8 |
+chord CH = o3 [d a >d]1 |
+drum DH = k4 T8 T8 t8 t8 s16 s16 s16 s16 |
+
+; --- the body: four bars, looped for as long as the round takes ----------------
+lead R1 = o4 d8. d16 a8 r8 r4 g8 a8 |
+lead R2 = o4 d8. d16 >d8< r8 r4 c8 a8 |
+lead R3 = o4 d8. d16 a8 r8 r4 >c8 d8< |
+lead R4 = o4 g8. g16 >c8< r8 r4 a8 g8 |
+bass B1 = o2 l8 d d d d d d c c |
+bass B2 = o2 l8 d d d d g g a a |
+bass B4 = o2 l8 c c c c g g a a |
+chord C1 = o3 [d a >d]1 |
+chord C4 = o3 [c g >c]2 [d a >d]2 |
+drum D1 = k8 t16 t16 s8 t8 k8 k8 s8 T16 T16 |
+drum D4 = k8 t16 t16 s8 t8 s16 s16 s16 s16 T8 T8 |
+
+; --- the tail: one bar, and the theme comes back --------------------------------
+lead RT = o4 d4 r4 a4 r4 |
+bass BT = o2 d4 r4 <a4> r4 |
+chord CT = o3 [d a >d]2 [a >e a]2 |
+drum DT = k8 k8 s8 s8 k4 r4 |
+
+order RH BH CH DH
+order R1 B1 C1 D1             ; 1: the loop comes back here
+order R2 B2 C1 D1
+order R3 B1 C1 D1
+order R4 B4 C4 D4
+order RT BT CT DT             ; 5: the tail
+loop 1
+tail 5

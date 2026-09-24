@@ -70,6 +70,9 @@ SONGS = ["procession.tmu",                  # the title theme
          "bulsteadfast.tmu",                # THE BULWARK
          "emberkindle.tmu",                 # THE EMBER CHOIR
          "covinter.tmu"]                    # THE COVENANT - every one chosen
+# ...and the RESOLUTION pieces (TITHE-PLAN 13.4.1), after the songs in the
+# part: `E` picks one and `R` cuts it into whatever is playing
+RESOLUTIONS = ["reswar.tmu", "restoll.tmu", "rescharge.tmu"]
 # archive/ holds the ones retired from this list, with why at the top of each
 
 TICK_HZ = 1193182.0 / 65536.0        # 18.2065
@@ -224,6 +227,7 @@ class Song:
         self.phrases = {}           # name -> (kind, [Ev])
         self.order = []             # [(lead names[states], bass, chord, drum)]
         self.loop = 0
+        self.tail = 0               # the order row the TAIL starts at, 0: none
 
 
 def logical_lines(path):
@@ -296,6 +300,8 @@ def parse_song(path, insts, drums):
             s.order.append(row)
         elif k == "loop":
             s.loop = int(t[1])
+        elif k == "tail":
+            s.tail = int(t[1])
         else:
             raise ScoreError("%s: what is %s?" % (where, k))
     if not s.id or not s.order:
@@ -308,6 +314,9 @@ def parse_song(path, insts, drums):
         raise ScoreError("%s: states is 1 or 3 (TITHE-PLAN 13.4)" % base)
     if not 0 <= s.loop < len(s.order):
         raise ScoreError("%s: loop %d is outside the order" % (base, s.loop))
+    if s.tail and not s.loop < s.tail < len(s.order):
+        raise ScoreError("%s: a tail starts after the loop and inside the order"
+                         % base)
     return s
 
 
@@ -498,7 +507,8 @@ def pack_phrase(kind, evs, song, iidx, shapes):
 def build_part():
     insts, iorder, drums = parse_bank()
     iidx = {n: i for i, n in enumerate(iorder)}
-    songs = [parse_song(os.path.join(MUSDIR, f), insts, drums) for f in SONGS]
+    songs = [parse_song(os.path.join(MUSDIR, f), insts, drums)
+             for f in SONGS + RESOLUTIONS]
     if len(songs) > MAXSONG:
         raise ScoreError("more than %d songs" % MAXSONG)
     shapes = [(0, 0)]                   # shape 0: one note
@@ -555,7 +565,7 @@ def build_part():
             part += b
         g = s.groove + [0] * (4 - len(s.groove))
         struct.pack_into("<5B5BHH", part, hdr_at, len(s.groove), *g, s.rows,
-                         s.states, len(s.order), s.loop, 0, order_at, ptab_at)
+                         s.states, len(s.order), s.loop, s.tail, order_at, ptab_at)
     part[0:4] = DIR_MAGIC + bytes([VERSION, len(songs)])
     struct.pack_into("<HHHH", part, 4, lab["freq"], lab["inst"], lab["macro"], lab["shape"])
     for i, o in enumerate(songoffs):
@@ -609,6 +619,9 @@ class Seq:
         self.states = u8(part, so + 6)
         self.ordlen = u8(part, so + 7)
         self.loop = u8(part, so + 8)
+        self.tail = u8(part, so + 9)
+        self.ending = False          # end() asked for the tail
+        self.finished = False        # ...and it has played: hand back
         self.order = u16(part, so + 10)
         self.ptab = u16(part, so + 12)
         self.freq = u16(part, 4)
@@ -627,6 +640,35 @@ class Seq:
         self.notes_log = []          # (tick, channel, note|0) for the selfcheck
         self.load_pattern()
 
+    def next_ord(self, o):
+        """the order row after o: the loop wraps at the TAIL while the piece
+           is not ending, an ending piece jumps to the tail at the next
+           boundary, and past the last row a piece with a tail is FINISHED
+           (None) where one without loops (SPEC.md 97.10.6)"""
+        if self.tail and self.ending and o < self.tail:
+            return self.tail
+        o += 1
+        if self.tail and o == self.tail and not self.ending:
+            return self.loop
+        if o == self.ordlen:
+            return None if self.tail else self.loop
+        return o
+
+    def end(self):
+        self.ending = True
+
+    def seek(self, o, row):
+        """start at order row o, row `row`, as the guest's hand-back does: the
+           pattern loaded, then row's worth of ticks stepped (the guest steps
+           them quietly and resyncs, which leaves the same state)"""
+        self.ord = o
+        self.row = 0
+        self.tleft = 0
+        self.gi = 0
+        self.load_pattern()
+        for _ in range(row_ticks(self.groove[:self.glen], self.rows)[row]):
+            self.step()
+
     def hz(self, note):
         return u16(self.p, self.freq + 2 * (note - NOTE0))
 
@@ -642,12 +684,16 @@ class Seq:
     # --- the per-tick step ---------------------------------------------------
     def step(self):
         acts = []
+        if self.finished:
+            return acts
         if self.tleft == 0:
             if self.row == self.rows:
+                nxt = self.next_ord(self.ord)
+                if nxt is None:
+                    self.finished = True
+                    return acts
                 self.row = 0
-                self.ord += 1
-                if self.ord == self.ordlen:
-                    self.ord = self.loop
+                self.ord = nxt
                 self.load_pattern()
             for c in range(4):
                 ch = self.ch[c]
@@ -790,7 +836,8 @@ class Seq:
                 ch.last_f = f
 
     def song_ticks(self):
-        """ticks for one pass of the order, intro included"""
+        """ticks for one pass of the order, intro included - and for a piece
+           with a tail, its whole order played straight through once"""
         rt = row_ticks([g for g in self.groove[:self.glen]], self.rows)
         return rt[-1] * self.ordlen
 
@@ -930,7 +977,16 @@ def wav(ids, arms, secs, outdir):
         loop_ticks = one - (row_ticks(s.groove, s.rows)[-1] * s.loop)
         ticks = int(secs * TICK_HZ) if secs else one + min(loop_ticks, int(8 * TICK_HZ))
         for arm in arms:
-            acts, _ = run_actions(part, si, arm, ticks)
+            if s.tail:                  # a RESOLUTION: the hit, the body
+                acts = []               # twice, then the tail, and done
+                sq = Seq(part, si, arm)
+                ptick = row_ticks(s.groove, s.rows)[-1]
+                while not sq.finished and len(acts) < 4000:
+                    if sq.ord == s.tail - 1 and len(acts) > ptick * (2 * s.tail - 2):
+                        sq.end()
+                    acts.append(sq.step())
+            else:
+                acts, _ = run_actions(part, si, arm, ticks)
             y = render_spk(acts) if arm == "spk" else render_fm(acts)
             y = fade_tail(y, 3.0)
             path = os.path.join(outdir, "%s-%s.wav" % (s.id, arm))
@@ -952,7 +1008,8 @@ def emit(inc_path, bin_path):
          "; reads the MUSIC PART by, and the names the window shows. The part",
          "; itself is timus.bin in the build tree, built from apps/tithe/music/.",
          "",
-         "TM_NSONG    equ %d" % len(songs),
+         "TM_NSONG    equ %d                   ; the songs `M` steps through..." % len(SONGS),
+         "TM_NRES     equ %d                   ; ...and the resolutions after them" % len(RESOLUTIONS),
          "TM_NOTE0    equ %d                  ; the frequency table's first note (C1)" % NOTE0,
          "TM_NNOTE    equ %d" % NNOTE,
          "TM_INSTREC  equ %d                  ; an instrument record's bytes" % INST_REC,
@@ -970,6 +1027,7 @@ def emit(inc_path, bin_path):
          "TMS_STATES  equ 6                   ; ...leads an order row carries,",
          "TMS_ORDLEN  equ 7                   ; ...order rows,",
          "TMS_LOOP    equ 8                   ; ...the row the order loops to,",
+         "TMS_TAIL    equ 9                   ; ...the row the TAIL starts at (0: none),",
          "TMS_ORDER   equ 10                  ; ...dw the order,",
          "TMS_PTAB    equ 12                  ; ...dw the phrase table",
          "TMI_VDELAY  equ 11                  ; an instrument: the vibrato's delay,",
@@ -984,7 +1042,8 @@ def emit(inc_path, bin_path):
          "TME_END     equ 0x%02X                ; ...the phrase is over" % EV_END,
          "TM_PHNONE   equ 0x%02X                ; an order row's silent channel" % PH_NONE,
          "",
-         "; the window's title per song, in the order `M` steps through them",
+         "; the window's title per song, in the order `M` steps through them,",
+         "; then the resolutions' in the order `E` does",
          "tm_names:"]
     L += ["    dw tm_name%d" % i for i in range(len(songs))]
     for i, s in enumerate(songs):
@@ -1037,7 +1096,36 @@ def selfcheck():
         sq = Seq(part, si, "fm")
         ticks = sq.song_ticks()
         for _ in range(ticks):
+            if s.tail and sq.ord == s.tail - 1:
+                sq.end()                # straight through: the body, the tail
             sq.step()
+        if s.tail:
+            sq.step()                   # the boundary after the tail's last row
+            if not sq.finished:
+                bad.append("%s: the tail never finished" % s.id)
+            # ...and never told to end, it must loop the body and never
+            # reach the tail
+            lp = Seq(part, si, "fm")
+            for _ in range(ticks * 3):
+                lp.step()
+                if lp.ord >= s.tail or lp.finished:
+                    bad.append("%s: reached its tail unasked" % s.id)
+                    break
+        else:
+            # A SEEK lands where playing there does: the hand-back resumes a
+            # theme with one (SPEC.md 97.10.6)
+            rt = row_ticks(s.groove, s.rows)
+            for o, r in ((min(2, len(s.order) - 1), s.rows // 2),
+                         (len(s.order) - 1, s.rows - 1)):
+                a = Seq(part, si, "fm")
+                for _ in range(rt[-1] * o + rt[r]):
+                    a.step()
+                b = Seq(part, si, "fm")
+                b.seek(o, r)
+                if [c.note for c in a.ch] != [c.note for c in b.ch] or \
+                        (a.ord, a.row) != (b.ord, b.row):
+                    bad.append("%s: a seek to %d/%d is not where playing gets"
+                               % (s.id, o, r))
         got = sorted(sq.notes_log)
         # the model logs a rest only where a note was sounding; the source
         # names every rest - compare the NOTES, and the rests the model kept
