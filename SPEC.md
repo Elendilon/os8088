@@ -141102,15 +141102,14 @@ fullscreen board could not reach the target rate (3.5 poses a second) and this
 one does (4.35-4.47). **The fullscreen row and its art were then deleted**
 (§97.2): the owner looked at the board and kept it.
 
-**EVERY TERM IS A MULTIPLE OF 8, and that is why a hovered card RISES.** A
-band is blitted with `gfx_blit1`, so its x must be, and the hover's invert is
-byte work over the card's columns — so the ground between two cards is a
-whole byte and is never inside a band at all. The strip's hover WIDENS into an
-8-pixel margin inside its band; across 640 that margin is a card's worth of
-the seven. So a portrait band is the card plus `TI_HLIFT` = 6 rows above it,
-a resting card sits at the band's foot, and the hovered one at its top. The
-band's rows are `ti_cbrows` and the card's row 0 is `ti_cbase`, which every
-band primitive reads instead of the band's own start.
+**EVERY TERM IS A MULTIPLE OF 8.** A band is blitted with `gfx_blit1`, so its
+x must be, and the hover's invert is byte work over the card's columns — so
+the ground between two cards is a whole byte. A portrait band is the card
+plus `TI_HLIFT` = 6 rows above it and the card sits at the band's foot; the
+hovered card ROSE into those rows until §97.4.12.1 made a hover the resting
+card flipped in place, and they are ground now. The band's rows are
+`ti_cbrows` and the card's row 0 is `ti_cbase`, which every band primitive
+reads instead of the band's own start.
 
 **The figure is the board's, on black, in a claim of its own.** `ti_fseg` is
 `TI_FIGKB` = 11KB claimed with the arena at entry: seven cards × four poses ×
@@ -141128,7 +141127,7 @@ on the 8086 is zero rather than masked, so one body does both.
 
 **THE HOVERED PORTRAIT ANIMATES BY ITS FIGURE'S ROWS.** The strip redraws its
 mini unit alone because it sits in a corner; a portrait's figure crosses the
-card's four uprights, so `ti_pic_anim` clears exactly the figure's rows, puts
+card's two uprights, so `ti_pic_anim` clears exactly the figure's rows, puts
 the uprights back through them, ORs the next pose over and blits those rows —
 one band of the board's own size, not the ~22 ms of a card composition.
 
@@ -141149,9 +141148,83 @@ fullscreen **4.35 poses a second a figure, 4.47 with two bolts**, 17.6-18.5
 frames a second; Hercules fullscreen **4.49 / 4.47** at 18.5-18.6.
 `tests/tithefs.py` is the row: the layout taken on VGA and Hercules and not on
 CGA or windowed, seven aligned bands a byte apart under the board, every card
-drawn, a hovered card risen and no other, the hand exactly a whole repaint
+drawn, a hovered card flipped in place with nothing risen, the hand exactly a whole repaint
 paused mid-animation, and a clicked card played from the bottom row with its
 band dark and the screen exactly a repaint.
+
+#### 97.4.12.1 A HOVER IS A BANKED CARD — the sweep
+
+**Sweeping the pointer along the hand is how a player chooses a card**, so a
+hover change is the commonest thing the frame does that is not the wheel — and
+it was the most expensive. Measured on MartyPC's 4.77 MHz 8088, fullscreen
+VGA, with the cycle counter bracketing each stage:
+
+| a hover change | before | after |
+|---|---:|---:|
+| the hover test (with a twenty-cell board walk) | 5.6 ms | 0.4 |
+| the status line | 11.1 | *owed until the pointer settles* |
+| the card that lost the hover: compose ~47, blit ~10 | ~57 | **6.8** |
+| the card that gained it: compose ~50, blit ~10 | ~60 | **7.4** |
+| **the hover part of the frame** | **131** | **15.5** (Hercules 15.2) |
+| **the frame it happens in** | **152** (2.8 ticks) | **38.5** (Hercules 37.1) |
+
+Down a sweep that is **12.5 → 18.1 frames a second** on fullscreen VGA and
+12.9 → 18.2 on Hercules, where a parked pointer reads 18.2; windowed VGA is
+16.5 → 18.3. The music's worst gap is one tick on Hercules and windowed and
+counts **three 2-tick steps in 75 before, one in 65 after** on fullscreen VGA
+— the one left is a step late in its tick meeting a frame, which reads as two.
+
+**What it was is five things, and the first is the design one.**
+
+1. **A HOVERED CARD WAS A DIFFERENT PICTURE.** It rose `TI_HLIFT` rows out of
+   the fullscreen hand, widened across the strip's margins, and drew a second
+   outline inside the first, so a hover change COMPOSED both cards from
+   nothing: the frame, the name, the figure, the cost pairs, the stats and the
+   invert. **A hovered card is now the resting one NOT INVERTED**, in the
+   resting card's place and shape (`ti_card_geo` answers both). The six rows
+   the rise took stay in the band as ground, so the layout, the COMMIT column
+   and the click box are where they were.
+2. **SO BOTH ARE BANKED.** Every resting composition is copied into the
+   SCRATCH part (§97.8) as it stands, and its hovered twin beside it — the
+   same band with the card's columns flipped, once, by `ti_card_flip` — so a
+   hover change is **two blits and no composition** (`ti_card_fast`). Seven
+   cards × two × `TI_CARDBANDMAX` is **21,504 bytes** of heap and no disk. The
+   bank is refreshed by whatever composes a resting card (a toggle, a deal, a
+   repaint), and cleared where a card's content moves without a redraw behind
+   it: `tg_vput` when a hand record changes, and the relayout and the unit and
+   figure rebuilds for all seven. A card being played or already played is
+   not banked and takes `ti_card_draw`.
+3. **THE FIGURE WAS SHIFTED ON EVERY DRAW.** A 64-wide figure on a 72-wide
+   card is four pixels off a byte, and `ti_cb_pic` took the half-byte with a
+   shift by CL both ways for every byte — **14 ms** of an 8088 in every card
+   composition and in every step of the hovered card's animation, which was
+   what held fullscreen VGA at 15.6 frames a second with the pointer PARKED.
+   `ti_figs_build` shifts each pose once into a row a byte wider
+   (`ti_fig_shift`) and the OR is plain: **6 ms**, and a parked pointer reads
+   18.2. It cost `TI_FIGKB` 10 → 12.
+4. **THE BLIT MISSED §5.4.2.6's FAST PATH BY A BYTE.** `ti_glyph` spills a
+   byte past the card, so a portrait band's stride is its width plus one and
+   the kernel had to step it. The blit takes the pad column now: it is clear,
+   and it lands on the byte of black ground between two cards.
+5. **THE BOARD WAS ASKED EVERY FRAME.** `ti_cell_hit` walks twenty
+   `ti_cellpos` to name the cell under the pointer; it remembers its last
+   question and answer until the layout moves, and a point off the board's box
+   is no cell without the walk — a sweep of the HAND is below the board.
+
+**And two things are deferred rather than drawn.** The **status line** is owed
+when the hover changes and drawn the first frame the pointer stays put — down
+a sweep it changes every frame and says nothing anyone can read. The hovered
+card's **figure** waits `TI_HOVWAIT` = 3 frames before feature 22 moves it: a
+sweep crosses a card a frame, and a figure that starts moving under the
+pointer is a band drawn for nobody. **The music is stepped again after every
+frame**, not only at the top of the worker's loop, because a frame that crossed
+a tick followed by a sleep was otherwise a two-tick gap.
+
+**Owning the framebuffer (TITHE-PLAN §3.1.1) was re-priced here and is not
+the lever.** `OSAPI_GFX_BLIT1` is **37-44%** of a fullscreen frame, idle or in
+a round, and 23-27% of the worst frames — so the 21-35% a band loses by owning
+the card is **8-14% of a frame and 5-9% of the frames that stutter**, for a
+second renderer of the HUD, the panel, the text and every dialog.
 
 ### 97.5 THE PACING WHEEL — a fixed rate, and the credit is TIME
 
@@ -141453,7 +141526,7 @@ fullscreen hand's **portraits**, `TI_FIGKB`. Each proc is one store.
 | 0 | `OP_COMP` | the characters: bodies, items, the card manifest, the dirty rows |
 | 1 | `OP_COMP` | the music (§97.10) |
 | 2 | `OP_COMP` | **the BASE art**, `TI_BASE_PART` - the table and every record, offsets from the part's own start. It was 10.8 KB of the image until wave 3 left the package 1.2 KB of room; `tools/os88tithebase.py emit` writes the part and a `tibases.inc` holding only the counts and the names |
-| 3 | `OP_ZERO` | **SCRATCH**, `TI_SCR_PART`, ~6 KB and no disk bytes at all: the hand's unit caches (`TI_S_UNIT`) and the HUD strip's band (`TI_S_HUD`), which were zeros in the image and counted against `APP_MAX_SIZE` like code |
+| 3 | `OP_ZERO` | **SCRATCH**, `TI_SCR_PART`, **27 KB** (26,936 bytes) and no disk bytes at all: the hand's unit caches (`TI_S_UNIT`) and the HUD strip's band (`TI_S_HUD`), which were zeros in the image and counted against `APP_MAX_SIZE` like code - ~5.4 KB of it - and the BANK of every hand card at rest and hovered (`TI_S_CARD`, 21,504 bytes, §97.4.12.1), which is what makes a hover change two blits |
 
 **The scratch bands are reached through ES and nothing else.** `ti_ess` loads
 it from `op_seg` at the point of use (a part's segment is not cached); the

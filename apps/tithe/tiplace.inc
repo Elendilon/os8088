@@ -36,9 +36,11 @@ TI_STATBANK equ TI_CELLS * TI_POSES * TI_RVMAX ; the NUMBERS, after the
                                   ; attack frames in their claim: a cell's
 TI_STATREC  equ 2 * TI_CELLBANDMAX ; halo then its digits, for a bolt to go
                                   ; under (ti_pic_stat)
-TI_FIGKB    equ 10                ; the hand's portraits: 7 cards x 4 poses
-                                  ; x the biggest band, 352 bytes on a VGA -
-                                  ; 9,856, and ti_layout refuses the hand on
+TI_FIGKB    equ 12                ; the hand's portraits: 7 cards x 4 poses
+                                  ; x the biggest band plus a byte a row,
+                                  ; 396 bytes on a VGA (a figure is stored
+                                  ; at the card's nibble, ti_fig_shift) -
+                                  ; 11,088, and ti_layout refuses the hand on
                                   ; a surface that would not fit
 TI_BASEKB   equ (TI_BASEMAX * TI_BASEPOSES + 1023) / 1024
 TI_ATTACKKB equ 37                ; 20 cells x 4 attack frames x the biggest

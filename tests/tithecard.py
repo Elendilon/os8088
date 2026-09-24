@@ -18,10 +18,12 @@ defect it has had is a thing crossing a boundary or failing to come back:
   purpose and PASSED a frame-line check. What catches them is the row above
   the foot being blank and the three-column gutter to the figure being clear.
 
-  3. THE PANEL COMES BACK. The hovered card expands into the panel's 8-pixel
-     margins, and the composer dropped the `gfx_fill` of the whole panel row
-     that used to put them back - so moving off a card left a stripe of it
-     down each side. The margins are part of the composition now.
+  3. THE PANEL COMES BACK. The hovered card used to expand into the panel's
+     8-pixel margins, and the composer dropped the `gfx_fill` of the whole
+     panel row that put them back - so moving off a card left a stripe of it
+     down each side. The margins are part of the composition, and since
+     SPEC.md 97.4.12.1 a hovered card keeps the resting card's shape anyway;
+     the row still holds them to the panel before anything was hovered.
 
   4. THE HOVERED CARD'S FIGURE KEEPS ITS POLARITY. The wheel redraws the unit
      ALONE every frame at a pen of its own, and that pen said the opposite of
@@ -276,11 +278,10 @@ def run(mach, off):
         # card but the tallest it blanked the top of the NEXT pose's band.
         top = mid - rw("ti_cardh") // 2
         fy = top + 2 + rw("ti_cpad")
-        fx = x0 + rw("ti_pan") - off["TI_UNITW"] - 8
-        paper = mono(m)[2][fy + 1][x0 + 1]      # ...BETWEEN the two frames, which
-                                                # the upright check above has
-                                                # already asserted is ground;
-                                                # column 2 is the inner frame
+        # THE CARD'S OWN CORNER: a hovered card is the resting one not
+        # inverted (SPEC.md 97.4.12.1), inset by the margins like the rest
+        fx = x0 + rw("ti_pan") - marg - off["TI_UNITW"] - 8
+        paper = mono(m)[2][fy + 1][x0 + marg + 1]   # ...inside the frame
         shots, wrong = [], 0
         for _ in range(5):
             f = mono(m)[2]

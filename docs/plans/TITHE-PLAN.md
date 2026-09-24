@@ -437,6 +437,19 @@ fullscreen VGA. And it composes with §3.4.1: the two together are **14.3 fps**.
 > wave 1a shows both, wave 3 builds the windowed renderer, and the fullscreen
 > arm is worth its own wave when the rest of the game exists — not a second
 > renderer carried from the start.
+>
+> **RE-PRICED AFTER WAVE 3, against whole frames and not a band** (SPEC.md
+> §97.4.12.1). With the cycle counter bracketing `OSAPI_GFX_BLIT1` on
+> MartyPC, the blit is **37-44%** of a fullscreen frame (VGA and Hercules,
+> planning and mid-round) and **23-27%** of the worst frames. Owning the
+> framebuffer takes 21-35% off a band, so it is worth **~8-14% of a frame
+> and ~5-9% of the frames that stutter** — not the 30% the band figure reads
+> as, and short of the 15% the owner set as the bar. What the stutters were
+> made of was COMPOSITION: a hover change composed two cards from nothing
+> (~117 ms of a 152 ms frame) and a portrait's figure was shifted a bit at a
+> time on every draw (14 ms). Both are fixed without a second renderer.
+> **The arm stays on the list for wave 6 only if a later measurement puts
+> the blit's share of the worst frames well above a quarter.**
 
 **WHAT IT COSTS IS EVERY OTHER PIXEL.** After the first `OSAPI_FSX_MODE` no
 kernel drawing slot is legal (§53.7): the fullscreen arm letters its own HUD,

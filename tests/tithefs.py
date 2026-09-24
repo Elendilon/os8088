@@ -16,8 +16,11 @@ WHAT IT ASSERTS, and each one went red on purpose first:
      seven bands side by side with a byte of ground between them, the COMMIT
      column after the seventh, the hand under the board and inside the screen.
 
-  2. A HOVERED CARD RISES. The top TI_HLIFT rows of a card's band are ground
-     for a resting card and the hovered card's own frame when it is hovered.
+  2. A HOVERED CARD IS THE CARD NOT INVERTED, AND IT DOES NOT RISE (SPEC.md
+     97.4.12.1). The top TI_HLIFT rows of every band stay ground, and the row
+     inside the hovered card's frame is its black paper where a resting
+     card's is white - which is what makes a hover a banked card flipped
+     rather than a composition.
 
   3. THE HOVERED CARD ANIMATES AND LEAVES THE CARD WHOLE. Its figure is
      redrawn on the wheel by `ti_pic_anim` (the figure's rows, the uprights
@@ -27,6 +30,12 @@ WHAT IT ASSERTS, and each one went red on purpose first:
      band ends dark, and the glass is exactly a whole repaint.
 
   5. LEAVING FULLSCREEN PUTS THE STRIP BACK.
+
+  6. A HOVER CHANGE IS TWO BANKED CARDS (SPEC.md 97.4.12.1). The cycle counter
+     brackets the hover's share of the frame - `ti_frame` to its `.credit` -
+     over four changes, and the worst must be under 30 ms. It was ~131: both
+     cards composed from nothing, which is what a sweep down the hand stalled
+     the frame and the music on.
 
     make && make tithedisk && python3 tests/tithefs.py
 """
@@ -49,7 +58,8 @@ SYMS = ("ti_horiz", "ti_hy", "ti_cardh", "ti_cardw", "ti_cardpitch",
         "ti_panx", "ti_cmx", "ti_cmw", "ti_cbrows", "ti_by", "ti_boardh",
         "ti_ox", "ti_oy", "ti_cw_box", "ti_ch_box", "ti_nlay", "ti_rpq",
         "ti_hover", "ti_rv", "ti_nframe", "ti_rvcard", "ti_played",
-        "ti_cardn", "TI_HLIFT", "tg_fillq")
+        "ti_cardn", "TI_HLIFT", "tg_fillq",
+        "ti_frame", "ti_frame.credit", "ti_card_fast")
 EQUS = ("TI_HLIFT",)
 MACHINES = ("os8088_xt_vga", "os8088_5150_herc_gla", "os8088_5150_cga_gla")
 
@@ -165,8 +175,31 @@ def run(mach, off):
                  for bx, cw in bands]
         check(all(d > 10 for d in drawn), "every card is on the glass",
               "%s" % drawn)
-        # 2. a hovered card rises
         mo = os88mouse.Mouse(marty=m)
+        # 6. a hover change is two banked cards
+        fl = {seg * 16 + off[n]: n
+              for n in ("ti_frame", "ti_frame.credit", "ti_card_fast")}
+        with os88marty.bp_trace(m, *fl, cap=50000) as tr:
+            for j in (3, 4, 3, 4):
+                x0, c = bands[j]
+                mo.to(x0 + c // 2, hy + g["ti_cbrows"] // 2)
+                os88marty.until(m, lambda _: rw("ti_hover") == j,
+                                "the hover", poll=0.1, limit=20.0)
+            os88marty.guest_sleep(m, 0.5)
+        parts, t0, seen = [], None, False
+        for hit in tr.hits:
+            n = fl.get(hit["addr"])
+            if n == "ti_frame":
+                t0, seen = hit["cycles"], False
+            elif n == "ti_card_fast":
+                seen = True
+            elif n == "ti_frame.credit" and t0 is not None and seen:
+                parts.append(1000.0 * (hit["cycles"] - t0) / 4772727.0)
+        check(len(parts) >= 4 and max(parts) < 30.0,
+              "a hover change is two banked cards: under 30 ms of the frame",
+              "%d changes, %s ms" % (len(parts),
+                                     ", ".join("%.1f" % p for p in parts)))
+        # 2. a hovered card is the card flipped, in place
         park = (g["ti_ox"] + 4, g["ti_oy"] + 4)
         k = 2
         bx, cw = bands[k]
@@ -175,13 +208,17 @@ def run(mach, off):
                         poll=0.2, limit=20.0)
         os88marty.guest_sleep(m, 2.0)
         w, h, px = te.mono(m)
-        risen = sum(1 for x in range(bx, bx + cw) if px[hy][x])
-        rest = sum(1 for i, (x0, c) in enumerate(bands) if i != k
-                   for x in range(x0, x0 + c) for y in range(hy, hy + lift)
-                   if px[y][x])
-        check(risen > cw // 2 and rest == 0,
-              "the hovered card has risen and the others have not",
-              "risen %d of %d, lit above the rest %d" % (risen, cw, rest))
+        above = sum(1 for (x0, c) in bands
+                    for x in range(x0, x0 + c) for y in range(hy, hy + lift)
+                    if px[y][x])
+        paper = lambda x0, c: sum(1 for x in range(x0 + 2, x0 + c - 2)
+                                  if px[hy + lift + 1][x])
+        hov, other = paper(bx, cw), paper(*bands[(k + 1) % 7])
+        check(above == 0 and hov == 0 and other > cw // 2,
+              "the hovered card is the card flipped, in place: no card has "
+              "risen, its paper is black and a resting card's is white",
+              "lit above the cards %d, hovered paper %d, resting %d of %d"
+              % (above, hov, other, cw))
         # 3. it animates, and a pause mid-cycle is exactly a repaint
         n0 = rw("ti_nframe")
         os88marty.until(m, lambda _: (rw("ti_nframe") - n0) & 0xFFFF > 20,

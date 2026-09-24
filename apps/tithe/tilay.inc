@@ -211,7 +211,8 @@ ti_layout:
     jb .strip
     cmp ax, TI_HLIFT + TI_HCARDMIN + TI_HGAP
     jb .strip
-    mov ax, [ti_bs]                 ; ...and the portraits fit their claim
+    mov ax, [ti_bs]                 ; ...and the portraits fit their claim,
+    inc ax                          ; a row a byte wider than the band's
     mul word [ti_bh]
     mov cx, TI_HAND * TI_POSES      ; one figure per hand SLOT
     mul cx

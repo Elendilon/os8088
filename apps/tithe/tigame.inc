@@ -543,6 +543,16 @@ tg_vput:
     je .same
     mov cx, TI_C_SIZE
     rep movsb
+    mov ax, di                      ; A HAND CARD THAT CHANGED has a stale
+    sub ax, ti_cards + TI_C_SIZE    ; bank (SPEC.md 97.4.12.1): the next
+    mov cl, TI_C_SIZE               ; hover must not put the old card down
+    div cl
+    cmp al, TI_HAND
+    jae .chg
+    xor ah, ah
+    mov si, ax
+    mov byte [si + ti_cvalid], 0
+.chg:
     stc
     jmp short .out
 .same:

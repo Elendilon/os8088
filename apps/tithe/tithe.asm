@@ -94,6 +94,7 @@ TI_FEATURES equ 21                ; WHAT THE IDLE WHEEL WALKS: 20 characters and
                                   ; number is 23 and the two BASES have come
                                   ; out of it - they are a lane of their own
                                   ; below, on their own clock
+TI_HOVWAIT  equ 3                   ; frames a hovered card stands still
 TI_IDLEFPS10 equ 44               ; THE IDLE'S TARGET RATE, in tenths of a pose
                                   ; a second a feature (SPEC.md 97.5.2): the
                                   ; rate the XT's VGA and Hercules arms were
@@ -262,6 +263,7 @@ ti_relayout:
     mov ax, [ti_face]               ; ...the face's shape, which the card
     call ti_face_set                ; composer reads on every row
     call ti_art_build
+    call ti_card_inval              ; every card's bank was cut to the old box
     call tm_run                     ; THE RELAYOUT IS SECONDS ON THE UI TASK
                                     ; with the gfx lock held, and the worker
                                     ; is blocked on that lock - so the music
@@ -881,7 +883,14 @@ ti_worker:
 .fr:
     call ti_frame
     call tg_res_step                ; ...and a round being fought, a step of
-.nofr:                              ; it a frame (tigame.inc)
+    call tm_run                     ; it a frame (tigame.inc) - and THE MUSIC
+.nofr:                              ; AGAIN AFTER THE FRAME. The step at the
+                                    ; top of the loop is a tick before the
+                                    ; next one if the frame crossed a tick,
+                                    ; and the sleep then wakes a tick later
+                                    ; still: any frame over the boundary was
+                                    ; a two-tick gap, two notes played
+                                    ; together (SPEC.md 97.4.12.1)
     call OSAPI_WM_CLIP_CLEAR
 .unlk:
     call OSAPI_GFX_UNLOCK
@@ -907,28 +916,36 @@ ti_frame:
     call ti_rv_erase                ; THE REVEAL'S SPARKS COME OFF FIRST and go
                                     ; back on LAST, so every band between lands
                                     ; on a clean glass (tirv.inc)
+    cmp byte [ti_hovage], 255       ; how long the hover has stood, for
+    je .aged                        ; feature 22 (TI_HOVWAIT)
+    inc byte [ti_hovage]
+.aged:
     call ti_hover_ck                ; the pointer moved between cards, so BOTH
-    jnc .credit                     ; of them are redrawn - the one it left
-    call ti_hud_status              ; ...and the STATUS LINE either way, the
-                                    ; board's own hover changing nothing else
-                                    ; (SPEC.md 97.4.8). THE BLOCK AND NOT THE
-                                    ; STRIP: the round, the phase and the
-                                    ; toggle have not moved, and blitting them
-                                    ; again was three quarters of a hover's
-                                    ; work - 4.9 frames a second down the card
-                                    ; list against 18.7 parked
+    jnc .settled                    ; of them are redrawn - the one it left
+    mov byte [ti_hstat], 1          ; ...and the STATUS LINE is OWED, and is
+                                    ; drawn the first frame the pointer stays
+                                    ; put (SPEC.md 97.4.12.1): down a sweep it
+                                    ; changes every frame and says nothing
+                                    ; anyone can read, and it is ~11 ms of the
+                                    ; frame each time. THE BLOCK AND NOT THE
+                                    ; STRIP when it comes (97.4.8)
     cmp word [ti_hovold], -1        ; and the one it arrived on. Only the first
     je .gain                        ; was, and the second was left to feature
     mov ax, [ti_hovold]             ; 22 - which draws the UNIT ALONE, at a box
-    call ti_card_draw               ; ti_card_draw banks and nothing had banked
-    call tm_run                     ; (a card is the frame's longest single
-                                    ; draw: the music is stepped after each)
+    call ti_card_fast               ; ti_card_draw banks and nothing had banked
+    call tm_run                     ; (the music is stepped after each card)
 .gain:                              ; for the new card. So a hover animated
     cmp word [ti_hover], -1         ; only while a full repaint happened to
     je .credit                      ; have set the box up, which on the glass
-    mov ax, [ti_hover]              ; is "it worked for one frame"
-    call ti_card_draw
+    mov ax, [ti_hover]              ; is "it worked for one frame". BOTH COME
+    call ti_card_fast               ; FROM THEIR BANKS (ti_card_fast)
     call tm_run
+    jmp short .credit
+.settled:
+    cmp byte [ti_hstat], 0
+    je .credit
+    mov byte [ti_hstat], 0
+    call ti_hud_status
 .credit:
     call OSAPI_GET_TICKS            ; THE FRAME IS TIMED, because the model
     mov [ti_ft0], ax                ; under-prices what a commit really costs -
@@ -1138,6 +1155,11 @@ ti_feature:
     jne .hov
     jmp .out
 .hov:                               ; feature that is not a character - and
+    cmp byte [ti_hovage], TI_HOVWAIT ; (THE FIGURE WAITS for the pointer to
+    jae .hovgo                      ; stand on the card a few frames: a sweep
+    jmp .out                        ; crosses a card a frame, and a figure
+.hovgo:                             ; that starts moving under it is a band
+                                    ; drawn for nobody - SPEC.md 97.4.12.1)
     mov bl, [ti_clock + TI_CELLS]   ; what animates on it is the UNIT, not the
     xor bh, bh                      ; card, on THIS FEATURE's clock - the one
                                     ; the wheel just stepped. It read the
@@ -1595,7 +1617,10 @@ TI_SCR_PART equ 3                   ; SCRATCH: bands that were zeros in the
                                     ; image (SPEC.md 97.8) - no disk at all
 TI_S_UNIT   equ 0                   ; the hand's unit caches, a slot each
 TI_S_HUD    equ TI_S_UNIT + TI_UNITMAX * TI_POSES * TI_HAND
-TI_S_BYTES  equ TI_S_HUD + TI_HUDBANDMAX
+TI_S_CARD   equ TI_S_HUD + TI_HUDBANDMAX ; every resting card's band, banked
+                                    ; (SPEC.md 97.4.12.1) so a hover change
+                                    ; blits instead of composing
+TI_S_BYTES  equ TI_S_CARD + TI_CARDBANDMAX * TI_HAND * 2 ; ...and hovered
 TI_SCR_KB   equ (TI_S_BYTES + 1023) / 1024
     OS88_PARTS_BEGIN 4
       OS88_PART OP_ASSET, OP_COMP     ; 0 the characters
@@ -1895,6 +1920,19 @@ ti_cink:    db 0
 ti_cpap:    db 0
 ti_hover:   dw -1                   ; the card under the pointer, -1 for none
 ti_hovold:  dw -1                   ; ...and the one it just left
+ti_hovage:  db 0                    ; frames the hover has stood (TI_HOVWAIT)
+ti_hstat:   db 0                    ; the status line is owed, when it settles
+ti_cvalid:  times TI_HAND db 0      ; which cards' banks are good (ti_card_bank)
+ti_cbbw:    dw 0                    ; the width a card's blit takes
+ti_fmar:    dw 0                    ; ti_card_flip's row: the margin...
+ti_fcard:   dw 0                    ; ...the card...
+ti_frest:   dw 0                    ; ...the rest...
+ti_fabove:  dw 0                    ; ...and the band's bytes above the card
+ti_fbelow:  dw 0                    ; ...and below it
+ti_chx:     dw -1                   ; ti_cell_hit's last question...
+ti_chy:     dw -1
+ti_chl:     dw -1                   ; ...at which layout...
+ti_chr:     dw -1                   ; ...and its answer
 ti_swaps:   db 2
 ti_dok:     db 0                    ; ...and is this draw a TRANSITION?
 ti_calfull: dw 0                    ; us for a whole band...
