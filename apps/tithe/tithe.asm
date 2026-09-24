@@ -402,31 +402,49 @@ ti_onclick:
     push si
     mov [ti_win], si
     cmp byte [ti_rv], 0             ; the toggle redraws the hand, which a
-    jne .out                        ; reveal's sparks may be over
+    je .norv                        ; reveal's sparks may be over
+    jmp .out
+.norv:
     cmp byte [ti_ok], 0
-    je .step
+    jne .ok
+    jmp .step
+.ok:
     cmp byte [tg_ph], TG_PH_PLAN    ; the PASS screen: a click is the next
     je .plan                        ; player sitting down
     call tg_resume
-    jmp short .out
+    jmp .out
 .plan:
     call OSAPI_MOUSE                ; CX = x, DX = y
+    cmp byte [tg_list], 0           ; THE PLAN LIST where the hand was: a row
+    je .hand                        ; clicked is an entry removed (tigame.inc)
+    call tg_list_hit
+    cmp al, 0FFh
+    je .btn
+    call tg_list_click
+    jmp .out
+.hand:
     call ti_card_hit                ; A CARD CLICKED IS A CARD PLAYED
     cmp ax, -1                      ; (SPEC.md 97.4.11) - the hovered one,
-    je .btn                         ; which is the one the pointer is on
-    call ti_rv_play
-    jmp short .out
+    je .btn                         ; which is the one the pointer is on - or
+    call tg_card_click              ; an ORDER armed
+    jmp .out
 .btn:
-    call tg_btn_hit                 ; UNDO and COMMIT (tigame.inc)
+    call tg_btn_hit                 ; PLAN/HAND and COMMIT (tigame.inc)
     cmp al, 1
     jne .ncommit
-    call tg_undo
-    jmp short .out
+    call tg_list_toggle
+    jmp .out
 .ncommit:
     cmp al, 2
-    jne .hud
+    jne .cell
     call tg_commit
-    jmp short .out
+    jmp .out
+.cell:
+    call ti_cell_hit                ; A CELL: an order's target, a stance, or
+    cmp ax, -1                      ; one end of a swap
+    je .hud
+    call tg_cell_click
+    jmp .out
 .hud:
     mov ax, [ti_oy]
     cmp dx, ax
@@ -552,6 +570,11 @@ ti_onkey:
     call tg_undo
     jmp .out
 .n_undo:
+    cmp bl, 'l'                     ; ...`L`: the plan as a list, or the hand
+    jne .n_list
+    call tg_list_toggle
+    jmp .out
+.n_list:
     cmp al, 13                      ; ...and Enter commits
     jne .n_commit
     call tg_commit
@@ -812,8 +835,10 @@ ti_worker:
     jne .sleep
     cmp byte [ti_ok], 0
     je .sleep
-    cmp byte [tg_ph], TG_PH_PLAN    ; the pass screen has no frame to draw
-    jne .sleep
+    cmp byte [tg_ph], TG_PH_PASS    ; the pass screen has no frame to draw
+    je .sleep
+    cmp byte [tg_ph], TG_PH_OVER
+    je .sleep
     call OSAPI_GET_TICKS
     cmp ax, [ti_last]
     je .sleep                       ; the tick has not turned over: nothing is
@@ -827,9 +852,13 @@ ti_worker:
                                     ; straight over whatever is on top of us,
                                     ; and CF=1 means the window has gone
     cmp byte [tg_ph], TG_PH_PLAN    ; ...AND ASKED AGAIN UNDER THE LOCK: a
-    jne .nofr                       ; commit that landed while this task waited
-    call ti_frame                   ; for it has put the pass screen up, and a
-.nofr:                              ; frame now would draw a base over it
+    je .fr                          ; commit that landed while this task waited
+    cmp byte [tg_ph], TG_PH_RES     ; for it has put the pass screen up, and a
+    jne .nofr                       ; frame now would draw a base over it
+.fr:
+    call ti_frame
+    call tg_res_step                ; ...and a round being fought, a step of
+.nofr:                              ; it a frame (tigame.inc)
     call OSAPI_WM_CLIP_CLEAR
 .unlk:
     call OSAPI_GFX_UNLOCK
@@ -1594,7 +1623,6 @@ ti_s_commit: db 'COMMIT', 0
 ti_s_p1:    db 'P1', 0
 ti_s_p2:    db 'P2', 0
 ti_s_round: db 'ROUND ', 0
-ti_s_undo:  db 'UNDO', 0
 ti_s_front: db 'FRONT', 0
 ti_s_rear:  db 'REAR', 0
 ti_s_swap:  db 'SWAP ', 0

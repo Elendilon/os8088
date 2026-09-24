@@ -1101,6 +1101,11 @@ ti_status:
     push cx                         ; ...CX and DX, which the divide below uses
     push dx                         ; and which ti_hud_draw has already set up
     push di
+    mov si, [tg_prompt]             ; A PENDING ACTION'S QUESTION outranks the
+    or si, si                       ; pointer: an armed order, a swap's first
+    jz .ask                         ; end (tigame.inc)
+    jmp .out
+.ask:
     mov bx, [ti_hover]
     cmp bx, -1
     jne .card
@@ -1312,15 +1317,14 @@ ti_res_draw:
     mov ax, (CBLACK << 8) | CWHITE
     call OSAPI_FONT_RUN
 
-    cmp byte [ti_rsw], 0FFh         ; ...and the swaps at +64, as "S n" - the
-    je .out                         ; word does not fit and the number is what
-    mov di, ti_numbuf               ; is read
-    mov al, 'S'
-    stosb
+    mov di, ti_numbuf               ; ...and the swaps at +64, as "S n" - the
+    mov al, 'S'                     ; word does not fit and the number is what
+    stosb                           ; is read
     mov al, [ti_rsw]
     add al, '0'
     stosb
     mov byte [di], 0
+    call .hide
     mov cx, [ti_rx]
     add cx, 64
     mov dx, [ti_ry2]
@@ -1330,17 +1334,16 @@ ti_res_draw:
     jmp .out
 
 .swaps:
-    cmp byte [ti_rsw], 0FFh         ; ...and the SWAPS, which is this player's
-    je .out                         ; and not the panel's: it came off the
-    cmp word [ti_lift], 32          ; COMMIT row when UNDO took the space
-    jb .out
-    mov di, ti_numbuf
+    cmp word [ti_lift], 32          ; ...and the SWAPS, which is this player's
+    jb .out                         ; and not the panel's: it came off the
+    mov di, ti_numbuf               ; COMMIT row when UNDO took the space
     mov si, ti_s_swap
     call ti_poke
     mov al, [ti_rsw]
     add al, '0'
     stosb
     mov byte [di], 0
+    call .hide
     mov cx, [ti_rx]
     mov dx, [ti_ry2]
     add dx, 24
@@ -1355,6 +1358,18 @@ ti_res_draw:
     pop cx
     pop bx
     pop ax
+    ret
+.hide:                              ; A HIDDEN COUNT IS BLANKED, not skipped:
+    cmp byte [ti_rsw], 0FFh         ; the side that stops planning had its
+    jne .shown                      ; count on the glass a moment ago, and in
+    mov di, ti_numbuf               ; hot-seat the other player is looking
+.sp:                                ; (TITHE-PLAN 6.3.1)
+    cmp byte [di], 0
+    je .shown
+    mov byte [di], ' '
+    inc di
+    jmp short .sp
+.shown:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1530,6 +1545,18 @@ ti_cellnum:
 .put:
     call ti_stat_compose            ; OVER THE GROUND, with a halo (tiplace.inc)
     call ti_stat_bank               ; ...and kept, for a bolt to go under
+    mov ax, [ti_ci]                 ; A SWAP'S FIRST END is its numbers
+    cmp ax, [tg_sel]                ; INVERTED until the second is chosen
+    jne .blit                       ; (tigame.inc) - the one control on the
+    mov ax, [ti_nh]                 ; board that marks a cell
+    mul word [ti_nbs]
+    mov cx, ax
+    mov di, ti_cellout
+.inv:
+    not byte [di]
+    inc di
+    loop .inv
+.blit:
     mov si, ti_cellout
     mov ax, [ti_nx]
     mov bx, [ti_ny]
