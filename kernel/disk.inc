@@ -53,6 +53,10 @@ DSK_B_MEDIA  equ 21              ; BPB_Media (byte)
 DSK_B_FATSZ  equ 22              ; BPB_FATSz16 (word)
 DSK_B_SPT    equ 24              ; BPB_SecPerTrk (word)
 DSK_B_HEADS  equ 26              ; BPB_NumHeads (word)
+DSK_BPB_SZ   equ 32              ; bytes staged/banked: covers 0..DSK_B_HEADS+1
+%if DSK_B_HEADS + 2 > DSK_BPB_SZ
+  %error "DSK_BPB_SZ must cover every DSK_B_* field"
+%endif
 
 ; --- raw on-disk root directory entry field offsets (SPEC.md 19) -------------
 DSK_R_NAME   equ 0               ; name[8] (space-padded)
@@ -759,16 +763,16 @@ dsk_bpb_bank_get:
     add bx, bx
     mov si, [bx+dsk_bpbsg]      ; the signature, banked with the head
     mov [dsk_sigcur], si
-    mov cl, 6
-    shl ax, cl                  ; index * 64
+    mov cl, 5
+    shl ax, cl                  ; index * 32
     mov si, ax
     add si, dsk_bpbv
     mov di, dsk_bpb
     push ds
     pop es
-    mov cx, 32
+    mov cx, DSK_BPB_SZ / 2
     cld
-    rep movsw                   ; 64 bytes, the staged head
+    rep movsw                   ; the staged head
     mov byte [dsk_bpbpre], 1    ; ...so dsk_bpb_check skips rule 1 and the
     pop es                      ; staging, and only those
     pop di
@@ -825,14 +829,14 @@ dsk_bpb_bank_put:
     jne .fixed
     mov byte [bx+dsk_bpbok], 2  ; ...2 = only for as long as this batch runs
 .fixed:
-    mov cl, 6
+    mov cl, 5
     shl ax, cl
     mov di, ax
     add di, dsk_bpbv
     mov si, dsk_bpb
     push ds
     pop es
-    mov cx, 32
+    mov cx, DSK_BPB_SZ / 2
     cld
     rep movsw
 .done:
@@ -3452,7 +3456,7 @@ disk_mount_x:
 ; clobbers: nothing but CF
 ;
 ; Rule 1 runs via one es: word compare against the sector in low memory;
-; the boot sector's first 64 bytes are then staged into dsk_bpb (kernel
+; the boot sector's first DSK_BPB_SZ bytes are then staged into dsk_bpb (kernel
 ; .bss) and every later rule runs on plain DS reads - odd-offset word loads
 ; are plain 8086 loads, no alignment requirement exists. The BPB is
 ; HOSTILE: each rule protects a specific downstream consumer (18.2), and
@@ -3489,7 +3493,7 @@ dsk_bpb_check:
     ; stage the boot-sector head so rules 2..16 read plain DS (SPEC.md 18.2)
     mov si, dsk_secbuf
     mov di, dsk_bpb
-    mov cx, 64
+    mov cx, DSK_BPB_SZ
     call dsk_copy_in_x
 .staged:
     mov bh, [dsk_vflop]         ; FOUR rules below ask this and `cmp byte
@@ -8684,7 +8688,7 @@ section .bss
 ; volumes it was written for. The split 18.9.2 makes is between PERMANENT
 ; (fixed, 1) and BATCH-SCOPED (floppy, 2), not between volumes that use this
 ; and volumes that do not.
-dsk_bpbv:     resb DVOL_MAX * 64
+dsk_bpbv:     resb DVOL_MAX * DSK_BPB_SZ
 dsk_bpbsg:    resw DVOL_MAX
 dsk_bpbok:    resb DVOL_MAX     ; 0 = nothing banked, 1 = banked and good
                                 ; for ever (a fixed disk), 2 = good only until
@@ -8714,7 +8718,7 @@ ico_keyb:   resb ICO_KEY        ; THIS ENTRY'S (name, size), taken at the top
 
 ; mount-derived FAT state (SPEC.md 18.1) - valid only after a successful
 ; mount; every consumer is already gated by disk_nfiles != 0
-dsk_bpb:      resb 64           ; staged boot-sector head (mount scratch)
+dsk_bpb:      resb DSK_BPB_SZ   ; staged boot-sector head (mount scratch)
 dsk_fattype:  resb 1            ; 0 = FAT12, 1 = FAT16 (SPEC.md 19)
 dsk_spc:      resb 1            ; BPB_SecPerClus (validated power of two)
 dsk_fatlba:   resw 1            ; = RsvdSecCnt (FAT1 start LBA)

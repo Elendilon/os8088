@@ -256,7 +256,11 @@ CUR_SPAN    equ 2               ; ...and the framebuffer bytes it spans once
 CUR_TABSZ   equ CUR_GH          ; one BYTE a row, CUR_GH rows: cur_data is
                                 ; exactly one table past cur_and, so one SI
                                 ; walks both (asserted below)
+%ifdef GFX_VGA
 CUR_SAVE_SZ equ CUR_SPAN * CUR_GH * 4       ; ...x four planes, for VGA
+%else
+CUR_SAVE_SZ equ CUR_SPAN * CUR_GH           ; one plane: no VGA in this build
+%endif
 
 ; --- the shapes (SPEC.md 7.2) ------------------------------------------------
 ; A window names one of these and the pointer wears it over that window and

@@ -30437,7 +30437,9 @@ and the root all live in cylinder 0 while the data is spread over forty, so a
 revalidation is a seek to the front of the disk, a revolution, and a seek
 back, *per switch*. §18.94.2 measured 41 of them in one install.
 
-`dsk_bpbv` banks the 64-byte staged head per volume, `dsk_bpbsg` the §18.8.2
+`dsk_bpbv` banks the staged head per volume - `DSK_BPB_SZ` = 32 bytes, which
+covers every field `dsk_bpb_check` reads (offsets 0 to `DSK_B_HEADS`+1; rule 8
+refuses a zero TotSec16, so TotSec32 at 32 is never read) - `dsk_bpbsg` the §18.8.2
 signature that would otherwise be computed off the sector, and `dsk_bpbok`
 says which rows are good. `dsk_bpb_bank_get` restores both with **no I/O at
 all**; `dsk_bpb_bank_put` records them after a successful validation.
