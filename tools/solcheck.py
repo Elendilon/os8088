@@ -107,8 +107,8 @@ def solsyms():
     for n in os.listdir(os.path.join(ROOT, "build")):
         if n.startswith(".sol-"):
             defs = stamps.get(n[len(".sol-"):], "")
-    os.system("nasm -f bin -w+error %s -I %s/apps/ -o /dev/null -l %s %s/apps/"
-              "solitaire/solitaire.asm" % (defs, ROOT, lst, ROOT))
+    os.system("nasm -f bin -w+error %s -I %s/apps/ -o %s.bin -l %s %s/apps/"
+              "solitaire/solitaire.asm" % (defs, ROOT, lst, lst, ROOT))
     txt = open(lst).read()
     i = txt.index("mov cl, [sol_pcnt+bx]")
     enc = re.search(r"\[([0-9A-F]{4})\]", txt[txt.rindex("\n", 0, i):i])

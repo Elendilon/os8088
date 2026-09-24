@@ -81,7 +81,7 @@ def build():
     run("nasm", "-f", "bin", "-w+error", "-DKD_GATE",
         "-I", "kernel/", "-I", "kerndos/", "-o", BLOB, "kerndos/kerndos.asm")
     mp = os.path.join(BUILD, "kdboot.map")
-    run("nasm", "-f", "bin", "-w+error", "-l", os.devnull,
+    run("nasm", "-f", "bin", "-w+error",
         "-o", BOOT, "kerndos/kdboot.asm", "-Ox", "-s")
     # **THE PATCH OFFSET COMES OUT OF THE ASSEMBLER**, not out of arithmetic
     # on the file's tail: a word counted back from the end is a word that

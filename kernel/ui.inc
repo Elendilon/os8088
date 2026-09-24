@@ -1486,8 +1486,12 @@ ui_drag:
     mov ax, [vid_ymax]
 .y_high_ok:
 %ifdef KERN_BIG
-    call ui_ylow                ; SPEC.md 39.16.2: MBAR_H is the PRIMARY's
-    cmp ax, si                  ; floor, and no other card has a menu bar
+    mov si, MBAR_H              ; SPEC.md 39.16.2: MBAR_H is the PRIMARY's
+    cmp byte [vid_ndisp], 1     ; floor, and no other card has a menu bar -
+    jbe .ylow                   ; so on another display the floor is its own
+    EXTCALL EXT_YLOW            ; vy, where the drag's PROPOSED x lands
+.ylow:                          ; (ui_ylow, EXTD.DRV's now: SPEC.md 39.19.6)
+    cmp ax, si
     jge .y_low_ok
     mov ax, si
 %else
@@ -1516,7 +1520,10 @@ ui_drag:
 
 %ifdef KERN_BIG
     mov bx, [ui_dragwin]        ; THE SIZE THIS WINDOW WANTS, BEFORE ANY OF THE
-    call ui_drag_size           ; CLAMPS BELOW SEE IT (SPEC.md 11.100.3/11.100.4)
+    EXTCALL EXT_LAND            ; CLAMPS BELOW SEE IT (SPEC.md 11.100.3/11.100.4)
+    cmc                         ; EXTD.DRV answers CF = 1 NOT moved, so
+                                ; mod_gone - no image, one display - reads as
+                                ; "not moved" here (SPEC.md 39.19.6)
     pushf                       ; - CF = 1 if the size moved, which the drag
                                 ; cache may not survive.
                                 ;
@@ -1623,64 +1630,7 @@ ui_drag:
 .done:
     jmp gfx_unlock              ; NO second gfx_lock here - already held (§7)
 
-; -----------------------------------------------------------------------------
-; ui_drag_size - what size should a dropped window have? (SPEC.md 11.100.3/.4)
-; in:       BX = the window, W_X/W_Y already clamped to where it was dropped
-; out:      CF = 1 if W_W or W_H changed, CF = 0 if neither did. Every register
-;           preserved.
-;
-; TWO THINGS, and they are for the two halves of the tree. Every window gets
-; 11.100.3: the size it WANTS comes back out of the natural bank, so the clamps
-; below re-derive from that rather than from whatever the last drag's clamp
-; left behind - which is what makes a walk across the seam and home again
-; reversible instead of costing sixty rows a trip.
-;
-; A window WITHOUT a grow box also gets 11.100.4: landing wholly on a display of
-; a different adapter takes its own declared size for that adapter. One WITH a
-; grow box does not, and that is the rule rather than an optimisation - its
-; size is one the user chose, and a user outranks an application.
-;
-; The straddle test is why this is not simply "the kind changed": a frame still
-; over both cards belongs to 39.16.3, and a preference applied there would be
-; cut by it in the same breath.
-; -----------------------------------------------------------------------------
-%ifdef KERN_BIG
-ui_drag_size:
-    push ax
-    push cx
-    push dx
-    mov cx, [bx+W_W]            ; what it had, so the answer is a comparison
-    mov dx, [bx+W_H]            ; rather than a promise
-    push si
-    push di
-    mov si, [bx+W_X]            ; ...and the ORIGIN too, because wm_land_snap
-    mov di, [bx+W_Y]            ; can move a window that kept its size
-    call wm_land_fit            ; ONE question: has the adapter changed, and if
-                                ; so what size does this window want here?
-                                ; (docs/plans/completed/WINDOW-SIZING-PLAN.md 12)
-    cmp si, [bx+W_X]
-    jne .moved2
-    cmp di, [bx+W_Y]
-.moved2:
-    pop di
-    pop si
-    jne .moved
-    cmp cx, [bx+W_W]
-    jne .moved
-    cmp dx, [bx+W_H]
-    jne .moved
-    pop dx
-    pop cx
-    pop ax
-    clc
-    ret
-.moved:
-    pop dx
-    pop cx
-    pop ax
-    stc
-    ret
-%endif
+; (ui_drag_size: EXTD.DRV's EXT_LAND, kernel/extmod.inc - SPEC.md 39.19.6)
 
 ; -----------------------------------------------------------------------------
 ; ui_drag_phase - put a dropped window's x where the drag cache can replay it
@@ -1868,42 +1818,6 @@ ui_drag_xor:
 ; into. Clamping into the display the window CAME from would be the smaller
 ; move, and the record no longer holds that origin by the time this runs.
 ; -----------------------------------------------------------------------------
-; -----------------------------------------------------------------------------
-; ui_ylow - the lowest y a title bar may take, where this window is
-;           (SPEC.md 39.16.2)
-;
-; in:       BX = the window; [ui_curx] = the x the drag is proposing
-; out:      SI = the floor
-; clobbers: SI, flags
-;
-; MBAR_H on display 0 and the display's own vy anywhere else - because the
-; menu bar is the primary's and nothing else has one. Asked with the drag's
-; PROPOSED x rather than the window's current one: the clamp runs before
-; W_X is stored on some passes, and a window being dragged onto the second
-; monitor must be floored by where it is GOING.
-; -----------------------------------------------------------------------------
-ui_ylow:
-    mov si, MBAR_H
-    cmp byte [vid_ndisp], 1
-    jbe .out
-    push ax
-    push bx
-    push di
-    mov ax, [ui_curx]
-    mov bx, MBAR_H              ; any row the primary's band contains, so a
-                                ; point on display 0 resolves to it
-    call vid_disp_of
-    or al, al
-    jz .done                    ; display 0 keeps the chrome's floor
-    call vid_ctx_ptr
-    mov si, [di+VID_CTX_VY]
-.done:
-    pop di
-    pop bx
-    pop ax
-.out:
-    ret
-
 ui_drag_dead:
     cmp byte [vid_ndisp], 1
     jbe .out
@@ -2078,7 +1992,7 @@ ui_grow:
                                 ; back 266x180. Banked HERE, where the take
                                 ; reads it, that take is a no-op and the clamp
                                 ; still bounds the answer
-    call wm_land_fit            ; a grow can push a frame across the seam too
+    EXTCALL EXT_LAND            ; a grow can push a frame across the seam too
 %endif                          ; (SPEC.md 39.16.3)
     call wm_snap_win            ; ...and the ALIGNED x is a question about the
                                 ; WIDTH now (SPEC.md 11.95.2): a window shrunk
@@ -2926,7 +2840,7 @@ ui_rb_go:                       ; the last instruction of the GUI, and a name
 %endif
 
 ; -----------------------------------------------------------------------------
-; ui_reboot_post - API slot 0x02A4 (SPEC.md 20.10). AL in, no answer.
+; ui_reboot_post - API slot 0x0298 (SPEC.md 20.10). AL in, no answer.
 ;
 ; AL = 0 restart the way the System menu does, flushing the Control Panel's
 ; settings on the way out; AL non-0 restart WITHOUT going near a disk. The

@@ -495,29 +495,96 @@ class Mouse:
             % ("right" if btn == 2 else "left",
                "press" if down else "release", self.where()[2]))
 
+    # A DOUBLE-CLICK'S TWO PRESSES ARE SPACED IN GUEST CYCLES, NOT HOST ROUND
+    # TRIPS. `_edge` proves an edge by polling the guest while it runs freely,
+    # so the gap between the first press and the second was however much
+    # guest time elapsed while the host sent a packet, polled, slept and sent
+    # again - a quantity of the BOX. On a loaded box that crossed the kernel's
+    # 9-tick window and the guest saw two first clicks; the Weave family grew
+    # a navigation retry for it and documented it as the thing that flakes.
+    # Stepped instead: the guest is paused, each packet is sent and the
+    # machine advanced DBL_STEP cycles at a time until the published button
+    # level agrees, so the span is the UART's and the ISR's and nothing else -
+    # a packet is 3 bytes at 1200 baud, 25 ms, and the whole gesture is about
+    # one tick of the window's nine whatever the host is doing.
+    DBL_STEP = 20000                # cycles an advance: ~4 ms of a 4.77 MHz 8088
+    DBL_RESEND = 12                 # ...and a re-send every 240k (~50 ms), two
+                                    # packet times, so a re-send never lands on
+                                    # a packet still in flight (see `_edge`)
+    DBL_TRIES = 240                 # ~1 guest second an edge before it is lost
+
+    def _gedge(self, down, btn=1):
+        """`_edge`, with the guest PAUSED and advanced by cycles between polls.
+
+        The same proof - the published mouse_btn agrees - and the same
+        idempotent re-send, but no guest time passes that the loop did not
+        hand out itself.
+        """
+        want = btn if down else 0
+        for i in range(self.DBL_TRIES):
+            if i % self.DBL_RESEND == 0:
+                self.m.mouse(0, 0, l=down and btn == 1, r=down and btn == 2)
+            st = self.m.advance(cycles=self.DBL_STEP)
+            if st.get("state") == "breakpoint":
+                raise MartyError(
+                    "a breakpoint stopped the guest inside a double-click at "
+                    "%04X:%04X - arm it inside a bp_trace block, whose pump "
+                    "services it, or after the gesture"
+                    % (st.get("cs", 0), st.get("ip", 0)))
+            if (self.where()[2] & btn) == want:
+                self._last_edge = self.ticks()
+                return
+        raise MartyError(
+            "the %s %s was never decoded across %d guest cycles (mouse_btn = "
+            "%02x) with the packet re-sent every %d - the guest is running, "
+            "so this is the serial path and not the host"
+            % ("right" if btn == 2 else "left", "press" if down else "release",
+               self.DBL_TRIES * self.DBL_STEP, self.where()[2],
+               self.DBL_RESEND * self.DBL_STEP))
+
     def dblclick(self, x, y, settle=2.0):
         """Two presses inside the kernel's own double-click window.
 
         NOT two `click`s: that spelling is a second and a half apart and reads
-        as two first clicks. See the module docstring.
+        as two first clicks. See the module docstring, and DBL_STEP above for
+        why the presses are stepped in guest cycles.
         """
         self.to(x, y)
         if self.where()[2] & 1:         # a button left down by something else
             self._edge(False)           # would make the first press no edge
         self._sep()                     # ...the FIRST press is separated from
-        self._edge(True)                # whatever came before; the second is
-        t1 = self.ticks()               # deliberately not (see _sep)
-        self._edge(False)
-        self._edge(True)
-        t2 = self.ticks()
-        self._edge(False)
+                                        # whatever came before; the second is
+                                        # deliberately not (see _sep)
+        if getattr(self.m, "_pumping", 0):
+            # A bp_trace pump resumes breakpoint stops from its own thread,
+            # and a paused guest would take its stops away from it. Inside a
+            # pump the edges run free, as they always did.
+            self._edge(True)
+            t1 = self.ticks()
+            self._edge(False)
+            self._edge(True)
+            t2 = self.ticks()
+            self._edge(False)
+        else:
+            was = self.m.status().get("state")
+            self.m.pause()
+            try:
+                self._gedge(True)
+                t1 = self.ticks()
+                self._gedge(False)
+                self._gedge(True)
+                t2 = self.ticks()
+                self._gedge(False)
+            finally:
+                if was == "running":
+                    self.m.go()
         span = (t2 - t1) & 0xFFFFFFFF
         if span >= DBL_TICKS:
             raise MartyError(
                 "the two presses were %d ticks apart and the window is %d: "
                 "the guest saw two FIRST clicks, not a double-click. Something "
-                "between them was slow - a mount, a package load, or a host "
-                "that cannot keep up." % (span, DBL_TICKS))
+                "between them was slow - a mount or a package load holding the "
+                "mouse ISR off for half a second." % (span, DBL_TICKS))
         if self.verbose:
             print("  double-click at (%d,%d): %d tick(s) apart" % (x, y, span))
         _wait(self.m, settle, "dblclick")

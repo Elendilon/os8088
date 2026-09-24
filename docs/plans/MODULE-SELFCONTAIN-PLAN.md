@@ -254,7 +254,7 @@ is already a far door. If the module could call the public cell, the private
 shim deletes.
 
 **It works mechanically, and exactly.** An `OSAPI_*` slot is a far address
-literal in the SDK — `%define OSAPI_MEM_AVAIL KERNEL_SEG:0x01B8` — so
+literal in the SDK — `%define OSAPI_MEM_AVAIL KERNEL_SEG:0x01B0` — so
 `call OSAPI_MEM_AVAIL` assembles to the same `call far seg:off` a module
 already emits at `call COLD_SEG:dskf_disk_read`. No new mechanism, no new
 instruction, same cost. And `OSAPI_SLOT` is

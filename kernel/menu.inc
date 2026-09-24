@@ -409,7 +409,7 @@ menu_activate:
     ret
 
 ; -----------------------------------------------------------------------------
-; menu_owner - who is the ACTIVE APPLICATION? (API 0x0232, SPEC.md 12/12.6)
+; OSAPI_MENU_OWNER - who is the ACTIVE APPLICATION? (SPEC.md 12/12.6)
 ; in:  nothing
 ; out: BX = the window owning the menu bar, 0 = Locator. Every other
 ;      register, and FLAGS, preserved.
@@ -424,13 +424,13 @@ menu_activate:
 ; frame, exactly like wm_top. It is a plain word read: [menu_win] is written
 ; only by menu_activate on the UI task, and the 8086 recognises interrupts
 ; only at instruction boundaries, so it cannot be torn.
+;
+; AN INLINE CELL (SPEC.md 20.3): the cell is `mov bx, [cs:menu_win] / retf`
+; and there is no body - which is also what makes the per-frame poll cheap.
 ; -----------------------------------------------------------------------------
-menu_owner:
-    mov bx, [menu_win]
-    ret
 
 ; -----------------------------------------------------------------------------
-; menu_win_set - attach an app menu set to a window (API 0x0125, SPEC 12.2)
+; menu_win_set - attach an app menu set to a window (API 0x011E, SPEC 12.2)
 ; in:  BX = window ptr, SI = menu set ptr (0 = no menus of its own)
 ; out: nothing (all registers preserved, FLAGS INCLUDED)
 ;
