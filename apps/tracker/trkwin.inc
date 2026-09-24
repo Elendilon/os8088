@@ -12,8 +12,8 @@
 ;                        the same button fires, slide off and they cancel
 ;   the volume slider    click AND drag, live
 ;   the scrubber         click and drag; the seek lands on the release
-;   the visualiser       XT (four needles, delta-drawn) or 286+ (a spectrum
-;                        and an oscilloscope), 45.21.5
+;   the visualiser       XT (four needles, delta-drawn, or twelve bars) or
+;                        286+ (a spectrum and an oscilloscope), 45.21.5
 ;   the option grid      standard buttons, LATCHED to show a setting is on
 ;   the status line
 ;
@@ -132,9 +132,25 @@ TWV_N       equ 4                   ; ...the four a pick cycles through; the
 TWV_THIN    equ 4                   ; one below is only ever FORCED: the XT meter
 TW_OFFLEN   equ 19                  ; tw_s_voff's length (asserted below)
 TW_UOFFLEN  equ 9                   ; ...and tw_s_uoff's
-TW_NBAND    equ 16
-TW_BPITCH2  equ 14                  ; a band's pitch...
-TW_BANDW    equ 12                  ; ...and its bar's width
+TW_NBAND    equ 16                  ; the 286+ spectrum: sixteen bands...
+TW_BPITCH2  equ 14                  ; ...at this pitch...
+TW_BANDW    equ 12                  ; ...and this bar width, with markers
+%ifndef TW_XTNB
+TW_XTNB     equ 12                  ; the XT spectrum's bands (SPEC.md 45.24.1):
+%endif                              ; bars only, three semitones each
+TW_XTPIT    equ (TW_NBAND * TW_BPITCH2) / TW_XTNB  ; the same span...
+TW_XTBW     equ TW_XTPIT * TW_BANDW / TW_BPITCH2   ; ...and proportions
+%if TW_XTNB > TW_NBAND || TW_XTNB < 2
+  %error "TW_XTNB is 2..TW_NBAND"
+%endif
+%ifndef TW_BHOLD
+TW_BHOLD    equ 3                   ; a struck bar holds this many TICKS
+%endif                              ; before it falls (SPEC.md 45.24.1): a
+                                    ; note struck again at the same level
+                                    ; keeps it still instead of a fill down
+                                    ; and a fill up every row. Three ticks
+                                    ; outlast a row at the common tempos
+TW_TKMAX    equ 8                   ; the most ticks one frame decays by
 TW_SCW      equ 232                 ; the scope band: 29 bytes a row
 TW_SCSTR    equ TW_SCW / 8
 TW_SCMAX    equ 64                  ; ...and at most this many rows
@@ -564,6 +580,48 @@ tw_vizfx:
 %endif
     ret
 
+; -----------------------------------------------------------------------------
+; tw_vgeom - the spectrum's shape for this machine and mode: the 286+ face's
+; sixteen bands with peak markers (SPEC.md 45.24), or, where the XT meter is
+; forced, TW_XTNB bars and no markers (45.24.1). Sets [tw_nb], [tw_mk],
+; [tw_bpit], [tw_bw], [tw_bx0]; CF = 1 when the bands or the markers moved,
+; so the pane starts again. Preserves all but the flags.
+; -----------------------------------------------------------------------------
+tw_vgeom:
+    push ax
+    push bx
+    mov ax, TW_NBAND + 100h         ; AL = bands, AH = markers
+    mov bx, TW_BPITCH2
+    call tw_vizfx
+    je .g
+    mov ax, TW_XTNB
+    mov bx, TW_XTPIT
+.g:
+    cmp ax, [tw_nb]                 ; tw_mk follows tw_nb: one word
+    je .same
+    mov [tw_nb], ax
+    mov [tw_bpit], bx
+    mov ax, bx
+    mul byte [tw_nb]                ; the bands' span, centred in 16 x 14
+    neg ax
+    add ax, TW_NBAND * TW_BPITCH2
+    shr ax, 1
+    add ax, 8
+    mov [tw_bx0], ax
+    mov ax, TW_BANDW                ; the 286+ bar, or the XT's in proportion
+    cmp byte [tw_mk], 0
+    jne .w
+    mov ax, TW_XTBW
+.w:
+    mov [tw_bw], ax
+    stc
+    jmp short .out
+.same:
+    clc
+.out:
+    pop bx
+    pop ax
+    ret
 ; -----------------------------------------------------------------------------
 ; tw_vizxhi - is the visualiser forced to NONE? ZF = 0 (jne) yes: forced to
 ; the XT meter (tw_vizfx) AND in XT mode at 11 kHz, where the mixer leaves the
@@ -1399,11 +1457,13 @@ tw_sliders:
 ;          screen shows (tui_vu, 45.12.1) - each a bar that moves by the
 ;          difference: a steady needle costs nothing, a moving one ONE fill.
 ;          Forced on a tier-0 machine and in XT mode (tw_vizfx), because that
-;          is the budget those two mean - but Off is still a pick there, so
-;          the button cycles VU Meter <-> Off rather than greying.
+;          is the budget those two mean - where the button cycles VU Meter
+;          -> Spectrum -> Off, and the spectrum is the XT's own: twelve bars,
+;          no markers, one band a note (SPEC.md 45.24.1).
 ;   286+   a SPECTRUM - sixteen bands kicked by the notes as they are HEARD,
-;          one fill per band that moved - or an OSCILLOSCOPE, composed into a
-;          1bpp band in our own RAM and put up with ONE OSAPI_GFX_BLIT1.
+;          one fill per band that moved, with peak markers - or an
+;          OSCILLOSCOPE, composed into a 1bpp band in our own RAM and put up
+;          with ONE OSAPI_GFX_BLIT1.
 ;
 ; ModPlug's versions drew every column and every bar every frame; its scope
 ; alone was two hundred primitive calls a frame, which is why it did not keep
@@ -1727,18 +1787,20 @@ tw_bar:
     ret
 
 %ifdef TRKLOG
-; THE BENCH BUILD CARRIES NO 286+ PICTURE. TRKLOG is an XT instrument (the
-; field log, docs/FIELD-NOTES.md 16), and on an XT tw_vizfx forces the meter
-; whatever is picked - so the spectrum and the scope are code it can never
-; run, ~700 bytes of a package that has to fit 60KB with the log in it.
+; THE BENCH BUILD CARRIES NO SPECTRUM AND NO SCOPE. TRKLOG is an XT
+; instrument (the field log, docs/FIELD-NOTES.md 16) and its tw_vizfx forces
+; the meter always, so its button cycles VU Meter <-> Off: ~700 bytes of a
+; package that has to fit 60KB with the log in it. The shipped XT spectrum
+; (SPEC.md 45.24.1) is not in it.
 tw_skick:
     ret
 %else
 ; -----------------------------------------------------------------------------
-; tw_spec - sixteen bands, each a column that moves by its difference. The
-; levels live in tw_band (0..64), kicked by tw_skick as a note is HEARD and
-; decayed by tw_vtick; tw_bh holds each column's drawn height, and tw_peak /
-; tw_ph each band's peak marker (SPEC.md 45.24).
+; tw_spec - [tw_nb] bands, each a column that moves by its difference:
+; sixteen with peak markers, or the XT's twelve bars (tw_vgeom). The levels
+; live in tw_band (0..64), kicked by tw_skick as a note is HEARD and decayed
+; by tw_vtick; tw_bh holds each column's drawn height, and tw_peak / tw_ph
+; each band's peak marker (SPEC.md 45.24, 45.24.1).
 ; -----------------------------------------------------------------------------
 tw_spec:
     call tw_zin
@@ -1747,25 +1809,31 @@ tw_spec:
     cmp byte [tw_vfull], 0
     je .cols
     mov si, CBLACK                  ; the ground: every column gap, and the
-    mov di, cx                      ; margins either side of the sixteen
+    mov di, cx                      ; margins either side of the bands
     mov cx, ax
-    add cx, 7
+    add cx, [tw_bx0]
+    dec cx
     call tw_fills                   ; left margin
-    add ax, 8 + TW_BANDW            ; ...then the fifteen 2-px gaps
-    mov cx, TW_NBAND - 1
+    add ax, [tw_bx0]
+    add ax, [tw_bw]                 ; ...then the gaps between the bands
+    mov cl, [tw_nb]
+    xor ch, ch
+    dec cx
 .gap:
     push cx
     mov cx, ax
-    inc cx
+    add cx, [tw_bpit]
+    sub cx, [tw_bw]
+    dec cx
     call tw_fills
     pop cx
-    add ax, TW_BPITCH2
+    add ax, [tw_bpit]
     loop .gap
     mov cx, di                      ; ...and the right margin, from where the
     call tw_fills                   ; last band ends
 .cols:
     call tw_zin_x                   ; AX = interior x1
-    add ax, 8                       ; AX = band 0's x
+    add ax, [tw_bx0]                ; AX = band 0's x
     xor di, di
 .b:
     push ax
@@ -1783,11 +1851,17 @@ tw_spec:
     mul bx
     shr ax, cl
     mov bp, ax                      ; BP = the marker's
+    cmp byte [tw_mk], 0
+    jne .mk
+    xor bp, bp                      ; the XT spectrum: bars only
+.mk:
     pop ax
     call tw_scol
-    add ax, TW_BPITCH2
+    add ax, [tw_bpit]
     inc di
-    cmp di, TW_NBAND
+    mov cl, [tw_nb]
+    xor ch, ch
+    cmp di, cx
     jb .b
     ret
 
@@ -1995,7 +2069,8 @@ tw_scol:
     push si
     mov ax, [tw_scx]
     mov cx, ax
-    add cx, TW_BANDW - 1
+    add cx, [tw_bw]
+    dec cx
     mov bx, [tw_t3]
     sub bx, [tw_srt]
     inc bx
@@ -2087,15 +2162,16 @@ tw_skick:
     mov [tw_chnote + bx], al
 .old:
     mov al, [tw_chnote + bx]
-    mov ah, 4                       ; band = note * 16 / 36 = note * 4 / 9
-    mul ah
-    mov cl, 9
+    mul byte [tw_nb]                ; band = note * bands / 36
+    mov cl, 36
     div cl
     mov cl, al                      ; CL = the band
     xor ch, ch
     mov al, [tui_vu + bx]           ; ...kicked to the needle's own level
     mov di, cx
     call tw_kick1
+    cmp byte [tw_mk], 0             ; the XT's bars light ONE band a note:
+    je .done                        ; a neighbour is two more columns moving
     shr al, 1
     dec di
     js .r
@@ -2116,11 +2192,14 @@ tw_skick:
 .none:
     ret
 
-; tw_kick1 - raise band DI to at least AL
+; tw_kick1 - raise band DI to at least AL, and hold it there TW_BHOLD ticks.
+; A strike AT the bar's level renews the hold too: that is the steady note at
+; the top, which used to fall one frame and be kicked back the next
 tw_kick1:
     cmp al, [tw_band + di]
-    jbe .out
+    jb .out
     mov [tw_band + di], al
+    mov byte [tw_bhold + di], TW_BHOLD
 .out:
     ret
 
@@ -2304,10 +2383,35 @@ tw_sccomp:
 %endif
 
 ; -----------------------------------------------------------------------------
-; tw_vtick - the once-a-frame decay (the WORKER's frame only: a refresh from a
-; key must not make the needles fall faster). preserves all
+; tw_vtick - the decay, stepped once for every TICK since the last frame
+; (SPEC.md 45.24.1). It was once a FRAME, which is the same thing at 18.2
+; frames a second and is SLUGGISH below it: a machine drawing 8 frames a
+; second let its bars fall at 44% of their speed. Now a slow machine draws
+; fewer of the steps but every step happens, so a bar can be BEHIND and is
+; never slow. The WORKER's frame only: a refresh from a key must not make the
+; needles fall faster. preserves all
 ; -----------------------------------------------------------------------------
 tw_vtick:
+    push ax
+    push cx
+    call OSAPI_GET_TICKS
+    mov cx, ax
+    xchg ax, [tw_vtk]
+    sub cx, ax                      ; CX = ticks since the last decay
+    jz .done
+    cmp cx, TW_TKMAX                ; (the first frame, or one after a long
+    jbe .n                          ; stall: the bars are at the floor by
+    mov cx, TW_TKMAX                ; then either way)
+.n:
+    call tw_vstep
+    loop .n
+.done:
+    pop cx
+    pop ax
+    ret
+
+; tw_vstep - one tick's decay. preserves all
+tw_vstep:
     push ax
     push bx
     cmp byte [tw_vizm], TWV_SPEC
@@ -2323,6 +2427,13 @@ tw_vtick:
     xor bx, bx                      ; each one's recent high (SPEC.md 45.24)
 .s:
     mov al, [tw_band + bx]
+    cmp byte [tw_bhold + bx], 0     ; a bar just struck holds (45.24.1)
+    je .nohold
+    dec byte [tw_bhold + bx]
+    jmp short .nx
+.nohold:
+    cmp byte [tw_mk], 0
+    je .bfall                       ; the XT's bars carry no marker
     cmp al, [tw_peak + bx]
     jb .pfall
     mov [tw_peak + bx], al          ; a new high: the marker jumps to it and
@@ -2347,6 +2458,7 @@ tw_vtick:
     xor al, al
 .st:
     mov [tw_band + bx], al
+.nx:
     inc bx
     cmp bx, TW_NBAND
     jb .s
@@ -2417,18 +2529,26 @@ tw_update:
     call tw_vizxhi                  ; forced: none at XT mode's 11 kHz, where
     mov al, TWV_OFF                 ; the mixer leaves no time to draw one...
     jne .vm
-    cmp byte [tw_viz], TWV_OFF      ; ...the user's Off where it was picked
-    je .vm                          ; (SPEC.md 45.23)...
+    mov al, [tw_viz]                ; ...the user's Off where it was picked
+    cmp al, TWV_OFF                 ; (SPEC.md 45.23), or the XT's own bars
+    je .vm                          ; (45.24.1)...
+%ifndef TRKLOG
+    cmp al, TWV_SPEC
+    je .vm
+%endif
     mov al, TWV_THIN                ; ...else the XT meter, thin (tw_vu)
 .vm:
+    call tw_vgeom                   ; CF = 1: the spectrum changed SHAPE (XT
+    jc .new                         ; mode, under a spectrum already up)
     cmp al, [tw_vizm]
     je .vs
+.new:
     mov [tw_vizm], al
     or byte [tw_dirty], TWI_VIZ
     push ds
     pop es
     mov di, tw_band                 ; a new mode starts from nothing - the
-    mov cx, 2 * TW_NBAND            ; bands and their peak markers both
+    mov cx, 4 * TW_NBAND            ; bands, their peak markers and both holds
     xor al, al
     cld
     rep stosb
@@ -2961,11 +3081,20 @@ tw_a_viz:
     jb .set
     xor al, al
     jmp short .set
-.xt:                                ; forced to the XT meter: its two picks,
-    cmp al, TWV_OFF                 ; VU Meter <-> Off (SPEC.md 45.23.1)
-    mov al, TWV_OFF
-    jne .set
-    mov al, TWV_VU
+.xt:                                ; forced to the XT's budget: VU Meter ->
+    mov ah, TWV_VU                  ; Spectrum (bars only) -> Off (SPEC.md
+    cmp al, TWV_OFF                 ; 45.23.1, 45.24.1). No Scope: it does
+    je .xs                          ; not keep up on a 286 either
+%ifdef TRKLOG
+    mov ah, TWV_OFF                 ; the bench build carries no spectrum
+%else
+    mov ah, TWV_OFF
+    cmp al, TWV_SPEC
+    je .xs
+    mov ah, TWV_SPEC
+%endif
+.xs:
+    mov al, ah
 .set:
     mov [tw_viz], al
 .out:
@@ -3362,7 +3491,14 @@ tw_line     equ tui_rbuf            ; one composed LCD, status or list line:
     TRKBUF tw_peak, TW_NBAND        ; ...the peak markers' levels - RIGHT
                                     ; AFTER tw_band, so the idle scan and a
                                     ; mode's clear take both in one run
-    TRKBUF tw_phold, TW_NBAND       ; ...frames each marker still holds
+    TRKBUF tw_phold, TW_NBAND       ; ...ticks each marker still holds
+    TRKBUF tw_bhold, TW_NBAND       ; ...and each BAR (TW_BHOLD, 45.24.1)
+    TRKW tw_vtk                     ; the tick the decay last stepped on
+    TRKB tw_nb                      ; the spectrum's shape, set with the mode:
+    TRKB tw_mk                      ; bands, markers or none,
+    TRKW tw_bpit                    ; pitch, bar width, and band 0's x from
+    TRKW tw_bw                      ; the interior's left edge
+    TRKW tw_bx0
     TRKBUF tw_bh, TW_NBAND          ; ...and its columns' drawn heights
     TRKBUF tw_ph, TW_NBAND          ; ...and its markers' (0 = none on glass)
     TRKBUF tw_sb, 8 * 2             ; tw_scol's run boundaries (words)
@@ -3378,6 +3514,13 @@ tw_line     equ tui_rbuf            ; one composed LCD, status or list line:
     TRKB tw_sall                    ; 1 = the column is owed whole
 %if tw_peak != tw_band + TW_NBAND
   %error "tw_peak must follow tw_band: tw_want and tw_update take both as one run"
+%endif
+%if tw_mk != tw_nb + 1
+  %error "tw_mk must follow tw_nb: tw_vgeom compares the pair as one word"
+%endif
+
+%if tw_bhold != tw_band + 3 * TW_NBAND || tw_phold != tw_band + 2 * TW_NBAND
+  %error "tw_phold and tw_bhold follow tw_peak: tw_update clears all four as one run"
 %endif
     TRKBUF tw_chnote, 4             ; each channel's last note
     TRKB tw_scflat                  ; the flat trace is on the glass

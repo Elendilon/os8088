@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""trklcd - the XT visualiser button, and the LCD drawn by its inputs
-(SPEC.md 45.23.1, 45.21.8)
+"""trklcd - the XT visualiser button and spectrum, and the LCD drawn by its
+inputs (SPEC.md 45.23.1, 45.24.1, 45.21.8)
 
     make trkrate && python3 tests/trklcd.py
 
@@ -8,9 +8,16 @@ On a 5150 with XT mode pre-armed (tier 0, SPEC.md 45.9), playing BEVERLY.MOD
 at 5.5 kHz:
 
   THE BUTTON (45.23.1) - the forced XT meter no longer greys it:
-    1. live at 5.5 kHz, and a click picks Off, a second VU Meter again
+    1. live at 5.5 kHz, and clicks go VU Meter -> Spectrum -> Off -> VU
     2. R to 11 kHz forces none and GREYS it, and a click there does nothing
     3. R back makes it live again
+
+  THE XT SPECTRUM (45.24.1) - bars only, TW_XTNB of them, decayed by the
+  clock and held at the top, and it KEEPS UP: 17 frames a second or better
+  (it reads 18.0-18.1, every tick) with the ring never under half full
+  (TRK_DEEP - it reads 6,144 of 8,192, the same as with the pane off). The
+  286's 16-band spectrum with markers, forced onto the XT, reads 15.0 and a
+  ring down to 2,048, so either threshold alone catches that regression.
 
   THE LCD (45.21.8) - a line is composed only when its KEY moves, and then
   only the cells that differ from its shadow are lettered:
@@ -51,6 +58,9 @@ DISK = "build/trkship360.img"          # the SHIPPED player
 MACHINE = "os8088_5150_herc_sb_gla"
 HZ = 4772728.0
 VIZ = 8 + 4                            # TW_NTB + the TWO_VIZ option slot
+XTNB = int(re.search(r"^TW_XTNB\s+equ\s+(\d+)",          # read, not restated
+                     open(os.path.join(ROOT, "apps/tracker/trkwin.inc")).read(),
+                     re.M).group(1))
 fails = []
 
 
@@ -153,6 +163,30 @@ def main():
         guest(8.0)
         check("drawn: the thin XT meter (tw_vizm)", b("tw_vizm"), 4)
         check("the button is live", flags() & 1, 0)
+        click()
+        check("click: Spectrum picked and drawn", (b("tw_viz"), b("tw_vizm")), (1, 1))
+        check("...bars only (tw_mk), TW_XTNB of them",
+              (b("tw_mk"), b("tw_nb")), (0, XTNB))
+        ups = rate(P["tw_update"])
+        # THE RING, not a byte count: [trk_consumed] moves in whole BLOCKS,
+        # so a short window reads 93% or 102% of a perfect stream. A lead
+        # that never reaches zero is the music reaching the card whole.
+        c0 = m.status()["cycles"]
+        heard, lead = 0, []
+        last = wv(P["@trk_consumed"])
+        for _ in range(64):
+            guest(0.25)
+            now = wv(P["@trk_consumed"])
+            heard += (now - last) & 0xFFFF
+            last = now
+            lead.append((wv(P["@trk_total"]) - now) & 0xFFFF)
+        secs = (m.status()["cycles"] - c0) / HZ
+        audible = 100.0 * heard / secs / wv(P["@mp_mixrate"])
+        print("  XT spectrum: %.1f frames/s, %.1f%% heard, ring lead min %d"
+              % (ups, audible, min(lead)))
+        check("...at 17 frames a second or better", ups >= 17.0, True)
+        check("...the ring stays half full (min lead >= 4096)", min(lead) >= 4096, True)
+        check("...and the byte count agrees (>= 95%)", audible >= 95.0, True)
         click()
         check("click: Off picked and drawn", (b("tw_viz"), b("tw_vizm")), (3, 3))
         check("...and the button still live", flags() & 1, 0)

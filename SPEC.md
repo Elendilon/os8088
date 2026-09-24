@@ -73147,9 +73147,10 @@ and 4 reads **8.96, 26.88 and 35.84 s**, to the hundredth.
 
 | mode | what | cost a frame |
 |---|---|---|
-| **XT** — forced in XT mode and on a tier-0 machine, where the button cycles **VU Meter ↔ Off** (§45.23.1) | four horizontal needles: the FT2 screen's own note-driven `tui_vu` (§45.12.1), a **third of their slot tall** (`TWV_THIN`) | the difference: nothing when steady, one fill per needle that moved |
+| **XT** — forced in XT mode and on a tier-0 machine, where the button cycles **VU Meter → Spectrum → Off** (§45.23.1) | four horizontal needles: the FT2 screen's own note-driven `tui_vu` (§45.12.1), a **third of their slot tall** (`TWV_THIN`) | the difference: nothing when steady, one fill per needle that moved |
 | **none** — XT mode at 11 kHz | the pane says *No meters at 11 kHz*, drawn once | nothing |
 | **Spectrum** (286+) | sixteen bands, kicked as a note is **heard**, each with a peak marker (§45.24) | one fill per band that moved, two for a marker's step |
+| **Spectrum** (XT) | `TW_XTNB` = twelve bars, **no markers**, one band a note (§45.24.1) | one fill per bar that moved |
 | **Scope** (286+) | the mixer's last output | **one** `OSAPI_GFX_BLIT1` |
 
 ModPlug's visualisers drew every column and bar every frame — its scope alone
@@ -73176,11 +73177,11 @@ what it had was needles frozen for seconds at a time; the pane says so
 instead, and the visualiser button greys with it — the ONE state it greys in
 (§45.23.1).
 
-**The bench build carries no 286+ picture.** `-DTRKLOG` (tests/trklog.inc,
-the XT field log) replaces the spectrum and the scope with `tw_skick: ret`
-and forces the meter in `tw_vizfx`: on an XT they are forced off anyway, so
-they were ~700 bytes it could never run, of a package that has to fit
-`APP_MAX_SIZE` with the log inside it.
+**The bench build carries no spectrum and no scope.** `-DTRKLOG`
+(tests/trklog.inc, the XT field log) replaces both with `tw_skick: ret` and
+forces the meter in `tw_vizfx`, so its XT button cycles VU Meter ↔ Off. They
+were ~700 bytes of a package that has to fit `APP_MAX_SIZE` with the log
+inside it. The shipped player's XT spectrum (§45.24.1) is not in that build.
 
 #### 45.21.7 The keys the face added
 
@@ -73339,12 +73340,13 @@ the legend was the one place still calling it a stop.
 The forced XT meter used to **grey the button**: with nothing to pick
 between, a greyed button was the honest answer. Off made it a choice again,
 so where the meter is forced (XT mode, or a tier-0 machine — `tw_vizfx`) the
-button stays live and cycles **VU Meter ↔ Off** only; Spectrum and Scope are
-still never offered there. Only XT mode's 11 kHz, which forces *none*
-(`tw_vizxhi`), greys it. The pick is the one byte `[tw_viz]`, so an Off
-picked on an XT survives a trip out of XT mode, and turning the meter back on
-there picks VU Meter (a Spectrum picked on a 286 is not remembered across
-the trip).
+button stays live. It cycles **VU Meter → Spectrum → Off**, where the Spectrum
+is the XT's own bars-only one (§45.24.1). Scope is never offered there: it does
+not keep up on a 286 either. Only XT mode's 11 kHz, which forces *none*
+(`tw_vizxhi`), greys it. The pick is the one byte `[tw_viz]`, so a pick made on
+an XT survives a trip out of XT mode. A Scope picked on a 286 shows as VU
+Meter on the XT. The bench build (`TRKLOG`) carries no spectrum at all, so
+there the cycle is VU Meter ↔ Off.
 
 ### 45.24 The spectrum's peak markers
 
@@ -73391,8 +73393,81 @@ A full fall is sixteen steps at any step period, so falling twice as fast
 does not double the fills: it spends the same steps sooner. What the shorter
 hold adds is steps a sustained note would have held through. The markers cost
 about what the old slow bars cost, because the faster bars drop to zero
-sooner and that pays for most of the marker steps. Spectrum is
-286+-only (§45.21.5), so an XT never runs any of this.
+sooner and that pays for most of the marker steps. The markers are the
+286+ face's only (§45.21.5). The XT's spectrum has none, which is most of why
+it fits there (§45.24.1).
+
+#### 45.24.1 The XT's spectrum: bars only, twelve of them, and on the clock
+
+**An XT can pick Spectrum now**, and what it gets is a spectrum shaped for
+the machine rather than the 286's one squeezed onto it. The 286's spectrum,
+forced on a 5150 in XT mode at 5.5 kHz, drew **7.7 frames a second**
+(`docs/reports/TRACKER-XT-SPECTRUM-2026-09-24.md`). This one draws **18.1**,
+every tick, with the audio untouched. Four changes did it. Two of them apply
+to the 286+ face too.
+
+1. **No markers** (`[tw_mk]` = 0). A marker is a second shape in the column.
+   It makes `tw_scol` cut and sort the column, and it costs two fills a step.
+   Without markers every column takes the fast path: one fill, of one colour,
+   over the rows that moved.
+2. **One band a note.** The 286's spectrum kicks a note's two neighbours at
+   half level, which moves three columns for one note. The XT lights one.
+3. **Twelve bands** (`TW_XTNB`). Twelve divides the 36-note range exactly,
+   three semitones a band and four an octave, where 8 and 16 would split
+   notes between bands. The bands keep the 286's span and proportions
+   (`TW_XTPIT` = 18, `TW_XTBW` = 15), and `tw_vgeom` sets the shape from
+   whether the meter is forced. A spectrum already up when XT mode toggles
+   changes shape and starts again.
+4. **A struck bar holds `TW_BHOLD` = 3 ticks** before it falls (both faces).
+   It was hyperactive at the top: a note struck every row at the same level
+   fell one frame and was kicked back the next, so a fill down and a fill up
+   every row, for a bar that should have stood still. A strike at the bar's
+   level renews the hold. Three ticks (~165 ms) outlast a row at the common
+   tempos (BEVERLY.MOD's speed 7 at 125 BPM is 140 ms) and are still short of
+   a peak marker's 0.2 s.
+
+**The decay now runs on the clock, not the frame** (`tw_vtick`, both faces).
+It steps once per TICK elapsed since the last frame, up to `TW_TKMAX` = 8.
+It used to step once per frame. That is the same at 18.2 frames a second and
+SLUGGISH below it: at 8 frames a second the bars fell at 44% of their speed. A
+slow frame now draws fewer of the steps but skips none, so a bar can be
+behind and is never slow. The needles follow the same rule.
+
+Measured on a 5150 (Hercules, SB, BEVERLY.MOD, XT mode at 5.5 kHz), with
+fills counted in `tw_fills` and the shares taken from the scheduler's own
+`sch_cycles` against the emulator's cycle counter:
+
+| XT spectrum | frames/s | fills/s | idle |
+|---|---|---|---|
+| 16 bands + markers (the 286's, before this section) | 7.7 | 125 | — |
+| 8 bars, no hold | 18.1 | 53.9 | 6.3% |
+| 8 bars, hold 2 | 18.0 | 49.9 | 7.6% |
+| 8 bars, hold 3 | 17.8 | 37.9 | 8.9% |
+| 16 bars, hold 3 | 17.9 | 45.9 | 5.1% |
+| **shipped: 12 bars, hold 3** | **18.1** | **42.8** | **6.5%** |
+| (VU Meter / Off, for scale) | 18.1 / 18.1 | 33.6 / 0.1 | 21.5% / 24.2% |
+
+On CGA the shipped spectrum reads 17.9 frames a second with 9.0% idle. In
+every row the ring lead's minimum stays at **6,144 of 8,192**, the same as with
+the pane off, so the music gives up nothing to the picture. That is
+`trk_deep` doing its job (§45.16.2): the worker draws first only while the ring
+is deep, so the picture is what gets less time if anything must.
+
+**Where the idle went.** The worker paces itself one frame a tick
+(`trk_worker`). It sleeps only when a frame and its feed pass finish inside
+their tick, and a pass that overruns starts the next frame immediately. So
+the ~20% idle under VU was never withheld from the picture. It was the time
+a cheap frame left over. The spectrum spends most of it, and a spectrum that
+overran every tick would lose whole ticks rather than use the slack: the old
+one's 7.7 frames a second is two and three ticks a frame.
+
+`tests/trklcd.py` gates it. It picks Spectrum on the XT, requires 17 frames
+a second and a ring that stays at least half full (`TRK_DEEP`), and checks
+bars only at `TW_XTNB`. The 286's shape forced onto the XT fails all three:
+15.0 frames a second, a ring down to 2,048, and 16 bands with markers. That
+15.0 is itself news, since the same spectrum drew 7.7 before this section and
+45.21.8: the LCD, the hold and the clock took half its cost away too. `TW_XTNB` and `TW_BHOLD` are `%ifndef`-overridable, so the table's
+arms can be rebuilt.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
