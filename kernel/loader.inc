@@ -1462,7 +1462,7 @@ ld_start:
 
 ; -----------------------------------------------------------------------------
 ; ld_pkg_start - OSAPI_PKG_START: START THE PACKAGE CALLED NAME
-;                (SPEC.md 21.5), slot KERNEL_SEG:0x0520, an N cell
+;                (SPEC.md 21.5), OSAPI_PKG_START's cell, an N cell
 ;
 ; in:  SI    = the staged 8.3 name, in the kernel's own DS, standing in the
 ;              CALLING INSTANCE's folder - both of which api_n has already

@@ -66,7 +66,7 @@ CMZ_PSTEP   equ 512             ; source bytes between progress reports - the
                                 ; widget's own unit (SPEC.md 12.8.1), so a
                                 ; report is a compare until the bar's pixel
                                 ; extent actually moves
-CMZ_XPROG   equ 0x03C8          ; OSAPI_FS_PROG. The cloner's idiom (SPEC.md
+CMZ_XPROG   equ apic_fpg_stepb          ; OSAPI_FS_PROG. The cloner's idiom (SPEC.md
                                 ; 18.99.4): an OSAPI_SLOT is
                                 ; `push ds / push cs / pop ds / call <body> /
                                 ; pop ds / retf`, which is a far-callable
@@ -75,7 +75,7 @@ CMZ_XPROG   equ 0x03C8          ; OSAPI_FS_PROG. The cloner's idiom (SPEC.md
                                 ; with the SOURCE in DS and needs neither a
                                 ; cw_ shim nor a callback in its own ABI
 
-CMZ_XTOAST  equ 0x0380          ; OSAPI_TOAST, and it is what lets this
+CMZ_XTOAST  equ apic_toast_show          ; OSAPI_TOAST, and it is what lets this
                                 ; image carry its own VERDICT STRINGS: the
                                 ; slot takes ES:SI rather than DS:SI (the text
                                 ; is often in a heap claim, and a module image

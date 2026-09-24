@@ -58,10 +58,10 @@ HBFP        equ mod_fp + MOD_HIBER * MODFP_STRIDE
 
 ; --- API cells the module calls (SPEC.md 20.3); the kernel has no copy of
 ; --- apps/os88api.inc, so the four it needs are named here ------------------
-HB_API_FILL   equ 0x0038        ; AX=x1, BX=y1, CX=x2, DX=y2 in [gfx_color]
-HB_API_FONTX  equ 0x0068        ; CX=x, DX=y, the string at the CALLER's DS:SI
-HB_API_COLOR  equ 0x00C0        ; AL -> [gfx_color]
-HB_API_XCAPS  equ 0x0190        ; out BL = free block-table entries (SPEC.md 41)
+HB_API_FILL   equ apic_gfx_fill        ; AX=x1, BX=y1, CX=x2, DX=y2 in [gfx_color]
+HB_API_FONTX  equ apic_font_str        ; CX=x, DX=y, the string at the CALLER's DS:SI
+HB_API_COLOR  equ apic_osapi_set_color        ; AL -> [gfx_color]
+HB_API_XCAPS  equ apic_xm_caps        ; out BL = free block-table entries (SPEC.md 41)
 
 ; --- the pointer file, HIBERNAT.PTR (SPEC.md 87.3) ---------------------------
 HBP_MAGIC   equ 0               ; 'HIB1'

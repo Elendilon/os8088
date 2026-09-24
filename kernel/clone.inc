@@ -176,10 +176,10 @@ CLFP         equ mod_fp + MOD_CLONE * MODFP_STRIDE
 ; `push ds / push cs / pop ds / call <body> / pop ds / retf` - a far-callable
 ; wrapper around a near proc, which is exactly what a module needs and what
 ; four new shims in `.text` would have been, at 6 resident bytes each.
-CLO_XCAPS    equ 0x0190         ; SPEC.md 41: out AX = free KB
-CLO_XALLOC   equ 0x0198         ; in DX:AX = bytes; out CF, DX:AX = the base
-CLO_XFREE    equ 0x01A0         ; in DX:AX = a base this caller owns
-CLO_XCOPY    equ 0x01A8         ; in ES:SI / DX:AX / CX / DI = direction
+CLO_XCAPS    equ apic_xm_caps          ; SPEC.md 41: out AX = free KB
+CLO_XALLOC   equ apic_xm_alloc         ; in DX:AX = bytes; out CF, DX:AX = the base
+CLO_XFREE    equ apic_xm_free          ; in DX:AX = a base this caller owns
+CLO_XCOPY    equ apic_xm_copy          ; in ES:SI / DX:AX / CX / DI = direction
 
 section .modl                   ; the on-demand image (SPEC.md 2.8)
 modl_hdr:

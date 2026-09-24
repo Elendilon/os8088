@@ -2879,12 +2879,14 @@ osapi_table:
     OSAPI_SLOT gfx_hline          ; 0x0028
 apic_gfx_vline:
     OSAPI_SLOT gfx_vline          ; 0x0030
+apic_gfx_fill:
     OSAPI_SLOT gfx_fill           ; 0x0038
     OSAPI_SLOT gfx_frame          ; 0x0040
     OSAPI_SLOT gfx_fill_gray      ; 0x0048
     OSAPI_SLOT gfx_xor_rect       ; 0x0050
     OSAPI_SLOT gfx_xor_fill       ; 0x0058
     OSAPI_SLOT font_char          ; 0x0060
+apic_font_str:
     OSAPI_XCELL font_str_x      ; 0x0068  X: the string is package data
     OSAPI_XCELL font_width_x    ; 0x006F  X
 apic_wm_create:
@@ -2897,6 +2899,7 @@ apic_wm_create:
     OSAPI_SLOT task_yield         ; 0x009E
     OSAPI_SLOT task_sleep         ; 0x00A6
     OSAPI_SLOT osapi_get_ticks    ; 0x00AE
+apic_osapi_set_color:
     OSAPI_SLOT osapi_set_color    ; 0x00B6
     OSAPI_SLOT osapi_mouse        ; 0x00BE
     OSAPI_RSLOT osapi_srand        ; 0x00C6
@@ -2949,9 +2952,13 @@ apic_osapi_snd_tone:
     OSAPI_SLOT wm_clip_clear      ; 0x014C
     OSAPI_SLOT wm_clip_test       ; 0x0154
     OSAPI_RSLOT cpu_info           ; 0x015C - CPU tiers and memory above 1MB
+apic_xm_caps:
     OSAPI_RSLOT xm_caps            ; 0x0162   (SPEC.md 41): each body already
+apic_xm_alloc:
     OSAPI_RSLOT xm_alloc           ; 0x0168   answers its SPEC.md 20.3 contract
+apic_xm_free:
     OSAPI_RSLOT xm_free            ; 0x016E   exactly, so the slots call
+apic_xm_copy:
     OSAPI_SLOT xm_copy            ; 0x0174   straight at them - and xm_copy's
                                   ;          ES:SI is the caller's own choice,
                                   ;          so no X stub is involved either
@@ -3365,6 +3372,7 @@ apic_wm_saveu:
                                   ;          lets the raise cache put its old
                                   ;          pixels back instead of calling
                                   ;          W_PAINT (SPEC.md 11.96.1)
+apic_toast_show:
     OSAPI_RSLOT toast_show         ; 0x02B6 - ES:SI = a NUL line, CX = ticks to
                                   ;          live (0 = ~3s). Says it in the
                                   ;          menu bar and takes it down on its
@@ -3462,6 +3470,7 @@ apic_wm_destroy:
                                   ;          it still SORTS (19.4) and still
                                   ;          synthesizes '..' (19.5), so do
                                   ;          neither
+apic_fpg_stepb:
     OSAPI_RSLOT fpg_stepb          ; 0x02EB - AX = bytes moved SINCE YOUR LAST
                                   ;          REPORT, and a DRVC_FILE driver's
                                   ;          (SPEC.md 12.8.1/62.9.1): step
