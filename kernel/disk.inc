@@ -5131,9 +5131,10 @@ dsk_dirw_next_x:
 ; **The fill re-enters `dsk_xfer`**, with `[dsk_rah_busy]` stopping it caching
 ; its own fill. That is why the fill needs no CHS conversion, no retry ladder
 ; and no EOT handling of its own: it asks for a normal read into the cache's
-; own claim, and the one transfer routine does what it always did. The claim
-; is page-safe by construction (`mem_claim_dma` takes the WHOLE of it as the
-; head), so `dsk_runcap` never splits a fill and a fill is exactly one call.
+; own claim, and the one transfer routine does what it always did. That
+; includes `dsk_runcap`: the claim takes NO 64KB page head (§18.95.7), so a
+; slot can straddle a physical page, and a fill into one is then TWO calls
+; cut at the boundary - which slots do is wherever the heap put the claim.
 ;
 ; **Reads only, BIOS volumes only.** A write must reach the platter. And a
 ; `DVK_DRV` volume leaves `dsk_xfer` before the run loop for its driver, which
