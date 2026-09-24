@@ -7519,6 +7519,15 @@ SOAK = [
         # artefacts.
         needs=("marty", "nasm"), serial=True,
         wants=("build/gfxbench.o88",)),
+    Row("fmpatch", "soak", py("tests/fmpatch.py"), 60.0,
+        "SPEC.md 34.2.2: does an FM patch-load reach the channel it NAMES? "
+        "OSAPI_SND_FM verb 2 staged the patch with a loop over CX and handed "
+        "the driver CX = 0, so every patch landed on channel 0. Drives "
+        "fmtest's channel-0 click (the control) and its channel-1 click and "
+        "reads CL where the router is entered - no card needed. VERIFIED TO "
+        "FAIL with the old push order. fmrefuse is the same fixture asking "
+        "whether the refused call comes back",
+        needs=("marty",), wants=("build/fmtest.o88",)),
     Row("blitpair", "soak", py("tests/blitpair.py"), 90.0,
         "SPEC.md 5.4.1.1: is the 1bpp canvas the PICTURE? OS8088.GIF is two"
         "colours, so 39.4 sends every pixel to a solid class and the"

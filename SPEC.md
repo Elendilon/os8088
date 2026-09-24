@@ -55690,6 +55690,23 @@ It exists because the absence was a defect with a field report: Tracker
 offered 44 kHz on every machine, an SB 2.0 (DSP 2.01) refused it, and the
 reason never reached the user (§45.10.1).
 
+#### 34.2.2 A patch-load names ITS channel — the recorded bug
+
+`OSAPI_SND_FM` verb 2 stages the caller's eleven bytes into `snd_patch`
+before the driver sees them, and the staging is a `loop` over `CX`. It used to
+call the driver with `CX` still at the loop's zero and restore the caller's
+only afterwards, so **every patch-load on every channel landed on channel
+0** and every other channel went on sounding `SOUND.DRV`'s default patch — a
+half-sine carrier, which is a DC offset under the whole mix. Nothing in the
+tree could hear it: Frotz keys channel 0 alone, and `tests/fmtest`'s second
+channel asserts only that the verbs are not refused. TITHE's sequencer, on
+the `tithe-plan` branch, was the first package to patch six channels, and
+MartyPC's OPL capture of it was a bass-heavy smear where the host render had
+a horn. **The fix is the order of three pushes** — the channel is popped
+before the call — so it costs no byte. `tests/fmpatch.py` is the gate: it
+drives `fmtest`'s channel-1 patch-load and reads `CL` where the router is
+entered, which read 0 before the fix.
+
 ### 34.3 Router — ownership, priority, generations
 
 - **Tone tier**: one logical channel, single owner. Owner record =

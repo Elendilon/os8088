@@ -845,9 +845,9 @@ snd_str_busy:
 osapi_snd_fm_x:
     cmp al, 2
     jne osapi_snd_fm            ; every verb but patch-load carries no pointer
-    push cx                     ; verb 2: stage the caller's 11 bytes into
-    push si                     ; the kernel, the dsk_get_dir idiom - the
-    push di                     ; driver runs with DS = its own segment and
+    push si                     ; verb 2: stage the caller's 11 bytes into
+    push di                     ; the kernel, the dsk_get_dir idiom - the
+    push cx                     ; driver runs with DS = its own segment and
     mov di, snd_patch           ; cannot reach the caller's
     mov cx, SND_PATCH_N
 .stage:
@@ -856,11 +856,11 @@ osapi_snd_fm_x:
     inc si
     inc di
     loop .stage
-    mov si, snd_patch
-    pop di
-    call osapi_snd_fm
+    pop cx                      ; CL = THE CHANNEL AGAIN, before the driver
+    pop di                      ; sees it (SPEC.md 34.2.2): the `loop` leaves
+    mov si, snd_patch           ; CX = 0, and every patch-load on every
+    call osapi_snd_fm           ; channel used to land on channel 0
     pop si
-    pop cx
     ret
 
 osapi_snd_fm:
