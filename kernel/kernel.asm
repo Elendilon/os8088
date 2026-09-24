@@ -2195,8 +2195,9 @@ DSK_FAT_SECS equ 2              ; TWO on kern_small: 1,024 bytes of FAT_SEG
                                 ; refuse every volume rather than merely list
                                 ; less of one. Region 1,024 + 512 = 1,536,
                                 ; and the `.ovlw` guard is what holds it -
-                                ; `.ovlw` being 1,342 here, so this kernel has
-                                ; 194 bytes of slack where kern_big has none.
+                                ; `.ovlw` being 1,412 here (pass 4), so this
+                                ; kernel has 124 bytes of slack where kern_big
+                                ; has none.
 %else
 DSK_FAT_SECS equ 9              ; resident FAT cap, sectors (4,608 bytes).
                                 ; Exactly what the largest geometry this OS
@@ -7617,21 +7618,19 @@ OVL_SIZE equ ovl_end - $$       ; `$$` is the SECTION's base, which is OVL_AT
 ; DSK_DE_STRIDE and took `disk_dir` from 1,024 to 768. Comparing against the
 ; raw region would pass an overlay whose LAST sector lands on vid_rowtab.
 ;
-; The two builds are a long way apart here and both are measured:
+; Since LISTING-HOME-PLAN 13 took the listing out of the region it is the
+; FAT window plus dsk_secbuf, and both builds are measured (kernel size pass 4):
 ;
-;   kern_big    region 6,720 (4,608 + 2,112), readable 6,656, `.ovlw` 5,084
-;               -> 5,120 rounded. 1,536 spare.
-;   kern_small  region 2,336 (1,024 + 1,312), readable 2,048, `.ovlw` 1,910
-;               -> 2,048 rounded. 288 spare.
+;   kern_big    region 5,120 (4,608 + 512), `.ovlw` 5,110 -> 5,120 rounded.
+;               NO whole sector spare.
+;   kern_small  region 1,536 (1,024 + 512), `.ovlw` 1,412 -> 1,536 rounded.
+;               124 bytes of payload spare.
 ;
-; **kern_small is the binding one and it is a two-sided guard there**: the
-; region is the Disk window's LISTING (SPEC.md 22.6.2) and the payload is what
-; SPEC.md 2.5.3.2 did not move into the blob, so a byte added to `.ovlw` and a
-; byte given to `disk_dir` fail this in the same way. `.ovl` on that build has
-; 651 bytes of blob left, which is where an `.ovlw` body goes when this stops
-; fitting; kern_big's `.ovl` has 473, so kern_big is still what binds the blob.
+; So KERN_BIG binds this guard now. The blob is the other home for a boot
+; body: `.ovl` leaves 473 bytes of it on kern_big and 127 on kern_small, so
+; kern_small binds the blob.
 %if ((OVLW_SIZE + 511) / 512) * 512 > FAT_PARA * 16 + DSK_WIN_BYTES
-%error "the boot overlay's window half has outgrown the FAT window plus the mount buffers - see SPEC.md 2.1.2 and 2.5.3. ON kern_small BOTH SIDES MOVE: the region is DSK_NENT's listing (22.6.2) and the payload is what 2.5.3.2 left in `.ovlw`, so either add a body to the OVBCALL set or put the listing back"
+%error "the boot overlay's window half has outgrown the FAT window plus dsk_secbuf - see SPEC.md 2.1.2 and 2.5.3. Move a body to the blob (`.ovl`, SPEC.md 2.5.3.2) or out of the boot path"
 %endif
 
 ; --- the on-demand modules' file positions (SPEC.md 2.8) ---------------------

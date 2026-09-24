@@ -2836,8 +2836,8 @@ MAX_WIN   equ 12
 ; reads, or writes, a window that is not yours. Install them with
 ; OSAPI_WM_ONDRAG / OSAPI_WM_ONTIMER / OSAPI_WM_TIMER, which answer CF = 1 on
 ; the kernel that has neither, and never name these offsets yourself. That is
-; also why there is no WIN_SIZE here: the stride is 34 on one shipping kernel
-; and 28 on the other, and a window INDEX never leaves the kernel anyway.
+; also why there is no WIN_SIZE here: the stride is 72 on one shipping kernel
+; and 65 on the other (kernel size pass 4 folded the side tables in), and a window INDEX never leaves the kernel anyway.
 
 ; THE RECORD LIVES IN KERNEL_SEG. On entry to any callback ES points there
 ; (SPEC.md 20.1), so read and write it with an override:

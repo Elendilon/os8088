@@ -387,10 +387,10 @@ it and not the listing — and for one commit `DSK_OVLPAD` held 512 of those
 bytes back for want of anywhere else for the overlay to land. Six boot-only
 bodies then moved into the BLOB half through §2.5.3.2's `OVBCALL` set
 (`sched_init`, `mem_init`, `font_init`, `wm_init`, `files_init`, `snd_init`),
-`.ovlw` fell 1,900 → 1,342, and the pad is 0 again: that build takes the
-whole 800 too.
+`.ovlw` fell 1,900 → 1,342 (1,412 today, against a region of 1,024 + 512 =
+1,536), and the pad is 0 again: that build takes the whole 800 too.
 
-**The bases are 512-aligned and the SIZE is no longer a multiple of 512**, which
+**The bases are 512-aligned and the SIZE need not be a multiple of 512**, which
 matters because the overlay arrives on the kernel's own `int 13h` read. There
 are TWO bases here: `LOW_SEG`, a rung base, and `dsk_secbuf`, the one buffer
 in the window that is itself an `int 13h` target — and §2.1.1 holds at both
@@ -405,8 +405,8 @@ numbers happen to divide today: while the window carried a listing the region
 was 13.125 sectors and the last fraction was unreachable, so a guard against
 the raw figure would have passed an overlay whose final sector lands on
 `vid_rowtab`. What the abolition changed is the HEADROOM, not the rule — the
-shipped `.ovlw` is 4,979, which rounds to exactly 5,120, so a plain kern_big
-fits with **nothing to spare** and any diagnostic that adds one byte costs a
+shipped `.ovlw` is 5,110 (it was 4,979 when the listing left), which rounds to
+exactly 5,120, so a plain kern_big fits with **ten bytes to spare** and any diagnostic that adds one byte costs a
 whole 512 at the rounding. That is what `DSK_OVLPAD` is for, and it is no
 longer kern_small's alone: under `KERN_KNOB` — the Makefile's own name for a
 diagnostic build, which excludes kern_small and kern_emu because those are
@@ -673,11 +673,15 @@ instead of for all 104.
 
 **It fits because of §2.1.2.** The FAT window is 4,608 and `.ovlw` outgrew it
 when §2.9.12's register moved twenty boot-only bodies into the overlay. The
-mount-owned buffers sit immediately above it now, dead until the same instant,
-so the region is **6,720** — of which **6,656 is readable**, the region being
-13.125 sectors since §25.9 took the icon bodies out of it. The guard at the
-foot of `kernel.asm` is against that, with `OVLW_SIZE` rounded up to a whole
-sector.
+mount-owned buffers sit immediately above it now, dead until the same instant.
+The region was **6,720** when this split was made (6,656 readable, 13.125
+sectors once §25.9 took the icon bodies out of it); since
+docs/plans/LISTING-HOME-PLAN.md §13 took the listing out of it altogether the
+only mount-owned buffer left is the 512-byte `dsk_secbuf`, so on kern_big the
+region is **5,120 — 4,608 + 512, ten whole sectors, all of it readable** —
+against a `.ovlw` of **5,110**, ten bytes short of the ceiling. The guard at
+the foot of `kernel.asm` is against that, with `OVLW_SIZE` rounded up to a
+whole sector, so the next byte `.ovlw` gains on this build is refused there.
 
 **The window half needs no pointer and no liveness guard.** `FAT_SEG` is a
 constant this assembly knows, so `OVWCALL` is a plain far call — nothing to
@@ -735,22 +739,28 @@ correct in `.ovlw` *and* correct in `.ovl`, the blob's lifetime being the
 longer of the two. For that class the half is a question about **whose bytes**,
 and the two kernels answer it differently.
 
-- On `kern_big` the window half is free real estate. Its region is 11,328
-  bytes (a 9-sector FAT window plus §2.1.2's 6,720) against a 5,120-byte
-  `.ovlw`, so there is no pressure and `.ovlw` wins on the entry: `OVWCALL` is
-  `call FAT_SEG:` at **5 bytes**, where the blob needs `OVLGATE1`'s **9**.
-- On `kern_small` the region is 2,336 bytes and **every byte of it is the Disk
-  window's listing**. `DSK_FAT_SECS` is 2, so the FAT window is 1,024 and
-  cannot fall (a 360KB floppy declares a 2-sector FAT, and §18.2 rule 10 is an
-  acceptance threshold, so 1 would refuse every volume the kernel can mount).
-  What is left is `dsk_secbuf` 512, `disk_dir` and `dsk_icoix` — and while
-  `.ovlw` needs them, they may not shrink.
+- On `kern_big` the window half WAS free real estate, and `.ovlw` wins on the
+  entry: `OVWCALL` is `call FAT_SEG:` at **5 bytes**, where the blob needs
+  `OVLGATE1`'s **9**. It is not free any more: the region is **5,120** bytes
+  (the 4,608-byte FAT window plus the 512-byte `dsk_secbuf`, §2.1.2 — this
+  bullet once read 11,328, which counted the FAT window twice, against a
+  region of 6,720 that has since lost its listing) against a **5,110**-byte
+  `.ovlw`, so there are **ten bytes** spare and the next body that joins this
+  half on kern_big crosses the sector rounding the guard compares against.
+- On `kern_small` the region is **1,536** bytes: `DSK_FAT_SECS` is 2, so the
+  FAT window is 1,024 and cannot fall (a 360KB floppy declares a 2-sector FAT,
+  and §18.2 rule 10 is an acceptance threshold, so 1 would refuse every volume
+  the kernel can mount), and `dsk_secbuf`'s 512 is the whole of the rest.
+  `.ovlw` is **1,412**, which rounds to 1,536 with **124** spare. While the
+  window carried the Disk window's listing (2,336 bytes, `disk_dir` and
+  `dsk_icoix` above `dsk_secbuf`) every byte of the region was that listing's,
+  and while `.ovlw` needed them they could not shrink.
 
-**That is the wall, and it is worth naming because it does not look like one.**
-`DSK_OVLPAD` is 0 today, so nothing in that region is dead padding and the
-arithmetic reads as if the listing were sized by the listing. It is not: cut
-`DSK_NENT` and the region falls below `roundup(OVLW_SIZE, 512)` and the build
-stops at the guard at the foot of `kernel.asm`. A session that went looking
+**That was the wall, and it is worth naming because it did not look like one.**
+`DSK_OVLPAD` was 0, so nothing in that region was dead padding and the
+arithmetic read as if the listing were sized by the listing. It was not: cut
+`DSK_NENT` and the region fell below `roundup(OVLW_SIZE, 512)` and the build
+stopped at the guard at the foot of `kernel.asm`. A session that went looking
 for icon bytes to save on this kernel hit exactly that and reported it as
 *"kern_small doesn't get smaller because I can't shrink the icon space,
 `.ovlw` is there."*
@@ -770,12 +780,16 @@ section .ovl                    ; kern_small: the bytes the region needs back
 one of the two §2.5.3 already defines — and the four resident bytes a site
 costs `kern_small` are the whole price of the move.
 
-**Two bodies take it today**, chosen for size against call sites rather than
+**Two bodies took it first**, chosen for size against call sites rather than
 for subject: `mouse.inc`'s serial probe (`mouse_init` and the four routines
 only it reaches — **648 bytes**, one site) and `vidsel.inc`'s adapter probe
 (`vid_probe_avail`, `vid_memchk`, `vid_cga_alias` — **262 bytes**, one site).
-910 bytes, 8 resident bytes of `.text`, and `.ovlw` goes 2,820 → **1,910**,
-which rounds to 2,048 and fits a 32-entry listing's 2,336 with 288 to spare.
+910 bytes, 8 resident bytes of `.text`, and `.ovlw` went 2,820 → **1,910**,
+which rounded to 2,048 and fit a 32-entry listing's 2,336 with 288 to spare.
+Six more followed when the listing left the window (§2.1.2: `sched_init`,
+`mem_init_x`, `font_init`, `wm_init`, `files_init_x`, `snd_init`), so the
+`OVBCALL` set is eight bodies and kern_small's `.ovlw` is 1,412 against a
+1,536-byte region.
 
 **It costs no disk read and no boot time**, which is the part that makes it a
 better trade than it was proposed as. The blob is `BOOT2_SECS` sectors
@@ -2860,7 +2874,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/events.inc` | 8-byte event records (`EVT_MDOWN`/`MUP`/`RDOWN`, and `EVT_WAKE` — a package's own kick, §74.1), the system event ring queue, its two shared drains `evq_drain`/`evq_mup` (§10.3) and `evq_pending` (§13.4) |
 | `kernel/clock.inc`  | system clock (§37): the RTC ladder (§37.90 — MC146818 at 70h/71h, MM58167 and RP5C01 at 2C0h, int 1Ah last), the wall-clock date + time advanced from `[ticks]`, and formatting — prefix `clk_`. **Neither the field editor nor the RTC WRITE half is here**: `clk_fld_str`/`clk_fld_adj`/`clk_step` (§37.93) and the four rungs' writers (§37.94) are §37's code hosted in `CTRL.DRV`. What stays is the tick, the snapshot, the menu bar's formatter and the six port helpers **both** the boot overlay and that module need |
 | `kernel/clockw.inc` | §37's RTC **write** half (§37.94): `clk_rtc_write` and the four rungs' writers, `%include`d from `ctrl.inc`'s `.modc` so it ships in `CTRL.DRV` and is in RAM only while the Control Panel is open. Still `clk_`, still §37's contract — a file of its own so that `ctrl.inc` is not 600 lines of MC146818 |
-| `kernel/wm.inc`     | window records, z-order, frames, hit test, paint-all, `wm_owner` side table; `wm_runion`, `gfx_rect_isect`'s union twin (§5.11); the per-slot handler side tables `wm_about`/`wm_onsz`/`wm_onwk`/`wm_oncl`, the wake post/dispatch `wm_wake`/`wm_wake_disp` (§74.1) and the close negotiation `wm_ask_close`/`wm_close_req`/`wm_close_pass` (§75.1/§75.2) |
+| `kernel/wm.inc`     | window records, z-order, frames, hit test, paint-all, `wm_owner` side table; `wm_runion`, `gfx_rect_isect`'s union twin (§5.11); the per-slot handler words `W_ABOUT`/`W_ONSZ`/`W_ONWK`/`W_ONCL`/`W_ONRC` and the rest of the record's per-slot tail (§11 — side tables until kernel size pass 4 folded them into the record), the wake post/dispatch `wm_wake`/`wm_wake_disp` (§74.1) and the close negotiation `wm_ask_close`/`wm_close_req`/`wm_close_pass` (§75.1/§75.2) |
 | `kernel/instance.inc` | instance table: records, kind descriptors, launch/close lifecycle (§29) |
 | `kernel/memory.inc` | the claim heap (§50): the map, `mem_claim`/`mem_free`/`mem_avail`, the teardown fence — prefix `mem_`; and `mem_bytes_kb`, the **bytes → whole-KB round-up every caller that sizes a claim from a byte count needs** (§50.3), which three `.text` sites each spelled out |
 | `kernel/menu.inc`   | menu bar (System menu + the active application's name and menus), runtime bar layout, pull-down tracking, Locator's own menu set (§12/§12.2/§12.3) |
@@ -14668,7 +14682,7 @@ read by nobody — a right double-click would need no format change.
 
 `EVT_WAKE` is the one record that is not a user event, and the one whose
 poster is a package. `wm_wake` **coalesces** it — at most one queued wake per
-window slot (`wm_wkq`), the flag cleared by the dispatch before the handler
+window slot (the record's `W_WKQ` byte), the flag cleared by the dispatch before the handler
 runs — so a package that kicks from every callback cannot fill the ring and
 drop the mouse; the answer to a second post while one waits is the same CF=0
 promise. It is the ONE event `ui_task` dispatches with no lock held: the
@@ -14696,7 +14710,7 @@ the three producers are `mou_isr`, `kbm_post` and `wm_wake`, and `mouse_init`,
 the keyboard hook and the window manager all come later. Its *second* caller
 had already gone: `blk_pass` used to drop the wake press with a reset, and
 §74.1.1 replaced that with a **drain**, because a reset wipes `EVT_WAKE`
-records without `wm_wake_eaten` and leaves `wm_wkq` pointing at nothing — a
+records without `wm_wake_eaten` and leaves `W_WKQ` pointing at nothing — a
 window deaf for the rest of its life. **A mid-session reset is therefore not a
 thing to re-add**; the ring is emptied by draining it.
 
@@ -14776,7 +14790,7 @@ window's close box answers a determined hand in a few seconds instead of never.
 The events lost are the ones the user has already given up on.
 
 **The one exception: `EVT_WAKE` is a promise, not a sample.** `wm_wake`
-(§10, §74.1) coalesces on a per-window flag in `wm_wkq`, set when the wake is
+(§10, §74.1) coalesces on a per-window flag, the record's `W_WKQ` byte, set when the wake is
 queued and cleared *only by the dispatch*. Discarding a queued wake therefore
 does not lose one kick — it leaves the flag set with no record behind it, so
 that window's handler is never called again and every later `OSAPI_WM_WAKE`
@@ -14971,12 +14985,32 @@ W_ONTIMER equ 30 ; word: near ptr or 0 - the one-shot timer's handler
 W_TIMER  equ 32  ; word: the deadline in [ticks], 0 = disarmed. Written by
                  ; `wm_timer` (API slot 0x0347) and cleared by the scan
                  ; BEFORE it dispatches, so a handler may re-arm.
-WIN_SIZE equ 34  ; on kern_big. THE LAST THREE WORDS ARE KERN_BIG's ALONE:
-                 ; the 128KB kernel's record stops at 28 and its
-                 ; OSAPI_WM_ONDRAG / _TIMER / _ONTIMER answer CF = 1 instead
-                 ; (§13.8.2). `apps/os88api.inc` publishes no WIN_SIZE at all
-                 ; for that reason - the stride differs between the two
-                 ; shipping kernels and no package may stride this table.
+W_SIDE   equ 34  ; on kern_big: where the per-slot KERNEL state begins.
+                 ; THE THREE WORDS ABOVE ARE KERN_BIG's ALONE: the 128KB
+                 ; kernel's W_SIDE is 28 and its OSAPI_WM_ONDRAG / _TIMER /
+                 ; _ONTIMER answer CF = 1 instead (§13.8.2).
+; --- the per-slot state, IN THE RECORD since kernel size pass 4. These were
+; eleven parallel side tables indexed by wm_ptr2idx; none is a template word
+; and none is ABI (a package reads W_X..W_ONMOUSEUP and nothing past them).
+W_ONSZ   equ W_SIDE+0  ; size-CHANGED handler, 0 = none (§11.98)
+W_ONWK   equ W_SIDE+2  ; WAKE handler (§74.1)
+W_ONCL   equ W_SIDE+4  ; CLOSE negotiator (§75.1)
+W_ONRC   equ W_SIDE+6  ; RIGHT-CLICK handler (§13.11)
+W_ABOUT  equ W_SIDE+8  ; About handler (§12.2)
+W_PREF   equ W_SIDE+10 ; per-adapter size table offset (§11.100.1)
+W_MINW   equ W_SIDE+12 ; minimum frame, 0 = the system floor (§11.100.2);
+W_MINH   equ W_SIDE+14 ; W_MINH MUST follow W_MINW (asserted)
+W_ZOOMR  equ W_SIDE+16 ; 8 bytes: the zoom bank, ZR_* (§11.95)
+W_NATR   equ W_SIDE+24 ; 8 bytes: the natural rect, NR_* (§39.11.2.1)
+W_SUEXT  equ W_SIDE+32 ; 4 bytes: the raise cache's band extents (§11.96.11)
+W_WKQ    equ W_SIDE+36 ; byte: WKQ_NONE / WKQ_RING / WKQ_EATEN (§74.1)
+W_PKIND  equ W_SIDE+37 ; byte, KERN_BIG only: adapter kind last sized for
+                       ; (§11.100.4)
+WIN_SIZE equ 72  ; on kern_big, 65 on kern_small (which stops at W_WKQ).
+                 ; `apps/os88api.inc` publishes no WIN_SIZE at all: the
+                 ; stride differs between the two shipping kernels and no
+                 ; package may stride this table. Asserted <= 127, so every
+                 ; field is one [bx+disp8].
 MAX_WIN  equ 12
 
 WF_SIZABLE equ 4  ; W_FLAGS bit2: the window can be resized (§11.1)
@@ -14985,7 +15019,8 @@ WMIN_W     equ 96 ; smallest frame a resize can leave, outer px (§11.1)
 WMIN_H     equ 64
 ```
 
-(WIN_SIZE grew 16 → 18 → 20 → 24 → 26 → 28 → 30 → 34: never a shift idiom, always a true
+(WIN_SIZE grew 16 → 18 → 20 → 24 → 26 → 28 → 30 → 34 → 72 (kernel size pass 4
+folded the side tables in; 28 → 65 on kern_small): never a shift idiom, always a true
 multiply or `div cl`. The wm_create template stays **16 bytes**:
 {x,y,w,h,title,paint,onkey,onclick} words — everything added since is set by
 the kernel or by an explicit call, never by the template, so every shipped
@@ -14994,7 +15029,13 @@ additions were designed around: WF_SIZABLE is OR-ed in after wm_create
 (KD_WFLAG for built-ins, §29.3; `wm_sizable` for packages, §20.3), W_MENUS
 comes from `OSAPI_MENU_SET`, W_ONSIZE from `OSAPI_WM_ONSIZE`, W_ONMOUSEUP
 from `OSAPI_WM_ONMOUSEUP`, W_ONDRAG from `OSAPI_WM_ONDRAG`, W_ONTIMER from
-`OSAPI_WM_ONTIMER`, and W_DISP/W_SEG from wm_create itself. MAX_WIN
+`OSAPI_WM_ONTIMER`, and W_DISP/W_SEG from wm_create itself. **`wm_create`
+zeroes everything from W_MENUS to the end of the record in one `rep stosb`**
+before it writes W_DISP/W_SEG, so a reused slot inherits nothing of its last
+tenant's — handlers, timer, banks, preference, floor, band extents — and
+`wm_destroy` owes the tail only one clear, `W_WKQ`, because `wm_wake_redo`
+walks dead slots too (the `wm_owner` entry, outside the record, it still resets
+to 0xFF). MAX_WIN
 grew 8 → 12 for instancing (§29); `apps/os88api.inc` mirrors it. **W_W/W_H are no longer set-once**: `wm_create`
 clamps them through `wm_fit` (§39.7), and `ui_grow` (§13), `wm_resize`
 (§11.1) and `wm_fullscreen` (§11.2) rewrite them at runtime, so a window's
@@ -15021,8 +15062,9 @@ which dispatches another package's paint proc.
 Storage: `wm_wins` (MAX_WIN × WIN_SIZE, .bss), z-order byte array
 `wm_zord` (window indices, index 0 = backmost) + `wm_zn` count. Those
 three must stay contiguous and in that order — wm_init zeroes them as one
-`rep stosb` run. After them sits `wm_owner` (MAX_WIN bytes, **not** part
-of the zero run): the instance index (§29) owning each window slot,
+`rep stosb` run, which starts at the nest stack `wm_pkgd`/`wm_pkgs` (§66.6.1)
+and runs through `wm_clreq`/`wm_clask` (§75.2). After it sits `wm_owner`
+(MAX_WIN bytes, **not** part of the zero run): the instance index (§29) owning each window slot,
 0xFF = unowned; wm_init fills it with 0xFF separately. Writers:
 `inst_bind_win` at instance creation, `wm_destroy` (resets the destroyed
 slot's entry to 0xFF). Every used window is always present in `wm_zord` —
@@ -15092,7 +15134,7 @@ Frame drawing (paint-all does this before calling W_PAINT):
 | `wm_content`   | in BX = win ptr; out AX = content left, DX = content top. WF_FULL set → AX = W_X, DX = W_Y (no border, no title bar — §11.2). |
 | `wm_sizable`   | in BX = win ptr, AL = 0 clear / non-zero set WF_SIZABLE. No repaint (the grow box appears at the next paint). UI-task context only (entry procs and window callbacks qualify); safe with or without the gfx lock there — every W_FLAGS writer runs on the UI task or under the lock. API slot 0x00F8 (§20.3). |
 | `wm_grow_paint`| in BX = win ptr (caller holds the gfx lock): draw the grow box **iff** BX is the frontmost visible window with WF_SIZABLE set and WF_FULL clear; a no-op otherwise, so it is always safe to call. wm_draw_win uses it after W_PAINT, and a resizable window's **self-initiated content repaint must end with it** — the white-fill idiom (§22) erases the corner, and without the call the box vanishes until the next full repaint while wm_hit still reports AL=4 there. Packages reach it through API slot 0x0104 (§20.3). |
-| `wm_zoom`      | in BX = win ptr (resizable and not fullscreen — the CALLER's check); **caller holds the gfx lock**. Toggles the window between the **standard** state — the whole desktop band, full width, `MBAR_H` down to one pixel short of the dock, honouring `WF_SNAP` — and the **user** state it was in before, banked per slot in `wm_zoomr`. Which state it is in is derived from the record, never tracked; `wm_ask_size` is asked for both, and a refused shrink leaves it standard with its bank intact. All registers preserved. Not `wm_fullscreen`: the window keeps its chrome and its place in the z-order. §11.95. |
+| `wm_zoom`      | in BX = win ptr (resizable and not fullscreen — the CALLER's check); **caller holds the gfx lock**. Toggles the window between the **standard** state — the whole desktop band, full width, `MBAR_H` down to one pixel short of the dock, honouring `WF_SNAP` — and the **user** state it was in before, banked in the record's `W_ZOOMR`. Which state it is in is derived from the record, never tracked; `wm_ask_size` is asked for both, and a refused shrink leaves it standard with its bank intact. All registers preserved. Not `wm_fullscreen`: the window keeps its chrome and its place in the z-order. §11.95. |
 | `wm_fullscreen`| in AL = 1 enter / AL = 0 exit, **BX = the caller's own win ptr either way**; **caller holds the gfx lock** (the intended callers are W_ONKEY/W_ONCLICK handlers, which already do). See §11.2. Out CF=1 refused (the screen is another window's — entering *or* leaving), CF=0 done. API slot 0x00FE (§20.3). |
 | `wm_ptr2idx`   | in BX = win ptr (record-aligned); out AL = window index, AH = 0. Clobbers nothing else. The one public home of the `(ptr − wm_wins) / WIN_SIZE` idiom. |
 | `wm_zabove`    | in BX = win ptr; out CF=0 with `SI` → the first `wm_zord` entry **above** it, `CX` = how many are above, `AL` = its own index; CF=1 = not in the z-order (which cannot happen for a used window). Clobbers AX, CX, SI. The one home of the "find me in the z-order and walk what covers me" idiom — five routines had it written out, and two of them (`wm_lift`, `wm_destroy`) want the entry itself and take a `dec si`. |
@@ -17327,20 +17369,23 @@ this one pays a `wm_dock_under` pass. A zoom is the one operation guaranteed
 to land on that boundary, so getting it wrong here would make the feature
 expensive for everything else on the screen rather than for itself.
 
-**The user state lives in a side table, one entry per window SLOT.**
-`wm_zoomr` is `MAX_WIN × ZR_SIZE` (8) bytes of `.bss` — `{ZR_X, ZR_Y, ZR_W,
-ZR_H}` — rather than four more words in the window record, because `WIN_SIZE`
-is the stride `wm_idx2ptr` multiplies by and every reader of every window
-would pay for it. §38.10's `inst_f*` rows are the same decision for the same
-reason. Three things about it:
+**The user state lives in the window record, one bank per window SLOT.**
+`W_ZOOMR` is `ZR_SIZE` (8) bytes of the record — `{ZR_X, ZR_Y, ZR_W, ZR_H}`,
+reached as `[bx+W_ZOOMR+ZR_*]`. It was born a side table, `wm_zoomr`
+(`MAX_WIN × ZR_SIZE` bytes of `.bss`), on the argument that `WIN_SIZE` is the
+stride `wm_idx2ptr` multiplies by and every reader of every window would pay
+for a bigger one. **Kernel size pass 4 found that argument did not hold** and
+folded it in with the other per-slot tables: an 8088 has no cache, so a longer
+record costs a reader nothing, a record field is the same `[bx+disp8]` as any
+other, and every side-table access paid a `wm_ptr2idx` `div` and a scale that
+the field does not. Three things about it:
 
 - **`ZR_W = 0` is "nothing banked"**, and it is a safe sentinel because a
-  banked width is a live window's, which `WMIN_W` floors at 96. `.bss` arrives
-  zeroed (§2.5), so a slot starts empty.
-- **`wm_destroy` clears it**, beside the `wm_owner` and `wm_about` entries it
-  already clears and for the identical reason: a `wm_create` that reuses the
-  slot must not restore its window to the rect the last tenant was zoomed out
-  of.
+  banked width is a live window's, which `WMIN_W` floors at 96.
+- **`wm_create` clears it**, in the one run that zeroes the record from
+  `W_MENUS` to its end, for the reason `wm_destroy` used to clear the table
+  entry: a `wm_create` that reuses the slot must not restore its window to the
+  rect the last tenant was zoomed out of.
 - **A restore does not spend the bank.** A refused shrink (below) has to be
   askable again, and a zoom re-banks anyway.
 
@@ -19023,9 +19068,14 @@ slot only.
 `wm_destroy` already clears five per-slot side tables for exactly this reason
 (`wm_owner`, `wm_about`, `wm_onsz`, `wm_zoomr`, `wm_natr`, each with a comment
 saying a reused slot must not inherit the last tenant's). The band extents are
-the sixth and were missed; they are cleared there now, on the index the block
-already holds — `wm_about`'s `slot*2` doubled once more, which costs two `mov`s
-and two fewer shifts than the `shr`/`shl`/`shl`/`shl` it replaced.
+the sixth and were missed; they were cleared there from then on, on the index
+the block already held — `wm_about`'s `slot*2` doubled once more, which cost
+two `mov`s and two fewer shifts than the `shr`/`shl`/`shl`/`shl` it replaced.
+**Kernel size pass 4 moved the rule rather than the bytes**: the extents are
+`W_SUEXT`, four bytes of the window record, and `wm_create` zeroes the whole
+record from `W_MENUS` to its end when it takes a slot — so every per-slot word
+this section lists is cleared on the way IN, and `wm_destroy` no longer clears
+any of them (it owes `W_WKQ` alone, §74.1).
 
 Cost: **`.text` +8, footprint unchanged.** Verified on a
 cycle-accurate 5150 by driving the reported session — Disk window, Paint, close,
@@ -19087,9 +19137,11 @@ Six things are load-bearing:
   wipe the band it has just restored. Refusing at registration makes "a band
   implies the app owns its background" a property of the build rather than a
   rule for a reader to keep — §11.90.2's own interlock, one level up. The
-  interlock is on the WRITE alone, so **`wm_destroy` zeroes the slot's four
-  extents**, beside the `wm_owner` and `wm_about` entries it already clears:
-  nothing retires a band at quit, and a new tenant of Paint's slot would
+  interlock is on the WRITE alone, so **`wm_create` zeroes the slot's four
+  extents** (`W_SUEXT`, in the run that clears the record from `W_MENUS` to its
+  end — it was `wm_destroy`, beside `wm_owner` and `wm_about`, until kernel
+  size pass 4 folded the side tables into the record): nothing retires a band
+  at quit, and a new tenant of Paint's slot would
   otherwise have `wm_su_flay` lay its cache out around a tool column it never
   named — and `wm_draw_win`, seeing bands, skip the white fill it does need.
 - **A hit no longer means "skip `W_PAINT`".** With a band, `wm_draw_win`
@@ -20555,13 +20607,18 @@ kernel has to say so.**
 `OSAPI_WM_ONRESIZE`, slot **0x02F7** today — appended when it landed, the
 free list §20.3.1 then kept being empty.
 
-**It is a per-slot SIDE TABLE** (`wm_onsz`), not a word in the record, on
-§12.2's `wm_about` precedent: a handler is per *slot*, `WIN_SIZE` is what
-`wm_idx2ptr` multiplies by, and every reader of a window would pay for a wider
-record. It also costs no `.o88` a rebuild and moves no harness constant, which
-a record that grew would. `wm_destroy` clears it beside `wm_about` and
-`wm_zoomr` — a stranger's near pointer called in a new tenant's segment is not
-a wrong answer, it is a jump into the middle of its image.
+**It is a word in the record, `W_ONSZ`, and not a template word.** It was
+born a per-slot SIDE TABLE (`wm_onsz`) on §12.2's `wm_about` precedent — a
+handler is per *slot*, `WIN_SIZE` is what `wm_idx2ptr` multiplies by, and every
+reader of a window would pay for a wider record. **Kernel size pass 4 found
+that argument did not hold**: an 8088 has no cache, so a wider record costs a
+reader nothing, a record field is the same `[bx+disp8]` as any other, and every
+side-table access paid a `wm_ptr2idx` `div` the field does not. What the side
+table really bought — no `.o88` rebuilt, because the word is past the 16-byte
+template and past every field a package reads — the record field buys too.
+`wm_create` zeroes it with the rest of the record's tail — a stranger's near
+pointer called in a new tenant's segment is not a wrong answer, it is a jump
+into the middle of its image.
 
 Four things bind it:
 
@@ -21106,13 +21163,14 @@ already fitted the window, so the unclamped size survives only in the bank, and
 an entry proc's CF is the loader's return value, so a `cmp` inside the re-fit
 would abort the launch.
 
-**The kernel keeps the OFFSET, not a copy.** One word per slot (`wm_pref`, 24
-bytes of `.bss` against 144), read through `W_SEG` at use time exactly as
-`W_TITLE` and every menu string already are — `wm_strseg` is the routine, and
-it answers `KERNEL_SEG` for `W_SEG` = 0, so a kernel window declares one with
-no special case. `wm_destroy` clears it beside `wm_about`, `wm_onsz` and
-`wm_zoomr`, or a reused slot reads a stranger's offset in a new tenant's
-segment.
+**The kernel keeps the OFFSET, not a copy.** One word per window (`W_PREF`,
+in the record — two bytes a slot against a copy's twelve; it was the side table
+`wm_pref` until kernel size pass 4 folded the side tables in), read through
+`W_SEG` at use time exactly as `W_TITLE` and every menu string already are —
+`wm_strseg` is the routine, and it answers `KERNEL_SEG` for `W_SEG` = 0, so a
+kernel window declares one with no special case. `wm_create` zeroes it with the
+rest of the record's tail, or a reused slot would read a stranger's offset in a
+new tenant's segment.
 
 **A table and not a callback**, and the reason is not economy: the answer is
 wanted from inside `wm_fit` and from `ui_drag`'s release, which are **clamp
@@ -21140,8 +21198,9 @@ answer for the screen it happened to boot on.
 #### 11.100.2 `OSAPI_WM_MINSIZE` (slot 0x0382) — a floor the kernel may not cut through
 
 **BX = window, CX = minimum outer width, DX = minimum outer height**;
-`CX = DX = 0` withdraws. A per-slot side table (`wm_minw`/`wm_minh`, 48 bytes
-of `.bss`), applied by **every** path that reduces a size. Two of them already
+`CX = DX = 0` withdraws. Two words of the record (`W_MINW`/`W_MINH`, adjacent
+and asserted so — side tables `wm_minw`/`wm_minh` until kernel size pass 4),
+applied by **every** path that reduces a size. Two of them already
 had a floor — `ui_grow` and `wm_resize` clamp at `WMIN_W` x `WMIN_H` (96x64) —
 and **two had none at all**: `wm_fit` and `wm_strad_fit` would cut a frame to
 any height the display had. `WMIN_W`/`WMIN_H` stay as the default, so a window
@@ -21208,7 +21267,9 @@ kind and is told through §11.98; one that has been grown or zoomed does not —
 §11.100.5, which is where §11.100's last paragraph is enforced.
 
 **One byte per slot records the kind the window was last sized for**
-(`wm_pkind`, seeded by `wm_create` from the display the window lands on).
+(`W_PKIND`, the record's last byte on kern_big — the side table `wm_pkind`
+until kernel size pass 4 — seeded by `wm_create` from the display the window
+lands on).
 Without it the adoption fires on every drag inside one display and overwrites
 whatever the app did with `wm_resize` between drags.
 
@@ -23510,8 +23571,11 @@ it, and a package's control could not say the same thing.
 in the caller's segment, 0 clears it) **after** `wm_create` — not a template
 word, exactly as `W_ONSIZE` and `W_ONMOUSEUP` are not, because the template
 copy is eight words and growing it would read one word past every existing
-package's template. `WIN_SIZE` goes 28 → **34** with §13.9's two words beside
-it — **on `kern_big` alone**. The three words are 72 bytes of `.bss` across
+package's template. `WIN_SIZE` went 28 → **34** with §13.9's two words beside
+it — **on `kern_big` alone** (kernel size pass 4 has since appended the per-slot
+state to both records, so it is 72 against kern_small's 65, and the three words
+are still the difference between where the two records' kernel tails begin:
+`W_SIDE` 34 against 28). The three words are 72 bytes of `.bss` across
 `MAX_WIN` plus the routines that walk them, and `kern_small` was measured at
 zero spare when the split was made, so the 128KB kernel keeps a 28-byte record
 and carries `OSAPI_WM_ONDRAG`, `OSAPI_WM_TIMER` and `OSAPI_WM_ONTIMER` as
@@ -23713,7 +23777,7 @@ and such a page acts on the press exactly as before.
 
 **`W_ONMOUSEUP` on the panel is BOTH kernels', and only the drag is
 `kern_big`'s.** `W_ONMOUSEUP` is in `kern_small`'s window record too
-(`WIN_SIZE` 28 includes it) and `W_ONDRAG` is not (§13.8.2), so `cp_kinit`,
+(it ends at `W_SIDE` = 28, which includes it) and `W_ONDRAG` is not (§13.8.2), so `cp_kinit`,
 `cp_onup`, `cpf_cp_onup`, `CPE_ONUP`, `cp_pt` and `cp_drv_ev` are unconditional
 and `CP_NENT` is **6** there against 7 (including §30.5's layout entry).
 On `kern_small` `cp_onup_x` reduces to
@@ -25135,13 +25199,17 @@ content saw nothing, and a package could not ask to.
 
 `W_ONRCLICK` is that ask. Installed with `OSAPI_WM_ONRCLICK` (BX = window,
 AX = a near proc in the caller's segment, 0 clears it) **after**
-`wm_create`, and it is **a side table (`wm_onrc`), not a word in the
-record** — `wm_onwake`'s shape and `wm_onwake`'s reason (§74.1): `WIN_SIZE`
-is the stride every reader of a window pays, and growing it costs every
-existing `.o88` a rebuild. `wm_destroy` clears the slot, so a reused record
-never inherits a stranger's near pointer, and `wm_init` clears the table,
-because — like `wm_oncl` and unlike `wm_onwk` — this word is read for a
-window that never installed anything.
+`wm_create`, and it is **a word in the record, `W_ONRC`**, past every field
+a package reads. It was born a side table (`wm_onrc`), on `wm_onwake`'s
+reason (§74.1) that `WIN_SIZE` is the stride every reader of a window pays;
+kernel size pass 4 found that did not hold on an 8088 — no cache, so the
+stride costs a reader nothing, and the field is one `[bx+disp8]` where the
+table paid a `wm_ptr2idx` `div` — and appending past the package-visible
+fields rebuilds no `.o88`, `WIN_SIZE` being published nowhere. `wm_create`
+zeroes it with the rest of the record's tail, so a reused record never
+inherits a stranger's near pointer — which matters here because, like
+`W_ONCL` and unlike `W_ONWK`, this word is read for a window that never
+installed anything.
 
 It is called with **CX = x, DX = y, SI = window**, in `W_ONCLICK`'s
 environment exactly: the UI task, under the gfx lock, billed to the owning
@@ -58756,16 +58824,19 @@ computed a layout for the frame it asked for, the `gfx_*` primitives clip to
 the *screen* rather than to the window (§11.3), so the rows it still believes
 in are drawn straight through the bottom of its frame and onto the desktop.
 
-So the rect a window **asked for** is banked beside it, in a per-slot side
-table (`wm_natr`, `NR_X`/`NR_Y`/`NR_W`/`NR_H`), and `wm_refit` replays that
+So the rect a window **asked for** is banked beside it, in four words of its
+own record (`W_NATR`, `NR_X`/`NR_Y`/`NR_W`/`NR_H`), and `wm_refit` replays that
 and re-clamps *it*. Clamping is then idempotent in both directions: a switch
 away shrinks from the bank, a switch back restores from the same bank, and a
-round trip is the identity. A side table and not four more words in the
-record, on §11.95's terms exactly — `WIN_SIZE` is what `wm_idx2ptr`
-multiplies by, and every reader of a window would pay for a wider record
-whether the machine has a second adapter or not. `NR_W = 0` is "nothing
-banked", `wm_zoomr`'s sentinel with `wm_zoomr`'s safety argument, and
-`wm_destroy` clears it so a reused slot cannot restore a stranger's rect.
+round trip is the identity. It was born a per-slot side table (`wm_natr`), on
+§11.95's terms exactly — `WIN_SIZE` is what `wm_idx2ptr` multiplies by, and
+every reader of a window would pay for a wider record whether the machine has
+a second adapter or not — and kernel size pass 4 folded it into the record on
+§11.95's correction: an 8088 has no cache, so a wider record costs a reader
+nothing, and the field is one `[bx+disp8]` where the table paid a
+`wm_ptr2idx` `div`. `NR_W = 0` is "nothing banked", `W_ZOOMR`'s sentinel with
+`W_ZOOMR`'s safety argument, and `wm_create` zeroes it with the rest of the
+record's tail so a reused slot cannot restore a stranger's rect.
 
 **Five sites may bank, and the list is closed** — a writer of the rect that
 forgets leaves a window restoring to a rect it stopped having some time ago:
@@ -60413,8 +60484,9 @@ then 208 no longer reaches x = 720, so `wm_kind_bank` re-derived HERC and the
 package's own `OSAPI_WM_DISPLAY` inside the notification re-derived 720x348 and
 laid a Hercules face into a 208-wide box.
 
-**And the state it leaves is what makes the NEXT drag do nothing.** `wm_pkind`
-is §39.16.3.3's comparand, so a window carrying the wrong one reads its next
+**And the state it leaves is what makes the NEXT drag do nothing.** `W_PKIND`
+(the side table `wm_pkind` when this was measured, a record byte since kernel
+size pass 4) is §39.16.3.3's comparand, so a window carrying the wrong one reads its next
 landing as *no change of kind* and skips the whole sequence — no resize, no
 notification, no `W_ONRESIZE`. That is the field report *"dragged fully onto
 CGA, still no resize"* in full, and it explains the shape that made it so hard
@@ -83120,9 +83192,10 @@ It is a **call** (`wm_wake_call`) and not an `OSAPI_WM_WAKE` **post**. A post
 can be refused — the ring is 16 records and a user who moves the mouse during
 a multi-second load can fill it — and a refusal here loses the document
 silently; while the ordering a post would buy, against the mouse, is already
-settled by standing at that instruction. `wm_wake_call` is `wm_wake_disp` from
-its second half down and deliberately does **not** clear `[wm_wkq]`: a wake
-the window really did post is still owed after this one.
+settled by standing at that instruction. `wm_wake_call` is `wm_wake_disp`
+minus its first instruction — the dispatch clears the record's `W_WKQ` and
+falls into it — and deliberately does **not** clear `W_WKQ`: a wake the window
+really did post is still owed after this one.
 
 `OSAPI_ARG_FILE` is unchanged and still read-and-clear in the **entry proc**
 (§54.5) — it has to be, the word is spent by the first asker and the loader
@@ -83185,14 +83258,17 @@ and each was a real defect in the version that did not:
 Every app installs its handler from its **entry proc after `OSAPI_WM_CREATE`**,
 which is what the SDK tells a package to do — and that is the one place where
 the `CF` the entry owes the loader (§21) is still riding in the flags.
-`wm_onwake` reaches its side table through `wm_wkh_slot`, whose `wm_ptr2idx`
+`wm_onwake` reached its side table through `wm_wkh_slot`, whose `wm_ptr2idx`
 is a `div`, so installing one **ate that `CF`** and the launch failed or
 aborted at random depending on what the divide left behind.
 
 `wm_onclose` (§75.1) already carried a `pushf`/`popf` for exactly this reason
-and said so; `wm_onwake` now does too. The alternative was a `pushf`/`popf`
+and said so; `wm_onwake` then did too. The alternative was a `pushf`/`popf`
 pair at nine call sites and a silent aborted launch at whichever one forgot —
-§59.7's clamp, and §42.11.1's lesson, arriving at a third door.
+§59.7's clamp, and §42.11.1's lesson, arriving at a third door. **Since kernel
+size pass 4 the question does not arise**: the handler is `W_ONWK`, a field of
+the record, and every installer is one `mov [bx+W_x], ax` and a `ret` — a
+`mov` writes no flag, so the contract holds with no `pushf` at all.
 
 #### 54.10.3 The harness kicks itself
 
@@ -92310,8 +92386,8 @@ fix-up can find it. §20.9 says what that makes it.
 
 **What needs nothing** is most of the kernel, and that is the encouraging
 half: sound grants, XMS blocks, toast ownership, the dock, the clipboard,
-`wm_owner` and every `wm_about` / `wm_onwk` / `wm_oncl` / `wm_onrc` /
-`wm_pref` hook are keyed on an **instance slot** or on a near offset read live
+`wm_owner` and every `W_ABOUT` / `W_ONWK` / `W_ONCL` / `W_ONRC` /
+`W_PREF` hook are keyed on an **instance slot** or on a near offset read live
 through `W_SEG`. A package's own code needs nothing either: it is `org 0` with
 no relocation of any kind, so every near offset inside the image survives a
 move untouched and only **segment words** are ever wrong afterwards. That is
@@ -103150,7 +103226,7 @@ landed; the addresses below are today's), and their contracts, which
 | slot | routine | contract |
 |---|---|---|
 | **0x035C** | `wm_wake` (`OSAPI_WM_WAKE`) | in BX = a window of yours. Posts `EVT_WAKE {a = BX}`; any context, ISR- and worker-safe. out CF=0 a wake is queued for that window (posted now, or one already waited — coalesced, at most one per window), CF=1 the ring was full and nothing was posted. Every register preserved |
-| **0x0364** | `wm_onwake` (`OSAPI_WM_ONWAKE`) | in BX = window, AX = a near proc in your segment, 0 clears. A side table (`wm_onwk`, `wm_onsz`'s shape) cleared by `wm_destroy`, not a template word. The handler is called SI = your window, on the UI task, billed to your instance, **without the gfx lock**: it may call the file slots and may take the lock for a stated burst; nothing is delivered with it, and one stale wake after a slot's reuse is possible. **A handler re-posts itself only while it has work** — a wake round trip is at least one task switch (693 µs), so a handler that always re-posts spins the UI task at ~1,400 wakes a second and paints whatever it paints ~90 times a second on the target; RunCPM's re-posts when the slice ran out with the Z80 still running or output is pending, and NOT when the Z80 is blocked in CONIN on an empty key ring — then the next kick is `os88_onkey`'s. (Wave 1's counter re-posted unconditionally as scaffolding; wave 2's slice driver keeps this rule - `rc_wants_wake()` is the one place it is decided.) A CF=1 answer is not retried: every callback that can run — paint, key, click — kicks again, which is why RUNCPM declares `os88_onclick` though the terminal has no mouse |
+| **0x0364** | `wm_onwake` (`OSAPI_WM_ONWAKE`) | in BX = window, AX = a near proc in your segment, 0 clears. A record word (`W_ONWK`; a side table, `wm_onwk`, until kernel size pass 4) zeroed by `wm_create` with the rest of the record's tail, not a template word. The handler is called SI = your window, on the UI task, billed to your instance, **without the gfx lock**: it may call the file slots and may take the lock for a stated burst; nothing is delivered with it, and one stale wake after a slot's reuse is possible. **A handler re-posts itself only while it has work** — a wake round trip is at least one task switch (693 µs), so a handler that always re-posts spins the UI task at ~1,400 wakes a second and paints whatever it paints ~90 times a second on the target; RunCPM's re-posts when the slice ran out with the Z80 still running or output is pending, and NOT when the Z80 is blocked in CONIN on an empty key ring — then the next kick is `os88_onkey`'s. (Wave 1's counter re-posted unconditionally as scaffolding; wave 2's slice driver keeps this rule - `rc_wants_wake()` is the one place it is decided.) A CF=1 answer is not retried: every callback that can run — paint, key, click — kicks again, which is why RUNCPM declares `os88_onclick` though the terminal has no mouse |
 | **0x036A** | `osapi_file_goto_qm` (`OSAPI_FILE_GOTO_QM`) | in DX = folder cluster, BL = volume; out exactly as `OSAPI_FILE_GOTO_Q` (CF=0 AX=0 / CF=1 AX=FERR_*). GOTO_Q's quiet stand and then `inst_vol_mark`, so the calling instance now stands there and its next file cell's `inst_vol_enter` does not undo the move |
 
 `ui_task` pops `EVT_WAKE` in order with the mouse events (`ui.inc`, `.wake`)
@@ -103173,8 +103249,11 @@ third `goto_q_mark` comes home.
 
 `wm_wake` coalesces: one queued wake per window slot, because a package is told
 to kick from every callback and sixteen ring records would otherwise be filled
-by one busy worker and the mouse dropped. `wm_wkq[slot]` carries that — set
-when the record goes in, cleared by `wm_wake_disp` before the handler runs.
+by one busy worker and the mouse dropped. The record's `W_WKQ` byte carries
+that (the side table `wm_wkq[slot]` until kernel size pass 4) — set when the
+record goes in, cleared by `wm_wake_disp` before the handler runs, and the one
+per-slot byte `wm_destroy` still clears itself, because `wm_wake_redo` walks
+dead slots too.
 
 **The flag and the record are one fact, and six loops could break them apart.**
 `ui_drag`, `ui_grow` and both of `fm_drag`'s pop records looking for an
@@ -103976,15 +104055,20 @@ never asked, costs one compare and answers yes.
 
 Six things about it are load-bearing.
 
-**It is a SIDE TABLE (`wm_oncl`), not a word in the record.** `WIN_SIZE` is
-the stride every reader of a window pays and growing it invalidates every
-`.o88`; `wm_onsz` and `wm_onwk` are the precedent. Like them it is cleared by
-`wm_destroy` — and here that rule bites harder than it does for them, because
-`wm_ask_close` reads the word for **every** window on its way out rather than
-only for one that installed something, so a stale entry is not a missed
-feature but a far call into a new tenant's image on the first click of its
-close box. For the same reason it is the one side table `wm_init` zeroes:
-every other one is read only after a `wm_create` has written it.
+**It is a word in the record (`W_ONCL`), past every field a package reads.**
+It was born a SIDE TABLE (`wm_oncl`) on `wm_onsz`'s and `wm_onwk`'s precedent —
+`WIN_SIZE` is the stride every reader of a window pays, and growing it was
+held to invalidate every `.o88`. Kernel size pass 4 found neither held: an 8088
+has no cache, so the stride costs a reader nothing and the field is one
+`[bx+disp8]` where the table paid a `wm_ptr2idx` `div`; and no `.o88` strides
+the table, `WIN_SIZE` being published nowhere. Like the other handler words it
+is zeroed by `wm_create` with the rest of the record's tail — and here that
+rule bites harder than it does for them, because `wm_ask_close` reads the word
+for **every** window on its way out rather than only for one that installed
+something, so a stale entry is not a missed feature but a far call into a new
+tenant's image on the first click of its close box. A slot that has never been
+created is covered by `wm_init`'s zero run, which takes the whole of
+`wm_wins`.
 
 **The hook is ABOVE the ownership test in `app_close_win`.** An unowned
 window's close reduces to `wm_hide`, and the kernel's own dialogs read that

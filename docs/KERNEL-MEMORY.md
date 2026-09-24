@@ -355,9 +355,9 @@ reporting 639KB has ~528 KB under `kern_big` before any driver or read-ahead
 claim.
 
 **Not in the span**: the boot overlay (`.ovl` 1,511 bytes in stage 2's blob,
-`.ovlw` 5,084 bytes loaded onto the FAT window and the mount buffers, both
+`.ovlw` 5,110 bytes loaded onto the FAT window and `dsk_secbuf`, both
 dead by the first desktop — see below; on `kern_small` the split is a BUILD
-CHOICE and reads 1,333 / 1,910, SPEC.md §2.5.3.2), the on-demand modules (files read
+CHOICE and reads 1,857 / 1,412, SPEC.md §2.5.3.2), the on-demand modules (files read
 into a heap claim when asked for, §2.8), and the menu save-under, which is a
 heap claim taken by `menu_drop` and released before the picked item runs,
 sized from the rect actually dropped (`menu_save_kb`, §12.4; `MENU_SAVE_KB`
@@ -862,8 +862,13 @@ it is two sections, because the two halves die at different times:
 
 | | bytes | lives until | lands on | reached by |
 |---|---:|---|---|---|
-| `.ovl` | 1,417 | `spl_finish` | stage 2's blob, at `OVL_AT` = 2,624 of `BOOT2_PAD` = 4,096 | `[spl_fseg]`, the pair of §2.9.5.1 |
-| `.ovlw` | 5,037 | **the first mount** | `FAT_SEG`, off the kernel's own contiguous read, spilling through the mount-owned buffers (7,936 bytes, 7,680 readable — SPEC.md §2.1.2) | `call FAT_SEG:`, a constant |
+| `.ovl` | 1,511 | `spl_finish` | stage 2's blob, at `OVL_AT` = 2,624 of `BOOT2_PAD` = 4,096 | `[spl_fseg]`, the pair of §2.9.5.1 |
+| `.ovlw` | 5,110 | **the first mount** | `FAT_SEG`, off the kernel's own contiguous read, spilling into `dsk_secbuf`, the one mount-owned buffer left (4,608 + 512 = 5,120 bytes, all readable — SPEC.md §2.1.2), so **10 bytes** spare | `call FAT_SEG:`, a constant |
+
+Those are kern_big's figures (`tools/kernsize.py --json`). On `kern_small`
+(`--json -DKERN_SMALL`) `.ovl` is 1,857 and `.ovlw` 1,412, against a window of
+1,024 (a two-sector FAT) + 512 = 1,536, so 124 spare; SPEC.md §2.5.3.2 is why
+that build puts more of the overlay in the blob.
 
 The blob is 8 sectors; whatever the loader is not using below `OVL_AT` the
 overlay can have for the cost of moving that one line, and the two assertions

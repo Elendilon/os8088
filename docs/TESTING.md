@@ -1189,9 +1189,12 @@ shape:
 - **A scratch disk is rebuilt, never cached on existence.**
 
 `--small` needs `os88sym.syms(("KERN_SMALL",), check=False)` and
-**`WIN_SIZE` 28, not 34** (`W_ONDRAG`, `W_ONTIMER`, `W_TIMER` are inside
-`%ifdef KERN_BIG`); read with 34 the table is plausible for slot 0 and
-nonsense from slot 1 on.
+**`WIN_SIZE` 65, not 72** (`W_ONDRAG`, `W_ONTIMER`, `W_TIMER` and the last
+byte, `W_PKIND`, are inside `%ifdef KERN_BIG`, so every per-slot field after
+`W_SIDE` sits at a different offset too); read with 72 the table is plausible
+for slot 0 and nonsense from slot 1 on. `tools/os88geom.py` carries both
+strides off `$OS88_DEFINES`, and `os88sym.wfield()` reads a field by name, so
+take them from there rather than writing a number down.
 
 ## Modelling the old machine from a fast one
 

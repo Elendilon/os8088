@@ -63,7 +63,8 @@ the answer. It compares against `_KNOWN` now - mirrored AND derived.
 
 AND A FOURTH TIME, one level down from any of them: **the tree builds TWO
 kernels off one source**, and this module mirrored ONE of them without saying
-so. `WIN_SIZE` is 34 on kern_big and 28 on kern_small (SPEC.md 13.7's
+so. `WIN_SIZE` was 34 on kern_big and 28 on kern_small (72 / 65 since size
+pass 4 folded the side tables in; SPEC.md 13.7's
 W_ONMOUSEUP pair and 13.9's timers are kern_big's), the parser below took the
 FIRST `equ` it saw, and `verify` compared it against that same first `equ` -
 so the guard agreed with itself and every script pointed at kern_small

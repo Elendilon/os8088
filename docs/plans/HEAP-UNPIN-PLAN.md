@@ -696,7 +696,7 @@ sample rather than a handle.
 
 **What needs nothing at all is most of the kernel**, and that is the encouraging
 half: sound grants, XMS blocks, toast ownership, the dock, the clipboard,
-`wm_owner` and every `wm_about`/`wm_onwk`/`wm_oncl`/`wm_onrc`/`wm_pref` hook are
+`wm_owner` and every `W_ABOUT`/`W_ONWK`/`W_ONCL`/`W_ONRC`/`W_PREF` hook are
 keyed on an **instance slot** or on a near offset read live through `W_SEG`.
 There are two existing routines shaped exactly right to reuse: `inst_of_seg`
 (kernel/instance.inc:593, **34 bytes**, finds a record by segment) and
