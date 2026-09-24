@@ -592,6 +592,26 @@ ti_onkey:
     jne .n_res
     jmp .res
 .n_res:
+    cmp bl, 't'
+    jne .n_state
+    jmp .state
+.n_state:
+    jmp .out
+.state:                             ; SPEC.md 97.7's `T`: the next BATTLE
+    mov al, [tm_state]              ; STATE (TITHE-PLAN 13.4). The worker reads
+    inc ax                          ; it at the next pattern boundary, so the
+    cmp al, TM_NSTATE               ; lead turns there and nothing else does -
+    jb .stset                       ; and inside a resolution, at the
+    xor al, al                      ; hand-back, which is where the game will
+.stset:                             ; make the change
+    mov [tm_state], al
+    mov al, [tm_sel]
+    cmp byte [tm_resing], 0
+    je .sttl
+    mov al, [tm_rsel]
+    add al, TM_NSONG
+.sttl:
+    call tm_title
     jmp .out
 .rsel:                              ; SPEC.md 97.7's `E`: which RESOLUTION `R`
     mov al, [tm_rsel]               ; cuts in, named in the title

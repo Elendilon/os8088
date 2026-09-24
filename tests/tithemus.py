@@ -91,7 +91,8 @@ import os88tithemus as tm                                 # noqa: E402
 
 SYMS = ("tm_song", "tm_arm", "tm_ticks", "tm_ord", "tm_row", "tm_ch",
         "tm_sel", "ti_nframe", "tm_busy", "tm_tone", "tm_last",
-        "tm_gapmax", "tm_rsel", "tm_resing", "tm_theme", "tm_bord", "tm_brow")
+        "tm_gapmax", "tm_rsel", "tm_resing", "tm_theme", "tm_bord", "tm_brow",
+        "tm_state", "tm_tbuf")
 TM_LATE = 3                                     # ticks: a note's worst lateness
 FM_CELL = os88marty.KERNEL_SEG * 16 + 0x00F8    # OSAPI_SND_FM's cell
 STREAM = {"spk": 80, "fm": 240}                 # calls of song 0 compared
@@ -155,8 +156,8 @@ def run(mach, want_arm, off, part, nsong, record, marks):
                 sq.step()
             return sq
 
-        def sample(model_of, bad, spk_bad):
-            """The machine PAUSED between ticks, against model_of(tm_ticks)."""
+        def quiesce():
+            """PAUSE the machine between two ticks; tm_ticks. Left paused."""
             m.pause()
             ticks = m.sym("ticks")
             for _ in range(50):         # never read a tick half-stepped, nor
@@ -167,7 +168,11 @@ def run(mach, want_arm, off, part, nsong, record, marks):
                 m.run()
                 os88marty.guest_sleep(m, 0.003)
                 m.pause()
-            T = rw("tm_ticks")
+            return rw("tm_ticks")
+
+        def sample(model_of, bad, spk_bad):
+            """The machine PAUSED between ticks, against model_of(tm_ticks)."""
+            T = quiesce()
             chs = rb("tm_ch", 4 * 12)
             ordr, row = rb("tm_ord")[0], rb("tm_row")[0]
             gate61 = m.inb(0x61) & 3 if want_arm == "spk" else None
@@ -236,6 +241,8 @@ def run(mach, want_arm, off, part, nsong, record, marks):
                       "...the resolution is the model tick for tick", (bad + spk_bad)[:2])
                 if record:
                     os88marty.guest_sleep(m, 3.0)
+                st = 1 + r % 2          # the round's evaluation turned the
+                m.write(seg * 16 + off["tm_state"], bytes([st]))    # state
                 m.key("KeyR")
                 back = False
                 for _ in range(60):
@@ -248,8 +255,8 @@ def run(mach, want_arm, off, part, nsong, record, marks):
                 if not back:
                     continue
 
-                def resumed(T, th=th, bord=bord, brow=brow):
-                    sq = tm.Seq(part, th, want_arm)
+                def resumed(T, th=th, bord=bord, brow=brow, st=st):
+                    sq = tm.Seq(part, th, want_arm, state=st)
                     sq.seek(bord, brow)
                     return stepped(sq, T - tm.row_ticks(
                         sq.groove[:sq.glen], sq.rows)[brow])
@@ -259,12 +266,65 @@ def run(mach, want_arm, off, part, nsong, record, marks):
                     sample(resumed, bad, spk_bad)
                 check(not bad and not spk_bad,
                       "...RESUMED at the row it was cut at (order %d, row %d), "
-                      "tick for tick" % (bord, brow), (bad + spk_bad)[:2])
+                      "in the state the round turned it to (%d), tick for tick"
+                      % (bord, brow, st), (bad + spk_bad)[:2])
+                m.write(seg * 16 + off["tm_state"], b"\0")
                 if record:
                     os88marty.guest_sleep(m, 5.0)
                     if th == themes[-1]:    # one recording an option: its cut
                         marks.append((mach, want_arm, "cut-%s" % rid,  # into
                                       tour[1], gsecs()))  # all three themes
+
+        def states():
+            """Item 8: THE BATTLE STATES (TITHE-PLAN 13.4). `T` steps the
+            state and the title names it; a state written mid-pattern turns
+            the lead at the NEXT pattern boundary and nothing else, the model
+            switched at the same tick, tick for tick across the boundary."""
+            themes = [si for si in range(nsong)
+                      if tm.Seq(part, si, want_arm).states > 1]
+            check(len(themes) == 3, "%s: three themes have battle states"
+                  % mach, themes)
+            to_song(themes[0])
+            os88marty.guest_sleep(m, 0.5)
+            for want, word in ((1, "(pressed)"), (2, "(ascendant)"),
+                               (0, "(normal)")):
+                m.key("KeyT")
+                os88marty.guest_sleep(m, 0.4)
+                title = rb("tm_tbuf", 80).split(b"\0")[0].decode("latin-1")
+                check(rb("tm_state")[0] == want and word in title,
+                      "...T: state %d, and the title says %s" % (want, word),
+                      (rb("tm_state")[0], title))
+            for th in themes:
+                to_song(th)
+                t0 = gsecs()
+                one = tm.Seq(part, th, want_arm).song_ticks() / tm.TICK_HZ
+                sw = []
+                for st in (1, 2):
+                    os88marty.guest_sleep(m, one if record else 1.2)
+                    T1 = quiesce()
+                    m.write(seg * 16 + off["tm_state"], bytes([st]))
+                    m.run()
+                    sw.append((T1, st))
+
+                    def model(T, sw=tuple(sw), th=th):
+                        sq, t = tm.Seq(part, th, want_arm), 0
+                        for at, s2 in sw:
+                            stepped(sq, at - t)
+                            sq.state, t = s2, at
+                        return stepped(sq, T - t)
+                    bad, spk_bad = [], []
+                    for _ in range(4):
+                        os88marty.guest_sleep(m, 1.5)
+                        sample(model, bad, spk_bad)
+                    check(not bad and not spk_bad,
+                          "...%s turned to state %d at tick %d: the model "
+                          "switched there, tick for tick across the boundary"
+                          % (tm.SONGS[th][:-4], st, T1), (bad + spk_bad)[:2])
+                if record:
+                    os88marty.guest_sleep(m, max(0.0, one - 6.0))
+                    marks.append((mach, want_arm,
+                                  "states-%s" % tm.SONGS[th][:-4], t0, gsecs()))
+                m.write(seg * 16 + off["tm_state"], b"\0")
 
         def tempo():
             """Item 6: THE TEMPO IS THE CLOCK'S, not the frame's. `G` rebuilds
@@ -289,8 +349,11 @@ def run(mach, want_arm, off, part, nsong, record, marks):
                           rw("tm_ticks"), rw("ti_nframe"))
             dk, dt = (k1 - k0) & 0xFFFF, (t1 - t0) & 0xFFFF
             fr = ((f1 - f0) & 0xFFFF) / max(0.1, gsecs() - g0)
-            check(fr < 12.0, "...a relayout stalls the frame: %.1f passes/s "
-                  "over it" % fr, fr)
+            # the row's premise - a second of the five stalled at least - and
+            # RELATIVE to the quiet rate: a fixed 12.0 read 11.8 to 12.04 once
+            # wave 3's relayout got cheaper, while no stall at all reads ~18.5
+            check(fr < quiet * 0.8, "...a relayout stalls the frame: %.1f "
+                  "passes/s over it against %.1f quiet" % (fr, quiet), fr)
             check(abs(dk - dt) <= 2,
                   "...and the song keeps the CLOCK's time through it: %d ticks "
                   "of song in %d of clock" % (dt, dk), (dt, dk))
@@ -378,6 +441,7 @@ def run(mach, want_arm, off, part, nsong, record, marks):
                 os88marty.guest_sleep(m, max(0.0, one + 2.0 - SAMPLES - 0.5))
             marks.append((mach, want_arm, name, t0, gsecs()))
         resolutions()
+        states()
         to_song(nsong - 1)
         m.key("KeyM")
         os88marty.guest_sleep(m, 0.5)

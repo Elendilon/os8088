@@ -12,6 +12,7 @@ groove 5
 unit 8
 rows 12
 measure 6
+states 3
 voice lead recorder
 voice bass pedal
 voice chord harp
@@ -33,6 +34,33 @@ lead LB2 = o5 c2< a4 | g2 e4 |
 lead LB3 = o4 f4 a4 >d4 | d4 c4< b4 |
 lead LB4 = o4 g4 >c4< b-4 | a2. |
 
+; --- THE BATTLE STATES (TITHE-PLAN 13.4): the harp, the pedal and the bell do
+; not change - only the lead and its instrument, at a pattern boundary.
+; PRESSED is a LAMENT, bowed and low: every bar opens on a suspension that
+; falls a step onto the chord - B-flat onto A over F, and over D minor the
+; E-flat, the darkest note the key has, onto D.
+; ASCENDANT is the ORGAN at the front: the hymn's line broken into moving
+; eighths and lifted to the top of the church, C and F above.
+lead PI = @lament o3 a2 g8 f8 | g4 e4 c4 |
+lead PA1 = @lament o3 b-2 a4 | g4 f4 e4 |
+lead PA2 = @lament o4 e-2 d4 | c4 d4 <b-4> |
+lead PA3 = @lament o3 b-2 a4 | a4 b4 >d4< |
+lead PA4 = @lament o4 d2 c4 | c4 <b-4 a4> |
+lead PB1 = @lament o4 e-2 d4 | e-4 d4 <b-4> |
+lead PB2 = @lament o4 b-2 a4 | a4 g4 e4 |
+lead PB3 = @lament o4 e-2 d4 | c4 <b4 g4> |
+lead PB4 = @lament o4 d2 c4 | b-4 a4 f4 |
+
+lead XI = @lorgan o5 c8 d8 c8< a8 >c8 f8 | e4 g4 >c4< |
+lead XA1 = @lorgan o5 a8 b-8 a8 g8 f8 a8 | g8 f8 e8 g8 >c4< |
+lead XA2 = @lorgan o5 d8 e8 f8 e8 d8 a8 | b-4 f4 >d4< |
+lead XA3 = @lorgan o5 a8 b-8 >c8 d8 c8< a8 | b8 >d8 g8 d8 c8< b8 |
+lead XA4 = @lorgan o5 c8 d8 e8 g8 b-8 g8 | a4 f4 >c4< |
+lead XB1 = @lorgan o5 d8 e8 f8 a8 >d8< a8 | f8 d8 f8 b-8 >d4< |
+lead XB2 = @lorgan o5 c8 a8 >c8 f8 c8< a8 | g8 e8 g8 >c8 e4< |
+lead XB3 = @lorgan o5 d8 f8 a8 >d8 f8 d8 | c8< b8 g8 b8 >d4< |
+lead XB4 = @lorgan o5 g8 a8 b-8 >c8< b-8 g8 | a4. g8 f4 |
+
 bass BFC = o2 f2. | c2. |
 bass BDB = o2 d2. | <b-2.> |
 bass BFG = o2 f2. | g2. |
@@ -47,13 +75,13 @@ chord HDG = o3 d f a >d< a f | g b >d g d< b |
 drum DB = F2. | r2. |
 drum DR = r2. | r2. |
 
-order LI BI HI DI
-order LA1 BFC HFC DB          ; 1: the loop comes back here
-order LA2 BDB HDB DR
-order LA3 BFG HFG DR
-order LA4 BCF HCF DR
-order LB1 BDB HDB DB
-order LB2 BFC HFC DR
-order LB3 BDG HDG DR
-order LB4 BCF HCF DR
+order LI/PI/XI BI HI DI
+order LA1/PA1/XA1 BFC HFC DB          ; 1: the loop comes back here
+order LA2/PA2/XA2 BDB HDB DR
+order LA3/PA3/XA3 BFG HFG DR
+order LA4/PA4/XA4 BCF HCF DR
+order LB1/PB1/XB1 BDB HDB DB
+order LB2/PB2/XB2 BFC HFC DR
+order LB3/PB3/XB3 BDG HDG DR
+order LB4/PB4/XB4 BCF HCF DR
 loop 1

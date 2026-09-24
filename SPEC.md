@@ -141413,6 +141413,7 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 | `P` | pause the wheel, for looking at one frame |
 | `M` | the next piece of MUSIC (§97.10) — the title, campaign, deck-builder and three faction themes, then silence, then the first again. The window's title names the one playing and its arm |
 | `E` | which RESOLUTION `R` cuts in (§97.10.6), named in the title — the board's own until pressed (§97.10.7) |
+| `T` | the next BATTLE STATE — normal, pressed, ascendant (§97.10.8), named in the title. The lead turns at the next pattern boundary; during a fake round, at the hand-back |
 | `R` | a fake ROUND: the resolution cuts into whatever is playing; `R` again ends it — its tail at the next bar, then the theme back at the row it was cut at |
 | `S` | the ONE-VOICE arm where FM is there: the lead alone through `OSAPI_SND_TONE`, the song restarting on it — so the speaker's version can be heard on a machine with a card. Where a sound driver holds the tone route (§34.8) that voice is the card's channel 8 rather than the speaker itself |
 | `Esc` | leave fullscreen, else close |
@@ -141650,13 +141651,15 @@ picks up mid-phrase rather than from its top, which is the plan's point: a
 twenty-round match does not open with the same eight bars twenty times. A cut
 into silence hands back to silence; `M` or `S` during one abandons it.
 
-**The state change rides the hand-back** in the plan (§13.7), and `[tm_state]`
-is read by `tm_pattern` there — no theme has three leads yet, so it is the
-place it will happen rather than a thing that does. `tests/tithemus.py` item 7
+**The state change rides the hand-back** in the plan (§13.7): `[tm_state]` is
+read by `tm_pattern`, and the seek loads the banked pattern through it, so a
+state written while the resolution plays is the state the theme comes back in
+(§97.10.8). `tests/tithemus.py` item 7
 cuts each option into a faction theme at a different point, holds the piece to
 the model, ends it, and holds the RESUMED theme to the model sought to the
 banked row, tick for tick; restarting the theme from its top instead fails it
-on every option.
+on every option — and each hand-back turns the theme to a different state, held
+to the model sought in that state.
 
 #### 97.10.7 THE SPEAKER'S OWN LEAD, and a resolution per board
 
@@ -141690,6 +141693,36 @@ column; none needs it yet, their leads being tunes rather than stabs.
 terrain, asserted against `TI_TERRAINS` at assembly: THE MARCH cuts in The
 Charge, THE CLOISTER The Toll, and `G` sets `[tm_rsel]` from it. War Drums is
 kept for a board not yet drawn. `E` still steps them all, for auditioning.
+
+#### 97.10.8 THE BATTLE STATES — one piece, three leads
+
+TITHE-PLAN §13.4: a faction theme is **NORMAL, PRESSED and ASCENDANT**, one
+piece whose bass, chords and drums never change, with a lead AND an instrument
+per state. The order row carries them as `order NORMAL/PRESSED/ASCENDANT BASS
+CHORD DRUM` under `states 3`, and the three chosen themes have them:
+
+| | normal | pressed | ascendant |
+|---|---|---|---|
+| **Steadfast** (Bulwark) | the horn's hymn | the FIDDLE sawing each note in eighths over its chromatic lower neighbour | the TRUMPET: dotted fanfares, up to the D and F-sharp above |
+| **Kindling** (Ember Choir) | the choir | ONE VOICE, the chant: broken phrases leaning a semitone down, the phrygian E-flat onto D | the SHAWM: running eighths through the harmonic minor, up to D and F above |
+| **Intercession** (Covenant) | the recorder | a LAMENT, bowed and low, every bar a suspension falling onto the chord | the ORGAN at the front: the line in moving eighths at the top of the church |
+
+Three instruments are the states' own — `shawm`, `lament`, `lorgan` in the
+bank — so each faction's three states are three different sounds on FM, and
+on the speaker three different registers and rhythms of one tune.
+
+**The switch is at a pattern boundary and nowhere else**: `tm_pattern` is the
+one reader of `[tm_state]`, so a change mid-pattern waits for the next one
+while the accompaniment carries on, and in a round it is the hand-back's own
+pattern load (§97.10.6). The title names the state (`tm_nstates`, which the
+tool publishes, says which songs have one), and the demo's `T` steps it.
+
+The tool's selfcheck holds every state's notes to the source and holds a
+switch made half-way through two patterns to a source read with the state
+changed at the NEXT boundary; ignoring the state fails all three themes.
+`tests/tithemus.py` item 8 writes the state mid-pattern on the machine and
+holds it to the model switched at the same tick, across the boundary, and
+checks `T` and the title. The part grew 2,021 bytes and the image 132.
 
 #### 97.10.5 What it costs
 

@@ -12,6 +12,7 @@ groove 3
 unit 16
 rows 32
 measure 16
+states 3
 voice lead choir
 voice bass bass
 voice chord harp
@@ -34,6 +35,33 @@ lead LB2 = o5 e4. f8 e8 d8 c+8 <b-8 | a2. r4> |
 lead LB3 = o5 d4 f4 b-4 a4 | g4 f4 e4 d4 |
 lead LB4 = o5 c+4 d4 e4 c+4 | d2. r4 |
 
+; --- THE BATTLE STATES (TITHE-PLAN 13.4): the flame, the bass and the drums do
+; not change - only the lead and its instrument, at a pattern boundary.
+; PRESSED: the choir is down to ONE VOICE, the chant - broken phrases, a
+; breath before each, every line leaning a semitone into the note it wants
+; (B-flat onto A, F onto E, and E-flat, the phrygian second, onto D).
+; ASCENDANT: the SHAWM, a war reed - running eighths through the harmonic
+; minor with its C-sharp, climbing to the D and F an octave above.
+lead PI = @chant o4 d4 r8 d8 e-4 d4 | c+4 d4 e2 |
+lead PA1 = @chant o4 a4 r8 a8 b-4 a4 | b-2 a4 r4 |
+lead PA2 = @chant o4 g4 r8 g8 a4 g4 | e4 f4 e4 r4 |
+lead PA3 = @chant o4 a4 r8 a8 b-4 a4 | f4 e4 d4 r4 |
+lead PA4 = @chant o4 b-4 a4 c+4 e4 | d2. r4 |
+lead PB1 = @chant o4 e4 r8 e8 f4 e4 | f4 e4 d4 r4 |
+lead PB2 = @chant o4 e4 r8 e8 f4 e4 | d2 c+4 r4 |
+lead PB3 = @chant o4 d4 r8 d8 e-4 d4 | d4 c4 <b-4 a4> |
+lead PB4 = @chant o4 c+4 r8 c+8 d4 c+4 | d2. r4 |
+
+lead XI = @shawm o5 d8 e8 f8 g8 a4 f4 | e8 f8 e8 d8 c+4 e4 |
+lead XA1 = @shawm o5 a8. g16 f8 e8 f8 g8 a8 >d8< | b-4. a8 f4 d4 |
+lead XA2 = @shawm o5 g8. f16 e8 d8 e8 f8 g8 b-8 | a4. g8 e4 c+4 |
+lead XA3 = @shawm o5 a8. g16 f8 e8 f8 g8 a8 >c+8 | d4. c+8 d4 f4< |
+lead XA4 = @shawm o5 b-8 a8 g8 b-8 a8 c+8 e8 g8 | f8 e8 d8 c+8 d4 r4 |
+lead XB1 = @shawm o5 e8 f8 g8 f8 e8 d8 c+8 d8 | f8 g8 a8 g8 f8 e8 d4 |
+lead XB2 = @shawm o5 e8 f8 g8 f8 e8 d8 c+8 <b-8 | a4. >d8 d4 r4 |
+lead XB3 = @shawm o5 d8 f8 b-8 >d8 c8< b-8 a8 b-8 | g8 a8 b-8 a8 g8 f8 e8 d8 |
+lead XB4 = @shawm o5 c+8 d8 e8 f8 e8 d8 c+8 e8 | d4 a4 >d4< r4 |
+
 bass BDB = o2 l8 d d d d d d d d | <b- b- b- b- b- b- b- b-> |
 bass BGA = o2 l8 g g g g g g g g | a a a a a a a a |
 bass BGAD = o2 l8 g g g g a a a a | d d d d d d d d |
@@ -54,13 +82,13 @@ chord HBG = o3 l16 d f b- >d< b- f d f d f b- >d< b- f d f |
 drum DW = k8 t16 t16 t8 h8 k8 t8 s8 h8 | k8 t16 t16 t8 h8 k8 t8 s8 h8 |
 drum DF = k8 t16 t16 t8 h8 k8 t8 s8 h8 | k8 t16 t16 t8 h8 s16 s16 s16 s16 T8 T8 |
 
-order LI BI HDA DI
-order LA1 BDB HDB DW          ; 1: the loop comes back here
-order LA2 BGA HGA DW
-order LA3 BDB HDB DW
-order LA4 BGAD HGAD DF
-order LB1 BAD HAD DW
-order LB2 BAD HAD DW
-order LB3 BBG HBG DW
-order LB4 BAD HAD DF
+order LI/PI/XI BI HDA DI
+order LA1/PA1/XA1 BDB HDB DW          ; 1: the loop comes back here
+order LA2/PA2/XA2 BGA HGA DW
+order LA3/PA3/XA3 BDB HDB DW
+order LA4/PA4/XA4 BGAD HGAD DF
+order LB1/PB1/XB1 BAD HAD DW
+order LB2/PB2/XB2 BAD HAD DW
+order LB3/PB3/XB3 BBG HBG DW
+order LB4/PB4/XB4 BAD HAD DF
 loop 1

@@ -11,7 +11,7 @@ TM_R_RESCHARGE equ 2                   ; `E`'s index of rescharge.tmu, for the b
 TM_NOTE0    equ 24                  ; the frequency table's first note (C1)
 TM_NNOTE    equ 84
 TM_INSTREC  equ 16                  ; an instrument record's bytes
-TM_P_SIZE   equ 7415                ; bytes in the part
+TM_P_SIZE   equ 9436                ; bytes in the part
 
 ; the part's own layout (SPEC.md 97.10.2) - this tool is its one source
 TMP_FREQ    equ 4                   ; dw: the frequency table
@@ -62,3 +62,7 @@ tm_name5: db 'Tithe - Covenant: Intercession', 0
 tm_name6: db 'Tithe - Resolution: War Drums', 0
 tm_name7: db 'Tithe - Resolution: The Toll', 0
 tm_name8: db 'Tithe - Resolution: The Charge', 0
+
+; ...and how many BATTLE STATES each has (TITHE-PLAN 13.4), so the
+; title can name the one playing where there is more than one
+tm_nstates: db 1, 1, 1, 3, 3, 3, 1, 1, 1

@@ -3693,6 +3693,11 @@ NORMAL, PRESSED and ASCENDANT share their bass, chord and percussion patterns �
 same key, same tempo, same order length — and differ only in channel 0 and in
 the instrument the lead is played on.
 
+**BUILT** (SPEC.md §97.10.8) for the three chosen themes, the owner naming
+PRESSED "challenged": each state is its own instrument - the Bulwark's fiddle
+and trumpet, the Ember Choir's chant and shawm, the Covenant's lament and
+organ - over the one accompaniment, turned by the demo's `T`.
+
 Three things fall out and every one of them is a win:
 
 - **The switch is seamless.** Changing state swaps the lead at a pattern

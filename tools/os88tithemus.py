@@ -977,7 +977,7 @@ def fade_tail(y, secs):
     return y
 
 
-def wav(ids, arms, secs, outdir):
+def wav(ids, arms, secs, outdir, state=0):
     part, songs, _, _, _ = build_part()
     os.makedirs(outdir, exist_ok=True)
     for si, s in enumerate(songs):
@@ -997,10 +997,12 @@ def wav(ids, arms, secs, outdir):
                         sq.end()
                     acts.append(sq.step())
             else:
-                acts, _ = run_actions(part, si, arm, ticks)
+                sq = Seq(part, si, arm, state=min(state, s.states - 1))
+                acts = [sq.step() for _ in range(ticks)]
             y = render_spk(acts) if arm == "spk" else render_fm(acts)
             y = fade_tail(y, 3.0)
-            path = os.path.join(outdir, "%s-%s.wav" % (s.id, arm))
+            path = os.path.join(outdir, "%s%s-%s.wav" % (
+                s.id, "-s%d" % state if state and s.states > 1 else "", arm))
             write_wav(path, y)
             print("%s: %s, %.1f s (one pass %.1f s)" % (path, s.name, len(y) / RATE,
                                                        one / TICK_HZ))
@@ -1062,6 +1064,10 @@ def emit(inc_path, bin_path):
     L += ["    dw tm_name%d" % i for i in range(len(songs))]
     for i, s in enumerate(songs):
         L.append("tm_name%d: db 'Tithe - %s', 0" % (i, s.name.replace("'", "`")))
+    L += ["",
+          "; ...and how many BATTLE STATES each has (TITHE-PLAN 13.4), so the",
+          "; title can name the one playing where there is more than one",
+          "tm_nstates: db %s" % ", ".join(str(s.states) for s in songs)]
     open(inc_path, "w").write("\n".join(L) + "\n")
     print("%s + %s: %d songs, %d instruments, %d bytes of score"
           % (inc_path, bin_path, len(songs), len(iorder), len(part)))
@@ -1080,14 +1086,15 @@ def listing():
                  nxt - u16(part, 12 + 2 * si)))
 
 
-def expected_log(s, arm="fm"):
-    """the (tick, channel, note) stream the SOURCE says - the independent side"""
+def expected_log(s, arm="fm", state_of=lambda oi: 0):
+    """the (tick, channel, note) stream the SOURCE says - the independent side.
+       state_of(order row) is the battle state that row's lead was chosen in"""
     rt = row_ticks(s.groove, s.rows)
     ptick = rt[-1]
     out = []
     kinds = [CH_LEAD, CH_BASS, CH_CHORD, CH_DRUM]
     for oi, (leads, b, c, d, spk) in enumerate(s.order):
-        names = [spk if (spk and arm == "spk") else leads[0], b, c, d]
+        names = [spk if (spk and arm == "spk") else leads[state_of(oi)], b, c, d]
         for kind, nm in zip(kinds, names):
             if nm == "-":
                 continue
@@ -1154,6 +1161,32 @@ def selfcheck():
             else:
                 bad.append("%s: %d notes in the part against %d in the source"
                            % (s.id, len(got_notes), len(exp_notes)))
+        for st in range(1, s.states):   # ...every BATTLE STATE the same way
+            q = Seq(part, si, "fm", state=st)
+            for _ in range(ticks):
+                q.step()
+            g = sorted(x for x in q.notes_log if x[2])
+            e = [x for x in expected_log(s, state_of=lambda oi, st=st: st) if x[2]]
+            if g != e:
+                bad.append("%s: state %d plays %d notes against the source's %d"
+                           % (s.id, st, len(g), len(e)))
+        if s.states > 1:                # ...and a state change lands at the
+            rt = row_ticks(s.groove, s.rows)    # NEXT pattern boundary and not
+            sw = {2: 1, 5: 2}                   # before it: switched half-way
+            q = Seq(part, si, "fm")             # through order rows 1 and 4
+            for t in range(ticks):
+                o = t // rt[-1]
+                if t % rt[-1] == rt[-1] // 2 and o + 1 in sw:
+                    q.state = sw[o + 1]
+                q.step()
+
+            def st_of(oi):
+                return 2 if oi >= 5 else 1 if oi >= 2 else 0
+            g = sorted(x for x in q.notes_log if x[2])
+            e = [x for x in expected_log(s, state_of=st_of) if x[2]]
+            if g != e:
+                bad.append("%s: a state change does not wait for the pattern "
+                           "boundary" % s.id)
         if s.order[0][4]:               # ...and the SPEAKER's own lead, the
             sp = Seq(part, si, "spk")   # same way against its own source
             for _ in range(ticks):
@@ -1206,6 +1239,8 @@ def main():
     ap.add_argument("--bin", default=os.path.join("build", "timus.bin"))
     ap.add_argument("--arm", choices=["spk", "fm", "both"], default="both")
     ap.add_argument("--secs", type=float, default=0.0)
+    ap.add_argument("--state", type=int, default=0,
+                    help="wav: the battle state, 0 normal, 1 pressed, 2 ascendant")
     ap.add_argument("--out", default=os.path.join("build", "tithemus"))
     a = ap.parse_args()
     try:
@@ -1214,7 +1249,8 @@ def main():
         if a.cmd == "emit":
             emit(os.path.join(ROOT, "apps", "tithe", "tisong.inc"), a.bin)
         elif a.cmd == "wav":
-            wav(a.songs, ["spk", "fm"] if a.arm == "both" else [a.arm], a.secs, a.out)
+            wav(a.songs, ["spk", "fm"] if a.arm == "both" else [a.arm], a.secs, a.out,
+                a.state)
         else:
             listing()
     except ScoreError as e:

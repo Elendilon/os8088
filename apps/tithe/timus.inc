@@ -40,6 +40,7 @@ TM_OFF      equ 0xFF                ; [tm_song]: nothing is playing
 TM_NOREQ    equ 0xFE                ; [tm_req]: nothing is asked for
 TM_RQ_RES   equ 0xFD                ; ...cut the resolution [tm_rsel] in
 TM_RQ_END   equ 0xFC                ; ...end it: the tail, then the hand-back
+TM_NSTATE   equ 3                   ; battle states: normal, pressed, ascendant
 TM_FIN      equ 0xFF                ; tm_nextord: a piece with a tail is done
 TM_PRIO     equ 0x20                ; under the package default 0x40, so any
                                     ; effect preempts the music (TITHE-PLAN 13.8)
@@ -84,9 +85,18 @@ tm_title:
     je .last
     mov bl, al
     xor bh, bh
-    shl bx, 1
+    mov ah, [tm_nstates + bx]       ; a theme with BATTLE STATES names the
+    shl bx, 1                       ; one playing (TITHE-PLAN 13.4)
     mov si, [tm_names + bx]
     call .copy
+    cmp ah, 1
+    jbe .arm
+    mov bl, [tm_state]
+    xor bh, bh
+    shl bx, 1
+    mov si, [tm_stnames + bx]
+    call .copy
+.arm:
     call tm_want_fm                 ; what the worker will find - the same
     mov si, tm_s_fm                 ; question, asked the same way
     jnc .last
@@ -119,7 +129,11 @@ tm_title:
 tm_s_fm:    db ' [FM]', 0
 tm_s_spk:   db ' [speaker]', 0
 tm_s_spkf:  db ' [one voice; S for FM]', 0
-tm_tbuf:    times 64 db 0
+tm_stnames: dw tm_st0, tm_st1, tm_st2
+tm_st0:     db ' (normal)', 0
+tm_st1:     db ' (pressed)', 0
+tm_st2:     db ' (ascendant)', 0
+tm_tbuf:    times 80 db 0           ; the longest today is 63 with its NUL
 
 ; -----------------------------------------------------------------------------
 ; tm_want_fm - does a song start on the FM arm? CF = 0 yes. CF = 1 no, and

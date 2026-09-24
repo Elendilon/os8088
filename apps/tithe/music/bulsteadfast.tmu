@@ -12,6 +12,7 @@ groove 3
 unit 16
 rows 32
 measure 16
+states 3
 voice lead horn
 voice bass bass
 voice chord strings
@@ -27,6 +28,32 @@ lead LA1 = o4 d4 g4 g4 a4 | b2 a4 g4 |
 lead LA2 = o4 a4 b4 >d4< b4 | a2. r4 |
 lead LA3 = o4 b4 >d4 e4 d4 | c4< b4 a4 g4 |
 lead LA4 = o4 a4 >c4< f4 a4 | g2. r4 |
+; --- THE BATTLE STATES (TITHE-PLAN 13.4): the same hymn, the same bass, chords
+; and tread - only the lead and its instrument change, at a pattern boundary.
+; PRESSED is the FIDDLE sawing each melody note in eighths with its chromatic
+; lower neighbour under it: the tune is all there, and it will not sit still.
+; ASCENDANT is the TRUMPET, dotted fanfare figures and the line lifted to the
+; D and F-sharp above - the rampart has held and says so.
+lead PI = @fiddle o3 g8 g8 f+8 g8 b8 b8 a+8 b8 | >c8 c8< b8 >c8 d8 d8 c+8 d8 |
+lead PA1 = @fiddle o4 d8 d8 c+8 d8 g8 g8 f+8 g8 | b8 b8 a+8 b8 a8 g8 f+8 e8 |
+lead PA2 = @fiddle o4 a8 a8 g+8 a8 b8 b8 a+8 b8 | a8 a8 a8 a8 f+8 f+8 e8 d8 |
+lead PA3 = @fiddle o4 b8 b8 a+8 b8 >e8 e8 d+8 e8 | c8 c8< b8 b8 a8 a8 g8 g8 |
+lead PA4 = @fiddle o4 a8 a8 g+8 a8 f8 f8 e8 f8 | g8 g8 f+8 g8 d8 d8 d8 r8 |
+lead PB1 = @fiddle o5 e8 e8 d+8 e8 d8 d8 c8 c8 | d8 d8 c+8 d8< b8 b8 g8 g8 |
+lead PB2 = @fiddle o4 a8 a8 >c8 c8 f8 f8 e8 f8 | e8 e8 d8 d8 c8 c8< b8 >c8 |
+lead PB3 = @fiddle o4 b8 b8 >d8 d8 e8 e8 g8 g8 | f+8 f+8 e8 e8 d8 d8< a8 a8 |
+lead PB4 = @fiddle o5 c8 c8< a8 a8 f8 f8 a8 a8 | a8 a8 a8 a8 f+8 f+8 a8 a8 |
+
+lead XI = @trumpet o5 d8. d16 g4 b8. b16 >d4 | c4. d8 <b2 |
+lead XA1 = @trumpet o5 d8. d16 g4 g8. g16 a8 b8 | b4 >d4< a8. b16 g4 |
+lead XA2 = @trumpet o5 a8. a16 b4 >d8. d16< b4 | a4 >d4 f+4 d4< |
+lead XA3 = @trumpet o5 b8. b16 >d4 e8. e16 d4 | c8 d8 c8< b8 a8 b8 g4 |
+lead XA4 = @trumpet o5 a8. a16 >c4< f8. f16 a4 | g8. g16 b8. b16 >d4< g4 |
+lead XB1 = @trumpet o5 e8. f+16 g4 d8. d16 c4 | d8. e16 d8 c8< b8. a16 g4 |
+lead XB2 = @trumpet o5 f8. f16 a4 >c4< a4 | g8. g16 e8. d16 c4 e4 |
+lead XB3 = @trumpet o5 e8. e16 g4 b4 g4 | a8. a16 f+4 d4 f+4 |
+lead XB4 = @trumpet o5 f8. f16 a4 >c4< a4 | a8. b16 a8. g16 f+4 a4 |
+
 bass BA1 = o2 g2 g2 | e2 e2 |
 bass BA2 = o2 g2 b2 | d2 <a2> |
 bass BA3 = o2 e2 e2 | c2 c2 |
@@ -53,13 +80,13 @@ chord CB4 = o3 [f a >c]1 | [d f+ a]1 |
 drum DT = k4 h4 s4 h4 | k4 h4 s4 s8 s8 |
 drum DF = k4 h4 s4 h4 | s8 s8 s8 s8 T8 T8 t8 t8 |
 
-order LI BI CI DI
-order LA1 BA1 CA1 DT          ; 1: the loop comes back here
-order LA2 BA2 CA2 DT
-order LA3 BA3 CA3 DT
-order LA4 BA4 CA4 DF
-order LB1 BB1 CB1 DT
-order LB2 BB2 CB2 DT
-order LB3 BB3 CB3 DT
-order LB4 BB4 CB4 DF
+order LI/PI/XI BI CI DI
+order LA1/PA1/XA1 BA1 CA1 DT          ; 1: the loop comes back here
+order LA2/PA2/XA2 BA2 CA2 DT
+order LA3/PA3/XA3 BA3 CA3 DT
+order LA4/PA4/XA4 BA4 CA4 DF
+order LB1/PB1/XB1 BB1 CB1 DT
+order LB2/PB2/XB2 BB2 CB2 DT
+order LB3/PB3/XB3 BB3 CB3 DT
+order LB4/PB4/XB4 BB4 CB4 DF
 loop 1

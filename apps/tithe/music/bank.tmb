@@ -44,6 +44,21 @@ inst choir              ; the Ember Choir's voice: a slow swell and the chip's
   fm  61 1C 64 14 00 / 61 00 55 05 00 / 06      ; vibrato - an "aah", not a flute
   spk macro 0 vib 6 7
 
+; --- THE BATTLE STATES' OWN (TITHE-PLAN 13.4: a state is a lead AND the
+; instrument it is played on) ---------------------------------------------------
+
+inst shawm              ; the Ember Choir ASCENDANT: a double reed, all
+  fm  21 12 F3 15 00 / 21 00 F4 06 00 / 0E      ; feedback - nasal and loud,
+  spk macro 0 vib 4 6                           ; with a wide, early wobble
+
+inst lament             ; the Covenant PRESSED: bowed strings as ONE voice, a
+  fm  61 1A 54 04 00 / 61 00 64 05 00 / 0C      ; slow swell and a vibrato that
+  spk macro 0 vib 12 7                          ; only arrives on a held note
+
+inst lorgan             ; the Covenant ASCENDANT: the organ at the front - the
+  fm  22 10 D0 05 00 / 21 00 D0 05 00 / 03      ; octave stop full out, no
+  spk macro 0                                   ; vibrato, because pipes have none
+
 ; --- THE SPEAKER'S OWN (SPEC.md 97.10.7) ----------------------------------------
 ; Voices only a SPEAKER lead uses, so their `fm` is never sounded - it is the
 ; driver's own default patch, there because every record has one.
