@@ -153,8 +153,10 @@ make bootdiag # WHY a BIOS answers `Disk error` and stops (§2.9.10). SIX
               # but not this. Nothing here ever writes to a disk
 make test-fast   # THE REGRESSION SUITE (docs/TESTING.md, tools/os88test.py,
 make test-full   #   tests/suite.py). Three tiers; the two that GATE carry an
-make test-soak   #   ENFORCED wall-clock budget — the runner FAILS fast over
-                 #   30s and full over 180s, so a row that no longer fits is
+make test-soak   #   ENFORCED budget — the runner FAILS fast over 30s and
+                 #   full over 180s, CHARGED IN CPU (each row's own, laid
+                 #   out over the lanes: an idle box's wall clock, which a
+                 #   loaded box cannot inflate), so a row that no longer fits is
                  #   a decision somebody takes rather than a drift nobody
                  #   notices. SOAK HAS NONE, deliberately: it is where a test
                  #   goes when it is worth having and does not fit the gate,
