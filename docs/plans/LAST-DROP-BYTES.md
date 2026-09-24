@@ -1047,3 +1047,31 @@ Two things already established, so they need not be re-derived:
 
 `tools/incsize.py` is the instrument for the per-driver figure and **will not
 build a driver as-is**: it hard-codes `-I apps/`.
+
+### 7.10 `rect_get`/`rect_put`'s other two sets — 150 bytes, HELD by the owner
+
+Kernel size pass 4 (docs/plans/completed/HANDOFF-KERNEL-SIZE-P5.md) added
+`rect_get`/`rect_put` to `wm.inc`: `call` + `dw rect` (5 bytes) for the
+15-byte four-`mov` load or store of AX..DX from four adjacent words. The
+helpers cost **+99 cycles a get and +173 a put**, measured on MartyPC's 5150
+against the inline form, and every site of the shape was counted with
+execution breakpoints over eleven scenarios on CGA, Hercules and VGA
+(`boot`, a Disk window, a package open and close, a raise, a drag and drop
+over one window and over a five-window stack, a menu, closing five windows).
+The owner took the **S1 set only** — 19 sites that are cold or run once per
+operation, never above 0.06% of any measured operation, 7 of them never
+reached at all — for −142 bytes on kern_big. The other two are held here:
+
+| set | sites | bytes | cost, measured |
+|---|---|---:|---|
+| **S2, the damage repaint** | `wm_dmg_bands` ×3, `wm_paint_dmg` ×3, `wm_dmg_gray` (the two that run) | ~80 | +1,088 cycles (0.23 ms) per damage repaint: **0.16% of a window close**, 0.02% of a drag drop |
+| **S3, the save-under cache** | `wm_su_owed`, `wm_su_sub`, `wm_su_vset`, `wm_su_srect` (the hot one), `wm_su_flay`, `wm_su_try` ×2 | ~70 | ~0.37% of a close and ~0.2% of a raise; `wm_su_flay` alone is **0.13%** of a close (5 puts, 70-78 runs a session) |
+
+S3 is the worst trade in the set — the save-under cache exists to make raise
+and close cheap — and prefers GET sites if any are ever taken (a put is 1.75x
+a get). **Never convert `gfx_clip_run`** (`vga12.inc`): the same shape, once
+per clipped drawing RUN, up to 59 times in one operation. The `.cold` sites of
+the shape (`ui_krect4`, `fmv_uadd`) cannot use the helpers at all — the `dw`
+is read through DS, which is not CS there. The measurement's scripts and raw
+counts are the pass's scratch findings (`rect-count.md`); re-derive rather
+than quote if the window manager has moved.

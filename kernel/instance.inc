@@ -1841,10 +1841,8 @@ inst_an_tile:
     push cx
     push dx
     call inst_tile_rect
-    mov [wm_an_d], ax
-    mov [wm_an_d+2], bx
-    mov [wm_an_d+4], cx
-    mov [wm_an_d+6], dx
+    call rect_put               ; <- AX..DX, four adjacent words
+    dw wm_an_d
     jmp kret_dx
 
 ; -----------------------------------------------------------------------------

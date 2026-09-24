@@ -3407,10 +3407,8 @@ wm_rz_precover:
 wm_dg_precover:
     pushf
     push bx
-    mov [wm_rz_ox], ax
-    mov [wm_rz_oy], bx
-    mov [wm_rz_ow], cx
-    mov [wm_rz_oh], dx
+    call rect_put               ; <- AX..DX, four adjacent words
+    dw wm_rz_ox
     mov bx, si
     call wm_rz_precover
     pop bx
@@ -3819,10 +3817,8 @@ wm_destroy:
                                 ; went at the wm_hide, so an empty rect - the
                                 ; chrome is all this owes (x1 > x2 is empty)
 .bank:
-    mov [wm_hide_r], ax
-    mov [wm_hide_r+2], bx
-    mov [wm_hide_r+4], cx
-    mov [wm_hide_r+6], dx
+    call rect_put               ; <- AX..DX, four adjacent words
+    dw wm_hide_r
     mov bx, si
     call wm_fs_drop             ; a dying fullscreen window must release the
                                 ; screen (SPEC.md 11.2)
@@ -3889,10 +3885,8 @@ wm_destroy:
 .count:
     dec byte [wm_zn]
 .paint:
-    mov ax, [wm_hide_r]
-    mov bx, [wm_hide_r+2]
-    mov cx, [wm_hide_r+4]
-    mov dx, [wm_hide_r+6]
+    call rect_get               ; the rect -> AX..DX, four adjacent words
+    dw wm_hide_r
     call wm_paint_dmg
     jmp kret_di
 
@@ -4286,10 +4280,8 @@ wm_raise:
                                 ; window dragged from BEHIND another one was
                                 ; dropped at the covered rect's bottom-right
                                 ; corner instead of under the pointer
-    mov ax, [wm_cov_x1]
-    mov bx, [wm_cov_y1]
-    mov cx, [wm_cov_x2]
-    mov dx, [wm_cov_y2]
+    call rect_get               ; the rect -> AX..DX, four adjacent words
+    dw wm_cov_x1
     call wm_su_sub
     pop dx
     pop cx
@@ -5496,10 +5488,8 @@ wm_dmg_hit:
 ; this pass. ui_drag can say it, because a drag is only reached after a raise.
 ; -----------------------------------------------------------------------------
 wm_dmg_vacate:
-    mov [wm_dmg_st1], ax
-    mov [wm_dmg_sy1], bx
-    mov [wm_dmg_st2], cx
-    mov [wm_dmg_sy2], dx
+    call rect_put               ; <- AX..DX, four adjacent words
+    dw wm_dmg_st1
     mov [wm_dmg_stwin], si
     ret
 
@@ -6180,10 +6170,10 @@ wm_dock_under:
     push cx                     ; PAINTED, not the whole strip (SPEC.md
     push dx                     ; 30.3.3): a focus change moves two tiles, and
     call dock_px_rect           ; the strip's empty end was marking every
-    mov [wm_dmg_x1], ax         ; window standing over it for nothing. CF = 1
-    mov [wm_dmg_y1], bx         ; above, so the span is non-empty by
-    mov [wm_dmg_x2], cx         ; construction. As a RECT, because on a side
-    mov [wm_dmg_y2], dx         ; strip the span is rows (SPEC.md 30.5)
+    call rect_put               ; window standing over it for nothing. CF = 1
+    dw wm_dmg_x1                ; above, so the span is non-empty by
+                                ; construction. As a RECT, because on a side
+                                ; strip the span is rows (SPEC.md 30.5)
     pop dx
     pop cx
     pop bx
@@ -6967,10 +6957,10 @@ wm_dmg_gray:
     je .out                     ; wholly covered: not one pixel is revealed
     jmp short .fill
 .whole:
-    mov ax, [wm_dg_r + 0]       ; ...THE BANDS, not their bounding box, and not
-    mov bx, [wm_dg_r + 2]       ; the damage: re-seeding from the box would
-    mov cx, [wm_dg_r + 4]       ; dither columns of display 0 that the damage
-    mov dx, [wm_dg_r + 6]       ; never covered, because the box spans the seam
+    call rect_get               ; ...THE BANDS, not their bounding box, and not
+    dw wm_dg_r                  ; the damage: re-seeding from the box would
+                                ; dither columns of display 0 that the damage
+                                ; never covered, because the box spans the seam
     call wm_dmg_bands           ; and each display then clamps it back to its
                                 ; own full width. It is idempotent from the
                                 ; DAMAGE and is not from the box
@@ -7708,6 +7698,51 @@ wm_clip_rows:
     stc
 .out:
     jmp kret_bp
+
+; -----------------------------------------------------------------------------
+; rect_get / rect_put - AX,BX,CX,DX from / to four ADJACENT words, the words
+;                       named by a `dw` that follows the call (size pass 4)
+; in:  `call rect_get` / `dw rect` - out AX = [rect], BX = +2, CX = +4, DX = +6
+;      `call rect_put` / `dw rect` - [rect..rect+6] = AX, BX, CX, DX
+; out: rect_get writes AX..DX only; rect_put preserves every register. NEITHER
+;      touches the flags (lea, not add/inc), so a site that carries a compare
+;      across the four moves still may.
+;
+; The four-mov load or store is 15 bytes and this is 5, at a measured +99
+; cycles for a get and +173 for a put (MartyPC, 5150) - so it is used only
+; at the sites a measurement said are cold or once per operation (the
+; handoff's S1 set: never above 0.06% of any operation). The damage-repaint
+; and save-under sites stay inline on purpose; docs/plans/LAST-DROP-BYTES.md
+; has them costed. The `dw` is read through DS, so only a `.text` caller may
+; use these, and the rect must be four words in x1,y1,x2,y2 order - the
+; assertions at the foot of this file are what hold the named ones to it.
+; -----------------------------------------------------------------------------
+rect_get:
+    pop bx                      ; -> the dw
+    mov dx, [bx]
+    lea bx, [bx+2]
+    push bx                     ; return past it
+    mov bx, dx
+    mov ax, [bx]
+    mov cx, [bx+4]
+    mov dx, [bx+6]
+    mov bx, [bx+2]
+    ret
+rect_put:
+    push bp
+    mov bp, sp
+    push si
+    mov si, [bp+2]              ; -> the dw (SS: this is the stack)
+    lea si, [si+2]
+    mov [bp+2], si              ; return past it
+    mov si, [si-2]
+    mov [si], ax
+    mov [si+2], bx
+    mov [si+4], cx
+    mov [si+6], dx
+    pop si
+    pop bp
+    ret
 
 ; -----------------------------------------------------------------------------
 ; wm_ptr2idx - window record pointer to index (public, SPEC.md 11)
@@ -9537,10 +9572,8 @@ wm_cov_rect:
                                 ; here: it is pushed at entry and the walk
                                 ; below does not load it until .scan
 .rect:
-    mov [wm_cov_c1], ax
-    mov [wm_cov_c2], bx
-    mov [wm_cov_c3], cx
-    mov [wm_cov_c4], dx
+    call rect_put               ; <- AX..DX, four adjacent words
+    dw wm_cov_c1
     mov ax, 0x7FFF              ; seeded EMPTY, and left that way by a window
     mov [wm_cov_x1], ax         ; nothing overlaps - which wm_su_srect reads as
     mov [wm_cov_y1], ax         ; "no pixel needs writing" and wm_damage as
@@ -9836,10 +9869,8 @@ wm_su_srect:
     pop si
     ret
 .whole:
-    mov ax, [wm_su_x1]
-    mov bx, [wm_su_y1]
-    mov cx, [wm_su_x2]
-    mov dx, [wm_su_y2]
+    call rect_get               ; the rect -> AX..DX, four adjacent words
+    dw wm_su_x1
     clc
     pop si
     ret
@@ -10743,10 +10774,8 @@ wm_su_take:
     call wm_su_drop             ; whatever THIS window banked before: one
                                 ; window, one claim, or the old one leaks
     call wm_su_flay             ; DI is still the window for this: the CONTENT
-    mov ax, [wm_su_x1]          ; rect, the clamped extents and the fragment
-    mov bx, [wm_su_y1]          ; layout, all three of which the header carries
-    mov cx, [wm_su_x2]
-    mov dx, [wm_su_y2]
+    call rect_get               ; rect, the clamped extents and the fragment
+    dw wm_su_x1                 ; layout, all three of which the header carries
     cmp ax, cx
     ja .out                     ; degenerate content: nothing to bank
     cmp bx, dx
@@ -10918,10 +10947,10 @@ wm_su_edge:
     push dx
     push si
     push di
-    mov [wm_su_ex1], ax         ; the rect being restored, banked: every
-    mov [wm_su_ey1], bx         ; register is wanted below. FOUR WORDS OF ITS
-    mov [wm_su_ex2], cx         ; OWN (SPEC.md 11.96.11.1) - it used to borrow
-    mov [wm_su_ey2], dx         ; wm_su_sx1..sy2 on the reasoning that the
+    call rect_put               ; the rect being restored, banked: every
+    dw wm_su_ex1                ; register is wanted below. FOUR WORDS OF ITS
+                                ; OWN (SPEC.md 11.96.11.1) - it used to borrow
+                                ; wm_su_sx1..sy2 on the reasoning that the
                                 ; one-shot was already spent, and a CACHE OF
                                 ; FRAGMENTS calls this once per fragment while
                                 ; the sub-rect is still owed to every one of
@@ -12007,10 +12036,8 @@ wm_an_lerp:
 
 ; wm_an_xor - the outline, drawn or erased (one call does both)
 wm_an_xor:
-    mov ax, [wm_an_c]
-    mov bx, [wm_an_c+2]
-    mov cx, [wm_an_c+4]
-    mov dx, [wm_an_c+6]
+    call rect_get               ; the rect -> AX..DX, four adjacent words
+    dw wm_an_c
     jmp vga_xor_rect_vram
 
 ; wm_an_deadline - bank "now + WM_AN_FRAME" as this frame's deadline
@@ -12118,10 +12145,8 @@ wm_an_seed:
 ; the time the window is being shown the one fact that says where it is coming
 ; from has already been thrown away.
 wm_an_arm:
-    mov [wm_an_s], ax
-    mov [wm_an_s+2], bx
-    mov [wm_an_s+4], cx
-    mov [wm_an_s+6], dx
+    call rect_put               ; <- AX..DX, four adjacent words
+    dw wm_an_s
     mov byte [wm_an_armed], 1
     ret
 
@@ -12472,3 +12497,17 @@ wm_cl_fy1:  resw 1
 wm_cl_fx2:  resw 1
 wm_cl_fy2:  resw 1
 section .text
+; rect_get/rect_put's named rects must be four ADJACENT words in x1,y1,x2,y2
+; order (the helpers read and write [r], [r+2], [r+4], [r+6])
+%macro RECT4 4
+  %if (%2 - %1) != 2 || (%3 - %1) != 4 || (%4 - %1) != 6
+    %error "rect_get/rect_put: %1..%4 are not four adjacent words in order"
+  %endif
+%endmacro
+RECT4 wm_cov_x1, wm_cov_y1, wm_cov_x2, wm_cov_y2
+RECT4 wm_cov_c1, wm_cov_c2, wm_cov_c3, wm_cov_c4
+RECT4 wm_dmg_st1, wm_dmg_sy1, wm_dmg_st2, wm_dmg_sy2
+RECT4 wm_dmg_x1, wm_dmg_y1, wm_dmg_x2, wm_dmg_y2
+RECT4 wm_rz_ox, wm_rz_oy, wm_rz_ow, wm_rz_oh
+RECT4 wm_su_ex1, wm_su_ey1, wm_su_ex2, wm_su_ey2
+RECT4 wm_su_x1, wm_su_y1, wm_su_x2, wm_su_y2
