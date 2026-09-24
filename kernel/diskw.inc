@@ -4079,7 +4079,6 @@ FME_LINE    equ 3               ; the status line's own composer (SPEC.md
                                 ; swap prompt and the two verdicts letter is
                                 ; in THIS FILE now, read through CS
 FM_NENT     equ 4
-FMFP        equ mod_fp + MOD_FMT * MODFP_STRIDE
 
 %ifndef KD_BUILD                    ; **NO MODULE UNDER kern_dos** (SPEC.md
                                     ; 96.43): `mod_need` is not in that root,
@@ -4102,7 +4101,6 @@ modf_hdr:
     dw modf_e_format            ; is reached by `call far`, so it has to end
     dw modf_e_reach             ; in a retf, and every body below keeps the
     dw modf_e_line              ; near `ret` cold code has always had
-    times MOD_NENT - FM_NENT dw 0
 
 modf_e_probe:   call dskw_fmt_probe_x
             retf

@@ -890,8 +890,10 @@ learned.
   the banner above, the rung is not the point anyway.
   **docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md is what the mechanism REFUSES**, and it
   refused two of four candidates: `mod_need`'s own transitive cone is 155
-  symbols in 7 files, so a module inside it must be gated rather than moved,
-  and a layer with 33 entry points cannot fit `MOD_NENT`'s 7.
+  symbols in 7 files, so a module inside it must be gated rather than moved.
+  **There is no entry cap any more** (SPEC.md 2.8.1): a module's slot block is
+  exactly its own entry count, so an entry costs 4 bytes of `.bss` plus a byte
+  per call site and nothing else.
 - **Design for BYTES, never for rungs** — the banner at the top of this
   section is the rule; this is its mechanics. The amortised price of a byte is
   a byte, so a change that crosses no rung has not cost nothing: it spent slack

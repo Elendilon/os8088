@@ -236,7 +236,6 @@ FDE_ONCLICK equ 3
 FDE_REAP    equ 4
 FDE_GRAB    equ 5
 FDE_TOP     equ 6
-FDFP        equ mod_fp + MOD_FDLG*MODFP_STRIDE   ; this module's slot block
 %endif
 
 ; =============================================================================
@@ -325,7 +324,7 @@ modd_hdr:                       ; is at offset 0 because vstart is 0 and
     dw fdlg_reap_x_m            ; their own, so those three already do; open,
     dw fdlg_grab_x_m            ; paint, onkey and onclick leave near - the
     dw fdlg_top_x_m             ; last two because kern_big's window dispatch
-    times MOD_NENT - FD_NENT dw 0   ; calls them NEAR (SPEC.md 2.6.3) - and
+                                ; calls them NEAR (SPEC.md 2.6.3) - and
                                 ; take the four below
 modd_e_open:    call fdlg_open_x_m
             retf

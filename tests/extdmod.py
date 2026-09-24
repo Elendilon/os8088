@@ -80,9 +80,9 @@ def slots_at_rest(m, eq, where):
     still readable."""
     off = os88sym.syms()["mod_gone"]
     want = off.to_bytes(2, "little") + eq["COLD_SEG"].to_bytes(2, "little")
-    base = S("mod_fp") + eq["MOD_EXT"] * eq["MODFP_STRIDE"]
-    got = m.read(base, eq["MODFP_STRIDE"])
-    if got != want * eq["MOD_NENT"]:
+    base = S("EXFP")
+    got = m.read(base, eq["EXT_NENT"] * 4)
+    if got != want * eq["EXT_NENT"]:
         FAILS.append("%s: an EXTD.DRV slot still points into module memory: "
                      "%s" % (where, got.hex()))
 

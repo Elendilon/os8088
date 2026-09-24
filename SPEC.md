@@ -1582,45 +1582,38 @@ in the tree.
   register, no shared scratch word, re-entrant across modules by
   construction. A slot that is not loaded points at `mod_gone`, which
   refuses — never at zero, which is a far call to the divide-by-zero vector.
-- **The stride is `MODFP_STRIDE` and there is exactly one of it, asserted.**
-  A module's block is reached two ways — `mod_fpr` *scales* a row pointer by
-  it to arm the slots, each module's own base *multiplies* by it to dispatch
-  — and the two disagreed by a factor of two for one release, which module 0
-  cannot show: its block is at offset 0 whichever is right. Module 1's was
-  armed past the end of `mod_fp`, over the word that then followed it, and
-  dispatched from a block nothing had written; `mod_fp` is `.bss`, so what an
-  overrun lands on is decided by section ordering in files nowhere near this
-  one. `%if MODFP_STRIDE != MODR_SIZE * MOD_NENT/…` — the assertion beside
-  the two constants, which pins the scale factor `mod_fpr` open-codes — is
-  why that cannot recur. (Neither `mod_fpi` nor `MODFP_SHIFT` has ever
-  existed; this bullet named both for several releases.)
-- **`mod_fpr` multiplies `MOD_TAB_OFF` and not `mod_tab`, and that is an
-  ASSEMBLER constraint rather than a taste.** `add di, mod_fp - mod_tab*7` is
-  a label times a constant; nasm 2.11 through 2.16 take it and nasm 3 refuses
-  it outright — *invalid operand type*, in every spelling — so the tree
-  assembled here every day and would not assemble at all for anybody whose
-  nasm is 3.x. `MOD_TAB_OFF equ mod_tab - $$` is the same address as a
-  **number** (`.text` has `vstart=0`), which multiplies. `tests/unit/t_nasm3.py`
+- **There is no `MOD_NENT`: each module's slot block is exactly its own
+  entry count long.** Each module declares `X_NENT` beside its header
+  (`CP_NENT` 7 on `kern_big` and 5 on `kern_small`, `FM_NENT` 4, `CLO_NENT` 2,
+  `HB_NENT` 7, `DK_NENT` 2, `EXT_NENT` 7, `FCP_NENT` 4, `FD_NENT` 7), and
+  kernel.asm's `MODFP` macro, below every module's `%include`, emits that
+  module's `.bss` block and its word in `mod_fpt` together. `mod_fpt` has one
+  word per module plus a sentinel, so `mod_fpr` turns a row into a block (DI)
+  and a count (CX) by a subtraction. `mod_check` demands the header's count
+  EQUAL the kernel's, which is stricter than the old `<= MOD_NENT`, and bounds
+  every entry offset by the header's own end, `12 + 2n`. `MODFP` refuses a
+  module declared out of `MOD_*` order and a count below one (a CX of 0 would
+  make `mod_disarm`'s `loop` run 65,536 times). The host side cannot drift
+  either: `kernel.bin`'s `O8MM` map carries each module's KERNEL count beside
+  its start and size, so `tools/os88mod.py` checks equality against a number
+  the same assembly computed under whatever `%ifdef`s were live, and scrapes
+  nothing. **An entry costs 4 bytes of `.bss` plus one byte per call site**
+  (a far indirect call against a near one), and a module pays for no slot it
+  does not arm. It replaced a uniform `MOD_NENT` = 7, which left 13 slots (52
+  bytes) allocated and never armed on each kernel, made an eighth entry a hard
+  NASM error in whichever module grew, and could not be per-build because the
+  host tool scraped it with a regex. Removing it was −36 bytes on `kern_big`
+  and −38 on `kern_small`. `MOD_MAX` is 6 on `kern_big` and 5 on
+  `kern_small`. BIG has `MOD_HIBER` 3, `MOD_DOCK` 4 and `MOD_EXT` 5; SMALL has
+  `MOD_FCP` 3 and `MOD_FDLG` 4.
+- **`mod_fpr` indexes by `MOD_TAB_OFF` and not `mod_tab`, and that is an
+  ASSEMBLER constraint rather than a taste.** An expression like
+  `mod_fpt - mod_tab/2` is label arithmetic nasm 3 refuses outright
+  (*invalid operand type*, in every spelling), while nasm 2.11 through 2.16
+  take it. `MOD_TAB_OFF equ mod_tab - $$` is the same address as a
+  **number** (`.text` has `vstart=0`), which scales. `tests/unit/t_nasm3.py`
   is the gate that catches the next one; CONTRIBUTING.md says how to get an
   nasm 3 to run it with.
-- **`MOD_NENT` is what the modules use and not a round number.** It is
-  **7**, which is what the largest module declares — §38.0's Standard File
-  dialog on `kern_small` (`FD_NENT` 7). The others: `HB_NENT` 7 (§87,
-  `kern_big` only), `CP_NENT` 7 on `kern_big`
-  and 6 on `kern_small`, `EXT_NENT` 7 (§39.19.6, `kern_big` only),
-  `FM_NENT` 4, `FCP_NENT` 3, `CLO_NENT` 2, and the Dock's two
-  (`dkx_hook`/`dkx_unhook`, §30.5). Every module
-  header ends `times MOD_NENT - X dw 0`, which makes an eighth entry a **hard
-  NASM error in the file that grew** rather than an overrun. It is **not**
-  per-build, and that was tried: `tools/os88mod.py` scrapes the first
-  `MOD_NENT equ` out of `mod.inc` and cannot evaluate an `%ifdef`. It was 8
-  for as long as the scale factor had to be a power of two so `mod_fpr` could
-  shift; ×7 is `×8 − ×1`, four instructions, and the power of two was buying
-  12 `.bss` bytes per module that nothing could declare. `MOD_MAX` is 6 on
-  `kern_big` and 5 on `kern_small`. BIG has `MOD_HIBER` 3, `MOD_DOCK` 4 and
-  `MOD_EXT` 5; SMALL has `MOD_FCP` 3 and `MOD_FDLG` 4. (This line read 5 and
-  6 the other way round, with a `MOD_DOCK` 5 on SMALL, until `EXTD.DRV`
-  landed: SMALL has no Dock module and never had one.)
 - The loader itself is **`.cold`**. In `.text` it would be ~430 bytes against
   a `KERN_CODE_MAX` nobody can raise, and being cold also means the thunks
   that call it reach it with a near call.

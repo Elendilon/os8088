@@ -983,17 +983,18 @@ the reason rather than a silent one (§47 rule 3).
 
 **An ON-DEMAND MODULE** (§2.8, `kernel/mod.inc`) — kernel code cut out of
 `KERNEL.SYS` into a file, read into a heap claim when the feature is asked
-for and freed when it is done: `CTRL.DRV`, `FORMAT.DRV`, `CLONE.DRV`,
-`HIBER.DRV` (which carries the compressor too, §20.15.3), on `kern_big`
+for and freed when it is done: `CTRL.DRV`, `FORMAT.DRV`, `CLONE.DRV`
+(which carries the compressor too, §20.15.3), on `kern_big` `HIBER.DRV`,
 `DOCK.DRV` and `EXTD.DRV` (§30.5, §39.19.6 - the second held for as long as
 the desktop is extended rather than for one action), and on `kern_small`
 `FILECP.DRV` and `FDLG.DRV` too. What stays resident is the menu item, the greying predicate and the
-thunks (`MOD_NENT` = 7 far-pointer slots per module). A feature qualifies
+thunks (one 4-byte far-pointer slot per ENTRY the module declares, SPEC.md 2.8.1). A feature qualifies
 when the system disk is already required to use it, or can be required
 without interrupting what the user was doing. **What the mechanism refuses**
 is in docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md: `mod_need`'s own
-transitive cone (assoc had to be GATED, not moved), and a layer with more
-entry points than `MOD_NENT` (diskw). A module's DATA must stay in `.text`,
+transitive cone (assoc had to be GATED, not moved), and a layer with 33 entry
+points called from everywhere (diskw) - which since SPEC.md 2.8.1 is no longer
+a CAP, only 132 bytes of slots and a far call at every site. A module's DATA must stay in `.text`,
 because `DS = KERNEL_SEG` is the whole of how it reaches anything.
 
 **An OVERLAY DRIVER** — the screen saver (§79, `SAVER.DRV`, `DRVC_OVL` like

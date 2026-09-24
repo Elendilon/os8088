@@ -77,7 +77,6 @@ modx_hdr:
     dw ext_e_fitbox             ; EXT_FITBOX
     dw ext_e_dispnow            ; EXT_DISPNOW
     dw ext_e_fsx                ; EXT_FSX
-    times MOD_NENT - EXT_NENT dw 0
 
 ext_e_extend:                   ; EXT_EXTEND: vid_disp_init's Extend arm.
     call ext_extend_b           ; mod_gone's CF = 1 is that routine's

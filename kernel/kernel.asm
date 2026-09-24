@@ -417,7 +417,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; exactly where the image ends, so nothing about big's read changes.
 ;
 ; It is the FIRST feature through the seam because it needs nothing new:
-; five entry points against MOD_NENT's eight, and every caller is a user
+; five entry points, and every caller is a user
 ; gesture in files.inc. ONE symbol decides it, resolved here above every
 ; %include for OS88_ASSOC's reason.
 %ifdef KERN_SMALL
@@ -426,9 +426,8 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 
 ; SPEC.md 38's Standard File dialog, on FCP_MOD's terms one block up and
 ; through the same seam (SPEC.md 38.0, docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md 9.2
-; wave 2). SEVEN entries against MOD_NENT's eight, because SPEC.md 13.10.5's
-; thumb drag is kern_big's already and takes fdlg_onup and fdlg_ondrag with
-; it - so this fits the mechanism as it stands and needed no MOD_NENT raise.
+; wave 2). SEVEN entries, because SPEC.md 13.10.5's thumb drag is kern_big's
+; already and takes fdlg_onup and fdlg_ondrag with it.
 %ifdef KERN_SMALL
   %define FDLG_MOD 1
 %endif
@@ -6364,7 +6363,7 @@ EXTF_ENTER  equ 0               ;   vid_fsx_enter (AL = the display)
 EXTF_LEAVE  equ 1               ;   vid_fsx_leave
 EXTF_UNBLANK equ 2              ;   vid_fsx_unblank
 %macro EXTCALL 1
-    call far [mod_fp + MOD_EXT*MODFP_STRIDE + %1*4]
+    call far [EXFP + %1*4]
 %endmacro
 %endif
 %include "vidsel.inc"           ; which adapters the machine HAS, and moving
@@ -6501,7 +6500,7 @@ EXTF_UNBLANK equ 2              ;   vid_fsx_unblank
                               ; loader and the far-pointer table. BEFORE
                               ; every module it serves, because a module's
                               ; own section carries the header that names
-                              ; MOD_* and MOD_NENT
+                              ; MOD_*
 %include "lz.inc"             ; decompression (docs/plans/O88-COMPRESSION-PLAN.md):
                                 ; BEFORE every loader that calls it, and it
                                 ; calls nothing itself - no kernel data, no
@@ -6533,7 +6532,58 @@ EXTF_UNBLANK equ 2              ;   vid_fsx_unblank
 %include "ctrl.inc"
 %include "hiber.inc"            ; hibernate and resume (SPEC.md 87): the
                                 ; resident thunks, the probe, and HIBER.DRV.
-                                ; After mod.inc for MOD_NENT, a size here
+                                ; After mod.inc for MOD_*, a size here
+
+; --- the modules' far-pointer slots (SPEC.md 2.8.1): ONE BLOCK PER MODULE,
+; --- EXACTLY AS LONG AS THAT MODULE'S OWN X_NENT. Here, below every module's
+; --- %include, because RESB wants a constant it has already seen. MODFP emits
+; --- the .bss block AND its mod_fpt word together, and refuses an id out of
+; --- MOD_* order or a count below one - mod_fpr's CX of 0 would make
+; --- mod_disarm's `loop` run 65,536 times. The blocks are contiguous, so the
+; --- sentinel word is the end of the last one and mod_init_x clears the whole
+; --- run in one pass.
+%assign MODFP_I 0
+%macro MODFP 3                  ; label, MOD_ id, entry count
+  %if %2 != MODFP_I
+    %error "MODFP: %1 is module id %2 but is block MODFP_I - mod_fpt is indexed by id, so the blocks must be declared in MOD_* order"
+  %endif
+  %if %3 < 1
+    %error "MODFP: %1 declares no entries; mod_disarm would loop 65,536 times"
+  %endif
+section .bss
+%1: resb %3*4
+section .text
+    dw %1
+  %assign MODFP_I MODFP_I+1
+%endmacro
+section .bss
+mod_fp:
+section .text
+mod_fpt:
+    MODFP CPFP, MOD_CTRL, CP_NENT
+    MODFP FMFP, MOD_FMT, FM_NENT
+    MODFP CLFP, MOD_CLONE, CLO_NENT
+%ifdef KERN_BIG
+    MODFP HBFP, MOD_HIBER, HB_NENT
+%endif
+%ifdef FCP_MOD
+    MODFP FCPFP, MOD_FCP, FCP_NENT
+    MODFP FDFP, MOD_FDLG, FD_NENT
+%endif
+%ifdef DOCK_OPT
+    MODFP DKFP, MOD_DOCK, DK_NENT
+%endif
+%ifdef KERN_BIG
+    MODFP EXFP, MOD_EXT, EXT_NENT
+%endif
+%if MODFP_I != MOD_MAX
+  %error "MODFP: MODFP_I blocks against MOD_MAX rows"
+%endif
+    dw mod_fp_end
+section .bss
+mod_fp_end:
+section .text
+MOD_NSLOT equ (mod_fp_end - mod_fp) / 4
 %include "driver.inc"           ; loadable drivers (SPEC.md 51): after
                                 ; diskw (it reads and writes the system disk)
                                 ; and memory (a driver image is a claim)
@@ -8000,24 +8050,33 @@ mod_map:
     db 'O8MM'
     db MOD_MAX                  ; rows below
     db 0
-    dd MODC_START, MODC_SIZE    ; DWORDS: a file offset past 64KB is the
+    dd MODC_START, MODC_SIZE
+    dw CP_NENT                  ; ...and each row the KERNEL's entry count
+                                ; DWORDS: a file offset past 64KB is the
                                 ; ordinary case here, the kernel being ~100KB
                                 ; before a module is added, and a `dw` of it
                                 ; assembles as a silent truncation under any
                                 ; flags but this tree's -w+error
     dd MODF_START, MODF_SIZE
+    dw FM_NENT
     dd MODL_START, MODL_SIZE
+    dw CLO_NENT
 %ifdef KERN_BIG
     dd MODH_START, MODH_SIZE    ; ...and kern_big's fourth: hibernate (87)
+    dw HB_NENT
 %else
     dd MODP_START, MODP_SIZE    ; ...or kern_small's fourth (SPEC.md 22.3)
+    dw FCP_NENT
     dd MODD_START, MODD_SIZE    ; ...and its fifth (SPEC.md 38.0)
+    dw FD_NENT
 %endif
 %ifdef DOCK_OPT
     dd MODK_START, MODK_SIZE    ; optional advanced Dock (kern_big)
+    dw DK_NENT
 %endif
 %ifdef KERN_BIG
     dd MODX_START, MODX_SIZE    ; the extended desktop (SPEC.md 39.19.6)
+    dw EXT_NENT
 %endif
     dd MODMAP_START             ; ...where the table began, and
     dw 0x384F                   ; the last two bytes of the file

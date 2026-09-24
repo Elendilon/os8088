@@ -859,8 +859,8 @@ CPS_CBY2  equ CPS_CBY + CP_GW - 1       ; 63: checkbox band bottom
 ; instructions rather than far-calling across the boundary for them.
 ; =============================================================================
 ; The entry indices, which are the image's ABI with its own thunks. They are
-; here rather than beside those thunks because the header below is built with
-; `times MOD_NENT - CP_NENT`, and TIMES wants a constant it has already seen.
+; here rather than beside those thunks because kernel.asm sizes CPFP's slot
+; block from CP_NENT, and RESB wants a constant it has already seen.
 CPE_PAINT   equ 0
 CPE_ONCLICK equ 1
 CPE_FLUSH   equ 2
@@ -875,7 +875,6 @@ CP_NENT     equ 7
 CPE_DOCK_GEOM equ 5
 CP_NENT     equ 6
 %endif
-; Layout setup uses the next free entry without growing MOD_NENT or mod_fp.
 ; MOD_H_NENT and the layout stamp reject a module from another build.
 %else
 CPE_ONUP    equ 4               ; SPEC.md 13.8.3's two edges. The RELEASE is on
@@ -888,7 +887,6 @@ CP_NENT     equ 5               ; header and mod_check compares it against the
                                 ; wrong count is refused rather than
                                 ; dispatched into
 %endif
-CPFP        equ mod_fp + MOD_CTRL * MODFP_STRIDE
 
 section .modc                   ; the on-demand image starts HERE, at its own
                                 ; offset 0, so the header below is the first
@@ -918,10 +916,6 @@ modc_hdr:
 %ifdef DOCK_OPT
     dw modc_e_dock_geom         ; CPE_DOCK_GEOM: Dock and Display settings
 %endif
-    times MOD_NENT - CP_NENT dw 0   ; the table is a FIXED MOD_NENT words, so
-                                ; MOD_HDR_SZ is a constant and mod_check can
-                                ; refuse an entry offset that points into the
-                                ; header itself
 
 ; --- the far entries, which are the WHOLE reason this is not a body pointer --
 ; A module's entries are reached by `call far [mod_fp + K]`, so they have to
@@ -1002,10 +996,10 @@ cp_tick_due_x:
 ; that, or drops the key.
 ;
 ; **IT IS RESIDENT, and that is a size decision rather than a taste.** The
-; obvious home is the on-demand module beside cp_item_click, and `MOD_NENT` is
-; FOUR far-pointer slots per module with all four spent (paint, click, flush,
-; tick); a fifth doubles the table to eight, for every module, in `.bss` that
-; every machine carries. Forty resident bytes here is the cheaper of the two,
+; obvious home is the on-demand module beside cp_item_click, and when this was
+; written a fifth entry meant a fifth slot for EVERY module, in `.bss` every
+; machine carries (the cap is gone since SPEC.md 2.8.1's per-module blocks,
+; so this is a move waiting to be made). Forty resident bytes was the cheaper,
 ; and cp_drv_gone_x is the same trade already taken - it carries its own copy
 ; of cp_drv_item's record-space test for exactly this reason, and so does this.
 ;
