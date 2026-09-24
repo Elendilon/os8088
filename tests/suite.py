@@ -221,6 +221,14 @@ def _kernel_sources():
 # fast - host-side, no emulator, no build. Runs on every `make`.
 # --------------------------------------------------------------------------
 FAST = [
+    Row("nulldev", "fast", py("tests/unit/t_nulldev.py"), 0.3,
+        "NOTHING HANDS /dev/null TO NASM AS -o OR -l. NASM unlinks a failed "
+        "-o target and replaces a -l target even on success, so as root "
+        "either one turns the container's /dev/null into a regular file - "
+        "which is docs/plans/SOAK-PARALLEL.md 16's 'the layer under the "
+        "repo', and was tests/kerndos.py's `-l /dev/null` on every soak, with "
+        "eleven more sites one failed assembly away. The argument is gated "
+        "and not the device, so it is caught at the edit"),
     Row("retired", "fast", py("tests/unit/t_retired.py"), 0.3,
         "every package under apps/ ships, or apps/RETIRED.txt says why not "
         "(SPEC.md 20.16). CLAUDE.md's Layout section states the invariant - "

@@ -1640,16 +1640,31 @@ state the gesture is *for* — `ui_dragwin` for a drag, `menu_dropd` for a menu
 
 ## 16. `/dev/null` — THE BOX ITSELF, and it broke mid-run here
 
-**OPEN. Repaired and guarded on the box it happened on, not explained.**
+**CLOSED: it was NASM, run by this repo's own tests.** A container gave this
+project a `/dev/null` that was a **regular file** rather than a character
+device, and it did it *during* a soak - the run went 14:24→16:18 and the
+node's birth time was **15:14**. It happened again on 2026-09-24, born at
+15:33:45 with the `kd*`/`dos*` rows in flight, and this time the cause was
+measured rather than inferred. NASM treats its output files as its own: on a
+FAILED assembly it unlinks the file `-o` names, and it REPLACES the file `-l`
+names even on a successful one. Measured on 2.16.01 and 3.02 against a private
+`mknod c 1 3`:
 
-A container gave this project a `/dev/null` that was a **regular file** rather
-than a character device, and it did it *during* a soak — the run went
-14:24→16:18 and the node's birth time was **15:14**, so roughly the second half
-of that soak ran on a broken box. It was then destroyed and auto-repaired three
-more times over the following hour. Nothing in the repo is implicated: nasm
-2.16 and 3.02 both truncate their `-o`/`-l` output rather than replacing it,
-`weavesim` truncates, the shell snapshots only redirect, and no agent transcript
-contains a replace-shaped command against it.
+| | success | failure |
+|---|---|---|
+| `-o <device>` | still a character device | **unlinked** |
+| `-l <device>` | **a regular file** | **a regular file** |
+
+This container runs as root, so pointed at `/dev/null` that is the device
+itself. `tests/kerndos.py` assembled `kdboot.asm` with `-l /dev/null` on every
+soak - the `kerndos` row sat inside the minute the node was born - and eleven
+more sites passed `-o /dev/null` and were one failed assembly away from the
+same thing. The earlier reading that nasm "truncates rather than replaces"
+was true of the one case it tested, a successful `-o`, and of neither of the
+two that break it. Every site now writes a temp file beside the listing or map
+it wanted, and `tests/unit/t_nulldev.py` (fast tier) fails the build on the
+ARGUMENT - `-o` or `-l` then `/dev/null` in a command that names nasm - so it
+is caught at the edit rather than two hours into a run.
 
 **Ask before a two-hour run, because nothing it breaks names it:**
 
@@ -1689,14 +1704,13 @@ Four separate failures, none of which mentions `/dev/null`:
   junk instead of EOF.
 - **At mode 0644 a non-root writer gets `EACCES`** outright.
 
-### 16.2 What would settle it
+### 16.2 What settled it
 
-A watcher polling `[ -c /dev/null ]` at 0.2 s, logging `lsof` and every process
-younger than 90 s before repairing, caught one destruction and named nothing —
-no process was still alive to see. The remaining candidate is the layer under
-the repo (the sandbox or the container's own `/dev` setup), which is why only
-`/dev/null` was wrong while `zero`, `full`, `random`, `urandom`, `tty` and the
-loop devices were all correct and all carried the image's build date. **Do not
-conclude it is fixed because a run went green** — it is intermittent, it was
-stable for fifty minutes in the middle of this, and the preflight is what makes
-the next run's answer cheap.
+A watcher polling `[ -c /dev/null ]` at 0.2 s, logging `lsof` and every
+process younger than 90 s, caught one destruction and named nothing: a nasm
+that unlinks its output and exits is gone long before a 0.2 s poll can look
+for it, which is also why only `/dev/null` was ever wrong and never `zero` or
+`tty` - nothing here hands those to an assembler. What named it was the
+node's BIRTH time (`stat -c %w /dev/null`) laid against the soak's own row
+order, and then a `mknod` of our own to test nasm against without breaking
+the box.
