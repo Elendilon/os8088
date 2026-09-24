@@ -20,6 +20,10 @@ at 5.5 kHz:
   onto the XT, reads 15.0 and a ring down to 2,048, so either threshold alone
   catches that regression.
 
+  THE ABOUT CARD, HELD (45.21.9) - 13 guest seconds with every frame dropped,
+  past both 16-bit windows at 5.5 kHz: the clock must move by the guest time,
+  within a second. The build before this reads +1.3 s against +23.8.
+
   THE 286 FACE'S MARKERS (45.24.1) - reached on the 8088 by [trk_cpu0] = 0 and
   XT mode off: a bar HELD low must let its peak marker fall to it. The first
   build skipped a held band's whole step, marker included, and leaves the
@@ -141,6 +145,12 @@ def main():
             guest(1.0)
         flags = lambda: wv(imm["tw_flags_b"] + VIZ * 2)
 
+        def click_btn(i):
+            a = imm["tw_rects_b"] + i * 8
+            x1, y1, x2, y2 = [wv(a + k) for k in (0, 2, 4, 6)]
+            mo.click((x1 + x2) // 2, (y1 + y2) // 2)
+            guest(1.0)
+
         def click():
             a = imm["tw_rects_b"] + VIZ * 8
             x1, y1, x2, y2 = [wv(a + i) for i in (0, 2, 4, 6)]
@@ -258,6 +268,35 @@ def main():
             break
         else:
             check("found a moment with no line's inputs moving", False, True)
+
+        # A FROZEN FACE KEEPS ITS BOOKS (45.21.9). The About card drops every
+        # frame, and a frame was the only thing that asked the card where it
+        # was or moved the clock - both through a 16-bit difference. Held past
+        # 64 KB of music (11.9 s at 5.5 kHz) the clock lost exactly that for
+        # the rest of the song, and between 32 and 64 KB the position was
+        # refused as "going backwards" and the face stayed on the old row
+        # after the card came down. Held 13 guest seconds here, which is past
+        # both, and the clock must have moved by the guest time that passed.
+        print("the About card, held (SPEC.md 45.21.9)")
+        rate_hz = wv(P["@mp_mixrate"])
+        el = lambda: (int.from_bytes(m.read(base + P["@tw_el"], 4), "little"))
+        m.pause()
+        el0, c0 = el(), m.status()["cycles"]
+        m.run()
+        click_btn(15)                  # About
+        check("the card is up", b("trk_abon"), 1)
+        guest(13.0)
+        m.key("KeyQ")                  # any key takes it down
+        guest(2.0)
+        m.pause()
+        el1, c1 = el(), m.status()["cycles"]
+        m.run()
+        heard = (el1 - el0) / float(rate_hz)
+        wall = (c1 - c0) / HZ
+        print("  across the card: clock +%.1f s, guest +%.1f s" % (heard, wall))
+        check("the card is down", b("trk_abon"), 0)
+        check("...and the clock kept the music's time (within 1 s)",
+              abs(heard - wall) <= 1.0, True)
 
         # THE 286 FACE'S MARKERS (45.24.1), on the 8088: [trk_cpu0] = 0 and XT
         # mode off is the face a 286 gets. A bar HELD low under a high marker

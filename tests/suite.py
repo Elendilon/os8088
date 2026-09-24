@@ -8137,10 +8137,11 @@ SOAK = [
         "Tracker on an XT: the visualiser button is VU Meter / Spectrum / Off"
         " and greys only at 11 kHz (SPEC.md 45.23.1); the XT spectrum is 12"
         " bars at 17+ fps with the ring half full, and a 286 marker falls to"
-        " its held bar (45.24.1); the LCD is"
+        " its held bar (45.24.1); a face frozen under the About card keeps"
+        " its clock and position (45.21.9); the LCD is"
         " composed by its KEYS"
         " and lettered by its changed cells, and the glass equals a forced"
-        " full repaint pixel for pixel (45.21.8). Measured 50s",
+        " full repaint pixel for pixel (45.21.8). Measured 64s",
         needs=("marty",),
         wants=("build/trkship360.img",)),
     Row("wmchrome", "soak", py("tests/wmchrome.py"), 180.0,

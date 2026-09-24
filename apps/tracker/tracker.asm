@@ -3442,15 +3442,18 @@ trk_render:
     call OSAPI_GFX_LOCK
     mov bx, [trk_win]
     call OSAPI_WM_GEOM              ; CF=1: hidden - draw nothing
-    jc .unlock
+    jc .book
     call OSAPI_WM_CLIP_SET          ; CF=1: fully covered - skip the frame
-    jc .unlock
+    jc .book
     cmp byte [trk_abon], 0          ; checked HERE, under the lock, after the
-    jne .unlock                     ; clip: the [ark_abon] rule verbatim
+    jne .book                       ; clip: the [ark_abon] rule verbatim
     mov byte [tw_inframe], 1        ; the frame's own clip is armed: a message
     call tui_draw_dyn               ; set inside it is drawn BY it, and nothing
     mov byte [tw_inframe], 0        ; may clear the clip (tw_refresh)
-.unlock:
+    jmp short .unlock
+.book:                              ; ...a frame not drawn is still BOOKED:
+    call tw_book                    ; the position, the decay, the clock
+.unlock:                            ; (SPEC.md 45.21.9)
     call OSAPI_GFX_UNLOCK           ; also clears the clip
     pop di
     pop si

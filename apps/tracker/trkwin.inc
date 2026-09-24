@@ -2616,22 +2616,52 @@ tw_paint:
 ; About card): the decay, the clock, then what moved
 ; -----------------------------------------------------------------------------
 tw_frame:
-    push ax
     mov byte [tw_inframe], 1
+    call tw_tick
+    call tw_update
+    mov byte [tw_inframe], 0
+    ret
+
+; -----------------------------------------------------------------------------
+; tw_book - a frame's BOOKKEEPING with nothing drawn: trk_render's answer when
+; the About card is up, the window is hidden or it is wholly covered (SPEC.md
+; 45.21.9). The position the card is playing, the decay and the clock move on
+; every tick whether or not the face can be seen, so the paint that uncovers
+; it draws NOW and not the moment it was covered.
+;
+; They were frame-only, and two 16-bit differences made a long freeze worse
+; than stale. [tui_play] refuses a reading "behind" it, and "behind" is a
+; signed difference: once the card had played 32 KB past the last frame
+; (6 s at 5.5 kHz, 1.5 s at 22) every true reading was refused and the face
+; stayed frozen on the old row until the gap wrapped. And the clock adds the
+; bytes heard since the last frame modulo 64 KB, so a freeze past that lost
+; 11.9 s (at 5.5 kHz) off the elapsed time for the rest of the song.
+; Preserves all.
+; -----------------------------------------------------------------------------
+tw_book:
+    cmp byte [tui_inited], 0
+    je .out
+    call tui_sync                   ; the position being HEARD (SPEC.md 45.15)
+    call tw_tick
+.out:
+    ret
+
+; tw_tick - the decay, then the clock: what a frame does before it draws, and
+; all of what a skipped one does (tw_book). Preserves all.
+tw_tick:
+    push ax
     call tw_vtick
     cmp byte [trk_sopen], 0         ; the elapsed clock counts what the card
     je .up                          ; has PLAYED (tui_play, 45.15), so it
     push bx                         ; stops with the music, pauses with it,
-    mov ax, [tui_play]              ; and a covered window misses nothing
-    mov bx, ax
-    sub ax, [tw_lplay]              ; AX = the bytes heard since last frame
-    mov [tw_lplay], bx              ; (16-bit, so exact across the wrap)
-    add [tw_el], ax
-    adc word [tw_el + 2], 0
+    mov ax, [tui_play]              ; and a covered window misses nothing -
+    mov bx, ax                      ; because a covered window's frame still
+    sub ax, [tw_lplay]              ; books it (tw_book). AX = the bytes heard
+    mov [tw_lplay], bx              ; since the last tick, 16-bit: exact
+    add [tw_el], ax                 ; across the wrap only because that is at
+    adc word [tw_el + 2], 0         ; most a tick or two of music
     pop bx
 .up:
-    call tw_update
-    mov byte [tw_inframe], 0
     pop ax
     ret
 
