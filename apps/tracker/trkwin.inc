@@ -506,10 +506,10 @@ tw_os_xt:
 .r:
     ret
 tw_os_viz:
-    call tw_vizfx                   ; ZF = 0: forced to the XT meter
-    je .pick
-    mov ax, OS88UI_DIS              ; ...and the button says it cannot move
-.pick:
+    call tw_vizxhi                  ; ZF = 0: XT mode's 11 kHz forces none,
+    je .pick                        ; and the button says it cannot move. The
+    mov ax, OS88UI_DIS              ; forced XT meter does NOT grey it: VU
+.pick:                              ; Meter <-> Off is still a pick (45.23.1)
     mov bl, [tw_vizm]
     xor bh, bh
     shl bx, 1
@@ -556,6 +556,21 @@ tw_vizfx:
     cmp byte [trk_cpu0], 0
 .out:
 %endif
+    ret
+
+; -----------------------------------------------------------------------------
+; tw_vizxhi - is the visualiser forced to NONE? ZF = 0 (jne) yes: forced to
+; the XT meter (tw_vizfx) AND in XT mode at 11 kHz, where the mixer leaves the
+; XT no time to draw one (SPEC.md 45.21.5). The one state the visualiser
+; button greys in. Preserves all but the flags.
+; -----------------------------------------------------------------------------
+tw_vizxhi:
+    call tw_vizfx
+    je .out                         ; not forced at all
+    cmp byte [mp_xt], 0
+    je .out                         ; a tier-0 machine outside XT mode
+    cmp byte [trk_xhi], 0
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1209,7 +1224,8 @@ tw_sliders:
 ;          screen shows (tui_vu, 45.12.1) - each a bar that moves by the
 ;          difference: a steady needle costs nothing, a moving one ONE fill.
 ;          Forced on a tier-0 machine and in XT mode (tw_vizfx), because that
-;          is the budget those two mean.
+;          is the budget those two mean - but Off is still a pick there, so
+;          the button cycles VU Meter <-> Off rather than greying.
 ;   286+   a SPECTRUM - sixteen bands kicked by the notes as they are HEARD,
 ;          one fill per band that moved - or an OSCILLOSCOPE, composed into a
 ;          1bpp band in our own RAM and put up with ONE OSAPI_GFX_BLIT1.
@@ -2223,13 +2239,13 @@ tw_update:
     mov al, [tw_viz]                ; the visualiser this frame draws
     call tw_vizfx
     je .vm
-    mov al, TWV_THIN                ; forced: the XT meter, thin (tw_vu)...
-    cmp byte [mp_xt], 0
-    je .vm
-    cmp byte [trk_xhi], 0
-    je .vm
-    mov al, TWV_OFF                 ; ...or none at XT mode's 11 kHz, where the
-.vm:                                ; mixer leaves no time to draw one
+    call tw_vizxhi                  ; forced: none at XT mode's 11 kHz, where
+    mov al, TWV_OFF                 ; the mixer leaves no time to draw one...
+    jne .vm
+    cmp byte [tw_viz], TWV_OFF      ; ...the user's Off where it was picked
+    je .vm                          ; (SPEC.md 45.23)...
+    mov al, TWV_THIN                ; ...else the XT meter, thin (tw_vu)
+.vm:
     cmp al, [tw_vizm]
     je .vs
     mov [tw_vizm], al
@@ -2759,13 +2775,21 @@ tw_a_shuf:
     xor byte [trk_shuf], 1
     ret
 tw_a_viz:
-    call tw_vizfx
-    jne .out                        ; forced: greyed, and a click on a greyed
-    mov al, [tw_viz]                ; control does nothing (SPEC.md 47 rule 6)
+    call tw_vizxhi
+    jne .out                        ; forced none: greyed, and a click on a
+    mov al, [tw_viz]                ; greyed control does nothing (SPEC.md 47
+    call tw_vizfx                   ; rule 6)
+    jne .xt
     inc ax
     cmp al, TWV_N
     jb .set
     xor al, al
+    jmp short .set
+.xt:                                ; forced to the XT meter: its two picks,
+    cmp al, TWV_OFF                 ; VU Meter <-> Off (SPEC.md 45.23.1)
+    mov al, TWV_OFF
+    jne .set
+    mov al, TWV_VU
 .set:
     mov [tw_viz], al
 .out:

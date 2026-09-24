@@ -72634,7 +72634,7 @@ and 4 reads **8.96, 26.88 and 35.84 s**, to the hundredth.
 
 | mode | what | cost a frame |
 |---|---|---|
-| **XT** — forced in XT mode and on a tier-0 machine | four horizontal needles: the FT2 screen's own note-driven `tui_vu` (§45.12.1), a **third of their slot tall** (`TWV_THIN`) | the difference: nothing when steady, one fill per needle that moved |
+| **XT** — forced in XT mode and on a tier-0 machine, where the button cycles **VU Meter ↔ Off** (§45.23.1) | four horizontal needles: the FT2 screen's own note-driven `tui_vu` (§45.12.1), a **third of their slot tall** (`TWV_THIN`) | the difference: nothing when steady, one fill per needle that moved |
 | **none** — XT mode at 11 kHz | the pane says *No meters at 11 kHz*, drawn once | nothing |
 | **Spectrum** (286+) | sixteen bands, kicked as a note is **heard**, each with a peak marker (§45.24) | one fill per band that moved, two for a marker's step |
 | **Scope** (286+) | the mixer's last output | **one** `OSAPI_GFX_BLIT1` |
@@ -72660,7 +72660,8 @@ the scheduler's own per-task cycle counters: the machine's idle share went
 narrow strip — and it is taken because it is free. **At XT mode's 11 kHz
 there is no meter at all**: the mixer leaves the XT no time to draw one, so
 what it had was needles frozen for seconds at a time; the pane says so
-instead, and the VU button greys with it.
+instead, and the visualiser button greys with it — the ONE state it greys in
+(§45.23.1).
 
 **The bench build carries no 286+ picture.** `-DTRKLOG` (tests/trklog.inc,
 the XT field log) replaces the spectrum and the scope with `tw_skick: ret`
@@ -72766,6 +72767,18 @@ still kept, being a handful of bytes a row.
 strings, windowed and fullscreen. Space has parked the replayer at the row
 the listener heard since §45.17, and `Paused  ENTER resumes` follows it, so
 the legend was the one place still calling it a stop.
+
+#### 45.23.1 …and Off is a pick on an XT too
+
+The forced XT meter used to **grey the button**: with nothing to pick
+between, a greyed button was the honest answer. Off made it a choice again,
+so where the meter is forced (XT mode, or a tier-0 machine — `tw_vizfx`) the
+button stays live and cycles **VU Meter ↔ Off** only; Spectrum and Scope are
+still never offered there. Only XT mode's 11 kHz, which forces *none*
+(`tw_vizxhi`), greys it. The pick is the one byte `[tw_viz]`, so an Off
+picked on an XT survives a trip out of XT mode, and turning the meter back on
+there picks VU Meter (a Spectrum picked on a 286 is not remembered across
+the trip).
 
 ### 45.24 The spectrum's peak markers
 
