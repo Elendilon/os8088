@@ -353,7 +353,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | TRACKER | `apps/tracker/tracker.asm` | §45 | yes |
 | TaskMgr | `apps/taskmgr/taskmgr.asm` | §28 | yes |
 | The Wire | `apps/thewire/thewire.asm` | §92 | no |
-| Video Player | `apps/video/video.asm` | §98 | no |
+| Video Player | `apps/video/video.asm` | §98 | yes |
 | WEAVE | `apps/weave/weave.asm` | `docs/WEAVE-SPEC.md` | yes |
 | WIRE | `apps/wire/wire.asm` | §78 | no |
 | WORD | `apps/word/wdload.asm` | §68 | no |

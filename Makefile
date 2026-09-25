@@ -4741,11 +4741,11 @@ $(BUILD)/hello.bin: apps/hello/hello.asm apps/os88api.inc apps/os88ui.inc \
 $(BUILD)/hello.o88: $(BUILD)/hello.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/hello.bin -o $@
 
-# VIDEO PLAYER (SPEC.md 98.3, docs/plans/VIDEO-PLAN.md). Built by `all`, and
-# LIVE-ONLY for now (LIVEPKGARGS, beside RECORDER and HELLO): no floppy yet,
-# because there is no video to ship with it - the owner's XDC streams are
-# copyrighted, and the os8088 logo video is a later wave - and a floppy is
-# where every cluster is somebody's. tests/vidplay.py makes its own clip.
+# VIDEO PLAYER (SPEC.md 98.3, docs/plans/VIDEO-PLAN.md), in $(APPS_TOOLS) - on
+# every apps disk, by the owner's decision - and in $(SMALLOMIT), because what
+# it plays through is kern_big's. No video ships beside it yet (the owner's
+# XDC streams are copyrighted; `make vidfieldhd` puts them on a hard disk for
+# the owner alone). tests/vidplay.py makes its own clip.
 $(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/os88api.inc \
                     apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/video/video.asm
@@ -10110,7 +10110,13 @@ small: $(BUILD)/small360.img $(BUILD)/small.img
 SMALLOMIT := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
              $(BUILD)/thewire.o88 \
              $(BUILD)/tracker.o88 \
-             $(BUILD)/audio.o88 $(BUILD)/sheet.o88
+             $(BUILD)/audio.o88 $(BUILD)/sheet.o88 $(BUILD)/video.o88
+# VIDEO (SPEC.md 98.3) is a REQUIREMENT omission of the SOUND rows' kind: it
+# plays through FSXF_RATE (53.2.2) and OSAPI_FILE_READ_SEQ (18.4.8), and both
+# are kern_big's alone by the owner's decision (VIDEO-PLAN 4). On kern_small
+# the bracket refuses the flag and the read answers FERR_NAME, so the package
+# could open a file and never play it.
+#
 # DOT DELIRIUM WAS THE SECOND NAME HERE AND IS NOT ANY MORE (SPEC.md 24.5.5).
 # Its ground was *"kern_small carries no `gfx_blit1` body at all and this
 # renderer is that one call"* - true when it was written and made FALSE the
@@ -11180,7 +11186,8 @@ APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
               $(BUILD)/notepad.o88 \
               $(BUILD)/paint.o88 $(BUILD)/piano.o88 \
               $(BUILD)/ftpd.o88 $(BUILD)/sheet.o88 $(BUILD)/telnet.o88 \
-              $(BUILD)/texpad.o88 $(BUILD)/tracker.o88 $(BUILD)/audio.o88
+              $(BUILD)/texpad.o88 $(BUILD)/tracker.o88 $(BUILD)/audio.o88 \
+              $(BUILD)/video.o88
 # MODPLUG.O88 IS RETIRED too (SPEC.md 56.15): Tracker's windowed face
 # (SPEC.md 45.21) is ModPlug's player done to the tree's standards, with the
 # playlist, the Repeat modes and the per-adapter faces carried over, so two
@@ -12094,10 +12101,9 @@ LIVESYSARGS := $(addprefix SYSTEM:,$(filter-out $(APPSYS),$(SYSAPPS)))
 # off every floppy - and why taking it off the floppies alone was not the
 # removal anybody thought it was. tests/unit/t_retired.py reads
 # build/livepayload.txt and fails if it comes back.
-LIVEPKGDEPS := $(BUILD)/recorder.o88 $(BUILD)/hello.o88 $(BUILD)/video.o88 \
+LIVEPKGDEPS := $(BUILD)/recorder.o88 $(BUILD)/hello.o88 \
                $(SCRIBEDISK) $(MEDIA_EXTRA)
-LIVEPKGARGS := $(addprefix APPS:,$(BUILD)/recorder.o88 $(BUILD)/hello.o88 \
-                                 $(BUILD)/video.o88) \
+LIVEPKGARGS := $(addprefix APPS:,$(BUILD)/recorder.o88 $(BUILD)/hello.o88) \
                $(addprefix SCRIBE:,$(SCRIBEDISK)) \
                $(addprefix MEDIA:,$(MEDIA_EXTRA))
 $(if $(LIVESYSARGS),,$(error LIVESYSARGS is empty - $(SYSAPPS) and $(APPSYS) \

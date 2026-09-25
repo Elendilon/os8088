@@ -149135,10 +149135,11 @@ opened by double-clicking it):
   back: it is planar, and a CPU read of A000 is one plane.
 - `VIDEO.O88` is **5,258 bytes**, 3.5 KB on disk.
 
-**It ships on the live media only** (`LIVEPKGARGS`, beside Recorder and
-Hello). There is no video to ship with it yet: the owner's XDC streams are
-copyrighted, and the os8088 logo video is a later wave. A floppy is where
-every cluster is somebody's.
+**It is on every apps disk** (`$(APPS_TOOLS)`, 4 clusters of the 360KB one),
+and on no `kern_small` disk: what it plays through is `kern_big`'s, so there
+it could open a file and never play it (`$(SMALLOMIT)`, §24.5). No video ships
+beside it yet. The owner's XDC streams are copyrighted, and the os8088 logo
+video is a later wave.
 
 ### 98.2 The host tools — `tools/os88vid.py`
 
