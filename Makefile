@@ -10311,10 +10311,27 @@ $(BUILD)/small360.img: KMODDIR := $(SMALLDIR)
 # fall out of $(BUILD)/kernel.bin, so any kernel source change makes them
 # newer than the disk. And a module the sub-make somehow failed to write is
 # LOUD rather than silent - os88disk.py is handed the name and refuses.
+#
+# ONE SUB-MAKE FOR BOTH SMALL DISKS, AND IT HAS TO BE ONE. Each image used to
+# run its own `$(MAKE) BUILD=$(SMALLDIR)` in its recipe, and `make small` asks
+# for both - so under -j two recursive makes ran AT ONCE in the same directory,
+# each building $(SMALLDIR)'s kernel and everything under it. Neither can see
+# the other's jobs, so both rebuilt $(SMALLDIR)/artful.bin for $(ASSOCICO)
+# and one packed it while the other's nasm had it at 0 bytes: `os88pkg: error:
+# file is 0 bytes; header alone is 32` on build/smallk/artful.o88, a failure
+# that passes on the re-run and so reads as a flake. Any `make -j small` could
+# hit it; tools/os88test.py builds its `wants=` serially for exactly this class
+# of race, which is why the suite never saw it. `smallsub` builds both boot
+# sectors in one sub-make and both images wait on it; ORDER-ONLY, so what
+# triggers an image's rebuild is exactly what did before (the paragraph above)
+# and the phony never makes a disk look out of date by itself.
+.PHONY: smallsub
+smallsub:
+	@$(MAKE) BUILD=$(SMALLDIR) KERN_SMALL=1 $(SMALLDIR)/boot360.bin $(SMALLDIR)/boot.bin
+
 $(BUILD)/small360.img: $(SMALLDRIVERS) $(SMALLSYSAPPS) $(SMALLPKGS) \
                        $$(SMALLTOOLS) $$(SMALLGAMES) $$(SMALLDATA_360) \
-                       $(SYSDOC) tools/os88disk.py
-	@$(MAKE) BUILD=$(SMALLDIR) KERN_SMALL=1 $(SMALLDIR)/boot360.bin
+                       $(SYSDOC) tools/os88disk.py | smallsub
 	python3 tools/os88disk.py --fatcap 2 --kern-small -o $@ --size 360 \
 		--boot $(SMALLDIR)/boot360.bin --kernel $(SMALLDIR)/$(KERNNAME) \
 		$(SMALLDRIVERS) $(SMALLMODS) $(SMALLSYSAPPSARGS) \
@@ -10329,8 +10346,7 @@ $(BUILD)/small.img: KMODDIR := $(SMALLDIR)
 
 $(BUILD)/small.img: $(SMALLDRIVERS) $(SMALLSYSAPPS) $(SMALLPKGS) \
                     $$(SMALLTOOLS) $$(SMALLGAMES) $$(SMALLDATA) \
-                    $(SYSDOC) tools/os88disk.py
-	@$(MAKE) BUILD=$(SMALLDIR) KERN_SMALL=1 $(SMALLDIR)/boot.bin
+                    $(SYSDOC) tools/os88disk.py | smallsub
 	python3 tools/os88disk.py --fatcap 2 --kern-small -o $@ --size 1440 \
 		--boot $(SMALLDIR)/boot.bin --kernel $(SMALLDIR)/$(KERNNAME) \
 		$(SMALLDRIVERS) $(SMALLMODS) $(SMALLSYSAPPSARGS) \
