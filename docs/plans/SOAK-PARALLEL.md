@@ -447,6 +447,19 @@ them is 36 MB and `make clean` sweeps them.
 * **`build/` is never written by a row at all**, so a person or another agent
   may `make` in the checkout while a soak runs.
 
+**THE ARTEFACTS ARE FROZEN AND THE SOURCE IS NOT — so nothing may change the
+checkout's source while a soak runs: no merge, no pull, no edit under
+`kernel/`, `apps/`, `drivers/` or `boot/`.** Two things still read the working
+tree. `tools/os88sym.py` assembles `kernel.asm` from the checked-out source and
+refuses a map that does not match the tree's `kernel.bin`, and every row that
+builds INTO the run's tree (`make telnettest` and the like) builds it from
+that source too. Soak `20260925-003439` was lost to exactly this: a merge
+landed a real change to `kernel/disk.inc` twenty-four minutes in, the next
+`make` a row ran rebuilt the frozen tree's `kernel.bin` beside images that
+still carried the old one, and every result after it was about two kernels at
+once. It was stopped and re-run from zero. Merge after the run, or soak a
+separate checkout.
+
 **The lock is `flock`, held only across the build.** That is the argument for
 deleting `martylock.py` rather than reusing it: a lease was needed there
 because a holder worked across many shells and no PID could answer "is the
