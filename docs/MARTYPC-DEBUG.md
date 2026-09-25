@@ -417,6 +417,27 @@ whose top band is genuinely lit. Measured from reset, field / rule / dock:
 | Hercules desktop | 0.94 | 0.00 | 0.96 |
 | VGA desktop | 1.00 | 0.00 | 0.96 |
 
+**The window is SHORT when the UI task says there is nothing left to draw.**
+At `GUEST_PACE` two `quiet` intervals are nine guest seconds of still
+screen, and that floor exists for the case where stillness proves nothing -
+a handler mid-load holding the lock, a repaint with a gap in it. When
+`os88marty.ui_idle(m)` reads ui_task ASLEEP (task 0's `T_STATE` is 2) with
+`evq_count`, `sch_uiwake` and `gfx_lock_flag` all zero and the BIOS key ring
+empty, and the drive's read count has not moved across the interval, that
+case is excluded by reading it, and the interval is `SETTLE_UI_QUIET` = 0.2
+guest seconds. A capture only counts as "the same" if the UI was still idle
+and the drive still unmoved at its end, so a short interval cannot be the
+one that hides a load. `ui_done(m)` is the same predicate as a wait of its
+own - held for about one tick with no disk read - and it is what
+`os88mouse`'s verbs end in by DEFAULT now: `click`, `dblclick`, `menu`,
+`rmenu` and `drag` wait for the UI to finish with the gesture, CAPPED at the
+fixed pause they used to spend (6.75 and 9 guest seconds), so no call ever
+waits longer than it did and a game whose worker keeps the lock busy gets
+exactly the old pause. A caller passing `settle=<n>` keeps its fixed pause.
+`OS88_SETTLE_UI=0` restores both halves for an A/B, and `make NOUIBLOCK=1`
+kernels never read idle (ui_task spins there) and so always take the full
+window.
+
 **The gate and the stillness test read the screen ONCE, together.** The
 emulator runs the guest several times faster than real time, so a round trip
 is tens of milliseconds of *guest* time — most of a desktop paint on a

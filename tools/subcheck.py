@@ -131,7 +131,7 @@ def wins(m):
     return [x for x in su.windows(m) if x.visible]
 
 
-def pclick(mo, x, y, settle=2.5):
+def pclick(mo, x, y, settle=True):
     """A click whose BOTH EDGES are proven, which os88mouse's own `click` does
     not do - and a dropped edge here is silent and cumulative.
 
@@ -143,16 +143,25 @@ def pclick(mo, x, y, settle=2.5):
     happened - a session whose last seven steps left the window table completely
     unchanged while every click "succeeded". `_edge` is the primitive that waits
     for the published mouse_btn to agree.
+
+    AND THEN IT WAITS FOR THE UI TO FINISH WITH IT, not for a fixed time. This
+    paced 2.5 here, which is ELEVEN guest seconds after every click whether
+    the handler took a millisecond or a folder load - most of every session
+    these gates drive was the machine sitting idle. `os88marty.ui_done` ends
+    when ui_task has gone back to sleep with nothing queued, nothing locked
+    and no disk read in the hold. `settle=0` returns as soon as the release
+    is proven.
     """
     mo.to(x, y)
     if mo.where()[2] & 1:
         mo._edge(False)
     mo._edge(True)
     mo._edge(False)
-    os88marty.pace(mo.m, settle)
+    if settle:
+        os88marty.ui_done(mo.m, "the click at (%d,%d) to be handled" % (x, y))
 
 
-def pdrag(mo, x0, y0, x1, y1, settle=2.5):
+def pdrag(mo, x0, y0, x1, y1, settle=True):
     """...and the same for a drag: press proven, move proven by `to`'s own
     read-back, release proven."""
     mo.to(x0, y0)
@@ -161,7 +170,8 @@ def pdrag(mo, x0, y0, x1, y1, settle=2.5):
     mo._edge(True)
     mo.to(x1, y1, l=True)
     mo._edge(False)
-    os88marty.pace(mo.m, settle)
+    if settle:
+        os88marty.ui_done(mo.m, "the drag to (%d,%d) to be handled" % (x1, y1))
 
 
 def zorder(m):

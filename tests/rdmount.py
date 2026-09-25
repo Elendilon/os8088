@@ -152,7 +152,7 @@ with M.launch("build/os8088-360.img", apps="build/apps360.img",
     # T: the machine is still running. A dead guest and an idle one are the
     # same screenshot, which is the whole reason this row exists.
     t0 = _u16(m.read(m.sym("ticks"), 2))
-    M.pace(m, 2.0)                      # GUEST time: a stopped guest ends it
+    M.pace(m, 0.5)                      # TIME, ~40 ticks: a stopped guest ends it
     t1 = _u16(m.read(m.sym("ticks"), 2))
     check("the guest is still taking ticks", t0 != t1,
           "(%d -> %d)" % (t0, t1))

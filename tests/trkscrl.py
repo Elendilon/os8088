@@ -259,9 +259,8 @@ def main():
         seg, _drv = os88rate.scan(q)
         return bool(seg)
     # 12s of settling and ten 2s re-scans was the old budget: 52 guest s
-    if os88qemu.acted(q, resident, secs=52, what="TRKSCRL.O88 resident",
-                      poll=1.0):
-        os88qemu.pace(q, 4)         # ...and the module read in behind it
+    os88qemu.acted(q, resident, secs=52, what="TRKSCRL.O88 resident",
+                   poll=1.0)
     if not seg:
         raise SystemExit("trkscrl: the player never became resident.")
     P, _ = os88rate.symbols(("TRKDBG",))
@@ -271,6 +270,16 @@ def main():
     def peek(name, n=2):
         d = q.read(base + P["@" + name], n)
         return d[0] if n == 1 else int.from_bytes(d, "little")
+
+    # ...and the module read in behind it: [mp_loaded] is the player's own
+    # answer, and the open's tail (trk_play, the completion repaint) is its
+    # state going still - tests/trkrate.py's pair. This was a blind 4s
+    os88qemu.acted(q, lambda: peek("mp_loaded", 1) == 1, secs=30,
+                   what="[mp_loaded]", poll=0.25)
+    os88qemu.quiesce(q, lambda: tuple(
+        q.read(base + P["@" + n], 2) for n in
+        ("mp_loaded", "mp_playing", "mp_mixrate", "mp_xt", "trk_fs")),
+        secs=0.5, limit=4.0, what="Tracker's open to finish")
 
     q.key("f")                          # into the graphics fullscreen
     if os88qemu.acted(q, lambda: peek("trk_fs", 1) == 1, secs=10,

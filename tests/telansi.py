@@ -257,8 +257,10 @@ def wait_desktop(m, letter="A", secs=90):
 
 
 def settle(m, card=None):
-    """What a settle was on QEMU - two seconds - spent in the GUEST's time."""
-    os88qemu.pace(m, 2.0)
+    """What a settle was on QEMU - two seconds of the GUEST's time - as a
+    CEILING: it ends when the UI task has finished with what it was given
+    (os88qemu.ui_done), tests/ethernet.py's settle exactly."""
+    os88qemu.ui_done(m, S, cap=2.0)
 
 
 def qmp(*cmds):
@@ -841,7 +843,7 @@ def check_fullscreen(m, pseg, sy, shot, fails, press_connect, connected, quiet,
                           secs=5, what="[te_txm]", poll=0.1):
             os88qemu.pace(m, 1)         # ...second for the screen behind it
     else:
-        os88qemu.pace(m, 3.0)
+        os88qemu.ui_done(m, S, cap=3.0)
     txm = m.readseg(pseg, sy["te_txm"], 1)[0] if "te_txm" in sy else 1
     if not txm:
         fails.append("Ctrl+] did not enter the full-screen bracket "
@@ -928,7 +930,7 @@ def check_fullscreen(m, pseg, sy, shot, fails, press_connect, connected, quiet,
                           secs=5, what="[te_txm] clear", poll=0.1):
             os88qemu.pace(m, 1)
     else:
-        os88qemu.pace(m, 3.0)
+        os88qemu.ui_done(m, S, cap=3.0)
     press_connect()                     # ...and the session closes with it
     hung_up()
     srv.stop()

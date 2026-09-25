@@ -137,7 +137,7 @@ with M.launch(SYS, apps=APPS, machine=MACHINE) as m:
                      "HALF the one SPEC.md 8.7 sizes against (SPEC.md 8.7.4)"
                      % (label, n, u, z, 100 * p, 100 * BAR))
         a = m.status()
-        M.pace(m, 2)
+        M.pace(m, 0.5)          # TIME: is it retiring instructions at all?
         if m.status()["instructions"] == a["instructions"]:
             fail("%s: the guest retired no instructions - a cli/hlt, which is "
                  "sch_stkdie (SPEC.md 8.8 draws the panel that says so)" % label)

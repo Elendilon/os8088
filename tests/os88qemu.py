@@ -221,6 +221,59 @@ def pace(m, secs, poll=0.02):
         time.sleep(poll)
 
 
+def ui_idle(m, sym):
+    """tools/os88marty.py's `ui_idle` on QEMU: ui_task ASLEEP (task 0's
+    T_STATE is 2) with no event queued, no wake pending, the gfx lock free
+    and the BIOS key ring empty - the UI has finished with everything it was
+    given. `sym(name)` is the flat address of a kernel symbol
+    (os88sym.linear). QEMU has no drive counter to watch as MartyPC does, and
+    needs none: a load here runs inside ui_task's handler, which reads busy
+    for as long as it lasts."""
+    a = getattr(m, "_ui_idle_syms", None)
+    if a is None:
+        a = m._ui_idle_syms = (sym("sch_tasks"), sym("evq_count"),
+                               sym("sch_uiwake"), sym("gfx_lock_flag"))
+    if m.read(a[0], 1)[0] != 2:
+        return False
+    if m.read(a[1], 1)[0] or m.read(a[2], 1)[0] or m.read(a[3], 1)[0]:
+        return False
+    kb = m.read(0x41A, 4)
+    return kb[0:2] == kb[2:4]
+
+
+def ui_done(m, sym, cap=2.0, what=None):
+    """Until `ui_idle` holds across two consecutive guest ticks, CAPPED at
+    `cap` guest seconds - the fixed pause a caller used to spend, so no wait
+    is ever longer than it was. Answers True if the UI went idle, False if
+    the cap ran out first. A kernel this process cannot resolve takes the
+    old pause."""
+    try:
+        ui_idle(m, sym)
+    except (GuestStopped, OSError):
+        raise
+    except Exception:
+        pace(m, cap)
+        return False
+    c = Clock(m)
+    lim = to_ticks(cap)
+    run, last = 0, None
+    while True:
+        n = c.step()
+        if ui_idle(m, sym):
+            if n != last:
+                run += 1
+                last = n
+            if run >= 2:
+                return True
+        else:
+            run, last = 0, None
+        if n >= lim:
+            return False
+        if c.stalled():
+            return False
+        time.sleep(0.02)
+
+
 def quiesce(m, read, secs=1.0, stable=2, limit=60.0, what=None, poll=0.1):
     """Wait until `read()` answers the same thing `stable` times running,
     `secs` of GUEST time apart - "until these bytes stop changing" (a block

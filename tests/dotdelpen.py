@@ -646,7 +646,13 @@ def main(argv):
         p = Probe(ui, names)
         fail += leg_h(ui, p, say)      # the DEMO is what it listens to, so it
         ui.m.key("Enter")              # goes before the game starts
-        os88marty.pace(ui.m, 3.0)
+        # Until READY is over, as tests/dotdel.py's leg C waits - this was a
+        # blind 13.5 guest seconds. The legs below say so if it never is.
+        try:
+            os88marty.until(ui.m, lambda _: p.b("dd_state") not in (0, 1),
+                            "READY to end", poll=0.1, limit=15)
+        except os88marty.MartyError:
+            pass
         ui.m.pause()
         ui.m.write((p.seg << 4) + names["dd_lives"], bytes([99]))
         ui.m.go()

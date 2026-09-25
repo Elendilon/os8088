@@ -182,7 +182,10 @@ def measure(m, o, name, bit, secs, windows):
         return None
     seg = int.from_bytes(m.read(m.sym("ss_row") + 2, 2), "little")
     idle = m.read(m.sym("sch_idleslot"), 1)[0]
-    os88marty.pace(m, 2.0)                   # let the opening settle
+    # let the opening settle: the session is up, so what is left of it is
+    # the overlay coming off the drive - a guest second with no read after it
+    os88marty.quiesce(m, lambda: m.disk().get("reads"), guest=0.5, stable=2,
+                      what="the saver's opening to stop reading the disk")
     ival = m.readseg(seg, o["sv_ival"], 1)[0] or 1
 
     nf = nt = 0
@@ -204,7 +207,12 @@ def measure(m, o, name, bit, secs, windows):
                                              # the teardown below needs it running
     m.write(m.sym("ss_idle"), b"\x00\x40")   # a quarter hour: back to a desktop
     m.key("Space")
-    os88marty.pace(m, 2.0)
+    try:
+        os88marty.until(m, lambda mm: mm.read(mm.sym("blk_sv"), 1)[0] == 0,
+                        "the saver session to end", poll=0.2, limit=30.0)
+        os88marty.ui_done(m, "the desktop to come back")
+    except os88marty.MartyError:
+        pass                                 # the next mode's start says so
     if not nt or not busy:
         print("  %-10s no window could be counted" % name)
         return None

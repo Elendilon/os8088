@@ -169,6 +169,20 @@ GUEST_BUDGET_RATIO = float(os.environ.get("OS88_GUEST_RATIO", "3.0"))
 # sleeps back, for an A/B and nothing else.
 GUEST_PACE = float(os.environ.get("OS88_GUEST_PACE", "4.5"))
 
+# SETTLE'S SHORT WINDOW. `settle` proves stillness over `stable` intervals of
+# `quiet`, and at GUEST_PACE that is nine guest seconds of a still screen
+# before it can return - sized for the case where stillness proves nothing,
+# a handler mid-load or a repaint with a gap in it, and paid on every call
+# including the ones where the machine finished in a millisecond. When
+# `ui_idle` says the UI task is ASLEEP with nothing queued, nothing locked and
+# the drive has not moved across the interval, that case is excluded by
+# reading it rather than by waiting it out, and the interval is SETTLE_UI_QUIET
+# guest seconds - a dozen display frames. OS88_SETTLE_UI=0 puts the full window
+# back on every interval, and os88mouse's verbs back on their fixed pauses -
+# one knob for the whole A/B.
+SETTLE_UI = os.environ.get("OS88_SETTLE_UI", "1") != "0"
+SETTLE_UI_QUIET = 0.2
+
 
 def pace(m, secs):
     """Pause for what `time.sleep(secs)` bought on an idle box, in GUEST time.
@@ -2397,6 +2411,150 @@ def quiesce(m, read, guest=0.5, stable=2, budget=30.0,
         prog.check()
 
 
+BIOS_KBUF = 0x41A               # 0040:001A/001C - the BIOS key ring's head, tail
+UI_T_STATE = 0                  # kernel/sched.inc: T_STATE, and task 0 IS ui_task
+UI_ASLEEP = 2                   # ...whose value 2 means "sleeping"
+
+
+def _ktick(m):
+    """The kernel's own tick word, [ticks] - which only moves while THIS
+    kernel's IRQ0 handler is running."""
+    a = getattr(m, "_ktick_sym", None)
+    if a is None:
+        a = m._ktick_sym = m.sym("ticks")
+    b = m.read(a, 2)
+    return b[0] | (b[1] << 8)
+
+
+def _ui_mark(m):
+    """settle's short-window test: (drive reads, kernel tick) if `ui_idle`
+    holds, else None. Anything that cannot be read - a map that does not
+    describe the running kernel, a DOS box that has overwritten it - is None,
+    which is the full window and the old behaviour.
+
+    THE TICK IS THE LIVENESS PROOF. A warm reboot does not clear RAM, so
+    through the POST that follows one the previous kernel's bytes are still
+    there and still read "asleep, nothing queued" - and the screen is still,
+    too. What is NOT there is the kernel's IRQ0 moving [ticks], so an
+    interval only counts as a short one if the tick moved across it
+    (`_ui_same`)."""
+    if not SETTLE_UI:
+        return None
+    try:
+        if not ui_idle(m):
+            return None
+        return (m.disk().get("reads"), _ktick(m))
+    except Exception:
+        return None
+
+
+def _ui_same(a, b):
+    """Two `_ui_mark`s an interval apart: the drive did not move and the
+    kernel's clock did."""
+    return (a is not None and b is not None and a[0] == b[0]
+            and a[1] != b[1])
+
+
+def ui_idle(m):
+    """True when the UI TASK HAS FINISHED WITH EVERYTHING IT WAS GIVEN.
+
+    Five bytes, and each one names a thing that could still be pending:
+
+      * task 0's T_STATE is 2, SLEEPING - ui_task only sleeps at its `.idle`,
+        after a whole pass has dispatched, drawn and done its deferred work
+        (kernel/ui.inc). A wake sets it back to 1 FROM THE ISR, in the same
+        routine that posts the event (sch_wake_ui), so there is no window in
+        which an input has arrived and this still reads 2;
+      * `evq_count` is 0 - no event is queued behind the one just handled;
+      * `sch_uiwake` is 0 - no wake is waiting to be spent;
+      * `gfx_lock_flag` is 0 - nobody, worker or UI, is mid-draw;
+      * the BIOS key ring is empty.
+
+    The reads are separate, and that is safe in the one direction that
+    matters: anything arriving between two of them makes a LATER read answer
+    busy, so a race can only make this say "not yet", never "done" early.
+
+    Under `make NOUIBLOCK=1` ui_task spins instead of sleeping, T_STATE never
+    reads 2 and this never answers True - use `settle` there.
+    """
+    a = getattr(m, "_ui_idle_syms", None)
+    if a is None:
+        a = m._ui_idle_syms = (m.sym("sch_tasks") + UI_T_STATE,
+                               m.sym("evq_count"), m.sym("sch_uiwake"),
+                               m.sym("gfx_lock_flag"))
+    if m.read(a[0], 1)[0] != UI_ASLEEP:
+        return False
+    if m.read(a[1], 1)[0] or m.read(a[2], 1)[0] or m.read(a[3], 1)[0]:
+        return False
+    kb = m.read(BIOS_KBUF, 4)
+    return kb[0:2] == kb[2:4]
+
+
+def ui_done(m, what="the UI to finish with that input", hold=0.06,
+            limit=60.0, cap=None):
+    """Run until `ui_idle` is true and STAYS true for `hold` guest seconds with
+    no disk read in between, and answer the guest seconds that took.
+
+    This is what a fixed pause after a click or a key was standing in for.
+    `pace(m, 2.5)` spends eleven guest seconds whether the handler took two
+    milliseconds or two seconds; this ends when the machine says the input is
+    dealt with - which after a window raise is a few hundred guest
+    milliseconds, and after a folder open is however long the drive takes.
+
+    The HOLD is about one tick, which is long enough for ui_task's per-tick
+    wake to have come and gone at least once: a handler that armed a
+    one-tick follow-up is seen, and a disk read in flight (the drive, not
+    the lock, is what a load is) is caught by the read count. A deferred
+    action scheduled SECONDS out - a package's own one-shot timer - is not,
+    and a caller expecting one waits on the state it produces instead.
+
+    Pixels are finished too, for the framebuffer: every repaint happens
+    inside a pass, under the lock. What is NOT promised is the rendered glass
+    of the emulator's display, which lags the framebuffer by up to a frame -
+    `settle` is still the tool when the next read is `display_buf()`.
+
+    `cap` makes it a BOUNDED pause instead of a wait: after `cap` guest
+    seconds it returns quietly whether or not the UI went idle. That is
+    os88mouse's default click, which used to pace a fixed `cap` and now ends
+    early whenever the machine says it can - so no caller ever waits longer
+    than it did, and a game whose worker keeps the lock busy gets exactly the
+    old pause.
+    """
+    prog = _Progress(m, what, limit * GUEST_BUDGET_RATIO)
+    while True:
+        if cap is not None and prog.spent() >= cap:
+            return prog.spent()
+        while not ui_idle(m):
+            if cap is not None and prog.spent() >= cap:
+                return prog.spent()
+            st = m.status()
+            if st["state"] != "running" and not getattr(m, "_pumping", 0):
+                raise MartyError(
+                    "waited %.1f guest seconds for %s, but the guest is %r at "
+                    "%04X:%04X and is not executing"
+                    % (prog.spent(), what, st["state"], st["cs"], st["ip"]))
+            prog.check()
+            time.sleep(0.005)
+        c0 = prog._cycles()
+        r0, k0 = m.disk().get("reads"), _ktick(m)
+        held = True
+        # At least `hold` guest seconds AND one kernel tick: the tick is
+        # ui_task's own periodic wake having come and gone, and the proof
+        # that it is THIS kernel's bytes being read (see `_ui_mark`).
+        while ((prog._cycles() - c0) / GUEST_HZ < hold
+               or _ktick(m) == k0):
+            if not ui_idle(m):
+                held = False
+                break
+            if cap is not None and prog.spent() >= cap:
+                return prog.spent()
+            prog.check()
+            time.sleep(0.005)
+        if held and ui_idle(m) and m.disk().get("reads") == r0:
+            prog.done("ui_done")
+            return prog.spent()
+
+
 def settle(m, quiet=1.0, stable=2, gate=None, limit=120.0, card=None,
            guest=None):
     """Run until the SCREEN STOPS CHANGING, and answer how long that took.
@@ -2501,6 +2659,7 @@ def settle(m, quiet=1.0, stable=2, gate=None, limit=120.0, card=None,
     budget = guest if guest is not None else limit * GUEST_BUDGET_RATIO
     prog = _Progress(m, "the screen to stop changing", budget)
     last, run, seen = None, 0, None
+    fast, lastmark = False, None
     chg = t0
     while True:
         # A STOPPED guest is reported by `check` at once; a SPENT budget is
@@ -2542,10 +2701,13 @@ def settle(m, quiet=1.0, stable=2, gate=None, limit=120.0, card=None,
             cur = None
         if cur is not None and gate is not None and not gate(cur):
             seen, last, run = cur, None, 0       # not up yet: stillness before
+            fast = False
             pace(m, quiet)                       # the gate means nothing
             continue
+        mark = _ui_mark(m)
         same = (cur is not None and last is not None
-                and cur.bytes == last.bytes)
+                and cur.bytes == last.bytes
+                and (not fast or _ui_same(lastmark, mark)))
         if WAITLOG and last is not None and not same:
             # THE GAP BETWEEN TWO CHANGES, which is the only measurement that
             # can size `quiet`. A settle that ends took `stable * quiet` of
@@ -2560,12 +2722,21 @@ def settle(m, quiet=1.0, stable=2, gate=None, limit=120.0, card=None,
         if run >= stable:
             prog.done("settle")
             return time.time() - t0
-        last = cur
+        last, lastmark = cur, mark
         # THE WINDOW IS GUEST TIME (see GUEST_PACE). Two identical captures
         # `quiet` HOST seconds apart covered a third as much of the machine's
         # time under a soak as on an idle box, so a repaint with a long gap
         # could read as settled exactly when the box was busy.
-        pace(m, quiet)
+        #
+        # ...and it is SHORT when the UI task says there is nothing left to
+        # draw (SETTLE_UI above). The next capture only counts as "the same"
+        # if the UI was still idle and the drive still unmoved at its end, so
+        # a short interval can never be the one that hides a load.
+        fast = mark is not None
+        if fast:
+            pace(m, SETTLE_UI_QUIET / (GUEST_PACE or 4.5))
+        else:
+            pace(m, quiet)
 
 
 # HOW MANY TIMES DID ONE GESTURE REACH A ROUTINE? Two tests wrote this loop by

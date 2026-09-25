@@ -219,7 +219,6 @@ def part_shadow(machine):
 
         row = row_of(m, "CALC.O88")
         dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "CALC.O88")
-        os88marty.pace(m, 2)
         os88marty.settle(m)
         slot = dispcp.win_list(m, S)[-1]
         hx, hy, hw, hh = dispcp.win_rect(m, S, slot)
@@ -294,7 +293,6 @@ def part_shadow(machine):
         row = last_clickable_row(m, wx, wy, skip=row)
         nm2 = name_at(m, row)
         dispcp.open_row(m, mo, S, os88marty.settle, wx, wy, row)
-        os88marty.pace(m, 2)
         os88marty.settle(m)
         slot = dispcp.win_list(m, S)[-1]
         rx, ry, rw, rh = dispcp.win_rect(m, S, slot)
@@ -355,7 +353,6 @@ def part_seam():
         print("\n   dragging the Disk window at (%d,%d) %dx%d across the seam"
               % (dx, dy, dw, dh))
         mo.drag(dx + dw // 2, dy + TITLE_H // 2, pw + 210, 60)
-        os88marty.pace(m, 2)
         os88marty.settle(m)
         dx1, dy1, dw1, dh1 = dispcp.win_rect(m, S, slot)
         print("   it is now at (%d,%d) %dx%d - origin %s the seam"
@@ -374,7 +371,6 @@ def part_seam():
         # one-off.
         dx2, dy2, dw2, dh2 = dispcp.win_rect(m, S, slot)
         mo.drag(dx2 + dw2 // 2, dy2 + TITLE_H // 2, pw - 120, 60)
-        os88marty.pace(m, 2)
         os88marty.settle(m)
         dx3, dy3, _, _ = dispcp.win_rect(m, S, slot)
         print("\n   dragged back to (%d,%d)" % (dx3, dy3))

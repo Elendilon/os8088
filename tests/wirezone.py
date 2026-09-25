@@ -134,7 +134,9 @@ def wait_desktop(q):
         except Exception:                                   # noqa: BLE001
             return False
     os88qemu.acted(q, up, secs=120, what="[vid_w]", poll=0.25)
-    os88qemu.pace(q, 8)         # ...and the first paint, plus drv_boot's read
+    # ...and the first paint, plus drv_boot's read: both on the UI task, so
+    # its going idle is the answer and the old eight seconds the ceiling
+    os88qemu.ui_done(q, os88sym.linear, cap=8.0, what="the first desktop")
 
 
 def zone_rect(q):
@@ -260,7 +262,8 @@ def main():
         untick_ethernet(m)
         os88qemu.acted(q, lambda: not word(q, "desk_svc_seg"), secs=40,
                        what="[desk_svc_seg] = 0", poll=0.25)
-        os88qemu.pace(q, 4)             # ui_task's pass spends the repaint
+        # ui_task's pass spends the repaint: its going idle is that done
+        os88qemu.ui_done(q, os88sym.linear, cap=4.0, what="the zone's repaint")
         seg2 = word(q, "desk_svc_seg")
         say("after untick:  desk_svc_seg %04X" % seg2)
         if seg2:

@@ -94,7 +94,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     dispcp.open_drive(m, mo, S, M.settle, "B")
     w = dispcp.win_list(m, S)[-1]; dx, dy = dispcp.win_rect(m, S, w)[:2]
     dispcp.open_named(m, mo, S, M.settle, dx, dy, "WELCOME.DOC")
-    M.pace(m, 2.5); M.settle(m)
+    M.ui_done(m, "Word to open WELCOME.DOC"); M.settle(m)
 
     raw = m.read(S("inst_tab"), 32*12); seg = None
     for i in range(12):
@@ -237,7 +237,8 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
           % (target, ryb(target), target - 1, before[target-1]))
     mo.to(tx + 40, ryb(target) + gh // 2); M.pace(m, 0.3)
     with M.bp_trace(m, base + syms["wd_rflush"], on_hit=on_flush, cap=4000) as tr:
-        m.mouse(l=True); M.pace(m, 0.12); m.mouse(l=False); M.pace(m, 2.5)
+        m.mouse(l=True); M.pace(m, 0.12); m.mouse(l=False)
+        M.ui_done(m, "Word to handle the click")
     SEEN = [h["hit"] for h in tr.hits if h.get("hit")]
     M.settle(m)
 

@@ -162,7 +162,7 @@ with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
     w = dispcp.win_list(m, S)
     wx, wy, ww, wh = dispcp.win_rect(m, S, w[-1])
     dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "CALC.O88")
-    os88marty.pace(m, 2)
+    os88marty.ui_done(m, "the Calculator to open")
     slot = dispcp.win_list(m, S)[-1]
     r = m.read(S("wm_wins") + slot * dispcp.WIN_SIZE, dispcp.WIN_SIZE)
     seg = u16(r, 22)
@@ -173,7 +173,6 @@ with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
     typed(m, "c7+7=")
     typed(m, "c9/2=")
     typed(m, "h")                           # ...and fold it down
-    os88marty.pace(m, 2)
     os88marty.settle(m)
     cx, cy, cw, ch = check(m, seg, cal, slot, "on the primary, folded down")
     both_diff(m, "folded down", (cx, cy + ch))
@@ -183,7 +182,7 @@ with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
     dispcp.open_panel(m, mo, S, os88marty.settle)
     row = dispcp.adapter_row(avail, VID_CGA)
     dispcp.set_primary(m, mo, S, os88marty.settle, row)
-    os88marty.pace(m, 2)
+    os88marty.ui_done(m, "the adapter change")
     os88marty.settle(m)
     dispcp.close_panel(m, mo, S, os88marty.settle)
     os88marty.pace(m, 1)
@@ -201,7 +200,7 @@ with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
     dispcp.open_panel(m, mo, S, os88marty.settle)
     dispcp.set_primary(m, mo, S, os88marty.settle,
                        dispcp.adapter_row(avail, VID_HERC))
-    os88marty.pace(m, 2)
+    os88marty.ui_done(m, "the adapter change back")
     os88marty.settle(m)
     dispcp.close_panel(m, mo, S, os88marty.settle)
     os88marty.pace(m, 1)
@@ -224,7 +223,6 @@ with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
     # ...drag the title bar well past the seam, so the ORIGIN is on the CGA
     tx, ty = cx + cw // 2, cy + TITLE_H // 2
     mo.drag(tx, ty, pw + 200, 40)
-    os88marty.pace(m, 2)
     os88marty.settle(m)
     cx, cy, cw, ch = check(m, seg, cal, slot, "dragged onto the CGA")
     if cx < pw:
@@ -250,7 +248,6 @@ with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
     os88marty.settle(m)
     dx0, dy0, dw0, dh0 = dispcp.win_rect(m, S, dw)
     mo.drag(dx0 + dw0 // 2, dy0 + TITLE_H // 2, pw + 210, 60)
-    os88marty.pace(m, 2)
     os88marty.settle(m)
     dx1, dy1, dw1, dh1 = dispcp.win_rect(m, S, dw)
     print("   the Disk window is now at (%d,%d) %dx%d" % (dx1, dy1, dw1, dh1))

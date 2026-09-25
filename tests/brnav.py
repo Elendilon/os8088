@@ -616,10 +616,11 @@ def main():
         subprocess.run(["python3", "tools/qmp.py", SOCK, "sendkey ret"],
                        check=True, capture_output=True)
         # The dialog going away is the save being taken; the write itself is
-        # the next thing on the same task, and two guest seconds cover it.
+        # the next thing on the same task (br_saved, on the UI task), so the
+        # UI going idle is the write finished - two guest seconds the ceiling
         os88qemu.acted(m, lambda: len(dispcp.win_list(m, S)) <= nwin,
                        secs=20, what="the Save As dialog closing", poll=0.25)
-        os88qemu.pace(m, 2)
+        os88qemu.ui_done(m, S, cap=2.0, what="the save's write")
         st = rb("br_nstate")
         print("state after the save: %d" % st)
         if st != 6:

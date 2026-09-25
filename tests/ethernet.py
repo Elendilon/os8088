@@ -283,8 +283,12 @@ class Mouse:
 
 
 def settle(m, card=None):
-    """What a settle was on QEMU - two seconds - spent in the GUEST's time."""
-    os88qemu.pace(m, 2.0)
+    """What a settle was on QEMU - two seconds of the GUEST's time - as a
+    CEILING: it ends as soon as the UI task has finished with everything it
+    was given (os88qemu.ui_done), which after most gestures is a tick or two.
+    A caller whose next step needs a WORKER or the network to have moved
+    waits on that state; this only promises the UI."""
+    os88qemu.ui_done(m, S, cap=2.0)
 
 
 # --- QEMU's sendkey names for the characters a URL needs ---------------------

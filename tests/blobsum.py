@@ -87,7 +87,9 @@ def main():
         except os88marty.MartyError:
             pass                    # the tick below reports what it did
         a = tick()
-        os88marty.pace(m, 2.0)
+        # TIME, deliberately: is the BIOS clock still running? 2.25 guest
+        # seconds is ~40 ticks, and one is enough to say it is.
+        os88marty.pace(m, 0.5)
         b = tick()
 
     print("  desktop=%s ; BIOS ticks %d -> %d" % (booted, a, b))
