@@ -9666,6 +9666,18 @@ $(BUILD)/vidbench.bin: tests/vidbench/vidbench.asm tests/vidbench/vdec.inc tests
 $(BUILD)/vidbench.o88: $(BUILD)/vidbench.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/vidbench.bin -o $@
 
+# ...and wave 0 (b): streaming a 12.6 MB file off the fixed disk, and the
+# controller's own ceiling. tests/viddisk.py builds the VHD it runs on.
+vidbench: $(BUILD)/viddisk.o88
+
+$(BUILD)/viddisk.bin: tests/vidbench/viddisk.asm tests/benchlib.inc apps/os88api.inc tools/benchlint.py | $(BUILD)
+	python3 tools/benchlint.py tests/vidbench/viddisk.asm
+	$(NASM) -f bin -w+error -I apps/ -I tests/ -o $@ tests/vidbench/viddisk.asm
+	@echo "viddisk: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/viddisk.o88: $(BUILD)/viddisk.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/viddisk.bin -o $@
+
 # ...and the one that shows a FACE rather than timing one: it draws the same
 # sentence through the kernel, through face 0, and through both of the
 # library's compose loops, so a screendump is the whole assertion (SPEC.md 6.5).

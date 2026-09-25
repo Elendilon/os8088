@@ -8056,6 +8056,20 @@ SOAK = [
         "--samples DIR or $OS88_XDC_SAMPLES. --machine picks the adapter",
         needs=("marty", "nasm"), serial=True,
         wants=("build/vidbench.o88",)),
+    Row("viddisk", "soak", py("tests/viddisk.py"), 30.0,
+        "docs/plans/VIDEO-PLAN.md wave 0 (b): what streaming a 12.6 MB file "
+        "off the fixed disk costs today. OSAPI_FILE_READ_AT, 32 KB at 0, 3, "
+        "6, 9 and 12 MB, grows with the offset because it re-walks the "
+        "cluster chain every call (SPEC.md 18.4.4) - the slope is what "
+        "OSAPI_FILE_READ_SEQ removes - and the ROM's int 13h track rate is "
+        "the ceiling. On os8088_5150_herc_hdd_sb_gla, whose controller is "
+        "XT-IDE (CPU-copied), not the owner's DMA ST11M: the chain walk is "
+        "CPU either way, the transfer rate is this controller's. Asserts "
+        "every row produced a number, READ_AT delivered 32 KB and nothing "
+        "errored; a row banking into the wrong slot took it red",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/viddisk.o88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin", "build/hdd.drv")),
     Row("mcperf", "soak", py("tests/mcperf.py"), 50.0,
         "SPEC.md 48.16.2: does Missile play the SAME GAME twice? A fixed"
         "seed, scripted shots and 400 frames back to back rather than one a"
