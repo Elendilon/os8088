@@ -865,6 +865,13 @@ red. A row about one package goes in `soak`.
   - **ADPCM4 wants an even chunk.** BADAPPLE's 735 is odd, so its ADPCM
     version waits for wave 8's encoder; THUNDERC's, TRONDISC's and BBBB's
     convert.
+  - **The owner's verdict on ADPCM4** (86Box, the field disks' `TRONDA4`
+    and `BBBBA4`): no noise and no buzz, so the tables agree with a card
+    that is not ours - and **noticeably worse sound** than PCM8. So it stays
+    an ENCODER OPTION for videos that are on the line, and W8's profiles
+    pick it only when the disk budget needs it. On MartyPC's CPU-copied disk
+    TRONDISC paused once in PCM8 and not at all in ADPCM4, which is the case
+    it is for.
 - **W5 — surfaces.** Hercules and VGA with their presets and host-side
   layouts (`import --target`), the shadow path for a foreign file, and the
   CGA composite burst.

@@ -66,11 +66,11 @@ smallest ring (two 32 KB slots) and STALLS, or says
                  on -MFM or -ST11M: no room)
   BBBBA4.V88     BBBB_BW, the same
 
-  The ADPCM pair is the question: listen to each
-  against its PCM original. The same sound, a little
-  hissier, is right. Loud noise or a buzz is this
-  player and that card disagreeing about the format,
-  and is worth a recording.
+  The ADPCM pair halves the sound's bytes for a disk
+  that cannot carry PCM beside the picture. It sounds
+  noticeably worse than its PCM original, and that is
+  expected; loud noise or a buzz is not, and is worth
+  a recording.
 
 When a play ends the window reads "Drew N of N",
 "stalls" (the reader could not keep up), "pauses" (the

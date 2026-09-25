@@ -57041,7 +57041,9 @@ otherwise verb 0 answers 2. The format is §98.1.1.1's. MartyPC's card
 decodes it since `tools/martypc/patches/06-sblaster-adpcm4.patch`, with the
 tables `tools/os88vid.py` encodes against; 86Box's card played it in wave 0's
 field run (150 interrupts in 5 s, docs/reports/VIDEO-86BOX-ST11R-2026-09-25.md),
-and whether a real DSP decodes the same samples is the field's to hear.
+and in wave 4's it played `TRONDA4` and `BBBBA4` with no noise and no buzz -
+the tables agree - but noticeably worse than their PCM8 originals, by the
+owner's ear (98.1.1.1).
 
 **Cost: 194 bytes** (6,371 → 6,565), inside the driver's 7KB claim, so no
 heap at all. `tests/vidsound.py` is the gate.
@@ -148962,7 +148964,13 @@ MartyPC's card (`tools/martypc/patches/06-sblaster-adpcm4.patch`).
   (98.3.1). A seek will have to start a fresh stream there (wave 7).
 - The card decodes it, so it costs the 8088 nothing but the copy - half of
   PCM8's - and the disk half the bytes. It is noisier than 8-bit PCM at the
-  same rate.
+  same rate, and **audibly so**: on 86Box's card it decodes cleanly and
+  sounds noticeably worse than the PCM8 original (the owner, by ear). So
+  **PCM8 is the default and ADPCM4 an encoder option**, for a stream that is
+  on the line - where the disk cannot carry PCM8 beside the picture, as
+  TRONDISC could not on a CPU-copied disk (98.3.1). The encoder is greedy,
+  one nibble at a time; a lookahead one would claw some of it back, and is
+  wave 8's to try.
 
 **A rendition is one canvas and its own stream.** Version 1 writes exactly
 one. The table is there so that a later file can carry a canvas per adapter
