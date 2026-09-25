@@ -5202,6 +5202,9 @@ DSK_RAH_MIN  equ 2               ; ...and the FLOOR, in slots. Below this the
                                  ; floor was making the other way on the
                                  ; machines that need it most.
                                  ; tests/dirwsize.py is the row
+%if DSK_RAH_MIN < 2 || DSK_RAH_RUNS * DSK_RAH_SECS * 512 >= 65536
+  %error "dsk_rah_fill skips the one slot a 64KB page boundary crosses and takes the next (SPEC.md 18.95.7.1): that needs a claim under 64KB, so at most ONE slot straddles, and a width of at least two, so the next slot is a different one - or the pick loops for ever"
+%endif
 DSK_RAH_SHARE equ 4              ; ...and the OTHER bound: the cache may be at
                                  ; most 1/DSK_RAH_SHARE of the WHOLE ARENA,
                                  ; not merely half of what happens to be free
@@ -5460,6 +5463,7 @@ dsk_rah_fill:
     push ax                     ; the chunk length, over the multiply below -
                                 ; `mul` writes DX:AX and there is no third
                                 ; register free to keep it in
+.pick:
     mov ax, [dsk_rah_next]
     mov bx, ax
     inc bx
@@ -5468,7 +5472,19 @@ dsk_rah_fill:
     xor bx, bx                  ; WRITTEN. The scans elsewhere are safe at any
 .picked:                        ; width, because dsk_rah_flush clears all
     mov [dsk_rah_next], bx      ; DSK_RAH_RUNS records and the ones above the
-    mov cx, 9                   ; live width then stay RAH_N = 0
+                                ; live width then stay RAH_N = 0
+    push ax                     ; **A SLOT ACROSS A 64KB PAGE IS NOT FILLED**
+    mov cx, 288                 ; (SPEC.md 18.95.7.1). The claim has no page
+    mul cx                      ; head, so a boundary can fall inside ONE slot,
+    add ax, [dsk_rah_seg]       ; and dsk_runcap then splits that fill into two
+    mov cx, ax                  ; int 13h - the whole point of a fill being
+    add cx, 287                 ; that it is one. The slot's first and last
+    xor cx, ax                  ; paragraphs: a different top nibble is a
+    pop ax                      ; different page. The claim is under 64KB, so
+    test ch, 0xF0               ; at most one slot straddles, and the width is
+    jnz .pick                   ; at least DSK_RAH_MIN = 2, so the next one
+                                ; does not
+    mov cx, 9
     mul cx                      ; AX = slot * RAH_REC, RAH_REC being 9...
     mov bx, ax
     add ax, dsk_rah_tab

@@ -32468,6 +32468,26 @@ Dropping the head is also what makes §50.6.7 possible: `mem_can_move` weighs
 `MC_DMA` against `[drv_wcnt]`, so a claim with a page constraint is refused a
 move whenever any driver has a worker.
 
+
+#### 18.95.7.1 …but a fill never lands in the one slot a page boundary crosses
+
+§18.95.7 bought placement and paid for it with the straddle: when a page
+boundary falls inside the claim, exactly one slot crosses it, and any fill
+that lands there is two `int 13h` instead of one. It showed up again on the
+360KB apps floppy, where a two-cluster `ASSOC.DAT` read went out as two calls,
+2 sectors to `1FC00` and 4 to `20000`, one fill cut by `dsk_runcap`.
+
+The fix keeps the placement. `dsk_rah_fill`'s round robin tests the slot it is
+about to spend: its first and last paragraphs with different top nibbles are
+two 64KB pages, and it then takes the next slot. The claim is under 64KB
+(asserted), so at most one slot straddles, and the width is never one (the
+solver's floor is `DSK_RAH_MIN` = 2 and `kern_dos`'s shed goes 7, 4, 2, 0, both
+asserted), so the next slot never straddles too. What it costs is that slot's
+capacity while the claim sits across a boundary, one of seven about half the
+time. A fill is one call again, which is what §18.95 promised. A slot
+already filled before a compaction moved the claim across a boundary is still
+served: a hit is a memory copy and no DMA is involved.
+
 #### 18.95.3 …and `sysbench` states it in `int 13h`, not in seconds
 
 The cache is a claim about **calls**, so the gate for it is `tests/sysbench`'s
@@ -83490,14 +83510,19 @@ MEASURED ON MARTYPC (a 4.77MHz 8088, GLaBIOS), `assoc_run_x` to
 
 Each failed mount of the empty A: is ~1 s under GLaBIOS; the field's 11-14
 seconds is two empty drives at four failed mounts, which is ~3 s apiece on
-that machine's ROM, and all four are gone. The floppy row is a range because
-what is left of it is not the locate's: B:'s first mount reads its FAT as one
-eight-sector run that answers `80h` three times before §18.91's per-sector
-fallback takes it - the same on the tree before this change, ~800 ms on
-MartyPC - and `ASSOC.DAT`'s read-ahead fill (§18.95) lands wherever the disk's
-layout put the file, so both move with rotational phase. `tests/assocsweep.py`
-asserts the MOUNTS, which are exact, and not the milliseconds; it is red on
-the kernel before this section on both legs.
+that machine's ROM, and all four are gone. `tests/assocsweep.py` asserts the
+MOUNTS, which are exact, and not the milliseconds; it is red on the kernel
+before this section on both legs.
+
+**The floppy row's residual turned out to be two more things, neither the
+locate's, and both are fixed.** B:'s first mount read its FAT as one
+eight-sector run that answered `80h` three times before §18.91's per-sector
+fallback took it. That was the EMULATOR, not the machine: upstream MartyPC
+raises two IRQ6s for one recalibrate (`tools/martypc/patches/05-fdc-recal-one-interrupt.patch`
+and docs/MARTYPC-DEBUG.md). And `ASSOC.DAT` was the last chain on the disk,
+across a track boundary at cylinder 34 (§54.7.5), and its fill landed in the
+one read-ahead slot a 64KB page crosses (§18.95.7.1). With all three the
+floppy row is **1,454 ms and 6 `int 13h`**, against 3,250-3,712 ms and 16-18.
 
 ### 54.5 The API: the app PULLS its document, and may claim an extension
 
@@ -84004,6 +84029,33 @@ the declaration was merged the first time that package was harvested, or by
 property `asc_lookup` already had about the cached path; it now covers one
 more path, and the failure mode if it is ever wrong is a document with the
 generic icon rather than anything about a load.
+
+### 54.7.5 Where it lies on the disk: inside one track, as early as it fits
+
+`asc_use` reads `ASSOC.DAT` on every volume switch, straight after the root
+directory, and §18.95's read-ahead answers a miss by reading to the END OF THE
+TRACK. So the file's cost is set by where `tools/os88disk.py` put it: inside
+one track it is one `int 13h`; across a track boundary it is two, and the
+second drags in a whole track of whatever follows. It used to be the last
+root file, and root files are allocated last, so on the 360KB apps floppy it
+sat at cylinder 34 across a track boundary. Every mount paid a seek over the
+whole disk and back for it, plus a nine-sector fill of which two sectors were
+wanted.
+
+`os88disk.py` now takes the **earliest allocation boundary where the whole
+chain is inside one track**. The candidates are before the directory chains
+(right after `KERNEL.SYS` on a system disk; on a disk with no kernel, the
+first data cluster, which is the root directory's own track), after them, and
+after each file. The first that holds it wins. Nothing is padded, every other
+chain stays contiguous, and if no boundary holds it (a cache longer than a
+track) it keeps its old place, last. `--scramble` is unchanged: it exists to
+fragment on purpose. `tests/unit/t_ascplace.py` walks every shipped image and
+fails on an `ASSOC.DAT` that crosses a track, or that is not on the lowest
+cylinder any boundary would have allowed.
+
+It is a build-time property and not a rule the kernel enforces: an
+`ASSOC.DAT` written at runtime, by the hard-disk installer (§52.10.14), lands
+wherever the FAT allocator puts it.
 
 ### 54.8 Accepting the document: five apps, and the three traps between them
 

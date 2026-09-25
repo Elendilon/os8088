@@ -463,6 +463,9 @@ KD_RAH_L2   equ 2               ; 4 = 18 KB, 2 = 9 KB, 0 = gone. Two is under
                                 ; program has asked for the memory, and a cache
                                 ; that is not worth having beats one that is
                                 ; not there
+%if KD_RAH_L2 < 2 || KD_RAH_L1 < 2
+  %error "kd_shed may narrow the read-ahead to 0 or to a width of at least two, never one: dsk_rah_fill's page-straddle skip (SPEC.md 18.95.7.1) takes the NEXT slot, and at width one there is none"
+%endif
 
 ; kd_rahkb - what a width costs, in KB
 ; in:  AX = runs; out: AX = KB; clobbers AX (the output)
