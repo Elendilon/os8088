@@ -46,6 +46,7 @@ TG_PH_PASS  equ 1                   ; the pass-the-machine screen
 TG_PH_OVER  equ 2                   ; the match is decided
 TG_PH_RES   equ 3                   ; the round is being fought, on the glass
 
+TG_SCRBAND  equ 32                  ; rows of the pass screen's fill a step
 TG_LOGN     equ 16                  ; the round's log: lines kept...
 TG_LOGW     equ 18                  ; ...and a line's bytes, its NUL included
 
@@ -1108,10 +1109,12 @@ tg_sync1:
     mov word [ti_cfbeg], 0          ; ALL EIGHT FRAMES: a character that is
     mov word [ti_cfend], 2 * TI_POSES ; drawn now may swing next
     call ti_cell_build
-    mov byte [bx + ti_clock], 0
+    call tm_run                     ; (the eight frames are most of the cell,
+    mov byte [bx + ti_clock], 0     ; SPEC.md 97.12.9)
     mov byte [ti_dok], 0            ; whole, not a transition
     mov ax, cx
     call ti_feature
+    call tm_run
 .art:
     mov byte [tg_vdirty + bx], 0
     call ti_cell_xy
@@ -1233,15 +1236,27 @@ tg_screen:
     push si
     mov al, CBLACK
     call OSAPI_SET_COLOR
-    mov ax, [ti_ox]
-    mov bx, [ti_oy]
-    mov cx, ax
-    add cx, [ti_cw_box]
+    mov bx, [ti_oy]                 ; IN BANDS, with the music between them
+.band:                              ; (SPEC.md 97.12.9): the whole content in
+    mov ax, [ti_ox]                 ; one fill was over two ticks of an 8088,
+    mov cx, ax                      ; and it is where a round hands over - the
+    add cx, [ti_cw_box]             ; resolution's music ending under it
     dec cx
     mov dx, bx
-    add dx, [ti_ch_box]
-    dec dx
+    add dx, TG_SCRBAND - 1
+    mov si, [ti_oy]
+    add si, [ti_ch_box]
+    dec si
+    cmp dx, si
+    jbe .bfit
+    mov dx, si
+.bfit:
     call OSAPI_GFX_FILL
+    call tm_run
+    mov bx, dx
+    inc bx
+    cmp bx, si
+    jbe .band
     mov dx, [ti_ch_box]
     shr dx, 1
     sub dx, 12
@@ -1251,6 +1266,7 @@ tg_screen:
     add dx, 16
     mov si, [tg_msg2]
     call .line
+    call tm_run
     pop si
     pop dx
     pop cx
@@ -1336,6 +1352,7 @@ tg_redraw:
     mov word [ti_hovc], -1
     call ti_units_build             ; the hand is another player's, or new
     call tg_cells                   ; ...and so may every cell be
+    call tm_run
     call ti_ground
     call ti_board
     call ti_all
@@ -2064,8 +2081,9 @@ tg_list_draw:
 .put:
     mov byte [di], 0
     call tg_row_put
-    inc ax
-    jmp short .r
+    call tm_run                     ; the music a row at a time: a whole list
+    inc ax                          ; is the round's opening, in its panel
+    jmp short .r                    ; (SPEC.md 97.12.9)
 .out:
     pop es
     pop di

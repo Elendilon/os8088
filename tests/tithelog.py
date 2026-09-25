@@ -10,7 +10,8 @@ loop through all of it (worst gap 439 ms). The log now draws a line once, a
 line a frame, as wide as a log line, and scrolls with OSAPI_GFX_SCROLL; the
 opening redraws what moved and lets the cells arrive a frame at a time.
 
-WHAT IT ASSERTS, fullscreen on Hercules, and each went red on purpose first:
+WHAT IT ASSERTS, fullscreen on Hercules and VGA, and each went red on purpose
+first:
 
   1. THE MUSIC KEEPS ITS TIME THROUGH THE FIGHT: the sequencer's own worst
      gap between steps (`tm_gapmax`) is at most 3 ticks. It was 7-8.
@@ -24,6 +25,11 @@ WHAT IT ASSERTS, fullscreen on Hercules, and each went red on purpose first:
      times; the glass at the round's end must be what a repaint draws from
      nothing. It went red on a copy made through the wrong ES - every line
      drawn twice, and the text written into the scratch part.
+
+  4. THE HAND-OVER KEEPS THE MUSIC (SPEC.md 97.12.9): from the round's end
+     through the pass screen and the next planner's whole redraw, the worst
+     gap is at most two ticks. The pass screen's one fill and the ground's
+     four were three ticks each without a step between them.
 
     make && make tithedisk && python3 tests/tithelog.py [machine]
 """
@@ -92,6 +98,8 @@ def run(mach, off):
                         poll=0.2, limit=60.0)
         m.key("KeyF")
         os88marty.guest_sleep(m, 10.0)
+        m.key("KeyM")                   # a THEME, so the music is there after
+        os88marty.guest_sleep(m, 1.0)   # the resolution hands back (check 4)
         for side in (0, 1):                     # three plays a side
             for _ in range(3):
                 m.key("KeyV")
@@ -145,10 +153,27 @@ def run(mach, off):
               "exactly a whole repaint" % max(0, rw("tg_ltot") - 4),
               "%d lines, %d px, first %s" % (rw("tg_ltot"), len(d), d[:4]))
 
+        # 4. the hand-over keeps the music: the round's end, the pass screen,
+        # the next planner sitting down and the board drawn again for them
+        put("tm_gapmax", b"\0\0")
+        os88marty.until(m, lambda _: rb("tg_ph") == 1, "the pass screen",
+                        poll=0.1, limit=60.0)
+        os88marty.guest_sleep(m, 2.0)
+        m.key("Enter")
+        os88marty.until(m, lambda _: rb("tg_ph") == 0, "the next planner",
+                        poll=0.1, limit=60.0)
+        os88marty.guest_sleep(m, 6.0)
+        gap = rw("tm_gapmax")
+        check(0 < gap <= 2, "4. the hand-over - pass screen, then the board "
+              "again - keeps the music (worst gap <= 2 ticks)",
+              "%d ticks (%d ms)" % (gap, gap * 55))
+
 
 def main():
     off = offsets()
-    for mach in (sys.argv[1:] or ("os8088_5150_herc_gla",)):
+    # VGA TOO: the hand-over's stalls read 3 ticks there and 2 on a
+    # Hercules, where check 4 cannot see them go (SPEC.md 97.12.9)
+    for mach in (sys.argv[1:] or ("os8088_5150_herc_gla", "os8088_xt_vga")):
         run(mach, off)
     print("tithelog: %s" % ("ok" if not fails else "FAILED %d" % len(fails)))
     return 1 if fails else 0

@@ -303,6 +303,7 @@ ti_ground:
     cmp dx, bx
     jb .right
     call OSAPI_GFX_FILL
+    call tm_run                     ; the music a fill at a time (97.12.9)
 
 .left:
     mov ax, [ti_ox]                 ; 2. P1's base zone, left of the grid - a
@@ -315,6 +316,7 @@ ti_ground:
     cmp cx, ax
     jb .right
     call OSAPI_GFX_FILL
+    call tm_run                     ; the music a fill at a time (97.12.9)
 
 .right:
     mov ax, [ti_bx]                 ; 3. P2's base zone and the card panel
@@ -329,6 +331,7 @@ ti_ground:
     cmp cx, ax
     jb .bot
     call OSAPI_GFX_FILL
+    call tm_run                     ; the music a fill at a time (97.12.9)
 
 .bot:
     mov ax, [ti_ox]                 ; 4. what is left under the board
@@ -343,6 +346,7 @@ ti_ground:
     cmp dx, bx
     jb .out
     call OSAPI_GFX_FILL
+    call tm_run                     ; the music a fill at a time (97.12.9)
 .out:
     pop dx
     pop cx

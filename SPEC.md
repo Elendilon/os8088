@@ -142371,3 +142371,35 @@ are between players. `tests/tithelog.py` holds all three.
 `TM_RQ_RES` as it begins and `TM_RQ_END` as the round's screen goes up, which
 is exactly what the music's `R` key fakes — so `R` stays the music's, and
 RESET ALL is a row of the plan list rather than a key.
+
+#### 97.12.9 THE HAND-OVER KEEPS THE MUSIC
+
+The owner heard the music catch in three places around a round: the log, the
+step from the resolution to the mostly black pass screen, and the redraw after
+it. Traced on MartyPC with a breakpoint on `tm_run`'s step and the routines
+around it, one seeded round fought and handed over, fullscreen:
+
+| where | VGA | Hercules | what ran with no music step in it |
+|---|---:|---:|---|
+| the round's opening | 2 ticks | 2 | a cell's eight frames (~80 ms on VGA) inside `tg_sync1`; the whole log box drawn into the panel |
+| the round's end → the pass screen | **3** | **3** | `tg_screen`: the whole content filled black in ONE `OSAPI_GFX_FILL` |
+| the next planner sitting down | **3** | 2 | `ti_ground`'s four fills, ~85 ms, before the board |
+
+**The music is stepped inside each of them now**, which is what the worker's
+`OS88_STACK_384` class (§97.4.8.2) pays for: `tg_screen` fills in bands of
+`TG_SCRBAND` = 32 rows with `tm_run` between; `ti_ground` steps after each of
+its fills; `ti_cell_build` after each frame it composes; `tg_sync1` after the
+cell's frames and after its band; `tg_list_draw` after every row; `tg_redraw`
+after the cells. **The same round has no step of two ticks or more anywhere**
+— fight, hand-over and redraw — on fullscreen VGA, fullscreen Hercules,
+windowed VGA and windowed Hercules.
+
+The log itself showed nothing in that round: the fullscreen log box holds the
+round's lines without scrolling, and each line is drawn once, a line a frame
+(§97.12.8). What it did cost was the WHOLE box at the round's opening — the
+panel is the log for a round — and that is the list-row step above.
+
+`tests/tithelog.py` holds the hand-over to a worst gap of two ticks, on
+Hercules and on VGA: on VGA it read three with the pass screen's and the
+ground's fills in one piece each, and on Hercules two, so a Hercules alone
+cannot see it go.

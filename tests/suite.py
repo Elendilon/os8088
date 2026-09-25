@@ -7299,9 +7299,9 @@ SOAK = [
         "tithedisk`",
         needs=("marty", "nasm"), serial=True,
         wants=("build/tithe360.img",)),
-    Row("tithelog", "soak", py("tests/tithelog.py"), 35.0,
+    Row("tithelog", "soak", py("tests/tithelog.py"), 65.0,
         "SPEC.md 97.12.8: TITHE's round fought on the glass, fullscreen on"
-        "Hercules - the owner's report that the LOG froze the screen and"
+        "Hercules and VGA - the owner's report that the LOG froze the screen and"
         "stopped the music. The music's own worst gap through the fight is at"
         "most 3 ticks (it was 7-8, with every log line redrawing the whole"
         "log inside the worker's frame and the round opening on a 880 ms"
@@ -7309,7 +7309,11 @@ SOAK = [
         "not the pass screen (it drew the pass screen for any phase but"
         "planning); and the log, capped at four rows by a test byte so the"
         "round's nine lines scroll it five times with OSAPI_GFX_SCROLL, is"
-        "exactly a whole repaint at the round's end. Broken on purpose: a"
+        "exactly a whole repaint at the round's end. And (97.12.9) the"
+        "hand-over - the pass screen, then the next planner's whole redraw -"
+        "keeps the music's worst gap to two ticks; it read three on VGA with"
+        "the pass screen's fill and the ground's in one piece each, and two"
+        "on Hercules, which is why the row runs both. Broken on purpose: a"
         "line copied through the wrong ES goes red by 452 px. Needs `make"
         "tithedisk`",
         needs=("marty", "nasm"), serial=True,

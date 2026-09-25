@@ -787,8 +787,9 @@ ti_cell_build:
     call ti_char_put
     sub [ti_cdx], bx
 .fnext:
-    inc word [ti_cfr]
-    jmp .frame
+    call tm_run                     ; THE MUSIC A FRAME AT A TIME: a whole
+    inc word [ti_cfr]               ; cell is ~80 ms of a VGA and it is built
+    jmp .frame                      ; inside a round's opening (97.12.9)
 .fdone:
     mov byte [ti_fa_mir], 0
     pop word [ti_pi]
