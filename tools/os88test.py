@@ -316,7 +316,7 @@ def _tree_cpu(root):
         return None
 
 
-def _communicate(p, timeout):
+def _communicate(p, timeout, cpus=1):
     """Popen.communicate, but REAPED WITH wait4 so the row's CPU is kept.
 
     communicate() waits for the child itself and the kernel's rusage for it
@@ -343,12 +343,14 @@ def _communicate(p, timeout):
     for t in ts:
         t.start()
 
-    def reap(limit, cpu=False):
+    def reap(limit, cpu=False, wall=None):
         """Reap the row, or None once `limit` is spent. With `cpu`, `limit`
         is charged in the row's CPU (see `_tree_cpu`), with the wall clock
         only a backstop WALL_BACKSTOP times wider."""
         t0 = time.time()
-        wall = None if limit is None else limit * (WALL_BACKSTOP if cpu else 1)
+        if wall is None:
+            wall = None if limit is None else \
+                limit * (WALL_BACKSTOP if cpu else 1)
         n = 0
         while True:
             pid, status, ru = os.wait4(p.pid, os.WNOHANG)
@@ -364,7 +366,11 @@ def _communicate(p, timeout):
             time.sleep(0.02)
 
     timed_out = False
-    got = reap(timeout, cpu=True)
+    # A row that is parallel BY DESIGN (Row.cpus) spends CPU that many
+    # times faster than wall, so its CPU limit is scaled by it; the wall
+    # backstop stays the declared timeout's.
+    got = reap(timeout if timeout is None else timeout * cpus, cpu=True,
+               wall=None if timeout is None else timeout * WALL_BACKSTOP)
     if got is None:
         timed_out = True
         p.terminate()
@@ -407,7 +413,9 @@ def charge(results, par, ser, conc, j, mj):
         res = by.get(id(row))
         if res is None or res.skipped:
             return 0.0
-        return res.cpu if res.cpu is not None else res.secs
+        if res.cpu is None:
+            return res.secs
+        return res.cpu / max(1, getattr(row, "cpus", 1))
 
     def lanes(rows, n):
         free = [0.0] * n
@@ -442,7 +450,8 @@ def run_row(row, caps, strict, verbose, unbuilt=()):
                              stderr=subprocess.PIPE, text=True)
     except OSError as e:
         return Result(row, False, False, time.time() - t0, str(e), "could not run")
-    so, se, cpu, timed_out = _communicate(p, row.timeout)
+    so, se, cpu, timed_out = _communicate(p, row.timeout,
+                                          getattr(row, "cpus", 1))
     out = so + se
     ok = p.returncode == 0 and not timed_out
     reason = "" if ok else "exit %d" % p.returncode
@@ -820,7 +829,8 @@ def main():
             # CHARGED LIKE THE BUDGET (see `charge`): a row that overran its
             # declaration on the CPU did more work, and one that overran it
             # only on the wall clock was queued behind somebody else's.
-            spent = res.cpu if res.cpu is not None else res.secs
+            spent = (res.secs if res.cpu is None else
+                     res.cpu / max(1, getattr(res.row, "cpus", 1)))
             slip = "" if spent <= res.row.secs * SLIP + 1 else \
                 "  %s(declared %.0fs)%s" % (YELLOW, res.row.secs, OFF)
             # ...and the OTHER direction, which had no report at all and is
