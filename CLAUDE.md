@@ -103,7 +103,8 @@ make bootdiag # WHY a BIOS answers `Disk error` and stops (§2.9.10). SIX
               # but not this. Nothing here ever writes to a disk
 make test-fast   # THE REGRESSION SUITE (docs/TESTING.md, tools/os88test.py,
 make test-full   #   tests/suite.py). Three tiers, each with an ENFORCED
-make test-soak   #   wall-clock budget — the runner FAILS a tier that
+make test-soak   #   budget CHARGED IN CPU, not wall clock, so a loaded box
+                 #   cannot fail it — the runner FAILS a tier that
                  #   overruns, so a row that no longer fits is a decision
                  #   somebody takes rather than a drift nobody notices.
                  #   fast ~2s, host-side only, and it already runs as part of
@@ -656,7 +657,8 @@ learned.
 - **Before spending a resident byte, ask whether the feature is an ON-DEMAND
   MODULE** (§2.8, `kernel/mod.inc`, docs/plans/completed/ONDEMAND-PLAN.md §1's
   test): kernel code that ships as a file (`CTRL.DRV`, `FORMAT.DRV`,
-  `CLONE.DRV`, `HIBER.DRV`, and on kern_small `FILECP.DRV` and `FDLG.DRV`) and
+  `CLONE.DRV`, `HIBER.DRV`, on kern_big `DOCK.DRV` and `EXTD.DRV`, and on
+  kern_small `FILECP.DRV` and `FDLG.DRV`) and
   is read into a heap claim when the feature is asked for, freed when it is
   done. A feature qualifies when the system disk is already required to use
   it, or can be required without interrupting what the user was doing. When
@@ -668,7 +670,8 @@ learned.
   **docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md is what the mechanism
   REFUSES**, and it refused two of four candidates: `mod_need`'s own transitive
   cone is 155 symbols in 7 files, so a module inside it must be gated rather
-  than moved, and a layer with 33 entry points cannot fit `MOD_NENT`'s 7.
+  than moved. There is no entry cap (§2.8.1): a module's slot block is its
+  own entry count.
 - **A heap claim can MOVE, and the default is that it may not** (§66). A record
   is born `MC_RLOC` = 0, PINNED; `OSAPI_MEM_MOVABLE` opts one in and takes a
   relocation **proc**, not the address of the word naming the block — a holder
@@ -808,7 +811,14 @@ docs/TESTING.md is the authority on which emulator to reach for, and its
 opening currently argues MartyPC first — so expect it to disagree with the
 paragraph above.
 
-Three traps not written down elsewhere:
+Four traps not written down elsewhere:
+
+- **Never hand `/dev/null` to nasm as `-o` or `-l`.** A failed assembly
+  unlinks its `-o` target and `-l` replaces its target with a regular file, so
+  as root the device itself is replaced and everything after misbehaves
+  without naming the cause. Write to a temp file. `tests/unit/t_nulldev.py`
+  refuses the pattern in the tree; `stat -c %F /dev/null` must say
+  `character special file`.
 
 - **A knob kernel in `build/` is a different kernel to the symbol reader.**
   Every emulator row resolves kernel symbols through `tools/os88sym.py`, which
