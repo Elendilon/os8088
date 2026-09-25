@@ -83500,7 +83500,9 @@ floppy drive's retries, and it is exactly the kind of unmeasured ordering rule
 this tree has learned to refuse (PERFORMANCE.md Part 4). What it would buy is
 bounded by the case below, which removes the repeat entirely. **§54.4.2.1
 tries the BOOT volume ahead of the sweep**, which is not that rule, and says
-why: the bound below never reaches the first open of a session.
+why: the bound below never reaches the first open of a session. **§54.4.2.2
+then replaced both with an order by what a question COSTS**, which is not a
+kind heuristic either: it is priced in spin-ups.
 
 **A successful locate writes the hint back**, which is new and is what keeps
 the sweep from being paid twice. `assoc_try` navigates with `dsk_chdir_q`
@@ -83537,7 +83539,10 @@ now keeps `[assoc_dead]`, one bit a volume, set when a move answers
 `FERR_NODISK` - a failed MOUNT, and nothing else: a hint's out-of-range
 cluster answers `FERR_IO` and does not condemn the volume it names.
 
-**The boot volume is tried right after the document's own.** §54.4.2 refused
+**The boot volume is tried right after the document's own.** *(Superseded by
+§54.4.2.2, which gets the same result for an installed machine through the
+fast pass and does better for floppies. What follows is the reasoning at the
+time.)* §54.4.2 refused
 a *kind* ordering (hard disk before floppy) as an unmeasured heuristic, on the
 ground that the hint write-back bounds it. The bound is real and it is the
 FIRST open of each type in a session that it does not reach: a fresh boot has
@@ -83582,6 +83587,42 @@ and docs/MARTYPC-DEBUG.md). And `ASSOC.DAT` was the last chain on the disk,
 across a track boundary at cylinder 34 (§54.7.5), and its fill landed in the
 one read-ahead slot a 64KB page crosses (§18.95.7.1). With all three the
 floppy row is **1,454 ms and 6 `int 13h`**, against 3,250-3,712 ms and 16-18.
+
+### 54.4.2.2 The sweep's order is what a question costs: fast volumes, floppies with B: first, the cable last
+
+On an AT-class machine every floppy the sweep visits costs a **spin-up**,
+because the BIOS runs one motor at a time and waits the parameter table's
+byte 10 before a read (§12.8.3.1): one second on the reporter's 286. Reported
+there on the three-disk layout the 360KB set is made for (A: system, B: apps,
+D: media), a `.MOD` on D: visited D:, then A: (root, then `APPS`, for a
+program that is not on the system disk), then B:. That is three spin-ups
+before Tracker's load began, 3 to 5 seconds, and the A: second bought
+nothing.
+
+So after the document's own volume the sweep makes **three passes, cheapest
+medium first**:
+
+| pass | volumes | why |
+|---|---|---|
+| 1 | a BIOS fixed disk (unit 80h+), a driver's volume, and a redirected one whose reads are memory (`FSCAP_LOCAL`, the RAM disk) | a question is milliseconds, and on an installed machine this is where every program is |
+| 2 | the floppies, in index order with **B: before A:** | a second of spin-up each on an AT. A: is the system disk and B: the apps disk on the machine this project ships for, so the apps disk is asked first and the system disk only if it failed. Past B: and A: the order is unchanged |
+| 3 | a redirected volume that is NOT memory: the cable (§62) | slower than any floppy, and quite possibly a floppy at its far end |
+
+Every live volume is still asked, so nothing can be missed that §54.4.2 would
+have found. Only the order changed. On an installed machine the fast pass
+reaches C: before any floppy, which is what §54.4.2.1's boot-volume step did,
+and that step is gone. The classification is `dsk_media_ok`'s own test: a
+volume's KIND says the transport and only its UNIT says the medium. The
+redirected pass reads the one `DRVC_FILE` service's capability word, since
+at most one file driver is loaded at a time.
+
+It costs **30 bytes** of `.cold`, resident, net of the step it replaces.
+`tests/assocsweep.py`'s `four` leg is the reporter's layout on the
+four-drive 5150 (`os8088_5150_cga_4fdd`, whose GLaBIOS twin this work added;
+the third floppy is unit 2 and volume 3, D:, because volume 2 is kept for a
+hard-disk boot partition). It asserts A: is never mounted, and is red on the
+kernel before this section: mounts D A B, 2,289 ms, against D B, 1,313 ms.
+On the 286 the difference is also A:'s spin-up.
 
 ### 54.5 The API: the app PULLS its document, and may claim an extension
 

@@ -1804,7 +1804,7 @@ SOAK = [
         "MartyPC's ROMs do not wait for the spin-up, so the ORDER is what is "
         "asserted; RED on the kernel before it (arm 193 ms after the read)",
         needs=("marty",)),
-    Row("assocsweep", "soak", py("tests/assocsweep.py"), 30.0,
+    Row("assocsweep", "soak", py("tests/assocsweep.py"), 50.0,
         "SPEC.md 54.4.2.1: what a document double-click costs BEFORE its "
         "program loads. Field: an installed machine with every floppy drive "
         "EMPTY took 11-14 s to start Tracker for a .MOD on E:, because "
@@ -1813,8 +1813,10 @@ SOAK = [
         "boot sector for every folder it moved between. Breakpoints on "
         "dsk_chdir_x count the mounts: a hard-disk boot with A: empty must "
         "never mount A: (was B B A A C, 2,335 ms; now B C), and a floppy "
-        "locate must mount no volume twice (was A A B B). VERIFIED RED on "
-        "the kernel before the fix.",
+        "locate must mount no volume twice (was A A B B), and on the "
+        "four-drive 5150 with A: system, B: apps, D: media A: must never be "
+        "mounted - B: is asked before A: (SPEC.md 54.4.2.2; was D A B). "
+        "VERIFIED RED on the kernel before each fix.",
         needs=("marty",)),
     Row("fontview", "soak", py("tests/fontview.py"), 60.0,
         "SPEC.md 90: an F88 association launches FONT VIEWER with that family "
