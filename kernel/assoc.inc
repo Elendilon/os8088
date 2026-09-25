@@ -1099,30 +1099,50 @@ assoc_locate:
     mov dl, [assoc_ddrv]
     call assoc_tryvol           ; its own volume first: already mounted, and
     jnc .found                  ; skipped below so nothing is visited twice
-    mov dl, [dsk_bootvol]       ; ...then the BOOT volume (SPEC.md 54.4.2.1):
-    cmp dl, [assoc_ddrv]        ; the one volume known to have a disk in it,
-    je .sweep                   ; and where an install put every program. On
-    call assoc_tryvol           ; a floppy boot it is A:, which the sweep
-    jnc .found                  ; reached first anyway; on an installed
-.sweep:                         ; machine it is C:, reached BEFORE the empty
-    xor cl, cl                  ; floppy drives in front of it
-.vol:                           ; CL = the volume index of the sweep
-    mov bl, cl
-    cmp bl, [assoc_ddrv]
-    je .volnext
-    cmp bl, [dsk_bootvol]
-    je .volnext
-    call dsk_vol_row_x            ; a FREE row is skipped for the TIME, not for
+    mov ch, 2                   ; ...then the rest in THREE PASSES (SPEC.md
+.pass:                          ; 54.4.2.2), cheapest medium first. CH = 2:
+    xor cl, cl                  ; a fixed disk, a driver's volume, a RAM disk
+.vol:                           ; - milliseconds a question, and on an
+    mov dl, cl                  ; installed machine where every program is.
+    cmp dl, 2                   ; CH = 1: the floppies, a second of spin-up
+    jae .ord                    ; each on an AT. CH = 0: the CABLE, slowest of
+    xor dl, 1                   ; all and quite possibly a floppy at its far
+.ord:                           ; end. CL counts; DL is the VOLUME, 0 and 1
+    cmp dl, [assoc_ddrv]        ; swapped: B: BEFORE A:, because on the
+    je .volnext                 ; machine this runs on A: is the system disk
+    mov bl, dl                  ; and B: the apps disk
+    call dsk_vol_row_x          ; a FREE row is skipped for the TIME, not for
     jc .volnext                 ; correctness: mounting one fails anyway, but
                                 ; that failure is the BIOS's retries and on a
                                 ; 4.77MHz machine those are seconds
-    mov dl, cl
-    call assoc_tryvol
+    mov al, 1                   ; AL = the row's pass: 1 until shown otherwise
+    mov ah, [bx+DV_KIND]
+    cmp ah, DVK_BIOS
+    jne .notbios
+    test byte [bx+DV_UNIT], 0x80 ; dsk_media_ok's test, for its reason: the
+    jz .kind                    ; KIND says the transport, the UNIT the medium
+    inc ax                      ; a BIOS fixed disk: 2
+    jmp short .kind
+.notbios:
+    inc ax                      ; a driver's volume: 2 ...
+%ifdef OS88_REDIR
+    cmp ah, DVK_FILE
+    jne .kind
+    test byte [drv_svc + (DRVC_FILE-2)*DSV_SIZE + DSV_CAPS], FSCAP_LOCAL
+    jnz .kind                   ; ...a redirected one whose reads are MEMORY
+    mov al, 0                   ; (62.9.2.2) too, and any other is the cable
+%endif
+.kind:
+    cmp al, ch
+    jne .volnext                ; ...not this pass's
+    call assoc_tryvol           ; DL = the volume; preserves CX and DX
     jnc .found
 .volnext:
     inc cl
     cmp cl, DVOL_MAX
     jb .vol
+    dec ch                      ; 2, 1, 0, and -1 is every volume asked
+    jns .pass
     stc
     jmp short .out
 .found:

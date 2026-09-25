@@ -29,6 +29,12 @@ naming the volume.  Two machines, one leg each:
           just mounted is a word (fcp_goto), not a boot-sector re-read.  It was
           four mounts, A: and B: twice each; it is two.
 
+  four    the field's own three-disk layout on the four-drive 5150: A:
+          system, B: apps, D: media, the document in D:\\MEDIA. ASSERTS A: is
+          never mounted - B: is searched before A: (SPEC.md 54.4.2.2), and
+          each floppy visited is a second of spin-up on an AT. It was D D A A
+          B B, A: twice for a program that is not there.
+
 -v prints every int 13h in the span with its CHS, run and buffer.
 """
 import os
@@ -148,11 +154,32 @@ def leg_floppy():
     check("B: is reached", "B" in vols, " ".join(vols))
 
 
+def leg_four():
+    print("four: A: system, B: apps, D:\\MEDIA\\BEVERLY.MOD")
+    media = os.path.join(B, "assocsweep-%d-d.img" % os.getpid())
+    shutil.copyfile(os.path.join(B, "media360.img"), media)
+    m = M.launch(os.path.join(B, "os8088-360.img"),
+                 apps=os.path.join(B, "apps360.img"),
+                 machine=M.machine("os8088_5150_cga_4fdd"),
+                 extra=["--mount", "fd:2:" + media])
+    try:
+        ui = os88ui.UI(m, verbose=False)
+        ui.ready(limit=240)
+        ui.path("D:/MEDIA")
+        mounts, ms = trace(m, ui)
+    finally:
+        m.quit()
+        os.remove(media)
+    vols = [v for _, v, _ in mounts]
+    check("A: is never mounted", "A" not in vols, " ".join(vols))
+    check("B: is reached", vols[-1:] == ["B"], " ".join(vols))
+
+
 def main():
-    legs = [a for a in sys.argv[1:] if not a.startswith("-")] or ["hd",
-                                                                   "floppy"]
+    legs = [a for a in sys.argv[1:] if not a.startswith("-")] or [
+        "hd", "floppy", "four"]
     for leg in legs:
-        {"hd": leg_hd, "floppy": leg_floppy}[leg]()
+        {"hd": leg_hd, "floppy": leg_floppy, "four": leg_four}[leg]()
     if fails:
         print("assocsweep: FAIL (%s)" % ", ".join(fails))
         sys.exit(1)
