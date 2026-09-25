@@ -41,6 +41,7 @@ VP_RL       equ 16384               ; the audio ring (SPEC.md 98.3.1)...
 VP_RLCODE   equ 2                   ; ...4096 << 2
 VP_BLOCK    equ 2048                ; the card's block: one interrupt each
 VP_AMAX     equ 4                   ; frames of audio a hook call puts in
+VP_SKIPMAX  equ 8                   ; shadow copies a play behind may skip
 VP_SLOTP    equ VP_CHUNK / 16       ; ...in paragraphs
 VP_KMAX     equ 8
 VP_COLS     equ 38                  ; the window's text columns
@@ -393,31 +394,115 @@ vp_parse:
     stc
     ret
 
-; vp_canplay - can THIS display set the file's layout's mode? (SPEC.md 98.3)
+; vp_canplay - can THIS display play it (SPEC.md 98.3, 98.3.2)? In its own
+; layout's mode if the display has it; else through the SHADOW, in the first
+; other layout whose mode it has and whose screen holds the canvas
 vp_canplay:
-    mov bl, [vp_layout]
+    mov byte [vp_shadow], 0
+    mov bx, [vp_win]
+    call OSAPI_FSX_CAPS             ; AX = the modes this window's display has
+    mov [vp_caps], ax
+    mov al, [vp_layout]
+    call vp_try
+    jnc .ok
+    mov al, 2                       ; LIN80, HERC, CGA: the roomiest first
+.l:
+    cmp al, [vp_layout]
+    je .n
+    call vp_try
+    jnc .shadow
+.n:
+    dec al
+    jns .l
+    mov bl, [vp_layout]             ; "made for <layout>": nothing here holds
+    xor bh, bh                      ; it
+    shl bx, 1
+    mov ax, [vp_laynotab+bx]
+    mov [vp_msg], ax
+    ret
+.shadow:
+    mov byte [vp_shadow], 1
+.ok:
+    mov [vp_tlay], al
+    mov bl, al                      ; the mode to take
     xor bh, bh
     mov ax, bx
     shl bx, 1
     add bx, ax
     shl bx, 1
-    mov al, [vp_laytab+bx]          ; the FSXM id
+    mov al, [vp_laytab+bx]
     mov [vp_mode], al
-    mov cl, al
-    mov bx, [vp_win]
-    call OSAPI_FSX_CAPS             ; AX = the modes this window's display has
+    mov byte [vp_ok], 1
+    mov word [vp_msg], vp_s_ready
+    cmp byte [vp_shadow], 0
+    je .out
+    mov bl, [vp_layout]
+    xor bh, bh
+    shl bx, 1
+    mov ax, [vp_laycptab+bx]
+    mov [vp_msg], ax
+.out:
+    ret
+
+; vp_try - AL = a layout: CF=0 its mode is on this display and its screen
+; holds the canvas. Preserves AL
+vp_try:
+    push ax
+    mov bl, al
+    xor bh, bh
+    mov ax, bx
+    shl bx, 1
+    add bx, ax
+    shl bx, 1                       ; BX = layout * 6
+    mov cl, [vp_laytab+bx]
+    mov ax, [vp_caps]
     shr ax, cl
     test al, 1
     jz .no
-    mov byte [vp_ok], 1
-    mov word [vp_msg], vp_s_ready
+    mov ax, [vp_wb]
+    cmp ax, [vp_laytab+bx+2]        ; stride
+    ja .no
+    mov ax, [vp_h]
+    cmp ax, [vp_laytab+bx+4]        ; rows
+    ja .no
+    pop ax
+    clc
     ret
 .no:
-    mov bl, [vp_layout]             ; "made for <layout>": the shadow path that
-    xor bh, bh                      ; would show it here is wave 5's
+    pop ax
+    stc
+    ret
+
+; vp_rowaddr - AX = a row, BL = a layout -> AX = the row's first byte in that
+; layout's memory image (SPEC.md 98.1.2). Preserves CX, DX, SI, DI
+vp_rowaddr:
+    push cx
+    push dx
+    xor bh, bh
+    mov cx, bx
     shl bx, 1
-    mov ax, [vp_laynotab+bx]
-    mov [vp_msg], ax
+    add bx, cx
+    shl bx, 1                       ; BX = layout * 6
+    mov cl, [vp_laytab+bx+1]        ; banks: 1, 2 or 4
+    xor ch, ch
+    dec cx
+    mov dx, ax
+    and dx, cx                      ; DX = the bank
+    inc cx
+.s:
+    shr cx, 1
+    jz .sd
+    shr ax, 1                       ; AX = the row within its bank
+    jmp short .s
+.sd:
+    push dx
+    mul word [vp_laytab+bx+2]       ; ...times the stride
+    pop dx
+    mov cl, 13
+    shl dx, cl                      ; + the bank x 8192
+    add ax, dx
+    pop dx
+    pop cx
     ret
 
 ; =============================================================================
@@ -482,6 +567,38 @@ vp_play:
     jmp .done
 .ring:
     mov [vp_ring], dx
+    ; --- the SHADOW (SPEC.md 98.3.2): the file's own layout's memory image,
+    ;     black, which the frames decode into and the screen is copied from
+    mov word [vp_fcap], 2
+    mov word [vp_shseg], 0
+    cmp byte [vp_shadow], 0
+    je .noshd
+    mov bl, [vp_layout]
+    xor bh, bh
+    mov al, [vp_laykb+bx]
+    xor ah, ah
+    push ax
+    call OSAPI_MEM_CLAIM
+    pop cx
+    jnc .shd
+    mov word [vp_msg], vp_s_mem
+    jmp .freering
+.shd:
+    mov [vp_shseg], dx
+    mov es, dx
+    xor di, di
+    xor ax, ax
+    push cx
+    mov cl, 9
+    pop bx
+    shl bx, cl                      ; KB -> words
+    mov cx, bx
+    cld
+    rep stosw
+    mov word [vp_fcap], 8           ; the decode is cheap and the copy is not:
+.noshd:                             ; more frames a call, one copy after them
+    mov word [vp_dy0], 0xFFFF
+    mov word [vp_dy1], 0
     ; --- the reader: from the cluster boundary under the stream's start
     mov ax, [vp_clsec]
     mov cl, 9
@@ -552,6 +669,11 @@ vp_play:
 .freering:
     mov dx, [vp_ring]
     call OSAPI_MEM_FREE
+    mov dx, [vp_shseg]
+    or dx, dx
+    jz .done
+    call OSAPI_MEM_FREE
+    mov word [vp_shseg], 0
 .done:
     mov dx, [vp_aseg]               ; ...and the sound's, if it had one
     or dx, dx
@@ -587,8 +709,9 @@ vp_main:
 .mode:
     mov ax, [vp_fsi+FSI_SEG]
     mov [vp_vseg], ax
-    ; the origin: centred, the row on a bank (SPEC.md 98.1.2)
-    mov bl, [vp_layout]
+    ; the origin: centred, the row on a bank (SPEC.md 98.1.2), on the
+    ; screen's layout - the file's own, or the shadow's target (98.3.2)
+    mov bl, [vp_tlay]
     xor bh, bh
     mov ax, bx
     shl bx, 1
@@ -601,12 +724,33 @@ vp_main:
     mov cl, [vp_laytab+bx+1]        ; banks
     xor ch, ch
     div cx                          ; AX = y0 / banks, rounded down
+    push ax
+    mul cx
+    mov [vp_ty0], ax                ; ...as a row, for the shadow's copy
+    pop ax
     mul word [vp_laytab+bx+2]       ; ...rows of stride
     mov cx, [vp_laytab+bx+2]
     sub cx, [vp_wb]
     shr cx, 1                       ; x0
+    mov [vp_tx0], cx
     add ax, cx
     mov [vp_org], ax
+    ; COMPOSITE (SPEC.md 98.3.3): a CGACOMP file on a real CGA turns the
+    ; colour burst on, which is what makes its stripes colours on a
+    ; composite monitor. 3D8h is the app's past the mode set (§53.7), and the
+    ; bracket's restore sets the mode, and with it the burst, back
+    mov byte [vp_burst], 0
+    cmp byte [vp_pixfmt], 1         ; CGACOMP (the byte is the format - 1)
+    jne .pre
+    cmp byte [vp_mode], FSXM_CGA640
+    jne .pre
+    call OSAPI_VIDEO                ; DL = the adapter: only a CGA has a
+    cmp dl, VID_CGA                 ; composite output; an EGA's or a VGA's
+    jne .pre                        ; mode 6 is RGB and 3D8h is not theirs
+    mov dx, 0x3D8
+    mov al, 0x1A                    ; 640x200 graphics, video on, burst ON
+    out dx, al
+    mov byte [vp_burst], 1
 .pre:                               ; fill the ring before the first frame: a
     call vp_fill                    ; stream that fits is read whole
     jnc .pre
@@ -883,11 +1027,19 @@ vp_hook:
     jmp short .due
 .go:
     jcxz .ret
-    cmp cx, 2
+    cmp cx, [vp_fcap]
     jbe .n
-    sub cx, 2
-    add [vp_late], cx
-    mov cx, 2
+    sub cx, [vp_fcap]
+    cmp byte [vp_shadow], 0
+    jne .keep
+    add [vp_late], cx               ; native: forgiven, the picture runs slow
+    mov cx, [vp_fcap]
+    jmp short .n
+.keep:
+    mov ax, cx                      ; SHADOW: the rest stays owed. The copy is
+    mul bx                          ; what costs, once a call however many
+    add [vp_owed], ax               ; frames it covers, so the decode catches
+    mov cx, [vp_fcap]               ; up and the DISPLAY rate is what drops
 .n:
     sti                             ; a disk's completion is not held behind a
 .f:                                 ; frame (SPEC.md 53.2.2 allows it)
@@ -897,6 +1049,14 @@ vp_hook:
     jc .stop
     loop .f
 .stop:
+    mov bl, [vp_pitper]             ; still a frame owed after them: behind
+    xor bh, bh
+    xor al, al
+    cmp [vp_owed], bx
+    jb .copy
+    inc ax
+.copy:
+    call vp_blitck                  ; the shadow's band, once for them all
     cli
 .ret:
     ret
@@ -944,6 +1104,7 @@ vp_hook:
     jbe .due2
     mov ax, [vp_frames]
 .due2:
+    mov [vp_due], ax
     sub ax, [vp_done]
     jbe .top                        ; none: the picture is on time
     mov cx, ax
@@ -951,10 +1112,10 @@ vp_hook:
     jbe .sk
     mov [vp_skmax], cx
 .sk:
-    cmp cx, 2
+    cmp cx, [vp_fcap]
     jbe .n2
-    inc word [vp_late]              ; more than two behind the sound
-    mov cx, 2
+    inc word [vp_late]              ; more behind the sound than a call draws
+    mov cx, [vp_fcap]
 .n2:
     sti
 .f2:
@@ -965,8 +1126,78 @@ vp_hook:
     loop .f2
 .top:
     sti
+    xor al, al                      ; still frames due after them: behind
+    mov bx, [vp_due]
+    cmp bx, [vp_done]
+    jbe .tc
+    inc ax
+.tc:
+    call vp_blitck
     call vp_afill                   ; the audio a few frames ahead of the card
     cli
+    ret
+
+; -----------------------------------------------------------------------------
+; vp_blitck / vp_blit - the SHADOW's copy (SPEC.md 98.3.2): the canvas rows
+; the frames since the last copy wrote, [vp_dy0, vp_dy1), from the file's
+; layout to the screen's, a row at a time and each row re-addressed. Only the
+; DISPLAY rate pays for it: the decode behind it has already run
+; -----------------------------------------------------------------------------
+; in: AL = 1 the play is behind. Then the copy waits and the call's time
+; goes to the decode, which is what keeps the play in time - but never more
+; than VP_SKIPMAX calls running, so a machine that can never catch up still
+; sees its picture move
+vp_blitck:
+    cmp byte [vp_shadow], 0
+    je .out
+    mov bx, [vp_dy1]
+    cmp bx, [vp_dy0]
+    jbe .out
+    or al, al
+    jz .go
+    cmp byte [vp_skipn], VP_SKIPMAX
+    jae .go
+    inc byte [vp_skipn]
+    ret
+.go:
+    mov byte [vp_skipn], 0
+    call vp_blit
+.out:
+    ret
+
+vp_blit:
+    mov es, [vp_vseg]
+    mov dx, [vp_shseg]
+    mov cx, [vp_dy0]
+.r:
+    cmp cx, [vp_dy1]
+    jae .d
+    mov ax, cx
+    mov bl, [vp_layout]
+    call vp_rowaddr
+    mov si, ax
+    mov ax, cx
+    add ax, [vp_ty0]
+    mov bl, [vp_tlay]
+    call vp_rowaddr
+    add ax, [vp_tx0]
+    mov di, ax
+    push cx
+    mov cx, [vp_wb]
+    push ds
+    mov ds, dx
+    cld
+    shr cx, 1
+    rep movsw
+    adc cx, cx
+    rep movsb
+    pop ds
+    pop cx
+    inc cx
+    jmp short .r
+.d:
+    mov word [vp_dy0], 0xFFFF       ; the band is empty again
+    mov word [vp_dy1], 0
     ret
 
 ; vp_frame - draw the next frame. CF=1 it did not (stalled, held, ended)
@@ -999,9 +1230,33 @@ vp_frame:
     je .badsp
     jmp short .badrec
 .dec:
-    add si, 6
+    cmp byte [vp_shadow], 0
+    je .native
+    push ds                         ; SHADOW (98.3.2): into the file's own
+    mov ds, dx                      ; image at its own address 0, and the rows
+    mov ax, [si+2]                  ; the record writes added to the band the
+    mov cx, [si+4]                  ; next copy covers
+    pop ds
+    cmp cx, [vp_h]
+    jbe .y1
+    mov cx, [vp_h]
+.y1:
+    cmp ax, [vp_dy0]
+    jae .y0k
+    mov [vp_dy0], ax
+.y0k:
+    cmp cx, [vp_dy1]
+    jbe .y1k
+    mov [vp_dy1], cx
+.y1k:
+    mov es, [vp_shseg]
+    xor bp, bp
+    jmp short .go2
+.native:
     mov es, [vp_vseg]
     mov bp, [vp_org]
+.go2:
+    add si, 6
     push ds
     mov ds, dx
     call vd_native                  ; the lists, onto the adapter
@@ -1630,6 +1885,8 @@ vp_laytab:
     dw 80, 480
 vp_laynames:  dw vp_s_cga, vp_s_herc, vp_s_vga
 vp_laynotab:  dw vp_s_nocga, vp_s_noherc, vp_s_novga
+vp_laycptab:  dw vp_s_cpcga, vp_s_cpherc, vp_s_cpvga
+vp_laykb:     db 16, 32, 38             ; each layout's memory image, KB
 vp_s_cga:     db 'CGA  ', 0
 vp_s_herc:    db 'Herc  ', 0
 vp_s_vga:     db 'VGA  ', 0
@@ -1650,6 +1907,9 @@ vp_s_badrec:  db 'Stopped: a damaged frame', 0
 vp_s_nocga:   db 'Made for CGA; not on this screen', 0
 vp_s_noherc:  db 'Made for Hercules; not this screen', 0
 vp_s_novga:   db 'Made for VGA; not on this screen', 0
+vp_s_cpcga:   db 'Made for CGA: P plays it via a copy', 0
+vp_s_cpherc:  db 'Made for Herc: P plays it via a copy', 0
+vp_s_cpvga:   db 'Made for VGA: P plays it via a copy', 0
 vp_s_fps:     db ' fps  ', 0
 vp_s_fr:      db ' fr', 0
 vp_s_drew:    db 'Drew ', 0
@@ -1715,6 +1975,21 @@ vp_end:       db 0
 vp_eof:       db 0
 vp_err:       db 0
 vp_held:      db 0
+; the shadow (SPEC.md 98.3.2) and the burst (98.3.3)
+vp_shadow:    db 0                  ; this file plays through the shadow
+vp_burst:     db 0                  ; the colour burst was turned on
+vp_tlay:      db 0                  ; the screen's layout (= [vp_layout] native)
+              db 0
+vp_caps:      dw 0
+vp_ty0:       dw 0                  ; the canvas's top row on the screen
+vp_tx0:       dw 0                  ; ...and its left byte
+vp_shseg:     dw 0
+vp_dy0:       dw 0                  ; the band the next copy covers
+vp_dy1:       dw 0
+vp_fcap:      dw 0                  ; frames a hook call may draw
+vp_due:       dw 0                  ; with sound: the frames due, last call
+vp_skipn:     db 0                  ; shadow copies skipped in a row
+              db 0
 ; the sound (SPEC.md 98.3.1)
 vp_audio:     db 0                  ; the file's: 0 none, 1 PCM8, 2 ADPCM4
 vp_nosnd:     db 0                  ; 1: play silent whatever the machine has

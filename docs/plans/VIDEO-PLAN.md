@@ -872,9 +872,22 @@ red. A row about one package goes in `soak`.
     pick it only when the disk budget needs it. On MartyPC's CPU-copied disk
     TRONDISC paused once in PCM8 and not at all in ADPCM4, which is the case
     it is for.
-- **W5 — surfaces.** Hercules and VGA with their presets and host-side
-  layouts (`import --target`), the shadow path for a foreign file, and the
-  CGA composite burst.
+- **W5 — surfaces. DONE** (SPEC.md 98.3.2, 98.3.3). The native Hercules
+  and VGA plays and `import --target` had come forward into W1 and W3; the
+  presets are W8's encoder profiles. What W5 added:
+  - **The shadow path**: a file whose mode the display lacks decodes into a
+    RAM image of its own layout and the dirty band is copied, re-addressed a
+    row at a time, to the first screen here that holds it. A CGA file plays
+    on a Hercules frame-exact in 95 ticks against 91. **What it found**: a
+    shadow play must not FORGIVE frames the way a native one does - that
+    made it 20% slow, because the copy is once a call and the decode is
+    cheap - so the frames past a call's cap stay owed, the cap is 8, and
+    while the play is behind the copy waits (at most 8 calls).
+  - **The CGA composite burst**: a CGACOMP file on a real CGA clears 3D8h's
+    black-and-white bit; not through an EGA's or VGA's mode 6.
+  - **Mode 12h read back**: a MONO1 byte goes to all four planes, so the
+    plane a debug read returns is the picture, and `vidplayvga` is now
+    frame-exact at every hold instead of timing-only.
 - **W6 — Preview.** Association (`V88`, §54.6), the Open dialog, poster,
   scrub bar, info panel.
 - **W7 — In-window and seek.**

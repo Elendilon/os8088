@@ -149136,10 +149136,10 @@ mode, and nothing else yet:
 | HERC | Hercules | `FSXM_HERC` | ...page 0 |
 | LIN80 | VGA | `FSXM_VGA12`, the BIOS's own write state: Map Mask 0Fh puts a MONO1 byte in all four planes | ... |
 
-A file whose layout's mode this display cannot set (`OSAPI_FSX_CAPS`) greys
-Play with the reason (§47). The shadow path for it is wave 5's. The canvas
-is centred, its row rounded down to the layout's bank count, and that
-origin is the decoder's BP.
+A file whose layout's mode this display cannot set (`OSAPI_FSX_CAPS`) plays
+through a copy (98.3.2), or greys Play with the reason (§47) when no screen
+here holds its canvas. The canvas is centred, its row rounded down to the
+layout's bank count, and that origin is the decoder's BP.
 
 **The pace is `FSXF_RATE`** (§53.2.2) at the header's divisor, a frame every
 *n* periods. **The decode is in the hook**, XDC's shape, so a frame is drawn
@@ -149200,8 +149200,10 @@ opened by double-clicking it):
   at least one of. With the mirror copy deleted, those holds fail.
 - **On time.** Read whole first, all 150 frames drew with no stall and no
   late period in **91–92 ticks** against an ideal of 91.0, on CGA, on
-  Hercules and in mode 12h on the XT VGA. Mode 12h's picture is not read
-  back: it is planar, and a CPU read of A000 is one plane.
+  Hercules and in mode 12h on the XT VGA. **Mode 12h is read back too**
+  since wave 5: it is planar and a read of A000 is one plane, but a MONO1
+  byte is written to all four (Map Mask 0Fh), so plane 0 is the picture -
+  frame-exact at every hold.
 - `VIDEO.O88` is **5,258 bytes**, 3.5 KB on disk.
 
 #### 98.3.1 With sound (wave 4): the card is the clock
@@ -149277,7 +149279,60 @@ captured):
 - Broken on purpose, the row goes red both ways: an audio part copied one
   byte off (the capture departs 731 samples in), and a driver that does not
   write the consumed count back (the picture stops at frame 5).
-- `VIDEO.O88` is **6,353 bytes**.
+- `VIDEO.O88` is **6,353 bytes**; 7,043 with wave 5 (98.3.2, 98.3.3).
+
+#### 98.3.2 A file made for another screen: the shadow (wave 5)
+
+**The file keeps its layout and the screen keeps its mode.** When the
+display cannot set the file's own layout's mode, the player takes the first
+other layout - LIN80, then HERC, then CGA - whose mode the display has and
+whose screen holds the canvas, and plays through a **shadow**: a RAM image of
+the FILE's layout (16 KB for CGA, 32 KB for Hercules, 38 KB for LIN80),
+claimed black for the play. A canvas no screen here holds - a LIN80 file's
+480 rows on a Hercules - is refused as before, with the screen it was made
+for (§47). The window says which: *Made for CGA: P plays it via a copy*.
+
+- **The decode is unchanged.** Each frame decodes into the shadow at its
+  own address 0, with the same `vd_native`, and the rows its record says it
+  writes (`y0`, `y1`, 98.1.3) widen a **dirty band**.
+- **The copy is what costs**, once a hook call however many frames it
+  covers: the band's rows, one at a time, each re-addressed from the file's
+  layout to the screen's (`vp_rowaddr`, 98.1.2's formula) at the centred
+  origin. A full 640×200 band onto a Hercules is ~60 ms of stores - two
+  periods of a 30 fps file.
+- **So the DISPLAY rate drops, never the play's.** A hook call may decode 8
+  frames, not 2; frames past that stay owed rather than being forgiven; and
+  while the play is behind, the copy WAITS and the call's time goes to the
+  decode - but never more than 8 calls running, so a machine that can never
+  catch up still sees its picture move. With sound, the same, against the
+  card's clock.
+
+**Measured** (`tests/vidplay.py --layout cga --screen herc`: the CGA clip on
+the Hercules 5150): frame-exact at every hold - the Hercules screen, read at
+the rows the copy re-addressed them to, equals the host's decode - and all
+150 frames in **95 ticks** against 91.0, the hook held off at most 6 periods
+by a full-screen copy. Its first build forgave frames the way a native play
+does and took 110; keeping them owed and letting the copy wait is what
+brought it in. With the copy aimed at the file's own layout instead of the
+screen's, the holds fail.
+
+#### 98.3.3 CGACOMP: the colour burst (wave 5)
+
+A **CGACOMP** file (98.1.1: 1 bpp, each 4-bit group one of 16 composite
+artifact colours) on a **real CGA** turns the colour burst on once the mode
+is set: `OUT 3D8h, 1Ah` - 640×200 graphics, video on, and bit 2 (the
+black-and-white bit mode 6 sets) clear. On a composite monitor the stripes
+are then colours; on an RGB monitor, or through an EGA's or a VGA's mode 6
+(`OSAPI_VIDEO`'s DL is not `VID_CGA`, and 3D8h is not theirs), it is the
+mono pattern, which is what a real CGA shows there too. 3D8h is the app's
+past the mode set (§53.7), and the bracket's restore sets the mode - and the
+burst - back.
+
+`tests/vidplay.py --comp` marks its clip CGACOMP: the burst goes **on** on
+the CGA 5150 and stays **off** through the XT VGA's mode 6, and the picture
+is the same bytes either way. MartyPC's CGA keeps the mode byte for its
+composite renderer, but the headless capture does not render composite, so
+what the colours LOOK like is a composite monitor's question.
 
 **It is on every apps disk** (`$(APPS_TOOLS)`, 4 clusters of the 360KB one),
 and on no `kern_small` disk: what it plays through is `kern_big`'s, so there

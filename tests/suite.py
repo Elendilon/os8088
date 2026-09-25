@@ -8122,9 +8122,34 @@ SOAK = [
     Row("vidplayvga", "soak", py("tests/vidplay.py", "--layout", "lin80"),
         50.0,
         "SPEC.md 98.3: vidplay's two plays with a LIN80 (mode 12h) clip on "
-        "the XT VGA. Mode 12h is planar, so the holds are taken but the "
-        "picture is NOT read back; what this row asserts is that every "
-        "frame plays through the ring's wraps and on time",
+        "the XT VGA, frame-exact at every hold: mode 12h is planar, but a "
+        "MONO1 byte goes to all four planes, so plane 0 - what a read of "
+        "A000 returns - is the picture",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidplayshd", "soak", py("tests/vidplay.py", "--layout", "cga",
+                                 "--screen", "herc"), 45.0,
+        "SPEC.md 98.3.2: a CGA clip on the Hercules 5150, played through the "
+        "SHADOW - decoded into a RAM image of its own layout and copied a "
+        "band of rows at a time, each re-addressed to the Hercules screen. "
+        "Every hold is read back at those rows and must equal the host's "
+        "decode, and the play must be the clip's length within 4 ticks: the "
+        "display rate drops, the play's does not. Broken on purpose - the "
+        "copy aimed at the file's own layout - the holds fail",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidplaycomp", "soak", py("tests/vidplay.py", "--comp", "--stops",
+                                  "1,63,150"), 40.0,
+        "SPEC.md 98.3.3: a CGACOMP clip on the CGA 5150 turns the colour "
+        "burst on (3D8h's black-and-white bit clear) and plays the same "
+        "bytes; vidplaycompvga is the other half",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidplaycompvga", "soak", py("tests/vidplay.py", "--comp", "--screen",
+                                     "cga", "--machine", "os8088_xt_vga",
+                                     "--stops", "1,63,150"), 45.0,
+        "SPEC.md 98.3.3: the CGACOMP clip through the XT VGA's mode 6 leaves "
+        "the burst OFF - 3D8h is not a VGA's - and plays the same bytes",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidsound", "soak", py("tests/vidsound.py"), 135.0,

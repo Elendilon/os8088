@@ -26,6 +26,12 @@ TWO PLAYS, two questions:
 --layout herc makes a Hercules-layout clip and plays it on the Hercules 5150,
 at its centred origin (SPEC.md 98.1.2).
 
+--screen names a DIFFERENT layout's machine, and the clip then plays through
+the SHADOW (SPEC.md 98.3.2): decoded into a RAM image of its own layout and
+copied to the screen a band of rows at a time. Each hold compares the screen
+at the rows the copy re-addressed them to, and waits for the copy (the band
+empty) as well as the frame.
+
 The holds include one straight after every frame whose video runs from slot
 K-1 into the mirror, computed on the host, and the row FAILS if the clip has
 none. Broken on purpose - vp_fill's mirror copy skipped - those holds FAIL.
@@ -50,7 +56,11 @@ NF = 150
 FPS = 30.0
 MACHINE = {"cga": "os8088_5150_cga_gla", "herc": "os8088_5150_herc_gla",
            "lin80": "os8088_xt_vga"}
-VSEG = {"cga": 0xB8000, "herc": 0xB0000}   # lin80: planar, not read back
+VSEG = {"cga": 0xB8000, "herc": 0xB0000, "lin80": 0xA0000}
+VSIZE = {"cga": 16384, "herc": 65536, "lin80": 38400}
+# MODE 12h IS PLANAR and a read of A000 is one plane, through the Read Map -
+# but a MONO1 byte is written to ALL FOUR (Map Mask 0Fh, SPEC.md 98.1.2), so
+# plane 0 IS the picture, and MartyPC's debug read returns it
 ROWS = {"cga": 200, "herc": 348, "lin80": 480}
 STOPS = (1, 17, 40, 63, 88, 111, 137, NF)
 
@@ -126,13 +136,20 @@ def mirror_frames(r, clb, k=2):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--layout", choices=sorted(MACHINE), default="cga")
+    ap.add_argument("--comp", action="store_true",
+                    help="mark the clip CGACOMP: on a real CGA the play must "
+                    "turn the colour burst on, and nowhere else (98.3.3)")
+    ap.add_argument("--screen", choices=sorted(MACHINE),
+                    help="play on this layout's machine: the shadow path")
     ap.add_argument("--machine")
     ap.add_argument("--stops", help="comma-separated holds (a diagnosis)")
     a = ap.parse_args()
     global STOPS
     if a.stops:
         STOPS = tuple(int(x) for x in a.stops.split(","))
-    machine = a.machine or MACHINE[a.layout]
+    screen = a.screen or a.layout
+    shadow = screen != a.layout
+    machine = a.machine or MACHINE[screen]
     os.chdir(ROOT)
     syms, image = pkg_syms("apps/video/video.asm", ("apps/",))
     pkg = os88build.at("build/video.o88")
@@ -140,6 +157,10 @@ def main():
         sys.exit("vidplay: no build/video.o88 - run `make`")
     with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "build")) as tmp:
         v88 = clip(tmp, a.layout)
+        if a.comp:                  # CGACOMP: the same bytes, read as
+            with open(v88, "r+b") as f:     # composite colours (98.1.1)
+                f.seek(192)
+                f.write(bytes([2]))
         r = vid.Reader(v88)
         g = r.g
         size = os.path.getsize(v88)
@@ -148,8 +169,13 @@ def main():
                         "--size", "360", pkg, v88], check=True,
                        capture_output=True)
         # the origin the player centres to (SPEC.md 98.1.2)
-        y0 = (ROWS[a.layout] - g.h) // 2 // g.banks
-        org = y0 * g.stride + (g.stride - g.wb) // 2
+        # where each canvas row lands on the SCREEN: the file's own layout at
+        # its centred origin, or the shadow's target layout, re-addressed
+        tl = vid.LAYOUT_BY_NAME[screen]
+        tg = vid.Geom(tl, g.wb, ROWS[screen])
+        ty0 = (ROWS[screen] - g.h) // 2 // tg.banks * tg.banks
+        tx0 = (tg.stride - g.wb) // 2
+        rows_at = [tg.base[y + ty0] + tx0 for y in range(g.h)]
         bad = []
         with os88ui.boot(os88build.at("build/os8088-360.img"), apps=disk,
                          machine=machine) as ui:
@@ -173,6 +199,10 @@ def main():
                             limit=300.0, guest=30.0)
             if rb("vp_ok") != 1:
                 sys.exit("vidplay: the player will not play the clip here")
+            if rb("vp_shadow") != int(shadow):
+                bad.append("the player chose %s where the %s screen wants %s"
+                           % ("the shadow" if rb("vp_shadow") else "native",
+                              screen, "the shadow" if shadow else "native"))
             # a hold straight after every frame that runs into the mirror, or
             # the row would pass with the mirror copy deleted
             mf = mirror_frames(r, rw("vp_clsec") * 512)
@@ -206,19 +236,14 @@ def main():
                 # THE HOLD IS vp_done REACHING n, not the flag alone: the hook
                 # sets vp_held on every period it spends holding, so a flag
                 # read straight after the stop moved can be the OLD stop's
-                until(lambda mm: rb("vp_held") == 1 and rw("vp_done") == n,
+                until(lambda mm: rb("vp_held") == 1 and rw("vp_done") == n
+                      and (not shadow or rw("vp_dy1") == 0),
                       "the hold before frame %d" % n, 120.0)
-                if a.layout not in VSEG:
-                    # MODE 12h IS PLANAR: a read of A000 through the CPU is
-                    # one plane through the Read Map, not the picture. This
-                    # layout is played and timed and not read back
-                    print("   hold before frame %3d: (planar, not read back)"
-                          % n)
+                if screen not in VSEG:
+                    print("   hold before frame %3d: (not read back)" % n)
                 else:
-                    seg = bytes(m.read(VSEG[a.layout], 65536 if a.layout ==
-                                       "herc" else 16384))
-                    got = b"".join(seg[org + b:org + b + g.wb]
-                                   for b in g.base)
+                    seg = bytes(m.read(VSEG[screen], VSIZE[screen]))
+                    got = b"".join(seg[b:b + g.wb] for b in rows_at)
                     want = vid.decode_at(r, n - 1)
                     diff = sum(1 for i in range(len(got)) if got[i] != want[i])
                     print("   hold before frame %3d: %d bytes of %d differ"
@@ -252,6 +277,8 @@ def main():
             done2, err2 = rw("vp_done"), rb("vp_err")
             stall, late, dt, k2 = (rw("vp_stall"), rw("vp_late"), rw("vp_dt"),
                                    rw("vp_k"))
+            gap = rw("vp_gap")
+            burst = rb("vp_burst")
     want_t = NF / FPS * 1193182 / 65536
     secs = (c1 - c0) / 4772727.0
     print("\n   %s clip, %d frames, %d bytes; first play K=%d, drew %d"
@@ -270,7 +297,19 @@ def main():
     if stall or late:
         bad.append("a clip read whole first stalled %d and was late %d"
                    % (stall, late))
-    if abs(dt - want_t) > 2:
+    # the SHADOW's copy holds the hook off for a full-screen band (~6 periods
+    # on Hercules), and the decode catches up behind it: the display rate is
+    # what drops, and the end can trail by the backlog of the last heavy
+    # stretch - so its bound is wider than a native play's
+    if a.comp:                      # 98.3.3: a real CGA's mode 6 only
+        want_b = int(screen == "cga" and "vga" not in machine)
+        print("   CGACOMP: the colour burst %s (want %s)"
+              % ("ON" if burst else "off", "ON" if want_b else "off"))
+        if burst != want_b:
+            bad.append("the colour burst was %s" % ("on" if burst else "off"))
+    tol = 4 if shadow else 2
+    print("   the hook was held off at most %d periods" % gap)
+    if abs(dt - want_t) > tol:
         bad.append("%d ticks for %.1f s of video" % (dt, NF / FPS))
     if abs(secs - NF / FPS) > 0.1 * NF / FPS:
         bad.append("the guest's clock says %.2f s" % secs)
