@@ -8070,6 +8070,23 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/viddisk.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/hdd.drv")),
+    Row("vidsnd", "soak", py("tests/vidsnd.py"), 30.0,
+        "docs/plans/VIDEO-PLAN.md wave 0 (c)(e): ONE INTERRUPT PER VIDEO "
+        "FRAME off a Sound Blaster 2.0 - the clock XDC plays by and the "
+        "frame stream VIDEO-PLAN 4.4 adds to SOUND.DRV - programmed by hand "
+        "after OSAPI_DRV_SUSPEND: auto-init DMA, DSP block = one frame's "
+        "audio. Asserts the card, its line (found with DSP F2h) and a fixed "
+        "disk answered, and that the 30 fps (22,050/735) and 60 fps "
+        "(8,040/134) rows interrupt at the DSP's rate / the block within 2%. "
+        "Reports, never gates: ADPCM4 (DSP 7Dh; MartyPC's SB has no ADPCM, "
+        "so it reads 0 here and is a field question) and the ceiling - "
+        "tracks read while the interrupt burns 0-75% of each frame, on an "
+        "XT-IDE, not the owner's DMA ST11M. A VHD without HIBER.DRV took it "
+        "red (the suspend refuses)",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/vidsnd.o88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
+               "build/ctrl.drv", "build/sound.drv")),
     Row("mcperf", "soak", py("tests/mcperf.py"), 50.0,
         "SPEC.md 48.16.2: does Missile play the SAME GAME twice? A fixed"
         "seed, scripted shots and 400 frames back to back rather than one a"

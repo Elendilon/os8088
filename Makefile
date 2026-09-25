@@ -9678,6 +9678,18 @@ $(BUILD)/viddisk.bin: tests/vidbench/viddisk.asm tests/benchlib.inc apps/os88api
 $(BUILD)/viddisk.o88: $(BUILD)/viddisk.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/viddisk.bin -o $@
 
+# ...and wave 0 (c)(e): one interrupt a frame off the Sound Blaster, ADPCM4,
+# and how much of each frame a streaming disk leaves the interrupt.
+vidbench: $(BUILD)/vidsnd.o88
+
+$(BUILD)/vidsnd.bin: tests/vidbench/vidsnd.asm tests/benchlib.inc apps/os88api.inc tools/benchlint.py | $(BUILD)
+	python3 tools/benchlint.py tests/vidbench/vidsnd.asm
+	$(NASM) -f bin -w+error -I apps/ -I tests/ -o $@ tests/vidbench/vidsnd.asm
+	@echo "vidsnd: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/vidsnd.o88: $(BUILD)/vidsnd.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/vidsnd.bin -o $@
+
 # ...and the one that shows a FACE rather than timing one: it draws the same
 # sentence through the kernel, through face 0, and through both of the
 # library's compose loops, so a screendump is the whole assertion (SPEC.md 6.5).

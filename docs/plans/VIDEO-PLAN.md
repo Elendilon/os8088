@@ -324,9 +324,10 @@ The header names the audio format, and both are built.
   - It is noisier than 8-bit PCM at the same rate. The trade is between
     ADPCM at a high rate and PCM at half that rate for the same bytes, and
     that is a listening test Wave 0 sets up.
-  - The DSP's rate ceiling for ADPCM is unverified, and so is whether
-    MartyPC emulates the mode at all. If MartyPC does not, this is a field
-    item.
+  - The DSP's rate ceiling for ADPCM is unverified, and **MartyPC does not
+    emulate ADPCM** (its `sblaster.rs` says so, and wave 0 read zero
+    interrupts). It is a field item: `tests/vidsnd.py`'s bench carries the
+    row.
 
 The encoder picks per stream, and its profile says which one hits the disk
 budget. **No card means silent video.** A PC-speaker path may come later for a
@@ -658,17 +659,29 @@ red. A row about one package goes in `soak`.
     Two emulator facts belong beside the numbers. MartyPC charges Hercules
     memory exactly what it charges CGA's, where the field measured 40–49
     cycles a word (§88.3.6). And its XT VGA has no wait states at all.
-  - (b) A 13 MB sequential read through `READ_AT` against a bench-only
-    cursor. This sizes section 4.2 and the reserve row.
-  - (c) A Sound Blaster auto-init stream with a 735-byte block, for one IRQ
-    per frame. Plus ADPCM4 auto-init: its rates, and whether MartyPC
-    emulates it.
+  - (b) **DONE** (`tests/viddisk.py`). `READ_AT` grows **142 ms per MB of
+    offset**: 32 KB costs 220 ms at 0 MB and 1,922 ms at 12 MB, so a
+    57.7 KB/s stream dies ~2 MB in. The ROM's own `int 13h` reads a track at
+    237 KB/s. That was measured on XT-IDE (CPU-copied); the owner's DMA ST11M
+    is a field item. Section 4.2 is confirmed.
+  - (c) **DONE** (`tests/vidsnd.py`). One interrupt per frame off an
+    SB 2.0: **30.01/s** at 22,050/735 and **60.02/s** at 8,040/134. The line
+    was found with DSP F2h. **ADPCM4 is unanswerable here**, because MartyPC's
+    Sound Blaster has no ADPCM; it is a field item, and the bench carries the
+    row for it.
   - (d) **DONE**: section 2.2's raw stores.
-  - (e) The CPU ceiling of section 3.2: how much the interrupt may take
-    before the ST-225 profile's ring starts pausing.
-  - It needs a MartyPC profile shaped like the owner's 5150: Hercules, hard
-    disk and SB. `os8088_xt_hdd_sb` exists, but there is no Hercules twin.
-  - Output: a `docs/reports/` measurement.
+  - (e) **DONE for a CPU-copied disk**: an interrupt burning 25/50/75% of
+    each frame leaves the reader 72/47/19% of its rate. The DMA curve is a
+    field item.
+  - **The profile exists now**: `os8088_5150_herc_hdd_sb[_gla]` has
+    Hercules, the fixed disk and an SB 2.0. Its disk is XT-IDE, not a DMA
+    controller, and its comment says so.
+  - **The measurement is docs/reports/VIDEO-W0-2026-09-25.md.**
+  - **Still for the field** (the owner's 5150):
+    - the ST-225's streaming rate once `READ_SEQ` exists;
+    - the DMA ceiling curve;
+    - Hercules' real wait states (MartyPC charges it exactly CGA's);
+    - ADPCM4 on a real SB 2.0.
 - **W1 — host tools.** `import`, `stat`, `decode`, `verify` and a minimal
   encoder. Gate: decode(import(x)) equals XDC's decoded screen on every
   frame. **The owner's five samples are test content by permission**; they
