@@ -116,7 +116,7 @@ with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
     bx, by, bw, bh = dispcp.win_rect(m, S, disk)
     dispcp.open_named(m, mo, S, os88marty.settle, bx, by, "NOTEPAD.O88",
                       card=pri)
-    os88marty.pace(m, 2)
+    os88marty.ui_done(m, "Note Pad to open")
     wins = dispcp.win_list(m, S)
     print("windows:", [(s,) + dispcp.win_rect(m, S, s) for s in wins])
     if len(wins) < 2:

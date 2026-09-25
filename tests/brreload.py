@@ -160,7 +160,7 @@ def main():
             fails.append("the saver never started - the repaint half of this "
                          "row did not run")
         else:
-            os88marty.pace(m, 2)            # let the saver draw a while
+            os88marty.pace(m, 0.5)          # TIME: let the saver draw a while
             os88marty.no_saver(m)
             m.key("Escape")
             os88marty.settle(m)

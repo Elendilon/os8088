@@ -238,11 +238,11 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=MACHINE) as m:
         for _ in range(14):
             m.key("Enter")
             M.pace(m, 0.25)
+        # TIME: the story runs on Frotz's WORKER, which ui_done cannot see
         M.pace(m, 2.0)
         M.settle(m)
         w = wins(m)[-1]
         mo.drag(w[0] + w[2] - 5, w[1] + w[3] - 5, w[0] + w[2] - 5, w[1] + 70)
-        M.pace(m, 2.0)
         M.settle(m)
     w = wins(m)[-1]
     check("the app opened a window", w[2] > 100, f"{w}")

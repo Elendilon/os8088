@@ -142,7 +142,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
         m.key("AltLeft", down=False, up=True); M.pace(m, 0.8)
         m.key("KeyS"); M.pace(m, 1.2); M.settle(m)
         m.type_text(word.decode()); M.pace(m, 0.5)
-        m.key("Enter"); M.pace(m, 2.0)
+        m.key("Enter"); M.ui_done(m, "the search to run")
     M.settle(m)
     s0, s1 = u16(m.read(base + syms["wd_sel0"], 2)), u16(m.read(base + syms["wd_sel1"], 2))
     check("E: wd_pcomp - part 1 - ran", bool(hits),

@@ -607,7 +607,7 @@ def main():
         # emulator speed (CLAUDE.md, Testing) and is the one clock on the box
         # that the guest cannot influence.
         s0, t0 = m.status()["cycles"], guest_ticks(m)
-        M.pace(m, 2.0)
+        M.pace(m, 2.0)          # TIME: the rate's window, ~164 ticks
         s1, t1 = m.status()["cycles"], guest_ticks(m)
         hz = ((t1 - t0) & 0xFFFF) * 4772727.0 / (s1 - s0)
         print("kdreturn: IRQ0 is running at %.1f Hz" % hz)

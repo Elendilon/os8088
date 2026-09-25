@@ -103,7 +103,12 @@ def main(argv):
         ui.menu_pick("Game", "Play")
         m.advance(frames=300)
         m.run()
-        os88marty.pace(m, 2)
+        try:                            # the shadow claimed and a frame drawn;
+            os88marty.until(            # the checks below say which did not
+                m, lambda _: word("tk_shseg") != 0 and word("tk_frames") > 0,
+                "the game to claim its shadow and draw", poll=0.2, limit=20)
+        except os88marty.MartyError:
+            pass
 
         check(word("tk_shseg") != 0,
               "the shadow claim was GRANTED on a %s machine" % a.machine,

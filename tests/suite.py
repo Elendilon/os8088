@@ -1199,7 +1199,7 @@ FAST = [
         "opposite ends (docs/plans/completed/STKBALANCE-KERNEL.md 4)",
         ),
 
-    Row("gifdrag", "soak", py("tests/gifdrag.py"), 150.0,
+    Row("gifdrag", "soak", py("tests/gifdrag.py"), 56.0,
         "THE FIELD'S OWN FREEZE, driven end to end (SPEC.md 8.7.4): the Task "
         "Manager on its HEAP page while PAINT holds MEDIA/OS8088.GIF, then the "
         "window dragged again and again. It asserts the MARGIN and not the "
@@ -2251,7 +2251,7 @@ SOAK = [
         "here: a 5150 has no RTC and MartyPC models no clock card, so the "
         "writers themselves are a QEMU session (see the docstring).",
         needs=("marty",), serial=True),
-    Row("saver", "soak", py("tests/saver.py"), 70.0,
+    Row("saver", "soak", py("tests/saver.py"), 25.0,
         "the animated screen saver end to end (SPEC.md 79): every mode draws, "
         "the overlay is loaded and freed, the wake puts the whole desktop back "
         "including the bar and the dock, no block is left in the menu bar, and "
@@ -2287,7 +2287,7 @@ SOAK = [
         "NOT armed there, which is what keeps gfx_blit1's own right clip the "
         "only cut on the two adapters with no artifact to hide.",
         needs=("marty",), serial=True),
-    Row("saverate", "soak", py("tests/saverate.py"), 50.0,
+    Row("saverate", "soak", py("tests/saverate.py"), 28.0,
         "is a saver mode ASLEEP while it is behind? (SPEC.md 79.5.7, 8.1.2.4). "
         "ui_task's task_sleep(1) quantises a deadline polled once a pass to "
         "whole ticks, so a mode whose pass runs a millisecond into the next "
@@ -2478,7 +2478,7 @@ SOAK = [
         "composed line out of the overlay AND hashes the pixel band under the"
         " bar, on both 1bpp adapters",
         needs=("marty", "nasm"), serial=True, wants=("build/ether360.img",)),
-    Row("blobsum", "soak", py("tests/blobsum.py"), 60.0,
+    Row("blobsum", "soak", py("tests/blobsum.py"), 27.0,
         "Does a SHORT READ of stage 2's blob halt instead of executing what "
         "landed? (SPEC.md 2.9.7) Blanks one sector in the middle of it - the "
         "failure that is not a disk error, because stage 2 and the loading "
@@ -2793,7 +2793,7 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/ptstest360.img", "build/small360.img",
                "build/smallk/kernel.bin")),
-    Row("ptsext", "soak", py("tests/ptsext.py"), 70.0,
+    Row("ptsext", "soak", py("tests/ptsext.py"), 31.0,
         "SPEC.md 5.6.9.4: the row above's claim, on a machine with TWO CARDS. "
         "gfxpoints asks the only question worth asking - does gfx_points draw "
         "what a gfx_pixel loop draws - and asks it on one display, where the "
@@ -2814,8 +2814,8 @@ SOAK = [
         "each band is cut by the seam, so neither framebuffer holds a whole "
         "one, and comparing per card reads half of A against half of B and "
         "then indexes the other card at a negative x, which Python slices "
-        "silently. 70s is 41.6s MEASURED on an idle container, with the "
-        "~1.6x this suite allows for its slowest box. SOAK and not fast or "
+        "silently. 31s is 23.8s MEASURED on a loaded container, its three "
+        "pace(2)s having become ui_done - 1.3x. SOAK and not fast or "
         "full, for gfxpoints' own reasons - one kernel slot, an emulator, "
         "and 'did you obviously break the OS' is not what it asks",
         needs=("marty",), serial=True,
@@ -5071,7 +5071,7 @@ SOAK = [
     Row("dispcalc", "soak", py("tests/dispcalc.py"), 250.0,
         "Does the Calculator add up, fold cleanly and redraw nothing spare?",
         needs=("marty",), serial=True, timeout=900),
-    Row("dispcalcx", "soak", py("tests/dispcalcx.py"), 150.0,
+    Row("dispcalcx", "soak", py("tests/dispcalcx.py"), 90.0,
         "Does the Calculator re-fold cleanly when its box moves under it?",
         needs=("marty",), serial=True),
     Row("dispcheck", "soak", py("tests/dispcheck.py"), 60.0,
@@ -6814,7 +6814,7 @@ SOAK = [
         "that moved and repainted the window, 2,284 ms with the guards out.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
-    Row("wdparts", "soak", py("tests/wdparts.py"), 45.0,
+    Row("wdparts", "soak", py("tests/wdparts.py"), 27.0,
         "SPEC.md 68.10: WORD.O88 IS ONE FILE. Its image is apps/word/"
         "wdload.asm, which reads two parts and re-homes into part 0 - "
         "word.asm's image with its bss inside - while part 1 is `.modc` "
@@ -6829,7 +6829,7 @@ SOAK = [
         "checks the match is selected. Red with part 1 made OP_LAZY and the "
         "loader's own layout check taken out: C, D and E fail (2,718 of 2,736 "
         "bytes differ); with the check left in the launch refuses (LD_EABORT). "
-        "Measured at 35.5s.",
+        "Measured at 20.4s.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/word.p1.bin", "build/WELCOME.DOC")),
     Row("wdpen", "soak", py("tests/wdpen.py"), 60.0,
@@ -7845,7 +7845,7 @@ SOAK = [
         "with the two bytes put back: reference 0xff, the blank the icon "
         "index is filled with. Measured at 67s",
         needs=("marty",), serial=True),
-    Row("rdmount", "soak", py("tests/rdmount.py"), 40.0,
+    Row("rdmount", "soak", py("tests/rdmount.py"), 20.0,
         "SPEC.md 22.6.3.1: MOUNTING the RAM disk must not take the machine "
         "with it. `disk_mount` decides twice whether a mount is loud and the "
         "redirected path's copy of the gate tested `[dsk_quiet]` and not "
@@ -7860,7 +7860,7 @@ SOAK = [
         "moving, with the IVT compared byte for byte beside it to say what "
         "was destroyed. It opens NO Disk window first, which is the whole "
         "condition: a window aims `[dsk_dseg]` at its own cache, which is "
-        "why `rdmove` clicks Mount and stays green. Measured at 37s",
+        "why `rdmove` clicks Mount and stays green. Measured at 14.9s",
         needs=("marty",), serial=True),
     Row("toastbar", "soak", py("tests/toastbar.py"), 30.0,
         "A TOAST OF THE MAXIMUM WIDTH REACHES THE BAR WHOLE, AND TOUCHES NO "
@@ -8157,7 +8157,7 @@ SOAK = [
         "shadow (SPEC.md 11.97.3) and a covered title strip (11.97.4) - and "
         "a resize that changed nothing does not repaint at all (11.91.5)",
         needs=("marty",), serial=True),
-    Row("wmartifact", "soak", py("tests/wmartifact.py"), 260.0,
+    Row("wmartifact", "soak", py("tests/wmartifact.py"), 92.0,
         "Two window-manager artifacts, reproduced with NO package of ours"
         "involved.",
         needs=("marty",), serial=True),

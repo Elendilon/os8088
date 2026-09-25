@@ -222,7 +222,9 @@ def main():
         m.key("Escape")
         os88marty.until(m, lambda _m: p.rb("cy_fsx") == 0,
                         "the bracket to close", poll=0.5, limit=60)
-        os88marty.pace(m, 2)
+        # the desktop's repaint on the way out; the game's worker may keep
+        # the lock busy, so it is capped at the pause this was
+        os88marty.ui_done(m, "the desktop to come back", cap=9.0)
 
         # --- a press that is NOT ours ---------------------------------------
         # The desktop, well clear of every window: no W_ONCLICK runs, so
@@ -234,7 +236,9 @@ def main():
         clear(m, p)
         mo.to(dx, dy)
         mo._edge(True)
-        os88marty.pace(m, 2.0)
+        # TIME: a negative - an armed level fires on the worker's next frame,
+        # so 4.5 guest seconds is many cooldowns of nothing
+        os88marty.pace(m, 1.0)
         stray = shots(m, p)
         mo._edge(False)
         print("elsewhere: %d shot(s)  (want 0)" % stray)

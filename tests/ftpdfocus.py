@@ -68,7 +68,6 @@ with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
     dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "APPS")
     wx, wy, ww, wh = dispcp.win_rect(m, S, dispcp.win_list(m, S)[-1])
     dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "FTPD.O88")
-    os88marty.pace(m, 2)
     os88marty.settle(m)
     wx, wy, ww, wh = dispcp.win_rect(m, S, dispcp.win_list(m, S)[-1])
     ox, oy, cw = wx + 1, wy + os88geom.TITLE_H, ww - 2
