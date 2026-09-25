@@ -1143,6 +1143,24 @@ ifneq ($(NOUNAL),)
 VIDDEF += -DNOUNAL
 endif
 
+# LDDIAG=1 puts back the loader's four failure reasons (disk error, bad
+# package, too large, refused to start) that a shipped kernel folds into one
+# `Load failed` (files.inc's fm_stattab, kernel size pass 4). A diagnostic:
+# the Disk window's status toast and the Task Manager's notice then say which.
+ifneq ($(LDDIAG),)
+VIDDEF += -DLD_DIAG
+endif
+
+# DRVDIAG=1 puts a DIAGNOSTIC LINE at the top-left of the loading screen,
+# drawn from IRQ0 twice a second while the splash is up: which driver row
+# and which step of drv_load_row the boot is in, the CS:IP and FLAGS the
+# tick interrupted, the PIC mask, the row-0 driver's segment and a tick
+# count. For a machine that stops on 'Loading Driver n/N': one photograph
+# names the step, and whether the count still moves says whether IRQ0 does.
+ifneq ($(DRVDIAG),)
+VIDDEF += -DDRV_DIAG
+endif
+
 # BAND=1 puts a window's title bar on band.inc's COMPOSER (SPEC.md 11.101):
 # the whole bar drawn into a 1bpp band and blitted, so every pixel it covers
 # is written ONCE and the caption never flashes, which is docs/plans/completed/TEXT-PLAN.md
@@ -1827,7 +1845,7 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
                              FONT INSTCHUNK PICOMEM PM_BASE PM_SB_PORT ANIMOFF DISINK0 \
                              BOOTPROF STKDIAG BOOTMARK BOOTHALT BOOTSTOP NOPS2 MOUIDSLOW MOUDIAG MOUROUND DOSRMARK FDDSLOW TRACKRUN SBDRAGOFF SBRATE SBRATE286 SBIDLE \
                              ETHPROF FTPDSLOW FTPDBG \
-                             KERN_SMALL KERN_EMU FSNOSTAMP THEMEDARK TITLESNAP SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOMOUPRIV NOCHAINPRIV NOHEDGE NOATBLIT1 NOATFAST NOATWALK NOATSBAR NOATROW NOATBLANK NOATPLAIN NOATCX NOATRESPAN NOATFETCH NOATCELL NOATTAIL NOATONE NOATSU NOCURDISK NOFDDPARK NOKDKBD VGADIRTY DLJUNK DPTROM COMPRESS NOKZIP,\
+                             KERN_SMALL KERN_EMU FSNOSTAMP THEMEDARK TITLESNAP SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL LDDIAG DRVDIAG BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOMOUPRIV NOCHAINPRIV NOHEDGE NOATBLIT1 NOATFAST NOATWALK NOATSBAR NOATROW NOATBLANK NOATPLAIN NOATCX NOATRESPAN NOATFETCH NOATCELL NOATTAIL NOATONE NOATSU NOCURDISK NOFDDPARK NOKDKBD VGADIRTY DLJUNK DPTROM COMPRESS NOKZIP,\
                              $(if $($(k)),$(k)=$($(k)))))
 # **A KNOB KERNEL IS NOT THE SHIPPED KERNEL, so KERN_BUDGET does not bind it**
 # (kernel.asm guard 1). It is built to answer a question about a machine and
@@ -1890,7 +1908,7 @@ endif
 # `make` believes is current, and every image shipped from it wrong. The
 # knob roster above still carries NOKZIP, because that is what somebody asks
 # for and what a knob build has to announce.
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSEAMCUT),-nsc$(NOSEAMCUT))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KERN_EMU),-emu$(KERN_EMU))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(GFXAUDIT),-ga$(GFXAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))$(if $(BOOTPROF),-bp$(BOOTPROF))$(if $(STKDIAG),-sd$(STKDIAG))$(if $(NOMOUPRIV),-nmp$(NOMOUPRIV))$(if $(NOCHAINPRIV),-ncp$(NOCHAINPRIV))$(if $(BOOTMARK),-bm$(BOOTMARK))$(if $(BOOTHALT),-bh$(BOOTHALT))$(if $(BOOTSTOP),-bs$(BOOTSTOP))$(if $(NOPS2),-np$(NOPS2))$(if $(MOUIDSLOW),-mis$(MOUIDSLOW))$(if $(MOUDIAG),-mdg$(MOUDIAG))$(if $(MOUROUND),-mrd$(MOUROUND))$(if $(DOSRMARK),-drm$(DOSRMARK))$(if $(FDDSLOW),-fsl$(FDDSLOW))$(if $(TRACKRUN),-tr$(TRACKRUN))$(if $(SBDRAGOFF),-sbo$(SBDRAGOFF))$(if $(SBRATE),-sbr$(SBRATE))$(if $(SBRATE286),-sbr2$(SBRATE286))$(if $(SBIDLE),-sbi$(SBIDLE))$(if $(TITLESNAP),-ts$(TITLESNAP))$(if $(SPLSTARS),-sst$(SPLSTARS))$(if $(NOSIZESNAP),-nzs$(NOSIZESNAP))$(if $(NOFLUSHR),-nfr$(NOFLUSHR))$(if $(NOUNAL),-nu$(NOUNAL))$(if $(BAND),-bnd$(BAND))$(if $(NOPLANE),-npl$(NOPLANE))$(if $(NOCOLFAST),-ncf$(NOCOLFAST))$(if $(NOBLITCUT),-nbc$(NOBLITCUT))$(if $(NOUIBLOCK),-nub$(NOUIBLOCK))$(if $(NOCURDISK),-ncd$(NOCURDISK))$(if $(NOFDDPARK),-nfp$(NOFDDPARK))$(if $(VGADIRTY),-vd$(VGADIRTY))$(if $(BOOTDIAG),-bd$(BOOTDIAG))$(if $(PICOMEM),-pm$(PICOMEM))$(if $(PM_BASE),-pmb$(PM_BASE))$(if $(PM_SB_PORT),-pms$(PM_SB_PORT))$(if $(ETHPROF),-ep$(ETHPROF))$(if $(FTPDSLOW),-fs$(FTPDSLOW))$(if $(FTPDBG),-fd$(FTPDBG))$(if $(DLJUNK),-dlj$(DLJUNK))$(if $(DPTROM),-dpr$(DPTROM))$(if $(FATWNONE),-fwn$(FATWNONE))$(if $(FATWGATE),-fwg$(FATWGATE))-cmp$(LZFMTS)$(if $(KZIP),-kz)
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSEAMCUT),-nsc$(NOSEAMCUT))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KERN_EMU),-emu$(KERN_EMU))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(GFXAUDIT),-ga$(GFXAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))$(if $(BOOTPROF),-bp$(BOOTPROF))$(if $(STKDIAG),-sd$(STKDIAG))$(if $(NOMOUPRIV),-nmp$(NOMOUPRIV))$(if $(NOCHAINPRIV),-ncp$(NOCHAINPRIV))$(if $(BOOTMARK),-bm$(BOOTMARK))$(if $(BOOTHALT),-bh$(BOOTHALT))$(if $(BOOTSTOP),-bs$(BOOTSTOP))$(if $(NOPS2),-np$(NOPS2))$(if $(MOUIDSLOW),-mis$(MOUIDSLOW))$(if $(MOUDIAG),-mdg$(MOUDIAG))$(if $(MOUROUND),-mrd$(MOUROUND))$(if $(DOSRMARK),-drm$(DOSRMARK))$(if $(FDDSLOW),-fsl$(FDDSLOW))$(if $(TRACKRUN),-tr$(TRACKRUN))$(if $(SBDRAGOFF),-sbo$(SBDRAGOFF))$(if $(SBRATE),-sbr$(SBRATE))$(if $(SBRATE286),-sbr2$(SBRATE286))$(if $(SBIDLE),-sbi$(SBIDLE))$(if $(TITLESNAP),-ts$(TITLESNAP))$(if $(SPLSTARS),-sst$(SPLSTARS))$(if $(NOSIZESNAP),-nzs$(NOSIZESNAP))$(if $(NOFLUSHR),-nfr$(NOFLUSHR))$(if $(NOUNAL),-nu$(NOUNAL))$(if $(LDDIAG),-ldd$(LDDIAG))$(if $(DRVDIAG),-drd$(DRVDIAG))$(if $(BAND),-bnd$(BAND))$(if $(NOPLANE),-npl$(NOPLANE))$(if $(NOCOLFAST),-ncf$(NOCOLFAST))$(if $(NOBLITCUT),-nbc$(NOBLITCUT))$(if $(NOUIBLOCK),-nub$(NOUIBLOCK))$(if $(NOCURDISK),-ncd$(NOCURDISK))$(if $(NOFDDPARK),-nfp$(NOFDDPARK))$(if $(VGADIRTY),-vd$(VGADIRTY))$(if $(BOOTDIAG),-bd$(BOOTDIAG))$(if $(PICOMEM),-pm$(PICOMEM))$(if $(PM_BASE),-pmb$(PM_BASE))$(if $(PM_SB_PORT),-pms$(PM_SB_PORT))$(if $(ETHPROF),-ep$(ETHPROF))$(if $(FTPDSLOW),-fs$(FTPDSLOW))$(if $(FTPDBG),-fd$(FTPDBG))$(if $(DLJUNK),-dlj$(DLJUNK))$(if $(DPTROM),-dpr$(DPTROM))$(if $(FATWNONE),-fwn$(FATWNONE))$(if $(FATWGATE),-fwg$(FATWGATE))-cmp$(LZFMTS)$(if $(KZIP),-kz)
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin \
                                       $(BUILD)/kernel-full.bin \
@@ -1899,7 +1917,7 @@ $(shell mkdir -p $(BUILD); \
                                       $(BUILD)/boothd.bin \
                                       $(BUILD)/ctrl.drv $(BUILD)/format.drv \
                                       $(BUILD)/clone.drv $(BUILD)/hiber.drv \
-                                      $(BUILD)/dock.drv \
+                                      $(BUILD)/dock.drv $(BUILD)/extd.drv \
                                       $(BUILD)/boot.bin $(BUILD)/boot360.bin \
                                       $(BUILD)/boot120.bin \
                                       $(BUILD)/hdd.bin $(BUILD)/hdd.drv \
@@ -2267,11 +2285,14 @@ KMODS = $(KMODDIR)/ctrl.drv $(KMODDIR)/format.drv $(KMODDIR)/clone.drv
 # $(SMALLDRIVERS), which is $(KMODS) and never held this. tests/bootfloor.py
 # builds exactly that combination and is how it surfaced.
 # DOCK.DRV (SPEC.md 30.5) is kern_big's for hibernate's reason: kern_small has
-# no Dock placement or auto-hide, so no MOD_DOCK row and no file to cut.
+# no Dock placement or auto-hide, so no MOD_DOCK row and no file to cut. So is
+# EXTD.DRV (SPEC.md 39.19.6): kern_small has no second display at all. Being
+# in $(DRIVERS) through here is what puts it on every kern_big system disk in
+# all four geometries, the emu disk and the live media, beside CTRL.DRV.
 ifneq ($(KERN_SMALL),)
 BIGMODS =
 else
-BIGMODS = $(KMODDIR)/hiber.drv $(KMODDIR)/dock.drv
+BIGMODS = $(KMODDIR)/hiber.drv $(KMODDIR)/dock.drv $(KMODDIR)/extd.drv
 endif
 KMODARGS = -m 0=$(BUILD)/ctrl.drv -m 1=$(BUILD)/format.drv \
            -m 2=$(BUILD)/clone.drv
@@ -2291,7 +2312,7 @@ ifneq ($(KERN_SMALL),)
 KMODARGS += -m 3=$(BUILD)/filecp.drv
 KMODARGS += -m 4=$(BUILD)/fdlg.drv
 else
-KMODARGS += -m 3=$(BUILD)/hiber.drv -m 4=$(BUILD)/dock.drv
+KMODARGS += -m 3=$(BUILD)/hiber.drv -m 4=$(BUILD)/dock.drv -m 5=$(BUILD)/extd.drv
 endif
 # ...AND THE MODULES ARE 'CZ' FILES ON THE DISK (SPEC.md 2.8, 20.13.5), by
 # the route a driver took: mod_need sizes its claim from the directory hint
@@ -5355,6 +5376,27 @@ $(BUILD)/DOSMOUSE.COM: tests/dosmouse/mouse.asm | $(BUILD)
 $(BUILD)/dosmou360.img: $(BUILD)/DOSMOUSE.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSMOUSE.COM
 
+# ...and the WINDOW gate's (SPEC.md 96.10.7), which is in tests/dostrap/
+# rather than beside the one above because it runs under a real IBM DOS with
+# CuteMouse loaded UNCHANGED - that is where the answers it is checked
+# against were measured (docs/DOS-DEBUGGING.md).
+$(BUILD)/MOURANGE.COM: tests/dostrap/mourange.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/mourange.asm
+
+$(BUILD)/dosrange360.img: $(BUILD)/MOURANGE.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/MOURANGE.COM
+
+# ...and the IRQ-THEFT gate's (SPEC.md 9.13). A DOS program inside an fsx
+# bracket owns the IVT and may take `int 0Ch` for its own serial code, which
+# is what Battle Chess does - and which stops `mou_isr` dead. IRQGRAB.COM is
+# that theft with nothing else in it, blocking on `AH=08h` so the harness has
+# a window to move the pointer in.
+$(BUILD)/IRQGRAB.COM: tests/dostrap/irqgrab.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/irqgrab.asm
+
+$(BUILD)/irqgrab360.img: $(BUILD)/IRQGRAB.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/IRQGRAB.COM
+
 # ...and the file-handle gate's, which WRITES - so the disk it runs from is
 # the one it creates DOSTEST.DAT on, and os88marty's per-instance clone is
 # what keeps that out of build/ (SPEC.md 96.11).
@@ -5469,6 +5511,35 @@ $(BUILD)/DOSKID.COM: tests/dosexec/kid.asm | $(BUILD)
 $(BUILD)/dosexec360.img: $(BUILD)/DOSEXEC.COM $(BUILD)/DOSKID.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSEXEC.COM \
 	    $(BUILD)/DOSKID.COM
+
+# ...and the SHRINK gate's PAIR (SPEC.md 96.7.2). SHRINK.COM gives its own
+# block back and then watches the free MCB the split leaves DIRECTLY BELOW its
+# stack pointer, which is where a gate frame built on the program's stack used
+# to land. SHRKID.COM is what its AH=4Bh then has to be able to run.
+$(BUILD)/SHRINK.COM: tests/dostrap/shrink.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/shrink.asm
+
+$(BUILD)/SHRKID.COM: tests/dostrap/shrkid.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/shrkid.asm
+
+$(BUILD)/dosshrink360.img: $(BUILD)/SHRINK.COM $(BUILD)/SHRKID.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/SHRINK.COM \
+	    $(BUILD)/SHRKID.COM
+
+# ...and the LONG NAME gate's (SPEC.md 96.12.5). LONGNAME.COM opens one file by
+# five spellings, four of which are not 8.3 at all, and the same binary runs
+# under a real IBM DOS 3.30 off a floppy of its own - which is where the
+# expectation comes from. PLYSAMPL.BIN is generated rather than shipped: the
+# probe never reads its CONTENT, only whether a handle comes back.
+$(BUILD)/LONGNAME.COM: tests/dostrap/longname.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/longname.asm
+
+$(BUILD)/PLYSAMPL.BIN: | $(BUILD)
+	printf 'os8088 long-name gate fixture\n' > $@
+
+$(BUILD)/doslong360.img: $(BUILD)/LONGNAME.COM $(BUILD)/PLYSAMPL.BIN tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/LONGNAME.COM \
+	    $(BUILD)/PLYSAMPL.BIN
 
 # ...and the REGISTER gate's (SPEC.md 96.7.1.2). REGS.COM opens ITSELF, so the
 # disk carries nothing but the probe - no fixture to get wrong, and the same
@@ -5611,7 +5682,9 @@ doscom: $(BUILD)/dostype360.img $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(
         $(BUILD)/dosirq360.img $(BUILD)/pathtest360.img \
         $(BUILD)/dosargs360.img $(BUILD)/doslnk360.img \
         $(BUILD)/dosdrv360.img $(BUILD)/dosdrvsys.img \
-        $(BUILD)/dosfcb360.img $(BUILD)/dosren360.img $(BUILD)/dossh360.img
+        $(BUILD)/dosfcb360.img $(BUILD)/dosren360.img $(BUILD)/dossh360.img \
+        $(BUILD)/dosshrink360.img $(BUILD)/doslong360.img \
+        $(BUILD)/dosrange360.img $(BUILD)/irqgrab360.img
 
 $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
                       apps/thewire/wrarc.inc apps/thewire/wrtxt.inc \
@@ -5736,13 +5809,41 @@ $(BUILD)/recorder.o88: $(BUILD)/recorder.bin tools/os88pkg.py $(PKGZSTAMP)
 # sources, one binary.
 $(BUILD)/tracker.bin: apps/tracker/tracker.asm apps/tracker/trkplay.inc \
                       apps/tracker/trkui.inc apps/tracker/trktxt.inc \
-                      apps/os88api.inc apps/os88alt.inc | $(BUILD)
+                      apps/tracker/trkwin.inc apps/tracker/trklist.inc \
+                      apps/os88api.inc apps/os88alt.inc apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/tracker/ -o $@ apps/tracker/tracker.asm
 	@echo "tracker: $(call FILESIZE,$@) bytes"
 
 
 $(BUILD)/tracker.o88: $(BUILD)/tracker.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/tracker.bin -o $@
+
+# `make trkvol`: a LISTENING disk, on demand and shipping nowhere - the
+# shipped Tracker (17 volume levels, SPEC.md 45.4.1) beside the same source
+# built with the finer tables it replaced (-DTRK_VSH=1: 33 levels, 8,192
+# bytes; -DTRK_VSH=0: 65, 16,384) and BEVERLY.MOD, so a tester who hears a
+# difference can show it. The two variants' titles say which they are.
+TRKVOL_SRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
+              apps/tracker/trkui.inc apps/tracker/trktxt.inc \
+              apps/tracker/trkwin.inc apps/tracker/trklist.inc \
+              apps/os88api.inc apps/os88alt.inc apps/os88ui.inc
+.PHONY: trkvol
+trkvol: $(BUILD)/trkvol360.img
+
+$(BUILD)/trkvol/trk%.bin: $(TRKVOL_SRC) | $(BUILD)
+	@mkdir -p $(BUILD)/trkvol
+	$(NASM) -f bin -w+error -DTRK_VSH=$(if $(filter 33,$*),1,0) -I apps/ \
+	        -I apps/tracker/ -o $@ apps/tracker/tracker.asm
+
+$(BUILD)/trkvol/TRK%.O88: $(BUILD)/trkvol/trk%.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $< -o $@
+
+$(BUILD)/trkvol360.img: $(BUILD)/tracker.o88 $(BUILD)/trkvol/TRK33.O88 \
+                        $(BUILD)/trkvol/TRK65.O88 apps/tracker/beverly.mod \
+                        tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/tracker.o88 \
+	        $(BUILD)/trkvol/TRK33.O88 $(BUILD)/trkvol/TRK65.O88 \
+	        apps/tracker/beverly.mod
 
 # AUDIO.O88 - the Audio Player (SPEC.md 86): lightweight background music from
 # a streamed WAV (unsigned 8-bit PCM, or IMA/DVI 4-bit ADPCM decoded straight
@@ -5832,7 +5933,15 @@ $(BUILD)/audio-hdd.img: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
 .PHONY: audio-hdd
 audio-hdd: $(BUILD)/audio-hdd.img
 
-# ModPlug Player, the fourteenth shipped package (SPEC.md 56): a port of
+# ModPlug Player (SPEC.md 56) - **RETIRED** (SPEC.md 56.15, apps/RETIRED.txt):
+# Tracker's windowed face replaced it. `all` does not name it and no image
+# carries it; these rules and the `modplug` target are what is left, for
+# pacman's reason - a retirement that deleted the only way to build the thing
+# retired is a record nobody can check.
+.PHONY: modplug
+modplug: $(BUILD)/modplug.o88
+
+# It was a port of
 # ModPlug Player V2's LOOK AND FEEL - the skinned player window with its LCD
 # panel, LED transport row and visualiser, the Setup window with its page
 # list, and the PlayList editor - onto the window manager. Its replayer is an
@@ -5859,7 +5968,10 @@ $(BUILD)/modplug.o88: $(BUILD)/modplug.bin tools/os88pkg.py $(PKGZSTAMP)
 # needs something to boot: build/dbg-os8088-360.img is the ordinary system
 # disk and build/dbg-apps360.img is the apps disk with the instrumented
 # player in place of the shipped one. Nothing here is in `all` and nothing
-# ships.
+# ships. Since ModPlug was RETIRED (SPEC.md 56.15) the disk carries the
+# instrumented player, the module and SYSTEM/ and nothing else: the whole
+# apps list plus an uncompressed debug build had stopped fitting 354
+# clusters long before, and nothing had built this since.
 modplugdbg: $(BUILD)/dbg-apps360.img
 
 $(BUILD)/dbg/modplug.bin: apps/modplug/modplug.asm apps/modplug/mppmix.inc \
@@ -5873,12 +5985,9 @@ $(BUILD)/dbg/modplug.bin: apps/modplug/modplug.asm apps/modplug/mppmix.inc \
 $(BUILD)/dbg/modplug.o88: $(BUILD)/dbg/modplug.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/dbg/modplug.bin -o $@
 
-$(BUILD)/dbg-apps360.img: $(BUILD)/dbg/modplug.o88 $(APPS_TOOLS) $(APPS_GAMES) \
-                          $(APPSYS) tools/os88disk.py
+$(BUILD)/dbg-apps360.img: $(BUILD)/dbg/modplug.o88 $(APPSYS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
-	    $(patsubst %,APPS:%,$(filter-out $(BUILD)/modplug.o88 $(BUILD)/audio.o88,$(APPS_TOOLS))) \
 	    APPS:$(BUILD)/dbg/modplug.o88 \
-	    $(patsubst %,GAMES:%,$(APPS_GAMES)) \
 	    MEDIA:apps/tracker/beverly.mod \
 	    $(patsubst %,SYSTEM:%,$(APPSYS))
 	@echo "modplugdbg: boot build/os8088-360.img with $@ as the APPS disk"
@@ -6553,7 +6662,9 @@ $(BUILD)/editmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/notepad.o88 \
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
 		$(BUILD)/notepad.o88 $(BUILD)/fractal.o88 $(BUILD)/artful.o88
 
-# ModPlug's own disk, for tests/trackmove.py --app modplug (SPEC.md 66.5.8).
+# ModPlug's own disk, for tests/editmove.py --app modplug (SPEC.md 66.5.8).
+# ModPlug is RETIRED (SPEC.md 56.15), so no row wants this any more; it stays
+# on demand beside `make modplug` so that record can still be re-run.
 # Same shape as trackmove360 and separate for the same reason: the listing is
 # sorted by name (SPEC.md 19.4), so an extra package renumbers every row the
 # script clicks. ModPlug does NOT own .MOD (SPEC.md 56.13 leaves that pointed
@@ -7104,7 +7215,7 @@ $(eval $(call CC_PACKAGE,cword,cword,CWORD.OVL))
 # short here, and make cannot see through a #include. Without these two lines
 # an edit to the RTF engine or to the byte mover leaves build/cword.o88
 # untouched - and a stale package reads exactly like the change having done
-# nothing, which is the failure the WORD.OVL rule above already paid for once.
+# nothing, which is the failure the word.o88 rule above already paid for once.
 CWORDSRC := apps/cword/cwrtfio.c apps/cword/cwrtftbl.c apps/cword/cwrtftbl.h \
             apps/cword/cwmenu.c apps/cword/cwchrome.c apps/cword/cwdrop.c \
             apps/cword/cwcmd.c apps/cword/cwovl.c
@@ -7894,7 +8005,7 @@ $(eval $(call CC_PACKAGE,weave,weave,WEAVE.OVL))
 # and apps/weave/weave.asm, and make cannot see through a #include or a
 # %include - so without these two lines an edit to a part leaves
 # build/weave.o88 untouched, and a stale package reads exactly like the change
-# having done nothing. That is the failure the WORD.OVL rule already paid for
+# having done nothing. That is the failure the word.o88 rule already paid for
 # once.
 #
 # WILDCARDS RATHER THAN A NAMED LIST, which is where this differs from
@@ -8292,8 +8403,7 @@ $(BUILD)/loom.o88: $(BUILD)/loom.bin tools/os88pkg.py tools/os88ovl.py
 		--trim $(BUILD)/loom.trim.bin
 	python3 tools/os88pkg.py $(BUILD)/loom.trim.bin -o $@
 
-# ...AND THE OVERLAY IS ASKABLE BY NAME, the way $(BUILD)/WORD.OVL is and for
-# the same reason: it falls out of the recipe above rather than having one of
+# ...AND THE OVERLAY IS ASKABLE BY NAME. It falls out of the recipe above rather than having one of
 # its own, so `make $(BUILD)/LOOM.OVL` had no rule at all. Anything that names
 # a build artefact to make - a row's `Row(wants=...)`, a private tree's goal
 # list - can only name a TARGET, and weavepack names this one. An empty recipe
@@ -8629,7 +8739,7 @@ $(BUILD)/zork2.img: $(BUILD)/stories.stamp $(BUILD)/zcat/disk2/CATALOG.TXT \
 # Every include is a prerequisite: the format modules are where the file
 # layout lives, and a stale word.bin reads exactly like the layout being wrong.
 WORDSRC := apps/word/word.asm apps/word/wddoc.inc apps/word/wdrtf.inc \
-           apps/word/wdutil.inc
+           apps/word/wdutil.inc apps/word/wdicon.inc
 
 $(BUILD)/WELCOME.DOC: tools/os88doc.py apps/word/welcome.wtx | $(BUILD)
 	python3 tools/os88doc.py apps/word/welcome.wtx -o $@
@@ -8639,51 +8749,58 @@ $(BUILD)/word.bin: $(WORDSRC) apps/os88api.inc apps/os88ui.inc apps/os88type.inc
 	$(NASM) -f bin -w+error $(PKGSBDEF) -I apps/ -I apps/word/ -o $@ apps/word/word.asm
 	@echo "word:   $(call FILESIZE,$@) bytes"
 
-# WORD.OVL is cut off the assembled image before it is packaged (SPEC.md
-# 65.10): the module is assembled WITH the package so it can reach every wd_*
-# through DS, and only then split out, so what ships in WORD.O88 is the
-# resident half alone. The cut point is the image size the package header
-# already carries, so the layout does not live in two places.
-# ONE recipe makes all three, because they are one operation: a rule whose
-# only prerequisite was WORD.OVL and which had NO recipe of its own left make
-# free to decide word.o88 was up to date against the PREVIOUS word.trim.bin,
-# and it packaged a stale image while the cut silently succeeded. That reads
-# exactly like the feature under test being broken - it cost a debugging pass
-# on a ruler that was already correct.
+# WORD.O88 IS A PARTED PACKAGE (SPEC.md 68.10, 20.12.10): the image the kernel
+# launches is apps/word/wdload.asm, and word.asm's assembly is cut in two to be
+# its parts. Part 0 is the image with its bss shipped inside it (--pad-bss: the
+# kernel does not zero a part) and part 1 is `.modc`, assembled at WD_P1ORG so
+# that it lands at the top of the program's own segment. The cut point is the
+# image size the package header already carries, so the layout does not live
+# in two places - and the padded part 0 is exactly WD_P1ORG long, because the
+# header's bss is declared to run up to it.
+# ONE recipe makes both halves and the package, because they are one
+# operation: a rule for a half with no recipe of its own lets make decide the
+# package is up to date against the PREVIOUS cut, and it packages a stale
+# image while the cut silently succeeds. That reads exactly like the feature
+# under test being broken - it cost a debugging pass on a ruler that was
+# already correct, back when the second half was WORD.OVL.
 #
-# $(OS88PKG) AND NOT A BARE os88pkg.py, since SPEC.md 24.6 put WORD.O88 on a
-# shipped floppy. That macro is what carries $(PKGZARG), so this rule was the
-# one shipping package in the tree that came out of a `make PKGZ=lz4` build
-# UNCOMPRESSED - which nothing noticed while Word had a disk of its own and
-# no `all` target built it. Measured: 51,407 bytes against 40,194, which is
-# 11 clusters of a 354-cluster office disk. Assembly packs badly (78.2%
-# where the .TEX pair is 40%), so this is the smallest win of any package on
-# the disk and it is still eleven clusters somebody else does not have to
-# find later. $(PKGZSTAMP) goes with it: the stamp's name
-# carries the format, so `make PKGZ=lzb` after an lz4 build rebuilds instead
-# of finding an lz4 package up to date and shipping it on an LZB disk
-# (SPEC.md 20.13.3's refusal, reported as 'Bad package').
-$(BUILD)/word.o88: $(BUILD)/word.bin tools/os88ovl.py tools/os88pkg.py $(PKGZSTAMP)
-	python3 tools/os88ovl.py $(BUILD)/word.bin -o $(BUILD)/WORD.OVL \
-		--trim $(BUILD)/word.trim.bin
-	$(OS88PKG) $(BUILD)/word.trim.bin -o $@
+# $(OS88PKG) AND NOT A BARE os88pkg.py, for $(PKGZSTAMP)'s sake: the stamp's
+# name carries the format, so `make PKGZ=lzb` after an lz4 build rebuilds
+# instead of finding an lz4 package up to date. A parted image is never
+# compressed itself (os88pkg.py declines, and --compress-if is the soft form
+# that says so and carries on); both PARTS are OP_COMP, which is where the
+# bytes are. The loader is 1,357 bytes and ships raw.
+$(BUILD)/wdload.bin: apps/word/wdload.asm apps/word/wdicon.inc apps/os88api.inc \
+                     apps/os88parts.inc apps/os88partsbody.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/word/ -o $@ apps/word/wdload.asm
+	@echo "wdload: $(call FILESIZE,$@) bytes of parts loader"
 
-$(BUILD)/WORD.OVL: $(BUILD)/word.o88 ;
+$(BUILD)/word.o88: $(BUILD)/wdload.bin $(BUILD)/word.bin tools/os88ovl.py \
+                   tools/os88pkg.py $(PKGZSTAMP)
+	python3 tools/os88ovl.py $(BUILD)/word.bin -o $(BUILD)/word.p1.bin \
+		--trim $(BUILD)/word.p0.bin --pad-bss
+	$(OS88PKG) $(BUILD)/wdload.bin -o $@ \
+		--part $(BUILD)/word.p0.bin --part $(BUILD)/word.p1.bin
+
+# ...and the two halves are askable by name, for tests/wdparts.py's `wants=`:
+# they fall out of the recipe above, so without this line `make
+# $(BUILD)/word.p1.bin` has no rule at all.
+$(BUILD)/word.p0.bin $(BUILD)/word.p1.bin: $(BUILD)/word.o88 ;
 
 worddisk: $(BUILD)/word.img $(BUILD)/word720.img $(BUILD)/word120.img \
           $(BUILD)/word360.img
 
-$(BUILD)/word.img: $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC --folder DOCS
+$(BUILD)/word.img: $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC --folder DOCS
 
-$(BUILD)/word720.img: $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 720 $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC --folder DOCS
+$(BUILD)/word720.img: $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 720 $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC --folder DOCS
 
-$(BUILD)/word120.img: $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 1200 $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC --folder DOCS
+$(BUILD)/word120.img: $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1200 $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC --folder DOCS
 
-$(BUILD)/word360.img: $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC --folder DOCS
+$(BUILD)/word360.img: $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC --folder DOCS
 
 # --- SCRIBE: the fork of WORD (SPEC.md 95) -----------------------------------
 # A SEPARATE PACKAGE and not a second build of the same source. apps/scribe/
@@ -8963,7 +9080,8 @@ zscreens: $(BUILD)/stories.stamp
 # is a log of an idle machine. It must NOT be write-protected: W writes
 # TRKLOG.TXT back to it, which is the point (docs/TESTING.md).
 TRKLOGSRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
-             apps/tracker/trkui.inc apps/tracker/trktxt.inc tests/trklog.inc
+             apps/tracker/trkui.inc apps/tracker/trktxt.inc \
+             apps/tracker/trkwin.inc apps/tracker/trklist.inc apps/os88ui.inc tests/trklog.inc
 
 trklog: $(BUILD)/trklog.img $(BUILD)/trklog360.img
 
@@ -9002,7 +9120,8 @@ $(BUILD)/trklog360.img: $(BUILD)/trklog.o88 apps/tracker/beverly.mod tools/os88d
 # legitimate QEMU case. BEVERLY.MOD rides along because a scroll gate with
 # nothing playing has nothing to scroll.
 TRKSCRLSRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
-              apps/tracker/trkui.inc apps/tracker/trktxt.inc tests/trkscrl.inc
+              apps/tracker/trkui.inc apps/tracker/trktxt.inc \
+             apps/tracker/trkwin.inc apps/tracker/trklist.inc apps/os88ui.inc tests/trkscrl.inc
 
 trkscrl: $(BUILD)/trkscrl.img
 
@@ -9904,7 +10023,7 @@ small: $(BUILD)/small360.img $(BUILD)/small.img
 #                           $(SMALLSYSAPPS) below rather than the apps lists -
 #                           and it is named HERE so that one list stays the
 #                           authority for "kern_small cannot run this at all"
-#   modplug, tracker,       SOUND.DRV, which a 128-256KB machine has nothing
+#   tracker,                SOUND.DRV, which a 128-256KB machine has nothing
 #   audio                   to spare for - the same judgement that took
 #                           RAMDISK.DRV and RAMPAGE.DRV out of $(SMALLDRIVERS)
 #   skies                   a 32KB heap claim for its frame shadow, which the
@@ -9942,13 +10061,14 @@ small: $(BUILD)/small360.img $(BUILD)/small.img
 # this list to subtract from - and a name here that no list contains is a
 # filter that reads like a decision and is a no-op, which is the shape a stale
 # omit list takes. The rule it would have failed is unchanged and would still
-# omit it if it came back.
+# omit it if it came back. MODPLUG left for the same reason one cycle on: it
+# is RETIRED (SPEC.md 56.15) and in no list at all.
 #
-# Nine programs that could not have started (SPEC.md 24.5 has the same
+# The programs that could not have started (SPEC.md 24.5 has the same
 # figures, re-measured together).
 SMALLOMIT := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
              $(BUILD)/thewire.o88 \
-             $(BUILD)/modplug.o88 $(BUILD)/tracker.o88 \
+             $(BUILD)/tracker.o88 \
              $(BUILD)/audio.o88 $(BUILD)/sheet.o88
 # DOT DELIRIUM WAS THE SECOND NAME HERE AND IS NOT ANY MORE (SPEC.md 24.5.5).
 # Its ground was *"kern_small carries no `gfx_blit1` body at all and this
@@ -10304,9 +10424,9 @@ emu: $(BUILD)/emu.img
 	@echo "     boot. Pair it with the SHIPPED build/apps.img - same ABI."
 
 # its kernel is $(EMUDIR)'s, so its on-demand kernel modules are too. kern_emu
-# cuts the same four as kern_big (ctrl, format, clone, hiber): it is that
-# kernel with one file switched on, so there is no $(SMALLMODS) equivalent
-# here and $(KMODS) alone is right.
+# cuts the same six as kern_big (ctrl, format, clone, hiber, dock, extd): it is
+# that kernel with one file switched on, so there is no $(SMALLMODS)
+# equivalent here and $(KMODS) $(BIGMODS) - both inside $(DRIVERS) - is right.
 $(BUILD)/emu.img: KMODDIR := $(EMUDIR)
 
 # $(EMUDRIVERS)' big-build half falls out of $(BUILD)/kernel.bin, so any kernel
@@ -10987,10 +11107,16 @@ $(BUILD)/lptlink144.img: $(BUILD)/llboot144.bin $(BUILD)/lptlink.bin \
 # no-op.
 APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
               $(BUILD)/chart.o88 $(BUILD)/fractal.o88 \
-              $(BUILD)/modplug.o88 $(BUILD)/notepad.o88 \
+              $(BUILD)/notepad.o88 \
               $(BUILD)/paint.o88 $(BUILD)/piano.o88 \
               $(BUILD)/ftpd.o88 $(BUILD)/sheet.o88 $(BUILD)/telnet.o88 \
               $(BUILD)/texpad.o88 $(BUILD)/tracker.o88 $(BUILD)/audio.o88
+# MODPLUG.O88 IS RETIRED too (SPEC.md 56.15): Tracker's windowed face
+# (SPEC.md 45.21) is ModPlug's player done to the tree's standards, with the
+# playlist, the Repeat modes and the per-adapter faces carried over, so two
+# MOD players on one disk had become one player and one regression. Same
+# registry, same gate, and `make modplug` still builds it.
+#
 # PACMAN.O88 IS RETIRED - not "off the disks while Dot Delirium is developed",
 # which is what this said for a cycle and which was a sentence with no expiry
 # and nothing watching it. The owner has called it: it is a failed port, DOT
@@ -11320,7 +11446,8 @@ APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS)
 # all on it at 342 of 354 clusters - 12 spare. The paragraphs above are kept
 # because the REASONS are still the reasons - a MOD player beside no module, a
 # disk that is exactly full - and they are what the next thing that grows this
-# geometry gives something up for.
+# geometry gives something up for. MODPLUG.O88 has since left EVERY geometry
+# - RETIRED, SPEC.md 56.15 - so the MOD player half of that is history.
 #
 # **AND FONT VIEWER IS OFF THIS GEOMETRY AGAIN, AT EVERY GEOMETRY, FOR A
 # REASON THAT IS NOT ARITHMETIC** (SPEC.md 90.3). The paragraph above is a
@@ -11482,11 +11609,9 @@ $(MEDIAIMG360): $(MEDIA_DISK_DATA) tools/os88disk.py
 # get it was carry their packages through the same argument list.
 
 # --- office360 ---------------------------------------------------------------
-# WORD.OVL RIDES THE ROOT BESIDE WORD.O88 and has to: the overlay is resolved
-# with OSAPI_FILE_HERE/_GOTO in the package's OWN folder (SPEC.md 68.4's
-# loader, hdtool.inc's shape), so a copy anywhere else is a Word that refuses
-# its own second segment. It is the reason "packages at the root" is a
-# statement about the whole file set and not only about the .O88s.
+# WORD.O88 IS ONE FILE (SPEC.md 68.10): its second segment is a PART inside
+# it, where it was a WORD.OVL that had to ride the root beside it - a copy
+# anywhere else was a Word that refused its own module.
 #
 # FONTVIEW and CALC are here as accessories rather than as document
 # applications - a typeface browser and a calculator are what a desk with a
@@ -11496,8 +11621,8 @@ $(MEDIAIMG360): $(MEDIA_DISK_DATA) tools/os88disk.py
 OFFICE_PKGS := $(BUILD)/artful.o88 $(BUILD)/calc.o88 $(BUILD)/chart.o88 \
                $(BUILD)/fontview.o88 $(BUILD)/paint.o88 $(BUILD)/sheet.o88 \
                $(BUILD)/texpad.o88 $(BUILD)/word.o88
-OFFICE360 := $(OFFICE_PKGS) $(BUILD)/WORD.OVL $(OFFICE_DATA)
-OFFICEARGS360 := $(OFFICE_PKGS) $(BUILD)/WORD.OVL \
+OFFICE360 := $(OFFICE_PKGS) $(OFFICE_DATA)
+OFFICEARGS360 := $(OFFICE_PKGS) \
                  $(addprefix MEDIA:,$(OFFICE_DATA)) \
                  $(MEDIAFOLDER) $(APPDATAFOLDER)
 
@@ -11719,7 +11844,7 @@ ALLAPPSIMG120 := $(BUILD)/apps-all-120.img
 # directory order. Scribe designed the collision out at the source; the disk
 # list went on believing in it.
 ALLAPPSFILES := $(APPS) $(CORE_SYSONLY) $(BUILD)/frotz.o88 \
-                $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC \
+                $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC \
                 $(BUILD)/cword.o88 $(BUILD)/CWORD.OVL $(BUILD)/WELCOME.RTF \
                 $(PACCMANDISK) \
                 $(BUILD)/c64.o88 $(BUILD)/C64.OVL \
@@ -11753,8 +11878,7 @@ ALLAPPSARGS := $(addprefix APPS:,$(APPS_TOOLS) $(CORE_SYSONLY) \
                                  $(BUILD)/frotz.o88) \
                $(addprefix GAMES:,$(APPS_GAMES)) \
                $(addprefix MEDIA:,$(APPS_DATA)) \
-               $(addprefix WORD:,$(BUILD)/word.o88 $(BUILD)/WORD.OVL \
-                                 $(BUILD)/WELCOME.DOC) \
+               $(addprefix WORD:,$(BUILD)/word.o88 $(BUILD)/WELCOME.DOC) \
                $(addprefix CWORD:,$(BUILD)/cword.o88 $(BUILD)/CWORD.OVL \
                                   $(BUILD)/WELCOME.RTF) \
                $(addprefix PACCMAN:,$(PACCMANDISK)) \
@@ -12139,10 +12263,14 @@ imager:
 # there, and COMBO144ARGS below is therefore built from the FULL lists rather
 # than from COMBOARGS as it used to be.
 #
+# MODPLUG was the fourth name in COMBO_DROP until it was RETIRED everywhere
+# (SPEC.md 56.15): it is in no list for this one to subtract from, and a
+# filter naming it would be the silent no-op SPEC.md 24.5 warns about.
+#
 # SHEET and CHART went with the spreadsheet: 57 clusters between them, sheet
 # is the largest package on the disk, and neither is a field-calibration
 # tool - Calc stays for the arithmetic a field run needs.
-COMBO_DROP := $(BUILD)/artful.o88 $(BUILD)/modplug.o88 $(BUILD)/texpad.o88 \
+COMBO_DROP := $(BUILD)/artful.o88 $(BUILD)/texpad.o88 \
               $(BUILD)/tracker.o88 \
               $(BUILD)/sheet.o88 $(BUILD)/chart.o88
 COMBO_TOOLS := $(filter-out $(COMBO_DROP),$(APPS_TOOLS))

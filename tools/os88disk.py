@@ -1045,25 +1045,58 @@ def build(args) -> int:
     nxt += kclus
 
     # Then the directory chains, contiguously and in root order, so a folder's
-    # listing is one seek away from the root's.
+    # listing is one seek away from the root's - and then the file chains,
+    # contiguous in argument order, or round-robin interleaved under
+    # --scramble (legally fragmented).
+    #
+    # **EXCEPT ASSOC.DAT, WHICH GOES AS EARLY AS IT CAN WITHOUT STRADDLING A
+    # TRACK** (SPEC.md 54.7.5). The mount reads it on every volume switch
+    # (asc_use), straight after the root directory, and SPEC.md 18.95's
+    # read-ahead fills a miss to the END OF THE TRACK - so a file inside one
+    # track is exactly one int 13h, and one that crosses a track boundary is
+    # two, the second dragging in a whole track of whatever follows. Last in
+    # the root it was also the LAST chain on the disk, cylinder 34 of a 360KB
+    # apps floppy, so every mount paid a seek across the disk and back for it.
+    # The candidates are the boundaries the layout already has - before the
+    # directory chains (on a disk with no kernel, the root directory's own
+    # track), after them, then after each file - and the first that holds it
+    # wins, so nothing is padded and every other chain stays contiguous. None
+    # holding it keeps the old place, last.
     dir_chains = {}
-    for k in dirs:
-        dir_chains[k] = list(range(nxt, nxt + dir_nclus[k]))
-        nxt += dir_nclus[k]
-
-    # Then the file chains: contiguous in argument order, or round-robin
-    # interleaved under --scramble (legally fragmented).
     chains = [[] for _ in files]
+    asc_i = next((i for i, f in enumerate(files)
+                  if f[0] == ASC_NAME and f in root_files), None)
     if args.scramble:
+        for k in dirs:
+            dir_chains[k] = list(range(nxt, nxt + dir_nclus[k]))
+            nxt += dir_nclus[k]
         while any(len(c) < f[2] for c, f in zip(chains, files)):
             for c, f in zip(chains, files):
                 if len(c) < f[2]:
                     c.append(nxt)
                     nxt += 1
     else:
-        for c, f in zip(chains, files):
-            c.extend(range(nxt, nxt + f[2]))
-            nxt += f[2]
+        seq = [("d", k) for k in dirs] + [("f", i) for i in range(len(files))
+                                          if i != asc_i]
+        size = lambda it: dir_nclus[it[1]] if it[0] == "d" else files[it[1]][2]
+        if asc_i is not None:
+            asecs = files[asc_i][2] * lay.spc
+            at = len(seq)
+            start = nxt
+            for pos in [0] + list(range(len(dirs), len(seq) + 1)):
+                start = nxt + sum(size(it) for it in seq[:pos])
+                lba = lay.data_lba + (start - 2) * lay.spc
+                if lba // spt == (lba + asecs - 1) // spt:
+                    at = pos
+                    break
+            seq.insert(at, ("f", asc_i))
+        for it in seq:
+            chain = list(range(nxt, nxt + size(it)))
+            nxt += size(it)
+            if it[0] == "d":
+                dir_chains[it[1]] = chain
+            else:
+                chains[it[1]] = chain
 
     # PASS 2 of ASSOC.DAT (SPEC.md 54.7.1): the folder each program lives in,
     # now that the directory chains exist. `asc` is a bytearray and `files`

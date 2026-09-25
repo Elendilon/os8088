@@ -664,7 +664,7 @@ draw (placement, §5.6) and a redraw after its numbers changed beside it
 
 ### 3.5 Colour — the pen, and the strip trick
 
-`OSAPI_GFX_BLIT1_PEN` (slot 0x04A8) says what a set bit and a clear bit become:
+`OSAPI_GFX_BLIT1_PEN` (SPEC.md 5.4.2.2) says what a set bit and a clear bit become:
 **two colours a band, in one pass** (§5.4.2.2). On a 1bpp adapter the pen is
 *ignored rather than refused*, so one body runs everywhere — and §3.7 confirms
 that on the glass: the four rows below collapse to within 1% of each other on
@@ -3977,7 +3977,7 @@ arm through pyopl (DOSBox's OPL2) driven with `SOUND.DRV`'s own register
 writes. **It renders the PACKED part through a Python copy of the
 sequencer**, and `tests/tithemus.py` holds the machine to that copy call for
 call, so a host render is the guest's notes in the host's synthesis. Against
-MartyPC's OPL (a Nuked port) the two agree band for band once SPEC.md §34.2.1
+MartyPC's OPL (a Nuked port) the two agree band for band once SPEC.md §34.2.2
 was fixed — which is how that defect was found: the guest's capture was the
 default patch's smear where the host had a horn. `tests/tithemus.py --record`
 takes the guest's own audio.

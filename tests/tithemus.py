@@ -78,6 +78,7 @@ count at the key press - which is the truth the host render approximates.
 import argparse
 import os
 import struct
+import re
 import subprocess
 import sys
 
@@ -94,7 +95,9 @@ SYMS = ("tm_song", "tm_arm", "tm_ticks", "tm_ord", "tm_row", "tm_ch",
         "tm_gapmax", "tm_rsel", "tm_resing", "tm_theme", "tm_bord", "tm_brow",
         "tm_state", "tm_tbuf")
 TM_LATE = 3                                     # ticks: a note's worst lateness
-FM_CELL = os88marty.KERNEL_SEG * 16 + 0x00F8    # OSAPI_SND_FM's cell
+FM_CELL = os88marty.KERNEL_SEG * 16 + int(re.search(  # OSAPI_SND_FM's cell,
+    r"%define\s+OSAPI_SND_FM\s+KERNEL_SEG:(0x[0-9A-Fa-f]+)",  # off the SDK -
+    open(os.path.join(ROOT, "apps", "os88api.inc")).read()).group(1), 16)  # the table moves
 STREAM = {"spk": 80, "fm": 240}                 # calls of song 0 compared
 MACHINES = (("os8088_5150_herc_sb_gla", "fm"), ("os8088_5150_herc_gla", "spk"))
 SAMPLES = 6                         # a song, a guest second apart

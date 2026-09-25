@@ -1144,7 +1144,7 @@ tm_hire:
 ; over the whole of it.
 
 ; -----------------------------------------------------------------------------
-; tm_about - the OSAPI_ABOUT_SET handler (slot 0x01E0)
+; tm_about - the OSAPI_ABOUT_SET handler (slot 0x018A)
 ; in:  SI = our window ptr; the UI task, gfx lock HELD
 ; out: nothing; preserves all registers
 ; -----------------------------------------------------------------------------
@@ -1388,7 +1388,7 @@ tm_s_tfdlg: db 'FileDlg', 0     ; the Standard File dialog's listing (SPEC.md
 ; ends the capture early - which drops every row below it from the gate without
 ; failing anything.
 tm_ktab:
-    dw MEM_K_SAVE,  tm_s_tsave
+    dw MEM_P_MSAVE, tm_s_tsave
     dw MEM_K_DRV,   tm_s_tdrv
     dw MEM_K_COPY,  tm_s_tcopy
     dw MEM_K_ASC,   tm_s_tasc

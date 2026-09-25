@@ -969,8 +969,8 @@ cc_iswk:
 ; call through a shim. This file owns only what cannot be generated - the load,
 ; the stamp check, the binding and the refusal.
 ;
-; THE FOUR WORDS OF STATE, and why the stamp is two of them: WORD.OVL and
-; WORD.O88 are separate files on a floppy, so a rebuilt package beside a stale
+; THE FOUR WORDS OF STATE, and why the stamp is two of them: CWORD.OVL and
+; CWORD.O88 are separate files on a floppy, so a rebuilt package beside a stale
 ; module is a thing a user can produce with a file copy. The module carries the
 ; two sizes it was built with; both change under almost any edit to either
 ; half; and the check costs four bytes and one compare. It catches a stale
