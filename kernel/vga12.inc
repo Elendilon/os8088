@@ -2857,6 +2857,67 @@ gfx_blitp:
                                 ; for the copy, once a row each
     call vga_gc_reset           ; Set/Reset off, bit mask open: the CPU byte
                                 ; IS the data here
+    ; --- PLANE-MAJOR, when nothing about a row needs deciding (SPEC.md
+    ; 5.4.3.5). The row loop below re-reads its geometry, calls gfx_rowbase
+    ; and writes a Map Mask and a Bit Mask for EVERY PLANE OF EVERY ROW:
+    ; ~2,600 cycles a row on a 4.77 MHz 8088 whatever its width, against
+    ; gfx_blit1's ~125. A block with no right-edge mask, wholly on the
+    ; screen in y, on a surface with one bank has nothing left to decide per
+    ; row - its rows are [vid_stride] apart - so each plane is ONE Map Mask
+    ; and a `rep movsb` a row. Anything else takes the row loop it always did.
+    cmp byte [ss:vga_pr_rm], 0xFF
+    jne .row                    ; a masked right edge: the latch read
+    cmp word [vid_bmask], 0
+    jne .row                    ; interleaved banks (no planar card has any)
+    cmp bx, [vid_ch]
+    jae .row                    ; ...UNSIGNED, so a negative y is caught too
+    mov ax, bx
+    add ax, dx
+    jc .row
+    cmp ax, [vid_ch]
+    ja .row                     ; rows off the bottom: .row skips them
+    push cx
+    push dx                     ; gfx_rowbase's calc path writes CL and DX
+    mov ax, bx                  ; (SPEC.md 5.4.3.1)
+    call gfx_rowbase
+    pop dx
+    pop cx
+    add ax, cx
+    mov [ss:vga_pr_o], ax       ; the block's first framebuffer byte
+    mov bp, [vid_stride]
+    sub bp, [ss:vga_pr_n]       ; BP = a row's framebuffer advance past it
+    mov bx, dx                  ; BX = the rows, again for every plane
+    mov ax, VGA_SEG
+    mov es, ax
+    mov ds, [ss:vga_pr_sg]      ; DS:SI the caller's planes, from here on
+    cld
+    mov ah, 1                   ; this plane's Map Mask bit
+.fpl:
+    push si
+    push ax
+    mov dx, VGA_SEQ
+    mov al, 2
+    out dx, ax                  ; SEQ2: Map Mask = this plane alone
+    mov di, [ss:vga_pr_o]
+    mov dx, bx
+    mov ax, [ss:vga_pr_rs]
+    sub ax, [ss:vga_pr_n]       ; AX = a row's source advance past it
+.frow:
+    mov cx, [ss:vga_pr_n]
+    rep movsb
+    add si, ax
+    add di, bp
+    dec dx
+    jnz .frow
+    pop ax
+    pop si
+    add si, [ss:vga_pr_ps]
+    shl ah, 1
+    cmp ah, 0x10
+    jb .fpl
+    push cs
+    pop ds                      ; the kernel's again, for the teardown
+    jmp short .rowsdone
 .row:
     cmp bx, [vid_ch]
     jae .next                   ; UNSIGNED, so a negative y is caught too
@@ -2893,7 +2954,7 @@ gfx_blitp:
     inc bx
     dec dx
     jnz .row
-
+.rowsdone:
     mov dx, VGA_SEQ             ; the card back as every other primitive
     mov ax, 0x0F02              ; expects to find it (Map Mask all four,
     out dx, ax                  ; Set/Reset off, bit mask open)

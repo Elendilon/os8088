@@ -2399,6 +2399,21 @@ SOAK = [
         "ordinary apps disk, in the room the earlier Pac-Man port came off "
         "it to make (93.13)",
         needs=("marty", "nasm"), serial=True),
+    Row("ddcorner", "soak", py("tests/ddcorner.py"), 120.0,
+        "DOT DELIRIUM's walls are NEVER on the glass in an actor's colour, "
+        "on VGA, windowed and fullscreen (SPEC.md 93.5.19). A band goes "
+        "down in one pen, and 93.2.3's concave corner block sits inside the "
+        "corridor tile an actor turns on, so every turn lit one in the "
+        "actor's ink until the repair queue put it back - and the field kept "
+        "seeing the frames in between. The census is taken at the ENTRY of "
+        "every dd_blit of a playing frame, so a pixel written wrong and "
+        "repaired milliseconds later is caught between the two, which leg H "
+        "of tests/dotdel.py cannot see by construction; a pixel is excused "
+        "only by a SPRITE BIT over it, never by the actor's box, the box "
+        "being exactly what the corner is inside. `--nopok` patches the three "
+        "stores that allow the planar band so they store 0 - the one-pen "
+        "build on the same machine and scene - and it goes red",
+        needs=("marty", "nasm"), serial=True),
     Row("dotdelpen", "soak", py("tests/dotdelpen.py"), 90.0,
         "DOT DELIRIUM's ghost house, and the pellets that share its bug class "
         "(SPEC.md 93.8.6): every pellet on the board gets refreshed and not "

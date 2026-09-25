@@ -79,21 +79,22 @@ PKG = "B:/GAMES/DOTDEL.O88"
 # ones are 5150s with the GLaBIOS twin, because the IBM ROM is not in the tree.
 # ...and the floor leg E fails under, PER ARM. See FPS_FLOOR below.
 ARMS = (
-    # VGA's windowed floor is 0.80, and it is DOWN 17 points from where this
-    # row started because SPEC.md 93.5.13.3 bought something with them: the
-    # maze's corner is never written in an actor's pen at all, where before it
-    # was written and put back a few ms later and the field saw the few ms.
-    # Six samples of the build that does it read 83.6, 86.1, 87.1, 87.1, 88.5
-    # and 88.7 against 97.6, 97.9 and 90.5 for the one that repaired instead.
-    # THE COST IS THE POINT OF THE ROW, so it is written down rather than
-    # absorbed: 0.80 sits under the worst of six and well over what a real
-    # regression does (93.5.3's 60s, and the 78.0 that caught 93.5.13.2).
+    # VGA's floor is 0.90 again. It was 0.80 for as long as SPEC.md 93.5.13.3's
+    # split cost ten points - six samples read 83.6 to 88.7 - and that cost is
+    # gone twice over: 5.4.2.6's gfx_blit1 fast path took the one-pen frame
+    # back to 96-99%, and 93.5.19's planar band retires the split wherever a
+    # colour surface is uncovered. Ten eight-second windows of the planar
+    # build read 98.7-100.0 windowed and 98.8-100.0 fullscreen, and this row
+    # read 99.1 / 98.7. 0.90 is the floor this arm had before the split, and it
+    # still sits well over what a real regression does (93.5.3's 60s, the 78.0
+    # that caught 93.5.13.2, and the 76 a whole band through the old
+    # gfx_blitp row loop read - 93.5.19).
     # THE BRANCH'S TILES (SPEC.md 93.3.3): Window > Thin is the default, so the
     # tile is square-ish in PIXELS and the board is the arcade's 28:31 rather
     # than 1.6x wider than tall.  CGA is the one that cannot reach it - 640x200
     # has not got the 279 lines that 31 rows of nine need - so it resolves to
     # Full with Thin greyed, and comes out at what fits.
-    ("vga",  "os8088_xt_vga",        (8, 9),  0.80),
+    ("vga",  "os8088_xt_vga",        (8, 9),  0.90),
     ("cga",  "os8088_5150_cga_gla",  (8, 4),   0.95),
     ("herc", "os8088_5150_herc_gla", (8, 9),  0.95),
 )

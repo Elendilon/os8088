@@ -4646,6 +4646,63 @@ region there is binding, and a plane byte carries eight x's.
 `tests/paintcull.py` is the row, and it fails without the seven bytes with the
 guard values printed rather than a bare mismatch.
 
+#### 5.4.3.5 A block with nothing to decide per row is copied PLANE-MAJOR
+
+**`gfx_blitp` cost ~2,400 cycles a ROW on a 4.77 MHz 8088 whatever the row
+held**, and the bytes were the smallest part of it. The row loop calls
+`gfx_rowbase`, banks five registers round `vga_prow_emit`, and that emitter
+re-reads its geometry through `ss:` and writes a Map Mask and a Bit Mask for
+**every plane of every row** — eight `out`s and some twenty memory operands to
+move, for a band one byte wide, four bytes. Measured in DOT DELIRIUM's actor
+bands (§93.5.19) on `os8088_xt_vga`, cycles for the whole call:
+
+| block | `gfx_blitp` before | after | `gfx_blit1`, the same band |
+|---|---:|---:|---:|
+| 1 byte x 9 rows | 29,826 | **7,964** | 5,998 |
+| 1 byte x 11 rows | 29,532 | **8,784** | 6,300 |
+| 2 bytes x 15 rows | 40,144 | **11,940** | 7,166 |
+| 2 bytes x 19 rows | 49,266 | **13,302** | 7,578 |
+| 3 bytes x 15 rows | 41,014 | **12,620** | 7,315 |
+
+— the per-row term **2,418 → ~340**, from the 2-byte rows. So a four-plane
+block was four to five times a one-plane one, and the price of a colour was a
+price per ROW; it is now about the same fixed cost again plus an eighth.
+
+**A block needs nothing decided per row when three things hold**, and the
+fast path is taken exactly then:
+
+- **no right-edge mask** (`[vga_pr_rm]` = `FFh`): the width is a multiple of
+  8, so no byte is a latch read. The LEFT edge never is — an unaligned x is a
+  refusal (§5.4.3).
+- **every row on the screen** in y — so no row is skipped, which is the one
+  thing `.row` decides for itself.
+- **one bank** (`[vid_bmask]` = 0): rows are `[vid_stride]` apart. Every
+  planar surface here is — mode 12h and §39.24's 640 x 350 — and a banked one
+  is a 1bpp adapter this routine has already refused; the test costs four
+  bytes and keeps the arithmetic honest if that ever changes.
+
+Then each plane is **one** Map Mask `out` and a `rep movsb` a row, with the
+source and framebuffer pointers stepped by an add: `gfx_rowbase` is asked
+once for the block's first row, and its calc path's `CL`/`DX` clobber
+(§5.4.3.1) is banked round that one call. Set/Reset is off and the Bit Mask
+open, which `vga_gc_reset` has already done for the whole call, and the
+teardown is the one the row loop ends in — Map Mask back to `0Fh`.
+
+**Anything else takes the row loop exactly as before**: a masked right edge,
+a block hanging off the top or bottom, a banked surface. Nothing about the
+refusals moves — the fast path is entered after every guard, the display
+hook and the depth test, so a refusal is decided on precisely the path it
+always was.
+
+**+131 bytes of `.text`, `kern_big` only** — `gfx_blitp` is `stc`/`ret` on
+`kern_small` (`GFX_PLANE`). Resident, and spent for a single reason: the
+colour it buys DOT DELIRIUM (§93.5.19) was unaffordable at the old row price
+and is free at the new one. Every other caller whose blocks qualify — Paint's
+planar canvas (§42.13), `os88img.inc`, Scribe, PaccMan's composer — takes the
+same path with no change of its own; none of them has been re-measured here,
+and a figure for them is a measurement still to take rather than one to
+quote.
+
 ### 5.5 `gfx_scroll` — move a rect instead of redrawing it
 
 **in** AX/BX/CX/DX = x1/y1/x2/y2 inclusive, absolute screen coordinates;
@@ -129964,6 +130021,12 @@ floor: the row's VGA floor is 0.80 with the distribution written beside it.
 What the ten points buy is that the mid-frame census reads **0 of 14,400
 wall-tile readings** in the actor's pen, where the repairing build showed them.
 
+**Superseded on a colour surface by §93.5.19**, which puts a band's walls in a
+plane of their own so there is nothing for the split to keep off the glass —
+and the ten points are no longer what they cost: §5.4.2.6's `gfx_blit1` fast
+path took the one-pen windowed frame back to 96-99%. The split stays for a
+window something is covering, where the planes are refused.
+
 ##### 93.5.13.4 The attract screen is the same renderer, minus one call
 
 The demo runs `dd_actors_draw` — the same cast through the same one-pen band —
@@ -130431,6 +130494,129 @@ The gfx lock is not the tool here, and that is worth writing down: it is not
 re-entrant (`gfx_lock` blocks on the flag without asking who owns it), so a
 `.redo` reached from `dd_paint` — which the kernel calls with the lock already
 held — cannot take it again.
+
+#### 93.5.19 A wall in an actor's band gets a PLANE of its own
+
+**A band is one pen, and a pen is a property of the WRITE**, so every wall
+pixel a band carries came out in the actor's colour for as long as the actor
+was there. §93.5.13 answered that for the 2 x 2 turn with a split and a queue;
+§93.2.3.2's **concave corner block** it never reached, because the block is
+not in a wall tile at all — it is one line width inside the **corridor tile an
+actor turns on**, so an actor standing where it decides lit it, and every
+junction on the board has one. The repair queue put it back a frame later.
+The field kept seeing the frame: *"the corner dot is very noticeable and is
+still getting commented on"*.
+
+**Measured on `os8088_xt_vga` before the change**, with `tests/ddcorner.py`
+reading the glass between every two writes of a playing frame: windowed, the
+corner pixel at board (88, 143) was in an actor's pen in **45 of 160**
+readings; fullscreen, whose corner is a 2 x 2 block, the one at (270, 238)
+was wrong in **143 of 160** — 1,977 wrong wall-pixel readings in all.
+
+##### The candidates, and why a plane
+
+- **Put the corner back straight after the band** (`gfx_pixel`, `gfx_points`)
+  is what the queue already does, sooner. §93.5.13.3 is the finding that
+  closes it: *a couple of milliseconds, three times a second, is a flicker on
+  a CRT*. Clearing the block's bit first only swaps the wrong colour for
+  black.
+- **A "don't write this pixel" mask on `gfx_blit1`** is a latch read and a
+  Bit Mask per masked byte — a new contract on a slot with fourteen callers,
+  for a hole whose position this program already knows.
+- **Cut the band around the block** needs a `gfx_blit1` per side, because
+  its x is on the byte grid and the block is the first or last pixel of a
+  byte — and a far call is the unit this machine is priced in (§93.5.13.1).
+- **Four planes is what a colour IS on this card**, and `gfx_blitp` (§5.4.3)
+  already takes four. So the band says each pixel's colour itself:
+
+```
+plane k = (ink has k ? band : 0) | (wall has k ? ground & ~band : 0)
+```
+
+— the actor's ink where the band is set, the wall's where the GROUND is set
+and the band is not, black elsewhere. Every pixel is written **once**, in the
+colour it ends up, and the actor still wins where the two overlap, which is
+what OR-ing the walls into the band always did.
+
+##### What it touches
+
+- **`dd_band_ground`** puts the wall picture in the fourth plane's slot of
+  `dd_pb` instead of in the band, whenever `[dd_pok]` says a planar band may be
+  asked for and the band fits `DD_PBMAX` — the widest actor band there can be,
+  three tiles of `DD_TWMAX` by two of `DD_THMAX`, 192 bytes. `dd_band_emit`
+  composes the four planes, one of four loops a plane with the ground's slot
+  composed last and in place, and calls `dd_blitp` — `dd_blit`'s own clip with
+  `OSAPI_GFX_BLITP` at the end.
+- **`dd_tile_put`** does the same for a corridor tile carrying a block: the
+  dot in the dot's pen and the block in the wall's, in one write. Its one-pen
+  arm put the block down WHITE and blitted its rows again blue — so a pellet
+  on a corner flashed its corner white every time it blinked.
+- **`dd_split_ck`** answers "no split" while the planes are on: a wall no box
+  is on comes out blue in the one band, which is the whole of what the split
+  was for — and a turn frame is one band again instead of two.
+- **`dd_rep_vacated`** owes nothing for a WALL, a DOOR or a corner-only tile
+  when the band that left it put its walls down in their own pen
+  (`[dd_qgk]`); a DOT or a PELLET is still owed, being in the actor's pen by
+  §93.5.4's accepted rule.
+
+**`[dd_pok]` is per frame, and the region is the whole question.** A windowed
+draw always arms one (§11.3) and `gfx_blitp` refuses any real region — a plane
+byte carries eight x's (§5.4.3). But when **nothing is over the window** the
+region IS the content rect, which this program never draws outside: so
+`dd_pok_win` asks `OSAPI_WM_OBSCURED` (which answers for the open dock as
+well), and when the window is clear it disarms the region with
+`OSAPI_WM_CLIP_CLEAR` and turns the planes on. `OSAPI_WM_CLIP_SET` has already
+done the rest of its job — the raise cache and the pointer's deferred hide —
+and disarming undoes neither. The bracket arms no region at all; a `W_PAINT`
+leaves the question to `gfx_blitp`, which refuses a real region and ignores
+§11.3.3's cull. **A refusal is never a blank**: the band has both pictures
+still, so it ORs the ground back in and goes down in one pen exactly as it
+used to, `[dd_pok]` off for the rest of the frame and `[dd_bok]` off so the
+queue owes those tiles again. A covered window therefore keeps the old
+behaviour, split, queue and all.
+
+**One plane has no pen** (§5.4.2.2), so Hercules and CGA never ask: `[dd_pok]`
+is set only where `[dd_bpp]` is over 1.
+
+##### What it cost, and the kernel half
+
+**The first build sent the whole band through `gfx_blitp` and cost twenty
+points of the tick** — windowed VGA 96.4% of the tick to 76.0%, fullscreen
+100.0% to 77.6%, six windows each. A `gfx_blitp` band was **28,619 cycles
+against `gfx_blit1`'s 6,181**, and the price was per ROW: ~2,400 cycles a row
+against ~100 (§5.4.3.5's table). Sending only the rows that hold ground
+through it, and the rest through `gfx_blit1`, halved the damage and no more
+(89.7% / 95.0%, ten windows), because every corner row was then a call of its
+own.
+
+**So the row went, not the band**: §5.4.3.5 copies a block that has nothing to
+decide per row plane-major, one Map Mask a plane and a `rep movsb` a row —
++131 bytes of `kern_big` `.text` — and a planar actor band is then ~8,500
+cycles windowed and ~13,000 fullscreen against `gfx_blit1`'s ~6,000 and
+~7,300. What that buys, the same kernel under both, ten eight-second windows
+of steered play each (rendered frames against the game's own tick counter):
+
+| VGA | the one-pen band | the planar band |
+|---|---:|---:|
+| windowed | 98.1% | **99.4%** |
+| fullscreen | 99.9% | **99.7%** |
+
+**Windowed is FASTER**, because the split (§93.5.13.1's 11 ms turn frame) is
+gone wherever the planes are on; fullscreen is within its own noise. And those
+are the numbers that retire §93.5.13.3's: **since §5.4.2.6's `gfx_blit1` fast
+path the one-pen build no longer reads 83-88% windowed but 96-99%**, so the ten
+points that section paid for its split had already come back before this one
+was written.
+
+**Bytes**: the package's image grows by the composer and its callers and its
+bss by `4 x DD_PBMAX` = 768 bytes of plane buffer plus a handful of flags —
+package RAM, present while the game runs, on a machine that has a VGA.
+
+`tests/ddcorner.py` is the gate: every wall pixel of the board picture against
+the glass at the entry of every `dd_blit` of a playing frame, excused only by
+a sprite BIT over it. `--nopok` patches the three stores that turn the planes on
+so they store 0 — the one-pen build on the same machine and scene — and reads
+the 45/160 and 143/160 above; the planar build reads 0 of ~4 million.
 
 ### 93.6 The frame is the tick, and the clock is not the frame
 
