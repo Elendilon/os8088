@@ -2755,8 +2755,9 @@ dskw_read_at_x:
 ; -----------------------------------------------------------------------------
 ; dskw_read_seq - a streaming read, whose place the CALLER keeps (SPEC.md
 ;                 18.4.8, slot OSAPI_FILE_READ_SEQ; kern_big)
-; in:  SI -> a NUL 8.3 name, ES:BX -> the buffer, CX = its capacity (a cluster
-;      multiple), ES:DI -> the 16-byte cursor (zeroed, +12 = where to start)
+; in:  SI -> a NUL 8.3 name, DX:BX -> the buffer, CX = its capacity (a
+;      cluster multiple), ES:DI -> the 16-byte cursor (zeroed, +12 = where to
+;      start), in any segment
 ; out: CF=0 with DX:AX = the bytes delivered (0 = at or past the end) and the
 ;      cursor advanced past them; CF=1 with AX = FERR_*, the cursor unmoved
 ; clobbers: AX, DX (the outputs), CF
@@ -2786,29 +2787,51 @@ FSEQ_SIZE   equ 16
 ; the cluster one FAT link past what was read.
 dskw_read_seq_x:
     push bx
+    push cx
+    push si
+    push di
+    push es
+    mov [dwr_cdi], di           ; THE CURSOR IS COPIED IN AND OUT, so it can
+    mov [dwr_cdi+2], es         ; live anywhere the caller likes and the buffer
+    push si                     ; can be a segment of its own - a player's ring
+    mov si, di                  ; reads every chunk into a different one
+    mov ax, ds                  ; (SPEC.md 18.4.8). AX = KERNEL_SEG; SI is
+    push ds                     ; the NAME, which READ_AT still needs
+    push es
+    pop ds                      ; DS = the cursor's segment...
+    mov es, ax                  ; ...ES = ours
+    push cx
+    mov di, dwr_c
+    mov cx, FSEQ_SIZE / 2
+    cld
+    rep movsw
+    pop cx
+    pop ds                      ; DS = KERNEL_SEG again
+    pop si
+    mov es, dx                  ; ES:BX = the caller's DX:BX buffer
     mov byte [dwr_seq], 1
-    mov ax, [es:di+FSEQ_OFF]
-    mov dx, [es:di+FSEQ_OFF+2]
+    mov ax, [dwr_c+FSEQ_OFF]
+    mov dx, [dwr_c+FSEQ_OFF+2]
     call dskw_read_at_x         ; DX:AX = the bytes, or CF and FERR_*
     mov byte [dwr_seq], 0       ; (mov: the flags ride through)
     jc .out
-    add [es:di+FSEQ_OFF], ax    ; the cursor moves only when bytes arrived
-    adc [es:di+FSEQ_OFF+2], dx
+    add [dwr_c+FSEQ_OFF], ax    ; the cursor moves only when bytes arrived
+    adc [dwr_c+FSEQ_OFF+2], dx
     cmp byte [dsk_vkind], DVK_FILE
     je .ok                      ; a REDIRECTED volume (SPEC.md 62.9) serves
     push ax                     ; any offset: its cursor is only that
     mov ax, [dsk_mgen]          ; ...otherwise it is trusted under THIS
-    mov [es:di+RSQ_GEN], ax     ; snapshot, on this volume
+    mov [dwr_c+RSQ_GEN], ax     ; snapshot, on this volume
     mov al, [disk_drive]
-    mov [es:di+RSQ_VOL], al
+    mov [dwr_c+RSQ_VOL], al
     pop ax
     or ax, ax                   ; nothing arrived (the end; a take is one
     jz .ok                      ; word, so DX is 0 with it): no cluster
-    mov bx, [es:di+FSEQ_OFF+2]  ; ...and none past the end either - a tail,
-    cmp bx, [es:di+RSQ_SIZE+2]  ; or a file that is a cluster multiple,
+    mov bx, [dwr_c+FSEQ_OFF+2]  ; ...and none past the end either - a tail,
+    cmp bx, [dwr_c+RSQ_SIZE+2]  ; or a file that is a cluster multiple,
     jne .past                   ; whose next link is the end mark
-    mov bx, [es:di+FSEQ_OFF]
-    cmp bx, [es:di+RSQ_SIZE]
+    mov bx, [dwr_c+FSEQ_OFF]
+    cmp bx, [dwr_c+RSQ_SIZE]
 .past:
     jae .ok
     push ax                     ; THE ONE FAT LINK that replaces READ_AT's
@@ -2817,41 +2840,53 @@ dskw_read_seq_x:
     jc .lost                    ; short of the end here)
     call dskw_clok
     jc .lost
-    mov [es:di+RSQ_CUR], ax
+    mov [dwr_c+RSQ_CUR], ax
     pop ax
 .ok:
     clc
 .out:
+    pushf                       ; ...and the cursor goes back where it came
+    les di, [dwr_cdi]           ; from, success or not: a failed seed has
+    mov si, dwr_c               ; still learned the size
+    mov cx, FSEQ_SIZE / 2
+    cld
+    rep movsw
+    popf
+    pop es
+    pop di
+    pop si
+    pop cx
     pop bx
     ret
 .lost:
-    mov word [es:di+RSQ_GEN], 0 ; the bytes are good; the NEXT call re-seeds
+    mov word [dwr_c+RSQ_GEN], 0 ; the bytes are good; the NEXT call re-seeds
     pop ax                      ; from the name and finds out
     jmp short .ok
 
 ; dwr_stat - dskw_read_at's stat: dskw_stat_x's contract (BX = the walk's
-; start, DX:CX = the size), from a READ_SEQ cursor at ES:DI while it is valid
-; ([dwr_hot] then says the walk is already done) and from the name otherwise.
+; start, DX:CX = the size), from the READ_SEQ cursor's kernel copy while it is
+; valid ([dwr_hot] then says the walk is already done), from the name
+; otherwise.
 dwr_stat:
     mov byte [dwr_hot], 0
     cmp byte [dwr_seq], 0
     je .name
     mov ax, [dsk_mgen]          ; STILL THE SNAPSHOT IT WAS SEEDED IN, on the
-    cmp ax, [es:di+RSQ_GEN]     ; same volume? then its cluster and size mean
+    cmp ax, [dwr_c+RSQ_GEN]     ; same volume? then its cluster and size mean
     jne .seed                   ; what they meant
     mov al, [disk_drive]
-    cmp al, [es:di+RSQ_VOL]
+    cmp al, [dwr_c+RSQ_VOL]
     jne .seed
     inc byte [dwr_hot]
-    mov bx, [es:di+RSQ_CUR]
-    mov cx, [es:di+RSQ_SIZE]
-    mov dx, [es:di+RSQ_SIZE+2]
+    mov bx, [dwr_c+RSQ_CUR]
+    mov cx, [dwr_c+RSQ_SIZE]
+    mov dx, [dwr_c+RSQ_SIZE+2]
     ret                         ; CF=0: the cmp above was equal
 .seed:
     call dskw_stat_x
     jc .r
-    mov [es:di+RSQ_SIZE], cx    ; the size is all the wrapper needs kept: the
-    mov [es:di+RSQ_SIZE+2], dx  ; walk from BX is READ_AT's own
+    mov [dwr_c+RSQ_SIZE], cx    ; the size is all the wrapper needs kept: the
+    mov [dwr_c+RSQ_SIZE+2], dx  ; walk from BX is READ_AT's own
 .r:
     ret
 .name:
@@ -5419,6 +5454,8 @@ dwr_clus:     resw 1            ; the cluster the walk reached
 dwr_take:     resw 1            ; bytes this call will deliver
 %ifdef KERN_BIG
 dwr_hot:      resb 1            ; READ_SEQ's cursor was valid: no walk
+dwr_cdi:      resw 2            ; ...where the caller keeps the cursor, and
+dwr_c:        resb FSEQ_SIZE    ; the kernel's copy of it for the call
 %endif
 dwr_end:      resd 1            ; dskw_write_at: offset + count (SPEC.md
                                 ; 18.4.7.2), which decides both whether the

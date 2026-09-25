@@ -4127,9 +4127,10 @@ CLIP_MAXKB equ 32                ; the clipboard's ceiling, KB. A put longer
 %define OSAPI_FILE_READ_SEQ KERNEL_SEG:0x0455   ; A STREAMING READ (SPEC.md
                                  ; 18.4.8, KERN_BIG; the small kernel answers
                                  ; CF=1 FERR_NAME). SI = the name ON EVERY
-                                 ; CALL, ES:BX = buffer, CX = its capacity (a
-                                 ; cluster multiple, READ_AT's rule), ES:DI =
-                                 ; YOUR 16-byte cursor, in the buffer's
+                                 ; CALL, DX:BX = buffer (NOT ES:BX, as the
+                                 ; other file slots take it), CX = its
+                                 ; capacity (a cluster multiple, READ_AT's
+                                 ; rule), ES:DI = YOUR 16-byte cursor, in any
                                  ; segment. To start or seek: zero it and set
                                  ; FSEQ_OFF (a cluster multiple). Out CF=0 and
                                  ; DX:AX = bytes delivered, 0 at the end, the

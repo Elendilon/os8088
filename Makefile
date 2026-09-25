@@ -2047,7 +2047,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
 WEAVEDEMOS := apps/weave/demos
 WEAVEWABS  := $(BUILD)/FORM.WAB $(BUILD)/SHEET.WAB $(BUILD)/PONG.WAB
 all: checkdocs $(SHIPIMGS) $(BUILD)/wire.o88 $(BUILD)/recorder.o88 \
-     $(BUILD)/hello.o88 \
+     $(BUILD)/hello.o88 $(BUILD)/video.o88 \
      $(BUILD)/imgtest.o88 $(BUILD)/scribe.o88 $(BUILD)/livepayload.txt \
      $(WEAVEWABS) $(BUILD)/.weave-hostchecks \
      $(BUILD)/doscore.bin \
@@ -4740,6 +4740,19 @@ $(BUILD)/hello.bin: apps/hello/hello.asm apps/os88api.inc apps/os88ui.inc \
 
 $(BUILD)/hello.o88: $(BUILD)/hello.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/hello.bin -o $@
+
+# VIDEO PLAYER (SPEC.md 98.3, docs/plans/VIDEO-PLAN.md). Built by `all`, and
+# LIVE-ONLY for now (LIVEPKGARGS, beside RECORDER and HELLO): no floppy yet,
+# because there is no video to ship with it - the owner's XDC streams are
+# copyrighted, and the os8088 logo video is a later wave - and a floppy is
+# where every cluster is somebody's. tests/vidplay.py makes its own clip.
+$(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/os88api.inc \
+                    apps/os88ui.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ apps/video/video.asm
+	@echo "video:  $(call FILESIZE,$@) bytes"
+
+$(BUILD)/video.o88: $(BUILD)/video.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/video.bin -o $@
 
 # WIREFRAME (SPEC.md 78): a rotating solid drawn with nothing but
 # OSAPI_GFX_LINE, and a frame-rate readout, so 5.6.4.1's walk can be SEEN
@@ -9650,7 +9663,7 @@ $(BUILD)/pxsbench.o88: $(BUILD)/pxsbench.bin tools/os88pkg.py
 
 # ...and the Video Player's wave 0 (docs/plans/VIDEO-PLAN.md 8): a video
 # frame decoded three ways - XDC's own program, and the plan's operand lists
-# through tests/vidbench/vdec.inc native and translating - on each adapter,
+# through apps/video/vdec.inc native and translating - on each adapter,
 # in the mode the player would take. ON DEMAND ONLY and on no disk: its data
 # is built from XDC streams that are not in the tree, so tests/vidbench.py
 # makes VIDBENCH.DAT and a scratch floppy itself. `make vidbench` is the
@@ -9658,7 +9671,7 @@ $(BUILD)/pxsbench.o88: $(BUILD)/pxsbench.bin tools/os88pkg.py
 .PHONY: vidbench
 vidbench: $(BUILD)/vidbench.o88
 
-$(BUILD)/vidbench.bin: tests/vidbench/vidbench.asm tests/vidbench/vdec.inc tests/benchlib.inc apps/os88api.inc tools/benchlint.py | $(BUILD)
+$(BUILD)/vidbench.bin: tests/vidbench/vidbench.asm apps/video/vdec.inc tests/benchlib.inc apps/os88api.inc tools/benchlint.py | $(BUILD)
 	python3 tools/benchlint.py tests/vidbench/vidbench.asm
 	$(NASM) -f bin -w+error -I apps/ -I tests/ -o $@ tests/vidbench/vidbench.asm
 	@echo "vidbench: $(call FILESIZE,$@) bytes"
@@ -12081,9 +12094,10 @@ LIVESYSARGS := $(addprefix SYSTEM:,$(filter-out $(APPSYS),$(SYSAPPS)))
 # off every floppy - and why taking it off the floppies alone was not the
 # removal anybody thought it was. tests/unit/t_retired.py reads
 # build/livepayload.txt and fails if it comes back.
-LIVEPKGDEPS := $(BUILD)/recorder.o88 $(BUILD)/hello.o88 \
+LIVEPKGDEPS := $(BUILD)/recorder.o88 $(BUILD)/hello.o88 $(BUILD)/video.o88 \
                $(SCRIBEDISK) $(MEDIA_EXTRA)
-LIVEPKGARGS := $(addprefix APPS:,$(BUILD)/recorder.o88 $(BUILD)/hello.o88) \
+LIVEPKGARGS := $(addprefix APPS:,$(BUILD)/recorder.o88 $(BUILD)/hello.o88 \
+                                 $(BUILD)/video.o88) \
                $(addprefix SCRIBE:,$(SCRIBEDISK)) \
                $(addprefix MEDIA:,$(MEDIA_EXTRA))
 $(if $(LIVESYSARGS),,$(error LIVESYSARGS is empty - $(SYSAPPS) and $(APPSYS) \

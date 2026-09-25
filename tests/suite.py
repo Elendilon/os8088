@@ -8049,7 +8049,7 @@ SOAK = [
     Row("vidbench", "soak", py("tests/vidbench.py"), 25.0,
         "docs/plans/VIDEO-PLAN.md wave 0 (a)(d): what a video frame COSTS, "
         "decoded as XDC's own program and as the plan's operand lists "
-        "(tests/vidbench/vdec.inc), to the screen, to a RAM shadow and "
+        "(apps/video/vdec.inc), to the screen, to a RAM shadow and "
         "shadow-then-copy, on MartyPC's cycle-exact 5150. The assertion is "
         "the PICTURE: every frame applied to black by both decoders must "
         "match the host's checksum (tools/os88vid.py), and every row must "
@@ -8091,6 +8091,34 @@ SOAK = [
         wants=("build/vidsnd.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
                "build/ctrl.drv", "build/sound.drv")),
+    Row("vidplay", "soak", py("tests/vidplay.py"), 40.0,
+        "SPEC.md 98.3: VIDEO.O88 plays a .V88 fullscreen and silent, "
+        "FRAME-EXACT and ON TIME. The clip is made by the row (150 frames, "
+        "30 fps, PCM8 the silent player steps over) and opened by "
+        "double-clicking it. Play 1 holds the ring to 2 slots so the stream "
+        "wraps it, and at each hold - including one after every frame whose "
+        "video runs into the mirror slot, found on the host - the adapter "
+        "must equal tools/os88vid.py's decode byte for byte. Play 2 reads "
+        "the clip whole first and must draw every frame with no stall and "
+        "no late period in 91 ticks within 2. On the CGA 5150; --layout "
+        "herc on the Hercules one. Broken on purpose (the mirror copy "
+        "skipped) it FAILS at exactly those holds",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidplayherc", "soak", py("tests/vidplay.py", "--layout", "herc"),
+        40.0,
+        "SPEC.md 98.3: vidplay's two plays with a HERCULES-layout clip on "
+        "the Hercules 5150, drawn at its centred origin (98.1.2)",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidplayvga", "soak", py("tests/vidplay.py", "--layout", "lin80"),
+        50.0,
+        "SPEC.md 98.3: vidplay's two plays with a LIN80 (mode 12h) clip on "
+        "the XT VGA. Mode 12h is planar, so the holds are taken but the "
+        "picture is NOT read back; what this row asserts is that every "
+        "frame plays through the ring's wraps and on time",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidkern", "soak", py("tests/vidkern.py"), 40.0,
         "Video Player wave 2 (VIDEO-PLAN 4.1-4.3), on the 5150-shaped "
         "os8088_5150_herc_hdd_sb_gla. FSXF_RATE (SPEC.md 53.2.2): three "

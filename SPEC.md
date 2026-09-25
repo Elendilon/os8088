@@ -31698,9 +31698,16 @@ treats it as a cache that can always be rebuilt from the name.
 | in | |
 |---|---|
 | `SI` | a NUL 8.3 name in the current directory, **on every call** (an N cell, §20.3) |
-| `ES:BX` | the buffer |
+| `DX:BX` | the buffer, in a segment of its own |
 | `CX` | its capacity, a whole number of **clusters**, as `READ_AT`'s |
-| `ES:DI` | the 16-byte cursor, in the buffer's segment |
+| `ES:DI` | the 16-byte cursor, anywhere |
+
+**The buffer and the cursor are in separate segments**, and the kernel copies
+the cursor in and back out around the call. The first shape kept both in
+ES, which fits one buffer and nothing else: a player's ring reads every
+chunk into a different 32 KB slot, and no one segment reaches both a slot
+and a cursor kept beside the ring (98.3). It cost 55 bytes of `.cold` and
+20 of `.bss`.
 
 Out `CF=0` with `DX:AX` = the bytes delivered and the cursor advanced past
 them, 0 meaning at or past the end; `CF=1` with `AX = FERR_*`.
@@ -31759,8 +31766,8 @@ what `READ_AT` has no words for:
   end;
 - advances `+12`.
 
-That is why it costs **197 bytes of `.cold` and 9 of `.text`**, where a body
-of its own measured 331.
+That is why it costs **252 bytes of `.cold`, 9 of `.text` and 21 of
+`.bss`**, where a body of its own measured 331 before the cursor copy.
 
 **Measured** on `os8088_5150_herc_hdd_sb_gla` (XT-IDE, CPU-copied, 2 KB
 clusters), 32 KB a call (`tests/vidkern.py`):
@@ -148840,9 +148847,13 @@ standard it is measured against). The design record is
 `docs/plans/VIDEO-PLAN.md`, and `docs/reports/VIDEO-W0-2026-09-25.md` is the
 measurement that settled the format.
 
-**It arrives in waves, and this section says which.** What exists is wave 1:
-the FILE (98.1) and its host tools (98.2). The player is wave 3; nothing on
-any shipped disk reads a `.V88` yet.
+**It arrives in waves, and this section says which.** What exists:
+- wave 1: the FILE (98.1) and its host tools (98.2);
+- wave 2: the kernel's three changes (§53.2.2, §12.8.5.2, §18.4.8);
+- wave 3: **the player, fullscreen and silent** (98.3), in `apps/video/`.
+
+Sound (wave 4), a file on a surface it was not laid out for (wave 5), the
+Preview (6), In-window (7) and Live (9) are not built yet.
 
 ### 98.1 The file
 
@@ -148876,12 +148887,21 @@ stream behind them is read sequentially.
 | 16 | 1 | audio: 0 none, 1 PCM8 (unsigned 8-bit mono), 2 ADPCM4 (Creative 4-bit; its bytes per frame and reference-byte rule are wave 4's, and no version 1 tool writes it) |
 | 17 | 1 | renditions, 1..4; **1 in version 1** |
 | 18 | 2 | audio bytes per frame: 0 with no audio, the samples per frame with PCM8 |
-| 20 | 12 | 0 |
+| 20 | 2 | **the PIT divisor** for a timer-paced play (§53.2.2), `FSX_RATE_MIN`..65,535 |
+| 22 | 1 | **periods a frame** at that divisor, ≥ 1: 2 for a 15 fps file, whose own period is past 65,535 |
+| 23 | 9 | 0 |
 | 32 | 48 | title, ASCII, NUL-terminated within the field |
 | 80 | 96 | credits, the same |
 | 176 | 16 | 0 |
 | 192 | 256 | four rendition slots of 64 bytes; the first *renditions* are used, the rest are 0 |
 | 448 | 64 | 0 |
+
+**The divisor is the host's arithmetic, not the player's.** `1,193,182 ×
+samples / rate` is a 38-bit product, which an 8086 would need two divides to
+reach. So the encoder writes it: the smallest *n* whose period `1,193,182 /
+(fps × n)` fits 16 bits, and that period rounded. A frame is shown every *n*
+periods. With a sound card the card's own interrupt paces the file and these
+two fields are not read.
 
 **A rendition is one canvas and its own stream.** Version 1 writes exactly
 one. The table is there so that a later file can carry a canvas per adapter
@@ -148958,7 +148978,7 @@ SLICEL          = len(16) bytes     256+          RUNL = len(16) value  256+
   frame record: the decoder's SI is on it when the tenth list ends.
 
 The reference decoder is `decode_lists` in `tools/os88vid.py`, and the
-guest's is `tests/vidbench/vdec.inc` until the player takes it (wave 3).
+guest's is `apps/video/vdec.inc`, the player's and the bench's one copy.
 
 A keyframe table entry is 16 bytes, ascending by frame:
 
@@ -149028,6 +149048,97 @@ segments, not by trust:
   otherwise the same write reaches the neighbour of the claim.
 - **A read** runs at most off the end of the record into the super-packet
   buffer's own segment, which is harmless.
+
+### 98.3 The player — `VIDEO.O88`, fullscreen and silent (wave 3)
+
+Package **`VIDEO.O88`**, header name `'Video Player'`, label prefix `vp_`
+(`apps/video/video.asm`; the decoder is `apps/video/vdec.inc`, wave 0's,
+moved). Its window names the file and its numbers, and **P** (or the
+menu's Play) plays it fullscreen. **Esc stops** at the foreground's next
+poll, whatever the frame rate. When the bracket returns, the window shows
+what the play cost.
+
+**It takes a file of its surface's own layout** (98.1.2) in that layout's
+mode, and nothing else yet:
+
+| layout | adapters | mode | segment |
+|---|---|---|---|
+| CGA | CGA, and a VGA or EGA through mode 6 | `FSXM_CGA640` | from the info block (§53.4) |
+| HERC | Hercules | `FSXM_HERC` | ...page 0 |
+| LIN80 | VGA | `FSXM_VGA12`, the BIOS's own write state: Map Mask 0Fh puts a MONO1 byte in all four planes | ... |
+
+A file whose layout's mode this display cannot set (`OSAPI_FSX_CAPS`) greys
+Play with the reason (§47). The shadow path for it is wave 5's. The canvas
+is centred, its row rounded down to the layout's bank count, and that
+origin is the decoder's BP.
+
+**The pace is `FSXF_RATE`** (§53.2.2) at the header's divisor, a frame every
+*n* periods. **The decode is in the hook**, XDC's shape, so a frame is drawn
+on time however long the disk takes:
+- The hook adds the periods it is handed to what it owes, and draws **at
+  most two frames a call**: one due and one owed. Owing more than that is
+  counted as **late** and forgiven, because a delta frame cannot be skipped.
+- It `sti`s for the decode, so a disk's completion interrupt is not held
+  behind a frame.
+- A frame whose super-packet is not yet in memory is not drawn: that call
+  counts a **stall**, and the picture holds until the reader catches up.
+  With no sound there is nothing else to keep in step.
+
+**The reader is the foreground**, the bracket's own loop, through
+`OSAPI_FILE_READ_SEQ` in 32 KB chunks:
+- **A ring of *K* 32 KB slots, *K* a power of two up to 8**, sized from
+  `OSAPI_MEM_AVAIL`. A stream that fits is read whole before the first
+  frame.
+- **One MIRROR slot after the last.** Every chunk that lands in slot 0 is
+  copied there, so a super-packet that starts in the last slot runs on into
+  the mirror and is contiguous in memory. That is the ring rule of 98.1.4,
+  kept for a stream read in chunks that are not super-packets. It costs 32
+  KB of `rep movsw` once per *K* chunks.
+- **Chunks, not super-packets, because READ_SEQ reads CLUSTERS**: the stream
+  starts on a sector, so the first chunk is read from the cluster boundary
+  below it, and the player starts that far in.
+- **A slot is refilled only once the hook has left it**: the chunk being
+  read must be less than the hook's super-packet's chunk plus *K*.
+  **"Left" is the moment its LAST frame is drawn**, not the moment the next
+  super-packet is entered. The first build waited for the entry, and with
+  *K* = 2 that DEADLOCKED: a super-packet starting late in chunk *c* needs
+  chunk *c*+2, which the reader may not load until chunk *c* is left, and
+  the hook would not leave it until it could enter. `tests/vidplay.py` found
+  it on its first run.
+- The ring is filled before the first frame. After that the loop reads
+  whenever a slot is free and otherwise waits a period (`FSXW_FRAME`),
+  polling the keyboard between the two.
+
+**What it checks**, 98.1.6's list:
+- the header, before anything is claimed;
+- every super-packet's `next` (1..64 or 0) and `frames`, as the hook enters
+  it;
+- every record's `len` against what is left of its super-packet, as it is
+  decoded.
+
+A bad one ends the play with the reason in the window. The lists are not
+checked, and cannot reach past the adapter's own segment (98.1.6).
+
+**The window after a play shows**: frames drawn of the file's, stalls, late
+periods, and the play's length in ticks against the file's own.
+
+**Measured** (`tests/vidplay.py`, a 150-frame 30 fps clip the row makes,
+opened by double-clicking it):
+- **Frame-exact on CGA and on Hercules.** With the ring held to 2 slots the
+  stream wraps it several times, and at every hold the adapter equals the
+  host's decode byte for byte. That includes a hold after each frame whose
+  video runs into the mirror, which the row finds on the host and requires
+  at least one of. With the mirror copy deleted, those holds fail.
+- **On time.** Read whole first, all 150 frames drew with no stall and no
+  late period in **91–92 ticks** against an ideal of 91.0, on CGA, on
+  Hercules and in mode 12h on the XT VGA. Mode 12h's picture is not read
+  back: it is planar, and a CPU read of A000 is one plane.
+- `VIDEO.O88` is **5,258 bytes**, 3.5 KB on disk.
+
+**It ships on the live media only** (`LIVEPKGARGS`, beside Recorder and
+Hello). There is no video to ship with it yet: the owner's XDC streams are
+copyrighted, and the os8088 logo video is a later wave. A floppy is where
+every cluster is somebody's.
 
 ### 98.2 The host tools — `tools/os88vid.py`
 

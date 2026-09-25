@@ -807,6 +807,23 @@ def flat(cv):
         if cv else True
 
 
+PIT_HZ = 1193182
+FSX_RATE_MIN = 2048             # apps/os88api.inc's
+
+
+def pit_rate(rate, spf):
+    """(divisor, periods a frame) for FSXF_RATE (SPEC.md 98.1.1): the fewest
+    periods a frame whose period fits 16 bits, and that period rounded."""
+    n = 1
+    while PIT_HZ * spf / (rate * n) > 65535:
+        n += 1
+    div = round(PIT_HZ * spf / (rate * n))
+    if div < FSX_RATE_MIN:
+        raise V88Error("%.1f fps is faster than FSXF_RATE can pace"
+                       % (rate / spf))
+    return div, n
+
+
 class Writer:
     """Collects a stream frame by frame and writes SPEC.md 98.1's file."""
 
@@ -882,6 +899,7 @@ class Writer:
         hdr[0:4] = V88_SIG
         struct.pack_into("<HHIHHBBH", hdr, 4, 1, 0, len(self.recs), self.rate,
                          self.spf, self.audio_fmt, 1, self.abytes)
+        struct.pack_into("<HB", hdr, 20, *pit_rate(self.rate, self.spf))
         for off, size, text in ((32, 48, self.title), (80, 96, self.credits)):
             t = text.encode("ascii", "replace")[:size - 1]
             hdr[off:off + len(t)] = t
@@ -983,6 +1001,12 @@ class Reader:
         if self.abytes != want[self.audio]:
             raise V88Error("%d audio bytes a frame with format %d and %d "
                            "samples" % (self.abytes, self.audio, self.spf))
+        self.pitdiv, self.pitper = struct.unpack_from("<HB", d, 20)
+        if (self.pitdiv, self.pitper) != pit_rate(self.rate, self.spf):
+            raise V88Error("PIT divisor %d x %d for %d Hz / %d; it should be "
+                           "%d x %d" % ((self.pitdiv, self.pitper, self.rate,
+                                         self.spf) +
+                                        pit_rate(self.rate, self.spf)))
         self.title = d[32:80].split(b"\0")[0].decode("ascii", "replace")
         self.credits = d[80:176].split(b"\0")[0].decode("ascii", "replace")
         (self.pixfmt, layout, wb, h, an, ad, self.ktab, self.nkeys,
@@ -1356,9 +1380,10 @@ def cmd_info(a):
         print("%s: '%s'" % (path, r.title))
         if r.credits:
             print("   credits: %s" % r.credits)
-        print("   %d frames at %.3f fps (%d Hz / %d), %.1f s; audio %s"
-              % (r.frames, r.fps, r.rate, r.spf, secs,
-                 {0: "none", 1: "PCM8"}[r.audio]))
+        print("   %d frames at %.3f fps (%d Hz / %d), %.1f s; audio %s; "
+              "PIT %d x %d" % (r.frames, r.fps, r.rate, r.spf, secs,
+                               {0: "none", 1: "PCM8"}[r.audio], r.pitdiv,
+                               r.pitper))
         print("   canvas %d x %d on %s, %s, aspect %d:%d"
               % (g.wb * 8, g.h, g.name,
                  {1: "MONO1", 2: "CGACOMP"}[r.pixfmt], *r.aspect))

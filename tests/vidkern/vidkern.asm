@@ -336,6 +336,7 @@ vk_seq:
     mov cx, 1000
     mov di, VK_CUR
     mov si, vk_f_stream
+    mov dx, es                      ; the buffer: DX:BX (the cursor is ES:DI)
     call OSAPI_FILE_READ_SEQ
     jnc .e
     mov [vk_res+30], ax             ; AX = FERR_* when refused (else 0)
@@ -400,6 +401,7 @@ vk_seq1:
     mov cx, VK_CAP
     mov di, VK_CUR
     mov si, vk_f_stream
+    mov dx, es                      ; the buffer: DX:BX (the cursor is ES:DI)
     call OSAPI_FILE_READ_SEQ
     jnc .ok
     inc word [vk_res+34]

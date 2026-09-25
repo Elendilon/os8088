@@ -189,8 +189,8 @@ because a measurement put it there (section 8, W0).
 - **Reserved list ids** leave room for later operations, first of all
   **COPY**: a block copied from elsewhere on the screen, for pans.
 
-**The decoder is `tests/vidbench/vdec.inc`.** It moves to `apps/video/` in
-W3.
+**The decoder is `apps/video/vdec.inc`** (it moved there from
+`tests/vidbench/` in W3, unchanged).
 - It is one straight-line loop per list, entered Duff-style on the segment's
   count.
 - AH = 0 is an invariant, so a skip is `lodsb / add di,ax`.
@@ -558,9 +558,9 @@ The driver's block is fixed at 2048 bytes (`drivers/sound/sb.inc:103`) and
 | item | bytes (estimate) | **measured, W2** | resident |
 |---|---|---|---|
 | `FSXF_RATE` | 78–118 | **~180 `.text` + 11 `.bss`** | kern_big |
-| `OSAPI_FILE_READ_SEQ` | 150–220 | **197 `.cold` + 9 `.text` + 1 `.bss`** | kern_big (`.cold` is resident) |
+| `OSAPI_FILE_READ_SEQ` | 150–220 | **252 `.cold` + 9 `.text` + 21 `.bss`** (W3 moved the buffer to DX:BX: +55 / +20) | kern_big (`.cold` is resident) |
 | progress fence | < 10 | **3**, plus **7** for the nested-chain switch guard it found | both kernels |
-| **kernel total** | **~240–350 of ~500** | **kern_big 408** (`.text` +199, `.bss` +12, `.cold` +197); **kern_small 26** | |
+| **kernel total** | **~240–350 of ~500** | **kern_big 483** (`.text` +199, `.bss` +32, `.cold` +252); **kern_small 26** | |
 
 **Wave 2 came in at 408 of the owner's ~500.** It was 574 on the first
 build. Two changes brought it down:
@@ -755,9 +755,32 @@ red. A row about one package goes in `soak`.
       KB/s against the controller's 237. The rest is the chain reader's
       per-cluster work, the reserve row above.
     - What the ST-225's DMA controller makes of it is the field's to say.
-- **W3 — player, fullscreen CGA, silent (`FSXF_RATE`).** Gate: guest video
-  memory after frame *N* equals the host decoder's frame *N*; the rate is
-  measured against guest cycles.
+- **W3 — player, fullscreen CGA, silent (`FSXF_RATE`). DONE** (SPEC.md 98.3,
+  `apps/video/`, `tests/vidplay.py` as two soak rows).
+  - **Frame-exact:** with the ring held to 2 slots the stream wraps it, and
+    at every hold the adapter equals the host's decode byte for byte, on CGA
+    and on Hercules (native HERC layout, centred). The holds include one
+    after each frame whose video runs into the mirror slot, found on the
+    host; with the mirror copy deleted they go red.
+  - **On time:** 150 frames at 30 fps in 91 ticks (ideal 91.0), no stall,
+    no late period.
+  - **What it found:**
+    - **A deadlock in the ring rule** (SPEC.md 98.3): a super-packet's
+      chunks must be released when its last frame is drawn, not when the
+      next one is entered.
+    - **`READ_SEQ`'s first shape could not serve a ring.** The cursor had to
+      share the buffer's segment, so the buffer moved to DX:BX; that cost
+      the kernel +55 `.cold` and +20 `.bss`, now 483 of the owner's ~500.
+    - **Content outside a CPU budget runs LATE, and must.** A synthetic
+      frame of 16 KB of slices is ~67 ms of decode against a 33 ms period.
+      The player counts it and never draws a wrong picture; the encoder
+      that prevents it is W8.
+  - **LIN80 (mode 12h) plays on time on the XT VGA** (`vidplayvga`), but
+    its picture is not read back: mode 12h is planar, and a CPU read of A000
+    is one plane. That check is W5's, with the shadow path and the CGACOMP
+    burst.
+  - **The player ships on the live media only** until there is a video to
+    ship with it.
 - **W4 — sound.** SOUND.DRV's frame stream and ADPCM4. Gate: one IRQ per
   frame, bytes played = frames × `achunk`, zero pauses across 60 s off the
   hard disk.

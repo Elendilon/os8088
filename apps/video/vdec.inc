@@ -1,9 +1,9 @@
 ; =============================================================================
-; os8088 - tests/vidbench/vdec.inc
+; os8088 - apps/video/vdec.inc
 ;
-; THE VIDEO PLAYER'S FRAME DECODER, as wave 0 measures it
-; (docs/plans/VIDEO-PLAN.md 2.2). It moves to apps/video/ in wave 3 unchanged
-; if the bench keeps it; until then this is the one copy.
+; THE VIDEO PLAYER'S FRAME DECODER (SPEC.md 98.1.3, 98.3): VIDEO.O88's, and
+; tests/vidbench's, which is how wave 0 measured it against XDC's own code
+; (docs/plans/VIDEO-PLAN.md 2.2). One copy, included by both.
 ;
 ; A frame's video part is TEN lists, in this order, each ending in a 0 byte:
 ;

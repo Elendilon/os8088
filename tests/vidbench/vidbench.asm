@@ -11,7 +11,7 @@
 ; and writes each one twice into VIDBENCH.DAT - XDC's own packet, which is a
 ; program the bench far-calls exactly as XDC_PLAY.PAS does, and the same
 ; frame in the plan's operand format (eight skip-coded lists, section 2.2),
-; which tests/vidbench/vdec.inc decodes. The streams are the owner's and are
+; which apps/video/vdec.inc decodes. The streams are the owner's and are
 ; never committed, so the data file is built by the driver from a path.
 ;
 ; PER FRAME, FIVE ROWS, all in the bracket in the mode the player will use
@@ -742,7 +742,7 @@ vb_run:
 
 %define BL_ARENA_BYTES 8000         ; ~110 lines of at most 78 bytes
 %include "benchlib.inc"
-%include "vidbench/vdec.inc"
+%include "video/vdec.inc"
 
 ; =============================================================================
 ; data
