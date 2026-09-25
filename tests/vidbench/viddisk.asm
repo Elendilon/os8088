@@ -235,6 +235,19 @@ vk_run:
     ; --- (b) READ_AT at growing offsets ------------------------------------
     mov si, vk_s_hdra
     call bl_sline
+    ; STREAM.DAT is the emulator's: a field disk has none unless somebody
+    ; put one beside this package, so a miss skips the five rows rather than
+    ; timing five refusals as if they were reads
+    mov word [vk_off], 0
+    mov word [vk_off + 2], 0
+    call vk_b_rat
+    cmp word [vk_err], 0
+    je .stream
+    mov word [vk_err], 0
+    mov si, vk_s_nostr
+    call bl_sline
+    jmp .ctl
+.stream:
     mov word [bl_n], 6
     mov ax, 0
     mov si, vk_r_r0
@@ -268,6 +281,7 @@ vk_run:
     call bl_kv
 
     ; --- the controller: whole tracks, then single sectors --------------------
+.ctl:
     mov si, vk_s_hdri
     call bl_sline
     mov byte [vk_cyl], 1
@@ -325,6 +339,7 @@ vk_s_title:   db 'VIDDISK - streaming off the fixed disk (VIDEO-PLAN W0 b)', 0
 vk_s_hint:    db 'Click, or press R, to run. It only reads.', 0
 vk_s_hdra:    db '-- READ_AT 32 KB, by offset into a 12.6 MB file --', 0
 vk_s_hdri:    db '-- int 13h on unit 80h: a whole track, one sector --', 0
+vk_s_nostr:   db 'No STREAM.DAT beside VIDDISK: READ_AT rows skipped', 0
 vk_s_fail:    db 'NO CLAIM, OR NO FIXED DISK ANSWERED', 0
 vk_r_r0:      db 'READ_AT 32K @0 MB', 0
 vk_r_r3:      db 'READ_AT 32K @3 MB', 0

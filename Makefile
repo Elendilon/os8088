@@ -9690,6 +9690,27 @@ $(BUILD)/vidsnd.bin: tests/vidbench/vidsnd.asm tests/benchlib.inc apps/os88api.i
 $(BUILD)/vidsnd.o88: $(BUILD)/vidsnd.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/vidsnd.bin -o $@
 
+# ...and the three on ONE 360KB floppy for the owner's 5150 - wave 0's four
+# field questions (VIDEO-PLAN 8; docs/reports/VIDEO-W0-2026-09-25.md). The
+# frame file is cut from the owner's XDC streams, which are not in the tree,
+# so it needs XDCSAMPLES=<dir> (or $OS88_XDC_SAMPLES) and is never shipped:
+# the picks and one-construct frames tests/vidbench.py times, plus the three
+# frames that were OUR heaviest in the emulator
+XDCSAMPLES ?= $(OS88_XDC_SAMPLES)
+VIDFIELD_XDV = BADAPPLE THUNDERC TRONDISC BBBB_BW
+.PHONY: vidfield
+vidfield: $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 $(BUILD)/vidsnd.o88 tools/os88vid.py tools/os88disk.py tests/vidbench/FIELD.TXT
+	@test -n "$(XDCSAMPLES)" || { echo "vidfield: needs XDCSAMPLES=<dir of the XDC streams>"; exit 1; }
+	rm -rf $(BUILD)/vidfield && mkdir -p $(BUILD)/vidfield
+	python3 tools/os88vid.py benchdat --limit 194560 --synth \
+	    --extra BADAPPLE.XDV:3513 --extra TRONDISC.XDV:396 --extra THUNDERC.XDV:48 \
+	    $(BUILD)/vidfield/VIDBENCH.DAT $(foreach v,$(VIDFIELD_XDV),$(XDCSAMPLES)/$(v).XDV) >/dev/null
+	cp tests/vidbench/FIELD.TXT $(BUILD)/vidfield/README.TXT
+	python3 tools/os88disk.py -o $(BUILD)/vidfield360.img --size 360 \
+	    $(BUILD)/vidfield/README.TXT $(BUILD)/vidbench.o88 $(BUILD)/vidfield/VIDBENCH.DAT \
+	    $(BUILD)/vidsnd.o88 $(BUILD)/viddisk.o88
+	python3 tools/os88disk.py --verify $(BUILD)/vidfield360.img
+
 # ...and the one that shows a FACE rather than timing one: it draws the same
 # sentence through the kernel, through face 0, and through both of the
 # library's compose loops, so a screendump is the whole assertion (SPEC.md 6.5).

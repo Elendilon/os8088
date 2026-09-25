@@ -569,6 +569,10 @@ def cmd_benchdat(a):
     for f in a.frame or []:
         name, _, idx = f.rpartition(":")
         want.setdefault(name.upper(), set()).add(int(idx))
+    extra = {}
+    for f in a.extra or []:
+        name, _, idx = f.rpartition(":")
+        extra.setdefault(name.upper(), set()).add(int(idx))
     for path in a.files:
         rows = []
         base = os.path.splitext(os.path.basename(path))[0][:6].upper()
@@ -598,6 +602,9 @@ def cmd_benchdat(a):
                 r = max(rows, key=key)
             if r["i"] not in [c["i"] for c in chosen]:
                 chosen.append(r)
+        for i in sorted(extra.get(os.path.basename(path).upper(), ())):
+            if i not in [c["i"] for c in chosen]:
+                chosen.append(next(r for r in rows if r["i"] == i))
         for r in chosen:
             r["label"] = ("%s %d" % (base, r["i"]))[:12]
             picked.append(r)
@@ -658,6 +665,8 @@ def main():
     s.add_argument("--max", type=int, default=32)
     s.add_argument("--frame", action="append", metavar="FILE:INDEX",
                    help="time exactly these frames instead of the picks")
+    s.add_argument("--extra", action="append", metavar="FILE:INDEX",
+                   help="time this frame as well as the picks")
     s.add_argument("--synth", action="store_true",
                    help="append the one-construct frames (synth_frames)")
     s.add_argument("--limit", type=int, default=150 * 1024)

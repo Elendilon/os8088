@@ -101,9 +101,11 @@ def main():
     ap.add_argument("--label", default="")
     ap.add_argument("--frame", action="append", metavar="FILE:INDEX",
                     help="time exactly these frames (os88vid benchdat --frame)")
+    ap.add_argument("--dat", help="run this VIDBENCH.DAT as it is - `make "
+                    "vidfield`'s, to check the field disk's own file")
     a = ap.parse_args()
     os.chdir(ROOT)
-    if not a.samples:
+    if not a.samples and not a.dat:
         skip("no --samples DIR / $OS88_XDC_SAMPLES (the XDC streams are the "
              "owner's and are not in the tree)")
 
@@ -118,7 +120,11 @@ def main():
 
     with tempfile.TemporaryDirectory() as tmp:
         dat = os.path.join(tmp, "VIDBENCH.DAT")
-        print(build_dat(a.samples, dat, a.frame), end="")
+        if a.dat:
+            with open(a.dat, "rb") as src, open(dat, "wb") as dst:
+                dst.write(src.read())
+        else:
+            print(build_dat(a.samples, dat, a.frame), end="")
         frames = dat_dir(dat)
         disk = os.path.join(tmp, "vidbench.img")
         subprocess.run([sys.executable, "tools/os88disk.py", "-o", disk,

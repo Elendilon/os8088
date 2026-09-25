@@ -52,6 +52,9 @@ def u16(b, i=0):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--machine", default="os8088_5150_herc_hdd_sb_gla")
+    ap.add_argument("--no-stream", action="store_true",
+                    help="leave STREAM.DAT off the disk, as a field disk "
+                    "has it: the READ_AT rows must SKIP and int 13h still run")
     a = ap.parse_args()
     os.chdir(ROOT)
     syms, image = pkg_syms("tests/vidbench/viddisk.asm", ("apps/", "tests/"))
@@ -78,9 +81,9 @@ def main():
              "--vbr", os88build.at("build/boothd.bin"),
              "--mbr", os88build.at("build/mbr.bin"),
              "--file", "HDD.DRV=" + os88build.at("build/hdd.drv"),
-             "--file", "VIDDISK.O88=" + os88build.at("build/viddisk.o88"),
-             "--file", "STREAM.DAT=" + stream], check=True,
-            capture_output=True)
+             "--file", "VIDDISK.O88=" + os88build.at("build/viddisk.o88")] +
+            ([] if a.no_stream else ["--file", "STREAM.DAT=" + stream]),
+            check=True, capture_output=True)
         m = os88marty.launch(None, machine=a.machine,
                              extra=["--mount", "hd:0:" + vhd])
         try:
@@ -117,14 +120,20 @@ def main():
     for i, lab in enumerate(ROWS):
         n = 32768 if i < 5 else (spt * 512 if i == 5 else 512)
         ms = us[i] / 1000.0
+        if a.no_stream and i < 5:
+            if us[i]:
+                bad.append("%s ran with no STREAM.DAT - the skip failed" % lab)
+            continue
         if us[i] <= 0:
             bad.append("%s produced no number" % lab)
         print("   %-22s %12.1f %12.1f" % (lab, ms,
                                           n / 1024.0 / (ms / 1000.0)
                                           if ms else 0))
-    slope = (us[4] - us[0]) / 12.0 / 1000.0
-    print("\n   READ_AT grows %.1f ms per MB of offset (the chain walk)" % slope)
-    if got != 32768:
+    if not a.no_stream:
+        slope = (us[4] - us[0]) / 12.0 / 1000.0
+        print("\n   READ_AT grows %.1f ms per MB of offset (the chain walk)"
+              % slope)
+    if not a.no_stream and got != 32768:
         bad.append("READ_AT delivered %d bytes, not 32768" % got)
     if err:
         bad.append("%d calls errored" % err)
