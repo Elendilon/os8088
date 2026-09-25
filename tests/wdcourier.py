@@ -43,7 +43,7 @@ The tolerance on leg B is ONE CARET BAR and not zero: the bar is `[wd_gh]`
 pixels of a single column, and the row the caret leaves gives exactly that
 many back.
 """
-import os, sys, time, subprocess, tempfile, argparse, functools
+import os, sys, subprocess, tempfile, argparse, functools
 print = functools.partial(print, flush=True)
 os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, "tools"); sys.path.insert(0, "tests")
@@ -94,7 +94,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     dispcp.open_drive(m, mo, S, M.settle, "B")
     w = dispcp.win_list(m, S)[-1]; dx, dy = dispcp.win_rect(m, S, w)[:2]
     dispcp.open_named(m, mo, S, M.settle, dx, dy, "WELCOME.DOC")
-    time.sleep(2.5); M.settle(m)
+    M.ui_done(m, "Word to open WELCOME.DOC"); M.settle(m)
 
     raw = m.read(S("inst_tab"), 32*12); seg = None
     for i in range(12):
@@ -128,7 +128,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     waits(lambda: fopen() == 1, "the Font list to come down")
     nfont = rb("wd_nfont")
     if nfont < 1:
-        mo._edge(False); time.sleep(1.0)
+        mo._edge(False); M.pace(m, 1.0)
         print("   this disk carries no faces - nothing to test")
         sys.exit(0)
     top = u16(m.read(Rf + DR_TOP, 2))
@@ -235,9 +235,10 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
         print("\nFAILED: nothing to click on"); sys.exit(1)
     print("   clicking row %d at y=%d (the row above it is %d, ink %d)"
           % (target, ryb(target), target - 1, before[target-1]))
-    mo.to(tx + 40, ryb(target) + gh // 2); time.sleep(0.3)
+    mo.to(tx + 40, ryb(target) + gh // 2); M.pace(m, 0.3)
     with M.bp_trace(m, base + syms["wd_rflush"], on_hit=on_flush, cap=4000) as tr:
-        m.mouse(l=True); time.sleep(0.12); m.mouse(l=False); time.sleep(2.5)
+        m.mouse(l=True); M.pace(m, 0.12); m.mouse(l=False)
+        M.ui_done(m, "Word to handle the click")
     SEEN = [h["hit"] for h in tr.hits if h.get("hit")]
     M.settle(m)
 
@@ -298,8 +299,8 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     with M.bp_trace(m, base + syms["wd_stdiff"], on_hit=atdiff, cap=256):
         for i in range(5):
             mo.to(tx + 40 + i * 24, ryb(3) + gh // 2 + i * ghb)
-            time.sleep(0.25)
-            m.mouse(l=True); time.sleep(0.1); m.mouse(l=False); time.sleep(1.0)
+            M.pace(m, 0.25)
+            m.mouse(l=True); M.pace(m, 0.1); m.mouse(l=False); M.pace(m, 1.0)
     M.settle(m)
     check("D: the status line is drawn with the pen LIVE in a chosen face",
           dis[0] > 0 and dis[1] == 0,
@@ -310,7 +311,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # ...and the same for an ARROW, which seeds through the other door
     before = profile(); tops = [ryb(r) for r in range(vrows)]
     for _ in range(3):
-        m.key("ArrowDown"); time.sleep(0.6)
+        m.key("ArrowDown"); M.pace(m, 0.6)
     M.settle(m)
     if [r for r in range(vrows) if ryb(r) != tops[r]]:
         print("   the arrows scrolled - the ratchet is the click's alone")
@@ -328,8 +329,8 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     # E is about. G and H are the second: a BLANK row stepped a literal 8, so
     # the first one below the last real row sat inside its glyphs and its
     # erase took the bottom off - "Files too." with its lower rows cut.
-    mo.to(tx + 8, ryb(0) + 2); time.sleep(0.3)
-    m.mouse(l=True); time.sleep(0.1); m.mouse(l=False); time.sleep(1.0)
+    mo.to(tx + 8, ryb(0) + 2); M.pace(m, 0.3)
+    m.mouse(l=True); M.pace(m, 0.1); m.mouse(l=False); M.pace(m, 1.0)
     mo.to(4, 4); M.settle(m)
     absrow = lambda: (lambda v: v - 0x10000 if v & 0x8000 else v)(rw("wd_currow")) + rw("wd_top")
     stall = None

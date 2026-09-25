@@ -734,7 +734,7 @@ opl_free:
     ret
 
 ; =============================================================================
-; opl_fm_op - the body behind OSAPI_SND_FM (slot 0x00F8, SPEC.md 34.2)
+; opl_fm_op - the body behind OSAPI_SND_FM (slot 0x00E3, SPEC.md 34.2)
 ;
 ; in:       AL = verb - 0 note-on (CL = channel, BX = Hz), 1 note-off (CL),
 ;           2 patch-load (CL, ES:SI -> 11 bytes ALREADY STAGED BY THE KERNEL

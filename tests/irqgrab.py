@@ -40,7 +40,6 @@ called at all.
 import argparse
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 import os88marty                                               # noqa: E402
@@ -78,15 +77,18 @@ def wait_text(m, want, secs=120):
                 [r.rstrip() for r in (m.screen() or []) if r.strip()][-8:]))
 
 
-def sweep(m, dx, dy, n=10):
+def sweep(m, dx, dy, n=10, read=None):
     """Move the pointer with the guest RUNNING - `pace='wall'`, because
     `advance(frames=)` stops the emulator between packets and the box then
-    never gets a slice to poll the mouse in."""
+    never gets a slice to poll the mouse in. Then until `read` - the pointer
+    and the vector - has held still for a guest second: the last packet is in
+    and the box's key poll has sampled it."""
     r = os88mouserel.Rel(m, pace="wall")
     for _ in range(n):
         r.move(dx, dy)
     m.run()
-    time.sleep(2.0)
+    os88marty.quiesce(m, read, guest=0.5, stable=2,
+                      what="the pointer to stop moving")
 
 
 def main(argv):
@@ -102,7 +104,8 @@ def main(argv):
         wait_text(m, "TOOK int 0Ch")
 
         before = (word(m, mx), word(m, my))
-        sweep(m, 40, 12)
+        pos = lambda: (word(m, mx), word(m, my), vec(m, 0x0C))
+        sweep(m, 40, 12, read=pos)
         after = (word(m, mx), word(m, my))
         seg, off = vec(m, 0x0C)
         print("irqgrab: while the program holds it: int 0Ch -> %04X:%04X, "
@@ -122,7 +125,7 @@ def main(argv):
 
         # ...and the other direction, which is what says the re-arm did not
         # merely nail the pointer to one corner.
-        sweep(m, -40, -12)
+        sweep(m, -40, -12, read=pos)
         back = (word(m, mx), word(m, my))
         print("irqgrab: ...and back: %s" % (back,))
         if back == after:

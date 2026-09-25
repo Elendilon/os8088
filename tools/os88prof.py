@@ -1,7 +1,7 @@
 """os88prof - a sampling profiler for the guest, costing the guest nothing.
 
     nasm -f bin -w+error -DTRKLOG -I apps/ -I apps/tracker/ -I tests/ \\
-         -o /dev/null -l /tmp/tl.lst apps/tracker/tracker.asm
+         -o /tmp/tl.bin -l /tmp/tl.lst apps/tracker/tracker.asm
     python3 tools/os88prof.py /tmp/tl.lst 25
 
 

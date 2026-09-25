@@ -1439,6 +1439,31 @@ overlays = [
     type = "CGA"
     clock_mode = "Dynamic"
 
+# os8088_5150_cga_4fdd_gla - the four-drive 5150 above on GLaBIOS, differing
+# in `rom_set` alone (t_machines check 3). tests/assocsweep.py's `four` leg is
+# what named it: A: system, B: apps, D: media, the field's three-disk layout
+# (SPEC.md 54.4.2.2), and a row must run on a box with no IBM ROM.
+[[machine]]
+name = "os8088_5150_cga_4fdd_gla"
+type = "Ibm5150v256K"
+rom_set = "glabios_pc"
+speaker = true
+overlays = [
+    "pcxt_4_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"
+
 # ...and THE configuration SPEC.md 18.98 exists for: the field 5150's own
 # drives plus an IBM 4865 on the 5.25" adapter's external 37-pin connector.
 # Two internal 360k and an 80-CYLINDER 720k as unit 2, which is the only place

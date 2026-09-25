@@ -802,7 +802,7 @@ osapi_snd_caps:
     ret
 
 ; -----------------------------------------------------------------------------
-; osapi_snd_fm - the public FM request (slot 0x00F8, SPEC.md 20.3/34.2)
+; osapi_snd_fm - the public FM request (slot 0x00E3, SPEC.md 20.3/34.2)
 ;
 ; in:       AL = verb, and the verb's own registers. Verb 2's patch pointer
 ;           has ALREADY been staged into the kernel by the slot's X stub, so
@@ -880,7 +880,7 @@ osapi_snd_fm:
 %endif                          ; OS88_SNDCARD - the FM slot's live body ends
 
 ; -----------------------------------------------------------------------------
-; osapi_snd_stream - the public stream request (slot 0x0100, SPEC.md 34.5)
+; osapi_snd_stream - the public stream request (slot 0x00EA, SPEC.md 34.5)
 ; in:       AL = verb, and the verb's own registers
 ; out:      AX = the verb's answer; DX = bytes consumed ON VERB 3 ONLY;
 ;           CF = 1 no streaming sink, or the driver refused
@@ -955,7 +955,7 @@ osapi_snd_stream:
 %endif                          ; OS88_SNDCARD - the stream slot's live body
 
 ; -----------------------------------------------------------------------------
-; osapi_snd_tone - the public tone request (slot 0x00E8, SPEC.md 20.3)
+; osapi_snd_tone - the public tone request (slot 0x00D3, SPEC.md 20.3)
 ;
 ; in:       AX = frequency Hz (0 = off), CX = duration ticks (0 = until off),
 ;           DL = priority
@@ -1003,7 +1003,7 @@ snd_req_inst:
     jmp inst_caller
 
 ; -----------------------------------------------------------------------------
-; osapi_snd_play - PCM_EXCL clip, run-to-completion (slot 0x00F0, SPEC.md
+; osapi_snd_play - PCM_EXCL clip, run-to-completion (slot 0x00DB, SPEC.md
 ;                  20.3/34.4 - live from Phase 2)
 ;
 ; in:       ES:SI = 8-bit unsigned mono samples, CX = count (<= 65535),

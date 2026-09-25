@@ -99,11 +99,10 @@ DSV_R_LEAD  equ 39              ; 26: the failure notice's lead line, NUL
                                 ;     the words and the composer on every
                                 ;     machine, including the ones with no such
                                 ;     driver at all
-DSV_R_SIZE  equ 65
+DSV_R_SIZE  equ 39
 DSV_CAPMAX  equ 12              ; the four field widths, named because the copy
 DSV_FILEMAX equ 13              ; and the .bss cells must agree
 DSV_NAMEMAX equ 12
-DSV_LEADMAX equ 26
 %else
 DESK_NZ     equ DVOL_MAX
 %endif
@@ -266,7 +265,7 @@ desk_init:
     xor cl, cl
 .zloop:
     mov bl, cl
-    call KERNEL_SEG:dsk_vol_slot      ; FAR: overlay -> resident. It clobbers
+    call COLD_SEG:dkf_dsk_vol_slot ; FAR: window -> cold, no .text thunk. It clobbers
     xor al, al                  ; "BX (the output), flags", so AL is free
     cmp byte [bx+DV_KIND], DVK_FREE
     je .zskip                   ; the probe retired it - do not hand it back.
@@ -320,7 +319,10 @@ desk_init:
     call dsk_fdd_probe          ; preserves BX, CX, DX and ES: CL and the
 %endif                          ; count in DH both survive it. AL is IGNORED
     mov al, cl
-    call KERNEL_SEG:dsk_flop_add        ; FAR: overlay -> resident
+    OVWCALL dsk_flop_add_x      ; window -> window: both bodies are `.ovlw`,
+                                ; so the far call names FAT_SEG itself and the
+                                ; `.text` thunk it used to bounce through is
+                                ; gone (kernel size pass 5, -6 resident)
 .eskip:
     inc cl
     cmp cl, 4
@@ -337,7 +339,7 @@ desk_init:
     xor cl, cl
 .kloop:
     mov bl, cl
-    call KERNEL_SEG:dsk_vol_slot      ; FAR: overlay -> resident; BX = the row
+    call COLD_SEG:dkf_dsk_vol_slot ; FAR: window -> cold; BX = the row
     cmp byte [bx+DV_KIND], DVK_BIOS
     jne .knext                  ; a driver's volume, or a free row
     mov dl, [bx+DV_UNIT]
@@ -444,12 +446,12 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; resident now and desk_init far-calls it like any other overlay->text step.
 ; -----------------------------------------------------------------------------
 desk_rowcalc_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
 
     ; --- which ICON, and therefore how tall a zone is (SPEC.md 26.4) --------
     ; The CGA's pixels are 2.4:1 tall, so the 32-row diskette renders as a
@@ -1035,12 +1037,12 @@ desk_zones_paint_x:
 ; outs: none (all registers preserved)
 ; -----------------------------------------------------------------------------
 desk_click_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
+
+
+
+
+
 
     mov di, cx                  ; DI/SI = the click, and CL = the volume:
     mov si, dx                  ; desk_zone_xy ANSWERS in AX and DX, so the
@@ -1083,10 +1085,10 @@ desk_click_x:
                                 ; finds "same zone" and returns, which IS the
                                 ; restamp, with the tick already stamped
     ; --- double-click: deselect + redraw under our lock, then open ----------
-    call KERNEL_SEG:cw_gfx_lock               ; the store is INSIDE the lock, here and in
+    call ct_cw_gfx_lock                       ; the store is INSIDE the lock, here and in
     mov byte [desk_sel], 0xFF   ; both paths below: desk_zone_redraw's partial
     call desk_zone_redraw       ; case flips the highlight rather than redrawing
-    call KERNEL_SEG:cw_gfx_unlock             ; it, so no other painter may see the new
+    call ct_cw_gfx_unlock                     ; it, so no other painter may see the new
                                 ; selection and act on it in between
 %ifndef KERN_SMALL
     cmp al, DESK_SVZ            ; the SERVICE zone opens a PACKAGE, not a
@@ -1114,7 +1116,7 @@ desk_click_x:
     je .out                     ; desk_sel's only runtime writer (desk_init
                                 ; writes it once at boot): equal means the
                                 ; too-slow arm, and there is nothing to redraw
-    call KERNEL_SEG:cw_gfx_lock
+    call ct_cw_gfx_lock
     mov [desk_sel], al          ; the STORE is still inside it (SPEC.md 26.3)
     cmp ah, 0xFF
     je .selnew
@@ -1123,17 +1125,17 @@ desk_click_x:
     xchg al, ah
 .selnew:
     call desk_zone_redraw       ; selected redraw of the new zone
-    call KERNEL_SEG:cw_gfx_unlock
+    call ct_cw_gfx_unlock
     jmp .out
 
 .miss:
     mov al, [desk_sel]          ; empty desktop click clears the selection
     cmp al, 0xFF
     je .out
-    call KERNEL_SEG:cw_gfx_lock
+    call ct_cw_gfx_lock
     mov byte [desk_sel], 0xFF
     call desk_zone_redraw       ; AL = the old zone
-    call KERNEL_SEG:cw_gfx_unlock
+    call ct_cw_gfx_unlock
 
 .out:
     jmp kretfc_di
@@ -1182,7 +1184,7 @@ desk_zone_redraw:
                                 ; survives in AX/BX/CX/DX for the test below
     jc .full                    ; too many fragments: repaint the world
     jz .none                    ; wholly covered: nothing of it is on screen
-    call KERNEL_SEG:cw_wm_clip_test           ; is the WHOLE zone inside one fragment?
+    call ct_cw_wm_clip_test                   ; is the WHOLE zone inside one fragment?
     pop ax                      ; BELOW the test, which reads the rect out of
                                 ; AX/BX/CX/DX - and `pop` writes no flags, so
                                 ; clip_test's CF crosses it and both arms
@@ -1217,7 +1219,7 @@ desk_zone_hilite:
     call desk_zone_rect         ; the DRAWN rect...
     add ax, DESK_ZOVER          ; ...less the label's overhang at each edge,
     sub cx, DESK_ZOVER          ; which is the HIT rect this one wants
-    call KERNEL_SEG:cw_gfx_xor_fill  ; NOT a tail call any more, and it cannot
+    call ct_cw_gfx_xor_fill          ; NOT a tail call any more, and it cannot
     ret                         ; be: a cw_ shim ends in `retf`, so jumping to
                                 ; one pops this routine's NEAR return address
                                 ; as CS:IP and lands in the weeds. The cost is
@@ -1300,7 +1302,7 @@ desk_draw_zone:
     mov al, [desk_zdrv]
     call desk_zone_label        ; SI -> it, the row's or a derived 'A:'
     push si
-    call KERNEL_SEG:font_width             ; AX = its pixel width
+    call ct_font_width                     ; AX = its pixel width
     mov bx, [desk_zx]           ; BX = the zone's left, held for BOTH clamps
     mov cx, DESK_ZW             ; and for the lea below
     sub cx, ax
@@ -1336,7 +1338,7 @@ desk_draw_zone:
                                 ; at the .text resting value - so y1 comes off
                                 ; it and [desk_icoh]/[desk_zgap] are not read
     mov byte [gfx_color], CWHITE
-    call KERNEL_SEG:cw_gfx_fill
+    call ct_cw_gfx_fill
 
     ; --- ...and the caption in it, black -------------------------------------
     ; OPAQUE (SPEC.md 26.6): the white rect above is DESK_LBLH = 12 rows and a
@@ -1351,7 +1353,7 @@ desk_draw_zone:
                                 ; is y1+2 - the 2px of white above the text.
                                 ; dock_paint rides this same contract
     mov ax, (CWHITE << 8) | CBLACK
-    call KERNEL_SEG:cw_font_run
+    call ct_cw_font_run
 
     ; --- selection highlight: XOR the whole hit zone --------------------------
     mov al, [desk_sel]
@@ -1399,7 +1401,7 @@ desk_draw_zone:
 
 %ifndef KERN_SMALL
 ; -----------------------------------------------------------------------------
-; osapi_desk_svc - slot 0x0528: a DRIVER registers the desktop SERVICE zone
+; osapi_desk_svc - slot 0x03F8: a DRIVER registers the desktop SERVICE zone
 ;                  (SPEC.md 26.7)
 ; in:  AL = 1 add / 0 withdraw; ES:SI -> a DSV_R_SIZE record in the driver's
 ;      own segment (add only). ES is the caller's segment either way - the
@@ -1571,9 +1573,6 @@ desk_svc_file resb DSV_FILEMAX  ; the 8.3 file it launches out of SYSTEM/
 desk_svc_cls  resb 1            ; its DRVC_* class...
 desk_svc_vrb  resb 1            ; ...and the verb that paints the icon
 desk_svc_name resb DSV_NAMEMAX  ; the package's header name - the singleton
-desk_svc_lead resb DSV_LEADMAX  ; 'Cannot open <caption>:' - the driver's own
-                                ; words, so the kernel carries neither them
-                                ; nor a composer for them
 %if ($ - desk_svc_rec) != DSV_R_SIZE
   %error "the .bss mirror and the registered record must be the same shape: osapi_desk_svc copies DSV_R_SIZE bytes into it with one rep movsb"
 %endif

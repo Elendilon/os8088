@@ -587,7 +587,7 @@ def walk(image, machine, defines, lad, cons, limit=240.0, verbose=True,
 
         # --- kmain, one row per call, os88boot's own list -------------------
         for addr, name, n in sites:
-            m.bp_exec(KERNEL_SEG * 16 + addr)
+            m.bp_exec(addr)             # FLAT: kmain_o's are in the blob
             m.run()
             if m.wait_stop(limit) is None:
                 raise Stale("kmain never returned from %s" % name,

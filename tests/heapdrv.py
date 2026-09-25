@@ -144,7 +144,7 @@ def sym(name):
         open(tmp, "w").write(open(src).read() + "\n[map all %s]\n" % mp)
         r = subprocess.run(["nasm", "-f", "bin", "-w+error",
                             "-I", os.path.join(ROOT, "apps") + os.sep,
-                            "-o", os.devnull, tmp],
+                            "-o", tmp + ".bin", tmp],
                            capture_output=True, text=True)
         if r.returncode:
             sys.exit("heapdrv: could not map %s:\n%s" % (APP, r.stderr[:400]))
@@ -155,7 +155,7 @@ def sym(name):
                     _MAP[p[2]] = int(p[0], 16)
                 except ValueError:
                     pass
-        for f in (tmp, mp):
+        for f in (tmp, mp, tmp + ".bin"):
             if os.path.exists(f):
                 os.remove(f)
     if name not in _MAP:

@@ -1246,6 +1246,7 @@ trk_fdone:
     inc di
     loop .cp
     mov byte [trk_fname + 12], 0
+    inc byte [tw_gen]               ; the LCD's file name (tw_lkey)
     push ds
     pop es                          ; ES = DS again (the callback default)
 
@@ -1394,6 +1395,7 @@ trk_fdone:
     mov ax, [trk_modseg]            ; AFTER the trim, so a claim that somehow
     mov [mp_blobseg], ax            ; moved is still the one mp_load indexes
     call mp_load                    ; CF=1, AX = offset of a NUL error string
+    inc byte [tw_gen]               ; a new title either way (inc keeps CF)
     jc .lderr
     mov dx, [trk_modseg]        ; ONLY NOW is it movable (SPEC.md 66.2). Not
     mov ax, trk_reloc           ; at the claim, and the ordering is the whole
@@ -3122,6 +3124,7 @@ trk_xt_toggle:
     je .say                         ; only mode-dependent pixel is the hint,
 .card:                              ; and trk_fs_ok moves with mp_xt ONLY when
     mov [tui_msgp], si              ; the high rate is picked - at 5.5 kHz the
+    inc byte [tw_gen]               ; (tui_msg's bump, for the direct store)
     call tui_draw_all               ; repaint would be identical pixels. Set
     jmp short .out                  ; the message first and the card letters
 .say:                               ; that line once (PERFORMANCE.md rule 2)
@@ -3439,15 +3442,18 @@ trk_render:
     call OSAPI_GFX_LOCK
     mov bx, [trk_win]
     call OSAPI_WM_GEOM              ; CF=1: hidden - draw nothing
-    jc .unlock
+    jc .book
     call OSAPI_WM_CLIP_SET          ; CF=1: fully covered - skip the frame
-    jc .unlock
+    jc .book
     cmp byte [trk_abon], 0          ; checked HERE, under the lock, after the
-    jne .unlock                     ; clip: the [ark_abon] rule verbatim
+    jne .book                       ; clip: the [ark_abon] rule verbatim
     mov byte [tw_inframe], 1        ; the frame's own clip is armed: a message
     call tui_draw_dyn               ; set inside it is drawn BY it, and nothing
     mov byte [tw_inframe], 0        ; may clear the clip (tw_refresh)
-.unlock:
+    jmp short .unlock
+.book:                              ; ...a frame not drawn is still BOOKED:
+    call tw_book                    ; the position, the decay, the clock
+.unlock:                            ; (SPEC.md 45.21.9)
     call OSAPI_GFX_UNLOCK           ; also clears the clip
     pop di
     pop si

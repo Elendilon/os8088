@@ -25,7 +25,7 @@ build with no guard at all.
          `wd_mbar` zero times) - and the bar must come out solid
   leg B  ...and a click in the text, which is glyphs too
 """
-import os, sys, time, subprocess, tempfile, argparse, functools
+import os, sys, subprocess, tempfile, argparse, functools
 print = functools.partial(print, flush=True)
 os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, "tools"); sys.path.insert(0, "tests")
@@ -70,15 +70,26 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     dispcp.open_drive(m, mo, S, M.settle, "B")
     w = dispcp.win_list(m, S)[-1]; dx, dy = dispcp.win_rect(m, S, w)[:2]
     dispcp.open_named(m, mo, S, M.settle, dx, dy, "WELCOME.DOC")
-    time.sleep(2.5); M.settle(m)
+    # The window is up; what is left is the document read, which ends when
+    # the floppy goes quiet.
+    M.quiesce(m, lambda: m.disk().get("reads"), guest=1.0,
+              what="Word to finish reading WELCOME.DOC")
 
-    raw = m.read(S("inst_tab"), 32*12); seg = None
-    for i in range(12):
-        b = i*32
-        if raw[b] == 1 and (raw[b+2] & 0x80):
-            c = u16(raw, b+6)
-            if m.read(c*16+syms["wd_mact"], 48) == image[syms["wd_mact"]:syms["wd_mact"]+48]:
-                seg = c; break
+    def find_seg():
+        raw = m.read(S("inst_tab"), 32*12)
+        for i in range(12):
+            b = i*32
+            if raw[b] == 1 and (raw[b+2] & 0x80):
+                c = u16(raw, b+6)
+                if m.read(c*16+syms["wd_mact"], 48) == image[syms["wd_mact"]:syms["wd_mact"]+48]:
+                    return c
+        return None
+    try:
+        M.until(m, lambda _: find_seg() is not None, "Word's instance record",
+                poll=0.1, limit=10)
+    except M.MartyError:
+        pass
+    seg = find_seg()
     if seg is None:
         sys.exit("could not locate the running package (stale build/word.o88?)")
     base = seg*16; P = lambda n: base + syms[n]
@@ -110,6 +121,16 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     MB = (ct+2, ct+11, cl+8, min(cl + 8 + 56*8 - 1, rw("wd_sbr")))
     TXT = (ryb(3), ryb(3) + rw("wd_gh1"), tx, rw("wd_rgt"))
 
+    hits = [0]                  # entries to the armed symbol, for `drawn`
+
+    def drawn(before, what):
+        """Until the armed symbol has run since BEFORE and the gfx lock is
+        free again - SPEC.md 12.8.3 holds it round the whole handler, so that
+        is the hold the poke landed in having ended."""
+        M.until(m, lambda mm: hits[0] > before
+                and mm.read(S("gfx_lock_flag"), 1)[0] == 0,
+                what, poll=0.05, limit=20)
+
     def poked(sym, act, what):
         """Run ACT with [gfx_dis] armed at every entry to SYM.
 
@@ -117,15 +138,15 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
         drive a machine that keeps moving - which a bare `bp_exec` does not,
         and os88mouse says so by name when it is the cause.
         """
-        n = [0]
+        hits[0] = 0
         def on_hit(mm, rec):
-            mm.write(GD, bytes([1])); n[0] += 1
+            mm.write(GD, bytes([1])); hits[0] += 1
             return 1
         with M.bp_trace(m, base + syms[sym], on_hit=on_hit, cap=4000):
             act()
-        time.sleep(1.0); M.settle(m)
-        print("      armed the pen at %s %d time(s) (%s)" % (sym, n[0], what))
-        return n[0]
+        M.settle(m)
+        print("      armed the pen at %s %d time(s) (%s)" % (sym, hits[0], what))
+        return hits[0]
 
     base_mb = ink(*MB)
     base_txt = ink(*TXT)
@@ -151,12 +172,18 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
           % (wdw, wx, wy, ww, wh, gx, gy))
 
     def resize(dy):
-        mo.to(gx, gy); time.sleep(0.3)
-        m.mouse(l=True); time.sleep(0.3)
-        mo.to(gx, gy + dy, l=True); time.sleep(0.5)
-        m.mouse(l=False); time.sleep(1.5)
+        # The grow box where it IS now: the second call puts back what the
+        # first took, so it has to press the box the first one moved.
+        x, y, w2, h = dispcp.win_rect(m, S, wdw)
+        gx, gy = x + w2 - 5, y + h - 5
+        mo.to(gx, gy); mo._sep()
+        mo._edge(True); M.guest_sleep(m, 0.15)
+        mo.to(gx, gy + dy, l=True); M.guest_sleep(m, 0.15)
+        before = hits[0]
+        mo._edge(False)
+        drawn(before, "the resize to repaint Word's chrome")
 
-    n = poked("wd_chrome", lambda: (resize(-24), time.sleep(0.6), resize(24)),
+    n = poked("wd_chrome", lambda: (resize(-24), resize(24)),
               "a window resize")
     check("the chrome really redrew (case, not assertion)", n > 0,
           "wd_chrome never ran, so nothing was tested")
@@ -168,8 +195,9 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     print("      menu bar ink %d (was %d)" % (got_mb, base_mb))
 
     def click_text():
-        mo.to(tx + 60, ryb(3) + 2); time.sleep(0.3)
-        m.mouse(l=True); time.sleep(0.1); m.mouse(l=False); time.sleep(1.2)
+        before = hits[0]
+        mo.click(tx + 60, ryb(3) + 2, settle=0)
+        drawn(before, "Word's click handler to run and return")
 
     n2 = poked("wd_onclick", click_text, "a click in the text")
     check("the click really ran (case, not assertion)", n2 > 0,

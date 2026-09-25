@@ -111,8 +111,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # FDLG.DRV and exist on kern_small alone (FCP_MOD/FDLG_MOD); on kern_big those
 # bodies assemble into `.cold` and are resident by decision (SPEC.md 2.8).
 # `.modh` is HIBER.DRV, which is kern_big's - the 128KB machine has no hard
-# disk to hibernate to (mod.inc).
-MODS = {False: ('.modc', '.modf', '.modl', '.modh'),
+# disk to hibernate to (mod.inc) - and so are `.modk` DOCK.DRV and `.modx`
+# EXTD.DRV (SPEC.md 30.5, 39.19.6), which this list missed until the second.
+MODS = {False: ('.modc', '.modf', '.modl', '.modh', '.modk', '.modx'),
         True:  ('.modc', '.modf', '.modl', '.modp', '.modd')}
 OVLS = ('.ovl', '.ovlw')
 RESIDENT = ('.text', '.bss', '.cold')

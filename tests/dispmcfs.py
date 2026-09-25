@@ -21,7 +21,6 @@ the vga side" is a statement about one card being stale, which a screenshot
 of the other cannot answer.
 """
 import sys
-import time
 
 import os
 # THIS TREE'S root, DERIVED - never a hard-coded path. A literal is right in the
@@ -142,7 +141,16 @@ def main():
         bx, by = dispcp.win_rect(m, S, disk)[:2]
         dispcp.open_named(m, mo, S, os88marty.settle, bx, by, MISSILE_PKG,
                           card=pri)
-        time.sleep(3)
+        # Missile animates, so there is nothing to SETTLE - but its window
+        # appearing and the disk going quiet is the launch being done
+        try:
+            os88marty.until(m, lambda _: any(w != disk for w in
+                                             dispcp.win_list(m, S)),
+                            "Missile's window", poll=0.2, limit=30)
+        except os88marty.MartyError:
+            pass                        # ...and the line below says so
+        os88marty.quiesce(m, lambda: m.disk().get("reads"), guest=1.0,
+                          what="Missile's load to finish")
         g = [w for w in dispcp.win_list(m, S) if w != disk]
         if not g:
             sys.exit("missile did not launch")
@@ -163,24 +171,39 @@ def main():
         # --- into SPEC.md 11.2 fullscreen + the same-mode bracket -----------
         mo.to(wx + ww // 2, wy + wh // 2)       # the pointer on the game
         m.key("KeyF")
-        time.sleep(4)
+        fs = lambda: u16(m.read(S("wm_fs"), 2))
+        try:                            # the latch (SPEC.md 11.2); state()
+            os88marty.until(m, lambda _: fs() != 0,  # settles the glass
+                            "the fullscreen latch", poll=0.2, limit=15)
+        except os88marty.MartyError:
+            pass
         full = state(m, mo, "fullscreen", g, both)
         shot(m, sec, "2-fullscreen-herc")
         shot(m, pri, "2-fullscreen-vga")
 
         # can the pointer still move LEFT? (report 1)
         m.mouse(-60, 0)
-        time.sleep(0.6)
+        os88marty.pace(m, os88mouse.GAP)    # a packet in flight drops the next
         m.mouse(-60, 0)
-        time.sleep(1.2)
-        moved = mo.where()[:2]
+        try:
+            os88marty.until(m, lambda _: mo.where()[0] != full["x"],
+                            "the pointer to move", poll=0.1,
+                            guest=2 * os88mouse.PKT_GUEST)
+        except os88marty.MartyError:
+            pass                        # STUCK: the line below says so
+        moved = os88marty.quiesce(m, lambda: mo.where()[:2], guest=0.3,
+                                  what="the pointer")
         print("   after two -60 x moves: mouse=(%d,%d)  %s"
               % (moved[0], moved[1],
                  "MOVED" if moved[0] != full["x"] else "*** STUCK ***"))
 
         # --- and out ------------------------------------------------------
         m.key("Escape")
-        time.sleep(4)
+        try:
+            os88marty.until(m, lambda _: fs() == 0, "the latch to drop",
+                            poll=0.2, limit=15)
+        except os88marty.MartyError:
+            pass
         os88marty.settle(m, card=sec)
         mo.to(*park)
         after = state(m, mo, "back to windowed", g, both)
@@ -211,7 +234,13 @@ def main():
         mo.to(wx + ww // 2, wy + wh // 2)
         os88marty.settle(m, card=pri)
         m.key("KeyM")
-        time.sleep(5)
+        try:                            # wait for the state asserted below,
+            os88marty.until(            # on a GUEST budget; a miss is read
+                m, lambda _: (m.read(S("vid_ndisp"), 1)[0] == 1   # and
+                              and m.read(S("fsx_cur"), 1)[0] == 8),  # reported
+                "Mode X to take the machine", poll=0.2, limit=10.0)
+        except os88marty.MartyError:
+            pass
         m.pause()
         nd = m.read(S("vid_ndisp"), 1)[0]
         fc = m.read(S("fsx_cur"), 1)[0]
@@ -220,7 +249,12 @@ def main():
         modex_ok = (nd == 1 and fc == 8)
         m.run()
         m.key("Escape")
-        time.sleep(4)
+        try:
+            os88marty.until(m, lambda _: m.read(S("vid_ndisp"), 1)[0] == 2,
+                            "the second display to come back", poll=0.2,
+                            limit=10.0)
+        except os88marty.MartyError:
+            pass
         m.pause()
         nd2 = m.read(S("vid_ndisp"), 1)[0]
         print("   ...and back out: ndisp=%d  %s"

@@ -45,7 +45,8 @@ CELL = re.compile(r'^\s*OSAPI_(?:SLOT|JSLOT|NSTUB|XSTUB)\s+(?:\w+\s*,\s*)?'
 # targets were not merely untested above - they were not in the label map at
 # all, which is how adding JSLOT alone would have bought nothing.
 CELLDEF = re.compile(r'^\s*OSAPI_(?:NSTUB|XSTUB)\s+([A-Za-z_]\w*)\s*,')
-MODS = ('.modc', '.modf', '.modl', '.modh', '.modp', '.modd', '.modk')  # module images (2.8).
+MODS = ('.modc', '.modf', '.modl', '.modh', '.modp', '.modd', '.modk',
+        '.modx')  # module images (2.8).
 # `.modp` is Cut/Copy/Paste and kern_small's ALONE (SPEC.md 22.3,
 # docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md 9.2): filecp.inc emits its bodies there on
 # that build and into `.cold` on kern_big, which is the first conditional
@@ -55,6 +56,10 @@ MODS = ('.modc', '.modf', '.modl', '.modh', '.modp', '.modd', '.modk')  # module
 # through its FCPX/FCPXJ macros. A near call inside the body is then
 # `.modp -> .modp` and true on either build. `.modd` is fdlg.inc on the same
 # terms (SPEC.md 38.0) and obeys the same three rules.
+# `.modx` is extmod.inc's EXTD.DRV (SPEC.md 39.19.6), kern_big's alone, and
+# the check below is the whole of what stops a resident caller near-calling a
+# routine that moved into it: nasm assembles that call happily (both sections
+# have vstart=0) and it runs into the wrong segment.
 # `.modh` is hiber.inc's HIBER.DRV (SPEC.md 87) - a stub on kern_small - and
 # was missing from this list when it shipped, so every label in it filed as
 # `.text` and a near call from the module into the kernel passed in silence.
@@ -130,7 +135,7 @@ ENDMACRO = re.compile(r'^\s*%endmacro')
 ENDMACRO_B = re.compile(r'^\s*%endmacro\b')
 LABEL = re.compile(r'^([A-Za-z_]\w*):')
 LABEL_DOT = re.compile(r'^[A-Za-z_.]\w*:')
-DRVBOOT = re.compile(r'^\s*OVL(?:GATE1?|CALL)\s+drv_boot_x\b')
+DRVBOOT = re.compile(r'^\s*(?:OVL(?:GATE1?|CALL)|BLOBCALL)\s+drv_boot_x\b')
 OVWCALL = re.compile(r'\b(?:OVWCALL|OVBCALL)\s+(\w+)')
 # ...and OVBCALL with it (SPEC.md 2.5.3.2): on kern_big it IS an OVWCALL,
 # so rule 2e's question - is this body still there when the call is made -
@@ -557,7 +562,7 @@ def main():
     MACHALF = {'SPLCALL': '.ovl', 'OVLCALL': '.ovl', 'OVLCALLC': '.ovl',
                'OVLGATE': '.ovl', 'OVLGATE1': '.ovl', 'SPLSTUB': '.ovl',
                'SPLGATE': '.ovl', 'SPLGATE1': '.ovl', 'OVWCALL': '.ovlw',
-               'OVBCALL': '.ovl'}
+               'OVBCALL': '.ovl', 'BLOBCALL': '.ovl'}
     MACPAT = re.compile(r'\b(' + '|'.join(MACHALF) + r')\s+(\w+)')
     REACH = {'.ovl': 'the blob, through [spl_fseg]',
              '.ovlw': 'the FAT window, by `call FAT_SEG:`'}
@@ -602,25 +607,65 @@ def main():
     # column is for. A body reached from a runtime path is rule 2c's business.
     kfile = [f for f in kfiles if f.endswith('kernel.asm')]
     late = []
+    # ...AND A BLOB BODY THAT ITSELF REACHES THE WINDOW is a window call by
+    # proxy (size pass 4: kmain's pre-mount half is `kmain_o`, in `.ovl`, and
+    # its OVWCALLs are not on kmain's own lines any more). A call to one after
+    # the mount is the same defect one level down, so it is refused the same way.
+    WINREF = re.compile(r'\b(?:OVWCALL|OVBCALL)\s+\w+|\bcall\s+FAT_SEG:')
+    BLOBC = re.compile(r'\b(?:OVLGATE1?|OVLCALLC?|BLOBCALL|SPLCALL|SPLGATE1?)\s+(\w+)')
+    winbody = set()
+    for f in kfiles:
+        cur = None
+        for sect, n, line in sections(f):
+            m = LABEL.match(line)
+            if m:
+                cur = m.group(1) if sect == '.ovl' else None
+                continue
+            if cur and WINREF.search(line.split(';', 1)[0]):
+                winbody.add(cur)
+    # THE ORDER LIVES IN TWO BODIES NOW: kmain's prologue far-calls kmain_o,
+    # the blob half (SPEC.md 2.5.3.3), and it is kmain_o that calls drv_boot_x.
+    # So the mount is looked for in EITHER, and a tree where it is in neither
+    # is a refusal rather than a skip - the rule used to `continue` past a
+    # kmain it could not parse, which would have passed silently the day the
+    # line left kmain.
+    found = False
     for f in kfile:
         lines = open(f, errors='replace').read().split('\n')
-        try:
-            kstart = next(i for i, l in enumerate(lines) if l.startswith('kmain:'))
-            mount = next(i for i, l in enumerate(lines)
-                         if i > kstart and DRVBOOT.search(l))
-        except StopIteration:
-            continue
-        # ...and STOP at kmain's own end, which is the next label in column 0.
-        # Scanning to the end of the file instead reads the resident
-        # trampolines below it - `dsk_flop_add: OVWCALL dsk_flop_add_x` is one,
-        # and it is called from desk_init at MARK 20, long before the mount.
-        # A rule about ORDER has to stop where the ordered code does.
-        for i in range(mount + 1, len(lines)):
-            if LABEL_DOT.match(lines[i]):
-                break
-            m = OVWCALL.search(lines[i].split(';', 1)[0])
-            if m:
-                late.append((f, i + 1, m.group(1)))
+        for head in ('kmain:', 'kmain_o:'):
+            try:
+                kstart = next(i for i, l in enumerate(lines) if l.startswith(head))
+            except StopIteration:
+                continue
+            mount = None
+            for i in range(kstart + 1, len(lines)):
+                if LABEL.match(lines[i]):
+                    break
+                if DRVBOOT.search(lines[i]):
+                    mount = i
+                    break
+            if mount is None:
+                continue
+            found = True
+            # ...and STOP at the body's own end, which is the next label in
+            # column 0. Scanning to the end of the file instead reads the
+            # resident trampolines below it - `dsk_flop_add: OVWCALL
+            # dsk_flop_add_x` was one (called from desk_init at MARK 20, long
+            # before the mount; desk_init far-calls the body itself now). A rule about ORDER has to stop where
+            # the ordered code does.
+            for i in range(mount + 1, len(lines)):
+                if LABEL_DOT.match(lines[i]):
+                    break
+                m = OVWCALL.search(lines[i].split(';', 1)[0])
+                if m:
+                    late.append((f, i + 1, m.group(1)))
+                m = BLOBC.search(lines[i].split(';', 1)[0])
+                if m and m.group(1) in winbody:
+                    late.append((f, i + 1, m.group(1) + ' (a blob body that reaches .ovlw)'))
+    if not found:
+        sys.exit("os88ovlchk: no `drv_boot_x` call found in kmain or kmain_o - "
+                 "rule 2e cannot say what runs after the first mount, so it "
+                 "refuses rather than passing (SPEC.md 2.5.3)")
     for f, n, sym in late:
         print("%s:%d: OVWCALL %s is AFTER drv_boot_x - the first mount has "
               "already taken the FAT window those bytes are in"
@@ -1046,6 +1091,8 @@ def main():
     TOPL = re.compile(r'^([A-Za-z_]\w*):')
     FARC = re.compile(r'\bcall\s+(?:far\s+)?\w+\s*:\s*([A-Za-z_]\w*)')
     NRC  = re.compile(r'\bcall\s+(?:near\s+)?([A-Za-z_]\w*)\s*$')
+    # BLOBCALL is `push cs` + a near call: a FAR frame, so its target owns a retf
+    BLOBF = re.compile(r'\bBLOBCALL\s+([A-Za-z_]\w*)')
     #
     # A LABEL IS COLLECTED AS A LIST OF EXTENTS, NOT AS ONE.  `%ifdef
     # KERN_BIG` / `%else` is the ordinary shape for a routine whose small-
@@ -1097,7 +1144,7 @@ def main():
     r_bad = []
     for f in files:
         for sect, n, line in sections(f):
-            for lab in FARC.findall(line):
+            for lab in FARC.findall(line) + BLOBF.findall(line.split(';', 1)[0]):
                 if 'near' in kinds(lab):
                     r_bad.append((f, n, lab, 'far-called, ends in a NEAR ret'))
             m = NRC.search(line)

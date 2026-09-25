@@ -409,7 +409,7 @@ menu_activate:
     ret
 
 ; -----------------------------------------------------------------------------
-; menu_owner - who is the ACTIVE APPLICATION? (API 0x02B8, SPEC.md 12/12.6)
+; OSAPI_MENU_OWNER - who is the ACTIVE APPLICATION? (SPEC.md 12/12.6)
 ; in:  nothing
 ; out: BX = the window owning the menu bar, 0 = Locator. Every other
 ;      register, and FLAGS, preserved.
@@ -424,13 +424,13 @@ menu_activate:
 ; frame, exactly like wm_top. It is a plain word read: [menu_win] is written
 ; only by menu_activate on the UI task, and the 8086 recognises interrupts
 ; only at instruction boundaries, so it cannot be torn.
+;
+; AN INLINE CELL (SPEC.md 20.3): the cell is `mov bx, [cs:menu_win] / retf`
+; and there is no body - which is also what makes the per-frame poll cheap.
 ; -----------------------------------------------------------------------------
-menu_owner:
-    mov bx, [menu_win]
-    ret
 
 ; -----------------------------------------------------------------------------
-; menu_win_set - attach an app menu set to a window (API 0x0148, SPEC 12.2)
+; menu_win_set - attach an app menu set to a window (API 0x011E, SPEC 12.2)
 ; in:  BX = window ptr, SI = menu set ptr (0 = no menus of its own)
 ; out: nothing (all registers preserved, FLAGS INCLUDED)
 ;
@@ -2005,10 +2005,8 @@ menu_drop:
     jz .nosave                  ; no buffer: the restore repaints instead
     mov es, ax
     xor di, di
-    mov ax, [menu_x1]
-    mov bx, [menu_y1]
-    mov cx, [menu_x2]
-    mov dx, [menu_y2]
+    call rect_get               ; the rect -> AX..DX, four adjacent words
+    dw menu_x1
     call gfx_save
 .nosave:
 
@@ -2028,16 +2026,12 @@ menu_drop:
 %endif
     ; --- draw the menu: the chrome's ground, its frame, items 8px in ---------
     call thm_bg
-    mov ax, [menu_x1]
-    mov bx, [menu_y1]
-    mov cx, [menu_x2]
-    mov dx, [menu_y2]
+    call rect_get               ; the rect -> AX..DX, four adjacent words
+    dw menu_x1
     call gfx_fill
     call thm_ink
-    mov ax, [menu_x1]
-    mov bx, [menu_y1]
-    mov cx, [menu_x2]
-    mov dx, [menu_y2]
+    call rect_get               ; the rect -> AX..DX, four adjacent words
+    dw menu_x1
     call gfx_frame
 
     mov bx, [menu_iptr]
@@ -2138,10 +2132,8 @@ menu_drop:
     jz .repaint
     mov es, ax
     xor si, si
-    mov ax, [menu_x1]
-    mov bx, [menu_y1]
-    mov cx, [menu_x2]
-    mov dx, [menu_y2]
+    call rect_get               ; the rect -> AX..DX, four adjacent words
+    dw menu_x1
     call gfx_restore
     jmp short .sel
 .repaint:                       ; no buffer: put back what the MENU covered,
@@ -2169,10 +2161,10 @@ menu_drop:
                                 ; is refused every time, so this WAS the
                                 ; normal path there and every menu after the
                                 ; first left its title inverted.
-    mov ax, [menu_x1]           ; which is the rect it drew and nothing else -
-    mov bx, [menu_y1]           ; gfx_save captures exactly this, there is no
-    mov cx, [menu_x2]           ; shadow outside it, and everything beyond it
-    mov dx, [menu_y2]           ; is still correct on screen (SPEC.md 11.91)
+    call rect_get               ; which is the rect it drew and nothing else -
+    dw menu_x1                  ; gfx_save captures exactly this, there is no
+                                ; shadow outside it, and everything beyond it
+                                ; is still correct on screen (SPEC.md 11.91)
     call wm_paint_dmg
 .sel:
     mov dx, [menu_sseg]         ; the menu is off the screen: hand the buffer
@@ -2738,10 +2730,11 @@ menu_nbar:  resw 1              ; live cells in menu_bar (>= 1: the System
                                 ; menu is always cell 0)
 menu_ent:   resw 1              ; -> bar cell being tracked
 menu_cell:  resb 1              ; its index (the AH half of menu_track's out)
-menu_x1:    resw 1              ; dropped menu rect, left
-menu_x2:    resw 1              ; dropped menu rect, right
-menu_y1:    resw 1              ; dropped menu rect, top - MBAR_H from the
+menu_x1:    resw 1              ; dropped menu rect, left. IN RECT ORDER
+menu_y1:    resw 1              ; (x1,y1,x2,y2) since size pass 4, so menu_drop
+                                ; reads it with rect_get: top - MBAR_H from the
                                 ; bar, the shifted anchor from a popup (12.4)
+menu_x2:    resw 1              ; dropped menu rect, right
 menu_y2:    resw 1              ; dropped menu rect, bottom
 menu_cnt:   resw 1              ; item count of the tracked menu
 menu_iptr:  resw 1              ; its array of near item-string pointers

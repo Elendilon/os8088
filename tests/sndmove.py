@@ -66,7 +66,6 @@ into any more and 5b reports a pass that proves nothing.
 import argparse
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "tools"))
@@ -159,13 +158,35 @@ def main():
 
         def drvrow(r):
             cp, x0, y0 = panel()
+            was = seg(r)
             mo.click(x0 + heaphi.CP_RX + 40,
                      y0 + heaphi.CP_DBY1 + r * heaphi.CP_DROWH
                      + heaphi.CP_DROWH // 2)
-            time.sleep(8)
+            try:                                # a load is a floppy read,
+                M.until(m, lambda _: seg(r) != was,     # which a screen
+                        "driver row %d to (un)mount" % r,   # settle takes
+                        poll=0.25, limit=60)                # for "done"
+            except M.MartyError:
+                pass                            # ...judged by the caller
             heaphi.quiet(m)
-            mo.click(cp[1] + 8, cp[2] + 9)      # close the panel: CTRL.DRV is
-            heaphi.quiet(m)                     # a module and would be a wall
+            try:
+                mo.click(cp[1] + 8, cp[2] + 9)  # close the panel: CTRL.DRV is
+            except M.MartyError:                # a module and would be a wall
+                # A pointer that stops taking packets here has been seen once
+                # in a soak (right after the re-mount) and not in 14 runs
+                # since, so say what the machine was doing rather than only
+                # that the arrow did not move: an IMR with bit 4 set is the
+                # serial mouse's IRQ left masked by the driver's attach.
+                st = m.status()
+                print("  pointer stuck: %04X:%04X ui_idle=%s imr=%02X "
+                      "lock=%d evq=%d btn=%d ticks=%d xy=%s sound at %04x"
+                      % (st["cs"], st["ip"], M.ui_idle(m), m.inb(0x21),
+                         m.read(S("gfx_lock_flag"), 1)[0],
+                         m.read(S("evq_count"), 1)[0],
+                         m.read(S("mouse_btn"), 1)[0], M._ktick(m),
+                         mo.where(), seg(r)), flush=True)
+                raise
+            heaphi.quiet(m)
 
         drvrow(SND_ROW)                         # unmount sound
         if seg(SND_ROW):
@@ -183,7 +204,12 @@ def main():
         def open_named(name, secs):
             before = set(w.i for w in os88geom.windows(m, S) if w.visible)
             dispcp.open_named(m, mo, S, M.settle, *disk, name=name)
-            time.sleep(secs)
+            try:
+                M.until(m, lambda _: any(w.visible and w.i not in before
+                                         for w in os88geom.windows(m, S)),
+                        "%s's window" % name, poll=0.25, limit=secs * 10)
+            except M.MartyError:
+                pass                            # ...reported just below
             M.settle(m)
             new = [w for w in os88geom.windows(m, S)
                    if w.visible and w.i not in before]
@@ -206,12 +232,29 @@ def main():
         # vector check below would be vacuous on it. This is the state the IVT
         # patch actually exists for: a card that has played and is now idle.
         # It has to come AFTER the driver shuffle, because an unmount unhooks.
+        def snd_held():
+            """Heap claims the sound driver owns - its ring, its grant."""
+            MC_SIZE, MEM_MAX = os88geom.MC_SIZE, os88geom.MEM_MAX
+            raw = m.read(S("mem_tab"), MEM_MAX * MC_SIZE)
+            return [i for i in range(MEM_MAX)
+                    if u16(raw, i * MC_SIZE) and
+                    u16(raw, i * MC_SIZE + 4) == seg(SND_ROW)]
+
         mo.click(sbw.x + sbw.w // 2, sbw.y + sbw.h - 20)     # open the stream
-        time.sleep(6)
-        M.settle(m)
+        try:        # the open hooks the card's vector (sbl_f_irqdisc)...
+            M.until(m, lambda _: ivt_names(seg(SND_ROW)),
+                    "the stream to open", poll=0.1, limit=30)
+        except M.MartyError:
+            pass                        # ...5b below says so
+        M.guest_sleep(m, 2.5)           # ...and SBTEST's tone is 2 s: played
         mo.click(sbw.x + sbw.w // 2, sbw.y + sbw.h - 20)     # ...and close it
-        time.sleep(4)
-        M.settle(m)
+        try:        # the close frees the grant and the ring, and the stream's
+            M.until(m, lambda _: not snd_held()          # task goes (1 and 3
+                    and not m.read(S("drv_wcnt"), 1)[0],  # below read them;
+                    "the stream to close", poll=0.1,     # an idle box's
+                    guest=4 * M.GUEST_PACE)              # pause is the bound)
+        except M.MartyError:
+            pass
         mo.click(sbw.x + 8, sbw.y + 9)                       # ...and the app:
         M.settle(m)                                          # the hole opens
         sndseg = seg(SND_ROW)                   # a claim of sbtest's could
@@ -321,7 +364,12 @@ def main():
             # lowest run big enough, so a fill would seal it - pinned, and
             # against the very block the ask needs moved (tests/filler).
             m.key("KeyS")
-            time.sleep(6)
+            try:
+                M.until(m, lambda _: seg(SND_ROW) not in (sndseg, 0),
+                        "the sound image to move", poll=0.25,
+                        guest=6 * M.GUEST_PACE)
+            except M.MartyError:
+                pass                            # ...ask again
             M.settle(m)
             if seg(SND_ROW) not in (sndseg, 0):
                 break

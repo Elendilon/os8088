@@ -2452,12 +2452,6 @@ vga_p4build:
     push cx
     push dx
     push si
-    push es                     ; ...and ES, banked to the buffers' own rung
-    mov ax, VGABUF_SEG          ; for the whole build (SPEC.md 39.22). It used
-    mov es, ax                  ; to be SS, which reached them while they were
-                                ; .lowbss; the contract that every register is
-                                ; preserved is why this pushes rather than
-                                ; leaving ES where it lands
     xor bx, bx
 .byte:
     mov cl, 4
@@ -2481,15 +2475,13 @@ vga_p4build:
     jnz .pl
     mov si, bx
     shl si, 1
-    mov [es:si + vga_p4tab], dx ; .vgabuf, so NOT through SS any more
-                                ; (SPEC.md 39.22): ES is banked to VGABUF_SEG
-                                ; for the build and put back, which is cheaper
-                                ; than a segment load a byte
+    mov [ss:si + vga_p4tab], dx ; .lowbss: a UNION with the pair tables
+                                ; (SPEC.md 39.22.1), reached through SS
     inc bx
     cmp bx, 256
     jb .byte
     mov byte [vga_p4built], 1
-    pop es
+    mov byte [gfx_pairbuilt], 0 ; ...which it has just overwritten
     pop si
     pop dx
     pop cx
@@ -2555,7 +2547,7 @@ vga_blit_prow:
                                 ; next row may be a run's again
 
     mov ax, VGABUF_SEG          ; ovlchk: DS = VGABUF_SEG
-    mov ds, ax                  ; DS = the table and the four plane rows; ES is
+    mov ds, ax                  ; DS = the four plane rows (the table is .lowbss, via ss:); ES is
                                 ; still the caller's source. THE BARE
                                 ; REFERENCE IS THE .vgabuf ONE FROM HERE TO
                                 ; THE `pop ds` BELOW, and every `.lowbss` word
@@ -2569,23 +2561,23 @@ vga_blit_prow:
     mov bl, [es:si]             ; --- four source bytes, eight pixels, four
     xor bh, bh                  ;     plane bytes, and not one compare
     shl bx, 1
-    mov ax, [bx + vga_p4tab]
+    mov ax, [ss:bx + vga_p4tab]
     mov bl, [es:si+1]
     xor bh, bh
     shl bx, 1
     shl ax, 1
     shl ax, 1
-    or ax, [bx + vga_p4tab]     ; AX = pixels 0..3, a nibble to the plane
+    or ax, [ss:bx + vga_p4tab]     ; AX = pixels 0..3, a nibble to the plane
     mov bl, [es:si+2]
     xor bh, bh
     shl bx, 1
-    mov dx, [bx + vga_p4tab]
+    mov dx, [ss:bx + vga_p4tab]
     mov bl, [es:si+3]
     xor bh, bh
     shl bx, 1
     shl dx, 1
     shl dx, 1
-    or dx, [bx + vga_p4tab]     ; DX = pixels 4..7
+    or dx, [ss:bx + vga_p4tab]     ; DX = pixels 4..7
     add si, 4
 
     mov ch, al                  ; --- plane 0 is A's nibble 0 over B's, and
@@ -3597,7 +3589,7 @@ gfx_fill_gray_raw:                              ; only renderer gfx_fill_gray ha
 ; the wrong PLACE.
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
-; osapi_gfx_fill_pat - API slot 0x02B0's X body (SPEC.md 20.9)
+; osapi_gfx_fill_pat - API slot 0x0222's X body (SPEC.md 20.9)
 ; in:  AX/BX/CX/DX = the rect, ES:SI = the caller's 8 pattern bytes
 ; out: nothing; SI preserved
 ;
@@ -4454,7 +4446,7 @@ thm_set:
 ; below rather than bending these: themed here, the Control Panel's radios
 ; and every package's greyed caption go white on white and vanish.
 ; -----------------------------------------------------------------------------
-; gfx_blit1_pen - set the pen the NEXT gfx_blit1 emits with (SPEC.md 5.4.2.2)
+; OSAPI_GFX_BLIT1_PEN - set the pen the NEXT gfx_blit1 emits with (SPEC.md 5.4.2.2)
 ; in:       AL = ink (what a SET band bit becomes), AH = paper (a CLEAR one)
 ; out:      nothing
 ; clobbers: nothing (flags)
@@ -4463,16 +4455,23 @@ thm_set:
 ; one of the nine carries geometry - and not a persistent setting because
 ; gfx_unlock clears it. A caller sets it inside the lock hold it draws in,
 ; which is the same lifetime gfx_pen_cf publishes for [gfx_dis].
+;
+; THE CELL IS THE ROUTINE (SPEC.md 20.3's inline cell): `mov [cs:gfx_b1ink],
+; ax / retf`, one word store into the adjacent pair. The pen is kern_big's
+; alone (the declarations at the top of this file say why), so kern_small's
+; cell sets nothing. Only BAND=1 keeps a body, because its composer's
+; polarity byte is a third store the five-byte cell has no room for: a
+; PACKAGE's band is in screen polarity by SPEC.md 5.4.2.2, and only band.inc's
+; composer sets that flag, and only for its own emit. The cell's near `jmp`
+; lands here on the caller's FAR frame and with the CALLER's DS, so this ends
+; in `retf` and reaches both bytes through CS.
 ; -----------------------------------------------------------------------------
+%ifdef BANDCOMP
 gfx_blit1_pen:
-%ifdef KERN_BIG                 ; the SLOT is in both API tables and the state
-    mov [gfx_b1ink], al         ; is kern_big's alone (SPEC.md 5.4.2.5): on the
-    mov [gfx_b1pap], ah         ; small build the blit itself answers stc, so a
-%ifdef BANDCOMP                 ; remembered pen would have nothing to colour
-    mov byte [gfx_b1adp], 0     ; ...and a PACKAGE's band is in screen polarity
-%endif                          ; by SPEC.md 5.4.2.2: only band.inc's composer
-%endif                          ; sets that flag, and only for its own emit
-    ret
+    mov [cs:gfx_b1ink], ax      ; AL = ink, AH = paper
+    mov byte [cs:gfx_b1adp], 0
+    retf
+%endif
 
 gfx_pen_cf:
     jc gfx_pen_dis
@@ -4696,7 +4695,7 @@ gfx_unlock:
 
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
-; gfx_scroll - vertical scroll blit (SPEC.md 5.5; API slot 0x01E0)
+; gfx_scroll - vertical scroll blit (SPEC.md 5.5; API slot 0x018A)
 ;
 ; in:       AX = x1, BX = y1, CX = x2, DX = y2 (inclusive, absolute screen
 ;           coords), SI = dy SIGNED: positive moves the rect's content UP dy
@@ -5865,7 +5864,16 @@ gfx_pairtab1 resb 256           ; gfx_inktab by sw_pairbuild - and here rather
                                 ; image rung gives back exactly the step the
                                 ; low rung takes
 %ifdef GFX_PLANE
-section .vgabuf                 ; ...AND THESE TWO ARE NOT .lowbss's any more
+vga_p4tab    equ gfx_pairtab0   ; **A UNION** (SPEC.md 39.22.1): the decode
+                                ; table is 256 words over BOTH pair tables.
+                                ; They serve different adapters, each builder
+                                ; clears the other's built flag, and both
+                                ; flags are tested at every gfx_blit4 under
+                                ; the gfx lock - so a clobbered table is
+                                ; rebuilt before it is read. It costs the
+                                ; decoder an `ss:` on its four table loads
+                                ; per eight pixels, measured at +1.9-2.6%
+section .vgabuf                 ; ...AND THE PLANE ROWS ARE NOT .lowbss's
                                 ; (SPEC.md 39.22): they are the only bytes in
                                 ; the kernel a machine with no VGA has no use
                                 ; for, and `.vgabuf` is a rung of its own at
@@ -5875,7 +5883,6 @@ section .vgabuf                 ; ...AND THESE TWO ARE NOT .lowbss's any more
                                 ; into DS exactly where it used to bank
                                 ; LOW_SEG - one word, because the table was
                                 ; already read through a segment register.
-vga_p4tab   resw 256            ; source byte -> a nibble of plane bits each
 vga_pbuf    resb VGA_PB*4       ; one plane row apiece, filled then blitted
 section .lowbss                 ; ...and the SCRATCH stays here, because
                                 ; vga_prow_emit reads it through SS while DS

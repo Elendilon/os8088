@@ -41,7 +41,7 @@ something:
   4. Nothing was destroyed on the way: every other instance is still there,
      and the attempt closed its own flag so the next load may ask again.
 """
-import sys, os, time, argparse
+import sys, os, argparse
 # THIS TREE'S root, DERIVED - never a hard-coded path. A literal is right in the
 # checkout it was written in and wrong in a git worktree, which is how parallel
 # work is done here: os88sym re-assembles ROOT/kernel/kernel.asm and compares it
@@ -239,7 +239,7 @@ def main():
             return 1
         for _ in range(rows.index(MOD) + 1):
             m.key("ArrowDown")
-            time.sleep(0.2)
+            os88marty.pace(m, 0.2)      # keystroke spacing, in GUEST time
         got = u16(m.read(S("fdlg_sel"), 2))
         if got != rows.index(MOD):
             print("FAIL: dialog selected row %d, wanted %d"
@@ -249,21 +249,28 @@ def main():
 
         # --- and now WATCH: the post is up for the whole compaction and the
         # 114KB floppy read behind it, so this cannot miss it by being slow --
-        posted = said = False
-        for _ in range(400):            # 20s, where the byte is up for the
-            at = wseg()                 # whole pass AND the 114KB floppy read
-            if m.read(at * 16 + P["trk_cpq"], 1)[0]:
-                posted = True
+        seen = {"posted": False, "said": False}
+
+        def watched(_):                 # a 50ms host poll, a GUEST budget
+            at = wseg()                 # (the byte is up for the whole pass
+            if m.read(at * 16 + P["trk_cpq"], 1)[0]:     # AND the 114KB
+                seen["posted"] = True                    # floppy read)
             if u16(m.read(at * 16 + P["tui_msgp"], 2)) == P["trk_s_cpq"]:
-                said = True
-            if posted and said:
-                break
-            time.sleep(0.05)
+                seen["said"] = True
+            return seen["posted"] and seen["said"]
+        try:
+            os88marty.until(m, watched, "the posted compaction to show",
+                            poll=0.05, limit=20.0)
+        except os88marty.MartyError:
+            pass                        # ...judged below
+        posted, said = seen["posted"], seen["said"]
         os88marty.settle(m, limit=180)
-        for _ in range(20):             # belt only: the settle above already
-            if m.read(wseg() * 16 + P["mp_loaded"], 1)[0]:
-                break                   # covers the pass and the 114KB read,
-            time.sleep(0.5)             # both of which repaint
+        try:                            # belt only: the settle above already
+            os88marty.until(            # covers the pass and the 114KB read,
+                m, lambda _: m.read(wseg() * 16 + P["mp_loaded"], 1)[0],
+                "[mp_loaded]", poll=0.5, limit=10.0)   # both of which repaint
+        except os88marty.MartyError:
+            pass
         layout("after the load")
 
         seg2 = wseg()                   # ...and every read below is through

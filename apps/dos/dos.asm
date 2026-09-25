@@ -410,8 +410,18 @@ LNK_EXTSIG2 equ 0xA0088089          ; ...and a SECOND one, the memory settings
                                     ; mechanism is for, and its fields are at a
                                     ; fixed offset inside it. An older link
                                     ; simply has not got one
-LNK_EXT2SZ  equ 12                  ; size(4) + signature(4) + memkb(2) + a
-                                    ; byte for the cache and one of padding
+LNK_EXT2SZ  equ 14                  ; size(4) + signature(4) + memkb(2) + the
+                                    ; arm + the cache + the BOXES + one of
+                                    ; padding - what this build WRITES
+LNK_EXT2MIN equ 12                  ; ...and the shortest it READS: a link
+                                    ; written before the boxes were carried
+                                    ; (SPEC.md 96.25.2.1) has no byte 12, and
+                                    ; its boxes keep their defaults
+LNK_BX_NOHDD equ 0x01               ; byte 12's bits, each set = the box moved
+LNK_BX_NONET equ 0x02               ; OFF its default, so a zero byte is the
+LNK_BX_NOMOU equ 0x04               ; page as a double click opens it: Hard
+                                    ; drives and Network ticked, Disable the
+                                    ; mouse NOT - and NOMOU is that box ticked
 LNK_MAX     equ 512                 ; what one may be, read or written
 
 ; --- THE PAGES (SPEC.md 96.32.2) ---------------------------------------------
@@ -9793,12 +9803,32 @@ dos_lnk_mem:
     mov al, [dos_keepc]             ; ...the arm...
     stosb
     mov al, [dos_cache]             ; ...and the cache dial, WHICH TOOK THE
-    stosb                           ; PAD BYTE (SPEC.md 96.36.6): the block
-    clc                             ; stays 12 bytes, the signature does not
-                                    ; move, and a link written before the dial
-                                    ; existed reads a zero there - which is
-                                    ; Auto, the default a link without one
-                                    ; would have been saved with
+    stosb                           ; PAD BYTE (SPEC.md 96.36.6): the signature
+                                    ; did not move, and a link written before
+                                    ; the dial existed reads a zero there -
+                                    ; which is Auto, the default a link
+                                    ; without one would have been saved with
+    ; **AND THE THREE BOXES** (SPEC.md 96.25.2.1). They are requests about
+    ; the program and not reports about this machine (96.36.7.1) - which is
+    ; the whole reason a shortcut has to carry them - and for as long as the
+    ; boxes have existed this block did not, so `Disable the mouse` came back
+    ; unticked from every shortcut that was saved with it ticked.
+    xor al, al
+    cmp byte [dos_mhdd + OS88UI_CK_ON], 0
+    jne .bnet
+    or al, LNK_BX_NOHDD
+.bnet:
+    cmp byte [dos_mnet + OS88UI_CK_ON], 0
+    jne .bmou
+    or al, LNK_BX_NONET
+.bmou:
+    cmp byte [dos_mmou + OS88UI_CK_ON], 0
+    je .bput
+    or al, LNK_BX_NOMOU
+.bput:
+    xor ah, ah                      ; ...and the pad, zero
+    stosw
+    clc
     jmp short .out
 .no:
     stc
@@ -10335,7 +10365,7 @@ dos_lnk_ext:
 .m:                                 ; blocks now, and a link written by an
     cmp cx, LNK_EXTSIG2 & 0xFFFF    ; older build has only the first
     jne .next
-    cmp ax, LNK_EXT2SZ
+    cmp ax, LNK_EXT2MIN
     jb .next                        ; short: not one of ours, whatever it says
     call dos_lnk_memr
 .next:
@@ -10385,8 +10415,38 @@ dos_lnk_memr:
 .cset:                              ; the end would draw a caption out of
     mov [dos_cache], al             ; whatever follows the table. Out of range
     mov byte [dos_cache+1], 0       ; is Auto, the setting a link that never
-    call dos_mem_fix                ; carried one was saved with
+                                    ; carried one was saved with
+    cmp word [dos_lbuf+si], LNK_EXT2SZ  ; ...and the boxes, WHEN THE BLOCK
+    jb .nobox                       ; HAS THEM (SPEC.md 96.25.2.1). The size
+    mov al, [dos_lbuf+si+12]        ; word was bounded against what is left of
+    call dos_lnk_boxes              ; the file by dos_lnk_ext, so byte 12 is
+.nobox:                             ; inside it; an older, 12-byte link keeps
+                                    ; the defaults dos_fld_init set
+    call dos_mem_fix
     call dos_mem_put                ; ...and the field shows what the link said
+    pop ax
+    ret
+
+; --- dos_lnk_boxes - byte 12 of the memory block, AL -> the three boxes -----
+; One bit per box and each is a plain 0/1 into OS88UI_CK_ON, so any byte is
+; legal and the unknown bits are ignored: nothing here can put a control in a
+; state it cannot draw (SPEC.md 20.8 rule 2).
+dos_lnk_boxes:
+    push ax
+    mov ah, al
+    and al, LNK_BX_NOHDD            ; hard drives: set = UNTICKED
+    xor al, LNK_BX_NOHDD
+    mov [dos_mhdd + OS88UI_CK_ON], al
+    mov al, ah
+    and al, LNK_BX_NONET            ; network: set = UNTICKED
+    xor al, LNK_BX_NONET
+    shr al, 1
+    mov [dos_mnet + OS88UI_CK_ON], al
+    mov al, ah
+    and al, LNK_BX_NOMOU            ; the mouse: set = TICKED
+    shr al, 1
+    shr al, 1
+    mov [dos_mmou + OS88UI_CK_ON], al
     pop ax
     ret
 
@@ -16086,8 +16146,46 @@ dos_fh_shrink:
 .body:
     mov ax, [si+FH_POS]
     or ax, [si+FH_POS+2]
-    jnz .b1
+    jnz .b0
     jmp dos_fh_touch                ; nothing kept: the zero-length replace
+.b0:
+    ; --- THE KERNEL TRUNCATES, where it can (SPEC.md 18.4.7.5) -------------
+    ; OSAPI_FILE_WRITE_AT with CX=0 ends the file at a CLUSTER boundary, so
+    ; the cluster the new end falls in is read into the window first, the file
+    ; is cut at its start, and the kept part of it goes back on as an append
+    ; - which the cut size, a cluster multiple, is exactly what APPEND wants.
+    ; No temporary, no free space, and no instant where the data is under
+    ; another name. kern_small has no such door and a redirected volume
+    ; refuses it: either answers CF=1 BEFORE touching the file, and the three
+    ; arms below are what they always were
+    mov ax, [dos_cbytes]
+    neg ax
+    and ax, [si+FH_POS]             ; C: the new end, rounded down to a
+    mov dx, [si+FH_POS+2]           ; cluster (dos_cbytes is a power of two)
+    push ax
+    push dx
+    call .brd                       ; the cluster C starts, into the window
+    pop dx
+    pop ax
+    jc .b1
+    push ax
+    push si
+    add si, FH_NAME
+    xor cx, cx
+    call dos_be_wrat                ; ...and the file ENDS at C
+    pop si
+    pop bx
+    jc .b1
+    mov cx, [si+FH_POS]
+    sub cx, bx                      ; the kept part of that cluster
+    jcxz .bz                        ; (CF=0: `sub` did not borrow)
+    mov al, 1
+    push si                         ; push/pop and not `sub si`: the CF .bput
+    add si, FH_NAME                 ; answers is the whole verdict
+    call .bput
+    pop si
+.bz:
+    ret
 .b1:
     cmp word [si+FH_POS+2], 0
     jne .bcopy

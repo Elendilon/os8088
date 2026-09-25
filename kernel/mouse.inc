@@ -256,7 +256,11 @@ CUR_SPAN    equ 2               ; ...and the framebuffer bytes it spans once
 CUR_TABSZ   equ CUR_GH          ; one BYTE a row, CUR_GH rows: cur_data is
                                 ; exactly one table past cur_and, so one SI
                                 ; walks both (asserted below)
+%ifdef GFX_VGA
 CUR_SAVE_SZ equ CUR_SPAN * CUR_GH * 4       ; ...x four planes, for VGA
+%else
+CUR_SAVE_SZ equ CUR_SPAN * CUR_GH           ; one plane: no VGA in this build
+%endif
 
 ; --- the shapes (SPEC.md 7.2) ------------------------------------------------
 ; A window names one of these and the pointer wears it over that window and
@@ -468,7 +472,7 @@ mou_pall:
 ;     the inline form is DS-relative data and an indirect far call, so it drops
 ;     into any section. It costs 17 bytes a site, twice.
 ; =============================================================================
-%ifndef KERN_SMALL
+%ifndef MOU_IN_BLOB             ; kern_big, AND a kern_small knob build (kernel.asm)
 section .ovlw                   ; kern_big: the WINDOW half (SPEC.md 2.5.3) -
                                 ; forfeit at the first mount, and this build's
                                 ; window has room to spare
@@ -1537,7 +1541,7 @@ mou_p2wr:
     pop ax
     ret
 
-%ifndef KERN_SMALL
+%ifndef MOU_IN_BLOB             ; kern_big, AND a kern_small knob build (kernel.asm)
 section .ovlw
 %else
 section .ovl                    ; ...SPLIT WITH mou_uart's BLOCK ABOVE, and
@@ -1628,7 +1632,7 @@ mou_p2wcmd:
 .out:
     ret
 
-%ifndef KERN_SMALL
+%ifndef MOU_IN_BLOB             ; kern_big, AND a kern_small knob build (kernel.asm)
 section .ovlw
 %else
 section .ovl                    ; ...SPLIT WITH mou_uart's BLOCK ABOVE, and
@@ -2842,7 +2846,7 @@ kbd_track:
     ret
 
 ; -----------------------------------------------------------------------------
-; kbd_down - is this key down right now? (SPEC.md 9.7, slot 0x03F0)
+; kbd_down - is this key down right now? (SPEC.md 9.7, slot 0x02FC)
 ; in:  AL = a make scancode (0x4B left, 0x4D right, 0x39 space, ...)
 ; out: CF = 1 down, CF = 0 up; every register preserved
 ;
@@ -3431,7 +3435,7 @@ mou_byte:
     ret
 
 ; -----------------------------------------------------------------------------
-; osapi_mouse_feed - slot 0x0598: one relative report from a DRIVER (SPEC.md
+; osapi_mouse_feed - slot 0x0449: one relative report from a DRIVER (SPEC.md
 ;                    9.12.1)
 ;
 ; in:  AX = dx, BX = dy, signed, POSITIVE dy IS DOWN; CL = the buttons in
@@ -4624,7 +4628,7 @@ cur_shape_set:
 ; sectors of disk. That is the whole measurable cost of the feature.
 ; -----------------------------------------------------------------------------
 
-; cur_busy    - slot 0x0540, the PACKAGE's door: it must hold the lock ITSELF
+; cur_busy    - slot 0x040B, the PACKAGE's door: it must hold the lock ITSELF
 ; cur_busy_on - ...and the KERNEL's, inside fpg_arm, which need not (SPEC.md
 ;               12.8.4: the one painter in the machine that draws lock-free)
 ;

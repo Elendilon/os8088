@@ -114,7 +114,7 @@ def ctx(m, d):
 
 def bank(m, slot):
     """The rect this window goes back to when the screen changes (39.11.2.1)."""
-    b = m.read(S("wm_natr") + slot * NR_SIZE, NR_SIZE)
+    b = m.read(os88sym.wfield(slot, "W_NATR"), NR_SIZE)
     return u16(b, 0), u16(b, 2), u16(b, 4), u16(b, 6)
 
 
@@ -507,7 +507,7 @@ def main(argv):
             def pshow(tag, f):
                 x, y, w, h = dispcp.win_rect(m, S, pslot)
                 say("%-30s (%4d,%3d) %3dx%-3d pkind=%d  %s"
-                    % (tag, x, y, w, h, m.read(S("wm_pkind") + pslot, 1)[0],
+                    % (tag, x, y, w, h, m.read(os88sym.wfield(pslot, "W_PKIND"), 1)[0],
                        "  ".join("%s=%d" % (k, f[k]) for k in names)))
                 return x, y, w, h
 
