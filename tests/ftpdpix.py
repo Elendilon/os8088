@@ -16,6 +16,7 @@ sys.path.insert(0, 'tests')
 import dispcp                                          # noqa: E402
 import ethernet as eth                                 # noqa: E402
 import os88sym                                         # noqa: E402
+import os88build                                       # noqa: E402
 import importlib.util
 import os88qemu                                              # noqa: E402
 
@@ -69,7 +70,7 @@ def log_state(m):
             continue
         r = m.read(S("wm_wins") + i * dispcp.WIN_SIZE, dispcp.WIN_SIZE)
         seg = dispcp._u16(r, 22)
-        o88 = open("build/ftpd.o88", "rb").read()
+        o88 = open(os88build.at("build/ftpd.o88"), "rb").read()
         img = o88[8] | (o88[9] << 8)
         return m.readseg(seg, img + 48, 12)
     return None
