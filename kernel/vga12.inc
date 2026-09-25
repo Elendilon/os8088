@@ -2861,44 +2861,40 @@ gfx_blitp:
     ; 5.4.3.5). The row loop below re-reads its geometry, calls gfx_rowbase
     ; and writes a Map Mask and a Bit Mask for EVERY PLANE OF EVERY ROW:
     ; ~2,600 cycles a row on a 4.77 MHz 8088 whatever its width, against
-    ; gfx_blit1's ~125. A block with no right-edge mask, wholly on the
-    ; screen in y, on a surface with one bank has nothing left to decide per
-    ; row - its rows are [vid_stride] apart - so each plane is ONE Map Mask
-    ; and a `rep movsb` a row. Anything else takes the row loop it always did.
+    ; gfx_blit1's ~125. A block with no right-edge mask and wholly on the
+    ; screen in y has nothing left to decide per row - its rows are
+    ; [vid_stride] apart, every planar surface being ONE bank ([vid_bmask] is
+    ; a 1bpp adapter's, and those were refused above) - so each plane is ONE
+    ; Map Mask and a `rep movsb` a row. Anything else takes the row loop.
     cmp byte [ss:vga_pr_rm], 0xFF
     jne .row                    ; a masked right edge: the latch read
-    cmp word [vid_bmask], 0
-    jne .row                    ; interleaved banks (no planar card has any)
-    cmp bx, [vid_ch]
-    jae .row                    ; ...UNSIGNED, so a negative y is caught too
+    mov ax, [vid_ch]
+    sub ax, bx                  ; the rows from y to the bottom - none, or a
+    jbe .row                    ; borrow, when y is off it either way...
+    cmp ax, dx
+    jb .row                     ; ...and fewer than the block: .row skips them
     mov ax, bx
-    add ax, dx
-    jc .row
-    cmp ax, [vid_ch]
-    ja .row                     ; rows off the bottom: .row skips them
-    push cx
-    push dx                     ; gfx_rowbase's calc path writes CL and DX
-    mov ax, bx                  ; (SPEC.md 5.4.3.1)
-    call gfx_rowbase
-    pop dx
+    mov bx, dx                  ; BX = the rows, again for every plane
+    push cx                     ; gfx_rowbase's calc path writes CL and DX
+    call gfx_rowbase            ; (SPEC.md 5.4.3.1), and DX is spent
     pop cx
     add ax, cx
-    mov [ss:vga_pr_o], ax       ; the block's first framebuffer byte
+    push ax                     ; the block's first framebuffer byte
     mov bp, [vid_stride]
     sub bp, [ss:vga_pr_n]       ; BP = a row's framebuffer advance past it
-    mov bx, dx                  ; BX = the rows, again for every plane
     mov ax, VGA_SEG
     mov es, ax
     mov ds, [ss:vga_pr_sg]      ; DS:SI the caller's planes, from here on
     cld
     mov ah, 1                   ; this plane's Map Mask bit
 .fpl:
+    pop di
+    push di
     push si
     push ax
     mov dx, VGA_SEQ
     mov al, 2
     out dx, ax                  ; SEQ2: Map Mask = this plane alone
-    mov di, [ss:vga_pr_o]
     mov dx, bx
     mov ax, [ss:vga_pr_rs]
     sub ax, [ss:vga_pr_n]       ; AX = a row's source advance past it
@@ -2915,6 +2911,7 @@ gfx_blitp:
     shl ah, 1
     cmp ah, 0x10
     jb .fpl
+    pop di
     push cs
     pop ds                      ; the kernel's again, for the teardown
     jmp short .rowsdone

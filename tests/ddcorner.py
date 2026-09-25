@@ -48,6 +48,13 @@ import os88ui                                               # noqa: E402
 
 KEYS = ("ArrowUp", "ArrowLeft", "ArrowDown", "ArrowRight")
 
+# How far back the glass can be, in guest cycles: two 60 Hz refreshes of a
+# 4.77 MHz 8088 is ~160,000, and this is ~125 ms - over two DOT DELIRIUM
+# frames, so every position an actor held on a picture the card may still be
+# showing is excused. Still sprite BITS, so a corner under a band and under no
+# sprite stays a failure: --nopok is what says so.
+WINDOW = 600000
+
 
 def census(tag, ui, p, say, samples, nopok=False):
     m = ui.m
@@ -80,8 +87,9 @@ def census(tag, ui, p, say, samples, nopok=False):
     nopl, bad = 0, []                   # readings with the planes OFF, and
                                         # what each wrong one looked like
     kidx = 0
-    last = {}                           # each actor as the PREVIOUS reading
-                                        # saw it: see the note at `spots`
+    hist = []                           # (guest cycle, {actor: (x, y, img)})
+                                        # for every reading in WINDOW: see
+                                        # the note at `spots`
     for i in range(samples):
         if i % 25 == 0:
             m.key(KEYS[kidx % 4], down=True, up=False)
@@ -96,24 +104,30 @@ def census(tag, ui, p, say, samples, nopok=False):
         m.write((p.seg << 4) + p.names["dd_lives"], bytes([99]))
         cover = set()
         now = {}
+        cyc = m.status()["cycles"]
         for a in range(5):
             img, limg = p.b("dd_img", a), p.b("dd_limg", a)
-            ox, oy = p.w("dd_ox", a), p.w("dd_oy", a)
-            now[a] = (ox, oy, img, limg)
+            now[a] = [(p.w("dd_x", a) >> 4, p.w("dd_y", a) >> 4, img),
+                      (p.w("dd_ox", a), p.w("dd_oy", a), limg),
+                      (p.w("dd_pbx", a), p.w("dd_pby", a), limg)]
+        hist = [(c, s) for c, s in hist if cyc - c <= WINDOW] + [(cyc, now)]
+        for a in range(5):
             if not p.b("dd_shown", a) and not p.b("dd_alive", a):
                 continue
             # WHERE THE GLASS MAY STILL HOLD IT: where it is, where it was
-            # drawn, the split's old box - and where the PREVIOUS reading had
-            # it drawn, because dd_actor_emit moves dd_ox to the new place
-            # BEFORE the band that takes the old sprite up is written, so at
-            # that band's own dd_blit the old sprite is on the glass and
-            # dd_ox no longer names it.
-            spots = {(p.w("dd_x", a) >> 4, p.w("dd_y", a) >> 4),
-                     (ox, oy), (p.w("dd_pbx", a), p.w("dd_pby", a))}
-            imgs = {img, limg}
-            if a in last:
-                spots.add(last[a][:2])
-                imgs |= set(last[a][2:])
+            # drawn, the split's old box - at THIS reading and at every one in
+            # the last WINDOW of guest time. The glass is the last frame the
+            # card FINISHED (MartyPC's fbuf; a VGA's planes cannot be read
+            # as memory at all), which is up to two refreshes older than the
+            # breakpoint - so a sprite a band has already taken up can still
+            # be there, and dd_ox no longer names where. Two readings found
+            # that before this did: a ghost's skirt three rows under the box
+            # it had already been redrawn in, over a corner block.
+            spots, imgs = set(), set()
+            for _, snap in hist:
+                for x, y, im in snap[a]:
+                    spots.add((x, y))
+                    imgs.add(im)
             for limg in imgs:
                 bits = bytes(m.read(spr_at + limg * sprsz, sprsz))
                 for sx, sy in spots:
@@ -122,7 +136,6 @@ def census(tag, ui, p, say, samples, nopok=False):
                         for c in range(tw):
                             if (word >> (15 - c)) & 1:
                                 cover.add((sx + c, sy + r))
-        last = now
         w, h, d = D.screen(m)
         per = len(d) // (w * h)
         took += 1
