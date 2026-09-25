@@ -140,7 +140,7 @@ header has room for them.
 ### 2.2 A frame's video part: ten lists of segments (settled by Wave 0)
 
 ```
-frame   = [len16] [ymin] [ymax] video audio
+frame   = [len16] [y0 16] [y1 16] video audio      (SPEC.md 98.1.3)
 video   = P1 P2 P3 P4 P5 P6 SLICE RUN SLICEL RUNL     ten lists, this order
 list    = segment* 00
 segment = count(1..127) address(16) entry × count      skip-coded
@@ -183,8 +183,9 @@ because a measurement put it there (section 8, W0).
   own, so the short loops test for nothing.
 - **The lists are disjoint** and each is sorted by address. The order between
   lists does not matter.
-- **`ymin`/`ymax`** is the frame's dirty band of rows, two bytes a frame. It
-  is what a shadow copies and what Live blits (section 3).
+- **`y0`/`y1`** is the frame's dirty band of canvas rows, a word each
+  because a Hercules or VGA canvas has more than 255 rows. It is what a
+  shadow copies and what Live blits (section 3).
 - **Reserved list ids** leave room for later operations, first of all
   **COPY**: a block copied from elsewhere on the screen, for pans.
 
@@ -335,6 +336,14 @@ video small enough to leave the CPU it needs (§34.1 priced it at 36–50%).
 
 ### 2.6 The container
 
+**SPEC.md 98.1 is the contract now** (wave 1), and it changed two things
+below. **The stream has no index**: each super-packet carries the next one's
+size, so a player holds nothing but the super-packet it is reading, where a
+one-hour index would have been ~54 KB. **Everything the Preview reads is at
+the front** (the header, the keyframe table and every keyframe), because
+`READ_AT`'s cost grows with the offset. The list below is the design as it
+was proposed.
+
 It is written by the host tools only. The player checks every field it
 depends on, because a truncated copy is ordinary.
 
@@ -455,7 +464,7 @@ from speed:
 - **Decode stays in the interrupt.** SOUND.DRV's frame stream calls the hook
   outside a bracket as well. The hook decodes into the **RAM shadow**, which
   is not the screen, so it keeps pace with the audio *through* disk reads,
-  just as fullscreen does. It also ORs each frame's `ymin`/`ymax` into a
+  just as fullscreen does. It also ORs each frame's `y0`/`y1` into a
   pending dirty band.
 - **Display is a worker.** At ≤ 18.2 Hz it takes the gfx lock and the window
   clip, and `OSAPI_GFX_BLIT1`s the pending band of the shadow (the Wire
@@ -682,11 +691,28 @@ red. A row about one package goes in `soak`.
     - the DMA ceiling curve;
     - Hercules' real wait states (MartyPC charges it exactly CGA's);
     - ADPCM4 on a real SB 2.0.
-- **W1 — host tools.** `import`, `stat`, `decode`, `verify` and a minimal
-  encoder. Gate: decode(import(x)) equals XDC's decoded screen on every
-  frame. **The owner's five samples are test content by permission**; they
-  stay outside the tree, and rows take a path to them. Generated fixtures
-  cover the rest.
+- **W1 — host tools. DONE** (SPEC.md 98, `tools/os88vid.py`,
+  `tests/vidfmt.py`). `import`, `encode`, `info`, `decode`, `verify` and
+  `--selfcheck`. All five samples import and verify **frame by frame
+  against XDC's screen and audio**, the whole row in 16 s. `import --target
+  herc|lin80` came forward from W5, because it is the same machinery as the
+  encoder: BADAPPLE re-laid for Hercules and for mode 12h verifies against
+  XDC too.
+
+  | stream | `.V88` | stream rate | keyframes, share of the file | CPU (model) mean / worst |
+  |---|---|---|---|---|
+  | BADAPPLE | 13.3 MB | 58.2 KB/s | 110, 1.6% | 21.5% / 67.7% |
+  | THUNDERC | 6.0 MB | 73.6 | 39, 4.0% | 26.8% / 58.9% |
+  | TRONDISC | 4.3 MB | 81.6 | 25, 5.9% | 30.3% / 62.2% |
+  | BBBB_BW | 0.19 MB | 23.2 | 4, 8.5% | 9.4% / 57.0% |
+  | BBBBCOMP | 0.25 MB | 28.6 | 4, 14.7% | 11.3% / 33.8% |
+  | BADAPPLE on HERC | 13.5 MB | 59.0 | 110, 1.8% | 22.0% / 68.2% |
+  | BADAPPLE on LIN80 | 13.1 MB | 57.6 | 110, 1.6% | 20.8% / 67.4% |
+
+  The CPU columns are wave 0's CGA-screen model. Keyframes every 2 s cost
+  1.6–15% of a file, so the owner's rule (a bonus does not get half the
+  disk) holds with room to spare. The encoder is lossless and has no budget;
+  that is W8.
 - **W2 — kernel.** Sections 4.1–4.3, each with its SPEC section written first
   and its own gate row.
 - **W3 — player, fullscreen CGA, silent (`FSXF_RATE`).** Gate: guest video

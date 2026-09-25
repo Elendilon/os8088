@@ -459,6 +459,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 95 | SCRIBE (`apps/scribe/`) — the fork of WORD |
 | 96 | DOS — running `.COM` and `.EXE` programs (`apps/dos/`) |
 | 97 | PIXELSTEIN 3D — a raycast shooter in a foreign mode (`apps/pixelstein/`) |
+| 98 | VIDEO PLAYER — full-motion video on a 4.77 MHz 8088 (`apps/video/`, `.V88`) |
 
 ## docs/
 

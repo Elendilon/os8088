@@ -148630,3 +148630,215 @@ are the loader's and freed at the re-home); the eager run **116 unpacked sectors
 `games360.img` and `apps.img`, on neither `apps360.img` nor the small
 disks. The kernel is unchanged.
 
+
+## 98. VIDEO PLAYER — full-motion video on a 4.77 MHz 8088 (`apps/video/`, `.V88`)
+
+Full-motion video with sound, played off a floppy or a fixed disk, at XDC's
+performance or better (MobyGamer's XDC, MIT, © 2014 Jim Leonard, is the
+standard it is measured against). The design record is
+`docs/plans/VIDEO-PLAN.md`, and `docs/reports/VIDEO-W0-2026-09-25.md` is the
+measurement that settled the format.
+
+**It arrives in waves, and this section says which.** What exists is wave 1:
+the FILE (98.1) and its host tools (98.2). The player is wave 3; nothing on
+any shipped disk reads a `.V88` yet.
+
+### 98.1 The file
+
+A `.V88` is written by the host tools only, and read by a player that checks
+every field it depends on (98.1.6), because a truncated copy is ordinary.
+Every number is little-endian; every offset is in bytes from the start of the
+file.
+
+```
+sector 0          the header (98.1.1)
+sector 1..        the keyframe table (98.1.3), on a sector
+                  the keyframe records, back to back, padded to a sector
+                  the stream: super-packets (98.1.4), each on a sector
+```
+
+**Everything the Preview needs is at the front.** `OSAPI_FILE_READ_AT`
+re-walks the chain per call, 142 ms more per MB of offset on the W0 machine,
+so the header, the poster and every keyframe are the file's first reads; the
+stream behind them is read sequentially.
+
+#### 98.1.1 The header
+
+| off | size | field |
+|---|---|---|
+| 0 | 4 | `'V88'`, 1Ah |
+| 4 | 2 | version, **1** |
+| 6 | 2 | flags, 0 (a version 1 reader refuses any bit) |
+| 8 | 4 | frames, ≥ 1 |
+| 12 | 2 | rate: the audio sample rate in Hz; for a silent file, the nominal rate the frame rate derives from |
+| 14 | 2 | samples per frame, ≥ 1. **fps = rate / samples per frame**, XDC's rule |
+| 16 | 1 | audio: 0 none, 1 PCM8 (unsigned 8-bit mono), 2 ADPCM4 (Creative 4-bit; its bytes per frame and reference-byte rule are wave 4's, and no version 1 tool writes it) |
+| 17 | 1 | renditions, 1..4; **1 in version 1** |
+| 18 | 2 | audio bytes per frame: 0 with no audio, the samples per frame with PCM8 |
+| 20 | 12 | 0 |
+| 32 | 48 | title, ASCII, NUL-terminated within the field |
+| 80 | 96 | credits, the same |
+| 176 | 16 | 0 |
+| 192 | 256 | four rendition slots of 64 bytes; the first *renditions* are used, the rest are 0 |
+| 448 | 64 | 0 |
+
+**A rendition is one canvas and its own stream.** Version 1 writes exactly
+one. The table is there so that a later file can carry a canvas per adapter
+and a player reads only the stream it plays (VIDEO-PLAN 13, answer A).
+
+| +off | size | field |
+|---|---|---|
+| 0 | 1 | pixel format: 1 **MONO1** (1 bpp, 1 = white), 2 **CGACOMP** (1 bpp read as 16 composite artifact colours; mono stripes anywhere but a CGA with the burst on) |
+| 1 | 1 | layout (98.1.2): 1 CGA, 2 HERC, 3 LIN80 |
+| 2 | 2 | canvas width in bytes, 1..the layout's stride |
+| 4 | 2 | canvas height in rows, 1..the layout's rows |
+| 6 | 1 | pixel aspect the encoder assumed, numerator; 0 = not stated |
+| 7 | 1 | ...denominator |
+| 8 | 4 | the keyframe table, on a sector |
+| 12 | 2 | keyframes, 0..16,383 |
+| 14 | 2 | the poster: a keyframe index, or FFFFh for none |
+| 16 | 4 | the first super-packet, on a sector |
+| 20 | 2 | the first super-packet's sectors, 1..64 |
+| 22 | 2 | the largest super-packet's sectors, 1..64 |
+| 24 | 4 | the stream's bytes, padding included |
+| 28 | 2 | the largest frame record, bytes |
+| 30 | 2 | the largest keyframe record, bytes |
+| 32 | 32 | 0 |
+
+#### 98.1.2 Layouts: the file is laid out for its surface on the host
+
+**Every address in a file is the target surface's own memory image**, with
+the canvas's top-left at address 0. The player adds the canvas origin in BP
+and nothing at playback knows about rows (wave 0 measured translating at
+playback at ~480 cycles a row change, and REFUSED it). Canvas row *y*, byte
+*x* is at:
+
+| layout | surface | banks | stride | rows | address |
+|---|---|---|---|---|---|
+| 1 CGA | B800h, mode 6 (and a VGA's or EGA's mode 6) | 2 | 80 | 200 | (y mod 2)·8192 + (y div 2)·80 + x |
+| 2 HERC | B000h, page 0 | 4 | 90 | 348 | (y mod 4)·8192 + (y div 4)·90 + x |
+| 3 LIN80 | A000h, mode 12h, Map Mask 0Fh | 1 | 80 | 480 | y·80 + x |
+
+So an origin must keep the bank phase: its row a multiple of the layout's
+banks, its column on a byte. A file played on a surface of another layout
+is decoded into a RAM shadow instead (VIDEO-PLAN 2.3), and `os88vid import
+--target` re-lays one out so that it plays natively.
+
+#### 98.1.3 Records, and the ten lists
+
+```
+frame record    = len(16) y0(16) y1(16) lists audio
+keyframe record = len(16) y0(16) y1(16) lists           (no audio)
+lists           = P1 P2 P3 P4 P5 P6 SLICE RUN SLICEL RUNL      in this order
+list            = segment* 00
+segment         = count(1..127) address(16) entry × count      skip-coded
+                | 80h+count(1..127)         aentry × count     absolute
+entry           = skip(8), change            aentry = address(16), change
+P1..P6          = 1..6 bytes, stored
+SLICE           = len(8) bytes      7..255        RUN  = len(8) value   6..255
+SLICEL          = len(16) bytes     256+          RUNL = len(16) value  256+
+```
+
+- **`len`** is the whole record, its six header bytes included.
+- **`y0`, `y1`** are the canvas rows the record writes, `y0` ≤ row < `y1`;
+  `y0` = `y1` writes none. They are what a shadow copies and a Live window
+  blits.
+- **`skip`** is measured from the end of the previous write in the segment,
+  and from the segment's address for its first entry. Only P1..P6 take the
+  absolute form.
+- **A keyframe record is applied to a canvas of zeroes** (black), and leaves
+  the screen exactly as it was after its frame.
+- **No byte is written twice in a record, and no entry writes outside the
+  canvas.** The order of entries is free: the writer pools isolated changes
+  into absolute segments after a list's skip segments, and nothing at
+  playback depends on the order. Those are the WRITER's rules; 98.1.6 says
+  what a reader may rely on.
+- **Audio** is the header's audio bytes per frame, the last bytes of the
+  frame record: the decoder's SI is on it when the tenth list ends.
+
+The reference decoder is `decode_lists` in `tools/os88vid.py`, and the
+guest's is `tests/vidbench/vdec.inc` until the player takes it (wave 3).
+
+A keyframe table entry is 16 bytes, ascending by frame:
+
+| +off | size | field |
+|---|---|---|
+| 0 | 4 | *k*: the record is the screen after frame *k* |
+| 4 | 4 | the record's offset |
+| 8 | 2 | its length |
+| 10 | 4 | the super-packet holding frame *k*+1, or 0 when *k* is the last frame |
+| 14 | 1 | that super-packet's sectors |
+| 15 | 1 | frame *k*+1's index within it |
+
+**A seek** decodes the keyframe at or before the target onto a black canvas,
+then streams from the named super-packet and skips that many records (a
+`len` hop each). It needs no index of the stream in memory.
+
+**Keyframes** are written every 2 seconds by default. The encoder reports
+their share of the file, and the interval is the knob if it grows large.
+**The poster** is chosen at encode time and defaults to the first keyframe
+whose canvas is not 98% or more one byte value.
+
+#### 98.1.4 The stream: chained super-packets
+
+```
+super-packet = frames(16) next(16) frame record × frames, zero-padded to a sector
+```
+
+- **At most 64 sectors**, header and padding included, and every one starts
+  on a sector: 32 KB is XDC's read size, and whole sectors go straight to a
+  512-aligned buffer.
+- **`next`** is the following super-packet's sectors, 0 after the last.
+  The header names the first one's. A reader holding super-packet *i*
+  therefore knows how much to read for *i*+1, and **the stream needs no index
+  at all**. A one-hour stream's index would be ~54 KB, which is why there is
+  none.
+- **`frames`** ≥ 1, and the frame records fill the super-packet exactly, up
+  to its padding. The ring a player reads into wraps only between
+  super-packets, so a record is always contiguous in memory.
+
+#### 98.1.5 What a version 1 file holds
+
+- **Renditions**: one.
+- **Pixel format**: MONO1, or CGACOMP from an XDC import.
+- **Audio**: PCM8, or none.
+- **Layout**: any of the three.
+
+#### 98.1.6 What a reader checks, and what a hostile file can do
+
+**The player validates everything it SIZES by**:
+- the header's signature, version, flags;
+- renditions, formats, layout;
+- the canvas against the layout;
+- the audio bytes against the format;
+- every super-packet's sectors against 1..64;
+- every record's `len` against what is left of its super-packet and against
+  6 + the audio bytes.
+
+A failure refuses the file, or ends playback at that super-packet.
+
+**The lists are not validated entry by entry**, which is what keeps the
+decoder at XDC's speed. What that leaves a hostile file is bounded by
+segments, not by trust:
+- **A write lands at ES:(BP + address)**, 16 bits, inside one segment. On a
+  surface ES is the adapter's own segment, so the worst a hostile list can do
+  is draw garbage on the screen.
+- **A decode into RAM is into a claim of 64 KB, or it validates**, because
+  otherwise the same write reaches the neighbour of the claim.
+- **A read** runs at most off the end of the record into the super-packet
+  buffer's own segment, which is harmless.
+
+### 98.2 The host tools — `tools/os88vid.py`
+
+| command | what it does |
+|---|---|
+| `import IN.XDV OUT.V88 [--target cga\|herc\|lin80]` | an XDC stream, EXACTLY: every frame's writes re-expressed as lists (`verify --against` proves it frame by frame). CGA is the XDV's own layout; `--target` re-lays the canvas out for another surface by simulating the stream and re-encoding it, so it plays natively there |
+| `encode FRAME... OUT.V88 --fps F [--wav W] [--layout L]` | the minimal encoder: lossless, from PBM, PGM or BMP frames and an 8-bit or 16-bit WAV. Wave 8 adds the budgets |
+| `info FILE.V88` | the header, the rendition, and the stream's rate and modelled CPU |
+| `decode FILE.V88 --frame N --png OUT.png` | the canvas after frame N, through the keyframe at or before it |
+| `verify FILE.V88 [--against IN.XDV]` | every field of 98.1.6, every super-packet and record, every keyframe against the running canvas, and with `--against`, every frame against XDC's screen |
+| `--selfcheck` | generated fixtures through `encode` and `verify` in all three layouts, and a corrupted file that `verify` must refuse |
+
+`tests/vidfmt.py` is the gate (a `soak` row). It runs `--selfcheck`, then
+imports and verifies the owner's samples when `$OS88_XDC_SAMPLES` names
+them. Those samples are not in the tree.

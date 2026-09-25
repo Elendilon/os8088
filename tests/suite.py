@@ -8087,6 +8087,16 @@ SOAK = [
         wants=("build/vidsnd.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
                "build/ctrl.drv", "build/sound.drv")),
+    Row("vidfmt", "soak", py("tests/vidfmt.py"), 16.0,
+        "SPEC.md 98.1: the .V88 file and tools/os88vid.py, host-side. "
+        "`--selfcheck` encodes generated frames on all three layouts and "
+        "imports a synthetic XDC stream to each, decodes every frame back "
+        "through its keyframe, and must refuse four corruptions each for its "
+        "own reason; with $OS88_XDC_SAMPLES it imports the owner's five XDC "
+        "streams and holds every frame's screen AND audio to XDC's. Broken "
+        "on purpose (spans merged across bytes outside the canvas; keyframes "
+        "stamped a frame early) it FAILS naming the layout and frame. 16 s "
+        "with the samples, 2 s without."),
     Row("mcperf", "soak", py("tests/mcperf.py"), 50.0,
         "SPEC.md 48.16.2: does Missile play the SAME GAME twice? A fixed"
         "seed, scripted shots and 400 frames back to back rather than one a"
