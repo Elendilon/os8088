@@ -9740,7 +9740,7 @@ vidfield: $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 $(BUILD)/vidsnd.o88 tools/o
 # bootable fixed disk for the PicoMEM machine, which boots a .vhd, and for
 # 86Box (docs/FIELD-MACHINES.md). Each bench SAVES its report as a .TXT beside
 # itself (benchlib's bl_save). XDCSAMPLES, as above: the videos are the
-# owner's and never leave build/. SIX images, two layouts at three geometries:
+# owner's and never leave build/. EIGHT images, two layouts on four disks:
 #   VIDHERC / VIDCGA          615/4/26 (RLL, and MartyPC's XT-IDE), 31 MB,
 #                             all five videos
 #   VIDHERC-MFM / VIDCGA-MFM  615/4/17 - an ST-225 on the IBM/Xebec MFM card,
@@ -9750,6 +9750,9 @@ vidfield: $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 $(BUILD)/vidsnd.o88 tools/o
 #                             with the card's own record in cylinder 0 and the
 #                             volume a cylinder in (os88hdd.py --st11, read off
 #                             a disk that card formatted in 86Box). All five
+#   VIDHERC-ST11M / VIDCGA-ST11M  an ST-225 on a Seagate ST11M - the owner's
+#                             5150 - the same record and layout at 615/4/17,
+#                             read off an ST11M-formatted disk. No THUNDERC
 # Hercules layout on the one, CGA 640x200 (which a VGA plays too, SPEC.md
 # 98.3) on the other: five videos are ~24 MB in one layout.
 VIDHD_XDV = BADAPPLE THUNDERC TRONDISC BBBB_BW BBBBCOMP
@@ -9799,6 +9802,8 @@ vidfieldhd: $(VIDHD_BASE) tools/os88vid.py tools/os88hdd.py tests/vidbench/FIELD
 	$(call vidhd_img,$(BUILD)/VIDCGA-MFM.VHD,cga,17,$(VIDHD_MFM_XDV))
 	$(call vidhd_img,$(BUILD)/VIDHERC-ST11R.VHD,herc,26,$(VIDHD_XDV),--st11)
 	$(call vidhd_img,$(BUILD)/VIDCGA-ST11R.VHD,cga,26,$(VIDHD_XDV),--st11)
+	$(call vidhd_img,$(BUILD)/VIDHERC-ST11M.VHD,herc,17,$(VIDHD_MFM_XDV),--st11)
+	$(call vidhd_img,$(BUILD)/VIDCGA-ST11M.VHD,cga,17,$(VIDHD_MFM_XDV),--st11)
 	@ls -l $(BUILD)/VID*.VHD
 
 # ...and the one that shows a FACE rather than timing one: it draws the same

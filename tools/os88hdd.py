@@ -36,8 +36,9 @@ footer still saying 26 is a disk every reader of the footer lays out wrongly.
 --raw drops the footer, for an emulator that takes a flat .img.
 
 --st11 lays the disk out the way a SEAGATE ST11 card (ST11M/ST11R) does, read
-off a drive its own low-level format prepared (86Box, ST11R, an ST-238R at
-615/4/26). The card keeps a 40-byte parameter record - magic DA BE, the
+off drives its own low-level format prepared (86Box: an ST11R with an ST-238R
+at 615/4/26, and an ST11M with an ST-225 at 615/4/17 - the same record and
+the same layout, the geometry and the drive's name aside). The card keeps a 40-byte parameter record - magic DA BE, the
 cylinders big-endian, heads, sectors, then fields copied verbatim - in
 sectors 1 and 2 of heads 0 and 1 of cylinder 0, and hides that whole
 cylinder: the BIOS's sector 0 is physical cylinder 1. It hands the BIOS two
@@ -157,13 +158,20 @@ def the_file(path):
     return blob
 
 
+# The drive name each ST11 format wrote, by geometry: an ST-238R on an ST11R
+# and an ST-225 on an ST11M, both read off disks the card itself formatted.
+ST11_NAMES = {(615, 4, 26): b"SEAGATE30M", (615, 4, 17): b"SEAGATEST225"}
+
+
 def st11_record(cyls, heads, spt):
     """The Seagate ST11's parameter record, as its low-level format wrote it
-    on an ST-238R (see the module comment). Only the geometry is ours; the
-    rest - its option bytes and the drive's name and serial - is copied."""
+    (see the module comment). The geometry is ours and the name follows it
+    (ST11_NAMES); the option bytes and the serial are copied - they read the
+    same on the ST11R's disk and the ST11M's."""
+    name = ST11_NAMES.get((cyls, heads, spt), b"SEAGATE")
     return (b"\xDA\xBE" + struct.pack(">HBB", cyls, heads, spt) +
             bytes.fromhex("000003060003ffff") +
-            b"SEAGATE30M     \x0012345     ")
+            name.ljust(15) + b"\x0012345     ")
 
 
 def vhd_footer(footer, total, cyls, heads, spt):

@@ -786,8 +786,8 @@ red. A row about one package goes in `soak`.
     VHDs for the PicoMEM machine and 86Box, a Hercules and a CGA layout
     (five streams are ~24 MB in one layout) at three geometries - 615/4/26
     plain (MartyPC's XT-IDE), 615/4/17 for the IBM/Xebec MFM card (20 MB, so
-    no THUNDERC), and 615/4/26 in a SEAGATE ST11R's layout
-    (`os88hdd.py --st11`). **A disk is only readable at the geometry and
+    no THUNDERC), and the SEAGATE ST11 layout (`os88hdd.py --st11`) at
+    615/4/26 for an ST11R and 615/4/17 for an ST11M, the owner's own card. **A disk is only readable at the geometry and
     layout it was written with**, and the owner's 86Box found that the hard
     way: the ST11M and WD1002A-WX1 are MFM (17 sectors) and saw nothing,
     the ST11R saw a drive with no record of its own. Read off a disk that
@@ -796,7 +796,10 @@ red. A row about one package goes in `soak`.
     heads 0 and 1 of cylinder 0, hides that cylinder, and hands the BIOS
     two fewer - the installer partitioned 63,726 sectors from LBA 26. The
     generated image matches that disk's record, footer, partition entry,
-    MBR and VBR byte for byte. MartyPC mounts only the drive types on its
+    MBR and VBR byte for byte. An ST11M-formatted ST-225 then read the same:
+    the same record at 17 sectors with the name "SEAGATEST225", the volume
+    a cylinder in, 41,667 sectors from LBA 17 (613 cylinders again), and
+    the ST11M image matches its record, partition entry, MBR and BPB. MartyPC mounts only the drive types on its
     own list, so the ST11R volume is proven by booting it cut out and
     padded back to 615 cylinders: BADAPPLE plays with no stall. Each
     carries the player, the streams and the four benches - each of which now SAVES its report as a

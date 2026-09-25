@@ -2,8 +2,8 @@ VIDEO PLAYER - FIELD HARD DISK (waves 0-3)
 ==========================================
 
 A bootable fixed disk: the os8088 kernel, the Video
-Player, the videos and four benches. There are six of
-these images - two layouts at three geometries:
+Player, the videos and four benches. There are eight
+of these images - two layouts on four kinds of disk:
 
   VIDHERC.VHD   the videos made for a Hercules card
   VIDCGA.VHD    the videos made for CGA 640x200 - they
@@ -23,12 +23,17 @@ these images - two layouts at three geometries:
                 own record in cylinder 0 and the disk
                 one cylinder in. All five videos.
 
+  VIDHERC-ST11M.VHD, VIDCGA-ST11M.VHD
+                the same for an ST-225 on a Seagate
+                ST11M, at 615/4/17. No THUNDERC.
+
 The disk has to be read at the geometry it was written
 with. In 86Box the -MFM pair wants the plain IBM PC
 fixed disk adapter (st506_xt) with an MFM drive of 17
 sectors, 4 heads, 615 cylinders; the -ST11R pair wants
 the ST11R with an RLL drive of 26 sectors, 4 heads,
-615 cylinders. The other ST11 cards and the plain
+615 cylinders; the -ST11M pair the ST11M with an MFM
+drive of 17 sectors, 4 heads, 615. The ST11 and plain
 images do not mix: an ST11 calls a plain image
 unformatted, and reads the others one cylinder off.
 
