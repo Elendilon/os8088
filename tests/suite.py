@@ -8046,7 +8046,7 @@ SOAK = [
         "`make bench`; --machine picks the adapter",
         needs=("marty", "nasm"), serial=True, alone=True,
         wants=("build/bench360.img",)),
-    Row("vidbench", "soak", py("tests/vidbench.py"), 25.0,
+    Row("vidbench", "soak", py("tests/vidbench.py"), 34.0,
         "docs/plans/VIDEO-PLAN.md wave 0 (a)(d): what a video frame COSTS, "
         "decoded as XDC's own program and as the plan's operand lists "
         "(apps/video/vdec.inc), to the screen, to a RAM shadow and "
@@ -8060,7 +8060,7 @@ SOAK = [
         "--samples DIR or $OS88_XDC_SAMPLES. --machine picks the adapter",
         needs=("marty", "nasm"), serial=True,
         wants=("build/vidbench.o88",)),
-    Row("viddisk", "soak", py("tests/viddisk.py"), 30.0,
+    Row("viddisk", "soak", py("tests/viddisk.py"), 52.0,
         "docs/plans/VIDEO-PLAN.md wave 0 (b): what streaming a 12.6 MB file "
         "off the fixed disk costs today. OSAPI_FILE_READ_AT, 32 KB at 0, 3, "
         "6, 9 and 12 MB, grows with the offset because it re-walks the "
@@ -8068,13 +8068,19 @@ SOAK = [
         "OSAPI_FILE_READ_SEQ removes - and the ROM's int 13h track rate is "
         "the ceiling. On os8088_5150_herc_hdd_sb_gla, whose controller is "
         "XT-IDE (CPU-copied), not the owner's DMA ST11M: the chain walk is "
-        "CPU either way, the transfer rate is this controller's. Asserts "
-        "every row produced a number, READ_AT delivered 32 KB and nothing "
-        "errored; a row banking into the wrong slot took it red",
+        "CPU either way, the transfer rate is this controller's. Then "
+        "OSAPI_FILE_READ_SEQ (18.4.8) - a seek's one walk, 32/16/8 KB calls, "
+        "the int 13h calls one makes and how many land on the FAT - and the "
+        "SILENT PLAYER'S CEILING (98.3): READ_SEQ streaming for 5 s in an "
+        "FSXF_RATE bracket whose 30 Hz hook holds 0/25/50/75% of every "
+        "period, interrupts on, and 50% off. Asserts every row produced a "
+        "number, nothing errored, READ_SEQ is flat from 0 to 12 MB, the "
+        "ceiling falls as the hook takes more, and VIDDISK.TXT (bl_save) is "
+        "on the VHD whole; a row banking into the wrong slot took it red",
         needs=("marty", "nasm"), serial=True,
         wants=("build/viddisk.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/hdd.drv")),
-    Row("vidsnd", "soak", py("tests/vidsnd.py"), 30.0,
+    Row("vidsnd", "soak", py("tests/vidsnd.py"), 37.0,
         "docs/plans/VIDEO-PLAN.md wave 0 (c)(e): ONE INTERRUPT PER VIDEO "
         "FRAME off a Sound Blaster 2.0 - the clock XDC plays by and the "
         "frame stream VIDEO-PLAN 4.4 adds to SOUND.DRV - programmed by hand "
@@ -8084,9 +8090,11 @@ SOAK = [
         "(8,040/134) rows interrupt at the DSP's rate / the block within 2%. "
         "Reports, never gates: ADPCM4 (DSP 7Dh; MartyPC's SB has no ADPCM, "
         "so it reads 0 here and is a field question) and the ceiling - "
-        "tracks read while the interrupt burns 0-75% of each frame, on an "
-        "XT-IDE, not the owner's DMA ST11M. A VHD without HIBER.DRV took it "
-        "red (the suspend refuses)",
+        "tracks read while the interrupt burns 0-75% of each frame, and 50% "
+        "with interrupts on (EOI first, as the player's hook), on an XT-IDE, "
+        "not the owner's DMA ST11M. Asserts VIDSND.TXT (bl_save) is on the "
+        "VHD whole. A VHD without HIBER.DRV took it red (the suspend "
+        "refuses)",
         needs=("marty", "nasm"), serial=True,
         wants=("build/vidsnd.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
@@ -8119,7 +8127,7 @@ SOAK = [
         "frame plays through the ring's wraps and on time",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidkern", "soak", py("tests/vidkern.py"), 40.0,
+    Row("vidkern", "soak", py("tests/vidkern.py"), 48.0,
         "Video Player wave 2 (VIDEO-PLAN 4.1-4.3), on the 5150-shaped "
         "os8088_5150_herc_hdd_sb_gla. FSXF_RATE (SPEC.md 53.2.2): three "
         "calls that must refuse, then 30.0 Hz for 150 periods with a hook "
@@ -8131,6 +8139,8 @@ SOAK = [
         "it. OSAPI_FILE_READ_SEQ (18.4.8): every byte of STREAM.DAT at its "
         "offset across a seek, a write and a delete mid-run, the end and a "
         "bad capacity; flat from 0 MB to 12 MB with no FAT traffic at 12 MB. "
+        "Then all three again as a PERSON runs them (A: the fence's parks "
+        "timed, no harness), which must agree and save VIDKERN.TXT. "
         "Broken on purpose - every rate entry a tick, the fence on "
         "[fsx_cur], the cursor's walk-skip removed - each verdict FAILS",
         needs=("marty", "nasm"), serial=True,

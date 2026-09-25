@@ -23,6 +23,15 @@
 ;      two READ_AT calls at 12 MB beside them; the data checked; a write in
 ;      the middle of a run, which must re-seed silently; the end of the file;
 ;      and a capacity that is not a cluster multiple, which must refuse.
+;
+;   A  (or a click) all three for a person rather than a harness, reported on
+;      the window and SAVED as VIDKERN.TXT beside the package. F's parks are
+;      then two seconds each instead of waits for a harness - LOOK at the
+;      screen: the progress box shows in phase 1 and in neither of the two
+;      after it. S needs the gate's own STREAM.DAT (every dword its own
+;      offset), which a field disk has no room for, so without it S says so
+;      and is skipped; tests/viddisk.py's VIDDISK times the same reads on any
+;      large file.
 ; =============================================================================
 
 %include "os88api.inc"
@@ -38,6 +47,11 @@ VK_NCALL    equ 8
 
 vk_entry:
     push si
+    call bl_blank
+    mov si, vk_s_title
+    call bl_sline
+    mov si, vk_s_hint
+    call bl_sline
     mov si, vk_tpl
     call OSAPI_WM_CREATE
     jc .out
@@ -48,7 +62,28 @@ vk_entry:
     ret
 
 vk_paint:
+    call bl_paint
+    ret
+
 vk_onclick:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    call vk_all
+    call bl_paint
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 vk_onkey:
@@ -60,7 +95,14 @@ vk_onkey:
     push di
     push bp
     push es
+    mov bl, al
     or al, 0x20
+    cmp al, 'a'
+    jne .r
+    call vk_all
+    call bl_paint
+    jmp short .out
+.r:
     cmp al, 'r'
     jne .f
     call vk_rate
@@ -72,8 +114,14 @@ vk_onkey:
     jmp short .out
 .s:
     cmp al, 's'
-    jne .out
+    jne .k
     call vk_seq
+    jmp short .out
+.k:
+    mov al, bl                      ; the report's own keys: scrolling
+    call bl_key
+    jc .out
+    call bl_paint
 .out:
     pop es
     pop bp
@@ -205,17 +253,35 @@ vk_fread:
     pop es
     ret
 
-; vk_park - AL = the phase: publish it, and spin until the harness says go
+; vk_park - AL = the phase: publish it, and spin until the harness says go -
+; or, run by a person ([vk_auto]), for two seconds, so the box can be SEEN
 vk_park:
     mov [vk_phase], al
+    cmp byte [vk_auto], 0
+    jne .timed
 .spin:
     cmp al, [vk_go]
     jne .spin
+    ret
+.timed:
+    push ax
+    push dx
+    call OSAPI_GET_TICKS
+    mov dx, ax
+.t:
+    call OSAPI_GET_TICKS
+    sub ax, dx
+    cmp ax, 36
+    jb .t
+    pop dx
+    pop ax
     ret
 
 ; --- S: OSAPI_FILE_READ_SEQ -------------------------------------------------------
 vk_seq:
     call vk_claim
+    jc .out
+    call vk_isgate
     jc .out
     call OSAPI_FILE_DFREE           ; BX = SECTORS per cluster
     mov cl, 9
@@ -487,6 +553,167 @@ vk_i13:
 .chain:
     jmp far [cs:vk_i13old]
 
+; vk_isgate - is STREAM.DAT the gate's own, every dword its offset? A READ_AT
+; of the first cluster at 12 MB answers it. CF=1 no ([vk_nogate] = 1)
+vk_isgate:
+    push es
+    mov byte [vk_nogate], 1
+    mov es, [vk_seg]
+    xor bx, bx
+    mov cx, 4096
+    xor ax, ax
+    mov dx, 12 * 16
+    mov si, vk_f_stream
+    call OSAPI_FILE_READ_AT
+    jc .no
+    or ax, ax
+    jz .no
+    cmp word [es:4], 4
+    jne .no
+    cmp word [es:6], 12 * 16
+    jne .no
+    mov byte [vk_nogate], 0
+    pop es
+    clc
+    ret
+.no:
+    pop es
+    stc
+    ret
+
+; --- A: all three, reported and saved -------------------------------------------
+vk_all:
+    push ds
+    pop es
+    mov di, vk_res
+    xor ax, ax
+    mov cx, 28
+    cld
+    rep stosw
+    mov word [bl_nrow], 0
+    mov si, vk_s_title
+    call bl_sline
+    mov byte [vk_auto], 1
+    call vk_rate
+    call vk_fence
+    call vk_seq
+    mov byte [vk_auto], 0
+    push ds
+    pop es
+
+    mov si, vk_s_hr
+    call bl_sline
+    mov ax, [vk_res+0]              ; three refusals, one bit each
+    xor cx, cx
+.bits:
+    shr ax, 1
+    adc cx, 0
+    or ax, ax
+    jnz .bits
+    mov ax, cx
+    mov si, vk_r_ref
+    call vk_kv0
+    mov ax, [vk_res+2]
+    neg ax
+    mov si, vk_r_rcf
+    call vk_kv0
+    mov ax, [vk_res+4]
+    mov si, vk_r_calls
+    call vk_kv0
+    mov ax, [vk_res+6]
+    mov dx, [vk_res+8]
+    mov si, vk_r_per
+    mov cx, 9
+    call bl_kv
+    mov ax, [vk_res+10]
+    mov si, vk_r_max
+    call vk_kv0
+    mov ax, [vk_res+12]
+    mov si, vk_r_tk
+    call vk_kv0
+    mov ax, [vk_res+14]
+    mov si, vk_r_bios
+    call vk_kv0
+    mov cx, [vk_res+12]             ; periods a tick x 10,000
+    jcxz .noper
+    mov ax, [vk_res+6]
+    mov bx, 10000
+    mul bx
+    div cx
+    mov si, vk_r_ppt
+    call vk_kv0
+.noper:
+    mov si, vk_s_hf
+    call bl_sline
+    mov si, vk_s_hf2
+    call bl_sline
+    mov ax, [vk_res+16]
+    neg ax
+    mov si, vk_r_fcf
+    call vk_kv0
+
+    mov si, vk_s_hs
+    call bl_sline
+    cmp byte [vk_nogate], 0
+    je .s
+    mov si, vk_s_nos
+    call bl_sline
+    jmp .save
+.s:
+    mov ax, [vk_res+18]
+    mov si, vk_r_s0
+    call vk_kv0
+    mov ax, [vk_res+50]
+    mov si, vk_r_sk
+    call vk_kv0
+    mov ax, [vk_res+20]
+    mov si, vk_r_s12
+    call vk_kv0
+    mov ax, [vk_res+22]
+    mov si, vk_r_rat
+    call vk_kv0
+    mov ax, [vk_res+42]
+    mov si, vk_r_i0
+    call vk_kv0
+    mov ax, [vk_res+46]
+    mov si, vk_r_i12
+    call vk_kv0
+    mov ax, [vk_res+48]
+    mov si, vk_r_ilo
+    call vk_kv0
+    mov ax, [vk_res+24]
+    mov si, vk_r_bad
+    call vk_kv0
+    mov ax, [vk_res+26]
+    mov si, vk_r_tail
+    call vk_kv0
+    mov ax, [vk_res+28]
+    mov si, vk_r_end
+    call vk_kv0
+    mov ax, [vk_res+30]
+    mov si, vk_r_eref
+    call vk_kv0
+    mov ax, [vk_res+34]
+    mov si, vk_r_err
+    call vk_kv0
+.save:
+    push ds
+    pop es
+    mov si, vk_f_txt
+    call bl_save
+    ret
+
+; vk_kv0 - SI = label, AX = a 16-bit value: a report line
+vk_kv0:
+    push cx
+    push dx
+    xor dx, dx
+    mov cx, 9
+    call bl_kv
+    pop dx
+    pop cx
+    ret
+
 vk_claim:
     cmp word [vk_seg], 0
     jne .have
@@ -501,14 +728,46 @@ vk_claim:
 
 VK_SIZE     equ 13212000            ; tests/vidkern.py's STREAM.DAT
 
+%define BL_ARENA_BYTES 3000
+%include "benchlib.inc"
+
 vk_tpl:
-    dw 7, 22, 300, 60
+    dw 7, 22, 632, 300
     dw vk_ttl, vk_paint, vk_onkey, vk_onclick
 
 vk_ttl:       db 'Video Kernel Gate', 0
 vk_f_stream:  db 'STREAM.DAT', 0
 vk_f_fence:   db 'FENCE.DAT', 0
 vk_f_tmp:     db 'VKTMP.DAT', 0
+vk_f_txt:     db 'VIDKERN.TXT', 0
+vk_s_title:   db 'VIDKERN - Video Player wave 2: the rate, the fence, READ_SEQ', 0
+vk_s_hint:    db 'Click, or press A: ~30 s, then VIDKERN.TXT is saved here.', 0
+vk_s_hr:      db '-- R: FSXF_RATE, a 30.0 Hz hook for 150 periods --', 0
+vk_s_hf:      db '-- F: the progress-box fence, three 2 s parks --', 0
+vk_s_hf2:     db '   LOOK: the box shows in the first park only', 0
+vk_s_hs:      db '-- S: READ_SEQ on the gate STREAM.DAT (ticks) --', 0
+vk_s_nos:     db 'no gate STREAM.DAT here: S skipped (VIDDISK times it)', 0
+vk_r_ref:     db 'bad calls refused (3)', 0
+vk_r_rcf:     db 'rate bracket refused', 0
+vk_r_calls:   db 'hook calls', 0
+vk_r_per:     db 'periods handed', 0
+vk_r_max:     db 'most in one call (>1)', 0
+vk_r_tk:      db 'ticks elapsed', 0
+vk_r_bios:    db 'BIOS 40:6C moved', 0
+vk_r_ppt:     db 'periods/tick x10000', 0
+vk_r_fcf:     db 'fence bracket refused', 0
+vk_r_s0:      db '8 x 32K @0 MB', 0
+vk_r_sk:      db 'seek to 12 MB, 1st', 0
+vk_r_s12:     db '8 x 32K @12 MB', 0
+vk_r_rat:     db '2 x READ_AT @12 MB', 0
+vk_r_i0:      db 'int13 calls @0 MB', 0
+vk_r_i12:     db 'int13 calls @12 MB', 0
+vk_r_ilo:     db '...under cylinder 16', 0
+vk_r_bad:     db 'chunks with bad data', 0
+vk_r_tail:    db 'tail bytes', 0
+vk_r_end:     db 'bytes past the end', 0
+vk_r_eref:    db 'odd capacity refusal', 0
+vk_r_err:     db 'errors', 0
 
 vk_win:       dw 0
 vk_seg:       dw 0
@@ -519,6 +778,8 @@ vk_ready:     db 0
 vk_phase:     db 0
 vk_go:        db 0
 vk_nochk:     db 0
+vk_auto:      db 0
+vk_nogate:    db 0
 vk_i13old:    dw 0, 0
 vk_i13n:      dw 0
 vk_i13lo:     dw 0
@@ -527,6 +788,8 @@ vk_fdone:     dw 0
 vk_sdone:     dw 0
 vk_res:       times 28 dw 0
 
-    OS88_BSS 0
+    OS88_BSS BL_BSS_SIZE
     align 512
     OS88_IMAGE_END
+
+    BL_BSS os88_image_end

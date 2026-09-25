@@ -10,7 +10,7 @@ the guest: it applies each frame to a black RAM canvas three ways (XDC's own
 program and vd_native) and compares each
 canvas's checksum with the one tools/os88vid.py computed on the host; then,
 inside an fsx bracket in the mode the player would use on this adapter, it
-times each frame five ways with benchlib's PIT method, which MartyPC counts to
+times each frame three ways with benchlib's PIT method, which MartyPC counts to
 the cycle. This builds the data file and a scratch floppy, boots, opens the
 bench, presses R, waits on the GUEST's clock and reads the arrays back.
 
@@ -39,16 +39,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
-import os88marty, os88ui, os88build, os88geom as geom        # noqa: E402
+import os88marty, os88ui, os88build, os88flush, os88geom as geom  # noqa: E402
 from cycweb import pkg_syms                         # noqa: E402
 
 HZ = 4772727.0                  # the 5150's 8088, PERFORMANCE.md Part 2
 MAXF = 32                       # VB_MAXF
-NRES = 8 + MAXF * 5             # VB_NRES
+NKIND = 3                       # VB_NKIND
+NRES = 8 + MAXF * NKIND         # VB_NRES
 STREAMS = ("BADAPPLE.XDV", "THUNDERC.XDV", "TRONDISC.XDV", "BBBB_BW.XDV")
 RAW = ("movsb 8000 to screen", "movsw 8000 to screen",
        "movsb 8000 to RAM", "movsw 8000 to RAM")
-KINDS = ("XDC scr", "nat scr", "shd+copy", "nat ram", "XDC ram")
+KINDS = ("XDC scr", "nat scr", "nat ram")
 MODES = {3: "CGA640", 4: "HERC", 7: "VGA12"}
 VKIND = {0: "VGA", 1: "HERC", 2: "CGA", 3: "EGA"}
 
@@ -166,6 +167,13 @@ def main():
             fsxm = m.read(base + syms["vb_fsxm"], 1)[0]
             vkind = m.read(base + syms["vb_vkind"], 1)[0]
             inmode = m.read(base + syms["vb_inmode"], 1)[0]
+            full = m.read(base + syms["bl_full"], 1)[0]
+            try:                    # the report the bench SAVED (benchlib's
+                txt = os88flush.Flush(marty=m).volume(1).read(  # bl_save):
+                    "VIDBENCH.TXT").decode("latin-1")         # B:, where it
+            except Exception as e:                            # was launched
+                txt = None
+                txterr = str(e)
 
     def us(i):
         return int.from_bytes(res[i * 4:i * 4 + 4], "little") / 100.0
@@ -189,12 +197,12 @@ def main():
     print()
     print("   %-12s %5s %5s %5s | %s | %s" % (
         "frame", "spans", "ents", "bytes",
-        " ".join("%9s" % k for k in KINDS), "shd/XDC  nat/XDC  pic"))
+        " ".join("%9s" % k for k in KINDS), "nat/XDC  card     pic"))
     for f in range(nf):
         fr = frames[f]
         row = []
-        for k in range(5):
-            i = 8 + f * 5 + k
+        for k in range(NKIND):
+            i = 8 + f * NKIND + k
             if flg[i] in (0, ord("-")):
                 bad.append("%s %s produced no number" % (fr["label"], KINDS[k]))
             row.append(us(i) * HZ / 1e6)
@@ -204,16 +212,25 @@ def main():
                 fr["label"], ", ".join(n for b, n in ((1, "XDC"),
                                                       (2, "native"))
                                        if not chk[f] & b)))
-        print("   %-12s %5d %5d %5d | %s | %7.2fx %7.2fx  %s" % (
+        print("   %-12s %5d %5d %5d | %s | %7.2fx %7.0f  %s" % (
             fr["label"], fr["spans"], fr["ents"], fr["wb"],
-            " ".join("%9.0f" % c for c in row), row[2] / row[0],
-            row[1] / row[0], "OK" if ok else "BAD"))
+            " ".join("%9.0f" % c for c in row), row[1] / row[0],
+            row[1] - row[2], "OK" if ok else "BAD"))
     print("\n   (cycles per frame; the XDC model column in the data file is "
           "XDC's own estimate, for comparison)")
     for f in range(nf):
         fr = frames[f]
         print("   %-12s XDC's own model %6d  measured XDC scr %6.0f" % (
-            fr["label"], fr["model"], us(8 + f * 5) * HZ / 1e6))
+            fr["label"], fr["model"], us(8 + f * NKIND) * HZ / 1e6))
+    if full:
+        bad.append("the report TRUNCATED (bl_full): the arena is too small")
+    if txt is None:
+        bad.append("no VIDBENCH.TXT on B: - the save did not happen (%s)"
+                   % txterr)
+    elif "per mille" not in txt or "TRUNCATED" in txt:
+        bad.append("VIDBENCH.TXT is not the whole report")
+    else:
+        print("\n   VIDBENCH.TXT saved: %d lines" % len(txt.splitlines()))
     if bad:
         print()
         for b in bad:

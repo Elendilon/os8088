@@ -779,8 +779,36 @@ red. A row about one package goes in `soak`.
     its picture is not read back: mode 12h is planar, and a CPU read of A000
     is one plane. That check is W5's, with the shadow path and the CGACOMP
     burst.
-  - **The player ships on the live media only** until there is a video to
-    ship with it.
+  - **The player is on every apps disk** (`$(APPS_TOOLS)`, 4 clusters of
+    the 360KB one) and on no kern_small disk (`SMALLOMIT`: `FSXF_RATE` and
+    `READ_SEQ` are kern_big's).
+  - **The field hard disks** (`make vidfieldhd XDCSAMPLES=<dir>`): two
+    bootable 32 MB VHDs for the PicoMEM machine, `VIDHERC.VHD` and
+    `VIDCGA.VHD`, each with the player, the owner's five XDC streams
+    imported in that layout (~24 MB, which is why it is two images and not
+    one), and the four benches - each of which now SAVES its report as a
+    `.TXT` beside itself (benchlib's `bl_save`). What the benches gained
+    from W1-W3: VIDBENCH three kinds a frame instead of five and the worst
+    frame in thousandths of a period at 30 and 23.976 fps (its report had
+    been truncating); VIDDISK the `READ_SEQ` rows, the int 13h calls one
+    makes, and the SILENT PLAYER'S CEILING - `READ_SEQ` streaming inside an
+    `FSXF_RATE` bracket whose 30 Hz hook holds 0-75% of every period;
+    VIDSND a 50% row with interrupts ON, as the player's hook runs; VIDKERN
+    a run-all for a person, with the fence's parks timed. Verified in
+    MartyPC off the images themselves: on the Hercules 5150 all five
+    videos draw every frame with **no stall and no late period** -
+    BADAPPLE's 6,570 frames in 3,988 ticks against 3,987.2 - and every
+    bench's `.TXT` reads back off the disk whole.
+  - **The ceiling, on this XT-IDE (CPU-copied):** 198 KB/s with the hook
+    idle, 150 / 99 / 49 at 25 / 50 / 75%, so the disk share falls exactly
+    as the decode takes the CPU. Interrupts on or off make no difference
+    HERE because an XT-IDE raises none; on the owner's ST11M (DMA, IRQ 5)
+    that row is the question. A `READ_SEQ` of 32 KB is 219.7 ms at the
+    desktop and ~161 ms inside the bracket.
+  - **A player with the benches open gets a 2-slot ring** and a 60 fps
+    stream then stalls (44 of 437 frames), and a second instance is refused
+    for memory. Every bench keeps its claims until its window closes; the
+    field README says so.
 - **W4 — sound.** SOUND.DRV's frame stream and ADPCM4. Gate: one IRQ per
   frame, bytes played = frames × `achunk`, zero pauses across 60 s off the
   hard disk.

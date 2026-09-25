@@ -43,7 +43,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
-import os88marty, os88ui, os88build, os88geom as geom        # noqa: E402
+import os88marty, os88ui, os88build, os88flush, os88geom as geom        # noqa: E402
 from cycweb import pkg_syms                                   # noqa: E402
 
 TEMPLATE = "build/martypc/run/media/hdds/default_xtide.vhd"
@@ -128,8 +128,23 @@ def main():
                             "the READ_SEQ rows to end", poll=1.0,
                             limit=1500.0, guest=300.0)
             r = [rw("vk_res", 2 * i) for i in range(26)]
+
+            # A: the same three for a person - timed parks, no harness to
+            # say go - reported and SAVED as VIDKERN.TXT beside the package
+            m.type_text("a")
+            os88marty.until(m, lambda mm: rb("bl_saved") != 0,
+                            "the run-all to save its report", poll=1.0,
+                            limit=1500.0, guest=300.0)
+            full = rb("bl_full")
+            auto = [rw("vk_res", 2 * i) for i in range(26)]
         finally:
             m.close()
+        try:
+            txt = os88flush.vhd_volume(vhd).read("VIDKERN.TXT").decode(
+                "latin-1")
+            txterr = None
+        except Exception as e:
+            txt, txterr = None, str(e)
 
     bad = []
     print("\n   machine %s" % a.machine)
@@ -202,6 +217,20 @@ def main():
     if not r[9] or r[10] > r[9] * 1.25 + 2:
         bad.append("READ_SEQ is not flat: %d ticks at 0 MB, %d at 12 MB"
                    % (r[9], r[10]))
+    # --- A ---
+    if auto[0] != 7 or auto[1] or auto[8] or auto[12] or auto[17]:
+        bad.append("the run-all's rows differ from the keyed ones: refusals "
+                   "0x%x, CFs %d/%d, bad chunks %d, failed calls %d"
+                   % (auto[0], auto[1], auto[8], auto[12], auto[17]))
+    if full:
+        bad.append("the report TRUNCATED (bl_full)")
+    if txt is None:
+        bad.append("no VIDKERN.TXT on C: - the save did not happen (%s)"
+                   % txterr)
+    elif "periods/tick" not in txt or "8 x 32K @12 MB" not in txt:
+        bad.append("VIDKERN.TXT is not the whole report")
+    else:
+        print("\n   VIDKERN.TXT saved: %d lines" % len(txt.splitlines()))
     for b in bad:
         print("   FAIL: %s" % b)
     if not bad:

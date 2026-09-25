@@ -26,6 +26,13 @@
 ;     tracks read at 0, 25, 50 and 75% say how much frame time a disk of THIS
 ;     kind leaves the reader. MartyPC's is XT-IDE, CPU-copied; the owner's
 ;     ST11M is DMA, and there the answer is expected to be nearly flat.
+;     A last row burns 50% with interrupts ON - the card acknowledged and
+;     the EOI sent first, then `sti` - which is what the player's hook does
+;     (SPEC.md 98.3): on a DMA controller its completion interrupt then
+;     lands mid-burn instead of waiting for it, and the difference between
+;     the two 50% rows is exactly that.
+;
+; It saves VIDSND.TXT, its report, beside itself when it finishes.
 ;
 ; It SUSPENDS the drivers (OSAPI_DRV_SUSPEND, SPEC.md 51.11) and programs the
 ; DSP, DMA channel 1 and the PIC itself, as the fallback of VIDEO-PLAN 4.4
@@ -188,21 +195,39 @@ vs_isr:
     push cs
     pop ds
     inc word [vs_irqs]
+    cmp byte [vs_bsti], 0
+    jne .on
     mov cx, [vs_burn]
     jcxz .nb
 .b:
     loop .b
 .nb:
-    mov dx, [vs_port]
-    add dx, 0x0E                    ; the 8-bit acknowledge
-    in al, dx
-    mov al, 0x20
-    out 0x20, al
+    call vs_ack
+    jmp short .out
+.on:
+    call vs_ack                     ; acknowledged and EOI'd FIRST, so the
+    sti                             ; next interrupt of any line is free
+    mov cx, [vs_burn]
+    jcxz .nb2
+.b2:
+    loop .b2
+.nb2:
+    cli
+.out:
     pop ds
     pop dx
     pop cx
     pop ax
     iret
+
+; vs_ack - the DSP's 8-bit acknowledge, and the EOI. DS = ours
+vs_ack:
+    mov dx, [vs_port]
+    add dx, 0x0E
+    in al, dx
+    mov al, 0x20
+    out 0x20, al
+    ret
 
 ; vs_hook - [vs_irq]'s vector to vs_isr, the old one kept; unmask it
 vs_hook:
@@ -612,6 +637,13 @@ vs_run:
     mov si, vs_r_c75
     mov bx, 9
     call vs_put
+    mov word [vs_burn], VS_B50
+    mov byte [vs_bsti], 1
+    call vs_ceil
+    mov byte [vs_bsti], 0
+    mov si, vs_r_c50i
+    mov bx, 15
+    call vs_put
     mov al, [vs_spt]
     xor ah, ah
     mov si, vs_r_spt
@@ -648,6 +680,8 @@ vs_run:
     mov ax, [vs_flags]
     mov bx, 14
     call vs_put
+    mov si, vs_f_txt                ; the report, beside the bench
+    call bl_save
     inc word [vs_done]
     pop bp
     pop di
@@ -658,7 +692,7 @@ vs_run:
     pop ax
     ret
 
-%define BL_ARENA_BYTES 3000
+%define BL_ARENA_BYTES 4000
 %include "benchlib.inc"
 
 vs_tpl:
@@ -667,7 +701,7 @@ vs_tpl:
 
 vs_ttl:       db 'Video Sound Bench', 0
 vs_s_title:   db 'VIDSND - a frame interrupt off the card (VIDEO-PLAN W0 c,e)', 0
-vs_s_hint:    db 'Press R: ~45 s, the desktop frozen. It reads, never writes.', 0
+vs_s_hint:    db 'Press R: ~50 s, the desktop frozen. Saves VIDSND.TXT.', 0
 vs_s_hdrc:    db '-- (c) interrupts in 5 s: PCM8 30 fps, PCM8 60 fps, ADPCM4 --', 0
 vs_s_hdre:    db '-- (e) tracks read in 5 s, the ISR burning 0/25/50/75% --', 0
 vs_r_port:    db 'DSP base port', 0
@@ -680,6 +714,8 @@ vs_r_c0:      db 'tracks, burn 0%', 0
 vs_r_c25:     db 'tracks, burn 25%', 0
 vs_r_c50:     db 'tracks, burn 50%', 0
 vs_r_c75:     db 'tracks, burn 75%', 0
+vs_r_c50i:    db 'tracks, 50% ints on', 0
+vs_f_txt:     db 'VIDSND.TXT', 0
 vs_r_spt:     db 'sectors per track', 0
 vs_r_flags:   db 'flags', 0
 vs_cands:     db 7, 5, 3, 2, 0
@@ -699,11 +735,11 @@ vs_ovec:      dw 0, 0
 vs_irq:       db 0
 vs_omask:     db 0
 vs_susp:      db 0
+vs_bsti:      db 0
 vs_spt:       db 0
 vs_heads:     db 0
 vs_cyl:       db 0
 vs_head:      db 0
-              db 0
 vs_res:       times 16 dw 0
 vs_recs:      times DQ_MAXREC * DQ_SIZE db 0
 

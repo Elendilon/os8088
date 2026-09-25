@@ -1,0 +1,81 @@
+VIDEO PLAYER - FIELD HARD DISK (waves 0-3)
+==========================================
+
+A bootable 32 MB fixed disk: the os8088 kernel, the
+Video Player, five videos and four benches. There are
+two of these images and they differ only in the videos'
+layout:
+
+  VIDHERC.VHD   the videos made for a Hercules card
+  VIDCGA.VHD    the videos made for CGA 640x200 - they
+                play on a CGA and on a VGA
+
+A video plays only on the adapter its layout was made
+for (SPEC.md 98.3); anything else says "made for ...".
+On a two-card machine it is the display the Video
+Player's window is on that decides.
+
+THE VIDEOS - double-click one, or open VIDEO.O88 and
+use File > Open. P plays it fullscreen; Esc stops.
+Silent in this wave, whatever the card.
+CLOSE THE BENCH WINDOWS FIRST. Each keeps its memory
+until it is closed, and the player reads ahead into
+whatever is free: with the benches open it gets the
+smallest ring (two 32 KB slots) and STALLS, or says
+"Not enough memory to play it".
+
+  BADAPPLE.V88   3:39, 30 fps - the long one
+  THUNDERC.V88   1:16, 23.976 fps
+  TRONDISC.V88   0:48, 23.976 fps
+  BBBB_BW.V88    0:07, 60 fps
+  BBBBCOMP.V88   0:07, 60 fps, made for CGA
+                 COMPOSITE colour: in mono it is a
+                 pattern of stripes, and that is expected
+
+When a play ends the window reads "Drew N of N",
+"stalls" (the reader could not keep up), "Late" (frames
+drawn after their time) and the ticks it took against
+the ticks it should have. Please photograph that for
+each video. Zero late and zero stalls is the target.
+
+THE BENCHES - each opens a window. Click it (or press
+the key named) to run. Space / PgDn / PgUp page the
+results. EACH ONE SAVES ITS RESULTS AS A .TXT FILE ON
+THIS DISK when it finishes, so photographs are only a
+backup: copy the .TXT files off afterwards.
+
+  VIDBENCH.O88 -> VIDBENCH.TXT   (R)
+    The decoder against the card: every frame in
+    VIDBENCH.DAT drawn three ways and timed. The last
+    lines give the worst frame in thousandths of a
+    frame period at 30 and 23.976 fps - under 1000
+    fits. Screen garbage while it runs is the frames.
+
+  VIDDISK.O88 -> VIDDISK.TXT     (R, about 2 minutes)
+    Streaming BADAPPLE.V88 off this disk: the old read
+    at growing offsets, the new streaming read, the
+    int 13h calls it makes, and the SILENT PLAYER'S
+    CEILING - KB/s while a 30 Hz interrupt holds 0,
+    25, 50 and 75% of every frame. The screen stays
+    still for 25 s of that; it is working.
+
+  VIDSND.O88 -> VIDSND.TXT       (R, about 50 s)
+    The Sound Blaster, if there is one: interrupts per
+    frame at 30 and 60 fps and 4-bit ADPCM, then whole
+    tracks off this disk while the sound interrupt
+    burns 0-75% of a frame. With no card it says so.
+    The buffer is silence.
+
+  VIDKERN.O88 -> VIDKERN.TXT     (A, about 30 s)
+    Wave 2's kernel changes on real iron. The rate
+    clock: the "periods/tick x10000" line should read
+    close to 16478, and "BIOS 40:6C moved" should
+    equal "ticks elapsed". Then the progress-box fence:
+    LOOK at the screen - a small progress box shows for
+    the first 2 s park and in neither of the next two.
+    Its READ_SEQ rows need a special file and are
+    skipped here; VIDDISK covers them.
+
+Everything the benches write is their own .TXT; VIDKERN
+writes and deletes one scratch file, VKTMP.DAT. Nothing
+else on the disk is changed.

@@ -11,7 +11,9 @@ frame stream will: auto-init over a double buffer, DSP block = one frame's
 audio. It counts the interrupts for 5 seconds at XDC's two shapes (22,050 Hz
 with a 735-byte block = 30 fps; 8,040 Hz with 134 = 60 fps) and with 4-bit
 ADPCM (DSP 7Dh), then reads whole tracks off the fixed disk for 5 seconds
-while the interrupt burns 0, 25, 50 and 75% of each frame.
+while the interrupt burns 0, 25, 50 and 75% of each frame with interrupts
+off, and 50% with them on (acknowledged and EOI'd first, as the player's
+hook does). It saves VIDSND.TXT beside itself, read back off the VHD.
 
 ASSERTED: the card was found and answered, a line was found, a fixed disk
 answered, and both PCM rows interrupt at the DSP's rate / the block, within
@@ -31,7 +33,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
-import os88marty, os88ui, os88build, os88geom as geom        # noqa: E402
+import os88marty, os88ui, os88build, os88flush, os88geom as geom  # noqa: E402
 from cycweb import pkg_syms                                   # noqa: E402
 
 TEMPLATE = "build/martypc/run/media/hdds/default_xtide.vhd"
@@ -93,8 +95,15 @@ def main():
                             limit=1500.0, guest=300.0)
             r = [u16(m.read(base + syms["vs_res"], 32), 2 * i)
                  for i in range(16)]
+            full = m.read(base + syms["bl_full"], 1)[0]
         finally:
             m.close()
+        try:                        # the report the bench SAVED, off the VHD
+            txt = os88flush.vhd_volume(vhd).read("VIDSND.TXT").decode(
+                "latin-1")
+            txterr = None
+        except Exception as e:
+            txt, txterr = None, str(e)
     flags = r[14]
     bad = [FLAGS[b] for b in FLAGS if flags & b]
     print("\n   machine %s: DSP at %03xh, IRQ %d, version %d.%02d"
@@ -120,11 +129,20 @@ def main():
         print("\n   fixed disk, whole %d-sector tracks for %.2f s, the "
               "interrupt burning:" % (r[10], SECS))
         base0 = r[6] or 1
-        for i, pct in enumerate((0, 25, 50, 75)):
-            n = r[6 + i]
+        for pct, n, how in ((0, r[6], ""), (25, r[7], ""), (50, r[8], ""),
+                            (75, r[9], ""), (50, r[15], ", ints on")):
             print("     %2d%%  %4d tracks  %6.1f KB/s  (%3.0f%% of the "
-                  "unburnt rate)" % (pct, n, n * trk / 1024.0 / SECS,
-                                     100.0 * n / base0))
+                  "unburnt rate)%s" % (pct, n, n * trk / 1024.0 / SECS,
+                                       100.0 * n / base0, how))
+    if full:
+        bad.append("the report TRUNCATED (bl_full): the arena is too small")
+    if txt is None:
+        bad.append("no VIDSND.TXT on C: - the save did not happen (%s)"
+                   % txterr)
+    elif "flags" not in txt or "TRUNCATED" in txt:
+        bad.append("VIDSND.TXT is not the whole report")
+    else:
+        print("\n   VIDSND.TXT saved: %d lines" % len(txt.splitlines()))
     for b in bad:
         print("   FAIL: %s" % b)
     return 1 if bad else 0

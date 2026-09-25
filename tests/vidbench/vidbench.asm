@@ -14,22 +14,27 @@
 ; which apps/video/vdec.inc decodes. The streams are the owner's and are
 ; never committed, so the data file is built by the driver from a path.
 ;
-; PER FRAME, FIVE ROWS, all in the bracket in the mode the player will use
+; PER FRAME, THREE ROWS, all in the bracket in the mode the player will use
 ; (CGA 640x200, Hercules 720x348, VGA 640x480):
 ;
 ;   XDC scr    XDC's program writing the screen (its `mov ax,B800` patched to
 ;              the surface's segment, so on Hercules and VGA it writes the
 ;              same bytes into that card's memory - the timing XDC would get
 ;              there, not a picture)
-;   nat scr    vd_native writing the screen - the CGA-layout decoder
-;   shd+copy   vd_native into the RAM shadow, then the frame's dirty band of
-;              rows copied to the screen - the path a file on the WRONG
-;              adapter, and a Live window, take (the copy here is CGA
-;              layout to CGA layout; a real one translates, which costs the
-;              same memory traffic in a different order)
-;   nat ram    vd_native into a 16 KB RAM canvas - the Live window's shadow,
-;              and the card's wait states taken out
-;   XDC ram    XDC's program into the same RAM canvas
+;   nat scr    vd_native writing the screen - the player's own decoder
+;   nat ram    vd_native into a 16 KB RAM canvas: the card's wait states
+;              taken out, so nat scr - nat ram IS the card's cost - the
+;              field question on a Hercules, which MartyPC charges exactly
+;              as it charges a CGA
+;
+; Wave 0 had two more, and they came out when the report TRUNCATED at 8,000
+; bytes on the field disk's 31 frames: shd+copy (its answer - 3-5x a native
+; decode at full screen - is in docs/reports/VIDEO-W0-2026-09-25.md and did
+; not need re-asking) and XDC ram (XDC's own wait states, which are not the
+; question). After the frames, the WORST nat scr and XDC scr frame is printed
+; as a share of a 30 fps and a 23.976 fps period, which is the number the
+; player's CPU budget is written in (VIDEO-PLAN 3.2). The report is SAVED to
+; VIDBENCH.TXT beside the bench when the run ends.
 ;
 ; ...and four raw rows first: 8,000 bytes by rep movsb and by rep movsw, to
 ; the screen and to RAM, which is wave 0 (d).
@@ -54,7 +59,8 @@
 VB_N        equ 4                   ; iterations of a frame row
 VB_NRAW     equ 8                   ; ...of a raw row
 VB_MAXF     equ 32                  ; frames the data file may carry
-VB_NRES     equ 8 + VB_MAXF * 5     ; result rows the harness reads
+VB_NKIND    equ 3                   ; rows a frame
+VB_NRES     equ 8 + VB_MAXF * VB_NKIND ; result rows the harness reads
 VB_DATKB    equ 192                 ; the data file's claim
 VB_RAWB     equ 8000                ; bytes a raw row moves: one CGA bank
 VB_DIR      equ 8                   ; the directory's offset in the file
@@ -166,80 +172,6 @@ vb_b_nat:
     pop bp
     pop es
     pop ds
-    ret
-
-; vd_native into the RAM shadow, then the dirty band to the screen
-vb_b_shd:
-    push ds
-    push es
-    push bp
-    mov es, [vb_rseg]
-    xor bp, bp
-    xor si, si
-    mov ds, [vb_lseg]
-    call vd_native
-    pop bp
-    pop es
-    pop ds
-    call vb_cband
-    ret
-
-; vb_cband - copy screen rows [vb_y0]..[vb_y1] from the shadow to the screen,
-;            both CGA banks, with rep movsw
-vb_cband:
-    push ds
-    push es
-    mov al, [vb_y0]
-    cmp al, 255
-    je .none
-    xor ah, ah
-    mov bx, ax                      ; BX = y0
-    mov al, [vb_y1]
-    mov dx, ax                      ; DX = y1
-    mov es, [vb_sseg]
-    ; --- bank 0, the even rows: indices ceil(y0/2) .. floor(y1/2)
-    mov ax, bx
-    inc ax
-    shr ax, 1
-    mov cx, dx
-    shr cx, 1
-    xor si, si
-    call .bank
-    ; --- bank 1, the odd rows: indices floor(y0/2) .. floor((y1-1)/2)
-    or dx, dx
-    jz .none
-    mov ax, bx
-    shr ax, 1
-    mov cx, dx
-    dec cx
-    shr cx, 1
-    mov si, 8192
-    call .bank
-.none:
-    pop es
-    pop ds
-    ret
-; AX = first row index, CX = last, SI = the bank's base: copy the rows
-.bank:
-    cmp cx, ax
-    jl .nb
-    push dx
-    sub cx, ax
-    inc cx                          ; rows
-    mov dx, 80
-    mul dx                          ; AX = first row * 80 (DX = 0)
-    add si, ax
-    mov ax, 40
-    mul cx                          ; AX = words
-    mov cx, ax
-    mov di, si
-    push ds
-    mov ds, [vb_rseg]
-    cld
-    rep movsw
-    pop ds
-    pop dx
-.nb:
     ret
 
 ; VB_RAWB bytes from the data file to [vb_tseg]:0
@@ -584,7 +516,7 @@ vb_fsx:
     mov bx, 3
     call vb_bank
 
-    ; --- (a) every frame, five ways -------------------------------------------
+    ; --- (a) every frame, three ways ------------------------------------------
     mov si, vb_s_hdrf
     call bl_sline
     mov word [bl_n], VB_N
@@ -592,7 +524,7 @@ vb_fsx:
 .f:
     call vb_frame
     mov ax, bx
-    mov cx, 5
+    mov cx, VB_NKIND
     mul cx
     add ax, 8
     mov [vb_ridx], ax
@@ -607,6 +539,8 @@ vb_fsx:
     call bl_run
     mov bx, [vb_ridx]
     call vb_bank
+    mov di, vb_wx                   ; the worst XDC frame so far
+    call vb_worst
     ; native, to the screen
     mov ax, [vb_sseg]
     mov [vb_tseg], ax
@@ -618,15 +552,8 @@ vb_fsx:
     mov bx, [vb_ridx]
     inc bx
     call vb_bank
-    ; the shadow, then the dirty band to the screen
-    mov word [bl_body], vb_b_shd
-    mov si, vb_x_sc
-    call vb_label
-    xor al, al
-    call bl_run
-    mov bx, [vb_ridx]
-    add bx, 2
-    call vb_bank
+    mov di, vb_wn                   ; ...and the worst of ours
+    call vb_worst
     ; native, to RAM
     mov ax, [vb_rseg]
     mov [vb_tseg], ax
@@ -636,24 +563,63 @@ vb_fsx:
     xor al, al
     call bl_run
     mov bx, [vb_ridx]
-    add bx, 3
-    call vb_bank
-    ; XDC's program, to RAM
-    mov ax, [vb_rseg]
-    call vb_patch
-    mov word [bl_body], vb_b_xdc
-    mov si, vb_x_xr
-    call vb_label
-    xor al, al
-    call bl_run
-    mov bx, [vb_ridx]
-    add bx, 4
+    add bx, 2
     call vb_bank
     pop bx
     inc bx
     cmp bx, [vb_nf]
     jb .f
 .out:
+    ret
+
+; vb_worst - DI = a 6-byte record (hundredths of a us, dword; the frame):
+;            keep [bl_lastus] in it if it is the largest yet. BX = the frame
+vb_worst:
+    push ax
+    push dx
+    mov ax, [bl_lastus]
+    mov dx, [bl_lastus + 2]
+    cmp dx, [di + 2]
+    jb .no
+    ja .yes
+    cmp ax, [di]
+    jbe .no
+.yes:
+    mov [di], ax
+    mov [di + 2], dx
+    mov [di + 4], bx
+.no:
+    pop dx
+    pop ax
+    ret
+
+; vb_share - SI = the label, DI = a vb_worst record: the frame's cost as a
+;            share of a 30 fps and a 23.976 fps period, in tenths of a percent
+;            (hundredths of a us / 3,333.3 and / 4,170.8)
+vb_share:
+    push ax
+    push cx
+    push dx
+    mov ax, [di]
+    mov dx, [di + 2]
+    mov cx, 3333
+    div cx
+    xor dx, dx
+    mov cx, 9
+    call bl_kv
+    mov ax, [di]
+    mov dx, [di + 2]
+    mov cx, 4171
+    div cx
+    xor dx, dx
+    mov cx, 9
+    push si
+    mov si, vb_r_24
+    call bl_kv
+    pop si
+    pop dx
+    pop cx
+    pop ax
     ret
 
 ; vb_adapter - the mode the player would take for a CGA-layout file here:
@@ -690,6 +656,15 @@ vb_run:
     push bp
     mov word [vb_done], 0
     mov word [bl_nrow], 0
+    push es                         ; the worst frames, from nothing
+    push ds
+    pop es
+    mov di, vb_wx
+    xor ax, ax
+    mov cx, 6
+    cld
+    rep stosw
+    pop es
     mov si, vb_s_title
     call bl_sline
     call vb_load
@@ -728,7 +703,17 @@ vb_run:
     xor ah, ah
     xor dx, dx
     call bl_kv
+    mov si, vb_s_hdrw               ; the worst frames, as the player's budget
+    call bl_sline                   ; is written (VIDEO-PLAN 3.2)
+    mov si, vb_r_wx
+    mov di, vb_wx
+    call vb_share
+    mov si, vb_r_wn
+    mov di, vb_wn
+    call vb_share
     call bl_operator
+    mov si, vb_f_txt                ; ...and the report, to a file beside the
+    call bl_save                    ; bench (benchlib's rule for every bench)
     inc word [vb_done]
 .end:
     pop bp
@@ -740,7 +725,8 @@ vb_run:
     pop ax
     ret
 
-%define BL_ARENA_BYTES 8000         ; ~110 lines of at most 78 bytes
+%define BL_ARENA_BYTES 12000        ; ~150 lines. 8,000 TRUNCATED the field
+                                    ; disk's 31 frames at five rows a frame
 %include "benchlib.inc"
 %include "video/vdec.inc"
 
@@ -753,6 +739,7 @@ vb_tpl:
 
 vb_ttl:       db 'Video Bench', 0
 vb_f_dat:     db 'VIDBENCH.DAT', 0
+vb_f_txt:     db 'VIDBENCH.TXT', 0
 
 vb_s_title:   db 'VIDBENCH - a video frame, decoded three ways (VIDEO-PLAN W0)', 0
 vb_s_hint:    db 'Click, or press R, to run. The rows go fullscreen.', 0
@@ -760,7 +747,11 @@ vb_s_nodat:   db 'NO VIDBENCH.DAT beside the bench, or it is not a VBD1 file', 0
 vb_s_hdrc:    db '-- the picture: each frame onto black, three ways --', 0
 vb_s_hdrb:    db '-- the bracket: the mode the player takes --', 0
 vb_s_hdrr:    db '-- (d) raw: 8000 bytes, rep movsb / rep movsw --', 0
-vb_s_hdrf:    db '-- (a) per frame: XDC, native, shadow and copy --', 0
+vb_s_hdrf:    db '-- (a) per frame: XDC and ours to the screen, ours to RAM --', 0
+vb_s_hdrw:    db '-- the worst frame, per mille of a frame period --', 0
+vb_r_wx:      db 'XDC scr, 30 fps', 0
+vb_r_wn:      db 'nat scr, 30 fps', 0
+vb_r_24:      db '  ...at 23.976 fps', 0
 vb_s_refused: db 'BRACKET REFUSED', 0
 vb_s_nomode:  db 'MODE REFUSED', 0
 vb_s_ok:      db 'OK', 0
@@ -776,9 +767,7 @@ vb_r_kind:    db 'adapter kind (VID)', 0
 vb_x_chk:     db ' check', 0
 vb_x_xs:      db ' XDC scr', 0
 vb_x_ns:      db ' nat scr', 0
-vb_x_sc:      db ' shd+copy', 0
 vb_x_nr:      db ' nat ram', 0
-vb_x_xr:      db ' XDC ram', 0
 
 vb_win:       dw 0
 vb_dseg:      dw 0                  ; the data file's claim
@@ -804,6 +793,8 @@ vb_chk:       times VB_MAXF db 0    ; per frame: 1 XDC, 2 native
 vb_res:       times VB_NRES dd 0    ; hundredths of a us per iteration
 vb_resf:      times VB_NRES db 0    ; ' ' ok, 't' method T, '!' suspect
 vb_lbl:       times 32 db 0
+vb_wx:        dw 0, 0, 0            ; the worst XDC scr frame: cost, frame
+vb_wn:        dw 0, 0, 0            ; ...and the worst nat scr frame
 
 VB_BSS_OWN  equ 512                 ; the FSI block; benchlib's base must be
                                     ; 512-aligned (bl_save)
