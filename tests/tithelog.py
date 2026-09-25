@@ -50,7 +50,8 @@ import titheterr as te                                    # noqa: E402
 SEEDS = (8, 777)
 SYMS = ("tg_fillq", "tg_tseed", "tg_ph", "tg_rs", "tg_ltot", "tg_ldrn",
         "tg_lrcap", "tm_gapmax", "ti_rpq", "ti_ox", "ti_oy", "ti_cw_box",
-        "ti_ch_box", "ti_by", "ti_boardh", "ti_bx", "ti_boardw")
+        "ti_ch_box", "ti_by", "ti_boardh", "ti_bx", "ti_boardw", "tg_list",
+        "tg_logn", "tg_ln", "tg_lscroll", "tg_cqarm", "tr_result")
 fails = []
 
 
@@ -167,6 +168,50 @@ def run(mach, off):
         check(0 < gap <= 2, "4. the hand-over - pass screen, then the board "
               "again - keeps the music (worst gap <= 2 ticks)",
               "%d ticks (%d ms)" % (gap, gap * 55))
+
+        # 5. THE LAST ROUND'S LOG, READ (SPEC.md 97.12.10.6): `H` puts the
+        # whole of it in the panel - four rows here, so it SCROLLS - the
+        # arrows move it, and the glass is a whole repaint's
+        n = rw("tg_logn")
+        m.key("KeyH")
+        os88marty.guest_sleep(m, 2.0)
+        check(rb("tg_list") == 3 and rw("tg_ln") == n and n > 4, "5. H shows "
+              "the last round's whole log", "list %d, %d of %d lines"
+              % (rb("tg_list"), rw("tg_ln"), n))
+        m.key("ArrowDown")
+        os88marty.guest_sleep(m, 1.0)
+        m.key("ArrowDown")
+        os88marty.guest_sleep(m, 1.0)
+        check(rw("tg_lscroll") == 2, "...the arrows scroll it",
+              "%d" % rw("tg_lscroll"))
+        m.key("KeyP")
+        os88marty.guest_sleep(m, 0.3)
+        _, _, a = te.mono(m)
+        put("ti_rpq", b"\x01")
+        os88marty.until(m, lambda _: rb("ti_rpq") == 0, "a repaint",
+                        poll=0.05, limit=30.0)
+        os88marty.guest_sleep(m, 0.2)
+        _, _, b = te.mono(m)
+        m.key("KeyP")
+        x0, y0 = rw("ti_ox"), rw("ti_oy")
+        d = [(x, y) for y in range(y0, y0 + rw("ti_ch_box"))
+             for x in range(x0, x0 + rw("ti_cw_box")) if a[y][x] != b[y][x]]
+        check(not d, "...and it is exactly a whole repaint", "%d px, first %s"
+              % (len(d), d[:4]))
+        m.key("KeyH")
+        os88marty.guest_sleep(m, 2.0)
+        check(rb("tg_list") == 0, "...and H again is the hand", rb("tg_list"))
+
+        # 6. CONCEDE, asked first
+        m.key("KeyQ")
+        os88marty.guest_sleep(m, 1.0)
+        check(rb("tg_cqarm") == 1 and rb("tg_ph") == 0, "6. Q asks before it "
+              "concedes", "armed %d phase %d" % (rb("tg_cqarm"), rb("tg_ph")))
+        m.key("KeyQ")
+        os88marty.guest_sleep(m, 2.0)
+        check(rb("tg_ph") == 2 and rb("tr_result") == 2, "...and Q again ends "
+              "the match for the other player", "phase %d result %d"
+              % (rb("tg_ph"), rb("tr_result")))
 
 
 def main():

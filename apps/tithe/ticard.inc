@@ -829,20 +829,20 @@ ti_card_grey:
     push di
     push bp
     push es
-    mov bx, [ti_cardi]
-    mov al, [ti_shg + bx]
-    or al, [ti_shs + bx]
-    jnz .short
-    jmp .out
-.short:
-    mov ax, bx
-    call ti_rv_played
+    mov ax, [ti_cardi]
+    call ti_rv_played               ; (a played slot is empty, and stays so)
     jnc .live
     jmp .out
 .live:
     push ds
     pop es
     cld
+    mov bx, [ti_cardi]
+    mov al, [ti_shg + bx]
+    or al, [ti_shs + bx]
+    jnz .short
+    jmp .ear
+.short:
     ; --- THE DITHER: every other row, alternate pixels of it - a quarter of
     ; the paper turned, which is SPEC.md 47's grey on a one-bit screen and
     ; still leaves the card's words readable ------------------------------
@@ -899,7 +899,7 @@ ti_card_grey:
     shr cx, 1
     shr cx, 1
     shr cx, 1                       ; ...in bytes
-    jcxz .out
+    jcxz .ear
     shr ax, 1
     shr ax, 1
     shr ax, 1
@@ -918,9 +918,11 @@ ti_card_grey:
     call ti_text                    ; ...and the shortfall lettered in it
     pop dx
     cmp word [ti_clit], 0
-    je .out
+    je .ear
     mov al, 1                       ; LIT: the box and its letters flipped
     call .box
+.ear:
+    call ti_card_ear                ; ...and a NEW card's corner turned down
 .out:
     pop es
     pop bp
@@ -931,6 +933,74 @@ ti_card_grey:
     pop bx
     pop ax
     ret
+; ti_card_ear - the NEW card's DOG-EAR (SPEC.md 97.12.10.5): the top right
+; corner of the card the upkeep just drew, turned down until it is hovered - a
+; triangle in the card's last byte, the paper's way round [ti_clit] says.
+; Preserves every register.
+ti_card_ear:
+    push ax
+    push bx
+    push cx
+    push di
+    mov bl, [tg_side]
+    xor bh, bh
+    shl bx, 1
+    mov ax, [tg_newslot + bx]
+    cmp ax, [ti_cardi]
+    jne .out
+    mov ax, [ti_cl]
+    add ax, [ti_cwd]
+    sub ax, 8
+    mov cl, 3
+    shr ax, cl
+    mov di, [ti_cbase]
+    add di, ax                      ; the card's last byte, its top row
+    mov al, 0FFh
+    mov cx, 8
+.row:
+    cmp word [ti_clit], 0
+    je .rest
+    or [di], al                     ; lit: white on the black paper
+    jmp short .nx
+.rest:
+    not al                          ; resting: black on the white
+    and [di], al
+    not al
+.nx:
+    shr al, 1
+    add di, [ti_cbs]
+    loop .row
+.out:
+    pop di
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; ti_card_postq - CF=1 when hand card [ti_cardi] is put down CHANGED from its
+; bank: greyed (97.12.10.3) or NEW (97.12.10.5). Preserves every register.
+ti_card_postq:
+    push ax
+    push bx
+    mov bx, [ti_cardi]
+    mov al, [ti_shg + bx]
+    or al, [ti_shs + bx]
+    jnz .yes
+    mov bl, [tg_side]
+    xor bh, bh
+    shl bx, 1
+    mov ax, [tg_newslot + bx]
+    cmp ax, [ti_cardi]
+    je .yes
+    clc
+    jmp short .out
+.yes:
+    stc
+.out:
+    pop bx
+    pop ax
+    ret
+
 ; ti_grey_rows - card rows [DX, CX) of the band, DI -> the card's first byte of
 ; row 0, BX = its bytes a row: every other row thinned to alternate pixels,
 ; the paper's way round [ti_clit] says. Preserves every register.
@@ -1079,10 +1149,11 @@ ti_card_fast:
     mov word [ti_clit], 1
     call ti_hov_bank
 .put:
-    mov bx, [ti_cardi]              ; A CARD THE PLANNER CANNOT PAY FOR is the
-    mov al, [ti_shg + bx]           ; bank copied out and greyed on the way to
-    or al, [ti_shs + bx]            ; the glass (97.12.10.3): ~1.5 KB of copy
-    jz .asis                        ; and a pass, and still no composition
+    call ti_card_postq              ; A CARD THE PLANNER CANNOT PAY FOR, or a
+    jnc .asis                       ; NEW one, is the bank copied out and
+                                    ; changed on the way to the glass
+                                    ; (97.12.10.3, .5): ~1.5 KB of copy and a
+                                    ; pass, and still no composition
     mov ax, [ti_cbs]
     mul word [ti_cbrows]
     mov cx, ax
@@ -2288,7 +2359,13 @@ ti_panel:
     cmp ax, [ti_cardn]
     jae .done
     push ax
+    cmp ax, [ti_hover]              ; THE HOVERED CARD IS COMPOSED, at its
+    je .comp                        ; pose: its bank is pose 0, and a repaint
+    call ti_card_fast               ; mid-animation must not step it back.
+    jmp short .drawn                ; The rest from their banks
+.comp:
     call ti_card_draw
+.drawn:
     call tm_run                     ; the music a card at a time
     pop ax
     inc ax
@@ -2315,6 +2392,8 @@ ti_hover_ck:
     push cx
     push dx
     call OSAPI_MOUSE                ; CX = x, DX = y
+    mov [ti_mx], cx                 ; (kept: a note goes when it MOVES)
+    mov [ti_my], dx
     cmp byte [tg_list], 0           ; the plan list has no cards to hover
     jne .nocard
     cmp byte [ti_horiz], 0          ; the fullscreen hand asks the click's own

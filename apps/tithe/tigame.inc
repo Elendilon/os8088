@@ -47,7 +47,8 @@ TG_PH_OVER  equ 2                   ; the match is decided
 TG_PH_RES   equ 3                   ; the round is being fought, on the glass
 
 TG_SCRBAND  equ 32                  ; rows of the pass screen's fill a step
-TG_LOGN     equ 16                  ; the round's log: lines kept...
+TG_LOGN     equ 64                  ; the round's log: lines kept - the WHOLE
+                                    ; round, for the viewer (97.12.10.6)...
 TG_LOGW     equ 18                  ; ...and a line's bytes, its NUL included
 
 ; -----------------------------------------------------------------------------
@@ -86,7 +87,8 @@ tg_deal:
     mov al, [ti_deck_choir]
     mov [tr_deckb + 2], ax
     call tr_setup
-    call tr_upkeep
+    call tg_snap_pools              ; (the income is counted from here)
+    call tg_upk
     call tg_save
     mov byte [tg_plan0], 0
     mov byte [tg_plan1], 0
@@ -95,6 +97,7 @@ tg_deal:
     mov byte [tg_rnd], 0
     call tg_idle
     call tg_replay
+    call tg_income_set              ; P1's first turn says what it got
     pop cx
     pop bx
     pop ax
@@ -605,20 +608,246 @@ tg_greys:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; THE UPKEEP, SAID (SPEC.md 97.12.10.5): what each player's pool gained since
+; they last committed - the round's spoils and the upkeep's income together -
+; and the card the upkeep drew, or discarded from a full hand.
+; -----------------------------------------------------------------------------
+
+; tg_snap_pools - each side's gold and souls as they stand: what the next
+; turn's income is counted from. Preserves every register.
+tg_snap_pools:
+    push ax
+    push bx
+    push di
+    xor bx, bx
+.s:
+    mov al, bl
+    call tr_side
+    mov al, [di + SD_GOLD]
+    mov [tg_pg + bx], al
+    mov al, [di + SD_SOULS]
+    mov [tg_pso + bx], al
+    inc bx
+    cmp bx, 2
+    jb .s
+    pop di
+    pop bx
+    pop ax
+    ret
+
+; tg_upk - tr_upkeep, and what it DREW for each side: the card and the slot
+; it went to (tg_drew, tg_newslot), or the card it discarded from a full hand
+; (tg_disc). Preserves every register.
+tg_upk:
+    push ax
+    push bx
+    push cx
+    push di
+    xor bx, bx
+.b:
+    mov al, bl
+    call tr_side
+    mov al, [di + SD_NHAND]
+    mov [tg_nh0 + bx], al
+    inc bx
+    cmp bx, 2
+    jb .b
+    call tr_upkeep
+    xor bx, bx
+.a:
+    mov al, bl
+    call tr_side
+    shl bx, 1
+    mov word [tg_newslot + bx], 0FFFFh
+    shr bx, 1
+    mov byte [tg_drew + bx], TR_EMPTY
+    mov byte [tg_disc + bx], TR_EMPTY
+    mov cl, [di + SD_NHAND]
+    cmp cl, [tg_nh0 + bx]
+    jbe .full
+    dec cl                          ; THE HAND GREW: the last slot is new
+    xor ch, ch
+    push bx
+    mov bx, cx
+    mov al, [di + SD_HAND + bx]
+    pop bx
+    mov [tg_drew + bx], al
+    shl bx, 1
+    mov [tg_newslot + bx], cx
+    shr bx, 1
+    jmp short .n
+.full:
+    cmp byte [tg_nh0 + bx], TR_HAND ; ...or it was FULL and the card went to
+    jb .n                           ; the discard's end (a dry draw is neither)
+    mov cl, [di + SD_NDISC]
+    or cl, cl
+    jz .n
+    dec cl
+    xor ch, ch
+    push bx
+    mov bx, cx
+    mov al, [di + SD_DISC + bx]
+    pop bx
+    mov [tg_disc + bx], al
+.n:
+    inc bx
+    cmp bx, 2
+    jb .a
+    pop di
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; tg_income_set - the planner's upkeep as the status line's note: `INCOME +4G
+; +1S  DREW PIKEMAN`, or `HAND FULL - PIKEMAN DISCARDED`. It draws nothing.
+; Preserves every register.
+tg_income_set:
+    push ax
+    push bx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    cld
+    mov bl, [tg_side]
+    xor bh, bh
+    mov al, bl
+    call tr_side                    ; (DI is reused below: banked in SI)
+    mov si, di
+    mov di, tg_incbuf
+    push si
+    mov si, ti_s_income
+    call ti_poke
+    pop si
+    mov al, [si + SD_GOLD]
+    sub al, [tg_pg + bx]
+    call tg_sgn
+    mov al, 'G'
+    stosb
+    mov al, [si + SD_SOULS]
+    sub al, [tg_pso + bx]
+    jz .drew
+    push ax
+    mov al, ' '
+    stosb
+    pop ax
+    call tg_sgn
+    mov al, 'S'
+    stosb
+.drew:
+    mov al, [tg_drew + bx]
+    cmp al, TR_EMPTY
+    je .disc
+    mov si, ti_s_drew
+    push ax                         ; (ti_poke leaves AL at the NUL)
+    call ti_poke
+    pop ax
+    call .name
+    jmp short .end
+.disc:
+    mov al, [tg_disc + bx]
+    cmp al, TR_EMPTY
+    je .end
+    mov si, ti_s_hfull
+    push ax
+    call ti_poke
+    pop ax
+    call .name
+    mov si, ti_s_discd
+    call ti_poke
+.end:
+    mov byte [di], 0
+    mov word [tg_prompt], tg_incbuf
+    call tg_note_at
+    pop es
+    pop di
+    pop si
+    pop bx
+    pop ax
+    ret
+.name:                              ; AL = a card: its name at DI
+    push bx
+    xor ah, ah
+    mov bx, ax
+    shl bx, 1
+    mov si, [ti_cardname + bx]
+    call ti_poke
+    pop bx
+    ret
+
+; tg_sgn - AL signed as `+n` or `-n` at DI. Preserves every register bar DI.
+tg_sgn:
+    push ax
+    mov ah, '+'
+    or al, al
+    jns .p
+    mov ah, '-'
+    neg al
+.p:
+    xchg al, ah
+    stosb
+    mov al, ah
+    call tg_num
+    pop ax
+    ret
+
+; tg_new_seen - the NEW card is hovered: it is seen, and its corner goes
+; (ti_frame, before the hovered card is drawn). Preserves every register.
+tg_new_seen:
+    push ax
+    push bx
+    mov bl, [tg_side]
+    xor bh, bh
+    shl bx, 1
+    mov ax, [ti_hover]
+    cmp ax, [tg_newslot + bx]
+    jne .out
+    mov word [tg_newslot + bx], 0FFFFh
+.out:
+    pop bx
+    pop ax
+    ret
+
 ; tg_note - SI = a sentence: the status line says it until the pointer moves
 ; (SPEC.md 97.12.10.3), the way a pending action's question is said. A window
 ; callback, the lock held. Preserves every register.
 tg_note:
     mov [tg_prompt], si
-    mov byte [ti_note], 1
+    call tg_note_at
     jmp ti_hud_status
+
+; tg_note_at - a note is up, with the pointer where the last frame read it
+; (ti_hover_ck): only a MOVE takes it back, not the first hover a redraw
+; finds under a pointer that has not moved. Preserves every register.
+tg_note_at:
+    push ax
+    mov byte [ti_note], 1
+    mov ax, [ti_mx]
+    mov [tg_nx], ax
+    mov ax, [ti_my]
+    mov [tg_ny], ax
+    pop ax
+    ret
 
 ; tg_note_off - a note is taken back when the pointer moves (ti_frame).
 ; Preserves every register.
 tg_note_off:
     cmp byte [ti_note], 0
     je .out
+    push ax
+    mov ax, [ti_mx]                 ; ...the pointer has to have MOVED
+    cmp ax, [tg_nx]
+    jne .off
+    mov ax, [ti_my]
+    cmp ax, [tg_ny]
+.off:
+    pop ax
+    je .out
     mov byte [ti_note], 0
+    mov byte [tg_cconf], 0          ; (a COMMIT's question goes with it)
     mov word [tg_prompt], 0
 .out:
     ret
@@ -1274,6 +1503,15 @@ tg_commit:
     jne .out
     cmp byte [ti_rv], 0
     jne .out
+    cmp byte [tg_cconf], 0          ; ASKED ALREADY: this is the answer
+    jne .go
+    call tg_idlecheck               ; A PLAN WITH NOTHING IN IT, from a hand
+    jc .go                          ; that could have done something, is asked
+    mov si, ti_s_cconf              ; about once (SPEC.md 97.12.10.4) - and
+    call tg_note                    ; nothing else is: banking gold is play
+    mov byte [tg_cconf], 1
+    jmp short .out
+.go:
     call ti_rv_atk_flush
     call tg_idle
     cmp byte [tg_side], 0
@@ -1291,6 +1529,49 @@ tg_commit:
     call tg_screen
 .out:
     pop si
+    pop bx
+    pop ax
+    ret
+
+; tg_idlecheck - CF=0 when the planner's plan is EMPTY and they could have
+; done something: a card in the hand they can pay for, and a column with room
+; (SPEC.md 97.12.10.4). CF=1 otherwise. Preserves every register.
+tg_idlecheck:
+    push ax
+    push bx
+    mov al, [tg_side]
+    call tg_planp
+    cmp byte [bx], 0
+    jne .no                         ; something is planned: no question
+    cmp byte [ti_colfull], 3
+    je .no                          ; nowhere to play anything
+    xor bx, bx
+.s:
+    cmp bx, TI_HAND
+    jae .no
+    mov ax, bx
+    call ti_rv_played
+    jc .n
+    push bx
+    mov ax, bx
+    mov bl, TI_C_SIZE
+    mul bl
+    mov bx, ax
+    cmp byte [ti_cards + bx + TI_C_CARD], TR_EMPTY
+    pop bx
+    je .n
+    mov al, [ti_shg + bx]
+    or al, [ti_shs + bx]
+    jz .yes                         ; a card it can pay for
+.n:
+    inc bx
+    jmp short .s
+.yes:
+    clc
+    jmp short .out
+.no:
+    stc
+.out:
     pop bx
     pop ax
     ret
@@ -1465,6 +1746,8 @@ tg_resume:
     call tg_replay
 .go:
     call tg_redraw
+    call tg_income_set              ; ...and says what the upkeep brought them
+    call ti_hud_status              ; (SPEC.md 97.12.10.5)
 .out:
     pop ax
     ret
@@ -1521,6 +1804,7 @@ tg_fill:
     call tg_redraw
     jmp .ret
 .full:
+    mov word [tg_newslot], 0FFFFh   ; (no card of this board is NEW)
     call tg_load
     xor cx, cx
 .c:
@@ -1737,6 +2021,9 @@ tg_idle:
     mov word [tg_tgt], -1
     mov word [tg_prompt], 0
     mov byte [ti_note], 0
+    mov byte [tg_cconf], 0
+    mov byte [tg_cqarm], 0
+    mov word [tg_lscroll], 0
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1829,6 +2116,7 @@ tg_tgt_track:
 ; tg_prompt_set0 - no prompt, and the HUD's status line says so
 tg_prompt_set0:
     mov byte [ti_note], 0
+    mov byte [tg_cconf], 0
     cmp word [tg_prompt], 0
     je .out
     mov word [tg_prompt], 0
@@ -2134,15 +2422,93 @@ tg_list_toggle:
     jne .out
     cmp byte [ti_rv], 0
     jne .out
-    xor byte [tg_list], 1
+    call tg_disarm                  ; (an armed order's card leaves the glass)
+    mov al, 1                       ; the hand -> the PLAN; any list -> the
+    cmp byte [tg_list], 0           ; hand
+    je .set
+    xor al, al
+.set:
+    call tg_list_go
+.out:
+    pop ax
+    ret
+
+; tg_list_go - AL = what the panel shows: 0 the hand, 1 the plan, 3 the last
+; round's log (SPEC.md 97.12.10.6). The gfx lock held. Preserves every
+; register.
+tg_list_go:
+    push ax
+    mov [tg_list], al
+    mov word [tg_lscroll], 0
+    mov byte [tg_cqarm], 0
     mov word [ti_hover], -1
     mov word [tg_lbl], ti_s_plan
-    cmp byte [tg_list], 0
-    je .draw
+    or al, al
+    jz .draw
     mov word [tg_lbl], ti_s_hand
 .draw:
     call ti_panel
+    pop ax
+    ret
+
+; tg_logview - SPEC.md 97.7's `H`: the last round's LOG in the panel, or back
+; to where it was opened from (97.12.10.6). Preserves every register.
+tg_logview:
+    push ax
+    cmp byte [tg_ph], TG_PH_PLAN
+    jne .out
+    cmp byte [ti_rv], 0
+    jne .out
+    call tg_disarm
+    mov al, [tg_lback]
+    cmp byte [tg_list], 3
+    je .go                          ; open: back to where it came from
+    mov al, [tg_list]
+    mov [tg_lback], al
+    mov al, 3
+.go:
+    call tg_list_go
 .out:
+    pop ax
+    ret
+
+; tg_concede - the list's CONCEDE row and `Q`: the FIRST asks, the second
+; ends the match for the other player (SPEC.md 97.12.10.6). A window
+; callback, the gfx lock held. Preserves every register.
+tg_concede:
+    push ax
+    push si
+    cmp byte [tg_ph], TG_PH_PLAN
+    jne .out
+    cmp byte [ti_rv], 0
+    jne .out
+    cmp byte [tg_cqarm], 0
+    jne .yes
+    mov byte [tg_cqarm], 1          ; ASKED: the row says so, and the HUD
+    mov si, ti_s_cqask
+    call tg_note
+    mov byte [tg_cqarm], 1          ; (tg_note's own resets leave it be)
+    cmp byte [tg_list], 1
+    jne .out
+    call tg_list_draw
+    jmp short .out
+.yes:
+    call ti_rv_atk_flush
+    mov al, TR_RES_B                ; THE OTHER PLAYER WINS
+    mov si, ti_s_p1con
+    cmp byte [tg_side], 0
+    je .who
+    mov al, TR_RES_A
+    mov si, ti_s_p2con
+.who:
+    mov [tr_result], al
+    mov [tg_msg1], si
+    mov word [tg_msg2], ti_s_again
+    call tg_idle
+    mov byte [tg_ph], TG_PH_OVER
+    call tg_screen
+.out:
+    pop si
     pop ax
     ret
 
@@ -2189,9 +2555,10 @@ tg_list_geo:
     shr cx, 1
     mov bx, TG_BUFW - 1
     cmp byte [tg_list], 2           ; THE LOG IS NEVER WIDER THAN ITS LINES:
-    jne .cap                        ; padding a fullscreen row to the box's
+    jb .cap                         ; padding a fullscreen row to the box's
     mov bx, TG_LOGW - 1             ; 39 cells for a 17-cell line was more
-.cap:                               ; than half of every row it drew
+.cap:                               ; than half of every row it drew (and the
+                                    ; viewer, 3, is the same log)
     cmp cx, bx
     jbe .w
     mov cx, bx
@@ -2286,55 +2653,276 @@ tg_list_draw:
     mov [tg_lused], ax              ; ...and all of it is drawn after this
     mov ax, [tg_ltot]
     mov [tg_ldrn], ax
-    jmp short .rows
-.plan:
-    mov al, [tg_side]
-    call tg_planp
-    mov cl, [bx]
-    xor ch, ch
-    mov [tg_ln], cx
-.rows:
-    xor ax, ax                      ; AX = the row
+.rows:                              ; (its last lines, row by row)
+    xor ax, ax
 .r:
     cmp ax, [tg_lrows]
-    jae .out
+    jae .rout
     mov di, tg_buf1
-    cmp byte [tg_list], 2
-    jne .prow
     cmp ax, [tg_ln]
-    jae .put
-    push ax                         ; a log line
+    jae .rput
+    push ax
     add ax, [tg_lfirst]
     call tg_log_line
     pop ax
-    jmp short .put
-.prow:
-    cmp ax, [tg_ln]
-    jb .entry
-    jne .put
-    mov si, ti_s_reset              ; the row after the last: RESET, or
-    cmp word [tg_ln], 0             ; that there is nothing to reset
-    jne .word
-    mov si, ti_s_noplan
-.word:
-    push ax                         ; (ti_poke takes AL, and AX is the row)
-    call ti_poke
-    pop ax
-    jmp short .put
-.entry:
-    call tg_entry_text
-.put:
+.rput:
     mov byte [di], 0
     call tg_row_put
     call tm_run                     ; the music a row at a time: a whole list
     inc ax                          ; is the round's opening, in its panel
     jmp short .r                    ; (SPEC.md 97.12.9)
+.rout:
+    jmp .out
+.plan:
+    cmp byte [tg_list], 3
+    jne .plan1
+    jmp .view
+.plan1:
+    mov al, [tg_side]
+    call tg_planp
+    mov cl, [bx]
+    xor ch, ch
+    mov [tg_ln], cx
+    call tg_lwin                    ; [tg_le] rows of entries, and whether
+    xor ax, ax                      ; they scroll (97.12.10.6). AX = the row
+.pr:
+    cmp ax, [tg_lrows]
+    jb .prgo
+    jmp .out
+.prgo:
+    mov di, tg_buf1
+    mov bx, [tg_lrows]
+    sub bx, 3
+    cmp ax, bx
+    jb .pent
+    push ax                         ; --- THE THREE COMMAND ROWS, at the foot
+    sub ax, bx
+    mov si, ti_s_reset
+    cmp word [tg_ln], 0
+    jne .c0
+    mov si, ti_s_noplan
+.c0:
+    or ax, ax
+    jz .cw
+    mov si, ti_s_vlog
+    cmp word [tg_logn], 0
+    jne .c1
+    mov si, ti_s_nolog
+.c1:
+    cmp ax, 1
+    je .cw
+    mov si, ti_s_conc
+    cmp byte [tg_cqarm], 0
+    je .cw
+    mov si, ti_s_conc2
+.cw:
+    call ti_poke
+    pop ax
+    jmp short .pput
+.pent:
+    call tg_lrow_item               ; AX = the row -> BX = the entry, or an
+    cmp bx, -1                      ; arrow (-2 up, -3 down), or nothing (-1)
+    je .pput
+    cmp bx, -2
+    jne .pdn
+    cmp word [tg_lscroll], 0
+    je .pput
+    mov si, ti_s_up
+    push ax
+    call ti_poke
+    pop ax
+    jmp short .pput
+.pdn:
+    cmp bx, -3
+    jne .pe
+    mov si, ti_s_dn
+    push ax
+    call tg_lmore
+    jnc .pdn0
+    call ti_poke
+.pdn0:
+    pop ax
+    jmp short .pput
+.pe:
+    push ax
+    mov ax, bx
+    call tg_entry_text
+    pop ax
+.pput:
+    mov byte [di], 0
+    call tg_row_put
+    call tm_run                     ; the music a row at a time
+    inc ax
+    jmp .pr
+
+.view:                              ; --- THE LAST ROUND'S LOG, and BACK -----
+    mov ax, [tg_logn]
+    mov [tg_ln], ax
+    call tg_lwin
+    xor ax, ax
+.vr:
+    cmp ax, [tg_lrows]
+    jb .vrgo
+    jmp .out
+.vrgo:
+    mov di, tg_buf1
+    mov bx, [tg_lrows]
+    dec bx
+    cmp ax, bx
+    jb .vent
+    mov si, ti_s_back               ; the foot: BACK
+    push ax
+    call ti_poke
+    pop ax
+    jmp short .vput
+.vent:
+    call tg_lrow_item
+    cmp bx, -1
+    je .vput
+    cmp bx, -2
+    jne .vdn
+    cmp word [tg_lscroll], 0
+    je .vput
+    mov si, ti_s_up
+    push ax
+    call ti_poke
+    pop ax
+    jmp short .vput
+.vdn:
+    cmp bx, -3
+    jne .ve
+    mov si, ti_s_dn
+    push ax
+    call tg_lmore
+    jnc .vdn0
+    call ti_poke
+.vdn0:
+    pop ax
+    jmp short .vput
+.ve:
+    push ax
+    mov ax, bx
+    call tg_log_line
+    pop ax
+.vput:
+    mov byte [di], 0
+    call tg_row_put
+    call tm_run
+    inc ax
+    jmp .vr
 .out:
     pop es
     pop di
     pop si
     pop dx
     pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; THE LIST'S WINDOW (SPEC.md 97.12.10.6). The plan's entries - or the log's
+; lines - take the rows the list's foot leaves: three command rows under the
+; plan, BACK under the log. When there are more than those rows hold, the
+; first and last of them are ARROWS and the rest a window [tg_lscroll, ...).
+; -----------------------------------------------------------------------------
+
+; tg_lwin - [tg_le] = the rows the items get, [tg_lsc] = 1 when they scroll.
+; Preserves every register.
+tg_lwin:
+    push ax
+    mov ax, [tg_lrows]
+    sub ax, 3                       ; the plan's three command rows...
+    cmp byte [tg_list], 3
+    jne .h
+    add ax, 2                       ; ...or the log's one BACK
+.h:
+    jns .pos
+    xor ax, ax
+.pos:
+    mov [tg_le], ax
+    mov byte [tg_lsc], 0
+    cmp ax, [tg_ln]
+    jae .out
+    cmp ax, 3                       ; (a window needs a row between arrows)
+    jb .out
+    mov byte [tg_lsc], 1
+.out:
+    pop ax
+    ret
+
+; tg_lrow_item - AX = an item row -> BX = the item it shows, -2 the up arrow,
+; -3 the down arrow, -1 nothing. Preserves every other register.
+tg_lrow_item:
+    cmp byte [tg_lsc], 0
+    jne .sc
+    mov bx, -1
+    cmp ax, [tg_ln]
+    jae .out
+    mov bx, ax
+.out:
+    ret
+.sc:
+    mov bx, -2
+    or ax, ax
+    jz .out
+    mov bx, [tg_le]
+    dec bx
+    cmp ax, bx
+    mov bx, -3
+    je .out
+    mov bx, ax
+    dec bx
+    add bx, [tg_lscroll]
+    cmp bx, [tg_ln]
+    jb .out
+    mov bx, -1
+    ret
+
+; tg_lmore - CF=1 when the window has items below it. Preserves every
+; register.
+tg_lmore:
+    push ax
+    mov ax, [tg_le]
+    sub ax, 2
+    add ax, [tg_lscroll]
+    cmp ax, [tg_ln]
+    cmc                             ; CF=1: scroll + shown < n
+    pop ax
+    jnc .no
+    ret
+.no:
+    clc
+    ret
+
+; tg_list_scroll - AX = rows to move the window by, signed; clamped, and the
+; list drawn again if it moved. The gfx lock held. Preserves every register.
+tg_list_scroll:
+    push ax
+    push bx
+    cmp byte [tg_list], 1
+    je .go
+    cmp byte [tg_list], 3
+    jne .out
+.go:
+    cmp byte [tg_lsc], 0
+    je .out
+    add ax, [tg_lscroll]
+    jns .lo
+    xor ax, ax
+.lo:
+    mov bx, [tg_ln]                 ; the last window: n less what it shows
+    sub bx, [tg_le]
+    add bx, 2
+    cmp ax, bx
+    jle .hi
+    mov ax, bx
+.hi:
+    cmp ax, [tg_lscroll]
+    je .out
+    mov [tg_lscroll], ax
+    call tg_list_draw
+.out:
     pop bx
     pop ax
     ret
@@ -2667,8 +3255,6 @@ tg_list_hit:
     div bx
     cmp ax, [tg_lrows]
     jae .no
-    cmp ax, [tg_ln]
-    ja .no
     jmp short .out
 .no:
     mov al, 0FFh
@@ -2684,14 +3270,64 @@ tg_list_hit:
 ; the last is RESET (TITHE-PLAN 5.0.2). Preserves every register.
 tg_list_click:
     push ax
+    push bx
     xor ah, ah
-    cmp ax, [tg_ln]
-    jb .rm
+    mov bx, [tg_lrows]
+    cmp byte [tg_list], 3
+    je .view
+    sub bx, 3                       ; --- the plan's three command rows ----
+    cmp ax, bx
+    jb .item
+    sub ax, bx
+    jnz .c1
+    mov byte [tg_cqarm], 0
     call tg_reset
     jmp short .out
-.rm:
+.c1:
+    cmp ax, 1
+    jne .c2
+    call tg_logview
+    jmp short .out
+.c2:
+    call tg_concede
+    jmp short .out
+.view:
+    dec bx                          ; --- the log's BACK ---------------------
+    cmp ax, bx
+    jb .item
+    call tg_logview
+    jmp short .out
+.item:
+    cmp byte [tg_cqarm], 0          ; (a concede asked is let go by any other
+    je .ni                          ; row)
+    mov byte [tg_cqarm], 0
+    call tg_prompt_set0
+    call tg_list_draw
+.ni:
+    call tg_lrow_item
+    cmp bx, -2
+    jne .dn
+    mov ax, [tg_le]                 ; an arrow: a window up...
+    sub ax, 2
+    neg ax
+    call tg_list_scroll
+    jmp short .out
+.dn:
+    cmp bx, -3
+    jne .ent
+    mov ax, [tg_le]                 ; ...or down
+    sub ax, 2
+    call tg_list_scroll
+    jmp short .out
+.ent:
+    cmp bx, -1
+    je .out
+    cmp byte [tg_list], 3           ; a LOG line is read, not removed
+    je .out
+    mov al, bl
     call tg_remove
 .out:
+    pop bx
     pop ax
     ret
 
@@ -2732,6 +3368,7 @@ tg_res_begin:
     call tg_planp
     mov si, bx
     call tr_apply
+    call tg_snap_pools              ; what each player kept: the next income
     call tr_res_begin
     mov al, TM_RQ_RES               ; THE RESOLUTION MUSIC cuts in (97.10.6):
     call tm_post                    ; what the music's `R` fakes, for real
@@ -3208,7 +3845,7 @@ tg_res_done:
     call tg_result
     cmp byte [tr_result], 0
     jne .over
-    call tr_upkeep
+    call tg_upk
     call tg_save
     mov word [tg_msg2], ti_s_pass1
     mov byte [tg_ph], TG_PH_PASS
@@ -3241,6 +3878,16 @@ ti_s_lhp:   db ' HP', 0
 ti_s_plan:  db 'PLAN', 0            ; the panel's left button, both ways
 ti_s_hand:  db 'HAND', 0
 ti_s_reset: db 'RESET ALL', 0
+ti_s_vlog:  db 'VIEW LAST ROUND', 0
+ti_s_nolog: db 'NO ROUND FOUGHT YET', 0
+ti_s_conc:  db 'CONCEDE', 0
+ti_s_conc2: db 'CONCEDE? CLICK AGAIN', 0
+ti_s_up:    db '    ...MORE ABOVE', 0
+ti_s_dn:    db '    ...MORE BELOW', 0
+ti_s_back:  db 'BACK', 0
+ti_s_cqask: db 'CONCEDE THE MATCH? CLICK CONCEDE OR PRESS Q AGAIN', 0
+ti_s_p1con: db 'PLAYER 1 CONCEDES - PLAYER 2 WINS', 0
+ti_s_p2con: db 'PLAYER 2 CONCEDES - PLAYER 1 WINS', 0
 ti_s_noplan: db 'NO ACTIONS YET', 0
 ti_s_lord:  db 'ORDER ', 0
 ti_s_lswap: db 'SWAP ', 0
@@ -3257,6 +3904,11 @@ ti_s_nplay: db 'THAT CARD CANNOT BE PLAYED NOW', 0
 ti_s_nswap: db 'NO SWAPS LEFT THIS ROUND', 0
 ti_s_nswap2: db 'THOSE TWO CANNOT SWAP', 0
 ti_s_nord:  db 'THAT ORDER CANNOT GO THERE', 0
+ti_s_cconf: db 'NOTHING PLANNED - COMMIT AGAIN TO PASS', 0
+ti_s_income: db 'INCOME ', 0
+ti_s_drew:  db '  DREW ', 0
+ti_s_hfull: db '  HAND FULL - ', 0
+ti_s_discd: db ' DISCARDED', 0
 ti_s_sts:   db 'STANCE: SNIPE', 0
 ti_s_stcs:  db ' - CLICK TO SNIPE', 0
 ti_s_stcf:  db ' - CLICK TO AIM FRONT', 0
@@ -3301,10 +3953,27 @@ tg_ntgt:    db 0                    ; ...or a frozen instance
 tg_n0:      db 0
 tg_ninst:   db 0
 tg_sdi:     dw 0
-tg_list:    db 0                    ; 1: the panel shows the PLAN, not the hand
+tg_list:    db 0                    ; the panel: 0 the hand, 1 the PLAN, 2 the
+                                    ; round's log as it is fought, 3 the last
+                                    ; round's log, read (97.12.10.6)
+tg_lback:   db 0                    ; ...where the log view was opened from
+tg_lscroll: dw 0                    ; ...the list's window: its first item,
+tg_le:      dw 0                    ; ...the rows its items get,
+tg_lsc:     db 0                    ; ...and whether they scroll
+tg_cqarm:   db 0                    ; CONCEDE has been asked about
 tg_sel:     dw -1                   ; a swap's first cell, chosen
 tg_arm:     db 0FFh                 ; an ORDER's hand slot, armed
 tg_tgt:     dw -1                   ; ...and the character it would land on
+tg_cconf:   db 0                    ; an empty COMMIT has been asked about
+tg_nx:      dw 0                    ; where the pointer was when a note went
+tg_ny:      dw 0                    ; up (tg_note_at)
+tg_pg:      db 0, 0                 ; each side's pool when it last committed,
+tg_pso:     db 0, 0                 ; gold and souls (tg_snap_pools)
+tg_nh0:     db 0, 0                 ; ...its hand's size before the upkeep,
+tg_drew:    db 0FFh, 0FFh           ; ...the card the upkeep drew,
+tg_disc:    db 0FFh, 0FFh           ; ...or discarded from a full hand,
+tg_newslot: dw -1, -1               ; ...and the slot the drawn one is NEW in
+tg_incbuf:  times 56 db 0           ; the income, as the status line says it
 tg_prompt:  dw 0                    ; what the HUD says while one is pending
 tg_lbl:     dw ti_s_plan            ; the left button's word
 tg_lx:      dw 0                    ; where tg_list_draw put the rows

@@ -61,10 +61,10 @@ SYMS = ("tg_fillq", "tg_tseed", "tg_plan0", "tg_plan1", "ti_cards",
         "ti_rpq", "ti_row", "ti_rv", "ti_nframe", "ti_hx", "ti_tg1x",
         "ti_hty", "ti_rowst", "tg_tgt", "tg_arm", "TI_C_FI1", "TI_C_RI1",
         "ti_shg", "ti_shs", "tg_prompt", "ti_played", "ti_s_ngold",
-        "ti_s_nsoul", "TI_C_COST", "tg_frz",
+        "ti_s_nsoul", "TI_C_COST", "tg_frz", "ti_s_cconf", "tg_incbuf", "tg_newslot",
         "TI_C_SIZE", "TI_C_CARD", "TI_C_HP", "TI_HAND")
 EQUS = ("TI_C_SIZE", "TI_C_CARD", "TI_C_HP", "TI_HAND", "TI_C_FI1",
-        "TI_C_RI1", "ti_s_ngold", "ti_s_nsoul", "TI_C_COST", "tg_frz")
+        "TI_C_RI1", "ti_s_ngold", "ti_s_nsoul", "TI_C_COST", "tg_frz", "ti_s_cconf", "tg_incbuf")
 BCOL = (1, 0, 2, 3)     # side x 2 + column -> the board's column (tg_bcol)
 fails = []
 
@@ -321,6 +321,14 @@ def run(mach, off):
         want = sm.sides[1].hand + [0xFF] * (7 - len(sm.sides[1].hand))
         check(hand() == want, "...with P2's own hand", "%s against %s"
               % (hand(), want))
+        # AN EMPTY PLAN IS ASKED ABOUT ONCE (SPEC.md 97.12.10.4): Enter does
+        # not commit it, and says so - and a play after it is not asked
+        m.key("Enter")
+        settle(1.0)
+        check(rb("tg_ph") == 0 and rb("tg_side") == 1
+              and rw("tg_prompt") == off["ti_s_cconf"], "an EMPTY plan's "
+              "commit asks first", "phase %d side %d prompt %04x"
+              % (rb("tg_ph"), rb("tg_side"), rw("tg_prompt")))
         play(0)                                  # P2's first card, FRONT
         p2 = plan(1)
 
@@ -343,6 +351,7 @@ def run(mach, off):
         sm = sim_match()
         sm.apply(0, cut)
         sm.apply(1, p2)
+        kept = (sm.sides[0].gold, sm.sides[0].souls, len(sm.sides[0].hand))
         sm.resolve()
         sm.upkeep()
         check(plan(1) == [] and p2 == [(1, want[0], 0)],
@@ -358,6 +367,18 @@ def run(mach, off):
         want = sm.sides[0].hand + [0xFF] * (7 - len(sm.sides[0].hand))
         check(hand() == want, "...and P1's next hand is",
               "%s against %s" % (hand(), want))
+        # THE UPKEEP, SAID (SPEC.md 97.12.10.5): what P1's pool gained since
+        # they committed, and the card the upkeep drew - which is NEW
+        dg = sm.sides[0].gold - kept[0]
+        ds = sm.sides[0].souls - kept[1]
+        txt = "INCOME %+dG" % dg + (" %+dS" % ds if ds else "")
+        if len(sm.sides[0].hand) > kept[2]:
+            txt += "  DREW " + duelsim.cards()[sm.sides[0].hand[-1]].name
+        got = bytes(m.readseg(seg, off["tg_incbuf"], 56)).split(b"\0")[0]
+        check(got.decode().upper() == txt.upper(), "the next turn says its "
+              "income and the card it drew", "%r against %r" % (got, txt))
+        check(rw("tg_newslot") == len(sm.sides[0].hand) - 1, "...and that "
+              "card is NEW in its slot", "slot %d" % rw("tg_newslot"))
 
         # 6. A REFUSAL (SPEC.md 97.12.10.3), which the seeded match never
         # meets: P1's frozen gold goes to NOTHING, and a card is clicked

@@ -4500,6 +4500,11 @@ carries the decision.
 - **The opponent's plan arrives with no animation of its own** — its new
   characters, swaps, stances and orders simply appear together. It is the
   moment §6.4 says is worth animating properly.
+- **The resolution phase wants its animations worked on** (the owner's note,
+  2026-09-25, to come back to): several things there need work and the owner
+  will bring the list. What the upkeep brought is SAID now at the start of a
+  turn (SPEC.md §97.12.10.5), but nothing about the round itself is drawn
+  beyond the clash, the bolts and the numbers.
 - **The animation is coarse.** A lane's melee is ONE clash in which both front
   cells swing whoever landed; bolts fly from the rear cells whichever cell
   shot; heals, deaths and the gold and soul roll-ups have no animation - a

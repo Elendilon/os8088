@@ -146357,6 +146357,8 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 | `C` | a melee clash in one lane's front line (§97.4.7) |
 | `V` | play a card — the REVEAL (§97.4.11): the hovered card, else the first left in the hand, into the planner's topmost empty cell of the column the FRONT/REAR toggle names (§97.12.2). Keys, clicks and the toggle are ignored for the half second a reveal runs |
 | `U` / `L` / `Enter` | the round loop's: UNDO the last action, the plan LIST, COMMIT (§97.12.4) |
+| `H` / `Q` | the last round's LOG in the panel, and back; CONCEDE, which the first press asks about and the second does (§97.12.10.6) |
+| `Up` / `Down` / `PgUp` / `PgDn` | scroll the plan list or the log a row or a window, when it is longer than the panel (§97.12.10.6) |
 | *click a card* | play THAT card, the same way — which is what a player does, and the card that dissolves out is then the HOVERED one, in its flipped polarity (§97.4.12.1) |
 | `G` | step the BOARD — THE MARCH and THE CLOISTER (§97.4.10). A relayout, so the strips and all eighty poses are re-composed. It also picks the board's RESOLUTION (§97.10.7) for the next `R` |
 | `A` | sustained projectile fire down a lane (§97.4.5): one bolt a side, crossing — the resolution's worst ranged case, and sustained because the number wave 1a wants is the COMBAT frame's and one bolt is a photograph |
@@ -147018,7 +147020,7 @@ to be asked twice.
 | *click an ORDER card*, then *one of your characters* | the order goes on that character; the HUD asks *ORDER: ON WHICH OF YOUR CHARACTERS?* until it does, and the card clicked again lets it go |
 | *click the mark under a shooter's feet* | FRONT ↔ SNIPE (§97.12.10.1). The HUD says which it is and what a click makes it while the pointer is on the mark. A second click takes the entry OUT rather than adding another, so a stance entry is never a no-op |
 | *click two of your cells* | SWAP them (two a round; either may be empty). The first one's numbers go INVERTED and the HUD asks for the second; the same cell again lets it go |
-| *click* PLAN / `L` | the panel shows the plan as a numbered list where the hand was — *click an entry* to remove it, *click* RESET ALL for all of it — and HAND puts the hand back |
+| *click* PLAN / `L` | the panel shows the plan as a numbered list where the hand was — *click an entry* to remove it — with three rows at its foot: RESET ALL, VIEW LAST ROUND and CONCEDE (§97.12.10.6); HAND puts the hand back |
 | `U` | the planner's LAST action back |
 | *click* COMMIT / `Enter` | seal the plan: P1's hands the machine over, P2's fights the round (§97.12.8) |
 | *click* / `Enter` / `Space` on the pass screen | the next planner sits down; after the match's end, a new match |
@@ -147254,3 +147256,67 @@ REAR`, `NOT ENOUGH GOLD`, `NOT ENOUGH SOULS`, `NO SWAPS LEFT THIS ROUND`,
 which is a pending action's prompt that the next hover change takes back
 (`tg_note_off`). It was nothing at all: the engine refused, the plan was
 re-applied unchanged, and the click was simply lost.
+
+##### 97.12.10.4 An empty plan is asked about, once
+
+COMMIT does **not** confirm unspent gold or souls: banking them, or having
+nothing worth spending them on, is ordinary play, and a question there would
+stand in front of a normal action every round (TITHE-PLAN §16.4, the owner's
+ruling). What it asks about is narrower - **a plan with nothing in it, from a
+hand that could have done something**: a card the pool can pay for and a
+column with room (`tg_idlecheck`). The first COMMIT then says `NOTHING PLANNED
+- COMMIT AGAIN TO PASS` through `tg_note` and arms `[tg_cconf]`; the second
+commits. Anything else - an action, or the pointer moving on, which takes the
+note back - disarms it, so the question is only ever answered by pressing the
+same thing twice in a row.
+
+##### 97.12.10.5 The upkeep is SAID: the income on the status line, the drawn card NEW
+
+A planner sat down to a hand and a pool that had moved and nothing said how.
+**The status line says it now**, as a note (§97.12.10.3) the first thing a
+turn shows: `INCOME +4G +1S  DREW PIKEMAN`, or `HAND FULL - PIKEMAN
+DISCARDED` when the upkeep's card went to the discard. The income is what the
+pool GAINED since that player last committed - the round's spoils and the
+upkeep's +2 together - which is the number a player plans with: `tg_snap_pools`
+banks each side's pool after both plans are applied (and after the setup, for
+round one), and `tg_upk` wraps `tr_upkeep` to know which card it drew and
+where it went (`tg_drew`, `tg_disc`, `tg_newslot`).
+
+**A NOTE GOES WHEN THE POINTER MOVES, and not before.** It is taken back on a
+hover change (`tg_note_off`) only if the pointer is somewhere else than where
+the last frame read it when the note went up (`tg_note_at`): a new planner's
+board is drawn from nothing, so the first frame FINDS a hover under a pointer
+that has not moved, and that took the income line down before anyone could
+read it.
+
+**The drawn card is NEW until it is hovered**: its top right corner turned
+down, a triangle in the card's last byte (`ti_card_ear`), put on at the blit
+like the grey and for its reason - the bank keeps the card, and hovering it
+once (`tg_new_seen`) is what clears it.
+
+##### 97.12.10.6 The plan list's foot: RESET, the last round's LOG, CONCEDE - and it scrolls
+
+The HUD has no room for more buttons, so the two the owner asked for live in
+the panel the PLAN button opens, beside RESET ALL: **the last three rows of the
+list are commands** - RESET ALL (or NO ACTIONS YET), VIEW LAST ROUND (or NO
+ROUND FOUGHT YET) and CONCEDE - and the plan's entries take the rows above
+them. Each has a key as well: `H` and `Q` (§97.7).
+
+**THE LOG IS KEPT WHOLE and read in the same panel.** `TG_LOGN` is 64 lines,
+the whole of a round rather than the sixteen the in-round panel needed, and
+`tg_list` = 3 shows them with BACK at the foot - back to the hand or the list,
+whichever it was opened from (`[tg_lback]`). The log is the round both
+players watched, so reading it leaks nothing of a plan.
+
+**BOTH SCROLL.** When the entries - or the log's lines - outnumber the rows
+the foot leaves, the first and last of those rows become arrows, `...MORE
+ABOVE` and `...MORE BELOW`, and the rest is a window from `[tg_lscroll]`
+(`tg_lwin`, `tg_lrow_item`): a click on an arrow moves it a window, and the
+arrow keys a row and the page keys a window (`tg_list_scroll`). A plan's
+sixteen actions were unreachable past the box's last row, ~9 rows on CGA.
+
+**CONCEDE IS ASKED FIRST**, the way an empty commit is (§97.12.10.4): the
+first click or `Q` arms `[tg_cqarm]` - the row reads `CONCEDE? CLICK AGAIN`
+and the HUD says so - and the second ends the match for the OTHER player,
+`PLAYER 1 CONCEDES - PLAYER 2 WINS` on the match's end screen. Any other row
+clicked lets it go.

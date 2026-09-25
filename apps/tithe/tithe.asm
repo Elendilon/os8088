@@ -676,6 +676,40 @@ ti_onkey:
     call tg_resume
     jmp .out
 .plankeys:
+    or al, al                       ; THE LIST'S WINDOW scrolls on the arrows
+    jz .scan                        ; and the page keys (SPEC.md 97.12.10.6) -
+    cmp al, 0E0h                    ; asked only of a key with no character,
+    jne .n_scan                     ; which a keypad 8 with NUM LOCK has
+.scan:
+    mov bx, -1
+    cmp ah, KSC_UP
+    je .scroll
+    mov bx, 1
+    cmp ah, KSC_DOWN
+    je .scroll
+    mov bx, [tg_le]
+    sub bx, 2
+    cmp ah, 51h                     ; PgDn
+    je .scroll
+    neg bx
+    cmp ah, 49h                     ; PgUp
+    je .scroll
+    jmp .out
+.scroll:
+    mov ax, bx
+    call tg_list_scroll
+    jmp .out
+.n_scan:
+    cmp bl, 'h'                     ; SPEC.md 97.7's `H`: the last round's log
+    jne .n_log
+    call tg_logview
+    jmp .out
+.n_log:
+    cmp bl, 'q'                     ; ...and `Q`: CONCEDE, asked first
+    jne .n_conc
+    call tg_concede
+    jmp .out
+.n_conc:
     cmp bl, 'a'
     jne .n_fire
     jmp .fire
@@ -1075,6 +1109,7 @@ ti_frame:
     jnc .settled                    ; of them are redrawn - the one it left
     call tg_tgt_track               ; (an armed ORDER's target follows it)
     call tg_note_off                ; (and a refusal's note is taken back)
+    call tg_new_seen                ; (and a NEW card hovered is seen)
     mov byte [ti_hstat], 1          ; ...and the STATUS LINE is OWED, and is
                                     ; drawn the first frame the pointer stays
                                     ; put (SPEC.md 97.4.12.1): down a sweep it
@@ -2034,6 +2069,8 @@ ti_tg0x:    dw 0                    ; the toggle's two arms, banked in SCREEN
 ti_tg1x:    dw 0                    ; x so a click can be resolved
 ti_hovc:    dw -1                   ; the BOARD cell under the pointer
 ti_hovc2:   dw -1                   ; ...as this poll found it
+ti_mx:      dw 0                    ; the pointer, as the last frame read it
+ti_my:      dw 0
 ti_hovm:    db 0                    ; ...and the pointer is on its STANCE MARK
 ti_hovm2:   db 0                    ; (SPEC.md 97.12.10.1), as this poll found
 ti_face:    dw 0                    ; SPEC.md 97.4.1's `T`: which face
