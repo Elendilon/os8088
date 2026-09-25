@@ -500,6 +500,7 @@ tg_views:
     je .out
     mov word [tg_phs], ti_s_p2plans
 .out:
+    call tg_greys                   ; ...and what the planner cannot pay for
     pop di
     pop si
     pop dx
@@ -517,6 +518,109 @@ tg_views:
     jbe .hpr
     mov al, 99
 .hpr:
+    ret
+
+; -----------------------------------------------------------------------------
+; tg_greys - WHAT THE PLANNER CANNOT DO (SPEC.md 97.12.10.3): each hand slot's
+; shortfall in gold and souls against the pool the plan leaves - a slot whose
+; shortfall MOVED is owed a redraw (ti_gchg) - and which of the planner's two
+; columns are FULL (ti_colfull; ti_hudq when that moved). Nothing is drawn.
+; Preserves every register.
+; -----------------------------------------------------------------------------
+tg_greys:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov al, [tg_side]
+    call tr_side                    ; DI = the planner, as the plan leaves them
+    xor bx, bx
+.s:
+    cmp bx, TI_HAND
+    jae .cols
+    xor dx, dx                      ; DL = gold short, DH = souls short
+    mov ax, bx
+    mov cl, TI_C_SIZE
+    mul cl
+    mov si, ax
+    cmp byte [ti_cards + si + TI_C_CARD], TR_EMPTY
+    je .put
+    mov al, [ti_cards + si + TI_C_COST]
+    sub al, [di + SD_GOLD]
+    jbe .g0
+    mov dl, al
+.g0:
+    mov al, [ti_cards + si + TI_C_SOUL]
+    sub al, [di + SD_SOULS]
+    jbe .put
+    mov dh, al
+.put:
+    cmp dl, [ti_shg + bx]
+    jne .chg
+    cmp dh, [ti_shs + bx]
+    je .n
+.chg:
+    mov [ti_shg + bx], dl
+    mov [ti_shs + bx], dh
+    mov cl, bl
+    mov al, 1
+    shl al, cl
+    or [ti_gchg], al
+.n:
+    inc bx
+    jmp short .s
+.cols:
+    xor dl, dl                      ; DL = the full columns, a bit each
+    xor ah, ah                      ; the engine's column 0 is FRONT
+.col:
+    mov al, [tg_side]
+    xor cl, cl
+.lane:
+    call tr_cell
+    cmp byte [si + CE_CARD], TR_EMPTY
+    je .open
+    inc cl
+    cmp cl, TR_LANES
+    jb .lane
+    mov cl, ah                      ; every lane taken: FULL
+    mov al, 1
+    shl al, cl
+    or dl, al
+.open:
+    inc ah
+    cmp ah, 2
+    jb .col
+    cmp dl, [ti_colfull]
+    je .out
+    mov [ti_colfull], dl
+    mov byte [ti_hudq], 1           ; ...the HUD's toggle says so (ti_owed)
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; tg_note - SI = a sentence: the status line says it until the pointer moves
+; (SPEC.md 97.12.10.3), the way a pending action's question is said. A window
+; callback, the lock held. Preserves every register.
+tg_note:
+    mov [tg_prompt], si
+    mov byte [ti_note], 1
+    jmp ti_hud_status
+
+; tg_note_off - a note is taken back when the pointer moves (ti_frame).
+; Preserves every register.
+tg_note_off:
+    cmp byte [ti_note], 0
+    je .out
+    mov byte [ti_note], 0
+    mov word [tg_prompt], 0
+.out:
     ret
 
 ; tg_vput - AX = a view: tg_vtmp into its record. CF=1 if that CHANGED it.
@@ -843,7 +947,15 @@ tg_play:
     inc cl
     cmp cl, TR_LANES
     jb .lane
-    jmp short .no                   ; full: the engine would say so too
+    push si                         ; FULL: the engine would say so too, and
+    mov si, ti_s_nfront             ; the player is told which (97.12.10.3)
+    or ah, ah
+    jz .nfull
+    mov si, ti_s_nrear
+.nfull:
+    call tg_note
+    pop si
+    jmp short .no
 .have:
     mov [tg_plane], cl
     mov [tg_pcol], ah
@@ -852,7 +964,24 @@ tg_play:
     mov cl, ah
     mov ch, dl
     call tg_act                     ; (op, card, column) and the slot it came
-    jc .no                          ; from
+    jnc .took                       ; from
+    push si                         ; REFUSED: the pool is what refuses a play
+    mov si, ti_s_ngold              ; into an open column
+    push bx
+    mov bl, dl
+    xor bh, bh
+    cmp byte [ti_shg + bx], 0
+    jne .ncost0
+    mov si, ti_s_nsoul
+    cmp byte [ti_shs + bx], 0
+    jne .ncost0
+    mov si, ti_s_nplay              ; (the engine's, and not the pool's)
+.ncost0:
+    pop bx
+    call tg_note
+    pop si
+    jmp short .no
+.took:
     mov al, [tg_side]               ; the board cell it stands in
     shl al, 1
     add al, [tg_pcol]
@@ -1011,15 +1140,17 @@ tg_edited:
     call tg_list_draw
     jmp short .hud
 .hand:
-    xor bl, [ti_played]             ; ...the hand slots that did
+    xor bl, [ti_played]             ; ...the hand slots that did, and the ones
+    or bl, [ti_gchg]                ; whose shortfall moved (97.12.10.3)
+    mov byte [ti_gchg], 0
     xor ax, ax
 .h:
     cmp ax, [ti_cardn]
     jae .hud
     shr bl, 1
     jnc .hn
-    call ti_card_draw
-.hn:
+    call ti_card_fast               ; (from its bank: an edit moves a card's
+.hn:                                ; slot or its grey, and not the card)
     inc ax
     jmp short .h
 .hud:
@@ -1094,8 +1225,7 @@ tg_sync1:
     jae .none
     mov bx, cx
     mov ax, cx
-    call ti_ck_cell
-    mov al, [ti_ck]
+    call ti_cell_key                ; the art, and a shooter's stance
     cmp al, [tg_cart + bx]
     jne .do
     cmp byte [tg_vdirty + bx], 0
@@ -1470,9 +1600,8 @@ tg_cells:
     jae .out
     mov [ti_ci], cx
     mov ax, cx
-    call ti_ck_cell
+    call ti_cell_key
     mov bx, cx
-    mov al, [ti_ck]
     cmp al, [tg_cart + bx]
     je .n
     mov word [ti_cfbeg], 0
@@ -1577,7 +1706,7 @@ tg_card_click:
     cmp byte [bx + TI_CR_KIND], TI_KIND_ORDER
     pop bx
     je .order
-    mov byte [tg_arm], 0FFh
+    call tg_disarm
     call tg_prompt_set0
     mov ax, bx
     call ti_rv_play
@@ -1585,11 +1714,13 @@ tg_card_click:
 .order:
     cmp [tg_arm], bl                ; the armed one again: disarmed
     jne .arm
-    mov byte [tg_arm], 0FFh
+    call tg_disarm
     call tg_prompt_set0
     jmp short .out
 .arm:
-    mov [tg_arm], bl
+    call tg_disarm                  ; ...another order armed is let go
+    mov [tg_arm], bl                ; (this one is hovered: already lit)
+    mov byte [ti_note], 0
     mov word [tg_prompt], ti_s_pord
     call ti_hud_status
 .out:
@@ -1603,11 +1734,101 @@ tg_idle:
     mov word [tg_lbl], ti_s_plan
     mov word [tg_sel], -1
     mov byte [tg_arm], 0FFh
+    mov word [tg_tgt], -1
     mov word [tg_prompt], 0
+    mov byte [ti_note], 0
+    ret
+
+; -----------------------------------------------------------------------------
+; tg_disarm - an ORDER armed is let go: its card put back as it rests, and the
+; target under the pointer with it (SPEC.md 97.12.10.2). The gfx lock held.
+; Preserves every register.
+; -----------------------------------------------------------------------------
+tg_disarm:
+    push ax
+    mov al, [tg_arm]
+    cmp al, 0FFh
+    je .out
+    mov byte [tg_arm], 0FFh
+    xor ah, ah
+    cmp byte [tg_list], 0           ; (the plan list is where the hand was)
+    jne .tgt
+    call ti_card_fast
+.tgt:
+    mov ax, -1
+    call tg_tgt_set
+.out:
+    pop ax
+    ret
+
+; tg_tgt_set - AX = the cell an armed ORDER would land on, or -1: its numbers
+; INVERTED, as a swap's first end's are, and the last one's put back. The gfx
+; lock held. Preserves every register.
+tg_tgt_set:
+    cmp ax, [tg_tgt]
+    jne .go
+    ret
+.go:
+    push ax
+    push bx
+    push word [ti_ci]
+    mov bx, [tg_tgt]
+    mov [tg_tgt], ax
+    push ax
+    cmp bx, -1
+    je .new
+    mov [ti_ci], bx
+    call ti_cell_xy
+    call ti_cellnum
+.new:
+    pop ax
+    cmp ax, -1
+    je .out
+    mov [ti_ci], ax
+    call ti_cell_xy
+    call ti_cellnum
+.out:
+    pop word [ti_ci]
+    pop bx
+    pop ax
+    ret
+
+; tg_tgt_track - the pointer moved: while an ORDER is armed, the planner's own
+; character under it is its target, and is shown so (SPEC.md 97.12.10.2). The
+; worker's frame, the lock held. Preserves every register.
+tg_tgt_track:
+    cmp byte [tg_arm], 0FFh
+    jne .go
+    ret
+.go:
+    push ax
+    push cx
+    push dx
+    push si
+    mov ax, [ti_hovc]
+    cmp ax, -1
+    je .set
+    mov cx, ax
+    call tg_ecell                   ; SI = the cell, AL = its side
+    cmp al, [tg_side]
+    jne .none
+    cmp byte [si + CE_CARD], TR_EMPTY
+    je .none
+    mov ax, cx
+    jmp short .set
+.none:
+    mov ax, -1
+.set:
+    call tg_tgt_set
+    pop si
+    pop dx
+    pop cx
+    pop ax
     ret
 
 ; tg_prompt_set0 - no prompt, and the HUD's status line says so
 tg_prompt_set0:
+    mov byte [ti_note], 0
     cmp word [tg_prompt], 0
     je .out
     mov word [tg_prompt], 0
@@ -1636,8 +1857,8 @@ tg_unsel:
 
 ; -----------------------------------------------------------------------------
 ; tg_cell_click - board cell AX was clicked at (CX, DX): an armed ORDER goes on
-; the character there; else the STANCE badge of a shooter toggles; else it is
-; one end of a SWAP. A window callback, the gfx lock held. Preserves every
+; the character there; else the STANCE MARK under a shooter's feet toggles
+; (SPEC.md 97.12.10.1); else it is one end of a SWAP. A window callback, the gfx lock held. Preserves every
 ; register.
 ; -----------------------------------------------------------------------------
 tg_cell_click:
@@ -1660,7 +1881,7 @@ tg_cell_click:
     pop cx
     cmp al, [tg_side]
     je .swap
-    mov byte [tg_arm], 0FFh         ; the other side's: whatever was pending
+    call tg_disarm                  ; the other side's: whatever was pending
     call tg_unsel                   ; is let go
     call tg_prompt_set0
     jmp .out
@@ -1680,25 +1901,46 @@ tg_cell_click:
     mov bl, TR_A_ORDER
     xor cl, cl                      ; (the instance: the replay resolves it)
     mov dl, [ti_played]
+    mov byte [tg_arm], 0FFh         ; LET GO WITHOUT A DRAW: the edit puts the
+    mov ax, [tg_tgt]                ; slot down empty and the target's numbers
+    mov word [tg_tgt], -1           ; back, once each
+    cmp ax, -1
+    je .notgt
+    push bx                         ; (BX is the action: op and card)
+    mov bx, ax
+    mov byte [tg_vdirty + bx], 1
+    pop bx
+.notgt:
+    push cx
     call tg_act
-    mov byte [tg_arm], 0FFh
+    pop cx
     call tg_prompt_set0
     mov bl, dl
     call tg_edited
+    mov al, ch                      ; ...and a REFUSED order is still in the
+    xor ah, ah                      ; hand, lit: put it back as it rests
+    call ti_rv_played
+    jc .out
+    push si
+    mov si, ti_s_nord               ; (and the status line says so)
+    call tg_note
+    pop si
+    cmp byte [tg_list], 0
+    jne .out
+    call ti_card_fast
     jmp .out
 .nord:
-    mov ax, si                      ; --- the STANCE badge -----------------
-    call tg_badge
-    jc .swap
-    mov bl, TI_C_SIZE
-    mov ax, si
-    add ax, TI_HAND
-    mul bl
-    mov bx, ax
-    mov al, [ti_cards + bx + TI_C_FLAGS]
+    mov ax, si                      ; --- the STANCE MARK ------------------
+    call ti_cell_flags
     test al, TI_CF_RANGED
     jz .swap
+    push ax
+    mov ax, si
+    call tg_mark
+    pop ax
+    jc .swap
     call tg_unsel
+    mov byte [ti_hstat], 1          ; ...and the HUD says the new one
     call tg_stance_find             ; the subject already has a stance entry:
     jc .newst                       ; taking it out IS the toggle back
     mov dl, [ti_played]
@@ -1730,6 +1972,7 @@ tg_cell_click:
     call ti_cell_xy
     call ti_cellnum
     pop word [ti_ci]
+    mov byte [ti_note], 0
     mov word [tg_prompt], ti_s_pswap
     call ti_hud_status
     jmp short .out
@@ -1753,6 +1996,16 @@ tg_cell_click:
                                     ; removing that play orphaned the swap
     mov dl, [ti_played]
     call tg_act
+    jnc .swapped
+    push si                         ; REFUSED: say why (97.12.10.3)
+    mov si, ti_s_nswap
+    cmp byte [ti_swaps], 0
+    je .sw0
+    mov si, ti_s_nswap2
+.sw0:
+    call tg_note
+    pop si
+.swapped:
     mov bl, dl
     call tg_edited
 .out:
@@ -1824,11 +2077,12 @@ tg_stance_find:
     ret
 
 ; -----------------------------------------------------------------------------
-; tg_badge - AX = a cell, (CX, DX) = the pointer: CF=0 when it is on the
-; cell's STANCE badge, the fourth glyph of its first row of numbers (tirend's
-; ti_cn_stance). Preserves every register.
+; tg_mark - AX = a cell, (CX, DX) = the pointer: CF=0 when it is on the cell's
+; STANCE MARK (SPEC.md 97.12.10.1) - the band's foot, across the mark's 48
+; columns. It does not ask whether a shooter stands there. Preserves every
+; register.
 ; -----------------------------------------------------------------------------
-tg_badge:
+tg_mark:
     push ax
     push bx
     push si
@@ -1838,34 +2092,25 @@ tg_badge:
     xor dx, dx
     mov bx, TI_ROWS
     div bx                          ; AX = the column
-    call ti_col_insx                ; the numbers are left of a P1 figure and
-    mov si, 0                       ; right of a P2 one (97.4.9)
-    jnc .p1
-    add ax, [ti_bw]
+    call ti_col_insx                ; ...and the band's inset in it
     mov si, ax
-.p1:
     pop dx
-    push cx
     call ti_cell_xy                 ; AX = x, BX = y
-    pop cx
     add ax, si
-    mov si, [ti_fw]
-    shl si, 1
-    add si, [ti_fw]
-    add ax, si                      ; the fourth glyph's x
-    sub ax, 2
+    add ax, 8                       ; the mark's ink, 48 of the band's 64
     cmp cx, ax
     jb .no
-    add ax, [ti_fw]
-    add ax, 4
+    add ax, 48
     cmp cx, ax
     jae .no
     add bx, [ti_insy]
-    cmp dx, bx
-    jb .no
-    add bx, [ti_fh]
+    add bx, [ti_bh]                 ; the band's foot...
     cmp dx, bx
     jae .no
+    call ti_mark_rows
+    sub bx, ax                      ; ...and the mark's rows over it
+    cmp dx, bx
+    jb .no
     clc
     jmp short .out
 .no:
@@ -3003,6 +3248,18 @@ ti_s_lfront: db 'FRONT ', 0
 ti_s_lsnipe: db 'SNIPE ', 0
 ti_s_pswap: db 'SWAP WITH WHICH OF YOUR CELLS?', 0
 ti_s_pord:  db 'ORDER: ON WHICH OF YOUR CHARACTERS?', 0
+ti_s_stf:   db 'STANCE: FRONT', 0
+ti_s_nfront: db 'FRONT IS FULL - PLAY TO REAR', 0
+ti_s_nrear: db 'REAR IS FULL - PLAY TO FRONT', 0
+ti_s_ngold: db 'NOT ENOUGH GOLD', 0
+ti_s_nsoul: db 'NOT ENOUGH SOULS', 0
+ti_s_nplay: db 'THAT CARD CANNOT BE PLAYED NOW', 0
+ti_s_nswap: db 'NO SWAPS LEFT THIS ROUND', 0
+ti_s_nswap2: db 'THOSE TWO CANNOT SWAP', 0
+ti_s_nord:  db 'THAT ORDER CANNOT GO THERE', 0
+ti_s_sts:   db 'STANCE: SNIPE', 0
+ti_s_stcs:  db ' - CLICK TO SNIPE', 0
+ti_s_stcf:  db ' - CLICK TO AIM FRONT', 0
 ti_s_p2plans: db '   P2 PLANS', 0
 ti_s_none:  db 0
 ti_s_noabil: db 'NO SPECIAL ABILITY', 0
@@ -3047,6 +3304,7 @@ tg_sdi:     dw 0
 tg_list:    db 0                    ; 1: the panel shows the PLAN, not the hand
 tg_sel:     dw -1                   ; a swap's first cell, chosen
 tg_arm:     db 0FFh                 ; an ORDER's hand slot, armed
+tg_tgt:     dw -1                   ; ...and the character it would land on
 tg_prompt:  dw 0                    ; what the HUD says while one is pending
 tg_lbl:     dw ti_s_plan            ; the left button's word
 tg_lx:      dw 0                    ; where tg_list_draw put the rows

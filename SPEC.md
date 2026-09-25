@@ -144887,7 +144887,8 @@ them tens of times over for nothing.
 | element | where | when it redraws |
 |---|---|---|
 | the sprite, in its live pose | the `BW × BH` band | on its animation clock (§97.5) |
-| **HP**, both variable stats, **POWER**, and the **STANCE** | the cell's empty columns, `[0, INSX)` | only when a number changes |
+| **HP**, both variable stats, and **POWER** | the cell's empty columns, `[0, INSX)` | only when a number changes |
+| a shooter's **STANCE MARK** | under its feet, composed INTO every pose (§97.12.10.1) | when the stance changes |
 | the cell ground | the rest of the cell | once, with the board |
 
 **THE SMALL FACE IS WHAT PUTS FOUR STATS THERE** (§97.4.1.1). The column is 24
@@ -144898,9 +144899,10 @@ owner's question — another face, a mouse-over, or a whole-board toggle — is
 answered by the face on its own, with nothing to operate. `NUMS` is retired
 with it: how many rows fit is arithmetic now, not a table field.
 
-**The STANCE takes the fourth cell of the first row**, and it is TWO glyphs and
-not one: a stance is FRONT or SNIPE (TITHE-PLAN §5.4) and only a *shooter* has
-one, so an empty cell has to mean "not a shooter" and cannot also mean "FRONT".
+**The STANCE is not in the column any more.** It took the fourth cell of the
+first row as one of two glyphs, and the owner played a whole wave without
+finding it: a 6-pixel glyph among numbers does not say it is a control. It is a
+mark under the shooter's feet now (§97.12.10.1), and the fourth cell is empty.
 
 **WHICH pair of variable stats is the column's own.** Front and rear are
 different roles (TITHE-PLAN §5.2), and a character on the board HAS a position
@@ -146924,7 +146926,7 @@ and a cell's **COLUMN** and **STANCE** flags.
 |---|---|---|
 | the pairs | both blocks, and the FRONT/REAR toggle picks which the card shows | the LIVE block's, ABSOLVE's permanent gains and this round's orders added — the same pair in both slots, because a character on the board has one position |
 | HP | the block's | what it has left |
-| the stance cell | — | the engine's, for a shooter (`TI_CF_RANGED`, `TI_CF_SNIPE`) |
+| the stance | — | the engine's, for a shooter (`TI_CF_RANGED`, `TI_CF_SNIPE`): the mark under its feet (§97.12.10.1) |
 | the status line | its keywords for the toggle's row | `NAME  POWER  KEYWORDS` for its column (§97.4.8.1) |
 
 A pair is the first two of melee, ranged, shield, heal and gold that are not
@@ -147014,7 +147016,7 @@ to be asked twice.
 |---|---|
 | *click a card* / `V` | PLAY it into the toggle's column (§97.4.11's reveal) |
 | *click an ORDER card*, then *one of your characters* | the order goes on that character; the HUD asks *ORDER: ON WHICH OF YOUR CHARACTERS?* until it does, and the card clicked again lets it go |
-| *click a shooter's STANCE badge* | FRONT ↔ SNIPE — the fourth glyph of its first row of numbers. A second click takes the entry OUT rather than adding another, so a stance entry is never a no-op |
+| *click the mark under a shooter's feet* | FRONT ↔ SNIPE (§97.12.10.1). The HUD says which it is and what a click makes it while the pointer is on the mark. A second click takes the entry OUT rather than adding another, so a stance entry is never a no-op |
 | *click two of your cells* | SWAP them (two a round; either may be empty). The first one's numbers go INVERTED and the HUD asks for the second; the same cell again lets it go |
 | *click* PLAN / `L` | the panel shows the plan as a numbered list where the hand was — *click an entry* to remove it, *click* RESET ALL for all of it — and HAND puts the hand back |
 | `U` | the planner's LAST action back |
@@ -147167,3 +147169,88 @@ panel is the log for a round — and that is the list-row step above.
 Hercules and on VGA: on VGA it read three with the pass screen's and the
 ground's fills in one piece each, and on Hercules two, so a Hercules alone
 cannot see it go.
+
+#### 97.12.10 PLANNING, THE SECOND PASS (TITHE-PLAN §16.4)
+
+The owner went through wave 3's planning list and ruled on each line
+(TITHE-PLAN §16.4). This is what was built from it.
+
+##### 97.12.10.1 The stance is a MARK under the shooter's feet
+
+A shooter stands on an arrow: **flat and pointing at the enemy for FRONT,
+climbing for SNIPE**, white with a one-pixel black halo, 48 pixels wide across
+the bottom rows of the figure's band (seven rows on VGA and Hercules, five on
+CGA, whose rows are 2.4 times as tall). P2's is mirrored with the figure, so it
+points the way the shot goes.
+
+**IT IS PART OF THE POSE, NOT A DRAW.** `ti_cell_build` puts it down on the
+ground BEFORE the character, in every frame it composes - so the figure stands
+on it and hides its middle, the way a selection ring goes under a unit - and
+the wheel's commits carry it for nothing: no call, no band, no row of the
+frame's budget. A pose's key is what its frames are OF, and that is the art
+AND the stance now (`ti_cell_key`: the art, `20h` for a shooter, `40h` for
+SNIPE), so a stance change is a changed key and `tg_sync` composes that cell
+again - once, at the click, which is where a play composes one too.
+
+**IT IS THE CONTROL.** The pointer on the mark - its 48 columns, the band's
+bottom rows - turns the status line into `STANCE: FRONT - CLICK TO SNIPE` (or
+`SNIPE - CLICK TO AIM FRONT`) on the planner's own shooters and `STANCE: FRONT`
+on anyone else's, and a click there is the toggle. Anywhere else on the cell is
+a swap's end, as before. The hover test asks it a frame at a time
+(`ti_hover_ck`'s `[ti_hovm]`): arithmetic on a rectangle, no walk.
+
+##### 97.12.10.2 An armed ORDER shows it is armed, and so does its target
+
+Clicking an ORDER card arms it and clicking it again lets it go - that was
+built in wave 3, and nothing on the glass said so, so the owner never knew it
+worked. **The armed card stays LIT** - the hovered card's picture, black paper
+and white ink - with the pointer anywhere: `ti_card_draw`'s `[ti_clit]` is the
+hover OR the armed slot, and `ti_card_fast` puts the bank's hovered twin down
+for it without banking a hover box, so it does not animate. **The character
+it would land on is SELECTED under the pointer**: while an order is armed, the
+worker's frame asks on every hover change whether the cell under the pointer
+holds one of the planner's own (`tg_tgt_track`) and inverts that cell's
+numbers - the swap's own mark, and the one control on the board that marks a
+cell - putting the last one's back (`tg_tgt_set`, one `ti_cellnum` each).
+
+Placing it lets both go without a draw of their own: the edit puts the slot
+down empty and the target's numbers back, once each (the target is marked
+dirty for `tg_sync`). An order the engine refuses stays in the hand and is put
+back as it rests. Any other click that abandons it - another card, the other
+side's cell - goes through `tg_disarm`.
+
+##### 97.12.10.3 A refusal is GREYED, and a refused click says why
+
+**A card the planner cannot pay for is greyed, with its shortfall in its
+corner.** `tg_greys` runs at the end of every `tg_views` and keeps each hand
+slot's shortfall - its gold and soul costs against the pool the PLAN leaves,
+so a card turns grey the moment an earlier play spends what it needed - and
+marks the slots whose shortfall MOVED (`[ti_gchg]`). The grey is SPEC.md 47's
+on a one-bit screen: every other row of the card thinned to alternate pixels,
+a quarter of the paper turned, which leaves the card's words readable; and a
+box in the top right says `-2` and the icon of what is short, gold before
+souls - left of the mini unit on a strip card, which animates over its corner.
+
+**IT IS PUT ON AT THE BLIT, NOT IN THE BANK** (§97.4.12.1). What a player can
+afford moves with every edit and the card does not, so the bank keeps the card
+and `ti_card_grey` greys it on its way to the glass: `ti_card_draw` after
+banking, and `ti_card_fast` by copying the bank out (~1.5 KB) and greying the
+copy - so an affordability change is a fast redraw and never a composition,
+and the hovered portrait's animation greys the figure's rows it recomposes.
+The redraws are owed rather than drawn at once when a PLAY moved them, because
+the reveal owns the hand for half a second: `ti_owed` puts them down in the
+frame after it ends, from their banks. Every other edit ends in `tg_edited`,
+which draws them there.
+
+**A FULL COLUMN GREYS ITS WORD** in the HUD's FRONT/REAR toggle - the same
+thinning, over the word's bytes - since a card clicked while it is selected
+goes nowhere. `tg_greys` keeps which of the planner's two columns are full
+(`[ti_colfull]`) and owes the HUD when that moves (`[ti_hudq]`), which
+`ti_owed` redraws in the frame's place, as the toggle's own first slice is.
+
+**A REFUSED CLICK SAYS WHY** on the status line - `FRONT IS FULL - PLAY TO
+REAR`, `NOT ENOUGH GOLD`, `NOT ENOUGH SOULS`, `NO SWAPS LEFT THIS ROUND`,
+`THOSE TWO CANNOT SWAP`, `THAT ORDER CANNOT GO THERE` - through `tg_note`,
+which is a pending action's prompt that the next hover change takes back
+(`tg_note_off`). It was nothing at all: the engine refused, the plan was
+re-applied unchanged, and the click was simply lost.

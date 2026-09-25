@@ -652,8 +652,8 @@ ti_cell_build:
     call ti_ck_cell                 ; [ti_ck] = who stands here
     cmp word [ti_cfbeg], 0          ; ...which is what its poses are OF, for
     jne .noart                      ; tigame.inc's to compare the next plan
-    mov bx, ax                      ; against (the idle poses are the art)
-    mov al, [ti_ck]
+    mov bx, ax                      ; against (the idle poses are the art, and
+    call ti_cell_key                ; a shooter's stance: SPEC.md 97.12.10.1)
     mov [tg_cart + bx], al
 .noart:
     call ti_cell_gsrc               ; [ti_gsrc] = the band's first ground byte
@@ -773,6 +773,9 @@ ti_cell_build:
     pop ds
     jmp short .fnext
 .compose:
+    call ti_mark_put                ; a shooter's STANCE MARK, on the ground
+                                    ; and under the figure (97.12.10.1) - and
+                                    ; not lunging with the strike
     push word [ti_cdx]
     xor bx, bx
     mov ax, [ti_cfr]
@@ -802,6 +805,137 @@ ti_cell_build:
     pop bx
     pop ax
     ret
+
+;
+; ti_cell_flags - AX = a cell -> AL = its view's TI_CF_* flags. Preserves every
+; register bar AL.
+ti_cell_flags:
+    push bx
+    push ax
+    call ti_cell_card
+    mov bl, TI_C_SIZE
+    mul bl
+    mov bx, ax
+    mov al, [ti_cards + bx + TI_C_FLAGS]
+    pop bx
+    mov ah, bh
+    pop bx
+    ret
+
+; ti_cell_key - AX = a cell -> AL = what its poses are OF (SPEC.md 97.12.10.1):
+; the art it wears, and 20h for a shooter and 40h for SNIPE - the mark under a
+; shooter's feet is in every pose, so a stance change is a pose change. [ti_ck]
+; = the art. Preserves every register bar AL.
+ti_cell_key:
+    push cx
+    push ax
+    call ti_ck_cell
+    call ti_cell_flags
+    and al, TI_CF_RANGED | TI_CF_SNIPE
+    mov cl, 5
+    shl al, cl
+    or al, [ti_ck]                  ; (0FFh, nobody, stays 0FFh)
+    pop cx
+    mov ah, ch
+    pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_mark_put - cell [ti_ci]'s STANCE MARK into the frame at ES:DI, when a
+; shooter stands there (SPEC.md 97.12.10.1): an arrow on the ground, centred
+; across the band's foot, flat for FRONT and climbing for SNIPE - mirrored with
+; P2's figure. It goes down BEFORE the character, which stands on it.
+; in: ti_fig_apply's window ([ti_fa_stride] [ti_fa_wb] [ti_fa_h] [ti_fa_mir]).
+; Preserves every register.
+; -----------------------------------------------------------------------------
+ti_mark_put:
+    push ax
+    push bx
+    push si
+    push word [ti_fa_dx]
+    push word [ti_fa_dy]
+    mov ax, [ti_ci]
+    call ti_cell_flags
+    test al, TI_CF_RANGED
+    jz .out
+    xor bx, bx                      ; FRONT or SNIPE...
+    test al, TI_CF_SNIPE
+    jz .f
+    inc bx
+.f:
+    cmp word [ti_gidx], TI_GCGA     ; ...and the SHORT pair on CGA, whose rows
+    jne .t                          ; are 2.4 times as tall
+    add bx, 2
+.t:
+    shl bx, 1
+    mov si, [ti_mk_tab + bx]
+    mov al, [si]                    ; centred across the band, in bytes
+    xor ah, ah
+    neg ax
+    add ax, [ti_bs]
+    sar ax, 1
+    mov [ti_fa_dx], ax
+    mov al, [si + 1]                ; ...at its foot
+    xor ah, ah
+    neg ax
+    add ax, [ti_bh]
+    mov [ti_fa_dy], ax
+    call ti_fig_apply
+.out:
+    pop word [ti_fa_dy]
+    pop word [ti_fa_dx]
+    pop si
+    pop bx
+    pop ax
+    ret
+
+; ti_mark_rows - AX = the rows the stance mark takes at the band's foot, halo
+; included (tigame.inc's hit test). Preserves every other register.
+ti_mark_rows:
+    mov ax, 7
+    cmp word [ti_gidx], TI_GCGA
+    jne .out
+    mov ax, 5
+.out:
+    ret
+
+; THE STANCE MARKS, as ti_fig_apply takes a figure: bytes a row, rows, then an
+; (ink, mask) pair a byte - the mask the ink grown a pixel every way, which is
+; its black halo over a lit ground. 64 wide: the ink is 48 of it, from x = 8.
+ti_mk_tab:  dw ti_mk_tall_front, ti_mk_tall_snipe
+            dw ti_mk_short_front, ti_mk_short_snipe
+ti_mk_tall_front:
+    db 8, 7
+    db 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 007h, 000h, 0C0h, 000h, 000h
+    db 000h, 001h, 000h, 0FFh, 000h, 0FFh, 000h, 0FFh, 000h, 0FFh, 003h, 0FFh, 080h, 0F0h, 000h, 000h
+    db 000h, 001h, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0E0h, 0FCh, 000h, 000h
+    db 000h, 001h, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0F8h, 0FCh, 000h, 000h
+    db 000h, 001h, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0E0h, 0FCh, 000h, 000h
+    db 000h, 001h, 000h, 0FFh, 000h, 0FFh, 000h, 0FFh, 000h, 0FFh, 003h, 0FFh, 080h, 0F0h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 007h, 000h, 0C0h, 000h, 000h
+ti_mk_tall_snipe:
+    db 8, 7
+    db 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 01Fh, 000h, 0F0h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 03Fh, 00Fh, 0FFh, 0E0h, 0F0h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 000h, 000h, 07Fh, 01Fh, 0FFh, 0F3h, 0FFh, 000h, 0F0h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 0FFh, 03Fh, 0FFh, 0E0h, 0FFh, 000h, 0FFh, 000h, 080h, 000h, 000h
+    db 000h, 001h, 000h, 0FFh, 07Fh, 0FFh, 0C0h, 0FFh, 000h, 0F0h, 000h, 000h, 000h, 000h, 000h, 000h
+    db 000h, 001h, 0FFh, 0FFh, 080h, 0FFh, 000h, 0E0h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h
+    db 000h, 001h, 000h, 0FFh, 000h, 0C0h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h
+ti_mk_short_front:
+    db 8, 5
+    db 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 001h, 000h, 0E0h, 000h, 000h
+    db 000h, 001h, 000h, 0FFh, 000h, 0FFh, 000h, 0FFh, 000h, 0FFh, 000h, 0FFh, 0C0h, 0FCh, 000h, 000h
+    db 000h, 001h, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0F8h, 0FCh, 000h, 000h
+    db 000h, 001h, 000h, 0FFh, 000h, 0FFh, 000h, 0FFh, 000h, 0FFh, 000h, 0FFh, 0C0h, 0FCh, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 001h, 000h, 0E0h, 000h, 000h
+ti_mk_short_snipe:
+    db 8, 5
+    db 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 001h, 000h, 0FFh, 000h, 0F8h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 001h, 000h, 0FFh, 000h, 0FFh, 0FFh, 0FFh, 0F0h, 0F8h, 000h, 000h
+    db 000h, 001h, 000h, 0FFh, 000h, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 000h, 0FFh, 000h, 0F8h, 000h, 000h
+    db 000h, 001h, 0FFh, 0FFh, 0FFh, 0FFh, 000h, 0FFh, 000h, 0FFh, 000h, 080h, 000h, 000h, 000h, 000h
+    db 000h, 001h, 000h, 0FFh, 000h, 0FFh, 000h, 080h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h
 
 ; ti_frame_slot - ES:DI = where cell [ti_ci]'s frame AX lives: 0-3 in the
 ; arena, 4-7 in the attack claim. Preserves every register bar ES and DI.

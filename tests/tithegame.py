@@ -13,7 +13,7 @@ WHAT IT ASSERTS, and each one went red on purpose first:
   1. THE DEAL IS THE SIMULATOR'S: both hands, card for card, slot for slot.
 
   2. EVERY ACTION A PLAYER HAS, BY CLICK: two PLAYS into FRONT, an ORDER armed
-     from the hand and placed on a character, that character's STANCE badge,
+     from the hand and placed on a character, the STANCE MARK under that character's feet,
      and a SWAP of two cells. The plan the package holds is exactly the
      actions the simulator applies, and the board the planner sees is the
      simulator's board after them.
@@ -59,10 +59,12 @@ SYMS = ("tg_fillq", "tg_tseed", "tg_plan0", "tg_plan1", "ti_cards",
         "ti_cw", "ti_ch", "ti_rise", "ti_insx", "ti_insy", "ti_bs", "ti_bh",
         "ti_fw", "ti_fh", "ti_ox", "ti_oy", "ti_cw_box", "ti_ch_box",
         "ti_rpq", "ti_row", "ti_rv", "ti_nframe", "ti_hx", "ti_tg1x",
-        "ti_hty", "ti_rowst", "TI_C_FI1", "TI_C_RI1",
+        "ti_hty", "ti_rowst", "tg_tgt", "tg_arm", "TI_C_FI1", "TI_C_RI1",
+        "ti_shg", "ti_shs", "tg_prompt", "ti_played", "ti_s_ngold",
+        "ti_s_nsoul", "TI_C_COST", "tg_frz",
         "TI_C_SIZE", "TI_C_CARD", "TI_C_HP", "TI_HAND")
 EQUS = ("TI_C_SIZE", "TI_C_CARD", "TI_C_HP", "TI_HAND", "TI_C_FI1",
-        "TI_C_RI1")
+        "TI_C_RI1", "ti_s_ngold", "ti_s_nsoul", "TI_C_COST", "tg_frz")
 BCOL = (1, 0, 2, 3)     # side x 2 + column -> the board's column (tg_bcol)
 fails = []
 
@@ -186,10 +188,10 @@ def run(mach, off):
             return (x0 + g["ti_insx"] + g["ti_bs"] * 4,
                     y0 + g["ti_insy"] + g["ti_bh"] // 2)
 
-        def badge(c, lane):             # a P1 cell's numbers are LEFT of it
-            x0, y0 = cell_at(c, lane)
-            return (x0 + 3 * g["ti_fw"] + g["ti_fw"] // 2,
-                    y0 + g["ti_insy"] + g["ti_fh"] // 2)
+        def mark(c, lane):              # the STANCE MARK under a P1 figure's
+            x0, y0 = cell_at(c, lane)   # feet (SPEC.md 97.12.10.1)
+            return (x0 + g["ti_insx"] + 12,
+                    y0 + g["ti_insy"] + g["ti_bh"] - 3)
 
         def play(slot):
             n0 = rw("ti_nframe")
@@ -206,8 +208,26 @@ def run(mach, off):
         play(0)                                  # Axeman, FRONT lane 0
         play(2)                                  # Slinger, FRONT lane 1
         click(card_at(1))                        # Brace, armed...
+        # ...AND IT STAYS LIT with the pointer parked off it (SPEC.md
+        # 97.12.10.2): a resting card is white paper and a lit one black
+        _, _, px = te.mono(m)
+        top = g["ti_by"] + g["ti_cardpitch"]
+        lit = sum(1 for y in range(top, top + g["ti_cardh"])
+                  for x in range(g["ti_cardx"], g["ti_cardx"] + g["ti_cardw"])
+                  if px[y][x])
+        area = g["ti_cardh"] * g["ti_cardw"]
+        check(rb("tg_arm") == 1 and lit * 2 < area, "an armed ORDER stays "
+              "lit with the pointer off it", "arm %d, %d of %d lit"
+              % (rb("tg_arm"), lit, area))
+        mo.to(*fig(1, 1))
+        os88marty.guest_sleep(m, 0.6)
+        check(rw("tg_tgt") == 1 * 5 + 1, "...and the character under the "
+              "pointer is its target", "tg_tgt %d" % rw("tg_tgt"))
         click(fig(1, 1))                         # ...onto the Slinger
-        click(badge(1, 1))                       # the Slinger's stance
+        check(rb("tg_arm") == 0xFF and rw("tg_tgt") == 0xFFFF, "...and "
+              "placing it lets both go", "arm %d tgt %d"
+              % (rb("tg_arm"), rw("tg_tgt")))
+        click(mark(1, 1))                        # the Slinger's stance
         click(fig(1, 0))                         # a swap: the Axeman...
         click(fig(0, 2))                         # ...and an empty rear cell
         A, S, B = 1, 5, 24
@@ -220,6 +240,21 @@ def run(mach, off):
               "after it", "%s against %s" % (board(), sim_board(sm)))
         check(rb("ti_p1gold") == sm.sides[0].gold, "...and so is the pool",
               "%d against %d" % (rb("ti_p1gold"), sm.sides[0].gold))
+
+        # THE SHORTFALLS (SPEC.md 97.12.10.3): every card in the hand against
+        # the pool the plan LEAVES, gold and souls, the simulator's
+        cs = duelsim.cards()
+        want, got = [], []
+        for k in range(7):
+            cid = view(k, "TI_C_CARD")
+            if cid == 0xFF:
+                want.append((0, 0))
+            else:
+                want.append((max(0, cs[cid].cg - sm.sides[0].gold),
+                             max(0, cs[cid].cs - sm.sides[0].souls)))
+            got.append((rb("ti_shg", k), rb("ti_shs", k)))
+        check(got == want, "the hand's shortfalls are the pool's after "
+              "the plan", "%s against %s" % (got, want))
 
         # 3. the first entry out
         m.key("KeyL")
@@ -323,6 +358,35 @@ def run(mach, off):
         want = sm.sides[0].hand + [0xFF] * (7 - len(sm.sides[0].hand))
         check(hand() == want, "...and P1's next hand is",
               "%s against %s" % (hand(), want))
+
+        # 6. A REFUSAL (SPEC.md 97.12.10.3), which the seeded match never
+        # meets: P1's frozen gold goes to NOTHING, and a card is clicked
+        settle(1.0)
+        cs = duelsim.cards()
+        k = next(i for i in range(7) if view(i, "TI_C_CARD") != 0xFF
+                 and cs[view(i, "TI_C_CARD")].cg > 0)
+        top = g["ti_by"] + k * g["ti_cardpitch"]
+        rect = lambda px: sum(1 for y in range(top, top + g["ti_cardh"])
+                              for x in range(g["ti_cardx"],
+                                             g["ti_cardx"] + g["ti_cardw"])
+                              if px[y][x])
+        before = rect(te.mono(m)[2])
+        m.write(seg * 16 + off["tg_frz"] + 2, b"\x00")      # SD_GOLD
+        n = plan()
+        mo.click(*card_at(k), settle=0.2)
+        os88marty.guest_sleep(m, 0.5)
+        say = rw("tg_prompt")
+        check(plan() == n and say == off["ti_s_ngold"], "6. a card that "
+              "cannot be paid for is refused, and the HUD says why",
+              "prompt %04x, plan %s" % (say, plan()))
+        check(rb("ti_shg", k) == cs[view(k, "TI_C_CARD")].cg,
+              "...its shortfall is its whole cost", rb("ti_shg", k))
+        settle(1.0)
+        check(rw("tg_prompt") == 0, "...until the pointer moves",
+              "%04x" % rw("tg_prompt"))
+        after = rect(te.mono(m)[2])
+        check(after * 100 < before * 85, "...and the card is GREYED on the "
+              "glass", "%d lit against %d" % (after, before))
 
 
 def main():

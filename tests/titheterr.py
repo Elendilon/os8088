@@ -60,8 +60,9 @@ import os88tithechar as tc                                # noqa: E402
 SYMS = ("ti_terr", "ti_gidx", "ti_aseg", "ti_kseg", "ti_bx", "ti_by", "ti_cw", "ti_ch",
         "ti_rise", "ti_boardh", "ti_sb", "ti_sh", "ti_spitch", "ti_sbase",
         "ti_cslot", "ti_bs", "ti_bh", "ti_insx", "ti_insy",
-        "TI_COLS", "TI_ROWS", "tg_fillq")
-EQUS = ("TI_COLS", "TI_ROWS")
+        "TI_COLS", "TI_ROWS", "tg_fillq", "ti_cards", "TI_C_SIZE",
+        "TI_C_FLAGS", "TI_HAND")
+EQUS = ("TI_COLS", "TI_ROWS", "ti_cards", "TI_C_SIZE", "TI_C_FLAGS", "TI_HAND")
 MACHINES = ("os8088_xt_vga", "os8088_5150_herc_gla", "os8088_5150_cga_gla")
 
 fails = []
@@ -112,11 +113,53 @@ def pack(rows):
     return bytes(out)
 
 
-def model_pose(geo, terr, strip, g, ci, pi, attack=False, card=None):
+def marks():
+    """THE STANCE MARKS (SPEC.md 97.12.10.1), read out of the SOURCE rather
+    than restated: tiplace.inc's `ti_mk_*` figures, `db wb, rows` and then an
+    (ink, mask) pair a byte - as rows of 'I' (ink), 'M' (black halo) and '.'."""
+    src = open(os.path.join(ROOT, "apps/tithe/tiplace.inc"),
+               encoding="utf-8").read().splitlines()
+    out = {}
+    for i, line in enumerate(src):
+        if not line.startswith("ti_mk_") or not line.rstrip().endswith(":") \
+                or line.startswith("ti_mk_tab"):
+            continue
+        name = line.strip()[len("ti_mk_"):-1]
+        vals = []
+        j = i + 1
+        while j < len(src) and src[j].strip().startswith("db "):
+            vals += [int(v.strip().rstrip("h"), 16) if v.strip().endswith("h")
+                     else int(v) for v in src[j].strip()[3:].split(",")]
+            j += 1
+        wb, h = vals[0], vals[1]
+        rows = []
+        for y in range(h):
+            row = ""
+            for b in range(wb):
+                ink, msk = vals[2 + (y * wb + b) * 2], vals[3 + (y * wb + b) * 2]
+                for k in range(8):
+                    bit = 0x80 >> k
+                    row += "I" if ink & bit else ("M" if msk & bit else ".")
+            rows.append(row)
+        out[name] = rows
+    return out
+
+
+MARKS = marks()
+
+
+def cell_flags(m, seg, g, ci):
+    """Cell ci's view flags - TI_CF_RANGED (1), TI_CF_SNIPE (2) - off the guest."""
+    return m.readseg(seg, g["ti_cards"] + (g["TI_HAND"] + ci) * g["TI_C_SIZE"]
+                     + g["TI_C_FLAGS"], 1)[0]
+
+
+def model_pose(geo, terr, strip, g, ci, pi, attack=False, card=None, flags=0):
     """A cell's composed pose - or attack frame - as the machine should have
     it: the card's body, the item for its column (FRONT in 1 and 2, REAR in 0
-    and 3), over the column's own ground. `card` is the ART that stands
-    there - art N in cell N on the tests' full board (fill), until a reveal
+    and 3), over the column's own ground - and under it, a shooter's STANCE
+    MARK (`flags`, the view's TI_CF_*). `card` is the ART that stands there -
+    art N in cell N on the tests' full board (fill), until a reveal
     (tests/titherv.py) puts one there."""
     c, r = divmod(ci, g["TI_ROWS"])
     x0 = g["ti_insx"]
@@ -124,15 +167,28 @@ def model_pose(geo, terr, strip, g, ci, pi, attack=False, card=None):
     stance = tc.FRONT if c in (1, 2) else tc.REAR
     fig = tc.compose(ci if card is None else card, stance,
                      [s for s in tc.SURFACES if s[0] == geo[0]][0], pi, attack)
+    bw = g["ti_bs"] * 8
+    mark = [["."] * bw for _ in range(g["ti_bh"])]
+    if flags & 1:
+        mk = MARKS[("short_" if geo[0] == "cga" else "tall_")
+                   + ("snipe" if flags & 2 else "front")]
+        mx = (bw - len(mk[0])) // 16 * 8
+        my = g["ti_bh"] - len(mk)
+        for y, mrow in enumerate(mk):
+            for x, v in enumerate(mrow):
+                if 0 <= mx + x < bw:
+                    mark[my + y][mx + x] = v
     if c >= g["TI_COLS"] // 2:          # P2: the band MIRRORED, at CW-INSX-BW
         x0 = g["ti_cw"] - g["ti_insx"] - g["ti_bs"] * 8
         fig = [row[::-1] for row in fig]
+        mark = [row[::-1] for row in mark]
     for by in range(g["ti_bh"]):
         gr = strip[r * g["ti_ch"] + g["ti_insy"] + by][x0:x0 + g["ti_bs"] * 8]
         row = []
         for bx in range(g["ti_bs"] * 8):
             v = fig[by][bx]
-            row.append(gr[bx] if v == tc.T else (1 if v == tc.I else 0))
+            under = {"I": 1, "M": 0}.get(mark[by][bx], gr[bx])
+            row.append(under if v == tc.T else (1 if v == tc.I else 0))
         rows.append(row)
     return pack(rows)
 
@@ -204,7 +260,8 @@ def run(mach, off):
             for pi in range(4):
                 got = arena((ci * 4 + pi) * g["ti_cslot"], g["ti_cslot"])
                 want = model_pose(geo, g["ti_terr"],
-                                  models[ci // g["TI_ROWS"]], g, ci, pi)
+                                  models[ci // g["TI_ROWS"]], g, ci, pi,
+                                  flags=cell_flags(m, seg, g, ci))
                 if got != want:
                     badc.append("cell %d pose %d" % (ci, pi))
         check(not badc, "all eighty poses are ground + body + item, "
@@ -217,7 +274,7 @@ def run(mach, off):
                                       g["ti_cslot"]))
                 want = model_pose(geo, g["ti_terr"],
                                   models[ci // g["TI_ROWS"]], g, ci, pi,
-                                  attack=True)
+                                  attack=True, flags=cell_flags(m, seg, g, ci))
                 if got != want:
                     bada.append("cell %d frame %d" % (ci, pi))
         check(not bada, "...and all eighty ATTACK frames, the strike's "

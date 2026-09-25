@@ -464,6 +464,13 @@ ti_card_draw:
     jne .box
     mov word [ti_cx], 1
 .box:
+    mov ax, [ti_cx]                 ; ...and LIT - the hovered card's picture -
+    mov bx, [ti_cardi]              ; if it is the ORDER armed, which stays so
+    cmp bl, [tg_arm]                ; while the pointer is elsewhere (SPEC.md
+    jne .lit                        ; 97.12.10.2)
+    mov al, 1
+.lit:
+    mov [ti_clit], ax
     call ti_card_geo
 
 %ifdef TICARDPROF
@@ -546,11 +553,13 @@ ti_card_draw:
     ; width and by nothing else. The card's columns are byte-aligned by
     ; construction - the panel's x, its width and the margin are all multiples
     ; of 8 - so this is a byte `not` over the card and never over the margins.
-    cmp word [ti_cx], 0
-    jne .blit                       ; hovered: the picture IS the ink
+    cmp word [ti_clit], 0
+    jne .litc                       ; hovered or armed: the picture IS the ink
     call ti_cb_invert
     call ti_card_bank               ; ...and a RESTING card is banked as it
-.blit:                              ; stands, for ti_card_fast
+.litc:                              ; stands, for ti_card_fast - and GREYED
+    call ti_card_grey               ; after, never in the bank (97.12.10.3)
+.blit:
     cmp byte [ti_cfade], 0          ; the reveal's dissolve: the card thinned
     je .nofade                      ; to the panel's black a step at a time
     call ti_rv_cardfade
@@ -801,6 +810,225 @@ ti_card_flip:
     ret
 
 ; -----------------------------------------------------------------------------
+; ti_card_grey - hand card [ti_cardi], whole in ti_cardband with ti_card_geo's
+; geometry: GREYED, with its shortfall in its corner, when the planner cannot
+; pay for it (SPEC.md 97.12.10.3). [ti_clit] = 1 for the lit polarity - the
+; hovered or armed card. A card that can be paid for, or has been played, is
+; left as it is. Preserves every register.
+;
+; AT THE BLIT AND NOT IN THE BANK. What a player can afford moves with every
+; edit and the card does not, so the bank keeps the card and the grey goes on
+; it on its way to the glass: a pass over its rows, never a composition.
+; -----------------------------------------------------------------------------
+ti_card_grey:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    mov bx, [ti_cardi]
+    mov al, [ti_shg + bx]
+    or al, [ti_shs + bx]
+    jnz .short
+    jmp .out
+.short:
+    mov ax, bx
+    call ti_rv_played
+    jnc .live
+    jmp .out
+.live:
+    push ds
+    pop es
+    cld
+    ; --- THE DITHER: every other row, alternate pixels of it - a quarter of
+    ; the paper turned, which is SPEC.md 47's grey on a one-bit screen and
+    ; still leaves the card's words readable ------------------------------
+    mov ax, [ti_cl]
+    mov cl, 3
+    shr ax, cl
+    mov di, [ti_cbase]
+    add di, ax                      ; DI -> the card's first byte, row 0
+    mov bx, [ti_cwd]
+    shr bx, cl                      ; BX = its bytes a row
+    xor dx, dx
+    mov cx, [ti_cardh]
+    call ti_grey_rows
+
+    ; --- THE SHORTFALL, in a box in the top right: `-2` and the icon of what
+    ; is short, gold before souls ------------------------------------------
+.badge:
+    mov bx, [ti_cardi]
+    mov di, ti_numbuf
+    mov al, '-'
+    stosb
+    mov al, [ti_shg + bx]
+    mov ah, TI_IC_GOLD
+    or al, al
+    jnz .num
+    mov al, [ti_shs + bx]
+    mov ah, TI_IC_SOUL
+.num:
+    call tg_num
+    mov al, ah
+    stosb
+    mov byte [di], 0
+    mov si, ti_numbuf
+    call ti_textw                   ; AX = its width
+    mov cx, [ti_cl]                 ; the box ends a byte short of the card's
+    add cx, [ti_cwd]                ; right edge, which holds the frame -
+    sub cx, 8                       ; and on a STRIP card short of the unit,
+    cmp byte [ti_horiz], 0          ; which animates over its corner
+    jne .bxr
+    sub cx, TI_UNITW
+.bxr:
+    mov bx, cx
+    sub bx, ax
+    dec bx                          ; BX = the text's x
+    mov ax, bx
+    dec ax
+    and ax, 0FFF8h                  ; AX = the box's first byte-aligned x
+    cmp ax, [ti_cl]
+    ja .bx
+    mov ax, [ti_cl]
+    add ax, 8
+.bx:
+    sub cx, ax                      ; CX = the box's width...
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1                       ; ...in bytes
+    jcxz .out
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    mov [ti_gbx], ax
+    mov [ti_gbn], cx
+    mov dx, 1                       ; its rows: under the top frame, the
+    add dx, [ti_cpad]               ; text's own and one either side
+    mov [ti_gby], dx
+    mov al, 0                       ; CLEARED - the resting card's black box
+    call .box
+    push dx
+    inc dx
+    mov di, [ti_cbase]
+    mov bp, [ti_cbs]
+    mov si, ti_numbuf
+    call ti_text                    ; ...and the shortfall lettered in it
+    pop dx
+    cmp word [ti_clit], 0
+    je .out
+    mov al, 1                       ; LIT: the box and its letters flipped
+    call .box
+.out:
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+; ti_grey_rows - card rows [DX, CX) of the band, DI -> the card's first byte of
+; row 0, BX = its bytes a row: every other row thinned to alternate pixels,
+; the paper's way round [ti_clit] says. Preserves every register.
+ti_grey_rows:
+    push ax
+    push cx
+    push dx
+    push di
+    push cx
+    mov ax, dx
+    push dx
+    mul word [ti_cbs]
+    pop dx
+    add di, ax
+    pop cx
+.row:
+    cmp dx, cx
+    jae .out
+    test dl, 1
+    jz .next
+    mov al, 0AAh
+    test dl, 2
+    jz .pat
+    mov al, 055h
+.pat:
+    push cx
+    push di
+    mov cx, bx
+    cmp word [ti_clit], 0
+    je .and
+    not al                          ; LIT: the paper is black, so a quarter of
+.or:                                ; it goes light - the resting grey flipped
+    or [di], al
+    inc di
+    loop .or
+    jmp short .rowd
+.and:
+    and [di], al
+    inc di
+    loop .and
+.rowd:
+    pop di
+    pop cx
+.next:
+    add di, [ti_cbs]
+    inc dx
+    jmp short .row
+.out:
+    pop di
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+ti_card_grey.box:                   ; AL = 0 clear, 1 flip: [ti_gbn] bytes at
+    push ax                         ; [ti_gbx] on fh + 2 rows from [ti_gby]
+    push bx
+    push cx
+    push dx
+    push di
+    mov dx, [ti_fh]
+    add dx, 2
+    mov bx, [ti_gby]
+.brow:
+    or dx, dx
+    jz .bdone
+    push ax
+    mov ax, bx
+    push dx
+    mul word [ti_cbs]
+    pop dx
+    mov di, [ti_cbase]
+    add di, ax
+    add di, [ti_gbx]
+    pop ax
+    mov cx, [ti_gbn]
+.bb:
+    or al, al
+    jnz .bf
+    mov byte [di], 0
+    jmp short .bn
+.bf:
+    not byte [di]
+.bn:
+    inc di
+    loop .bb
+    inc bx
+    dec dx
+    jmp short .brow
+.bdone:
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; ti_card_fast - hand card AX, put down from its BANK when it has one
 ; Preserves every register. Falls to ti_card_draw for anything the bank does
 ; not hold: no bank yet, a card being played, an empty slot.
@@ -840,11 +1068,39 @@ ti_card_fast:
     mov ax, [ti_cardi]
     cmp ax, [ti_hover]
     je .hov
+    mov word [ti_clit], 0
+    cmp al, [tg_arm]                ; THE ORDER ARMED is lit too, and does not
+    jne .put                        ; animate (SPEC.md 97.12.10.2)
+    add si, TI_HAND * TI_CARDBANDMAX
+    mov word [ti_clit], 1
     jmp short .put                  ; resting: the bank IS the card
 .hov:
     add si, TI_HAND * TI_CARDBANDMAX ; the hovered twin (ti_card_bank)
+    mov word [ti_clit], 1
     call ti_hov_bank
 .put:
+    mov bx, [ti_cardi]              ; A CARD THE PLANNER CANNOT PAY FOR is the
+    mov al, [ti_shg + bx]           ; bank copied out and greyed on the way to
+    or al, [ti_shs + bx]            ; the glass (97.12.10.3): ~1.5 KB of copy
+    jz .asis                        ; and a pass, and still no composition
+    mov ax, [ti_cbs]
+    mul word [ti_cbrows]
+    mov cx, ax
+    push ds
+    push es
+    pop ds                          ; DS = the scratch part...
+    push cs
+    pop es                          ; ...ES = ours (the near model)
+    mov di, ti_cardband
+    cld
+    shr cx, 1
+    rep movsw
+    adc cx, cx
+    rep movsb
+    pop ds
+    call ti_card_grey
+    mov si, ti_cardband
+.asis:
     mov ax, [ti_cbx]
     mov bx, [ti_cardy]
     mov cx, [ti_cbbw]
@@ -1640,6 +1896,23 @@ ti_pic_anim:
     dec bx
     call ti_cb_vline
     call ti_cb_pic                  ; ...and the figure over them
+    mov bx, [ti_hover]              ; ...GREYED, as the card round it is
+    mov al, [ti_shg + bx]           ; (SPEC.md 97.12.10.3)
+    or al, [ti_shs + bx]
+    jz .nogrey
+    push word [ti_clit]
+    mov word [ti_clit], 1
+    mov di, [ti_cbase]              ; (a portrait's card has no margin)
+    mov bx, [ti_cwd]
+    shr bx, 1
+    shr bx, 1
+    shr bx, 1
+    mov dx, [ti_picy]
+    mov cx, dx
+    add cx, [ti_bh]
+    call ti_grey_rows
+    pop word [ti_clit]
+.nogrey:
     mov ax, [ti_picy]
     mul word [ti_cbs]
     add ax, [ti_cbase]
@@ -2021,6 +2294,7 @@ ti_panel:
     inc ax
     jmp short .row
 .done:
+    mov byte [ti_gchg], 0           ; (every card is as it stands now)
     call ti_commit_draw
     pop cx
     pop ax
@@ -2084,12 +2358,31 @@ ti_hover_ck:
     push ax
     call ti_cell_hit
     mov [ti_hovc2], ax
+    mov byte [ti_hovm2], 0          ; ...and is it on a shooter's STANCE MARK
+    cmp ax, -1                      ; (SPEC.md 97.12.10.1), which changes the
+    je .nom                         ; line as a new cell does
+    push ax
+    call ti_cell_flags
+    test al, TI_CF_RANGED
+    pop ax
+    jz .nom
+    call tg_mark
+    jc .nom
+    mov byte [ti_hovm2], 1
+.nom:
     pop ax
     cmp ax, [ti_hover]
     jne .chg
     mov bx, [ti_hovc2]
     cmp bx, [ti_hovc]
+    jne .bmove
+    mov bl, [ti_hovm2]
+    cmp bl, [ti_hovm]
     je .same
+.bmove:
+    mov bl, [ti_hovm2]
+    mov [ti_hovm], bl
+    mov bx, [ti_hovc2]
     mov [ti_hovc], bx               ; the BOARD's hover moved and the panel's
     pop dx                          ; did not: the HUD is the only thing that
     pop cx                          ; changed, and ti_hovold stays -1 so no
@@ -2099,6 +2392,8 @@ ti_hover_ck:
     stc
     ret
 .chg:
+    mov bl, [ti_hovm2]
+    mov [ti_hovm], bl
     mov bx, [ti_hovc2]
     mov [ti_hovc], bx
     mov bx, [ti_hover]              ; the row that LOST the hover has to be put

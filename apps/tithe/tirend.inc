@@ -664,6 +664,7 @@ ti_hud_draw:
     call ti_ess                     ; THE BAND IS THE SCRATCH PART'S (97.8):
     cld                             ; ES is it for the whole strip, and only
                                     ; the string building below borrows ours
+    mov byte [ti_hudq], 0           ; (a full column's grey is in this one)
 
     ; THE BAND'S X IS ALIGNED AND THE CONTENT ORIGIN IS NOT NECESSARILY.
     ; `OSAPI_GFX_BLIT1` refuses an x that is not a multiple of 8 (SPEC.md
@@ -996,6 +997,19 @@ ti_hud_toggle:
     mov si, ti_s_rear
     call ti_text
 
+    test byte [ti_colfull], 1       ; A FULL COLUMN'S WORD IS GREYED
+    jz .g1                          ; (SPEC.md 97.12.10.3): a card clicked
+    mov bx, [ti_tg0x]               ; while it is selected goes nowhere
+    mov si, ti_s_front
+    call ti_hb_grey
+.g1:
+    test byte [ti_colfull], 2
+    jz .g2
+    mov bx, [ti_tg1x]
+    mov si, ti_s_rear
+    call ti_hb_grey
+.g2:
+
     mov bx, [ti_tg0x]               ; the box, round whichever arm is selected
     mov si, ti_s_front
     cmp word [ti_row], TI_ROW_FRONT
@@ -1008,6 +1022,61 @@ ti_hud_toggle:
     add cx, ax
     call ti_hb_box
     pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- ti_hb_grey - the word SI at x BX on the HUD's text line, GREYED: every
+; other row of it thinned to alternate pixels (SPEC.md 97.12.10.3). Whole
+; bytes: the gap either side of a word is dark, and stays so. Preserves every
+; register.
+ti_hb_grey:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    call ti_textw
+    add ax, bx                      ; AX = the word's end
+    add ax, 7
+    mov cl, 3
+    shr ax, cl
+    shr bx, cl
+    sub ax, bx                      ; AX = the bytes it covers
+    mov [ti_gbn], ax
+    xor dx, dx
+.row:
+    cmp dx, [ti_fh]
+    jae .out
+    test dl, 1
+    jz .next
+    mov al, 0AAh
+    test dl, 2
+    jz .pat
+    mov al, 055h
+.pat:
+    push dx
+    push ax
+    mov ax, dx
+    add ax, [ti_hty]
+    mul word [ti_hbs]
+    mov di, TI_S_HUD
+    add di, ax
+    add di, bx
+    pop ax
+    pop dx
+    mov cx, [ti_gbn]
+.b:
+    and [es:di], al                 ; (ES: the scratch part, 97.8)
+    inc di
+    loop .b
+.next:
+    inc dx
+    jmp short .row
+.out:
+    pop di
     pop dx
     pop cx
     pop bx
@@ -1114,6 +1183,10 @@ ti_status:
     jz .ask                         ; end (tigame.inc)
     jmp .out
 .ask:
+    cmp byte [ti_hovm], 0           ; THE POINTER ON A STANCE MARK says what
+    je .ask2                        ; it is and what a click makes it
+    jmp .stance                     ; (SPEC.md 97.12.10.1)
+.ask2:
     mov bx, [ti_hover]
     cmp bx, -1
     jne .card
@@ -1140,7 +1213,7 @@ ti_status:
     call tg_abil
     mov byte [di], 0
     mov si, ti_hudbuf
-    jmp short .out
+    jmp .out
 .cellline:
     ; A BOARD CHARACTER'S LINE IS `NAME  POWER  ABILITY` (SPEC.md 97.4.8.1).
     ;
@@ -1183,6 +1256,35 @@ ti_status:
     mov byte [di], 0
     mov si, ti_hudbuf
     jmp short .out
+.stance:
+    mov ax, [ti_hovc]
+    call ti_cell_flags
+    mov bl, al                      ; BL = the flags
+    mov di, ti_hudbuf
+    mov si, ti_s_stf
+    test bl, TI_CF_SNIPE
+    jz .sw
+    mov si, ti_s_sts
+.sw:
+    call ti_poke
+    cmp byte [tg_ph], TG_PH_PLAN    ; ...and a CLICK changes it only on the
+    jne .stend                      ; planner's own shooters, while they plan
+    mov cx, [ti_hovc]
+    push si
+    call tg_ecell                   ; AL = the cell's side
+    pop si
+    cmp al, [tg_side]
+    jne .stend
+    mov si, ti_s_stcs
+    test bl, TI_CF_SNIPE
+    jz .sc
+    mov si, ti_s_stcf
+.sc:
+    call ti_poke
+.stend:
+    mov byte [di], 0
+    mov si, ti_hudbuf
+    jmp .out
 .base:
     ; NOTHING UNDER THE POINTER NAMES THE GROUND (SPEC.md 97.4.10). The board
     ; is a PLACE and not a backdrop - the plan has several of them - so the
@@ -1529,7 +1631,6 @@ ti_cellnum:
     mov ah, [si + TI_C_HP]
     mov al, TI_IC_HP
     call ti_cn_pair
-    call ti_cn_stance
 
     add dx, [ti_fh]                 ; ROW 2 and ROW 3 - the two that depend on
     mov si, [ti_nrec]               ; which row the character is standing in
@@ -1556,8 +1657,11 @@ ti_cellnum:
     call ti_stat_bank               ; ...and kept, for a bolt to go under
     mov ax, [ti_ci]                 ; A SWAP'S FIRST END is its numbers
     cmp ax, [tg_sel]                ; INVERTED until the second is chosen
-    jne .blit                       ; (tigame.inc) - the one control on the
-    mov ax, [ti_nh]                 ; board that marks a cell
+    je .invert                      ; (tigame.inc) - and so is an armed
+    cmp ax, [tg_tgt]                ; ORDER's target under the pointer
+    jne .blit                       ; (SPEC.md 97.12.10.2)
+.invert:
+    mov ax, [ti_nh]
     mul word [ti_nbs]
     mov cx, ax
     mov di, ti_cellout
@@ -1608,40 +1712,6 @@ ti_cn_pair:
     xor bx, bx
     mov si, ti_numbuf
     call ti_text
-    pop di
-    pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; --- ti_cn_stance - the fourth cell of row 1, for a RANGED character --------
-; A stance is FRONT or SNIPE (TITHE-PLAN 5.4) and only a shooter has one, so
-; the cell is empty for everybody else - which is why there are TWO glyphs and
-; not one: absent has to mean "not a shooter" and cannot also mean "FRONT".
-ti_cn_stance:
-    push ax
-    push bx
-    push cx
-    push si
-    push di
-    mov si, [ti_nrec]               ; a SHOOTER shows its stance, and the
-    mov ah, [si + TI_C_FLAGS]       ; engine says which (tigame.inc)
-    test ah, TI_CF_RANGED
-    jz .out
-    mov al, TI_IC_SFRONT
-    test ah, TI_CF_SNIPE
-    jz .have
-    mov al, TI_IC_SNIPE
-.have:
-    mov [ti_numbuf], al
-    mov byte [ti_numbuf + 1], 0
-    mov bx, [ti_fw]
-    shl bx, 1
-    add bx, [ti_fw]                 ; ...the fourth cell of the four
-    mov si, ti_numbuf
-    call ti_text
-.out:
     pop di
     pop si
     pop cx

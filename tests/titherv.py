@@ -179,7 +179,8 @@ def run(mach, off):
                     got = bytes(m.readseg(seg_, (cell * 4 + pi) * g["ti_cslot"],
                                           g["ti_cslot"]))
                     want = te.model_pose(geo, g["ti_terr"], strip, g, cell, pi,
-                                         attack, card=card)
+                                         attack, card=card,
+                                         flags=te.cell_flags(m, seg, g, cell))
                     if got != want:
                         bad.append("%s %d" % ("attack" if attack else "pose", pi))
             check(not bad, "%s: the cell's eight frames are the new "

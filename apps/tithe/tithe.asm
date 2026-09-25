@@ -578,6 +578,56 @@ ti_row_step:
     ret
 
 ; -----------------------------------------------------------------------------
+; ti_owed - what a PLAY left owed, in a frame of the worker (SPEC.md 97.12.10.3)
+; in:  the gfx lock is held. out: CF=1 if it took the frame's place.
+; Preserves every register.
+;
+; A play is the one edit that does not end in tg_edited - the reveal takes the
+; hand and the cell for half a second - so the cards whose SHORTFALL it moved,
+; and the HUD when it filled a column, are put right here once the reveal is
+; over. The cards come from their banks and cost a few milliseconds each; the
+; HUD is the whole strip and takes the frame's place, as ti_row_step's does.
+; -----------------------------------------------------------------------------
+ti_owed:
+    cmp byte [tg_ph], TG_PH_PLAN
+    jne .no
+    cmp byte [ti_rv], 0
+    jne .no
+    cmp byte [ti_hudq], 0
+    je .cards
+    call ti_hud_draw                ; (clears ti_hudq)
+    stc
+    ret
+.cards:
+    cmp byte [ti_gchg], 0
+    je .no
+    cmp byte [tg_list], 0
+    jne .no
+    push ax
+    push bx
+    mov bl, [ti_gchg]
+    mov byte [ti_gchg], 0
+    xor ax, ax
+.c:
+    cmp ax, [ti_cardn]
+    jae .cd
+    shr bl, 1
+    jnc .cn
+    call ti_rv_played               ; (an empty slot is drawn by the play)
+    jc .cn
+    call ti_card_fast
+    call tm_run
+.cn:
+    inc ax
+    jmp short .c
+.cd:
+    pop bx
+    pop ax
+.no:
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
 ; ti_onkey - W_ONKEY. SPEC.md 97.7 is the table.
 ; -----------------------------------------------------------------------------
 ti_onkey:
@@ -965,9 +1015,12 @@ ti_worker:
     jne .nofr                       ; frame now would draw a base over it
 .fr:
     cmp byte [ti_rowst], 0          ; THE TOGGLE'S REDRAW, a slice a frame -
-    je .wheel                       ; in the frame's place (ti_row_step)
+    je .owed                        ; in the frame's place (ti_row_step)
     call ti_row_step
     jmp short .rsdone
+.owed:
+    call ti_owed                    ; ...and what an edit left owed
+    jc .rsdone
 .wheel:
     call ti_frame
 .rsdone:
@@ -1020,6 +1073,8 @@ ti_frame:
 .aged:
     call ti_hover_ck                ; the pointer moved between cards, so BOTH
     jnc .settled                    ; of them are redrawn - the one it left
+    call tg_tgt_track               ; (an armed ORDER's target follows it)
+    call tg_note_off                ; (and a refusal's note is taken back)
     mov byte [ti_hstat], 1          ; ...and the STATUS LINE is OWED, and is
                                     ; drawn the first frame the pointer stays
                                     ; put (SPEC.md 97.4.12.1): down a sweep it
@@ -1979,6 +2034,8 @@ ti_tg0x:    dw 0                    ; the toggle's two arms, banked in SCREEN
 ti_tg1x:    dw 0                    ; x so a click can be resolved
 ti_hovc:    dw -1                   ; the BOARD cell under the pointer
 ti_hovc2:   dw -1                   ; ...as this poll found it
+ti_hovm:    db 0                    ; ...and the pointer is on its STANCE MARK
+ti_hovm2:   db 0                    ; (SPEC.md 97.12.10.1), as this poll found
 ti_face:    dw 0                    ; SPEC.md 97.4.1's `T`: which face
 ti_fdata:   dw 0                    ; ...and its glyphs, width and height
 ti_fw:      dw 8
@@ -2020,6 +2077,16 @@ ti_c1off:   dw 0                    ; does a card's line 1 carry a coin?
 ti_statx:   dw 0
 ti_statv:   db 0
 ti_cx:      dw 0                    ; is this card the hovered one?
+ti_clit:    dw 0                    ; ...or drawn as if it were (an armed order)
+ti_shg:     times TI_HAND db 0      ; each hand slot's SHORTFALL, gold...
+ti_shs:     times TI_HAND db 0      ; ...and souls (tigame.inc's tg_greys)
+ti_gchg:    db 0                    ; ...the slots whose shortfall moved, owed
+ti_colfull: db 0                    ; the planner's FULL columns, bit 0 FRONT
+ti_hudq:    db 0                    ; ...and the HUD owed for it (ti_owed)
+ti_note:    db 0                    ; the status line says a refusal (tg_note)
+ti_gbx:     dw 0                    ; ti_card_grey's box: its first byte,
+ti_gbn:     dw 0                    ; ...its bytes,
+ti_gby:     dw 0                    ; ...and its first row
 ti_cbx:     dw 0                    ; ...and the box it is actually drawn in
 ti_cbw:     dw 0
 ti_cink:    db 0
