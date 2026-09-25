@@ -485,6 +485,24 @@ FAST = [
         "about the band's three sizes, which is a constant written down in "
         "two files with no linker here to notice. The byte-for-byte "
         "reproduction row SKIPS, naming the pin, without $PACMANC_SRC"),
+    Row("pxs-gen", "fast", py("tests/unit/t_pxsgen.py"), 0.9,
+        "PIXELSTEIN 3D's generated includes are what their generators produce "
+        "(SPEC.md 97.12): apps/pixelstein/pxtab.inc - the sine, tangent and "
+        "fan tables the package, the reference renderer and the level tool "
+        "all read - and pxlev.inc, the level directory, are COMMITTED text "
+        "held to tools/pxstab.py and tools/pxslevel.py byte for byte, "
+        "t_paccman's mould. A stale one is a package assembled against "
+        "numbers tools/pxssim.py does not share, which fails as a wrong wall "
+        "on a 5150 three boots later rather than here. pxart.inc joins the "
+        "list when wave 2 writes it, and pxhuda.inc - the status bar's "
+        "one-bit masters, tools/pxsart.py --hud, which runs the HUD alone so "
+        "the row stays ~0.05s dearer - in wave 4. FAST and not soak, and the EXCEPTION to "
+        "the one-package rule pxs-level below obeys (suite.py's 'ONE package, "
+        "beside a change to it'): these includes are a BUILD INPUT - a "
+        "Makefile recipe assembles the bench against pxtab.inc and two host "
+        "tools import the same tables - not a package invariant, so a stale "
+        "one is wrong on every machine and in every tool at once, which is "
+        "t_paccman's ground for its fast row; and the row is 0.3s"),
     Row("csworld", "soak", py("tests/unit/t_csworld.py"), 2.0,
         "SPEC.md 88.6.3: no collidable building in any CLEAR SKIES world"
         " stands in that world's own water - every base footprint against"
@@ -7593,6 +7611,411 @@ SOAK = [
         "which is also the only thing keeping the old routine assembling",
         needs=("marty", "nasm"), serial=True,
         wants=("build/glyphbn360.img",)),
+    Row("pxs-level", "soak", py("tests/unit/t_pxslevel.py"), 3.0,
+        "SPEC.md 97.7: every level under apps/pixelstein/levels/ passes every "
+        "rule of tools/pxslevel.py INCLUDING the DDA sweep - every open cell "
+        "x 16 headings through 97.2's walker, mean <= 12 crossings and worst "
+        "<= 26 - which is the rule the frame table of 97.1 rests on and the "
+        "one the fast row (pxs-gen, --no-sweep) does not run; the stream the "
+        "lazy level part carries is well-formed; and a 40 x 40 open hall is "
+        "refused by the sweep in words (the negative control). SOAK and not "
+        "fast for the registry's own reason (a tier at its budget), beside a "
+        "change to the package: `soak -k 'pxs*' -k 't_pxs*' -k 'pixelstein*'` (the -k is an fnmatch on the ROW NAME, so 'pxs*' alone misses the t_pxs* and pixelstein* rows - review, wave 6). Declared here in the SOAK "
+        "list, where it runs - its first cut sat in FAST and read as fast to "
+        "anyone scanning the list, though membership is by the tier field"),
+    Row("pixelstein", "soak", py("tests/pixelstein.py"), 500.0,
+        "SPEC.md 97.10: PIXELSTEIN 3D draws, ADVANCES, WALKS (the eye faced "
+        "south and Up held moves py by PX_SPEED a tick and px not at all - "
+        "the check that catches a clobbered step) and does not flash "
+        "(tests/tank.py's three questions, read out of the package's bss and "
+        "off the glass), and then THE PROMISE: >= 8.0 fps on scene A and "
+        ">= 7.0 on scene B, fullscreen in CGA 320x200x4 at the default - Size "
+        "64 x Rows 80 x Resolution: Low res (97.1, confirmed at wave 6's "
+        "close) - on MartyPC's cycle-exact 5150, "
+        "the frame the median of consecutive entries to px_frame_begin with "
+        "a FULL REPAINT poked at every stop (pxslib.force_all: the seven "
+        "history arrays, not px_force alone, which composes nothing on a "
+        "still eye). A TURN frame - the heading stepped by PX_TURN a stop, "
+        "nothing forced, the delta-fill writing what a turn changes - is "
+        "measured beside it and reported, as are 64x80 (wave 2's default), "
+        "Flat Full 64x80 (FILED against 97.1's 8.1 / 7.5 as a calibration "
+        "of the frame table) and Wire; and THE FINISHED FRAME - the sim "
+        "running, the weapon and the sprites drawn - is gated on the same "
+        "two pinned scenes at the default, the fork's own quantity. And "
+        "EVERY measured cell against SPEC.md 97.15's table for the same "
+        "machine, read out of SPEC.md itself, within 5% (wave 6's done-when) "
+        "- asserted here and on the Hercules row, reported on the other "
+        "three. One machine "
+        "a row, because a rate wants the box to itself: this is the CGA "
+        "5150; the four rows below are the other machines",
+        needs=("marty", "nasm"), serial=True, alone=True),
+    Row("pixelstein-herc", "soak",
+        py("tests/pixelstein.py", "--machine", "os8088_5150_herc_gla"), 500.0,
+        "SPEC.md 97.10: the pixelstein row on the Hercules 5150 - the second "
+        "machine the promise is made on (>= 8.0 / >= 7.0 at the default in "
+        "the Hercules box), GATED. Its own row because wave 1's Hercules-only "
+        "defect (px_adapter kept a NONE pick because the second Mode item is "
+        "NONE there too, so the bracket was never entered) would have been "
+        "caught by nothing that ran only on the CGA machine",
+        needs=("marty", "nasm"), serial=True, alone=True),
+    Row("pixelstein-vga", "soak",
+        py("tests/pixelstein.py", "--machine", "os8088_xt_vga"), 500.0,
+        "SPEC.md 97.10: the pixelstein row on the XT-VGA - Mode X's two "
+        "pages, the DAC, the flip through OSAPI_FSX_PAGE - REPORTED, never "
+        "gated: docs/MARTYPC-DEBUG.md's rule that this machine is a "
+        "correctness instrument and not a timing one (its framebuffer "
+        "answers a write at motherboard speed, which no 8-bit ISA card does)",
+        needs=("marty", "nasm"), serial=True, alone=True),
+    Row("pixelstein-win", "soak",
+        py("tests/pixelstein.py", "--machine", "os8088_5150_herc_gla",
+           "--windowed"), 500.0,
+        "SPEC.md 97.10, PLAN 15: the pixelstein row WINDOWED on the Hercules "
+        "desktop - the worker, the lock, OSAPI_GFX_BLIT1 of the dirty rows, "
+        "the arrow - REPORTED and never promised on an 8086, because that "
+        "tax is the OS's and not the game's. The draw and the walk are "
+        "asserted as everywhere; only the fps is not",
+        needs=("marty", "nasm"), serial=True, alone=True),
+    Row("pixelstein-c160", "soak",
+        py("tests/pixelstein.py", "--machine", "os8088_5150_cga_gla",
+           "--c160"), 500.0,
+        "SPEC.md 97.10, 88.15: the pixelstein row in the 160x100x16 RETIME - "
+        "the second Mode item on a genuine CGA, its expanding present and "
+        "its own ink table (the one backend of five where a dark face and "
+        "the floor once shared a colour) - REPORTED, never gated, for the "
+        "snow question 88.15.4 leaves open on a real IBM CGA",
+        needs=("marty", "nasm"), serial=True, alone=True),
+    Row("pxssim", "soak", py("tests/pxssim.py"), 400.0,
+        "SPEC.md 97.5, 97.10: the package's column arrays (top, bot, wallh, "
+        "mat, side, u) and its WHOLE shadow against tools/pxssim.py - the "
+        "reference renderer, a second independent route to the same bytes - "
+        "on the two pinned scenes and wave 3's scene C (three sprites over "
+        "textured walls: the posts, the silhouettes, the weapon, the world "
+        "frozen at its spawn), every rung, both resolutions, windowed and in "
+        "the bracket, after a FORCED frame and again after three TURN frames "
+        "composed incrementally against it (the skip, the two-ends arm, "
+        "px_wrun's paths and - since wave 3 - the sprites that STAND and "
+        "the ones erased and redrawn, which a forced frame never takes), "
+        "and with the hall's door poked a quarter, half and three quarters "
+        "open (the hit point stays on the slab): 0 differing columns and 0 "
+        "differing bytes, or the first column and row that disagree. A "
+        "wrong wall on a 5150 is found here as a column number rather than "
+        "three boots later as a picture. The CGA 5150; the Hercules box is "
+        "the row below",
+        needs=("marty", "nasm"), serial=True),
+    Row("pxssim-herc", "soak",
+        py("tests/pxssim.py", "--machine", "os8088_5150_herc_gla"), 400.0,
+        "SPEC.md 97.5, 97.10: pxssim on the Hercules 5150 - the only run of "
+        "the present's 4-bank device-row arm (px_devrows' HERC branch: bank "
+        "y & 3, 90 bytes a row, +5 for the box) against the reference "
+        "renderer's bytes, and the WIN1 band on a 1bpp desktop",
+        needs=("marty", "nasm"), serial=True),
+    Row("pxsauto", "soak", py("tests/pxsauto.py"), 400.0,
+        "SPEC.md 97.8, 97.10, PLAN 14: the DETAIL SELECTOR, every movement, "
+        "on the CGA 5150 - windowed with a breakpoint on px_auto_frame and "
+        "px_ftime poked at each stop (the one way a cycle-exact machine can "
+        "be made to read slow or fast), then in the BRACKET on the machine's "
+        "own clock. The 8086's step-up lines read out of part 0 (77.4 / "
+        "111.1 / 77.4 ms by landing position, the budget over the largest "
+        "measured ratio - wave 6's close); Auto starts an 8086 WINDOW at "
+        "Flat Low res and the line says so; 70 FAST frames do not climb past "
+        "the start (the review's blocker: the first cut climbed on the 64th); "
+        "Detail > Full res under Auto re-seats Flat Full as the ceiling; NINE "
+        "UNPOKED frames do not step down (the negative control); 8 SLOW "
+        "frames step DOWN once, announced once; 64 fast frames inside the "
+        "10 s hold-down do not step up; 65 frames one unit over the Full res "
+        "line do not step up and 65 on it do. THEN THE BRACKET: two guards "
+        "at the elbow, the whole view repainted every frame, step Auto from "
+        "Textured Low res STRAIGHT to Flat Low res (never Flat Full), and "
+        "the empty hall steps it back UP once the hold-down has passed - "
+        "every floor frame over a 286's 62.5 ms line, which never climbed "
+        "back. --no-slow must FAIL at the step down. The bss through pxslib, "
+        "never the glass",
+        needs=("marty", "nasm"), serial=True),
+    Row("pxsact", "soak", py("tests/pxsact.py"), 500.0,
+        "SPEC.md 97.6, 97.8, 97.10 (wave 3): the guards, the doors and the "
+        "combat on the CGA 5150, the world moved by POKES and read back out "
+        "of the bss - a guard faced NORTH at an eye to its west leaves STAND "
+        "for ALERT and CHASE (the spotvis gate, the facing test, the tile "
+        "walk), TURNS to it and moves toward it; shoots (health falls); "
+        "dies under the pistol (Ctrl through the keyboard, px_aim naming "
+        "it, hp 0, its PXC_ACTOR mark gone, the die frames to DEAD); a "
+        "corpse poked into an OPEN door keeps it open past PX_DOORHOLD and "
+        "the door closes once it is out; Space opens the door ahead and Up "
+        "walks into it; A CHASING GUARD OPENS A SHUT DOOR AND COMES THROUGH "
+        "IT, the door cell's byte untouched (no mark on a door's material "
+        "nibble - the first cut's guards never opened one; review, wave 3); "
+        "a locked door refuses and opens with the key; a pickup is taken; "
+        "the DIE wash restarts the floor a life down; the elevator switch "
+        "loads E1M2 inside the running bracket; and THE TWO-GUARDS-AT-MELEE "
+        "and SEVEN-CHASERS frames are measured in the bracket with the sim "
+        "RUNNING and REPORTED (PLAN 10's risk 8). WAVE 6's TWO: the DOG (a "
+        "guard poked kind 1 closes at 40 units a step against a guard's 24, "
+        "is drawn from the dog's frames with the bite among them, bites, and "
+        "dies to one pistol round for 200) and the TAB MAP (the marker on the "
+        "player's cell, a seen cell in the floor's tone, the world stopped "
+        "under it, and a cell still on the map after a poked spotvis wrap - "
+        "the fold). --shots writes the done-when screendumps. SOAK: the fast "
+        "tier has no room (97.10)",
+        needs=("marty", "nasm"), serial=True, alone=True),
+    Row("pxsmove", "soak", py("tests/pxsmove.py"), 120.0,
+        "SPEC.md 97.13, 66.6.1.2, 66.6.2: PIXELSTEIN's REGION MOVES and the "
+        "game is still playing. Part 0 is a RE-HOMED program whose carve holds "
+        "the scalers' scratch and the byte textures beside it, named by "
+        "absolute segment in the loader's handoff - so its px_reloc is not a "
+        "`ret` - and it hires a worker, handed back by OS88_WORKER_RESTARTABLE "
+        "px_worker_rs. tests/rehomemove.py's shape: PXSTEIN opens on the 5150 "
+        "with Textured pinned (so the frame goes through px_drvp, px_bseg and "
+        "part 1's PXG_QTEX), tests/filler takes the arena down and forces the "
+        "compaction. Asserts the carve moved, px_reloc RAN, PXH_GEN and PXH_BT "
+        "moved by the delta into the carve's new extent while PXH_LEV, PXH_ART "
+        "and PXH_SPR (claims of their own) did not, the derived words "
+        "followed, the level stream reads through PXH_LEV, and pose A forced "
+        "whole after the move composes THE SAME SHADOW byte for byte, the "
+        "worker alive AND RE-ENTERED at px_worker_rs (px_wrs, 0 before the "
+        "compaction and more after: a frame count alone passes a worker that "
+        "was never parked). Broken on purpose with the proc's table cut to one row "
+        "the worker far-calls the old driver and no frame is ever drawn. "
+        "Needs `make pxsmove`.",
+        needs=("marty",), serial=True, wants=("build/pxsmove360.img",)),
+    Row("pxsstate", "soak", py("tests/pxsstate.py"), 700.0,
+        "SPEC.md 97.13: PIXELSTEIN's seven states in BOTH worlds, walked by "
+        "the keys a player presses and the world's own clocks (a guard's "
+        "shots, the DIE wash, READY's and OVER's timers), and the score file "
+        "READ BACK AFTER A RESTART. Windowed: ATTRACT at launch, a floor's "
+        "code, Esc abandoning a game, READY, PLAY, a death with a life left, "
+        "the last death's GAME OVER and ENTER with the initials typed through "
+        "W_ONKEY - the UI task's commit (SPEC.md 20.6 rule 7) - and "
+        "PXSTEIN.HS read off the live floppy by tools/os88flush.py's own "
+        "FAT12 walker. In the bracket: F from ATTRACT starting a NEW game, "
+        "LEVELDONE, the next floor, the last death again with the initials "
+        "typed through the bracket's own int 16h loop, and the TIMEDEMO's "
+        "numbers - pinned to Textured Low res Size 64 whatever was in force, "
+        "the bar a new game's, what was in force restored. Since review r1 "
+        "also: a wrong floor code's BAD CODE; a shot's OSAPI_SND_TONE effect "
+        "(px_sfxn); the Sound and Mouse menu items picked by name and "
+        "PXSTEIN.CFG read back off the floppy both ways; the sticky auto-pause "
+        "on a lost focus, held until P; the eighth floor's elevator ending "
+        "the episode (YOU ESCAPED); and T with no full-screen mode leaving no "
+        "timedemo request behind. Then the floppy flushed and a second machine booted on it: "
+        "the table the package reads at entry is the one the first "
+        "committed. Only what a player cannot do quickly is poked.",
+        needs=("marty",), serial=True),
+    Row("pxshud", "soak", py("tests/pxshud.py"), 300.0,
+        "SPEC.md 97.13: PIXELSTEIN's status bar is CHANGE-ONLY - a quiet "
+        "second with frames drawn rewrites no field (px_hudn), windowed and "
+        "in the bracket; the window's bar sits at bytes 20..59 of the "
+        "shadow's rows 80..103 and nowhere else; one change is one field, "
+        "inside its own cells; the bar on the CGA glass is the shadow's byte "
+        "for byte after the present's rectangle copy; health 100 -> 55 is "
+        "two fields (the digits and the face); V twice posts SIZE over SIZE "
+        "and the label row is rewritten again (the message's serial); and "
+        "back from the bracket a still player in PLAY draws NO frame in a "
+        "quiet second (px_cardd 0 - review r1's empty-frame loop, 33 a "
+        "second with the fix taken out).",
+        needs=("marty",), serial=True),
+    Row("pxshud-vga", "soak",
+        py("tests/pxshud.py", "--machine", "os8088_xt_vga"), 300.0,
+        "SPEC.md 97.13: pxshud on the XT-VGA, where the bracket is Mode X "
+        "and THE BAR IS PER PAGE: a change rewrites each field once on EACH "
+        "page (the present flips, so a page shown with a stale bar is a "
+        "flicker), the two pages' px_hudv agree afterwards and their bar "
+        "rows read the same bytes; and (wave 5) A SHOT LEAVES THE WEAPON ON "
+        "BOTH PAGES: fired once, forty still ticks, and each page's weapon "
+        "bytes are what they were - 259 -> 219 on page 0 before the fix, "
+        "259 -> 259 on both after, the 154 weapon cells held to pxssim's "
+        "draw_weapon (97.6: the check's erase never drew, and the page not "
+        "drawn last kept the recoil).",
+        needs=("marty",), serial=True),
+    Row("pxswin", "soak", py("tests/pxswin.py"), 400.0,
+        "SPEC.md 97.14 (wave 5): PIXELSTEIN's two windows on a two-card XT "
+        "(os8088_xt_vga_herc, extended right): on an 8086 the window is "
+        "WIN1 and Detail > Colour is GREYED WITH ITS PRICE, and EVERY menu "
+        "caption fits MENU_MAXCH; the band lands "
+        "8-aligned; the PEN path's glass on the VGA and the 1bpp path's on "
+        "the Hercules are the shadow's bits, the SAME bits, and the 8086 on "
+        "the Hercules greys Colour with the display's fact, not a price; a "
+        "window MOVE "
+        "composes no frame and takes no W_PAINT; and with the tier poked to "
+        "a 286 a drag across the seam takes the right byte set each way - "
+        "WIN4 with Mode X's inks and set on the VGA (its glass the shadow "
+        "through the 32->16 table), WIN1 with the Hercules' on the "
+        "Hercules, the item greyed 'needs 16 colours' there; and Detail > "
+        "Colour picked through the menu both ways (WIN1 and the pen on the "
+        "VGA, PXSTEIN.CFG's byte 0; WIN4 again, the byte 1). MartyPC because "
+        "only it hosts two displays AND reads both back (docs/TESTING.md).",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-360.img", "build/games360.img")),
+    Row("pxswin-qemu", "soak", py("tests/pxswin.py", "--qemu"), 120.0,
+        "SPEC.md 97.14 (wave 5): WIN4 is the DEFAULT on QEMU's 386 VGA - no "
+        "poke - and its glass is the shadow through the 32->16 table pixel "
+        "for pixel (the palette read off the dump, one colour an index); the "
+        "band 8-aligned; a turn on the unobscured window is PLANAR - one to "
+        "four OSAPI_GFX_BLITPs a frame and no BLIT4 - and its glass the "
+        "table's; covered by the GAMES window a forced frame takes the "
+        "BLIT4 fallback through the clip, its uncovered glass the table's; a "
+        "move composes nothing and takes no W_PAINT; scene C poked through "
+        "the gdb stub HMP's `gdbserver` opens, and its three sprites are "
+        "drawn; every shadow byte 0..31, the expand having no mask. Writes "
+        "the wave's screendumps to build/pxs-shots/.",
+        needs=("qemu",), serial=True,
+        wants=("build/os8088.img", "build/apps.img")),
+    Row("pxswin-price", "soak", py("tests/pxswin.py", "--price"), 400.0,
+        "SPEC.md 97.14, 47 (wave 5): THE 8086'S PRICE IS MEASURED at every "
+        "rung a window can be put on - Flat Full, Textured Low res and "
+        "Textured Full, Size 64, scene A turning on the XT-VGA, WIN1 and WIN4 "
+        "(tier poked) - the frame, the present, and WIN4's expand and blits "
+        "apart, by MartyPC's cycle counter; the greyed caption's seconds must "
+        "be the DEAREST WIN4 frame's within 15% (Textured Full, 438.4 ms "
+        "against WIN1's 164.2 when it was written - 952.0 through BLIT4 "
+        "before the second review), and every WIN4 strip must have gone out "
+        "PLANAR (OSAPI_GFX_BLITP). ALONE: its answer is a rate.",
+        needs=("marty",), serial=True, alone=True,
+        wants=("build/os8088-360.img", "build/games360.img")),
+    Row("pxsmd", "soak", py("tests/pxsmd.py"), 400.0,
+        "SPEC.md 97.14, 53.7.1, 39.18 (wave 5): a PIXELSTEIN bracket changes "
+        "its OWN card only, on a two-card XT (os8088_xt_vga_herc, extended "
+        "right): OSAPI_VIDEO asked once, in px_entry, and every "
+        "OSAPI_FSX_CAPS with this window (read off the source); on the VGA "
+        "the Mode row is Mode X's and the bracket leaves the Hercules' mode "
+        "and every framebuffer byte alone; dragged onto the Hercules the "
+        "row follows (the W_ONRESIZE the seam fires) and the Hercules "
+        "bracket leaves the VGA's mode the desktop's; both round trips come "
+        "back to the window; and (wave 6) in the Hercules bracket the MOUSE "
+        "steers from THAT card's middle, OSAPI_FSX_SURF's 360 and not "
+        "OSAPI_VIDEO's 320 - a pointer resting there turns nothing, one 120 "
+        "dots right turns the view. MartyPC and not QEMU, which hosts one "
+        "display (docs/TESTING.md).",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-360.img", "build/games360.img")),
+    Row("pxs256", "soak", py("tests/pxs256.py"), 300.0,
+        "SPEC.md 97.9 (review, wave 6): PIXELSTEIN on a 256 KB 5150 "
+        "(os8088_5150_cga_gla_256k) OPENS - a window and a frame, on the "
+        "Flat rung with the sprite set refused (the sprites as boxes, no "
+        "weapon drawn), a "
+        "poked dog a candidate, and F's CGA bracket drawing on Flat. 97.9 "
+        "promised this and nothing had launched the game on 256 KB: the "
+        "first launch opened NOTHING (the parts carve took 140 KB of a 147 "
+        "KB heap and the level stream's fetch refused), which the loader's "
+        "reserve across op_load fixed. This is the 256 KB evidence: the two "
+        "86Box XTs of 97.15 are 640 KB machines, and 86Box asserts nothing",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-360.img", "build/games360.img")),
+    Row("t_pxsmap", "soak", py("tests/unit/t_pxsmap.py"), 3.0,
+        "SPEC.md 97.6, 97.7 (waves 3-4): every level passes the rules WITH the "
+        "DDA sweep in both door states, the episode's eight floors e1m1..e1m8 by "
+        "name, the doors in "
+        "cell order (px_door_of's row table), a patroller on E1M2, and THE "
+        "MELEE INVARIANT by name - no open cell with more than two actors "
+        "(guards and, since wave 6, dogs) within 1.5 tiles, dogs on floors 3-8, the bound the sprite cap rests on - with a "
+        "three-guard level refused in words as the negative control; and "
+        "every open cell carries material 0, the nibble the engine's marks "
+        "live in (97.8). Host-side; soak because the fast tier has no room "
+        "(97.10)"),
+    Row("pxsdisk", "soak", py("tests/pxsdisk.py"), 1.0,
+        "SPEC.md 97.9: PXSTEIN.O88 is on games360.img (at the root) and on "
+        "apps.img (in GAMES/), on NEITHER apps360.img (24.6.1's dated "
+        "decision) nor smallapps360.img (24.5's omission, its ground in "
+        "97.9, ratcheted in t_smallreq.py's FORBIDDEN as well) nor "
+        "combo.img (COMBO_DROP - asserted when the image exists: `make "
+        "combo` overflows 354 clusters on main with or without it), the "
+        "packed file is <= 56KB and its parts run is under 20.12.7's 128 "
+        "sectors - read out of the BUILT floppies through t_image.py's "
+        "FAT12 walker, never out of the Makefile's variables, since a "
+        "`filter-out` matching nothing is silent. `wants=` builds the small "
+        "apps disk so that omission is ASSERTED and not noted; combo.img is "
+        "asserted when it exists and is not a wants= because `make combo` "
+        "overflows its 354 clusters on main already (446 needed at 2237d1ba, "
+        "this package dropped)",
+        wants=("build/smallapps360.img",)),
+    Row("t_pxsart", "soak", py("tests/unit/t_pxsart.py"), 2.0,
+        "SPEC.md 97.4: the art pipeline holds its rules - fifteen 32x32 "
+        "masters in the sixteen colours, no key (index 5), no alpha; the "
+        "losable criterion (brick against grey stone distinguishable on the "
+        "CGA4 and Hercules sets); the byte-texture set's size and layout as "
+        "px_bt_build writes it (C160's column pair, the odd-row phase); no "
+        "non-black colour maps to an all-black texel byte (the blue-stone "
+        "wall that vanished on the first CGA screendump); and two negative "
+        "controls refused in words. Host-side; soak because the fast tier "
+        "has no room (97.10) - `soak -k 'pxs*' -k 't_pxs*' -k 'pixelstein*'` beside a change to the "
+        "package"),
+    Row("t_pxsscale", "soak", py("tests/unit/t_pxsscale.py"), 6.0,
+        "SPEC.md 97.3: tools/pxsgen.py's model of part 2 (the scratch) fits PX_GENKB on "
+        "every backend past the bodies, driver and queue; every scaler ends "
+        "in a near ret with one store per covered view row; the directory "
+        "aliases every height DOWN and px_hq in the assembled part 0 is the "
+        "same table; px_hts is HEIGHTS; col2tex widths are >= 1 (the "
+        "generator hung on a zero once); tests/pxslib.py's layout literals "
+        "are pxgen.inc's; and build/pxstein.o88's part 0 is the tree's. "
+        "Named so because t_pxsgen is the fast digest row. Host-side, soak"),
+    Row("pxsscale", "soak", py("tests/pxsscale.py"), 300.0,
+        "SPEC.md 97.3, 97.10: the generated part read back off MartyPC's "
+        "5150 between frames and diffed BYTE FOR BYTE against tools/"
+        "pxsgen.py - the bodies against the image's, the driver against its "
+        "template, both scaler sets and the col2tex tables against the "
+        "model for the phase in force (WIN1's `ror al, cl` in the window, "
+        "CGA4's two `ror al, 1` in the bracket), and the two directories in "
+        "part 0 - on the window's first Textured frame (the sets are built "
+        "when the rung first wants them, 97.3), after a second, in the "
+        "bracket and back in the window. A differing byte is a wrong "
+        "instruction in "
+        "code the frame calls 64 times",
+        needs=("marty", "nasm"), serial=True),
+    Row("pxs160", "soak", py("tests/pxs160.py"), 400.0,
+        "SPEC.md 97.5, 97.10: the delta-fill GHOST gate on the glass - a "
+        "textured scene composed whole, turned three times incrementally, "
+        "then the framebuffer at B800 (the C160 expanding present, the CGA "
+        "320x200x4 two-bank copy) and the rendered desktop (the WIN1 blit) "
+        "each read and compared with the same pose redrawn whole: "
+        "identical, or a writer bypassed the row range / the skip left a "
+        "column stale / the present sent too few rows. tests/pxssim.py "
+        "holds the shadow; this holds the device",
+        needs=("marty", "nasm"), serial=True),
+    Row("pxsfsx", "soak", py("tests/pxsfsx.py"), 600.0,
+        "SPEC.md 53, 97.3, 97.10: restore equality - every Mode item x "
+        "every Detail rung x both resolutions x three Sizes, each entered "
+        "as a bracket with a forced frame drawn and left; the original "
+        "settings pinned again and the rendered desktop below the menu bar "
+        "compared with the one before the first bracket: identical, and "
+        "the window's state back. 48 brackets on the CGA 5150 (the retime "
+        "and 320x200x4), the regeneration and the transpose each time",
+        needs=("marty", "nasm"), serial=True),
+    Row("pxsperf", "soak", py("tests/pxsperf.py"), 400.0,
+        "SPEC.md 97.10: THE STAGED FRAME, an instrument (skiesperf's shape: "
+        "asserts only that every stage produced a number). Textured Low res "
+        "64x80, Textured Full, the 48x80 Low res fallback and Flat Low res "
+        "on both pinned scenes and both frames, split cast / compose / "
+        "present / loop by five breakpoints, with the draw queue's length "
+        "beside each; --probe builds -DPXPROBE into a scratch disk and reads "
+        "its ladder-entry and skipped-column counters. The report is "
+        "docs/reports/PXS-FRAME-<date>.md",
+        needs=("marty", "nasm"), serial=True),
+    Row("pxsshots", "soak", py("tests/pxsshots.py"), 400.0,
+        "SPEC.md 97.6, 97.15: PIXELSTEIN 3D's PHOTOGRAPHS, an instrument - the "
+        "two montages SPEC.md 97.15 and PIXELSTEIN-PLAN 17.2 cite as wave 6's "
+        "evidence (build/pxs-shots/wave6f-montage-corridor-dog.png: scene A's "
+        "corridor and the dog two tiles ahead on all seven backends under "
+        "pxssim's reference; wave6f-montage-map.png: Tab in each bracket, and "
+        "the window after Esc keeping the map and its bar line). build/ is "
+        "untracked and `make clean` empties it, so the script that takes them "
+        "is a row and not a report's. Asserts only each photograph's own "
+        "preconditions (the dog a sprite candidate and its frame not the "
+        "corridor's; the map up, and still up with PXM_MAP after Esc) - it "
+        "judges no picture: LOOK at the PNGs. Three MartyPC launches in one row",
+        needs=("marty",), serial=True, alone=True),
+    Row("pxsbench", "soak", py("tests/pxsbench.py"), 150.0,
+        "SPEC.md 97.10: PIXELSTEIN 3D's unit costs, MEASURED. Every figure "
+        "the frame table of 97.1 is built from - the compiled store, the "
+        "static ladder, the patched DDA body at 10 and 20 crossings, the two "
+        "presents, the C160 expand, the texel row, the key read, one "
+        "scaler-set generation - taken by tests/pxsbench/pxsbench.asm on "
+        "MartyPC's cycle-exact 5150 and read back out of the package's bss. "
+        "An INSTRUMENT with one assertion: every row it lists produced a "
+        "number, unlapped, on the adapter it ran on - a row that is blank is "
+        "a rung the plan cannot price. The numbers are reported for "
+        "docs/reports/, never asserted against (tests/tank.py's rule). Needs "
+        "`make bench`; --machine picks the adapter",
+        needs=("marty", "nasm"), serial=True, alone=True,
+        wants=("build/bench360.img",)),
     Row("mcperf", "soak", py("tests/mcperf.py"), 50.0,
         "SPEC.md 48.16.2: does Missile play the SAME GAME twice? A fixed"
         "seed, scripted shots and 400 frames back to back rather than one a"

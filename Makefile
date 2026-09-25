@@ -254,6 +254,14 @@ VM386CWORD := $(CURDIR)/vm/386-c-word
 # substitutes a default and rewrites the config on the way out.
 VMXTPACCMAN := $(CURDIR)/vm/xt-paccman
 VM386PACCMAN := $(CURDIR)/vm/386-paccman
+# The PIXELSTEIN 3D machines (SPEC.md 97): vm/xt-cga and vm/xt-hercules with
+# B: = build/games360.img - the 360KB disk the game ships on (97.9, the plan's
+# fourth decision) - and the uuid changed, and 640KB on the ibmxt86 board;
+# the recipe comment at the `xt-pixelstein` target says why that one key
+# (and the board it needs) is bent. The 256KB case is MartyPC's to show
+# (tests/pxs256.py, SPEC.md 97.9)
+VMXTPXS := $(CURDIR)/vm/xt-pixelstein
+VMXTPXSHERC := $(CURDIR)/vm/xt-pixelstein-herc
 
 # The RUNCPM machines (SPEC.md 74.5, 74.6): one per FLOPPY GEOMETRY, because
 # the three RUNCPM disks do not carry the same software and the machines that
@@ -2015,6 +2023,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
         scribe scribedisk \
         cc-note chello covl pkgrun pkgbig cword cworddisk 386-c-word runcpm runcpmdisk \
         paccman paccmandisk pmcbandbench xt-paccman 386-paccman \
+        xt-pixelstein xt-pixelstein-herc \
         runcpm-src cpmsw rcz80test rcmemtest rczex 386-runcpm \
         xt-runcpm 286-runcpm \
         allapps usb iso live burn rcbandbench \
@@ -6243,6 +6252,129 @@ $(BUILD)/dotdel.bin: $(DOTDEL_SRC) | $(BUILD)
 $(BUILD)/dotdel.o88: $(BUILD)/dotdel.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/dotdel.bin -o $@
 
+# PIXELSTEIN 3D (SPEC.md 97): a raycast first-person shooter, fullscreen in
+# a foreign mode on every adapter and windowed as a 1bpp band. The package
+# arrives in wave 1 (docs/plans/PIXELSTEIN-PLAN.md 7); what is here now is
+# what every wave rests on - the generated tables and the level directory,
+# COMMITTED as text and held to their generators by the `pxs-gen` fast row
+# (tests/unit/t_pxsgen.py), so `make` never has to regenerate them and a
+# tree without the tools' dependencies builds the package unchanged.
+#
+#   make pxsgen                    # regenerate pxtab.inc, pxlev.inc, pxslev.bin
+#                                  # after editing a level or a table constant
+#
+# TWO IMAGES, ONE PACKAGE (SPEC.md 97.9, csload's shape): pxstein.asm is the
+# LOADER and the image of PXSTEIN.O88 - it reads the parts, hands the
+# program what it cannot ask for itself and re-homes the instance - and
+# pxgame.asm is PART 0, the game, a whole .o88 image with its bss shipped
+# inside it. tools/os88index.py keys on the .bin rules below, so it lists
+# both, as it lists SKIES' two. Every %included file is a prerequisite, or
+# an edit to it is a stale build.
+PXSTEIN_GEN := apps/pixelstein/pxtab.inc apps/pixelstein/pxlev.inc \
+               apps/pixelstein/pxart.inc apps/pixelstein/pxhuda.inc
+PXSTEIN_SRC := apps/pixelstein/pxstein.asm apps/pixelstein/pxicon.inc \
+               apps/pixelstein/pxlev.inc apps/pixelstein/pxart.inc \
+               apps/os88api.inc apps/os88parts.inc apps/os88partsbody.inc
+PXGAME_SRC  := apps/pixelstein/pxgame.asm apps/pixelstein/pxicon.inc \
+               apps/pixelstein/pxcast.inc apps/pixelstein/pxgen.inc \
+               apps/pixelstein/pxcomp.inc apps/pixelstein/pxrast.inc \
+               apps/pixelstein/pxwin.inc apps/pixelstein/pxgame.inc \
+               apps/pixelstein/pxset.inc apps/pixelstein/pxspr.inc \
+               apps/pixelstein/pxact.inc apps/pixelstein/pxhud.inc \
+               apps/pixelstein/pxhs.inc \
+               $(PXSTEIN_GEN) apps/os88api.inc apps/os88ui.inc \
+               apps/os88pit.inc
+PXSLEVELS   := $(wildcard apps/pixelstein/levels/*.txt)
+PXSART      := $(wildcard apps/pixelstein/art/*.png)
+
+$(BUILD)/pxstein.bin: $(PXSTEIN_SRC) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/pixelstein/ -o $@ apps/pixelstein/pxstein.asm
+	@echo "pxstein (loader): $(call FILESIZE,$@) bytes"
+
+$(BUILD)/pxgame.bin: $(PXGAME_SRC) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/pixelstein/ -o $@ apps/pixelstein/pxgame.asm
+	@echo "pxgame (part 0): $(call FILESIZE,$@) bytes, bss inside"
+
+# The package: the loader's image with the program (part 0, OP_COMP), the
+# two scratch parts (1 and 2: the scalers and the byte textures - no file)
+# and the two lazy streams behind them, the levels (3, lazy since wave 4)
+# and the art (4); the
+# sprite set is a CLAIM the loader makes, not a part (SPEC.md 97.9). PACKED <= 56KB IS A HARD ERROR HERE (SPEC.md 97.9): apps-all.img had
+# 127 spare clusters when this package was planned and wave 6's art lands
+# after the disk arithmetic was checked, so the ceiling is asserted where
+# the file is made and not discovered on the 1.44MB disk. AND SO IS THE
+# READ RUN: SPEC.md 20.12.7 bounds the eager parts at 128 UNPACKED sectors
+# (op_load refuses the launch at 128, and OP_COMP does not relieve it - the
+# claim is cut from the unpacked total), the run is 116 on the shipped build
+# (part 0 59,378 bytes, SPEC.md 97.15; 111 after wave 4) - part 0 alone, the
+# level stream having gone lazy: eager, its 20 sectors would have made it
+# 131 after wave 4 and 136 now (101 after wave 3 with it eager, 68 after wave 1, 79 after
+# wave 2), and the only other check was a soak row
+# nothing in `make` runs. A recipe that lets the run reach 128 ships a
+# package that fails at LAUNCH.
+PXSTEIN_MAXZ := 57344
+$(BUILD)/pxstein.o88: $(BUILD)/pxstein.bin $(BUILD)/pxgame.bin $(BUILD)/pxsart.bin \
+                      $(BUILD)/pxslev.bin tools/os88pkg.py tools/os88parts.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/pxstein.bin -o $@ \
+		--part $(BUILD)/pxgame.bin --part $(BUILD)/pxslev.bin --part $(BUILD)/pxsart.bin
+	@test $(call FILESIZE,$@) -le $(PXSTEIN_MAXZ) || { \
+	    echo "pxstein: $@ is $(call FILESIZE,$@) bytes, over the $(PXSTEIN_MAXZ) SPEC.md 97.9 allows the disks"; \
+	    rm -f $@; exit 1; }
+	@python3 tools/os88parts.py --run $@ --max-run 128 || { rm -f $@; exit 1; }
+
+# THE COMPACTION GATE'S DISK (SPEC.md 97.9, 66.6.1.2; tests/pxsmove.py): the
+# package and tests/filler, nothing else, at 360KB - the geometry whose head
+# slack puts part 0 INSIDE its carve, the shape rehomemove360 is the gate on.
+# PXSTEIN opens first and runs its worker, FILLER opens under it and takes
+# the arena down, and FILLER's asks force the compaction that has to move
+# the carve - and with it the two parts the handoff named by segment
+.PHONY: pxsmove
+pxsmove: $(BUILD)/pxsmove360.img
+$(BUILD)/pxsmove360.img: $(BUILD)/pxstein.o88 $(BUILD)/filler.o88 \
+                         tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 360 \
+		$(BUILD)/pxstein.o88 $(BUILD)/filler.o88
+	@python3 tools/os88disk.py --verify $@
+
+# the ART STREAM the lazy art part carries (SPEC.md 97.4): the fifteen wall
+# masters under apps/pixelstein/art/, two texels a byte, and since wave 3
+# the ALPHA-KEYED sprite masters after them - 42 frames of 32x32 (the
+# guard's 17, six decorations, eight pickups and, since wave 6, the dog's
+# eleven: 4 facings x 2 walk, bite, die, dead) and the weapon's nine of
+# 16x32, 29,760 of the stream's 37,440 bytes (PXA_NSPR, PXA_SIZE in
+# pxart.inc) - LZ4 - tools/pxsart.py reads the committed PNGs with the
+# stdlib and refuses a bad one in words (--check: the sixteen colours only,
+# no key and no alpha on a wall, alpha 0 or 255 on a sprite, and the two
+# losable criteria). The include beside it (pxart.inc) is committed text held by
+# the pxs-gen fast row; the stream is built here because its bytes are the
+# masters' and nothing else
+$(BUILD)/pxsart.bin: tools/pxsart.py tools/os88lz.py tools/pxslevel.py $(PXSART) | $(BUILD)
+	python3 tools/pxsart.py --check --stream $@
+
+# the level STREAM the lazy level part carries (SPEC.md 97.9; lazy since
+# wave 4 - eight floors are 20 sectors the eager run had no room for): one record a
+# level, run-length coded, with every level rule checked on the way - a
+# refused level fails this rule, in words, on the host. `make pxsgen` reaches
+# it (below) and wave 1's package rule will; the same command is also the
+# `pxs-level` soak row (tests/unit/t_pxslevel.py), so the DDA sweep runs
+# somewhere automated and not only when a person types this
+$(BUILD)/pxslev.bin: tools/pxslevel.py tools/pxssim.py tools/pxstab.py $(PXSLEVELS) | $(BUILD)
+	python3 tools/pxslevel.py --check --stream $@
+	@echo "pxslev: $(call FILESIZE,$@) bytes of level stream"
+
+# regenerate the committed includes, then build the stream THROUGH its rule
+# (one command line for the level check, not two): pxtab first, because the
+# level tool's sweep reads its tables, then pxlev, then the stream - whose
+# rule re-checks the include it just wrote against the tool
+.PHONY: pxsgen
+pxsgen:
+	python3 tools/pxstab.py
+	python3 tools/pxslevel.py
+	python3 tools/pxsart.py --check -o apps/pixelstein/pxart.inc
+	python3 tools/pxsart.py --hud apps/pixelstein/pxhuda.inc
+	rm -f $(BUILD)/pxslev.bin $(BUILD)/pxsart.bin
+	$(MAKE) $(BUILD)/pxslev.bin $(BUILD)/pxsart.bin
+
 $(BUILD)/arkanoid.bin: apps/arkanoid/arkanoid.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/arkanoid/arkanoid.asm
 	@echo "arkanoid: $(call FILESIZE,$@) bytes"
@@ -9432,6 +9564,21 @@ BENCHPKGS := $(BUILD)/fontbnch.o88 $(BUILD)/typebnch.o88 \
              $(BUILD)/bandbnch.o88 $(BUILD)/facetest.o88
 BENCHDATA := $(BUILD)/bench.dat $(BUILD)/benchsml.dat $(BUILD)/bigfile.dat
 
+# BENCHPKGS HAS EIGHT CONSUMERS, NOT TWO: besides bench.img and bench360.img
+# it is FIELDBENCH (herc.img, cga.img, cga720.img, flop1.img, cqdiag.img -
+# the 360KB field disks, which also carry bigfile.dat's 104 clusters) and
+# COMBOBENCH (combo.img, combo720, combo144 - and combo.img DOES NOT BUILD
+# on main at 2237d1ba: "packages need 446 clusters; disk holds 354", the
+# COMBO_DROP paragraph below has the measurement; the "~343 of 354" this
+# sentence first carried was a number from before that overflow). A bench
+# package is NOT compressed (the recipes below are bare os88pkg.py), so
+# PXSBENCH.O88 is 20 clusters on a 1KB-cluster disk, and a disk that is
+# already 92 clusters over has no room for an instrument that is not a
+# field calibration. It is therefore named HERE, for the two bench disks
+# only, and never added to BENCHPKGS - the plan's APPS_GAMES lesson
+# (docs/plans/PIXELSTEIN-PLAN.md 0, tree-6) applied to the list it missed.
+BENCHIMGPKGS := $(BENCHPKGS) $(BUILD)/pxsbench.o88
+
 bench: $(BUILD)/bench.img $(BUILD)/bench360.img
 
 $(BUILD)/fontbnch.bin: tests/fontbench/fontbench.asm apps/os88api.inc | $(BUILD)
@@ -9469,6 +9616,20 @@ $(BUILD)/bandbnch.bin: tests/bandbench/bandbench.asm tests/benchlib.inc apps/os8
 
 $(BUILD)/bandbnch.o88: $(BUILD)/bandbnch.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/bandbnch.bin -o $@
+
+# ...and PIXELSTEIN 3D's unit costs (SPEC.md 97.10): the compiled store, the
+# static ladder, the patched DDA body, the two presents, the C160 expand, the
+# texel row, the key read, and one scaler-set generation - every figure the
+# frame table of 97.1 is built from, taken in one run on one adapter. The
+# VRAM rows run inside a fullscreen bracket in the mode the game takes there.
+# tests/pxsbench.py reads the rows back off MartyPC's cycle-exact 5150.
+$(BUILD)/pxsbench.bin: tests/pxsbench/pxsbench.asm tests/benchlib.inc apps/os88api.inc apps/pixelstein/pxtab.inc tools/benchlint.py | $(BUILD)
+	python3 tools/benchlint.py tests/pxsbench/pxsbench.asm
+	$(NASM) -f bin -w+error -I apps/ -I tests/ -o $@ tests/pxsbench/pxsbench.asm
+	@echo "pxsbench: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/pxsbench.o88: $(BUILD)/pxsbench.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/pxsbench.bin -o $@
 
 # ...and the one that shows a FACE rather than timing one: it draws the same
 # sentence through the kernel, through face 0, and through both of the
@@ -9555,11 +9716,11 @@ $(BUILD)/wbband.o88: $(BUILD)/wbband.bin tools/os88pkg.py
 $(BUILD)/weaveband.img: $(BUILD)/wbband.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/wbband.o88
 
-$(BUILD)/bench.img: $(BENCHPKGS) $(BENCHDATA) tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 1440 $(BENCHPKGS) $(BENCHDATA)
+$(BUILD)/bench.img: $(BENCHIMGPKGS) $(BENCHDATA) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BENCHIMGPKGS) $(BENCHDATA)
 
-$(BUILD)/bench360.img: $(BENCHPKGS) $(BENCHDATA) tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 360 $(BENCHPKGS) $(BENCHDATA)
+$(BUILD)/bench360.img: $(BENCHIMGPKGS) $(BENCHDATA) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BENCHIMGPKGS) $(BENCHDATA)
 
 # --- the BROWSER's test disk (docs/plans/completed/BROWSER-PLAN.md 10 step 1) -----------------
 # The renderer with no network in the machine: the package plus tests/htm/'s
@@ -9864,7 +10025,20 @@ SMALLOMIT := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
 # its widest. Hercules is the bigger board and was measured too - 8KB windowed,
 # 19KB fullscreen - so 19 is the deepest kern_small can ever be asked for.
 # `soak -k 'ddsmall'` is that measurement kept runnable (SPEC.md 24.5.5).
-SMALLOMIT_GAMES := $(BUILD)/skies.o88
+SMALLOMIT_GAMES := $(BUILD)/skies.o88 $(BUILD)/pxstein.o88
+#   pxstein                 PIXELSTEIN 3D (SPEC.md 97.9, 24.5): a REQUIREMENT
+#                           the arena cannot meet. Its program part is a
+#                           ~33KB image with two 4KB map layouts and two
+#                           4KB spotvis arrays inside it, in ONE contiguous
+#                           parts claim beside a 16KB shadow CLAIM (6.4KB
+#                           of it composed in wave 1) - ~48KB before
+#                           wave 2's scaler set - against a 52.5KB arena
+#                           whose largest run is 17.5-20KB once the caches
+#                           are shed (SKIES' row above is the same ground).
+#                           TANK's 36KB is the largest thing measured to fit.
+#                           The door stays open: a 32x32-level, 48x64 arm
+#                           measured on os8088_5150_cga_128k would be a
+#                           SUBSTITUTION, and nobody has measured one
 
 # --- ...AND THE READERS LEFT WITH NOTHING TO READ (SPEC.md 24.5.3) -----------
 #
@@ -10907,7 +11081,20 @@ APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
 # it is no longer the reason.
 APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/tank.o88 $(BUILD)/cyclone.o88 \
               $(BUILD)/mines.o88 $(BUILD)/skies.o88 $(BUILD)/dotdel.o88 \
-              $(BUILD)/missile.o88 $(BUILD)/solitair.o88 $(BUILD)/tamegram.o88
+              $(BUILD)/missile.o88 $(BUILD)/solitair.o88 $(BUILD)/tamegram.o88 \
+              $(BUILD)/pxstein.o88
+
+# PIXELSTEIN 3D IS NOT ON apps360.img (SPEC.md 97.9, 24.6.1's dated
+# decision, taken 2026-09-13): that geometry sat at 313 of 354 clusters and
+# is remade every time it runs out, the games category disk (games360.img,
+# GAMES360 below) carries every game unfiltered, and that is where a 360KB
+# machine finds it. The two sites that build the general 360KB disk take
+# this list (APPS360, APPSARGS360); games360 and every other geometry take
+# APPS_GAMES whole, and dbg-apps360.img carries no games at all since
+# ModPlug was RETIRED (SPEC.md 56.15). THE 360KB COMBO IS A FOURTH SITE and
+# does not take this list: it filters APPS_GAMES through COMBO_DROP, which
+# names the package there with its own ground (below, beside ETHER.DRV's).
+APPS_GAMES_360 := $(filter-out $(BUILD)/pxstein.o88,$(APPS_GAMES))
 
 # The CORE PACKAGES (SPEC.md 24.3) are a SECOND copy on the system disk and
 # never a move, so the two lists above are unchanged and still carry every
@@ -11258,7 +11445,7 @@ APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS)
 #     office one. Every other geometry carries the full list, and
 #     `make smallapps` is untouched.
 APPS_TOOLS_360 := $(filter-out $(BUILD)/sheet.o88 $(BUILD)/chart.o88,$(APPS_TOOLS))
-APPS360 := $(APPS_TOOLS_360) $(APPS_GAMES) $(APPS_DATA_360) $(APPS_SYS) $(APPS_DOS)
+APPS360 := $(APPS_TOOLS_360) $(APPS_GAMES_360) $(APPS_DATA_360) $(APPS_SYS) $(APPS_DOS)
 
 # ...and the same list with the folder each package lands in. os88disk.py
 # reads a "DIR:" prefix per package, so the grouping lives here rather than
@@ -11300,7 +11487,7 @@ APPSARGS := $(addprefix APPS:,$(APPS_TOOLS)) \
 # what took this disk off THREE free clusters and put it on ten.
 # Being on this disk is the whole reason a user has it to hand.
 APPSARGS360 := $(addprefix APPS:,$(APPS_TOOLS_360)) \
-               $(addprefix GAMES:,$(APPS_GAMES)) \
+               $(addprefix GAMES:,$(APPS_GAMES_360)) \
                $(addprefix MEDIA:,$(APPS_DATA_360)) \
                $(APPSYSARGS) \
                $(addprefix SYSTEM/DOS:,$(APPS_DOS)) \
@@ -12046,9 +12233,24 @@ imager:
 # SHEET and CHART went with the spreadsheet: 57 clusters between them, sheet
 # is the largest package on the disk, and neither is a field-calibration
 # tool - Calc stays for the arithmetic a field run needs.
+#
+# PIXELSTEIN 3D (SPEC.md 97.9) goes with them: 16 clusters at 360 KB (the
+# byte count is what `make` prints and nobody updates - the cluster count
+# is the fact the drop rests on), it is a game and not a calibration
+# instrument, and the 5150 this disk is
+# for is the very machine SPEC.md 24.5's row argues cannot hold its
+# contiguous carve. games360.img is where a 360KB machine finds it. The
+# 720KB and 1.44MB combos are built from the full lists and carry it.
+# THE 360KB COMBO DOES NOT BUILD AS OF main 2237d1ba, WITH OR WITHOUT IT:
+# `make combo` stops at "os88disk: error: packages need 446 clusters; disk
+# holds 354" (re-run 2026-09-14 with this package already dropped), so the
+# drop is a statement about what the disk would carry, not the fix for the
+# overflow - that is a decision for whoever owns the field disk, and
+# tests/pxsdisk.py asserts the omission only when the image exists.
 COMBO_DROP := $(BUILD)/artful.o88 $(BUILD)/texpad.o88 \
               $(BUILD)/tracker.o88 \
-              $(BUILD)/sheet.o88 $(BUILD)/chart.o88
+              $(BUILD)/sheet.o88 $(BUILD)/chart.o88 \
+              $(BUILD)/pxstein.o88
 COMBO_TOOLS := $(filter-out $(COMBO_DROP),$(APPS_TOOLS))
 COMBO_GAMES := $(filter-out $(COMBO_DROP),$(APPS_GAMES))
 
@@ -12840,6 +13042,29 @@ xt-word: $(IMG360) $(BUILD)/word720.img
 xt-paccman: $(IMG360) $(BUILD)/paccman720.img
 	@$(UNPROTECT) $(VMXTPACCMAN)/86box.cfg
 	$(BOX) -P $(VMXTPACCMAN) -N
+
+# PIXELSTEIN 3D on period hardware (SPEC.md 97): a 4.77MHz IBM XT with 640KB,
+# the 360KB system floppy and build/games360.img in B: - `xt-pixelstein` on the
+# CGA (F takes the CGA 320x200x4 bracket, the Mode row's second item the
+# 160x100x16 retime) and `xt-pixelstein-herc` on the Hercules (the box at
+# 720x348). Copies of vm/xt-cga and vm/xt-hercules with fdd_02_fn and the
+# uuid changed - AND mem_size 640 on the ibmxt86 board (86Box's ibmxt caps
+# at 256KB and rewrites 640 back), the one change the copy rule bends for:
+# those two are 256KB, where the game plays Flat with boxes and no gun (SPEC
+# 97.9), and these machines exist to show the textured game period hardware
+# can show (SPEC.md 97.15; 86Box keeps no comments, so the reason lives there
+# and in README.md). 86Box cannot ASSERT anything (docs/TESTING.md) -
+# tests/pixelstein.py on MartyPC is the gate, and every number is its - so
+# these are where a human LOOKS, and DOUBLE-CLICKS PXSTEIN.O88 to get there:
+# the attract page, T's timedemo, the Tab map. $(UNPROTECT) for the standing
+# reason: the game writes PXSTEIN.CFG and PXSTEIN.HS to B:
+xt-pixelstein: $(IMG360) $(GAMESIMG360)
+	@$(UNPROTECT) $(VMXTPXS)/86box.cfg
+	$(BOX) -P $(VMXTPXS) -N
+
+xt-pixelstein-herc: $(IMG360) $(GAMESIMG360)
+	@$(UNPROTECT) $(VMXTPXSHERC)/86box.cfg
+	$(BOX) -P $(VMXTPXSHERC) -N
 
 # ...and the fast one: vm/386-c-word's 386DX/25 with two 1.44MB drives and
 # build/paccman.img in B: - the machine to PLAY it on, where the game runs at

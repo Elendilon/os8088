@@ -86,6 +86,12 @@ region apps/dos/dosload.asm      # THE SAME SHAPE, one package along: the
                                  # missing. Retired by nothing; correct as it
                                  # stands.
 
+region apps/pixelstein/pxstein.asm  # csload's shape exactly: the launch image
+                                 # only, which reads the parts, hands off
+                                 # through OSAPI_PKG_REHOME and has its region
+                                 # freed inside that call (SPEC.md 97.9).
+                                 # Retired by nothing; correct as it stands.
+
 # --- worker -------------------------------------------------------------------
 #
 # THE FOUR PARK-SAFE PACKAGES ARE GONE FROM THIS LIST and the reason they were
