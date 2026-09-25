@@ -5,7 +5,8 @@
 - Revision 2 (`249f4e5`) replaced that with our own format and listed sixteen
   open questions.
 - This revision records the owner's answers to those questions (section 12)
-  and the design that follows from them. What is still open is section 13.
+  and the design that follows from them. The four questions it raised are
+  answered in section 13. Nothing is open, and Wave 0 has started.
 
 **The owner's standing decisions:**
 - Not XDC-compatible. Our own format, with the goal of playing as well as
@@ -36,14 +37,17 @@ player. It takes three ideas from XDC (MobyGamer, MIT, © 2014 Jim Leonard):
    first, against a CPU pool and a disk pool, and lets a starved frame
    converge over the next few.
 
-**The format ships operands, not code.** A frame is four skip-coded lists of
+**The format ships operands, not code.** A frame is ten skip-coded lists of
 changes. The player holds the unrolled loops that apply them. XDC's
 frame-programs spend 48–65% of their bytes on `mov di,<address>` (measured).
 
 On XDC's own 640×200 content, ours is:
-- **19–43% less disk.** BADAPPLE drops from 93.8 to **60.6 KB/s**, and from
-  20.1 to **13.0 MB**, so it fits the owner's ST-225.
-- **+2–4 points of CPU on the mean frame and +3–6 on the worst** (model).
+- **21–46% less disk.** BADAPPLE drops from 93.8 to **57.7 KB/s**, and from
+  20.1 to **12.3 MB**, so it fits the owner's ST-225.
+- **+2–7 points of CPU on the mean frame.** The worst frames measure **1.01–1.28×
+  XDC's cycles** on MartyPC's cycle-exact 5150: BADAPPLE's worst is 66% of a
+  frame against XDC's 56%. Frames of long spans are faster than XDC's code
+  (Wave 0, sections 2.2 and 2.4).
 
 **The canvas is generic.** Any byte-aligned width and any height, in any
 pixel format the target mode stores one byte at a time. So a video is encoded
@@ -133,72 +137,129 @@ header has room for them.
 | CGA4 | 2 bpp, 320×200×4, CGA mode 4, byte-native | CGA, and VGA through the BIOS's mode 4 | later: the first **colour on an 8088** with an RGB monitor |
 | VGA8 | 8 bpp chunky, mode 13h, byte-native | VGA, 286+ | later: colour at 8× the bytes per pixel of MONO1 |
 
-### 2.2 A frame's video part: four lists of segments
+### 2.2 A frame's video part: ten lists of segments (settled by Wave 0)
 
 ```
-frame        = [len16] [ymin] [ymax] video audio
-video        = list(POKE1) list(POKE2) list(SLICE) list(RUN)
-list         = segment* 00
-segment      = count(1..255) address(16)  entry × count
-POKE1 entry  = skip  byte
-POKE2 entry  = skip  word
-SLICE entry  = skip  len(3..255)  len × byte
-RUN   entry  = skip  len(3..255)  value
+frame   = [len16] [ymin] [ymax] video audio
+video   = P1 P2 P3 P4 P5 P6 SLICE RUN SLICEL RUNL     ten lists, this order
+list    = segment* 00
+segment = count(1..127) address(16) entry × count      skip-coded
+        | 80h+count(1..127)         aentry × count     absolute (P1..P6)
+entry   = skip, the change          aentry = address(16), the change
+P1..P6  = 1..6 bytes
+SLICE   = len8 bytes  (7..255)      RUN  = len8 value  (6..255)
+SLICEL  = len16 bytes (256+)        RUNL = len16 value (256+)
 ```
 
-- **`skip`** is the number of bytes from the end of the previous write to the
-  start of this one, one byte always. For a segment's first entry it is
-  measured from the segment's address, which is in canvas-linear
-  (interleave-ordered) byte units.
-- **A gap over 255 bytes starts a new segment.** That costs 3 bytes and
-  ~70 cycles (model), and the hot loop never tests for an escape.
-- **Entries never cross a row end.** The encoder splits them there, which is
-  what makes translation to another layout cheap.
-- **The lists are disjoint** and each is sorted by address. Order between
+Wave 0 changed this section more than any other. Each rule below is there
+because a measurement put it there (section 8, W0).
+
+- **The addresses are the target adapter's own memory image.** A file is
+  laid out for its surface **on the host**, and nothing at playback knows
+  about rows. A span that is contiguous in memory is one entry however many
+  rows it crosses, so a fill of the screen is one RUNL, just as XDC makes it
+  one `rep stosb`.
+- **`skip`** is the number of bytes from the end of the previous write in the
+  segment, one byte always. For a segment's first entry it is measured from
+  the segment's address.
+- **A list per short length.** A change of 1–6 bytes has its own list, and
+  its store is XDC's own unrolling (`movsw / movsb` for 3). Sent through
+  `rep movsw` + `rep movsb`, a short span cost +40–60 cycles, all of it rep
+  start-up.
+- **Absolute segments.** A skip segment's set-up measured ~215 cycles, and
+  half of all segments held one entry. So an isolated change is pooled into
+  an absolute segment, which costs ~14 cycles more per entry and no set-up of
+  its own.
+  - Below 4 entries the absolute form is also the smaller one, so it wins
+    both ways there.
+  - Between 4 and ~20 entries it is a cycles-against-bytes trade, and the
+    encoder's machine profile makes it (section 6).
+- **Hidden runs.** A stretch of one value, 6 bytes or longer, inside a slice
+  becomes a RUN. That is XDC's own `FindHiddenRuns`, re-applied because the
+  streams do not carry it through. It is 3 bytes on disk however long the
+  stretch, and `rep stosw` into RAM is ~7 cycles a byte against a copy's ~13.
+- **SLICE and RUN are Duff-unrolled too**, four to a round. RUN's length and
+  value load as one `lodsw`. Spans of 256 bytes and up have lists of their
+  own, so the short loops test for nothing.
+- **The lists are disjoint** and each is sorted by address. The order between
   lists does not matter.
-- **`ymin`/`ymax`** is the frame's dirty row band. It costs two bytes a frame
-  and is what lets Preview and Live blit only the rows that changed (section
-  3.3).
+- **`ymin`/`ymax`** is the frame's dirty band of rows, two bytes a frame. It
+  is what a shadow copies and what Live blits (section 3).
 - **Reserved list ids** leave room for later operations, first of all
   **COPY**: a block copied from elsewhere on the screen, for pans.
 
-The decoder is one straight-line loop per list, entered Duff-style on the
-segment's count, with AH = 0 as an invariant. A sketch (Wave 0 writes the
-real one):
+**The decoder is `tests/vidbench/vdec.inc`.** It moves to `apps/video/` in
+W3.
+- It is one straight-line loop per list, entered Duff-style on the segment's
+  count.
+- AH = 0 is an invariant, so a skip is `lodsb / add di,ax`.
+- BP is added to every segment address, which is how a window or a letterbox
+  places the canvas.
 
-```
-; POKE1: DS:SI = entries, ES:DI = surface, AH = 0
-.e: lodsb           ; skip
-    add  di,ax
-    movsb           ; the pixel byte
-    ...             ; x16, then loop back on the remaining count
-; SLICE: skip, len; then shr cx,1 / rep movsw / adc cx,cx / rep movsb
-; RUN:   skip, len, value;               rep stosb
-```
+**What each construct costs, measured.** MartyPC's CGA 5150, cycles, writing
+the screen, each construct 60–400 times in one frame (`tests/vidbench.py`'s
+synthetic rows):
 
-**Long slices use `rep movsw`.** On a real 8088 that is ~12.5–13.3 cycles a
-byte against `rep movsb`'s 17 (PERFORMANCE.md Set 117.2). XDC uses `rep movsb`
-because its cost model prices a byte move as half a word move. The model below
-does not credit the gain; Wave 0 measures it into CGA and Hercules memory.
+| construct | XDC's code | ours | |
+|---|---|---|---|
+| a frame's fixed cost | 309 | 1,214 | ten list heads against XDC's header |
+| 1-byte change (P1) | 36.0 | 49.6 | **+13.6**: reading the skip |
+| 2-byte (P2) | 50.8 | 65.2 | +14.4 |
+| 3-byte (P3) | 72.0 | 89.1 | +17.1 |
+| 4-byte (P4) | 88.0 | 104.8 | +16.8 |
+| 6-byte (P6) | 126.0 | 146.1 | +20.1 |
+| 16-byte slice | 378 | 372 | parity |
+| 40-byte slice | 895 | 804 | **−10%**: `rep movsw` against `rep movsb` |
+| 16-byte run | 277 | 309 | +32 |
+| 40-byte run | 638 | 621 | parity |
+| a skip segment's set-up | — | ~215 | why isolated changes go absolute |
 
-### 2.3 Surfaces and presets
+Raw stores, 8,000 bytes:
+- **To CGA memory:** `rep movsw` is 18.0 cycles a byte and `rep movsb` 21.6.
+- **To RAM:** `rep movsw` is 13.1 and `rep movsb` 18.0. CGA's wait states
+  cap a long fill at ~18 cycles a byte whichever instruction writes it.
 
-**Two decoders.**
-- The **native** decoder applies entries as they stand. It runs when the
-  canvas has the surface's own stride and interleave, e.g. 640×200 at
-  interleave 2 on B800, or any 80-byte-wide canvas on VGA mode 12h (a base
-  offset centres it).
-- The **translating** decoder keeps the canvas address beside DI and compares
-  against the current row's end on each entry: about +6–10 cycles an entry
-  (model), plus ~30 on each row change from a per-surface row table. It
-  places any canvas anywhere byte-aligned.
+### 2.3 Surfaces, layouts and presets
+
+**One decoder, and the layout is decided on the host.** A file's addresses
+are the memory image of the surface it was made for:
+- **CGA layout:** B800, two banks, 80 bytes a row. It plays natively on a CGA
+  and, through the BIOS's mode 6, on a VGA or an EGA.
+- **Hercules layout:** B000, four banks, 90 bytes a row.
+- **VGA mode 12h layout:** A000, linear, 80 bytes a row.
+
+A fullscreen position or a window's content origin is BP, added to every
+segment address. That requires the origin to keep the bank phase: y a
+multiple of the bank count, and x on a byte.
+
+**Wave 0 built and measured the alternative, and it is REFUSED.** It was a
+translating decoder that placed a canvas on a surface of another layout
+through a row table at playback:
+- it cost **~480 cycles per row change**, and the frames change rows almost
+  every entry (3–12× XDC's cycles on the samples);
+- it forced every span to be split at its row end, and that split is what
+  turned the heaviest frames into ~290 runs where XDC has one `rep stosb`.
+
+So translation moved to the host. **`os88vid import --target herc|vga`**
+re-lays an XDV out for another adapter, and the result plays natively there.
+
+**A file on a surface it was not laid out for** decodes natively into a RAM
+**shadow**, and the frame's dirty band is copied (or, in a window, blitted)
+to the screen:
+- **Decode stays real-time and in sync with the sound.** Only the DISPLAY
+  rate drops, because a full-screen copy measured **3–5× a native decode**:
+  the dirty band spans nearly the whole screen on real content.
+- It is the Live window's path too (section 3.4), where the canvases are
+  small.
+- The Preview says the file was made for another screen and names the
+  import that makes it native.
 
 **Fullscreen modes**, all at 1:1, each canvas centred:
 
 | adapter | mode | 4:3 presets the encoder offers | notes |
 |---|---|---|---|
-| CGA | `FSXM_CGA640` (mode 6) | **640×200** (full screen, native); **320×100** (a quarter of the data, which also fits a window) | CGACOMP turns the burst on (3D8h ← 1Ah); the 6845 and 3D8h are the app's past the mode set (§53.7) |
-| Hercules | `FSXM_HERC` (720×348) | **400×200** (the fast default); **480×232**; 720×348 (full, heavy) | translating. The 6845 is never retimed (section 7) |
+| CGA | `FSXM_CGA640` (mode 6) | **640×200** (full screen); **320×100** (a quarter of the data, which also fits a window) | CGACOMP turns the burst on (3D8h ← 1Ah); the 6845 and 3D8h are the app's past the mode set (§53.7) |
+| Hercules | `FSXM_HERC` (720×348) | **400×200** (the fast default); **480×232**; 720×348 (full, heavy) | Hercules layout. The 6845 is never retimed (section 7) |
 | VGA / EGA | `FSXM_VGA12` for square-pixel canvases; `FSXM_CGA640` for CGA canvases | **320×240** (the fast default); **400×300**; 640×480 (full, heavy) | In mode 12h, Map Mask 0Fh with write mode 0 puts a MONO1 byte into all four planes, so MONO1 is byte-native there. A CGA canvas plays through mode 6 and looks exactly as it does on a CGA |
 
 **Data cost follows pixel count, not screen area.** Against 640×200's
@@ -210,37 +271,48 @@ does not credit the gain; Wave 0 measures it into CGA and Hercules memory.
 | 320×240 (VGA) | 76,800 | ×0.60 |
 | 320×100 (CGA small) | 32,000 | ×0.25 |
 
-The same content encoded for Hercules or VGA should therefore stream in
-roughly two-thirds of BADAPPLE's 60.6 KB/s. That is an estimate from pixel
-count; Wave 1 re-encodes to measure it.
-
-**A file on a screen it was not made for.**
-- **If it fits**, it plays at 1:1, centred, with its aspect wrong. The Preview
-  says which screen it was made for.
-- **If it is larger than the screen**, it is refused, with the reason
-  (open question A).
-- **CGACOMP off a CGA** plays as its mono pattern.
+This is an estimate from pixel count; Wave 1 re-encodes to measure it.
+**CGACOMP off a CGA** plays as its mono pattern.
 
 ### 2.4 The format against XDC, on the samples
 
 These are XDC's 640×200 frames exactly as XDC's encoder chose them,
-re-expressed in the format above. Our encoder re-budgets on *our* costs, so
-its frames will sit under their cap the way XDC's do.
+re-expressed in the format above (`os88vid verify`: all 11,192 frames of the
+five streams decode to XDC's screen exactly). Our encoder will re-budget on
+*our* costs, so its frames will sit under their cap the way XDC's do.
 
-| stream | XDC disk | ours | file, XDC → ours | CPU mean, XDC → ours | CPU worst, XDC → ours |
-|---|---|---|---|---|---|
-| BADAPPLE (mono, 30 fps, 22 kHz) | 93.8 KB/s | **60.6 (−35%)** | 20.1 → **13.0 MB** | 14.5% → 18.3% | 49.9% → 56.1% |
-| THUNDERC (composite, 23.976 fps) | 92.8 | **75.5 (−19%)** | 6.9 → 5.6 | 22.1% → 24.9% | 49.6% → 53.4% |
-| TRONDISC (composite, 23.976 fps) | 105.1 | **82.6 (−21%)** | 5.0 → 3.9 | 24.5% → 27.9% | 50.0% → 53.5% |
-| BBBB_BW (mono, 60 fps, 8 kHz) | 41.9 | **24.0 (−43%)** | 0.3 → 0.2 | 5.5% → 7.7% | 49.8% → 52.9% |
-| BBBBCOMP (composite, 60 fps) | 46.3 | **29.0 (−37%)** | 0.3 → 0.2 | 7.4% → 9.6% | 23.7% → 27.4% |
+| stream | disk, XDC → ours | file, XDC → ours | CPU mean, XDC → ours (model) | worst frame, XDC → ours (measured) |
+|---|---|---|---|---|
+| BADAPPLE (mono, 30 fps, 22 kHz) | 93.8 → **57.7 KB/s (−39%)** | 20.1 → **12.3 MB** | 14.8% → 21.5% | 56.1% → 65.9% |
+| THUNDERC (composite, 23.976 fps) | 92.8 → **72.9 (−21%)** | 6.9 → 5.4 | 24.4% → 26.8% | 54.5% → 57.6% |
+| TRONDISC (composite, 23.976 fps) | 105.1 → **80.8 (−23%)** | 5.0 → 3.8 | 27.0% → 30.3% | 56.3% → 62.2% |
+| BBBB_BW (mono, 60 fps, 8 kHz) | 42.1 → **22.9 (−46%)** | 0.3 → 0.2 | 5.9% → 9.4% | 54.8% → 52.9% |
+| BBBBCOMP (composite, 60 fps) | 46.4 → **28.0 (−40%)** | 0.3 → 0.2 | 7.9% → 11.3% | — |
 
-- Disk includes the audio, identical in both. XDC's disk figure also carries
-  its 512-byte padding per frame (165–227 bytes, measured); ours pads once
-  per 32 KB super-packet.
-- CPU is a percentage of the frame period, excluding the audio copy for both.
-- **Audio is 36% of BADAPPLE's stream in our form**, which is why section 2.5
-  carries ADPCM.
+How the columns were taken:
+- **Disk** includes the audio, identical in both. XDC's figure also carries
+  its 512-byte padding per frame; ours pads once per 32 KB super-packet.
+- **CPU mean** applies the measured per-construct costs of section 2.2 to
+  every frame of the stream.
+- **Worst frame** is a direct measurement on MartyPC's CGA 5150, as a
+  percentage of the frame period. XDC's column is XDC's heaviest frame. Ours
+  is the heaviest of the frames the model ranks worst for us, all measured.
+- **Neither CPU column includes the audio copy.**
+
+What the table says:
+- **Frames of long spans are FASTER than XDC's code.** They measured
+  0.67–0.98× on CGA and 0.48–0.90× on VGA, which MartyPC models without wait
+  states.
+- **Frames of many small changes are slower,** 1.2–1.6×. They are cheap
+  frames either way.
+- **The heaviest frames are 1.01–1.28× XDC's.**
+
+On the owner's machine the disk binds and the CPU has room (section 3.2), so
+that trade buys a **39% smaller BADAPPLE for a worst frame at two-thirds of
+the machine**.
+
+**Audio is ~38% of BADAPPLE's stream in our form**, which is why section 2.5
+carries ADPCM.
 
 ### 2.5 Audio
 
@@ -248,7 +320,7 @@ The header names the audio format, and both are built.
 - **PCM8**: 8-bit unsigned mono at the encoder's chosen rate, as XDC.
 - **ADPCM4**: Creative's 4-bit ADPCM, which a DSP 2.00 or later decodes in
   hardware at **no CPU cost**. It is half PCM8's bytes, so BADAPPLE would
-  drop from 60.6 to ~50 KB/s.
+  drop from 57.7 to ~47 KB/s.
   - It is noisier than 8-bit PCM at the same rate. The trade is between
     ADPCM at a high rate and PCM at half that rate for the same bytes, and
     that is a listening test Wave 0 sets up.
@@ -266,7 +338,11 @@ It is written by the host tools only. The player checks every field it
 depends on, because a truncated copy is ordinary.
 
 - **Header** (one sector):
-  - signature, version, the canvas (section 2.1);
+  - signature, version;
+  - a **rendition count** (always 1 in version 1) and a table of renditions,
+    each a canvas (section 2.1) with its own super-packet index and keyframe
+    table. A later version can then carry several canvases in one file, and a
+    player reads only the one it plays (section 13, answer A);
   - rate: `samplerate / achunk` = fps, as in XDC; audio format;
   - frame count, largest super-packet;
   - the **poster keyframe**;
@@ -282,7 +358,7 @@ depends on, because a truncated copy is ordinary.
 
 - **What a keyframe is.** The encoder simulates the stream exactly and stores
   the decoded screen after frame *k*, every **2 seconds**. It is an ordinary
-  frame of four lists against black, so the player needs no second decoder.
+  frame of lists against black, so the player needs no second decoder.
   It lives in its own region and costs disk space and **no playback
   bandwidth**.
 - **Space.** The encoder prints what the keyframes took. If they come to a
@@ -363,7 +439,7 @@ The burst allowance is the one encoder change that should make ours look
 | tier | what the user sees | how |
 |---|---|---|
 | **Preview** | The poster in the window; a scrub bar over the keyframes; an info panel with fps, length, KB/s, the screen the file was made for, and whether *this* machine's disk keeps up | Decode one keyframe into a RAM shadow, then `OSAPI_GFX_BLIT1` (§5.4.2) |
-| **In-window** | Full-rate video with sound in the window's rect. The rest of the desktop stays on screen, frozen, with no pointer | A **same-mode** bracket (§53.7: no `fsx_mode`, nothing cleared), with the translating decoder aimed at the content rect. On exit the rect is read back into the shadow for repaints. **Only canvases that fit the content area are offered**: on CGA that is 320×100, on Hercules up to 640×200 (so XDC's 640×200 plays in a window there), on VGA anything to ~624×400 |
+| **In-window** | Full-rate video with sound in the window's rect. The rest of the desktop stays on screen, frozen, with no pointer | A **same-mode** bracket (§53.7: no `fsx_mode`, nothing cleared), with the decoder's BP at the content origin when the file's layout is the desktop's, and the shadow path otherwise (section 2.3). On exit the rect is read back into the shadow for repaints. **Only canvases that fit the content area are offered**: on CGA that is 320×100, on Hercules up to 640×200 (so XDC's 640×200 plays in a window there), on VGA anything to ~624×400 |
 | **Live** | A video in a movable window while the desktop runs: small canvases (e.g. 160×120, 240×180, CGA 320×100) | Section 3.4 |
 
 ### 3.4 Live windowed — the tour de force
@@ -484,9 +560,10 @@ The driver's block is fixed at 2048 bytes (`drivers/sound/sb.inc:103`) and
 
 | | XDC | ours |
 |---|---|---|
-| Disk, XDC's content | 41.9–105.1 KB/s | **24.0–82.6, −19 to −43%** (measured) |
-| BADAPPLE on a 20 MB ST-225 | 20.1 MB (does not fit), 93.8 KB/s | **13.0 MB, 60.6 KB/s**; ~50 with ADPCM4 |
-| Decode CPU, mean / worst | reference | **+2–4 / +3–6 points** (model; `rep movsw` not credited) |
+| Disk, XDC's content | 42.1–105.1 KB/s | **22.9–80.8, −21 to −46%** (measured) |
+| BADAPPLE on a 20 MB ST-225 | 20.1 MB (does not fit), 93.8 KB/s | **12.3 MB, 57.7 KB/s**; ~47 with ADPCM4 |
+| Decode CPU, mean | reference | **+2–7 points** (measured costs, applied to every frame) |
+| Decode CPU, worst frame | reference | **1.01–1.28×** (measured); long-span frames 0.67–0.98× |
 | Scene cuts | converge over several frames | drawn inside the per-frame ceiling (section 3.2) |
 | Adapters | CGA (composite colour) | CGA (composite colour); Hercules and VGA with canvases made for them |
 | Windowed, seek, poster | none | Preview, In-window, Live, keyframes |
@@ -543,6 +620,9 @@ works.
 ## 7. Not taken, and why
 
 - **XDC's code-as-frames format.** Section 1.
+- **Translating layouts at playback.** It was built and measured in Wave 0 at
+  ~480 cycles per row change, and it forced row splits that multiplied the
+  heaviest frames' entries. Layout is the host's job (section 2.3).
 - **Per-row groups; hop entries.** Measured worse, section 1.
 - **A JIT from our lists to XDC-style code.** It pays per change in the
   foreground, which does not overlap the disk wait.
@@ -565,15 +645,25 @@ Each gate follows docs/WRITING-TESTS.md: break it on purpose and watch it go
 red. A row about one package goes in `soak`.
 
 - **W0 — measure. No shipped byte.** A bench package in `tests/vidbench/`.
-  - (a) Our four list loops against XDC's own frame code, native and
-    translating, on the heaviest BADAPPLE and THUNDERC frames, into CGA,
-    Hercules and VGA memory. This fixes the cost model.
+  - (a) **DONE** (`tests/vidbench.py`). The list decoder against XDC's own
+    frame code, on picked, model-worst and one-construct synthetic frames,
+    into CGA, Hercules and VGA memory, all verified against the host's
+    picture. It reshaped the format (sections 2.2 and 2.3):
+    - ten lists, not four;
+    - absolute segments;
+    - no row splits and host-side layout, with the translating decoder
+      REFUSED at ~480 cycles a row change;
+    - hidden runs.
+
+    Two emulator facts belong beside the numbers. MartyPC charges Hercules
+    memory exactly what it charges CGA's, where the field measured 40–49
+    cycles a word (§88.3.6). And its XT VGA has no wait states at all.
   - (b) A 13 MB sequential read through `READ_AT` against a bench-only
     cursor. This sizes section 4.2 and the reserve row.
   - (c) A Sound Blaster auto-init stream with a 735-byte block, for one IRQ
     per frame. Plus ADPCM4 auto-init: its rates, and whether MartyPC
     emulates it.
-  - (d) `rep movsw` against `rep movsb` into each kind of video memory.
+  - (d) **DONE**: section 2.2's raw stores.
   - (e) The CPU ceiling of section 3.2: how much the interrupt may take
     before the ST-225 profile's ring starts pausing.
   - It needs a MartyPC profile shaped like the owner's 5150: Hercules, hard
@@ -592,8 +682,9 @@ red. A row about one package goes in `soak`.
 - **W4 — sound.** SOUND.DRV's frame stream and ADPCM4. Gate: one IRQ per
   frame, bytes played = frames × `achunk`, zero pauses across 60 s off the
   hard disk.
-- **W5 — surfaces.** Hercules and VGA with their presets, the translating
-  decoder, and the CGA composite burst.
+- **W5 — surfaces.** Hercules and VGA with their presets and host-side
+  layouts (`import --target`), the shadow path for a foreign file, and the
+  CGA composite burst.
 - **W6 — Preview.** Association (`V88`, §54.6), the Open dialog, poster,
   scrub bar, info panel.
 - **W7 — In-window and seek.**
@@ -643,22 +734,15 @@ those scripts made permanent, and it regenerates section 2.4's table.
 | 15 | Samples | May be used as test content; an os8088 logo video is a later goal |
 | 16 | Target | The 5150 with the ST-225; also a 5150 with a PicoMEM 2 for fast storage, and the emulators |
 
-## 13. Still open
+## 13. The owner's answers to revision 3's questions (2026-09-25)
 
-- **A. A file on a screen it was not made for.** Proposed: if it fits, play
-  it at 1:1, centred, with its aspect wrong, and have the Preview say which
-  screen it was made for; if it is larger than the screen, refuse. The
-  alternative is to let the encoder bundle several canvases in one file. That
-  costs no playback bandwidth, since only one is read, but multiplies the
-  disk space.
-- **B. Live without a card.** Proposed: offer Live without a card only for
-  clips that fit in memory, because without the card's interrupt it cannot
-  keep decoding through a disk read.
-- **C. Live's region pin.** The package's region is movable (§66.6.1.1), and
-  an interrupt that calls into it needs it to stay put. Either Live makes a
-  pinning declaration while it streams, or the frame stream itself pins the
-  caller's region while it is open. This is a design choice for W9's SPEC
-  section, not for the owner, unless there is a preference.
-- **D. The first colour format after mono.** CGA4 (320×200×4, an RGB CGA on an
-  8088) or VGA8 (mode 13h, 286+). Proposed: CGA4 first, because it keeps the
-  8088 promise.
+| # | question | answer |
+|---|---|---|
+| A | A file on a screen it was not made for | **Play it at 1:1, centred, when it fits; refuse it when it is larger than the screen.** The header must stay able to carry **several canvases in one file**. That comes after the basics work, so version 1 reserves a rendition count (always 1) and a per-rendition table slot rather than building the feature |
+| B | Live without a card | **RAM-resident clips only.** A live desktop cannot be fed from the disk without the card's interrupt, and the kernel bytes it would take to try are not worth it |
+| C | Live's region pin | The developer's call. **The player pins its own region for the length of a Live stream and unpins it at close**, and the frame stream carries no pin. This keeps SOUND.DRV ignorant of packages' regions, the same shape §66.5.7.1 uses for a file read into a movable claim. W9's SPEC section fixes the mechanism |
+| D | The first colour format after mono | **CGA4 first, if it can be made to work; VGA8 after.** |
+
+**Wave 0 is started** (section 8). The owner supplied the IBM 5150 27-Oct-82
+ROM for the emulator, so W0 runs on the genuine ROM as well as the GLaBIOS
+twins. **The ROM image is the owner's and is never committed.**

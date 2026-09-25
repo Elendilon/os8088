@@ -9648,6 +9648,24 @@ $(BUILD)/pxsbench.bin: tests/pxsbench/pxsbench.asm tests/benchlib.inc apps/os88a
 $(BUILD)/pxsbench.o88: $(BUILD)/pxsbench.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/pxsbench.bin -o $@
 
+# ...and the Video Player's wave 0 (docs/plans/VIDEO-PLAN.md 8): a video
+# frame decoded three ways - XDC's own program, and the plan's operand lists
+# through tests/vidbench/vdec.inc native and translating - on each adapter,
+# in the mode the player would take. ON DEMAND ONLY and on no disk: its data
+# is built from XDC streams that are not in the tree, so tests/vidbench.py
+# makes VIDBENCH.DAT and a scratch floppy itself. `make vidbench` is the
+# package; `python3 tests/vidbench.py --samples DIR` is the run.
+.PHONY: vidbench
+vidbench: $(BUILD)/vidbench.o88
+
+$(BUILD)/vidbench.bin: tests/vidbench/vidbench.asm tests/vidbench/vdec.inc tests/benchlib.inc apps/os88api.inc tools/benchlint.py | $(BUILD)
+	python3 tools/benchlint.py tests/vidbench/vidbench.asm
+	$(NASM) -f bin -w+error -I apps/ -I tests/ -o $@ tests/vidbench/vidbench.asm
+	@echo "vidbench: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/vidbench.o88: $(BUILD)/vidbench.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/vidbench.bin -o $@
+
 # ...and the one that shows a FACE rather than timing one: it draws the same
 # sentence through the kernel, through face 0, and through both of the
 # library's compose loops, so a screendump is the whole assertion (SPEC.md 6.5).

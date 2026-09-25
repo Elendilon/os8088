@@ -8042,6 +8042,20 @@ SOAK = [
         "`make bench`; --machine picks the adapter",
         needs=("marty", "nasm"), serial=True, alone=True,
         wants=("build/bench360.img",)),
+    Row("vidbench", "soak", py("tests/vidbench.py"), 25.0,
+        "docs/plans/VIDEO-PLAN.md wave 0 (a)(d): what a video frame COSTS, "
+        "decoded as XDC's own program and as the plan's operand lists "
+        "(tests/vidbench/vdec.inc), to the screen, to a RAM shadow and "
+        "shadow-then-copy, on MartyPC's cycle-exact 5150. The assertion is "
+        "the PICTURE: every frame applied to black by both decoders must "
+        "match the host's checksum (tools/os88vid.py), and every row must "
+        "produce a number; the cycles go to docs/reports/ and are never "
+        "gated. Broken on purpose (a 3-byte store short by one) it FAILS "
+        "every frame holding a 3-byte change, naming each. SKIPS without "
+        "the XDC streams, which are the owner's and not in the tree: "
+        "--samples DIR or $OS88_XDC_SAMPLES. --machine picks the adapter",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/vidbench.o88",)),
     Row("mcperf", "soak", py("tests/mcperf.py"), 50.0,
         "SPEC.md 48.16.2: does Missile play the SAME GAME twice? A fixed"
         "seed, scripted shots and 400 frames back to back rather than one a"
