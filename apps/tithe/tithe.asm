@@ -1193,6 +1193,9 @@ ti_frame:
     call tg_tgt_track               ; (an armed ORDER's target follows it)
     call tg_note_off                ; (and a refusal's note is taken back)
     call tg_new_seen                ; (and a NEW card hovered is seen)
+    mov word [tg_pvm], -1           ; (and a preview's cells go back until
+    mov word [tg_pvr], -1           ; the pointer settles, 97.12.10.11)
+    call tg_pv_show
     mov byte [ti_hstat], 1          ; ...and the STATUS LINE is OWED, and is
                                     ; drawn the first frame the pointer stays
                                     ; put (SPEC.md 97.4.12.1): down a sweep it
@@ -1217,6 +1220,7 @@ ti_frame:
     je .credit
     mov byte [ti_hstat], 0
     call ti_hud_status
+    call tg_pv_show                 ; (the cells the line's hits land in)
 .credit:
     call tg_mullq                   ; THE MULLIGAN OFFER IS UP: the hand's
     jz .wheelon                     ; hover and nothing under the box, so

@@ -4444,6 +4444,15 @@ heading, as it arrives. Each line names the section it falls short of.
 **Planning (§6.3)** — gone through with the owner on 2026-09-25; each line
 carries the decision.
 
+**EVERY PLANNING LINE BELOW IS BUILT** (2026-09-25; SPEC.md §97.12.10.1 to
+§97.12.10.11, one section each) bar two things the owner allowed only where
+the budget has room, and both are LAYOUT questions left for them: the
+destination mark's hover inversion (an empty cell has no numbers to invert,
+so it would be a pose of its own) and the preview's ENLARGED FONT (the status
+line is one face tall; a taller strip costs the board rows, a box over the
+board stops the wheel under it). The list is kept as the record of what was
+asked and decided.
+
 - **Refusals are silent.** A card that cannot be afforded, a full column, a
   refused order or swap simply does nothing. §6.3 and SPEC.md §47 want the card
   greyed with the shortfall in its corner and the column button greyed when

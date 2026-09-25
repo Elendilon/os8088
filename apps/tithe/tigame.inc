@@ -938,6 +938,191 @@ tg_dest_cell:
     pop bx
     ret
 
+; -----------------------------------------------------------------------------
+; tg_preview - board cell AX, where a character stands, while a player plans:
+; WHAT IT WILL DO if the board stands as it is (SPEC.md 97.12.10.11), at DI -
+; `  <melee>3 ON ZEALOT  <bow>2 ON P2  <heal>2` - by the engine's own targeting
+; (tr_mtarget, tr_rtarget) on the planner's board, so it cannot disagree with
+; the resolution about anything the board already says. [tg_pvm]/[tg_pvr] =
+; the cells the two hits land in, -1 for none or a player. CF=1 when it does
+; nothing at all. Preserves every register bar DI.
+; -----------------------------------------------------------------------------
+tg_preview:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov word [tg_pvm], -1
+    mov word [tg_pvr], -1
+    mov byte [tg_pvn], 0
+    mov cl, TI_ROWS
+    div cl                          ; AL = the board column, AH = the lane
+    mov cl, ah
+    mov bl, al
+    xor bh, bh
+    mov al, [tg_bcol + bx]          ; side x 2 + column
+    mov ah, al
+    shr al, 1
+    and ah, 1
+    mov [tr_lr], cl
+    call tr_cell                    ; SI = the cell
+    mov dl, TI_KW_PIERCE            ; (what its hits carry, as tr_lane does)
+    call tr_kwc
+    jnc .pi
+    xor dh, dh
+.pi:
+    add dh, [si + CE_OPI]
+    mov [tr_hpierce], dh
+    or ah, ah                       ; --- MELEE, from the front --------------
+    jnz .rng
+    call tr_melee
+    or bl, bl
+    jz .rng
+    mov dl, bl
+    mov dh, TI_IC_MELEE
+    call tr_mtarget
+    call .hit
+    mov [tg_pvm], bx
+.rng:
+    call tr_ranged                  ; --- RANGED, by its stance --------------
+    or bl, bl
+    jz .heal
+    mov dl, bl
+    mov bh, [si + CE_ST]
+    call tr_rtarget
+    or ah, ah                       ; (THE REAR BONUS: our rear into their
+    jz .nb                          ; front)
+    or bl, bl
+    jnz .nb
+    inc dl
+.nb:
+    mov dh, TI_IC_BOW
+    call .hit
+    mov [tg_pvr], bx
+.heal:
+    push bx                         ; --- A HEALER's pool --------------------
+    call tr_blk
+    mov dl, [bx + TI_B_H]
+    pop bx
+    add dl, [si + CE_OH]
+    jz .end
+    mov ax, '  '
+    stosw
+    mov al, TI_IC_STAR
+    stosb
+    mov al, dl
+    call tg_num
+    inc byte [tg_pvn]
+.end:
+    cmp byte [tg_pvn], 1            ; (CF=1 when nothing was said)
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+; .hit - DH = the icon, DL = the damage, BL = the target's column (or
+; TR_PLAYER), BH = its lane, AL = our side: `  <icon>n ON <name>` at DI, and
+; BX = the target's board cell, or -1. Preserves every other register.
+.hit:
+    push ax
+    push cx
+    push si
+    push ax
+    mov ax, '  '
+    stosw
+    mov al, dh
+    stosb
+    mov al, dl
+    call tg_num
+    mov si, ti_s_pvon
+    call ti_poke
+    pop ax
+    inc byte [tg_pvn]
+    xor al, 1                       ; THEIR side
+    cmp bl, TR_PLAYER
+    jne .char
+    mov ah, 'P'                     ; ...a PLAYER
+    xchg al, ah
+    stosb
+    mov al, ah
+    add al, '1'
+    stosb
+    mov bx, -1
+    jmp short .hout
+.char:
+    mov ah, bl
+    mov cl, bh
+    push ax
+    call tr_cell
+    mov bl, [si + CE_CARD]          ; ...a CHARACTER, by name
+    xor bh, bh
+    shl bx, 1
+    mov si, [ti_cardname + bx]
+    call ti_poke
+    pop ax
+    shl al, 1                       ; ...and its board cell
+    add al, ah
+    mov bl, al
+    xor bh, bh
+    mov al, [tg_bcol + bx]
+    mov ah, TI_ROWS
+    mul ah
+    add al, cl
+    xor ah, ah
+    mov bx, ax
+.hout:
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; tg_pv_show - the cells a preview's hits land in, INVERTED (SPEC.md
+; 97.12.10.11): [tg_pvm]/[tg_pvr] become the pair on the glass, and a cell
+; that joins or leaves it has its numbers drawn again. The lock held.
+; Preserves every register.
+tg_pv_show:
+    push ax
+    push bx
+    mov ax, [tg_pvm]
+    mov bx, [tg_pvr]
+    cmp ax, [tg_pvd1]
+    jne .go
+    cmp bx, [tg_pvd2]
+    je .out
+.go:
+    push word [tg_pvd2]
+    push word [tg_pvd1]
+    mov [tg_pvd1], ax
+    mov [tg_pvd2], bx
+    call .one
+    mov ax, bx
+    call .one
+    pop ax
+    call .one
+    pop ax
+    call .one
+.out:
+    pop bx
+    pop ax
+    ret
+.one:                               ; cell AX's numbers, as they stand now
+    cmp ax, -1                      ; (AX AND BX KEPT: ti_cell_xy answers in
+    je .oret                        ; both, and the next cell is in BX)
+    push ax
+    push bx
+    push word [ti_ci]
+    mov [ti_ci], ax
+    call ti_cell_xy
+    call ti_cellnum
+    call tm_run
+    pop word [ti_ci]
+    pop bx
+    pop ax
+.oret:
+    ret
+
 ; tg_note - SI = a sentence: the status line says it until the pointer moves
 ; (SPEC.md 97.12.10.3), the way a pending action's question is said. A window
 ; callback, the lock held. Preserves every register.
@@ -2250,6 +2435,10 @@ tg_idle:
     mov word [tg_sel], -1
     mov byte [tg_arm], 0FFh
     mov word [tg_tgt], -1
+    mov word [tg_pvm], -1           ; (and no preview's cells)
+    mov word [tg_pvr], -1
+    mov word [tg_pvd1], -1
+    mov word [tg_pvd2], -1
     mov word [tg_prompt], 0
     mov byte [ti_note], 0
     mov byte [tg_cconf], 0
@@ -4145,6 +4334,7 @@ ti_s_nswap2: db 'THOSE TWO CANNOT SWAP', 0
 ti_s_nord:  db 'THAT ORDER CANNOT GO THERE', 0
 ti_s_cconf: db 'NOTHING PLANNED - COMMIT AGAIN TO PASS', 0
 ti_s_income: db 'INCOME ', 0
+ti_s_pvon:  db ' ON ', 0
 ti_s_mdone: db 'A NEW HAND - THE OLD ONE IS SHUFFLED BACK IN', 0
 ti_s_drew:  db '  DREW ', 0
 ti_s_hfull: db '  HAND FULL - ', 0
@@ -4170,6 +4360,11 @@ tg_ph:      db 0                    ; TG_PH_*
 tg_fillq:   db 0                    ; the tests' full board, asked for
 tg_mull:    db 0, 0                 ; each side's MULLIGAN still offered
 tg_dsync:   db 0                    ; the destination mark may have moved
+tg_pvm:     dw -1                   ; a PREVIEW's melee and ranged target cells
+tg_pvr:     dw -1
+tg_pvd1:    dw -1                   ; ...and the pair inverted on the glass
+tg_pvd2:    dw -1
+tg_pvn:     db 0                    ; ...and what it said
 tg_tseed:   dw 0, 0                 ; ...and mode 3's two seeds
 tg_side:    db 0                    ; who is planning
 tg_rnd:     db 0

@@ -1178,6 +1178,8 @@ ti_status:
     push es                         ; THE LINE IS BUILT IN OUR SEGMENT, whatever
     push ds                         ; ES the caller composes the band through
     pop es                          ; (the scratch part's, 97.8)
+    mov word [tg_pvm], -1           ; (no preview unless a character's line
+    mov word [tg_pvr], -1           ; below says one, 97.12.10.11)
     mov si, [tg_prompt]             ; A PENDING ACTION'S QUESTION outranks the
     or si, si                       ; pointer: an armed order, a swap's first
     jz .ask                         ; end (tigame.inc)
@@ -1241,10 +1243,19 @@ ti_status:
     push si
     mov si, [si + TI_C_NAME]
     call ti_poke
+    pop si
+    cmp byte [tg_ph], TG_PH_PLAN    ; WHILE A PLAYER PLANS the line says what
+    jne .power                      ; the character WILL DO, by the engine's
+    mov ax, [ti_hovc]               ; own targeting (SPEC.md 97.12.10.11) -
+    call tg_preview                 ; and its ability is the full card's to
+    jc .power                       ; say (97.12.10.8)
+    mov byte [di], 0
+    mov si, ti_hudbuf
+    jmp .out
+.power:
     mov al, ' '
     stosb
     stosb
-    pop si
     mov al, TI_IC_SOUL
     stosb
     mov al, [si + TI_C_PWR]
@@ -1659,7 +1670,11 @@ ti_cellnum:
     cmp ax, [tg_sel]                ; INVERTED until the second is chosen
     je .invert                      ; (tigame.inc) - and so is an armed
     cmp ax, [tg_tgt]                ; ORDER's target under the pointer
-    jne .blit                       ; (SPEC.md 97.12.10.2)
+    je .invert                      ; (SPEC.md 97.12.10.2) - and so are the
+    cmp ax, [tg_pvd1]               ; cells a hovered character's hits land
+    je .invert                      ; in (97.12.10.11)
+    cmp ax, [tg_pvd2]
+    jne .blit
 .invert:
     mov ax, [ti_nh]
     mul word [ti_nbs]

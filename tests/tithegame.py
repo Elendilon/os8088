@@ -72,9 +72,10 @@ SYMS = ("tg_fillq", "tg_tseed", "tg_plan0", "tg_plan1", "ti_cards",
         "ti_s_nsoul", "TI_C_COST", "tg_frz", "ti_s_cconf", "tg_incbuf", "tg_newslot",
         "ti_rv_trail", "ti_card_fadein", "tg_fcard", "ti_fwseg", "ti_fwx",
         "ti_fwy", "ti_fwh", "ti_fwcard", "tg_mull", "ti_mbup", "ti_mbx",
-        "ti_mby", "ti_mbseg", "tg_cart", "tg_dsync",
+        "ti_mby", "ti_mbseg", "tg_cart", "tg_dsync", "tg_pvd1", "tg_pvd2",
+        "tr_cells", "ti_hudbuf",
         "TI_C_SIZE", "TI_C_CARD", "TI_C_HP", "TI_HAND")
-EQUS = ("TI_C_SIZE", "TI_C_CARD", "TI_C_HP", "TI_HAND", "TI_C_FI1",
+EQUS = ("tr_cells", "ti_hudbuf", "TI_C_SIZE", "TI_C_CARD", "TI_C_HP", "TI_HAND", "TI_C_FI1",
         "TI_C_RI1", "ti_s_ngold", "ti_s_nsoul", "TI_C_COST", "tg_frz", "ti_s_cconf", "tg_incbuf", "ti_rv_trail",
         "ti_card_fadein")
 BCOL = (1, 0, 2, 3)     # side x 2 + column -> the board's column (tg_bcol)
@@ -495,6 +496,72 @@ def run(mach, off):
               "...and a key takes it away: the claim freed and the glass "
               "EXACTLY what it covered", "up %d seg %04x, %d px, first %s" % (
                   rb("tg_fcard"), rw("ti_fwseg"), len(d), d[:4]))
+
+        # A HOVERED CHARACTER SAYS WHAT IT WILL DO (SPEC.md 97.12.10.11), on
+        # the tests' FULL board: the engine's cells copied into a simulator
+        # match, and every character's inverted cells and its line against
+        # the simulator's own targeting - both sides', P1 planning
+        m.write(seg * 16 + off["tg_fillq"], bytes([1]))
+        os88marty.until(m, lambda _: rb("tg_fillq") == 0, "the full board",
+                        poll=0.2, limit=60.0)
+        settle(1.0)
+        fb = sim_match()
+        raw = m.readseg(seg, off["tr_cells"], 20 * 20)
+        names = {c.id: c.name.upper() for c in duelsim.cards()}
+        for i in range(20):
+            e = raw[i * 20:i * 20 + 20]
+            side, rest = divmod(i, 10)
+            col, lane = divmod(rest, 5)
+            c = fb.sides[side].cells[col][lane]
+            (c.card, c.inst, c.hp, c.sh, c.st, c.bm, c.br, c.mark, c.kk,
+             c.om, c.orr, c.os, c.og, c.oh, c.opi, c.osc, c.owd, c.used) = \
+                tuple(e[:18])
+
+        def bcell(side, col, lane):
+            return BCOL[side * 2 + col] * duelsim.LANES + lane
+
+        def want_pv(side, col, lane):
+            cell = fb.sides[side].cells[col][lane]
+            pierce = (duelsim.kw(cell, col, duelsim.K["PIERCE"]) or 0) + cell.opi
+            out, words = [0xFFFF, 0xFFFF], []
+            for k, dmg, t in (
+                    (0, col == duelsim.FRONT and fb.melee(side, col, lane),
+                     lambda: fb.melee_target(1 - side, lane)),
+                    (1, fb.ranged(side, col, lane),
+                     lambda: fb.ranged_target(1 - side, lane, cell.st, pierce))):
+                if dmg:
+                    tt = t()
+                    if tt:
+                        out[k] = bcell(1 - side, *tt)
+                        tc = fb.sides[1 - side].cells[tt[0]][tt[1]].card
+                        words.append("ON " + names[tc])
+                    else:
+                        words.append("ON P%d" % (2 - side))
+            return tuple(out), words
+
+        bad, n_cell = [], 0
+        for side in (0, 1):
+            for col in (0, 1):
+                for lane in range(duelsim.LANES):
+                    if fb.sides[side].cells[col][lane].card == duelsim.EMPTY:
+                        continue
+                    bc = bcell(side, col, lane)
+                    mo.to(*fig(bc // duelsim.LANES, lane))
+                    os88marty.guest_sleep(m, 1.2)
+                    got = (rw("tg_pvd1"), rw("tg_pvd2"))
+                    line = bytes(m.readseg(seg, off["ti_hudbuf"], 64)) \
+                        .split(b"\0")[0].decode("latin-1")
+                    want, words = want_pv(side, col, lane)
+                    n_cell += sum(1 for w in want if w != 0xFFFF)
+                    if got != want or any(w not in line for w in words):
+                        bad.append("cell %d: %s %r against %s %s" % (
+                            bc, got, line, want, words))
+        settle(0.8)
+        check(not bad and n_cell >= 8 and (rw("tg_pvd1"), rw("tg_pvd2")) ==
+              (0xFFFF, 0xFFFF), "a hovered character's line and inverted "
+              "cells are the simulator's targeting, both sides', and go back "
+              "when the pointer leaves", "%s (%d cells aimed at)" % (
+                  bad[:3], n_cell))
 
         # 8. THE MULLIGAN (SPEC.md 97.12.10.9): a fresh deal of the same seeds,
         # and the offer a real match makes at P1's first turn. Nothing else

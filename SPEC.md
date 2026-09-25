@@ -147450,3 +147450,31 @@ and a turn start move it through the syncs they already run.
 **The hover inversion is not built.** The owner allowed it if the budget has
 room; a cell's inversion is its numbers (§97.12.10.2), and an empty cell has
 none, so it would be a composed pose of its own a hover would have to build.
+
+##### 97.12.10.11 A hovered character says what it WILL DO
+
+**While a player plans, the pointer resting on any character on the board**
+- theirs, or the other side's on the frozen board - puts on the status line
+what it will do if the board stands as it is: its name, then
+`<melee>3 ON ZEALOT`, `<bow>2 ON P2`, `<heal>2`, whichever it has
+(`tg_preview`). The targets are the ENGINE'S: `tr_mtarget` and `tr_rtarget`
+with the character's PIERCE and stance, run on the planner's board, and the
+damage is `tr_melee`/`tr_ranged` with the rear bonus - so the preview cannot
+disagree with the resolution about anything the board already says. What it
+cannot know is the other plan: an opponent's play, swap or order lands after
+it, which is the game (§6.3). A character that does nothing keeps the old
+line, its power and its ability; the ability of one that does is the full
+card's to say (§97.12.10.8).
+
+**The cells its hits land in have their numbers INVERTED**, the armed order's
+look (§97.12.10.2), for as long as the pointer rests there (`tg_pv_show`):
+set when the status line is drawn, the first frame the pointer stays put
+(§97.4.12.1), and put back the frame it moves - so a sweep across the board
+costs no cell a frame.
+
+**THE ENLARGED FONT IS NOT BUILT.** The owner asked for it where the budget
+allows, and the status line is a strip one face tall inside the HUD: a larger
+face needs either a taller strip, which comes out of the board's rows on every
+adapter, or a box over the board, which - like the full card - stops the
+wheel under it while it is up. Both are a layout decision rather than a
+drawing one, and are the owner's.
