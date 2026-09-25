@@ -22938,6 +22938,28 @@ in one word store, which is why they are declared adjacent). §9.6.4's keypad-5
 note is the same shape: when a rung has a byte of slack, trimming the feature
 cannot avoid the step, and only *not crossing at all* can.
 
+#### 12.8.3.1 A stopped floppy motor counts as warm
+
+`FPG_WARM` counts SECTORS so that a one-sector probe, over inside a displayed
+frame, does not flash the widget on and off. On a floppy whose motor has
+stopped that one sector is not over inside a frame. The BIOS must spin the
+drive up first, and an AT-class ROM waits the diskette parameter table's
+byte 10 for it: 8 eighths, one second, on the 286 it was reported from. A
+mount's first transfer is the one-sector boot read, so every drive switch
+opened with a second in which nothing was drawn, no busy pointer, no widget
+and no drive light. The widget arrived with the next, multi-sector read,
+after the wait it was for.
+
+`dsk_xfer` now asks `dsk_media_ok` before it calls `fpg_busy`. The answer
+CF=1 means precisely "this floppy's motor is not turning" (a fixed disk and
+a driver volume answer CF=0), so the call is reported as `FPG_WARM` sectors
+and the chrome and the busy pointer go up before the spin-up rather than
+after it. The test is §18.9.1's own: the BIOS's motor-off countdown at
+`0040:0040` and the drive's bit in `0040:003F`. The XT and 5150 ROMs do not
+wait for a spin-up on a READ, which is why no MartyPC profile shows the dark
+second. It changes when the widget appears and nothing about what it
+reports. It is left out of `kern_dos`, whose `fpg_busy` is a stub.
+
 #### 12.8.4 An unlocked painter and the mouse ISR are TWO PAINTERS
 
 §12.8.3 closed the case where *another task* owns the drawing mutex. It left

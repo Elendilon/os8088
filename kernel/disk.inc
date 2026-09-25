@@ -1153,6 +1153,21 @@ dsk_xfer:
 
 
 
+%ifndef KD_BUILD                ; (kern_dos's fpg_busy is a stub: nothing to arm)
+    push cx                     ; **A STOPPED FLOPPY MOTOR IS WARM ALREADY**
+    push dx                     ; (SPEC.md 12.8.3.1). The first transfer of a
+    mov dl, [disk_drive]        ; mount is the one-sector boot read, and it is
+    call dsk_media_ok           ; the one that carries the SPIN-UP - an AT
+    jnc .warm                   ; BIOS waits DPT byte 10 for it, one second on
+    mov cx, FPG_WARM            ; a 286 - so FPG_WARM's sector count put the
+.warm:                          ; widget and the busy pointer up only AFTER the
+    pop dx                      ; second the machine sat dark. dsk_media_ok's
+                                ; CF=1 is exactly "this floppy's motor is not
+                                ; turning" (a fixed disk and a driver volume
+                                ; answer CF=0), so it is asked here as it is
+                                ; asked for the media question; CX goes back
+                                ; below, fpg_busy preserving it
+%endif
     call KERNEL_SEG:fpg_busy    ; **EVERY SECTOR IN THE MACHINE PASSES HERE,
                                 ; SO THIS IS WHERE THE PROGRESS WIDGET IS PUT
                                 ; UP** (SPEC.md 12.8.3). CX is what this call
@@ -1173,6 +1188,9 @@ dsk_xfer:
                                 ; that draw must not land inside the window
                                 ; where ES:BX is pinned and switching is off.
                                 ; Every register and the flags are preserved
+%ifndef KD_BUILD
+    pop cx                      ; the transfer's own count again
+%endif
 
     inc byte [sch_lock]         ; pause task switching across all int 13h
 %ifdef OS88_COMPACT             ; ...and kern_small pins nothing, because
