@@ -54,6 +54,8 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 os.chdir(ROOT)
 import os88marty, os88mouse, os88sym, dispcp                      # noqa: E402
+from os88pkg import PKG_FMT                                       # noqa: E402
+from os88drv import DRV_VER                                       # noqa: E402
 
 GUEST_HZ = 4772728.0
 RATE_NAME = {0: "5,500 (XT mode's own)", 1: "4,000", 2: "11,000"}
@@ -134,9 +136,9 @@ def scan(m):
             continue
         ver, sz = buf[o + 2], int.from_bytes(buf[o + 8:o + 10], "little")
         name = buf[o + 16:o + 32].split(b"\0")[0].decode("latin1").strip()
-        if ver == 3 and name == "TRACKER":
+        if ver == PKG_FMT and name == "TRACKER":
             seg = (0x40000 + o) >> 4
-        elif ver == 4:
+        elif ver == DRV_VER:
             drv.append((name, (0x40000 + o) >> 4, sz))
     return seg, drv
 

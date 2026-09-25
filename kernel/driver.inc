@@ -236,7 +236,7 @@ DRVE_NERR   equ 8               ; how many strings drv_errstr has
 
 ; --- .drv header: the .o88 header's shape with a different version -----------
 DRV_H_MAGIC equ 0               ; word: 0x384F ('O','8')
-DRV_H_VER   equ 2               ; byte: 4 = driver (a package is 3)
+DRV_H_VER   equ 2               ; byte: DRV_VER = driver (a package is PKG_FMT)
 DRV_H_CLASS equ 3               ; byte: DRVC_*
 DRV_H_LINK  equ 4               ; word: 0 (org 0, like every v3 package)
 DRV_H_ENTRY equ 6               ; word: entry offset
@@ -285,7 +285,10 @@ DRV_H_BSSP  equ 31              ; byte: THE BSS SIZE IN PARAGRAPHS
                                 ; cover the bss, which for the shipped set is
                                 ; four drivers and none of them at boot
 DRV_HDR_SZ  equ 0x20
-DRV_VER     equ 4
+DRV_VER     equ 7               ; 4 until the API table moved (SPEC.md
+                                ; 20.2.0): a driver far-calls the table too.
+                                ; Mirrored in drivers/os88drv.inc and
+                                ; tools/os88drv.py
 DRV_MAX_KB  equ 40              ; the biggest driver image we will claim
 DRV_BLOB_SZ equ 34              ; a driver's own settings, carried in
                                 ; SYSTEM.CFG (SPEC.md 51.9). 34 bytes is what

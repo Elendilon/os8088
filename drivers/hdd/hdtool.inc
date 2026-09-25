@@ -257,7 +257,7 @@ hd_tool_check:
     push ax
     cmp word [es:0], 0x384F     ; 'O8'
     jne .no
-    cmp byte [es:2], 4          ; a driver-shaped image, so the application
+    cmp byte [es:2], DRV_VER    ; a driver-shaped image, so the application
     jne .no                     ; loader refuses it too (SPEC.md 51.1)
     cmp word [es:4], 0          ; link base: org 0, like every package
     jne .no

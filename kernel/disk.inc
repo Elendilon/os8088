@@ -3206,7 +3206,7 @@ disk_mount_x:
     call dsk_copy_in_x
     cmp word [dsk_ent+0], 0x384F    ; .o88 magic 'O','8'
     jne .h_zero
-    cmp byte [dsk_ent+2], 3         ; format version (SPEC.md 20.2)
+    cmp byte [dsk_ent+2], PKG_FMT   ; format version (SPEC.md 20.2.0)
     jne .h_zero
     mov al, [dsk_ent+3]             ; BANK the header flags here. dsk_get_dir
 %ifdef OS88_ASSOC

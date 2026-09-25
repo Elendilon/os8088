@@ -77,6 +77,9 @@ import hashlib
 import struct
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from os88pkg import PKG_FMT       # noqa: E402 - the format byte (SPEC.md 20.2.0)
+
 SECTOR = 512
 def _listing_cap():
     """DSK_NENT, READ OUT OF THE KERNEL rather than restated here.
@@ -214,9 +217,9 @@ def validate_o88(path: str) -> bytes:
     magic, = struct.unpack_from("<H", data, 0)
     if magic != 0x384F:
         fail(f"{path}: bad magic 0x{magic:04X} (not a .o88 package)")
-    if data[2] != 3:
-        fail(f"{path}: format version {data[2]}; this is the v3 toolchain "
-             "(rebuild the package)")
+    if data[2] != PKG_FMT:
+        fail(f"{path}: format version {data[2]}; this toolchain writes "
+             f"{PKG_FMT} (rebuild the package, SPEC.md 20.2.0)")
     parts = bool(data[3] & 4)          # flags bit 2 (SPEC.md 20.12)
     if len(data) > 0xFFFF and not parts:
         fail(f"{path}: {len(data)} bytes overflows the 16-bit size field")
@@ -407,7 +410,7 @@ def build_assoc(groups):
         for name11, body, _ in groups[key]:
             if name11[8:11] != b"O88":
                 continue
-            if len(body) < 32 or body[0:2] != b"O8" or body[2] != 3:
+            if len(body) < 32 or body[0:2] != b"O8" or body[2] != PKG_FMT:
                 continue
             flags = body[3]
             icon = body[32:96] if flags & 1 and len(body) >= 96 else bytes(64)
