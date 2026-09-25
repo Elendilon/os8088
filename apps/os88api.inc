@@ -1084,7 +1084,7 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ; which is what the kernel bounds the part's
                                  ; image + bss against.
                                  ; THE PART IS A WHOLE .O88 IMAGE: magic,
-                                 ; version 3, link 0 and the three-byte
+                                 ; PKG_FMT, link 0 and the three-byte
                                  ; dispatcher, its own name and icon, its own
                                  ; entry offset. The kernel does NOT zero its
                                  ; bss - the bss ships inside the part, which

@@ -4885,7 +4885,7 @@ api_file_path:
 ; user can neither see nor delete". That is a statement about PACKAGES, and
 ; it still holds - the fence below refuses one. A DRIVER is the other species
 ; (SPEC.md 51): drv_tab is a fixed kernel-side table of known files, a .DRV
-; carries header version 4 which ld_check_hdr refuses for an application, and
+; carries header version DRV_VER which ld_check_hdr refuses for an application, and
 ; disk_mount types only *.O88 as launchable - so the set of things that can
 ; ever be a driver is decided when this kernel is built and a user cannot add
 ; to it. That is a real boundary rather than an honour system, which is why

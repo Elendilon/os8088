@@ -2884,7 +2884,7 @@ drv_load_row:
 ; (loader.inc, .cold, so the call is near), because SPEC.md 51.1 defines a
 ; driver header as a package header with a different version byte and these
 ; offsets are identical by construction. What stays here is what is a
-; DRIVER's: version 4 instead of 3 is the argument, and the row's own class,
+; DRIVER's: DRV_VER instead of PKG_FMT is the argument, and the row's own class,
 ; the image-is-the-file rule and the entry bound are the rest.
 ;
 ; SI is the header cursor the shared body wants, and it is zero throughout -
