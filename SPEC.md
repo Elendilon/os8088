@@ -4668,33 +4668,44 @@ bands (§93.5.19) on `os8088_xt_vga`, cycles for the whole call:
 block was four to five times a one-plane one, and the price of a colour was a
 price per ROW; it is now about the same fixed cost again plus an eighth.
 
-**A block needs nothing decided per row when three things hold**, and the
+**A block needs nothing decided per row when two things hold**, and the
 fast path is taken exactly then:
 
 - **no right-edge mask** (`[vga_pr_rm]` = `FFh`): the width is a multiple of
   8, so no byte is a latch read. The LEFT edge never is — an unaligned x is a
   refusal (§5.4.3).
 - **every row on the screen** in y — so no row is skipped, which is the one
-  thing `.row` decides for itself.
-- **one bank** (`[vid_bmask]` = 0): rows are `[vid_stride]` apart. Every
-  planar surface here is — mode 12h and §39.24's 640 x 350 — and a banked one
-  is a 1bpp adapter this routine has already refused; the test costs four
-  bytes and keeps the arithmetic honest if that ever changes.
+  thing `.row` decides for itself. It is asked as one subtraction:
+  `[vid_ch]` less y is the rows there are room for, zero or a borrow when y
+  is off either edge, and the block has to fit in it.
+
+**One bank is not a third test, because it is already true**: rows are
+`[vid_stride]` apart on every planar surface here — mode 12h and §39.24's
+640 x 350 — and the only surfaces with more than one bank (`[vid_bmask]`) are
+CGA and Hercules, which this routine refuses as 1bpp before it gets this far.
+It was a test in the first build, seven bytes to keep an arithmetic honest
+that the refusal above it already keeps.
 
 Then each plane is **one** Map Mask `out` and a `rep movsb` a row, with the
 source and framebuffer pointers stepped by an add: `gfx_rowbase` is asked
 once for the block's first row, and its calc path's `CL`/`DX` clobber
-(§5.4.3.1) is banked round that one call. Set/Reset is off and the Bit Mask
+(§5.4.3.1) costs one push: the row count has moved out of `DX` before the
+call, so only the byte column in `CX` is banked. The block's first
+framebuffer byte lives on the stack, a `pop di`/`push di` a plane rather than
+a store and a reload through `ss:`. Set/Reset is off and the Bit Mask
 open, which `vga_gc_reset` has already done for the whole call, and the
 teardown is the one the row loop ends in — Map Mask back to `0Fh`.
 
 **Anything else takes the row loop exactly as before**: a masked right edge,
-a block hanging off the top or bottom, a banked surface. Nothing about the
+a block hanging off the top or bottom. Nothing about the
 refusals moves — the fast path is entered after every guard, the display
 hook and the depth test, so a refusal is decided on precisely the path it
 always was.
 
-**+131 bytes of `.text`, `kern_big` only** — `gfx_blitp` is `stc`/`ret` on
+**+110 bytes of `.text`, `kern_big` only** — 131 as first built; the guard
+as one subtraction, the bank test gone, one push where there were two and
+the first byte on the stack took 21 off it, every one of them the same
+number of cycles or fewer — `gfx_blitp` is `stc`/`ret` on
 `kern_small` (`GFX_PLANE`). Resident, and spent for a single reason: the
 colour it buys DOT DELIRIUM (§93.5.19) was unaffordable at the old row price
 and is free at the new one. Every other caller whose blocks qualify — Paint's
@@ -130591,7 +130602,7 @@ own.
 
 **So the row went, not the band**: §5.4.3.5 copies a block that has nothing to
 decide per row plane-major, one Map Mask a plane and a `rep movsb` a row —
-+131 bytes of `kern_big` `.text` — and a planar actor band is then ~8,500
++110 bytes of `kern_big` `.text` (131 as first built) — and a planar actor band is then ~8,500
 cycles windowed and ~13,000 fullscreen against `gfx_blit1`'s ~6,000 and
 ~7,300. What that buys, the same kernel under both, ten eight-second windows
 of steered play each (rendered frames against the game's own tick counter):
