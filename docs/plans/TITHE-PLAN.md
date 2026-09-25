@@ -1939,10 +1939,10 @@ to be forgotten: **a shielded front character protects the character behind it
 from arrows, and an unshielded one does not.**
 
 **Setting a stance is free and unlimited** during your turn (§6.3). **SNIPE is
-greyed** on a character whose lane is currently walled — §47's rule, and the
-wall is a *fact* rather than a guess, so it greys rather than failing silently.
-Greying it does not make it unsettable later: a stance already set survives the
-lane being walled and falls back per rule 3.
+never greyed**, even on a lane the frozen board shows walled: the owner's
+ruling (§16.4) is that the frozen board is not a fact about the round, because
+the wall can go up after you plan or come down after it. A SNIPE into a lane
+walled at resolution falls back per rule 3.
 
 ### 5.5 HEALING — a pool down a fixed chain, fired on the healer's own lane
 
@@ -2388,12 +2388,15 @@ The counter reads **SWAPS 2/2** and counts down. **A swap enters your plan
 immediately** and your own half of the board shows it.
 
 **Stance.** A ranged character wears a small arrow badge — forward for FRONT,
-angled for SNIPE. Clicking it toggles. It is greyed while the lane is walled
-**as the frozen board shows it** (§5.4) — and that greying is advice rather than
-a guarantee, because your opponent is planning too.
+angled for SNIPE. Clicking it toggles. It is **not** greyed on a lane the
+frozen board shows walled (§5.4, §16.4): your opponent is planning too, so that
+wall may not be there when the shot is fired, and one that is makes the shot
+fall back to FRONT.
 
-**Playing an ORDER.** Pick the card, then pick the character it goes on — yours
-or, where a card says so, theirs (§5.9.1). The target highlights and the preview
+**Playing an ORDER.** Pick the card, then pick the character it goes on — always
+one of **yours** (the owner's ruling, §16.4: no card targets the opponent's, so
+no card has to say so). The card stays selected until it is placed, clicking it
+again lets it go, and the target highlights under the mouse and the preview
 says what its action becomes. The order is spent in the round you commit it,
 which the card says in as many words, because *"this round"* and *"next round"*
 are the one thing a card of this kind can be misread about.
@@ -4434,33 +4437,63 @@ be short of the design above, so that a gap reads as a gap and not as a
 decision. **The owner's playtest feedback is added here too**, under its own
 heading, as it arrives. Each line names the section it falls short of.
 
-**Planning (§6.3)**
+**Planning (§6.3)** — gone through with the owner on 2026-09-25; each line
+carries the decision.
 
 - **Refusals are silent.** A card that cannot be afforded, a full column, a
   refused order or swap simply does nothing. §6.3 and SPEC.md §47 want the card
   greyed with the shortfall in its corner and the column button greyed when
-  full.
-- **No destination preview.** §6.3's "the destination cell highlights before
-  you commit, and the stat block and pose that will be live there are shown"
-  is not built; nor is the hover preview of what a character will DO this
-  round (its action, a healer's chain).
-- **The stance badge is never greyed** when its lane is walled on the frozen
-  board (§5.4, §6.3).
-- **An order names only the planner's own characters.** `tr_order` searches
-  one side; §5.9.1's "or theirs, where a card says so" needs an engine change
-  and a card that says so.
+  full. *Owner: agreed, needed.*
+- **No destination preview, and no preview of what a character will DO.**
+  *Owner: both wanted, in two different shapes.* The destination cell is
+  already chosen by the FRONT/REAR toggle and does not move, so it wants a
+  **static** marker rather than a hover effect — an inversion of the marker on
+  hover only if the draw budget has room. The hover preview of a character's
+  action this round (its target, a healer's chain) is wanted **in an enlarged
+  font**, again if the budget allows.
+- ~~The stance badge is never greyed when its lane is walled.~~ **Owner:
+  REFUSED — it must not grey.** The wall can go up after this player plans,
+  or come down after, so the frozen board is not a fact about the round; a
+  SNIPE into a lane that is walled at resolution falls back per §5.4 rule 3
+  and hits the wall, at no rear bonus. §5.4's last paragraph and §6.3's
+  stance paragraph are corrected to match.
+- **An order names only the planner's own characters — and that is now the
+  RULE**, not a gap. *Owner:* orders go on your own characters only; a future
+  tutorial says so once, and no card has to. §5.9.1's *"or theirs, where a
+  card says so"* is withdrawn. **Two interface changes come with it**: an
+  armed order stays visibly SELECTED until it is placed, and clicking it
+  again releases it (the release is built; the selected look is not); and
+  while it is armed, the character under the mouse is shown SELECTED as a
+  target until the click.
 - **No right-click full card** (`OSAPI_WM_ONRCLICK`, §6.3's Inspect).
-- **No CONCEDE.**
-- **COMMIT does not confirm** when gold or souls are left unspent.
+  *Owner: an excellent idea* — the whole card at full text resolution. The
+  condition is the repair: closing it has to put the board back without a
+  stall, which is the same problem §97.4.8.2's toggle solved by posting the
+  work and slicing it over frames.
+- **No CONCEDE.** *Owner: wanted.* With a VIEW LOG button also owed (the
+  round list below), the HUD is running out of room for buttons — a place for
+  both has to be found.
+- ~~COMMIT does not confirm when gold or souls are left unspent.~~ **Owner:
+  REFUSED as written.** Banking gold or souls, or having nothing to spend them
+  on, is ordinary play, and a question there blocks a normal action. If any
+  confirmation exists it asks the narrower question — *"you did nothing at
+  all, and you could have; commit anyway?"*
 - **No MULLIGAN offer** at match start (§6.1). The engine has `tr_mulligan`;
-  there is no screen that asks.
+  there is no screen that asks. *Owner: agreed, it was in the plan.*
 - **The plan list does not scroll.** A plan longer than the box is unreachable
   past its last row — ~9 rows on CGA, ~21 on Hercules, 16 actions a plan.
+  *Owner:* the LOG VIEWER needs the same thing, to show the whole of the last
+  round.
 - **Upkeep is invisible**: the card drawn, the income, and §6.2's over-limit
-  discard toast are not shown; the next planner just finds them.
-- **Undo, swaps and stance changes do not animate** — an undone play's
-  character vanishes and its card reappears; §16.2 item 7 owes the reveal's
-  reverse, and a swap and a stance change their own smaller ones.
+  discard toast are not shown; the next planner just finds them. *Owner:*
+  drawing in general needs work, and **the income is critical** — it has to be
+  shown.
+- **Undo, swaps and stance changes do not animate.** *Owner:* an undo can
+  FADE. A swap wants whatever the budget allows — a proposal is owed. And
+  **the stance was never found at all**: the badge is the fourth glyph of the
+  first row of numbers and nothing says it is a control, so the owner has
+  never changed one. A stance wants to be SEEN on the board — a line or mark
+  under the character — and to be easy to change.
 
 **The round (§6.4, §6.5)**
 

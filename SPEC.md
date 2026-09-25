@@ -147036,8 +147036,8 @@ The COMMIT does not yet **confirm when resources are unspent** (TITHE-PLAN
 log is the round's own — shown while it is fought and gone with the pass
 screen, where §6.3's *read the log* is a panel a planner can open. An order
 names only **one's own** characters, which is the engine's rule today
-(`tr_order`); TITHE-PLAN §5.9.1's "or theirs, where a card says so" has no card
-that says so yet. And the opponent's plan **arrives at once** without an
+(`tr_order`), and that is now the RULE rather than a gap — TITHE-PLAN §16.4
+records the owner's ruling that no order targets the opponent's characters. And the opponent's plan **arrives at once** without an
 animation of its own — no card played, no swap moved — which is §6.4's to
 dress.
 
