@@ -141587,11 +141587,11 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 
 | key | |
 |---|---|
-| `F` | fullscreen on/off — `wm_fullscreen` (§11.2), a real window. On VGA and Hercules the hand goes along the bottom (§97.4.12); on CGA it stays a strip |
+| `F` or `Alt+Enter` | fullscreen on/off — `wm_fullscreen` (§11.2), a real window. On VGA and Hercules the hand goes along the bottom (§97.4.12); on CGA it stays a strip. Alt+Enter is §11.2.1.1's, armed in the entry proc (`OS88_ALTENTER_ARM`) |
 | `C` | a melee clash in one lane's front line (§97.4.7) |
 | `V` | play a card — the REVEAL (§97.4.11): the hovered card, else the first left in the hand, into the planner's topmost empty cell of the column the FRONT/REAR toggle names (§97.12.2). Keys, clicks and the toggle are ignored for the half second a reveal runs |
 | `U` / `L` / `Enter` | the round loop's: UNDO the last action, the plan LIST, COMMIT (§97.12.4) |
-| *click a card* | play THAT card, the same way — which is what a player does, and the card that dissolves out is then the HOVERED one, expanded and in its own polarity |
+| *click a card* | play THAT card, the same way — which is what a player does, and the card that dissolves out is then the HOVERED one, in its flipped polarity (§97.4.12.1) |
 | `G` | step the BOARD — THE MARCH and THE CLOISTER (§97.4.10). A relayout, so the strips and all eighty poses are re-composed. It also picks the board's RESOLUTION (§97.10.7) for the next `R` |
 | `A` | sustained projectile fire down a lane (§97.4.5): one bolt a side, crossing — the resolution's worst ranged case, and sustained because the number wave 1a wants is the COMBAT frame's and one bolt is a photograph |
 | `B` | step the BASE, naming its FACTION in the HUD (§97.2.1). One per faction is now chosen — the rampart for THE BULWARK, the pyre and its skull for THE EMBER CHOIR, the cathedral for THE COVENANT — so this is for looking at them, not for picking |
@@ -141601,7 +141601,7 @@ Wave 1a is driven by keys rather than by rules, and these are they:
 | `T` | the next BATTLE STATE — normal, pressed, ascendant (§97.10.8), named in the title. The lead turns at the next pattern boundary; during a fake round, at the hand-back |
 | `R` | a fake ROUND: the resolution cuts into whatever is playing; `R` again ends it — its tail at the next bar, then the theme back at the row it was cut at |
 | `S` | the ONE-VOICE arm where FM is there: the lead alone through `OSAPI_SND_TONE`, the song restarting on it — so the speaker's version can be heard on a machine with a card. Where a sound driver holds the tone route (§34.8) that voice is the card's channel 8 rather than the speaker itself |
-| `Esc` | leave fullscreen, else close |
+| `Esc` | leave fullscreen; windowed, nothing (§11.2.1's escape hatch). This row said *"else close"* and neither half was built until the owner found Esc dead in fullscreen - closing is the close box's |
 
 **THE DEMO WAS CUT TO WHAT THE GAME WILL DO** before wave 1b. The keys that
 were levers for decisions now made are gone: `D` (Flat is the renderer,

@@ -615,6 +615,12 @@ tg_vtmp_card:
     mov di, tg_vtmp + TI_C_FI1
     call tg_pick
     pop bx
+    cmp byte [bx + TI_CR_KIND], TI_KIND_ORDER
+    jne .rear                       ; AN ORDER HAS NO POSITION: its one block,
+    mov di, tg_vtmp + TI_C_RI1      ; the round's effect, is what it shows in
+    call tg_pick                    ; either row, so FRONT/REAR changes nothing
+    jmp short .out                  ; on it (SPEC.md 97.4.8.2) - REAR used to
+.rear:                              ; show its empty rear block
     add bx, TI_CR_REAR
     call tg_blkst
     mov di, tg_vtmp + TI_C_RI1

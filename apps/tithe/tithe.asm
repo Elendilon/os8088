@@ -35,8 +35,8 @@
 ;     over-spends on tall bands; and the constants belong to THIS machine, so
 ;     they are measured at load off the PIT rather than read out of a table.
 ;
-; Keys: F fullscreen, D detail, S sprite size, R recalibrate, P pause,
-;       +/- the animation share, Esc leaves fullscreen or closes.
+; Keys: SPEC.md 97.7 is the table. F or Alt+Enter toggles fullscreen and
+;       Esc leaves it (SPEC.md 11.2.1).
 ; =============================================================================
 
 %include "os88api.inc"
@@ -188,6 +188,9 @@ ti_entry:
                                     ; it (SPEC.md 20.12, os88parts.inc rule 1).
                                     ; A refusal has already said why
     push si
+    OS88_ALTENTER_ARM               ; ALT+ENTER is the other fullscreen key
+                                    ; (SPEC.md 11.2.1.1), and it is dead
+                                    ; until the key-state map exists
     call tg_new                     ; THE MATCH: every view the renderer draws
                                     ; is the engine's (tigame.inc), so it is
                                     ; dealt before anything is built from them
@@ -586,6 +589,18 @@ ti_onkey:
     je .keys                        ; that draws would land between its sparks
     jmp .out                        ; and their erase (tirv.inc)
 .keys:
+    cmp ax, KEY_ALTENTER            ; SPEC.md 11.2.1.1: ALT+ENTER, both ways,
+    jne .n_alt                      ; beside F - it is what a DOS box and an
+    jmp .fs                         ; emulator use, and every app here has it
+.n_alt:
+    cmp al, 27                      ; ...and ESC, the way out and not the way
+    jne .n_esc                      ; in (11.2.1): fullscreen it leaves, and
+    cmp byte [ti_full], 0           ; windowed it is nothing
+    jne .escfs
+    jmp .out
+.escfs:
+    jmp .fs
+.n_esc:
     mov bl, al
     or bl, 0x20
     cmp bl, 'p'

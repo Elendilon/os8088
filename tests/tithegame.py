@@ -59,9 +59,10 @@ SYMS = ("tg_fillq", "tg_tseed", "tg_plan0", "tg_plan1", "ti_cards",
         "ti_cw", "ti_ch", "ti_rise", "ti_insx", "ti_insy", "ti_bs", "ti_bh",
         "ti_fw", "ti_fh", "ti_ox", "ti_oy", "ti_cw_box", "ti_ch_box",
         "ti_rpq", "ti_row", "ti_rv", "ti_nframe", "ti_hx", "ti_tg1x",
-        "ti_hty", "ti_rowst",
+        "ti_hty", "ti_rowst", "TI_C_FI1", "TI_C_RI1",
         "TI_C_SIZE", "TI_C_CARD", "TI_C_HP", "TI_HAND")
-EQUS = ("TI_C_SIZE", "TI_C_CARD", "TI_C_HP", "TI_HAND")
+EQUS = ("TI_C_SIZE", "TI_C_CARD", "TI_C_HP", "TI_HAND", "TI_C_FI1",
+        "TI_C_RI1")
 BCOL = (1, 0, 2, 3)     # side x 2 + column -> the board's column (tg_bcol)
 fails = []
 
@@ -153,6 +154,16 @@ def run(mach, off):
         want = sm.sides[0].hand + [0xFF] * (7 - len(sm.sides[0].hand))
         check(hand() == want, "1. P1's hand is the simulator's deal",
               "%s against %s" % (hand(), want))
+        # ...and an ORDER has no position: slot 1 is Brace, and its REAR pair
+        # is its one block, as its FRONT pair is (SPEC.md 97.4.8.2) - where
+        # REAR showed the empty rear block the table never gives an order
+        pair = lambda f: [view(1, f) if i == 0 else
+                          rb("ti_cards", off["TI_C_SIZE"] + off[f] + i)
+                          for i in range(4)]
+        check(view(1, "TI_C_HP") == 0 and pair("TI_C_FI1") == pair("TI_C_RI1")
+              and any(pair("TI_C_FI1")), "an order card shows the same stats "
+              "in either row", "hp %d front %s rear %s" % (
+                  view(1, "TI_C_HP"), pair("TI_C_FI1"), pair("TI_C_RI1")))
 
         mo = os88mouse.Mouse(marty=m)
         park = (win.x + 4, max(0, win.y - 6))

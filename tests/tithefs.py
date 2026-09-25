@@ -42,6 +42,9 @@ WHAT IT ASSERTS, and each one went red on purpose first:
      and reads two now and then - a step late in its tick meeting a frame -
      and the old click read three, which is the regression this is for.
 
+  9. THE HOUSE KEYS (SPEC.md 11.2.1): Alt+Enter enters fullscreen and Esc
+     leaves it; windowed, Esc does nothing. Neither was ever built here.
+
   6. A HOVER CHANGE IS TWO BANKED CARDS (SPEC.md 97.4.12.1). The cycle counter
      brackets the hover's share of the frame - `ti_frame` to its `.credit` -
      over four changes, and the worst must be under 30 ms. It was ~131: both
@@ -315,6 +318,35 @@ def run(mach, off):
         relayout("KeyF")
         check(rb("ti_horiz") == 0, "leaving fullscreen puts the strip back",
               "%d" % rb("ti_horiz"))
+
+        # 9. the house keys (SPEC.md 11.2.1): Alt+Enter in, Esc out, and Esc
+        # windowed is nothing
+        def altenter():
+            m.key("AltLeft", up=False)
+            os88marty.guest_sleep(m, 0.2)
+            m.key("Enter")
+            os88marty.guest_sleep(m, 0.2)
+            m.key("AltLeft", down=False)
+        os88marty.guest_sleep(m, 3.0)   # leaving can relayout twice: the
+        altenter()                      # SECOND must not pass for this one
+        try:
+            os88marty.until(m, lambda _: rb("ti_horiz") == 1, "Alt+Enter",
+                            poll=0.3, limit=90.0)
+        except Exception:
+            pass
+        entered = rb("ti_horiz") == 1
+        f0 = rw("ti_nframe")
+        os88marty.until(m, lambda _: (rw("ti_nframe") - f0) & 0xFFFF > 10,
+                        "the wheel after it", poll=0.3, limit=90.0)
+        relayout("Escape")
+        left = rb("ti_horiz") == 0
+        n0 = rw("ti_nlay")
+        m.key("Escape")
+        os88marty.guest_sleep(m, 3.0)
+        check(entered and left and rw("ti_nlay") == n0,
+              "9. Alt+Enter enters fullscreen, Esc leaves it, and Esc windowed "
+              "does nothing", "entered %s left %s relayouts %d"
+              % (entered, left, (rw("ti_nlay") - n0) & 0xFFFF))
 
 
 def main():
