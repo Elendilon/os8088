@@ -49,7 +49,7 @@ DOUBLE-CLICKS ARE A VERB OF THEIR OWN, and cannot be composed out of two
 `click`s - that is the trap this closes. Two things defeat the obvious
 spelling, and they pull in opposite directions:
 
-  * `click` ends in a 1.5 s settle, so two of them are a second and a half
+  * `click` ends in a settle (up to 1.5 s), so two of them are a second and a half
     apart and the kernel sees two FIRST clicks. Every double-click detector
     in the system (SPEC.md 22/26/38 and ui_tdbl's title bar) compares the two
     presses' BIRTH TICKS against a 9-tick window - about half a second.
@@ -111,10 +111,14 @@ BUSY = 6.0                      # ...and how long a repaint may hold the guest
 # The row did not get slower, it got LESS THOROUGH, and failed further on
 # looking like the thing under test. OS88_GUEST_PACE=0 puts the host sleeps
 # back for an A/B.
+#
+# THAT IS AN EXPLICIT `settle=`. A verb called WITHOUT one waits for the UI to
+# finish with the gesture instead (`_ui_wait`), capped at the same pause - so
+# the fixed figure is now a ceiling rather than a price.
 GUEST_PACE = os88marty.GUEST_PACE
 
 
-def _wait(m, secs, why="click"):
+def _wait(m, secs, why="click", dflt=None):
     """Spend `secs` of idle-box time, as GUEST time (os88marty.pace).
 
     One function so that every wait in this file moves together: a run where
@@ -134,6 +138,9 @@ def _wait(m, secs, why="click"):
     seconds of a machine that needed 0.4" is an argument; "1.5 seconds" is
     not.
     """
+    auto = secs is None                 # the caller took the verb's default
+    if auto:
+        secs = dflt if dflt is not None else 1.5
     log = bool(os88marty.WAITLOG) and m is not None
     c0 = None
     if log:
@@ -142,7 +149,10 @@ def _wait(m, secs, why="click"):
         except Exception:
             c0 = None
     t0 = time.time()
-    os88marty.pace(m, secs)
+    if auto:
+        _ui_wait(m, secs, why)
+    else:
+        os88marty.pace(m, secs)
     if log:
         try:
             c1 = int(m.status().get("cycles", 0))
@@ -154,6 +164,45 @@ def _wait(m, secs, why="click"):
                            guest / host if host > 0.01 else 0.0, why, secs))
         except Exception:
             pass
+
+
+def _ui_wait(m, dflt, why):
+    """A verb's DEFAULT settle: until the UI has finished with the gesture
+    (os88marty.ui_done), and never longer than the `dflt` pause it replaces.
+
+    Every verb here ended in a fixed pause - 1.5 idle-box seconds after a
+    click, 2.0 after a double-click or a menu, which at GUEST_PACE is 6.75
+    and 9 guest seconds - whether the handler took a millisecond or a folder
+    load. Most of any row that clicks its way through the UI was the machine
+    sitting idle in those. It now ends when ui_task has gone back to sleep
+    with nothing queued, nothing locked and the drive still, and the old
+    pause is the CAP: a machine whose worker keeps the lock busy (a game)
+    gets exactly what it got before. A caller that passes a number keeps the
+    fixed pause it asked for.
+
+    A guest that is not executing ends it at once, as `pace` does - the
+    caller armed a breakpoint or paused the machine, and nothing more will
+    happen until it acts. A kernel whose map cannot be read here (a DOS box,
+    a private build this process cannot resolve) takes the old pause, and so
+    does every call under OS88_SETTLE_UI=0, the A/B for both halves."""
+    if os88marty.GUEST_PACE <= 0 or m is None or not os88marty.SETTLE_UI:
+        os88marty.pace(m, dflt)
+        return
+    cap = dflt * os88marty.GUEST_PACE
+    try:
+        os88marty.ui_idle(m)
+    except MartyError:
+        raise
+    except Exception:
+        os88marty.pace(m, dflt)
+        return
+    try:
+        os88marty.ui_done(m, "the %s to be handled" % why, cap=cap)
+    except MartyError:
+        st = m.status()
+        if st.get("state") != "running" and not getattr(m, "_pumping", 0):
+            return
+        raise
 
 
 # A GUEST THAT IS NOT EXECUTING, named here rather than polled out.
@@ -394,14 +443,14 @@ class Mouse:
                          "target outside the screen, or off the kernel's "
                          "clamp, cannot be reached." % (x, y, cx, cy, BUSY))
 
-    def click(self, x, y, settle=1.5):
+    def click(self, x, y, settle=None):
         self.to(x, y)
         if self.where()[2] & 1:         # a button left down by something else
             self._edge(False)           # would make this press no edge at all
         self._sep()                     # ...and not the second half of a
         self._edge(True)                # double-click either (see _sep)
         self._edge(False)
-        _wait(self.m, settle, "click")
+        _wait(self.m, settle, "click", 1.5)
 
     # --- clicking that PROVES itself ---------------------------------------
     def ticks(self):
@@ -525,7 +574,7 @@ class Mouse:
                self.DBL_TRIES * self.DBL_STEP, self.where()[2],
                self.DBL_RESEND * self.DBL_STEP))
 
-    def dblclick(self, x, y, settle=2.0):
+    def dblclick(self, x, y, settle=None):
         """Two presses inside the kernel's own double-click window.
 
         NOT two `click`s: that spelling is a second and a half apart and reads
@@ -570,10 +619,10 @@ class Mouse:
                 "mouse ISR off for half a second." % (span, DBL_TICKS))
         if self.verbose:
             print("  double-click at (%d,%d): %d tick(s) apart" % (x, y, span))
-        _wait(self.m, settle, "dblclick")
+        _wait(self.m, settle, "dblclick", 2.0)
         return span
 
-    def menu(self, x0, y0, x1, y1, settle=2.0):
+    def menu(self, x0, y0, x1, y1, settle=None):
         """Press on the bar, drag to the item, release (SPEC.md 12).
 
         A menu cannot be opened with a click: menu_track draws the pull-down
@@ -591,7 +640,7 @@ class Mouse:
         """
         self._press_drag_release(x0, y0, x1, y1, settle)
 
-    def rmenu(self, x0, y0, x1, y1, settle=2.0, aim=None):
+    def rmenu(self, x0, y0, x1, y1, settle=None, aim=None):
         """The same for the RIGHT button: the context menu (SPEC.md 12.4).
 
         `fm_rclick` pops the menu under the pointer and `menu_track` then
@@ -617,12 +666,12 @@ class Mouse:
         x1, y1 = aim(self)
         self.to(x1, y1, r=True)
         self._edge(False, btn=2)
-        _wait(self.m, settle, "drag/menu")
+        _wait(self.m, settle, "drag/menu", 2.0)
 
-    def drag(self, x0, y0, x1, y1, settle=1.5):
-        self._press_drag_release(x0, y0, x1, y1, settle)
+    def drag(self, x0, y0, x1, y1, settle=None):
+        self._press_drag_release(x0, y0, x1, y1, settle, dflt=1.5)
 
-    def _press_drag_release(self, x0, y0, x1, y1, settle, btn=1):
+    def _press_drag_release(self, x0, y0, x1, y1, settle, btn=1, dflt=2.0):
         self.to(x0, y0)
         if self.where()[2] & btn:
             self._edge(False, btn=btn)
@@ -630,7 +679,7 @@ class Mouse:
         self._edge(True, btn=btn)       # of them in a row are a double-click
         self.to(x1, y1, l=btn == 1, r=btn == 2)
         self._edge(False, btn=btn)
-        _wait(self.m, settle, "drag/menu")
+        _wait(self.m, settle, "drag/menu", dflt)
 
 
 def main():

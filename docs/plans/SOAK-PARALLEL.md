@@ -1001,6 +1001,19 @@ with a smaller `quiet` needs proportionally more captures.
 is what `tools/os88ui.py` is for, and this is the measurement that made it
 worth building.
 
+**...and later it came down anyway, by asking the machine instead of the
+screen.** The floor is real for the case the gap log measured - a screen that
+goes still *while something is still working* - and that case is visible
+from inside: ui_task is not asleep, the gfx lock is held, an event is queued
+or the drive is reading. `os88marty.ui_idle` reads those five facts, and
+`settle` keeps its full `quiet` window for any interval where one of them is
+true and uses 0.2 guest seconds where none is, a capture only counting as the
+same if the UI was still idle and the drive still unmoved at its end. On
+`dispcheck` the settles after a gesture fell from 9+ guest seconds each to
+0.8-0.9, while a display-mode change kept its full 5.5 because the UI was
+repainting through all of it. The mouse verbs' fixed pauses went the same
+way (`ui_done`, capped at the old pause). `OS88_SETTLE_UI=0` is the A/B.
+
 ### 11.3 What came off, in four steps
 
 Same four rows, same machine, all passing at every step:
