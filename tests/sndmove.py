@@ -169,8 +169,24 @@ def main():
             except M.MartyError:
                 pass                            # ...judged by the caller
             heaphi.quiet(m)
-            mo.click(cp[1] + 8, cp[2] + 9)      # close the panel: CTRL.DRV is
-            heaphi.quiet(m)                     # a module and would be a wall
+            try:
+                mo.click(cp[1] + 8, cp[2] + 9)  # close the panel: CTRL.DRV is
+            except M.MartyError:                # a module and would be a wall
+                # A pointer that stops taking packets here has been seen once
+                # in a soak (right after the re-mount) and not in 14 runs
+                # since, so say what the machine was doing rather than only
+                # that the arrow did not move: an IMR with bit 4 set is the
+                # serial mouse's IRQ left masked by the driver's attach.
+                st = m.status()
+                print("  pointer stuck: %04X:%04X ui_idle=%s imr=%02X "
+                      "lock=%d evq=%d btn=%d ticks=%d xy=%s sound at %04x"
+                      % (st["cs"], st["ip"], M.ui_idle(m), m.inb(0x21),
+                         m.read(S("gfx_lock_flag"), 1)[0],
+                         m.read(S("evq_count"), 1)[0],
+                         m.read(S("mouse_btn"), 1)[0], M._ktick(m),
+                         mo.where(), seg(r)), flush=True)
+                raise
+            heaphi.quiet(m)
 
         drvrow(SND_ROW)                         # unmount sound
         if seg(SND_ROW):

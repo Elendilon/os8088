@@ -138,10 +138,10 @@ class Row:
     """One registered test."""
 
     __slots__ = ("name", "tier", "cmd", "secs", "needs", "serial", "why",
-                 "timeout", "builds", "alone", "wants")
+                 "timeout", "builds", "alone", "wants", "cpus")
 
     def __init__(self, name, tier, cmd, secs, why, needs=(), serial=False,
-                 timeout=None, builds=False, alone=False, wants=()):
+                 timeout=None, builds=False, alone=False, wants=(), cpus=1):
         self.name, self.tier, self.cmd = name, tier, cmd
         self.secs, self.why = secs, why
         self.needs = tuple(needs)
@@ -191,6 +191,14 @@ class Row:
         # It is not `builds`. A builder cannot share the TREE; one of these
         # can, and only needs the CORES.
         self.alone = alone
+        # CPUS: how many cores the row ITSELF keeps busy - a `make -j4`, a
+        # pool of assemblers. The runner charges a row's timeout and its share
+        # of a tier budget in CPU seconds (tools/os88test.py `_communicate`,
+        # `charge`), which is right for a serial row and four times wrong for
+        # one that is parallel by design: t_nasm3's 113 knob arms at -j4 spent
+        # the 690 CPU seconds of a 165-second row in 378 of wall and were
+        # killed. Both figures are divided back out by this.
+        self.cpus = cpus
         # A generous default: the point of the per-row timeout is to stop a
         # hung emulator eating the tier, not to police a slow machine.
         self.timeout = timeout or max(60, int(secs * 4) + 30)
@@ -730,7 +738,7 @@ FAST = [
         "against per-driver constants"),
     Row("ccmake", "fast", py("tests/unit/t_ccmake.py"), 2.1,
         "automatic compiler setup: missing/partial install, parallel dependents, "
-        "warm reuse, setup failure propagation and fresh live-media dependencies"),
+        "warm reuse, setup failure propagation and fresh live-media dependencies", cpus=4),
     Row("imager", "fast", py("tests/unit/t_imager.py"), 0.1,
         "host media detection, image compatibility, confirmation and read-back "
         "verification without writing physical devices"),
@@ -1261,7 +1269,7 @@ FULL = [
         "obviously break the OS' - a knob is an instrument, the shipped "
         "kernel is built by `make` and kern_small by small128's own private "
         "tree - and at 143s it is four fifths of the whole tier budget on "
-        "its own. It is what a change to a knob runs", builds=True),
+        "its own. It is what a change to a knob runs", builds=True, cpus=4),
     Row("bmshare", "soak", py("tests/unit/t_bmshare.py"), 30.0,
         "...and that the three variables it builds them WITH change no byte. "
         "ICODIR/NOOVLCHK/NOKERNSIZE each take work out of a knob build - the "
@@ -1558,7 +1566,7 @@ SOAK = [
         "and the thing it defends moves at the speed of somebody typing a "
         "new construct, not per commit - run it before a merge that lands "
         "kernel or package assembly",
-        needs=("nasm3",)),
+        needs=("nasm3",), cpus=4),
     Row("weavevm", "soak", py("tests/weavevm.py"), 10.0,
         "WEAVE-SPEC 12.3: the SHIPPING apps/weave/wvm.inc run in a raw-QEMU "
         "BOOT SECTOR with SS != DS and no OS under it at all, diffed case by "
