@@ -105,11 +105,23 @@ def main(argv):
                     p.b("dd_fsx"))
 
         def ui_idle():
-            # the window manager done too: no event queued and the gfx lock
-            # free (the worker holds it only for a frame at a time; a
-            # bracket holds it throughout, so this is asked outside one)
-            return (m.read(S("evq_count"), 1)[0] == 0
-                    and m.read(S("gfx_lock_flag"), 1)[0] == 0)
+            # the window manager done too: ui_task asleep with no event
+            # queued and no wake pending. NOT "the gfx lock free": this
+            # game's worker holds it for 55-69% of every guest second while
+            # it plays (measured on both displays), so a lock-free sample was
+            # a coin toss and the quiesce below, which needs the answer to
+            # hold across readings, once went 30 guest seconds without it on
+            # a board that was settled in every other respect. The worker's
+            # frames are not the window manager's business; its queue is.
+            return (m.read(S("sch_tasks"), 1)[0] == 2
+                    and m.read(S("evq_count"), 1)[0] == 0
+                    and m.read(S("sch_uiwake"), 1)[0] == 0)
+
+        def flag(n):
+            try:
+                return "%s=%d" % (n[3:], p.b(n))
+            except Exception:           # a build that does not have it
+                return "%s=?" % n[3:]
 
         def laid(what, also=lambda s: True):
             def cond(_):
@@ -123,6 +135,21 @@ def main(argv):
                                   guest=0.5, what=what)
             except os88marty.MartyError as e:
                 say("(%s never settled: %s)" % (what, str(e).split(".")[0]))
+                # ...and what the game and the machine WERE, because the one
+                # occurrence in a soak that mattered - the tile still the
+                # bracket's after Escape, then no title-bar press taken for
+                # 15 guest seconds - left nothing to diagnose it from
+                st = m.status()
+                say("  at %04X:%04X ui_task=%d lock=%d own=%02X evq=%d  %s" % (
+                    st["cs"], st["ip"], m.read(S("sch_tasks"), 1)[0],
+                    m.read(S("gfx_lock_flag"), 1)[0],
+                    m.read(S("gfx_lock_own"), 1)[0],
+                    m.read(S("evq_count"), 1)[0],
+                    " ".join(flag(n) for n in (
+                        "dd_drawing", "dd_inrender", "dd_needcut", "dd_inbr",
+                        "dd_fsx", "dd_newg", "dd_wantfit"))))
+                say("  state %r tile %dx%d" % (state(), p.w("dd_tw"),
+                                              p.w("dd_th")))
 
         laid("the first board", lambda s: p.b("dd_started"))
 
