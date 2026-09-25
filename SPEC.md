@@ -55,6 +55,21 @@ pre-empted background task, updating live while the user types or drags).
    `shl reg, imm` other than 1 (use CL), no `movzx`, no 32-bit registers, no
    `imul r,r,imm`. `rep movsb/stosb/lodsb`, `mul`, `div` are fine.
 
+   **...but a `rep` string instruction may not carry a segment override.**
+   `rep es movsb` assembles on every NASM and is wrong on this CPU: an
+   8086/8088 that takes an interrupt mid-string resumes at the prefix
+   IMMEDIATELY BEFORE THE OPCODE, so of two prefixes the outer one is lost -
+   REP (the copy stops short, CX left non-zero) or the override (the rest
+   comes from DS). IRQ0 alone arrives 18.2 times a second. NASM 2 and 3
+   order the two prefixes differently (`F3 26` against `26 F3`) and neither
+   order is safe, so the rule is no override at all: point DS at the segment
+   for the one instruction (`push ds / push es / pop ds / rep movsb / pop ds`).
+   It shipped once, in `dsk_path_x`, and was found by a NASM 3 build that
+   differed from NASM 2's by exactly those two bytes;
+   `tests/unit/t_asmrules.py` rule 5 refuses both spellings, prefix and
+   operand (`[es:si]`), in the kernel, `kerndos/`, the packages and the
+   drivers.
+
    **The 8087 needs no exception, and that is worth stating rather than
    leaving to be rediscovered.** The coprocessor's base instruction set —
    `FLD`, `FSTP`, `FADDP`, `FDIVP`, `FCOMPP`, `FNINIT`, `FSTSW`, the 80-bit

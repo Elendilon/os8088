@@ -6456,8 +6456,10 @@ dsk_dest_x:
 ; SEGMENTS: ES is the CALLER's throughout and is never reloaded - dsk_secbuf
 ; is `.lowbss` and reached through SS (SPEC.md 2.1), the staged name is the
 ; kernel's own and reached through DS, and the one copy that crosses is a
-; plain `rep movsb`, DS:SI -> ES:DI. The shuffle is `rep es movsb`: the
-; override names movsb's SOURCE segment, so both ends are the caller's.
+; plain `rep movsb`, DS:SI -> ES:DI. The shuffle's two ends are BOTH the
+; caller's, so it points DS at ES for the one instruction rather than
+; overriding movsb's source - see the shuffle for why that is not a style
+; choice on this CPU.
 ; -----------------------------------------------------------------------------
 %ifndef KERN_SMALL              ; NO CALLER ON THE SMALL DISKS (SPEC.md 24.5):
                                 ; the DOS box is the slot's consumer and
@@ -6513,7 +6515,16 @@ dsk_path_x:
     sub cx, si                  ; BX >= SI always, so this leaves CF=0 - and
     inc cx                      ; nothing between here and the retf writes a
     push cx                     ; flag, so that IS the success answer
-    rep es movsb                ; BOTH ends are the caller's (see SEGMENTS)
+    push ds                     ; BOTH ends are the caller's (see SEGMENTS),
+    push es                     ; so DS = ES for the one copy, and never
+    pop ds                      ; `rep es movsb`: an 8086/8088 interrupted
+    rep movsb                   ; mid-string resumes with only the prefix
+    pop ds                      ; NEXT TO the opcode, and loses the other.
+                                ; nasm 2 emits F3 26 (REP lost: the path is
+                                ; cut short) and nasm 3 emits 26 F3 (ES lost:
+                                ; the rest is read out of the kernel). IRQ0
+                                ; alone lands in one 18.2 times a second.
+                                ; tests/unit/t_asmrules.py rule 5 refuses it
     pop cx
     dec cx                      ; the length the caller is told excludes the NUL
 .out:
