@@ -822,6 +822,14 @@ FAST = [
         "own BPB: it has to name a sector a transfer run reads AFTER the head "
         "boundary, because the half before it loads correctly on exactly the "
         "machine the canary is for - which is how the first one shipped wrong"),
+    Row("ascplace", "fast", py("tests/unit/t_ascplace.py"), 0.1,
+        "SPEC.md 54.7.5: every shipped volume's ASSOC.DAT lies inside ONE "
+        "TRACK. The mount reads it on every volume switch and the read-ahead "
+        "fills to the end of a track, so across a boundary it is a second "
+        "int 13h and a whole extra track. It was the last chain on the disk, "
+        "cylinder 34 of the 360KB apps floppy, straddling; RED on that layout "
+        "on three of the shipped apps disks. Its own FAT reader, not the "
+        "writer's"),
     Row("volsig", "fast", py("tests/unit/t_volsig.py"), 0.4,
         "NO TWO SHIPPED VOLUMES MAY SIGN THE SAME (SPEC.md 18.8.2). The "
         "kernel's entire swap detector is a rotate-add sum over LBA 0, and "
@@ -8137,10 +8145,11 @@ SOAK = [
         "Tracker on an XT: the visualiser button is VU Meter / Spectrum / Off"
         " and greys only at 11 kHz (SPEC.md 45.23.1); the XT spectrum is 12"
         " bars at 17+ fps with the ring half full, and a 286 marker falls to"
-        " its held bar (45.24.1); the LCD is"
+        " its held bar (45.24.1); a face frozen under the About card keeps"
+        " its clock and position (45.21.9); the LCD is"
         " composed by its KEYS"
         " and lettered by its changed cells, and the glass equals a forced"
-        " full repaint pixel for pixel (45.21.8). Measured 50s",
+        " full repaint pixel for pixel (45.21.8). Measured 64s",
         needs=("marty",),
         wants=("build/trkship360.img",)),
     Row("wmchrome", "soak", py("tests/wmchrome.py"), 180.0,

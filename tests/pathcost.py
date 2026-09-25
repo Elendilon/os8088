@@ -164,7 +164,14 @@ def main():
               "meet, so it is not mounting per level" % (MOUNT_FLOOR, DEPTH))
 
         # --- 3: the second walk is answered from 19.2.3's window -------------
-        if wr >= cr:
+        # A second walk that reads NOTHING is the claim made outright, whatever
+        # the first cost. Since SPEC.md 54.7.5 put ASSOC.DAT at cluster 2, this
+        # disk's directories sit where the navigation into THREE has already
+        # filled them into the cache, so the first walk costs 0 as well - and
+        # `wr >= cr` at 0 against 0 failed a walk that never touched the drive.
+        # The build this assertion exists to catch (`make DIRW1=1`, no cache)
+        # still reads on the second walk, as much as on the first, and fails.
+        if wr and wr >= cr:
             fail("the second walk of the SAME chain cost %d reads against the "
                  "first's %d. SPEC.md 19.2.3's cached directory window should "
                  "answer it from memory, and dsk_up reads through that "
@@ -184,7 +191,13 @@ def main():
         moves = m.disk()
         mr, ms = moves.get("reads", 0), moves.get("read_sectors", 0)
         print("pathcost: six same-volume GOTO_QM  %3d reads, %3d sectors" % (mr, ms))
-        if mr:
+        # ONE one-sector read is the media check and not a mount per move:
+        # SPEC.md 18.9.1 re-validates a floppy whose motor has stopped, which
+        # it now has - since SPEC.md 54.7.5 the walks above are answered from
+        # the cache and nothing has turned the drive for two seconds. What
+        # this assertion is for, a volume re-mounted on every move, is six
+        # boot-sector reads at least and fails either way.
+        if mr > 1 or ms > 1:
             fail("six chdirs INSIDE ONE VOLUME cost %d reads. SPEC.md 19.2.2 "
                  "says that is 'a WORD, no I/O at all' - a number here means "
                  "the volume is being re-mounted on a move that should touch "

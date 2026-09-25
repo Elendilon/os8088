@@ -986,8 +986,8 @@ print(m.disk())
 
 What to read in it: **`longest_run` near the track length** is a kernel
 batching properly; **`read_sectors` far above the payload** is §18.91's
-shape; **`resets`** is a BIOS giving up, which is how GLaBIOS's 250 ms limit
-was found.
+shape; **`resets`** is a BIOS giving up. It is how the "GLaBIOS 250 ms limit" was
+found, and that turned out to be this emulator's defect (below).
 
 ### Where a whole BOOT goes: `tools/os88boot.py`
 
@@ -1027,7 +1027,22 @@ twin boots faster than any 5150 ever did, and only the IBM-ROM machines
 answer for the field machine. The mechanical column does not move with the
 ROM.
 
-### GLaBIOS gives up on a floppy op after ~250 ms
+### GLaBIOS "gives up on a floppy op after ~250 ms": it was MartyPC's FDC
+
+**CORRECTED 2026-09-24, and `tools/martypc/patches/05-fdc-recal-one-interrupt.patch`
+is the fix.** GLaBIOS waits 37 ticks (two seconds) for IRQ6, as IBM does. The
+~250 ms was its **5-tick RESULT-phase** wait, and it only reached that early
+because upstream MartyPC raises TWO IRQ6s for one RECALIBRATE: one when the
+command is taken, one at completion. The spare one leaves `0040:003E` bit 7
+set, so the next `int 13h`'s wait returns at once and the BIOS polls for
+results mid-transfer. A reset clears the calibrated bits, so every retry
+recalibrates and is poisoned the same way: three strikes, status 80. Found as
+~800 ms of retries on B:'s first 8-sector FAT read. `bp_trace` on
+`int 13h`, IRQ6's `F000:EF57` and a read of `0040:003E` shows the flag already
+`83` on entry. With the patch the same read takes 345 ms on GLaBIOS and
+completes first time. The IBM ROM sees the same stale flag and survives it
+(it seeks first, and its result wait outlasts a revolution). What follows is
+the original account, whose three observations are all still true:
 
 That BIOS abandons a floppy operation after ~250 ms and resets the
 controller, three times in a row, after which the boot sector prints `DSK`
