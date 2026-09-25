@@ -861,6 +861,23 @@ def _dump_state(m, base, sym, psp, a):
                  r[sym["FH_NAME"]:sym["FH_NAME"] + 13].split(b"\0")[0].decode("latin1")))
 
 
+def dos_answered(m, before, what):
+    """DOS answering a line typed at it: the text screen moving off `before`,
+    then the screen and the disk going quiet together. What it waits on is
+    what DOS DOES with the line - a prompt, a TSR's load, a directory change -
+    rather than an idle box's seconds of it (the `wait:` step is still that,
+    because a --keys script asked for it by number)."""
+    import os88marty                                                  # noqa: E402
+    try:
+        os88marty.until(m, lambda mm: (mm.screen() or []) != before, what,
+                        poll=0.1, limit=30)
+    except os88marty.MartyError:
+        return                          # nothing to see: the next step says so
+    os88marty.quiesce(m, lambda: (tuple(m.screen() or []),
+                                  m.disk().get("reads")),
+                      guest=1.0, what=what)
+
+
 def cmd_ref(a):
     """The same program under a real DOS, logged by the TSR in tests/dostrap.
 
@@ -910,17 +927,19 @@ def cmd_ref(a):
         with os88marty.launch(boot, apps=a.disk, machine=a.machine,
                               boot=a.boot_secs) as m:
             for _ in range(a.boot_keys):
+                was = m.screen() or []
                 m.key("Enter")
-                os88marty.pace(m, 3)
+                dos_answered(m, was, "the date/time prompt's answer")
             # --- ANYTHING THAT HAS TO BE RESIDENT FIRST, and the ORDER is the
             # point: a mouse driver loaded AFTER this TSR owns INT 33h above
             # it and the histogram records nothing, while one loaded BEFORE
             # sits underneath and every call passes through. `--pre CTMOUSE`
             # is the case this exists for.
             for cmd in a.pre:
+                was = m.screen() or []
                 m.type_text(cmd)
                 m.key("Enter")
-                os88marty.pace(m, 4)
+                dos_answered(m, was, cmd)
             m.type_text("DOSTRAP")
             m.key("Enter")
             try:
@@ -936,9 +955,10 @@ def cmd_ref(a):
                     "os88dosdbg: DOSTRAP did not install.  The screen said %r.\n"
                     "  A DOS that prompts for date and time needs --boot-keys 2 "
                     "(the default); one that does not needs 0." % (screen[:3],))
+            was = m.screen() or []
             m.type_text("%s:" % a.drive)
             m.key("Enter")
-            os88marty.pace(m, 3)
+            dos_answered(m, was, "the drive change")
             if a.cd:
                 # A PROGRAM THAT DEMANDS ITS OWN DIRECTORY cannot be compared
                 # by naming a path, because the two sides would then be doing
@@ -947,9 +967,10 @@ def cmd_ref(a):
                 # `B:\PRINCE\PRINCE` under a real DOS. This types the CD that
                 # our side gets for free from a double-click, so both machines
                 # start the program where it expects to be.
+                was = m.screen() or []
                 m.type_text("CD \\%s" % a.cd.replace("/", "\\"))
                 m.key("Enter")
-                os88marty.pace(m, 2)
+                dos_answered(m, was, "the CD")
             # **THE SAME ENVIRONMENT, OR THE TWO SIDES RUN DIFFERENT
             # PROGRAMS** (SPEC.md 96.44.13.1).  COMMAND.COM hands out
             # `COMSPEC=` and nothing else; the box hands out `BLASTER=` when a
@@ -960,9 +981,10 @@ def cmd_ref(a):
             # parted - and a diff that does not control for it reports the
             # program's own branch as a defect in the DOS underneath.
             for kv in a.set:
+                was = m.screen() or []
                 m.type_text("SET " + kv)
                 m.key("Enter")
-                os88marty.pace(m, 2)
+                dos_answered(m, was, "SET " + kv)
             # A PATHED PROGRAM NEEDS DOS's OWN SEPARATOR.  `trace` hands
             # `PRINCE/PRINCE.EXE` to os88ui.path(), which wants forward
             # slashes; COMMAND.COM reads one as a SWITCH character and answers

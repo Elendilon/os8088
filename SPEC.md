@@ -73268,6 +73268,43 @@ status line to match it pixel for pixel (`soak -k trklcd`). A build that
 letters the span one cell short fails it, with 182 and 59 pixels wrong in two
 runs.
 
+#### 45.21.9 A frame that is not drawn is still booked
+
+**The worker's frame did two jobs and was skipped as one.** It drew the face,
+and it kept the books the face is drawn FROM. Those books are the position the
+card is playing (`tui_sync` asks the card through `tui_playpos`), the decay
+(`tw_vtick`) and the elapsed clock (`tw_el`). `trk_render` skips the frame when
+the About card is up (§45.21, rule 4), when the window is hidden and when it
+is wholly covered. Skipping the drawing is the point there. Skipping the books
+is the defect, the one reported as *"closing the About card does not re-sync,
+the bars and the info stay out of date"*. Two 16-bit differences turned a long
+skip into worse than a stale frame:
+
+- **The position.** `[tui_play]` refuses a reading that is BEHIND it, so a
+  stepping card never scrolls the view backwards, and "behind" is a signed
+  16-bit difference. Once the card had played 32 KB past the last frame
+  (6 s at 5.5 kHz, 1.5 s at 22 kHz), every true reading looked like one going
+  backwards and was refused. After the card came down the face stayed on the
+  old row, with the old bars, until the gap wrapped past 64 KB.
+- **The clock.** `tw_el` adds the bytes heard since the last frame modulo 64 KB,
+  so a skip past 64 KB (11.9 s at 5.5 kHz) was lost from the elapsed time for
+  the rest of the song.
+
+**Now a skipped frame calls `tw_book`**: `tui_sync`, then `tw_tick` (the decay,
+then the clock, which is the first half of `tw_frame` factored out). The books
+move every tick whether or not the face can be seen, so both differences are
+a tick of music again, and the paint that uncovers the face draws the present
+rather than the moment it was covered. Nothing is drawn by it. `tw_bh` and the
+LCD's shadows still describe the glass, and every way back to a visible face
+is a full paint: the card's dismissal is `tw_redraw`, and uncovering or showing
+the window is a `W_PAINT`. That is +23 bytes of image.
+
+`tests/trklcd.py` holds the card up for 13 guest seconds (about 21 with the
+clicks) at 5.5 kHz and requires the clock to have moved by the guest time,
+within a second: **+23.9 s against +23.8**. The build before it reads **+1.3 s
+against +23.8**, still frozen in the refused window two seconds after the card
+came down.
+
 ### 45.22 The PlayList (`trklist.inc`)
 
 ModPlug Player's list and its editor (§56.8), moved to the player that

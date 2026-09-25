@@ -278,9 +278,18 @@ def main():
                 else:
                     raise SystemExit("K never reached index %d" % ki)
             if a.fullscreen:
-                m.key("KeyF"); os88marty.pace(m, 4)
+                m.key("KeyF")
+                os88marty.until(m, lambda _: b("trk_fs"), "the text screen",
+                                poll=0.1, limit=30)
+            was = w("trk_consumed")
             m.key("Enter")                # play
-            os88marty.pace(m, 12)         # ...past the pre-roll (SPEC.md 45.18)
+            # ...past the pre-roll (SPEC.md 45.18): the card consuming is the
+            # ring having staged it, and two guest seconds more lets the lead
+            # reach its running level before a single sample is taken
+            os88marty.until(m, lambda _: w("trk_consumed") != was,
+                            "the card to start consuming", poll=0.1,
+                            limit=60)
+            os88marty.guest_sleep(m, 2.0)
 
             rate = w("mp_mixrate")
             c0, t0 = w("trk_consumed"), m.cmd(cmd="status")["cycles"]
@@ -344,9 +353,13 @@ def main():
             print("  ...by symbol:")
             for n, c in sorted(hits.items(), key=lambda kv: -kv[1])[:18]:
                 print("    %-28s %5.1f%%" % (n, 100.0 * c / tot))
-            m.key("Space"); os88marty.pace(m, 3)  # stop, so K can take effect
+            m.key("Space")                # stop, so K can take effect
+            os88marty.quiesce(m, lambda: w("trk_consumed"), guest=0.5,
+                              what="the card to stop consuming")
             if a.fullscreen:
-                m.key("Escape"); os88marty.pace(m, 4)   # ...windowed, so K works
+                m.key("Escape")           # ...windowed, so K works
+                os88marty.until(m, lambda _: not b("trk_fs"),
+                                "the windowed screen", poll=0.1, limit=30)
     return 0
 
 

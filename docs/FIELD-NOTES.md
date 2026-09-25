@@ -19,7 +19,7 @@ Two rules the entries exist to serve:
   audio report sat here for months as a 5150 report and had come off PCem;
   the 5150 has no sound card.
 
-**Still open:** 3 (mechanism D), 10, 14, 19, 24.2, 28, 32, 43, and one residual
+**Still open:** 3 (mechanism D), 10, 14, 19, 24.2, 28, 32, 43, 61, and one residual
 each in 33 and 37.
 
 ---
@@ -3082,3 +3082,89 @@ there. The blank padding row below the last line stepped a literal 8 in a
 
 3 bytes between them. `tests/wdcourier.py` legs E to H are the gate, and
 each half turns its own legs red when taken out.
+
+---
+
+## 61. 86Box 286: the boot freezes at `Loading Driver 1/2 (Sound)`, IRQ0 dead (OPEN — PARKED, cannot currently be reproduced)
+
+**Machine**: 86Box, the owner's 286 profile — `mr286` (MR BIOS), 286 at
+16MHz, 4MB, OTI067 VGA, SB16, NE1000, `ide_isa` with a 128MB two-partition
+VHD, A: 5.25" 360K and two 3.5" HD drives holding 360K images. Kernel
+`kern_big`, the 360KB system disk, build 335e584e / bd6ee56c (kernel size
+pass 4).
+
+**Report**: boot clean, SOUND.DRV auto-mounts, mount the hard disk in the
+Control Panel, close the panel (SYSTEM.CFG is written), the HDD works;
+reboot, hard or soft, with the system floppy still in — the loading screen
+stops at `Loading Driver 1/2 (Sound)` and **the spinner stops with it**.
+Nothing responds to the keyboard.
+
+**The state, which is the strangest half**: once a boot has frozen, every
+86Box *hard reset* freezes the same way, 100%, until 86Box itself is closed
+and reopened — and it has also frozen from a cold start of 86Box. Then,
+**after the owner rebooted the HOST PC, it could not be reproduced at all,
+on any build**, including images that had frozen instantly the day before.
+So whatever holds the state lives outside the guest: 86Box's own emulation
+state or its timing against the host (86Box does not reset floppy drive
+state on a hard reset — the same way drives are sometimes lost across one).
+
+**What the debug builds said** (an IRQ0 front hook installed from the
+splash animation, painting a line of state through `ovw_font_run_x` on a
+private stack; built from `bd6ee56c` with the code at the tail of `.ovl` so
+no resident label moves — recipe below):
+
+- The last tick ever seen landed at **`F000:DC61` / `F000:DC65`, IF=1** —
+  the MR BIOS's floppy wait loop, during the SOUND.DRV read. v2, v3 and v4
+  photographs all agree.
+- **IRQ0 stops permanently**, and the keyboard with it. The IMR read `A8`
+  (normal for an AT) and the vector was intact, so it is not masking and not
+  an overwritten vector: it is **an IRQ0 left in service without an EOI**
+  (which blocks every lower IRQ, the floppy's IRQ6 included, so the BIOS
+  wait never ends) or **IF=0 for ever**.
+- **Deterministic within a build**: v3 and v4 both died on hook tick
+  `0x28`, forty ticks after the hook went in.
+- **It is timing and not layout.** v5 ran the SAME resident kernel as v3/v4
+  (three two-byte immediates differ) but did ~10x the work per tick —
+  paint before and after, `pushf`/`call far` into `sch_isr` instead of a
+  jump — and never froze in ~100 resets while the original image froze
+  instantly in the same 86Box state. More work inside IRQ0 hides it.
+- Hit rate fell as the hook grew: v2 froze first try, v3 ~1 in 12, v4 ~1
+  in 30, v5 never.
+
+**Ruled out**, each on evidence in this investigation: the SYSTEM.CFG
+contents (the owner's differs from a working one only in `VM=0`); stale RAM
+across the reset (simulated on MartyPC); a Sound Blaster left dirty by the
+previous session (QEMU SB16, reset mid-play); a 64KB DMA crossing in the
+compressed read (`dskw_runmax` stages it); a CMOS write; the disk-change
+path; SPEC.md 18.97's FDD probe (bounded, and passed); a driver blob mix-up.
+MartyPC (8088, DSP 2.01) and QEMU (SB16, SeaBIOS) never reproduced it.
+
+**What was about to be tried** when it stopped reproducing — one-knob A/B
+disks of the PLAIN kernel (no hook, so the timing is the shipped one),
+tested with 86Box already in the always-freezes state, where a FREEZE is
+conclusive and a pass is only suggestive:
+
+1. `NOCHAINPRIV=1` — the ROM's `int 08h` chain back on the task stack. The
+   prime suspect is SPEC.md 8.5's private chain stack meeting the MR BIOS's
+   floppy handling inside the ROM's own `sti` window (IRQ6 nesting in the
+   `int 08h` chain, or its EOI ordering).
+2. The splash animation OFF IRQ0 (SPEC.md 15.3.8) — there is no knob for
+   this yet; it is the next one-change build if (1) still freezes.
+3. `NOCURDISK=1` (SPEC.md 7.4, the pointer drawn inside `int 13h`).
+4. `6519baaa` (before pass 4) and batches 12/13 (`4e804a33`, `26b437fb`),
+   batch 13 being the one that moved boot code into the stage-2 blob — but
+   a bisect of a race finds the commit that EXPOSED it as readily as the one
+   that caused it, so this is the weakest of the four.
+5. `make stkdiag` on this machine, to measure the MR BIOS's `int 08h` chain
+   depth against `SCH_CHSTK` = 128.
+
+`DRVDIAG=1` (committed) draws `drv_boot`'s progress on the loading screen
+and is the first disk to hand out when this comes back. The IRQ0 hook is
+NOT committed; to rebuild it, patch `splf_anim`'s first instruction to a
+same-length `jmp near` into a routine appended at the END of `.ovl` that
+saves and replaces the `int 08h` vector, paints `CS IP FLAGS tick PIC`
+off the interrupted frame each tick, and removes itself when `spl_mline`
+reads `Starting`; raise `OVL_KNOBGIVE` and build with `NOOVLCHK=1`. Keep the
+hook as THIN as possible — v5 is the proof that a heavy one makes the bug
+disappear.
+

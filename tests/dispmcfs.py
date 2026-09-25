@@ -141,7 +141,16 @@ def main():
         bx, by = dispcp.win_rect(m, S, disk)[:2]
         dispcp.open_named(m, mo, S, os88marty.settle, bx, by, MISSILE_PKG,
                           card=pri)
-        os88marty.pace(m, 3)            # Missile animates: nothing to settle
+        # Missile animates, so there is nothing to SETTLE - but its window
+        # appearing and the disk going quiet is the launch being done
+        try:
+            os88marty.until(m, lambda _: any(w != disk for w in
+                                             dispcp.win_list(m, S)),
+                            "Missile's window", poll=0.2, limit=30)
+        except os88marty.MartyError:
+            pass                        # ...and the line below says so
+        os88marty.quiesce(m, lambda: m.disk().get("reads"), guest=1.0,
+                          what="Missile's load to finish")
         g = [w for w in dispcp.win_list(m, S) if w != disk]
         if not g:
             sys.exit("missile did not launch")
@@ -162,24 +171,39 @@ def main():
         # --- into SPEC.md 11.2 fullscreen + the same-mode bracket -----------
         mo.to(wx + ww // 2, wy + wh // 2)       # the pointer on the game
         m.key("KeyF")
-        os88marty.pace(m, 4)
+        fs = lambda: u16(m.read(S("wm_fs"), 2))
+        try:                            # the latch (SPEC.md 11.2); state()
+            os88marty.until(m, lambda _: fs() != 0,  # settles the glass
+                            "the fullscreen latch", poll=0.2, limit=15)
+        except os88marty.MartyError:
+            pass
         full = state(m, mo, "fullscreen", g, both)
         shot(m, sec, "2-fullscreen-herc")
         shot(m, pri, "2-fullscreen-vga")
 
         # can the pointer still move LEFT? (report 1)
         m.mouse(-60, 0)
-        os88marty.pace(m, 0.6)
+        os88marty.pace(m, os88mouse.GAP)    # a packet in flight drops the next
         m.mouse(-60, 0)
-        os88marty.pace(m, 1.2)
-        moved = mo.where()[:2]
+        try:
+            os88marty.until(m, lambda _: mo.where()[0] != full["x"],
+                            "the pointer to move", poll=0.1,
+                            guest=2 * os88mouse.PKT_GUEST)
+        except os88marty.MartyError:
+            pass                        # STUCK: the line below says so
+        moved = os88marty.quiesce(m, lambda: mo.where()[:2], guest=0.3,
+                                  what="the pointer")
         print("   after two -60 x moves: mouse=(%d,%d)  %s"
               % (moved[0], moved[1],
                  "MOVED" if moved[0] != full["x"] else "*** STUCK ***"))
 
         # --- and out ------------------------------------------------------
         m.key("Escape")
-        os88marty.pace(m, 4)
+        try:
+            os88marty.until(m, lambda _: fs() == 0, "the latch to drop",
+                            poll=0.2, limit=15)
+        except os88marty.MartyError:
+            pass
         os88marty.settle(m, card=sec)
         mo.to(*park)
         after = state(m, mo, "back to windowed", g, both)

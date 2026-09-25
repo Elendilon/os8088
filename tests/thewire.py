@@ -1079,15 +1079,19 @@ def main():
                 no("the Save dialog would not walk to B:, so the write below "
                    "is about the wrong disk")
                 return False
+            nasked = len(srv.asked)
             mo.click(bx, dy + TITLE_H + FD_BY0 + FD_BH // 2)
             # Save CLOSES the dialog and its completion starts the chain, so
-            # the dialog going is the first answer; the two seconds after it
-            # are what the chain had to get going before "settled" can mean
-            # FINISHED rather than NOT YET STARTED - [wr_state] reads WS_DONE
-            # either way.
+            # the dialog going is the first answer; the chain GETTING GOING is
+            # the second, before "settled" can mean FINISHED rather than NOT
+            # YET STARTED - [wr_state] reads WS_DONE either way. Its first
+            # act is a request to the host, which the server saw or did not;
+            # the two guest seconds this used to sleep are the bound.
             os88qemu.acted(m, lambda: len(dispcp.win_list(m, S)) <= len(base),
                            secs=10, what="the Save dialog closing", poll=0.25)
-            os88qemu.pace(m, 2.0)
+            os88qemu.acted(m, lambda: len(srv.asked) > nasked
+                           or b("wr_job")[0] != 0, secs=2.0,
+                           what="the Add chain to start", poll=0.1)
             os88qemu.acted(m, lambda: b("wr_job")[0] == 0
                            and b("wr_state")[0] in (WS_DONE, WS_FAIL),
                            secs=120, what="the Add chain", poll=0.5)

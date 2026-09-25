@@ -96,31 +96,64 @@ def main():
         w = lambda n: int.from_bytes(m.read(base + P["@" + n], 2), "little")
         w2 = lambda off: int.from_bytes(m.read(base + off, 2), "little")
 
+        # Each key waits for the UI to be FINISHED with it rather than for a
+        # fixed pause: out of the BIOS ring (its head moved), and then the
+        # step's own end state - the UI idle (no event queued, the gfx lock
+        # free), or the bracket up, which holds the lock for its whole life.
+        # Twice, a twentieth of a guest second apart, because ui_task pops an
+        # event a few instructions before it takes the lock for it. A step
+        # that never gets there is reported and the check after it says why.
+        KBUF = 0x41A                    # 0040:001A - the BIOS ring's head
+        kbhead = lambda: m.read(KBUF, 2)
+        cyc = lambda: int(m.status()["cycles"])
+
+        def ui_idle():
+            kb = m.read(KBUF, 4)
+            return (kb[0:2] == kb[2:4] and m.read(S("evq_count"), 1)[0] == 0
+                    and m.read(S("gfx_lock_flag"), 1)[0] == 0)
+
+        def key(k, fin=ui_idle):
+            h = kbhead(); m.key(k)
+            what = "the %s key to be handled" % k
+            try:
+                os88marty.until(m, lambda _: kbhead() != h and fin(), what,
+                                poll=0.05, limit=30)
+                c0 = cyc()
+                os88marty.until(m, lambda _: cyc() - c0 >= os88marty.GUEST_HZ / 20
+                                and fin(), what, poll=0.05, limit=30)
+            except os88marty.MartyError as e:
+                print("  (%s)" % str(e).split(". ")[0])
+
+        fs_on = lambda: b("trk_fs") == 1 or ui_idle()
+        fs_off = lambda: b("trk_fs") == 0 and ui_idle()
+
         print("1. the defaults")
         check("mp_xt (pre-armed on a tier-0 machine)", b("mp_xt"), 1)
         check("trk_xhi (bss arrives zeroed = 5,500)", b("trk_xhi"), 0)
 
         print("2. fullscreen at 5,500")
-        m.key("KeyF"); os88marty.pace(m, 4)
+        key("KeyF", fs_on)
         check("trk_fs after F", b("trk_fs"), 1)
-        m.key("Escape"); os88marty.pace(m, 4)
+        key("Escape", fs_off)
         check("trk_fs after Esc", b("trk_fs"), 0)
 
         print("3. R picks the high rate")
-        m.key("KeyR"); os88marty.pace(m, 2)
+        key("KeyR")
         check("trk_xhi after R", b("trk_xhi"), 1)
         if not SHIPPED:
             check("the bench sweep followed it", w("tlog_xrate"), 11000)
 
         print("4. ...and the text screen is refused while it is picked")
-        m.key("KeyF"); os88marty.pace(m, 4)
+        key("KeyF", fs_on)
         check("trk_fs after F at 11 kHz", b("trk_fs"), 0)
 
         print("5. the stream opens at the rate the control names")
-        m.key("Enter"); os88marty.pace(m, 14)
+        key("Enter", lambda: b("mp_playing") == 1 and ui_idle())
+        os88marty.quiesce(m, lambda: (w("mp_mixrate"), b("mp_playing")),
+                          guest=1.0, what="the stream to open")
         check("mp_mixrate while playing", w("mp_mixrate"), 11000)
         check("mp_playing", b("mp_playing"), 1)
-        m.key("Space"); os88marty.pace(m, 4)
+        key("Space", lambda: b("mp_playing") == 0 and ui_idle())
 
         print("6. the Rate MENU is the mode's own rows (SPEC.md 45.9.3)")
         # Walked the way the kernel walks it: the set entry -> AMENU_ITEMS ->
@@ -140,17 +173,17 @@ def main():
         check("View > Fullscreen is MENU_DIS at 11 kHz", item0_byte("trk_e_view"), 1)
 
         print("7. R back, and the surface comes back with it")
-        m.key("KeyR"); os88marty.pace(m, 2)
+        key("KeyR")
         check("trk_xhi after R", b("trk_xhi"), 0)
         if not SHIPPED:
             check("the bench sweep followed it", w("tlog_xrate"), 5500)
         check("View > Fullscreen is live again", item0_byte("trk_e_view"), ord("F"))
-        m.key("KeyF"); os88marty.pace(m, 4)
+        key("KeyF", fs_on)
         check("trk_fs after F at 5.5 kHz", b("trk_fs"), 1)
-        m.key("Escape"); os88marty.pace(m, 3)
+        key("Escape", fs_off)
 
         print("8. ...and XT mode off puts the other mode's rows back")
-        m.key("KeyX"); os88marty.pace(m, 3)
+        key("KeyX")
         check("mp_xt after X", b("mp_xt"), 0)
         # 11/22 kHz, and 33/44 ONLY where the card can play them: the
         # count is the guest's own SND_CAP_PCM_HI, read off the kernel's

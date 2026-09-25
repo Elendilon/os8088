@@ -453,14 +453,20 @@ def main():
                            what="the session leaving TS_UP", poll=0.1)
             os88qemu.pace(m, 0.3)
 
-        def quiet(timeout=30.0, still=2.0):
+        def quiet(timeout=30.0, still=2.0, want=None):
             """Wait until the parser has stopped being fed.
 
             The fixture arrives in fragments with a delay between them, so
             "the buffer is empty" is true between two of them; what says the
             stream is over is the STREAM OFFSET standing still - which is the
             same byte `ansisim` counts - with the receive queue drained and no
-            reply owed. Both `timeout` and `still` are GUEST seconds."""
+            reply owed. Both `timeout` and `still` are GUEST seconds.
+
+            `want` is where the offset ENDS when the caller knows - ansisim's
+            count of the same bytes - and reaching it drained is the stream
+            over, with no stillness to prove. `still` is then only the
+            fallback for a stream that stops short of it, which the caller
+            reports."""
             clk = os88qemu.Clock(m)
             last, since = -1, 0.0
             while True:
@@ -469,6 +475,8 @@ def main():
                     break
                 off = rw("te_soff")
                 drained = rw("te_rxi") >= rw("te_rxn") and rb("te_pndn") == 0
+                if drained and want is not None and off == want:
+                    return off
                 if off != last:
                     last, since = off, t
                 elif drained and t - since >= still:
@@ -499,9 +507,10 @@ def main():
                              "%d) - nothing below it can have been tested"
                              % (name, rb("te_state")))
                 break
-            got_off = quiet()
-            scr = m.readseg(pseg, sy["con_scr"], CON_SCRSZ)
             ref = ansisim.render(data)
+            expect = ref.zmodem_at if ref.zmodem_at is not None else len(data)
+            got_off = quiet(want=expect)
+            scr = m.readseg(pseg, sy["con_scr"], CON_SCRSZ)
             want = ref.raw()
             # **DID THE STREAM FINISH?** `quiet()` returns when [te_soff] has
             # stood still for two seconds with the queue drained - and its own
@@ -515,7 +524,6 @@ def main():
             # the option layer and os88bbs's telnet_escape doubles 0xFF on the
             # way out, so a literal 0xFF costs one offset at each end and the
             # equality holds exactly.
-            expect = ref.zmodem_at if ref.zmodem_at is not None else len(data)
             if got_off != expect:
                 say("%-8s %5d bytes, %d fed  STALLED" % (name, len(data),
                                                          got_off))
@@ -818,7 +826,8 @@ def check_fullscreen(m, pseg, sy, shot, fails, press_connect, connected, quiet,
         srv.stop()
         fails.append("full screen: no session to put a board on the screen")
         return
-    quiet()
+    ref = ansisim.render(stream)
+    quiet(want=ref.zmodem_at if ref.zmodem_at is not None else len(stream))
     scr0 = m.readseg(pseg, sy["con_scr"], CON_SCRSZ)
     drawn = sum(1 for i in range(0, CON_SCRSZ, 2) if scr0[i] != 0x20)
     say("fsx       %d of 2,000 cells hold a glyph before ^]" % drawn)
