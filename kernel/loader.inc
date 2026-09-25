@@ -63,7 +63,12 @@ LD_DE_SIZE  equ 20              ; the LOW word of a DWORD size (SPEC.md 19.1
 
 ; --- .o88 v3 header field offsets (SPEC.md 20.2) ------------------------------
 LD_H_MAGIC  equ 0               ; word: 0x384F ('O','8')
-LD_H_VER    equ 2               ; byte: format version = 3
+LD_H_VER    equ 2               ; byte: format version = PKG_FMT
+PKG_FMT     equ 6               ; the package format, and it is the API
+                                ; TABLE'S: a renumbering bumps it (SPEC.md
+                                ; 20.2.0, 20.8 rule 4). Mirrored in
+                                ; apps/os88api.inc and tools/os88pkg.py,
+                                ; and tests/unit/t_mirror.py holds them together
 LD_H_FLAGS  equ 3               ; byte: bit 0 = embedded 16x16 icon
 LD_HF_GLYPH equ 0x20            ; ...its bit 5: a 16-byte DOCUMENT-GLYPH block
                                 ; follows the association block (SPEC.md
@@ -251,7 +256,7 @@ ld_unreserve:
 ld_hdr_ok:
     cmp word [es:si+LD_H_MAGIC], 0x384F      ; 'O','8'
     jne .no
-    cmp [es:si+LD_H_VER], al                 ; 3 = package, 4 = driver: the
+    cmp [es:si+LD_H_VER], al                 ; 6 = package, 7 = driver: the
     jne .no                                  ; two gates SPEC.md 51.1 wants
     cmp word [es:si+LD_H_LINK], 0            ; org 0 or it is not v3
     jne .no
@@ -424,9 +429,12 @@ ld_hdr_size:
 ; the kernel into its data on the first paint.
 ; -----------------------------------------------------------------------------
 ld_check_hdr:
-    mov al, 3                   ; magic, version, link and the dispatcher, in
+    mov al, PKG_FMT             ; magic, version, link and the dispatcher, in
     call ld_hdr_ok              ; the body the driver loader shares. v1/v2
-    jc ld_hdr_size.bad                     ; files fail on the version: "Bad package"
+    jc ld_hdr_size.bad                     ; files - and any built for another API
+                                ; table (SPEC.md 20.2.0) - fail on the version:
+                                ; "Bad package", never a far call into cells
+                                ; that moved
     mov ax, [es:si+LD_H_IMG]
     cmp ax, LD_HDR_SIZE
     jb ld_hdr_size.bad                                 ; image smaller than the header
@@ -1281,7 +1289,7 @@ ld_start:
     call .sweep
     mov es, [ld_rehome]
     xor si, si
-    mov al, 3                   ; ...and it is a PACKAGE header or it is not a
+    mov al, PKG_FMT             ; ...and it is a PACKAGE header or it is not a
     call ld_hdr_ok              ; program: magic, version, link and the
     jc .abort                   ; dispatcher, the same five the file's own
                                 ; header passed at ld_check_hdr. NOT

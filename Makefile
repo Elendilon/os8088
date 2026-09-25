@@ -2021,7 +2021,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
         stories zdisk ztest zh zhboot zcheck zgfx zpic zgfxpic zscreens xt-z 386-z \
         worddisk wordcheck xt-word 386-word \
         scribe scribedisk \
-        cc-note chello covl pkgrun pkgbig cword cworddisk 386-c-word runcpm runcpmdisk \
+        cc-note chello covl pkgrun pkgbig pkgfmt cword cworddisk 386-c-word runcpm runcpmdisk \
         paccman paccmandisk pmcbandbench xt-paccman 386-paccman \
         xt-pixelstein xt-pixelstein-herc \
         runcpm-src cpmsw rcz80test rcmemtest rczex 386-runcpm \
@@ -7116,7 +7116,7 @@ pkgrun: $(BUILD)/pkgrun.img $(BUILD)/pkgrun360.img
 # they test has any geometry in it. The disk carries BOTH gates' fixtures
 # (tests/pkgbig.py and tests/pkgfence.py) because it is one `--raw` build and
 # one megabyte of it is HUGE.O88.
-$(BUILD)/pkgbig.img: tests/pkgbig/mkfix.py tools/os88disk.py | $(BUILD)
+$(BUILD)/pkgbig.img: tests/pkgbig/mkfix.py tools/os88disk.py tools/os88pkg.py | $(BUILD)
 	python3 tests/pkgbig/mkfix.py $(BUILD)/pkgbig
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--raw $(BUILD)/pkgbig/BIGPKG.O88 --raw $(BUILD)/pkgbig/HUGE.O88 \
@@ -7124,6 +7124,23 @@ $(BUILD)/pkgbig.img: tests/pkgbig/mkfix.py tools/os88disk.py | $(BUILD)
 		$(BUILD)/pkgbig/BIGPKG.O88 $(BUILD)/pkgbig/HUGE.O88 \
 		$(BUILD)/pkgbig/BSSWRAP.O88 $(BUILD)/pkgbig/BSSWORST.O88
 	@python3 tools/os88disk.py --verify $@
+
+# --- PKGFMT, the format byte's disk (ON DEMAND: `make pkgfmt`) ---------------
+#
+# SPEC.md 20.2.0: the package format byte is the API TABLE'S, and a kernel
+# tests it for EQUALITY so a package built for another table is refused by
+# name instead of far-calling cells that moved. Two files: CALC.O88 as this
+# tree builds it (the control - it must load), and OLDCALC.O88, the same
+# bytes with the format byte put back to 3, which is what every package built
+# before kernel size pass 4 carries. It is --raw because os88disk.py refuses
+# a format it does not write, which is the host half of the same rule.
+$(BUILD)/pkgfmt360.img: $(BUILD)/calc.o88 tools/os88disk.py | $(BUILD)
+	python3 -c "import sys; b = bytearray(open(sys.argv[1], 'rb').read()); b[2] = 3; open(sys.argv[2], 'wb').write(b)" $(BUILD)/calc.o88 $(BUILD)/OLDCALC.O88
+	python3 tools/os88disk.py -o $@ --size 360 --raw $(BUILD)/OLDCALC.O88 \
+		$(BUILD)/calc.o88 $(BUILD)/OLDCALC.O88
+	@python3 tools/os88disk.py --verify $@
+
+pkgfmt: $(BUILD)/pkgfmt360.img
 
 #   make pkgbig                          builds the fixture disk
 #   python3 tests/pkgbig.py              runs the mount/size gate on MartyPC

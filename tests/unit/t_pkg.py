@@ -43,9 +43,11 @@ from harness import check, eq, done                       # noqa: E402
 from t_image import Vol, read, SYSTEM_IMAGES, DATA_IMAGES  # noqa: E402
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import os88drv                                            # noqa: E402
+import os88pkg                                            # noqa: E402
 
 MAGIC = 0x384F                       # 'O','8'
-V_APP, V_DRV, V_MOD = 3, 4, 5        # package / driver / on-demand module
+V_APP, V_DRV, V_MOD = os88pkg.PKG_FMT, os88drv.DRV_VER, 5  # package / driver / module
+                                     # (SPEC.md 20.2.0: the first two move with the API table)
 DISPATCH = bytes((0xFF, 0xD5, 0xCB))  # call bp / retf, at +12
 HEADER = 32
 ICON_END = 96
@@ -144,7 +146,8 @@ def header(blob, nm):
     magic, ver, b3, link, entry, image, b6 = struct.unpack_from("<HBBHHHH", blob, 0)
     eq(magic, MAGIC, "%s: magic is 'O8'" % nm)
     if not check(ver in (V_APP, V_DRV, V_MOD),
-                 "%s: version is 3 (app), 4 (driver) or 5 (module)" % nm, got=ver):
+                 "%s: version is %d (app), %d (driver) or %d (module)"
+                 % (nm, V_APP, V_DRV, V_MOD), got=ver):
         return None
     if ver == V_MOD:
         module(blob, nm)

@@ -1697,7 +1697,7 @@ A module carries no dispatcher — the kernel knows its entry offsets, because
 it built them — and that is both cheaper than `call bp / retf` and the one
 hazard the design has: a module file beside a kernel it was not built with
 would be far-called at offsets that have moved. Header version is **5**, so
-`ld_check_hdr` (3) and `drv_check` (4) refuse it as well — two independent
+`ld_check_hdr` (6) and `drv_check` (7) refuse it as well — two independent
 gates, §51.1's discipline — and the header carries **two** words that
 `mod_check` tests:
 
@@ -35770,7 +35770,7 @@ honour system:
 - `drv_tab` is a **fixed kernel-side table** of known driver files, so the
   set of things that can ever be a driver is decided when the kernel is
   built and a user cannot add to it;
-- a `.DRV` carries **header version 4**, which `ld_check_hdr` refuses for an
+- a `.DRV` carries **header version 7** (`DRV_VER`; 4 before §20.2.0), which `ld_check_hdr` refuses for an
   application, and `disk_mount` types only `*.O88` as launchable — two
   independent gates, so a driver can never be double-clicked into existence;
 - and the driver files themselves are hidden + system + read-only on the
@@ -36347,7 +36347,7 @@ each needed a mechanism**:
 | off | size | contents                                                  |
 |-----|------|------------------------------------------------------------|
 | 0   | 2    | magic: bytes `'O','8'` (word 0x384F)                      |
-| 2   | 1    | format version = 3 (segment-per-package; v1/v2 files are rejected) |
+| 2   | 1    | format version = **6** (`PKG_FMT`): the segment-per-package layout, built against the API table as §20.3 lays it out now. Anything else — 1 to 5 included — is refused (§20.2.0) |
 | 3   | 1    | flags: bit 0 = embedded icon follows the header; bit 1 = an association block follows it (§54.6); **bit 2 = the FILE is longer than the image and the rest is the package's own (§20.12)**; **bit 3 = the image is COMPRESSED and the file is SHORTER than it, bit 4 = which format (0 = LZ4, 1 = LZB)** — docs/plans/O88-COMPRESSION-PLAN.md; **bit 5 = a 16-byte DOCUMENT-GLYPH block follows the association block (§54.3.2)**; bits 6–7 zero |
 | 4   | 2    | link base — must be **0**: a v3 package links at org 0     |
 | 6   | 2    | entry offset (≥ 0x20; ≥ 0x60 with icon; < image size)      |
@@ -36356,6 +36356,26 @@ each needed a mechanism**:
 | 12  | 3    | **the dispatcher**: `FF D5` (`call bp`), `CB` (`retf`)     |
 | 15  | 1    | **worker stack class** — an index into the kernel's `sch_clsbytes` (§8.7.2). 0 is "no opinion" and gets the largest class, which is what every package built before this field carries |
 | 16  | 16   | program name, printable, NUL-padded (shown by tools)      |
+
+#### 20.2.0 The format number is the TABLE'S, and moving the table moves it
+
+The layout this section describes has not changed since v3 — the name the rest
+of this document still uses for it — and the byte at +2 is 6 all the same,
+because the byte is the only thing a kernel reads before it far-calls a
+package's cells, and kernel size pass 4 moved 158 of them (§20.3). A package
+built for the old table and loaded by a kernel with the new one does not
+fault: it assembles, it loads, and its first `call OSAPI_*` lands in the
+middle of some other cell. So the loader's test is EQUALITY and not a floor,
+on the kernels before this one and on this one: an old kernel handed a
+format-6 package answers `Bad package` (`Load failed` since kernel size pass 4, §21 step 10), and this kernel
+handed a format-3 one answers the same. Nobody crashes and nobody is asked to
+understand why. **Why 6 and not 4**: every kind that carries the `'O8'` magic
+has a number of its own, and each loader's equality test is also the fence
+between the kinds (§51.1) — 4 is a driver and 5 a kernel module (§2.8.2), so
+the next free number is 6, and a driver moved with it for the same reason
+(`DRV_VER` = 7). `PKG_FMT` is defined in `kernel/loader.inc` and
+`apps/os88api.inc` and `tests/unit/t_mirror.py` holds the two together, with
+`tools/os88pkg.py`'s copy beside them.
 
 **The dispatcher at +12 is the header's one piece of executable code**, and
 it is what makes a package's callbacks ordinary near procs. Every
@@ -37108,7 +37128,7 @@ emits the §20.2 header (image size via a forward-referenced
 end-of-file macro — exact macro design is the implementer's, but a package
 source must be able to consist of just `%include "os88api.inc"`, the header
 macro, code/data, and an end macro). `OS88_HEADER` opens with `org 0`,
-emits **version 3**, a zero link base, the entry offset, and the four
+emits **version 6** (`PKG_FMT`, §20.2.0), a zero link base, the entry offset, and the four
 **dispatcher bytes at +12** (§20.2) — which is the one part a package author
 must not hand-roll and, because the macro emits it, cannot get wrong.
 Every `OSAPI_*` is a `%define` of `KERNEL_SEG:offset`, so `call OSAPI_X` is
@@ -37896,7 +37916,13 @@ without anyone noticing it was a rule.
    **before** it goes out anyway — this is a licence to fix a mistake, not to
    skip the design. A change is still expensive and still deliberate:
    renumbering **invalidates every `.o88` at once**, so every package is
-   rebuilt and every shipped image reissued together, and it has happened
+   rebuilt and every shipped image reissued together - **and the
+   invalidation is ENFORCED, not assumed: a renumbering bumps `PKG_FMT` and
+   `DRV_VER` in the same commit** (§20.2.0), so a package or driver from
+   before it is refused by name instead of far-calling cells that moved.
+   Pass 4 is what taught that: it moved 158 cells and left the format byte
+   at 3, and a machine on the old kernel fetching a new package off The
+   Wire (§92) would have loaded it and jumped into the wrong cells. It has happened
    four times — the last being kernel size pass 4's two cell sizes, which
    moved every number after `font_str` for 317 bytes of table. Renumber for a
    reason, not in passing; prefer a *new name* to a silent change of meaning
@@ -38950,7 +38976,7 @@ the arm never runs.
 
 ##### 20.12.10.4 The part is validated as a package, not as a file
 
-The arm runs `ld_hdr_ok` — magic, version 3, link 0 and the three-byte
+The arm runs `ld_hdr_ok` — magic, version 6, link 0 and the three-byte
 dispatcher — and **not** `ld_check_hdr`, which is about the *file*: a part has
 no file size to be compared against, and the flags-bit arithmetic §20.12.3
 describes belongs to the container.
@@ -40369,8 +40395,8 @@ kernel-segment buffer first and validate the copy, and nothing ever compared
 the two — each call simply re-ran the same tests. The buffer and the copying
 are gone; the disk-swap guard step 6 exists for is untouched, because what
 catches a swap is re-running this routine on what the *full read* delivered,
-not the staged copy. Checks: magic; **version = 3** (a v1 or v2 file → "Bad
-package"); link base = 0; image ≥ 0x20; entry in [0x20, image) (the icon
+not the staged copy. Checks: magic; **version = 6** (`PKG_FMT` - a file
+built for another API table, or a v1 or v2 file → "Bad package", §20.2.0); link base = 0; image ≥ 0x20; entry in [0x20, image) (the icon
 rule is enforced by os88pkg, not re-checked); **image+bss ≤ APP_MAX_SIZE,
 fenced on the CARRY**, because both operands are separately bounded at
 0xF000 and their sum reaches 0x1E000, which is seventeen bits (`add dx, ax /
@@ -44654,9 +44680,9 @@ and non-zero exit + stderr message on any validation failure.
   whole-word package addresses are all retired, and with them the class of
   bug where an address folded into a constant assembled cleanly and
   relocated wrong. What is left is validation, which matters more than it
-  used to. Any failure → exit 1 on stderr, no output: magic; version 3
-  (a v2 file says so and asks for a rebuild against the v3
-  `apps/os88api.inc`); flags bits 1–7 zero; **link base 0**; the four
+  used to. Any failure → exit 1 on stderr, no output: magic; version 6
+  (any other version says so and asks for a rebuild against this tree's
+  `apps/os88api.inc`, §20.2.0); flags bits 1–7 zero; **link base 0**; the four
   **dispatcher bytes `FF D5 CB 00` at offset 12** — an image without them
   would send the kernel into its data on the first paint, and the
   `OS88_HEADER` macro is what emits them, so a failure here means the image
@@ -44676,7 +44702,7 @@ and non-zero exit + stderr message on any validation failure.
   same `1 ≤ FATSz16 ≤ 10` bound as mount rule 10, so a volume the kernel
   would refuse fails on the host too.
   - Package validation, kept in step with os88pkg: magic 0x384F,
-    version 3, image field ∈ [32, filesize], image == file size, non-empty
+    version 6 (§20.2.0), image field ∈ [32, filesize], image == file size, non-empty
     printable header name, size ≤ 0xFFFF (an older file fails with
     "rebuild with the v3 toolchain"). Corruption surfaces on the host, not
     on the 8086.
@@ -78709,7 +78735,8 @@ does. Four things differ, and each is doing work:
 - **It is a `.DRV` file.** The mount types a directory entry as an
   application only when its extension is `O88` (§19), so a driver is *data*
   to the file manager and can never be double-clicked into the loader.
-- **Its header version is 4.** A package is 3, so if one ever did reach
+- **Its header version is 7** (`DRV_VER`, §20.2.0; it was 4 until the API
+  table moved). A package is 6, so if one ever did reach
   `ld_check_hdr` it would be refused there too. Two independent gates,
   because "the kernel ran a driver as an application" is not a failure mode
   worth one gate.
@@ -81982,7 +82009,7 @@ Per type-1 entry (§19.1 — a PACKAGE, not "a file"):
 - **one `OSAPI_FILE_READ_AT` of the first cluster**, whose capacity must be a
   whole number of clusters (§18.4.4) — `OSAPI_FILE_DFREE` answers the sectors
   per cluster, which is what sizes the claim below.
-- the header is checked as `build_assoc` checks it — `'O8'`, version 3 — and
+- the header is checked as `build_assoc` checks it — `'O8'`, version 6 (`PKG_FMT`) — and
   the icon is the 64 bytes at +32 when flags bit 0 is set, the declaration
   block at +96 (or +32 with no icon) when bit 1 is.
 
@@ -102879,7 +102906,7 @@ Three things follow, and each is why a directive is written the way it is:
 The 32-byte header itself is emitted by the C runtime include and not by
 `OS88_HEADER`: that macro emits `org 0` of its own and closes with the `$$`
 arithmetic above, so a C package uses a sibling pair of macros with the same
-field layout, the same magic, the same version 3 and the same `FF D5 CB 00`
+field layout, the same magic, the same version (`PKG_FMT`, 6) and the same `FF D5 CB 00`
 dispatcher bytes at +12. **The header a C package emits is byte-identical in
 shape to an assembly package's** — that is the requirement, and `os88pkg.py`
 plus `ld_check_hdr` (§21) are the two things that prove it on every build.

@@ -235,7 +235,7 @@ section .modc   follows=.data   align=1 vstart=0
 ; =============================================================================
 section .text
     db 'O', '8'                     ; +0  magic (word 0x384F)
-    db 3                            ; +2  format version 3: segment-per-package
+    db PKG_FMT                      ; +2  format version (SPEC.md 20.2.0)
     db CC_FLAGS                     ; +3  flags: bit 0 an embedded icon
                                     ;     follows, bit 1 a 16-byte association
                                     ;     block follows it (SPEC.md 54.6).

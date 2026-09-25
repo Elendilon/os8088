@@ -2924,6 +2924,13 @@ OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
                                 ; ETHER.DRV, whose socket verbs cost ~126
                                 ; bytes on YOUR stack (SPEC.md 72)
 
+; THE FORMAT BYTE IS THE API TABLE'S (SPEC.md 20.2.0). Pass 4 moved 158 of
+; the cells above and a package built for the old table does not fault, it
+; far-calls the wrong ones - so a renumbering bumps this, and a kernel that
+; tests it for EQUALITY refuses a package from the other side as "Bad
+; package" instead. Mirrored in kernel/loader.inc and tools/os88pkg.py.
+PKG_FMT equ 6
+
 %macro OS88_HEADER 2-4
     cpu 8086
     bits 16
@@ -2932,7 +2939,7 @@ OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
                             ; No relocation table, no dual assembly, no rule
                             ; about whole-word addresses (SPEC.md 20.2)
     db 'O', '8'             ; +0  magic (word 0x384F)
-    db 3                    ; +2  format version 3: segment-per-package
+    db PKG_FMT              ; +2  format version: segment-per-package, this table
     %if %0 >= 3
     db %3                   ; +3  flags (bit 0 = embedded icon)
     %else

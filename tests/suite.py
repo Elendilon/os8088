@@ -2183,6 +2183,20 @@ SOAK = [
         "fixtures are *.O88 files that are deliberately not packages, and "
         "validate_o88 exists to make those unbuildable. 40s measured.",
         needs=("marty",), serial=True, wants=("build/pkgbig.img",)),
+    Row("pkgfmt", "soak", py("tests/pkgfmt.py"), 30.0,
+        "SPEC.md 20.2.0: the package format byte is the API TABLE'S. Kernel "
+        "size pass 4 moved 158 cells and left the byte at 3, so a package "
+        "built for one table loaded under the other and far-called the wrong "
+        "cells - the Wire serving a new package to an old kernel. PKG_FMT is "
+        "6 now and the loader's test is EQUALITY, so OLDCALC.O88 (the "
+        "Calculator with its byte put back to 3) must be LD_EBAD with no "
+        "window, and CALC.O88 opened AFTER it must load, which is what says "
+        "the refusal left the machine whole. Broken on purpose (loader.inc's "
+        "PKG_FMT set back to 3) it goes red on OLDCALC opening. The other "
+        "direction - the #197 kernel refusing a format-6 file - is a property "
+        "of a shipped kernel and was measured once with --swap from a worktree "
+        "of the squash. 23s measured.",
+        needs=("marty",), wants=("build/pkgfmt360.img",)),
     Row("pkgfence", "soak", py("tests/pkgfence.py"), 60.0,
         "SPEC.md 21 steps 4 and 6's WRITE BOUND: ld_check_hdr's `image + bss` "
         "fence. Both operands are separately bounded at APP_MAX_SIZE, so "

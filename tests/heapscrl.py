@@ -79,6 +79,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
+from os88pkg import PKG_FMT                                # noqa: E402
 sys.path.insert(0, HERE)
 import os88build
 import os88pkg
@@ -240,7 +241,7 @@ def pkg_slot(m, name):
         if not seg:
             continue
         hdr = m.read(seg << 4, 32)
-        if hdr[:3] == b"O8\x03" and hdr[16:32].split(b"\0")[0] == name:
+        if hdr[:3] == b"O8" + bytes([PKG_FMT]) and hdr[16:32].split(b"\0")[0] == name:
             return i, seg
     return None
 
