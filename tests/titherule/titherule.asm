@@ -8,8 +8,8 @@
 ; package will, and a set of MATCH FILES that `duelsim.py bake` chose so every
 ; keyword fires at least once (build/tirmatch.bin). tests/titherules.py pokes
 ; a match's index into [tt_match] and presses a key; the key handler replays
-; that match here - setup, the mulligans, and upkeep / both plans / resolve a
-; round - writing the engine's STATE RECORD after setup and after every round
+; that match here - setup, then upkeep (the mulligans after the first) / both
+; plans / resolve a round - writing the engine's STATE RECORD after setup and after every round
 ; into [tt_log], and bumps [tt_seq]. The test then reads the records out of
 ; this segment and compares them with the simulator's, to the byte.
 ;
@@ -90,9 +90,14 @@ tt_onkey:
     xor ch, ch
     inc si
     call tr_setup
-    cmp byte [tt_mull], 0
-    je .ma
-    xor al, al
+    mov di, tt_log
+    call .rec
+    jcxz .done
+.round:
+    call tr_upkeep
+    cmp byte [tt_mull], 0           ; THE MULLIGANS come after the FIRST
+    je .ma                          ; upkeep (SPEC.md 97.11.5): a hot-seat
+    xor al, al                      ; player decides at their own first turn
     call tr_mulligan
 .ma:
     cmp byte [tt_mull + 1], 0
@@ -100,11 +105,7 @@ tt_onkey:
     mov al, 1
     call tr_mulligan
 .mb:
-    mov di, tt_log
-    call .rec
-    jcxz .done
-.round:
-    call tr_upkeep
+    mov word [tt_mull], 0           ; ...once
     xor al, al
     call tr_apply                   ; SI advances past each plan
     mov al, 1

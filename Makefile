@@ -9633,7 +9633,7 @@ TITHEDEF := $(if $(TICARDPROF),-DTICARDPROF,)
 
 $(BUILD)/tithe.bin: apps/tithe/tithe.asm apps/tithe/tilay.inc \
                     apps/tithe/tirend.inc apps/tithe/ticard.inc \
-                    apps/tithe/tipj.inc apps/tithe/ticl.inc apps/tithe/tirv.inc \
+                    apps/tithe/tipj.inc apps/tithe/ticl.inc apps/tithe/tirv.inc apps/tithe/tifull.inc \
                     apps/tithe/tibases.inc apps/tithe/tifaces.inc \
                     apps/tithe/tiart.inc apps/tithe/tiground.inc \
                     apps/tithe/tiplace.inc apps/tithe/titxt.inc \

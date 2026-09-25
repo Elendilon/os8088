@@ -150,12 +150,15 @@ class Match:
                 s.draw1()
 
     def mulligan(self, side):
-        """TITHE-PLAN 6.1: the whole hand back, one reshuffle, four again."""
+        """TITHE-PLAN 6.1: the whole hand back, one reshuffle, and as many
+        again. It is taken after the FIRST upkeep (SPEC.md 97.11.5) - a
+        hot-seat player decides at their own first turn - so that is five."""
         s = self.sides[side]
+        n = len(s.hand)
         s.draw += s.hand
         s.hand = []
         shuffle(s.draw, s.rng)
-        for _ in range(OPENING):
+        for _ in range(n):
             s.draw1()
 
     # --- the board's auras (SPEC.md 97.11.3), read where the rule reads them --
@@ -662,12 +665,13 @@ def replay(data):
     """The log a match file produces: a record after setup, one a round."""
     da, db, sa, sb, mull, rounds = tmf_unpack(data)
     m = Match(da, db, sa, sb)
-    for side in (0, 1):
-        if mull[side]:
-            m.mulligan(side)
     log = [m.record()]
     for pa, pb in rounds:
         m.upkeep()
+        if m.round == 1:
+            for side in (0, 1):
+                if mull[side]:
+                    m.mulligan(side)
         m.apply(0, pa)
         m.apply(1, pb)
         m.resolve()
@@ -763,13 +767,15 @@ def play_match(deck_a, deck_b, seed_a, seed_b, ai_a, ai_b, check=False):
     (TITHE-PLAN 14.3's confluence)."""
     m = Match(deck_a, deck_b, seed_a, seed_b)
     ras, rbs = Rng(ai_a), Rng(ai_b)
-    mull = [ai_mulligan(m, 0, ras), ai_mulligan(m, 1, rbs)]
-    for side in (0, 1):
-        if mull[side]:
-            m.mulligan(side)
+    mull = [0, 0]
     rounds = []
     while not m.result:
         m.upkeep()
+        if not rounds:                          # after the FIRST upkeep
+            mull = [ai_mulligan(m, 0, ras), ai_mulligan(m, 1, rbs)]
+            for side in (0, 1):
+                if mull[side]:
+                    m.mulligan(side)
         pa = ai_plan(m, 0, ras)
         pb = ai_plan(m, 1, rbs)
         if check:

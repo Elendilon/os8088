@@ -32,6 +32,14 @@ WHAT IT ASSERTS, and each one went red on purpose first:
   5. THE ROUND IS THE SIMULATOR'S: both commits, the resolution and the next
      upkeep - HP, pools, the next hand and every cell.
 
+  6. A REFUSAL IS SAID AND GREYED (SPEC.md 97.12.10.3).
+
+  7. THE FULL CARD (SPEC.md 97.12.10.8): a right click puts it up with the
+     glass under it saved, and a key puts back exactly what it covered.
+
+  8. THE MULLIGAN (SPEC.md 97.12.10.9): offered, modal, REDRAW the
+     simulator's mulligan, KEEP exact.
+
     make && make tithedisk && python3 tests/tithegame.py [machine]
 """
 import os
@@ -62,9 +70,13 @@ SYMS = ("tg_fillq", "tg_tseed", "tg_plan0", "tg_plan1", "ti_cards",
         "ti_hty", "ti_rowst", "tg_tgt", "tg_arm", "TI_C_FI1", "TI_C_RI1",
         "ti_shg", "ti_shs", "tg_prompt", "ti_played", "ti_s_ngold",
         "ti_s_nsoul", "TI_C_COST", "tg_frz", "ti_s_cconf", "tg_incbuf", "tg_newslot",
+        "ti_rv_trail", "ti_card_fadein", "tg_fcard", "ti_fwseg", "ti_fwx",
+        "ti_fwy", "ti_fwh", "ti_fwcard", "tg_mull", "ti_mbup", "ti_mbx",
+        "ti_mby", "ti_mbseg", "tg_cart", "tg_dsync",
         "TI_C_SIZE", "TI_C_CARD", "TI_C_HP", "TI_HAND")
 EQUS = ("TI_C_SIZE", "TI_C_CARD", "TI_C_HP", "TI_HAND", "TI_C_FI1",
-        "TI_C_RI1", "ti_s_ngold", "ti_s_nsoul", "TI_C_COST", "tg_frz", "ti_s_cconf", "tg_incbuf")
+        "TI_C_RI1", "ti_s_ngold", "ti_s_nsoul", "TI_C_COST", "tg_frz", "ti_s_cconf", "tg_incbuf", "ti_rv_trail",
+        "ti_card_fadein")
 BCOL = (1, 0, 2, 3)     # side x 2 + column -> the board's column (tg_bcol)
 fails = []
 
@@ -204,8 +216,21 @@ def run(mach, off):
             mo.click(*xy, settle=0.2)
             settle(t)
 
+        # THE DESTINATION MARK (SPEC.md 97.12.10.10): the one empty cell whose
+        # key is 80h is where the next PLAY lands - P1's FRONT is board
+        # column 1, so lane 0 is cell 5 - and a play moves it on a lane
+        def dests():
+            os88marty.until(m, lambda _: rb("tg_dsync") == 0, "the mark",
+                            poll=0.2, limit=30.0)
+            cart = m.readseg(seg, off["tg_cart"], 20)
+            return [c for c in range(20) if cart[c] == 0x80]
+
+        check(dests() == [5], "the next PLAY's cell is marked", dests())
+
         # 2. every action, by click
         play(0)                                  # Axeman, FRONT lane 0
+        check(dests() == [6], "...and a play moves the mark on a lane",
+              dests())
         play(2)                                  # Slinger, FRONT lane 1
         click(card_at(1))                        # Brace, armed...
         # ...AND IT STAYS LIT with the pointer parked off it (SPEC.md
@@ -229,7 +254,10 @@ def run(mach, off):
               % (rb("tg_arm"), rw("tg_tgt")))
         click(mark(1, 1))                        # the Slinger's stance
         click(fig(1, 0))                         # a swap: the Axeman...
-        click(fig(0, 2))                         # ...and an empty rear cell
+        with os88marty.bp_trace(m, seg * 16 + off["ti_rv_trail"]) as tr:
+            click(fig(0, 2), 2.0)                # ...and an empty rear cell
+        check(tr.n >= 8, "a SWAP's sparks cross before the cells are drawn "
+              "(SPEC.md 97.12.10.7)", "%d trail draws" % tr.n)
         A, S, B = 1, 5, 24
         full = [(1, A, 0), (1, S, 0), (2, B, 2), (4, 1, 1), (3, 0, 7)]
         check(plan() == full, "2. every action by click is in the plan, as "
@@ -294,6 +322,8 @@ def run(mach, off):
                         "redraw", poll=0.2, limit=30.0)
         check(rw("ti_row") == 1, "P1 can leave the toggle on REAR",
               "row %d" % rw("ti_row"))
+        check(dests() == [0], "...and the mark goes to REAR's first empty "
+              "cell with it", dests())
 
         # 4. the pass screen, and P2 on the frozen board
         m.key("Enter")
@@ -380,6 +410,30 @@ def run(mach, off):
         check(rw("tg_newslot") == len(sm.sides[0].hand) - 1, "...and that "
               "card is NEW in its slot", "slot %d" % rw("tg_newslot"))
 
+        # AN UNDONE PLAY FADES (SPEC.md 97.12.10.7): its character dissolves
+        # out and its card comes home at three levels, and the board and the
+        # hand are then exactly what a whole repaint draws
+        n0 = plan()
+        play(next(i for i in range(7) if view(i, "TI_C_CARD") != 0xFF
+                  and not rb("ti_shg", i) and not rb("ti_shs", i)))
+        with os88marty.bp_trace(m, seg * 16 + off["ti_card_fadein"]) as tr:
+            m.key("KeyU")
+            settle(2.0)
+        check(tr.n == 3 and plan() == n0, "an undone PLAY fades: its card "
+              "comes home in three steps", "%d steps, plan %s" % (tr.n, plan()))
+        m.key("KeyP")
+        os88marty.guest_sleep(m, 0.4)
+        _, _, a = te.mono(m)
+        m.write(seg * 16 + off["ti_rpq"], b"\x01")
+        os88marty.until(m, lambda _: rb("ti_rpq") == 0, "a repaint", poll=0.1)
+        os88marty.guest_sleep(m, 0.3)
+        _, _, b = te.mono(m)
+        m.key("KeyP")
+        d = [(x, y) for y in range(box[1], box[3]) for x in range(box[0], box[2])
+             if a[y][x] != b[y][x]]
+        check(not d, "...and leaves the glass exactly a whole repaint",
+              "%d px, first %s" % (len(d), d[:4]))
+
         # 6. A REFUSAL (SPEC.md 97.12.10.3), which the seeded match never
         # meets: P1's frozen gold goes to NOTHING, and a card is clicked
         settle(1.0)
@@ -408,6 +462,98 @@ def run(mach, off):
         after = rect(te.mono(m)[2])
         check(after * 100 < before * 85, "...and the card is GREYED on the "
               "glass", "%d lit against %d" % (after, before))
+
+        # 7. THE FULL CARD (SPEC.md 97.12.10.8): a RIGHT click puts the whole
+        # card over the board, framed, with the glass under it SAVED - and a
+        # key takes it away and puts back exactly what was there. The wheel
+        # is paused so the only thing that can differ is what the card did
+        k = next(i for i in range(7) if view(i, "TI_C_CARD") != 0xFF)
+        m.key("KeyP")
+        mo.to(*card_at(k))
+        os88marty.guest_sleep(m, 0.8)
+        _, _, a = te.mono(m)
+        mo._edge(True, btn=2)
+        mo._edge(False, btn=2)
+        os88marty.guest_sleep(m, 1.0)
+        fx, fy, fh = rw("ti_fwx"), rw("ti_fwy"), rw("ti_fwh")
+        _, _, px = te.mono(m)
+        top = sum(1 for x in range(fx, fx + 352) if px[fy][x])
+        check(rb("tg_fcard") == 1 and rw("ti_fwseg") != 0
+              and rb("ti_fwcard") == view(k, "TI_C_CARD") and top == 352
+              and fh > 24, "7. a RIGHT click puts the whole card up, framed, "
+              "with the glass under it saved",
+              "up %d seg %04x card %d/%d top %d rows %d" % (
+                  rb("tg_fcard"), rw("ti_fwseg"), rb("ti_fwcard"),
+                  view(k, "TI_C_CARD"), top, fh))
+        m.key("KeyX")
+        os88marty.guest_sleep(m, 0.8)
+        _, _, b = te.mono(m)
+        m.key("KeyP")
+        d = [(x, y) for y in range(20, len(a)) for x in range(len(a[0]))
+             if a[y][x] != b[y][x]]
+        check(rb("tg_fcard") == 0 and rw("ti_fwseg") == 0 and not d,
+              "...and a key takes it away: the claim freed and the glass "
+              "EXACTLY what it covered", "up %d seg %04x, %d px, first %s" % (
+                  rb("tg_fcard"), rw("ti_fwseg"), len(d), d[:4]))
+
+        # 8. THE MULLIGAN (SPEC.md 97.12.10.9): a fresh deal of the same seeds,
+        # and the offer a real match makes at P1's first turn. Nothing else
+        # answers under it; REDRAW's hand is the simulator's mulligan; and
+        # KEEP leaves the glass exactly a whole repaint
+        def deal_offer():
+            m.write(seg * 16 + off["tg_tseed"], struct.pack("<HH", *SEEDS))
+            m.write(seg * 16 + off["tg_fillq"], bytes([3]))
+            os88marty.until(m, lambda _: rb("tg_fillq") == 0, "the deal",
+                            poll=0.2, limit=60.0)
+            settle(1.0)
+            m.write(seg * 16 + off["tg_mull"], b"\x01")
+            os88marty.until(m, lambda _: rb("ti_mbup") == 1, "the offer",
+                            poll=0.2, limit=30.0)
+            settle(0.5)
+            return rw("ti_mbx"), rw("ti_mby")
+
+        bx0, by0 = deal_offer()
+        _, _, px = te.mono(m)
+        top = sum(1 for x in range(bx0, bx0 + 352) if px[by0][x])
+        n = plan()
+        click(card_at(0))
+        m.key("KeyU")
+        m.key("KeyL")
+        settle(0.5)
+        check(top == 352 and rw("ti_mbseg") != 0 and plan() == n
+              and rb("tg_mull") == 1 and rb("tg_list") == 0,
+              "8. P1's first turn offers a MULLIGAN, and nothing else answers "
+              "under it", "top %d seg %04x plan %s offer %d list %d" % (
+                  top, rw("ti_mbseg"), plan(), rb("tg_mull"), rb("tg_list")))
+        click((bx0 + 24 * 8 + 56, by0 + 34 + 5), 0.5)
+        os88marty.until(m, lambda _: rb("ti_rowst") == 0, "the new hand",
+                        poll=0.2, limit=30.0)
+        sm = sim_match()
+        sm.mulligan(0)
+        want = sm.sides[0].hand + [0xFF] * (7 - len(sm.sides[0].hand))
+        check(hand() == want and rb("tg_mull") == 0 and rb("ti_mbup") == 0
+              and rw("ti_mbseg") == 0, "...REDRAW deals the simulator's "
+              "mulligan, and the offer and its claim are gone",
+              "%s against %s, offer %d up %d seg %04x" % (
+                  hand(), want, rb("tg_mull"), rb("ti_mbup"), rw("ti_mbseg")))
+        bx0, by0 = deal_offer()
+        click((bx0 + 6 * 8 + 56, by0 + 34 + 5), 0.5)
+        sm = sim_match()
+        want = sm.sides[0].hand + [0xFF] * (7 - len(sm.sides[0].hand))
+        m.key("KeyP")
+        os88marty.guest_sleep(m, 0.4)
+        _, _, a = te.mono(m)
+        m.write(seg * 16 + off["ti_rpq"], b"\x01")
+        os88marty.until(m, lambda _: rb("ti_rpq") == 0, "a repaint", poll=0.1)
+        os88marty.guest_sleep(m, 0.3)
+        _, _, b = te.mono(m)
+        m.key("KeyP")
+        d = [(x, y) for y in range(box[1], box[3]) for x in range(box[0], box[2])
+             if a[y][x] != b[y][x]]
+        check(hand() == want and rb("tg_mull") == 0 and not d,
+              "...and KEEP keeps the hand and leaves the glass exactly a whole "
+              "repaint", "%s against %s, offer %d, %d px, first %s" % (
+                  hand(), want, rb("tg_mull"), len(d), d[:4]))
 
 
 def main():

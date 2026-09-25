@@ -170,6 +170,36 @@ ti_kn_21: db 'MERCY', 0
 ti_kn_22: db 'MARTYR', 0
 ti_kn_23: db 'WARD', 0
 
+; ...and what each DOES, for the right-click card (SPEC.md 97.12.10.8)
+ti_kwrule:
+    dw 0
+    dw ti_kr_1, ti_kr_2, ti_kr_3, ti_kr_4, ti_kr_5, ti_kr_6, ti_kr_7, ti_kr_8
+    dw ti_kr_9, ti_kr_10, ti_kr_11, ti_kr_12, ti_kr_13, ti_kr_14, ti_kr_15, ti_kr_16
+    dw ti_kr_17, ti_kr_18, ti_kr_19, ti_kr_20, ti_kr_21, ti_kr_22, ti_kr_23
+ti_kr_1: db 'TAKES GAP HITS AIMED ABOVE OR BELOW IT', 0
+ti_kr_2: db 'SHIELD NEVER DROPS BELOW THAT IN A HIT', 0
+ti_kr_3: db 'CELLS ABOVE AND BELOW +1 SHIELD', 0
+ti_kr_4: db 'EARNS THAT MUCH GOLD AT THE SPOILS', 0
+ti_kr_5: db 'EARNS THAT MANY SOULS AT THE SPOILS', 0
+ti_kr_6: db 'IGNORES THAT MUCH SHIELD, EVEN TO SNIPE', 0
+ti_kr_7: db 'RANGED HITS ALSO DEAL 1 ABOVE AND BELOW', 0
+ti_kr_8: db 'RANGED OVERKILL BURNS THE CELL BEHIND', 0
+ti_kr_9: db '+1 SOUL FOR EVERY KILL IT MAKES', 0
+ti_kr_10: db 'THE FRIENDLY CELL ACROSS +1 SHIELD', 0
+ti_kr_11: db 'CELLS ABOVE AND BELOW +THAT MUCH MELEE', 0
+ti_kr_12: db 'DIES IN PLACE OF A NEIGHBOUR, ONCE', 0
+ti_kr_13: db '+1 MELEE AND RANGED PER NEARBY DEATH', 0
+ti_kr_14: db 'EVERY FRIENDLY FRONT CELL +1 SHIELD', 0
+ti_kr_15: db 'NO PLAYER DAMAGE THROUGH LANES BESIDE IT', 0
+ti_kr_16: db '+1 GOLD PER FRIENDLY REAR CHARACTER', 0
+ti_kr_17: db 'EVERY KILL ITS SIDE MAKES PAYS +1 SOUL', 0
+ti_kr_18: db 'LANES ABOVE AND BELOW +1 RANGED', 0
+ti_kr_19: db '+1 SOUL PER FRIENDLY DEATH THIS ROUND', 0
+ti_kr_20: db 'SHOTS LEAVE ITS LANE AT 1 HP OR MORE', 0
+ti_kr_21: db 'EVERY FRIENDLY HEALER HEALS +1', 0
+ti_kr_22: db 'WHEN IT DIES, EVERY FRIENDLY HEALS 3', 0
+ti_kr_23: db 'THE TARGET HOLDS AT 1 HP THIS ROUND', 0
+
 ; the ART each card wears: an index into the art part's card table
 ; (tools/os88tithechar.py), 255 for an order, which has no figure
 ti_cardart:

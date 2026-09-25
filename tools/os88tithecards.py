@@ -67,6 +67,37 @@ KEYWORDS = [
     ("MARTYR",    22, False, False),
     ("WARD",      23, False, True),
 ]
+# ...AND WHAT EACH DOES, a line the right-click card prints (SPEC.md
+# 97.12.10.8): SPEC.md 97.11.3's table said in the package's own face - its
+# capitals and five marks - and at most KWRULEMAX characters, which is what a
+# line of the card holds beside the longest keyword. `that` is the keyword's
+# own number, which the card prints beside its name.
+KWRULE = {
+    "GUARD":     "TAKES GAP HITS AIMED ABOVE OR BELOW IT",
+    "BULWARK":   "SHIELD NEVER DROPS BELOW THAT IN A HIT",
+    "RAMPART":   "CELLS ABOVE AND BELOW +1 SHIELD",
+    "LEVY":      "EARNS THAT MUCH GOLD AT THE SPOILS",
+    "PYRE":      "EARNS THAT MANY SOULS AT THE SPOILS",
+    "PIERCE":    "IGNORES THAT MUCH SHIELD, EVEN TO SNIPE",
+    "VOLLEY":    "RANGED HITS ALSO DEAL 1 ABOVE AND BELOW",
+    "SCORCH":    "RANGED OVERKILL BURNS THE CELL BEHIND",
+    "KINDLE":    "+1 SOUL FOR EVERY KILL IT MAKES",
+    "VIGIL":     "THE FRIENDLY CELL ACROSS +1 SHIELD",
+    "BLESS":     "CELLS ABOVE AND BELOW +THAT MUCH MELEE",
+    "INTERCEDE": "DIES IN PLACE OF A NEIGHBOUR, ONCE",
+    "ABSOLVE":   "+1 MELEE AND RANGED PER NEARBY DEATH",
+    "MUSTER":    "EVERY FRIENDLY FRONT CELL +1 SHIELD",
+    "STANDFAST": "NO PLAYER DAMAGE THROUGH LANES BESIDE IT",
+    "STEWARD":   "+1 GOLD PER FRIENDLY REAR CHARACTER",
+    "HYMN":      "EVERY KILL ITS SIDE MAKES PAYS +1 SOUL",
+    "CHORUS":    "LANES ABOVE AND BELOW +1 RANGED",
+    "REQUIEM":   "+1 SOUL PER FRIENDLY DEATH THIS ROUND",
+    "SANCTUARY": "SHOTS LEAVE ITS LANE AT 1 HP OR MORE",
+    "MERCY":     "EVERY FRIENDLY HEALER HEALS +1",
+    "MARTYR":    "WHEN IT DIES, EVERY FRIENDLY HEALS 3",
+    "WARD":      "THE TARGET HOLDS AT 1 HP THIS ROUND",
+}
+KWRULEMAX = 40
 KW = {k[0]: k for k in KEYWORDS}
 KWID = {k[0]: k[1] for k in KEYWORDS}
 COMMANDER_KW = {"MUSTER", "STANDFAST", "STEWARD", "HYMN", "CHORUS", "REQUIEM",
@@ -280,6 +311,13 @@ def deck_problems(ids, cards, faction):
 def selfcheck():
     cards, decks = load()
     bad = []
+    for name, _, _, _ in KEYWORDS:      # every keyword SAYS what it does
+        rule = KWRULE.get(name)
+        if rule is None:
+            bad.append("%s: no rule line (KWRULE)" % name)
+        elif len(rule) > KWRULEMAX or set(rule) - NAMECHARS:
+            bad.append("%s: a rule line is %d printable characters"
+                       % (name, KWRULEMAX))
     for c in cards:
         where = "%s (line %d)" % (c.name, c.line)
         if len(c.name) > NAMEMAX or set(c.name.upper()) - NAMECHARS:
@@ -403,6 +441,12 @@ def emit(path=OUT, write=True):
         L.append("    dw " + ", ".join("ti_kn_%d" % k[1] for k in KEYWORDS[i:i + 8]))
     for name, kid, _, _ in KEYWORDS:
         L.append("ti_kn_%d: db '%s', 0" % (kid, name))
+    L += ["", "; ...and what each DOES, for the right-click card (SPEC.md 97.12.10.8)",
+          "ti_kwrule:", "    dw 0"]
+    for i in range(0, len(KEYWORDS), 8):
+        L.append("    dw " + ", ".join("ti_kr_%d" % k[1] for k in KEYWORDS[i:i + 8]))
+    for name, kid, _, _ in KEYWORDS:
+        L.append("ti_kr_%d: db '%s', 0" % (kid, KWRULE[name]))
     L += ["", "; the ART each card wears: an index into the art part's card table",
           "; (tools/os88tithechar.py), 255 for an order, which has no figure",
           "ti_cardart:"]

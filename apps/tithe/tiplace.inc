@@ -743,8 +743,9 @@ ti_cell_build:
 .fgo:
     cmp word [ti_ck], 0FFh          ; NOBODY STANDS HERE: every frame is the
     jne .fwho                       ; ground ti_cell_ground just laid, and the
-    jmp .fnext                      ; same-as table has no row for nobody - it
-.fwho:                              ; was read anyway, and copied a frame of
+    call ti_dest_put                ; same-as table has no row for nobody - it
+    jmp .fnext                      ; was read anyway, and copied a frame of
+.fwho:                              ; (...but the next PLAY's cell is marked)
     mov ax, [ti_cfr]                ; another lane's ground into this one
     call ti_frame_slot              ; ES:DI = where frame AX goes
     push es
@@ -824,8 +825,10 @@ ti_cell_flags:
 
 ; ti_cell_key - AX = a cell -> AL = what its poses are OF (SPEC.md 97.12.10.1):
 ; the art it wears, and 20h for a shooter and 40h for SNIPE - the mark under a
-; shooter's feet is in every pose, so a stance change is a pose change. [ti_ck]
-; = the art. Preserves every register bar AL.
+; shooter's feet is in every pose, so a stance change is a pose change - or,
+; for nobody, 0FFh, and 80h where the next PLAY lands (97.12.10.10), whose
+; mark is in every pose too. [ti_ck] = the art. Preserves every register bar
+; AL.
 ti_cell_key:
     push cx
     push ax
@@ -835,9 +838,71 @@ ti_cell_key:
     mov cl, 5
     shl al, cl
     or al, [ti_ck]                  ; (0FFh, nobody, stays 0FFh)
+    cmp al, 0FFh
+    jne .k
+    pop cx                          ; NOBODY: is it where a play goes?
+    push cx
+    push ax
+    call tg_dest_cell
+    cmp ax, cx
+    pop ax
+    jne .k
+    mov al, 80h
+.k:
     pop cx
     mov ah, ch
     pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_dest_put - frame [ti_cfr] of the empty cell [ti_ci]: THE DESTINATION
+; MARK, when the next PLAY lands here (SPEC.md 97.12.10.10) - an arrow down
+; onto a dashed ring where the figure's feet will be, centred at the band's
+; foot. Idle poses only; nothing attacks from an empty cell.
+; in: ti_fig_apply's window. Preserves every register.
+; -----------------------------------------------------------------------------
+ti_dest_put:
+    cmp word [ti_cfr], TI_POSES
+    jae .ret
+    push ax
+    push si
+    push di
+    push es
+    mov ax, [ti_ci]
+    push ax
+    call tg_dest_cell
+    pop si
+    cmp ax, si
+    jne .out
+    mov ax, [ti_cfr]
+    call ti_frame_slot              ; ES:DI = the frame
+    push word [ti_fa_dx]
+    push word [ti_fa_dy]
+    mov si, ti_dm_tall
+    cmp word [ti_gidx], TI_GCGA     ; (the SHORT one on CGA, as the stance
+    jne .t                          ; marks are)
+    mov si, ti_dm_short
+.t:
+    mov al, [si]                    ; centred across the band, in bytes
+    xor ah, ah
+    neg ax
+    add ax, [ti_bs]
+    sar ax, 1
+    mov [ti_fa_dx], ax
+    mov al, [si + 1]                ; ...at its foot
+    xor ah, ah
+    neg ax
+    add ax, [ti_bh]
+    mov [ti_fa_dy], ax
+    call ti_fig_apply
+    pop word [ti_fa_dy]
+    pop word [ti_fa_dx]
+.out:
+    pop es
+    pop di
+    pop si
+    pop ax
+.ret:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -898,6 +963,40 @@ ti_mark_rows:
     mov ax, 5
 .out:
     ret
+
+; THE DESTINATION MARKS (ti_dest_put), in the stance marks' format: an arrow
+; down onto a dashed ring, 16 rows tall and 10 on CGA.
+ti_dm_tall:
+    db 8, 16
+    db 000h, 000h, 000h, 000h, 000h, 000h, 000h, 003h, 000h, 0C0h, 000h, 000h, 000h, 000h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 000h, 001h, 003h, 080h, 0C0h, 000h, 000h, 000h, 000h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 000h, 001h, 003h, 080h, 0C0h, 000h, 000h, 000h, 000h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 000h, 001h, 003h, 080h, 0C0h, 000h, 000h, 000h, 000h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 000h, 001h, 03Fh, 080h, 0FCh, 000h, 000h, 000h, 000h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 000h, 01Fh, 03Fh, 0F8h, 0FCh, 000h, 000h, 000h, 000h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 000h, 00Fh, 03Fh, 0F0h, 0FCh, 000h, 000h, 000h, 000h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 000h, 007h, 01Fh, 0E0h, 0F8h, 000h, 000h, 000h, 000h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 01Dh, 003h, 0FFh, 0C0h, 0FFh, 000h, 078h, 000h, 000h, 000h, 000h
+    db 000h, 000h, 000h, 00Fh, 008h, 07Dh, 0E3h, 0F7h, 08Eh, 0FFh, 030h, 07Dh, 000h, 0F0h, 000h, 000h
+    db 000h, 000h, 006h, 01Fh, 030h, 07Dh, 000h, 0F7h, 000h, 0DFh, 008h, 07Dh, 0E0h, 0F0h, 000h, 000h
+    db 000h, 000h, 00Ch, 01Fh, 000h, 078h, 000h, 000h, 000h, 000h, 000h, 01Dh, 020h, 0F0h, 000h, 000h
+    db 000h, 000h, 00Ch, 01Fh, 000h, 078h, 000h, 000h, 000h, 000h, 000h, 01Dh, 020h, 0F0h, 000h, 000h
+    db 000h, 000h, 006h, 01Fh, 030h, 07Dh, 000h, 0F7h, 000h, 0DFh, 008h, 07Dh, 0E0h, 0F0h, 000h, 000h
+    db 000h, 000h, 000h, 00Fh, 008h, 07Dh, 0E3h, 0F7h, 08Eh, 0DFh, 030h, 07Dh, 000h, 0F0h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 01Dh, 000h, 0F7h, 000h, 0DFh, 000h, 078h, 000h, 000h, 000h, 000h
+ti_dm_short:
+    db 8, 10
+    db 000h, 000h, 000h, 000h, 000h, 000h, 000h, 003h, 000h, 0C0h, 000h, 000h, 000h, 000h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 000h, 001h, 003h, 080h, 0C0h, 000h, 000h, 000h, 000h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 000h, 001h, 01Fh, 080h, 0F8h, 000h, 000h, 000h, 000h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 000h, 00Fh, 01Fh, 0F0h, 0F8h, 000h, 000h, 000h, 000h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 000h, 007h, 01Fh, 0E0h, 0F8h, 000h, 000h, 000h, 000h, 000h, 000h
+    db 000h, 000h, 000h, 000h, 000h, 07Dh, 003h, 0FFh, 0C0h, 0FFh, 000h, 07Ch, 000h, 000h, 000h, 000h
+    db 000h, 000h, 000h, 01Fh, 038h, 07Dh, 0E3h, 0F7h, 08Eh, 0FFh, 038h, 07Dh, 000h, 0F0h, 000h, 000h
+    db 000h, 000h, 00Eh, 01Fh, 000h, 07Dh, 000h, 0F7h, 000h, 0DFh, 000h, 07Dh, 0E0h, 0F0h, 000h, 000h
+    db 000h, 000h, 00Eh, 01Fh, 000h, 07Dh, 000h, 0F7h, 000h, 0DFh, 000h, 07Dh, 0E0h, 0F0h, 000h, 000h
+    db 000h, 000h, 000h, 01Fh, 038h, 07Dh, 0E3h, 0F7h, 08Eh, 0DFh, 038h, 07Dh, 000h, 0F0h, 000h, 000h
+
 
 ; THE STANCE MARKS, as ti_fig_apply takes a figure: bytes a row, rows, then an
 ; (ink, mask) pair a byte - the mask the ink grown a pixel every way, which is

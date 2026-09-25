@@ -146856,8 +146856,18 @@ setup (a seed of 0 is 1). A pile is shuffled Fisher–Yates from its end — for
 `i` from `n-1` down to 1, swap `i` with `rand mod (i+1)` — and a card is drawn
 from its **end**. An empty draw pile takes the discard in its order and
 shuffles it; an empty pair of piles is a dry draw. A MULLIGAN puts the hand on
-the draw pile's end in hand order, shuffles and draws four. Nothing else in the
-game calls it.
+the draw pile's end in hand order, shuffles and draws AS MANY AS IT HELD. Nothing
+else in the game calls it.
+
+**The mulligans are taken AFTER THE FIRST UPKEEP**, both of them, before either
+plan is applied - so the hand is five and five are drawn. It was before the
+upkeep, with four; it moved because a hot-seat match has only one player at the
+machine at a time, and the second is not there to decide until their own first
+turn, which comes after that upkeep (§97.12.10.9). **The odds did not move**:
+four back and four drawn and then one drawn, or five back and five drawn, are
+both five cards dealt from the whole shuffled deck. The match file still
+carries the two flags where it did, and `tirule.inc`, `tools/duelsim.py` and
+`tests/titherule/` all take them at round one's upkeep.
 
 #### 97.11.6 The state record and the match file
 
@@ -147320,3 +147330,123 @@ first click or `Q` arms `[tg_cqarm]` - the row reads `CONCEDE? CLICK AGAIN`
 and the HUD says so - and the second ends the match for the OTHER player,
 `PLAYER 1 CONCEDES - PLAYER 2 WINS` on the match's end screen. Any other row
 clicked lets it go.
+
+##### 97.12.10.7 An undo FADES and a swap's sparks CROSS
+
+**An undone PLAY is the reveal backwards, with no sparks** (TITHE-PLAN §16.4,
+the owner's ruling). When `tg_remove` takes out a play whose cell the replay
+leaves EMPTY (`tg_undo_where`, `tg_undo_fade`), the character dissolves out of
+its cell - pose 0 over its ground at dither levels 3, 2, 1 and the ground
+alone, the reveal's own `ti_rv_cell` - while its card comes home at levels 1,
+2, 3 and whole: `ti_card_fadein` copies the bank out fresh each step and thins
+the copy (`ti_rv_cardfade` thins IN PLACE, which only runs one way). A play
+whose removal moves another into its cell keeps the immediate redraw, and so
+does a removal from the list, where the hand is not on the glass to fade into.
+
+**A SWAP is two comets CROSSING**, three sparks each, one from each cell to
+the other along the reveal's line (`ti_rv_trail`, the reveal's comet with the
+count a parameter), and then the two cells are drawn swapped - the cheapest
+thing that reads as an exchange, since the sparks are XOR fills the frame
+already prices (§97.4.11.1) where a slide would compose two moving figures a
+frame.
+
+**Both are the reveal's machinery**, `ti_rv` = 2 and 3 (`ti_rv_other`), so
+they take the frame's LAST slot and its measured price, and block input the
+reveal's way for the half second they run. The cells they own WAIT: `tg_sync1`
+skips `[ti_rvcell]` and `[ti_rvcell2]` while one runs and the frame after it
+ends syncs them, and `tg_edited` leaves the undone card's slot to the fade.
+
+##### 97.12.10.8 A RIGHT click puts the WHOLE card up, and takes nothing down
+
+**A right click on a card in the hand, or on a character on the board**
+(`W_ONRCLICK`, §13.11; `ti_onrclick`), puts the whole card over the middle of
+the board in the small face (§97.4.1.1), white on black inside a frame: its
+name; its cost and POWER, said as what it is - *a kill of it pays N souls*;
+then FRONT and REAR, each a row of its numbers and a line per KEYWORD saying
+what the keyword DOES. An order has one block, its EFFECT. The keyword lines
+are `ti_kwrule`, emitted by `tools/os88tithecards.py` beside the names from
+its `KWRULE` table, whose selfcheck holds each to 40 characters of the face's
+own set - so the card is the tutorial's text and not a second copy of it.
+Any click or any key takes it away and does nothing else; so does a whole
+paint, which draws over it anyway (`ti_full_drop`). It answers only while a
+player plans with nothing running (no reveal, no toggle slice).
+
+**THE REPAIR IS TWO CALLS AND IS EXACT.** The card is one band composed in the
+scratch part (`TI_S_FULL`) and one `OSAPI_GFX_BLIT1`. Before the blit, the
+glass under it is SAVED (`OSAPI_GFX_SAVE`, §5.3) into a claim taken for as
+long as the card is up - width x rows x bits a pixel, so ~16KB on a VGA's four
+planes and ~4KB on one bit - and on the way down `OSAPI_GFX_REST` puts it back
+and the claim is freed. While the card is up the worker draws NO frame
+(`tg_fcard`), so nothing under the card moves and there is nothing a restore
+could get wrong. A claim the heap refuses, or a save refused because the card
+straddles two displays, still shows the card and falls back to the old repair,
+a whole repaint asked of the worker (`[ti_rpq]`).
+
+**Measured on MartyPC's 4.77MHz 8088**, a two-line character card: putting
+it up is **327,000 cycles (69 ms)** on Hercules and CGA and 420,000 (88 ms) on
+VGA, nearly all of it the composition; taking it down is **65,201 cycles
+(13.7 ms) on Hercules, 55,232 (11.6 ms) on CGA and 152,792 (32 ms) on VGA** -
+one frame or two, where the whole repaint it replaces is the board, both
+bases, the HUD and the hand.
+
+`tests/tithegame.py` check 7 is the gate: the card up, framed, the claim
+taken; a key, the claim freed and **0 pixels** of the glass different from
+before the right click, on Hercules and CGA. Taking the restore out turns it
+red.
+
+##### 97.12.10.9 The MULLIGAN is offered at each player's first turn
+
+**TITHE-PLAN §6.1's one free redraw**, which the engine always had
+(`tr_mulligan`) and nothing asked about. At each player's FIRST turn of a
+match - P1's after the deal, P2's after the first pass screen - a box over the
+middle of the board says whose opening hand it is, what a redraw does, and
+that it is once and only before the first move, with two buttons:
+**KEEP** (or Enter, or K) and **REDRAW** (or D). It is taken or not before
+anything else happens: while it stands every other click does nothing, the
+board keys do nothing, and only the music's keys, fullscreen, pause and the
+right-click card (§97.12.10.8) still answer - the last so a hand can be READ
+before it is judged. The hand's hover runs; the wheel under the box does not.
+
+It is the full card's box: composed in the scratch part, put down by
+`ti_box_show` with the glass under it SAVED, and taken off by one
+`OSAPI_GFX_REST` (`ti_mull_down`), so KEEP costs one restore. A whole paint
+drops it with its claim (`ti_full_drop`) and the worker puts it back
+(`tg_mull_ck`). A full card read over it comes off onto it again: the two
+boxes keep separate records.
+
+**REDRAW** (`tg_mull_redraw`) is `tr_mulligan` on the frozen board and the
+live one - the plan is empty, so the two are the same - and the new hand is
+drawn the way the FRONT/REAR toggle redraws one, a card a frame
+(`ti_row_apply`, §97.4.8.2), so the music does not stop for it; the status
+line says a new hand was dealt, and no card in it is NEW (§97.12.10.5).
+Because it comes after the first upkeep the hand is five cards and five are
+drawn (§97.11.5).
+
+`tests/tithegame.py` check 8 is the gate: the offer on the glass and nothing
+else answering under it, REDRAW's hand the simulator's mulligan to the card,
+and KEEP leaving the glass exactly what the box covered.
+
+
+##### 97.12.10.10 The cell the next PLAY lands in is MARKED
+
+**A play has always had a fixed destination** - the planner's topmost empty
+cell of the column the FRONT/REAR toggle names (§97.11.4 step 2) - and nothing
+showed it. It is marked now, statically, as the owner asked
+(TITHE-PLAN §16.4): an arrow down onto a dashed ring where the figure's feet will stand,
+composed INTO the empty cell's idle poses (`ti_dest_put`, `ti_dm_tall` and
+the short `ti_dm_short` on CGA) the way a shooter's stance mark is
+(§97.12.10.1), so the wheel draws it at no cost of its own. A full column has
+no mark, and neither has anything outside planning.
+
+**It is a CELL KEY** (`ti_cell_key`: 80h, an empty cell where a play lands,
+beside 0FFh for any other empty one), so the machinery that rebuilds a cell
+whose picture changed is the machinery that moves the mark: `tg_dest_cell` is
+`tg_play`'s own search, and the only two things that move it without an edit
+behind them - a PLAY and the toggle - set `[tg_dsync]`, which `ti_owed`
+spends a cell a frame (`tg_sync1`), so the old cell loses its mark and the
+new one gains it in two frames and the music does not wait. An undo, a swap
+and a turn start move it through the syncs they already run.
+
+**The hover inversion is not built.** The owner allowed it if the budget has
+room; a cell's inversion is its numbers (§97.12.10.2), and an empty cell has
+none, so it would be a composed pose of its own a hover would have to build.

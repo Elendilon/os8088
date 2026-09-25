@@ -2321,6 +2321,10 @@ structural gift, and three things fall out of it:
    starts empty** (§5.10).
 2. Both players draw an opening hand of **4**, with **one free mulligan** — a
    single redraw of the whole hand, taken or not before anything else happens.
+   **The mulligan is decided at each player's first TURN**, after round one's
+   upkeep, so it redraws five: in hot seat the second player is not at the
+   machine any sooner. The odds are the same five cards off the whole deck
+   (SPEC.md 97.11.5, 97.12.10.9).
 3. Both players start at **20 HP**, **4 gold**, **0 souls**.
 
 **The mulligan is in because the curve makes it necessary**: four cards out of a

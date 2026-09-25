@@ -416,7 +416,8 @@ tr_setup:
     ret
 
 ; tr_mulligan - AL = a side: the hand back onto the draw in hand order, one
-; reshuffle, four again (TITHE-PLAN 6.1)
+; reshuffle, and as many drawn as it held (TITHE-PLAN 6.1, SPEC.md 97.11.5:
+; it is taken after the first upkeep, so that is five)
 tr_mulligan:
     push ax
     push bx
@@ -426,6 +427,7 @@ tr_mulligan:
     call tr_side
     mov cl, [di + SD_NHAND]
     xor ch, ch
+    push cx                         ; (the count it held)
     xor si, si
 .b:
     cmp si, cx
@@ -444,7 +446,7 @@ tr_mulligan:
     mov cl, [di + SD_NDRAW]
     xor ch, ch
     call tr_shuffle
-    mov cx, TR_OPENING
+    pop cx
 .op:
     call tr_draw1
     loop .op

@@ -137,6 +137,9 @@ def run(mach, want_arm, off, part, nsong, record, marks):
             "<H", bytes(m.read(os88geom.winptr(m, win) + os88geom.W_SEG, 2)))[0]
         ui.raise_window(win)
         os88marty.guest_sleep(m, 6.0)
+        m.key("Enter")                  # P1 KEEPS the opening hand: the
+        os88marty.guest_sleep(m, 1.0)   # MULLIGAN offer stops the wheel while
+                                        # it stands (SPEC.md 97.12.10.9)
 
         def rb(name, n=1):
             return bytes(m.readseg(seg, off[name], n))

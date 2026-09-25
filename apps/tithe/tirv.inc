@@ -375,6 +375,11 @@ ti_rv_step:
     jne .on
     jmp .out
 .on:
+    cmp byte [ti_rv], 1             ; 2 and 3 are an UNDO's fade and a SWAP's
+    je .rev                         ; sparks (SPEC.md 97.12.10.7)
+    call ti_rv_other
+    jmp .out
+.rev:
     push bx
     push dx
     call ti_pit                     ; TIMED, for the next frame's price
@@ -588,10 +593,31 @@ ti_rv_sparks:
     push di
     push bp
     mov word [ti_rvn], 0
+    mov word [ti_rvk], TI_RVSPK
     mov si, ti_rvsp
+    call ti_rv_trail
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; ti_rv_trail - one trail of [ti_rvk] sparks, [ti_rvx0],[ti_rvy0] to
+; [ti_rvx1],[ti_rvy1] at frame [ti_rvt], appended at SI to the record
+; ([ti_rvn] counts it). out: SI past what it recorded. Preserves the rest.
+ti_rv_trail:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push bp
     xor bp, bp                      ; BP = k, how far behind the head
 .spark:
-    cmp bp, TI_RVSPK
+    cmp bp, [ti_rvk]
     jb .born
     jmp .out
 .born:
@@ -654,6 +680,197 @@ ti_rv_sparks:
 .out:
     pop bp
     pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ti_rv_other - a frame of an UNDO's fade (ti_rv = 2) or a SWAP's sparks
+; (ti_rv = 3), LAST in a frame like the reveal's (SPEC.md 97.12.10.7).
+; Preserves every register.
+;
+; AN UNDO IS THE REVEAL BACKWARDS, WITH NO SPARKS: the character dissolves out
+; of its cell - pose 0 over the cell's ground at dither levels 3, 2, 1 and the
+; ground alone, the reveal's own ti_rv_cell - while its card comes back into
+; the hand at 1, 2, 3 and whole, the bank copied out fresh for each step and
+; thinned (ti_rv_cardfade). A SWAP is two short comets CROSSING, one each way
+; between the two cells, and then the cells are drawn swapped. In both, the
+; cells the edit changed wait for the end (tg_sync1 skips them), and the
+; frame after the last draws them: tg_sync.
+; -----------------------------------------------------------------------------
+ti_rv_other:
+    push ax
+    push bx
+    push dx
+    call ti_pit                     ; TIMED, for the next frame's credit
+    mov [ti_rvp0], ax
+    inc byte [ti_rvt]
+    mov al, [ti_rvt]
+    cmp byte [ti_rv], 3
+    je .swap
+    cmp al, 4                       ; --- UNDO: frames 1-4, then the sync ---
+    ja .end
+    push ax
+    mov ah, 4
+    sub ah, al
+    mov al, ah                      ; the cell: 3, 2, 1, 0
+    call ti_rv_cell
+    pop ax
+    push ax
+    mov ax, [ti_rvcard]             ; the card: 1, 2, 3, whole
+    cmp byte [ti_rvt], 4
+    je .whole
+    mov bl, [ti_rvt]
+    call ti_card_fadein
+    pop ax
+    jmp short .timed
+.whole:
+    call ti_card_fast
+    pop ax
+    jmp short .timed
+.swap:
+    cmp al, TI_RVTRAVEL + 2         ; --- SWAP: the trails, then the sync ----
+    ja .end
+    push si
+    mov word [ti_rvn], 0
+    mov word [ti_rvk], 3
+    mov si, ti_rvsp
+    call ti_rv_trail                ; A to B...
+    call ti_rv_ends
+    call ti_rv_trail                ; ...and B to A
+    call ti_rv_ends
+    pop si
+    jmp short .timed
+.end:
+    mov byte [ti_rv], 0             ; the edit's cells, drawn now - the
+    call tg_sync                    ; undone one is ground, the swapped two
+                                    ; each other's
+.timed:
+    call ti_pit
+    mov bx, [ti_rvp0]
+    sub bx, ax
+    add bx, [ti_rvera]
+    mov ax, bx
+    mov bx, 8381
+    mul bx
+    mov bx, 10000
+    div bx
+    mov [ti_rvlast], ax
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; ti_rv_ends - the trail's two ends swapped. Preserves every register.
+ti_rv_ends:
+    push ax
+    mov ax, [ti_rvx0]
+    xchg ax, [ti_rvx1]
+    mov [ti_rvx0], ax
+    mov ax, [ti_rvy0]
+    xchg ax, [ti_rvy1]
+    mov [ti_rvy0], ax
+    pop ax
+    ret
+
+; ti_rv_centre - AX = a cell -> AX, BX = its figure band's centre on the
+; glass. Preserves every other register.
+ti_rv_centre:
+    push cx
+    push dx
+    push word [ti_ci]
+    mov [ti_ci], ax
+    xor dx, dx
+    mov cx, TI_ROWS
+    div cx
+    call ti_col_insx                ; AX = the band's inset
+    mov cx, ax
+    call ti_cell_xy                 ; AX, BX = the cell
+    add ax, cx
+    mov cx, [ti_bs]
+    shl cx, 1
+    shl cx, 1
+    add ax, cx                      ; + BS x 8 / 2
+    add bx, [ti_insy]
+    mov cx, [ti_bh]
+    shr cx, 1
+    add bx, cx
+    pop word [ti_ci]
+    pop dx
+    pop cx
+    ret
+
+; ti_rv_swap_go - cells AX and BX were SWAPPED: their sparks cross before
+; they are drawn (ti_rv = 3). A window callback, the lock held. Preserves
+; every register.
+ti_rv_swap_go:
+    push ax
+    push bx
+    mov [ti_rvcell], ax
+    mov [ti_rvcell2], bx
+    push bx
+    call ti_rv_centre
+    mov [ti_rvx0], ax
+    mov [ti_rvy0], bx
+    pop ax
+    call ti_rv_centre
+    mov [ti_rvx1], ax
+    mov [ti_rvy1], bx
+    mov byte [ti_rvt], 0
+    mov word [ti_rvn], 0
+    mov word [ti_rvlast], 0
+    mov byte [ti_rv], 3
+    pop bx
+    pop ax
+    ret
+
+; ti_rv_undo_go - the PLAY that stood in cell AX, from hand slot BX, was
+; taken back: it dissolves out and its card comes home (ti_rv = 2). A window
+; callback, the lock held. Preserves every register.
+ti_rv_undo_go:
+    mov [ti_rvcell], ax
+    mov word [ti_rvcell2], -1
+    mov [ti_rvcard], bx
+    mov byte [ti_rvt], 0
+    mov word [ti_rvn], 0
+    mov word [ti_rvlast], 0
+    mov byte [ti_rv], 2
+    ret
+
+; ti_card_fadein - hand card AX at dither level BL (1-3) out of its BANK: the
+; bank copied fresh (ti_rv_frombank) and thinned toward the panel's black,
+; then put down. A card with no bank is drawn whole. Preserves every register.
+ti_card_fadein:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push bp
+    push es
+    call ti_rv_frombank
+    jnc .have
+    call ti_card_fast
+    jmp short .out
+.have:
+    mov [ti_cfade], bl
+    call ti_rv_cardfade
+    mov byte [ti_cfade], 0
+    mov byte [ti_cfsave], 0
+    push ds
+    pop es
+    mov si, ti_cfband
+    mov ax, [ti_cbx]
+    mov bx, [ti_cardy]
+    mov cx, [ti_cbbw]
+    mov dx, [ti_cbrows]
+    mov bp, [ti_cbs]
+    call OSAPI_GFX_BLIT1
+.out:
+    pop es
+    pop bp
     pop si
     pop dx
     pop cx
@@ -950,6 +1167,8 @@ ti_cfade:   db 0                    ; ti_card_draw's dissolve level, or 0
 ti_cfsave:  db 0                    ; ...and is the card's composition banked
 ti_rvcard:  dw 0
 ti_rvcell:  dw 0
+ti_rvcell2: dw -1                   ; a SWAP's other cell (ti_rv = 3)
+ti_rvk:     dw TI_RVSPK             ; sparks a trail
 ti_rvx0:    dw 0
 ti_rvy0:    dw 0
 ti_rvx1:    dw 0

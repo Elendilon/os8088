@@ -95,6 +95,8 @@ tg_deal:
     mov byte [tg_side], 0
     mov byte [tg_ph], TG_PH_PLAN
     mov byte [tg_rnd], 0
+    mov word [tg_mull], 0101h       ; BOTH are offered a MULLIGAN, each at
+                                    ; their own first turn (97.12.10.9)
     call tg_idle
     call tg_replay
     call tg_income_set              ; P1's first turn says what it got
@@ -811,6 +813,131 @@ tg_new_seen:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; THE MULLIGAN (SPEC.md 97.12.10.9, TITHE-PLAN 6.1): offered to each player at
+; their own first turn, taken or not before anything else happens. It is
+; after the first upkeep - the hand is five - because in hot seat the second
+; player is not at the machine until then, and a whole hand back and as many
+; drawn is the same five random cards as four back and one drawn (97.11.5).
+; -----------------------------------------------------------------------------
+
+; tg_mullq - ZF=0 while the planner's offer stands. Preserves every register.
+tg_mullq:
+    push bx
+    cmp byte [tg_ph], TG_PH_PLAN
+    jne .no
+    mov bl, [tg_side]
+    xor bh, bh
+    cmp byte [tg_mull + bx], 0
+    pop bx
+    ret
+.no:
+    xor bx, bx                      ; (ZF=1)
+    pop bx
+    ret
+
+; tg_mull_ck - the worker, the lock held: the offer put on the glass when it
+; stands and is not there yet. CF=1 when that took the frame's place.
+; Preserves every register.
+tg_mull_ck:
+    call tg_mullq
+    jz .no
+    cmp byte [ti_mbup], 0
+    jne .no
+    cmp byte [ti_rv], 0
+    jne .no
+    call ti_mull_up
+    stc
+    ret
+.no:
+    clc
+    ret
+
+; tg_mull_keep - KEEP: the offer goes and the hand stays. The lock held.
+; Preserves every register.
+tg_mull_keep:
+    push bx
+    mov bl, [tg_side]
+    xor bh, bh
+    mov byte [tg_mull + bx], 0
+    pop bx
+    jmp ti_mull_down
+
+; tg_mull_redraw - REDRAW: the offer goes, the whole hand is shuffled back
+; into the draw pile and as many drawn, on the frozen board as well as the
+; live one (the plan is empty - it is before any move). The new hand is
+; drawn the way a FRONT/REAR toggle redraws one, a slice a frame
+; (ti_row_apply), so the music does not stop for it. The lock held.
+; Preserves every register.
+tg_mull_redraw:
+    push ax
+    push bx
+    push si
+    call tg_mull_keep
+    call tg_load
+    mov al, [tg_side]
+    call tr_mulligan
+    call tg_save
+    mov bl, al
+    xor bh, bh
+    mov byte [tg_drew + bx], TR_EMPTY   ; (nothing is NEW: all of it is)
+    shl bx, 1
+    mov word [tg_newslot + bx], 0FFFFh
+    call tg_replay
+    call ti_row_apply
+    mov si, ti_s_mdone
+    call tg_note
+    pop si
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tg_dest_cell - AX = the board cell the next PLAY would land in (SPEC.md
+; 97.12.10.10): the planner's topmost empty cell of the column the FRONT/REAR
+; toggle names, as their plan leaves it - tg_play's own search - or -1 outside
+; planning or when the column is full. Preserves every register bar AX.
+; -----------------------------------------------------------------------------
+tg_dest_cell:
+    push bx
+    push cx
+    push si
+    mov bx, -1
+    cmp byte [tg_ph], TG_PH_PLAN
+    jne .out
+    mov ah, 0
+    cmp word [ti_row], TI_ROW_FRONT
+    je .col
+    mov ah, 1
+.col:
+    mov al, [tg_side]
+    xor cl, cl
+.lane:
+    call tr_cell
+    cmp byte [si + CE_CARD], TR_EMPTY
+    je .have
+    inc cl
+    cmp cl, TR_LANES
+    jb .lane
+    jmp short .out
+.have:
+    shl al, 1
+    add al, ah
+    mov bl, al
+    xor bh, bh
+    mov al, [tg_bcol + bx]
+    mov ch, TI_ROWS
+    mul ch
+    add al, cl
+    xor ah, ah
+    mov bx, ax
+.out:
+    mov ax, bx
+    pop si
+    pop cx
+    pop bx
+    ret
+
 ; tg_note - SI = a sentence: the status line says it until the pointer moves
 ; (SPEC.md 97.12.10.3), the way a pending action's question is said. A window
 ; callback, the lock held. Preserves every register.
@@ -1211,6 +1338,7 @@ tg_play:
     pop si
     jmp short .no
 .took:
+    mov byte [tg_dsync], 1          ; (the destination moved on: 97.12.10.10)
     mov al, [tg_side]               ; the board cell it stands in
     shl al, 1
     add al, [tg_pcol]
@@ -1347,12 +1475,94 @@ tg_remove:
     cmp byte [ti_rv], 0             ; a reveal owns a cell and the hand
     jne .out
     mov [tg_skip], al
+    call tg_undo_where              ; a PLAY: where it stands and its slot
     mov bl, [ti_played]
     push bx
     call tg_replay
     pop bx
+    call tg_undo_fade               ; ...and it FADES if its cell emptied
     call tg_edited
 .out:
+    pop bx
+    pop ax
+    ret
+
+; tg_undo_where - AL = the entry about to come out: if it is a PLAY, where
+; its character stands now ([tg_ucell], a board cell) and the hand slot it
+; came from ([tg_uslot]); else [tg_ucell] = -1. Preserves every register.
+tg_undo_where:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov word [tg_ucell], -1
+    xor ah, ah
+    mov si, ax
+    mov cl, al
+    mov al, [tg_side]
+    call tg_planp
+    mov di, si
+    shl di, 1
+    add di, si
+    cmp byte [bx + di + 1], TR_A_PLAY
+    jne .out
+    mov al, [bx + si + TG_P_SLOT]
+    xor ah, ah
+    mov [tg_uslot], ax
+    mov al, [tg_pinst + si]         ; its instance -> its cell, the engine's
+    call tg_findinst                ; column x 5 + lane
+    jc .out
+    xor ah, ah
+    mov dl, TR_LANES
+    div dl                          ; AL = column, AH = lane
+    mov dl, ah
+    mov ah, al
+    mov al, [tg_side]
+    shl al, 1
+    add al, ah
+    mov bl, al
+    xor bh, bh
+    mov al, [tg_bcol + bx]          ; the board's column
+    mov cl, TI_ROWS
+    mul cl
+    add al, dl
+    xor ah, ah
+    mov [tg_ucell], ax
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; tg_undo_fade - after the replay: the undone play's cell is EMPTY now, so it
+; dissolves out and its card fades home (ti_rv_undo_go). A cell another play
+; moved into keeps today's immediate redraw. Preserves every register.
+tg_undo_fade:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov cx, [tg_ucell]
+    cmp cx, -1
+    je .out
+    call tg_ecell
+    cmp byte [si + CE_CARD], TR_EMPTY
+    jne .out
+    cmp byte [tg_list], 0           ; (the hand has to be where it fades to)
+    jne .out
+    mov ax, cx
+    mov bx, [tg_uslot]
+    call ti_rv_undo_go
+.out:
+    pop si
+    pop dx
+    pop cx
     pop bx
     pop ax
     ret
@@ -1372,6 +1582,16 @@ tg_edited:
     xor bl, [ti_played]             ; ...the hand slots that did, and the ones
     or bl, [ti_gchg]                ; whose shortfall moved (97.12.10.3)
     mov byte [ti_gchg], 0
+    cmp byte [ti_rv], 2             ; ...but not an UNDO's card, which fades
+    jne .h0                         ; home (97.12.10.7)
+    push cx
+    mov cl, [ti_rvcard]
+    mov al, 1
+    shl al, cl
+    not al
+    and bl, al
+    pop cx
+.h0:
     xor ax, ax
 .h:
     cmp ax, [ti_cardn]
@@ -1452,6 +1672,13 @@ tg_sync1:
 .c:
     cmp cx, TI_CELLS
     jae .none
+    cmp byte [ti_rv], 2             ; AN UNDO'S OR A SWAP'S CELLS WAIT for its
+    jb .own                         ; animation's end (SPEC.md 97.12.10.7)
+    cmp cx, [ti_rvcell]
+    je .skip
+    cmp cx, [ti_rvcell2]
+    je .skip
+.own:
     mov bx, cx
     mov ax, cx
     call ti_cell_key                ; the art, and a shooter's stance
@@ -1459,6 +1686,7 @@ tg_sync1:
     jne .do
     cmp byte [tg_vdirty + bx], 0
     jne .do
+.skip:
     inc cx
     jmp short .c
 .do:
@@ -1794,6 +2022,7 @@ tg_fill:
     push dx
     push si
     push di
+    call ti_full_drop               ; (a box goes with what it covered)
     cmp byte [tg_fillq], 3          ; 3: A DEALT MATCH off the seeds the test
     jne .full                       ; wrote (tg_tseed), which tools/duelsim.py
     mov ax, [tg_tseed]              ; deals the same way - so the row can hold
@@ -1801,9 +2030,11 @@ tg_fill:
     mov ax, [tg_tseed + 2]
     mov [tr_deckb + 4], ax
     call tg_deal
-    call tg_redraw
+    mov word [tg_mull], 0           ; A TEST'S MATCH IS OFFERED NO MULLIGAN:
+    call tg_redraw                  ; the row writes one when it wants one
     jmp .ret
 .full:
+    mov word [tg_mull], 0           ; (...and nor is a test's board)
     mov word [tg_newslot], 0FFFFh   ; (no card of this board is NEW)
     call tg_load
     xor cx, cx
@@ -2249,7 +2480,7 @@ tg_cell_click:
     call tg_act
     mov bl, dl
     call tg_edited
-    jmp short .out
+    jmp .out
 .swap:
     mov ax, [tg_sel]                ; --- a SWAP's two ends -----------------
     cmp ax, -1
@@ -2270,6 +2501,7 @@ tg_cell_click:
     call tg_unsel                   ; the same cell again: let go
     jmp short .out
 .do:
+    mov [tg_swa], ax                ; (the first end, for the sparks)
     mov cx, ax                      ; the engine names a cell column x 5 +
     call tg_local                   ; lane, on its own side
     mov bh, al
@@ -2284,7 +2516,14 @@ tg_cell_click:
                                     ; removing that play orphaned the swap
     mov dl, [ti_played]
     call tg_act
-    jnc .swapped
+    jc .nswap
+    push bx
+    mov ax, [tg_swa]                ; the two ends: the first, and SI
+    mov bx, si
+    call ti_rv_swap_go              ; THE SPARKS CROSS before the two cells
+    pop bx                          ; are drawn (97.12.10.7)
+    jmp short .swapped
+.nswap:
     push si                         ; REFUSED: say why (97.12.10.3)
     mov si, ti_s_nswap
     cmp byte [ti_swaps], 0
@@ -3906,6 +4145,7 @@ ti_s_nswap2: db 'THOSE TWO CANNOT SWAP', 0
 ti_s_nord:  db 'THAT ORDER CANNOT GO THERE', 0
 ti_s_cconf: db 'NOTHING PLANNED - COMMIT AGAIN TO PASS', 0
 ti_s_income: db 'INCOME ', 0
+ti_s_mdone: db 'A NEW HAND - THE OLD ONE IS SHUFFLED BACK IN', 0
 ti_s_drew:  db '  DREW ', 0
 ti_s_hfull: db '  HAND FULL - ', 0
 ti_s_discd: db ' DISCARDED', 0
@@ -3928,6 +4168,8 @@ ti_s_stale: db 'SIXTY ROUNDS - A STALEMATE', 0
 
 tg_ph:      db 0                    ; TG_PH_*
 tg_fillq:   db 0                    ; the tests' full board, asked for
+tg_mull:    db 0, 0                 ; each side's MULLIGAN still offered
+tg_dsync:   db 0                    ; the destination mark may have moved
 tg_tseed:   dw 0, 0                 ; ...and mode 3's two seeds
 tg_side:    db 0                    ; who is planning
 tg_rnd:     db 0
@@ -3961,6 +4203,9 @@ tg_lscroll: dw 0                    ; ...the list's window: its first item,
 tg_le:      dw 0                    ; ...the rows its items get,
 tg_lsc:     db 0                    ; ...and whether they scroll
 tg_cqarm:   db 0                    ; CONCEDE has been asked about
+tg_ucell:   dw -1                   ; an undone PLAY's cell, and its slot
+tg_uslot:   dw 0
+tg_swa:     dw 0                    ; a swap's first end, as it is added
 tg_sel:     dw -1                   ; a swap's first cell, chosen
 tg_arm:     db 0FFh                 ; an ORDER's hand slot, armed
 tg_tgt:     dw -1                   ; ...and the character it would land on

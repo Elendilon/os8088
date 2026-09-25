@@ -227,6 +227,10 @@ ti_entry:
     mov ax, ti_onresize
     call OSAPI_WM_ONRESIZE          ; the box moved under us - a drag across a
                                     ; display seam is the case that matters
+    mov bx, [ti_win]
+    mov ax, ti_onrclick
+    call OSAPI_WM_ONRCLICK          ; the RIGHT button: the whole card
+                                    ; (SPEC.md 97.12.10.8)
     mov si, ti_about
     call OSAPI_ABOUT_SET            ; SPEC.md 12.2, which SHEET and CHART both
                                     ; shipped without
@@ -245,6 +249,7 @@ ti_entry:
 ; -----------------------------------------------------------------------------
 ti_relayout:
     push ax
+    call ti_full_drop               ; the full card's rectangle is the layout's
     mov byte [ti_rv], 0             ; a reveal's geometry is the layout's: it
     mov word [ti_rvn], 0            ; ends here, its card already in the cell,
     mov byte [ti_rvfull], 0         ; and the whole-window paint that follows
@@ -362,6 +367,7 @@ ti_paint:
     push bx
     push si
     mov [ti_win], si
+    call ti_full_drop               ; (a full card goes with what it covered)
     call ti_rv_lost                 ; a paint outside the worker's frame lands
                                     ; on the reveal's sparks (tirv.inc)
     call ti_relayout_ck             ; the box may have moved, or the adapter
@@ -414,6 +420,25 @@ ti_onclick:
     push dx
     push si
     mov [ti_win], si
+    cmp byte [tg_fcard], 0          ; THE FULL CARD UP: a click takes it away
+    je .nofull                      ; and does nothing else (97.12.10.8)
+    call ti_full_close
+    jmp .out
+.nofull:
+    call tg_mullq                   ; THE MULLIGAN OFFER: its two buttons,
+    jz .nomull                      ; and nothing else (97.12.10.9)
+    call ti_mull_hit
+    cmp al, 1
+    jne .mn1
+    call tg_mull_keep
+    jmp .out
+.mn1:
+    cmp al, 2
+    jne .mn2
+    call tg_mull_redraw
+.mn2:
+    jmp .out
+.nomull:
     cmp byte [ti_rv], 0             ; the toggle redraws the hand, which a
     je .norv                        ; reveal's sparks may be over
     jmp .out
@@ -505,6 +530,7 @@ ti_row_apply:
     cmp byte [ti_ok], 0
     je .out
     call ti_card_inval              ; every bank shows the other row now
+    mov byte [tg_dsync], 1          ; ...and a play lands in the other column
     mov word [ti_rowk], 0
     mov byte [ti_rowst], TI_RS_HUD  ; (a second click restarts it)
 .out:
@@ -593,9 +619,16 @@ ti_owed:
     jne .no
     cmp byte [ti_rv], 0
     jne .no
+    cmp byte [tg_dsync], 0          ; THE DESTINATION MARK moved (a play, the
+    je .hud                         ; toggle): its two cells, one a frame
+    call tg_sync1                   ; (SPEC.md 97.12.10.10)
+    jnc .took
+    mov byte [tg_dsync], 0
+.hud:
     cmp byte [ti_hudq], 0
     je .cards
     call ti_hud_draw                ; (clears ti_hudq)
+.took:
     stc
     ret
 .cards:
@@ -635,6 +668,11 @@ ti_onkey:
     push bx
     push si
     mov [ti_win], si
+    cmp byte [tg_fcard], 0          ; ...and so does a key
+    je .nofk
+    call ti_full_close
+    jmp .out
+.nofk:
     cmp byte [ti_rv], 0             ; A REVEAL IS HALF A SECOND and every key
     je .keys                        ; that draws would land between its sparks
     jmp .out                        ; and their erase (tirv.inc)
@@ -676,6 +714,42 @@ ti_onkey:
     call tg_resume
     jmp .out
 .plankeys:
+    call tg_mullq                   ; THE MULLIGAN OFFER takes Enter or K,
+    jz .nomk                        ; and D, and the music's keys - and no
+    cmp al, 13                      ; key that moves or draws on the board
+    je .mkeep                       ; (97.12.10.9)
+    cmp bl, 'k'
+    je .mkeep
+    cmp bl, 'd'
+    je .mredo
+    cmp bl, 'm'
+    je .mmus
+    cmp bl, 's'
+    je .marm
+    cmp bl, 'e'
+    je .mrsel
+    cmp bl, 'r'
+    je .mres
+    cmp bl, 't'
+    je .mstate
+    jmp .out
+.mkeep:
+    call tg_mull_keep
+    jmp .out
+.mredo:
+    call tg_mull_redraw
+    jmp .out
+.mmus:
+    jmp .music
+.marm:
+    jmp .arm
+.mrsel:
+    jmp .rsel
+.mres:
+    jmp .res
+.mstate:
+    jmp .state
+.nomk:
     or al, al                       ; THE LIST'S WINDOW scrolls on the arrows
     jz .scan                        ; and the page keys (SPEC.md 97.12.10.6) -
     cmp al, 0E0h                    ; asked only of a key with no character,
@@ -917,6 +991,7 @@ ti_paint_now:
     call tg_screen
     jmp short .out
 .board:
+    call ti_full_drop               ; (a box goes with what it covered)
     call ti_board
     call ti_all
 .out:
@@ -1048,6 +1123,8 @@ ti_worker:
     cmp byte [tg_ph], TG_PH_RES     ; for it has put the pass screen up, and a
     jne .nofr                       ; frame now would draw a base over it
 .fr:
+    cmp byte [tg_fcard], 0          ; THE FULL CARD IS UP: nothing moves under
+    jne .rsdone                     ; it, so its restore is exact (97.12.10.8)
     cmp byte [ti_rowst], 0          ; THE TOGGLE'S REDRAW, a slice a frame -
     je .owed                        ; in the frame's place (ti_row_step)
     call ti_row_step
@@ -1055,6 +1132,8 @@ ti_worker:
 .owed:
     call ti_owed                    ; ...and what an edit left owed
     jc .rsdone
+    call tg_mull_ck                 ; ...and the MULLIGAN offer, put up
+    jc .rsdone                      ; (97.12.10.9)
 .wheel:
     call ti_frame
 .rsdone:
@@ -1101,6 +1180,10 @@ ti_frame:
     call ti_rv_erase                ; THE REVEAL'S SPARKS COME OFF FIRST and go
                                     ; back on LAST, so every band between lands
                                     ; on a clean glass (tirv.inc)
+    cmp byte [ti_rv], 2             ; AN UNDO'S CARD is fading home: no hover
+    jne .hov                        ; draws over it for the four frames it
+    jmp .credit                     ; takes (SPEC.md 97.12.10.7)
+.hov:
     cmp byte [ti_hovage], 255       ; how long the hover has stood, for
     je .aged                        ; feature 22 (TI_HOVWAIT)
     inc byte [ti_hovage]
@@ -1135,6 +1218,10 @@ ti_frame:
     mov byte [ti_hstat], 0
     call ti_hud_status
 .credit:
+    call tg_mullq                   ; THE MULLIGAN OFFER IS UP: the hand's
+    jz .wheelon                     ; hover and nothing under the box, so
+    jmp .mdone                      ; its restore is exact (97.12.10.9)
+.wheelon:
     call OSAPI_GET_TICKS            ; THE FRAME IS TIMED, because the model
     mov [ti_ft0], ax                ; under-prices what a commit really costs -
     inc word [ti_nframe]            ; commits ALONE cannot say whether the
@@ -1241,8 +1328,11 @@ ti_frame:
     call ti_rv_step                 ; ...and the reveal's frame, on top of it all
     call tm_run
     call ti_overran                 ; SPEC.md 97.5's own promise, and it was
-    pop dx                          ; never built: the credit is trimmed when
-    pop cx                          ; the frame missed its tick
+                                    ; never built: the credit is trimmed when
+                                    ; the frame missed its tick
+.mdone:
+    pop dx
+    pop cx
     pop bx
     pop ax
     ret
@@ -1795,6 +1885,7 @@ ti_pit:
 %include "ticards.inc"
 %include "tirule.inc"
 %include "tigame.inc"
+%include "tifull.inc"
 %include "tiplace.inc"
 %include "tisong.inc"
 %include "timus.inc"
@@ -1816,7 +1907,9 @@ TI_S_HUD    equ TI_S_UNIT + TI_UNITMAX * TI_POSES * TI_HAND
 TI_S_CARD   equ TI_S_HUD + TI_HUDBANDMAX ; every resting card's band, banked
                                     ; (SPEC.md 97.4.12.1) so a hover change
                                     ; blits instead of composing
-TI_S_BYTES  equ TI_S_CARD + TI_CARDBANDMAX * TI_HAND * 2 ; ...and hovered
+TI_S_FULL   equ TI_S_CARD + TI_CARDBANDMAX * TI_HAND * 2 ; ...and hovered,
+                                    ; and the right-click card (tifull.inc)
+TI_S_BYTES  equ TI_S_FULL + TI_FULLBAND
 TI_SCR_KB   equ (TI_S_BYTES + 1023) / 1024
     OS88_PARTS_BEGIN 4
       OS88_PART OP_ASSET, OP_COMP     ; 0 the characters
