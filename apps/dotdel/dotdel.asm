@@ -1270,6 +1270,8 @@ dd_spct:     dw DD_PCTPAC, DD_PCTGH, DD_PCTFRI, DD_PCTEYE, DD_PCTTUN
     DBYTEV dd_needcut               ; the worker owes the UI task a recut
     DBYTEV dd_inrender              ; dd_board_render is walking the board
     DBYTEV dd_drawing               ; ...and a frame is being drawn off it
+    DBYTEV dd_newg                  ; 1 = dd_new_game is loading the board, and
+                                    ; the worker takes no step until it has
     DBUFV  dd_cnrmap, DD_INKB          ; which CORRIDOR tiles carry ink (93.2.3.2)
     DWORDV dd_dotw
     DWORDV dd_doth
