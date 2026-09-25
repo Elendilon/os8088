@@ -1795,6 +1795,15 @@ SOAK = [
         "FOLDER open beside it is the control that says the breakpoint "
         "fires at all.",
         needs=("marty",), serial=True),
+    Row("fpgcold", "soak", py("tests/fpgcold.py"), 20.0,
+        "SPEC.md 12.8.3.1: with every floppy motor stopped, opening a drive "
+        "puts the progress widget and busy pointer up BEFORE the first int "
+        "13h. That call is the one-sector boot read, and on an AT-class ROM "
+        "it carries a one-second spin-up, which FPG_WARM's sector count let "
+        "through with nothing on the screen (reported off an 86Box 286). "
+        "MartyPC's ROMs do not wait for the spin-up, so the ORDER is what is "
+        "asserted; RED on the kernel before it (arm 193 ms after the read)",
+        needs=("marty",)),
     Row("assocsweep", "soak", py("tests/assocsweep.py"), 30.0,
         "SPEC.md 54.4.2.1: what a document double-click costs BEFORE its "
         "program loads. Field: an installed machine with every floppy drive "
