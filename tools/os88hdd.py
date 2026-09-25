@@ -28,7 +28,23 @@ and for the same reasons:
 MartyPC wants a fixed VHD, which is the raw sectors plus a 512-byte footer.
 Rather than generate a footer, this COPIES an existing one - MartyPC's bundled
 default_xtide.vhd - and overwrites the data area, so the geometry in the footer
-and the geometry the emulated controller reports cannot disagree.
+and the geometry the emulated controller reports cannot disagree. A geometry
+other than the template's (--spt/--heads/--cyls) gets the template's footer
+with its sizes, CHS and checksum REWRITTEN to match, and a data area exactly
+that long: an image cut for an MFM controller at 17 sectors a track with a
+footer still saying 26 is a disk every reader of the footer lays out wrongly.
+--raw drops the footer, for an emulator that takes a flat .img.
+
+--st11 lays the disk out the way a SEAGATE ST11 card (ST11M/ST11R) does, read
+off a drive its own low-level format prepared (86Box, ST11R, an ST-238R at
+615/4/26). The card keeps a 40-byte parameter record - magic DA BE, the
+cylinders big-endian, heads, sectors, then fields copied verbatim - in
+sectors 1 and 2 of heads 0 and 1 of cylinder 0, and hides that whole
+cylinder: the BIOS's sector 0 is physical cylinder 1. It hands the BIOS two
+cylinders fewer than the drive has, which is what os8088's own installer
+partitioned (615 -> 63,726 sectors from LBA 26). Without the record the card
+calls the drive unformatted; with the volume at physical LBA 0 every read is
+one cylinder off.
 
   python3 tools/os88hdd.py --template build/martypc/run/media/hdds/default_xtide.vhd \\
                            --out /tmp/boot.vhd --kernel build/kernel.sys \\
@@ -141,6 +157,29 @@ def the_file(path):
     return blob
 
 
+def st11_record(cyls, heads, spt):
+    """The Seagate ST11's parameter record, as its low-level format wrote it
+    on an ST-238R (see the module comment). Only the geometry is ours; the
+    rest - its option bytes and the drive's name and serial - is copied."""
+    return (b"\xDA\xBE" + struct.pack(">HBB", cyls, heads, spt) +
+            bytes.fromhex("000003060003ffff") +
+            b"SEAGATE30M     \x0012345     ")
+
+
+def vhd_footer(footer, total, cyls, heads, spt):
+    """The template's fixed-VHD footer with its sizes, CHS and checksum made
+    to describe TOTAL sectors at CYLS/HEADS/SPT. Byte-identical to the
+    template's own when the geometry is the template's."""
+    f = bytearray(footer)
+    size = total * SECTOR
+    struct.pack_into(">Q", f, 40, size)         # original size
+    struct.pack_into(">Q", f, 48, size)         # current size
+    struct.pack_into(">HBB", f, 56, cyls, heads, spt)
+    struct.pack_into(">I", f, 64, 0)
+    struct.pack_into(">I", f, 64, ~sum(f) & 0xFFFFFFFF)
+    return bytes(f)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--template", required=True, help="a VHD to take the footer and geometry from")
@@ -151,6 +190,12 @@ def main():
     ap.add_argument("--spt", type=int, default=26)
     ap.add_argument("--heads", type=int, default=4)
     ap.add_argument("--cyls", type=int, default=615)
+    ap.add_argument("--raw", action="store_true",
+                    help="a flat image of exactly the geometry, no VHD footer")
+    ap.add_argument("--st11", action="store_true",
+                    help="a Seagate ST11 card's layout: its parameter record "
+                    "in cylinder 0, the volume from cylinder 1, two "
+                    "cylinders fewer for the BIOS")
     ap.add_argument("--file", action="append", default=[], metavar="NAME=PATH",
                     help="another file for the volume's root, e.g. "
                          "HDD.DRV=build/hdd.drv (repeatable)")
@@ -164,12 +209,19 @@ def main():
         extras.append((name83(nm), open(path, "rb").read()))
 
     tmpl = open(a.template, "rb").read()
+    pcyls = a.cyls                              # the drive's own
+    if a.st11:
+        a.cyls -= 2                             # ...and what the BIOS gets
     total = a.spt * a.heads * a.cyls
     if len(tmpl) < total * SECTOR:
         fail("template is %d bytes, smaller than the geometry's %d"
              % (len(tmpl), total * SECTOR))
-    disk = bytearray(tmpl)                      # footer and all: we only
-                                                # overwrite the data area
+    footer = bytearray(tmpl[-SECTOR:])
+    if footer[:8] != b"conectix":
+        fail("%s has no VHD footer" % a.template)
+    disk = bytearray(tmpl[:total * SECTOR])     # the data area, cut to the
+                                                # geometry: the footer is
+                                                # rewritten below to match
 
     mbr = open(a.mbr, "rb").read()
     if len(mbr) != HP_TBL:
@@ -299,6 +351,18 @@ def main():
     sec0[510:512] = b"\x55\xAA"
     disk[0:SECTOR] = sec0
 
+    ptotal = total
+    if a.st11:
+        cyl = a.spt * a.heads * SECTOR
+        ptotal = pcyls * a.heads * a.spt
+        phys = bytearray(ptotal * SECTOR)
+        phys[cyl:cyl + len(disk)] = disk
+        rec = st11_record(pcyls, a.heads, a.spt)
+        for lba in (0, 1, a.spt, a.spt + 1):    # head 0 and head 1, S1 and S2
+            phys[lba * SECTOR:lba * SECTOR + len(rec)] = rec
+        disk = phys
+    if not a.raw:
+        disk += vhd_footer(footer, ptotal, pcyls, a.heads, a.spt)
     open(a.out, "wb").write(bytes(disk))
     print("os88hdd: %s  %d/%d/%d, partition at LBA %d for %d sectors (%dMB), "
           "%s, %d-sector clusters, KERNEL.SYS %d sectors at LBA %d"

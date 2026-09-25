@@ -782,11 +782,24 @@ red. A row about one package goes in `soak`.
   - **The player is on every apps disk** (`$(APPS_TOOLS)`, 4 clusters of
     the 360KB one) and on no kern_small disk (`SMALLOMIT`: `FSXF_RATE` and
     `READ_SEQ` are kern_big's).
-  - **The field hard disks** (`make vidfieldhd XDCSAMPLES=<dir>`): two
-    bootable 32 MB VHDs for the PicoMEM machine, `VIDHERC.VHD` and
-    `VIDCGA.VHD`, each with the player, the owner's five XDC streams
-    imported in that layout (~24 MB, which is why it is two images and not
-    one), and the four benches - each of which now SAVES its report as a
+  - **The field hard disks** (`make vidfieldhd XDCSAMPLES=<dir>`): bootable
+    VHDs for the PicoMEM machine and 86Box, a Hercules and a CGA layout
+    (five streams are ~24 MB in one layout) at three geometries - 615/4/26
+    plain (MartyPC's XT-IDE), 615/4/17 for the IBM/Xebec MFM card (20 MB, so
+    no THUNDERC), and 615/4/26 in a SEAGATE ST11R's layout
+    (`os88hdd.py --st11`). **A disk is only readable at the geometry and
+    layout it was written with**, and the owner's 86Box found that the hard
+    way: the ST11M and WD1002A-WX1 are MFM (17 sectors) and saw nothing,
+    the ST11R saw a drive with no record of its own. Read off a disk that
+    ST11R formatted and os8088's installer then wrote: the card keeps a
+    40-byte record (`DA BE`, the geometry, "SEAGATE30M") in sectors 1-2 of
+    heads 0 and 1 of cylinder 0, hides that cylinder, and hands the BIOS
+    two fewer - the installer partitioned 63,726 sectors from LBA 26. The
+    generated image matches that disk's record, footer, partition entry,
+    MBR and VBR byte for byte. MartyPC mounts only the drive types on its
+    own list, so the ST11R volume is proven by booting it cut out and
+    padded back to 615 cylinders: BADAPPLE plays with no stall. Each
+    carries the player, the streams and the four benches - each of which now SAVES its report as a
     `.TXT` beside itself (benchlib's `bl_save`). What the benches gained
     from W1-W3: VIDBENCH three kinds a frame instead of five and the worst
     frame in thousandths of a period at 30 and 23.976 fps (its report had

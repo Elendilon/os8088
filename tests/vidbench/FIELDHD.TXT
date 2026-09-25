@@ -1,14 +1,36 @@
 VIDEO PLAYER - FIELD HARD DISK (waves 0-3)
 ==========================================
 
-A bootable 32 MB fixed disk: the os8088 kernel, the
-Video Player, five videos and four benches. There are
-two of these images and they differ only in the videos'
-layout:
+A bootable fixed disk: the os8088 kernel, the Video
+Player, the videos and four benches. There are six of
+these images - two layouts at three geometries:
 
   VIDHERC.VHD   the videos made for a Hercules card
   VIDCGA.VHD    the videos made for CGA 640x200 - they
                 play on a CGA and on a VGA
+
+  ...both 615 cylinders, 4 heads, 26 sectors (31 MB):
+  an ST-238R on an RLL card, or an XT-IDE.
+
+  VIDHERC-MFM.VHD, VIDCGA-MFM.VHD
+                the same at 615/4/17 (20 MB): an
+                ST-225 on the IBM/Xebec MFM card. No
+                THUNDERC - it does not fit.
+
+  VIDHERC-ST11R.VHD, VIDCGA-ST11R.VHD
+                615/4/26 laid out the way a Seagate
+                ST11R formats an ST-238R: the card's
+                own record in cylinder 0 and the disk
+                one cylinder in. All five videos.
+
+The disk has to be read at the geometry it was written
+with. In 86Box the -MFM pair wants the plain IBM PC
+fixed disk adapter (st506_xt) with an MFM drive of 17
+sectors, 4 heads, 615 cylinders; the -ST11R pair wants
+the ST11R with an RLL drive of 26 sectors, 4 heads,
+615 cylinders. The other ST11 cards and the plain
+images do not mix: an ST11 calls a plain image
+unformatted, and reads the others one cylinder off.
 
 A video plays only on the adapter its layout was made
 for (SPEC.md 98.3); anything else says "made for ...".
@@ -25,7 +47,7 @@ smallest ring (two 32 KB slots) and STALLS, or says
 "Not enough memory to play it".
 
   BADAPPLE.V88   3:39, 30 fps - the long one
-  THUNDERC.V88   1:16, 23.976 fps
+  THUNDERC.V88   1:16, 23.976 fps (not on -MFM)
   TRONDISC.V88   0:48, 23.976 fps
   BBBB_BW.V88    0:07, 60 fps
   BBBBCOMP.V88   0:07, 60 fps, made for CGA

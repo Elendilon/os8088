@@ -9737,18 +9737,46 @@ vidfield: $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 $(BUILD)/vidsnd.o88 tools/o
 	python3 tools/os88disk.py --verify $(BUILD)/vidfield360.img
 
 # ...and the same benches, the player and the owner's LONG videos on a
-# bootable 32 MB fixed disk each for the PicoMEM machine, which boots a .vhd
-# (docs/FIELD-MACHINES.md). Two images because five videos are ~24 MB in one
-# layout and a volume is 32: VIDHERC.VHD in the Hercules layout, VIDCGA.VHD
-# in CGA 640x200, which a VGA plays too (SPEC.md 98.3). Each bench SAVES its
-# report as a .TXT beside itself (benchlib's bl_save). XDCSAMPLES, as above:
-# the videos are the owner's and never leave build/
+# bootable fixed disk for the PicoMEM machine, which boots a .vhd, and for
+# 86Box (docs/FIELD-MACHINES.md). Each bench SAVES its report as a .TXT beside
+# itself (benchlib's bl_save). XDCSAMPLES, as above: the videos are the
+# owner's and never leave build/. SIX images, two layouts at three geometries:
+#   VIDHERC / VIDCGA          615/4/26 (RLL, and MartyPC's XT-IDE), 31 MB,
+#                             all five videos
+#   VIDHERC-MFM / VIDCGA-MFM  615/4/17 - an ST-225 on the IBM/Xebec MFM card,
+#                             vm/xt-mfm's configuration, 20 MB, so THUNDERC
+#                             (6 MB) is left off
+#   VIDHERC-ST11R / VIDCGA-ST11R  an ST-238R on a Seagate ST11R: 615/4/26
+#                             with the card's own record in cylinder 0 and the
+#                             volume a cylinder in (os88hdd.py --st11, read off
+#                             a disk that card formatted in 86Box). All five
+# Hercules layout on the one, CGA 640x200 (which a VGA plays too, SPEC.md
+# 98.3) on the other: five videos are ~24 MB in one layout.
 VIDHD_XDV = BADAPPLE THUNDERC TRONDISC BBBB_BW BBBBCOMP
+VIDHD_MFM_XDV = BADAPPLE TRONDISC BBBB_BW BBBBCOMP
 VIDHD_TEMPLATE = $(BUILD)/martypc/run/media/hdds/default_xtide.vhd
 VIDHD_BASE = $(BUILD)/kernel.sys $(BUILD)/boothd.bin $(BUILD)/mbr.bin \
 	$(BUILD)/hdd.drv $(BUILD)/hiber.drv $(BUILD)/ctrl.drv $(BUILD)/sound.drv \
 	$(BUILD)/video.o88 $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 \
 	$(BUILD)/vidsnd.o88 $(BUILD)/vidkern.o88
+# $(call vidhd_img,<out>,<layout dir>,<spt>,<videos>[,<more os88hdd flags>])
+define vidhd_img
+	python3 tools/os88hdd.py --template $(VIDHD_TEMPLATE) --out $(1) $(5) \
+	    --spt $(3) --heads 4 --cyls 615 --kernel $(BUILD)/kernel.sys \
+	    --vbr $(BUILD)/boothd.bin --mbr $(BUILD)/mbr.bin \
+	    --file HDD.DRV=$(BUILD)/hdd.drv --file HIBER.DRV=$(BUILD)/hiber.drv \
+	    --file CTRL.DRV=$(BUILD)/ctrl.drv --file SOUND.DRV=$(BUILD)/sound.drv \
+	    --file README.TXT=$(BUILD)/vidhd/README.TXT \
+	    --file VIDEO.O88=$(BUILD)/video.o88 \
+	    --file VIDBENCH.O88=$(BUILD)/vidbench.o88 \
+	    --file VIDBENCH.DAT=$(BUILD)/vidhd/VIDBENCH.DAT \
+	    --file VIDDISK.O88=$(BUILD)/viddisk.o88 \
+	    --file VIDSND.O88=$(BUILD)/vidsnd.o88 \
+	    --file VIDKERN.O88=$(BUILD)/vidkern.o88 \
+	    --file FENCE.DAT=$(BUILD)/vidhd/FENCE.DAT \
+	    $(foreach v,$(4),--file $(v).V88=$(BUILD)/vidhd/$(2)/$(v).V88)
+
+endef
 .PHONY: vidfieldhd
 vidfieldhd: $(VIDHD_BASE) tools/os88vid.py tools/os88hdd.py tests/vidbench/FIELDHD.TXT
 	@test -n "$(XDCSAMPLES)" || { echo "vidfieldhd: needs XDCSAMPLES=<dir of the XDC streams>"; exit 1; }
@@ -9765,25 +9793,13 @@ vidfieldhd: $(VIDHD_BASE) tools/os88vid.py tools/os88hdd.py tests/vidbench/FIELD
 	            $(BUILD)/vidhd/$$t/$$v.V88 >/dev/null || exit 1; \
 	    done; \
 	done
-	for t in herc cga; do \
-	    T=`echo $$t | tr a-z A-Z`; \
-	    python3 tools/os88hdd.py --template $(VIDHD_TEMPLATE) \
-	        --out $(BUILD)/VID$$T.VHD --kernel $(BUILD)/kernel.sys \
-	        --vbr $(BUILD)/boothd.bin --mbr $(BUILD)/mbr.bin \
-	        --file HDD.DRV=$(BUILD)/hdd.drv --file HIBER.DRV=$(BUILD)/hiber.drv \
-	        --file CTRL.DRV=$(BUILD)/ctrl.drv --file SOUND.DRV=$(BUILD)/sound.drv \
-	        --file README.TXT=$(BUILD)/vidhd/README.TXT \
-	        --file VIDEO.O88=$(BUILD)/video.o88 \
-	        --file VIDBENCH.O88=$(BUILD)/vidbench.o88 \
-	        --file VIDBENCH.DAT=$(BUILD)/vidhd/VIDBENCH.DAT \
-	        --file VIDDISK.O88=$(BUILD)/viddisk.o88 \
-	        --file VIDSND.O88=$(BUILD)/vidsnd.o88 \
-	        --file VIDKERN.O88=$(BUILD)/vidkern.o88 \
-	        --file FENCE.DAT=$(BUILD)/vidhd/FENCE.DAT \
-	        $(foreach v,$(VIDHD_XDV),--file $(v).V88=$(BUILD)/vidhd/$$t/$(v).V88) \
-	        || exit 1; \
-	done
-	@ls -l $(BUILD)/VIDHERC.VHD $(BUILD)/VIDCGA.VHD
+	$(call vidhd_img,$(BUILD)/VIDHERC.VHD,herc,26,$(VIDHD_XDV))
+	$(call vidhd_img,$(BUILD)/VIDCGA.VHD,cga,26,$(VIDHD_XDV))
+	$(call vidhd_img,$(BUILD)/VIDHERC-MFM.VHD,herc,17,$(VIDHD_MFM_XDV))
+	$(call vidhd_img,$(BUILD)/VIDCGA-MFM.VHD,cga,17,$(VIDHD_MFM_XDV))
+	$(call vidhd_img,$(BUILD)/VIDHERC-ST11R.VHD,herc,26,$(VIDHD_XDV),--st11)
+	$(call vidhd_img,$(BUILD)/VIDCGA-ST11R.VHD,cga,26,$(VIDHD_XDV),--st11)
+	@ls -l $(BUILD)/VID*.VHD
 
 # ...and the one that shows a FACE rather than timing one: it draws the same
 # sentence through the kernel, through face 0, and through both of the
