@@ -162,6 +162,14 @@ def leg_bracket(ui, st):
     ui.m.alt("Enter")
     got = st.wait(st.bracket, lambda v: v != NO_BRACKET)
     if got == NO_BRACKET:
+        # WHICH of the three it was: the key is latched in [kbd_ae] and spent
+        # on the FRONT window only (SPEC.md 9.7.1), so a front window that is
+        # not Tracker, a latch still set, and a refusal on the toast are three
+        # different defects that read identically below
+        fr = ui.front()
+        print("  bracket: front=%r kbd_ae=%02X toast=%r"
+              % (fr.title if fr else None,
+                 ui.m.read(ui.m.sym("kbd_ae"), 1)[0], ui.toast()))
         return _fail("bracket: Alt+Enter did not take Tracker full screen - "
                      "[fsx_task] is still %04X. Either the kernel's "
                      "synthesised keystroke (SPEC.md 9.7.1) reached nothing, "

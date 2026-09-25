@@ -56,18 +56,30 @@ os.chdir(ROOT)
 import os88marty, os88mouse, os88sym, dispcp                      # noqa: E402
 
 GUEST_HZ = 4772728.0
-LST = "/tmp/os88rate.lst"
 RATE_NAME = {0: "5,500 (XT mode's own)", 1: "4,000", 2: "11,000"}
+
+
+# A caller that wants the LISTING itself (tests/trklcd.py reads immediates
+# out of it) names a path here; otherwise each call's listing is private and
+# deleted with its directory.
+LST = None
 
 
 def symbols(defines=("TRKLOG",)):
     """(name -> offset) for labels, and '@name' -> offset for the bss equs."""
-    cmd = ["nasm", "-f", "bin", "-w+error", "-I", "apps/", "-I", "apps/tracker/",
-           "-I", "tests/", "-o", "/tmp/os88rate.bin", "-l", LST]
-    cmd += ["-D" + d for d in defines] + ["apps/tracker/tracker.asm"]
-    subprocess.run(cmd, check=True)
+    # A PRIVATE DIRECTORY PER CALL. Both outputs were fixed /tmp paths, so
+    # two Tracker rows assembling at once in a soak read each other's
+    # half-written listing and died on a KeyError for a symbol that is there.
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="os88rate-") as td:
+        lst = LST or os.path.join(td, "tracker.lst")
+        cmd = ["nasm", "-f", "bin", "-w+error", "-I", "apps/", "-I",
+               "apps/tracker/", "-I", "tests/",
+               "-o", os.path.join(td, "tracker.bin"), "-l", lst]
+        cmd += ["-D" + d for d in defines] + ["apps/tracker/tracker.asm"]
+        subprocess.run(cmd, check=True)
+        lines = open(lst).read().splitlines()
     out, syms, pending, last = {}, [], [], None
-    lines = open(LST).read().splitlines()
     for L in lines:
         m = re.match(r"\s*\d+\s+([0-9A-F]{8})\s", L)
         addr = int(m.group(1), 16) if m else None

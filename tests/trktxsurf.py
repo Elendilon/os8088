@@ -81,8 +81,9 @@ def main():
             print("FAIL: Tracker never loaded"); return 1
         base = seg * 16
         os88marty.quiesce(m, lambda: tuple(
-            m.read(base + P["@" + n], 2) for n in
-            ("mp_loaded", "mp_playing", "mp_mixrate", "mp_xt", "trk_fs")),
+            m.read(base + P["@" + n], 2 if n == "mp_mixrate" else 1)
+            for n in ("mp_loaded", "mp_playing", "mp_mixrate", "mp_xt",
+                      "trk_fs")),
             guest=1.0, what="Tracker's open to finish")
         b = lambda n: m.read(base + P["@" + n], 1)[0]
         w = lambda n: int.from_bytes(m.read(base + P["@" + n], 2), "little")
@@ -118,7 +119,14 @@ def main():
                  "mp_playing", "mp_mixrate")
 
         def state():
-            return (tuple(m.read(base + P["@" + n], 2) for n in STATE),
+            # A BYTE EACH, bar the rate: a two-byte read of a byte variable
+            # carries its neighbour in .bss, and those neighbours are live
+            # while the module plays (they cycle 1-2-3 and flip 0/1), so the
+            # tuple never went still and the quiesce after Play failed once
+            # its readings happened to straddle one
+            return (tuple(m.read(base + P["@" + n],
+                                 2 if n == "mp_mixrate" else 1)
+                          for n in STATE),
                     rate_cell(), text_row(),
                     w2(P["trk_e_rate"] + AMENU_NITEM))
 
