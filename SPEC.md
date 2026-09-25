@@ -73665,6 +73665,34 @@ within a second: **+23.9 s against +23.8**. The build before it reads **+1.3 s
 against +23.8**, still frozen in the refused window two seconds after the card
 came down.
 
+#### 45.21.10 The button that fired is not scratch
+
+**A clicked button's action may repaint the whole face, so whatever carries
+the fired button across the action must be a word nothing else writes.**
+§45.21's table has the action run FIRST: `tw_prefire` records the armed
+button, fires it, and `tw_synced` reads the record back after the library's
+release draw, to mark that button as drawn with its final flags and caption.
+The record was `[tw_t2]`, which is the face's shared drawing scratch
+("serial, under the lock"), and an action is anything but serial with the
+drawing: in XT mode a rate change repaints the face (`trk_rate_set` →
+`tui_draw_all`, because the splash's hint line is pixels), and at 11 kHz that
+repaint reaches `tw_voff`, which parks the *No meters at 11 kHz* string
+POINTER in `tw_t2`. `tw_synced` then used a pointer as a button index. Two
+word stores at `tw_lastf`/`tw_lastl` + ~34 KB landed in the package's own
+code (`tw_rects`, `tw_bstate`), and the next Play ran them. That is an odd SP,
+a far return into the BIOS ROM, and the gfx lock held for good. It was
+reported off a 286 with an SB16 as a hard freeze after *play, click XT Mode
+without stopping, click the rate button twice, click Play*. The keys X, R, R,
+Enter did the same work and never froze, because only a click goes through
+`tw_synced`. An XT never reaches it either: its face comes up in XT mode
+(§45.9.1) and never makes the transition from a playing meter that arms the
+whole-pane redraw.
+
+`[tw_fired]` is its own word now, two bytes of bss. `tests/trkclick.py`
+(`soak -k trkclick`, QEMU) follows the report's path and compares the
+package image across the 5.5 → 11 → 5.5 round trip, which must come back
+byte for byte. With the defect in, it names the four stray bytes.
+
 ### 45.22 The PlayList (`trklist.inc`)
 
 ModPlug Player's list and its editor (§56.8), moved to the player that

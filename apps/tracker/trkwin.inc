@@ -2952,19 +2952,31 @@ tw_onup:
 ; NOW and recompute every button's flags, so the library's own release draw
 ; is the button's final picture rather than an upright one the next refresh
 ; inverts again. in: BX = the record, CX/DX = the release (screen).
-; out: [tw_t2] = the armed button (index + 1, 0 none). preserves all
+; out: [tw_fired] = the armed button (index + 1, 0 none). preserves all
 ;
 ; tw_synced then marks that button as drawn with those flags, so the refresh
 ; after it does not draw it a second time. Both are shared with the PlayList
 ; editor's record (trklist.inc): BX says which, and [tw_pfact] the action
 ; table that record fires through.
+;
+; [tw_fired] IS ITS OWN WORD AND MUST STAY ONE. It is written here, the ACTION
+; runs, and tw_synced reads it back - so it lives across whatever the action
+; draws, and the face's scratch words (tw_t1..tw_t4) are "serial, under the
+; lock" precisely because every drawing routine is free to spend them. It was
+; tw_t2 once: an XT-mode rate click repaints the face (trk_rate_set ->
+; tui_draw_all), tw_voff parks the 'No meters at 11 kHz' string pointer in
+; tw_t2, and tw_synced then used that POINTER as a button index - two word
+; stores at tw_lastf/tw_lastl + ~34KB, which land in this package's own CODE
+; (tw_rects, tw_bstate). The next Play ran the smashed bytes and the machine
+; hung hard. The R key never reached it: only a click goes through here
+; (SPEC.md 45.21.10).
 ; -----------------------------------------------------------------------------
 tw_prefire:
     push ax
     push bx
     push di
     call os88ui_armed               ; AX = what the press armed, still armed
-    mov [tw_t2], ax
+    mov [tw_fired], ax
     or ax, ax
     jz .out
     mov di, ax
@@ -2994,7 +3006,7 @@ tw_synced:
     push ax
     push bx
     push si
-    mov si, [tw_t2]
+    mov si, [tw_fired]
     or si, si
     jz .out
     dec si
@@ -3495,6 +3507,8 @@ TW_NT_COMP equ 36
     TRKW tw_t2
     TRKW tw_t3
     TRKW tw_t4                      ; (the needle height, tw_vu; tw_voff)
+    TRKW tw_fired                   ; the button tw_prefire fired, for
+                                    ; tw_synced AFTER the action: NOT scratch
     TRKBUF tw_rects_b, TW_NBTN * 8  ; the button record's rects, SCREEN
     TRKBUF tw_flags_b, TW_NBTN * 2  ; ...its flags, this frame
     TRKBUF tw_lastf, TW_NBTN * 2    ; what each button was LAST DRAWN with
