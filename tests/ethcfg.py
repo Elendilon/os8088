@@ -169,7 +169,7 @@ def open_setup(m, mo, cx, cy, cp_ether):
     """The Ethernet page, then its Set Up window."""
     x0, y0 = cx + 1, cy + TITLE_H
     mo.click(x0 + 40, y0 + CP_I0Y + cp_ether * CP_IROWH + 7)
-    os88qemu.pace(m, 2)                 # the page swap: nothing to read
+    os88qemu.ui_done(m, S, cap=2.0)     # the page swap: the UI, finished
     mo.click(x0 + CP_RX + EU_B2X + EU_BW // 2, y0 + EU_BY + EU_BH // 2)
     if os88qemu.acted(m, lambda: bool(setup_wins(m)), secs=10,
                       what="the Set Up window", poll=0.25):
@@ -279,10 +279,10 @@ def main():
     # --- close the panel: THAT is what writes it (SPEC.md 31.8) ------------
     mo.click(cx + 8, cy + 9)
     # the close is the WRITE: the window going is the handler running, and
-    # two guest seconds more are the floppy
+    # the UI going idle behind it is the floppy done (two seconds the cap)
     os88qemu.acted(m, lambda: find_cp(m) is None, secs=15,
                    what="the Control Panel closing", poll=0.25)
-    os88qemu.pace(m, 2)
+    os88qemu.ui_done(m, S, cap=2.0, what="ETHER.CFG's write")
     quit_and_wait(m)
 
     # --- and again --------------------------------------------------------
@@ -311,14 +311,15 @@ def main():
             mo.click(ctx + 2 + 6, cty + 2 + 6)          # Automatic
             os88qemu.pace(m, 1.5)
             mo.click(ctx + EC_B1X + EC_BW // 2, cty + EC_BY + EC_BH // 2)
-            os88qemu.pace(m, 2)
+            os88qemu.ui_done(m, S, cap=2.0)     # Ok, and its DHCP exchange
         mo.click(cx + 8, cy + 9)
         # ...and Automatic RUNS a DHCP exchange: the address coming back is
         # the guest's own answer (seven seconds was the old wait's total)
         os88qemu.acted(m, lambda: db("eth_mode") == 0
                        and dip("eth_ip") == "10.0.2.15", secs=10,
                        what="Automatic re-bound", poll=0.25)
-        os88qemu.pace(m, 2)             # ...and the panel's write behind it
+        # ...and the panel's write behind it, on the UI task
+        os88qemu.ui_done(m, S, cap=2.0, what="ETHER.CFG's write")
     say("back to: mode %d, addr %s" % (db("eth_mode"), dip("eth_ip")))
     if db("eth_mode") != 0:
         fails.append("Automatic did not take: the mode is still %d"

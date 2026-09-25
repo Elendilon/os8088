@@ -1351,6 +1351,8 @@ def main():
                        ww, own))
                 for pas in (0, 1):
                     if pas:
+                        # TIME, on purpose: pass 1 asks whether the socket's
+                        # timer MOVES over 30 guest seconds, so nothing ends it
                         os88qemu.pace(m, 30)
                     r = m.readseg(dseg, es["sk_tab"], 48)
                     tmo = r[34] | (r[35] << 8)

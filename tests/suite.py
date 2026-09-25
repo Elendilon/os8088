@@ -1344,7 +1344,7 @@ FULL = [
         "and boots it to a desktop, so what this adds is the THREE-adapter "
         "sweep - the deep gate a kern_small change runs, at 118s",
         needs=("marty",), serial=True),
-    Row("thewire", "soak", py("tests/thewire.py"), 340.0,
+    Row("thewire", "soak", py("tests/thewire.py"), 110.0,
         "THE WIRE, end to end over a real card (SPEC.md 92.12): a host HTTP "
         "server on 8092 serves a fixture catalog packed by tools/os88wire.py "
         "out of build/hello.o88, build/mines.o88, a tier-3 WF_DISK entry and "
@@ -7219,7 +7219,7 @@ SOAK = [
         "is the one that can put a tm_mrow_nolast blank between the table and "
         "its own end stop and no one-column machine can show it.",
         needs=("marty",), serial=True, timeout=900),
-    Row("trkscrl", "soak", py("tests/trkscrl.py"), 80.0,
+    Row("trkscrl", "soak", py("tests/trkscrl.py"), 38.0,
         "SPEC.md 45.12.2: a jump of n rows in the pattern view costs ONE "
         "gfx_scroll and no full repaint, and what it leaves on the screen is "
         "byte-identical to a repaint of the same view. QEMU, because the "
@@ -7933,7 +7933,7 @@ SOAK = [
         "`fbuf`. Every cell is rendered on the HOST out of the guest's own "
         "glyph table and compared pixel for pixel",
         needs=("marty",), serial=True),
-    Row("telansi", "soak", py("tests/telansi.py"), 900.0,
+    Row("telansi", "soak", py("tests/telansi.py"), 210.0,
         "SPEC.md 70.9/70.10/70.12: the ANSI-BBS PARSER on the machine, against "
         "tools/ansisim.py - the same state machine in Python, and the "
         "contract's second reader the way htmsim.py is the browser's. Thirteen "

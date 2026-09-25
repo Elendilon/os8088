@@ -60,6 +60,21 @@ def boot():
     return G.Qemu(SOCK), eth.Mouse()
 
 
+def log_state(m):
+    """fd_st .. fd_lognext (os88_image_end + 48 .. + 59, apps/ftpd/ftpd.asm)
+    out of the package's own bss - tests/ftpd.py's read_state, widened."""
+    for i in reversed(dispcp.win_list(m, S)):
+        w = dispcp.win_rect(m, S, i)[2]
+        if w not in (G.FD_W, G.FD_W_SNAP):
+            continue
+        r = m.read(S("wm_wins") + i * dispcp.WIN_SIZE, dispcp.WIN_SIZE)
+        seg = dispcp._u16(r, 22)
+        o88 = open("build/ftpd.o88", "rb").read()
+        img = o88[8] | (o88[9] << 8)
+        return m.readseg(seg, img + 48, 12)
+    return None
+
+
 def session(tag):
     """The same steps both times, ending on a settled window."""
     m, mo = boot()
@@ -80,12 +95,16 @@ def session(tag):
     buf = io.BytesIO()
     f.retrbinary("RETR FTPHELLO.TXT", buf.write)
     f.quit()
-    # both pauses are the GUEST's time (tests/os88qemu.py): the log's last
-    # lines are committed by the UI task on a wake, and nothing says "done"
-    os88qemu.pace(m, 3.0)
+    # the log's last lines are staged by the worker and committed by the UI
+    # task on a wake, so "done" is the server's own bytes gone still - fd_st
+    # to fd_lognext, the handshake [fd_req] and the dirty mask among them -
+    # with the UI idle beside them. GUEST seconds (tests/os88qemu.py); the old
+    # three-second pause is the ceiling
+    os88qemu.quiesce(m, lambda: (log_state(m), os88qemu.ui_idle(m, S)),
+                     secs=0.5, limit=3.0, what="the FTP log")
     fx, fy = G.ftp_win(m)
     mo.click(*G.ro_box(fx, fy))          # a tick: one 12px box
-    os88qemu.pace(m, 2.0)
+    os88qemu.ui_done(m, S, cap=2.0, what="the Read Only box")
     # RAW PIXELS, cropped to the WINDOW - a PNG's bytes differ for reasons
     # that are not pixels, and the menu bar carries a clock that moves between
     # two runs minutes apart.

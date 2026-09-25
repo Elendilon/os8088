@@ -196,9 +196,21 @@ def main():
                       secs=10, what="the Disk B window", poll=0.3):
         os88qemu.pace(m, 1)                          # ...and its rows
     dclick(sock, 170, 128 + 16 * package_row(args.image))     # RUNCPM.O88
-    os88qemu.pace(m, 4)                              # the banner: read below
     mouse_to(sock, 620, 470)                         # off the terminal
-    scr = screen(sock, os.path.join(args.shots, "rczex-0.ppm"))
+    # THE BANNER, on the glass: its first row readable and its last one
+    # (the CCP line, printed once the CCP is in) inked - the boot state
+    # machine spans slices, so the UI going idle is not the answer. The old
+    # four guest seconds are the budget, and a miss is reported below
+    scr = None
+
+    def banner():
+        nonlocal scr
+        scr = screen(sock, os.path.join(args.shots, "rczex-0.ppm"))
+        if scr.find_origin(0, BANNER[0])[1] < 30:
+            return False
+        return all(scr.cell(c, 8) != 0
+                   for c, ch in enumerate(BANNER[8]) if ch != " ")
+    os88qemu.acted(m, banner, secs=4, what="the RunCPM banner", poll=0.3)
     (x0, y0), score = scr.find_origin(0, BANNER[0])
     if score < 30:
         print(f"rczex: the banner is not on the glass (best grid {x0},{y0} scored {score})")
