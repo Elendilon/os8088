@@ -269,14 +269,16 @@ a Standard File dialog for opening and saving.
 
 **Software**
 
-Twenty-six loadable packages ship on the software disk, all closable and most
+Twenty-five loadable packages ship on the software disk, all closable and most
 multi-instance:
 
 - **Apps** — Note Pad (word wrap, DOS-readable text files), TeXPad, Paint,
-  ArtfulType, Font Viewer, Fractal, Calculator, Sheet, Chart, Piano, Tracker and ModPlug
-  Player (both play Amiga MOD files), an Audio Player that streams a WAV off
-  the disk and keeps playing while you work in another window, and the three
-  that talk over the network — Browser, Telnet and an FTP server.
+  ArtfulType, Font Viewer, Fractal, Calculator, Sheet, Chart, Piano, Tracker
+  (an Amiga MOD player with a playlist, windowed or full screen - it took
+  ModPlug Player's windowed face when ModPlug retired), an Audio Player that
+  streams a WAV off the disk and keeps playing while you work in another
+  window, and the three that talk over the network — Browser, Telnet and an
+  FTP server.
 - **Games** — Minesweeper, Solitaire, Arkanoid, Missile Command, Dot Delirium,
   Cyclone 88,
   Clear Skies, Tank Attack (a first-person wireframe tank duel that takes the

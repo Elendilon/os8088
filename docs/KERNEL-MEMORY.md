@@ -238,10 +238,10 @@ had added.
   "big": {
     "boot2": 2249,
     "bootmax": 192000,
-    "bss": 5524,
+    "bss": 5525,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 40204,
+    "cold": 40432,
     "coldpara": 2528,
     "fatpara": 288,
     "imgpara": 3328,
@@ -254,32 +254,32 @@ had added.
     "ovl": 1837,
     "ovlw": 5104,
     "stk0": 512,
-    "text": 47223,
+    "text": 47333,
     "vgabuf": 336,
     "vgabufpara": 32
   },
   "emu": {
-    "boot2": 2250,
+    "boot2": 2249,
     "bootmax": 192000,
-    "bss": 6086,
+    "bss": 5525,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 40535,
+    "cold": 40556,
     "coldpara": 2560,
     "fatpara": 288,
-    "imgpara": 3520,
-    "kend": 7072,
+    "imgpara": 3328,
+    "kend": 6752,
     "kseg": 96,
-    "ksize": 111616,
-    "lowbss": 7966,
-    "lowpara": 544,
+    "ksize": 106496,
+    "lowbss": 6366,
+    "lowpara": 448,
     "minramkb": 196,
-    "ovl": 1512,
-    "ovlw": 5084,
+    "ovl": 1843,
+    "ovlw": 5104,
     "stk0": 512,
-    "text": 50087,
-    "vgabuf": 848,
-    "vgabufpara": 64
+    "text": 47598,
+    "vgabuf": 336,
+    "vgabufpara": 32
   },
   "small": {
     "boot2": 2249,
@@ -287,7 +287,7 @@ had added.
     "bss": 3485,
     "budget": 107520,
     "codemax": 65536,
-    "cold": 25948,
+    "cold": 26073,
     "coldpara": 1632,
     "fatpara": 64,
     "imgpara": 2464,
@@ -337,22 +337,22 @@ not a section move.
 
 | rung | segment | size | what it is |
 |---|---|---:|---|
-| image (`.text` 50,892 + `.bss` 6,389) | `KERNEL_SEG` 0x0060 | 57,344 | resident code in the kernel's own segment, its read-only data and its scratch |
-| `.cold` (39,434) | `COLD_SEG` 0x0E60 | 39,936 | resident code with a CS of its own (SPEC.md §2.6): the file system, the Standard File dialog, associations, drivers, the heap, the desktop and the on-demand modules' thunks |
-| FAT window | `FAT_SEG` 0x1820 | 4,608 | `DSK_FAT_SECS` = 9 sectors of the mounted volume's FAT (SPEC.md §18.8); 2 sectors = 1,024 bytes on `kern_small` |
-| `.lowbss` (9,182) + task 0's stack (512) | `LOW_SEG` 0x1940 | 9,728 | the mount-owned disk buffers, every task stack, the two private ISR stacks, and the tables that left the segment |
-| `.vgabuf` (336) | `VGABUF_SEG` | 512 | `vga_pbuf`, SPEC.md §5.4.1.3's planar decoder's plane rows (`vga_p4tab` is a union with the mono pair tables in `.lowbss` since §39.22.1). **The only rung a machine can decline**: `mem_floor_ax` seeds the heap floor UNDER it when `[vid_avail] & VID_A_VGA` is clear, so a mono machine's heap starts 512 bytes lower (§39.22). 0 on `kern_small` and on `NOPLANE` builds |
-| **`KERN_SIZE`** | heap at `HEAP_SEG` 0x1BE0 | **112,640** | 111.5 KB on VGA, 110.5 on a 1bpp adapter |
+| image (`.text` 47,333 + `.bss` 5,525) | `KERNEL_SEG` 0x0060 | 53,248 | resident code in the kernel's own segment, its read-only data and its scratch |
+| `.cold` (40,432) | `COLD_SEG` 0x0D60 | 40,448 | resident code with a CS of its own (SPEC.md §2.6): the file system, the Standard File dialog, associations, drivers, the heap, the desktop and the on-demand modules' thunks |
+| FAT window | `FAT_SEG` 0x1740 | 4,608 | `DSK_FAT_SECS` = 9 sectors of the mounted volume's FAT (SPEC.md §18.8); 2 sectors = 1,024 bytes on `kern_small` |
+| `.lowbss` (6,366) + task 0's stack (512) | `LOW_SEG` 0x1860 | 7,168 | the mount-owned disk buffers, every task stack, the two private ISR stacks, and the tables that left the segment |
+| `.vgabuf` (336) | `VGABUF_SEG` 0x1A20 | 512 | `vga_pbuf`, SPEC.md §5.4.1.3's planar decoder's plane rows (`vga_p4tab` is a union with the mono pair tables in `.lowbss` since §39.22.1). **The only rung a machine can decline**: `mem_floor_ax` seeds the heap floor UNDER it when `[vid_avail] & VID_A_VGA` is clear, so a mono machine's heap starts 512 bytes lower (§39.22). 0 on `kern_small` and on `NOPLANE` builds |
+| **`KERN_SIZE`** | heap at `HEAP_SEG` 0x1A40 | **105,984** | 105.0 KB on VGA, 104.0 on a 1bpp adapter, whose heap starts under the `.vgabuf` rung |
 
-`kern_small`'s ladder is `KERNEL 0x0060  COLD 0x0a80  FAT 0x1100  LOW 0x1140
-HEAP 0x1280` — **74,240 bytes, 74.0 KB** — so a 128KB machine has 54.0 KB of
-heap by arithmetic; `tests/small128.py` boots one under MartyPC and reads
-what is actually free after the boot-time claims, and on this tree the two
-AGREE: **55,296 bytes = 54.0 KB, with no pinned claim standing**. The last
-kilobyte of that is SPEC.md 22.6.2's `DSK_NENT` cut, which took `.lowbss`
-5,236 → 4,436 and the low rung two 512-byte steps with it. A 640KB machine
-reporting 639KB has ~528 KB under `kern_big` before any driver or read-ahead
-claim.
+`kern_small`'s ladder is `KERNEL 0x0060  COLD 0x0a00  FAT 0x1060  LOW 0x10a0
+HEAP 0x11c0` — `KERN_SIZE` **71,168 bytes**, the heap starting at 71.0 KB — so
+a 128KB machine has 57.0 KB of heap by arithmetic; `tests/small128.py` boots
+one under MartyPC and reads what is actually free after the boot-time claims,
+and on this tree the two AGREE: **58,368 bytes = 57.0 KB, with no pinned
+claim standing**. It was 54.0 KB at 74,240; the three kilobytes between are
+kernel size pass 4 (docs/reports/KERNEL-BYTES-SINCE-SQUASH-2026-09-25.md).
+A 640KB machine reporting 639KB has ~534 KB under `kern_big` before any
+driver or read-ahead claim.
 
 **Not in the span**: the boot overlay (`.ovl` 1,837 bytes in stage 2's blob,
 `.ovlw` 5,104 bytes loaded onto the FAT window and `dsk_secbuf`, both
@@ -366,16 +366,16 @@ sized from the rect actually dropped (`menu_save_kb`, §12.4; `MENU_SAVE_KB`
 ### What the Task Manager shows
 
 The memory view's `System` row is `KERN_KB` = `(KERN_SIZE + 1023) / 1024`,
-**108** on `kern_big`, with one indented row per span the ladder declares,
+**104** on `kern_big`, with one indented row per span the ladder declares,
 every figure from `OSAPI_SYS_KB` (SPEC.md §20.9) so that a package never
 carries a copy of the ladder:
 
 | row | constant | bytes | shown |
 |---|---|---:|---:|
-| `Code+data` | `SKB_IMG` = the rest | 102,144 | 100 |
+| `Code+data` | `SKB_IMG` = the rest | 98,048 | 96 |
 | `Stacks` | `SKB_STK` + `SKB_STK0` | 2,816 + 512 | 3 |
 | `FAT snap` | `SKB_FAT` = `FAT_PARA`·16 | 4,608 | 5 |
-| **`System`** | **`KERN_SIZE`** | **110,080** | **108** |
+| **`System`** | **`KERN_SIZE`** | **105,984** | **104** |
 
 The KB column is rounded **cumulatively** — each running boundary to the
 nearest kilobyte, each row the difference of two boundaries — so the rows
@@ -671,14 +671,14 @@ there and nowhere else.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 32,532 | 37.2% |
-| the window system and its furniture | 23,086 | 26.4% |
-| drawing: adapters, primitives, glyphs, icons | 13,113 | 15.0% |
-| hardware: drivers, clock, mouse, sound, CPU, XMS | 9,015 | 10.3% |
-| the kernel proper: API table, heap, scheduler, events | 7,652 | 8.8% |
+| the file system, end to end | 32,669 | 37.2% |
+| the window system and its furniture | 23,086 | 26.3% |
+| drawing: adapters, primitives, glyphs, icons | 13,310 | 15.2% |
+| hardware: drivers, clock, mouse, sound, CPU, XMS | 9,019 | 10.3% |
+| the kernel proper: API table, heap, scheduler, events | 7,652 | 8.7% |
 | the three built-in kinds | 1,483 | 1.7% |
 | the Control Panel | 546 | 0.6% |
-| **total** | **87,427** | |
+| **total** | **87,765** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
@@ -686,16 +686,16 @@ there and nowhere else.
 |---|---:|---:|---:|---:|---:|---:|
 | `wm.inc` — the window manager (§11) | 10,503 | 142 | **10,645** | 1,140 | — | — |
 | `files.inc` — the Disk window (§22) | 1,066 | 8,233 | **9,299** | 465 | — | — |
-| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 375 | 6,380 | **6,755** | 418 | — | — |
-| `vga12.inc` — the VGA planar primitives (§5) | 5,708 | 734 | **6,442** | 107 | 526 | — |
+| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 375 | 6,423 | **6,798** | 418 | — | — |
+| `vga12.inc` — the VGA planar primitives (§5) | 5,818 | 821 | **6,639** | 107 | 526 | — |
 | `fdlg.inc` — the Standard File dialog (§38) | 101 | 5,031 | **5,132** | 188 | — | — |
 | `diskw.inc` — the FAT write path (§18.4–18.6) | 82 | 4,798 | **4,880** | 160 | — | — |
 | `mouse.inc` — serial mouse and the cursor (§9) | 4,167 | — | **4,167** | 151 | 128 | — |
 | `memory.inc` — the claim heap (§50) | 217 | 2,957 | **3,174** | 26 | 324 | — |
 | `ui.inc` — the UI task and the event ladder (§13) | 3,033 | — | **3,033** | 58 | — | — |
 | `menu.inc` — the menu bar and pull-downs (§12) | 2,763 | 177 | **2,940** | 197 | 84 | — |
-| `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 563 | 2,029 | **2,592** | 301 | — | — |
-| `assoc.inc` — file type associations (§54) | 420 | 2,093 | **2,513** | 43 | — | — |
+| `assoc.inc` — file type associations (§54) | 420 | 2,187 | **2,607** | 44 | — | — |
+| `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 563 | 2,033 | **2,596** | 301 | — | — |
 | `filecp.inc` — Cut/Copy/Paste (§22.3–22.5) | — | 2,242 | **2,242** | 160 | — | — |
 | `font.inc` — the 8×8 glyph renderer (§6) | 2,199 | — | **2,199** | 19 | 784 | — |
 | `instance.inc` — instances and the built-in kinds (§29) | 1,947 | 160 | **2,107** | 724 | — | — |
@@ -722,20 +722,20 @@ there and nowhere else.
 | `clip.inc` — the system clipboard (§55) | 179 | — | **179** | 5 | — | — |
 | `events.inc` — the event ring (§10) | 154 | — | **154** | 3 | 128 | — |
 | `clone.inc` — the disk cloner (§18.99) | 15 | 27 | **42** | — | — | — |
-| `extmod.inc` — **(undescribed)** | — | 35 | **35** | — | — | — |
+| `extmod.inc` — `EXTD.DRV`, the extended desktop's placement policy (§39.19.6), an on-demand module on `kern_big` | — | 35 | **35** | — | — | — |
 | `cpudet.inc` — CPU tiers and the A20 gate (§41.1–41.3) | 2 | — | **2** | — | — | — |
 | `splash.inc` — the boot splash (§15) | — | — | **0** | — | — | 1,825 |
 | `dskwin.inc` — the mount-owned window at the bottom of `.lowbss` (§2.1.2) | — | — | **0** | — | 512 | — |
 | `band.inc` — the 1bpp band composer (§5.9), `BAND=1` | — | — | **0** | — | — | — |
-| `mouproto.inc` — **(undescribed)** | — | — | **0** | — | — | — |
+| `mouproto.inc` — the Microsoft serial packet, decoded once and shared as source with `kern_dos` (§9.5) | — | — | **0** | — | — | — |
 | `vmmouse.inc` — the VMware absolute pointer's resident half (§9.11), `kern_emu` only | — | — | **0** | — | — | — |
 | `bootprof.inc` — the boot phase table (§15.5), `BOOTPROF=1` | — | — | **0** | — | — | — |
 | `stkdiag.inc` — what an interrupt costs a task stack (STACK-SLOTS-PLAN §10), `STKDIAG=1` | — | — | **0** | — | — | — |
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
 | `compress.inc` — the LZB compressor (§20.15), an on-demand module and 0 resident | — | — | **0** | — | — | — |
-| `dockmod.inc` — **(undescribed)** | — | — | **0** | — | — | — |
+| `dockmod.inc` — `DOCK.DRV`, the Advanced Dock runtime (§30.5), an on-demand module on `kern_big` | — | — | **0** | — | — | — |
 | `kernel.asm` — API table, entry points, `kmain`, the shims | 2,365 | 163 | **2,528** | — | — | 421 |
-| **total** | **47,223** | **40,204** | **87,427** | **5,524** | **6,366** | **2,249** |
+| **total** | **47,333** | **40,432** | **87,765** | **5,525** | **6,366** | **2,249** |
 <!-- END generated table -->
 
 ### Reading it
