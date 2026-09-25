@@ -9690,6 +9690,17 @@ $(BUILD)/vidsnd.bin: tests/vidbench/vidsnd.asm tests/benchlib.inc apps/os88api.i
 $(BUILD)/vidsnd.o88: $(BUILD)/vidsnd.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/vidsnd.bin -o $@
 
+# ...and wave 2's gate (VIDEO-PLAN 4.1-4.3): FSXF_RATE, the progress-box
+# fence and OSAPI_FILE_READ_SEQ, one package. tests/vidkern.py builds the VHD
+vidbench: $(BUILD)/vidkern.o88
+
+$(BUILD)/vidkern.bin: tests/vidkern/vidkern.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I tests/ -o $@ tests/vidkern/vidkern.asm
+	@echo "vidkern: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/vidkern.o88: $(BUILD)/vidkern.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/vidkern.bin -o $@
+
 # ...and the three on ONE 360KB floppy for the owner's 5150 - wave 0's four
 # field questions (VIDEO-PLAN 8; docs/reports/VIDEO-W0-2026-09-25.md). The
 # frame file is cut from the owner's XDC streams, which are not in the tree,

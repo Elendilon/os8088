@@ -328,9 +328,14 @@ fpg_arm:
     jne .yes
     cmp byte [spl_live], 0      ; boot: the splash owns screen and mode
     jne .no
-    cmp byte [fsx_cur], 0xFF    ; **A FOREIGN MODE IS ON THE GLASS** (SPEC.md
-    jne .no                     ; 53.7): there is no menu bar to put a widget
-                                ; at the end of, and everything below composes
+    cmp byte [fsx_task], 0xFF   ; **AN fsx BRACKET IS UP** (SPEC.md 12.8.5.2),
+    jne .no                     ; same-mode or foreign: the app owns the
+                                ; pixels either way, and an In-window video
+                                ; draws beside the bar from an interrupt. It
+                                ; was [fsx_cur], a FOREIGN mode only (SPEC.md
+                                ; 53.7) - where there is no menu bar to put
+                                ; a widget at the end of, and everything
+                                ; below composes
                                 ; one in the DESKTOP's geometry - so the icon,
                                 ; the box and the bar all land inside whatever
                                 ; the exclusive app is drawing, in its raster,
@@ -871,9 +876,11 @@ fpg_end:
 ; bracket, not by returning early, not by a file operation that failed.
 ; Nothing anywhere HAS to call this.
 ;
-; ONE OTHER SITE MAY, and it is an exception with a reason rather than a
+; TWO OTHER SITES MAY, and each is an exception with a reason rather than a
 ; loophole: fsx_mode calls it before setting a foreign mode (SPEC.md 12.8.5),
-; because the desktop this routine repairs is about to stop existing. It calls
+; because the desktop this routine repairs is about to stop existing, and
+; fsx_run at the bracket's door (SPEC.md 12.8.5.2), because a SAME-mode
+; bracket never reaches fsx_mode and the app owns the pixels all the same. It calls
 ; the TEARDOWN and not a state reset for the sake of bit 1 of [fpg_on] -
 ; clearing that byte by hand would drop the cursor debt and leave the arrow
 ; gone for the rest of the session.

@@ -8004,7 +8004,8 @@ SOAK = [
         "compared with the one before the first bracket: identical, and "
         "the window's state back. 48 brackets on the CGA 5150 (the retime "
         "and 320x200x4), the regeneration and the transpose each time",
-        needs=("marty", "nasm"), serial=True),
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/games360.img",)),
     Row("pxsperf", "soak", py("tests/pxsperf.py"), 400.0,
         "SPEC.md 97.10: THE STAGED FRAME, an instrument (skiesperf's shape: "
         "asserts only that every stage produced a number). Textured Low res "
@@ -8087,6 +8088,23 @@ SOAK = [
         wants=("build/vidsnd.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
                "build/ctrl.drv", "build/sound.drv")),
+    Row("vidkern", "soak", py("tests/vidkern.py"), 40.0,
+        "Video Player wave 2 (VIDEO-PLAN 4.1-4.3), on the 5150-shaped "
+        "os8088_5150_herc_hdd_sb_gla. FSXF_RATE (SPEC.md 53.2.2): three "
+        "calls that must refuse, then 30.0 Hz for 150 periods with a hook "
+        "that stis and runs long every 16th call - periods against [ticks] "
+        "must be 65536/39773 within 3, a call must be handed 2+ periods, "
+        "the BIOS clock must move with [ticks]. The progress-box fence "
+        "(12.8.5.2): a read that ARMS the widget (the control), a same-mode "
+        "bracket whose door takes it down, a read inside that must not arm "
+        "it. OSAPI_FILE_READ_SEQ (18.4.8): every byte of STREAM.DAT at its "
+        "offset across a seek, a write and a delete mid-run, the end and a "
+        "bad capacity; flat from 0 MB to 12 MB with no FAT traffic at 12 MB. "
+        "Broken on purpose - every rate entry a tick, the fence on "
+        "[fsx_cur], the cursor's walk-skip removed - each verdict FAILS",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/vidkern.o88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin", "build/hdd.drv")),
     Row("vidfmt", "soak", py("tests/vidfmt.py"), 16.0,
         "SPEC.md 98.1: the .V88 file and tools/os88vid.py, host-side. "
         "`--selfcheck` encodes generated frames on all three layouts and "

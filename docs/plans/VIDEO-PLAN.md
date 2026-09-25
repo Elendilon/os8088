@@ -555,12 +555,28 @@ The driver's block is fixed at 2048 bytes (`drivers/sound/sb.inc:103`) and
 
 ### 4.5 The budget
 
-| item | bytes (estimate) | resident |
-|---|---|---|
-| `FSXF_RATE` | 78–118 | kern_big |
-| `OSAPI_FILE_READ_SEQ` | 150–220 | kern_big (`.cold` is resident) |
-| progress fence | < 10 | kern_big |
-| **kernel total** | **~240–350 of ~500** | |
+| item | bytes (estimate) | **measured, W2** | resident |
+|---|---|---|---|
+| `FSXF_RATE` | 78–118 | **~180 `.text` + 11 `.bss`** | kern_big |
+| `OSAPI_FILE_READ_SEQ` | 150–220 | **197 `.cold` + 9 `.text` + 1 `.bss`** | kern_big (`.cold` is resident) |
+| progress fence | < 10 | **3**, plus **7** for the nested-chain switch guard it found | both kernels |
+| **kernel total** | **~240–350 of ~500** | **kern_big 408** (`.text` +199, `.bss` +12, `.cold` +197); **kern_small 26** | |
+
+**Wave 2 came in at 408 of the owner's ~500.** It was 574 on the first
+build. Two changes brought it down:
+- `READ_SEQ` became a wrapper around `READ_AT`, 331 → 197 bytes: its cursor
+  stands in for READ_AT's stat and walk rather than duplicating them.
+- The rate hook reaches the package's dispatcher through its window record
+  (`wm_pkgcall`'s own way) instead of a kernel copy of the pointer, −16.
+
+The estimates were low for `FSXF_RATE` because the hook has to be safe, not
+just called:
+- it skips while nested in the ROM's chain or on a ROM's stack;
+- it runs under `[sch_lock]`;
+- it counts the periods it skipped.
+
+The `.cold` bytes crossed one 512-byte cold rung (footprint +512, 45 steps
+of `KERN_BUDGET` left).
 | *in reserve:* hard-disk runs that cross a head, as `CYLRUN` does for floppies (§18.91.1), **if Wave 0 shows** rung 0's stop at each track end (17 sectors, §52.1) is what caps the ST-225 | ~100–150 | kern_big |
 | SOUND.DRV frame stream + ADPCM | ~250–400 | inside the driver's existing 7 KB claim |
 
@@ -713,8 +729,32 @@ red. A row about one package goes in `soak`.
   1.6–15% of a file, so the owner's rule (a bonus does not get half the
   disk) holds with room to spare. The encoder is lossless and has no budget;
   that is W8.
-- **W2 — kernel.** Sections 4.1–4.3, each with its SPEC section written first
-  and its own gate row.
+- **W2 — kernel. DONE** (SPEC.md 53.2.2, 12.8.5.2, 18.4.8; `tests/vidkern.py`,
+  a soak row, on `os8088_5150_herc_hdd_sb_gla`). All three green, and all
+  three red when broken on purpose.
+  - **`FSXF_RATE` at 30.0 Hz:** 150 periods against 91 ticks, 1.6484 against
+    the exact 1.6478; the BIOS's 40:6C moved with `[ticks]`. A hook that
+    `sti`s and runs two periods long every 16th call was skipped and handed
+    up to 3 periods at once, with none lost.
+  - **The fence:** a read before the bracket armed the widget (the
+    control), the same-mode bracket's door took it down, and a read inside
+    did not arm it.
+  - **`READ_SEQ`, 32 KB a call on the XT-IDE disk:** **226.6 ms at 0 MB and
+    219.7 at 12 MB**, against `READ_AT`'s 1,922 at 12 MB. At 12 MB its 28
+    `int 13h` calls went nowhere near the FAT. A seek costs one walk, the
+    same 1,922 ms, once. Every byte arrived at its offset across a seek, a
+    write and a delete mid-run, and the end of the file.
+  - **What the gate found:**
+    - The cursor needs less than the plan gave it: no first cluster, only
+      the size, because a stale cursor re-seeds from the name.
+    - The nested-chain guard: a `FSXF_FASTTICK` sub-tick landing inside the
+      ROM's own tick handler would have switched tasks on the chain's
+      private stack (SPEC.md 53.2.2). That fault predates this wave.
+  - **What it leaves for the field:**
+    - `READ_SEQ` streams 32 KB in ~220 ms on this CPU-copied disk, ~145
+      KB/s against the controller's 237. The rest is the chain reader's
+      per-cluster work, the reserve row above.
+    - What the ST-225's DMA controller makes of it is the field's to say.
 - **W3 — player, fullscreen CGA, silent (`FSXF_RATE`).** Gate: guest video
   memory after frame *N* equals the host decoder's frame *N*; the rate is
   measured against guest cycles.

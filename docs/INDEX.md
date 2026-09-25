@@ -164,6 +164,7 @@ Read first: [§18 disk.inc — floppy I/O (BIOS int 13h) + the FAT driver](../SP
 | `0x02B6` | `OSAPI_BATCH_END` | ...and the other end |
 | `0x0286` | `OSAPI_FILE_APPEND` | SI = NUL 8.3 name, ES:BX = bytes, CX = count (>= 1); out CF=0 AX=0, else AX = FERR_*... |
 | `0x028C` | `OSAPI_FILE_READ_AT` | SI = name, ES:BX = buffer, CX = its capacity in BYTES, DX:AX = the offset to read from... |
+| `0x0455` | `OSAPI_FILE_READ_SEQ` | A STREAMING READ (SPEC.md 18.4.8, KERN_BIG; the small kernel answers CF=1 FERR_NAME)... |
 | `0x03D9` | `OSAPI_FILE_FIND_RAW` | OSAPI_FILE_FIND, with +18 the size the file OCCUPIES rather than the one it expands to (SPEC.md 20.14.3)... |
 | `0x0292` | `OSAPI_FILE_MKDIR` | SI = a NUL 8.3 name; creates a FOLDER in your current directory (SPEC.md 18.5)... |
 | `0x0385` | `OSAPI_FILE_RMDIR` | SI = a NUL 8.3 name in your current directory, AL = 0 remove it only if it is EMPTY / non-zero remove it AND EVERYTHING UNDER IT (SPEC.md 18.6)... |

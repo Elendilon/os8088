@@ -4425,7 +4425,19 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          (SPEC.md 20.5.1.3.3)
     mov [byte cs:bx+W_ONCLICK], ax
     OSAPI_IEND
-osapi_table_end:                  ; 0x0455 today (0x05A8 before pass 4's
+    OSAPI_RNCELL dwf_dskw_read_seq ; 0x0455  N: A STREAMING READ (SPEC.md
+                                  ;          18.4.8): SI = name, ES:BX = the
+                                  ;          buffer, CX = capacity (clusters),
+                                  ;          ES:DI = the caller's 16-byte
+                                  ;          cursor - zero it and set +12 to
+                                  ;          start or seek. READ_AT without
+                                  ;          the per-call walk: the cursor is
+                                  ;          trusted under the mount
+                                  ;          generation it was seeded in and
+                                  ;          re-seeded from the name when
+                                  ;          anything remounted or wrote.
+                                  ;          kern_big; the small door refuses
+osapi_table_end:                  ; 0x045B today (0x05A8 before pass 4's
                                   ; renumber). TWO cells came off the tail in
                                   ; the size pass: OSAPI_MEM_COMPACT_WAKE
                                   ; (0x0598) is 0x0590's MEMC_POST verb

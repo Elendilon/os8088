@@ -33,6 +33,12 @@ FSX_SUBTICK     equ 3           ; sub-ticks per tick when it is asked for
 FSXF_FASTTICK   equ 2           ; ...bit 1 (SPEC.md 53.2.1): IRQ0 three times a
                                 ; tick, so the round-robin quantum is 18 ms
                                 ; instead of 55. [ticks] does not change rate
+FSXF_RATE       equ 4           ; ...bit 2 (SPEC.md 53.2.2, kern_big): IRQ0 at
+                                ; DX, a PIT divisor, with a hook at DI called
+                                ; on every one. [ticks] stays exact by an
+                                ; accumulator
+FSX_RATE_MIN    equ 2048        ; the fastest divisor it takes: 582 Hz
+SCH_RATE        equ 0xFF        ; [sch_fast]'s value while FSXF_RATE is armed
 
 ; --- fsx_wait's clock (SPEC.md 53.5; mirrored in apps/os88api.inc) -----------
 FSXW_TICK   equ 0               ; the next [ticks] change, hlt between polls
@@ -143,7 +149,11 @@ fsx_run:
                                 ; to the last non-local label, so moving it
                                 ; above would silently retarget another
                                 ; routine's `.fail`
+%ifdef KERN_BIG
+    cmp cx, FSXF_KEEPWORKER + FSXF_FASTTICK + FSXF_RATE + 1
+%else
     cmp cx, FSXF_KEEPWORKER + FSXF_FASTTICK + 1
+%endif
                                 ; undefined flag bits refuse, so the word
     jae .fail                   ; stays extensible (SPEC.md 53.1). "any bit
                                 ; above bit 1 is set" and "CX >= 4" are the
@@ -154,6 +164,24 @@ fsx_run:
     jne .fail                   ; bracket would freeze the UI task mid-frame
     cmp byte [fsx_task], 0xFF   ; one bracket at a time
     jne .fail
+%ifdef KERN_BIG
+    test cl, FSXF_RATE          ; SPEC.md 53.2.2: DX a divisor, DI a hook
+    jz .norate
+    test cl, FSXF_FASTTICK      ; one channel 0, so one of the two
+    jnz .fail
+    cmp dx, FSX_RATE_MIN
+    jb .fail
+    mov [sch_rdiv], dx          ; banked NOW, because the fence below spends
+    mov [sch_rbp], di           ; DX and DI. Inert until [sch_fast] reads
+    mov [sch_rwin], bx          ; SCH_RATE, which only the arm below writes -
+    xor dx, dx                  ; and no bracket is up (tested above), so no
+    mov [sch_racc], dx          ; live rate is being overwritten. The window
+    mov [sch_rpend], dx         ; is the fence's to prove, below, and the ISR
+    mov [sch_rbusy], dl         ; calls through its record as wm_pkgcall
+.norate:                        ; does. The accumulator from 0, nothing owed,
+                                ; nothing in flight: .bss is NOT zeroed here
+                                ; (SPEC.md 12.8.5.1)
+%endif
     call cur_unlazy              ; the bracket owns the machine and the held
                                 ; lock is what keeps the arrow off it - which
                                 ; a DEFERRED hide would not (SPEC.md 7.1.4).
@@ -168,6 +196,22 @@ fsx_run:
                                 ; bounded, a live package instance whose
                                 ; segment is the caller's own DS, and AX an
                                 ; entry inside its image+bss.  DI = the record
+%ifdef KERN_BIG
+    test cl, FSXF_RATE
+    jz .nohook
+    mov dx, [sch_rbp]           ; the hook, fenced as the entry is: inside
+    cmp dx, [di+I_SIZE]         ; the SAME instance's image+bss (DX is the
+    jae .fail                   ; fence's scratch, dead here)
+.nohook:
+%endif
+    call fpg_finish             ; **NO KERNEL CHROME SURVIVES INTO A BRACKET**
+                                ; (SPEC.md 12.8.5.2). fpg_arm refuses once
+                                ; [fsx_task] is set, but a read earlier in this
+                                ; lock hold may have armed it, and a SAME-MODE
+                                ; bracket never reaches fsx_mode's own payoff.
+                                ; It tests [fpg_on] itself - gfx_unlock calls
+                                ; it on every unlock - and it is after every
+                                ; refusal, so a refused call changes nothing
 
 %ifdef DOCK_OPT
     call dock_drop              ; an OPEN dock's hole would clip the app out
@@ -202,13 +246,20 @@ fsx_run:
                                 ; pair either way; one bus pair is if anything
                                 ; stronger than two instructions
     mov byte [fsx_cur], 0xFF    ; no foreign mode yet
-    test cl, FSXF_FASTTICK      ; ...and the finer quantum, AFTER the arm so
-    jz .nofast                  ; the task set it applies to is already the
-    push ax                     ; frozen one (SPEC.md 53.2.1). AX is the app's
-    mov al, FSX_SUBTICK         ; entry offset, still owed to wm_pkgcall far
-    call sch_fast_on            ; below - the argument register here is AL
-    pop ax
+    push ax                     ; ...and the finer quantum, AFTER the arm so
+    mov al, FSX_SUBTICK         ; the task set it applies to is already the
+    test cl, FSXF_FASTTICK      ; frozen one (SPEC.md 53.2.1) - or the
+    jnz .arm                    ; caller's own rate (53.2.2), banked above.
+%ifdef KERN_BIG                 ; AX is the app's entry offset, still owed to
+    mov al, SCH_RATE            ; wm_pkgcall far below; the argument register
+    test cl, FSXF_RATE          ; is AL
+    jnz .arm
+%endif
+    jmp short .nofast
+.arm:
+    call sch_fast_on
 .nofast:
+    pop ax
 
     ; silence what the freeze strands (SPEC.md 53.3) - AFTER the arm, so no
     ; foreign task can take a fresh grant between the two. snd_release_inst

@@ -23387,7 +23387,8 @@ its own dirty spans (§85.3.1 is one such design) and it never knew those bytes
 were dirty; `fpg_finish` would then "repair" a bar that is not on the screen.
 
 So there are **four** refusals in `fpg_arm`, not three: the splash, another
-task's lock, a fullscreen window, and now `[fsx_cur] != 0xFF`.
+task's lock, a fullscreen window, and now an fsx bracket (`[fsx_task] !=
+0xFF` since §12.8.5.2; it was `[fsx_cur]`, a foreign mode only).
 
 **The refusal belongs in `fpg_arm`, not at the call sites.** A package's file
 write is a perfectly ordinary thing to do inside a bracket — §53.7 forbids
@@ -23444,6 +23445,26 @@ bracket (§53.4). The rule is not "every fsx byte" — it is that the comment is
 claim about the *set of readers*, and adding one outside the bracket is what
 falsifies it. A new reader of any `fsx_*` byte from desktop code owes that
 check.
+
+#### 12.8.5.2 …and not in a same-mode bracket either
+
+The fourth refusal asked `[fsx_cur]`, **a foreign mode**, and left a bracket
+that never calls `fsx_mode` (§53.7) with the widget. That is the bracket an
+In-window video uses: the desktop's own mode, the app drawing the content
+rect from an interrupt 30 times a second, and the disk read that feeds it
+arming the widget on the bar beside it (VIDEO-PLAN 4.3, GFX-FSX-PLAN 4.2.1).
+And a same-mode *fullscreen* app owns every pixel exactly as a foreign-mode
+one does.
+
+So the test is **`[fsx_task] != 0xFF`, any bracket**, one operand changed.
+`[fsx_task]` is `.bss`, which §12.8.5.1 says to check, and it is safe:
+`sched_init` stores 0xFF among the first calls `kmain` makes, before any
+volume is mounted, and the splash refuses the widget before that.
+
+**`fsx_run` pays off a widget that is already up**, as `fsx_mode` does
+(§12.8.5), because a same-mode bracket never reaches `fsx_mode`: the widget
+armed by a read earlier in the same lock hold would otherwise stay on the
+bar, and go on being stepped, for the bracket's whole life.
 
 ### 12.9 The bar is three segments, and each answers for itself
 
@@ -31657,6 +31678,102 @@ being read-only|hidden|system|label|directory. That is right for a package
 and it was **wrong for the one caller that can legitimately make a system
 file**, which is §19.6.1's — so `OSAPI_FILE_APPEND_SYS` is the other half of
 that fence and §18.4.4.1 is why it had to exist.
+
+### 18.4.8 `OSAPI_FILE_READ_SEQ` — a streaming read, whose place the CALLER keeps (`kern_big`)
+
+`READ_AT`'s statelessness has a price that §18.4.4 measured on a floppy and
+called small. On a large file it is not. **Every call re-walks the chain from
+the front**, so the cost grows with the offset: Video Player's wave 0 timed
+32 KB reads off a 12.6 MB file on the fixed disk at **219.7 ms at 0 MB and
+1,922 ms at 12 MB, 141.9 ms more per MB** (docs/reports/VIDEO-W0-2026-09-25.md).
+A 58 KB/s video stops keeping up about 2 MB in. The tree kept needing a
+streaming read and kept finding it had only danced around one (VIDEO-PLAN
+4.2).
+
+§18.4.4's reason for statelessness stands, and this slot keeps it: **a
+resume token held IN THE KERNEL** is destroyed by the writes a copy loop
+does. So **the token is the CALLER's**, 16 bytes it owns, and the kernel
+treats it as a cache that can always be rebuilt from the name.
+
+| in | |
+|---|---|
+| `SI` | a NUL 8.3 name in the current directory, **on every call** (an N cell, §20.3) |
+| `ES:BX` | the buffer |
+| `CX` | its capacity, a whole number of **clusters**, as `READ_AT`'s |
+| `ES:DI` | the 16-byte cursor, in the buffer's segment |
+
+Out `CF=0` with `DX:AX` = the bytes delivered and the cursor advanced past
+them, 0 meaning at or past the end; `CF=1` with `AX = FERR_*`.
+
+The cursor, byte for byte. **Only `+12` is the caller's to write**; the rest
+is the kernel's and its layout may change:
+
+| off | size | |
+|---|---|---|
+| 0 | 2 | the mount generation it was seeded under; **0 = not seeded** |
+| 2 | 1 | the volume |
+| 3 | 1 | 0 |
+| 4 | 2 | 0 |
+| 6 | 2 | the cluster holding `+12` |
+| 8 | 4 | the file's size |
+| 12 | 4 | **the offset**: where the next call reads. A cluster multiple |
+
+**To start, or to seek, zero the cursor and set `+12`.** The first call
+stats the name and walks once to the offset (one `READ_AT`'s worth of
+walking), then reads. Every later call reads from `+6` and steps one FAT
+link past what it read, however far into the file that is.
+
+**The mount generation is the whole validity rule.** `disk_mount_x` bumps
+`[dsk_mgen]` (never to 0) every time it runs, and every volume snapshot the
+kernel builds goes through it: navigation (§19.2), a media change (§18.9.1),
+the remount after a write (§18.4), another instance's file call moving the
+volume (§19.2.1). A cursor whose generation or volume disagrees is
+**re-seeded from the name, silently**, at the offset it holds. So:
+- a caller never sees a stale cursor as an error;
+- a write to the file, anywhere, invalidates it, and the next call reads the
+  file as it now is;
+- the cost of anything else touching the disk is one re-walk, which is what
+  `READ_AT` pays every time.
+
+What it does NOT do:
+- **It exposes no sector and no cluster the caller can act on.** The cluster
+  words are the kernel's cache, checked against the generation before use; a
+  caller that edits them gets a read of the wrong clusters of its OWN
+  current volume, which is `READ_AT` with a wrong offset and nothing worse.
+- **It is not in `kern_small`** (VIDEO-PLAN 4, the owner's decision). The
+  cell is in both kernels (§20.8 rule 4) and the small kernel's door answers
+  `CF=1`, `FERR_NAME`.
+- **On a redirected volume** (§62.9) the driver serves any offset, so the
+  cursor is only its offset: the call is `READ_AT` at `+12`, advanced.
+
+The capacity and offset rules are `READ_AT`'s, and so is `FERR_NAME` for
+breaking them. The capacity also bounds the take at EOF, so a tail shorter
+than a cluster is delivered whole and the next call answers 0.
+
+**It IS `READ_AT`**, entered with `[dwr_seq]` set. `READ_AT`'s stat then
+comes from `dwr_stat`, which answers from a valid cursor: the cluster in
+place of the first one, and a flag that skips the walk. The wrapper does
+what `READ_AT` has no words for:
+- stamps the generation;
+- steps **one FAT link** past `[dsk_chain_end]`, unless the read reached the
+  end;
+- advances `+12`.
+
+That is why it costs **197 bytes of `.cold` and 9 of `.text`**, where a body
+of its own measured 331.
+
+**Measured** on `os8088_5150_herc_hdd_sb_gla` (XT-IDE, CPU-copied, 2 KB
+clusters), 32 KB a call (`tests/vidkern.py`):
+
+| | ms a call |
+|---|---|
+| at 0 MB | **226.6** |
+| at 12 MB | **219.7** |
+| `READ_AT` at 12 MB | 1,922.4 |
+| a seek to 12 MB, which walks once | 1,922.4, once |
+
+At 12 MB, none of its 28 `int 13h` calls went below cylinder 16: the chain
+is followed from the resident FAT window and never re-read.
 
 ### 18.4.7 `OSAPI_FILE_WRITE_AT` — the same offset, going the other way
 
@@ -82607,8 +82724,9 @@ then repaints it again as a window, and the first of those two is spare.
 gfx lock held, the `wm_fullscreen` contract — and **does not return until
 the app is done being fullscreen**. In: AX = a near entry inside the
 caller's own image, BX = the caller's own window ptr, CX = flags (bit 0 =
-`FSXF_KEEPWORKER`, §53.2; bit 1 = `FSXF_FASTTICK`, §53.2.1; all other bits
-must be 0). The kernel arms the
+`FSXF_KEEPWORKER`, §53.2; bit 1 = `FSXF_FASTTICK`, §53.2.1; bit 2 =
+`FSXF_RATE`, §53.2.2, which also takes DX and DI; all other bits must be
+0). The kernel arms the
 freeze, silences what the freeze strands (§53.3), and calls the entry
 through `wm_pkgcall` — SI = the window ptr, DS = CS = the package's own
 segment, ES = KERNEL_SEG, an ordinary near proc with a near `ret`, exactly
@@ -82766,6 +82884,82 @@ Three things are binding:
 
 A bracket that does not ask for it is bit-for-bit unaffected: `sch_fast` is
 0, the ISR's first test falls straight through to the path it always took.
+
+### 53.2.2 `FSXF_RATE` — IRQ0 at the caller's rate, and a hook on it (`kern_big`)
+
+`FSXF_FASTTICK` divides the tick by 2, 3 or 4, which is exact only for rates
+that divide 18.2 Hz. A video frame (30 fps, 23.976, 60), a game's own 35 Hz
+or a tracker's row rate is not such a rate. And a program paced by polling
+a tick it cannot choose gets its frames late by up to a tick. XDC's answer
+with no sound card is to rate IRQ0 itself and decode inside it
+(`noSoundIntCaller`); this is that, published (VIDEO-PLAN 4.1).
+
+**In** (with CX bit 2): **DX = the PIT divisor**, 2,048..65,535 (582 Hz to
+18.2 Hz; `FSX_RATE_MIN`), and **DI = a near proc in the caller's own image**,
+fenced exactly as AX is (§53.1). `FSXF_RATE` with `FSXF_FASTTICK` refuses:
+there is one channel 0. On `kern_small` the bit is undefined and refuses.
+
+**`[ticks]` stays exact, by an accumulator.** Channel 0 runs at DX. Every
+IRQ0 adds DX to a 16-bit accumulator, `[sch_racc]`, and **only an entry
+that carries out of it is a tick**: it chains the BIOS, bumps `[ticks]`,
+wakes sleepers and runs `snd_tick`, exactly as a tick always has. Every
+other entry sends its own EOI, then honours `[sch_lock]`/`[sch_coop]` and
+may switch, as a `FSXF_FASTTICK` sub-tick does. So on average the BIOS
+clock gets 1,193,182 / 65,536 ticks a second at any divisor, and the drift
+inside one tick is at most one tick. It is XDC's arithmetic.
+
+It **rides `FSXF_FASTTICK`'s machinery**, as the value `SCH_RATE` = FFh in
+`[sch_fast]`. That one choice inherits three things that would otherwise
+each need their own code:
+- `sch_account`'s pause (§53.2.1);
+- `fsx_restore`'s unconditional `sch_fast_off`, which is therefore also the
+  rate's teardown on every way out of the bracket;
+- `spk_pcm_run`'s park and re-arm (§34.4), which sets its own pace on
+  channel 0 for a clip and puts `[sch_fast]` back after it, and so puts the
+  rate back too.
+
+**The hook** is called on **every** IRQ0, after the EOI (from the ROM, on a
+tick), as `wm_pkgcall` would call it: through the package's dispatcher, with
+**DS = CS = its segment, ES = KERNEL_SEG, SI = its window**, and:
+- **AX = the rate periods since the hook last ran**, ≥ 1. A missed call is
+  counted, never lost, so a player can catch up or drop a frame on purpose.
+- **IF = 0 and `[sch_lock]` raised.** The hook MAY `sti`, which is what lets
+  a disk's completion interrupt through while it decodes; no task switch can
+  happen until it returns, and a second IRQ0 inside it only counts.
+- **Any register may come back changed.** The ISR saved them all.
+- **The stack is whichever the IRQ0 interrupted**: task 0's, or a slice of
+  the kept worker or a `TF_SERVICE` driver (§53.2). A hook's own depth is
+  billed to every one of them, so it is **48 bytes at most**.
+- **It may call nothing in the kernel.**
+
+**The hook is skipped, and the period counted for the next call**, when it
+would be unsafe to run it: the previous call has not returned; the IRQ0
+arrived inside the ROM's own tick handler, on `sch_chstack` (§8.5.1); or SS
+is not `LOW_SEG`, a ROM service's private stack (§8.5). So is the task
+switch: **a sub-tick or rate entry nested inside the ROM's chain now
+resumes instead of switching**. That was a latent fault of §53.2.1's
+sub-tick too, which could save the private chain stack into a task record;
+the same test closes it for both.
+
+The package's region cannot move under the hook: it is pinned by the frame
+`fsx_run` holds for the bracket's whole life (§66.6.1). The hook is armed
+before the entry proc runs, so **it must be safe to call from the first
+instruction**: a byte the entry proc sets when it is ready is enough.
+
+`fsx_wait`'s `FSXW_FRAME` (§53.5.1) waits for the next IRQ0, which under
+`FSXF_RATE` is the next rate period.
+
+**It costs ~180 bytes of `.text` and 11 of `.bss`, `kern_big` only**:
+- `sch_rhook` is 65;
+- `sch_isr`'s rate arm and its post-chain call are ~40;
+- `fsx_run`'s fence, bank and arm are the rest.
+
+The nested-chain switch guard is 7 more, in both kernels. **Measured** at
+30.0 Hz (divisor 39,773, `tests/vidkern.py`):
+- 150 periods against 91 ticks, **1.6484** against the exact 1.6478;
+- the BIOS's own 40:6C moved with `[ticks]`;
+- a hook that `sti`s and runs two periods long every 16th call was skipped
+  and handed up to 3 periods at once, with none lost.
 
 ### 53.3 Entry silences what it strands (binding)
 

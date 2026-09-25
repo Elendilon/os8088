@@ -2761,6 +2761,9 @@ disk_mount_x:
 %ifdef DISK_COUNTERS
     inc word [dsk_dbg_mnt]
 %endif
+%ifdef KERN_BIG
+    add word [dsk_mgen], 2      ; a new snapshot: READ_SEQ cursors re-seed
+%endif                          ; (SPEC.md 18.4.8)
 
     call dsk_fatw_park          ; the OUTGOING volume's window, banked while
                                 ; [disk_drive] still says which one it is
@@ -8650,6 +8653,17 @@ fdd_wait:
 %endif                           ; NO_FDDPROBE
 %endif                              ; KD_BUILD
 section .text
+
+%ifdef KERN_BIG
+; [dsk_mgen] - the MOUNT GENERATION (SPEC.md 18.4.8): +2 on every snapshot
+; disk_mount_x builds and every write dskw_sync closes, so a READ_SEQ cursor
+; stamped with it is trusted exactly while nothing on the machine has
+; remounted or written. ODD FOR EVER, seeded 1 in .text: a cursor the caller
+; zeroed carries 0, which it can then never match, and the add needs no wrap
+; test. Not .bss - its resting value is not zero (SPEC.md 12.8.5.1)
+dsk_mgen:   dw 1
+dwr_seq:    db 0                ; READ_SEQ is dskw_read_at's caller (18.4.8):
+%endif                          ; read by EVERY READ_AT, so .text and seeded
 
 ; -----------------------------------------------------------------------------
 ; disk_dir, disk_icons and dsk_secbuf were HERE, and are in kernel/dskwin.inc

@@ -3463,8 +3463,10 @@ OS88_BSS_SIZE equ 0
                                                 ; ptr, CX = flags (bit 0 =
                                                 ; FSXF_KEEPWORKER, bit 1 =
                                                 ; FSXF_FASTTICK - SPEC.md
-                                                ; 53.2.1; all others must be
-                                                ; 0, or it refuses). This
+                                                ; 53.2.1; bit 2 = FSXF_RATE,
+                                                ; with DX and DI - 53.2.2;
+                                                ; all others must be 0, or
+                                                ; it refuses). This
                                                 ; comment said "bit 0; all
                                                 ; others 0" for a cycle after
                                                 ; bit 1 was accepted; trust
@@ -4122,6 +4124,26 @@ CLIP_MAXKB equ 32                ; the clipboard's ceiling, KB. A put longer
                                  ; the copy is compressed too. Bit 0 of
                                  ; OSAPI_FILE_FIND's +22 is how you tell
 
+%define OSAPI_FILE_READ_SEQ KERNEL_SEG:0x0455   ; A STREAMING READ (SPEC.md
+                                 ; 18.4.8, KERN_BIG; the small kernel answers
+                                 ; CF=1 FERR_NAME). SI = the name ON EVERY
+                                 ; CALL, ES:BX = buffer, CX = its capacity (a
+                                 ; cluster multiple, READ_AT's rule), ES:DI =
+                                 ; YOUR 16-byte cursor, in the buffer's
+                                 ; segment. To start or seek: zero it and set
+                                 ; FSEQ_OFF (a cluster multiple). Out CF=0 and
+                                 ; DX:AX = bytes delivered, 0 at the end, the
+                                 ; cursor advanced; CF=1 AX = FERR_*. It is
+                                 ; READ_AT without the walk: READ_AT re-walks
+                                 ; the chain from the front every call (142 ms
+                                 ; a MB of offset, measured on a fixed disk),
+                                 ; this reads from where the cursor stands.
+                                 ; Anything that remounts or writes makes the
+                                 ; next call re-seed from the name silently,
+                                 ; so a stale cursor is never an error. Only
+                                 ; FSEQ_OFF is yours to write
+FSEQ_OFF    equ 12              ; the cursor's offset field (dword)
+FSEQ_SIZE   equ 16              ; ...and the cursor's size
 %define OSAPI_FILE_FIND_RAW KERNEL_SEG:0x03D9   ; OSAPI_FILE_FIND, with +18 the
                                  ; size the file OCCUPIES rather than the one
                                  ; it expands to (SPEC.md 20.14.3). THE CELL A
@@ -4808,6 +4830,23 @@ FSXF_FASTTICK   equ 2           ; OSAPI_FSX_RUN CX bit 1 (SPEC.md 53.2.1): the
                                 ; costs the drawing side a third of what it
                                 ; did. [ticks] keeps its rate, so nothing you
                                 ; time in ticks changes
+FSXF_RATE       equ 4           ; OSAPI_FSX_RUN CX bit 2 (SPEC.md 53.2.2,
+                                ; KERN_BIG - the small kernel refuses it): IRQ0
+                                ; at YOUR rate, DX = a PIT divisor (1,193,182
+                                ; / Hz, FSX_RATE_MIN..65535), and DI = a near
+                                ; proc in your image called on EVERY one, the
+                                ; way a window callback is (SI = your window,
+                                ; DS = your segment, ES = KERNEL_SEG) with AX
+                                ; = the periods since it last ran (>= 1; a
+                                ; skipped call is counted, not lost). IF = 0,
+                                ; EOI sent; you MAY sti, and no task switch
+                                ; happens until you return. It runs on
+                                ; whatever stack IRQ0 interrupted: 48 BYTES
+                                ; AT MOST, and no kernel call at all. It is
+                                ; armed BEFORE your entry proc runs, so make
+                                ; it a no-op until you are ready. Not with
+                                ; FSXF_FASTTICK. [ticks] keeps its rate
+FSX_RATE_MIN    equ 2048        ; ...the fastest divisor: 582 Hz
 FSX_SUBTICK     equ 3           ; ...and this is the divider, so with FASTTICK
                                 ; armed FSXW_FRAME returns 3 x 18.2065 = 54.6
                                 ; times a second. A constant, not a
@@ -4829,7 +4868,8 @@ FSXW_VSYNC  equ 1               ; vertical retrace - and it SPINS on the status
                                 ; FSXF_KEEPWORKER it is what starves the
                                 ; worker, which for an audio feeder means
                                 ; dropouts (SPEC.md 53.5.1)
-FSXW_FRAME  equ 2               ; the next IRQ0 - the SUB-TICK while
+FSXW_FRAME  equ 2               ; the next IRQ0 - YOUR period under
+                                ; FSXF_RATE, the SUB-TICK while
                                 ; FSXF_FASTTICK is armed (54.6 Hz, faster than
                                 ; a Hercules' retrace and evenly spaced by the
                                 ; crystal), the tick otherwise. It waits by
