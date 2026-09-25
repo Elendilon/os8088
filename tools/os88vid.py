@@ -676,6 +676,8 @@ V88_SIG = b"V88\x1a"
 SECTOR = 512
 SP_MAX = 64                     # sectors a super-packet may take (32 KB)
 AUD_NONE, AUD_PCM8, AUD_ADPCM4 = 0, 1, 2
+AUD_BY_NAME = {"pcm8": AUD_PCM8, "adpcm4": AUD_ADPCM4}
+ADPCM4_REF = 0x80               # the stream's reference byte (SPEC.md 98.1.1)
 PF_MONO1, PF_CGACOMP = 1, 2
 LAY_CGA, LAY_HERC, LAY_LIN80 = 1, 2, 3
 LAYOUTS = {                     # SPEC.md 98.1.2: banks, stride, rows, name
@@ -995,6 +997,8 @@ class Reader:
         if not 1 <= self.nrend <= 4:
             raise V88Error("%d renditions" % self.nrend)
         want = {AUD_NONE: 0, AUD_PCM8: self.spf}
+        if self.spf % 2 == 0:
+            want[AUD_ADPCM4] = self.spf // 2
         if self.audio not in want:
             raise V88Error("audio format %d is not a version 1 one"
                            % self.audio)
@@ -1251,7 +1255,7 @@ def write_png(path, wb, h, cv):
 # the V88 commands
 # --------------------------------------------------------------------------
 def import_xdv(src, out, target="cga", title=None, keysecs=KEY_SECS,
-               poster=None):
+               poster=None, audio_fmt=AUD_PCM8):
     """SPEC.md 98.2's import. On CGA the XDV's own writes become the lists
     (clipped to the canvas, which changes no pixel). On another layout the
     stream is simulated and each frame re-encoded from the bytes it
@@ -1261,7 +1265,9 @@ def import_xdv(src, out, target="cga", title=None, keysecs=KEY_SECS,
     g = Geom(layout, ROWB, 200)
     cga = Geom(LAY_CGA, ROWB, 200) if layout != LAY_CGA else g
     pix = PF_CGACOMP if hdr["mode"] == 1 else PF_MONO1
-    w = Writer(g, hdr["rate"], hdr["achunk"], AUD_PCM8, hdr["achunk"], pix,
+    chunks = audio_chunks(b"".join(xdc_audio(p, hdr) for p in pk), len(pk),
+                          hdr["achunk"], audio_fmt)
+    w = Writer(g, hdr["rate"], hdr["achunk"], audio_fmt, len(chunks[0]), pix,
                title=title or os.path.splitext(os.path.basename(src))[0],
                credits="imported from XDC (MobyGamer's XDC, MIT)",
                aspect=ASPECT[LAY_CGA], keysecs=keysecs)
@@ -1269,7 +1275,7 @@ def import_xdv(src, out, target="cga", title=None, keysecs=KEY_SECS,
     ts = bytearray(65536) if layout != LAY_CGA else xs
     for i, p in enumerate(pk):
         ops, code = xdc_ops(p, "%s packet %d" % (os.path.basename(src), i))
-        audio = xdc_audio(p, hdr)
+        audio = chunks[i]
         if layout == LAY_CGA:
             ops = clip_ops(ops, g)
             apply_ops(xs, ops)
@@ -1297,8 +1303,81 @@ def xdc_audio(p, hdr):
     return bytes(p[len(p) - hdr["achunk"]:])
 
 
+# --- ADPCM4 (SPEC.md 98.1.1): Creative's 4-bit ADPCM as a DSP 2.00 plays it
+# with DSP 7Dh - the reference byte first, then two samples a byte, high
+# nibble first. The tables are DOSBox's (decode_ADPCM_4_sample), and
+# MartyPC's card (tools/martypc/patches/06) decodes with the same ones, so
+# what is encoded here is what that card plays, sample for sample.
+ADPCM4_SCALE = (
+    0, 1, 2, 3, 4, 5, 6, 7, 0, -1, -2, -3, -4, -5, -6, -7,
+    1, 3, 5, 7, 9, 11, 13, 15, -1, -3, -5, -7, -9, -11, -13, -15,
+    2, 6, 10, 14, 18, 22, 26, 30, -2, -6, -10, -14, -18, -22, -26, -30,
+    4, 12, 20, 28, 36, 44, 52, 60, -4, -12, -20, -28, -36, -44, -52, -60)
+ADPCM4_ADJUST = (
+    0, 0, 0, 0, 0, 16, 16, 16, 0, 0, 0, 0, 0, 16, 16, 16,
+    -16, 0, 0, 0, 0, 16, 16, 16, -16, 0, 0, 0, 0, 16, 16, 16,
+    -16, 0, 0, 0, 0, 16, 16, 16, -16, 0, 0, 0, 0, 16, 16, 16,
+    -16, 0, 0, 0, 0, 0, 0, 0, -16, 0, 0, 0, 0, 0, 0, 0)
+
+
+def _adpcm4_step(ref, scale, nib):
+    i = min(63, max(0, nib + scale))
+    return (min(255, max(0, ref + ADPCM4_SCALE[i])),
+            min(48, max(0, scale + ADPCM4_ADJUST[i])))
+
+
+def adpcm4_decode(data, ref=ADPCM4_REF, scale=0):
+    """ADPCM4 bytes -> PCM8, the card's way"""
+    out = bytearray()
+    for b in data:
+        for nib in (b >> 4, b & 15):
+            ref, scale = _adpcm4_step(ref, scale, nib)
+            out.append(ref)
+    return bytes(out)
+
+
+def adpcm4_encode(pcm, ref=ADPCM4_REF, scale=0):
+    """PCM8 (an even count) -> ADPCM4, greedily: each nibble the one whose
+    decoded sample is nearest, against the decoder's own state"""
+    if len(pcm) % 2:
+        raise V88Error("ADPCM4 packs two samples a byte; %d is odd"
+                       % len(pcm))
+    out = bytearray()
+    hi = None
+    for x in pcm:
+        best = None
+        for nib in range(16):
+            r2, s2 = _adpcm4_step(ref, scale, nib)
+            e = abs(r2 - x)
+            if best is None or e < best[0]:
+                best = (e, nib, r2, s2)
+        _, nib, ref, scale = best
+        if hi is None:
+            hi = nib
+        else:
+            out.append(hi << 4 | nib)
+            hi = None
+    return bytes(out)
+
+
+def audio_chunks(pcm, nf, spf, afmt):
+    """A stream's PCM8 cut into the frames' audio parts in format afmt: PCM8
+    a sample a byte, or ADPCM4 encoded ONCE across the whole stream - its
+    state runs on from frame to frame, the reference byte being the
+    player's (SPEC.md 98.1.1)"""
+    pcm = bytes(pcm[:nf * spf]) + b"\x80" * max(0, nf * spf - len(pcm))
+    if afmt == AUD_ADPCM4:
+        if spf % 2:
+            raise V88Error("ADPCM4 needs an even number of samples a frame, "
+                           "and this stream has %d" % spf)
+        data, n = adpcm4_encode(pcm), spf // 2
+    else:
+        data, n = pcm, spf
+    return [data[f * n:(f + 1) * n] for f in range(nf)]
+
+
 def encode_frames(paths, out, fps, wav=None, layout="cga", title="",
-                  keysecs=KEY_SECS, poster=None):
+                  keysecs=KEY_SECS, poster=None, audio_fmt=AUD_PCM8):
     """SPEC.md 98.2's minimal encoder: every changed byte, losslessly."""
     lay = LAYOUT_BY_NAME[layout]
     w0, h0, _ = read_frame(paths[0])
@@ -1309,7 +1388,11 @@ def encode_frames(paths, out, fps, wav=None, layout="cga", title="",
     if wav:
         rate, samples = read_wav(wav)
         spf = max(1, round(rate / fps))
-        afmt, abytes = AUD_PCM8, spf
+        afmt, abytes = audio_fmt, spf
+        if afmt == AUD_ADPCM4:
+            spf += spf % 2              # two samples a byte: the frame rate
+            abytes = spf // 2           # moves by a hair to keep it even
+        chunks = audio_chunks(samples, len(paths), spf, afmt)
     else:
         rate, spf, afmt, abytes = max(1, round(fps * 100)), 100, AUD_NONE, 0
         samples = b""
@@ -1332,11 +1415,7 @@ def encode_frames(paths, out, fps, wav=None, layout="cga", title="",
                 if surf[b + x] != row[x]:
                     changed.append(b + x)
             surf[b:b + g.wb] = row
-        audio = b""
-        if abytes:
-            audio = samples[f * spf:(f + 1) * spf]
-            audio += b"\x80" * (spf - len(audio))
-        wr.frame(spans(changed, surf, g), surf, audio)
+        wr.frame(spans(changed, surf, g), surf, chunks[f] if abytes else b"")
     return wr.write(out, poster)
 
 
@@ -1355,7 +1434,8 @@ def v88_frames(r, check=True):
 
 
 def cmd_import(a):
-    s = import_xdv(a.src, a.out, a.target, a.title, a.keysecs, a.poster)
+    s = import_xdv(a.src, a.out, a.target, a.title, a.keysecs, a.poster,
+                   AUD_BY_NAME[a.audio])
     print("os88vid: %s -> %s: %d bytes, %d super-packets, %d keyframes "
           "(%.1f%% of the file), poster %d"
           % (a.src, a.out, s["bytes"], s["sps"], s["keys"],
@@ -1364,7 +1444,7 @@ def cmd_import(a):
 
 def cmd_encode(a):
     s = encode_frames(a.frames, a.out, a.fps, a.wav, a.layout, a.title,
-                      a.keysecs, a.poster)
+                      a.keysecs, a.poster, AUD_BY_NAME[a.audio])
     print("os88vid: %d frames -> %s: %d bytes, %d keyframes (%.1f%%)"
           % (len(a.frames), a.out, s["bytes"], s["keys"],
              100.0 * s["keybytes"] / s["bytes"]))
@@ -1382,7 +1462,8 @@ def cmd_info(a):
             print("   credits: %s" % r.credits)
         print("   %d frames at %.3f fps (%d Hz / %d), %.1f s; audio %s; "
               "PIT %d x %d" % (r.frames, r.fps, r.rate, r.spf, secs,
-                               {0: "none", 1: "PCM8"}[r.audio], r.pitdiv,
+                               {0: "none", 1: "PCM8", 2: "ADPCM4"}[r.audio],
+                              r.pitdiv,
                                r.pitper))
         print("   canvas %d x %d on %s, %s, aspect %d:%d"
               % (g.wb * 8, g.h, g.name,
@@ -1438,6 +1519,9 @@ def verify_v88(path, against=None):
             raise V88Error("%s has %d frames, %s %d" % (against, len(pk),
                                                        path, r.frames))
         ref = (hdr, pk, bytearray(65536), Geom(LAY_CGA, ROWB, 200))
+        want_audio = audio_chunks(b"".join(xdc_audio(p, hdr) for p in pk),
+                                  len(pk), hdr["achunk"], r.audio) \
+            if r.audio == AUD_ADPCM4 else None
     ks = [e[0] for e in r.keys]
     if ks != sorted(set(ks)) or (ks and ks[-1] >= r.frames):
         raise V88Error("the keyframe table is not ascending frames of the "
@@ -1453,7 +1537,8 @@ def verify_v88(path, against=None):
             apply_ops(xs, ops)
             if cga.canvas(xs) != g.canvas(surf):
                 raise V88Error("frame %d differs from XDC's screen" % f)
-            if rec[len(rec) - r.abytes:] != xdc_audio(pk[f], hdr):
+            if rec[len(rec) - r.abytes:] != (want_audio[f] if want_audio
+                                             else xdc_audio(pk[f], hdr)):
                 raise V88Error("frame %d's audio differs from XDC's" % f)
         if f in kat:
             k, krec, spo, spk, idx = r.key(kat[f])
@@ -1670,11 +1755,30 @@ def selfcheck():
             tmp, "syn_cga.v88")), 3))
         if open(png, "rb").read(8) != b"\x89PNG\r\n\x1a\n":
             fails.append("the PNG writer")
+        # ADPCM4: an import that re-encodes the sound, verified against the
+        # XDC stream it came from, and a tone that survives the codec
+        out = os.path.join(tmp, "syn_adpcm.v88")
+        import_xdv(xdv, out, "cga", keysecs=0.1, audio_fmt=AUD_ADPCM4)
+        try:
+            if verify_v88(out, xdv) and Reader(out).abytes != 67:
+                fails.append("ADPCM4 import: %d bytes a frame, not 67"
+                             % Reader(out).abytes)
+        except (V88Error, XdvError) as e:
+            fails.append("ADPCM4 import: %s" % e)
+        import math
+        tone = bytes(128 + int(90 * math.sin(i * 2 * math.pi * 440 / 22050))
+                     for i in range(4410))
+        back = adpcm4_decode(adpcm4_encode(tone))
+        err = max(abs(a - b) for a, b in zip(tone[200:], back[200:]))
+        if len(back) != len(tone) or err > 24:
+            fails.append("ADPCM4 does not carry a 440 Hz tone (worst "
+                         "sample %d off)" % err)
     for f in fails:
         print("os88vid --selfcheck: FAIL - %s" % f)
     if not fails:
         print("os88vid --selfcheck: ok - encode, import (cga, herc, lin80), "
-              "decode and verify agree, and four corruptions were refused")
+              "decode and verify agree, ADPCM4 carries a tone, and four "
+              "corruptions were refused")
     return 1 if fails else 0
 
 
@@ -1685,6 +1789,9 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def keyargs(s):
+        s.add_argument("--audio", choices=sorted(AUD_BY_NAME), default="pcm8",
+                       help="the sound's format (SPEC.md 98.1.1): ADPCM4 is "
+                       "half the bytes, decoded by the card")
         s.add_argument("--keysecs", type=float, default=KEY_SECS,
                        help="seconds between keyframes (SPEC.md 98.1.3)")
         s.add_argument("--poster", type=int,

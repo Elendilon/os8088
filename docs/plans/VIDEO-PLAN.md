@@ -536,6 +536,10 @@ right (GFX-FSX-PLAN 4.2.1). **< 10 bytes.**
 
 ### 4.4 SOUND.DRV *(driver, not kernel)*
 
+**Superseded by what W4 built** (section 8, W4; SPEC.md 34.5.3): an
+external ring the card plays in place, not a frame stream with a callback.
+What follows is the design as it was costed before §34.5.2 existed.
+
 The driver's block is fixed at 2048 bytes (`drivers/sound/sb.inc:103`) and
 `sbl_isr` has no callback (§34.3). So:
 - **`SND_OPENF_FRAME`.** The caller gives a block (= `achunk`, 64–4096) and a
@@ -578,7 +582,7 @@ just called:
 The `.cold` bytes crossed one 512-byte cold rung (footprint +512, 45 steps
 of `KERN_BUDGET` left).
 | *in reserve:* hard-disk runs that cross a head, as `CYLRUN` does for floppies (§18.91.1), **if Wave 0 shows** rung 0's stop at each track end (17 sectors, §52.1) is what caps the ST-225 | ~100–150 | kern_big |
-| SOUND.DRV frame stream + ADPCM | ~250–400 | inside the driver's existing 7 KB claim |
+| SOUND.DRV frame stream + ADPCM | ~250–400 | inside the driver's existing 7 KB claim. **Built as an external ring + ADPCM4: 194 bytes**, 6,371 → 6,565, no heap (W4) |
 
 `kernsize` is quoted in bytes at every wave, per CLAUDE.md's banner.
 
@@ -825,9 +829,42 @@ red. A row about one package goes in `soak`.
     stream then stalls (44 of 437 frames), and a second instance is refused
     for memory. Every bench keeps its claims until its window closes; the
     field README says so.
-- **W4 — sound.** SOUND.DRV's frame stream and ADPCM4. Gate: one IRQ per
-  frame, bytes played = frames × `achunk`, zero pauses across 60 s off the
-  hard disk.
+- **W4 — sound. DONE** (SPEC.md 34.5.3, 98.1.1.1, 98.3.1;
+  `tests/vidsound.py` as two soak rows).
+  - **The shape changed, and section 4.4 is why.** 4.4 asked for a frame
+    stream - a block per frame and a far callback per interrupt. By the time
+    W4 was built, SOUND.DRV already played a package's ring IN PLACE
+    (§34.5.2) and could say exactly how much it had played (verb 9), so
+    what was missing was smaller: a ring the hook may WRITE, since it may
+    call nothing. So:
+    - **SOUND.DRV** takes an external ring in the package's own `MC_DMA`
+      claim, whose block interrupt reads the package's total and writes the
+      consumed count back, and an ADPCM4 start (7Dh). **194 bytes**, inside
+      its 7KB claim: no heap at all, against the owner's 1 KB.
+    - **The player** walks the records twice - the video cursor draws, an
+      audio cursor ahead of it copies each frame's audio into the ring -
+      and the hook's clock is the card: the frames wholly played at its last
+      block interrupt, plus the periods since, capped at a block's worth. No
+      callback into a package from a driver's interrupt, and the kernel's
+      hook protections (§53.2.2) stay in force.
+  - **The gate**, 60 s of 22 kHz PCM8 off a fixed disk: every frame, no
+    stall, **no pause**, the picture never more than 2 frames behind the
+    sound, the play as long as the sound at the card's real rate, and **the
+    card's captured output byte for byte the clip's sound**.
+  - **What it found:**
+    - **The timer at the frame rate was too coarse.** The card reports every
+      93 ms, and a heavy frame plus a report's lag put the picture 3 frames
+      behind the sound four times in 60 s. At twice the frame rate, none.
+    - **A clock that stops at the last frame has no end.** The silent play
+      ended when the stream's chain did; with sound the picture never asks
+      for a frame past the last, so the end is the header's frame count.
+    - **MartyPC's card had no ADPCM** (wave 0 read zero interrupts), so it
+      was added (`tools/martypc/patches/06`), with DOSBox's tables - the ones
+      `os88vid` encodes against. That makes the path testable here and the
+      TABLES the field's: 86Box's card and a real one.
+  - **ADPCM4 wants an even chunk.** BADAPPLE's 735 is odd, so its ADPCM
+    version waits for wave 8's encoder; THUNDERC's, TRONDISC's and BBBB's
+    convert.
 - **W5 — surfaces.** Hercules and VGA with their presets and host-side
   layouts (`import --target`), the shadow path for a foreign file, and the
   CGA composite burst.

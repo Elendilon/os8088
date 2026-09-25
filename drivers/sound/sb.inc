@@ -484,7 +484,11 @@ sbl_hw_start:
     call sbl_dsp_wr
     mov al, bh
     call sbl_dsp_wr
-    mov al, ah                  ; 1Ch legacy / 90h high-speed
+    cmp byte [sbl_adpcm], 0     ; ...or 7Dh, auto-init 4-bit ADPCM with its
+    je .start                   ; reference byte (SPEC.md 34.5.3), which
+    mov ah, 0x7D                ; only the legacy regime reaches
+.start:
+    mov al, ah                  ; 1Ch legacy / 90h high-speed / 7Dh ADPCM4
     call sbl_dsp_wr
     jmp .out
 .single:
@@ -702,6 +706,14 @@ sbl_isr:
 .direct:                        ; DIRECT (SPEC.md 34.5.2): one block of the
     mov ax, [sbl_half]          ; ring played, and the DMA has already gone on
     add [sbl_consumed], ax      ; into the next - so the one question is
+    cmp byte [sbl_ext], 0       ; EXTERNAL (SPEC.md 34.5.3): the package's
+    je .dfed                    ; total is ITS word and the consumed count is
+    les bx, [sbl_extctl]        ; published back, so a producer that may call
+    mov ax, [es:bx+SND_EXT_TOTAL]   ; nothing feeds by writing memory
+    mov [sbl_total], ax
+    mov ax, [sbl_consumed]
+    mov [es:bx+SND_EXT_CONS], ax
+.dfed:
     mov ax, [sbl_wd_rst]        ; whether that block was all fed. Same answer
     mov [sbl_wd], ax            ; as the double buffer's valid flag, asked of
     mov ax, [sbl_total]         ; the counters: total - consumed >= half. No
@@ -1132,6 +1144,9 @@ sbl_v_open:
     jz .lin                     ; refusal below must not disturb an OPEN
     mov byte [sbl_ropen], 1     ; stream's [sbl_ring_on])
 .lin:
+    mov [sbl_oflags], ah        ; ...and the rest of them, the same TEMP:
+                                ; EXT, ADPCM4 and the ring size code
+                                ; (SPEC.md 34.5.3)
     cmp byte [sbl_up], 0
     jz .e4                      ; no card: the documented clean failure
     cmp byte [sbl_str_act], 0
@@ -1155,6 +1170,24 @@ sbl_v_open:
     jnz .args                   ; jumps are short-only: .e7 sits past reach,
     jmp .e7                     ; so the refusals trampoline)
 .args:
+    test byte [sbl_oflags], SND_OPENF_EXT
+    jz .pool
+    test byte [sbl_oflags], SND_OPENF_RING
+    jz .e7x                     ; an EXTERNAL ring (SPEC.md 34.5.3) is a ring:
+    push cx                     ; DI:SI, RL = 4096 << the size code, and no
+    mov cl, [sbl_oflags]        ; grant - the package claimed it itself
+    shr cl, 1
+    shr cl, 1
+    shr cl, 1
+    shr cl, 1
+    and cl, 3
+    mov ax, 4096
+    shl ax, cl
+    pop cx
+    jmp short .grantok
+.e7x:
+    jmp .e7
+.pool:
     call sbl_grant_chk          ; BX is already the rate (see above)          ; the range must sit in the caller's grant;
     jnc .grantok                ; out AX = bytes to the grant's end
     jmp .e7
@@ -1240,6 +1273,22 @@ sbl_v_open:
     ; does not cross a 64KB page - which sbl_pool_get asks the allocator for,
     ; so it is the case and not the hope, and the fallback is the copy path
     mov byte [sbl_direct], 0
+    mov byte [sbl_ext], 0
+    mov byte [sbl_adpcm], 0
+    test byte [sbl_oflags], SND_OPENF_ADPCM4
+    jz .noad                    ; ADPCM4 (SPEC.md 34.5.3): the 7Dh start is
+    cmp byte [sbl_auto], 0      ; auto-init only, and the TC regime only -
+    je .e2x                     ; the card decodes it at the SAMPLE rate
+    cmp word [sbl_half], SBL_HALF
+    jne .e2x
+    mov byte [sbl_adpcm], 1
+.noad:
+    mov ax, [sbl_poolseg]       ; where the ring is: the pool...
+    test byte [sbl_oflags], SND_OPENF_EXT
+    jz .rseg
+    mov ax, di                  ; ...or the package's own claim
+.rseg:
+    mov [sbl_rseg], ax
     cmp byte [sbl_ropen], 0
     je .dbuf
     cmp byte [sbl_auto], 0
@@ -1255,14 +1304,29 @@ sbl_v_open:
     mov [sbl_xpage], dl
     mov ax, [sbl_rmask]         ; the DMA cycle IS the ring
     mov [sbl_xcnt], ax
+    mov byte [sbl_direct], 1
+    test byte [sbl_oflags], SND_OPENF_EXT
+    jz .pin
+    mov byte [sbl_ext], 1       ; EXTERNAL (SPEC.md 34.5.3): the control words
+    mov ax, si                  ; sit after the ring, in the package's claim,
+    add ax, [sbl_rmask]         ; which an MC_DMA claim keeps still with no
+    inc ax                      ; pin of ours - and there is no pool to pin
+    mov [sbl_extctl], ax
+    mov [sbl_extctl+2], di
+    jmp short .dset
+.e2x:
+    jmp .e2
+.pin:
     push dx                     ; ...and the pool may not move under the chip
     mov dx, [sbl_poolseg]       ; now: PIN it (AX = 0) until sbl_stop_stream
     xor ax, ax                  ; declares it again. [drv_wcnt] used to be
     call OSAPI_MEM_MOVABLE      ; what kept the chip's memory still, and a
     pop dx                      ; direct stream has no task to count
-    mov byte [sbl_direct], 1
     jmp short .dset
 .dbuf:
+    test byte [sbl_oflags], SND_OPENF_EXT
+    jnz .e7x2                   ; an external ring is played in place or not
+                                ; at all: there is no grant to copy it from
     call sbl_dma_get            ; the double buffer, claimed for this stream
     jnc .dgot                   ; and freed with it
     jmp .e8
@@ -1337,6 +1401,8 @@ sbl_v_open:
     mov al, 0
     clc
     jmp .out
+.e7x2:
+    jmp .e7
 .nospawn:
     mov byte [sbl_str_act], 0   ; unwind: nothing started
     call sbl_dma_put            ; ...and the buffer it would have played
@@ -1549,6 +1615,9 @@ sbl_unpin:
     cmp byte [sbl_direct], 0
     je .buf
     mov byte [sbl_direct], 0
+    cmp byte [sbl_ext], 0       ; an external ring pinned nothing of ours
+    mov byte [sbl_ext], 0       ; (SPEC.md 34.5.3)
+    jne .out
     mov dx, [sbl_poolseg]
     mov ax, sbl_reloc
     call OSAPI_MEM_MOVABLE
@@ -2758,14 +2827,15 @@ sbl_dma_derive:
 
 ; -----------------------------------------------------------------------------
 ; sbl_ring_phys - where the 8237 would see a ring in the pool (SPEC.md 34.5.2)
-; in:  SI = the ring's pool offset, [sbl_poolseg], [sbl_rmask] = RL - 1
+; in:  SI = the ring's offset in [sbl_rseg] - the pool, or an external ring's
+;      own claim (SPEC.md 34.5.3) - and [sbl_rmask] = RL - 1
 ; out: CF = 0 the whole ring is inside one 64KB physical page, AX = its offset
 ;      in that page and DL = the page; CF = 1 it straddles one
 ; clobbers: DH (flags)
 ; -----------------------------------------------------------------------------
 sbl_ring_phys:
     push cx
-    mov ax, [sbl_poolseg]
+    mov ax, [sbl_rseg]
     mov dx, ax
     mov cl, 4
     shl ax, cl                  ; the pool's base, low 16 bits...
@@ -3468,6 +3538,11 @@ sbl_hopen:    times 1 dw 0            ;   verb 0's half width - a TEMP, the
 sbl_direct:   times 1 db 0            ;   1 = DIRECT (SPEC.md 34.5.2): the card
                                 ;   plays the ring in the pool, no double
                                 ;   buffer and no refill task
+sbl_oflags:   times 1 db 0            ;   verb 0's AH - a TEMP, sbl_ropen's idiom
+sbl_ext:      times 1 db 0            ;   1 = EXTERNAL ring (SPEC.md 34.5.3)
+sbl_adpcm:    times 1 db 0            ;   1 = ADPCM4: 7Dh starts it
+sbl_rseg:     times 1 dw 0            ;   the ring's segment for sbl_ring_phys
+sbl_extctl:   times 2 dw 0            ;   external: the control words (off, seg)
 sbl_xpage:    times 1 db 0            ;   the auto-init DMA cycle hw_start
 sbl_xoff:     times 1 dw 0            ;   programs: page, offset in it, and
 sbl_xcnt:     times 1 dw 0            ;   length - 1 (verb 0 sets all three)

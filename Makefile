@@ -9757,6 +9757,12 @@ vidfield: $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 $(BUILD)/vidsnd.o88 tools/o
 # 98.3) on the other: five videos are ~24 MB in one layout.
 VIDHD_XDV = BADAPPLE THUNDERC TRONDISC BBBB_BW BBBBCOMP
 VIDHD_MFM_XDV = BADAPPLE TRONDISC BBBB_BW BBBBCOMP
+# ...and two with their sound as ADPCM4 (SPEC.md 98.1.1.1), for a card to
+# decode: TRONDISC's and BBBB_BW's chunks are even, BADAPPLE's is not.
+# TRONDA4 is 4 MB, so the 20 MB MFM disks carry BBBBA4 alone
+VIDHD_A4 = TRONDISC:TRONDA4 BBBB_BW:BBBBA4
+VIDHD_MFM_A4 = BBBBA4
+VIDHD_A4N = $(foreach va,$(VIDHD_A4),$(lastword $(subst :, ,$(va))))
 VIDHD_TEMPLATE = $(BUILD)/martypc/run/media/hdds/default_xtide.vhd
 VIDHD_BASE = $(BUILD)/kernel.sys $(BUILD)/boothd.bin $(BUILD)/mbr.bin \
 	$(BUILD)/hdd.drv $(BUILD)/hiber.drv $(BUILD)/ctrl.drv $(BUILD)/sound.drv \
@@ -9795,15 +9801,20 @@ vidfieldhd: $(VIDHD_BASE) tools/os88vid.py tools/os88hdd.py tests/vidbench/FIELD
 	        python3 tools/os88vid.py import --target $$t $(XDCSAMPLES)/$$v.XDV \
 	            $(BUILD)/vidhd/$$t/$$v.V88 >/dev/null || exit 1; \
 	    done; \
+	    for va in $(VIDHD_A4); do \
+	        python3 tools/os88vid.py import --target $$t --audio adpcm4 \
+	            $(XDCSAMPLES)/$${va%%:*}.XDV \
+	            $(BUILD)/vidhd/$$t/$${va##*:}.V88 >/dev/null || exit 1; \
+	    done; \
 	done
-	$(call vidhd_img,$(BUILD)/VIDHERC.VHD,herc,26,$(VIDHD_XDV))
-	$(call vidhd_img,$(BUILD)/VIDCGA.VHD,cga,26,$(VIDHD_XDV))
-	$(call vidhd_img,$(BUILD)/VIDHERC-MFM.VHD,herc,17,$(VIDHD_MFM_XDV))
-	$(call vidhd_img,$(BUILD)/VIDCGA-MFM.VHD,cga,17,$(VIDHD_MFM_XDV))
-	$(call vidhd_img,$(BUILD)/VIDHERC-ST11R.VHD,herc,26,$(VIDHD_XDV),--st11)
-	$(call vidhd_img,$(BUILD)/VIDCGA-ST11R.VHD,cga,26,$(VIDHD_XDV),--st11)
-	$(call vidhd_img,$(BUILD)/VIDHERC-ST11M.VHD,herc,17,$(VIDHD_MFM_XDV),--st11)
-	$(call vidhd_img,$(BUILD)/VIDCGA-ST11M.VHD,cga,17,$(VIDHD_MFM_XDV),--st11)
+	$(call vidhd_img,$(BUILD)/VIDHERC.VHD,herc,26,$(VIDHD_XDV) $(VIDHD_A4N))
+	$(call vidhd_img,$(BUILD)/VIDCGA.VHD,cga,26,$(VIDHD_XDV) $(VIDHD_A4N))
+	$(call vidhd_img,$(BUILD)/VIDHERC-MFM.VHD,herc,17,$(VIDHD_MFM_XDV) $(VIDHD_MFM_A4))
+	$(call vidhd_img,$(BUILD)/VIDCGA-MFM.VHD,cga,17,$(VIDHD_MFM_XDV) $(VIDHD_MFM_A4))
+	$(call vidhd_img,$(BUILD)/VIDHERC-ST11R.VHD,herc,26,$(VIDHD_XDV) $(VIDHD_A4N),--st11)
+	$(call vidhd_img,$(BUILD)/VIDCGA-ST11R.VHD,cga,26,$(VIDHD_XDV) $(VIDHD_A4N),--st11)
+	$(call vidhd_img,$(BUILD)/VIDHERC-ST11M.VHD,herc,17,$(VIDHD_MFM_XDV) $(VIDHD_MFM_A4),--st11)
+	$(call vidhd_img,$(BUILD)/VIDCGA-ST11M.VHD,cga,17,$(VIDHD_MFM_XDV) $(VIDHD_MFM_A4),--st11)
 	@ls -l $(BUILD)/VID*.VHD
 
 # ...and the one that shows a FACE rather than timing one: it draws the same

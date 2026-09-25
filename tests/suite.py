@@ -8127,6 +8127,33 @@ SOAK = [
         "frame plays through the ring's wraps and on time",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidsound", "soak", py("tests/vidsound.py"), 135.0,
+        "SPEC.md 98.3.1/34.5.3: VIDEO.O88 WITH SOUND, the card the clock. A "
+        "60 s 30 fps clip with 22,050 Hz PCM8 the row makes, streamed off a "
+        "fixed disk on the Hercules 5150 with a Sound Blaster, the card's "
+        "output captured (MARTYPC_WAV): every frame drawn, no stall, NO "
+        "PAUSE, the picture never more than 2 frames behind the sound, the "
+        "play as long as the sound at the card's real rate within 2%, and "
+        "the capture decoded back to the card's bytes holding the clip's "
+        "sound whole and in order. Broken on purpose - the audio copied a "
+        "byte off, the driver not writing its consumed count back - it goes "
+        "red both ways",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
+               "build/ctrl.drv", "build/sound.drv")),
+    Row("vidsoundad", "soak", py("tests/vidsound.py", "--secs", "10",
+                                 "--audio", "adpcm4"), 45.0,
+        "SPEC.md 98.1.1.1/34.5.3: vidsound's play with the sound as ADPCM4, "
+        "the card decoding it (DSP 7Dh) - MartyPC's since "
+        "tools/martypc/patches/06, with the tables tools/os88vid.py encodes "
+        "against, so the capture must hold the stream DECODED sample for "
+        "sample. It proves the path, not the tables: 86Box and a real card "
+        "are the independent check",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
+               "build/ctrl.drv", "build/sound.drv")),
     Row("vidkern", "soak", py("tests/vidkern.py"), 48.0,
         "Video Player wave 2 (VIDEO-PLAN 4.1-4.3), on the 5150-shaped "
         "os8088_5150_herc_hdd_sb_gla. FSXF_RATE (SPEC.md 53.2.2): three "

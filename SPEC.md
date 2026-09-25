@@ -57007,6 +57007,45 @@ The image is 449 bytes bigger (5,903 → 6,352), which takes its claim from 6KB
 to 7KB: the only cost, against 8KB back on every machine with a card whether
 or not it ever plays, and 12–20KB back while it does.
 
+#### 34.5.3 An external ring, and ADPCM4 (the Video Player)
+
+**A ring in the PACKAGE'S OWN claim**, opened with `SND_OPENF_RING +
+SND_OPENF_EXT` on verb 0: the ring at DI:SI (DI its segment), RL = 4096
+shifted left by the size code in AH bits 4-5 (`SND_OPENF_RLSH`), and two
+control words right after it, `SND_EXT_TOTAL` and `SND_EXT_CONS`. It exists
+for a producer that may call nothing - the Video Player fills its ring from
+an `FSXF_RATE` hook (§98.3.1) - so the block interrupt does the two things a
+call would have: it **reads the total** out of the package's word before its
+underrun question, and **writes the consumed count** back. Both are
+free-running mod 65536, as a ring's are.
+
+What differs from a grant ring (§34.5.2):
+- **it is played in place or not at all.** It needs an auto-init DSP and a
+  ring inside one 64KB page (`sbl_ring_phys`, now asked of the ring's own
+  segment, `[sbl_rseg]`); otherwise verb 0 answers 7, because there is no
+  grant to copy from. The package claims it with `OSAPI_MEM_CLAIM_DMA_HI`,
+  which makes it page-safe and an `MC_DMA` claim nothing will move - so
+  **nothing is pinned** and `sbl_unpin` has nothing to undo;
+- **verb 1 only RESUMES.** The total arrives through memory; an underrun
+  still halts the card, and verb 1 is still what restarts it, with the same
+  bound;
+- verbs 3 and 9 are unchanged, and the teardown is: an instance's sound is
+  released before its memory (`inst_rel_rec`), so a player that dies stops
+  the card before its ring is freed.
+
+**ADPCM4** is `SND_OPENF_ADPCM4` on the same verb: the start byte after
+`48h` is **7Dh** (auto-init 4-bit ADPCM, with a reference byte) instead of
+1Ch, DX is the SAMPLE rate, and the counters count bytes, two samples each.
+It needs auto-init and the time-constant regime (DSP ≥ 2.00, ≤ 22,222 Hz);
+otherwise verb 0 answers 2. The format is §98.1.1.1's. MartyPC's card
+decodes it since `tools/martypc/patches/06-sblaster-adpcm4.patch`, with the
+tables `tools/os88vid.py` encodes against; 86Box's card played it in wave 0's
+field run (150 interrupts in 5 s, docs/reports/VIDEO-86BOX-ST11R-2026-09-25.md),
+and whether a real DSP decodes the same samples is the field's to hear.
+
+**Cost: 194 bytes** (6,371 → 6,565), inside the driver's 7KB claim, so no
+heap at all. `tests/vidsound.py` is the gate.
+
 ### 34.6 Recording and staging — back, as a driver
 
 Went with §34.5 and came back with it. Verb 7 grants out of the driver's
@@ -148884,9 +148923,9 @@ stream behind them is read sequentially.
 | 8 | 4 | frames, ≥ 1 |
 | 12 | 2 | rate: the audio sample rate in Hz; for a silent file, the nominal rate the frame rate derives from |
 | 14 | 2 | samples per frame, ≥ 1. **fps = rate / samples per frame**, XDC's rule |
-| 16 | 1 | audio: 0 none, 1 PCM8 (unsigned 8-bit mono), 2 ADPCM4 (Creative 4-bit; its bytes per frame and reference-byte rule are wave 4's, and no version 1 tool writes it) |
+| 16 | 1 | audio: 0 none, 1 PCM8 (unsigned 8-bit mono), 2 ADPCM4 (Creative 4-bit, 98.1.1.1) |
 | 17 | 1 | renditions, 1..4; **1 in version 1** |
-| 18 | 2 | audio bytes per frame: 0 with no audio, the samples per frame with PCM8 |
+| 18 | 2 | audio bytes per frame: 0 with no audio, the samples per frame with PCM8, half of them with ADPCM4 |
 | 20 | 2 | **the PIT divisor** for a timer-paced play (§53.2.2), `FSX_RATE_MIN`..65,535 |
 | 22 | 1 | **periods a frame** at that divisor, ≥ 1: 2 for a 15 fps file, whose own period is past 65,535 |
 | 23 | 9 | 0 |
@@ -148900,8 +148939,30 @@ stream behind them is read sequentially.
 samples / rate` is a 38-bit product, which an 8086 would need two divides to
 reach. So the encoder writes it: the smallest *n* whose period `1,193,182 /
 (fps × n)` fits 16 bits, and that period rounded. A frame is shown every *n*
-periods. With a sound card the card's own interrupt paces the file and these
-two fields are not read.
+periods. With a sound card the card is the clock and the timer only
+interpolates between its reports, at half this divisor (98.3.1).
+
+#### 98.1.1.1 ADPCM4
+
+**Creative's 4-bit ADPCM as a DSP 2.00 plays it** with command 7Dh
+(auto-init, with a reference byte): two samples a byte, the HIGH nibble
+first, each nibble stepping a running sample by a scale that adapts. The
+tables are the ones DOSBox decodes with (`decode_ADPCM_4_sample`), and they
+are in `tools/os88vid.py` (`adpcm4_decode`, `adpcm4_encode`) and in
+MartyPC's card (`tools/martypc/patches/06-sblaster-adpcm4.patch`).
+- **Samples per frame must be even**, so a frame's audio is whole bytes:
+  `abytes` = samples / 2. `os88vid encode --audio adpcm4` rounds the samples
+  per frame up to even, moving the frame rate by a hair; `import --audio
+  adpcm4` refuses an XDC stream whose chunk is odd (BADAPPLE's 735 is).
+- **The stream is ONE encoding**, from a reference of 80h and a scale of 0,
+  cut into the frames' parts afterwards: the decoder's state runs on from
+  frame to frame, so a frame's audio is not decodable alone.
+- **The reference byte is the PLAYER's**, not the file's: the player puts
+  80h at the start of the card's ring and the frames' bytes after it
+  (98.3.1). A seek will have to start a fresh stream there (wave 7).
+- The card decodes it, so it costs the 8088 nothing but the copy - half of
+  PCM8's - and the disk half the bytes. It is noisier than 8-bit PCM at the
+  same rate.
 
 **A rendition is one canvas and its own stream.** Version 1 writes exactly
 one. The table is there so that a later file can carry a canvas per adapter
@@ -149022,7 +149083,7 @@ super-packet = frames(16) next(16) frame record × frames, zero-padded to a sect
 
 - **Renditions**: one.
 - **Pixel format**: MONO1, or CGACOMP from an XDC import.
-- **Audio**: PCM8, or none.
+- **Audio**: PCM8, ADPCM4 (98.1.1.1), or none.
 - **Layout**: any of the three.
 
 #### 98.1.6 What a reader checks, and what a hostile file can do
@@ -149049,7 +149110,7 @@ segments, not by trust:
 - **A read** runs at most off the end of the record into the super-packet
   buffer's own segment, which is harmless.
 
-### 98.3 The player — `VIDEO.O88`, fullscreen and silent (wave 3)
+### 98.3 The player — `VIDEO.O88`, fullscreen (waves 3 and 4)
 
 Package **`VIDEO.O88`**, header name `'Video Player'`, label prefix `vp_`
 (`apps/video/video.asm`; the decoder is `apps/video/vdec.inc`, wave 0's,
@@ -149082,7 +149143,7 @@ on time however long the disk takes:
   behind a frame.
 - A frame whose super-packet is not yet in memory is not drawn: that call
   counts a **stall**, and the picture holds until the reader catches up.
-  With no sound there is nothing else to keep in step.
+  With no sound there is nothing else to keep in step; with sound, 98.3.1.
 
 **The reader is the foreground**, the bracket's own loop, through
 `OSAPI_FILE_READ_SEQ` in 32 KB chunks:
@@ -149135,6 +149196,81 @@ opened by double-clicking it):
   back: it is planar, and a CPU read of A000 is one plane.
 - `VIDEO.O88` is **5,258 bytes**, 3.5 KB on disk.
 
+#### 98.3.1 With sound (wave 4): the card is the clock
+
+When the file has audio and `OSAPI_SND_CAPS` has `SND_CAP_PCM_BG`, the play
+has sound. Otherwise - no card, no claim, the card refusing the open - it is
+the silent play above, unchanged.
+
+**The ring is the player's own.** A 16 KB ring and its two control words
+come from `OSAPI_MEM_CLAIM_DMA_HI` (17 KB, all of it the page-safe head, and
+never moved), and it is opened as an **external** ring (§34.5.3): the card
+plays it in place, the block interrupt reads the player's total out of it
+and writes back what it has consumed. So the FSXF_RATE hook, which may call
+nothing, feeds the card by writing memory.
+
+**The audio cursor.** The records are walked twice: by the video cursor,
+which draws and is what the reader keys its slots on, and by an AUDIO
+cursor running ahead of it, which copies each frame's audio part (98.1.3)
+into the ring. Both step through the same code (`vp_next`, on a copy of a
+six-word cursor). The audio cursor fills as far as the ring has room behind
+what the card has not played and the reader has loaded, four frames a hook
+call. At the stream's end it adds silence to a whole block past the last
+byte, so the card's last block interrupt finds a full block and the tail is
+heard. Before the card starts, the ring is filled as far as it goes (at
+least one block, silence padding a clip shorter than one). **The picture may
+never overtake the audio cursor**: a frame whose audio is not queued is not
+drawn, which is also what keeps the chunks under the audio cursor from being
+reused.
+
+**The clock.** The card reports only at its block interrupts (2,048 bytes:
+93 ms of 22 kHz PCM8, 186 ms of ADPCM4), so the hook:
+- reads the consumed count; when it has moved, the frames due are the frames
+  wholly played (bytes past the reference byte, over the audio bytes a
+  frame), plus one, and the period count is noted;
+- between reports, adds the periods since, at most one block's worth of
+  frames plus two - so a card that stops holds the picture too;
+- never counts past the last frame, whose silence plays on after it.
+
+**The timer runs at twice the frame rate** with sound (half the header's
+divisor, twice its periods), because the report's lag and the catch-up are
+both a period long: at the file's own rate a 60 s play had the picture 3
+frames behind the sound four times, at twice it none.
+
+**The foreground** keeps the reader going as before and, each pass, asks the
+stream's state (verb 3):
+- a card paused for want of data resumes (verb 1) the moment a whole block
+  is queued, counted as a **pause**;
+- a card the driver's watchdog ENDED makes the rest of the play silent on
+  the timer - never a picture held for a clock that has gone.
+
+When the picture is done it waits, up to two seconds, for the card to play
+past the last byte of sound, then closes the stream (verb 2) before the ring
+is freed.
+
+**ADPCM4** is the same play with 80h at the ring's start (98.1.1.1), the
+open's `SND_OPENF_ADPCM4`, and a silence of zero nibbles.
+
+**The window after a play** adds the pauses to the frames and stalls.
+
+**Measured** (`tests/vidsound.py`, a clip the row makes, streamed off a
+fixed disk on the Hercules 5150 with a Sound Blaster 2.0, the card's output
+captured):
+- **60 s of 30 fps with 22,050 Hz PCM8**: all 1,800 frames, no stall, **no
+  pause**, the picture never more than 2 frames behind the sound, and the
+  play took 59.54 s against the sound's 59.63 at the rate the card really
+  runs (its time constant truncates 22,050 to 22,222 Hz). **The capture,
+  decoded back to the card's bytes, holds the clip's 1,323,000 bytes whole
+  and in order.**
+- **ADPCM4**, 10 s: all 300 frames, no pause, and the capture holds the
+  stream decoded, all 220,800 samples. That is MartyPC's card decoding with
+  the encoder's own tables, so it proves the path and not the tables: 86Box
+  and a real card are the independent check.
+- Broken on purpose, the row goes red both ways: an audio part copied one
+  byte off (the capture departs 731 samples in), and a driver that does not
+  write the consumed count back (the picture stops at frame 5).
+- `VIDEO.O88` is **6,353 bytes**.
+
 **It is on every apps disk** (`$(APPS_TOOLS)`, 4 clusters of the 360KB one),
 and on no `kern_small` disk: what it plays through is `kern_big`'s, so there
 it could open a file and never play it (`$(SMALLOMIT)`, §24.5). No video ships
@@ -149145,8 +149281,8 @@ video is a later wave.
 
 | command | what it does |
 |---|---|
-| `import IN.XDV OUT.V88 [--target cga\|herc\|lin80]` | an XDC stream, EXACTLY: every frame's writes re-expressed as lists (`verify --against` proves it frame by frame). CGA is the XDV's own layout; `--target` re-lays the canvas out for another surface by simulating the stream and re-encoding it, so it plays natively there |
-| `encode FRAME... OUT.V88 --fps F [--wav W] [--layout L]` | the minimal encoder: lossless, from PBM, PGM or BMP frames and an 8-bit or 16-bit WAV. Wave 8 adds the budgets |
+| `import IN.XDV OUT.V88 [--target cga\|herc\|lin80] [--audio pcm8\|adpcm4]` | an XDC stream, EXACTLY: every frame's writes re-expressed as lists (`verify --against` proves it frame by frame). CGA is the XDV's own layout; `--target` re-lays the canvas out for another surface by simulating the stream and re-encoding it, so it plays natively there. `--audio adpcm4` re-encodes the sound (98.1.1.1), and `verify --against` then compares it with the XDC sound encoded the same way |
+| `encode FRAME... OUT.V88 --fps F [--wav W] [--layout L] [--audio pcm8\|adpcm4]` | the minimal encoder: lossless, from PBM, PGM or BMP frames and an 8-bit or 16-bit WAV. Wave 8 adds the budgets |
 | `info FILE.V88` | the header, the rendition, and the stream's rate and modelled CPU |
 | `decode FILE.V88 --frame N --png OUT.png` | the canvas after frame N, through the keyframe at or before it |
 | `verify FILE.V88 [--against IN.XDV]` | every field of 98.1.6, every super-packet and record, every keyframe against the running canvas, and with `--against`, every frame against XDC's screen |

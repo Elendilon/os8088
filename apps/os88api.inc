@@ -513,6 +513,32 @@ SND_OPENF_RING   equ 1           ; ring mode (SPEC.md 34.5): SI = ring base,
                                  ; Verbs 0 and 4 answer 8 when a stream the
                                  ; driver must double-buffer cannot have its
                                  ; 8KB, which it claims per stream now.
+SND_OPENF_EXT    equ 2           ; ...an EXTERNAL ring (SPEC.md 34.5.3), with
+                                 ; RING: in YOUR OWN claim, at DI:SI (DI = its
+                                 ; segment), not a grant - so you write it
+                                 ; directly, from anywhere, even an FSXF_RATE
+                                 ; hook that may call nothing. Claim it with
+                                 ; OSAPI_MEM_CLAIM_DMA(_HI), ring AND the two
+                                 ; control words after it inside the page-safe
+                                 ; head; RL = 4096 << the size code in AH bits
+                                 ; 4-5 (SND_OPENF_RLSH). The card plays it in
+                                 ; place or verb 0 refuses (7): it needs an
+                                 ; auto-init DSP and a ring inside one page.
+                                 ; The block IRQ READS your total from
+                                 ; [DI:SI+RL+SND_EXT_TOTAL] and WRITES the
+                                 ; consumed count to [...+SND_EXT_CONS], both
+                                 ; free-running mod 65536, so you feed without
+                                 ; a call; verb 1 is only needed to RESUME an
+                                 ; underrun, and verb 9 still answers exactly
+SND_OPENF_ADPCM4 equ 4           ; ...the bytes are Creative 4-bit ADPCM, the
+                                 ; card decoding them (DSP 7Dh, auto-init with
+                                 ; a reference byte: stream byte 0). DX is the
+                                 ; SAMPLE rate, <= 22,222; the counters count
+                                 ; bytes. Needs DSP >= 2.00, else verb 0
+                                 ; answers 2 (SPEC.md 34.5.3)
+SND_OPENF_RLSH   equ 4           ; the size code's shift: 0 4KB .. 3 32KB
+SND_EXT_TOTAL    equ 0           ; the control words, after the ring
+SND_EXT_CONS     equ 2
 
 ; --- window management (SPEC.md 11.1/11.2) -------------------------------------
 %define OSAPI_WM_SIZABLE    KERNEL_SEG:0x00F1   ; BX=win ptr, AL = 0 clear / non-zero set

@@ -1,0 +1,271 @@
+#!/usr/bin/env python3
+"""VIDEO.O88 with SOUND: the card is the clock - SPEC.md 98.3.1, VIDEO-PLAN
+wave 4.
+
+    make && python3 tests/vidsound.py [--secs 60] [--machine NAME]
+
+A clip made here - SECS seconds at 30 fps, Hercules layout, 22,050 Hz PCM8
+whose bytes are a pseudo-random sequence - goes on a bootable fixed disk
+with VIDEO.O88 and SOUND.DRV, on the Hercules 5150 with a Sound Blaster,
+and is played off that disk with the card's output captured
+(MARTYPC_WAV). What must hold:
+
+  1. every frame drawn, no stall (the reader kept up), no error;
+  2. NO PAUSE: the card never ran dry (vp_pause), and the drain reached the
+     last byte of sound;
+  3. the picture never trailed the sound by more than two frames (vp_skmax)
+     and was never more than two behind at a hook (vp_late);
+  4. THE SOUND IS THE FILE'S: the capture, decoded back to the card's bytes,
+     holds the clip's audio whole and in order;
+  5. the play took the SOUND's time - the clip's bytes at the rate the card
+     really runs (its time constant truncates 22,050 to 22,222 Hz) - within
+     2%: the picture followed the card, not the file's nominal rate.
+
+--audio adpcm4 plays the same clip's sound as Creative 4-bit ADPCM, which
+the card decodes (DSP 7Dh); MartyPC's does it with the tables
+tools/os88vid.py encodes against (tools/martypc/patches/06), so point 4 then
+compares the capture with the stream DECODED. 86Box's card, and a real one,
+are the independent check.
+"""
+import argparse
+import glob
+import os
+import random
+import struct
+import subprocess
+import sys
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+import os88marty, os88ui, os88build, os88vid as vid, os88geom as geom  # noqa: E402
+import sndcheck                                               # noqa: E402
+from cycweb import pkg_syms                                   # noqa: E402
+
+FPS = 30.0
+RATE = 22050
+TEMPLATE = "build/martypc/run/media/hdds/default_xtide.vhd"
+HZ = 4772727.0
+
+
+def u16(b, i=0):
+    return struct.unpack_from("<H", b, i)[0]
+
+
+def clip(tmp, nf, afmt):
+    """nf canvases 80 x 200 in the Hercules layout, and 22,050 Hz of
+    pseudo-random PCM8 for them"""
+    rnd = random.Random(4242)
+    wb, h = 80, 200
+    cv = bytearray(wb * h)
+    paths = []
+    for f in range(nf):
+        if f % 60 == 0:
+            cv = bytearray(wb * h)
+        x, y = (f * 3) % (wb - 8), (f * 5) % (h - 24)
+        for r in range(24):
+            cv[(y + r) * wb + x:(y + r) * wb + x + 8] = \
+                bytes([0x3C ^ (f & 0xFF)]) * 8
+        if f % 30 in (10, 11):
+            for _ in range(200):
+                a = rnd.randrange(wb * h - 8)
+                cv[a:a + 8] = bytes(rnd.getrandbits(8) for _ in range(8))
+        p = os.path.join(tmp, "f%04d.pbm" % f)
+        vid._write_pbm(p, wb, h, bytes(cv))
+        paths.append(p)
+    audio = bytes(rnd.getrandbits(8) for _ in range(int(RATE * nf / FPS)))
+    wav = os.path.join(tmp, "a.wav")
+    vid._write_wav(wav, RATE, audio)
+    out = os.path.join(tmp, "CLIP.V88")
+    vid.encode_frames(paths, out, FPS, wav, "herc", "vidsound clip",
+                      audio_fmt=afmt)
+    vid.verify_v88(out)
+    return out
+
+
+def captured_bytes(path):
+    """The card's bytes back out of MartyPC's capture: a sample-and-hold
+    resample of each byte to the host rate, so a byte is a RUN of equal host
+    samples. Runs collapse the same way in the reference, which is what the
+    comparison is made on. tools/sndcheck.py's reader, because the capture's
+    size fields may be left zero"""
+    rate, vals, _ = sndcheck.load(path)
+    return bytes(max(0, min(255, int(round(v * 128.0)) + 128))
+                 for v in vals), rate
+
+
+def runs(b):
+    out = bytearray()
+    last = None
+    for x in b:
+        if x != last:
+            out.append(x)
+            last = x
+    return bytes(out)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--secs", type=int, default=60)
+    ap.add_argument("--machine", default="os8088_5150_herc_hdd_sb_gla")
+    ap.add_argument("--audio", choices=("pcm8", "adpcm4"), default="pcm8",
+                    help="adpcm4: the card decodes it (DSP 7Dh), MartyPC's "
+                    "by tools/martypc/patches/06")
+    a = ap.parse_args()
+    nf = int(a.secs * FPS)
+    os.chdir(ROOT)
+    syms, image = pkg_syms("apps/video/video.asm", ("apps/",))
+    if open(os88build.at("build/video.bin"), "rb").read() != image:
+        sys.exit("vidsound: build/video.bin is behind the tree - run `make`")
+    bad = []
+    with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "build")) as tmp:
+        afmt = vid.AUD_BY_NAME[a.audio]
+        v88 = clip(tmp, nf, afmt)
+        r = vid.Reader(v88)
+        audio = b"".join(rec[-r.abytes:] for rec, _, _ in r.records())
+        if afmt == vid.AUD_ADPCM4:      # what the card plays: the stream
+            audio = vid.adpcm4_decode(audio)    # decoded from the reference
+        vhd = os.path.join(tmp, "vidsound.vhd")
+        subprocess.run(
+            ["python3", "tools/os88hdd.py", "--template", TEMPLATE,
+             "--out", vhd, "--kernel", os88build.at("build/kernel.sys"),
+             "--vbr", os88build.at("build/boothd.bin"),
+             "--mbr", os88build.at("build/mbr.bin"),
+             "--file", "HDD.DRV=" + os88build.at("build/hdd.drv"),
+             "--file", "HIBER.DRV=" + os88build.at("build/hiber.drv"),
+             "--file", "CTRL.DRV=" + os88build.at("build/ctrl.drv"),
+             "--file", "SOUND.DRV=" + os88build.at("build/sound.drv"),
+             "--file", "VIDEO.O88=" + os88build.at("build/video.o88"),
+             "--file", "CLIP.V88=" + v88], check=True, capture_output=True)
+        cap = os.path.join(tmp, "cap")
+        os.environ["MARTYPC_WAV"] = cap
+        m = os88marty.launch(None, machine=a.machine,
+                             extra=["--mount", "hd:0:" + vhd])
+        try:
+            ui = os88ui.UI(m)
+            ui.ready(limit=240)
+            w = ui.path("C:/CLIP.V88")
+            rec = m.read(ui._S("wm_wins") + w.i * geom.WIN_SIZE,
+                         geom.WIN_SIZE)
+            base = u16(rec, geom.W_SEG) << 4
+
+            def rw(n):
+                return u16(m.read(base + syms[n], 2))
+
+            def rb(n):
+                return m.read(base + syms[n], 1)[0]
+
+            os88marty.until(m, lambda mm: rb("vp_loaded") == 1,
+                            "the clip's header", poll=0.5, limit=300.0,
+                            guest=30.0)
+            if rb("vp_ok") != 1:
+                sys.exit("vidsound: the player will not play the clip here")
+            m.write(base + syms["vp_played"], b"\0")
+            m.type_text("p")
+            os88marty.until(m, lambda mm: rb("vp_ready") == 1,
+                            "the play to start", poll=0.1, limit=300.0,
+                            guest=60.0)
+            c0 = int(m.status().get("cycles", 0))
+
+            def state():
+                seg = rw("vp_aseg") << 4
+                ctl = m.read(seg + 16384, 4) if seg else b"\0\0\0\0"
+                return (" ".join("%s=%d" % (k, rw(k)) for k in (
+                    "vp_done", "vp_afr", "vp_atot", "vp_alast", "vp_pause",
+                    "vp_stall", "vp_skmax", "vp_syncf", "vp_pers", "vp_lc",
+                    "vp_pc", "vp_afinal", "vp_apend")) +
+                    " snd=%d end=%d aend=%d err=%d ctl=%d/%d" % (
+                        rb("vp_snd"), rb("vp_end"), rb("vp_aend"),
+                        rb("vp_err"), u16(ctl), u16(ctl, 2)))
+            try:
+                os88marty.until(m, lambda mm: rb("vp_ready") == 0,
+                                "the play to end", poll=1.0, limit=1200.0,
+                                guest=a.secs * 2 + 30)
+            except os88marty.MartyError:
+                print("   STUCK: " + state())
+                raise
+            c1 = int(m.status().get("cycles", 0))
+            os88marty.until(m, lambda mm: rb("vp_played") == 1,
+                            "the bracket to return", poll=0.5, limit=120.0,
+                            guest=30.0)
+            st = {k: rw(k) for k in (
+                "vp_done", "vp_stall", "vp_late", "vp_pause", "vp_skmax", "vp_gap",
+                "vp_afr", "vp_atot", "vp_alast", "vp_afinal", "vp_dt")}
+            st["vp_snd"] = rb("vp_snd")
+            st["vp_err"] = rb("vp_err")
+            st["vp_aend"] = rb("vp_aend")
+        finally:
+            m.close()
+            os.environ.pop("MARTYPC_WAV", None)
+        allcaps = sorted(glob.glob(cap + "*.wav"))
+        caps = [c for c in allcaps if "blaster" in c.lower()
+                or ".sb" in c.lower()]
+
+        secs = st["vp_dt"] * 65536 / 1193182.0     # the player's own ticks
+        # (the host polls the end once a second, so a cycle count taken
+        # there can overshoot by seconds of guest time)
+        real = 1000000.0 / (256 - (256 - 1000000 // RATE))   # the card's rate
+        bps = r.abytes / float(r.spf)                   # bytes a sample
+        want_s = (r.spf * nf) / real + 2048 / bps / real   # ...and the
+                                                        # drain, to a block's end
+        print("\n   %d frames, %d bytes of %s sound a frame at %d Hz (the "
+              "card plays %.0f)" % (nf, r.abytes, a.audio.upper(), RATE, real))
+        print("   drew %d, stalls %d, late %d, pauses %d, trailed the sound "
+              "by at most %d frames; sound queued for %d frames"
+              % (st["vp_done"], st["vp_stall"], st["vp_late"],
+                 st["vp_pause"], st["vp_skmax"], st["vp_afr"]))
+        print("   the play took %.2f s of guest time; the sound is %.2f s; "
+              "the hook was held off at most %d periods"
+              % (secs, want_s, st["vp_gap"]))
+        if not st["vp_snd"]:
+            bad.append("the play was SILENT: the card was not opened")
+        if st["vp_err"]:
+            bad.append("the play stopped on an error")
+        if st["vp_done"] != nf:
+            bad.append("drew %d of %d" % (st["vp_done"], nf))
+        if st["vp_stall"]:
+            bad.append("%d stalls: the reader fell behind" % st["vp_stall"])
+        if st["vp_pause"]:
+            bad.append("the card ran dry %d times" % st["vp_pause"])
+        if st["vp_skmax"] > 2 or st["vp_late"]:
+            bad.append("the picture trailed the sound (max %d, late %d)"
+                       % (st["vp_skmax"], st["vp_late"]))
+        if st["vp_aend"] != 1 or \
+                ((st["vp_alast"] - st["vp_afinal"]) & 0x8000):
+            bad.append("the sound did not play out to its last byte "
+                       "(aend %d, consumed %d, last %d)"
+                       % (st["vp_aend"], st["vp_alast"], st["vp_afinal"]))
+        if abs(secs - want_s) > want_s * 0.02 + 0.5:
+            bad.append("the play took %.2f s where the sound takes %.2f"
+                       % (secs, want_s))
+        # --- the sound itself
+        if not caps:
+            bad.append("no Sound Blaster capture among %s" % allcaps)
+        else:
+            got, hrate = captured_bytes(caps[0])
+            gr, wr = runs(got), runs(audio)
+            at = gr.find(wr[:64])
+            print("   capture: %s, %d Hz, %d host samples" %
+                  (os.path.basename(caps[0]), hrate, len(got)))
+            if at < 0:
+                bad.append("the clip's first sound is not in the capture")
+            elif gr[at:at + len(wr)] != wr:
+                n = next(i for i in range(min(len(wr), len(gr) - at))
+                         if gr[at + i] != wr[i]) \
+                    if len(gr) - at >= len(wr) else len(gr) - at
+                bad.append("the captured sound departs from the file's "
+                           "%d distinct samples in (of %d)" % (n, len(wr)))
+            else:
+                print("   the capture holds the clip's %d samples of sound "
+                      "whole and in order" % len(audio))
+    for b in bad:
+        print("   FAIL: %s" % b)
+    if not bad:
+        print("\n   ok")
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

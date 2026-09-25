@@ -1,4 +1,4 @@
-VIDEO PLAYER - FIELD HARD DISK (waves 0-3)
+VIDEO PLAYER - FIELD HARD DISK (waves 0-4)
 ==========================================
 
 A bootable fixed disk: the os8088 kernel, the Video
@@ -44,7 +44,9 @@ Player's window is on that decides.
 
 THE VIDEOS - double-click one, or open VIDEO.O88 and
 use File > Open. P plays it fullscreen; Esc stops.
-Silent in this wave, whatever the card.
+WITH A SOUND BLASTER THEY PLAY WITH SOUND, and the
+card is the clock: the picture follows what the card
+has played. Without one they play silent, on the timer.
 CLOSE THE BENCH WINDOWS FIRST. Each keeps its memory
 until it is closed, and the player reads ahead into
 whatever is free: with the benches open it gets the
@@ -59,10 +61,21 @@ smallest ring (two 32 KB slots) and STALLS, or says
                  COMPOSITE colour: in mono it is a
                  pattern of stripes, and that is expected
 
+  TRONDA4.V88    TRONDISC with its sound as 4-bit
+                 ADPCM, which the CARD decodes (not
+                 on -MFM or -ST11M: no room)
+  BBBBA4.V88     BBBB_BW, the same
+
+  The ADPCM pair is the question: listen to each
+  against its PCM original. The same sound, a little
+  hissier, is right. Loud noise or a buzz is this
+  player and that card disagreeing about the format,
+  and is worth a recording.
+
 When a play ends the window reads "Drew N of N",
-"stalls" (the reader could not keep up), "Late" (frames
-drawn after their time) and the ticks it took against
-the ticks it should have. Please photograph that for
+"stalls" (the reader could not keep up), "pauses" (the
+sound card ran dry - with sound only), "Late" and the
+ticks it took against the ticks it should have. Please photograph that for
 each video. Zero late and zero stalls is the target.
 
 THE BENCHES - each opens a window. Click it (or press
