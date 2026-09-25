@@ -7323,6 +7323,18 @@ SOAK = [
         "graphics fullscreen is not what a tier-0 machine draws.",
         needs=("qemu", "nasm"), serial=True, timeout=900,
         wants=("build/os8088.img", "build/trkscrl.img")),
+    Row("trkclick", "soak", py("tests/trkclick.py"), 47.0,
+        "SPEC.md 45.21.10: a CLICKED Tracker button's action may repaint the "
+        "face. tw_prefire parked the fired button in tw_t2, the face's shared "
+        "drawing scratch, and an XT-mode rate click repaints - at 11 kHz "
+        "tw_voff leaves a STRING POINTER there, and tw_synced then wrote two "
+        "words ~34KB into the package's own code: a hard freeze on the next "
+        "Play (field report, 286 + SB16). [tw_fired] is its own word. The "
+        "report's path - playing, XT Mode on without stopping, two rate "
+        "clicks - and the image compared across the round trip. QEMU, "
+        "because an XT never makes the transition that arms it.",
+        needs=("qemu", "nasm"), serial=True,
+        wants=("build/os8088.img", "build/trkship360.img")),
     Row("mouresume", "soak", py("tests/mouresume.py"), 150.0,
         "SPEC.md 96.45.2: THE POINTER IS ALIVE AFTER A LIVE RESUME FROM "
         "kern_dos. kd_mou_stop gives the port back quiet - IER 0 and the line "
