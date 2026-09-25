@@ -236,6 +236,11 @@ def capabilities():
     # named its parent.
     if os.access(os.path.join(ROOT, "build/cc/SmallerC/smlrcc"), os.X_OK):
         caps.add("cc")
+    # Pillow, for a row that WRITES a picture through it (pxsshots). Probed
+    # by import rather than by name, because a missing module reached the
+    # row as a traceback and a FAIL instead of a skip.
+    if os88build.have_pil():
+        caps.add("pil")
     # WIREFRAME is an instrument and does not ship (SPEC.md 78.9), so `all`
     # builds wire.o88 and NO shipped floppy carries it - the disk comes from
     # `make wiredisk` and nothing in the suite runs that. Without this, the

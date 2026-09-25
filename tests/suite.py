@@ -8027,7 +8027,7 @@ SOAK = [
         "preconditions (the dog a sprite candidate and its frame not the "
         "corridor's; the map up, and still up with PXM_MAP after Esc) - it "
         "judges no picture: LOOK at the PNGs. Three MartyPC launches in one row",
-        needs=("marty",), serial=True, alone=True),
+        needs=("marty", "pil"), serial=True, alone=True),
     Row("pxsbench", "soak", py("tests/pxsbench.py"), 150.0,
         "SPEC.md 97.10: PIXELSTEIN 3D's unit costs, MEASURED. Every figure "
         "the frame table of 97.1 is built from - the compiled store, the "

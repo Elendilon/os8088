@@ -212,6 +212,11 @@ def requirements():
                 "the C packages - Weave, RunCPM, the C64, cword. Eleven rows.",
                 "tools/setup-cc.sh"))
 
+    req.append(("pil", os88build.have_pil(),
+                "pxsshots, which writes PIXELSTEIN 3D's photographs through "
+                "Pillow and used to FAIL on the ImportError.",
+                "make deps      (installs python3-pil)"))
+
     # THE FOUR DISKS `all` DELIBERATELY DOES NOT BUILD.  This is the item the
     # pass-3 soak found by hand after fifteen runs had skipped on it, and the
     # reason each is absent is a different deliberate decision (SPEC.md 78.9
