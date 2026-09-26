@@ -29,12 +29,45 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'Video Player', vp_entry, 2     ; flags bit 1 = assoc
+    OS88_HEADER 'Video Player', vp_entry, 0x23  ; icon, assoc, doc glyph
+
+; --- the icon (SPEC.md 20.2): a play button --------------------------------
+; A solid disc with a play triangle cut out of it, so it reads as one shape
+; on every adapter - no grey, no one-pixel stroke (SPEC.md 39.4). The mask
+; is the disc dilated one pixel, a white underlay round it.
+;
+;   .....######.....    the data; the mask is every pixel but the corners
+;   ..##########..
+;   .####.#######.      (rows 0-2 and 13-15 shown trimmed)
+;   .####..######.
+;   #####....#####
+;   #####.....####
+;   #####.......##
+    OS88_ICON16
+    dw 0x3FFC, 0x7FFE, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF
+    dw 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0x7FFE, 0x3FFC
+    dw 0x07E0, 0x1FF8, 0x3FFC, 0x7BFE, 0x79FE, 0xF87F, 0xF83F, 0xF80F
+    dw 0xF80F, 0xF83F, 0xF87F, 0x79FE, 0x7BFE, 0x3FFC, 0x1FF8, 0x07E0
+    OS88_ICON16_END
 
     OS88_ASSOC16                    ; SPEC.md 54.6: double-click a .V88
     db 1
     OS88_ASSOC_EXT 'V88'
     OS88_ASSOC16_END
+
+; --- what a .V88 wears (SPEC.md 54.3.2) -------------------------------------
+; The disc reduced by majority would be a solid blob with the triangle gone,
+; so a document wears the triangle alone, black on its page.
+    OS88_DOCGLYPH8
+    db 0x40                         ; .#......
+    db 0x70                         ; .###....
+    db 0x7C                         ; .#####..
+    db 0x7E                         ; .######.
+    db 0x7C                         ; .#####..
+    db 0x70                         ; .###....
+    db 0x40                         ; .#......
+    db 0x00                         ; ........
+    OS88_DOCGLYPH8_END
 
 VP_CHUNK    equ 32768               ; a ring slot, and a READ_SEQ call
 VP_RL       equ 16384               ; the audio ring (SPEC.md 98.3.1)...

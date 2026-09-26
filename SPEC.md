@@ -149175,6 +149175,11 @@ window can host it (98.3.7), full screen otherwise. **Esc stops** at
 the foreground's next poll, whatever the frame rate; **Space pauses**
 (98.3.4). When the bracket returns, the window shows what the play cost.
 
+**Its icon is a play button** - a solid disc with the triangle cut out of
+it, one shape on every adapter - and a `.V88` wears the triangle alone on
+its page, shipped as the document glyph (flags bit 5, §54.3.2), because the
+disc reduced by majority is a blob with the triangle gone.
+
 **It takes a file of its surface's own layout** (98.1.2) in that layout's
 mode, and nothing else yet:
 
