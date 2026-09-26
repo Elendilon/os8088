@@ -1532,6 +1532,9 @@ cmz_route:
     je .no
     cmp word [cs:cmz_u+2], 0
     je .no
+%ifdef KERN_SMALL
+    jmp short .no               ; ...and never on kern_small: the ending's
+%endif                          ; truncate is a door it has not got (18.4.7.4)
     push bx
     mov ax, [cs:cmz_u]
     mov dx, [cs:cmz_u+2]
@@ -1546,6 +1549,13 @@ cmz_route:
     cmp ax, CMZ_STRK + CMZ_WMIN/512
     jb .whole                   ; ...and neither way fits: whole's dial, and
                                 ; its own `Not enough memory`
+    push ax
+    mov ax, [cs:cmz_u]          ; ...nor when the RESULT could not be read
+    mov dx, [cs:cmz_u+2]        ; back: every reader of a 'CZ' file, and
+    call cmz_kb                 ; Uncompress, claims U whole (SPEC.md
+    pop dx                      ; 22.23.4), so a stream past the heap is a
+    cmp ax, dx                  ; file nothing on this machine can open.
+    ja .whole                   ; Whole's own claim refuses it, before any work
     call COLD_SEG:dwf_dskw_dfree    ; BX = sectors a cluster
     jc .whole
     cmp bx, 0x4000 / 512
@@ -1602,6 +1612,10 @@ cmz_stream:
     inc si
     stosb
     loop .cp
+    mov si, fm_ebuf             ; a name already TAKEN refuses: the write
+    call COLD_SEG:dwf_dskw_stat ; below would replace it, and it may be the
+    mov ax, FERR_EXIST          ; result a failed rename left there (SPEC.md
+    jnc .ferr                   ; 22.22.5 step 4) - or the file compressed
     mov ax, [cs:cmz_u]          ; the bar: one pass over U
     mov dx, [cs:cmz_u+2]
     mov [cs:cmz_utot], ax

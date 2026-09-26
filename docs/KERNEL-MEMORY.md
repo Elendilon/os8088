@@ -241,7 +241,7 @@ had added.
     "bss": 5525,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 40432,
+    "cold": 40436,
     "coldpara": 2528,
     "fatpara": 288,
     "imgpara": 3328,
@@ -671,14 +671,14 @@ there and nowhere else.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 32,669 | 37.2% |
+| the file system, end to end | 32,673 | 37.2% |
 | the window system and its furniture | 23,086 | 26.3% |
 | drawing: adapters, primitives, glyphs, icons | 13,310 | 15.2% |
 | hardware: drivers, clock, mouse, sound, CPU, XMS | 9,019 | 10.3% |
 | the kernel proper: API table, heap, scheduler, events | 7,652 | 8.7% |
 | the three built-in kinds | 1,483 | 1.7% |
 | the Control Panel | 546 | 0.6% |
-| **total** | **87,765** | |
+| **total** | **87,769** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
@@ -689,7 +689,7 @@ there and nowhere else.
 | `disk.inc` — volumes, mount, the FAT read path (§18–19) | 375 | 6,423 | **6,798** | 418 | — | — |
 | `vga12.inc` — the VGA planar primitives (§5) | 5,818 | 821 | **6,639** | 107 | 526 | — |
 | `fdlg.inc` — the Standard File dialog (§38) | 101 | 5,031 | **5,132** | 188 | — | — |
-| `diskw.inc` — the FAT write path (§18.4–18.6) | 82 | 4,798 | **4,880** | 160 | — | — |
+| `diskw.inc` — the FAT write path (§18.4–18.6) | 82 | 4,802 | **4,884** | 160 | — | — |
 | `mouse.inc` — serial mouse and the cursor (§9) | 4,167 | — | **4,167** | 151 | 128 | — |
 | `memory.inc` — the claim heap (§50) | 217 | 2,957 | **3,174** | 26 | 324 | — |
 | `ui.inc` — the UI task and the event ladder (§13) | 3,033 | — | **3,033** | 58 | — | — |
@@ -735,7 +735,7 @@ there and nowhere else.
 | `compress.inc` — the LZB compressor (§20.15), an on-demand module and 0 resident | — | — | **0** | — | — | — |
 | `dockmod.inc` — `DOCK.DRV`, the Advanced Dock runtime (§30.5), an on-demand module on `kern_big` | — | — | **0** | — | — | — |
 | `kernel.asm` — API table, entry points, `kmain`, the shims | 2,365 | 163 | **2,528** | — | — | 421 |
-| **total** | **47,333** | **40,432** | **87,765** | **5,525** | **6,366** | **2,249** |
+| **total** | **47,333** | **40,436** | **87,769** | **5,525** | **6,366** | **2,249** |
 <!-- END generated table -->
 
 ### Reading it

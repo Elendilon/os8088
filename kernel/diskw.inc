@@ -2920,6 +2920,8 @@ dskw_wabody:
     cmp ax, [dskw_raw+DSK_R_SIZE]
     ja .badarg
 .tsize:
+    cmp dx, bx                  ; a quotient past 16 bits: only an entry
+    jae .corrupt                ; claiming more than any volume holds
     mov [dskw_raw+DSK_R_SIZE], ax
     mov [dskw_raw+DSK_R_SIZE+2], dx
     div bx                      ; the clusters kept - one div, for .in's reason

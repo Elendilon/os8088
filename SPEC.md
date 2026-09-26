@@ -31808,9 +31808,12 @@ the offset as its size. The ENTRY is written first and the FAT after, which is
 `dskw_dbody`'s order and §18.4's reason for it: a crash between the two leaks
 the freed clusters, where the other order would leave an entry naming clusters
 the allocator may hand to somebody else. A chain shorter than the entry's size
-says is refused `FERR_IO` before anything is written.
+says is refused `FERR_IO` before anything is written, and so is an offset
+whose cluster count would not fit 16 bits — the entry's size is read off the
+disk and only a claim past any volume reaches it — because the divide would
+otherwise fault inside the file layer.
 
-**It is 106 bytes of `.cold` on `kern_big` and nothing else** — measured with
+**It is 110 bytes of `.cold` on `kern_big` and nothing else** — measured with
 and without at one commit: `.text` and `.bss` byte-identical, no cell and no
 shim, because the door is `OSAPI_FILE_WRITE_AT`'s and everything in front of
 it — the mount, the redirected-volume refusal, the name, the entry, the
@@ -44414,8 +44417,9 @@ past it in its own words.
 A file whose whole claim will not fit is read through a **48KB source window**
 and written through a **33KB output window**, so what it costs is **89KB plus
 the tables** — 121KB at the full window, 91KB at the smallest dial — whatever
-the file's size. The limit becomes the DISK: the result is written beside the
-original before the original goes.
+the file's size. The limit becomes the DISK, and the one claim that reads the
+result back: the result is written beside the original before the original
+goes.
 
 **`cmz_route` decides, and it decides on `mem_avail`** — the number a claim
 would be served, asked without claiming, so asking sheds nothing (§66.4). Whole
@@ -44429,7 +44433,11 @@ does not and every one of these holds:
 - the volume's cluster is **16KB or less**, because the refills are 16KB and
   32KB at offsets that are multiples of 16KB, and `OSAPI_FILE_READ_AT` takes
   whole clusters on both (§18.4.4);
-- the heap holds the windows at the smallest dial.
+- the heap holds the windows at the smallest dial;
+- the heap holds **`U` too**, as the one claim every reader of a `'CZ'` file
+  and Uncompress make (§22.23.4) — a streamed result past it would be a file
+  nothing on the machine could open, so it is whole's `Not enough memory`
+  instead, before any work.
 
 **ONE PASS, AND THE CUT IS DEALT WITH AT THE END.** The stream is cut at the
 first peak of the lead and everything after it is thrown away and sent raw
@@ -44439,7 +44447,9 @@ WRITE (so `dskw_czstamp` sees the `'CZ'` header, which sits in the paragraph
 in front of the window) and the rest with APPENDs, whose rule (the file a
 whole number of clusters) the 16KB chunks keep — to `CMPRESS~.TMP` in the same
 folder, named in `fm_ebuf` (the status line's edit buffer, idle while a menu
-verb runs, and in `DS` where the file layer wants a name). At the end:
+verb runs, and in `DS` where the file layer wants a name). A name already taken
+there is refused `FERR_EXIST` before anything is written: the WRITE would
+replace it, and it may be the result step 4's failed rename left. At the end:
 
 1. **The cut is still in the output window** — the common case, a file whose
    lead keeps rising: `DI` goes back to it and the bytes past it are dropped.
@@ -44483,7 +44493,10 @@ caller to say.
 **What it costs is disk and a little time**: the result beside the original
 until the rename, and the windows' copying and refills on top of whole's one
 parse at ~1,600 cycles a byte. `kern_small` does not reach
-this path at all: 91KB of windows is more than its heap. The bar is scaled
+this path at all: `cmz_route` is gated off there, because the ending's
+truncate is `OSAPI_FILE_WRITE_AT`'s and that door is `kern_big`'s
+(§18.4.7.4), so a file whose whole claim does not fit is `Not enough memory`
+there, as it was before streaming. The bar is scaled
 to both passes, and since every `dskw_*` call arms the widget to its own
 length and ends it (§12.8), `cmz_rearm` puts the verb's scale back after each
 read and write.
