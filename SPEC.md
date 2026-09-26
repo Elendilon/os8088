@@ -15089,7 +15089,8 @@ alternative was an `OSAPI_MOUSE_REARM` of its own, and the cell is the
 expensive half — a new cell is six bytes of table at the least (§20.3's rare
 shape) **plus a published name kept for ever**.
 
-**THE COST IS 94 RESIDENT BYTES ON `kern_big` AND NOTHING ON `kern_small`.**
+**THE COST IS 108 RESIDENT BYTES ON `kern_big` AND NOTHING ON `kern_small`**
+(94, and 14 more for choosing the vector by the line, below).
 The gate is a fact about the disk rather than a judgement: the only programs
 that can do this are DOS programs, and `DOS.O88` is on no `kern_small` floppy
 — `build/small360.img` is 27 files and none of them is the box — so that
@@ -15104,11 +15105,18 @@ Three things keep it small, and each was 15 bytes or better:
   offset too spends 15 bytes to distinguish a vector pointing *into the
   kernel*, which is neither a theft nor survivable.
 - **`[mou_port]` is already the tables' byte offset** — 0 or 2, with
-  `MOU_P2ROW` = 4 above them — so it indexes `mou_ivecs`/`mou_isrs` with no
+  `MOU_P2ROW` = 4 above them — so it indexes `mou_pout`'s base with no
   shift. Shifting it is the bug this routine was first written with, and a
   machine whose mouse is on COM1 never notices: row 0 shifts to 0.
 - **One critical section**, over the vector write and the 8259 mask together,
   rather than one around each.
+
+**The vector is the LINE's, not the port's.** `mou_ivecs`/`mou_isrs` are
+indexed by `[mou_line]` — `MOU_L4` is row 0's `int 0Ch` and `mou_isr`, any
+other row 2's `int 0Bh` and `mou_isr3` — because a 2F8 card jumpered to IRQ4
+(§9.5.2.1) speaks on `int 0Ch`, and checking the port's `int 0Bh` would find
+it still ours and never restore the stolen one. `kd_mou_vec` is the same rule
+on `kern_dos`.
 
 **The hardware goes back with the vector**, because a program that took one
 took the other: `MCR` to `DTR|RTS|OUT2` (Battle Chess leaves `08h`, which is
@@ -51080,7 +51088,7 @@ CURRENT directory (§19.2), which is wherever the user last browsed to.
 Greying the item would mean answering "can this be loaded?" without loading
 it, and §47 rule 3 forbids exactly that: the only honest test is the load.
 So it is always clickable, and a failure is a **toast** (§59) naming the
-reason: `No system disk in drive A:`, `Not in SYSTEM`, or the Disk window's
+reason: `No system disk in A:`, `Not in SYSTEM`, or the Disk window's
 own `LD_*` verdict (`Load failed` / `Out of memory`, §21 step 10). It was a
 notice WINDOW (`ui_note`) until kernel size pass 4, because the Task Manager
 predated toasts and a menu item has no status line; a toast is exactly what a
@@ -62735,7 +62743,7 @@ refused both times, naming the line.
 
 ##### 39.19.6.1 Lifetime: pinned while extended, dropped on the way back to Single
 
-One resident routine, **`exf_sync`** (`.cold`, far, 35 bytes), reconciles the
+One resident routine, **`exf_sync`** (`.cold`, far, 46 bytes), reconciles the
 image with `[vid_dmode]`, `dkf_apply`'s shape: Extend → `mod_need(MOD_EXT)`,
 and a refusal puts `[vid_dmode]` back to Single and answers CF = 1; Single →
 `mod_drop`, but **only once `[vid_ndisp]` ≤ 1** — the drop waits for the
@@ -62763,9 +62771,19 @@ collapse, which is the invariant kept by construction rather than by care.
 - **An fsx bracket needs the image across it** (`vid_fsx_leave`/`_unblank`
   put the second display back) and has it: nothing drops it while
   `[vid_dmode]` is Extend, and the UI task does not run inside a bracket.
+- **A machine that can never pair never loads it.** Extend reads the image
+  only when `[vid_avail]` has `VID_A_HERC` and `VID_A_CGA` — `vid_dual_ok`'s
+  fixed half, since a VGA or EGA sets the CGA bit unprobed — so a
+  `SYSTEM.CFG` carried from a dual machine to a one-card one costs it no read
+  and no claim, and `[vid_dmode]` stays Extend for the trip back. It tests
+  the bits and not `[vid_kind]`, so an EGA-primary machine with a Hercules
+  still loads it. +11 bytes of `.cold`.
 - Nothing drops it while any of it can be on a stack: the panel holds the
   graphics lock at the second `exf_sync`, and every entry returns before the
-  UI task can reach the panel again.
+  UI task can reach the panel again. `OSAPI_FSX_CAPS` is the one entry a
+  worker may reach WITHOUT the lock, so `fsx_caps` runs its `EXTCALL` inside
+  `pushf`/`cli` … `popf` and no switch lands in the image; `OSAPI_WM_DISPLAY`
+  is not a worker call (§20.6 rule 7).
 
 **What an Extend user pays**: a 2KB heap claim (the image rounded to whole KB
 by `mem_bytes_kb_x`), pinned and top-down like every module — so an exclusive
@@ -93113,6 +93131,16 @@ tick, and one that does not is already the case §66.5 names. That is the
 direction §66.4.3.2 chose for the what-if; for plain `mem_avail` it trades an
 under-report nobody sees for an over-report that costs a shed, on a worker that
 is already misbehaving.
+
+**The excuse is bounded by the park window.** `inst_park_req` wakes nobody, so
+a worker ASLEEP (`T_STATE` = 2) whose `T_WAKE` is `INST_PARKW` ticks or more
+away is one the claim will find where it is now, and `inst_seg_parked` answers
+"busy" for it even while `[mem_cp_pl]` stands — the difference compared by its
+sign (§45.15). Shipped packages sleep longer than a tick between `ALIVE`s:
+ArtfulType's caret worker sleeps 9, Fractal's 4. Tracker's idle frame sleeps 1,
+so the two rows above still read the parked answer. A worker that is running,
+ready, or due inside the window is still excused. **+39 bytes of `.text` on
+`kern_big`**, and nothing on `kern_small`, which has no compactor.
 
 ### 66.5 The worker park
 

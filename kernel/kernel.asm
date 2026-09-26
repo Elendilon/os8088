@@ -4443,8 +4443,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if 0
-%error "os8088 API jump table must be exactly 179 8-byte slots"
+%if OSAPI_TABLE_LEN != 43*8 + 11*7 + 95*6 + 6*3 + 6 + 12*5 + 3*6
+%error "os8088 API jump table must be exactly 0x0445 bytes: 43 SLOT (8), 11 XCELL (7), 95 rare (6), 6 JCELL (3), 1 FCELL (6), 15 ICELL (12 of 5, 3 of 6)"
 %endif
 
 ; =============================================================================
@@ -6285,6 +6285,11 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
     mov byte [ddg_step], %1
 %endif
 %endmacro
+%ifdef DRV_DIAG                 ; ...and the knob is kern_big's alone: what it
+ %ifndef OS88_DRIVERS           ; watches is drv_boot, which kern_small has not
+  %error "DRVDIAG=1 is kern_big only: kern_small has no drv_boot and no drv_tab"
+ %endif
+%endif
 
 %macro KFZ 1
 %ifdef KFZTRACE

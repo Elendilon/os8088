@@ -82,9 +82,13 @@ fsx_caps:
     mov dl, [vid_kind]
 %ifdef KERN_BIG                 ; ...of the display the ASKED-ABOUT window is
                                 ; on (SPEC.md 39.18.1)
+    pushf                       ; IF = 0 across the module (SPEC.md 39.19.6.1):
+    cli                         ; a worker may ask this WITHOUT the lock, and
+                                ; a switch inside EXTD.DRV could let the panel
+                                ; drop the image under it. A few hundred cycles
     mov ah, EXTF_CAPS           ; AX is an output, so AH is free for the
     EXTCALL EXT_FSX             ; selector. BX = 0 is the frontmost window,
-                                ; and the primary if nothing is visible; the
+    popf                        ; and the primary if nothing is visible; the
 %endif                          ; CENTRE, then the origin (SPEC.md 39.17) -
                                 ; EXTD.DRV's ext_fsx_caps. UNGATED: an app
                                 ; asks this once to grey a menu, and one

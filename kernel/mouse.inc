@@ -1437,7 +1437,9 @@ mouse_unhook:
 ; MOU_P2ROW = 4 which is no serial row - so it indexes them with no shift.
 ; Shifting it is the bug this routine was written with: row 2 indexed four
 ; bytes in, off the end of a two-port table, and a machine whose mouse is on
-; COM1 never notices.
+; COM1 never notices. It indexes mou_pout's base and NOTHING ELSE here: the
+; vector and its stub are the LINE's row (SPEC.md 9.5.2.1, kd_mou_vec), since
+; a 2F8 card jumpered to IRQ4 speaks on int 0Ch, which is row 0's.
 ; -----------------------------------------------------------------------------
 mouse_rearm:
     cmp byte [mou_ptr], 0           ; nothing has proven itself a pointer, so
@@ -1448,10 +1450,16 @@ mouse_rearm:
     push ax
     push bx
     push si
+    push di
     push es
-    mov bl, [mou_port]
+    xor di, di                      ; DI = the LINE's row: IRQ4 is row 0's
+    cmp byte [mou_line], MOU_L4     ; int 0Ch and mou_isr, IRQ3 row 2's -
+    je .row                         ; whichever base the card answered at
+    mov di, 2
+.row:
+    mov si, [di+mou_ivecs]
+    mov bl, [mou_port]              ; ...and BX the PORT's, for mou_pout
     xor bh, bh
-    mov si, [bx+mou_ivecs]
     xor ax, ax
     mov es, ax
     mov ax, cs
@@ -1460,7 +1468,7 @@ mouse_rearm:
     pushf                           ; ...and one critical section over the
     cli                             ; vector AND the mask, not two
     mov [es:si+2], ax
-    mov ax, [bx+mou_isrs]
+    mov ax, [di+mou_isrs]
     mov [es:si], ax
     mov ax, 0x040B                  ; MCR: DTR|RTS|OUT2 - a program that took
     call mou_pout                   ; the vector took the UART with it, and
@@ -1475,6 +1483,7 @@ mouse_rearm:
     popf
 .done:
     pop es
+    pop di
     pop si
     pop bx
     pop ax

@@ -2736,6 +2736,9 @@ menu_y1:    resw 1              ; (x1,y1,x2,y2) since size pass 4, so menu_drop
                                 ; bar, the shifted anchor from a popup (12.4)
 menu_x2:    resw 1              ; dropped menu rect, right
 menu_y2:    resw 1              ; dropped menu rect, bottom
+RECT4 menu_x1, menu_y1, menu_x2, menu_y2 ; wm.inc's rect_get assertion, here
+                                ; and not at wm.inc's foot: menu.inc is
+                                ; included after it, so there these are forward
 menu_cnt:   resw 1              ; item count of the tracked menu
 menu_iptr:  resw 1              ; its array of near item-string pointers
 menu_btn:   resb 1              ; mouse_btn mask that keeps it open: 1 = the

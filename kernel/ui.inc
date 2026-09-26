@@ -2399,7 +2399,7 @@ UO_NAME  equ 2                  ; dw -> the 16-byte header name a running
                                 ;       instance carries (SPEC.md 20.2)
 UO_SIZE  equ 4
 ; A failure is a TOAST now (kernel size pass 4), exactly what a Disk window's
-; launch says: `No system disk in drive A:`, `Not in SYSTEM`, or the Disk
+; launch says: `No system disk in A:`, `Not in SYSTEM`, or the Disk
 ; window's own fm_stattab verdict. It used to be a notice WINDOW with a title
 ; and a lead line naming the program - the Task Manager predated toasts
 ; (SPEC.md 59) - so the descriptor carried a title, a lead line, a verdict
@@ -2616,7 +2616,7 @@ ui_tm_drv:  db 0                ; .text: -f bin zeroes no .bss, and A:'s root
                                 ; is the right answer before the first load
 
 ui_s_tmttl:  db 'Task Manager', 0
-ui_s_nodisk: db 'No system disk in drive '
+ui_s_nodisk: db 'No system disk in '
 ui_s_nodisk_l: db 'A:', 0       ; the LETTER, stamped once by dsk_boot_from
                                 ; (SPEC.md 52.10.3) - a label rather than an
                                 ; offset, so rewording the message cannot

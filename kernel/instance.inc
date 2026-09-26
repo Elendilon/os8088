@@ -757,9 +757,10 @@ inst_park_all:
 ; module's (SPEC.md 29). A segment that matches no instance answers CF = 1:
 ; a driver's image matches none, and "I cannot tell" has to mean "it is busy".
 ;
-; Like inst_park_all above, it keeps "clobbers: flags" by writing no AX at
-; all - and its one callee on the exhaust path, inst_svc_parked, writes none
-; either, which is why that one no longer banks it.
+; Like inst_park_all above, it keeps "clobbers: flags" by writing no AX
+; outside the [mem_cp_pl] arm, which banks its own - and its one callee on the
+; exhaust path, inst_svc_parked, writes none either, which is why that one no
+; longer banks it.
 ; -----------------------------------------------------------------------------
 inst_seg_parked:
     push di
@@ -775,14 +776,33 @@ inst_seg_parked:
     jne .free                   ; parked: it is standing at the top of its own
                                 ; loop and holds nothing derived
     cmp byte [mem_cp_pl], 0     ; ...OR mem_avail IS PLANNING (SPEC.md 66.4.3.5):
-    jne .free                   ; the claim it answers for parks every package
+    je .busy                    ; the claim it answers for parks every package
                                 ; worker before it moves anything (mem_compact
                                 ; .nowt, inst_park_req), so a worker merely
-                                ; RUNNING or SLEEPING now is one that claim will
-                                ; find standing. Never true inside mem_compact's
+                                ; RUNNING now is one that claim will find
+                                ; standing. Never true inside mem_compact's
                                 ; own plan, whose answer is followed by moves. A
                                 ; driver's task is not asked about here
-    jmp short .busy
+    push ax
+    push bx
+    mov bl, [di+I_TASK]
+    xor bh, bh
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1                   ; T_SIZE = 8: BX = the worker's task record
+    mov ax, [bx+sch_tasks+T_WAKE]
+    sub ax, [ticks]
+    sub ax, INST_PARKW          ; SPEC.md 45.15: by the SIGN of the difference
+    js .plok                    ; due before the park's deadline (or stale)
+    cmp byte [bx+sch_tasks+T_STATE], 2
+    jne .plok                   ; not asleep: it reaches ALIVE inside the park
+    pop bx                      ; ASLEEP PAST INST_PARKW (ArtfulType's caret
+    pop ax                      ; worker sleeps 9): inst_park_req wakes nobody,
+    jmp short .busy             ; so the claim will find it where it is now
+.plok:
+    pop bx
+    pop ax
+    jmp short .free
 .drv:
     call inst_svc_parked        ; no instance owns it, so it is a DRIVER image
     jnc .free                   ; (SPEC.md 51.3) - and a driver's workers are

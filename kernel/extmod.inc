@@ -62,6 +62,13 @@ exf_sync:
     clc
     jmp short .out
 .need:
+    mov ah, [vid_avail]         ; ...but only on a machine that can EVER pair:
+    not ah                      ; vid_dual_ok's fixed half, HERC and VGA|CGA -
+    test ah, VID_A_HERC | VID_A_CGA ; a VGA sets the CGA bit unprobed
+    jnz .out                    ; (vid_probe_avail), so HERC|CGA is the same
+                                ; test. CF = 0 (test clears it) and [vid_dmode]
+                                ; kept: a SYSTEM.CFG carried from a dual
+                                ; machine costs this one no read and no claim
     call mod_need
     jnc .out
     mov byte [vid_dmode], 0     ; MOV keeps mod_need's CF = 1

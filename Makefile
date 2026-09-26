@@ -1165,6 +1165,7 @@ endif
 # tick interrupted, the PIC mask, the row-0 driver's segment and a tick
 # count. For a machine that stops on 'Loading Driver n/N': one photograph
 # names the step, and whether the count still moves says whether IRQ0 does.
+# kern_big only: kern_small has no drv_boot, and refuses the knob by name.
 ifneq ($(DRVDIAG),)
 VIDDEF += -DDRV_DIAG
 endif
