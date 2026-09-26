@@ -2232,8 +2232,13 @@ trk_play:
     pop ax                          ; 'Sound open failed', err 2 included
     mov si, trk_s_snderr
     cmp ax, 2                       ; err 2 = rate refused: a 33/44 kHz pick
-    jne .ofmsg                      ; on a pre-3.x DSP (SPEC.md 45.10) - the
+    jne .of8                        ; on a pre-3.x DSP (SPEC.md 45.10) - the
     mov si, trk_s_norate            ; menu greys those now, so this is a belt
+    jmp short .ofmsg
+.of8:
+    cmp ax, 8                       ; err 8 = no page-safe 8KB for the
+    jne .ofmsg                      ; double buffer, claimed per stream now
+    mov si, trk_s_nomem             ; (SPEC.md 34.5.2): a memory answer
 .ofmsg:
     call tui_msg
     jmp .out
@@ -3310,9 +3315,51 @@ trk_feed:
 %endif                              ; whole per-tick record but the drawing
     cmp byte [mp_playing], 0        ; F00 stopped the mixer: wait for the
     jne .go                         ; ring to drain, then flag for the
-    cmp dx, [trk_total]             ; UI-side close - mp_stop already ran
-    jne .out                        ; (the effect itself), so only the
-    mov byte [trk_ended], 1         ; latch is left
+                                    ; UI-side close - mp_stop already ran
+                                    ; (the effect itself), so only the
+                                    ; latch is left. But first the TAIL
+                                    ; (SPEC.md 45.22.1): the half the pieces
+    xor bx, bx                      ; had begun, and the driver's own block.
+    cmp word [trk_mixed], 0         ; BX = something staged this pass
+    je .pad
+    push dx                         ; (mp_gen clobbers freely: mp_* rule)
+    mov cx, TRK_HALF                ; finish the half in progress: mp_genc
+    sub cx, [trk_mixed]             ; pads 80h now the replayer has stopped,
+    call mp_genc                    ; and its room was checked when it began
+    call trk_stage                  ; (consumed only grows)
+    pop dx
+    mov bx, 1
+.pad:
+    cmp word [mp_mixrate], 22222    ; above 22,222 Hz the driver's block is
+    jbe .sfeed                      ; 4KB (SPEC.md 34.5), and a total at an
+    test word [trk_total], TRK_HALF ; ODD 2KB never drains: the card stops
+    jz .sfeed                       ; a block short of it. One more half of
+    mov ax, [trk_total]             ; silence, when the ring has room - and
+    sub ax, dx                      ; when it has not, the bit is still set
+    mov cx, [trk_ring]              ; and the next pass asks again
+    sub cx, TRK_HALF
+    cmp ax, cx
+    ja .sfeed
+    push dx
+    mov cx, TRK_HALF
+    call mp_gen                     ; mp_playing = 0: pure silence
+    call trk_stage
+    pop dx
+    mov bx, 1
+.sfeed:
+    or bx, bx
+    jz .sdrn
+    mov cx, [trk_total]             ; verb 1: feed what was staged
+    mov al, 1
+    mov ah, [trk_hand]
+    push dx
+    call OSAPI_SND_STREAM
+    pop dx
+    jmp .out                        ; the drain is the next pass's question
+.sdrn:
+    cmp dx, [trk_total]
+    jne .out
+    mov byte [trk_ended], 1
     call trk_wake                   ; ...and the UI task is TOLD (45.22.1)
     jmp .out
 .go:

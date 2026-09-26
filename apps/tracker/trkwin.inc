@@ -833,6 +833,10 @@ tw_lcd_line:
 .time:
     ; --- 1: the elapsed time and the file ------------------------------------
     call tw_secs                    ; AX = seconds
+    cmp ax, 99*60 + 59              ; 99:59 at most, BEFORE the byte divide:
+    jbe .ss                         ; a looping song passes 15,360 s and
+    mov ax, 99*60 + 59              ; div bl would overflow into INT 0
+.ss:
     mov bl, 60
     div bl                          ; AL = minutes, AH = seconds
     cmp al, 99
@@ -1295,6 +1299,10 @@ tw_slval:
     xor ax, ax
     jmp short .out
 .p:
+    cmp dx, cx                      ; a drag past the window's edge is the
+    jbe .q                          ; END of the groove, so the product
+    mov dx, cx                      ; below stays inside a word
+.q:
     mov ax, dx
     mul bx                          ; x * max...
     mov dx, cx                      ; (x < 416 and max <= 127, so the

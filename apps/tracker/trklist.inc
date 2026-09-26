@@ -750,7 +750,6 @@ tpl_refresh:
 
 ; --- input --------------------------------------------------------------------
 tpl_clickw:
-    call trk_reap
     call tpl_org                    ; the rects where the window IS
     call tpl_unorg
     push bx
@@ -925,7 +924,7 @@ tpl_b_remove:
     mov byte [tpl_cur], 0FFh
     jmp short .mv
 .nc:
-    jb .mv                          ; (removed BELOW the current one)
+    ja .mv                          ; (removed AFTER it: nothing moved)
     cmp byte [tpl_cur], 0FFh
     je .mv
     dec byte [tpl_cur]
@@ -1023,6 +1022,9 @@ tpl_b_sort:
     push cx
     push si
     push di
+    push es
+    push ds                         ; cmpsb reads ES:DI, and a callback is
+    pop es                          ; entered with ES = KERNEL_SEG
     mov ah, 1
 .i:
     cmp ah, [tpl_n]
@@ -1057,6 +1059,7 @@ tpl_b_sort:
     inc ah
     jmp short .i
 .out:
+    pop es
     pop di
     pop si
     pop cx

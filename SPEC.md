@@ -71548,6 +71548,8 @@ Play, which now says why.
 every refusal read `Sound open failed` — including err 2, whose own message
 (`That rate needs an SB Pro or SB16` now) never once reached the screen. It
 was reported off an SB 2.0 in a 286, where 44 kHz was offered and refused.
+Err 8 — the per-stream double buffer (§34.5.2) finding no page-safe 8 KB —
+reads `Out of memory`, which is what it is.
 
 **And a rate message survives the stop it causes.** Changing the rate while
 playing stops playback first, and the renderer's transport watch (`[tui_lplay]`
@@ -73787,6 +73789,16 @@ stream the worker has seen **drain**, and marks the song over. Acting on that
 may mean loading a file, and a paint is not where a load may happen
 (§54.10), so the worker posts `OSAPI_WM_WAKE` when it latches the end, and
 `trk_onwake` closes and walks the list without anybody touching the machine.
+
+The pass that first sees the replayer stopped finishes the tail before it
+asks about the drain. A half the pieces had begun (§45.16.7) is completed with
+`mp_genc`, which pads silence now, and is staged and fed — it was the song's
+last notes, up to 1,792 bytes, and was never heard. And above 22,222 Hz the
+driver's block is 4 KB (§34.5), so a total that ends on an ODD 2 KB is a block
+the card never plays: it pauses a block short with the watchdog disarmed, the
+drain never came, and the list stood on *Playing* until a key. So there one
+more half of silence is staged when the ring has room, and the next pass asks
+again when it has not.
 
 And the first thing the walk found: a ring grant **still held** after the
 close (its free refused) made the next load's ring probe ask for a second

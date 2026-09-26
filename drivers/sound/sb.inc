@@ -912,14 +912,17 @@ sbl_grant_alloc:
     clc                         ; the output (AX is dead on CF = 0)
     jmp .out
 .e8f:
-    popf
     or bp, bp                   ; no room: GROW the pool, once, and scan
-    jnz .e8n                    ; again - never with a stream open, which is
-    cmp byte [sbl_str_act], 0   ; reading from it (SPEC.md 34.6.3)
-    jne .e8n
-    inc bp
-    call sbl_pool_grow
-    jnc .scan
+    jnz .e8p                    ; again - never with a stream open, which is
+    cmp byte [sbl_str_act], 0   ; reading from it (SPEC.md 34.6.3). The test
+    jne .e8p                    ; and the grow stay in the scan's IF=0
+    inc bp                      ; window: a direct open between them would
+    call sbl_pool_grow          ; pin the pool by MC_RLOC alone, which
+    jc .e8p                     ; OSAPI_MEM_REGROW does not consult
+    popf
+    jmp .scan
+.e8p:
+    popf
 .e8n:                           ; ...and the same refusal from OUTSIDE the
     mov ax, 8                   ; window, where the pool claim happens
     jmp .err
