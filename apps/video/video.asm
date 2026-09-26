@@ -1498,6 +1498,13 @@ vp_canplay:
     cmp byte [vp_shadow], 0
     je .out
     mov bl, [vp_layout]
+    cmp byte [vp_target], 0         ; a RENDITION names the screen it was
+    je .cp                          ; drawn for (98.1.7), and its layout is
+    mov bl, [vp_target]             ; lin80's whichever that was - so the
+    dec bl                          ; layout said "VGA" of OS8088.V88's CGA
+    cmp bl, [vp_dlay]               ; one. Made for this screen, the copy is
+    je .out                         ; the player's business and not news
+.cp:
     xor bh, bh
     shl bx, 1
     mov ax, [vp_laycptab+bx]
@@ -5053,11 +5060,9 @@ vp_mxall:
     ret
 
 ; vp_wthumb - in the window, the thumb follows the play (98.3.7): when its
-; offset moves, the old 8 x 8 block is made white and the new one black,
-; written into the desktop's framebuffer here - the kernel's drawing is not
-; the bracket's to use - so a move is sixteen rows of two bytes, not a bar.
-; On a VGA desktop the stores go through the Graphics Controller's Bit Mask
-; with interrupts off, so the hook's decode always finds the planes at rest
+; offset moves, the block goes from where it was to where it is, written into
+; the desktop's framebuffer here - the kernel's drawing is not the bracket's to
+; use - so a move is at most four bytes a row, not a bar
 vp_wthumb:
     cmp byte [vp_winm], 0
     je .out
@@ -5070,32 +5075,27 @@ vp_wthumb:
     cmp ax, [vp_wtx]
     je .p
     push bx
-    push cx
-    push dx
     mov bx, [vp_wtx]
     mov [vp_wtx], ax
-    mov cx, bx
-    add cx, [vp_tx1]
-    mov dl, 1                       ; where it was: white
-    call vp_wbox
-    mov cx, ax
-    add cx, [vp_tx1]
-    xor dl, dl                      ; where it is: black
-    call vp_wbox
-    pop dx
-    pop cx
+    add ax, [vp_tx1]
+    add bx, [vp_tx1]
+    call vp_wmove
     pop bx
 .p:
     pop ax
 .out:
     ret
 
-; vp_wbox - the thumb's block at screen x CX, the bar's inside rows, in DL's
-; colour (1 white, 0 black), on the desktop's framebuffer ([vp_dseg], laid
-; out as [vp_dlay]). A 1 bpp desktop takes an OR or an AND; mode 12h a store
-; through the Bit Mask after a read loads the latches, so the four planes
-; move together and no pixel outside the block changes. Preserves all
-vp_wbox:
+; vp_wmove - the thumb's block from screen x BX to screen x AX, over the bar's
+; inside rows, on the desktop's framebuffer ([vp_dseg], laid out as
+; [vp_dlay]). ONE STORE A BYTE, of its final value: the old block made white
+; and the new one black in two passes put the columns they share through
+; white and back, and that was the flicker (98.3.7). So the bytes either block
+; touches - at most four, found once - each carry a mask (the bits that
+; change) and the white bits within it, and every row writes each byte once.
+; A 1 bpp desktop merges; mode 12h stores through the Bit Mask after a read
+; loads the latches, the data's 1s white and 0s black. Preserves all
+vp_wmove:
     push ax
     push bx
     push cx
@@ -5106,35 +5106,53 @@ vp_wbox:
     push es
     pushf
     cli
+    mov [vp_wnx], ax
+    mov [vp_wox], bx
+    mov byte [vp_wmn], 0
+    mov cx, bx
+    call .two                       ; the old block's bytes...
+    mov cx, [vp_wnx]
+    call .two                       ; ...and the new one's
     mov es, [vp_dseg]
-    mov bp, cx
-    shr bp, 1
-    shr bp, 1
-    shr bp, 1                       ; BP = the block's first byte
-    mov al, 0xFF
-    and cl, 7
-    shr al, cl                      ; AL = its bits in that byte...
-    mov ah, al
-    not ah                          ; ...AH = in the next (0: on a byte)
-    mov [vp_wbm], ax
     mov si, [vp_cy0]
     add si, [vp_lbary]
     inc si                          ; SI = the first row inside the bar
     mov cx, VP_BARH - 2
 .row:
+    push cx
     mov ax, si
     mov bl, [vp_dlay]
     call vp_rowaddr
-    add ax, bp
-    mov di, ax
-    mov al, [vp_wbm]
-    call .put
-    mov al, [vp_wbm+1]
-    or al, al
-    jz .nx
-    inc di
-    call .put
-.nx:
+    mov bp, ax                      ; BP = the row's start
+    mov bx, vp_wmt
+    mov cl, [vp_wmn]
+    xor ch, ch
+    jcxz .rn                        ; (a move always changes a bit; defensive)
+.e:
+    mov di, bp
+    add di, [bx]
+    mov ax, [bx+2]                  ; AL = the mask, AH = its white bits
+    cmp byte [vp_dlay], 2
+    je .ev
+    not al
+    and al, [es:di]
+    or al, ah
+    mov [es:di], al
+    jmp short .en
+.ev:
+    mov dx, 0x3CE
+    push ax
+    mov ah, al
+    mov al, 8                       ; the Bit Mask
+    out dx, ax
+    pop ax
+    mov al, [es:di]                 ; the latches, all four planes
+    mov [es:di], ah
+.en:
+    add bx, 4
+    loop .e
+.rn:
+    pop cx
     inc si
     loop .row
     cmp byte [vp_dlay], 2           ; mode 12h: every bit writable again
@@ -5153,31 +5171,66 @@ vp_wbox:
     pop bx
     pop ax
     ret
-.put:                               ; AL = the bits at ES:DI, DL the colour
-    cmp byte [vp_dlay], 2
-    je .vga
-    or dl, dl
-    jz .blk
-    or [es:di], al
-    ret
-.blk:
+.two:                               ; CX = a block's x: its two bytes
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1
+    call .one
+    inc cx
+.one:                               ; CX = a byte: into vp_wmt, once
+    mov si, vp_wmt
+    mov dl, [vp_wmn]
+    xor dh, dh
+.dup:
+    or dx, dx
+    jz .new
+    cmp [si], cx
+    je .r
+    add si, 4
+    dec dx
+    jmp short .dup
+.new:                               ; SI = the free entry
+    mov ax, [vp_wnx]
+    call .bm
+    mov bl, dl                      ; BL = the new block's bits (black)
+    mov ax, [vp_wox]
+    call .bm                        ; DL = the old one's
+    mov al, bl
     not al
-    and [es:di], al
+    and dl, al                      ; DL = the old's the new does not cover
+    or bl, dl                       ; BL = every bit that changes
+    jz .r
+    mov [si], cx
+    mov [si+2], bl
+    mov [si+3], dl
+    inc byte [vp_wmn]
+.r:
     ret
-.vga:
-    push dx
-    mov ah, al
-    mov al, 8                       ; the Bit Mask
-    mov dx, 0x3CE
-    out dx, ax
-    pop dx
-    mov al, [es:di]                 ; the latches, all four planes
-    xor al, al
-    or dl, dl
-    jz .v0
-    dec al
-.v0:
-    mov [es:di], al
+.bm:                                ; AX = a block's x, CX = a byte: DL =
+    push ax                         ; the block's bits in it
+    push cx
+    mov dx, ax
+    shr dx, 1
+    shr dx, 1
+    shr dx, 1                       ; DX = the block's first byte
+    and ax, 7
+    xchg ax, cx                     ; CL = x & 7, AX = the byte asked about
+    mov ch, 0xFF
+    shr ch, cl                      ; CH = its bits in the first byte
+    cmp ax, dx
+    je .b0
+    inc dx
+    cmp ax, dx
+    mov dl, 0
+    jne .bo
+    mov dl, ch
+    not dl                          ; ...and the rest in the next
+    jmp short .bo
+.b0:
+    mov dl, ch
+.bo:
+    pop cx
+    pop ax
     ret
 
 ; vp_winv - the Repeat button's interior turned over on the desktop's
@@ -6757,6 +6810,13 @@ vp_track:
     call OSAPI_WM_CONTENT           ; AX = left, DX = top
     mov [vp_cx0], ax
     mov [vp_cy0], dx
+    push ax                         ; ...and the bar's inside, which vp_pbar
+    add ax, VP_BOXX                 ; sets and vp_wthumb draws against: a
+    mov [vp_tx1], ax                ; dragged window's thumb went where the
+    add ax, [vp_lbw]                ; bar USED to be until the next paint
+    dec ax
+    mov [vp_tx2], ax
+    pop ax
     mov di, vp_brects
     cmp byte [vp_lbin], 0
     jne .incard
@@ -7986,7 +8046,10 @@ vp_keep:      dw 0                  ; the canvas keeper (the shadow, or not)
 vp_pdiv:      dw 0                  ; this play's PIT divisor
 vp_wtk:       dw 0                  ; the frame the thumb was last asked at
 vp_wtx:       dw 0                  ; ...and where it was drawn
-vp_wbm:       dw 0                  ; vp_wbox: the block's two byte masks
+vp_wnx:       dw 0                  ; vp_wmove: the block's new x...
+vp_wox:       dw 0                  ; ...and its old one
+vp_wmn:       db 0                  ; the bytes the move touches...
+vp_wmt:       times 4 dw 0, 0       ; ...each its offset, mask, white bits
 vh_sseg:      dw 0                  ; vp_half's image...
 vh_lay:       db 0                  ; ...its layout, or FFh linear...
               db 0

@@ -31,6 +31,10 @@ after a drag the play landed on a bank the dragged poster was not on and
 left its top rows showing. Broken on purpose (the repaint before an
 in-window play skipped) it FAILS naming the rows.
 
+And at every hold the scrub bar holds ONE black 8-pixel block, at the
+offset the player last drew it at, on white - the single-pass move's masks
+(98.3.7) - and it has moved along the play.
+
 And before any of it: the poster's row is on a Hercules bank. A box placed
 before the first play once rounded it to CGA's two (the vp_dinfo call
 missing from vp_boxxy): it FAILS with row 46.
@@ -147,6 +151,32 @@ def main():
                     bad.append("%s: the rows round the picture read %s, not "
                                "%s" % (what, got, want))
 
+            def thumb(what):
+                """The bar's inside rows hold ONE black block, 8 wide, at
+                the offset the player last drew it at, and white everywhere
+                else (98.3.7). The move is one store a byte of its final
+                value; the two-pass one it replaced left the block right at
+                a hold too, so this is the masks' check - the flicker is the
+                design's, and `vp_wmove` says why"""
+                w_, h_, rows = m.vram(None)
+                y0 = rw("vp_cy0") + rw("vp_lbary") + 1
+                x1, x2, tx = rw("vp_tx1"), rw("vp_tx2"), rw("vp_wtx")
+                want = [0 if tx <= x - x1 < tx + 8 else 1
+                        for x in range(x1, x2 + 1)]
+                off = sum(1 for y in range(y0, y0 + 8)
+                          for x, v in zip(range(x1, x2 + 1), want)
+                          if rows[y][x] != v)
+                print("   %s: the thumb at %d, %d bar pixels wrong"
+                      % (what, tx, off))
+                if off:
+                    for y in range(y0 - 2, y0 + 10):
+                        print("      %d %s" % (y, "".join(
+                            str(rows[y][x]) for x in range(x1 - 2, x1 + 40))))
+                if off:
+                    bad.append("%s: %d pixels of the bar are not the thumb "
+                               "at %d on white" % (what, off, tx))
+                return tx
+
             def play_end(what):
                 wait(lambda mm: rb("vp_played") == 1, what, 120.0)
                 return (rw("vp_done"), rw("vp_stall"), rw("vp_late"),
@@ -194,17 +224,22 @@ def main():
                         base + syms["vp_blabels"] + 4, 2)) != \
                         syms["vp_i_pause"]:
                     bad.append("playing in the window, Play is not Pause")
+                txs = []
                 for n in stops:
                     wait(lambda mm: rb("vp_held") == 1 and rw("vp_done") == n
                          and (not shadow or rw("vp_dy1") == 0),
                          "the hold before frame %d" % n)
                     screen(n - 1, "hold")
+                    txs.append(thumb("hold before frame %d" % n))
                     if n == stops[0]:
                         border("playing, after a drag of 5 rows")
                     i = stops.index(n)
                     ww("vp_stopat", stops[i + 1] if i + 1 < len(stops)
                        else 0xFFFF)
                     m.write(base + syms["vp_held"], b"\0")
+                if len(set(txs)) < 3:
+                    bad.append("the thumb did not move along the play: %s"
+                               % txs)
                 check_end("the held play", play_end("the held play's end"),
                           1000)
                 # --- 2: on time

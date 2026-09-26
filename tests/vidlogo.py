@@ -10,6 +10,8 @@ by hand: it needs numpy and the build does not), on the screen named:
    owner's budget (120 KB, VIDEO-PLAN 14.7).
 2. THE SCREEN'S OWN RENDITION PLAYS LIVE: at its own size, so the box shows
    it whole (vp_ps 1) - the one thing a file can be refused Live for.
+   And the status line says READY: a rendition made for this screen is
+   not "Made for VGA: plays via a copy" because its layout is lin80's.
 3. EVERY HELD FRAME, IN THE BOX: before the burn, mid-burn, the last frame
    and the first after the seam, over two laps - the desktop's pixels
    against the rendition's host decode.
@@ -119,6 +121,13 @@ def main():
                                     got1[3]))
                 if (got1[0], got1[1], got1[3]) != (1, want_r, 1):
                     bad.append("the player took %s" % (got1,))
+                msg = rw("vp_msg")
+                name = next((k for k, v in syms.items() if v == msg and
+                             k.startswith("vp_s_")), hex(msg))
+                print("   the status line: %s" % name)
+                if msg != syms["vp_s_ready"]:
+                    bad.append("the status line says %s, not ready: the "
+                               "rendition is MADE for this screen" % name)
                 ui.mo.to(8, rows - 8 if rows < 400 else 470)
                 stops = (10, 30, NF, L + 1, 80, NF, L + 1)
                 ww("vp_stopat", stops[0])

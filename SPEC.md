@@ -150107,7 +150107,11 @@ whose screen holds the canvas, and plays through a **shadow**: a RAM image of
 the FILE's layout (16 KB for CGA, 32 KB for Hercules, 38 KB for LIN80),
 black for the play. A canvas no screen here holds - a LIN80 file's 480 rows
 on a Hercules - is refused as before, with the screen it was made for
-(§47). The window says which: *Made for CGA: plays via a copy*.
+(§47). The window says which: *Made for CGA: plays via a copy*. A
+RENDITION (98.1.7) is named by its target and not its layout - a resident
+file's renditions are all lin80, which read "Made for VGA" on the CGA one
+of `OS8088.V88` - and one made for THIS screen says nothing about the copy,
+which is then the player's business (`vidlogo` reads the status line).
 
 **The claim is 64 KB whatever the layout**, and the image is its first 16,
 32 or 38. 98.1.6 is why: the lists are not checked entry by entry, so a
@@ -150322,18 +150326,28 @@ click that pauses is anywhere, polled off `OSAPI_MOUSE`.
   paints the box first. `vidwin` reads the rows round the picture before a
   play and after a drag of 5 rows, and fails with the repaint taken out.
 - **The thumb follows the play, on every desktop.** The kernel's drawing is
-  not the bracket's to use, so `vp_wbox` writes the thumb into the desktop's
-  own framebuffer: when `vp_thumbx`'s offset moves, the old 8 × 8 block
-  white and the new one black - sixteen rows of at most two bytes, asked
-  once per frame drawn, from the foreground. A 1 bpp desktop takes an OR or
-  an AND; mode 12h a store through the Graphics Controller's Bit Mask after
-  a read has loaded the latches, so all four planes move together and no
-  pixel outside the block changes, with interrupts off for those few stores
-  and the mask put back, so the hook's decode always finds the planes as it
-  expects. It was a whole-bar repaint through the kernel once a second, and
-  on a VGA desktop nothing at all, which is what the owner saw on the 286.
-  `vidthumb` (VGA) and `vidthumbherc` read the bar's inside rows at each
-  hold and fail with `vp_wthumb` returning at once.
+  not the bracket's to use, so `vp_wmove` writes the thumb into the desktop's
+  own framebuffer: when `vp_thumbx`'s offset moves, the block goes from
+  where it was to where it is in ONE STORE A BYTE, of the byte's final
+  value - the bytes either block touches (at most four) found once, each
+  with the mask of bits that change and the white ones among them, and
+  eight rows of those stores, asked once per frame drawn, from the
+  foreground. It was the old block made white and then the new one black,
+  and on a one-pixel move the seven columns the two share went white and
+  back: the flicker the owner saw. A 1 bpp desktop merges under the mask;
+  mode 12h stores through the Graphics Controller's Bit Mask after a read
+  has loaded the latches, the data's ones white and zeros black, so all four
+  planes move together and no pixel outside the mask changes, with
+  interrupts off for those few stores and the mask put back, so the hook's
+  decode always finds the planes as it expects. It was a whole-bar repaint
+  through the kernel once a second, and on a VGA desktop nothing at all,
+  which is what the owner saw on the 286. `vidthumb` (VGA) and
+  `vidthumbherc` read the bar's inside rows at each hold and fail with
+  `vp_wthumb` returning at once; `vidwin` asks the same of every hold, after
+  a drag - and found the bar's x (`[vp_tx1]`) was set only by a PAINT,
+  while a window moves without one, so a dragged window's thumb was drawn
+  where the bar used to be. `vp_track`, which a move already runs, sets it
+  now.
 
 **The keeper is how a canvas crosses brackets.** A bracket puts it onto its
 surface first - black, before the session's first frame - and takes it back
