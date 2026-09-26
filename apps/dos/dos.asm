@@ -2049,9 +2049,10 @@ dos_fsx_main:
     mov [dos_dstk], sp              ; ...and the gate's own mark beside it
                                     ; (SPEC.md 96.7.2). dos_prog_enter sets it
                                     ; exactly a moment later, so this is the
-                                    ; INVARIANT rather than the value: the
-                                    ; swap is unconditional, and a zero here
-                                    ; would put SP at the top of the segment
+                                    ; INVARIANT rather than the value: every
+                                    ; program's SS takes the swap, and a zero
+                                    ; here would put SP at the top of the
+                                    ; segment
 
     call dos_prog_enter             ; ...and away (SPEC.md 96.14): the same
                                     ; door AH=4Bh's child goes through
@@ -2844,10 +2845,17 @@ dos_int21:
     mov [cs:dos_gfl], ax
     mov ax, ss
     mov [cs:dos_gss], ax
+    cmp ax, [cs:dos_sv_ss]          ; ALREADY ON IT: a program's ISR or INT
+    je .keepsp                      ; 33h callback inside a live call, or one
+                                    ; under dos_be_go's own swap. [dos_dstk]
+                                    ; is the live frame's TOP, so loading it
+                                    ; would push over that frame; the SP we
+                                    ; arrived on is below it (SPEC.md 96.7.2)
     mov ax, [cs:dos_sv_ss]          ; THE STACK dos_be_go ALREADY BORROWS: the
     mov ss, ax                      ; UI task's on the box (SPEC.md 96.4.1)
     mov sp, [cs:dos_dstk]           ; and kern_dos's own where there is no
                                     ; kernel, so nothing new is claimed
+.keepsp:
     push word [cs:dos_gss]          ; the program's stack, banked on OURS, so
     push bp                         ; a child's INT 21h nests - and its SP is
                                     ; in BP already, which is a cell and two
@@ -11486,6 +11494,10 @@ dos_m33_tick:
     pop es
     pop bx
 %endif
+    push ax                         ; THE POSITION IN THE PROGRAM'S WINDOW
+    call dos_m33_fit                ; (SPEC.md 96.10.7), so the callback and
+    pop ax                          ; 03h agree - after the banking and the
+                                    ; mickeys, which stay in host units
     call far [dos_m33h]             ; AX = the events, BX = the buttons,
                                     ; CX/DX = where, SI/DI = the mickeys, and
                                     ; DS = OURS, which is the driver's own -
@@ -16158,6 +16170,22 @@ dos_fh_shrink:
     ; another name. kern_small has no such door and a redirected volume
     ; refuses it: either answers CF=1 BEFORE touching the file, and the three
     ; arms below are what they always were
+    ;
+    ; **BUT THE CUT COMMITS BEFORE THE APPEND**, so an append that fails
+    ; leaves the file at C. That is only worth it where the other arm is the
+    ; copy, or where there is no append: a prefix that FITS the window and
+    ; does not end on a cluster goes to .b1's one replace, which a failure
+    ; leaves the old file whole
+    cmp word [si+FH_POS+2], 0
+    jne .bcut
+    mov ax, [dos_cbytes]
+    dec ax
+    test ax, [si+FH_POS]            ; a cluster multiple: the cut is all of it
+    jz .bcut
+    mov ax, [si+FH_POS]
+    cmp ax, [dos_wbytes]
+    jbe .b1
+.bcut:
     mov ax, [dos_cbytes]
     neg ax
     and ax, [si+FH_POS]             ; C: the new end, rounded down to a

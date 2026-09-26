@@ -133390,6 +133390,21 @@ its parent's live `AH=4Bh` frame with no slice constant to size and no
 arithmetic to get wrong, and the gate banks and restores the word so a child's
 exit gives the parent its depth back.
 
+**A gate entered ALREADY on that stack stays where it is.** `[dos_dstk]` is
+the top of the live frame, not below it — a live gate never lowers it — and
+the handlers run with `IF` = 1: `AH=08h` waits on `int 16h`, and the tick that
+lands there runs a program's `INT 1Ch` hook or its `INT 33h` event handler on
+our stack, below the frame. An `INT 21h` from either that loaded `[dos_dstk]`
+would push over the outer call's banked `SS:SP` and replicas, and the outer
+call would then `iret` through the inner one's. The same holds under
+`dos_be_go`'s own swap, whose frame sits just below `[dos_sv_sp]` where the
+top-level mark is. So when `SS` is already `[dos_sv_ss]` — which a program's
+own `SS` never is — the gate builds on the `SP` it arrived on, which is below
+everything live; the frame banks that `SS:SP` like any other and the epilogue
+does not change. A real DOS survives the ISR case for the `01h`–`0Ch` group
+with a second internal stack; this is the same safety for the price of one
+compare.
+
 ##### 96.7.2.1 The gate's own row, and one byte of one word
 
 `tests/dostrap/shrink.asm` is the Playroom's geometry with every number
@@ -136934,6 +136949,14 @@ same thing: **a window this box maps into cannot be sticky, so POS5's
 today moves: `x0 = 0`, `x1 = [dos_vw] - 1` gives `x' = hx`, and the read takes
 one compare rather than a `mul`/`div` pair to find that out.
 
+**"Every read" includes the one the program does not make: the `0Ch` event
+handler.** `dos_m33_tick` asks the host directly rather than through
+`dos_mou_read` (§96.10.4.1), so it maps the position itself, just before the
+far call — otherwise a program with a 0..319 window reads 0..319 from `03h`
+and 0..639 in its callback for the same pointer. What it banks to detect
+movement, and the `SI`/`DI` mickeys it derives, stay in the host's units: a
+real driver's mickeys count the hand, not the window.
+
 The window is four words of the CORE's `.bss` (§96.44.2), because
 `dos_int33` is core and both hosts answer these functions. `00h` puts it back
 to the whole virtual screen, exactly as it puts the cursor away and drops the
@@ -137080,10 +137103,17 @@ rather than 285, so `dos_fh_shrink`'s first arm reads the cluster the new end
 falls in into the window, cuts the file at that cluster's start, and appends
 the kept part of it back — the cut size being a cluster multiple is exactly
 `APPEND`'s precondition. No temporary, no free space, no instant where the data
-is under another name, and **52 package bytes**. `tests/dosfile.py`'s two
-truncations short of zero both take it (the kernel's truncate breakpointed:
-two hits), the one to 100 bytes being a cut to **zero clusters** followed by
-an append onto the empty file. `kern_small` has no write-at door and a
+is under another name, and **52 package bytes**. **But the cut COMMITS
+before the append**, so an append that fails — an I/O error, the floppy taken
+out at the prompt — leaves the file at the cluster boundary with the kept
+bytes past it gone, where the one-read-one-replace arm below leaves the old
+file whole. So the cut is taken only where it is at least as safe: where the
+kept prefix is **larger than the window** (the alternative is the copy, which
+needs free space and has its own delete-rename instant) or **ends on a
+cluster** (there is no append, and the cut is the whole operation). A prefix
+that fits the window and does not end on a cluster takes the replace, as it
+did before the kernel door. `tests/dosfile.py`'s 12,000-byte truncation takes
+the cut and its 100-byte one the replace. `kern_small` has no write-at door and a
 redirected volume refuses it — both answer `CF=1` before touching the file —
 and then the three arms below run exactly as they did:
 
