@@ -4,7 +4,7 @@
     python3 tools/os88venc.py IN.MP4 OUT.V88 [--preset herc] [--box WxH]
         [--layout cga|herc|lin80] [--fit fit|fill|stretch]
         [--start S] [--end S] [--fps F] [--profile 5150-st225]
-        [--audio pcm8|adpcm4|none] [--rate HZ]
+        [--audio pcm8|adpcm4|none] [--rate HZ] [--adpcm search|greedy]
         [--dither bayer|bluenoise|threshold] [--stable N]
         [--gamma G] [--contrast C] [--brightness B] [--invert]
         [--title T] [--credits C] [--keysecs S] [--poster K | --poster-at S]
@@ -247,6 +247,73 @@ class Ditherer:
         return np.packbits(on, axis=1)          # bit 7 = the leftmost
 
 
+class CompDitherer:
+    """COMPOSITE COLOUR (CGACOMP, SPEC.md 98.2.2): the frame, 160 cells a row
+    of four hi-res pixels each, dithered to the 16 colours a CGA's nibbles
+    show on a composite monitor - measured through the same model the
+    emulators use (tools/os88cgacomp.py), not a table from memory.
+
+    KNOLL'S PATTERN DITHER, the ordered dither for a FIXED palette: for
+    each cell a list of N palette colours is built whose mean is its colour
+    - each pick the nearest to the colour plus the error so far, times
+    `mix` - sorted by luma, and the cell's Bayer threshold picks one of
+    them. A grey-axis offset cannot mix two HUES and this can, which is
+    what a composite palette with no blue-grey needs; and it is still
+    anchored to the cell, so a still area costs nothing. Distance is in
+    YCbCr with luma weighted `luma`. A cell whose last colour is within
+    `stable` of this frame's pick, in that space, keeps it.
+    A nibble's leftmost pixel is its high bit, so a byte is two cells, left
+    in the high nibble."""
+
+    def __init__(self, w, h, mix, stable, luma=1.5, n=4):
+        import os88cgacomp
+        self.pal = os88cgacomp.palette()
+        self.lw = luma
+        self.pyuv = self.yuv(self.pal)
+        self.order = np.argsort(self.pyuv[:, 0] / luma)
+        cw = w // 4
+        self.N = n                  # 4: a 2 x 2 pattern, 16: 4 x 4
+        m = bayer(2 if n == 4 else 4)
+        reps = (-(-h // m.shape[0]), -(-cw // m.shape[1]))
+        self.t = (np.tile(m, reps)[:h, :cw] * n).astype(int).clip(0, n - 1)
+        self.mix, self.stable = mix, stable
+        self.prev = None
+
+    def yuv(self, rgb):
+        r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+        y = 0.299 * r + 0.587 * g + 0.114 * b
+        return np.stack((y * self.lw, 0.564 * (b - y), 0.713 * (r - y)),
+                        axis=-1)
+
+    def nearest(self, c):
+        d = ((self.yuv(c)[..., None, :] - self.pyuv) ** 2).sum(-1)
+        return d.argmin(-1)
+
+    def __call__(self, rgb):
+        c = rgb.astype(float)
+        h, cw = c.shape[:2]
+        err = np.zeros_like(c)
+        cands = np.empty((self.N, h, cw), np.int64)
+        for i in range(self.N):
+            k = self.nearest(c + err * self.mix)
+            cands[i] = k
+            err += c - self.pal[k]
+        # by luma, then the threshold's rank
+        lum = self.pyuv[cands, 0]
+        rank = np.argsort(lum, axis=0, kind="stable")
+        pick = np.take_along_axis(rank, self.t[None], 0)[0]
+        best = np.take_along_axis(cands, pick[None], 0)[0]
+        if self.prev is not None and self.stable:
+            y = self.yuv(c)
+            dp = ((y - self.pyuv[self.prev]) ** 2).sum(-1)
+            db = ((y - self.pyuv[best]) ** 2).sum(-1)
+            best = np.where(np.abs(dp - db) < self.stable ** 2, self.prev,
+                            best)
+        self.prev = best
+        n = best.astype(np.uint8)
+        return (n[:, 0::2] << 4) | n[:, 1::2]
+
+
 # --------------------------------------------------------------------------
 # the budgeted encoder
 # --------------------------------------------------------------------------
@@ -401,7 +468,7 @@ class Encoder:
 # --------------------------------------------------------------------------
 # the source
 # --------------------------------------------------------------------------
-def ffmpeg_video(src, w, h, crop_dar, fps_expr, start, end, eq):
+def ffmpeg_video(src, w, h, crop_dar, fps_expr, start, end, eq, pix="gray"):
     vf = []
     if crop_dar:
         vf.append("crop='if(gt(dar,%f),ih*%f*sar,iw)':'if(gt(dar,%f),ih,"
@@ -409,22 +476,24 @@ def ffmpeg_video(src, w, h, crop_dar, fps_expr, start, end, eq):
     vf += ["fps=%s" % fps_expr, "scale=%d:%d:flags=area" % (w, h)]
     if eq:
         vf.append("eq=%s" % eq)
-    vf.append("format=gray")
+    vf.append("format=%s" % pix)
     cmd = ["ffmpeg", "-v", "error", "-nostdin"]
     if start:
         cmd += ["-ss", "%.3f" % start]
     cmd += ["-i", src]
     if end:
         cmd += ["-t", "%.3f" % (end - (start or 0))]
-    cmd += ["-an", "-vf", ",".join(vf), "-f", "rawvideo", "-pix_fmt", "gray",
+    cmd += ["-an", "-vf", ",".join(vf), "-f", "rawvideo", "-pix_fmt", pix,
             "-"]
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-    n = w * h
+    ch = 3 if pix == "rgb24" else 1
+    n = w * h * ch
     while True:
         b = p.stdout.read(n)
         if len(b) < n:
             break
-        yield np.frombuffer(b, dtype=np.uint8).reshape(h, w)
+        f = np.frombuffer(b, dtype=np.uint8)
+        yield f.reshape(h, w, 3) if ch == 3 else f.reshape(h, w)
     p.wait()
     if p.returncode:
         raise vid.V88Error("ffmpeg failed on %s" % src)
@@ -510,8 +579,13 @@ def encode(a, keep=None):
         eq.append("contrast=%g" % a.contrast)
     if a.brightness:
         eq.append("brightness=%g" % a.brightness)
-    frames = ffmpeg_video(a.src, w, h, crop, "%d/%d" % (rate, spf), a.start,
-                          a.end, ":".join(eq))
+    comp = a.pixfmt == "cgacomp"
+    if comp and lay != "cga":
+        raise vid.V88Error("composite colour is a CGA's: --pixfmt cgacomp "
+                           "needs the cga layout")
+    frames = ffmpeg_video(a.src, w // 4 if comp else w, h, crop,
+                          "%d/%d" % (rate, spf), a.start, a.end,
+                          ":".join(eq), "rgb24" if comp else "gray")
     say = (lambda *x: None) if a.quiet else print
     say("%s: %dx%d %.3f fps -> %s canvas %d x %d, %.3f fps (%d Hz / %d), "
         "audio %s, profile %s"
@@ -521,9 +595,12 @@ def encode(a, keep=None):
         lo, hi = auto_levels(a.src, w, h, crop, a.start, a.end, ":".join(eq))
         say("   levels: grey %d..%d stretched to 0..255" % (lo, hi))
         frames = (stretch(f, lo, hi) for f in frames)
-    dith = Ditherer(a.dither, w, h, a.stable, a.invert, a.clip)
+    dith = CompDitherer(w, h, a.mix, a.stable, n=a.levels_mix) if comp \
+        else \
+        Ditherer(a.dither, w, h, a.stable, a.invert, a.clip)
     enc = Encoder(g, prof, fps, audio_cyc, audio_bps)
-    wr = vid.Writer(g, rate, spf, afmt, abytes, vid.PF_MONO1,
+    wr = vid.Writer(g, rate, spf, afmt, abytes,
+                    vid.PF_CGACOMP if comp else vid.PF_MONO1,
                     title=a.title or os.path.splitext(
                         os.path.basename(a.src))[0][:47],
                     credits=a.credits or "", keysecs=a.keysecs)
@@ -537,16 +614,26 @@ def encode(a, keep=None):
         keep.extend(pend)
     if not nf:
         raise vid.V88Error("no frames came out of %s" % a.src)
+    jobs = a.jobs or os.cpu_count() or 1
     chunks = vid.audio_chunks(pcm, nf, spf, afmt, vid.key_frames(
-        nf, wr.keyint)) if afmt else None
+        nf, wr.keyint), search=jobs if a.adpcm == "search" else 0) \
+        if afmt else None
     for f, target in enumerate(pend):
         au = chunks[f] if afmt else b""
         ops, rec = enc.frame(target, au)
         cyc.append(enc.charge(rec, len(au)) + audio_cyc)
         wr.frame(ops, enc.surf, au)
         if a.preview_png and f % max(1, round(fps)) == 0:
-            vid.write_png(os.path.join(a.preview_png, "f%05d.png" % f),
-                          g.wb, g.h, g.canvas(enc.surf))
+            out = os.path.join(a.preview_png, "f%05d.png" % f)
+            if comp:                # what a composite monitor shows
+                import os88cgacomp
+                from PIL import Image
+                cv = np.frombuffer(g.canvas(enc.surf), np.uint8).reshape(
+                    g.h, g.wb)
+                Image.fromarray(os88cgacomp.render(
+                    np.unpackbits(cv, axis=1))).save(out)
+            else:
+                vid.write_png(out, g.wb, g.h, g.canvas(enc.surf))
         if not a.quiet and f % 300 == 299:
             print("   frame %d of %d" % (f + 1, nf), file=sys.stderr)
     poster = a.poster
@@ -596,6 +683,11 @@ def parser():
     ap.add_argument("--peak", type=float, help="...its per-frame ceiling")
     ap.add_argument("--audio", choices=("pcm8", "adpcm4", "none"))
     ap.add_argument("--rate", type=int)
+    ap.add_argument("--adpcm", choices=("search", "greedy"), default="search",
+                    help="ADPCM4's encoder: the exact search (~7 dB better, "
+                         "about real time on four cores) or greedy")
+    ap.add_argument("--jobs", type=int, help="cores for the search "
+                    "(default: all)")
     ap.add_argument("--volume", help="ffmpeg's volume= (e.g. 1.5, 3dB)")
     ap.add_argument("--dither", choices=("bayer", "bluenoise", "threshold"),
                     default="bayer")
@@ -605,6 +697,15 @@ def parser():
     ap.add_argument("--levels", choices=("auto", "none"), default="auto",
                     help="stretch the grey range the source uses to the "
                          "whole of black-to-white")
+    ap.add_argument("--pixfmt", choices=("mono", "cgacomp"), default="mono",
+                    help="cgacomp: composite colour on a CGA (the cga "
+                         "layout only)")
+    ap.add_argument("--mix", type=float, default=0.5,
+                    help="cgacomp: how far the pattern dither mixes "
+                         "colours, 0 (the nearest alone) to 1")
+    ap.add_argument("--levels-mix", type=int, choices=(4, 16), default=4,
+                    help="cgacomp: colours a pattern mixes - 4 (2 x 2, the "
+                         "default: calmer and cheaper) or 16 (4 x 4)")
     ap.add_argument("--clip", type=float, default=16.0,
                     help="grey levels at each end that are solid black "
                          "or white, never a dot")

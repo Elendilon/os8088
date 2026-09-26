@@ -149014,9 +149014,13 @@ MartyPC's card (`tools/martypc/patches/06-sblaster-adpcm4.patch`).
   sounds noticeably worse than the PCM8 original (the owner, by ear). So
   **PCM8 is the default and ADPCM4 an encoder option**, for a stream that is
   on the line - where the disk cannot carry PCM8 beside the picture, as
-  TRONDISC could not on a CPU-copied disk (98.3.1). The encoder is greedy,
-  one nibble at a time; a lookahead one would claw some of it back, and is
-  wave 8's to try.
+  TRONDISC could not on a CPU-copied disk (98.3.1). `os88vid`'s own
+  encoder is greedy, one nibble at a time, and so is what `import` and
+  `encode` write; **`os88venc` searches** (98.2.1, `--adpcm search`, the
+  default): the decoder has only 1,024 states, so a Viterbi pass finds the
+  nibble sequence with the least total error, **~7 dB better** - 27.3 dB
+  against 19.9 on 12 s of Bad Apple's sound. The owner's by-ear verdict
+  above was on the greedy encoder's output.
 
 **A rendition is one canvas and its own stream.** Version 1 writes exactly
 one. The table is there so that a later file can carry a canvas per adapter
@@ -149736,6 +149740,8 @@ python3 tools/os88venc.py IN OUT.V88 [--preset P | --layout L --box WxH]
     [--fit fit|fill|stretch] [--start S] [--end S] [--fps F]
     [--profile R] [--disk B/s] [--avg F] [--peak F]
     [--audio pcm8|adpcm4|none] [--rate HZ] [--volume V]
+    [--adpcm search|greedy] [--jobs N]
+    [--pixfmt mono|cgacomp] [--mix F] [--levels-mix 4|16]
     [--dither bayer|bluenoise|threshold] [--stable N] [--clip N]
     [--levels auto|none] [--gamma G] [--contrast C] [--brightness B]
     [--invert] [--title T] [--credits C] [--keysecs S]
@@ -149810,6 +149816,66 @@ without them (`ffmpeg` capability).
   model's own reading, not on its estimate.
 - **Keyframes are the SCREEN, not the target**: a seek shows exactly what a
   play would at that frame.
+- **ADPCM4 is SEARCHED, not chosen a nibble at a time** (`--adpcm
+  search`, the default; 98.1.1.1). A Viterbi pass over the decoder's 1,024
+  states - a sample and a scale of 0, 16, 32 or 48 - with the scale held
+  to 0 at every keyframe's frame *k*+1 as the greedy encoder holds it. A
+  decision is committed once every live state's survivor agrees, so the
+  memory is a window. On `--jobs` cores (default all) the sound is cut into
+  segments, each searched from 4,096 samples BEFORE its cut starting from
+  any state, and stitched at the latest sample where the two paths' STATES
+  agree - the best way into that state and the best way on from it, which
+  is the whole search's path. `videnc` asserts the stitched result is
+  BYTE-IDENTICAL to one whole search. About real time on four cores. A step
+  that would clamp at 0 or 255 is not taken, so every stream decodes by the
+  card's own arithmetic.
+
+#### 98.2.2 Composite colour from a video (`--pixfmt cgacomp`)
+
+**What a composite monitor shows is COMPUTED, not remembered.**
+`tools/os88cgacomp.py` is Andrew Jenner's (reenigne's) sampled
+chroma-multiplexer model, ported from MartyPC's
+`marty_videocard_renderer/src/composite_new.rs` - the algorithm MartyPC,
+86Box and DOSBox all use - at MartyPC's default monitor settings, for the
+mode the player sets (3D8h = 1Ah, 98.3.3) and the BIOS's colour register (a
+lit pixel is RGBI 15). Its 16 nibbles are the classic composite palette, and
+`videnc` holds them to it:
+
+| nibble | colour | nibble | colour |
+|---|---|---|---|
+| 0000 | black | 1000 | olive (74, 73, 0) |
+| 0001 | dark green (0, 99, 25) | 1001 | green (63, 184, 0) |
+| 0010 | dark blue (39, 40, 188) | 1010 | grey (113) |
+| 0011 | sky blue (17, 153, 222) | 1011 | light green (98, 237, 133) |
+| 0100 | purple-red (129, 13, 86) | 1100 | orange (222, 87, 18) |
+| 0101 | grey (112) | 1101 | yellow (212, 198, 29) |
+| 0110 | violet (176, 56, 255) | 1110 | pink (255, 130, 234) |
+| 0111 | lilac (155, 168, 255) | 1111 | white |
+
+**A cell is four hi-res pixels**, so a 640-wide canvas is 160 cells a row,
+two to a byte, the left one in the high nibble - what a 4-pixel nibble on a
+nibble boundary shows is that colour (the canvas's x is on a byte, so the
+phase is the model's). ffmpeg scales the source to the CELLS in RGB.
+
+**The dither is Knoll's PATTERN dither**, the ordered dither for a fixed
+palette: a cell builds a list of palette colours whose mean is its colour
+(`--mix` of the running error each step), sorted by luma, and its Bayer
+threshold picks one. A grey-axis offset cannot mix two hues, and a composite
+palette has no blue-grey - an early version sent Trackmania's sky to green.
+`--levels-mix 4` (a 2 x 2 pattern, the default) mixes four; `16` (4 x 4)
+mixes more colours and is busier, and the fringes where neighbouring cells
+differ are the model's too, not the palette's. Distance is YCbCr with luma
+weighted 1.5; the dead band (`--stable`) is the mono one's.
+
+**It is EXPENSIVE, and the numbers say how much.** Trackmania 3-15 s, 16:9,
+640 x 150 with no limits: **115 KB/s** of picture at `--mix 0.5`, 82 at no
+mixing, 135-160 with a 4 x 4 pattern - against the ST-225 profile's ~48.
+Under that budget it plays every frame on time (219 ticks of 218.8 on
+MartyPC's CGA, the burst set) with 318 of 360 frames cut, and the cut shows
+as smear in motion. `cga-small` fits (32 KB/s, every frame exact) but is
+320 x 75 of cells 80 wide. So composite wants a faster disk, a shorter or
+calmer clip, or fewer rows; the preview PNGs (`--preview-png`) are rendered
+through the model, so they show what the monitor would.
 
 It prints what it made: the canvas, the rate, KB/s split video and audio,
 the model's CPU mean and worst frame with the audio copy in, how many frames

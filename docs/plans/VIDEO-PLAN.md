@@ -990,10 +990,17 @@ red. A row about one package goes in `soak`.
   the map are solid now (`--clip`, 3,222 isolated pixels a frame to 46),
   and posters can be chosen (`--poster-at`, the keyframe nearest a moment;
   Bad Apple's and Bad Carrot's are key 4, the apple and the carrot held
-  out). **Open in W8**: CGACOMP
-  (composite colour) from a video, a lookahead ADPCM4 encoder, and the
-  profiles' figures confirmed on the 5150 (`floppy`, `picomem2` and `286`
-  are arithmetic).
+  out). **W8b and W8c are BUILT.** ADPCM4 is searched rather than chosen
+  a nibble at a time (SPEC.md 98.2.1): a Viterbi pass over the decoder's
+  1,024 states, **~7 dB better** than the greedy encoder (27.3 against
+  19.9), stitched across cores byte-identically. Composite colour comes
+  from a video (98.2.2) through reenigne's model - the one MartyPC and
+  86Box use - ported to `tools/os88cgacomp.py`, with Knoll's pattern
+  dither over the 16 nibbles; it is expensive (115 KB/s of picture for
+  640 x 150 with no limits) and plays on time under the ST-225 budget by
+  cutting. **What is left of W8 is the field's**: the profiles' figures
+  (`floppy`, `picomem2` and `286` are arithmetic) and how composite
+  and the searched ADPCM4 look and sound on a real monitor and card.
 - **W9 — Live windowed.** The encoder's `live-*` presets (240 x 116 on
   Hercules, 320 x 100 on CGA, 160 x 120 on VGA) are its canvases, so a clip
   can be made for it before it plays.

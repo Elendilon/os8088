@@ -21,6 +21,16 @@ tools/os88venc.py encodes it three ways. Four questions:
 4. DOES IT CONVERGE? Two seconds of a still picture after the motion: the
    last frame on screen must be the target, the errors the budget left all
    fixed.
+6. IS THE ADPCM4 SEARCH EXACT? The Viterbi encoder must beat the greedy
+   one by 3 dB or more (it is ~7 on real sound), the segments it stitches
+   on four cores must be BYTE-IDENTICAL to one whole search, and every
+   keyframe's scale is 0 in all of them - with no lead too, which is the
+   path where a segment is searched again from where the last one ended.
+7. IS COMPOSITE COLOUR ITS OWN NIBBLE? The palette - reenigne's model,
+   what MartyPC and 86Box show - is held to the classic 16 colours, and
+   cells alternating each colour with its complement must come back as
+   exactly those nibbles, the left cell in the high half. Broken on purpose (the nibbles packed
+   low-first) it FAILS naming the colours that came back wrong.
 5. IS FLAT FLAT? A black a few levels off black, and a white a few off
    white, with noise - what an MP4 delivers - must dither solid. Spread over
    the whole 0..255 the threshold map lit one dot in every 8 x 8 tile of
@@ -169,6 +179,68 @@ def main():
             if dots:
                 bad.append("a flat %s (grey %d) dithers to %d dots, not "
                            "solid" % (name, grey, dots))
+    # --- 6: ADPCM4's exact search
+    rnd = np.random.default_rng(7)
+    t = np.arange(22050) / 11025.0
+    sig = 128 + 60 * np.sin(2 * np.pi * 440 * t) + 30 * np.sin(
+        2 * np.pi * 1330 * t) + rnd.normal(0, 6, len(t))
+    pcm = bytes(np.clip(sig, 0, 255).astype(np.uint8))
+    zs = list(range(1470, len(pcm), 1470))
+    ref = np.frombuffer(pcm, np.uint8).astype(float)
+
+    def snr(d):
+        dec = np.frombuffer(vid.adpcm4_decode(d), np.uint8).astype(float)
+        return 10 * np.log10(((ref - ref.mean()) ** 2).mean() /
+                             ((dec - ref) ** 2).mean())
+    g = vid.adpcm4_encode(pcm, zeros=zs)
+    one = vid.adpcm4_search(pcm, zeros=zs)
+    par = vid.adpcm4_search(pcm, zeros=zs, jobs=4, seg=4410, lead=1024)
+    cut = vid.adpcm4_search(pcm, zeros=zs, jobs=4, seg=4410, lead=0)
+    miss = [name for name, d in (("search", one), ("stitched", par),
+                                 ("no lead", cut))
+            for st in [vid.adpcm4_trace(d)]
+            if any(st[z // 2][1] for z in zs)]
+    print("   ADPCM4: greedy %.2f dB, search %.2f, stitched on 4 cores "
+          "%s, with no lead %.2f" % (snr(g), snr(one),
+                                     "IDENTICAL" if par == one else
+                                     "%.2f" % snr(par), snr(cut)))
+    if snr(one) < snr(g) + 3:
+        bad.append("the search is %.2f dB, the greedy encoder %.2f"
+                   % (snr(one), snr(g)))
+    if par != one:
+        bad.append("the stitched search differs from the whole one")
+    for name in miss:
+        bad.append("%s: a keyframe's scale is not 0" % name)
+    # --- 7: composite colour (CGACOMP)
+    import os88cgacomp
+    pal = os88cgacomp.palette().round().astype(int)
+    classic = [(0, 0, 0), (0, 99, 25), (39, 40, 188), (17, 153, 222),
+               (129, 13, 86), (112, 112, 112), (176, 56, 255),
+               (155, 168, 255), (74, 73, 0), (63, 184, 0), (113, 113, 113),
+               (98, 237, 133), (222, 87, 18), (212, 198, 29),
+               (255, 130, 234), (255, 255, 255)]
+    off = [n for n in range(16) if max(abs(int(pal[n][c]) - classic[n][c])
+                                       for c in range(3)) > 1]
+    print("   composite palette: %d of 16 nibbles off the model's own "
+          "(MartyPC / 86Box, reenigne's)" % len(off))
+    if off:
+        bad.append("the composite palette moved: nibbles %s" % off)
+    cd = venc.CompDitherer(64, 8, 0.5, 0)
+    wrong = []
+    for n in range(16):
+        m = 15 - n                  # cells alternating n, m: a byte n:m
+        field = np.zeros((8, 16, 3), np.uint8)
+        field[:, 0::2] = pal[n]
+        field[:, 1::2] = pal[m]
+        got = cd(field)
+        cd.prev = None
+        if not np.all(got == (n << 4 | m)):
+            wrong.append(n)
+    print("   cells alternating each colour with its complement: %d come "
+          "back as some other byte" % len(wrong))
+    if wrong:
+        bad.append("composite colours %s alternating with their "
+                   "complements come back as other bytes" % wrong)
     for b in bad:
         print("   FAIL: %s" % b)
     if not bad:

@@ -1394,6 +1394,174 @@ def adpcm4_encode(pcm, ref=ADPCM4_REF, scale=0, zeros=()):
     return bytes(out)
 
 
+_A4 = {}
+
+
+def _adpcm4_tables():
+    """The trellis's fixed tables, once: for each arriving scale q, the
+    (scale, nibble, step) pairs that land there, as gather indexes into the
+    1,024 states (sample r + 256 x scale/16) with 1,024 an INF sentinel"""
+    if _A4:
+        return _A4
+    import numpy as np
+    groups = [[] for _ in range(4)]
+    for p in range(4):
+        for nib in range(16):
+            i = min(63, nib + 16 * p)
+            q = min(3, max(0, p + ADPCM4_ADJUST[i] // 16))
+            groups[q].append((p, nib, ADPCM4_SCALE[i]))
+    G = max(len(g) for g in groups)
+    r = np.arange(256)
+    idx = np.full((4, G, 256), 1024, np.int64)
+    nibt = np.zeros((4, G), np.uint8)
+    for q, g in enumerate(groups):
+        for j, (p, nib, d) in enumerate(g):
+            src = r - d
+            v = (src >= 0) & (src < 256)
+            idx[q, j] = np.where(v, p * 256 + np.clip(src, 0, 255), 1024)
+            nibt[q, j] = nib
+    _A4.update(idx=idx, nibt=nibt,
+               gidx=np.ascontiguousarray(idx.transpose(0, 2, 1)),
+               sq=((r[None, :] - r[:, None]) ** 2).astype(np.int32))
+    return _A4
+
+
+def _adpcm4_viterbi(pcm, start, zeros, chunk=2048):
+    """(nibbles, states) for PCM8 `pcm`: the least-squared-error path, from
+    the state `start` (sample + 256 x scale/16), or from ANY state when it
+    is None. states[k] is the decoder's state after sample k. A decision is
+    committed where every live state's survivor agrees, so the memory is a
+    window and not the stream."""
+    import numpy as np
+    T = _adpcm4_tables()
+    idx, nibt, gidx, sq = T["idx"], T["nibt"], T["gidx"], T["sq"]
+    x = np.frombuffer(bytes(pcm), np.uint8).astype(np.int64)
+    n = len(x)
+    cap = np.full(n, 3, np.int64)
+    for z in zeros:
+        for d in (1, 2, 3):
+            if 0 <= z - d < n:
+                cap[z - d] = min(cap[z - d], d - 1)
+    INF = np.int32(1) << 28
+    cost = np.full(1025, INF, np.int32)
+    if start is None:
+        cost[:1024] = 0
+    else:
+        cost[start] = 0
+    nibs = np.zeros(n, np.uint8)
+    states = np.zeros(n, np.int32)
+    win = [0, []]                   # the window's first sample, backpointers
+
+    def trace(t, S, all_agree):
+        w0, bp = win
+        path = None if all_agree else t
+        for k in range(t - 1, w0 - 1, -1):
+            j = bp[k - w0][S]
+            q, rr = S // 256, S % 256
+            if path is None and np.all(S == S[0]):
+                path = k + 1
+            if path is not None:
+                if len(S) > 1:
+                    S, j, q, rr = S[:1], j[:1], q[:1], rr[:1]
+                nibs[k] = nibt[q[0], j[0]]
+                states[k] = S[0]
+            S = idx[q, j, rr]
+        return path
+
+    for t in range(n):
+        cand = cost[gidx]                           # (4, 256, G)
+        j = cand.argmin(axis=2)
+        best = cand.min(axis=2)
+        best += sq[x[t]]
+        if cap[t] < 3:
+            best[cap[t] + 1:, :] = INF
+        dead = best >= INF
+        best -= best.min()
+        best[dead] = INF            # renormalised, and the dead stay dead
+        cost[:1024] = best.reshape(1024)
+        win[1].append(j.reshape(1024).astype(np.uint8))
+        if len(win[1]) >= chunk:
+            live = np.nonzero(cost[:1024] < INF)[0]
+            path = trace(t + 1, live, True)
+            if path is not None:    # decided before `path`: drop it
+                win[1] = win[1][path - win[0]:]
+                win[0] = path
+    trace(n, np.array([int(cost[:1024].argmin())]), False)
+    return nibs, states
+
+
+def _adpcm4_seg(args):
+    return _adpcm4_viterbi(*args)
+
+
+def adpcm4_search(pcm, ref=ADPCM4_REF, scale=0, zeros=(), jobs=1,
+                  seg=88200, lead=4096):
+    """PCM8 -> ADPCM4 by EXACT SEARCH (Viterbi): the nibble sequence whose
+    decode has the least total squared error, where adpcm4_encode picks
+    each nibble for its own sample alone. The decoder has 1,024 states - a
+    sample and a scale of 0, 16, 32 or 48 - so the trellis is a numpy step
+    a sample. MEASURED on 12 s of Bad Apple's sound: 27.3 dB against the
+    greedy encoder's 19.9. `zeros` as adpcm4_encode's.
+
+    ON `jobs` CORES the stream is cut into segments, and each is searched
+    from `lead` samples BEFORE its cut, starting from any state: survivors
+    merge within tens of samples, so over the lead its path becomes the one
+    the whole search would have taken. The two are stitched at the latest
+    sample where their STATES agree - the prefix is the best way into that
+    state and the rest the best way on from it, which is the whole search's
+    path through it - and a segment whose lead never meets the one before
+    it is searched again from where that one ended. A step that would
+    CLAMP at 0 or 255 is a second route into an edge state and is not
+    taken; every stream written decodes by the card's arithmetic."""
+    if len(pcm) % 2:
+        raise V88Error("ADPCM4 packs two samples a byte; %d is odd"
+                       % len(pcm))
+    n = len(pcm)
+    s0 = (scale // 16) * 256 + ref
+    if jobs <= 1 or n <= 2 * seg:
+        nibs, _ = _adpcm4_viterbi(pcm, s0, zeros)
+    else:
+        import multiprocessing
+        import numpy as np
+        cuts = list(range(seg, n, seg))
+        bounds = [0] + cuts + [n]
+        work = []
+        for i in range(len(bounds) - 1):
+            a = bounds[i] - (lead if i else 0)
+            b = bounds[i + 1]
+            work.append((bytes(pcm[a:b]), None if i else s0,
+                         [z - a for z in zeros if a < z <= b]))
+        with multiprocessing.Pool(jobs) as pool:
+            parts = pool.map(_adpcm4_seg, work)
+        nibs = np.zeros(n, np.uint8)
+        states = np.zeros(n, np.int32)
+        nibs[:bounds[1]], states[:bounds[1]] = parts[0]
+        for i in range(1, len(bounds) - 1):
+            a, c, b = bounds[i] - lead, bounds[i], bounds[i + 1]
+            pn, ps = parts[i]
+            m = None                # the latest sample both agree after
+            for k in range(c - 1, a - 1, -1):
+                if states[k] == ps[k - a]:
+                    m = k
+                    break
+            if m is None:           # never met: on from where it really is
+                rn, rs = _adpcm4_viterbi(
+                    pcm[c:b], int(states[c - 1]),
+                    [z - c for z in zeros if c < z <= b])
+                nibs[c:b], states[c:b] = rn, rs
+            else:
+                nibs[m + 1:b] = pn[m + 1 - a:]
+                states[m + 1:b] = ps[m + 1 - a:]
+    out = bytes((int(nibs[i]) << 4) | int(nibs[i + 1])
+                for i in range(0, n, 2))
+    st = adpcm4_trace(out, ref, scale)
+    for z in zeros:
+        if 0 < z <= n and z % 2 == 0 and st[z // 2][1]:
+            raise V88Error("adpcm4_search: the scale is %d at sample %d"
+                           % (st[z // 2][1], z))
+    return out
+
+
 def adpcm4_trace(data, ref=ADPCM4_REF, scale=0):
     """The decoder's (sample, scale) before each byte of `data`, and after
     the last: [i] is the state a card started at byte i must be in"""
@@ -1410,7 +1578,7 @@ def key_frames(nf, keyint):
     return list(range(0, nf, keyint))
 
 
-def audio_chunks(pcm, nf, spf, afmt, keys=()):
+def audio_chunks(pcm, nf, spf, afmt, keys=(), search=0):
     """A stream's PCM8 cut into the frames' audio parts in format afmt: PCM8
     a sample a byte, or ADPCM4 encoded ONCE across the whole stream - its
     state runs on from frame to frame, the reference byte being the
@@ -1421,7 +1589,10 @@ def audio_chunks(pcm, nf, spf, afmt, keys=()):
         if spf % 2:
             raise V88Error("ADPCM4 needs an even number of samples a frame, "
                            "and this stream has %d" % spf)
-        data = adpcm4_encode(pcm, zeros=[(k + 1) * spf for k in keys])
+        zs = [(k + 1) * spf for k in keys]
+        # `search`: 0 the greedy encoder, n > 0 the exact search on n cores
+        data = adpcm4_search(pcm, zeros=zs, jobs=search) if search \
+            else adpcm4_encode(pcm, zeros=zs)
         n = spf // 2
     else:
         data, n = pcm, spf
