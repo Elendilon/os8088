@@ -2510,6 +2510,12 @@ wm_resize_nb:                   ; ...and the entry for a caller that has
     mov dx, WMIN_H
 .hok:
     mov ax, [vid_dock_y0]       ; ...nor taller than the desktop band
+%ifndef NOKEEPH
+    test byte [bx+W_FLAGS], WF_KEEPH
+    jz .band                    ; ...or, for a FIXED layout, than the display:
+    mov ax, [vid_ph]            ; it hangs over the dock rather than be cut,
+.band:                          ; wm_fit's own rule (SPEC.md 11.93.1)
+%endif
     sub ax, MBAR_H
     cmp dx, ax
     jbe .hok2
@@ -2539,6 +2545,12 @@ wm_resize_nb:                   ; ...and the entry for a caller that has
     call wm_snap_win            ; the width changed, so the right-edge clamp
                                 ; may have moved x (SPEC.md 11.94)
     mov ax, [vid_dock_y0]       ; y + h <= the row the dock owns
+%ifndef NOKEEPH
+    test byte [bx+W_FLAGS], WF_KEEPH
+    jz .ybd                     ; (the display's bottom, for WF_KEEPH)
+    mov ax, [vid_ph]
+.ybd:
+%endif
     sub ax, dx
     cmp ax, MBAR_H
     jge .yc2

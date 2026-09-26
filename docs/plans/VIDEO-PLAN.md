@@ -927,6 +927,18 @@ red. A row about one package goes in `soak`.
       wide at frame x 7 is on the byte, and the poster rounds to the
       screen's byte anyway.
   - **Play does not yet become Pause**: that is a play in the window, W7.
+  - **The owner's interface round** (after testing W6 on the field disk):
+    **F and Alt+Enter** go full screen PAUSED and back (SPEC.md 98.3.6), the
+    card opened at the first Space so its sound starts on the frame shown;
+    Alt+Enter's poll is the foreground's, so it costs no frames. **A play
+    left part way leaves Play at the keyframe at or before where it got
+    to**, and one played out rewinds to the start. **The layout is
+    dynamic** (98.4.1): the picture at the video's own size where the
+    screen has room (Hercules, for a 640 x 200 video), the buttons centred
+    under the bar with an `i` for the info card - and on CGA over the dock,
+    which took **16 bytes of kernel** (`OSAPI_WM_RESIZE` now honours
+    `WF_KEEPH`, SPEC.md 11.93.1). **The thumb drags** (98.4.2), loading on
+    the release on an 8088 and every 9 ticks mid-drag on a 286.
 - **W7 — In-window**, the Play button that becomes Pause, and an exact
   seek on a paused picture (keyframe plus replay).
 - **W8 — the whole encoder**, with profiles, the burst allowance and ADPCM4.

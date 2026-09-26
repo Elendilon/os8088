@@ -27,6 +27,10 @@ lasts - the card is halted (SOUND.DRV verb 10, 34.5.4) rather than left to
 play out its ring - and the capture still holds the whole sound in order,
 the play's time taken without the pause.
 
+--fs goes in with F (98.3.6): full screen on the first frame, PAUSED, the
+card not yet opened; Space then plays it, and the capture must still hold
+the whole sound from frame 0 - the card started on the frame on the screen.
+
 --seek N starts the play at the clip's Nth keyframe (98.3.5): the frames
 from k+1 on, and the sound from frame k+1's on.
 
@@ -124,6 +128,8 @@ def main():
                     "by tools/martypc/patches/06")
     ap.add_argument("--pause", action="store_true",
                     help="Space for 2 guest seconds a third of the way in")
+    ap.add_argument("--fs", action="store_true",
+                    help="go in with F (paused, 98.3.6) and play with Space")
     ap.add_argument("--seek", type=int, default=0,
                     help="play from this keyframe (0 = the start)")
     a = ap.parse_args()
@@ -187,10 +193,17 @@ def main():
                                 "Right to pick a key", poll=0.3,
                                 limit=300.0, guest=30.0)
             m.write(base + syms["vp_played"], b"\0")
-            m.type_text("p")
+            m.type_text("f" if a.fs else "p")
             os88marty.until(m, lambda mm: rb("vp_ready") == 1,
                             "the play to start", poll=0.1, limit=300.0,
                             guest=60.0)
+            if a.fs:                            # in PAUSED: the card waits
+                os88marty.pace(m, 1.0)          # for the Space
+                if rb("vp_upause") != 1 or rb("vp_sopn"):
+                    bad.append("F went in %s, the card %s" % (
+                        "paused" if rb("vp_upause") else "PLAYING",
+                        "OPEN" if rb("vp_sopn") else "closed"))
+                m.type_text(" ")
             c0 = int(m.status().get("cycles", 0))
             held = None
             if a.pause:

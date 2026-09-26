@@ -17236,6 +17236,17 @@ control a broken click path and a broken clamp are the same result. `KEEPH=0`
 removes the flag test from `wm_fit` rather than imitating its absence, so the
 reference build's `.hcut` is literally the pre-§11.93 instruction stream.
 
+#### 11.93.1 ...and `OSAPI_WM_RESIZE` honours it too
+
+**`wm_resize` clamped every window to the desktop band**, `WF_KEEPH` or not,
+so a fixed layout that SIZES ITSELF - the Video Player, whose window is the
+picture at the video's own scale with the scrub bar and a button row under it
+(§98.4.1) - was cut at the dock by the very call it resized with, and went
+on drawing its button row below its own frame: §11.93's defect, reached by
+the other door. It now takes the same floor `wm_fit` does - the display's
+bottom for a `WF_KEEPH` window, the dock's row for every other - for both
+the height and the `y` it re-fits. `NOKEEPH` takes it out with the rest.
+
 ### 11.94 `WF_SNAP` — a window that keeps its content on a byte boundary
 
 **Opt-in, EVERY ADAPTER, and the whole of it is one `and`.** `wm_snap` (API
@@ -149447,19 +149458,59 @@ the end on the card's clock within 2 frames, and the capture holds the
 sound from frame 181 on, PCM8 and ADPCM4 alike (`vidsndseek`,
 `vidsndseekad`). With `[vp_base]` left at 0, every hold is the wrong frame.
 
+#### 98.3.6 F and Alt+Enter, and where the next play starts
+
+**F and Alt+Enter take the picture full screen WITHOUT playing it**, and
+F, Alt+Enter or Esc bring it back. In full screen, Space plays and pauses.
+Space, P or Enter in the window still play full screen at once - there is
+no play in the window yet, so there is nothing else for Space to mean.
+- **In paused** (`[vp_startp]`): the keyframe decoded as for any play from
+  a key (98.3.5), or - from the start - the FIRST FRAME drawn by the
+  foreground with the hook idle, so the screen is never black. The hook is
+  paused from the first period, and **the card waits**: it is opened at the
+  first Space (`[vp_sdefer]`), and `vp_acur` aimed the audio cursor at the
+  frame on the screen BEFORE that first frame was drawn, so the card starts
+  on its sound, not the next frame's. With nothing played, nothing moves.
+- **Alt+Enter** reaches a bracket by the key-state map, not `int 16h` - no
+  XT BIOS enqueues it - through `apps/os88alt.inc`'s edge, seeded at the
+  bracket's top so the press that got the picture there is not read as the
+  one that takes it out. It is one far call a pass of the foreground loop,
+  which runs once a period at most: **it costs the hook nothing**, and so no
+  frames. In the window the kernel hands `W_ONKEY` `KEY_ALTENTER`.
+
+**Where the next play starts** is where this one got to (`vp_after`):
+- **stopped part way** - Esc, F, Alt+Enter, paused or not - at the keyframe
+  at or before the last frame drawn, its picture in the box. The table is
+  not in memory, so `vp_keyat` estimates (frame x keys / frames: keys are
+  evenly spaced) and steps the estimate with a read or two until it is
+  right;
+- **played to the end**, at the start again, with the header's poster back;
+- **drew nothing past where it began**, where it was.
+
+`[vp_played]` is set only after that, so it means the play is over in every
+respect a gate reads.
+
+**Measured** (`vidpreview` sections 3, 5 and 6, `vidsound --fs`): F goes in
+on frame 0 exactly; played with Space to frame 100 and out with F, Play
+starts at key 1 (frame 60) with its picture in the box; Alt+Enter goes in on
+frame 60 exactly and out again without moving it; a play to the end comes
+back to the start and the poster. With the card, F goes in with the card
+closed, and after the Space the capture holds the whole sound from frame 0.
+
 ### 98.4 The window: the Preview (wave 6)
 
 **The window IS the Preview** (VIDEO-PLAN 3.3): the file's poster in a
-box, a scrub bar under it over the keyframes, an info panel beside it, and
-four picture buttons under that. 628 x 126 of content, so it fits CGA's
-156-row desktop band title and all; its frame x is 7, so the content is on a
-byte (§11.94) and the poster reaches `OSAPI_GFX_BLIT1`'s fast path.
+box, a scrub bar under it over the keyframes, the transport buttons under
+that, and an info card beside it on request. Its size is the layout's
+(98.4.1), which follows the video and the screen; its frame x is 7, so the
+content is on a byte (§11.94) and the picture reaches `OSAPI_GFX_BLIT1`'s
+fast path.
 
 **The poster** is the header's poster keyframe (98.1.3) when the file
 opens, and the picked key's picture after:
 - **Its record is read and decoded from black into a 64 KB shadow** (the
   claim is the bound, 98.3.2) - the same `vd_native` as a play - then
-  **halved**: two source rows a nibble of each at a time index a table that
+  copied out row by row at the video's own size, or **halved**: two source rows a nibble of each at a time index a table that
   answers two output pixels, each lit when its four source pixels hold MORE
   lit ones than its threshold, `[0 2 / 3 1]` by output row and column
   parity - a 2x2 ordered dither, so a grey stays a grey and a one-pixel line
@@ -149467,26 +149518,29 @@ opens, and the picked key's picture after:
   checkerboard to solid). `vp_mkdtab` builds the 512 bytes of table at start
   into bss; `tools/os88vid.py`'s `thumb_half` and `poster` are the
   reference, and `vidpreview` holds the player's bytes to them.
-- **A canvas bigger than CGA's is halved twice** - a Hercules 720 x 348 to
-  180 x 87 - in place the second time, the rows being dense by then. Rows
-  past the box's 100 are cut top and bottom alike (a LIN80 640 x 480 is 160
-  x 120, and shows its middle 100).
+- **Or halved twice**, where the layout says a quarter - in place the second
+  time, the rows being dense by then. Nothing is cut: the layout sized the
+  box to the picture. A scale the layout changes - the card coming out on a
+  Hercules takes a 640-wide picture from its own size to a half - makes the
+  picture again.
 - **Its x is the SCREEN's byte**, rounded up from the centred place, and a
   window whose content is off the grid loses up to seven columns at the
   right rather than refusing the blit. The margins round it are filled
   black, each pixel once.
-- **The poster's claim is taken FIRST** - 4 KB for a 640 x 200 canvas -
+- **The poster's claim is taken FIRST** - 4 KB for a 640 x 200 canvas
+  halved, 16 KB at its own size -
   then the record's and the shadow's, which are freed, so it sits under the
   hole they leave rather than over it. A machine without the room shows a
   black box; the key is still picked, since a play needs only the entry.
 
 **The scrub bar** is white with a black thumb where Play starts - three
-fills, no pixel twice - grey with no keyframes. **A click on it picks the
-key whose share of the bar it is**; Left and Right, the key buttons and the
-File menu step one key. At the first key Prev is grey and at the last Next
-is. Key 0 means the start.
+fills, no pixel twice - grey with no keyframes. **A press on it takes the
+thumb** (98.4.2) and the release picks the key whose share of the bar it is
+under; Left and Right, the key buttons and the File menu step one key. At
+the first key Prev is grey and at the last Next is. Key 0 means the start.
 
-**The info panel**: the file, its title, the canvas and the screen it was
+**The info card** - out with the `i` button, the I key or the menu, in
+again the same way - holds the file, its title, the canvas and the screen it was
 made for, the frame rate and length, the stream's KB/s (its bytes a frame
 times the frame rate) and its sound, where Play starts (*From key 3 of 110,
 at 0:04*), what Play will do or why not, and after a play what it cost -
@@ -149495,18 +149549,83 @@ this machine's disk keeps up** is the last play's stalls: a Preview that
 guessed from a timed read would be guessing (VIDEO-PLAN 3.3).
 
 **The buttons** are the button library's (§20.5.1.3) with Tracker's
-transport pictures, `OS88UI_IMG`: Open, previous key, Play, next key -
-press inverts, release fires, a slide off cancels. Play stays Play: a
-Pause button needs a play in the window to pause, which is wave 7's.
+transport pictures, `OS88UI_IMG`: Open, previous key, Play, next key, and
+the card's `i`, which stands down (`OS88UI_LATCH`) while the card is out -
+press inverts, release fires, a slide off cancels. Play stays Play: a Pause
+button needs a play in the window to pause, which is wave 7's.
+**The card comes out by itself** for a file this screen cannot play, and
+after a play that could not start or stopped on an error, since it is what
+says why.
 
 **Measured** on the CGA 5150 off a 360 KB floppy: a key step - the entry,
 the record, the decode and the halving - is **1.2 to 1.5 s** from the key
 press to the new poster, most of it the two `OSAPI_FILE_READ_AT` calls. The
 poster matches the host's reference in memory and on the screen, byte for
 byte and pixel for pixel, on CGA and Hercules. With the dither's thresholds
-swapped, 1,746 of 4,000 poster bytes differ. `VIDEO.O88` is **10,822 bytes
-of image and 800 of bss** (7,043 and 0 before), the button library the
-largest part of the growth; the table and the text lines are the bss.
+swapped, 1,746 of 4,000 poster bytes differ. `VIDEO.O88` is **12,388 bytes
+of image and 800 of bss** (7,043 and 0 before wave 6), the button library
+the largest part of the growth; the table and the text lines are the bss.
+
+#### 98.4.1 The layout
+
+**The picture is shown at the video's own size when the screen has the
+room, else at a half, else a quarter**, and under it the scrub bar and the
+button row - the transport four centred, the card's `i` at the right edge.
+`vp_layfit` tries each scale in turn, and at each one:
+- **the buttons under the bar**, if the picture, the bar and the row fit the
+  screen's height; the card beside the picture if it is asked for, which
+  must then fit the width too;
+- **else the buttons IN THE CARD**, under its text, if the picture and the
+  bar fit without the row and the card fits beside - the card is then always
+  out, and there is no `i`;
+- **else the next scale down.**
+
+So the order is the owner's: the video's size first, the row under it if
+there is room, the card's area for the buttons only if there is not, and a
+smaller picture only when neither fits. The box is never narrower than the
+button row (208), a narrower picture centred in black.
+
+**The room is the display's height less the menu bar and the title, OVER
+THE DOCK**: the window sets `WF_KEEPH` (§11.93), because a CGA's 156-row
+desktop band holds a 320 x 100 picture and its bar but not the row as well,
+and a fixed layout cut at the dock draws its bottom through its own frame.
+`OSAPI_WM_RESIZE` honours the flag since §11.93.1 (16 bytes of `.text`); it
+had clamped to the band regardless. Width: the display's less the frame, so
+a 640-wide picture is never 1:1 on a 640-wide screen - a picture needs its
+border.
+
+**What it comes to**, with vidplay's 640 x 200 clip:
+
+| screen | card in | card out |
+|---|---|---|
+| CGA 640 x 200 | half, 336 x 153, over the dock | half, 620 x 153 |
+| Hercules 720 x 348 | **own size**, 656 x 253 | half, 620 x 153 |
+| VGA 640 x 480 | half, 336 x 153 | half, 620 x 153 |
+
+**A new layout is the wake's**: a file opened or the card toggled sets
+`[vp_relay]` and posts `OSAPI_WM_WAKE`, and `W_ONWAKE` makes the picture
+again if its scale moved, then - without the lock, as `OSAPI_WM_RESIZE`
+requires - resizes the window, which repaints it.
+
+#### 98.4.2 Dragging the thumb
+
+**A press on the bar takes the thumb**: it jumps under the pointer and
+follows it (`W_ONDRAG`, three fills a move, none when it has not moved),
+and the RELEASE picks the key whose share of the bar is under it - so a
+click is a drag that did not move. Released over the key already picked, it
+snaps back to that key's place.
+
+**The picture follows on a 286 or better** (`OSAPI_CPU_INFO`, read at
+start): mid-drag, a key the pointer has moved onto is loaded at most once
+every `VP_DRAGT` = 9 ticks, the interval counted from the END of the last
+load so a slow disk is not asked again the moment it answers. **On an 8088
+it loads on the release only** - a key there is 1.2-1.5 s off a floppy,
+which a hand dragging a thumb cannot wait for, and the events queue behind
+it.
+
+**Measured** (`vidpreview` section 7): an 8088's drag across two keys loads
+exactly once, on the release; with the tier poked to 286 and the thumb held
+over key 1 for 1.5 s, key 1 loads before the release and key 0 after it.
 
 ### 98.2 The host tools — `tools/os88vid.py`
 

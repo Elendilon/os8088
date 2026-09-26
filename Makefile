@@ -4746,7 +4746,7 @@ $(BUILD)/hello.o88: $(BUILD)/hello.bin tools/os88pkg.py $(PKGZSTAMP)
 # it plays through is kern_big's. No video ships beside it yet (the owner's
 # XDC streams are copyrighted; `make vidfieldhd` puts them on a hard disk for
 # the owner alone). tests/vidplay.py makes its own clip.
-$(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/os88api.inc \
+$(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/os88api.inc apps/os88alt.inc \
                     apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/video/video.asm
 	@echo "video:  $(call FILESIZE,$@) bytes"

@@ -29,6 +29,13 @@ opened by double-clicking it. Four questions:
 (98.3.2): the keyframe is decoded into it and copied before the stream
 starts, and each hold reads the screen where the copy put the rows.
 
+5. F AND ALT+ENTER go into full screen PAUSED - on the first frame, or on
+   the picked key's - and back out, and a play left part way starts next at
+   the keyframe at or before the last frame drawn; one that reached the end
+   starts at the start again, with the poster back (98.3.6).
+6. THE THUMB DRAGS: on an 8088 the picture loads once, on the release; on
+   a 286 (the tier poked) it loads mid-drag too (98.4.2).
+
 Broken on purpose: the half-scaler's thresholds swapped (the poster bytes
 differ), vp_base left at 0 (the play from the key holds at the wrong frame),
 and the hook's pause test removed (frames are drawn while paused).
@@ -50,7 +57,7 @@ import vidplay                                                # noqa: E402
 
 # the DESKTOP's framebuffer on each adapter: base, banks, stride
 DESK = {"cga": (0xB8000, 2, 80), "herc": (0xB0000, 4, 90)}
-VP_BARY, VP_BOXX, VP_BOXW, VP_OS88UI_DIS = 112, 8, 320, 1
+VP_BOXX, VP_OS88UI_DIS = 8, 1
 
 
 class Stop(Exception):
@@ -130,7 +137,7 @@ def main():
             def poster_ok(ki, what):
                 """the claim's bytes, and the screen under the box"""
                 _, cv = key_canvas(r, ki)
-                img, bw, px, rows = vid.poster(cv, g.wb, g.h)
+                img, bw, px, rows = vid.poster(cv, g.wb, g.h, rw("vp_ps"))
                 got = bytes(m.read(rw("vp_pseg") * 16 + rw("vp_pskip"),
                                    bw * rows))
                 d = sum(1 for x, y in zip(img, got) if x != y)
@@ -149,7 +156,7 @@ def main():
                 x0, y0, dw = rw("vp_px"), rw("vp_py"), rw("vp_pdw")
                 full, part = dw // 8, dw % 8
                 sd = 0
-                for y in range(rows):
+                for y in range(rw("vp_pdh")):
                     sy = y0 + y
                     at = sb + (sy % banks) * 8192 + (sy // banks) * stride \
                         + x0 // 8
@@ -194,7 +201,8 @@ def main():
                 poster_ok(1, "Right")
                 n0 = rw("vp_ploads")
                 cx0, cy0 = rw("vp_cx0"), rw("vp_cy0")
-                ui.mo.click(cx0 + VP_BOXX + VP_BOXW * 5 // 6, cy0 + VP_BARY + 4)
+                ui.mo.click(cx0 + VP_BOXX + rw("vp_lbw") * 5 // 6,
+                        cy0 + rw("vp_lbary") + 4)
                 wait(lambda mm: rw("vp_ploads") > n0, "the bar to load a key")
                 if rw("vp_sel") != 2:
                     bad.append("the bar's last third picked key %d, not 2"
@@ -238,12 +246,13 @@ def main():
                     bad.append("the play from key 1 ended at %d, error %d, "
                                "based at %d" % (rw("vp_done"), rb("vp_err"),
                                                 rw("vp_base")))
+                # ...and a play that reached the end starts next from the
+                # START, the poster back in the box (98.3.6)
+                if rw("vp_sel") != 0 or rw("vp_dkey") != r.poster:
+                    bad.append("after a play to the end, Play starts at key "
+                               "%d and the box is key %d, not the start and "
+                               "the poster" % (rw("vp_sel"), rw("vp_dkey")))
                 # --- 4: Space pauses a play from the start
-                n0 = rw("vp_ploads")
-                m.key("ArrowLeft")
-                wait(lambda mm: rw("vp_ploads") > n0, "Left to load a key")
-                if rw("vp_sel") != 0:
-                    bad.append("Left picked key %d, not 0" % rw("vp_sel"))
                 m.write(base + syms["vp_played"], b"\0")
                 m.type_text("p")
                 wait(lambda mm: rb("vp_ready") == 1 and rw("vp_done") >= 40,
@@ -259,6 +268,96 @@ def main():
                 done, stall, late, dt, ptk = (rw("vp_done"), rw("vp_stall"),
                                               rw("vp_late"), rw("vp_dt"),
                                               rw("vp_ptk"))
+                # --- 5: F goes in PAUSED on the first frame; Space plays; F
+                # comes out, and Play starts next at the key at or before
+                # the last frame drawn (98.3.6)
+                def screen_is(n, what):
+                    seg = bytes(m.read(vseg, vsize))
+                    got = b"".join(seg[b:b + g.wb] for b in rows_at)
+                    diff = sum(1 for a_, b_ in zip(got, vid.decode_at(r, n))
+                               if a_ != b_)
+                    print("   %s: the screen is frame %d, %d bytes differ"
+                          % (what, n, diff))
+                    if diff:
+                        bad.append("%s: the screen differs from frame %d in "
+                                   "%d bytes" % (what, n, diff))
+                m.write(base + syms["vp_played"], b"\0")
+                m.type_text("f")
+                wait(lambda mm: rb("vp_ready") == 1 and rb("vp_upause") == 1
+                     and (not shadow or rw("vp_dy1") == 0),
+                     "F to go in paused")
+                os88marty.pace(m, 1.0)
+                if rw("vp_done") != 1:
+                    bad.append("F went in having drawn %d frames, not the "
+                               "first" % rw("vp_done"))
+                screen_is(0, "F, paused")
+                m.type_text(" ")
+                wait(lambda mm: rw("vp_done") >= keys[1] + 10,
+                     "Space to play past key 1")
+                m.type_text("f")
+                wait(lambda mm: rb("vp_played") == 1, "F to come out")
+                last = rw("vp_done") - 1
+                want_k = max(i for i, k in enumerate(keys) if k <= last)
+                print("   F out at frame %d: Play now starts at key %d "
+                      "(want %d), the box key %d" % (
+                          last, rw("vp_sel"), want_k, rw("vp_dkey")))
+                if (rw("vp_sel"), rw("vp_dkey")) != (want_k, want_k):
+                    bad.append("out at frame %d, Play starts at key %d and "
+                               "the box is key %d, not %d" % (
+                                   last, rw("vp_sel"), rw("vp_dkey"), want_k))
+                # --- 6: Alt+Enter, both ways: in paused on that key's frame
+                m.write(base + syms["vp_played"], b"\0")
+                m.alt("Enter", hold=0.3)
+                wait(lambda mm: rb("vp_ready") == 1 and rb("vp_upause") == 1
+                     and (not shadow or rw("vp_dy1") == 0),
+                     "Alt+Enter to go in paused")
+                os88marty.pace(m, 1.0)
+                screen_is(keys[want_k], "Alt+Enter, paused")
+                m.alt("Enter", hold=0.3)
+                wait(lambda mm: rb("vp_played") == 1,
+                     "Alt+Enter to come out")
+                if rw("vp_sel") != want_k:
+                    bad.append("a paused visit moved Play's key to %d"
+                               % rw("vp_sel"))
+                # --- 7: THE THUMB, DRAGGED. On an 8088 the picture loads
+                # once, on the release (98.4.2)...
+                cx0, cy0 = rw("vp_cx0"), rw("vp_cy0")
+                bw, by = rw("vp_lbw"), cy0 + rw("vp_lbary") + 4
+                xat = lambda f: cx0 + VP_BOXX + int(bw * f)
+                n0 = rw("vp_ploads")
+                ui.mo.drag(xat(0.2), by, xat(0.9), by)
+                wait(lambda mm: rw("vp_ploads") > n0 and rb("vp_drag") == 0,
+                     "the drag's release to load a key")
+                os88marty.pace(m, 1.0)
+                print("   a drag on an 8088: %d load(s), Play at key %d"
+                      % (rw("vp_ploads") - n0, rw("vp_sel")))
+                if rw("vp_ploads") - n0 != 1 or rw("vp_sel") != 2:
+                    bad.append("an 8088's drag loaded %d times and picked "
+                               "key %d, not once and 2"
+                               % (rw("vp_ploads") - n0, rw("vp_sel")))
+                # ...and on a 286 it follows the pointer: the tier poked, the
+                # thumb held over key 1 past VP_DRAGT and nudged
+                m.write(base + syms["vp_tier"], b"\1")
+                mo = ui.mo
+                n0 = rw("vp_ploads")
+                mo.to(xat(0.9), by)
+                mo._sep()
+                mo._edge(True)
+                mo.to(xat(0.5), by, l=True)
+                os88marty.pace(m, 1.5)
+                mo.to(xat(0.5) + 4, by, l=True)
+                wait(lambda mm: rw("vp_ploads") > n0,
+                     "a 286's drag to load key 1 before the release")
+                mid = rw("vp_sel")
+                mo.to(xat(0.05), by, l=True)
+                mo._edge(False)
+                wait(lambda mm: rb("vp_drag") == 0 and rw("vp_sel") == 0,
+                     "the 286's release to pick key 0")
+                print("   a drag on a 286: key %d loaded mid-drag, Play at "
+                      "key %d after it" % (mid, rw("vp_sel")))
+                if mid != 1:
+                    bad.append("a 286's drag loaded key %d mid-drag, not 1"
+                               % mid)
             except Stop as e:
                 bad.append(str(e))
     want_t = vidplay.NF / vidplay.FPS * 1193182 / 65536

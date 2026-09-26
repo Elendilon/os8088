@@ -1553,13 +1553,12 @@ def decode_at(r, n):
     raise V88Error("the stream ended before frame %d" % n)
 
 
-# THE POSTER (SPEC.md 98.4): the player halves a canvas 2x2 into 1, each
-# output pixel lit when its four source pixels hold MORE lit ones than its
-# threshold - 2x2 ordered dither, by output row and column parity - so a grey
-# stays grey and a one-pixel line survives. Twice for a canvas bigger than
-# CGA's, and then the rows past the box are cut top and bottom alike.
+# THE POSTER (SPEC.md 98.4): the Preview shows a keyframe at the scale the
+# window's layout chose (98.4.1) - the canvas itself, or halved 2x2 into 1,
+# each output pixel lit when its four source pixels hold MORE lit ones than
+# its threshold (2x2 ordered dither, by output row and column parity), so a
+# grey stays grey and a one-pixel line survives; or that halved again.
 THUMB_T = ((0, 2), (3, 1))
-POSTER_W, POSTER_H = 320, 100
 
 
 def thumb_half(cv, wb, h):
@@ -1587,18 +1586,15 @@ def thumb_half(cv, wb, h):
     return bytes(out), owb, oh
 
 
-def poster(cv, wb, h):
+def poster(cv, wb, h, scale=2):
     """(bytes, bytes a row, width in pixels, rows) of the picture the
-    Preview's box shows for canvas `cv` (SPEC.md 98.4)."""
+    Preview's box shows for canvas `cv` at `scale` 1, 2 or 4 (SPEC.md 98.4)"""
+    if scale == 1:
+        return bytes(cv), wb, wb * 8, h
     img, bw, bh = thumb_half(cv, wb, h)
-    px = wb * 4
-    if wb * 8 > 2 * POSTER_W or h > 2 * POSTER_H:
+    if scale == 4:
         img, bw, bh = thumb_half(img, bw, bh)
-        px = wb * 2
-    rows, skip = bh, 0
-    if bh > POSTER_H:
-        skip, rows = (bh - POSTER_H) // 2, POSTER_H
-    return img[skip * bw:(skip + rows) * bw], bw, px, rows
+    return img, bw, wb * 8 // scale, bh
 
 
 def cmd_decode(a):

@@ -48,24 +48,24 @@ VP_COLS     equ 35                  ; the info panel's text columns
 VP_LINES    equ 8
 VP_LINE     equ VP_COLS + 1
 VP_LPITCH   equ 11                  ; ...and its line pitch
-; --- the window (SPEC.md 98.4): content-relative, every x a byte's -----------
-VP_CONT_W   equ 628                 ; the template's content rect: it fits
-VP_CONT_H   equ 126                 ; CGA's 156-row desktop band, title and all
-VP_BOXX     equ 8                   ; the poster box's inside
+; --- the window (SPEC.md 98.4.1): content-relative, every x a byte's. What
+;     depends on the file and the screen is vp_layfit's, in the vp_l* words
+VP_BOXX     equ 8                   ; the picture box's inside, top left
 VP_BOXY     equ 6
-VP_BOXW     equ 320
-VP_BOXH     equ 100
-VP_BARY     equ 112                 ; the scrub bar's frame, top row
-VP_BARH     equ 10                  ; ...and its height, frame included
+VP_MINBW    equ 208                 ; ...never narrower than the button row
+VP_BARH     equ 10                  ; the scrub bar, frame included
 VP_THW      equ 8                   ; the thumb's width
-VP_TXTX     equ 344                 ; the info panel
+VP_CARDW    equ 280                 ; the info card: VP_COLS cells
 VP_TXTY     equ 6
-VP_BTX      equ 344                 ; the buttons: first one's x, the row's y,
-VP_BTY      equ 96
-VP_BTW      equ 28                  ; ...a button's size, and the pitch
-VP_BTH      equ 20                  ; (Tracker's transport, SPEC.md 45)
+VP_CARDH    equ VP_TXTY + VP_LINES * VP_LPITCH + 4
+VP_CARDBY   equ 96                  ; the buttons in the card, under its text
+VP_CARDHB   equ VP_CARDBY + 20 + 4
+VP_BTW      equ 28                  ; a button (Tracker's transport, SPEC.md
+VP_BTH      equ 20                  ; 45), and their pitch
 VP_BTP      equ 32
-VP_NB       equ 4                   ; Open, previous key, Play, next key
+VP_NB       equ 4                   ; Open, previous key, Play, next key...
+VP_NBTN     equ VP_NB + 1           ; ...and the info card's
+VP_DRAGT    equ 9                   ; ticks between loads mid-drag, 286 up
 VP_KMAXREC  equ 49152               ; the largest keyframe record we will read
 
 ; --- the file (SPEC.md 98.1.1) -------------------------------------------------
@@ -119,10 +119,26 @@ vp_entry:
     mov [vp_argvol], bl
     mov byte [vp_argpend], 1
 .nodoc:
+    OS88_ALTENTER_ARM               ; the key-state map, for Alt+Enter
+    call OSAPI_CPU_INFO             ; a 286 loads keys as the thumb is
+    mov [vp_tier], al               ; dragged (98.4.2)
+    mov word [vp_wb], 80            ; THE WINDOW'S SIZE is the layout's, for a
+    mov word [vp_h], 200            ; 640 x 200 video until one is open
+    call vp_layfit
+    mov ax, [vp_lcw]
+    add ax, 2
+    mov [vp_tpl+4], ax
+    mov ax, [vp_lch]
+    add ax, TITLE_H + 1
+    mov [vp_tpl+6], ax
     mov si, vp_tpl
     call OSAPI_WM_CREATE
     jc .fail
     mov [vp_win], bx
+    mov al, 1                       ; A FIXED LAYOUT (SPEC.md 11.93): its
+    call OSAPI_WM_KEEPH             ; height hangs over the dock rather than
+                                    ; be cut - CGA's band is too short for the
+                                    ; picture, the bar and the buttons (98.4.1)
     OS88_REGION_MOVABLE             ; SPEC.md 66.6.1.1. A play pins it anyway:
                                     ; the bracket's own frame is on the stack
     push bx                         ; THE BUTTONS' GESTURE (SPEC.md 20.5.1.3):
@@ -154,25 +170,56 @@ vp_entry:
     ret
 
 ; --- W_ONWAKE: SI = the window --------------------------------------------------
+; The document named at launch; then a layout owed (a file opened, the card
+; toggled) - the picture made again if its scale moved, and the window
+; resized to it, which OSAPI_WM_RESIZE does WITHOUT the lock and repaints
 vp_onwake:
     push ax
     push bx
+    push cx
     push dx
+    call OSAPI_GFX_LOCK
     cmp byte [vp_argpend], 0
-    je .paint
+    je .lay
     mov byte [vp_argpend], 0
     mov dx, [vp_argdir]             ; where the document is (SPEC.md 54.5)
     mov bl, [vp_argvol]
     call OSAPI_FILE_GOTO_Q
-    call OSAPI_GFX_LOCK
     call vp_open
-    jmp short .rep
+.lay:
+    cmp byte [vp_relay], 0
+    je .paint
+    mov byte [vp_relay], 0
+    call vp_layfit
+    or ax, ax
+    jz .size
+    mov ax, [vp_dkey]               ; the picture at the new scale
+    cmp ax, 0xFFFF
+    je .size
+    call vp_loadkey
+    call vp_fmt
+.size:
+    mov bx, [vp_win]
+    call OSAPI_WM_GEOM              ; CX, DX = the content now
+    cmp cx, [vp_lcw]
+    jne .resize
+    cmp dx, [vp_lch]
+    jne .resize
 .paint:
-    call OSAPI_GFX_LOCK
-.rep:
     call vp_repaint
     call OSAPI_GFX_UNLOCK
+    jmp short .out
+.resize:
+    call OSAPI_GFX_UNLOCK
+    mov bx, [vp_win]
+    mov cx, [vp_lcw]
+    add cx, 2
+    mov dx, [vp_lch]
+    add dx, TITLE_H + 1
+    call OSAPI_WM_RESIZE
+.out:
     pop dx
+    pop cx
     pop bx
     pop ax
     ret
@@ -180,19 +227,23 @@ vp_onwake:
 ; --- the menu, the keys and the buttons (SPEC.md 98.4) ---------------------------
 vp_oncmd:                           ; AL = item, AH = menu, SI = window
     call vp_abdismiss
-    or al, al
-    jz vp_opendlg
     cmp al, 1
-    jne vp_menustep
-    jmp vp_play
-
-vp_menustep:                        ; AL = 2 or 3: the key before or after
+    jb vp_opendlg
+    je .play
     cmp al, 2
+    je .fs
+    cmp al, 5
+    je vp_cardtog
+    sub al, 3                       ; 3, 4: the key before, the key after
     mov ax, -1
     je .s
     mov ax, 1
 .s:
     jmp vp_step
+.fs:
+    jmp vp_fsenter
+.play:
+    jmp vp_play
 
 vp_opendlg:
     mov al, FDLG_OPEN
@@ -206,6 +257,8 @@ vp_onkey:                           ; AL = ascii, AH = scan, SI = window
     push ax
     call vp_abdismiss
     jc .out
+    cmp ax, KEY_ALTENTER            ; Alt+Enter and F: full screen, PAUSED -
+    je .fs                          ; it plays when Space says so (98.3.6)
     cmp ah, KSC_LEFT
     je .prev
     cmp ah, KSC_RIGHT
@@ -216,7 +269,16 @@ vp_onkey:                           ; AL = ascii, AH = scan, SI = window
     je .play
     or al, 0x20
     cmp al, 'p'
+    je .play
+    cmp al, 'f'
+    je .fs
+    cmp al, 'i'
     jne .out
+    call vp_cardtog
+    jmp short .out
+.fs:
+    call vp_fsenter
+    jmp short .out
 .play:
     call vp_play
     jmp short .out
@@ -231,6 +293,27 @@ vp_onkey:                           ; AL = ascii, AH = scan, SI = window
     pop ax
     ret
 
+; vp_fsenter - full screen at the key picked, paused (98.3.6)
+vp_fsenter:
+    mov byte [vp_startp], 1
+    call vp_play
+    mov byte [vp_startp], 0
+    ret
+
+; vp_cardtog - the info card out or in: a new layout, and the window resized
+; to it, from the wake - OSAPI_WM_RESIZE may not be called under the lock
+vp_cardtog:
+    cmp byte [vp_lbin], 0           ; the buttons live in it: it stays
+    jne .out
+    xor byte [vp_card], 1
+    mov byte [vp_relay], 1
+    push bx
+    mov bx, [vp_win]
+    call OSAPI_WM_WAKE
+    pop bx
+.out:
+    ret
+
 ; W_ONCLICK: the rects where the window IS, then the library, which hands a
 ; press on no button to vp_onclick (SPEC.md 20.5.1.3.3)
 vp_clickw:
@@ -242,12 +325,109 @@ vp_clickw:
 .out:
     ret
 
+; a press on no button: on the scrub bar it takes the THUMB (98.4.2), which
+; follows the pointer until the release picks the key under it
+vp_onclick:                         ; CX = x, DX = y (screen), SI = window
+    push ax
+    push cx
+    push dx
+    cmp word [vp_nkeys], 0
+    je .out
+    mov ax, dx
+    sub ax, [vp_cy0]
+    sub ax, [vp_lbary]
+    cmp ax, VP_BARH
+    jae .out
+    mov ax, cx
+    sub ax, [vp_cx0]
+    sub ax, VP_BOXX
+    cmp ax, [vp_lbw]
+    jae .out
+    mov byte [vp_drag], 1
+    call vp_dragx
+    call OSAPI_GET_TICKS
+    mov [vp_dtk], ax
+    call vp_pbar
+.out:
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; W_ONDRAG: the thumb follows the pointer; a button follows the press. On a
+; 286 or better the picture follows too, a load at most every VP_DRAGT ticks
+; (a key's load is ~1.3 s on an 8088, which a drag cannot wait for there -
+; it loads on the release)
 vp_ondrag:
-    push bx
     call vp_clip
+    cmp byte [vp_drag], 0
+    jne .thumb
+    push bx
     mov bx, vp_btns
-    call os88ui_btndrag             ; the pressed button follows the pointer
+    call os88ui_btndrag
     pop bx
+    ret
+.thumb:
+    push ax
+    push dx
+    mov dx, [vp_tpos]
+    call vp_dragx                   ; AX = the key under it
+    cmp dx, [vp_tpos]
+    je .still
+    call vp_pbar
+.still:
+    cmp byte [vp_tier], CPU_286
+    jb .out
+    cmp ax, [vp_sel]
+    je .out
+    push ax
+    call OSAPI_GET_TICKS
+    sub ax, [vp_dtk]
+    cmp ax, VP_DRAGT
+    pop ax
+    jb .out
+    call vp_seekto                  ; (the thumb stays under the pointer)
+    call OSAPI_GET_TICKS            ; ...and the interval runs from the load's
+    mov [vp_dtk], ax                ; END, so a slow disk is not asked again
+.out:                               ; the moment it answers
+    pop dx
+    pop ax
+    ret
+
+; vp_dragx - CX = the pointer's x: [vp_tpos] the thumb under it, AX = the key
+; whose share of the bar that is. Preserves the rest
+vp_dragx:
+    push cx
+    push dx
+    mov ax, cx
+    sub ax, [vp_cx0]
+    sub ax, VP_BOXX                 ; along the bar, clamped to it
+    jns .p
+    xor ax, ax
+.p:
+    mov cx, [vp_lbw]
+    dec cx
+    cmp ax, cx
+    jbe .q
+    mov ax, cx
+.q:
+    push ax
+    sub ax, VP_THW / 2              ; the thumb centred on it, inside the bar
+    jns .t
+    xor ax, ax
+.t:
+    mov cx, [vp_lbw]
+    sub cx, VP_THW
+    cmp ax, cx
+    jbe .u
+    mov ax, cx
+.u:
+    mov [vp_tpos], ax
+    pop ax
+    mul word [vp_nkeys]
+    div word [vp_lbw]
+    pop dx
+    pop cx
     ret
 
 vp_onup:                            ; W_ONMOUSEUP: the button FIRES here
@@ -256,9 +436,21 @@ vp_onup:                            ; W_ONMOUSEUP: the button FIRES here
     push si
     call vp_track
     call vp_clip
+    mov si, [vp_win]
+    cmp byte [vp_drag], 0
+    je .btn
+    call vp_dragx                   ; THE THUMB'S RELEASE: the key under it
+    mov byte [vp_drag], 0
+    cmp ax, [vp_sel]
+    je .snap
+    call vp_seekto
+    jmp short .out
+.snap:
+    call vp_pbar                    ; ...the one already picked: it snaps back
+    jmp short .out
+.btn:
     mov bx, vp_btns
     call os88ui_btnup               ; AX = the button, index + 1, or 0
-    mov si, [vp_win]
     dec ax
     js .out
     jz .open
@@ -266,6 +458,11 @@ vp_onup:                            ; W_ONMOUSEUP: the button FIRES here
     jz .prev
     dec ax
     jz .play
+    dec ax
+    jz .next
+    call vp_cardtog
+    jmp short .out
+.next:
     mov ax, 1
     jmp short .step
 .prev:
@@ -284,35 +481,6 @@ vp_onup:                            ; W_ONMOUSEUP: the button FIRES here
     pop ax
     ret
 
-; a press on no button: on the scrub bar it picks the keyframe under it
-vp_onclick:                         ; CX = x, DX = y (screen), SI = window
-    push ax
-    push bx
-    push cx
-    push dx
-    cmp word [vp_nkeys], 0
-    je .out
-    mov ax, dx
-    sub ax, [vp_cy0]
-    sub ax, VP_BARY
-    cmp ax, VP_BARH
-    jae .out
-    mov ax, cx
-    sub ax, [vp_cx0]
-    sub ax, VP_BOXX
-    cmp ax, VP_BOXW
-    jae .out
-    mul word [vp_nkeys]             ; the key whose share of the bar it is
-    mov cx, VP_BOXW
-    div cx
-    call vp_seekto
-.out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
 ; vp_step - AX = -1 or +1: the key before or after the one picked
 vp_step:
     push ax
@@ -324,7 +492,7 @@ vp_step:
     ret
 
 ; vp_seekto - AX = a keyframe: the play starts there (98.3.5), and the box
-; shows it. Lock held, SI = window
+; shows it. Lock held
 vp_seekto:
     push ax
     push bx
@@ -385,7 +553,8 @@ vp_onfile:
     call vp_open                    ; the dialog left us standing in its
     pop di                          ; folder (SPEC.md 19.2.1)
     pop si
-    call vp_repaint
+    mov bx, [vp_win]                ; the layout and the paint: the wake's
+    call OSAPI_WM_WAKE
     pop dx
     pop cx
     pop bx
@@ -450,12 +619,18 @@ vp_open:
 .free:
     mov dx, [vp_tmp]
     call OSAPI_MEM_FREE
-    cmp byte [vp_loaded], 0         ; THE POSTER (SPEC.md 98.4): the header's
-    je .out                         ; keyframe, into the box - and only once
-    mov ax, [vp_poster]             ; the header's claim is gone, so the
-    cmp ax, [vp_nkeys]              ; poster's sits under what is freed
-    jae .out
-    call vp_loadkey
+    cmp byte [vp_loaded], 0         ; THE LAYOUT for this video (98.4.1),
+    je .out                         ; owed to the wake - with the card out
+    mov byte [vp_relay], 1          ; if the file will not play here, since
+    cmp byte [vp_ok], 0             ; the card is what says why
+    jne .lf
+    mov byte [vp_card], 1
+.lf:
+    call vp_layfit
+    mov ax, [vp_poster]             ; THE POSTER (98.4): the header's keyframe,
+    cmp ax, [vp_nkeys]              ; at the layout's scale - and only once the
+    jae .out                        ; header's claim is gone, so the poster's
+    call vp_loadkey                 ; sits under what is freed
     jmp short .out
 .short:
     mov word [vp_msg], vp_s_notv88
@@ -779,12 +954,15 @@ vp_loadkey:
     push es
     mov bx, ax
     call vp_pfree
-    mov ax, [vp_wb]                 ; THE POSTER'S claim FIRST, so it sits
-    inc ax                          ; under the two that are freed at the end
-    shr ax, 1                       ; (the first half's size: a second pass
-    mov cx, [vp_h]                  ; halves it in place)
+    mov ax, [vp_wb]                 ; THE PICTURE'S claim FIRST, so it sits
+    mov cx, [vp_h]                  ; under the two that are freed at the end:
+    cmp word [vp_ps], 1             ; the canvas at the video's own size, or
+    je .sz                          ; its first half (a quarter is the second
+    inc ax                          ; pass, in place)
+    shr ax, 1
     inc cx
     shr cx, 1
+.sz:
     mul cx
     add ax, 1023
     adc dx, 0
@@ -806,8 +984,14 @@ vp_loadkey:
     jc .nent
     cmp word [vp_pseg], 0
     je .free
+    push bx                         ; (the decode takes every register)
     call vp_kpic
-    jnc .free
+    pop bx
+    jc .nent
+    mov [vp_dkey], bx
+    mov ax, [vp_ps]
+    mov [vp_pscale], ax
+    jmp short .free
 .nent:
     call vp_pfree
 .free:
@@ -836,6 +1020,7 @@ vp_pfree:
     call OSAPI_MEM_FREE
     mov word [vp_pseg], 0
 .out:
+    mov word [vp_dkey], 0xFFFF
     pop dx
     ret
 
@@ -911,8 +1096,19 @@ vp_kpic:
     mov ds, dx
     call vd_native                  ; ES = the shadow, from its address 0
     pop ds
-    mov ax, [vp_kshd]               ; the first half: out of the file's
-    mov [vh_sseg], ax               ; layout...
+    cmp word [vp_ps], 1             ; AT ITS OWN SIZE: the rows out of the
+    jne .half                       ; file's layout, dense
+    call vp_linear
+    mov ax, [vp_wb]
+    mov [vp_pbw], ax
+    mov cl, 3
+    shl ax, cl
+    mov [vp_ppx], ax
+    mov ax, [vp_h]
+    jmp short .rows
+.half:
+    mov ax, [vp_kshd]               ; HALVED: out of the file's layout...
+    mov [vh_sseg], ax
     mov al, [vp_layout]
     mov [vh_lay], al
     mov ax, [vp_wb]
@@ -922,16 +1118,13 @@ vp_kpic:
     mov ax, [vp_pseg]
     mov [vh_dseg], ax
     call vp_half
-    mov ax, [vp_wb]                 ; the picture's width: half the canvas's
+    mov ax, [vp_wb]                 ; ...its width half the canvas's
     shl ax, 1
     shl ax, 1
-    cmp word [vp_wb], VP_BOXW / 4   ; ...unless that is wider than the box,
-    ja .quarter                     ; or taller
-    cmp word [vp_h], 2 * VP_BOXH
-    jbe .sized
-.quarter:
-    mov ax, [vp_pseg]               ; ...and then a quarter, the second pass
-    mov [vh_sseg], ax               ; in place: its rows are dense now
+    cmp word [vp_ps], 2
+    je .sized
+    mov ax, [vp_pseg]               ; ...or a QUARTER, the second pass in
+    mov [vh_sseg], ax               ; place: its rows are dense now
     mov byte [vh_lay], 0xFF
     mov ax, [vh_wb]
     mov [vh_sstr], ax
@@ -942,19 +1135,10 @@ vp_kpic:
     mov [vp_ppx], ax
     mov ax, [vh_wb]
     mov [vp_pbw], ax
-    mov ax, [vh_h]                  ; rows past the box are cut, top and
-    xor dx, dx                      ; bottom alike
-    cmp ax, VP_BOXH
-    jbe .rows
-    mov dx, ax
-    sub dx, VP_BOXH
-    shr dx, 1
-    mov ax, VP_BOXH
+    mov ax, [vh_h]
 .rows:
     mov [vp_prows], ax
-    mov ax, dx
-    mul word [vp_pbw]
-    mov [vp_pskip], ax
+    mov word [vp_pskip], 0
     inc word [vp_ploads]
     clc
 .free:
@@ -963,6 +1147,47 @@ vp_kpic:
     call OSAPI_MEM_FREE
     popf
 .no:
+    ret
+
+; vp_linear - the canvas out of the shadow ([vp_kshd], the file's layout)
+; into [vp_pseg], a row after the other at [vp_wb] bytes
+vp_linear:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push ds
+    push es
+    mov es, [vp_pseg]
+    xor di, di
+    xor dx, dx                      ; DX = the row
+.r:
+    cmp dx, [vp_h]
+    jae .done
+    mov ax, dx
+    mov bl, [vp_layout]
+    call vp_rowaddr
+    mov si, ax
+    mov cx, [vp_wb]
+    mov ax, [vp_kshd]
+    push ds
+    mov ds, ax
+    cld
+    rep movsb
+    pop ds
+    inc dx
+    jmp short .r
+.done:
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; vp_zero - ES:0: the file's layout's memory image, black
@@ -1382,6 +1607,8 @@ vp_play:
     mov [vp_err], al
     mov [vp_held], al
     mov [vp_upause], al
+    mov [vp_sdefer], al
+    mov [vp_ranok], al
     mov ax, [vp_base]
     mov [vp_done], ax               ; frames before it count as drawn
     mov ax, [vp_ssec]
@@ -1410,7 +1637,7 @@ vp_play:
     mov word [vp_msg], vp_s_refused
     jmp short .freering
 .ran:
-    mov byte [vp_played], 1
+    mov byte [vp_ranok], 1
     mov word [vp_msg], vp_s_ready
     cmp byte [vp_err], 0
     je .freering
@@ -1435,6 +1662,20 @@ vp_play:
     call OSAPI_MEM_FREE
     mov word [vp_aseg], 0
 .noa:
+    cmp byte [vp_ranok], 0          ; WHERE THE PLAY GOT TO (98.3.6), once
+    je .fm                          ; its memory is back - and only then is
+    call vp_after                   ; the play over, [vp_played] being what
+    mov byte [vp_played], 1         ; a gate waits on
+.fm:
+    cmp word [vp_msg], vp_s_ready   ; A PLAY THAT COULD NOT: the card comes
+    je .fmt                         ; out, since it is what says why - on the
+    cmp byte [vp_lcard], 0          ; wake, which lays the window out again
+    jne .fmt
+    mov byte [vp_card], 1
+    mov byte [vp_relay], 1
+    mov bx, [vp_win]
+    call OSAPI_WM_WAKE
+.fmt:
     call vp_fmt                     ; SI is still the window: fsx_run keeps
     call vp_repaint                 ; every register
 .out:
@@ -1447,10 +1688,115 @@ vp_play:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; vp_after - a play is over: Play starts next where this one got to (98.3.6).
+; Stopped part way, that is the keyframe at or before the last frame drawn;
+; played to the end, the start again, with the poster back in the box. A play
+; that drew nothing past where it started leaves the key as it was
+; -----------------------------------------------------------------------------
+vp_after:
+    push ax
+    cmp byte [vp_err], 0
+    jne .out
+    cmp word [vp_nkeys], 0
+    je .out
+    mov ax, [vp_done]
+    cmp ax, [vp_frames]
+    jb .mid
+    mov word [vp_sel], 0            ; THE END: from the start, and the poster
+    mov ax, [vp_poster]
+    cmp ax, [vp_nkeys]
+    jae .out
+    cmp ax, [vp_dkey]
+    je .out
+    call vp_loadkey
+    jmp short .out
+.mid:
+    dec ax                          ; the last frame drawn
+    js .out
+    call vp_keyat                   ; AX = the key at or before it
+    jc .out
+    cmp ax, [vp_sel]
+    je .out
+    call vp_loadkey
+    cmp ax, [vp_kload]              ; picked only if its entry is in hand,
+    jne .out                        ; which is what a play from it needs
+    mov [vp_sel], ax
+.out:
+    pop ax
+    ret
+
+; vp_keyat - AX = a frame -> AX = the keyframe at or before it, CF=1 none
+; could be read. The table is not in memory, so it is ESTIMATED - keys are
+; evenly spaced, so frame x keys / frames is the one or its neighbour - and
+; each guess read and stepped until it is right: one or two reads, and never
+; more than a bounded number
+vp_keyat:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov [vp_kat_t], ax
+    mul word [vp_nkeys]
+    div word [vp_frames]            ; (t < frames, so the key < keys)
+    mov [vp_kat_i], ax
+    mov word [vp_kat_n], 24
+    mov ax, [vp_kbkb]
+    call OSAPI_MEM_CLAIM
+    jc .fail
+    mov [vp_rdseg], dx
+.l:
+    dec word [vp_kat_n]
+    jz .got
+    mov ax, [vp_kat_i]
+    call vp_kent
+    jc .bad
+    mov ax, [vp_ke+KE_K]
+    cmp ax, [vp_kat_t]
+    jbe .up
+    cmp word [vp_kat_i], 0          ; past it: the key before
+    je .got
+    dec word [vp_kat_i]
+    jmp short .l
+.up:
+    mov ax, [vp_kat_i]              ; at or before it: is the next one too?
+    inc ax
+    cmp ax, [vp_nkeys]
+    jae .got
+    call vp_kent
+    jc .bad
+    mov ax, [vp_ke+KE_K]
+    cmp ax, [vp_kat_t]
+    ja .got
+    inc word [vp_kat_i]
+    jmp short .l
+.got:
+    mov dx, [vp_rdseg]
+    call OSAPI_MEM_FREE
+    mov ax, [vp_kat_i]
+    clc
+    jmp short .out
+.bad:
+    mov dx, [vp_rdseg]
+    call OSAPI_MEM_FREE
+.fail:
+    stc
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
 ; =============================================================================
 ; vp_main - the bracket (SPEC.md 53.1): SI = window, DS = CS = ours
 ; =============================================================================
 vp_main:
+    OS88_ALTENTER_SEED              ; the Alt+Enter that got us here is held
     push ds
     pop es
     mov di, vp_fsi
@@ -1557,24 +1903,41 @@ vp_main:
 .skn:
     loop .sk
 .sk0:
+    cmp byte [vp_startp], 0         ; F / Alt+Enter: IN PAUSED (98.3.6), on
+    je .snd                         ; the picture where the play would start
+    call vp_acur                    ; (the card, later, from HERE)
+    cmp word [vp_krec], 0xFFFF      ; - the keyframe's, or else the first
+    jne .held                       ; frame, drawn here with the hook idle
+    mov al, [vp_snd]
+    push ax
+    mov byte [vp_snd], 0            ; (no card yet to keep it behind)
+    call vp_frame
+    pop ax
+    mov [vp_snd], al
+    cmp byte [vp_shadow], 0
+    je .held
+    call vp_blit
+.held:
+    mov byte [vp_upause], 1
+    mov al, [vp_snd]                ; the card waits for the first Space
+    mov [vp_sdefer], al
+    call OSAPI_GET_TICKS
+    mov [vp_t0], ax
+    mov [vp_ptk0], ax
+    mov byte [vp_ready], 1
+    jmp short .loop
+.snd:
     cmp byte [vp_snd], 0
     je .go
+    call vp_acur
     call vp_sopen                   ; the card, started with the picture
 .go:
     call OSAPI_GET_TICKS
     mov [vp_t0], ax
     mov byte [vp_ready], 1
 .loop:
-    mov ah, 1                       ; the bracket's input model: poll int 16h
-    int 0x16                        ; (this IS the UI task, SPEC.md 53.1)
-    jz .nokey
-    xor ah, ah
-    int 0x16
-    cmp al, 27                      ; Esc stops, at any frame rate
-    je .stop
-    cmp al, ' '                     ; Space pauses, and resumes (98.3.4)
-    jne .nokey
-    call vp_upaus
+    call vp_poll                    ; Esc, F, Alt+Enter leave; Space pauses
+    jc .stop
 .nokey:
     cmp byte [vp_end], 0
     jne .drain
@@ -1598,13 +1961,8 @@ vp_main:
     call OSAPI_GET_TICKS
     mov [vp_tdr], ax
 .dl:
-    mov ah, 1
-    int 0x16
-    jz .dk
-    xor ah, ah
-    int 0x16
-    cmp al, 27
-    je .stop
+    call vp_poll
+    jc .stop
 .dk:
     cmp byte [vp_aend], 2           ; the audio ran out early: nothing to wait
     je .stop                        ; for
@@ -1659,12 +2017,8 @@ vp_sopen:
     mov cx, VP_SZERO / 2
     cld
     rep stosw
-    mov si, vp_pc                   ; the audio cursor starts where the
-    mov di, va_pc                   ; video's does - past a keyframe's skip
-    mov cx, 6
-    rep movsw
-    mov ax, [vp_base]               ; ...and at the same frame, which is
-    mov [vp_afr], ax                ; what the clock reads until the card's
+    mov ax, [vp_abase]              ; the audio cursor is vp_acur's, at the
+    mov [vp_afr], ax                ; frame the clock reads until the card's
     mov [vp_syncf], ax              ; first block says otherwise
     mov byte [vp_afn], 0x80         ; PCM8's silence
     mov ax, VP_BLOCK                ; frames the clock may run on past the
@@ -1719,6 +2073,30 @@ vp_sopen:
 
 ; vp_skeep - a stream the card paused for want of data resumes the moment a
 ; whole block is queued again (SPEC.md 34.5.2's contract: verb 1 resumes it)
+; vp_acur - the audio cursor where the video's is now - past a keyframe's
+; skip - and [vp_abase] the frame it is at. Before vp_sopen; and, going in
+; paused (98.3.6), before the first frame is drawn, so the card starts on
+; that frame's sound while that frame is on the screen
+vp_acur:
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov si, vp_pc
+    mov di, va_pc
+    mov cx, 6
+    cld
+    rep movsw
+    mov cx, [vp_done]
+    mov [vp_abase], cx
+    pop es
+    pop di
+    pop si
+    pop cx
+    ret
+
 vp_skeep:
     cmp byte [vp_snd], 0
     je .out
@@ -1748,6 +2126,35 @@ vp_skeep:
 .out:
     ret
 
+; vp_poll - the bracket's keys (SPEC.md 53.1: this IS the UI task, so it
+; polls): CF=1 leave - Esc, F, or Alt+Enter off the key-state map, which
+; int 16h never sees (apps/os88alt.inc) - and Space pauses or resumes
+vp_poll:
+    call os88alt_edge
+    jc .leave
+    mov ah, 1
+    int 0x16
+    jz .none
+    xor ah, ah
+    int 0x16
+    cmp al, 27
+    je .leave
+    cmp al, ' '
+    je .space
+    or al, 0x20
+    cmp al, 'f'
+    je .leave
+.none:
+    clc
+    ret
+.space:
+    call vp_upaus
+    clc
+    ret
+.leave:
+    stc
+    ret
+
 ; -----------------------------------------------------------------------------
 ; vp_upaus - Space (98.3.4): pause, or resume. Paused, the hook returns at
 ; once - nothing owed, no periods counted - so the clock stands where the
@@ -1772,6 +2179,12 @@ vp_upaus:
     call OSAPI_GET_TICKS
     sub ax, [vp_ptk0]
     add [vp_ptk], ax
+    cmp byte [vp_sdefer], 0         ; in paused (98.3.6): the card starts now,
+    je .v1                          ; at the frame the picture holds
+    mov byte [vp_sdefer], 0
+    call vp_sopen
+    jmp short .go
+.v1:
     cmp byte [vp_snd], 0
     je .go
     mov al, 1                       ; the card first: it resumes where it
@@ -1939,7 +2352,7 @@ vp_hook:
 .big:
     mov ax, 0xFFF0
 .syn:
-    add ax, [vp_base]               ; ...from the frame the play started at
+    add ax, [vp_abase]              ; ...from the frame the card started at
     jnc .syb
     mov ax, 0xFFF0
 .syb:
@@ -2439,6 +2852,186 @@ vp_paint:                           ; W_PAINT: SI = window, region armed
     pop ax
     ret
 
+; =============================================================================
+; THE LAYOUT (SPEC.md 98.4.1). The picture at the video's own size if the
+; screen has the room, else a half, else a quarter; the scrub bar under it;
+; the transport buttons centred under THAT with the info card's button at the
+; right - or, where there is room for the picture and the bar but not for a
+; row of buttons as well, the buttons in the info card instead, which is then
+; always shown. The info card beside the picture when it is asked for, and
+; its room is taken from the picture's scale if it must be. The window may
+; reach down over the dock (CGA's desktop band is too short otherwise)
+; =============================================================================
+; vp_layfit - the layout for [vp_wb] x [vp_h] and [vp_card] on this screen,
+; into the vp_l* words. out: AX = 1 the picture's scale changed. Preserves
+; the rest
+vp_layfit:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call OSAPI_VIDEO                ; AX = width, BX = height
+    sub ax, 10                      ; the widest content: frame x 7, 1 border
+    mov [vp_lcwm], ax
+    sub bx, MBAR_H + TITLE_H + 1    ; the tallest, over the dock
+    mov [vp_lchm], bx
+    mov ax, [vp_ps]
+    mov [vp_lops], ax
+    mov si, 1                       ; SI = the scale tried: 1, 2, 4
+.s:
+    call vp_laysize                 ; the picture's size at SI -> vp_lpw/lph
+    mov cl, [vp_card]
+    call vp_layA
+    jnc .a
+    call vp_layB
+    jnc .b
+    shl si, 1
+    cmp si, 4
+    jbe .s
+    mov si, 4                       ; nothing fits: a quarter, buttons below
+    call vp_laysize
+    mov cl, [vp_card]
+    call vp_layA
+.a:
+    mov byte [vp_lbin], 0
+    jmp short .set
+.b:
+    mov byte [vp_lbin], 1
+.set:
+    mov [vp_ps], si
+    mov bx, [vp_lpw]                ; the box: the picture's width, and never
+    cmp bx, VP_MINBW                ; less than the button row wants
+    jae .bw
+    mov bx, VP_MINBW
+.bw:
+    mov [vp_lbw], bx
+    mov ax, [vp_lph]
+    mov [vp_lbh], ax
+    add ax, VP_BOXY + 6
+    mov [vp_lbary], ax              ; the bar's frame, under the box
+    add ax, VP_BARH + 6
+    mov [vp_lbty], ax               ; the button row, under the bar
+    mov ax, bx                      ; the card: past the box, on a byte
+    add ax, VP_BOXX + 8 + 7
+    and ax, 0xFFF8
+    mov [vp_lcardx], ax
+    mov ax, [vp_ps]
+    xor ax, [vp_lops]
+    jz .same
+    mov ax, 1
+.same:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; vp_laysize - SI = a scale: vp_lpw, vp_lph = the picture's size at it
+vp_laysize:
+    push ax
+    push cx
+    mov ax, [vp_wb]                 ; pixels: 8 a byte, over the scale
+    mov cl, 3
+    shl ax, cl
+    mov cx, si
+.w:
+    shr cx, 1
+    jz .wd
+    shr ax, 1
+    jmp short .w
+.wd:
+    mov [vp_lpw], ax
+    mov ax, [vp_h]                  ; rows: halved rounding UP, as vp_half
+    mov cx, si                      ; does
+.h:
+    shr cx, 1
+    jz .hd
+    inc ax
+    shr ax, 1
+    jmp short .h
+.hd:
+    mov [vp_lph], ax
+    pop cx
+    pop ax
+    ret
+
+; vp_layA - buttons under the bar, the card if CL says so: CF=0 it fits, the
+; content size in vp_lcw/vp_lch and [vp_lcard] set
+vp_layA:
+    push ax
+    push bx
+    mov [vp_lcard], cl
+    call vp_laybw                   ; AX = the box's width
+    add ax, VP_BOXX + 8             ; the content without the card
+    or cl, cl
+    jz .w
+    add ax, 7                       ; ...or with it, past the box on a byte
+    and ax, 0xFFF8
+    add ax, VP_CARDW + 4
+.w:
+    cmp ax, [vp_lcwm]
+    ja .no
+    mov [vp_lcw], ax
+    mov ax, [vp_lph]
+    add ax, VP_BOXY + 6 + VP_BARH + 6 + VP_BTH + 5
+    mov bx, VP_CARDH                ; the card's own height, when it is shown
+    or cl, cl
+    jz .h
+    cmp ax, bx
+    jae .h
+    mov ax, bx
+.h:
+    cmp ax, [vp_lchm]
+    ja .no
+    mov [vp_lch], ax
+    pop bx
+    pop ax
+    clc
+    ret
+.no:
+    pop bx
+    pop ax
+    stc
+    ret
+
+; vp_layB - the buttons in the card, which is then shown: CF=0 it fits
+vp_layB:
+    push ax
+    mov byte [vp_lcard], 1
+    call vp_laybw
+    add ax, VP_BOXX + 8 + 7
+    and ax, 0xFFF8
+    add ax, VP_CARDW + 4
+    cmp ax, [vp_lcwm]
+    ja .no
+    mov [vp_lcw], ax
+    mov ax, [vp_lph]
+    add ax, VP_BOXY + 6 + VP_BARH + 5
+    cmp ax, VP_CARDHB
+    jae .h
+    mov ax, VP_CARDHB
+.h:
+    cmp ax, [vp_lchm]
+    ja .no
+    mov [vp_lch], ax
+    pop ax
+    clc
+    ret
+.no:
+    pop ax
+    stc
+    ret
+
+vp_laybw:                           ; AX = the box's width at vp_lpw
+    mov ax, [vp_lpw]
+    cmp ax, VP_MINBW
+    jae .o
+    mov ax, VP_MINBW
+.o:
+    ret
+
 ; vp_track - where the window is now: the content origin, and the buttons'
 ; rects in screen coordinates (a window moves without a paint). Preserves all
 vp_track:
@@ -2451,33 +3044,58 @@ vp_track:
     call OSAPI_WM_CONTENT           ; AX = left, DX = top
     mov [vp_cx0], ax
     mov [vp_cy0], dx
-    add ax, VP_BTX
-    add dx, VP_BTY
     mov di, vp_brects
+    cmp byte [vp_lbin], 0
+    jne .incard
+    mov bx, [vp_lbw]                ; UNDER THE BAR: the four centred on the
+    sub bx, VP_NB * VP_BTP - (VP_BTP - VP_BTW)  ; box, the card's at its
+    shr bx, 1                       ; right edge
+    add ax, bx
+    add ax, VP_BOXX
+    add dx, [vp_lbty]
+    jmp short .row
+.incard:
+    add ax, [vp_lcardx]             ; IN THE CARD, under its text
+    add dx, VP_CARDBY
+.row:
     mov cx, VP_NB
 .r:
-    mov [di], ax
-    mov [di+2], dx
-    add ax, VP_BTW - 1
-    mov [di+4], ax
-    sub ax, VP_BTW - 1 - VP_BTP
-    push dx
-    add dx, VP_BTH - 1
-    mov [di+6], dx
-    pop dx
-    add di, 8
+    call vp_rect
+    add ax, VP_BTP
     loop .r
-    mov ax, VP_NB                   ; none live under the About card
-    cmp byte [vp_abon], 0
-    je .n
-    xor ax, ax
+    mov ax, VP_NB                   ; ...and the fifth, the card's, only
+    cmp byte [vp_lbin], 0           ; under the bar
+    jne .n
+    mov ax, [vp_cx0]
+    add ax, VP_BOXX
+    add ax, [vp_lbw]
+    sub ax, VP_BTW
+    call vp_rect
+    mov ax, VP_NB + 1
 .n:
+    cmp byte [vp_abon], 0           ; none live under the About card
+    je .live
+    xor ax, ax
+.live:
     mov [vp_btns + OS88UI_BT_N], ax
     pop di
     pop dx
     pop cx
     pop bx
     pop ax
+    ret
+
+vp_rect:                            ; AX, DX = a button's top left -> [DI], DI += 8
+    mov [di], ax
+    mov [di+2], dx
+    push ax
+    add ax, VP_BTW - 1
+    mov [di+4], ax
+    mov ax, dx
+    add ax, VP_BTH - 1
+    mov [di+6], ax
+    pop ax
+    add di, 8
     ret
 
 ; vp_buttons - every button, in the state it should be in now. Lock held
@@ -2491,6 +3109,11 @@ vp_buttons:
     mov [vp_bflags+2], ax           ; that plays here
     mov [vp_bflags+4], ax
     mov [vp_bflags+6], ax
+    cmp byte [vp_lcard], 0          ; the card's button stands DOWN while the
+    je .c                           ; card is out (OS88UI_LATCH)
+    or ax, OS88UI_LATCH
+.c:
+    mov [vp_bflags+8], ax
     cmp word [vp_sel], 0
     jne .p1
     or byte [vp_bflags+2], OS88UI_DIS
@@ -2508,23 +3131,27 @@ vp_buttons:
     mov bx, vp_btns
     mov al, 1
 .b:
+    cmp al, [vp_btns + OS88UI_BT_N]
+    ja .out
     call os88ui_btn
     inc al
-    cmp al, VP_NB
-    jbe .b
+    jmp short .b
 .out:
     pop bx
     pop ax
     ret
 
-; vp_ptext - the info panel's lines from BX on, each an opaque run the full
-; width, so nothing is erased first (PERFORMANCE.md rule 2)
+; vp_ptext - the info card's lines from BX on, each an opaque run the full
+; width, so nothing is erased first (PERFORMANCE.md rule 2). Nothing while
+; the card is in
 vp_ptext:
     push ax
     push bx
     push cx
     push dx
     push si
+    cmp byte [vp_lcard], 0
+    je .out
     mov ax, VP_LINE
     mul bx
     add ax, vp_lines
@@ -2535,7 +3162,7 @@ vp_ptext:
     add ax, VP_TXTY
     mov dx, ax
     mov cx, [vp_cx0]
-    add cx, VP_TXTX
+    add cx, [vp_lcardx]
 .l:
     cmp bx, VP_LINES
     jae .out
@@ -2553,7 +3180,7 @@ vp_ptext:
     pop ax
     ret
 
-; vp_pposter - the box and the poster in it (98.4): the picture where there
+; vp_pposter - the box and the picture in it (98.4): the picture where there
 ; is one, black round it, each pixel written once
 vp_pposter:
     push ax
@@ -2565,28 +3192,30 @@ vp_pposter:
     push es
     mov al, CBLACK
     call OSAPI_SET_COLOR
-    mov ax, [vp_cx0]
-    add ax, VP_BOXX - 1
-    mov bx, [vp_cy0]
-    add bx, VP_BOXY - 1
-    mov cx, ax
-    add cx, VP_BOXW + 1
-    mov dx, bx
-    add dx, VP_BOXH + 1
-    call OSAPI_GFX_FRAME
     mov ax, [vp_cx0]                ; the box's inside
     add ax, VP_BOXX
     mov [vp_bx1], ax
-    add ax, VP_BOXW - 1
+    add ax, [vp_lbw]
+    dec ax
     mov [vp_bx2], ax
     mov ax, [vp_cy0]
     add ax, VP_BOXY
     mov [vp_by1], ax
-    add ax, VP_BOXH - 1
+    add ax, [vp_lbh]
+    dec ax
     mov [vp_by2], ax
+    mov ax, [vp_bx1]                ; ...and its frame
+    dec ax
+    mov bx, [vp_by1]
+    dec bx
+    mov cx, [vp_bx2]
+    inc cx
+    mov dx, [vp_by2]
+    inc dx
+    call OSAPI_GFX_FRAME
     cmp word [vp_pseg], 0
     je .black
-    mov ax, VP_BOXW                 ; the picture's place: centred, its x on a
+    mov ax, [vp_lbw]                ; the picture's place: centred, its x on a
     sub ax, [vp_ppx]                ; byte (OSAPI_GFX_BLIT1 takes no other) -
     shr ax, 1                       ; the SCREEN's byte, so a window whose
     add ax, [vp_bx1]                ; content is off the grid loses up to 7
@@ -2601,24 +3230,23 @@ vp_pposter:
     mov cx, [vp_ppx]
 .w:
     mov [vp_pdw], cx
-    mov ax, VP_BOXH
-    sub ax, [vp_prows]
-    shr ax, 1
-    add ax, [vp_by1]
+    mov ax, [vp_by1]
     mov [vp_py], ax
-    mov ax, [vp_bx1]                ; above it
-    mov bx, [vp_by1]
+    mov ax, [vp_prows]              ; rows past the box - a picture made at
+    cmp ax, [vp_lbh]                ; another scale, between a relayout and
+    jbe .r                          ; its reload - are not drawn
+    mov ax, [vp_lbh]
+.r:
+    mov [vp_pdh], ax
+    mov ax, [vp_bx1]                ; below it
+    mov bx, [vp_py]
+    add bx, [vp_pdh]
     mov cx, [vp_bx2]
-    mov dx, [vp_py]
-    dec dx
-    call vp_fillne
-    mov bx, [vp_py]                 ; below it
-    add bx, [vp_prows]
     mov dx, [vp_by2]
     call vp_fillne
     mov bx, [vp_py]                 ; left of it
     mov dx, bx
-    add dx, [vp_prows]
+    add dx, [vp_pdh]
     dec dx
     mov cx, [vp_px]
     dec cx
@@ -2628,13 +3256,13 @@ vp_pposter:
     mov cx, [vp_bx2]
     call vp_fillne
     mov es, [vp_pseg]
-    mov si, [vp_pskip]
+    xor si, si
     mov bp, [vp_pbw]
     mov ax, [vp_px]
     mov cx, [vp_pdw]
     mov bx, [vp_py]
-    mov dx, [vp_prows]
-    call OSAPI_GFX_BLIT1
+    mov dx, [vp_pdh]
+    call vp_blitb
     jnc .out
     mov ax, [vp_px]                 ; refused: black where it would be
     mov bx, [vp_py]
@@ -2642,7 +3270,7 @@ vp_pposter:
     add cx, [vp_pdw]
     dec cx
     mov dx, bx
-    add dx, [vp_prows]
+    add dx, [vp_pdh]
     dec dx
     call vp_fillne
     jmp short .out
@@ -2662,6 +3290,41 @@ vp_pposter:
     pop ax
     ret
 
+; vp_blitb - OSAPI_GFX_BLIT1's arguments, any number of rows: it takes 255
+; at a time. CF = 1 a call refused. Preserves all
+vp_blitb:
+    push ax
+    push bx
+    push dx
+    push si
+    mov [vp_brem], dx
+.l:
+    mov dx, [vp_brem]
+    or dx, dx
+    jz .out                         ; (CF = 0 from the or)
+    cmp dx, 255
+    jbe .n
+    mov dx, 255
+.n:
+    sub [vp_brem], dx
+    call OSAPI_GFX_BLIT1
+    jc .out
+    add bx, dx                      ; the next band: its rows down the screen,
+    push ax                         ; its bytes along the picture
+    push dx
+    mov ax, dx
+    mul bp
+    add si, ax
+    pop dx
+    pop ax
+    jmp short .l
+.out:
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    ret
+
 ; vp_fillne - GFX_FILL AX,BX..CX,DX in the colour set, unless it is empty
 vp_fillne:
     cmp cx, ax
@@ -2673,7 +3336,8 @@ vp_fillne:
     ret
 
 ; vp_pbar - the scrub bar (98.4): white, and the thumb black where the play
-; starts - three fills and no pixel twice; grey with no keyframes to pick
+; starts - or, mid-drag, under the pointer - three fills and no pixel twice;
+; grey with no keyframes to pick
 vp_pbar:
     push ax
     push bx
@@ -2684,9 +3348,10 @@ vp_pbar:
     mov ax, [vp_cx0]
     add ax, VP_BOXX - 1
     mov bx, [vp_cy0]
-    add bx, VP_BARY
+    add bx, [vp_lbary]
     mov cx, ax
-    add cx, VP_BOXW + 1
+    add cx, [vp_lbw]
+    inc cx
     mov dx, bx
     add dx, VP_BARH - 1
     call OSAPI_GFX_FRAME
@@ -2694,22 +3359,14 @@ vp_pbar:
     mov [vp_tx1], ax
     inc bx
     dec cx
+    mov [vp_tx2], cx
     dec dx
     cmp word [vp_nkeys], 0
     jne .live
     call OSAPI_GFX_FILL_GRAY
     jmp short .out
 .live:
-    xor ax, ax                      ; the thumb: where the play starts, along
-    cmp word [vp_sel], 0            ; the file's frames
-    je .at
-    mov ax, [vp_ke+KE_K]
-.at:
-    push dx
-    mov cx, VP_BOXW - VP_THW
-    mul cx
-    div word [vp_frames]
-    pop dx
+    call vp_thumbx                  ; AX = the thumb's x in the bar
     add ax, [vp_tx1]
     mov [vp_tx], ax
     mov al, CWHITE
@@ -2720,8 +3377,7 @@ vp_pbar:
     call vp_fillne
     mov ax, [vp_tx]                 ; ...and after it
     add ax, VP_THW
-    mov cx, [vp_tx1]
-    add cx, VP_BOXW - 1
+    mov cx, [vp_tx2]
     call vp_fillne
     mov al, CBLACK
     call OSAPI_SET_COLOR
@@ -2734,6 +3390,27 @@ vp_pbar:
     pop cx
     pop bx
     pop ax
+    ret
+
+; vp_thumbx - AX = the thumb's offset along the bar: under the pointer while
+; it is dragged, else where the play starts, along the file's frames
+vp_thumbx:
+    push cx
+    push dx
+    mov ax, [vp_tpos]
+    cmp byte [vp_drag], 0
+    jne .out
+    xor ax, ax
+    cmp word [vp_sel], 0
+    je .out
+    mov ax, [vp_ke+KE_K]
+    mov cx, [vp_lbw]
+    sub cx, VP_THW
+    mul cx
+    div word [vp_frames]
+.out:
+    pop dx
+    pop cx
     ret
 
 vp_repaint:                         ; SI = window, lock held, no region armed
@@ -3096,26 +3773,35 @@ vp_mul32:
 ; data
 ; =============================================================================
 vp_tpl:
-    dw 7, 22, VP_CONT_W + 2, VP_CONT_H + TITLE_H + 1  ; W_X = 7 mod 8: the
-                                    ; content on a byte (SPEC.md 11.94)
+    dw 7, 22, 0, 0                  ; W_X = 7 mod 8: the content on a byte
+                                    ; (SPEC.md 11.94). The size: vp_entry's,
+                                    ; from the layout (98.4.1)
     dw vp_ttl, vp_paint, vp_onkey, vp_clickw
 
     OS88_MENUSET vp_menus, vp_ttl, vp_oncmd
-        OS88_MENU vp_m_file, vp_i_file, 4
+        OS88_MENU vp_m_file, vp_i_file, 6
     OS88_MENUSET_END vp_menus
 vp_ttl:       db 'Video Player', 0
 vp_m_file:    db 'File', 0
-vp_i_file:    dw vp_it_open, vp_it_play, vp_it_prev, vp_it_next
+vp_i_file:    dw vp_it_open, vp_it_play, vp_it_fs, vp_it_prev, vp_it_next
+              dw vp_it_info
 vp_it_open:   db 'Open...', 0
 vp_it_play:   db 'Play (Space)', 0
+vp_it_fs:     db 'Full screen (F)', 0
 vp_it_prev:   db 'Previous key (Left)', 0
 vp_it_next:   db 'Next key (Right)', 0
+vp_it_info:   db 'Info (I)', 0
 
 ; the buttons (SPEC.md 20.5.1.3): Tracker's transport pictures, 16 x 10
     OS88UI_BTNREC vp_btns, vp_brects, vp_blabels, vp_bflags, VP_NB
-vp_blabels:   dw vp_i_open, vp_i_prev, vp_i_play, vp_i_next
-vp_bflags:    times VP_NB dw OS88UI_IMG
-vp_brects:    times VP_NB * 4 dw 0
+vp_blabels:   dw vp_i_open, vp_i_prev, vp_i_play, vp_i_next, vp_i_info
+vp_bflags:    times VP_NBTN dw OS88UI_IMG
+vp_brects:    times VP_NBTN * 4 dw 0
+vp_i_info:                          ; an i: the info card
+    db 1, 10
+    times 10 dw 0FFFFh
+    dw 00180h, 00180h, 00000h, 00380h, 00180h
+    dw 00180h, 00180h, 00180h, 003C0h, 00000h
 vp_i_open:                          ; an eject
     db 1, 10
     times 10 dw 0FFFFh
@@ -3333,7 +4019,44 @@ vp_by1:       dw 0
 vp_bx2:       dw 0
 vp_by2:       dw 0
 vp_tx1:       dw 0                  ; the bar's inside, and the thumb
+vp_tx2:       dw 0
 vp_tx:        dw 0
+vp_pdh:       dw 0                  ; the picture's rows drawn
+vp_brem:      dw 0                  ; vp_blitb's rows left
+vp_dkey:      dw 0xFFFF             ; the key the picture is, FFFFh none
+vp_pscale:    dw 0                  ; ...and the scale it was made at
+; the layout (98.4.1), vp_layfit's
+vp_card:      db 0                  ; the user's: the info card out
+vp_lcard:     db 0                  ; ...and whether it is (layout B forces it)
+vp_lbin:      db 0                  ; 1: the buttons are in the card
+vp_relay:     db 0                  ; the wake owes a layout and a resize
+vp_ps:        dw 2                  ; the picture's scale: 1, 2 or 4
+vp_lops:      dw 0
+vp_lpw:       dw 0                  ; the picture at it, pixels and rows
+vp_lph:       dw 0
+vp_lbw:       dw 0                  ; the box: its width and height
+vp_lbh:       dw 0
+vp_lbary:     dw 0                  ; the bar's frame top, the button row's
+vp_lbty:      dw 0
+vp_lcardx:    dw 0                  ; the card's x
+vp_lcw:       dw 0                  ; the content's size
+vp_lch:       dw 0
+vp_lcwm:      dw 0                  ; ...and the most the screen allows
+vp_lchm:      dw 0
+; the thumb's drag (98.4.2)
+vp_drag:      db 0
+vp_tier:      db 0                  ; OSAPI_CPU_INFO's AL
+vp_tpos:      dw 0                  ; the thumb's offset along the bar
+vp_dtk:       dw 0                  ; the tick the last mid-drag load ended
+vp_kat_t:     dw 0                  ; vp_keyat's frame and key
+vp_kat_i:     dw 0
+vp_kat_n:     dw 0
+; the paused start and the play's end (98.3.4, 98.3.6)
+vp_startp:    db 0                  ; F: into full screen paused
+vp_sdefer:    db 0                  ; ...the card started at the first Space
+vp_ranok:     db 0                  ; the bracket ran: the position to keep
+              db 0
+vp_abase:     dw 0                  ; the frame the card's stream starts at
 vh_sseg:      dw 0                  ; vp_half's image...
 vh_lay:       db 0                  ; ...its layout, or FFh linear...
               db 0
@@ -3356,6 +4079,7 @@ vp_ptk:       dw 0                  ; ticks paused, this play
 vp_fsi:       times FSI_SIZE db 0
 vp_cur:       times FSEQ_SIZE db 0
 
+%include "os88alt.inc"              ; Alt+Enter in the bracket (SPEC.md 11.2.1.1)
 %define OS88UI_ABOUT                ; the standard About card (SPEC.md 20.5.1)
 %define OS88UI_BIMG                 ; ...and buttons with PICTURES, drawn with
 %define OS88UI_NOGLYPH              ; no pixel written twice (SPEC.md 13.8.9),

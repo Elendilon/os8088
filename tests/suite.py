@@ -8152,7 +8152,7 @@ SOAK = [
         "the burst OFF - 3D8h is not a VGA's - and plays the same bytes",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidpreview", "soak", py("tests/vidpreview.py"), 48.0,
+    Row("vidpreview", "soak", py("tests/vidpreview.py"), 64.0,
         "SPEC.md 98.4, 98.3.4, 98.3.5: VIDEO.O88's window is a PREVIEW. "
         "vidplay's clip opened by double-clicking: the box holds the "
         "header's poster keyframe halved 2x2 with the ordered dither - the "
@@ -8160,20 +8160,26 @@ SOAK = [
         "under the box; Right, a click on the scrub bar and the Prev button "
         "each pick a key and the box follows; a play from key 1 holds "
         "before frame k+1 (the keyframe alone) and later, frame-exact, and "
-        "ends on the last frame; and Space pauses a play for 1.5 guest s "
-        "with no frame drawn, finishing it on time. Broken on purpose (the "
-        "dither's thresholds swapped, the play's base left at 0, the hook's "
-        "pause test removed) it FAILS",
+        "ends on the last frame, which rewinds Play to the start; Space "
+        "pauses a play for 1.5 guest s with no frame drawn, finishing it on "
+        "time; F goes in PAUSED on frame 0, Space plays, F out at frame ~100 "
+        "leaves Play at key 1 (98.3.6); Alt+Enter goes in on key 1's frame "
+        "and out; and the thumb DRAGS - one load on an 8088's release, a "
+        "load mid-drag with the tier poked to 286 (98.4.2). The picture is "
+        "at the layout's scale (98.4.1): half on CGA, its own size on "
+        "Hercules. Broken on purpose (the dither's thresholds swapped, the "
+        "play's base left at 0, the hook's pause test removed, the position "
+        "not kept) it FAILS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidprevherc", "soak", py("tests/vidpreview.py", "--layout",
-                                  "herc"), 48.0,
+                                  "herc"), 66.0,
         "SPEC.md 98.4: vidpreview on the Hercules 5150, a Hercules-layout "
         "clip - the poster on Hercules' own desktop framebuffer",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidprevshd", "soak", py("tests/vidpreview.py", "--layout", "cga",
-                                 "--screen", "herc"), 48.0,
+                                 "--screen", "herc"), 66.0,
         "SPEC.md 98.3.2, 98.3.5: vidpreview's CGA clip on the Hercules "
         "5150, through the SHADOW - the keyframe decoded into it and copied "
         "before the stream starts, every hold read where the copy put the "
@@ -8188,6 +8194,18 @@ SOAK = [
         "letting it play out its ring), and the capture still holds the "
         "whole sound in order, the play on the sound's time without the "
         "pause",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
+               "build/ctrl.drv", "build/sound.drv")),
+    Row("vidsndfs", "soak", py("tests/vidsound.py", "--secs", "20",
+                               "--fs"), 64.0,
+        "SPEC.md 98.3.6: vidsound's clip taken full screen with F - PAUSED "
+        "on frame 0 with the card NOT yet opened - then played with Space: "
+        "every frame, no pause, on the card's clock, and the capture holding "
+        "the whole sound from frame 0, the card started on the frame on the "
+        "screen. With the audio cursor not aimed before that first frame, "
+        "the play never ends",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
