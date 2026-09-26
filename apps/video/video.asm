@@ -654,8 +654,11 @@ vp_onup:                            ; W_ONMOUSEUP: the button FIRES here
     call vp_dragx                   ; THE THUMB'S RELEASE: the key under it
     mov byte [vp_drag], 0
     cmp ax, [vp_sel]
-    je .snap
-    call vp_seekto
+    jne .seek
+    cmp byte [vp_sess], 0           ; ...the key picked, but a SESSION is
+    je .snap                        ; somewhere else: the pick is news. A
+.seek:                              ; looping play started from key 0 had no
+    call vp_seekto                  ; way back to it (the owner's report)
     jmp short .out
 .snap:
     call vp_pbar                    ; ...the one already picked: it snaps back

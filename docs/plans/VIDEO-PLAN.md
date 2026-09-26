@@ -1485,7 +1485,9 @@ of the round (14.9).
   poll, so R landed a lap late. It polls at 0.02 s.
 
 - **The logo video is BUILT and SHIPS** (SPEC.md 98.3.11): 
-  `apps/video/os8088.v88`, 98,304 bytes, made by `tools/os88logovid.py`
+  `apps/video/os8088.v88`, 100,352 bytes (98,304 until the owner's test
+  round put a key back at frame 0 and the far bits behind the chip), made
+  by `tools/os88logovid.py`
   and committed. The CIRCUIT BOARD won over the dither (L2): against the
   50% dither the package reads as a smudge and the digits need their black
   halos to be seen at all, where on the board the black package stands out

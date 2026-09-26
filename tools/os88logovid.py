@@ -366,6 +366,15 @@ class Renderer:
         self.pinmask_near = self.pins(-1)
         img = np.where(self.pinmask_near[0], self.pinmask_near[1], img)
         self.base = img
+        # WHAT HIDES A FAR BIT: a trace behind the package runs out from the
+        # far pins' feet, so the package and both rows of pins are nearer the
+        # eye than any point of it. Per canvas pixel, a majority of its
+        # samples - the dither's own grid - so a bit goes behind the chip at
+        # the edge the chip is drawn with (the owner's report: they rode OVER
+        # it)
+        occ = mf | me | mt | self.pinmask_far[0] | self.pinmask_near[0]
+        self.occ_far = occ.reshape(self.h, self.ssy, self.w,
+                                   self.ssx).mean(axis=(1, 3)) > 0.5
 
     def seg_dist(self, px, py, a, b):
         ab = b - a
@@ -464,13 +473,15 @@ class Renderer:
 
     def bits(self, out, f):
         """The 1s and 0s: sprites at the pixel their board point lands on,
-        a black halo round a white digit"""
+        a black halo round a white digit - and on a FAR trace, only where
+        nothing nearer (the package, the pins) covers the pixel"""
         glyphs = DIGITS[self.name]
         gh = len(glyphs["0"])
         gw = 5
         for ti, tr in enumerate(self.traces):
             if f < LOOP and not tr.inward and f < 36:
                 continue                    # the intro: only bits coming IN
+            far = tr.pts[0][1] > 0          # behind the package, from here
             n = int(tr.length / tr.spacing) + 2
             for k in range(n):
                 s = (tr.phase + k * tr.spacing + tr.speed * f) % \
@@ -490,11 +501,14 @@ class Renderer:
                 if x0 < 1 or y0 < 1 or x0 + gw + 1 >= self.w or \
                         y0 + gh + 1 >= self.h:
                     continue
-                out[y0 - 1:y0 + gh + 1, x0 - 1:x0 + gw + 1] = False
+                spr = np.zeros((gh + 2, gw + 2), bool)   # the halo...
                 for yy, row in enumerate(g):
                     for xx, c in enumerate(row):
                         if c == "1":
-                            out[y0 + yy, x0 + xx] = True
+                            spr[yy + 1, xx + 1] = True        # ...the digit
+                box = (slice(y0 - 1, y0 + gh + 1), slice(x0 - 1, x0 + gw + 1))
+                vis = ~self.occ_far[box] if far else True
+                out[box] = np.where(vis, spr, out[box])
 
 
 def canvas_bytes(bits):
@@ -504,8 +518,8 @@ def canvas_bytes(bits):
 
 def writer(name, frames, sound=False):
     """One LIVE rendition (SPEC.md 98.3.10): its frames, losslessly - the
-    file is small by being drawn small, not by being cut - and one keyframe,
-    at LOOP: the finished logo, which is the poster"""
+    file is small by being drawn small, not by being cut - and two
+    keyframes, at 0 and at LOOP: the finished logo, which is the poster"""
     import os88vid as vid
     a = ADAPTERS[name]
     g = vid.Geom(vid.LAY_LIN80, a["w"] // 8, a["h"])
@@ -523,10 +537,14 @@ def writer(name, frames, sound=False):
                     ch.append(base + x)
             surf[base:base + g.wb] = row
         w.frame(vid.spans(ch, surf, g), surf)
-    # ONE keyframe, the finished logo: a resident play starts from the
-    # block's first record, so key 0 would be ~4 KB a screen buying nothing -
-    # the poster is the key, and a play from it starts at the loop
-    w.keys = [k for k in w.keys if k[0] == LOOP]
+    # TWO keyframes: the start and the finished logo. A resident play from
+    # the start reads the block's first record, so key 0 was once left out
+    # as ~4 KB a screen buying nothing - and it bought the START's place on
+    # the scrub bar: with one key the bar had one place, and a thumb dragged
+    # back before the loop snapped back to it (the owner's report). The
+    # poster is key 1, the finished logo, and a play from it starts at the
+    # loop
+    w.keys = [k for k in w.keys if k[0] in (0, LOOP)]
     return w
 
 
@@ -548,7 +566,7 @@ def build(out, ground="board", pack=None, sound=False):
     st = vid.write_resident(out, ws, title="os8088",
                             credits="the os8088 logo", repeat=True,
                             pack=vid.PK_LZB if pack is None else pack,
-                            posters=[0] * len(ws), **extra)
+                            posters=[1] * len(ws), **extra)
     vid.verify_v88(out)
     return st
 

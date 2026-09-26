@@ -150569,8 +150569,27 @@ this section was built for: RESIDENT, LIVE, three one-bit LIN80 renditions
 drawn at each screen's own pixel shape - VGA/EGA 320 x 200, Hercules
 360 x 144, CGA 320 x 112 (a third taller than its true proportions, which
 would leave the lettering ten rows) - each LZB-packed, with Repeat on and
-the finished logo as the only keyframe and the poster. **98,304 bytes**,
-under the owner's 120 KB.
+two keyframes - the start, and the finished logo at 57, which is the
+poster. **100,352 bytes**, under the owner's 120 KB.
+
+**The key at frame 0 is the start's PLACE ON THE BAR.** The file shipped
+with the loop's key alone, on the argument that a resident play from the
+start reads the block's first record and needs no key - and the scrub bar is
+a bar of KEYS (98.4.2), so it had one place, the loop's, and a thumb dragged
+back before it snapped back. 2 KB bought it back. The release had its own
+half of the defect, for any file: it ignored a pick of the key already
+picked, which is right with nothing playing and wrong mid-session, where
+the play is somewhere else - so a looping play started from key 0 could not
+be sent back to key 0 by the thumb. It picks then too (`vidlogo` leg 4, which
+fails with that test taken out).
+
+**The bits on the far traces go BEHIND the chip.** The digits are sprites
+stamped after the dither, and were stamped over everything, so those riding
+the traces behind the package crossed its top face (the owner's report).
+Everything on such a trace is further from the eye than the package and
+both rows of pins, so a far digit - and its halo - is drawn only on pixels
+none of those cover, by a majority of the pixel's samples: the same grid the
+dither draws the chip's edge on.
 
 **It is COMMITTED, as `apps/video/os8088.v88`**, and not made by `make`:
 `tools/os88logovid.py` renders it with numpy, and a build dependency for a

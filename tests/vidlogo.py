@@ -6,7 +6,8 @@ by hand: it needs numpy and the build does not), on the screen named:
     make && python3 tests/vidlogo.py [--screen herc|cga|vga]
 
 1. THE FILE IS WHAT THE GENERATOR SAYS: resident, live, three renditions
-   each naming its screen, the seam back to LOOP, Repeat on, and under the
+   each naming its screen, keys at 0 and LOOP with the second the poster,
+   the seam back to LOOP, Repeat on, and under the
    owner's budget (120 KB, VIDEO-PLAN 14.7).
 2. THE SCREEN'S OWN RENDITION PLAYS LIVE: at its own size, so the box shows
    it whole (vp_ps 1) - the one thing a file can be refused Live for.
@@ -15,8 +16,14 @@ by hand: it needs numpy and the build does not), on the screen named:
 3. EVERY HELD FRAME, IN THE BOX: before the burn, mid-burn, the last frame
    and the first after the seam, over two laps - the desktop's pixels
    against the rendition's host decode.
+4. BACK TO THE START BY THE THUMB, mid-loop: the thumb dragged to the
+   bar's left end stops the looping play with the start picked, and Play
+   plays frame 4 again. The file has a key at 0 for it (the generator once
+   left only the loop's, and the bar had one place); and the release must
+   pick even the key the session STARTED from.
 
-Broken on purpose - the CGA and Hercules renditions' targets swapped - on
+Broken on purpose - the release's session test taken out, it FAILS 4 (the
+loop never stops). And the CGA and Hercules renditions' targets swapped - on
 CGA it FAILS 1, takes the Hercules picture at box scale 2, and then FAILS 2:
 no live session, because a box that shows the picture scaled is not Live.
 """
@@ -66,9 +73,11 @@ def main():
           "from %s, live %d, resident %d" % (LOGO, size, r.nrend, tg,
                                              r.frames, r.loop[0], r.live,
                                              r.resident))
+    ks = [e[0] for e in r.keys]
+    print("   keyframes at %s, poster %d" % (ks, r.poster))
     if size > BUDGET or not (r.live and r.resident) or r.nrend != 3 or \
-            r.frames != NF or r.loop[0] != L or \
-            tg != [vid.TARGETS[n] for n in ORDER]:
+            r.frames != NF or r.loop[0] != L or ks != [0, L] or \
+            r.poster != 1 or tg != [vid.TARGETS[n] for n in ORDER]:
         bad.append("the file is not the generator's")
     vid.verify_v88(LOGO)
     WB, H = r.g.wb, r.g.h
@@ -144,6 +153,34 @@ def main():
                     ww("vp_stopat", stops[i + 1] if i + 1 < len(stops)
                        else 0xFFFF)
                     m.write(base + syms["vp_held"], b"\0")
+                # --- 4: BACK TO THE START, by the thumb, mid-loop: the key
+                # a looping play started from is the one the release picks,
+                # and it has to be news while the session is elsewhere
+                os88marty.pace(m, 0.5)
+                cx0, cy0 = rw("vp_cx0"), rw("vp_cy0")
+                bw, by = rw("vp_lbw"), cy0 + rw("vp_lbary") + 4
+                xat = lambda f: cx0 + 8 + int(bw * f)          # VP_BOXX
+                was = rw("vp_done")
+                ui.mo.drag(xat(0.7), by, xat(0.02), by)
+                wait(lambda mm: rb("vp_drag") == 0 and rb("vp_sess") == 0,
+                     "the thumb's release to stop the loop", 20.0)
+                print("   the thumb dragged to the start at frame %d: "
+                      "session %d, Play at key %d"
+                      % (was, rb("vp_sess"), rw("vp_sel")))
+                if rw("vp_sel") != 0:
+                    bad.append("the thumb at the start picked key %d"
+                               % rw("vp_sel"))
+                ww("vp_stopat", 5)
+                m.write(base + syms["vp_held"], b"\0")
+                m.write(base + syms["vp_played"], b"\0")
+                ui.mo.to(8, rows - 8 if rows < 400 else 470)
+                m.type_text("p")
+                wait(lambda mm: rb("vp_held") == 1 and rw("vp_done") == 5
+                     and rw("vp_dy1") == 0, "Play from the start to frame 5")
+                os88marty.pace(m, 0.3)
+                box(4, "played again from the start")
+                ww("vp_stopat", 0xFFFF)
+                m.write(base + syms["vp_held"], b"\0")
                 m.key("Escape")
                 wait(lambda mm: rb("vp_lsess") == 0, "Esc to stop it", 10.0)
             except Stop as e:
