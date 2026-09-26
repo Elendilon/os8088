@@ -8301,6 +8301,37 @@ SOAK = [
         "every hold on the glass",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidresident", "soak", py("tests/vidresident.py"), 50.0,
+        "SPEC.md 98.1.7: a RESIDENT file of three renditions, LZB, on the "
+        "Hercules 5150: the desktop's own rendition taken, its block in "
+        "memory byte for byte as the host expands it, no ring, every held "
+        "frame right across two laps of its seam, Repeat off ending it. "
+        "Broken on purpose (rendition 0 always, or the cursor a byte "
+        "short) it FAILS",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidresidentcga", "soak", py("tests/vidresident.py", "--screen",
+                                     "cga", "--pack", "lz4"), 50.0,
+        "SPEC.md 98.1.7: vidresident on the CGA 5150, the blocks LZ4",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidresidentvga", "soak", py("tests/vidresident.py", "--screen",
+                                     "vga"), 50.0,
+        "SPEC.md 98.1.7: vidresident on MartyPC's VGA XT - where CGA's own "
+        "mode is on the display too, and the rendition taken must still be "
+        "the desktop's LIN80 one",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidsndres", "soak", py("tests/vidsound.py", "--secs", "2",
+                                "--resident", "--loop", "30"), 45.0,
+        "SPEC.md 98.1.7, 98.3.9: a RESIDENT clip with its sound one audio "
+        "block, two laps past the first with the card the clock: the "
+        "capture the first lap's sound then frame 30's on, twice, byte for "
+        "byte",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88", "build/sound.drv", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hdd.drv",
+               "build/hiber.drv", "build/ctrl.drv")),
     Row("vidvga4", "soak", py("tests/vidvga4.py"), 60.0,
         "SPEC.md 98.1.3.2, 98.4.5: sixteen colours in mode 12h, IN THE "
         "WINDOW on MartyPC's VGA XT: the file read as VGA4 on LIN80's "

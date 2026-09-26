@@ -678,7 +678,14 @@ V88_SIG = b"V88\x1a"
 # frame back to frame L, and a loop block at 448 names it. REPEAT: a player
 # starts with Repeat on. Bits 0 and 3 are named for waves 10 and 9
 F_RESIDENT, F_LOOPREC, F_REPEAT, F_LIVE = 1, 2, 4, 8
-F_KNOWN = F_LOOPREC | F_REPEAT
+F_KNOWN = F_RESIDENT | F_LOOPREC | F_REPEAT
+# RESIDENT (98.1.7): each rendition's records are one BLOCK, read whole and
+# expanded before the play - back to back, no chain, no audio in them - and
+# the sound one AUDIO block for every rendition. A block's fields sit in its
+# rendition slot's spare bytes, the audio block's at 176
+R_BLOCK = 40                    # slot: the block's offset, packed bytes,
+PK_NONE, PK_LZ4, PK_LZB = 0, 1, 2   # unpacked bytes (<i4) and packing at 52
+AUD_AT = 176                    # the audio block: the same four fields
 LOOP_AT = 448                   # the loop block: L, seam offset and length,
 LOOP_FMT = "<IIHBBI"            # the super-packet of frame L+1 (sectors,
                                 # records before it there, offset)
@@ -1265,6 +1272,130 @@ class Writer:
                     seam=len(seam))
 
 
+def write_resident(path, writers, audio_fmt=AUD_NONE, abytes=0, audio=b"",
+                   title="", credits="", repeat=False, pack=PK_LZB,
+                   posters=None):
+    """A RESIDENT file (98.1.7): one rendition per Writer - each made SILENT
+    at the file's rate, with the file's loop if it has one - its records one
+    block, packed on its own; the sound one audio block for them all. The
+    player reads the rendition native to its screen whole, expands it in
+    place, and plays it from memory. Returns the byte counts, per block"""
+    import os88lz
+    if not 1 <= len(writers) <= 4:
+        raise V88Error("%d renditions: 1 to 4" % len(writers))
+    w0 = writers[0]
+    n = len(w0.recs)
+    for w in writers:
+        if (w.rate, w.spf, len(w.recs), w.loop) != (w0.rate, w0.spf, n,
+                                                    w0.loop):
+            raise V88Error("the renditions differ in rate, frames or loop")
+        if w.abytes:
+            raise V88Error("a resident rendition's records carry no audio")
+    if audio_fmt == AUD_ADPCM4:
+        raise V88Error("a resident file's sound is PCM8 or none: ADPCM4 "
+                       "needs a reference byte per seek (98.1.1.1)")
+    if len(audio) != n * abytes:
+        raise V88Error("%d bytes of sound for %d frames of %d"
+                       % (len(audio), n, abytes))
+    loop = w0.loop
+
+    def packed(data):
+        """(bytes, packing): stored when packing would not make it smaller"""
+        if pack == PK_NONE:
+            return data, PK_NONE
+        try:
+            p = os88lz.compress(data, pack - 1)
+        except ValueError:              # (incompressible: no tail fits T)
+            return data, PK_NONE
+        return (p, pack) if len(p) < len(data) else (data, PK_NONE)
+
+    def pad(b):
+        return b + bytes(-len(b) % SECTOR)
+    hdr = bytearray(SECTOR)
+    body = bytearray()                  # everything after the header
+    base = SECTOR
+    slots, sizes = [], []
+    for ri, w in enumerate(writers):
+        g = w.g
+        pal = 0
+        if w.palette:
+            pal = base + len(body)
+            body += pad(w.palette)
+        seam = b""
+        if loop is not None:
+            if not 0 <= loop < n - 1:
+                raise V88Error("a loop from frame %d of %d" % (loop, n))
+            seam = record(seam_ops(w.last, w.loop_surf, g), g, b"",
+                          limit=65535)
+        keys = w.keys
+        nk = len(keys)
+        ktab = base + len(body) if nk else 0
+        kt = bytearray()
+        o = base + len(body) + -(-16 * nk // SECTOR) * SECTOR
+        kr = bytearray()
+        for k, r, c in keys:
+            kt += struct.pack("<IIHIBB", k, o + len(kr), len(r), 0, 0, 0)
+            kr += r
+        if nk:
+            body += pad(bytes(kt)) + pad(bytes(kr))
+        blk = b"".join(w.recs) + seam
+        pb, bpk = packed(blk)
+        if len(pb) > 61440 or len(blk) > 0x1FFF0:
+            raise V88Error("rendition %d's block is %d bytes, %d packed: a "
+                           "block is under 128 KB and reads in under 60 KB"
+                           % (ri, len(blk), len(pb)))
+        boff = base + len(body)
+        body += pad(pb)
+        poster = posters[ri] if posters else None
+        if poster is None:
+            poster = next((i for i, (k, r, c) in enumerate(keys)
+                           if not flat(c)), 0 if nk else 0xFFFF)
+        slots.append((w, ktab, nk, poster, len(blk), boff, len(pb), bpk, pal,
+                      max(len(r) for r in w.recs),
+                      max((len(r) for k, r, c in keys), default=0)))
+        sizes.append((len(blk), len(pb)))
+    aoff = apk = 0
+    if audio:
+        if len(audio) > 0x1FFF0:
+            raise V88Error("%d bytes of sound: a block is under 128 KB"
+                           % len(audio))
+        apk, apack = packed(audio)
+        if len(apk) > 61440:
+            raise V88Error("the sound packs to %d bytes: a block reads in "
+                           "under 60 KB" % len(apk))
+        aoff = base + len(body)
+        body += pad(apk)
+    hdr[0:4] = V88_SIG
+    flags = F_RESIDENT | (F_LOOPREC if loop is not None else 0) | \
+        (F_REPEAT if repeat else 0)
+    struct.pack_into("<HHIHHBBH", hdr, 4, 1, flags, n, w0.rate, w0.spf,
+                     audio_fmt, len(writers), abytes)
+    struct.pack_into("<HB", hdr, 20, *pit_rate(w0.rate, w0.spf))
+    for off, size, text in ((32, 48, title), (80, 96, credits)):
+        t = text.encode("ascii", "replace")[:size - 1]
+        hdr[off:off + len(t)] = t
+    if audio:
+        struct.pack_into("<IIIB", hdr, AUD_AT, aoff, len(apk), len(audio),
+                         apack)
+    for ri, (w, ktab, nk, poster, ulen, boff, plen, bpk, pal, rmax,
+             kmax) in enumerate(slots):
+        so = 192 + 64 * ri
+        struct.pack_into("<BBHHBBIHHIHHIHH", hdr, so, w.pixfmt, w.g.layout,
+                         w.g.wb, w.g.h, w.aspect[0], w.aspect[1], ktab, nk,
+                         poster, 0, 0, 0, ulen, rmax, kmax)
+        struct.pack_into("<IBB", hdr, so + 32, pal,
+                         w.rowscale if w.rowscale > 1 else 0,
+                         2 if w.flip else 0)
+        struct.pack_into("<IIIB", hdr, so + R_BLOCK, boff, plen, ulen, bpk)
+    if loop is not None:
+        struct.pack_into("<I", hdr, LOOP_AT, loop)
+    out = bytes(hdr) + bytes(body)
+    with open(path, "wb") as f:
+        f.write(out)
+    return dict(bytes=len(out), blocks=sizes,
+                audio=(len(audio), len(apk) if audio else 0))
+
+
 def walk_lists(buf, data, si, write=None, seg=None):
     """Apply the ten lists at data[si:] to `buf` (a surface image); call
     write(k, di, n) for each write first and seg(absolute) for each
@@ -1327,7 +1458,7 @@ class Reader:
     """A .V88, read the way SPEC.md 98.1.6 says a player must: every field
     it sizes by is checked, and a failure is a V88Error naming it."""
 
-    def __init__(self, path):
+    def __init__(self, path, rend=0):
         self.path = path
         self.d = d = open(path, "rb").read()
         if len(d) < SECTOR or d[:4] != V88_SIG:
@@ -1337,7 +1468,7 @@ class Reader:
         if ver != 1 or flags & ~F_KNOWN:
             raise V88Error("version %d, flags %04x: this reader knows "
                            "version 1 and flags %04x" % (ver, flags, F_KNOWN))
-        self.flags = flags
+        self.flags = self.flags_ = flags
         if self.frames < 1 or self.spf < 1 or self.rate < 1:
             raise V88Error("frames %d, rate %d, samples per frame %d"
                            % (self.frames, self.rate, self.spf))
@@ -1362,7 +1493,11 @@ class Reader:
         self.credits = d[80:176].split(b"\0")[0].decode("ascii", "replace")
         (self.pixfmt, layout, wb, h, an, ad, self.ktab, self.nkeys,
          self.poster, self.sp0, self.sp0n, self.spmax, self.slen, self.rmax,
-         self.kmax) = struct.unpack_from("<BBHHBBIHHIHHIHH", d, 192)
+         self.kmax) = struct.unpack_from("<BBHHBBIHHIHHIHH", d, 192 + 64 * rend)
+        if not 0 <= rend < self.nrend:
+            raise V88Error("rendition %d of %d" % (rend, self.nrend))
+        self.rend, self.slot = rend, 192 + 64 * rend
+        self.resident = bool(flags & F_RESIDENT)
         if self.pixfmt not in PF_NAMES:
             raise V88Error("pixel format %d" % self.pixfmt)
         if (self.pixfmt == PF_VGA8) != (layout in VGA8_LAYOUTS):
@@ -1372,7 +1507,7 @@ class Reader:
         if self.pixfmt == PF_VGA4 and layout != LAY_LIN80:
             raise V88Error("VGA4 on layout %d: it is LIN80's" % layout)
         self.g = Geom(layout, wb, h, bitplanes=self.pixfmt == PF_VGA4)
-        pal, rs, fl = struct.unpack_from("<IBB", d, 224)
+        pal, rs, fl = struct.unpack_from("<IBB", d, self.slot + 32)
         self.rowscale = rs or 1
         if fl not in (0, 1, 2) or (fl == 2 and layout != LAY_MODEX):
             raise V88Error("a flip byte of %d on layout %d" % (fl, layout))
@@ -1395,7 +1530,9 @@ class Reader:
             raise V88Error("a palette at %d in a %s file"
                            % (pal, PF_NAMES[self.pixfmt]))
         self.aspect = (an, ad)
-        if not (1 <= self.sp0n <= SP_MAX and 1 <= self.spmax <= SP_MAX) \
+        if self.resident:
+            self._blocks(d)
+        elif not (1 <= self.sp0n <= SP_MAX and 1 <= self.spmax <= SP_MAX) \
                 or self.sp0 % SECTOR:
             raise V88Error("first super-packet at %d, %d sectors, largest %d"
                            % (self.sp0, self.sp0n, self.spmax))
@@ -1410,7 +1547,15 @@ class Reader:
         self.repeat = bool(flags & F_REPEAT)
         self.loop = None
         blk = struct.unpack_from(LOOP_FMT, d, LOOP_AT)
-        if flags & F_LOOPREC:
+        if flags & F_LOOPREC and self.resident:
+            # RESIDENT: the seam is each block's record after the last
+            # frame's, so the loop block names only L
+            if not blk[0] + 1 < self.frames or any(blk[1:]) or \
+                    any(d[LOOP_AT + 16:SECTOR]):
+                raise V88Error("a resident file's loop block is L alone, "
+                               "L + 1 < frames")
+            self.loop = (blk[0], 0, len(self._seam), 0, 0, 0)
+        elif flags & F_LOOPREC:
             L, off, n, secs, idx, spo = blk
             minrec = REC_HDR + (1 if self.g.planes > 1 else 10) + self.abytes
             if not (L + 1 < self.frames and n >= minrec and
@@ -1428,9 +1573,15 @@ class Reader:
     def fps(self):
         return self.rate / self.spf
 
-    def records(self, at=None, nsec=None, skip=0):
+    def records(self, at=None, nsec=None, skip=0, first=0):
         """(frame record bytes, super-packet offset, index) for every frame
-        from super-packet `at` onward, following the chain."""
+        from super-packet `at` onward, following the chain. RESIDENT: from
+        frame `first`, each record with its frame's audio on the end, as a
+        streamed one carries it (so apply() is the same for both)"""
+        if self.resident:
+            for i in range(first, self.frames):
+                yield self._recs[i] + self._audio(i), 0, i
+            return
         at = self.sp0 if at is None else at
         nsec = self.sp0n if nsec is None else nsec
         while nsec:
@@ -1510,11 +1661,76 @@ class Reader:
             raise V88Error("an empty record with a band %d..%d" % (y0, y1))
         return rec[end:]
 
+    def _unpack(self, at, what):
+        """A block: its four fields at `at`, read and expanded"""
+        off, packed, unpacked, pk = struct.unpack_from("<IIIB", self.d, at)
+        data = self.d[off:off + packed]
+        if len(data) != packed or pk not in (PK_NONE, PK_LZ4, PK_LZB) or \
+                packed >= 65536:
+            raise V88Error("the %s block at %d (%d bytes, packing %d) does "
+                           "not fit" % (what, off, packed, pk))
+        if pk == PK_NONE:
+            out = data
+        else:
+            import os88lz
+            try:
+                out = os88lz.decompress(data, pk - 1, unpacked)
+            except Exception as e:
+                raise V88Error("the %s block does not expand: %s" % (what, e))
+        if len(out) != unpacked:
+            raise V88Error("the %s block expands to %d bytes, not %d"
+                           % (what, len(out), unpacked))
+        return out
+
+    def _blocks(self, d):
+        """98.1.7: the rendition's block, walked into its records - the
+        frames', then the seam's with LOOPREC - and the audio block"""
+        if self.sp0 or self.sp0n or self.spmax:
+            raise V88Error("a resident rendition names a chain")
+        blk = self._unpack(self.slot + R_BLOCK, "picture")
+        n = self.frames + (1 if self.flags_ & F_LOOPREC else 0)
+        self._recs, o = [], 0
+        minrec = REC_HDR + (1 if self.g.planes > 1 else 10)
+        for i in range(n):
+            if o + 2 > len(blk):
+                raise V88Error("the block ends at record %d of %d" % (i, n))
+            ln = struct.unpack_from("<H", blk, o)[0]
+            if ln < minrec or o + ln > len(blk):
+                raise V88Error("record %d of the block says %d bytes"
+                               % (i, ln))
+            self._recs.append(blk[o:o + ln])
+            o += ln
+        if o != len(blk) or len(blk) != self.slen:
+            raise V88Error("the block holds %d bytes past its records, or "
+                           "is not the %d the slot says" % (len(blk) - o,
+                                                           self.slen))
+        self._seam = self._recs.pop() if self.flags_ & F_LOOPREC else b""
+        self._aud = b""
+        if self.abytes:
+            self._aud = self._unpack(AUD_AT, "audio")
+            if len(self._aud) != self.frames * self.abytes:
+                raise V88Error("the audio block is %d bytes, not %d"
+                               % (len(self._aud), self.frames * self.abytes))
+        elif any(d[AUD_AT:AUD_AT + 16]):
+            raise V88Error("an audio block in a silent file")
+
+    def _audio(self, f):
+        return self._aud[f * self.abytes:(f + 1) * self.abytes]
+
+    def after_key(self, e):
+        """The records from the frame after keyframe entry `e`"""
+        k, off, n, spo, spn, idx = e
+        if self.resident:
+            return self.records(first=k + 1)
+        return self.records(spo, spn, idx)
+
     def seam(self):
-        """The seam record (98.1.1.2), or None"""
+        """The seam record (98.1.1.2), with frame L's audio, or None"""
         if not self.loop:
             return None
         L, off, n, secs, idx, spo = self.loop
+        if self.resident:
+            return self._seam + self._audio(L)
         return self.d[off:off + n]
 
     def key(self, i):
@@ -2011,7 +2227,7 @@ def audio_chunks(pcm, nf, spf, afmt, keys=(), search=0):
 
 def encode_frames(paths, out, fps, wav=None, layout="cga", title="",
                   keysecs=KEY_SECS, poster=None, audio_fmt=AUD_PCM8,
-                  loop=None, repeat=False):
+                  loop=None, repeat=False, resident=None):
     """SPEC.md 98.2's minimal encoder: every changed byte, losslessly."""
     lay = LAYOUT_BY_NAME[layout]
     w0, h0, _ = read_frame(paths[0])
@@ -2033,8 +2249,11 @@ def encode_frames(paths, out, fps, wav=None, layout="cga", title="",
         samples = b""
     if rate > 65535:
         raise V88Error("a %d Hz rate does not fit the header" % rate)
-    wr = Writer(g, rate, spf, afmt, abytes, PF_MONO1, title=title,
-                keysecs=keysecs, loop=loop, repeat=repeat)
+    rab = abytes
+    if resident is not None:            # 98.1.7: silent records, the sound
+        rab = 0                         # one block beside them
+    wr = Writer(g, rate, spf, afmt if rab else AUD_NONE, rab, PF_MONO1,
+                title=title, keysecs=keysecs, loop=loop, repeat=repeat)
     surf = bytearray(65536)
     for f, path in enumerate(paths):
         w, h, cv = read_frame(path)
@@ -2050,7 +2269,12 @@ def encode_frames(paths, out, fps, wav=None, layout="cga", title="",
                 if surf[b + x] != row[x]:
                     changed.append(b + x)
             surf[b:b + g.wb] = row
-        wr.frame(spans(changed, surf, g), surf, chunks[f] if abytes else b"")
+        wr.frame(spans(changed, surf, g), surf, chunks[f] if rab else b"")
+    if resident is not None:
+        return write_resident(out, [wr], afmt, abytes,
+                              b"".join(chunks) if abytes else b"",
+                              title=title, repeat=repeat, pack=resident,
+                              posters=[poster])
     return wr.write(out, poster)
 
 
@@ -2152,16 +2376,18 @@ def decode_at(r, n):
     if not 0 <= n < r.frames:
         raise V88Error("frame %d of %d" % (n, r.frames))
     surf = r.g.surface()
-    at = nsec = None
-    f, skip = 0, 0
+    f = 0
     best = [i for i, e in enumerate(r.keys) if e[0] <= n]
     if best:
         k, rec, spo, spn, idx = r.key(best[-1])
         r.apply(surf, rec, key=True)
         if k == n:
             return r.g.canvas(surf)
-        at, nsec, f, skip = spo, spn, k + 1, idx
-    for rec, _, _ in r.records(at, nsec, skip):
+        f = k + 1
+        src = r.after_key(r.keys[best[-1]])
+    else:
+        src = r.records()
+    for rec, _, _ in src:
         r.apply(surf, rec)
         if f == n:
             return r.g.canvas(surf)
@@ -2220,10 +2446,16 @@ def cmd_decode(a):
     print("os88vid: frame %d of %s -> %s" % (a.frame, a.file, a.png))
 
 
-def verify_v88(path, against=None):
+def verify_v88(path, against=None, rend=None):
     """Everything SPEC.md 98.1.6 lets a reader check, and every writer's
-    rule of 98.1.3, over the whole file. Returns the frame count."""
-    r = Reader(path)
+    rule of 98.1.3, over the whole file - EVERY rendition, unless `rend`
+    names one. Returns the frame count."""
+    if rend is None:
+        n = Reader(path).nrend
+        for i in range(1, n):
+            verify_v88(path, against, i)
+        rend = 0
+    r = Reader(path, rend)
     g = r.g
     ref = None
     if against:
@@ -2242,9 +2474,10 @@ def verify_v88(path, against=None):
                        "stream")
     kat = {k: i for i, k in enumerate(ks)}
     pos, rmax, kmax = {}, 0, 0
+    adj = r.abytes if r.resident else 0     # a block's records carry none
     for f, surf, rec, at, i in v88_frames(r):
         pos[f] = (at, i)
-        rmax = max(rmax, len(rec))
+        rmax = max(rmax, len(rec) - adj)
         if ref:
             hdr, pk, xs, cga = ref
             ops, code = xdc_ops(pk[f], "%s packet %d" % (against, f))
@@ -2267,14 +2500,17 @@ def verify_v88(path, against=None):
     while n:
         sp_secs[at] = n
         at, n = at + n * SECTOR, struct.unpack_from("<H", r.d, at + 2)[0]
-    if at - r.sp0 != r.slen or max(sp_secs.values()) != r.spmax:
+    if r.resident:
+        pos = {f: (0, 0) for f in pos}
+        sp_secs = {0: 0}
+    elif at - r.sp0 != r.slen or max(sp_secs.values()) != r.spmax:
         raise V88Error("the stream is %d bytes, largest %d sectors; the "
                        "header says %d and %d" % (at - r.sp0,
                                                  max(sp_secs.values()),
                                                  r.slen, r.spmax))
     for k, off, n, spo, spk, idx in r.keys:
         want = (pos[k + 1] + (sp_secs[pos[k + 1][0]],)) \
-            if k + 1 < r.frames else (0, 0, 0)
+            if k + 1 < r.frames and not r.resident else (0, 0, 0)
         if (spo, idx, spk) != want:
             raise V88Error("keyframe after frame %d names super-packet %d "
                            "record %d (%d sectors); the stream says %s"
@@ -2301,7 +2537,7 @@ def verify_v88(path, against=None):
             if f == L:
                 want = g.canvas(surf)
                 laud = rec[len(rec) - r.abytes:] if r.abytes else b""
-            if f == L + 1 and (spo, idx, secs) != \
+            if f == L + 1 and not r.resident and (spo, idx, secs) != \
                     (at, i, sp_secs[at]):
                 raise V88Error("the loop block names super-packet %d record "
                                "%d (%d sectors) for frame %d; the stream "
@@ -2560,13 +2796,40 @@ def selfcheck():
             fails.append("ADPCM4 with a seam was not refused")
         except V88Error:
             pass
+        # RESIDENT (98.1.7): two renditions and a sound block round-trip,
+        # and a damaged block is refused
+        ws = []
+        for lay in (LAY_CGA, LAY_HERC):
+            gg = Geom(lay, 20, 40)
+            w = Writer(gg, 1500, 100, AUD_NONE, 0, PF_MONO1, loop=6)
+            sf = gg.surface()
+            for cv in cvs:
+                ch = []
+                for y, b in enumerate(gg.base):
+                    for x in range(20):
+                        if sf[b + x] != cv[y * 20 + x]:
+                            ch.append(b + x)
+                            sf[b + x] = cv[y * 20 + x]
+                w.frame(spans(ch, sf, gg), sf)
+            ws.append(w)
+        res = os.path.join(tmp, "R.V88")
+        snd = bytes(rnd.getrandbits(8) for _ in range(24 * 100))
+        write_resident(res, ws, AUD_PCM8, 100, snd, repeat=True)
+        rr = Reader(res, 1)
+        if verify_v88(res) != 24 or not rr.resident or rr.loop[0] != 6 or \
+                b"".join(rec[-100:] for rec, _, _ in rr.records()) != snd:
+            fails.append("a resident file did not read back as written")
+        boff = struct.unpack_from("<I", open(res, "rb").read(),
+                                  192 + R_BLOCK)[0]
+        expect_fail("damaged block", res, lambda d: d[:boff + 9] +
+                    bytes([d[boff + 9] ^ 0x77]) + d[boff + 10:], "")
     for f in fails:
         print("os88vid --selfcheck: FAIL - %s" % f)
     if not fails:
         print("os88vid --selfcheck: ok - encode, import (cga, herc, lin80), "
               "decode and verify agree, ADPCM4 carries a tone and seeks "
-              "exactly, a seam joins its laps, and six "
-              "corruptions were refused")
+              "exactly, a seam joins its laps, a resident file's blocks "
+              "round-trip, and seven corruptions were refused")
     return 1 if fails else 0
 
 

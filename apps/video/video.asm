@@ -123,9 +123,16 @@ V88_PITDIV  equ 20
 V88_PITPER  equ 22
 V88_TITLE   equ 32
 V88_FLAGS   equ 6
-V88F_LOOPREC equ 2                  ; the flags (SPEC.md 98.1.1.2): a seam
-V88F_REPEAT equ 4                   ; record; Repeat on at the start
-V88F_KNOWN  equ V88F_LOOPREC | V88F_REPEAT
+V88F_RESIDENT equ 1                 ; the flags: every rendition one BLOCK,
+V88F_LOOPREC equ 2                  ; read whole (98.1.7); a seam record
+V88F_REPEAT equ 4                   ; (98.1.1.2); Repeat on at the start
+V88F_KNOWN  equ V88F_RESIDENT | V88F_LOOPREC | V88F_REPEAT
+V88_AUDBLK  equ 176                 ; RESIDENT: the audio block's offset,
+R_BLOCK     equ 40                  ; packed and unpacked bytes and packing -
+BK_OFF      equ 0                   ; and a rendition's picture block's, at
+BK_PACKED   equ 4                   ; R_BLOCK in its slot
+BK_UNPACKED equ 8
+BK_PACK     equ 12
 V88_LOOP    equ 448                 ; the loop block: L, the seam's offset and
 LP_L        equ 0                   ; length, the super-packet of frame L+1 -
 LP_OFF      equ 4                   ; its sectors, the records before frame
@@ -773,8 +780,10 @@ vp_open:
     mov byte [vp_played], 0
     mov byte [vp_loaded], 0
     call vp_pfree                   ; the last file's poster, and its keys
+    call vp_rfree                   ; ...and its loaded block
     xor ax, ax
     mov [vp_nkeys], ax
+    mov [vp_nrend], al
     mov [vp_sel], ax
     dec ax
     mov [vp_kload], ax
@@ -808,6 +817,45 @@ vp_open:
     cmp ax, 512
     jb .short
 .have:
+    ; THE RENDITION (98.1.7), the best that plays here: 3 its layout the
+    ; DESKTOP's own - the window with no shadow, and the full screen in its
+    ; own mode; 2 a mode of its own on this display, full screen (a VGA has
+    ; CGA's); 1 through the shadow. The first of the best, else the first -
+    ; whose refusal is then the one the card gives
+    call vp_dinfo
+    mov byte [vp_rbest], 0
+    mov byte [vp_rscore], 0
+    mov byte [vp_rend], 0
+.rl:
+    call vp_parse
+    jc .rn
+    mov byte [vp_ok], 0
+    call vp_canplay
+    cmp byte [vp_ok], 1
+    jne .rn
+    mov ah, 1
+    cmp byte [vp_shadow], 0
+    jne .rs
+    inc ah
+    mov al, [vp_layout]
+    cmp al, [vp_dlay]
+    jne .rs
+    inc ah
+.rs:
+    cmp ah, [vp_rscore]
+    jbe .rn
+    mov [vp_rscore], ah
+    mov al, [vp_rend]
+    mov [vp_rbest], al
+.rn:
+    inc byte [vp_rend]
+    mov al, [vp_rend]
+    cmp al, [vp_nrend]
+    jb .rl
+    mov al, [vp_rbest]
+.rch:
+    mov [vp_rend], al
+    mov byte [vp_ok], 0
     call vp_parse
     jc .free
     call vp_rdpal                   ; VGA8's palette, and its luma
@@ -899,6 +947,15 @@ vp_parse:
     dec al
     cmp al, 3
     ja .bad
+    inc ax
+    mov [vp_nrend], al
+    cmp [vp_rend], al               ; THE RENDITION vp_open asked for, its
+    jae .bad                        ; slot at DI (98.1.7)
+    mov al, [vp_rend]
+    mov ah, 64
+    mul ah
+    add ax, V88_REND
+    mov di, ax
     mov ax, [es:V88_PITDIV]
     cmp ax, FSX_RATE_MIN
     jb .bad
@@ -907,12 +964,12 @@ vp_parse:
     or al, al
     jz .bad
     mov [vp_pitper0], al
-    mov al, [es:V88_REND+R_PIXFMT]
+    mov al, [es:di+R_PIXFMT]
     dec al
     cmp al, PF_VGA4
     ja .bad
     mov [vp_pixfmt], al
-    mov bl, [es:V88_REND+R_LAYOUT]  ; 1..5, and the canvas inside it
+    mov bl, [es:di+R_LAYOUT]  ; 1..5, and the canvas inside it
     dec bl
     cmp bl, LAY_MODEX
     ja .bad
@@ -933,13 +990,13 @@ vp_parse:
 .v8:
     cmp bl, LAY_LIN320
     jb .bad
-    mov ax, [es:V88_REND+R_PAL]     ; the palette, on a sector
+    mov ax, [es:di+R_PAL]     ; the palette, on a sector
     or ax, ax
     jz .bad
     test ax, 511
     jnz .bad
     mov [vp_palo], ax
-    mov ax, [es:V88_REND+R_PAL+2]
+    mov ax, [es:di+R_PAL+2]
     mov [vp_palo+2], ax
 .lay:
     xor bh, bh
@@ -947,13 +1004,13 @@ vp_parse:
     shl bx, 1
     add bx, ax
     shl bx, 1                       ; BX = layout * 6
-    mov ax, [es:V88_REND+R_WB]
+    mov ax, [es:di+R_WB]
     or ax, ax
     jz .bad
     cmp ax, [vp_laytab+bx+2]        ; stride
     ja .bad
     mov [vp_wb], ax
-    mov ax, [es:V88_REND+R_H]
+    mov ax, [es:di+R_H]
     or ax, ax
     jz .bad
     cmp ax, [vp_laytab+bx+4]        ; rows
@@ -980,7 +1037,7 @@ vp_parse:
 .pl3:
     ; THE ROW SCALE (98.2.4): each row shown twice by the CRTC, VGA8 only
     mov byte [vp_rs], 0
-    mov al, [es:V88_REND+R_RSCALE]
+    mov al, [es:di+R_RSCALE]
     cmp al, 1
     jbe .rs1
     cmp al, 2
@@ -990,7 +1047,7 @@ vp_parse:
     mov byte [vp_rs], 1
 .rs1:
     mov byte [vp_flip], 0           ; PAGE FLIPPING (98.3.8): Mode X's own
-    mov al, [es:V88_REND+R_FLIP]
+    mov al, [es:di+R_FLIP]
     cmp al, 1
     jbe .fl1
     cmp al, 2
@@ -1022,33 +1079,42 @@ vp_parse:
     shr cx, 1
 .pgeo:
     mov [vp_pwb], cx
-    mov ax, [es:V88_REND+R_SP0]
+    mov byte [vp_resid], 0
+    test byte [es:V88_FLAGS], V88F_RESIDENT
+    jz .strm
+    call vp_pblock                  ; RESIDENT (98.1.7): its blocks, no chain
+    jc .bad
+    jmp short .keys
+.strm:
+    mov ax, [es:di+R_SP0]
     test ax, 511
     jnz .bad
     mov [vp_sp0], ax
-    mov ax, [es:V88_REND+R_SP0+2]
+    mov ax, [es:di+R_SP0+2]
     mov [vp_sp0+2], ax
-    mov ax, [es:V88_REND+R_SP0N]
+    mov ax, [es:di+R_SP0N]
     dec ax
     cmp ax, 63
     ja .bad
     inc ax
     mov [vp_sp0n], ax
-    mov ax, [es:V88_REND+R_SPMAX]
+    mov ax, [es:di+R_SPMAX]
     dec ax
     cmp ax, 63
     ja .bad
-    mov ax, [es:V88_REND+R_SLEN]    ; the stream's bytes, for its KB/s
+.keys:
+    mov ax, [es:di+R_SLEN]    ; the stream's bytes, for its KB/s
     mov [vp_slen], ax
-    mov ax, [es:V88_REND+R_SLEN+2]
+    mov ax, [es:di+R_SLEN+2]
     mov [vp_slen+2], ax
     ; --- THE KEYFRAMES (98.1.3): a table on a sector, 16,383 at most, a
     ;     poster inside it. A record too big for one read turns the Preview
     ;     and the seek off, and the file still plays from the start
-    mov ax, [es:V88_REND+R_NKEYS]
+    mov word [vp_nkeys], 0          ; (a rendition before this one's count
+    mov ax, [es:di+R_NKEYS]         ; is not this one's)
     cmp ax, 16383
     ja .bad
-    mov bx, [es:V88_REND+R_POSTER]
+    mov bx, [es:di+R_POSTER]
     cmp bx, 0xFFFF
     je .pok
     cmp bx, ax
@@ -1057,13 +1123,13 @@ vp_parse:
     mov [vp_poster], bx
     or ax, ax
     jz .nokeys
-    mov bx, [es:V88_REND+R_KTAB]
+    mov bx, [es:di+R_KTAB]
     test bx, 511
     jnz .bad
     mov [vp_ktab], bx
-    mov bx, [es:V88_REND+R_KTAB+2]
+    mov bx, [es:di+R_KTAB+2]
     mov [vp_ktab+2], bx
-    mov bx, [es:V88_REND+R_KMAX]
+    mov bx, [es:di+R_KMAX]
     cmp bx, 7                       ; an empty planar key is 7 bytes
     jb .bad
     cmp bx, VP_KMAXREC
@@ -1094,6 +1160,8 @@ vp_parse:
 .rp:
     mov [vp_rep], al
     mov byte [vp_lkind], 0
+    cmp byte [vp_resid], 0          ; (resident with no seam: the block from
+    jne .lk                         ; its start, on black - no key to read)
     cmp word [vp_nkeys], 0
     je .lk
     mov byte [vp_lkind], 2
@@ -1110,6 +1178,11 @@ vp_parse:
     jae .bad
     dec ax
     mov [vp_lL], ax
+    cmp byte [vp_resid], 0          ; RESIDENT: the seam is each block's last
+    je .lstr                        ; record, found when it is loaded
+    mov byte [vp_lkind], 1
+    jmp .nolp
+.lstr:
     mov ax, [es:V88_LOOP+LP_OFF]
     mov [vp_loff], ax
     mov ax, [es:V88_LOOP+LP_OFF+2]
@@ -1179,6 +1252,106 @@ vp_parse:
 .long:
     mov word [vp_msg], vp_s_long
 .bad:
+    stc
+    ret
+
+; vp_pblock - ES:0 = the header, DI = the rendition's slot: a RESIDENT
+; file's blocks (98.1.7) - the chain's fields zero, the picture block no
+; more than 60 KB packed and 128 KB less a paragraph unpacked, the audio
+; block exactly the frames' audio and PCM8, packings the kernel names.
+; CF=1 not sound
+vp_pblock:
+    push ax
+    mov byte [vp_resid], 1
+    mov ax, [es:di+R_SP0]
+    or ax, [es:di+R_SP0+2]
+    or ax, [es:di+R_SP0N]
+    or ax, [es:di+R_SPMAX]
+    jnz .bad
+    cmp byte [vp_audio], 2          ; the sound PCM8 or none: ADPCM4 wants a
+    je .bad                         ; reference per seek (98.1.1.1)
+    push si
+    lea si, [di+R_BLOCK]
+    mov bx, vp_bk
+    call vp_pbk
+    pop si
+    jc .bad
+    cmp word [vp_bk+BK_UNPACKED], 16
+    jb .bad
+    xor ax, ax
+    mov [vp_abk+BK_UNPACKED], ax
+    mov [vp_abk+BK_UNPACKED+2], ax
+    cmp byte [vp_audio], 0
+    je .ok
+    push si
+    mov si, V88_AUDBLK
+    mov bx, vp_abk
+    call vp_pbk
+    pop si
+    jc .bad
+    mov ax, [vp_frames]             ; ...and it is the frames' sound exactly
+    mul word [vp_abytes]
+    cmp ax, [vp_abk+BK_UNPACKED]
+    jne .bad
+    cmp dx, [vp_abk+BK_UNPACKED+2]
+    jne .bad
+.ok:
+    pop ax
+    clc
+    ret
+.bad:
+    pop ax
+    stc
+    ret
+
+; vp_pbk - ES:SI = a block's four fields, into [BX]: packed under 60 KB,
+; unpacked under 128 KB (and no less than packed, when stored), a packing of
+; 0 (stored), 1 (LZ4) or 2 (LZB). CF=1 not sound
+vp_pbk:
+    push ax
+    push cx
+    push di
+    push ds
+    push es
+    push ds
+    push es
+    pop ds
+    pop es
+    mov di, bx
+    mov cx, 13
+    cld
+    rep movsb
+    pop es
+    pop ds
+    pop di
+    cmp word [bx+BK_PACKED+2], 0
+    jne .bad
+    cmp word [bx+BK_PACKED], 61440
+    ja .bad
+    cmp word [bx+BK_UNPACKED+2], 1
+    ja .bad
+    jb .pk
+    cmp word [bx+BK_UNPACKED], 0xFFF0
+    ja .bad
+.pk:
+    mov al, [bx+BK_PACK]
+    cmp al, 2
+    ja .bad
+    or al, al
+    jnz .ok
+    mov ax, [bx+BK_UNPACKED]        ; stored: it is what it unpacks to
+    cmp ax, [bx+BK_PACKED]
+    jne .bad
+    cmp word [bx+BK_UNPACKED+2], 0
+    jne .bad
+.ok:
+    pop cx
+    pop ax
+    clc
+    ret
+.bad:
+    pop cx
+    pop ax
     stc
     ret
 
@@ -2449,6 +2622,370 @@ vp_fsenter:                         ; F, Alt+Enter: full screen, PAUSED -
     ret
 
 ; -----------------------------------------------------------------------------
+; vp_rload - a RESIDENT file's blocks (98.1.7) in memory: the rendition's
+; picture block and the audio block, each read so its clusters END at the
+; top of a claim of its unpacked size and a cluster - the packed stream is
+; then above where it expands to, which SPEC.md 20.13.7's raw tail makes
+; enough - and OSAPI_DECOMP'd down to the claim's base. Then walked: every
+; record no shorter than an empty one and inside the block, the frames'
+; count of them and the seam after them with LOOPREC, and where the seam
+; and frame L+1 are. Kept while the file is open (vp_rfree). CF=1 with
+; [vp_msg] set
+vp_rload:
+    cmp word [vp_rblk], 0
+    jne .have
+    mov bx, vp_bk
+    call vp_ldblk
+    jc .out
+    mov [vp_rblk], ax
+    cmp byte [vp_audio], 0
+    je .walk
+    mov bx, vp_abk
+    call vp_ldblk
+    jc .fail
+    mov [vp_rablk], ax
+.walk:
+    call vp_rwalk
+    jnc .have
+.fail:
+    call vp_rfree
+    mov word [vp_msg], vp_s_bad
+    stc
+    ret
+.have:
+    clc
+.out:
+    ret
+
+; vp_ldblk - BX = a block's fields: claimed, read and expanded. out CF=0 AX
+; = the claim; CF=1 [vp_msg] says why and nothing is held
+vp_ldblk:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov ax, [bx+BK_UNPACKED]        ; KB: the unpacked bytes and a cluster
+    mov dx, [bx+BK_UNPACKED+2]
+    add ax, [vp_clb]
+    adc dx, 0
+    add ax, 1023
+    adc dx, 0
+    mov cl, 10
+    shr ax, cl
+    mov cl, 6
+    shl dx, cl
+    or ax, dx
+    mov [vp_ldkb], ax
+    call OSAPI_MEM_CLAIM
+    jnc .got
+    mov word [vp_msg], vp_s_mem
+    jmp .err
+.got:
+    mov [vp_ldseg], dx
+    ; the read: from the cluster under the block, in whole clusters - so
+    ; many bytes that vp_rdat reads, placed to end at the claim's end
+    mov ax, [bx+BK_OFF]
+    mov si, [vp_clb]
+    dec si
+    and si, ax                      ; SI = into its cluster
+    mov cx, [bx+BK_PACKED]
+    add cx, si
+    add cx, [vp_clb]
+    dec cx
+    mov ax, [vp_clb]
+    neg ax
+    and cx, ax                      ; CX = the read, whole clusters
+    mov ax, [vp_ldkb]
+    mov dx, 64
+    mul dx
+    add ax, [vp_ldseg]              ; AX = the claim's end, a paragraph
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1
+    sub ax, cx
+    mov [vp_rdseg], ax
+    mov ax, [bx+BK_OFF]
+    mov dx, [bx+BK_OFF+2]
+    mov cx, [bx+BK_PACKED]
+    call vp_rdat                    ; SI = where the block landed
+    jc .io
+    mov cl, [bx+BK_PACK]
+    or cl, cl
+    jnz .unpack
+    ; STORED: read in place, and the claim's first byte is where it is
+    ; - moved down to it, a paragraph at a time from the bottom (the source
+    ; is above the destination, so a forward copy is safe)
+    mov cx, [bx+BK_PACKED]
+    push ds
+    mov es, [vp_ldseg]
+    xor di, di
+    mov ds, [vp_rdseg]
+    cld
+    rep movsb
+    pop ds
+    jmp short .ok
+.unpack:
+    dec cl
+    mov al, cl                      ; AL = OSAPI_LZ_*
+    mov cx, [bx+BK_PACKED]
+    mov dx, [bx+BK_UNPACKED]
+    mov bx, [bx+BK_UNPACKED+2]
+    push ds
+    mov es, [vp_ldseg]
+    xor di, di
+    mov ds, [vp_rdseg]
+    call OSAPI_DECOMP
+    pop ds
+    jc .bad
+.ok:
+    mov ax, [vp_ldseg]
+    clc
+    jmp short .out
+.io:
+    mov word [vp_msg], vp_s_io
+    jmp short .free
+.bad:
+    mov word [vp_msg], vp_s_bad
+.free:
+    mov dx, [vp_ldseg]
+    call OSAPI_MEM_FREE
+.err:
+    stc
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; vp_rwalk - the loaded block's records: counted, each checked, and where
+; the seam and frame L+1 are noted. CF=1 not sound
+vp_rwalk:
+    mov ax, [vp_rblk]
+    mov [vp_rbseg], ax
+    mov word [vp_rboff], 0
+    mov dx, ax                      ; DX:SI the walk; BP:DI the block's end,
+    xor si, si                      ; as a paragraph and an offset
+    mov ax, [vp_bk+BK_UNPACKED]
+    mov bp, [vp_bk+BK_UNPACKED+2]
+    mov di, ax
+    and di, 15
+    mov cl, 4
+    shr ax, cl
+    mov cl, 12
+    shl bp, cl
+    or ax, bp
+    add ax, dx
+    mov bp, ax                      ; BP = the end's paragraph, DI its offset
+    mov cx, [vp_frames]
+    mov ax, 0xFFFF                  ; the index of frame L+1, or none
+    cmp byte [vp_lkind], 1
+    jne .n
+    inc cx                          ; ...and the seam after the frames
+    mov ax, [vp_lL]
+    inc ax
+.n:
+    mov [vp_tmp], ax
+    xor bx, bx                      ; BX = the record's index
+.r:
+    cmp bx, cx
+    jae .end
+    cmp bx, [vp_tmp]
+    jne .n1
+    mov [vp_rlseg], dx              ; frame L+1's record
+    mov [vp_rloff], si
+.n1:
+    cmp bx, [vp_frames]
+    jne .n2
+    mov [vp_rsseg], dx              ; the seam's
+    mov [vp_rsoff], si
+.n2:
+    push ds
+    mov ds, dx
+    mov ax, [si]
+    pop ds
+    cmp ax, 7                       ; no shorter than an empty record
+    jb .bad
+    cmp byte [vp_planar], 0
+    jne .mn
+    cmp ax, 16
+    jb .bad
+.mn:
+    add si, ax                      ; step over it, normalised
+    jc .bad
+    mov ax, si
+    and si, 15
+    push cx
+    mov cl, 4
+    shr ax, cl
+    pop cx
+    add dx, ax
+    cmp dx, bp                      ; ...and still inside the block
+    ja .bad
+    jb .in
+    cmp si, di
+    ja .bad
+.in:
+    inc bx
+    jmp short .r
+.end:
+    cmp dx, bp                      ; the block is its records exactly
+    jne .bad
+    cmp si, di
+    jne .bad
+    clc
+    ret
+.bad:
+    stc
+    ret
+
+; vp_rcur - a RESIDENT session's cursor: [vp_base] records into the block,
+; the frames left in the lap, and how the lap joins the next - the block's
+; seam (kind 1) or its start again over a cleared canvas (kind 0)
+vp_rcur:
+    push cx
+    mov dx, [vp_rbseg]
+    mov si, [vp_rboff]
+    mov cx, [vp_base]
+    jcxz .d
+.l:
+    push ds
+    mov ds, dx
+    mov ax, [si]
+    pop ds
+    add si, ax
+    mov ax, si
+    and si, 15
+    push cx
+    mov cl, 4
+    shr ax, cl
+    pop cx
+    add dx, ax
+    loop .l
+.d:
+    mov [vp_pc], dx
+    mov [vp_po], si
+    mov ax, [vp_frames]
+    sub ax, [vp_base]
+    mov [vp_fleft], ax
+    mov al, [vp_lkind]
+    mov [vp_wkind], al
+    mov ax, [vp_lL]
+    cmp byte [vp_wkind], 1
+    je .w
+    mov ax, 0xFFFF
+.w:
+    mov [vp_wL], ax
+    pop cx
+    ret
+
+; vp_rnext - vp_nextw for a RESIDENT play: the next record where it lies in
+; the block (checked by vp_rwalk, once), or at the lap's end the seam - its
+; record and then frame L+1's, or none and then the block's start
+vp_rnext:
+    cmp word [vw_fleft], 0
+    jne .rec
+    cmp byte [vp_rep], 0
+    je .end
+    mov byte [vp_nseam], 1
+    cmp byte [vp_wkind], 1
+    jne .k0
+    mov ax, [vp_rlseg]
+    mov [vw_pc], ax
+    mov ax, [vp_rloff]
+    mov [vw_po], ax
+    mov ax, [vp_frames]
+    sub ax, [vp_wL]
+    dec ax
+    mov [vw_fleft], ax
+    mov dx, [vp_rsseg]
+    mov si, [vp_rsoff]
+    push ds
+    mov ds, dx
+    mov cx, [si]
+    pop ds
+    clc
+    ret
+.k0:
+    mov ax, [vp_rbseg]
+    mov [vw_pc], ax
+    mov ax, [vp_rboff]
+    mov [vw_po], ax
+    mov ax, [vp_frames]
+    mov [vw_fleft], ax
+    xor dx, dx
+    xor si, si
+    xor cx, cx
+    clc
+    ret
+.rec:
+    mov dx, [vw_pc]
+    mov si, [vw_po]
+    push ds
+    mov ds, dx
+    mov cx, [si]
+    pop ds
+    mov ax, si
+    add ax, cx
+    push cx
+    mov cx, ax
+    and ax, 15
+    mov [vw_po], ax
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1
+    add cx, dx
+    mov [vw_pc], cx
+    pop cx
+    dec word [vw_fleft]
+    clc
+    ret
+.end:
+    mov al, 1
+    stc
+    ret
+
+; vp_raud - AX = a frame: DX:SI = its audio in a RESIDENT file's audio
+; block. clobbers AX, CX
+vp_raud:
+    mul word [vp_abytes]            ; DX:AX = the byte offset
+    mov si, ax
+    and si, 15
+    mov cl, 4
+    shr ax, cl
+    mov cl, 12
+    shl dx, cl
+    or ax, dx
+    add ax, [vp_rablk]
+    mov dx, ax
+    ret
+
+; vp_rfree - the loaded blocks, if any
+vp_rfree:
+    push dx
+    mov dx, [vp_rblk]
+    or dx, dx
+    jz .a
+    call OSAPI_MEM_FREE
+.a:
+    mov dx, [vp_rablk]
+    or dx, dx
+    jz .z
+    call OSAPI_MEM_FREE
+.z:
+    xor dx, dx
+    mov [vp_rblk], dx
+    mov [vp_rablk], dx
+    pop dx
+    ret
+
+; -----------------------------------------------------------------------------
 ; vp_sstart - a session, at the key picked: its claims, the reader and the
 ; hook's state, the clock. CF=1 it could not, [vp_msg] says why
 ; -----------------------------------------------------------------------------
@@ -2529,6 +3066,29 @@ vp_sstart:
     mov es, dx                      ; size ran 45 KB past it into the heap
     call vp_zero                    ; and left the keeper as the claim found
                                     ; it - onto both pages, 98.3.8)
+    ; --- RESIDENT (98.1.7): no ring - the block, loaded and kept, and a
+    ;     key's record read into a claim of its own if the play starts at one
+    cmp byte [vp_resid], 0
+    je .strm
+    call vp_rload
+    jnc .rk
+    jmp .fail
+.rk:
+    xor dx, dx                      ; (no key: no claim, [vp_ring] 0)
+    mov ax, [vp_sel]
+    or ax, ax
+    jnz .rkc
+    cmp byte [vp_pixfmt], PF_VGA8
+    jb .ring
+.rkc:
+    cmp ax, [vp_kload]
+    jne .ring
+    mov ax, [vp_kbkb]
+    call OSAPI_MEM_CLAIM
+    jnc .ring
+    mov word [vp_msg], vp_s_mem
+    jmp .fail
+.strm:
     ; --- the ring: K slots and the mirror, K a power of two, 2..VP_KMAX
     call OSAPI_MEM_AVAIL            ; AX = the largest free run, KB
     mov cl, 5
@@ -2652,6 +3212,10 @@ vp_sstart:
     mov [vp_vseq], ax               ; ...and the clock's count starts there
     mov ax, [vp_ssec]
     mov [vp_psec], ax               ; the first super-packet, not yet entered
+    cmp byte [vp_resid], 0          ; RESIDENT: the cursor on the block
+    je .clk0
+    call vp_rcur
+.clk0:
     ; --- the clock: the file's own period, or - with the card - half of it,
     ;     the hook then reading the card's position twice a frame
     mov dx, [vp_pitdiv]
@@ -3355,6 +3919,14 @@ vp_main:
     jnz .stop
     cmp byte [vp_aend], 2           ; the audio ran out early: nothing to wait
     je .stop                        ; for
+    mov ax, [vp_aseq]               ; REPEAT TURNED OFF after the sound had
+    cmp ax, [vp_vseq]               ; queued the next lap (98.3.9): the play
+    jbe .df                         ; ends when the card has played the
+    mov ax, [vp_syncf]              ; frames drawn, not the ones after
+    cmp ax, [vp_vseq]
+    jae .stop
+    jmp short .dw
+.df:
     cmp byte [vp_aend], 0
     je .dw
     mov ax, [vp_alast]              ; played past the last byte of sound?
@@ -4079,6 +4651,8 @@ vp_upaus:
 ; out: CF=0 one arrived; CF=1 none could be read now (ring full, or the end)
 ; -----------------------------------------------------------------------------
 vp_fill:
+    cmp byte [vp_resid], 0          ; RESIDENT: nothing to read (98.1.7)
+    jne .none
     cmp byte [vp_eof], 0
     jne .eof
     mov ax, [vp_lc]                 ; the chunk to read
@@ -4827,6 +5401,8 @@ vp_next:
 
 vp_nextw:
     mov byte [vp_nseam], 0
+    cmp byte [vp_resid], 0
+    jne vp_rnext
     cmp word [vw_fleft], 0
     jne .rec
     ; --- ENTER the super-packet at (pc, po), psec sectors: all of it
@@ -5021,8 +5597,15 @@ vp_afill:
 .rec:
     cmp byte [vp_nseam], 0
     jne .seam
+    cmp byte [vp_resid], 0          ; RESIDENT: the frame's in the audio
+    je .ra                          ; block (98.1.7)
+    mov ax, [vp_afr]
+    call vp_raud
+    jmp short .rput
+.ra:
     add si, cx                      ; the audio is the record's last bytes
     sub si, [vp_abytes]
+.rput:
     mov cx, [vp_abytes]
     call vp_aput
     inc word [vp_afr]
@@ -5034,6 +5617,12 @@ vp_afill:
 .seam:                              ; THE SEAM (98.3.9): frame L's audio from
     cmp byte [vp_wkind], 1          ; the seam record, or a frame of silence
     jne .sil                        ; for a keyframe's join
+    cmp byte [vp_resid], 0          ; (RESIDENT: frame L's, in the block)
+    je .sa
+    mov ax, [vp_wL]
+    call vp_raud
+    jmp short .sput
+.sa:
     add si, cx
     sub si, [vp_abytes]
     jmp short .sput
@@ -6407,6 +6996,23 @@ vp_wpc:       dw 0                  ; ...and the cursor after it
 vp_wpo:       dw 0
 vp_wpsec:     dw 0
 vp_widx:      dw 0
+vp_rend:      db 0                  ; the rendition vp_parse reads (98.1.7)
+vp_nrend:     db 0                  ; ...of this many
+vp_rbest:     db 0                  ; ...the best so far, and its score
+vp_rscore:    db 0
+vp_resid:     db 0                  ; RESIDENT: played from memory
+vp_bk:        times 13 db 0         ; the rendition's block's fields...
+vp_abk:       times 13 db 0         ; ...and the audio block's
+vp_rblk:      dw 0                  ; the loaded block's claim, kept while the
+vp_rablk:     dw 0                  ; file is open; the audio block's
+vp_rbseg:     dw 0                  ; its first record, as a paragraph and
+vp_rboff:     dw 0                  ; an offset under 16
+vp_rsseg:     dw 0                  ; the seam record (LOOPREC)...
+vp_rsoff:     dw 0
+vp_rlseg:     dw 0                  ; ...and frame L+1's
+vp_rloff:     dw 0
+vp_ldkb:      dw 0                  ; vp_ldblk's claim, KB, and segment
+vp_ldseg:     dw 0
 vp_vseq:      dw 0                  ; frames drawn, every lap counted - the
 vp_aseq:      dw 0                  ; card's clock - and audio frames queued
 vp_afr0:      dw 0                  ; the frame the audio cursor was set at

@@ -148985,7 +148985,7 @@ stream behind them is read sequentially.
 |---|---|---|
 | 0 | 4 | `'V88'`, 1Ah |
 | 4 | 2 | version, **1** |
-| 6 | 2 | flags (98.1.1.2): 2 LOOPREC, 4 REPEAT. A reader refuses any bit it does not know |
+| 6 | 2 | flags: 1 RESIDENT (98.1.7), 2 LOOPREC and 4 REPEAT (98.1.1.2). A reader refuses any bit it does not know |
 | 8 | 4 | frames, ≥ 1 |
 | 12 | 2 | rate: the audio sample rate in Hz; for a silent file, the nominal rate the frame rate derives from |
 | 14 | 2 | samples per frame, ≥ 1. **fps = rate / samples per frame**, XDC's rule |
@@ -148997,7 +148997,7 @@ stream behind them is read sequentially.
 | 23 | 9 | 0 |
 | 32 | 48 | title, ASCII, NUL-terminated within the field |
 | 80 | 96 | credits, the same |
-| 176 | 16 | 0 |
+| 176 | 16 | the AUDIO block of a RESIDENT file (98.1.7); else 0 |
 | 192 | 256 | four rendition slots of 64 bytes; the first *renditions* are used, the rest are 0 |
 | 448 | 16 | the loop block, with LOOPREC (98.1.1.2); else 0 |
 | 464 | 48 | 0 |
@@ -149323,7 +149323,7 @@ super-packet = frames(16) next(16) frame record × frames, zero-padded to a sect
 
 #### 98.1.5 What a version 1 file holds
 
-- **Renditions**: one.
+- **Renditions**: one streamed; one to four RESIDENT (98.1.7).
 - **Pixel format**: MONO1, CGACOMP (from an XDC import or `os88venc
   --pixfmt cgacomp`), or VGA8 (`os88venc --pixfmt vga8`).
 - **Audio**: PCM8, ADPCM4 (98.1.1.1), or none.
@@ -149352,6 +149352,58 @@ segments, not by trust:
   otherwise the same write reaches the neighbour of the claim.
 - **A read** runs at most off the end of the record into the super-packet
   buffer's own segment, which is harmless.
+
+#### 98.1.7 RESIDENT files: one rendition per screen, in memory (wave 10)
+
+**The owner's end goal** (VIDEO-PLAN W10, 14.3): a small video - the os8088
+logo - that plays on any adapter from ONE file, loaded whole before it
+plays, each screen's copy compressed on its own. Flag 1, RESIDENT, says a
+file is that shape:
+- **Each rendition's records are one BLOCK**, back to back - no
+  super-packets, no padding, no chain: those exist to be read a sector at a
+  time, and a block is read once. With LOOPREC the seam (98.1.1.2) is the
+  block's record after the last frame's, and the loop block names only *L*.
+- **The sound is ONE block for every rendition**, frame *f*'s at *f* x the
+  audio bytes a frame, and the records carry none - carried per record it
+  would be stored once per screen. PCM8 or none: ADPCM4 needs a reference
+  byte per seek (98.1.1.1), which a block does not have.
+- **A block's fields** - its offset, packed and unpacked bytes (32 bits
+  each) and its packing, 0 stored, 1 LZ4, 2 LZB (the OSAPI_LZ_ id plus one)
+  - sit at 40 in its rendition slot, and the audio block's at 176. The
+  slot's chain fields are 0 and its stream length is the unpacked block.
+  **Keyframes stay in the file** as a streamed file has them, their
+  super-packet fields 0: the Preview's poster and a seek read them there.
+- **The bounds are the machine's**: a block packs to at most 60 KB (one
+  `READ_AT` of it and a cluster either side) and unpacks to under 128 KB;
+  `tools/os88vid.py` stores one that packing would not make smaller.
+
+**The player takes the best rendition this screen has** (`vp_open`): its
+layout the DESKTOP's own - the window with no shadow, and the full screen
+in its own mode - then one with a mode of its own on this display, full
+screen (a VGA has CGA's mode 6), then one through the shadow; the first of
+the best. A file no rendition of which plays here refuses as rendition 0.
+
+**It is loaded when a play starts and kept while the file is open**
+(`vp_rload`): a claim of the block's unpacked size and a cluster; the
+packed block read so its clusters END at the claim's top, which puts it
+above where it expands to - SPEC.md 20.13.7's raw tail is what makes that
+enough - and `OSAPI_DECOMP` down to the claim's base. The audio block the
+same. Then walked once: every record no shorter than an empty one and
+inside the block, the frames' count and the seam after them, the seam's and
+frame *L* + 1's places noted. The play then reads records where they lie
+(`vp_rnext`) - **no ring, no reader, no READ_SEQ** - and the card's audio
+comes out of the audio block. A lap joins through the seam, or with none
+through the block's start over a cleared canvas: a resident file never
+reads its key to loop. LZB costs ~207 cycles an output byte, ~2 s once for
+a 50 KB block on an 8088, at the Play that loads it.
+
+The gates: `vidresident` on the Hercules 5150, `vidresidentcga`,
+`vidresidentvga` - one file of three renditions each drawn its own way, the
+rendition taken the desktop's own, the block in its claim byte for byte as
+the host expands it, no ring, every held frame across two laps; broken on
+purpose (always rendition 0, or the cursor a byte short) they FAIL - and
+`vidsndres`, the sound from an audio block over two laps, the capture byte
+for byte.
 
 ### 98.3 The player — `VIDEO.O88`, fullscreen (waves 3 to 6)
 

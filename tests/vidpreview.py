@@ -388,8 +388,10 @@ def main():
         bad.append("the paused play drew %d, stalled %d, late %d"
                    % (done, stall, late))
     # a shadow play runs to 95 ticks unpaused (SPEC.md 98.3.2); and the
-    # paused span is taken in whole ticks at BOTH ends, which is one more
-    if abs(dt - want_t) > (4 if shadow else 2) + 1:
+    # paused span is taken in whole ticks at BOTH ends, which is up to a
+    # tick each - two more, not one (97 was measured, before and after
+    # VIDEO-PLAN wave 10, and failed the old allowance one run in three)
+    if abs(dt - want_t) > (4 if shadow else 2) + 2:
         bad.append("%d ticks played for %.1f s of video" % (dt, want_t / 18.2))
     if ptk < 20:
         bad.append("only %d ticks counted as paused" % ptk)

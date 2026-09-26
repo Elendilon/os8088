@@ -1450,6 +1450,21 @@ Each carries a recommendation, so *"the defaults"* is a full answer.
   poll let the play pass 100 first. It arms it before the swap now; a
   4-second stall injected there passes.
 
+- **W10, RESIDENT files, is BUILT** (SPEC.md 98.1.7): one to four
+  renditions, each one block of its records - LZB, LZ4 or stored, whichever
+  is smaller - and the sound one audio block; the player takes the best
+  rendition for the screen (the desktop's own layout, then a native mode,
+  then the shadow), loads and expands it once at the first Play, keeps it
+  while the file is open, and plays from memory with no ring and no reader.
+  Gates: `vidresident` (Hercules), `vidresidentcga`, `vidresidentvga`,
+  `vidsndres`. The first cut chose CGA's rendition on a VGA - a VGA has
+  CGA's mode, so it read as native - and the desktop's own layout is scored
+  first because of it.
+- **Found**: Repeat turned off after the sound had queued the next lap
+  drained that lap too; the drain now stops at the frames drawn.
+  `vidprevshd`'s allowance counted one tick for a pause's two ends; 97 was
+  measured before this round as after, and it allows two.
+
 ### 14.7 The owner's answers (2026-09-26)
 
 | # | answer |

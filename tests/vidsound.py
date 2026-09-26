@@ -41,6 +41,11 @@ every point above holds of the whole run: the capture must be the first
 lap's sound and then frame L's to the end, twice, with nothing between -
 the seam carrying frame L's audio - and the play takes all of it's time.
 
+--resident makes the clip RESIDENT (98.1.7): its records one LZB block and
+its sound one audio block, the whole read and expanded before the play and
+the card fed from memory - every point above the same, off a file that is
+never read again once the play starts.
+
 --audio adpcm4 plays the same clip's sound as Creative 4-bit ADPCM, which
 the card decodes (DSP 7Dh); MartyPC's does it with the tables
 tools/os88vid.py encodes against (tools/martypc/patches/06), so point 4 then
@@ -74,7 +79,7 @@ def u16(b, i=0):
     return struct.unpack_from("<H", b, i)[0]
 
 
-def clip(tmp, nf, afmt, loop=None):
+def clip(tmp, nf, afmt, loop=None, resident=None):
     """nf canvases 80 x 200 in the Hercules layout, and 22,050 Hz of
     pseudo-random PCM8 for them"""
     rnd = random.Random(4242)
@@ -100,7 +105,8 @@ def clip(tmp, nf, afmt, loop=None):
     vid._write_wav(wav, RATE, audio)
     out = os.path.join(tmp, "CLIP.V88")
     vid.encode_frames(paths, out, FPS, wav, "herc", "vidsound clip",
-                      audio_fmt=afmt, loop=loop, repeat=loop is not None)
+                      audio_fmt=afmt, loop=loop, repeat=loop is not None,
+                      resident=resident)
     vid.verify_v88(out)
     return out
 
@@ -141,6 +147,9 @@ def main():
                     help="play from this keyframe (0 = the start)")
     ap.add_argument("--loop", type=int, metavar="L",
                     help="repeat, a seam back to frame L: two laps more")
+    ap.add_argument("--resident", action="store_true",
+                    help="the clip RESIDENT (98.1.7): its records one LZB "
+                    "block, the sound one audio block, played from memory")
     a = ap.parse_args()
     nf = int(a.secs * FPS)
     os.chdir(ROOT)
@@ -150,7 +159,8 @@ def main():
     bad = []
     with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "build")) as tmp:
         afmt = vid.AUD_BY_NAME[a.audio]
-        v88 = clip(tmp, nf, afmt, a.loop)
+        v88 = clip(tmp, nf, afmt, a.loop,
+                   vid.PK_LZB if a.resident else None)
         r = vid.Reader(v88)
         base0 = r.keys[a.seek][0] + 1 if a.seek else 0
         audio = b"".join(rec[-r.abytes:] for rec, _, _ in r.records())
@@ -334,8 +344,11 @@ def main():
         if st["vp_skmax"] > 2 or st["vp_late"]:
             bad.append("the picture trailed the sound (max %d, late %d)"
                        % (st["vp_skmax"], st["vp_late"]))
-        if st["vp_aend"] != 1 or \
-                ((st["vp_alast"] - st["vp_afinal"]) & 0x8000):
+        wrapped = laps and st["vp_afr"] < nf    # the sound had queued a
+        # lap that R then took away (98.3.9): the play stops at the frames
+        # drawn, and the capture below holds exactly theirs
+        if not wrapped and (st["vp_aend"] != 1 or
+                            ((st["vp_alast"] - st["vp_afinal"]) & 0x8000)):
             bad.append("the sound did not play out to its last byte "
                        "(aend %d, consumed %d, last %d)"
                        % (st["vp_aend"], st["vp_alast"], st["vp_afinal"]))
