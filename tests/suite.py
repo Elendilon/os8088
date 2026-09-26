@@ -8198,6 +8198,18 @@ SOAK = [
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
                "build/ctrl.drv", "build/sound.drv")),
+    Row("vidvga8", "soak", py("tests/vidvga8.py"), 32.0,
+        "SPEC.md 98.1.2, 98.3, 98.4.4: 256 colours in mode 13h on MartyPC's "
+        "VGA XT. A 160 x 96 VGA8 clip made here, with a palette no BIOS "
+        "has: the player reads it as VGA8 on LIN320 in FSXM_VGA13 with no "
+        "shadow; the Preview's one-bit poster is vga8_mono of the key bit "
+        "for bit; at each hold the screen's bytes are the reference decode "
+        "and every rendered canvas pixel is one of the file's colours; and "
+        "a whole play is on time. Broken on purpose (vp_dac skipped) the "
+        "colours are the BIOS's and it FAILS; with the luma compare flipped "
+        "the poster FAILS",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidcard", "soak", py("tests/vidcard.py"), 26.0,
         "SPEC.md 11.1.2: OSAPI_WM_RESIZE takes the gfx lock itself when "
         "the caller has none. The Video Player's info card grows the window "

@@ -1,0 +1,217 @@
+#!/usr/bin/env python3
+"""VIDEO.O88 plays 256 colours in mode 13h - SPEC.md 98.1.2's LIN320,
+VIDEO-PLAN wave 11a.
+
+    make && python3 tests/vidvga8.py [--machine NAME]
+
+THE CLIP IS MADE HERE: 60 frames of a 160 x 96 VGA8 canvas at 15 fps,
+silent - boxes of colour that move, a band of one value and bursts of noise,
+so the lists are all exercised - with a palette nothing like the BIOS's, so
+a DAC that was never loaded shows. On MartyPC's VGA XT, four questions:
+
+1. IS THE FILE TAKEN AS VGA8? The player's own reading: the format, the
+   layout, mode 13h (FSXM_VGA13), and not the shadow.
+2. IS THE POSTER THE LUMA? The Preview's one-bit picture, read out of its
+   claim, must equal tools/os88vid.py's vga8_mono of the poster keyframe -
+   the player's vp_v8mono bit for bit.
+3. IS EVERY FRAME RIGHT, IN ITS COLOURS? Held before chosen frames, the
+   screen's bytes at the centred origin must equal the reference decode, and
+   the RENDERED frame's canvas pixels must all be colours of the file's
+   palette.
+4. IS IT ON TIME? A second play, whole: every frame, no stall, no late
+   period, 60 frames in 4 s of ticks.
+
+Broken on purpose - vp_dac skipped - the rendered colours are the BIOS's and
+it FAILS on 3; with the luma threshold's compare flipped it FAILS on 2.
+"""
+import argparse
+import os
+import random
+import struct
+import subprocess
+import sys
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+import os88marty, os88ui, os88build, os88vid as vid, os88geom as geom  # noqa: E402
+from cycweb import pkg_syms                                   # noqa: E402
+
+W, H, NF, FPS = 160, 96, 60, 15.0
+STOPS = (1, 9, 23, 38, 52, NF)
+FSXM_VGA13 = 6
+
+
+def u16(b, i=0):
+    return struct.unpack_from("<H", b, i)[0]
+
+
+def palette():
+    """256 colours no BIOS palette has: index 0 black, the rest a walk"""
+    p = bytearray(768)
+    for i in range(1, 256):
+        p[3 * i:3 * i + 3] = bytes(((i * 5) % 60 + 3, 63 - (i >> 2),
+                                    (i * 23) % 64 | 1))
+    return bytes(p)
+
+
+def clip(tmp):
+    rnd = random.Random(1311)
+    g = vid.Geom(vid.LAY_LIN320, W, H)
+    cvs, cv = [], bytearray(W * H)
+    for f in range(NF):
+        k = f % 20
+        if k == 0:
+            cv = bytearray([1 + (f // 20) * 40]) * (W * H)
+        elif k in (6, 7):
+            for _ in range(300):
+                a = rnd.randrange(W * H - 16)
+                cv[a:a + 16] = bytes(rnd.randrange(256) for _ in range(16))
+        elif k == 12:
+            for y in range(20, 70):
+                cv[y * W + 10:y * W + 150] = bytes([200]) * 140
+        else:
+            x, y = (f * 7) % (W - 24), (f * 5) % (H - 20)
+            for r in range(20):
+                cv[(y + r) * W + x:(y + r) * W + x + 24] = \
+                    bytes([(f * 13 + r) & 0xFF]) * 24
+        cvs.append(bytes(cv))
+    out = os.path.join(tmp, "COLOR.V88")
+    vid.encode_canvases(cvs, g, out, FPS, vid.PF_VGA8, palette(),
+                        "vidvga8 clip", keysecs=2.0, poster=1)
+    vid.verify_v88(out)
+    return out
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--machine", default="os8088_xt_vga")
+    a = ap.parse_args()
+    os.chdir(ROOT)
+    syms, _ = pkg_syms("apps/video/video.asm", ("apps/",))
+    pkg = os88build.at("build/video.o88")
+    bad = []
+    pal8 = [tuple((v * 255 + 31) // 63 for v in palette()[3 * i:3 * i + 3])
+            for i in range(256)]
+    with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "build")) as tmp:
+        v88 = clip(tmp)
+        r = vid.Reader(v88)
+        g = r.g
+        disk = os.path.join(tmp, "vidvga8.img")
+        subprocess.run([sys.executable, "tools/os88disk.py", "-o", disk,
+                        "--size", "360", pkg, v88], check=True,
+                       capture_output=True)
+        ty0, tx0 = (200 - H) // 2, (320 - W) // 2
+        rows_at = [(ty0 + y) * 320 + tx0 for y in range(H)]
+        with os88ui.boot(os88build.at("build/os8088-360.img"), apps=disk,
+                         machine=a.machine) as ui:
+            m = ui.m
+            w = ui.path("B:/COLOR.V88")
+            rec = m.read(ui._S("wm_wins") + w.i * geom.WIN_SIZE,
+                         geom.WIN_SIZE)
+            base = u16(rec, geom.W_SEG) << 4
+
+            def rw(n):
+                return u16(m.read(base + syms[n], 2))
+
+            def rb(n):
+                return m.read(base + syms[n], 1)[0]
+
+            def ww(n, v):
+                m.write(base + syms[n], struct.pack("<H", v))
+
+            def until(cond, what, guest):
+                os88marty.until(m, cond, what, poll=0.3, limit=600.0,
+                                guest=guest)
+
+            until(lambda mm: rb("vp_loaded") == 1, "the header", 30.0)
+            until(lambda mm: rw("vp_ploads") >= 1, "the poster", 60.0)
+            # --- 1
+            got1 = (rb("vp_pixfmt") + 1, rb("vp_layout") + 1, rb("vp_mode"),
+                    rb("vp_shadow"), rb("vp_ok"))
+            print("   format %d, layout %d, mode %d, shadow %d, ok %d"
+                  % got1)
+            if got1 != (vid.PF_VGA8, vid.LAY_LIN320, FSXM_VGA13, 0, 1):
+                bad.append("the player read the file as format %d layout %d "
+                           "mode %d shadow %d ok %d" % got1)
+            # --- 2: the poster, key 1, at its own size
+            k = r.key(1)
+            surf = bytearray(65536)
+            r.apply(surf, k[1], key=True)
+            want = vid.vga8_mono(g.canvas(surf), W, H, r.palette)
+            pseg = rw("vp_pseg") << 4
+            ps, pbw, prows = rw("vp_ps"), rw("vp_pbw"), rw("vp_prows")
+            got = bytes(m.read(pseg, pbw * prows)) if pseg else b""
+            d = sum(1 for x, y in zip(got, want) if x != y) + \
+                abs(len(got) - len(want))
+            print("   the poster: scale %d, %d x %d bytes, %d of %d differ "
+                  "from vga8_mono" % (ps, pbw, prows, d, len(want)))
+            if ps != 1 or d:
+                bad.append("the poster is not the luma dither (scale %d, %d "
+                           "bytes differ)" % (ps, d))
+            # --- 3: every frame right, in its colours
+            m.write(base + syms["vp_nowin"], b"\1")
+            ww("vp_stopat", STOPS[0])
+            m.write(base + syms["vp_played"], b"\0")
+            m.type_text("p")
+            for n in STOPS:
+                until(lambda mm: rb("vp_held") == 1 and rw("vp_done") == n,
+                      "the hold before frame %d" % n, 120.0)
+                seg = bytes(m.read(0xA0000, 64000))
+                got = b"".join(seg[b:b + W] for b in rows_at)
+                want = vid.decode_at(r, n - 1)
+                diff = sum(1 for i in range(len(got)) if got[i] != want[i])
+                fw, fh, rgb = m.fbuf(0)
+                cols = {}
+                for i in range(0, len(rgb), 3):
+                    c = tuple(rgb[i:i + 3])
+                    cols[c] = cols.get(c, 0) + 1
+                used = {pal8[v] for v in set(want)}
+                off = sum(c for col, c in cols.items() if col != (0, 0, 0)
+                          and not any(max(abs(col[j] - p[j])
+                                          for j in range(3)) <= 6
+                                      for p in used))
+                lit = sum(c for col, c in cols.items() if col != (0, 0, 0))
+                print("   hold before frame %2d: %d bytes of %d differ; %d of "
+                      "%d lit rendered pixels not the file's colours"
+                      % (n, diff, len(got), off, lit))
+                if diff:
+                    bad.append("the screen before frame %d differs in %d "
+                               "bytes" % (n, diff))
+                if not lit or off > lit // 100:
+                    bad.append("before frame %d, %d of %d rendered pixels are "
+                               "not the file's palette" % (n, off, lit))
+                i = STOPS.index(n)
+                ww("vp_stopat", STOPS[i + 1] if i + 1 < len(STOPS)
+                   else 0xFFFF)
+                m.write(base + syms["vp_held"], b"\0")
+            until(lambda mm: rb("vp_played") == 1, "the first play", 60.0)
+            done1 = rw("vp_done")
+            # --- 4: on time
+            m.write(base + syms["vp_played"], b"\0")
+            m.type_text("p")
+            until(lambda mm: rb("vp_played") == 1, "the second play", 60.0)
+            done2, stall, late, dt, err = (rw("vp_done"), rw("vp_stall"),
+                                           rw("vp_late"), rw("vp_dt"),
+                                           rb("vp_err"))
+    want_t = NF / FPS * 1193182 / 65536
+    print("   the first play drew %d; the second drew %d, stalls %d, late %d, "
+          "%d ticks (want %.1f), error %d"
+          % (done1, done2, stall, late, dt, want_t, err))
+    if done1 != NF or done2 != NF or err:
+        bad.append("the plays drew %d and %d of %d (error %d)"
+                   % (done1, done2, NF, err))
+    if stall or late or abs(dt - want_t) > 2:
+        bad.append("%d stalls, %d late, %d ticks for %.1f s"
+                   % (stall, late, dt, NF / FPS))
+    for b in bad:
+        print("   FAIL: %s" % b)
+    if not bad:
+        print("   ok")
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

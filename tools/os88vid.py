@@ -678,15 +678,53 @@ SP_MAX = 64                     # sectors a super-packet may take (32 KB)
 AUD_NONE, AUD_PCM8, AUD_ADPCM4 = 0, 1, 2
 AUD_BY_NAME = {"pcm8": AUD_PCM8, "adpcm4": AUD_ADPCM4}
 ADPCM4_REF = 0x80               # the stream's reference byte (SPEC.md 98.1.1)
-PF_MONO1, PF_CGACOMP = 1, 2
-LAY_CGA, LAY_HERC, LAY_LIN80 = 1, 2, 3
+PF_MONO1, PF_CGACOMP, PF_VGA8 = 1, 2, 3
+PF_NAMES = {PF_MONO1: "MONO1", PF_CGACOMP: "CGACOMP", PF_VGA8: "VGA8"}
+LAY_CGA, LAY_HERC, LAY_LIN80, LAY_LIN320 = 1, 2, 3, 4
 LAYOUTS = {                     # SPEC.md 98.1.2: banks, stride, rows, name
     LAY_CGA: (2, 80, 200, "cga"),
     LAY_HERC: (4, 90, 348, "herc"),
     LAY_LIN80: (1, 80, 480, "lin80"),
+    LAY_LIN320: (1, 320, 200, "lin320"),
 }
 LAYOUT_BY_NAME = {v[3]: k for k, v in LAYOUTS.items()}
-ASPECT = {LAY_CGA: (5, 12), LAY_HERC: (29, 45), LAY_LIN80: (1, 1)}
+ASPECT = {LAY_CGA: (5, 12), LAY_HERC: (29, 45), LAY_LIN80: (1, 1),
+          LAY_LIN320: (5, 6)}
+# a byte is a PIXEL on a VGA8 layout and eight of them on the others
+PIX_PER_BYTE = {LAY_CGA: 8, LAY_HERC: 8, LAY_LIN80: 8, LAY_LIN320: 1}
+PAL_BYTES = 768                 # VGA8's palette: 256 x (r, g, b), 0..63
+BAYER4 = (0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5)
+
+
+def vga8_lum16(pal):
+    """The player's luma of each palette entry, 0..16 (SPEC.md 98.4):
+    (77 r + 150 g + 29 b) >> 8 on the DAC's six bits, then x 17 + 32 >> 6"""
+    out = []
+    for i in range(256):
+        r, g, b = pal[3 * i:3 * i + 3]
+        l6 = (77 * r + 150 * g + 29 * b) >> 8
+        out.append((l6 * 17 + 32) >> 6)
+    return out
+
+
+def vga8_mono(cv, w, h, pal):
+    """A VGA8 canvas (w pixels a row, a multiple of 8) as the MONO1 canvas
+    the Preview shows: a pixel is lit when its luma beats the 4 x 4 Bayer
+    cell over it - exactly the player's vp_v8mono"""
+    lum = vga8_lum16(pal)
+    wb = w // 8
+    out = bytearray(wb * h)
+    for y in range(h):
+        row = cv[y * w:(y + 1) * w]
+        by = BAYER4[(y & 3) * 4:(y & 3) * 4 + 4]
+        for xb in range(wb):
+            v = 0
+            for i in range(8):
+                x = xb * 8 + i
+                if lum[row[x]] > by[x & 3]:
+                    v |= 0x80 >> i
+            out[y * wb + xb] = v
+    return bytes(out)
 KEY_SECS = 2.0                  # a keyframe every 2 seconds (98.1.3)
 POSTER_FLAT = 0.98              # ...the poster is the first that is not
                                 # this much one byte value
@@ -790,12 +828,15 @@ def band_of(ops, g):
     return y0, y1
 
 
-def record(ops, g, audio=b""):
+def record(ops, g, audio=b"", limit=SP_MAX * SECTOR - 4):
+    """A frame record; `limit` is a super-packet's room, or a keyframe's
+    (65,535: its length is a word, and it rides in no super-packet)"""
     lists, e, s = to_lists(ops)
     y0, y1 = band_of(ops, g)
     n = REC_HDR + len(lists) + len(audio)
-    if n > SP_MAX * SECTOR - 4:
-        raise V88Error("a record of %d bytes cannot fit a super-packet" % n)
+    if n > limit:
+        raise V88Error("a record of %d bytes cannot fit %s" % (
+            n, "a super-packet" if limit < 65535 else "its length word"))
     return struct.pack("<HHH", n, y0, y1) + lists + audio
 
 
@@ -830,7 +871,15 @@ class Writer:
     """Collects a stream frame by frame and writes SPEC.md 98.1's file."""
 
     def __init__(self, g, rate, spf, audio_fmt, abytes, pixfmt, title="",
-                 credits="", aspect=None, keysecs=KEY_SECS):
+                 credits="", aspect=None, keysecs=KEY_SECS, palette=None):
+        if (pixfmt == PF_VGA8) != (g.layout == LAY_LIN320):
+            raise V88Error("VGA8 is LIN320's format, and LIN320 VGA8's")
+        if (pixfmt == PF_VGA8) != (palette is not None) or \
+                (palette is not None and (len(palette) != PAL_BYTES or
+                                          max(palette) > 63)):
+            raise V88Error("a VGA8 file carries 768 palette bytes of 0..63, "
+                           "and no other file carries any")
+        self.palette = bytes(palette) if palette is not None else None
         self.g, self.rate, self.spf = g, rate, spf
         self.audio_fmt, self.abytes, self.pixfmt = audio_fmt, abytes, pixfmt
         self.title, self.credits = title, credits
@@ -847,7 +896,8 @@ class Writer:
         self.recs.append(record(ops, self.g, audio))
         if k % self.keyint == 0:
             kop = keyframe_ops(surf, self.g)
-            self.keys.append((k, record(kop, self.g), self.g.canvas(surf)))
+            self.keys.append((k, record(kop, self.g, limit=65535),
+                              self.g.canvas(surf)))
 
     def write(self, path, poster=None):
         g = self.g
@@ -884,7 +934,9 @@ class Writer:
         nk = len(keys)
         ktab = -(-16 * nk // SECTOR) * SECTOR if nk else 0
         krec = sum(len(r) for k, r, c in keys)
-        kbase = SECTOR + ktab
+        pal = SECTOR if self.palette else 0     # the palette: sector 1
+        kbase = SECTOR + (2 * SECTOR if self.palette else 0) + ktab
+        ktoff = SECTOR + (2 * SECTOR if self.palette else 0)
         s0 = kbase + -(-krec // SECTOR) * SECTOR
         spoff, o = [], s0
         for n in secs:
@@ -923,11 +975,15 @@ class Writer:
             hdr[off:off + len(t)] = t
         struct.pack_into("<BBHHBBIHHIHHIHH", hdr, 192, self.pixfmt,
                          g.layout, g.wb, g.h, self.aspect[0], self.aspect[1],
-                         SECTOR if nk else 0, nk, poster, s0, secs[0],
+                         ktoff if nk else 0, nk, poster, s0, secs[0],
                          max(secs), len(stream),
                          max(len(r) for r in self.recs),
                          max((len(r) for k, r, c in keys), default=0))
-        out = hdr + kt + bytes(ktab - len(kt)) + kr + \
+        struct.pack_into("<I", hdr, 224, pal)
+        front = bytes(hdr)
+        if self.palette:
+            front += self.palette + bytes(2 * SECTOR - PAL_BYTES)
+        out = front + kt + bytes(ktab - len(kt)) + kr + \
             bytes(s0 - kbase - len(kr)) + stream
         with open(path, "wb") as f:
             f.write(out)
@@ -1032,9 +1088,24 @@ class Reader:
         (self.pixfmt, layout, wb, h, an, ad, self.ktab, self.nkeys,
          self.poster, self.sp0, self.sp0n, self.spmax, self.slen, self.rmax,
          self.kmax) = struct.unpack_from("<BBHHBBIHHIHHIHH", d, 192)
-        if self.pixfmt not in (PF_MONO1, PF_CGACOMP):
+        if self.pixfmt not in PF_NAMES:
             raise V88Error("pixel format %d" % self.pixfmt)
+        if (self.pixfmt == PF_VGA8) != (layout == LAY_LIN320):
+            raise V88Error("pixel format %d on layout %d: VGA8 is LIN320's "
+                           "and only LIN320's" % (self.pixfmt, layout))
         self.g = Geom(layout, wb, h)
+        pal = struct.unpack_from("<I", d, 224)[0]
+        self.palette = None
+        if self.pixfmt == PF_VGA8:
+            if not pal or pal % SECTOR or pal + PAL_BYTES > len(d):
+                raise V88Error("a VGA8 file's palette at %d does not fit"
+                               % pal)
+            self.palette = d[pal:pal + PAL_BYTES]
+            if max(self.palette) > 63:
+                raise V88Error("the palette holds values past the DAC's 63")
+        elif pal:
+            raise V88Error("a palette at %d in a %s file"
+                           % (pal, PF_NAMES[self.pixfmt]))
         self.aspect = (an, ad)
         if not (1 <= self.sp0n <= SP_MAX and 1 <= self.spmax <= SP_MAX) \
                 or self.sp0 % SECTOR:
@@ -1643,6 +1714,29 @@ def encode_frames(paths, out, fps, wav=None, layout="cga", title="",
     return wr.write(out, poster)
 
 
+def encode_canvases(canvases, g, out, fps, pixfmt=PF_MONO1, palette=None,
+                    title="", keysecs=KEY_SECS, poster=None):
+    """encode_frames for canvases already in hand (bytes, g.wb a row) - the
+    only way to make a VGA8 file without a video (SPEC.md 98.2): silent,
+    every changed byte"""
+    rate, spf = max(1, round(fps * 100)), 100
+    wr = Writer(g, rate, spf, AUD_NONE, 0, pixfmt, title=title,
+                keysecs=keysecs, palette=palette)
+    surf = bytearray(65536)
+    for cv in canvases:
+        changed = []
+        for y, b in enumerate(g.base):
+            row = cv[y * g.wb:(y + 1) * g.wb]
+            if row == surf[b:b + g.wb]:
+                continue
+            for x in range(g.wb):
+                if surf[b + x] != row[x]:
+                    changed.append(b + x)
+            surf[b:b + g.wb] = row
+        wr.frame(spans(changed, surf, g), surf)
+    return wr.write(out, poster)
+
+
 def v88_frames(r, check=True):
     """(frame, surface after it) for every frame of the stream, checking
     each record; and the stream's own totals against the header's."""
@@ -1690,8 +1784,8 @@ def cmd_info(a):
                               r.pitdiv,
                                r.pitper))
         print("   canvas %d x %d on %s, %s, aspect %d:%d"
-              % (g.wb * 8, g.h, g.name,
-                 {1: "MONO1", 2: "CGACOMP"}[r.pixfmt], *r.aspect))
+              % (g.wb * PIX_PER_BYTE[g.layout], g.h, g.name,
+                 PF_NAMES[r.pixfmt], *r.aspect))
         print("   stream %d bytes = %.1f KB/s; largest super-packet %d "
               "sectors, largest record %d"
               % (r.slen, r.slen / 1024.0 / secs, r.spmax, r.rmax))

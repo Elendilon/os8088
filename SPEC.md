@@ -149086,8 +149086,8 @@ and a player reads only the stream it plays (VIDEO-PLAN 13, answer A).
 
 | +off | size | field |
 |---|---|---|
-| 0 | 1 | pixel format: 1 **MONO1** (1 bpp, 1 = white), 2 **CGACOMP** (1 bpp read as 16 composite artifact colours; mono stripes anywhere but a CGA with the burst on) |
-| 1 | 1 | layout (98.1.2): 1 CGA, 2 HERC, 3 LIN80 |
+| 0 | 1 | pixel format: 1 **MONO1** (1 bpp, 1 = white), 2 **CGACOMP** (1 bpp read as 16 composite artifact colours; mono stripes anywhere but a CGA with the burst on), 3 **VGA8** (a byte a pixel, an index into the file's palette; LIN320 only, and LIN320 takes nothing else) |
+| 1 | 1 | layout (98.1.2): 1 CGA, 2 HERC, 3 LIN80, 4 LIN320 |
 | 2 | 2 | canvas width in bytes, 1..the layout's stride |
 | 4 | 2 | canvas height in rows, 1..the layout's rows |
 | 6 | 1 | pixel aspect the encoder assumed, numerator; 0 = not stated |
@@ -149101,7 +149101,8 @@ and a player reads only the stream it plays (VIDEO-PLAN 13, answer A).
 | 24 | 4 | the stream's bytes, padding included |
 | 28 | 2 | the largest frame record, bytes |
 | 30 | 2 | the largest keyframe record, bytes |
-| 32 | 32 | 0 |
+| 32 | 4 | VGA8: **the palette**, on a sector - 256 entries of (r, g, b), the DAC's six bits, 0..63; 0 for every other format. The encoder puts it at sector 1, two sectors, and the keyframe table after it |
+| 36 | 28 | 0 |
 
 #### 98.1.2 Layouts: the file is laid out for its surface on the host
 
@@ -149116,6 +149117,15 @@ playback at ~480 cycles a row change, and REFUSED it). Canvas row *y*, byte
 | 1 CGA | B800h, mode 6 (and a VGA's or EGA's mode 6) | 2 | 80 | 200 | (y mod 2)·8192 + (y div 2)·80 + x |
 | 2 HERC | B000h, page 0 | 4 | 90 | 348 | (y mod 4)·8192 + (y div 4)·90 + x |
 | 3 LIN80 | A000h, mode 12h, Map Mask 0Fh | 1 | 80 | 480 | y·80 + x |
+| 4 LIN320 | A000h, mode 13h: a byte a pixel | 1 | 320 | 200 | y·320 + x |
+
+**LIN320 is 256 colours, and costs the decoder nothing** (VIDEO-PLAN W11a).
+The lists were always byte-oriented and their addresses the surface's own
+memory image, and 13h's image is 64,000 linear bytes - inside 16 bits. So a
+RUN is a flat colour and a SLICE is pixels, and `vdec.inc` is unchanged.
+For LIN320 the canvas "width in bytes" is its width in PIXELS, and a VGA8
+canvas is a multiple of 8 wide (the Preview's one-bit picture, 98.4.4,
+is whole bytes).
 
 So an origin must keep the bank phase: its row a multiple of the layout's
 banks, its column on a byte. A file played on a surface of another layout
@@ -149199,9 +149209,10 @@ super-packet = frames(16) next(16) frame record × frames, zero-padded to a sect
 #### 98.1.5 What a version 1 file holds
 
 - **Renditions**: one.
-- **Pixel format**: MONO1, or CGACOMP from an XDC import.
+- **Pixel format**: MONO1, CGACOMP (from an XDC import or `os88venc
+  --pixfmt cgacomp`), or VGA8 (`os88venc --pixfmt vga8`).
 - **Audio**: PCM8, ADPCM4 (98.1.1.1), or none.
-- **Layout**: any of the three.
+- **Layout**: any of the four.
 
 #### 98.1.6 What a reader checks, and what a hostile file can do
 
@@ -149250,6 +149261,19 @@ mode, and nothing else yet:
 | CGA | CGA, and a VGA or EGA through mode 6 | `FSXM_CGA640` | from the info block (§53.4) |
 | HERC | Hercules | `FSXM_HERC` | ...page 0 |
 | LIN80 | VGA | `FSXM_VGA12`, the BIOS's own write state: Map Mask 0Fh puts a MONO1 byte in all four planes | ... |
+| LIN320 | VGA | `FSXM_VGA13`, and the file's palette into the DAC after the mode set (`vp_dac`); the bracket's restore puts the desktop's back | ... |
+
+**VGA8 plays full screen only, and never through a copy.** 256 colours have
+no one-bit screen to be copied onto, and a 16-colour desktop cannot hold the
+picture, so `vp_canplay` tries LIN320 alone and `vp_canwin` refuses it. A
+play from the start begins at **keyframe 0** when it is the key in hand,
+where a one-bit file streams its frame 0: a VGA8 frame record is capped at
+30 KB to ride in a super-packet (98.1.4), and a moving picture's frame 0 is
+more, so it would wipe in over two frames where the key is the whole of it.
+A VGA8 keyframe is up to a canvas, so the largest record the player reads
+is `VP_KMAXREC` = 61,440 - what one 64 KB claim holds with a cluster either
+side on a volume of 2 KB clusters; past what the volume's clusters allow,
+98.1.3's rule stands (no Preview and no seek, and it plays from the start).
 
 A file whose layout's mode this display cannot set (`OSAPI_FSX_CAPS`) plays
 through a copy (98.3.2), or greys Play with the reason (§47) when no screen
@@ -149664,6 +149688,9 @@ that, and an info card beside it on request. Its size is the layout's
 content is on a byte (§11.94) and the picture reaches `OSAPI_GFX_BLIT1`'s
 fast path.
 
+**A VGA8 poster is its luma, dithered to one bit** (98.4.4), because the
+Preview is drawn on the desktop.
+
 **The poster** is the header's poster keyframe (98.1.3) when the file
 opens, and the picked key's picture after:
 - **Its record is read and decoded from black into a 64 KB shadow** (the
@@ -149807,6 +149834,19 @@ points at, so the resize's own repaint draws the new caption. The strip is
 drawn once, not once by the resize and again by `OSAPI_WM_TITLE`. Only a new
 file at the same size (no resize coming) and a width the kernel clamped
 below the one asked for take `OSAPI_WM_TITLE` with AX = 0.
+
+#### 98.4.4 A 256-colour poster
+
+The keyframe is decoded into the 64 KB shadow as ever, and then, in place
+of the copy or the halving, `vp_v8mono` makes a one-bit canvas of it in the
+poster's claim, dense at a byte per eight pixels: each palette entry's
+luma, `(77 r + 150 g + 29 b) >> 8` on the DAC's six bits and then `× 17 +
+32 >> 6` for 0..16, made once per file by `vp_rdpal` into a 256-byte
+table, lights a pixel when it is GREATER than the 4 × 4 Bayer cell over it
+(0..15, by row and column mod 4) - so 0 is all dark and 16 all lit. From
+there it is a one-bit picture like any other, halved in place where the
+layout says so. `tools/os88vid.py`'s `vga8_lum16` and `vga8_mono` are the
+reference, and `tests/vidvga8.py` holds the player to them bit for bit.
 
 ### 98.2 The host tools — `tools/os88vid.py`
 
@@ -149994,3 +150034,42 @@ It prints what it made: the canvas, the rate, KB/s split video and audio,
 the model's CPU mean and worst frame with the audio copy in, how many frames
 were exact and how many cut, and what the keyframes cost. `tests/videnc.py`
 (`videnc`, soak) is the gate.
+
+#### 98.2.3 256 colours from a video (`--pixfmt vga8`)
+
+**`--preset vga8` (320 × 200) and `vga8-small` (160 × 100) are LIN320**, and
+`--pixfmt vga8` is what that layout implies. What differs from one bit a
+pixel is the palette and the dither; the budgets, the ranking and the
+measured retry are the same code (VIDEO-PLAN W11a).
+- **One palette for the clip**: ffmpeg's `palettegen` over every frame at
+  the canvas size, reduced to the DAC's six bits and sorted darkest first,
+  with **true black at index 0** whatever the clip holds (the two nearest
+  colours are merged to make room). Index 0 is what the screen round the
+  canvas shows and what a keyframe is written onto, so the bars are black
+  and a keyframe carries only what is not.
+- **An ordered dither in colour** (`--vga8-dither`, 24 RGB steps across the
+  8 × 8 Bayer map by default), through a 32 × 32 × 32 nearest-colour table
+  made once, and **stable**: a pixel keeps the colour on the screen while
+  it is within `--vga8-stable` (18) of the source in RGB distance, so noise
+  does not become bytes.
+- **The ranking weighs colour error**, not differing bits: a span that
+  fixes a far-off colour goes before one that nudges a near one.
+- **A frame record is capped at 30 KB** (`REC_MAX`), whatever the budgets
+  leave: it rides in a super-packet of 32 KB (98.1.4). A one-bit canvas is
+  16 KB at most and never met the cap; a VGA8 one is up to 64,000 bytes.
+  A keyframe is not in a super-packet and is bounded by its length word;
+  the encoder says when one is past the player's `VP_KMAXREC`.
+- **15 fps by default.** A byte a pixel doubles what a moving camera costs
+  against one bit: Trackmania at 320 × 150 needs ~500 KB/s at 30 fps and
+  ~250 at 15, and at 30 fps under 250 KB/s it left 311 of 360 frames cut,
+  17.6 KB a frame wrong, where 15 fps left 103 of 180 with 5.6 KB.
+- **Profile `286-vga`**: 400 KB/s and a decode share of 300% / 500% of the
+  wave 0 model's CGA period. On a 286 the VGA's bus binds, not the CPU -
+  the owner's 86Box mr286 stores 8,000 bytes to the VGA in 7.3 ms against
+  33.8 on the 5150 - and its IDE disk read 1,197 KB/s with nothing else
+  running and 627 with half of every period decoding
+  (`docs/reports/VIDEO-86BOX-286-2026-09-26.md`). An ST11R there read ~300,
+  so give it `--disk 250000`.
+
+`tests/videnc.py` question 9 holds the file to its target with no limits;
+`tests/vidvga8.py` (`vidvga8`, soak) is the player's gate on MartyPC's VGA.

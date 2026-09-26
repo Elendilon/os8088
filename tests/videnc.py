@@ -31,6 +31,10 @@ tools/os88venc.py encodes it three ways. Four questions:
    cells alternating each colour with its complement must come back as
    exactly those nibbles, the left cell in the high half. Broken on purpose (the nibbles packed
    low-first) it FAILS naming the colours that came back wrong.
+9. IS 256 COLOURS A FILE? --preset vga8-small with no limits: VGA8 on
+   LIN320, 15 fps by default, true black at index 0 (what the screen round
+   the canvas and a keyframe start from, though this source holds no
+   black), and every frame its target.
 8. DOES COMPOSITE DIFFUSION SEE THE MODEL? A picture rendered through the
    model from known nibbles, in runs of 2 to 6 cells, must come back as 90%
    or more of them (94% measured). Without the lookahead - a cell judged as
@@ -110,6 +114,26 @@ def main():
         if diff or r.frames != len(keep):
             bad.append("lossless: %d of %d frames are not their target"
                        % (diff, r.frames))
+        # --- 9: VGA8, 256 colours (VIDEO-PLAN W11a): with no limits every
+        # frame is its target, at 15 fps by default, TRUE black at index 0 - the
+        # screen round the canvas - though testsrc2 holds none
+        path, res, keep = run("vga8", "--preset", "vga8-small",
+                              "--profile", "lossless", "--audio", "none")
+        vid.verify_v88(path)
+        r = vid.Reader(path)
+        diff = sum(1 for f, surf, rec, at, i in vid.v88_frames(r)
+                   if r.g.canvas(surf) != keep[f].tobytes())
+        print("   vga8: %s %d x %d at %.1f fps, index 0 %s, %d of %d frames "
+              "differ from their target"
+              % (vid.PF_NAMES[r.pixfmt], r.g.wb, r.g.h, r.fps,
+                 tuple(r.palette[:3]), diff, r.frames))
+        if (r.pixfmt, r.g.layout) != (vid.PF_VGA8, vid.LAY_LIN320) or \
+                abs(r.fps - 15.0) > 0.01 or diff or \
+                tuple(r.palette[:3]) != (0, 0, 0) or r.frames != len(keep):
+            bad.append("vga8: format %d layout %d at %.2f fps, index 0 %s, "
+                       "%d frames differ"
+                       % (r.pixfmt, r.g.layout, r.fps,
+                          tuple(r.palette[:3]), diff))
         # --- 3: tight limits kept
         path, res, keep = run("tight", "--preset", "herc", "--disk", "20000",
                               "--avg", "0.30", "--peak", "0.50", "--rate",

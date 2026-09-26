@@ -1057,6 +1057,69 @@ red. A row about one package goes in `soak`.
     its own adapter under MartyPC, asserts the claim is exactly the
     unpacked size and nothing else was claimed, and compares every frame
     of a lap and the loop's seam with the host's decode.
+- **W11 — 256 COLOURS ON A 286's VGA: mode 13h, then Mode X.** The
+  owner's ask (2026-09-26): *"continue on to mode x (and 13h probably as
+  an option...), assuming we have any room on 286+/vga"*. **There is room,
+  and it was measured before anything was designed.**
+  - **The machine.** The owner's 86Box `286-video` (mr286, 16 MHz, OTI067)
+    ran the four benches: our decoder's worst frame to the screen is **193
+    thousandths** of a 30 fps period against the 5150's 877, and `rep
+    movsw` of 8,000 bytes takes **7.3 ms to the VGA** against 1.05 to RAM.
+    So on a 286 the limit is the VGA bus, **~1.1 MB/s of stores**, not the
+    CPU. The disk read ~380 KB/s off an ST11R at a 286's speed, and an IDE
+    disk is faster.
+  - **The stream.** Trackmania, the hard case (a moving camera: the whole
+    picture changes), quantised to one 256-colour palette and delta-coded
+    with a stability threshold (`scratchpad` estimate, not the encoder):
+    at **320 x 180**, **235-312 KB/s at 15 fps** and **370-504 at 30**;
+    the VGA stores a frame average 10-18 KB and peak 29-41 KB. So 15 fps
+    fits even the ST11R outright, and 30 fps fits an IDE disk with the
+    budgeted encoder cutting the peaks exactly as it does for one bit a
+    pixel. 160 x 90 at 30 fps is 100-140 KB/s.
+  - **13h costs the decoder NOTHING.** The format is byte-oriented and its
+    addresses are the surface's own memory image (98.1.2), and 13h is
+    64,000 linear bytes - inside 16 bits. So it is **layout 4, LIN320**
+    (A000h, stride 320, 200 rows, one byte a pixel) plus a palette. Every
+    list is already right for it: a RUN is a flat colour, a SLICE is
+    pixels. **W11a**: layout 4, `PF_VGA8` with the palette's 768 bytes in
+    the header's sector (the six-bit DAC values, after the rendition
+    slots' room), the player setting 13h in its bracket and loading the
+    DAC, and `os88venc --pixfmt vga8`: one palette for the whole clip
+    (ffmpeg's `palettegen`, stats over every frame), an ordered dither in
+    colour space, the same stability rule and the same budgets. It is
+    **fullscreen only**: a 256-colour picture cannot be shown on a
+    16-colour desktop, so the Preview's poster is the keyframe's LUMA,
+    dithered to one bit through the existing halving path.
+    **W11a IS BUILT** (SPEC.md 98.1.2, 98.2.3, 98.3, 98.4.4): the decoder
+    did not change by a byte, as predicted. The palette rides in sector 1
+    (slot +32 names it), and the player loads the DAC after the bracket's
+    mode set. A VGA8 frame record is capped at 30 KB so it fits a
+    super-packet, so a play from the start opens on keyframe 0, which is
+    the whole picture. `vidvga8` is the gate on MartyPC's VGA XT, and it
+    FAILS with the DAC load removed or the poster's luma compare flipped.
+    **The IDE run** (`docs/reports/VIDEO-86BOX-286-2026-09-26.md`) read
+    1,197 KB/s with nothing else running and 627 with half the period
+    decoding, so `286-vga` budgets 400 KB/s. Trackmania at 320 x 150:
+    15 fps holds 162 of 180 frames exact at 301 KB/s, 30 fps 295 of 360
+    at 419. The full-screen mono TRACKF that smeared on the first landing
+    at the old `286` profile's 150 KB/s is exact in every frame at this
+    one, at 187 KB/s.
+  - **Mode X is a decoder change, and it buys two things.** 320 x 240 is
+    square pixels (13h's are 5:6), and the planar store has a trick a
+    linear one cannot: **with Map Mask 0Fh one byte store writes four
+    pixels**, so a run of one colour across a four-pixel group costs a
+    quarter. **W11b**: layout 5, MODEX (A000h unchained, 80 bytes a plane
+    row, 240 rows), and a frame record becomes **up to five sub-records,
+    each led by its Map Mask** - 0Fh for the four-pixel groups the encoder
+    found uniform, then 01h, 02h, 04h, 08h for the rest, plane by plane -
+    so the decoder is the same list decoder called once per sub-record
+    with one OUT before it. **Page flipping is W11c and optional**: three
+    pages fit (19,200 bytes a plane), and a flip ends tearing, but each
+    page is TWO frames behind, so the encoder diffs against n-2 and the
+    stream grows; it is a flag the encoder sets and the player honours.
+  - **What the field answers**: the 86Box 286 for both modes, and the
+    owner's 5150 is out of it - a VGA on an 8-bit bus at 4.77 MHz is
+    wave 0's finding times four.
 - **Field.** The owner's 5150 with the ST-225: BADAPPLE with sound, zero
   pauses, fullscreen and In-window. Then the PicoMEM 2 machine for the
   streams the ST-225 cannot carry.

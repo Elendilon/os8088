@@ -105,7 +105,11 @@ VPX_STOP    equ 1                   ; how a bracket ended (98.3.7): stopped,
 VPX_SWAP    equ 2                   ; swapped between window and full screen,
 VPX_DESK    equ 3                   ; back to the desktop, paused - never 0,
                                     ; which is vp_poll's "nothing" 
-VP_KMAXREC  equ 49152               ; the largest keyframe record we will read
+VP_KMAXREC  equ 61440               ; the largest keyframe record we will read:
+                                    ; a VGA8 one is up to a canvas (98.1.3),
+                                    ; and what bounds it is the read - the
+                                    ; record and a cluster either side in one
+                                    ; 64 KB claim, which vp_parse works out
 
 ; --- the file (SPEC.md 98.1.1) -------------------------------------------------
 V88_FRAMES  equ 8
@@ -128,6 +132,10 @@ R_POSTER    equ 14
 R_SP0       equ 16
 R_SP0N      equ 20
 R_SPMAX     equ 22
+R_PAL       equ 32                  ; VGA8: the palette's offset (98.1.1)
+PF_VGA8     equ 2                   ; [vp_pixfmt] is the format less one
+LAY_LIN320  equ 3                   ; ...and [vp_layout] the layout less one
+LAY_LIN80   equ 2
 R_SLEN      equ 24
 R_KMAX      equ 30
 ; a keyframe table entry (SPEC.md 98.1.3), as vp_ke holds it
@@ -162,7 +170,8 @@ vp_entry:
     call OSAPI_CPU_INFO             ; a 286 loads keys as the thumb is
     mov [vp_tier], al               ; dragged (98.4.2)
     mov word [vp_wb], 80            ; THE WINDOW'S SIZE is the layout's, for a
-    mov word [vp_h], 200            ; 640 x 200 video until one is open
+    mov word [vp_pwb], 80           ; 640 x 200 video until one is open
+    mov word [vp_h], 200
     call vp_layfit
     mov ax, [vp_lcw]
     add ax, 2
@@ -754,6 +763,8 @@ vp_open:
 .have:
     call vp_parse
     jc .free
+    call vp_rdpal                   ; VGA8's palette, and its luma
+    jc .free
     mov byte [vp_loaded], 1
     call vp_canplay
 .free:
@@ -851,14 +862,33 @@ vp_parse:
     mov [vp_pitper0], al
     mov al, [es:V88_REND+R_PIXFMT]
     dec al
-    cmp al, 1
+    cmp al, PF_VGA8
     ja .bad
     mov [vp_pixfmt], al
-    mov bl, [es:V88_REND+R_LAYOUT]  ; 1..3, and the canvas inside it
+    mov bl, [es:V88_REND+R_LAYOUT]  ; 1..4, and the canvas inside it
     dec bl
-    cmp bl, 2
+    cmp bl, LAY_LIN320
     ja .bad
     mov [vp_layout], bl
+    cmp al, PF_VGA8                 ; VGA8 is LIN320's, and LIN320 VGA8's
+    je .v8
+    cmp bl, LAY_LIN320
+    je .bad
+    mov word [vp_palo], 0
+    mov word [vp_palo+2], 0
+    jmp short .lay
+.v8:
+    cmp bl, LAY_LIN320
+    jne .bad
+    mov ax, [es:V88_REND+R_PAL]     ; the palette, on a sector
+    or ax, ax
+    jz .bad
+    test ax, 511
+    jnz .bad
+    mov [vp_palo], ax
+    mov ax, [es:V88_REND+R_PAL+2]
+    mov [vp_palo+2], ax
+.lay:
     xor bh, bh
     mov ax, bx
     shl bx, 1
@@ -876,6 +906,19 @@ vp_parse:
     cmp ax, [vp_laytab+bx+4]        ; rows
     ja .bad
     mov [vp_h], ax
+    ; THE PREVIEW'S WIDTH (98.4): a one-bit canvas's own, or for VGA8 the
+    ; luma of its keyframe dithered to one bit, a byte per eight pixels -
+    ; so what sizes and places the poster reads this and not [vp_wb]
+    mov cx, [vp_wb]
+    cmp byte [vp_pixfmt], PF_VGA8
+    jne .pgeo
+    test cl, 7                      ; ...eight pixels to its byte
+    jnz .bad
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1
+.pgeo:
+    mov [vp_pwb], cx
     mov ax, [es:V88_REND+R_SP0]
     test ax, 511
     jnz .bad
@@ -976,6 +1019,8 @@ vp_canplay:
     mov al, [vp_layout]
     call vp_try
     jnc .ok
+    cmp byte [vp_pixfmt], PF_VGA8   ; 256 colours have no one-bit screen to
+    je .none                        ; be copied onto
     mov al, 2                       ; LIN80, HERC, CGA: the roomiest first
 .l:
     cmp al, [vp_layout]
@@ -985,6 +1030,7 @@ vp_canplay:
 .n:
     dec al
     jns .l
+.none:
     mov bl, [vp_layout]             ; "made for <layout>": nothing here holds
     xor bh, bh                      ; it
     shl bx, 1
@@ -1242,6 +1288,42 @@ vp_mkpic:
     push ax
     push cx
     push dx
+    cmp byte [vp_pixfmt], PF_VGA8   ; 256 COLOURS: the luma dithered to one
+    jne .mono                       ; bit, dense at its own size, and halved
+    call vp_v8mono                  ; in place from there
+    mov ax, [vp_pwb]
+    mov [vh_sstr], ax
+    mov [vh_wb], ax
+    mov ax, [vp_h]
+    mov [vh_h], ax
+    mov ax, [vp_pwb]
+    mov cl, 3
+    shl ax, cl
+    cmp word [vp_ps], 1
+    je .v8own
+    mov ax, [vp_pseg]
+    mov [vh_sseg], ax
+    mov [vh_dseg], ax
+    mov byte [vh_lay], 0xFF
+    call vp_half
+    mov ax, [vp_pwb]
+    shl ax, 1
+    shl ax, 1
+    cmp word [vp_ps], 2
+    je .sized
+    mov ax, [vh_wb]
+    mov [vh_sstr], ax
+    call vp_half
+    mov ax, [vp_pwb]
+    shl ax, 1
+    jmp short .sized
+.v8own:
+    mov [vp_ppx], ax
+    mov ax, [vp_pwb]
+    mov [vp_pbw], ax
+    mov ax, [vp_h]
+    jmp short .rows
+.mono:
     cmp word [vp_ps], 1             ; AT ITS OWN SIZE: the rows out of the
     jne .half                       ; file's layout, dense
     call vp_linear
@@ -1326,8 +1408,10 @@ vp_sesspic:
 vp_psize:
     push cx
     push dx
-    mov ax, [vp_wb]
+    mov ax, [vp_pwb]
     mov cx, [vp_h]
+    cmp byte [vp_pixfmt], PF_VGA8   ; made whole, then halved in place
+    je .sz
     cmp word [vp_ps], 1
     je .sz
     inc ax
@@ -1380,6 +1464,206 @@ vp_linear:
 .done:
     pop es
     pop ds
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; vp_rdpal - a VGA8 file's palette (98.1.1) into vp_pal, and the luma the
+; Preview dithers by into vp_lum: (77 r + 150 g + 29 b) >> 8 of the DAC's
+; six bits, then x 17 + 32 >> 6 for 0..16 against a 4 x 4 Bayer cell -
+; tools/os88vid.py's vga8_lum16. CF=1 with [vp_msg] set: unreadable, or a
+; value past the DAC's 63. Nothing for any other format
+vp_rdpal:
+    cmp byte [vp_pixfmt], PF_VGA8
+    je .go
+    clc
+    ret
+.go:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov ax, [vp_clb]                ; 768 bytes and a cluster either side
+    add ax, ax
+    add ax, 768 + 1023
+    mov cl, 10
+    shr ax, cl
+    call OSAPI_MEM_CLAIM
+    jc .mem
+    mov [vp_rdseg], dx
+    mov ax, [vp_palo]
+    mov dx, [vp_palo+2]
+    mov cx, 768
+    call vp_rdat
+    jc .io
+    push ds
+    pop es
+    mov di, vp_pal
+    mov cx, 768
+    push ds
+    mov ds, [vp_rdseg]
+    cld
+    rep movsb
+    pop ds
+    mov si, vp_pal                  ; every value a six-bit one
+    mov cx, 768
+.chk:
+    lodsb
+    cmp al, 63
+    ja .bad
+    loop .chk
+    mov si, vp_pal
+    mov di, vp_lum
+    mov cx, 256
+.lum:
+    push cx
+    lodsb
+    mov bl, 77
+    mul bl
+    mov bx, ax
+    lodsb
+    mov cl, 150
+    mul cl
+    add bx, ax
+    lodsb
+    mov cl, 29
+    mul cl
+    add ax, bx
+    mov al, ah                      ; >> 8: 0..63
+    mov cl, 17
+    mul cl
+    add ax, 32
+    mov cl, 6
+    shr ax, cl                      ; 0..16
+    mov [di], al
+    inc di
+    pop cx
+    loop .lum
+    mov dx, [vp_rdseg]
+    call OSAPI_MEM_FREE
+    clc
+    jmp short .out
+.bad:
+    mov word [vp_msg], vp_s_bad
+    jmp short .fr
+.io:
+    mov word [vp_msg], vp_s_io
+.fr:
+    mov dx, [vp_rdseg]
+    call OSAPI_MEM_FREE
+    stc
+    jmp short .out
+.mem:
+    mov word [vp_msg], vp_s_mem
+    stc
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; vp_dac - VGA8: the file's 256 colours into the DAC, once the bracket has
+; set 13h (the mode set loads the BIOS's own, and the bracket's restore
+; sets the desktop's back). Preserves all
+vp_dac:
+    cmp byte [vp_pixfmt], PF_VGA8
+    jne .out
+    push ax
+    push cx
+    push dx
+    push si
+    mov dx, 0x3C8
+    xor al, al
+    out dx, al
+    inc dx
+    mov si, vp_pal
+    mov cx, 768
+    cld
+.l:
+    lodsb
+    out dx, al
+    loop .l
+    pop si
+    pop dx
+    pop cx
+    pop ax
+.out:
+    ret
+
+; vp_v8mono - the VGA8 canvas in [vp_kshd] (LIN320: row y at y x 320) as a
+; one-bit one in [vp_pseg], dense at [vp_pwb] bytes a row: a pixel is lit
+; when its luma beats the 4 x 4 Bayer cell over it (tools/os88vid.py's
+; vga8_mono, bit for bit). Preserves all
+vp_v8mono:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    mov es, [vp_kshd]
+    xor di, di                      ; DI = the output byte
+    xor dx, dx                      ; DX = the row
+.row:
+    cmp dx, [vp_h]
+    jae .done
+    mov ax, 320
+    push dx
+    mul dx
+    pop dx
+    mov si, ax                      ; ES:SI = the row's first pixel
+    mov bx, dx                      ; the row's four thresholds, where BX
+    and bx, 3                       ; can index them
+    shl bx, 1
+    shl bx, 1
+    mov ax, [vp_bayer4+bx]
+    mov [vp_rthr], ax
+    mov ax, [vp_bayer4+bx+2]
+    mov [vp_rthr+2], ax
+    mov cx, [vp_pwb]
+.byte:
+    push cx
+    xor ah, ah                      ; AH = the byte, built from the left
+    mov cx, 8
+.pix:
+    mov bl, [es:si]
+    inc si
+    xor bh, bh
+    mov al, [vp_lum+bx]
+    mov bx, si                      ; x & 3 of the pixel just read
+    dec bx
+    and bx, 3
+    cmp [vp_rthr+bx], al            ; CF = threshold < luma: lit
+    rcl ah, 1
+    loop .pix
+    push ds
+    push ax
+    mov ax, [vp_pseg]
+    mov ds, ax
+    pop ax
+    mov [di], ah
+    pop ds
+    inc di
+    pop cx
+    loop .byte
+    inc dx
+    jmp short .row
+.done:
+    pop es
+    pop bp
     pop di
     pop si
     pop dx
@@ -1793,7 +2077,10 @@ vp_sstart:
     mov [vp_ssec], ax
     mov ax, [vp_sel]
     or ax, ax
-    jz .start
+    jnz .kpick
+    cmp byte [vp_pixfmt], PF_VGA8   ; key 0 too for VGA8: its frame 0 may be
+    jne .start                      ; too big for one record, and the key
+.kpick:                             ; is the whole picture
     cmp ax, [vp_kload]
     jne .start
     mov [vp_rdseg], dx
@@ -2072,6 +2359,8 @@ vp_canwin:
     push dx
     cmp byte [vp_nowin], 0
     jne .no
+    cmp byte [vp_pixfmt], PF_VGA8   ; 256 colours: full screen only (98.3.7)
+    je .no
     cmp word [vp_ps], 1
     jne .no
     mov bx, [vp_win]
@@ -2351,6 +2640,7 @@ vp_main:
 .mode:
     mov ax, [vp_fsi+FSI_SEG]
     mov [vp_vseg], ax
+    call vp_dac                     ; VGA8: the file's 256 colours
     ; the origin: centred, the row on a bank (SPEC.md 98.1.2), on the
     ; screen's layout - the file's own, or the shadow's target (98.3.2)
     mov bl, [vp_tlay]
@@ -3693,7 +3983,7 @@ vp_layfit:
 vp_laysize:
     push ax
     push cx
-    mov ax, [vp_wb]                 ; pixels: 8 a byte, over the scale
+    mov ax, [vp_pwb]                ; pixels: 8 a byte, over the scale
     mov cl, 3
     shl ax, cl
     mov cx, si
@@ -4273,7 +4563,7 @@ vp_fmt:
     call vp_puts
     ; 2: the canvas, its screen, the rate, the length
     mov di, vp_lines + 2 * VP_LINE
-    mov ax, [vp_wb]
+    mov ax, [vp_pwb]                ; the pixels, whatever a byte holds
     mov cl, 3
     shl ax, cl
     xor dx, dx
@@ -4637,13 +4927,18 @@ vp_laytab:
     dw 90, 348
     db FSXM_VGA12, 1
     dw 80, 480
-vp_laynames:  dw vp_s_cga, vp_s_herc, vp_s_vga
-vp_laynotab:  dw vp_s_nocga, vp_s_noherc, vp_s_novga
-vp_laycptab:  dw vp_s_cpcga, vp_s_cpherc, vp_s_cpvga
-vp_laykb:     db 16, 32, 38             ; each layout's memory image, KB
+    db FSXM_VGA13, 1
+    dw 320, 200
+vp_laynames:  dw vp_s_cga, vp_s_herc, vp_s_vga, vp_s_vga8
+vp_laynotab:  dw vp_s_nocga, vp_s_noherc, vp_s_novga, vp_s_novga8
+vp_laycptab:  dw vp_s_cpcga, vp_s_cpherc, vp_s_cpvga, vp_s_novga8
+vp_laykb:     db 16, 32, 38, 63         ; each layout's memory image, KB
+vp_bayer4:    db 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5
+vp_rthr:      db 0, 0, 0, 0             ; vp_v8mono: this row's four
 vp_s_cga:     db 'CGA  ', 0
 vp_s_herc:    db 'Herc  ', 0
 vp_s_vga:     db 'VGA  ', 0
+vp_s_vga8:    db 'VGA 256  ', 0
 
 vp_s_file:    db 'File: ', 0
 vp_s_nofile:  db '(none) - File > Open...', 0
@@ -4661,6 +4956,7 @@ vp_s_badrec:  db 'Stopped: a damaged frame', 0
 vp_s_nocga:   db 'Made for CGA; not on this screen', 0
 vp_s_noherc:  db 'Made for Hercules; not this screen', 0
 vp_s_novga:   db 'Made for VGA; not on this screen', 0
+vp_s_novga8:  db '256 colours: a VGA, full screen', 0
 vp_s_cpcga:   db 'Made for CGA: plays via a copy', 0
 vp_s_cpherc:  db 'Made for Herc: plays via a copy', 0
 vp_s_cpvga:   db 'Made for VGA: plays via a copy', 0
@@ -4698,6 +4994,8 @@ vp_ok:        db 0
 vp_loaded:    db 0
 vp_played:    db 0
 vp_mode:      db 0
+vp_pwb:       dw 0                  ; the Preview's bytes a row (98.4)
+vp_palo:      dd 0                  ; VGA8: the palette's offset
 vp_layout:    db 0
 vp_pixfmt:    db 0
 vp_pitper:    db 0                  ; periods a frame, this play
@@ -4914,5 +5212,7 @@ vp_cur:       times FSEQ_SIZE db 0
 ; --- bss: zeroed by the loader, and no bytes of the file ----------------------
 vp_dtab       equ os88_image_end    ; the half-scaler's two tables (vp_mkdtab)
 vp_lines      equ vp_dtab + 512     ; the info panel's text
-    OS88_BSS 512 + VP_LINES * VP_LINE
+vp_pal        equ vp_lines + VP_LINES * VP_LINE ; VGA8's palette (98.1.1)
+vp_lum        equ vp_pal + 768      ; ...and each entry's luma, 0..16
+    OS88_BSS 512 + VP_LINES * VP_LINE + 768 + 256
     OS88_IMAGE_END

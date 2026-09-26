@@ -76,6 +76,13 @@ PROFILES = {
                    what="a 360 KB floppy, a cylinder a call (predicted)"),
     "286": dict(disk=150000, avg=1.50, peak=2.50, rate=22050, audio="pcm8",
                 what="a 6 MHz 286: ~3x the 8088's cycles (predicted)"),
+    "286-vga": dict(disk=400000, avg=3.00, peak=5.00, rate=22050,
+                    audio="pcm8",
+                    what="a 12-16 MHz 286 with a VGA, for VGA8: the VGA's "
+                         "bus binds, and it stores ~4.5x as fast as the "
+                         "5150's CGA; its IDE disk 627 KB/s with half the "
+                         "period decoding (86Box's mr286, the owner's "
+                         "bench). An ST11R there: --disk 250000"),
     "lossless": dict(disk=None, avg=None, peak=None, rate=22050,
                      audio="pcm8", what="no limits: every change, exactly"),
 }
@@ -90,6 +97,9 @@ PRESETS = {
     "vga": ("lin80", 320, 240),
     "vga-mid": ("lin80", 400, 300),
     "vga-full": ("lin80", 640, 480),
+    # 256 colours in mode 13h (SPEC.md 98.1.2's LIN320), full screen only
+    "vga8": ("lin320", 320, 200),
+    "vga8-small": ("lin320", 160, 100),
     # Live windowed's sizes (VIDEO-PLAN 3.4): small canvases a worker blits
     "live-cga": ("cga", 320, 100),
     "live-herc": ("herc", 240, 116),
@@ -99,6 +109,11 @@ PRESETS = {
 CYC_AUDIO = 13.0        # the interrupt's copy of a PCM8 byte into the
                         # card's buffer (rep movsw, ~25 cycles a word)
 REC_OVER = 6 + 10       # a record's header and its ten list terminators
+REC_MAX = 30 * 1024     # a frame record rides in a super-packet of 32 KB
+                        # (98.1.4): whatever the budgets say, no more.
+                        # Only VGA8 can reach it - a MONO1 canvas is 16 KB
+KEY_PLAYER = 61440      # the largest keyframe the player reads in one go
+                        # off a volume of 2 KB clusters (98.1.3)
 
 
 def need_tools():
@@ -438,6 +453,80 @@ def comp_parallel(frames, w, h, a, jobs, per=150):
 # --------------------------------------------------------------------------
 # the budgeted encoder
 # --------------------------------------------------------------------------
+class Vga8Ditherer:
+    """256 colours for mode 13h (SPEC.md 98.2.3): an ordered dither over
+    the clip's own palette, anchored to the canvas so a still picture keeps
+    its pattern, and STABLE - a pixel keeps the colour on the screen while
+    that colour is within `stable` of what it should be, so noise in the
+    source does not become bytes. The nearest colour is a 32 x 32 x 32
+    table, made once"""
+
+    def __init__(self, w, h, palette, strength, stable):
+        self.pal = np.frombuffer(palette, np.uint8).astype(np.float32) \
+            .reshape(256, 3) * (255 / 63)
+        g = (np.arange(32, dtype=np.float32) * 255 / 31)
+        cube = np.stack(np.meshgrid(g, g, g, indexing="ij"), -1).reshape(-1, 3)
+        lut = np.empty(len(cube), np.uint8)
+        for i in range(0, len(cube), 4096):
+            d = ((cube[i:i + 4096, None, :] - self.pal[None]) ** 2).sum(2)
+            lut[i:i + 4096] = d.argmin(1)
+        self.lut = lut
+        self.t = ((threshold_map("bayer", w, h) - 0.5) * strength)[..., None]
+        self.stable = stable
+        self.prev = None
+
+    def __call__(self, rgb):
+        f = rgb.astype(np.float32)
+        q = np.clip(np.rint((f + self.t) * (31 / 255)), 0, 31).astype(
+            np.int32)
+        idx = self.lut[(q[..., 0] << 10) | (q[..., 1] << 5) | q[..., 2]]
+        if self.prev is not None and self.stable:
+            err = np.sqrt(((self.pal[self.prev] - f) ** 2).sum(2))
+            idx = np.where(err < self.stable, self.prev, idx)
+        self.prev = idx
+        return idx
+
+
+def vga8_palette(src, w, h, crop, fps_expr, start, end, eq):
+    """The clip's 256 colours (ffmpeg's palettegen over every frame), as
+    the DAC's six bits, the DARKEST first: index 0 is what the screen and
+    a keyframe start from, so the bars stay black and a keyframe writes
+    only what is not"""
+    import tempfile
+    vf = []
+    if crop:
+        vf.append("crop='if(gt(dar,%f),ih*%f*sar,iw)':'if(gt(dar,%f),ih,"
+                  "iw/(%f)/sar)'" % (crop, crop, crop, crop))
+    vf += ["fps=%s" % fps_expr, "scale=%d:%d:flags=area" % (w, h)]
+    if eq:
+        vf.append("eq=%s" % eq)
+    vf.append("palettegen=max_colors=256:stats_mode=full:reserve_transparent=0")
+    with tempfile.TemporaryDirectory() as t:
+        out = os.path.join(t, "pal.png")
+        cmd = ["ffmpeg", "-v", "error", "-nostdin", "-y"]
+        if start:
+            cmd += ["-ss", "%.3f" % start]
+        cmd += ["-i", src]
+        if end:
+            cmd += ["-t", "%.3f" % (end - (start or 0))]
+        cmd += ["-an", "-vf", ",".join(vf), "-frames:v", "1", out]
+        subprocess.run(cmd, check=True)
+        from PIL import Image
+        rgb = np.array(Image.open(out).convert("RGB")).reshape(-1, 3)
+    cols = sorted({tuple((int(v) * 63 + 127) // 255 for v in c) for c in rgb},
+                  key=lambda c: (77 * c[0] + 150 * c[1] + 29 * c[2], c))
+    if cols[0] != (0, 0, 0):        # TRUE black, whatever the clip holds:
+        if len(cols) >= 256:        # it is the screen round the canvas too.
+            a = np.array(cols, np.int32)    # Room is made by merging the
+            d = ((a[:, None] - a[None]) ** 2).sum(2)   # two nearest colours
+            np.fill_diagonal(d, 1 << 30)
+            i, j = np.unravel_index(int(d.argmin()), d.shape)
+            del cols[max(i, j)]
+        cols.insert(0, (0, 0, 0))
+    cols += [cols[-1]] * (256 - len(cols))
+    return bytes(v for c in cols[:256] for v in c)
+
+
 def span_cost(bs, run):
     """(cycles, bytes) of one span in the stream, wave 0's model: its
     list's entry and a skip byte (a segment's set-up amortised in)"""
@@ -475,8 +564,13 @@ class Budget:
 
 
 class Encoder:
-    def __init__(self, g, prof, fps, audio_cyc, audio_bps):
+    def __init__(self, g, prof, fps, audio_cyc, audio_bps, palette=None):
         self.g = g
+        # how wrong a byte is: its differing bits, or for VGA8 how far its
+        # colour is from the one wanted
+        self.pal = None if palette is None else \
+            np.frombuffer(palette, np.uint8).astype(np.float32).reshape(
+                256, 3) * (255.0 / 63)
         period = vid.HZ / fps
         self.period = period
         if prof["avg"] is None:
@@ -523,7 +617,8 @@ class Encoder:
         byte_room = self.disk.room()
         costs = [span_cost(bs, run) for a, bs, run in sp]
         order = None
-        er, eb = cyc_room - vid.CYC_FRAME, byte_room - REC_OVER
+        er = cyc_room - vid.CYC_FRAME
+        eb = min(byte_room, REC_MAX - len(audio)) - REC_OVER
         for attempt in range(8):
             tc = sum(c for c, b in costs)
             tb = sum(b for c, b in costs)
@@ -541,14 +636,16 @@ class Encoder:
                     uc += c
                     ub += b
                 chosen.sort()
-            rec = vid.record(chosen, g, audio)
+            rec = vid.record(chosen, g, audio, limit=65535)
             # the model's estimate is per span; the record is measured, and
             # a frame over its ceiling tries again with the estimate scaled
             mc = vid.cycles_of(rec)
-            if mc <= cyc_room and len(rec) - len(audio) <= byte_room:
+            if mc <= cyc_room and len(rec) - len(audio) <= byte_room and \
+                    len(rec) <= REC_MAX:
                 break
             er *= min(0.97, cyc_room / mc)
-            eb *= min(0.97, byte_room / max(1, len(rec) - len(audio)))
+            eb *= min(0.97, min(byte_room, REC_MAX - len(audio)) /
+                      max(1, len(rec) - len(audio)))
         if chosen is sp:
             self.stats["exact"] += 1
         else:
@@ -564,8 +661,12 @@ class Encoder:
         """The spans' indexes, most pixels fixed per unit of the scarcer
         budget first; a pixel wrong for a while outweighs a fresh one"""
         g = self.g
-        xor = np.bitwise_xor(target, self.screen)
-        bits = np.unpackbits(xor, axis=1).reshape(g.h, g.wb, 8).sum(2)
+        if self.pal is not None:
+            bits = np.abs(self.pal[target] - self.pal[self.screen]).sum(2) \
+                / 32.0
+        else:
+            xor = np.bitwise_xor(target, self.screen)
+            bits = np.unpackbits(xor, axis=1).reshape(g.h, g.wb, 8).sum(2)
         self.wv[:] = 0
         self.wv[self.idx] = bits * (1.0 + self.age / 8.0)
         cs = np.concatenate(([0.0], np.cumsum(self.wv)))
@@ -671,14 +772,21 @@ def encode(a, keep=None):
         raise vid.V88Error("--box or --preset names the canvas")
     L = vid.LAYOUT_BY_NAME[lay]
     banks, stride, rows, _ = vid.LAYOUTS[L]
-    if bw > stride * 8 or bh > rows:
+    ppb = vid.PIX_PER_BYTE[L]
+    if bw > stride * ppb or bh > rows:
         raise vid.V88Error("a %d x %d box does not fit %s (%d x %d)"
-                           % (bw, bh, lay, stride * 8, rows))
+                           % (bw, bh, lay, stride * ppb, rows))
     sw, sh, dar, sfps, dur, has_audio = probe(a.src)
     w, h, crop = canvas_size(lay, bw, bh, dar, a.fit)
-    g = vid.Geom(L, w // 8, h)
+    g = vid.Geom(L, w // ppb, h)
+    vga8 = L == vid.LAY_LIN320
+    if a.pixfmt is not None and (a.pixfmt == "vga8") != vga8:
+        raise vid.V88Error("--pixfmt vga8 is the lin320 layout's, and the "
+                           "only format it takes")
 
-    fps = a.fps or min(30.0, sfps)
+    # 256 colours are a byte a PIXEL: at 30 fps a moving camera wants ~500
+    # KB/s where 15 wants ~250 (VIDEO-PLAN W11), so VGA8 defaults to 15
+    fps = a.fps or min(15.0 if vga8 else 30.0, sfps)
     audio = a.audio or prof["audio"]
     if audio == "none" or not has_audio:
         afmt, rate, spf, abytes = vid.AUD_NONE, round(fps * 100), 100, 0
@@ -707,28 +815,35 @@ def encode(a, keep=None):
     pattern = comp and a.comp_dither == "pattern"
     frames = ffmpeg_video(a.src, w // 4 if pattern else w, h, crop,
                           "%d/%d" % (rate, spf), a.start, a.end,
-                          ":".join(eq), "rgb24" if comp else "gray")
+                          ":".join(eq), "rgb24" if comp or vga8 else "gray")
     say = (lambda *x: None) if a.quiet else print
     say("%s: %dx%d %.3f fps -> %s canvas %d x %d, %.3f fps (%d Hz / %d), "
         "audio %s, profile %s"
         % (a.src, sw, sh, sfps, lay, w, h, fps, rate, spf,
            {0: "none", 1: "PCM8", 2: "ADPCM4"}[afmt], a.profile))
-    if a.levels == "auto":
+    if a.levels == "auto" and not vga8:
         lo, hi = auto_levels(a.src, w, h, crop, a.start, a.end, ":".join(eq))
         say("   levels: grey %d..%d stretched to 0..255" % (lo, hi))
         frames = (stretch(f, lo, hi) for f in frames)
-    if pattern:
+    palette = None
+    if vga8:
+        palette = vga8_palette(a.src, w, h, crop, "%d/%d" % (rate, spf),
+                               a.start, a.end, ":".join(eq))
+        dith = Vga8Ditherer(w, h, palette, a.vga8_dither, a.vga8_stable)
+    elif pattern:
         dith = CompDitherer(w, h, a.mix, a.stable, n=a.levels_mix)
     elif comp:
         dith = CompDiffuser(w, h, a.comp_stable, not a.comp_quick)
     else:
         dith = Ditherer(a.dither, w, h, a.stable, a.invert, a.clip)
-    enc = Encoder(g, prof, fps, audio_cyc, audio_bps)
+    enc = Encoder(g, prof, fps, audio_cyc, audio_bps, palette)
     wr = vid.Writer(g, rate, spf, afmt, abytes,
+                    vid.PF_VGA8 if vga8 else
                     vid.PF_CGACOMP if comp else vid.PF_MONO1,
                     title=a.title or os.path.splitext(
                         os.path.basename(a.src))[0][:47],
-                    credits=a.credits or "", keysecs=a.keysecs)
+                    credits=a.credits or "", keysecs=a.keysecs,
+                    palette=palette)
     pcm = ffmpeg_audio(a.src, rate, a.start, a.end, a.volume) if afmt else b""
     cyc, recs, n = [], [], 0
     pend = []
@@ -753,7 +868,14 @@ def encode(a, keep=None):
         wr.frame(ops, enc.surf, au)
         if a.preview_png and f % max(1, round(fps)) == 0:
             out = os.path.join(a.preview_png, "f%05d.png" % f)
-            if comp:                # what a composite monitor shows
+            if vga8:
+                from PIL import Image
+                cv = np.frombuffer(g.canvas(enc.surf), np.uint8).reshape(
+                    g.h, g.wb)
+                pl = np.frombuffer(palette, np.uint8).astype(
+                    np.uint16).reshape(256, 3) * 255 // 63
+                Image.fromarray(pl[cv].astype(np.uint8)).save(out)
+            elif comp:              # what a composite monitor shows
                 import os88cgacomp
                 from PIL import Image
                 cv = np.frombuffer(g.canvas(enc.surf), np.uint8).reshape(
@@ -773,7 +895,13 @@ def encode(a, keep=None):
         poster = min(nk - 1, max(0, round(a.poster_at * fps / wr.keyint)))
     res = wr.write(a.out, poster)
     res.update(fps=fps, period=enc.period, audio_cyc=audio_cyc,
-               audio_bps=audio_bps, prof=prof, w=w, h=h, layout=lay)
+               audio_bps=audio_bps, prof=prof, w=w, h=h, layout=lay,
+               palette=palette)
+    kmax = max((len(r) for k, r, c in wr.keys), default=0)
+    if kmax > KEY_PLAYER:
+        say("   NOTE: the largest keyframe is %d bytes, past the %d the "
+            "player reads in one go: it will play from the start only, "
+            "with no poster and no seek" % (kmax, KEY_PLAYER))
     secs = nf / fps
     st = enc.stats
     say("   %d frames, %.1f s: %d bytes = %.1f KB/s (%.1f video, %.1f "
@@ -825,9 +953,16 @@ def parser():
     ap.add_argument("--levels", choices=("auto", "none"), default="auto",
                     help="stretch the grey range the source uses to the "
                          "whole of black-to-white")
-    ap.add_argument("--pixfmt", choices=("mono", "cgacomp"), default="mono",
-                    help="cgacomp: composite colour on a CGA (the cga "
-                         "layout only)")
+    ap.add_argument("--pixfmt", choices=("mono", "cgacomp", "vga8"),
+                    help="mono (the default), cgacomp: composite colour on "
+                         "a CGA (the cga layout only), vga8: 256 colours in "
+                         "mode 13h (the lin320 layout, and what it implies)")
+    ap.add_argument("--vga8-dither", type=float, default=24.0,
+                    help="vga8: the ordered dither's reach, in 8-bit RGB "
+                         "steps across the 8 x 8 map (0: none)")
+    ap.add_argument("--vga8-stable", type=float, default=18.0,
+                    help="vga8: how far, in RGB distance, the colour on "
+                         "the screen may be from the source and stay")
     ap.add_argument("--comp-dither", choices=("diffuse", "pattern"),
                     default="diffuse",
                     help="cgacomp: error diffusion through the model (the "
