@@ -939,8 +939,19 @@ red. A row about one package goes in `soak`.
     which took **16 bytes of kernel** (`OSAPI_WM_RESIZE` now honours
     `WF_KEEPH`, SPEC.md 11.93.1). **The thumb drags** (98.4.2), loading on
     the release on an 8088 and every 9 ticks mid-drag on a 286.
-- **W7 — In-window**, the Play button that becomes Pause, and an exact
-  seek on a paused picture (keyframe plus replay).
+- **W7 — In-window. DONE** (SPEC.md 98.3.7). The play is a SESSION that
+  brackets come and go on - ring, cursors, the card, and a keeper copy of
+  the canvas - so it can pause back to the desktop with its frame in the box
+  and resume, and swap between the window and the full screen playing or
+  paused. In the window it is a same-mode bracket and the decoder writes the
+  desktop's own framebuffer, in place when the file's layout is the
+  desktop's (every adapter's desktop is one of the three layouts) and
+  through the shadow otherwise: 92 ticks of 91.0 on the Hercules 5150. Play
+  shows Pause while it plays there; with no pointer, a click anywhere
+  pauses. Offered only where the picture is at its own size - on CGA a
+  640 x 200 video is shown at half, so it plays full screen, as the plan's
+  3.3 said. **Not taken**: the exact seek on a paused picture (keyframe plus
+  replay), which W9's Live machinery makes cheaper.
 - **W8 — the whole encoder**, with profiles, the burst allowance and ADPCM4.
 - **W9 — Live windowed.**
 - **Field.** The owner's 5150 with the ST-225: BADAPPLE with sound, zero

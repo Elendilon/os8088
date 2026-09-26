@@ -199,6 +199,8 @@ def main():
                             limit=300.0, guest=30.0)
             if rb("vp_ok") != 1:
                 sys.exit("vidplay: the player will not play the clip here")
+            m.write(base + syms["vp_nowin"], b"\1")   # FULL SCREEN: the
+                                            # window's play is tests/vidwin.py
             if rb("vp_shadow") != int(shadow):
                 bad.append("the player chose %s where the %s screen wants %s"
                            % ("the shadow" if rb("vp_shadow") else "native",

@@ -30,9 +30,11 @@ opened by double-clicking it. Four questions:
 starts, and each hold reads the screen where the copy put the rows.
 
 5. F AND ALT+ENTER go into full screen PAUSED - on the first frame, or on
-   the picked key's - and back out, and a play left part way starts next at
-   the keyframe at or before the last frame drawn; one that reached the end
-   starts at the start again, with the poster back (98.3.6).
+   the picked key's - and back out, PAUSED in the window (98.3.7); Esc then
+   stops it, and Play starts next at the keyframe at or before the last
+   frame drawn; a play that reached the end starts at the start again, with
+   the poster back (98.3.6). Every play here is pinned to the full screen
+   (vp_nowin): the window's is tests/vidwin.py's.
 6. THE THUMB DRAGS: on an 8088 the picture loads once, on the release; on
    a 286 (the tier poked) it loads mid-drag too (98.4.2).
 
@@ -177,6 +179,9 @@ def main():
             done = stall = late = dt = ptk = d1 = d2 = 0
             try:
                 wait(lambda mm: rw("vp_ploads") >= 1, "the poster")
+                m.write(base + syms["vp_nowin"], b"\1")   # FULL SCREEN, the
+                                            # plays this row reads (vidwin is
+                                            # the window's)
                 if rb("vp_ok") != 1:
                     sys.exit("vidpreview: the player will not play the clip "
                              "here")
@@ -291,11 +296,18 @@ def main():
                     bad.append("F went in having drawn %d frames, not the "
                                "first" % rw("vp_done"))
                 screen_is(0, "F, paused")
-                m.type_text(" ")
-                wait(lambda mm: rw("vp_done") >= keys[1] + 10,
-                     "Space to play past key 1")
-                m.type_text("f")
-                wait(lambda mm: rb("vp_played") == 1, "F to come out")
+                ww("vp_stopat", 40)         # held BEFORE key 1: the stop
+                m.write(base + syms["vp_held"], b"\0")   # rounds back to
+                m.type_text(" ")                          # key 0, which the
+                wait(lambda mm: rb("vp_held") == 1 and    # box must then show
+                     rw("vp_done") == 40, "Space to play to frame 40")
+                m.type_text("f")            # out of the full screen, PAUSED
+                wait(lambda mm: rb("vp_sess") == 1 and rb("vp_ready") == 0
+                     and rw("vp_dkey") == 0xFFFE,     # in the window (98.3.7)
+                     "F to come out, paused")
+                m.key("Escape")             # ...and Esc stops the session
+                wait(lambda mm: rb("vp_played") == 1, "Esc to stop it")
+                ww("vp_stopat", 0xFFFF)
                 last = rw("vp_done") - 1
                 want_k = max(i for i, k in enumerate(keys) if k <= last)
                 print("   F out at frame %d: Play now starts at key %d "
@@ -305,6 +317,10 @@ def main():
                     bad.append("out at frame %d, Play starts at key %d and "
                                "the box is key %d, not %d" % (
                                    last, rw("vp_sel"), rw("vp_dkey"), want_k))
+                # ...and the BOX SHOWS IT, on the screen and not only in the
+                # claim: the owner's field report was a box that kept the old
+                # picture until something else repainted it
+                poster_ok(want_k, "after the stop")
                 # --- 6: Alt+Enter, both ways: in paused on that key's frame
                 m.write(base + syms["vp_played"], b"\0")
                 m.alt("Enter", hold=0.3)
@@ -314,8 +330,10 @@ def main():
                 os88marty.pace(m, 1.0)
                 screen_is(keys[want_k], "Alt+Enter, paused")
                 m.alt("Enter", hold=0.3)
-                wait(lambda mm: rb("vp_played") == 1,
-                     "Alt+Enter to come out")
+                wait(lambda mm: rb("vp_sess") == 1 and rb("vp_ready") == 0
+                     and rw("vp_dkey") == 0xFFFE, "Alt+Enter to come out")
+                m.key("Escape")
+                wait(lambda mm: rb("vp_played") == 1, "Esc to stop it")
                 if rw("vp_sel") != want_k:
                     bad.append("a paused visit moved Play's key to %d"
                                % rw("vp_sel"))

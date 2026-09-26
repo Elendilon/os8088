@@ -149170,7 +149170,8 @@ segments, not by trust:
 Package **`VIDEO.O88`**, header name `'Video Player'`, label prefix `vp_`
 (`apps/video/video.asm`; the decoder is `apps/video/vdec.inc`, wave 0's,
 moved). Its window is the Preview (98.4), and **Space** (or P, Enter, the
-Play button, the menu's Play) plays the file fullscreen. **Esc stops** at
+Play button, the menu's Play) plays the file - in the window where the
+window can host it (98.3.7), full screen otherwise. **Esc stops** at
 the foreground's next poll, whatever the frame rate; **Space pauses**
 (98.3.4). When the bracket returns, the window shows what the play cost.
 
@@ -149462,8 +149463,8 @@ sound from frame 181 on, PCM8 and ADPCM4 alike (`vidsndseek`,
 
 **F and Alt+Enter take the picture full screen WITHOUT playing it**, and
 F, Alt+Enter or Esc bring it back. In full screen, Space plays and pauses.
-Space, P or Enter in the window still play full screen at once - there is
-no play in the window yet, so there is nothing else for Space to mean.
+Space, P or Enter in the window play at once - in the window where it can
+host the play (98.3.7), else full screen.
 - **In paused** (`[vp_startp]`): the keyframe decoded as for any play from
   a key (98.3.5), or - from the start - the FIRST FRAME drawn by the
   foreground with the hook idle, so the screen is never black. The hook is
@@ -149479,8 +149480,9 @@ no play in the window yet, so there is nothing else for Space to mean.
   frames. In the window the kernel hands `W_ONKEY` `KEY_ALTENTER`.
 
 **Where the next play starts** is where this one got to (`vp_after`):
-- **stopped part way** - Esc, F, Alt+Enter, paused or not - at the keyframe
-  at or before the last frame drawn, its picture in the box. The table is
+- **stopped part way** - Esc, paused or not - at the keyframe at or before
+  the last frame drawn, **and its picture in the box** even when that is the
+  key it started from (the box had the poster, or the paused frame). The table is
   not in memory, so `vp_keyat` estimates (frame x keys / frames: keys are
   evenly spaced) and steps the estimate with a read or two until it is
   right;
@@ -149496,6 +149498,81 @@ starts at key 1 (frame 60) with its picture in the box; Alt+Enter goes in on
 frame 60 exactly and out again without moving it; a play to the end comes
 back to the start and the poster. With the card, F goes in with the card
 closed, and after the Space the capture holds the whole sound from frame 0.
+
+#### 98.3.7 In the window: the play is a session (wave 7)
+
+**The play is a SESSION**, and brackets come and go on it. A session is the
+ring and the stream's cursors, the card (opened, and halted when no bracket
+is running), and a copy of the canvas - the **keeper**, the file's own
+layout's memory image. `vp_sstart` makes one, `vp_srun` runs brackets on it,
+`vp_sstop` ends it. A bracket ends one of three ways (`[vp_exitr]`):
+- **STOP** - Esc, the clip's end, an error: the session is over, and Play
+  starts next where it got to (98.3.6);
+- **SWAP** - F or Alt+Enter: the window for the full screen or back, playing
+  on if it was playing and paused if it was paused. Leaving the full screen
+  while playing plays on in the window if the window can host it, and else
+  waits there paused;
+- **DESK** - Space, or a click, in the window: back to the desktop, paused.
+  The session waits with its frame in the box; Play, Space, P or Enter
+  resume it, F takes it to the full screen paused, and Esc, a key step, the
+  scrub bar or Open end it.
+
+**IN THE WINDOW is a same-mode bracket** (§53.7): no mode is set and
+nothing is cleared, the rest of the desktop frozen and the pointer gone for
+as long as it lasts. It is taken when the picture is shown at the video's own
+size (98.4.1), the window is uncovered (`OSAPI_WM_OBSCURED`) and the
+picture's rect is whole on the screen, and when the bracket owns the primary
+display (`OSAPI_FSX_SURF` at (0,0)) - else the play goes full screen, as
+before. **Play shows Pause** while it plays there, drawn before the bracket
+takes the screen: there is no pointer to click it with, and the window's
+click that pauses is anywhere, polled off `OSAPI_MOUSE`.
+- **The decoder writes the desktop's own framebuffer.** CGA's desktop is mode
+  6, Hercules' is its page 0 at B000, VGA's is mode 12h and an EGA's 10h - the
+  CGA, HERC and LIN80 layouts of 98.1.2 exactly (`vp_dinfo`) - so a file of
+  the desktop's layout decodes IN PLACE, BP the picture's place in the box, at
+  the full screen's speed; another layout decodes into the shadow and is
+  copied, re-addressed a row at a time (98.3.2). VGA's resting write state
+  (`kernel/vga12.inc`: Map Mask 0Fh, set/reset off, read map 0) is exactly
+  what a MONO1 byte wants, so the planar desktop needs nothing set.
+- **The picture's row is on a bank** of the desktop's layout, so the file's
+  addresses land unchanged: the box has three rows of slack under the
+  picture, and the picture goes down to the next bank boundary. Its column
+  is the screen's byte, as ever.
+- **The thumb follows the play**, a move a second at most, on a 1 bpp
+  desktop only: a VGA fill changes the planes' state while it runs, and the
+  hook's decode must find them at rest.
+
+**The keeper is how a canvas crosses brackets.** A bracket puts it onto its
+surface first - black, before the session's first frame - and takes it back
+as it ends: through the shadow the keeper IS the shadow (64 KB, 98.3.2's
+bound), and in place the canvas's rows are copied between the screen and
+the keeper (the file's layout's own size, 16-38 KB). A bracket that ends back
+on the desktop then makes the box's picture from the keeper, at the
+layout's scale, before the bracket's exit repaints the desktop (§53.6) - so
+the box shows the very frame it stopped on.
+
+**A swap PAUSES the session across it** and the next bracket resumes it
+(`[vp_autop]`), so the card does not play on through the desktop's repaint
+and the picture never has to catch up; the time between is paused time, not
+play time. **The play's time is taken as the bracket stops** (`vp_dtcalc`),
+not after its exit has repainted the desktop - the first build did, and read
+10 ticks slow.
+
+**Measured** (`tests/vidwin.py`, the Hercules 5150): frame-exact at every
+hold, read off the desktop's framebuffer at the window's origin, in place
+and through the shadow; a whole play in the window in **92 ticks** of 91.0
+(94 through the shadow); a click pauses it with the stopped frame in the box
+byte for byte and Play showing Play, and Space plays it on in the window to
+the end; F swaps to the full screen and back still playing; Esc stops it
+with Play at the key at or before. `VIDEO.O88` is 13,707 bytes.
+
+**Two defects the first build had, both of the kind a gate has to be taught
+to see**: the exit codes started at 0, which is also what `vp_poll` answers
+for *nothing*, so Esc was read and thrown away - in the window and the full
+screen alike; and after a stop that rounded back to the key it started from,
+the box kept the picture it had - the poster, or the paused frame - rather
+than that key's, which the owner saw on the 5150. `vidpreview` now reads the
+box off the screen after a stop.
 
 ### 98.4 The window: the Preview (wave 6)
 

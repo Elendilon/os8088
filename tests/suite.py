@@ -8152,7 +8152,7 @@ SOAK = [
         "the burst OFF - 3D8h is not a VGA's - and plays the same bytes",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidpreview", "soak", py("tests/vidpreview.py"), 64.0,
+    Row("vidpreview", "soak", py("tests/vidpreview.py"), 72.0,
         "SPEC.md 98.4, 98.3.4, 98.3.5: VIDEO.O88's window is a PREVIEW. "
         "vidplay's clip opened by double-clicking: the box holds the "
         "header's poster keyframe halved 2x2 with the ordered dither - the "
@@ -8173,13 +8173,13 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidprevherc", "soak", py("tests/vidpreview.py", "--layout",
-                                  "herc"), 66.0,
+                                  "herc"), 72.0,
         "SPEC.md 98.4: vidpreview on the Hercules 5150, a Hercules-layout "
         "clip - the poster on Hercules' own desktop framebuffer",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidprevshd", "soak", py("tests/vidpreview.py", "--layout", "cga",
-                                 "--screen", "herc"), 66.0,
+                                 "--screen", "herc"), 70.0,
         "SPEC.md 98.3.2, 98.3.5: vidpreview's CGA clip on the Hercules "
         "5150, through the SHADOW - the keyframe decoded into it and copied "
         "before the stream starts, every hold read where the copy put the "
@@ -8232,6 +8232,26 @@ SOAK = [
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
                "build/ctrl.drv", "build/sound.drv")),
+    Row("vidwin", "soak", py("tests/vidwin.py"), 56.0,
+        "SPEC.md 98.3.7: VIDEO.O88 PLAYS IN ITS WINDOW - a same-mode "
+        "bracket, the decoder writing the desktop's own framebuffer at the "
+        "picture's place in the box. vidplay's Hercules clip at its own size "
+        "on the Hercules 5150: frame-exact at every hold, read off the "
+        "desktop at the window's origin; a whole play on time (92 ticks of "
+        "91.0); a CLICK pauses it back to the desktop with the frame it "
+        "stopped on in the box and Play showing Play, and Space plays on in "
+        "the window; F swaps to the full screen and back still playing; Esc "
+        "stops it with Play left at the key at or before. Broken on purpose "
+        "(the canvas not read back as a bracket ends) the box after the "
+        "click is not the frame played",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidwinshd", "soak", py("tests/vidwin.py", "--layout", "cga"), 54.0,
+        "SPEC.md 98.3.7, 98.3.2: vidwin with the CGA clip in the Hercules "
+        "window - through the SHADOW, its copy re-addressing each row into "
+        "the desktop's layout at the window's origin",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidsound", "soak", py("tests/vidsound.py"), 135.0,
         "SPEC.md 98.3.1/34.5.3: VIDEO.O88 WITH SOUND, the card the clock. A "
         "60 s 30 fps clip with 22,050 Hz PCM8 the row makes, streamed off a "
