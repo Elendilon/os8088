@@ -283,6 +283,13 @@ class Result:
 # emulators on four cores, having done no more work than it does in four. A
 # row that hangs WITHOUT spinning - a socket nobody answers - still ends, at the
 # backstop.
+#
+# ONLY WHERE THE CPU CAN BE SEEN. With no /proc (macOS) `_tree_cpu` answers
+# None, and every QEMU launcher in tests/ runs `-daemonize`, which reparents
+# the emulator to init and out of the row's tree - so a hung QEMU row is a
+# Python asleep on QMP that never trips the CPU limit. Either way the declared
+# timeout is the WALL limit again, as it was before any of this: a backstop
+# five times wider made a wedged 470s row run for thirty-nine minutes.
 WALL_BACKSTOP = 5.0
 
 
@@ -316,7 +323,7 @@ def _tree_cpu(root):
         return None
 
 
-def _communicate(p, timeout, cpus=1):
+def _communicate(p, timeout, cpus=1, cpu_seen=True):
     """Popen.communicate, but REAPED WITH wait4 so the row's CPU is kept.
 
     communicate() waits for the child itself and the kernel's rusage for it
@@ -330,6 +337,9 @@ def _communicate(p, timeout, cpus=1):
     build/qmp.sock, and the next row drove THAT machine. terminate() lets the
     row exit normally and take its guest with it; only a row that will not go
     inside ten seconds is killed.
+
+    `cpu_seen` False - a QEMU row, whose emulator daemonizes out of the tree -
+    bounds the row by `timeout` in wall seconds alone (see WALL_BACKSTOP).
     """
     import threading
     bufs = {"o": [], "e": []}
@@ -343,10 +353,11 @@ def _communicate(p, timeout, cpus=1):
     for t in ts:
         t.start()
 
-    def reap(limit, cpu=False, wall=None):
+    def reap(limit, cpu=False, wall=None, blind=None):
         """Reap the row, or None once `limit` is spent. With `cpu`, `limit`
         is charged in the row's CPU (see `_tree_cpu`), with the wall clock
-        only a backstop WALL_BACKSTOP times wider."""
+        only a backstop WALL_BACKSTOP times wider - or `blind`, the declared
+        timeout, from the first time the tree's CPU cannot be read."""
         t0 = time.time()
         if wall is None:
             wall = None if limit is None else \
@@ -361,7 +372,9 @@ def _communicate(p, timeout, cpus=1):
             n += 1
             if cpu and limit is not None and n % 50 == 0:
                 spent = _tree_cpu(p.pid)
-                if spent is not None and spent > limit:
+                if spent is None:
+                    cpu, wall = False, blind    # unmeasurable: wall it is
+                elif spent > limit:
                     return None
             time.sleep(0.02)
 
@@ -369,8 +382,12 @@ def _communicate(p, timeout, cpus=1):
     # A row that is parallel BY DESIGN (Row.cpus) spends CPU that many
     # times faster than wall, so its CPU limit is scaled by it; the wall
     # backstop stays the declared timeout's.
-    got = reap(timeout if timeout is None else timeout * cpus, cpu=True,
-               wall=None if timeout is None else timeout * WALL_BACKSTOP)
+    if timeout is not None and not cpu_seen:
+        got = reap(timeout)
+    else:
+        got = reap(timeout if timeout is None else timeout * cpus, cpu=True,
+                   wall=None if timeout is None else timeout * WALL_BACKSTOP,
+                   blind=timeout)
     if got is None:
         timed_out = True
         p.terminate()
@@ -451,7 +468,8 @@ def run_row(row, caps, strict, verbose, unbuilt=()):
     except OSError as e:
         return Result(row, False, False, time.time() - t0, str(e), "could not run")
     so, se, cpu, timed_out = _communicate(p, row.timeout,
-                                          getattr(row, "cpus", 1))
+                                          getattr(row, "cpus", 1),
+                                          "qemu" not in row.needs)
     out = so + se
     ok = p.returncode == 0 and not timed_out
     reason = "" if ok else "exit %d" % p.returncode

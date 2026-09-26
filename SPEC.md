@@ -130729,9 +130729,10 @@ well), and when the window is clear it disarms the region with
 done the rest of its job — the raise cache and the pointer's deferred hide —
 and disarming undoes neither. The bracket arms no region at all; a `W_PAINT`
 leaves the question to `gfx_blitp`, which refuses a real region and ignores
-§11.3.3's cull. **A refusal is never a blank**: the band has both pictures
-still, so it ORs the ground back in and goes down in one pen exactly as it
-used to, `[dd_pok]` off for the rest of the frame and `[dd_bok]` off so the
+§11.3.3's cull. **A refusal is never a blank**: the band is still whole, and
+the ground - which plane 3 was composed over in its slot - is copied out of
+the wall picture again, ORed back in, and the band goes down in one pen, in
+the band's own ink, exactly as it used to, `[dd_pok]` off for the rest of the frame and `[dd_bok]` off so the
 queue owes those tiles again. A covered window therefore keeps the old
 behaviour, split, queue and all.
 

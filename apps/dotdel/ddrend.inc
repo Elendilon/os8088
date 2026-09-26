@@ -2467,6 +2467,7 @@ dd_band_emit:
     jnc .out
     mov byte [dd_pok], 0            ; refused: say so once, not every band
     call dd_gnd_fold                ; ...and put the walls in the band after all
+    mov al, [dd_pink]               ; (the fold took AL: the pen is the band's)
 .lost:
     mov byte [dd_bok], 0            ; a wall or a corner went down in AL's pen
 .one:
@@ -2491,7 +2492,8 @@ dd_band_emit:
 ; in:  [dd_pink] = the band's ink, AX/BX = board x (a multiple of 8) and y,
 ;      CX/DX = width and rows, [dd_rb] the stride, [dd_pn] one plane's bytes,
 ;      dd_band the band and plane 3's slot of dd_pb the ground.
-; out: CF = 1 refused and NOTHING drawn - the caller still has both pictures.
+; out: CF = 1 refused and NOTHING drawn - the caller still has the band, but
+;      NOT the ground: plane 3 was composed over it (dd_gnd_fold rebuilds it).
 ;      Clobbers everything but SI.
 ;
 ; A BAND IS ONE PEN, AND A PEN IS A PROPERTY OF THE WRITE. gfx_blit1 says
@@ -2577,10 +2579,20 @@ dd_emit_planar:
     ret
 
 ; dd_gnd_fold - OR the ground back into the band: a refused planar band goes
-; down in one pen after all, which is the picture it always was. Clobbers
-; AX/BX/CX.
+; down in one pen after all, which is the picture it always was. The ground is
+; BUILT AGAIN first: plane 3's slot is where it was parked and plane 3 is
+; composed in place over it before gfx_blitp is asked, so by a refusal the slot
+; holds the band or nothing - and a fold of that put the band down with no
+; walls. [dd_bx0]/[dd_by0]/[dd_bh]/[dd_rb] still describe the band on both
+; callers' paths. Clobbers everything but SI.
 dd_gnd_fold:
     push si
+    mov di, [dd_pn]
+    mov ax, di
+    shl di, 1
+    add di, ax
+    add di, dd_pb                   ; plane 3's slot, the ground's again
+    call dd_band_walls_di
     mov cx, [dd_pn]
     mov bx, cx
     shl bx, 1
