@@ -1,5 +1,5 @@
-VIDEO PLAYER - THE ENCODER'S FIRST CLIPS (wave 8a)
-==================================================
+VIDEO PLAYER - THE ENCODER'S FIRST CLIPS (wave 8)
+=================================================
 
 A bootable fixed disk: the os8088 kernel, the Video
 Player, and videos made by the new encoder
@@ -22,6 +22,18 @@ THE CLIPS
   BAPPLE.V88   Bad Apple!!, 219 s, 4:3
   BCARROT.V88  Bad Carrot, 226 s, 16:9
   TRACK.V88    Trackmania, 12 s of a run, 16:9
+  TRACKA4.V88  (Hercules disks) the same with its
+               sound as 4-bit ADPCM at 22 kHz, made
+               by the encoder's new SEARCH - the card
+               decodes it. Does a real SB 2.0 play
+               it, and how does it sound beside the
+               8-bit TRACK.V88?
+  TRCOMP.V88   (CGA disk) Trackmania in COMPOSITE
+               COLOUR, ADPCM sound - on a CGA with a
+               composite monitor (86Box: Display ->
+               composite) it is colour; on RGB it is
+               stripes. It is heavy for this disk:
+               expect smear in fast motion
 
 Each is sized to its source's SHAPE on that screen:
 on Hercules a 4:3 video is 400 x 193 and a 16:9 one
