@@ -1,6 +1,7 @@
 # VIDEO-PLAN — Video Player: full-motion video on a 4.77 MHz 8088
 
-**Status: PLAN, nothing built.** Revision 3, 2026-09-25.
+**Status: waves 0 to 7 BUILT; wave 8 under way (8a built).** Revision 3,
+2026-09-25, with section 8's waves updated as they land.
 - Revision 1 (commit `672a72a`) planned a port of XDC's own format.
 - Revision 2 (`249f4e5`) replaced that with our own format and listed sixteen
   open questions.
@@ -950,10 +951,92 @@ red. A row about one package goes in `soak`.
   shows Pause while it plays there; with no pointer, a click anywhere
   pauses. Offered only where the picture is at its own size - on CGA a
   640 x 200 video is shown at half, so it plays full screen, as the plan's
-  3.3 said. **Not taken**: the exact seek on a paused picture (keyframe plus
-  replay), which W9's Live machinery makes cheaper.
-- **W8 — the whole encoder**, with profiles, the burst allowance and ADPCM4.
-- **W9 — Live windowed.**
+  3.3 said. **Not taken, and now declined**: the exact seek on a paused
+  picture. It would replay every frame from the keyframe - up to 2 s of
+  stream, ~115 KB off the ST-225 and ~60 decodes, 2-3 s a step on the
+  5150 - and the owner, asked, finds keyframe accuracy enough.
+- **W8 — the encoder. W8a IS BUILT** (SPEC.md 98.2.1, `tools/os88venc.py`):
+  any video ffmpeg reads, to a canvas of the source's displayed shape in a
+  preset's box (the layout's pixels are not square), grey levels stretched
+  to the range the clip uses, an ORDERED dither anchored to the canvas with
+  a dead band so a still picture costs nothing, and then the budgets of
+  3.2 - a disk bucket and a CPU bucket a second deep, a per-frame ceiling,
+  the cycles MEASURED on each record and the frame retried when the model
+  under-priced it - with a cut frame committing its spans best-first by
+  pixels fixed per unit of the scarcer budget, aged so an old error
+  outranks a new one. The owner's first three clips, on the ST-225 profile
+  (PCM8 11 kHz):
+
+  | clip | canvas | KB/s | frames exact | CPU mean / worst |
+  |---|---|---|---|---|
+  | Bad Apple (4:3), Hercules | 400 x 193 | 44.4 | 6,368 of 6,563 | 21.4% / 84.7% |
+  | Bad Apple, CGA | 640 x 200 | 51.1 | 5,766 of 6,563 | 25.5% / 85.0% |
+  | Bad Carrot (16:9), Hercules | 400 x 145 | 38.6 | 6,767 of 6,770 | 18.2% / 84.7% |
+  | Bad Carrot, CGA | 640 x 150 | 45.8 | 6,532 of 6,770 | 22.4% / 84.6% |
+  | Trackmania 3-15 s, Hercules | 400 x 145 | 56.5 | 359 of 360 | 27.6% / 83.0% |
+  | Trackmania 3-15 s, CGA | 640 x 150 | 61.7 | 144 of 360 | 31.0% / 83.7% |
+
+  **The budget is not what spoils a picture; one bit is.** Trackmania's
+  budgeted CGA frame against the same frame with no limits differs by a
+  handful of pixels: both are a mid-grey road dithered to a mid-grey
+  stipple. Hercules' 400 x 145 of near-square pixels reads far better than
+  CGA's 640 x 150 of tall ones. **The dither is the clip's choice**: a
+  plain threshold is 6% smaller than Bayer on Bad Apple, which is black
+  and white already, and blue noise 8% larger. **Open in W8**: CGACOMP
+  (composite colour) from a video, a lookahead ADPCM4 encoder, and the
+  profiles' figures confirmed on the 5150 (`floppy`, `picomem2` and `286`
+  are arithmetic).
+- **W9 — Live windowed.** The encoder's `live-*` presets (240 x 116 on
+  Hercules, 320 x 100 on CGA, 160 x 120 on VGA) are its canvases, so a clip
+  can be made for it before it plays.
+- **W10 — ONE FILE FOR EVERY SCREEN, IN MEMORY.** The owner's end goal: an
+  os8088 logo video, small, that plays Live on any adapter, carrying every
+  format it needs in one file, loaded whole before it plays, each format
+  compressed on its own. What it needs, and what it does NOT:
+  - **The header already has the room.** 98.1.1 reserved four rendition
+    slots of 64 bytes, 32 of each unused, for exactly this (13, answer A).
+    Version 2 adds header flag bit 0, RESIDENT, and uses the spare bytes:
+    a slot gains its BLOCK - offset, packed and unpacked bytes, and the
+    packing (none, LZ4, LZB) - and the header's 16 bytes at 176 gain the
+    AUDIO block. A version 1 reader refuses the flag, as it does any.
+  - **A block is the rendition's records back to back** - no super-packets,
+    no padding, no chain: those exist to be read a sector at a time, and a
+    resident file is read once. Each record keeps its length word, so the
+    decoder is unchanged.
+  - **The sound is ONE block for every rendition**, not a part of every
+    record: carried per record it would be stored once per format. The
+    hook takes frame *f*'s audio at *f* x abytes into it.
+  - **Loading copies nothing it does not have to.** The player claims the
+    rendition's UNPACKED size, reads the packed block into the TOP of that
+    claim, and `OSAPI_DECOMP` expands it in place: SPEC.md 20.13.7's raw
+    tail is what makes a buffer of exactly the output enough, so there is
+    no scratch buffer and no second copy. The decoder then reads records
+    where they lie - no ring, no READ_SEQ. The one copy left is Live's
+    shadow-to-screen blit, which 3.4 requires (a live desktop may not be
+    written under its pointer). An unpacked block is read straight in.
+  - **Each block packs with LZB where that is worth it, LZ4 otherwise.**
+    MEASURED on 10 s of Bad Apple and of Trackmania at the three Live
+    sizes: LZ4 keeps **83-94%** of a record stream and LZB **74-87%** -
+    ten points better, at a decode that costs once, at load. **So
+    compression is not what makes it small**: a dithered picture's changes
+    are close to incompressible, and 10 s of Bad Apple at 160 x 120 is
+    ~100 KB even packed. A logo is SMALL BY BEING MADE SMALL - flat
+    shapes, few changes a frame, a low frame rate, a few seconds - and the
+    encoder's job is to say how big it came out, per rendition, and to
+    refuse past a stated size. `--resident --max-kb N` makes the disk
+    bucket a SIZE bucket (N over the length) and keeps the CPU's, at Live's
+    share of the machine rather than a fullscreen play's.
+  - **A loop is a record.** With header flag bit 1, LOOP, a block carries
+    one record more than it has frames: the change from the last frame
+    back to the first. Looping then costs a frame like any other, where
+    re-decoding the first keyframe would be a whole canvas every lap.
+  - **The player picks the rendition that is native to the desktop** (no
+    shadow copy), else the first that fits through the shadow, else it
+    refuses with the arithmetic - the same rule as 13, answer A.
+  - **The gate** encodes a fixture logo in three renditions, loads each on
+    its own adapter under MartyPC, asserts the claim is exactly the
+    unpacked size and nothing else was claimed, and compares every frame
+    of a lap and the loop's seam with the host's decode.
 - **Field.** The owner's 5150 with the ST-225: BADAPPLE with sound, zero
   pauses, fullscreen and In-window. Then the PicoMEM 2 machine for the
   streams the ST-225 cannot carry.

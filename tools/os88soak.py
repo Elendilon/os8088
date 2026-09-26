@@ -71,6 +71,7 @@ base, and bisect only where those two disagree - and the first step is
 """
 import argparse
 import errno
+import importlib.util
 import json
 import os
 import re
@@ -216,6 +217,12 @@ def requirements():
                 "pxsshots, which writes PIXELSTEIN 3D's photographs through "
                 "Pillow and used to FAIL on the ImportError.",
                 "make deps      (installs python3-pil)"))
+
+    req.append(("ffmpeg", bool(shutil.which("ffmpeg"))
+                and bool(shutil.which("ffprobe"))
+                and importlib.util.find_spec("numpy") is not None,
+                "videnc, the video encoder's gate (SPEC.md 98.2.1).",
+                "apt-get install -y ffmpeg python3-numpy"))
 
     # THE FOUR DISKS `all` DELIBERATELY DOES NOT BUILD.  This is the item the
     # pass-3 soak found by hand after fifteen runs had skipped on it, and the

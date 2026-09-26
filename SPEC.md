@@ -149714,7 +149714,7 @@ over key 1 for 1.5 s, key 1 loads before the release and key 0 after it.
 | command | what it does |
 |---|---|
 | `import IN.XDV OUT.V88 [--target cga\|herc\|lin80] [--audio pcm8\|adpcm4]` | an XDC stream, EXACTLY: every frame's writes re-expressed as lists (`verify --against` proves it frame by frame). CGA is the XDV's own layout; `--target` re-lays the canvas out for another surface by simulating the stream and re-encoding it, so it plays natively there. `--audio adpcm4` re-encodes the sound (98.1.1.1), and `verify --against` then compares it with the XDC sound encoded the same way |
-| `encode FRAME... OUT.V88 --fps F [--wav W] [--layout L] [--audio pcm8\|adpcm4]` | the minimal encoder: lossless, from PBM, PGM or BMP frames and an 8-bit or 16-bit WAV. Wave 8 adds the budgets |
+| `encode FRAME... OUT.V88 --fps F [--wav W] [--layout L] [--audio pcm8\|adpcm4]` | the minimal encoder: lossless, from PBM, PGM or BMP frames and an 8-bit or 16-bit WAV. The budgets are `os88venc.py`'s (98.2.1) |
 | `info FILE.V88` | the header, the rendition, and the stream's rate and modelled CPU |
 | `decode FILE.V88 --frame N --png OUT.png` | the canvas after frame N, through the keyframe at or before it |
 | `verify FILE.V88 [--against IN.XDV]` | every field of 98.1.6, every super-packet and record, every keyframe against the running canvas, and with `--against`, every frame against XDC's screen |
@@ -149723,3 +149723,79 @@ over key 1 for 1.5 s, key 1 loads before the release and key 0 after it.
 `tests/vidfmt.py` is the gate (a `soak` row). It runs `--selfcheck`, then
 imports and verifies the owner's samples when `$OS88_XDC_SAMPLES` names
 them. Those samples are not in the tree.
+
+#### 98.2.1 The encoder front end — `tools/os88venc.py` (wave 8)
+
+```
+python3 tools/os88venc.py IN OUT.V88 [--preset P | --layout L --box WxH]
+    [--fit fit|fill|stretch] [--start S] [--end S] [--fps F]
+    [--profile R] [--disk B/s] [--avg F] [--peak F]
+    [--audio pcm8|adpcm4|none] [--rate HZ] [--volume V]
+    [--dither bayer|bluenoise|threshold] [--stable N] [--levels auto|none]
+    [--gamma G] [--contrast C] [--brightness B] [--invert]
+    [--title T] [--credits C] [--keysecs S] [--poster K] [--preview-png DIR]
+python3 tools/os88venc.py --profiles
+```
+
+**Any video ffmpeg reads, to a file the player plays.** ffmpeg and numpy are
+needed for this and for nothing else in the tree; the `videnc` row SKIPS
+without them (`ffmpeg` capability).
+
+- **The canvas is the source's DISPLAYED shape** in the preset's box. A
+  layout's pixels are not square (98.1.2's aspect: CGA 5:12, Hercules 29:45),
+  so `fit` (the default) sizes the canvas to the source's aspect *on that
+  screen* and never pads it: a 16:9 clip in Hercules' 400 x 200 box is
+  400 x 145, not 400 x 200 with bars, because a bar is screen the canvas
+  does not need. `fill` crops the source to the box instead, `stretch`
+  distorts it. The width is whole bytes.
+
+| preset | layout | box |
+|---|---|---|
+| `cga` / `cga-small` | CGA | 640 x 200 / 320 x 100 |
+| `herc` / `herc-mid` / `herc-full` | HERC | 400 x 200 / 480 x 232 / 720 x 348 |
+| `vga` / `vga-mid` / `vga-full` | LIN80 | 320 x 240 / 400 x 300 / 640 x 480 |
+| `live-cga` / `live-herc` / `live-vga` | CGA / HERC / LIN80 | 320 x 100 / 240 x 116 / 160 x 120, VIDEO-PLAN 3.4's |
+
+- **The frame rate is one the audio divides**: samples per frame is the
+  rate over the fps, rounded, and ffmpeg resamples the picture to *rate /
+  samples* exactly, so the picture and the sound never drift.
+- **Grey levels are stretched** (`--levels auto`) to the 1st..99th
+  percentile the clip actually uses, measured over a frame a second: one bit
+  a pixel has no contrast to spare.
+- **The dither is ORDERED and anchored to the canvas**, so a still area
+  dithers the same way every frame and costs nothing. A pixel within
+  `--stable` grey levels (default 6) of its threshold keeps the value it had,
+  so a source's own noise does not flip it. `bayer` (8 x 8, the default)
+  runs and repeats best; `threshold` suits a clip that is black and white
+  already (6% smaller than Bayer on Bad Apple); `bluenoise` (void and
+  cluster, 64 x 64) has no pattern, at ~8% more data.
+- **The profile is the machine** (VIDEO-PLAN 3.2). Two token buckets, one
+  second deep and started half full (the player fills its ring before the
+  first frame): the DISK's, at the profile's bytes a second (less 1% for a
+  super-packet's padding) less the audio's, and the CPU's, at the profile's
+  average share of a frame period less the interrupt's audio copy; and a
+  per-frame CEILING. `--disk`, `--avg` and `--peak` override them.
+
+| profile | disk | CPU average / ceiling | audio | status |
+|---|---|---|---|---|
+| `5150-st225` (default) | 60,000 B/s | 50% / 85% | PCM8 11,025 Hz | the owner's machine |
+| `5150-picomem2` | 150,000 | 40% / 80% | PCM8 22,050 | predicted |
+| `floppy` | 15,000 | 50% / 85% | PCM8 5,512 | predicted |
+| `286` | 150,000 | 150% / 250% of an 8088's | PCM8 22,050 | predicted |
+| `lossless` | none | none | PCM8 22,050 | every change |
+
+- **A frame that fits is exact.** One that does not commits its changed
+  spans best first - pixels fixed per unit of whichever budget is scarcer,
+  a pixel wrong for *n* frames weighing 1 + *n*/8 - until the budget is
+  spent; the rest is still wrong next frame and competes again. The spans'
+  cost is estimated per span from wave 0's model, then **the record is
+  priced as built** (`cycles_of`) and the frame chosen again with the
+  estimate scaled down if it came out over. So the ceiling is kept on the
+  model's own reading, not on its estimate.
+- **Keyframes are the SCREEN, not the target**: a seek shows exactly what a
+  play would at that frame.
+
+It prints what it made: the canvas, the rate, KB/s split video and audio,
+the model's CPU mean and worst frame with the audio copy in, how many frames
+were exact and how many cut, and what the keyframes cost. `tests/videnc.py`
+(`videnc`, soak) is the gate.

@@ -9817,6 +9817,36 @@ vidfieldhd: $(VIDHD_BASE) tools/os88vid.py tools/os88hdd.py tests/vidbench/FIELD
 	$(call vidhd_img,$(BUILD)/VIDCGA-ST11M.VHD,cga,17,$(VIDHD_MFM_XDV) $(VIDHD_MFM_A4),--st11)
 	@ls -l $(BUILD)/VID*.VHD
 
+# THE ENCODER'S CLIPS on the same disks (SPEC.md 98.2.1). VIDENC=<dir> holds
+# herc/*.V88 and cga/*.V88 made by tools/os88venc.py from the owner's own
+# videos, which never leave build/ - tests/vidbench/FIELDENC.TXT has the
+# commands. THREE images: the Hercules set on the owner's 5150 (ST11M,
+# 615/4/17, 20 MB) and both sets on the ST11R's 31 MB for 86Box. No benches:
+# this is the player and the clips.
+VIDENC_BASE = $(BUILD)/kernel.sys $(BUILD)/boothd.bin $(BUILD)/mbr.bin \
+	$(BUILD)/hdd.drv $(BUILD)/hiber.drv $(BUILD)/ctrl.drv $(BUILD)/sound.drv \
+	$(BUILD)/video.o88
+# $(call videnc_img,<out>,<spt>,<layout dir>)
+define videnc_img
+	python3 tools/os88hdd.py --template $(VIDHD_TEMPLATE) --out $(1) --st11 \
+	    --spt $(2) --heads 4 --cyls 615 --kernel $(BUILD)/kernel.sys \
+	    --vbr $(BUILD)/boothd.bin --mbr $(BUILD)/mbr.bin \
+	    --file HDD.DRV=$(BUILD)/hdd.drv --file HIBER.DRV=$(BUILD)/hiber.drv \
+	    --file CTRL.DRV=$(BUILD)/ctrl.drv --file SOUND.DRV=$(BUILD)/sound.drv \
+	    --file README.TXT=tests/vidbench/FIELDENC.TXT \
+	    --file VIDEO.O88=$(BUILD)/video.o88 \
+	    $(foreach v,$(wildcard $(VIDENC)/$(3)/*.V88),--file $(notdir $(v))=$(v))
+
+endef
+.PHONY: videnchd
+videnchd: $(VIDENC_BASE) tools/os88hdd.py tests/vidbench/FIELDENC.TXT
+	@test -n "$(VIDENC)" || { echo "videnchd: needs VIDENC=<dir with herc/ and cga/ of .V88s>"; exit 1; }
+	@test -f $(VIDHD_TEMPLATE) || { echo "videnchd: needs $(VIDHD_TEMPLATE) - run make marty"; exit 1; }
+	$(call videnc_img,$(BUILD)/VIDENC-HERC-ST11M.VHD,17,herc)
+	$(call videnc_img,$(BUILD)/VIDENC-HERC-ST11R.VHD,26,herc)
+	$(call videnc_img,$(BUILD)/VIDENC-CGA-ST11R.VHD,26,cga)
+	@ls -l $(BUILD)/VIDENC-*.VHD
+
 # ...and the one that shows a FACE rather than timing one: it draws the same
 # sentence through the kernel, through face 0, and through both of the
 # library's compose loops, so a screendump is the whole assertion (SPEC.md 6.5).

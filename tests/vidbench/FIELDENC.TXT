@@ -1,0 +1,50 @@
+VIDEO PLAYER - THE ENCODER'S FIRST CLIPS (wave 8a)
+==================================================
+
+A bootable fixed disk: the os8088 kernel, the Video
+Player, and videos made by the new encoder
+(tools/os88venc.py) straight from ordinary video
+files - scaled, dithered and budgeted for a 4.77 MHz
+8088 reading an ST-225.
+
+  VIDENC-HERC-ST11M.VHD  the Hercules clips, for an
+                ST-225 on a Seagate ST11M: 615/4/17,
+                20 MB - the 5150's own disk
+  VIDENC-HERC-ST11R.VHD  the same clips at 615/4/26
+                on an ST11R (31 MB), for 86Box
+  VIDENC-CGA-ST11R.VHD   the CGA clips (640 wide; a
+                VGA plays them too), ST11R
+
+The disk has to be read at the geometry it was written
+with, exactly as the wave 0-7 field disks.
+
+THE CLIPS
+  BAPPLE.V88   Bad Apple!!, 219 s, 4:3
+  BCARROT.V88  Bad Carrot, 226 s, 16:9
+  TRACK.V88    Trackmania, 12 s of a run, 16:9
+
+Each is sized to its source's SHAPE on that screen:
+on Hercules a 4:3 video is 400 x 193 and a 16:9 one
+400 x 145 - both play IN THE WINDOW - and on CGA they
+are 640 x 200 and 640 x 150 (full screen). The sound
+is 8-bit at 11 kHz. Every clip was made for the
+"5150-st225" profile: at most 60,000 bytes a second
+off the disk, decoding at most half the machine on
+average and 85% in any one frame. What a frame could
+not afford is finished in the frames after it.
+
+WHAT TO LOOK FOR
+  - no pauses and no sound drop-outs, fullscreen or
+    in the window
+  - how each reads: Bad Apple is black and white
+    already; Trackmania is grey on grey, which is
+    the hard case for one bit a pixel
+  - smearing after a scene cut: how many frames the
+    picture takes to catch up
+
+HOW THEY WERE MADE (the videos never enter the tree)
+  os88venc.py BadApple.mp4 BAPPLE.V88 --preset herc
+  os88venc.py BadCarrot.mp4 BCARROT.V88 --preset herc
+  os88venc.py Trackmania.mp4 TRACK.V88 --preset herc
+      --start 3 --end 15
+  ...and --preset cga for the CGA disk.
