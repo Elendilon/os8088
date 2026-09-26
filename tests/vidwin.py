@@ -256,6 +256,13 @@ def main():
                 wait(lambda mm: rb("vp_ready") == 1 and rb("vp_winm") == 0
                      and rw("vp_done") >= 45, "F to go on in the full screen")
                 playing_fs = rb("vp_upause") == 0
+                # step 5's hold is ARMED HERE, not after the window's frame
+                # 60 is seen: a hold fires at exactly its frame, and a host
+                # polling late under load let the play run past 100 before
+                # the write landed - the hold then never came (the soak's
+                # intermittent, VIDEO-PLAN 14.1)
+                ww("vp_stopat", 100)
+                m.write(base + syms["vp_held"], b"\0")
                 m.type_text("f")
                 wait(lambda mm: rb("vp_ready") == 1 and rb("vp_winm") == 1
                      and rw("vp_done") >= 60, "F to come back to the window")
@@ -266,9 +273,8 @@ def main():
                 if not (playing_fs and playing_w):
                     bad.append("F while playing did not keep it playing")
                 # --- 5: Esc stops, where it got to kept: held at frame 100
-                # first, so the clip's end cannot beat the key there
-                ww("vp_stopat", 100)
-                m.write(base + syms["vp_held"], b"\0")
+                # first (armed before the second F), so the clip's end
+                # cannot beat the key there
                 wait(lambda mm: rb("vp_held") == 1 and rw("vp_done") == 100,
                      "the hold at frame 100")
                 m.key("Escape")

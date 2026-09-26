@@ -34,6 +34,13 @@ the whole sound from frame 0 - the card started on the frame on the screen.
 --seek N starts the play at the clip's Nth keyframe (98.3.5): the frames
 from k+1 on, and the sound from frame k+1's on.
 
+--loop L makes the clip REPEAT (98.3.9): a seam from its last frame back to
+frame L, Repeat on from the file's flag. It plays two whole laps past the
+first, then R turns Repeat off and the lap under way ends the play - and
+every point above holds of the whole run: the capture must be the first
+lap's sound and then frame L's to the end, twice, with nothing between -
+the seam carrying frame L's audio - and the play takes all of it's time.
+
 --audio adpcm4 plays the same clip's sound as Creative 4-bit ADPCM, which
 the card decodes (DSP 7Dh); MartyPC's does it with the tables
 tools/os88vid.py encodes against (tools/martypc/patches/06), so point 4 then
@@ -67,7 +74,7 @@ def u16(b, i=0):
     return struct.unpack_from("<H", b, i)[0]
 
 
-def clip(tmp, nf, afmt):
+def clip(tmp, nf, afmt, loop=None):
     """nf canvases 80 x 200 in the Hercules layout, and 22,050 Hz of
     pseudo-random PCM8 for them"""
     rnd = random.Random(4242)
@@ -93,7 +100,7 @@ def clip(tmp, nf, afmt):
     vid._write_wav(wav, RATE, audio)
     out = os.path.join(tmp, "CLIP.V88")
     vid.encode_frames(paths, out, FPS, wav, "herc", "vidsound clip",
-                      audio_fmt=afmt)
+                      audio_fmt=afmt, loop=loop, repeat=loop is not None)
     vid.verify_v88(out)
     return out
 
@@ -132,6 +139,8 @@ def main():
                     help="go in with F (paused, 98.3.6) and play with Space")
     ap.add_argument("--seek", type=int, default=0,
                     help="play from this keyframe (0 = the start)")
+    ap.add_argument("--loop", type=int, metavar="L",
+                    help="repeat, a seam back to frame L: two laps more")
     a = ap.parse_args()
     nf = int(a.secs * FPS)
     os.chdir(ROOT)
@@ -141,10 +150,13 @@ def main():
     bad = []
     with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "build")) as tmp:
         afmt = vid.AUD_BY_NAME[a.audio]
-        v88 = clip(tmp, nf, afmt)
+        v88 = clip(tmp, nf, afmt, a.loop)
         r = vid.Reader(v88)
         base0 = r.keys[a.seek][0] + 1 if a.seek else 0
         audio = b"".join(rec[-r.abytes:] for rec, _, _ in r.records())
+        laps = 2 if a.loop is not None else 0
+        if laps:                        # every lap after the first: frame
+            audio += audio[a.loop * r.abytes:] * laps   # L's sound on
         if afmt == vid.AUD_ADPCM4:      # what the card plays: the stream
             audio = vid.adpcm4_decode(audio)    # decoded from the reference
             audio = audio[base0 * r.spf:]   # - the CONTINUOUS stream's, from
@@ -236,10 +248,19 @@ def main():
                     " snd=%d end=%d aend=%d err=%d ctl=%d/%d" % (
                         rb("vp_snd"), rb("vp_end"), rb("vp_aend"),
                         rb("vp_err"), u16(ctl), u16(ctl, 2)))
+            if laps:                    # into the last lap, then R: that
+                last = nf + (laps - 1) * (nf - a.loop) + 5  # lap ends it
+                os88marty.until(m, lambda mm: rw("vp_vseq") >= last,
+                                "frame %d counted" % last, poll=0.5,
+                                limit=1200.0, guest=a.secs * 4 + 30)
+                m.type_text("r")
+                os88marty.until(m, lambda mm: rb("vp_rep") == 0,
+                                "R to turn Repeat off", poll=0.2,
+                                limit=120.0, guest=10.0)
             try:
                 os88marty.until(m, lambda mm: rb("vp_ready") == 0,
                                 "the play to end", poll=1.0, limit=1200.0,
-                                guest=a.secs * 2 + 30)
+                                guest=a.secs * (2 + 2 * laps) + 30)
             except os88marty.MartyError:
                 print("   STUCK: " + state())
                 raise
@@ -251,6 +272,7 @@ def main():
                 "vp_done", "vp_stall", "vp_late", "vp_pause", "vp_skmax", "vp_gap",
                 "vp_afr", "vp_atot", "vp_alast", "vp_afinal", "vp_dt",
                 "vp_base", "vp_ptk")}
+            st["vp_vseq"] = rw("vp_vseq")
             st["vp_snd"] = rb("vp_snd")
             st["vp_err"] = rb("vp_err")
             st["vp_aend"] = rb("vp_aend")
@@ -266,7 +288,8 @@ def main():
         # there can overshoot by seconds of guest time)
         real = 1000000.0 / (256 - (256 - 1000000 // RATE))   # the card's rate
         bps = r.abytes / float(r.spf)                   # bytes a sample
-        want_s = (r.spf * (nf - base0)) / real + 2048 / bps / real  # ...and the
+        nplay = nf - base0 + laps * (nf - (a.loop or 0))   # every lap's
+        want_s = (r.spf * nplay) / real + 2048 / bps / real  # ...and the
                                                         # drain, to a block's end
         print("\n   %d frames, %d bytes of %s sound a frame at %d Hz (the "
               "card plays %.0f)" % (nf, r.abytes, a.audio.upper(), RATE, real))
@@ -298,6 +321,12 @@ def main():
             bad.append("the play stopped on an error")
         if st["vp_done"] != nf:
             bad.append("drew %d of %d" % (st["vp_done"], nf))
+        if laps:
+            print("   %d frames counted over %d laps after the first (want "
+                  "%d)" % (st["vp_vseq"], laps, nplay))
+            if st["vp_vseq"] != nplay:
+                bad.append("%d frames counted, not %d" % (st["vp_vseq"],
+                                                        nplay))
         if st["vp_stall"]:
             bad.append("%d stalls: the reader fell behind" % st["vp_stall"])
         if st["vp_pause"]:
@@ -325,9 +354,8 @@ def main():
             if at < 0:
                 bad.append("the clip's first sound is not in the capture")
             elif gr[at:at + len(wr)] != wr:
-                n = next(i for i in range(min(len(wr), len(gr) - at))
-                         if gr[at + i] != wr[i]) \
-                    if len(gr) - at >= len(wr) else len(gr) - at
+                n = next((i for i in range(min(len(wr), len(gr) - at))
+                          if gr[at + i] != wr[i]), len(gr) - at)
                 bad.append("the captured sound departs from the file's "
                            "%d distinct samples in (of %d)" % (n, len(wr)))
             else:

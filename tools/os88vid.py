@@ -673,6 +673,15 @@ class V88Error(Exception):
 
 
 V88_SIG = b"V88\x1a"
+# THE HEADER'S FLAGS (SPEC.md 98.1.1.2): a reader refuses a bit it does not
+# know. LOOPREC: the file carries a SEAM record, the change from its last
+# frame back to frame L, and a loop block at 448 names it. REPEAT: a player
+# starts with Repeat on. Bits 0 and 3 are named for waves 10 and 9
+F_RESIDENT, F_LOOPREC, F_REPEAT, F_LIVE = 1, 2, 4, 8
+F_KNOWN = F_LOOPREC | F_REPEAT
+LOOP_AT = 448                   # the loop block: L, seam offset and length,
+LOOP_FMT = "<IIHBBI"            # the super-packet of frame L+1 (sectors,
+                                # records before it there, offset)
 SECTOR = 512
 SP_MAX = 64                     # sectors a super-packet may take (32 KB)
 AUD_NONE, AUD_PCM8, AUD_ADPCM4 = 0, 1, 2
@@ -907,6 +916,22 @@ def record(ops, g, audio=b"", limit=SP_MAX * SECTOR - 4):
     return struct.pack("<HHH", n, y0, y1) + lists + audio
 
 
+PREV_MAX = 31 * 1024             # a flipped play's copy of the last record
+                                # (98.3.8): the seam passes through it too
+
+
+def seam_ops(a, b, g):
+    """The writes that take surface image `a` to `b` - the seam's (98.1.1.2)"""
+    if g.planes > 1:
+        ca, cb = g.canvas(a), g.canvas(b)
+        if g.bitplanes:
+            return vga4_subs(cb, ca, g)
+        return modex_subs(cb, [x != y for x, y in zip(cb, ca)], g)
+    changed = [x for base in g.base for x in range(base, base + g.wb)
+               if a[x] != b[x]]
+    return spans(changed, b, g)
+
+
 def keyframe_ops(surf, g):
     if g.bitplanes:
         return vga4_subs(g.canvas(surf), bytes(g.w * g.h), g)
@@ -1057,7 +1082,7 @@ class Writer:
 
     def __init__(self, g, rate, spf, audio_fmt, abytes, pixfmt, title="",
                  credits="", aspect=None, keysecs=KEY_SECS, palette=None,
-                 rowscale=1, flip=False):
+                 rowscale=1, flip=False, loop=None, repeat=False):
         if flip and g.layout != LAY_MODEX:
             raise V88Error("page flipping is Mode X's (98.3.8)")
         self.flip = flip
@@ -1087,6 +1112,13 @@ class Writer:
         self.aspect = aspect or ASPECT[g.layout]
         self.keyint = max(1, round(keysecs * rate / spf))
         self.recs, self.keys = [], []       # keys: (k, record, canvas)
+        if loop is not None and audio_fmt == AUD_ADPCM4:
+            # the card's decoder carries its state across the seam, and the
+            # state at frame L is not the state after the last frame
+            raise V88Error("a loop record with ADPCM4 audio: its decoder "
+                           "state cannot join the seam; use PCM8")
+        self.loop, self.repeat = loop, repeat
+        self.loop_surf = self.loop_audio = self.last = None
 
     def frame(self, ops, surf, audio=b""):
         """`ops` are the frame's writes, already applied to `surf`."""
@@ -1095,6 +1127,9 @@ class Writer:
                            % (len(self.recs), len(audio), self.abytes))
         k = len(self.recs)
         self.recs.append(record(ops, self.g, audio))
+        self.last = surf
+        if k == self.loop:
+            self.loop_surf, self.loop_audio = bytes(surf), audio
         if k % self.keyint == 0:
             kop = keyframe_ops(surf, self.g)
             try:
@@ -1138,9 +1173,25 @@ class Writer:
                                    "encode it with audio_chunks(keys=)"
                                    % (sc, k + 1, k))
                 keys.append((k, r + bytes([ref]), c))
+        seam = b""
+        if self.loop is not None:
+            # THE SEAM (98.1.1.2): the change from the last frame back to
+            # frame L, carrying frame L's audio - it stands in for frame L
+            # on every lap after the first, and rides beside the keyframes
+            # rather than in the chain, so a play that does not repeat
+            # never reads it
+            if not 0 <= self.loop < len(self.recs) - 1:
+                raise V88Error("a loop from frame %d: it must start before "
+                               "the last of %d frames"
+                               % (self.loop, len(self.recs)))
+            seam = record(seam_ops(self.last, self.loop_surf, g), g,
+                          self.loop_audio, limit=65535)
+            if self.flip and len(seam) > PREV_MAX:
+                raise V88Error("the seam is %d bytes, past a flipped play's "
+                               "%d" % (len(seam), PREV_MAX))
         nk = len(keys)
         ktab = -(-16 * nk // SECTOR) * SECTOR if nk else 0
-        krec = sum(len(r) for k, r, c in keys)
+        krec = sum(len(r) for k, r, c in keys) + len(seam)
         pal = SECTOR if self.palette else 0     # the palette: sector 1
         kbase = SECTOR + (2 * SECTOR if self.palette else 0) + ktab
         ktoff = SECTOR + (2 * SECTOR if self.palette else 0)
@@ -1167,6 +1218,16 @@ class Writer:
             kt += struct.pack("<IIHIBB", k, o, len(r), sp_at, sp_n, idx)
             kr += r
             o += len(r)
+        loopblk = b""
+        if seam:
+            spi, idx = where[self.loop + 1]
+            if idx > 255:
+                raise V88Error("frame %d is record %d of its super-packet; "
+                               "the loop block can name 255"
+                               % (self.loop + 1, idx))
+            loopblk = struct.pack(LOOP_FMT, self.loop, o, len(seam),
+                                  secs[spi], idx, spoff[spi])
+            kr += seam
         if poster is None:
             poster = next((i for i, (k, r, c) in enumerate(keys)
                            if not flat(c)), 0 if nk else 0xFFFF)
@@ -1174,7 +1235,9 @@ class Writer:
             raise V88Error("--poster %d: there are %d keyframes" % (poster, nk))
         hdr = bytearray(SECTOR)
         hdr[0:4] = V88_SIG
-        struct.pack_into("<HHIHHBBH", hdr, 4, 1, 0, len(self.recs), self.rate,
+        flags = (F_LOOPREC if seam else 0) | (F_REPEAT if self.repeat else 0)
+        struct.pack_into("<HHIHHBBH", hdr, 4, 1, flags, len(self.recs),
+                         self.rate,
                          self.spf, self.audio_fmt, 1, self.abytes)
         struct.pack_into("<HB", hdr, 20, *pit_rate(self.rate, self.spf))
         for off, size, text in ((32, 48, self.title), (80, 96, self.credits)):
@@ -1189,6 +1252,7 @@ class Writer:
         struct.pack_into("<IBB", hdr, 224, pal,
                          self.rowscale if self.rowscale > 1 else 0,
                          2 if self.flip else 0)
+        hdr[LOOP_AT:LOOP_AT + len(loopblk)] = loopblk
         front = bytes(hdr)
         if self.palette:
             front += self.palette + bytes(2 * SECTOR - PAL_BYTES)
@@ -1197,7 +1261,8 @@ class Writer:
         with open(path, "wb") as f:
             f.write(out)
         return dict(bytes=len(out), keys=nk, keybytes=ktab + len(kr),
-                    stream=len(stream), sps=len(sps), poster=poster)
+                    stream=len(stream), sps=len(sps), poster=poster,
+                    seam=len(seam))
 
 
 def walk_lists(buf, data, si, write=None, seg=None):
@@ -1269,9 +1334,10 @@ class Reader:
             raise V88Error("%s: not a .V88 (no signature)" % path)
         (ver, flags, self.frames, self.rate, self.spf, self.audio,
          self.nrend, self.abytes) = struct.unpack_from("<HHIHHBBH", d, 4)
-        if ver != 1 or flags:
-            raise V88Error("version %d, flags %04x: a version 1 reader "
-                           "refuses both" % (ver, flags))
+        if ver != 1 or flags & ~F_KNOWN:
+            raise V88Error("version %d, flags %04x: this reader knows "
+                           "version 1 and flags %04x" % (ver, flags, F_KNOWN))
+        self.flags = flags
         if self.frames < 1 or self.spf < 1 or self.rate < 1:
             raise V88Error("frames %d, rate %d, samples per frame %d"
                            % (self.frames, self.rate, self.spf))
@@ -1341,6 +1407,22 @@ class Reader:
                            % (self.poster, self.nkeys))
         self.keys = [struct.unpack_from("<IIHIBB", d, self.ktab + 16 * i)
                      for i in range(self.nkeys)]
+        self.repeat = bool(flags & F_REPEAT)
+        self.loop = None
+        blk = struct.unpack_from(LOOP_FMT, d, LOOP_AT)
+        if flags & F_LOOPREC:
+            L, off, n, secs, idx, spo = blk
+            minrec = REC_HDR + (1 if self.g.planes > 1 else 10) + self.abytes
+            if not (L + 1 < self.frames and n >= minrec and
+                    off + n <= len(d) and 1 <= secs <= SP_MAX and
+                    not spo % SECTOR and spo >= self.sp0 and
+                    spo + secs * SECTOR <= len(d)):
+                raise V88Error("the loop block (from frame %d, seam %d+%d, "
+                               "super-packet %d x %d, record %d) does not "
+                               "fit the file" % (L, off, n, spo, secs, idx))
+            self.loop = blk
+        elif any(blk) or any(d[LOOP_AT + 16:SECTOR]):
+            raise V88Error("a loop block with no LOOPREC flag")
 
     @property
     def fps(self):
@@ -1427,6 +1509,13 @@ class Reader:
         if check and not wrote[0] and y0 != y1:
             raise V88Error("an empty record with a band %d..%d" % (y0, y1))
         return rec[end:]
+
+    def seam(self):
+        """The seam record (98.1.1.2), or None"""
+        if not self.loop:
+            return None
+        L, off, n, secs, idx, spo = self.loop
+        return self.d[off:off + n]
 
     def key(self, i):
         k, off, n, spo, spn, idx = self.keys[i]
@@ -1921,7 +2010,8 @@ def audio_chunks(pcm, nf, spf, afmt, keys=(), search=0):
 
 
 def encode_frames(paths, out, fps, wav=None, layout="cga", title="",
-                  keysecs=KEY_SECS, poster=None, audio_fmt=AUD_PCM8):
+                  keysecs=KEY_SECS, poster=None, audio_fmt=AUD_PCM8,
+                  loop=None, repeat=False):
     """SPEC.md 98.2's minimal encoder: every changed byte, losslessly."""
     lay = LAYOUT_BY_NAME[layout]
     w0, h0, _ = read_frame(paths[0])
@@ -1944,7 +2034,7 @@ def encode_frames(paths, out, fps, wav=None, layout="cga", title="",
     if rate > 65535:
         raise V88Error("a %d Hz rate does not fit the header" % rate)
     wr = Writer(g, rate, spf, afmt, abytes, PF_MONO1, title=title,
-                keysecs=keysecs)
+                keysecs=keysecs, loop=loop, repeat=repeat)
     surf = bytearray(65536)
     for f, path in enumerate(paths):
         w, h, cv = read_frame(path)
@@ -1966,14 +2056,14 @@ def encode_frames(paths, out, fps, wav=None, layout="cga", title="",
 
 def encode_canvases(canvases, g, out, fps, pixfmt=PF_MONO1, palette=None,
                     title="", keysecs=KEY_SECS, poster=None, rowscale=1,
-                    flip=False):
+                    flip=False, loop=None, repeat=False):
     """encode_frames for canvases already in hand (bytes, g.wb a row) - the
     only way to make a VGA8 file without a video (SPEC.md 98.2): silent,
     every changed byte"""
     rate, spf = max(1, round(fps * 100)), 100
     wr = Writer(g, rate, spf, AUD_NONE, 0, pixfmt, title=title,
                 keysecs=keysecs, palette=palette, rowscale=rowscale,
-                flip=flip)
+                flip=flip, loop=loop, repeat=repeat)
     surf = g.surface()
     prev = g.canvas(surf)
     for cv in canvases:
@@ -2201,6 +2291,30 @@ def verify_v88(path, against=None):
                 raise V88Error("keyframe %d's ADPCM4 reference is %d; the "
                                "stream holds %d at scale %d there"
                                % (i, r.d[off + n - 1], want[0], want[1]))
+    if r.loop:
+        # 98.1.1.2: the seam takes the last frame's screen to frame L's, with
+        # frame L's audio, and the loop block names frame L+1's place
+        L, off, n, secs, idx, spo = r.loop
+        last = g.surface()
+        want = None
+        for f, surf, rec, at, i in v88_frames(r, check=False):
+            if f == L:
+                want = g.canvas(surf)
+                laud = rec[len(rec) - r.abytes:] if r.abytes else b""
+            if f == L + 1 and (spo, idx, secs) != \
+                    (at, i, sp_secs[at]):
+                raise V88Error("the loop block names super-packet %d record "
+                               "%d (%d sectors) for frame %d; the stream "
+                               "says %d, %d" % (spo, idx, secs, L + 1, at, i))
+            last = surf
+        tail = r.apply(last, r.seam())
+        if g.canvas(last) != want:
+            raise V88Error("the seam does not bring the last frame back to "
+                           "frame %d" % L)
+        if tail != laud:
+            raise V88Error("the seam's audio is not frame %d's" % L)
+        if r.flip and n > PREV_MAX:
+            raise V88Error("a flipped file's seam of %d bytes" % n)
     if (rmax, kmax) != (r.rmax, r.kmax):
         raise V88Error("the largest record and keyframe are %d and %d bytes; "
                        "the header says %d and %d" % (rmax, kmax, r.rmax,
@@ -2423,12 +2537,35 @@ def selfcheck():
                 fails.append("ADPCM4: a seek to keyframe %d does not play "
                              "the stream's sound" % i)
                 break
+    # REPEAT (98.1.1.2): a seam verifies, and a seam that does not bring the
+    # last frame back to frame L is refused - as is a loop block past the
+    # stream, and ADPCM4 with a seam at all
+    with tempfile.TemporaryDirectory() as tmp:
+        g = Geom(LAY_HERC, 20, 40)
+        cvs = [bytes(rnd.getrandbits(8) if (i + f) % 9 == 0 else 0
+                     for i in range(20 * 40)) for f in range(24)]
+        out = os.path.join(tmp, "L.V88")
+        encode_canvases(cvs, g, out, 15.0, loop=6, repeat=True)
+        rl = Reader(out)
+        if verify_v88(out) != 24 or rl.loop[0] != 6 or not rl.repeat:
+            fails.append("a looped file did not read back as written")
+        L, off, n = rl.loop[:3]
+        expect_fail("wrong seam", out, lambda d: d[:off + n - 1] +
+                    bytes([d[off + n - 1] ^ 0x5A]) + d[off + n:],
+                    "")
+        expect_fail("loop past the stream", out, lambda d: d[:LOOP_AT] +
+                    struct.pack("<I", 24) + d[LOOP_AT + 4:], "loop block")
+        try:
+            Writer(g, 8000, 534, AUD_ADPCM4, 267, PF_MONO1, loop=3)
+            fails.append("ADPCM4 with a seam was not refused")
+        except V88Error:
+            pass
     for f in fails:
         print("os88vid --selfcheck: FAIL - %s" % f)
     if not fails:
         print("os88vid --selfcheck: ok - encode, import (cga, herc, lin80), "
               "decode and verify agree, ADPCM4 carries a tone and seeks "
-              "exactly, and four "
+              "exactly, a seam joins its laps, and six "
               "corruptions were refused")
     return 1 if fails else 0
 

@@ -1189,7 +1189,10 @@ def encode(a, keep=None):
                         os.path.basename(a.src))[0][:47],
                     credits=a.credits or "", keysecs=a.keysecs,
                     palette=palette, rowscale=dh, flip=a.flip,
-                    aspect=scaled_aspect(vid.ASPECT[L], dh))
+                    aspect=scaled_aspect(vid.ASPECT[L], dh),
+                    loop=None if a.loop_from is None else
+                    max(0, round(a.loop_from * fps)),
+                    repeat=a.repeat)
     pcm = ffmpeg_audio(a.src, rate, a.start, a.end, a.volume) if afmt else b""
     cyc, recs, n = [], [], 0
     pend = []
@@ -1350,6 +1353,14 @@ def parser():
     ap.add_argument("--contrast", type=float, default=1.0)
     ap.add_argument("--brightness", type=float, default=0.0)
     ap.add_argument("--invert", action="store_true")
+    ap.add_argument("--loop-from", type=float, metavar="SECS",
+                    help="carry a SEAM (SPEC.md 98.1.1.2): the change from the "
+                         "last frame back to the frame this many seconds in "
+                         "(after --start), so a repeating play loops from "
+                         "there without a keyframe. 0 loops the whole clip. "
+                         "Not with ADPCM4, whose decoder state cannot join")
+    ap.add_argument("--repeat", action="store_true",
+                    help="the player starts with Repeat on (98.1.1.2)")
     ap.add_argument("--title")
     ap.add_argument("--credits")
     ap.add_argument("--keysecs", type=float, default=vid.KEY_SECS)

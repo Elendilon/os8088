@@ -8254,6 +8254,53 @@ SOAK = [
         "with vp_show's OUTs skipped it FAILS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidrepeat", "soak", py("tests/vidrepeat.py"), 60.0,
+        "SPEC.md 98.3.9: REPEAT, in the window on the Hercules 5150. A clip "
+        "with a SEAM back to frame 12 and Repeat on by its flag, held across "
+        "two joins with every hold's picture the host's decode and the "
+        "frames counted every lap; R off mid-play ends it at the file's "
+        "end; a clip with no seam repeats through keyframe 0 over a cleared "
+        "canvas; a click on the Repeat button mid-play turns it over "
+        "without pausing, and the repaint after draws the button the XOR "
+        "left. Broken on purpose (the seam decoded as a plain frame, or "
+        "never armed) it FAILS",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidrepeatshd", "soak", py("tests/vidrepeat.py", "--layout", "cga"),
+        60.0,
+        "SPEC.md 98.3.9, 98.3.2: vidrepeat with CGA-layout clips on the "
+        "Hercules desktop, through the SHADOW: the key join clears the "
+        "shadow and the next copy takes every row",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidsndloop", "soak", py("tests/vidsound.py", "--secs", "8",
+                                 "--loop", "90"), 60.0,
+        "SPEC.md 98.3.9, 98.3.1: a REPEATING play with the card the clock - "
+        "two laps past the first through a seam back to frame 90, then R "
+        "ends the lap under way. The capture must be the first lap's sound "
+        "and then frame 90's on, twice, with nothing between, and the play "
+        "take all of it: the seam carries frame L's audio and the clock "
+        "counts every lap. Broken on purpose (silence queued for the seam) "
+        "it FAILS",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88", "build/sound.drv", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hdd.drv",
+               "build/hiber.drv", "build/ctrl.drv")),
+    Row("vidmodexrk", "soak", py("tests/vidvga8.py", "--layout", "modex",
+                                 "--flip", "--repeat", "key"), 40.0,
+        "SPEC.md 98.3.9, 98.3.8: a flipped Mode X clip with no seam, R on, "
+        "two laps: the join clears both pages and decodes keyframe 0 into "
+        "both, with no last record owed. Frame 0 is black but for a box, so "
+        "with the clear skipped it FAILS",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidmodexrs", "soak", py("tests/vidvga8.py", "--layout", "modex",
+                                 "--flip", "--repeat", "seam"), 40.0,
+        "SPEC.md 98.3.9, 98.3.8: a flipped Mode X clip with a seam back to "
+        "frame 20: the seam drawn into the back page as a frame, two laps, "
+        "every hold on the glass",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidvga4", "soak", py("tests/vidvga4.py"), 60.0,
         "SPEC.md 98.1.3.2, 98.4.5: sixteen colours in mode 12h, IN THE "
         "WINDOW on MartyPC's VGA XT: the file read as VGA4 on LIN80's "

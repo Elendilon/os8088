@@ -148985,7 +148985,7 @@ stream behind them is read sequentially.
 |---|---|---|
 | 0 | 4 | `'V88'`, 1Ah |
 | 4 | 2 | version, **1** |
-| 6 | 2 | flags, 0 (a version 1 reader refuses any bit) |
+| 6 | 2 | flags (98.1.1.2): 2 LOOPREC, 4 REPEAT. A reader refuses any bit it does not know |
 | 8 | 4 | frames, ≥ 1 |
 | 12 | 2 | rate: the audio sample rate in Hz; for a silent file, the nominal rate the frame rate derives from |
 | 14 | 2 | samples per frame, ≥ 1. **fps = rate / samples per frame**, XDC's rule |
@@ -148999,7 +148999,8 @@ stream behind them is read sequentially.
 | 80 | 96 | credits, the same |
 | 176 | 16 | 0 |
 | 192 | 256 | four rendition slots of 64 bytes; the first *renditions* are used, the rest are 0 |
-| 448 | 64 | 0 |
+| 448 | 16 | the loop block, with LOOPREC (98.1.1.2); else 0 |
+| 464 | 48 | 0 |
 
 **The divisor is the host's arithmetic, not the player's.** `1,193,182 ×
 samples / rate` is a 38-bit product, which an 8086 would need two divides to
@@ -149105,6 +149106,49 @@ and a player reads only the stream it plays (VIDEO-PLAN 13, answer A).
 | 36 | 1 | VGA8: **the row scale**, 0 or 1 for none, 2 for each row shown twice by the CRTC (98.2.4); 0 in every other file |
 | 37 | 1 | MODEX: **2 = page flipped** (98.3.8), 0 or 1 not; 0 in every other file |
 | 38 | 26 | 0 |
+
+#### 98.1.1.2 Repeat: the flags, and the seam
+
+**Two flags say how a file repeats** (VIDEO-PLAN 14.2, the owner's ask: a
+play that reaches the end goes on from the start without leaving its view
+mode, and the os8088 logo video loops by it):
+- **REPEAT (4)**: a player starts with Repeat on. It is the file's asking,
+  and the user's button overrides it.
+- **LOOPREC (2)**: the file carries a **SEAM** - one record, the change
+  from the last frame's screen to frame *L*'s, with frame *L*'s audio - and
+  the loop block at 448 names it. On every lap after the first the seam
+  stands in for frame *L* and the stream goes on at frame *L* + 1, so a
+  loop costs a frame like any other, where re-drawing a keyframe would be a
+  whole canvas. *L* > 0 is an INTRO: frames 0 to *L* - 1 play once, which
+  is how the logo keeps its lettering once it has appeared (a `.MOD`'s
+  "loop to frame x", the owner's comparison).
+
+Bits 0 (RESIDENT) and 3 (LIVE) are named for waves 10 and 9 and refused
+until they are built. A file that repeats with no seam is still a file
+that repeats (98.3.9): the seam's absence costs a keyframe at the join, not
+the feature.
+
+The loop block, 16 bytes at 448:
+
+| off | size | field |
+|---|---|---|
+| 0 | 4 | *L*, the frame the seam shows: *L* + 1 < frames |
+| 4 | 4 | the seam record's offset in the file |
+| 8 | 2 | its length: a whole frame record (98.1.3), audio and all |
+| 10 | 1 | the sectors of the super-packet holding frame *L* + 1, 1..64 |
+| 11 | 1 | the records before frame *L* + 1 in it |
+| 12 | 4 | that super-packet's offset, on a sector |
+
+These are a keyframe entry's last three fields (98.1.3), for the same
+reason: the player goes on at frame *L* + 1 exactly as it starts a play
+at a keyframe (98.3.5). The writer puts the seam after the keyframe
+records, outside the chain, so a play that does not repeat never reads it.
+**A seam may not carry ADPCM4 sound**: the card's decoder carries its state
+across the join and the state after the last frame is not the state at
+frame *L*, so `tools/os88vid.py` refuses the pair and the encoder says to use
+PCM8. A flipped file's seam fits the 31 KB record copy (98.3.8).
+`verify_v88` applies the seam to the last frame's screen and requires frame
+*L*'s, with frame *L*'s audio after its lists.
 
 #### 98.1.2 Layouts: the file is laid out for its surface on the host
 
@@ -149791,6 +149835,72 @@ frame is ever seen half drawn. Mode X has three (§53.4) at `VP_PAGE` =
 - `vidmodexfl` (`tests/vidvga8.py --layout modex --flip`) is the gate: the
   glass at every hold, which is only right if the draw AND the flip both
   work, and FAILS with `vp_show`'s OUTs skipped.
+- **The KEEPER is what a flipped session zeroes.** The first build zeroed
+  the 31 KB record copy at the keeper's size - 75 KB for a 320 x 240 canvas,
+  45 KB of heap overrun past the claim - and put the uncleared keeper onto
+  both pages, where a frame 0 of one flat colour hid it. The gate's clip
+  starts on black now, and FAILS that by 5,976 pixels.
+
+#### 98.3.9 Repeat
+
+**The Repeat button** stands down while Repeat is on (`OS88UI_LATCH`, like
+the info card's); R and File -> Repeat (R) turn it over too. It starts as
+the file's REPEAT flag says (98.1.1.2) and belongs to the window. **It may
+change while a play runs**: the reader and both stream cursors read it as
+they reach the file's end, so turning it off mid-play ends the play at the
+end of the lap under way. In the window a click on it is Repeat and not a
+pause, and the button is turned over in place by an XOR of its interior on
+the desktop's framebuffer (`vp_winv`). os88ui refuses an XOR for a button
+because a repaint between two edges inverts it for good; inside a bracket
+nothing repaints, and the exit's repaint draws it from `[vp_rep]`, so here
+the XOR is exact - and `vidrepeat` compares the two.
+
+**A lap joins at the file's end without leaving the view mode, and without
+a pause.** When the reader reads the file's last chunk with Repeat on, it
+**ARMS a seam** (`vp_warm`): the joining record is read into the ring's
+next chunk, whole - at most 64 KB, which two slots from any slot hold
+contiguously, the second one or the mirror - and the reader is moved to the
+super-packet of the frame after it, exactly as a play from a keyframe
+starts (98.3.5). So the next lap's start is read while the last lap plays -
+the owner's *"seek ahead, just like we would to move from one section to
+the next"* - and the join costs no read at all. Three kinds of join:
+- **1, the file's seam** (LOOPREC): a frame like any other, decoded - or
+  flipped - over the last frame; `[vp_done]` becomes *L* + 1.
+- **2, keyframe 0** (no seam): the canvas cleared (`vp_cclear`: the keeper
+  zeroed and put on the screen, both pages when flipping, or the shadow
+  zeroed and its next copy every row) and the key decoded onto it
+  (98.1.3: a key is applied to black). A whole canvas, once a lap: the
+  owner's *"still have to completely display the first keyframe"*.
+- **0, the stream's start** (no keys at all, or key 0 on the last frame):
+  the canvas cleared, and the stream from frame 0.
+
+**The cursors take it at the chain's 0.** `vp_nextw`, at the end of the
+chain with Repeat on, hands back the armed seam's record (flagged
+`[vp_nseam]`) and moves the cursor to the continuation, stepping over the
+records before frame *L* + 1 (the cursor's skip word). The audio cursor
+runs ahead of the video and takes it first; each cursor counts the seams
+it has taken (`vw_gen`), the reader arms the next only once the VIDEO has
+taken this one, and a cursor that reaches the end again first waits - so a
+lap shorter than the audio's lead is still right.
+
+**The card's clock counts every lap.** `[vp_vseq]` counts frames drawn and
+`[vp_aseq]` audio frames queued, the seams included, and the hook's due
+count, the video's not overtaking the audio, and the cap at the lap's last
+frame (with Repeat off) are all in those units; `[vp_done]` stays the frame
+index the thumb, a hold and the next play's start read. With sound the
+seam queues frame *L*'s audio from its record, or a frame of silence for a
+keyframe join. **An ADPCM4 file with no seam may click at the join**: the
+card's decoder carries its state across it (98.1.1.2 is why a seam refuses
+ADPCM4 outright).
+
+**The gates**: `vidrepeat` (in the window on the Hercules 5150, both kinds
+of join, R mid-play, the click, and the button's glass after the repaint),
+`vidrepeatshd` (the same through the shadow), `vidsndloop` (two laps with
+the card the clock: the capture is the first lap's sound then frame 90's
+on, twice, byte for byte, and the play takes all of it), `vidmodexrk` and
+`vidmodexrs` (a flipped Mode X clip joining through keyframe 0 and through
+its seam). Broken on purpose - the seam decoded as a plain frame, never
+armed, its audio silence, the join's clear skipped - each FAILS.
 
 ### 98.4 The window: the Preview (wave 6)
 
@@ -149847,8 +149957,11 @@ this machine's disk keeps up** is the last play's stalls: a Preview that
 guessed from a timed read would be guessing (VIDEO-PLAN 3.3).
 
 **The buttons** are the button library's (§20.5.1.3) with Tracker's
-transport pictures, `OS88UI_IMG`: Open, previous key, Play, next key, and
-the card's `i`, which stands down (`OS88UI_LATCH`) while the card is out -
+transport pictures, `OS88UI_IMG`: Open, previous key, Play, next key,
+Repeat (two arrows round, 98.3.9) at the box's left edge, and the card's
+`i` at its right - each of the last two standing down (`OS88UI_LATCH`)
+while its setting is on. In the card (a small window) Repeat is fifth in
+the transport row and the `i` is not there -
 press inverts, release fires, a slide off cancels. Play stays Play: a Pause
 button needs a play in the window to pause, which is wave 7's.
 **The card comes out by itself** for a file this screen cannot play, and

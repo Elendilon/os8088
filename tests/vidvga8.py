@@ -37,7 +37,20 @@ page that is not showing and points the CRTC at it. The glass at each hold
 is only right if both halves work - a draw into the back page that is never
 shown leaves the glass a frame behind, alternately - and the holds are an
 odd and an even number of frames apart. Broken on purpose (vp_show's OUTs
-skipped) it FAILS.
+skipped) it FAILS. Its frame 0 is BLACK but for a box, so a keyframe that
+writes no black byte lands on whatever the pages held: the first flipped
+build zeroed the 31 KB record copy at the keeper's 75 KB instead of the
+keeper - 45 KB of heap overrun - and put the uncleared keeper on both pages,
+which a frame 0 of one flat colour hid, and this FAILS it by 5,976 pixels.
+
+--repeat seam|key plays it REPEATING (98.3.9), held before chosen frames
+across two laps: `seam` gives the clip a seam back to frame 20 and Repeat
+on from its flag; `key` gives it none and presses R, so a lap joins through
+keyframe 0 over a cleared canvas. With --flip both run through the page
+logic: the seam is a frame drawn into the back page like any other, and the
+key is decoded into BOTH pages with no last record owed. Broken on purpose
+(vp_cclear not zeroing the keeper) the key arm FAILS at the hold after the
+join.
 
 --rows2 makes the clip at half its rows with a ROW SCALE of 2 (98.2.4):
 the player sets the CRTC to show each row twice, so the picture keeps its
@@ -67,6 +80,7 @@ from cycweb import pkg_syms                                   # noqa: E402
 
 W, H, NF, FPS = 160, 96, 60, 15.0
 STOPS = (1, 9, 23, 38, 52, NF)
+LOOP = 20
 FSXM_VGA13 = 6
 
 
@@ -83,13 +97,19 @@ def palette():
     return bytes(p)
 
 
-def clip(tmp, layout, rs=1, flip=False):
+def clip(tmp, layout, rs=1, flip=False, loop=None, black0=False):
     rnd = random.Random(1311)
     g = vid.Geom(layout, W // vid.PIX_PER_BYTE[layout], H)
     cvs, cv = [], bytearray(W * H)
     for f in range(NF):
         k = f % 20
-        if k == 0:
+        if k == 0 and f == 0 and black0:
+            # frame 0 BLACK but for a box: keyframe 0 writes no black byte,
+            # so a join through it is only right over a cleared canvas
+            cv = bytearray(W * H)
+            for y in range(10, 40):
+                cv[y * W + 20:y * W + 60] = bytes([77]) * 40
+        elif k == 0:
             cv = bytearray([1 + (f // 20) * 40]) * (W * H)
         elif k in (6, 7):
             for _ in range(300):
@@ -107,7 +127,7 @@ def clip(tmp, layout, rs=1, flip=False):
     out = os.path.join(tmp, "COLOR.V88")
     vid.encode_canvases(cvs, g, out, FPS, vid.PF_VGA8, palette(),
                         "vidvga8 clip", keysecs=2.0, poster=1, rowscale=rs,
-                        flip=flip)
+                        flip=flip, loop=loop, repeat=loop is not None)
     vid.verify_v88(out)
     return out
 
@@ -119,6 +139,7 @@ def main():
                     default="lin320")
     ap.add_argument("--rows2", action="store_true")
     ap.add_argument("--flip", action="store_true")
+    ap.add_argument("--repeat", choices=("seam", "key"))
     a = ap.parse_args()
     rs = 2 if a.rows2 else 1
     global H
@@ -134,7 +155,9 @@ def main():
     pal8 = [tuple((v * 255 + 31) // 63 for v in palette()[3 * i:3 * i + 3])
             for i in range(256)]
     with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "build")) as tmp:
-        v88 = clip(tmp, lay, rs, a.flip)
+        v88 = clip(tmp, lay, rs, a.flip,
+                   LOOP if a.repeat == "seam" else None,
+                   bool(a.repeat) or a.flip)
         r = vid.Reader(v88)
         g = r.g
         if modex:                       # both halves of the decoder
@@ -246,7 +269,14 @@ def main():
 
             # --- 3: every frame right, in its colours
             m.write(base + syms["vp_nowin"], b"\1")
-            ww("vp_stopat", STOPS[0])
+            stops = STOPS
+            if a.repeat:                # two laps, held across each join
+                j = LOOP + 1 if a.repeat == "seam" else 1
+                stops = (1, 9, NF, j, 23, NF, j, 30)
+                if a.repeat == "key":
+                    m.type_text("r")
+                until(lambda mm: rb("vp_rep") == 1, "Repeat on", 10.0)
+            ww("vp_stopat", stops[0])
             m.write(base + syms["vp_played"], b"\0")
             m.type_text("p")
             # THE RING GETS WHAT THE SESSION LEAVES: on this 640 KB machine
@@ -259,14 +289,16 @@ def main():
             if rw("vp_k") != 8:
                 bad.append("the ring has %d slots, not 8: something the "
                            "session claims is too big" % rw("vp_k"))
-            for n in STOPS:
+            for si, n in enumerate(stops):
                 until(lambda mm: rb("vp_held") == 1 and rw("vp_done") == n,
-                      "the hold before frame %d" % n, 120.0)
+                      "hold %d, before frame %d" % (si, n), 120.0)
+                nxt = stops[si + 1] if si + 1 < len(stops) else 0xFFFF
+                last = si + 1 == len(stops)
                 if modex or rs > 1:
                     glass(n)
-                    i = STOPS.index(n)
-                    ww("vp_stopat", STOPS[i + 1] if i + 1 < len(STOPS)
-                       else 0xFFFF)
+                    ww("vp_stopat", nxt)
+                    if last:
+                        m.write(base + syms["vp_rep"], b"\0")
                     m.write(base + syms["vp_held"], b"\0")
                     continue
                 seg = bytes(m.read(0xA0000, 64000))
@@ -293,9 +325,9 @@ def main():
                 if not lit or off > lit // 100:
                     bad.append("before frame %d, %d of %d rendered pixels are "
                                "not the file's palette" % (n, off, lit))
-                i = STOPS.index(n)
-                ww("vp_stopat", STOPS[i + 1] if i + 1 < len(STOPS)
-                   else 0xFFFF)
+                ww("vp_stopat", nxt)
+                if last:                    # the laps done: it ends now
+                    m.write(base + syms["vp_rep"], b"\0")
                 m.write(base + syms["vp_held"], b"\0")
             until(lambda mm: rb("vp_played") == 1, "the first play", 60.0)
             done1 = rw("vp_done")

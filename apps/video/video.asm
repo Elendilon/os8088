@@ -97,7 +97,8 @@ VP_BTW      equ 28                  ; a button (Tracker's transport, SPEC.md
 VP_BTH      equ 20                  ; 45), and their pitch
 VP_BTP      equ 32
 VP_NB       equ 4                   ; Open, previous key, Play, next key...
-VP_NBTN     equ VP_NB + 1           ; ...and the info card's
+VP_NBTN     equ VP_NB + 2           ; ...Repeat, and the info card's
+VP_CURW     equ 8                   ; a stream cursor, in words (vp_next)
 VP_DRAGT    equ 9                   ; ticks between loads mid-drag, 286 up
 VP_BSLACK   equ 3                   ; the box's rows under the picture: its
                                     ; top goes down to a bank (98.3.7)
@@ -121,6 +122,17 @@ V88_ABYTES  equ 18
 V88_PITDIV  equ 20
 V88_PITPER  equ 22
 V88_TITLE   equ 32
+V88_FLAGS   equ 6
+V88F_LOOPREC equ 2                  ; the flags (SPEC.md 98.1.1.2): a seam
+V88F_REPEAT equ 4                   ; record; Repeat on at the start
+V88F_KNOWN  equ V88F_LOOPREC | V88F_REPEAT
+V88_LOOP    equ 448                 ; the loop block: L, the seam's offset and
+LP_L        equ 0                   ; length, the super-packet of frame L+1 -
+LP_OFF      equ 4                   ; its sectors, the records before frame
+LP_LEN      equ 8                   ; L+1 there, its offset
+LP_SECS     equ 10
+LP_IDX      equ 11
+LP_SP       equ 12
 V88_REND    equ 192                 ; rendition 0
 R_PIXFMT    equ 0
 R_LAYOUT    equ 1
@@ -388,6 +400,8 @@ vp_oncmd:                           ; AL = item, AH = menu, SI = window
     je .fs
     cmp al, 5
     je vp_cardtog
+    cmp al, 6
+    je vp_reptog
     sub al, 3                       ; 3, 4: the key before, the key after
     mov ax, -1
     je .s
@@ -430,9 +444,14 @@ vp_onkey:                           ; AL = ascii, AH = scan, SI = window
     je .play
     cmp al, 'f'
     je .fs
+    cmp al, 'r'
+    je .rep
     cmp al, 'i'
     jne .out
     call vp_cardtog
+    jmp short .out
+.rep:
+    call vp_reptog
     jmp short .out
 .esc:
     xor al, al
@@ -454,6 +473,15 @@ vp_onkey:                           ; AL = ascii, AH = scan, SI = window
 .out:
     pop ax
     ret
+
+; vp_reptog - Repeat on or off (98.3.9), and its button to match. It may
+; change while a play runs: the reader and both cursors read it as they
+; reach the file's end
+vp_reptog:
+    xor byte [vp_rep], 1
+    call vp_track
+    call vp_clip
+    jmp vp_buttons
 
 ; vp_cardtog - the info card out or in: a new layout, and the window resized
 ; to it, from the wake - OSAPI_WM_RESIZE may not be called under the lock
@@ -615,7 +643,12 @@ vp_onup:                            ; W_ONMOUSEUP: the button FIRES here
     jz .play
     dec ax
     jz .next
+    dec ax
+    jz .rep
     call vp_cardtog
+    jmp short .out
+.rep:
+    call vp_reptog
     jmp short .out
 .next:
     mov ax, 1
@@ -827,10 +860,10 @@ vp_parse:
     cmp word [es:2], '8' + (0x1A << 8)
     jne .bad
     mov word [vp_msg], vp_s_ver
-    cmp word [es:4], 1              ; version 1, no flags
-    jne .bad
-    cmp word [es:6], 0
-    jne .bad
+    cmp word [es:4], 1              ; version 1, and no flag this player
+    jne .bad                        ; does not know (98.1.1.2)
+    test word [es:V88_FLAGS], ~V88F_KNOWN
+    jnz .bad
     mov word [vp_msg], vp_s_bad
     cmp word [es:V88_FRAMES+2], 0   ; this player counts frames in a word
     jne .long
@@ -1051,6 +1084,77 @@ vp_parse:
     mov [vp_kbkb], bx
     mov [vp_nkeys], ax
 .nokeys:
+    ; --- REPEAT (98.3.9): on if the file asks, and how a lap joins the next -
+    ;     its seam record (1), keyframe 0 over a cleared canvas (2), or the
+    ;     cleared canvas and the stream from its start (0)
+    xor al, al
+    test byte [es:V88_FLAGS], V88F_REPEAT
+    jz .rp
+    inc ax
+.rp:
+    mov [vp_rep], al
+    mov byte [vp_lkind], 0
+    cmp word [vp_nkeys], 0
+    je .lk
+    mov byte [vp_lkind], 2
+.lk:
+    test byte [es:V88_FLAGS], V88F_LOOPREC
+    jz .nolp
+    mov word [vp_msg], vp_s_bad
+    cmp word [es:V88_LOOP+LP_L+2], 0
+    jne .bad
+    mov ax, [es:V88_LOOP+LP_L]      ; L, and a frame after it to go on at
+    inc ax
+    jz .bad
+    cmp ax, [vp_frames]
+    jae .bad
+    dec ax
+    mov [vp_lL], ax
+    mov ax, [es:V88_LOOP+LP_OFF]
+    mov [vp_loff], ax
+    mov ax, [es:V88_LOOP+LP_OFF+2]
+    mov [vp_loff+2], ax
+    mov ax, [es:V88_LOOP+LP_SP]
+    test ax, 511
+    jnz .bad
+    mov [vp_lsp], ax
+    mov ax, [es:V88_LOOP+LP_SP+2]
+    mov [vp_lsp+2], ax
+    mov al, [es:V88_LOOP+LP_SECS]
+    dec al
+    cmp al, 63
+    ja .bad
+    inc ax
+    mov [vp_lsecs], al
+    mov al, [es:V88_LOOP+LP_IDX]
+    mov [vp_lidx], al
+    mov ax, [es:V88_LOOP+LP_LEN]    ; the seam: no shorter than an empty
+    mov bx, 16                      ; frame...
+    cmp byte [vp_planar], 0
+    je .lmin
+    mov bx, 7
+.lmin:
+    add bx, [vp_abytes]
+    cmp ax, bx
+    jb .bad
+    mov [vp_llen], ax
+    cmp byte [vp_flip], 0           ; ...no longer than a flipped play's copy
+    je .lfl                         ; of the last record (98.3.8)...
+    cmp ax, VP_PREVKB * 1024
+    ja .nolp
+.lfl:
+    mov cx, [vp_clb]                ; ...and one read: it and a cluster either
+    add ax, cx                      ; side, whole KB, as a keyframe's
+    jc .nolp
+    add ax, cx
+    jc .nolp
+    add ax, 1023
+    jc .nolp
+    mov cl, 10
+    shr ax, cl
+    mov [vp_lkb], ax
+    mov byte [vp_lkind], 1
+.nolp:
     push ds                         ; the title, NUL-terminated within its 48
     push es
     push ds
@@ -2419,10 +2523,12 @@ vp_sstart:
     jmp .fail
 .pv:
     mov [vp_prevseg], dx
-.nopv:
-    mov [vp_shseg], dx
-    mov es, dx
-    call vp_zero
+    mov dx, [vp_keep]               ; (the KEEPER is what is zeroed and is
+.nopv:                              ; the shadow: the copy claimed after it is
+    mov [vp_shseg], dx              ; 31 KB, and zeroing it at the keeper's
+    mov es, dx                      ; size ran 45 KB past it into the heap
+    call vp_zero                    ; and left the keeper as the claim found
+                                    ; it - onto both pages, 98.3.8)
     ; --- the ring: K slots and the mirror, K a power of two, 2..VP_KMAX
     call OSAPI_MEM_AVAIL            ; AX = the largest free run, KB
     mov cl, 5
@@ -2538,8 +2644,12 @@ vp_sstart:
     mov [vp_autop], al
     mov [vp_stopq], al
     mov [vp_dtok], al
+    mov [vp_cskip], ax              ; (the cursor skips nothing and has taken
+    mov [vp_pgen], ax               ; no seam; none is armed - 98.3.9)
+    mov [vp_wgen], ax
     mov ax, [vp_base]
     mov [vp_done], ax               ; frames before it count as drawn
+    mov [vp_vseq], ax               ; ...and the clock's count starts there
     mov ax, [vp_ssec]
     mov [vp_psec], ax               ; the first super-packet, not yet entered
     ; --- the clock: the file's own period, or - with the card - half of it,
@@ -3219,9 +3329,11 @@ vp_main:
     jne .drain
     cmp byte [vp_snd], 0            ; ...or, with sound, every frame drawn:
     je .rd                          ; the clock stops at the last, so nothing
-    mov ax, [vp_done]               ; asks the stream for one past it (the
-    cmp ax, [vp_frames]             ; silent play still ends on the chain's
-    jae .drain                      ; own 0, which a hold can sit in front of)
+    cmp byte [vp_rep], 0            ; asks the stream for one past it (the
+    jne .rd                         ; silent play still ends on the chain's
+    mov ax, [vp_done]               ; own 0, which a hold can sit in front of)
+    cmp ax, [vp_frames]             ; - unless it repeats (98.3.9)
+    jae .drain
 .rd:
     call vp_fill
     jnc .loop                       ; a chunk arrived: poll, and try again
@@ -3327,12 +3439,29 @@ vp_poll:
     call OSAPI_MOUSE                ; AL = the buttons: a press is a click
     mov ah, [vp_mbtn]
     mov [vp_mbtn], al
-    pop dx
-    pop cx
     not ah
     and al, ah
     and al, 3
-    jnz .desk
+    jz .nclk
+    mov bx, vp_brects + 4 * 8       ; ...on REPEAT it is Repeat, and the play
+    cmp cx, [bx]                    ; goes on (98.3.9); anywhere else it is
+    jb .dsk                         ; the desktop
+    cmp cx, [bx+4]
+    ja .dsk
+    cmp dx, [bx+2]
+    jb .dsk
+    cmp dx, [bx+6]
+    ja .dsk
+    pop dx
+    pop cx
+    jmp short .rep
+.dsk:
+    pop dx
+    pop cx
+    jmp short .desk
+.nclk:
+    pop dx
+    pop cx
 .key:
     mov ah, 1
     int 0x16
@@ -3346,8 +3475,15 @@ vp_poll:
     or al, 0x20
     cmp al, 'f'
     je .swap
-.none:
-    xor al, al
+    cmp al, 'r'
+    jne .none
+.rep:
+    xor byte [vp_rep], 1            ; REPEAT, mid-play: the reader and both
+    cmp byte [vp_winm], 0           ; cursors read it at the file's end; in
+    je .none                        ; the window its button turns over - by
+    call vp_winv                    ; an XOR, which is exact here: nothing
+.none:                              ; repaints inside a bracket, and the
+    xor al, al                      ; exit's repaint draws it from [vp_rep]
     ret
 .space:
     cmp byte [vp_winm], 0
@@ -3667,6 +3803,111 @@ vp_wbox:
     mov [es:di], al
     ret
 
+; vp_winv - the Repeat button's interior turned over on the desktop's
+; framebuffer: its up look is a white ground with the picture in black and
+; its down look the reverse (os88ui_bdraw), so an XOR one pixel in from the
+; frame is the other. A 1 bpp desktop takes it byte by byte; mode 12h
+; through the Graphics Controller's XOR function, the Bit Mask, and a read
+; that loads the latches. Preserves all
+vp_winv:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    pushf
+    cli
+    mov es, [vp_dseg]
+    cmp byte [vp_dlay], 2
+    jne .g
+    mov dx, 0x3CE                   ; the GC's function: XOR
+    mov ax, 0x1803
+    out dx, ax
+.g:
+    mov bx, vp_brects + 4 * 8
+    mov si, [bx+2]
+    inc si                          ; SI = the first row inside
+.row:
+    mov ax, [vp_brects + 4 * 8 + 6]
+    cmp si, ax
+    jae .d
+    mov ax, si
+    mov bl, [vp_dlay]
+    call vp_rowaddr
+    mov bp, ax                      ; BP = the row's start
+    mov cx, [vp_brects + 4 * 8]
+    inc cx                          ; CX = the first x inside...
+.x:
+    cmp cx, [vp_brects + 4 * 8 + 4]
+    jae .nr
+    mov di, cx                      ; ...its byte, and the bits from it to
+    shr di, 1                       ; the byte's end or the inside's
+    shr di, 1
+    shr di, 1
+    add di, bp
+    mov al, 0xFF
+    push cx
+    and cl, 7
+    shr al, cl                      ; AL = x's bit and those after it
+    pop cx
+    mov dx, cx
+    or dx, 7
+    inc dx                          ; DX = the next byte's first x
+    mov ah, 0xFF
+    mov bx, [vp_brects + 4 * 8 + 4] ; the inside ends before x2: the bits
+    cmp bx, dx                      ; from x2 on are kept
+    jae .m
+    push cx
+    mov cl, bl
+    and cl, 7
+    shr ah, cl
+    not ah
+    pop cx
+    mov dx, bx
+.m:
+    and al, ah
+    cmp byte [vp_dlay], 2
+    je .vga
+    xor [es:di], al
+    jmp short .nx
+.vga:
+    push dx
+    mov ah, al
+    mov al, 8                       ; the Bit Mask
+    mov dx, 0x3CE
+    out dx, ax
+    pop dx
+    mov al, [es:di]                 ; the latches
+    mov byte [es:di], 0xFF          ; ...XOR'd with every plane's 1s
+.nx:
+    mov cx, dx
+    jmp short .x
+.nr:
+    inc si
+    jmp short .row
+.d:
+    cmp byte [vp_dlay], 2           ; mode 12h: a plain store, every bit
+    jne .o
+    mov dx, 0x3CE
+    mov ax, 0x0003
+    out dx, ax
+    mov ax, 0xFF08
+    out dx, ax
+.o:
+    popf
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; -----------------------------------------------------------------------------
 ; vp_sopen - the sound (SPEC.md 98.3.1): the audio cursor at the stream's
 ; start, the ring filled as far as it goes, then the card started on it.
@@ -3681,8 +3922,10 @@ vp_sopen:
     cld
     rep stosw
     mov ax, [vp_abase]              ; the audio cursor is vp_acur's, at the
-    mov [vp_afr], ax                ; frame the clock reads until the card's
+    mov [vp_aseq], ax               ; frame the clock reads until the card's
     mov [vp_syncf], ax              ; first block says otherwise
+    mov ax, [vp_afr0]
+    mov [vp_afr], ax
     mov byte [vp_afn], 0x80         ; PCM8's silence
     mov ax, VP_BLOCK                ; frames the clock may run on past the
     xor dx, dx                      ; card's last word: one block's worth,
@@ -3749,11 +3992,13 @@ vp_acur:
     pop es
     mov si, vp_pc
     mov di, va_pc
-    mov cx, 6
+    mov cx, VP_CURW
     cld
     rep movsw
-    mov cx, [vp_done]
+    mov cx, [vp_vseq]               ; the clock counts every lap (98.3.9)
     mov [vp_abase], cx
+    mov cx, [vp_done]               ; ...and the frame the cursor is at: going
+    mov [vp_afr0], cx               ; in paused, one is drawn after this
     pop es
     pop di
     pop si
@@ -3835,7 +4080,7 @@ vp_upaus:
 ; -----------------------------------------------------------------------------
 vp_fill:
     cmp byte [vp_eof], 0
-    jne .none
+    jne .eof
     mov ax, [vp_lc]                 ; the chunk to read
     mov bx, [vp_pc]                 ; the hook's super-packet's chunk: its slot
     add bx, [vp_k]                  ; and every one after it are still live
@@ -3889,7 +4134,145 @@ vp_fill:
     inc word [vp_lc]                ; ...and published LAST
     clc
     ret
+.eof:                               ; THE FILE'S END, REPEATING (98.3.9): the
+    cmp byte [vp_rep], 0            ; next lap's start is read on behind it -
+    je .none                        ; once the video has taken the last seam
+    mov ax, [vp_pgen]               ; armed, there being one set of them
+    cmp ax, [vp_wgen]
+    jne .none
+    jmp vp_warm
 .none:
+    stc
+    ret
+
+; vp_warm - arm the SEAM (98.3.9) at the ring's next chunk: the record that
+; joins this lap to the next - the file's seam, or keyframe 0 - read in there
+; whole, and the reader moved to the super-packet of the frame after it, as
+; a play from a keyframe starts (98.3.5). CF=0 armed; CF=1 not yet (the ring
+; has no room for the read), or the read failed, which ends the play
+vp_warm:
+    mov al, [vp_lkind]
+    mov [vp_wkind], al
+    xor cx, cx                      ; CX = the chunks the read takes: its KB
+    or al, al                       ; in 32s, rounded up - at most 64 KB, two
+    jz .room
+    mov cx, [vp_lkb]
+    cmp al, 1
+    je .kb
+    mov cx, [vp_kbkb]
+.kb:
+    add cx, 31
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1
+.room:
+    mov ax, [vp_lc]                 ; every chunk of it free
+    add ax, cx
+    mov bx, [vp_pc]
+    add bx, [vp_k]
+    cmp ax, bx
+    jbe .go
+    stc
+    ret
+.go:
+    push cx
+    mov ax, [vp_sp0]                ; kind 0: the stream from its start, onto
+    mov [vp_wpc], ax                ; black (vp_wpc and vp_wpo hold the
+    mov ax, [vp_sp0+2]              ; super-packet's offset for now)
+    mov [vp_wpo], ax
+    mov ax, [vp_sp0n]
+    mov [vp_wpsec], ax
+    mov word [vp_widx], 0
+    mov word [vp_wL], 0xFFFF
+    cmp byte [vp_wkind], 0
+    je .cont
+    mov ax, [vp_lc]                 ; the read goes to the chunk's slot, and
+    and ax, [vp_kmask]              ; on into the next or the mirror: two
+    mov cl, 11                      ; slots from any are contiguous
+    shl ax, cl
+    add ax, [vp_ring]
+    mov [vp_rdseg], ax
+    cmp byte [vp_wkind], 1
+    jne .key
+    mov ax, [vp_lL]                 ; THE SEAM RECORD
+    mov [vp_wL], ax
+    mov ax, [vp_lsp]
+    mov [vp_wpc], ax
+    mov ax, [vp_lsp+2]
+    mov [vp_wpo], ax
+    mov al, [vp_lsecs]
+    xor ah, ah
+    mov [vp_wpsec], ax
+    mov al, [vp_lidx]
+    mov [vp_widx], ax
+    mov ax, [vp_loff]
+    mov dx, [vp_loff+2]
+    mov cx, [vp_llen]
+    jmp short .rd
+.key:
+    xor ax, ax                      ; KEYFRAME 0: its entry, then its record
+    call vp_kent
+    jc .bad
+    cmp byte [vp_ke+KE_SECS], 0     ; a key on the last frame has nothing
+    je .k0                          ; after it: the stream's start instead
+    mov ax, [vp_ke+KE_K]
+    mov [vp_wL], ax
+    mov ax, [vp_ke+KE_SP]
+    mov [vp_wpc], ax
+    mov ax, [vp_ke+KE_SP+2]
+    mov [vp_wpo], ax
+    mov al, [vp_ke+KE_SECS]
+    xor ah, ah
+    mov [vp_wpsec], ax
+    mov al, [vp_ke+KE_IDX]
+    mov [vp_widx], ax
+    mov ax, [vp_ke+KE_OFF]
+    mov dx, [vp_ke+KE_OFF+2]
+    mov cx, [vp_ke+KE_LEN]
+.rd:
+    mov [vp_wlen], cx
+    call vp_rdat                    ; SI = where it landed
+    jc .bad
+    mov ax, [vp_lc]
+    mov [vp_wsc], ax
+    mov [vp_wso], si
+    jmp short .cont
+.k0:
+    mov byte [vp_wkind], 0
+.cont:
+    ; the reader from the cluster under that super-packet, as vp_sstart's
+    mov ax, [vp_clb]
+    dec ax
+    mov bx, [vp_wpc]
+    and bx, ax                      ; BX = how far it is into that cluster
+    push ds
+    pop es
+    mov di, vp_cur
+    xor ax, ax
+    mov cx, FSEQ_SIZE / 2
+    cld
+    rep stosw
+    mov ax, [vp_wpc]
+    sub ax, bx
+    mov [vp_cur+FSEQ_OFF], ax
+    mov ax, [vp_wpo]
+    mov [vp_cur+FSEQ_OFF+2], ax
+    pop cx
+    add [vp_lc], cx                 ; past the seam's chunks
+    mov ax, [vp_lc]
+    mov [vp_wpc], ax                ; the cursor after it: that chunk, BX in
+    mov [vp_wpo], bx
+    mov byte [vp_eof], 0
+    inc word [vp_wgen]              ; ...and ARMED, last
+    clc
+    ret
+.bad:
+    pop cx
+    mov byte [vp_err], 1
+    mov word [vp_errmsg], vp_s_kbad
+    mov byte [vp_end], 1
     stc
     ret
 
@@ -4005,13 +4388,18 @@ vp_hook:
     mov ax, [vp_acap]
 .cap:
     add ax, [vp_syncf]
-    inc ax                          ; AX = the frames due - never past the
-    cmp ax, [vp_frames]             ; last, whose silence plays on after it
+    inc ax                          ; AX = the frames due, every lap counted
+    cmp byte [vp_rep], 0            ; (98.3.9) - and never past this lap's
+    jne .due2                       ; last, whose silence plays on after it,
+    mov bx, [vp_frames]             ; unless it repeats
+    sub bx, [vp_done]
+    add bx, [vp_vseq]
+    cmp ax, bx
     jbe .due2
-    mov ax, [vp_frames]
+    mov ax, bx
 .due2:
     mov [vp_due], ax
-    sub ax, [vp_done]
+    sub ax, [vp_vseq]
     jbe .top                        ; none: the picture is on time
     mov cx, ax
     cmp cx, [vp_skmax]
@@ -4034,7 +4422,7 @@ vp_hook:
     sti
     xor al, al                      ; still frames due after them: behind
     mov bx, [vp_due]
-    cmp bx, [vp_done]
+    cmp bx, [vp_vseq]
     jbe .tc
     inc ax
 .tc:
@@ -4120,10 +4508,14 @@ vp_frame:
 .snd:
     cmp byte [vp_snd], 0            ; WITH SOUND, never a picture whose audio
     je .go                          ; is not in the ring yet: the audio cursor
-    cmp ax, [vp_frames]             ; is what keeps the chunks under it, and
-    jae .theend                     ; the video may not overtake it - which
-    cmp ax, [vp_afr]                ; is why the header's count is the end
-    jae .no                         ; here, the chain's 0 never being reached
+    cmp byte [vp_rep], 0            ; is what keeps the chunks under it, and
+    jne .sq                         ; the video may not overtake it - which
+    cmp ax, [vp_frames]             ; is why the header's count is the end
+    jae .theend                     ; here, the chain's 0 never being reached
+.sq:                                ; (repeating, the seam is next: 98.3.9)
+    mov ax, [vp_vseq]
+    cmp ax, [vp_aseq]
+    jae .no
 .go:
     mov bx, vp_pc
     call vp_next                    ; DX:SI = the record, CX = its len
@@ -4136,6 +4528,9 @@ vp_frame:
     je .badsp
     jmp short .badrec
 .dec:
+    inc word [vp_vseq]
+    cmp byte [vp_nseam], 0
+    jne .seam
     cmp byte [vp_flip], 0
     jne .flip
     call vp_decrec
@@ -4145,6 +4540,33 @@ vp_frame:
 .flip:
     call vp_flipdec
     inc word [vp_done]
+    clc
+    ret
+.seam:                              ; THE SEAM (98.3.9): the lap's join -
+    cmp byte [vp_wkind], 1          ; the file's record, a frame like any
+    jne .skey                       ; other...
+    cmp byte [vp_flip], 0
+    jne .sflip
+    call vp_decrec
+    jmp short .sdone
+.sflip:
+    call vp_flipdec
+    jmp short .sdone
+.skey:                              ; ...or keyframe 0, or nothing, over a
+    push dx                         ; cleared canvas: a keyframe is decoded
+    push si                         ; onto black (98.1.3)
+    call vp_cclear
+    pop si
+    pop dx
+    cmp byte [vp_wkind], 0
+    je .sdone
+    push word [vp_poff]             ; (both pages, the one drawn next kept)
+    call vp_decboth
+    pop word [vp_poff]
+.sdone:
+    mov ax, [vp_wL]                 ; the frame it shows: the next is after it
+    inc ax
+    mov [vp_done], ax
     clc
     ret
 .stall:
@@ -4241,6 +4663,25 @@ vp_decboth:
     pop dx
     mov word [vp_poff], VP_PAGE
     call vp_decrec
+    ret
+
+; vp_cclear - the canvas black, for a seam that is a keyframe (98.3.9): the
+; keeper zeroed and, playing onto the screen, put there - on both pages when
+; flipping, which then owe the next frame no record of the last. Through
+; the shadow it is the shadow, and the next copy takes every row.
+; clobbers AX, BX, CX, DX, SI, DI, ES
+vp_cclear:
+    mov es, [vp_keep]
+    call vp_zero
+    cmp byte [vp_shadow], 0
+    je .native
+    mov word [vp_dy0], 0
+    mov ax, [vp_h]
+    mov [vp_dy1], ax
+    ret
+.native:
+    call vp_kput
+    mov word [vp_prevn], 0
     ret
 
 ; vp_decrec - DX:SI = a record: decoded onto the screen, or into the shadow
@@ -4363,7 +4804,7 @@ vp_next:
     pop es
     mov si, bx
     mov di, vw_pc
-    mov cx, 6
+    mov cx, VP_CURW
     cld
     rep movsw
     call vp_nextw
@@ -4376,7 +4817,7 @@ vp_next:
     pop es
     mov si, vw_pc
     mov di, bx
-    mov cx, 6
+    mov cx, VP_CURW
     rep movsw
     pop si
     pop cx
@@ -4385,6 +4826,7 @@ vp_next:
     ret
 
 vp_nextw:
+    mov byte [vp_nseam], 0
     cmp word [vw_fleft], 0
     jne .rec
     ; --- ENTER the super-packet at (pc, po), psec sectors: all of it
@@ -4393,7 +4835,43 @@ vp_nextw:
     mov cx, [vw_psec]
     or cx, cx
     jnz .sp
-    mov al, 1                       ; the chain's 0: the end of the stream
+    cmp byte [vp_rep], 0            ; the chain's 0: the end of the stream -
+    je .end                         ; or, repeating, THE SEAM (98.3.9), once
+    mov ax, [vw_gen]                ; the reader has armed one this cursor
+    cmp ax, [vp_wgen]               ; has not taken
+    je .wait
+    mov ax, [vp_wgen]
+    mov [vw_gen], ax
+    mov ax, [vp_wpc]                ; the cursor goes on after it...
+    mov [vw_pc], ax
+    mov ax, [vp_wpo]
+    mov [vw_po], ax
+    mov ax, [vp_wpsec]
+    mov [vw_psec], ax
+    mov ax, [vp_widx]               ; ...past the records before frame L+1
+    mov [vw_skip], ax
+    xor ax, ax
+    mov [vw_fleft], ax
+    mov [vw_rofs], ax
+    mov byte [vp_nseam], 1
+    xor dx, dx                      ; ...and the record is the seam: none for
+    xor si, si                      ; kind 0
+    xor cx, cx
+    cmp byte [vp_wkind], 0
+    je .sm
+    mov ax, [vp_wsc]
+    mov bx, [vp_wso]
+    call vp_addr
+    mov cx, [vp_wlen]
+.sm:
+    clc
+    ret
+.wait:
+    xor al, al
+    stc
+    ret
+.end:
+    mov al, 1
     stc
     ret
 .sp:
@@ -4487,6 +4965,11 @@ vp_nextw:
     mov [vw_psec], ax
     pop cx
 .out:
+    cmp word [vw_skip], 0           ; a record before the frame a seam goes
+    je .ret                         ; on at (98.3.9): stepped over
+    dec word [vw_skip]
+    jmp vp_nextw
+.ret:
     clc
     ret
 
@@ -4517,9 +5000,12 @@ vp_afill:
     jne .out
     mov word [vp_acnt], VP_AMAX
 .l:
+    cmp byte [vp_rep], 0            ; (repeating, the seam is next: 98.3.9)
+    jne .l2
     mov ax, [vp_afr]
     cmp ax, [vp_frames]
     jae .pad
+.l2:
     mov ax, [vp_atot]               ; room: what is queued and not played,
     sub ax, [vp_alast]              ; plus this frame, inside the ring
     add ax, [vp_abytes]
@@ -4533,13 +5019,33 @@ vp_afill:
     mov byte [vp_aend], 2           ; the end early, or damage: the video
     ret                             ; says which when it gets there
 .rec:
+    cmp byte [vp_nseam], 0
+    jne .seam
     add si, cx                      ; the audio is the record's last bytes
     sub si, [vp_abytes]
     mov cx, [vp_abytes]
     call vp_aput
     inc word [vp_afr]
+.nx:
+    inc word [vp_aseq]
     dec word [vp_acnt]
     jnz .l
+    ret
+.seam:                              ; THE SEAM (98.3.9): frame L's audio from
+    cmp byte [vp_wkind], 1          ; the seam record, or a frame of silence
+    jne .sil                        ; for a keyframe's join
+    add si, cx
+    sub si, [vp_abytes]
+    jmp short .sput
+.sil:
+    xor dx, dx
+.sput:
+    mov cx, [vp_abytes]
+    call vp_aput
+    mov ax, [vp_wL]
+    inc ax
+    mov [vp_afr], ax
+    jmp short .nx
 .out:
     ret
 .pad:
@@ -4852,15 +5358,24 @@ vp_track:
     call vp_rect
     add ax, VP_BTP
     loop .r
-    mov ax, VP_NB                   ; ...and the fifth, the card's, only
-    cmp byte [vp_lbin], 0           ; under the bar
-    jne .n
+    mov cx, ax                      ; REPEAT: fifth in the card's row, or at
+    mov ax, VP_NB + 1               ; the box's left edge under the bar,
+    cmp byte [vp_lbin], 0           ; where the card's sixth is at its right
+    je .ub
+    mov ax, cx
+    call vp_rect
+    mov ax, VP_NB + 1
+    jmp short .n
+.ub:
+    mov ax, [vp_cx0]
+    add ax, VP_BOXX
+    call vp_rect
     mov ax, [vp_cx0]
     add ax, VP_BOXX
     add ax, [vp_lbw]
     sub ax, VP_BTW
     call vp_rect
-    mov ax, VP_NB + 1
+    mov ax, VP_NBTN
 .n:
     cmp byte [vp_abon], 0           ; none live under the About card
     je .live
@@ -4904,11 +5419,17 @@ vp_buttons:
     mov [vp_bflags+2], ax           ; that plays here
     mov [vp_bflags+4], ax
     mov [vp_bflags+6], ax
+    mov bx, ax
+    cmp byte [vp_rep], 0            ; Repeat stands DOWN while it is on
+    je .r                           ; (98.3.9)
+    or bx, OS88UI_LATCH
+.r:
+    mov [vp_bflags+8], bx
     cmp byte [vp_lcard], 0          ; the card's button stands DOWN while the
     je .c                           ; card is out (OS88UI_LATCH)
     or ax, OS88UI_LATCH
 .c:
-    mov [vp_bflags+8], ax
+    mov [vp_bflags+10], ax
     cmp word [vp_sel], 0
     jne .p1
     or byte [vp_bflags+2], OS88UI_DIS
@@ -5604,7 +6125,7 @@ vp_tpl:
     dw vp_cap, vp_paint, vp_onkey, vp_clickw
 
     OS88_MENUSET vp_menus, vp_ttl, vp_oncmd
-        OS88_MENU vp_m_file, vp_i_file, 6
+        OS88_MENU vp_m_file, vp_i_file, 7
     OS88_MENUSET_END vp_menus
 vp_ttl:       db 'Video Player', 0
 vp_pfx1:      db 'Video Player - ', 0
@@ -5613,23 +6134,30 @@ vp_cap:       db 'Video Player', 0  ; the window's caption (98.4.3): the
               times 15 + VP_COLS + 1 - 13 db 0  ; longest is pfx1 + a title
 vp_m_file:    db 'File', 0
 vp_i_file:    dw vp_it_open, vp_it_play, vp_it_fs, vp_it_prev, vp_it_next
-              dw vp_it_info
+              dw vp_it_info, vp_it_rep
 vp_it_open:   db 'Open...', 0
 vp_it_play:   db 'Play (Space)', 0
 vp_it_fs:     db 'Full screen (F)', 0
 vp_it_prev:   db 'Previous key (Left)', 0
 vp_it_next:   db 'Next key (Right)', 0
 vp_it_info:   db 'Info (I)', 0
+vp_it_rep:    db 'Repeat (R)', 0
 
 ; the buttons (SPEC.md 20.5.1.3): Tracker's transport pictures, 16 x 10
     OS88UI_BTNREC vp_btns, vp_brects, vp_blabels, vp_bflags, VP_NB
-vp_blabels:   dw vp_i_open, vp_i_prev, vp_i_play, vp_i_next, vp_i_info
+vp_blabels:   dw vp_i_open, vp_i_prev, vp_i_play, vp_i_next, vp_i_rep
+              dw vp_i_info
 vp_bflags:    times VP_NBTN dw OS88UI_IMG
 vp_brects:    times VP_NBTN * 4 dw 0
 vp_i_pause:                         ; ||
     db 1, 10
     times 10 dw 0FFFFh
     times 10 dw 00E70h
+vp_i_rep:                           ; two arrows round: Repeat (98.3.9)
+    db 1, 10
+    times 10 dw 0FFFFh
+    dw 00020h, 01FF0h, 03FF8h, 03030h, 03020h
+    dw 0040Ch, 00C0Ch, 01FFCh, 00FF8h, 00400h
 vp_i_info:                          ; an i: the info card
     db 1, 10
     times 10 dw 0FFFFh
@@ -5793,6 +6321,8 @@ vp_psec:      dw 0                  ; ...sectors (0 = the end)
 vp_nsec:      dw 0                  ; the one after it
 vp_fleft:     dw 0                  ; frames left in it
 vp_rofs:      dw 0                  ; the next record, into it
+vp_cskip:     dw 0                  ; records still to step over (98.3.9)
+vp_pgen:      dw 0                  ; seams this cursor has taken
 vp_owed:      dw 0
 vp_done:      dw 0
 vp_stall:     dw 0
@@ -5846,13 +6376,40 @@ vp_aend:      db 0                  ; 1 the end's silence queued, 2 stopped
 VP_SZERO      equ $ - vp_szero
 vp_acap:      dw 0
 vp_acnt:      dw 0
-va_pc:        times 6 dw 0          ; the audio cursor (vp_next)
+va_pc:        times VP_CURW dw 0    ; the audio cursor (vp_next)
 vw_pc:        dw 0                  ; vp_next's working copy
 vw_po:        dw 0
 vw_psec:      dw 0
 vw_nsec:      dw 0
 vw_fleft:     dw 0
 vw_rofs:      dw 0
+vw_skip:      dw 0
+vw_gen:       dw 0
+; REPEAT (SPEC.md 98.3.9)
+vp_rep:       db 0                  ; Repeat is on
+vp_lkind:     db 0                  ; how a lap joins: 1 the seam record, 2
+                                    ; keyframe 0, 0 the stream's start
+vp_lL:        dw 0                  ; the seam's: the frame it shows...
+vp_loff:      dw 0, 0               ; ...where it is, how long...
+vp_llen:      dw 0
+vp_lkb:       dw 0                  ; ...its read, in KB
+vp_lsp:       dw 0, 0               ; ...and where frame L+1 is
+vp_lsecs:     db 0
+vp_lidx:      db 0
+vp_nseam:     db 0                  ; vp_next's record was the seam
+vp_wkind:     db 0                  ; THE ARMED SEAM: its kind...
+vp_wgen:      dw 0                  ; ...the seams armed so far...
+vp_wL:        dw 0                  ; ...the frame it shows...
+vp_wsc:       dw 0                  ; ...its chunk and offset in the ring...
+vp_wso:       dw 0
+vp_wlen:      dw 0
+vp_wpc:       dw 0                  ; ...and the cursor after it
+vp_wpo:       dw 0
+vp_wpsec:     dw 0
+vp_widx:      dw 0
+vp_vseq:      dw 0                  ; frames drawn, every lap counted - the
+vp_aseq:      dw 0                  ; card's clock - and audio frames queued
+vp_afr0:      dw 0                  ; the frame the audio cursor was set at
 ; the Preview (SPEC.md 98.4)
 vp_cx0:       dw 0                  ; the content's origin, as vp_track saw it
 vp_cy0:       dw 0
