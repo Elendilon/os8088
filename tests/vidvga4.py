@@ -197,6 +197,16 @@ def main():
             until(lambda mm: rb("vp_ready") == 1, "the play to start")
             if rb("vp_winm") != 1:
                 bad.append("the play went full screen, not into the window")
+            # THE RING GETS WHAT THE SESSION LEAVES: on this 640 KB machine
+            # it is all eight slots - a keeper claimed four times its size
+            # (the KB taken as 16 paragraphs) left two, and a real clip then
+            # paused whole every half second on the owner's 286
+            until(lambda mm: rb("vp_ready") == 1 or rb("vp_played") == 1,
+                  "the play to start")
+            print("   the ring: %d slots" % rw("vp_k"))
+            if rw("vp_k") != 8:
+                bad.append("the ring has %d slots, not 8: something the "
+                           "session claims is too big" % rw("vp_k"))
             for n in STOPS:
                 until(lambda mm: rb("vp_held") == 1 and rw("vp_done") == n,
                       "the hold before frame %d" % n)

@@ -2387,12 +2387,12 @@ vp_sstart:
     mov ax, 64
     cmp byte [vp_planar], 0         ; four planes' image (98.1.3.1)
     je .kx
-    mov ax, [vp_plsp]               ; 4 x plsp paragraphs, in KB
-    add ax, 15
-    mov cl, 4
+    mov ax, [vp_plsp]               ; 4 x plsp paragraphs, in KB - 64
+    shl ax, 1                       ; paragraphs to the KB (it was 16: the
+    shl ax, 1                       ; keeper was claimed four times over,
+    add ax, 63                      ; and the ring starved or refused)
+    mov cl, 6
     shr ax, cl
-    shl ax, 1
-    shl ax, 1
     jmp short .kc
 .kx:
     cmp byte [vp_fsshd], 0
@@ -2565,6 +2565,15 @@ vp_sstart:
     call vp_sfree
     call vp_fmt
     call vp_repaint
+    cmp byte [vp_lcard], 0          ; A PLAY REFUSED AT THE START: the card
+    jne .fc                         ; comes out, as for one that fails on
+    mov byte [vp_card], 1           ; its way (vp_sstop) - it is what says
+    mov byte [vp_relay], 1          ; why, and the owner found the reason
+    push bx                         ; hidden behind a closed card
+    mov bx, [vp_win]
+    call OSAPI_WM_WAKE
+    pop bx
+.fc:
     stc
 .out:
     pop es

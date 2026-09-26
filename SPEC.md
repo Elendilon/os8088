@@ -149853,7 +149853,18 @@ press inverts, release fires, a slide off cancels. Play stays Play: a Pause
 button needs a play in the window to pause, which is wave 7's.
 **The card comes out by itself** for a file this screen cannot play, and
 after a play that could not start or stopped on an error, since it is what
-says why.
+says why. A play refused BEFORE its bracket - a claim the session could not
+make - took the card out only from the bracket's end, so "Not enough memory
+to play it" sat behind a closed card (the owner's report); `vp_sstart`'s
+failure path posts the relayout too.
+
+**The ring gets what the session leaves**, and a claim that is too big shows
+up there first: a planar keeper claimed at `plsp` paragraphs as sixteen to
+the KB instead of sixty-four was four times its size - 300 KB for Mode X -
+which refused every flipped file for memory and left the rest a two-slot
+ring, under the encoder's 96 KB of look-ahead (98.2.1), so they paused
+whole every half second. `vidvga4`, `vidmodex` and their kin assert the full
+eight slots on their 640 KB machine and fail with the old arithmetic.
 
 **Measured** on the CGA 5150 off a 360 KB floppy: a key step - the entry,
 the record, the decode and the halving - is **1.2 to 1.5 s** from the key
