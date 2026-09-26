@@ -15,7 +15,7 @@ files - scaled, dithered and budgeted for a 4.77 MHz
   VIDENC-CGA-ST11R.VHD   the CGA clips (640 wide; a
                 VGA plays them too), ST11R
   VIDENC-VGA-286.VHD     the VGA clips, for a 286 on
-                IDE: 17 sectors, 15 heads, 320
+                IDE: 17 sectors, 15 heads, 250
                 cylinders. `make 286-video` is an
                 mr286 at 16 MHz, 4 MB, an OTI067 VGA
                 and an SB16 with it and NO floppy in
@@ -50,8 +50,10 @@ THE CLIPS
                300 / 400 x 225 - they play IN THE
                WINDOW on a VGA desktop - and TRACKF,
                Trackmania at 640 x 360, full screen.
-               8-bit sound at 22 kHz, the "286"
-               profile (150 KB/s)
+               The "286" profile (150 KB/s); 8-bit
+               sound at 22 kHz for Trackmania and 11
+               for the two long ones, which is what
+               fits a 32 MB volume
 
 Each is sized to its source's SHAPE on that screen:
 on Hercules a 4:3 video is 400 x 193 and a 16:9 one

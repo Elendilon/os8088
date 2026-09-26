@@ -9830,7 +9830,7 @@ VIDENC_BASE = $(BUILD)/kernel.sys $(BUILD)/boothd.bin $(BUILD)/mbr.bin \
 	$(BUILD)/video.o88
 # ...and, when VIDENC has a vga/, a 286's IDE disk (vm/286-video), 17
 # sectors and 15 heads like the owner's own, sized in cylinders here
-VIDENC_VGA_CYLS ?= 320
+VIDENC_VGA_CYLS ?= 250
 # $(call videnc_img,<out>,<spt>,<layout dir>)
 define videnc_img
 	python3 tools/os88hdd.py --template $(VIDHD_TEMPLATE) --out $(1) --st11 \
