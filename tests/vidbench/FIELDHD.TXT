@@ -1,4 +1,4 @@
-VIDEO PLAYER - FIELD HARD DISK (waves 0-4)
+VIDEO PLAYER - FIELD HARD DISK (waves 0-6)
 ==========================================
 
 A bootable fixed disk: the os8088 kernel, the Video
@@ -43,7 +43,11 @@ On a two-card machine it is the display the Video
 Player's window is on that decides.
 
 THE VIDEOS - double-click one, or open VIDEO.O88 and
-use File > Open. P plays it fullscreen; Esc stops.
+use File > Open. The window shows the video's poster
+frame; Left and Right (or the two arrow buttons, or a
+click on the bar under the picture) pick a keyframe to
+start from, every 2 s. Space plays it fullscreen, Space
+pauses and resumes, Esc stops.
 WITH A SOUND BLASTER THEY PLAY WITH SOUND, and the
 card is the clock: the picture follows what the card
 has played. Without one they play silent, on the timer.

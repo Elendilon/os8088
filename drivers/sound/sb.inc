@@ -1053,6 +1053,8 @@ sbl_stream_op:
     je sbl_v_busy
     cmp al, 9
     je sbl_v_ppos
+    cmp al, 10
+    je sbl_v_pause
     mov ax, 7                   ; anything higher: bad verb
     stc
     ret
@@ -1744,6 +1746,53 @@ sbl_v_ppos:
     pop bx
     popf
     clc
+    ret
+
+; -----------------------------------------------------------------------------
+; sbl_v_pause - verb 10: PAUSE an external ring's stream now (SPEC.md 34.5.4)
+; in:       AH = handle
+; out:      AX = 0 ok / 7 not an external output ring / 0FFFFh stale; CF
+;           set on both errors
+; clobbers: nothing else (flags)
+;
+; The underrun contract's pause, taken on request instead of for want of
+; data: the DSP halted where it is (D0h, or the 8237 masked in high speed),
+; state underrun-paused, and verb 1 resumes it exactly as it resumes an
+; underrun. An external ring's producer (98.3.1) keeps the ring full, so
+; waiting for it to run dry would be up to a ring's worth of sound late.
+; sbl_expect stays SET: a block that ended just before the D0h still has
+; its IRQ coming, and the ISR must take it as ours - ack, count - rather
+; than as a stray. The watchdog skips any state but PLAY, so a pause may
+; be as long as the user likes.
+; -----------------------------------------------------------------------------
+sbl_v_pause:
+    pushf
+    cli
+    call sbl_hcheck
+    jc .stale
+    cmp byte [sbl_ext], 0
+    je .e7
+    cmp byte [sbl_str_dir], 0
+    jne .e7
+    cmp byte [sbl_str_state], SBL_ST_PLAY
+    jne .ok                     ; already paused, or ended: nothing to stop
+    call sbl_halt
+    mov byte [sbl_paused], 1
+    mov byte [sbl_str_state], SBL_ST_UNDER
+.ok:
+    popf
+    xor ax, ax
+    clc
+    ret
+.e7:
+    popf
+    mov ax, 7
+    stc
+    ret
+.stale:
+    popf
+    mov ax, 0xFFFF
+    stc
     ret
 
 ; -----------------------------------------------------------------------------

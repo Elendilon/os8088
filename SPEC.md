@@ -57048,6 +57048,25 @@ owner's ear (98.1.1.1).
 **Cost: 194 bytes** (6,371 → 6,565), inside the driver's 7KB claim, so no
 heap at all. `tests/vidsound.py` is the gate.
 
+#### 34.5.4 Pausing an external ring (verb 10)
+
+**Verb 10, `SND_V_PAUSE`, halts an external ring's stream where it is**:
+`D0h` (or, in high speed, channel 1 masked at the 8237), the stream marked
+underrun-paused, and **verb 1 with the total resumes it** exactly as it
+resumes an underrun. Any other stream answers 7. It exists for the Video
+Player's Space (§98.3.4): an external ring's producer keeps the ring full, so
+a pause that waited for it to run dry would sound for up to a ring's worth -
+1.5 s of 11 kHz - after the picture stopped.
+
+- **`sbl_expect` stays set.** A block that ended just before the `D0h` still
+  has its interrupt coming, and the ISR must take it as the stream's - ack
+  it, count it - not as a stray, or the DSP's line is never released and the
+  next block raises no edge.
+- **The watchdog watches only PLAY**, so a pause can be as long as the user
+  likes; the ENDED fallback is for a card that stops by itself.
+
+**Cost: 65 bytes** of the driver (6,565 → 6,630), inside its 7KB claim.
+
 ### 34.6 Recording and staging — back, as a driver
 
 Went with §34.5 and came back with it. Verb 7 grants out of the driver's
@@ -148959,9 +148978,25 @@ MartyPC's card (`tools/martypc/patches/06-sblaster-adpcm4.patch`).
 - **The stream is ONE encoding**, from a reference of 80h and a scale of 0,
   cut into the frames' parts afterwards: the decoder's state runs on from
   frame to frame, so a frame's audio is not decodable alone.
-- **The reference byte is the PLAYER's**, not the file's: the player puts
+- **The reference byte is the PLAYER's**, not the stream's: the player puts
   80h at the start of the card's ring and the frames' bytes after it
-  (98.3.1). A seek will have to start a fresh stream there (wave 7).
+  (98.3.1).
+- **A seek starts the card afresh, and the file makes that exact** (wave 6).
+  `7Dh` sets the card's running sample from the reference byte and its step
+  scale to 0, and Creative's ADPCM never decays an error - so a play started
+  at frame *k*+1 with 80h carried a DC offset of ~40 of 128 FOR THE REST OF
+  THE PLAY (measured on a two-tone signal; a true sample at the cut still
+  left 24, because the scale was wrong too). So the encoder **steers the
+  scale to 0** at frame *k*+1 of every keyframe *k* - the scale moves in
+  steps of 16 and a zero-step nibble lowers it one, so only the three
+  samples before are constrained, 0.14 ms at 22 kHz every 2 s - and **the
+  keyframe record ends with the sample the stream holds there** (98.1.3).
+  The player puts that byte first instead of 80h, and the card is then in
+  exactly the continuous stream's state: `tests/vidsound.py --seek 3
+  --audio adpcm4`'s capture equals the whole stream's decode from frame
+  181 sample for sample, and with the player ignoring the byte it does not
+  (`vidsndseekad`). `verify` checks both halves; a file made before it has
+  no such byte, and the player then starts at 80h.
 - The card decodes it, so it costs the 8088 nothing but the copy - half of
   PCM8's - and the disk half the bytes. It is noisier than 8-bit PCM at the
   same rate, and **audibly so**: on 86Box's card it decodes cleanly and
@@ -149018,7 +149053,8 @@ is decoded into a RAM shadow instead (VIDEO-PLAN 2.3), and `os88vid import
 
 ```
 frame record    = len(16) y0(16) y1(16) lists audio
-keyframe record = len(16) y0(16) y1(16) lists           (no audio)
+keyframe record = len(16) y0(16) y1(16) lists [ref(8)]  (no audio;
+                  ref, ADPCM4 files only: the sample at frame k+1, 98.1.1.1)
 lists           = P1 P2 P3 P4 P5 P6 SLICE RUN SLICEL RUNL      in this order
 list            = segment* 00
 segment         = count(1..127) address(16) entry × count      skip-coded
@@ -149118,14 +149154,14 @@ segments, not by trust:
 - **A read** runs at most off the end of the record into the super-packet
   buffer's own segment, which is harmless.
 
-### 98.3 The player — `VIDEO.O88`, fullscreen (waves 3 and 4)
+### 98.3 The player — `VIDEO.O88`, fullscreen (waves 3 to 6)
 
 Package **`VIDEO.O88`**, header name `'Video Player'`, label prefix `vp_`
 (`apps/video/video.asm`; the decoder is `apps/video/vdec.inc`, wave 0's,
-moved). Its window names the file and its numbers, and **P** (or the
-menu's Play) plays it fullscreen. **Esc stops** at the foreground's next
-poll, whatever the frame rate. When the bracket returns, the window shows
-what the play cost.
+moved). Its window is the Preview (98.4), and **Space** (or P, Enter, the
+Play button, the menu's Play) plays the file fullscreen. **Esc stops** at
+the foreground's next poll, whatever the frame rate; **Space pauses**
+(98.3.4). When the bracket returns, the window shows what the play cost.
 
 **It takes a file of its surface's own layout** (98.1.2) in that layout's
 mode, and nothing else yet:
@@ -149288,9 +149324,16 @@ display cannot set the file's own layout's mode, the player takes the first
 other layout - LIN80, then HERC, then CGA - whose mode the display has and
 whose screen holds the canvas, and plays through a **shadow**: a RAM image of
 the FILE's layout (16 KB for CGA, 32 KB for Hercules, 38 KB for LIN80),
-claimed black for the play. A canvas no screen here holds - a LIN80 file's
-480 rows on a Hercules - is refused as before, with the screen it was made
-for (§47). The window says which: *Made for CGA: P plays it via a copy*.
+black for the play. A canvas no screen here holds - a LIN80 file's 480 rows
+on a Hercules - is refused as before, with the screen it was made for
+(§47). The window says which: *Made for CGA: plays via a copy*.
+
+**The claim is 64 KB whatever the layout**, and the image is its first 16,
+32 or 38. 98.1.6 is why: the lists are not checked entry by entry, so a
+write reaches anywhere in ES, and in RAM the CLAIM is the bound. Wave 5
+claimed the image's own size, which let a hostile list write into the next
+claim; wave 6 found it building the poster's decode on the same rule, and
+claims the shadow before the ring now, so the ring takes what is left.
 
 - **The decode is unchanged.** Each frame decodes into the shadow at its
   own address 0, with the same `vd_native`, and the rows its record says it
@@ -149339,6 +149382,131 @@ and on no `kern_small` disk: what it plays through is `kern_big`'s, so there
 it could open a file and never play it (`$(SMALLOMIT)`, §24.5). No video ships
 beside it yet. The owner's XDC streams are copyrighted, and the os8088 logo
 video is a later wave.
+
+#### 98.3.4 Space pauses (wave 6)
+
+**Space pauses a fullscreen play and Space resumes it**, with or without
+sound. The foreground's key poll toggles `[vp_upause]`, one byte the hook
+reads at IF = 0:
+- **Paused, the hook returns at once.** Nothing is owed and no period is
+  counted, so the silent clock and the card's extrapolation both stand
+  where the picture stands, and resume from there.
+- **The card is halted where it is** - SOUND.DRV's verb 10 (§34.5.4), `D0h`
+  mid-block - not left to play out its ring: the ring is the player's and it
+  keeps it full, so waiting for it to run dry would have sounded for up to
+  1.5 s after the picture stopped. Space again is verb 1 with the total,
+  the underrun resume, and `vp_skeep` stays out of the way while paused, so
+  a pause is never taken for an underrun and resumed behind the user's back.
+- **The ticks paused are not play time**: `[vp_ptk]` collects them, whole
+  ticks at both ends, and the window's *T ticks of W* is the play without
+  them. Esc while paused stops as usual.
+
+**Measured** (`tests/vidpreview.py`, `tests/vidsound.py --pause`): paused
+for 1.5 guest seconds at frame 56, not one frame is drawn; the play then
+finishes all 150 frames with no stall and no late period in 91 ticks
+against 91.0. With the card, a 2-second pause draws no frame and the card
+consumes **no byte**, and the capture still holds the clip's 441,000
+samples whole and in order. With the hook's test removed, 107 frames are
+drawn while paused.
+
+There is no picture of the pause: the bracket owns the screen and draws
+nothing but the video. The Play button that becomes Pause belongs to a play
+IN the window, which is wave 7's.
+
+#### 98.3.5 Playing from a keyframe (wave 6)
+
+**Play starts at the key picked in the window** (98.4), or at the start
+when that is key 0. The entry's four facts are all it needs (98.1.3):
+- **Before the bracket**, the keyframe record is read into the ring - the
+  ring is claimed already and the stream has not been read into it yet -
+  and the reader's cursor is started at the entry's super-packet, on the
+  cluster under it as ever.
+- **Once the mode is set**, the record is decoded onto the black the mode
+  set left (or into the black shadow, and copied), before `vp_fill` reads
+  over it. The screen is now the one after frame *k*.
+- **The ring filled, `vp_next` steps over the entry's *idx* records** - a
+  `len` hop each, all in memory, since the first super-packet is in the
+  first two chunks and the ring has at least two. The audio cursor is copied
+  from the video's after that, so both start at frame *k*+1.
+- **`[vp_base]` = *k*+1 is the frame count's zero**: `[vp_done]` starts
+  there, the gate's holds are absolute frames, the card's clock adds it to
+  the frames it has played, and the window's *Drew N of M* and *T ticks of W*
+  count from it. **The clock is SEEDED there too**: until the card's first
+  block interrupt the extrapolation runs from `[vp_syncf]`, and a `[vp_syncf]`
+  left at 0 held the first three frames back and then made them all due at
+  once - `vidsndseek` caught it as the picture trailing by 3.
+- **ADPCM4** starts the card on the keyframe's own reference byte
+  (98.1.1.1), so the sound after a seek is the stream's, sample for sample.
+
+**Measured**: from key 1 of vidplay's clip (frame 60) the hook holds before
+frame 61 on the keyframe alone, and there and at 69, 100 and 150 the screen
+equals the host's decode, natively on CGA and Hercules and through the
+shadow on Hercules (`vidpreview`, `vidprevherc`, `vidprevshd`). From the
+fourth key of a 20 s clip with sound the play starts at frame 181, draws to
+the end on the card's clock within 2 frames, and the capture holds the
+sound from frame 181 on, PCM8 and ADPCM4 alike (`vidsndseek`,
+`vidsndseekad`). With `[vp_base]` left at 0, every hold is the wrong frame.
+
+### 98.4 The window: the Preview (wave 6)
+
+**The window IS the Preview** (VIDEO-PLAN 3.3): the file's poster in a
+box, a scrub bar under it over the keyframes, an info panel beside it, and
+four picture buttons under that. 628 x 126 of content, so it fits CGA's
+156-row desktop band title and all; its frame x is 7, so the content is on a
+byte (§11.94) and the poster reaches `OSAPI_GFX_BLIT1`'s fast path.
+
+**The poster** is the header's poster keyframe (98.1.3) when the file
+opens, and the picked key's picture after:
+- **Its record is read and decoded from black into a 64 KB shadow** (the
+  claim is the bound, 98.3.2) - the same `vd_native` as a play - then
+  **halved**: two source rows a nibble of each at a time index a table that
+  answers two output pixels, each lit when its four source pixels hold MORE
+  lit ones than its threshold, `[0 2 / 3 1]` by output row and column
+  parity - a 2x2 ordered dither, so a grey stays a grey and a one-pixel line
+  survives (plain OR turns every dither white; plain decimation aliases a
+  checkerboard to solid). `vp_mkdtab` builds the 512 bytes of table at start
+  into bss; `tools/os88vid.py`'s `thumb_half` and `poster` are the
+  reference, and `vidpreview` holds the player's bytes to them.
+- **A canvas bigger than CGA's is halved twice** - a Hercules 720 x 348 to
+  180 x 87 - in place the second time, the rows being dense by then. Rows
+  past the box's 100 are cut top and bottom alike (a LIN80 640 x 480 is 160
+  x 120, and shows its middle 100).
+- **Its x is the SCREEN's byte**, rounded up from the centred place, and a
+  window whose content is off the grid loses up to seven columns at the
+  right rather than refusing the blit. The margins round it are filled
+  black, each pixel once.
+- **The poster's claim is taken FIRST** - 4 KB for a 640 x 200 canvas -
+  then the record's and the shadow's, which are freed, so it sits under the
+  hole they leave rather than over it. A machine without the room shows a
+  black box; the key is still picked, since a play needs only the entry.
+
+**The scrub bar** is white with a black thumb where Play starts - three
+fills, no pixel twice - grey with no keyframes. **A click on it picks the
+key whose share of the bar it is**; Left and Right, the key buttons and the
+File menu step one key. At the first key Prev is grey and at the last Next
+is. Key 0 means the start.
+
+**The info panel**: the file, its title, the canvas and the screen it was
+made for, the frame rate and length, the stream's KB/s (its bytes a frame
+times the frame rate) and its sound, where Play starts (*From key 3 of 110,
+at 0:04*), what Play will do or why not, and after a play what it cost -
+frames drawn, stalls, pauses, late, and ticks against the file's. **Whether
+this machine's disk keeps up** is the last play's stalls: a Preview that
+guessed from a timed read would be guessing (VIDEO-PLAN 3.3).
+
+**The buttons** are the button library's (§20.5.1.3) with Tracker's
+transport pictures, `OS88UI_IMG`: Open, previous key, Play, next key -
+press inverts, release fires, a slide off cancels. Play stays Play: a
+Pause button needs a play in the window to pause, which is wave 7's.
+
+**Measured** on the CGA 5150 off a 360 KB floppy: a key step - the entry,
+the record, the decode and the halving - is **1.2 to 1.5 s** from the key
+press to the new poster, most of it the two `OSAPI_FILE_READ_AT` calls. The
+poster matches the host's reference in memory and on the screen, byte for
+byte and pixel for pixel, on CGA and Hercules. With the dither's thresholds
+swapped, 1,746 of 4,000 poster bytes differ. `VIDEO.O88` is **10,822 bytes
+of image and 800 of bss** (7,043 and 0 before), the button library the
+largest part of the growth; the table and the text lines are the bss.
 
 ### 98.2 The host tools — `tools/os88vid.py`
 

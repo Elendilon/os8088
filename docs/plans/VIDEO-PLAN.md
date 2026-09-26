@@ -888,9 +888,47 @@ red. A row about one package goes in `soak`.
   - **Mode 12h read back**: a MONO1 byte goes to all four planes, so the
     plane a debug read returns is the picture, and `vidplayvga` is now
     frame-exact at every hold instead of timing-only.
-- **W6 — Preview.** Association (`V88`, §54.6), the Open dialog, poster,
-  scrub bar, info panel.
-- **W7 — In-window and seek.**
+- **W6 — Preview. DONE** (SPEC.md 98.4, 98.3.4, 98.3.5). The association
+  and the Open dialog came forward into W3. What W6 added:
+  - **The window is the Preview**: the poster keyframe halved 2x2 with an
+    ordered dither into a box, a scrub bar over the keyframes, an info
+    panel (canvas, screen, fps, length, KB/s, sound, where Play starts,
+    what the last play cost), and Tracker's transport pictures as four
+    buttons - Open, previous key, Play, next key. It fits CGA's desktop
+    band. A key step is 1.2-1.5 s on the 5150 off a floppy.
+  - **SEEK came forward from W7**: Play starts at the picked keyframe -
+    decoded onto the screen (or the shadow) before the ring is filled over
+    it, the stream from its super-packet with *idx* records stepped over,
+    the frame count and the card's clock based at *k*+1. Frame-exact at
+    every hold, natively and through the shadow, with sound too.
+  - **Space pauses**, with sound: SOUND.DRV's **verb 10** halts the card
+    mid-block (+65 bytes, 259 of the 1 KB now spent), verb 1 resumes it,
+    and the hook counts no period while paused. Not a frame drawn and not a
+    byte consumed in a 2 s pause, and the play still on time without it.
+  - **What it found**:
+    - **ADPCM4 could not seek.** The card restarts its decoder at 80h and
+      scale 0, and Creative's ADPCM never decays an error, so a seek played
+      the rest of the file ~40 of 128 off centre - and a true sample alone
+      left 24, the scale being wrong too. The encoder now steers the scale
+      to 0 at every keyframe's frame k+1 (three samples, 0.14 ms every 2 s)
+      and the keyframe record carries the sample there: a seek is exact,
+      sample for sample. **This changes the file**: the field disks'
+      `TRONDA4`/`BBBBA4`, made before it, still play and still seek, from
+      80h, and fail `verify` until re-made.
+    - **The W5 shadow was claimed at the image's size**, 16-38 KB, which a
+      hostile list could write past (SPEC.md 98.1.6). It is 64 KB now, and
+      claimed before the ring.
+    - **A play based at a keyframe needs its clock SEEDED there**: the
+      frames due are counted from the card's played bytes plus the base, and
+      until the first block interrupt the count was 0 - three frames held,
+      then due at once.
+    - **A 638-wide window cannot be snapped** on a 640-wide screen, so its
+      content sat at x = 2 and `OSAPI_GFX_BLIT1` refused the poster. 628
+      wide at frame x 7 is on the byte, and the poster rounds to the
+      screen's byte anyway.
+  - **Play does not yet become Pause**: that is a play in the window, W7.
+- **W7 — In-window**, the Play button that becomes Pause, and an exact
+  seek on a paused picture (keyframe plus replay).
 - **W8 — the whole encoder**, with profiles, the burst allowance and ADPCM4.
 - **W9 — Live windowed.**
 - **Field.** The owner's 5150 with the ST-225: BADAPPLE with sound, zero

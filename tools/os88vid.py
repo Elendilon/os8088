@@ -865,9 +865,25 @@ class Writer:
             size += len(r)
         sps.append(cur)
         secs = [-(-(4 + sum(len(r) for r in sp)) // SECTOR) for sp in sps]
-        nk = len(self.keys)
+        keys = self.keys
+        if self.audio_fmt == AUD_ADPCM4:
+            # THE REFERENCE BYTE (98.1.1.1): the sample the decoder holds at
+            # frame k+1, where a seek starts the card - and its scale must
+            # be 0 there, which only audio_chunks(keys=) arranges
+            st = adpcm4_trace(b"".join(r[len(r) - self.abytes:]
+                                       for r in self.recs))
+            keys = []
+            for k, r, c in self.keys:
+                ref, sc = st[(k + 1) * self.abytes]
+                if sc:
+                    raise V88Error("the ADPCM4 stream's scale is %d at frame "
+                                   "%d, where keyframe %d's seek starts; "
+                                   "encode it with audio_chunks(keys=)"
+                                   % (sc, k + 1, k))
+                keys.append((k, r + bytes([ref]), c))
+        nk = len(keys)
         ktab = -(-16 * nk // SECTOR) * SECTOR if nk else 0
-        krec = sum(len(r) for k, r, c in self.keys)
+        krec = sum(len(r) for k, r, c in keys)
         kbase = SECTOR + ktab
         s0 = kbase + -(-krec // SECTOR) * SECTOR
         spoff, o = [], s0
@@ -880,7 +896,7 @@ class Writer:
             b = struct.pack("<HH", len(sp), nxt) + b"".join(sp)
             stream += b + bytes(secs[i] * SECTOR - len(b))
         kt, kr, o = bytearray(), bytearray(), kbase
-        for k, r, c in self.keys:
+        for k, r, c in keys:
             if k + 1 < len(self.recs):
                 spi, idx = where[k + 1]
                 sp_at, sp_n = spoff[spi], secs[spi]
@@ -893,7 +909,7 @@ class Writer:
             kr += r
             o += len(r)
         if poster is None:
-            poster = next((i for i, (k, r, c) in enumerate(self.keys)
+            poster = next((i for i, (k, r, c) in enumerate(keys)
                            if not flat(c)), 0 if nk else 0xFFFF)
         elif not 0 <= poster < nk:
             raise V88Error("--poster %d: there are %d keyframes" % (poster, nk))
@@ -910,7 +926,7 @@ class Writer:
                          SECTOR if nk else 0, nk, poster, s0, secs[0],
                          max(secs), len(stream),
                          max(len(r) for r in self.recs),
-                         max((len(r) for k, r, c in self.keys), default=0))
+                         max((len(r) for k, r, c in keys), default=0))
         out = hdr + kt + bytes(ktab - len(kt)) + kr + \
             bytes(s0 - kbase - len(kr)) + stream
         with open(path, "wb") as f:
@@ -1091,9 +1107,9 @@ class Reader:
             wrote[0] += m
         end = walk_lists(surf, rec, REC_HDR, write if check else None)
         tail = len(rec) - end
-        if tail != (0 if key else self.abytes):
-            raise V88Error("%d bytes follow the lists, not %d"
-                           % (tail, 0 if key else self.abytes))
+        want = (1 if self.audio == AUD_ADPCM4 else 0) if key else self.abytes
+        if tail != want:
+            raise V88Error("%d bytes follow the lists, not %d" % (tail, want))
         if check and not wrote[0] and y0 != y1:
             raise V88Error("an empty record with a band %d..%d" % (y0, y1))
         return rec[end:]
@@ -1265,8 +1281,10 @@ def import_xdv(src, out, target="cga", title=None, keysecs=KEY_SECS,
     g = Geom(layout, ROWB, 200)
     cga = Geom(LAY_CGA, ROWB, 200) if layout != LAY_CGA else g
     pix = PF_CGACOMP if hdr["mode"] == 1 else PF_MONO1
+    keyint = max(1, round(keysecs * hdr["rate"] / hdr["achunk"]))
     chunks = audio_chunks(b"".join(xdc_audio(p, hdr) for p in pk), len(pk),
-                          hdr["achunk"], audio_fmt)
+                          hdr["achunk"], audio_fmt,
+                          key_frames(len(pk), keyint))
     w = Writer(g, hdr["rate"], hdr["achunk"], audio_fmt, len(chunks[0]), pix,
                title=title or os.path.splitext(os.path.basename(src))[0],
                credits="imported from XDC (MobyGamer's XDC, MIT)",
@@ -1336,18 +1354,34 @@ def adpcm4_decode(data, ref=ADPCM4_REF, scale=0):
     return bytes(out)
 
 
-def adpcm4_encode(pcm, ref=ADPCM4_REF, scale=0):
+def adpcm4_encode(pcm, ref=ADPCM4_REF, scale=0, zeros=()):
     """PCM8 (an even count) -> ADPCM4, greedily: each nibble the one whose
-    decoded sample is nearest, against the decoder's own state"""
+    decoded sample is nearest, against the decoder's own state.
+
+    `zeros` are sample indexes where the decoder must ARRIVE with its scale
+    at 0 - a keyframe's frame k+1 (SPEC.md 98.1.1.1). The scale moves in
+    steps of 16 and a zero-step nibble lowers it one, so the three samples
+    before one are chosen only among nibbles that get it there: a card
+    started at that byte with its reference is then in exactly the state the
+    continuous stream is, and a seek plays the file's own sound."""
     if len(pcm) % 2:
         raise V88Error("ADPCM4 packs two samples a byte; %d is odd"
                        % len(pcm))
+    zs = sorted(z for z in zeros if 0 < z <= len(pcm))
+    left = {}                       # sample index -> steps to a zero
+    for z in zs:
+        for d in (1, 2, 3):
+            if z - d >= 0:
+                left[z - d] = min(left.get(z - d, d), d)
     out = bytearray()
     hi = None
-    for x in pcm:
+    for j, x in enumerate(pcm):
         best = None
+        cap = 16 * (left[j] - 1) if j in left else 48
         for nib in range(16):
             r2, s2 = _adpcm4_step(ref, scale, nib)
+            if s2 > cap:
+                continue
             e = abs(r2 - x)
             if best is None or e < best[0]:
                 best = (e, nib, r2, s2)
@@ -1360,17 +1394,35 @@ def adpcm4_encode(pcm, ref=ADPCM4_REF, scale=0):
     return bytes(out)
 
 
-def audio_chunks(pcm, nf, spf, afmt):
+def adpcm4_trace(data, ref=ADPCM4_REF, scale=0):
+    """The decoder's (sample, scale) before each byte of `data`, and after
+    the last: [i] is the state a card started at byte i must be in"""
+    st = [(ref, scale)]
+    for b in data:
+        for nib in (b >> 4, b & 15):
+            ref, scale = _adpcm4_step(ref, scale, nib)
+        st.append((ref, scale))
+    return st
+
+
+def key_frames(nf, keyint):
+    """The frames keyframes are written after (98.1.3): every keyint-th"""
+    return list(range(0, nf, keyint))
+
+
+def audio_chunks(pcm, nf, spf, afmt, keys=()):
     """A stream's PCM8 cut into the frames' audio parts in format afmt: PCM8
     a sample a byte, or ADPCM4 encoded ONCE across the whole stream - its
     state runs on from frame to frame, the reference byte being the
-    player's (SPEC.md 98.1.1)"""
+    player's (SPEC.md 98.1.1) - with the scale steered to 0 at frame k+1 of
+    every keyframe k in `keys`, where a seek starts the card afresh"""
     pcm = bytes(pcm[:nf * spf]) + b"\x80" * max(0, nf * spf - len(pcm))
     if afmt == AUD_ADPCM4:
         if spf % 2:
             raise V88Error("ADPCM4 needs an even number of samples a frame, "
                            "and this stream has %d" % spf)
-        data, n = adpcm4_encode(pcm), spf // 2
+        data = adpcm4_encode(pcm, zeros=[(k + 1) * spf for k in keys])
+        n = spf // 2
     else:
         data, n = pcm, spf
     return [data[f * n:(f + 1) * n] for f in range(nf)]
@@ -1392,7 +1444,8 @@ def encode_frames(paths, out, fps, wav=None, layout="cga", title="",
         if afmt == AUD_ADPCM4:
             spf += spf % 2              # two samples a byte: the frame rate
             abytes = spf // 2           # moves by a hair to keep it even
-        chunks = audio_chunks(samples, len(paths), spf, afmt)
+        chunks = audio_chunks(samples, len(paths), spf, afmt, key_frames(
+            len(paths), max(1, round(keysecs * rate / spf))))
     else:
         rate, spf, afmt, abytes = max(1, round(fps * 100)), 100, AUD_NONE, 0
         samples = b""
@@ -1500,6 +1553,54 @@ def decode_at(r, n):
     raise V88Error("the stream ended before frame %d" % n)
 
 
+# THE POSTER (SPEC.md 98.4): the player halves a canvas 2x2 into 1, each
+# output pixel lit when its four source pixels hold MORE lit ones than its
+# threshold - 2x2 ordered dither, by output row and column parity - so a grey
+# stays grey and a one-pixel line survives. Twice for a canvas bigger than
+# CGA's, and then the rows past the box are cut top and bottom alike.
+THUMB_T = ((0, 2), (3, 1))
+POSTER_W, POSTER_H = 320, 100
+
+
+def thumb_half(cv, wb, h):
+    """(bytes, wb, h) of the canvas `cv` halved - apps/video/video.asm's
+    vp_half, bit for bit. An odd last row pairs with itself; an odd last
+    byte's missing partner is black."""
+    owb, oh = (wb + 1) // 2, (h + 1) // 2
+    out = bytearray(owb * oh)
+    for y in range(oh):
+        up = cv[2 * y * wb:(2 * y + 1) * wb]
+        lo = cv[(2 * y + 1) * wb:(2 * y + 2) * wb] if 2 * y + 1 < h else up
+        t = THUMB_T[y & 1]
+        for j in range(owb):
+            v = 0
+            for s in (0, 1):
+                a = up[2 * j + s] if 2 * j + s < wb else 0
+                b = lo[2 * j + s] if 2 * j + s < wb else 0
+                for p in range(4):
+                    sh = 6 - 2 * p
+                    n = bin((a >> sh) & 3).count("1") + \
+                        bin((b >> sh) & 3).count("1")
+                    if n > t[p & 1]:
+                        v |= 0x80 >> (4 * s + p)
+            out[y * owb + j] = v
+    return bytes(out), owb, oh
+
+
+def poster(cv, wb, h):
+    """(bytes, bytes a row, width in pixels, rows) of the picture the
+    Preview's box shows for canvas `cv` (SPEC.md 98.4)."""
+    img, bw, bh = thumb_half(cv, wb, h)
+    px = wb * 4
+    if wb * 8 > 2 * POSTER_W or h > 2 * POSTER_H:
+        img, bw, bh = thumb_half(img, bw, bh)
+        px = wb * 2
+    rows, skip = bh, 0
+    if bh > POSTER_H:
+        skip, rows = (bh - POSTER_H) // 2, POSTER_H
+    return img[skip * bw:(skip + rows) * bw], bw, px, rows
+
+
 def cmd_decode(a):
     r = Reader(a.file)
     cv = decode_at(r, a.frame)
@@ -1520,7 +1621,8 @@ def verify_v88(path, against=None):
                                                        path, r.frames))
         ref = (hdr, pk, bytearray(65536), Geom(LAY_CGA, ROWB, 200))
         want_audio = audio_chunks(b"".join(xdc_audio(p, hdr) for p in pk),
-                                  len(pk), hdr["achunk"], r.audio) \
+                                  len(pk), hdr["achunk"], r.audio,
+                                  [e[0] for e in r.keys]) \
             if r.audio == AUD_ADPCM4 else None
     ks = [e[0] for e in r.keys]
     if ks != sorted(set(ks)) or (ks and ks[-1] >= r.frames):
@@ -1565,6 +1667,18 @@ def verify_v88(path, against=None):
             raise V88Error("keyframe after frame %d names super-packet %d "
                            "record %d (%d sectors); the stream says %s"
                            % (k, spo, idx, spk, want))
+    if r.audio == AUD_ADPCM4 and r.keys:
+        # 98.1.1.1: each keyframe's reference byte is the sample the decoder
+        # holds at frame k+1, with its scale 0 - so a card started there with
+        # it plays exactly what the continuous stream plays
+        st = adpcm4_trace(b"".join(rec[len(rec) - r.abytes:]
+                                   for rec, _, _ in r.records()))
+        for i, (k, off, n, spo, spk, idx) in enumerate(r.keys):
+            want = st[(k + 1) * r.abytes]
+            if (r.d[off + n - 1], 0) != want:
+                raise V88Error("keyframe %d's ADPCM4 reference is %d; the "
+                               "stream holds %d at scale %d there"
+                               % (i, r.d[off + n - 1], want[0], want[1]))
     if (rmax, kmax) != (r.rmax, r.kmax):
         raise V88Error("the largest record and keyframe are %d and %d bytes; "
                        "the header says %d and %d" % (rmax, kmax, r.rmax,
@@ -1773,11 +1887,26 @@ def selfcheck():
         if len(back) != len(tone) or err > 24:
             fails.append("ADPCM4 does not carry a 440 Hz tone (worst "
                          "sample %d off)" % err)
+        # ...and a SEEK into it plays the stream's own sound (98.1.1.1): the
+        # keyframes' reference bytes, and a scale steered to 0 there
+        rs = Reader(out)
+        whole = adpcm4_decode(b"".join(rec[len(rec) - rs.abytes:]
+                                       for rec, _, _ in rs.records()))
+        for i in range(1, len(rs.keys)):
+            k, rec, spo, spn, idx = rs.key(i)
+            tail = b"".join(r[len(r) - rs.abytes:]
+                            for r, _, _ in rs.records(spo, spn, idx))
+            got = adpcm4_decode(tail, ref=rec[-1])
+            if got != whole[len(whole) - len(got):]:
+                fails.append("ADPCM4: a seek to keyframe %d does not play "
+                             "the stream's sound" % i)
+                break
     for f in fails:
         print("os88vid --selfcheck: FAIL - %s" % f)
     if not fails:
         print("os88vid --selfcheck: ok - encode, import (cga, herc, lin80), "
-              "decode and verify agree, ADPCM4 carries a tone, and four "
+              "decode and verify agree, ADPCM4 carries a tone and seeks "
+              "exactly, and four "
               "corruptions were refused")
     return 1 if fails else 0
 

@@ -8152,6 +8152,68 @@ SOAK = [
         "the burst OFF - 3D8h is not a VGA's - and plays the same bytes",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidpreview", "soak", py("tests/vidpreview.py"), 48.0,
+        "SPEC.md 98.4, 98.3.4, 98.3.5: VIDEO.O88's window is a PREVIEW. "
+        "vidplay's clip opened by double-clicking: the box holds the "
+        "header's poster keyframe halved 2x2 with the ordered dither - the "
+        "claim's bytes against tools/os88vid.py's poster() AND the screen "
+        "under the box; Right, a click on the scrub bar and the Prev button "
+        "each pick a key and the box follows; a play from key 1 holds "
+        "before frame k+1 (the keyframe alone) and later, frame-exact, and "
+        "ends on the last frame; and Space pauses a play for 1.5 guest s "
+        "with no frame drawn, finishing it on time. Broken on purpose (the "
+        "dither's thresholds swapped, the play's base left at 0, the hook's "
+        "pause test removed) it FAILS",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidprevherc", "soak", py("tests/vidpreview.py", "--layout",
+                                  "herc"), 48.0,
+        "SPEC.md 98.4: vidpreview on the Hercules 5150, a Hercules-layout "
+        "clip - the poster on Hercules' own desktop framebuffer",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidprevshd", "soak", py("tests/vidpreview.py", "--layout", "cga",
+                                 "--screen", "herc"), 48.0,
+        "SPEC.md 98.3.2, 98.3.5: vidpreview's CGA clip on the Hercules "
+        "5150, through the SHADOW - the keyframe decoded into it and copied "
+        "before the stream starts, every hold read where the copy put the "
+        "rows",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidsndpause", "soak", py("tests/vidsound.py", "--secs", "20",
+                                  "--pause"), 64.0,
+        "SPEC.md 98.3.4, 34.5.4: vidsound's play, paused with Space for 2 "
+        "guest s a third in - not one frame drawn and not one byte of sound "
+        "consumed while it is (SOUND.DRV verb 10 halts the card rather than "
+        "letting it play out its ring), and the capture still holds the "
+        "whole sound in order, the play on the sound's time without the "
+        "pause",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
+               "build/ctrl.drv", "build/sound.drv")),
+    Row("vidsndseek", "soak", py("tests/vidsound.py", "--secs", "20",
+                                 "--seek", "3"), 60.0,
+        "SPEC.md 98.3.5: vidsound's clip played from its fourth keyframe - "
+        "the play starts at frame k+1 and the capture holds the sound from "
+        "that frame's on, the picture on the card's clock from the first "
+        "frame (the clock is seeded at the key, not at 0)",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
+               "build/ctrl.drv", "build/sound.drv")),
+    Row("vidsndseekad", "soak", py("tests/vidsound.py", "--secs", "20",
+                                   "--seek", "3", "--audio", "adpcm4"), 70.0,
+        "SPEC.md 98.1.1.1, 98.3.5: the same seek with ADPCM4 sound. The card "
+        "restarts its decoder there, so the encoder steers the scale to 0 at "
+        "every keyframe's frame k+1 and the keyframe carries the sample the "
+        "stream holds there: the capture must equal the CONTINUOUS stream's "
+        "decode from that frame, sample for sample. Broken on purpose (the "
+        "player ignoring the keyframe's reference) it FAILS",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
+               "build/ctrl.drv", "build/sound.drv")),
     Row("vidsound", "soak", py("tests/vidsound.py"), 135.0,
         "SPEC.md 98.3.1/34.5.3: VIDEO.O88 WITH SOUND, the card the clock. A "
         "60 s 30 fps clip with 22,050 Hz PCM8 the row makes, streamed off a "

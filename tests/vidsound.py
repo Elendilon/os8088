@@ -21,6 +21,15 @@ and is played off that disk with the card's output captured
      really runs (its time constant truncates 22,050 to 22,222 Hz) - within
      2%: the picture followed the card, not the file's nominal rate.
 
+--pause holds Space for 2 guest seconds a third of the way in (SPEC.md
+98.3.4): not a frame is drawn and not a byte of sound consumed while it
+lasts - the card is halted (SOUND.DRV verb 10, 34.5.4) rather than left to
+play out its ring - and the capture still holds the whole sound in order,
+the play's time taken without the pause.
+
+--seek N starts the play at the clip's Nth keyframe (98.3.5): the frames
+from k+1 on, and the sound from frame k+1's on.
+
 --audio adpcm4 plays the same clip's sound as Creative 4-bit ADPCM, which
 the card decodes (DSP 7Dh); MartyPC's does it with the tables
 tools/os88vid.py encodes against (tools/martypc/patches/06), so point 4 then
@@ -113,6 +122,10 @@ def main():
     ap.add_argument("--audio", choices=("pcm8", "adpcm4"), default="pcm8",
                     help="adpcm4: the card decodes it (DSP 7Dh), MartyPC's "
                     "by tools/martypc/patches/06")
+    ap.add_argument("--pause", action="store_true",
+                    help="Space for 2 guest seconds a third of the way in")
+    ap.add_argument("--seek", type=int, default=0,
+                    help="play from this keyframe (0 = the start)")
     a = ap.parse_args()
     nf = int(a.secs * FPS)
     os.chdir(ROOT)
@@ -124,9 +137,14 @@ def main():
         afmt = vid.AUD_BY_NAME[a.audio]
         v88 = clip(tmp, nf, afmt)
         r = vid.Reader(v88)
+        base0 = r.keys[a.seek][0] + 1 if a.seek else 0
         audio = b"".join(rec[-r.abytes:] for rec, _, _ in r.records())
         if afmt == vid.AUD_ADPCM4:      # what the card plays: the stream
             audio = vid.adpcm4_decode(audio)    # decoded from the reference
+            audio = audio[base0 * r.spf:]   # - the CONTINUOUS stream's, from
+                                            # where a seek starts (98.1.1.1)
+        else:
+            audio = audio[base0 * r.abytes:]    # from where the play starts
         vhd = os.path.join(tmp, "vidsound.vhd")
         subprocess.run(
             ["python3", "tools/os88hdd.py", "--template", TEMPLATE,
@@ -162,12 +180,38 @@ def main():
                             guest=30.0)
             if rb("vp_ok") != 1:
                 sys.exit("vidsound: the player will not play the clip here")
+            for _ in range(a.seek):             # Right to the keyframe
+                n0 = rw("vp_sel")
+                m.key("ArrowRight")
+                os88marty.until(m, lambda mm: rw("vp_sel") == n0 + 1,
+                                "Right to pick a key", poll=0.3,
+                                limit=300.0, guest=30.0)
             m.write(base + syms["vp_played"], b"\0")
             m.type_text("p")
             os88marty.until(m, lambda mm: rb("vp_ready") == 1,
                             "the play to start", poll=0.1, limit=300.0,
                             guest=60.0)
             c0 = int(m.status().get("cycles", 0))
+            held = None
+            if a.pause:
+                at = base0 + (nf - base0) // 3
+                os88marty.until(m, lambda mm: rw("vp_done") >= at,
+                                "frame %d" % at, poll=0.3, limit=600.0,
+                                guest=a.secs + 30)
+                m.type_text(" ")
+                os88marty.until(m, lambda mm: rb("vp_upause") == 1,
+                                "Space to pause", poll=0.1, limit=120.0,
+                                guest=10.0)
+                aseg = rw("vp_aseg") << 4
+                os88marty.pace(m, 0.3)          # a block already under way
+                d0, c0a = rw("vp_done"), u16(m.read(aseg + 16386, 2))
+                os88marty.pace(m, 2.0)
+                held = (rw("vp_done") - d0, u16(m.read(aseg + 16386, 2)) -
+                        c0a)
+                m.type_text(" ")
+                os88marty.until(m, lambda mm: rb("vp_upause") == 0,
+                                "Space to resume", poll=0.1, limit=120.0,
+                                guest=10.0)
 
             def state():
                 seg = rw("vp_aseg") << 4
@@ -192,7 +236,8 @@ def main():
                             guest=30.0)
             st = {k: rw(k) for k in (
                 "vp_done", "vp_stall", "vp_late", "vp_pause", "vp_skmax", "vp_gap",
-                "vp_afr", "vp_atot", "vp_alast", "vp_afinal", "vp_dt")}
+                "vp_afr", "vp_atot", "vp_alast", "vp_afinal", "vp_dt",
+                "vp_base", "vp_ptk")}
             st["vp_snd"] = rb("vp_snd")
             st["vp_err"] = rb("vp_err")
             st["vp_aend"] = rb("vp_aend")
@@ -208,7 +253,7 @@ def main():
         # there can overshoot by seconds of guest time)
         real = 1000000.0 / (256 - (256 - 1000000 // RATE))   # the card's rate
         bps = r.abytes / float(r.spf)                   # bytes a sample
-        want_s = (r.spf * nf) / real + 2048 / bps / real   # ...and the
+        want_s = (r.spf * (nf - base0)) / real + 2048 / bps / real  # ...and the
                                                         # drain, to a block's end
         print("\n   %d frames, %d bytes of %s sound a frame at %d Hz (the "
               "card plays %.0f)" % (nf, r.abytes, a.audio.upper(), RATE, real))
@@ -219,6 +264,21 @@ def main():
         print("   the play took %.2f s of guest time; the sound is %.2f s; "
               "the hook was held off at most %d periods"
               % (secs, want_s, st["vp_gap"]))
+        if a.seek:
+            print("   from keyframe %d: the play started at frame %d"
+                  % (a.seek, st["vp_base"]))
+            if st["vp_base"] != base0:
+                bad.append("the play started at frame %d, not %d"
+                           % (st["vp_base"], base0))
+        if held is not None:
+            print("   paused %d ticks: %d frames drawn and %d bytes of sound "
+                  "consumed in 2 guest seconds of it"
+                  % (st["vp_ptk"], held[0], held[1] & 0xFFFF))
+            if held[0] or held[1] & 0xFFFF:
+                bad.append("the pause drew %d frames and played %d bytes"
+                           % (held[0], held[1] & 0xFFFF))
+            if st["vp_ptk"] < 36:
+                bad.append("only %d ticks counted as paused" % st["vp_ptk"])
         if not st["vp_snd"]:
             bad.append("the play was SILENT: the card was not opened")
         if st["vp_err"]:

@@ -485,6 +485,11 @@ SND_CAP_PCM_HI   equ 20h         ; PCM_BG takes rates ABOVE 22,222 Hz - an SB
 ; A driver without it answers AX = 7 with CF = 1: fall back to verb 3
 SND_V_PPOS       equ 9
 
+; verb 10 PAUSES an external ring's stream (SND_OPENF_EXT) where it is, the
+; DSP halted mid-block, and verb 1 with the total resumes it as it resumes an
+; underrun (SPEC.md 34.5.4). AX = 7 for any other stream
+SND_V_PAUSE      equ 10
+
 ; stream states returned by OSAPI_SND_STREAM verb 3 (SPEC.md 20.3/34.5)
 SND_ST_PLAYING   equ 0
 SND_ST_UNDER     equ 1           ; underrun-paused: resumable by a feed
