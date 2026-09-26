@@ -1117,6 +1117,24 @@ red. A row about one package goes in `soak`.
     pages fit (19,200 bytes a plane), and a flip ends tearing, but each
     page is TWO frames behind, so the encoder diffs against n-2 and the
     stream grows; it is a flag the encoder sets and the player honours.
+  - **W11b IS BUILT** (SPEC.md 98.1.3.1): MODEX records are sub-records,
+    each a Map Mask and ten lists, and the decoder OUTs the mask and runs
+    them once - `vidmodex` reads the RENDERED glass, since the planes are
+    not flat memory, and FAILS with the OUT removed. On camera footage the
+    0Fh stores carry only 4.4% of the pixels (the dither breaks flat areas
+    up); flat-shaded pictures are where they pay.
+  - **The owner's verdict on W11a** (2026-09-26, 86Box 286): the small
+    30 fps cut perfect; of the two full-size ones, 30 fps with smears
+    looks better than 15 fps for Trackmania - *"entirely based on feeling
+    smooth"* - where film or anime may want the lower rate. The 30 fps cut
+    stalled twice a second in: the encoder's disk bucket banked a second
+    at 400 KB/s where the player's ring holds 64-256 KB, now capped at 96
+    KB (SPEC.md 98.2.1). Asked next: 25 fps as a middle, and **a lower
+    effective resolution at the same screen size** - which is W11c.
+  - **Known intermittent**: `vidwin` and `vidwinshd` each failed once
+    under a four-lane soak at the same step - F while playing, then the
+    hold at frame 100 never comes - and pass alone (3 of 3 each). It
+    predates W11a. Not yet diagnosed.
   - **What the field answers**: the 86Box 286 for both modes, and the
     owner's 5150 is out of it - a VGA on an 8-bit bus at 4.77 MHz is
     wave 0's finding times four.

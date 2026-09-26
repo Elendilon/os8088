@@ -136,6 +136,14 @@ R_PAL       equ 32                  ; VGA8: the palette's offset (98.1.1)
 PF_VGA8     equ 2                   ; [vp_pixfmt] is the format less one
 LAY_LIN320  equ 3                   ; ...and [vp_layout] the layout less one
 LAY_LIN80   equ 2
+LAY_MODEX   equ 4
+VP_MXPL     equ 0x4B0               ; a MODEX plane image, 19,200 bytes, in
+                                    ; paragraphs: plane p of a RAM copy is
+                                    ; at + p x this (98.1.3.1)
+VP_MXSHD    equ 121                 ; ...and the claim a keyframe decodes
+                                    ; into: plane 3's base + 64 KB, so a
+                                    ; 16-bit write from any plane stays in
+                                    ; it (98.1.6)
 R_SLEN      equ 24
 R_KMAX      equ 30
 ; a keyframe table entry (SPEC.md 98.1.3), as vp_ke holds it
@@ -865,21 +873,21 @@ vp_parse:
     cmp al, PF_VGA8
     ja .bad
     mov [vp_pixfmt], al
-    mov bl, [es:V88_REND+R_LAYOUT]  ; 1..4, and the canvas inside it
+    mov bl, [es:V88_REND+R_LAYOUT]  ; 1..5, and the canvas inside it
     dec bl
-    cmp bl, LAY_LIN320
+    cmp bl, LAY_MODEX
     ja .bad
     mov [vp_layout], bl
-    cmp al, PF_VGA8                 ; VGA8 is LIN320's, and LIN320 VGA8's
-    je .v8
+    cmp al, PF_VGA8                 ; VGA8 is LIN320's and MODEX's, and
+    je .v8                          ; they take nothing else
     cmp bl, LAY_LIN320
-    je .bad
+    jae .bad
     mov word [vp_palo], 0
     mov word [vp_palo+2], 0
     jmp short .lay
 .v8:
     cmp bl, LAY_LIN320
-    jne .bad
+    jb .bad
     mov ax, [es:V88_REND+R_PAL]     ; the palette, on a sector
     or ax, ax
     jz .bad
@@ -912,6 +920,12 @@ vp_parse:
     mov cx, [vp_wb]
     cmp byte [vp_pixfmt], PF_VGA8
     jne .pgeo
+    cmp byte [vp_layout], LAY_MODEX ; MODEX: a plane byte is four pixels,
+    jne .pl320                      ; so two of them make the poster's one
+    shr cx, 1
+    jc .bad
+    jmp short .pgeo
+.pl320:
     test cl, 7                      ; ...eight pixels to its byte
     jnz .bad
     shr cx, 1
@@ -1250,6 +1264,10 @@ vp_kent:
 ; halved into [vp_pseg] - twice for a canvas bigger than CGA's. CF=1 not
 vp_kpic:
     mov ax, 64
+    cmp byte [vp_layout], LAY_MODEX
+    jne .kc
+    mov ax, VP_MXSHD
+.kc:
     call OSAPI_MEM_CLAIM
     jc .no
     mov [vp_kshd], dx
@@ -1267,10 +1285,9 @@ vp_kpic:
     add dx, ax
     and si, 15
     add si, 6                       ; past len, y0, y1
-    xor bp, bp
     push ds
     mov ds, dx
-    call vd_native                  ; ES = the shadow, from its address 0
+    call vp_decram                  ; ES = the shadow, from its address 0
     pop ds
     call vp_mkpic
     clc
@@ -1614,6 +1631,10 @@ vp_v8mono:
     push di
     push bp
     push es
+    cmp byte [vp_layout], LAY_MODEX
+    jne .lin
+    jmp .mx
+.lin:
     mov es, [vp_kshd]
     xor di, di                      ; DI = the output byte
     xor dx, dx                      ; DX = the row
@@ -1671,6 +1692,72 @@ vp_v8mono:
     pop bx
     pop ax
     ret
+.mx:                                ; MODEX: pixel x of a row is plane x mod
+    mov ax, [vp_kshd]               ; 4, byte x div 4 - so an output byte's
+    mov bx, vp_mxseg                ; eight are two bytes of each plane
+    mov cx, 4
+.seg:
+    mov [bx], ax
+    add ax, VP_MXPL
+    inc bx
+    inc bx
+    loop .seg
+    xor di, di
+    xor dx, dx
+.mrow:
+    cmp dx, [vp_h]
+    jae .done
+    mov ax, 80
+    push dx
+    mul dx
+    pop dx
+    mov bp, ax                      ; BP = the row in each plane
+    mov bx, dx
+    and bx, 3
+    shl bx, 1
+    shl bx, 1
+    mov ax, [vp_bayer4+bx]
+    mov [vp_rthr], ax
+    mov ax, [vp_bayer4+bx+2]
+    mov [vp_rthr+2], ax
+    mov cx, [vp_pwb]
+.mbyte:
+    push cx
+    xor ah, ah
+    xor cx, cx                      ; CX = the pixel, 0..7
+.mpix:
+    mov bx, cx
+    and bx, 3
+    shl bx, 1
+    mov es, [vp_mxseg+bx]
+    mov bx, cx
+    shr bx, 1
+    shr bx, 1
+    add bx, bp
+    mov bl, [es:bx]
+    xor bh, bh
+    mov al, [vp_lum+bx]
+    mov bx, cx
+    and bx, 3
+    cmp [vp_rthr+bx], al            ; CF = threshold < luma: lit
+    rcl ah, 1
+    inc cx
+    cmp cx, 8
+    jb .mpix
+    push ds
+    push ax
+    mov ax, [vp_pseg]
+    mov ds, ax
+    pop ax
+    mov [di], ah
+    pop ds
+    inc di
+    inc bp
+    inc bp
+    pop cx
+    loop .mbyte
+    inc dx
+    jmp short .mrow
 
 ; vp_zero - ES:0: the file's layout's memory image, black
 vp_zero:
@@ -1678,6 +1765,23 @@ vp_zero:
     push bx
     push cx
     push di
+    cmp byte [vp_layout], LAY_MODEX ; four planes, 76,800 bytes: past one
+    jne .one                        ; segment, so two halves
+    push es
+    xor ax, ax
+    xor di, di
+    mov cx, 2 * VP_MXPL * 8         ; two planes, in words
+    cld
+    rep stosw
+    mov cx, es
+    add cx, 2 * VP_MXPL
+    mov es, cx
+    xor di, di
+    mov cx, 2 * VP_MXPL * 8
+    rep stosw
+    pop es
+    jmp short .out
+.one:
     mov bl, [vp_layout]
     xor bh, bh
     mov ch, [vp_laykb+bx]           ; KB x 512 = words
@@ -1687,6 +1791,7 @@ vp_zero:
     xor ax, ax
     cld
     rep stosw
+.out:
     pop di
     pop cx
     pop bx
@@ -2012,6 +2117,11 @@ vp_sstart:
     ;     the ring, which takes what is left
     call vp_dinfo
     mov ax, 64
+    cmp byte [vp_layout], LAY_MODEX ; four planes' image (98.1.3.1)
+    jne .kx
+    mov ax, 75
+    jmp short .kc
+.kx:
     cmp byte [vp_fsshd], 0
     jne .kc
     mov bl, [vp_layout]
@@ -3018,10 +3128,30 @@ vp_kmove:                           ; AL = 0 keeper -> screen, 1 screen -> keepe
     push es
     mov [vp_kdir], al
     cld
+    mov ax, [vp_keep]
+    mov [vp_kseg], ax
+    cmp byte [vp_layout], LAY_MODEX
+    jne .one
+    xor cx, cx                      ; MODEX: plane by plane, the Map Mask
+.pl:                                ; for a put and the Read Map for a get,
+    call vp_mxsel                   ; into the keeper's planes VP_MXPL apart
+    push cx
+    call .rows
+    pop cx
+    add word [vp_kseg], VP_MXPL
+    inc cx
+    cmp cx, 4
+    jb .pl
+    call vp_mxall
+    jmp short .d
+.one:
+    call .rows
+    jmp short .d
+.rows:
     xor dx, dx                      ; DX = the row
 .r:
     cmp dx, [vp_h]
-    jae .d
+    jae .rd
     mov ax, dx
     mov bl, [vp_layout]
     call vp_rowaddr                 ; AX = the row, in the keeper
@@ -3029,7 +3159,7 @@ vp_kmove:                           ; AL = 0 keeper -> screen, 1 screen -> keepe
     mov di, ax
     add di, [vp_org]                ; ...and on the screen
     mov cx, [vp_wb]
-    mov ax, [vp_keep]
+    mov ax, [vp_kseg]
     mov bx, [vp_vseg]
     cmp byte [vp_kdir], 0
     jne .get
@@ -3049,6 +3179,8 @@ vp_kmove:                           ; AL = 0 keeper -> screen, 1 screen -> keepe
 .n:
     inc dx
     jmp short .r
+.rd:
+    ret
 .d:
     pop es
     pop di
@@ -3056,6 +3188,34 @@ vp_kmove:                           ; AL = 0 keeper -> screen, 1 screen -> keepe
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+; vp_mxsel - CL = a MODEX plane: the Map Mask (writes) and the Read Map
+; (reads) both on it. vp_mxall - writes to all four again, which is what the
+; decoder's 0Fh sub-records and the mode set assume. Preserve all
+vp_mxsel:
+    push ax
+    push dx
+    mov ah, 1
+    shl ah, cl
+    mov al, 2
+    mov dx, 0x3C4
+    out dx, ax
+    mov ah, cl
+    mov al, 4
+    mov dx, 0x3CE
+    out dx, ax
+    pop dx
+    pop ax
+    ret
+vp_mxall:
+    push ax
+    push dx
+    mov ax, 0x0F02
+    mov dx, 0x3C4
+    out dx, ax
+    pop dx
     pop ax
     ret
 
@@ -3608,8 +3768,70 @@ vp_decrec:
     add si, 6
     push ds
     mov ds, dx
+    cmp byte [cs:vp_layout], LAY_MODEX
+    je .mx
     call vd_native                  ; the lists, onto the adapter
     pop ds
+    ret
+.mx:                                ; MODEX (98.1.3.1): each sub-record's Map
+    lodsb                           ; Mask, then its lists - four pixels a
+    or al, al                       ; store under 0Fh, a plane's under the
+    jz .mxd                         ; rest
+    mov ah, al
+    mov al, 2
+    mov dx, 0x3C4
+    out dx, ax
+    push bp
+    call vd_native
+    pop bp
+    jmp short .mx
+.mxd:
+    pop ds
+    ret
+
+; vp_decram - DS:SI = a record's lists, ES = a RAM image at its address 0:
+; decoded there, BP = 0. A MODEX image is four planes VP_MXPL paragraphs
+; apart, and a sub-record is decoded into every plane its mask names.
+; clobbers AX, BX, CX, DX, SI, DI, BP
+vp_decram:
+    xor bp, bp
+    cmp byte [cs:vp_layout], LAY_MODEX
+    je .mx
+    jmp vd_native
+.mx:
+    push es
+    mov bx, es
+.sub:
+    lodsb
+    or al, al
+    jz .done
+    mov ah, al                      ; AH = the mask, shifted as it is spent
+    mov dx, bx                      ; DX = plane 0's image
+    mov cx, 4
+    mov di, si                      ; the lists, decoded again per plane
+.p:
+    shr ah, 1
+    jnc .np
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    mov es, dx
+    mov si, di
+    xor bp, bp
+    call vd_native                  ; SI past them, the last time counting
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.np:
+    add dx, VP_MXPL
+    loop .p
+    jmp short .sub
+.done:
+    pop es
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4929,16 +5151,23 @@ vp_laytab:
     dw 80, 480
     db FSXM_VGA13, 1
     dw 320, 200
-vp_laynames:  dw vp_s_cga, vp_s_herc, vp_s_vga, vp_s_vga8
+    db FSXM_MODEX, 1
+    dw 80, 240
+vp_laynames:  dw vp_s_cga, vp_s_herc, vp_s_vga, vp_s_vga8, vp_s_modex
 vp_laynotab:  dw vp_s_nocga, vp_s_noherc, vp_s_novga, vp_s_novga8
+              dw vp_s_novga8
 vp_laycptab:  dw vp_s_cpcga, vp_s_cpherc, vp_s_cpvga, vp_s_novga8
-vp_laykb:     db 16, 32, 38, 63         ; each layout's memory image, KB
+              dw vp_s_novga8
+vp_laykb:     db 16, 32, 38, 63, 75     ; each layout's memory image, KB
 vp_bayer4:    db 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5
 vp_rthr:      db 0, 0, 0, 0             ; vp_v8mono: this row's four
+vp_mxseg:     dw 0, 0, 0, 0             ; ...and MODEX's four planes
+vp_kseg:      dw 0                      ; vp_kmove: the keeper's plane
 vp_s_cga:     db 'CGA  ', 0
 vp_s_herc:    db 'Herc  ', 0
 vp_s_vga:     db 'VGA  ', 0
 vp_s_vga8:    db 'VGA 256  ', 0
+vp_s_modex:   db 'Mode X  ', 0
 
 vp_s_file:    db 'File: ', 0
 vp_s_nofile:  db '(none) - File > Open...', 0

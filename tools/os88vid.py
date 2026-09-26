@@ -680,18 +680,24 @@ AUD_BY_NAME = {"pcm8": AUD_PCM8, "adpcm4": AUD_ADPCM4}
 ADPCM4_REF = 0x80               # the stream's reference byte (SPEC.md 98.1.1)
 PF_MONO1, PF_CGACOMP, PF_VGA8 = 1, 2, 3
 PF_NAMES = {PF_MONO1: "MONO1", PF_CGACOMP: "CGACOMP", PF_VGA8: "VGA8"}
-LAY_CGA, LAY_HERC, LAY_LIN80, LAY_LIN320 = 1, 2, 3, 4
+LAY_CGA, LAY_HERC, LAY_LIN80, LAY_LIN320, LAY_MODEX = 1, 2, 3, 4, 5
 LAYOUTS = {                     # SPEC.md 98.1.2: banks, stride, rows, name
     LAY_CGA: (2, 80, 200, "cga"),
     LAY_HERC: (4, 90, 348, "herc"),
     LAY_LIN80: (1, 80, 480, "lin80"),
     LAY_LIN320: (1, 320, 200, "lin320"),
+    LAY_MODEX: (1, 80, 240, "modex"),   # a PLANE's image: 80 bytes a row
 }
 LAYOUT_BY_NAME = {v[3]: k for k, v in LAYOUTS.items()}
 ASPECT = {LAY_CGA: (5, 12), LAY_HERC: (29, 45), LAY_LIN80: (1, 1),
-          LAY_LIN320: (5, 6)}
-# a byte is a PIXEL on a VGA8 layout and eight of them on the others
-PIX_PER_BYTE = {LAY_CGA: 8, LAY_HERC: 8, LAY_LIN80: 8, LAY_LIN320: 1}
+          LAY_LIN320: (5, 6), LAY_MODEX: (1, 1)}
+# a byte is a PIXEL on a VGA8 layout and eight of them on the others - and
+# on MODEX a byte of each of four planes, so a plane row's byte is 4 pixels
+PIX_PER_BYTE = {LAY_CGA: 8, LAY_HERC: 8, LAY_LIN80: 8, LAY_LIN320: 1,
+                LAY_MODEX: 4}
+VGA8_LAYOUTS = (LAY_LIN320, LAY_MODEX)
+PLANE = 65536                   # a planar surface: plane p at p x 64 KB
+CYC_SUB = 40                    # a MODEX sub-record's Map Mask OUT
 PAL_BYTES = 768                 # VGA8's palette: 256 x (r, g, b), 0..63
 BAYER4 = (0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5)
 
@@ -753,6 +759,8 @@ class Geom:
                            % (wb, h, self.name, stride, rows))
         self.layout, self.wb, self.h = layout, wb, h
         self.banks, self.stride = banks, stride
+        self.planes = 4 if layout == LAY_MODEX else 1
+        self.w = wb * PIX_PER_BYTE[layout]
         self.base = [(y % banks) * 8192 + (y // banks) * stride
                      for y in range(h)]
         self.valid = bytearray(65536)
@@ -762,16 +770,35 @@ class Geom:
             for x in range(wb):
                 self.rowof[b + x] = y
 
+    def surface(self):
+        """A black surface image: 64 KB, or a plane of it each for MODEX"""
+        return bytearray(PLANE * self.planes)
+
     def canvas(self, surf):
-        """The canvas out of a surface image, top row first."""
-        return b"".join(bytes(surf[b:b + self.wb]) for b in self.base)
+        """The canvas out of a surface image, top row first - for MODEX a
+        pixel a byte, pixel x in plane x mod 4"""
+        if self.planes == 1:
+            return b"".join(bytes(surf[b:b + self.wb]) for b in self.base)
+        w, out = self.w, bytearray(self.w * self.h)
+        for y, b in enumerate(self.base):
+            for p in range(4):
+                out[y * w + p:(y + 1) * w:4] = surf[p * PLANE + b:
+                                                    p * PLANE + b + self.wb]
+        return bytes(out)
 
     def put(self, surf, cv):
+        if self.planes == 1:
+            for y, b in enumerate(self.base):
+                surf[b:b + self.wb] = cv[y * self.wb:(y + 1) * self.wb]
+            return
+        w = self.w
         for y, b in enumerate(self.base):
-            surf[b:b + self.wb] = cv[y * self.wb:(y + 1) * self.wb]
+            for p in range(4):
+                surf[p * PLANE + b:p * PLANE + b + self.wb] = \
+                    cv[y * w + p:(y + 1) * w:4]
 
 
-def spans(changed, surf, g):
+def spans(changed, surf, g, valid=None, gaps=True):
     """Writes for the canvas addresses in `changed`, whose new values
     are in `surf`. Adjacent addresses make one span. A gap of one byte is
     closed (a P1 + P1 costs more than the P3 that covers both), and so is a
@@ -785,11 +812,12 @@ def spans(changed, surf, g):
         else:
             sp.append([a, a + 1])
     out = []
+    valid = g.valid if valid is None else valid
     for s, e in sp:
-        if out:
+        if out and gaps:
             ps, pe = out[-1]
             gap = s - pe
-            if gap <= 4 and all(g.valid[pe:s]) and \
+            if gap <= 4 and all(valid[pe:s]) and \
                     (gap <= 1 or (pe - ps >= 7 and e - s >= 7)):
                 out[-1][1] = e
                 continue
@@ -831,8 +859,21 @@ def band_of(ops, g):
 def record(ops, g, audio=b"", limit=SP_MAX * SECTOR - 4):
     """A frame record; `limit` is a super-packet's room, or a keyframe's
     (65,535: its length is a word, and it rides in no super-packet)"""
-    lists, e, s = to_lists(ops)
-    y0, y1 = band_of(ops, g)
+    if g.planes > 1:
+        # MODEX (98.1.3.1): sub-records, each its Map Mask and ten lists,
+        # a 0 after the last - ops is [(mask, ops), ...]
+        body, every = bytearray(), []
+        for mask, sub in ops:
+            if sub:
+                body.append(mask)
+                body += to_lists(sub)[0]
+                every += sub
+        body.append(0)
+        lists = bytes(body)
+        y0, y1 = band_of(every, g)
+    else:
+        lists, e, s = to_lists(ops)
+        y0, y1 = band_of(ops, g)
     n = REC_HDR + len(lists) + len(audio)
     if n > limit:
         raise V88Error("a record of %d bytes cannot fit %s" % (
@@ -841,8 +882,51 @@ def record(ops, g, audio=b"", limit=SP_MAX * SECTOR - 4):
 
 
 def keyframe_ops(surf, g):
+    if g.planes > 1:
+        cv = g.canvas(surf)
+        return modex_subs(cv, [v != 0 for v in cv], g)
     changed = [a for b in g.base for a in range(b, b + g.wb) if surf[a]]
     return spans(changed, surf, g)
+
+
+def modex_subs(cv, changed, g):
+    """A MODEX frame's writes (98.1.3.1): the canvas `cv` (a pixel a byte)
+    at the pixels `changed` flags. An aligned group of four pixels of ONE
+    colour with two or more of them changed is one byte under Map Mask 0Fh
+    - four pixels a store; every other changed pixel is its plane's. A
+    plane's spans may close a gap over bytes that are already right (the
+    target's own bytes, so nothing changes), but never over a group the
+    0Fh sub-record writes, and 0Fh's spans close no gap at all: a byte
+    there is four pixels, and a gap's four need not be one colour"""
+    w = g.w
+    grp, per = [], [[] for _ in range(4)]
+    gsurf = bytearray(PLANE)
+    psurf = [bytearray(PLANE) for _ in range(4)]
+    pvalid = [bytearray(g.valid) for _ in range(4)]
+    for y, b in enumerate(g.base):
+        row = cv[y * w:(y + 1) * w]
+        for p in range(4):
+            psurf[p][b:b + g.wb] = row[p::4]
+        for xb in range(g.wb):
+            x = xb * 4
+            ch = changed[y * w + x:y * w + x + 4]
+            n = sum(1 for c in ch if c)
+            if not n:
+                continue
+            v = row[x]
+            if n >= 2 and row[x + 1] == v and row[x + 2] == v and \
+                    row[x + 3] == v:
+                grp.append(b + xb)
+                gsurf[b + xb] = v
+                for p in range(4):
+                    pvalid[p][b + xb] = 0
+            else:
+                for p in range(4):
+                    if ch[p]:
+                        per[p].append(b + xb)
+    return [(0x0F, spans(grp, gsurf, g, gaps=False))] + \
+        [(1 << p, spans(per[p], psurf[p], g, valid=pvalid[p]))
+         for p in range(4)]
 
 
 def flat(cv):
@@ -872,8 +956,9 @@ class Writer:
 
     def __init__(self, g, rate, spf, audio_fmt, abytes, pixfmt, title="",
                  credits="", aspect=None, keysecs=KEY_SECS, palette=None):
-        if (pixfmt == PF_VGA8) != (g.layout == LAY_LIN320):
-            raise V88Error("VGA8 is LIN320's format, and LIN320 VGA8's")
+        if (pixfmt == PF_VGA8) != (g.layout in VGA8_LAYOUTS):
+            raise V88Error("VGA8 is LIN320's and MODEX's format, and they "
+                           "take no other")
         if (pixfmt == PF_VGA8) != (palette is not None) or \
                 (palette is not None and (len(palette) != PAL_BYTES or
                                           max(palette) > 63)):
@@ -896,8 +981,14 @@ class Writer:
         self.recs.append(record(ops, self.g, audio))
         if k % self.keyint == 0:
             kop = keyframe_ops(surf, self.g)
-            self.keys.append((k, record(kop, self.g, limit=65535),
-                              self.g.canvas(surf)))
+            try:
+                self.keys.append((k, record(kop, self.g, limit=65535),
+                                  self.g.canvas(surf)))
+            except V88Error:
+                # a VGA8 canvas past its record's length word (a 320 x
+                # 240 MODEX one can be) has no keyframe here: the file
+                # still plays from the start, and seeks to the ones it has
+                self.skipped = getattr(self, "skipped", 0) + 1
 
     def write(self, path, poster=None):
         g = self.g
@@ -1090,9 +1181,10 @@ class Reader:
          self.kmax) = struct.unpack_from("<BBHHBBIHHIHHIHH", d, 192)
         if self.pixfmt not in PF_NAMES:
             raise V88Error("pixel format %d" % self.pixfmt)
-        if (self.pixfmt == PF_VGA8) != (layout == LAY_LIN320):
+        if (self.pixfmt == PF_VGA8) != (layout in VGA8_LAYOUTS):
             raise V88Error("pixel format %d on layout %d: VGA8 is LIN320's "
-                           "and only LIN320's" % (self.pixfmt, layout))
+                           "and MODEX's, and only theirs"
+                           % (self.pixfmt, layout))
         self.g = Geom(layout, wb, h)
         pal = struct.unpack_from("<I", d, 224)[0]
         self.palette = None
@@ -1162,10 +1254,12 @@ class Reader:
         rows inside y0..y1, audio exact."""
         g = self.g
         n, y0, y1 = struct.unpack_from("<HHH", rec, 0)
-        seen = bytearray(65536)
+        seens = [bytearray(65536) for _ in range(g.planes)]
         wrote = [0]
+        plane = [0]
 
         def write(k, di, m):
+            seen = seens[plane[0]]
             if not all(g.valid[di:di + m]):
                 raise V88Error("a write at %04x+%d leaves the canvas" % (di, m))
             for a in (di, di + m - 1):
@@ -1176,7 +1270,26 @@ class Reader:
                 raise V88Error("two writes overlap at %04x" % di)
             seen[di:di + m] = b"\x01" * m
             wrote[0] += m
-        end = walk_lists(surf, rec, REC_HDR, write if check else None)
+        if g.planes == 1:
+            end = walk_lists(surf, rec, REC_HDR, write if check else None)
+        else:                       # 98.1.3.1: a Map Mask, then its lists
+            si, mv = REC_HDR, memoryview(surf)
+            while True:
+                if si >= len(rec):
+                    raise V88Error("the sub-records run off their record")
+                mask = rec[si]
+                si += 1
+                if not mask:
+                    break
+                if mask > 15:
+                    raise V88Error("a Map Mask of %02x" % mask)
+                for p in range(4):
+                    if mask >> p & 1:
+                        plane[0] = p
+                        end = walk_lists(mv[p * PLANE:(p + 1) * PLANE], rec,
+                                         si, write if check else None)
+                si = end
+            end = si
         tail = len(rec) - end
         want = (1 if self.audio == AUD_ADPCM4 else 0) if key else self.abytes
         if tail != want:
@@ -1193,10 +1306,11 @@ class Reader:
         return k, rec, spo, spn, idx
 
 
-def cycles_of(rec):
+def cycles_of(rec, planar=False):
     """The wave 0 model's cycles for one record, writing CGA's screen: the
     frame's fixed cost, a set-up per skip segment, each entry by its list,
-    and an absolute entry's extra address."""
+    and an absolute entry's extra address. A MODEX record's sub-records
+    are decoded once each whatever their mask, and pay an OUT"""
     c = [CYC_FRAME]
 
     def write(k, di, m):
@@ -1212,7 +1326,13 @@ def cycles_of(rec):
         c[0] += 0 if absolute else CYC_SEG
         mode[0] = absolute
     mode = [False]
-    walk_lists(bytearray(65536), rec, REC_HDR, write, seg)
+    if not planar:
+        walk_lists(bytearray(65536), rec, REC_HDR, write, seg)
+        return c[0]
+    si = REC_HDR
+    while rec[si]:
+        c[0] += CYC_SUB
+        si = walk_lists(bytearray(65536), rec, si + 1, write, seg)
     return c[0]
 
 
@@ -1722,8 +1842,15 @@ def encode_canvases(canvases, g, out, fps, pixfmt=PF_MONO1, palette=None,
     rate, spf = max(1, round(fps * 100)), 100
     wr = Writer(g, rate, spf, AUD_NONE, 0, pixfmt, title=title,
                 keysecs=keysecs, palette=palette)
-    surf = bytearray(65536)
+    surf = g.surface()
+    prev = g.canvas(surf)
     for cv in canvases:
+        if g.planes > 1:
+            subs = modex_subs(cv, [a != b for a, b in zip(cv, prev)], g)
+            g.put(surf, cv)
+            prev = cv
+            wr.frame(subs, surf)
+            continue
         changed = []
         for y, b in enumerate(g.base):
             row = cv[y * g.wb:(y + 1) * g.wb]
@@ -1740,7 +1867,7 @@ def encode_canvases(canvases, g, out, fps, pixfmt=PF_MONO1, palette=None,
 def v88_frames(r, check=True):
     """(frame, surface after it) for every frame of the stream, checking
     each record; and the stream's own totals against the header's."""
-    surf = bytearray(65536)
+    surf = r.g.surface()
     f = 0
     for rec, at, i in r.records():
         r.apply(surf, rec, check=check)
@@ -1773,7 +1900,7 @@ def cmd_info(a):
         r = Reader(path)
         g = r.g
         secs = r.frames / r.fps
-        cyc = [cycles_of(rec) for rec, at, i in r.records()]
+        cyc = [cycles_of(rec, r.g.planes > 1) for rec, at, i in r.records()]
         period = HZ / r.fps
         print("%s: '%s'" % (path, r.title))
         if r.credits:
@@ -1800,7 +1927,7 @@ def decode_at(r, n):
     """The canvas after frame `n`, through the keyframe at or before it."""
     if not 0 <= n < r.frames:
         raise V88Error("frame %d of %d" % (n, r.frames))
-    surf = bytearray(65536)
+    surf = r.g.surface()
     at = nsec = None
     f, skip = 0, 0
     best = [i for i, e in enumerate(r.keys) if e[0] <= n]
@@ -1906,7 +2033,7 @@ def verify_v88(path, against=None):
         if f in kat:
             k, krec, spo, spk, idx = r.key(kat[f])
             kmax = max(kmax, len(krec))
-            kb = bytearray(65536)
+            kb = g.surface()
             r.apply(kb, krec, key=True)
             if g.canvas(kb) != g.canvas(surf):
                 raise V88Error("keyframe %d is not the screen after frame %d"

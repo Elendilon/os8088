@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """VIDEO.O88 plays 256 colours in mode 13h - SPEC.md 98.1.2's LIN320,
-VIDEO-PLAN wave 11a.
+VIDEO-PLAN wave 11a - and in Mode X, MODEX's planes (98.1.3.1, wave 11b).
 
-    make && python3 tests/vidvga8.py [--machine NAME]
+    make && python3 tests/vidvga8.py [--layout lin320|modex] [--machine NAME]
 
 THE CLIP IS MADE HERE: 60 frames of a 160 x 96 VGA8 canvas at 15 fps,
 silent - boxes of colour that move, a band of one value and bursts of noise,
@@ -21,8 +21,20 @@ a DAC that was never loaded shows. On MartyPC's VGA XT, four questions:
 4. IS IT ON TIME? A second play, whole: every frame, no stall, no late
    period, 60 frames in 4 s of ticks.
 
+--layout modex makes the same clip in Mode X: the frames are sub-records
+under a Map Mask, four-pixel groups of one colour under 0Fh. Mode X is four
+planes behind the Graphics Controller and the debug read sees one, so 3
+reads the RENDERED frame instead, every mode pixel on the glass against the
+reference decode put through the palette - the bytes and the DAC in one
+comparison. MartyPC does not model Mode X's retime to 480 lines: it scans
+the 240 rows twice each into 400, so rows 200 to 239 are off its glass and
+the row checks only the 200 it shows (the canvas is inside them). The clip must hold 0Fh sub-records and plane ones,
+or it tests half the decoder.
+
 Broken on purpose - vp_dac skipped - the rendered colours are the BIOS's and
-it FAILS on 3; with the luma threshold's compare flipped it FAILS on 2.
+it FAILS on 3; with the luma threshold's compare flipped it FAILS on 2; for
+modex, with the Map Mask OUT skipped, the plane writes land in all four
+planes and 3 FAILS.
 """
 import argparse
 import os
@@ -57,9 +69,9 @@ def palette():
     return bytes(p)
 
 
-def clip(tmp):
+def clip(tmp, layout):
     rnd = random.Random(1311)
-    g = vid.Geom(vid.LAY_LIN320, W, H)
+    g = vid.Geom(layout, W // vid.PIX_PER_BYTE[layout], H)
     cvs, cv = [], bytearray(W * H)
     for f in range(NF):
         k = f % 20
@@ -88,7 +100,13 @@ def clip(tmp):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--machine", default="os8088_xt_vga")
+    ap.add_argument("--layout", choices=("lin320", "modex"),
+                    default="lin320")
     a = ap.parse_args()
+    lay = vid.LAYOUT_BY_NAME[a.layout]
+    modex = lay == vid.LAY_MODEX
+    mode_want = 8 if modex else FSXM_VGA13
+    SW, SH = (320, 240) if modex else (320, 200)
     os.chdir(ROOT)
     syms, _ = pkg_syms("apps/video/video.asm", ("apps/",))
     pkg = os88build.at("build/video.o88")
@@ -96,14 +114,26 @@ def main():
     pal8 = [tuple((v * 255 + 31) // 63 for v in palette()[3 * i:3 * i + 3])
             for i in range(256)]
     with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "build")) as tmp:
-        v88 = clip(tmp)
+        v88 = clip(tmp, lay)
         r = vid.Reader(v88)
         g = r.g
+        if modex:                       # both halves of the decoder
+            masks = set()
+            for rec, _, _ in r.records():
+                si = 6
+                while rec[si]:
+                    masks.add(rec[si])
+                    si = vid.walk_lists(bytearray(65536), rec, si + 1)
+            print("   the clip's Map Masks: %s" % sorted(masks))
+            if 0x0F not in masks or not masks - {0x0F}:
+                bad.append("the clip holds Map Masks %s: it does not test "
+                           "both the 0Fh and the plane sub-records"
+                           % sorted(masks))
         disk = os.path.join(tmp, "vidvga8.img")
         subprocess.run([sys.executable, "tools/os88disk.py", "-o", disk,
                         "--size", "360", pkg, v88], check=True,
                        capture_output=True)
-        ty0, tx0 = (200 - H) // 2, (320 - W) // 2
+        ty0, tx0 = (SH - H) // 2, (SW - W) // 2
         rows_at = [(ty0 + y) * 320 + tx0 for y in range(H)]
         with os88ui.boot(os88build.at("build/os8088-360.img"), apps=disk,
                          machine=a.machine) as ui:
@@ -133,12 +163,12 @@ def main():
                     rb("vp_shadow"), rb("vp_ok"))
             print("   format %d, layout %d, mode %d, shadow %d, ok %d"
                   % got1)
-            if got1 != (vid.PF_VGA8, vid.LAY_LIN320, FSXM_VGA13, 0, 1):
+            if got1 != (vid.PF_VGA8, lay, mode_want, 0, 1):
                 bad.append("the player read the file as format %d layout %d "
                            "mode %d shadow %d ok %d" % got1)
             # --- 2: the poster, key 1, at its own size
             k = r.key(1)
-            surf = bytearray(65536)
+            surf = g.surface()
             r.apply(surf, k[1], key=True)
             want = vid.vga8_mono(g.canvas(surf), W, H, r.palette)
             pseg = rw("vp_pseg") << 4
@@ -151,6 +181,42 @@ def main():
             if ps != 1 or d:
                 bad.append("the poster is not the luma dither (scale %d, %d "
                            "bytes differ)" % (ps, d))
+            def glass(n):
+                """98.1.3.1: the rendered frame, each MODE pixel sampled at
+                its centre, against the decode through the palette"""
+                want = vid.decode_at(r, n - 1)
+                fw, fh, rgb = m.fbuf(0)
+                if os.environ.get("VIDVGA8_PNG"):
+                    from PIL import Image
+                    Image.frombytes("RGB", (fw, fh), bytes(rgb)).save(
+                        os.path.join(os.environ["VIDVGA8_PNG"],
+                                     "glass%02d.png" % n))
+                # MARTYPC SCANS MODE X'S 240 ROWS TWICE EACH INTO 400 LINES:
+                # it does not model the retime to 480, so rows 200..239 are
+                # off its glass. The canvas here (rows 72..167) is not
+                sx = sy = fw / SW
+                shown = min(SH, int(fh / sy))
+                wrong = 0
+                for y in range(shown):
+                    ry = int((y + 0.5) * sy)
+                    for x in range(SW):
+                        cy, cx = y - ty0, x - tx0
+                        v = want[cy * W + cx] if 0 <= cy < H and \
+                            0 <= cx < W else 0
+                        o = 3 * (ry * fw + int((x + 0.5) * sx))
+                        if max(abs(rgb[o + j] - pal8[v][j])
+                               for j in range(3)) > 6:
+                            wrong += 1
+                print("   hold before frame %2d: %d of %d mode pixels on the "
+                      "glass are not the decode's colour (%dx%d rendered, "
+                      "%d rows shown)" % (n, wrong, SW * shown, fw, fh, shown))
+                if ty0 + H > shown:
+                    bad.append("the canvas runs past the %d rows the glass "
+                               "shows" % shown)
+                if wrong:
+                    bad.append("the glass before frame %d is wrong in %d "
+                               "pixels" % (n, wrong))
+
             # --- 3: every frame right, in its colours
             m.write(base + syms["vp_nowin"], b"\1")
             ww("vp_stopat", STOPS[0])
@@ -159,6 +225,13 @@ def main():
             for n in STOPS:
                 until(lambda mm: rb("vp_held") == 1 and rw("vp_done") == n,
                       "the hold before frame %d" % n, 120.0)
+                if modex:
+                    glass(n)
+                    i = STOPS.index(n)
+                    ww("vp_stopat", STOPS[i + 1] if i + 1 < len(STOPS)
+                       else 0xFFFF)
+                    m.write(base + syms["vp_held"], b"\0")
+                    continue
                 seg = bytes(m.read(0xA0000, 64000))
                 got = b"".join(seg[b:b + W] for b in rows_at)
                 want = vid.decode_at(r, n - 1)

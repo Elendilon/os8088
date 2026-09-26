@@ -34,7 +34,8 @@ tools/os88venc.py encodes it three ways. Four questions:
 9. IS 256 COLOURS A FILE? --preset vga8-small with no limits: VGA8 on
    LIN320, 15 fps by default, true black at index 0 (what the screen round
    the canvas and a keyframe start from, though this source holds no
-   black), and every frame its target.
+   black), and every frame its target - and the same in Mode X, whose
+   frames are sub-records under a Map Mask.
 8. DOES COMPOSITE DIFFUSION SEE THE MODEL? A picture rendered through the
    model from known nibbles, in runs of 2 to 6 cells, must come back as 90%
    or more of them (94% measured). Without the lookahead - a cell judged as
@@ -134,6 +135,19 @@ def main():
                        "%d frames differ"
                        % (r.pixfmt, r.g.layout, r.fps,
                           tuple(r.palette[:3]), diff))
+        # ...and in Mode X, where a frame is sub-records (98.1.3.1)
+        path, res, keep = run("modex", "--preset", "modex-small",
+                              "--profile", "lossless", "--audio", "none")
+        vid.verify_v88(path)
+        r = vid.Reader(path)
+        diff = sum(1 for f, surf, rec, at, i in vid.v88_frames(r)
+                   if r.g.canvas(surf) != keep[f].tobytes())
+        print("   modex: %s %d x %d, %d of %d frames differ from their "
+              "target" % (vid.PF_NAMES[r.pixfmt], r.g.w, r.g.h, diff,
+                          r.frames))
+        if r.g.layout != vid.LAY_MODEX or diff or r.frames != len(keep):
+            bad.append("modex: layout %d, %d frames differ"
+                       % (r.g.layout, diff))
         # --- 3: tight limits kept
         path, res, keep = run("tight", "--preset", "herc", "--disk", "20000",
                               "--avg", "0.30", "--peak", "0.50", "--rate",
@@ -146,7 +160,7 @@ def main():
         cpu_per = 0.30 * period - acyc
         dsk_per = (20000 * 0.99 - abps) / fps
         cpu = venc.Budget(cpu_per, cpu_per * fps)
-        dsk = venc.Budget(dsk_per, dsk_per * fps)
+        dsk = venc.Budget(dsk_per, min(dsk_per * fps, venc.DISK_LOOKAHEAD))
         over, cut, low = [], 0, [0.0, 0.0]
         screens = []
         for f, surf, rec, at, i in vid.v88_frames(r):

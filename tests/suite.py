@@ -8210,6 +8210,17 @@ SOAK = [
         "the poster FAILS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidmodex", "soak", py("tests/vidvga8.py", "--layout", "modex"),
+        34.0,
+        "SPEC.md 98.1.3.1: vidvga8's clip in Mode X - sub-records under a "
+        "Map Mask, 0Fh for a four-pixel group of one colour - played on "
+        "MartyPC's VGA XT: the poster from the planes bit for bit, every "
+        "held frame's RENDERED pixels the decode's colours (Mode X's planes "
+        "are not flat memory), and on time. The clip must hold 0Fh and "
+        "plane sub-records both. Broken on purpose (the Map Mask OUT "
+        "skipped) the glass is wrong on three holds",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidcard", "soak", py("tests/vidcard.py"), 26.0,
         "SPEC.md 11.1.2: OSAPI_WM_RESIZE takes the gfx lock itself when "
         "the caller has none. The Video Player's info card grows the window "

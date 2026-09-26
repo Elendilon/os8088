@@ -100,6 +100,10 @@ PRESETS = {
     # 256 colours in mode 13h (SPEC.md 98.1.2's LIN320), full screen only
     "vga8": ("lin320", 320, 200),
     "vga8-small": ("lin320", 160, 100),
+    # ...and in Mode X (98.1.3.1): square pixels, and a byte four of them
+    # where a run of one colour covers an aligned group
+    "modex": ("modex", 320, 240),
+    "modex-small": ("modex", 160, 120),
     # Live windowed's sizes (VIDEO-PLAN 3.4): small canvases a worker blits
     "live-cga": ("cga", 320, 100),
     "live-herc": ("herc", 240, 116),
@@ -112,6 +116,13 @@ REC_OVER = 6 + 10       # a record's header and its ten list terminators
 REC_MAX = 30 * 1024     # a frame record rides in a super-packet of 32 KB
                         # (98.1.4): whatever the budgets say, no more.
                         # Only VGA8 can reach it - a MONO1 canvas is 16 KB
+DISK_LOOKAHEAD = 96 * 1024  # what the disk bucket may bank: THREE of the
+                        # player's 32 KB ring slots (98.3), which it has
+                        # read before the first frame. It was one second of
+                        # the rate, which is under the ring at a 5150's
+                        # 60 KB/s and 2-4x over it at a 286's 400: the
+                        # stream spent a surplus the player could not hold,
+                        # and stalled a second in (the owner's TRK830)
 KEY_PLAYER = 61440      # the largest keyframe the player reads in one go
                         # off a volume of 2 KB clusters (98.1.3)
 
@@ -586,7 +597,7 @@ class Encoder:
                 raise vid.V88Error("the sound alone is %d bytes a second, "
                                    "and the profile's disk is %d"
                                    % (audio_bps, prof["disk"]))
-            self.disk = Budget(vb / fps, vb)
+            self.disk = Budget(vb / fps, min(vb, DISK_LOOKAHEAD))
         self.base = np.array(g.base, dtype=np.int64)
         self.idx = self.base[:, None] + np.arange(g.wb)
         self.screen = np.zeros((g.h, g.wb), dtype=np.uint8)
@@ -687,6 +698,108 @@ class Encoder:
         return c
 
 
+class EncoderX(Encoder):
+    """Encoder for MODEX (SPEC.md 98.1.3.1): the screen is PIXELS, and a
+    frame's candidate writes are the five sub-records' spans - a byte under
+    Map Mask 0Fh is four pixels of one colour, a plane's byte one pixel.
+    The budgets, the ranking by error and age, and the measured retry are
+    Encoder's"""
+
+    def __init__(self, g, prof, fps, audio_cyc, audio_bps, palette):
+        super().__init__(g, prof, fps, audio_cyc, audio_bps, palette)
+        self.screen = np.zeros((g.h, g.w), dtype=np.uint8)
+        self.age = np.zeros((g.h, g.w), dtype=np.float32)
+        self.surf = g.surface()
+        self.base = np.array(g.base, dtype=np.int64)
+        self.rowof = np.array(g.rowof, dtype=np.int64)
+
+    def frame(self, target, audio=b""):
+        g = self.g
+        self.cpu.tick()
+        self.disk.tick()
+        self.stats["frames"] += 1
+        diff = target != self.screen
+        self.age = np.where(diff, self.age + 1, 0)
+        if not diff.any():
+            self.stats["exact"] += 1
+            return [], vid.record([], g, audio)
+        subs = vid.modex_subs(target.tobytes(), diff.ravel().tolist(), g)
+        cand = [(m, a, bs, run) for m, sp in subs for a, bs, run in sp]
+        costs = [span_cost(bs, run) for m, a, bs, run in cand]
+        cyc_room = min(self.cpu.room(), self.peak)
+        byte_room = self.disk.room()
+        order = None
+        er = cyc_room - vid.CYC_FRAME - 5 * vid.CYC_SUB
+        eb = min(byte_room, REC_MAX - len(audio)) - REC_OVER - 5
+        for attempt in range(8):
+            tc = sum(c for c, b in costs)
+            tb = sum(b for c, b in costs)
+            if tc <= er and tb <= eb:
+                chosen = cand
+            else:
+                if order is None:
+                    order = self.rank(target, cand, costs, er, eb)
+                chosen, uc, ub = [], 0, 0
+                for i in order:
+                    c, b = costs[i]
+                    if uc + c > er or ub + b > eb:
+                        continue
+                    chosen.append(cand[i])
+                    uc += c
+                    ub += b
+            ops = [(m, sorted((a, bs, run) for mm, a, bs, run in chosen
+                              if mm == m)) for m in (0x0F, 1, 2, 4, 8)]
+            rec = vid.record(ops, g, audio, limit=65535)
+            mc = vid.cycles_of(rec, True)
+            if mc <= cyc_room and len(rec) - len(audio) <= byte_room and \
+                    len(rec) <= REC_MAX:
+                break
+            er *= min(0.97, cyc_room / mc)
+            eb *= min(0.97, min(byte_room, REC_MAX - len(audio)) /
+                      max(1, len(rec) - len(audio)))
+        if chosen is cand:
+            self.stats["exact"] += 1
+        else:
+            self.stats["cut"] += 1
+        for m, a, bs, run in chosen:     # a span may run on to the next
+            ad = a + np.arange(len(bs))  # row: at full width a plane's
+            ys = self.rowof[ad]          # rows are back to back
+            xs = (ad - self.base[ys]) * 4
+            v = np.frombuffer(bs, np.uint8)
+            for p in range(4):
+                if m >> p & 1:
+                    self.screen[ys, xs + p] = v
+        if chosen is not cand:
+            self.stats["bytes_left"] += int((target != self.screen).sum())
+        g.put(self.surf, self.screen.tobytes())
+        return ops, rec
+
+    def rank(self, target, cand, costs, er, eb):
+        g = self.g
+        err = np.abs(self.pal[target] - self.pal[self.screen]).sum(2) \
+            / 32.0 * (1.0 + self.age / 8.0)
+        cs = []
+        for p in range(4):
+            wv = np.zeros(65537, dtype=np.float64)
+            wv[(self.base[:, None] + np.arange(g.wb)).ravel()] = \
+                err[:, p::4].ravel()
+            cs.append(np.concatenate(([0.0], np.cumsum(wv))))
+        pri = []
+        for i, (m, a, bs, run) in enumerate(cand):
+            c, b = costs[i]
+            wsum = sum(cs[p][a + len(bs)] - cs[p][a] for p in range(4)
+                       if m >> p & 1)
+            pri.append((wsum / max(c / max(er, 1.0), b / max(eb, 1.0)), i))
+        pri.sort(reverse=True)
+        return [i for p, i in pri]
+
+    def charge(self, rec, abytes):
+        c = vid.cycles_of(rec, True)
+        self.cpu.spend(c)
+        self.disk.spend(len(rec) - abytes)
+        return c
+
+
 # --------------------------------------------------------------------------
 # the source
 # --------------------------------------------------------------------------
@@ -779,10 +892,10 @@ def encode(a, keep=None):
     sw, sh, dar, sfps, dur, has_audio = probe(a.src)
     w, h, crop = canvas_size(lay, bw, bh, dar, a.fit)
     g = vid.Geom(L, w // ppb, h)
-    vga8 = L == vid.LAY_LIN320
+    vga8 = L in vid.VGA8_LAYOUTS
     if a.pixfmt is not None and (a.pixfmt == "vga8") != vga8:
-        raise vid.V88Error("--pixfmt vga8 is the lin320 layout's, and the "
-                           "only format it takes")
+        raise vid.V88Error("--pixfmt vga8 is the lin320 and modex layouts', "
+                           "and the only format they take")
 
     # 256 colours are a byte a PIXEL: at 30 fps a moving camera wants ~500
     # KB/s where 15 wants ~250 (VIDEO-PLAN W11), so VGA8 defaults to 15
@@ -836,7 +949,8 @@ def encode(a, keep=None):
         dith = CompDiffuser(w, h, a.comp_stable, not a.comp_quick)
     else:
         dith = Ditherer(a.dither, w, h, a.stable, a.invert, a.clip)
-    enc = Encoder(g, prof, fps, audio_cyc, audio_bps, palette)
+    enc = (EncoderX if L == vid.LAY_MODEX else Encoder)(
+        g, prof, fps, audio_cyc, audio_bps, palette)
     wr = vid.Writer(g, rate, spf, afmt, abytes,
                     vid.PF_VGA8 if vga8 else
                     vid.PF_CGACOMP if comp else vid.PF_MONO1,
@@ -871,7 +985,7 @@ def encode(a, keep=None):
             if vga8:
                 from PIL import Image
                 cv = np.frombuffer(g.canvas(enc.surf), np.uint8).reshape(
-                    g.h, g.wb)
+                    g.h, g.w)
                 pl = np.frombuffer(palette, np.uint8).astype(
                     np.uint16).reshape(256, 3) * 255 // 63
                 Image.fromarray(pl[cv].astype(np.uint8)).save(out)

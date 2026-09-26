@@ -149086,8 +149086,8 @@ and a player reads only the stream it plays (VIDEO-PLAN 13, answer A).
 
 | +off | size | field |
 |---|---|---|
-| 0 | 1 | pixel format: 1 **MONO1** (1 bpp, 1 = white), 2 **CGACOMP** (1 bpp read as 16 composite artifact colours; mono stripes anywhere but a CGA with the burst on), 3 **VGA8** (a byte a pixel, an index into the file's palette; LIN320 only, and LIN320 takes nothing else) |
-| 1 | 1 | layout (98.1.2): 1 CGA, 2 HERC, 3 LIN80, 4 LIN320 |
+| 0 | 1 | pixel format: 1 **MONO1** (1 bpp, 1 = white), 2 **CGACOMP** (1 bpp read as 16 composite artifact colours; mono stripes anywhere but a CGA with the burst on), 3 **VGA8** (a byte a pixel, an index into the file's palette; LIN320 and MODEX only, and they take nothing else) |
+| 1 | 1 | layout (98.1.2): 1 CGA, 2 HERC, 3 LIN80, 4 LIN320, 5 MODEX |
 | 2 | 2 | canvas width in bytes, 1..the layout's stride |
 | 4 | 2 | canvas height in rows, 1..the layout's rows |
 | 6 | 1 | pixel aspect the encoder assumed, numerator; 0 = not stated |
@@ -149118,6 +149118,7 @@ playback at ~480 cycles a row change, and REFUSED it). Canvas row *y*, byte
 | 2 HERC | B000h, page 0 | 4 | 90 | 348 | (y mod 4)·8192 + (y div 4)·90 + x |
 | 3 LIN80 | A000h, mode 12h, Map Mask 0Fh | 1 | 80 | 480 | y·80 + x |
 | 4 LIN320 | A000h, mode 13h: a byte a pixel | 1 | 320 | 200 | y·320 + x |
+| 5 MODEX | A000h, Mode X (`FSXM_MODEX`): four planes, a byte a pixel | 1 | 80 | 240 | y·80 + x, in plane x' mod 4 of pixel x' = 4x + plane |
 
 **LIN320 is 256 colours, and costs the decoder nothing** (VIDEO-PLAN W11a).
 The lists were always byte-oriented and their addresses the surface's own
@@ -149126,6 +149127,14 @@ RUN is a flat colour and a SLICE is pixels, and `vdec.inc` is unchanged.
 For LIN320 the canvas "width in bytes" is its width in PIXELS, and a VGA8
 canvas is a multiple of 8 wide (the Preview's one-bit picture, 98.4.4,
 is whole bytes).
+
+**MODEX is the same colours in Mode X** (VIDEO-PLAN W11b): 320 × 240 of
+square pixels, the picture behind the Graphics Controller in four planes,
+pixel *x* of a row in plane *x* mod 4 at byte *x* div 4. An address is a
+byte of a PLANE's image, 80 a row, and the canvas "width in bytes" is its
+plane bytes - a quarter of its pixels - with the canvas a multiple of 8
+pixels wide, so its origin (the row centred, the byte column centred) keeps
+every pixel in its plane. Its records are 98.1.3.1's.
 
 So an origin must keep the bank phase: its row a multiple of the layout's
 banks, its column on a byte. A file played on a surface of another layout
@@ -149164,6 +149173,37 @@ SLICEL          = len(16) bytes     256+          RUNL = len(16) value  256+
   what a reader may rely on.
 - **Audio** is the header's audio bytes per frame, the last bytes of the
   frame record: the decoder's SI is on it when the tenth list ends.
+
+#### 98.1.3.1 MODEX records: a Map Mask per sub-record
+
+```
+MODEX record    = len(16) y0(16) y1(16) sub-record* 00 audio
+sub-record      = mask(1..0Fh) lists            (lists as above)
+```
+
+- **A sub-record's lists are written to every plane its mask names**, at
+  plane addresses: the decoder OUTs the mask to the Sequencer's Map Mask
+  (3C4h index 2) and runs the lists once, and the VGA does the rest. So a
+  byte under 0Fh is FOUR PIXELS of one colour for one store, which is the
+  thing Mode X can do that a linear mode cannot.
+- **The encoder puts an aligned group of four pixels under 0Fh** when they
+  are one colour and two or more of them changed, and every other changed
+  pixel in its plane's sub-record (1, 2, 4, 8). A 0Fh span closes no gap -
+  a gap byte is four pixels that need not be one colour - and a plane's span
+  never closes one across a group the 0Fh sub-record writes, so no byte of
+  any plane is written twice in a record.
+- **Into RAM** (a poster, 98.4.4) the four planes are images of 19,200
+  bytes, `VP_MXPL` = 4B0h paragraphs apart, and a sub-record is decoded into
+  each plane its mask names. The claim is **121 KB** (`VP_MXSHD`): plane 3's
+  base plus 64 KB, so 98.1.6's bound holds - a write from any plane is
+  inside the claim.
+- **What it buys on camera footage is small**: Trackmania at 320 × 180 put
+  1.1% of its stores and 4.4% of its pixels under 0Fh, because the ordered
+  dither breaks flat areas into mixed groups. A flat-shaded picture - a
+  logo, a cartoon - is where it pays.
+- A keyframe is bounded by its length word, and a 320 × 240 canvas can
+  pass it: the writer then leaves that keyframe out, and the file plays
+  from the start and seeks to the ones it has.
 
 The reference decoder is `decode_lists` in `tools/os88vid.py`, and the
 guest's is `apps/video/vdec.inc`, the player's and the bench's one copy.
@@ -149262,6 +149302,7 @@ mode, and nothing else yet:
 | HERC | Hercules | `FSXM_HERC` | ...page 0 |
 | LIN80 | VGA | `FSXM_VGA12`, the BIOS's own write state: Map Mask 0Fh puts a MONO1 byte in all four planes | ... |
 | LIN320 | VGA | `FSXM_VGA13`, and the file's palette into the DAC after the mode set (`vp_dac`); the bracket's restore puts the desktop's back | ... |
+| MODEX | VGA | `FSXM_MODEX`, its palette the same way; the decoder OUTs each sub-record's Map Mask (98.1.3.1), and the session's keeper (98.3.7) is four plane images, 75 KB, moved a plane at a time with the Map Mask and the Read Map | ... |
 
 **VGA8 plays full screen only, and never through a copy.** 256 colours have
 no one-bit screen to be copied onto, and a 16-colour desktop cannot hold the
@@ -149922,12 +149963,19 @@ without them (`ffmpeg` capability).
   or `--poster K`, or `--poster-at SECS` - the keyframe NEAREST that moment
   of the clip. It only chooses the picture in the box: the player opens at
   frame 0 whatever it is (98.4).
-- **The profile is the machine** (VIDEO-PLAN 3.2). Two token buckets, one
-  second deep and started half full (the player fills its ring before the
-  first frame): the DISK's, at the profile's bytes a second (less 1% for a
-  super-packet's padding) less the audio's, and the CPU's, at the profile's
-  average share of a frame period less the interrupt's audio copy; and a
-  per-frame CEILING. `--disk`, `--avg` and `--peak` override them.
+- **The profile is the machine** (VIDEO-PLAN 3.2). Two token buckets,
+  started half full (the player fills its ring before the first frame): the
+  DISK's, at the profile's bytes a second (less 1% for a super-packet's
+  padding) less the audio's, and the CPU's, at the profile's average share
+  of a frame period less the interrupt's audio copy; and a per-frame
+  CEILING. `--disk`, `--avg` and `--peak` override them. The CPU's bucket
+  is one second deep. **The disk's is one second or 96 KB, whichever is
+  less** (`DISK_LOOKAHEAD`, three of the ring's 32 KB slots): what it banks
+  is what the player has read ahead, and the ring is 2 to 8 slots. At a
+  5150's 60 KB/s one second is under the ring, and it was never seen; at
+  `286-vga`'s 400 KB/s a second is two to four rings, the stream spent a
+  surplus the player could not hold, and the owner's 30 fps Trackmania
+  stalled twice a second in.
 
 | profile | disk | CPU average / ceiling | audio | status |
 |---|---|---|---|---|
@@ -149935,6 +149983,7 @@ without them (`ffmpeg` capability).
 | `5150-picomem2` | 150,000 | 40% / 80% | PCM8 22,050 | predicted |
 | `floppy` | 15,000 | 50% / 85% | PCM8 5,512 | predicted |
 | `286` | 150,000 | 150% / 250% of an 8088's | PCM8 22,050 | predicted |
+| `286-vga` | 400,000 | 300% / 500% of an 8088's | PCM8 22,050 | the owner's 86Box 286 (98.2.3) |
 | `lossless` | none | none | PCM8 22,050 | every change |
 
 - **A frame that fits is exact.** One that does not commits its changed
@@ -150037,8 +150086,13 @@ were exact and how many cut, and what the keyframes cost. `tests/videnc.py`
 
 #### 98.2.3 256 colours from a video (`--pixfmt vga8`)
 
-**`--preset vga8` (320 × 200) and `vga8-small` (160 × 100) are LIN320**, and
-`--pixfmt vga8` is what that layout implies. What differs from one bit a
+**`--preset vga8` (320 × 200) and `vga8-small` (160 × 100) are LIN320**,
+**`modex` (320 × 240) and `modex-small` (160 × 120) are MODEX**, and
+`--pixfmt vga8` is what those layouts imply. Mode X's pixels are square, so
+16:9 is 320 × 180 there against 13h's 320 × 150 - Trackmania at 15 fps
+under `286-vga` is 347 KB/s with 146 of 180 frames exact. Its frames are
+built by `EncoderX`: the candidates are the five sub-records' spans
+(98.1.3.1), ranked by the colour error of every pixel a span covers. What differs from one bit a
 pixel is the palette and the dither; the budgets, the ranking and the
 measured retry are the same code (VIDEO-PLAN W11a).
 - **One palette for the clip**: ffmpeg's `palettegen` over every frame at
