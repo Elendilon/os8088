@@ -667,8 +667,8 @@ works.
   instead.
 - **CGA In-window at half height.** The owner found dropping rows "not really
   windowed". CGA's In-window offers only canvases that fit.
-- **`kern_small`.** Not in this plan. It can be reconsidered when the shape is
-  known.
+- **`kern_small`.** STRUCK (the owner, 2026-09-26): the player needs too
+  many buffers for the 128KB machine, and it will not be reconsidered.
 
 ## 8. Waves
 
@@ -1202,7 +1202,7 @@ those scripts made permanent, and it regenerates section 2.4's table.
 | 6 | No card | Silent is fine; speaker audio maybe some day |
 | 7 | SOUND.DRV | Fine if it stays within 1 KB of heap growth and is as fast → **section 4.4: 797 bytes of slack** |
 | 8 | Streaming read | Yes, and it is overdue → **section 4.2, a general slot** |
-| 9 | `kern_small` | Not in this plan |
+| 9 | `kern_small` | Not in this plan; STRUCK outright on 2026-09-26 (section 14) |
 | 10 | Windowed | CGA half-rows is not really windowed; restrict CGA to canvases that fit; Live, even small and in memory, is the tour de force → **sections 3.3 and 3.4** |
 | 11 | Keyframes | 2 s; reduce if they eat the disk; the poster is a keyframe named in the header, chosen at encode, default first mostly-not-empty |
 | 12 | Encoder | Easy Python with ffmpeg and our own scaling and dithering eventually; the first tool is whatever works for the developer |
@@ -1223,3 +1223,210 @@ those scripts made permanent, and it regenerates section 2.4's table.
 **Wave 0 is started** (section 8). The owner supplied the IBM 5150 27-Oct-82
 ROM for the emulator, so W0 runs on the genuine ROM as well as the GLaBIOS
 twins. **The ROM image is the owner's and is never committed.**
+
+## 14. The owner's round of 2026-09-26: what is left, and the logo
+
+The owner took stock after wave 12 and asked for the remaining items to be
+worked through **in one go, with every question asked up front**. This
+section is that round: what was settled, the work list, the logo's brief,
+and the questions (14.5) whose answers the round waits on.
+
+### 14.1 Settled
+
+- **The 286 disk at `17885e84` is good.** TRK4M (400 x 225, sixteen
+  colours) plays with no visible pause or smear, and the flipped files
+  start. 86Box shows no tearing either way, so whether flipping is worth it
+  is a real-monitor question.
+- **`vidwin`/`vidwinshd`'s intermittent** (8, W12) is, by the owner's
+  experience of this suite, almost certainly a wait timed on the HOST that
+  a loaded box shortens. It is converted to the guest's clock in this round
+  (docs/plans/SOAK-PARALLEL.md 1).
+- **`kern_small` is struck** (section 7).
+- **Real hardware** (the 5150 with the ST-225, the PicoMEM 2, composite and
+  ADPCM4 on a real monitor and card) waits for the owner to be home.
+- **Deferred to after the round, as reminders**: an 86Box machine with a
+  Sound Blaster 1.0/1.5 for the owner to test; the Hercules 6845 retime
+  (section 7). **PC speaker PCM comes before SB 1.x** - the owner's
+  judgement is that almost nobody outside an emulator has a 1.x card.
+  What the tree already has there: SOUND.DRV's single-cycle path plays
+  PCM8 on a DSP below 2.00 (never tried under the player, and it carries a
+  written-down unverified bound at the half re-arm), and ADPCM4 is REFUSED
+  on it, the 7Dh start being auto-init only.
+- **Future, not this round**: XDC's newer features (PC speaker PCM, SB
+  1.0/1.5), and an optimisation pass, speed first and bytes second.
+
+### 14.2 The round's work
+
+1. **Repeat.** A button with an icon that stays pressed while it is on. A
+   play that reaches the end continues from the last frame to the first
+   without leaving its view mode - fullscreen stays fullscreen, the window
+   stays the window. A file may ask for it to be on when it loads (a header
+   flag). It is how the logo loops. W10's *"a loop is a record"* is the
+   seam: a file encoded for looping carries one record more than it has
+   frames, the change from the last back to the first.
+2. **CGA RGB.** 320 x 200 in four colours (the CGA4 of section 13, answer D,
+   which VGA8 overtook), and 160 x 100 in sixteen through the 80-column
+   text trick, Clear Skies being the reference (`apps/skies/`).
+3. **W9, Live windowed** - an ADDITIONAL mode for a file that flags itself
+   as able, not a replacement for the in-window play.
+4. **W10 and the logo video** (14.3), the shipping example of both.
+5. **An encoder interface**: every option exposed and explained, and
+   defaults chosen from the input video and the target profile the user
+   picks.
+
+### 14.3 The logo video's brief
+
+**The requirements**, the owner's:
+- 4 to 7 seconds, **the long end if it can be afforded**;
+- black and white;
+- **~120 KB at most, ~100 KB better** - the whole file, every rendition;
+- every adapter;
+- loaded whole into memory on a 640 KB machine;
+- played Live on the desktop;
+- each adapter's copy LZB-packed on its own;
+- repeats.
+
+That is W10 as planned, plus the loop.
+
+**The content, the owner's**: a DIP chip with wires running out of it.
+Lit 1s and 0s travel along the wires, into the chip and out of it. The
+chip starts blank, and then the os8088 logo is emblazoned on it. The
+reference is the website's current header - grey right-angled traces ending
+in a square pad, small 0 and 1 digits travelling along them - **for the
+traces and the bits only**: the ASCII-art wordmark is not wanted.
+
+**The style, the owner's**: *"more modern and complex than our simple logo.
+Still a DIP chip, but something more akin to what you would expect in a
+2000s era commercial"* than `OS8088.GIF`'s flat chip (`tools/os88logo.py`,
+SPEC.md 63). So there is depth, shading, light and a reveal, not a flat
+icon.
+
+**What the budget allows, as arithmetic (not measured).** Three renditions
+at ~40 KB each fill 120 KB. Seven seconds at 15 fps is 105 records, so a
+record gets **~390 bytes** before LZB, which will do better on drawn
+material than on the dithered footage it was measured on (W10's 74-87%)
+by an amount nobody has measured. What things cost in that:
+- **A 5 x 7 digit moving two pixels** changes one or two bytes on each of
+  its rows: about **20-25 bytes a digit a frame**, so about fifteen in
+  flight at once with nothing else moving.
+- **A light sweep** across a dither-shaded chip changes every byte in its
+  band: a 16-pixel band 100 rows tall is **~400 bytes, a whole frame's
+  share**. It can run briefly, once or twice a lap, and not continuously.
+- **Moving the camera** changes nearly the whole canvas every frame. A
+  320 x 160 one-bit canvas is 6.4 KB, so a moving camera costs about a
+  second's budget in every frame, and is out of reach.
+
+So the commercial look has to come from the DRAWING, and the motion from
+light:
+- **The drawing**: a three-quarter perspective chip with a bevelled,
+  dither-shaded package, lit pins, and a reflection or shadow on the board.
+- **The motion**: the digits, pulses along the traces, a sheen that
+  crosses the package, and the reveal.
+
+The art is generated, as `os88logo.py` generates its logo: a Python
+drawing rendered natively for each adapter's pixel shape, rather than a
+video scaled and dithered, so every edge lands where it was meant.
+
+### 14.4 How the loop and the reveal fit
+
+A chip that starts blank and ends emblazoned cannot loop from its last
+frame to its first without the logo vanishing every lap. The proposed
+answer is a **loop-start frame in the header**. The intro - the blank chip
+and the reveal - plays once. From then on the loop runs from frame *L* to
+the end, and its seam record is the change from the last frame back to
+frame *L*. That costs one header word, and it serves any file with an
+intro. Question L1 asks the owner.
+
+### 14.5 Questions for the owner
+
+Each carries a recommendation, so *"the defaults"* is a full answer.
+
+**The logo**
+- **L1 - loop shape.** (a) the intro once, then loop frames L to the end
+  with the logo lit (14.4), or (b) the whole video loops and the logo
+  fades back out at the end. *Recommended: (a).*
+- **L2 - ground.** Lit white bits on a black ground, the chip picked out by
+  its highlights; or the website's dark-on-light. *Recommended: black
+  ground*, for "lit", and because a mostly-black picture makes changes
+  stand out.
+- **L3 - the reveal.** (a) the incoming bits burn the letters in stroke by
+  stroke; (b) a dither fade; (c) a light sweep that leaves the logo behind
+  it. *Recommended: (a), then (c)'s sweep once over the finished logo* -
+  the commercial beat.
+- **L4 - size.** *Recommended: about half the screen's width*, the same
+  physical size on every adapter.
+- **L5 - renditions.** CGA (640 x 200), Hercules (720 x 348) and VGA
+  (640 x 480). EGA's 640 x 350 is within 12% of Hercules' pixel shape.
+  *Recommended: three renditions, EGA playing Hercules'*, leaving ~40 KB
+  each; four would leave 30.
+- **L6 - frame rate.** 15 fps gives ~15 digits in flight (14.3); 10 fps
+  gives more motion per second's budget but visibly steps. Live's display
+  is capped at 18.2 Hz. *Recommended: 15.*
+- **L7 - sound.** *Recommended: silent*, so it plays on any machine with no
+  card, which Live requires of a resident clip anyway (13, answer B).
+- **L8 - where it ships and what plays it.** It is ~120 clusters at 360KB,
+  so the 360KB system disk cannot carry it and `media360.img` can. Does
+  anything play it by itself (the About box, a first boot), or is it a file
+  in `MEDIA/`? *Recommended: `MEDIA/` on every apps disk with room and on
+  `media360`, and nothing auto-plays it* until the owner has seen it.
+- **L9 - the camera.** *Recommended: a still camera* (14.3). A slow push-in
+  is the one move that might be afforded, over the intro only, and it would
+  cost the loop's digit count.
+
+**Repeat**
+- **R1 - a file with no loop record.** Repeat still works, and the seam
+  shows the first keyframe - one whole-canvas frame, and on a disk-streamed
+  file a seek back to the start, which is a visible hold. *Recommended:
+  allowed, with that hold*, rather than greying Repeat.
+- **R2 - state.** Two header flags: LOOPREC (the seam record exists) and
+  REPEAT (start with Repeat on). The button's state belongs to the window,
+  and nothing is remembered across opens beyond the file's own flag.
+  *Recommended: as described.*
+
+**CGA RGB**
+- **C1 - the four colours.** The encoder picks, per file, the palette of
+  the three that fits the clip best - 0, 1, and mode 5's cyan/red/white,
+  each at either intensity - and the background of 16, with an override.
+  *Recommended.*
+- **C2 - snow.** 160 x 100 is 80-column text, which snows on a genuine IBM
+  CGA when written during display. Clear Skies accepts it (SPEC.md 88's
+  *"ACCEPTED"*), and waiting for retrace would spend most of the write
+  bandwidth. *Recommended: accept it, the same.*
+- **C3 - other adapters.** A VGA runs mode 4 natively and the text trick
+  with its own CRTC figures, and an EGA probably both. *Recommended: VGA
+  plays both formats; EGA if it comes cheap*, otherwise it refuses.
+- Both formats are fullscreen only, the CGA desktop being one-bit, and the
+  poster is a grey dither as VGA8's is (98.4.4). There is nothing to ask
+  there.
+
+**Live (W9)**
+- **V1 - which mode Play picks.** *Recommended: Live, when the file flags
+  it and it fits memory*, with the in-window play as the alternative on
+  the menu.
+- **V2 - disk-fed Live.** The plan's design needs a card, and the picture
+  holds for ~100 ms at each disk read. *Recommended: resident Live in this
+  round* (the logo, any machine) *and disk-fed Live with a card in the
+  same round*, if the owner wants the whole of W9 now.
+- **V3 - colour.** A VGA4 file can play Live on a VGA desktop through
+  `OSAPI_GFX_BLIT4`. *Recommended: yes*, because it is cheap.
+- **V4 - several at once.** Each Live window pins its region and takes a
+  worker. *Recommended: no limit beyond memory.*
+
+**The encoder interface**
+- **E1 - toolkit.** *Recommended: tkinter*, as `tools/os88proxygui.py` has
+  it: the standard library, on Linux, macOS and Windows.
+- **E2 - preview.** A scrubber over the ENCODED frames, as the chosen
+  adapter shows them, composite model and palettes included, before
+  anything is written. *Recommended: yes, as stills*, not real-time
+  playback.
+- **E3 - output.** *Recommended: the .V88, plus an optional "make a disk"*
+  that writes a floppy or VHD in the chosen geometry with the player on it.
+- **E4 - resident files.** *Recommended: yes*: multi-rendition, looping,
+  resident files (the logo's kind) can be built from it too, on an
+  advanced page.
+
+### 14.6 Reminders for the end of the round
+
+- The Sound Blaster 1.x 86Box machine.
+- The Hercules retime research.
+- The real-hardware checks.
