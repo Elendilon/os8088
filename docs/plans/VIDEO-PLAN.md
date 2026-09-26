@@ -982,7 +982,15 @@ red. A row about one package goes in `soak`.
   stipple. Hercules' 400 x 145 of near-square pixels reads far better than
   CGA's 640 x 150 of tall ones. **The dither is the clip's choice**: a
   plain threshold is 6% smaller than Bayer on Bad Apple, which is black
-  and white already, and blue noise 8% larger. **Open in W8**: CGACOMP
+  and white already, and blue noise 8% larger. **The owner's first look**
+  (5150 and 86Box): *"very similar in quality to the originals, or even
+  better"*, Trackmania with *"very little ghosting"*. It found an even grid
+  of single dots over every flat black and white - the threshold map's
+  extreme cells at grey 2 and 253, lit by the MP4's noise - so the ends of
+  the map are solid now (`--clip`, 3,222 isolated pixels a frame to 46),
+  and posters can be chosen (`--poster-at`, the keyframe nearest a moment;
+  Bad Apple's and Bad Carrot's are key 4, the apple and the carrot held
+  out). **Open in W8**: CGACOMP
   (composite colour) from a video, a lookahead ADPCM4 encoder, and the
   profiles' figures confirmed on the 5150 (`floppy`, `picomem2` and `286`
   are arithmetic).

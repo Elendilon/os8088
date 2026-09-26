@@ -7,7 +7,8 @@
         [--audio pcm8|adpcm4|none] [--rate HZ]
         [--dither bayer|bluenoise|threshold] [--stable N]
         [--gamma G] [--contrast C] [--brightness B] [--invert]
-        [--title T] [--credits C] [--keysecs S] [--poster K]
+        [--title T] [--credits C] [--keysecs S] [--poster K | --poster-at S]
+        [--clip N]
         [--preview-png DIR] [--quiet]
 
 THE FRONT END, AND THE BUDGETS. ffmpeg decodes and scales the source to a
@@ -221,8 +222,16 @@ def threshold_map(kind, w, h):
 
 
 class Ditherer:
-    def __init__(self, kind, w, h, stable, invert):
-        self.t = threshold_map(kind, w, h) * 255.0
+    """THE ENDS ARE SOLID. A threshold map spread over the whole of 0..255
+    puts its lowest cell at grey 2 and its highest at 253, so a black that
+    a lossy source delivers as 3 lights ONE dot in every 8 x 8 tile, and a
+    white as 252 darkens one - an even grid of dots over every flat area,
+    which also costs bytes as the noise flickers them. So the map spans
+    `clip`..255-`clip`: at or below the first a pixel is black, at or above
+    the second white, and the steps between keep their spacing"""
+
+    def __init__(self, kind, w, h, stable, invert, clip=16):
+        self.t = clip + threshold_map(kind, w, h) * (255.0 - 2 * clip)
         self.stable, self.invert = stable, invert
         self.prev = None
 
@@ -512,7 +521,7 @@ def encode(a, keep=None):
         lo, hi = auto_levels(a.src, w, h, crop, a.start, a.end, ":".join(eq))
         say("   levels: grey %d..%d stretched to 0..255" % (lo, hi))
         frames = (stretch(f, lo, hi) for f in frames)
-    dith = Ditherer(a.dither, w, h, a.stable, a.invert)
+    dith = Ditherer(a.dither, w, h, a.stable, a.invert, a.clip)
     enc = Encoder(g, prof, fps, audio_cyc, audio_bps)
     wr = vid.Writer(g, rate, spf, afmt, abytes, vid.PF_MONO1,
                     title=a.title or os.path.splitext(
@@ -540,7 +549,14 @@ def encode(a, keep=None):
                           g.wb, g.h, g.canvas(enc.surf))
         if not a.quiet and f % 300 == 299:
             print("   frame %d of %d" % (f + 1, nf), file=sys.stderr)
-    res = wr.write(a.out, a.poster)
+    poster = a.poster
+    if a.poster_at is not None:
+        # THE KEYFRAME NEAREST a moment, not the moment: the poster is a
+        # keyframe index (SPEC.md 98.1.1) and the player opens at frame 0
+        # whatever it is - it only chooses the picture in the box
+        nk = len(wr.keys)
+        poster = min(nk - 1, max(0, round(a.poster_at * fps / wr.keyint)))
+    res = wr.write(a.out, poster)
     res.update(fps=fps, period=enc.period, audio_cyc=audio_cyc,
                audio_bps=audio_bps, prof=prof, w=w, h=h, layout=lay)
     secs = nf / fps
@@ -589,6 +605,9 @@ def parser():
     ap.add_argument("--levels", choices=("auto", "none"), default="auto",
                     help="stretch the grey range the source uses to the "
                          "whole of black-to-white")
+    ap.add_argument("--clip", type=float, default=16.0,
+                    help="grey levels at each end that are solid black "
+                         "or white, never a dot")
     ap.add_argument("--gamma", type=float, default=1.0)
     ap.add_argument("--contrast", type=float, default=1.0)
     ap.add_argument("--brightness", type=float, default=0.0)
@@ -596,7 +615,11 @@ def parser():
     ap.add_argument("--title")
     ap.add_argument("--credits")
     ap.add_argument("--keysecs", type=float, default=vid.KEY_SECS)
-    ap.add_argument("--poster", type=int)
+    ap.add_argument("--poster", type=int, help="the poster's keyframe "
+                    "index (default: the first that is not one flat value)")
+    ap.add_argument("--poster-at", type=float, metavar="SECS",
+                    help="...or the keyframe nearest this many seconds into the "
+                         "clip (after --start)")
     ap.add_argument("--preview-png", metavar="DIR",
                     help="the screen once a second, as PNGs")
     ap.add_argument("--quiet", action="store_true")

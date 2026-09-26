@@ -7,7 +7,8 @@ Host-side. ffmpeg makes a source - five seconds of testsrc2, a moving
 colour pattern, frozen for its last two, 16:9, with a tone - and
 tools/os88venc.py encodes it three ways. Four questions:
 
-1. IS THE CANVAS THE SOURCE'S SHAPE? 16:9 in the Hercules preset's
+1. IS THE CANVAS THE SOURCE'S SHAPE? (and --poster-at 2.1 s names the
+   keyframe nearest it, 1 of the ones every 2 s) 16:9 in the Hercules preset's
    400 x 200 box, whose pixels are 29:45, is 400 x 145 - worked here from
    the aspect, not read back from the tool.
 2. WITH NO LIMITS, IS EVERY FRAME THE TARGET? The lossless profile's file,
@@ -20,6 +21,10 @@ tools/os88venc.py encodes it three ways. Four questions:
 4. DOES IT CONVERGE? Two seconds of a still picture after the motion: the
    last frame on screen must be the target, the errors the budget left all
    fixed.
+5. IS FLAT FLAT? A black a few levels off black, and a white a few off
+   white, with noise - what an MP4 delivers - must dither solid. Spread over
+   the whole 0..255 the threshold map lit one dot in every 8 x 8 tile of
+   Bad Apple's black and white (the owner's report; --clip 0 is that).
 
 Broken on purpose - the measured retry in Encoder.frame skipped, so a
 frame is chosen by the per-span estimate alone - question 3 FAILS naming
@@ -66,7 +71,8 @@ def main():
 
         # --- 1: the canvas's shape
         path, res, keep = run("lossless", "--preset", "herc",
-                              "--profile", "lossless", "--rate", "11025")
+                              "--profile", "lossless", "--rate", "11025",
+                              "--poster-at", "2.1")
         want_h = round(400 * 29 / 45 / (16 / 9))
         print("   16:9 in Hercules' 400 x 200: %d x %d (want 400 x %d)"
               % (res["w"], res["h"], want_h))
@@ -76,6 +82,11 @@ def main():
         # --- 2: no limits, every frame the target
         vid.verify_v88(path)
         r = vid.Reader(path)
+        print("   --poster-at 2.1: poster keyframe %d (want 1, frame %d)"
+              % (r.poster, r.keys[1][0]))
+        if r.poster != 1:
+            bad.append("--poster-at 2.1 made keyframe %d the poster, not 1"
+                       % r.poster)
         diff = 0
         for f, surf, rec, at, i in vid.v88_frames(r):
             if r.g.canvas(surf) != keep[f].tobytes():
@@ -137,6 +148,27 @@ def main():
         if not last:
             bad.append("after %d frames of a still picture the screen is "
                        "not its target" % still)
+        # --- 5: a flat black and a flat white, as a lossy source delivers
+        # them - a few levels off, and noisy - dither SOLID, not to a grid
+        for name, grey, want in (("black", 4, 0), ("white", 251, 255)):
+            flat = os.path.join(tmp, name + ".mkv")
+            subprocess.run(
+                ["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+                 "color=c=0x%02x%02x%02x:size=320x240:rate=30:duration=1,"
+                 "noise=alls=3:allf=t" % (grey, grey, grey), "-c:v", "ffv1",
+                 flat], check=True)
+            a = venc.parser().parse_args(
+                [flat, os.path.join(tmp, name + ".V88"), "--quiet",
+                 "--preset", "cga", "--audio", "none", "--levels", "none"])
+            keep = []
+            venc.encode(a, keep)
+            dots = sum(int((np.unpackbits(k) != (want & 1)).sum())
+                       for k in keep)
+            print("   flat %s from grey %d: %d dots in %d frames"
+                  % (name, grey, dots, len(keep)))
+            if dots:
+                bad.append("a flat %s (grey %d) dithers to %d dots, not "
+                           "solid" % (name, grey, dots))
     for b in bad:
         print("   FAIL: %s" % b)
     if not bad:

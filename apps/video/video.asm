@@ -2047,12 +2047,16 @@ vp_dinfo:
 ; vp_boxxy - where the picture goes in the box, on the screen: [vp_px] on a
 ; byte, [vp_py] on the desktop layout's bank (so the decoder's addresses
 ; land there unchanged, 98.1.2 - which is what the box's three rows of slack
-; are for), [vp_pdw] the width the box shows. After vp_track
+; are for), [vp_pdw] the width the box shows. After vp_track. It asks the
+; adapter itself: a box placed before the first play once rounded to the
+; default layout's bank (CGA's two rows on a Hercules), and the play then
+; drew up to three rows below the poster, leaving a bar (the owner's report)
 vp_boxxy:
     push ax
     push bx
     push cx
     push dx
+    call vp_dinfo
     mov ax, [vp_cx0]                ; the box's inside
     add ax, VP_BOXX
     mov [vp_bx1], ax

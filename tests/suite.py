@@ -8308,15 +8308,17 @@ SOAK = [
         "on purpose (spans merged across bytes outside the canvas; keyframes "
         "stamped a frame early) it FAILS naming the layout and frame. 16 s "
         "with the samples, 2 s without."),
-    Row("videnc", "soak", py("tests/videnc.py"), 2.0,
+    Row("videnc", "soak", py("tests/videnc.py"), 3.0,
         "SPEC.md 98.2.1: the encoder front end and its budgets, host-side. "
         "ffmpeg makes a 16:9 source with a still tail and tools/os88venc.py "
         "encodes it: the canvas must be the source's shape in the Hercules "
         "box (400 x 145, worked from the aspect), a lossless encode must "
         "decode to every frame's target exactly, a tight one must cut frames "
         "and still keep every record under its ceiling and both buckets "
-        "above empty, and the still must converge. Broken on purpose (the "
-        "measured retry skipped) it FAILS naming the frame over its ceiling.",
+        "above empty, the still must converge, a noisy near-black and "
+        "near-white must dither SOLID, and --poster-at must name the nearest "
+        "keyframe. Broken on purpose (the measured retry skipped; --clip 0) "
+        "it FAILS naming the frame over its ceiling, and the dots.",
         needs=("ffmpeg",)),
     Row("mcperf", "soak", py("tests/mcperf.py"), 50.0,
         "SPEC.md 48.16.2: does Missile play the SAME GAME twice? A fixed"

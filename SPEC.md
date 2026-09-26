@@ -149542,7 +149542,12 @@ click that pauses is anywhere, polled off `OSAPI_MOUSE`.
 - **The picture's row is on a bank** of the desktop's layout, so the file's
   addresses land unchanged: the box has three rows of slack under the
   picture, and the picture goes down to the next bank boundary. Its column
-  is the screen's byte, as ever.
+  is the screen's byte, as ever. **The poster is placed by the same rule,
+  asked of the adapter every time**: a box laid out before the first play
+  once rounded to the default layout's bank - CGA's two rows, on a
+  Hercules - so the play drew two rows below the poster and left a bar of
+  it above or below the picture (the owner's report; `vidwin` asserts the
+  two rows are one).
 - **The thumb follows the play**, a move a second at most, on a 1 bpp
   desktop only: a VGA fill changes the planes' state while it runs, and the
   hook's decode must find them at rest.
@@ -149731,9 +149736,10 @@ python3 tools/os88venc.py IN OUT.V88 [--preset P | --layout L --box WxH]
     [--fit fit|fill|stretch] [--start S] [--end S] [--fps F]
     [--profile R] [--disk B/s] [--avg F] [--peak F]
     [--audio pcm8|adpcm4|none] [--rate HZ] [--volume V]
-    [--dither bayer|bluenoise|threshold] [--stable N] [--levels auto|none]
-    [--gamma G] [--contrast C] [--brightness B] [--invert]
-    [--title T] [--credits C] [--keysecs S] [--poster K] [--preview-png DIR]
+    [--dither bayer|bluenoise|threshold] [--stable N] [--clip N]
+    [--levels auto|none] [--gamma G] [--contrast C] [--brightness B]
+    [--invert] [--title T] [--credits C] [--keysecs S]
+    [--poster K | --poster-at SECS] [--preview-png DIR]
 python3 tools/os88venc.py --profiles
 ```
 
@@ -149769,6 +149775,16 @@ without them (`ffmpeg` capability).
   runs and repeats best; `threshold` suits a clip that is black and white
   already (6% smaller than Bayer on Bad Apple); `bluenoise` (void and
   cluster, 64 x 64) has no pattern, at ~8% more data.
+- **The ends are solid** (`--clip`, default 16). The threshold map spans
+  grey 16..239 rather than 0..255: spread over the whole range its lowest
+  cell sat at 2 and its highest at 253, so the black an MP4 delivers as 3
+  lit ONE dot in every 8 x 8 tile and a white of 252 darkened one - an even
+  grid over every flat area of Bad Apple (the owner's report; 3,222 isolated
+  pixels a frame on 30 s of it, 46 with the ends solid).
+- **The poster** is the first keyframe that is not one flat value (98.1.3),
+  or `--poster K`, or `--poster-at SECS` - the keyframe NEAREST that moment
+  of the clip. It only chooses the picture in the box: the player opens at
+  frame 0 whatever it is (98.4).
 - **The profile is the machine** (VIDEO-PLAN 3.2). Two token buckets, one
   second deep and started half full (the player fills its ring before the
   first frame): the DISK's, at the profile's bytes a second (less 1% for a

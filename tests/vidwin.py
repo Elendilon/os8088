@@ -24,6 +24,12 @@ being the desktop's. Five questions:
 5. ESC STOPS IT, and Play starts next at the keyframe at or before the
    frame it got to.
 
+And before any of it: the play draws at the row the POSTER was shown at.
+A box placed before the first play once rounded its row to CGA's two banks
+on a Hercules, and the play drew two rows lower, leaving a bar of the old
+picture (the owner's report) - broken that way on purpose (vp_boxxy's
+vp_dinfo call removed), it FAILS with rows 46 and 48.
+
 Broken on purpose - the canvas not read back as a bracket ends (vp_kget
 skipped) - the frame in the box after the click is not the frame played.
 """
@@ -138,6 +144,7 @@ def main():
                     sys.exit("vidwin: the picture is not at its own size "
                              "here (scale %d)" % rw("vp_ps"))
                 ui.mo.to(700, 12)           # the pointer off the window
+                py = rw("vp_py")            # where the POSTER is, on the
                 # --- 1: every frame right, in the window
                 stops = (1, 23, 64, 111, nf)
                 ww("vp_stopat", stops[0])
@@ -149,6 +156,10 @@ def main():
                         "into the window" if rb("vp_winm") else "FULL SCREEN",
                         "through the shadow" if rb("vp_shadow")
                         else "in place"))
+                if rw("vp_ty0") != py:
+                    bad.append("the poster sat at row %d and the play draws "
+                               "at row %d: a bar of the old picture between"
+                               % (py, rw("vp_ty0")))
                 if rw("vp_blabels") and u16(m.read(
                         base + syms["vp_blabels"] + 4, 2)) != \
                         syms["vp_i_pause"]:
