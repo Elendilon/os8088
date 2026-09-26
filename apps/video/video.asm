@@ -134,6 +134,9 @@ R_SP0N      equ 20
 R_SPMAX     equ 22
 R_PAL       equ 32                  ; VGA8: the palette's offset (98.1.1)
 R_RSCALE    equ 36                  ; ...and its row scale, 0/1 or 2
+R_FLIP      equ 37                  ; MODEX: 2 = two pages, flipped (98.3.8)
+VP_PAGE     equ 19200               ; a Mode X page, in plane bytes
+VP_PREVKB   equ 31                  ; the last record's copy: REC_MAX + slack
 PF_VGA8     equ 2                   ; [vp_pixfmt] is the format less one
 LAY_LIN320  equ 3                   ; ...and [vp_layout] the layout less one
 LAY_LIN80   equ 2
@@ -927,6 +930,16 @@ vp_parse:
     jne .bad
     mov byte [vp_rs], 1
 .rs1:
+    mov byte [vp_flip], 0           ; PAGE FLIPPING (98.3.8): Mode X's own
+    mov al, [es:V88_REND+R_FLIP]
+    cmp al, 1
+    jbe .fl1
+    cmp al, 2
+    jne .bad
+    cmp byte [vp_layout], LAY_MODEX
+    jne .bad
+    mov byte [vp_flip], 1
+.fl1:
     mov ax, [vp_h]                  ; ...and the rows the picture SHOWS,
     mov cl, [vp_rs]                 ; which is what the Preview is made at
     shl ax, cl
@@ -2187,6 +2200,16 @@ vp_sstart:
     jmp .fail
 .kok:
     mov [vp_keep], dx
+    cmp byte [vp_flip], 0           ; PAGE FLIPPING: the last record's copy
+    je .nopv                        ; (98.3.8)
+    mov ax, VP_PREVKB
+    call OSAPI_MEM_CLAIM
+    jnc .pv
+    mov word [vp_msg], vp_s_mem
+    jmp .fail
+.pv:
+    mov [vp_prevseg], dx
+.nopv:
     mov [vp_shseg], dx
     mov es, dx
     call vp_zero
@@ -2351,7 +2374,10 @@ vp_sfree:
     call .f
     mov dx, [vp_aseg]
     call .f
+    mov dx, [vp_prevseg]
+    call .f
     xor dx, dx
+    mov [vp_prevseg], dx
     mov [vp_ring], dx
     mov [vp_keep], dx
     mov [vp_shseg], dx
@@ -2852,11 +2878,23 @@ vp_main:
     je .fc                          ; one copy after them
     mov word [vp_fcap], 8
 .fc:
+    cmp byte [vp_flip], 0           ; FLIPPING: a frame a call, so a flip has
+    je .fc1                         ; a period to latch before the next draw
+    mov word [vp_fcap], 1           ; goes into the page it replaces
+.fc1:
     mov word [vp_dy0], 0xFFFF
     mov word [vp_dy1], 0
     call OSAPI_MOUSE                ; the buttons as they are: a CLICK is a
     mov [vp_mbtn], al               ; press after this
     mov word [vp_wtk], 0xFFFF       ; the thumb: asked at the first frame
+    xor ax, ax                      ; PAGES (98.3.8): page 0 on the glass,
+    mov [vp_poff], ax               ; the other drawn next, and no record
+    mov [vp_foff], ax               ; owed to it yet
+    mov [vp_prevn], ax
+    cmp byte [vp_flip], 0
+    je .pg
+    mov word [vp_poff], VP_PAGE
+.pg:
     ; THE CANVAS onto this surface (98.3.7): where the session got to, black
     ; before its first frame
     call vp_kput
@@ -2887,7 +2925,7 @@ vp_main:
     mov ax, si
     add ax, [vp_ke+KE_LEN]
     push ax                         ; the record's end
-    call vp_decrec                  ; SI past its lists
+    call vp_decboth                 ; SI past its lists
     pop ax
     pop dx
     cmp byte [vp_audio], 2          ; ADPCM4's keyframe carries the card's
@@ -3145,6 +3183,7 @@ vp_wsurf:
 ; Through the shadow the keeper IS the shadow: put is a copy of all of it,
 ; get is nothing. Onto the screen in place, the canvas's rows at the origin
 vp_kput:
+    mov word [vp_kpo], 0
     cmp byte [vp_shadow], 0
     je .native
     mov word [vp_dy0], 0
@@ -3157,6 +3196,12 @@ vp_kput:
     push ax
     xor al, al
     call vp_kmove
+    cmp byte [vp_flip], 0           ; ...onto both pages when flipping
+    je .one
+    mov word [vp_kpo], VP_PAGE
+    call vp_kmove
+    mov word [vp_kpo], 0
+.one:
     pop ax
     ret
 
@@ -3164,6 +3209,8 @@ vp_kget:
     cmp byte [vp_shadow], 0
     jne .out
     push ax
+    mov ax, [vp_foff]               ; off the page on the glass
+    mov [vp_kpo], ax
     mov al, 1
     call vp_kmove
     pop ax
@@ -3209,7 +3256,8 @@ vp_kmove:                           ; AL = 0 keeper -> screen, 1 screen -> keepe
     call vp_rowaddr                 ; AX = the row, in the keeper
     mov si, ax
     mov di, ax
-    add di, [vp_org]                ; ...and on the screen
+    add di, [vp_org]                ; ...and on the screen, on the page it
+    add di, [vp_kpo]                ; is moved to or from (98.3.8)
     mov cx, [vp_wb]
     mov ax, [vp_kseg]
     mov bx, [vp_vseg]
@@ -3868,7 +3916,14 @@ vp_frame:
     je .badsp
     jmp short .badrec
 .dec:
+    cmp byte [vp_flip], 0
+    jne .flip
     call vp_decrec
+    inc word [vp_done]
+    clc
+    ret
+.flip:
+    call vp_flipdec
     inc word [vp_done]
     clc
     ret
@@ -3889,6 +3944,83 @@ vp_frame:
     mov byte [vp_err], 1
     mov byte [vp_end], 1
     stc
+    ret
+
+; vp_flipdec - DX:SI = a record, played with PAGE FLIPPING (98.3.8): the
+; back page holds the frame before last, so the last record is decoded into
+; it again and then this one, which brings it to this frame; this record is
+; kept for the other page's turn; and the CRTC is pointed at the page - it
+; latches the start address at the next retrace, so nothing waits, and the
+; next draw, a frame period later, is into the page that was showing.
+; clobbers AX, BX, CX, DX, SI, DI, BP, ES
+vp_flipdec:
+    push dx
+    push si
+    cmp word [vp_prevn], 0
+    je .cur
+    mov dx, [vp_prevseg]
+    xor si, si
+    call vp_decrec
+.cur:
+    pop si
+    pop dx
+    push dx
+    push si
+    call vp_decrec
+    pop si
+    pop dx
+    push ds                         ; the record, for the other page
+    mov es, [vp_prevseg]
+    xor di, di
+    mov ds, dx
+    mov cx, [si]
+    mov bx, cx
+    cld
+    shr cx, 1
+    rep movsw
+    adc cx, cx
+    rep movsb
+    pop ds
+    mov [vp_prevn], bx
+    mov ax, [vp_poff]               ; show it...
+    call vp_show
+    mov [vp_foff], ax
+    xor word [vp_poff], VP_PAGE     ; ...and draw the other next
+    ret
+
+; vp_show - AX = a page's offset: the CRTC's start address (3D4h 0Ch/0Dh),
+; in Mode X's bytes. Latched at the next retrace. Preserves all
+vp_show:
+    push ax
+    push bx
+    push dx
+    mov bx, ax
+    mov dx, 0x3D4
+    mov al, 0x0C
+    mov ah, bh
+    out dx, ax
+    mov al, 0x0D
+    mov ah, bl
+    out dx, ax
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; vp_decboth - DX:SI = a record decoded into BOTH pages when flipping (a
+; keyframe: the stream after it takes either), else as vp_decrec. SI past
+; its lists, as vp_decrec leaves it
+vp_decboth:
+    cmp byte [vp_flip], 0
+    je vp_decrec
+    push dx
+    push si
+    mov word [vp_poff], 0
+    call vp_decrec
+    pop si
+    pop dx
+    mov word [vp_poff], VP_PAGE
+    call vp_decrec
     ret
 
 ; vp_decrec - DX:SI = a record: decoded onto the screen, or into the shadow
@@ -3920,6 +4052,7 @@ vp_decrec:
 .native:
     mov es, [vp_vseg]
     mov bp, [vp_org]
+    add bp, [vp_poff]               ; the page being drawn (98.3.8), or 0
 .go2:
     add si, 6
     push ds
@@ -5382,6 +5515,12 @@ vp_mode:      db 0
 vp_pwb:       dw 0                  ; the Preview's bytes a row (98.4)...
 vp_ph:        dw 0                  ; ...and its rows: the canvas's, shown
 vp_rs:        db 0                  ; ...this many times over, as a shift
+vp_flip:      db 0                  ; Mode X page flipping (98.3.8)...
+vp_poff:      dw 0                  ; ...the page being drawn...
+vp_foff:      dw 0                  ; ...the one on the glass...
+vp_kpo:       dw 0                  ; ...the one vp_kmove uses...
+vp_prevseg:   dw 0                  ; ...and the last record's copy, its
+vp_prevn:     dw 0                  ; bytes (0: none owed)
 vp_palo:      dd 0                  ; VGA8: the palette's offset
 vp_layout:    db 0
 vp_pixfmt:    db 0

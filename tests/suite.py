@@ -8246,6 +8246,14 @@ SOAK = [
         "thumb an OR and an AND into the page",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidmodexfl", "soak", py("tests/vidvga8.py", "--layout", "modex",
+                                 "--flip"), 34.0,
+        "SPEC.md 98.3.8: vidmodex's clip PAGE-FLIPPED - each record decoded "
+        "into the back page after the last one, and the CRTC pointed at it. "
+        "The glass at every hold is right only if both halves work, and "
+        "with vp_show's OUTs skipped it FAILS",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidcard", "soak", py("tests/vidcard.py"), 26.0,
         "SPEC.md 11.1.2: OSAPI_WM_RESIZE takes the gfx lock itself when "
         "the caller has none. The Video Player's info card grows the window "

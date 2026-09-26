@@ -968,7 +968,10 @@ class Writer:
 
     def __init__(self, g, rate, spf, audio_fmt, abytes, pixfmt, title="",
                  credits="", aspect=None, keysecs=KEY_SECS, palette=None,
-                 rowscale=1):
+                 rowscale=1, flip=False):
+        if flip and g.layout != LAY_MODEX:
+            raise V88Error("page flipping is Mode X's (98.3.8)")
+        self.flip = flip
         if rowscale not in (1, 2) or (rowscale > 1 and
                                       g.layout not in VGA8_LAYOUTS):
             raise V88Error("a row scale of %d: 1, or 2 on a VGA8 layout"
@@ -1091,8 +1094,9 @@ class Writer:
                          max(secs), len(stream),
                          max(len(r) for r in self.recs),
                          max((len(r) for k, r, c in keys), default=0))
-        struct.pack_into("<IB", hdr, 224, pal,
-                         self.rowscale if self.rowscale > 1 else 0)
+        struct.pack_into("<IBB", hdr, 224, pal,
+                         self.rowscale if self.rowscale > 1 else 0,
+                         2 if self.flip else 0)
         front = bytes(hdr)
         if self.palette:
             front += self.palette + bytes(2 * SECTOR - PAL_BYTES)
@@ -1208,8 +1212,11 @@ class Reader:
                            "and MODEX's, and only theirs"
                            % (self.pixfmt, layout))
         self.g = Geom(layout, wb, h)
-        pal, rs = struct.unpack_from("<IB", d, 224)
+        pal, rs, fl = struct.unpack_from("<IBB", d, 224)
         self.rowscale = rs or 1
+        if fl not in (0, 1, 2) or (fl == 2 and layout != LAY_MODEX):
+            raise V88Error("a flip byte of %d on layout %d" % (fl, layout))
+        self.flip = fl == 2
         if self.rowscale > 2 or (self.rowscale > 1 and
                                  layout not in VGA8_LAYOUTS):
             raise V88Error("a row scale of %d on layout %d" % (rs, layout))
@@ -1864,13 +1871,15 @@ def encode_frames(paths, out, fps, wav=None, layout="cga", title="",
 
 
 def encode_canvases(canvases, g, out, fps, pixfmt=PF_MONO1, palette=None,
-                    title="", keysecs=KEY_SECS, poster=None, rowscale=1):
+                    title="", keysecs=KEY_SECS, poster=None, rowscale=1,
+                    flip=False):
     """encode_frames for canvases already in hand (bytes, g.wb a row) - the
     only way to make a VGA8 file without a video (SPEC.md 98.2): silent,
     every changed byte"""
     rate, spf = max(1, round(fps * 100)), 100
     wr = Writer(g, rate, spf, AUD_NONE, 0, pixfmt, title=title,
-                keysecs=keysecs, palette=palette, rowscale=rowscale)
+                keysecs=keysecs, palette=palette, rowscale=rowscale,
+                flip=flip)
     surf = g.surface()
     prev = g.canvas(surf)
     for cv in canvases:

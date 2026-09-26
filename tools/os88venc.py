@@ -712,8 +712,12 @@ class EncoderX(Encoder):
     The budgets, the ranking by error and age, and the measured retry are
     Encoder's"""
 
-    def __init__(self, g, prof, fps, audio_cyc, audio_bps, palette):
+    def __init__(self, g, prof, fps, audio_cyc, audio_bps, palette,
+                 flip=False):
         super().__init__(g, prof, fps, audio_cyc, audio_bps, palette)
+        # FLIPPING (98.3.8): the player decodes the last record again into
+        # the back page before this one, so a frame costs both
+        self.flip, self.prev_c = flip, 0
         self.screen = np.zeros((g.h, g.w), dtype=np.uint8)
         self.age = np.zeros((g.h, g.w), dtype=np.float32)
         self.surf = g.surface()
@@ -733,7 +737,7 @@ class EncoderX(Encoder):
         subs = vid.modex_subs(target.tobytes(), diff.ravel().tolist(), g)
         cand = [(m, a, bs, run) for m, sp in subs for a, bs, run in sp]
         costs = [span_cost(bs, run) for m, a, bs, run in cand]
-        cyc_room = min(self.cpu.room(), self.peak)
+        cyc_room = min(self.cpu.room(), self.peak) - self.prev_c
         byte_room = self.disk.room()
         order = None
         er = cyc_room - vid.CYC_FRAME - 7 * vid.CYC_SUB
@@ -803,9 +807,12 @@ class EncoderX(Encoder):
 
     def charge(self, rec, abytes):
         c = vid.cycles_of(rec, True)
-        self.cpu.spend(c)
+        self.cpu.spend(c + self.prev_c)
         self.disk.spend(len(rec) - abytes)
-        return c
+        spent = c + self.prev_c
+        if self.flip:
+            self.prev_c = c
+        return spent
 
 
 # --------------------------------------------------------------------------
@@ -972,15 +979,18 @@ def encode(a, keep=None):
         dith = CompDiffuser(w, h, a.comp_stable, not a.comp_quick)
     else:
         dith = Ditherer(a.dither, w, h, a.stable, a.invert, a.clip)
-    enc = (EncoderX if L == vid.LAY_MODEX else Encoder)(
-        g, prof, fps, audio_cyc, audio_bps, palette)
+    if a.flip and L != vid.LAY_MODEX:
+        raise vid.V88Error("--flip is Mode X's: 13h has one page")
+    enc = EncoderX(g, prof, fps, audio_cyc, audio_bps, palette, a.flip) \
+        if L == vid.LAY_MODEX else \
+        Encoder(g, prof, fps, audio_cyc, audio_bps, palette)
     wr = vid.Writer(g, rate, spf, afmt, abytes,
                     vid.PF_VGA8 if vga8 else
                     vid.PF_CGACOMP if comp else vid.PF_MONO1,
                     title=a.title or os.path.splitext(
                         os.path.basename(a.src))[0][:47],
                     credits=a.credits or "", keysecs=a.keysecs,
-                    palette=palette, rowscale=dh,
+                    palette=palette, rowscale=dh, flip=a.flip,
                     aspect=scaled_aspect(vid.ASPECT[L], dh))
     pcm = ffmpeg_audio(a.src, rate, a.start, a.end, a.volume) if afmt else b""
     cyc, recs, n = [], [], 0
@@ -1096,6 +1106,10 @@ def parser():
                     help="mono (the default), cgacomp: composite colour on "
                          "a CGA (the cga layout only), vga8: 256 colours in "
                          "mode 13h (the lin320 layout, and what it implies)")
+    ap.add_argument("--flip", action="store_true",
+                    help="modex: two pages, the player drawing one while "
+                         "the other shows - no tearing, at twice the decode "
+                         "(98.3.8)")
     ap.add_argument("--detail", default="1x1",
                     help="vga8: WxH, the picture made at a W-th of the "
                          "width (1, 2, 4) and an H-th of the height (1, 2) "

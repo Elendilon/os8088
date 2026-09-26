@@ -32,6 +32,13 @@ the 240 rows twice each into 400, so rows 200 to 239 are off its glass and
 the row checks only the 200 it shows (the canvas is inside them). The clip must hold 0Fh sub-records and plane ones,
 or it tests half the decoder.
 
+--flip makes the Mode X clip PAGE-FLIPPED (98.3.8): the player draws the
+page that is not showing and points the CRTC at it. The glass at each hold
+is only right if both halves work - a draw into the back page that is never
+shown leaves the glass a frame behind, alternately - and the holds are an
+odd and an even number of frames apart. Broken on purpose (vp_show's OUTs
+skipped) it FAILS.
+
 --rows2 makes the clip at half its rows with a ROW SCALE of 2 (98.2.4):
 the player sets the CRTC to show each row twice, so the picture keeps its
 size, and 3 reads the glass on either layout - the rows only come out right
@@ -76,7 +83,7 @@ def palette():
     return bytes(p)
 
 
-def clip(tmp, layout, rs=1):
+def clip(tmp, layout, rs=1, flip=False):
     rnd = random.Random(1311)
     g = vid.Geom(layout, W // vid.PIX_PER_BYTE[layout], H)
     cvs, cv = [], bytearray(W * H)
@@ -99,7 +106,8 @@ def clip(tmp, layout, rs=1):
         cvs.append(bytes(cv))
     out = os.path.join(tmp, "COLOR.V88")
     vid.encode_canvases(cvs, g, out, FPS, vid.PF_VGA8, palette(),
-                        "vidvga8 clip", keysecs=2.0, poster=1, rowscale=rs)
+                        "vidvga8 clip", keysecs=2.0, poster=1, rowscale=rs,
+                        flip=flip)
     vid.verify_v88(out)
     return out
 
@@ -110,6 +118,7 @@ def main():
     ap.add_argument("--layout", choices=("lin320", "modex"),
                     default="lin320")
     ap.add_argument("--rows2", action="store_true")
+    ap.add_argument("--flip", action="store_true")
     a = ap.parse_args()
     rs = 2 if a.rows2 else 1
     global H
@@ -125,7 +134,7 @@ def main():
     pal8 = [tuple((v * 255 + 31) // 63 for v in palette()[3 * i:3 * i + 3])
             for i in range(256)]
     with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "build")) as tmp:
-        v88 = clip(tmp, lay, rs)
+        v88 = clip(tmp, lay, rs, a.flip)
         r = vid.Reader(v88)
         g = r.g
         if modex:                       # both halves of the decoder
@@ -173,6 +182,8 @@ def main():
             # --- 1
             got1 = (rb("vp_pixfmt") + 1, rb("vp_layout") + 1, rb("vp_mode"),
                     rb("vp_shadow"), rb("vp_ok"))
+            if rb("vp_flip") != int(a.flip):
+                bad.append("the player's flip is %d" % rb("vp_flip"))
             print("   format %d, layout %d, mode %d, shadow %d, ok %d"
                   % got1)
             if got1 != (vid.PF_VGA8, lay, mode_want, 0, 1):

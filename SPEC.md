@@ -149103,7 +149103,8 @@ and a player reads only the stream it plays (VIDEO-PLAN 13, answer A).
 | 30 | 2 | the largest keyframe record, bytes |
 | 32 | 4 | VGA8: **the palette**, on a sector - 256 entries of (r, g, b), the DAC's six bits, 0..63; 0 for every other format. The encoder puts it at sector 1, two sectors, and the keyframe table after it |
 | 36 | 1 | VGA8: **the row scale**, 0 or 1 for none, 2 for each row shown twice by the CRTC (98.2.4); 0 in every other file |
-| 37 | 27 | 0 |
+| 37 | 1 | MODEX: **2 = page flipped** (98.3.8), 0 or 1 not; 0 in every other file |
+| 38 | 26 | 0 |
 
 #### 98.1.2 Layouts: the file is laid out for its surface on the host
 
@@ -149732,6 +149733,37 @@ screen alike; and after a stop that rounded back to the key it started from,
 the box kept the picture it had - the poster, or the paused frame - rather
 than that key's, which the owner saw on the 5150. `vidpreview` now reads the
 box off the screen after a stop.
+
+#### 98.3.8 Page flipping (Mode X, optional)
+
+**A file the encoder made with `--flip` is played on two pages**, so no
+frame is ever seen half drawn. Mode X has three (§53.4) at `VP_PAGE` =
+19,200 plane bytes apart; this uses two.
+- **The format does not change.** A record is still a change against the
+  frame before it, and the back page holds the frame before THAT - so
+  `vp_flipdec` decodes the LAST record into it again, then this one, which
+  brings it to this frame. The last record is kept for the purpose in a
+  31 KB claim (`vp_prevseg`), copied after each decode at RAM speed.
+- **The flip does not wait.** `vp_show` writes the CRTC's start address
+  (3D4h 0Ch/0Dh), which the VGA latches at the next vertical retrace, and
+  the next draw into the page that was showing is a frame period later -
+  and when flipping the hook takes at most ONE frame a call (`vp_fcap` 1),
+  so a second draw never lands before the first flip has latched. §53.10's
+  `fsx_page` waits for the retrace, which a timer hook cannot.
+- **A keyframe and the keeper go onto both pages** (`vp_decboth`, `vp_kput`),
+  and the keeper is read back off the page on the glass (`vp_foff`).
+- **It costs decode, not data**: every record is decoded twice. The encoder
+  charges each frame its own decode plus the last one's, so a flipped file
+  fits the same profile by cutting more. Trackmania, Mode X, 30 fps,
+  `286-vga`: at detail 2 × 2 flipping takes the decode from 73% to 139% of
+  the model's period and every frame stays exact; at 2 × 1, 137% to 267%,
+  and 22 of 360 frames are cut. So it is **optional** (the owner's rule: *"if
+  the page flipping slows down the rate we can play at, make it optional"*)
+  and it is the encoder's flag, not the player's choice: the file's budget
+  was made for it or not.
+- `vidmodexfl` (`tests/vidvga8.py --layout modex --flip`) is the gate: the
+  glass at every hold, which is only right if the draw AND the flip both
+  work, and FAILS with `vp_show`'s OUTs skipped.
 
 ### 98.4 The window: the Preview (wave 6)
 
