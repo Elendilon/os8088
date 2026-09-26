@@ -57,28 +57,25 @@ THE CLIPS
                XDC's are: 294 of 360 frames exact
   VGA disk     TRACK at 400 x 225 - it plays IN THE
                WINDOW on a VGA desktop, and the scrub
-               bar's thumb follows it now. And 256
-               COLOURS, full screen, all 30 fps
-               unless named:
-               mode 13h, 320 x 150:
-                 TRK830  396 KB/s
-                 TRK825  25 fps, 377
-                 TRK812  DETAIL 1x2: half the rows,
-                         each shown twice, 236 KB/s,
-                         every frame exact
-                 TRK8S   160 x 100, 137
-               Mode X, 320 x 180, square pixels:
-                 TRKX30  402 KB/s
-                 TRKX25  25 fps, 401
-                 TRKX2   DETAIL 2x1: pixels in pairs,
-                         292 KB/s, every frame exact
-                 TRKX22  DETAIL 2x2, 158 KB/s, every
+               bar's thumb follows it. All at 30 fps:
+               16 COLOURS, mode 12h - IN THE WINDOW
+               too (wave 12):
+                 TRK4    320 x 180, 254 KB/s, every
                          frame exact
-               DETAIL (os88venc --detail) is less
-               picture on the same screen: the
-               smears go, the picture coarsens.
-               Bad Apple, Bad Carrot, TRACKF and the
-               15 fps cuts left this disk for room
+                 TRK4M   400 x 225, 356 KB/s
+               256 colours, full screen, mode 13h:
+                 TRK830  320 x 150, 396 KB/s
+                 TRK812  detail 1x2, 236, exact
+                 TRK8S   160 x 100, 137
+               ...and Mode X, 320 x 180:
+                 TRKX2   detail 2x1, 292, exact
+                 TRKX22  detail 2x2, 158, exact
+                 TRKX2F  TRKX2 PAGE-FLIPPED: no
+                         tearing, twice the decode,
+                         22 of 360 frames cut
+                 TRKX22F TRKX22 page-flipped, exact
+               The 25 fps and full-detail Mode X cuts
+               are on the previous disk
 
 Each is sized to its source's SHAPE on that screen:
 on Hercules a 4:3 video is 400 x 193 and a 16:9 one
