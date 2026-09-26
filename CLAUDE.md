@@ -683,7 +683,7 @@ ROM on both emulators, `docs/reports/STKDIAG-PC5150-2026-09-10.md`),
 and hibernate on; `build/mfm20.img` is created blank and kept),
 `xt-cga`, `xt-hercules`, `xt-ega`, `xt-multimon`, `xt-sound`,
 `xt-sound-1.44`, `xt-wire`, `286`, `286-525`,
-`286-sound`, the eight `286-525-*` application machines (`-z`, `-word`,
+`286-sound`, `286-video` (the owner's mr286 with the Video Player's VGA disk on IDE, `make videnchd`), the eight `286-525-*` application machines (`-z`, `-word`,
 `-cword`, `-runcpm`, `-c64`, `-weave`, `-loom`, `-all` — `vm/286-525` with a
 1.2MB app disk in B: instead of the apps floppy, and the only machines in the
 tree that read that geometry at all: a 1.2MB drive wants the AT's 500 kbps

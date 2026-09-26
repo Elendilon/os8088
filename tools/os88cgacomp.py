@@ -142,6 +142,22 @@ def palette():
     return np.array(rows)
 
 
+def cell_lut():
+    """(16, 16, 16, 4, 3) float: the four output pixels of a nibble b set
+    between a nibble a on its left and c on its right - the model rendered
+    once for all 4,096, each in a row of seven cells (a a a b c c c), so a
+    choice can be weighed by what it LOOKS like beside its neighbours and
+    not by a flat field's colour"""
+    a, b, c = np.meshgrid(np.arange(16), np.arange(16), np.arange(16),
+                          indexing="ij")
+    a, b, c = a.ravel(), b.ravel(), c.ravel()
+    cells = np.stack([a, a, a, b, c, c, c], axis=1)
+    bits = ((cells[:, :, None] >> (3 - np.arange(4))) & 1).reshape(len(a),
+                                                                   28)
+    out = render(bits).astype(float)
+    return out[:, 12:16].reshape(16, 16, 16, 4, 3)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--palette", metavar="OUT.png")

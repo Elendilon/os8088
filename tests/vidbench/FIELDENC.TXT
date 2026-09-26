@@ -14,6 +14,12 @@ files - scaled, dithered and budgeted for a 4.77 MHz
                 on an ST11R (31 MB), for 86Box
   VIDENC-CGA-ST11R.VHD   the CGA clips (640 wide; a
                 VGA plays them too), ST11R
+  VIDENC-VGA-286.VHD     the VGA clips, for a 286 on
+                IDE: 17 sectors, 15 heads, 320
+                cylinders. `make 286-video` is an
+                mr286 at 16 MHz, 4 MB, an OTI067 VGA
+                and an SB16 with it and NO floppy in
+                A:, so it boots the disk
 
 The disk has to be read at the geometry it was written
 with, exactly as the wave 0-7 field disks.
@@ -24,16 +30,28 @@ THE CLIPS
   TRACK.V88    Trackmania, 12 s of a run, 16:9
   TRACKA4.V88  (Hercules disks) the same with its
                sound as 4-bit ADPCM at 22 kHz, made
-               by the encoder's new SEARCH - the card
-               decodes it. Does a real SB 2.0 play
-               it, and how does it sound beside the
-               8-bit TRACK.V88?
+               by the encoder's SEARCH - the card
+               decodes it
+  TRKA11.V88   (Hercules disks) the same ADPCM at
+               11 kHz. A DSP 2.x is rated for 12 kHz
+               of 4-bit ADPCM at most, which only a
+               REAL card can answer. ON 86BOX BOTH
+               CLICK every lap of the player's sound
+               ring (~1.5 s) and pop at the start:
+               86Box's own ADPCM bugs, not the file's
   TRCOMP.V88   (CGA disk) Trackmania in COMPOSITE
                COLOUR, ADPCM sound - on a CGA with a
                composite monitor (86Box: Display ->
                composite) it is colour; on RGB it is
-               stripes. It is heavy for this disk:
-               expect smear in fast motion
+               stripes. Error-diffused through the
+               monitor's own model now, the way
+               XDC's are: 294 of 360 frames exact
+  VGA disk     BAPPLE, BCARROT and TRACK at 400 x
+               300 / 400 x 225 - they play IN THE
+               WINDOW on a VGA desktop - and TRACKF,
+               Trackmania at 640 x 360, full screen.
+               8-bit sound at 22 kHz, the "286"
+               profile (150 KB/s)
 
 Each is sized to its source's SHAPE on that screen:
 on Hercules a 4:3 video is 400 x 193 and a 16:9 one

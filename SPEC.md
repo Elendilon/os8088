@@ -149021,6 +149021,30 @@ MartyPC's card (`tools/martypc/patches/06-sblaster-adpcm4.patch`).
   nibble sequence with the least total error, **~7 dB better** - 27.3 dB
   against 19.9 on 12 s of Bad Apple's sound. The owner's by-ear verdict
   above was on the greedy encoder's output.
+- **What the field found in the search's output** (the owner, on 86Box,
+  by ear and then on a recording): *"much better"*, with a pop right after
+  the start and clicks at a fixed period. **Neither is the stream's** -
+  `TRACKA4`'s decode is within 2 levels of its source for all 12 s, and
+  86Box's tables are these - **and both are 86Box's**, read in its
+  `src/sound/snd_sb_dsp.c`:
+  - **The clicks are one per LAP of the ring**: the recording's fall at
+    1.475 s and its multiples, which is 16,384 bytes at the card's real
+    11,111 a second (its time constant takes 22,050 Hz to 22,222). At a
+    lap the 8237 reaches terminal count, and 86Box's DMA read returns the
+    byte with `DMA_OVER` (`0x10000`) OR'd in; the ADPCM decoder keeps it in
+    an `int` (`sbdat2`) and takes the high nibble as `sbdat2 >> 4`, so that
+    nibble is `0x100x`, clamps to table index 63, and steps the card -60.
+    ADPCM never corrects an error, so every lap is a click and a shift. The
+    8-bit PCM path masks the flag away and does not click. **The fix is one
+    `& 0xff` in 86Box**; a real card has no flag to leak. Nothing in the
+    format can dodge it - the nibble is forced whatever it was - so it is
+    reported rather than worked round.
+  - **The pop is 86Box's 7Dh**, which reads NO reference byte (only 75h
+    does; DOSBox and MartyPC's patch read one): it plays ours as two
+    nibbles and starts from whatever sample its last play left.
+  - Still a question for a REAL card: Creative rates a DSP 2.x at 12 kHz
+    at most for 4-bit ADPCM, and `TRACKA4` is 22 kHz; the field disk
+    carries it at 11 kHz too (`TRKA11`).
 
 **A rendition is one canvas and its own stream.** Version 1 writes exactly
 one. The table is there so that a later file can carry a canvas per adapter
@@ -149550,8 +149574,17 @@ click that pauses is anywhere, polled off `OSAPI_MOUSE`.
   asked of the adapter every time**: a box laid out before the first play
   once rounded to the default layout's bank - CGA's two rows, on a
   Hercules - so the play drew two rows below the poster and left a bar of
-  it above or below the picture (the owner's report; `vidwin` asserts the
-  two rows are one).
+  it above or below the picture (the owner's report). **Two more things
+  made the same bar, both from the 5150's glass:** the box's three spare
+  rows were INSIDE its frame and black, so at rest the picture sat between
+  two black bars it does not have - the frame now hugs the picture's own
+  rows and the spare ones are outside it, in the window's white; and **a
+  DRAG** moves the window's pixels by any number of rows, so a poster
+  dragged 5 rows sits on no bank and the play, which puts the picture on
+  one, left the difference showing. The poster's row relative to the
+  content's is kept (`[vp_ppoff]`) and an in-window play whose row differs
+  paints the box first. `vidwin` reads the rows round the picture before a
+  play and after a drag of 5 rows, and fails with the repaint taken out.
 - **The thumb follows the play**, a move a second at most, on a 1 bpp
   desktop only: a VGA fill changes the planes' state while it runs, and the
   hook's decode must find them at rest.
@@ -149741,7 +149774,8 @@ python3 tools/os88venc.py IN OUT.V88 [--preset P | --layout L --box WxH]
     [--profile R] [--disk B/s] [--avg F] [--peak F]
     [--audio pcm8|adpcm4|none] [--rate HZ] [--volume V]
     [--adpcm search|greedy] [--jobs N]
-    [--pixfmt mono|cgacomp] [--mix F] [--levels-mix 4|16]
+    [--pixfmt mono|cgacomp] [--comp-dither diffuse|pattern]
+    [--comp-stable E] [--comp-quick] [--mix F] [--levels-mix 4|16]
     [--dither bayer|bluenoise|threshold] [--stable N] [--clip N]
     [--levels auto|none] [--gamma G] [--contrast C] [--brightness B]
     [--invert] [--title T] [--credits C] [--keysecs S]
@@ -149857,25 +149891,47 @@ two to a byte, the left one in the high nibble - what a 4-pixel nibble on a
 nibble boundary shows is that colour (the canvas's x is on a byte, so the
 phase is the model's). ffmpeg scales the source to the CELLS in RGB.
 
-**The dither is Knoll's PATTERN dither**, the ordered dither for a fixed
-palette: a cell builds a list of palette colours whose mean is its colour
-(`--mix` of the running error each step), sorted by luma, and its Bayer
-threshold picks one. A grey-axis offset cannot mix two hues, and a composite
-palette has no blue-grey - an early version sent Trackmania's sky to green.
-`--levels-mix 4` (a 2 x 2 pattern, the default) mixes four; `16` (4 x 4)
-mixes more colours and is busier, and the fringes where neighbouring cells
-differ are the model's too, not the palette's. Distance is YCbCr with luma
-weighted 1.5; the dead band (`--stable`) is the mono one's.
+**The default is ERROR DIFFUSION THROUGH THE MODEL** (`--comp-dither
+diffuse`), which is what XDC's own composite streams turn out to be: the
+owner's two Big Buck Bunny XDVs, their bytes rendered through this model,
+are smooth colour with full-width detail, where the first version of this
+- a flat palette and an ordered pattern - read as flat colour with
+fringes. The target is the frame at FULL hi-res width (a composite
+monitor's luma has it; only colour is a quarter), and each cell's nibble is
+chosen by what its four pixels LOOK like beside its neighbours
+(`os88cgacomp.cell_lut`, all 4,096 left-cell-right triples rendered once),
+against the target plus the error carried to it - Floyd-Steinberg over
+cells, 7/16 right and 3, 5 and 1/16 below. A cell waits for its left
+neighbour and the three above, so every cell with *g* + 2*y* = *s* is
+decided at step *s*: a vectorised wavefront.
+- **One cell of lookahead**: a cell's pixels depend on its right neighbour
+  too, so each candidate is weighed with the neighbour that suits it best.
+  A picture rendered from known nibbles comes back 93.7% exact with it and
+  84.8% without (`videnc`, which fails at the lower), and Trackmania costs
+  **59 KB/s** of picture with no limits against 76 - the better choice is
+  the stabler one. It is ~1 s a frame, so frames go to every core in
+  5-second chunks, each starting its dead band afresh; `--comp-quick`
+  drops the lookahead, ~5x faster.
+- **The dead band carries it.** Error diffusion is chaotic in TIME - one
+  changed cell reflows every choice after it - so with none Trackmania is
+  333 KB/s. A cell keeps last frame's nibble when that costs at most
+  `--comp-stable` (default 50,000, in the model's weighted squared error
+  over the cell) more than the best: 76 KB/s at that and no lookahead, and
+  under the ST-225 budget **131 of 360 frames exact against 44 at 20,000**,
+  with less smear in fast motion.
+- `--comp-dither pattern` is the first version, kept: Knoll's pattern
+  dither over the 16 flat colours (`--mix`, `--levels-mix 4|16`), cheap and
+  calm, and blind to the fringes.
 
-**It is EXPENSIVE, and the numbers say how much.** Trackmania 3-15 s, 16:9,
-640 x 150 with no limits: **115 KB/s** of picture at `--mix 0.5`, 82 at no
-mixing, 135-160 with a 4 x 4 pattern - against the ST-225 profile's ~48.
-Under that budget it plays every frame on time (219 ticks of 218.8 on
-MartyPC's CGA, the burst set) with 318 of 360 frames cut, and the cut shows
-as smear in motion. `cga-small` fits (32 KB/s, every frame exact) but is
-320 x 75 of cells 80 wide. So composite wants a faster disk, a shorter or
-calmer clip, or fewer rows; the preview PNGs (`--preview-png`) are rendered
-through the model, so they show what the monitor would.
+**Under the ST-225 budget** Trackmania 3-15 s at 640 x 150 plays **294 of
+360 frames exact** (the pattern dither managed 42), 64 KB/s with ADPCM4
+sound, every frame on time on MartyPC's CGA with the burst set. XDC's Big
+Buck Bunny is 640 x 200 composite at 60 Hz: in our format **73 KB/s** of
+picture for the full version and **33 KB/s** for the one it made for a 32
+MB RLL disk, which *"maintains 15 FPS on average, bursting up to 60"* - the
+same trade, cut to fit, that the budgeted encoder makes. The preview PNGs
+(`--preview-png`) are rendered through the model, so they show what the
+monitor would.
 
 It prints what it made: the canvas, the rate, KB/s split video and audio,
 the model's CPU mean and worst frame with the audio copy in, how many frames

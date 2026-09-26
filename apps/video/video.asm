@@ -1853,6 +1853,12 @@ vp_srun:
     mov byte [vp_bpause], 1         ; plays, drawn before the bracket takes
     call vp_clip                    ; the screen
     call vp_buttons
+    call vp_boxxy                   ; A DRAG moves the window's pixels by any
+    mov ax, [vp_py]                 ; number of rows and the play puts the
+    sub ax, [vp_cy0]                ; picture on a bank: where they differ,
+    cmp ax, [vp_ppoff]              ; the box is painted again first, or
+    je .go                          ; the rows between are left behind (the
+    call vp_pposter                 ; owner's report)
 .go:
     mov byte [vp_exitr], VPX_STOP
     mov bx, [vp_win]
@@ -3864,26 +3870,12 @@ vp_pposter:
     push si
     push bp
     push es
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
     call vp_boxxy                   ; the box, and the picture's place in it
-    mov ax, [vp_bx1]                ; ...and the box's frame
-    dec ax
-    mov bx, [vp_by1]
-    dec bx
-    mov cx, [vp_bx2]
-    inc cx
-    mov dx, [vp_by2]
-    inc dx
-    call OSAPI_GFX_FRAME
+    mov ax, [vp_py]                 ; where it is drawn, from the content's
+    sub ax, [vp_cy0]                ; origin: a drag moves the pixels by any
+    mov [vp_ppoff], ax              ; number of rows, and the play looks
     cmp word [vp_pseg], 0
     je .black
-    mov ax, [vp_bx1]                ; above it (its row on a bank, 98.3.7)
-    mov bx, [vp_by1]
-    mov cx, [vp_bx2]
-    mov dx, [vp_py]
-    dec dx
-    call vp_fillne
     mov ax, [vp_by2]                ; rows past the box - a picture made at
     sub ax, [vp_py]                 ; another scale, between a relayout and
     inc ax                          ; its reload - are not drawn
@@ -3892,12 +3884,38 @@ vp_pposter:
     mov ax, [vp_prows]
 .r:
     mov [vp_pdh], ax
-    mov ax, [vp_bx1]                ; below it
-    mov bx, [vp_py]
-    add bx, [vp_pdh]
+    ; THE FRAME HUGS THE PICTURE (98.3.7): its row is on a bank, so up to
+    ; three of the box's rows are spare, above it and below. Inside the
+    ; frame they read as black bars round a picture that has none (the
+    ; owner's report), so they go OUTSIDE it, in the window's ground
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    mov ax, [vp_bx1]                ; above the frame
+    dec ax
+    mov bx, [vp_by1]
+    dec bx
     mov cx, [vp_bx2]
-    mov dx, [vp_by2]
+    inc cx
+    mov dx, [vp_py]
+    sub dx, 2
     call vp_fillne
+    mov bx, [vp_py]                 ; below it
+    add bx, [vp_pdh]
+    inc bx
+    mov dx, [vp_by2]
+    inc dx
+    call vp_fillne
+    mov al, CBLACK
+    call OSAPI_SET_COLOR
+    mov ax, [vp_bx1]                ; the frame, on the picture's rows
+    dec ax
+    mov bx, [vp_py]
+    dec bx
+    mov cx, [vp_bx2]
+    inc cx
+    mov dx, [vp_py]
+    add dx, [vp_pdh]
+    call OSAPI_GFX_FRAME
     mov bx, [vp_py]                 ; left of it
     mov dx, bx
     add dx, [vp_pdh]
@@ -3929,6 +3947,17 @@ vp_pposter:
     call vp_fillne
     jmp short .out
 .black:
+    mov al, CBLACK                  ; no picture: the box, framed, black
+    call OSAPI_SET_COLOR
+    mov ax, [vp_bx1]
+    dec ax
+    mov bx, [vp_by1]
+    dec bx
+    mov cx, [vp_bx2]
+    inc cx
+    mov dx, [vp_by2]
+    inc dx
+    call OSAPI_GFX_FRAME
     mov ax, [vp_bx1]
     mov bx, [vp_by1]
     mov cx, [vp_bx2]
@@ -4693,6 +4722,8 @@ vp_pdw:       dw 0                  ; ...of which the box shows this many...
 vp_prows:     dw 0                  ; ...the rows shown...
 vp_pskip:     dw 0                  ; ...from this offset
 vp_px:        dw 0                  ; where the last paint put it (the gate
+vp_ppoff:     dw 0                  ; the poster's row less the content's,
+                                    ; as last painted
 vp_py:        dw 0                  ; reads the screen there)
 vp_ploads:    dw 0                  ; posters made: the gate waits on it
 vp_bx1:       dw 0                  ; the box's inside, screen

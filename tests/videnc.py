@@ -31,6 +31,10 @@ tools/os88venc.py encodes it three ways. Four questions:
    cells alternating each colour with its complement must come back as
    exactly those nibbles, the left cell in the high half. Broken on purpose (the nibbles packed
    low-first) it FAILS naming the colours that came back wrong.
+8. DOES COMPOSITE DIFFUSION SEE THE MODEL? A picture rendered through the
+   model from known nibbles, in runs of 2 to 6 cells, must come back as 90%
+   or more of them (94% measured). Without the lookahead - a cell judged as
+   if its colour ran on to the right - it is 85%, and FAILS.
 5. IS FLAT FLAT? A black a few levels off black, and a white a few off
    white, with noise - what an MP4 delivers - must dither solid. Spread over
    the whole 0..255 the threshold map lit one dot in every 8 x 8 tile of
@@ -241,6 +245,26 @@ def main():
     if wrong:
         bad.append("composite colours %s alternating with their "
                    "complements come back as other bytes" % wrong)
+    # --- 8: composite by diffusion through the model: a picture RENDERED
+    # from known nibbles must come back as (nearly all of) them
+    rnd = np.random.default_rng(3)
+    h, n = 16, 160
+    nib = np.zeros((h, n), np.int64)
+    for y in range(h):
+        g = 0
+        while g < n:
+            run = int(rnd.integers(2, 7))
+            nib[y, g:g + run] = rnd.integers(0, 16)
+            g += run
+    bits = ((nib[:, :, None] >> (3 - np.arange(4))) & 1).reshape(h, 640)
+    out = venc.CompDiffuser(640, h, 0)(os88cgacomp.render(bits))
+    back = np.stack((out >> 4, out & 15), 2).reshape(h, n)
+    frac = float((back == nib).mean())
+    print("   composite diffusion: %.1f%% of cells come back from their own "
+          "rendering (want 90%% or more)" % (100 * frac))
+    if frac < 0.90:
+        bad.append("composite diffusion gives back %.1f%% of the cells "
+                   "its picture was rendered from" % (100 * frac))
     for b in bad:
         print("   FAIL: %s" % b)
     if not bad:

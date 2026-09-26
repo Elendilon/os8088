@@ -998,7 +998,12 @@ red. A row about one package goes in `soak`.
   86Box use - ported to `tools/os88cgacomp.py`, with Knoll's pattern
   dither over the 16 nibbles; it is expensive (115 KB/s of picture for
   640 x 150 with no limits) and plays on time under the ST-225 budget by
-  cutting. **What is left of W8 is the field's**: the profiles' figures
+  cutting. **Then it was aimed at XDC's own** (the owner's two Big Buck
+  Bunny XDVs, rendered through the model): composite is error-diffused
+  through the model now, cell by cell against what it looks like beside
+  its neighbours, with a lookahead and a dead band - 294 of 360 frames
+  exact under the ST-225 budget where the pattern dither managed 42 (SPEC.md
+  98.2.2). **What is left of W8 is the field's**: the profiles' figures
   (`floppy`, `picomem2` and `286` are arithmetic) and how composite
   and the searched ADPCM4 look and sound on a real monitor and card.
 - **W9 — Live windowed.** The encoder's `live-*` presets (240 x 116 on

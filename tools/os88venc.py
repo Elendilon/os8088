@@ -314,6 +314,127 @@ class CompDitherer:
         return (n[:, 0::2] << 4) | n[:, 1::2]
 
 
+class CompDiffuser:
+    """COMPOSITE COLOUR BY ERROR DIFFUSION THROUGH THE MODEL (SPEC.md
+    98.2.2), the default. The target is the frame at FULL hi-res width -
+    luma on a composite monitor has it, only colour is a quarter - and each
+    cell's nibble is the one whose four output pixels, rendered BESIDE ITS
+    LEFT NEIGHBOUR (tools/os88cgacomp.cell_lut), come nearest the target
+    plus the error carried to it, Floyd-Steinberg over cells: 7/16 right,
+    3, 5 and 1/16 to the row below. A cell waits for its left neighbour and
+    the three above it, so every cell with g + 2y = s is decided together
+    at step s - a wavefront, vectorised. What XDC's own composite streams
+    look like, rendered through the model, is what this was aimed at; the
+    pattern dither before it read as flat colour with fringes.
+    The dead band: a cell keeps last frame's nibble when that costs at most
+    `stable` more than the best, so a still area is still."""
+
+    W = np.array([1.5, 1.0, 1.0]) if np is not None else None
+
+    def __init__(self, w, h, stable, look=True):
+        import os88cgacomp
+        self.look = look
+        self.cells = w // 4
+        self.LY = self.yuv(os88cgacomp.cell_lut())
+        idx = np.arange(16)
+        self.flat = self.LY[:, idx, idx]           # (left, b, 4, 3): c = b
+        self.stable = stable
+        self.prev = None
+
+    def yuv(self, rgb):
+        r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+        y = 0.299 * r + 0.587 * g + 0.114 * b
+        return np.stack((y, 0.564 * (b - y), 0.713 * (r - y)), -1) * self.W
+
+    def __call__(self, rgb):
+        h, n = rgb.shape[0], self.cells
+        T = self.yuv(rgb.astype(float)).reshape(h, n, 4, 3)
+        nib = np.zeros((h, n), np.int64)
+        E = np.zeros((h + 1, n + 2, 3))
+        for s in range(n + 2 * (h - 1)):
+            ys = np.arange(max(0, (s - n + 2) // 2), min(h - 1, s // 2) + 1)
+            gs = s - 2 * ys
+            ok = (gs >= 0) & (gs < n)
+            ys, gs = ys[ok], gs[ok]
+            if not len(ys):
+                continue
+            t = T[ys, gs] + E[ys, gs + 1][:, None, :]
+            left = np.where(gs > 0, nib[ys, np.maximum(gs - 1, 0)], 0)
+            k = np.arange(len(ys))
+            if self.look:
+                # ONE CELL OF LOOKAHEAD: a cell's pixels depend on its right
+                # neighbour too, so each b is weighed with the c that suits
+                # it best - its own pixels beside c, plus c's beside b
+                t2 = T[ys, np.minimum(gs + 1, n - 1)]
+                own = ((self.LY[left] - t[:, None, None]) ** 2).sum((3, 4))
+                nxt = ((self.flat[None] - t2[:, None, None]) ** 2
+                       ).sum((3, 4))                # (k, b, c)
+                both = own + nxt
+                e = both.min(2)                     # (k, b)
+                cc = both.argmin(2)
+                cb = self.LY[left[:, None], np.arange(16)[None], cc]
+            else:
+                cb = self.flat[left]                # (k, 16, 4, 3)
+                e = ((cb - t[:, None]) ** 2).sum((2, 3))
+            best = e.argmin(1)
+            if self.prev is not None and self.stable:
+                p = self.prev[ys, gs]
+                best = np.where(e[k, p] - e[k, best] <= self.stable, p, best)
+            err = (t - cb[k, best]).mean(1) * 0.9
+            nib[ys, gs] = best
+            E[ys, gs + 2] += err * (7 / 16)
+            E[ys + 1, gs] += err * (3 / 16)
+            E[ys + 1, gs + 1] += err * (5 / 16)
+            E[ys + 1, gs + 2] += err * (1 / 16)
+        self.prev = nib
+        v = nib.astype(np.uint8)
+        return (v[:, 0::2] << 4) | v[:, 1::2]
+
+
+_CD = {}
+
+
+def _comp_chunk(args):
+    w, h, stable, look, chunk = args
+    key = (w, h, stable, look)
+    if key not in _CD:
+        _CD.clear()
+        _CD[key] = CompDiffuser(w, h, stable, look)
+    d = _CD[key]
+    d.prev = None               # a chunk starts its dead band afresh
+    return [d(f) for f in chunk]
+
+
+def comp_parallel(frames, w, h, a, jobs, per=150):
+    """CompDiffuser on every core: the frames in chunks of `per`, each
+    chunk's first frame dithered without a previous one - which costs that
+    one frame the dead band, about a keyframe's worth every `per` frames -
+    and at most `jobs` chunks in memory at once"""
+    import multiprocessing
+    out = []
+    look = not a.comp_quick
+    with multiprocessing.Pool(jobs) as pool:
+        batch = []
+
+        def flush():
+            for r in pool.map(_comp_chunk, batch):
+                out.extend(r)
+            batch.clear()
+        cur = []
+        for f in frames:
+            cur.append(f)
+            if len(cur) == per:
+                batch.append((w, h, a.comp_stable, look, cur))
+                cur = []
+                if len(batch) == jobs:
+                    flush()
+        if cur:
+            batch.append((w, h, a.comp_stable, look, cur))
+        if batch:
+            flush()
+    return out
+
+
 # --------------------------------------------------------------------------
 # the budgeted encoder
 # --------------------------------------------------------------------------
@@ -583,7 +704,8 @@ def encode(a, keep=None):
     if comp and lay != "cga":
         raise vid.V88Error("composite colour is a CGA's: --pixfmt cgacomp "
                            "needs the cga layout")
-    frames = ffmpeg_video(a.src, w // 4 if comp else w, h, crop,
+    pattern = comp and a.comp_dither == "pattern"
+    frames = ffmpeg_video(a.src, w // 4 if pattern else w, h, crop,
                           "%d/%d" % (rate, spf), a.start, a.end,
                           ":".join(eq), "rgb24" if comp else "gray")
     say = (lambda *x: None) if a.quiet else print
@@ -595,9 +717,12 @@ def encode(a, keep=None):
         lo, hi = auto_levels(a.src, w, h, crop, a.start, a.end, ":".join(eq))
         say("   levels: grey %d..%d stretched to 0..255" % (lo, hi))
         frames = (stretch(f, lo, hi) for f in frames)
-    dith = CompDitherer(w, h, a.mix, a.stable, n=a.levels_mix) if comp \
-        else \
-        Ditherer(a.dither, w, h, a.stable, a.invert, a.clip)
+    if pattern:
+        dith = CompDitherer(w, h, a.mix, a.stable, n=a.levels_mix)
+    elif comp:
+        dith = CompDiffuser(w, h, a.comp_stable, not a.comp_quick)
+    else:
+        dith = Ditherer(a.dither, w, h, a.stable, a.invert, a.clip)
     enc = Encoder(g, prof, fps, audio_cyc, audio_bps)
     wr = vid.Writer(g, rate, spf, afmt, abytes,
                     vid.PF_CGACOMP if comp else vid.PF_MONO1,
@@ -607,8 +732,11 @@ def encode(a, keep=None):
     pcm = ffmpeg_audio(a.src, rate, a.start, a.end, a.volume) if afmt else b""
     cyc, recs, n = [], [], 0
     pend = []
-    for grey in frames:
-        pend.append(dith(grey))
+    if isinstance(dith, CompDiffuser) and (a.jobs or os.cpu_count() or 1) > 1:
+        pend = comp_parallel(frames, w, h, a, a.jobs or os.cpu_count())
+    else:
+        for grey in frames:
+            pend.append(dith(grey))
     nf = len(pend)
     if keep is not None:
         keep.extend(pend)
@@ -700,6 +828,18 @@ def parser():
     ap.add_argument("--pixfmt", choices=("mono", "cgacomp"), default="mono",
                     help="cgacomp: composite colour on a CGA (the cga "
                          "layout only)")
+    ap.add_argument("--comp-dither", choices=("diffuse", "pattern"),
+                    default="diffuse",
+                    help="cgacomp: error diffusion through the model (the "
+                         "default) or the ordered pattern dither")
+    ap.add_argument("--comp-stable", type=float, default=50000.0,
+                    help="cgacomp diffuse: how much worse, in the model's "
+                         "squared error, last frame's nibble may be and "
+                         "stay")
+    ap.add_argument("--comp-quick", action="store_true",
+                    help="cgacomp diffuse: no lookahead - ~5x faster, and a "
+                         "cell before a colour change is judged as if the "
+                         "colour went on")
     ap.add_argument("--mix", type=float, default=0.5,
                     help="cgacomp: how far the pattern dither mixes "
                          "colours, 0 (the nearest alone) to 1")

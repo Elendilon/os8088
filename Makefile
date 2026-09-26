@@ -210,6 +210,7 @@ VMXTSND := $(CURDIR)/vm/xt-sound
 VMXTSND144 := $(CURDIR)/vm/xt-sound-1.44
 VMXTWIRE := $(CURDIR)/vm/xt-wire
 VM286SND := $(CURDIR)/vm/286-sound
+VM286VID := $(CURDIR)/vm/286-video
 VM386SND := $(CURDIR)/vm/386-sound
 # The top of the range: a 486DX2/66 and a Pentium 133, both with an SB16.
 VM486 := $(CURDIR)/vm/486
@@ -2014,7 +2015,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
         xt-hercules xt-ega xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 xt-wire \
         286-525-z 286-525-word 286-525-cword 286-525-runcpm 286-525-c64 \
         286-525-weave 286-525-loom 286-525-all \
-        286-sound 386-sound 486 pentium \
+        286-sound 286-video 386-sound 486 pentium \
         bench field combo combo144 combo720 stackprobe trklog trkscrl npbench clicktest marty \
         comscan lptlink calcref \
         fonts fontsheets fontlist \
@@ -9821,11 +9822,15 @@ vidfieldhd: $(VIDHD_BASE) tools/os88vid.py tools/os88hdd.py tests/vidbench/FIELD
 # herc/*.V88 and cga/*.V88 made by tools/os88venc.py from the owner's own
 # videos, which never leave build/ - tests/vidbench/FIELDENC.TXT has the
 # commands. THREE images: the Hercules set on the owner's 5150 (ST11M,
-# 615/4/17, 20 MB) and both sets on the ST11R's 31 MB for 86Box. No benches:
-# this is the player and the clips.
+# 615/4/17, 20 MB) and both sets on the ST11R's 31 MB for 86Box - and a
+# FOURTH when there is a vga/: the 286's IDE disk. No benches: this is the
+# player and the clips.
 VIDENC_BASE = $(BUILD)/kernel.sys $(BUILD)/boothd.bin $(BUILD)/mbr.bin \
 	$(BUILD)/hdd.drv $(BUILD)/hiber.drv $(BUILD)/ctrl.drv $(BUILD)/sound.drv \
 	$(BUILD)/video.o88
+# ...and, when VIDENC has a vga/, a 286's IDE disk (vm/286-video), 17
+# sectors and 15 heads like the owner's own, sized in cylinders here
+VIDENC_VGA_CYLS ?= 320
 # $(call videnc_img,<out>,<spt>,<layout dir>)
 define videnc_img
 	python3 tools/os88hdd.py --template $(VIDHD_TEMPLATE) --out $(1) --st11 \
@@ -9845,6 +9850,18 @@ videnchd: $(VIDENC_BASE) tools/os88hdd.py tests/vidbench/FIELDENC.TXT
 	$(call videnc_img,$(BUILD)/VIDENC-HERC-ST11M.VHD,17,herc)
 	$(call videnc_img,$(BUILD)/VIDENC-HERC-ST11R.VHD,26,herc)
 	$(call videnc_img,$(BUILD)/VIDENC-CGA-ST11R.VHD,26,cga)
+	@if [ -d $(VIDENC)/vga ]; then \
+	    python3 tools/os88hdd.py --template $(VIDHD_TEMPLATE) \
+	        --out $(BUILD)/VIDENC-VGA-286.VHD --spt 17 --heads 15 \
+	        --cyls $(VIDENC_VGA_CYLS) --kernel $(BUILD)/kernel.sys \
+	        --vbr $(BUILD)/boothd.bin --mbr $(BUILD)/mbr.bin \
+	        --file HDD.DRV=$(BUILD)/hdd.drv --file HIBER.DRV=$(BUILD)/hiber.drv \
+	        --file CTRL.DRV=$(BUILD)/ctrl.drv --file SOUND.DRV=$(BUILD)/sound.drv \
+	        --file README.TXT=tests/vidbench/FIELDENC.TXT \
+	        --file VIDEO.O88=$(BUILD)/video.o88 \
+	        $(foreach v,$(wildcard $(VIDENC)/vga/*.V88),--file $(notdir $(v))=$(v)) \
+	        || exit 1; \
+	fi
 	@ls -l $(BUILD)/VIDENC-*.VHD
 
 # ...and the one that shows a FACE rather than timing one: it draws the same
@@ -13174,6 +13191,14 @@ xt-wire: $(BUILD)/ether360.img $(BUILD)/wiredata360.img
 286-sound: $(IMG) $(APPSIMG)
 	@$(UNPROTECT) $(VM286SND)/86box.cfg
 	$(BOX) -P $(VM286SND) -N
+
+# The owner's 286 (an mr286 at 16 MHz, 4 MB, OTI067 VGA, SB16) with the
+# Video Player's VGA disk on IDE and no floppy in A:, so it boots the disk:
+# `make videnchd VIDENC=<dir>` builds it (SPEC.md 98.2.1)
+286-video: $(APPSIMG)
+	@test -f $(BUILD)/VIDENC-VGA-286.VHD || { echo "286-video: needs $(BUILD)/VIDENC-VGA-286.VHD - make videnchd VIDENC=<dir with vga/>"; exit 1; }
+	@$(UNPROTECT) $(VM286VID)/86box.cfg
+	$(BOX) -P $(VM286VID) -N
 
 386-sound: $(IMG) $(APPSIMG)
 	@$(UNPROTECT) $(VM386SND)/86box.cfg

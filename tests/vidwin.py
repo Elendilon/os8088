@@ -24,11 +24,16 @@ being the desktop's. Five questions:
 5. ESC STOPS IT, and Play starts next at the keyframe at or before the
    frame it got to.
 
-And before any of it: the play draws at the row the POSTER was shown at.
-A box placed before the first play once rounded its row to CGA's two banks
-on a Hercules, and the play drew two rows lower, leaving a bar of the old
-picture (the owner's report) - broken that way on purpose (vp_boxxy's
-vp_dinfo call removed), it FAILS with rows 46 and 48.
+And round the picture, before a play and after the window is DRAGGED by 5
+rows (on no bank): the frame hugs the picture and the box's spare rows are
+the window's white - on the owner's 5150 they were black bars at rest, and
+after a drag the play landed on a bank the dragged poster was not on and
+left its top rows showing. Broken on purpose (the repaint before an
+in-window play skipped) it FAILS naming the rows.
+
+And before any of it: the poster's row is on a Hercules bank. A box placed
+before the first play once rounded it to CGA's two (the vp_dinfo call
+missing from vp_boxxy): it FAILS with row 46.
 
 Broken on purpose - the canvas not read back as a bracket ends (vp_kget
 skipped) - the frame in the box after the click is not the frame played.
@@ -122,6 +127,26 @@ def main():
                     bad.append("%s: the window differs from frame %d in %d "
                                "bytes" % (what, n, d))
 
+            def border(what):
+                """The picture's frame HUGS it and the box's spare rows are
+                ground (98.3.7): the row above the picture and the row below
+                it are the frame's, dark across it, and the two beyond each
+                are the window's white - not black bars, and not the rows of
+                a poster a drag left behind"""
+                w_, h_, rows = m.vram(None)
+                y0, px0 = rw("vp_py"), rw("vp_px")
+                y1 = y0 + g.h
+                row = lambda y: rows[y][px0:px0 + g.wb * 8]
+                got = [sum(row(y0 - 3)), sum(row(y0 - 2)), sum(row(y0 - 1)),
+                       sum(row(y1)), sum(row(y1 + 1)), sum(row(y1 + 2))]
+                full = g.wb * 8
+                want = [full, full, 0, 0, full, full]
+                print("   %s: lit pixels in the rows round the picture %s "
+                      "(want %s)" % (what, got, want))
+                if got != want:
+                    bad.append("%s: the rows round the picture read %s, not "
+                               "%s" % (what, got, want))
+
             def play_end(what):
                 wait(lambda mm: rb("vp_played") == 1, what, 120.0)
                 return (rw("vp_done"), rw("vp_stall"), rw("vp_late"),
@@ -144,7 +169,16 @@ def main():
                     sys.exit("vidwin: the picture is not at its own size "
                              "here (scale %d)" % rw("vp_ps"))
                 ui.mo.to(700, 12)           # the pointer off the window
-                py = rw("vp_py")            # where the POSTER is, on the
+                border("the poster")
+                if rw("vp_py") % 4:
+                    bad.append("the poster sits at row %d, on no Hercules "
+                               "bank: the play will draw it elsewhere"
+                               % rw("vp_py"))
+                # A DRAG moves the window's pixels by any number of rows and
+                # the play puts the picture on a bank: 5 is on no bank
+                ui.drag_window(w, 8, 5)
+                ui.mo.to(700, 12)
+                os88marty.pace(m, 1.0)
                 # --- 1: every frame right, in the window
                 stops = (1, 23, 64, 111, nf)
                 ww("vp_stopat", stops[0])
@@ -156,10 +190,6 @@ def main():
                         "into the window" if rb("vp_winm") else "FULL SCREEN",
                         "through the shadow" if rb("vp_shadow")
                         else "in place"))
-                if rw("vp_ty0") != py:
-                    bad.append("the poster sat at row %d and the play draws "
-                               "at row %d: a bar of the old picture between"
-                               % (py, rw("vp_ty0")))
                 if rw("vp_blabels") and u16(m.read(
                         base + syms["vp_blabels"] + 4, 2)) != \
                         syms["vp_i_pause"]:
@@ -169,6 +199,8 @@ def main():
                          and (not shadow or rw("vp_dy1") == 0),
                          "the hold before frame %d" % n)
                     screen(n - 1, "hold")
+                    if n == stops[0]:
+                        border("playing, after a drag of 5 rows")
                     i = stops.index(n)
                     ww("vp_stopat", stops[i + 1] if i + 1 < len(stops)
                        else 0xFFFF)
