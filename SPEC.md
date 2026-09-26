@@ -49606,7 +49606,9 @@ row (`[wd_drows] - 1 - [wd_top]` once the count has finished and the table
 describes the glass), and a y below that row's glyph band is past it. Both
 `wd_onclick` and `wd_hitpt` ask it first. The caret goes to `[wd_len]` and the
 last row becomes the click's row, so the redraw pairs it like any other caret
-move (§27.4.9). Measured after: **~40 ms**. `tests/wddrag.py` leg D shortens the
+move (§27.4.9). It answers only while `wd_sigsame` agrees: the banked ys are
+SCREEN coordinates, and a window drag (§11.96.12) leaves them where the window
+used to be until the full repaint it forces. Measured after: **~40 ms**. `tests/wddrag.py` leg D shortens the
 note, clicks in the paper under it and requires the end within 200 ms. With
 the test taken out it reads 734 ms.
 
@@ -49734,7 +49736,11 @@ the segment's top, so part 0's slack is untouched.
 when it succeeds, drops `[wd_kr0]`/`[wd_kr1]`. Those are the rows §27.8.4
 makes a click walk to un-invert, so without them the click is an ordinary
 caret move. `wd_redraw`'s normal path calls it too, for any other caret move
-that clears a selection.
+that clears a selection. **It refuses first when `wd_sigsame` does**: the
+spans are screen x and y, a window drag replays the content without a
+W_PAINT (§11.96.12), and the XOR fill is unclipped — replayed at the old
+place it inverts the desktop. The refusal keeps `[wd_kr0]`/`[wd_kr1]`, so
+the click walks the rows as it did before this section.
 
 **A click INSIDE the selection is the other door, and the one a hand uses
 most.** `wd_onclick` hands such a press to `wd_dragmove`, because it may be
@@ -50707,7 +50713,11 @@ unobscured window. A no is a refusal like any other.
 §27.17 banked what is under the bar. This puts the pair of verbs around it:
 **`wd_curhide` takes the bar off the glass out of that bank, `wd_curshow` puts
 it back**, and `wd_redraw` is bracketed by the two — hide after `wd_bounds`,
-show at `.out` after everything else has drawn.
+show at `.out` after everything else has drawn. The two paths that draw rows
+without passing `.out` show it themselves: `wd_paint`, which a kernel W_PAINT
+reaches directly (a first open, a resize, an uncover), and `wd_reconcile`'s
+fill, which the worker reaches when it settles the break. Without them each
+left the note with no caret until the next keystroke.
 
 `wd_curhide` is **one `OSAPI_GFX_BLIT1` of the banked byte column**: the same
 primitive the row itself went up with, at the same x, one byte wide and so a
@@ -50741,11 +50751,12 @@ The bank describes pixels, so anything that moves or destroys them ends it:
 |---|---|
 | `wd_scrollto` | the view moved; those pixels are somewhere else |
 | `wd_bounds` `.stale` | the geometry moved, so every row did |
+| `wd_bounds` `.moved` | the window was DRAGGED: the wrap and the height are the same, but a drag replays the content and calls no W_PAINT (§11.96.12), so the bank, the bar, `wd_sxr` and `[wd_curx]` are all at the old screen position. It clears `[wd_curseen]` as well, which is what stops `wd_vmove` trusting the old column; `wd_sigsame` refuses the moved origin, and the full repaint puts the bar back |
 | the face change | a different face is different pixels |
 | the whole-buffer swap | the note underneath changed |
 | `wd_paint` | **the kernel has already filled the content** (§11.1), so the bar is gone and the bank describes pixels that no longer exist |
 
-`wd_paint`'s is the only one of the five that records a repaint rather than
+`wd_paint`'s is the only one of the six that records a repaint rather than
 anticipating one, and it is why `wd_curvoid` clears `[wd_curshown]` as well as
 `[wd_cbok]`: a bar the overlay can no longer take down is one a repaint is
 about to draw over regardless.
@@ -50923,6 +50934,17 @@ the bank was taken in, and voids afterwards. The general form is §27.19.4's
 rule for the other axis: **the two halves run at different times, so the hide
 must happen before anything the bank describes can move** — and a scroll is
 the one thing that moves every pixel in the view at once.
+
+A View toggle is the other. `wd_redrawall` hands a ribbon or ruler toggle to
+`wd_panmove`, which blits the text band — bar included — by the change in
+`[wd_ty]`, and the `wd_bounds` before it voids the bank for the new height.
+The bar was then on the glass with `[wd_curshown]` clear, and the next caret
+move drew a second one beside it. `wd_redrawall` hides first now, before
+`wd_bounds`, and after a blit that succeeded shows the bar at the caret's
+banked place moved by the same amount — restored rather than read, because
+the closing arm's walk zeroes `[wd_curx]`/`[wd_cury]`/`[wd_curseen]` on entry.
+It keeps `wd_curdirty`, unlike the scroll: the blit keeps every visible row's
+index, so a row the hide dirties is still the row the bar was on.
 
 ##### 27.19.6.1 …and it must not DIRTY anything while it is in flight
 

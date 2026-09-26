@@ -987,6 +987,9 @@ wd_endrow:
 ; point always means: the end of the note. 556-857 ms a click on a 5150.
 ; -----------------------------------------------------------------------------
 wd_pastend:
+    call wd_sigsame                 ; [wd_ryb] is SCREEN y as the rows were
+    jc .no                          ; drawn, so a dragged window has left it
+                                    ; behind and the full repaint owed renews it
     call wd_endrow
     jc .no
     or ax, ax
@@ -2437,7 +2440,24 @@ wd_bounds:
     mov dx, [wd_sbot]               ; many of those rows fit and so whether the
     sub dx, [wd_sty]                ; view is looking past the end
     cmp ax, dx
+    jne .stale
+    ; ...but the ORIGIN is not nothing to the caches that hold SCREEN
+    ; coordinates. A drag replays the content and calls no W_PAINT (SPEC.md
+    ; 11.96.12), so the pixels banked under the bar, the inverted spans and
+    ; the Up/Down column are all still where the window USED to be - and
+    ; gfx_restore and the XOR fill are unclipped, so they would land on the
+    ; desktop. wd_sigsame refuses the moved origin and the full repaint it
+    ; forces draws the bar again; the walk sets [wd_curseen] (SPEC.md 27.18.2)
+    mov ax, [wd_tx]
+    cmp ax, [wd_stx]
+    jne .moved
+    mov ax, [wd_ty]
+    cmp ax, [wd_sty]
     je .out
+.moved:
+    call wd_curvoid
+    mov byte [wd_curseen], 0
+    jmp short .out
 .stale:
     call wd_curvoid                 ; SPEC.md 27.18.2
     mov byte [wd_ckok], 0
@@ -6531,6 +6551,16 @@ wd_reconcile:
     call wd_walk
     mov byte [wd_clip], 0
     mov byte [wd_clean], 0
+    cmp byte [wd_curshown], 0       ; the fill began at the caret's own row,
+    je .show                        ; so the bar went with it - and the worker
+    mov ax, [wd_borig]              ; reaches here with no wd_redraw .out to
+    call wd_shl3                    ; put it back (SPEC.md 27.18). A bar
+    add ax, [wd_ty]                 ; ABOVE the fill is still on the glass
+    cmp [wd_csy], ax                ; and still the overlay's to take down
+    jb .show
+    mov byte [wd_curshown], 0
+.show:
+    call wd_curshow
     mov bx, si
     call OSAPI_WM_GROW              ; the fill reached it (SPEC.md 11.1/27)
 .done:
@@ -8417,6 +8447,12 @@ wd_paint:
     call wd_sigmark                 ; stops at its last character instead of
     mov ax, [wd_top]                ; padding to the band's edge to erase with
     mov [wd_ptop], ax               ; ...and the screen now shows THIS view
+    call wd_curshow                 ; ...and the bar, which wd_rflush no longer
+                                    ; draws: a kernel W_PAINT - a first open,
+                                    ; a resize, an uncover - reaches here and
+                                    ; not wd_redraw's .out, and showed NO caret
+                                    ; (SPEC.md 27.18). Idempotent when .out
+                                    ; shows it again
     pop ax
     cmp byte [wd_sbkeep], 0         ; the fill took the bar with it - unless a
     je .barwhole                    ; refused blit kept it, when only the
@@ -9296,6 +9332,10 @@ wd_vmove:
     call wd_settle                  ; before the seed, not inside wd_measure:
                                     ; a reconcile runs walks of its own and
                                     ; would spend the seed we are about to set
+    call wd_bounds                  ; ...and before the bank below is trusted:
+                                    ; a window drag moved [wd_curx] with it,
+                                    ; and only wd_bounds notices (SPEC.md
+                                    ; 27.18.2)
     mov word [wd_hity], 0xFFFF
     mov word [wd_wanty], 0x7FFF
     ; THE MEASURE WALK IS ALREADY DONE, usually (SPEC.md 27.4.13). Every walk
@@ -15057,17 +15097,37 @@ wd_panmove:
     jmp wd_rdcba
 
 wd_redrawall:
+    call wd_sv4
+    call wd_curhide             ; THE BAR COMES OFF BEFORE THE TEXT MOVES
+                                ; (SPEC.md 27.19.6): wd_bounds below voids the
+                                ; bank for the new height, and the blit would
+                                ; carry a bar nothing could take down again
+    push word [wd_sty]          ; ...and the caret's place across the move:
+    push word [wd_curx]         ; the blit shifts it by exactly what [wd_ty]
+    push word [wd_cury]         ; did, and a closing walk zeroes all three
+    push word [wd_curseen]      ; on its way in
     call wd_bounds              ; the NEW geometry, so wd_panmove can compare
     call wd_panmove             ; it against what the signatures were taken at
-    jnc .out                    ; (SPEC.md 27.10.2): the panel only moves the
-                                ; text, so MOVE it rather than draw it again
+    pop ax                      ; (SPEC.md 27.10.2): the panel only moves the
+    pop bx                      ; text, so MOVE it rather than draw it again
+    pop cx
+    pop dx
+    jc .full
+    mov [wd_curseen], al
+    mov [wd_curx], cx
+    add bx, [wd_ty]
+    sub bx, dx
+    mov [wd_cury], bx
+    call wd_curshow
+    jmp short .out
+.full:
     mov byte [wd_sigok], 0
     mov word [wd_prowi], 0xFFFF
     mov byte [wd_ckok], 0
     mov byte [wd_rowsok], 0
     call wd_redraw
 .out:
-    ret
+    jmp wd_rdcba
 
 ; =============================================================================
 ; Small change (SPEC.md 27.8/27.10)
@@ -21209,6 +21269,11 @@ wd_sxdesel:
     push dx
     push si
     push di
+    call wd_sigsame
+    jc .out                         ; the spans are SCREEN x and y, and a drag
+                                    ; moved the window under them: the XOR
+                                    ; would land where it used to be, and it
+                                    ; is unclipped (SPEC.md 27.8.2.6)
     cmp byte [wd_oselon], 0
     je .out
     cmp byte [wd_selon], 0
