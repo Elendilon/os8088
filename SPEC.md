@@ -4460,6 +4460,53 @@ path ends in `xor bx, bx`, and the general lesson is that **a fast path's exit
 has to restore every register the SHARED epilogue reads**, not just the ones its
 own loop used.
 
+#### 5.4.2.7 A band under a region: every fragment, exactly
+
+**§11.3.4 moved `gfx_blit1`'s ground without telling it.** The band asked
+`wm_clip_rows` for its rows and took a refusal as *"a VERTICAL cut, so the
+columns ask singly"* - true while `wm_clip_rows` demanded a fragment cover
+the whole width. §11.3.4 relaxed that test to OVERLAP on `kern_big`, for the
+glyph renderers, which apply the column mask it returns beside the rows. A
+band cannot apply an 8-pixel mask, and did not: it took the winning
+fragment's rows at the band's FULL width and drew them straight over the
+window that cut it. Found as a Live video (98.3.10) painting over a Disk
+window dragged across it; any 1bpp band blitted under a region met it.
+
+**What it does now, on `kern_big`, when a region is armed:**
+- **A band wider than one column walks EVERY fragment** of the region (at
+  most `WM_CLIP_MAX`), blitting each intersection with the band - trimmed
+  INWARD to whole bytes, the band's x being on the byte grid and a
+  fragment's edge not necessarily - with the region disarmed for the piece,
+  since it is inside the region already. So a band partly covered by one
+  window is drawn exactly where it shows, where the one-fragment answer
+  also froze whatever the tallest fragment did not include.
+- **One column** keeps the row answer, and is drawn not at all when the
+  winner covers only part of it (`[wm_clip_cm]` is not `0FFh`) - rather
+  than the whole byte over its neighbour.
+- **Two cases keep the old answer**: the damage CULL (§11.3.3, a shape drawn
+  whole or not at all, the windows above it repainting after) and a
+  whole-shape hook's nest (`gfx_dnest`), whose rect is in its display's
+  space and not the region's virtual one.
+
+What it can leave is **at most seven columns** at a fragment edge off the
+byte grid - under-drawn, which is the direction §11.3.2 requires an error to
+point. A hidden dock's hole (§30.6.1) is disarmed with the region for the
+pieces, or `CLIPQF` would re-arm it the moment `wm_clip_n` read 0.
+`kern_small` is untouched: its `wm_clip_rows` still refuses a part-width row,
+so its band was never wrong.
+
+**231 resident bytes** (`.cold` +221, `.bss` +10; `.cold` crosses a rung,
+which per §1's banner is not the point). The speed was asked about, because
+the column mask was meant for the glyph and a blit is the primitive video
+lives on. Measured on `os8088_5150_herc_gla`, one Live frame's `gfx_blit1`
+from entry to return: **148,954 → 146,884 cycles uncovered** (the band path
+is unchanged; the difference is placement) and **133,131 → 84,931 with a
+Disk window over part of it** - faster, because the covered part is no
+longer drawn. `tests/vidlive.py`'s step 4b is the gate: a Disk window dragged
+across a playing Live box, and not one byte of it inside the box changes over
+a second and a half of frames. It read 100 changed bytes on the kernel before
+this. §11.3.4.2 is the one other caller the same change reached.
+
 ### 5.4.3 `gfx_blitp` — a block that is already framebuffer bytes
 
 The other end of §5.4. `gfx_blit4` takes **pixels** and works out what the card
@@ -16418,7 +16465,10 @@ costs an extra 232 µs.
 
 **It is a cost on `font_char` ALONE**, which is title captions and §6.6's
 registered transparent sites: every listing, menu and label on the machine is
-`font_run`, which this does not touch at all.
+`font_run`, which this does not touch at all. *(That last clause was wrong
+about the 1bpp adapters: `font_run`'s per-cell path is handed the same
+partly-visible cells and stored them whole. §11.3.4.2 has the two callers the
+change moved.)*
 
 > **Do not price this off a repaint through a host poll loop.** Two sessions
 > measured "a forced repaint" by setting `[cp_dirty]`, polling it at 20 ms and
@@ -16476,6 +16526,67 @@ mask block, `wm_clip_cm`'s two writers, and the four `and` in the renderers.
 **It is one `%ifdef` per site and no design decision is deferred with it** —
 the question is only whether the floor machine has 512 bytes to spend, and
 today it has better uses for them.
+
+##### 11.3.4.2 …and it moved two callers' ground, not one
+
+Relaxing the fragment test from containment to overlap changed what CF = 0
+MEANS: it used to promise the cell's whole width is visible, and since §11.3.4
+it promises only the rows, with the columns in `[wm_clip_cm]`. Every caller
+that stores without reading the mask was therefore handed a cell it may only
+partly own. There were four callers and two of them did:
+
+| caller | what it does with a cut cell | since §11.3.4 |
+|---|---|---|
+| `font_char` | the four `and ah, [wm_clip_cm]` above | correct |
+| `font_run_scell` | `gfx_fill` of the band, then `font_char` | correct - `gfx_fill` clips per pixel |
+| `gfx_blit1` | stored the band's full width | **drew over the covering window** - §5.4.2.7 |
+| `font_run_cell` | `mov [es:di], al`, *"the cell owns the byte"* | **drew up to 7 px of it over the covering window** |
+
+`font_run_cell` is `font_run`'s per-cell path on a 1bpp adapter: an ALIGNED
+run a region cuts goes cell by cell through it (§6.1.2), so the cell at a
+covering window's edge was stored whole, and the text under that edge showed
+through the window by as many columns as the edge sits inside the cell. So
+§11.3.4's *"every listing, menu and label on the machine is `font_run`, which
+this does not touch at all"* was wrong about the 1bpp half of the machine,
+Hercules and CGA. VGA never reaches `font_run_cell`, because a planar cut run
+takes `font_run_scell`.
+
+The fix keeps the store and adds the mask only where it is not `0FFh`: DL holds
+the column mask (`0FFh` on the unclipped arm), a cut cell merges
+`old ^ ((old ^ new) & mask)` out of line, and a whole cell pays one compare and
+an untaken branch per row. It is `kern_big`'s alone, for §11.3.4.1's reason: on
+`kern_small` the fragment test still demands the full width, so the mask is
+`0FFh` by construction and the build is byte-identical.
+
+**25 bytes of `.text`**, and what it costs is confined to the path it fixes.
+Measured on `os8088_5150_herc_gla`, entry to `.out` of `font_run_cell`, the
+Task Manager's CPU column cut by a Disk window's edge (medians of four):
+
+| cell | before | after |
+|---|---|---|
+| wholly visible, in a cut run | 3,979 | 4,189 (+210, +5.3%) |
+| the cut cell | 3,971, drawing over the window | 4,796 (+825: a framebuffer read a row) |
+| refused | ~1,615 | ~1,635 |
+
+`font_run`'s whole-run row walk (`.rm`), which is every run no edge crosses, is
+not touched. The +210 is the per-row compare's fetch; a second copy of the row
+loop for the masked case would take it to ~0 for about 20 more bytes, and is
+not taken because the path is the covered-text one.
+
+`tests/runclip.py` is the gate (`runclip`, `runclipcga`): the Disk window's
+border beside the Task Manager's rows must be solid ink after three seconds of
+repaints. It reads **16 pixels drawn over on Hercules and 8 on CGA** on the
+kernel before this, and 0 after. It asserts the border's VALUE and not that the
+border is unchanged, and the first version got that wrong: the damage is re-done
+every second, so a snapshot taken after the move already carries it and
+"unchanged" passes on the broken kernel.
+
+One under-draw remains, and it is §11.3.4's accepted direction:
+`font_run_scell` erases the band through `gfx_fill`, which clips to the whole
+region, and letters through `font_char`, which masks to the WINNING fragment's
+columns. So a cell whose visible part is two side-by-side fragments is erased
+across both and lettered in one, until the next repaint. It never draws outside
+the region.
 
 ### 11.90 Showing a window costs one window, not one screen
 

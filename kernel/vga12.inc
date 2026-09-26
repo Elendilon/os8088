@@ -5142,6 +5142,11 @@ gfx_b1b          resb 1          ; ...and pass 2's Map Mask, B alone. It rides
 %if gfx_b1inv - gfx_b1act != 1
   %error "gfx_b1act/gfx_b1inv must stay adjacent: gfx_blit1_x clears both in one word store"
 %endif
+gfx_bfx          resw 1          ; SPEC.md 5.4.2.7's fragment walk: the band's
+gfx_bfy          resw 1          ; rect (inclusive) and first byte, held across
+gfx_bfx2         resw 1          ; the walk's own calls - each of which runs
+gfx_bfy2         resw 1          ; with the region disarmed, so none of them
+gfx_bfsi         resw 1          ; walks again
 %endif
 vgas_sdy         resw 1          ;   signed dy (positive = content up)
 vgas_ydst        resw 1          ;   first destination row
@@ -5264,6 +5269,16 @@ gfx_blit1_x:
     ; --- ...and the clip region, in the same VIRTUAL space wm_clip_tab is in
     CLIPQF                  
     je .clipok
+%ifdef KERN_BIG
+    cmp cx, 8                   ; A BAND WIDER THAN A COLUMN (SPEC.md 5.4.2.7):
+    jbe .rows                   ; every fragment it meets, exactly - but not
+    cmp byte [wm_dmg_cull], 0   ; under the damage cull, which draws a shape
+    jne .rows                   ; whole or not at all (11.3.3), nor inside a
+    cmp byte [gfx_dnest], 0     ; whole-shape hook, whose rect is a display's
+    jne .rows                   ; and not the region's virtual space
+    jmp .frags
+.rows:
+%endif
     push cx
     push dx
     add cx, ax
@@ -5274,7 +5289,13 @@ gfx_blit1_x:
     pop dx
     pop cx
     jc .percol                  ; a VERTICAL cut: wm_clip_rows refuses a
-.clipok:                        ; part-width row, so the columns ask singly
+%ifdef KERN_BIG                 ; part-width row, so the columns ask singly -
+    cmp cx, 8                   ; on kern_small. 11.3.4 made its test OVERLAP
+    ja .clipok                  ; here, and a band cannot take its column
+    cmp byte [wm_clip_cm], 0FFh ; mask: ONE column the winner covers only in
+    jne .okquiet                ; part is drawn not at all, rather than whole
+%endif                          ; over whatever cut it (5.4.2.7)
+.clipok:
 
     push es                     ; from here the caller's registers are banked
     push ds                     ; and the body is free with all nine
@@ -5745,6 +5766,108 @@ gfx_blit1_x:
 .okquiet:
     clc
     ret
+
+%ifdef KERN_BIG
+; --- SPEC.md 5.4.2.7: a band under a region, EVERY fragment it meets. Each
+; intersection is trimmed INWARD to whole bytes - the band's x is on the byte
+; grid, a fragment's edge need not be - and blitted with the region disarmed,
+; since the piece is inside it already. wm_clip_rows answers ONE fragment, the
+; tallest, and 11.3.4 made that answer overlap rather than containment: a
+; band took the winner's rows at its full width and drew straight over the
+; window that cut it (a Live video under a Disk window, VIDEO-PLAN 15).
+; What this can leave is at most seven columns at a fragment edge off the
+; grid - under-drawn, which is the direction 11.3.2 says an error must point
+.frags:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov [gfx_bfx], ax
+    mov [gfx_bfy], bx
+    add cx, ax
+    dec cx
+    mov [gfx_bfx2], cx
+    add dx, bx
+    dec dx
+    mov [gfx_bfy2], dx
+    mov [gfx_bfsi], si
+%ifdef DOCK_OPT
+    push word [gfx_hole]        ; (a hidden dock's hole would re-arm a region
+    mov word [gfx_hole], 0      ; the moment wm_clip_n reads 0)
+%endif
+    mov cx, [wm_clip_n]
+    push cx
+    mov word [wm_clip_n], 0     ; DISARMED: each piece is exact already
+    mov di, wm_clip_tab
+.fr:
+    push cx
+    push di
+    mov ax, [di+WCR_X1]         ; AX = max(x1s) up to the byte grid
+    cmp ax, [gfx_bfx]
+    jge .fx1
+    mov ax, [gfx_bfx]
+.fx1:
+    add ax, 7
+    and ax, 0FFF8h
+    mov cx, [di+WCR_X2]         ; CX = min(x2s) + 1, down to it
+    cmp cx, [gfx_bfx2]
+    jle .fx2
+    mov cx, [gfx_bfx2]
+.fx2:
+    inc cx
+    and cx, 0FFF8h
+    sub cx, ax                  ; CX = the piece's width
+    jle .fnext
+    mov bx, [di+WCR_Y1]         ; BX = max(y1s)
+    cmp bx, [gfx_bfy]
+    jge .fy1
+    mov bx, [gfx_bfy]
+.fy1:
+    mov dx, [di+WCR_Y2]         ; DX = min(y2s)
+    cmp dx, [gfx_bfy2]
+    jle .fy2
+    mov dx, [gfx_bfy2]
+.fy2:
+    sub dx, bx
+    jl .fnext
+    inc dx                      ; DX = its rows
+    push ax                     ; SI = the band's byte there: the rows above
+    push dx                     ; it in strides, the columns left of it in
+    mov ax, bx                  ; bytes
+    sub ax, [gfx_bfy]
+    mul bp
+    mov si, [gfx_bfsi]
+    add si, ax
+    pop dx
+    pop ax
+    push ax
+    sub ax, [gfx_bfx]
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    add si, ax
+    pop ax
+    call gfx_blit1_x
+.fnext:
+    pop di
+    pop cx
+    add di, WCR_SZ
+    loop .fr
+    pop word [wm_clip_n]
+%ifdef DOCK_OPT
+    pop word [gfx_hole]
+%endif
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+%endif
 
 %ifdef GFX_VGA                  ; SPEC.md 5.4.2.5: no VGA in this build, so no PEN
     ; --- SPEC.md 5.4.2.2: THE PEN, asked ON THE RESOLVED DISPLAY -----------

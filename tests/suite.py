@@ -9180,6 +9180,19 @@ SOAK = [
         "SPEC.md 28.10: the Task Manager paints its own ground, so a repaint"
         "is not a 450ms white hole.",
         needs=("marty",), serial=True),
+    Row("runclip", "soak", py("tests/runclip.py"), 16.0,
+        "SPEC.md 11.3.4.2: a line of text a covering window's edge cuts is "
+        "not lettered over that window. 11.3.4 made wm_clip_rows answer a "
+        "cell that is only PARTLY visible, and font_run_cell - font_run's "
+        "per-cell path on a 1bpp adapter - stored its whole byte, so the "
+        "Task Manager's CPU column drew over a Disk window's border once a "
+        "second. Asserts the border's VALUE, not that it is unchanged: the "
+        "damage is re-done every second. Hercules",
+        needs=("marty",), serial=True),
+    Row("runclipcga", "soak",
+        py("tests/runclip.py", "--machine", "os8088_5150_cga_gla"), 20.0,
+        "SPEC.md 11.3.4.2: runclip on the CGA 5150",
+        needs=("marty",), serial=True),
     Row("tmcol2", "soak", py("tests/tmcol2.py"), 21.0,
         "SPEC.md 28.1.2: on CGA the process list wraps into a SECOND COLUMN, "
         "and that column has to carry rows. It shipped EMPTY from the day "

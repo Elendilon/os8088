@@ -17,12 +17,17 @@ VGA), with a seam back to frame 10 and Repeat on. On the screen named:
    next hold is in the box where the window now is.
 4. ON TIME: Repeat off and unheld, the rest of the file plays at its rate -
    the guest's own clock against the frames, within 10%.
+4b. A WINDOW OVER IT IS NOT DRAWN ON: a Disk window dragged across part of
+   the box mid-play, its pixels inside the box unchanged over a second and a
+   half of frames (SPEC.md 5.4.2.7 - gfx_blit1 walks every fragment of the
+   region); then the video window raised again.
 5. SPACE PAUSES IT, AND IT STAYS; Space again goes on.
 6. F HANDS IT TO THE FULL SCREEN, still playing, and F again back to the
    desktop, live and playing; ESC STOPS IT.
 
 Broken on purpose - vp_lblit's blit skipped - every hold FAILS; vp_canlive
-refusing always, the play is a bracket and FAILS 1.
+refusing always, the play is a bracket and FAILS 1; gfx_blit1's fragment
+walk taken out, the band draws over the Disk window and 4b FAILS.
 """
 import argparse
 import os
@@ -201,6 +206,32 @@ def main():
                 m.write(base + syms["vp_played"], b"\0")
                 m.type_text("p")
                 wait(lambda mm: rb("vp_lrun") == 1, "live again", 20.0)
+                # --- 4b: a window over part of the box is not drawn on
+                vw = ui.window("Video Player")
+                px, py = rw("vp_px"), rw("vp_py")
+                dk = ui.open_drive("A")
+                ui.move_window(dk, px + WB * 4, py + H // 3)
+                dk = ui._as_win(dk.i)
+                x0, x1 = (dk.x + 2) // 8 + 1, min(px // 8 + WB, (dk.x + dk.w)
+                                                    // 8) - 1
+                y0, y1 = dk.y + 12, min(py + H, dk.y + dk.h) - 2
+
+                def under():
+                    seg = bytes(m.read(vseg, 65536))
+                    return b"".join(seg[dg.base[y] + x0:dg.base[y] + x1]
+                                    for y in range(y0, y1))
+                os88marty.pace(m, 0.3)
+                u0, v0 = under(), rw("vp_vseq")
+                os88marty.pace(m, 1.5)
+                u1, v1 = under(), rw("vp_vseq")
+                dch = sum(1 for p, q in zip(u0, u1) if p != q)
+                print("   a Disk window over the box: %d frames played, %d of "
+                      "%d bytes of it inside the box changed" % (v1 - v0, dch,
+                                                                  len(u0)))
+                if dch or v1 - v0 < 5 or not u0:
+                    bad.append("the Disk window over the box: %d bytes drawn "
+                               "on in %d frames" % (dch, v1 - v0))
+                ui.raise_window(vw)
                 os88marty.pace(m, 0.5)
                 m.type_text(" ")
                 wait(lambda mm: rb("vp_upause") == 1, "Space to pause", 10.0)

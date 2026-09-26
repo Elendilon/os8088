@@ -1710,5 +1710,12 @@ read-ahead only makes the holds rarer, not invisible.
 - **MartyPC's VGA draws text attribute 6 red**, not brown (98.3.12); a real
   VGA and MartyPC's own CGA draw brown. An emulator defect, recorded so no
   one "fixes" C160's palette for it.
+- **Live drew over a window that partly covered it** (owner's test,
+  Hercules). A kernel defect and not the player's: SPEC.md 11.3.4 made
+  `wm_clip_rows` answer a cell that is only partly visible, and
+  `gfx_blit1` took the answer at the band's full width. Fixed in the kernel
+  (5.4.2.7, 231 resident bytes, a covered blit 36% FASTER), gated by
+  `vidlive`'s step 4b; and the one other caller the change reached, 1bpp
+  `font_run`'s per-cell path, fixed with it (11.3.4.2, 25 bytes, `runclip`).
 - **The encoder window was driven only under Xvfb** on a Tk that had to be
   installed for it; it has not met a Windows or macOS Tk.
