@@ -46,6 +46,18 @@ its sound one audio block, the whole read and expanded before the play and
 the card fed from memory - every point above the same, off a file that is
 never read again once the play starts.
 
+--live makes the clip LIVE (98.3.10.1): a resident 160 x 60 canvas on
+LIN80 for the Hercules desktop, its sound 11,025 Hz so the block stays
+under 60 KB, played ON THE DESKTOP by the package's worker with the card
+the clock - every point above the same, the drain included: the worker
+plays the sound out to its last byte before the play is over. Built with
+NOLIVESND=1 the play is silent and it FAILS on the card not opened.
+
+--live --swap presses F a third of the way in - the play goes on in the
+full screen, the card paused as the worker stops and resumed by the
+bracket - and F again once ten frames have been drawn there, back to the
+desktop Live. The capture must still hold the whole sound in order.
+
 --audio adpcm4 plays the same clip's sound as Creative 4-bit ADPCM, which
 the card decodes (DSP 7Dh); MartyPC's does it with the tables
 tools/os88vid.py encodes against (tools/martypc/patches/06), so point 4 then
@@ -79,11 +91,11 @@ def u16(b, i=0):
     return struct.unpack_from("<H", b, i)[0]
 
 
-def clip(tmp, nf, afmt, loop=None, resident=None):
+def clip(tmp, nf, afmt, loop=None, resident=None, live=False):
     """nf canvases 80 x 200 in the Hercules layout, and 22,050 Hz of
-    pseudo-random PCM8 for them"""
+    pseudo-random PCM8 for them - or, LIVE, 20 x 60 on LIN80"""
     rnd = random.Random(4242)
-    wb, h = 80, 200
+    wb, h = (20, 60) if live else (80, 200)
     cv = bytearray(wb * h)
     paths = []
     for f in range(nf):
@@ -104,9 +116,10 @@ def clip(tmp, nf, afmt, loop=None, resident=None):
     wav = os.path.join(tmp, "a.wav")
     vid._write_wav(wav, RATE, audio)
     out = os.path.join(tmp, "CLIP.V88")
-    vid.encode_frames(paths, out, FPS, wav, "herc", "vidsound clip",
-                      audio_fmt=afmt, loop=loop, repeat=loop is not None,
-                      resident=resident)
+    vid.encode_frames(paths, out, FPS, wav, "lin80" if live else "herc",
+                      "vidsound clip", audio_fmt=afmt, loop=loop,
+                      repeat=loop is not None, resident=resident,
+                      live="herc" if live else None)
     vid.verify_v88(out)
     return out
 
@@ -150,7 +163,18 @@ def main():
     ap.add_argument("--resident", action="store_true",
                     help="the clip RESIDENT (98.1.7): its records one LZB "
                     "block, the sound one audio block, played from memory")
+    ap.add_argument("--swap", action="store_true",
+                    help="with --live: F a third of the way in, to the full "
+                    "screen playing, and F back to the desktop, Live")
+    ap.add_argument("--live", action="store_true",
+                    help="the clip LIVE (98.3.10.1): resident, 160 x 60 on "
+                    "LIN80 for the Hercules desktop, played on the desktop "
+                    "by the worker with the card the clock")
     a = ap.parse_args()
+    global RATE
+    if a.live:                          # (the audio block: under 60 KB)
+        RATE = 11025
+        a.resident = True
     nf = int(a.secs * FPS)
     os.chdir(ROOT)
     syms, image = pkg_syms("apps/video/video.asm", ("apps/",))
@@ -160,7 +184,7 @@ def main():
     with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "build")) as tmp:
         afmt = vid.AUD_BY_NAME[a.audio]
         v88 = clip(tmp, nf, afmt, a.loop,
-                   vid.PK_LZB if a.resident else None)
+                   vid.PK_LZB if a.resident else None, a.live)
         r = vid.Reader(v88)
         base0 = r.keys[a.seek][0] + 1 if a.seek else 0
         audio = b"".join(rec[-r.abytes:] for rec, _, _ in r.records())
@@ -219,6 +243,10 @@ def main():
             os88marty.until(m, lambda mm: rb("vp_ready") == 1,
                             "the play to start", poll=0.1, limit=300.0,
                             guest=60.0)
+            if a.live and (rb("vp_lsess"), rb("vp_winm")) != (1, 0):
+                bad.append("the play is not LIVE (session %d, bracket in "
+                           "the window %d)" % (rb("vp_lsess"),
+                                               rb("vp_winm")))
             if a.fs:                            # in PAUSED: the card waits
                 os88marty.pace(m, 1.0)          # for the Space
                 if rb("vp_upause") != 1 or rb("vp_sopn"):
@@ -228,6 +256,27 @@ def main():
                 m.type_text(" ")
             c0 = int(m.status().get("cycles", 0))
             held = None
+            if a.swap:                  # LIVE -> the full screen -> LIVE,
+                at = nf // 3            # the card paused and resumed at each
+                os88marty.until(m, lambda mm: rw("vp_done") >= at,
+                                "frame %d" % at, poll=0.1, limit=600.0,
+                                guest=a.secs + 30)
+                m.type_text("f")
+                os88marty.until(m, lambda mm: rb("vp_lrun") == 0 and
+                                rb("vp_ready") == 1 and rb("vp_upause") == 0
+                                and rb("vp_winm") == 0,
+                                "F to the full screen, playing", poll=0.1,
+                                limit=120.0, guest=10.0)
+                f0 = rw("vp_done")
+                os88marty.until(m, lambda mm: rw("vp_done") > f0 + 10,
+                                "the full screen's frames", poll=0.1,
+                                limit=120.0, guest=10.0)
+                m.type_text("f")
+                os88marty.until(m, lambda mm: rb("vp_lsess") == 1 and
+                                rb("vp_lrun") == 1, "F back to live",
+                                poll=0.1, limit=120.0, guest=10.0)
+                print("   F at frame %d to the full screen, and F back at %d"
+                      % (f0, rw("vp_done")))
             if a.pause:
                 at = base0 + (nf - base0) // 3
                 os88marty.until(m, lambda mm: rw("vp_done") >= at,
@@ -278,9 +327,14 @@ def main():
                 print("   STUCK: " + state())
                 raise
             c1 = int(m.status().get("cycles", 0))
-            os88marty.until(m, lambda mm: rb("vp_played") == 1,
-                            "the bracket to return", poll=0.5, limit=120.0,
-                            guest=30.0)
+            if a.live:                  # (no bracket to return from)
+                os88marty.until(m, lambda mm: rb("vp_lsess") == 0,
+                                "the live session to end", poll=0.5,
+                                limit=120.0, guest=30.0)
+            else:
+                os88marty.until(m, lambda mm: rb("vp_played") == 1,
+                                "the bracket to return", poll=0.5,
+                                limit=120.0, guest=30.0)
             st = {k: rw(k) for k in (
                 "vp_done", "vp_stall", "vp_late", "vp_pause", "vp_skmax", "vp_gap",
                 "vp_afr", "vp_atot", "vp_alast", "vp_afinal", "vp_dt",
@@ -344,7 +398,13 @@ def main():
             bad.append("%d stalls: the reader fell behind" % st["vp_stall"])
         if st["vp_pause"]:
             bad.append("the card ran dry %d times" % st["vp_pause"])
-        if st["vp_skmax"] > 2 or st["vp_late"]:
+        # (LIVE draws once a tick - 55 ms, 1.65 frames at 30 fps - so up to
+        # VP_LCAP = 4 due at a pass is its design, where a bracket's is 2;
+        # and a UI callback holding the lock - a key, a repaint - can hold a
+        # pass off a tick, which is 5 or 6 once, caught up at 4 a pass. The
+        # sound is never held: the card plays on)
+        if st["vp_skmax"] > (6 if a.live else 2) or \
+                st["vp_late"] > (2 if a.live else 0):
             bad.append("the picture trailed the sound (max %d, late %d)"
                        % (st["vp_skmax"], st["vp_late"]))
         wrapped = laps and st["vp_afr"] < nf    # the sound had queued a

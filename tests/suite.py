@@ -8383,6 +8383,43 @@ SOAK = [
         "lines, blink off through the BIOS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidlivesnd", "soak", py("tests/vidsound.py", "--secs", "3",
+                                 "--live"), 30.0,
+        "SPEC.md 98.3.10.1: LIVE WITH SOUND on the Hercules 5150 with a "
+        "Sound Blaster - a resident Live clip with PCM8 played on the "
+        "desktop by the worker, the card the clock: every frame, the "
+        "capture the file's sound whole and in order, the play the sound's "
+        "time, the sound played out to its last byte. Built with NOLIVESND=1 "
+        "the play is silent and it FAILS",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88", "build/sound.drv", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hdd.drv",
+               "build/hiber.drv", "build/ctrl.drv")),
+    Row("vidlivesndp", "soak", py("tests/vidsound.py", "--secs", "5",
+                                  "--live", "--pause"), 30.0,
+        "SPEC.md 98.3.10.1: vidlivesnd with Space held a third of the way "
+        "in - not a frame drawn and not a byte played while paused",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88", "build/sound.drv", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hdd.drv",
+               "build/hiber.drv", "build/ctrl.drv")),
+    Row("vidlivesndl", "soak", py("tests/vidsound.py", "--secs", "3",
+                                  "--live", "--loop", "30"), 30.0,
+        "SPEC.md 98.3.10.1, 98.3.9: vidlivesnd REPEATING through its seam, "
+        "two laps and then R - the capture the laps' sound joined",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88", "build/sound.drv", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hdd.drv",
+               "build/hiber.drv", "build/ctrl.drv")),
+    Row("vidlivesnds", "soak", py("tests/vidsound.py", "--secs", "5",
+                                  "--live", "--swap"), 30.0,
+        "SPEC.md 98.3.10.1: vidlivesnd with F a third of the way in and F "
+        "back - Live to the full screen and back, playing, the card paused "
+        "and resumed at each, the capture still whole",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88", "build/sound.drv", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hdd.drv",
+               "build/hiber.drv", "build/ctrl.drv")),
     Row("vidlogo", "soak", py("tests/vidlogo.py"), 30.0,
         "VIDEO-PLAN 14.3, SPEC.md 98.3.10: the COMMITTED logo video on the "
         "Hercules 5150 - the file the generator's (resident, live, three "

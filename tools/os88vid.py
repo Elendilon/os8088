@@ -2344,8 +2344,10 @@ def audio_chunks(pcm, nf, spf, afmt, keys=(), search=0):
 
 def encode_frames(paths, out, fps, wav=None, layout="cga", title="",
                   keysecs=KEY_SECS, poster=None, audio_fmt=AUD_PCM8,
-                  loop=None, repeat=False, resident=None):
-    """SPEC.md 98.2's minimal encoder: every changed byte, losslessly."""
+                  loop=None, repeat=False, resident=None, live=None):
+    """SPEC.md 98.2's minimal encoder: every changed byte, losslessly.
+    `live` (cga, herc, vga) makes the resident file LIVE for that screen
+    (98.3.10) - the layout must be lin80"""
     lay = LAYOUT_BY_NAME[layout]
     w0, h0, _ = read_frame(paths[0])
     if w0 % 8:
@@ -2391,7 +2393,8 @@ def encode_frames(paths, out, fps, wav=None, layout="cga", title="",
         return write_resident(out, [wr], afmt, abytes,
                               b"".join(chunks) if abytes else b"",
                               title=title, repeat=repeat, pack=resident,
-                              posters=[poster])
+                              posters=[poster],
+                              live=[TARGETS[live]] if live else None)
     return wr.write(out, poster)
 
 

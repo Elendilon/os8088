@@ -1593,7 +1593,21 @@ a real screen.
 Written at the end of the 2026-09-26 round, for whoever picks an item up.
 Ordered cheapest first. None of it is started unless it says so.
 
-### 15.1 Live with sound - IN PROGRESS (the owner asked for it next)
+### 15.1 Live with sound - BUILT (SPEC.md 98.3.10.1), shipped on by default
+
+231 bytes of the package, `NOLIVESND=1` builds it out. Gates: `vidlivesnd`,
+`vidlivesndp` (a pause), `vidlivesndl` (a seam, two laps), `vidlivesnds` (F
+out and back). What building it found, beyond the list below: a Live play's
+END has to be found by the worker, since the card's clock stops at the last
+frame and `vp_frame` is then never asked; the sound has to DRAIN, a pass at a
+time, or the last block is cut off; a paused Live session's worker must
+sleep one tick and not four, or a resume starts four ticks behind a card
+already playing; and a return from the full screen must repaint the box
+BEFORE resuming, or the card plays on while the repaint holds the lock. A
+Live play may trail its sound by up to six frames once when a UI callback
+holds the lock (the gate allows it and says why); the sound is never held.
+
+The design, as it was costed:
 
 Medium, package-only, no kernel change. In a bracket the Sound Blaster is
 the clock and the player feeds it from the bracket's rate hook; a Live play

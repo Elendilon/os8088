@@ -150387,8 +150387,8 @@ in-window play**; everything else keeps it.
   and F back hands it to the desktop, Live again; the keeper is the shadow
   both ways. The file's end (Repeat off) is found by the worker and
   finished on the UI task's wake.
-- **Not built**: Live with SOUND - the card's clock is a bracket's, and a
-  Live play is silent; Live in COLOUR (VGA4 through `OSAPI_GFX_BLIT4`, whose
+- **Live with SOUND** is 98.3.10.1.
+- **Not built**: Live in COLOUR (VGA4 through `OSAPI_GFX_BLIT4`, whose
   band is packed where the shadow is planar); and **Live fed from the disk**,
   which the owner's rule drops (14.7, V2): a read holds the picture ~100 ms,
   so it could never look smooth.
@@ -150399,6 +150399,38 @@ session with no bracket; every held frame in the box across two laps of its
 seam; a drag of the window and the frames following it; its rate within 10%;
 Space pausing and resuming; F to the full screen and back, playing both
 ways; Esc. Broken on purpose (the blit skipped, or Live refused) they FAIL.
+
+#### 98.3.10.1 Live with sound
+
+**A Live file with sound plays it** (VIDEO-PLAN 15.1), on a Sound Blaster,
+the card the clock as it is in a bracket (98.3.1). Nothing new is asked of
+the kernel or the driver:
+- **The worker feeds the card.** A Live file is resident, so a frame's sound
+  is already in the audio block (98.1.7) and `vp_afill` copies it into the
+  ring as it does for a bracket - no disk. A worker may call `SOUND.DRV`
+  (Tracker's does); it may not touch a file, and it touches none.
+- **The clock is the bracket's clock**, one routine for both (`vp_adue`): the
+  frames due off what the card has consumed as of its last block interrupt,
+  and the PERIODS since, capped at a block's worth. A bracket's hook counts
+  those periods; a Live pass turns the ticks since the last one into them
+  (a tick is 65,536 PIT counts, a period the file's divisor, the remainder
+  kept). Up to `VP_LCAP` frames a pass, as a silent Live play draws.
+- **Pause, F and back go through `vp_upaus`**, the bracket's own pause: Space
+  halts the card where it is (verb 10) and resumes it (verb 1); F pauses it
+  as the worker stops and the bracket resumes it on its first frame; F back
+  pauses it again as the bracket ends, and the Live play resumes it. The
+  card's counters run on across the change, so the clock does not jump.
+- **The end** is the picture's: with Repeat off the play is over at the last
+  frame and the card is closed with the session, a block of tail unplayed.
+
+**`NOLIVESND=1` builds it out** - the A/B, and a Live play silent again as
+it first shipped. It is **231 bytes** of the package (`video.o88`), the
+knob's own stamp, no kernel byte.
+
+The gate: `vidlivesnd`, on the Hercules 5150 with a Sound Blaster - a Live
+file with PCM8 sound played Live, the capture of the card's output the
+file's sound from the frame the play started, byte for byte, and the play
+on time against the card.
 
 #### 98.3.11 The logo video: `OS8088.V88`
 

@@ -162,6 +162,11 @@ VP_PAGE     equ 19200               ; a Mode X page, in plane bytes
 VP_PREVKB   equ 31                  ; the last record's copy: REC_MAX + slack
 PF_VGA8     equ 2                   ; [vp_pixfmt] is the format less one
 PF_VGA4     equ 3                   ; ...16 colours on mode 12h's planes
+; LIVE WITH SOUND (SPEC.md 98.3.10.1) is built in unless NOLIVESND=1 builds
+; it out (-DVP_NOLIVESND): the A/B, and the way to ship without it
+%ifndef VP_NOLIVESND
+%define VP_LIVESND
+%endif
 PF_CGA4     equ 4                   ; ...CGA in colour: mode 4 (98.1.3.3)
 PF_C160     equ 5                   ; ...and 160 x 100 x 16, the text hack
 LAY_C160    equ 5                   ; ...its layout: the attributes, packed
@@ -2968,10 +2973,10 @@ vp_fsenter:                         ; F, Alt+Enter: full screen, PAUSED -
     cmp byte [vp_lsess], 0          ; LIVE -> the full screen: the worker
     je .rn                          ; stops at the frame it drew, and the
     mov byte [vp_lrun], 0           ; bracket goes on from it, playing if it
-    mov byte [vp_autop], 0          ; was
-    cmp byte [vp_upause], 0
+    mov byte [vp_autop], 0          ; was - the card paused with it, and
+    cmp byte [vp_upause], 0         ; resumed by the bracket
     jne .lp
-    mov byte [vp_upause], 1
+    call vp_upaus
     mov byte [vp_autop], 1
 .lp:
     mov byte [vp_sfirst], 0
@@ -3027,12 +3032,16 @@ vp_lplay:
 .start:
     mov byte [vp_startp], 0
     mov byte [vp_livem], 1
+%ifdef VP_LIVESND
+    call vp_sstart                  ; WITH SOUND (98.3.10.1): the worker is
+%else                               ; the card's feeder
     mov al, [vp_nosnd]              ; LIVE is silent: the card's clock is a
     push ax                         ; bracket's (98.3.10)
     mov byte [vp_nosnd], 1
     call vp_sstart
     pop ax
     mov [vp_nosnd], al
+%endif
     mov byte [vp_livem], 0
     jc .out
     call vp_lsetup
@@ -3040,8 +3049,8 @@ vp_lplay:
 .toggle:
     cmp byte [vp_upause], 0
     jne .res
-    mov byte [vp_upause], 1         ; PAUSE: the worker stops where it is
-    mov byte [vp_lrun], 0
+    call vp_upaus                   ; PAUSE: the worker stops where it is,
+    mov byte [vp_lrun], 0           ; and the card, if any, where it is
     mov byte [vp_bpause], 0
     call vp_lbtn
     jmp short .out
@@ -3062,6 +3071,7 @@ vp_lsetup:
     push dx
     push si
     mov byte [vp_lsess], 1
+    mov byte [vp_ldrain], 0
     mov byte [vp_shadow], 1
     mov word [vp_dy0], 0
     mov ax, [vp_h]
@@ -3082,6 +3092,13 @@ vp_lsetup:
 .nk:
     mov byte [vp_sfirst], 0
     mov byte [vp_ready], 1
+%ifdef VP_LIVESND
+    cmp byte [vp_snd], 0            ; the card, started on the key's frame
+    je .ns                          ; with the picture (98.3.10.1)
+    call vp_acur
+    call vp_sopen
+.ns:
+%endif
     call OSAPI_GET_TICKS
     mov [vp_t0], ax
     call vp_lgo
@@ -3116,6 +3133,10 @@ vp_lgo:
     push ax
     push bx
     push dx
+    cmp byte [vp_upause], 0         ; paused - by Space, or by the bracket it
+    je .np                          ; came back from: resumed as a bracket
+    call vp_upaus                   ; resumes, the card with it
+.np:
     mov byte [vp_shadow], 1         ; (a bracket may have played natively)
     mov ax, [vp_keep]
     mov [vp_shseg], ax
@@ -3134,6 +3155,7 @@ vp_lgo:
     xor ax, ax
     mov [vp_lacc], ax
     mov [vp_lacc+2], ax
+    mov [vp_lrem], ax
     call OSAPI_GET_TICKS
     mov [vp_ltk], ax
     mov byte [vp_lrun], 1
@@ -3146,21 +3168,20 @@ vp_lgo:
 ; again, playing if it was, and the box repainted from the shadow
 vp_lback:
     push si
-    cmp byte [vp_autop], 0
-    je .paused
-    mov byte [vp_autop], 0
-    call vp_lgo
-    jmp short .p
-.paused:
-    mov byte [vp_lrun], 0
-    mov byte [vp_bpause], 0
-    mov byte [vp_shadow], 1
-    mov ax, [vp_keep]
-    mov [vp_shseg], ax
-.p:
+    mov byte [vp_lrun], 0           ; the box repainted from the shadow
+    mov byte [vp_bpause], 0         ; FIRST, and only then the play resumed:
+    mov byte [vp_shadow], 1         ; a repaint holds the lock, and a card
+    mov ax, [vp_keep]               ; resumed before it plays on while the
+    mov [vp_shseg], ax              ; worker waits (98.3.10.1)
     call vp_fmt
     mov si, [vp_win]
     call vp_repaint
+    cmp byte [vp_autop], 0
+    je .out
+    mov byte [vp_autop], 0
+    call vp_lgo
+    call vp_lbtn                    ; (Pause, not Play, on its button)
+.out:
     pop si
     ret
 
@@ -3190,7 +3211,11 @@ vp_worker:
     jmp short vp_worker
 .idle:
     call OSAPI_GFX_UNLOCK
-    mov ax, 4                       ; nothing playing: a longer sleep
+    mov ax, 4                       ; nothing playing: a longer sleep - but
+    cmp byte [vp_lsess], 0          ; a live session paused sleeps a tick,
+    je .sl                          ; so the resume's first frame is not
+    mov al, 1                       ; four ticks behind a card already
+.sl:                                ; playing (98.3.10.1)
     call OSAPI_TASK_SLEEP
     jmp short vp_worker
 
@@ -3200,6 +3225,12 @@ vp_worker:
 ; the rows those frames wrote, into the box; and at the file's end the play
 ; over, which the UI task finishes on its wake
 vp_lstep:
+%ifdef VP_LIVESND
+    cmp byte [vp_snd], 0
+    je .pit
+    jmp vp_lsnd
+.pit:
+%endif
     call OSAPI_GET_TICKS
     mov bx, ax
     sub ax, [vp_ltk]
@@ -3245,6 +3276,97 @@ vp_lstep:
     ret
 .blit:
     jmp vp_lblit
+
+%ifdef VP_LIVESND
+; vp_lsnd - vp_lstep WITH SOUND (98.3.10.1): the card is the clock, as in a
+; bracket - the ticks since the last pass become the periods the hook would
+; have counted, vp_adue says what is due off the card's consumed count, up
+; to VP_LCAP frames are drawn, the box blitted, and the ring topped up from
+; the resident audio block. Nothing here is read off a disk
+vp_lsnd:
+    call OSAPI_GET_TICKS
+    mov bx, ax
+    sub ax, [vp_ltk]
+    mov [vp_ltk], bx
+    cmp byte [vp_ldrain], 0         ; the picture done: the sound plays out
+    je .run
+    jmp .drain
+.run:
+    cmp ax, 8                       ; (a pass held off longer: the card's
+    jbe .t                          ; next word resynchronises it anyway)
+    mov ax, 8
+.t:
+    mov dx, ax                      ; ticks x 65,536 PIT counts, and what
+    mov ax, [vp_lrem]               ; was left over, in periods of the
+    div word [vp_pdiv]              ; file's divisor
+    mov [vp_lrem], dx
+    add [vp_pers], ax
+    call vp_adue                    ; CX = frames due
+    cmp byte [vp_rep], 0            ; every frame drawn and no Repeat: the
+    jne .nl                         ; clock stops at the last, so the end is
+    mov ax, [vp_done]               ; found here and not by vp_frame - the
+    cmp ax, [vp_frames]             ; bracket's play loop's own check
+    jb .nl
+    mov byte [vp_end], 1
+    jmp short .last
+.nl:
+    jcxz .blit
+    cmp cx, VP_LCAP
+    jbe .f
+    sub cx, VP_LCAP
+    add [vp_late], cx
+    mov cx, VP_LCAP
+.f:
+    push cx
+    call vp_frame
+    pop cx
+    jc .nf
+    loop .f
+    jmp short .blit
+.nf:
+    cmp byte [vp_end], 0            ; the end (Repeat off): the last frame
+    je .blit                        ; on the screen, and the sound to its
+.last:
+    call vp_lblit                   ; last byte - the bracket's drain, a pass
+    mov byte [vp_ldrain], 1         ; at a time (98.3.10.1)
+    call OSAPI_GET_TICKS
+    mov [vp_tdr], ax
+    ret
+.blit:
+    call vp_lblit
+.feed:
+    call vp_afill                   ; the sound a few frames ahead of the card
+    jmp vp_skeep                    ; ...and a card paused for want of it on
+.drain:
+    call vp_adue                    ; (the card's count, and syncf, taken)
+    cmp byte [vp_aend], 2           ; the audio ran out early: nothing to wait
+    je .over                        ; for
+    mov ax, [vp_aseq]               ; Repeat turned off after the sound had
+    cmp ax, [vp_vseq]               ; queued the next lap: over when the card
+    jbe .df                         ; has played the frames drawn
+    mov ax, [vp_syncf]
+    cmp ax, [vp_vseq]
+    jae .over
+    jmp short .dw
+.df:
+    cmp byte [vp_aend], 0
+    je .dw
+    mov ax, [vp_alast]              ; played past the last byte of sound?
+    sub ax, [vp_afinal]
+    jns .over
+.dw:
+    call OSAPI_GET_TICKS            ; ...or two seconds: a card that has
+    sub ax, [vp_tdr]                ; stopped does not hold the play
+    cmp ax, 37
+    jb .feed
+.over:
+    mov byte [vp_ldrain], 0
+    mov byte [vp_lrun], 0
+    mov byte [vp_lend], 1
+    mov bx, [vp_win]
+    call OSAPI_WM_WAKE              ; (a far cell: called, never jumped to)
+    ret
+%endif
 
 ; vp_lblit - the shadow's rows the frames since the last blit wrote, into the
 ; box at their place, through the window's clip - if the window shows and the
@@ -5603,6 +5725,39 @@ vp_hook:
 .ret:
     ret
 .snd:                               ; --- the card's clock (SPEC.md 98.3.1)
+    call vp_adue                    ; CX = frames due, [vp_due] set
+    jcxz .top
+    cmp cx, [vp_fcap]
+    jbe .n2
+    inc word [vp_late]              ; more behind the sound than a call draws
+    mov cx, [vp_fcap]
+.n2:
+    sti
+.f2:
+    push cx
+    call vp_frame
+    pop cx
+    jc .top
+    loop .f2
+.top:
+    sti
+    xor al, al                      ; still frames due after them: behind
+    mov bx, [vp_due]
+    cmp bx, [vp_vseq]
+    jbe .tc
+    inc ax
+.tc:
+    call vp_blitck
+    call vp_afill                   ; the audio a few frames ahead of the card
+    cli
+    ret
+
+; vp_adue - the card's clock (SPEC.md 98.3.1): the frames the sound says are
+; due, off what the card has consumed as of its last block interrupt and
+; [vp_pers], the periods since - the bracket's hook counts them, and a LIVE
+; play's worker (98.3.10) counts them off the ticks. out: [vp_due], and CX =
+; the frames due past those drawn (0 = on time). Clobbers AX, BX, DX, ES
+vp_adue:
     mov es, [vp_aseg]
     mov ax, [es:VP_RL+SND_EXT_CONS] ; what the card has consumed, as of its
     mov dx, ax                      ; last block interrupt
@@ -5656,36 +5811,14 @@ vp_hook:
     mov ax, bx
 .due2:
     mov [vp_due], ax
+    xor cx, cx
     sub ax, [vp_vseq]
-    jbe .top                        ; none: the picture is on time
+    jbe .ret                        ; none: the picture is on time
     mov cx, ax
     cmp cx, [vp_skmax]
-    jbe .sk
+    jbe .ret
     mov [vp_skmax], cx
-.sk:
-    cmp cx, [vp_fcap]
-    jbe .n2
-    inc word [vp_late]              ; more behind the sound than a call draws
-    mov cx, [vp_fcap]
-.n2:
-    sti
-.f2:
-    push cx
-    call vp_frame
-    pop cx
-    jc .top
-    loop .f2
-.top:
-    sti
-    xor al, al                      ; still frames due after them: behind
-    mov bx, [vp_due]
-    cmp bx, [vp_vseq]
-    jbe .tc
-    inc ax
-.tc:
-    call vp_blitck
-    call vp_afill                   ; the audio a few frames ahead of the card
-    cli
+.ret:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -7735,6 +7868,8 @@ vp_hired:     db 0                  ; ...the worker, hired...
 vp_ltk:       dw 0                  ; ...the tick it last looked at...
 vp_lacc:      dw 0, 0               ; ...PIT counts owed...
 vp_lper:      dw 0, 0               ; ...and a frame's
+vp_lrem:      dw 0                  ; ...PIT counts short of a period (98.3.10.1)
+vp_ldrain:    db 0                  ; ...and the picture done, the sound not
 vp_qseg:      dw 0                  ; vp_pposter's picture: its segment,
 vp_qbw:       dw 0                  ; stride and rows
 vp_qrows:     dw 0
