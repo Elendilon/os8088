@@ -1845,8 +1845,15 @@ fm_focus_x:
     cmp al, FSD_ICONS           ; ...and its ENTRIES are, with only the icon
     jne .relist                 ; references dangling after a shed (SPEC.md
     call fmv_icorefs            ; 25.9.5). That is repaired in place for one
-    jnc .drawn                  ; ASSOC.DAT read; a refusal falls through to
+    jc .relist                  ; ASSOC.DAT read; a refusal falls through to
                                 ; the re-list, which settles them on its way
+    call KERNEL_SEG:wm_su_stale ; ...AND THE PICTURE GOES WITH THEM (SPEC.md
+    jmp short .drawn            ; 54.3.3): a new ASSOCIATION marks this debt
+                                ; too, and then the raise cache holds the old
+                                ; glyphs - so a raise put the bare mark back
+                                ; over references that were right. fmv_store
+                                ; is the re-list's copy of this call. After a
+                                ; shed it costs the one raise a whole paint
 .relist:
     call fmv_here               ; it is not, so re-list where we stand -
                                 ; exactly what Refresh costs (SPEC.md 22)

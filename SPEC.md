@@ -84212,6 +84212,36 @@ disk for. It is filed here rather than in a size plan because the
 condition is a calendar, not a measurement, and the code it names is
 here.
 
+### 54.3.3 An association learned LATE repaints the windows that listed without it
+
+**A document's icon is decided once, when its window mounts** (`dsk_docpass`,
+pass 4b). A window listed before its extension was known draws the bare
+mark, and before this it stayed wrong for good. The report came from a field
+install: VIDEO.O88 in `C:\APPS` and `.V88`s on a new F: with no cache. None
+of the `.V88`s showed an icon, yet a double-click on one found VIDEO.O88
+perfectly well, because by then C:'s `ASSOC.DAT` had been read and the
+machine knew.
+
+So `assoc_point`, where every declared and every cached extension goes in,
+calls `fmv_icostale` when an extension is **new, or now names a different
+program**. The same program again is no news and costs nothing.
+`fmv_icostale` is the heap shed's repair (§25.9.5). Every Disk window owes
+`FSD_ICONS`, and its next focus pays it by re-resolving its references in
+place, with one `ASSOC.DAT` read and no re-list.
+
+**The repair's second half is the picture.** After a shed the references
+dangle but the pixels are right, so the repair never touched the raise cache
+(§11.96). After a new association the pixels are wrong, and a raise put the
+bare mark straight back over references that were already right. The
+measurement showed it: the glyph came back after an Icons/List toggle, but
+not after a raise. `fm_focus_x` now marks the window's cache stale
+(`wm_su_stale`) after a successful repair, the way `fmv_store` has always
+done for a re-list. After a shed, that costs the one raise a whole paint.
+
+`tests/assocvol.py` leg ICON is the gate. It lists B: before `.V88` is known,
+browses `A:\APPS`, raises B:, and compares B:'s content with what a Refresh
+draws: 0 rows differ, against 32 on the kernel before this.
+
 ### 54.4 Degradation
 
 An unresolved glyph composes to the **bare page**, which is a correct,
@@ -84450,6 +84480,47 @@ the third floppy is unit 2 and volume 3, D:, because volume 2 is kept for a
 hard-disk boot partition). It asserts A: is never mounted, and is red on the
 kernel before this section: mounts D A B, 2,289 ms, against D B, 1,313 ms.
 On the 286 the difference is also A:'s spin-up.
+
+### 54.4.2.3 …and each volume's own `ASSOC.DAT` is asked, not only the hint
+
+**The hint is ONE location, seeded by whichever `ASSOC.DAT` was read last.**
+The report came from a field install. `C:\ASSOC.DAT` named a
+`C:\APPS\VIDEO.O88` that had since been deleted, the apps disk in B: carried
+one in `B:\APPS`, and a double-click on a `.V88` toasted `Needs VIDEO.O88`.
+The owner's reading was the right one: B:'s own `ASSOC.DAT` says where B:'s
+copy is, and asking it should have been a rung.
+
+It was not a rung, for two reasons:
+- `asc_use_x` ran only at `.found` (§54.7.2), on a volume where the program
+  had already been found.
+- Rungs 3 and 4 tried each volume's ROOT and then the folder `assoc_dfold`
+  names. That table has a folder only for the five built-in programs. Every
+  declared program (§54.6), VIDEO among them, got 0, which meant "nothing to
+  try".
+
+So a declared program one folder down on another disk could only be reached
+through a hint, and the hint pointed somewhere else.
+
+`assoc_tryvol` now tries three rungs on each volume:
+
+| rung | where |
+|---|---|
+| 3 | the volume's **root** |
+| 4 | **the folder the volume's own `ASSOC.DAT` names**: `asc_use_x` seeds the hints from it, and if the program's hint now names this volume, that folder is tried |
+| 5 | the folder `assoc_dfold` names, or **APPS then GAMES** for a program that has none |
+
+Rung 4 alone clears the report: A/B'd with rung 5's default taken out, the
+program is still found. Rung 5 covers a disk with no cache at all. Rung 4
+costs a compare on a volume whose cache is already loaded, and one short read
+otherwise, and it runs only after the root has missed. As at every rung, the
+NAME is re-checked on arrival (§54.4.2), so a cache that is itself stale
+costs a look and never opens a wrong file. The change is **41 bytes of
+`.cold`**, resident.
+
+`tests/assocstale.py` is the gate. It uses the 720KB system disk with
+`APPS\VIDEO.O88` deleted from under its `ASSOC.DAT`, and apps720 in B:. A
+double-click on `A:\MEDIA\OS8088.V88` now opens a Video Player. On the kernel
+before this it toasts `Needs VIDEO.O88`.
 
 ### 54.5 The API: the app PULLS its document, and may claim an extension
 
@@ -150860,3 +150931,27 @@ byte's; a C160 pixel is drawn TWO wide, so the picture keeps its shape on a
 halved from there as any one-bit picture is. `cga4_mono` and `c160_mono` in
 `tools/os88vid.py` are the reference, and `vidcga4`/`vidc160` hold the
 player to them byte for byte.
+
+#### 98.4.7 A document on another disk: the instance goes there, and a failure opens the card
+
+**`vp_onwake` used `OSAPI_FILE_GOTO_Q` to stand in its document's folder.**
+That slot moves the machine and deliberately not the instance (§19.2.2).
+Every package file call begins with `inst_vol_enter` (§74.1), which put the
+machine back in the folder VIDEO.O88 was LOADED from. So a double-clicked
+document anywhere else read as `The disk could not be read`. The field case
+was `C:\APPS\VIDEO.O88` with its `.V88`s on F:. File>Open played the same
+file, because the dialog moves the instance, and every gate had the document
+and the player in one folder, so none of them could see it. The fix is
+`OSAPI_FILE_GOTO_QM`, the quiet stand that also marks the instance, which is
+what §74.1 exists for.
+
+**The info card now comes out for ANY file that will not play.** It already
+did for a file that loaded but could not play here. It did not for one that
+could not be read at all (a disk error, no memory for the header, not a
+`.V88`), so that reason sat behind a closed card.
+
+`tests/assocvol.py` legs READ and CARD are the gates. With VIDEO.O88 in
+`A:\APPS`, `B:\OS8088.V88` opens ready, and a junk `B:\BAD.V88` says
+`Not a .V88 video` with the card out. On the player before this, both read
+`vp_s_io` with the card closed.
+

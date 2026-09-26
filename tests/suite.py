@@ -1849,6 +1849,22 @@ SOAK = [
         "MartyPC's ROMs do not wait for the spin-up, so the ORDER is what is "
         "asserted; RED on the kernel before it (arm 193 ms after the read)",
         needs=("marty",)),
+    Row("assocstale", "soak", py("tests/assocstale.py"), 15.0,
+        "SPEC.md 54.4.2.3: a STALE hint falls back to another disk's own "
+        "ASSOC.DAT. The system disk's cache names A:\\APPS\\VIDEO.O88, "
+        "which is deleted; apps720 in B: carries one. A double-click on "
+        "A:\\MEDIA\\OS8088.V88 must open a player - it toasted 'Needs "
+        "VIDEO.O88', the sweep trying each volume's root and a folder only "
+        "the five built-ins have",
+        needs=("marty",), serial=True),
+    Row("assocvol", "soak", py("tests/assocvol.py"), 21.0,
+        "SPEC.md 54.3.3, 98.4.7: a .V88 on a bare B: with VIDEO.O88 in "
+        "A:\\APPS - its glyph once the association is learned (a raise "
+        "drew the bare mark back off the raise cache), a player that READS "
+        "it (GOTO_Q moved the machine and not the instance, so the first "
+        "file call went back to A:\\APPS), and a junk one's reason with the "
+        "info card OUT",
+        needs=("marty",), serial=True),
     Row("assocsweep", "soak", py("tests/assocsweep.py"), 50.0,
         "SPEC.md 54.4.2.1: what a document double-click costs BEFORE its "
         "program loads. Field: an installed machine with every floppy drive "

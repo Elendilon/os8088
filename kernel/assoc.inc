@@ -1029,11 +1029,28 @@ assoc_tryfold:
     ret
 
 ; -----------------------------------------------------------------------------
-; assoc_tryvol - one whole volume: its root, then the folder a default names
-;                (rungs 3 and 4 of SPEC.md 54.4.2)
+; assoc_tryvol - one whole volume: its root, what ITS OWN ASSOC.DAT says, then
+;                the folder a default names (rungs 3 to 5 of SPEC.md 54.4.2)
 ; in:  DL = volume, DI = the app slot
 ; out: as assoc_try
 ; clobbers: AX (the output), CF
+;
+; **THE VOLUME'S OWN ASSOC.DAT IS ASKED HERE, not only after a find** (SPEC.md
+; 54.4.2.3). The hint rung 1 reads is ONE location, seeded by whichever
+; ASSOC.DAT was read last - an installed machine's C:, say, naming a
+; C:\APPS\VIDEO.O88 that has since been deleted - and asc_use_x ran only at
+; .found, on a volume the program had already been found on. So the apps
+; disk in B:, whose own cache names B:\APPS\VIDEO.O88, was asked for its
+; root and nothing else, and the open toasted `Needs VIDEO.O88` (the owner's
+; report). Seeding here repoints the hint at THIS volume if its cache knows
+; the program, and the name is re-checked on arrival as every rung's is. It is
+; a compare on a volume already loaded, and one short read otherwise.
+;
+; **AND A PROGRAM WITH NO BUILT-IN FOLDER IS LOOKED FOR IN APPS AND GAMES**,
+; for a disk with no cache at all. assoc_dfold is 0 for every slot past the
+; five built-ins - every DECLARED program (54.6) - and 0 used to mean nothing
+; to try, which left a declared program one folder down unfindable anywhere
+; but through a hint.
 ; -----------------------------------------------------------------------------
 assoc_tryvol:
     push bx
@@ -1041,8 +1058,27 @@ assoc_tryvol:
     xor ax, ax
     call assoc_try              ; the volume's root
     jnc .out
-    mov bx, di                  ; ...then APPS or GAMES, if a default names
-    mov bl, [assoc_dfold+bx]    ; one for this program (0 = nothing to try)
+    xor ax, ax                  ; standing on it - a word, being where the
+    call assoc_go               ; root's miss left us - or it would not mount
+    jc .fold
+    call asc_use_x              ; ITS cache seeds the hints (54.7.1)...
+    mov bx, di
+    cmp [assoc_drv+bx], dl      ; ...and if it knows this program, the place
+    jne .fold                   ; it names
+    shl bx, 1
+    mov ax, [assoc_clus+bx]
+    call assoc_try
+    jnc .out
+.fold:
+    mov bx, di                  ; ...then APPS or GAMES: the default's, or
+    mov bl, [assoc_dfold+bx]    ; both for a program with none
+    or bl, bl
+    jnz .one
+    inc bx                      ; (BL = 1: APPS)
+    call assoc_tryfold
+    jnc .out
+    mov bl, 2                   ; GAMES
+.one:
     call assoc_tryfold
 .out:
     pop dx                      ; a pop touches no flag, so the CF both rungs
@@ -1504,20 +1540,33 @@ osapi_assoc_set_x:
 ; osapi_assoc_set is deliberately NOT folded in: it SETS the sticky bit and
 ; skips the sticky test, which is the whole difference between a runtime claim
 ; and a declaration.
+;
+; **A NEW ANSWER MAKES EVERY DISK WINDOW'S DOCUMENT ICONS STALE** (SPEC.md
+; 54.3.3), so it says so - fmv_icostale, the shed's own repair, which costs a
+; window its references and never its listing. A document's icon is decided
+; ONCE, at its window's mount (dsk_docpass), so a window listed before its
+; extension was known drew the bare mark for good: the owner's F:, listed
+; before C:'s ASSOC.DAT had been read, showed none on its .V88s while a
+; double-click on them found VIDEO.O88. The same slot again is no news, and
+; costs nothing. Clobbers AX, CX, SI and the flags on that arm, which both
+; callers bank or no longer need.
 ; -----------------------------------------------------------------------------
 assoc_point:
     call assoc_find             ; already claimed?  BX = that row
     jc .fresh
     test byte [bx+3], ASSOC_STICKY
     jnz .out
+    cmp [bx+3], dl              ; ...and already this program's: nothing any
+    je .out                     ; window drew is wrong
     jmp short .set
 .fresh:
     call assoc_ext_new
     jc .out
 .set:
     mov [bx+3], dl              ; ...pointed here, sticky bit CLEAR
-.out:
-    ret
+    jmp fmv_icostale            ; ...and every Disk window re-resolves its
+.out:                           ; document icons on its next focus (a TAIL
+    ret                         ; call: its ret is ours)
 
 ; assoc_ext_new - claim a free extension row. in: SI -> 3 ext bytes;
 ; out: CF=0 and BX = the row with the extension written in; CF=1 = full

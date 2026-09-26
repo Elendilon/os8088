@@ -290,8 +290,12 @@ vp_onwake:
     mov byte [vp_argpend], 0
     mov dx, [vp_argdir]             ; where the document is (SPEC.md 54.5)
     mov bl, [vp_argvol]
-    call OSAPI_FILE_GOTO_Q
-    call vp_open
+    call OSAPI_FILE_GOTO_QM         ; ...and the INSTANCE with it (74.1):
+    call vp_open                    ; GOTO_Q moved the machine alone, and the
+                                    ; first file cell put it back in the
+                                    ; folder VIDEO.O88 was loaded from - so a
+                                    ; document anywhere else read as a disk
+                                    ; error (the owner's C:\APPS and F:)
 .lay:
     cmp byte [vp_relay], 0
     je .paint
@@ -899,13 +903,14 @@ vp_open:
 .free:
     mov dx, [vp_tmp]
     call OSAPI_MEM_FREE
-    cmp byte [vp_loaded], 0         ; THE LAYOUT for this video (98.4.1),
-    je .out                         ; owed to the wake - with the card out
-    mov byte [vp_relay], 1          ; if the file will not play here, since
-    cmp byte [vp_ok], 0             ; the card is what says why
-    jne .lf
-    mov byte [vp_card], 1
-.lf:
+.said:
+    mov byte [vp_relay], 1          ; THE LAYOUT for this video (98.4.1),
+    cmp byte [vp_ok], 0             ; owed to the wake - with the card out if
+    jne .lf                         ; the file will not play here, since the
+    mov byte [vp_card], 1           ; card is what says why. A file that could
+.lf:                                ; not even be READ says why there too: its
+    cmp byte [vp_loaded], 0         ; reason sat behind a closed card (the
+    je .out                         ; owner's report, a .V88 on F:)
     call vp_layfit
     mov ax, [vp_poster]             ; THE POSTER (98.4): the header's keyframe,
     cmp ax, [vp_nkeys]              ; at the layout's scale - and only once the
@@ -920,9 +925,10 @@ vp_open:
     jmp short .free
 .io:
     mov word [vp_msg], vp_s_io
-    jmp short .out
+    jmp short .said
 .mem:
     mov word [vp_msg], vp_s_mem
+    jmp short .said
 .out:
     call vp_fmt
     pop es
