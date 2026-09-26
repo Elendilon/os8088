@@ -55,22 +55,27 @@ THE CLIPS
                stripes. Error-diffused through the
                monitor's own model now, the way
                XDC's are: 294 of 360 frames exact
-  VGA disk     BAPPLE and TRACK at 400 x 300 /
-               400 x 225 - they play IN THE WINDOW
-               on a VGA desktop - and TRACKF,
-               Trackmania at 640 x 360, full
-               screen, made again for an IDE disk
-               (the "286-vga" profile, 400 KB/s): it
-               is exact in every frame, where the
-               150 KB/s cut smeared on the first
-               landing. And 256 COLOURS, mode 13h,
-               full screen (wave 11a):
-                 TRK8    320 x 150, 15 fps, 301 KB/s
-                 TRK830  the same at 30 fps, 419
+  VGA disk     TRACK at 400 x 225 - it plays IN THE
+               WINDOW on a VGA desktop - and TRACKF,
+               640 x 360 full screen, made for an
+               IDE disk ("286-vga", 400 KB/s): exact
+               in every frame. And 256 COLOURS, full
+               screen (waves 11a and 11b):
+               mode 13h, 320 x 150:
+                 TRK830  30 fps, 396 KB/s
+                 TRK825  25 fps, 377
                  TRK8S   160 x 100, 30 fps, 137
-               Bad Carrot left this disk to make the
-               room (it is on the Hercules and CGA
-               ones)
+               Mode X, 320 x 180, square pixels:
+                 TRKX    15 fps, 347 KB/s
+                 TRKX25  25 fps, 401
+                 TRKX30  30 fps, 402
+               The 30 fps cuts are made again: the
+               first TRK830 stalled twice about a
+               second in (the encoder banked more
+               than the player's ring holds, SPEC.md
+               98.2.1). Bad Apple, Bad Carrot and the
+               15 fps 13h cut left this disk to make
+               the room
 
 Each is sized to its source's SHAPE on that screen:
 on Hercules a 4:3 video is 400 x 193 and a 16:9 one
