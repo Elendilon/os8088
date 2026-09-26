@@ -149086,7 +149086,7 @@ and a player reads only the stream it plays (VIDEO-PLAN 13, answer A).
 
 | +off | size | field |
 |---|---|---|
-| 0 | 1 | pixel format: 1 **MONO1** (1 bpp, 1 = white), 2 **CGACOMP** (1 bpp read as 16 composite artifact colours; mono stripes anywhere but a CGA with the burst on), 3 **VGA8** (a byte a pixel, an index into the file's palette; LIN320 and MODEX only, and they take nothing else) |
+| 0 | 1 | pixel format: 1 **MONO1** (1 bpp, 1 = white), 2 **CGACOMP** (1 bpp read as 16 composite artifact colours; mono stripes anywhere but a CGA with the burst on), 3 **VGA8** (a byte a pixel, an index into the file's palette; LIN320 and MODEX only, and they take nothing else), 4 **VGA4** (mode 12h's sixteen colours on LIN80's four bit-planes, 98.1.3.2; no palette in the file) |
 | 1 | 1 | layout (98.1.2): 1 CGA, 2 HERC, 3 LIN80, 4 LIN320, 5 MODEX |
 | 2 | 2 | canvas width in bytes, 1..the layout's stride |
 | 4 | 2 | canvas height in rows, 1..the layout's rows |
@@ -149208,6 +149208,33 @@ sub-record      = mask(1..0Fh) lists            (lists as above)
 - A keyframe is bounded by its length word, and a 320 × 240 canvas can
   pass it: the writer then leaves that keyframe out, and the file plays
   from the start and seeks to the ones it has.
+- **An empty planar record is seven bytes** - its header and the 0 - where a
+  one-bit record's floor is sixteen (ten lists' ends): the player's stream
+  and keyframe checks take the planar floor for a planar file.
+
+#### 98.1.3.2 VGA4: sixteen colours on mode 12h's planes
+
+**A VGA desktop is mode 12h**, so a file in its own sixteen colours plays
+IN THE WINDOW (VIDEO-PLAN W12). VGA4 is LIN80's layout with four
+BIT-planes - plane *p* holds bit *p* of every pixel's colour, a byte of it
+eight pixels - and its records are 98.1.3.1's sub-records:
+- **At each byte where a plane changes, the planes that want the same value
+  are one store under their combined mask**, changed or not (writing a plane
+  its own value changes nothing). So black and white is one store per eight
+  pixels under 0Fh, as a one-bit file is, and colour costs what it differs
+  by. Every mask from 1 to 0Fh can occur. No span closes a gap.
+- **The colours are mode 12h's own**: the EGA's sixteen, which no theme
+  changes (§76.12 moves palette indices, never the DAC). The file carries
+  no palette and the player loads none, so the desktop round the window is
+  untouched.
+- **The decoder puts the Map Mask back to 0Fh after every record.** The
+  kernel sets it for its own drawing, but the player's thumb (`vp_wbox`,
+  98.3.7) stores through the Bit Mask assuming all four planes, and after a
+  sub-record left on one it drew in colour: `vidvga4` FAILS that way.
+- **Into RAM** the planes are `h × 80` bytes each, `vp_plsp` paragraphs
+  apart (Mode X's are 4B0h), in a claim of three spacings and 64 KB.
+- Trackmania at 320 × 180, 30 fps, `286-vga`: 254 KB/s with the pattern
+  dither (98.2.5), every frame exact, in the window.
 
 The reference decoder is `decode_lists` in `tools/os88vid.py`, and the
 guest's is `apps/video/vdec.inc`, the player's and the bench's one copy.
@@ -149775,7 +149802,7 @@ content is on a byte (§11.94) and the picture reaches `OSAPI_GFX_BLIT1`'s
 fast path.
 
 **A VGA8 poster is its luma, dithered to one bit** (98.4.4), because the
-Preview is drawn on the desktop.
+Preview is drawn on the desktop. **A VGA4 poster is in colour** (98.4.5).
 
 **The poster** is the header's poster keyframe (98.1.3) when the file
 opens, and the picked key's picture after:
@@ -149933,6 +149960,16 @@ table, lights a pixel when it is GREATER than the 4 × 4 Bayer cell over it
 there it is a one-bit picture like any other, halved in place where the
 layout says so. `tools/os88vid.py`'s `vga8_lum16` and `vga8_mono` are the
 reference, and `tests/vidvga8.py` holds the player to them bit for bit.
+
+#### 98.4.5 A sixteen-colour poster
+
+A VGA4 keyframe is decoded into its RAM planes and `vp_v4pack` packs it
+for `OSAPI_GFX_BLIT4` - two pixels a byte, the left one high - taking every
+`vp_ps`-th pixel of every `vp_ps`-th row, so a half or a quarter is a
+decimation rather than 98.4's dithered halving. The box is then drawn in
+the desktop's own sixteen colours, and on a one-bit desktop `gfx_blit4`
+renders them as it renders any picture. `tools/os88vid.py`'s `vga4_pack` is
+the reference and `vidvga4` holds the player to it byte for byte.
 
 ### 98.2 The host tools — `tools/os88vid.py`
 
@@ -150206,3 +150243,25 @@ resolution ... full screen without smearing, but with less detail"*.
   retime (the CGA's and the Hercules' are the kernel's), and nothing to
   repeat a pixel into. `vidmodex2` is the gate; `videnc` checks a lossless
   2 × 2 encode stores nothing but pairs and groups.
+
+#### 98.2.5 Sixteen colours from a video (`--pixfmt vga4`)
+
+**`--preset vga4` (320 × 240), `vga4-mid` (400 × 300) and `vga4-full`
+(640 × 480) are LIN80 at `--pixfmt vga4`** (98.1.3.2). The first two fit a
+window on a VGA desktop at their own size; the last is full screen.
+- **The dither is a PATTERN dither, Thomas Knoll's.** The sixteen colours
+  are 85 to 170 steps apart, and the ordered dither VGA8 uses shifts red,
+  green and blue together, so it only ever mixed greys: the sky and the
+  grass came out grey. Knoll's plan for a pixel is sixteen palette colours,
+  each the nearest to the target plus the error of those before it - so
+  their mean is the target - sorted by luma, and the 4 × 4 Bayer cell over
+  the pixel picks one. It is fixed by position, so a still picture keeps
+  its pattern.
+- **Stable by the source** (`--vga4-stable`, 24): a pixel keeps its colour
+  while its SOURCE has moved less than that since the colour was chosen. A
+  pattern's pick is not near its target, so VGA8's rule (the colour on the
+  screen near the source) never holds. Off, Trackmania at 320 × 180 is 383
+  KB/s with 134 of 360 frames cut; at 24 it is 254 with none; at 40, 226.
+- `EncoderP` builds the frames: the sub-records by 98.1.3.2's rule, done
+  with numpy, ranked by the colour error of the eight pixels a byte covers.
+  `videnc` checks a lossless VGA4 encode frame by frame.

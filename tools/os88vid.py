@@ -678,8 +678,14 @@ SP_MAX = 64                     # sectors a super-packet may take (32 KB)
 AUD_NONE, AUD_PCM8, AUD_ADPCM4 = 0, 1, 2
 AUD_BY_NAME = {"pcm8": AUD_PCM8, "adpcm4": AUD_ADPCM4}
 ADPCM4_REF = 0x80               # the stream's reference byte (SPEC.md 98.1.1)
-PF_MONO1, PF_CGACOMP, PF_VGA8 = 1, 2, 3
-PF_NAMES = {PF_MONO1: "MONO1", PF_CGACOMP: "CGACOMP", PF_VGA8: "VGA8"}
+PF_MONO1, PF_CGACOMP, PF_VGA8, PF_VGA4 = 1, 2, 3, 4
+PF_NAMES = {PF_MONO1: "MONO1", PF_CGACOMP: "CGACOMP", PF_VGA8: "VGA8",
+            PF_VGA4: "VGA4"}
+# VGA4 (98.1.3.2): mode 12h's own sixteen, which no theme changes - the
+# DAC's six bits, black to white in the EGA's order
+STD16 = bytes((0, 0, 0, 0, 0, 42, 0, 42, 0, 0, 42, 42, 42, 0, 0, 42, 0, 42,
+               42, 21, 0, 42, 42, 42, 21, 21, 21, 21, 21, 63, 21, 63, 21,
+               21, 63, 63, 63, 21, 21, 63, 21, 63, 63, 63, 21, 63, 63, 63))
 LAY_CGA, LAY_HERC, LAY_LIN80, LAY_LIN320, LAY_MODEX = 1, 2, 3, 4, 5
 LAYOUTS = {                     # SPEC.md 98.1.2: banks, stride, rows, name
     LAY_CGA: (2, 80, 200, "cga"),
@@ -750,7 +756,7 @@ class Geom:
     """A canvas on a layout: where each row starts in the surface's memory
     image, which addresses belong to the canvas, and which row each is."""
 
-    def __init__(self, layout, wb, h):
+    def __init__(self, layout, wb, h, bitplanes=False):
         if layout not in LAYOUTS:
             raise V88Error("layout %d is not one of SPEC.md 98.1.2's" % layout)
         banks, stride, rows, self.name = LAYOUTS[layout]
@@ -759,7 +765,8 @@ class Geom:
                            % (wb, h, self.name, stride, rows))
         self.layout, self.wb, self.h = layout, wb, h
         self.banks, self.stride = banks, stride
-        self.planes = 4 if layout == LAY_MODEX else 1
+        self.bitplanes = bitplanes and layout == LAY_LIN80
+        self.planes = 4 if layout == LAY_MODEX or self.bitplanes else 1
         self.w = wb * PIX_PER_BYTE[layout]
         self.base = [(y % banks) * 8192 + (y // banks) * stride
                      for y in range(h)]
@@ -779,6 +786,15 @@ class Geom:
         pixel a byte, pixel x in plane x mod 4"""
         if self.planes == 1:
             return b"".join(bytes(surf[b:b + self.wb]) for b in self.base)
+        if self.bitplanes:          # VGA4: bit x of each plane, a pixel
+            w, out = self.w, bytearray(self.w * self.h)
+            for y, b in enumerate(self.base):
+                for xb in range(self.wb):
+                    bt = [surf[p * PLANE + b + xb] for p in range(4)]
+                    for i in range(8):
+                        out[y * w + xb * 8 + i] = sum(
+                            ((bt[p] >> (7 - i)) & 1) << p for p in range(4))
+            return bytes(out)
         w, out = self.w, bytearray(self.w * self.h)
         for y, b in enumerate(self.base):
             for p in range(4):
@@ -790,6 +806,16 @@ class Geom:
         if self.planes == 1:
             for y, b in enumerate(self.base):
                 surf[b:b + self.wb] = cv[y * self.wb:(y + 1) * self.wb]
+            return
+        if self.bitplanes:
+            for y, b in enumerate(self.base):
+                row = cv[y * self.w:(y + 1) * self.w]
+                for p in range(4):
+                    for xb in range(self.wb):
+                        v = 0
+                        for i in range(8):
+                            v |= ((row[xb * 8 + i] >> p) & 1) << (7 - i)
+                        surf[p * PLANE + b + xb] = v
             return
         w = self.w
         for y, b in enumerate(self.base):
@@ -882,11 +908,74 @@ def record(ops, g, audio=b"", limit=SP_MAX * SECTOR - 4):
 
 
 def keyframe_ops(surf, g):
+    if g.bitplanes:
+        return vga4_subs(g.canvas(surf), bytes(g.w * g.h), g)
     if g.planes > 1:
         cv = g.canvas(surf)
         return modex_subs(cv, [v != 0 for v in cv], g)
     changed = [a for b in g.base for a in range(b, b + g.wb) if surf[a]]
     return spans(changed, surf, g)
+
+
+def vga4_planes(cv, g):
+    """A VGA4 canvas's four plane images, each g.wb x g.h bytes, dense"""
+    out = [bytearray(g.wb * g.h) for _ in range(4)]
+    w = g.w
+    for y in range(g.h):
+        row = cv[y * w:(y + 1) * w]
+        for xb in range(g.wb):
+            px = row[xb * 8:xb * 8 + 8]
+            for p in range(4):
+                v = 0
+                for i in range(8):
+                    v |= ((px[i] >> p) & 1) << (7 - i)
+                out[p][y * g.wb + xb] = v
+    return out
+
+
+def vga4_subs(cv, prev, g):
+    """A VGA4 frame's writes (98.1.3.2): canvas `cv` over canvas `prev`. A
+    byte is eight pixels' bit of ONE plane; at each byte where a plane
+    changes, the planes that want the SAME value - changed or not, since
+    writing a plane its own value changes nothing - are one store under
+    their combined mask. So black-and-white is a store per eight pixels
+    under 0Fh, as a one-bit file is, and colour costs what it differs by.
+    No span closes a gap: a gap byte's planes need not share a value"""
+    tp, sp = vga4_planes(cv, g), vga4_planes(prev, g)
+    addr = {}
+    msurf = {}
+    for y, b in enumerate(g.base):
+        for xb in range(g.wb):
+            i = y * g.wb + xb
+            t = [tp[p][i] for p in range(4)]
+            ch = [t[p] != sp[p][i] for p in range(4)]
+            if not any(ch):
+                continue
+            done = 0
+            for p in range(4):
+                if not ch[p] or done >> p & 1:
+                    continue
+                m = sum(1 << q for q in range(4) if t[q] == t[p])
+                done |= m
+                addr.setdefault(m, []).append(b + xb)
+                msurf.setdefault(m, bytearray(PLANE))[b + xb] = t[p]
+    order = sorted(addr, key=lambda m: (m != 15, m))
+    return [(m, spans(addr[m], msurf[m], g, gaps=False)) for m in order]
+
+
+def vga4_pack(cv, w, h, step=1):
+    """The canvas as OSAPI_GFX_BLIT4 takes it - two pixels a byte, the
+    left in the high nibble - every `step`-th pixel of every `step`-th row:
+    the player's vp_v4pack, byte for byte"""
+    ow, oh = w // step, (h + step - 1) // step
+    obw = (ow + 1) // 2
+    out = bytearray(obw * oh)
+    for oy in range(oh):
+        row = cv[oy * step * w:(oy * step + 1) * w]
+        for ox in range(ow):
+            v = row[ox * step] & 15
+            out[oy * obw + ox // 2] |= v << 4 if not ox & 1 else v
+    return bytes(out), obw, ow, oh
 
 
 def modex_subs(cv, changed, g):
@@ -983,6 +1072,9 @@ class Writer:
         if (pixfmt == PF_VGA8) != (g.layout in VGA8_LAYOUTS):
             raise V88Error("VGA8 is LIN320's and MODEX's format, and they "
                            "take no other")
+        if (pixfmt == PF_VGA4) != g.bitplanes or \
+                (pixfmt == PF_VGA4 and g.layout != LAY_LIN80):
+            raise V88Error("VGA4 is LIN80's bit-planes, and nothing else's")
         if (pixfmt == PF_VGA8) != (palette is not None) or \
                 (palette is not None and (len(palette) != PAL_BYTES or
                                           max(palette) > 63)):
@@ -1211,7 +1303,9 @@ class Reader:
             raise V88Error("pixel format %d on layout %d: VGA8 is LIN320's "
                            "and MODEX's, and only theirs"
                            % (self.pixfmt, layout))
-        self.g = Geom(layout, wb, h)
+        if self.pixfmt == PF_VGA4 and layout != LAY_LIN80:
+            raise V88Error("VGA4 on layout %d: it is LIN80's" % layout)
+        self.g = Geom(layout, wb, h, bitplanes=self.pixfmt == PF_VGA4)
         pal, rs, fl = struct.unpack_from("<IBB", d, 224)
         self.rowscale = rs or 1
         if fl not in (0, 1, 2) or (fl == 2 and layout != LAY_MODEX):
@@ -1337,7 +1431,7 @@ class Reader:
     def key(self, i):
         k, off, n, spo, spn, idx = self.keys[i]
         rec = self.d[off:off + n]
-        if len(rec) != n or n < REC_HDR + 10:
+        if len(rec) != n or n < REC_HDR + (1 if self.g.planes > 1 else 10):
             raise V88Error("keyframe %d runs off the file" % i)
         return k, rec, spo, spn, idx
 
@@ -1884,7 +1978,8 @@ def encode_canvases(canvases, g, out, fps, pixfmt=PF_MONO1, palette=None,
     prev = g.canvas(surf)
     for cv in canvases:
         if g.planes > 1:
-            subs = modex_subs(cv, [a != b for a, b in zip(cv, prev)], g)
+            subs = vga4_subs(cv, prev, g) if g.bitplanes else \
+                modex_subs(cv, [a != b for a, b in zip(cv, prev)], g)
             g.put(surf, cv)
             prev = cv
             wr.frame(subs, surf)

@@ -149,6 +149,21 @@ def main():
         if r.g.layout != vid.LAY_MODEX or diff or r.frames != len(keep):
             bad.append("modex: layout %d, %d frames differ"
                        % (r.g.layout, diff))
+        # ...and in sixteen colours on mode 12h's planes (98.1.3.2)
+        path, res, keep = run("vga4", "--preset", "vga4", "--pixfmt",
+                              "vga4", "--profile", "lossless", "--audio",
+                              "none")
+        vid.verify_v88(path)
+        r = vid.Reader(path)
+        diff = sum(1 for f, surf, rec, at, i in vid.v88_frames(r)
+                   if r.g.canvas(surf) != keep[f].tobytes())
+        print("   vga4: %s %d x %d, %d of %d frames differ from their "
+              "target" % (vid.PF_NAMES[r.pixfmt], r.g.w, r.g.h, diff,
+                          r.frames))
+        if r.pixfmt != vid.PF_VGA4 or not r.g.bitplanes or diff or \
+                r.frames != len(keep):
+            bad.append("vga4: format %d, %d frames differ"
+                       % (r.pixfmt, diff))
         # ...and at a DETAIL of 2 x 2 (98.2.4): half the rows, shown twice,
         # and every pixel a pair - so no plane byte stands alone
         path, res, keep = run("modexd", "--preset", "modex-small",

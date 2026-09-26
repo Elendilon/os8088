@@ -1143,6 +1143,23 @@ red. A row about one package goes in `soak`.
     written into the framebuffer by the player (SPEC.md 98.3.7) - it was a
     whole-bar kernel repaint once a second, and never on VGA, which is what
     the owner saw. `vidthumb` / `vidthumbherc`.
+  - **W11d IS BUILT** (SPEC.md 98.3.8): Mode X page flipping, the
+    encoder's `--flip`. Each record is decoded into the back page after
+    the one it missed, and the CRTC start address is written, latched at
+    the next retrace, so the hook never waits. It costs decode, not data,
+    so it is optional: at detail 2x2 every frame stays exact, at 2x1 22 of
+    360 are cut.
+- **W12 - SIXTEEN COLOURS IN THE WINDOW. BUILT** (SPEC.md 98.1.3.2, 98.2.5,
+  98.4.5). The owner's ask: *"a 12h 16 colour that can play in the imposter
+  window"*. A VGA desktop IS mode 12h, so VGA4 is LIN80's bit-planes under
+  98.1.3.1's sub-records - the planes that want one byte stored together,
+  so black and white still costs a store per eight pixels - in the desktop's
+  own sixteen, no palette loaded. The poster is in colour through
+  `OSAPI_GFX_BLIT4`. The dither had to change: an ordered dither shifts the
+  three channels together and made the sky and grass grey; Knoll's pattern
+  dither mixes the sixteen, and a stability rule on the SOURCE brings it
+  from 383 KB/s to 254 for Trackmania at 320 x 180, 30 fps, every frame
+  exact. `vidvga4` plays it in the window and full screen off the glass.
   - **Known intermittent**: `vidwin` and `vidwinshd` each failed once
     under a four-lane soak at the same step - F while playing, then the
     hold at frame 100 never comes - and pass alone (3 of 3 each). It

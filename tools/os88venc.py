@@ -103,6 +103,11 @@ PRESETS = {
     # ...and in Mode X (98.1.3.1): square pixels, and a byte four of them
     # where a run of one colour covers an aligned group
     "modex": ("modex", 320, 240),
+    # 16 colours in mode 12h (98.1.3.2): the desktop's own mode, so it plays
+    # IN THE WINDOW on a VGA desktop at up to ~620 x 400, full screen above
+    "vga4": ("lin80", 320, 240),
+    "vga4-mid": ("lin80", 400, 300),
+    "vga4-full": ("lin80", 640, 480),
     "modex-small": ("modex", 160, 120),
     # Live windowed's sizes (VIDEO-PLAN 3.4): small canvases a worker blits
     "live-cga": ("cga", 320, 100),
@@ -474,7 +479,7 @@ class Vga8Ditherer:
 
     def __init__(self, w, h, palette, strength, stable):
         self.pal = np.frombuffer(palette, np.uint8).astype(np.float32) \
-            .reshape(256, 3) * (255 / 63)
+            .reshape(-1, 3) * (255 / 63)
         g = (np.arange(32, dtype=np.float32) * 255 / 31)
         cube = np.stack(np.meshgrid(g, g, g, indexing="ij"), -1).reshape(-1, 3)
         lut = np.empty(len(cube), np.uint8)
@@ -494,6 +499,53 @@ class Vga8Ditherer:
         if self.prev is not None and self.stable:
             err = np.sqrt(((self.pal[self.prev] - f) ** 2).sum(2))
             idx = np.where(err < self.stable, self.prev, idx)
+        self.prev = idx
+        return idx
+
+
+class KnollDitherer(Vga8Ditherer):
+    """A PATTERN dither over a sparse palette (Thomas Knoll's, 98.2.5): each
+    pixel's plan is sixteen palette colours, each the nearest to the target
+    plus the error of the ones before it - so their mean is the target -
+    sorted by luma, and the 4 x 4 Bayer cell over the pixel picks one. The
+    sixteen EGA colours are 85 to 170 steps apart, and an ordered dither
+    that shifts all three channels together only ever mixes greys: the sky
+    and the grass came out grey. Stable as Vga8Ditherer is"""
+
+    N = 16
+
+    def __init__(self, w, h, palette, stable):
+        super().__init__(w, h, palette, 0.0, stable)
+        b = (bayer(4) * 16).astype(np.int64)            # 0..15
+        self.cell = np.tile(b, (-(-h // 4), -(-w // 4)))[:h, :w]
+        pal = self.pal
+        self.luma = pal[:, 0] * 0.299 + pal[:, 1] * 0.587 + pal[:, 2] * 0.114
+
+    def __call__(self, rgb):
+        f = rgb.astype(np.float32)
+        err = np.zeros_like(f)
+        cands = []
+        for _ in range(self.N):
+            t = np.clip(f + err, 0, 255)
+            q = np.clip(np.rint(t * (31 / 255)), 0, 31).astype(np.int32)
+            c = self.lut[(q[..., 0] << 10) | (q[..., 1] << 5) | q[..., 2]]
+            cands.append(c)
+            err += f - self.pal[c]
+        cands = np.stack(cands, -1)                     # (h, w, N)
+        order = np.argsort(self.luma[cands], axis=-1, kind="stable")
+        pick = np.take_along_axis(order, self.cell[..., None], -1)[..., 0]
+        idx = np.take_along_axis(cands, pick[..., None], -1)[..., 0] \
+            .astype(np.uint8)
+        if self.prev is not None and self.stable:
+            # STABLE BY THE SOURCE: a pixel keeps its colour while what it
+            # was chosen for has moved less than `stable` - a pattern's
+            # choice is not near its target, so the VGA8 rule cannot apply
+            moved = np.sqrt(((f - self.at) ** 2).sum(2))
+            keep = moved < self.stable
+            idx = np.where(keep, self.prev, idx)
+            self.at = np.where(keep[..., None], self.at, f)
+        else:
+            self.at = f
         self.prev = idx
         return idx
 
@@ -588,7 +640,7 @@ class Encoder:
         # colour is from the one wanted
         self.pal = None if palette is None else \
             np.frombuffer(palette, np.uint8).astype(np.float32).reshape(
-                256, 3) * (255.0 / 63)
+                -1, 3) * (255.0 / 63)
         period = vid.HZ / fps
         self.period = period
         if prof["avg"] is None:
@@ -815,6 +867,143 @@ class EncoderX(Encoder):
         return spent
 
 
+class EncoderP(Encoder):
+    """Encoder for VGA4 on LIN80's bit-planes (SPEC.md 98.1.3.2): the
+    screen is pixels of the sixteen, a byte is one plane's bit of eight of
+    them, and at each byte the planes that want one value are one store
+    under their combined mask - vid.vga4_subs's rule, done with numpy"""
+
+    def __init__(self, g, prof, fps, audio_cyc, audio_bps):
+        super().__init__(g, prof, fps, audio_cyc, audio_bps, vid.STD16)
+        self.screen = np.zeros((g.h, g.w), dtype=np.uint8)
+        self.age = np.zeros((g.h, g.w), dtype=np.float32)
+        self.pl = np.zeros((4, g.h, g.wb), dtype=np.uint8)
+        self.surf = g.surface()
+        self.base = np.array(g.base, dtype=np.int64)
+        self.rowof = np.array(g.rowof, dtype=np.int64)
+
+    def planes(self, cv):
+        return np.stack([np.packbits((cv >> p) & 1, axis=1)
+                         for p in range(4)])
+
+    def subs(self, target):
+        g = self.g
+        tp = self.planes(target)
+        ch = tp != self.pl
+        out = {}
+        for p in range(4):
+            rep = ch[p].copy()
+            for q in range(p):          # one store per group: its lowest
+                rep &= ~(ch[q] & (tp[q] == tp[p]))     # changed plane
+            if not rep.any():
+                continue
+            m = np.zeros(rep.shape, np.int64)
+            for q in range(4):
+                m |= (tp[q] == tp[p]).astype(np.int64) << q
+            ys, xs = np.nonzero(rep)
+            for mm in np.unique(m[ys, xs]):
+                sel = m[ys, xs] == mm
+                ad = (self.base[ys[sel]] + xs[sel]).tolist()
+                out.setdefault(int(mm), []).append(
+                    (ad, tp[p][ys[sel], xs[sel]]))
+        res = []
+        for mm in sorted(out, key=lambda v: (v != 15, v)):
+            surf = bytearray(vid.PLANE)
+            ads = []
+            for ad, vals in out[mm]:
+                for a, v in zip(ad, vals.tolist()):
+                    surf[a] = v
+                ads += ad
+            res.append((mm, vid.spans(ads, surf, g, gaps=False)))
+        return res
+
+    def frame(self, target, audio=b""):
+        g = self.g
+        self.cpu.tick()
+        self.disk.tick()
+        self.stats["frames"] += 1
+        diff = target != self.screen
+        self.age = np.where(diff, self.age + 1, 0)
+        if not diff.any():
+            self.stats["exact"] += 1
+            return [], vid.record([], g, audio)
+        cand = [(m, a, bs, run) for m, sp in self.subs(target)
+                for a, bs, run in sp]
+        costs = [span_cost(bs, run) for m, a, bs, run in cand]
+        cyc_room = min(self.cpu.room(), self.peak)
+        byte_room = self.disk.room()
+        order = None
+        er = cyc_room - vid.CYC_FRAME - 15 * vid.CYC_SUB
+        eb = min(byte_room, REC_MAX - len(audio)) - REC_OVER - 15
+        masks = sorted({c[0] for c in cand}, key=lambda v: (v != 15, v))
+        for attempt in range(8):
+            tc = sum(c for c, b in costs)
+            tb = sum(b for c, b in costs)
+            if tc <= er and tb <= eb:
+                chosen = cand
+            else:
+                if order is None:
+                    order = self.rank(target, cand, costs, er, eb)
+                chosen, uc, ub = [], 0, 0
+                for i in order:
+                    c, b = costs[i]
+                    if uc + c > er or ub + b > eb:
+                        continue
+                    chosen.append(cand[i])
+                    uc += c
+                    ub += b
+            ops = [(m, sorted((a, bs, run) for mm, a, bs, run in chosen
+                              if mm == m)) for m in masks]
+            rec = vid.record(ops, g, audio, limit=65535)
+            mc = vid.cycles_of(rec, True)
+            if mc <= cyc_room and len(rec) - len(audio) <= byte_room and \
+                    len(rec) <= REC_MAX:
+                break
+            er *= min(0.97, cyc_room / mc)
+            eb *= min(0.97, min(byte_room, REC_MAX - len(audio)) /
+                      max(1, len(rec) - len(audio)))
+        self.stats["exact" if chosen is cand else "cut"] += 1
+        for m, a, bs, run in chosen:
+            ad = a + np.arange(len(bs))
+            ys = self.rowof[ad]
+            xs = ad - self.base[ys]
+            v = np.frombuffer(bs, np.uint8)
+            for p in range(4):
+                if m >> p & 1:
+                    self.pl[p, ys, xs] = v
+        self.screen = sum(np.unpackbits(self.pl[p], axis=1)[:, :g.w]
+                          .astype(np.uint8) << p for p in range(4))
+        if chosen is not cand:
+            self.stats["bytes_left"] += int((target != self.screen).sum())
+        for p in range(4):
+            for y, b in enumerate(g.base):
+                self.surf[p * vid.PLANE + b:p * vid.PLANE + b + g.wb] = \
+                    self.pl[p, y].tobytes()
+        return ops, rec
+
+    def rank(self, target, cand, costs, er, eb):
+        g = self.g
+        err = np.abs(self.pal[target] - self.pal[self.screen]).sum(2) \
+            / 32.0 * (1.0 + self.age / 8.0)
+        byte = err.reshape(g.h, g.wb, 8).sum(2)
+        wv = np.zeros(65537, dtype=np.float64)
+        wv[(self.base[:, None] + np.arange(g.wb)).ravel()] = byte.ravel()
+        cs = np.concatenate(([0.0], np.cumsum(wv)))
+        pri = []
+        for i, (m, a, bs, run) in enumerate(cand):
+            c, b = costs[i]
+            wsum = (cs[a + len(bs)] - cs[a]) * bin(m).count("1") / 4.0
+            pri.append((wsum / max(c / max(er, 1.0), b / max(eb, 1.0)), i))
+        pri.sort(reverse=True)
+        return [i for p, i in pri]
+
+    def charge(self, rec, abytes):
+        c = vid.cycles_of(rec, True)
+        self.cpu.spend(c)
+        self.disk.spend(len(rec) - abytes)
+        return c
+
+
 # --------------------------------------------------------------------------
 # the source
 # --------------------------------------------------------------------------
@@ -912,14 +1101,19 @@ def encode(a, keep=None):
     # row shown H times by the VGA itself (the file's row scale) - the same
     # screen, a fraction of the bytes
     dw, dh = (int(v) for v in a.detail.lower().split("x"))
-    if (dw, dh) != (1, 1) and not vga8:
+    if (dw, dh) != (1, 1) and not vga8 and a.pixfmt != "vga4":
         raise vid.V88Error("--detail is VGA8's (a one-bit pixel has nothing "
                            "to repeat into)")
     if dw not in (1, 2, 4) or dh not in (1, 2):
         raise vid.V88Error("--detail %s: the width 1, 2 or 4, the height "
                            "1 or 2" % a.detail)
     h -= h % dh
-    g = vid.Geom(L, w // ppb, h // dh)
+    vga4 = a.pixfmt == "vga4"
+    if vga4 and L != vid.LAY_LIN80:
+        raise vid.V88Error("--pixfmt vga4 is mode 12h's: the lin80 layout")
+    if vga4 and (dw, dh) != (1, 1):
+        raise vid.V88Error("--detail is VGA8's")
+    g = vid.Geom(L, w // ppb, h // dh, bitplanes=vga4)
     if a.pixfmt is not None and (a.pixfmt == "vga8") != vga8:
         raise vid.V88Error("--pixfmt vga8 is the lin320 and modex layouts', "
                            "and the only format they take")
@@ -956,18 +1150,21 @@ def encode(a, keep=None):
     lw, lh = w // dw, h // dh           # what is made, before the repeat
     frames = ffmpeg_video(a.src, w // 4 if pattern else lw, lh, crop,
                           "%d/%d" % (rate, spf), a.start, a.end,
-                          ":".join(eq), "rgb24" if comp or vga8 else "gray")
+                          ":".join(eq),
+                          "rgb24" if comp or vga8 or vga4 else "gray")
     say = (lambda *x: None) if a.quiet else print
     say("%s: %dx%d %.3f fps -> %s canvas %d x %d, %.3f fps (%d Hz / %d), "
         "audio %s, profile %s"
         % (a.src, sw, sh, sfps, lay, w, h, fps, rate, spf,
            {0: "none", 1: "PCM8", 2: "ADPCM4"}[afmt], a.profile))
-    if a.levels == "auto" and not vga8:
+    if a.levels == "auto" and not vga8 and not vga4:
         lo, hi = auto_levels(a.src, w, h, crop, a.start, a.end, ":".join(eq))
         say("   levels: grey %d..%d stretched to 0..255" % (lo, hi))
         frames = (stretch(f, lo, hi) for f in frames)
     palette = None
-    if vga8:
+    if vga4:
+        dith = KnollDitherer(lw, lh, vid.STD16, a.vga4_stable)
+    elif vga8:
         palette = vga8_palette(a.src, lw, lh, crop, "%d/%d" % (rate, spf),
                                a.start, a.end, ":".join(eq))
         d8 = Vga8Ditherer(lw, lh, palette, a.vga8_dither, a.vga8_stable)
@@ -983,9 +1180,10 @@ def encode(a, keep=None):
         raise vid.V88Error("--flip is Mode X's: 13h has one page")
     enc = EncoderX(g, prof, fps, audio_cyc, audio_bps, palette, a.flip) \
         if L == vid.LAY_MODEX else \
+        EncoderP(g, prof, fps, audio_cyc, audio_bps) if vga4 else \
         Encoder(g, prof, fps, audio_cyc, audio_bps, palette)
     wr = vid.Writer(g, rate, spf, afmt, abytes,
-                    vid.PF_VGA8 if vga8 else
+                    vid.PF_VGA8 if vga8 else vid.PF_VGA4 if vga4 else
                     vid.PF_CGACOMP if comp else vid.PF_MONO1,
                     title=a.title or os.path.splitext(
                         os.path.basename(a.src))[0][:47],
@@ -1016,13 +1214,14 @@ def encode(a, keep=None):
         wr.frame(ops, enc.surf, au)
         if a.preview_png and f % max(1, round(fps)) == 0:
             out = os.path.join(a.preview_png, "f%05d.png" % f)
-            if vga8:
+            if vga8 or vga4:
                 from PIL import Image
                 cv = np.repeat(np.frombuffer(g.canvas(enc.surf),
                                              np.uint8).reshape(g.h, g.w),
                                dh, axis=0)
-                pl = np.frombuffer(palette, np.uint8).astype(
-                    np.uint16).reshape(256, 3) * 255 // 63
+                pl = np.frombuffer(vid.STD16 if vga4 else palette,
+                                   np.uint8).astype(
+                    np.uint16).reshape(-1, 3) * 255 // 63
                 Image.fromarray(pl[cv].astype(np.uint8)).save(out)
             elif comp:              # what a composite monitor shows
                 import os88cgacomp
@@ -1102,7 +1301,7 @@ def parser():
     ap.add_argument("--levels", choices=("auto", "none"), default="auto",
                     help="stretch the grey range the source uses to the "
                          "whole of black-to-white")
-    ap.add_argument("--pixfmt", choices=("mono", "cgacomp", "vga8"),
+    ap.add_argument("--pixfmt", choices=("mono", "cgacomp", "vga8", "vga4"),
                     help="mono (the default), cgacomp: composite colour on "
                          "a CGA (the cga layout only), vga8: 256 colours in "
                          "mode 13h (the lin320 layout, and what it implies)")
@@ -1119,6 +1318,10 @@ def parser():
     ap.add_argument("--vga8-dither", type=float, default=24.0,
                     help="vga8: the ordered dither's reach, in 8-bit RGB "
                          "steps across the 8 x 8 map (0: none)")
+    ap.add_argument("--vga4-stable", type=float, default=24.0,
+                    help="vga4: keep a pixel's colour while its source has "
+                         "moved less than this RGB distance since the "
+                         "colour was chosen (0: off)")
     ap.add_argument("--vga8-stable", type=float, default=18.0,
                     help="vga8: how far, in RGB distance, the colour on "
                          "the screen may be from the source and stay")

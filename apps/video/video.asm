@@ -138,6 +138,7 @@ R_FLIP      equ 37                  ; MODEX: 2 = two pages, flipped (98.3.8)
 VP_PAGE     equ 19200               ; a Mode X page, in plane bytes
 VP_PREVKB   equ 31                  ; the last record's copy: REC_MAX + slack
 PF_VGA8     equ 2                   ; [vp_pixfmt] is the format less one
+PF_VGA4     equ 3                   ; ...16 colours on mode 12h's planes
 LAY_LIN320  equ 3                   ; ...and [vp_layout] the layout less one
 LAY_LIN80   equ 2
 LAY_MODEX   equ 4
@@ -875,7 +876,7 @@ vp_parse:
     mov [vp_pitper0], al
     mov al, [es:V88_REND+R_PIXFMT]
     dec al
-    cmp al, PF_VGA8
+    cmp al, PF_VGA4
     ja .bad
     mov [vp_pixfmt], al
     mov bl, [es:V88_REND+R_LAYOUT]  ; 1..5, and the canvas inside it
@@ -883,12 +884,18 @@ vp_parse:
     cmp bl, LAY_MODEX
     ja .bad
     mov [vp_layout], bl
-    cmp al, PF_VGA8                 ; VGA8 is LIN320's and MODEX's, and
-    je .v8                          ; they take nothing else
-    cmp bl, LAY_LIN320
-    jae .bad
     mov word [vp_palo], 0
     mov word [vp_palo+2], 0
+    cmp al, PF_VGA8                 ; VGA8 is LIN320's and MODEX's, and
+    je .v8                          ; they take nothing else
+    cmp al, PF_VGA4                 ; VGA4 is LIN80's planes (98.1.3.2)
+    jne .v1
+    cmp bl, LAY_LIN80
+    jne .bad
+    jmp short .lay
+.v1:
+    cmp bl, LAY_LIN320
+    jae .bad
     jmp short .lay
 .v8:
     cmp bl, LAY_LIN320
@@ -919,6 +926,25 @@ vp_parse:
     cmp ax, [vp_laytab+bx+4]        ; rows
     ja .bad
     mov [vp_h], ax
+    ; PLANES (98.1.3.1, 98.1.3.2): Mode X's four byte-planes, or VGA4's four
+    ; bit-planes, and how far apart a RAM image keeps them
+    mov byte [vp_planar], 0
+    cmp byte [vp_layout], LAY_MODEX
+    jne .pl2
+    mov byte [vp_planar], 1
+    mov word [vp_plsp], VP_MXPL
+    jmp short .pl3
+.pl2:
+    cmp byte [vp_pixfmt], PF_VGA4
+    jne .pl3
+    mov byte [vp_planar], 2
+    mov cx, 80                      ; h rows of 80 bytes, in paragraphs
+    mul cx
+    add ax, 15
+    mov cl, 4
+    shr ax, cl
+    mov [vp_plsp], ax
+.pl3:
     ; THE ROW SCALE (98.2.4): each row shown twice by the CRTC, VGA8 only
     mov byte [vp_rs], 0
     mov al, [es:V88_REND+R_RSCALE]
@@ -1005,7 +1031,7 @@ vp_parse:
     mov bx, [es:V88_REND+R_KTAB+2]
     mov [vp_ktab+2], bx
     mov bx, [es:V88_REND+R_KMAX]
-    cmp bx, 16
+    cmp bx, 7                       ; an empty planar key is 7 bytes
     jb .bad
     cmp bx, VP_KMAXREC
     ja .nokeys
@@ -1063,8 +1089,8 @@ vp_canplay:
     mov al, [vp_layout]
     call vp_try
     jnc .ok
-    cmp byte [vp_pixfmt], PF_VGA8   ; 256 colours have no one-bit screen to
-    je .none                        ; be copied onto
+    cmp byte [vp_pixfmt], PF_VGA8   ; colour has no one-bit screen to be
+    jae .none                       ; copied onto
     mov al, 2                       ; LIN80, HERC, CGA: the roomiest first
 .l:
     cmp al, [vp_layout]
@@ -1274,8 +1300,13 @@ vp_kent:
     cmp ax, [vp_frames]
     jae .bad
     mov ax, [vp_ke+KE_LEN]          ; ...a record no longer than the header
-    cmp ax, 16                      ; said the largest is...
+    cmp ax, 7                       ; said the largest is (and no shorter
+    jb .bad                         ; than an empty one: 7 bytes planar,
+    cmp byte [vp_planar], 0         ; 16 one-bit - BX is the key, kept)...
+    jne .kmin
+    cmp ax, 16
     jb .bad
+.kmin:
     cmp ax, [vp_kmaxb]
     ja .bad
     cmp byte [vp_ke+KE_SECS], 64    ; ...and a super-packet after it
@@ -1294,9 +1325,9 @@ vp_kent:
 ; halved into [vp_pseg] - twice for a canvas bigger than CGA's. CF=1 not
 vp_kpic:
     mov ax, 64
-    cmp byte [vp_layout], LAY_MODEX
-    jne .kc
-    mov ax, VP_MXSHD
+    cmp byte [vp_planar], 0
+    je .kc
+    call vp_plshd                   ; planes: the last one's base + 64 KB
 .kc:
     call OSAPI_MEM_CLAIM
     jc .no
@@ -1335,6 +1366,11 @@ vp_mkpic:
     push ax
     push cx
     push dx
+    cmp byte [vp_pixfmt], PF_VGA4   ; 16 COLOURS: packed for OSAPI_GFX_BLIT4,
+    jne .n4                         ; every [vp_ps]-th pixel (98.4.5)
+    call vp_v4pack
+    jmp .rows4
+.n4:
     cmp byte [vp_pixfmt], PF_VGA8   ; 256 COLOURS: the luma dithered to one
     jne .mono                       ; bit, dense at its own size, and halved
     call vp_v8mono                  ; in place from there
@@ -1413,6 +1449,7 @@ vp_mkpic:
     mov ax, [vh_h]
 .rows:
     mov [vp_prows], ax
+.rows4:
     mov word [vp_pskip], 0
     inc word [vp_ploads]
     pop dx
@@ -1455,6 +1492,11 @@ vp_sesspic:
 vp_psize:
     push cx
     push dx
+    cmp byte [vp_pixfmt], PF_VGA4   ; packed nibbles at the scale
+    jne .n4
+    call vp_v4dims                  ; AX = bytes a row, CX = rows
+    jmp short .sz
+.n4:
     mov ax, [vp_pwb]
     mov cx, [vp_ph]
     cmp byte [vp_pixfmt], PF_VGA8   ; made whole, then halved in place
@@ -1822,26 +1864,189 @@ vp_v8mono:
     inc dx
     jmp short .mrow
 
+; vp_plshd - AX = the KB a planar keyframe decodes into: three planes'
+; spacing and 64 KB past the last one's base, so a 16-bit write from any
+; plane is inside the claim (98.1.6)
+vp_plshd:
+    push cx
+    mov ax, [vp_plsp]
+    mov cx, ax
+    shl ax, 1
+    add ax, cx                      ; 3 x plsp paragraphs
+    add ax, 4096 + 63               ; + 64 KB, rounded up to a KB
+    mov cl, 6
+    shr ax, cl
+    pop cx
+    ret
+
+; vp_v4dims - AX = a VGA4 poster's bytes a row at [vp_ps], CX = its rows:
+; every ps-th pixel of every ps-th row, two to the byte. Preserves the rest
+vp_v4dims:
+    push dx
+    push bx
+    mov bx, [vp_ps]
+    mov ax, [vp_wb]
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1                       ; the canvas's pixels
+    xor dx, dx
+    div bx
+    inc ax
+    shr ax, 1
+    push ax
+    mov ax, [vp_h]
+    add ax, bx
+    dec ax
+    xor dx, dx
+    div bx
+    mov cx, ax
+    pop ax
+    pop bx
+    pop dx
+    ret
+
+; vp_v4pack - the VGA4 canvas in [vp_kshd] (four bit-planes [vp_plsp]
+; apart, row y at y x 80) as OSAPI_GFX_BLIT4's packed nibbles in [vp_pseg],
+; the left pixel high, every [vp_ps]-th pixel of every [vp_ps]-th row -
+; tools/os88vid.py's vga4_pack. Sets vp_pbw, vp_ppx, vp_prows. Preserves all
+vp_v4pack:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    mov ax, [vp_kshd]
+    mov bx, vp_mxseg
+    mov cx, 4
+.seg:
+    mov [bx], ax
+    add ax, [vp_plsp]
+    inc bx
+    inc bx
+    loop .seg
+    call vp_v4dims
+    mov [vp_pbw], ax
+    mov [vp_prows], cx
+    mov ax, [vp_wb]
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    mov [vp_v4w], ax
+    xor dx, dx
+    div word [vp_ps]
+    mov [vp_ppx], ax
+    mov es, [vp_pseg]
+    xor di, di
+    xor si, si                      ; SI = the source row
+.row:
+    cmp si, [vp_h]
+    jae .done
+    mov ax, 80
+    mul si
+    mov bp, ax                      ; BP = the row in each plane
+    mov word [vp_v4x], 0
+    mov byte [vp_v4n], 0
+    mov word [vp_v4xb], 0xFFFF
+.pix:
+    mov ax, [vp_v4x]
+    cmp ax, [vp_v4w]
+    jae .eol
+    mov bx, ax
+    shr bx, 1
+    shr bx, 1
+    shr bx, 1
+    cmp bx, [vp_v4xb]
+    je .have
+    mov [vp_v4xb], bx               ; a new source byte: its four planes
+    add bx, bp
+    push es
+    push si
+    xor si, si
+.ld:
+    mov es, [vp_mxseg+si]
+    mov al, [es:bx]
+    shr si, 1
+    mov [vp_v4c+si], al
+    shl si, 1
+    inc si
+    inc si
+    cmp si, 8
+    jb .ld
+    pop si
+    pop es
+.have:
+    mov cl, [vp_v4x]
+    and cl, 7
+    xor ah, ah
+    mov bx, 3                       ; plane 3 first, so AH = b3 b2 b1 b0
+.bit:
+    mov al, [vp_v4c+bx]
+    shl al, cl
+    shl al, 1                       ; CF = this pixel's bit
+    rcl ah, 1
+    dec bx
+    jns .bit
+    test byte [vp_v4n], 1
+    jnz .lo
+    mov cl, 4
+    shl ah, cl
+    mov [es:di], ah
+    jmp short .nx
+.lo:
+    or [es:di], ah
+    inc di
+.nx:
+    xor byte [vp_v4n], 1
+    mov ax, [vp_ps]
+    add [vp_v4x], ax
+    jmp short .pix
+.eol:
+    test byte [vp_v4n], 1           ; a row ending on its high nibble
+    jz .nr
+    inc di
+.nr:
+    add si, [vp_ps]
+    jmp .row
+.done:
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; vp_zero - ES:0: the file's layout's memory image, black
 vp_zero:
     push ax
     push bx
     push cx
     push di
-    cmp byte [vp_layout], LAY_MODEX ; four planes, 76,800 bytes: past one
-    jne .one                        ; segment, so two halves
+    cmp byte [vp_planar], 0         ; four planes, [vp_plsp] apart: past
+    je .one                         ; one segment, so a plane at a time
     push es
+    push dx
+    mov dx, 4
+.zp:
     xor ax, ax
     xor di, di
-    mov cx, 2 * VP_MXPL * 8         ; two planes, in words
+    mov cx, [vp_plsp]
+    shl cx, 1
+    shl cx, 1
+    shl cx, 1                       ; paragraphs x 8 = words
     cld
     rep stosw
-    mov cx, es
-    add cx, 2 * VP_MXPL
-    mov es, cx
-    xor di, di
-    mov cx, 2 * VP_MXPL * 8
-    rep stosw
+    mov ax, es
+    add ax, [vp_plsp]
+    mov es, ax
+    dec dx
+    jnz .zp
+    pop dx
     pop es
     jmp short .out
 .one:
@@ -2180,9 +2385,14 @@ vp_sstart:
     ;     the ring, which takes what is left
     call vp_dinfo
     mov ax, 64
-    cmp byte [vp_layout], LAY_MODEX ; four planes' image (98.1.3.1)
-    jne .kx
-    mov ax, 75
+    cmp byte [vp_planar], 0         ; four planes' image (98.1.3.1)
+    je .kx
+    mov ax, [vp_plsp]               ; 4 x plsp paragraphs, in KB
+    add ax, 15
+    mov cl, 4
+    shr ax, cl
+    shl ax, 1
+    shl ax, 1
     jmp short .kc
 .kx:
     cmp byte [vp_fsshd], 0
@@ -2261,8 +2471,8 @@ vp_sstart:
     mov ax, [vp_sel]
     or ax, ax
     jnz .kpick
-    cmp byte [vp_pixfmt], PF_VGA8   ; key 0 too for VGA8: its frame 0 may be
-    jne .start                      ; too big for one record, and the key
+    cmp byte [vp_pixfmt], PF_VGA8   ; key 0 too for colour: its frame 0 may
+    jb .start                       ; be too big for one record, and the key
 .kpick:                             ; is the whole picture
     cmp ax, [vp_kload]
     jne .start
@@ -3229,15 +3439,16 @@ vp_kmove:                           ; AL = 0 keeper -> screen, 1 screen -> keepe
     cld
     mov ax, [vp_keep]
     mov [vp_kseg], ax
-    cmp byte [vp_layout], LAY_MODEX
-    jne .one
-    xor cx, cx                      ; MODEX: plane by plane, the Map Mask
+    cmp byte [vp_planar], 0
+    je .one
+    xor cx, cx                      ; PLANES: one at a time, the Map Mask
 .pl:                                ; for a put and the Read Map for a get,
-    call vp_mxsel                   ; into the keeper's planes VP_MXPL apart
+    call vp_mxsel                   ; into the keeper's planes plsp apart
     push cx
     call .rows
     pop cx
-    add word [vp_kseg], VP_MXPL
+    mov ax, [vp_plsp]
+    add [vp_kseg], ax
     inc cx
     cmp cx, 4
     jb .pl
@@ -4057,8 +4268,8 @@ vp_decrec:
     add si, 6
     push ds
     mov ds, dx
-    cmp byte [cs:vp_layout], LAY_MODEX
-    je .mx
+    cmp byte [cs:vp_planar], 0
+    jne .mx
     call vd_native                  ; the lists, onto the adapter
     pop ds
     ret
@@ -4075,6 +4286,9 @@ vp_decrec:
     pop bp
     jmp short .mx
 .mxd:
+    mov ax, 0x0F02                  ; all four planes again: the desktop's
+    mov dx, 0x3C4                   ; own drawing, and a one-bit file's
+    out dx, ax                      ; decode, assume it (98.1.3.2)
     pop ds
     ret
 
@@ -4084,8 +4298,8 @@ vp_decrec:
 ; clobbers AX, BX, CX, DX, SI, DI, BP
 vp_decram:
     xor bp, bp
-    cmp byte [cs:vp_layout], LAY_MODEX
-    je .mx
+    cmp byte [cs:vp_planar], 0
+    jne .mx
     jmp vd_native
 .mx:
     push es
@@ -4116,7 +4330,7 @@ vp_decram:
     pop bx
     pop ax
 .np:
-    add dx, VP_MXPL
+    add dx, [cs:vp_plsp]
     loop .p
     jmp short .sub
 .done:
@@ -4234,7 +4448,11 @@ vp_nextw:
     cmp cx, di
     ja .brec
     mov ax, [vp_abytes]
-    add ax, 6 + 10
+    add ax, 6 + 10                  ; the header and ten lists' ends - or
+    cmp byte [vp_planar], 0         ; a planar record's one 0 after its
+    je .rmin                        ; sub-records (98.1.3.1): an empty
+    sub ax, 9                       ; frame is seven bytes
+.rmin:
     cmp cx, ax
     jae .rok
 .brec:
@@ -4822,6 +5040,11 @@ vp_pposter:
     mov cx, [vp_pdw]
     mov bx, [vp_py]
     mov dx, [vp_pdh]
+    cmp byte [vp_pixfmt], PF_VGA4   ; 16 colours, as they are (98.4.5)
+    jne .b1
+    call OSAPI_GFX_BLIT4
+    jmp .out
+.b1:
     call vp_blitb
     jnc .out
     mov ax, [vp_px]                 ; refused: black where it would be
@@ -5450,7 +5673,14 @@ vp_laycptab:  dw vp_s_cpcga, vp_s_cpherc, vp_s_cpvga, vp_s_novga8
 vp_laykb:     db 16, 32, 38, 63, 75     ; each layout's memory image, KB
 vp_bayer4:    db 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5
 vp_rthr:      db 0, 0, 0, 0             ; vp_v8mono: this row's four
-vp_mxseg:     dw 0, 0, 0, 0             ; ...and MODEX's four planes
+vp_mxseg:     dw 0, 0, 0, 0             ; ...and a planar image's four planes
+vp_v4c:       db 0, 0, 0, 0             ; vp_v4pack: a source byte's planes,
+vp_v4x:       dw 0                      ; the pixel, the canvas's width,
+vp_v4w:       dw 0
+vp_v4xb:      dw 0                      ; the byte cached, and which nibble
+vp_v4n:       db 0
+vp_planar:    db 0                      ; 1 Mode X's planes, 2 VGA4's bits
+vp_plsp:      dw 0                      ; ...and a RAM image's spacing, paras
 vp_kseg:      dw 0                      ; vp_kmove: the keeper's plane
 vp_s_cga:     db 'CGA  ', 0
 vp_s_herc:    db 'Herc  ', 0

@@ -8254,6 +8254,16 @@ SOAK = [
         "with vp_show's OUTs skipped it FAILS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidvga4", "soak", py("tests/vidvga4.py"), 60.0,
+        "SPEC.md 98.1.3.2, 98.4.5: sixteen colours in mode 12h, IN THE "
+        "WINDOW on MartyPC's VGA XT: the file read as VGA4 on LIN80's "
+        "bit-planes; the Preview's poster vga4_pack of the key byte for "
+        "byte; every held frame's rendered pixels in the window and full "
+        "screen the decode's colours; the thumb black and white at each "
+        "hold; on time. Broken on purpose (the Map Mask left on the last "
+        "sub-record's planes) the thumb comes out in colour and it FAILS",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidcard", "soak", py("tests/vidcard.py"), 26.0,
         "SPEC.md 11.1.2: OSAPI_WM_RESIZE takes the gfx lock itself when "
         "the caller has none. The Video Player's info card grows the window "
