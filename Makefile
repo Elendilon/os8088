@@ -9823,8 +9823,10 @@ vidfieldhd: $(VIDHD_BASE) tools/os88vid.py tools/os88hdd.py tests/vidbench/FIELD
 # videos, which never leave build/ - tests/vidbench/FIELDENC.TXT has the
 # commands. THREE images: the Hercules set on the owner's 5150 (ST11M,
 # 615/4/17, 20 MB) and both sets on the ST11R's 31 MB for 86Box - and a
-# FOURTH when there is a vga/: the 286's IDE disk. No benches: this is the
-# player and the clips.
+# FOURTH when there is a vga/: the 286's IDE disk. The three XT disks are
+# the player and the clips; the 286's carries the four benches as well when
+# vidfieldhd has left their data in build/vidhd/ (it comes from the owner's
+# XDC samples), so a 286 on IDE can be measured off the disk it plays from.
 VIDENC_BASE = $(BUILD)/kernel.sys $(BUILD)/boothd.bin $(BUILD)/mbr.bin \
 	$(BUILD)/hdd.drv $(BUILD)/hiber.drv $(BUILD)/ctrl.drv $(BUILD)/sound.drv \
 	$(BUILD)/video.o88
@@ -9844,7 +9846,9 @@ define videnc_img
 
 endef
 .PHONY: videnchd
-videnchd: $(VIDENC_BASE) tools/os88hdd.py tests/vidbench/FIELDENC.TXT
+videnchd: $(VIDENC_BASE) $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 \
+	$(BUILD)/vidsnd.o88 $(BUILD)/vidkern.o88 tools/os88hdd.py \
+	tests/vidbench/FIELDENC.TXT
 	@test -n "$(VIDENC)" || { echo "videnchd: needs VIDENC=<dir with herc/ and cga/ of .V88s>"; exit 1; }
 	@test -f $(VIDHD_TEMPLATE) || { echo "videnchd: needs $(VIDHD_TEMPLATE) - run make marty"; exit 1; }
 	$(call videnc_img,$(BUILD)/VIDENC-HERC-ST11M.VHD,17,herc)
@@ -9860,6 +9864,13 @@ videnchd: $(VIDENC_BASE) tools/os88hdd.py tests/vidbench/FIELDENC.TXT
 	        --file README.TXT=tests/vidbench/FIELDENC.TXT \
 	        --file VIDEO.O88=$(BUILD)/video.o88 \
 	        $(foreach v,$(wildcard $(VIDENC)/vga/*.V88),--file $(notdir $(v))=$(v)) \
+	        $$(if [ -f $(BUILD)/vidhd/VIDBENCH.DAT ]; then \
+	            echo --file VIDBENCH.O88=$(BUILD)/vidbench.o88 \
+	                 --file VIDBENCH.DAT=$(BUILD)/vidhd/VIDBENCH.DAT \
+	                 --file VIDDISK.O88=$(BUILD)/viddisk.o88 \
+	                 --file VIDSND.O88=$(BUILD)/vidsnd.o88 \
+	                 --file VIDKERN.O88=$(BUILD)/vidkern.o88 \
+	                 --file FENCE.DAT=$(BUILD)/vidhd/FENCE.DAT; fi) \
 	        || exit 1; \
 	fi
 	@ls -l $(BUILD)/VIDENC-*.VHD

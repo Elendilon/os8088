@@ -7,9 +7,10 @@
 ;
 ;   python3 tests/viddisk.py [--machine os8088_5150_herc_hdd_sb_gla]
 ;
-; THE STREAM is the first of STREAM.DAT or BADAPPLE.V88 beside the bench that
-; is at least 12 MB + 32 KB long - the emulator row makes a STREAM.DAT, and
-; the owner's field image carries BADAPPLE.V88. With neither, the file rows
+; THE STREAM is the first of STREAM.DAT, BADAPPLE.V88 or BAPPLE.V88 beside the
+; bench that is at least 12 MB + 32 KB long - the emulator row makes a
+; STREAM.DAT, the owner's field image carries BADAPPLE.V88, and the encoder's
+; VGA disk BAPPLE.V88. With neither, the file rows
 ; say so and skip, and the int 13h rows still run. Every row is tick-timed
 ; (benchlib's method T: a disk call is tens of milliseconds and more).
 ;
@@ -510,9 +511,10 @@ vk_run:
     call bl_sline
     cmp word [vk_buf], 0
     jne .have
-    mov ax, VK_BUFKB
-    call OSAPI_MEM_CLAIM
-    jc .fail
+    mov ax, VK_BUFKB                ; DMA-safe, all of it: a whole track is
+    mov cx, VK_BUFKB                ; read into it, and on an XT controller
+    call OSAPI_MEM_CLAIM_DMA        ; one crossing a 64 KB page is error 09h
+    jc .fail                        ; every call (the 286's first run)
     mov [vk_buf], dx
 .have:
     ; --- the fixed disk's geometry, off the ROM
@@ -712,11 +714,11 @@ vk_tpl:
     dw vk_ttl, vk_paint, vk_onkey, vk_onclick
 
 vk_ttl:       db 'Video Disk Bench', 0
-vk_f_names:   db 'STREAM.DAT', 0, 'BADAPPLE.V88', 0, 0
+vk_f_names:   db 'STREAM.DAT', 0, 'BADAPPLE.V88', 0, 'BAPPLE.V88', 0, 0
 vk_f_txt:     db 'VIDDISK.TXT', 0
 vk_s_title:   db 'VIDDISK - streaming off the fixed disk (VIDEO-PLAN W0 b, W2, W3)', 0
 vk_s_hint:    db 'Click, or press R, to run. It only reads, and saves VIDDISK.TXT.', 0
-vk_s_nostr:   db 'No STREAM.DAT or BADAPPLE.V88 of 12 MB here: file rows skipped', 0
+vk_s_nostr:   db 'No STREAM.DAT or (BAD)APPLE.V88 of 12 MB here: file rows skipped', 0
 vk_s_using:   db 'the stream', 0
 vk_s_hdra:    db '-- READ_AT 32 KB, by offset (it re-walks the chain) --', 0
 vk_s_hdrs:    db '-- READ_SEQ: a seek is one walk, then from where it stands --', 0

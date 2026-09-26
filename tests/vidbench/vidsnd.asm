@@ -514,8 +514,9 @@ vs_run:
     call OSAPI_MEM_CLAIM_DMA
     jc .noclaim
     mov [vs_buf], dx
-    mov ax, VS_TRKKB
-    call OSAPI_MEM_CLAIM
+    mov ax, VS_TRKKB                ; the tracks are DMA'd here too: a
+    mov cx, VS_TRKKB                ; claim across a 64 KB page read NOTHING
+    call OSAPI_MEM_CLAIM_DMA        ; on the 286 (error 09h every call)
     jc .noclaim
     mov [vs_tbuf], dx
 .have:
