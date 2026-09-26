@@ -99,6 +99,7 @@ VP_BTP      equ 32
 VP_NB       equ 4                   ; Open, previous key, Play, next key...
 VP_NBTN     equ VP_NB + 2           ; ...Repeat, and the info card's
 VP_CURW     equ 8                   ; a stream cursor, in words (vp_next)
+VP_LCAP     equ 4                   ; a live pass's most frames (98.3.10)
 VP_DRAGT    equ 9                   ; ticks between loads mid-drag, 286 up
 VP_BSLACK   equ 3                   ; the box's rows under the picture: its
                                     ; top goes down to a bank (98.3.7)
@@ -126,7 +127,10 @@ V88_FLAGS   equ 6
 V88F_RESIDENT equ 1                 ; the flags: every rendition one BLOCK,
 V88F_LOOPREC equ 2                  ; read whole (98.1.7); a seam record
 V88F_REPEAT equ 4                   ; (98.1.1.2); Repeat on at the start
-V88F_KNOWN  equ V88F_RESIDENT | V88F_LOOPREC | V88F_REPEAT
+V88F_LIVE   equ 8                   ; ...may play on the live desktop (98.3.10)
+V88F_KNOWN  equ V88F_RESIDENT | V88F_LOOPREC | V88F_REPEAT | V88F_LIVE
+R_TARGET    equ 53                  ; LIVE: the screen a rendition was drawn
+                                    ; for - 1 CGA, 2 Hercules, 3 VGA/EGA
 V88_AUDBLK  equ 176                 ; RESIDENT: the audio block's offset,
 R_BLOCK     equ 40                  ; packed and unpacked bytes and packing -
 BK_OFF      equ 0                   ; and a rendition's picture block's, at
@@ -263,6 +267,15 @@ vp_onwake:
     push cx
     push dx
     call OSAPI_GFX_LOCK
+    cmp byte [vp_lend], 0           ; a LIVE play's end, found by the worker:
+    je .nle                         ; finished here, on the UI task
+    mov byte [vp_lend], 0
+    push si
+    mov si, [vp_win]
+    xor al, al
+    call vp_stopfor
+    pop si
+.nle:
     cmp byte [vp_argpend], 0
     je .lay
     mov byte [vp_argpend], 0
@@ -834,10 +847,19 @@ vp_open:
     cmp byte [vp_ok], 1
     jne .rn
     mov ah, 1
+    mov al, [vp_layout]             ; (a live rendition names its screen)
+    cmp byte [vp_target], 0
+    je .rt
+    mov al, [vp_target]
+    dec al
+    cmp al, [vp_dlay]
+    jne .rs
+    mov ah, 3
+    jmp short .rs
+.rt:
     cmp byte [vp_shadow], 0
     jne .rs
     inc ah
-    mov al, [vp_layout]
     cmp al, [vp_dlay]
     jne .rs
     inc ah
@@ -1103,6 +1125,17 @@ vp_parse:
     cmp ax, 63
     ja .bad
 .keys:
+    mov byte [vp_flive], 0          ; LIVE (98.3.10): a resident file's, and
+    test byte [es:V88_FLAGS], V88F_LIVE ; the screen each rendition is for
+    jz .nlv
+    cmp byte [vp_resid], 0
+    je .bad
+    mov byte [vp_flive], 1
+.nlv:
+    mov al, [es:di+R_TARGET]
+    cmp al, 3
+    ja .bad
+    mov [vp_target], al
     mov ax, [es:di+R_SLEN]    ; the stream's bytes, for its KB/s
     mov [vp_slen], ax
     mov ax, [es:di+R_SLEN+2]
@@ -2590,6 +2623,11 @@ vp_play:                            ; Space, P, Enter, the Play button: play,
     push ax                         ; in the window if it can host it
     cmp byte [vp_ok], 1
     jne .out
+    call vp_canlive                 ; ...or LIVE, if the file may and the box
+    jc .nl                          ; shows it at its own size (98.3.10)
+    call vp_lplay
+    jmp short .out
+.nl:
     cmp byte [vp_sess], 0
     jne .resume
     mov byte [vp_startp], 0
@@ -2615,10 +2653,331 @@ vp_fsenter:                         ; F, Alt+Enter: full screen, PAUSED -
     call vp_sstart
     jc .out
 .run:
+    cmp byte [vp_lsess], 0          ; LIVE -> the full screen: the worker
+    je .rn                          ; stops at the frame it drew, and the
+    mov byte [vp_lrun], 0           ; bracket goes on from it, playing if it
+    mov byte [vp_autop], 0          ; was
+    cmp byte [vp_upause], 0
+    jne .lp
+    mov byte [vp_upause], 1
+    mov byte [vp_autop], 1
+.lp:
+    mov byte [vp_sfirst], 0
+.rn:
     mov byte [vp_wantwin], 0
     call vp_srun
 .out:
     pop ax
+    ret
+
+; =============================================================================
+; LIVE (SPEC.md 98.3.10): a resident file's play ON THE DESKTOP. No bracket:
+; the worker decodes the frames due into a RAM shadow and blits the rows they
+; wrote into the box with OSAPI_GFX_BLIT1, under the gfx lock and the
+; window's clip - the whole frame inside one hold, so a UI callback, which
+; holds the lock too, never meets a frame half done and may start, stop or
+; hand the play to the full screen as it likes
+; =============================================================================
+; vp_canlive - CF=0: this file plays LIVE here - it says it may, it is a
+; one-bit LIN80 rendition, and the box shows it whole at its own size
+vp_canlive:
+    cmp byte [vp_flive], 0
+    je .no
+    cmp byte [vp_pixfmt], 0         ; MONO1 (the byte is the format - 1)
+    jne .no
+    cmp byte [vp_layout], LAY_LIN80
+    jne .no
+    cmp word [vp_ps], 1
+    jne .no
+    push ax
+    call vp_boxxy
+    mov ax, [vp_pdw]
+    cmp ax, [vp_lpw]
+    pop ax
+    jne .no
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; vp_lplay - Play on a live file: a live session started - or, if there is
+; one, paused or resumed. A session a bracket left paused here is ended and
+; the live one starts from its keyframe. Lock held
+vp_lplay:
+    push ax
+    cmp byte [vp_sess], 0
+    je .start
+    cmp byte [vp_lsess], 0
+    jne .toggle
+    xor al, al
+    call vp_stopfor
+.start:
+    mov byte [vp_startp], 0
+    mov byte [vp_livem], 1
+    mov al, [vp_nosnd]              ; LIVE is silent: the card's clock is a
+    push ax                         ; bracket's (98.3.10)
+    mov byte [vp_nosnd], 1
+    call vp_sstart
+    pop ax
+    mov [vp_nosnd], al
+    mov byte [vp_livem], 0
+    jc .out
+    call vp_lsetup
+    jmp short .out
+.toggle:
+    cmp byte [vp_upause], 0
+    jne .res
+    mov byte [vp_upause], 1         ; PAUSE: the worker stops where it is
+    mov byte [vp_lrun], 0
+    mov byte [vp_bpause], 0
+    call vp_lbtn
+    jmp short .out
+.res:
+    call vp_lgo
+    call vp_lbtn
+.out:
+    pop ax
+    ret
+
+; vp_lsetup - a live session, just started: the shadow black and the key the
+; play starts at decoded into it, the clock, the worker (hired once), and
+; Play turned to Pause
+vp_lsetup:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov byte [vp_lsess], 1
+    mov byte [vp_shadow], 1
+    mov word [vp_dy0], 0
+    mov ax, [vp_h]
+    mov [vp_dy1], ax
+    cmp word [vp_krec], 0xFFFF      ; the key, onto the black
+    je .nk
+    mov si, [vp_krec]
+    mov dx, [vp_ring]
+    mov ax, si
+    mov cl, 4
+    shr ax, cl
+    add dx, ax
+    and si, 15
+    call vp_decrec
+    mov word [vp_dy0], 0
+    mov ax, [vp_h]
+    mov [vp_dy1], ax
+.nk:
+    mov byte [vp_sfirst], 0
+    mov byte [vp_ready], 1
+    call OSAPI_GET_TICKS
+    mov [vp_t0], ax
+    call vp_lgo
+    cmp byte [vp_hired], 0          ; THE WORKER, once for the instance
+    jne .h
+    mov ax, vp_worker
+    mov bx, [vp_win]
+    call OSAPI_TASK_SPAWN
+    jc .no
+    mov byte [vp_hired], 1
+    ; restartable: it parks only inside OSAPI_TASK_ALIVE at the top of its
+    ; loop, and everything that outlives a pass is a static, so a restart
+    ; costs one pass (SPEC.md 66.6.2)
+    OS88_WORKER_RESTARTABLE vp_worker
+.h:
+    call vp_lbtn
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.no:
+    mov word [vp_msg], vp_s_refused
+    xor al, al
+    call vp_stopfor
+    jmp short .h
+
+; vp_lgo - a live play (re)started from where it is: the shadow the keeper
+; and every row owed to the box, the clock from now, and the worker on
+vp_lgo:
+    push ax
+    push bx
+    push dx
+    mov byte [vp_shadow], 1         ; (a bracket may have played natively)
+    mov ax, [vp_keep]
+    mov [vp_shseg], ax
+    mov word [vp_dy0], 0
+    mov ax, [vp_h]
+    mov [vp_dy1], ax
+    mov byte [vp_upause], 0
+    mov byte [vp_bpause], 1
+    mov byte [vp_winm], 0
+    mov ax, [vp_pdiv]               ; the frame's period in PIT counts: the
+    mov bl, [vp_pitper]             ; divisor x the periods a frame
+    xor bh, bh
+    mul bx
+    mov [vp_lper], ax
+    mov [vp_lper+2], dx
+    xor ax, ax
+    mov [vp_lacc], ax
+    mov [vp_lacc+2], ax
+    call OSAPI_GET_TICKS
+    mov [vp_ltk], ax
+    mov byte [vp_lrun], 1
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; vp_lback - a bracket handed a live session back to the desktop: live
+; again, playing if it was, and the box repainted from the shadow
+vp_lback:
+    push si
+    cmp byte [vp_autop], 0
+    je .paused
+    mov byte [vp_autop], 0
+    call vp_lgo
+    jmp short .p
+.paused:
+    mov byte [vp_lrun], 0
+    mov byte [vp_bpause], 0
+    mov byte [vp_shadow], 1
+    mov ax, [vp_keep]
+    mov [vp_shseg], ax
+.p:
+    call vp_fmt
+    mov si, [vp_win]
+    call vp_repaint
+    pop si
+    ret
+
+; vp_lbtn - the buttons again, Play or Pause as it now is. Lock held
+vp_lbtn:
+    call vp_track
+    call vp_clip
+    jmp vp_buttons
+
+; -----------------------------------------------------------------------------
+; vp_worker - THE background task (SPEC.md 20.6): a live play's frames. A
+; tick asleep, then the lock; if a live play runs, the frames its clock
+; says are due decoded into the shadow and the rows they wrote blitted.
+; in: DS = ES = CS = ours, the lock free. Never returns: OSAPI_TASK_ALIVE
+; not coming back is the way out
+; -----------------------------------------------------------------------------
+vp_worker:
+    mov bx, [vp_win]
+    call OSAPI_TASK_ALIVE           ; the lock must NOT be held here
+    mov ax, 1
+    call OSAPI_TASK_SLEEP
+    call OSAPI_GFX_LOCK
+    cmp byte [vp_lrun], 0
+    je .idle
+    call vp_lstep
+    call OSAPI_GFX_UNLOCK
+    jmp short vp_worker
+.idle:
+    call OSAPI_GFX_UNLOCK
+    mov ax, 4                       ; nothing playing: a longer sleep
+    call OSAPI_TASK_SLEEP
+    jmp short vp_worker
+
+; vp_lstep - one pass of a live play, the lock held: the ticks since the
+; last pass are PIT counts owed, a frame for each period in them - at most
+; VP_LCAP drawn, the rest forgiven (the picture runs slow, never wrong); then
+; the rows those frames wrote, into the box; and at the file's end the play
+; over, which the UI task finishes on its wake
+vp_lstep:
+    call OSAPI_GET_TICKS
+    mov bx, ax
+    sub ax, [vp_ltk]
+    mov [vp_ltk], bx
+    add [vp_lacc+2], ax             ; a tick is 65,536 PIT counts
+    xor cx, cx
+.due:
+    mov ax, [vp_lacc]
+    mov dx, [vp_lacc+2]
+    sub ax, [vp_lper]
+    sbb dx, [vp_lper+2]
+    jb .go
+    mov [vp_lacc], ax
+    mov [vp_lacc+2], dx
+    inc cx
+    cmp cx, 8
+    jb .due
+    xor ax, ax                      ; hopelessly behind: forgiven
+    mov [vp_lacc], ax
+    mov [vp_lacc+2], ax
+.go:
+    jcxz .blit
+    cmp cx, VP_LCAP                 ; a pass that ran long owes more than one:
+    jbe .f                          ; up to VP_LCAP decoded and one blit for
+    sub cx, VP_LCAP                 ; them all, so the picture keeps its time
+    add [vp_late], cx               ; and the display rate is what drops
+    mov cx, VP_LCAP
+.f:
+    push cx
+    call vp_frame
+    pop cx
+    jc .nf
+    loop .f
+    jmp short .blit
+.nf:
+    cmp byte [vp_end], 0            ; the end (Repeat off): over
+    je .blit
+    call vp_lblit
+    mov byte [vp_lrun], 0
+    mov byte [vp_lend], 1
+    mov bx, [vp_win]
+    call OSAPI_WM_WAKE
+    ret
+.blit:
+    jmp vp_lblit
+
+; vp_lblit - the shadow's rows the frames since the last blit wrote, into the
+; box at their place, through the window's clip - if the window shows and the
+; About card is not over it; and the thumb, if it moved. Lock held
+vp_lblit:
+    mov bx, [vp_dy1]
+    cmp bx, [vp_dy0]
+    jbe .out
+    push es
+    mov ax, KERNEL_SEG
+    mov es, ax
+    mov bx, [vp_win]
+    test word [es:bx + W_FLAGS], 2
+    jz .skip
+    cmp byte [vp_abon], 0
+    jne .skip
+    call vp_track
+    call vp_boxxy
+    mov bx, [vp_win]
+    call OSAPI_WM_CLIP_SET
+    jc .skip
+    mov es, [vp_shseg]
+    mov ax, [vp_dy0]
+    mov cx, 80
+    mul cx
+    mov si, ax
+    mov bp, 80
+    mov ax, [vp_px]
+    mov cx, [vp_pdw]
+    mov bx, [vp_py]
+    add bx, [vp_dy0]
+    mov dx, [vp_dy1]
+    sub dx, [vp_dy0]
+    call vp_blitb
+    call vp_thumbx                  ; the thumb, where it has got to
+    cmp ax, [vp_wtx]
+    je .nt
+    call vp_pbar
+.nt:
+    call OSAPI_WM_CLIP_CLEAR
+.skip:
+    pop es
+    mov word [vp_dy0], 0xFFFF       ; the band is empty again
+    mov word [vp_dy1], 0
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3038,6 +3397,8 @@ vp_sstart:
 .kx:
     cmp byte [vp_fsshd], 0
     jne .kc
+    cmp byte [vp_livem], 0          ; LIVE: the keeper is the shadow (98.3.10)
+    jne .kc
     mov bl, [vp_layout]
     cmp bl, [vp_dlay]
     jne .kc
@@ -3339,6 +3700,11 @@ vp_srun:
     mov byte [vp_wantwin], 0        ; the window -> the full screen, as it was
     jmp .again
 .tow:                               ; the full screen -> the window: playing
+    cmp byte [vp_lsess], 0          ; (LIVE: back on the desktop, 98.3.10)
+    je .tw
+    call vp_lback
+    jmp short .out
+.tw:
     cmp byte [vp_autop], 0          ; on in it if it was playing and the
     je .out                         ; window can host it, else paused there
     mov byte [vp_wantwin], 1
@@ -3365,6 +3731,8 @@ vp_srun:
 vp_sstop:
     push ax
     push bx
+    mov byte [vp_lrun], 0           ; (the worker, if live, is held off by the
+    mov byte [vp_lsess], 0          ; lock we hold, and idles from here)
     cmp byte [vp_sess], 0
     je .out
     cmp byte [vp_dtok], 0           ; the time it played, if a bracket's end
@@ -6099,14 +6467,28 @@ vp_pposter:
     mov ax, [vp_py]                 ; where it is drawn, from the content's
     sub ax, [vp_cy0]                ; origin: a drag moves the pixels by any
     mov [vp_ppoff], ax              ; number of rows, and the play looks
-    cmp word [vp_pseg], 0
+    mov ax, [vp_pseg]               ; THE PICTURE: the poster, or a LIVE play's
+    mov [vp_qseg], ax               ; shadow - the frame it is on, at its own
+    mov ax, [vp_pbw]                ; size (98.3.10)
+    mov [vp_qbw], ax
+    mov ax, [vp_prows]
+    mov [vp_qrows], ax
+    cmp byte [vp_lsess], 0
+    je .q
+    mov ax, [vp_shseg]
+    mov [vp_qseg], ax
+    mov word [vp_qbw], 80
+    mov ax, [vp_h]
+    mov [vp_qrows], ax
+.q:
+    cmp word [vp_qseg], 0
     je .black
     mov ax, [vp_by2]                ; rows past the box - a picture made at
     sub ax, [vp_py]                 ; another scale, between a relayout and
     inc ax                          ; its reload - are not drawn
-    cmp ax, [vp_prows]
+    cmp ax, [vp_qrows]
     jbe .r
-    mov ax, [vp_prows]
+    mov ax, [vp_qrows]
 .r:
     mov [vp_pdh], ax
     ; THE FRAME HUGS THE PICTURE (98.3.7): its row is on a bank, so up to
@@ -6152,9 +6534,9 @@ vp_pposter:
     add ax, [vp_pdw]
     mov cx, [vp_bx2]
     call vp_fillne
-    mov es, [vp_pseg]
+    mov es, [vp_qseg]
     xor si, si
-    mov bp, [vp_pbw]
+    mov bp, [vp_qbw]
     mov ax, [vp_px]
     mov cx, [vp_pdw]
     mov bx, [vp_py]
@@ -6996,6 +7378,19 @@ vp_wpc:       dw 0                  ; ...and the cursor after it
 vp_wpo:       dw 0
 vp_wpsec:     dw 0
 vp_widx:      dw 0
+vp_flive:     db 0                  ; LIVE (98.3.10): the file may...
+vp_target:    db 0                  ; ...the rendition's screen...
+vp_livem:     db 0                  ; ...vp_sstart is starting a live play...
+vp_lsess:     db 0                  ; ...the session IS one...
+vp_lrun:      db 0                  ; ...and the worker is to play it...
+vp_lend:      db 0                  ; ...or found its end...
+vp_hired:     db 0                  ; ...the worker, hired...
+vp_ltk:       dw 0                  ; ...the tick it last looked at...
+vp_lacc:      dw 0, 0               ; ...PIT counts owed...
+vp_lper:      dw 0, 0               ; ...and a frame's
+vp_qseg:      dw 0                  ; vp_pposter's picture: its segment,
+vp_qbw:       dw 0                  ; stride and rows
+vp_qrows:     dw 0
 vp_rend:      db 0                  ; the rendition vp_parse reads (98.1.7)
 vp_nrend:     db 0                  ; ...of this many
 vp_rbest:     db 0                  ; ...the best so far, and its score

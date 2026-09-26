@@ -148985,7 +148985,7 @@ stream behind them is read sequentially.
 |---|---|---|
 | 0 | 4 | `'V88'`, 1Ah |
 | 4 | 2 | version, **1** |
-| 6 | 2 | flags: 1 RESIDENT (98.1.7), 2 LOOPREC and 4 REPEAT (98.1.1.2). A reader refuses any bit it does not know |
+| 6 | 2 | flags: 1 RESIDENT (98.1.7), 2 LOOPREC and 4 REPEAT (98.1.1.2), 8 LIVE (98.3.10). A reader refuses any bit it does not know |
 | 8 | 4 | frames, ≥ 1 |
 | 12 | 2 | rate: the audio sample rate in Hz; for a silent file, the nominal rate the frame rate derives from |
 | 14 | 2 | samples per frame, ≥ 1. **fps = rate / samples per frame**, XDC's rule |
@@ -149953,6 +149953,53 @@ on, twice, byte for byte, and the play takes all of it), `vidmodexrk` and
 `vidmodexrs` (a flipped Mode X clip joining through keyframe 0 and through
 its seam). Broken on purpose - the seam decoded as a plain frame, never
 armed, its audio silence, the join's clear skipped - each FAILS.
+
+#### 98.3.10 Live: a play ON the desktop (wave 9)
+
+**A file flagged LIVE (8) plays on the live desktop** - the pointer, the
+menus, the other windows and this window's own buttons all still working -
+where every other play takes the screen in a bracket. The owner's rule
+(VIDEO-PLAN 14.7, V1): **a file that can play Live is not offered the
+in-window play**; everything else keeps it.
+- **What may be LIVE**: a RESIDENT file (98.1.7) - no disk is read while
+  it plays, which is what lets a worker play it at all (20.6 rule 7) -
+  whose renditions are one-bit **LIN80** canvases, because the shadow the
+  worker decodes into is then exactly the band `OSAPI_GFX_BLIT1` takes: row
+  *y* at *y* x 80. So every screen's rendition is LIN80 and names the
+  SCREEN it was drawn for at slot byte 53 (1 CGA, 2 Hercules, 3 VGA/EGA),
+  and `vp_open`'s choice (98.1.7) scores that target as the layout.
+- **When**: the file says so, the rendition is MONO1 LIN80, and the box
+  shows it whole at its own size (`vp_canlive`); else Play is the play it
+  always was.
+- **How**: Play starts a session as any play does - the block loaded, a
+  64 KB keeper that is the shadow, a key decoded into it if the play starts
+  at one - and hires the package's ONE worker (20.6), once, declared
+  restartable (66.6.2: it parks only in `OSAPI_TASK_ALIVE` and keeps
+  nothing but statics). Each tick the worker takes the gfx lock; if a live
+  play runs, the ticks since its last pass are PIT counts owed, a frame for
+  each period in them (up to `VP_LCAP` = 4, the rest forgiven: the picture
+  runs slow, never wrong) decoded into the shadow, and the rows they wrote
+  blitted into the box at the window's current place, through its clip -
+  and the scrub bar's thumb moved if it moved. **The whole frame is inside
+  one lock hold**, so a UI callback, which holds the lock too, never meets
+  one half done: Pause, Stop, Repeat, F and the window's close change the
+  session as they like, and a repaint of the box draws the shadow.
+- **F hands it to the full screen**, playing on from the frame it was on,
+  and F back hands it to the desktop, Live again; the keeper is the shadow
+  both ways. The file's end (Repeat off) is found by the worker and
+  finished on the UI task's wake.
+- **Not built**: Live with SOUND - the card's clock is a bracket's, and a
+  Live play is silent; Live in COLOUR (VGA4 through `OSAPI_GFX_BLIT4`, whose
+  band is packed where the shadow is planar); and **Live fed from the disk**,
+  which the owner's rule drops (14.7, V2): a read holds the picture ~100 ms,
+  so it could never look smooth.
+
+The gates: `vidlive` (Hercules), `vidlivecga`, `vidlivevga` - a LIVE file of
+three renditions, each for its screen: the screen's own taken; Play a live
+session with no bracket; every held frame in the box across two laps of its
+seam; a drag of the window and the frames following it; its rate within 10%;
+Space pausing and resuming; F to the full screen and back, playing both
+ways; Esc. Broken on purpose (the blit skipped, or Live refused) they FAIL.
 
 ### 98.4 The window: the Preview (wave 6)
 

@@ -8332,6 +8332,23 @@ SOAK = [
         wants=("build/video.o88", "build/sound.drv", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin", "build/hdd.drv",
                "build/hiber.drv", "build/ctrl.drv")),
+    Row("vidlive", "soak", py("tests/vidlive.py"), 70.0,
+        "SPEC.md 98.3.10: LIVE on the Hercules 5150's desktop - a resident "
+        "file of three LIN80 renditions each for its screen: the screen's "
+        "taken, Play a live session with no bracket, every held frame in "
+        "the box across two laps, a drag followed, the rate within 10%, "
+        "Space, F to the full screen and back playing, Esc. Broken on "
+        "purpose (the blit skipped, or Live refused) it FAILS",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidlivecga", "soak", py("tests/vidlive.py", "--screen", "cga"),
+        70.0, "SPEC.md 98.3.10: vidlive on the CGA 5150",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidlivevga", "soak", py("tests/vidlive.py", "--screen", "vga"),
+        70.0, "SPEC.md 98.3.10: vidlive on MartyPC's VGA XT",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidvga4", "soak", py("tests/vidvga4.py"), 60.0,
         "SPEC.md 98.1.3.2, 98.4.5: sixteen colours in mode 12h, IN THE "
         "WINDOW on MartyPC's VGA XT: the file read as VGA4 on LIN80's "

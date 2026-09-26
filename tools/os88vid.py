@@ -678,7 +678,12 @@ V88_SIG = b"V88\x1a"
 # frame back to frame L, and a loop block at 448 names it. REPEAT: a player
 # starts with Repeat on. Bits 0 and 3 are named for waves 10 and 9
 F_RESIDENT, F_LOOPREC, F_REPEAT, F_LIVE = 1, 2, 4, 8
-F_KNOWN = F_RESIDENT | F_LOOPREC | F_REPEAT
+F_KNOWN = F_RESIDENT | F_LOOPREC | F_REPEAT | F_LIVE
+# LIVE (98.3.10): a RESIDENT file that may play on the live desktop - its
+# renditions LIN80 one-bit canvases, blitted from a RAM shadow, each naming
+# the SCREEN it was drawn for at slot byte 53 (1 CGA, 2 Hercules, 3 VGA/EGA)
+R_TARGET = 53
+TARGETS = {"cga": 1, "herc": 2, "vga": 3}
 # RESIDENT (98.1.7): each rendition's records are one BLOCK, read whole and
 # expanded before the play - back to back, no chain, no audio in them - and
 # the sound one AUDIO block for every rendition. A block's fields sit in its
@@ -1274,7 +1279,7 @@ class Writer:
 
 def write_resident(path, writers, audio_fmt=AUD_NONE, abytes=0, audio=b"",
                    title="", credits="", repeat=False, pack=PK_LZB,
-                   posters=None):
+                   posters=None, live=None):
     """A RESIDENT file (98.1.7): one rendition per Writer - each made SILENT
     at the file's rate, with the file's loop if it has one - its records one
     block, packed on its own; the sound one audio block for them all. The
@@ -1298,6 +1303,16 @@ def write_resident(path, writers, audio_fmt=AUD_NONE, abytes=0, audio=b"",
         raise V88Error("%d bytes of sound for %d frames of %d"
                        % (len(audio), n, abytes))
     loop = w0.loop
+    if live is not None:
+        # 98.3.10: one target a rendition, and each a one-bit LIN80 canvas -
+        # the shadow the worker blits is laid out as the band GFX_BLIT1 takes
+        if len(live) != len(writers):
+            raise V88Error("a live file names a target for every rendition")
+        for w, t in zip(writers, live):
+            if w.g.layout != LAY_LIN80 or w.pixfmt != PF_MONO1 or \
+                    t not in TARGETS.values():
+                raise V88Error("a live rendition is a MONO1 LIN80 canvas "
+                               "with a target of 1 to 3")
 
     def packed(data):
         """(bytes, packing): stored when packing would not make it smaller"""
@@ -1367,7 +1382,7 @@ def write_resident(path, writers, audio_fmt=AUD_NONE, abytes=0, audio=b"",
         body += pad(apk)
     hdr[0:4] = V88_SIG
     flags = F_RESIDENT | (F_LOOPREC if loop is not None else 0) | \
-        (F_REPEAT if repeat else 0)
+        (F_REPEAT if repeat else 0) | (F_LIVE if live is not None else 0)
     struct.pack_into("<HHIHHBBH", hdr, 4, 1, flags, n, w0.rate, w0.spf,
                      audio_fmt, len(writers), abytes)
     struct.pack_into("<HB", hdr, 20, *pit_rate(w0.rate, w0.spf))
@@ -1387,6 +1402,8 @@ def write_resident(path, writers, audio_fmt=AUD_NONE, abytes=0, audio=b"",
                          w.rowscale if w.rowscale > 1 else 0,
                          2 if w.flip else 0)
         struct.pack_into("<IIIB", hdr, so + R_BLOCK, boff, plen, ulen, bpk)
+        if live is not None:
+            hdr[so + R_TARGET] = live[ri]
     if loop is not None:
         struct.pack_into("<I", hdr, LOOP_AT, loop)
     out = bytes(hdr) + bytes(body)
@@ -1498,6 +1515,12 @@ class Reader:
             raise V88Error("rendition %d of %d" % (rend, self.nrend))
         self.rend, self.slot = rend, 192 + 64 * rend
         self.resident = bool(flags & F_RESIDENT)
+        self.live = bool(flags & F_LIVE)
+        self.target = d[self.slot + R_TARGET]
+        if self.live and not self.resident:
+            raise V88Error("a LIVE file is RESIDENT (98.3.10)")
+        if self.target > 3 or (self.target and not self.live):
+            raise V88Error("a target of %d" % self.target)
         if self.pixfmt not in PF_NAMES:
             raise V88Error("pixel format %d" % self.pixfmt)
         if (self.pixfmt == PF_VGA8) != (layout in VGA8_LAYOUTS):

@@ -260,8 +260,11 @@ def main():
                         rb("vp_err"), u16(ctl), u16(ctl, 2)))
             if laps:                    # into the last lap, then R: that
                 last = nf + (laps - 1) * (nf - a.loop) + 5  # lap ends it
+                # (polled FINELY: a lap of a short clip is a guest second,
+                # and at 0.5 host s a poll the guest ran on two of them -
+                # R then landed a lap late, one run in two)
                 os88marty.until(m, lambda mm: rw("vp_vseq") >= last,
-                                "frame %d counted" % last, poll=0.5,
+                                "frame %d counted" % last, poll=0.02,
                                 limit=1200.0, guest=a.secs * 4 + 30)
                 m.type_text("r")
                 os88marty.until(m, lambda mm: rb("vp_rep") == 0,
