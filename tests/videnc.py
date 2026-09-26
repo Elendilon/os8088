@@ -35,7 +35,8 @@ tools/os88venc.py encodes it three ways. Four questions:
    LIN320, 15 fps by default, true black at index 0 (what the screen round
    the canvas and a keyframe start from, though this source holds no
    black), and every frame its target - and the same in Mode X, whose
-   frames are sub-records under a Map Mask.
+   frames are sub-records under a Map Mask; and at --detail 2x2 in Mode X,
+   half the rows shown twice and every store a pair or a group.
 8. DOES COMPOSITE DIFFUSION SEE THE MODEL? A picture rendered through the
    model from known nibbles, in runs of 2 to 6 cells, must come back as 90%
    or more of them (94% measured). Without the lookahead - a cell judged as
@@ -148,6 +149,28 @@ def main():
         if r.g.layout != vid.LAY_MODEX or diff or r.frames != len(keep):
             bad.append("modex: layout %d, %d frames differ"
                        % (r.g.layout, diff))
+        # ...and at a DETAIL of 2 x 2 (98.2.4): half the rows, shown twice,
+        # and every pixel a pair - so no plane byte stands alone
+        path, res, keep = run("modexd", "--preset", "modex-small",
+                              "--profile", "lossless", "--audio", "none",
+                              "--detail", "2x2")
+        vid.verify_v88(path)
+        r = vid.Reader(path)
+        diff = sum(1 for f, surf, rec, at, i in vid.v88_frames(r)
+                   if r.g.canvas(surf) != keep[f].tobytes())
+        masks = set()
+        for rec, _, _ in r.records():
+            si = 6
+            while rec[si]:
+                masks.add(rec[si])
+                si = vid.walk_lists(bytearray(65536), rec, si + 1)
+        print("   modex 2x2: %d x %d shown x%d, Map Masks %s, %d of %d "
+              "frames differ" % (r.g.w, r.g.h, r.rowscale, sorted(masks),
+                                 diff, r.frames))
+        if r.rowscale != 2 or diff or masks & {1, 2, 4, 8} or \
+                r.frames != len(keep):
+            bad.append("modex 2x2: row scale %d, masks %s, %d frames "
+                       "differ" % (r.rowscale, sorted(masks), diff))
         # --- 3: tight limits kept
         path, res, keep = run("tight", "--preset", "herc", "--disk", "20000",
                               "--avg", "0.30", "--peak", "0.50", "--rate",

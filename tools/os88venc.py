@@ -538,6 +538,13 @@ def vga8_palette(src, w, h, crop, fps_expr, start, end, eq):
     return bytes(v for c in cols[:256] for v in c)
 
 
+def scaled_aspect(asp, dh):
+    """A canvas pixel's aspect when each row is shown `dh` times"""
+    n, d = asp[0], asp[1] * dh
+    k = math.gcd(n, d)
+    return n // k, d // k
+
+
 def span_cost(bs, run):
     """(cycles, bytes) of one span in the stream, wave 0's model: its
     list's entry and a skip byte (a segment's set-up amortised in)"""
@@ -729,8 +736,8 @@ class EncoderX(Encoder):
         cyc_room = min(self.cpu.room(), self.peak)
         byte_room = self.disk.room()
         order = None
-        er = cyc_room - vid.CYC_FRAME - 5 * vid.CYC_SUB
-        eb = min(byte_room, REC_MAX - len(audio)) - REC_OVER - 5
+        er = cyc_room - vid.CYC_FRAME - 7 * vid.CYC_SUB
+        eb = min(byte_room, REC_MAX - len(audio)) - REC_OVER - 7
         for attempt in range(8):
             tc = sum(c for c, b in costs)
             tb = sum(b for c, b in costs)
@@ -748,7 +755,8 @@ class EncoderX(Encoder):
                     uc += c
                     ub += b
             ops = [(m, sorted((a, bs, run) for mm, a, bs, run in chosen
-                              if mm == m)) for m in (0x0F, 1, 2, 4, 8)]
+                              if mm == m))
+                   for m in (0x0F, 0x03, 0x0C, 1, 2, 4, 8)]
             rec = vid.record(ops, g, audio, limit=65535)
             mc = vid.cycles_of(rec, True)
             if mc <= cyc_room and len(rec) - len(audio) <= byte_room and \
@@ -891,8 +899,20 @@ def encode(a, keep=None):
                            % (bw, bh, lay, stride * ppb, rows))
     sw, sh, dar, sfps, dur, has_audio = probe(a.src)
     w, h, crop = canvas_size(lay, bw, bh, dar, a.fit)
-    g = vid.Geom(L, w // ppb, h)
     vga8 = L in vid.VGA8_LAYOUTS
+    # THE DETAIL (98.2.4): the picture made at a W-th of the width and an
+    # H-th of the height, each pixel repeated W times along its row and each
+    # row shown H times by the VGA itself (the file's row scale) - the same
+    # screen, a fraction of the bytes
+    dw, dh = (int(v) for v in a.detail.lower().split("x"))
+    if (dw, dh) != (1, 1) and not vga8:
+        raise vid.V88Error("--detail is VGA8's (a one-bit pixel has nothing "
+                           "to repeat into)")
+    if dw not in (1, 2, 4) or dh not in (1, 2):
+        raise vid.V88Error("--detail %s: the width 1, 2 or 4, the height "
+                           "1 or 2" % a.detail)
+    h -= h % dh
+    g = vid.Geom(L, w // ppb, h // dh)
     if a.pixfmt is not None and (a.pixfmt == "vga8") != vga8:
         raise vid.V88Error("--pixfmt vga8 is the lin320 and modex layouts', "
                            "and the only format they take")
@@ -926,7 +946,8 @@ def encode(a, keep=None):
         raise vid.V88Error("composite colour is a CGA's: --pixfmt cgacomp "
                            "needs the cga layout")
     pattern = comp and a.comp_dither == "pattern"
-    frames = ffmpeg_video(a.src, w // 4 if pattern else w, h, crop,
+    lw, lh = w // dw, h // dh           # what is made, before the repeat
+    frames = ffmpeg_video(a.src, w // 4 if pattern else lw, lh, crop,
                           "%d/%d" % (rate, spf), a.start, a.end,
                           ":".join(eq), "rgb24" if comp or vga8 else "gray")
     say = (lambda *x: None) if a.quiet else print
@@ -940,9 +961,11 @@ def encode(a, keep=None):
         frames = (stretch(f, lo, hi) for f in frames)
     palette = None
     if vga8:
-        palette = vga8_palette(a.src, w, h, crop, "%d/%d" % (rate, spf),
+        palette = vga8_palette(a.src, lw, lh, crop, "%d/%d" % (rate, spf),
                                a.start, a.end, ":".join(eq))
-        dith = Vga8Ditherer(w, h, palette, a.vga8_dither, a.vga8_stable)
+        d8 = Vga8Ditherer(lw, lh, palette, a.vga8_dither, a.vga8_stable)
+        dith = d8 if dw == 1 else \
+            (lambda f, d8=d8: np.repeat(d8(f), dw, axis=1))
     elif pattern:
         dith = CompDitherer(w, h, a.mix, a.stable, n=a.levels_mix)
     elif comp:
@@ -957,7 +980,8 @@ def encode(a, keep=None):
                     title=a.title or os.path.splitext(
                         os.path.basename(a.src))[0][:47],
                     credits=a.credits or "", keysecs=a.keysecs,
-                    palette=palette)
+                    palette=palette, rowscale=dh,
+                    aspect=scaled_aspect(vid.ASPECT[L], dh))
     pcm = ffmpeg_audio(a.src, rate, a.start, a.end, a.volume) if afmt else b""
     cyc, recs, n = [], [], 0
     pend = []
@@ -984,8 +1008,9 @@ def encode(a, keep=None):
             out = os.path.join(a.preview_png, "f%05d.png" % f)
             if vga8:
                 from PIL import Image
-                cv = np.frombuffer(g.canvas(enc.surf), np.uint8).reshape(
-                    g.h, g.w)
+                cv = np.repeat(np.frombuffer(g.canvas(enc.surf),
+                                             np.uint8).reshape(g.h, g.w),
+                               dh, axis=0)
                 pl = np.frombuffer(palette, np.uint8).astype(
                     np.uint16).reshape(256, 3) * 255 // 63
                 Image.fromarray(pl[cv].astype(np.uint8)).save(out)
@@ -1071,6 +1096,12 @@ def parser():
                     help="mono (the default), cgacomp: composite colour on "
                          "a CGA (the cga layout only), vga8: 256 colours in "
                          "mode 13h (the lin320 layout, and what it implies)")
+    ap.add_argument("--detail", default="1x1",
+                    help="vga8: WxH, the picture made at a W-th of the "
+                         "width (1, 2, 4) and an H-th of the height (1, 2) "
+                         "and shown at full size - W by repeating pixels, "
+                         "which Mode X stores 2 or 4 to the byte, H by the "
+                         "VGA showing each row twice (98.2.4)")
     ap.add_argument("--vga8-dither", type=float, default=24.0,
                     help="vga8: the ordered dither's reach, in 8-bit RGB "
                          "steps across the 8 x 8 map (0: none)")

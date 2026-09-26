@@ -893,13 +893,17 @@ def modex_subs(cv, changed, g):
     """A MODEX frame's writes (98.1.3.1): the canvas `cv` (a pixel a byte)
     at the pixels `changed` flags. An aligned group of four pixels of ONE
     colour with two or more of them changed is one byte under Map Mask 0Fh
-    - four pixels a store; every other changed pixel is its plane's. A
+    - four pixels a store; a PAIR (pixels 0-1 or 2-3 of a group) of one
+    colour, both changed, is one byte under 03h or 0Ch; every other changed
+    pixel is its plane's. A
     plane's spans may close a gap over bytes that are already right (the
     target's own bytes, so nothing changes), but never over a group the
     0Fh sub-record writes, and 0Fh's spans close no gap at all: a byte
     there is four pixels, and a gap's four need not be one colour"""
     w = g.w
     grp, per = [], [[] for _ in range(4)]
+    pair = {0: [], 2: []}
+    psv = {0: bytearray(PLANE), 2: bytearray(PLANE)}
     gsurf = bytearray(PLANE)
     psurf = [bytearray(PLANE) for _ in range(4)]
     pvalid = [bytearray(g.valid) for _ in range(4)]
@@ -920,11 +924,19 @@ def modex_subs(cv, changed, g):
                 gsurf[b + xb] = v
                 for p in range(4):
                     pvalid[p][b + xb] = 0
-            else:
-                for p in range(4):
+                continue
+            for h, m in ((0, 3), (2, 12)):  # a PAIR of one colour, both
+                if ch[h] and ch[h + 1] and row[x + h] == row[x + h + 1]:
+                    pair[h].append(b + xb)      # changed: a byte under 3
+                    psv[h][b + xb] = row[x + h]  # or 0Ch
+                    pvalid[h][b + xb] = pvalid[h + 1][b + xb] = 0
+                    continue
+                for p in (h, h + 1):
                     if ch[p]:
                         per[p].append(b + xb)
-    return [(0x0F, spans(grp, gsurf, g, gaps=False))] + \
+    return [(0x0F, spans(grp, gsurf, g, gaps=False)),
+            (0x03, spans(pair[0], psv[0], g, gaps=False)),
+            (0x0C, spans(pair[2], psv[2], g, gaps=False))] + \
         [(1 << p, spans(per[p], psurf[p], g, valid=pvalid[p]))
          for p in range(4)]
 
@@ -955,7 +967,16 @@ class Writer:
     """Collects a stream frame by frame and writes SPEC.md 98.1's file."""
 
     def __init__(self, g, rate, spf, audio_fmt, abytes, pixfmt, title="",
-                 credits="", aspect=None, keysecs=KEY_SECS, palette=None):
+                 credits="", aspect=None, keysecs=KEY_SECS, palette=None,
+                 rowscale=1):
+        if rowscale not in (1, 2) or (rowscale > 1 and
+                                      g.layout not in VGA8_LAYOUTS):
+            raise V88Error("a row scale of %d: 1, or 2 on a VGA8 layout"
+                           % rowscale)
+        self.rowscale = rowscale
+        if rowscale * g.h > LAYOUTS[g.layout][2]:
+            raise V88Error("%d rows shown twice do not fit %s"
+                           % (g.h, g.name))
         if (pixfmt == PF_VGA8) != (g.layout in VGA8_LAYOUTS):
             raise V88Error("VGA8 is LIN320's and MODEX's format, and they "
                            "take no other")
@@ -1070,7 +1091,8 @@ class Writer:
                          max(secs), len(stream),
                          max(len(r) for r in self.recs),
                          max((len(r) for k, r, c in keys), default=0))
-        struct.pack_into("<I", hdr, 224, pal)
+        struct.pack_into("<IB", hdr, 224, pal,
+                         self.rowscale if self.rowscale > 1 else 0)
         front = bytes(hdr)
         if self.palette:
             front += self.palette + bytes(2 * SECTOR - PAL_BYTES)
@@ -1186,7 +1208,14 @@ class Reader:
                            "and MODEX's, and only theirs"
                            % (self.pixfmt, layout))
         self.g = Geom(layout, wb, h)
-        pal = struct.unpack_from("<I", d, 224)[0]
+        pal, rs = struct.unpack_from("<IB", d, 224)
+        self.rowscale = rs or 1
+        if self.rowscale > 2 or (self.rowscale > 1 and
+                                 layout not in VGA8_LAYOUTS):
+            raise V88Error("a row scale of %d on layout %d" % (rs, layout))
+        if self.rowscale * h > LAYOUTS[layout][2]:
+            raise V88Error("%d rows shown %d times do not fit %s"
+                           % (h, self.rowscale, LAYOUTS[layout][3]))
         self.palette = None
         if self.pixfmt == PF_VGA8:
             if not pal or pal % SECTOR or pal + PAL_BYTES > len(d):
@@ -1835,13 +1864,13 @@ def encode_frames(paths, out, fps, wav=None, layout="cga", title="",
 
 
 def encode_canvases(canvases, g, out, fps, pixfmt=PF_MONO1, palette=None,
-                    title="", keysecs=KEY_SECS, poster=None):
+                    title="", keysecs=KEY_SECS, poster=None, rowscale=1):
     """encode_frames for canvases already in hand (bytes, g.wb a row) - the
     only way to make a VGA8 file without a video (SPEC.md 98.2): silent,
     every changed byte"""
     rate, spf = max(1, round(fps * 100)), 100
     wr = Writer(g, rate, spf, AUD_NONE, 0, pixfmt, title=title,
-                keysecs=keysecs, palette=palette)
+                keysecs=keysecs, palette=palette, rowscale=rowscale)
     surf = g.surface()
     prev = g.canvas(surf)
     for cv in canvases:
@@ -1910,9 +1939,10 @@ def cmd_info(a):
                                {0: "none", 1: "PCM8", 2: "ADPCM4"}[r.audio],
                               r.pitdiv,
                                r.pitper))
-        print("   canvas %d x %d on %s, %s, aspect %d:%d"
-              % (g.wb * PIX_PER_BYTE[g.layout], g.h, g.name,
-                 PF_NAMES[r.pixfmt], *r.aspect))
+        print("   canvas %d x %d%s on %s, %s, aspect %d:%d"
+              % (g.wb * PIX_PER_BYTE[g.layout], g.h,
+                 " (each row shown twice)" if r.rowscale > 1 else "",
+                 g.name, PF_NAMES[r.pixfmt], *r.aspect))
         print("   stream %d bytes = %.1f KB/s; largest super-packet %d "
               "sectors, largest record %d"
               % (r.slen, r.slen / 1024.0 / secs, r.spmax, r.rmax))

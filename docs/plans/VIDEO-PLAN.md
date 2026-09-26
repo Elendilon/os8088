@@ -1131,6 +1131,18 @@ red. A row about one package goes in `soak`.
     at 400 KB/s where the player's ring holds 64-256 KB, now capped at 96
     KB (SPEC.md 98.2.1). Asked next: 25 fps as a middle, and **a lower
     effective resolution at the same screen size** - which is W11c.
+  - **W11c IS BUILT** (SPEC.md 98.2.4): `--detail WxH`, the owner's
+    *"lower the effective resolution without lowering the real
+    resolution"*. The width by repeating pixels, which Mode X stores two or
+    four to the byte under the pair masks 03h/0Ch and 0Fh, and the height by
+    the file's row scale, the CRTC showing each row twice. Trackmania in
+    Mode X at 30 fps: 1x1 404 KB/s with 88 of 360 frames exact, 2x1 292 with
+    all 360, 2x2 158, 4x2 89. `vidmodex2` gates it and FAILS with the CRTC
+    write taken out.
+  - **The thumb in the window** follows the play on every desktop now,
+    written into the framebuffer by the player (SPEC.md 98.3.7) - it was a
+    whole-bar kernel repaint once a second, and never on VGA, which is what
+    the owner saw. `vidthumb` / `vidthumbherc`.
   - **Known intermittent**: `vidwin` and `vidwinshd` each failed once
     under a four-lane soak at the same step - F while playing, then the
     hold at frame 100 never comes - and pass alone (3 of 3 each). It

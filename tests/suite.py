@@ -8221,6 +8221,31 @@ SOAK = [
         "skipped) the glass is wrong on three holds",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidmodex2", "soak", py("tests/vidvga8.py", "--layout", "modex",
+                                "--rows2"), 34.0,
+        "SPEC.md 98.2.4: vidmodex's clip at half its rows with a row scale "
+        "of 2 - the player sets the CRTC's Maximum Scan Line so each row "
+        "shows twice and the picture keeps its size - and pair sub-records "
+        "(Map Mask 03h, 0Ch) among the rest. Every held frame read off the "
+        "glass, the poster the luma of the rows shown. Broken on purpose "
+        "(vp_crtc skipped) the rows come out half height and it FAILS",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidthumb", "soak", py("tests/vidthumb.py"), 34.0,
+        "SPEC.md 98.3.7: the scrub bar's thumb follows an IN-WINDOW play on "
+        "a VGA desktop, written into mode 12h through the Bit Mask - "
+        "the bar's eight inside rows read off plane 0 at each hold, the "
+        "thumb black at (n-1)(bar-8)/frames and every other pixel white. "
+        "Broken on purpose (vp_wthumb returning at once) it FAILS from the "
+        "second hold; it was never drawn on VGA before, the owner's report",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidthumbherc", "soak", py("tests/vidthumb.py", "--machine",
+                                   "os8088_5150_herc_gla"), 34.0,
+        "SPEC.md 98.3.7: vidthumb on the Hercules 5150's desktop, the "
+        "thumb an OR and an AND into the page",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidcard", "soak", py("tests/vidcard.py"), 26.0,
         "SPEC.md 11.1.2: OSAPI_WM_RESIZE takes the gfx lock itself when "
         "the caller has none. The Video Player's info card grows the window "

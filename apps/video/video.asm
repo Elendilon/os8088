@@ -133,6 +133,7 @@ R_SP0       equ 16
 R_SP0N      equ 20
 R_SPMAX     equ 22
 R_PAL       equ 32                  ; VGA8: the palette's offset (98.1.1)
+R_RSCALE    equ 36                  ; ...and its row scale, 0/1 or 2
 PF_VGA8     equ 2                   ; [vp_pixfmt] is the format less one
 LAY_LIN320  equ 3                   ; ...and [vp_layout] the layout less one
 LAY_LIN80   equ 2
@@ -180,6 +181,7 @@ vp_entry:
     mov word [vp_wb], 80            ; THE WINDOW'S SIZE is the layout's, for a
     mov word [vp_pwb], 80           ; 640 x 200 video until one is open
     mov word [vp_h], 200
+    mov word [vp_ph], 200
     call vp_layfit
     mov ax, [vp_lcw]
     add ax, 2
@@ -914,6 +916,21 @@ vp_parse:
     cmp ax, [vp_laytab+bx+4]        ; rows
     ja .bad
     mov [vp_h], ax
+    ; THE ROW SCALE (98.2.4): each row shown twice by the CRTC, VGA8 only
+    mov byte [vp_rs], 0
+    mov al, [es:V88_REND+R_RSCALE]
+    cmp al, 1
+    jbe .rs1
+    cmp al, 2
+    jne .bad
+    cmp byte [vp_pixfmt], PF_VGA8
+    jne .bad
+    mov byte [vp_rs], 1
+.rs1:
+    mov ax, [vp_h]                  ; ...and the rows the picture SHOWS,
+    mov cl, [vp_rs]                 ; which is what the Preview is made at
+    shl ax, cl
+    mov [vp_ph], ax
     ; THE PREVIEW'S WIDTH (98.4): a one-bit canvas's own, or for VGA8 the
     ; luma of its keyframe dithered to one bit, a byte per eight pixels -
     ; so what sizes and places the poster reads this and not [vp_wb]
@@ -1099,7 +1116,7 @@ vp_try:
     mov ax, [vp_wb]
     cmp ax, [vp_laytab+bx+2]        ; stride
     ja .no
-    mov ax, [vp_h]
+    mov ax, [vp_ph]                 ; the rows it SHOWS
     cmp ax, [vp_laytab+bx+4]        ; rows
     ja .no
     pop ax
@@ -1311,7 +1328,7 @@ vp_mkpic:
     mov ax, [vp_pwb]
     mov [vh_sstr], ax
     mov [vh_wb], ax
-    mov ax, [vp_h]
+    mov ax, [vp_ph]
     mov [vh_h], ax
     mov ax, [vp_pwb]
     mov cl, 3
@@ -1338,7 +1355,7 @@ vp_mkpic:
     mov [vp_ppx], ax
     mov ax, [vp_pwb]
     mov [vp_pbw], ax
-    mov ax, [vp_h]
+    mov ax, [vp_ph]
     jmp short .rows
 .mono:
     cmp word [vp_ps], 1             ; AT ITS OWN SIZE: the rows out of the
@@ -1426,7 +1443,7 @@ vp_psize:
     push cx
     push dx
     mov ax, [vp_pwb]
-    mov cx, [vp_h]
+    mov cx, [vp_ph]
     cmp byte [vp_pixfmt], PF_VGA8   ; made whole, then halved in place
     je .sz
     cmp word [vp_ps], 1
@@ -1618,6 +1635,33 @@ vp_dac:
 .out:
     ret
 
+; vp_crtc - a row scale of 2 (98.2.4): the CRTC's Maximum Scan Line (3D4h
+; index 9) shows each row twice as many scan lines - 13h's and Mode X's 1
+; (two lines a row) becomes 3 - so the mode's rows halve and the picture
+; stays the screen's size. The bracket's restore sets the mode, and it,
+; back. Preserves all
+vp_crtc:
+    cmp byte [vp_rs], 0
+    je .out
+    push ax
+    push dx
+    mov dx, 0x3D4
+    mov al, 9
+    out dx, al
+    inc dx
+    in al, dx
+    mov ah, al
+    and ah, 0xE0
+    and al, 0x1F
+    shl al, 1
+    inc al                          ; n + 1 lines a row, twice: 2n + 1
+    or al, ah
+    out dx, al
+    pop dx
+    pop ax
+.out:
+    ret
+
 ; vp_v8mono - the VGA8 canvas in [vp_kshd] (LIN320: row y at y x 320) as a
 ; one-bit one in [vp_pseg], dense at [vp_pwb] bytes a row: a pixel is lit
 ; when its luma beats the 4 x 4 Bayer cell over it (tools/os88vid.py's
@@ -1639,11 +1683,14 @@ vp_v8mono:
     xor di, di                      ; DI = the output byte
     xor dx, dx                      ; DX = the row
 .row:
-    cmp dx, [vp_h]
+    cmp dx, [vp_ph]
     jae .done
-    mov ax, 320
+    mov ax, dx                      ; the canvas row this output row shows
+    mov cl, [vp_rs]                 ; (each twice with a row scale of 2)
+    shr ax, cl
     push dx
-    mul dx
+    mov cx, 320
+    mul cx
     pop dx
     mov si, ax                      ; ES:SI = the row's first pixel
     mov bx, dx                      ; the row's four thresholds, where BX
@@ -1705,11 +1752,14 @@ vp_v8mono:
     xor di, di
     xor dx, dx
 .mrow:
-    cmp dx, [vp_h]
+    cmp dx, [vp_ph]
     jae .done
-    mov ax, 80
+    mov ax, dx
+    mov cl, [vp_rs]
+    shr ax, cl
     push dx
-    mul dx
+    mov cx, 80
+    mul cx
     pop dx
     mov bp, ax                      ; BP = the row in each plane
     mov bx, dx
@@ -2751,6 +2801,7 @@ vp_main:
     mov ax, [vp_fsi+FSI_SEG]
     mov [vp_vseg], ax
     call vp_dac                     ; VGA8: the file's 256 colours
+    call vp_crtc                    ; ...and each row twice, if it asks
     ; the origin: centred, the row on a bank (SPEC.md 98.1.2), on the
     ; screen's layout - the file's own, or the shadow's target (98.3.2)
     mov bl, [vp_tlay]
@@ -2759,7 +2810,9 @@ vp_main:
     shl bx, 1
     add bx, ax
     shl bx, 1
-    mov ax, [vp_laytab+bx+4]        ; rows
+    mov ax, [vp_laytab+bx+4]        ; rows...
+    mov cl, [vp_rs]                 ; ...which a row scale halves (98.2.4)
+    shr ax, cl
     sub ax, [vp_h]
     shr ax, 1                       ; y0
     xor dx, dx
@@ -2803,8 +2856,7 @@ vp_main:
     mov word [vp_dy1], 0
     call OSAPI_MOUSE                ; the buttons as they are: a CLICK is a
     mov [vp_mbtn], al               ; press after this
-    call OSAPI_GET_TICKS
-    mov [vp_wtk], ax
+    mov word [vp_wtk], 0xFFFF       ; the thumb: asked at the first frame
     ; THE CANVAS onto this surface (98.3.7): where the session got to, black
     ; before its first frame
     call vp_kput
@@ -3219,28 +3271,132 @@ vp_mxall:
     pop ax
     ret
 
-; vp_wthumb - in the window, the thumb follows the play, a move at most a
-; second - and only on a 1 bpp desktop: a VGA fill leaves the planes' state
-; changed while it runs, and the hook's decode must find them at rest
+; vp_wthumb - in the window, the thumb follows the play (98.3.7): when its
+; offset moves, the old 8 x 8 block is made white and the new one black,
+; written into the desktop's framebuffer here - the kernel's drawing is not
+; the bracket's to use - so a move is sixteen rows of two bytes, not a bar.
+; On a VGA desktop the stores go through the Graphics Controller's Bit Mask
+; with interrupts off, so the hook's decode always finds the planes at rest
 vp_wthumb:
     cmp byte [vp_winm], 0
     je .out
-    cmp byte [vp_dlay], 2
-    je .out
     push ax
-    call OSAPI_GET_TICKS
-    mov dx, ax
-    sub ax, [vp_wtk]
-    cmp ax, 18
-    jb .p
-    mov [vp_wtk], dx
+    mov ax, [vp_done]               ; nothing to ask until a frame is drawn
+    cmp ax, [vp_wtk]
+    je .p
+    mov [vp_wtk], ax
     call vp_thumbx
     cmp ax, [vp_wtx]
     je .p
-    call vp_pbar
+    push bx
+    push cx
+    push dx
+    mov bx, [vp_wtx]
+    mov [vp_wtx], ax
+    mov cx, bx
+    add cx, [vp_tx1]
+    mov dl, 1                       ; where it was: white
+    call vp_wbox
+    mov cx, ax
+    add cx, [vp_tx1]
+    xor dl, dl                      ; where it is: black
+    call vp_wbox
+    pop dx
+    pop cx
+    pop bx
 .p:
     pop ax
 .out:
+    ret
+
+; vp_wbox - the thumb's block at screen x CX, the bar's inside rows, in DL's
+; colour (1 white, 0 black), on the desktop's framebuffer ([vp_dseg], laid
+; out as [vp_dlay]). A 1 bpp desktop takes an OR or an AND; mode 12h a store
+; through the Bit Mask after a read loads the latches, so the four planes
+; move together and no pixel outside the block changes. Preserves all
+vp_wbox:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    pushf
+    cli
+    mov es, [vp_dseg]
+    mov bp, cx
+    shr bp, 1
+    shr bp, 1
+    shr bp, 1                       ; BP = the block's first byte
+    mov al, 0xFF
+    and cl, 7
+    shr al, cl                      ; AL = its bits in that byte...
+    mov ah, al
+    not ah                          ; ...AH = in the next (0: on a byte)
+    mov [vp_wbm], ax
+    mov si, [vp_cy0]
+    add si, [vp_lbary]
+    inc si                          ; SI = the first row inside the bar
+    mov cx, VP_BARH - 2
+.row:
+    mov ax, si
+    mov bl, [vp_dlay]
+    call vp_rowaddr
+    add ax, bp
+    mov di, ax
+    mov al, [vp_wbm]
+    call .put
+    mov al, [vp_wbm+1]
+    or al, al
+    jz .nx
+    inc di
+    call .put
+.nx:
+    inc si
+    loop .row
+    cmp byte [vp_dlay], 2           ; mode 12h: every bit writable again
+    jne .d
+    mov dx, 0x3CE
+    mov ax, 0xFF08
+    out dx, ax
+.d:
+    popf
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.put:                               ; AL = the bits at ES:DI, DL the colour
+    cmp byte [vp_dlay], 2
+    je .vga
+    or dl, dl
+    jz .blk
+    or [es:di], al
+    ret
+.blk:
+    not al
+    and [es:di], al
+    ret
+.vga:
+    push dx
+    mov ah, al
+    mov al, 8                       ; the Bit Mask
+    mov dx, 0x3CE
+    out dx, ax
+    pop dx
+    mov al, [es:di]                 ; the latches, all four planes
+    xor al, al
+    or dl, dl
+    jz .v0
+    dec al
+.v0:
+    mov [es:di], al
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4216,7 +4372,7 @@ vp_laysize:
     jmp short .w
 .wd:
     mov [vp_lpw], ax
-    mov ax, [vp_h]                  ; rows: halved rounding UP, as vp_half
+    mov ax, [vp_ph]                 ; rows: halved rounding UP, as vp_half
     mov cx, si                      ; does
 .h:
     shr cx, 1
@@ -4793,7 +4949,7 @@ vp_fmt:
     call vp_putn
     mov al, 'x'
     call vp_putc
-    mov ax, [vp_h]
+    mov ax, [vp_ph]
     xor dx, dx
     call vp_putn
     mov al, ' '
@@ -5223,7 +5379,9 @@ vp_ok:        db 0
 vp_loaded:    db 0
 vp_played:    db 0
 vp_mode:      db 0
-vp_pwb:       dw 0                  ; the Preview's bytes a row (98.4)
+vp_pwb:       dw 0                  ; the Preview's bytes a row (98.4)...
+vp_ph:        dw 0                  ; ...and its rows: the canvas's, shown
+vp_rs:        db 0                  ; ...this many times over, as a shift
 vp_palo:      dd 0                  ; VGA8: the palette's offset
 vp_layout:    db 0
 vp_pixfmt:    db 0
@@ -5408,8 +5566,9 @@ vp_nowin:     db 0                  ; 1: never in the window (a gate's)
 vp_dseg:      dw 0                  ; the desktop's framebuffer
 vp_keep:      dw 0                  ; the canvas keeper (the shadow, or not)
 vp_pdiv:      dw 0                  ; this play's PIT divisor
-vp_wtk:       dw 0                  ; the thumb's last move in the window
+vp_wtk:       dw 0                  ; the frame the thumb was last asked at
 vp_wtx:       dw 0                  ; ...and where it was drawn
+vp_wbm:       dw 0                  ; vp_wbox: the block's two byte masks
 vh_sseg:      dw 0                  ; vp_half's image...
 vh_lay:       db 0                  ; ...its layout, or FFh linear...
               db 0

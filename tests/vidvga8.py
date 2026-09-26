@@ -2,7 +2,8 @@
 """VIDEO.O88 plays 256 colours in mode 13h - SPEC.md 98.1.2's LIN320,
 VIDEO-PLAN wave 11a - and in Mode X, MODEX's planes (98.1.3.1, wave 11b).
 
-    make && python3 tests/vidvga8.py [--layout lin320|modex] [--machine NAME]
+    make && python3 tests/vidvga8.py [--layout lin320|modex] [--rows2]
+                                     [--machine NAME]
 
 THE CLIP IS MADE HERE: 60 frames of a 160 x 96 VGA8 canvas at 15 fps,
 silent - boxes of colour that move, a band of one value and bursts of noise,
@@ -30,6 +31,12 @@ comparison. MartyPC does not model Mode X's retime to 480 lines: it scans
 the 240 rows twice each into 400, so rows 200 to 239 are off its glass and
 the row checks only the 200 it shows (the canvas is inside them). The clip must hold 0Fh sub-records and plane ones,
 or it tests half the decoder.
+
+--rows2 makes the clip at half its rows with a ROW SCALE of 2 (98.2.4):
+the player sets the CRTC to show each row twice, so the picture keeps its
+size, and 3 reads the glass on either layout - the rows only come out right
+if the register was written. The poster is the luma of the rows shown, each
+twice.
 
 Broken on purpose - vp_dac skipped - the rendered colours are the BIOS's and
 it FAILS on 3; with the luma threshold's compare flipped it FAILS on 2; for
@@ -69,7 +76,7 @@ def palette():
     return bytes(p)
 
 
-def clip(tmp, layout):
+def clip(tmp, layout, rs=1):
     rnd = random.Random(1311)
     g = vid.Geom(layout, W // vid.PIX_PER_BYTE[layout], H)
     cvs, cv = [], bytearray(W * H)
@@ -92,7 +99,7 @@ def clip(tmp, layout):
         cvs.append(bytes(cv))
     out = os.path.join(tmp, "COLOR.V88")
     vid.encode_canvases(cvs, g, out, FPS, vid.PF_VGA8, palette(),
-                        "vidvga8 clip", keysecs=2.0, poster=1)
+                        "vidvga8 clip", keysecs=2.0, poster=1, rowscale=rs)
     vid.verify_v88(out)
     return out
 
@@ -102,7 +109,11 @@ def main():
     ap.add_argument("--machine", default="os8088_xt_vga")
     ap.add_argument("--layout", choices=("lin320", "modex"),
                     default="lin320")
+    ap.add_argument("--rows2", action="store_true")
     a = ap.parse_args()
+    rs = 2 if a.rows2 else 1
+    global H
+    H //= rs
     lay = vid.LAYOUT_BY_NAME[a.layout]
     modex = lay == vid.LAY_MODEX
     mode_want = 8 if modex else FSXM_VGA13
@@ -114,7 +125,7 @@ def main():
     pal8 = [tuple((v * 255 + 31) // 63 for v in palette()[3 * i:3 * i + 3])
             for i in range(256)]
     with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "build")) as tmp:
-        v88 = clip(tmp, lay)
+        v88 = clip(tmp, lay, rs)
         r = vid.Reader(v88)
         g = r.g
         if modex:                       # both halves of the decoder
@@ -125,15 +136,16 @@ def main():
                     masks.add(rec[si])
                     si = vid.walk_lists(bytearray(65536), rec, si + 1)
             print("   the clip's Map Masks: %s" % sorted(masks))
-            if 0x0F not in masks or not masks - {0x0F}:
+            if 0x0F not in masks or not masks & {3, 12} or \
+                    not masks & {1, 2, 4, 8}:
                 bad.append("the clip holds Map Masks %s: it does not test "
-                           "both the 0Fh and the plane sub-records"
+                           "the 0Fh, the pair and the plane sub-records"
                            % sorted(masks))
         disk = os.path.join(tmp, "vidvga8.img")
         subprocess.run([sys.executable, "tools/os88disk.py", "-o", disk,
                         "--size", "360", pkg, v88], check=True,
                        capture_output=True)
-        ty0, tx0 = (SH - H) // 2, (SW - W) // 2
+        ty0, tx0 = (SH // rs - H) // 2, (SW - W) // 2
         rows_at = [(ty0 + y) * 320 + tx0 for y in range(H)]
         with os88ui.boot(os88build.at("build/os8088-360.img"), apps=disk,
                          machine=a.machine) as ui:
@@ -170,7 +182,10 @@ def main():
             k = r.key(1)
             surf = g.surface()
             r.apply(surf, k[1], key=True)
-            want = vid.vga8_mono(g.canvas(surf), W, H, r.palette)
+            cvp = g.canvas(surf)            # the rows SHOWN, each rs times
+            cvp = b"".join(cvp[y // rs * W:(y // rs + 1) * W]
+                           for y in range(H * rs))
+            want = vid.vga8_mono(cvp, W, H * rs, r.palette)
             pseg = rw("vp_pseg") << 4
             ps, pbw, prows = rw("vp_ps"), rw("vp_pbw"), rw("vp_prows")
             got = bytes(m.read(pseg, pbw * prows)) if pseg else b""
@@ -194,8 +209,9 @@ def main():
                 # MARTYPC SCANS MODE X'S 240 ROWS TWICE EACH INTO 400 LINES:
                 # it does not model the retime to 480, so rows 200..239 are
                 # off its glass. The canvas here (rows 72..167) is not
-                sx = sy = fw / SW
-                shown = min(SH, int(fh / sy))
+                sx = fw / SW
+                sy = sx * rs                # a row scale shows each twice
+                shown = min(SH // rs, int(fh / sy))
                 wrong = 0
                 for y in range(shown):
                     ry = int((y + 0.5) * sy)
@@ -225,7 +241,7 @@ def main():
             for n in STOPS:
                 until(lambda mm: rb("vp_held") == 1 and rw("vp_done") == n,
                       "the hold before frame %d" % n, 120.0)
-                if modex:
+                if modex or rs > 1:
                     glass(n)
                     i = STOPS.index(n)
                     ww("vp_stopat", STOPS[i + 1] if i + 1 < len(STOPS)

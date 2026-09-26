@@ -149102,7 +149102,8 @@ and a player reads only the stream it plays (VIDEO-PLAN 13, answer A).
 | 28 | 2 | the largest frame record, bytes |
 | 30 | 2 | the largest keyframe record, bytes |
 | 32 | 4 | VGA8: **the palette**, on a sector - 256 entries of (r, g, b), the DAC's six bits, 0..63; 0 for every other format. The encoder puts it at sector 1, two sectors, and the keyframe table after it |
-| 36 | 28 | 0 |
+| 36 | 1 | VGA8: **the row scale**, 0 or 1 for none, 2 for each row shown twice by the CRTC (98.2.4); 0 in every other file |
+| 37 | 27 | 0 |
 
 #### 98.1.2 Layouts: the file is laid out for its surface on the host
 
@@ -149187,8 +149188,10 @@ sub-record      = mask(1..0Fh) lists            (lists as above)
   byte under 0Fh is FOUR PIXELS of one colour for one store, which is the
   thing Mode X can do that a linear mode cannot.
 - **The encoder puts an aligned group of four pixels under 0Fh** when they
-  are one colour and two or more of them changed, and every other changed
-  pixel in its plane's sub-record (1, 2, 4, 8). A 0Fh span closes no gap -
+  are one colour and two or more of them changed, a PAIR (pixels 0-1 or
+  2-3 of a group) of one colour with both changed under 03h or 0Ch, and
+  every other changed pixel in its plane's sub-record (1, 2, 4, 8). The
+  decoder takes any mask 1..0Fh, so the pairs cost it nothing. A 0Fh span closes no gap -
   a gap byte is four pixels that need not be one colour - and a plane's span
   never closes one across a group the 0Fh sub-record writes, so no byte of
   any plane is written twice in a record.
@@ -149684,9 +149687,19 @@ click that pauses is anywhere, polled off `OSAPI_MOUSE`.
   content's is kept (`[vp_ppoff]`) and an in-window play whose row differs
   paints the box first. `vidwin` reads the rows round the picture before a
   play and after a drag of 5 rows, and fails with the repaint taken out.
-- **The thumb follows the play**, a move a second at most, on a 1 bpp
-  desktop only: a VGA fill changes the planes' state while it runs, and the
-  hook's decode must find them at rest.
+- **The thumb follows the play, on every desktop.** The kernel's drawing is
+  not the bracket's to use, so `vp_wbox` writes the thumb into the desktop's
+  own framebuffer: when `vp_thumbx`'s offset moves, the old 8 × 8 block
+  white and the new one black - sixteen rows of at most two bytes, asked
+  once per frame drawn, from the foreground. A 1 bpp desktop takes an OR or
+  an AND; mode 12h a store through the Graphics Controller's Bit Mask after
+  a read has loaded the latches, so all four planes move together and no
+  pixel outside the block changes, with interrupts off for those few stores
+  and the mask put back, so the hook's decode always finds the planes as it
+  expects. It was a whole-bar repaint through the kernel once a second, and
+  on a VGA desktop nothing at all, which is what the owner saw on the 286.
+  `vidthumb` (VGA) and `vidthumbherc` read the bar's inside rows at each
+  hold and fail with `vp_wthumb` returning at once.
 
 **The keeper is how a canvas crosses brackets.** A bracket puts it onto its
 surface first - black, before the session's first frame - and takes it back
@@ -150127,3 +150140,37 @@ measured retry are the same code (VIDEO-PLAN W11a).
 
 `tests/videnc.py` question 9 holds the file to its target with no limits;
 `tests/vidvga8.py` (`vidvga8`, soak) is the player's gate on MartyPC's VGA.
+
+#### 98.2.4 Detail: less picture, the same screen
+
+**`--detail WxH`** (VGA8) makes the picture at a W-th of the canvas's width
+(1, 2 or 4) and an H-th of its height (1 or 2), and shows it at full size -
+the owner's ask, *"lower the effective resolution without lowering the real
+resolution ... full screen without smearing, but with less detail"*.
+- **The width by repetition**: the source is scaled and dithered at the
+  lower width and each pixel repeated W times. In Mode X a repeated pair is
+  one store under 03h or 0Ch and a repeated four one under 0Fh (98.1.3.1),
+  so W is a straight division of the bytes and the stores; in 13h it only
+  makes runs.
+- **The height by the CRTC**: the file's row scale (98.1.1, slot +36) is
+  2, the canvas has half the rows, and `vp_crtc` doubles the Maximum Scan
+  Line (3D4h index 9: 13h's and Mode X's 1 becomes 3) after the mode set,
+  so the mode shows 100 or 120 rows each twice as tall. The canvas is
+  fitted and centred in those rows. The Preview's poster shows each row
+  twice too (`vp_ph`), so it keeps the picture's shape.
+- **Measured**, Trackmania in Mode X at 30 fps under `286-vga`:
+
+  | detail | KB/s | frames exact | decode, mean / worst |
+  |---|---|---|---|
+  | 1 × 1 | 404 | 88 of 360 | 192% / 452% |
+  | 2 × 1 | 292 | 360 of 360 | 137% / 423% |
+  | 2 × 2 | 158 | 360 of 360 | 73% / 224% |
+  | 4 × 2 | 89 | 360 of 360 | 38% / 92% |
+
+  So one step of detail is the difference between smearing and not on this
+  clip, and the fourth line is under the ST-225's 60 KB/s video budget
+  once the sound is counted apart.
+- The row scale is VGA8's: a one-bit layout has no CRTC this player may
+  retime (the CGA's and the Hercules' are the kernel's), and nothing to
+  repeat a pixel into. `vidmodex2` is the gate; `videnc` checks a lossless
+  2 × 2 encode stores nothing but pairs and groups.
