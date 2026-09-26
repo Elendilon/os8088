@@ -1689,8 +1689,7 @@ read-ahead only makes the holds rarer, not invisible.
   `SOUND.DRV` restarts a single-cycle transfer each interrupt, and their
   ADPCM commands differ from 2.00's `7Dh`. Driver work; wants the SB 1.x
   86Box machine (14.6) to test on.
-- **An optimisation pass**, speed then bytes: profile a play on MartyPC -
-  the decoder, the shadow copy and the Live blit are the likely heads.
+- **An optimisation pass**, speed then bytes: 15.8 has what is known.
 - **XMS** (V4): a resident block, or more Live windows, in extended memory
   through `XMEM.DRV`, a frame's records moved in as needed; costs a move a
   frame and a fallback without it.
@@ -1721,3 +1720,60 @@ read-ahead only makes the holds rarer, not invisible.
   `font_run`'s per-cell path, fixed with it (11.3.4.2, 25 bytes, `runclip`).
 - **The encoder window was driven only under Xvfb** on a Tk that had to be
   installed for it; it has not met a Windows or macOS Tk.
+- **AUDIO.O88 reads its queue file with `OSAPI_FILE_GOTO_Q`**
+  (`apps/audio/apengine.inc`), which is the mistake SPEC.md 98.4.7 fixed in
+  the player: GOTO_Q moves the machine and not the instance, and the next
+  file call puts the machine back in the instance's folder. So the queue is
+  looked for in the folder AUDIO.O88 was loaded from rather than at the
+  system root, unless the two are the same. Found while fixing the player,
+  not reproduced, and outside this work. The fix is GOTO_QM, or a READ that
+  names the path.
+
+### 15.8 The optimisation pass
+
+Not needed to ship: the owner's call, once it was clear what the shadow copy
+is for. Speed first, then bytes, and **measured before redesigned**: profile a
+play on MartyPC and quote cycles. The decoder, the shadow copy and the Live
+blit are the likely heads.
+
+**The shadow copy is ADDRESS TRANSLATION, not shape** (asked 2026-09-26: is
+"slow, right shape" against "fast, wrong shape" an option to offer?). It is
+not. A V88 frame is a list of byte addresses in its layout's framebuffer
+(98.1.2), so what a file is "made for" is a MEMORY LAYOUT: CGA's two
+interleaved banks at 80 a row, Hercules' four at 90, VGA's flat 80. The
+pixels are 1 bpp everywhere. `vp_blit` copies the changed rows 1:1, each
+re-addressed, and rescales nothing. So a CGA file on a Hercules is already
+the wrong shape: at roughly 65% of its intended height, CGA's pixels being
+about 2.4 times taller than wide and Hercules' about 1.55. A CGA file full
+screen on a VGA takes no copy at all: the VGA has mode 6 and decodes
+straight into it. A "right shape" option would mean scaling rows, and would
+be SLOWER. What there is to win is the translation's cost, two ways, neither
+measured yet:
+
+1. **A cheaper copy.** Each row now calls `vp_rowaddr` twice, for the
+   source and the destination, and each call is a `mul` and a bank loop.
+   Then it runs a `rep movsw` of the row. The whole copy measured ~60 ms for
+   a full 640 x 200 band onto a Hercules (98.3.2). Row-address tables, built
+   once per play for the file's layout and the screen's, take the arithmetic
+   out of the loop and leave only the stores, which cannot get cheaper.
+   Small in bytes. The share it removes is a guess (a quarter to a third)
+   until the copy is split in a profile: arithmetic against stores.
+2. **No copy: decode straight onto the other layout.** A second inner loop
+   for the decoder that translates each span's address as it writes it.
+   It has to SPLIT a span at a row's end, because the encoder merges spans
+   across row ends and on another layout those bytes are not adjacent. That
+   removes the copy and the 64 KB shadow claim, and charges every span a
+   translation. It wins most where a frame changes most of the screen and
+   little where it changes a corner. It is the decoder's hot path, so it
+   wants both loops kept in step, and a gate that plays every layout onto
+   every screen. A few hundred bytes of package, estimated.
+
+Profile first; take 1 if the arithmetic is a real share, and 2 only if the
+stores still dominate a full-screen play after it.
+
+**And one kernel candidate from the same round**: `font_run_cell`'s column
+mask (SPEC.md 11.3.4.2) costs a WHOLE cell in a cut run +210 cycles, one
+compare and an untaken branch a row. A second copy of the row loop for the
+masked case would take that to ~0 for about 20 bytes. Not taken, since the
+path is only covered text; recorded because the owner asked about the column
+mask's cost.
