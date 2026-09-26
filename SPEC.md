@@ -149446,6 +149446,364 @@ purpose (always rendition 0, or the cursor a byte short) they FAIL - and
 `vidsndres`, the sound from an audio block over two laps, the capture byte
 for byte.
 
+### 98.2 The host tools — `tools/os88vid.py`
+
+| command | what it does |
+|---|---|
+| `import IN.XDV OUT.V88 [--target cga\|herc\|lin80] [--audio pcm8\|adpcm4]` | an XDC stream, EXACTLY: every frame's writes re-expressed as lists (`verify --against` proves it frame by frame). CGA is the XDV's own layout; `--target` re-lays the canvas out for another surface by simulating the stream and re-encoding it, so it plays natively there. `--audio adpcm4` re-encodes the sound (98.1.1.1), and `verify --against` then compares it with the XDC sound encoded the same way |
+| `encode FRAME... OUT.V88 --fps F [--wav W] [--layout L] [--audio pcm8\|adpcm4]` | the minimal encoder: lossless, from PBM, PGM or BMP frames and an 8-bit or 16-bit WAV. The budgets are `os88venc.py`'s (98.2.1) |
+| `info FILE.V88` | the header, the rendition, and the stream's rate and modelled CPU |
+| `decode FILE.V88 --frame N --png OUT.png` | the canvas after frame N, through the keyframe at or before it |
+| `verify FILE.V88 [--against IN.XDV]` | every field of 98.1.6, every super-packet and record, every keyframe against the running canvas, and with `--against`, every frame against XDC's screen |
+| `--selfcheck` | generated fixtures through `encode` and `verify` in all three layouts, and a corrupted file that `verify` must refuse |
+
+`tests/vidfmt.py` is the gate (a `soak` row). It runs `--selfcheck`, then
+imports and verifies the owner's samples when `$OS88_XDC_SAMPLES` names
+them. Those samples are not in the tree.
+
+#### 98.2.1 The encoder front end — `tools/os88venc.py` (wave 8)
+
+```
+python3 tools/os88venc.py IN OUT.V88 [--preset P | --layout L --box WxH]
+    [--fit fit|fill|stretch] [--start S] [--end S] [--fps F]
+    [--profile R] [--disk B/s] [--avg F] [--peak F]
+    [--audio pcm8|adpcm4|none] [--rate HZ] [--volume V]
+    [--adpcm search|greedy] [--jobs N]
+    [--pixfmt mono|cgacomp] [--comp-dither diffuse|pattern]
+    [--comp-stable E] [--comp-quick] [--mix F] [--levels-mix 4|16]
+    [--dither bayer|bluenoise|threshold] [--stable N] [--clip N]
+    [--levels auto|none] [--gamma G] [--contrast C] [--brightness B]
+    [--invert] [--title T] [--credits C] [--keysecs S]
+    [--poster K | --poster-at SECS] [--preview-png DIR]
+python3 tools/os88venc.py --profiles
+```
+
+**Any video ffmpeg reads, to a file the player plays.** ffmpeg and numpy are
+needed for this and for nothing else in the tree; the `videnc` row SKIPS
+without them (`ffmpeg` capability).
+
+- **The canvas is the source's DISPLAYED shape** in the preset's box. A
+  layout's pixels are not square (98.1.2's aspect: CGA 5:12, Hercules 29:45),
+  so `fit` (the default) sizes the canvas to the source's aspect *on that
+  screen* and never pads it: a 16:9 clip in Hercules' 400 x 200 box is
+  400 x 145, not 400 x 200 with bars, because a bar is screen the canvas
+  does not need. `fill` crops the source to the box instead, `stretch`
+  distorts it. The width is whole bytes.
+
+| preset | layout | box |
+|---|---|---|
+| `cga` / `cga-small` | CGA | 640 x 200 / 320 x 100 |
+| `herc` / `herc-mid` / `herc-full` | HERC | 400 x 200 / 480 x 232 / 720 x 348 |
+| `vga` / `vga-mid` / `vga-full` | LIN80 | 320 x 240 / 400 x 300 / 640 x 480 |
+| `live-cga` / `live-herc` / `live-vga` | CGA / HERC / LIN80 | 320 x 100 / 240 x 116 / 160 x 120, VIDEO-PLAN 3.4's |
+
+- **The frame rate is one the audio divides**: samples per frame is the
+  rate over the fps, rounded, and ffmpeg resamples the picture to *rate /
+  samples* exactly, so the picture and the sound never drift.
+- **Grey levels are stretched** (`--levels auto`) to the 1st..99th
+  percentile the clip actually uses, measured over a frame a second: one bit
+  a pixel has no contrast to spare.
+- **The dither is ORDERED and anchored to the canvas**, so a still area
+  dithers the same way every frame and costs nothing. A pixel within
+  `--stable` grey levels (default 6) of its threshold keeps the value it had,
+  so a source's own noise does not flip it. `bayer` (8 x 8, the default)
+  runs and repeats best; `threshold` suits a clip that is black and white
+  already (6% smaller than Bayer on Bad Apple); `bluenoise` (void and
+  cluster, 64 x 64) has no pattern, at ~8% more data.
+- **The ends are solid** (`--clip`, default 16). The threshold map spans
+  grey 16..239 rather than 0..255: spread over the whole range its lowest
+  cell sat at 2 and its highest at 253, so the black an MP4 delivers as 3
+  lit ONE dot in every 8 x 8 tile and a white of 252 darkened one - an even
+  grid over every flat area of Bad Apple (the owner's report; 3,222 isolated
+  pixels a frame on 30 s of it, 46 with the ends solid).
+- **The poster** is the first keyframe that is not one flat value (98.1.3),
+  or `--poster K`, or `--poster-at SECS` - the keyframe NEAREST that moment
+  of the clip. It only chooses the picture in the box: the player opens at
+  frame 0 whatever it is (98.4).
+- **The profile is the machine** (VIDEO-PLAN 3.2). Two token buckets,
+  started half full (the player fills its ring before the first frame): the
+  DISK's, at the profile's bytes a second (less 1% for a super-packet's
+  padding) less the audio's, and the CPU's, at the profile's average share
+  of a frame period less the interrupt's audio copy; and a per-frame
+  CEILING. `--disk`, `--avg` and `--peak` override them. The CPU's bucket
+  is one second deep. **The disk's is one second or 96 KB, whichever is
+  less** (`DISK_LOOKAHEAD`, three of the ring's 32 KB slots): what it banks
+  is what the player has read ahead, and the ring is 2 to 8 slots. At a
+  5150's 60 KB/s one second is under the ring, and it was never seen; at
+  `286-vga`'s 400 KB/s a second is two to four rings, the stream spent a
+  surplus the player could not hold, and the owner's 30 fps Trackmania
+  stalled twice a second in.
+
+| profile | disk | CPU average / ceiling | audio | status |
+|---|---|---|---|---|
+| `5150-st225` (default) | 60,000 B/s | 50% / 85% | PCM8 11,025 Hz | the owner's machine |
+| `5150-picomem2` | 150,000 | 40% / 80% | PCM8 22,050 | predicted |
+| `floppy` | 15,000 | 50% / 85% | PCM8 5,512 | predicted |
+| `286` | 150,000 | 150% / 250% of an 8088's | PCM8 22,050 | predicted |
+| `286-vga` | 400,000 | 300% / 500% of an 8088's | PCM8 22,050 | the owner's 86Box 286 (98.2.3) |
+| `lossless` | none | none | PCM8 22,050 | every change |
+
+- **A frame that fits is exact.** One that does not commits its changed
+  spans best first - pixels fixed per unit of whichever budget is scarcer,
+  a pixel wrong for *n* frames weighing 1 + *n*/8 - until the budget is
+  spent; the rest is still wrong next frame and competes again. The spans'
+  cost is estimated per span from wave 0's model, then **the record is
+  priced as built** (`cycles_of`) and the frame chosen again with the
+  estimate scaled down if it came out over. So the ceiling is kept on the
+  model's own reading, not on its estimate.
+- **Keyframes are the SCREEN, not the target**: a seek shows exactly what a
+  play would at that frame.
+- **ADPCM4 is SEARCHED, not chosen a nibble at a time** (`--adpcm
+  search`, the default; 98.1.1.1). A Viterbi pass over the decoder's 1,024
+  states - a sample and a scale of 0, 16, 32 or 48 - with the scale held
+  to 0 at every keyframe's frame *k*+1 as the greedy encoder holds it. A
+  decision is committed once every live state's survivor agrees, so the
+  memory is a window. On `--jobs` cores (default all) the sound is cut into
+  segments, each searched from 4,096 samples BEFORE its cut starting from
+  any state, and stitched at the latest sample where the two paths' STATES
+  agree - the best way into that state and the best way on from it, which
+  is the whole search's path. `videnc` asserts the stitched result is
+  BYTE-IDENTICAL to one whole search. About real time on four cores. A step
+  that would clamp at 0 or 255 is not taken, so every stream decodes by the
+  card's own arithmetic.
+
+#### 98.2.2 Composite colour from a video (`--pixfmt cgacomp`)
+
+**What a composite monitor shows is COMPUTED, not remembered.**
+`tools/os88cgacomp.py` is Andrew Jenner's (reenigne's) sampled
+chroma-multiplexer model, ported from MartyPC's
+`marty_videocard_renderer/src/composite_new.rs` - the algorithm MartyPC,
+86Box and DOSBox all use - at MartyPC's default monitor settings, for the
+mode the player sets (3D8h = 1Ah, 98.3.3) and the BIOS's colour register (a
+lit pixel is RGBI 15). Its 16 nibbles are the classic composite palette, and
+`videnc` holds them to it:
+
+| nibble | colour | nibble | colour |
+|---|---|---|---|
+| 0000 | black | 1000 | olive (74, 73, 0) |
+| 0001 | dark green (0, 99, 25) | 1001 | green (63, 184, 0) |
+| 0010 | dark blue (39, 40, 188) | 1010 | grey (113) |
+| 0011 | sky blue (17, 153, 222) | 1011 | light green (98, 237, 133) |
+| 0100 | purple-red (129, 13, 86) | 1100 | orange (222, 87, 18) |
+| 0101 | grey (112) | 1101 | yellow (212, 198, 29) |
+| 0110 | violet (176, 56, 255) | 1110 | pink (255, 130, 234) |
+| 0111 | lilac (155, 168, 255) | 1111 | white |
+
+**A cell is four hi-res pixels**, so a 640-wide canvas is 160 cells a row,
+two to a byte, the left one in the high nibble - what a 4-pixel nibble on a
+nibble boundary shows is that colour (the canvas's x is on a byte, so the
+phase is the model's). ffmpeg scales the source to the CELLS in RGB.
+
+**The default is ERROR DIFFUSION THROUGH THE MODEL** (`--comp-dither
+diffuse`), which is what XDC's own composite streams turn out to be: the
+owner's two Big Buck Bunny XDVs, their bytes rendered through this model,
+are smooth colour with full-width detail, where the first version of this
+- a flat palette and an ordered pattern - read as flat colour with
+fringes. The target is the frame at FULL hi-res width (a composite
+monitor's luma has it; only colour is a quarter), and each cell's nibble is
+chosen by what its four pixels LOOK like beside its neighbours
+(`os88cgacomp.cell_lut`, all 4,096 left-cell-right triples rendered once),
+against the target plus the error carried to it - Floyd-Steinberg over
+cells, 7/16 right and 3, 5 and 1/16 below. A cell waits for its left
+neighbour and the three above, so every cell with *g* + 2*y* = *s* is
+decided at step *s*: a vectorised wavefront.
+- **One cell of lookahead**: a cell's pixels depend on its right neighbour
+  too, so each candidate is weighed with the neighbour that suits it best.
+  A picture rendered from known nibbles comes back 93.7% exact with it and
+  84.8% without (`videnc`, which fails at the lower), and Trackmania costs
+  **59 KB/s** of picture with no limits against 76 - the better choice is
+  the stabler one. It is ~1 s a frame, so frames go to every core in
+  5-second chunks, each starting its dead band afresh; `--comp-quick`
+  drops the lookahead, ~5x faster.
+- **The dead band carries it.** Error diffusion is chaotic in TIME - one
+  changed cell reflows every choice after it - so with none Trackmania is
+  333 KB/s. A cell keeps last frame's nibble when that costs at most
+  `--comp-stable` (default 50,000, in the model's weighted squared error
+  over the cell) more than the best: 76 KB/s at that and no lookahead, and
+  under the ST-225 budget **131 of 360 frames exact against 44 at 20,000**,
+  with less smear in fast motion.
+- `--comp-dither pattern` is the first version, kept: Knoll's pattern
+  dither over the 16 flat colours (`--mix`, `--levels-mix 4|16`), cheap and
+  calm, and blind to the fringes.
+
+**Under the ST-225 budget** Trackmania 3-15 s at 640 x 150 plays **294 of
+360 frames exact** (the pattern dither managed 42), 64 KB/s with ADPCM4
+sound, every frame on time on MartyPC's CGA with the burst set. XDC's Big
+Buck Bunny is 640 x 200 composite at 60 Hz: in our format **73 KB/s** of
+picture for the full version and **33 KB/s** for the one it made for a 32
+MB RLL disk, which *"maintains 15 FPS on average, bursting up to 60"* - the
+same trade, cut to fit, that the budgeted encoder makes. The preview PNGs
+(`--preview-png`) are rendered through the model, so they show what the
+monitor would.
+
+It prints what it made: the canvas, the rate, KB/s split video and audio,
+the model's CPU mean and worst frame with the audio copy in, how many frames
+were exact and how many cut, and what the keyframes cost. `tests/videnc.py`
+(`videnc`, soak) is the gate.
+
+#### 98.2.3 256 colours from a video (`--pixfmt vga8`)
+
+**`--preset vga8` (320 × 200) and `vga8-small` (160 × 100) are LIN320**,
+**`modex` (320 × 240) and `modex-small` (160 × 120) are MODEX**, and
+`--pixfmt vga8` is what those layouts imply. Mode X's pixels are square, so
+16:9 is 320 × 180 there against 13h's 320 × 150 - Trackmania at 15 fps
+under `286-vga` is 347 KB/s with 146 of 180 frames exact. Its frames are
+built by `EncoderX`: the candidates are the five sub-records' spans
+(98.1.3.1), ranked by the colour error of every pixel a span covers. What differs from one bit a
+pixel is the palette and the dither; the budgets, the ranking and the
+measured retry are the same code (VIDEO-PLAN W11a).
+- **One palette for the clip**: ffmpeg's `palettegen` over every frame at
+  the canvas size, reduced to the DAC's six bits and sorted darkest first,
+  with **true black at index 0** whatever the clip holds (the two nearest
+  colours are merged to make room). Index 0 is what the screen round the
+  canvas shows and what a keyframe is written onto, so the bars are black
+  and a keyframe carries only what is not.
+- **An ordered dither in colour** (`--vga8-dither`, 24 RGB steps across the
+  8 × 8 Bayer map by default), through a 32 × 32 × 32 nearest-colour table
+  made once, and **stable**: a pixel keeps the colour on the screen while
+  it is within `--vga8-stable` (18) of the source in RGB distance, so noise
+  does not become bytes.
+- **The ranking weighs colour error**, not differing bits: a span that
+  fixes a far-off colour goes before one that nudges a near one.
+- **A frame record is capped at 30 KB** (`REC_MAX`), whatever the budgets
+  leave: it rides in a super-packet of 32 KB (98.1.4). A one-bit canvas is
+  16 KB at most and never met the cap; a VGA8 one is up to 64,000 bytes.
+  A keyframe is not in a super-packet and is bounded by its length word;
+  the encoder says when one is past the player's `VP_KMAXREC`.
+- **15 fps by default.** A byte a pixel doubles what a moving camera costs
+  against one bit: Trackmania at 320 × 150 needs ~500 KB/s at 30 fps and
+  ~250 at 15, and at 30 fps under 250 KB/s it left 311 of 360 frames cut,
+  17.6 KB a frame wrong, where 15 fps left 103 of 180 with 5.6 KB.
+- **Profile `286-vga`**: 400 KB/s and a decode share of 300% / 500% of the
+  wave 0 model's CGA period. On a 286 the VGA's bus binds, not the CPU -
+  the owner's 86Box mr286 stores 8,000 bytes to the VGA in 7.3 ms against
+  33.8 on the 5150 - and its IDE disk read 1,197 KB/s with nothing else
+  running and 627 with half of every period decoding
+  (`docs/reports/VIDEO-86BOX-286-2026-09-26.md`). An ST11R there read ~300,
+  so give it `--disk 250000`.
+
+`tests/videnc.py` question 9 holds the file to its target with no limits;
+`tests/vidvga8.py` (`vidvga8`, soak) is the player's gate on MartyPC's VGA.
+
+#### 98.2.4 Detail: less picture, the same screen
+
+**`--detail WxH`** (VGA8) makes the picture at a W-th of the canvas's width
+(1, 2 or 4) and an H-th of its height (1 or 2), and shows it at full size -
+the owner's ask, *"lower the effective resolution without lowering the real
+resolution ... full screen without smearing, but with less detail"*.
+- **The width by repetition**: the source is scaled and dithered at the
+  lower width and each pixel repeated W times. In Mode X a repeated pair is
+  one store under 03h or 0Ch and a repeated four one under 0Fh (98.1.3.1),
+  so W is a straight division of the bytes and the stores; in 13h it only
+  makes runs.
+- **The height by the CRTC**: the file's row scale (98.1.1, slot +36) is
+  2, the canvas has half the rows, and `vp_crtc` doubles the Maximum Scan
+  Line (3D4h index 9: 13h's and Mode X's 1 becomes 3) after the mode set,
+  so the mode shows 100 or 120 rows each twice as tall. The canvas is
+  fitted and centred in those rows. The Preview's poster shows each row
+  twice too (`vp_ph`), so it keeps the picture's shape.
+- **Measured**, Trackmania in Mode X at 30 fps under `286-vga`:
+
+  | detail | KB/s | frames exact | decode, mean / worst |
+  |---|---|---|---|
+  | 1 × 1 | 404 | 88 of 360 | 192% / 452% |
+  | 2 × 1 | 292 | 360 of 360 | 137% / 423% |
+  | 2 × 2 | 158 | 360 of 360 | 73% / 224% |
+  | 4 × 2 | 89 | 360 of 360 | 38% / 92% |
+
+  So one step of detail is the difference between smearing and not on this
+  clip, and the fourth line is under the ST-225's 60 KB/s video budget
+  once the sound is counted apart.
+- The row scale is VGA8's: a one-bit layout has no CRTC this player may
+  retime (the CGA's and the Hercules' are the kernel's), and nothing to
+  repeat a pixel into. `vidmodex2` is the gate; `videnc` checks a lossless
+  2 × 2 encode stores nothing but pairs and groups.
+
+#### 98.2.5 Sixteen colours from a video (`--pixfmt vga4`)
+
+**`--preset vga4` (320 × 240), `vga4-mid` (400 × 300) and `vga4-full`
+(640 × 480) are LIN80 at `--pixfmt vga4`** (98.1.3.2). The first two fit a
+window on a VGA desktop at their own size; the last is full screen.
+- **The dither is a PATTERN dither, Thomas Knoll's.** The sixteen colours
+  are 85 to 170 steps apart, and the ordered dither VGA8 uses shifts red,
+  green and blue together, so it only ever mixed greys: the sky and the
+  grass came out grey. Knoll's plan for a pixel is sixteen palette colours,
+  each the nearest to the target plus the error of those before it - so
+  their mean is the target - sorted by luma, and the 4 × 4 Bayer cell over
+  the pixel picks one. It is fixed by position, so a still picture keeps
+  its pattern.
+- **Stable by the source** (`--vga4-stable`, 24): a pixel keeps its colour
+  while its SOURCE has moved less than that since the colour was chosen. A
+  pattern's pick is not near its target, so VGA8's rule (the colour on the
+  screen near the source) never holds. Off, Trackmania at 320 × 180 is 383
+  KB/s with 134 of 360 frames cut; at 24 it is 254 with none; at 40, 226.
+- `EncoderP` builds the frames: the sub-records by 98.1.3.2's rule, done
+  with numpy, ranked by the colour error of the eight pixels a byte covers.
+  `videnc` checks a lossless VGA4 encode frame by frame.
+
+#### 98.2.6 CGA's colours from a video (`--pixfmt cga4`, `c160`)
+
+`--preset cga4` (320 x 200), `cga4-small` (160 x 100) and `c160` name their
+format as well as their box - a CGA-colour preset's layout alone would make
+a one-bit file of the same size.
+- **Both are 98.2.5's pattern dither** (`KnollDitherer`), over the sixteen
+  for C160 and over the file's four for CGA4, the indexes packed four or two
+  to the byte, the leftmost highest; the plain byte `Encoder` does the rest.
+- **CGA4's palette byte is PICKED** (`cga4_pick`): of the 96 - sixteen
+  backgrounds, three sets, two intensities - the one whose four colours are
+  nearest the clip's pixels on average, over a sample of every 24th of its
+  frames. `--cga-palette 0|1|2`, `--cga-bright 0|1` and `--cga-bg N` each fix
+  their part of the choice, and the rest is still picked. It is one byte for
+  the whole file (98.1.3.3).
+- `--preview-png` draws both in the colours the screen will.
+
+`videnc` checks both lossless, frame by frame, and CGA4's byte against the
+three overrides; `os88vid --selfcheck` round-trips both and refuses three
+bad files.
+
+#### 98.2.7 A resident or Live file from a video (`--resident`, `--live`)
+
+`--resident` writes the RESIDENT form (98.1.7) of what the encoder made: one
+rendition, its records one block, LZB-packed, the sound one PCM8 block (so
+`--audio adpcm4` is refused with it) - for a clip short enough to be read
+whole before it plays. The disk budget does not apply, since nothing is read
+while it plays; the CPU's does. 98.1.7's bounds are the encoder's refusal:
+a block past 60 KB packed or 128 KB unpacked is a clip too long for the
+form, and it says so.
+
+`--live cga|herc|vga` is `--resident` for LIVE (98.3.10): the canvas one-bit
+LIN80 at the named screen's own pixel shape - its box, with no `--box`,
+the logo's (320 x 112 on a CGA, 360 x 144 on a Hercules, 320 x 200 on a VGA)
+- and the target byte naming that screen, so the file plays on its desktop.
+One rendition: a file for every screen is `tools/os88logovid.py`'s shape,
+several encodes made into one, and the encoder does not make it.
+
+#### 98.2.8 The encoder's window — `tools/os88vencgui.py`
+
+**The same encoder with a window on it** (VIDEO-PLAN 14.2, E1-E4), on
+`tools/os88proxygui.py`'s rule: it imports `os88venc` and reimplements none
+of it. The form is DERIVED from `os88venc.parser()` - every option on a
+tab (Basic, Picture, Colour, Sound, Budget, Loop and keys, Advanced) with
+its own help as the tooltip - so an option added to the encoder is in the
+window with no work, and one without help fails the gate. A value left at
+its default is left off the command line, so the encoder's own defaulting
+still happens. What the window adds:
+- **Made for**: a target machine and screen, which sets the preset, the
+  pixel format and the storage profile together.
+- **ffprobe's answer** about the source, and the defaults it implies - no
+  sound when it has none, its name as the title.
+- **A scrubber over the ENCODED frames as the screen shows them**: the
+  file decoded and each frame drawn at its pixel aspect in the adapter's
+  colours - CGA4's palette, the sixteen, a VGA8 file's own, composite
+  through `os88cgacomp`'s monitor model, one bit as one bit.
+- **Make a disk**: the .V88 and, when `build/` has it, `VIDEO.O88` on a
+  floppy image of any of the four sizes.
+
+Tk is imported softly, so `tests/vencguitest.py` (`vencgui`) checks all of
+it with no display: every option on a tab with a tooltip, the untouched
+form parsing to the parser's defaults, every target encoding to the format
+it names, every preview at its screen's shape, and the disk.
+
 ### 98.3 The player — `VIDEO.O88`, fullscreen (waves 3 to 6)
 
 Package **`VIDEO.O88`**, header name `'Video Player'`, label prefix `vp_`
@@ -150326,361 +150684,3 @@ byte's; a C160 pixel is drawn TWO wide, so the picture keeps its shape on a
 halved from there as any one-bit picture is. `cga4_mono` and `c160_mono` in
 `tools/os88vid.py` are the reference, and `vidcga4`/`vidc160` hold the
 player to them byte for byte.
-
-### 98.2 The host tools — `tools/os88vid.py`
-
-| command | what it does |
-|---|---|
-| `import IN.XDV OUT.V88 [--target cga\|herc\|lin80] [--audio pcm8\|adpcm4]` | an XDC stream, EXACTLY: every frame's writes re-expressed as lists (`verify --against` proves it frame by frame). CGA is the XDV's own layout; `--target` re-lays the canvas out for another surface by simulating the stream and re-encoding it, so it plays natively there. `--audio adpcm4` re-encodes the sound (98.1.1.1), and `verify --against` then compares it with the XDC sound encoded the same way |
-| `encode FRAME... OUT.V88 --fps F [--wav W] [--layout L] [--audio pcm8\|adpcm4]` | the minimal encoder: lossless, from PBM, PGM or BMP frames and an 8-bit or 16-bit WAV. The budgets are `os88venc.py`'s (98.2.1) |
-| `info FILE.V88` | the header, the rendition, and the stream's rate and modelled CPU |
-| `decode FILE.V88 --frame N --png OUT.png` | the canvas after frame N, through the keyframe at or before it |
-| `verify FILE.V88 [--against IN.XDV]` | every field of 98.1.6, every super-packet and record, every keyframe against the running canvas, and with `--against`, every frame against XDC's screen |
-| `--selfcheck` | generated fixtures through `encode` and `verify` in all three layouts, and a corrupted file that `verify` must refuse |
-
-`tests/vidfmt.py` is the gate (a `soak` row). It runs `--selfcheck`, then
-imports and verifies the owner's samples when `$OS88_XDC_SAMPLES` names
-them. Those samples are not in the tree.
-
-#### 98.2.1 The encoder front end — `tools/os88venc.py` (wave 8)
-
-```
-python3 tools/os88venc.py IN OUT.V88 [--preset P | --layout L --box WxH]
-    [--fit fit|fill|stretch] [--start S] [--end S] [--fps F]
-    [--profile R] [--disk B/s] [--avg F] [--peak F]
-    [--audio pcm8|adpcm4|none] [--rate HZ] [--volume V]
-    [--adpcm search|greedy] [--jobs N]
-    [--pixfmt mono|cgacomp] [--comp-dither diffuse|pattern]
-    [--comp-stable E] [--comp-quick] [--mix F] [--levels-mix 4|16]
-    [--dither bayer|bluenoise|threshold] [--stable N] [--clip N]
-    [--levels auto|none] [--gamma G] [--contrast C] [--brightness B]
-    [--invert] [--title T] [--credits C] [--keysecs S]
-    [--poster K | --poster-at SECS] [--preview-png DIR]
-python3 tools/os88venc.py --profiles
-```
-
-**Any video ffmpeg reads, to a file the player plays.** ffmpeg and numpy are
-needed for this and for nothing else in the tree; the `videnc` row SKIPS
-without them (`ffmpeg` capability).
-
-- **The canvas is the source's DISPLAYED shape** in the preset's box. A
-  layout's pixels are not square (98.1.2's aspect: CGA 5:12, Hercules 29:45),
-  so `fit` (the default) sizes the canvas to the source's aspect *on that
-  screen* and never pads it: a 16:9 clip in Hercules' 400 x 200 box is
-  400 x 145, not 400 x 200 with bars, because a bar is screen the canvas
-  does not need. `fill` crops the source to the box instead, `stretch`
-  distorts it. The width is whole bytes.
-
-| preset | layout | box |
-|---|---|---|
-| `cga` / `cga-small` | CGA | 640 x 200 / 320 x 100 |
-| `herc` / `herc-mid` / `herc-full` | HERC | 400 x 200 / 480 x 232 / 720 x 348 |
-| `vga` / `vga-mid` / `vga-full` | LIN80 | 320 x 240 / 400 x 300 / 640 x 480 |
-| `live-cga` / `live-herc` / `live-vga` | CGA / HERC / LIN80 | 320 x 100 / 240 x 116 / 160 x 120, VIDEO-PLAN 3.4's |
-
-- **The frame rate is one the audio divides**: samples per frame is the
-  rate over the fps, rounded, and ffmpeg resamples the picture to *rate /
-  samples* exactly, so the picture and the sound never drift.
-- **Grey levels are stretched** (`--levels auto`) to the 1st..99th
-  percentile the clip actually uses, measured over a frame a second: one bit
-  a pixel has no contrast to spare.
-- **The dither is ORDERED and anchored to the canvas**, so a still area
-  dithers the same way every frame and costs nothing. A pixel within
-  `--stable` grey levels (default 6) of its threshold keeps the value it had,
-  so a source's own noise does not flip it. `bayer` (8 x 8, the default)
-  runs and repeats best; `threshold` suits a clip that is black and white
-  already (6% smaller than Bayer on Bad Apple); `bluenoise` (void and
-  cluster, 64 x 64) has no pattern, at ~8% more data.
-- **The ends are solid** (`--clip`, default 16). The threshold map spans
-  grey 16..239 rather than 0..255: spread over the whole range its lowest
-  cell sat at 2 and its highest at 253, so the black an MP4 delivers as 3
-  lit ONE dot in every 8 x 8 tile and a white of 252 darkened one - an even
-  grid over every flat area of Bad Apple (the owner's report; 3,222 isolated
-  pixels a frame on 30 s of it, 46 with the ends solid).
-- **The poster** is the first keyframe that is not one flat value (98.1.3),
-  or `--poster K`, or `--poster-at SECS` - the keyframe NEAREST that moment
-  of the clip. It only chooses the picture in the box: the player opens at
-  frame 0 whatever it is (98.4).
-- **The profile is the machine** (VIDEO-PLAN 3.2). Two token buckets,
-  started half full (the player fills its ring before the first frame): the
-  DISK's, at the profile's bytes a second (less 1% for a super-packet's
-  padding) less the audio's, and the CPU's, at the profile's average share
-  of a frame period less the interrupt's audio copy; and a per-frame
-  CEILING. `--disk`, `--avg` and `--peak` override them. The CPU's bucket
-  is one second deep. **The disk's is one second or 96 KB, whichever is
-  less** (`DISK_LOOKAHEAD`, three of the ring's 32 KB slots): what it banks
-  is what the player has read ahead, and the ring is 2 to 8 slots. At a
-  5150's 60 KB/s one second is under the ring, and it was never seen; at
-  `286-vga`'s 400 KB/s a second is two to four rings, the stream spent a
-  surplus the player could not hold, and the owner's 30 fps Trackmania
-  stalled twice a second in.
-
-| profile | disk | CPU average / ceiling | audio | status |
-|---|---|---|---|---|
-| `5150-st225` (default) | 60,000 B/s | 50% / 85% | PCM8 11,025 Hz | the owner's machine |
-| `5150-picomem2` | 150,000 | 40% / 80% | PCM8 22,050 | predicted |
-| `floppy` | 15,000 | 50% / 85% | PCM8 5,512 | predicted |
-| `286` | 150,000 | 150% / 250% of an 8088's | PCM8 22,050 | predicted |
-| `286-vga` | 400,000 | 300% / 500% of an 8088's | PCM8 22,050 | the owner's 86Box 286 (98.2.3) |
-| `lossless` | none | none | PCM8 22,050 | every change |
-
-- **A frame that fits is exact.** One that does not commits its changed
-  spans best first - pixels fixed per unit of whichever budget is scarcer,
-  a pixel wrong for *n* frames weighing 1 + *n*/8 - until the budget is
-  spent; the rest is still wrong next frame and competes again. The spans'
-  cost is estimated per span from wave 0's model, then **the record is
-  priced as built** (`cycles_of`) and the frame chosen again with the
-  estimate scaled down if it came out over. So the ceiling is kept on the
-  model's own reading, not on its estimate.
-- **Keyframes are the SCREEN, not the target**: a seek shows exactly what a
-  play would at that frame.
-- **ADPCM4 is SEARCHED, not chosen a nibble at a time** (`--adpcm
-  search`, the default; 98.1.1.1). A Viterbi pass over the decoder's 1,024
-  states - a sample and a scale of 0, 16, 32 or 48 - with the scale held
-  to 0 at every keyframe's frame *k*+1 as the greedy encoder holds it. A
-  decision is committed once every live state's survivor agrees, so the
-  memory is a window. On `--jobs` cores (default all) the sound is cut into
-  segments, each searched from 4,096 samples BEFORE its cut starting from
-  any state, and stitched at the latest sample where the two paths' STATES
-  agree - the best way into that state and the best way on from it, which
-  is the whole search's path. `videnc` asserts the stitched result is
-  BYTE-IDENTICAL to one whole search. About real time on four cores. A step
-  that would clamp at 0 or 255 is not taken, so every stream decodes by the
-  card's own arithmetic.
-
-#### 98.2.2 Composite colour from a video (`--pixfmt cgacomp`)
-
-**What a composite monitor shows is COMPUTED, not remembered.**
-`tools/os88cgacomp.py` is Andrew Jenner's (reenigne's) sampled
-chroma-multiplexer model, ported from MartyPC's
-`marty_videocard_renderer/src/composite_new.rs` - the algorithm MartyPC,
-86Box and DOSBox all use - at MartyPC's default monitor settings, for the
-mode the player sets (3D8h = 1Ah, 98.3.3) and the BIOS's colour register (a
-lit pixel is RGBI 15). Its 16 nibbles are the classic composite palette, and
-`videnc` holds them to it:
-
-| nibble | colour | nibble | colour |
-|---|---|---|---|
-| 0000 | black | 1000 | olive (74, 73, 0) |
-| 0001 | dark green (0, 99, 25) | 1001 | green (63, 184, 0) |
-| 0010 | dark blue (39, 40, 188) | 1010 | grey (113) |
-| 0011 | sky blue (17, 153, 222) | 1011 | light green (98, 237, 133) |
-| 0100 | purple-red (129, 13, 86) | 1100 | orange (222, 87, 18) |
-| 0101 | grey (112) | 1101 | yellow (212, 198, 29) |
-| 0110 | violet (176, 56, 255) | 1110 | pink (255, 130, 234) |
-| 0111 | lilac (155, 168, 255) | 1111 | white |
-
-**A cell is four hi-res pixels**, so a 640-wide canvas is 160 cells a row,
-two to a byte, the left one in the high nibble - what a 4-pixel nibble on a
-nibble boundary shows is that colour (the canvas's x is on a byte, so the
-phase is the model's). ffmpeg scales the source to the CELLS in RGB.
-
-**The default is ERROR DIFFUSION THROUGH THE MODEL** (`--comp-dither
-diffuse`), which is what XDC's own composite streams turn out to be: the
-owner's two Big Buck Bunny XDVs, their bytes rendered through this model,
-are smooth colour with full-width detail, where the first version of this
-- a flat palette and an ordered pattern - read as flat colour with
-fringes. The target is the frame at FULL hi-res width (a composite
-monitor's luma has it; only colour is a quarter), and each cell's nibble is
-chosen by what its four pixels LOOK like beside its neighbours
-(`os88cgacomp.cell_lut`, all 4,096 left-cell-right triples rendered once),
-against the target plus the error carried to it - Floyd-Steinberg over
-cells, 7/16 right and 3, 5 and 1/16 below. A cell waits for its left
-neighbour and the three above, so every cell with *g* + 2*y* = *s* is
-decided at step *s*: a vectorised wavefront.
-- **One cell of lookahead**: a cell's pixels depend on its right neighbour
-  too, so each candidate is weighed with the neighbour that suits it best.
-  A picture rendered from known nibbles comes back 93.7% exact with it and
-  84.8% without (`videnc`, which fails at the lower), and Trackmania costs
-  **59 KB/s** of picture with no limits against 76 - the better choice is
-  the stabler one. It is ~1 s a frame, so frames go to every core in
-  5-second chunks, each starting its dead band afresh; `--comp-quick`
-  drops the lookahead, ~5x faster.
-- **The dead band carries it.** Error diffusion is chaotic in TIME - one
-  changed cell reflows every choice after it - so with none Trackmania is
-  333 KB/s. A cell keeps last frame's nibble when that costs at most
-  `--comp-stable` (default 50,000, in the model's weighted squared error
-  over the cell) more than the best: 76 KB/s at that and no lookahead, and
-  under the ST-225 budget **131 of 360 frames exact against 44 at 20,000**,
-  with less smear in fast motion.
-- `--comp-dither pattern` is the first version, kept: Knoll's pattern
-  dither over the 16 flat colours (`--mix`, `--levels-mix 4|16`), cheap and
-  calm, and blind to the fringes.
-
-**Under the ST-225 budget** Trackmania 3-15 s at 640 x 150 plays **294 of
-360 frames exact** (the pattern dither managed 42), 64 KB/s with ADPCM4
-sound, every frame on time on MartyPC's CGA with the burst set. XDC's Big
-Buck Bunny is 640 x 200 composite at 60 Hz: in our format **73 KB/s** of
-picture for the full version and **33 KB/s** for the one it made for a 32
-MB RLL disk, which *"maintains 15 FPS on average, bursting up to 60"* - the
-same trade, cut to fit, that the budgeted encoder makes. The preview PNGs
-(`--preview-png`) are rendered through the model, so they show what the
-monitor would.
-
-It prints what it made: the canvas, the rate, KB/s split video and audio,
-the model's CPU mean and worst frame with the audio copy in, how many frames
-were exact and how many cut, and what the keyframes cost. `tests/videnc.py`
-(`videnc`, soak) is the gate.
-
-#### 98.2.3 256 colours from a video (`--pixfmt vga8`)
-
-**`--preset vga8` (320 × 200) and `vga8-small` (160 × 100) are LIN320**,
-**`modex` (320 × 240) and `modex-small` (160 × 120) are MODEX**, and
-`--pixfmt vga8` is what those layouts imply. Mode X's pixels are square, so
-16:9 is 320 × 180 there against 13h's 320 × 150 - Trackmania at 15 fps
-under `286-vga` is 347 KB/s with 146 of 180 frames exact. Its frames are
-built by `EncoderX`: the candidates are the five sub-records' spans
-(98.1.3.1), ranked by the colour error of every pixel a span covers. What differs from one bit a
-pixel is the palette and the dither; the budgets, the ranking and the
-measured retry are the same code (VIDEO-PLAN W11a).
-- **One palette for the clip**: ffmpeg's `palettegen` over every frame at
-  the canvas size, reduced to the DAC's six bits and sorted darkest first,
-  with **true black at index 0** whatever the clip holds (the two nearest
-  colours are merged to make room). Index 0 is what the screen round the
-  canvas shows and what a keyframe is written onto, so the bars are black
-  and a keyframe carries only what is not.
-- **An ordered dither in colour** (`--vga8-dither`, 24 RGB steps across the
-  8 × 8 Bayer map by default), through a 32 × 32 × 32 nearest-colour table
-  made once, and **stable**: a pixel keeps the colour on the screen while
-  it is within `--vga8-stable` (18) of the source in RGB distance, so noise
-  does not become bytes.
-- **The ranking weighs colour error**, not differing bits: a span that
-  fixes a far-off colour goes before one that nudges a near one.
-- **A frame record is capped at 30 KB** (`REC_MAX`), whatever the budgets
-  leave: it rides in a super-packet of 32 KB (98.1.4). A one-bit canvas is
-  16 KB at most and never met the cap; a VGA8 one is up to 64,000 bytes.
-  A keyframe is not in a super-packet and is bounded by its length word;
-  the encoder says when one is past the player's `VP_KMAXREC`.
-- **15 fps by default.** A byte a pixel doubles what a moving camera costs
-  against one bit: Trackmania at 320 × 150 needs ~500 KB/s at 30 fps and
-  ~250 at 15, and at 30 fps under 250 KB/s it left 311 of 360 frames cut,
-  17.6 KB a frame wrong, where 15 fps left 103 of 180 with 5.6 KB.
-- **Profile `286-vga`**: 400 KB/s and a decode share of 300% / 500% of the
-  wave 0 model's CGA period. On a 286 the VGA's bus binds, not the CPU -
-  the owner's 86Box mr286 stores 8,000 bytes to the VGA in 7.3 ms against
-  33.8 on the 5150 - and its IDE disk read 1,197 KB/s with nothing else
-  running and 627 with half of every period decoding
-  (`docs/reports/VIDEO-86BOX-286-2026-09-26.md`). An ST11R there read ~300,
-  so give it `--disk 250000`.
-
-`tests/videnc.py` question 9 holds the file to its target with no limits;
-`tests/vidvga8.py` (`vidvga8`, soak) is the player's gate on MartyPC's VGA.
-
-#### 98.2.4 Detail: less picture, the same screen
-
-**`--detail WxH`** (VGA8) makes the picture at a W-th of the canvas's width
-(1, 2 or 4) and an H-th of its height (1 or 2), and shows it at full size -
-the owner's ask, *"lower the effective resolution without lowering the real
-resolution ... full screen without smearing, but with less detail"*.
-- **The width by repetition**: the source is scaled and dithered at the
-  lower width and each pixel repeated W times. In Mode X a repeated pair is
-  one store under 03h or 0Ch and a repeated four one under 0Fh (98.1.3.1),
-  so W is a straight division of the bytes and the stores; in 13h it only
-  makes runs.
-- **The height by the CRTC**: the file's row scale (98.1.1, slot +36) is
-  2, the canvas has half the rows, and `vp_crtc` doubles the Maximum Scan
-  Line (3D4h index 9: 13h's and Mode X's 1 becomes 3) after the mode set,
-  so the mode shows 100 or 120 rows each twice as tall. The canvas is
-  fitted and centred in those rows. The Preview's poster shows each row
-  twice too (`vp_ph`), so it keeps the picture's shape.
-- **Measured**, Trackmania in Mode X at 30 fps under `286-vga`:
-
-  | detail | KB/s | frames exact | decode, mean / worst |
-  |---|---|---|---|
-  | 1 × 1 | 404 | 88 of 360 | 192% / 452% |
-  | 2 × 1 | 292 | 360 of 360 | 137% / 423% |
-  | 2 × 2 | 158 | 360 of 360 | 73% / 224% |
-  | 4 × 2 | 89 | 360 of 360 | 38% / 92% |
-
-  So one step of detail is the difference between smearing and not on this
-  clip, and the fourth line is under the ST-225's 60 KB/s video budget
-  once the sound is counted apart.
-- The row scale is VGA8's: a one-bit layout has no CRTC this player may
-  retime (the CGA's and the Hercules' are the kernel's), and nothing to
-  repeat a pixel into. `vidmodex2` is the gate; `videnc` checks a lossless
-  2 × 2 encode stores nothing but pairs and groups.
-
-#### 98.2.5 Sixteen colours from a video (`--pixfmt vga4`)
-
-**`--preset vga4` (320 × 240), `vga4-mid` (400 × 300) and `vga4-full`
-(640 × 480) are LIN80 at `--pixfmt vga4`** (98.1.3.2). The first two fit a
-window on a VGA desktop at their own size; the last is full screen.
-- **The dither is a PATTERN dither, Thomas Knoll's.** The sixteen colours
-  are 85 to 170 steps apart, and the ordered dither VGA8 uses shifts red,
-  green and blue together, so it only ever mixed greys: the sky and the
-  grass came out grey. Knoll's plan for a pixel is sixteen palette colours,
-  each the nearest to the target plus the error of those before it - so
-  their mean is the target - sorted by luma, and the 4 × 4 Bayer cell over
-  the pixel picks one. It is fixed by position, so a still picture keeps
-  its pattern.
-- **Stable by the source** (`--vga4-stable`, 24): a pixel keeps its colour
-  while its SOURCE has moved less than that since the colour was chosen. A
-  pattern's pick is not near its target, so VGA8's rule (the colour on the
-  screen near the source) never holds. Off, Trackmania at 320 × 180 is 383
-  KB/s with 134 of 360 frames cut; at 24 it is 254 with none; at 40, 226.
-- `EncoderP` builds the frames: the sub-records by 98.1.3.2's rule, done
-  with numpy, ranked by the colour error of the eight pixels a byte covers.
-  `videnc` checks a lossless VGA4 encode frame by frame.
-
-#### 98.2.6 CGA's colours from a video (`--pixfmt cga4`, `c160`)
-
-`--preset cga4` (320 x 200), `cga4-small` (160 x 100) and `c160` name their
-format as well as their box - a CGA-colour preset's layout alone would make
-a one-bit file of the same size.
-- **Both are 98.2.5's pattern dither** (`KnollDitherer`), over the sixteen
-  for C160 and over the file's four for CGA4, the indexes packed four or two
-  to the byte, the leftmost highest; the plain byte `Encoder` does the rest.
-- **CGA4's palette byte is PICKED** (`cga4_pick`): of the 96 - sixteen
-  backgrounds, three sets, two intensities - the one whose four colours are
-  nearest the clip's pixels on average, over a sample of every 24th of its
-  frames. `--cga-palette 0|1|2`, `--cga-bright 0|1` and `--cga-bg N` each fix
-  their part of the choice, and the rest is still picked. It is one byte for
-  the whole file (98.1.3.3).
-- `--preview-png` draws both in the colours the screen will.
-
-`videnc` checks both lossless, frame by frame, and CGA4's byte against the
-three overrides; `os88vid --selfcheck` round-trips both and refuses three
-bad files.
-
-#### 98.2.7 A resident or Live file from a video (`--resident`, `--live`)
-
-`--resident` writes the RESIDENT form (98.1.7) of what the encoder made: one
-rendition, its records one block, LZB-packed, the sound one PCM8 block (so
-`--audio adpcm4` is refused with it) - for a clip short enough to be read
-whole before it plays. The disk budget does not apply, since nothing is read
-while it plays; the CPU's does. 98.1.7's bounds are the encoder's refusal:
-a block past 60 KB packed or 128 KB unpacked is a clip too long for the
-form, and it says so.
-
-`--live cga|herc|vga` is `--resident` for LIVE (98.3.10): the canvas one-bit
-LIN80 at the named screen's own pixel shape - its box, with no `--box`,
-the logo's (320 x 112 on a CGA, 360 x 144 on a Hercules, 320 x 200 on a VGA)
-- and the target byte naming that screen, so the file plays on its desktop.
-One rendition: a file for every screen is `tools/os88logovid.py`'s shape,
-several encodes made into one, and the encoder does not make it.
-
-#### 98.2.8 The encoder's window — `tools/os88vencgui.py`
-
-**The same encoder with a window on it** (VIDEO-PLAN 14.2, E1-E4), on
-`tools/os88proxygui.py`'s rule: it imports `os88venc` and reimplements none
-of it. The form is DERIVED from `os88venc.parser()` - every option on a
-tab (Basic, Picture, Colour, Sound, Budget, Loop and keys, Advanced) with
-its own help as the tooltip - so an option added to the encoder is in the
-window with no work, and one without help fails the gate. A value left at
-its default is left off the command line, so the encoder's own defaulting
-still happens. What the window adds:
-- **Made for**: a target machine and screen, which sets the preset, the
-  pixel format and the storage profile together.
-- **ffprobe's answer** about the source, and the defaults it implies - no
-  sound when it has none, its name as the title.
-- **A scrubber over the ENCODED frames as the screen shows them**: the
-  file decoded and each frame drawn at its pixel aspect in the adapter's
-  colours - CGA4's palette, the sixteen, a VGA8 file's own, composite
-  through `os88cgacomp`'s monitor model, one bit as one bit.
-- **Make a disk**: the .V88 and, when `build/` has it, `VIDEO.O88` on a
-  floppy image of any of the four sizes.
-
-Tk is imported softly, so `tests/vencguitest.py` (`vencgui`) checks all of
-it with no display: every option on a tab with a tooltip, the untouched
-form parsing to the parser's defaults, every target encoding to the format
-it names, every preview at its screen's shape, and the disk.
