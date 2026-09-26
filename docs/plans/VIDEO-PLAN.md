@@ -1563,7 +1563,7 @@ of the round (14.9).
 ### 14.9 What the round left, and why
 
 **Every item of 14.2 is built** (14.8). What is not, each by a decision on
-the record:
+the record - and section 15 says what each would NEED:
 - **Live fed from the disk** - DROPPED by the owner's own rule (V2): a read
   holds the picture ~100 ms, which cannot look smooth, and the only cure is
   kernel work.
@@ -1587,3 +1587,114 @@ a resident file or more live windows (V4), for the machines that have it.
 and the real-hardware checks - the logo on all three screens, CGA4 and
 C160 on a real CGA (snow is accepted, C2), and the page-flipping files on
 a real screen.
+
+## 15. What is outstanding, and what each would need
+
+Written at the end of the 2026-09-26 round, for whoever picks an item up.
+Ordered cheapest first. None of it is started unless it says so.
+
+### 15.1 Live with sound - IN PROGRESS (the owner asked for it next)
+
+Medium, package-only, no kernel change. In a bracket the Sound Blaster is
+the clock and the player feeds it from the bracket's rate hook; a Live play
+has no bracket, so nothing feeds the card and the worker paces frames by
+PIT counts. What it needs:
+- **The worker feeds `SOUND.DRV`**, as Tracker's worker does (`trk_feed`,
+  which takes no lock) - the precedent that a worker may.
+- **The sound is already in memory**: a Live file is resident, so a frame's
+  sound is copied out of the audio block (98.1.7) - no disk.
+- **The card becomes the clock**: frames paced by what the card has
+  consumed rather than by PIT counts, or picture and sound drift.
+- **The ring holds several ticks**: the worker runs once a tick (55 ms).
+- **Pause, F both ways and the seam keep the stream whole**; the bracket
+  side already knows how to take over a running stream.
+- **The encoder and the format stop refusing** sound on a LIVE file, and a
+  gate captures the sound the way `vidsndres` does.
+- **Gated by an assembly knob** so it can be built out if it costs too many
+  bytes (the owner: not shipped at once if it grows the package a lot).
+
+### 15.2 Live in colour (V3)
+
+Medium, package-only, VGA desktop only.
+- A VGA4 file decodes into four bit-planes. **`OSAPI_GFX_BLITP` takes planes
+  as they are** - a `rep movsb` per plane per row, the cheapest colour blit
+  there is - so an uncovered window is nearly free.
+- **But `GFX_BLITP` refuses under an armed clip region**, and Live clips to
+  what is visible. So a covered window needs the fallback its contract names:
+  repack the changed rows to packed nibbles for `OSAPI_GFX_BLIT4`. That is
+  CPU per pixel, but Live colour is only on VGA, in practice a 286 or more.
+- The format's check (Live is MONO1 today), `vp_canlive` and a colour
+  branch in `vp_lblit`; the encoder's `--live` taking `--pixfmt vga4`.
+- On a CGA or Hercules desktop a colour file stays non-Live.
+
+### 15.3 The About box's link (L8)
+
+Small, but a kernel-byte question. A link in the system About box that
+opens `MEDIA\OS8088.V88` (and `OS8088.GIF`) through the association, as a
+double-click would - greyed with the reason when the boot volume has not
+got the file (the 360KB system disk). If the About box is already in an
+on-demand module the link is nearly free; if it is resident, it belongs in
+one (CLAUDE.md's module rule). Not yet looked at which.
+
+### 15.4 Longer resident and Live clips
+
+Found making the ST11R demo disk: **an ENCODED Live clip is about four
+seconds**. 98.1.7 bounds a block at 60 KB packed because `vp_rload` reads it
+in ONE `READ_AT`; eight seconds of Bad Apple at 30 fps packed to 88-140 KB
+and was refused, and 15 fps and four seconds fit. What would lift it:
+- **Read the packed block in chunks** - `vp_rload` looping `READ_AT` over
+  cluster-sized reads into the top of the claim - which takes the packed
+  bound to the unpacked one (<128 KB) at no format change.
+- Past 128 KB unpacked the block is two segments, and the cursor
+  (`vp_rnext`) would have to cross one - a larger change.
+- The logo is not affected: it was drawn small for this.
+
+### 15.5 Live fed from the disk (V2) - DROPPED
+
+Large, and dropped by the owner's rule. A worker may not touch a file
+(SPEC.md 20.6 rule 7), so the reads would be the UI task's on the worker's
+request (FTPD's `OSAPI_WM_ONWAKE` handshake) - and `dsk_xfer` holds the
+scheduler lock for every transfer (UI-FREEZE-PLAN 1), so the worker cannot
+draw while one is in flight: a ~100 ms hold a read on a hard disk, more on
+a floppy. The cure is a transfer that lets other tasks run through the DMA
+wait (UI-FREEZE-PLAN 4), which is kernel work and ends the "nothing happens
+during disk I/O" consistency model the copy code rests on. A large
+read-ahead only makes the holds rarer, not invisible.
+
+### 15.6 Future items the owner named (14.7)
+
+- **PCM through the PC speaker** (Scali's XDC addition, first): the speaker
+  has no buffer, so it is an interrupt a SAMPLE - thousands a second - run
+  by the player inside its bracket, where it owns the machine; the kernel
+  only grants the rate, which `FSXF_RATE` may already cover. The cost is
+  CPU taken from the decode budget on a 4.77 MHz 8088, so the encoder's
+  profiles want a speaker-sound variant.
+- **Sound Blaster 1.0 and 1.5**: DSPs before 2.00 have no auto-init DMA, so
+  `SOUND.DRV` restarts a single-cycle transfer each interrupt, and their
+  ADPCM commands differ from 2.00's `7Dh`. Driver work; wants the SB 1.x
+  86Box machine (14.6) to test on.
+- **An optimisation pass**, speed then bytes: profile a play on MartyPC -
+  the decoder, the shadow copy and the Live blit are the likely heads.
+- **XMS** (V4): a resident block, or more Live windows, in extended memory
+  through `XMEM.DRV`, a frame's records moved in as needed; costs a move a
+  frame and a fallback without it.
+
+### 15.7 Loose ends
+
+- **The old field disks carry stale ADPCM4 files.** `TRONDA4` and `BBBBA4`
+  on `VIDHERC-*.VHD`/`VIDCGA-*.VHD` were imported before the keyframe
+  reference byte (wave 6) and fail today's `verify` ("0 bytes follow the
+  lists, not 1"). `make vidfieldhd XDCSAMPLES=...` rebuilds them.
+- **The ST11R demo disk has no make target.** It was made by hand from the
+  owner's uploads (build/demo/encode.sh, never committed, like the videos).
+  A `make viddemohd` taking a directory of sources would make it
+  repeatable, on the `videnchd` pattern.
+- **A key pressed while a bracket is tearing down can be lost.**
+  `vidpreview` met it: an Esc sent the moment the player reports it is out
+  of the bracket went with the bracket's input one run in fifty under load.
+  The harness resends; whether a person can meet it is unexamined.
+- **MartyPC's VGA draws text attribute 6 red**, not brown (98.3.12); a real
+  VGA and MartyPC's own CGA draw brown. An emulator defect, recorded so no
+  one "fixes" C160's palette for it.
+- **The encoder window was driven only under Xvfb** on a Tk that had to be
+  installed for it; it has not met a Windows or macOS Tk.
