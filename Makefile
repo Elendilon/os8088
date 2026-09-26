@@ -3157,6 +3157,21 @@ APPDATAFOLDER := --folder SYSTEM/APPDATA
 SYSLOGO := $(BUILD)/OS8088.GIF
 SYSLOGOARG := MEDIA:$(SYSLOGO)
 
+# ...and the logo VIDEO (VIDEO-PLAN 14.3, SPEC.md 98.3.10): a LIVE resident
+# file, a rendition per screen, that plays on the desktop and repeats. It is
+# COMMITTED rather than generated, which is the opposite of OS8088.GIF and
+# for a reason of its own: tools/os88logovid.py needs numpy, and a build
+# dependency for a file that changes when somebody redraws the logo is the
+# wrong trade (VIDEO-PLAN 14.7). Re-run that tool by hand; tests/vidlogo.py is
+# the gate. It rides MEDIA/ with VIDEO.O88 beside it in APPS/ on the system
+# disks of 720KB and up and on the live media, so every such boot volume
+# has something to play it with - and NEVER the 360KB system disk, the owner's
+# decision (VIDEO-PLAN 14.7, L8), which is a geometry with 7 clusters spare.
+# At 360KB it is on the MEDIA disk instead, and VIDEO.O88 on the apps disk.
+LOGOVID := apps/video/os8088.v88
+LOGOVIDARG := MEDIA:$(LOGOVID)
+SYSVIDARGS := $(LOGOVIDARG) APPS:$(BUILD)/video.o88
+
 $(SYSLOGO): tools/os88logo.py | $(BUILD)
 	python3 tools/os88logo.py -o $@
 
@@ -4000,11 +4015,11 @@ $(BUILD)/os88net.com: drivers/net/os88sfx.asm $(BUILD)/os88net.lz \
 	$(NASM) -f bin -w+error -I $(BUILD)/ -o $@ $<
 	@echo "os88net.com: $(call FILESIZE,$@) bytes packed - self-extracting, runs on DOS"
 
-$(IMG): $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) tools/os88disk.py
+$(IMG): $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(LOGOVID) $(BUILD)/video.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(BUILD)/boot.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
-		$(APPDATAFOLDER)
+		$(SYSVIDARGS) $(APPDATAFOLDER)
 
 # The 720KB 3.5" DD disk (SPEC.md 19). It is the geometry the machines
 # BETWEEN the two shipped ones have: an XT or AT fitted with a 3.5" DD drive,
@@ -4015,11 +4030,11 @@ $(IMG): $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPP
 #
 # Same boot sector as the 360KB disk (see boot360.bin above): 9 spt, 2 heads,
 # 80 cylinders instead of 40, and the boot sector never counts cylinders.
-$(IMG720): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) tools/os88disk.py
+$(IMG720): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(LOGOVID) $(BUILD)/video.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 720 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
-		$(APPDATAFOLDER)
+		$(SYSVIDARGS) $(APPDATAFOLDER)
 
 # The 1.2MB 5.25" HD disk (SPEC.md 19). The geometry of the machine the 720KB
 # note above describes from the other side: an AT-class box - 286 and up, or a
@@ -4042,11 +4057,11 @@ $(IMG720): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(C
 # Its OWN boot sector, unlike the pair above it: 15 spt is a different track
 # shape, and boot/boot.asm's whole knowledge of a disk is SPT and HEADS. See
 # build/boot120.bin's rule for why that is three sectors and not four.
-$(IMG120): $(BUILD)/boot120.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) tools/os88disk.py
+$(IMG120): $(BUILD)/boot120.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(LOGOVID) $(BUILD)/video.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1200 \
 		--boot $(BUILD)/boot120.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
-		$(APPDATAFOLDER)
+		$(SYSVIDARGS) $(APPDATAFOLDER)
 
 # ETHERTEST - the system disk with a SYSTEM.CFG that already asks for the
 # Ethernet driver (SPEC.md 72.9). Nothing is ticked by hand, which is what
@@ -11732,7 +11747,7 @@ APPS360 := $(APPS_TOOLS_360) $(APPS_GAMES_360) $(APPS_DATA_360) $(APPS_SYS) $(AP
 # for the packages that followed it.
 APPSARGS := $(addprefix APPS:,$(APPS_TOOLS)) \
             $(addprefix GAMES:,$(APPS_GAMES)) \
-            $(addprefix MEDIA:,$(APPS_DATA)) \
+            $(addprefix MEDIA:,$(APPS_DATA)) $(LOGOVIDARG) \
             $(APPSYSARGS) \
             $(addprefix SYSTEM/DOS:,$(APPS_DOS)) \
             $(APPDATAFOLDER)
@@ -11764,15 +11779,15 @@ APPSARGS360 := $(addprefix APPS:,$(APPS_TOOLS_360)) \
 # is in the folder the Open dialog already opens on whichever disk is in the
 # drive (SPEC.md 38.10) - a user who swaps disks should not have to know that
 # this one keeps its module somewhere else.
-MEDIAARGS360 := $(addprefix MEDIA:,$(MEDIA_DISK_DATA))
+MEDIAARGS360 := $(addprefix MEDIA:,$(MEDIA_DISK_DATA)) $(LOGOVIDARG)
 
-$(APPSIMG): $(APPS) tools/os88disk.py
+$(APPSIMG): $(APPS) $(LOGOVID) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(APPSARGS)
 
-$(APPSIMG120): $(APPS) tools/os88disk.py
+$(APPSIMG120): $(APPS) $(LOGOVID) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1200 $(APPSARGS)
 
-$(APPSIMG720): $(APPS) tools/os88disk.py
+$(APPSIMG720): $(APPS) $(LOGOVID) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 720 $(APPSARGS)
 
 $(APPSIMG360): $(APPS360) tools/os88disk.py
@@ -11791,7 +11806,7 @@ $(APPSIMG360): $(APPS360) tools/os88disk.py
 # disk to swap in would be a disk with a file the user already has. The rule
 # is the geometry's, not the disk's: a media disk exists exactly where the
 # apps disk had to drop the module, and 1.2MB is not such a geometry.
-$(MEDIAIMG360): $(MEDIA_DISK_DATA) tools/os88disk.py
+$(MEDIAIMG360): $(MEDIA_DISK_DATA) $(LOGOVID) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(MEDIAARGS360) \
 		--folder SYSTEM/APPDATA
 
@@ -12277,7 +12292,7 @@ $(BUILD)/zcat/live/CATALOG.TXT: tools/getstories.py
 # disks carry it, so the Memory page's `Give DOS the whole machine` arm
 # (SPEC.md 96.36) is live on the live media too - a 26MB partition has none of
 # the 360KB cluster argument that made that a decision.
-LIVEARGS := $(DRIVERS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) $(ALLAPPSARGS) \
+LIVEARGS := $(DRIVERS) $(SYSDOC) $(SYSLOGOARG) $(LOGOVIDARG) $(FACESARG) $(ALLAPPSARGS) \
             $(LIVESYSARGS) $(LIVEPKGARGS) $(LIVESTORYARGS) $(SYSROOTARG)
 
 # ...and the live volume's own FOLDER COUNT, which is NOT $(ALLAPPSFOLDERS).
@@ -12316,7 +12331,7 @@ live: $(USBIMG) $(LIVEISO)
 # into. The GAMES are priced first and the master disk fills what is left,
 # which is RUNCPMIMG's order and is here for its reason.
 $(USBIMG): $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
-           $(DRIVERS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) \
+           $(DRIVERS) $(SYSDOC) $(SYSLOGO) $(LOGOVID) $(FACES) $(FACELIC) \
            $(SYSAPPS) $(SYSROOT) $(LIVEPKGDEPS) $(BUILD)/stories.stamp $(BUILD)/BRONZE.PIX \
            $(BUILD)/zcat/live/CATALOG.TXT $(BUILD)/cpmsw.stamp \
            tools/getcpmsw.py tools/getstories.py \

@@ -1465,6 +1465,37 @@ Each carries a recommendation, so *"the defaults"* is a full answer.
   `vidprevshd`'s allowance counted one tick for a pause's two ends; 97 was
   measured before this round as after, and it allows two.
 
+- **W9, LIVE, is BUILT** (SPEC.md 98.3.10): a resident file flagged LIVE,
+  its renditions one-bit LIN80 canvases each naming its screen, plays on the
+  desktop through the package's worker - a frame per PIT period owed, up to
+  four a tick, decoded into the shadow and blitted into the box through the
+  window's clip, the whole frame inside one gfx-lock hold. Pause, drag, F to
+  the full screen and back, Esc. Gates: `vidlive`, `vidlivecga`,
+  `vidlivevga`. **V2, disk-fed Live, is DROPPED** by the owner's own rule: a
+  read holds the picture ~100 ms. **V3, Live in colour, is not built** -
+  `OSAPI_GFX_BLIT4` takes a packed band and the shadow is planar - and
+  stays a future item.
+- **Found**: `vidsndres` failed one run in two, and it was the harness:
+  polled at 0.5 host s, the guest ran two of the clip's one-second laps a
+  poll, so R landed a lap late. It polls at 0.02 s.
+
+- **The logo video is BUILT and SHIPS** (SPEC.md 98.3.11): 
+  `apps/video/os8088.v88`, 98,304 bytes, made by `tools/os88logovid.py`
+  and committed. The CIRCUIT BOARD won over the dither (L2): against the
+  50% dither the package reads as a smudge and the digits need their black
+  halos to be seen at all, where on the board the black package stands out
+  and the thin white traces carry the digits as the owner described; the
+  generator keeps `--ground dither` for anyone who wants to look again.
+  The listening copy with sound (L7) is `--sound` - 126 KB, not live
+  (Live is silent), not shipped. Gates: `vidlogo`, `vidlogocga`,
+  `vidlogovga`. A rendition may now name its screen in any resident file,
+  not only a live one (98.1.7), which the listening copy needed: three LIN80
+  renditions are one layout, and only the target tells the player which is
+  whose.
+- **The hard disk** carries it the way it carries the rest of the system:
+  an install copies the boot floppy, so a hard disk installed from a 720KB
+  or larger system disk has it.
+
 ### 14.7 The owner's answers (2026-09-26)
 
 | # | answer |

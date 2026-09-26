@@ -8349,6 +8349,23 @@ SOAK = [
         70.0, "SPEC.md 98.3.10: vidlive on MartyPC's VGA XT",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidlogo", "soak", py("tests/vidlogo.py"), 30.0,
+        "VIDEO-PLAN 14.3, SPEC.md 98.3.10: the COMMITTED logo video on the "
+        "Hercules 5150 - the file the generator's (resident, live, three "
+        "targets, the seam at 57, under 120 KB), its Hercules rendition "
+        "Live at box scale 1, and seven held frames over two laps in the box "
+        "against the host decode. Broken on purpose (two renditions' "
+        "targets swapped) it FAILS on the rendition and on Live",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidlogocga", "soak", py("tests/vidlogo.py", "--screen", "cga"),
+        30.0, "VIDEO-PLAN 14.3: vidlogo on the CGA 5150",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidlogovga", "soak", py("tests/vidlogo.py", "--screen", "vga"),
+        45.0, "VIDEO-PLAN 14.3: vidlogo on MartyPC's VGA XT",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidvga4", "soak", py("tests/vidvga4.py"), 60.0,
         "SPEC.md 98.1.3.2, 98.4.5: sixteen colours in mode 12h, IN THE "
         "WINDOW on MartyPC's VGA XT: the file read as VGA4 on LIN80's "

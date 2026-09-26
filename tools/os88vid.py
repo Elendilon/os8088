@@ -1279,7 +1279,7 @@ class Writer:
 
 def write_resident(path, writers, audio_fmt=AUD_NONE, abytes=0, audio=b"",
                    title="", credits="", repeat=False, pack=PK_LZB,
-                   posters=None, live=None):
+                   posters=None, live=None, targets=None):
     """A RESIDENT file (98.1.7): one rendition per Writer - each made SILENT
     at the file's rate, with the file's loop if it has one - its records one
     block, packed on its own; the sound one audio block for them all. The
@@ -1303,6 +1303,14 @@ def write_resident(path, writers, audio_fmt=AUD_NONE, abytes=0, audio=b"",
         raise V88Error("%d bytes of sound for %d frames of %d"
                        % (len(audio), n, abytes))
     loop = w0.loop
+    if live is not None and targets is not None:
+        raise V88Error("a live file's targets are its `live`")
+    if targets is not None:
+        # 98.1.5: a resident file may name every rendition's screen without
+        # being live - the player prefers the one drawn for its screen
+        if len(targets) != len(writers) or \
+                any(t not in TARGETS.values() for t in targets):
+            raise V88Error("a target of 1 to 3 for every rendition")
     if live is not None:
         # 98.3.10: one target a rendition, and each a one-bit LIN80 canvas -
         # the shadow the worker blits is laid out as the band GFX_BLIT1 takes
@@ -1402,8 +1410,8 @@ def write_resident(path, writers, audio_fmt=AUD_NONE, abytes=0, audio=b"",
                          w.rowscale if w.rowscale > 1 else 0,
                          2 if w.flip else 0)
         struct.pack_into("<IIIB", hdr, so + R_BLOCK, boff, plen, ulen, bpk)
-        if live is not None:
-            hdr[so + R_TARGET] = live[ri]
+        if live is not None or targets is not None:
+            hdr[so + R_TARGET] = (live or targets)[ri]
     if loop is not None:
         struct.pack_into("<I", hdr, LOOP_AT, loop)
     out = bytes(hdr) + bytes(body)
@@ -1519,7 +1527,7 @@ class Reader:
         self.target = d[self.slot + R_TARGET]
         if self.live and not self.resident:
             raise V88Error("a LIVE file is RESIDENT (98.3.10)")
-        if self.target > 3 or (self.target and not self.live):
+        if self.target > 3 or (self.target and not self.resident):
             raise V88Error("a target of %d" % self.target)
         if self.pixfmt not in PF_NAMES:
             raise V88Error("pixel format %d" % self.pixfmt)

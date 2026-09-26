@@ -149382,6 +149382,12 @@ layout the DESKTOP's own - the window with no shadow, and the full screen
 in its own mode - then one with a mode of its own on this display, full
 screen (a VGA has CGA's mode 6), then one through the shadow; the first of
 the best. A file no rendition of which plays here refuses as rendition 0.
+**A rendition may name the SCREEN it was drawn for** - slot byte 53, 1 CGA,
+2 Hercules, 3 VGA/EGA, 0 none - and the choice then scores that screen as
+its layout. A LIVE file must name one for every rendition (98.3.10); any
+other resident file may, which is how several renditions sharing ONE layout
+(LIN80, say) still each reach the screen whose pixel shape they were drawn
+at. A streamed file names none, and a reader refuses a target there.
 
 **It is loaded when a play starts and kept while the file is open**
 (`vp_rload`): a claim of the block's unpacked size and a cluster; the
@@ -149966,8 +149972,8 @@ in-window play**; everything else keeps it.
   whose renditions are one-bit **LIN80** canvases, because the shadow the
   worker decodes into is then exactly the band `OSAPI_GFX_BLIT1` takes: row
   *y* at *y* x 80. So every screen's rendition is LIN80 and names the
-  SCREEN it was drawn for at slot byte 53 (1 CGA, 2 Hercules, 3 VGA/EGA),
-  and `vp_open`'s choice (98.1.7) scores that target as the layout.
+  SCREEN it was drawn for at slot byte 53 (98.1.7), which `vp_open`'s
+  choice scores as the layout.
 - **When**: the file says so, the rendition is MONO1 LIN80, and the box
   shows it whole at its own size (`vp_canlive`); else Play is the play it
   always was.
@@ -150000,6 +150006,45 @@ session with no bracket; every held frame in the box across two laps of its
 seam; a drag of the window and the frames following it; its rate within 10%;
 Space pausing and resuming; F to the full screen and back, playing both
 ways; Esc. Broken on purpose (the blit skipped, or Live refused) they FAIL.
+
+#### 98.3.11 The logo video: `OS8088.V88`
+
+**The one video that ships** (VIDEO-PLAN 14.3): a 40-pin DIP on a circuit
+board, lit 1s and 0s running along its traces in and out of it, the
+os8088 wordmark burning into the blank package letter by letter as the bits
+reach it, a light sweeping it once - and from frame 57 of 105 (15 fps, 7 s)
+a loop of the finished chip with the bits still running, which the seam
+(98.1.1.2) repeats for as long as the window is open. It is the Live file
+this section was built for: RESIDENT, LIVE, three one-bit LIN80 renditions
+drawn at each screen's own pixel shape - VGA/EGA 320 x 200, Hercules
+360 x 144, CGA 320 x 112 (a third taller than its true proportions, which
+would leave the lettering ten rows) - each LZB-packed, with Repeat on and
+the finished logo as the only keyframe and the poster. **98,304 bytes**,
+under the owner's 120 KB.
+
+**It is COMMITTED, as `apps/video/os8088.v88`**, and not made by `make`:
+`tools/os88logovid.py` renders it with numpy, and a build dependency for a
+file that changes when the logo is redrawn is the wrong trade. Re-run it by
+hand (`-o`, `--preview DIR` for GIFs and stills per screen, `--ground
+dither` for the desktop's own 50% ground in place of the board); the
+committed file is the gate's subject. `--sound` makes the LISTENING copy -
+the same pictures and a quiet PCM8 track at 8,010 Hz (a drone and soft data
+ticks, periodic in the loop so the seam cannot click, a pluck per letter and
+a swell under the sweep) - which is NOT live, because a live play is
+silent, and names its targets instead; 126 KB, outside the budget and not
+shipped. `--wav` writes that track alone.
+
+**Where it ships**: `MEDIA/` of the media disk at 360KB, of the apps disks of
+720KB and up, and of the system disks of 720KB and up with `VIDEO.O88` in
+`APPS/` beside it, so a machine booted from any of those has something to
+play it with; and the live media. **Never the 360KB system disk** (the
+owner's rule, VIDEO-PLAN 14.7, L8). It never plays by itself.
+
+The gates: `vidlogo` (Hercules), `vidlogocga`, `vidlogovga` - the committed
+file is the generator's shape and under budget; the screen's own rendition
+plays Live at box scale 1; seven held frames over two laps of the seam in
+the box against the host decode. Broken on purpose (two renditions' targets
+swapped) they FAIL.
 
 ### 98.4 The window: the Preview (wave 6)
 
