@@ -3073,9 +3073,9 @@ apic_xm_copy:
     ; (dropped) OSAPI_CXCELL osapi_cm_free_x    ; 0x01C0 - AX = a base segment you own; X
     ; (dropped) OSAPI_CSLOT osapi_cm_caps_x   ; 0x01C8 - AX/DX = largest/total free
                                   ;          PARAGRAPHS, BL = free records
-    OSAPI_RSLOT wm_resize          ; 0x017C - resize a window (SPEC.md 11.1):
+    OSAPI_RSLOT osapi_wm_resize    ; 0x017C - resize a window (SPEC.md 11.1):
                                   ;          BX = win, CX = w, DX = h; lock
-                                  ;          held. Retires the last liberty
+                                  ;          held or not (11.1.2). Retires the last liberty
                                   ;          in docs/plans/completed/PAINT-NOTES.md - an app
                                   ;          writing W_W/W_H itself
     OSAPI_SLOT gfx_blit4          ; 0x0182 - packed 4bpp block (SPEC.md 5.4):

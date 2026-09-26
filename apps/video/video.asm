@@ -210,8 +210,11 @@ vp_entry:
 
 ; --- W_ONWAKE: SI = the window --------------------------------------------------
 ; The document named at launch; then a layout owed (a file opened, the card
-; toggled) - the picture made again if its scale moved, and the window
-; resized to it, which OSAPI_WM_RESIZE does WITHOUT the lock and repaints
+; toggled) - the picture made again if its scale moved, the caption made for
+; the width to come (98.4.3), and the window resized to it. The resize is
+; made UNDER our lock: the slot takes one itself now when a caller has none
+; (SPEC.md 11.1.2), and a kernel from before that drew the grown window over
+; the pointer with no hide promised
 vp_onwake:
     push ax
     push bx
@@ -243,29 +246,113 @@ vp_onwake:
     call vp_loadkey
     call vp_fmt
 .size:
+    mov cx, [vp_lcw]
+    add cx, 2
+    call vp_mkcap                   ; for the width it is about to have
     mov bx, [vp_win]
     call OSAPI_WM_GEOM              ; CX, DX = the content now
     cmp cx, [vp_lcw]
     jne .resize
     cmp dx, [vp_lch]
     jne .resize
+    xor ax, ax                      ; the same size, maybe a new file: the
+    call OSAPI_WM_TITLE             ; caption's strip and nothing else
 .paint:
     call vp_repaint
-    call OSAPI_GFX_UNLOCK
-    jmp short .out
+    jmp short .unl
 .resize:
-    call OSAPI_GFX_UNLOCK
-    mov bx, [vp_win]
     mov cx, [vp_lcw]
     add cx, 2
     mov dx, [vp_lch]
     add dx, TITLE_H + 1
-    call OSAPI_WM_RESIZE
+    call OSAPI_WM_RESIZE            ; ...which draws the caption made above
+    call OSAPI_WM_GEOM
+    inc cx
+    inc cx
+    mov ax, [vp_lcw]
+    inc ax
+    inc ax
+    cmp cx, ax
+    jae .unl
+    call vp_mkcap                   ; clamped below what we asked for: made
+    xor ax, ax                      ; again for the width it got
+    call OSAPI_WM_TITLE
+.unl:
+    call OSAPI_GFX_UNLOCK
 .out:
     pop dx
     pop cx
     pop bx
     pop ax
+    ret
+
+; vp_mkcap - the caption for a window CX pixels wide, into vp_cap, which the
+; record's W_TITLE names (SPEC.md 98.4.3): 'Video Player - <title>', else
+; 'Video - <title>', else the title cut to fit - n characters fit when
+; 8n <= CX - 56. The title is the header's, or the file's name without one
+vp_mkcap:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    mov ax, cx
+    sub ax, 56
+    jnc .w
+    xor ax, ax
+.w:
+    mov cl, 3
+    shr ax, cl                      ; AX = the characters the bar has room for
+    mov di, vp_cap
+    mov si, vp_ttl
+    cmp byte [vp_loaded], 0
+    je .last                        ; nothing open: the name alone
+    mov si, vp_title
+    cmp byte [si], 0
+    jne .len
+    mov si, vp_name
+.len:
+    mov bx, si
+    mov cx, 15                      ; 'Video Player - '
+.l:
+    cmp byte [bx], 0
+    je .ld
+    inc bx
+    inc cx
+    jmp short .l
+.ld:
+    mov bx, vp_pfx1
+    cmp cx, ax
+    jbe .pre
+    mov bx, vp_pfx2
+    sub cx, 7                       ; 'Video - '
+    cmp cx, ax
+    ja .last
+.pre:
+    xchg si, bx
+    call .cpy                       ; the prefix, then the title
+    mov si, bx
+.last:
+    call .cpy
+    mov byte [di], 0
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+.cpy:                               ; SI to DI while AX lasts
+    or ax, ax
+    jz .cd
+    mov cl, [si]
+    or cl, cl
+    jz .cd
+    mov [di], cl
+    inc si
+    inc di
+    dec ax
+    jmp short .cpy
+.cd:
     ret
 
 ; --- the menu, the keys and the buttons (SPEC.md 98.4) ---------------------------
@@ -4481,12 +4568,16 @@ vp_tpl:
     dw 7, 22, 0, 0                  ; W_X = 7 mod 8: the content on a byte
                                     ; (SPEC.md 11.94). The size: vp_entry's,
                                     ; from the layout (98.4.1)
-    dw vp_ttl, vp_paint, vp_onkey, vp_clickw
+    dw vp_cap, vp_paint, vp_onkey, vp_clickw
 
     OS88_MENUSET vp_menus, vp_ttl, vp_oncmd
         OS88_MENU vp_m_file, vp_i_file, 6
     OS88_MENUSET_END vp_menus
 vp_ttl:       db 'Video Player', 0
+vp_pfx1:      db 'Video Player - ', 0
+vp_pfx2:      db 'Video - ', 0
+vp_cap:       db 'Video Player', 0  ; the window's caption (98.4.3): the
+              times 15 + VP_COLS + 1 - 13 db 0  ; longest is pfx1 + a title
 vp_m_file:    db 'File', 0
 vp_i_file:    dw vp_it_open, vp_it_play, vp_it_fs, vp_it_prev, vp_it_next
               dw vp_it_info

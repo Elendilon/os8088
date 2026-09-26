@@ -8198,6 +8198,17 @@ SOAK = [
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
                "build/ctrl.drv", "build/sound.drv")),
+    Row("vidcard", "soak", py("tests/vidcard.py"), 26.0,
+        "SPEC.md 11.1.2: OSAPI_WM_RESIZE takes the gfx lock itself when "
+        "the caller has none. The Video Player's info card grows the window "
+        "from OSAPI_WM_ONWAKE, which runs unlocked; with the pointer parked "
+        "on the desktop where it grows, the arrow must still be drawn over "
+        "the card, and once it moves away the card where it stood must "
+        "match the card drawn with nothing on top. Broken on purpose (the "
+        "slot pointed at plain wm_resize again) it FAILS on both: the arrow "
+        "painted over, and 89 of 320 pixels the desktop it had saved",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidsndfs", "soak", py("tests/vidsound.py", "--secs", "20",
                                "--fs"), 64.0,
         "SPEC.md 98.3.6: vidsound's clip taken full screen with F - PAUSED "

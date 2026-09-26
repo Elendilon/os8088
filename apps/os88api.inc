@@ -2041,7 +2041,9 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; readable by contract, not writable, and an
                                  ; app that sets them leaves the shadow, the
                                  ; z-order damage and the dock out of step.
-                                 ; Do NOT hold the gfx lock.
+                                 ; The gfx lock held or not: the slot takes it
+                                 ; if you have none (SPEC.md 11.1.2). Never
+                                 ; from a worker or inside your W_PAINT.
 %define OSAPI_WM_ONSIZE     KERNEL_SEG:0x01BC   ; BX = win ptr, AX = a near proc
                                  ; in YOUR segment (0 clears it). The kernel
                                  ; calls it BEFORE it commits a size the user

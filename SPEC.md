@@ -15641,10 +15641,10 @@ note above). Self-initiated repaints (the fm_repaint idiom, §22) must
 white-fill using the live W_W/W_H for the same reason.
 
 **`wm_resize` (API slot 0x017C) — an app changing its own size.** In:
-BX = window, CX = new outer width, DX = new outer height; the caller holds
-the gfx lock. Clamps exactly as a drag does (never below WMIN_W/WMIN_H, never
-past the live screen or the dock row, §39.2), re-fits the origin the way
-`ui_drag` does so a window that grew at its right edge slides left instead of
+BX = window, CX = new outer width, DX = new outer height; the lock held or
+not, either way (§11.1.2). Clamps exactly as a drag does (never below
+WMIN_W/WMIN_H, never past the live screen or the dock row, §39.2), re-fits
+the origin the way `ui_drag` does so a window that grew at its right edge slides left instead of
 hanging off, then repaints everything. This is how an app that adopts a
 picture's dimensions moves its own frame; before it existed `ui_grow` and
 `wm_fullscreen` were the only things that could, and apps/paint wrote W_W/W_H
@@ -15726,6 +15726,38 @@ new. That is what makes this safe for a window whose content there is not
 white — the box had already taken it, and the app's next real repaint brings
 it back. `wm_grow_rect` is the one place the rect is computed, because a
 paint and an erase that disagree by a pixel leave a line on screen for ever.
+
+#### 11.1.2 The slot takes the lock itself when the caller has none
+
+**The contract said two things.** This section and §20's table said *"the
+caller holds the gfx lock"*; `apps/os88api.inc` and `apps/cc/os88.h` said
+*"Do NOT hold the gfx lock"*. The slot was a plain `OSAPI_RSLOT`, which takes
+no lock, so a package that followed the SDK resized with no hold at all. That
+is the one state `wm_resize` cannot survive. **The pointer's hide is a
+PROMISE made by `gfx_lock`** (§7.1.4), and with no hold there is no promise:
+`wm_rz_paint` drew the grown window straight over the arrow, the ISR never
+knew, and the arrow went on carrying what was under it BEFORE the draw.
+
+The Video Player reported it, because its info card (`i`) grows the window
+from `OSAPI_WM_ONWAKE`, the one callback that runs unlocked (§13). With the
+pointer on the desktop where the window would grow, the arrow vanished under
+the new frame. The next move then put the saved desktop back as a square
+inside the window. `apps/dotdel` resizes from the same callback, and a C
+package following `os88.h` would too.
+
+**The fix is the slot, not the callers.** `osapi_wm_resize` asks the question
+`cur_busy` asks (§7.5.4): is `[gfx_lock_own]` this task? `gfx_unlock` stamps
+0xFF there, so one compare answers both "held" and "held by us". If it is,
+the slot is a plain `wm_resize`. That covers W_ONCLICK, W_ONKEY, a menu
+handler, and `apps/taskmgr`, which takes the lock before it calls. If it is
+not, the slot takes the lock, resizes and lets go. So **both spellings of the
+old contract are now right**, and no package changes. It is 18 bytes of `.text`.
+
+What it cannot do is let a WORKER resize. A resize repaints every overlapped
+window through `wm_pkgcall` on the calling task (the hard freeze
+`apps/taskmgr` records), and holding the lock does not change who runs the
+paint procs. The rule stands: never from a worker, and never from inside a
+W_PAINT.
 
 ### 11.2 Fullscreen
 
@@ -37140,8 +37172,10 @@ OSAPI_GFX_BLIT4          in ES:SI = packed 4bpp source, BP = source stride
                          in bytes, AX/BX = dest x/y, CX/DX = width/height
                          in pixels (§5.4). ES is the caller's own here.
 OSAPI_WM_RESIZE          in BX = win, CX = new outer width, DX = new outer
-                         height; lock held. Clamps, re-fits the origin and
-                         repaints (§11.1). Never from inside a W_PAINT.
+                         height; lock held or not - the slot takes it if
+                         the caller has none (§11.1.2). Clamps, re-fits the
+                         origin and repaints (§11.1). Never from inside a
+                         W_PAINT, never from a worker.
 OSAPI_FONT_GLYPHS        out DX:SI = the glyph table (DX = LOW_SEG - it is
                          NOT in KERNEL_SEG), AL = 32, AH = 126, CX = 8 (§6).
                          Read it through a segment register loaded from DX.
@@ -149750,6 +149784,29 @@ it.
 **Measured** (`vidpreview` section 7): an 8088's drag across two keys loads
 exactly once, on the release; with the tier poked to 286 and the thumb held
 over key 1 for 1.5 s, key 1 loads before the release and key 0 after it.
+
+#### 98.4.3 The caption names the video
+
+**The window's title is `Video Player - <title>`**, where the title is the
+header's (98.1.1) or, if that is empty, the file's name. With no video open
+it is `Video Player` alone. The kernel centres a caption and never cuts it
+(§11), so a caption too wide for its bar runs over the close box. The player
+therefore picks the longest form that fits, in this order:
+
+1. `Video Player - <title>`
+2. `Video - <title>`
+3. `<title>`, cut at the last character that fits
+
+A caption of n characters fits a bar W pixels wide when 8n ≤ W − 56. That
+is the box breaks at x+20 and at W−21, plus the kernel's 6-pixel gap either
+side of the text.
+
+**The caption is made before the window is sized, for the width it is being
+sized to.** `vp_mkcap` writes the bytes the record's `W_TITLE` already
+points at, so the resize's own repaint draws the new caption. The strip is
+drawn once, not once by the resize and again by `OSAPI_WM_TITLE`. Only a new
+file at the same size (no resize coming) and a width the kernel clamped
+below the one asked for take `OSAPI_WM_TITLE` with AX = 0.
 
 ### 98.2 The host tools — `tools/os88vid.py`
 

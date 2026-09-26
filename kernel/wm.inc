@@ -2473,6 +2473,27 @@ wm_ask_size:
     ret
 
 ; -----------------------------------------------------------------------------
+; osapi_wm_resize - OSAPI_WM_RESIZE's door (SPEC.md 11.1.2)
+;
+; The SDK told packages NOT to hold the lock and this file told them to, and
+; the slot took none - so a resize from OSAPI_WM_ONWAKE drew the grown window
+; over the pointer with no hide promised, and the arrow kept the desktop it
+; had saved. cur_busy's one compare: gfx_unlock stamps 0xFF into
+; [gfx_lock_own], so "held by this task" is the whole question. Held: a
+; plain wm_resize. Not held: take it around one.
+; in/out: wm_resize's
+; -----------------------------------------------------------------------------
+osapi_wm_resize:
+    push ax
+    mov al, [sch_cur]
+    cmp al, [gfx_lock_own]
+    pop ax
+    je wm_resize                ; a callback's hold, or the caller's own
+    call gfx_lock
+    call wm_resize
+    jmp gfx_unlock
+
+; -----------------------------------------------------------------------------
 ; wm_resize - set a window's size from its owner (SPEC.md 11.1)
 ;
 ; in:  BX = window ptr, CX = new outer width, DX = new outer height;
