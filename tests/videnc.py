@@ -36,7 +36,9 @@ tools/os88venc.py encodes it three ways. Four questions:
    the canvas and a keyframe start from, though this source holds no
    black), and every frame its target - and the same in Mode X, whose
    frames are sub-records under a Map Mask; and at --detail 2x2 in Mode X,
-   half the rows shown twice and every store a pair or a group.
+   half the rows shown twice and every store a pair or a group - and CGA
+   in colour, mode 4 with the palette byte the overrides name (39h) and
+   the 160 x 100 text hack, every frame its target.
 8. DOES COMPOSITE DIFFUSION SEE THE MODEL? A picture rendered through the
    model from known nibbles, in runs of 2 to 6 cells, must come back as 90%
    or more of them (94% measured). Without the lookahead - a cell judged as
@@ -164,6 +166,29 @@ def main():
                 r.frames != len(keep):
             bad.append("vga4: format %d, %d frames differ"
                        % (r.pixfmt, diff))
+        # ...and CGA IN COLOUR (98.1.3.3): mode 4 with its palette byte as
+        # the overrides fixed it, and the 160 x 100 text hack, every frame
+        # its target
+        for name, extra, pf, lay in (
+                ("cga4", ("--cga-palette", "1", "--cga-bright", "1",
+                          "--cga-bg", "9"), vid.PF_CGA4, vid.LAY_CGA),
+                ("c160", (), vid.PF_C160, vid.LAY_C160)):
+            path, res, keep = run(name, "--preset", name, "--profile",
+                                  "lossless", "--audio", "none", *extra)
+            vid.verify_v88(path)
+            r = vid.Reader(path)
+            diff = sum(1 for f, surf, rec, at, i in vid.v88_frames(r)
+                       if r.g.canvas(surf) != keep[f].tobytes())
+            print("   %s: %s %d x %d bytes, palette byte %02Xh, %d of %d "
+                  "frames differ from their target"
+                  % (name, vid.PF_NAMES[r.pixfmt], r.g.wb, r.g.h, r.cgapal,
+                     diff, r.frames))
+            if (r.pixfmt, r.g.layout) != (pf, lay) or diff or \
+                    r.frames != len(keep) or \
+                    r.cgapal != (0x39 if pf == vid.PF_CGA4 else 0):
+                bad.append("%s: format %d layout %d palette %02Xh, %d frames "
+                           "differ" % (name, r.pixfmt, r.g.layout, r.cgapal,
+                                       diff))
         # ...and at a DETAIL of 2 x 2 (98.2.4): half the rows, shown twice,
         # and every pixel a pair - so no plane byte stands alone
         path, res, keep = run("modexd", "--preset", "modex-small",

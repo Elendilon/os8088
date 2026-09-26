@@ -109,11 +109,21 @@ PRESETS = {
     "vga4-mid": ("lin80", 400, 300),
     "vga4-full": ("lin80", 640, 480),
     "modex-small": ("modex", 160, 120),
+    # CGA in colour (98.1.3.3), full screen only: 4 colours in mode 4 (the
+    # cga layout at two bits a pixel), 16 in the 160 x 100 text hack
+    "cga4": ("cga", 320, 200),
+    "cga4-small": ("cga", 160, 100),
+    "c160": ("c160", 160, 100),
     # Live windowed's sizes (VIDEO-PLAN 3.4): small canvases a worker blits
     "live-cga": ("cga", 320, 100),
     "live-herc": ("herc", 240, 116),
     "live-vga": ("lin80", 160, 120),
 }
+
+LIVE_BOX = {"cga": (320, 112), "herc": (360, 144), "vga": (320, 200)}
+LIVE_ASPECT = {"cga": vid.ASPECT[vid.LAY_CGA],
+               "herc": vid.ASPECT[vid.LAY_HERC], "vga": (1, 1)}
+PRESET_PIXFMT = {"cga4": "cga4", "cga4-small": "cga4", "c160": "c160"}
 
 CYC_AUDIO = 13.0        # the interrupt's copy of a PCM8 byte into the
                         # card's buffer (rep movsw, ~25 cycles a word)
@@ -175,13 +185,14 @@ def probe(path):
     return w, h, w * sar / h, fps, dur, audio
 
 
-def canvas_size(layout, bw, bh, dar, fit):
+def canvas_size(layout, bw, bh, dar, fit, asp=None):
     """(width px, height, crop) of the canvas in a bw x bh box of `layout`
     for a source of display aspect `dar`. `fit` keeps the whole picture and
     shrinks the canvas to its shape (no bars: a bar would be screen the
     canvas does not need); `fill` crops the source to the box's shape;
-    `stretch` fills the box and distorts. Width in whole bytes."""
-    pw, ph = vid.ASPECT[vid.LAYOUT_BY_NAME[layout]]
+    `stretch` fills the box and distorts. Width in whole bytes. `asp` is a
+    pixel's shape where the format's is not the layout's (CGA4's)"""
+    pw, ph = asp or vid.ASPECT[vid.LAYOUT_BY_NAME[layout]]
     par = pw / ph                          # a pixel's width over its height
     box = bw * par / bh                    # the box's displayed aspect
     if fit == "fit":
@@ -548,6 +559,47 @@ class KnollDitherer(Vga8Ditherer):
             self.at = f
         self.prev = idx
         return idx
+
+
+def cga4_pick(frames, bg=None, pal=None, bright=None):
+    """CGA4's palette byte (98.1.3.3): the one of the 96 - a background of
+    sixteen, three sets, two intensities - whose four colours are nearest
+    the clip's pixels on average (a sample of them), any of the three
+    given fixing its part of the choice"""
+    std = np.frombuffer(vid.STD16, np.uint8).astype(np.float32).reshape(
+        16, 3) * (255.0 / 63)
+    step = max(1, len(frames) // 24)
+    px = np.concatenate([f[::2, ::2].reshape(-1, 3) for f in
+                         frames[::step]]).astype(np.float32)
+    if len(px) > 200000:
+        px = px[::len(px) // 200000 + 1]
+    best = None
+    for sel in range(0x80):
+        if (sel & 0x60) == 0x60:
+            continue
+        p = 2 if sel & 0x40 else (sel >> 5) & 1
+        if (bg is not None and sel & 15 != bg) or \
+                (pal is not None and p != pal) or \
+                (bright is not None and bool(sel & 16) != bool(bright)):
+            continue
+        cols = std[vid.cga4_colours(sel)]
+        d = ((px[:, None, :] - cols[None, :, :]) ** 2).sum(2).min(1).mean()
+        if best is None or d < best[0]:
+            best = (d, sel)
+    if best is None:
+        raise vid.V88Error("no CGA4 palette meets the overrides")
+    return best[1]
+
+
+def pack_pixels(idx, ppb):
+    """Palette indexes (h, w) packed ppb to a byte, the leftmost highest"""
+    h, w = idx.shape
+    bits = 8 // ppb
+    v = idx.reshape(h, w // ppb, ppb).astype(np.uint8)
+    out = np.zeros((h, w // ppb), np.uint8)
+    for i in range(ppb):
+        out |= v[:, :, i] << (8 - bits * (i + 1))
+    return out
 
 
 def vga8_palette(src, w, h, crop, fps_expr, start, end, eq):
@@ -1081,6 +1133,18 @@ def encode(a, keep=None):
         if getattr(a, k) is not None:
             prof[k] = getattr(a, k)
     lay, bw, bh = PRESETS[a.preset] if a.preset else (a.layout, None, None)
+    if a.live:
+        # LIVE (98.2.7): one bit on LIN80, the band OSAPI_GFX_BLIT1 takes,
+        # at the named screen's pixel shape and the logo's box
+        if a.pixfmt not in (None, "mono"):
+            raise vid.V88Error("--live is one bit: no --pixfmt %s" % a.pixfmt)
+        a.pixfmt, a.resident = "mono", True
+        lay = "lin80"
+        bw, bh = LIVE_BOX[a.live]
+    if a.pixfmt is None and a.preset in PRESET_PIXFMT:
+        # a CGA colour preset IS its format - its layout alone would make
+        # a one-bit file of the same size
+        a.pixfmt = PRESET_PIXFMT[a.preset]
     if a.layout:
         lay = a.layout
     if a.box:
@@ -1089,19 +1153,28 @@ def encode(a, keep=None):
         raise vid.V88Error("--box or --preset names the canvas")
     L = vid.LAYOUT_BY_NAME[lay]
     banks, stride, rows, _ = vid.LAYOUTS[L]
-    ppb = vid.PIX_PER_BYTE[L]
+    cga4 = a.pixfmt == "cga4"
+    c160 = a.pixfmt == "c160"
+    if cga4 and L != vid.LAY_CGA:
+        raise vid.V88Error("--pixfmt cga4 is mode 4's: the cga layout")
+    if c160 != (L == vid.LAY_C160):
+        raise vid.V88Error("--pixfmt c160 is the c160 layout's, and it takes "
+                           "nothing else")
+    ppb = 4 if cga4 else vid.PIX_PER_BYTE[L]
     if bw > stride * ppb or bh > rows:
         raise vid.V88Error("a %d x %d box does not fit %s (%d x %d)"
                            % (bw, bh, lay, stride * ppb, rows))
     sw, sh, dar, sfps, dur, has_audio = probe(a.src)
-    w, h, crop = canvas_size(lay, bw, bh, dar, a.fit)
+    pasp = vid.CGA4_ASPECT if cga4 else LIVE_ASPECT[a.live] if a.live \
+        else None
+    w, h, crop = canvas_size(lay, bw, bh, dar, a.fit, pasp)
     vga8 = L in vid.VGA8_LAYOUTS
     # THE DETAIL (98.2.4): the picture made at a W-th of the width and an
     # H-th of the height, each pixel repeated W times along its row and each
     # row shown H times by the VGA itself (the file's row scale) - the same
     # screen, a fraction of the bytes
     dw, dh = (int(v) for v in a.detail.lower().split("x"))
-    if (dw, dh) != (1, 1) and not vga8 and a.pixfmt != "vga4":
+    if (dw, dh) != (1, 1) and not vga8:
         raise vid.V88Error("--detail is VGA8's (a one-bit pixel has nothing "
                            "to repeat into)")
     if dw not in (1, 2, 4) or dh not in (1, 2):
@@ -1132,6 +1205,11 @@ def encode(a, keep=None):
             spf += spf % 2
         abytes = spf // 2 if afmt == vid.AUD_ADPCM4 else spf
     fps = rate / spf
+    if a.resident:
+        if afmt == vid.AUD_ADPCM4:
+            raise vid.V88Error("a resident file's sound is PCM8 (98.1.7): "
+                               "--audio adpcm4 is refused with --resident")
+        prof["disk"] = None if prof["avg"] is None else 10 ** 9
     audio_bps = abytes * fps
     audio_cyc = CYC_AUDIO * abytes if afmt else 0.0
 
@@ -1151,18 +1229,32 @@ def encode(a, keep=None):
     frames = ffmpeg_video(a.src, w // 4 if pattern else lw, lh, crop,
                           "%d/%d" % (rate, spf), a.start, a.end,
                           ":".join(eq),
-                          "rgb24" if comp or vga8 or vga4 else "gray")
+                          "rgb24" if comp or vga8 or vga4 or cga4 or c160
+                          else "gray")
     say = (lambda *x: None) if a.quiet else print
     say("%s: %dx%d %.3f fps -> %s canvas %d x %d, %.3f fps (%d Hz / %d), "
         "audio %s, profile %s"
         % (a.src, sw, sh, sfps, lay, w, h, fps, rate, spf,
            {0: "none", 1: "PCM8", 2: "ADPCM4"}[afmt], a.profile))
-    if a.levels == "auto" and not vga8 and not vga4:
+    if a.levels == "auto" and not (vga8 or vga4 or cga4 or c160):
         lo, hi = auto_levels(a.src, w, h, crop, a.start, a.end, ":".join(eq))
         say("   levels: grey %d..%d stretched to 0..255" % (lo, hi))
         frames = (stretch(f, lo, hi) for f in frames)
     palette = None
-    if vga4:
+    cgapal = None
+    if cga4:
+        frames = list(frames)
+        cgapal = cga4_pick(frames, a.cga_bg, a.cga_palette, a.cga_bright)
+        cols = vid.cga4_colours(cgapal)
+        say("   CGA4 palette %02Xh: colours %s" % (
+            cgapal, " ".join(str(c) for c in cols)))
+        pal6 = b"".join(vid.STD16[3 * c:3 * c + 3] for c in cols)
+        k4 = KnollDitherer(lw, lh, pal6, a.vga4_stable)
+        dith = lambda f, k4=k4: pack_pixels(k4(f), 4)
+    elif c160:
+        k16 = KnollDitherer(lw, lh, vid.STD16, a.vga4_stable)
+        dith = lambda f, k16=k16: pack_pixels(k16(f), 2)
+    elif vga4:
         dith = KnollDitherer(lw, lh, vid.STD16, a.vga4_stable)
     elif vga8:
         palette = vga8_palette(a.src, lw, lh, crop, "%d/%d" % (rate, spf),
@@ -1182,14 +1274,16 @@ def encode(a, keep=None):
         if L == vid.LAY_MODEX else \
         EncoderP(g, prof, fps, audio_cyc, audio_bps) if vga4 else \
         Encoder(g, prof, fps, audio_cyc, audio_bps, palette)
-    wr = vid.Writer(g, rate, spf, afmt, abytes,
+    wr = vid.Writer(g, rate, spf, vid.AUD_NONE if a.resident else afmt,
+                    0 if a.resident else abytes,
                     vid.PF_VGA8 if vga8 else vid.PF_VGA4 if vga4 else
-                    vid.PF_CGACOMP if comp else vid.PF_MONO1,
+                    vid.PF_CGA4 if cga4 else vid.PF_C160 if c160 else
+                    vid.PF_CGACOMP if comp else vid.PF_MONO1, cgapal=cgapal,
                     title=a.title or os.path.splitext(
                         os.path.basename(a.src))[0][:47],
                     credits=a.credits or "", keysecs=a.keysecs,
                     palette=palette, rowscale=dh, flip=a.flip,
-                    aspect=scaled_aspect(vid.ASPECT[L], dh),
+                    aspect=scaled_aspect(pasp or vid.ASPECT[L], dh),
                     loop=None if a.loop_from is None else
                     max(0, round(a.loop_from * fps)),
                     repeat=a.repeat)
@@ -1210,14 +1304,32 @@ def encode(a, keep=None):
     chunks = vid.audio_chunks(pcm, nf, spf, afmt, vid.key_frames(
         nf, wr.keyint), search=jobs if a.adpcm == "search" else 0) \
         if afmt else None
+    sound = []
     for f, target in enumerate(pend):
         au = chunks[f] if afmt else b""
+        if a.resident:              # the sound is ONE block (98.1.7)
+            sound.append(au)
+            au = b""
         ops, rec = enc.frame(target, au)
         cyc.append(enc.charge(rec, len(au)) + audio_cyc)
         wr.frame(ops, enc.surf, au)
         if a.preview_png and f % max(1, round(fps)) == 0:
             out = os.path.join(a.preview_png, "f%05d.png" % f)
-            if vga8 or vga4:
+            if cga4 or c160:
+                from PIL import Image
+                cv = np.frombuffer(g.canvas(enc.surf), np.uint8).reshape(
+                    g.h, g.wb)
+                idx = np.unpackbits(cv[..., None], axis=2).reshape(
+                    g.h, g.wb * 8)
+                bits = 2 if cga4 else 4
+                idx = idx.reshape(g.h, -1, bits) @ (1 << np.arange(
+                    bits - 1, -1, -1))
+                if cga4:
+                    idx = np.array(vid.cga4_colours(cgapal))[idx]
+                pl = np.frombuffer(vid.STD16, np.uint8).astype(
+                    np.uint16).reshape(-1, 3) * 255 // 63
+                Image.fromarray(pl[idx].astype(np.uint8)).save(out)
+            elif vga8 or vga4:
                 from PIL import Image
                 cv = np.repeat(np.frombuffer(g.canvas(enc.surf),
                                              np.uint8).reshape(g.h, g.w),
@@ -1244,7 +1356,23 @@ def encode(a, keep=None):
         # whatever it is - it only chooses the picture in the box
         nk = len(wr.keys)
         poster = min(nk - 1, max(0, round(a.poster_at * fps / wr.keyint)))
-    res = wr.write(a.out, poster)
+    if a.resident:
+        st = vid.write_resident(
+            a.out, [wr], afmt, abytes if afmt else 0, b"".join(sound),
+            wr.title, wr.credits, a.repeat, vid.PK_LZB,
+            posters=[poster] if poster is not None else None,
+            live=[vid.TARGETS[a.live]] if a.live else None)
+        vid.verify_v88(a.out)
+        rr = vid.Reader(a.out)
+        res = dict(bytes=st["bytes"], stream=st["blocks"][0][0] +
+                   st["audio"][0], keys=len(wr.keys),
+                   keybytes=sum(len(r) for k, r, c in wr.keys),
+                   poster=rr.poster)
+        say("   RESIDENT: the block %d bytes, %d packed%s"
+            % (st["blocks"][0] + (", LIVE on the %s desktop" % a.live
+                                  if a.live else "",)))
+    else:
+        res = wr.write(a.out, poster)
     res.update(fps=fps, period=enc.period, audio_cyc=audio_cyc,
                audio_bps=audio_bps, prof=prof, w=w, h=h, layout=lay,
                palette=palette)
@@ -1274,22 +1402,41 @@ def parser():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("src")
     ap.add_argument("out")
-    ap.add_argument("--preset", choices=sorted(PRESETS))
-    ap.add_argument("--layout", choices=sorted(vid.LAYOUT_BY_NAME))
+    ap.add_argument("--preset", choices=sorted(PRESETS),
+                    help="a named box on a layout (--profiles lists them); "
+                         "the cga4, cga4-small and c160 ones name their "
+                         "colour format too")
+    ap.add_argument("--layout", choices=sorted(vid.LAYOUT_BY_NAME),
+                    help="the screen memory the file is laid out for "
+                         "(SPEC.md 98.1.2), overriding the preset's")
     ap.add_argument("--box", help="WxH: the canvas's largest size")
     ap.add_argument("--fit", choices=("fit", "fill", "stretch"),
-                    default="fit")
-    ap.add_argument("--start", type=float, default=0.0)
-    ap.add_argument("--end", type=float)
-    ap.add_argument("--fps", type=float)
+                    default="fit",
+                    help="fit: the whole picture, the canvas shrunk to its "
+                         "shape; fill: the box filled, the picture cropped; "
+                         "stretch: the box filled, the picture distorted")
+    ap.add_argument("--start", type=float, default=0.0,
+                    help="seconds into the source to start at")
+    ap.add_argument("--end", type=float,
+                    help="seconds into the source to stop at (default: "
+                         "its end)")
+    ap.add_argument("--fps", type=float,
+                    help="frames a second (default: the source's, at most "
+                         "30 - and 15 for 256 colours)")
     ap.add_argument("--profile", choices=sorted(PROFILES),
-                    default="5150-st225")
+                    default="5150-st225",
+                    help="the machine's storage and CPU budget, which every "
+                         "frame is fitted to (--profiles says what each is)")
     ap.add_argument("--disk", type=float, help="the profile's bytes a "
                     "second, overridden")
     ap.add_argument("--avg", type=float, help="...its average CPU share")
     ap.add_argument("--peak", type=float, help="...its per-frame ceiling")
-    ap.add_argument("--audio", choices=("pcm8", "adpcm4", "none"))
-    ap.add_argument("--rate", type=int)
+    ap.add_argument("--audio", choices=("pcm8", "adpcm4", "none"),
+                    help="the sound: 8-bit PCM, Sound Blaster ADPCM (half "
+                         "the bytes), or none (default: the profile's)")
+    ap.add_argument("--rate", type=int,
+                    help="the sound's samples a second (default: the "
+                         "profile's)")
     ap.add_argument("--adpcm", choices=("search", "greedy"), default="search",
                     help="ADPCM4's encoder: the exact search (~7 dB better, "
                          "about real time on four cores) or greedy")
@@ -1297,17 +1444,33 @@ def parser():
                     "(default: all)")
     ap.add_argument("--volume", help="ffmpeg's volume= (e.g. 1.5, 3dB)")
     ap.add_argument("--dither", choices=("bayer", "bluenoise", "threshold"),
-                    default="bayer")
+                    default="bayer",
+                    help="one bit: an ordered 8 x 8 pattern, a noise pattern, "
+                         "or a plain threshold at half grey")
     ap.add_argument("--stable", type=float, default=6.0,
                     help="grey levels either side of a threshold that keep "
                          "a pixel's last value (0: off)")
     ap.add_argument("--levels", choices=("auto", "none"), default="auto",
                     help="stretch the grey range the source uses to the "
                          "whole of black-to-white")
-    ap.add_argument("--pixfmt", choices=("mono", "cgacomp", "vga8", "vga4"),
+    ap.add_argument("--pixfmt", choices=("mono", "cgacomp", "vga8", "vga4",
+                                         "cga4", "c160"),
                     help="mono (the default), cgacomp: composite colour on "
                          "a CGA (the cga layout only), vga8: 256 colours in "
-                         "mode 13h (the lin320 layout, and what it implies)")
+                         "mode 13h (the lin320 layout, and what it implies), "
+                         "vga4: 16 in mode 12h, cga4: 4 in CGA's mode 4 (the "
+                         "cga layout), c160: 16 at 160 x 100 in CGA's text "
+                         "hack (the c160 layout) - the last two full screen "
+                         "on a CGA or a VGA")
+    ap.add_argument("--cga-palette", type=int, choices=(0, 1, 2),
+                    help="cga4: the set - 0 green, red, brown; 1 cyan, "
+                         "magenta, white; 2 cyan, red, white (mode 5's). "
+                         "Default: the nearest to the clip")
+    ap.add_argument("--cga-bright", type=int, choices=(0, 1),
+                    help="cga4: the set's intensity (default: the nearest)")
+    ap.add_argument("--cga-bg", type=int, choices=range(16), metavar="0-15",
+                    help="cga4: the background colour, any of the sixteen "
+                         "(default: the nearest)")
     ap.add_argument("--flip", action="store_true",
                     help="modex: two pages, the player drawing one while "
                          "the other shows - no tearing, at twice the decode "
@@ -1349,10 +1512,14 @@ def parser():
     ap.add_argument("--clip", type=float, default=16.0,
                     help="grey levels at each end that are solid black "
                          "or white, never a dot")
-    ap.add_argument("--gamma", type=float, default=1.0)
-    ap.add_argument("--contrast", type=float, default=1.0)
-    ap.add_argument("--brightness", type=float, default=0.0)
-    ap.add_argument("--invert", action="store_true")
+    ap.add_argument("--gamma", type=float, default=1.0,
+                    help="ffmpeg's eq gamma: above 1 lightens the mid-tones")
+    ap.add_argument("--contrast", type=float, default=1.0,
+                    help="ffmpeg's eq contrast")
+    ap.add_argument("--brightness", type=float, default=0.0,
+                    help="ffmpeg's eq brightness, -1 to 1")
+    ap.add_argument("--invert", action="store_true",
+                    help="one bit: white for black")
     ap.add_argument("--loop-from", type=float, metavar="SECS",
                     help="carry a SEAM (SPEC.md 98.1.1.2): the change from the "
                          "last frame back to the frame this many seconds in "
@@ -1361,9 +1528,21 @@ def parser():
                          "Not with ADPCM4, whose decoder state cannot join")
     ap.add_argument("--repeat", action="store_true",
                     help="the player starts with Repeat on (98.1.1.2)")
-    ap.add_argument("--title")
-    ap.add_argument("--credits")
-    ap.add_argument("--keysecs", type=float, default=vid.KEY_SECS)
+    ap.add_argument("--resident", action="store_true",
+                    help="RESIDENT (SPEC.md 98.2.7, 98.1.7): read whole "
+                         "before it plays - the records one LZB block, the "
+                         "sound PCM8 - for a clip under ~60 KB packed")
+    ap.add_argument("--live", choices=("cga", "herc", "vga"),
+                    help="LIVE on that screen's desktop (98.2.7, 98.3.10): "
+                         "resident, one bit, laid out as LIN80 at the "
+                         "screen's own pixel shape")
+    ap.add_argument("--title",
+                    help="the name the player shows (default: the file's)")
+    ap.add_argument("--credits",
+                    help="a line of credits the player's Info shows")
+    ap.add_argument("--keysecs", type=float, default=vid.KEY_SECS,
+                    help="seconds between keyframes - the places a seek "
+                         "and the Preview can start from")
     ap.add_argument("--poster", type=int, help="the poster's keyframe "
                     "index (default: the first that is not one flat value)")
     ap.add_argument("--poster-at", type=float, metavar="SECS",

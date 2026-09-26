@@ -162,6 +162,10 @@ VP_PAGE     equ 19200               ; a Mode X page, in plane bytes
 VP_PREVKB   equ 31                  ; the last record's copy: REC_MAX + slack
 PF_VGA8     equ 2                   ; [vp_pixfmt] is the format less one
 PF_VGA4     equ 3                   ; ...16 colours on mode 12h's planes
+PF_CGA4     equ 4                   ; ...CGA in colour: mode 4 (98.1.3.3)
+PF_C160     equ 5                   ; ...and 160 x 100 x 16, the text hack
+LAY_C160    equ 5                   ; ...its layout: the attributes, packed
+R_CGAPAL    equ 54                  ; CGA4: the palette byte (98.1.3.3)
 LAY_LIN320  equ 3                   ; ...and [vp_layout] the layout less one
 LAY_LIN80   equ 2
 LAY_MODEX   equ 4
@@ -988,18 +992,38 @@ vp_parse:
     mov [vp_pitper0], al
     mov al, [es:di+R_PIXFMT]
     dec al
-    cmp al, PF_VGA4
+    cmp al, PF_C160
     ja .bad
     mov [vp_pixfmt], al
-    mov bl, [es:di+R_LAYOUT]  ; 1..5, and the canvas inside it
+    mov bl, [es:di+R_LAYOUT]  ; 1..6, and the canvas inside it
     dec bl
-    cmp bl, LAY_MODEX
+    cmp bl, LAY_C160
     ja .bad
     mov [vp_layout], bl
     mov word [vp_palo], 0
     mov word [vp_palo+2], 0
     cmp al, PF_VGA8                 ; VGA8 is LIN320's and MODEX's, and
     je .v8                          ; they take nothing else
+    cmp al, PF_CGA4                 ; CGA IN COLOUR (98.1.3.3): mode 4 on
+    jb .nc                          ; CGA's layout with its palette byte,
+    ja .c16                         ; and the text hack on its own
+    or bl, bl                       ; (LAY_CGA)
+    jnz .bad
+    mov ah, [es:di+R_CGAPAL]
+    test ah, 0x80
+    jnz .bad
+    test ah, 0x40                   ; mode 5's palette names no other
+    jz .cp
+    test ah, 0x20
+    jnz .bad
+.cp:
+    mov [vp_cgapal], ah
+    jmp short .lay
+.c16:
+    cmp bl, LAY_C160
+    jne .bad
+    jmp short .lay
+.nc:
     cmp al, PF_VGA4                 ; VGA4 is LIN80's planes (98.1.3.2)
     jne .v1
     cmp bl, LAY_LIN80
@@ -1008,7 +1032,7 @@ vp_parse:
 .v1:
     cmp bl, LAY_LIN320
     jae .bad
-    jmp short .lay
+    jmp .lay
 .v8:
     cmp bl, LAY_LIN320
     jb .bad
@@ -1086,6 +1110,12 @@ vp_parse:
     ; luma of its keyframe dithered to one bit, a byte per eight pixels -
     ; so what sizes and places the poster reads this and not [vp_wb]
     mov cx, [vp_wb]
+    cmp byte [vp_pixfmt], PF_CGA4   ; CGA IN COLOUR: four pixels a byte, or
+    jb .pnc                         ; two made two wide - a poster byte is
+    shr cx, 1                       ; two canvas bytes (98.4.6)
+    jc .bad
+    jmp short .pgeo
+.pnc:
     cmp byte [vp_pixfmt], PF_VGA8
     jne .pgeo
     cmp byte [vp_layout], LAY_MODEX ; MODEX: a plane byte is four pixels,
@@ -1397,6 +1427,25 @@ vp_canplay:
     call OSAPI_FSX_CAPS             ; AX = the modes this window's display has
     mov [vp_caps], ax
     mov al, [vp_layout]
+    cmp byte [vp_pixfmt], PF_CGA4   ; CGA IN COLOUR (98.3.12): its own
+    jb .std                         ; modes, full screen
+    je .c4
+    cmp dl, VID_CGA                 ; C160: a CGA's text mode retimed, or a
+    je .c16                         ; VGA's - an EGA's 350 lines hold no
+    cmp dl, VID_VGA                 ; hundred rows of the cell
+    jne .cno
+.c16:
+    call vp_try                     ; TEXT80, and 80 x 100 holds the canvas
+    jc .cno
+    mov byte [vp_shadow], 1         ; ...always THROUGH THE SHADOW: the
+    jmp short .ok                   ; screen's stride is 160, a byte of two
+.c4:
+    test byte [vp_caps], 1 << FSXM_CGA320
+    jnz .ok
+.cno:
+    mov word [vp_msg], vp_s_nocol
+    ret
+.std:
     call vp_try
     jnc .ok
     cmp byte [vp_pixfmt], PF_VGA8   ; colour has no one-bit screen to be
@@ -1428,6 +1477,10 @@ vp_canplay:
     add bx, ax
     shl bx, 1
     mov al, [vp_laytab+bx]
+    cmp byte [vp_pixfmt], PF_CGA4   ; (mode 4 is CGA's layout at two bits a
+    jne .md                         ; pixel)
+    mov al, FSXM_CGA320
+.md:
     mov [vp_mode], al
     mov byte [vp_ok], 1
     mov al, [vp_tlay]               ; THE FULL SCREEN's, kept: a bracket in the
@@ -1682,8 +1735,13 @@ vp_mkpic:
     jmp .rows4
 .n4:
     cmp byte [vp_pixfmt], PF_VGA8   ; 256 COLOURS: the luma dithered to one
-    jne .mono                       ; bit, dense at its own size, and halved
-    call vp_v8mono                  ; in place from there
+    jb .mono                        ; bit, dense at its own size, and halved
+    je .v8                          ; in place from there - and CGA's
+    call vp_cmono                   ; colours the same way (98.4.6)
+    jmp short .v8p
+.v8:
+    call vp_v8mono
+.v8p:
     mov ax, [vp_pwb]
     mov [vh_sstr], ax
     mov [vh_wb], ax
@@ -1809,8 +1867,8 @@ vp_psize:
 .n4:
     mov ax, [vp_pwb]
     mov cx, [vp_ph]
-    cmp byte [vp_pixfmt], PF_VGA8   ; made whole, then halved in place
-    je .sz
+    cmp byte [vp_pixfmt], PF_VGA8   ; made whole, then halved in place (and
+    jae .sz                         ; CGA's colours: 98.4.6)
     cmp word [vp_ps], 1
     je .sz
     inc ax
@@ -1869,6 +1927,260 @@ vp_linear:
     pop cx
     pop bx
     pop ax
+    ret
+
+; vp_cmono - a CGA4 or C160 keyframe in [vp_kshd] (the file's layout) into
+; the one-bit poster in [vp_pseg], dense at [vp_pwb] a row (98.4.6): each
+; pixel's colour's luma - the sixteen's, 0..16, as 98.4.4 makes them - lit
+; when it beats the 4 x 4 Bayer cell over it. A CGA4 byte is four pixels,
+; the leftmost in bits 7-6; a C160 byte two, the LEFT high, each made two
+; wide so the picture keeps its shape. tools/os88vid.py's cga4_mono and
+; c160_mono are the reference
+vp_cmono:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov bx, 15                      ; the lumas: C160's sixteen as they are,
+.lc:                                ; CGA4's four through its palette byte
+    mov al, [vp_c16lum+bx]
+    mov [vp_lum+bx], al
+    dec bx
+    jns .lc
+    cmp byte [vp_pixfmt], PF_CGA4
+    jne .go
+    mov al, [vp_cgapal]
+    mov bl, al                      ; value 0: the background
+    and bx, 15
+    mov ah, [vp_c16lum+bx]
+    mov [vp_lum], ah
+    mov bl, 6                       ; the set: mode 5's, or bit 5's
+    test al, 0x40
+    jnz .set
+    mov bl, 3
+    test al, 0x20
+    jnz .set
+    xor bl, bl
+.set:
+    xor bh, bh
+    mov ah, 0                       ; ...and intensity, +8
+    test al, 0x10
+    jz .ni
+    mov ah, 8
+.ni:
+    xor si, si
+.fg:
+    mov al, [vp_c4sets+bx]
+    add al, ah
+    push bx
+    mov bl, al
+    xor bh, bh
+    mov al, [vp_c16lum+bx]
+    pop bx
+    mov [vp_lum+1+si], al
+    inc bx
+    inc si
+    cmp si, 3
+    jb .fg
+.go:
+    mov es, [vp_kshd]
+    xor di, di                      ; DI = the output byte
+    xor dx, dx                      ; DX = the row
+.row:
+    cmp dx, [vp_ph]
+    jae .done
+    mov ax, dx
+    mov bl, [vp_layout]
+    call vp_rowaddr
+    mov si, ax                      ; ES:SI = the row's first byte
+    mov bx, dx                      ; the row's four thresholds
+    and bx, 3
+    shl bx, 1
+    shl bx, 1
+    mov ax, [vp_bayer4+bx]
+    mov [vp_rthr], ax
+    mov ax, [vp_bayer4+bx+2]
+    mov [vp_rthr+2], ax
+    mov cx, [vp_pwb]
+.ob:
+    push cx
+    xor ah, ah                      ; AH = the byte, built from the left
+    mov cx, 2                       ; ...out of two canvas bytes
+.sb:
+    push cx
+    mov bl, [es:si]
+    inc si
+    mov cx, 4                       ; four poster pixels each
+.px:
+    cmp byte [vp_pixfmt], PF_C160
+    je .p16
+    rol bl, 1
+    rol bl, 1
+    mov al, bl
+    and al, 3
+    jmp short .lv
+.p16:
+    mov al, bl                      ; pixels 0 and 1 the high nibble, 2 and
+    cmp cl, 2                       ; 3 the low
+    jbe .lo
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    shr al, 1
+.lo:
+    and al, 15
+.lv:
+    push bx
+    mov bl, al
+    xor bh, bh
+    mov al, [vp_lum+bx]
+    mov bx, 4                       ; the column: a canvas byte starts on a
+    sub bx, cx                      ; multiple of four poster pixels
+    cmp [vp_rthr+bx], al            ; CF = threshold < luma: lit
+    pop bx
+    rcl ah, 1
+    loop .px
+    pop cx
+    loop .sb
+    push ds
+    push ax
+    mov ax, [vp_pseg]
+    mov ds, ax
+    pop ax
+    mov [di], ah
+    pop ds
+    inc di
+    pop cx
+    loop .ob
+    inc dx
+    jmp .row
+.done:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; vp_cgaset - CGA's colours, once the bracket has set its mode (98.3.12).
+; CGA4: the palette byte through int 10h AH=0Bh - background and intensity,
+; then the set - and mode 5's third set, which a CGA gets from 3D8h's
+; black-and-white bit and an EGA or VGA from its palette register 2 made
+; red. C160: the text mode retimed to a hundred rows of two scan lines on a
+; CGA (SPEC.md 88.15.2's six writes) or of four on a VGA, blink off so the
+; background is sixteen colours, the cursor off, and every cell the right
+; half block, 0DEh, on black. Preserves all
+vp_cgaset:
+    cmp byte [vp_pixfmt], PF_CGA4
+    jae .go
+    ret
+.go:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    call OSAPI_VIDEO                ; DL = the adapter
+    mov dh, dl
+    cmp byte [vp_pixfmt], PF_C160
+    je .c16
+    mov ah, 0x0B                    ; background and intensity
+    xor bh, bh
+    mov bl, [vp_cgapal]
+    and bl, 0x1F
+    int 0x10
+    mov ah, 0x0B                    ; the set: bit 5's, and mode 5's is set
+    mov bh, 1                       ; 1 with its magenta made red below
+    mov bl, [vp_cgapal]
+    mov cl, 5
+    shr bl, cl
+    or bl, bl
+    jz .set
+    mov bl, 1
+.set:
+    int 0x10
+    test byte [vp_cgapal], 0x40     ; MODE 5's cyan, red and white
+    jz .out
+    cmp dh, VID_CGA
+    jne .ev
+    mov dx, 0x3D8
+    mov al, 0x0E                    ; 320 x 200, black-and-white bit, video on
+    out dx, al
+    jmp short .out
+.ev:
+    mov ax, 0x1000                  ; palette register 2: magenta -> red, in
+    mov bx, 0x0402                  ; the 200-line codes, intensity 10h
+    test byte [vp_cgapal], 0x10
+    jz .ev1
+    mov bh, 0x14
+.ev1:
+    int 0x10
+    jmp short .out
+.c16:
+    cmp dh, VID_CGA
+    jne .v16
+    mov dx, 0x3D8                   ; video off while the 6845 is retimed
+    mov al, 0x01
+    out dx, al
+    mov si, vp_c16crt
+    mov cx, 6
+    mov dx, 0x3D4
+.crt:
+    lodsw
+    out dx, al
+    inc dx
+    mov al, ah
+    out dx, al
+    dec dx
+    loop .crt
+    call vp_c16fill
+    mov dx, 0x3D8                   ; 80 columns, video on, BLINK OFF
+    mov al, 0x09
+    out dx, al
+    inc dx                          ; 3D9h: a black border
+    xor al, al
+    out dx, al
+    jmp short .out
+.v16:
+    mov dx, 0x3D4                   ; max scan line: 3, so 400 lines hold
+    mov al, 9                       ; 100 rows (the other bits kept)
+    out dx, al
+    inc dx
+    in al, dx
+    and al, 0xE0
+    or al, 3
+    out dx, al
+    dec dx
+    mov ax, 0x200A                  ; the cursor off
+    out dx, ax
+    mov ax, 0x1003                  ; blink off: sixteen backgrounds
+    xor bx, bx
+    int 0x10
+    call vp_c16fill
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+vp_c16fill:                         ; every cell 0DEh on black
+    mov es, [vp_vseg]
+    xor di, di
+    mov ax, 0x00DE
+    mov cx, 8000
+    cld
+    rep stosw
     ret
 
 ; vp_rdpal - a VGA8 file's palette (98.1.1) into vp_pal, and the luma the
@@ -3808,6 +4120,8 @@ vp_canwin:
     jne .no
     cmp byte [vp_pixfmt], PF_VGA8   ; 256 colours: full screen only (98.3.7)
     je .no
+    cmp byte [vp_pixfmt], PF_CGA4   ; ...and CGA's colours, whose modes the
+    jae .no                         ; one-bit desktop is not (98.3.12)
     cmp word [vp_ps], 1
     jne .no
     mov bx, [vp_win]
@@ -4089,6 +4403,7 @@ vp_main:
     mov [vp_vseg], ax
     call vp_dac                     ; VGA8: the file's 256 colours
     call vp_crtc                    ; ...and each row twice, if it asks
+    call vp_cgaset                  ; ...or CGA's colours (98.3.12)
     ; the origin: centred, the row on a bank (SPEC.md 98.1.2), on the
     ; screen's layout - the file's own, or the shadow's target (98.3.2)
     mov bl, [vp_tlay]
@@ -5421,16 +5736,29 @@ vp_blit:
     push cx
     mov cx, [vp_wb]
     push ds
-    mov ds, dx
+    cmp byte [vp_tlay], LAY_C160    ; C160 (98.3.12): each shadow byte the
+    je .c16                         ; ATTRIBUTE of a cell, at every other
+    mov ds, dx                      ; address of a 160-byte row
     cld
     shr cx, 1
     rep movsw
     adc cx, cx
     rep movsb
+.rn:
     pop ds
     pop cx
     inc cx
     jmp short .r
+.c16:
+    shl di, 1                       ; (the row and column were the packed
+    inc di                          ; image's: twice that, and the odd byte)
+    mov ds, dx
+    cld
+.cb:
+    movsb
+    inc di
+    loop .cb
+    jmp short .rn
 .d:
     mov word [vp_dy0], 0xFFFF       ; the band is empty again
     mov word [vp_dy1], 0
@@ -6801,6 +7129,10 @@ vp_fmt:
     mov ax, [vp_pwb]                ; the pixels, whatever a byte holds
     mov cl, 3
     shl ax, cl
+    cmp byte [vp_pixfmt], PF_C160   ; (C160's poster is two wide a pixel)
+    jne .pxw
+    shr ax, 1
+.pxw:
     xor dx, dx
     xor bl, bl
     call vp_putn
@@ -6815,6 +7147,10 @@ vp_fmt:
     xor bh, bh
     shl bx, 1
     mov si, [vp_laynames+bx]
+    cmp byte [vp_pixfmt], PF_CGA4
+    jne .lnm
+    mov si, vp_s_cga4
+.lnm:
     call vp_puts
     mov ax, [vp_rate]               ; fps to two places: rate x 100 / spf
     mov cx, 100
@@ -7173,11 +7509,14 @@ vp_laytab:
     dw 320, 200
     db FSXM_MODEX, 1
     dw 80, 240
+    db FSXM_TEXT80, 1               ; C160: the attributes, packed (98.1.3.3)
+    dw 80, 100
 vp_laynames:  dw vp_s_cga, vp_s_herc, vp_s_vga, vp_s_vga8, vp_s_modex
+              dw vp_s_c160
 vp_laynotab:  dw vp_s_nocga, vp_s_noherc, vp_s_novga, vp_s_novga8
-              dw vp_s_novga8
+              dw vp_s_novga8, vp_s_nocol
 vp_laycptab:  dw vp_s_cpcga, vp_s_cpherc, vp_s_cpvga, vp_s_novga8
-              dw vp_s_novga8
+              dw vp_s_novga8, vp_s_colfs
 vp_laykb:     db 16, 32, 38, 63, 75     ; each layout's memory image, KB
 vp_bayer4:    db 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5
 vp_rthr:      db 0, 0, 0, 0             ; vp_v8mono: this row's four
@@ -7195,6 +7534,8 @@ vp_s_herc:    db 'Herc  ', 0
 vp_s_vga:     db 'VGA  ', 0
 vp_s_vga8:    db 'VGA 256  ', 0
 vp_s_modex:   db 'Mode X  ', 0
+vp_s_c160:    db 'CGA 16  ', 0
+vp_s_cga4:    db 'CGA 4  ', 0
 
 vp_s_file:    db 'File: ', 0
 vp_s_nofile:  db '(none) - File > Open...', 0
@@ -7213,6 +7554,8 @@ vp_s_nocga:   db 'Made for CGA; not on this screen', 0
 vp_s_noherc:  db 'Made for Hercules; not this screen', 0
 vp_s_novga:   db 'Made for VGA; not on this screen', 0
 vp_s_novga8:  db '256 colours: a VGA, full screen', 0
+vp_s_nocol:   db 'CGA colour: needs a CGA or VGA', 0
+vp_s_colfs:   db 'CGA colour: plays full screen', 0
 vp_s_cpcga:   db 'Made for CGA: plays via a copy', 0
 vp_s_cpherc:  db 'Made for Herc: plays via a copy', 0
 vp_s_cpvga:   db 'Made for VGA: plays via a copy', 0
@@ -7306,6 +7649,10 @@ vp_held:      db 0
 ; the shadow (SPEC.md 98.3.2) and the burst (98.3.3)
 vp_shadow:    db 0                  ; this file plays through the shadow
 vp_burst:     db 0                  ; the colour burst was turned on
+vp_cgapal:    db 0                  ; CGA4: the palette byte (98.1.3.3)
+vp_c16lum:    db 0, 1, 6, 8, 3, 5, 6, 11, 6, 7, 12, 13, 9, 10, 15, 17
+vp_c4sets:    db 2, 4, 6, 3, 5, 7, 3, 4, 7  ; CGA4's three sets' colours 1-3
+vp_c16crt:    db 4, 127, 5, 6, 6, 100, 7, 112, 9, 1, 10, 0x20  ; SPEC.md 88.15.2
 vp_tlay:      db 0                  ; the screen's layout (= [vp_layout] native)
               db 0
 vp_caps:      dw 0

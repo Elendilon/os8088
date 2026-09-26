@@ -149165,6 +149165,7 @@ playback at ~480 cycles a row change, and REFUSED it). Canvas row *y*, byte
 | 3 LIN80 | A000h, mode 12h, Map Mask 0Fh | 1 | 80 | 480 | y·80 + x |
 | 4 LIN320 | A000h, mode 13h: a byte a pixel | 1 | 320 | 200 | y·320 + x |
 | 5 MODEX | A000h, Mode X (`FSXM_MODEX`): four planes, a byte a pixel | 1 | 80 | 240 | y·80 + x, in plane x' mod 4 of pixel x' = 4x + plane |
+| 6 C160 | a RAM image of B800h's 80 x 25 text mode retimed to 100 rows (98.3.12): the ATTRIBUTES, packed | 1 | 80 | 100 | y·80 + x; the screen's byte is 2(y·80 + x) + 1 |
 
 **LIN320 is 256 colours, and costs the decoder nothing** (VIDEO-PLAN W11a).
 The lists were always byte-oriented and their addresses the surface's own
@@ -149186,6 +149187,12 @@ So an origin must keep the bank phase: its row a multiple of the layout's
 banks, its column on a byte. A file played on a surface of another layout
 is decoded into a RAM shadow instead (VIDEO-PLAN 2.3), and `os88vid import
 --target` re-lays one out so that it plays natively.
+
+**C160 is the one layout that is never the screen** (98.1.3.3): its bytes
+are the attributes of a text mode, which the card keeps at every other
+address, so a file is always decoded into the shadow and copied out at the
+stride of two. Its addresses are therefore the packed image's, and a
+canvas byte is two pixels.
 
 #### 98.1.3 Records, and the ten lists
 
@@ -149303,6 +149310,33 @@ their share of the file, and the interval is the knob if it grows large.
 **The poster** is chosen at encode time and defaults to the first keyframe
 whose canvas is not 98% or more one byte value.
 
+#### 98.1.3.3 CGA in colour: CGA4 and C160
+
+**Two formats for a CGA's own colours** (VIDEO-PLAN 14.3), both played full
+screen on a CGA or a VGA (a VGA having both modes), both ordinary lists -
+`vdec.inc` is unchanged:
+- **CGA4** (pixel format 5): **320 x 200 in four colours, mode 4**, on the
+  CGA layout - whose memory mode 4 shares with mode 6, two banks of 80-byte
+  rows - at FOUR pixels a byte, the leftmost in bits 7-6. The canvas "width
+  in bytes" is its pixels over four, a whole number of pairs (the Preview's
+  one-bit picture is whole bytes), and its pixels are 5:6.
+- **Its palette is ONE BYTE, slot byte 54**, and is the file's for the
+  whole play - the owner's rule (VIDEO-PLAN 14.7, C1): a palette that
+  changes mid-video flashes. Bits 0-3 the background, any of the sixteen;
+  bit 4 the intensity of the other three; bit 5 the set - 0 green, red,
+  brown, 1 cyan, magenta, white; bit 6 mode 5's third, cyan, red and white,
+  with bit 5 then 0. Bit 7, and bits 5 and 6 together, are refused, and so
+  is a palette byte in a file of any other format.
+- **C160** (pixel format 6): **160 x 100 in all sixteen, the text hack** -
+  SPEC.md 88.15's, which Clear Skies drew with first: a text mode's cells
+  made two scan lines tall, each the right half block 0DEh, so a cell's
+  attribute is two pixels - the background nibble the LEFT and the
+  foreground the right. On its own layout, C160 (98.1.2), whose byte is the
+  attribute, packed; nothing else is on that layout.
+
+`tools/os88vid.py`'s `cga4_colours` is the palette byte's reference and the
+sixteen are `STD16`, the colours every CGA, EGA and VGA gives them.
+
 #### 98.1.4 The stream: chained super-packets
 
 ```
@@ -149325,9 +149359,10 @@ super-packet = frames(16) next(16) frame record × frames, zero-padded to a sect
 
 - **Renditions**: one streamed; one to four RESIDENT (98.1.7).
 - **Pixel format**: MONO1, CGACOMP (from an XDC import or `os88venc
-  --pixfmt cgacomp`), or VGA8 (`os88venc --pixfmt vga8`).
+  --pixfmt cgacomp`), VGA8 (`os88venc --pixfmt vga8`), VGA4, CGA4 or C160
+  (98.1.3.3).
 - **Audio**: PCM8, ADPCM4 (98.1.1.1), or none.
-- **Layout**: any of the four.
+- **Layout**: any of the six.
 
 #### 98.1.6 What a reader checks, and what a hostile file can do
 
@@ -150046,6 +150081,47 @@ plays Live at box scale 1; seven held frames over two laps of the seam in
 the box against the host decode. Broken on purpose (two renditions' targets
 swapped) they FAIL.
 
+#### 98.3.12 CGA in colour: full screen, on a CGA or a VGA
+
+**CGA4 and C160 play full screen only** (the owner's C3): the desktop on
+the screens they are for is one-bit, and a window cannot show them. Play
+therefore goes straight to the bracket, and there is no Live and no
+in-window play. **Where they play**:
+- **CGA4**: any display whose `OSAPI_FSX_CAPS` has `FSXM_CGA320` - a CGA, an
+  EGA or a VGA - natively, the decoder writing mode 4's banks.
+- **C160**: a **CGA or a VGA** (`FSX_CAPS`' DL): an EGA's text mode is 350
+  lines, which hold no hundred rows of the cell. It is `FSXM_TEXT80` and
+  ALWAYS through the shadow (98.3.2), because the screen's stride is 160: the
+  copy lays each shadow byte at the ODD address of its cell. Anywhere else
+  the file says *"CGA colour: needs a CGA or VGA"*.
+
+**`vp_cgaset`, once the bracket's mode is set**:
+- **CGA4**: `int 10h AH=0Bh` twice - the background with the intensity bit,
+  then the set - which every CGA, EGA and VGA BIOS has. Mode 5's set is the
+  cyan one with its magenta made red: a CGA does that with 3D8h's
+  black-and-white bit (0Eh), and an EGA or a VGA with palette register 2
+  (`AX=1000h`, 04h or, bright, 14h in the 200-line codes).
+- **C160 on a CGA**: SPEC.md 88.15.2's six 6845 writes with the video off,
+  then 3D8h ← 09h (80 columns, BLINK OFF, so the background is sixteen
+  colours) and a black border.
+- **C160 on a VGA**: the max scan line register's low bits to 3 - rows of
+  four lines, 100 of them in 400 - the cursor off (0Ah ← 20h), and blink off
+  through `AX=1003h`. A VGA's cell is nine dots, so the left pixel is four
+  and the right five; nothing else differs.
+- Then every cell 0DEh on black, which is never written again.
+
+The bracket's restore sets the desktop's mode, so nothing is undone by hand.
+
+The gates: `vidcga4` (mode 5's set, bright, on blue, on the CGA 5150),
+`vidcga4p` (set 1, dim, on yellow), `vidcga4vga`, `vidc160` and
+`vidc160vga` - the file read as it is, the poster 98.4.6's grey byte for
+byte, Play full screen, and at four holds the screen's memory against the
+decode (on the CGA) and EVERY PIXEL's rendered colour against the colour the
+file means, on both. Broken on purpose (`vp_cgaset` skipped) the colours
+and the characters are wrong and they FAIL. MartyPC's VGA draws text-mode
+attribute 6 as red where a VGA's, and its own CGA's, is brown; `vidc160vga`
+takes either for that colour and says why.
+
 ### 98.4 The window: the Preview (wave 6)
 
 **The window IS the Preview** (VIDEO-PLAN 3.3): the file's poster in a
@@ -150238,6 +150314,18 @@ decimation rather than 98.4's dithered halving. The box is then drawn in
 the desktop's own sixteen colours, and on a one-bit desktop `gfx_blit4`
 renders them as it renders any picture. `tools/os88vid.py`'s `vga4_pack` is
 the reference and `vidvga4` holds the player to it byte for byte.
+
+#### 98.4.6 A CGA-colour poster
+
+A CGA4 or C160 keyframe is decoded into the shadow and `vp_cmono` makes
+it one bit, as 98.4.4 does 256 colours: each pixel's colour's luma - the
+sixteen's, `(77 r + 150 g + 29 b) >> 8` on their six bits then `× 17 + 32
+>> 6` - lit when it beats the 4 × 4 Bayer cell. CGA4's four are its palette
+byte's; a C160 pixel is drawn TWO wide, so the picture keeps its shape on a
+640 x 200 desktop. Either way a poster byte is two canvas bytes, and it is
+halved from there as any one-bit picture is. `cga4_mono` and `c160_mono` in
+`tools/os88vid.py` are the reference, and `vidcga4`/`vidc160` hold the
+player to them byte for byte.
 
 ### 98.2 The host tools — `tools/os88vid.py`
 
@@ -150533,3 +150621,66 @@ window on a VGA desktop at their own size; the last is full screen.
 - `EncoderP` builds the frames: the sub-records by 98.1.3.2's rule, done
   with numpy, ranked by the colour error of the eight pixels a byte covers.
   `videnc` checks a lossless VGA4 encode frame by frame.
+
+#### 98.2.6 CGA's colours from a video (`--pixfmt cga4`, `c160`)
+
+`--preset cga4` (320 x 200), `cga4-small` (160 x 100) and `c160` name their
+format as well as their box - a CGA-colour preset's layout alone would make
+a one-bit file of the same size.
+- **Both are 98.2.5's pattern dither** (`KnollDitherer`), over the sixteen
+  for C160 and over the file's four for CGA4, the indexes packed four or two
+  to the byte, the leftmost highest; the plain byte `Encoder` does the rest.
+- **CGA4's palette byte is PICKED** (`cga4_pick`): of the 96 - sixteen
+  backgrounds, three sets, two intensities - the one whose four colours are
+  nearest the clip's pixels on average, over a sample of every 24th of its
+  frames. `--cga-palette 0|1|2`, `--cga-bright 0|1` and `--cga-bg N` each fix
+  their part of the choice, and the rest is still picked. It is one byte for
+  the whole file (98.1.3.3).
+- `--preview-png` draws both in the colours the screen will.
+
+`videnc` checks both lossless, frame by frame, and CGA4's byte against the
+three overrides; `os88vid --selfcheck` round-trips both and refuses three
+bad files.
+
+#### 98.2.7 A resident or Live file from a video (`--resident`, `--live`)
+
+`--resident` writes the RESIDENT form (98.1.7) of what the encoder made: one
+rendition, its records one block, LZB-packed, the sound one PCM8 block (so
+`--audio adpcm4` is refused with it) - for a clip short enough to be read
+whole before it plays. The disk budget does not apply, since nothing is read
+while it plays; the CPU's does. 98.1.7's bounds are the encoder's refusal:
+a block past 60 KB packed or 128 KB unpacked is a clip too long for the
+form, and it says so.
+
+`--live cga|herc|vga` is `--resident` for LIVE (98.3.10): the canvas one-bit
+LIN80 at the named screen's own pixel shape - its box, with no `--box`,
+the logo's (320 x 112 on a CGA, 360 x 144 on a Hercules, 320 x 200 on a VGA)
+- and the target byte naming that screen, so the file plays on its desktop.
+One rendition: a file for every screen is `tools/os88logovid.py`'s shape,
+several encodes made into one, and the encoder does not make it.
+
+#### 98.2.8 The encoder's window — `tools/os88vencgui.py`
+
+**The same encoder with a window on it** (VIDEO-PLAN 14.2, E1-E4), on
+`tools/os88proxygui.py`'s rule: it imports `os88venc` and reimplements none
+of it. The form is DERIVED from `os88venc.parser()` - every option on a
+tab (Basic, Picture, Colour, Sound, Budget, Loop and keys, Advanced) with
+its own help as the tooltip - so an option added to the encoder is in the
+window with no work, and one without help fails the gate. A value left at
+its default is left off the command line, so the encoder's own defaulting
+still happens. What the window adds:
+- **Made for**: a target machine and screen, which sets the preset, the
+  pixel format and the storage profile together.
+- **ffprobe's answer** about the source, and the defaults it implies - no
+  sound when it has none, its name as the title.
+- **A scrubber over the ENCODED frames as the screen shows them**: the
+  file decoded and each frame drawn at its pixel aspect in the adapter's
+  colours - CGA4's palette, the sixteen, a VGA8 file's own, composite
+  through `os88cgacomp`'s monitor model, one bit as one bit.
+- **Make a disk**: the .V88 and, when `build/` has it, `VIDEO.O88` on a
+  floppy image of any of the four sizes.
+
+Tk is imported softly, so `tests/vencguitest.py` (`vencgui`) checks all of
+it with no display: every option on a tab with a tooltip, the untouched
+form parsing to the parser's defaults, every target encoding to the format
+it names, every preview at its screen's shape, and the disk.

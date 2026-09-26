@@ -305,8 +305,25 @@ def main():
                 wait(lambda mm: rb("vp_sess") == 1 and rb("vp_ready") == 0
                      and rw("vp_dkey") == 0xFFFE,     # in the window (98.3.7)
                      "F to come out, paused")
-                m.key("Escape")             # ...and Esc stops the session
+                # ...and Esc stops the session. SENT AGAIN if it did not:
+                # the F above is seen done while the bracket is still
+                # putting the desktop back, and a key pressed in that window
+                # goes with the bracket's input - one run in fifty under a
+                # loaded soak. What is asserted is that Esc stops it, not
+                # that the harness won the race
+                for tries in range(3):
+                    m.key("Escape")
+                    try:
+                        os88marty.until(m, lambda mm: rb("vp_played") == 1,
+                                        "Esc to stop it", poll=0.2,
+                                        limit=120.0, guest=5.0)
+                        break
+                    except os88marty.MartyError:
+                        pass
                 wait(lambda mm: rb("vp_played") == 1, "Esc to stop it")
+                if tries:
+                    print("   (Esc sent %d times: the first went with the "
+                          "bracket's input)" % (tries + 1))
                 ww("vp_stopat", 0xFFFF)
                 last = rw("vp_done") - 1
                 want_k = max(i for i, k in enumerate(keys) if k <= last)

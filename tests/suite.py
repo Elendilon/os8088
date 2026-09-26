@@ -8349,6 +8349,40 @@ SOAK = [
         70.0, "SPEC.md 98.3.10: vidlive on MartyPC's VGA XT",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidcga4", "soak", py("tests/vidcga.py", "--fmt", "cga4"), 45.0,
+        "SPEC.md 98.1.3.3, 98.3.12, 98.4.6: CGA IN COLOUR on the CGA 5150 - "
+        "a mode 4 clip with mode 5's palette (51h): read as CGA4, the poster "
+        "cga4_mono's grey byte for byte, Play full screen, and at four holds "
+        "the banked image against the decode and EVERY PIXEL's rendered "
+        "colour against the palette. Broken on purpose (vp_cgaset skipped) "
+        "the colours on the glass are wrong and it FAILS",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidcga4p", "soak", py("tests/vidcga.py", "--fmt", "cga4",
+                               "--pal", "2E"), 45.0,
+        "SPEC.md 98.3.12: vidcga4 with the BIOS's own set 1, dim, on yellow",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidcga4vga", "soak", py("tests/vidcga.py", "--fmt", "cga4",
+                                 "--screen", "vga"), 45.0,
+        "SPEC.md 98.3.12: vidcga4 on MartyPC's VGA XT - mode 5's red made "
+        "from palette register 2",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidc160", "soak", py("tests/vidcga.py", "--fmt", "c160"), 45.0,
+        "SPEC.md 98.1.3.3, 98.3.12: SIXTEEN COLOURS at 160 x 100 on the CGA "
+        "5150 - the text mode retimed to 100 rows, every character 0DEh, "
+        "each attribute at its odd address against the decode, every "
+        "pixel's rendered colour, and the poster c160_mono's. Broken on "
+        "purpose (the retime skipped) it FAILS",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidc160vga", "soak", py("tests/vidcga.py", "--fmt", "c160",
+                                 "--screen", "vga"), 45.0,
+        "SPEC.md 98.3.12: vidc160 on MartyPC's VGA XT - rows of four scan "
+        "lines, blink off through the BIOS",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidlogo", "soak", py("tests/vidlogo.py"), 30.0,
         "VIDEO-PLAN 14.3, SPEC.md 98.3.10: the COMMITTED logo video on the "
         "Hercules 5150 - the file the generator's (resident, live, three "
@@ -8497,7 +8531,16 @@ SOAK = [
         "on purpose (spans merged across bytes outside the canvas; keyframes "
         "stamped a frame early) it FAILS naming the layout and frame. 16 s "
         "with the samples, 2 s without."),
-    Row("videnc", "soak", py("tests/videnc.py"), 12.0,
+    Row("vencgui", "soak", py("tests/vencguitest.py"), 25.0,
+        "SPEC.md 98.2.8: the encoder's WINDOW without a window "
+        "(tools/os88vencgui.py): every os88venc option on a tab with a "
+        "tooltip, the untouched form parsing to the parser's own defaults, "
+        "every 'made for' target encoding to the format it names (a Live "
+        "one to a live file for its screen), every preview at its screen's "
+        "shape, and Make a disk. Broken on purpose (an option's help "
+        "emptied) it FAILS naming it. SKIPS 3-5 without ffmpeg",
+        needs=("ffmpeg",)),
+    Row("videnc", "soak", py("tests/videnc.py"), 45.0,
         "SPEC.md 98.2.1: the encoder front end and its budgets, host-side. "
         "ffmpeg makes a 16:9 source with a still tail and tools/os88venc.py "
         "encodes it: the canvas must be the source's shape in the Hercules "

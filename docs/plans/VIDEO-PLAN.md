@@ -1496,6 +1496,39 @@ Each carries a recommendation, so *"the defaults"* is a full answer.
   an install copies the boot floppy, so a hard disk installed from a 720KB
   or larger system disk has it.
 
+- **CGA in colour is BUILT** (SPEC.md 98.1.3.3, 98.3.12, 98.4.6, 98.2.6):
+  **CGA4**, 320 x 200 in four colours on mode 4, with ONE palette byte for
+  the file (C1) that the encoder picks out of the 96 and three flags
+  override; and **C160**, 160 x 100 in all sixteen on the text hack, on a
+  layout of its own that always plays through the shadow because the
+  screen's stride is two. Both full screen only, on a CGA or a VGA (C3) - a
+  VGA has mode 4, and its text mode retimed to rows of four lines holds the
+  hundred rows too - and CGA4 on an EGA as well. Snow is accepted on an
+  original card (C2): nothing here waits for retrace. Gates: `vidcga4`,
+  `vidcga4p`, `vidcga4vga`, `vidc160`, `vidc160vga`, each checking every
+  pixel's rendered colour; `videnc` and `os88vid --selfcheck` for the host.
+- **Found on the way**: mode 5's cyan-red-white set on a VGA came out as set
+  0 - the BIOS was asked for set 0 and register 2 patched, where mode 5 is
+  set 1 with magenta made red; a real CGA hid it behind 3D8h's
+  black-and-white bit. And MartyPC's VGA draws text attribute 6 as red,
+  not brown - the same file is brown on its CGA - so `vidc160vga` takes
+  either for that one colour and says so.
+
+- **The encoder's window is BUILT** (SPEC.md 98.2.8, E1-E4):
+  `tools/os88vencgui.py`, tkinter, the form DERIVED from `os88venc`'s own
+  parser so every option is on a tab with its help as the tooltip - which
+  meant giving the seventeen options that had no help one each. "Made for"
+  sets preset, format and profile in one choice; ffprobe's answer fills the
+  defaults; a scrubber shows the ENCODED frames as the screen will; "make a
+  floppy" writes the .V88 and VIDEO.O88 onto an image of any size. The
+  advanced tab carries **`--resident` and `--live cga|herc|vga`**, new in
+  the encoder for it (98.2.7): one rendition read whole, and a Live file for
+  one screen. Gate: `vencgui`, with no display. Driven under Xvfb, it found
+  one defect no test without a display could - the encode thread read two
+  Tk variables, which Tk refuses off the main thread.
+- **Found**: `vidpreview` lost its Esc one run in fifty under a loaded soak
+  - sent while the bracket was still putting the desktop back. It resends.
+
 ### 14.7 The owner's answers (2026-09-26)
 
 | # | answer |

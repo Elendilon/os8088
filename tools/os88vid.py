@@ -700,28 +700,87 @@ AUD_NONE, AUD_PCM8, AUD_ADPCM4 = 0, 1, 2
 AUD_BY_NAME = {"pcm8": AUD_PCM8, "adpcm4": AUD_ADPCM4}
 ADPCM4_REF = 0x80               # the stream's reference byte (SPEC.md 98.1.1)
 PF_MONO1, PF_CGACOMP, PF_VGA8, PF_VGA4 = 1, 2, 3, 4
+PF_CGA4, PF_C160 = 5, 6         # CGA in COLOUR (98.1.3.3): 320 x 200 x 4 on
+                                # mode 4, and 160 x 100 x 16 on the text hack
 PF_NAMES = {PF_MONO1: "MONO1", PF_CGACOMP: "CGACOMP", PF_VGA8: "VGA8",
-            PF_VGA4: "VGA4"}
+            PF_VGA4: "VGA4", PF_CGA4: "CGA4", PF_C160: "C160"}
 # VGA4 (98.1.3.2): mode 12h's own sixteen, which no theme changes - the
 # DAC's six bits, black to white in the EGA's order
 STD16 = bytes((0, 0, 0, 0, 0, 42, 0, 42, 0, 0, 42, 42, 42, 0, 0, 42, 0, 42,
                42, 21, 0, 42, 42, 42, 21, 21, 21, 21, 21, 63, 21, 63, 21,
                21, 63, 63, 63, 21, 21, 63, 21, 63, 63, 63, 21, 63, 63, 63))
 LAY_CGA, LAY_HERC, LAY_LIN80, LAY_LIN320, LAY_MODEX = 1, 2, 3, 4, 5
+LAY_C160 = 6
 LAYOUTS = {                     # SPEC.md 98.1.2: banks, stride, rows, name
     LAY_CGA: (2, 80, 200, "cga"),
     LAY_HERC: (4, 90, 348, "herc"),
     LAY_LIN80: (1, 80, 480, "lin80"),
     LAY_LIN320: (1, 320, 200, "lin320"),
     LAY_MODEX: (1, 80, 240, "modex"),   # a PLANE's image: 80 bytes a row
-}
+    LAY_C160: (1, 80, 100, "c160"),     # packed nibbles, the LEFT high: the
+}                                       # text hack's attributes (98.1.3.3)
 LAYOUT_BY_NAME = {v[3]: k for k, v in LAYOUTS.items()}
 ASPECT = {LAY_CGA: (5, 12), LAY_HERC: (29, 45), LAY_LIN80: (1, 1),
-          LAY_LIN320: (5, 6), LAY_MODEX: (1, 1)}
+          LAY_LIN320: (5, 6), LAY_MODEX: (1, 1), LAY_C160: (5, 6)}
 # a byte is a PIXEL on a VGA8 layout and eight of them on the others - and
 # on MODEX a byte of each of four planes, so a plane row's byte is 4 pixels
 PIX_PER_BYTE = {LAY_CGA: 8, LAY_HERC: 8, LAY_LIN80: 8, LAY_LIN320: 1,
-                LAY_MODEX: 4}
+                LAY_MODEX: 4, LAY_C160: 2}
+CGA4_ASPECT = (5, 6)            # mode 4's pixel: 320 x 200 on a 4:3 tube
+# CGA4's PALETTE (98.1.3.3), slot byte 54: bits 0-3 the background, any of
+# the sixteen; bit 4 the intensity of the other three; bit 5 the palette
+# (0 green, red, brown; 1 cyan, magenta, white); bit 6 mode 5's third
+# (cyan, red, white), bit 5 then 0. Bit 7 is refused
+R_CGAPAL = 54
+CGA4_SETS = {0: (2, 4, 6), 1: (3, 5, 7), 2: (3, 4, 7)}
+
+
+def cga4_colours(sel):
+    """The four colours, as indexes of the sixteen, that palette byte
+    `sel` puts on pixel values 0..3"""
+    if sel & 0x80 or (sel & 0x40 and sel & 0x20):
+        raise V88Error("a CGA4 palette byte of %02Xh" % sel)
+    p = 2 if sel & 0x40 else (sel >> 5) & 1
+    return [sel & 15] + [c + (8 if sel & 16 else 0) for c in CGA4_SETS[p]]
+
+
+def c16_lum16():
+    """The sixteen CGA colours' lumas, 0..16, as vga8_lum16 makes them"""
+    return vga8_lum16(STD16 + bytes(768 - 48))[:16]
+
+
+def cga4_mono(cv, wb, h, sel):
+    """A CGA4 canvas (wb bytes a row, four pixels a byte, the leftmost in
+    bits 7-6) as the Preview's one-bit picture: wb / 2 bytes a row, a pixel
+    lit when its colour's luma beats the 4 x 4 Bayer cell - the player's
+    vp_c4mono (98.4.6)"""
+    lum = c16_lum16()
+    lv = [lum[c] for c in cga4_colours(sel)]
+    out = bytearray(wb // 2 * h)
+    for y in range(h):
+        by = BAYER4[(y & 3) * 4:(y & 3) * 4 + 4]
+        for x in range(wb * 4):
+            v = (cv[y * wb + x // 4] >> (6 - 2 * (x & 3))) & 3
+            if lv[v] > by[x & 3]:
+                out[y * (wb // 2) + x // 8] |= 0x80 >> (x & 7)
+    return bytes(out)
+
+
+def c160_mono(cv, wb, h):
+    """A C160 canvas (wb bytes a row, two pixels a byte) as the Preview's
+    one-bit picture, each pixel TWO wide - wb / 2 bytes a row, so the
+    picture keeps its shape on a 640 x 200 desktop - the player's
+    vp_c16mono (98.4.6)"""
+    lum = c16_lum16()
+    out = bytearray(wb // 2 * h)
+    for y in range(h):
+        by = BAYER4[(y & 3) * 4:(y & 3) * 4 + 4]
+        for x in range(wb * 4):
+            b = cv[y * wb + x // 4]
+            v = b >> 4 if not x & 2 else b & 15
+            if lum[v] > by[x & 3]:
+                out[y * (wb // 2) + x // 8] |= 0x80 >> (x & 7)
+    return bytes(out)
 VGA8_LAYOUTS = (LAY_LIN320, LAY_MODEX)
 PLANE = 65536                   # a planar surface: plane p at p x 64 KB
 CYC_SUB = 40                    # a MODEX sub-record's Map Mask OUT
@@ -1094,7 +1153,19 @@ class Writer:
 
     def __init__(self, g, rate, spf, audio_fmt, abytes, pixfmt, title="",
                  credits="", aspect=None, keysecs=KEY_SECS, palette=None,
-                 rowscale=1, flip=False, loop=None, repeat=False):
+                 rowscale=1, flip=False, loop=None, repeat=False,
+                 cgapal=None):
+        if (pixfmt == PF_CGA4) != (cgapal is not None):
+            raise V88Error("a CGA4 file carries its palette byte, and no "
+                           "other file carries one")
+        if pixfmt == PF_CGA4:
+            cga4_colours(cgapal)
+            if g.layout != LAY_CGA:
+                raise V88Error("CGA4 is mode 4's: the cga layout")
+        if (pixfmt == PF_C160) != (g.layout == LAY_C160):
+            raise V88Error("C160 is the c160 layout's, and it takes nothing "
+                           "else")
+        self.cgapal = cgapal
         if flip and g.layout != LAY_MODEX:
             raise V88Error("page flipping is Mode X's (98.3.8)")
         self.flip = flip
@@ -1264,6 +1335,8 @@ class Writer:
         struct.pack_into("<IBB", hdr, 224, pal,
                          self.rowscale if self.rowscale > 1 else 0,
                          2 if self.flip else 0)
+        if self.cgapal is not None:
+            hdr[192 + R_CGAPAL] = self.cgapal
         hdr[LOOP_AT:LOOP_AT + len(loopblk)] = loopblk
         front = bytes(hdr)
         if self.palette:
@@ -1410,6 +1483,8 @@ def write_resident(path, writers, audio_fmt=AUD_NONE, abytes=0, audio=b"",
                          w.rowscale if w.rowscale > 1 else 0,
                          2 if w.flip else 0)
         struct.pack_into("<IIIB", hdr, so + R_BLOCK, boff, plen, ulen, bpk)
+        if w.cgapal is not None:
+            hdr[so + R_CGAPAL] = w.cgapal
         if live is not None or targets is not None:
             hdr[so + R_TARGET] = (live or targets)[ri]
     if loop is not None:
@@ -1537,6 +1612,17 @@ class Reader:
                            % (self.pixfmt, layout))
         if self.pixfmt == PF_VGA4 and layout != LAY_LIN80:
             raise V88Error("VGA4 on layout %d: it is LIN80's" % layout)
+        if self.pixfmt == PF_CGA4 and layout != LAY_CGA:
+            raise V88Error("CGA4 on layout %d: it is CGA's" % layout)
+        if (self.pixfmt == PF_C160) != (layout == LAY_C160):
+            raise V88Error("pixel format %d on layout %d: C160 is the c160 "
+                           "layout's, and only its" % (self.pixfmt, layout))
+        self.cgapal = d[self.slot + R_CGAPAL]
+        if self.pixfmt == PF_CGA4:
+            cga4_colours(self.cgapal)
+        elif self.cgapal:
+            raise V88Error("a CGA palette byte in a %s file"
+                           % PF_NAMES[self.pixfmt])
         self.g = Geom(layout, wb, h, bitplanes=self.pixfmt == PF_VGA4)
         pal, rs, fl = struct.unpack_from("<IBB", d, self.slot + 32)
         self.rowscale = rs or 1
@@ -2311,14 +2397,14 @@ def encode_frames(paths, out, fps, wav=None, layout="cga", title="",
 
 def encode_canvases(canvases, g, out, fps, pixfmt=PF_MONO1, palette=None,
                     title="", keysecs=KEY_SECS, poster=None, rowscale=1,
-                    flip=False, loop=None, repeat=False):
+                    flip=False, loop=None, repeat=False, cgapal=None):
     """encode_frames for canvases already in hand (bytes, g.wb a row) - the
     only way to make a VGA8 file without a video (SPEC.md 98.2): silent,
     every changed byte"""
     rate, spf = max(1, round(fps * 100)), 100
     wr = Writer(g, rate, spf, AUD_NONE, 0, pixfmt, title=title,
                 keysecs=keysecs, palette=palette, rowscale=rowscale,
-                flip=flip, loop=loop, repeat=repeat)
+                flip=flip, loop=loop, repeat=repeat, cgapal=cgapal)
     surf = g.surface()
     prev = g.canvas(surf)
     for cv in canvases:
@@ -2389,9 +2475,13 @@ def cmd_info(a):
                               r.pitdiv,
                                r.pitper))
         print("   canvas %d x %d%s on %s, %s, aspect %d:%d"
-              % (g.wb * PIX_PER_BYTE[g.layout], g.h,
+              % (g.wb * (4 if r.pixfmt == PF_CGA4 else
+                         PIX_PER_BYTE[g.layout]), g.h,
                  " (each row shown twice)" if r.rowscale > 1 else "",
                  g.name, PF_NAMES[r.pixfmt], *r.aspect))
+        if r.pixfmt == PF_CGA4:
+            print("   palette %02Xh: colours %s" % (
+                r.cgapal, " ".join(str(c) for c in cga4_colours(r.cgapal))))
         print("   stream %d bytes = %.1f KB/s; largest super-packet %d "
               "sectors, largest record %d"
               % (r.slen, r.slen / 1024.0 / secs, r.spmax, r.rmax))
@@ -2854,13 +2944,40 @@ def selfcheck():
                                   192 + R_BLOCK)[0]
         expect_fail("damaged block", res, lambda d: d[:boff + 9] +
                     bytes([d[boff + 9] ^ 0x77]) + d[boff + 10:], "")
+        # CGA IN COLOUR (98.1.3.3): a CGA4 file with its palette byte and a
+        # C160 one round-trip, and a palette where none belongs, a bad
+        # palette byte and C160 on another layout are refused
+        rn = random.Random(98133)
+        for pf, lay, wb, pal in ((PF_CGA4, LAY_CGA, 10, 0x51),
+                                 (PF_C160, LAY_C160, 12, None)):
+            gg = Geom(lay, wb, 20)
+            cvs2 = [bytes(rn.getrandbits(8) for _ in range(wb * 20))
+                    for _ in range(6)]
+            out2 = os.path.join(tmp, "C%d.V88" % pf)
+            encode_canvases(cvs2, gg, out2, 15.0, pf, keysecs=1.0,
+                            cgapal=pal)
+            rc = Reader(out2)
+            if verify_v88(out2) != 6 or rc.pixfmt != pf or \
+                    (pf == PF_CGA4 and rc.cgapal != pal) or \
+                    decode_at(rc, 5) != cvs2[5]:
+                fails.append("a %s file did not read back as written"
+                             % PF_NAMES[pf])
+        c4 = os.path.join(tmp, "C%d.V88" % PF_CGA4)
+        c16 = os.path.join(tmp, "C%d.V88" % PF_C160)
+        expect_fail("CGA4 palette byte of 60h", c4, lambda d: d[:246] +
+                    b"\x60" + d[247:], "CGA4 palette")
+        expect_fail("palette byte in a C160 file", c16, lambda d: d[:246] +
+                    b"\x01" + d[247:], "palette byte")
+        expect_fail("C160 on the CGA layout", c16, lambda d: d[:193] +
+                    bytes([LAY_CGA]) + d[194:], "C160")
     for f in fails:
         print("os88vid --selfcheck: FAIL - %s" % f)
     if not fails:
         print("os88vid --selfcheck: ok - encode, import (cga, herc, lin80), "
               "decode and verify agree, ADPCM4 carries a tone and seeks "
               "exactly, a seam joins its laps, a resident file's blocks "
-              "round-trip, and seven corruptions were refused")
+              "round-trip, CGA4 and C160 round-trip, and ten corruptions "
+              "were refused")
     return 1 if fails else 0
 
 
