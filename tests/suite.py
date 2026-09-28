@@ -350,6 +350,12 @@ FAST = [
     Row("mirror", "fast", py("tests/unit/t_mirror.py"), 4.5,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
+    Row("spkfxtab", "fast", py("tests/unit/t_spkfx.py"), 0.1,
+        "the speaker shaper's GENERATED tables (apps/os88spkfx_t.inc) are "
+        "tools/os88spkfx.py's, and the model passes its own selfcheck: a "
+        "table edited by hand or a model nobody regenerated would put the "
+        "machine and its reference apart while both still ran. FAST because "
+        "three packages include it and it costs 0.04s"),
     Row("bits", "fast", py("tests/unit/t_bits.py"), 0.5,
         "TWO FLAGS THAT SHARE ONE BYTE MAY NOT SHARE A BIT (SPEC.md 96.11.10). "
         "t_mirror's sibling and the same class of gate: a flag is `NAME equ "
@@ -8425,6 +8431,16 @@ SOAK = [
         "moves. Broken on purpose - the pulse's `out 0x42` removed, the "
         "release's store removed, the sub-tick's hand-back removed - each "
         "FAILS",
+        needs=("marty", "nasm")),
+    Row("spkfx", "soak", py("tests/spkfx.py"), 25.0,
+        "docs/plans/SPEAKER-PCM-PLAN.md: apps/os88spkfx.inc, the speaker "
+        "shaper Audio, Tracker and the Video Player share, against "
+        "tools/os88spkfx.py to the byte - five legs (pre-emphasis with the "
+        "carrier's slide, emitted in pieces; none; no slide; 11,025 and "
+        "16,000 Hz) over a signal that reaches every level, the gate and "
+        "silence, each EXACT, with the cycles a sample printed. Broken on "
+        "purpose (the pre-emphasis's rcr made a shr, in either of the two "
+        "bodies) the PRE_DIFF legs that reach it FAIL",
         needs=("marty", "nasm")),
     Row("vidspkat", "soak", py("tests/vidspkat.py"), 40.0,
         "SPEC.md 34.11.8: 22,050 Hz through the PC speaker on a 286 or "

@@ -58324,6 +58324,73 @@ with a rate divisor of whole 54-count pulses, the ring is played from and
 every frame drawn; `vidspk --rate 22050 --unmute` (MartyPC's 8088) is the
 refusal. How it SOUNDS on a 286's speaker is the owner's to hear.
 
+#### 34.11.9 The speaker shaper: `apps/os88spkfx.inc`
+
+**A straight wave through the pulse width is the carrier and nothing else on
+a 5150** (98.2.15.1): the width goes to bass the cone cannot move. The Video
+Player's encoder shapes its sound on the host; a package handed a WAV or a
+module cannot, so the shaping moves onto the machine, in the form an 8088
+can afford beside a pulse every ~600 cycles
+(docs/plans/SPEAKER-PCM-PLAN.md). `tools/os88spkfx.py` is its reference, to
+the byte, and `tests/spkfx.py` holds the two equal.
+
+**Per sample**, x unsigned 8-bit at the speaker's rate:
+1. **Pre-emphasis** (`SPKFX_PRE_DIFF`): the first difference, i = (prev −
+   x + 256) >> 1 - the high-pass and the tilt in one, +6 dB an octave. The
+   wave comes out upside down, which no ear hears, and that is what keeps
+   the previous sample in AH for nothing: `xchg`, `sub`, `rcr`. The `rcr`
+   leaves the index's top bit flipped (no `cmc`), so a PRE_DIFF family is
+   stored at i ^ 80h. `SPKFX_PRE_NONE` takes x as it is - Tracker filters
+   its instrument samples at load instead, a linear filter commuting with
+   the mix.
+2. **One `xlatb`** through a row of the **level family**: gain 2^(l/3) in
+   2 dB steps (0..20 dB, `SPKFX_NLEV` = 11 rows of 256), a soft clip
+   (tanh to z = 1 and flat beyond, the encoder's own clip), and
+   os88spk.inc's count table, composed at init.
+3. **The carrier put away in the quiet** (98.2.15.3): a shift d subtracted,
+   saturating at a count of 1, moved once a sub-block of 16 samples toward
+   the span's target - 1 count up, 8 down.
+
+**Per span** (~32 ms - 256 samples up to 11,025 Hz, 512 above), before a
+sample of it is emitted: its peak, read one sample in 32; the level that
+peak asks for (ratio 3, one step up a span at most, any number down, so an
+onset is never driven into the clip); and the carrier's target from the
+headroom the level leaves - all the way down, every count 1, for a span
+under the gate.
+
+**What it costs, measured** on MartyPC's 4.77 MHz 5150 (`tests/spkfx.py`,
+emit plus the span's level, interrupts included): **~104 cycles a sample**
+with the pre-emphasis and the carrier moving, **~84** while the carrier sits
+still, **~72** without the pre-emphasis. The plain translation it replaces
+was ~50 (34.11.4). **What it buys**, 40 s of *Bad Carrot* at 8,000 Hz, each
+band's share of the speaker line in dB (98.2.15.1's table):
+
+| | < 150 Hz | 150-400 | 400-800 | 800-1,600 | 1,600-2,700 | carrier |
+|---|---|---|---|---|---|---|
+| straight | −9.1 | −17.8 | −21.1 | −20.6 | −23.2 | −2.6 |
+| the encoder's shaping | −31.8 | −16.0 | −14.8 | −10.7 | −10.4 | −4.7 |
+| **the machine's** | −20.2 | −19.1 | −16.0 | −11.3 | −9.6 | −5.2 |
+
+The voice bands land within a dB of the encoder's. What the encoder does
+better is the soft passages - its leveller is an RMS over 30 ms in two
+bands, where this one is a peak a span - which come out 3-4 dB quieter here.
+
+`os88spkfx_init` (after `os88spk_init`) takes DI = the family's place in
+the package's OWN segment - `cs xlatb`, DS being the source and ES the ring -
+AL = the pre-emphasis and AH = 1 for the carrier's slide, which also makes
+a dry ring's silence a count of 1. `os88spkfx_level` decides a span;
+`os88spkfx_emit` translates it in any number of pieces, as a ring's wrap
+splits one. `apps/os88spkfx_t.inc` is generated (`tools/os88spkfx.py gen`)
+and `t_spkfx` holds it to the model. The library is 1,745 bytes of the package
+(four unrolled bodies, the entry tables and the generated tables) and 2,816
+bytes of its bss.
+
+**A WAV shaped on the host** - the encoder's full shaping, for whoever
+prepares a file - is `tools/os88spkfx.py shape IN.WAV OUT.WAV [--counts]`:
+8-bit mono at the speaker's rate with an `o8sp` RIFF chunk (kind 1, shaped
+PCM8; kind 2, the counts themselves) saying a player need not shape it
+again (§86).
+
 ## 35. Recorder — the sound layer's recording client
 
 `apps/recorder` needs `SND_CAP_PCM_IN` (a Sound Blaster) to record and
