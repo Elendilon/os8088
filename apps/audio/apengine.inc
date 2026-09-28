@@ -494,11 +494,6 @@ ap_prime:
 ; =============================================================================
 ap_open_track:
     APCNT apc_opentk
-    cmp byte [ap_have_sb], 0
-    jne .havesb
-    mov word [ap_msg], ap_s_nosb
-    jmp .refuse
-.havesb:
     call apl_count
     or ax, ax
     jnz .havetrk
@@ -508,7 +503,23 @@ ap_open_track:
     mov word [ap_msg], ap_s_opening
 
     call ap_stream_close          ; a clean slate (drains the worker)
+    call ap_prep_track            ; the file parsed and the look-ahead primed
+    jc .refuse                    ; (ap_msg says why)
+    cmp byte [ap_have_sb], 0      ; NO CARD: THE SPEAKER (SPEC.md 86.21) -
+    jne .card                     ; sound and nothing else is better than
+    jmp aps_open                  ; no sound. It returns CF itself
+.card:
+    jmp ap_open_card
+.refuse:
+    stc
+    ret
 
+; =============================================================================
+; ap_prep_track - the current entry opened, parsed and adopted, the look-ahead
+;                 claimed and primed: everything a play needs before the card
+;                 or the speaker. out: CF = 1 refused (ap_msg says why)
+; =============================================================================
+ap_prep_track:
     call apl_goto_cur             ; move into the track's directory
     jc .badfile                   ; could not reach the folder - say so
     call OSAPI_FILE_HERE          ; ...and bank it: the refill reads BY NAME,
@@ -577,11 +588,28 @@ ap_open_track:
 
     call ap_ensure_bufs
     jc .nomem
+    call ap_prime                 ; fill the look-ahead ring
+    clc
+    ret
+.badfile:
+    mov word [ap_msg], ap_s_loaderr
+    stc
+    ret
+.parseerr:
+    mov ax, [apw_err]
+    mov [ap_msg], ax
+    stc
+    ret
+.nomem:
+    mov word [ap_msg], ap_s_nomem
+    stc
+    ret
+
+; ap_open_card - the prepared track onto the Sound Blaster: the grant, the
+; pre-roll, the stream and the worker
+ap_open_card:
     call ap_grant_ring
     jc .nomem
-
-    call ap_prime                 ; fill the look-ahead ring
-
     ; --- pre-roll [ap_preroll] halves straight into the grant ------------
     mov cx, [ap_preroll]
 .pre:
@@ -624,13 +652,6 @@ ap_open_track:
     clc
     ret
 
-.badfile:
-    mov word [ap_msg], ap_s_loaderr
-    jmp .refuse
-.parseerr:
-    mov ax, [apw_err]
-    mov [ap_msg], ax
-    jmp .refuse
 .nomem:
     mov word [ap_msg], ap_s_nomem
     jmp .refuse
@@ -802,6 +823,7 @@ ap_calc_duration:
 ; =============================================================================
 ap_stream_close:
     push ax
+    call aps_close                 ; a speaker session ends with it
     cmp byte [ap_sopen], 0
     je .drain
     mov al, 2
@@ -851,6 +873,10 @@ ap_autoadvance:
 ap_cmd_play:
     cmp byte [ap_state], AP_ST_PAUSE
     jne .fresh
+    cmp byte [aps_on], 0           ; a speaker session, paused on the
+    je .card                       ; desktop: its bracket again
+    jmp aps_resume
+.card:
     mov byte [ap_paused], 0
     mov byte [ap_state], AP_ST_PLAY
     mov word [ap_msg], ap_s_playing

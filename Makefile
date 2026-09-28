@@ -5901,6 +5901,8 @@ AUDIO_SRC := apps/audio/audio.asm apps/audio/apengine.inc \
              apps/audio/apwork.inc apps/audio/apcb.inc \
              apps/audio/apwav.inc apps/audio/apdec.inc \
              apps/audio/apui.inc apps/audio/aplist.inc \
+             apps/audio/apspk.inc apps/os88spk.inc apps/os88spkfx.inc \
+             apps/os88spkfx_t.inc \
              apps/os88api.inc apps/os88ui.inc apps/os88type.inc
 # NB: apps/audio/audio.asm is named explicitly (as well as via $(AUDIO_SRC),
 # which begins with it) so tools/os88index.py finds the package here.
@@ -11485,7 +11487,14 @@ APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/tank.o88 $(BUILD)/cyclone.o88 \
 # ModPlug was RETIRED (SPEC.md 56.15). THE 360KB COMBO IS A FOURTH SITE and
 # does not take this list: it filters APPS_GAMES through COMBO_DROP, which
 # names the package there with its own ground (below, beside ETHER.DRV's).
-APPS_GAMES_360 := $(filter-out $(BUILD)/pxstein.o88,$(APPS_GAMES))
+# GORILLAS OFF THE 360KB APPS DISK (SPEC.md 24.6.1's decision with a date on
+# it: 2026-09-28, PROVISIONAL, the owner to confirm or remake). The disk was
+# full to the cluster and the PC speaker's path (docs/plans/SPEAKER-PCM-PLAN.md)
+# grows three packages that ride it - Audio +3.3 KB of disk now, Tracker and
+# the Video Player next - so something had to move, and every game here is
+# also on games360.img. Gorillas is the newest arrival and its 14 clusters
+# cover all three packages' growth; it loses no disk it shipped on elsewhere.
+APPS_GAMES_360 := $(filter-out $(BUILD)/pxstein.o88 $(BUILD)/gorillas.o88,$(APPS_GAMES))
 
 # The CORE PACKAGES (SPEC.md 24.3) are a SECOND copy on the system disk and
 # never a move, so the two lists above are unchanged and still carry every

@@ -46357,7 +46357,11 @@ Audio and the games, none of which has a disk of its own.
 **Being curated onto it is not a property of a package, it is a decision with
 a date on it.** ArtfulType and TeXPad are on both disks today because a
 general disk with no writer on it is a poor general disk; that is the
-owner's call and it gets remade the next time this geometry runs out. The
+owner's call and it gets remade the next time this geometry runs out. It ran
+out on 2026-09-28, when the PC speaker's path grew Audio by 3.3 KB of disk
+(§86.21) with Tracker and the Video Player to follow: Gorillas came off,
+provisionally and for the owner to remake, being the newest game and on
+`games360.img` whatever this disk carries. The
 row to read is the Makefile's `APPS_TOOLS_360`, not a list here — a package
 list in prose goes stale the next time anything ships, and the enforcement is
 `os88disk.py` refusing an image that does not fit.
@@ -58110,7 +58114,13 @@ next one.
 when the counter runs out. A grant runs to the soonest of three things: the
 period's end, the queued data's end, or the ring's end. That keeps CONS exact
 at every period, never a period ahead of the pulse. With nothing queued, a
-grant is one sample of the table's middle (silence), not counted as played.
+grant is a run of `OS88SPK_DRYN` = 16 samples of silence (or the period's
+rest), not counted as played. It was ONE sample until Audio (§86.21): then a
+producer the ring had outrun made every pulse a grant event, ~400 cycles
+more each, and the pulses starved the very producer that was behind - a
+5-second clip played for 9.5. Sixteen is 2 ms at 8 kHz of a gap that was
+going to be heard anyway. The silence is the table's middle, or a count of 1
+where §34.11.9's shaper puts the carrier away.
 
 #### 34.11.3 What the kernel does differently under a sample ISR
 
@@ -58171,11 +58181,13 @@ is PCM8 at 5,512 Hz, with every frame budgeted around what the pulses leave.
   refuses beside `FSXF_FASTTICK` (one channel 0). A speaker play would be
   `FSXF_KEEPWORKER | FSXF_RATE` with a hook, its mixer writing counts, at a
   rate row below its lowest today (11,000 Hz is past the 8088's ceiling).
-- **Audio cannot, as it stands**: it plays on the desktop, and channel 0 is
-  not the desktop's to give (§34.1), so it would need a full-screen play of
-  its own - against its premise of music behind other windows. (ModPlug is
-  retired, §56.15.)
-- docs/plans/SPEAKER-PCM-HANDOFF.md is the brief for both.
+- **Audio** (§86.21), with no card, automatically: its window plays as an
+  imposter in its own `FSXF_RATE` bracket - the desktop given up for it,
+  against its premise of music behind other windows, because sound and
+  nothing else is better than no sound - through §34.11.9's shaper, with a
+  live ladder of rates that finds what the machine can keep up with. (ModPlug
+  is retired, §56.15.)
+- docs/plans/SPEAKER-PCM-PLAN.md is the plan for all three consumers.
 - **No C package**: `apps/cc/os88.h` has no binding for a sample ISR, and
   §73's rules forbid most of what one needs. A C package that wants one gets
   an assembly module.
@@ -117748,9 +117760,12 @@ sample handed on is
 which needs no clamp of its own — `predictor >> 8` is [−128, 127], `+ 128` is
 [0, 255]. **There is no intermediate 16-bit PCM buffer.**
 
-Measured decode cost is well inside the background budget: at 11,025 Hz the
-inner loop is an estimated ~10–15 % of a 4.77 MHz 8088, against Tracker's
-44–165 % mixer (`PERFORMANCE.md` Sets 20/68) — a streamer does no mixing. The
+The decode cost was ESTIMATED here as ~10–15 % of a 4.77 MHz 8088 at 11,025
+Hz, and §86.21 measured otherwise: beside the speaker's pulses an 8088 cannot
+keep an 11,025 Hz IMA file fed at 5,512 Hz and can at 4,800, which puts the
+decode at most of what the pulses leave rather than a tenth of the machine.
+(Against Tracker's 44–165 % mixer, `PERFORMANCE.md` Sets 20/68, a streamer
+still does no mixing.) The
 decoder stays in assembly (it *is* the shim), not because C would be too slow
 but because the SDK does not expose the stream verbs to C at all.
 
@@ -118017,6 +118032,95 @@ the procedure); QEMU is functional verification only, where 28 s of PCM8 @
 22 kHz streams gap-free (0 quiet windows in the capture) with 14 s of it while
 another window holds the focus, and where the `AP_RD_CHUNK` change (§86.5.2)
 cut streaming reads from ~5/s to ~0.6/s with no underruns for either codec.
+### 86.21 No card: the PC speaker, and the desktop given up for it
+
+**With no Sound Blaster the player plays through the PC speaker, on its
+own** (docs/plans/SPEAKER-PCM-PLAN.md; the owner: *"sound and nothing else is
+better than no sound"*). `ap_open_track` prepares a track the same way for
+either (`ap_prep_track`: the file parsed, the look-ahead claimed and primed)
+and then goes to the card (`ap_open_card`) or to `aps_open`
+(`apps/audio/apspk.inc`). The test is `SND_CAP_PCM_BG`, so the Control
+Panel's route to PC Speaker (§34.11's lesson 5) sends a machine WITH a card
+here too.
+
+**It inverts §86's premise, and says so.** The pulses need IRQ0 at the
+sample rate, which only a package's own `FSXF_RATE` bracket may have (§53.2.2,
+§34.11), so a speaker play is a BRACKET: the desktop frozen, every other
+program stopped, the pointer gone, for as long as it plays. It is the Video
+Player's in-window play (§98.3.7) - the **imposter window**: this window's
+clock and progress bar are the only pixels that move (`aps_draw`, through its
+own clip, only when either changed, at most every `AP_DRAW_TICKS`), and the
+status line says `PC speaker - click or Space to pause`. A click anywhere or
+Space takes it back to the desktop PAUSED - the session kept, the ring and
+CONS exact - and Play, Space or Enter resume it from the very sample it
+stopped on (`os88spk_go` plays from CONS); Esc or S stops; N/Right and
+P/Left change track inside it. The playlist plays on inside the bracket,
+track after track, each opened by the bracket's own body (the file slots are
+the UI task's, and this IS the UI task).
+
+**The bracket's body is the producer.** No worker: under a sample ISR a task
+switch rides the 18.2 Hz tick and a yield is ~2,200 cycles at IF = 0
+(§34.11.3), so `aps_main` reads the disk, decodes, resamples, shapes and fills
+the ring itself, and waits in `FSXW_FRAME` when it is full. The rate hook only
+counts periods, and the period is a whole tick (divisor 65,535), since every
+period's entry costs about a pulse. **The ring is 16 KB (2 s at 8 kHz) and is
+filled FULL before the door opens**, and **a dry ring plays a run of
+`OS88SPK_DRYN` samples of silence a grant** (§34.11.2): the first build
+granted one, a starving producer then made every pulse a grant event, the
+pulses took the machine the producer needed to catch up, and a 5-second clip
+played for 9.5.
+
+**The plan** (`aps_plan`) is the file's rate S to the speaker's R. A file
+of COUNTS (§34.11.9's `o8sp` kind 2) plays 1:1 and is copied; everything else
+goes through §34.11.9's shaper - with its pre-emphasis, or without for a file
+already shaped on the host (kind 1). R is S when S is at most the rung's TOP;
+else S / k averaged over k samples when k divides S, is 3 or less and leaves R
+at 4,679 Hz or more (the box - a cheap anti-alias; more than three samples
+cost more than the step they save); else a 16.16 step through the source to
+TOP, its whole part patched into the loop's `adc bx, imm16`. A 1:1 span is
+emitted straight out of the look-ahead ring whenever it does not cross that
+ring's seam, so a plain 8 kHz file is never copied at all.
+
+**The ladder is the calibration** (the owner's question 5), and it is live:
+TOP is a rung - an 8088's 8,000 / 5,512 / 4,800 Hz, a 286's 24,858 (a pulse
+of 48 counts, §34.11.8) / 16,000 / 11,025 / 8,000 / 5,512 - and an 8088
+starts IMA ADPCM a rung down, its decode being paid at the SOURCE rate. A
+play whose ring lead falls under a quarter (`APS_LOW`) while the file is
+still coming is BEHIND - this file, this rate, this CPU and this disk
+together - and `aps_behind` lets the ring play out, shuts the door, comes a
+rung down, rebuilds the tables, fills half the ring and opens it again: a gap
+of about a second, once, and a play that keeps time after it. The session
+keeps the rung - it has learned the machine - so the next track starts
+there. **Past the last rung**, IMA ADPCM stops and says `Too slow for this
+file on the speaker` (the owner: 5.5 kHz ADPCM *"only if it turns out
+viable"*), and PCM plays on behind the pulses, gaps and all.
+
+**Measured** on MartyPC's card-less Hercules 5150 with a fixed disk
+(`tests/apspk.py`: 800 port-42h writes against `tools/os88spkfx.py`'s plan,
+resampler and shaper - every leg EXACT from its first pulse):
+
+| the file | plays at | lost pulses | its time |
+|---|---|---|---|
+| PCM8, 8,000 Hz | 8,000 | 2.0% | 5.16 s for 5.00 |
+| PCM8, 11,025 | 8,000 stepped, then a rung down | 2.0% | kept, after one fall |
+| PCM8, 22,050 | 7,350 (a box of 3), then down to 4,800 | 1.7% | behind at every rung: 22 KB/s off MartyPC's XT-IDE, whose every byte the CPU copies (§98.2.15.5), and it plays on |
+| IMA ADPCM, 11,025 | 5,512 stepped, then 4,800 | 1.5% | kept at 4,800 |
+| shaped / counts (`os88spkfx.py shape`) | 8,000 | 2.0% | 5.16 s |
+
+What the 4.77 MHz 8088 has left beside 8 kHz of pulses is ~25% of itself,
+and those rows are what it buys. **The owner's 5150 moves its sectors by DMA**
+(an ST11M) where MartyPC's only hard disk is an XT-IDE, so the 22 kHz row is
+this emulator's answer and not that machine's - the ladder will find the
+rung there itself. `tests/apspk.py --card` holds the Sound Blaster path to
+the stream it always opened (one open, the door never touched); `--pause`
+holds Space, the resume from the sample it stopped on, and Esc.
+
+**The cost**: `AUDIO.O88` 7,502 -> 10,821 bytes of disk (the image 9,216 ->
+13,824 - os88spk.inc, os88spkfx.inc and apspk.inc) and 7 KB more bss, with a
+17 KB ring claimed at the first speaker play and kept for the instance. That
+took the 360 KB apps disk past its last cluster; §24.6.1's decision made for
+it is in the Makefile's `APPS_GAMES_360`.
+
 ## 87. Hibernate — the machine to a file on the hard disk, and back (`kernel/hiber.inc`, `HIBER.DRV`)
 
 **What it is.** `Hibernate...` is the System menu's item above `Restart`

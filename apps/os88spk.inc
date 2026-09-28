@@ -41,6 +41,8 @@
 ; state is in the including package's own image, reached through CS.
 ; =============================================================================
 
+OS88SPK_DRYN    equ 16              ; samples a dry grant plays: 2 ms at 8 kHz
+
 ; -----------------------------------------------------------------------------
 os88spk_init:
     push ax
@@ -136,7 +138,22 @@ os88spk_go:
                                     ; of nothing but the door itself
     pushf
     cli
-    mov word [cs:os88spk_rp], os88spk_sil   ; the first sample a silent one,
+    push ax                         ; A DRY RING PLAYS A RUN OF SILENCE,
+    push cx                         ; OS88SPK_DRYN samples a grant: one
+    push di                         ; sample a grant made the grant's event
+    push es                         ; every pulse, ~400 cycles more each,
+    push cs                         ; and a producer the ring had outrun
+    pop es                          ; was then starved by the very pulses it
+    mov di, os88spk_silb            ; was behind - and never caught up
+    mov al, [cs:os88spk_sil]        ; (SPEC.md 34.11.2)
+    mov cx, OS88SPK_DRYN
+    cld
+    rep stosb
+    pop es
+    pop di
+    pop cx
+    pop ax
+    mov word [cs:os88spk_rp], os88spk_silb  ; the first sample a silent one,
     mov [cs:os88spk_rp+2], cs       ; and its event the first grant
     mov byte [cs:os88spk_dry], 1
     mov word [cs:os88spk_g], 1
@@ -293,8 +310,10 @@ os88spk_isrm:
 ; next samples granted - no more than are queued (TOTAL - CONS), than this
 ; period has left ([os88spk_kr]) or than lie before the ring's end. So CONS is
 ; exact at every period and never a period ahead of the pulse. With NOTHING
-; queued the grant is one sample of the silent count, not counted as played:
-; the ISR asks again at the next, which costs only while the ring is dry.
+; queued the grant is a run of OS88SPK_DRYN samples of the silent count (or
+; the period's rest), not counted as played - short enough that data arriving
+; waits ~2 ms for it, long enough that a dry ring does not make every pulse an
+; event.
 ; clobbers AX, SI, DS
 ; -----------------------------------------------------------------------------
 os88spk_grant:
@@ -325,10 +344,13 @@ os88spk_grant:
     pop bx
     ret
 .dry:
-    mov word [cs:os88spk_rp], os88spk_sil
+    mov word [cs:os88spk_rp], os88spk_silb
     mov [cs:os88spk_rp+2], cs
     mov byte [cs:os88spk_dry], 1
-    inc ax
+    mov ax, OS88SPK_DRYN            ; a run of silence, the period's end the
+    cmp ax, [cs:os88spk_kr]         ; sooner
+    jbe .g
+    mov ax, [cs:os88spk_kr]
     jmp short .g
 
 ; os88spk_acct - IF = 0: the grant's played samples into CONS (none, for a dry
@@ -355,6 +377,7 @@ os88spk_kn:     dw 0                ; ...and a period's (K, the door's)
 os88spk_chain:  dw 0, 0             ; the kernel's IRQ0, far - the door writes
                                     ; these two with os88spk_kn, in this order
 os88spk_sil:    db 0                ; a dry grant's count: the table's middle
+os88spk_silb:   times OS88SPK_DRYN db 0     ; ...a run of it, os88spk_go's
 os88spk_dry:    db 0                ; the grant is that, and plays nothing
 os88spk_rl:     dw 0                ; RL: where TOTAL and CONS are
 os88spk_rseg:   dw 0                ; the ring's segment
