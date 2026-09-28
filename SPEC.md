@@ -152130,6 +152130,40 @@ The Picture tab's 21 in one column were taller than the window, and the log
 by the disk list (the owner's report; both seen on the glass under Xvfb).
 The gate has no display, so this is looked at, not asserted.
 
+##### 98.2.8.1 The palette, seen while it is picked
+
+**The Colour tab carries a Palette panel**: the colours the form's choices
+give, as swatches, redrawn whenever the pixel format, the preset, the
+profile, Live, `--cga-palette`, `--cga-bright`, `--cga-bg`,
+`--text-colour` or `--cga-card` changes (`palette_view`, no Tk). Hovering a
+swatch names it - its index, its colour and its RGB.
+- **CGA4** is the one with a choice to make, and the panel shows what is
+  left of it. With the set, the intensity and the background all fixed it
+  is ONE row, the file's four; any left blank is picked from the clip
+  (98.2.6), so the panel shows every row that pick can still land on, the
+  dim sets over the bright, and a dashed "?" where the background is still
+  the clip's.
+- **The fixed palettes are shown too**, so the tab says what there is to
+  choose: the sixteen for VGA4 and C160, text's sixteen on sixteen or its
+  three monochrome attributes, one bit's two, a composite nibble's sixteen
+  through `os88cgacomp`'s model, and C512's 512 codes per card, darkest
+  first. VGA8's 256 come from the clip, so its panel says so.
+- **The "?" lists of the three CGA4 fields** have swatches beside each
+  value: the set at the intensity chosen, the intensity on the set chosen,
+  and each background alone.
+- **The open file's own palette** is in the file panel under the preview,
+  for a CGA4 or VGA8 file (`file_palette`): what the clip's pick actually
+  chose.
+
+The panel is DERIVED from the encoder and not from a second table: a row is
+`os88vid.cga4_colours` of the byte the panel builds (`cga4_sel`), and
+`tests/vencguitest.py` leg 13 checks it against `os88venc.cga4_pick`. With
+all three fixed it must show the byte `cga4_pick` returns for the same
+overrides, and with none fixed its six rows must be the six `cga4_pick`
+returns for each set and intensity. The leg FAILS naming the row if the set
+bits are swapped. The layout fits the default window's Colour tab (1080 x
+760); that was looked at under Xvfb, not asserted.
+
 
 #### 98.2.9 The pre-roll: the first picture is whole before the keyframes start
 

@@ -59,6 +59,15 @@ so it is checked here with no Tk at all:
    nothing of its process group left (its ffmpeg included), the older file
    byte for byte as it was, and no .part. The owner's Cancel on Windows
    left the encode running to its end, because it only asked.
+13. THE PALETTE PANEL SHOWS WHAT THE ENCODER WILL USE: every target's
+   Colour tab has a palette to show; a CGA4 form with the set, intensity
+   and background all fixed shows ONE row, the four colours of the byte
+   os88venc.cga4_pick returns for those same overrides - and with none
+   fixed, one row per set and intensity, each the byte cga4_pick returns
+   when just those two are fixed. Each background's "?" swatch is its
+   colour, and a CGA4 file's own palette under the preview is the one in
+   its header. A panel that drew mode 5 where the file will be mode 4 -
+   the set bits swapped - FAILS here, naming the row.
 
 Broken on purpose - an option dropped from the table, or a help string
 emptied - 1 FAILS naming it. Needs ffmpeg for 3 to 5 and SKIPS without it.
@@ -151,6 +160,7 @@ def main():
     print("   11: %d drop cases, %d wrong" % (len(cases), len(wrong)))
     if wrong:
         bad.append("11: drops taken wrongly: %s" % wrong)
+    leg13(bad)
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         for b in bad:
             print("   FAIL: %s" % b)
@@ -206,6 +216,10 @@ def main():
                     {"mono": "mono1"}.get(pixfmt, pixfmt):
                 bad.append("%s: made %s" % (label, vid.PF_NAMES[r.pixfmt]))
             if r.pixfmt == vid.PF_CGA4:
+                fp = [h for h, _ in G.file_palette(r)[0][1]]
+                if fp != [h for h, _ in G._c16(vid.cga4_colours(r.cgapal))]:
+                    bad.append("13: the file's palette panel shows %s, not "
+                               "its header's %02Xh" % (fp, r.cgapal))
                 import numpy as np
                 cols = {tuple(c) for c in np.asarray(
                     frames[-1][1]).reshape(-1, 3).tolist()}
@@ -243,6 +257,60 @@ def main():
     if not bad:
         print("   ok")
     return 1 if bad else 0
+
+
+def leg13(bad):
+    """13: the Colour tab's palette panel against the encoder's own pick"""
+    empty = [t[0] for i, t in enumerate(G.TARGETS)
+             if not all(h and n for h, _, n in
+                        G.palette_view(G.target_fill(i, 30.0)))]
+    if empty:
+        bad.append("13: no palette shown for %s" % "; ".join(empty))
+    cga4 = [i for i, t in enumerate(G.TARGETS) if t[2] == "cga4"][0]
+    base = G.target_fill(cga4, 30.0)
+    hexes = lambda sw: [x[0] if x else None for x in sw]
+    swat = [c for c in range(16)
+            if hexes(G.choice_swatches("cga_bg", str(c), {})) !=
+            hexes(G._c16((c,)))]
+    if swat:
+        bad.append("13: background choices shown in the wrong colour: %s"
+                   % swat)
+    try:
+        import numpy as np
+    except ImportError:
+        print("   13: %d targets show a palette; no numpy, so not checked "
+              "against cga4_pick" % len(G.TARGETS))
+        return
+    rng = np.random.RandomState(88)
+    frames = [rng.randint(0, 256, (40, 64, 3)).astype(np.uint8)]
+    checked = 0
+    for pal in (0, 1, 2):
+        for br in (0, 1):
+            for bg in (0, 1, 9, 14):
+                v = dict(base, cga_palette=str(pal), cga_bright=str(br),
+                         cga_bg=str(bg))
+                (h, rows, n), = G.palette_view(v)
+                want = G._c16(vid.cga4_colours(V.cga4_pick(frames, bg, pal,
+                                                            br)))
+                if len(rows) != 1 or hexes(rows[0][1]) != hexes(want):
+                    bad.append("13: set %d, bright %d, background %d shows "
+                               "%s, the encoder makes %s" % (
+                                   pal, br, bg, rows and rows[0], want))
+                checked += 1
+    (h, rows, n), = G.palette_view(dict(base, cga_palette="", cga_bright="",
+                                        cga_bg=""))
+    want = []
+    for br in (0, 1):
+        for pal in (0, 1, 2):
+            sel = V.cga4_pick(frames, 0, pal, br)
+            want.append([None] + hexes(G._c16(vid.cga4_colours(sel)))[1:])
+    got = [hexes(sw) for _, sw in rows]
+    if got != want:
+        bad.append("13: nothing fixed shows %s, the encoder's candidates "
+                   "are %s" % (got, want))
+    print("   13: %d targets show a palette; %d fixed CGA4 palettes and "
+          "the %d candidates match cga4_pick" % (len(G.TARGETS), checked,
+                                                 len(want)))
 
 
 def root_names(img, st11, spt, heads):

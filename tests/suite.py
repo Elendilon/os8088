@@ -9284,8 +9284,9 @@ SOAK = [
         "in place changing only poster words, and 98.2.9.1's preview "
         "starting at a lit key 0; 98.2.11.1's encode as a process that "
         "Cancel kills, group and all, leaving the older file; 98.2.12's "
-        "drop. Broken on purpose (an option's help "
-        "emptied, the preview from frame 0, spans never cut) it FAILS "
+        "drop; 98.2.8.1's palette panel against cga4_pick. Broken on "
+        "purpose (an option's help emptied, the preview from frame 0, "
+        "spans never cut, the CGA4 set bits swapped) it FAILS "
         "naming it. SKIPS 3-5 without ffmpeg",
         needs=("ffmpeg",)),
     Row("videnc", "soak", py("tests/videnc.py"), 45.0,

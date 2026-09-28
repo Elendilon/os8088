@@ -22,7 +22,10 @@ What the window adds is ASSISTANCE, in the order a person needs it:
     3. What will it look like?    - a scrubber over the ENCODED frames as
                                      the adapter shows them: CGA's colours,
                                      a VGA's palette, composite through the
-                                     monitor model, one bit as one bit
+                                     monitor model, one bit as one bit -
+                                     and, on the Colour tab, the palette
+                                     the choices give, as swatches
+                                     (SPEC.md 98.2.8.1)
     4. How do I get it onto the machine? - Save writes the .V88; "...and
                                      make a disk of it" puts it and
                                      VIDEO.O88 on a floppy image of any of
@@ -334,6 +337,207 @@ def render(r, surf):
     an, ad = r.aspect
     w, h = img.size
     return img.resize((max(1, round(w * an / ad)), h), Image.NEAREST)
+
+
+# --------------------------------------------------------------------------
+# the palette: what colours the Colour tab's choices give, as swatches
+# --------------------------------------------------------------------------
+# the sixteen by name, the cga_bg "?" list's own words
+C16_NAMES = [V.CHOICE_HELP["cga_bg"][str(i)] for i in range(16)]
+# the fields whose change redraws the panel: the ones that pick a palette,
+# and the ones that pick which KIND of palette there is
+PAL_FIELDS = ("preset", "pixfmt", "profile", "live", "cga_palette",
+              "cga_bright", "cga_bg", "text_colour", "cga_card")
+
+
+def _hex(rgb):
+    return "#%02x%02x%02x" % tuple(int(round(float(c))) for c in rgb)
+
+
+def _c16(idxs):
+    """[(#rrggbb, what it is)] for indexes of the sixteen"""
+    std = [tuple(vid.STD16[i * 3:i * 3 + 3]) for i in range(16)]
+    return [(_hex(c * 255 // 63 for c in std[i]),
+             "%d: %s" % (i, C16_NAMES[i])) for i in idxs]
+
+
+def _int_or_none(v):
+    v = str(v if v is not None else "").strip()
+    try:
+        return int(v)
+    except ValueError:
+        return None
+
+
+def cga4_sel(pal, bright, bg):
+    """CGA4's palette byte (98.1.3.3) for a set, an intensity and a
+    background - the byte os88venc.cga4_pick returns for those overrides"""
+    return (bg & 15) | (16 if bright else 0) | \
+        (0x40 if pal == 2 else 0x20 if pal == 1 else 0)
+
+
+def cga4_row(sel):
+    """(a line naming palette byte `sel`, its four swatches)"""
+    p = 2 if sel & 0x40 else (sel >> 5) & 1
+    return ("set %d %s on %s" % (p, "bright" if sel & 16 else "dim",
+                                 C16_NAMES[sel & 15].lower()),
+            _c16(vid.cga4_colours(sel)))
+
+
+_PALCACHE = {}
+
+
+def _cached(key, make):
+    if key not in _PALCACHE:
+        _PALCACHE[key] = make()
+    return _PALCACHE[key]
+
+
+def _comp16():
+    import os88cgacomp
+    return [(_hex(c), "nibble %X" % n)
+            for n, c in enumerate(os88cgacomp.palette())]
+
+
+def _c512(new):
+    """The 512 codes' flat colours, darkest first (what order they are in
+    means nothing to the eye), each named by its code"""
+    import os88cgacomp
+    rgb = os88cgacomp.c512_palette(new=new)
+    order = sorted(range(512), key=lambda k: float(
+        rgb[k] @ (0.299, 0.587, 0.114)))
+    return [(_hex(rgb[k]), "code %d" % k) for k in order]
+
+
+def palette_view(values):
+    """WHAT THE COLOUR TAB'S CHOICES GIVE, as swatches: [(heading, [(line,
+    [(#rrggbb, what it is) or None for chosen-from-the-clip])], note)] -
+    for the pixel format the form makes, the colours it can have. No Tk:
+    the gate reads it as data"""
+    vals = dict(values)
+    try:
+        vals["pixfmt"] = str(vals.get("pixfmt", "")).strip() or \
+            implied_values(vals).get("pixfmt") or "mono"
+        imp = implied_values(vals)
+    except Exception:
+        imp = {}
+    pf = vals["pixfmt"]
+    g = lambda k: str(vals.get(k, "") or imp.get(k, "") or "").strip()
+    out = []
+    if pf == "cga4":
+        pal, bright = _int_or_none(g("cga_palette")), \
+            _int_or_none(g("cga_bright"))
+        bg = _int_or_none(g("cga_bg"))
+        rows = []
+        for b in ((bright,) if bright in (0, 1) else (0, 1)):
+            for p in ((pal,) if pal in (0, 1, 2) else (0, 1, 2)):
+                sel = cga4_sel(p, b, bg or 0)
+                line, sw = cga4_row(sel)
+                if pal is None or bright is None:
+                    line = line.rsplit(" on ", 1)[0]    # (the swatch says)
+                sw = [None if bg is None or not 0 <= bg < 16 else
+                      (sw[0][0], "the background, " + sw[0][1])] + sw[1:]
+                rows.append((line, sw))
+        auto = [n for n, v in (("the set", pal), ("its intensity", bright),
+                               ("the background", bg)) if v is None]
+        auto = [", ".join(auto[:-1]), auto[-1]] if len(auto) > 2 else auto
+        note = ("%s: chosen from the clip when it is encoded, nearest "
+                "its colours - one of these. The first swatch is the "
+                "background." % " and ".join(auto).capitalize()
+                if auto else "All three fixed: this is the file's palette, "
+                "the background first.")
+        out.append(("CGA, 4 colours (mode 4)", rows, note))
+    elif pf in ("vga4", "c160"):
+        out.append(("The sixteen", [("every pixel one of", _c16(range(16)))],
+                    "Fixed: %s. No choice to make here." % (
+                        "mode 12h's own, which no theme changes"
+                        if pf == "vga4" else "CGA's, two a text cell")))
+    elif pf == "text":
+        if g("text_colour") == "mono":
+            out.append(("Text, black and white", [
+                ("07h, 0Fh, 70h", _c16((0, 7, 15)))],
+                "Grey on black, white on black, black on grey: what an "
+                "MDA and a Hercules draw as a colour card does."))
+        else:
+            out.append(("Text, 16 on 16", [("fore- and background",
+                                            _c16(range(16)))],
+                        "Any of the sixteen on any of the sixteen, blink "
+                        "off: a CGA, an EGA or a VGA."))
+    elif pf == "cgacomp":
+        try:
+            sw = _cached("comp", _comp16)
+        except Exception:
+            sw = []
+        out.append(("Composite colour on a CGA", [("a nibble a colour", sw)],
+                    "What each of the sixteen nibbles shows on a composite "
+                    "monitor (the model the preview uses); patterns mix "
+                    "them further."))
+    elif pf == "c512":
+        card = g("cga_card") or "both"
+        rows = []
+        for name, new in (("old", False), ("new", True)):
+            if card in (name, "both"):
+                try:
+                    sw = _cached(("c512", new), lambda: _c512(new))
+                except Exception:
+                    sw = []
+                rows.append(("the %s CGA" % name.upper(), sw))
+        out.append(("512 codes on the composite output", rows,
+                    "Every code's flat colour, darkest first; about 450 "
+                    "differ. Hover for the code."))
+    elif pf in ("vga8", "modex"):
+        out.append(("256 colours", [], "Chosen from the clip itself when "
+                    "it is encoded: its palette shows below once the file "
+                    "is made, or a .V88 is opened."))
+    else:
+        out.append(("Black and white", [("one bit", _c16((0, 15)))],
+                    "One bit a pixel: no palette to choose."))
+    return out
+
+
+def file_palette(r):
+    """The palette a .V88 was ENCODED with, where it was chosen from its
+    clip - CGA4's four, VGA8's 256 - as palette_view's rows: what "the
+    nearest" turned out to be. [] for a file whose colours are fixed"""
+    if r is None:
+        return []
+    if r.pixfmt == vid.PF_CGA4:
+        line, sw = cga4_row(r.cgapal)
+        return [(line, [(sw[0][0], "the background, " + sw[0][1])] +
+                 sw[1:])]
+    if r.pixfmt == vid.PF_VGA8 and r.palette:
+        p = r.palette
+        return [("its 256", [(_hex(c * 255 // 63 for c in p[i * 3:i * 3 + 3]),
+                              "%d" % i) for i in range(len(p) // 3)])]
+    return []
+
+
+def choice_swatches(dest, choice, values):
+    """The colours one choice of a palette field gives, for its "?" list:
+    the set at the intensity chosen (dim when blank), the intensity on the
+    set chosen (1 when blank), the background by itself. [] for any other"""
+    c = _int_or_none(choice)
+    if c is None:
+        return []
+    pal = _int_or_none(values.get("cga_palette"))
+    bright = _int_or_none(values.get("cga_bright"))
+    if dest == "cga_bg" and 0 <= c < 16:
+        return _c16((c,))
+    if dest == "cga_palette" and c in (0, 1, 2):
+        return cga4_row(cga4_sel(c, bright or 0, 0))[1][1:]
+    if dest == "cga_bright" and c in (0, 1):
+        return cga4_row(cga4_sel(pal if pal in (0, 1, 2) else 1, c,
+                                 0))[1][1:]
+    return []
+
+
+def grid_of(n):
+    """(columns, swatch width, height, gap) for a row of n swatches"""
+    if n <= 16:
+        return n, 22, 16, 2
+    if n <= 256:
+        return 32, 8, 8, 0
+    return 32, 4, 4, 0
 
 
 def preview_frames(path, most=2000, tick=None):
@@ -662,6 +866,73 @@ def enable_drop(root, got):
 # --------------------------------------------------------------------------
 # the window
 # --------------------------------------------------------------------------
+def swatch_draw(c, secs, tips, width=None):
+    """Sections of palette_view's shape drawn on canvas `c`, which is then
+    as tall as they are: a heading (None: none), each row its caption and
+    its swatches - beside it when they are one short row, in columns, and
+    under it when a grid - flowed across with as many to a line as fit and
+    the lines made even (six CGA sets are two lines of three, dim over
+    bright), and the note (None: none). tips[(c, item)] = what a swatch is"""
+    import tkinter.font as tkfont
+    c.delete("all")
+    for k in [k for k in tips if k[0] is c]:
+        del tips[k]
+    fg = ttk.Style().lookup("TLabel", "foreground") or "black"
+    font = tkfont.nametofont("TkDefaultFont")
+    th = font.metrics("linespace")
+    width = width or max(c.winfo_width(), 620)
+    y = 2
+    for head, rows, note in secs:
+        if head:
+            c.create_text(4, y, text=head, anchor="nw", fill=fg,
+                          font=("TkDefaultFont", 9, "bold"))
+            y += th + 2
+        lay = []                        # (caption w, beside?, row's width)
+        for line, sw in rows:
+            cols, w, h, gap = grid_of(len(sw))
+            gw = cols * (w + gap) if sw else 0
+            tw = font.measure(line) + 6
+            side = len(sw) <= cols
+            lay.append((tw, side, tw + gw if side else max(tw, gw)))
+        if lay and all(side for _, side, _ in lay):     # in columns
+            tw = max(L[0] for L in lay)
+            cw = max(L[2] - L[0] for L in lay) + tw
+            lay = [(tw, True, cw)] * len(lay)
+        fit = max(1, (width - 4) // (max([L[2] for L in lay] + [1]) + 16))
+        per = -(-len(rows) // -(-len(rows) // fit)) if rows else 1
+        x, lineh = 4, 0
+        for n, ((line, sw), (tw, side, cw)) in enumerate(zip(rows, lay)):
+            cols, w, h, gap = grid_of(len(sw))
+            if n and n % per == 0:
+                x, y, lineh = 4, y + lineh, 0
+            c.create_text(x, y + (max(h - th, 0) // 2 if side else 0),
+                          text=line, anchor="nw", fill=fg)
+            sx, sy = (x + tw, y) if side else (x, y + th + 2)
+            for i, sv in enumerate(sw):
+                x0 = sx + (i % cols) * (w + gap)
+                y0 = sy + (i // cols) * (h + gap)
+                if sv is None:          # chosen from the clip
+                    it = c.create_rectangle(x0, y0, x0 + w - 1, y0 + h - 1,
+                                            outline="#888", dash=(2, 2))
+                    c.create_text(x0 + w // 2, y0 + h // 2, text="?",
+                                  fill="#888")
+                    tips[(c, it)] = "the background, chosen from the clip"
+                    continue
+                it = c.create_rectangle(x0, y0, x0 + w - 1, y0 + h - 1,
+                                        fill=sv[0], outline="#666" if gap
+                                        else sv[0])
+                tips[(c, it)] = "%s  %s" % (sv[1], sv[0])
+            rowsn = -(-len(sw) // cols) if sw else 0
+            lineh = max(lineh, (sy - y) + rowsn * (h + gap) + 6, th + 6)
+            x += cw + 16
+        y += lineh
+        if note:
+            it = c.create_text(4, y, text=note, anchor="nw", fill="#555",
+                               width=width - 8)
+            y = c.bbox(it)[3] + 6
+    c.config(height=y)
+
+
 class Tip(object):
     """A tooltip: the option's help, shown while the pointer rests on it"""
 
@@ -770,8 +1041,9 @@ class App(object):
         fr = ttk.Frame(top, padding=10)
         fr.pack(fill="both", expand=True)
         ttk.Label(fr, text=f["tip"], wraplength=520, justify="left",
-                  foreground="#555").grid(row=0, column=0, columnspan=2,
+                  foreground="#555").grid(row=0, column=0, columnspan=3,
                                           sticky="w", pady=(0, 8))
+        vals = {k: x.get() for k, x in self.vars.items()}
         bold = ("TkDefaultFont", 10, "bold")
 
         def take(c):
@@ -785,12 +1057,20 @@ class App(object):
             b = ttk.Button(fr, text=c, width=14,
                            command=lambda c=c: take(c))
             b.grid(row=i, column=0, sticky="nw", pady=1)
+            sw = choice_swatches(f["dest"], c, vals)
+            if sw:                      # A PALETTE'S CHOICE: its colours
+                cv = tk.Canvas(fr, width=24 * len(sw), height=18,
+                               highlightthickness=0)
+                for j, (rgb, _n) in enumerate(sw):
+                    cv.create_rectangle(24 * j + 1, 1, 24 * j + 22, 17,
+                                        fill=rgb, outline="#666")
+                cv.grid(row=i, column=1, sticky="w", padx=(8, 0), pady=1)
             lab = ttk.Label(fr, text=what, wraplength=420, justify="left")
             if on:
                 lab.configure(font=bold)
-            lab.grid(row=i, column=1, sticky="w", padx=8, pady=1)
+            lab.grid(row=i, column=2, sticky="w", padx=8, pady=1)
         ttk.Button(fr, text="Close", command=top.destroy).grid(
-            row=i + 1, column=1, sticky="e", pady=(8, 0))
+            row=i + 1, column=2, sticky="e", pady=(8, 0))
         top.bind("<Escape>", lambda e: top.destroy())
 
     def __init__(self, root):
@@ -930,6 +1210,21 @@ class App(object):
             ttk.Label(pages[t], text=text, foreground="#555",
                       wraplength=600, justify="left").grid(
                 row=n, column=0, columnspan=8, sticky="w", pady=(10, 0))
+        # --- the palette the Colour tab's choices give, redrawn as they
+        # change: under the tab's fields, whatever the tab's note
+        self.palframe = ttk.LabelFrame(pages["Colour"], text="Palette",
+                                       padding=(6, 2, 6, 4))
+        self.palframe.grid(row=max(half["Colour"], 1) + 1, column=0,
+                           columnspan=8, sticky="we", pady=(8, 0))
+        self.palcanvas = tk.Canvas(self.palframe, width=620, height=60,
+                                   highlightthickness=0)
+        self.palcanvas.pack(anchor="w", fill="x")
+        self.paltips = {}
+        self.paltip = None
+        self.palpend = False
+        for d in PAL_FIELDS:
+            if d in self.vars:
+                self.vars[d].trace_add("write", lambda *a: self.pal_dirty())
         # --- make a disk, and go: the buttons packed FIRST, so a narrow
         # row squeezes the disk list rather than cutting Encode off
         self.stopbtn = ttk.Button(go, text="Cancel", command=self.stop,
@@ -990,8 +1285,16 @@ class App(object):
         fl.pack(anchor="w", fill="x")
         fi.bind("<Configure>", lambda e: fl.config(
             wraplength=max(120, e.width - 16)))
+        # the palette the file was encoded with, where its clip chose it:
+        # packed here by draw_palette when there is one
+        self.fpal = tk.Canvas(fi, width=360, height=24,
+                              highlightthickness=0)
         tf = ttk.Frame(fi)              # the title, changed in place
         tf.pack(fill="x", pady=(6, 0))
+        self.titlef = tf
+        for c in (self.palcanvas, self.fpal):
+            c.bind("<Motion>", self.pal_motion)
+            c.bind("<Leave>", self.pal_leave)
         ttk.Label(tf, text="Title").pack(side="left")
         self.titlev = tk.StringVar(value="")
         self.titlee = ttk.Entry(tf, textvariable=self.titlev, width=30,
@@ -1023,6 +1326,56 @@ class App(object):
         Tip(self.posterbtn, "Make this keyframe the picture the player "
                             "shows before a play. Only the poster changes: "
                             "the file is not encoded again.")
+
+    # --- the palette panel
+    def pal_dirty(self):
+        """A palette field changed: redraw once, when Tk is idle - a target
+        sets a dozen fields at a time"""
+        if not self.palpend:
+            self.palpend = True
+            self.root.after_idle(self.draw_palette)
+
+    def draw_palette(self):
+        """The Colour tab's Palette panel, and the open file's under its
+        facts. The tab's first heading is its frame's label"""
+        self.palpend = False
+        vals = {k: v.get() for k, v in self.vars.items()}
+        secs = palette_view(vals)
+        self.palframe.config(text="Palette: " + secs[0][0])
+        swatch_draw(self.palcanvas, [(None,) + secs[0][1:]] + secs[1:],
+                    self.paltips)
+        rows = file_palette(self.reader)
+        if rows:
+            swatch_draw(self.fpal, [(None, [("Palette: " + ln, sw)
+                                            for ln, sw in rows], None)],
+                        self.paltips, width=360)
+            if not self.fpal.winfo_ismapped():
+                self.fpal.pack(anchor="w", fill="x", pady=(6, 0),
+                               before=self.titlef)
+        else:
+            self.fpal.pack_forget()
+
+    def pal_motion(self, e):
+        """What the swatch under the pointer is, in a tip beside it"""
+        c = e.widget
+        hit = c.find_overlapping(e.x, e.y, e.x, e.y)
+        tips = [self.paltips[(c, i)] for i in hit if (c, i) in self.paltips]
+        if not tips:
+            return self.pal_leave()
+        if self.paltip is None:
+            self.paltip = tk.Toplevel(c)
+            self.paltip.wm_overrideredirect(True)
+            self.paltipv = tk.StringVar()
+            tk.Label(self.paltip, textvariable=self.paltipv,
+                     background="#ffffe0", relief="solid", borderwidth=1,
+                     padx=4, pady=1).pack()
+        self.paltipv.set(tips[-1])
+        self.paltip.wm_geometry("+%d+%d" % (e.x_root + 14, e.y_root + 12))
+
+    def pal_leave(self, _e=None):
+        if self.paltip is not None:
+            self.paltip.destroy()
+            self.paltip = None
 
     # --- the essentials
     def browse_src(self):
@@ -1340,6 +1693,7 @@ class App(object):
                     self.scrub.set(0)
                     self.finish("Done.", 1)
                     self.show_frame(0)
+                    self.pal_dirty()    # ...and its palette, if chosen
                     self.write("\n%s. Drag the slider to see every frame as "
                                "the screen will.\n" % os.path.basename(
                                    self.cur))
