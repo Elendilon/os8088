@@ -349,10 +349,9 @@ CHOICE_HELP = {
                "real 5150",
     },
     "spk_style": {
-        "lifted": "Quiet passages raised, so a soft intro is heard; the "
-                  "owner's pick of the listens on the 5150",
+        "lifted": "Quiet passages raised, so a soft intro is heard",
         "natural": "More of the song's own rise and fall: a soft passage "
-                   "stays soft; where the encoder's window starts",
+                   "stays soft (the default)",
     },
     "spk_pulses": {
         "1": "One pulse a sample: the whine is at the sound's rate",

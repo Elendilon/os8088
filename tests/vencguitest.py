@@ -14,11 +14,10 @@ so it is checked here with no Tk at all:
    the window's "?" beside the field, and no line names a value that is not
    one - so a preset or layout added tomorrow cannot arrive unexplained.
 2. THE DEFAULTS ARE THE ENCODER'S: the form left alone makes a command line
-   that parses to the parser's own defaults, option for option - but for
-   the window's own starting choices (FORM_DEFAULT: the speaker's NATURAL
-   style), each of which it says. The style's high-pass, ratio and range
-   are SHOWN filled and stay off the command line while they are the
-   style's, for either style - and one changed by hand is on it.
+   that parses to the parser's own defaults, option for option. The
+   speaker style's high-pass, ratio and range are SHOWN filled and stay
+   off the command line while they are the style's, for either style -
+   and one changed by hand is on it.
 3. EVERY TARGET ENCODES: each "made for" choice, on a second of ffmpeg's
    testsrc2, is a file os88vid verifies, of the format and layout it says -
    and a Live one a live file naming its screen.
@@ -126,18 +125,11 @@ def main():
     vals = G.form_start()
     a = V.parser().parse_args(G.argv_from("in.mp4", "out.V88", vals))
     d = V.parser().parse_args(["in.mp4", "out.V88"])
-    diff = [k for k in vars(d) if getattr(a, k) != getattr(d, k)
-            and str(getattr(a, k)) != G.FORM_DEFAULT.get(k)]
+    diff = [k for k in vars(d) if getattr(a, k) != getattr(d, k)]
     print("   the untouched form: %d options differ from the parser's "
-          "defaults, besides the window's own %s"
-          % (len(diff), " ".join("--%s %s" % (k.replace("_", "-"), v)
-                                 for k, v in G.FORM_DEFAULT.items())))
+          "defaults" % len(diff))
     if diff:
         bad.append("the untouched form changes %s" % " ".join(diff))
-    for k, v in G.FORM_DEFAULT.items():
-        if str(getattr(a, k)) != v:
-            bad.append("the untouched form does not say --%s %s"
-                       % (k.replace("_", "-"), v))
     for style in sorted(vid.SPK_STYLES):
         sv = G.style_values(style)
         st = vid.SPK_STYLES[style]

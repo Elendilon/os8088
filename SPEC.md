@@ -152678,9 +152678,9 @@ playback difference to copy: what the pulses carry is the whole question.
 
 **So `--audio speaker` shapes the sound by default** (`os88vid.spk_shape_f`,
 from ffmpeg's floats, not 8-bit steps):
-0. **a STYLE** (`--spk-style`) sets three of what follows - `lifted`, the
-   default, is the owner's "K": a cut at 200 Hz, ratio 3, range 30; and
-   `natural` is "W": 250 Hz, ratio 2, range 24, more of the song's own rise
+0. **a STYLE** (`--spk-style`) sets three of what follows - `lifted` is
+   the owner's "K": a cut at 200 Hz, ratio 3, range 30; and `natural`, the
+   default, is "W": 250 Hz, ratio 2, range 24, more of the song's own rise
    and fall. Given, `--spk-highpass`, `--spk-ratio` and `--spk-range` win;
 1. **nothing under `--spk-highpass`** (the style's; 0 keeps the bass), a brick
    wall with a squared one-octave ramp, and the top **tilted up +9 dB from
@@ -152735,21 +152735,23 @@ That is the next listen, with ratio 6 beside it.
 The fourth: ratio 6 *"too loud, it runs together"*, and the pick between
 the two; ratio 3, range 30, a cut at 200 - **"pretty good"**. The owner
 asked for both to be offered: that is `lifted` and `natural` above, the
-first the default.
+first the default until the paragraph below.
 
-**The encoder's window starts at `natural`** (2026-09-28, the owner's
-choice for the window; the command line keeps `lifted`). So a form left
-alone says `--spk-style natural`, and it SHOWS the style's three numbers in
-their fields - 250, 2 and 24, or 200, 3 and 30 when the style is changed
-to `lifted` - the way 98.2.10 shows what a preset implies. `argv_from`
-leaves them off while they are still the style's, so the command line
-stays the one that says the same thing and a number typed over one is on
-it. `tests/vencguitest.py` leg 2 is the gate, and goes red with them
-put on the command line.
+**`natural` is the default** (2026-09-28, the owner's choice: first for
+the encoder's window, then for the command line and `os88vid speaker`
+too). `lifted` was the default until then, and a file made before it
+sounds as `--spk-style lifted` makes one now. The window SHOWS the style's
+three numbers in their fields - 250, 2 and 24, or 200, 3 and 30 when the
+style is changed to `lifted` - the way 98.2.10 shows what a preset
+implies. `argv_from` leaves them off while they are still the style's, so
+the command line stays the one that says the same thing and a number
+typed over one is on it. `tests/vencguitest.py` leg 2 is the gate, and
+goes red with them put on the command line.
 
 A synthetic clip of a loud 60 Hz bass and a quiet 880 Hz line measures it
 the other way round: the line −43.0 dB → −5.4 dB of full scale, the bass
-−21.9 → −65.8. `--spk-shape off` takes the sound as it is, which is what every
+−21.9 → −65.8 under `lifted`, and −4.6 and −63.2 under `natural`
+(`tests/vidspkshape.py`). `--spk-shape off` takes the sound as it is, which is what every
 speaker file before this was.
 
 **A file already made is shaped after the fact** by `os88vid.py speaker IN

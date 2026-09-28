@@ -730,16 +730,17 @@ def spk_samples(counts, rate, pulses=1):
 
 # THE TWO STYLES (98.2.15.1), both the owner's picks off the 5150: LIFTED
 # levels harder and cuts lower, so a quiet passage is heard ("K"); NATURAL
-# keeps more of the song's own rise and fall ("W"). The defaults below are
-# LIFTED's; a style fills in whatever of hp, ratio and range was not given
+# keeps more of the song's own rise and fall ("W"), and is the default
+# (the owner, 2026-09-28). A style fills in whatever of hp, ratio and range
+# was not given, and the three defaults below are the default style's
 SPK_STYLES = {"lifted": dict(hp=200, ratio=3.0, rng=30.0),
               "natural": dict(hp=250, ratio=2.0, rng=24.0)}
-SPK_STYLE = "lifted"
-SPK_HP = 200                    # the speaker's high-pass, Hz (98.2.15.1)
+SPK_STYLE = "natural"
+SPK_HP = SPK_STYLES[SPK_STYLE]["hp"]        # the high-pass, Hz (98.2.15.1)
 SPK_DRIVE = 0.5                 # ...and its level, an RMS of full scale
 SPK_LOWS = 0.5                  # ...the band under SPK_SPLIT, against it
-SPK_RANGE = 30                  # ...and the most a quiet passage is raised
-SPK_RATIO = 3.0                 # ...the leveller's ratio, 3:1
+SPK_RANGE = SPK_STYLES[SPK_STYLE]["rng"]    # the most a quiet passage rises
+SPK_RATIO = SPK_STYLES[SPK_STYLE]["ratio"]  # ...the leveller's ratio
 SPK_IDLE = 0.02                 # ...and the carrier's slide in the quiet, s
 SPK_SPLIT = 700                 # ...and where --spk-lows starts, Hz
 

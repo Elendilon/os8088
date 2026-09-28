@@ -165,10 +165,6 @@ TAB_NOTES = {
               "charges the copy - its disk slows as the decode and the "
               "speaker take the machine, so fewer bytes a frame are "
               "planned."}
-# WHERE THE WINDOW STARTS, where that is not the encoder's own default: the
-# speaker's NATURAL style (98.2.15.1), the owner's choice for the window -
-# the command line keeps LIFTED, and the window says --spk-style natural
-FORM_DEFAULT = {"spk_style": "natural"}
 # the speaker style's three numbers (os88vid.SPK_STYLES): the parser's
 # default is None, "the style's", so the window shows the style's own
 STYLE_FIELDS = (("spk_highpass", "hp"), ("spk_ratio", "ratio"),
@@ -213,11 +209,9 @@ def style_values(style=None):
 
 
 def form_start():
-    """The form as the window opens it: every field's default, the
-    window's own where it has one (FORM_DEFAULT), and the style's numbers
-    filled in - dest -> string"""
+    """The form as the window opens it: every field's default, and the
+    speaker style's numbers filled in - dest -> string"""
     vals = {f["dest"]: f["default"] for f in fields()}
-    vals.update(FORM_DEFAULT)
     vals.update(style_values(vals.get("spk_style")))
     return vals
 
