@@ -86435,6 +86435,37 @@ Rule 3 is what costs `kern_big` its 7 bytes.
 
 ---
 
+### 22.3.1 …and a paste re-lists only the windows it could have changed
+
+`fm_paste_res` ends every paste with `fmv_reload_all` and `fmv_repaint_all`,
+the coherence pass §22.3 says a multi-file operation owes — and it re-listed
+and repainted **every** Disk window on the screen. A Copy writes nothing on its
+source volume, so the window the file was copied FROM paid a full mount for a
+listing that could not have changed: on a floppy that is the FAT and the root
+read again after a seek back to cylinder 0, plus an icon harvest. Measured on a
+floppy-to-C: paste, it was the two slowest `int 13h` after the data itself,
+~0.5 s of a 9.9 s paste on `os8088_xt_hdd`.
+
+A window is now re-listed when either:
+
+- **it is DIRTY.** `fmv_mark` marks every window on a folder any write of the
+  operation touched — `dskw_sync` calls it ahead of the batch test, so a tree
+  walk marks every folder it made or wrote into — and it is also how any write
+  BEFORE the paste that nothing has collected yet is recorded, so a debt the
+  old pass paid by accident is still paid; or
+- **it shows a volume the operation WROTE**: `[fcp_ddrv]`, and `[fcp_drv]` too
+  when it was a Cut. The volume and not the folder, because the status line's
+  Free figure (§22.7) belongs to the volume, and a window on another folder of
+  it would otherwise go on quoting the space the paste just took.
+
+A window neither describes keeps its cache and its pixels. **The repaint union
+is the reload's now** — the reload folds each visible window it re-lists into
+`fmv_ux1`… as it goes, and `fmv_repaint_all` only commits the union. It walked
+`wm_zord` for every visible Disk window, and once the reload is selective a
+separate walk would have to re-derive the predicate after the reload had
+already cleared its `FS_DIRTY` half. `kern_big` **−5 bytes**: the walk it
+deletes is bigger than the predicate.
+
 ### 38.0 ON `kern_small` THIS IS AN ON-DEMAND MODULE (§2.8)
 
 `kern_big` keeps every body in §38 resident in `.cold`, unchanged to the
