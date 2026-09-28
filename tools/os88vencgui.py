@@ -439,6 +439,65 @@ PIXFMT_LAYOUTS = {"vga8": ("lin320", "modex"), "vga4": ("lin80",),
                   "mono": ("cga", "herc", "lin80")}
 
 
+def form_value(f, v, imp=None):
+    """A stored option's value (98.2.17) as the form's field holds it: the
+    parser's own spelling of its default, or the implied table's, where it
+    is that number - so a loaded form leaves the same short command line
+    a form filled by hand would"""
+    if v is None:
+        return ""
+    if isinstance(v, bool) or f["kind"] == "bool":
+        return "1" if v else ""
+    for ref in (f["default"], (imp or {}).get(f["dest"], "")):
+        if ref == "":
+            continue
+        try:
+            if isinstance(v, (int, float)) and float(ref) == float(v):
+                return ref
+        except ValueError:
+            pass
+        if str(v) == ref:
+            return ref
+    if isinstance(v, float):
+        return "%d" % v if v.is_integer() else repr(v)
+    return str(v)
+
+
+def target_for(values):
+    """The "made for" target a form is, or None: the one whose preset,
+    profile and Live choice it has, making the same pixel format"""
+    g = lambda k: str(values.get(k, "") or "").strip()
+    pf = form_context(values)["pixfmt"]
+    for i in range(len(TARGETS)):
+        tv, tf = target_values(i), target_fill(i)
+        if (g("preset"), g("profile"), g("live")) == (
+                tv["preset"], tv["profile"], tv["live"]) and \
+                form_context(tf)["pixfmt"] == pf:
+            return i
+    return None
+
+
+def form_from_file(r):
+    """A .V88 made with its options stored (98.2.17) -> (the form's
+    values, the target it was made for or None, notes, the source's
+    name); None for a file made before they were stored. The TITLE and
+    CREDITS are the header's, which can be changed in place after the
+    encode (98.2.11) and are what a new encode should keep. No Tk"""
+    doc = r.options()
+    if doc is None:
+        return None
+    o, notes = V.opts_migrate(doc)
+    vals = form_start()
+    g = lambda k: o.get(k) if o.get(k) is not None else None
+    imp = implied_values({k: "" if g(k) is None else str(g(k))
+                          for k in ("preset", "pixfmt", "profile", "live")})
+    for f in fields():
+        if f["dest"] in o:
+            vals[f["dest"]] = form_value(f, o[f["dest"]], imp)
+    vals["title"], vals["credits"] = r.title, r.credits
+    return vals, target_for(vals), notes, str(doc.get("src") or "")
+
+
 def fitting_pixfmt(values):
     """The form's pixel format, if it fits the canvas the rest of the form
     implies - else "", so the preset's own is taken: a preset changed from
@@ -814,10 +873,33 @@ def key_view(r, f):
     i = vid.key_at(r, f)
     if i is None:
         return None
+    return (i,) + key_picture(r, i)
+
+
+def key_picture(r, i):
+    """(its frame, its picture): keyframe `i` drawn from itself alone"""
     k, rec, spo, spn, idx = r.key(i)
     surf = r.g.surface()
     r.apply(surf, rec, key=True)
-    return i, k, render(r, surf)
+    return k, render(r, surf)
+
+
+def poster_view(r):
+    """(key index, its frame, its picture) of the file's POSTER - what the
+    player shows before a play - or None when it has none"""
+    if not r.nkeys or r.poster == 0xFFFF:
+        return None
+    return (r.poster,) + key_picture(r, r.poster)
+
+
+def thumb(img, w=160, h=120):
+    """A PIL picture as a Tk one, fitted into w x h"""
+    z = min(float(w) / img.size[0], float(h) / img.size[1])
+    img = img.resize((max(1, int(img.size[0] * z)),
+                      max(1, int(img.size[1] * z))))
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    return tk.PhotoImage(data=base64.b64encode(buf.getvalue()))
 
 
 # ...AND MAKE A DISK OF IT (SPEC.md 98.2.12.1): the four floppies os88disk
@@ -1315,7 +1397,15 @@ class App(object):
         ttk.Label(ess, text="Made for").grid(row=2, column=0, sticky="w")
         tg = ttk.Combobox(ess, textvariable=self.target, state="readonly",
                           values=[t[0] for t in TARGETS], width=58)
-        tg.grid(row=2, column=1, columnspan=2, sticky="we", padx=4)
+        tg.grid(row=2, column=1, sticky="we", padx=4)
+        # A .V88 MADE BEFORE: previewed, and the form set to the options it
+        # was made with when it carries them (98.2.17)
+        ob = ttk.Button(ess, text="Load a .V88...", command=self.browse_v88)
+        ob.grid(row=2, column=2)
+        Tip(ob, "Open a .V88 made before: scrub it, change its poster or "
+                "its title - and, when it carries the options it was made "
+                "with, set every field below to them, so it can be made "
+                "again or changed.")
         tg.bind("<<ComboboxSelected>>", lambda e: self.apply_target())
         Tip(tg, "The machine and screen it will play on. This sets the "
                 "preset, the pixel format and the storage profile below, "
@@ -1450,10 +1540,6 @@ class App(object):
         hd = ttk.Frame(right)
         hd.pack(fill="x")
         ttk.Label(hd, text="What the screen will show").pack(side="left")
-        ob = ttk.Button(hd, text="Open a .V88...", command=self.browse_v88)
-        ob.pack(side="right")
-        Tip(ob, "Look at a .V88 made before - to scrub it, or to change its "
-                "poster or its title.")
         self.canvas = tk.Canvas(right, width=400, height=300,
                                 background="black", highlightthickness=0)
         self.canvas.pack()
@@ -1496,20 +1582,43 @@ class App(object):
                    "changes: the file is not encoded again. Up to %d "
                    "characters; the player's panel shows the first 35."
                 % (vid.TITLE_LEN - 1))
+        # THE POSTER, and the keyframe a play from the scrubbed frame starts
+        # at, side by side: what the player shows now, and what Set as
+        # poster would make it
         kf = ttk.Frame(fi)
         kf.pack(fill="x", pady=(6, 0))
-        self.kcanvas = tk.Canvas(kf, width=160, height=120,
+        pl = ttk.Frame(kf)
+        pl.pack(side="left", anchor="n")
+        ttk.Label(pl, text="The poster", style="Group.TLabel").pack(
+            anchor="w", pady=(2, 1))
+        self.pcanvas = tk.Canvas(pl, width=160, height=120,
                                  background="black", highlightthickness=0)
-        self.kcanvas.pack(side="left")
-        kr = ttk.Frame(kf, padding=(8, 0, 0, 0))
-        kr.pack(side="left", fill="both", expand=True)
+        self.pcanvas.pack(anchor="w")
+        self.ptext = tk.StringVar(value="")
+        ttk.Label(pl, textvariable=self.ptext, justify="left",
+                  wraplength=160).pack(anchor="w")
+        Tip(self.pcanvas, "The picture the player shows before a play: "
+                          "the file's poster keyframe.")
+        kr = ttk.Frame(kf, padding=(10, 0, 0, 0))
+        kr.pack(side="left", anchor="n", fill="both", expand=True)
+        # its header carries Set as poster, a row a file with a palette
+        # line has no height for under the picture
+        kh = ttk.Frame(kr)
+        kh.pack(fill="x")
+        ttk.Label(kh, text="Here", style="Group.TLabel").pack(side="left")
+        self.kcanvas = tk.Canvas(kr, width=160, height=120,
+                                 background="black", highlightthickness=0)
+        self.kcanvas.pack(anchor="w")
+        Tip(self.kcanvas, "The keyframe a play from the scrubbed frame "
+                          "starts at - the one Set as poster makes the "
+                          "poster.")
         self.ktext = tk.StringVar(value="")
         ttk.Label(kr, textvariable=self.ktext, justify="left",
-                  wraplength=220).pack(anchor="w")
-        self.posterbtn = ttk.Button(kr, text="Set as poster",
+                  wraplength=200).pack(anchor="w")
+        self.posterbtn = ttk.Button(kh, text="Set as poster",
                                     command=self.set_poster,
-                                    state="disabled")
-        self.posterbtn.pack(anchor="w", pady=(6, 0))
+                                    state="disabled", style="Tool.TButton")
+        self.posterbtn.pack(side="right")
         Tip(self.posterbtn, "Make this keyframe the picture the player "
                             "shows before a play. Only the poster changes: "
                             "the file is not encoded again.")
@@ -1765,6 +1874,7 @@ class App(object):
 
     def load_v88(self, p):
         job = self.begin()
+        self.formload = p       # ...and the form set to how it was made
         self.write("Loading %s...\n" % p)
         threading.Thread(target=self._load, args=(p, job, self.cancel),
                          daemon=True).start()
@@ -1868,6 +1978,7 @@ class App(object):
         cancelled and still winding down keeps ITS flag set"""
         self.job += 1
         self.busy = True
+        self.formload = None            # (load_v88 sets it after this)
         self.cancel = threading.Event()
         self.prog = ("prepare", 0, 0)
         self.gobtn.config(state="disabled")
@@ -1968,7 +2079,7 @@ class App(object):
                 else:
                     self.cur, self.reader, self.frames = val
                     self.titlev.set(self.reader.title)
-                    self.kshown = None
+                    self.kshown = self.pshown = None
                     self.scrub.config(to=max(0, len(self.frames) - 1))
                     self.scrub.set(0)
                     self.finish("Done.", 1)
@@ -1977,6 +2088,9 @@ class App(object):
                     self.write("\n%s. Drag the slider to see every frame as "
                                "the screen will.\n" % os.path.basename(
                                    self.cur))
+                    if getattr(self, "formload", None) == self.cur:
+                        self.apply_file_options()
+                    self.formload = None
         except queue.Empty:
             pass
         self.root.after(100, self._pump)
@@ -2008,33 +2122,79 @@ class App(object):
             self.kcanvas.delete("all")
             self.ktext.set("No keyframes.")
             self.posterbtn.config(state="disabled")
+            self.show_poster()
             return
         k = r.keys[i][0]
         if (self.cur, i) != getattr(self, "kshown", None):
             # a keyframe is decoded once as the scrubber crosses into it,
             # not on every step of the drag
-            img = key_view(r, f)[2]
-            w, h = img.size
-            z = min(160.0 / w, 120.0 / h)
-            img = img.resize((max(1, int(w * z)), max(1, int(h * z))))
-            buf = io.BytesIO()
-            img.save(buf, "PNG")
-            self.kphoto = tk.PhotoImage(data=base64.b64encode(
-                buf.getvalue()))
+            self.kphoto = thumb(key_view(r, f)[2])
             self.kcanvas.delete("all")
             self.kcanvas.create_image(80, 60, image=self.kphoto)
             self.kshown = (self.cur, i)
         self.key = i
+        self.show_poster()
         n = len(r.key(i)[1])
         self.ktext.set(
             "Keyframe %d (of 0 to %d)\nframe %d (%.2f s)%s%s" % (
                 i, r.nkeys - 1, k, k / r.fps,
-                "\nthe poster" if i == r.poster else "",
+                "\n= the poster" if i == r.poster else "",
                 "\n%d bytes: past the %d the player reads, so it would "
                 "show no poster" % (n, V.KEY_PLAYER)
                 if n > V.KEY_PLAYER else ""))
         self.posterbtn.config(state="disabled" if self.busy or
                               i == r.poster else "normal")
+
+    def apply_file_options(self):
+        """A .V88 LOADED (98.2.17): every field set to the option it was
+        made with, the target it was made for, and what could not be
+        carried over said in the log - or, for a file made before the
+        options were stored, the form left as it was, and that said"""
+        name = os.path.basename(self.cur)
+        try:
+            got = form_from_file(self.reader)
+        except vid.V88Error as e:
+            self.write("\nIts options block does not read (%s): the form is "
+                       "as it was.\n" % e)
+            return
+        if got is None:
+            self.write("\n%s was made before the encoder stored its "
+                       "options in the file: the form is as it was.\n"
+                       % name)
+            return
+        vals, ti, notes, src = got
+        for k, v in vals.items():
+            if k in self.vars:
+                self.vars[k].set(v)
+        self.target.set(TARGETS[ti][0] if ti is not None else "")
+        self.update_groups()
+        self.info.set("How %s was made%s%s" % (
+            name, ", from %s" % src if src else "",
+            "" if ti is not None else " - none of the Made for targets"))
+        self.write("\nThe form is set to the options %s was made with%s. "
+                   "Choose %s as the Video to make it again.\n"
+                   % (name, " (from %s)" % src if src else "",
+                      src or "its source"))
+        for n in notes:
+            self.write("   %s\n" % n)
+
+    def show_poster(self):
+        """The poster panel: the file's poster keyframe, drawn once per
+        file and poster - a scrub does not redraw it"""
+        r = self.reader
+        mark = (self.cur, r.poster)
+        if mark == getattr(self, "pshown", None):
+            return
+        self.pshown = mark
+        self.pcanvas.delete("all")
+        pv = poster_view(r)
+        if pv is None:
+            self.ptext.set("None: the player shows its panel alone.")
+            return
+        i, k, img = pv
+        self.pphoto = thumb(img)
+        self.pcanvas.create_image(80, 60, image=self.pphoto)
+        self.ptext.set("Keyframe %d\nframe %d (%.2f s)" % (i, k, k / r.fps))
 
 
 def main():

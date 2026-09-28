@@ -689,6 +689,89 @@ H_SPKP = 24                     # header byte says how many (98.1.1.3.1)
 F_KNOWN = F_RESIDENT | F_LOOPREC | F_REPEAT | F_LIVE | F_RUNS | F_SPKPWM \
     | F_SPKMUL
 
+# THE OPTIONS A FILE WAS MADE WITH (98.1.1.4): the header's bytes 26-31
+# point at a block the ENCODER wrote - every option it used, deflated - so
+# the encoder's window can load a .V88 and show how it was made. No player
+# reads it: it sits before the stream in a streamed file and after the
+# blocks in a resident one, where nothing the player reads by offset or
+# by sequence reaches. Byte 25 is 0, reserved
+H_OPTS = 26                     # u32: the block's offset, 0 for none
+H_OPTSN = 30                    # u16: its length
+OPTS_MAGIC = b"V88O"
+OPTS_UNPACKED_MAX = 65536       # a block inflating past this is refused
+# ...deflated with a PRESET DICTIONARY, which is what makes storing EVERY
+# option cost ~160 bytes rather than ~590: a record is mostly the names of
+# the options and their values, and the dictionary is exactly that - the
+# encoder's version 1 options at their defaults. IT IS FROZEN: a byte of
+# it changed and every file made with it is unreadable (zlib names the
+# dictionary's checksum, so that is refused, not misread). A different
+# dictionary is a new container version beside this one, never an edit;
+# tests/vencguitest.py pins its SHA-256
+OPTS_ZDICT = {1: (
+    b'{"o":{"adpcm":"search","aim":"asked","audio":null,"avg":null,"box":n'
+    b'ull,"brightness":0.0,"c512_dither":6.0,"c512_mix":0,"c512_stable":3.'
+    b'0,"cga_bg":null,"cga_bright":null,"cga_card":"both","cga_palette":nu'
+    b'll,"clip":16.0,"comp_dither":"diffuse","comp_quick":false,"comp_stab'
+    b'le":50000.0,"contrast":1.0,"credits":null,"detail":null,"disk":null,'
+    b'"dither":"bayer","end":null,"error":"visible","fit":"fit","flip":fal'
+    b'se,"fps":null,"gamma":1.0,"invert":false,"jobs":null,"keysecs":2.0,"'
+    b'layout":null,"levels":"auto","levels_mix":4,"live":null,"lookahead":'
+    b'2,"loop_from":null,"mix":0.5,"owe":null,"peak":null,"pixfmt":null,"p'
+    b'oster":null,"poster_at":null,"preset":null,"profile":"5150-st225","r'
+    b'ate":null,"repeat":false,"reserve":null,"resident":false,"spk_drive"'
+    b':0.5,"spk_highpass":null,"spk_idle":0.02,"spk_lows":0.5,"spk_preview'
+    b'":null,"spk_pulses":1,"spk_range":null,"spk_ratio":null,"spk_shape":'
+    b'"on","spk_style":"natural","stable":6.0,"start":0.0,"text_busy":null'
+    b',"text_colour":null,"text_detail":0.5,"text_glyphs":"blocks","text_o'
+    b'cr":false,"text_ocr_conf":80.0,"text_ocr_every":5,"text_ocr_large":f'
+    b'alse,"text_prefer_colour":1.0,"text_sharpen":0.6,"text_stable":6.0,"'
+    b'title":null,"vga4_stable":24.0,"vga8_dither":24.0,"vga8_stable":18.0'
+    b',"volume":null,"worth":null,"xms":false},"src":"","v":1}'
+)}
+
+
+def pack_options(doc):
+    """A record (a dict the encoder built, 98.2.17) -> the block: magic,
+    the container version, and the canonical JSON deflated with that
+    version's dictionary"""
+    import json
+    import zlib
+    raw = json.dumps(doc, separators=(",", ":"), sort_keys=True,
+                     ensure_ascii=True).encode("ascii")
+    if len(raw) > OPTS_UNPACKED_MAX:
+        raise V88Error("an options record of %d bytes: %d at most"
+                       % (len(raw), OPTS_UNPACKED_MAX))
+    c = zlib.compressobj(9, zlib.DEFLATED, 15, 9, zlib.Z_DEFAULT_STRATEGY,
+                         OPTS_ZDICT[1])
+    blob = OPTS_MAGIC + bytes([1]) + c.compress(raw) + c.flush()
+    if len(blob) > 0xFFFF:
+        raise V88Error("an options block of %d bytes" % len(blob))
+    return blob
+
+
+def unpack_options(blob):
+    """The block -> the record, or V88Error: a wrong magic, an unknown
+    container, a checksum or dictionary zlib refuses, a record inflating
+    past OPTS_UNPACKED_MAX or one that is not a JSON object"""
+    import json
+    import zlib
+    if blob[:4] != OPTS_MAGIC or len(blob) < 5:
+        raise V88Error("the options block has no signature")
+    if blob[4] not in OPTS_ZDICT:
+        raise V88Error("options container %d: this reader knows %s"
+                       % (blob[4], sorted(OPTS_ZDICT)))
+    try:
+        d = zlib.decompressobj(15, zdict=OPTS_ZDICT[blob[4]])
+        raw = d.decompress(blob[5:], OPTS_UNPACKED_MAX)
+        if d.unconsumed_tail or not d.eof:
+            raise V88Error("the options block is cut short or too large")
+        doc = json.loads(raw.decode("ascii"))
+    except (zlib.error, ValueError, UnicodeDecodeError) as e:
+        raise V88Error("the options block does not read: %s" % e)
+    if not isinstance(doc, dict):
+        raise V88Error("the options record is not an object")
+    return doc
+
 PIT_HZ = 1193182
 
 
@@ -1495,6 +1578,7 @@ class Writer:
                            "a VGA4 one for the VGA, of at most 255 rows and "
                            "bytes")
         self.live = live
+        self.opts = None                # the options block, 98.1.1.4
         if spk and audio_fmt != AUD_PCM8:
             raise V88Error("speaker counts are PCM8's (98.1.1.3)")
         if spkp > 1 and not spk:
@@ -1680,7 +1764,13 @@ class Writer:
         pal = SECTOR if self.palette else 0     # the palette: sector 1
         kbase = SECTOR + (2 * SECTOR if self.palette else 0) + ktab
         ktoff = SECTOR + (2 * SECTOR if self.palette else 0)
-        s0 = kbase + -(-krec // SECTOR) * SECTOR
+        # the OPTIONS block (98.1.1.4) in sectors of its own between the
+        # keyframe records and the stream: behind every offset the player
+        # reads and in front of the stream it reads in sequence, so no read
+        # of the player's ever reaches it
+        opts = self.opts or b""
+        oat = kbase + -(-krec // SECTOR) * SECTOR
+        s0 = oat + -(-len(opts) // SECTOR) * SECTOR
         spoff, o = [], s0
         for n in secs:
             spoff.append(o)
@@ -1748,11 +1838,14 @@ class Writer:
         if self.live is not None:
             hdr[192 + R_TARGET] = self.live
         hdr[LOOP_AT:LOOP_AT + len(loopblk)] = loopblk
+        if opts:
+            struct.pack_into("<IH", hdr, H_OPTS, oat, len(opts))
         front = bytes(hdr)
         if self.palette:
             front += self.palette + bytes(2 * SECTOR - PAL_BYTES)
         out = front + kt + bytes(ktab - len(kt)) + kr + \
-            bytes(s0 - kbase - len(kr)) + stream
+            bytes(oat - kbase - len(kr)) + opts + \
+            bytes(s0 - oat - len(opts)) + stream
         write_whole(path, out)
         return dict(bytes=len(out), keys=nk, keybytes=ktab + len(kr),
                     stream=len(stream), sps=len(sps), poster=poster,
@@ -1858,7 +1951,8 @@ def runs_of(rec, end, g):
 
 def write_resident(path, writers, audio_fmt=AUD_NONE, abytes=0, audio=b"",
                    title="", credits="", repeat=False, pack=PK_LZB,
-                   posters=None, live=None, targets=None, spk=False):
+                   posters=None, live=None, targets=None, spk=False,
+                   opts=None):
     """A RESIDENT file (98.1.7): one rendition per Writer - each made SILENT
     at the file's rate, with the file's loop if it has one - its records one
     block, packed on its own; the sound one audio block for them all. The
@@ -2019,7 +2113,10 @@ def write_resident(path, writers, audio_fmt=AUD_NONE, abytes=0, audio=b"",
             hdr[so + R_TARGET] = (live or targets)[ri]
     if loop is not None:
         struct.pack_into("<I", hdr, LOOP_AT, loop)
-    out = bytes(hdr) + bytes(body)
+    if opts:                    # the OPTIONS block (98.1.1.4), last: every
+        struct.pack_into("<IH", hdr, H_OPTS,    # block before it is read by
+                         SECTOR + len(body), len(opts))   # offset and size
+    out = bytes(hdr) + bytes(body) + (opts or b"")
     write_whole(path, out)
     return dict(bytes=len(out), blocks=sizes,
                 audio=(len(audio), len(apk) if audio else 0))
@@ -2129,6 +2226,9 @@ class Reader:
                                         pit_rate(self.rate, self.spf)))
         self.title = d[32:80].split(b"\0")[0].decode("ascii", "replace")
         self.credits = d[80:176].split(b"\0")[0].decode("ascii", "replace")
+        # where the options block is (98.1.1.4): read only by options(), so
+        # a file whose block is damaged still opens, plays and previews
+        self.optsat, self.optslen = struct.unpack_from("<IH", d, H_OPTS)
         (self.pixfmt, layout, wb, h, an, ad, self.ktab, self.nkeys,
          self.poster, self.sp0, self.sp0n, self.spmax, self.slen, self.rmax,
          self.kmax) = struct.unpack_from("<BBHHBBIHHIHHIHH", d, 192 + 64 * rend)
@@ -2440,6 +2540,18 @@ class Reader:
             return self._seam + self._audio(L)
         return self.d[off:off + n]
 
+    def options(self):
+        """The record the encoder stored (98.1.1.4, 98.2.17), or None for a
+        file made before it stored one - V88Error for a block that points
+        outside the file or does not read"""
+        if not self.optsat and not self.optslen:
+            return None
+        if self.optsat < SECTOR or not self.optslen or \
+                self.optsat + self.optslen > len(self.d):
+            raise V88Error("an options block of %d bytes at %d, in a file "
+                           "of %d" % (self.optslen, self.optsat, len(self.d)))
+        return unpack_options(self.d[self.optsat:self.optsat + self.optslen])
+
     def key(self, i):
         k, off, n, spo, spn, idx = self.keys[i]
         rec = self.d[off:off + n]
@@ -2571,13 +2683,16 @@ def write_spk_preview(path, counts, rate, pulses=1, fs=44100):
 
 
 def spk_reshape(src, dst, hp=SPK_HP, drive=SPK_DRIVE, lows=SPK_LOWS,
-                rng=SPK_RANGE, ratio=SPK_RATIO, idle=SPK_IDLE):
+                rng=SPK_RANGE, ratio=SPK_RATIO, idle=SPK_IDLE, style=None):
     """A SPEAKER FILE'S SOUND SHAPED AFTER THE FACT (98.2.15.1): every
     rendition's counts read back to samples, spk_shape'd and written as
     counts again, in the same bytes - each frame record's last `abytes`
     and the seam's - so nothing else in the file moves. A resident file's
-    sound is a packed block, so it is refused: encode it again. Returns
-    the renditions done"""
+    sound is a packed block, so it is refused: encode it again. The file's
+    stored options (98.2.17), when it has them, are brought up to date with
+    the new shaping - in the sectors they already had, or, should they no
+    longer fit there, taken out rather than left saying what is no longer
+    true. Returns the renditions done"""
     d = bytearray(open(src, "rb").read())
     n = Reader(src).nrend
     for ri in range(n):
@@ -2611,12 +2726,39 @@ def spk_reshape(src, dst, hp=SPK_HP, drive=SPK_DRIVE, lows=SPK_LOWS,
         if r.loop is not None:
             L, off, m = r.loop[:3]
             d[off + m - ab:off + m] = new[L * ab:(L + 1) * ab]
+    _reshape_options(d, Reader(src), dict(
+        spk_shape="on", spk_style=style or SPK_STYLE, spk_highpass=hp,
+        spk_drive=drive, spk_lows=lows, spk_range=rng, spk_ratio=ratio,
+        spk_idle=idle))
     with open(dst, "wb") as f:
         f.write(d)
     for ri in range(n):
         for rec, at, i in Reader(dst, ri).records():
             pass
     return n
+
+
+def _reshape_options(d, r, changed):
+    """A streamed file's stored options (98.1.1.4) with `changed` put in,
+    written into the sectors the block has before the stream (bytes `d`,
+    patched in place); the block and its pointer cleared when the new one
+    does not fit, or the old one does not read"""
+    if not r.optsat:
+        return
+    import os88venc                     # (the schema is the encoder's)
+    room = r.sp0 - r.optsat
+    try:
+        o = os88venc.opts_migrate(r.options())[0]
+        doc = r.options()
+        o.update(changed)
+        blob = pack_options({"v": os88venc.OPTS_VERSION,
+                             "src": doc.get("src", ""), "o": o})
+    except V88Error:
+        blob = b""
+    if not 0 < len(blob) <= room:
+        blob = b""
+    d[r.optsat:r.optsat + room] = blob + bytes(room - len(blob))
+    struct.pack_into("<IH", d, H_OPTS, r.optsat if blob else 0, len(blob))
 
 
 def cycles_of(rec, planar=False, layout=None):
@@ -3319,7 +3461,7 @@ def cmd_speaker(a):
         if getattr(a, k) is None:
             setattr(a, k, st[v])
     n = spk_reshape(a.file, a.out, a.highpass, a.drive, a.lows, a.range,
-                    a.ratio, a.idle)
+                    a.ratio, a.idle, a.style)
     print("os88vid: %s: %d rendition%s' sound shaped for the speaker "
           "(high-pass %d Hz, drive %.2f)" % (a.out, n, "" if n == 1 else "s",
                                              a.highpass, a.drive))
@@ -3462,6 +3604,7 @@ def verify_v88(path, against=None, rend=None):
             verify_v88(path, against, i)
         rend = 0
     r = Reader(path, rend)
+    r.options()                     # a block this writer wrote must READ
     g = r.g
     ref = None
     if against:

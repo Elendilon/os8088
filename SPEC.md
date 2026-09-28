@@ -150555,6 +150555,7 @@ file.
 sector 0          the header (98.1.1)
 sector 1..        the keyframe table (98.1.3), on a sector
                   the keyframe records, back to back, padded to a sector
+                  the options block (98.1.1.4), padded to a sector, if any
                   the stream: super-packets (98.1.4), each on a sector
 ```
 
@@ -150579,7 +150580,10 @@ stream behind them is read sequentially.
 | 20 | 2 | **the PIT divisor** for a timer-paced play (§53.2.2), `FSX_RATE_MIN`..65,535 |
 | 22 | 1 | **periods a frame** at that divisor, ≥ 1: 2 for a 15 fps file, whose own period is past 65,535 |
 | 23 | 1 | **the ring the stream assumes**, in 32 KB slots: 0 (nothing said), or 2, 4 or 8 - what its disk reserve banks bursts in (98.2.1.3). 0 in a RESIDENT file. A player with fewer plays it, and says so (98.3) |
-| 24 | 8 | 0 |
+| 24 | 1 | with SPKMUL, pulses a sample (98.1.1.3.1); else 0 |
+| 25 | 1 | 0 |
+| 26 | 4 | the OPTIONS block's offset (98.1.1.4), 0 for none |
+| 30 | 2 | its length in bytes, 0 for none |
 | 32 | 48 | title, ASCII, NUL-terminated within the field |
 | 80 | 96 | credits, the same |
 | 176 | 16 | the AUDIO block of a RESIDENT file (98.1.7); else 0 |
@@ -150775,6 +150779,54 @@ one that fits.
   samples, scaled by (N/P − 2)/255 and so quieter again.
 - `--spk-pulses P` (98.2.15) is what writes it; a resident file is refused
   it for now.
+
+#### 98.1.1.4 The options block: how the file was made
+
+**Header bytes 26 and 30 point at a block the ENCODER wrote**: every
+option it made the file with (98.2.17), so the encoder's window can load
+the file and show how it was made. It is the one part of a `.V88` no
+player reads, and where it sits is chosen so that no read of the player's
+can reach it:
+- **in a streamed file, in sectors of its own between the keyframe records
+  and the stream** - behind every table the player reads by offset, and in
+  front of the stream it reads in sequence from `R_SP0`. It is NOT a
+  trailer: the player finds the stream's end by a short read, and bytes
+  after the last super-packet could carry that short read a chunk further,
+  which with Repeat on a two-slot ring stalls the play at its last frame
+  for good (the seam waits on ring room that never comes);
+- **in a resident file, after the last block** - every block is read by
+  its offset and size, and a resident file is never read in sequence.
+
+A streamed file held in XMS (98.3.18) is held whole, block included: 1 KB
+more of the hold, and the "Held in XMS" line counts it.
+
+| off | size | field |
+|---|---|---|
+| 0 | 4 | `'V88O'` |
+| 4 | 1 | the CONTAINER: 1 is zlib with `os88vid.OPTS_ZDICT[1]` |
+| 5 | n | the record, canonical JSON (sorted keys, no spaces, ASCII), deflated |
+
+**The dictionary is what makes it small.** A record is mostly option names
+and their values, and zlib's preset dictionary is exactly that: version 1's
+options at their defaults, 1,280 bytes. Deflated against it a record of all
+79 options is **143 to 161 bytes** (every "Made for" target, measured);
+without it, 576 to 592. **The dictionary is FROZEN**: zlib names it by its
+checksum in the stream, so a changed one is refused rather than misread,
+and `tests/vencguitest.py` pins its SHA-256. A better dictionary later is
+container 2 beside it, never an edit to 1. The record inflates to at most
+64 KB or is refused.
+
+**A reader that cannot read the block still plays the file.**
+`os88vid.Reader` notes where the block is and reads it only when asked
+(`Reader.options()`), so a damaged block costs the window its options and
+nothing else; `verify_v88` does read it, because a block the encoder wrote
+must read. Bytes 25 to 31 were zero in every file made before and nothing -
+the player, `os88vid`, the tests - ever read them, so a file with no block
+reads as one made before the block existed, and an older reader sees a
+file with one as it always did. `set_poster` and `set_title` write only the
+header's sector and leave the block as it is; `os88vid speaker` (98.2.15.1)
+rewrites the record's shaping options in the block's own sectors, or clears
+the block if the new record no longer fits them.
 
 #### 98.1.2 Layouts: the file is laid out for its surface on the host
 
@@ -152363,8 +152415,10 @@ canvas, frames, rate, sound, keys, the poster, size and repeat. Beside that
 is **the keyframe a play from the scrubbed frame starts at**
 (`os88vid.key_at`: the last key at or before it, or key 0 before them all),
 drawn from that key's record alone, with its number. That number is what
-`--poster` takes. `Open a .V88...` puts any file in the preview, not only
-the one just made.
+`--poster` takes. **Load a .V88...** (beside *Made for*, 98.2.17) puts any
+file in the preview, not only the one just made - and the POSTER itself is
+drawn beside that keyframe, so what the player shows before a play and
+what Set as poster would make it are seen together.
 
 **Set as poster** makes that keyframe the poster WITHOUT re-encoding.
 `os88vid.set_poster(path, frame)` writes each rendition's poster word
@@ -153042,6 +153096,85 @@ a 5150 on average by the model, every frame exact on `5150-st225`.
 draw the cells in the model face (98.1.3.6), each dot made square. The
 window offers both as targets: "Any PC - text mode, 16 colours" and "Any
 PC, Hercules and MDA too - text mode, black and white".
+
+#### 98.2.17 How a file was made: stored in it, and loaded back
+
+**Every `.V88` the encoder makes carries the options it was made with**
+(98.1.1.4), and **Load a .V88...** in the encoder's window sets every
+field to them: the target it was made for, the preset, format and profile,
+every picture, colour, sound, budget and keyframe option. The owner's ask,
+2026-09-28: *"store the options used ... inside the .v88. Then when loading
+one in the interface have the interface reflect all the options used."*
+
+**EVERY option, not only the ones that differ from a default.** A record of
+the differences is 22 to 46 bytes deflated against 143 to 161 for all 79
+(both measured over every target), but it means *"the default, as it was
+that day"*, and a default moves: this very session moved `--spk-style`'s.
+A file that stored nothing for it would have loaded as `natural` whatever
+it was made with. So the record is the options as the encode USED them
+(`os88venc.options_record`): the command line's, else what the preset,
+format, profile and Live choice imply (`implied()`, 98.2.10) - the canvas,
+the frame rate after the source's cap, the budget, the sound - else the
+speaker style's own three numbers, else the parser's default. The frozen
+dictionary is what made all of it cost about what the differences alone
+cost without one. The record also carries the source's NAME, never its
+path: a file handed on should not carry the folders it was made in.
+
+**A version mapper, because the options will change.** A record carries its
+schema version (`OPTS_VERSION`, 1). `MIGRATIONS[n]` is how a version-n
+record reads as n+1, a list of steps in order:
+- `("rename", old, new)` - an option took a new name;
+- `("revalue", dest, {old: new})` - a choice was renamed, or a value's
+  meaning moved (a function in place of the dict for arithmetic);
+- `("added", dest, legacy)` - an option arrived, and a file made before it
+  was made AS IF it were `legacy`, which need not be the new default;
+- `("removed", dest, why)` - an option went, and the load says why.
+
+`opts_migrate` applies them from the record's version to today's, then
+drops what this encoder does not know, drops a value that is not plain or
+not one of an option's choices (a record came off a file, and a file is
+hostile until read), and names what the record does not hold - each a line
+in the window's log. A record from a NEWER encoder is read for what this
+one knows, and says so. **What keeps the mapper honest is a fingerprint**:
+`opts_schema()` is every option's name, kind and choices (not its
+default), and `tests/vencguitest.py` fails when it no longer hashes to
+`OPTS_FINGERPRINT[OPTS_VERSION]` - an option added, renamed, removed or
+given other choices cannot land without the version going up and a
+migration saying how the older records read. What a fingerprint cannot
+see is a value whose MEANING moved under the same name; that is a
+`revalue` step somebody has to write, and the section says so here so it
+is not forgotten.
+
+**Loading** (`form_from_file`, no Tk): the record migrated, each value put
+in its field the way the form spells it - the parser's own spelling of a
+default, the implied table's of what a choice implies - so a loaded form
+leaves the same short command line a form filled by hand would; the target
+it was made for picked again (`target_for`), or none named when no target
+matches. **The title and credits are the header's**, because Set title
+(98.2.11) changes them in place after the encode and a new encode should
+keep what the file says now. The Video field is left alone: the log names
+the source to choose to make the file again. A file made before options
+were stored leaves the form as it was and says so; a damaged block does
+the same, naming the damage, and the file still previews. A load of the
+file an encode has just made does not refill the form - it already is
+that form.
+
+`tests/vencguitest.py` leg 15 is the gate: every target's file carries its
+record, and LOADING it gives a form whose command line resolves to the
+very record stored, for the same target, with nothing noted as lost - red
+on every target with `form_value` answering nothing. It drives the mapper
+through a made-up history (a rename, a renamed choice, an option added
+with its legacy value, one removed, a newer encoder's record, a value no
+longer a choice), pins the dictionary and the fingerprint, and checks that
+a damaged block leaves the file opening and `verify_v88` refusing it.
+`tests/vidspkshape.py` checks that `os88vid speaker` leaves the record
+saying the new shaping.
+
+**The poster beside the keyframe.** The file panel shows **the poster** -
+what the player shows before a play - beside **the keyframe a play from
+the scrubbed frame starts at**, with Set as poster on that one's header.
+Before, the poster was a number in the file's facts and seen only by
+scrubbing to it.
 
 ### 98.3 The player — `VIDEO.O88`, fullscreen (waves 3 to 6)
 
