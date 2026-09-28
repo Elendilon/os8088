@@ -152124,7 +152124,8 @@ it names, every preview at its screen's shape, and the disk.
 **It fits its own default size** (1080 x 760). The log, the progress bar
 and the Encode row are packed from the BOTTOM and before the tabs, so a
 short window takes its height from the tabs; and a tab of more than ten
-options is laid out in two columns, down the first and then the second.
+options is laid out in two columns, down the first and then the second
+(a group at a time since 98.2.8.2, split where the taller is shortest).
 The Picture tab's 21 in one column were taller than the window, and the log
 - packed last - got nothing at all, with Encode cut off the end of its row
 by the disk list (the owner's report; both seen on the glass under Xvfb).
@@ -152163,6 +152164,66 @@ overrides, and with none fixed its six rows must be the six `cga4_pick`
 returns for each set and intensity. The leg FAILS naming the row if the set
 bits are swapped. The layout fits the default window's Colour tab (1080 x
 760); that was looked at under Xvfb, not asserted.
+
+##### 98.2.8.2 Groups, greyed when they cannot apply
+
+**Each tab's options are in GROUPS**: an outline with a header round the
+options that go together - *Made for* and *The clip* on Basic; *Canvas*,
+*Tone*, *One bit* and *Text mode* on Picture; a group per format on Colour
+(*CGA, 4 colours*, *CGA composite*, *CGA composite, 512 colours*, *VGA,
+256 colours* and the rest); *Sound*, *ADPCM*, *PC speaker* and *PC
+speaker: the sound shaped* on Sound; and so on. `GROUPS` in the window is
+the table, and the tab an option is on is its group's (`TAB_OF` is derived
+from it). An option no group names - one added to the encoder tomorrow -
+still appears, in an *Other* group on Advanced, so the form stays complete
+with no work.
+
+**A group that cannot apply to the file the form makes is GREYED**, its
+header and every field in it (the owner's ask, 2026-09-28: *"cga group on
+colour disabled when not targeting a cga type, pc speaker disabled when not
+targeting a pc speaker"*). Each group carries a rule, read off what the form
+makes (`form_context`: the pixel format and layout the preset, format,
+layout and Live choice come to, and the sound): the CGA 4-colour group is
+CGA4's, the speaker's two need `--audio speaker` (and the shaping one
+`--spk-shape on`), *Aim: size* needs `--aim size`. The rules are the
+ENCODER's own reading of each option, which is not always its tab: `--stable`
+is read by the one-bit dither AND the composite pattern dither, and
+`--vga4-stable` by every 4- and 16-colour format, so each is a group of its
+own with that rule. A few options are narrower than their group
+(`FIELD_WHEN`) and grey alone: `--flip` is Mode X's inside the 256-colour
+group, `--xms` needs Live, the composite's diffusion and pattern options
+follow `--comp-dither`, and the rate and volume grey with no sound.
+
+**Hovering a greyed group says why**, and what to change: over its header
+or its outline, *"Not used for this file. These are for CGA 4 colours, and
+this file is one bit, black and white. Choose a target that makes CGA 4
+colours under Made for, or its pixel format on Basic."*; over one of its
+fields, the same reason above that option's own help. A group that applies
+has no tip of its own. The outline's tip is on `<Motion>` and not
+`<Enter>`: Tk gives an Enter to the outline when the pointer crosses into
+a field from outside it, and its tip then stood beside the field's and
+stayed up after the pointer left - seen under Xvfb. A motion goes to the
+deepest window under the pointer, so the outline hears one only over its
+own bare parts, and a Leave always follows.
+
+**A greyed option is left off the command line**, whatever its field says:
+it cannot apply, and some would be refused - a `--detail 2x1` or a
+`--flip` left over from a 256-colour target, on a one-bit file.
+
+The groups cost the tabs height - a header and an outline each - so the
+"?" and Browse... buttons are drawn as tall as the field beside them
+rather than a row and a half, the labels are lined up by their measured
+widths, and the log is six lines rather than nine. With that the default
+window (1080 x 760) still shows every group and the Colour tab's palette;
+looked at under Xvfb, every tab and a speaker, CGA4, VGA8 and text
+target, not asserted. `tests/vencguitest.py` leg 14 asserts the rest:
+every option in one group at most and every group naming real options;
+for each of the sixteen targets, the group of the format it makes applies
+and every other format's is greyed with a reason, and the speaker's two
+apply to the speaker target alone; and a greyed option stays off the
+command line (`--cga-palette` on the speaker target, `--flip` on 13h,
+`--spk-pulses` on CGA4) while the same option on its own target is on
+it. With every group answering "applies" the leg FAILS on all sixteen.
 
 
 #### 98.2.9 The pre-roll: the first picture is whole before the keyframes start

@@ -17,7 +17,8 @@ so it is checked here with no Tk at all:
    that parses to the parser's own defaults, option for option. The
    speaker style's high-pass, ratio and range are SHOWN filled and stay
    off the command line while they are the style's, for either style -
-   and one changed by hand is on it.
+   and one changed by hand is on it, the sound being the speaker's (with
+   any other sound the group is greyed, 14).
 3. EVERY TARGET ENCODES: each "made for" choice, on a second of ffmpeg's
    testsrc2, is a file os88vid verifies, of the format and layout it says -
    and a Live one a live file naming its screen.
@@ -71,6 +72,14 @@ so it is checked here with no Tk at all:
    colour, and a CGA4 file's own palette under the preview is the one in
    its header. A panel that drew mode 5 where the file will be mode 4 -
    the set bits swapped - FAILS here, naming the row.
+14. A GROUP IS GREYED WHEN IT CANNOT APPLY (SPEC.md 98.2.8.2): every option
+   is in one group at most, every group names options that exist, and for
+   each target the group of the pixel format it makes applies and every
+   other format's is greyed WITH A REASON - the speaker's two apply to
+   the speaker target and to no other. What a greyed group holds stays
+   off the command line: --cga-palette on the speaker target, --flip on
+   13h. With group_state answering "applies" for everything, 14 FAILS on
+   every target.
 
 Broken on purpose - an option dropped from the table, or a help string
 emptied - 1 FAILS naming it. Needs ffmpeg for 3 to 5 and SKIPS without it.
@@ -90,6 +99,80 @@ import os88vencgui as G                                      # noqa: E402
 import os88vid as vid                                        # noqa: E402
 
 SKIP = 77
+
+
+# the group each pixel format's own options are in - spelled here rather
+# than read off the window's table, so a table that greys the wrong one
+# cannot agree with itself
+FORMAT_GROUP = {"mono": "One bit", "cgacomp": "CGA composite",
+                "cga4": "CGA, 4 colours", "c512": "CGA composite, 512 colours",
+                "vga8": "VGA, 256 colours", "text": "Text mode"}
+SPEAKER_GROUPS = ("PC speaker", "PC speaker: the sound shaped")
+
+
+def groups_leg():
+    """14: the groups against the targets"""
+    bad = []
+    grouped = [d for g in G.GROUPS for d in g[2]]
+    opts = {f["dest"] for f in G.fields()}
+    twice = sorted({d for d in grouped if grouped.count(d) > 1})
+    stale = sorted(set(grouped) - opts)
+    loose = sorted(opts - set(grouped))
+    if twice or stale:
+        bad.append("14: options in two groups %s, groups naming no option %s"
+                   % (twice, stale))
+    heads = {g[1] for g in G.GROUPS}
+    missing = [h for h in list(FORMAT_GROUP.values()) + list(SPEAKER_GROUPS)
+               if h not in heads]
+    if missing:
+        bad.append("14: no group %s" % missing)
+    wrong = []
+    for i, t in enumerate(G.TARGETS):
+        v = G.form_start()
+        v.update(G.target_fill(i, 30.0))
+        gs, fs = G.group_state(v)
+        pf = G.form_context(v)["pixfmt"]
+        for f, h in FORMAT_GROUP.items():
+            if (gs.get(h) is None) != (f == pf):
+                wrong.append("%s: %s %s" % (t[0], h, "greyed" if gs.get(h)
+                                            else "applies"))
+        spk = v.get("audio") == "speaker"
+        for h in SPEAKER_GROUPS:
+            if (gs.get(h) is None) != spk:
+                wrong.append("%s: %s %s" % (t[0], h, "greyed" if gs.get(h)
+                                            else "applies"))
+        noreason = [h for h, why in gs.items() if why is not None
+                    and not why.strip()]
+        if noreason:
+            wrong.append("%s: %s greyed saying nothing" % (t[0], noreason))
+    # what a greyed group holds is left off the command line
+    tgt = lambda pre: [i for i, t in enumerate(G.TARGETS) if t[1] == pre][0]
+    offs = []
+    for pre, dest, val, flag, on in (("herc-spk", "cga_palette", "1",
+                                      "--cga-palette", False),
+                                     ("cga4", "cga_palette", "1",
+                                      "--cga-palette", True),
+                                     ("vga8", "flip", "1", "--flip", False),
+                                     ("modex", "flip", "1", "--flip", True),
+                                     ("cga4", "spk_pulses", "2",
+                                      "--spk-pulses", False),
+                                     ("herc-spk", "spk_pulses", "2",
+                                      "--spk-pulses", True)):
+        v = G.form_start()
+        v.update(G.target_fill(tgt(pre), 30.0))
+        v[dest] = val
+        if (flag in G.argv_from("in.mp4", "o.V88", v, 30.0)) != on:
+            offs.append("%s %s on %s" % (flag, "missing" if on else
+                                         "left on", pre))
+    print("   14: %d groups, %d options in none (on Advanced), %d targets: "
+          "%d wrong, %d command lines wrong"
+          % (len(G.GROUPS), len(loose), len(G.TARGETS), len(wrong),
+             len(offs)))
+    if wrong:
+        bad.append("14: %s" % "; ".join(wrong))
+    if offs:
+        bad.append("14: %s" % "; ".join(offs))
+    return bad
 
 
 def main():
@@ -133,7 +216,7 @@ def main():
     for style in sorted(vid.SPK_STYLES):
         sv = G.style_values(style)
         st = vid.SPK_STYLES[style]
-        shown = dict(vals, spk_style=style, **sv)
+        shown = dict(vals, audio="speaker", spk_style=style, **sv)
         a = V.parser().parse_args(G.argv_from("in.mp4", "o.V88", shown))
         on = [dst for dst, _ in G.STYLE_FIELDS
               if getattr(a, dst) is not None]
@@ -181,6 +264,7 @@ def main():
     if wrong:
         bad.append("11: drops taken wrongly: %s" % wrong)
     leg13(bad)
+    bad += groups_leg()
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         for b in bad:
             print("   FAIL: %s" % b)
