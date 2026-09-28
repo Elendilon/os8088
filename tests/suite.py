@@ -9562,6 +9562,313 @@ SOAK = [
         "only thing keeping mcbench.inc assembling",
         needs=("marty", "nasm"), serial=True,
         wants=("build/mcbench360.img",)),
+    Row("titheband", "soak", py("tests/titheband.py"), 75.0,
+        "WAVE 0 of docs/plans/TITHE-PLAN.md (its 3.7): what a sprite band"
+        "COSTS, on all three adapters. It is a measurement first - the report"
+        "is docs/reports/TITHE-BAND-2026-09-21.md - but the row is here for"
+        "the three assertions no other test in the tree makes, and all three"
+        "are about the SHAPE across adapters rather than any one number:"
+        "gfx_blit1_pen's four paths must LAND ON EACH OTHER on Hercules and"
+        "CGA (SPEC.md 5.4.2.2 does not read a pen on one plane) and separate"
+        "on VGA; gfx_blitp must REFUSE on 1bpp, which is checked in WORDS"
+        "because a refusal and a fast blit are the same number; and the"
+        "128x128 bar must agree with PERFORMANCE.md Set 77, without which"
+        "nothing else in the report is quotable; and the FULLSCREEN arm's"
+        "hand-rolled row loop must draw the RIGHT PIXELS, read back and"
+        "compared - a fast wrong emit is the easy mistake there and its time"
+        "would look exactly like the win it is measuring. Needs"
+        "`make titheband`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/titheband360.img",)),
+    Row("titheframe", "soak", py("tests/titheframe.py"), 200.0,
+        "SPEC.md 101.5: does TITHE's pacing wheel hold its frame, and do its"
+        "two levers still work? The rate was measured once"
+        "(docs/reports/TITHE-RATE-2026-09-22.md) and the three defects that"
+        "made it unmeasurable are exactly the kind that come back: a"
+        "calibration nothing calls, a PIT span that wraps and reads 0 us a"
+        "band, and a credit charged FLAT - which makes the dirty rect and the"
+        "sprite arms both measure at zero while failing nothing at all. It"
+        "asserts the frame holds one pass a tick, that the calibration ran and"
+        "its two heights are ordered, that the dirty rect buys at least 20%,"
+        "that the three sprite arms differ, and that a projectile costs the"
+        "idle something without stalling the frame, and that the BASE LANE"
+        "runs on a clock the idle's share cannot reach (SPEC.md 101.5.1). It"
+        "also carries the two HOVER checks, which exist because a composition"
+        "is invisible to everything else here - the picture is identical"
+        "whether a frame takes 3 ms or 40, the wheel still commits and every"
+        "other row still passes. `ti_cb_frame` drew its ~320 pixels one at a"
+        "time through a 16-bit multiply, cost two thirds of a system tick to"
+        "draw a RECTANGLE, and the field reported it as a stutter on landing."
+        "`ti_ccardus` is the direct number and the check is a WINDOW and not a"
+        "ceiling: the PIT counter wraps at 54.9 ms and the defect measured"
+        "~54, so a regression is as likely to read small as large."
+        "Needs `make tithedisk`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/tithe360.img",)),
+    Row("tithecard", "soak", py("tests/tithecard.py"), 150.0,
+        "SPEC.md 101.4.1: TITHE's card composer, on all three adapters and in"
+        "both faces. A card is ONE `OSAPI_GFX_BLIT1` of a band the package"
+        "composed in its own face, and the flow that fills it answers"
+        "differently on every geometry - so what is asserted is the two"
+        "boundaries it must not cross. A ROW THAT DOES NOT FIT IS NOT DRAWN"
+        "(the bottom test was off by one row and a VGA card cut a fourth line"
+        "of text in half), and THE FIGURE OWNS A COLUMN (before the flow had a"
+        "right margin the stat row ran under the mini unit and off the card's"
+        "edge). NEITHER IS VISIBLE AS A BROKEN FRAME LINE, which is the whole"
+        "lesson of the row: the band is composed by OR and the frame is drawn"
+        "first, so a glyph landing on it changes no pixel - both breaks were"
+        "put back in and PASSED a frame-line check. What catches them is the"
+        "row above the foot being blank and the three-column gutter to the"
+        "figure being clear. It also asserts the face key works at all, which"
+        "the Makefile's missing dependency on tifaces.inc had silently broken;"
+        "that the panel COMES BACK when the pointer leaves an expanded card"
+        "(the composer dropped the `gfx_fill` of the panel row that used to put"
+        "its margins back, and they are part of the composition now); that the"
+        "hovered card's figure keeps the card's own polarity and moves (the"
+        "wheel's per-frame unit redraw used the OPPOSITE pen, so the card was"
+        "composed right and inverted one frame later); and SPEC.md 101.4.8's"
+        "FRONT/REAR toggle and status line - every card restates its stats when"
+        "the row flips, and the HUD says what the pointer is over and comes"
+        "back WHOLE, which a centred font_run could not do. Its last check is"
+        "the one that reaches furthest: the strip on the glass against the"
+        "FACE'S OWN BITMAPS rendered on the host, which is the only thing that"
+        "can see a glyph the face HAS and ti_chidx cannot reach - every mark"
+        "below '0' drew a hole for as long as the faces existed, and the colon"
+        "was the one that worked, so the compared line has to have a COMMA in"
+        "it. It also covers the BOARD's stat column (SPEC.md 101.4.8.1): a cell"
+        "states HP, both variable stats and - where its height holds a fourth"
+        "row - its POWER, and where it does not the POINTER carries the power"
+        "in front of the ability. Power is what a player wants while planning"
+        "a KILL, which is a board question, so unlike a cost it cannot fall"
+        "back to the card. Needs `make tithedisk`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/tithe360.img",)),
+    Row("tithepj", "soak", py("tests/tithepj.py"), 90.0,
+        "SPEC.md 101.4.5: TITHE's BOLTS go OVER the characters. `A` sustains"
+        "the resolution's worst ranged case, one bolt a side crossing in one"
+        "lane, and each band is composed from the board as the glass shows"
+        "it - the strips, the band every cell last committed, its numbers"
+        "over the bolt. With the wheel paused mid-flight the glass against a"
+        "whole repaint differs by at most two bolts' worth of pixels (and at"
+        "one of three moments by at least half of one, so they are up); with"
+        "the arm off it is exactly the repaint. A band of ground alone - the"
+        "old bolt - fails by 324-530 pixels, a figure's worth, and did before"
+        "this was registered. All three adapters. Needs `make tithedisk`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/tithe360.img",)),
+    Row("titherules", "soak", py("tests/titherules.py"), 30.0,
+        "SPEC.md 101.11: TITHE's rules engine on the machine AGREES with"
+        "tools/duelsim.py - wave 2's gate. Every match of `duelsim.py bake`'s"
+        "set (chosen so all 23 keywords fire) is replayed in the harness and"
+        "its STATE RECORD after setup and every round compared with the"
+        "simulator's to the byte, and the engine must refuse no action the"
+        "simulator took. It went red on a real defect first: tr_intercede did"
+        "not give SI back, so a KINDLE kill's extra soul was read off the"
+        "wrong cell - 16 of 17 matches agreed. Prints the machine's"
+        "milliseconds a round, which sizes wave 4's AI. Needs `make"
+        "titherules`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/titherule360.img",)),
+    Row("tithefs", "soak", py("tests/tithefs.py"), 120.0,
+        "SPEC.md 101.4.12: TITHE's FULLSCREEN HAND - seven portrait cards along"
+        "the bottom under a centred board on VGA and Hercules fullscreen, the"
+        "strip kept on CGA and windowed. It asserts the geometry (seven"
+        "aligned bands a byte apart, COMMIT after them, under the board), that"
+        "every card is drawn, that a hovered card RISES and no other does,"
+        "that paused mid-animation the hand is exactly a whole repaint - which"
+        "failed on Hercules by 83 pixels while the hovered card read a board"
+        "cell's clock - and that a clicked card is played from the bottom row"
+        "with its band dark and the screen exactly a repaint. Needs `make"
+        "tithedisk`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/tithe360.img",)),
+    Row("tithelog", "soak", py("tests/tithelog.py"), 65.0,
+        "SPEC.md 101.12.8: TITHE's round fought on the glass, fullscreen on"
+        "Hercules and VGA - the owner's report that the LOG froze the screen and"
+        "stopped the music. The music's own worst gap through the fight is at"
+        "most 3 ticks (it was 7-8, with every log line redrawing the whole"
+        "log inside the worker's frame and the round opening on a 880 ms"
+        "whole-window repaint); a whole repaint mid-round draws the board and"
+        "not the pass screen (it drew the pass screen for any phase but"
+        "planning); and the log, capped at four rows by a test byte so the"
+        "round's nine lines scroll it five times with OSAPI_GFX_SCROLL, is"
+        "exactly a whole repaint at the round's end. And (101.12.9) the"
+        "hand-over - the pass screen, then the next planner's whole redraw -"
+        "keeps the music's worst gap to two ticks; it read three on VGA with"
+        "the pass screen's fill and the ground's in one piece each, and two"
+        "on Hercules, which is why the row runs both. Broken on purpose: a"
+        "line copied through the wrong ES goes red by 452 px. Needs `make"
+        "tithedisk`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/tithe360.img",)),
+    Row("tithegame", "soak", py("tests/tithegame.py"), 80.0,
+        "SPEC.md 101.12: TITHE's ROUND LOOP, played by hand on Hercules and"
+        "CGA. A SEEDED deal (tg_fillq = 3) that tools/duelsim.py deals the"
+        "same way, then P1's round with the mouse: two plays, an ORDER armed"
+        "and placed, a STANCE badge, a SWAP - the plan and the board the"
+        "simulator's; the FIRST play removed from the plan list, and the rest"
+        "re-applied with the order and the stance following the play they"
+        "named, the glass exactly a whole repaint; the pass screen two lines"
+        "and nothing else; P2 on the FROZEN board with P1's pool unspent; and"
+        "the resolved round - HP, pools, every cell and the next hand - the"
+        "simulator's. It went red on two real defects before it was"
+        "registered: a swap carried the subject of the cell clicked first, so"
+        "removing that character's play orphaned the swap; and the list"
+        "blanked one stale row where a removal can take out two. Needs `make"
+        "tithedisk`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/tithe360.img",)),
+    Row("titherv", "soak", py("tests/titherv.py"), 90.0,
+        "SPEC.md 101.4.11: TITHE's REVEAL - a CLICK on a card plays it, and so"
+        "does `V`, and the row makes one play each way (the click's card being"
+        "the HOVERED one, which is what dissolves). XOR sparks from"
+        "the card to its cell, the character dissolving in over its column's"
+        "ground, the card dissolving out. XOR is its own erase only while the"
+        "frame keeps its order (sparks off first, on last), so the row asserts"
+        "where the reveal ENDS, on all three adapters: the card is in the cell"
+        "the key names and the cell table says so; that cell's eight frames"
+        "are the model's for the new card to the byte; the card's slot is"
+        "dark; with the wheel paused the board and hand are EXACTLY a whole"
+        "repaint; and the gap between them, which no repaint of the package's"
+        "redraws, is the glass it was before the key. Broken on purpose four"
+        "ways before it was registered - no erase, no numbers, a card that"
+        "never empties, a cell table left unwritten - and each went red; and"
+        "it caught the deferred attack frames each grounding all four slots"
+        "again and wiping the ones already built. It"
+        "waits on the FRAME COUNT and not the flags: the key handler sets the"
+        "played bit before ti_rv, a running guest can be read between the two,"
+        "and the next key then lands inside the reveal, which drops it. Needs"
+        "`make tithedisk`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/tithe360.img",)),
+    Row("titheterr", "soak", py("tests/titheterr.py"), 150.0,
+        "SPEC.md 101.4.10 and 101.4.9: TITHE's BOARD is a PLACE - a sparse"
+        "texture per column, a fence between the lanes on the shear's own"
+        "slope, a wall along the back and a cliff under the front - composed"
+        "into four column strips in a heap claim, and every cell's four idle"
+        "poses and four ATTACK frames are cut from its column's strip with a"
+        "body and the column's item MASKED over them. tools/os88tithebg.py and tools/os88tithechar.py model both, and"
+        "this row holds the machine to the model EXACTLY, on all three"
+        "adapters and both terrains: every strip to the byte, all eighty"
+        "idle poses and all eighty attack frames (the lunge inside the band,"
+        "the copies the same-as table names) to the byte, and each column's lip and cliff on the GLASS at"
+        "four heights a RISE apart - the one region no figure or number is"
+        "ever drawn over, so a strip blitted at the wrong y fails there and"
+        "nowhere else. Then G twice, which must be the second terrain's model"
+        "and then the first board again to the bit. Broken on purpose both"
+        "ways before it was registered: a figure ORed instead of masked fails"
+        "every pose, a fence gap one row long fails every strip and the glass,"
+        "the wrong stance fails the poses, and a missing lunge the attacks."
+        "Needs `make tithedisk`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/tithe360.img",)),
+    Row("titheface", "fast", py("tools/os88titheface.py", "--selfcheck"), 1.0,
+        "SPEC.md 101.4.1: TITHE's small faces, which exist because a character"
+        "has FOUR stats that must be on the board and the system 8x8 fits TWO"
+        "in a CGA cell. Three rules, and each caught a real defect the first"
+        "time it ran: no glyph may ink its ADVANCE column or row (at three"
+        "pixels of width a run that touches is a word nobody can read); no two"
+        "glyphs may be the SAME picture (a ring is the letter O, and a"
+        "three-pixel bow is the letter D); and every glyph the renderer asks"
+        "for must exist - and there are NINE icons now, the two STANCES (FRONT"
+        "and SNIPE) being glyphs like the rest rather than a bitmap of their"
+        "own. A FOURTH rule was added when identical turned out to"
+        "be the wrong bar: an ICON must be at least four pixels from every"
+        "other glyph in its face, because at five pixels the coin was the"
+        "digit 0 with a stroke (two apart) and the shield was the heart with"
+        "its top row filled in (also two) - and both sat in a column of"
+        "numbers where a reader has no context to recover from. Host-side"
+        "and 0.2s",
+        needs=()),
+    Row("tithechar", "fast", py("tools/os88tithechar.py", "--selfcheck"), 1.0,
+        "SPEC.md 101.4.9: TITHE's characters as LAYERS - a body and a FRONT"
+        "and a REAR item a card - composed at every band size every adapter"
+        "asks for, both stances, idle and attack. Five assertions and each is"
+        "about a thing that is SILENT: four idle poses must be at least three"
+        "PICTURES (a reduction can round a one-pixel motion away, and the"
+        "wheel still commits a pose that moves nothing); an attack's STRIKE"
+        "must not be the idle (an item whose attack frames reduce to its"
+        "idle swings nothing); every frame must light between 3% and 60% of"
+        "its band; a board figure must light nothing in the band's MARGIN,"
+        "because the stat column begins there; and every body's anchor must"
+        "land on a BYTE at every surface and pose, because the machine puts"
+        "each item frame down in whole bytes from it. Host-side and 0.9s",
+        needs=()),
+    Row("tithecards", "fast", py("tools/os88tithecards.py", "--selfcheck"), 1.0,
+        "SPEC.md 101.11.2 and TITHE-PLAN 15.3's t_tithecards: TITHE's card table"
+        "is the SHAPE the plan asks for - every faction fills 7.1's template"
+        "(five melee, ranged, shield and generation cards and four identity"
+        "cards at the template's cost tiers, three orders, three commanders"
+        "with one early), at most eight pure specialists, every stat inside"
+        "5.2's range and HP one number on both blocks, two blocks that differ,"
+        "every name printable in the package's faces, commanders' keywords on"
+        "commanders only, every starter deck legal under 9.3 and without a"
+        "commander, and room for a fifty-card deck. And the COMMITTED include"
+        "is the table's: apps/tithe/ticards.inc is generated, and a stale one"
+        "assembles without a word. Host-side and 0.1s",
+        needs=()),
+    Row("duelsim", "fast", py("tools/duelsim.py", "--selfcheck"), 1.0,
+        "SPEC.md 101.11 and TITHE-PLAN 14.1: the rules' reference"
+        "implementation plays every faction pairing and a fourteen- and a"
+        "fifty-card deck to completion, and every round of every match is"
+        "applied BOTH plan orders and the boards compared (6.0's confluence),"
+        "and the match file replays to a byte-identical log (14.3's"
+        "determinism). A stalemate at sixty rounds fails it. Host-side, 0.4s",
+        needs=()),
+    Row("tithemus", "fast", py("tools/os88tithemus.py", "--selfcheck"), 1.0,
+        "SPEC.md 101.10: TITHE's MUSIC as the tool packs it. The part is read"
+        "back through the tool's own copy of the sequencer - the one"
+        "tests/tithemus.py holds the machine to - and every note it plays,"
+        "tick by tick, must be the note the SOURCE puts on that tick: a"
+        "packer that drops a slur, mis-counts a groove or loses a phrase"
+        "plays a plausible wrong tune and fails nothing else. It also fails"
+        "a frequency table more than 45 cents off, a note outside the OPL2's"
+        "19..6208 Hz, a speaker tone with NO DURATION (the one that drones"
+        "for ever when the worker stalls), and a tisong.inc that no longer"
+        "describes the part. Host-side and 0.1s",
+        needs=()),
+    Row("tithemusg", "soak", py("tests/tithemus.py"), 150.0,
+        "SPEC.md 101.10: TITHE's sequencer ON THE MACHINE, both arms - FM on a"
+        "Sound Blaster 5150 (SOUND.DRV mounts itself) and the speaker on a"
+        "plain one. The first song's whole command stream - every"
+        "OSAPI_SND_FM or OSAPI_SND_TONE call, caught at a breakpoint with its"
+        "registers, its tick and a patch's eleven bytes - is the model's call"
+        "for call; every song is then sampled paused and must be the model"
+        "tick for tick (order row, row, all four notes, the lead's frequency);"
+        "the speaker is gated exactly when the lead sounds; M past the last"
+        "song is silence; S moves a song to the one-voice arm; and the frame"
+        "holds with the music on. Broken on purpose: a gate one tick short"
+        "fails every song, and a macro step off by one fails the stream while"
+        "PASSING the samples - which is why the stream is there. It also"
+        "found SPEC.md 34.2.2, a kernel defect that sent every FM patch-load"
+        "to channel 0. `--record DIR` saves the guest's own audio per song"
+        "and arm. Needs `make tithedisk`",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/tithe360.img",)),
+    Row("tithebg", "fast", py("tools/os88tithebg.py", "--selfcheck"), 1.0,
+        "SPEC.md 101.4.10: TITHE's board as a PLACE - the per-column textures"
+        "and the wall, fence and cliff patterns the package composes its"
+        "column strips from. Three rules: a fence (RISE plus its height) must"
+        "clear the cell's floor, or a figure stands behind the next lane's"
+        "fence; the ground in a lane's middle must light under a fifth of its"
+        "pixels, which is what SPARSE means and what lets a figure stand ON"
+        "it (it caught the first CGA texture, whose rows were ORed down to"
+        "the aspect and piled into a noise field); and the lip must be lit in"
+        "every pixel column, being the board's edge. tests/titheterr.py holds"
+        "the machine to this model to the byte. Host-side and 0.1s",
+        needs=()),
+    Row("tithebase", "fast", py("tools/os88tithebase.py", "--selfcheck"), 1.0,
+        "SPEC.md 101.5.1: TITHE's base candidates, at every band size every"
+        "adapter asks for. It is here because of ONE assertion - eight poses"
+        "must be eight PICTURES. A pose count is paid for in build time and in"
+        "the claim, and art that does not vary with it is SILENT: the lane"
+        "still commits, the rate still measures, and nothing moves. It caught"
+        "the cathedral's window sweep at 3 distinct poses of 8 the first time"
+        "it ran, and the ziggurat drawing its smoke above row 0 where it was"
+        "clipped away entirely. It also fails an empty pose, a candidate with"
+        "no static ground, and a band that is not the size it was handed."
+        "Host-side and 0.2s, so it costs the fast tier nothing",
+        needs=()),
     Row("blitp", "soak", py("tests/blitp.py"), 120.0,
         "SPEC.md 5.4.3: does gfx_blitp put the bytes where it was given them?"
         "Reads the four PLANES rather than the rendered frame - which below"

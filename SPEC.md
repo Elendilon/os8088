@@ -4441,9 +4441,7 @@ zero there. It is `.cold`, which is RESIDENT (docs/KERNEL-MEMORY.md); at the
 commit it landed on it crossed a cold rung and moved `KERN_SIZE` by 512, which
 is an accident of where the ledger stood and not the price (CLAUDE.md's banner).
 
-Measured on a 4.77 MHz 8088 by TITHE's band bench, which is where this path
-was found and which lives on the `tithe-plan` branch with its report
-(`docs/reports/TITHE-BAND-2026-09-21.md` there, commit `11c14e68`):
+Measured on a 4.77 MHz 8088, `docs/reports/TITHE-BAND-2026-09-21.md`:
 
 | band | before | after | |
 |---|---:|---:|---:|
@@ -41134,13 +41132,23 @@ the case that matters is the one no diff shows.
 
 `apps/RETIRED.txt` is the registry — `tests/movable.txt`'s shape, one line per
 package, `<kind> <package>  # <reason>` — and `tests/unit/t_retired.py` is the
-gate, a `fast` row. The kinds are checked differently:
+gate, a `fast` row. **Four kinds, and they are checked differently:**
 
 | kind | what it means | what the gate demands |
 |---|---|---|
 | `retired` | a **failure**. Not worth shipping | on no shipped image, not in the live payload, and **not built by `all` at all** |
 | `instrument` | **not a product** — a bench or a gate that happens to be a package | on no shipped image. `all` MAY build it: keeping a bench assembling is usually the point of having one |
 | `local` | an application requiring user-supplied assets, such as DrMarco (§100) | standalone build/disk targets only; no standard image, live payload or `all` dependency |
+| `construction` | **not finished yet** — a package mid-build that a user could not start | the same as `instrument`, and the line is DELETED when it ships |
+
+**`construction` is the one line in this file that is meant to come out**, and
+it is the reason it is a kind of its own rather than an `instrument` row with a
+sympathetic comment. The other three are permanent; this one is a claim with a
+date on it, and filing an unfinished package as an instrument is how it would
+sit there unshipped for ever with nothing watching. What makes it safe is that
+the gate still turns one way: the day the package reaches a disk, the line is
+what FAILS, so shipping forces the removal rather than relying on somebody
+remembering.
 
 **A `retired` package keeps its source and its SPEC.md section.** Deleting
 them would leave no account of what was tried, and this tree already keeps
@@ -57759,6 +57767,13 @@ SND_RT_FM   (2)  AdLib: FM only - no streams, no 12KB
 SND_RT_SB   (3)  Sound Blaster: FM and streams both
 ```
 
+**`SND_RT_SPK` routes TONES and hides nothing.** FM stays published under it,
+because the tiers are a subset a user picks a point on and the speaker is the
+bottom of it, not a different card. So a package that plays MUSIC through FM
+and wants to respect a user who chose the speaker reads `OSAPI_SND_CAPS`'s BL
+as well as its AX — FM in AX with BL = 0 is that choice (§101.10.3 is the worked
+example). Frotz does not yet, and plays its FM effects under it.
+
 **Three tiers, not two, and the middle one is the point.** An AdLib is an OPL2
 and nothing else, and every Sound Blaster carries an OPL2 — so the tiers are
 not three devices to pick between, they are a **subset relationship the user
@@ -58020,13 +58035,14 @@ only afterwards, so **every patch-load on every channel landed on channel
 0** and every other channel went on sounding `SOUND.DRV`'s default patch — a
 half-sine carrier, which is a DC offset under the whole mix. Nothing in the
 tree could hear it: Frotz keys channel 0 alone, and `tests/fmtest`'s second
-channel asserts only that the verbs are not refused. TITHE's sequencer, on
-the `tithe-plan` branch, was the first package to patch six channels, and
-MartyPC's OPL capture of it was a bass-heavy smear where the host render had
-a horn. **The fix is the order of three pushes** — the channel is popped
-before the call — so it costs no byte. `tests/fmpatch.py` is the gate: it
-drives `fmtest`'s channel-1 patch-load and reads `CL` where the router is
-entered, which read 0 before the fix.
+channel asserts only that the verbs are not refused. TITHE's sequencer
+(§101.10) was the first package to patch six channels, and MartyPC's OPL
+capture of it was a bass-heavy smear where the host render had a horn.
+**The fix is the order of three pushes** — the channel is popped before the
+call — so it costs no byte. It has two gates: `tests/fmpatch.py` drives
+`fmtest`'s channel-1 patch-load and reads `CL` where the router is entered,
+which read 0 before the fix, and `tests/tithemus.py` holds TITHE's model's
+patches to what the chip is asked for, call for call.
 
 ### 34.3 Router — ownership, priority, generations
 
@@ -103057,6 +103073,7 @@ Every clamp is to the 80x25 buffer. `Pn` is param 0 unless stated.
 | `P` | DCH | 1 | delete `Pn` cells at `cx`; blanks arrive at the right |
 | `X` | ECH | 1 | `Pn` cells from `cx` become blank |
 | `S` | SU | 1 | the whole screen scrolls up `Pn` |
+| `W` | flip the FRONT/REAR toggle (§101.4.8). It is a CONTROL first — the box at the HUD's right-hand end — and the key is here so a test can drive it without resolving a hit box |
 | `T` | SD | 1 | the whole screen scrolls down `Pn` |
 | `s` | SCP | — | save `cx`, `cy` into **the one slot** `ESC 7` uses (§70.8). Never the attribute |
 | `u` | RCP | — | restore them, and clear `[con_pwrap]` |
@@ -156939,3 +156956,2872 @@ Guest tests must cover matches, links, gravity, rotation, game over, progression
 input, mode restoration, incremental/full repaint equivalence and actual 8088
 cycle costs on VGA and CGA. Timing claims must distinguish emulator results
 from physical XT measurements.
+## 101. TITHE (`apps/tithe/`) — the two-player card duel
+
+`docs/plans/TITHE-PLAN.md` is the design record and this is the contract. The
+plan is where the *reasons* live — this section is what the code has to be true
+to, and it grows one wave at a time rather than describing a game that is not
+written yet.
+
+**What exists today is WAVE 1a and the start of 1b: the renderer with no game
+behind it, and the music (§101.10).** The
+layout table, the board, the band composer and the pacing wheel, driven by a
+fixed board and a few keys. There are no rules, no cards, no AI and no network,
+and §101.9 lists what each later wave adds so that a reader can tell a gap from
+a defect.
+
+### 101.1 The package
+
+`TITHE.O88`, prefix `ti_`, one segment (§20.1) and two embedded PARTS
+(§20.12) — the ART (§101.4.9) and the MUSIC (§101.10) — an embedded 16×16 icon,
+one worker, and **no kernel change of its own** — the one it wanted is
+§5.4.2.6's fast path, which is a shared primitive's and not this package's,
+and the one it FOUND is §34.2.2, a defect in the FM slot every package shares.
+
+- `OSAPI_WM_OWNBG` — every pixel of the content is ours, so the kernel's white
+  fill in front of `W_PAINT` is skipped. Without it every repaint flashes white
+  first, which is PERFORMANCE.md rule 2's canonical violation.
+- `OSAPI_WM_NOANIM` — a zoom-open on a 450-pixel window is a second of nothing.
+- `OSAPI_WM_PREFER` — three (w, h) pairs, VGA / Hercules / CGA, §101.2's table.
+- `OSAPI_WM_ONRESIZE` re-runs the layout when the content box changed and we
+  did not ask; `OSAPI_WM_ONWAKE` is where a resize is *serviced*, because it is
+  the one callback without the gfx lock.
+- `OS88_REGION_MOVABLE` at the window, and `OS88_WORKER_RESTARTABLE` at the
+  spawn — §66.6.2's frame pins the region however it is declared, so a package
+  with a worker owes both.
+
+**It REFUSES a second instance.** The plan's worst case is ~327KB of a ~400KB
+arena, so two copies cannot both run; the second says so and returns rather
+than claiming its way into a refusal nobody can read.
+
+### 101.2 The surfaces, and the layout is a TABLE computed once
+
+**The grid is 4 columns × 5 rows on every adapter**; what changes is the cell,
+computed at layout time from the live content box and the adapter's pixel
+aspect — `ddlay.inc`'s rule one game along (§93.3), and for its reason.
+
+| surface | HUD | panel | **base** | cell | `RISE` | board box | sprite band | content it needs | apparent |
+|---|---|---|---|---|---|---|---|---|---|
+| VGA windowed | 28 | 128 | 56 × 144 | 96 × 48 | 20 | 384 × 300 | 64 × 44 | 624 × 328 | 2.00 : 1 |
+| Hercules 720×348 | 28 | 152 | 72 × 108 | 104 × 36 | 12 | 416 × 216 | 64 × 32 | 712 × 244 | 1.93 : 1 |
+| CGA 640×200 | 16 | 152 | 48 × 60 | 96 × 20 | 4 | 384 × 112 | 64 × 18 | 632 × 128 | 2.00 : 1 |
+
+**THREE SURFACES, and there were four.** A VGA 640×480 fullscreen row (a 96 ×
+52 cell, 22 rise, 64 × 48 figures) had its own board and its own art until the
+fullscreen hand (§101.4.12) took the windowed board instead, and nothing reached
+it after that; it was **deleted** — the row, its 64 × 48 figures and units, its
+bases and its ground — for **6,075 bytes of package image** (48,254 → 42,179:
+4,981 of it the bases' art, 736 a HUD band two rows shallower) and 1,152 of its
+bss and **4,116 of the art part** (22,789 →
+18,673), and every claim sized for its 384-byte band came down to the VGA's
+352: the arena 45 → 41 KB, the attack frames 40 → 37, the portraits 11 → 10.
+The surface index is 0 VGA, 1 Hercules, 2 CGA (`TI_GCGA`).
+
+The content a row needs is `BASE + 4·CW + BASE + PAN` across by
+`5·CH + 3·RISE + HUD` down, and the width reads left to right as the board
+does: **P1's base, the four combat columns, P2's base, the card panel.**
+
+**THE LAST COLUMN IS THE ONE THE EYE READS, and it is not the cell's pixel
+ratio.** A CGA pixel is about 2.4 times as tall as it is wide and a Hercules
+one about 1.5, so 120 × 40 on a Hercules and 112 × 56 on a VGA are *the same
+tile to look at*. The VGA rows were first cut at 80 × 56 and 104 × 72 — very
+nearly SQUARE on the one adapter whose pixels are square — and a diamond
+inscribed in a square cell is a tall lozenge that meets its neighbours at four
+points, which is the opposite of an isometric read. Everything bar CGA is
+~2 : 1 apparent, and CGA is not because its height has 8 spare pixels in the
+whole window.
+
+**THE LAST COLUMN IS THE ONE THAT BINDS, and the first cut of this table did
+not have it.** A row is only a row if the adapter can hand out a content box
+that holds it, and the boxes are **VGA 640 × 416, Hercules 680 × 284 and CGA
+504 × 136** — measured, on the machine, off `OSAPI_WM_GEOM`. The Hercules and
+CGA rows as first written asked for a board 56 and 62 pixels taller than the
+window they had to live in, so both **refused themselves on every machine**;
+the refusal was correct and the table was not. What came down is `CH` and
+`RISE` and never `CW`: the two short screens are short in HEIGHT, a CGA having
+504 columns of content and 136 rows.
+
+#### 101.2.1 The BASES are part of the width, and the window goes FLUSH
+
+**P2's BLOCK SITS DOWN IN ITS STRIP.** P1's hangs from the top of a strip that
+is empty *below* it; P2's began at the exact row its rear column's last cell
+ends, so it read as wedged against the board. Half the slack is the nudge — 14
+pixels on a VGA, 2 on the two 1bpp rows, which is all those have.
+
+**…AND IT ENDS AT THE BOARD'S RIGHT EDGE.** P1's block starts at the board's
+left edge, so P2's mirrors it: `ti_p2x` is the board's right edge less the
+block's width, which is **24** stacked (a coin and two digits) and **56** in one
+row, where P2 draws no swaps. `ti_res_draw`'s own `LIFT < 24` test picks between
+the two, and `ti_layout` asks the same question. It began a cell in from that
+edge, so the numbers stopped short of the board by most of a column.
+
+**IN FULLSCREEN THE BASES STAND OUT.** A windowed board has its bases hard
+against its rear columns because the width binds; fullscreen has room either
+side of a centred board, so each base moves out by up to `TI_BASEGAP` = 32
+pixels (`ti_bgap`) and the board and its two bases stay centred as one. A
+whole number of bytes, so every x after it stays aligned; windowed and on CGA
+it is 0.
+
+**A SHALLOW RESOURCE CORNER GOES SIDEWAYS.** The shear's empty strips carry each
+player's gold, souls and swaps (§101.3), and a CGA's lift is **twelve pixels** —
+one glyph row. Stacked, that showed the first field and refused the other two,
+so the board read as if a player had no souls and no swaps at all. Laid out
+*across*, the same row is **96 pixels** — the strip is a cell wide where the
+shear leaves it — and the three fields need 80. **The label is what pays for
+it**: `P1` and `P2` are three of the twelve cells there, which is the difference
+between showing everything and showing a third of it, and the two blocks are
+diagonally opposite with each beside its own base, so position says which is
+which. A deep corner keeps the label and the stack.
+
+**Each player's base sits outside the grid, behind their rear column** — column
+0 is P1's rear and column 3 is P2's — so the grid does **not** start at the
+content's left edge. `baseh` is **three lanes** (3 × `CH`) and `basew` is a
+table field, so every surface reserves a **tall narrow slab** — 56×144,
+72×108 and 48×60 down the table, which once each adapter's pixel aspect is
+applied is about **1 : 2.5 apparent on all three**. That is a tower's proportion
+and not a fortress's, and it is the strongest single constraint on the art: a
+broad low keep cannot be drawn in this box on any surface.
+**The art is DATA and `tools/os88tithebase.py` emits it.** It was drawn by
+arithmetic inside the package — a dithered mound with a keep leaning on it —
+which was right while the only question was whether the *layout* worked, and is
+the wrong shape for choosing art: every candidate would be a procedural builder
+in 8086 that gets deleted the moment one is picked, and none of them could be
+looked at beside the others. The generator draws them on the host and emits
+`apps/tithe/tibases.inc`, in §101.5.1's own shape — **one ground band that every
+pose shares and a small sub-band per pose carrying only what moves**, since
+eight whole bands would be eight times the bytes for one picture plus a bell.
+It is the generator TITHE-PLAN §3's `art/base/… → BASES.DAT` path starts from.
+
+**A move is pure OR, and the emitter asserts it** rather than the renderer
+trusting it: a candidate whose motion *cleared* a ground pixel would lose it on
+the machine in silence. Each sub-band's x is forced down to a byte and its width
+padded up, so the machine ORs whole bytes and needs no shifter.
+
+**No candidate may light the outermost columns of its band.** The band's right
+edge is not empty space — the first cell's stat block begins **two pixels past
+it** — so a silhouette that fills its box is touching text it has nothing to do
+with. The placeholder mound never came near it and every candidate that reached
+for the full width did. Three columns each side, enforced by the generator's own
+check.
+
+**`B` cycles the candidates and the HUD names the one showing** (§101.7), which
+is a wave 1a affordance and goes when one is picked. The name is padded to a
+fixed width: the HUD is one centred `font_run` and a run draws only its own
+length, so a shorter name leaves the tail of the longer one it replaced *and*
+re-centres the line, smearing the ROUND field as well. The first cut of this table had no column for them at all
+and neither did TITHE-PLAN §3.2.1, which is how a board with nowhere to put a
+base got as far as the glass. A base is one animated feature a side, three
+lanes tall, centred on the lanes it stands behind.
+
+**The window asks for the WHOLE DISPLAY's width, and that is a correctness
+requirement rather than a look** (§11.95.2). A window whose x is its display's
+first column and whose width spans it loses **both side borders**
+(`wm_flush_ck`), so `wm_content` answers `W_X` itself — 0, and **8-aligned by
+construction**. That matters far more here than it does for text:
+`OSAPI_FONT_RUN` on an unaligned origin is merely slower, while
+`OSAPI_GFX_BLIT1` **refuses** an x off the byte grid outright, so an unaligned
+content origin is not a slow board, it is **no board at all** — twenty cells,
+twenty figures and two bases every one of which refuses, in silence, leaving a
+black rectangle.
+
+**Asking for *nearly* the screen is the worst of both**, and it is what this
+asked for first. 634 of 640 is not flush, so the window keeps its borders AND
+the snap that would align them is refused: `wm_snap_ax` may only move a window
+LEFT, except from x = 0..6 where it must move right to 7 — which would push a
+634-wide window off the edge, so it gives up and leaves the content at x = 7.
+**`WF_SNAP` is best-effort**, and a package that needs an aligned x must derive
+one rather than assume it; the layout still rounds its own board x up inside
+the content, which costs ≤ 7 pixels, is a no-op on every row above, and turns
+the catastrophic failure into an invisible one.
+
+**The height is what the board needs and no more.** §11.100.1's advice to ask
+for a real width and a *generous* height is for a window whose content grows
+into whatever it is given, and this one's does not: the board's size is fixed
+by this table, so a generous ask buys dead pixels rather than rows. It bought
+176 dead columns and 60 dead rows on a VGA. Clamping still does its job on the
+two short screens, where the ask is more than the adapter has.
+
+**Layout is a table computed once per size change, never per frame.** A resize
+is not a thing that happens inside a frame.
+
+**IT IS COMPUTED IN THE FIRST W_PAINT AND NEVER IN THE ENTRY PROC.** A window
+exists the instant `OSAPI_WM_CREATE` returns and is not VISIBLE until the
+LOADER shows it, which is after the entry proc has returned — so
+`OSAPI_WM_GEOM` answers CF=1 there, and `OSAPI_TASK_SPAWN` refuses outright
+because the loader has not published the instance yet. `apps/dotdel/`'s entry
+proc says the same three sentences one game along. The symptom of ignoring
+them is a window that opens as a sliver saying it is too small for a board.
+
+**`SCREEN_W`/`SCREEN_H` are not read.** `OSAPI_VIDEO` is (§39), and the card
+panel's x, the board's origin and every cell's position are derived from the
+content box that `OSAPI_WM_GEOM` answers with.
+
+### 101.3 ISOMETRIC is a SHEAR, and non-overlap is a property of the layout
+
+```
+  LIFT             = (COLS - 1) * RISE
+  x of cell (c, r) = BX + c * CW
+  y of cell (c, r) = BY + LIFT + r * CH - c * RISE
+```
+
+`LIFT` is what row 0 is pushed DOWN by, so that the highest cell of all —
+column 3, row 0 — lands exactly on the board's top edge rather than above it,
+and the board box is `(COLS * CW) × (ROWS * CH + LIFT)`.
+
+**The x is banked on the STACK and not in `DX`.** Both multiplies above write
+`DX` as their high half and row 0 multiplies by zero, so an x banked in `DX`
+comes back as 0 — which draws every cell of every column in column 0, twenty
+bands piled in one place. Column 0 is the one column whose x really is 0,
+which is why a board with that defect in it looks half-right.
+
+Two cells in one column are `CH` apart; two in adjacent columns are `CW` apart.
+**The rectangles tile exactly**, so no character can overlap another and no
+painter's order is needed. `CW` is a multiple of 8, so every cell's x satisfies
+`gfx_blit1`'s one alignment rule (§5.4.2) for free, and `BX` inherits §11.94's
+content-origin snap.
+
+The isometric READ comes from the art — fences between the lanes on the
+shear's own slope, a wall along the back and a cliff under the front
+(§101.4.10), and a three-quarter figure — and not from the geometry. A projected
+isometric would mean overlapping boxes, a draw order and non-rectangular bands,
+and a band that is not a rectangle is not something `gfx_blit1` takes.
+
+### 101.4 ONE BLIT A FEATURE, and the ground is baked into the band
+
+**The renderer is one rule**: a character is put down as **one opaque band that
+includes its own ground**, so drawing it where it was *is* the erase. There is
+no instant at which a sprite is off the glass and there is no erase pass.
+
+That is §79.5.1's finding and §93.5.1's, and this package does not get to
+relearn it: the screen saver's first draft blanked the box and then drew into
+it, and the field called it *"the fish flicker"*.
+
+**"Its own ground" is the CELL's ground, cut at the band's rows and columns**
+out of its column's strip (§101.4.10), and leaving it out is not a missing
+decoration — it is a `BW` × `BH` hole punched in the place the figure stands
+in, which on a Hercules is 64 of the cell's 104 columns. It does NOT look like
+a missing ground, which is why the first one was read off the glass as a defect
+in the *figure*. Band row *r* is strip row `lane × CH + INSY + r`, and the
+band's first byte is the strip's `INSX / 8`; `INSX` is a multiple of 8, so the
+copy is whole bytes.
+
+**The ground is SPARSE and the figure has a HALO** (§101.4.9). A 1bpp adapter
+has two colours, so a figure only reads against a ground with a black pixel
+between them. It was a 50% dither under a solid figure; it is a texture that
+lights a tenth of its pixels under a figure outlined in black, so a figure's
+own dark detail survives and the ground still reads as ground.
+
+**The band is the FIGURE's box, not the cell's.** A cell is 784 bytes at 1bpp
+and the band is 416; the rest of the cell is the ground, drawn once with the
+board, and the character's numbers, redrawn only when one changes. §5.4.2.6's
+fast path applies to every band this package draws, by construction: the stride
+is the row width, the width is a multiple of 8, and the pen is the default or
+an ink over black.
+
+**A band is cut on the CELL grid, not the byte grid.** Cutting on the byte grid
+reaches part-way into the next cell, so what is drawn there is composed partly —
+which on the glass is a thing that changes shape when a neighbour animates.
+§93.5.1 paid for that one.
+
+#### 101.4.1 What a cell shows, and the HUD
+
+**The band is the FIGURE. Everything else in the cell is beside it**, which is
+TITHE-PLAN §3.8.1's finding and the reason the band is 416 bytes rather than
+the cell's 624: a character's numbers change **at most once a round** while its
+sprite redraws **every few frames**, so carrying them inside the band pays for
+them tens of times over for nothing.
+
+| element | where | when it redraws |
+|---|---|---|
+| the sprite, in its live pose | the `BW × BH` band | on its animation clock (§101.5) |
+| **HP**, both variable stats, and **POWER** | the cell's empty columns, `[0, INSX)` | only when a number changes |
+| a shooter's **STANCE MARK** | under its feet, composed INTO every pose (§101.12.10.1) | when the stance changes |
+| the cell ground | the rest of the cell | once, with the board |
+
+**THE SMALL FACE IS WHAT PUTS FOUR STATS THERE** (§101.4.1.1). The column is 24
+pixels on every adapter, which is **three** cells of the system 8×8 — exactly
+one `icon + two digits` pair and nothing spare — against **four** at 6×6; and
+the cell's height holds 6 rows where it held 4, or 3 where it held 2. So the
+owner's question — another face, a mouse-over, or a whole-board toggle — is
+answered by the face on its own, with nothing to operate. `NUMS` is retired
+with it: how many rows fit is arithmetic now, not a table field.
+
+**The STANCE is not in the column any more.** It took the fourth cell of the
+first row as one of two glyphs, and the owner played a whole wave without
+finding it: a 6-pixel glyph among numbers does not say it is a control. It is a
+mark under the shooter's feet now (§101.12.10.1), and the fourth cell is empty.
+
+**WHICH pair of variable stats is the column's own.** Front and rear are
+different roles (TITHE-PLAN §5.2), and a character on the board HAS a position
+— so the row is a fact here, where in the hand it is the choice §101.4.8's
+toggle makes.
+
+**They are STACKED on one side and not split either side of the figure.** The
+cells tile exactly (§101.3), so the column to a figure's left is 16 pixels from
+the column to the last one's right — split, a cell's two numbers sit against
+its *neighbour's* rather than against their own, and the board reads as one
+interleaved row of digits. Stacked, each figure carries one block and the empty
+half of its cell is the gap. Both land on a multiple of 8 for free, the cell's
+x and `INSX` both being multiples of 8, so each is a single-store run (§6.1).
+
+#### 101.4.8.1 A board character's line is `NAME  POWER  ABILITY`
+
+**THE NAME IS WHY IT IS A LINE AND NOT A CAPTION.** A card in the hand is
+lettered with its own name; a character on the BOARD is a 64-pixel figure and
+nothing else, so without this the player is reading the *art* to work out which
+character it is — which the art at this size cannot answer, and will not answer
+when it is finished either.
+
+**AND THE POWER IS IN IT ON EVERY ADAPTER.** Power is the stat a player wants
+while planning a **kill**, and a kill is of something on the BOARD: so unlike a
+*cost*, which is only ever read with the card in hand, it has nowhere to fall
+back to — the card cannot answer for it. It was CGA's alone while the line was
+a bare ability and the column was a row short; with a name in front the line is
+the character's **identity** rather than its footnote, and **a character with no
+special ability still has a line worth reading**.
+
+**That is the mouse-over, and it is the deliberate one**: it is affordable
+precisely because it answers questions a player asks *while planning*, not ones
+they read at a glance — which is the test that kept HP, both variable stats and
+the stance always-visible in the cell's own column.
+
+#### 101.4.1.1 TITHE DRAWS ITS OWN TEXT, in its own face
+
+**A character has SIX stats and four of them have to be on the board**
+(TITHE-PLAN §5.2): a gold cost and a soul cost that matter only while it is a
+card, and HP, two variable stats and POWER that follow it onto the board. At
+the system 8×8 a CGA cell's stat column holds **two** of the four and a CGA
+card row holds a name *or* the numbers — and `OSAPI_FONT_RUN` draws the system
+face and no other (§6.1). So the choice was a smaller face or fewer numbers,
+and the package carries its own faces: `tools/os88titheface.py` packs
+`fonts/*.f*` into `apps/tithe/tifaces.inc` and `apps/tithe/titxt.inc` renders
+them into a band.
+
+**IT IS ALSO FASTER, AND THAT IS NOT WHY IT EXISTS.** A card was two fills, a
+frame, a second frame, two font runs, three icon blits and the unit — a dozen
+arrivals at ~800 µs each (§101.5's own calibration) — and composed it is one
+`OSAPI_GFX_BLIT1`. The saving is real, and nothing here is on the animation
+clock: a card is drawn when the hover changes and a cell's numbers at most once
+a round (TITHE-PLAN §8). The face is the reason; the arrivals are a dividend.
+
+**THE ICONS ARE GLYPHS, not a second mechanism.** Codes 1..7 of every face are
+the heart, coin, soul, sword, shield, bow and star, so `heart 12` is ONE run
+with no second call and no second alignment — where the 8×8 icons were separate
+bands, one arrival each, that had to be placed against text drawn by somebody
+else.
+
+**AN ICON MUST BE FOUR PIXELS FROM EVERY OTHER GLYPH IN ITS FACE.** Identical
+is the failure that reads as a typo; *nearly* identical is the one that ships.
+At five pixels the coin was a ring with a pip and the digit `0` a ring with a
+stroke — two pixels apart — and the shield was the heart with its top row
+filled in, also two; both sit in a column of numbers where the reader has no
+context to recover from. `tools/os88titheface.py --selfcheck` is that gate and
+it is a **distance** rather than an inequality. What clears it is mass and not
+detail: the coin is SOLID where `0` is outlined, the shield OUTLINED where the
+heart is solid, and the sword's guard is low because a centred one is the `+`.
+
+**A MISSING GLYPH IS A HOLE AND NOTHING REPORTS IT, and the face is not where
+to look for one.** Every mark below `'0'` — `+ , - . /` — answered *"no such
+glyph"* for as long as these faces have existed, because `ti_chidx` tested for
+a digit before it tested for a mark and fell straight to its refusal. The one
+mark anything wrote was the **colon**, which sorts above `'9'` and reached the
+mark table the long way round, so the defect shipped invisible and
+`--selfcheck` could never have found it: nothing in the faces was wrong. What
+finds it is `tests/tithecard.py` comparing the strip on the glass against the
+FACE'S OWN BITMAPS rendered on the host (`os88titheface.render`) — and the line
+it compares has to be one with a comma in it, a colon being exactly the
+character that worked while the rest did not.
+
+**A MISSING GLYPH IS A HOLE AND NOTHING REPORTS IT.** `ti_chidx` answers
+`0FFh` for a byte no face carries and `ti_glyph` then draws *nothing* — no box,
+no fallback, a gap the width of a cell. The faces were 48 glyphs and the first
+ability line wanted a colon and a comma, which came out as two holes that only
+reading the screen would ever find. They are 50 now, and
+`tools/os88titheface.py --selfcheck` takes the package's OWN STRINGS as its
+input: every `db '...'` in `tithe.asm`, against the set the faces carry.
+
+**A RECTANGLE IS DRAWN IN BYTES, NOT PIXELS — and this is where the cost was
+all along.** The card's frame is ~320 pixels and its hovered inner frame
+another ~270, and a per-pixel body through a 16-bit multiply is ~600 cycles
+each: **36–44 ms for one frame and 38–42 for the second**, against **4.2 ms**
+for the blit of the finished card. Two thirds of a system tick to draw a
+rectangle, so the pointer landing on a card dropped two frames — which the
+field reported, and which every whole-frame A/B blamed on *the card draw*,
+a routine and not a cause. `ti_cb_span` and `ti_cb_vline` resolve the row once
+and then work in whole bytes with masked ends: **2.5–2.9 ms**, a 14× cut, and
+one card's whole composition is **21.6 ms on VGA, 19.7 on Hercules, 10.3 on
+CGA**.
+
+**IT IS MEASURED IN EVERY BUILD**, because a composition cannot be seen any
+other way: the picture is identical either way, the wheel still commits, and
+no other row in the suite can tell. `ti_cal_card` times one resting card at
+layout and banks the microseconds, `ti_cal_one`'s shape one object along, and
+`tests/titheframe.py` asserts a **window** rather than a ceiling — the PIT
+counter is 16 bits and wraps at 54.9 ms, and the defect measured ~54, so a
+regression is as likely to read small as large.
+
+**A GLYPH NEEDS NO ALIGNMENT.** It is at most 8 bits wide, so it lands in at
+most two destination bytes: the row goes into `AH`, the pair is shifted right
+by `x & 7` and the two halves are ORed. That is the whole of why a card can be
+composed at any pitch the layout hands it, where `OSAPI_GFX_BLIT1` refuses the
+*band* at an unaligned x (§5.4.2). **The band is one byte wider than the card**
+so the last glyph on a row has somewhere to put its second byte, and the blit
+is told the real width.
+
+**A RUN RESOLVES ITS ROW ONCE.** `ti_glyph` took a y and did the row's
+multiply itself, which is one 16-bit multiply a GLYPH where a card is ~55 of
+them; `ti_text` does it once and hands the row down. With six fewer register
+saves a glyph that is ~1 ms of a card.
+
+**TWO FACES, AND THE SURFACE PICKS.** The 6×6 is face 0 and it is everything's
+but one: the board's numbers, the HUD and the vertical card strip, where it fits
+**four rows where 8×8 fits three** — the difference between a card that shows
+all six stats and one that shows four — and on CGA the 8×8 fits none. The tall
+8×8 is face 1 and it is the **fullscreen hand's** (§101.4.12): more legible, and
+a portrait card has the rows for it that a strip row never had. It was a key
+(`T`) while which face was right was one question; it went at the demo cleanup
+(§101.7) and came back the next wave as the answer to a different one.
+`ti_card_draw` sets face 1 for a portrait and puts the caller's face back, so
+nothing else ever sees it.
+
+**A GENERATED TABLE NEEDS A MAKEFILE DEPENDENCY.** `apps/tithe/tifaces.inc` is
+emitted by a tool and `$(BUILD)/tithe.bin` did not depend on it, so an edited
+face assembled into a package that was never rebuilt — which reads exactly like
+a glyph change that did nothing, and cost a screenshot round to find. The same
+applies to `tibases.inc`.
+
+#### 101.4.2 The card panel, and the hovered card is the 23rd feature
+
+**A vertical strip down the right-hand edge, not a row along the bottom.**
+Every row of board height the hand does not take is a row the five lanes get,
+and on a 640×200 CGA that is the difference between a board and a refusal.
+
+**The hand is always SEVEN and the row HEIGHT is what moves.** A panel showing
+six cards on one adapter would be a different *game* there, not a smaller one —
+so `CARDH` is a layout-table field cut so that seven rows and the COMMIT row
+fit the board's own height, and it is 36 / 32 / 24 / 11 down §101.2's table.
+
+**WHAT A CARD SAYS IS A FLOW, NOT A SET OF ROWS.** There are six stats to place
+(§101.4.1.1) and four geometries times two faces to place them in, so the layout
+is not decided per case at all: each `icon value` pair is MEASURED, put on the
+current line if it fits and on the next if it does not, and the flow simply
+STOPS when the card runs out of rows. What a geometry shows is then a
+consequence of its own size — VGA at 6×6 shows all six, Hercules shows all six
+in three rows, CGA shows the four board stats in one — rather than eight
+hand-cut cases. It also makes the face key a *demonstration*: the same card
+gains two stats when the face gets smaller.
+
+**THE FIGURE OWNS A COLUMN.** The mini unit is ORed into the band's top-right
+corner over the text's own rows, so the flow's right margin is the card's width
+LESS that column. Without it the stat row ran under the figure and off the
+card — and **neither that nor a row too many is visible as a broken frame
+line**, because the band is composed by OR and the frame is drawn first, so a
+glyph landing on it changes no pixel at all. `tests/tithecard.py` asserts the
+two things they *do* leave: a blank row above the foot, and a clear gutter
+between the flow's margin and the figure's column. Both defects were put back
+in and a frame-line check passed them.
+
+**A card is white and the board is black**, which is the whole of how it reads
+at 1bpp — so the hovered card needs no second colour and no dither: it inverts
+whole, icons included.
+
+**THE PEN IS NOT A POLARITY, ON TWO ADAPTERS OF THREE.** `gfx_blit1_pen` is
+*ignored* on 1bpp (§101.4.6) — there is one plane and a set bit is lit — so a
+band composed as *"ink is the picture"* reads one way on VGA and the other way
+on Hercules and CGA. The band is composed **SET = WHITE** on every adapter and
+no pen is set at all, the package's default (ink white, paper black) already
+being that; the resting card's inversion is a byte `not` over the card's own
+columns, which are byte-aligned by construction. **Three things follow, and
+the middle one is why it had to change**: the hover now inverts on all three
+adapters where it used to invert only on VGA; the panel's **margins** are
+clear bits, which is the only thing that is black everywhere — composed as ink
+they were two white bars down the panel on both 1bpp adapters, which is what
+the field saw; and two far calls come out of every card draw.
+
+**It also EXPANDS, sideways into the panel's own 8-pixel margins**, and
+sideways rather than downward for a reason: an expansion that overlapped its
+neighbours would need two cards repainted on every un-hover, where this needs
+the margin blacked and nothing else. Both edges stay on the byte grid, the
+panel's x being a multiple of 8.
+
+**AND IT CARRIES A SECOND FRAME, WHICH DOES NOT PULSE.** The second frame was
+drawn on alternate values of the card's own phase counter, so the hover read as
+an *outline* half the time and as a solid inverted *block* the other half, and
+the field asked for the outline in as many words. The animation a hovered card
+owes is the unit on it moving (below); a frame that comes and goes is a state
+change dressed as movement, and it was competing with the real one.
+
+**A card's content clears the inner frame by ONE ROW at each end**, which the
+pulsing version did not: the name ran along the inner frame's top row, the stat
+line along its bottom, and the unit's band — opaque, like every band here —
+*erased* both across its own width, so the outline came back broken wherever
+there was something to see. The row is a layout field (`ti_cpad`), 1 where
+`CARDH` has it to spare and 0 on a card too short for a stat line, so the CGA
+geometry keeps the single frame rather than losing a text row to a decoration.
+
+**The hover is POLLED, from the worker.** §12.8's event set has no hover
+callback, so `OSAPI_MOUSE` is asked once a frame, against the 23 calls the
+frame already makes. A change repaints the row that *lost* the hover; the row
+that gained it is feature 22 and is drawn by the walk anyway.
+
+**Splitting the column either side of the figure is still refused**
+(§101.4.1): the cells tile edge to edge, so a number to the left of one figure
+sits against its *neighbour's* rather than against its own.
+
+**A CARD TOO SHORT FOR TWO LINES SHOWS ONE OF THEM AT A TIME, and the pointer
+picks which.** At rest it shows the four **board** numbers — HP, both stats and
+power — because that is what a hand is read for; hovered, it shows the **name**
+and the two costs, **on the same line**, the hovered card being wider. It used
+to show cost-and-name always, which is the one field a player can also get from
+the sprite. Only the CGA row is short enough for this to fire.
+
+**`CARDH` is 11 on CGA and not 10**, and the one row is what stops the name
+eating the card's own bottom edge: a glyph is 8 tall and sits at +2, so it
+ended on row 9 — which at `CARDH` 10 *is* the bottom frame, drawn first and
+overwritten across the text's width. The hand is still seven: the board is 112
+rows, the pitch 13 and the button row's offset 5, and 12 would drop it to six.
+
+**Every number carries an icon** (§101.4.1): a bare digit on a card said nothing
+about whether it was cost, attack or gold. They were 8×8 1bpp bands, one
+arrival each, because the system font has no coin, sword, shield or heart in
+it; they are **glyphs of the package's own face** now (§101.4.1.1), so an icon
+costs exactly the room of the digit it labels and rides the same run.
+
+**A card carries the UNIT IT PLAYS, and that is what animates.** A mini
+figure — the board figure's own shape at a quarter of the size, so it is the
+same character and not a second one — rides the card's right-hand corner, and
+the hovered card cycles *it* rather than pulsing its frame: a pulse is a state
+change dressed as movement. Redrawing the whole card would be a fill, a frame,
+three icons and two runs for one moving band, so the wheel banks the hovered
+card's box and puts down the unit alone.
+
+**LINE 1 IS THE NAME AND NOTHING ELSE**, wherever there is more than one line.
+A card is fourteen glyph cells wide on a VGA and the unit takes three, so a
+line carrying an icon, a cost, a space and a name lost the name's last
+letters — PIKEMA, ACOLYT, BULWAR. The name is CUT to the flow's own column
+rather than being allowed to run, and the costs take the line under it, where
+the two of them are what a player compares between cards.
+
+**UNDO is a BUTTON, not a card**, so it is cut to the width of its own word and
+shares the COMMIT row; making it card-sized would say it was one of the seven.
+A plan is editable (TITHE-PLAN §5.0.2), so there has to be a way to take an
+entry back. The row sits **a third of a card lower** than the hand: flush
+against the last card it reads as an eighth card. It was half a card, and that
+half was what stopped Hercules fitting the row its stats need — the gap buys
+nothing the third does not, and it was costing `CARDH` two pixels where two
+pixels are a whole line of text.
+
+#### 101.4.4 The HUD is the ROUND, and everything else is on the board
+
+**Each player's own numbers do not belong in a bar across the top.** They read
+as a scoreboard bolted over the board; on the board they sit beside the thing
+they are about, and the shear has the room for free.
+
+| | where |
+|---|---|
+| round, phase | the HUD strip, centred, and that is all it carries |
+| gold, souls, swaps | the SHEAR's own empty corner — above column 0 for P1, below column 3 for P2 |
+| HP | **centred above that player's own base** |
+
+**The corners are empty by construction.** Column 0 is pushed down by the whole
+`LIFT` and column 3 is not pushed at all (§101.3), so the strip above one and
+below the other is exactly `LIFT` tall and `CW` wide, and nothing has to be
+moved to make room. A corner too shallow for stacked rows — a CGA's `LIFT` is
+12 pixels — lays the block out sideways instead and drops the souls; that is a
+layout decision, not a second code path.
+
+**And a BASE follows the shear too**, centred on its own column's span rather
+than on the board: P1's drops by the lift and P2's rises by it, so each reads as
+standing on the same ground as the lanes in front of it.
+
+#### 101.4.8.2 THE TOGGLE IS A CHOICE AT ONCE AND A PICTURE OVER FRAMES
+
+**FRONT/REAR is a gameplay choice** — it is the column a played card goes to —
+and it also decides which pair of stats every card shows and which item every
+figure holds (§101.4.9). So a toggle rebuilds every hand card's art and composes
+all seven cards, and it did that in the click handler: **1.4 seconds on a
+fullscreen VGA with the gfx lock held** (1.1 on Hercules), the worker blocked
+on the lock and the music stopped for **22 ticks**. Measured stage by stage:
+
+| on fullscreen VGA | ms |
+|---|---:|
+| the strip's mini units — which a fullscreen hand never draws | 200 |
+| the portrait figures, 7 cards × 4 poses | 703 |
+| the HUD | 52 |
+| seven card compositions | ~420 |
+
+**The click now only records the choice** (`ti_row_apply`), so it takes effect
+at once, and the worker redraws it **a slice a frame** in the frame's place
+(`ti_row_step`), with the music stepped before and after each slice:
+
+1. the HUD, so the click is answered on the next frame;
+2. for each card, its resting pose (~25 ms), then the card itself (~60 ms);
+3. with the hand already right, the three poses only the hovered card's
+   animation reads, one a frame — feature 22 waits for them.
+
+The hand is fully redrawn **~0.8 s after the click** and the music's worst gap
+through it is **one tick** on fullscreen VGA, fullscreen Hercules and windowed
+VGA. `ti_units_build` builds only the store the layout draws — the portraits
+on the fullscreen hand, the units on the strip — which also took 200 ms off
+every relayout and every hand-over on a fullscreen VGA. It is one routine per
+card and pose now, `ti_art_one`, which the full build loops over and the
+toggle calls a slice at a time.
+
+**A NEW PLANNER STARTS ON FRONT.** The row carried over the hand-over, so P2
+began the turn on whatever P1 left it at — and in hot-seat that is both a
+leak and a trap, since it is where P2's first card would go. `tg_redraw`, which
+draws a new planner's window, sets it back.
+
+**AND THE WORKER TAKES THE LARGEST STACK CLASS**, `OS88_STACK_384`, on the
+owner's call: TITHE is a heavy game and one to a machine. A card's composition
+is ~60 ms of an 8088 — over a tick — and the music step between composing it
+and putting it down puts `tm_run`'s chain under the frame's deepest, which the
+256 class refused by 6 bytes. With it, a toggle's card slice no longer puts
+two music ticks together on fullscreen VGA or windowed VGA; Hercules read one
+2-tick step in two toggles, with the worker off the CPU between slices rather
+than inside one.
+
+`tests/tithefs.py` holds the toggle to a worst music gap of two ticks with the
+hand exactly a whole repaint after it (21 ticks with the redraw put back on the
+UI task), and `tests/tithegame.py` that P2 starts on FRONT after P1 left REAR.
+
+#### 101.4.9 PIXEL ART, IN LAYERS — a body and an item, ink and mask, composed per cell
+
+**The first idles were silhouettes** — a solid white shape per faction out of
+spans and ellipses, which scaled to every surface for free. The owner turned
+that down for the reason that decides a roster: with **~60 characters to
+make**, a silhouette is too little to tell sixty apart and says nothing inside
+its outline. So a figure is **pixel art**, authored one ASCII character a pixel
+in `tools/os88tithechar.py`, in **three** states:
+
+| | means |
+|---|---|
+| `#` | INK — lit |
+| `o` | BLACK — drawn dark, and **opaque**: the ground does not show through it |
+| `.` | nothing — the ground shows here |
+
+**THE BLACK PIXEL IS WHY A FIGURE IS INK AND MASK.** The silhouettes were ORed
+over their ground, which works only for a figure that is solid white: a dark
+visor slit ORed over a lit ground pixel stays lit. So every figure is emitted
+as interleaved `(ink, mask)` bytes and composed as
+`band = (band AND NOT mask) OR ink` — TITHE-PLAN §4.2.1's item layer, which was
+planned that way, arriving for the body too. **It costs nothing in a frame**:
+the composition is at layout, and what the frame commits is still one opaque
+1bpp band a feature, priced by its rows and bytes and never by what is drawn in
+them (TITHE-PLAN §1.1). A detailed figure costs exactly what a solid one of the
+same box does.
+
+**A FIGURE IS LAYERS, EACH OUTLINED WHERE IT IS PUT DOWN**, so a shield held in
+front of a torso or a head over a collar is separated by one black pixel that
+nobody draws; the whole figure then gets a one-pixel black **halo**, which is
+what keeps it legible over a textured ground on a one-bit screen.
+
+**THE SMALLER SURFACES ARE REDUCED PER LAYER, AND CGA IS DRAWN.** Each layer's
+art is cut to the surface on its own and the outlines re-drawn at the target
+size, so a Hercules figure keeps its parts apart where scaling the finished
+picture merges the shield into the chest. The cut is per axis — x near 1:1, y by
+the pixel aspect (TITHE-PLAN §4.2). **CGA is the exception**: a board figure
+there is 17 rows, and every detail row of a 42-row figure is among the 60% a cut
+has to drop, so helm, face and hood came out one dark blob. CGA is a second
+drawing at its own size, 1:1, with the same layers and the same motion in CGA
+pixels — **the one surface that costs an artist a second picture**, and the
+price of the roster is therefore *two drawings a character*.
+
+**A CHARACTER IS A BODY AND TWO ITEMS, and what it holds is the COLUMN's.**
+With sixty characters to draw, each of them standing in two rows and swinging
+at the front, a whole drawing per character, per row, per swing would be
+hundreds of pictures. The data is three layers instead (TITHE-PLAN §4.2.1):
+
+| layer | what it is | frames |
+|---|---|---|
+| **BODY** | the figure without its near hand's burden: head, torso, legs, the far arm | four idle poses; an attack is drawn over pose 0 |
+| **FRONT ITEM** | what the character holds in the **front row** (columns 1 and 2) — the thing it fights with | four idle, four ATTACK |
+| **REAR ITEM** | what it holds in the **rear row** (columns 0 and 3) — a ranged weapon, a focus, a shield carried | four idle, four ATTACK |
+
+A card is a row of `cardtab`, **three bytes** — body, front item, rear item —
+so a new card that reuses parts costs 3 bytes of art and the 128 bytes of its
+dirty and same-as rows (below), and one that needs a new weapon costs that
+weapon. Wave 1a has **three bodies** (a helmed soldier, a hooded caster, a
+veiled nun), **eight items** (sword, shield, pitchfork, bow, staff, wisp,
+censer, book) and **seven cards** out of them; the three factions' first
+idles (the Bulwark's shield lifting two pixels, the Ember caster's upper body
+rising over a still hem, the Covenant's censer swaying **two pixels, not ten**
+— ten read as a mace being wielded) are item motion now, and survive as it.
+
+**THE ITEM HANGS OFF AN ANCHOR, AND THE ANCHOR IS ON A BYTE.** Every body names
+its near SHOULDER per surface, and the body is placed in its band so that point
+falls on a multiple of 8 — so an item frame is placed at a WHOLE-BYTE offset
+`(dx, dy)` from the anchor and masked into the band at a byte boundary, with
+no shifting on the machine at all. An item is authored in its own grid with
+its own origin at the hand, and its frames carry their own motion, so a staff
+can bob while the body is still.
+
+**THE ATTACK IS FOUR FRAMES: WIND-UP, STRIKE, FOLLOW-THROUGH, RECOVERY**, drawn
+per item — a sword raised and cut, a pitchfork jabbed, a bow drawn and loosed,
+a book lifted. The body holds pose 0 under it, and on the strike and the
+follow-through the whole figure **lunges** `LUNGE` = 8 pixels toward the enemy
+**inside its own band**, which is what keeps the band self-erasing: a band that
+moved left its trailing columns on the glass (§101.4.7). A mirrored cell mirrors
+the lunge with everything else. A rear-row attack is the ranged one — the bow
+drawn, the book raised — which is what §101.4.5's projectile will fire from.
+
+**THE POSES ARE PER CELL AND LIVE IN TWO HEAP CLAIMS.** A band carries its own
+ground (§101.4), and the ground differs by COLUMN (§101.4.10), so every cell's
+frames are composed over its own column's strip at layout: the four idle poses
+into the ARENA beside the strips, and the four attack frames into a second
+claim, **30 KB**, beside it. **Every frame is committed as one opaque band**, so
+an attack costs a frame exactly what an idle does. Each cell's ground is copied
+once and replicated into its other slots by one overlapping `rep movsw`, then
+the body and the item are masked over it — `lodsw / not / and reg,[es:di] / or
+/ stosb` a byte.
+
+**A QUARTER OF THE FRAMES ARE COPIES, AND THE TOOL SAYS WHICH.** A ping-pong's
+pose 2 is its pose 0 wherever nothing moves on the off-beat, and every attack's
+recovery is the idle's first pose — so the tool emits a **same-as table**, eight
+bytes per card, stance and surface, naming for each frame the earlier frame it
+is identical to. The machine copies that slot instead of composing it: **114 of
+the 448** frames a board surface can need, which took a relayout's composition
+from 2,199 to **1,844 ms** on a windowed VGA. It is the tool's to know and the
+machine's to trust, and `tests/titheterr.py` holds every copied slot to the
+model.
+
+**THE ART IS A PART OF THE PACKAGE, NOT ITS IMAGE** (§20.12). Three bodies and
+eight items at eight surfaces were **251 figures and 19,038 bytes**, and with the
+tables **22,789** (at six surfaces since §101.2 deleted one, **18,673**) — which
+does not fit beside the code under the 60 KB a
+package's image and bss may be. So it is `OS88_PART OP_ASSET, OP_COMP`,
+lz4-packed to ~9.4 KB in the file, read into the parts carve by `op_load` as the
+entry proc's first act, and found with `op_seg` at the point of use — never
+cached, because the carve is movable. The part's layout is `build_part()`'s
+docstring and `tiart.inc` is the offsets the package reads it by. Items are
+**64%** of the figure bytes and CGA's second drawing **9%**.
+
+**THE DATA IS SHARED WHERE THE PIXELS ARE.** A figure is emitted once for every
+record that uses it — two bands carry the same figure at different band rows
+where their heights allow, and a ping-pong repeats a pose. A body record is
+`dw fig[4]`, then the body's `x` byte and `y` row per pose, the anchor's byte
+and row per pose, and the band height it was cut for; an item record is `dw
+fig[8]` and a signed `(dx, dy)` per frame from the anchor.
+
+**THE DIRTY ROWS ARE THE TOOL'S AND THEY ARE THIS CARD'S AND STANCE'S**
+(§101.4.3). They are computed from the composed figures alone — rows where
+either ink or mask differs between one pose and the next — so they hold over
+any ground a cell composes under them, and they are per card, stance and
+surface because a pitchfork's rows are not a book's. The reader takes the cell's
+card and its stance.
+
+**A FIGURE STANDS AGAINST ITS OWN NUMBERS, AND P2's CELLS ARE THE MIRROR.**
+Centred in its band, a figure left its stat column half-way between itself and
+the figure in the next column, so a block of numbers belonged to neither. The
+figure's left edge is now `MARGIN` pixels into the band, which starts where the
+stat column ends: P1's cells read *numbers, figure*. P2's two columns are the
+mirror image, *figure, numbers* — the band sits `CW − INSX − BW` in
+(`[ti_insx2]`, a multiple of 8 because every term is), the stat column is the
+cell's right-hand `INSX`, and the figure is put down **mirrored**, so P2's
+figures face the enemy they fight, as the reference's do. **The mirror costs
+no RAM and no second composition**: every cell's poses are composed once
+already (above), and a P2 cell's are simply composed the other way round — its
+bytes right to left, each through a 256-byte bit-reverse table with `xlat`.
+
+**THE FIGURE IS THE TABLE'S BAND.** A sprite-size key (`S`) cropped it to a
+half and three quarters while the size was a look question; the table's own
+size was chosen, and the crop, its whole-band commits and the key went at the
+demo cleanup (§101.7).
+
+**Which character a card plays is a TABLE and a stable fiction.** Wave 1a has
+seven cards built out of three bodies and eight items, and a cell plays the
+card at its index modulo the hand; the card's own **faction** is what that
+becomes (TITHE-PLAN §7.1). A cell names a card by its index the same way as the
+hand, so the board and the hand agree without either asking the other — and the
+card panel's minis are composed in the stance of the ROW the toggle names
+(§101.4.8), so the hand shows what a card will hold where it would be put.
+
+#### 101.4.3 The DIRTY RECT, and the rect is the tool's
+
+**An idle pose differs from its neighbour in PART of the figure, not all of
+it.** A breathing character moves its chest and head; its feet do not move at
+all. So the band that goes down is not the figure's box — it is the box of
+**what changed**, and everything §101.4 says still holds: one opaque
+self-erasing rectangle with its own ground baked in, exactly one rectangle
+shorter. **Measured here at +43.8%** more feature commits a second at a 50%
+rect, against wave 0's predicted −43% cost
+(`docs/reports/TITHE-RATE-2026-09-22.md`).
+
+**The rect is DIFFED out of the two poses, not declared.** It is a property of
+a *transition* (pose A → pose B), so a four-pose idle has four of them — and a
+row outside the rect that is not byte-identical between the two poses would be
+a stale row on the glass, a figure with a torn edge that never repairs.
+Computing it from the bands makes that a fact rather than something somebody
+has to remember.
+
+**Only the WHEEL may use it.** A board repaint has no transition behind it and
+owes the whole band; `ti_all` clears the flag and the wheel sets it.
+
+**It is ALWAYS ON.** It was an arm (`X`) while it was a lever being measured;
+the measurement that retired the arm is this one, on MartyPC with the full
+layered board, the wheel charging each commit its own rows:
+
+| adapter | a commit, whole band | a commit, dirty rect | commits a frame, whole / dirty | frame, whole / dirty |
+|---|---|---|---|---|
+| VGA | 3.49 ms | **3.00 ms** (−14%) | 5.0 / 6.3 | 27.7 / 30.9 ms |
+| Hercules | 3.36 ms | **2.84 ms** (−15%) | 5.0 / 6.7 | 26.5 / 30.6 ms |
+| CGA | 2.63 ms | **2.48 ms** (−6%) | 7.0 / 8.6 | 26.1 / 31.6 ms |
+
+**Every commit is cheaper, on every adapter — it is never a slowdown.** What
+read as one was the wheel spending the saving on ~26% MORE commits: a faster
+idle than the one signed off, and a frame 3–5 ms fuller to pay for it. That was
+the missing RATE CAP (§101.5.2) showing itself on an XT, and it is what a 286
+would have shown as figures breathing at several times the speed. With the cap
+the saving is room to REACH the target rate on a machine whose credit falls
+short of it, and headroom in the frame on one that does not. A commit the rect
+cannot shorten (a fighter mid-swing, a board repaint) is
+the whole band anyway, so there is no case in which it is off.
+
+**What the ART owes is that each transition's motion is LOCAL** — not that the
+figure barely moves. The first placeholder idle here leaned every row of the
+figure, which is a rect covering the whole band and a lever worth exactly
+nothing; confining the lean to the top half made it 22 rows of 44. A cycle may
+travel the whole body by moving a different region each step.
+
+#### 101.4.5 A PROJECTILE is not a self-erasing band
+
+Every other mover here is an opaque band with its ground baked in (§101.4), so
+drawing it where it was *is* the erase. **A projectile cannot be**: a bolt
+crosses cells whose ground it does not own, so there is nothing to bake. It is
+**composed every frame** instead — ground in, projectile OR'd over it, one
+commit — which is `dotdel`'s shape one game along (§93.5.1) and the most
+expensive thing in the renderer.
+
+**THE BAND IS THE BOARD AS THE GLASS SHOWS IT, and the bolt goes OVER the
+characters and UNDER the numbers** (`ti_pic_band`, `tiplace.inc`). It carried
+the ground alone, so a bolt crossing a cell painted the ground over the figure
+in it until the wheel came round — the owner's call was that this could not
+wait for wave 3's board picture, because everything the glass holds under a
+board band is already in RAM:
+
+| layer | out of |
+|---|---|
+| the **ground** | the column strips (§101.4.10) — one block of a strip a run, a run being the stretch of the band inside one column |
+| every **figure** | the band that cell was last COMMITTED from — its idle pose, a clash's attack frame, a reveal's dissolve — which `ti_feature` and the reveal record as they commit it (`ti_shseg`/`ti_shoff`), so the reader never re-derives what the glass shows |
+| the **bolts** | OR'd in, EVERY bolt still flying that lands in the band, so two that cross both show |
+| the **numbers** | `(byte AND NOT halo) OR digits`, out of a bank `ti_cellnum` keeps beside the attack frames — 480 bytes a cell. The owner allowed a bolt to go under the digits rather than over them, which is what lets the stat column be one masked pass instead of a split blit |
+
+**A LAYER IS A FEW RECTANGLES AND NOT A ROW LOOP, AND THE BAND IS NO BIGGER
+THAN THE BOLT'S TWO PLACES.** The first reader asked every row which lane it was
+in and multiplied its way to the source: two bolts were **22–56 ms** a frame and
+put frames at 60–74 ms. What took it down, measured on a 4.77 MHz 8088 with the
+cycle counter, windowed VGA:
+
+| | two bolts, a frame |
+|---|---:|
+| a row loop, every row asking its lane | 22–56 ms |
+| **a few rectangles**: a run is one column, so its ground is one block of a strip and its figures and numbers at most two blocks of two cells, each sized once and copied by a register-only row loop | 16–26 ms |
+| the runs made WHOLE, one divide a run instead of one a byte; the lane stepped, not multiplied | 14–24 ms |
+| **the band's own size**: the bolt's 8 rows and one step's climb each way (18 rows on a VGA, not half a cell's 24), and 4 bytes — the byte it is in and the byte it was in, three back — not 6 | **12–17 ms** |
+
+About 2 ms of each band is the blit. The last row is the one worth keeping: a
+band's rows and bytes ARE its cost, at every layer, and the band only ever has to
+hold two places of one small bolt.
+
+**THE COMBAT LANE IS CHARGED WHAT THE BOLTS REALLY COST** (`ti_pj_cost`): the
+model's price or the PIT's timing of the last frame of them, whichever is more.
+The model prices a band at a blit and as much again, and a band read from the
+board is more than that; charged the model, two bolts over-ran the lane and
+took the frame with them, and the idle fell 22% on a VGA while they flew.
+Charged the clock, the lane pays for its own bolts, and on a machine that cannot
+afford them every frame it is the BOLTS that slow, not the board.
+
+**TWO AT ONCE, AND THEY CROSS** (TITHE-PLAN §6.5). The resolution plays a lane's
+melee, then its ranged, then its heals and generation, so the worst ranged case
+is one bolt a side in the same lane: P1's rear flying right, P2's flying left.
+That is what `A` sustains, both charged to the combat lane. **A bolt that
+arrives spends one more frame on a band without itself**, at the last place it
+was drawn, which is its erase — it used to stop with its bolt still up. The
+bolts draw **after** the wheel, so a band reads the figures this frame's idle
+commits put down and a figure committed under a bolt cannot cut it.
+
+**What they cost the frame**, over ten guest seconds (commits a second ÷ 20 is
+fps a figure):
+
+| | windowed | + two bolts | fullscreen | + two bolts |
+|---|---:|---:|---:|---:|
+| VGA | 4.38 | 4.30 | 3.51 | 3.50 |
+| Hercules | 4.41 | 4.40 | 4.40 | 4.42 |
+| CGA | 6.17 | 6.19 | 6.13 | 6.19 |
+
+**Nothing measurable, on any adapter**, and the bolts fly at the frame rate —
+18.3 to 18.6 bolt frames a second. The first cut of this table, with the
+6 x 24 band charged at the model's price, had VGA's idle falling 12–20% and its
+frames to 16–17 a second. `tests/titheframe.py` holds it: the idle's rate with
+two bolts in flight moves under 0.5% against a ±15% bar, and the frame holds
+18.7 passes a second. **The busiest frame — two bolts over the whole board's
+idle — is that same frame**, since the dirty rect is always on (§101.4.3). It
+held only 15.3–15.4 while the rect was an arm with no rate cap: the wheel
+bought ~26% more commits with the saving, and the ticks it lost fell outside
+the span `ti_overran` watches, so the trim never saw them. Under §101.5.2's cap
+it holds **18.7**, the idle at its target and the bolts at the frame rate.
+
+**`tests/tithepj.py`** holds it on all three adapters: paused mid-flight, the
+glass against a whole repaint differs by at most two bolts' pixels; with the arm
+off, by nothing. A band of ground alone fails by 324–530 pixels, a figure's
+worth.
+
+**The step is a multiple of 8, and the bolt rides the band's LEADING EDGE.**
+The first keeps the ground copy a byte copy rather than a shifted
+read-modify-write, which TITHE-PLAN §3.9.1 prices at 43% of the whole cost. The
+second is what makes `union(old, new)` fall out of the geometry: centred, a
+24-pixel step leaves the last frame's bolt 8 pixels *left* of the new band and
+the thing draws a track behind it.
+
+**Measured, for the ground-only bolt this replaced**
+(`docs/reports/TITHE-RATE-2026-09-22.md`): one bolt in flight took the idle
+from 11.2 feature commits a frame to 9.7 and the frame held at 17.5–18.6 passes
+a second, against TITHE-PLAN §3.9.1's 8.88 ms.
+
+#### 101.4.6 The DETAIL arm — `Flat`, and `Banded` retired
+
+**Flat is the renderer; `Banded` was built, looked at and removed** at the demo
+cleanup (§101.7). On the glass it read as the bottom half of every character
+erased — its strips' pens are colour over black paper, which on this art is
+most of the figure — and nothing it bought was asked for. What is below is the
+design record of the arm.
+
+`OSAPI_GFX_BLIT1_PEN` says what a set bit and a clear bit become, **two colours
+a band in one pass** (§5.4.2.2) — and on a 1bpp adapter the pen is *ignored
+rather than refused*, so one body runs everywhere.
+
+- **`Flat`** — one pen a character, one blit. Cheapest, and the default.
+- **`Banded`** — the SAME BYTES in stacked strips, a pen each: head, body,
+  base. What is added is one **arrival** an extra strip and nothing else, which
+  is what `ti_cost` charges; TITHE-PLAN §3.5 prices it at a dead-flat +920 µs a
+  strip, so three strips buys 4–6 colours a character for +37%.
+
+**Every strip's pen is its colour over BLACK paper.** A colour over a
+*coloured* ground is §5.4.2.2.1's Map Mask split — two whole passes over the
+band, +115% — so this is a constraint on the PALETTE and not on the picture:
+the ground is baked into the band already, and what the player sees behind a
+figure is whatever was baked there.
+
+**`Quad` is not an arm until the fullscreen renderer is.** It is two planes and
+fullscreen-only (TITHE-PLAN §3.5c), so offering it in the windowed arm would be
+a key that refuses.
+
+#### 101.4.7 The melee clash — each fighter swings in its own band
+
+Both fighters play their four ATTACK frames (§101.4.9) out of the attack claim —
+wind-up, strike with a lunge toward the line, follow-through, recovery — **each
+in its own rectangle**, one band apiece, every frame of the clash, and their
+idle band again when it ends. Two ordinary bands a frame and no composition, so
+it works on every adapter and at every sprite size; the wheel charges the clash
+two bands a frame. The lunge is inside the band, a multiple of 8, and baked into
+the frame at layout.
+
+**A COMPOSED OVERLAP WAS BUILT BESIDE IT AND DROPPED ON THE LOOK** (TITHE-PLAN §3.9.2).
+The reference lets its melee figures overlap, and a band spanning both
+cells can do that — composed live over ground read from the strips, with the
+shear making it a cell tall plus a `RISE`. It was **~70 ms a frame** on a
+windowed VGA, which overruns a tick on the target machine, and on the glass it
+read as the clash making things around it flash; the in-band swing read as
+right. Its 1,456-byte band, its key and ~2 KB of the package went with it.
+
+#### 101.4.8 The HUD is the STATUS LINE, and the FRONT/REAR toggle lives in it
+
+**A character has a special ability and only prose can say what it does**
+(TITHE-PLAN §5.2). So the strip that says what round it is becomes the strip
+that says what the thing under the pointer *does* — a card in the hand or a
+character on the board, the same question asked in two places. With nothing
+hovered it says which base candidate is on screen, which is wave 1a's own
+business (§101.2.1).
+
+**THE BOARD IS HOVERED TOO, and by a LINEAR WALK of the twenty cells.**
+`ti_cellpos` is the only thing that knows where a cell is, and inverting the
+shear in a second place is how two answers get to disagree; twenty compares
+once a frame is nothing against the twenty-three arrivals the frame already
+makes. A hover that worked only on the panel would go blank at exactly the
+moment the pointer reached the thing it was about.
+
+**A HOVER REDRAWS THE STATUS BLOCK, NOT THE STRIP.** It redrew the strip, and
+the field reported it exactly: running the pointer down the card list took the
+idle animation to a crawl. Measured on a VGA at **4.9 frames a second against
+18.7 parked**, while sweeping the *board* — the same cell walk, the same status
+change, no card redraw — stayed at 18.2. The strip is 640×36 = 23,040 pixels
+and a card is 4,096, so the strip was three quarters of a hover's work and none
+of it had changed: the round, the phase and the toggle are the same bytes.
+
+The band **persists** — it is bss, the other two blocks are still in it — so a
+hover recomposes the middle and puts down **the line's own rectangle**, unioned
+with the one it replaces because the old line is what would otherwise be left
+behind. **Clearing and blitting are two different rectangles on purpose**: the
+clear is memory and the blit is a kernel arrival over a framebuffer, so the
+cheap one is done generously (the whole block) and the dear one is cut to what
+changed. A card↔card hover is **12.5 fps** now, and 14.2 with the status
+redraw removed entirely — so what is left is proportional to the pixels.
+
+**Each block keeps a CELL OF GAP from the next, and it is load-bearing.** The
+block is cleared a byte at a time and a glyph's pad cell beyond that, so a
+boundary falling inside a neighbour's last glyph takes that glyph with it —
+`PLAN` came back as `PLA`, and the toggle lost its `F` and the left edge of its
+box.
+
+**THE STRIP IS COMPOSED AND BLITTED, not run.** `OSAPI_FONT_RUN` draws only
+its own length, which is survivable for `ROUND 03 PLAN` and is not for a line
+that is forty characters for one card and fifty-three for the next — the tail
+of the longer one stays on the glass. The strip is a band in the package's own
+face now (§101.4.1.1), one arrival, and it is not on any animation clock:
+nothing in it changes more than once a round bar the hovered line.
+
+**ITS X IS ALIGNED AND `ti_ox` IS NOT NECESSARILY.** `OSAPI_GFX_BLIT1` refuses
+an x that is not a multiple of 8 (§5.4.2) and `WF_SNAP` is best-effort, so a
+window the kernel could not snap leaves the content origin odd. §101.2's board
+already carries that note; the strip cost its first two characters on a
+Hercules before it carried the same rounding.
+
+**FRONT AND REAR ARE DIFFERENT ROLES, so the hand needs to say which one it is
+being read for** (TITHE-PLAN §5.2): the same person is a shield-and-sword tank
+in the front column and a pitchfork farmer behind it. The toggle answers two
+questions with one control — **where a card goes when it is played**, and
+**what its stats will be when it gets there** — and a card therefore shows the
+pair of variable stats belonging to the SELECTED row, icons and all.
+
+- **ONE CONTROL FOR THE HAND, not a switch on every card.** Seven switches
+  would be seven answers to a question with one answer, and on a CGA card
+  there is no room for one.
+- **IT IS IN THE HUD because the panel has no row to give.** Hercules' seven
+  cards and the COMMIT row use the panel's height to the pixel (§101.4.2), and
+  the HUD's right-hand end is directly over the hand it is about.
+- **The selected arm is BOXED and not brightened.** The strip is one bit deep
+  on two adapters of three (§39.4), so a highlight there is either the same
+  white or a dither nobody can read at six pixels.
+- **Its hit box is banked in screen coordinates.** The arms are laid out from
+  the RIGHT, so their x depends on the two words' widths in whichever face is
+  current; the click handler cannot re-derive that and is handed it.
+- **A flip redraws EVERY card**, not the hovered one: six cards left stating
+  the stats they would have had in the other row is the sort of wrong that
+  reads as a balance question rather than as a bug.
+
+**POWER carries the SOUL and not the star.** Power is what a kill of the
+character pays, so the soul is what it is denominated in; the star is a special
+ABILITY, which is one of the things a variable stat can BE. The soul therefore
+appears on both lines — as a cost above and as a yield below — and the line it
+is on is what says which.
+
+#### 101.4.10 THE BOARD IS A PLACE — column strips in a heap claim
+
+**The board is a location and not a chart.** The first cut was a 50% dithered
+diamond per cell and a stack of lit bars under the columns — which read as a
+grid with a shadow, and was the plan saying *background* where the owner meant
+*art of a place*. The brief, taken against the reference game's board: ground
+you could stand on, something built **between the lanes**, a texture **under
+each column** that is sparse enough not to hide a figure, and a border that says
+where the world stops. So a board is five things, all out of
+`tools/os88tithebg.py`:
+
+| | what it is |
+|---|---|
+| **TEXTURE** | one per **column**, 32 pixels square and **sparse** — cobbles, cracked earth, tufts of grass, paving joints; under a fifth of the pixels, so a figure stands *on* it. Cut to the pixel aspect by taking each target row's centre row: OR-ing the rows a CGA row covers piled a sparse ground into noise |
+| **FENCES** | between the **lanes**, at the top of lanes 1–4. A lane runs up-and-to-the-right (§101.3), so a fence is a **sloped** line, `yoff[lx] = RISE × (CW − lx) div CW` — the same slope in every column, so four columns' fences meet without anybody joining them. THE MARCH's is wooden, posts every 16 pixels with rails and a shadow under them; THE CLOISTER's is a row of stone bollards on a chain |
+| **THE WALL** | the fence's heavier sibling along the back of lane 0, with **nothing** above it — the board's far edge is a clean slope and not a staircase |
+| **THE CLIFF** | under lane 4: the front lane's ground runs on past its cells' floor to a lit **lip** on the same slope, and a face of rock hangs under that |
+| **THE SIDES** | a lit edge down the outside of columns 0 and 3 |
+
+A **pattern** is 16 pixels wide, one `(ink, mask)` pair of words a row, so a
+rail can have a shadow and a post an outline while the ground between two posts
+is still the ground. A **terrain** is four texture names, a divide and a name
+(`G` cycles THE MARCH and THE CLOISTER for the demo).
+
+**THE BOARD GROWS BY `E` = `RISE + FH + 1 + D` under column 0**, for the ground
+beyond the front cells, the lip and the cliff — 35 rows on a VGA, 22 on Hercules and **8 on CGA, which is every row its window has
+spare**. The window asks for it (`ti_pref`), the fit check counts it, and P2's
+resource block moves down past column 3's own cliff. It replaces §101.4.10's
+first slab, which took what the fit check left over.
+
+**EVERY ELEMENT IS A FUNCTION OF (COLUMN, x, y) AND NOTHING ELSE**, so the
+package composes each column once, top to bottom, into a **strip** — and the
+board is **four blits** where it was twenty cell grounds and a slab. The
+strips and the eighty composed idle poses (§101.4.9) live in one **heap claim**,
+the ARENA, claimed at 45 KB in the entry proc — and the eighty attack frames in
+a second, 30 KB — so a machine that cannot hold a board refuses the launch
+rather than opening an empty window; both are declared movable, and each proc is
+one store because every reader loads ES from `[ti_aseg]` or `[ti_kseg]`.
+Composition is `tiplace.inc`, the machine's copy of `os88tithebg.py`'s
+algorithm step for step:
+
+1. every row of the strip is the column's texture row, four bytes, replicated
+   across the rest with one overlapping `rep movsb`;
+2. then **one pointer walks down each pixel column** through its stretches in
+   row order — black above the wall, the wall, gap, fence, gap, … the lip, the
+   cliff, black — and a stretch it does not touch is one ADD of rows × stride.
+
+**NO FILL UNDER A STRIP.** Filling the board's box and then blitting the strips
+is the ground drawn twice, the first time black (PERFORMANCE.md rule 2); only
+the two corners the shear leaves above and below each column are filled.
+
+**EVERYTHING ELSE THAT NEEDS THE GROUND READS IT FROM THE STRIPS.** A cell's
+figure band is cut from its column's strip; its **numbers** are composed over
+the stat column's own ground with a one-pixel black halo, so a fence runs on
+behind them where the old stat column was a black box; a **projectile**, which
+crosses cells it does not own, reads the board through `ti_pic_band` —
+the strips, every cell's committed figure and its numbers (§101.4.5); and a
+**reveal** (§101.4.11) dissolves a cell between its strip's own rows and the new
+character's pose, reading both straight out of the arena.
+
+**WHAT IT COSTS, MEASURED** on MartyPC's 4.77 MHz 8088, breakpoints on the
+routines and the cycle counter between them, against the diamond board at the
+commit before it:
+
+| | before | VGA windowed | CGA |
+|---|---:|---:|---:|
+| composing the board and its figures, at a relayout | 698 ms | **2,617 ms** (strips 773, 160 frames and the hand 1,844) | 1,226 ms (375 + 851) |
+| a whole-board repaint: ground and twenty cells' numbers | 283 ms | **533 ms** (strips 91, 20 x 22 of numbers) | 390 ms |
+| a frame | one band a feature | one band a feature | one band a feature |
+
+A relayout is a round load and a size change, and a repaint is an expose;
+neither is inside the wheel, and `tests/titheframe.py` measures the wheel
+unchanged — 18.7 frames a second, and the dirty rect buying **+26.7%** against
+its 20% bar, where the silhouettes bought 39.3%: a pixel-art figure moves more
+of its rows between poses than a solid one does. (That bar is retired with the
+arm: §101.5.2 caps the rate, so the saving is room to reach the target and not
+a faster idle.)
+
+**The relayout nearly doubled with the layers (§101.4.9), and it is the attack
+frames and not the layers.** A cell composes eight frames where it composed four,
+two layers each, and the card panel's seven minis with them; the same-as table
+already takes the quarter of that which is a copy. It is paid at a round load,
+a size change and a `G` — the 1.4 s it was on the idle poses alone is
+what a board with no melee would cost, and composing the attack frames lazily at
+the first clash is the lever if a round load ever has to be faster.
+
+**Where the repaint's time goes is the numbers**, 22 ms a cell, of which the
+halo is 5; the strips are four blits and 91 ms. The lever is to BAKE the
+numbers into the strips at layout, which would make a repaint four blits and
+~0.1 s — and it is not taken, because a strip with digits in it is no longer
+the pristine ground a changed number has to be re-composed over. It wants the
+strip's stat column regenerable on its own first, which is wave 3's problem
+when numbers start to change.
+
+**`tests/titheterr.py` holds the machine to the model TO THE BYTE**: every
+strip, every one of the eighty idle poses and every one of the eighty attack
+frames on all three adapters and both
+terrains, the lip and cliff on the glass at four heights a RISE apart — the one
+region nothing else is ever drawn over — and `G` twice back to the first board
+to the bit. It went red on an ORed figure and on a fence gap one row long.
+
+#### 101.4.11 THE REVEAL — sparks from the card, then a dissolve
+
+How the active player's own play reaches its cell, **during PLANNING**
+(TITHE-PLAN §6.3, TITHE-PLAN §16.2 item 7) — three things **overlapped**, nine frames,
+~0.5 s, against a clash's sixteen. The card is gone by the time the sparks
+arrive, and the character forms as they pour in:
+
+| frame | the trail | the card | the character |
+|---:|---|---|---|
+| 1–3 | leaving the card | three-quarters, half, a quarter | the cell's ground |
+| 4 | | **gone**: an empty slot | |
+| 5–6 | the head arrives on 6 | | a quarter, a half |
+| 7–8 | the tail pours in | | three-quarters, **whole** |
+| 9 | | | its numbers |
+
+**THE TRAIL IS A COMET.** Six sparks: a five-pixel head on the line from the
+card's centre to the cell's, and five behind it a quarter of a frame apart,
+three pixels and then two, all on the line. A spark that has reached the cell
+is drawn no more, which is how the tail follows the head home. ~70 pixels a
+frame on a windowed VGA, where a bolt goes 24. *(It TWIRLED until §101.4.11.1 —
+eight sparks each orbiting the line — and nobody could see it turn.)*
+
+**THE DISSOLVES ARE A 4×4 ORDERED DITHER** — a quarter, a half, three
+quarters — the character's between its column's ground and its pose 0, the card's
+toward the panel's black. A played card stays gone until the hand is dealt again.
+
+**THE SPARKS ARE XOR, NOT A COMPOSED BAND.** The bolt (§101.4.5) composes over
+the ground it crosses because a lane is ground and nothing else in its rows. A
+trail from the hand to a cell crosses the figures of every cell between them,
+their numbers and the card panel, which no picture in the package holds. An
+`OSAPI_GFX_XOR_FILL` is its own erase over anything, needs no buffer and is
+never refused; the save-under pair (§5.3) was the other way to leave the glass
+as it was, and it refuses a rect that straddles two displays, which a trail on
+an extended desktop (§39.14) would.
+
+**WHAT XOR COSTS IS ORDER.** The sparks come off FIRST in a frame, before the
+hover or the wheel draws anything, and go on LAST, after everything has — so
+every band in between lands on a clean glass and the next frame's erase
+restores exactly what this frame left. Three things draw outside that order and
+each is answered: a `W_PAINT` drops the record and asks the next frame for a
+whole-window repaint, since no erase can tell which sparks the paint landed on
+(`ti_rv_lost`); a relayout ends the reveal outright, its card already in the
+cell; and keys and the toggle are ignored while it runs.
+
+**THE CELL IS A TABLE NOW.** A cell showed the card at its index mod the hand;
+`ti_cellcard` holds who stands where, and the figure, the numbers and the
+status line all read it, so the three cannot disagree. A reveal writes it and
+composes that one cell's eight frames (`ti_cell_build`, ~81 ms), which is why
+one cell became a unit of work.
+
+**WHAT IT COSTS, MEASURED** on MartyPC's 4.77 MHz 8088, windowed VGA,
+breakpoints and the cycle counter:
+
+| | |
+|---|---:|
+| the click: banking the card, composing the cell's four IDLE poses, vacating it | **68 ms**, the first spark on the next frame — it was 112 with all eight frames |
+| eight sparks off and eight on | **~13 ms** a frame |
+| a card fade step / a character dissolve step | **~12 ms** / **~9 ms** |
+| the heaviest frame: eight sparks, the card or the character, two idle bands | **48.7 ms of a 54.9 ms tick** |
+
+**THE CARD IS COMPOSED ONCE, AT THE PLAY, AS IT IS ON THE GLASS.** Composing a
+card is ~22 ms of the 8088, and re-composing it for every step of its fade put
+two frames over the tick (54 and 56 ms). It is composed at the play into a bank
+of its own, `ti_cfband` — while it is still the HOVERED card, if a click played
+it, so the card that dissolves is the expanded one the pointer lit — and each
+step THINS THE BANK IN PLACE and puts it down. That needs no copy because the
+dither levels nest: every set bit of level 1 is set in 2 and every one of 2 in
+3, so thinning at 3, then 2, then 1 is the picture thinning a fresh copy at
+each would give; the copy each step used to make was ~1.5 ms of a frame with
+the sparks in it.
+
+**THE PLAY COMPOSES THE IDLE POSES AND NOTHING ELSE.** The four attack frames
+are nobody's until the cell swings, and composing them at the click was 44 of
+the 112 ms before the first spark. They are OWED instead (`ti_atkcell`) and
+built one a frame once the reveal is over — before the reveal's own step, so
+the frame a reveal ends in, which carries its numbers, does not take one too —
+at 8–17 ms each, and a clash, a relayout or the next play takes whatever is
+still owed at once (`ti_rv_atk_flush`), so nothing ever swings with a frame that
+is not there. The attack claim's ground goes down once, with the first of them:
+grounding all four again at each one-frame build wiped the ones already built,
+which `tests/titherv.py` caught. **The game proper does this at the other end**
+(TITHE-PLAN §16.2 item 7): characters and their attack frames are built at draw
+time after the resolution, where a delay is affordable.
+
+**THE DISSOLVE BLENDS A WORD AT A TIME**, `(ground AND NOT mask) OR (pose AND
+mask)` with the mask doubled across a word, where it went a byte at a time: a
+band is a whole number of words on every surface. The reveal's work is charged to the
+wheel's credit in the wheel's own units — an arrival a call and rows at the
+calibrated rate — so the idle around it slows rather than the frame
+overrunning. **The idle SLOWS rather than stops, and it slows only by what
+the tick cannot spare.** The idle's credit is its SPEED — a share of the tick
+sized for how fast a figure breathes — and not the tick's spare room, so a
+reveal charged to it slowed the board while ~11 ms of every reveal frame went
+unused. The reveal is charged first to what no lane has claimed —
+`TI_FRAMEMAX` = 75% of the tick, less the combat and base lanes' allowances and
+the idle's own credit — and the idle pays only what that cannot cover. So the
+board breathes at **two bands a frame through a reveal where it commits five**,
+the heaviest frame is **48.7 ms**, and the costs being the calibrated ones, the
+same arithmetic answers on every adapter. 80% bought three bands and put two
+frames at 54.3 ms, where the wheel's overrun guard trimmed the credit for good
+measure; 70% bought one. The trail went from twelve sparks to eight on the way,
+which is what put the wheel's one guaranteed band a frame back.
+
+**THE OPPONENT'S PLAN IS NOT THIS.** Planning is simultaneous and blind
+(TITHE-PLAN §6.0, TITHE-PLAN §6.3.1): until both players commit, neither sees the other's
+plays. So this animation is the ACTIVE player's own play, landing as they make
+it; the other side's whole plan — new characters, swaps, stances — arrives
+**all at once** when the resolution begins, and how that animates is the
+resolution phase's own design (TITHE-PLAN §6.4), not this one.
+
+**`tests/titherv.py` holds where it ENDS, on all three adapters and for both
+ways to play** — `V`, and a click on a hovered card: the card in
+the cell the play names, that cell's eight frames the model's for the new card
+to the byte (the owed attack frames included), the card's slot dark, the board and the hand with the wheel paused
+EXACTLY a whole repaint, and the gap between them — which no repaint of the
+package's redraws — the glass it was before the key. It went red on no erase,
+on no numbers, on a card that never empties and on a cell table left unwritten.
+
+**IT FOUND A RESTING CARD'S UNIT DRAWN AT A BOARD CELL'S POSE.** A card redraw
+read the unit's pose from `ti_clock[card]` — the clock of the BOARD CELL with
+the card's index — so a repainted hand froze each card's figure wherever that
+cell happened to be, and no repaint was the picture the last one left. A
+resting card's unit stands in pose 0 now; only the hovered card animates.
+
+#### 101.4.11.1 THE REVEAL PRICES ITSELF — and the sparks are a comet
+
+**Playing a card cost frames and put the music two ticks at a time on a
+fullscreen VGA**, and the trace says why: the click was **134 ms** of the UI
+task with the lock held, and the reveal's nine frames ran 40-72 ms — so they
+landed every OTHER tick. The reveal was meant to be paid for out of the idle's
+credit, but its price was a MODEL that knew the blits and not what surrounds
+them, and the wheel spent its whole credit on top of it.
+
+| fullscreen VGA | before | after |
+|---|---:|---:|
+| the click (engine, card, cell, vacate) | 134 ms | **81** (Hercules 112 → 70) |
+| the card composed for its fade | 28 | **0** — its bank (§101.4.12.1) |
+| the cell's frames at the click | 41 (four poses) | **17** (pose 0) |
+| a fade step's thinning | 15 | **~9** |
+| the reveal's last frame | 72 | **36**, and **23** after it |
+| frames of the reveal on their own tick | about half | **all** |
+| the music's worst gap, click to end | 2-3 ticks | **1** |
+
+What changed:
+
+1. **The played card is its bank** — the hovered twin if it was hovered —
+   copied into the fade's band, where it used to be composed again.
+2. **Only pose 0 is built at the click.** The dissolve forms pose 0 and
+   nothing else; the other three idle poses follow the reveal a frame at a
+   time with the four attack frames (`ti_rv_atk`), the wheel holding the cell
+   at pose 0 until they are built and its clock coming back to 0 with the last
+   of them. `ti_cell_build` grounds the idle slots only from pose 0 — it
+   grounded all four for any build below the attack frames, which wiped the
+   poses a one-at-a-time build had already made. A whole board paint takes
+   what is owed first (`ti_board` → `ti_rv_atk_flush`).
+3. **The fade's thinning is unrolled**: a run of `and [di+n], ax` entered
+   part way down per row, no `loop` a word, and not over the band's ground
+   rows. The fade's step no longer clears a band it does not blit.
+4. **The last frame is two**: the cell's numbers, then the PLANNER's own
+   resource block (`ti_res_mine`) where it redrew both players' and both HPs.
+5. **The reveal prices itself.** Each frame's reveal work — the erase at the
+   top of the frame included — is timed with the PIT, and the next frame's
+   idle credit pays it IN FULL (`ti_rv_cost_sub`). It paid only what a modelled
+   "slack" could not; the slack was not there on the glass. The played cell's
+   owed frames after the reveal are priced the same way. The board's breathing
+   slows for the half second a reveal lasts; the frame keeps its tick.
+6. **A frame that ends past its tick does not sleep** (`ti_worker`): the tick
+   a sleep waits for has already turned, so a sleep waited out the whole next
+   one and a frame that finished 2 ms late cost a frame and two music ticks
+   together. It yields instead, so the UI task still runs.
+
+**THE SPARKS ARE A COMET NOW, NOT A SPIRAL.** Each one orbited the line three
+to seven pixels out, a turn every ~five frames — and a reveal is nine frames,
+so no spark was ever seen going round; what the glass showed was a ragged
+line. The orbit and its sine table are gone, the tail is on the line, and it is
+**six sparks where it was eight**, each being two XOR fills a frame.
+
+**AND THE HOVERED CARD'S POSE HAS ONE CLOCK.** `ti_pic_anim` drew the hovered
+portrait from the hand feature's clock, `ti_clock[TI_CELLS]`, as §101.4.12 says —
+but a COMPOSITION of the hovered card read `ti_clock[card]`, a board cell's, so
+a repaint mid-animation drew a different pose whenever the two differed. Both
+composers read the feature's clock now.
+
+`tests/tithefs.py` holds a fullscreen play's worst music gap to two ticks,
+through the click and the whole reveal: it measures one, reads two now and
+then when a step late in its tick meets a frame, and read three with the
+click's frames and music steps put back.
+
+#### 101.4.12 THE FULLSCREEN HAND — seven portrait cards along the bottom
+
+**Windowed, the hand is a strip down the right because height is what binds**
+(§101.4.2): every row the hand does not take is a row the five lanes get.
+Fullscreen on VGA and Hercules that stops being true, so the hand becomes a
+row of **portrait** cards under a centred board — the first geometry in this
+design where a card's picture is the larger half of it (TITHE-PLAN §8.3).
+
+**It is a second LAYOUT and not a second renderer.** `ti_card_draw` still
+composes one band and blits it once; what changes is where the band goes
+(`ti_card_pos` steps ACROSS instead of down), what is composed into it
+(`ti_cb_portrait`: the name, the character at the BOARD's own size, then its
+costs and four stats in the flow the strip uses), and the face (the tall 8×8,
+§101.4.1.1). It is chosen in `ti_layout` when the room is there and not as a
+mode: fullscreen, not CGA, and at least `TI_HLIFT + TI_HCARDMIN + TI_HGAP` rows
+under the board. A surface without them keeps the strip.
+
+| | board | rows left | card | pitch | COMMIT column |
+|---|---|---|---|---|---|
+| VGA fullscreen | the WINDOWED row's, 335 + 28 HUD | 117 | **72 × 107** | 80 | 64 |
+| Hercules fullscreen | its own, 238 + 28 HUD | 82 | **80 × 72** (≈ 80 × 112 on the glass) | 88 | 88 |
+| CGA fullscreen | — | — | the strip: seven across 640 at 2.4 : 1 pixels would LOOK 91 × 30 | | |
+
+**VGA FULLSCREEN TAKES THE WINDOWED BOARD.** TITHE-PLAN §8.3 counted 118 rows
+under a 326-row board, and the board has since grown its lip and cliff
+(§101.4.10): the fullscreen row's is **366** and leaves 78, a card 70 tall and
+72 wide, which is not a portrait. The windowed row's is 335 and leaves 117. So
+`ti_georow` answers the windowed row on VGA whether or not the window is
+fullscreen — and what that cost is visible in §101.5.2's own table: the old
+fullscreen board could not reach the target rate (3.5 poses a second) and this
+one does (4.35-4.47). **The fullscreen row and its art were then deleted**
+(§101.2): the owner looked at the board and kept it.
+
+**EVERY TERM IS A MULTIPLE OF 8.** A band is blitted with `gfx_blit1`, so its
+x must be, and the hover's invert is byte work over the card's columns — so
+the ground between two cards is a whole byte. A portrait band is the card
+plus `TI_HLIFT` = 6 rows above it and the card sits at the band's foot; the
+hovered card ROSE into those rows until §101.4.12.1 made a hover the resting
+card flipped in place, and they are ground now. The band's rows are
+`ti_cbrows` and the card's row 0 is `ti_cbase`, which every band primitive
+reads instead of the band's own start.
+
+**The figure is the board's, on black, in a claim of its own.** `ti_fseg` is
+`TI_FIGKB` = 11KB claimed with the arena at entry: seven cards × four poses ×
+the board's band (384 bytes on VGA), composed by `ti_char_put` from the same
+records a cell is, with the item the FRONT/REAR toggle names — so it is rebuilt
+where the strip's units are, at a layout and at a toggle. Claimed at entry
+rather than at `F` because a key that could fail for memory is a refusal the
+player meets mid-game.
+
+**A 64-wide figure on a 72-wide card is a NIBBLE off a byte**, and a store
+composed at that offset would be a second copy of every pose. So the store is
+the figure as the board has it and `ti_cb_pic` shifts it as it ORs it in —
+`ti_picb` bytes and `ti_picsh` bits, nine bytes a row for eight. A shift of 8
+on the 8086 is zero rather than masked, so one body does both.
+
+**THE HOVERED PORTRAIT ANIMATES BY ITS FIGURE'S ROWS.** The strip redraws its
+mini unit alone because it sits in a corner; a portrait's figure crosses the
+card's two uprights, so `ti_pic_anim` clears exactly the figure's rows, puts
+the uprights back through them, ORs the next pose over and blits those rows —
+one band of the board's own size, not the ~22 ms of a card composition.
+
+**AND IT READS THE HAND FEATURE'S OWN CLOCK.** Both hovers — the strip's and
+this — read the clock of the board CELL whose index was the card's, which
+steps when that cell does and not when the hand feature is drawn. A paused
+frame could then hold a pose a repaint would not draw: `tests/tithefs.py`
+found it on Hercules at 83 pixels, and the strip had the same fault with no
+row to see it. Both read `ti_clock[TI_CELLS]` now, the feature the wheel
+actually stepped.
+
+**The COMMIT column** is UNDO above COMMIT, framed boxes level with the resting
+cards, after the seventh. **The reveal** starts its sparks at the card's centre
+across the row as it does down the strip, and dissolves the whole band out.
+
+**Measured on MartyPC**, every arm at the idle's target (§101.5.2): VGA
+fullscreen **4.35 poses a second a figure, 4.47 with two bolts**, 17.6-18.5
+frames a second; Hercules fullscreen **4.49 / 4.47** at 18.5-18.6.
+`tests/tithefs.py` is the row: the layout taken on VGA and Hercules and not on
+CGA or windowed, seven aligned bands a byte apart under the board, every card
+drawn, a hovered card flipped in place with nothing risen, the hand exactly a whole repaint
+paused mid-animation, and a clicked card played from the bottom row with its
+band dark and the screen exactly a repaint.
+
+#### 101.4.12.1 A HOVER IS A BANKED CARD — the sweep
+
+**Sweeping the pointer along the hand is how a player chooses a card**, so a
+hover change is the commonest thing the frame does that is not the wheel — and
+it was the most expensive. Measured on MartyPC's 4.77 MHz 8088, fullscreen
+VGA, with the cycle counter bracketing each stage:
+
+| a hover change | before | after |
+|---|---:|---:|
+| the hover test (with a twenty-cell board walk) | 5.6 ms | 0.4 |
+| the status line | 11.1 | *owed until the pointer settles* |
+| the card that lost the hover: compose ~47, blit ~10 | ~57 | **6.8** |
+| the card that gained it: compose ~50, blit ~10 | ~60 | **7.4** |
+| **the hover part of the frame** | **131** | **15.5** (Hercules 15.2) |
+| **the frame it happens in** | **152** (2.8 ticks) | **38.5** (Hercules 37.1) |
+
+Down a sweep that is **12.5 → 18.1 frames a second** on fullscreen VGA and
+12.9 → 18.2 on Hercules, where a parked pointer reads 18.2; windowed VGA is
+16.5 → 18.3. The music's worst gap is one tick on Hercules and windowed and
+counts **three 2-tick steps in 75 before, one in 65 after** on fullscreen VGA
+— the one left is a step late in its tick meeting a frame, which reads as two.
+
+**What it was is five things, and the first is the design one.**
+
+1. **A HOVERED CARD WAS A DIFFERENT PICTURE.** It rose `TI_HLIFT` rows out of
+   the fullscreen hand, widened across the strip's margins, and drew a second
+   outline inside the first, so a hover change COMPOSED both cards from
+   nothing: the frame, the name, the figure, the cost pairs, the stats and the
+   invert. **A hovered card is now the resting one NOT INVERTED**, in the
+   resting card's place and shape (`ti_card_geo` answers both). The six rows
+   the rise took stay in the band as ground, so the layout, the COMMIT column
+   and the click box are where they were.
+2. **SO BOTH ARE BANKED.** Every resting composition is copied into the
+   SCRATCH part (§101.8) as it stands, and its hovered twin beside it — the
+   same band with the card's columns flipped, once, by `ti_card_flip` — so a
+   hover change is **two blits and no composition** (`ti_card_fast`). Seven
+   cards × two × `TI_CARDBANDMAX` is **21,504 bytes** of heap and no disk. The
+   bank is refreshed by whatever composes a resting card (a toggle, a deal, a
+   repaint), and cleared where a card's content moves without a redraw behind
+   it: `tg_vput` when a hand record changes, and the relayout and the unit and
+   figure rebuilds for all seven. A card being played or already played is
+   not banked and takes `ti_card_draw`.
+3. **THE FIGURE WAS SHIFTED ON EVERY DRAW.** A 64-wide figure on a 72-wide
+   card is four pixels off a byte, and `ti_cb_pic` took the half-byte with a
+   shift by CL both ways for every byte — **14 ms** of an 8088 in every card
+   composition and in every step of the hovered card's animation, which was
+   what held fullscreen VGA at 15.6 frames a second with the pointer PARKED.
+   `ti_figs_build` shifts each pose once into a row a byte wider
+   (`ti_fig_shift`) and the OR is plain: **6 ms**, and a parked pointer reads
+   18.2. It cost `TI_FIGKB` 10 → 12.
+4. **THE BLIT MISSED §5.4.2.6's FAST PATH BY A BYTE.** `ti_glyph` spills a
+   byte past the card, so a portrait band's stride is its width plus one and
+   the kernel had to step it. The blit takes the pad column now: it is clear,
+   and it lands on the byte of black ground between two cards.
+5. **THE BOARD WAS ASKED EVERY FRAME.** `ti_cell_hit` walks twenty
+   `ti_cellpos` to name the cell under the pointer; it remembers its last
+   question and answer until the layout moves, and a point off the board's box
+   is no cell without the walk — a sweep of the HAND is below the board.
+
+**And two things are deferred rather than drawn.** The **status line** is owed
+when the hover changes and drawn the first frame the pointer stays put — down
+a sweep it changes every frame and says nothing anyone can read. The hovered
+card's **figure** waits `TI_HOVWAIT` = 3 frames before feature 22 moves it: a
+sweep crosses a card a frame, and a figure that starts moving under the
+pointer is a band drawn for nobody. **The music is stepped again after every
+frame**, not only at the top of the worker's loop, because a frame that crossed
+a tick followed by a sleep was otherwise a two-tick gap.
+
+**Owning the framebuffer (TITHE-PLAN §3.1.1) was re-priced here and is not
+the lever.** `OSAPI_GFX_BLIT1` is **37-44%** of a fullscreen frame, idle or in
+a round, and 23-27% of the worst frames — so the 21-35% a band loses by owning
+the card is **8-14% of a frame and 5-9% of the frames that stutter**, for a
+second renderer of the HUD, the panel, the text and every dialog.
+
+### 101.5 THE PACING WHEEL — a fixed rate, and the credit is TIME
+
+The renderer holds the animated features and **a credit in microseconds a
+frame**, and each frame it walks the wheel from where it stopped, commits every
+feature whose clock is due, subtracts that band's own cost, and stops when the
+credit is spent — **remembering the position**.
+
+- **A consistent animation speed**, because a feature's clock advances on the
+  system tick and not on how many neighbours drew. A feature that misses its
+  slot is *late by one frame*, never slowed.
+- **Overrun is impossible by construction.** The credit is the contract.
+- **No starvation**, because the wheel resumes rather than restarts.
+
+**The credit is MICROSECONDS and not bytes**, and that is load-bearing: a
+band's cost is `arrival + rows × R + bytes × B` (§5.4.2.6), so a wide short band
+and a narrow tall one of the same size differ by 2×. A byte credit over-spends
+on the tall ones and under-spends on the wide — which is exactly the *"some
+characters animate smoothly while others visibly hitch"* failure the wheel
+exists to remove.
+
+**And the credit is CALIBRATED, not modelled.** The renderer blits a band and
+times it off the PIT — 21.7 µs a read — so the number belongs to this machine,
+this adapter and this kernel. Per frame one `OSAPI_GET_TICKS` (46.7 µs, 0.085%
+of a frame) says whether the frame overran. There is no CPU-tier table to be
+wrong about.
+
+**THE IDLE'S SHARE IS 20%, AND THE FIELD SET IT.** TITHE-PLAN §16.1 asks
+whether twenty figures breathing at 3.6 fps reads as a crowd idling or as a
+slideshow, and calls it the sharpest question in the document. **Reported off a
+Hercules, the answer is the other way round**: at 40% the built renderer runs
+the pose cycle at 6.4 fps a feature and the motion is *too fast* — the share
+had to be pressed down repeatedly before it looked right. Keeping 40% would
+mean doubling the pose count so each step is smaller, which is art nobody has
+room for; halving the share costs nothing and lands on 3.6, the rate TITHE-PLAN §1.3
+predicted all along.
+
+**So combat has an allowance of its own** (`TI_COMBAT`, 25%), and the plan's
+TITHE-PLAN §3.8 concession — *the other four lanes stop idling to pay for an
+attack* —
+is one the machine no longer has to make. It was written against a frame that
+was full and the frame is not: an idle at 20% leaves the room for an attack
+**beside** it.
+
+**"Beside" is a SECOND BUDGET and it was first built as a BIGGER ONE**, which
+is §101.5.1. The allowance was added to the share while something was in flight,
+so the wheel had more credit, reached more features, and twenty figures that
+were no part of the attack idled half as fast again — measured at 3.5 fps a
+feature rising to 5.4 the moment a bolt was fired, and reported off a VGA as
+*pressing A speeds all the idle animations back up*. The bolt's own speed was
+never the thing that moved.
+
+**And the frame is WATCHED, which §101.5 promised and did not have.** One
+`OSAPI_GET_TICKS` a frame: the worker only runs when the tick has already
+turned over, so a frame starts at the top of one and **a frame still going when
+the next arrives has spent its whole tick**, whatever the model thought. The
+credit carries a trim that falls on an overrun and creeps back on a fit — a
+multiplier rather than a second model, because the *shape* of the cost is right
+and only its scale is wrong.
+
+**TWO HEIGHTS, and the charge is PER COMMIT.** The model is
+`arrival + rows × R`, and calibrating one height collapses it to a constant —
+which makes every optimisation downstream measure as worthless without failing
+anything. Charged flat, a half-height commit cost what a full one did, so the
+wheel drew the same twenty-three features and finished its frame earlier: the
+dirty rect read **+0.6%** and the three sprite arms all read the same rate.
+Timing one row and `BH` rows separates the terms (measured here: arrival
+**809 µs**, **43 µs** a row), and charging what a commit actually put down is
+what made §101.4.3 and the sprite arms (since retired) visible at all.
+
+**It is re-taken wherever the LAYOUT is**, because the cost moves with the
+surface — and it is taken at all, which it was not: it began as an `R` key's
+alone (a key since retired), so the wheel ran on the initial guess for ever and a frame that
+believed it was inside its tick and was not overran in silence.
+
+**ONE BLIT PER PIT SPAN.** Counter 0 counts down and reloads every 54.9 ms, so
+a span holding sixteen 4 ms blits wraps and its subtraction means nothing — it
+read **0 µs a band**, which is a credit the wheel cannot divide by. Eight
+samples of one blit each accumulate to well under 65,535 counts.
+
+#### 101.5.1 THREE LANES AND THREE CLOCKS
+
+The wheel's credit is the **idle's** and nothing else draws on it. A bolt and a
+base each have a budget of their own — `TI_COMBAT` and `TI_BASESHARE`, per cent
+of a frame — accrued every frame and spent when a commit fits, so **each lane's
+rate is `allowance / cost` commits a frame and nothing outside the lane can
+move it.**
+
+| lane | budget | clock | what it commits |
+|---|---|---|---|
+| idle wheel | `TI_SHARE`, trimmed | one phase step a feature REACHED | 20 characters, the moused-over card |
+| combat | `TI_COMBAT` | one step a frame | a bolt's step, a clash's two bands |
+| base | `TI_BASESHARE` | one of the two a frame, alternating | both players' bases |
+
+**EVERY CLOCK IS SEEDED, AND NEIGHBOURS ARE NEVER IN STEP.** A clock starts at
+zero and advances when the wheel reaches its feature, which sounds like it
+spreads them and does not: the wheel walks in *index* order, so a pass gives a
+run of adjacent features one step each and the board breathes as a block —
+twenty figures moving together read as one animation with twenty copies rather
+than as a crowd. The seed is **2D**, because adjacency on this board is not
+adjacency in the index: a cell is `column × 5 + row` (§101.3), so what a player
+sees stacked is *i* and *i+1* and what is side by side is *i* and *i+5*.
+`(col + 2·row) mod TI_POSES` puts vertical neighbours **half a cycle** apart,
+horizontal ones a quarter and diagonals three quarters, so no pair of touching
+cells shares a phase. It is re-seeded at every layout: the spread is a property
+of the design, not of how long the program has been running.
+
+**The two bases have two CADENCES and not just two phases.** A phase offset
+alone leaves a pair in lockstep a fixed distance apart, which on two bases
+facing each other reads as a mirror rather than as two places.
+
+**AND THE CADENCE IS IN THE LANE'S TURN, NOT IN A SKIPPED STEP.** It was a
+numerator per base — one advanced on every visit and the other on four visits
+in five — which is a different rate and is also a **pause**: the fifth visit
+redrew the pose it had just drawn, so the picture held for four frames. That
+reads as a beat on a flag or a bell and reads as *broken* on a flame, which is
+the one thing that should never stop. The split moved into **which** base the
+lane's one commit is for — a Bresenham of 7 in 15 — so each base advances one
+pose on **every** visit it gets and only the spacing of those visits varies:
+base 0 every 1 to 2 frames, base 1 every 2 to 3. The longest hold falls from
+four frames to three, both rates are constant, and they differ by 1.14× —
+0.80 s a cycle against 0.92.
+
+**An advance is unconditional, and that is the property**: no commit ever
+redraws the pose it just drew. `tests/titheframe.py` counts advances against
+commits and asserts they are equal, because a cadence built out of skipped
+steps is exactly what this replaced.
+
+**A lane banks at most two frames of its allowance.** One that has been quiet
+for a second would otherwise wake with a second's credit in hand and burst
+through it, which on the glass is the thing the wheel exists to prevent.
+
+**The trim (§101.5) is the IDLE's alone.** An overrun is a frame that did more
+work than the model priced, and the lane whose rate the field signed off is not
+the one to pay for it — so a combat frame that overruns slows the board's
+breathing and leaves the bolt where it was.
+
+**THE TWO BASES CAME OFF THE WHEEL TO GET A LANE**, and the reason is the art
+budget rather than the renderer. The game has **three bases against twenty
+characters**, so a frame of base art is drawn once for the whole game where a
+frame of character art is drawn twenty times: frames for a base are the
+cheapest animation on the board, and `TI_BASEPOSES` is **four times**
+`TI_POSES` because of it. On the wheel they were 2 of 23 features moving at the
+same 3.5 fps as everything else, and any better rate there would have come out
+of the figures'. In a lane they play **9.1 Hz** — one of the two a frame,
+alternating, for one band's work a frame rather than two — so a base's whole
+cycle is under a second where a figure's four frames take over one.
+
+**It costs the claim** (§101.8): a base band is `TI_BASEMAX` = 1,152 bytes, so
+eight poses is 9,216 where two was 2,304. That is the one place in this design
+where smoother is paid for in RAM rather than in time, and it is affordable
+exactly because there are three bases and not twenty.
+
+**THE MOUND IS BUILT ONCE AND REPLICATED.** A base is a *place* and the thing
+that moves on it is the keep, so the mound is the same in every pose by
+construction — and composing it per pose was eight times the work for one
+picture. Measured, that was a **two-second freeze on every layout** with the
+gfx lock held: a window resize stopped the machine dead. Slot 0 gets the mound,
+one `rep movsw` whose source trails its destination by exactly one slot fills
+the rest, and each pose's keep goes on top — under a second for the whole art
+build, and the per-pose part is ~14 ms.
+
+**EIGHT POSES MUST BE EIGHT PICTURES, and the first cut was two.** The
+placeholder's keep moved only between *centred* and *one pixel right*, so every
+pose past the first was identical: raising the count bought four times the
+build cost and no more animation at all. It is a triangle over the pose count
+now — `-2,-1,0,1,2,1,0,-1` at eight, and the original `0,1` at two, so the old
+behaviour is this one's N=2 case. `tests/titheframe.py` reads the band store
+back and counts the distinct poses, because *this* is the failure that is
+silent: the lane still commits, the rate still measures, and the picture does
+not move.
+
+
+#### 101.5.2 THE RATE CAP — the credit is a ceiling, the TARGET is the design
+
+**The credit alone makes the idle as fast as the machine is.** It is a share
+of the tick in microseconds, and every commit is charged what it costs, so a
+machine whose commits are cheaper buys more of them: an XT's CGA arm idled at
+6.2 poses a second a feature where its VGA and Hercules arms did 4.4, and a
+286 — a band in a fraction of the XT's time — would have run every figure at
+several times the rate the field signed off. The field had already said what
+too fast looks like (§101.5: 6.4 was too fast).
+
+**So the idle has a TARGET RATE, `TI_IDLEFPS10`, and the wheel may not beat
+it.** 4.4 poses a second a feature, the rate the XT's VGA and Hercules arms
+were signed off at. The wheel banks `FEATURES × fps / 18.2065` steps a frame
+(×256, so the fraction carries) and a step that is not yet due is not taken,
+whatever the credit says. Two frames at most are banked, the lanes' own rule
+(§101.5.1): a frame the credit cut short is made up by the next, and a stall is
+not burst through.
+
+**Nothing else needed one.** Every other animation is already on the CLOCK:
+a bolt, a clash and a reveal take one step a frame and a base lane one commit,
+and a frame is one a tick on any machine. The idle wheel was the one lane
+whose rate was set by how much fitted.
+
+**What the cap changes about the credit's meaning is the point of it**: the
+share is now a CEILING on the frame, and every optimisation below it — the
+dirty rect (§101.4.3), a cheaper blit, a faster adapter — is room to REACH the
+target on a machine that falls short, and headroom on one that does not. It
+is never a faster idle. Measured on the XT's VGA: **89.7 commits a second
+against a target of 88.0** (twenty characters at 4.4), the frame at 18.7
+passes a second, the busiest frame — two bolts over the whole board — at
+**18.7 where it was 15.3**, and a target lowered to 2.8 lands at 57.2 against
+56.0. `tests/titheframe.py` holds both: the default does not run above its
+target, and a target the machine can beat is landed ON.
+
+The share is only how much of a tick the idle may take reaching the target;
+the rate is the design's number, and the owner set it at 4.4 on the glass.
+
+### 101.6 ONE renderer, and fullscreen is a WINDOW
+
+**There is one renderer and it draws through `OSAPI_GFX_BLIT1`.** `F` takes
+`wm_fullscreen` (§11.2) and the layout is re-cut for the bigger box — on VGA
+and Hercules the hand goes along the bottom (§101.4.12); `Esc` gives it back. The layout recomputes and the sprite masters are re-cut,
+and that is the whole of the difference.
+
+**A SECOND, FRAMEBUFFER-OWNING RENDERER WAS PLANNED AND IS REFUSED** — on
+measurement, `docs/reports/TITHE-FULLSCREEN-2026-09-22.md`. It was to be §53's
+bracket with a mode set, ~1.27× the windowed arm per band. Three things took
+its ground away:
+
+- **§5.4.2.6's fast path** cut its lead from 1.97× to 1.27×, and TITHE-PLAN §3.7's
+  own table already found that *windowed with a dirty rect beats fullscreen
+  without one*;
+- **`wm_fullscreen` is a real window**, so it is the whole 640×480 with no
+  chrome and **every kernel drawing slot still working** — the pixels of
+  fullscreen for one API call instead of a second renderer;
+- **measured at the fullscreen geometry, the one renderer holds.** 5.04 fps a
+  feature and 18.6 frames a second with a bolt in flight, against the plain
+  windowed arm's 4.24 that the field signed off. The frame holds a pass a tick
+  in every arm and the trim never fires.
+
+**And its headline benefit is a rate this game rejected.** 1.27× on the
+fullscreen row is ~6.4 fps a feature, which is the number `TI_SHARE` was halved
+to get *away* from (§101.5). The cost was a second renderer for every surface —
+its own HUD, its own card panel, its own text — because after
+`OSAPI_FSX_MODE` no kernel drawing slot is legal (§53.7).
+
+**What re-opens it**: a board that grows (the cost here is entirely per-row),
+the `Quad` detail arm (§101.4.6, fullscreen-only), or tear-free animation, which
+wants `fsx_page` (§53.10) and is unreachable through the WM. Each is a
+measurement, not an opinion.
+
+### 101.7 The prototype's keys
+
+Wave 1a is driven by keys rather than by rules, and these are they:
+
+| key | |
+|---|---|
+| `F` or `Alt+Enter` | fullscreen on/off — `wm_fullscreen` (§11.2), a real window. On VGA and Hercules the hand goes along the bottom (§101.4.12); on CGA it stays a strip. Alt+Enter is §11.2.1.1's, armed in the entry proc (`OS88_ALTENTER_ARM`) |
+| `C` | a melee clash in one lane's front line (§101.4.7) |
+| `V` | play a card — the REVEAL (§101.4.11): the hovered card, else the first left in the hand, into the planner's topmost empty cell of the column the FRONT/REAR toggle names (§101.12.2). Keys, clicks and the toggle are ignored for the half second a reveal runs |
+| `U` / `L` / `Enter` | the round loop's: UNDO the last action, the plan LIST, COMMIT (§101.12.4) |
+| `H` / `Q` | the last round's LOG in the panel, and back; CONCEDE, which the first press asks about and the second does (§101.12.10.6) |
+| `Up` / `Down` / `PgUp` / `PgDn` | scroll the plan list or the log a row or a window, when it is longer than the panel (§101.12.10.6) |
+| *click a card* | play THAT card, the same way — which is what a player does, and the card that dissolves out is then the HOVERED one, in its flipped polarity (§101.4.12.1) |
+| `G` | step the BOARD — THE MARCH and THE CLOISTER (§101.4.10). A relayout, so the strips and all eighty poses are re-composed. It also picks the board's RESOLUTION (§101.10.7) for the next `R` |
+| `A` | sustained projectile fire down a lane (§101.4.5): one bolt a side, crossing — the resolution's worst ranged case, and sustained because the number wave 1a wants is the COMBAT frame's and one bolt is a photograph |
+| `B` | step the BASE, naming its FACTION in the HUD (§101.2.1). One per faction is now chosen — the rampart for THE BULWARK, the pyre and its skull for THE EMBER CHOIR, the cathedral for THE COVENANT — so this is for looking at them, not for picking |
+| `P` | pause the wheel, for looking at one frame |
+| `M` | the next piece of MUSIC (§101.10) — the title, campaign, deck-builder and three faction themes, then silence, then the first again. The window's title names the one playing and its arm |
+| `E` | which RESOLUTION `R` cuts in (§101.10.6), named in the title — the board's own until pressed (§101.10.7) |
+| `T` | the next BATTLE STATE — normal, pressed, ascendant (§101.10.8), named in the title. The lead turns at the next pattern boundary; during a fake round, at the hand-back |
+| `R` | a fake ROUND: the resolution cuts into whatever is playing; `R` again ends it — its tail at the next bar, then the theme back at the row it was cut at |
+| `S` | the ONE-VOICE arm where FM is there: the lead alone through `OSAPI_SND_TONE`, the song restarting on it — so the speaker's version can be heard on a machine with a card. Where a sound driver holds the tone route (§34.8) that voice is the card's channel 8 rather than the speaker itself |
+| `Esc` | leave fullscreen; windowed, nothing (§11.2.1's escape hatch). This row said *"else close"* and neither half was built until the owner found Esc dead in fullscreen - closing is the close box's |
+
+**THE DEMO WAS CUT TO WHAT THE GAME WILL DO** before wave 1b. The keys that
+were levers for decisions now made are gone: `D` (Flat is the renderer,
+§101.4.6), `S` (the table's figure size, §101.4.9), `T` (the 6×6 face,
+§101.4.1.1), `X` (the dirty rect is always on, §101.4.3), `R` (calibration runs
+at every layout), `W` (the FRONT/REAR toggle is a button in the HUD) and
+`+`/`-` (the idle's target rate is 4.4, §101.5.2). `B` and `G` stay until a
+front menu chooses the faction and the board. The tests' whole repaint is a
+byte, `ti_rpq`, that the worker services: a key is a player's.
+
+### 101.8 What it claims, and when
+
+Every claim is sized from the layout and made **at entry**, not at the first
+paint: a package that discovers it cannot have its memory owes the user a
+refusal rather than a window that never draws.
+
+| claim | | |
+|---|---|---|
+| the sprite bank | the cut bands for this surface | `MC_RLOC`, a `ret` proc — the index stores OFFSETS from the base, never segments |
+| the board picture | 416×420 at 1bpp, ~22KB | the ground without characters, for a projectile to compose against |
+
+**What wave 1a actually claims** is three things, all at entry and all
+movable: the **parts carve**, 23 KB, the art part (§101.4.9) unpacked, whose
+segment is read with `op_seg` at the point of use; the **ARENA**, 45 KB, the four
+column strips and eighty idle poses (§101.4.10); and the **attack claim**,
+30 KB, the eighty attack frames. Wave 3 added two more when the rules engine
+needed the segment's room (§101.12.7): the **base bands**, `TI_BASEKB`, and the
+fullscreen hand's **portraits**, `TI_FIGKB`. Each proc is one store.
+
+**The parts** (§20.12), in the carve:
+
+| part | | what |
+|---|---|---|
+| 0 | `OP_COMP` | the characters: bodies, items, the card manifest, the dirty rows |
+| 1 | `OP_COMP` | the music (§101.10) |
+| 2 | `OP_COMP` | **the BASE art**, `TI_BASE_PART` - the table and every record, offsets from the part's own start. It was 10.8 KB of the image until wave 3 left the package 1.2 KB of room; `tools/os88tithebase.py emit` writes the part and a `tibases.inc` holding only the counts and the names |
+| 3 | `OP_ZERO` | **SCRATCH**, `TI_SCR_PART`, **27 KB** (26,936 bytes) and no disk bytes at all: the hand's unit caches (`TI_S_UNIT`) and the HUD strip's band (`TI_S_HUD`), which were zeros in the image and counted against `APP_MAX_SIZE` like code - ~5.4 KB of it - and the BANK of every hand card at rest and hovered (`TI_S_CARD`, 21,504 bytes, §101.4.12.1), which is what makes a hover change two blits |
+
+**The scratch bands are reached through ES and nothing else.** `ti_ess` loads
+it from `op_seg` at the point of use (a part's segment is not cached); the
+blit already takes its band at `ES:SI`; the glyph writer already writes at
+`ES:DI`; and the one string builder in the HUD's path, `ti_status`, switches
+ES back to the package around its own `stosb` work - so the composer runs
+with ES on the scratch part from its first byte to its blit. The card bands
+stay in the image for now: the card composer writes them through DS in a
+dozen places and builds strings through ES in the same breath, which is a
+rewrite rather than a move, and it is 3 KB. The table above is the
+plan's for the final game, and the arena is where its sprite bank already went.
+
+**The index stores offsets and not segments**, which is what makes the
+relocation proc a `ret` (§66). A segment derived from a base is reached by no
+poke at all, and getting that wrong is silent until the next compaction.
+
+### 101.9 What each later wave adds
+
+So that a reader can tell a gap from a defect. `docs/plans/TITHE-PLAN.md` §16
+is the full table and this is the part that binds the code:
+
+| wave | what appears |
+|---|---|
+| **1a** | **this section** — layout, board, bands, the wheel, the two renderers |
+| **1b** | **§101.10** — the sequencer (`timus.inc`), both arms, and four candidate title themes on `M`; the faction theme in three states and the resolution piece follow once one is picked |
+| 2 | the rules engine and `tools/duelsim.py`, from one card table, no graphics |
+| **3** | **§101.12** — the round loop, hot-seat: plays, orders, stances, swaps, the plan as a list any entry of which comes out, the pass screen, and the round fought on the glass a lane at a time. **BUILT**; the gate is the owner's — two humans play a whole match |
+| 4 | the AI on the worker |
+| 5 | the rest of the art and music |
+| 6 | the front menu — and the package joins the live media here, not before |
+| 7–13 | deck builder, campaign, the match file, Ethernet, balance, the cable, posted play |
+
+**It is on `tests/unit/t_livefull.py`'s exemption list until wave 6**, with
+"under construction" as the reason, because a package that cannot be launched
+from a menu is not something to put on the live media.
+
+### 101.10 THE MUSIC — one score, two renderers (wave 1b)
+
+`docs/plans/TITHE-PLAN.md` §13 is the design and this is what the code holds
+to. **Every piece on `M` has been chosen by the owner**, one per place the
+game plays music: the title, the campaign map, the deck builder, and one theme
+per faction for PLANNING (TITHE-PLAN §13.4), which is untimed and so is written
+to be thought over for minutes rather than marched to. The three battle states
+are in the format and the sequencer (`[tm_state]`, an order row's lead
+columns) and have no score yet.
+
+| `M` | | key, tempo | the speaker hears |
+|---|---|---|---|
+| 1 | **Title: The Procession** | E minor march, 91 BPM (a 16th = 3 ticks) | a horn call, then the theme |
+| 2 | **Campaign: The Reckoning** | E dorian jig in 6/8, 121 BPM (an 8th = 3 ticks) | a fiddle, AABB |
+| 3 | **Deck builder: The Tollkeeper** | D mixolydian guild tune, SWUNG — a groove of 3 then 2 ticks, 109 BPM | a trumpet counting coins |
+| 4 | **Bulwark: Steadfast** | G hymn-march with F major as its stubborn chord, 91 BPM | a horn, in half notes and quarters |
+| 5 | **Ember Choir: Kindling** | D harmonic minor over a harp ostinato in 16ths, 91 BPM | the choir's line |
+| 6 | **Covenant: Intercession** | an F hymn in 3/4 on recorder over harp, 109 BPM (an 8th = 5 ticks) | a recorder |
+
+`apps/tithe/music/archive/` holds every candidate not chosen, each with the
+reason at its top: BANNERS (liked, and not this game), VESPERS (its tone became
+the Covenant's brief; the song did not), DIES IRAE and LITANY.
+
+#### 101.10.1 The source, and the tool
+
+`apps/tithe/music/*.tmu` are the songs and `bank.tmb` the instrument bank they
+share, in a plain-text MML (the IBM PC BASIC `PLAY` statement's) that
+`tools/os88tithemus.py` packs into the MUSIC part, `build/timus.bin`, and
+`apps/tithe/tisong.inc` — the part's layout constants and the song names,
+generated and committed as `tiart.inc` is. `SONGS` in the tool is the
+manifest, and its order is `M`'s.
+
+**A row is a whole number of ticks** (TITHE-PLAN §13.3), cycled through a
+GROOVE of one to four counts, and a pattern must be a whole number of grooves.
+So every pattern starts on the groove's first step and **a note's length in
+ticks is known at pack time**: the tool, not the machine, works out every
+note's GATE — its sounding length less the `q` gap, or one tick MORE when the
+next note slurs from it.
+
+`python3 tools/os88tithemus.py wav` renders both arms on the host — the
+speaker as the PIT's own square, the FM arm through pyopl (DOSBox's OPL2)
+driven with the register writes `SOUND.DRV` makes — **from the packed part,
+through a Python copy of this sequencer**, so what is approximate is the
+synthesis and never the notes. `--selfcheck` holds the part's note stream to
+the source's, tick for tick, and is a fast row.
+
+#### 101.10.2 The part
+
+```
++0   'TM', version, song count
++4   dw frequency table     84 words, C1..B7, integer Hz
++6   dw instrument records  16 bytes: the 11-byte OPL2 patch in SOUND.DRV's
+                            order (§34.2), vibrato delay, vibrato shift,
+                            macro length, macro loop, macro index
++8   dw macro pool          signed semitones a tick, per instrument
++10  dw chord shapes        two intervals above a root (0 = no note)
++12  dw per song            its header
+song +0 groove length, four tick counts, rows, states, order length, loop,
+        tail, dw order, dw phrase table, then +14: 1 if every order row
+        carries a SPEAKER lead (§101.10.7), and a pad byte
+order row   bass, chord, drum phrase, then one LEAD phrase per state, then
+            the speaker's own lead where +14 says so
+            (0xFF = that channel is silent for the pattern)
+phrase      events: a note (1..127) then rows and gate; 00 rest, rows;
+            80|i instrument; A0|s chord shape; C0 slur; FF end
+```
+
+**Phrases are per CHANNEL, not per pattern**, so a bass line or a drum bar is
+stored once however many leads ride over it — the arrangement TITHE-PLAN
+§13.4 makes the three battle states out of. It is TITHE-PLAN §13.3's delta
+encoding rather than its packed rows, taken at the start because eight songs
+are 6,685 bytes as events, 3,834 packed.
+
+#### 101.10.3 The arms
+
+**The arm is chosen from `OSAPI_SND_CAPS` when a song starts, and the FM slot
+is never called to find out** (TITHE-PLAN §13.5 — with no driver that call
+wedges the machine rather than refusing).
+
+| arm | plays | through |
+|---|---|---|
+| **speaker** | the LEAD only, with its instrument's macro and square vibrato a tick at a time | `OSAPI_SND_TONE` at priority **0x20**, under the package default, so any effect preempts it; **every tone carries a duration**, the note's remaining gate |
+| **FM** | all four: lead on voice 0, bass on 1, the chord's up to three notes on 2–4, drums on 5 | `OSAPI_SND_FM`; a voice is re-patched only when its instrument changes, and a held note is RETRIGGERED (off, then on) unless the next one slurs. Voices 6–7 are left for effects and 8 is the tone tier's (§34.8) |
+
+`S` forces the speaker where FM is there, and restarts the song on it — the
+target machine's arm has to be heard on a machine that has the other one.
+
+**AND SO DOES THE CONTROL PANEL'S "PC speaker"**, which is the one that
+matters to a player. That setting is the TONE ROUTE (§34.8) and leaves the
+card's FM published, so `OSAPI_SND_CAPS`'s word still carries `SND_CAP_FM`
+and a package choosing on that alone plays FM to someone who asked for the
+speaker — which is how it shipped, and how the owner found it. BL is the route,
+read live, and **FM present with BL = 0 can only be that choice**, every other
+route answering 1 with a driver loaded; `tm_want_fm` reads both, at every song
+start, so a changed setting takes at the next one. An
+FM refusal mid-song (another package holding a voice) gives every voice back
+and carries on as the speaker.
+
+#### 101.10.4 Where it runs, and the order of a tick
+
+**THE SONG KEEPS THE TIMER'S TIME, NOT THE FRAME'S.** `tm_run` steps once
+per ELAPSED tick, and it is called from wherever TITHE spends time: the top of
+every worker pass, between the wheel's commits and after the frame's big draws
+(a card, the bolts, the reveal), and on the UI task between the RELAYOUT's
+strips, cells, units and base poses, its calibration samples and the whole
+board's bands. The relayout is the case that forced it: it holds the gfx lock
+for seconds while the worker, blocked on that lock, can step nothing.
+
+A call one or two ticks late steps each tick. Later than that it **CHASES**:
+steps the missed ticks QUIETLY (`[tm_quiet]` — `tm_tone` and `tm_voice` touch
+no hardware, so the state is exactly what normal steps leave), then
+`tm_resync` sounds what should be sounding now, leaving an FM voice alone that
+is already on the right note (`[tm_keep]`, `tm_fmnote`). Only a gap over
+`TM_STALL` (two seconds) pauses the song instead. **It used to pause at three
+ticks**, and three ticks is an ordinary hover down the hand: the music slowed
+with the frames and stopped outright for a relayout, which is how the owner
+found it. MEASURED on a Hercules 5150 across a relayout: 0 ticks of song in 75
+of clock before, and the clock's own count after, with no step more than 2
+ticks late (`[tm_gapmax]`, which `tests/tithemus.py` bounds at 3).
+
+**Any task may call it, and one at a time does.** `[tm_busy]` is a try-lock
+taken with an `xchg`, and a caller that finds it held returns, the holder
+being mid-step already. So every sound call is still one task's at a time —
+two tasks of one instance interleaving OPL address/data pairs would corrupt a
+write that ownership (§34.1) cannot see — and `M` and `S` still only POST, into
+`[tm_req]`, which the next `tm_run` takes.
+
+A tick, in the order `timus.inc` and the tool's `Seq` both keep:
+
+1. If the last row's ticks are spent, a ROW begins: after the pattern's last
+   row the order advances (to the loop row after the last), every channel
+   whose wait has run out reads events up to its next note or rest, and the
+   groove's next count is the new row's length.
+2. Every sounding note AGES: one keyed this tick is left alone, so a gate of G
+   sounds G whole ticks; otherwise the gate runs down and a note whose gate
+   reaches zero is keyed off, and the speaker's lead re-sounds only if its
+   macro or vibrato has moved the frequency.
+
+#### 101.10.6 THE RESOLUTION — a cut, a tail and a hand-back
+
+TITHE-PLAN §13.4.1: **planning has the faction theme; reveal to spoils has the
+resolution piece**, one for the whole game. Three candidates are in the part
+after the songs (`RESOLUTIONS` in the tool, `TM_NRES`), and **the owner kept
+all three, one per BOARD** (§101.10.7):
+
+| `E` | | tempo | |
+|---|---|---|---|
+| 1 | **War Drums** | 136 BPM, a 16th = 2 ticks | toms and snare, the bass pulsing D, the horn in stabs |
+| 2 | **The Toll** | 91 BPM — the themes' own pulse | a bell on every downbeat, the bass leaning on E-flat |
+| 3 | **The Charge** | 6/8 at 121 BPM | a bodhran gallop, a fiddle calling D-E-G-A |
+
+**All three are on D, in OPEN FIFTHS**, because D is the one note the chosen
+faction themes share — the fifth of Steadfast's G, the tonic of Kindling's D
+minor, the sixth of Intercession's F — and a fifth with no third is neither
+major nor minor, so the cut clashes with nothing it interrupts. Each tail ends
+on D and A, which leads back into all three. And each leaves ROOM: the lead is
+stabs and long notes, because on the speaker an impact PREEMPTS it (§13.8's
+priority), so the effects punch their holes in the music by the same mechanism
+that arbitrates them.
+
+**A piece with a `tail`** (the song header's byte 9, `TMS_TAIL`) has three
+parts in its order: the rows before `loop` (the CUT, a bar that lands on the
+downbeat), the body from `loop` to `tail` - 1, which LOOPS for as long as the
+round takes, and the tail from `tail` to the end. `tm_nextord` is the whole
+rule, and the tool's `Seq.next_ord` is the same one:
+
+- not ending: the body wraps at the tail, never reaching it;
+- ending (`[tm_rend]`): the next pattern boundary jumps to the tail;
+- past the tail's last row: FINISHED — `[tm_hand]`, and `tm_tick` steps no more.
+
+**The cut BANKS the theme** as an order row and a row (`[tm_bord]`,
+`[tm_brow]`): mid-row it resumes at the next row, in a pattern's last row at
+the next pattern's first. **The hand-back is a SEEK**: `tm_start` loads the
+banked order row, steps the rows before the banked one QUIETLY — the chase of
+§101.10.4 — and resyncs, so a note HELD across that row is sounding when the
+theme comes back, which a plain jump to the row would drop. The theme then
+picks up mid-phrase rather than from its top, which is the plan's point: a
+twenty-round match does not open with the same eight bars twenty times. A cut
+into silence hands back to silence; `M` or `S` during one abandons it.
+
+**The state change rides the hand-back** in the plan (§13.7): `[tm_state]` is
+read by `tm_pattern`, and the seek loads the banked pattern through it, so a
+state written while the resolution plays is the state the theme comes back in
+(§101.10.8). `tests/tithemus.py` item 7
+cuts each option into a faction theme at a different point, holds the piece to
+the model, ends it, and holds the RESUMED theme to the model sought to the
+banked row, tick for tick; restarting the theme from its top instead fails it
+on every option — and each hand-back turns the theme to a different state, held
+to the model sought in that state.
+
+#### 101.10.7 THE SPEAKER'S OWN LEAD, and a resolution per board
+
+**The speaker arm plays the lead and nothing else** (§101.10.3), and a
+resolution's lead was written to LEAVE ROOM — stabs and long notes over
+drums. So on the speaker the three pieces were exactly what the owner heard:
+*"a blip then blank"*. The FM lead with the drums taken away leaves a silence
+of **29 ticks** in War Drums, **37** in The Toll and **10** in The Charge,
+1.6, 2.0 and 0.55 seconds of nothing in a phase that is meant to be the
+game's most urgent.
+
+**The fix is a second SCORE, not a second renderer.** A song may end every
+order row with one more phrase (`order ... <spk>`, all rows or none), the
+header's byte 14 (`TMS_SPK`) says so, and `tm_pattern` takes that column in
+place of the state's lead when `[tm_arm]` is the speaker. The FM arm never
+reads it, so the card's music is byte for byte what it was. What goes in it is
+an arranger's decision the machine cannot make: the lead's own notes where
+they carry the tune, and in its gaps the DRUMS FOLDED INTO THE ONE VOICE —
+`sdrum`, an instrument with no pitch movement, a low D held a tick for the
+kick, the A above it for the toms, a high D for the snare roll — with The
+Toll's bell (`spbell`, an octave-up strike settling into a shimmer) on every
+downbeat. The longest silence falls to **8**, **11** and **2** ticks. The
+share of ticks with a tone is LOWER, 55/69/56% against 71/83/56%, and that is
+the point: a blip that states the beat reads as rhythm where a held note
+followed by two seconds of nothing reads as the music stopping.
+
+It costs 598 bytes of the part and 6 of code. A theme may take the same
+column; none needs it yet, their leads being tunes rather than stabs.
+
+**One resolution per board.** `ti_terr_res` in `tithe.asm` is a row per
+terrain, asserted against `TI_TERRAINS` at assembly: THE MARCH cuts in The
+Charge, THE CLOISTER The Toll, and `G` sets `[tm_rsel]` from it. War Drums is
+kept for a board not yet drawn. `E` still steps them all, for auditioning.
+
+#### 101.10.8 THE BATTLE STATES — one piece, three leads
+
+TITHE-PLAN §13.4: a faction theme is **NORMAL, PRESSED and ASCENDANT**, one
+piece whose bass, chords and drums never change, with a lead AND an instrument
+per state. The order row carries them as `order NORMAL/PRESSED/ASCENDANT BASS
+CHORD DRUM` under `states 3`, and the three chosen themes have them:
+
+| | normal | pressed | ascendant |
+|---|---|---|---|
+| **Steadfast** (Bulwark) | the horn's hymn | the FIDDLE sawing each note in eighths over its chromatic lower neighbour | the TRUMPET: dotted fanfares, up to the D and F-sharp above |
+| **Kindling** (Ember Choir) | the choir | ONE VOICE, the chant: broken phrases leaning a semitone down, the phrygian E-flat onto D | the SHAWM: running eighths through the harmonic minor, up to D and F above |
+| **Intercession** (Covenant) | the recorder | a LAMENT, bowed and low, every bar a suspension falling onto the chord | the ORGAN at the front: the line in moving eighths at the top of the church |
+
+Three instruments are the states' own — `shawm`, `lament`, `lorgan` in the
+bank — so each faction's three states are three different sounds on FM, and
+on the speaker three different registers and rhythms of one tune.
+
+**The switch is at a pattern boundary and nowhere else**: `tm_pattern` is the
+one reader of `[tm_state]`, so a change mid-pattern waits for the next one
+while the accompaniment carries on, and in a round it is the hand-back's own
+pattern load (§101.10.6). The title names the state (`tm_nstates`, which the
+tool publishes, says which songs have one), and the demo's `T` steps it.
+
+The tool's selfcheck holds every state's notes to the source and holds a
+switch made half-way through two patterns to a source read with the state
+changed at the NEXT boundary; ignoring the state fails all three themes.
+`tests/tithemus.py` item 8 writes the state mid-pattern on the machine and
+holds it to the model switched at the same tick, across the boundary, and
+checks `T` and the title. The part grew 2,021 bytes and the image 132.
+
+#### 101.10.5 What it costs
+
+**No claim and no new kernel code**: the score is a part in the carve the art
+already shares (§20.12), and the sequencer is ~1.2 KB of the image. **Every
+speaker tone carries a duration**, so a worker that stops — a stall, a
+relayout, a close — leaves nothing droning; `snd_tick` expires it (§34.3), and
+the package's teardown releases the FM voices (§34.3's `snd_release_inst`).
+
+### 101.11 THE RULES ENGINE — one card table, two readers (wave 2)
+
+**The rules exist in two places that check each other**, which is TITHE-PLAN
+§14.1's instruction and wave 2's gate. `apps/tithe/tirule.inc` is the
+machine's: the only place the rules exist in the package, called by the game,
+by wave 4's AI and by wave 10's checksum. `tools/duelsim.py` is the host's: a
+reference implementation that plays AI against AI at thousands of matches a
+second, and the balance harness wave 11 is iterated with. **Neither is the
+other's specification** — this section is, and every rule below is pinned
+here because the two have to make the same decision in the same order.
+`tests/titherules.py` holds them together: every match of a baked set is
+replayed on the machine and its state record after every round compared with
+the simulator's, to the byte.
+
+**No graphics, no files, no kernel slots.** The engine is arithmetic over a
+state of two sides and twenty cells, and it needs the card table in front of
+it and nothing else — which is what lets a test package carry it as it is
+(`tests/titherule/`) and the game carry it unchanged in wave 3.
+
+#### 101.11.1 The card table is ONE source
+
+`apps/tithe/cards.txt` is the table: a line a card, `name | role | cost |
+POWER | FRONT m r hp s g h KEYWORDS | REAR …`, a faction header, and a
+`deck FACTION: name*copies, …` line for each starter deck. **Both readers are
+generated from it**: `tools/os88tithecards.py emit` writes
+`apps/tithe/ticards.inc` for the machine, and `duelsim.py` imports the same
+module's `load()`, which reads each card's stats back **out of the packed
+record** rather than out of the parse — so a field the emitter packs wrongly is
+wrong in the simulator too, and its own matches see it.
+
+**The table is a FIRST DRAFT and its shape is what is binding** (TITHE-PLAN
+§7.1). Ninety cards, thirty a faction, filling the template exactly: five
+melee, ranged, shield and generation cards at the template's cost tiers, four
+identity cards, three orders, three commanders of which one is early — and at
+most eight pure specialists (two, four and two). A card's cost tier is its gold
+and its souls added. HP is one number on both blocks, which the engine relies
+on: a swap never has to decide what a wound is worth on the other block. The
+§7.2–§7.4 examples are in it, their names cut to the twelve characters a card
+can print. `os88tithecards.py --selfcheck` is TITHE-PLAN §15.3's `t_tithecards`
+and a FAST row, and it also fails when the committed include is not the
+table's.
+
+#### 101.11.2 The record
+
+| offset | | |
+|---|---|---|
+| 0, 1 | cost in gold, in souls | |
+| 2 | POWER | what a kill of it pays (TITHE-PLAN §5.1) |
+| 3 | kind | 0 character, 1 order, 2 commander |
+| 4, 5 | faction, role | |
+| 6–14 | the FRONT block | `m r hp s g h`, then three keyword bytes |
+| 15–23 | the REAR block | the same |
+
+A keyword byte is its **id in bits 0–4 and its number in bits 5–7**, so
+`PIERCE3` is one byte and a block carries three. An ORDER's one block is its
+**effect** — `+m +r +s +g +h` in the stat bytes and the keywords it grants.
+The ids are the engine's and are only ever appended to.
+
+#### 101.11.3 The keywords, and where a plan rule was bent
+
+TITHE-PLAN §7.2–§7.4's keywords, plus nine commanders' abilities
+(§7.1.1's *unique ability*) and one order's grant:
+
+| keyword | when | what |
+|---|---|---|
+| **GUARD** | targeting | a gap-punish into the lane **above or below** this front character takes it instead |
+| **BULWARK n** | a hit | its shield never falls below `n` after one |
+| **RAMPART** | combat start | friendly cells above and below in its column +1 shield |
+| **LEVY n** | spoils | +`n` gold |
+| **PYRE n** | spoils | +`n` souls |
+| **PIERCE n** | a hit | ignores `n` of the target's shield, and a front shield of `n` or less does not wall a SNIPE |
+| **VOLLEY** | a ranged hit | also 1 to the cells above and below the target |
+| **SCORCH** | a ranged hit | the overkill on a front target carries into the cell behind it |
+| **KINDLE** | a kill | +1 soul |
+| **VIGIL** | combat start | the friendly cell across +1 shield |
+| **BLESS n** | lane start | friendly cells above and below in its column +`n` melee |
+| **INTERCEDE** | casualties | an adjacent friendly that would die holds at 1 HP, and this dies instead; once |
+| **ABSOLVE** | casualties | a friendly death in its lane **or the lanes beside it**: +1 melee, +1 ranged, for good |
+| **MUSTER** *(commander)* | combat start | every friendly front cell +1 shield |
+| **STANDFAST** *(commander)* | player damage | no player damage through the lanes **above and below** it |
+| **STEWARD** *(commander)* | spoils | +1 gold per friendly rear character |
+| **HYMN** *(commander)* | casualties | every kill its side makes pays +1 soul |
+| **CHORUS** *(commander)* | lane start | friendly characters in the lanes above and below +1 ranged |
+| **REQUIEM** *(commander)* | spoils | +1 soul per friendly death this round |
+| **SANCTUARY** *(commander)* | a ranged hit | cannot take a friendly in its lane below 1 HP |
+| **MERCY** *(commander)* | healing | every friendly healer's pool +1 |
+| **MARTYR** *(commander)* | casualties | when it dies, every friendly character heals 3 |
+| **WARD** *(order)* | casualties | the target holds at 1 HP this round |
+
+**Three of TITHE-PLAN's rules could not be built as written**, and what
+shipped is recorded so it is argued with rather than rediscovered:
+
+- **GUARD** protected *"the character directly behind it"* from the
+  gap-punish — but a gap-punish only happens when the front cell is EMPTY, and a
+  guard in it is what makes it not empty. So a guard covers the lanes beside it
+  instead, stepping across to take the hit.
+- **STANDFAST** first guarded its own lane. A player is only hit through a lane
+  with **nobody in it on their side**, so a STANDFAST standing in that lane
+  could never fire — `duelsim.py bake` found it by never seeing it fire in 400
+  matches. It guards the lanes above and below.
+- **ABSOLVE** counted deaths in its own lane only, which is one cell, and in
+  400 matches it fired zero times. It counts the lanes beside it too.
+
+**An ORDER may grant only PIERCE, SCORCH and WARD**: the engine carries a
+round's orders as five stat deltas, a pierce count and two flags, and the
+table's check refuses anything else.
+
+#### 101.11.4 THE ORDER OF A ROUND
+
+**Both plans apply to their own halves, in their own recorded order**
+(TITHE-PLAN §6.0) — so either side's plan applied first gives the same board,
+and `duelsim.py --selfcheck` applies every round of every match both ways and
+compares. TITHE-PLAN §6.4's *"swaps first on both sides, then plays"* is the
+REVEAL's presentation order and not the rules': a plan that swaps a character
+out of the top cell and then plays a card lands that card in the hole, which is
+what the player saw while building it.
+
+1. **UPKEEP**: a card drawn, `+2` gold (both pools cap at 99), two swaps, and
+   shields filled to their round's value for the frozen board.
+2. **PLANS**: `PLAY` pays and puts a character in the **topmost empty cell** of
+   the column, with the next instance id (1–255, round again). `ORDER` pays,
+   adds its effect to the character with that id and goes to the discard at
+   once. `SWAP` exchanges two of the side's cells whole. `STANCE` sets one.
+3. **COMBAT START**: every character's shield is recomputed from where it now
+   stands — its block's shield, its orders', RAMPART, VIGIL and MUSTER — which
+   is why a swap across columns takes its new block's shield into combat.
+4. **LANES 0 TO 4.** A lane's hits are all **decided** from the state at the
+   lane's start — each attacker's melee and ranged with the auras read then,
+   its target by TITHE-PLAN §5.4 with the SNIPE wall read against the front's
+   shield then — and then **applied in a fixed order**: side 0's front melee,
+   front ranged, rear ranged, then side 1's. A hit that kills first marks the
+   target and owns the kill. After the hits, the lane's **unmarked** healers
+   fire, side 0 then 1, front then rear. A character marked in an earlier lane
+   (a VOLLEY's 1) takes no part in its own.
+5. **CASUALTIES**, lane by lane, side by side, front then rear: a WARDed
+   character holds; otherwise an INTERCEDE above, below or across — in that
+   order — dies instead. Then the deaths in that order: the card to its owner's
+   discard, POWER + KINDLE + HYMN in souls to the other side, ABSOLVE counted.
+   MARTYRs heal last.
+6. **SPOILS**, every character left: its block's gold and its orders', LEVY,
+   STEWARD; PYRE, REQUIEM.
+7. **THE VICTORY CHECK**, and the round's orders are spent. A match that reaches
+   round 60 undecided is a STALEMATE, which the harness reports and TITHE-PLAN
+   §5.8's valve (income rising with the round) is the answer to if it happens.
+
+#### 101.11.5 The shuffles
+
+**One generator a side**, xorshift16 with shifts 7, 9 and 8, seeded once at
+setup (a seed of 0 is 1). A pile is shuffled Fisher–Yates from its end — for
+`i` from `n-1` down to 1, swap `i` with `rand mod (i+1)` — and a card is drawn
+from its **end**. An empty draw pile takes the discard in its order and
+shuffles it; an empty pair of piles is a dry draw. A MULLIGAN puts the hand on
+the draw pile's end in hand order, shuffles and draws AS MANY AS IT HELD. Nothing
+else in the game calls it.
+
+**The mulligans are taken AFTER THE FIRST UPKEEP**, both of them, before either
+plan is applied - so the hand is five and five are drawn. It was before the
+upkeep, with four; it moved because a hot-seat match has only one player at the
+machine at a time, and the second is not there to decide until their own first
+turn, which comes after that upkeep (§101.12.10.9). **The odds did not move**:
+four back and four drawn and then one drawn, or five back and five drawn, are
+both five cards dealt from the whole shuffled deck. The match file still
+carries the two flags where it did, and `tirule.inc`, `tools/duelsim.py` and
+`tests/titherule/` all take them at round one's upkeep.
+
+#### 101.11.6 The state record and the match file
+
+**The STATE RECORD** is 376 bytes: the round; per side its HP (clamped to a
+byte), gold, souls, next instance id, generator (low, high), swaps, then the
+hand, the draw pile and the discard, each a count and its array padded with
+`0FFh` (7, 50 and 50); then the twenty cells, side then column then lane, each
+`card inst hp shield stance +melee +ranged` (an empty one `0FFh` and six
+zeros); then the result — 0 playing, 1 and 2 a side's win, 3 a draw, 4 a
+stalemate. It is what `tests/titherules.py` compares, and it is written after
+setup and after every round.
+
+**THE MATCH FILE** (TITHE-PLAN §12.6) is `TMF1`, the two decks (a count and the
+card ids), the two shuffle seeds, the two mulligans, the round count, and per
+round the two plans — a count and three bytes an action: `1 card column`,
+`2 card instance`, `3 cell cell`, `4 cell stance`, a cell being `column × 5 +
+lane`. A twenty-round match is well under a kilobyte, and `duelsim.py replay`
+turns one back into its log.
+
+#### 101.11.7 What it costs, and the two gates
+
+**The rows**: `tithecards` and `duelsim` are FAST and host-side — the table's
+shape, every pairing and both deck-size ends played to completion, confluence
+on every round, and a byte-identical replay. `titherules` is SOAK: seventeen
+matches, 157 rounds, every keyword fired, every record the simulator's. **It
+went red on a real defect first**: `tr_intercede` did not give SI back, so a
+KINDLE kill's extra soul was read off a neighbour's cell, and 16 of the 17
+agreed.
+
+**On a 4.77 MHz 8088 a round costs ~97 ms**, record included — the engine is
+written for the two engines to agree and not yet for speed, with a multiply
+behind every cell and keyword lookup. That is fine for resolving a round and
+is **not fine for wave 4's AI**, whose one-ply lookahead is this engine on a
+scratch board once a candidate (TITHE-PLAN §10.3): at ~250 candidates a ply it
+is the number wave 4 has to take down first, or evaluate with something
+cheaper than a whole round.
+
+**The draft's balance is not a wave 2 finding.** The simulator's player is a
+few lines of greed, enough to play legal matches to an end; with it, the three
+starter decks come out Bulwark 47%, Choir 25%, Covenant 78% over 120 matches,
+median 8 rounds, and a Bulwark–Covenant pairing can stalemate. Those are the
+first numbers wave 11's harness will move, and wave 4's AI is what makes them
+mean anything.
+
+### 101.12 THE ROUND LOOP — `apply(plan, frozen board)` (wave 3)
+
+`docs/plans/TITHE-PLAN.md` §5.0.2 and §6 are the design, and `apps/tithe/tigame.inc`
+is the code. **One sentence is the whole of it**: the board a planner sees is
+the engine's state at the end of UPKEEP, copied aside (the FROZEN board), with
+their own plan applied to a fresh copy of it — and every edit re-applies the
+whole plan from scratch. There is no undo stack and no inverse of any action,
+and the preview IS the engine (§101.11): nothing on the glass can disagree with
+what the commit will do, because nothing on the glass was computed any other
+way.
+
+#### 101.12.1 The views — what the renderer reads
+
+Everything the renderer draws — a card in the hand, a board cell, the numbers
+on either, the status line — reads a **VIEW RECORD**, `ticard.inc`'s `TI_C_*`
+layout, and `tigame.inc` is the only writer of them. Views 0–6 are the
+planner's hand, views 7–26 the board's twenty cells in the renderer's own order
+(`ti_cell_card` is a sum). A view carries the costs, two stat pairs per row,
+HP, POWER, the name, and three things the renderer never had: the **ART** the
+character wears (§101.11.1's mapping, `0FFh` for nobody), the engine's **CARD**,
+and a cell's **COLUMN** and **STANCE** flags.
+
+| | a hand card | a board cell |
+|---|---|---|
+| the pairs | both blocks, and the FRONT/REAR toggle picks which the card shows | the LIVE block's, ABSOLVE's permanent gains and this round's orders added — the same pair in both slots, because a character on the board has one position |
+| HP | the block's | what it has left |
+| the stance | — | the engine's, for a shooter (`TI_CF_RANGED`, `TI_CF_SNIPE`): the mark under its feet (§101.12.10.1) |
+| the status line | its keywords for the toggle's row | `NAME  POWER  KEYWORDS` for its column (§101.4.8.1) |
+
+A pair is the first two of melee, ranged, shield, heal and gold that are not
+zero, and a **zero icon draws as nothing** — so a healer with no second job
+shows one pair and not a `0`. An ORDER has no body: no HP, no POWER, no figure.
+
+**The board mapping is one table**, `tg_bcol`: the renderer draws P1's REAR
+first (columns 0, 1, 2, 3 are P1 rear, P1 front, P2 front, P2 rear, §101.2.1)
+where the engine counts each side's front first, so the map swaps the first two
+and is its own inverse.
+
+**An EMPTY cell is not a feature on the wheel.** Its eight frames are the
+column's ground and nothing moves on them, so the wheel steps past it for a
+cost of one; a whole repaint still owes its ground. Its numbers band goes down
+bare, which is what takes a dead character's off. **The same-as table has no
+row for nobody** and was read anyway: the first build copied another LANE's
+ground into an empty cell's frames, which showed as a fence line one lane out
+of step for exactly as long as that pose was on the glass. `ti_cell_build`
+skips the copy for an empty cell, whose frames `ti_cell_ground` has already
+laid.
+
+**A plan edit redraws what moved.** `tg_vput` compares each new record with the
+old one and marks the cells whose record changed; `tg_cart` holds the art each
+cell's poses were composed with, which `ti_cell_build` records itself — so an
+undo composes the cells whose ART moved and redraws the numbers whose RECORD
+did, and nothing else.
+
+**The unit and portrait caches are one per HAND SLOT**, not one per art: the
+card in slot N this round is whoever was dealt there, and its unit is built
+when the hand is. Twenty arts cached per surface would have been 13 KB of the
+package segment for a hand that shows seven.
+
+#### 101.12.2 The plan, and removing any entry of it
+
+A plan is `tr_apply`'s own format — a count, then `(op, a, b)` actions
+(§101.11.6) — inside a **PLAN BLOCK** that carries three more columns beside
+it: the HAND SLOT each action spent (`TG_P_SLOT`, which marks the slot empty
+and puts the card back where it was when the action goes), and the
+character an ORDER or a STANCE acts on, named as **the PLAY in this plan that
+brought it** (`TG_P_REF`) or, when it was already on the frozen board, as its
+instance (`TG_P_TGT`). **An instance alone is not enough**: a play's instance
+is its place in the plan, so taking an earlier play out renumbers every later
+one, and an order that remembered a number would land on whoever took it.
+
+**A play appends and re-applies; an action the engine refused comes straight
+back off**, so a refusal (no gold, a full column) is the rules' own. The play
+lands in the topmost empty cell of the column the FRONT/REAR toggle names,
+**as this plan leaves it** — TITHE-PLAN §6.3's "counting your own plan so
+far", for nothing extra.
+
+**The replay is one action at a time and REWRITES the plan as it goes**
+(TITHE-PLAN §5.0.2). `[tg_skip]` names an entry to take out on the way; every
+other one is re-resolved against the board the plan has made so far — an
+ORDER's instance and a STANCE's cell out of its subject — and applied alone;
+**one the engine refuses now is dropped, and so is one whose subject went**.
+So removing the first of two plays moves the second up a lane, gives it the
+first's instance, and takes its order and its stance with it; and what goes
+back into the plan is exactly what the commit hands the engine. A SWAP names
+two CELLS and has no subject, which is the rule the regression row caught the
+code breaking: the swap carried whatever the first-clicked cell's subject was,
+and removing that character's play orphaned it.
+
+#### 101.12.3 Hot-seat, and why it does not leak
+
+P1 plans; COMMIT seals the plan and puts up the **PASS SCREEN**; P2 plans on
+**the same frozen board**, not on P1's result; P2's COMMIT applies both plans
+to the frozen board and resolves the round. TITHE-PLAN §6.3.1's rule needs no
+hot-seat special case, and the code has none: the second planner is shown
+`apply(their plan, frozen board)`, so P1's plays, spend and swaps are nowhere
+in it, and every pool on the HUD is the post-upkeep value both players watched
+being computed. **The swaps counter is the planner's alone** — the other side's
+is not theirs to see (§101.2.1's resource block already hid it; `ti_res_all`
+now hides whichever side is not planning).
+
+**The pass screen is the whole content black and two lines**, and nothing of
+either plan: *PLAYER 1 HAS COMMITTED / PASS TO PLAYER 2*, or after a round
+*ROUND n  P1 HP a  P2 HP b / PASS TO PLAYER 1*, or the match's end. A click,
+Enter or Space is the next player sitting down. **The worker draws no frame
+while it is up**, and asks again UNDER THE LOCK: a commit that lands while the
+worker waits for the gfx lock has put the screen up by the time it gets it,
+and a frame then drew P1's base over the screen — which is how the check came
+to be asked twice.
+
+#### 101.12.4 The controls
+
+| | |
+|---|---|
+| *click a card* / `V` | PLAY it into the toggle's column (§101.4.11's reveal) |
+| *click an ORDER card*, then *one of your characters* | the order goes on that character; the HUD asks *ORDER: ON WHICH OF YOUR CHARACTERS?* until it does, and the card clicked again lets it go |
+| *click the mark under a shooter's feet* | FRONT ↔ SNIPE (§101.12.10.1). The HUD says which it is and what a click makes it while the pointer is on the mark. A second click takes the entry OUT rather than adding another, so a stance entry is never a no-op |
+| *click two of your cells* | SWAP them (two a round; either may be empty). The first one's numbers go INVERTED and the HUD asks for the second; the same cell again lets it go |
+| *click* PLAN / `L` | the panel shows the plan as a numbered list where the hand was — *click an entry* to remove it — with three rows at its foot: RESET ALL, VIEW LAST ROUND and CONCEDE (§101.12.10.6); HAND puts the hand back |
+| `U` | the planner's LAST action back |
+| *click* COMMIT / `Enter` | seal the plan: P1's hands the machine over, P2's fights the round (§101.12.8) |
+| *click* / `Enter` / `Space` on the pass screen | the next planner sits down; after the match's end, a new match |
+
+The match is **THE BULWARK against THE EMBER CHOIR**, the two starter decks,
+seeded off the clock at launch; the front menu (wave 6) is what will choose.
+
+**The list is drawn by `font_run`, each row padded to the list's width**, so
+it lays its own ground (§6.1) and an edit redraws it with no fill in front;
+the rows a removal leaves behind are blanked down to the last one the list
+drew before, because a removal can take more than one entry out.
+
+#### 101.12.5 What wave 3 leaves for later
+
+The COMMIT does not yet **confirm when resources are unspent** (TITHE-PLAN
+§6.3); a round cannot be **skipped** once it is being fought (§6.5); and the
+log is the round's own — shown while it is fought and gone with the pass
+screen, where §6.3's *read the log* is a panel a planner can open. An order
+names only **one's own** characters, which is the engine's rule today
+(`tr_order`), and that is now the RULE rather than a gap — TITHE-PLAN §16.4
+records the owner's ruling that no order targets the opponent's characters. And the opponent's plan **arrives at once** without an
+animation of its own — no card played, no swap moved — which is §6.4's to
+dress.
+
+#### 101.12.6 The tests' full board
+
+A match starts with an EMPTY board, and every renderer row (`titheframe`,
+`titheterr`, `tithepj`, `titherv`, `tithecard`, `tithefs`) is about twenty
+figures — so they would have been measuring nothing. `tg_fillq` is a byte the
+worker services the way it services `ti_rpq`: set to 1 it stands **the first
+card of art N in cell N** and seven of them in each hand (`ti_artcard`,
+generated beside `ti_cardart`), with both pools full; set to 2 it leaves P1's
+FRONT column empty, for a row that plays into it; and set to 3 it is not a
+board at all but **a DEALT MATCH** off the two seeds in `tg_tseed` — the one
+mode `tools/duelsim.py` deals the same way, which is what lets `tithegame`
+hold a round played by hand to the simulator, plan for plan and cell for
+cell. It is a legal engine state —
+HP and shields off the cards' own blocks, instances unique — so the numbers
+and the status line are the game's, and `tithecard` checks them against the
+CARD TABLE (`tools/os88tithecards.py`) rather than against a list of its own.
+
+#### 101.12.7 What it costs
+
+The image was **60,003 bytes** at the end of the wave against 44,035 before
+it: the card table and the rules engine are ~11 KB of it, the plan list, the
+planning actions and the fought round ~3.5 KB, and the plans, the frozen
+board, the log and the 27 views ~2 KB. With the bss that reached 60,089 of
+`APP_MAX_SIZE`'s 61,440 (the SDK's 60 KB, not the segment's 64 - this section
+first said ~5.5 KB were left, which was wrong). **So the next change was room,
+not features**: the base art became part 2 and the unit caches and the HUD
+band a scratch part (§101.8), and the image is **44,160 bytes - 17,194 left**.
+TITHE-PLAN §4.3.0 is what follows when the code itself outgrows the segment,
+and TITHE-PLAN §16.4 lists what wave 3 still owes.
+
+#### 101.12.8 THE ROUND, FOUGHT ON THE GLASS
+
+P2's commit applies both plans to the frozen board and **the board shows it at
+once** — the opponent's plan arrives all at once (TITHE-PLAN §6.4), which is
+the owner's ruling and the rule that keeps a plan from leaking. The panel
+becomes the round's **LOG** and the HUD says *RESOLVING*.
+
+Then the engine's three calls are made **ONE A FRAME, from the worker**:
+`tr_resolve` is `tr_res_begin`, `tr_lane` per lane with `[tr_lr]` set, and
+`tr_res_end` (§101.11.4), and it is literally that — so the game cannot fight
+a round in a different order from the engine it animates, and `titherules`
+still holds the three to the simulator. A lane is fought, and **its HITS
+decide what is shown**: any melee hit is a CLASH in that lane's front line
+(§101.4.7), and each side that landed a ranged hit fires a BOLT (§101.4.5), the
+other side's bolt cleared. **The numbers change when they LAND** — the step
+waits for the clash and the bolts to finish — and the log says what moved:
+`LANE n`, then `NAME -3`, `NAME +2`, `P2 -1 HP`. Casualties and spoils are the
+last step (`NAME FALLS`, `P1 +2G +1S`), then a hold, then the round's screen.
+A lane where nothing landed is a beat and nothing more.
+
+**Nothing is decided here** — the engine did that — so a frame the worker
+misses is a slower round, never a different one; and the idle wheel keeps
+turning under it, the figures breathing while they wait for their lane.
+
+**What it costs, and the three things that made it cheap** — measured on a
+4.77 MHz 8088 in fullscreen after the owner reported the log freezing the
+screen and stopping the music:
+
+| | before | after |
+|---|---|---|
+| the round's opening | **880 ms** in one call, a whole-window repaint | 165 ms: the HUD, the pools and the panel, then the other side's cells **one a frame** (`tg_sync1`) |
+| a lane's worst frame | 220–330 ms, of which the log was up to 275 | 110–165 ms |
+| the casualties step | 440 ms | 110–165 ms |
+| the music's worst gap, through the fight | **439 ms** | **110 ms** |
+| frames a second, through the round | ~14 | 15–17 |
+
+1. **The log draws a line ONCE.** `tg_log_add` draws nothing; `tg_log_draw1`
+   puts ONE owed line down a frame, as wide as a log line (17 cells) and
+   never the box's 39, and when the box is full the rows above move up by
+   `OSAPI_GFX_SCROLL` (§5.5) — under a millisecond where lettering them
+   again was a row's worth of cells each. The scroll rect is the rows' own
+   byte columns, so it is legal and vacates exactly one row, which the new
+   line repaints whole: its content is unspecified. **Every list row is
+   padded only to what it overwrites** (`tg_rowlen`), so the plan list's
+   edits got cheaper by the same rule.
+2. **The opening redraws what moved** and lets the cells arrive a frame at a
+   time — a cascade rather than a freeze.
+3. **The music is stepped inside the long calls** (`tm_run` between cells
+   and between the opening's three draws - not per list row, whose music
+   chain under a board repaint was 22 bytes past the worker's 256-byte slice
+   at the time, `tests/unit/t_stkclass.py`; the worker is 384 since
+   §101.4.8.2). The worker steps it at the top of
+   its loop, and a frame that holds the lock for a quarter of a second held
+   the tune with it.
+
+**And a repaint mid-round draws the BOARD.** The paint path showed the pass
+screen for every phase but planning, so an uncovered window lost the round
+to *PLAYER 1 HAS COMMITTED*; `tg_onscreen` names the two phases that really
+are between players. `tests/tithelog.py` holds all three.
+
+**The resolution music (§101.10.6) is the round's**: the fight posts
+`TM_RQ_RES` as it begins and `TM_RQ_END` as the round's screen goes up, which
+is exactly what the music's `R` key fakes — so `R` stays the music's, and
+RESET ALL is a row of the plan list rather than a key.
+
+#### 101.12.9 THE HAND-OVER KEEPS THE MUSIC
+
+The owner heard the music catch in three places around a round: the log, the
+step from the resolution to the mostly black pass screen, and the redraw after
+it. Traced on MartyPC with a breakpoint on `tm_run`'s step and the routines
+around it, one seeded round fought and handed over, fullscreen:
+
+| where | VGA | Hercules | what ran with no music step in it |
+|---|---:|---:|---|
+| the round's opening | 2 ticks | 2 | a cell's eight frames (~80 ms on VGA) inside `tg_sync1`; the whole log box drawn into the panel |
+| the round's end → the pass screen | **3** | **3** | `tg_screen`: the whole content filled black in ONE `OSAPI_GFX_FILL` |
+| the next planner sitting down | **3** | 2 | `ti_ground`'s four fills, ~85 ms, before the board |
+
+**The music is stepped inside each of them now**, which is what the worker's
+`OS88_STACK_384` class (§101.4.8.2) pays for: `tg_screen` fills in bands of
+`TG_SCRBAND` = 32 rows with `tm_run` between; `ti_ground` steps after each of
+its fills; `ti_cell_build` after each frame it composes; `tg_sync1` after the
+cell's frames and after its band; `tg_list_draw` after every row; `tg_redraw`
+after the cells. **The same round has no step of two ticks or more anywhere**
+— fight, hand-over and redraw — on fullscreen VGA, fullscreen Hercules,
+windowed VGA and windowed Hercules.
+
+The log itself showed nothing in that round: the fullscreen log box holds the
+round's lines without scrolling, and each line is drawn once, a line a frame
+(§101.12.8). What it did cost was the WHOLE box at the round's opening — the
+panel is the log for a round — and that is the list-row step above.
+
+`tests/tithelog.py` holds the hand-over to a worst gap of two ticks, on
+Hercules and on VGA: on VGA it read three with the pass screen's and the
+ground's fills in one piece each, and on Hercules two, so a Hercules alone
+cannot see it go.
+
+#### 101.12.10 PLANNING, THE SECOND PASS (TITHE-PLAN §16.4)
+
+The owner went through wave 3's planning list and ruled on each line
+(TITHE-PLAN §16.4). This is what was built from it.
+
+##### 101.12.10.1 The stance is a MARK under the shooter's feet
+
+A shooter stands on an arrow: **flat and pointing at the enemy for FRONT,
+climbing for SNIPE**, white with a one-pixel black halo, 48 pixels wide across
+the bottom rows of the figure's band (seven rows on VGA and Hercules, five on
+CGA, whose rows are 2.4 times as tall). P2's is mirrored with the figure, so it
+points the way the shot goes.
+
+**IT IS PART OF THE POSE, NOT A DRAW.** `ti_cell_build` puts it down on the
+ground BEFORE the character, in every frame it composes - so the figure stands
+on it and hides its middle, the way a selection ring goes under a unit - and
+the wheel's commits carry it for nothing: no call, no band, no row of the
+frame's budget. A pose's key is what its frames are OF, and that is the art
+AND the stance now (`ti_cell_key`: the art, `20h` for a shooter, `40h` for
+SNIPE), so a stance change is a changed key and `tg_sync` composes that cell
+again - once, at the click, which is where a play composes one too.
+
+**IT IS THE CONTROL.** The pointer on the mark - its 48 columns, the band's
+bottom rows - turns the status line into `STANCE: FRONT - CLICK TO SNIPE` (or
+`SNIPE - CLICK TO AIM FRONT`) on the planner's own shooters and `STANCE: FRONT`
+on anyone else's, and a click there is the toggle. Anywhere else on the cell is
+a swap's end, as before. The hover test asks it a frame at a time
+(`ti_hover_ck`'s `[ti_hovm]`): arithmetic on a rectangle, no walk.
+
+##### 101.12.10.2 An armed ORDER shows it is armed, and so does its target
+
+Clicking an ORDER card arms it and clicking it again lets it go - that was
+built in wave 3, and nothing on the glass said so, so the owner never knew it
+worked. **The armed card stays LIT** - the hovered card's picture, black paper
+and white ink - with the pointer anywhere: `ti_card_draw`'s `[ti_clit]` is the
+hover OR the armed slot, and `ti_card_fast` puts the bank's hovered twin down
+for it without banking a hover box, so it does not animate. **The character
+it would land on is SELECTED under the pointer**: while an order is armed, the
+worker's frame asks on every hover change whether the cell under the pointer
+holds one of the planner's own (`tg_tgt_track`) and inverts that cell's
+numbers - the swap's own mark, and the one control on the board that marks a
+cell - putting the last one's back (`tg_tgt_set`, one `ti_cellnum` each).
+
+Placing it lets both go without a draw of their own: the edit puts the slot
+down empty and the target's numbers back, once each (the target is marked
+dirty for `tg_sync`). An order the engine refuses stays in the hand and is put
+back as it rests. Any other click that abandons it - another card, the other
+side's cell - goes through `tg_disarm`.
+
+##### 101.12.10.3 A refusal is GREYED, and a refused click says why
+
+**A card the planner cannot pay for is greyed, with its shortfall in its
+corner.** `tg_greys` runs at the end of every `tg_views` and keeps each hand
+slot's shortfall - its gold and soul costs against the pool the PLAN leaves,
+so a card turns grey the moment an earlier play spends what it needed - and
+marks the slots whose shortfall MOVED (`[ti_gchg]`). The grey is SPEC.md 47's
+on a one-bit screen: every other row of the card thinned to alternate pixels,
+a quarter of the paper turned, which leaves the card's words readable; and a
+box in the top right says `-2` and the icon of what is short, gold before
+souls - left of the mini unit on a strip card, which animates over its corner.
+
+**IT IS PUT ON AT THE BLIT, NOT IN THE BANK** (§101.4.12.1). What a player can
+afford moves with every edit and the card does not, so the bank keeps the card
+and `ti_card_grey` greys it on its way to the glass: `ti_card_draw` after
+banking, and `ti_card_fast` by copying the bank out (~1.5 KB) and greying the
+copy - so an affordability change is a fast redraw and never a composition,
+and the hovered portrait's animation greys the figure's rows it recomposes.
+The redraws are owed rather than drawn at once when a PLAY moved them, because
+the reveal owns the hand for half a second: `ti_owed` puts them down in the
+frame after it ends, from their banks. Every other edit ends in `tg_edited`,
+which draws them there.
+
+**A FULL COLUMN GREYS ITS WORD** in the HUD's FRONT/REAR toggle - the same
+thinning, over the word's bytes - since a card clicked while it is selected
+goes nowhere. `tg_greys` keeps which of the planner's two columns are full
+(`[ti_colfull]`) and owes the HUD when that moves (`[ti_hudq]`), which
+`ti_owed` redraws in the frame's place, as the toggle's own first slice is.
+
+**A REFUSED CLICK SAYS WHY** on the status line - `FRONT IS FULL - PLAY TO
+REAR`, `NOT ENOUGH GOLD`, `NOT ENOUGH SOULS`, `NO SWAPS LEFT THIS ROUND`,
+`THOSE TWO CANNOT SWAP`, `THAT ORDER CANNOT GO THERE` - through `tg_note`,
+which is a pending action's prompt that the next hover change takes back
+(`tg_note_off`). It was nothing at all: the engine refused, the plan was
+re-applied unchanged, and the click was simply lost.
+
+##### 101.12.10.4 An empty plan is asked about, once
+
+COMMIT does **not** confirm unspent gold or souls: banking them, or having
+nothing worth spending them on, is ordinary play, and a question there would
+stand in front of a normal action every round (TITHE-PLAN §16.4, the owner's
+ruling). What it asks about is narrower - **a plan with nothing in it, from a
+hand that could have done something**: a card the pool can pay for and a
+column with room (`tg_idlecheck`). The first COMMIT then says `NOTHING PLANNED
+- COMMIT AGAIN TO PASS` through `tg_note` and arms `[tg_cconf]`; the second
+commits. Anything else - an action, or the pointer moving on, which takes the
+note back - disarms it, so the question is only ever answered by pressing the
+same thing twice in a row.
+
+##### 101.12.10.5 The upkeep is SAID: the income on the status line, the drawn card NEW
+
+A planner sat down to a hand and a pool that had moved and nothing said how.
+**The status line says it now**, as a note (§101.12.10.3) the first thing a
+turn shows: `INCOME +4G +1S  DREW PIKEMAN`, or `HAND FULL - PIKEMAN
+DISCARDED` when the upkeep's card went to the discard. The income is what the
+pool GAINED since that player last committed - the round's spoils and the
+upkeep's +2 together - which is the number a player plans with: `tg_snap_pools`
+banks each side's pool after both plans are applied (and after the setup, for
+round one), and `tg_upk` wraps `tr_upkeep` to know which card it drew and
+where it went (`tg_drew`, `tg_disc`, `tg_newslot`).
+
+**A NOTE GOES WHEN THE POINTER MOVES, and not before.** It is taken back on a
+hover change (`tg_note_off`) only if the pointer is somewhere else than where
+the last frame read it when the note went up (`tg_note_at`): a new planner's
+board is drawn from nothing, so the first frame FINDS a hover under a pointer
+that has not moved, and that took the income line down before anyone could
+read it.
+
+**The drawn card is NEW until it is hovered**: its top right corner turned
+down, a triangle in the card's last byte (`ti_card_ear`), put on at the blit
+like the grey and for its reason - the bank keeps the card, and hovering it
+once (`tg_new_seen`) is what clears it.
+
+##### 101.12.10.6 The plan list's foot: RESET, the last round's LOG, CONCEDE - and it scrolls
+
+The HUD has no room for more buttons, so the two the owner asked for live in
+the panel the PLAN button opens, beside RESET ALL: **the last three rows of the
+list are commands** - RESET ALL (or NO ACTIONS YET), VIEW LAST ROUND (or NO
+ROUND FOUGHT YET) and CONCEDE - and the plan's entries take the rows above
+them. Each has a key as well: `H` and `Q` (§101.7).
+
+**THE LOG IS KEPT WHOLE and read in the same panel.** `TG_LOGN` is 64 lines,
+the whole of a round rather than the sixteen the in-round panel needed, and
+`tg_list` = 3 shows them with BACK at the foot - back to the hand or the list,
+whichever it was opened from (`[tg_lback]`). The log is the round both
+players watched, so reading it leaks nothing of a plan.
+
+**BOTH SCROLL.** When the entries - or the log's lines - outnumber the rows
+the foot leaves, the first and last of those rows become arrows, `...MORE
+ABOVE` and `...MORE BELOW`, and the rest is a window from `[tg_lscroll]`
+(`tg_lwin`, `tg_lrow_item`): a click on an arrow moves it a window, and the
+arrow keys a row and the page keys a window (`tg_list_scroll`). A plan's
+sixteen actions were unreachable past the box's last row, ~9 rows on CGA.
+
+**CONCEDE IS ASKED FIRST**, the way an empty commit is (§101.12.10.4): the
+first click or `Q` arms `[tg_cqarm]` - the row reads `CONCEDE? CLICK AGAIN`
+and the HUD says so - and the second ends the match for the OTHER player,
+`PLAYER 1 CONCEDES - PLAYER 2 WINS` on the match's end screen. Any other row
+clicked lets it go.
+
+##### 101.12.10.7 An undo FADES and a swap's sparks CROSS
+
+**An undone PLAY is the reveal backwards, with no sparks** (TITHE-PLAN §16.4,
+the owner's ruling). When `tg_remove` takes out a play whose cell the replay
+leaves EMPTY (`tg_undo_where`, `tg_undo_fade`), the character dissolves out of
+its cell - pose 0 over its ground at dither levels 3, 2, 1 and the ground
+alone, the reveal's own `ti_rv_cell` - while its card comes home at levels 1,
+2, 3 and whole: `ti_card_fadein` copies the bank out fresh each step and thins
+the copy (`ti_rv_cardfade` thins IN PLACE, which only runs one way). A play
+whose removal moves another into its cell keeps the immediate redraw, and so
+does a removal from the list, where the hand is not on the glass to fade into.
+
+**A SWAP is two comets CROSSING**, three sparks each, one from each cell to
+the other along the reveal's line (`ti_rv_trail`, the reveal's comet with the
+count a parameter), and then the two cells are drawn swapped - the cheapest
+thing that reads as an exchange, since the sparks are XOR fills the frame
+already prices (§101.4.11.1) where a slide would compose two moving figures a
+frame.
+
+**Both are the reveal's machinery**, `ti_rv` = 2 and 3 (`ti_rv_other`), so
+they take the frame's LAST slot and its measured price, and block input the
+reveal's way for the half second they run. The cells they own WAIT: `tg_sync1`
+skips `[ti_rvcell]` and `[ti_rvcell2]` while one runs and the frame after it
+ends syncs them, and `tg_edited` leaves the undone card's slot to the fade.
+
+##### 101.12.10.8 A RIGHT click puts the WHOLE card up, and takes nothing down
+
+**A right click on a card in the hand, or on a character on the board**
+(`W_ONRCLICK`, §13.11; `ti_onrclick`), puts the whole card over the middle of
+the board in the small face (§101.4.1.1), white on black inside a frame: its
+name; its cost and POWER, said as what it is - *a kill of it pays N souls*;
+then FRONT and REAR, each a row of its numbers and a line per KEYWORD saying
+what the keyword DOES. An order has one block, its EFFECT. The keyword lines
+are `ti_kwrule`, emitted by `tools/os88tithecards.py` beside the names from
+its `KWRULE` table, whose selfcheck holds each to 40 characters of the face's
+own set - so the card is the tutorial's text and not a second copy of it.
+Any click or any key takes it away and does nothing else; so does a whole
+paint, which draws over it anyway (`ti_full_drop`). It answers only while a
+player plans with nothing running (no reveal, no toggle slice).
+
+**THE REPAIR IS TWO CALLS AND IS EXACT.** The card is one band composed in the
+scratch part (`TI_S_FULL`) and one `OSAPI_GFX_BLIT1`. Before the blit, the
+glass under it is SAVED (`OSAPI_GFX_SAVE`, §5.3) into a claim taken for as
+long as the card is up - width x rows x bits a pixel, so ~16KB on a VGA's four
+planes and ~4KB on one bit - and on the way down `OSAPI_GFX_REST` puts it back
+and the claim is freed. While the card is up the worker draws NO frame
+(`tg_fcard`), so nothing under the card moves and there is nothing a restore
+could get wrong. A claim the heap refuses, or a save refused because the card
+straddles two displays, still shows the card and falls back to the old repair,
+a whole repaint asked of the worker (`[ti_rpq]`).
+
+**Measured on MartyPC's 4.77MHz 8088**, a two-line character card: putting
+it up is **327,000 cycles (69 ms)** on Hercules and CGA and 420,000 (88 ms) on
+VGA, nearly all of it the composition; taking it down is **65,201 cycles
+(13.7 ms) on Hercules, 55,232 (11.6 ms) on CGA and 152,792 (32 ms) on VGA** -
+one frame or two, where the whole repaint it replaces is the board, both
+bases, the HUD and the hand.
+
+`tests/tithegame.py` check 7 is the gate: the card up, framed, the claim
+taken; a key, the claim freed and **0 pixels** of the glass different from
+before the right click, on Hercules and CGA. Taking the restore out turns it
+red.
+
+##### 101.12.10.9 The MULLIGAN is offered at each player's first turn
+
+**TITHE-PLAN §6.1's one free redraw**, which the engine always had
+(`tr_mulligan`) and nothing asked about. At each player's FIRST turn of a
+match - P1's after the deal, P2's after the first pass screen - a box over the
+middle of the board says whose opening hand it is, what a redraw does, and
+that it is once and only before the first move, with two buttons:
+**KEEP** (or Enter, or K) and **REDRAW** (or D). It is taken or not before
+anything else happens: while it stands every other click does nothing, the
+board keys do nothing, and only the music's keys, fullscreen, pause and the
+right-click card (§101.12.10.8) still answer - the last so a hand can be READ
+before it is judged. The hand's hover runs; the wheel under the box does not.
+
+It is the full card's box: composed in the scratch part, put down by
+`ti_box_show` with the glass under it SAVED, and taken off by one
+`OSAPI_GFX_REST` (`ti_mull_down`), so KEEP costs one restore. A whole paint
+drops it with its claim (`ti_full_drop`) and the worker puts it back
+(`tg_mull_ck`). A full card read over it comes off onto it again: the two
+boxes keep separate records.
+
+**REDRAW** (`tg_mull_redraw`) is `tr_mulligan` on the frozen board and the
+live one - the plan is empty, so the two are the same - and the new hand is
+drawn the way the FRONT/REAR toggle redraws one, a card a frame
+(`ti_row_apply`, §101.4.8.2), so the music does not stop for it; the status
+line says a new hand was dealt, and no card in it is NEW (§101.12.10.5).
+Because it comes after the first upkeep the hand is five cards and five are
+drawn (§101.11.5).
+
+`tests/tithegame.py` check 8 is the gate: the offer on the glass and nothing
+else answering under it, REDRAW's hand the simulator's mulligan to the card,
+and KEEP leaving the glass exactly what the box covered.
+
+
+##### 101.12.10.10 The cell the next PLAY lands in is MARKED
+
+**A play has always had a fixed destination** - the planner's topmost empty
+cell of the column the FRONT/REAR toggle names (§101.11.4 step 2) - and nothing
+showed it. It is marked now, statically, as the owner asked
+(TITHE-PLAN §16.4): an arrow down onto a dashed ring where the figure's feet will stand,
+composed INTO the empty cell's idle poses (`ti_dest_put`, `ti_dm_tall` and
+the short `ti_dm_short` on CGA) the way a shooter's stance mark is
+(§101.12.10.1), so the wheel draws it at no cost of its own. A full column has
+no mark, and neither has anything outside planning.
+
+**It is a CELL KEY** (`ti_cell_key`: 80h, an empty cell where a play lands,
+beside 0FFh for any other empty one), so the machinery that rebuilds a cell
+whose picture changed is the machinery that moves the mark: `tg_dest_cell` is
+`tg_play`'s own search, and the only two things that move it without an edit
+behind them - a PLAY and the toggle - set `[tg_dsync]`, which `ti_owed`
+spends a cell a frame (`tg_sync1`), so the old cell loses its mark and the
+new one gains it in two frames and the music does not wait. An undo, a swap
+and a turn start move it through the syncs they already run.
+
+**The hover inversion is not built.** The owner allowed it if the budget has
+room; a cell's inversion is its numbers (§101.12.10.2), and an empty cell has
+none, so it would be a composed pose of its own a hover would have to build.
+
+##### 101.12.10.11 A hovered character says what it WILL DO
+
+**While a player plans, the pointer resting on any character on the board**
+- theirs, or the other side's on the frozen board - puts on the status line
+what it will do if the board stands as it is: its name, then
+`<melee>3 ON ZEALOT`, `<bow>2 ON P2`, `<heal>2`, whichever it has
+(`tg_preview`). The targets are the ENGINE'S: `tr_mtarget` and `tr_rtarget`
+with the character's PIERCE and stance, run on the planner's board, and the
+damage is `tr_melee`/`tr_ranged` with the rear bonus - so the preview cannot
+disagree with the resolution about anything the board already says. What it
+cannot know is the other plan: an opponent's play, swap or order lands after
+it, which is the game (§6.3). A character that does nothing keeps the old
+line, its power and its ability; the ability of one that does is the full
+card's to say (§101.12.10.8).
+
+**The cells its hits land in have their numbers INVERTED**, the armed order's
+look (§101.12.10.2), for as long as the pointer rests there (`tg_pv_show`):
+set when the status line is drawn, the first frame the pointer stays put
+(§101.4.12.1), and put back the frame it moves - so a sweep across the board
+costs no cell a frame.
+
+**THE ENLARGED FONT IS NOT BUILT.** The owner asked for it where the budget
+allows, and the status line is a strip one face tall inside the HUD: a larger
+face needs either a taller strip, which comes out of the board's rows on every
+adapter, or a box over the board, which - like the full card - stops the
+wheel under it while it is up. Both are a layout decision rather than a
+drawing one, and are the owner's.

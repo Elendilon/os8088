@@ -65,3 +65,12 @@ instrument fptest      # SPEC.md 64. The floating-point gate. Not even built
 local      drmario     # SPEC.md 99. DrMarco retains user-supplied NES cell tiles.
                        # make drmarco / drmarcodisk build DRMARCO.O88 and four
                        # standalone disks; the source directory stays drmario.
+
+construction tithe   # SPEC.md 101. TITHE is at WAVE 1a - the renderer, with no
+                     # game behind it: no rules, no cards, no AI and no front
+                     # menu to launch it from. SPEC.md 101.9 is the wave table
+                     # and it ships at WAVE 6, on the floppies and the live
+                     # media together. `make tithedisk` is its own disk until
+                     # then. THIS LINE COMES OUT when it ships, and the gate is
+                     # what makes that happen: putting it on a disk with this
+                     # line standing FAILS.

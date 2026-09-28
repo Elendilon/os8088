@@ -2034,6 +2034,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
         apple2 apple2disk apple2rom a2bandbench a2memtest a2cputest 386-apple2 \
         xt-apple2 286-apple2 \
         weave weavedisk weavevm weavecanvas weavegame weavebandbench \
+        titheband tithequick titherules tithe tithedisk \
         xt-weave 386-weave xt-weave-256 \
         loom loomdisk \
         checkdocs test-fast test-full test-soak clean clean-cc clean-marty distclean
@@ -2151,7 +2152,11 @@ all: checkdocs $(SHIPIMGS) $(BUILD)/wire.o88 $(BUILD)/recorder.o88 \
 # redraw change kept the picture (SPEC.md 12.9's argument). Skipping is right
 # rather than passing the defines through: the other nine tests are about the
 # SHIPPED artifacts, and a knob build is not one.
-test-fast: $(SHIPIMGS) $(WEAVEWABS)
+# `$(BUILD)/tithe.o88` because `stkclass` assembles apps/tithe/tithe.asm from
+# SOURCE, and three of its includes are generated beside the parts it packs:
+# no shipped image carries Tithe, so without it a score change left `stkclass`
+# assembling a stale tisong.inc and failing on a symbol the new one defines.
+test-fast: $(SHIPIMGS) $(WEAVEWABS) $(BUILD)/tithe.o88
 ifeq ($(KNOBS),)
 	@OS88_PKGDEFS="$(PKGSBDEF)" python3 tools/os88test.py fast
 else
@@ -10036,6 +10041,224 @@ VENCBOOT := $(addprefix $(BUILD)/,kernel.sys boothd.bin mbr.bin hdd.drv \
                                   ctrl.drv sound.drv hiber.drv)
 $(BUILD)/os8088-encoder.zip: $(BUILD)/video.o88 $(VENCBOOT) tools/os88vbundle.py $(wildcard tools/os88*.py)
 	python3 tools/os88vbundle.py $@ --player $(BUILD)/video.o88 --boot $(BUILD)
+# ...and the fourth, which is not about text at all: TITHEBAND is WAVE 0 of
+# docs/plans/TITHE-PLAN.md (its 3.7), and it is the first thing that plan
+# builds because it decides the ART FORMAT - art drawn before it is art that
+# may have to be redrawn.
+#
+# The plan's whole frame budget rests on ONE derived constant, 6.15 us a band
+# byte, taken from PERFORMANCE.md Set 77's measurement of a 128x128 band. That
+# band is sixteen bytes a ROW and a 56x56 sprite is seven, so a per-byte
+# reading is the mixture most favourable to the plan. This measures the same
+# 392 bytes at 56, 28 and 14 rows, which is the only way the per-row term and
+# the per-byte term come apart - Set 108's own method for gfx_blitp, applied
+# to the primitive TITHE draws with.
+#
+# It also prices all FOUR of gfx_blit1_pen's paths (SPEC.md 5.4.2.2 - the
+# short circuit, the rep, the complementing loop and 5.4.2.2.1's Map Mask
+# split), the four-plane arm at our sizes, the RAM composition and the
+# projectile, and then the only row that answers the brief: 23 features, one
+# update each, against 54.925 ms.
+#
+# RUN IT ON ALL THREE ADAPTERS - they are not one renderer at three sizes.
+# The pen is NOT READ on 1bpp, so its four rows must land on each other there;
+# gfx_blitp REFUSES there, so those rows must report a refusal rather than a
+# fast time. Both are printed in words at the end of the report, because a
+# refusal and a fast row look identical in the microsecond column.
+#
+#   make titheband
+#   python3 tests/titheband.py                             # all three, MartyPC
+#
+# build/titheband360.img is the XT geometry: that is where these numbers are
+# worth taking, because on a 4.77MHz 8088 the PIT is a wall clock and the
+# microsecond column means microseconds.
+$(BUILD)/tithebnd.bin: tests/titheband/titheband.asm tests/benchlib.inc \
+                       apps/os88api.inc tools/benchlint.py | $(BUILD)
+	python3 tools/benchlint.py tests/titheband/titheband.asm
+	$(NASM) -f bin -w+error -I apps/ -I tests/ -o $@ tests/titheband/titheband.asm
+	@echo "tithebnd: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/tithebnd.o88: $(BUILD)/tithebnd.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/tithebnd.bin -o $@
+
+$(BUILD)/titheband.img: $(BUILD)/tithebnd.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/tithebnd.o88
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/titheband360.img: $(BUILD)/tithebnd.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/tithebnd.o88
+	@python3 tools/os88disk.py --verify $@
+
+titheband: $(BUILD)/titheband.img $(BUILD)/titheband360.img
+
+# --- TITHE's RULES ENGINE against its simulator (SPEC.md 101.11) --------------
+#   make titherules
+#   python3 tests/titherules.py
+#
+# The card table is ONE source, apps/tithe/cards.txt, and both readers are
+# generated from it: apps/tithe/ticards.inc for the machine and
+# tools/duelsim.py's import for the host. build/tirmatch.bin is the set of
+# match files `duelsim.py bake` chose so that every keyword fires, and the
+# harness replays one a keypress and leaves its state records in its segment
+# for the test to compare with the simulator's.
+apps/tithe/ticards.inc: tools/os88tithecards.py apps/tithe/cards.txt
+	python3 tools/os88tithecards.py emit
+
+$(BUILD)/tirmatch.bin: tools/duelsim.py tools/os88tithecards.py \
+                       apps/tithe/cards.txt | $(BUILD)
+	python3 tools/duelsim.py bake $@
+
+$(BUILD)/titherul.bin: tests/titherule/titherule.asm apps/tithe/tirule.inc \
+                       apps/tithe/ticards.inc $(BUILD)/tirmatch.bin \
+                       apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/tithe/ -I $(BUILD)/ -o $@ \
+	    tests/titherule/titherule.asm
+	@echo "titherul: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/titherul.o88: $(BUILD)/titherul.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/titherul.bin -o $@
+
+$(BUILD)/titherule360.img: $(BUILD)/titherul.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/titherul.o88
+	@python3 tools/os88disk.py --verify $@
+
+titherules: $(BUILD)/titherule360.img
+
+# --- TITHE (SPEC.md 101), the two-player card duel ----------------------------
+# **WAVE 1a: the renderer with no game behind it** - the layout table, the
+# board, the band composer and the pacing wheel, driven by a fixed board and a
+# few keys. SPEC.md 101.9 is the wave table, and the package is on
+# tests/unit/t_livefull.py's exemption list until wave 6 puts a menu on it.
+#
+# NOT IN `all`, and on no shipped floppy: `make tithe` builds the package and
+# `make tithedisk` a disk of its own in all four geometries (SPEC.md 19's rule
+# reaches the on-demand application disks too). The 360KB one is the geometry
+# that binds - 354 clusters is what the art budget is written against
+# (docs/plans/TITHE-PLAN.md 1.5) - and the 1.44MB one is where a colour bank
+# would go (its 4.2.1.2).
+# TITHE's base art is GENERATED (SPEC.md 101.2.1): tools/os88tithebase.py draws
+# the candidates on the host and emits the bands this includes, so the art has
+# one source and the .inc is never hand-edited. It is committed like any other
+# generated file, so a tree with no Python change rebuilds nothing.
+# THE ART ITSELF IS A PART (SPEC.md 101.8): one run writes both, keyed on the
+# tool - tiart's idiom - and the .inc carries only the counts and the names.
+$(BUILD)/tibase.bin: tools/os88tithebase.py | $(BUILD)
+	python3 tools/os88tithebase.py emit --bin $@
+apps/tithe/tibases.inc: $(BUILD)/tibase.bin ;
+
+# ...and so are its FACES (SPEC.md 101.4.1): the package draws its own text, so
+# tools/os88titheface.py packs fonts/*.f* into 48 consecutive glyphs a face.
+# THE .bin DEPENDS ON BOTH. It did not, and an edited face then assembled into
+# an up-to-date package that was never rebuilt - which reads exactly like a
+# glyph change that did nothing, and cost a screenshot round to find.
+apps/tithe/tifaces.inc: tools/os88titheface.py fonts/tallx.f8 fonts/tithe6.f6
+	python3 tools/os88titheface.py emit
+
+# ...and the CHARACTERS (SPEC.md 101.4.9): bodies and items as pixel art, the
+# card manifest and the dirty rows - a PART of TITHE.O88 (SPEC.md 20.12), with
+# the offsets the package reads it by in apps/tithe/tiart.inc. The part is
+# built; the .inc is committed, like every other generated file here.
+#
+# ONE RUN WRITES BOTH, so the .bin carries the recipe and the .inc is up to
+# date once the .bin is - os88net.lz's idiom, without a 4.3 grouped target.
+# THE .bin IS KEYED ON THE GENERATOR, NOT ON THE .inc. It was `test -f $@ ||`
+# under the committed .inc, which regenerates a MISSING part and never a STALE
+# one: a soak's private tree (build/trees/, docs/plans/SOAK-PARALLEL.md 8)
+# kept the part it was first built with while the package was assembled
+# against the .inc a later commit brought, and every TITHE row on the machine
+# drew nothing - seven of them at once, reading like a broken worker.
+$(BUILD)/tiart.bin: tools/os88tithechar.py tools/os88tithebase.py \
+                    tools/os88tithecards.py apps/tithe/cards.txt | $(BUILD)
+	python3 tools/os88tithechar.py emit --bin $@
+apps/tithe/tiart.inc: $(BUILD)/tiart.bin ;
+
+# ...and the BOARD's ground (SPEC.md 101.4.10): per-column textures and the
+# wall, fence and cliff patterns the package composes its column strips from.
+
+apps/tithe/tiground.inc: tools/os88tithebg.py
+	python3 tools/os88tithebg.py emit
+
+# ...and the MUSIC (SPEC.md 101.10, TITHE-PLAN 13): the scores in
+# apps/tithe/music/ packed into a second PART, with the offsets and the song
+# names the sequencer reads it by in apps/tithe/tisong.inc. tiart's shape, and
+# its reason: the .bin is keyed on the tool and the scores, never on the .inc.
+# `python3 tools/os88tithemus.py wav` renders both arms on the host.
+TITHEMUS := $(wildcard apps/tithe/music/*.tmu) apps/tithe/music/bank.tmb
+
+$(BUILD)/timus.bin: tools/os88tithemus.py $(TITHEMUS) | $(BUILD)
+	python3 tools/os88tithemus.py emit --bin $@
+apps/tithe/tisong.inc: $(BUILD)/timus.bin ;
+
+# TICARDPROF=1 times each STAGE of one card's composition with the PIT and
+# banks the counts (SPEC.md 101.4.1.1). It is a knob rather than a counter
+# because what it had to settle was WHICH STAGE: a hover cost two frames and
+# every whole-frame A/B answered "the card draw", which is a routine and not a
+# cause. It is not stamp-tracked, so `make tithedisk TICARDPROF=1` after a
+# plain build needs the .bin removing first - it builds no shipped image.
+TITHEDEF := $(if $(TICARDPROF),-DTICARDPROF,)
+
+$(BUILD)/tithe.bin: apps/tithe/tithe.asm apps/tithe/tilay.inc \
+                    apps/tithe/tirend.inc apps/tithe/ticard.inc \
+                    apps/tithe/tipj.inc apps/tithe/ticl.inc apps/tithe/tirv.inc apps/tithe/tifull.inc \
+                    apps/tithe/tibases.inc apps/tithe/tifaces.inc \
+                    apps/tithe/tiart.inc apps/tithe/tiground.inc \
+                    apps/tithe/tiplace.inc apps/tithe/titxt.inc \
+                    apps/tithe/tisong.inc apps/tithe/timus.inc \
+                    apps/tithe/ticards.inc apps/tithe/tirule.inc \
+                    apps/tithe/tigame.inc \
+                    apps/os88parts.inc apps/os88partsbody.inc \
+                    apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error $(TITHEDEF) -I apps/ -I apps/tithe/ -o $@ apps/tithe/tithe.asm
+	@echo "tithe: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/tithe.o88: $(BUILD)/tithe.bin $(BUILD)/tiart.bin $(BUILD)/timus.bin \
+                    $(BUILD)/tibase.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/tithe.bin -o $@ --part $(BUILD)/tiart.bin \
+	    --part $(BUILD)/timus.bin --part $(BUILD)/tibase.bin
+
+tithe: $(BUILD)/tithe.o88
+
+TITHEFILES := $(BUILD)/tithe.o88
+
+$(BUILD)/tithe.img: $(TITHEFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(TITHEFILES)
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/tithe120.img: $(TITHEFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1200 $(TITHEFILES)
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/tithe720.img: $(TITHEFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 720 $(TITHEFILES)
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/tithe360.img: $(TITHEFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(TITHEFILES)
+	@python3 tools/os88disk.py --verify $@
+
+tithedisk: $(BUILD)/tithe.img $(BUILD)/tithe120.img \
+           $(BUILD)/tithe720.img $(BUILD)/tithe360.img
+
+# ...and the SIGHTING arm. The counts in titheband.asm are sized against what
+# a band costs, which is the thing under test - so a first run whose counts
+# came from the plan's own figure takes as long as the plan is wrong. -DTBQUICK
+# is the same rows at a handful of iterations each: a couple of guest seconds,
+# numbers too coarse to quote, and exactly good enough to size the real run and
+# to prove the path works before anybody waits on it.
+$(BUILD)/tithebnq.bin: tests/titheband/titheband.asm tests/benchlib.inc \
+                       apps/os88api.inc tools/benchlint.py | $(BUILD)
+	python3 tools/benchlint.py tests/titheband/titheband.asm
+	$(NASM) -f bin -w+error -DTBQUICK -I apps/ -I tests/ -o $@ tests/titheband/titheband.asm
+	@echo "tithebnq: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/tithebnq.o88: $(BUILD)/tithebnq.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/tithebnq.bin -o $@
+
+$(BUILD)/tithequick360.img: $(BUILD)/tithebnq.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/tithebnq.o88
+	@python3 tools/os88disk.py --verify $@
+
+tithequick: $(BUILD)/tithequick360.img
 
 # ...and the one that shows a FACE rather than timing one: it draws the same
 # sentence through the kernel, through face 0, and through both of the
