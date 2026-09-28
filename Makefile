@@ -13665,3 +13665,48 @@ clean-nasm3:
 	rm -rf $(BUILD)/nasm3
 
 distclean: clean clean-marty clean-cc clean-nasm3
+
+# Native DrMarco. NES cell tiles remain local; original surround is committed.
+DRMARIO_SOURCE ?= ../NES-Games-Disassembly/Dr. Mario
+.PHONY: drmarco drmarcodisk drmario drmariodisk drmario-assets drmario-source-check
+drmario-source-check:
+drmario-assets: | $(BUILD)
+	python3 tools/drmario_assets.py "$(DRMARIO_SOURCE)" $(BUILD)/drmario-art
+	python3 tools/drmario_audio.py "$(DRMARIO_SOURCE)" $(BUILD)/drmario-art
+
+$(BUILD)/drmario-art/dm-tables.inc: tools/drmario_assets.py apps/drmario/art/drmarco-screen.png apps/drmario/art/drmarco-splash.png drmario-source-check | $(BUILD)
+	python3 tools/drmario_assets.py "$(DRMARIO_SOURCE)" $(BUILD)/drmario-art
+
+$(BUILD)/drmario-art/dm-music.inc: tools/drmario_audio.py drmario-source-check | $(BUILD)
+	python3 tools/drmario_audio.py "$(DRMARIO_SOURCE)" $(BUILD)/drmario-art
+
+# The graphics compiler emits these alongside dm-tables.inc; the phony source
+# check above refreshes the complete set, including a deleted side output.
+$(BUILD)/drmario-art/dm-anim-vga.inc $(BUILD)/drmario-art/dm-anim-cga.inc: $(BUILD)/drmario-art/dm-tables.inc
+
+$(BUILD)/drmario.bin: apps/drmario/drmario.asm apps/drmario/front.inc apps/drmario/audio.inc $(BUILD)/drmario-art/dm-music.inc $(BUILD)/drmario-art/dm-anim-vga.inc $(BUILD)/drmario-art/dm-anim-cga.inc apps/drmario/game.inc apps/drmario/video.inc apps/drmario/anim.inc apps/os88api.inc apps/os88ui.inc apps/os88alt.inc $(BUILD)/drmario-art/dm-tables.inc
+	$(NASM) -f bin -w+error -I apps/ -I apps/drmario/ -I $(BUILD)/drmario-art/ -l $(BUILD)/drmario.lst -o $@ $<
+
+$(BUILD)/drmarco.o88: $(BUILD)/drmario.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $< -o $@
+
+drmarco: $(BUILD)/drmarco.o88
+drmario: drmarco
+
+DM_FRONT_FILES := $(BUILD)/drmario-art/DRMARCO.VGA $(BUILD)/drmario-art/DRMARCO.CGA $(BUILD)/drmario-art/DRMARCO.HRC
+$(DM_FRONT_FILES): $(BUILD)/drmario-art/dm-tables.inc
+
+$(BUILD)/drmario.img: $(BUILD)/drmarco.o88 apps/drmario/README.md $(DM_FRONT_FILES)
+	python3 tools/os88disk.py -o $@ --size 1440 $^
+	python3 tools/os88disk.py --verify $@
+$(BUILD)/drmario720.img: $(BUILD)/drmarco.o88 apps/drmario/README.md $(DM_FRONT_FILES)
+	python3 tools/os88disk.py -o $@ --size 720 $^
+	python3 tools/os88disk.py --verify $@
+$(BUILD)/drmario120.img: $(BUILD)/drmarco.o88 apps/drmario/README.md $(DM_FRONT_FILES)
+	python3 tools/os88disk.py -o $@ --size 1200 $^
+	python3 tools/os88disk.py --verify $@
+$(BUILD)/drmario360.img: $(BUILD)/drmarco.o88 apps/drmario/README.md $(DM_FRONT_FILES)
+	python3 tools/os88disk.py -o $@ --size 360 $^
+	python3 tools/os88disk.py --verify $@
+drmariodisk: drmarcodisk
+drmarcodisk: $(BUILD)/drmario.img $(BUILD)/drmario720.img $(BUILD)/drmario120.img $(BUILD)/drmario360.img
