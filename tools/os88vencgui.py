@@ -165,6 +165,14 @@ TAB_NOTES = {
               "charges the copy - its disk slows as the decode and the "
               "speaker take the machine, so fewer bytes a frame are "
               "planned."}
+# WHERE THE WINDOW STARTS, where that is not the encoder's own default: the
+# speaker's NATURAL style (98.2.15.1), the owner's choice for the window -
+# the command line keeps LIFTED, and the window says --spk-style natural
+FORM_DEFAULT = {"spk_style": "natural"}
+# the speaker style's three numbers (os88vid.SPK_STYLES): the parser's
+# default is None, "the style's", so the window shows the style's own
+STYLE_FIELDS = (("spk_highpass", "hp"), ("spk_ratio", "ratio"),
+                ("spk_range", "rng"))
 # what the window runs itself, and so does not offer
 HIDDEN = {"help", "src", "out", "preview_png", "quiet", "profiles",
           "progress"}
@@ -196,6 +204,24 @@ def fields():
     return out
 
 
+def style_values(style=None):
+    """What a speaker STYLE sets (98.2.15.1): its high-pass, ratio and
+    range as the window shows them - dest -> string"""
+    st = vid.SPK_STYLES.get(str(style or "").strip() or vid.SPK_STYLE,
+                            vid.SPK_STYLES[vid.SPK_STYLE])
+    return {d: "%g" % st[k] for d, k in STYLE_FIELDS}
+
+
+def form_start():
+    """The form as the window opens it: every field's default, the
+    window's own where it has one (FORM_DEFAULT), and the style's numbers
+    filled in - dest -> string"""
+    vals = {f["dest"]: f["default"] for f in fields()}
+    vals.update(FORM_DEFAULT)
+    vals.update(style_values(vals.get("spk_style")))
+    return vals
+
+
 def choice_lines(f, current=""):
     """(value, what it is, is it the one chosen) for a choice field, in
     the field's own order: what its "?" shows (os88venc.CHOICE_HELP)"""
@@ -224,6 +250,8 @@ def argv_from(src, out, values, sfps=None):
     # without it - or a --pixfmt cgacomp would echo back as its own
     # implication and be left off, and the file come out one-bit
     imp["pixfmt"] = implied_values(dict(values, pixfmt=""), sfps)["pixfmt"]
+    # ...and the speaker style's numbers, which the window shows filled
+    imp.update(style_values(values.get("spk_style")))
     for f in fields():
         v = str(values.get(f["dest"], "")).strip()
         if f["kind"] == "bool":
@@ -1052,6 +1080,8 @@ class App(object):
                 self.apply_implied()
             elif f["dest"] == "audio":
                 self.apply_audio()
+            elif f["dest"] == "spk_style":
+                self.apply_style()
             top.destroy()
         for i, (c, what, on) in enumerate(choice_lines(f, v.get()), 1):
             b = ttk.Button(fr, text=c, width=14,
@@ -1101,6 +1131,7 @@ class App(object):
         root.after(100, self._pump)
 
     def _build(self):
+        start = form_start()            # the form as it opens
         top = ttk.Frame(self.root, padding=8)
         top.pack(fill="both", expand=True)
         # the preview's column is packed FIRST, so a narrow window squeezes
@@ -1175,11 +1206,11 @@ class App(object):
                 v = tk.StringVar(value="")
                 w = ttk.Checkbutton(p, variable=v, onvalue="1", offvalue="")
             elif f["kind"] == "choice" or f["choices"]:
-                v = tk.StringVar(value=f["default"])
+                v = tk.StringVar(value=start[f["dest"]])
                 w = ttk.Combobox(p, textvariable=v, values=f["choices"],
                                  width=fw)
             else:
-                v = tk.StringVar(value=f["default"])
+                v = tk.StringVar(value=start[f["dest"]])
                 w = ttk.Entry(p, textvariable=v, width=fw + 2)
             w.grid(row=r, column=c0 + 1, sticky="w", padx=4, pady=1)
             if f["dest"] in IMPLYING:
@@ -1188,6 +1219,9 @@ class App(object):
             elif f["dest"] == "audio":
                 w.bind("<<ComboboxSelected>>",
                        lambda e: self.apply_audio())
+            elif f["dest"] == "spk_style":
+                w.bind("<<ComboboxSelected>>",
+                       lambda e: self.apply_style())
             Tip(lab, f["tip"])
             Tip(w, f["tip"])
             if f["dest"] in SAVE_FILE:  # A FILE IT WRITES: chosen, not typed
@@ -1473,6 +1507,12 @@ class App(object):
         elif rate.get() == str(V.SPK_RATE):
             vals = {k: v.get() for k, v in self.vars.items()}
             rate.set(implied_values(vals, self.sfps)["rate"])
+
+    def apply_style(self):
+        """The speaker's style changed by hand: its high-pass, ratio and
+        range are shown as the encode will use them (98.2.15.1)"""
+        for k, v in style_values(self.vars["spk_style"].get()).items():
+            self.vars[k].set(v)
 
     def browse_v88(self):
         if self.busy:

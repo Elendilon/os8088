@@ -14,7 +14,11 @@ so it is checked here with no Tk at all:
    the window's "?" beside the field, and no line names a value that is not
    one - so a preset or layout added tomorrow cannot arrive unexplained.
 2. THE DEFAULTS ARE THE ENCODER'S: the form left alone makes a command line
-   that parses to the parser's own defaults, option for option.
+   that parses to the parser's own defaults, option for option - but for
+   the window's own starting choices (FORM_DEFAULT: the speaker's NATURAL
+   style), each of which it says. The style's high-pass, ratio and range
+   are SHOWN filled and stay off the command line while they are the
+   style's, for either style - and one changed by hand is on it.
 3. EVERY TARGET ENCODES: each "made for" choice, on a second of ffmpeg's
    testsrc2, is a file os88vid verifies, of the format and layout it says -
    and a Live one a live file naming its screen.
@@ -119,14 +123,38 @@ def main():
         if lst:
             bad.append("options %s: %s" % (what, " ".join(lst)))
     # --- 2
-    vals = {f["dest"]: f["default"] for f in fl}
+    vals = G.form_start()
     a = V.parser().parse_args(G.argv_from("in.mp4", "out.V88", vals))
     d = V.parser().parse_args(["in.mp4", "out.V88"])
-    diff = [k for k in vars(d) if getattr(a, k) != getattr(d, k)]
+    diff = [k for k in vars(d) if getattr(a, k) != getattr(d, k)
+            and str(getattr(a, k)) != G.FORM_DEFAULT.get(k)]
     print("   the untouched form: %d options differ from the parser's "
-          "defaults" % len(diff))
+          "defaults, besides the window's own %s"
+          % (len(diff), " ".join("--%s %s" % (k.replace("_", "-"), v)
+                                 for k, v in G.FORM_DEFAULT.items())))
     if diff:
         bad.append("the untouched form changes %s" % " ".join(diff))
+    for k, v in G.FORM_DEFAULT.items():
+        if str(getattr(a, k)) != v:
+            bad.append("the untouched form does not say --%s %s"
+                       % (k.replace("_", "-"), v))
+    for style in sorted(vid.SPK_STYLES):
+        sv = G.style_values(style)
+        st = vid.SPK_STYLES[style]
+        shown = dict(vals, spk_style=style, **sv)
+        a = V.parser().parse_args(G.argv_from("in.mp4", "o.V88", shown))
+        on = [dst for dst, _ in G.STYLE_FIELDS
+              if getattr(a, dst) is not None]
+        wrong = [dst for dst, k in G.STYLE_FIELDS
+                 if float(sv[dst]) != st[k]]
+        a = V.parser().parse_args(G.argv_from(
+            "in.mp4", "o.V88", dict(shown, spk_highpass="333")))
+        print("   style %s shows %s" % (style, " ".join(
+            "%s %s" % (dst, sv[dst]) for dst, _ in G.STYLE_FIELDS)))
+        if on or wrong or a.spk_highpass != 333:
+            bad.append("style %s: %s on the command line, %s shown wrong, "
+                       "a changed high-pass read as %s"
+                       % (style, on, wrong, a.spk_highpass))
     # --- 6: a target shows what it is, and says it briefly
     for i, t in enumerate(G.TARGETS):
         full = G.target_fill(i, 30.0)

@@ -152737,6 +152737,16 @@ the two; ratio 3, range 30, a cut at 200 - **"pretty good"**. The owner
 asked for both to be offered: that is `lifted` and `natural` above, the
 first the default.
 
+**The encoder's window starts at `natural`** (2026-09-28, the owner's
+choice for the window; the command line keeps `lifted`). So a form left
+alone says `--spk-style natural`, and it SHOWS the style's three numbers in
+their fields - 250, 2 and 24, or 200, 3 and 30 when the style is changed
+to `lifted` - the way 98.2.10 shows what a preset implies. `argv_from`
+leaves them off while they are still the style's, so the command line
+stays the one that says the same thing and a number typed over one is on
+it. `tests/vencguitest.py` leg 2 is the gate, and goes red with them
+put on the command line.
+
 A synthetic clip of a loud 60 Hz bass and a quiet 880 Hz line measures it
 the other way round: the line −43.0 dB → −5.4 dB of full scale, the bass
 −21.9 → −65.8. `--spk-shape off` takes the sound as it is, which is what every
