@@ -66,6 +66,20 @@ DSK_B_HEADS  equ 26              ; BPB_NumHeads (word)
 %else
   %define LBARES resw           ; ...or the 16 it always was
 %endif
+; --- A HARD-DISK BOOT ASKS THE CYLINDER QUESTION ITSELF (SPEC.md 18.93.4) -----
+; boot_cylrun is the FLOPPY boot sector's finding, and a machine that boots off
+; its hard disk never runs that sector - so it read 0 for the whole session and
+; every floppy transfer on an INSTALLED machine went a track at a time. kern_big
+; only: kern_small ships no HDD.DRV and so never boots from one, and kern_dos
+; inherits the verdict through KDL_CYLRUN and asks nothing of its own.
+%ifdef KERN_BIG
+ %ifndef KD_BUILD
+  %ifndef TRACK_RUN
+   %define OS88_CYLPROBE
+  %endif
+ %endif
+%endif
+DSK_CYLTRIES equ 4              ; undecided probes before the question closes
 %macro DSK_RD1D 1               ; one sector into dsk_secbuf, its LBA the
   %ifdef OS88_BIGVOL            ; (d)word at %1
     mov bx, %1
@@ -354,6 +368,17 @@ dsk_cylrun:  db 0                ; may a transfer run cross a HEAD on this
                                  ; the boot sector's canary; 0 until then, so
                                  ; the cautious answer is the one in force
                                  ; before anybody has asked
+%ifdef OS88_CYLPROBE
+dsk_cyltry:  db 0                ; SPEC.md 18.93.4: probes left before the
+                                 ; question closes unanswered. dsk_boot_from's
+                                 ; HARD arm opens it and nothing else does, so
+                                 ; a floppy boot - whose loader already
+                                 ; answered - never probes
+dsk_cylprb:  db 0                ; ...and THIS call: 0 = not a probe; 1..17 =
+                                 ; it crosses, after that many sectors; 0FFh =
+                                 ; the one call after an undecided probe, which
+                                 ; goes track-bound (spent by dsk_cylarm)
+%endif
 disk_nfiles: dw 0                ; file count, valid after a good mount
 
 ; The diskette parameter table (SPEC.md 18.92) - int 1Eh's, ours from
@@ -1567,9 +1592,18 @@ dsk_xfer:
     push ax                     ; the head, wanted for DH below
 %ifndef TRACK_RUN
     cmp byte [dsk_cylrun], 0    ; ...but ONLY on a machine whose FDC was seen
-    je .runtrk_only             ; to do it (SPEC.md 18.93.1). The boot sector
-                                ; settled that with a canary before we ran, so
-                                ; there is no probe to pay for here
+%ifdef OS88_CYLPROBE            ; to do it (SPEC.md 18.93.1). The boot sector
+    jne .cylok                  ; settled that with a canary before we ran...
+    cmp byte [dsk_cyltry], 0    ; ...unless it never ran, which is a hard-disk
+    je .runtrk_only             ; boot (SPEC.md 18.93.4): then THIS transfer
+    cmp byte [dsk_cylprb], 0    ; may be the canary - not straight after an
+    jne .runtrk_only            ; undecided one (0FFh), and only where
+    cmp byte [cpu_tier], CPU_8086   ; 18.93.2's gate would have let the loader
+    jne .runtrk_only            ; ask: a 286 keeps the track bound unasked
+.cylok:
+%else
+    je .runtrk_only
+%endif
     ; ...to the end of the CYLINDER (SPEC.md 18.91.1): the FDC's multi-track
     ; bit carries a run onto the other head at EOT, so the bound a CHS call
     ; must not cross is the cylinder and not the track. That is
@@ -1629,6 +1663,9 @@ dsk_xfer:
 .runtrk:
     mov bp, ax
     call dsk_runcap             ; BP = min(BP, what the BUFFER allows)
+%ifdef OS88_CYLPROBE
+    call dsk_cylarm             ; ...and is THIS run the canary? (18.93.4)
+%endif
 %ifdef FLOPPY_ONE
     mov bp, 1                   ; FLOPPY1=1: one sector a call, the pre-18.91
                                 ; transfer, for A/B-ing this on real iron
@@ -1749,6 +1786,14 @@ dsk_xfer:
                                 ; assemble (fprog.inc's idiom, for its reason)
 
 .ok:
+%ifdef OS88_CYLPROBE
+    cmp byte [dsk_cylprb], 0    ; a crossing run on a machine that has not
+    je .okrun                   ; answered yet (SPEC.md 18.93.4) is checked
+    call dsk_cylchk             ; before a byte of it is believed - and one
+    jnc .okrun                  ; whose far-head half is not trusted is made
+    jmp .sector                 ; AGAIN, from the same LBA, on the track bound
+.okrun:
+%endif
     ; CF=0 IS the BIOS saying the whole request completed, and AL is not.
     ;
     ; This used to advance by AL, on the reasoning that a real BIOS reports
@@ -1822,6 +1867,150 @@ dsk_xfer:
 %endif
     dec byte [sch_lock]         ; outer pin's (dec and pop leave CF alone, and
     jmp kretc_bp
+
+%ifdef OS88_CYLPROBE
+; -----------------------------------------------------------------------------
+; dsk_cylarm - is the run about to be issued the CANARY? (SPEC.md 18.93.4)
+; in:  BP = the run, DX = the start sector's index in its track, ES:BX = the
+;      buffer; the gate above has already decided a crossing is allowed
+; out: [dsk_cylprb] = 0, or the sectors before the head flip when the run
+;      crosses one on a machine that has no verdict yet. All registers kept
+;
+; It also POISONS the first sector past the flip with a uniform byte, so a
+; call that answers CF=0 without having moved it cannot leave the right bytes
+; there by accident - a cache slot refilled with the sector it held last would
+; otherwise pass. dsk_cylsum calls a uniform sector undecided, never good.
+; -----------------------------------------------------------------------------
+dsk_cylarm:
+    mov byte [dsk_cylprb], 0    ; spends a 0FFh hold too: that call was the
+    cmp byte [dsk_cylrun], 0    ; track-bound one it asked for
+    jne .out                    ; a verdict is in and it was yes
+    push ax
+    mov ax, [disk_spt]
+    sub ax, dx                  ; sectors on this head, from the start sector
+    cmp bp, ax
+    jbe .pop                    ; the run stays on it: nothing to check
+    mov [dsk_cylprb], al
+    push cx
+    push di
+    mov cl, 9
+    shl ax, cl
+    mov di, bx
+    add di, ax                  ; ES:DI -> the first sector past the flip
+    mov cx, 256
+    mov ax, 0xA5A5
+    cld
+    rep stosw
+    pop di
+    pop cx
+.pop:
+    pop ax
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; dsk_cylchk - did the crossing run bring back the right sector? (18.93.4)
+; in:  the int 13h call just answered CF=0; ES:BX = its buffer, CX/DH = its
+;      CHS, [dsk_cylprb] = the sectors before the flip, [dsk_unit] its drive
+; out: CF=0 = trust the run. CF=1 = do not: the caller issues it again from
+;      the same LBA, and the gate sends that call track-bound. All registers
+;      kept
+;
+; The first sector past the flip is fingerprinted, READ AGAIN ON ITS OWN into
+; the same bytes and fingerprinted again. The single-sector read cannot cross
+; anything, so it is the truth, and it also leaves the right bytes in the
+; caller's buffer whatever the verdict. Three answers:
+;
+;   equal, and the sector is not one byte repeated  YES - the cylinder bound
+;       for the rest of the session, and in boot_cylrun so every later mount
+;       (and a kern_dos handoff, KDL_CYLRUN) inherits it
+;   different, or the re-read failed                NO - for good, as a failed
+;       boot canary is: this FDC does not flip heads, and the call is redone
+;   one byte repeated                               UNDECIDED - a blank or
+;       freshly formatted sector matches whatever wrong sector a failing FDC
+;       substituted, so it proves nothing. Redone track-bound, and the next
+;       crossing asks again, DSK_CYLTRIES times at most
+; -----------------------------------------------------------------------------
+dsk_cylchk:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov si, cx                  ; the call's CH/CL, banked across the shift
+    mov al, [dsk_cylprb]
+    xor ah, ah
+    mov cl, 9
+    shl ax, cl
+    add bx, ax                  ; ES:BX -> the first sector past the flip
+    call dsk_cylsum
+    jc .undecided
+    push ax                     ; the crossing run's fingerprint
+    mov cx, si
+    and cl, 0xC0                ; cylinder bits 9:8 stay (0 on a floppy)...
+    or cl, 1                    ; ...sector 1...
+    inc dh                      ; ...of the next head: where the FDC flipped to
+    mov dl, [dsk_unit]
+    mov ax, 0x0201
+%ifdef DISK_COUNTERS
+    inc word [dsk_dbg_i13]
+%endif
+    CURXFER_ON
+    int 0x13
+    CURXFER_OFF
+    pop cx
+    jc .no
+    call dsk_cylsum
+    jc .no                      ; uniform now and not before: not one sector
+    cmp ax, cx
+    jne .no
+    mov byte [dsk_cylrun], 1    ; YES
+    mov word [boot_cylrun], 1
+    mov byte [dsk_cyltry], 0
+    clc
+    jmp short .out
+.undecided:
+    dec byte [dsk_cyltry]       ; DSK_CYLTRIES of these and the question closes
+    mov byte [dsk_cylprb], 0xFF ; ...and the redo goes track-bound
+    stc
+    jmp short .out
+.no:
+    mov byte [dsk_cyltry], 0    ; NO, for the session
+    stc
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; dsk_cylsum - a sector's fingerprint: Fletcher's two running sums, mod 256
+; in:  ES:BX -> 512 bytes
+; out: AX = the fingerprint; CF=1 = every byte equals the first. BX, CX, DX kept
+dsk_cylsum:
+    push bx
+    push cx
+    push dx
+    xor ax, ax
+    mov dl, [es:bx]             ; the first byte, the one every other is
+    xor dh, dh                  ; held against: DH = 1 once one differs
+    mov cx, 512
+.byte:
+    add al, [es:bx]
+    add ah, al
+    cmp dl, [es:bx]
+    je .same
+    mov dh, 1
+.same:
+    inc bx
+    loop .byte
+    cmp dh, 1                   ; CF=1 exactly when DH = 0: none differed.
+    pop dx                      ; `pop` writes no flag
+    pop cx
+    pop bx
+    ret
+%endif                          ; OS88_CYLPROBE
 
 ; -----------------------------------------------------------------------------
 ; dsk_runcap - cap a transfer run to what the BUFFER allows (SPEC.md 18.91)
@@ -1997,6 +2186,12 @@ dsk_boot_from_x:
 .hard:
     mov si, bx                  ; the base is banked BEFORE BX becomes the row
                                 ; walker - SI:CX for the rest of the routine
+%ifdef OS88_CYLPROBE
+    mov byte [dsk_cyltry], DSK_CYLTRIES ; no floppy loader ran, so nobody has
+                                ; asked whether a run may cross a head: the
+                                ; first floppy read that would is the canary
+                                ; (SPEC.md 18.93.4)
+%endif
 
     ; --- the drive's geometry, while we still know which drive it is --------
     ; int 13h AH=08h, the same question boot/boothd.asm asks and for the same

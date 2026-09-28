@@ -3162,6 +3162,24 @@ SOAK = [
         "defect.",
         needs=("marty",), serial=True,
         wants=("build/dosmou360.img",)),
+    Row("cylprobe", "soak", py("tests/cylprobe.py"), 70.0,
+        "A HARD-DISK BOOT EARNS THE FLOPPY CYLINDER RUN TOO (SPEC.md "
+        "18.93.4). boot_cylrun is the FLOPPY boot sector's canary, so a "
+        "machine booted off its hard disk read 0 all session and every "
+        "floppy transfer on an installed machine went a track at a time - "
+        "the owner's 100KB copy from a floppy to C: took 17 seconds. The "
+        "kernel now probes at its first crossing read; this drives the "
+        "user's own Copy/Paste on an os8088_xt_hdd booted off a fixture VHD "
+        "in three arms - YES (random data: one probe, the verdict, an "
+        "18-sector call), NO (two sectors past the flip corrupted at the "
+        "breakpoint, as a failing FDC hands them back: the verdict, the run "
+        "redone, track-bound from then on) and UNDECIDED (a file of zeros "
+        "proves nothing: four probes and the question closes) - and reads "
+        "the copy back off the VHD on the host every time. VERIFIED TO FAIL "
+        "both ways: a verdict forced YES leaves the corrupted byte in the "
+        "copy on C:, and a boot that never opens the question reads with a "
+        "longest run of 9. Measured 65s for the three arms.",
+        needs=("marty",)),
     Row("kdhdd", "soak", py("tests/kdhdd.py"), 25.0,
         "THE FIXED DISK IS A VOLUME UNDER kern_dos, AND A PROGRAM READS ITS "
         "OWN DRIVE (SPEC.md 96.46). Two defects with one instrument: the "
