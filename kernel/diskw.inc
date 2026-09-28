@@ -431,6 +431,50 @@ dskw_dfree_x:
     ret
 
 ; -----------------------------------------------------------------------------
+; dskw_dfree_to - dskw_dfree for a caller asking "is there room for DX:AX?"
+; in:  DX:AX = the bytes wanted
+; out: exactly dskw_dfree's - but on a windowed FAT (a hard disk) the count
+;      may STOP as soon as it passes what was wanted, so DX:AX is then a LOWER
+;      BOUND that already covers the request. Short of it, it is exact
+; clobbers: AX/BX/DX (the outputs), CF
+;
+; SPEC.md 22.5.2.1. The copy engine's room check (fcp_room) asked for the
+; whole count and compared it against one file, and on a FAT16 partition the
+; whole count is the whole FAT through a nine-sector window: measured on a
+; 31MB volume, four window loads and ~350 ms of 8088 before a 100KB file was
+; allowed to start - and the last load left the window at the END of the FAT,
+; so the create that followed read the start of it back in. The goal is in
+; CLUSTERS and one past the floor of the request, so any count that reaches it
+; is at least the request in bytes whatever the rounding.
+; -----------------------------------------------------------------------------
+%ifndef OS88_BIGVOL             ; kern_small has no hard disk, and a floppy's
+dskw_dfree_to_x equ dskw_dfree_x ; FAT is resident whole: there is no window
+%else                           ; to stop loading, so the WANT is ignored and
+dskw_dfree_to_x:                ; the answer is the exact count it always was
+    push cx
+    mov cx, 9
+.secs:
+    shr dx, 1                   ; bytes -> whole sectors, in 32 bits
+    rcr ax, 1
+    loop .secs
+    or dx, dx
+    jnz .all                    ; past 32MB of sectors: count it all
+    mov cl, [dsk_spc]           ; CH is 0 from the loop
+    jcxz .all                   ; no geometry: dskw_dfree refuses below anyway
+    div cx                      ; DX = 0, so AX = whole clusters wanted...
+    inc ax                      ; ...plus one, and 0FFFFh + 1 is "all"
+    jnz .goal
+.all:
+    mov ax, 0xFFFF
+.goal:
+    mov [dsk_fcgoal], ax
+    call dskw_dfree_x
+    mov word [dsk_fcgoal], 0xFFFF   ; `mov` leaves CF alone
+    pop cx
+    ret
+%endif                          ; OS88_BIGVOL
+
+; -----------------------------------------------------------------------------
 ; dskw_vstat - the volume's geometry and its free count, in FOUR REGISTERS
 ;              (SPEC.md 18.4.6)
 ; in:  nothing

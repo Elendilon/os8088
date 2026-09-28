@@ -3180,6 +3180,20 @@ SOAK = [
         "copy on C:, and a boot that never opens the question reads with a "
         "longest run of 9. Measured 65s for the three arms.",
         needs=("marty",)),
+    Row("fcproom", "soak", py("tests/fcproom.py"), 70.0,
+        "THE COPY'S ROOM CHECK STOPS COUNTING ONCE THE FILE FITS (SPEC.md "
+        "22.5.2.1). fcp_room asked for the whole free count, which on a "
+        "FAT16 hard disk is the whole FAT through a nine-sector window - "
+        "four window loads and ~350 ms before a 100KB paste could start. "
+        "Three arms of the user's Copy/Paste B: -> C: on os8088_xt_hdd, read "
+        "back off the VHD: EMPTY (at most one hard-disk read between the "
+        "check and the create), FITS (a filler leaves the room at the far "
+        "end of the FAT, so the count cannot stop early and must still pass) "
+        "and FULL (60KB for a 100,000-byte file: FERR_FULL, no create, "
+        "nothing on C:). VERIFIED TO FAIL: the early-out removed reads four "
+        "windows in EMPTY; fcp_room forced to yes runs the create in FULL. "
+        "Measured 66s.",
+        needs=("marty",)),
     Row("kdhdd", "soak", py("tests/kdhdd.py"), 25.0,
         "THE FIXED DISK IS A VOLUME UNDER kern_dos, AND A PROGRAM READS ITS "
         "OWN DRIVE (SPEC.md 96.46). Two defects with one instrument: the "

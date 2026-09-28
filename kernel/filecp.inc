@@ -1680,9 +1680,12 @@ fcp_chunkset:
 ; throwing it away would merely be wasteful; doing the work and leaving
 ; something that looks like the file is the part that costs the user data.
 ;
-; It is free: dskw_dfree answers from the resident FAT snapshot with no disk
-; I/O at all, and the destination volume is current here anyway because the
-; create is the next thing that happens.
+; It costs no volume switch: the destination is current here anyway, because
+; the create is the next thing that happens. It is NOT free on a hard disk,
+; whose FAT is paged through a nine-sector window - which is why it asks
+; dskw_dfree_to with the file's size rather than dskw_dfree for the whole
+; count, and a partition with room stops at the first window (SPEC.md
+; 22.5.2.1). On a floppy the FAT is resident and the count is CPU alone.
 ;
 ; **"I DO NOT KNOW" ANSWERS YES.** A volume whose dfree fails - a redirector
 ; that publishes no FSV_DFREE (SPEC.md 62.9.1) is the real case - falls through
@@ -1698,9 +1701,11 @@ fcp_chunkset:
 ; under any rounding.
 ; -----------------------------------------------------------------------------
 fcp_room:                       ; clobbers AX, BX, DX - its ONE caller reloads
-    FCPX dskw_dfree_x           ; all three between here and the create, so
-    jc .yes                     ; saving them would be four bytes spent on
-    add ax, [fcp_ovwsz]         ; nothing. CX is untouched: [fcp_flen] is
+    mov ax, [fcp_need]          ; all three between here and the create, so
+    mov dx, [fcp_need+2]        ; saving them would be four bytes spent on
+    FCPX dskw_dfree_to_x        ; nothing. The WANT goes in (22.5.2.1): a hard
+    jc .yes                     ; disk's count stops once it covers the file
+    add ax, [fcp_ovwsz]         ; CX is untouched: [fcp_flen] is
     adc dx, [fcp_ovwsz+2]       ; already in it and the create needs it
     jc .yes                     ; the sum wrapped: bigger than any file
     cmp dx, [fcp_need+2]
@@ -2428,7 +2433,7 @@ fcp_pfail:
     FCPXF dskw_append_x
     FCPXF dskw_clbytes
     FCPXF dskw_delete_x
-    FCPXF dskw_dfree_x
+    FCPXF dskw_dfree_to_x
     FCPXF dskw_ent_store
     FCPXF dskw_mkdir_x
     FCPXF dskw_rmtree

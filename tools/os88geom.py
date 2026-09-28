@@ -152,6 +152,9 @@ _MIRROR = {
     # gate blob at it, and tests/unit/t_kdapi.py scans the assembled images
     # for far calls carrying it as a segment (SPEC.md 96.44.6).
     "KD_SEG": ("kernel/hiber.inc", 0x0060),
+    # kernel/diskw.inc - the copy engine's "it will not fit" (SPEC.md 22.5.2),
+    # read back out of [fcp_err] by tests/fcpcopy.py and tests/fcproom.py.
+    "FERR_FULL": ("kernel/diskw.inc", 6),
     "DRVR_SEG": ("kernel/driver.inc", 2),
     "W_FLAGS": ("kernel/wm.inc", 0),
     "W_X": ("kernel/wm.inc", 2),

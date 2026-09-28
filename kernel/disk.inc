@@ -359,6 +359,13 @@ dsk_boothds: dw 0
 ; 0040:003F's motor bit per int 13h drive (SPEC.md 18.9.1). A table because
 ; dsk_here_ok preserves every register and `shl al, cl` would spend CX.
 dsk_mbit:    db 1, 2, 4, 8
+%ifdef OS88_BIGVOL              ; kern_big and kern_dos: the builds with a
+dsk_fcgoal:  dw 0xFFFF           ; hard disk behind them. dsk_free_clus_x may
+                                 ; STOP once it has counted this many (SPEC.md
+                                 ; 22.5.2.1) - 0FFFFh, the value it always
+                                 ; rests at, is "count them all". Only
+                                 ; dskw_dfree_to_x lowers it, and puts it back
+%endif                           ; before it returns
 
 disk_drive:  db 1                ; current VOLUME (0 = A:, 1 = B:), init B:
 disk_spt:    dw 9                ; sectors per track  } fallback geometry,
@@ -5386,6 +5393,11 @@ dsk_free_clus_x:
     inc bx
     loop .word
     dec byte [sch_lock]
+%ifdef OS88_BIGVOL
+    cmp di, [dsk_fcgoal]        ; ...and a caller that asked only "is there
+    jae .counted                ; room for this" has its answer (22.5.2.1):
+                                ; the rest of the FAT is window loads for a
+%endif                          ; number nobody reads
     cmp si, [dsk_maxclus]
     jbe .f16
 .counted:

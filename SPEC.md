@@ -44279,6 +44279,45 @@ and the choice is between a missing file and a corrupt one wearing its name.
 the easiest volume to fill: `dskw_append` grows a file incrementally by design
 and the copy engine chunks, so a floppy filling mid-copy did the same thing.
 
+#### 22.5.2.1 …and on a hard disk it stops counting once the file fits
+
+**§22.5.2's "no disk I/O" is true of a floppy and was never true of a hard
+disk.** A floppy's FAT is resident whole (§18.8), but a FAT16 partition's is
+paged through a nine-sector window, so `dskw_dfree`'s count reads the WHOLE FAT
+— on a 31MB partition four window loads and ~350 ms of 8088 before a 100KB file
+may start, and the last load leaves the window at the END of the FAT, so the
+create that follows reads the start of it back in. The field ST-225 measured
+`FILE_DFREE` at **315,823 µs** (PERFORMANCE.md Set 24).
+
+`fcp_room` wants a yes or a no about ONE file, not the count. So it asks
+`dskw_dfree_to` with the file's size, which sets `[dsk_fcgoal]` — the clusters
+wanted, one past the floor of the request — and `dsk_free_clus_x`'s FAT16 walk
+stops after the first FAT sector that brings the count to it. The answer is
+then a **lower bound that already covers the request**; short of it the count
+is exact, as before. Three things hold it up:
+
+- **The bytes compare after the count is untouched**, and it is what makes a
+  short count safe: a count that stopped early is at least the request, and one
+  that did not stop is the whole truth. A goal set too low can therefore only
+  ever refuse a file that fits — the direction a room check may err, by
+  §22.5.2's own rule.
+- **`dsk_fcgoal` rests at 0FFFFh**, "count them all", and `dskw_dfree_to` puts
+  it back before it returns. `OSAPI_FILE_DFREE`, `dskw_vstat` and the status
+  line's figure (§22.7) never see anything else.
+- **FAT12 is not touched.** Its FAT is resident on every geometry that ships, so
+  the count there is CPU alone, and its fast path reads the whole FAT with no
+  window to page.
+
+Measured on `os8088_xt_hdd`, the same 100KB paste: the check went from four
+hard-disk reads to **one**, the create's FAT re-read went with them, and the
+paste 9.4 s → **9.0 s**. `kern_big` +57 bytes (`.cold` +55, `.text` +2).
+**`kern_small` +0**: it has no hard disk, a floppy's FAT is resident whole and
+there is no window to stop loading, so `dsk_fcgoal` and the early-out are
+`OS88_BIGVOL`'s and `dskw_dfree_to_x` is an `equ` of `dskw_dfree_x` there —
+the goal `fcp_room` loads is ignored, in `FILECP.DRV`'s image and not in
+resident memory. `tests/fcproom.py` is the gate: an empty partition, one whose
+only room is at the far end of the FAT, and one without room.
+
 #### 22.5.3 …and each file is written as one HELD stream (`kern_big`)
 
 Every chunk after the first used to be an `OSAPI_FILE_APPEND`: a lookup of
