@@ -1294,7 +1294,6 @@ mem_hifit:
     mov cx, si
     or si, si
     jz .none
-    clc
     jmp short .out
 .none:
     stc
@@ -2016,9 +2015,7 @@ mem_busy_seg:
                                 ; never asks for one at all
 .pin:
     stc
-    ret
-.free:
-    clc
+.free:                          ; (`jnc` arrives with CF = 0)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2275,12 +2272,7 @@ mem_cp_next:
     jz .none
     pop bp
     pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    clc
-    ret
+    jmp kretc_dx
 .none:
     pop bp
     pop di
@@ -3181,18 +3173,11 @@ mem_compact:
     call mem_cp_end             ; retry loop rests on CF = 1 when nothing did -
     or bx, bx                   ; a CF = 0 that moved nothing is an infinite
     jz .none                    ; loop there (SPEC.md 66.4's termination)
-    clc
     jmp short .out
 .none:                          ; .both gave the lock back itself; this is the
     stc                         ; only arm left that never took it
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; mem_cp_end - hand the machine back (module internal). Every path that raised
 ; the lock leaves through here, which is what makes "left as it was found" a
@@ -3541,10 +3526,7 @@ mem_regrow:
 .out:
     pop di
     pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_cx
 
     ; SHED AND RETRY, which mem_claim has had all along and this routine had
     ; not (SPEC.md 50.6.2.1). A purgeable block is memory the kernel holds on
@@ -4338,10 +4320,8 @@ mem_own:
 .yes:
     mov bx, es                       ; the OWNER WORD is that same segment -
     clc                              ; the walk above spent BX on the answer
-    ret                              ; to a different question
-.no:
-    stc
-    ret
+.no:                                 ; to a different question (`jc` arrives
+    ret                              ; with CF = 1)
 
 ; -----------------------------------------------------------------------------
 ; mem_owner_of - who owns the claim based at BX?
@@ -4547,16 +4527,13 @@ osapi_sys_kb_x:
     mov ax, KBUF_KB             ; SK_BUF LAST, because it is the highest of
     stosw                       ; the four - it is FAT + stacks together,
     pop di                      ; and reads like a header
-    push di
-    call mem_total_kb           ; AX = claimed KB, BX = heap size KB
-    pop di
+    call mem_total_kb           ; AX = claimed KB, BX = heap size KB (DI kept)
     mov [es:di+SK_CLAIM], ax
     mov [es:di+SK_HEAP], bx
     xor ax, ax
     mov bx, 1                   ; BX = 1: kernel tags (0xFF00 and up) only.
-    push di                     ; SK_HEAP has already been stored from BX
-    call mem_sum_kb             ; AX += the kernel's own tagged claims
-    pop di
+                                ; SK_HEAP has already been stored from BX
+    call mem_sum_kb             ; AX += the kernel's own tagged claims (DI kept)
     mov [es:di+SK_KCLAIM], ax
 %ifdef KERN_BIG
     mov ax, [xm_kb]             ; the pool above 1MB, 0 on tier 0 (SPEC.md 41)

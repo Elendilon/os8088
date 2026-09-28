@@ -1392,7 +1392,6 @@ drv_cls_idx:
     mov di, ax                  ; AH is the caller's and must never reach the
     and di, 0x00FF              ; index, so zero-extend AL by hand
     dec di
-    clc
     ret
 .bad:
     stc
@@ -1469,10 +1468,7 @@ drv_owns_seg_x:
     call drv_row_ix_of          ; image (52.11) is exactly that, and it is not
 .out:                           ; in drv_tab by design. ONE level, like
     pop si                      ; mem_own_drv's
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_cx
 
 ; -----------------------------------------------------------------------------
 ; drv_status - the sentence describing one row's state right now
@@ -2389,13 +2385,7 @@ osapi_drv_dlg_x:
     call fdlg_open_x            ; near - fdlg.inc is `.cold` too
     jc .disarm                  ; ...and not taken is CF = 0, the answer
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf                        ; FAR: the only entry is kernel.asm's
+    jmp kretfc_di               ; FAR: the only entry is kernel.asm's
                                 ; `call COLD_SEG:osapi_drv_dlg_x` (SPEC.md 2.6.1)
 .disarm:
     mov word [drv_dlg_row], 0
@@ -3096,9 +3086,7 @@ drv_tier_x:
     call drv_publish
 .ok:
     clc
-    jmp short .out
 .no:
-    stc
 .out:
     pop bx                      ; the saved AX: AL is the output, so only AH
     mov ah, bh                  ; comes back

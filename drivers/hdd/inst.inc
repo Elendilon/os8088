@@ -181,6 +181,15 @@ hd_iw_open:
     mov [hd_idev], al           ; BOUND here, tool.inc's hd_tdev reason: the
                                 ; Control Panel underneath stays clickable, and
                                 ; hd_istate/hd_isecs below describe THIS device
+    mov byte [hd_isel], 0       ; ...and the SLOT starts at 1 every time, as
+                                ; hd_tw_open's hd_tsel does. It used to carry
+                                ; over from the last open for as long as this
+                                ; image stayed loaded - a slot picked on
+                                ; ANOTHER drive, or on this one before it was
+                                ; repartitioned - and hd_iw_scan keeps a
+                                ; carried slot whenever it is usable, which on
+                                ; a blank disk is every slot. So a fresh drive
+                                ; could open on Slot 4 and install there
     call hd_iw_scan             ; a fresh table every time, tool.inc's reason:
                                 ; the disk can be swapped between two clicks
     call hd_idefwipe            ; ...and the Erase box follows the selection:

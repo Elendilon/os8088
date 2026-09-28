@@ -2399,15 +2399,15 @@ fdlg_findname:
     jc .out                     ; SYSTEM STANDARD, and disk.inc's own header
     FDX dsk_get_dir_x          ; names this caller. fdlg_home_go does exactly
     cmp word [si+16], 2         ; this seventeen hundred lines above; here it
-    jb .no                      ; was a hand-rolled walk that staged the found
+    jb .out                     ; was a hand-rolled walk that staged the found
     mov ax, [si+18]             ; entry a SECOND time to read its cluster
-    clc                         ;
+                                ;
 .out:                           ; The old walk only ever matched a FOLDER and
     pop si                      ; this matches any entry, then rejects a file
     ret                         ; on the `jb` - and a FAT directory cannot
-.no:                            ; hold both names, the caller having just made
-    stc                         ; the folder with dskw_mkdir_x and remounted
-    jmp short .out
+                                ; hold both names, the caller having just made
+                                ; the folder with dskw_mkdir_x and remounted.
+                                ; `jb` arrives with CF=1, which IS the refusal
 
 ; dsk_streq is disk.inc's, and it is the body this used to carry: three
 ; modules compare two NUL strings in the kernel segment and disk.inc is the
@@ -3211,9 +3211,7 @@ FDBODY fdlg_onclick_x
     call fdlg_sel_bar           ; off (a no-op at 0FFFFh)
     pop ax
     mov bx, [fdlg_scrl]
-    push bx
-    call fdlg_setsel
-    pop bx
+    call fdlg_setsel            ; (all registers preserved)
     mov ax, [ui_click_t]
     mov [fdlg_clkt], ax
     cmp bx, [fdlg_scrl]
@@ -3407,11 +3405,9 @@ fdlg_load:
 ; will not load is the same answer.
 fdlg_open_x:
     call fdlg_load
-    jc .no
+    jc .no                      ; CF=1 already: the refusal
     call far [FDFP + FDE_OPEN*4]
-    ret
 .no:
-    stc
     ret
 
 ; --- ...and the other six load NOTHING ---------------------------------------

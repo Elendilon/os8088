@@ -548,7 +548,7 @@ ico_core_bb:
     call ico_bbop_of            ; nowhere to put a grey)
     mov [ico_bbop], al
     mov si, [ico_datap]
-    call ico_pass_bb
+    jmp ico_pass_bb
 .none:
     ret
 

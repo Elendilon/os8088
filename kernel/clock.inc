@@ -980,7 +980,6 @@ clk_ns_probe:
     jnz .no
     mov byte [clk_dbg_step], 0xFF   ; every gate passed
     pop ax
-    clc
     ret
 .no:
     pop ax
@@ -1364,7 +1363,6 @@ clk_rp_digits:
     mov [clk_tb_y], ax
     pop bx
     pop ax
-    clc
     ret
 .no:
     pop bx

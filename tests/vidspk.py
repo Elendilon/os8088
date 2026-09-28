@@ -17,7 +17,7 @@ captured (MARTYPC_WAV). What must hold:
   3. the play took the SOUND's time: the clip's samples at the rate the
      speaker really runs (1,193,182 / N) within 2%;
   4. the kernel is left as it was: channel 2 back to tone-idle and nobody's
-     (snd_ch2mode 0), no sample ISR (spk_isr's segment 0).
+     (snd_ch2mode 0), no sample ISR (spk_seg 0).
 
 --silent plays the same clip with S pressed first, in the window: the play
 must be SILENT ([vp_snd] = 0) and its capture flat. --counts makes the clip
@@ -379,7 +379,7 @@ def main():
             st = {k: rw(k) for k in ("vp_done", "vp_stall", "vp_late")}
             snd = 2 if ev["open"] else 0
             ch2 = m.read(m.sym("snd_ch2mode"), 1)[0]
-            isr = u16(m.read(m.sym("spk_isr") + 2, 2))
+            isr = u16(m.read(m.sym("spk_seg"), 2))
         finally:
             m.close()
         want = 2 if spk else 0

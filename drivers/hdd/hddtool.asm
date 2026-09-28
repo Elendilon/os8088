@@ -78,6 +78,8 @@ hd_tentry:
     je hd_page_up               ; out, with a verb in front of them
     cmp al, HDT_DRAG
     je hd_page_drag
+    cmp al, HDT_KEY
+    je hd_page_key
     stc                         ; a verb from a newer resident than this image
     ret                         ; - refuse it rather than run another one
 

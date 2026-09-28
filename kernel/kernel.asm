@@ -4023,6 +4023,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          refused: it stages one word a row
                                   ;          and sixteen rows at the outside
                                   ;          (SPEC.md 25.6.1)
+api_gfx_blitp:                    ; (named: SPEC.md 5.4.3.6's walk far-calls it)
     OSAPI_SLOT gfx_blitp          ; 0x03A4 - ES:SI = plane 0's first row of a
                                   ;          block that is ALREADY FRAMEBUFFER
                                   ;          BYTES, DI = the step to the next
@@ -6190,7 +6191,7 @@ osapi_file_goto_q:
 osapi_file_goto_qm:
     call osapi_file_goto_q
     jc .out
-    call inst_vol_mark
+    jmp inst_vol_mark
 .out:
     ret
 
@@ -7251,10 +7252,6 @@ cw_wm_clip_clear:        call wm_clip_clear
                      retf
 cw_wm_clip_rows:        call wm_clip_rows
                     retf
-%ifdef GFX_PLANE                ; SPEC.md 5.4.3.6's walk calls back per piece
-cw_gfx_blitp:           call gfx_blitp
-                    retf
-%endif
 %ifdef KERN_BIG                 ; its callers are kern_big only
 cw_wm_clip_set:         call wm_clip_set
                     retf

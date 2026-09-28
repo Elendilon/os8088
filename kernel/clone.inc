@@ -284,9 +284,7 @@ clo_start:
     mov ax, CERR_BUSY
     jmp short .fail
 .freefail:
-    push ax
     call clo_free               ; the claim goes back; nothing was armed
-    pop ax
 .fail:
     pop bx                      ; the banked AX, discarded: AX is the code
     stc
@@ -661,7 +659,6 @@ clo_extent:
     call clo_read1
     jc .no
     pop dx
-    clc
     ret
 .no:
     pop dx
@@ -904,7 +901,6 @@ clo_fbank:
     or bx, bx
     jz .bad
     mov [es:CL_SPC], bx
-    clc
     jmp short .out
 .bad:
     mov ax, CERR_NODISK
@@ -1428,15 +1424,12 @@ clo_wimg:
     call clo_imgsize
     jc .freefail
     pop ax
-    clc
     jmp short .out
 .busy:
     mov ax, CERR_BUSY           ; ...said as itself and not as 'Out of
     jmp short .fail             ; memory' (SPEC.md 22.21.2)
 .freefail:
-    push ax
-    call clo_free
-    pop ax
+    call clo_free               ; (every register preserved)
 .fail:
     pop bx                      ; the banked volume, discarded
     stc
@@ -1671,7 +1664,6 @@ clo_imgrun:
     mov cx, [es:CL_NEXT]
     cmp cx, [es:CL_TOT]
     jb .image
-    clc
     jmp short .out
 .write:                         ; file -> disk
     call clo_fget
@@ -1793,9 +1785,10 @@ clo_rd:
     xor bl, bl                  ; read...
     xor dx, dx                  ; ...from the buffer's own origin. The keep of
     call clo_move               ; sector 0 happens INSIDE, per transfer: on
-    jc .out                     ; the XMS path the buffer holds the LAST
-    clc                         ; staging load by the time this returns, not
-.out:                           ; the first (SPEC.md 18.99.2)
+                                ; the XMS path the buffer holds the LAST
+                                ; staging load by the time this returns, not
+                                ; the first (SPEC.md 18.99.2). Its CF is ours
+.out:
     pop di
     pop si
     pop dx
@@ -1886,7 +1879,6 @@ clo_fin:
     mov cx, 1
     call COLD_SEG:dskf_disk_write
     jc .bad
-    clc
     jmp short .out
 .bad:
     call clo_ioerr              ; AL = CERR_IO / CERR_WPROT
@@ -2194,7 +2186,6 @@ clo_xms:
     pop dx
     pop cx
     pop bx
-    clc
     ret
 .bad:
     pop es
@@ -2223,7 +2214,7 @@ clo_boot0:
     jnz .out                    ; a write: the keep is a READ's business
     or ax, ax
     jnz .out
-    call clo_keepboot
+    jmp clo_keepboot
 .out:
     ret
 

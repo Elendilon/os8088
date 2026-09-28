@@ -4829,9 +4829,11 @@ time while a window sat over a playing video.
 **`DI` bit 14 asks for the region to be walked**, and then `gfx_blitp` does
 what §5.4.2.7 does for a band: every fragment of the region (at most
 `WM_CLIP_MAX`), each intersection with the block drawn with the region
-disarmed. **It is 5.4.2.7's own walk** (`gfx_blit1_x.frags`), told by
-`[gfx_bpw]` that it is walking planes, and it differs in one thing: **a
-piece is cut EXACTLY, not trimmed inward to whole bytes.** A band cannot
+disarmed. **It is 5.4.2.7's own walk** (`gfx_blit1_x.frags`), told that
+it is walking planes by the CARRY it is entered with (1 from a band's
+`gfx_blit1_x`, 0 from `gfx_bpwalk`) and handed its piece routine in
+`[gfx_bpfn]`, and it differs in one thing: **a piece is cut EXACTLY, not
+trimmed inward to whole bytes.** A band cannot
 mask its left edge and so leaves up to seven columns at a fragment edge
 off the grid; planes can - `vga_prow_emit` already masked a right edge, and
 `[vga_pr_lm]`, which had only ever held `FFh`, now holds `FFh >> (x AND 7)`
@@ -4855,13 +4857,42 @@ caller but the walk.
   falls back to `gfx_blit4` through the clip - keep that behaviour until
   they ask.
 
-**127 resident bytes on `kern_big`** - `.text` +49 (the request, the left
-mask and one more test on 5.4.3.5's fast path, which a masked left edge must
-not take, and `cw_gfx_blitp`), `.bss` +2, `.cold` +76 (`gfx_bpwalk`, the
-walk's two exact-cut tests, its planar callee and a `loop` its growth put
-out of reach) - against the 211 a second copy of the walk measured before
-it was shared. `kern_small` is byte-identical: `gfx_blitp` is `stc`/`ret`
-there (`GFX_PLANE`). The gate is `vidlivevga4` (§98.3.10.4).
+**127 resident bytes on `kern_big`** as it landed - `.text` +49 (the
+request, the left mask and one more test on 5.4.3.5's fast path, which a
+masked left edge must not take, and `cw_gfx_blitp`), `.bss` +2, `.cold` +76
+(`gfx_bpwalk`, the walk's two exact-cut tests, its planar callee and a
+`loop` its growth put out of reach) - against the 211 a second copy of the
+walk measured before it was shared. `kern_small` is byte-identical:
+`gfx_blitp` is `stc`/`ret` there (`GFX_PLANE`). The gate is `vidlivevga4`
+(§98.3.10.4).
+
+**Kernel size pass 6 took the band's side of it back below nothing**,
+because the two tests sat in the walk EVERY covered 1bpp blit runs: +0.34%
+a covered Hercules Live pass and +0.40% a VGA one, against the walk with
+neither (MartyPC, `vp_lblit` to `.th`, each pass's blit geometry matched
+across builds). The walk's kind is now a MASK and not a test - CH holds a
+piece's left rounding for the whole walk (7 a band, 0 planes, off the entry
+carry), `dec ax / or al, ch / inc ax` rounds a band's edge up and leaves a
+plane's where it is, and the loop counts in CL - and the piece is one
+`call word [gfx_bpfn]`, 0 being `gfx_blit1_x` (`.cold`'s first byte, by
+assertion). `gfx_blitp` probes the rect itself, by a near recursive call,
+before the far call to `gfx_bpwalk`; `gfx_bppiece` reads the plane step back
+out of the frame the walk banked it in and reaches `gfx_blitp` through its
+own API cell, so `cw_gfx_blitp` is gone. The same pass moved the far exits
+of `gfx_blitp`, `gfx_blit1_x`, `gfx_scroll`, `gfx_spans` and `font_run` into
+short reach of their guards, so a covered Hercules pass is now -0.13% and a
+VGA one -0.12% against the walk with no planar feature at all, and against
+the walk as it landed -0.47% and -0.52%, with a Live in colour pass -0.51%
+uncovered and -1.14% under a window. `kern_big` resident is 100,860 ->
+100,732 across the pass's work here.
+
+**The walking call's own exit was a defect, and it only showed on an
+extended desktop**: it took no display hook, and the probe and every piece
+take one there and leave `[gfx_bp_hk]` = 1 behind them, so the walker's
+teardown brought down a nest nobody had put up - `[gfx_dnest]` 0 -> 255 on
+the first Live pass, every primitive after it believing it was nested and
+`gfx_blitp` refusing every block. It leaves past the teardown now;
+`vidlivext` is the gate (every sample 255 before, none above 1 after).
 
 ### 5.5 `gfx_scroll` — move a rect instead of redrawing it
 
@@ -29546,13 +29577,13 @@ held, and a read landing outside its destination buffer.
 | 5 | BPB_RsvdSecCnt | ≥ 1 | FAT LBA math (FAT starts at RsvdSecCnt) |
 | 6 | BPB_NumFATs | ∈ {1,2} | FAT2-fallback logic; layout math |
 | 7 | BPB_RootEntCnt | ≥ 1, ≤ 512, (RootEntCnt×32) mod 512 == 0 | FAT12/16 must have a root dir (spec); ≤512 bounds the mount stall (≤32 root sectors); whole-sector count is a spec MUST |
-| 8 | BPB_TotSec16 | ≠ 0 | 16-bit LBA bound: TotSec16==0 ⇒ the count lives in TotSec32 ⇒ ≥65,536 sectors ⇒ unaddressable by the AX=LBA `disk_read` contract. **Documented rejection.** TotSec32 otherwise ignored (some formatters set both; harmless) |
+| 8 | the sector count | ≠ 0 — **asked by rule 14**, which refuses it for nothing: FirstDataSec is at least 3, so a count of 0 borrows there, and no rule in between divides by the count or bounds a loop with it | a zero-length volume. On `kern_small` a TotSec16 of 0 means the count lives in TotSec32 (≥65,536 sectors), which that build does not read, so it arrives here as 0 and is refused; `kern_big` folds TotSec32 in at the staging (§18.7.5). TotSec32 is otherwise ignored (some formatters set both; harmless) |
 | 9 | BPB_Media | ∈ {0xF0, 0xF8..0xFF} | spec-legal set; cheap garbage gate. FAT[0]'s media echo is NOT checked (spec says don't rely on it) |
-| 10 | BPB_FATSz16 | ≥ 1, and on a **BIOS floppy** ≤ `DSK_FAT_SECS` (9) | ≥1: layout math. The floppy cap covers every real floppy FAT this OS boots or builds: 360K=2, 720K=3, 1.2M=7, 1.44M=9. **On a driver-backed volume (§18.7) there is no cap**: the FAT is a window (§18.8), and rule 16 below proves the declared FAT covers its own cluster count — which is the check this cap stood in for |
+| 10 | BPB_FATSz16 | ≥ 1, and on a **BIOS floppy** ≤ `DSK_FAT_SECS` (9) | ≥1: layout math. The floppy cap covers every real floppy FAT this OS boots or builds: 360K=2, 720K=3, 1.2M=7, 1.44M=9. **On a driver-backed volume (§18.7) there is no cap**: the FAT is a window (§18.8), and rule 16 below proves the declared FAT covers its own cluster count — which is the check this cap stood in for. With no cap, `NumFATs × FATSz16` can pass 16 bits, and the multiply is overflow-checked like every sum in the derived layout (a product past a word is refused, not wrapped into a root inside the FAT) |
 | 11 | BPB_SecPerTrk | floppy: ∈ {8, 9, 15, 18, 21, 36}; driver-backed: 1..63 | the floppy whitelist exists because a hostile spt×heads product past 16 bits would zero `disk_read`'s CHS divisor → divide fault with `sch_lock` held. A driver-backed volume never reaches that divisor — its driver owns the addressing — so the bound is only that the product cannot overflow, and 63 is what the CHS sector field can carry |
 | 12 | BPB_NumHeads | floppy: ∈ {1, 2}; driver-backed: 1..255 | same divisor protection; 255 is what the CHS head field can carry |
 | 13 | TotSec16 coherence | floppy: ≤ SecPerTrk × NumHeads × 80; driver-backed: ≤ the sector count its DRIVER declared | on a floppy, every in-volume LBA stays CHS-reachable under `disk_read`'s cyl<80 guard. On a driver-backed volume the driver stated the partition's length when it registered the volume, so the question stops being "is this geometry plausible" and becomes the sharper **"does this volume claim to be bigger than the partition it lives in"** |
-| 14 | FirstDataSec | FirstDataSec + SecPerClus ≤ TotSec16 | at least one cluster exists; DataSec underflow guard |
+| 14 | FirstDataSec | FirstDataSec ≤ TotSec, as a borrow out of `TotSec − FirstDataSec` | DataSec underflow guard. "At least one cluster exists" — FirstDataSec + SecPerClus ≤ TotSec — is the same comparison as rule 15's CountOfClusters ≥ 1 and is asked there, once |
 | 15 | CountOfClusters | ≥ 1 and < 65,525 | empty-data-area rejection; FAT32 insurance (§19) |
 | 16 | FAT capacity | the FAT sectors the cluster count NEEDS ≤ FATSz16 | a FAT too small for its own cluster count would send `dsk_next_clus` past the end of it. **Compared in sectors, not bytes**: a FAT16 volume with 65,000 clusters needs 130,004 FAT bytes and declares 254 FAT sectors, and both `entries×2` and `FATSz16×512` are past 16 bits. Neither product is needed — every term of a sector-against-sector comparison fits |
 | 17 | BPB_HiddSec | ignored | floppies are unpartitioned; accepting nonzero keeps odd-but-readable disks mountable |
@@ -30715,19 +30746,28 @@ rides the run loop's advance (`adc`), goes into the CHS divide on a BIOS volume
 (DX was a constant 0 there), and into **DI** on a driver volume, whose
 `DSV_BLK` has always taken the low word in SI (§51.8). The read-ahead cache
 (§18.95) keys its chunks on 16-bit LBAs and simply stands aside when the high
-word is non-zero; it clamps its fills at 65,535 on a big volume.
+word is non-zero; it clamps its fills at 65,535 on a big volume. That test
+costs nothing: `[dsk_lbahi]` sits directly behind `[dsk_rah_busy]`, so the
+gate that already asked "is a fill in flight?" reads the pair as one word, and
+a volume-relative LBA is under 2^24 (a 24-bit TotSec), so the high word's low
+byte is zero exactly when the word is.
 
 **`[dsk_c2hi]` is where the high word comes FROM.** `dsk_clus2lba_x` computes
 `FirstDataSec + (cluster − 2) × spc` in 32 bits and leaves the high half there
 — an *answer*, not the transfer's register — because between asking and moving
 a caller may fault a FAT window in, and that transfer must see 0.
-`dsk_c2arm_x` copies it across at the moment of the transfer. The directory
-walker sets it too (0 for the root). What holds an LBA for longer holds all 32
-bits of it: the found and free directory slots (`dskw_dsec`, `dskw_fsec` —
-whose "none" sentinel moved to the HIGH word, FFFFh being an ordinary low word
-past 32MB — and `dskw_cursec`), and the data walk's cursor and pending run
-(`dskw_clba`, `dskw_rlba`); `dsk_rd1p_x`/`dsk_wr1p_x` take a pointer to such a
-dword and cost a call site nothing over the word they replace.
+`dsk_c2arm_x` copies it across at the moment of the transfer, and
+`dsk_c2lba_arm_x` is the pair — ask, and on success arm — for the three callers
+that move the cluster's first sector next. The directory walker sets it too (0
+for the root). What holds an LBA for longer holds all 32 bits of it: the found
+and free directory slots (`dskw_dsec`, `dskw_fsec` — whose "none" sentinel
+moved to the HIGH word, FFFFh being an ordinary low word past 32MB, so every
+reader tests `DSKW_FNONE` and never the word itself), and the data walk's
+cursor and pending run (`dskw_clba`, `dskw_rlba`); `dsk_rd1p_x`/`dsk_wr1p_x`
+take a pointer to such a dword and cost a call site nothing over the word they
+replace. The directory scan's own cursor, `dskw_cursec`, stays a word: its high
+half IS the walker's `[dsk_c2hi]`, which nothing moves between a sector's read
+and the scan of its sixteen entries.
 **`dsk_read_chain` coalesces runs by CLUSTER now**, not by LBA: every cluster
 but the last is taken whole, so a run is contiguous exactly when each cluster is
 the one after the last, and a cluster is a word on any volume. It asks for the
@@ -30737,10 +30777,13 @@ LBA once, at the flush. That shape is the same size as the one it replaced.
 (§18.9.2) ends with a pad byte that held HiddSec's low byte, which nothing reads;
 when TotSec16 is 0 the staging puts TotSec32's low word in TotSec16's place and
 its bits 16–23 in that pad (`DSK_B_TOTHI`). One byte names 8GB, so the bank
-grows by nothing, and every rule below reads one place: rule 8 is "the 24-bit
-count is not 0", a floppy with a 24-bit count is refused, a driver that
-DECLARED a length cannot carry one, and CountOfClusters is a 24-over-8 divide
-with the quotient-overflow refused before it can fault with `[sch_lock]` held.
+grows by nothing, and every rule below reads one place: rule 14 is "the 24-bit
+count is at least FirstDataSec" (and so not 0 — rule 8 is folded into it, §18.2),
+a floppy with a 24-bit count is refused, a driver that DECLARED a length cannot
+carry one (both at rule 13's one compare), and CountOfClusters is a 24-over-8
+divide with the quotient-overflow refused before it can fault with `[sch_lock]`
+held. `[dsk_totsec]` is the count's word CLAMP, FFFFh past 64K sectors, because
+its one reader is the sector cache and the cache never serves past 32MB.
 A driver serving a volume past 32MB registers it with `OSAPI_VOL_ADD`'s CX = 0,
 *unknown*, because the length does not fit the register — rule 13 already
 accepted that. **So the driver is the fence there**: `HDD.DRV` keeps the
@@ -35291,6 +35334,11 @@ FAT-spec species it handles):
 - attr & 0x08 → volume label; skip.
 - attr & 0x06 (HIDDEN or SYSTEM) → skip (DOS convention; protects the
   32-slot listing budget from foreign housekeeping files).
+- ...and those three are ONE test in the code, `attr & 0x0E`: an LFN
+  entry's 0x0F carries the label, hidden and system bits all at once, so the
+  mask-then-compare selects nothing the other two do not already skip.
+  `fcp_scan` uses the same test, and `dsk_find_x` (which keeps hidden and
+  system entries for a driver) folds its LFN test into its label test.
 - name[0] == 0x20 → invalid per spec (a name may not start with a
   space); skip defensively.
 - name[0] == '.' → a subdirectory's own `.` and `..` links; skip. The `..`
@@ -44000,8 +44048,12 @@ and on XT-era rules — bytes in the column, whole `K` on the status line: it
 mounts no volume past 32MB, so its KB figure fits the word it is in, and the
 display alone is not a case for spending there. It is `%ifdef OS88_BIGVOL`,
 the switch §18.7.5 already put on every site that differs, and `kern_small`
-assembles byte for byte the kernel it was. The cost on `kern_big` is **96
-bytes of `.cold` and 16 of `.bss`**, both resident.
+assembles byte for byte the kernel it was. The cost on `kern_big` is **60
+bytes of `.cold` and 16 of `.bss`**, both resident - it was 96 of `.cold` as
+first built, and kernel size pass 6 took 36 back: one `>> 10` step run once
+for K and again for M, the hundredths as `(remainder × 25) >> 8` with `aam`
+splitting the digits, and the free figure multiplied by `spc × 256` so the
+product needs one shift rather than a byte shuffle.
 
 ### 22.8 A write marks the folder; the focus spends the mark
 
@@ -57979,6 +58031,18 @@ halves:
 crosses one 512-byte footprint rung, and 38 of it is §34.11.1's SI and DI
 fence), `kern_small` **+11** (the API cell and a
 stub that refuses). The library is ~480 bytes of the including package.
+**Kernel size pass 6** took the door (`osapi_fsx_spk` + `spk_off`, with
+34.11.8's floor) from 280 bytes to 178 - 208 with §34.11.1's SI and DI
+fence, which landed beside the pass at 38 bytes and was ported onto its
+door at 30 - and its `.bss` from 6 to 4, and the
+IRQ0 arms from 24 to 15: `spk_off` is the close's own tail (AL = 1 jumps
+into it with AX = 4), K x N is the divisor less `div`'s remainder, the
+open flag is `[spk_seg]` alone (the ISR's offset was never read back),
+"taken" is `[snd_pcm_busy]` alone (the door sets it), and the `sti` arm is
+`sch_rhook`'s first test rather than a copy at each call. `kern_small`'s
+cell names `xm_copy`'s refusing body, which is the same three instructions,
+so it costs the cell's 6 bytes and nothing else. The register contract is
+unchanged.
 
 #### 34.11.1 The door
 
@@ -81132,6 +81196,19 @@ int 13h for that drive on that card's jumpers, and re-deriving it from the
 6-byte DCB interface at 320h would buy nothing a user can see while costing an
 8237 path, an IRQ 5 hook and a per-card jumper matrix nobody can test.
 
+**Rung 0 asks 81h only when 80h counted two.** `AH=08h` returns the number of
+fixed disks the BIOS knows in `DL`, and that is the bound — it was named as
+the bound in the driver's own comment and never read, so 81h was asked
+whatever 80h had said. An AT BIOS answers `AH=08h` for a drive it does not
+have with **CF clear** and CMOS drive type 1's geometry, 305 × 4 × 17: a
+phantom 10MB `BIOS1` under the real disk, reported off a 286 on MR BIOS 1.65
+with one IDE drive and `Fixed Disk 81: None` in its own setup. `hd_bios_geom`
+banks `DL` in `[hd_pcnt]` and `hd_probe` asks 81h only when 80h answered with
+a count of two or more; a BIOS that does not answer for 80h has no fixed disk
+to number from, and rung 1 still finds an IDE one. Two drives behind XT-IDE
+count 2 and list both. The resident grows +56 bytes with this and §52.13.5's
+key thunk together, and stays 5,120.
+
 **Rung 1 is gated on `OSAPI_CPU_INFO` ≥ `CPU_286`, and that is arithmetic, not
 caution.** An 8088's `in ax, dx` is two 8-bit bus cycles at the same port, so
 on an 8-bit slot the drive's high byte is simply lost — which is exactly what
@@ -82311,6 +82388,16 @@ image while the Drives page is open (§52.10.14's reason for naming it).
 `tests/inststate.py` is the gate: three VHDs whose slots 2-4 are rewritten
 before boot, every row read out of the framebuffer against the kernel's glyph
 table. The driver before this reads `MISSING` on all four rows of the first.
+
+#### 52.10.4.3 CLOSED: the slot carried over from the last open
+
+`hd_tw_open` sets the Format window's slot to 0 on every open; `hd_iw_open`
+never touched `[hd_isel]`, so the installer opened on whatever slot it had
+last shown for as long as `HDDTOOL.DRV` stayed loaded — a slot picked on
+another drive, or on this one before it was repartitioned. `hd_iw_scan` keeps
+the carried slot whenever it is usable, and on a blank disk every slot is, so
+a fresh drive could open on Slot 4 and be installed there. It starts at 0 now
+and the scan moves it to the first usable slot, exactly as before.
 
 ### 52.10.5 A disk already in the machine is not asked for
 
@@ -83992,6 +84079,30 @@ the machine genuinely holds. The next kilobyte therefore needs the image under
 code out — the probe, the IDE rung, the partition-table read and the
 config load are ~1.7KB between them, and 1,025 of that is the threshold.
 
+#### 52.13.5 CLOSED: a click on a drive row selected nothing, and the arrows
+
+§52.13's table sends a selection back through `HSV_SEL`, and `hd_sel_set` was
+written to do it — and nothing called it. The row click stored `[hd_sel]` and
+`[hd_msgc]` in the **tool's** copies and repainted, and the repaint's first
+act is `hd_sync`, which copies the **resident's** over them. So the click
+flashed the pane and left the highlight where it was, on every machine with
+two devices. The row click and the three other captions the page set locally
+(`HDM_TYPED` and the two refusals) go through `hd_sel_set` / `hd_say` now,
+which write both sides.
+
+**The page takes keys** (§31.9.2): `DSV_CPKEY` is `hd_cp_key`, a thunk that
+forwards `HDT_KEY` and does not load the image — a key reaches this page only
+after a paint, and a paint is what loads it. Up and Down move the drive
+highlight and Left and Right the C/H/S field, the two selections a click
+makes. Nothing a key does writes: the geometry is still changed with `-` and
+`+`. `HDT_KEY` carries no pane origin, so the page draws at the one its last
+paint banked, `rp_key`'s arrangement (the panel does not move its pane under
+a key). A tool image older than the resident refuses the verb and the key is
+dropped, which is what it was before. +136 bytes of `HDDTOOL.DRV`, absorbed
+by `hdsec.inc`'s `align 512`, so `HDTOOL_KB` is unchanged; the thunk is in
+§52.1's +56. `kern_small` has no panel key handler (§62.9.15), so there the
+page is mouse-only as before.
+
 ## 53. fsx.inc — fullscreen exclusive
 
 §11.2's fullscreen surface is a real window: the desktop's mode, the
@@ -85333,7 +85444,9 @@ claiming again, sticky or not, is still no news.
 harvest, and pass 4b decides the listing's document icons after it, so that
 window is already right. Marking it cost a repair and a second paint of the
 same pixels straight after the first, on every navigation that taught the
-machine an extension. The shed still marks every window.
+machine an extension. The shed still marks every window. `kern_small` has no
+associations (§54.0), so it assembles neither the entry nor its compare: its
+walk marks every window, which is all the shed ever asks of it.
 
 **The repair's second half is the picture.** After a shed the references
 dangle but the pixels are right, so the repair never touched the raise cache

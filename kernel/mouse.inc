@@ -1410,10 +1410,7 @@ mouse_unhook:
 
     pop es
     pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_cx
 
 ; -----------------------------------------------------------------------------
 ; osapi_mouse - out: CX = [mouse_x], DX = [mouse_y], AL = [mouse_btn]
@@ -1656,7 +1653,7 @@ mou_p2wcmd:
     call mou_p2cw
     pop ax
     jc .out
-    call mou_p2dw
+    jmp mou_p2dw
 .out:
     ret
 
@@ -4314,7 +4311,7 @@ cur_unlazy:
 .spend:
 %endif
     mov byte [cur_lazy], 0
-    call cursor_hide
+    jmp cursor_hide
 .out:
     ret
 

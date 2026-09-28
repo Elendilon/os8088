@@ -733,10 +733,7 @@ menu_ab_cell:
     pop es
     pop di
     pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_cx
 
 ; -----------------------------------------------------------------------------
 ; menu_ab_cat - append a NUL string to a buffer (internal to menu_ab_cell)

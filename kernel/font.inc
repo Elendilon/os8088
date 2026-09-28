@@ -1158,7 +1158,7 @@ font_run_x:
 %endif                          ; through the kernel that has no 6.1.11
 %else
     test cx, 7                  ; kern_small keeps the pair for an unaligned
-    jnz .slow                   ; run, exactly as it keeps it for a PLANAR one
+    jnz .slq                    ; run, exactly as it keeps it for a PLANAR one
                                 ; (6.1.10): the 128-256KB machine's budget is
                                 ; the tighter of the two by design, and 6.1.11
                                 ; is +262 bytes of .text
@@ -1167,7 +1167,7 @@ font_run_x:
 %ifdef KERN_BIG
     je .planar                  ; SPEC.md 6.1.10: mode 12h has a single-store
 %else                           ; prologue of its own. kern_small does not
-    je .slow                    ; carry it - gfx_blit1's precedent (5.4.2)
+    je .slq                     ; carry it - gfx_blit1's precedent (5.4.2)
 %endif
     ; SPEC.md 6.1.12: a DISABLED control's glyph is checkerboarded, and this
     ; path used to hand it to .slow for that reason. It does not any more -
@@ -1181,10 +1181,16 @@ font_run_x:
     ; gfx_rowbase, whose 16-bit MUL an 8088 charges ~120 clocks for, and
     ; font_ink TWICE - for answers that cannot change until the run ends.
     cmp dx, [vid_chm8]          ; the run's y is every cell's y, so the
-    ja .out                     ; vertical edge test is the run's too
+    ja .outq                    ; vertical edge test is the run's too
     cmp cx, [vid_cwm8]          ; ...but x is per cell, and DI only tracks it
     jbe .xok                    ; by `inc di`. That lockstep is exact for a run
     jmp .cells                  ; that STARTS on screen - x then cannot reach
+.outq:                          ; (the door's far exits, below the one jump
+    jmp .out                    ; in short reach of them: a two-byte `jcc`
+%ifndef KERN_BIG                ; with a 4-clock not-taken where the five-byte
+.slq:                           ; ones cost 16 on every run)
+    jmp .slow
+%endif
 .xok:                           ; 0x10000 in 80 cells - and it breaks on the
                                 ; one run that can wrap: a NEGATIVE x, which
                                 ; this unsigned test catches. Two cells later x
@@ -1311,6 +1317,7 @@ font_run_x:
                                 ; both - .cell and .cells each reload AL from
                                 ; [es:si]
 %endif
+.jcell:                         ; (kern_small's clipped-run `jc` rides this)
     jmp .cell                   ; NOT `jmp short`: it reaches by 12 bytes today
                                 ; and this is the cold path of the pair
 .p1end:
@@ -1386,7 +1393,7 @@ font_run_x:
                                 ; planar or off-grid spelling of it - a cut run
                                 ; that is either goes to font_run_scell, which
 %else                           ; is gfx_fill + font_char and blind to both
-    jc .cell                    ; the adapter and the phase
+    jc .jcell                   ; the adapter and the phase
 %endif
 
     ; --- PASS 2: one ROW of the whole run at a time --------------------------
@@ -1562,7 +1569,11 @@ font_run_x:
 .cell:                          ; the per-cell path: a clip-cut run, and the
     mov al, [es:si]             ; overflow that cannot happen
     or al, al
+%ifdef KERN_BIG
+    jz .jout                    ; (the `jmp .out` just above: two bytes, not
+%else                           ; five, and 4 clocks a cell not-taken)
     jz .out
+%endif
     inc si
     call font_run_cell          ; CX/DX/DI = this cell; preserves all three
     add cx, 8
@@ -1866,7 +1877,7 @@ font_run_cell:
     push es
 
     cmp cx, [vid_cwm8]          ; x only: the run's y was tested once, by the
-    ja .out                     ; caller (SPEC.md 6.1.6)
+    ja .outq                    ; caller (SPEC.md 6.1.6)
     CLIPQ                        ; the cell against the region in ROWS, exactly
     je .noclip                  ; as its glyphs are, background with them
     push ax                     ; (SPEC.md 11.3.2)
@@ -1876,14 +1887,16 @@ font_run_cell:
     add dx, 7
     call wm_clip_rows           ; CX and DX are spent here and NOT put back:
     pop ax                      ; nothing below reads them, the masks arriving
-    jc .out                     ; in CX from memory instead
+    jc .outq                    ; in CX from memory instead
 %ifdef KERN_BIG
     mov dl, [wm_clip_cm]        ; SPEC.md 11.3.4: the COLUMNS too. DX is free
                                 ; from here to the epilogue, which puts the
                                 ; caller's back
 %endif
     jmp short .have_rows
-.noclip:
+.outq:                          ; (the two exits, in short reach below the
+    jmp short .out              ; one jump there is: `jcc` two bytes and not
+.noclip:                        ; five, 4 clocks a cell not-taken where 16)
     mov word [wm_clip_r0], (8 << 8) | 0     ; the whole cell, in ONE store -
                                 ; font_char's own spelling eight lines from
                                 ; here, and the pair is adjacent by assertion

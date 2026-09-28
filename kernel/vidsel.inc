@@ -488,7 +488,7 @@ vid_mono_text:
                                 ; unreachable, and this IS the answer it gives.
     test byte [vid_avail], VID_A_VGA
     jnz .mine
-    clc                         ; the ROM's mode 7 is this card: let it
+                                ; the ROM's mode 7 is this card: let it
     ret
 .mine:
     push ax
@@ -1101,9 +1101,7 @@ vid_switch:
                                 ; nothing IN wm_paint_all destroys them
 .already:
     clc
-    retf
-.refuse:
-    stc
+.refuse:                        ; (`jc` arrives with CF = 1)
     retf
 
 ; =============================================================================
@@ -1928,7 +1926,6 @@ vid_dual_ok:
     jz .no                      ; nothing to extend ONTO...
     test byte [vid_avail], VID_A_VGA | VID_A_CGA
     jz .no                      ; ...or nothing to extend FROM
-    clc
     ret
 .no:
     stc

@@ -8412,6 +8412,20 @@ SOAK = [
         needs=("marty", "nasm"),
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/ctrl.drv")),
+    Row("sndplay", "soak", py("tests/sndplay.py"), 65.0,
+        "SPEC.md 34.4: OSAPI_SND_PLAY's PWM clip end to end, on MartyPC with "
+        "every OUT to 40h/42h/43h traced and the speaker captured - no "
+        "shipped package plays one (Recorder rides the live media only), so "
+        "tests/sndplay/sndplay.asm does, from a scratch floppy the row "
+        "assembles itself. The answers (a tone stolen, both range refusals "
+        "AX = 2, the clip 0, a tone AFTER it granted), the ports (90h, one "
+        "42h count a sample exactly t[s], B6h) on the desktop and inside an "
+        "FSXF_FASTTICK bracket (the sub-tick parked and handed back, "
+        "[sch_fast] = 3 after), channel 2 left free, and a capture that "
+        "moves. Broken on purpose - the pulse's `out 0x42` removed, the "
+        "release's store removed, the sub-tick's hand-back removed - each "
+        "FAILS",
+        needs=("marty", "nasm")),
     Row("vidspkat", "soak", py("tests/vidspkat.py"), 40.0,
         "SPEC.md 34.11.8: 22,050 Hz through the PC speaker on a 286 or "
         "better - QEMU's 386, closed list entry 1. A pulse of N = 54 PIT "
@@ -8822,6 +8836,17 @@ SOAK = [
         "uncovered and under a Disk window, where BLITP walks the clip "
         "(5.4.3.6) with the uncovered pixels right. Broken on purpose "
         "(BLITP's plane step wrong, or the walk not asked for) it FAILS",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidlivext", "soak", py("tests/vidlivext.py"), 60.0,
+        "SPEC.md 5.4.3.6 on an EXTENDED desktop (os8088_xt_vga_mda): a Live "
+        "in colour pass is always a gfx_blitp region walk, and the walking "
+        "call takes no display hook of its own - its exit used to bring "
+        "down the one the probe and the pieces had left in [gfx_bp_hk], so "
+        "[gfx_dnest] went 0 -> 255 on the first pass and stayed there. "
+        "Forty samples uncovered and forty under a Disk window, none above "
+        "1, and the play advancing. At the kernel before the fix every "
+        "sample read 255 and it FAILS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidcga4", "soak", py("tests/vidcga.py", "--fmt", "cga4"), 45.0,

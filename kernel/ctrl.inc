@@ -1597,7 +1597,7 @@ cp_pgprobe:
     jl .none
     cmp cx, CP_CW - 1 - CP_RX
     jg .none
-    cmp dx, 0
+    test dx, dx
     jl .none
     cmp dx, CP_CH - 1
     jg .none
@@ -1740,6 +1740,7 @@ cp_drv_item:
     sub al, CP_ITEMS            ; not the count of rows on screen
     call COLD_SEG:drvf_drv_cp_class   ; CF=1 if the driver went away under us
     jc .gone
+.static:                        ; (`jb` arrives with CF = 1)
     ret
 .gone:
     add al, CP_ITEMS            ; hand back the ROW index, not the rebased
@@ -1747,9 +1748,6 @@ cp_drv_item:
     ret                         ; the rebased index read as "static row 5 ->
                                 ; dispatch the Scheduler page", and the
                                 ; consumers below could not tell
-.static:
-    stc
-    ret
 
 ; -----------------------------------------------------------------------------
 ; cp_r2v - a RECORD -> the visible list ORDINAL that names it, cp_v2r's inverse
@@ -1953,9 +1951,7 @@ cp_drv_ev:
     call COLD_SEG:drvf_drv_cp_call
 .yes:
     clc
-    jmp short .out
 .no:
-    stc
 .out:
     pop bp
     pop di
@@ -3511,7 +3507,7 @@ cp_radios:
                                 ; DX = row 0 glyph top
 
     mov ax, OS88UI_GRADIO       ; --- row 0: Pre-emptive --- (AH = 0: neither
-    cmp bl, 0                   ; mode is ever refused)
+    test bl, bl                 ; mode is ever refused)
     jne .r0
     mov al, OS88UI_GRADIO | OS88UI_GON
 .r0:
@@ -4837,7 +4833,7 @@ clk_fld_adj:
     jmp .fixday
 .year:
     mov bx, [clk_year]
-    cmp ah, 0
+    test ah, ah
     jl .ydn
     inc bx
     cmp bx, CLK_YMAX
@@ -4885,7 +4881,7 @@ clk_step:
     add al, ah
     cmp al, ch
     jbe .lo
-    cmp ah, 0
+    test ah, ah
     jl .under                   ; 0xFF from a -1: wrap to the top
     mov al, cl                  ; past the max: wrap to the bottom
     ret
@@ -6881,7 +6877,6 @@ cp_open_x:
                                 ; is not about the disk, so it keeps the beep
                                 ; the three call sites used to give it
     pop ax
-    clc
     ret
 .beep:
     call ct_cw_snd_beep         ; audible refusal (SPEC.md 34.3), which is

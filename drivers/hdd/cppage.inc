@@ -114,6 +114,8 @@ hd_page_paint:
                                 ; windows can change the table under it
                                 ; (SPEC.md 52.13)
     mov bp, dx                  ; BP = pane top for the rest of the routine
+    mov [hd_ppx], di            ; ...banked for hd_page_key, whose verb
+    mov [hd_ppy], dx            ; carries no pane origin (hddabi.inc)
 
     mov si, hd_s_page               ; NO PEN: font_run takes the pair in AX and
     mov cx, di                      ; never reads [gfx_color] (SPEC.md 52.12)
@@ -662,6 +664,93 @@ hd_page_drag:
 
 
 ; -----------------------------------------------------------------------------
+; hd_page_key - HDT_KEY, the panel's W_ONKEY one image further out (31.9.2)
+; in:  BL = ASCII, BH = the scan code; the gfx lock is HELD
+; out: CF = 0 we took it; CF = 1 we did not, and the panel drops it
+;
+; Up and Down move the drive highlight, Left and Right the C/H/S field - the
+; two selections a click on this page makes, and nothing that writes: the
+; geometry itself is still changed with - and +, so no keystroke can retype a
+; drive's cylinder count behind the user's back. Every other key is not ours.
+;
+; The pane origin is the one hd_page_paint banked, which is sound for
+; rp_key's reason: a key can only arrive at a page that has been painted, and
+; the panel does not move its pane under one.
+; -----------------------------------------------------------------------------
+HDP_K_UP     equ 0x48
+HDP_K_LEFT   equ 0x4B
+HDP_K_RIGHT  equ 0x4D
+HDP_K_DOWN   equ 0x50
+
+hd_page_key:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    call hd_sync                ; the resident's [hd_ndev] and [hd_sel], for
+                                ; hd_page_paint's reason
+    cmp bh, HDP_K_UP
+    je .up
+    cmp bh, HDP_K_DOWN
+    je .down
+    cmp bh, HDP_K_LEFT
+    je .left
+    cmp bh, HDP_K_RIGHT
+    je .right
+    pop bp                      ; not ours
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+.up:
+    mov al, [hd_sel]
+    or al, al
+    jz .took                    ; at the top already: taken, and nothing moves
+    dec al
+    jmp short .sel
+.down:
+    mov al, [hd_sel]
+    inc al
+    cmp al, [hd_ndev]
+    jae .took
+.sel:
+    call hd_sel_set             ; both sides, .devrow's reason
+    mov al, HDM_PICK
+    call hd_say
+    jmp short .repaint
+.left:
+    mov al, [hd_field]
+    or al, al
+    jz .took
+    dec byte [hd_field]
+    jmp short .repaint
+.right:
+    cmp byte [hd_field], 2
+    jae .took
+    inc byte [hd_field]
+.repaint:
+    mov di, [hd_ppx]
+    mov bp, [hd_ppy]
+    call hd_page_repaint        ; what a click on a row or a field draws
+.took:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
 ; hd_page_pm - one of the two adjust buttons (module internal)
 ; in:  AX = x, SI = its label, DI/BP = the pane origin
 ;
@@ -896,9 +985,10 @@ hd_page_adjust:
     call hd_geom_ok                 ; whole point of the editor. Bit 1 says
     jc .mark                        ; the USER set it, which is what makes it
     or byte [di+HDD_FLAGS], 1       ; worth a record in the blob (SPEC.md 52.6)
-    mov byte [hd_msgc], HDM_TYPED
     call hd_geom_push               ; ...and the DRIVE is told, or it keeps
                                     ; translating with the one the probe left
+    mov al, HDM_TYPED               ; both sides, for .devrow's reason: the
+    call hd_say                     ; repaint's hd_sync reads the resident's
 .mark:
     call hd_cfg_mark                ; staged on every click and written on
                                     ; none: the panel's teardown spends it
@@ -1016,8 +1106,13 @@ hd_page_ladder:
     div bl
     cmp al, [hd_ndev]
     jae .done
-    mov [hd_sel], al
-    mov byte [hd_msgc], HDM_PICK
+    call hd_sel_set             ; BOTH SIDES, and the resident's is the one that
+    mov al, HDM_PICK            ; counts: the repaint below starts with hd_sync,
+    call hd_say                 ; which copies the RESIDENT's [hd_sel] and
+                                ; [hd_msgc] over ours - so a selection stored
+                                ; only here was undone by the paint it asked
+                                ; for, and the click flashed the page and
+                                ; highlighted the row it started on
     jmp .repaint
 
 .editor:
@@ -1138,10 +1233,12 @@ hd_page_ladder:
 .refused:
     ; A greyed control explains itself (SPEC.md 47 rule 5), so the refusal
     ; says nothing new - it just makes sure the reason is on screen.
-    mov byte [hd_msgc], HDM_NOGEOM
+    mov al, HDM_NOGEOM          ; both sides, for .devrow's reason
     cmp byte [hd_ndev], 0
-    jne .repaint
-    mov byte [hd_msgc], HDM_NODEV
+    jne .say
+    mov al, HDM_NODEV
+.say:
+    call hd_say
 .repaint:
     call hd_page_repaint
 .done:
@@ -1253,6 +1350,8 @@ hd_fldi:     db 0               ; the C/H/S editor's loop index
 hd_fldx:     dw 0
 hd_clx:      dw 0               ; the click being dispatched
 hd_cly:      dw 0
+hd_ppx:      dw 0               ; the pane origin the last paint drew at, which
+hd_ppy:      dw 0               ; is all a KEY has to draw with (hd_page_key)
 
 hd_msg_str:
     push ax

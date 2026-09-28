@@ -594,13 +594,13 @@ fcp_clspan:
     mov al, [fcp_drv]
     xor bx, bx
     FCPX fcp_goto
-    jc .err
+    jc .out
     FCPX dskw_clbytes
     mov cx, ax
     mov al, [fcp_ddrv]
     xor bx, bx
     FCPX fcp_goto
-    jc .err
+    jc .out
     FCPX dskw_clbytes
     cmp ax, cx
     jae .have
@@ -608,10 +608,7 @@ fcp_clspan:
 .have:
     mov [fcp_lclus], ax
     clc
-    jmp short .out
-.err:
-    stc
-.out:
+.out:                           ; (a refusal arrives with its `jc`'s CF = 1)
     jmp fcpk_cx
 
 ; -----------------------------------------------------------------------------
@@ -984,7 +981,7 @@ fcp_relink:
     jnc .no                     ; it does: the copy path knows how to ask
     cmp ax, FERR_NOENT
     jne .no
-    cmp word [DSKW_FNONE], 0xFFFF
+    cmp word [DSKW_FNONE], 0xFFFF   ; (the HIGH word on kern_big, 18.7.5)
     je .no                      ; no reusable slot: FERR_DIRFULL is the copy
                                 ; engine's to report, with its own message
 
@@ -1052,12 +1049,13 @@ fcp_rlup:
     push ss                     ; ES = LOW_SEG (SPEC.md 2.1), which is what SS names
     pop es
     mov ax, [fcp_rlclus]
+%ifdef OS88_BIGVOL
+    FCPX dsk_c2lba_arm_x        ; AX = the folder's first sector, its high
+%else                           ; word armed (SPEC.md 18.7.5)
     FCPX dsk_clus2lba_x ; AX = the folder's first sector
+%endif
     jc .out
     push ax
-%ifdef OS88_BIGVOL
-    FCPX dsk_c2arm_x            ; ...all 32 bits of it (SPEC.md 18.7.5)
-%endif
     FCPX dsk_rd1_x
     pop ax
     jc .out
@@ -1241,14 +1239,10 @@ fcp_scan:
     cmp al, 0x20
     je .next
     mov ah, [es:si+DSK_R_ATTR]
-    mov al, ah
-    and al, 0x3F
-    cmp al, 0x0F
-    je .next                    ; a long-name fragment
-    test ah, 0x08
-    jnz .next                   ; the volume label
-    test ah, 0x06
-    jnz .next                   ; hidden or system, exactly as the listing
+    test ah, 0x0E               ; the volume label, or hidden or system,
+    jnz .next                   ; exactly as the listing - and a long-name
+                                ; fragment, whose attribute 0x0F carries all
+                                ; three, which is the listing's reason too
     FCPX dsk_synth_x              ; ES:SI -> dsk_ent (SPEC.md 19): the display
                                 ; name, the type word, the cluster, the size
 .stage:                         ; ...and FSV_ENUM's answer arrives here too
@@ -1513,13 +1507,9 @@ fcp_rdopen:
     mov [fcp_rsz], cx           ; dskw_stat answered (SPEC.md 62.9.1)
     mov [fcp_rszh], dx
     mov word [fcp_roff], 0      ; such a read walks an OFFSET, not a chain
-    mov word [fcp_roff+2], 0
-    clc
+    mov word [fcp_roff+2], 0    ; (CF = 0 from the `jc`; mov keeps it)
 .out:
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp fcp_bufget.out          ; the same three pops (a pop writes no flag)
 
 ; -----------------------------------------------------------------------------
 ; fcp_rdnext - read the next chunk of that file into the copy buffer
@@ -1720,9 +1710,7 @@ fcp_room:                       ; clobbers AX, BX, DX - its ONE caller reloads
     jb .no
 .yes:
     clc
-    ret
-.no:
-    stc
+.no:                            ; (CF = 1: both arrive by `jb`)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2344,9 +2332,9 @@ fcp_arm:
     jc .no
     call far [FCPFP + FCPE_ARM*4]
     jmp short fcp_fin           ; CF is fcp_arm's answer and fcp_fin keeps it
-.no:
-    stc                         ; files.inc reaches this one with `jmp`, and a
-    ret                         ; stub is as jumpable as the body it replaces
+.no:                            ; (CF = 1, the `jc`'s) files.inc reaches this one
+    ret                         ; with `jmp`, and a stub is as jumpable as the
+                                ; body it replaces
 
 fcp_paste:
     call fcp_load
@@ -2399,6 +2387,7 @@ fcp_pfail:
     FCPXF dsk_bytes_secs_x
 %ifdef OS88_BIGVOL
     FCPXF dsk_c2arm_x
+    FCPXF dsk_c2lba_arm_x
 %endif
     FCPXF dsk_chdir_q_x
     FCPXF dsk_clus2lba_x

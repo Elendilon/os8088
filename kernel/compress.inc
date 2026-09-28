@@ -1473,9 +1473,7 @@ cmz_compress:
 .rdisk:
     mov ax, FERR_IO             ; the volume moved under us between the
 .rferr:                         ; directory read and the data read
-    push ax                     ; the claim is still held
-    call cmz_drop
-    pop ax
+    call cmz_drop               ; the claim is still held (flags only)
 .ferr:
     stc                         ; AX = FERR_*, and the caller says it: this
     ret                         ; image has no fm_errtab of its own and does
@@ -1491,9 +1489,7 @@ cmz_compress:
     mov ax, cmz_s_worse
     jmp short .say
 .rsay:                          ; cmz_pkg's refusal: the claim is held
-    push ax
-    call cmz_drop
-    pop ax
+    call cmz_drop               ; (flags only: AX, the error, survives)
     jmp short .say
 .nomem:
     mov ax, cmz_s_nomem
@@ -1682,9 +1678,7 @@ cmz_stream:
     call .rmnew
     pop ax
 .ferr:
-    push ax
-    call cmz_drop
-    pop ax
+    call cmz_drop               ; (flags only: AX, the error, survives)
     stc                         ; AX = FERR_*, said by the caller
     ret
 .worse:
@@ -1700,9 +1694,7 @@ cmz_stream:
 .rmno:
     ret
 .rsay:
-    push ax
-    call cmz_drop
-    pop ax
+    call cmz_drop               ; (flags only: AX, the error, survives)
 .say:
     call cmz_say
     xor ax, ax
@@ -1806,9 +1798,7 @@ cmz_uncomp:
     ret
 
 .rferr:
-    push ax
-    call cmz_ufree
-    pop ax
+    call cmz_ufree              ; (flags only)
 .ferr:
     stc
     ret
@@ -1821,9 +1811,7 @@ cmz_uncomp:
 .rnomem:
     mov ax, cmz_s_nomem
 .rsay:
-    push ax
-    call cmz_ufree
-    pop ax
+    call cmz_ufree              ; (flags only)
     jmp short .say
 .plain:
     mov ax, cmz_s_plain
@@ -2117,7 +2105,6 @@ cmz_claim:
     shr word [cs:cmz_w], 1
     cmp word [cs:cmz_w], CMZ_WMIN
     jae .try
-    stc
 .out:
     pop cx
     pop bx
@@ -2270,7 +2257,6 @@ cmz_hdr:
     or byte [es:LD_H_FLAGS], 0x18   ; bit 3 = compressed, bit 4 = LZB
     xor bx, bx                  ; ES:BX = the whole file...
     mov ax, [cs:cmz_z]          ; ...and AX its length
-    clc
     ret
 .no:
     stc

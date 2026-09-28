@@ -1307,7 +1307,7 @@ ui_rdown:
     jz .ctx_done
     call inst_charge
 .ctx_done:
-    call gfx_unlock
+    jmp gfx_unlock
 .ret:
     ret
 
@@ -1344,7 +1344,6 @@ ui_tdbl:
     cmp ax, UI_TDBLT
     jae .first                  ; too slow: it restarts the pair below
     mov word [ui_tclkw], 0
-    stc
     ret
 .first:
     mov ax, [ui_click_t]
@@ -1737,10 +1736,7 @@ ui_drag_phase:
 %endif
 .out:
     pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_cx
 
 ; ui_drag_ph8 - AX = a signed delta -> AX truncated TOWARD ZERO to a multiple
 ;               of 8; clobbers nothing else (flags)
@@ -1969,9 +1965,7 @@ ui_grow:
     ; below has to reach it whichever way the origin went.
     mov ax, [bx + W_Y]
     add ax, [ui_origy]          ; the old rect's last row, origin unmoved
-    push ax
-    call wm_dock_snap
-    pop ax
+    call wm_dock_snap           ; (all registers preserved)
     call wm_usr_mark            ; A USER SIZED IT, so no preference may put a
                                 ; different size back (SPEC.md 11.100.5) - and
                                 ; BEFORE the fit below, not after it: a grow
@@ -2532,9 +2526,8 @@ ui_sys_open:
     shl bx, 1
     mov si, [bx+fm_stattab]     ; the Disk window's verdicts (SPEC.md 21)
 .fail:
-    push si                     ; the volume FIRST, then the toast: putting
-    call ui_tm_back             ; it back touches the floppy
-    pop si
+                                ; the volume FIRST, then the toast: putting
+    call ui_tm_back             ; it back touches the floppy (SI is kept)
     push ds
     pop es                      ; toast_show reads ES:SI; kret_es restores ES
     xor cx, cx                  ; TOAST_TICKS
@@ -2670,7 +2663,6 @@ ui_sys_find:
     or al, al
     jnz .cmp
     pop di
-    clc
     jmp short .out
 .nomatch:
     pop di
@@ -2680,10 +2672,7 @@ ui_sys_find:
     stc
 .out:
     pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_cx
 
 
 ; -----------------------------------------------------------------------------

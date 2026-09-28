@@ -1123,10 +1123,7 @@ dkx_hit:
     xor di, di                  ; empty or dying: no tile here
 .in:
     clc
-    pop bx
-    ret
-.miss:
-    stc
+.miss:                          ; (`jc` arrives with CF = 1)
     pop bx
     ret
 

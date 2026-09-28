@@ -496,11 +496,8 @@ mod_check:
     ret
 .badarm:
     call mod_disarm             ; a half-armed block is the one state nothing
-    pop bx                      ; downstream could survive
-    stc
-    ret
-.bad:
-    pop bx
+.bad:                           ; downstream could survive - and it falls
+    pop bx                      ; into the refusal every other check takes
     stc
     ret
 

@@ -847,7 +847,6 @@ inst_svc_parked:
     jb .scan
     pop cx
     pop bx
-    clc
     ret
 .busy:
     pop cx
@@ -2020,7 +2019,6 @@ inst_wchk:
     div cl                      ; AH = offset mod WIN_SIZE
     test ah, ah
     jnz .bad                    ; not record-aligned
-    clc
     jmp short .out
 .bad:
     stc
@@ -2146,7 +2144,6 @@ inst_pkg_spawn:
     mov ah, ch                  ; ...and the caller's AH out of its high half
     jc .out                     ; task table full: nothing was created
     mov [di+I_TASK], al         ; the record now owns the worker
-    clc
     jmp short .out
 .fail:
     stc

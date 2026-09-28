@@ -1305,8 +1305,11 @@ fmv_demote:
 ; its references can dangle in any window, the one being filled included.
 ; -----------------------------------------------------------------------------
 fmv_icostale:
+%ifdef OS88_ASSOC               ; assoc_point is the only one to leave a
+                                ; window out, so kern_small walks them all
     mov ax, 0xFFFF              ; no window's listing lives at FFFF: skip none
 fmv_icostale_but:
+%endif
     push di                     ; **DI ALONE.** The contract above is the one
                                 ; `mem_pg_forget` needs and it already holds:
                                 ; the purge protocol brackets every demoter
@@ -1326,8 +1329,10 @@ fmv_icostale_but:
                                 ; whose claim was refused reads 0 there too.
                                 ; fmv_ifirst/fmv_inext answer the question
                                 ; itself: a LIVE instance of KIND_FILES
+%ifdef OS88_ASSOC
     cmp [di+FS_VSEG], ax
     je .next                    ; the window being filled (see the header)
+%endif
     cmp byte [di+FS_DIRTY], 0
     jne .next                   ; already owed something at least as strong
     mov byte [di+FS_DIRTY], FSD_ICONS
@@ -1555,30 +1560,30 @@ fm_measure:
     push cx
     push dx
     push si
+    mov ax, 0xFFFF
 %ifdef OS88_BIGVOL
-    mov word [di+FS_FREEH], 0xFFFF  ; the sentinel is the high half here
-    mov word [di+FS_USEDH], 0xFFFF
+    mov [di+FS_FREEH], ax       ; the sentinel is the high half here
+    mov [di+FS_USEDH], ax
 %else
-    mov word [di+FS_FREE], 0xFFFF
-    mov word [di+FS_USED], 0xFFFF
+    mov [di+FS_FREE], ax
+    mov [di+FS_USED], ax
 %endif
     cmp byte [di+FS_MOK], 0
     je .out                     ; no good mount: no figures, and say so
 
     call dsk_free_clus_x ; --- free: clusters -> KB, once per mount ---
     jc .used
-    mov dl, [dsk_spc]
-    xor dh, dh
-    mul dx                      ; DX:AX = free sectors
 %ifdef OS88_BIGVOL
-    mov dh, dl                  ; ...and a sector is 512 BYTES: << 8 ...
-    mov dl, ah
-    mov ah, al
-    xor al, al
-    shl ax, 1                   ; ... << 1 more. A dword, because past 64MB
+    mov dh, [dsk_spc]           ; DX = spc x 256, which is at most 8000h at
+    xor dl, dl                  ; the 18.2-legal spc = 128 where spc x 512
+    mul dx                      ; would not fit - so DX:AX = free BYTES / 2
+    shl ax, 1                   ; ...and x 2. A dword, because past 64MB
     rcl dx, 1                   ; (SPEC.md 18.7.5) a word of KB is not the
     mov [di+FS_FREEH], dx       ; figure, and two decimals need the bytes
 %else
+    mov dl, [dsk_spc]
+    xor dh, dh
+    mul dx                      ; DX:AX = free sectors
     shr ax, 1                   ; ...and a sector is half a KB (a volume caps
                                 ; at 65,535 sectors here, so DX = 0)
 %endif
@@ -1597,7 +1602,6 @@ fm_measure:
     jz .kb
     xor ax, ax                  ; AX = entry index
 .sum:
-    push ax
     call fmv_dient              ; SI -> the staged entry, out of THIS window's
                                 ; cache (22.6.1) and not the global: fmv_load
                                 ; has just retired the destination, so the
@@ -1605,12 +1609,11 @@ fm_measure:
                                 ; `disk_nfiles` says 0 about it. THE BORROW
                                 ; AND NOT fmv_get_dir, because fmv_reload_all
                                 ; calls fmv_load for every window and [fm_vp]
-                                ; names whichever one acted last
-    mov ax, [si+20]             ; size lo...
-    add cx, ax
-    mov ax, [si+22]             ; ...and hi, with the carry out of the low
-    adc bx, ax                  ; half folded in
-    pop ax
+                                ; names whichever one acted last. AX, the
+                                ; index, comes back as it went in
+    add cx, [si+20]             ; size lo...
+    adc bx, [si+22]             ; ...and hi, with the carry out of the low
+                                ; half folded in
     inc ax
     cmp ax, dx
     jb .sum
@@ -1685,9 +1688,7 @@ fmv_sync_x:
     mov bx, [di+FS_SEL]
     push bx
     mov bx, [di+FS_SCRL]
-    push bx
-    call fmv_load
-    pop bx
+    call fmv_load               ; (all registers preserved, BX with them)
     mov [di+FS_SCRL], bx
     pop bx
     mov [di+FS_SEL], bx
@@ -1914,7 +1915,7 @@ fm_focus_x:
                                 ; between here and that draw: wm_raise's own
                                 ; wm_su_take is the OUTGOING window's, and
                                 ; wm_dmg_mine keeps the dock's pass off it
-    cmp ch, 0
+    test ch, ch
     je .owed                    ; the caller is drawing this window
     mov si, bx
     call fm_repaint             ; frontmost, so nothing is on top of it and
@@ -2300,6 +2301,9 @@ fm_clotab:    dw fm_s_empty, fm_s_dskerr, fm_s_ewprot, fm_s_nomem
               dw fm_s_clsame2, fm_s_clbusy
 fm_s_size:    db 'Size ', 0         ; ...and the resting status line, which
 fm_s_free:    db '   Free ', 0      ; carries both figures (SPEC.md 22.7)
+%if fm_s_free - fm_s_size != 6
+  %error "fm_draw_status reaches fm_s_free as the string after fm_s_size"
+%endif
 fm_s_root:    db 'Disk', 0      ; window title at the root...
 fm_s_rootf:   db 'Root '        ; (the context menu's 'Root Folder' is this
 fm_s_folder:  db 'Folder', 0    ; with five bytes in front) ...and in a
@@ -4774,7 +4778,7 @@ fm_docmd:
     call fm_status_only         ; selection or the mode...
     jnc .out                    ; ...or it only put a PROMPT on the status
 .full:                          ; line, which is one line of text. CF = 1 is
-    call fm_repaint             ; 11.3's granularity refusal, same as always
+    jmp fm_repaint             ; 11.3's granularity refusal, same as always
 .out:
     ret
 
@@ -4913,12 +4917,10 @@ fm_fmt_reach:
     mov al, 3                   ; from this, so the window describes the disk
     call dskw_format            ; that exists rather than the one asked for
     jc .out                     ; AX = FERR_*, said by the caller
-    mov al, 1                   ; ...and the caller says WHICH verdict
-    clc
-    ret
+    mov al, 1                   ; ...and the caller says WHICH verdict (CF=0:
+    ret                         ; the jc above was not taken)
 .ok:
-    xor al, al
-    clc
+    xor al, al                  ; CF=0 too
 .out:
     ret
 
@@ -4943,21 +4945,16 @@ fm_fmt_reach:
 ; turns up and exactly where the BIOS can say nothing about it.
 ; -----------------------------------------------------------------------------
 fm_fmt_sizeable:
-    cmp byte [fm_fmtrow], 2     ; the 9-sector pair, and only it
-    jb .no
+    cmp byte [fm_fmtrow], 2     ; the 9-sector pair, and only it: CF=1
+    jb .no                      ; below it is already the refusal
     push bx
     mov bl, al
     call dsk_vol_row_x
     jc .nopop
-    cmp byte [bx+DV_UNIT], 2    ; ...on an EXTERNAL drive, and only there
-    jb .nopop
-    pop bx
-    clc
-    ret
-.nopop:
+    cmp byte [bx+DV_UNIT], 2    ; ...on an EXTERNAL drive, and only there -
+.nopop:                         ; and CF=1 below unit 2 IS the answer
     pop bx
 .no:
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -5261,7 +5258,7 @@ fm_clone_bad:
                                 ; armed, so the window is left as it was
     cmp word [clo_seg], 0       ; ...and the image goes back HERE, because no
     jne .armed                  ; mode was armed and fm_edit_end will therefore
-    call clo_drop               ; never be reached with one to drop it from
+    jmp clo_drop               ; never be reached with one to drop it from
 .armed:                         ; (SPEC.md 2.8.3) - UNLESS a claim is live,
     ret                         ; which is CERR_BUSY and means ANOTHER
                                 ; window's mode 7 is armed and owns the image.
@@ -6181,7 +6178,6 @@ fm_editkey:
     jmp short .pops             ; and NOTHING else on this window moved, so a
 .cancelfull:                    ; ...two lines: the caller owes the window
     call fm_edit_end
-    jmp short .out
 .out:                           ; keystroke owes one line, not a repaint
     stc                         ; anything else - commit, cancel, the replace
 .pops:                          ; question - changed the listing or the mode
@@ -6633,7 +6629,7 @@ fm_dgdrop:
     pop bx                      ; user is looking
     pop ax
     call fcp_paste
-    call fm_paste_res
+    jmp fm_paste_res
 .out:
     ret
 
@@ -6902,7 +6898,7 @@ fm_edit_arm:
                                 ; fm_docmd does before every dispatch
     cmp al, 2                   ; RENAME starts from the name the file has
     jne .out                    ; (SPEC.md 22.10). Modes 1 and 4 - New Folder
-    call fm_edit_seed           ; and the replace question - start empty
+    jmp fm_edit_seed           ; and the replace question - start empty
 .out:
     ret
 
@@ -7542,7 +7538,7 @@ fm_draw_rows:
 .bar:
     call fm_sbset
     call os88ui_sbar
-    call fm_more_mark           ; ...and the edge the bar is standing on
+    jmp fm_more_mark           ; ...and the edge the bar is standing on
 .norows:
     ret
 
@@ -8419,8 +8415,7 @@ fm_draw_status:
     mov si, fm_onam             ; is only up between two of them)
     call fm_scat
     mov si, fm_s_repq
-    call fm_scat
-    mov byte [di], 0
+    call fm_scat                ; (which stores the NUL fm_staty2 draws to)
     call fm_staty2              ; ...and line two, the answers, where every
     mov si, fm_s_repk           ; other status line goes
     jmp .fs_stat                ; NEAR: the format question below sits between
@@ -8466,9 +8461,8 @@ fm_draw_status:
     mov si, fm_s_swapd          ; ...the drive letter, stamped
 .fs_swapl:
     call fm_scat
-.fs_swaprow:
-    mov byte [di], 0
-    call fm_staty2
+.fs_swaprow:                    ; every arrival has stored its NUL: fm_scat,
+    call fm_staty2              ; dskw_fmt_line (its refusal too) and clo_line
     mov si, fm_s_swapk
     jmp .fs_stat
 
@@ -8508,12 +8502,13 @@ fm_draw_status:
     push bx
     mov bx, [fm_vp]
     mov si, fm_s_size
-    call fm_scat
+    call fm_scat                ; ...which leaves SI on fm_s_free, the string
+                                ; after it (asserted there), and both figure
+                                ; stagers preserve SI and store their own NUL
 %ifdef OS88_BIGVOL
     mov ax, [bx+FS_USED]        ; bytes, and at least a K (SPEC.md 22.7.1)
     mov dx, [bx+FS_USEDH]
     call fm_szfig_k
-    mov si, fm_s_free
     call fm_scat
     mov ax, [bx+FS_FREE]
     mov dx, [bx+FS_FREEH]
@@ -8521,13 +8516,11 @@ fm_draw_status:
 %else
     mov ax, [bx+FS_USED]
     call fm_kbfig
-    mov si, fm_s_free
     call fm_scat
     mov ax, [bx+FS_FREE]
     call fm_kbfig
 %endif
     pop bx
-    mov byte [di], 0
     jmp short .fs_stat_drawn
 
 .fs_stat:
@@ -8708,61 +8701,46 @@ fm_szfig_k:
     push bx
     push cx
     push dx
-    cmp dx, 0xFFFF
-    je .unknown
-    mov bx, ax                  ; BX = what is below a K, in bytes
-    and bx, 1023
+    mov cl, '?'                 ; the not-known sentinel is a high half of
+    inc dx                      ; FFFF: '?' and no figure (22.7)
+    jz .unit1
+    dec dx
+    mov cl, 'K' - 2             ; +2 a step: 'K' after one, 'M' after two
+.step:                          ; --- DX:AX >> 10, BX = what fell off ---
+    mov bx, ax
+    and bh, 3                   ; BX = the remainder, 0..1023 of the unit
     mov al, ah                  ; >> 8 ...
     mov ah, dl
     mov dl, dh
     xor dh, dh
-    shr dx, 1                   ; ... >> 2 more: KB, DX <= 3Fh
+    shr dx, 1                   ; ... >> 2 more
     rcr ax, 1
     shr dx, 1
     rcr ax, 1
-    mov cl, 'K'
-    or dx, dx
-    jnz .mb
-    cmp ax, 10240
-    jb .fig
-.mb:
-    mov bx, ax                  ; BX = what is below an M, in KB
-    and bx, 1023
-    mov al, ah                  ; KB >> 10: whole MB, <= 4,095
-    mov ah, dl
-    shr ax, 1
-    shr ax, 1
-    mov cl, 'M'
-.fig:
-    call fm_utoa                ; the whole units
+    inc cx
+    inc cx
+    or dx, dx                   ; still 10,240 of this unit or more: the
+    jnz .step                   ; next one. Bytes -> K always stops by M,
+    cmp ax, 10240               ; whose most is 4,095 - so this loop runs
+    jae .step                   ; once or twice
+    call fm_ultoa_x             ; the whole units (DX = 0 here)
     mov byte [di], '.'
     inc di
     xchg ax, bx                 ; AX = the remainder, 0..1023 of the unit
-    mov bx, 100
-    mul bx                      ; DX:AX = remainder * 100, under 102,400
-    mov al, ah                  ; >> 10: hundredths, 0..99
-    mov ah, dl
-    shr ax, 1
-    shr ax, 1
-    mov bl, 10
-    div bl                      ; AL = tens, AH = units
+    mov dx, 25
+    mul dx                      ; x 100 / 1024 = x 25 / 256: AH = hundredths,
+    mov al, ah                  ; 0..99, and the product fits AX (<= 25,575)
+    aam                         ; AH = tens, AL = units
     add ax, '00'
+    xchg al, ah
     mov [di], ax                ; both digits, the leading zero kept
     inc di
     inc di
-    mov [di], cl
+.unit1:
+    mov [di], cl                ; the unit, or '?'
     inc di
-    jmp short .nul
-.unknown:
-    mov byte [di], '?'
-    inc di
-.nul:
     mov byte [di], 0
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 %endif
 
 ; -----------------------------------------------------------------------------

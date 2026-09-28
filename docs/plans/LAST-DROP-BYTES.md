@@ -1085,3 +1085,70 @@ the shape (`ui_krect4`, `fmv_uadd`) cannot use the helpers at all — the `dw`
 is read through DS, which is not CS there. The measurement's scripts and raw
 counts are the pass's scratch findings (`rect-count.md`); re-derive rather
 than quote if the window manager has moved.
+
+### 7.11 The speaker door (`OSAPI_FSX_SPK`) as a thin door — ~70-80 resident bytes, DEFERRED FOR TIME
+
+**This row is NOT a refusal.** Kernel size pass 6
+(docs/plans/completed/HANDOFF-KERNEL-SIZE-P7.md) took the door from 280 bytes
+to 178 and stopped at what the ABI allows. The owner has since settled the
+question that stopped it: **packages are trusted** — this is real mode, and a
+package that misbehaves takes the machine down whatever the kernel refuses —
+so a check that exists only to defend the kernel from its caller is not a
+reason to keep a byte. It is left undone on 2026-09-28 for time alone.
+Whoever picks it up starts from "yes".
+
+**Where the bytes are**, kern_big at `dd62b849` (`kern_small` carries only the
+6-byte cell and no body, so every row below is kern_big's):
+
+| piece | bytes | movable? |
+|---|---:|---|
+| `osapi_fsx_spk`, the open | **132** (162 since #203's SI/DI fence, ported at 30) | mostly, below |
+| `spk_off`, the close and the teardown `fsx_restore` runs on every way out of a bracket | 46 | **no** - it is what gets IRQ0 and channel 0 back for a package that did not |
+| `sch_isr`'s two sample-ISR arms | 15 | no - the interrupt path itself |
+| `fsx_wait`'s `hlt` arm and `fsx_restore`'s call | 13 | no |
+
+The open's 132, by part: close dispatch 7, the own-rate-bracket check 14, the
+N range check 22 (12 of it the 286 floor, SPEC.md 34.11.8), the busy check 8,
+the caller's segment 9, the divisor bank and `div` 13, **the 6-byte block
+written into the caller** 10, state stores 11, the IRQ0 vector 13, channel 2's
+PWM setup 12, channel 0 5, **the AX + DX:BX return** 9.
+
+**The change, in three steps that each stand alone:**
+
+1. **Drop the DX:BX return (~−3).** `apps/os88spk.inc` never reads it - it
+   takes the chain from the block. BX becomes preserved, so the net is small.
+2. **Stop writing the block (~−12 to −14).** Publish the chain as a fixed
+   3-byte JCELL in the API table (`jmp sch_isr`), so the library's period end
+   is `jmp far KERNEL_SEG:cell` rather than `jmp far [cs:os88spk_chain]` -
+   one extra near `jmp` a rate PERIOD, not a sample. K is the catch: the ISR
+   needs it before the first sample, which can land before the door returns,
+   so either the caller passes K and the kernel derives N, or the rate
+   bracket's open publishes its divisor.
+3. **The thin door proper (the rest).** Drop the bracket check, the N range
+   check, #203's SI/DI fence (`SPK_E_ADDR`, 30 bytes as ported - upstream's
+   call, so agree it with them first) and the close verb, and move the IRQ0 vector write and both channels'
+   PIT programming into `os88spk.inc`. The kernel keeps only what is the
+   kernel's: the busy arbitration (`snd_pcm_busy`, since a clip and the door
+   share channel 2), the divisor it banks and trims to K x N so `[ticks]`
+   stays exact, `[spk_seg]` for `spk_off`, and `spk_off` itself. Precedent:
+   inside an fsx bracket the app already owns every pixel (GFX-FSX-PLAN).
+
+**What it costs, so nobody discovers it afterwards:**
+
+- **Tick accuracy moves to the package.** If the library programs channel 0
+  with anything but the N it told the kernel, `[ticks]` drifts. The door
+  should take N and do the trim; the library must program exactly that N.
+- **~40 bytes move into each package that plays this way**, as package image
+  (resident only while it runs). One package does today: the Video Player.
+- **The close verb** is used mid-bracket by `os88spk_stop` (pause, seek,
+  restart). Dropping it means the library tears down itself (vector back to
+  the chain, channel 2 idle) and tells the kernel the busy byte is free - so
+  keep a one-instruction "release" rather than lose the verb outright.
+- **SPEC.md 34.11 is the contract** and changes with it; `tests/vidspk*.py`
+  and `tests/sndplay.py` (which traces every OUT to 40h/42h/43h, and went red
+  for three planted breaks) are the gates.
+
+**What is NOT on the table:** the on-demand-module version of the door
+(~−178) stays refused for READ_SEQ's reason (HANDOFF-KERNEL-SIZE-P6.md §2) -
+`mod_need` loads only from the boot volume, so a video on a data disk would
+ask for the system disk.

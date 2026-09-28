@@ -2430,7 +2430,7 @@ wm_wake_call:
     or bp, bp
     jz wm_wk_none               ; never asked to be woken
     mov si, bx
-    call ui_bill              ; SI = window, BP = the handler; CX/DX are
+    jmp ui_bill              ; SI = window, BP = the handler; CX/DX are
                                 ; carried and meaningless here
 wm_wk_none:
     ret
@@ -3315,7 +3315,7 @@ wm_lk_take:
 wm_unlk:
     or al, al
     jz wm_unlk_out
-    call gfx_unlock             ; ...and the arrow comes back on finished
+    jmp gfx_unlock             ; ...and the arrow comes back on finished
 wm_unlk_out:                    ; pixels, with the caches already clean
     ret
 
@@ -3967,9 +3967,7 @@ wm_flush:
     call wm_flush_ck
     pop cx                      ; (pop writes no flags, so CF carries out)
     pop ax
-    ret
-.no:
-    clc
+.no:                            ; (`jnc` arrives with CF = 0)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -5666,7 +5664,6 @@ wm_geom:
 .vis:
     test byte [bx+W_FLAGS], 2   ; visible?
     jz .hidden
-    clc
     ret
 .hidden:
     stc
@@ -6098,14 +6095,11 @@ wm_clip_occl_r:
 .done:
 %ifdef DOCK_OPT
     call dock_hole_sub          ; ...and the OPEN dock, which is over all of
-    jmp short .out              ; them (SPEC.md 30.6.1). CF: its overflow
+                                ; them (SPEC.md 30.6.1). CF: its overflow
 %else
     clc
-    jmp short .out
 %endif
-.over:
-    stc
-.out:
+.over:                          ; (`jc` arrives with CF = 1)
     pop si
     pop cx
     pop bx
@@ -6275,14 +6269,11 @@ wm_dmg_occl:
 .done:
 %ifdef DOCK_OPT
     call dock_hole_sub          ; ...and the open dock: no dither under it
-    jmp short .out              ; (SPEC.md 30.6.1). CF: its overflow
+                                ; (SPEC.md 30.6.1). CF: its overflow
 %else
     clc
-    jmp short .out
 %endif
-.over:
-    stc
-.out:
+.over:                          ; (`jc` arrives with CF = 1)
     pop si
     pop cx
     pop bx
@@ -6481,7 +6472,7 @@ wm_clip_subr:                   ; ...and the walk, from those four words
     xor di, di                  ; DI = index of the rect under test
 .rect:
     cmp di, [wm_clip_n]
-    jae .ok
+    jae .out                    ; CF=0: every rect tested
     mov ax, [si+WCR_X2]
     cmp ax, [wm_cl_ox1]
     jl .keep
@@ -6495,18 +6486,13 @@ wm_clip_subr:                   ; ...and the walk, from those four words
     cmp ax, [wm_cl_oy2]
     jg .keep
     call wm_clip_split          ; overlap: up to four fragments replace it
-    jc .bad
+    jc .out                     ; CF=1: the list is full
     jmp short .rect             ; slot DI now holds the rect moved down into
                                 ; it, so re-test the same index
 .keep:
     inc di
     add si, WCR_SZ
     jmp short .rect
-.ok:
-    clc
-    jmp short .out
-.bad:
-    stc
 .out:
     pop di
     pop si
@@ -6592,13 +6578,8 @@ wm_clip_split:
     mov [wm_cl_fx1], ax
     mov ax, [wm_cl_rx2]
     mov [wm_cl_fx2], ax
-    call wm_clip_add
-    jc .full
-    clc
-    jmp short .out
-.full:
-    stc
-.out:
+    call wm_clip_add            ; ...whose CF is the answer, as each jc
+.full:                          ; above already carried it
     pop bx
     pop ax
     ret
@@ -7403,11 +7384,7 @@ wm_title_band:
     stc
 .out:
     pop es
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_dx
 %endif
 
 wm_draw_title:
@@ -7821,21 +7798,15 @@ wm_title_band_x:
     call band_run_x
 .emit:
     call band_emit_x            ; the colours are band_pen_x's, up at the top
-    jc .fail
+    jc .fail                    ; CF = 1 is the answer
     jmp .chunk
 .done:
     clc
-    jmp short .out
 .fail:
-    stc
 .out:
     pop bp
     pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_dx
 
 ; wmt_barrect - the bar's interior rect, which the ground fill and nothing
 ; else wants. AX/BX/CX/DX; DI = the window.
@@ -8195,10 +8166,7 @@ wm_band:
     clc                         ; out for a different set of fragments
 .ok:                            ; (`je` arrives with CF = 0 already)
     pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_cx
 .no:
     stc
     jmp short .ok
@@ -8342,7 +8310,7 @@ wm_damage:
     xor bx, bx                  ; what survived - and an EMPTY rect (x1 > x2)
     xor cx, cx                  ; is what 11.90.2 already documents as "draw
     xor dx, dx                  ; NOTHING". What MOVED is still the app's:
-    clc                         ; only it knows its strip is anchored
+                                ; only it knows its strip is anchored
     pop di
     pop si
     ret
@@ -8369,7 +8337,6 @@ wm_damage:
 .nosub:
     or si, si                   ; the band narrowed it, so this is a rect and
     jz .whole                   ; not "the whole content"
-    clc
     pop di
     pop si
     ret
@@ -9129,7 +9096,6 @@ wm_su_srect:
     mov si, wm_su_x1            ; the four words the buffer was laid out for
     call gfx_sub_arm
     jc .whole
-    clc
     pop si
     ret
 .whole:
@@ -9550,7 +9516,6 @@ wm_su_bytes:
     or dx, dx
     jnz .big
     mov [wm_su_fsz], ax
-    clc
     jmp short .out
 .big:
     stc
@@ -9582,9 +9547,7 @@ wm_su_scrset:
 .f:
     call wm_su_frag
     jc .fnext
-    push si
-    call wm_su_bytes
-    pop si
+    call wm_su_bytes            ; (every register preserved)
     jc .big
     add di, [wm_su_fsz]
     jc .big
@@ -9607,7 +9570,6 @@ wm_su_scrset:
     or dx, dx
     jnz .big
     mov [wm_su_scrsz], ax
-    clc
     jmp short .out
 .big:
     stc
@@ -9628,7 +9590,6 @@ wm_su_bget:
     or al, al
     pop ax
     jz .no
-    clc
     ret
 .no:
     stc
@@ -9955,10 +9916,7 @@ wm_dc_take:
     pop es
     pop di
     pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_cx
 
 ; wm_dc_done - the repaint is over: spend the waiver
 ; preserves every register and the flags

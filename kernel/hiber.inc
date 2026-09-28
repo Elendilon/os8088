@@ -592,8 +592,7 @@ hbf_open:
     call far [HBFP + HBE_OPEN*4]
     retf
 .no:
-    call hbf_nodisk
-    retf
+    jmp short hbf_perform.toast ; the toast and the retf, hbf_perform's
 
 hbf_nodisk:
     push ax
@@ -603,10 +602,7 @@ hbf_nodisk:
     mov bx, cp_opentab
     mov cx, CP_NOPEN
     call ct_toast_say
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_cx                ; pop cx, bx, ax and ret
 
 ; hbf_perform - a posted UI_RBQ_HIBER / UI_RBQ_RESUME / UI_RBQ_ASK, spent by
 ;               ui_task with nothing held (SPEC.md 87.4, 87.5)
@@ -628,7 +624,8 @@ hbf_perform:
     mov word [hb_dosseg], 0
     cmp al, UI_RBQ_ASK          ; a question that cannot be asked is not
     je .quiet                   ; worth a toast: the pointer stays for a
-    call hbf_nodisk             ; boot that has the system disk in
+.toast:                         ; boot that has the system disk in (and
+    call hbf_nodisk             ; hbf_open's refusal is this toast too)
 .quiet:
     retf
 
@@ -655,10 +652,7 @@ hbf_closed:
     cmp byte [hb_mode], HB_M_GONE
     je .out
     mov byte [hb_mode], HB_M_GONE
-    push ax
-    mov al, MOD_HIBER
-    call mod_drop
-    pop ax
+    call hbf_dropck             ; ...which now finds it GONE and drops
 .out:
     retf
 
@@ -825,7 +819,7 @@ hbm_btnrect:
     cmp byte [hb_mode], HB_M_RESUME
     jne .out
     mov si, hbm_s_bres
-    jmp short .out
+    ret                         ; (.out is a bare `ret`)
 .two:
     add cx, HBW_B2X
     mov [bx], cx
@@ -1027,8 +1021,7 @@ hbm_win:
     or si, si
     jz .no
     pop di
-    pop ax
-    clc
+    pop ax                      ; (CF = 0: the `or`'s, which `jz` left)
     ret
 .no:
     pop di
@@ -1487,8 +1480,7 @@ hbm_wrimg:
     mov cx, HBP_SIZE
     call COLD_SEG:dwf_dskw_write
     jc .no
-    pop ax
-    clc
+    pop ax                      ; (CF = 0 from the `jc`)
     ret
 .no:
     pop ax

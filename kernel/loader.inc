@@ -510,7 +510,6 @@ ld_check_hdr:
                                             ; the plain bytes it is then given,
                                             ; which is a refusal by the right
                                             ; route
-    clc
 .out:
     ret
 
@@ -568,9 +567,7 @@ ld_owed:
     jne .no
     cmp al, LD_EABORT
     jne .no
-    push ax
-    call files_refresh_x
-    pop ax
+    call files_refresh_x        ; (clobbers nothing but the flags)
 .no:
     ret
 
@@ -1867,7 +1864,6 @@ osapi_pkg_rehome_x:
     mov [ld_rehome], dx
     mov [ld_rehsz], ax
     pop bx
-    clc
     retf
 .no:
     pop bx                      ; `pop` writes no flag, so the refusal survives
