@@ -469,6 +469,11 @@ tsp_readout:
     call tsp_mpct
     mov si, trk_s_spk5
     call tsp_mcat
+    cmp word [tsp_rate], 8000       ; UNDER 8 kHz THE CARRIER IS IN THE EAR's
+    jae .e                          ; best band, and the owner would rather
+    mov si, trk_s_spk6              ; say so than have it taken for a fault
+    call tsp_mcat
+.e:
     call tsp_mend
     pop es
     pop di
@@ -589,6 +594,10 @@ tsp_start:
     mov byte [tsp_open], 0
     mov byte [tsp_run], 1
     call trk_transport
+    mov al, [mp_playing]            ; ...and the frame told the transport has
+    mov [tui_lplay], al             ; already been said: a frame that saw the
+                                    ; play START would put the legend over the
+                                    ; readout within a second of it (the owner)
     call tsp_readout                ; the rate and its predicted load
     clc
     jmp short .out

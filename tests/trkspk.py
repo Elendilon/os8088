@@ -162,9 +162,12 @@ def leg_play(bad):
               "play: the 5150 plays at 5,512 Hz by itself")
         if t.rb("tsp_open") != 1:
             return
-        msg = t.m.read(t.a("tsp_msg"), 64).split(b"\0")[0].decode()
-        check(bad, msg == "Speaker %d Hz, %d%% of this PC" % (rate, pct),
-              "play: the status line reads %r" % msg)
+        want = "Spk %d Hz, %d%% cpu (CARRIER WHINES!)" % (rate, pct)
+        os88marty.pace(t.m, 3.0)        # ...and STILL says it once the door
+        p = t.rw("tui_msgp")            # is open: the play's first frames
+        msg = t.m.read(t.base + p, 64).split(b"\0")[0].decode()   # put the
+        check(bad, msg == want,         # transport legend over it once
+              "play: the status line reads %r, the door open" % msg)
         os88marty.pace(t.m, 1.0)
         r, dry = t.pulses()
         print("   %d pulses at %.0f Hz, the ring dry %d times" % (
@@ -276,7 +279,8 @@ def leg_drop(bad):
             t.until(lambda: t.rw("tsp_rate") == 4800 and
                     t.rb("tsp_open") == 1, "the rung down", limit=300.0)
             msg = t.m.read(t.a("tsp_msg"), 64).split(b"\0")[0].decode()
-            check(bad, msg.startswith("Speaker 4800 Hz, "),
+            check(bad, msg.startswith("Spk 4800 Hz, ") and
+                  msg.endswith(" cpu (CARRIER WHINES!)"),
                   "drop: down to 4,800 live, the line reads %r" % msg)
             os88marty.pace(t.m, 1.0)
             r, dry = t.pulses(2000)
