@@ -530,29 +530,38 @@ def leg_level(bad):
         os88marty.pace(t.m, 1.0)
         check(bad, lev() == l0 + 1 and t.rb("os88spkfx_rat") == 2,
               "level: a pause and a resume keep it (%d)" % lev())
-        # the groove, in the play: its left end is level 0, and the play
-        # goes on - a press anywhere else would have paused it
+        # the groove: IN the play the arrow is off the screen (the bracket,
+        # SPEC.md 67.17), so a press there pauses like any other; PAUSED the
+        # bar is a slider, and its left end is level 0
         rs = lambda n, o=0: int.from_bytes(t.m.read(t.a(n) + o, 2), "little",
                                            signed=True)
         ox, oy = rs("tw_ox"), rs("tw_oy")
         x1, y1, x2, y2 = [rs("tw_lay", 14 + 2 * i) for i in range(4)]
-        # PRESSED, HELD and released like a hand: the play loop polls the
-        # mouse between blocks of mixing, and `click`'s ~25 ms press can
-        # fall wholly between two polls
+        gy = oy + (y1 + y2) // 2
         mo = os88ui.Mouse(marty=t.m, verbose=False)
-        mo.to(ox + x1 + 1, oy + (y1 + y2) // 2)
+        # PRESSED and HELD like a hand until it pauses: the play loop polls
+        # the mouse between blocks of mixing, and `click`'s ~25 ms press can
+        # fall wholly between two polls
+        mo.to(ox + (x1 + x2) // 2, gy)
         mo._sep()
         mo._edge(True)
-        try:
-            t.until(lambda: lev() <= 1, "the groove's level", limit=20.0)
-        except Exception:
-            pass                        # ...and the check below says so
+        t.until(lambda: t.rb("mp_playing") == 0, "the press to pause",
+                limit=20.0)
         mo._edge(False)
+        check(bad, lev() == l0 + 1,
+              "level: in the play a press on the groove pauses, the level "
+              "untouched (%d)" % lev())
+        os88marty.pace(t.m, 0.5)
+        mo.drag(ox + (x1 + x2) // 2, gy, ox + x1 - 4, gy)
+        os88marty.pace(t.m, 0.5)
+        check(bad, t.rb("tsp_ulev") == 1,
+              "level: paused, a drag to the groove's left end sets level 0 "
+              "(ulev %d)" % t.rb("tsp_ulev"))
+        t.m.type_text(" ")
+        t.until(lambda: t.rb("tsp_open") == 1, "Space to play on")
         os88marty.pace(t.m, 1.0)
-        check(bad, lev() <= 1 and t.rb("tsp_open") == 1 and
-              t.rb("mp_playing") == 1,
-              "level: a press on the volume groove sets it (%d) and the "
-              "play goes on" % lev())
+        check(bad, lev() == 0 and t.rb("os88spkfx_rat") == 2,
+              "level: ...and the play takes it (%d)" % lev())
     finally:
         t.close()
     t = Trk(MACHINE_SB, [("TRACKER.O88", os88build.at("build/tracker.o88")),

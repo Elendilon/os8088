@@ -75740,9 +75740,10 @@ USER'S: `tsp_ulev` holds it (level + 1, 0 = auto), `tsp_lvset` applies it
 live and freezes it (`os88spkfx_rat` = 2, which the shaper reads as "step no
 more"), and it is kept for the session - across a pause, a resume, a rung
 down and the next module - as a volume is. The status line says
-`Spk level N of 10 (+/-)`. During a play the face is the imposter and a
-press anywhere pauses, except ON THE VOLUME GROOVE, where the press and the
-drag after it set the level (`tsp_vgroove`); `+` and `-` work there too. On
+`Spk level N of 10 (+/-)`. During a play `+` and `-` are the way to it: the
+face is the imposter inside a fullscreen bracket, which takes the arrow off
+the screen (67.17), so a drag there would be blind and a press anywhere
+pauses - after which the arrow is back and the bar is a slider again. On
 the owner's machines: level 5 is the clearest on the T1100 Plus and up to 7
 is only louder; 10 blurs the loud parts together but stays listenable; and
 on the 5150 the carrier's whine falls from 7 up - the louder the level, the

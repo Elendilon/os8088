@@ -98,7 +98,6 @@ tsp_rat:    dw 22050, 16000, 11025, 8000, 0
                                     ; auto (the ratchet), set by the volume bar
                                     ; or + / -, and kept for the session
     TRKB tsp_rsel                   ; THE USER'S RATE: 0 auto, else rung + 1
-    TRKB tsp_vdrag                  ; the volume groove held, in the play
     TRKB tsp_exit                   ; TSPX_*
     TRKB tsp_btn                    ; the mouse's buttons, last seen
     TRKB tsp_pend                   ; the imposter's first pass: tsp_prep
@@ -590,62 +589,6 @@ tsp_lvstep:
     mov al, SPKFX_NLEV - 1
 .set:
     call tsp_lvset
-    pop ax
-    ret
-
-; tsp_vgroove - in the play's loop, with OSAPI_MOUSE's CX, DX, AL: a press ON
-; the volume groove, and the button held after it, set the level where the
-; pointer is. out: CF = 1 it was the groove's (the loop goes on); CF = 0 not
-; (a press elsewhere still pauses). Preserves all
-tsp_vgroove:
-    push ax
-    push cx
-    push dx
-    push si
-    cmp byte [trk_fs], 0            ; the face is not on the glass full
-    jne .no                         ; screen: a press there pauses
-    test al, 1
-    jz .up
-    sub cx, [tw_ox]
-    sub dx, [tw_oy]
-    cmp byte [tsp_vdrag], 0         ; held from the groove: follows the hand
-    jne .set                        ; wherever it goes
-    test byte [tsp_btn], 1          ; ...and a NEW press must start on it
-    jnz .no
-    mov si, TWL_VX1
-    call tw_inrect
-    jc .no
-    mov byte [tsp_vdrag], 1
-    mov byte [tsp_btn], 1           ; the press is spent here
-.set:
-    mov ax, cx
-    mov si, TWL_VX1
-    mov cx, SPKFX_NLEV - 1
-    call tw_slval                   ; AL = the level under the pointer
-    push ax
-    call tsp_lvnow
-    mov ah, al
-    pop cx
-    cmp cl, ah
-    je .yes                         ; no change: nothing to say
-    mov al, cl
-    call tsp_lvset
-.yes:
-    stc
-    jmp short .out
-.up:
-    cmp byte [tsp_vdrag], 0
-    je .no
-    mov byte [tsp_vdrag], 0         ; the release that ends it
-    mov byte [tsp_btn], 0
-    stc
-    jmp short .out
-.no:
-    clc
-.out:
-    pop si
-    pop dx
-    pop cx
     pop ax
     ret
 
@@ -1161,9 +1104,7 @@ tsp_wmain:
 .draw:
     call tsp_frame
 .keys:
-    call OSAPI_MOUSE                ; a PRESS anywhere: paused, the desktop -
-    call tsp_vgroove                ; but ON THE VOLUME GROOVE, and held
-    jc .loop                        ; there, the level (45.25.3)
+    call OSAPI_MOUSE                ; a PRESS anywhere: paused, the desktop
     mov ah, [tsp_btn]
     mov [tsp_btn], al
     not ah

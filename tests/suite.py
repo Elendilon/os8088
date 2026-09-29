@@ -8528,11 +8528,12 @@ SOAK = [
     Row("trkspklevel", "soak", py("tests/trkspk.py", "--leg", "level"), 55.0,
         "SPEC.md 45.25.3: with NO card the volume bar is the speaker's LEVEL "
         "- auto picks it with the ratchet on, + in the play makes it the "
-        "user's (a step up, frozen, and said), a pause and a resume keep it, "
-        "and a press HELD on the volume groove sets level 0 while the play "
-        "goes on; with a card - is still the master volume. With the play "
-        "loop's call to tsp_vgroove taken out the groove press does nothing "
-        "and it FAILS",
+        "user's (a step up, frozen, and said), a pause and a resume keep it; "
+        "in the play a press on the groove pauses (the arrow is off the "
+        "screen there), and paused a drag to its left end sets level 0, "
+        "which the resumed play takes; with a card - is still the master "
+        "volume. With tw_dragto's speaker branch skipping tsp_lvset the "
+        "drag sets nothing and it FAILS",
         needs=("marty",),
         wants=("build/tracker.o88", "build/sound.drv", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin")),
