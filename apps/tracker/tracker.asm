@@ -3108,6 +3108,27 @@ trk_spkq:
     ret
 
 ; -----------------------------------------------------------------------------
+; trk_rstop - a rate change's stop, the card's and the speaker's: a playing
+; song paused where the listener is, with the renderer told the stop has
+; been SEEN - or its next frame notices it and repaints `Paused` over the
+; rate's message (SPEC.md 45.10.1). Nothing when stopped. Clobbers AL
+; (trk_play_stop), which neither caller reads after it
+; -----------------------------------------------------------------------------
+trk_rstop:
+    cmp byte [mp_playing], 0
+    je .idle
+    call trk_play_stop              ; drains the worker (SPEC.md 45.2)
+    call trk_transport              ; ...and the stop's legend and parked row
+    cmp byte [trk_fs], 0            ; NOW, with the renderer told it has been
+    je .seen                        ; seen - or its next frame notices the stop
+    cmp byte [trk_cpu0], 0          ; and repaints `Paused` over the rate
+    jne .idle                       ; message below, which is where 44 kHz's
+.seen:                              ; note lives (SPEC.md 45.10.1). A tier-0
+    mov byte [tui_lplay], 0         ; FULLSCREEN stop also reshapes the pattern
+.idle:                              ; view, so there the renderer keeps it
+    ret
+
+; -----------------------------------------------------------------------------
 ; trk_spkrate_menu - the Rate menu with NO CARD (SPEC.md 45.25.3): Auto, then
 ; each rung the speaker will step to on this machine, '*' on the pick and,
 ; once the bench has run, each rung's predicted load - so the user picks a
@@ -3236,6 +3257,10 @@ trk_rate_set:
     cmp al, cl
     jae .done
     mov [tsp_rsel], al
+    call trk_rstop                  ; PLAYING: paused first, as a card's
+                                    ; change is, so the face says what R did
+                                    ; and Play takes the new rate from where
+                                    ; the listener is
     mov byte [tsp_rung], 0          ; Auto starts from the top again
     mov byte [tsp_force], 0
     call trk_menus_build
@@ -3267,17 +3292,7 @@ trk_rate_set:
                                     ; the one thing a bench build may not do.
                                     ; It lived in trk_xrate_tog until that
                                     ; routine folded into this one
-    cmp byte [mp_playing], 0
-    je .idle
-    call trk_play_stop              ; drains the worker (SPEC.md 45.2)
-    call trk_transport              ; ...and the stop's legend and parked row
-    cmp byte [trk_fs], 0            ; NOW, with the renderer told it has been
-    je .seen                        ; seen - or its next frame notices the stop
-    cmp byte [trk_cpu0], 0          ; and repaints `Paused` over the rate
-    jne .idle                       ; message below, which is where 44 kHz's
-.seen:                              ; note lives (SPEC.md 45.10.1). A tier-0
-    mov byte [tui_lplay], 0         ; FULLSCREEN stop also reshapes the pattern
-.idle:                              ; view, so there the renderer keeps it
+    call trk_rstop
     cmp byte [trk_sopen], 0         ; a drained ring left open by F00/stop
     je .menu                        ; paths closes before the rate changes
     call trk_stream_close

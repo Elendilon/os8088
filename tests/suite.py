@@ -8603,10 +8603,11 @@ SOAK = [
     Row("trkspkrate", "soak", py("tests/trkspk.py", "--leg", "rate"), 45.0,
         "SPEC.md 45.25.3: with NO card the Rate menu is Auto and this "
         "machine's speaker rungs, each with the load the calibration "
-        "predicts, and R (paused) picks one that the NEXT play takes - 5512 "
-        "where auto takes 4800 on a 5150; on the Sound Blaster 5150 the menu "
-        "offers the card's rates and R moves the pick. With tsp_pick "
-        "ignoring tsp_rsel the next play is 4800 again and it FAILS",
+        "predicts; R IN THE PLAY pauses it, moves the pick and says so, with "
+        "a card and without; and the next play takes the pick - 5512 where "
+        "auto takes 4800 on a 5150. With tsp_pick ignoring tsp_rsel the next "
+        "play is 4800 again and it FAILS; with R taken out of the speaker's "
+        "play loop the play never pauses and it FAILS",
         needs=("marty",),
         wants=("build/tracker.o88", "build/sound.drv", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin")),
@@ -8615,8 +8616,9 @@ SOAK = [
         "- auto picks it with the ratchet on, + in the play makes it the "
         "user's (a step up, frozen, and said), a pause and a resume keep it; "
         "in the play a press on the groove pauses (the arrow is off the "
-        "screen there), and paused a drag to its left end sets level 0, "
-        "which the resumed play takes; with a card - is still the master "
+        "screen there), and paused a drag to its left end sets level 0 and "
+        "the status line says 0, which the resumed play takes; with a card - "
+        "is still the master "
         "volume. With tw_dragto's speaker branch skipping tsp_lvset the "
         "drag sets nothing and it FAILS",
         needs=("marty",),

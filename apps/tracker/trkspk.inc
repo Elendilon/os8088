@@ -78,6 +78,7 @@ TSPX_STOP   equ 2                   ; Esc or S
 TSPX_SWAP   equ 3                   ; F: the full screen
 TSPX_END    equ 4                   ; the song over
 TSPX_ERR    equ 5                   ; the status line says why
+TSPX_RATE   equ 6                   ; R: paused, the next rate (45.25.3)
 
 ; THE RUNGS: an 8088's, and a 286's (a pulse of 54 counts at 22,050 Hz,
 ; 34.11.8). The owner: the higher rates on a 286, the field confirms them
@@ -628,8 +629,8 @@ tsp_levsay:
     call tsp_mbeg
     mov si, trk_s_lev1
     call tsp_mcat
-    mov al, [os88spkfx_lev]
-    xor ah, ah
+    call tsp_lvnow                  ; what the BAR shows: paused, the play's
+    xor ah, ah                      ; own [os88spkfx_lev] is last play's
     call tsp_mnum
     mov si, trk_s_lev2
     call tsp_mcat
@@ -1064,6 +1065,11 @@ tsp_window:
     jne .again
     jmp short .out
 .n3:
+    cmp al, TSPX_RATE
+    jne .n4
+    call trk_rcyc                   ; the windowed key's own routine: the
+    jmp short .out                  ; play paused, the pick moved, and said
+.n4:
     cmp al, TSPX_END
     jne .out
     call trk_wake                   ; the song over: the wake walks the list
@@ -1127,6 +1133,8 @@ tsp_wmain:
     je .stop
     cmp al, 'f'
     je .swap
+    cmp al, 'r'                     ; R: the rate, as with a card - which
+    je .rate                        ; pauses, so the next play takes it
     cmp al, '+'                     ; THE LEVEL (45.25.3): + or = up a
     je .lup                         ; step, - down - the volume bar's own
     cmp al, '='                     ; keys, the same as a card's
@@ -1165,6 +1173,9 @@ tsp_wmain:
     ret
 .swap:
     mov byte [tsp_exit], TSPX_SWAP
+    ret
+.rate:
+    mov byte [tsp_exit], TSPX_RATE
 .ret:
     ret
 

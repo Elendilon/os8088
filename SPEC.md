@@ -76348,7 +76348,9 @@ USER'S: `tsp_ulev` holds it (level + 1, 0 = auto), `tsp_lvset` applies it
 live and freezes it (`os88spkfx_rat` = 2, which the shaper reads as "step no
 more"), and it is kept for the session - across a pause, a resume, a rung
 down and the next module - as a volume is. The status line says
-`Spk level N of 10 (+/-)`. During a play `+` and `-` are the way to it: the
+`Spk level N of 10 (+/-)` - the level the BAR shows (`tsp_lvnow`), not the
+shaper's own `[os88spkfx_lev]`, which paused is the last play's and once made
+a paused drag say the old number. During a play `+` and `-` are the way to it: the
 face is the imposter inside a fullscreen bracket, which takes the arrow off
 the screen (67.17), so a drag there would be blind and a press anywhere
 pauses - after which the arrow is back and the bar is a slider again. On
@@ -76361,7 +76363,13 @@ more of the time the pulse sits near an extreme, where the carrier is weak.
 and 4,800 Hz, a 286's 22,050, 16,000, 11,025 and 8,000 - each with its
 predicted load once Tracker has benched the machine (the first play; the
 menu is rebuilt after it): `* 5512 Hz  103%`. The rate button names the pick
-(`Auto`, `5512 Hz`) and R and the button step through them, as with a card.
+(`Auto`, `5512 Hz`) and R and the button step through them, as with a card
+- and, as with a card, **R during a play pauses it first** (`trk_rstop`, the
+one stop both branches of `trk_rate_set` take), so the face says what the key
+did rather than seeming to ignore it. The speaker's play loop is its own key
+reader, so it takes R as an exit of its own (`TSPX_RATE`) and leaves the
+bracket through `trk_rcyc`, the routine the windowed and fullscreen keys
+already call.
 `tsp_rsel` holds it (rung + 1, 0 = auto). Auto is 45.25's ladder; a picked
 rung is played from its start with no refusal, and the live drop still
 guards the tempo - a machine that cannot hold the pick comes down a rung

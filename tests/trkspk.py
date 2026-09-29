@@ -459,28 +459,41 @@ def leg_rate(bad, shot=None):
         try:
             t.until(lambda: t.rb("mp_playing") == 1, "the play")
             os88marty.pace(t.m, 1.0)
-            t.m.type_text(" ")              # R is a windowed key: the speaker
-            t.until(lambda: t.rb("mp_playing") == 0, "Space to pause")
-            os88marty.pace(t.m, 0.5)        # play's imposter takes only the
-            n = u16(t.m.read(t.a("trk_e_rate") + 4, 2))    # transport's
-            items = [t.m.read(t.a("trk_ritem%d" % i), 32).split(b"\0")[0]
-                     for i in range(n)]
             pick = lambda: t.rb("tsp_rsel") if who == "speaker" else \
                 t.rb("trk_xhi" if t.rb("mp_xt") else "trk_rsel")
             r0 = pick()
-            # two presses on the speaker: Auto -> 8000 -> 5512. ONE with a
-            # card - an XT's menu is two rates, so a second press cycles back
-            for _ in range(2 if who == "speaker" else 1):
+            # R IN THE PLAY pauses and moves the pick, the same with a card
+            # and without - the speaker's play loop is its own key reader,
+            # and it once took R for nothing at all
+            t.m.type_text("r")
+            t.until(lambda: t.rb("mp_playing") == 0, "R to pause the play",
+                    limit=20.0)
+            os88marty.pace(t.m, 0.5)
+            m1 = t.m.read(t.base + t.rw("tui_msgp"), 40).split(b"\0")[0]
+            p1 = pick()
+            print("   %s: R in the play: paused, pick %d -> %d, the line %r"
+                  % (who, r0, p1, m1))
+            check(bad, p1 != r0 and m1.startswith(b"Rate: "),
+                  "%s: R in the play pauses, moves the rate and says so"
+                  % who)
+            n = u16(t.m.read(t.a("trk_e_rate") + 4, 2))
+            items = [t.m.read(t.a("trk_ritem%d" % i), 32).split(b"\0")[0]
+                     for i in range(n)]
+            # ...and paused, once more on the speaker: Auto -> 8000 -> 5512.
+            # Not with a card - an XT's menu is two rates, and a second press
+            # cycles back
+            if who == "speaker":
                 t.m.type_text("r")
                 os88marty.pace(t.m, 0.6)
             msg = t.m.read(t.base + t.rw("tui_msgp"), 40).split(b"\0")[0]
-            print("   %s: Rate menu %r; R R: pick %d -> %d, the line %r" % (
+            print("   %s: Rate menu %r; R again: pick %d -> %d, the line %r" % (
                 who, items, r0, pick(), msg))
             if shot and who == "speaker":
                 w, h, data = t.m.fbuf()
                 os88marty.write_png_rgb(shot, w, h, data)
             if who == "speaker":
-                check(bad, n == 4 and items[0] == b"* Auto" and
+                check(bad, n == 4 and items[0] == b"  Auto" and
+                      items[1].startswith(b"* 8000 Hz  ") and
                       items[2].startswith(b"  5512 Hz  ") and
                       items[2].endswith(b"%"),
                       "speaker: Auto and the rungs, each with its load")
@@ -554,9 +567,11 @@ def leg_level(bad):
         os88marty.pace(t.m, 0.5)
         mo.drag(ox + (x1 + x2) // 2, gy, ox + x1 - 4, gy)
         os88marty.pace(t.m, 0.5)
-        check(bad, t.rb("tsp_ulev") == 1,
+        msg = t.m.read(t.base + t.rw("tui_msgp"), 40).split(b"\0")[0]
+        check(bad, t.rb("tsp_ulev") == 1 and
+              msg == b"Spk level 0 of 10 (+/-)",
               "level: paused, a drag to the groove's left end sets level 0 "
-              "(ulev %d)" % t.rb("tsp_ulev"))
+              "and says so (ulev %d, %r)" % (t.rb("tsp_ulev"), msg))
         t.m.type_text(" ")
         t.until(lambda: t.rb("tsp_open") == 1, "Space to play on")
         os88marty.pace(t.m, 1.0)
