@@ -1851,10 +1851,28 @@ fcp_xfer:
     FCPX fcp_gofd
     jc .err
     call fcp_wprep
+%ifdef KERN_BIG
+    mov dx, es                  ; ONE HELD STREAM per file (SPEC.md 22.5.3):
+    push ds                     ; no lookup and no walk a chunk, and no FAT
+    pop es                      ; or directory write until the close below -
+    mov di, fcp_wcur            ; a partial copy is deleted anyway, so HELD's
+    mov byte [fcp_wcur+3], 1    ; one loss is nothing. WSEQF_HELD every call:
+    call COLD_SEG:dwf_dskw_write_seq    ; the cursor is shared by every file
+%else
     FCPX dskw_append_x
+%endif
     jc .err
     jmp .chunk
 .fin:
+%ifdef KERN_BIG
+    push ds                     ; THE CLOSE: the stream's link, FAT and size.
+    pop es                      ; Nothing held (one chunk, a redirected copy)
+    mov di, fcp_wcur            ; answers AX = 0 at once; a failure is the
+    xor cx, cx                  ; disk's, and the partial copy goes with it
+    mov si, fcp_fname
+    call COLD_SEG:dwf_dskw_write_seq
+    jc .err
+%endif
     mov byte [fcp_made], 0      ; whole and committed: nothing to undo
     clc
     jmp short .out
@@ -2109,6 +2127,11 @@ fcp_need:   resw 2              ; the whole file, banked across dskw_dfree -
                                 ; which answers in DX:AX and so spends the
                                 ; register the count arrives in
 fcp_flen:   resw 1              ; ...and the byte count dskw_read reported
+%ifdef KERN_BIG
+fcp_wcur:   resb 16             ; the destination's WRITE_SEQ cursor (18.4.9),
+                                ; one for every file: each is created by a
+                                ; WRITE, which moves the generation on
+%endif
 
 section .cold
 ; =============================================================================

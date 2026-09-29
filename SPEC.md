@@ -44219,6 +44219,21 @@ and the choice is between a missing file and a corrupt one wearing its name.
 the easiest volume to fill: `dskw_append` grows a file incrementally by design
 and the copy engine chunks, so a floppy filling mid-copy did the same thing.
 
+#### 22.5.3 …and each file is written as one HELD stream (`kern_big`)
+
+Every chunk after the first used to be an `OSAPI_FILE_APPEND`: a lookup of
+the destination's name, a walk of its chain from the front, and a FAT and a
+directory write, per chunk. On `kern_big` each is a `WRITE_SEQ` call with
+`WSEQF_HELD` (§18.4.9) through one cursor, `fcp_wcur`, and the file's close
+is made at `fcp_xfer`'s `.fin`. So a file costs one lookup, one walk and one
+commit, and between two volumes the FAT stays banked across the hops
+(§18.8.5).
+
+HELD's one loss is nothing here. A copy that stops part-way is deleted by
+`fcp_undo` (§22.5.2), whose own write gate commits the hold before it
+deletes. A close that fails is the disk's, and goes the same way.
+`kern_small` has no `WRITE_SEQ` and keeps its appends.
+
 ### 22.19 A move inside one volume is three sector writes
 
 A same-volume Cut needs no data I/O at all: the cluster chain is already
@@ -112966,6 +112981,25 @@ thirteen-assertion gate had been silently unrunnable since that snap shipped.
 
 
 ---
+
+### 77.49 A STOR is one streaming append
+
+Every chunk of a STOR after the first used to be an `OSAPI_FILE_APPEND`.
+That meant a lookup of the name and a walk of the file's chain from its
+first cluster to its last, per chunk, so an upload was QUADRATIC in its
+length (docs/plans/DISK-CPU-PLAN.md 6). It is `OSAPI_FILE_WRITE_SEQ` now
+(§18.4.9), through one cursor, `fd_wcur`: a lookup and a walk per FILE.
+
+**PLAIN, not HELD.** Each chunk is committed by the wake that stages it
+(§77.1), and the `gfx_unlock` after that wake would commit a hold anyway.
+So HELD would buy nothing but a commit in a different place, while PLAIN
+keeps §77's own promise that every chunk that has been acknowledged is on the
+disk.
+
+**On `kern_small` the cell refuses** with `FERR_NAME`, and FTPD falls back to
+`OSAPI_FILE_APPEND` for the rest of its run (`fd_noseq`). That is exact, not
+a guess: on `kern_big`, `FERR_NAME` is the answer APPEND would give for the
+same arguments.
 
 ## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
 

@@ -191,6 +191,8 @@ def main():
             ui.settle()
             m.key("Enter")
 
+        last_why = [None]
+
         def outcome(limit=120.0, was=None):
             """wait for the join to END (a toast, no claim) or to ASK (mode 7
             with the join's claim); answer ('asked', k) or ('said', text).
@@ -236,6 +238,7 @@ def main():
                 say("   (transient: %d reads of the prompt with no part in "
                     "its header yet, first %r)" % (len(box["odd"]),
                                                    box["odd"][0]))
+            last_why[0] = box.get("why")
             if os.environ.get("CZTO_WHY"):
                 say("   (outcome %r because %r)" % (box["r"], box.get("why")))
             ui.settle()
@@ -294,7 +297,9 @@ def main():
         m.mount(1, dy)
         key("Enter")
         r = outcome(was=2)
-        leg("ask3", r == ("asked", 3), repr(r))
+        leg("ask3", r == ("asked", 3), "%r%s" % (r, "" if r == ("asked", 3)
+                                               else " - because %r"
+                                               % (last_why[0],)))
         motor_off()
         m.mount(1, dz)
         key("Enter")

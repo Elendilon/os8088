@@ -69,6 +69,10 @@
 VK_NRES     equ 20
 VK_BUFKB    equ 40                  ; 32 KB chunks, and a whole track
 VK_CHUNK    equ 32768
+%ifndef VK_WSUB
+VK_WSUB     equ VK_CHUNK            ; W hands each 32 KB chunk to the kernel
+%endif                              ; in calls of this many bytes: 8192 is
+                                    ; FTPD's STOR (SPEC.md 77.49)
 VK_DIV      equ 39773               ; 30.0 Hz
 VK_CEILT    equ 91                  ; ticks a ceiling row streams: 5 s
 VK_MB12     equ 12 * 16             ; 12 MB, as a high word
@@ -1113,13 +1117,16 @@ vk_wrun:
 .fill:
     mov ax, bx
     call vk_fill
-    mov es, [vk_buf]
     mov si, vk_f_names
-    mov cx, VK_CHUNK
+    xor bx, bx                      ; ES:BX = the next VK_WSUB of the chunk
+.sub:
+    mov es, [vk_buf]
+    mov cx, VK_WSUB
+    cmp word [vk_wk], 0
+    jne .app
     or bx, bx
-    mov bx, 0                       ; ES:BX = the chunk (flags kept)
     jnz .app
-    xor dx, dx                      ; DX:CX = the whole of it
+    xor dx, dx                      ; DX:CX = the first call's whole count
     call OSAPI_FILE_WRITE
     jmp short .wrote
 .app:
@@ -1128,7 +1135,7 @@ vk_wrun:
     call OSAPI_FILE_APPEND
     jmp short .wrote
 .seq:
-    mov dx, es                      ; DX:BX = the chunk, ES:DI = the cursor
+    mov dx, es                      ; DX:BX = the bytes, ES:DI = the cursor
     push ds
     pop es
     mov di, vk_wcur
@@ -1137,6 +1144,9 @@ vk_wrun:
     push ds
     pop es
     jc .werr
+    add bx, VK_WSUB
+    cmp bx, VK_CHUNK
+    jb .sub
     inc word [vk_wk]
     cmp byte [vk_wmode], 4
     jb .chunk

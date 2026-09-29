@@ -18,6 +18,12 @@ checks clean, so it can be run against any build as an A/B:
     python3 tests/czseq.py                   # today's build/
     OS88_TREE=<dir> python3 tests/czseq.py   # a private tree
 
+`--verb` picks the WRITER: `to` is the above, `same` the join beside its
+parts, and `copy`/`copyb` the file manager's Copy and Ctrl+V of a plain file
+of the same size, to A: (C: with `--hdd`) or within B:. That is how
+docs/reports/STREAM-WRITER-AB-2026-09-29.md was taken, the script copied into
+both trees.
+
 `--nobp` runs the same join with no breakpoint at all, which is the time
 to quote: a stop per transfer costs the host, never the guest, but the
 guest seconds are read off its own cycle counter either way and the two
@@ -60,6 +66,14 @@ class _Hold(object):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--nobp", action="store_true")
+    ap.add_argument("--verb", choices=("to", "same", "copy", "copyb"),
+                    default="to",
+                    help="to: File > Uncompress To... onto A: (C: with "
+                    "--hdd). same: File > Uncompress, the result beside the "
+                    "parts on B:, one volume and no hops. copy: Edit > Copy "
+                    "of a plain file of the same size in B:/FILES, then "
+                    "Ctrl+V in A: (C:). copyb: the same copy into B:'s root "
+                    "- the file manager's two writers, over the join's data")
     ap.add_argument("--hdd", action="store_true",
                     help="the owner's case: the parts on a 360KB B:, the "
                     "result on C:, a fixed disk the machine booted from - "
@@ -92,6 +106,12 @@ def main():
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(os.path.join(work, "PARTS"))
     args = []
+    if a.verb in ("copy", "copyb"):
+        os.makedirs(os.path.join(work, "FILES"))
+        f = os.path.join(work, "FILES", "SET.DAT")
+        open(f, "wb").write(data)
+        args.append("FILES:" + f)
+        parts = []
     for i, p in enumerate(parts):
         f = os.path.join(work, "PARTS", "SET.%03d" % (i + 1))
         open(f, "wb").write(p)
@@ -134,32 +154,59 @@ def main():
         m = ui.m
         S = ui._S
         fl = os88flush.Flush(marty=m)
+        if a.verb in ("same", "copyb"):
+            tgt, vt = 1, fl.volume(1)
         vt = vt or fl.volume(0)
         root0, data0 = vt.root_lba, vt.data_lba
         ui.open_drive("B")
-        ui.open("PARTS")
+        ui.open("FILES" if a.verb in ("copy", "copyb") else "PARTS")
         win = ui.raise_window(ui.disk_window())
-        idx, _ = ui.entry("SET.001", win)
+        idx, _ = ui.entry("SET.DAT" if a.verb in ("copy", "copyb")
+                          else "SET.001", win)
         x, y = ui.row_xy(win, ui.scroll_to(idx, win=win))
         ui.mo.click(x, y)
         ui.settle()
         m.write(S("toast_buf"), bytes(25))
-        ui.menu_pick("File", "Uncompress To...")
-        os88marty.until(m, lambda mm: int.from_bytes(
-            m.read(S("fdlg_win"), 2), "little") != 0,
-            "the Save box to open", poll=0.1, guest=30.0)
-        ui.settle()
+        if a.verb == "to":
+            ui.menu_pick("File", "Uncompress To...")
+            os88marty.until(m, lambda mm: int.from_bytes(
+                m.read(S("fdlg_win"), 2), "little") != 0,
+                "the Save box to open", poll=0.1, guest=30.0)
+            ui.settle()
+        elif a.verb in ("copy", "copyb"):
+            ui.menu_pick("Edit", "Copy")
+            if a.verb == "copy":
+                ui.open_drive("C" if a.hdd else "A")
+            else:
+                ui.open("..")
+            ui.settle()
         tally = {}
         seq = []
         at = S("dsk_xfer.attempt")
         i13 = at + m.read(at, 200).index(b"\xCD\x13") + 2
         pre = i13 - 2
         op, unit, run = S("dsk_op"), S("dsk_unit"), S("dsk_run")
+        busy = S("fcp_busy")
+        seen = {}
+        m.disk(reset=True)
         c0 = int(m.status()["cycles"])
-        m.key("Enter")
+        if a.verb == "to":
+            m.key("Enter")
+        elif a.verb == "same":
+            ui.menu_pick("File", "Uncompress")
+        else:
+            m.key("ControlLeft", up=False)
+            m.key("KeyV")
+            m.key("ControlLeft", down=False)
 
         def done():
-            """a VERDICT: the join's own, or any error it ended on"""
+            """a VERDICT: the join's own, or any error it ended on - or, for
+            a copy, [fcp_busy] up and then down again"""
+            if a.verb in ("copy", "copyb"):
+                b = m.read(busy, 1)[0]
+                if b:
+                    seen["b"] = 1
+                return bool(seen and not b)
             t, on = ui.toast()
             return bool(on and t and ("compress" in t.lower()
                                       or "error" in t.lower()))
@@ -216,16 +263,29 @@ def main():
                 m.bp_exec()
                 m.run()
         secs = (int(m.status()["cycles"]) - c0) / os88marty.GUEST_HZ
+        fdc = m.disk()
         t = os88marty.quiesce(m, lambda: ui.toast()[0],
                               what="the toast's text to be whole")
+        if a.verb in ("copy", "copyb"):
+            t = "Uncompressed" if m.read(S("fcp_err"), 1)[0] == 0 else \
+                "fcp_err %d" % m.read(S("fcp_err"), 1)[0]
         ui.settle()
         if a.hdd:
             m.close()
             tv = os88flush.vhd_volume(vhd)
         else:
-            tv = fl.volume(0)
-        af = {e.name.upper(): e for e in tv.walk()}
-        got = tv.read(af["SET.DAT"].path) if "SET.DAT" in af else None
+            tv = fl.volume(tgt)
+        # BY NAME where the result is the only SET.DAT on its volume - the
+        # Save box puts Uncompress To...'s wherever A:'s window stands, MEDIA
+        # as often as the root - and by PATH on B:, where the source shares
+        # its name
+        if a.verb in ("same", "copyb"):
+            af = {e.path.upper().lstrip("/"): e for e in tv.walk()}
+            want = "PARTS/SET.DAT" if a.verb == "same" else "SET.DAT"
+        else:
+            af = {e.name.upper(): e for e in tv.walk()}
+            want = "SET.DAT"
+        got = tv.read(af[want].path) if want in af else None
         if a.lose:
             if t != "Disk error" or got is not None or "CMPRESS~.TMP" in af:
                 bad.append("a LOST hold: the join said %r, the target holds "
@@ -238,7 +298,7 @@ def main():
                           if got is None else "WRONG"))
         dump = os.path.join(work, "a.img")
         if not a.hdd:
-            fl.save(0, dump)
+            fl.save(tgt, dump)
     r = subprocess.run([sys.executable, os.path.join(HERE, "..", "tools",
                                                      "os88disk.py")]
                        + (["--verify-hdd", vhd] if a.hdd
@@ -251,8 +311,11 @@ def main():
             for r in seq:
                 f.write("%s %s lba %5d n %3d %5d ms  motor %02x cnt %d\n" % r)
     blocks = (SIZE + 32767) // 32768
-    print("czseq: %d KB in %d parts, %d blocks, %.1f guest s Enter to %r"
-          % (SIZE // 1024, len(parts), blocks, secs, t))
+    print("czseq: %s%s, %d KB in %d parts, %d blocks, %.1f guest s to %r"
+          % (a.verb, " --hdd" if a.hdd else "", SIZE // 1024, len(parts),
+             blocks, secs, t))
+    print("  the floppy controller: %s" % ", ".join(
+        "%s %s" % (k, fdc[k]) for k in sorted(fdc) if isinstance(fdc[k], int)))
     tot = 0.0
     for k in sorted(tally):
         c, s, ct = tally[k]

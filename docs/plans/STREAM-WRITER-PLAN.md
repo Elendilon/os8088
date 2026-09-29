@@ -212,10 +212,12 @@ Three things the design found that this plan did not have:
   first.
 
 What is left, in order:
-1. **The consumers.** The split-set join is CONVERTED (section 11): every
-   block after the first is a HELD `WRITE_SEQ` call, closed before the
-   rename. The file manager's copy (SPEC.md 22.5) and FTPD's `STOR` are not
-   converted yet.
+1. ~~The consumers.~~ **All three are converted**: the split-set join
+   (section 11) and the file manager's copy are HELD, one stream per file,
+   closed before the rename or at the copy's end (SPEC.md 22.5.3); FTPD's
+   `STOR` is PLAIN (SPEC.md 77.49). Before and after on every one of them,
+   against `origin/elendilon`, is
+   docs/reports/STREAM-WRITER-AB-2026-09-29.md.
 2. ~~The FAT at a hop~~ - **BUILT** as SPEC.md 18.8.5, on section 11's
    measurement, at +198 bytes against section 9's 120-160 estimate.
 3. ~~A size pass.~~ **Done, and it was a design fix rather than a squeeze**
