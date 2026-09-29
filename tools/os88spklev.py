@@ -2,6 +2,7 @@
 """Replay a speaker capture through the model, and compare levellers.
 
     python3 tools/os88spklev.py CAP.pkl [CAP.pkl ...] [--fixed 3,5,7]
+    python3 tools/os88spklev.py --carrier CAP.pkl     (the whine, by level)
 
 The other half of docs/plans/SPEAKER-LEVELLER-NEXT.md section 3's
 instrument. A capture is tools/os88spkcap.py's pickle: every span Tracker's
@@ -105,6 +106,42 @@ def metrics(c, sh):
             100.0 * clip / max(1, tot), travel, vd)
 
 
+def carrier(c, sh, win_ms=20.0):
+    """--carrier: what the pulse train puts at the PULSE RATE, the whine.
+    A pulse high for a fraction D of its period puts (1 - e^-i2piD) / i2pi
+    at the rate's own frequency: loudest at D = 1/2, nothing at either end.
+    Averaged over a window that coherent part is the steady TONE; the rest
+    moves with the music and is not heard as a tone. MUSIC is D's spread in
+    the same windows, the sound itself. dB against a steady 50% pulse (tone,
+    carrier) and a full-scale sine (music)"""
+    import cmath
+    import math
+    n = F.spk_n(c["rate"])
+    per = max(8, int(c["rate"] * win_ms / 1000.0))
+    ref = (1.0 / math.pi) ** 2
+    zs, ds = [], []
+    for rec in c["recs"]:
+        xs = list(rec[1])
+        sh.level(xs)
+        for cnt in sh.emit(xs):
+            d = cnt / float(n)
+            ds.append(d)
+            zs.append((1 - cmath.exp(-2j * math.pi * d)) / (2j * math.pi))
+    tone = tot = mus = 0.0
+    nw = 0
+    for i in range(0, len(zs) - per + 1, per):
+        w, dw = zs[i:i + per], ds[i:i + per]
+        m = sum(w) / per
+        tone += abs(m) ** 2
+        tot += sum(abs(z) ** 2 for z in w) / per
+        md = sum(dw) / per
+        mus += sum((v - md) ** 2 for v in dw) / per
+        nw += 1
+    db = lambda v, r: 10.0 * math.log10(max(v / nw, 1e-12) / r)
+    return (db(tone, ref), db(tot, ref), db(mus, 0.125),
+            100.0 * sum(ds) / len(ds))
+
+
 def shipped(rate):
     """Tracker today: one level a song, the ratchet from TSP_LSTART"""
     sh = F.Shaper(rate, pre=F.PRE_NONE, idle=True)
@@ -132,6 +169,10 @@ VARIANTS = [("shipped: ratchet from %d" % tsp_const("TSP_LSTART"), shipped),
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("caps", nargs="+")
+    ap.add_argument("--carrier", action="store_true",
+                    help="the whine instead of the leveller table: the tone "
+                         "at the pulse rate, against the music, for the "
+                         "ratchet and every fixed level")
     ap.add_argument("--fixed", default="",
                     help="comma-separated levels to add as frozen variants "
                          "(what the volume bar sets, SPEC.md 45.25.3)")
@@ -149,6 +190,16 @@ def main():
         n, bad = exact(c)
         print("  the model against the machine: %s (%d spans)"
               % ("EXACT" if not bad else "%d DIFFER" % bad, n))
+        if a.carrier:
+            print("  %-26s %8s %8s %8s %9s %7s"
+                  % ("variant", "tone", "carrier", "music", "music-tone",
+                     "duty"))
+            for name, make in [variants[0]] + [
+                    ("fixed level %d" % v, fixed(v)) for v in range(F.NLEV)]:
+                t_, cr, mu, du = carrier(c, make(c["rate"]))
+                print("  %-26s %6.1fdB %6.1fdB %6.1fdB %7.1fdB %6.1f%%"
+                      % (name, t_, cr, mu, mu - t_, du))
+            continue
         print("  %-26s %8s %8s %7s %9s %7s"
               % ("variant", "wander", "mean", "clip", "travel", "V-dips"))
         for name, make in variants:
