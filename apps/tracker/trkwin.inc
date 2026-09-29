@@ -131,6 +131,7 @@ TWV_OFF     equ 3                   ; nothing: a PICK now (SPEC.md 45.23), and
 TWV_N       equ 4                   ; ...the four a pick cycles through; the
 TWV_THIN    equ 4                   ; one below is only ever FORCED: the XT meter
 TW_OFFLEN   equ 19                  ; tw_s_voff's length (asserted below)
+TW_SOFFLEN  equ 18                  ; tw_s_soff's
 TW_UOFFLEN  equ 9                   ; ...and tw_s_uoff's
 TW_NBAND    equ 16                  ; the 286+ spectrum: sixteen bands...
 TW_BPITCH2  equ 14                  ; ...at this pitch...
@@ -1674,6 +1675,11 @@ tw_voff:
     je .out
     mov si, tw_s_voff               ; XT mode's 11 kHz forced it...
     mov di, TW_OFFLEN
+    cmp byte [tsp_run], 0
+    je .pick
+    mov si, tw_s_soff               ; ...or the speaker's play (SPEC.md 45.25)
+    mov di, TW_SOFFLEN
+.pick:
     cmp byte [tw_viz], TWV_OFF
     jne .str
     mov si, tw_s_uoff               ; ...or the user PICKED it (SPEC.md 45.23)
@@ -3199,6 +3205,10 @@ tw_s_vnone: db 'Meter Off', 0
 tw_s_voff:  db 'No meters at 11 kHz', 0
 %if $ - tw_s_voff - 1 != TW_OFFLEN
 %error "tw_s_voff: TW_OFFLEN is the string's length"
+%endif
+tw_s_soff:  db 'No meters: speaker', 0
+%if $ - tw_s_soff - 1 != TW_SOFFLEN
+%error "tw_s_soff: TW_SOFFLEN is the string's length"
 %endif
 tw_s_uoff:  db 'Meter off', 0         ; ...the PICKED Off's line (SPEC.md 45.23)
 %if $ - tw_s_uoff - 1 != TW_UOFFLEN

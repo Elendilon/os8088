@@ -162,6 +162,9 @@ def leg_play(bad):
               "play: the 5150 plays at 5,512 Hz by itself")
         if t.rb("tsp_open") != 1:
             return
+        msg = t.m.read(t.a("tsp_msg"), 64).split(b"\0")[0].decode()
+        check(bad, msg == "Speaker %d Hz, %d%% of this PC" % (rate, pct),
+              "play: the status line reads %r" % msg)
         os88marty.pace(t.m, 1.0)
         r, dry = t.pulses()
         print("   %d pulses at %.0f Hz, the ring dry %d times" % (
@@ -236,9 +239,73 @@ def leg_refuse(bad):
                   "refuse: the door never opened")
             t.m.type_text(" ")
             t.until(lambda: t.rb("tsp_open") == 1, "Play again")
-            check(bad, t.rw("tsp_rate") == 5512,
+            check(bad, t.rw("tsp_rate") == 4800,
                   "refuse: Play again plays anyway, at the last rung "
                   "(%d Hz)" % t.rw("tsp_rate"))
+        finally:
+            t.close()
+
+
+def leg_drop(bad):
+    """a build that believes the speaker CHEAP (-DTSP_CS=40) on mkmod's song,
+    which needs ~107% at 5,512 Hz: it starts there, falls behind, and comes
+    down to 4,800 LIVE - the door reopening on half a ring, the line saying
+    the new rate, and the song playing on at it with the ring never dry"""
+    with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "build")) as tmp:
+        b = os.path.join(tmp, "trkcs.bin")
+        o = os.path.join(tmp, "TRACKER.O88")
+        subprocess.run(["nasm", "-f", "bin", "-w+error", "-DTSP_CS=40",
+                        "-I", "apps/", "-I", "apps/tracker/", "-o", b,
+                        "apps/tracker/tracker.asm"], check=True)
+        subprocess.run([sys.executable, "tools/os88pkg.py", b, "-o", o],
+                       check=True, capture_output=True)
+        mod = os.path.join(tmp, "TEST.MOD")
+        subprocess.run([sys.executable, "tools/mkmod.py", mod], check=True,
+                       capture_output=True)
+        t = Trk(MACHINE, [("TRACKER.O88", o), ("TEST.MOD", mod)], "TEST.MOD",
+                defines=("TSP_CS=40",))
+        try:
+            t.until(lambda: t.rb("tsp_open") == 1, "the play")
+            el = lambda: int.from_bytes(t.m.read(t.a("tw_el"), 4),
+                                        "little") / float(t.rw("mp_mixrate"))
+            c0, e0 = t.m.status()["cycles"], el()
+            r0 = t.rw("tsp_rate")
+            print("   drop: starts at %d Hz, predicted %d%%" % (
+                r0, t.rw("tsp_pct")))
+            check(bad, r0 == 5512, "drop: it starts at 5,512 Hz")
+            t.until(lambda: t.rw("tsp_rate") == 4800 and
+                    t.rb("tsp_open") == 1, "the rung down", limit=300.0)
+            msg = t.m.read(t.a("tsp_msg"), 64).split(b"\0")[0].decode()
+            check(bad, msg.startswith("Speaker 4800 Hz, "),
+                  "drop: down to 4,800 live, the line reads %r" % msg)
+            os88marty.pace(t.m, 1.0)
+            r, dry = t.pulses(2000)
+            print("   after it: %.0f Hz, dry %d" % (r, dry))
+            check(bad, r >= 4800 * (1 - LOSS) and dry == 0,
+                  "drop: it holds 4,800 with the ring never dry")
+            # THE TEMPO after the drop: samples a tick at the NEW rate (a
+            # drop that kept 5,512's played at 87% - its rows are longer),
+            # and the clock going on rather than jumping. mkmod's song
+            # changes its own tempo (Fxx), so the invariant is read, not
+            # rows a second
+            spt, bpm = t.rw("mp_spt"), t.rb("mp_bpm")
+            want = 4800 * 5 // (2 * max(bpm, 32))
+            print("   tempo: %d samples a tick at BPM %d, 4,800 Hz's %d"
+                  % (spt, bpm, want))
+            check(bad, spt == want,
+                  "drop: the ticks are 4,800 Hz's after it")
+            os88marty.pace(t.m, 2.0)
+            c1, e1 = t.m.status()["cycles"], el()
+            secs = (c1 - c0) / CPU
+            # the clock counts what was HEARD, so it trails the guest by
+            # the drop's silent refill of half a ring (~1.5 s here); left in
+            # the old rate's bytes it JUMPS by the time before the drop x
+            # (5,512 / 4,800 - 1) and trails by ~0.2 s - measured both ways
+            lag = secs - (e1 - e0)
+            print("   the clock: %.1f s over %.1f, %.1f s behind (the "
+                  "drop's refill)" % (e1 - e0, secs, lag))
+            check(bad, 0.5 <= lag <= 2.5,
+                  "drop: the elapsed clock keeps time across it")
         finally:
             t.close()
 
@@ -309,7 +376,8 @@ def leg_card(bad):
         t.close()
 
 
-LEGS = {"play": leg_play, "refuse": leg_refuse, "turbo": leg_turbo,
+LEGS = {"play": leg_play, "refuse": leg_refuse, "drop": leg_drop,
+        "turbo": leg_turbo,
         "end": leg_end, "card": leg_card}
 
 

@@ -247,6 +247,15 @@ os88spkfx_level:
 ; at a time through the unrolled copies, d moved between them
 ; -----------------------------------------------------------------------------
 os88spkfx_emit:
+%ifdef SPKFX_PAD                    ; A MEASURING KNOB, never shipped: a
+    push cx                         ; known extra cost a sample (a `loop` of
+    jcxz .padn                      ; SPKFX_PAD `nop`s), for how much a
+.pad:                               ; heavier shaper this machine has room
+    times SPKFX_PAD nop             ; for (SPEC.md 34.11.9)
+    loop .pad
+.padn:
+    pop cx
+%endif
     push ax
     push bx
     push dx

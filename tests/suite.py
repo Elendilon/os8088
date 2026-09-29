@@ -8513,6 +8513,17 @@ SOAK = [
         needs=("marty", "nasm"),
         wants=("build/tracker.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin")),
+    Row("trkspkdrop", "soak", py("tests/trkspk.py", "--leg", "drop"), 40.0,
+        "SPEC.md 45.25: THE LIVE RUNG DOWN - a Tracker told the speaker is "
+        "cheap (-DTSP_CS=40) starts mkmod's song at 5,512 Hz, falls behind "
+        "and comes down to 4,800 mid-play: the door reopening on half a ring, "
+        "the status line saying the new rate, the ring never dry after it, "
+        "the ticks recomputed for the new rate (a drop that kept 5,512's "
+        "played at 87%) and the elapsed clock rescaled rather than jumping. "
+        "Broken on purpose (either line out) it FAILS",
+        needs=("marty", "nasm"),
+        wants=("build/tracker.o88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin")),
     Row("trkspkturbo", "soak", py("tests/trkspk.py", "--leg", "turbo"),
         36.0,
         "SPEC.md 45.25: the same bench on MartyPC's 7.16 MHz XT (--turbo, "

@@ -58527,10 +58527,31 @@ and `t_spkfx` holds it to the model. The library is 1,745 bytes of the package
 bytes of its bss.
 
 **A WAV shaped on the host** - the encoder's full shaping, for whoever
-prepares a file - is `tools/os88spkfx.py shape IN.WAV OUT.WAV [--counts]`:
-8-bit mono at the speaker's rate with an `o8sp` RIFF chunk (kind 1, shaped
-PCM8; kind 2, the counts themselves) saying a player need not shape it
-again (§86).
+prepares a file - is the encoder's `.WAV` target, `os88venc.py IN OUT.WAV`
+(§86.21.1): the speaker's counts in an `o8sp` WAV, which a player copies.
+
+**IT IS THE LIFTED STYLE, NOT THE NATURAL ONE** (§98.2.15.1's two), and the
+owner heard it on the 5150: the lows *"very low and almost inaudible"*. The
+model was fitted to the encoder the day before natural became its default -
+`RATIO` 3 is lifted's - and its high-pass is the first difference, which is
+not a corner at all but a tilt of 6 dB an octave down the whole band: at
+either rate, 125 Hz is -18 dB against 1 kHz, 250 Hz -12, 400 Hz -8 and 630 Hz
+-4, where natural is a 250 Hz high-pass and flat above it (a one-pole there
+reads -7, -3, -1, 0). The fit was checked in the voice bands, which is how
+the lows went unseen. The natural answer - a one-pole high-pass near 250 Hz,
+ratio 2, 24 dB of range - is priced in `tools/os88spkfx.py` before any
+assembly, and what it may cost is MEASURED:
+
+**What a heavier shaper can afford at 8,000 Hz on a 4.77 MHz 8088**: Audio
+playing an 8 kHz PCM8 WAV off MartyPC's XT-IDE (which the CPU copies) waits
+15-26% of the time, the sample ISR taking about half of that, so ~7-12% of
+the machine is spare - and `-DSPKFX_PAD=4`, a measuring knob that adds a
+`loop` of four `nop`s (~33 cycles) a sample to `os88spkfx_emit`, is already
+too much: the ring's lead FALLS 135 samples a second and the ladder would
+take the play a rung down (at 8 `nop`s it had). A one-pole is ~40-60 cycles,
+so it does not fit Audio's live 8 kHz; an encoder-made WAV (§86.21.1) is how
+Audio gets natural shaping at no cost to the machine, and Tracker, which
+filters its SAMPLES once at load (§45.25), can take it for nothing at play.
 
 ## 35. Recorder — the sound layer's recording client
 
@@ -75416,6 +75437,33 @@ figure** - `Speaker: needs 107% of this PC - Play again to try` - and the next
 Play plays anyway at the last rung (question 2). A play that falls behind
 all the same (a lead under a quarter of the ring) drains, drops a rung and
 goes on, as Audio's does (§86.21); past the last rung it plays on behind.
+The rung down recomputes the samples a replayer tick takes at the new rate
+(`mp_calc_spt`) and rescales the elapsed clock's bytes to it (`tsp_elscale`,
+a 32 x 16 multiply and a 48 / 16 divide) - the first build did neither, so a
+drop to 4,800 played at 87% and the clock jumped - and it reopens the door on
+HALF a ring rather than a full one, which is the gap the listener sits
+through.
+
+**The rungs on an 8088 are 8,000, 5,512 and 4,800 Hz.** 4,800 came from the
+owner's 5150, which took 5,512 for BEVERLY.MOD and starved in its heavy
+passages, and benched ELYSIUM.MOD (a 4-channel `FLT4` module) at 101%, just
+over the line. **The status line says what was chosen** as a play starts and
+again at a rung down - `Speaker 5512 Hz, 95% of this PC` - so a field run
+reports the machine's own figures module by module. The visualiser's pane
+says `No meters: speaker` while the speaker plays, where it used to borrow
+XT mode's `No meters at 11 kHz`.
+
+**What the owner's 5150 did, read off a recording of its speaker** (a phone
+at the cone, 48 kHz): the carrier stays at 5,522-5,525 Hz throughout - the
+5,512 rung's PIT period (divisor 216 is 5,524 Hz) - so the sample ISR runs at
+its full rate on iron; the ring running dry shows as the carrier dropping out
+for a dry grant's 2.9 ms, which BEVERLY did 24 times in its first seven
+seconds and then not at all. ELYSIUM, forced, dropped out twice in fifteen
+seconds and played at its own tempo (the music's strongest period 0.120 s,
+one row at speed 6 and 125 BPM) - it "felt slow" at the proper tempo. So the
+iron is a little heavier than MartyPC, whose 5150 holds both at 95% and
+never runs dry: PERFORMANCE.md Part 8.2 is the measurement proposed for
+where the difference is.
 
 Measured on MartyPC:
 
@@ -75437,10 +75485,13 @@ of them the shaper's level family) and 2,929 bytes of the packed file, and
 a 17 KB ring claimed the first time the speaker plays; no kernel byte.
 
 `tests/trkspk.py` is the gate: `trkspk` (the 5150 plays by itself, the rate,
-the dry ring, the visualiser, the clock, pause, resume, the full screen and
-back, stop), `trkspkref` (a build with a 50% ceiling: the refusal and its
-figure, and the override), `trkspkturbo` (the 8,000 Hz rung) and `trkspkend`
-(a song to its end, then a card machine where the speaker is never touched).
+the status line, the dry ring, the visualiser, the clock, pause, resume, the
+full screen and back, stop), `trkspkref` (a build with a 50% ceiling: the
+refusal and its figure, and the override at 4,800), `trkspkdrop` (a build
+told the speaker is cheap starts at 5,512, falls behind and comes down to
+4,800 live - the ticks and the clock right after it), `trkspkturbo` (the
+8,000 Hz rung) and `trkspkend` (a song to its end, then a card machine where
+the speaker is never touched).
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
