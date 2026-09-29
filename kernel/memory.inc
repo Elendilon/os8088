@@ -2102,11 +2102,19 @@ mem_in_nest:
 ; -----------------------------------------------------------------------------
 mem_fatw_dirty:
     push ax
+%ifdef KERN_BIG
+%ifndef KD_BUILD
+    call dws_hseg               ; AX = the held volume's BANKED window, if it
+    cmp ax, [ss:si+MC_SEG]      ; has dirt in it (SPEC.md 18.8.5), else 0 -
+    je .yes                     ; which no record's MC_SEG is
+%endif
+%endif
     cmp word [dsk_fatd0], 0xFFFF
     je .no                      ; nothing is dirty anywhere
     mov ax, [dsk_fatseg]
     cmp ax, [ss:si+MC_SEG]      ; ...and is THIS the window it is dirty in?
     jne .no
+.yes:
     pop ax
     stc
     ret

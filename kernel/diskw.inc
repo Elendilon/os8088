@@ -185,6 +185,12 @@ dskw_batch: db 0                ; 1 = a MULTI-FILE operation is running and
                                 ; A .text `db`, not .bss, for dskw_isdir's
                                 ; reason: -f bin zeroes nothing, and the very
                                 ; first write must not see a garbage flag
+%ifdef DSKW_WSEQ
+dws_hd0:    dw 0xFFFF           ; the HELD volume's dirty FAT range, banked
+dws_hd1:    dw 0                ; while the machine stands elsewhere (SPEC.md
+                                ; 18.8.5); 0xFFFF = none. .text, for this
+                                ; block's reason: the empty value is not 0
+%endif
 dskw_syswr: db 0                ; 1 = dskw_write_sys, not dskw_write: this
                                 ; file is the KERNEL's (SPEC.md 19.6). Here
                                 ; for the same reason again, and with the
@@ -3079,6 +3085,13 @@ dws_commit:
     xor ax, ax                  ; nothing held: AX = 0 and CF = 0, which is
     ret                         ; WRITE_SEQ's close answering for a plain one
 .go:
+    cmp word [dws_hlink], 0xFFFF    ; POISONED (dws_hlose, SPEC.md 18.8.5):
+    jne .real                   ; the window its dirt was banked in is gone,
+    mov byte [dws_hold], 0      ; so the chain never reached the disk and
+    mov ax, FERR_IO             ; there is nothing to write - only a stream
+    stc                         ; to report lost
+    ret
+.real:
     push bx
     push cx
     push dx
@@ -3140,6 +3153,146 @@ dws_commit:
     pop dx
     pop cx
     pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; THE HELD VOLUME'S DIRTY FAT, BANKED ACROSS A HOP (SPEC.md 18.8.5)
+;
+; The FAT windows are per volume (18.8.1-18.8.4) but the dirty range is one
+; pair, so dsk_fatw_park used to WRITE the outgoing volume's dirt - a seek to
+; the FAT and back per hop. Every writer but a held stream has flushed by the
+; time it returns, so the held volume's is the only dirt a park can meet, and
+; one bank holds it: park keeps it with the window, pick gives it back when
+; the window is reused. What must not happen is the WINDOW going while its
+; dirt is banked, and there are four ways, each answered here:
+;   - a SHED takes the claim: mem_fatw_dirty refuses it (dws_hseg);
+;   - the PIN is evicted from under it: dws_hevict loses the hold;
+;   - the volume is RE-READ: the same disk keeps the window and its dirt, a
+;     different one loses the hold (dws_hload);
+;   - a HIBERNATE zeroes the range: it runs from a menu, and gfx_unlock has
+;     committed every hold before any menu can be reached.
+; LOSING the hold is what the rollback of a failed call would do had it been
+; unable to flush (dskw_wabody): the stream is abandoned to its last commit,
+; and because its dirt never reached the disk, nothing links to it. Its
+; cursor is told so - FERR_IO at its next call - rather than re-seeding from
+; the committed entry and appending past a hole.
+; -----------------------------------------------------------------------------
+
+; dws_hpark - CF=0 the dirty range was the held volume's and is banked (the
+; live pair cleared); CF=1 = flush it as ever. in: [disk_drive] = the volume
+; being left, DL = the one being mounted. clobbers: AX, flags
+;
+; ONLY WHERE THIS HOP CANNOT TAKE THE WINDOW AWAY. A mounted volume always has
+; a window (18.8.3's "no third state"), but when it is the PIN, the incoming
+; volume may evict it - and on a machine the heap refused, two volumes do
+; that at EVERY hop. So the held volume's own claim banks, and so does the pin
+; when the incoming volume already has a claim of its own; otherwise the
+; flush is today's, and slower and never lost.
+dws_hpark:
+    cmp byte [dws_hold], 0
+    je .no
+    mov al, [disk_drive]
+    cmp al, [dws_hvol]
+    jne .no
+    call dws_hwin               ; AX = the held volume's window
+    cmp ax, FAT_SEG
+    jne dws_hswap               ; its own claim (its `ret` answers CF=0)
+    push bx
+    mov bl, dl
+    call dws_hwin.bl            ; ...the pin: has the incoming one a claim?
+    pop bx
+    or ax, ax
+    jz .no                      ; none - it may take the pin
+    cmp ax, FAT_SEG
+    jne dws_hswap
+.no:
+    stc
+    ret
+
+; dws_hwin - AX = the held volume's window (dsk_fatwc), or with .bl the
+; window of volume BL. clobbers: flags
+dws_hwin:
+    push bx
+    mov bl, [dws_hvol]
+    jmp short .go
+.bl:
+    push bx
+.go:
+    xor bh, bh
+    shl bx, 1
+    mov ax, [bx+dsk_fatwc]
+    pop bx
+    ret
+
+; dws_hload - dsk_fatw_pick is about to RE-READ the window of [disk_drive].
+; The held volume's, with dirt banked: the hold is LOST. Inside the batch a
+; held stream lives in, a hop is a QUIET reuse, so this is a full mount or a
+; different disk, and neither can vouch for the banked bytes. clobbers: AX
+dws_hload:
+    call dws_hmine
+    je dws_hlose
+    ret
+
+; dws_hret - the window of [disk_drive] is live again: the held volume's
+; takes its banked dirt back. out: CF=0. clobbers: AX
+dws_hret:
+    call dws_hmine
+    jne dws_hswap.out
+; dws_hswap - exchange the live dirty pair with the bank: EMPTY (0xFFFF, 0)
+; is what each side is left holding, so one routine banks and restores.
+; out: CF=0. clobbers: AX
+dws_hswap:
+    mov ax, [dsk_fatd0]
+    xchg ax, [dws_hd0]
+    mov [dsk_fatd0], ax
+    mov ax, [dsk_fatd1]
+    xchg ax, [dws_hd1]
+    mov [dsk_fatd1], ax
+.out:
+    clc
+    ret
+
+; dws_hmine - ZF=1 when [disk_drive] is the held volume and dirt is banked
+; for it. clobbers: AX, flags
+dws_hmine:
+    cmp word [dws_hd0], 0xFFFF
+    je .no
+    mov al, [disk_drive]
+    cmp al, [dws_hvol]
+    ret
+.no:
+    or al, 1                    ; ZF=0 (AL is anything but zero after it)
+    ret
+
+; dws_hevict - the pin is about to be taken from its holder: if that is the
+; held volume with dirt banked in it, the hold is lost. clobbers: flags
+dws_hevict:
+    push ax
+    call dws_hseg
+    cmp ax, FAT_SEG
+    jne .out
+    call dws_hlose
+.out:
+    pop ax
+    ret
+
+; dws_hseg - AX = the held volume's window while dirt is banked in it, else
+; 0 - which no heap record's segment is. clobbers: flags
+dws_hseg:
+    xor ax, ax
+    cmp word [dws_hd0], 0xFFFF
+    jne dws_hwin
+    ret
+
+; dws_hlose - the held stream is POISONED: its banked dirt goes with its
+; window, and every cursor goes cold. The hold stays pending, so the first
+; commit to meet it - the cursor's own cold path, a close, another write's
+; gate, the unlock - is the one that answers FERR_IO and clears it; nothing
+; it names ever reached the disk, so there is nothing to undo. clobbers: flags
+dws_hlose:
+    mov word [dws_hlink], 0xFFFF    ; no cluster is 0xFFFF: the poison
+    mov word [dws_hd0], 0xFFFF
+    add word [dsk_wgen], 2
     ret
 %endif                          ; DSKW_WSEQ
 

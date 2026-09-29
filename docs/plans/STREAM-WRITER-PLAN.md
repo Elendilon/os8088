@@ -212,12 +212,12 @@ Three things the design found that this plan did not have:
   first.
 
 What is left, in order:
-1. **The consumers.** The split-set join (`CLONE.DRV`, merged into this
-   branch from `split-v88`) and the file manager's copy (SPEC.md 22.5) are
-   kernel-side and gain the most. FTPD's `STOR` is a package and gains
-   through the slot. None is converted yet.
-2. **The FAT at a hop** - section 9. Research done, nothing built: measure
-   the converted join first.
+1. **The consumers.** The split-set join is CONVERTED (section 11): every
+   block after the first is a HELD `WRITE_SEQ` call, closed before the
+   rename. The file manager's copy (SPEC.md 22.5) and FTPD's `STOR` are not
+   converted yet.
+2. ~~The FAT at a hop~~ - **BUILT** as SPEC.md 18.8.5, on section 11's
+   measurement, at +198 bytes against section 9's 120-160 estimate.
 3. ~~A size pass.~~ **Done, and it was a design fix rather than a squeeze**
    (section 10): WRITE_SEQ had grown a body of its own beside the append
    body, and folding it in took 259 bytes out. The stream writer is
@@ -343,3 +343,48 @@ becomes lost clusters. So a failed held call loses itself and nothing else,
 as a failed APPEND does (SPEC.md 18.4.9). The first fix abandoned the whole
 stream instead. It was correct, but it threw away 4 MB that a full disk had
 already flushed, and `wseqfull` now guards against that.
+
+## 11. The join converted, and what the FAT at a hop measured (2026-09-29)
+
+`tests/czseq.py` joins a 640 KB set from B: onto A: with Uncompress To...,
+every block a hop. It catches every `int 13h` and files it by drive,
+direction and region, with the ROM time of each call. Guest seconds, Enter
+to verdict:
+
+| writer | guest s | target FAT writes | first write after a hop |
+|---|---|---|---|
+| `OSAPI_FILE_APPEND` (before) | 127.7 | 48 | ~190 ms (a READ) |
+| `WRITE_SEQ`, HELD | 134.6 | 42 | ~1,500 ms |
+| HELD, FAT dirt banked (18.8.5) | **116.8** | **6** | ~1,500 ms |
+
+**HELD alone was slower, and the FAT was not why.** The ROM runs ONE floppy
+motor at a time, so every hop stops the other drive, and it waits out the
+spin-up before a WRITE and not before a read. APPEND's per-block name lookup
+was a read, so A: spun up for about 190 ms of useful work. WRITE_SEQ took
+the lookup away, and the first thing after a hop became a write that waits
+the full second. The bank takes the per-hop FAT flush off instead, and that
+more than pays it back: 8.7% faster than today.
+
+**From a floppy to a fixed disk** (`--hdd`: a VHD boot, the parts on a
+360 KB B:) the target's metadata per block falls from 4 calls (a directory
+read, FAT1, FAT2, the entry) to 0.6. The counts are exact. MartyPC's XT-IDE
+takes 6 ms a call with no seek time, and its Xebec model has no delays at
+all, so what that saves on the owner's ST-225 is a PREDICTION: two long
+seeks to cylinder 0 and back per block. The source floppy dominates that
+join (26 of 29 seconds of ROM time for 300 KB), so the saving is a few
+percent of it. It is for 86Box's `pc5150` or the 5150 itself to confirm.
+
+**The design section 9 feared was simpler than it looked**: one bank, not
+one per volume, because only a held stream leaves dirt for a park, and
+there is one hold at a time. Its four hazards became one rule (the hold is
+LOST, POISONED so its cursor's next call answers `FERR_IO`) plus one fence
+section 9 had not seen. A machine whose heap refused the windows
+(`FATWNONE=1`) ping-pongs the pin between two volumes at EVERY hop, so
+banking the pin there would lose every held join at its first hop.
+MEASURED: `Disk error` 19 guest seconds in. So the park banks the pin only
+when the incoming volume has a claim of its own, and otherwise flushes as
+before.
+
+Gated by `czseq` (the table, and at most one FAT write per two blocks),
+`czseqlose` (the poison; without it the join says `Uncompressed` over a file
+with a hole in it) and `czseqnone` (the fence).

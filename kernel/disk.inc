@@ -4435,6 +4435,12 @@ dsk_fatw_park:
                                 ; wrong LBA
     cmp word [dsk_fatd0], 0xFFFF
     je .bank
+%ifdef KERN_BIG
+%ifndef KD_BUILD
+    call dws_hpark              ; A HELD STREAM'S FAT IS BANKED, NOT WRITTEN
+    jnc .bank                   ; (SPEC.md 18.8.5): its window stays, so a hop
+%endif                          ; costs no seek to the FAT and back
+%endif
     call dskw_flush_x             ; CF is not propagated: a flush that fails has
                                 ; already lost those bytes, and refusing the
                                 ; mount would lose the volume as well
@@ -4491,7 +4497,12 @@ dsk_fatw_pick:
     jne .load                   ; a different disk: reload, do not trust it
     mov ax, [bx]                ; (the equal compare left CF = 0, and `mov`
     mov [dsk_fatw0], ax         ; keeps it) still resident, and nothing can
-    jmp short .out              ; have overwritten it: this window is ours
+%ifdef KERN_BIG                 ; have overwritten it: this window is ours
+%ifndef KD_BUILD
+    call dws_hret               ; ...and so is a held stream's dirt (18.8.5)
+%endif
+%endif
+    jmp short .out
 .homeless:                      ; ABOUT TO WRITE THE KERNEL'S OWN WINDOW
     call dsk_fatw_evict         ; WITHOUT HOLDING THE PIN (SPEC.md 18.8.3), so
                                 ; nobody may go on believing they hold it: the
@@ -4501,7 +4512,18 @@ dsk_fatw_pick:
                                 ; not let this happen; the invariant is
                                 ; enforced here as well because THIS is the
                                 ; routine that would do the damage
+%ifdef KERN_BIG
+%ifndef KD_BUILD
+    jmp short .stc
 .load:
+    call dws_hload              ; a held stream's volume, re-read: the same
+.stc:                           ; disk keeps its dirt, another loses the hold
+%else
+.load:
+%endif
+%else
+.load:
+%endif
     stc
 .out:
     pop bx
@@ -4679,6 +4701,11 @@ dsk_fatw_pinned:
     ret
 
 dsk_fatw_evict:
+%ifdef KERN_BIG
+%ifndef KD_BUILD
+    call dws_hevict             ; the held volume's banked window, overwritten
+%endif                          ; by the next load: the hold is lost (18.8.5)
+%endif
     push cx
     push si
     mov si, dsk_fatwc

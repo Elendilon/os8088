@@ -2288,7 +2288,18 @@ cmz_jloop:
     mov byte [cs:cmz_jwrote], 1 ; (`mov` leaves CF alone)
     jmp short .wchk
 .ap:
-    call COLD_SEG:dwf_dskw_append   ; ...and every later one grows it
+%ifdef KERN_BIG
+    mov dx, es                  ; ...and every later one grows it, as ONE
+    push es                     ; HELD stream (SPEC.md 18.4.9): no lookup and
+    push cs                     ; no walk per block, and no FAT or directory
+    pop es                      ; write until the close below. The result is
+    mov di, cmz_jcur            ; useless until it is whole, and a join that
+    mov byte [cs:cmz_jcur+3], 1 ; stops deletes it, so HELD's one loss is
+    call COLD_SEG:dwf_dskw_write_seq    ; nothing. WSEQF_HELD is set every
+    pop es                      ; call: a paused join reloads this image
+%else
+    call COLD_SEG:dwf_dskw_append
+%endif
 .wchk:
     jnc .wok
     jmp cmz_jerr
@@ -2372,6 +2383,20 @@ cmz_jend:
     stosb
     loop .fn
     pop es
+%ifdef KERN_BIG
+    call cmz_jtmpn              ; THE CLOSE: the held stream's link, FAT and
+    push es                     ; size, before the rename - whose own gate
+    push cs                     ; would commit it too, but DROPS a commit's
+    pop es                      ; failure on the floor. The size is exactly
+    mov di, cmz_jcur            ; what cmz_jw counted, so a failure here is
+    xor cx, cx                  ; the disk's, and leaves through cmz_jerr
+    mov si, fm_ebuf             ; like any other write
+    call COLD_SEG:dwf_dskw_write_seq
+    pop es
+    jnc .closed
+    jmp cmz_jerr
+.closed:
+%endif
     mov byte [cs:cmz_jwrote], 0 ; a failed rename leaves the result on the
     mov si, fm_ebuf             ; disk under the temporary name, as the
     mov di, fm_onam             ; streamed Compress does (SPEC.md 22.22.5)
@@ -3569,5 +3594,12 @@ cmz_js:     dw 0                ; its S,
 cmz_jnn:    dw 0                ; its N,
 cmz_jseg:   dw 0                ; and where its N bytes are
 cmz_jofs:   dw 0
+%ifdef KERN_BIG
+cmz_jcur:   times 16 db 0       ; the result's WRITE_SEQ cursor (18.4.9).
+                                ; Never reset: its generation is what says
+                                ; whether it still describes CMPRESS~.TMP,
+                                ; and a new temporary is a WRITE, which moves
+                                ; that generation on
+%endif
 
 section .text

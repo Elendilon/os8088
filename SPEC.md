@@ -31282,6 +31282,78 @@ only taken out of memory that is free without shedding anybody. What the
 number was defending is now defended by the tag: a machine that needs the room
 back takes it.
 
+### 18.8.5 A held stream's dirty FAT stays with its window across a hop (`kern_big`)
+
+The windows are per volume and the DIRTY RANGE is not: `[dsk_fatd0,
+dsk_fatd1]` is one pair, and `dskw_flush_x` writes it with the CURRENT
+volume's geometry. So `dsk_fatw_park`, at the top of every mount, WRITES the
+outgoing volume's dirt to FAT1 and FAT2: a seek to the FAT and back. Its own
+comment called that free, because every commit point flushes before it
+returns. A HELD stream (§18.4.9) is the one writer that does not, and a join
+hops its target every block (§22.23.5), so it paid two FAT writes a block at
+the hop instead of at the append.
+
+**One bank is enough.** Only a held stream leaves dirt for a park to meet, and
+there is one hold at a time. So the dirt is banked beside it (`dws_hd0`/
+`dws_hd1`, `.text`, empty = `0xFFFF`), and the window that holds it stays
+where it is. `dsk_fatw_pick` gives both back when it reuses that window. The
+commit, or a window slide, writes them as it always did. Banking and
+restoring are one exchange (`dws_hswap`): the live pair after a park is
+empty, and so is the bank after a restore.
+
+**It banks only where the hop cannot take the window away.** A mounted
+volume always has a window (§18.8.3's "no third state"). When that window is
+the PIN, though, the incoming volume may evict it. On a machine whose heap
+refused the windows (`FATWNONE=1` is that machine), two volumes do so at
+EVERY hop. So `dws_hpark` banks in two cases:
+- the held volume's window is a heap claim of its own;
+- the window is the pin, and the incoming volume (DL at the park) already has
+  a claim of its own.
+
+Otherwise the flush is today's: slower, and never lost.
+
+What must not happen is a window going while its dirt is banked, and there
+are four ways:
+- **a shed** takes the claim. `mem_fatw_dirty` refuses it, as it refuses the
+  live window with dirt in it;
+- **the pin is evicted** from the held volume by a third, homeless volume
+  (`dsk_fatw_evict`). The hold is LOST;
+- **the volume is re-read**: a full mount, or a signature that no longer
+  matches. Inside the batch a held stream lives in, every hop is a quiet
+  reuse, so a re-read can vouch for nothing. The hold is LOST;
+- **a hibernate** zeroes the pair. It is started from a menu, and
+  `gfx_unlock` has committed every hold before any menu can be reached.
+
+**A LOST hold is POISONED rather than dropped** (`dws_hlose`). Its dirt goes
+with the window, every cursor goes cold (`[dsk_wgen]`), and the hold stays
+pending with `dws_hlink` = `0xFFFF`, which no cluster is. The first commit to
+meet it answers `FERR_IO` and clears it, writing nothing. None of its
+allocations reached the disk, so nothing there links to them. That commit is
+the stream's own cold path, a close, another write's gate or the unlock. So
+the stream's next call fails instead of re-seeding from the committed entry
+and appending past a hole.
+
+**Measured** on the join of a 640 KB set, B: to A: on two 1.44 MB floppies
+(`tests/czseq.py`, 20 blocks):
+
+| writer | guest s | target FAT writes |
+|---|---|---|
+| `OSAPI_FILE_APPEND` | 127.7 | 48 |
+| `WRITE_SEQ`, HELD | 134.6 | 42 |
+| HELD, dirt banked | **116.8** | **6** |
+
+HELD alone was SLOWER. The ROM runs one floppy motor at a time and waits
+out the spin-up before a WRITE, and APPEND's per-block lookup was a READ
+that spun A: up for free. Banking takes the per-hop FAT flush off instead,
+and the join is 8.7% faster than it was. From a floppy to a fixed disk
+(`--hdd`), the target's metadata falls from 4 calls a block to 0.6. MartyPC's
+XT-IDE has no seek time, so what that saves on an ST-225 is a prediction:
+two long seeks a block.
+
+Costs: `kern_big` +198 bytes (`.cold` +194, `.text` +4). Gated by
+`czseqlose` (the poison) and `czseqnone` (`FATWNONE=1`, where the flush has
+to stay).
+
 ### 18.9 A volume switch is not a mount
 
 `dsk_chdir` re-runs the whole of `disk_mount` because the LISTING has to

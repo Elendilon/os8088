@@ -8387,6 +8387,33 @@ SOAK = [
         wants=("build/viddisk.o88", "build/viddisk360.img",
                "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
                "build/hdd.drv")),
+    Row("czseq", "soak", py("tests/czseq.py"), 150.0,
+        "SPEC.md 18.8.5 on the split-set join (22.23.5): a 640KB set on B: "
+        "joined by Uncompress To... onto A:, every block a hop, every int "
+        "13h filed by drive, direction and region. The result must be the "
+        "original byte for byte and A: must check clean, and the target "
+        "must take at most one FAT write per two blocks - the held stream's "
+        "dirt BANKED across the hops. Red with the bank taken out: 42 FAT "
+        "writes for 20 blocks. It prints the table SPEC.md quotes",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/os8088.img",)),
+    Row("czseqlose", "soak", py("tests/czseq.py", "--lose"), 40.0,
+        "SPEC.md 18.8.5's LOST hold: once A:'s dirt is banked and the "
+        "machine stands on B:, the harness zeroes A:'s banked disk "
+        "signature, so the next hop re-reads the window. The hold is "
+        "POISONED and the join's next write answers FERR_IO: `Disk error`, "
+        "no result and no CMPRESS~.TMP on A:, and a clean FAT. Red without "
+        "the poison: the stream re-seeds from the committed entry and the "
+        "join says `Uncompressed` over a file with a hole in it",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/os8088.img",)),
+    Row("czseqnone", "soak", py("tests/czseq.py", "--fatwnone"), 330.0,
+        "SPEC.md 18.8.5 on a FATWNONE=1 kernel (a private tree): no heap "
+        "windows, so A: and B: take the pin from each other at every hop, "
+        "and the held volume's dirt must be FLUSHED at the park. The join "
+        "must still be byte for byte. Red with the park banking the pin "
+        "regardless: `Disk error` at the first hop, 19 guest seconds in",
+        needs=("marty", "nasm"), serial=True, timeout=900),
     Row("wseqioerr", "soak", py("tests/viddisk.py", "--floppy", "--wmode",
                                  "held", "--ioerr", "100"), 75.0,
         "SPEC.md 18.4.9: a HELD stream on a DYING disk - every write into "
