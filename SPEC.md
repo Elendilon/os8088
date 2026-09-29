@@ -33115,66 +33115,6 @@ about itself: `boot_cylrun` at `0060:0004` is **non-zero** after a boot on an
 8088, which is true only when the gate widened the bound, every crossing run
 came back, and the canary compared equal.
 
-### 18.93.4 …and a machine that booted off its HARD DISK asks at its first crossing
-
-**§18.93.1's answer is the FLOPPY boot sector's, and a machine that boots off
-its hard disk never runs that sector.** `boot_cylrun` stayed at the image's
-own zero, `[dsk_cylrun]` with it, and every floppy transfer on an INSTALLED
-machine went a track at a time for the whole session — which is exactly the
-machine whose owner copies files from floppies to C:. It was reported as
-*"I copied a 100KB file from a floppy to C: and it took 17 seconds"*, and the
-floppy half of that is this section.
-
-So the kernel asks the question itself, lazily, and with the loader's own
-two safeguards:
-
-- **§18.93.2's gate.** Only an 8086-class CPU asks (`[cpu_tier]` =
-  `CPU_8086`), because the one machine known to fail is a 286 — and `kmain`
-  has run `cpu_detect` long before any floppy transfer.
-- **A canary, and the verdict is the canary's.** `dsk_boot_from`'s HARD arm
-  opens the question (`[dsk_cyltry]` = `DSK_CYLTRIES` = 4) and nothing else
-  does, so a floppy boot — whose loader already answered — never probes. The
-  first floppy READ whose run would cross a head is then issued as one run
-  (`dsk_cylarm` notes where the flip falls), and before a byte of it is
-  believed `dsk_cylchk` fingerprints the first sector past the flip, reads
-  THAT sector again on its own into the same bytes, and fingerprints it again.
-  The single-sector read cannot cross anything, so it is the truth — and it
-  leaves the right bytes in the caller's buffer whatever the verdict.
-
-Three answers, and they are the boot canary's three with one added:
-
-| fingerprints | verdict | then |
-|---|---|---|
-| equal, and the sector is NOT one byte repeated | **YES** | `[dsk_cylrun]` = 1 and `boot_cylrun` = 1, so every later mount keeps it and a `kern_dos` handoff carries it (`KDL_CYLRUN`, §96.44.14) |
-| different, or the re-read failed | **NO**, for the session | the run is made again from the same LBA, track-bound — as a boot whose canary fails reloads |
-| one byte repeated | **undecided** | redone track-bound, and the next crossing asks again, four times at most |
-
-**The third row is the one a canary on arbitrary disks needs and the loader's
-did not.** The loader compares a signature it planted; this compares whatever
-the user's floppy holds, and a blank or freshly formatted sector matches every
-wrong blank sector a failing FDC could substitute. A uniform sector therefore
-proves nothing either way. For the same reason `dsk_cylarm` POISONS the first
-sector past the flip with a uniform byte before the call: a transfer that
-answers CF=0 without moving it — a cache slot refilled with the very sector it
-held last — reads as undecided rather than leaving the right bytes there by
-accident.
-
-`kern_big` only (`OS88_CYLPROBE`): `kern_small` ships no `HDD.DRV` and so never
-boots from a hard disk, `kern_dos` inherits the verdict, and `TRACKRUN=1`
-leaves the whole thing out. **237 bytes** — `.cold` +230 (`dsk_cylarm`,
-`dsk_cylchk`, `dsk_cylsum` and the gate), `.text` +2 (the two bytes of state,
-beside `dsk_cylrun` because a hard-disk boot writes one before `.bss` is
-anything), `.ovlw` +5 (the store in the HARD arm).
-
-**Measured**, `os8088_xt_hdd` booted off a fixture VHD, a 100,000-byte file
-pasted from B: to C: (`tests/cylprobe.py` is the gate, all three verdicts, the
-copy read back off the VHD on the host each time):
-
-| | before | after |
-|---|---|---|
-| floppy `int 13h` for the paste | 27, 9 sectors at most | **18**, 18 sectors, plus the probe's one |
-| the whole paste | 11.8 s | **9.9 s** |
-
 ### 18.94 The transfer instrument, published at a fixed offset
 
 **`make DISKCNT=1`, which is now every FIELD kernel and no shipped one.** The
