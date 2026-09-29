@@ -1814,8 +1814,9 @@ cmz_uncomp:
     call cmz_ufree              ; (flags only)
     jmp short .say
 .plain:
-    mov ax, cmz_s_plain
-    jmp short .say
+    jmp cmz_join                ; ...or a PART of a split set, which says
+                                ; `Not compressed` itself when it is not one
+                                ; (SPEC.md 22.23.5)
 .nomem:
     mov ax, cmz_s_nomem
 .say:
@@ -1962,6 +1963,583 @@ cmz_ufree:
     mov bx, MEM_K_CMPR
     call COLD_SEG:mmf_mem_free
 .none:
+    ret
+
+; -----------------------------------------------------------------------------
+; cmz_join - Uncompress of a PART: join its split set (SPEC.md 20.17, 22.23.5)
+; in:  fm_onam = the selection, a file with no 'CZ' mark that is not a
+;      compressed package
+; out: cmz_verb's three answers
+;
+; IT STREAMS, which is the whole difference from the other two arms: one 81KB
+; claim whatever the set's size - a 49KB input window the parts are read into
+; 16KB at a time, and the 32KB block a compressed record expands into. Every
+; block but the set's last expands to exactly 32KB (SPEC.md 20.17.2), so the
+; result is a whole number of clusters before every APPEND, which is the rule
+; that door enforces (18.4.4).
+;
+; The result goes to CMPRESS~.TMP and takes its real name at the end, so a
+; join that stops half-way leaves the parts untouched and no half-file under
+; that name. fm_onam is the part being read - its three digits are rewritten
+; per part - and the whole selection is put back on every way out.
+;
+; Once the claim is held, a failure anywhere below leaves through cmz_jerr
+; with AX = a FERR_* (under 16) or a string of this image to say, and the
+; stack goes back to this routine's frame.
+; -----------------------------------------------------------------------------
+CMZ_JWIN    equ 49              ; the input window, KB: a record is at most
+                                ; 32,778 bytes and a refill 16KB, so it never
+                                ; holds more than 49,161
+CMZ_JKB     equ CMZ_JWIN + 32   ; ...and the output block behind it
+CMZ_JRD     equ 0x4000          ; one refill. READ_AT wants whole clusters at a
+                                ; cluster-aligned offset, and 16KB is both for
+                                ; every cluster this verb accepts
+CMZ_JHDR    equ 32              ; a part's header (SPEC.md 20.17.1)
+CMZ_JREC    equ 10              ; a block's (20.17.2)
+
+cmz_join:
+    cld
+    mov si, fm_onam             ; --- named like a part? BASE.NNN ---------
+.dot:
+    mov al, [si]                ; (DS, deliberately: os88ovlchk)
+    inc si
+    or al, al
+    jz .notpart
+    cmp al, '.'
+    jne .dot
+    mov [cs:cmz_jext], si
+    mov cx, 3
+.dig:
+    mov al, [si]                ; (DS, deliberately: os88ovlchk)
+    inc si
+    sub al, '0'
+    cmp al, 9
+    ja .notpart
+    loop .dig
+    cmp byte [si], 0
+    jne .notpart
+    mov si, fm_onam             ; the selection, for every way out
+    mov di, cmz_jsel
+    mov cx, 13
+.sv:
+    mov al, [si]                ; (DS, deliberately: os88ovlchk)
+    inc si
+    mov [cs:di], al
+    inc di
+    loop .sv
+
+    call COLD_SEG:dwf_dskw_dfree    ; BX = sectors a cluster
+    jc .ret                     ; (AX = the FERR_*, and nothing is held)
+    cmp bx, CMZ_JRD / 512
+    ja .bigclus
+    mov ax, CMZ_JKB
+    mov bx, MEM_K_CMPR
+    call COLD_SEG:mmf_mem_claim
+    jc .nomem
+    mov [cs:cmz_b], dx
+    add dx, CMZ_JWIN * 64
+    mov [cs:cmz_o], dx
+    xor ax, ax
+    mov [cs:cmz_wrote], al
+    mov [cs:cmz_jw], ax
+    mov [cs:cmz_jw+2], ax
+    mov [cs:cmz_jk], ax
+    mov [cs:cmz_done], ax
+    mov [cs:cmz_done+2], ax
+    mov [cs:cmz_utot+2], ax
+    inc ax
+    mov [cs:cmz_utot], ax       ; the bar: 1 until part 1 says what it is
+    mov [cs:cmz_jn], ax         ; ...and one part until it says how many
+    mov [cs:cmz_jsp], sp
+    call cmz_jrst               ; --- the SELECTION first: a plain file that
+    mov ax, CMZ_JHDR            ; only looks like a part is not compressed,
+    call cmz_jneed              ; and must not be told part 1 is missing
+    jc .notcs
+    mov es, [cs:cmz_b]
+    mov di, [cs:cmz_jpos]
+    cmp word [es:di], 'CS'
+    jne .notcs
+    cmp word [es:di+2], 1
+    jne .notcs
+
+.part:                          ; --- part k ------------------------------
+    mov ax, [cs:cmz_jk]
+    inc ax
+    cmp ax, [cs:cmz_jn]
+    ja .end
+    mov [cs:cmz_jk], ax
+    call cmz_jdig
+    call cmz_jrst
+    mov ax, CMZ_JHDR
+    call cmz_jneed
+    jc .notcs
+    mov es, [cs:cmz_b]
+    mov di, [cs:cmz_jpos]
+    cmp word [es:di], 'CS'      ; the magic...
+    jne .notcs
+    cmp word [es:di+2], 1       ; ...version 1 and the reserved zero
+    jne .notcs
+    mov ax, [es:di+4]
+    cmp ax, [cs:cmz_jk]
+    jne .wrong                  ; not the part its name says
+    cmp ax, 1
+    jne .later
+    mov ax, [es:di+6]           ; --- part 1 says what the set is ------
+    dec ax
+    cmp ax, 999 - 1
+    ja .notcs                   ; 1..999 parts
+    inc ax
+    mov [cs:cmz_jn], ax
+    mov ax, [es:di+8]
+    mov dx, [es:di+10]
+    mov [cs:cmz_jtot], ax
+    mov [cs:cmz_jtot+2], dx
+    mov [cs:cmz_utot], ax       ; ...and the bar is the original's size
+    mov [cs:cmz_utot+2], dx
+    or ax, dx
+    jz .notcs
+    mov ax, [es:di+16]
+    mov [cs:cmz_jid], ax
+    mov ax, [es:di+18]
+    mov [cs:cmz_jid+2], ax
+    push ds                     ; the name it rejoins as, NUL-ended
+    push es
+    pop ds
+    lea si, [di+20]
+    mov di, cmz_jnam
+    mov cx, 12
+.nm:
+    mov al, [si]                ; (DS, deliberately: os88ovlchk)
+    inc si
+    mov [cs:di], al
+    inc di
+    loop .nm
+    mov byte [cs:di], 0
+    pop ds
+    call cmz_jname              ; that name is free, and so is the temporary
+    call cmz_rearm
+    mov es, [cs:cmz_b]
+    mov di, [cs:cmz_jpos]
+    jmp short .offs
+.later:                         ; --- every later part: the same set ------
+    mov ax, [es:di+6]
+    cmp ax, [cs:cmz_jn]
+    jne .wrong
+    mov ax, [es:di+8]
+    cmp ax, [cs:cmz_jtot]
+    jne .wrong
+    mov ax, [es:di+10]
+    cmp ax, [cs:cmz_jtot+2]
+    jne .wrong
+    mov ax, [es:di+16]
+    cmp ax, [cs:cmz_jid]
+    jne .wrong
+    mov ax, [es:di+18]
+    cmp ax, [cs:cmz_jid+2]
+    jne .wrong
+.offs:
+    mov ax, [es:di+12]          ; ...and it starts where the last one ended
+    cmp ax, [cs:cmz_jw]
+    jne .wrong
+    mov ax, [es:di+14]
+    cmp ax, [cs:cmz_jw+2]
+    jne .wrong
+    add word [cs:cmz_jpos], CMZ_JHDR
+    sub word [cs:cmz_javl], CMZ_JHDR
+
+.rec:                           ; --- one block ---------------------------
+    mov ax, CMZ_JREC
+    call cmz_jneed
+    jc .bad                     ; a part with no block, or a header cut short
+    mov es, [cs:cmz_b]
+    mov di, [cs:cmz_jpos]
+    mov cx, [es:di]             ; S
+    mov dx, [es:di+2]           ; N
+    mov ax, [es:di+4]           ; M, and the reserved zero above it
+    mov bx, cx
+    dec bx
+    cmp bx, 0x7FFF
+    ja .bad                     ; S in 1..32,768
+    mov bx, dx
+    dec bx
+    cmp bx, 0x7FFF
+    ja .bad                     ; N in 1..32,768
+    cmp ax, 2
+    ja .bad                     ; stored, LZ4 or LZB - and the zero
+    or ax, ax
+    jnz .comp
+    cmp cx, dx
+    jne .bad                    ; a stored block is its own length
+.comp:
+    test word [cs:cmz_jw], 0x7FFF
+    jnz .bad                    ; only the set's LAST block may be short
+    mov bx, [cs:cmz_jw]
+    mov si, [cs:cmz_jw+2]
+    add bx, dx
+    adc si, 0
+    cmp si, [cs:cmz_jtot+2]
+    ja .bad
+    jb .fits
+    cmp bx, [cs:cmz_jtot]
+    ja .bad                     ; never past the total
+.fits:
+    mov [cs:cmz_jm], al
+    mov [cs:cmz_js], cx
+    mov [cs:cmz_jnn], dx
+    mov ax, cx
+    add ax, CMZ_JREC
+    call cmz_jneed              ; the whole payload in the window
+    jc .bad
+    mov si, [cs:cmz_jpos]
+    add si, CMZ_JREC
+    mov ax, [cs:cmz_b]
+    cmp byte [cs:cmz_jm], 0
+    je .have                    ; stored: written straight out of the window
+    CMZ_TRACK 1                 ; the decode draws nothing
+    push ds
+    mov ds, ax
+    mov es, [cs:cmz_o]
+    xor di, di                  ; lz_decomp_x's precondition
+    xor bx, bx
+    mov cx, [cs:cmz_js]
+    mov dx, [cs:cmz_jnn]
+    mov al, [cs:cmz_jm]
+    dec al                      ; M is the LZ_* id plus one
+    call COLD_SEG:lzf_decomp
+    pop ds
+    CMZ_TRACK 0                 ; (moves and pushes: CF is the decoder's)
+    jc .bad
+    mov ax, [cs:cmz_o]
+    xor si, si
+.have:
+    mov [cs:cmz_jseg], ax       ; AX:SI = the N bytes
+    mov [cs:cmz_jofs], si
+    push ds
+    mov ds, ax
+    mov cx, [cs:cmz_jnn]
+    call cmz_jsum               ; AX = A, DX = B
+    pop ds
+    mov es, [cs:cmz_b]
+    mov di, [cs:cmz_jpos]
+    cmp ax, [es:di+6]
+    jne .bad
+    cmp dx, [es:di+8]
+    jne .bad                    ; a damaged copy
+    mov es, [cs:cmz_jseg]       ; --- out it goes ------------------------
+    mov bx, [cs:cmz_jofs]
+    mov cx, [cs:cmz_jnn]
+    mov si, fm_ebuf
+    cmp byte [cs:cmz_wrote], 0
+    jne .ap
+    xor dx, dx
+    call COLD_SEG:dwf_dskw_write    ; the first creates the file...
+    mov byte [cs:cmz_wrote], 1  ; (`mov` leaves CF alone)
+    jmp short .wchk
+.ap:
+    call COLD_SEG:dwf_dskw_append   ; ...and every later one grows it
+.wchk:
+    jnc .wok
+    jmp cmz_jerr
+.wok:
+    mov ax, [cs:cmz_jnn]
+    add [cs:cmz_jw], ax
+    adc word [cs:cmz_jw+2], 0
+    add [cs:cmz_done], ax
+    adc word [cs:cmz_done+2], 0
+    call cmz_rearm
+    mov ax, [cs:cmz_js]
+    add ax, CMZ_JREC
+    add [cs:cmz_jpos], ax
+    sub [cs:cmz_javl], ax
+    mov ax, 1                   ; ...and is there more of this part?
+    call cmz_jneed
+    jc .pnext
+    jmp .rec
+.pnext:
+    jmp .part
+
+.end:                           ; --- every part read ----------------------
+    mov ax, [cs:cmz_jw]
+    cmp ax, [cs:cmz_jtot]
+    jne .bad
+    mov ax, [cs:cmz_jw+2]
+    cmp ax, [cs:cmz_jtot+2]
+    jne .bad                    ; short of what part 1 promised
+    push es                     ; the result takes its name: fm_onam,
+    push ds                     ; because the file layer reads names from DS
+    pop es
+    mov si, cmz_jnam
+    mov di, fm_onam
+    mov cx, 13
+.fn:
+    mov al, [cs:si]
+    inc si
+    stosb
+    loop .fn
+    pop es
+    mov byte [cs:cmz_wrote], 0  ; a failed rename leaves the result on the
+    mov si, fm_ebuf             ; disk under the temporary name, as the
+    mov di, fm_onam             ; streamed Compress does (SPEC.md 22.22.5)
+    call COLD_SEG:dwf_dskw_rename
+    jnc .named
+    jmp cmz_jerr
+.named:
+    call cmz_jundo
+    mov ax, cmz_s_undone
+    call cmz_say
+    clc
+    ret
+
+.notpart:
+    mov ax, cmz_s_plain
+    jmp short .say
+.bigclus:
+    mov ax, cmz_s_clus
+    jmp short .say
+.nomem:
+    mov ax, cmz_s_nomem
+.say:
+    call cmz_say
+    xor ax, ax
+    stc
+.ret:
+    ret
+
+.notcs:                         ; not a part at all - or, past part 1, a part
+    cmp word [cs:cmz_jk], 1     ; of nothing this set knows
+    ja .wrong
+    mov ax, cmz_s_plain
+    jmp short cmz_jerr
+.wrong:
+    mov si, cmz_s_wrong
+    call cmz_jmsg
+    jmp short cmz_jerr
+.bad:
+    mov ax, cmz_s_bad
+    ; ...into cmz_jerr
+
+; cmz_jerr - leave cmz_join from anywhere below it, the claim held
+; in:  AX = a FERR_* (under 16) or a string of this image
+cmz_jerr:
+    ; STKBALANCE-OK: abandons the stack on purpose - SP goes back to the frame
+    ; cmz_join banked once its claim was held, whatever was pushed since
+    mov sp, [cs:cmz_jsp]
+    push ax
+    cmp byte [cs:cmz_wrote], 0  ; a result half-written goes
+    je .nw
+    mov si, fm_ebuf
+    call COLD_SEG:dwf_dskw_delete
+.nw:
+    call cmz_jundo
+    pop ax
+    cmp ax, 16
+    jb .ferr
+    call cmz_say
+    xor ax, ax
+.ferr:
+    stc
+    ret
+
+; cmz_jundo - the claim back, the bar ended, the selection's name restored
+; clobbers: AX CX SI DI, flags
+cmz_jundo:
+    call cmz_drop
+    push es
+    push ds
+    pop es
+    mov si, cmz_jsel
+    mov di, fm_onam
+    mov cx, 13
+.l:
+    mov al, [cs:si]
+    inc si
+    stosb
+    loop .l
+    pop es
+    ret
+
+; cmz_jname - the result's name must be free, and so must the temporary's;
+;             leaves the temporary's in fm_ebuf. A failure never returns
+cmz_jname:
+    mov si, cmz_jnam
+    call .try
+    mov si, cmz_s_tmpn
+.try:
+    push es
+    push ds
+    pop es
+    mov di, fm_ebuf
+    mov cx, 13
+.c:
+    mov al, [cs:si]
+    inc si
+    stosb
+    loop .c
+    pop es
+    mov si, fm_ebuf
+    call COLD_SEG:dwf_dskw_stat
+    jc .absent
+    mov ax, FERR_EXIST          ; it exists, and nothing is overwritten
+    jmp cmz_jerr
+.absent:
+    cmp ax, FERR_NOENT
+    jne .err                    ; a name the file layer will not take
+    ret
+.err:
+    jmp cmz_jerr
+
+; -----------------------------------------------------------------------------
+; cmz_jneed - make AX bytes at [cmz_jpos] present in the input window
+; out: CF=0 they are; CF=1 the part ends first. A read error never returns -
+;      and FERR_NOENT on a part's first read is that part MISSING, said by name
+; clobbers: AX BX CX DX SI DI ES, flags
+;
+; When the window is short it is COMPACTED - what is left moved to its floor
+; - and 16KB chunks are read in behind it until it is not. Every read is at a
+; file offset that is a multiple of 16KB until the short one that ends the
+; part, which is READ_AT's rule (SPEC.md 18.4.4).
+; -----------------------------------------------------------------------------
+cmz_jneed:
+    cmp [cs:cmz_javl], ax
+    jae .ok
+    push ax
+    push ds
+    mov cx, [cs:cmz_javl]
+    mov si, [cs:cmz_jpos]
+    mov es, [cs:cmz_b]
+    mov ds, [cs:cmz_b]
+    xor di, di
+    cld
+    rep movsb                   ; down, so forward is safe
+    pop ds
+    mov word [cs:cmz_jpos], 0
+.more:
+    pop ax
+    push ax
+    cmp [cs:cmz_javl], ax
+    jae .got
+    cmp byte [cs:cmz_jeof], 0
+    jne .short
+    mov es, [cs:cmz_b]
+    mov bx, [cs:cmz_javl]
+    mov cx, CMZ_JRD
+    mov ax, [cs:cmz_jfo]
+    mov dx, [cs:cmz_jfo+2]
+    mov si, fm_onam
+    call COLD_SEG:dwf_dskw_read_at  ; DX:AX = what arrived, DX = 0
+    jc .err
+    call cmz_rearm
+    add [cs:cmz_javl], ax
+    add [cs:cmz_jfo], ax
+    adc word [cs:cmz_jfo+2], 0
+    cmp ax, CMZ_JRD
+    je .more
+    mov byte [cs:cmz_jeof], 1   ; a short take is the end of the part
+    jmp short .more
+.got:
+    pop ax
+.ok:
+    clc
+    ret
+.short:
+    pop ax
+    stc
+    ret
+.err:
+    cmp ax, FERR_NOENT
+    jne .fail
+    mov ax, [cs:cmz_jfo]
+    or ax, [cs:cmz_jfo+2]
+    jnz .gone                   ; it was there a moment ago: say the FERR
+    mov si, cmz_s_miss
+    call cmz_jmsg
+    jmp cmz_jerr
+.gone:
+    mov ax, FERR_NOENT
+.fail:
+    jmp cmz_jerr
+
+; cmz_jrst - a new file: the window empty and the next read at offset 0
+; clobbers: AX
+cmz_jrst:
+    xor ax, ax
+    mov [cs:cmz_jpos], ax
+    mov [cs:cmz_javl], ax
+    mov [cs:cmz_jfo], ax
+    mov [cs:cmz_jfo+2], ax
+    mov [cs:cmz_jeof], al
+    ret
+
+; cmz_jdig - fm_onam's three digits := [cmz_jk], 1..999. clobbers: AX BX DI
+cmz_jdig:
+    mov ax, [cs:cmz_jk]
+    mov di, [cs:cmz_jext]
+    mov bl, 10
+    div bl                      ; AL = k/10 (under 100), AH = the units
+    add ah, '0'
+    mov [di+2], ah
+    xor ah, ah
+    div bl
+    add ax, '00'                ; AL the hundreds, AH the tens
+    mov [di], ax
+    ret
+
+; cmz_jsum - SPEC.md 20.17.2's check over DS:SI, CX = 1..32,768 bytes
+; out: AX = A, DX = B. clobbers: BX CX SI, flags
+;
+; Two sums over little-endian words, an odd last byte zero-extended: A adds
+; each word and B adds each A, so a pair of swapped words - which one sum
+; would pass - moves B. ~10 cycles a byte on an 8088 against LZ4's ~50.
+cmz_jsum:
+    xor bx, bx
+    xor dx, dx
+    cld
+    shr cx, 1
+    pushf                       ; CF = the odd byte
+    jcxz .odd
+.w:
+    mov ax, [si]
+    inc si
+    inc si
+    add bx, ax
+    add dx, bx
+    loop .w
+.odd:
+    popf
+    jnc .done
+    mov al, [si]                ; (DS, deliberately: os88ovlchk)
+    inc si
+    xor ah, ah
+    add bx, ax
+    add dx, bx
+.done:
+    mov ax, bx
+    ret
+
+; cmz_jmsg - 'Missing FILEA.002': the string at CS:SI, then fm_onam, into
+;            cmz_buf. out: AX = cmz_buf. clobbers: SI DI, flags
+cmz_jmsg:
+    push es
+    push cs
+    pop es
+    mov di, cmz_buf
+.p:
+    mov al, [cs:si]
+    inc si
+    or al, al
+    jz .n
+    stosb
+    jmp short .p
+.n:
+    mov si, fm_onam
+.q:
+    mov al, [si]                ; (DS, deliberately: os88ovlchk)
+    inc si
+    stosb
+    or al, al
+    jnz .q
+    pop es
+    mov ax, cmz_buf
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2279,6 +2857,9 @@ CMZ_TMPL     equ $ - cmz_s_tmpn    ; ...13 with its NUL, fm_ebuf's size
 cmz_s_plain: db 'Not compressed', 0         ; ...and Uncompress's (SPEC.md 22.23.3)
 cmz_s_bad:   db 'Cannot expand this one', 0
 cmz_s_undone: db 'Uncompressed', 0
+cmz_s_miss:  db 'Missing ', 0           ; ...and the join's (SPEC.md 22.23.5),
+cmz_s_wrong: db 'Wrong part ', 0        ; which name the part
+cmz_s_clus:  db 'Clusters too big', 0
 cmz_s_done:  db 'Compressed to '   ; ...and the success, which is a NUMBER and
 CMZ_SDONE    equ $ - cmz_s_done    ; so is composed rather than picked
 
@@ -2338,6 +2919,25 @@ cmz_k:      dw 0                ; ...and the source region's size in KB. Six
                                 ; of these were kernel `.bss` while a verb was
                                 ; resident; nothing outside this image reads
                                 ; any of them
-cmz_buf:    times 20 db 0       ; 'Compressed to NN%' - TOAST_MAX is 24
+cmz_buf:    times 24 db 0       ; 'Compressed to NN%', 'Wrong part FILEA.002' -
+                                ; TOAST_MAX is 24 characters
+cmz_jsel:   times 13 db 0       ; the join (22.23.5): the selection's name...
+cmz_jnam:   times 13 db 0       ; ...the result's, out of part 1...
+cmz_jext:   dw 0                ; ...where fm_onam's three digits are
+cmz_jsp:    dw 0                ; cmz_join's frame, for cmz_jerr
+cmz_jk:     dw 0                ; the part being read, 1-based...
+cmz_jn:     dw 0                ; ...of how many
+cmz_jtot:   dd 0                ; the original's size...
+cmz_jid:    dd 0                ; ...the set's ID...
+cmz_jw:     dd 0                ; ...and how much of it is written
+cmz_jfo:    dd 0                ; the part's next read offset
+cmz_jpos:   dw 0                ; the window: where the next record starts...
+cmz_javl:   dw 0                ; ...how many bytes from there it holds...
+cmz_jeof:   db 0                ; ...and whether the part has none left
+cmz_jm:     db 0                ; this block's M,
+cmz_js:     dw 0                ; its S,
+cmz_jnn:    dw 0                ; its N,
+cmz_jseg:   dw 0                ; and where its N bytes are
+cmz_jofs:   dw 0
 
 section .text

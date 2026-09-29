@@ -40993,6 +40993,139 @@ rather than being quietly accepted, so the file cannot rot into a list of
 things that used to be true — and a line naming a directory that no longer
 exists fails too.
 
+### 20.17 A SPLIT SET — `NAME.001`, `NAME.002`… and the `'CS'` part
+
+**A file too big for one floppy travels as parts, and the file manager's
+`Uncompress` puts them back together** (§22.23.5). It exists because the field
+machine is an IBM 5150 whose only other way in is a parallel cable (§62), and
+walking 720KB disks over is faster than that cable — up to the first file that
+does not fit on one. The Video Player's `.V88` files (§98) are 1.5 to 4.7 MB,
+but nothing here knows what is inside a part: the container carries any file.
+
+**It is a CONTAINER OF ITS OWN and not a `'CZ'` file cut into pieces**, for
+three reasons, each enough on its own. A `'CZ'` file is expanded WHOLE, in
+place, into a claim of its unpacked size (§20.14.2), so one bigger than the
+heap can never be opened. Its hint holds 24 bits (§20.14.1). And an LZ4
+`'CZ'` stream is one segment of input (§20.13.3). A split set needs none of
+that. It is a sequence of **independent blocks of at most 32KB**, each small
+enough to expand in a fixed claim, so a set of any size is joined by
+streaming through 81KB of heap (§22.23.5).
+
+**The reference implementation is `tools/os88cz.py`** (`split`, `join`,
+`pack`, `unpack`, `--selfcheck`). `tools/os88czgui.py` is its window and
+`OS88CZ.COM` (`dostools/os88cz.asm`) its DOS twin. `tests/unit/t_cz.py`
+keeps the three and this section agreeing.
+
+#### 20.17.1 The part header — 32 bytes, at the front of every part
+
+```
+    +0   'C' 'S'        the magic, the word 5343h. NOT 'CZ': a part must
+                        never earn §20.14.1's hint, or the transparent read
+                        would try to expand one
+    +2   byte           version, 1
+    +3   byte           reserved, MUST be zero
+    +4   word           this part's index, 1-based
+    +6   word           how many parts the set has, 1..999
+    +8   dword          the ORIGINAL file's size, 1..0xFFFFFFFF
+    +12  dword          where this part's first block lands in the original -
+                        a multiple of 32,768, and exactly the sum of every
+                        earlier part's output
+    +16  dword          the SET ID: any value, the same in every part of one
+                        set. os88cz.py uses the CRC-32 of the original, so a
+                        set is reproducible byte for byte
+    +20  12 bytes       the original's 8.3 name, `NAME.EXT`, upper case,
+                        NUL-padded
+    +32                 the blocks, to the end of the file
+```
+
+**The parts are named after the original**: its base name, a dot and a
+three-digit index — `FILEA.V88` travels as `FILEA.001`, `FILEA.002`… That is
+what lets the joiner find part *k* from part 1 without a directory search, and
+it is why a set is at most 999 parts.
+
+#### 20.17.2 The block — a 10-byte header, then its payload
+
+```
+    +0   word   S, the stored payload's length, 1..32,768
+    +2   word   N, what the block expands to, 1..32,768
+    +4   byte   M: 0 = stored (S must equal N), 1 = an LZ4 stream,
+                2 = an LZB stream - a §20.13.7 stream either way, T word and
+                raw tail included. So M is the LZ_* id plus one
+    +5   byte   reserved, MUST be zero
+    +6   word   A \  the check over the N output bytes, as little-endian
+    +8   word   B /  words (an odd last byte zero-extended):
+                     A = B = 0;  per word w:  A += w;  B += A   (mod 65,536)
+    +10         S payload bytes
+```
+
+**Every block but the LAST OF THE SET expands to exactly 32,768 bytes**, and
+a part holds whole blocks. That one rule is what lets the joiner write the
+result in whole clusters: `OSAPI_FILE_APPEND` requires the file to be a whole
+number of clusters before it grows (§18.4.4), and 32KB is a multiple of every
+cluster this machine formats or mounts at the size a join allows (§22.23.5).
+A block that is stored rather than compressed costs ten bytes and nothing
+else, so a set never grows by more than 0.03% over the original. That matters
+here, because video that is already packed barely compresses.
+
+**The check is not a luxury.** A set exists to cross on floppies, and a disk
+copy that goes wrong without an `int 13h` error is exactly what nothing else on
+the path would notice. The two sums cost ~10 cycles a byte on an 8088 against
+the LZ4 decode's ~50. A single sum would miss two swapped words; B does not.
+
+#### 20.17.3 What it costs and what it saves, measured
+
+32KB blocks against LZ4 over the first 512KB of three shipped demo videos
+(`apps/video/demo/cga/`), `os88cz.py`'s encoder:
+
+| file | 16KB blocks | **32KB blocks** |
+|---|---:|---:|
+| `01-COTXT.V88` | 77.3% | **75.1%** |
+| `03-CGA4.V88` | 91.9% | **90.5%** |
+| `04-640FS.V88` | 93.2% | **91.1%** |
+
+So compression is worth one 720KB disk in four to ten on video, which is
+already packed, and far more on text or a program. The split is the feature;
+compression is what the ten-byte block header lets it take for free where it
+helps. **LZ4 is the default** for §20.13.5's reason: the 5150 pays the decode
+on every block. `--lzb` encodes through the MACHINE's LZB parse
+(`os88lz.lzb_compress_machine`, `cmz_pack`'s mirror), because the host's
+shortest-path LZB parse takes forty seconds on one 32KB block of anything
+repetitive. That parse has a 16KB window and depth 16, and on video it loses
+to LZ4: `02-BWPCS.V88` is 92.0% LZB against 90.5% LZ4. It wins on text.
+
+**A part fits a FRESH disk of its geometry**: `os88cz.py --size 720k` cuts
+parts of at most 730,112 bytes, which is 713 clusters of 1,024 — a 720KB
+floppy's whole data area with one file on it. `360k`, `1.2m` and `1.44m` are
+the same arithmetic, and a size in bytes is taken as given.
+
+#### 20.17.4 Three tools, one format: the host, a window, and DOS
+
+| | where it runs | what it does |
+|---|---|---|
+| `tools/os88cz.py` | any Python 3, no pip | `split`, `join`, `pack`, `unpack`, `info`; `split --images` also writes each part to its own FAT12 floppy image of that size (`NAME-001.IMG`), through `tools/os88disk.py`, ready to write to a disk |
+| `tools/os88czgui.py` | the same, with Tk | the same four verbs on three tabs, and the one thing a person wants before anything is written: how many disks a file will take |
+| `OS88CZ.COM` | MS-DOS 2 or later, an 8088 up | `J` joins a set, and **ASKS FOR THE DISK** when a part is not where the last one was, so a set is joined straight off a pile of floppies onto another drive, which the os8088 verb cannot do (§22.23.5). `S` splits, pausing for a fresh disk before each part with `/P`. `U` expands a `'CZ'` file, LZ4 or LZB |
+
+**The DOS tool carries the kernel's decoder, not a copy of it.**
+`kernel/lz.inc` touches no kernel data, so `dostools/os88cz.asm` `%include`s
+it as it is, the way kern_dos does. Its encoder is its own: a greedy LZ4
+parse over one block with one candidate per position, which only has to be
+VALID. What it must get exactly right is §20.13.7's cut. A stream cut
+anywhere but the first peak still decodes on the host, and would overrun an
+in-place expansion on the machine. `tests/czdos.py` checks every block it
+writes with `os88lz.in_place_margin`.
+
+**A DOS split is TWO passes**, because every part's header carries the part
+count (§20.17.1) and the parts may be on floppies that have left the drive
+before the count is known. Pass one encodes and measures, pass two encodes
+again and writes, and the two must agree block for block. It costs the parse
+twice. The alternative, patching part 1's header at the end, needs part 1's
+disk back in the drive.
+
+**`OS88CZ.COM` ships in `SYSTEM/DOS/` beside `OS88NET.COM`** on the 720KB,
+1.2MB and 1.44MB apps disks and the everything disk (§19.10). The 360KB apps
+disk is at 352 of 354 clusters and this program is five.
+
 ## 21. loader.inc
 
 State (.bss, **zero at boot** — §2.5, and there is no `loader_init`: all
@@ -45302,6 +45435,78 @@ file expands if the heap holds `U`. A package is under 64KB by construction,
 and one longer than that on the disk is not a compressed package and is
 `Not compressed` without being read.
 
+
+#### 22.23.5 A PART of a split set: `Uncompress` JOINS it (§20.17)
+
+**Select `FILEA.001` and pick `Uncompress`, and `FILEA.V88` appears beside
+it.** A third arm, reached where the other two leave off: the file carries no
+`'CZ'` mark and is not a compressed package, and its extension is three
+digits. Anything else is still `Not compressed` without a sector read, so the
+new arm costs a plain file nothing. Any part may be selected. Its own first 32 bytes are read
+before anything else, so a plain `NOTES.123` still says `Not compressed`
+rather than asking for a `NOTES.001` it never had. The join then starts at
+`.001` and reads the set in order, so the selection says only which set.
+
+**EVERY PART IS IN THE SAME FOLDER, AND THE RESULT LANDS THERE TOO.** On the
+5150 that is the hard disk: copy the parts across from their floppies, then
+join. What it costs is the parts and the result on one volume at once, and
+the parts can be deleted once the result is there. Reading the parts straight
+off a changing floppy into another volume needs a destination to be ASKED for
+and a disk swap to wait on, neither of which a menu verb can do today. That
+is left for whoever needs it enough.
+
+**IT STREAMS, so the size of the set is bounded by the DISK and not by the
+heap**, which is the whole difference from the other two arms (§22.23.4).
+One claim of 81KB, whatever the file. That is more than the 128KB machine's
+~50KB of heap, so on `kern_small` the join is `Not enough memory`; the
+module's image grows there by the same 1,500 bytes and nothing resident moves:
+
+| | |
+|---|---|
+| `[cmz_b]` | the INPUT window, 49KB. Parts are read into it in 16KB chunks with `OSAPI_FILE_READ_AT`, at offsets that are multiples of 16KB, which that door requires to be whole clusters (§18.4.4). Before a block is parsed the window is topped up until the whole block is in it: the bytes left are moved to its floor and chunks are read behind them. A block is at most 32,778 bytes with its header, so the window never holds more than 32,777 + 16,384 |
+| `[cmz_o]` | the OUTPUT block, 32KB, where `lz_decomp_x` expands a compressed block at `ES:0`. A stored block is written straight out of the window and never copied |
+
+**The result is written under `CMPRESS~.TMP` and renamed at the end**, the
+streamed `Compress`'s own temporary name (§22.22.5), for the same reason: a
+join that fails half-way leaves the parts untouched and no half-file under
+the real name. The first block is a `WRITE` and every later one an `APPEND`.
+Every block but the last expands to exactly 32KB (§20.17.2), so the file is a
+whole number of clusters before each append, which is the rule that door
+enforces. **A volume whose cluster is over 16KB is refused before anything is
+claimed**, for both halves of that arithmetic. That is a FAT16 volume past
+1GB (§52.10), and not the 5150's ST-225.
+
+**Every part is checked against part 1 before a byte of it is written**: the
+magic and version, its own index, the same count, total and set ID, and an
+offset equal to what has been written so far. So a stale `.003` from another
+set, a part copied twice under two names or a set with one missing all stop
+at the first wrong part. Every block's two sums are checked against what it
+expanded to (§20.17.2). The final length must be the header's total, and the
+last block of the last part must end the file.
+
+| refusal | said as |
+|---|---|
+| the selected file's first 32 bytes are not a part (a plain `NOTES.123`) | `Not compressed` |
+| no part 1 in the folder | `Missing FILEA.001` |
+| a later part is not in the folder | `Missing FILEA.002` |
+| a part from another set, or out of order | `Wrong part FILEA.002` |
+| a block that will not expand, a check that fails, a short or overlong set | `Cannot expand this one` |
+| the result's name already exists in the folder | `fm_errtab`'s `FERR_EXIST` word, before anything is written |
+| a cluster over 16KB | `Clusters too big` |
+| the claim | `Not enough memory` |
+| a `FERR_*` from a read or a write | `fm_errtab`'s own word, and `CMPRESS~.TMP` is deleted |
+| success | `Uncompressed` |
+
+**The progress bar is scaled to the ORIGINAL's size**, and each block's
+expanded length is stepped onto it. Every `dskw_*` call arms the widget to
+its own length and ends it (§12.8), so `cmz_rearm` puts the verb's scale back
+after each one, which is the streamed `Compress`'s idiom (§22.22.5).
+
+`fm_onam` is the part name the join reads: its three digits are rewritten for
+each part and put back when the verb returns. The result's name, which is in
+part 1's header, is carried in the module and copied into `fm_onam` only for
+the final rename. The file layer takes names from `DS`, and the module's
+image is not `DS`.
 
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)
 

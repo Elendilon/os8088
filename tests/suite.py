@@ -6581,6 +6581,47 @@ SOAK = [
         "the arrow must move with the lock held (144 moves; the first build, "
         "whose toast spent the hide, read 6) while `Compressing...` stays up",
         needs=("marty",), serial=True, wants=("build/os8088.img",)),
+    Row("czjoin", "soak", py("tests/czjoin.py"), 120.0,
+        "SPEC.md 20.17 and 22.23.5: File > Uncompress on a PART of a split "
+        "set joins it, STREAMING - an 81KB claim whatever the set's size. "
+        "tools/os88cz.py cuts the sets on the host and every assertion is "
+        "the bytes the machine wrote, read off the live floppy: a 340KB "
+        "original in three parts of stored and LZ4 blocks, joined from its "
+        "MIDDLE part byte for byte (~60 guest s), a one-part LZB set, and "
+        "a plain NOTP.123 that must say `Not compressed`. Then the "
+        "refusals, a folder each - a missing part (`Missing MISS.002`), a "
+        "byte flipped in a STORED payload that only the block's two sums "
+        "can see (`Cannot expand this one`), a part from another set "
+        "(`Wrong part WRG.002`) and a result whose name is taken (`Name "
+        "exists`) - each leaving no result and no CMPRESS~.TMP, and "
+        "os88disk --verify over the volume at the end. Both negative "
+        "controls were run: `--break` drops a part and goes red, and with "
+        "the check's compare disabled in compress.inc the damaged copy "
+        "joined into a wrong DMG.DAT and the row went red on it",
+        needs=("marty",), wants=("build/os8088.img",)),
+    Row("czdos", "soak", py("tests/czdos.py"), 10.0,
+        "SPEC.md 20.17.4: OS88CZ.COM under a real DOS (DOSBox, headless, "
+        "one session running every leg from a batch file). What DOS splits, "
+        "os88cz.py must join - text, text-and-noise and a /S store - and "
+        "EVERY LZ4 block it wrote must need no in-place margin, the one "
+        "property a host decoder cannot see and the machine depends on "
+        "(20.13.7). What os88cz.py splits - LZ4, LZB, mixed, several parts "
+        "- DOS must join byte for byte, and U must expand a 'CZ' file in "
+        "each format. A damaged stored byte, a part from another set and a "
+        "missing part answered with Esc through redirected stdin must each "
+        "refuse and leave nothing behind. `--break` hands J the damaged "
+        "set as a good one and goes red",
+        needs=("dosbox",), wants=("build/os88cz.com",)),
+    Row("cz", "soak", py("tests/unit/t_cz.py"), 3.0,
+        "SPEC.md 20.17: the split set's three copies agree - os88cz.py's "
+        "selfcheck (every method at two part sizes, every refusal the "
+        "machine makes), the header and block sizes as compress.inc and "
+        "OS88CZ.COM spell them, the join's window against a record plus a "
+        "refill, and 'a part fits a fresh disk' TESTED: a part of exactly "
+        "the table's size goes on a floppy of each geometry through "
+        "os88disk.py and one byte more does not. And the window's "
+        "arithmetic with no display - the disk count shown before anything "
+        "is written is the stored split's real one"),
     Row("lzmod", "soak", py("tests/lzmod.py"), 30.0,
         "SPEC.md 20.14.5: BEVERLY.MOD, COMPRESSED, opened by a double-click. "
         "The file this whole feature is for - 116,085 bytes is 114 of a 360KB "

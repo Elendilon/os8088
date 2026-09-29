@@ -11765,7 +11765,20 @@ APPS_SYS := $(APPSYS)
 # as a file for another computer.
 APPS_DOS := $(BUILD)/os88net.com
 
-APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS)
+# OS88CZ.COM (SPEC.md 20.17.4): the split set's DOS end - join a set off a
+# pile of floppies onto a hard disk, split a file for them, expand a 'CZ'
+# file. Beside OS88NET.COM on every apps disk it FITS, which is not the 360KB
+# one: that disk is at 352 of 354 clusters and this is five. Its decoder is
+# kernel/lz.inc, included as it is - one decoder, three hosts.
+APPS_DOSCZ := $(BUILD)/os88cz.com
+$(BUILD)/os88cz.com: dostools/os88cz.asm kernel/lz.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I kernel/ -o $@ $<
+	@echo "os88cz.com:  $(call FILESIZE,$@) bytes - the split set on DOS"
+os88cz: $(BUILD)/os88cz.com
+.PHONY: os88cz
+
+APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS) \
+        $(APPS_DOSCZ)
 # ...and the 360KB disk's list, which is that one less what the media disk
 # carries. Kept as its own variable rather than reusing $(APPS): a rule whose
 # prerequisites name a file that is not on the disk it builds is a dependency
@@ -11858,7 +11871,7 @@ APPSARGS := $(addprefix APPS:,$(APPS_TOOLS)) \
             $(addprefix GAMES:,$(APPS_GAMES)) \
             $(addprefix MEDIA:,$(APPS_DATA)) $(LOGOVIDARG) \
             $(APPSYSARGS) \
-            $(addprefix SYSTEM/DOS:,$(APPS_DOS)) \
+            $(addprefix SYSTEM/DOS:,$(APPS_DOS) $(APPS_DOSCZ)) \
             $(APPDATAFOLDER)
 
 # The 360KB apps disk is the same disk with the media-disk data taken out of
@@ -12246,7 +12259,7 @@ ALLAPPSARGS := $(addprefix APPS:,$(APPS_TOOLS) $(CORE_SYSONLY) \
                $(addprefix WEAVE:,$(WEAVEDISK)) \
                $(addprefix LOOM:,$(WEAVELOOM) $(LOOMRUN) $(LOOMSRCS)) \
                $(APPSYSARGS) \
-               $(addprefix SYSTEM/DOS:,$(APPS_DOS))
+               $(addprefix SYSTEM/DOS:,$(APPS_DOS) $(APPS_DOSCZ))
 ALLAPPSDIRS := $(sort $(foreach a,$(ALLAPPSARGS),$(firstword $(subst :, ,$a))) \
                       DOCS RUNCPM/A SYSTEM/APPDATA)
 ALLAPPSDIRS := $(sort $(ALLAPPSDIRS) \
