@@ -154320,10 +154320,16 @@ it** (§98.3.17) - and mute is the one choice for every kind of sound:
   play goes on silent on the PIT, and a toast says `Sound off`.
 
 The ring is the card's layout (§34.5.3), claimed as `VP_RL` + 272 bytes, with
-the count table after the control words. `vp_aput` puts each byte through
-the table as it queues it, and the drain's silence fill is translated too -
-or, for a file of counts (98.1.1.3), copies them and fills with the table's
-middle.
+the count table after the control words. **A clip made for a card goes
+through §34.11.9's shaper**, as the encoder shapes one made for the speaker
+(98.2.15.1): a straight wave on a 5150 is the carrier and little else.
+`vp_aput` takes each queued piece - a frame's audio - to `os88spkfx_level`
+for its level and `os88spkfx_emit` for its counts, with the first-difference
+pre-emphasis on; the family is `vp_fam`, 11 x 256 bytes of bss. The drain's
+silence fill is `os88spk_sil`, a count of 1 once the shaper has the carrier
+away. A file of counts (98.1.1.3) is still a copy, filled with the table's
+middle. `tests/vidspk.py` reads its pulses back against `tools/os88spkfx.py`'s
+`Shaper` fed the same pieces, and they are EXACT.
 Everything that stops or restarts the card does the same to the speaker, by
 `vp_sclose`, `os88spk_stop` and `os88spk_go`:
 - a **pause** stops it where it is, CONS exact, and the resume goes on from

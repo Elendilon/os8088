@@ -8235,6 +8235,16 @@ vp_sndprep:
     pop di
     jc .spkno                       ; a rate it cannot: silent
     mov byte [vp_snd], VP_SPK
+    cmp byte [vp_spkpwm], 0         ; A CLIP MADE FOR A CARD is SHAPED for the
+    jne .shp                        ; speaker here (34.11.9), as the encoder
+    push ax                         ; shapes one made for it: a straight wave
+    push di                         ; is the carrier and nothing else on a
+    mov di, vp_fam                  ; 5150 (98.2.15.1)
+    mov ax, 0x0100 | SPKFX_PRE_DIFF
+    call os88spkfx_init
+    pop di
+    pop ax
+.shp:
     ret
 .spkno:
     mov dx, [vp_aseg]
@@ -9896,6 +9906,17 @@ vp_afill:
 ; clobbers AX, BX, CX, SI, DI, ES
 vp_aput:
     mov es, [vp_aseg]
+    cmp byte [vp_snd], VP_SPK       ; THE SPEAKER, a card's samples: the
+    jne .nlev                       ; shaper decides the piece - a frame's
+    cmp byte [vp_spkpwm], 0         ; audio - from its own peak before a
+    jne .nlev                       ; sample of it is emitted (34.11.9)
+    or dx, dx
+    jz .nlev
+    push ds
+    mov ds, dx
+    call os88spkfx_level
+    pop ds
+.nlev:
     push cx                         ; the whole count
     mov di, [vp_atot]
     and di, VP_RL - 1
@@ -9918,11 +9939,17 @@ vp_aput:
     ret
 .cp:
     cmp byte [vp_snd], VP_SPK       ; THE SPEAKER's ring holds PWM counts:
-    jne .cc                         ; each sample through the table (98.3.15)
-    cmp byte [vp_spkpwm], 0         ; - unless the FILE holds them already
-    je .tx                          ; (98.1.1.3), which is a copy, and its
-    or dx, dx                       ; silence the table's middle
-    jnz .cm
+    jne .cc                         ; each sample through the shaper (98.3.15,
+    or dx, dx                       ; 34.11.9) - unless the FILE holds them
+    jz .sil                         ; already (98.1.1.3), which is a copy -
+    cmp byte [vp_spkpwm], 0         ; and silence os88spk_sil either way: the
+    jne .cm                         ; table's middle, or a count of 1 where
+    push ds                         ; the shaper has the carrier away
+    mov ds, dx
+    call os88spkfx_emit
+    pop ds
+    ret
+.sil:
     mov al, [os88spk_sil]
     cld
     rep stosb
@@ -9945,36 +9972,13 @@ vp_aput:
     cld
     rep stosb
     ret
-.tx:
-    jcxz .txr
-    push bx
-    mov bx, VP_RL + SND_EXT_TAB
-    cld
-    or dx, dx
-    jz .txf
-    push ds
-    mov ds, dx
-.txl:
-    lodsb
-    es xlatb
-    stosb
-    loop .txl
-    pop ds
-    pop bx
-.txr:
-    ret
-.txf:
-    mov al, [vp_afn]
-    es xlatb
-    rep stosb
-    pop bx
-    ret
 
 
 %define VD_C160                     ; ...and its C160 twin (98.3.12.1)
 %include "video/vdec.inc"
 %include "video/vosd.inc"           ; the full screen's text (98.3.13)
 %include "os88spk.inc"              ; the speaker's ring player (34.11)
+%include "os88spkfx.inc"            ; ...and its shaper (34.11.9)
 
 ; =============================================================================
 ; the window
@@ -12132,5 +12136,7 @@ vo_sav        equ vp_lum + 256      ; what the full screen's text covers, a
                                     ; save a page (98.3.13)
 vc_pg         equ vo_sav + 2 * VO_SAV ; ...and a 256-byte page -> the first
                                     ; of its rows at or after it (98.3.13.1)
-    OS88_BSS 512 + VP_LINES * VP_LINE + 768 + 256 + 2 * VO_SAV + 256
+vp_fam        equ vc_pg + 256       ; the speaker shaper's level family
+    OS88_BSS 512 + VP_LINES * VP_LINE + 768 + 256 + 2 * VO_SAV + 256 + \
+             SPKFX_NLEV * 256
     OS88_IMAGE_END

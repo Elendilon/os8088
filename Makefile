@@ -4775,7 +4775,7 @@ $(shell mkdir -p $(BUILD); \
         [ -f $(VPSTAMP) ] || { rm -f $(BUILD)/.vplayer-livesnd $(BUILD)/.vplayer-nolivesnd \
                                       $(BUILD)/video.bin $(BUILD)/video.o88; \
                                 touch $(VPSTAMP); })
-$(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88api.inc apps/os88alt.inc \
+$(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
                     apps/os88ui.inc $(VPSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ $(VPDEF) -o $@ apps/video/video.asm
 	@echo "video:  $(call FILESIZE,$@) bytes"
