@@ -40,6 +40,15 @@ TSP_LOW     equ TSP_RL / 4          ; a lead under this: behind
 TSP_SPANS   equ 4                   ; spans a poll makes at most
 TSP_BTICKS  equ 4                   ; ticks the shaper is timed for...
 TSP_MTICKS  equ 8                   ; ...and the mixer
+%ifndef TSP_RATCHET
+TSP_RATCHET equ 1                   ; ONE LEVEL A SONG (SPEC.md 34.11.9.1): the
+%endif                              ; shaper's ratchet, not its per-span
+                                    ; leveller - 0 builds the leveller back, the
+                                    ; A/B the owner listens to
+%ifndef TSP_LSTART
+TSP_LSTART  equ 8                   ; ...and where a song's level starts: it
+%endif                              ; only steps DOWN from here, on the song's
+                                    ; loud parts, and then holds
 %ifndef TSP_PCTMAX
 TSP_PCTMAX  equ 100                 ; the most a rung may predict: THE SOUND
 %endif                              ; must fit, and the picture has what is
@@ -83,6 +92,8 @@ tsp_rat:    dw 22050, 16000, 11025, 8000, 0
     TRKB tsp_run                    ; a speaker play is on
     TRKB tsp_open                   ; ...and the door is open
     TRKB tsp_rung                   ; the rung, kept for the session
+    TRKB tsp_slev                   ; the song's level (TSP_RATCHET)...
+    TRKB tsp_lvok                   ; ...once it has one: 0 at each load
     TRKB tsp_exit                   ; TSPX_*
     TRKB tsp_btn                    ; the mouse's buttons, last seen
     TRKB tsp_pend                   ; the imposter's first pass: tsp_prep
@@ -196,9 +207,22 @@ tsp_tables:
     xor cl, cl
     call os88spk_init
     jc .out
+%if TSP_RATCHET
+    mov al, TSP_LSTART              ; THE SONG'S LEVEL: where it starts, or
+    cmp byte [tsp_lvok], 0          ; where its last play left it - a pause,
+    je .l0                          ; a resume and a rung down re-init the
+    mov al, [os88spkfx_lev]         ; shaper, and each would otherwise start
+.l0:                                ; the song over at TSP_LSTART
+    mov [tsp_slev], al
+    mov byte [tsp_lvok], 1
+%endif
     mov di, tsp_fam
     mov ax, 0x0100 | SPKFX_PRE_NONE ; the samples were filtered at load
     call os88spkfx_init
+%if TSP_RATCHET
+    mov al, [tsp_slev]
+    call os88spkfx_ratchet
+%endif
     clc
 .out:
     pop di
@@ -1049,6 +1073,7 @@ TSP_NSAY    equ 28672               ; sample bytes past which an 8088 is told:
                                     ; at 166 cycles a sample (BEVERLY.MOD's
                                     ; 81,200 bytes are 2.8 s, MEASURED)
 tsp_natural:
+    mov byte [tsp_lvok], 0          ; a new song: a new level (TSP_RATCHET)
     push ax
     push bx
     push cx

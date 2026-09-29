@@ -64,6 +64,8 @@ SUB = 16                        # samples a sub-block: d moves once a sub-block
 HOLD = 2                        # a span's level is asked by the largest peak
                                 # of it and the HOLD spans before it (34.11.9)
 D_UP, D_DOWN = 1, 8             # ...by at most this many counts
+RTOL = 3                        # the ratchet steps down for a span that
+                                # overdrives it by more than this many levels
 PRE_NONE, PRE_DIFF = 0, 1
 
 
@@ -149,6 +151,7 @@ class Shaper(object):
         self.c0 = self.fam[0][128]
         self.lev = 0
         self.gate = True                        # a play starts as after silence
+        self.rat = False                        # levelled, not ratcheted
         self.held = [0] * HOLD                  # the last HOLD spans' peaks
         self.d = self.c0 - 1 if idle else 0     # the carrier starts away
         self.h = self.d
@@ -163,6 +166,12 @@ class Shaper(object):
             return (prev - x + 256) >> 1
         return x
 
+    def ratchet(self, lev):
+        """os88spkfx_ratchet: ONE level for the piece, stepping down only,
+        a step for a span that overdrives it by more than RTOL levels
+        (SPEC.md 34.11.9.1)"""
+        self.lev, self.rat = lev, True
+
     def level(self, xs):
         """the span's peak, one sample in SPARSE from its first, of the
         index the table is read at; the level the largest of it and the
@@ -175,10 +184,14 @@ class Shaper(object):
             a = abs(self.index(xs[j], xs[j - 1] if j else prev) - 128)
             if a > p:
                 p = a
-        want = self.lt[max([p] + self.held) if p >= PGATE else p]
-        self.held = [p] + self.held[:-1]
-        self.lev = (self.lev + 1 if want > self.lev and not self.gate
-                    else want)
+        if self.rat:                            # the ratchet: down only, a
+            if p >= PGATE and self.lt[p] + RTOL < self.lev:   # step a span
+                self.lev -= 1
+        else:
+            want = self.lt[max([p] + self.held) if p >= PGATE else p]
+            self.held = [p] + self.held[:-1]
+            self.lev = (self.lev + 1 if want > self.lev and not self.gate
+                        else want)
         self.gate = p < PGATE
         row = self.fam[self.lev]
         if p < PGATE:
@@ -264,6 +277,7 @@ def gen_inc():
              "SPKFX_SUB     equ %d" % SUB,
              "SPKFX_DUP     equ %d" % D_UP,
              "SPKFX_DDOWN   equ %d" % D_DOWN,
+             "SPKFX_RTOL    equ %d" % RTOL,
              "os88spkfx_curve:"]
     for j in range(0, CURVE_N, 16):
         lines.append("    db " + ", ".join(str(v) for v in c[j:j + 16]))

@@ -187,6 +187,7 @@ def leg_play(bad):
         el = t.rw("tw_el")
         check(bad, el > 0, "play: the clock counts (%d bytes heard)" % el)
         # --- Space: paused, the machine given back ---
+        lev0 = t.rb("os88spkfx_lev")    # the song's level (TSP_RATCHET)
         pos = t.rb("tui_apos") * 64 + t.rb("tui_arow")
         t.m.type_text(" ")
         t.until(lambda: t.rb("tsp_run") == 0 and t.kernel_clean()[1] == 0,
@@ -202,6 +203,9 @@ def leg_play(bad):
         pos2 = t.rb("tui_apos") * 64 + t.rb("tui_arow")
         check(bad, pos2 >= pos, "resume: on from row %d, now %d" % (pos,
                                                                    pos2))
+        lev1 = t.rb("os88spkfx_lev")    # the resume re-inits the shaper: the
+        check(bad, t.rb("os88spkfx_rat") == 1 and lev1 <= lev0 < 8,
+              "resume: the song keeps its level (%d, then %d)" % (lev0, lev1))
         # --- F: the full screen, playing on ---
         t.m.type_text("f")
         t.until(lambda: t.rb("trk_fs") == 1 and t.rb("tsp_open") == 1,

@@ -58611,6 +58611,40 @@ filter - natural back to this tilt - before the rate, so a machine that
 cannot hold it loses the lows it gained and not the sound (the owner, on
 reading these numbers).
 
+#### 34.11.9.1 The ratchet: one level for the piece
+
+`os88spkfx_ratchet` (AL = a level, after `os88spkfx_init`) turns the per-span
+leveller off and plays the piece at ONE level. The level only ever steps DOWN,
+one level a span, and only for a span whose peak asks for a level more than
+`SPKFX_RTOL` = 3 below it (6 dB past the soft clip's knee), so it settles on
+the piece's loud parts in its first seconds and then does not move at all.
+Silence changes nothing; the carrier's target is still set per span from the
+span's own peak. `os88spkfx_init` turns it off, so Audio and the Video Player,
+which never call it, level as before. `tools/os88spkfx.py`'s `Shaper.ratchet`
+is its reference.
+
+It exists because every leveller that MOVES was heard moving: the shipped
+three-span hold dips around a loud part, and the slower one built after it
+was heard by one listener as steadier and by another as longer, more obvious
+fades (34.11.9). What both disliked was parts that should not change,
+changing. docs/plans/SPEAKER-LEVELLER-NEXT.md is the record.
+
+Tracker is its one caller (`TSP_RATCHET`, default 1; 0 builds the leveller
+back, which is the A/B). A song starts at `TSP_LSTART` = 8 and keeps what it
+settles on across a pause, a resume and a rung down (`tsp_slev`, read back
+from `os88spkfx_lev` at each re-init); a new module starts again. Modelled on
+40 s captures of Tracker's mix at 8,000 Hz: ELYSIUM.MOD settles on level 6
+within 1.6 s and BEVERLY.MOD on level 5 within 2.4 s, with 6.4% and 3.5% of
+samples at the curve's end (the per-span leveller's 3.6% and 2.9%), and
+nothing moves after that. On MartyPC's 8,000 Hz XT, Tracker playing ELYSIUM.MOD
+steps 8 -> 7 -> 6 in its first 1.5 s and reads 6 for the rest of a minute.
+
+It costs less than the leveller it stands in for: `os88spkfx_level` is 6.2
+cycles a sample against 6.9. `tests/spkfx.py`'s sixth leg (PRE_NONE, the
+ratchet from 10) is EXACT against the model and FAILS with `SPKFX_RTOL` off by
+one in the asm alone; `tests/trkspk.py --leg play` requires the song's level to
+survive a pause and resume, and reads 5 then 8 with the carry taken out.
+
 ## 35. Recorder — the sound layer's recording client
 
 `apps/recorder` needs `SND_CAP_PCM_IN` (a Sound Blaster) to record and

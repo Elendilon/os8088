@@ -6,6 +6,7 @@ SPKFX_SPARSE  equ 32
 SPKFX_SUB     equ 16
 SPKFX_DUP     equ 1
 SPKFX_DDOWN   equ 8
+SPKFX_RTOL    equ 3
 os88spkfx_curve:
     db 0, 1, 3, 4, 5, 7, 8, 9, 10, 12, 13, 14, 16, 17, 18, 19
     db 21, 22, 23, 25, 26, 27, 28, 30, 31, 32, 33, 35, 36, 37, 38, 40
