@@ -137,6 +137,7 @@ os88spkfx_init:
     mov [cs:os88spkfx_lev], al
     mov [cs:os88spkfx_sub], al
     mov byte [cs:os88spkfx_gate], 1 ; a play starts as after silence
+    mov [cs:os88spkfx_pk1], ax      ; ...with no peaks held (pk1, pk2)
     mov byte [cs:os88spkfx_prev], 0x80
     pop es
     pop ds
@@ -191,7 +192,23 @@ os88spkfx_level:
     sub cx, SPKFX_SPARSE
     ja .none
 .done:
-    mov bl, dh                      ; the level the peak asks for
+    mov al, dh                      ; the level the peak asks for - HELD: the
+    mov bl, al                      ; largest of this span's and the last two
+    cmp bl, [cs:os88spkfx_pk1]      ; spans' peaks, so a loud hit keeps the
+    jae .k1                         ; level down for ~64 ms and the leveller
+    mov bl, [cs:os88spkfx_pk1]      ; does not pump between beats (34.11.9)
+.k1:
+    cmp bl, [cs:os88spkfx_pk2]
+    jae .k2
+    mov bl, [cs:os88spkfx_pk2]
+.k2:
+    mov ah, [cs:os88spkfx_pk1]
+    mov [cs:os88spkfx_pk2], ah
+    mov [cs:os88spkfx_pk1], al
+    cmp dh, SPKFX_PGATE             ; ...but silence asks by its own peak
+    jae .k3
+    mov bl, dh
+.k3:
     xor bh, bh
     mov al, [cs:os88spkfx_lt+bx]
     mov ah, [cs:os88spkfx_lev]
@@ -436,6 +453,8 @@ os88spkfx_idle: db 0                ; the carrier put away in the quiet
 os88spkfx_c0:   db 0                ; the centre count
 os88spkfx_lev:  db 0                ; the span's level
 os88spkfx_gate: db 0                ; the last span was silent (under PGATE)
+os88spkfx_pk1:  db 0                ; the last span's peak...
+os88spkfx_pk2:  db 0                ; ...and the one before it (HOLD 2)
 os88spkfx_d:    db 0                ; the carrier's shift now...
 os88spkfx_h:    db 0                ; ...and its target
 os88spkfx_sub:  db 0                ; samples into the sub-block
