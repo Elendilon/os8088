@@ -76375,9 +76375,14 @@ rung is played from its start with no refusal, and the live drop still
 guards the tempo - a machine that cannot hold the pick comes down a rung
 rather than playing at the wrong speed. The pick takes effect at the next
 play (`Rate: 5512 Hz at the next Play`). On the owner's 286 (16 MHz) Auto
-opens at 16,000 Hz since `TSP_CS` went to 104 (45.25.1), where 22,050 had
-held with the spectrum at full speed: picking 22,050 Hz is the answer until
-the prediction learns the 286 (docs/plans/SPEAKER-LEVELLER-NEXT.md 6).
+opens at 22,050 Hz predicting 93% and holds it with the spectrum at full
+speed - the same across two reboots and a dozen opens of both modules. One
+earlier session opened at 16,000 predicting 75%, which is 22,050 at 101.5%,
+just over `TSP_PCTMAX`: the prediction is `R x (44/Nm + TSP_CS/Ne) + 5`, and
+`Nm` is benched with the playback settings of the moment - XT mode (45.9)
+mixes straight into the output buffer with no zeroing or conversion pass -
+so a machine this close to the line may open a rung apart under different
+settings, which is correct, the play mixing the same way the bench did.
 
 `tests/trkspk.py --leg rate` (`soak -k trkspkrate`) and `--leg level`
 (`soak -k trkspklevel`) are the gates.

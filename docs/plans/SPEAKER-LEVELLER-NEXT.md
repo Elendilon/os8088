@@ -168,14 +168,17 @@ loses is a `git revert`.
 
 ## 6. Also open, found on the way
 
-- **Tracker's rate prediction over-counts a 286.** Since `TSP_CS` went to
-  104 (SPEC.md 45.25.1), Auto on the owner's 16 MHz 286 opens at 16,000 Hz
-  predicting ~75%, where 22,050 Hz had held with the spectrum at full speed.
-  SPKBENCH's 286 numbers put 22,050 at ~107% (the ISR 32.6%, the shaper ~7%
-  and the mixer term ~63%), so it is the MIXER term: it is priced at the
-  worst case, four channels and the longest looped sample. A measured load
-  during the play, or a per-tier constant, is the fix. The Rate menu lets
-  the user pick 22,050 meanwhile.
+- **The 286 and Auto: NOT a defect, closed.** One session on the owner's
+  16 MHz 286 opened at 16,000 Hz predicting 75% - 22,050 at 101.5%, just
+  over `TSP_PCTMAX` - and this file said the mixer term over-counted and
+  needed a per-tier constant. The owner then found build 07bc18e opening at
+  22,050 predicting 93% and holding it with the spectrum on, the same across
+  two reboots and a dozen opens of both modules, and called it right. The
+  prediction is `R x (44/Nm + TSP_CS/Ne) + 5`, and `Nm` is benched with the
+  playback settings of the moment - XT mode (SPEC.md 45.9) mixes straight
+  into the output buffer with no zeroing or conversion pass - so a machine
+  that close to the line can open a rung apart under different settings.
+  Nothing to fix; the Rate menu covers a pick the user disagrees with.
 - **The carrier's whine against the level.** On the 5150, levels 7 to 10
   weaken the whine: the louder the level, the more of the time the pulse
   sits near an extreme, where the carrier is weak. Moving the carrier's
