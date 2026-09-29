@@ -26,8 +26,13 @@ bytes on the floppy afterwards:
           marginal one: after the prompt and the swap its reads fail, and
           the join must say `Disk error`, delete what it wrote on A: and give
           the machine back.
+  alive   ...and the disk STAYS bad, so the Disk window's re-read after the
+          verdict fails too, as it did on the 5150 for 30 seconds: with the
+          mouse nudged at every failed attempt, the pointer must be UP
+          (cur_level 0) and following it (SPEC.md 7.5.3.2). It was down and
+          still, which is what made the retries look like a hang.
 
-  hopfail (last, because it leaves a CMPRESS~.TMP) HOP.001 and HOP.002 on
+  hopfail (after ioerr, because it leaves a CMPRESS~.TMP) HOP.001 and HOP.002 on
           the second disk; B:'s reads fail part-way
           (a CRC error, AH = 10h, injected just after the kernel's own
           `int 13h`, so its retries and everything above them are real), and
@@ -35,6 +40,12 @@ bytes on the floppy afterwards:
           - is pointed at a drive that is not there. That hop's failure
           jumped back into the error path, which hopped again, FOR EVER
           (SPEC.md 22.23.6.1): the join must say `Disk error` after one.
+  arm     no job at all: a one-cluster folder on the second disk opened
+          with the motor running, so its read is one sector and does not
+          reach FPG_WARM, and every read of B: fails. From the SECOND failed
+          attempt on, the chrome and the busy clock must be up (SPEC.md
+          12.8.3.2): a retry moves no sectors, and nothing was drawn for
+          however long the retries took.
 
 Then A: is handed to os88disk's fsck.
 
@@ -103,7 +114,7 @@ def main():
     work = os.path.abspath(os.path.join(os88build.at("build"),
                                         "czto-%d" % os.getpid()))
     shutil.rmtree(work, ignore_errors=True)
-    for d in ("x", "x/ALL", "x/PARTS", "y", "z"):
+    for d in ("x", "x/ALL", "x/PARTS", "y", "y/SUB", "z"):
         os.makedirs(os.path.join(work, d))
 
     def put(d, name, data):
@@ -128,7 +139,8 @@ def main():
               "PARTS:" + put("x/PARTS", "SET.001", setp[0]))
     dy = disk("y.img", put("y", "SET.002", (other if a.brk else setp)[1]),
               put("y", "BAD.002", badp[1]),
-              put("y", "HOP.001", hopp[0]), put("y", "HOP.002", hopp[1]))
+              put("y", "HOP.001", hopp[0]), put("y", "HOP.002", hopp[1]),
+              "SUB:" + put("y/SUB", "NOTE.TXT", b"one sector\r\n"))
     dz = disk("z.img", put("z", "SET.003", setp[2]),
               put("z", "BAD.001", badp[0]))
     fails = []
@@ -291,18 +303,24 @@ def main():
 
         seenhops = []
 
-        def marginal(skip, failhop, written=False):
+        after = []
+
+        def marginal(skip, failhop, written=False, stays=False):
             """run with every read of B: after the first `skip` failing (CRC,
             AH = 10h) for as long as the join holds its claim - and, with
             `failhop`, every hop back to A: after the first failure pointed
             at a drive that is not there. With `written`, nothing fails
             until the join has hopped to A: twice - the name check, then a
             write - so there is a result to delete. (toast, failed reads,
-            failed hops),
+            failed hops). With `stays`, the disk STAYS bad after the join
+            has said its verdict - the field's case, where the Disk window
+            re-reads it before it repaints - and every failure then nudges
+            the mouse and records (cur_level, drawn x) in `after`,
             or ('LOOPING', ...) once the hop has failed 50 times"""
             m.bp_exec(i13, gto)
             good = hits = hops = 0
             del seenhops[:]
+            del after[:]
             try:
                 for _ in range(20000):
                     if m.wait_stop(limit=0.3) != "breakpoint":
@@ -321,13 +339,18 @@ def main():
                                 return "LOOPING", hits, hops
                     elif (m.read(S("dsk_op"), 1)[0] == 0x02
                           and m.read(S("dsk_unit"), 1)[0] == 0x01
-                          and w16("clo_seg")):
+                          and (stays or w16("clo_seg"))):
                         good += 1
                         if good > skip and (not written
                                             or seenhops.count(0) >= 2):
                             m.setreg("ax", 0x1000 | (rg["ax"] & 0xFF))
                             m.setreg("flags", rg["flags"] | 1)
                             hits += 1
+                            if stays and not w16("clo_seg"):
+                                after.append((
+                                    (m.read(S("cur_level"), 1)[0] ^ 0x80)
+                                    - 0x80, w16("cur_drawn_x")))
+                                m.mouse(dx=4)
                     m.run()
                 return "TIMEOUT", hits, hops
             finally:
@@ -343,7 +366,7 @@ def main():
         motor_off()
         m.mount(1, dy)
         key("Enter")
-        r = marginal(2, False)
+        r = marginal(2, False, stays=True)
         af = a_files()
         leg("ioerr", r[0] == "Disk error" and mode() == 0
             and claim() is None and "BAD.DAT" not in af
@@ -351,6 +374,15 @@ def main():
             "%r after %d failed reads of B:; A: holds %s" % (
                 r[0], r[1], sorted(n for n in af
                                    if n.startswith(("BAD", "CMP")))))
+        # ...and the pointer is ALIVE while the window re-reads the bad disk
+        # after the verdict (SPEC.md 7.5.3.2): it was frozen there, which is
+        # what made 30 seconds of retries look like a hang
+        leg("alive", len(after) >= 2 and all(lv == 0 for lv, _ in after)
+            and after[-1][1] != after[0][1],
+            "after the verdict: %d failed reads, pointer (level, x) %r"
+            % (len(after), after[:6]))
+        ui.menu_pick("Nav", "Refresh")  # the disk reads again: list it
+        ui.settle()
 
         # hopfail: HOP.001 and HOP.002 both on the second disk, still in B:.
         # B: fails part-way, and the error path's own hop back to A: - to
@@ -365,6 +397,40 @@ def main():
             "%r after %d failed reads and %d failed hop(s); A: holds %s"
             % (r[0], r[1], r[2], sorted(n for n in af
                                         if n.startswith(("HOP", "CMP")))))
+
+        # arm: NO job and no chrome - a one-cluster folder opened with the
+        # motor running, so the read is one sector and FPG_WARM is not met.
+        # Every read of B: fails. The chrome and the clock must be up from the
+        # SECOND failed attempt: a retry moves no sectors, and before SPEC.md
+        # 12.8.3.2 nothing was drawn for however long the retries took
+        idx, _ = ui.entry("SUB", ui.disk_window())
+        ui.scroll_to(idx, win=ui.disk_window())
+        m.read(S("fpg_on"), 1)
+        seen = []
+        m.bp_exec(i13)
+        # the motor RUNNING, as the BIOS keeps it: B:'s bit in 0040:003F and a
+        # full countdown in 0040:0040 - or 12.8.3.1 counts the read as warm
+        # (a stopped motor) and arms the chrome before it, and this leg would
+        # be testing that instead
+        m.write(0x43F, bytes([m.read(0x43F, 1)[0] | 0x02]))
+        m.write(0x440, b"\xFF")
+        ui.mo.dblclick(*ui.row_xy(ui.disk_window(), idx - ui.scroll()))
+        for _ in range(60):
+            if m.wait_stop(limit=2.0) != "breakpoint":
+                break
+            rg = m.regs()
+            if (m.read(S("dsk_op"), 1)[0] == 0x02
+                    and m.read(S("dsk_unit"), 1)[0] == 0x01):
+                seen.append((m.read(S("fpg_on"), 1)[0],
+                             m.read(S("dsk_run"), 1)[0]))
+                m.setreg("ax", 0x1000 | (rg["ax"] & 0xFF))
+                m.setreg("flags", rg["flags"] | 1)
+            m.run()
+        m.bp_exec()
+        m.run()
+        leg("arm", len(seen) >= 2 and seen[0][0] == 0
+            and all(f for f, _ in seen[1:]),
+            "(chrome up, run) at each failed attempt: %r" % seen[:6])
 
         chk = os.path.join(work, "a-fsck.img")
         fl.save(0, chk)

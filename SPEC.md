@@ -10477,6 +10477,34 @@ one failure a knob exists to make impossible.
 table is ABI and every cell is in every build (§20.8 rule 4). The knob is about
 the disk freeze, not about a package that says it is busy.
 
+##### 7.5.3.2 A clock taken DOWN after the arm comes back at the next transfer
+
+§7.5.3's DOWN arm ran once per hold, when `fpg_arm` put the chrome up. A
+handler that painted AFTER that, in the same hold, spent `gfx_lock`'s promise
+again and took the clock off the glass. Every transfer after it then ran with
+`[cur_level]` at -1, so the ISR kept away and the pointer stayed where it was
+for as long as the disk took. The field met it at its worst. Uncompress To...
+had armed the chrome for its own reads, and once it said `Disk error` the
+Disk window repainted over the prompt and re-read the same marginal floppy.
+Those reads failed slowly, the pointer did not move, and keys waited behind
+them. Measured on MartyPC, nudging the mouse at every failed attempt: the
+join's own retries track (the drawn position follows each nudge) and the
+re-read after the verdict does not (`[cur_level]` = -1, the drawn position
+fixed).
+
+So `fpg_busy`, when the chrome is already up, asks `cur_busy` again at the top
+of every transfer. `cur_busy` checks the lock is this task's. `cur_busy_on`
+no longer stops at "already wearing the clock" when the clock is also DOWN:
+it takes every test the DOWN arm takes (a fullscreen owner, a saver session,
+an armed clip region, the menu bar's rows, a refcount it did not take, a free
+lock) and then shows it with the promise put back, as §7.4.3.1 does. It does
+not re-bank the shape, so what `gfx_unlock` restores is still the arrow and
+never the clock. When there is nothing to do it costs six instructions.
+Inside `%ifndef NOCURDISK`, like the rest of §7.5.3. 14 bytes of `.text` on
+each kernel. `tests/czto.py`'s `alive` leg is the gate: after the verdict,
+with the disk still failing, the pointer reads `cur_level` 0 and moves 4
+pixels with each nudge. Without the `fpg_busy` call it reads -1 at a fixed x.
+
 #### 7.5.4 …and the window half is one slot with no argument
 
 `OSAPI_CUR_BUSY` (slot 0x040B) takes nothing and **answers nothing, flags
@@ -23324,8 +23352,8 @@ sectors inside a freeze that is already seconds. And `[fpg_warm]` no longer
 saturates: only sub-threshold calls feed it, so ~85 consecutive refused ones
 would wrap it, costing one further sector of delay, once.
 
-`drv_fs_call` goes through `fpg_now`, which is `fpg_busy` with the threshold
-already met: there is nothing to warm up to when the first verb is already the
+`drv_fs_call` calls `fpg_busy` with `CX` = `FPG_WARM`, the threshold already
+met: there is nothing to warm up to when the first verb is already the
 slowest thing in the machine.
 
 ##### A phase with no scale shows the 50% hatch, and does not animate
@@ -23485,6 +23513,40 @@ after it. The test is §18.9.1's own: the BIOS's motor-off countdown at
 wait for a spin-up on a READ, which is why no MartyPC profile shows the dark
 second. It changes when the widget appears and nothing about what it
 reports. It is left out of `kern_dos`, whose `fpg_busy` is a stub.
+
+#### 12.8.3.2 A failing read counts as warm too
+
+`FPG_WARM` counts sectors MOVED, and a retry moves none. `dsk_xfer` tries a
+failing transfer three times at its run length and three times a sector at a
+time, with a controller reset between tries (§18.91). So a one-sector read
+on marginal media could grind for as long as those six tries took with
+nothing on the glass: no widget, no busy pointer, the prompt it was answering
+still painted, and keys waiting behind it. On the 5150 a marginal floppy did
+that for 30 seconds after Uncompress To... had already said `Disk error`
+(§22.23.6.1): the Disk window re-read the same bad disk before it repainted.
+The motor stayed on and the head never moved, because a 360KB disk's first
+data cluster and all of its FAT and directory are on cylinder 0. The owner
+took it for a hang, reasonably: **anything that takes more than two or three
+seconds has to say that it is working.**
+
+So the FIRST failed attempt of a transfer arms the chrome, as a stopped motor
+does (§12.8.3.1). If `[fpg_on]` is still clear, the retry path drops
+`[sch_lock]` and calls `fpg_busy` with `CX` = `FPG_WARM`, then takes the
+lock back and retries. The widget and the clock are up one failed attempt
+in, a fraction of a second to a couple of seconds, instead of never. The lock
+is dropped because §12.8.3's rule is that the first draw must not happen with
+switching off, and between two attempts is between two transfers as far as
+the rest of the machine is concerned. The `[mem_pinseg]` pin stays: the only
+thing it can do to a draw is make a compaction refuse to move the
+destination, which fails safe (§66.3 rule 5). `fpg_arm`'s own refusals (the
+splash, a foreign mode, another task's lock, a fullscreen window) apply
+unchanged, and so does `kern_dos`'s stub.
+
+It costs 25 bytes of `.cold` on each kernel, resident, and it changes nothing on a
+disk that reads. `tests/czto.py`'s `arm` leg is the gate: a one-sector folder
+opened with the motor running and every read failing reads `[fpg_on]` 0 at
+the first failed attempt and 1 from the second. With this block taken out it
+reads 0 at every one.
 
 #### 12.8.4 An unlocked painter and the mouse ISR are TWO PAINTERS
 
@@ -45654,30 +45716,42 @@ no Disk window ever answered again. The hop in `cmz_jrmtmp` is now a plain
 `CMPRESS~.TMP`, as it does after a failed rename (§22.22.5). A later join into
 that folder then says `Name exists` until the file is deleted.
 
-**What it is not, yet: the field report that led here.** On the 5150 a
-marginal second disk failed as soon as it went in, probably in its FAT; the
-motor stayed on, the arrow froze and Ctrl-Alt-Del did nothing. Every
-reproduction of that on MartyPC ends cleanly. That includes the owner's own
-layout (booted from the hard disk, parts in A:, the result to C:) and CRC
-errors on the boot sector, on the FAT and part-way into the data: `No disk`
-or `Disk error` in 7-13 guest seconds, with the CPU idle afterwards. What a
-failed mount costs is the kernel's, and it is not small: ONE mount of a disk
-whose FAT will not read is four failing transfers of six `int 13h` calls
-each, three at the run length and three a sector at a time (§18.91). That is
-24 calls with a controller reset between tries, and on real media each can
-be a ROM timeout, so a minute of what looks like a freeze is possible without
-anything being stuck. A hang that outlives that minute is not explained. The
-instrument for it is a `KFZ=1` kernel (§9.6.5): if the strip goes on
-changing, the machine is alive and busy; if it stops, IRQ0 died, and that is
-also what would keep the motor on.
+**The field report that led here was not that loop.** On the 5150 a
+marginal second disk failed as soon as it went in. `Disk error` was said,
+and then for 30 seconds the prompt stayed painted, keys did nothing, the
+pointer did not move and the motor ran with the head still. The join had
+finished. The Disk window was re-reading the same bad disk before it
+repainted, and a failing read there took its time with nothing on the glass
+to show it. Two things made that look like a hang, and both are fixed in the
+progress layer rather than here. The pointer had been taken down by the
+repaint, and nothing brought it back while the reads went on (§7.5.3.2). A
+retry moves no sectors, so a failing read that had not already armed the
+chrome never would (§12.8.3.2). The owner's rule is the one both follow:
+anything that takes more than two or three seconds has to say that it is
+working. MartyPC answers a failed read in one revolution, so the same
+sequence there is under a second; on the iron each of those retries was
+slower, the head never moved because a 360KB disk's first data cluster is on
+cylinder 0, and 30 seconds of it is consistent with the report.
 
 `tests/czto.py` fails B:'s reads just after the kernel's own `int 13h`
-(AH = 10h, CRC), so the retries and everything above them are real. Its
-`ioerr` leg fails a marginal second disk after the prompt, and its `hopfail`
-leg also points the error path's hop at a drive that is not there. With the
-old hop put back, `hopfail` fails 50 hops in a row and never ends; with the
-fix it fails one hop and says `Disk error`. The fix is in `CLONE.DRV`'s image
-and moves no resident byte.
+(AH = 10h, CRC), so the retries and everything above them are real. Four of
+its legs are this section's. Each was checked red against the build without
+its fix:
+- `ioerr` fails a marginal second disk after the prompt; the join must say
+  `Disk error` and leave A: clean.
+- `alive` keeps the disk failing after the verdict. At every failed attempt
+  the mouse is nudged, and the pointer must be up and following it. Without
+  §7.5.3.2 it reads `cur_level` -1 at a fixed x, exactly the field's picture.
+- `hopfail` points the error path's hop at a drive that is not there. With
+  the old hop it fails 50 hops in a row and never ends; now it fails one and
+  says `Disk error`.
+- `arm` opens a one-sector folder with the motor running and every read
+  failing. The chrome must be up from the second failed attempt; without
+  §12.8.3.2 it never comes up.
+
+The loop's fix is in `CLONE.DRV`'s image and moves no resident byte. The two
+progress-layer fixes are 39 resident bytes on each kernel: 14 of `.text`
+(§7.5.3.2) and 25 of `.cold` (§12.8.3.2). They cross no rung.
 
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)
 

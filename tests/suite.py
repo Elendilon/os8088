@@ -6599,7 +6599,7 @@ SOAK = [
         "the check's compare disabled in compress.inc the damaged copy "
         "joined into a wrong DMG.DAT and the row went red on it",
         needs=("marty",), wants=("build/os8088.img",)),
-    Row("czto", "soak", py("tests/czto.py"), 80.0,
+    Row("czto", "soak", py("tests/czto.py"), 90.0,
         "SPEC.md 22.23.6: File > Uncompress To... - the result goes where "
         "the Save box says and the join ASKS for each floppy it needs. The "
         "parts are on B: and the result goes to A:, and the harness swaps "
@@ -6615,9 +6615,14 @@ SOAK = [
         "int 13h, so the retries above it are real - `ioerr` must say `Disk "
         "error` and leave A: clean, and `hopfail` also fails the error "
         "path's hop back to A:, which used to re-enter that path for ever "
-        "(with the old hop put back it fails 50 hops and goes red). "
-        "`--break` puts ANOTHER set's SET.002 on the second disk and the row "
-        "goes red. 78s measured",
+        "(with the old hop put back it fails 50 hops and goes red). `alive` "
+        "keeps the disk failing after the verdict, as on the 5150, and the "
+        "pointer must be up and follow the mouse through the re-read "
+        "(7.5.3.2); `arm` opens a one-sector folder with every read failing "
+        "and the chrome must be up from the second failed attempt "
+        "(12.8.3.2). Each leg red without its fix. `--break` puts ANOTHER "
+        "set's SET.002 on the second disk and the row goes red. 90s "
+        "measured",
         needs=("marty",), wants=("build/os8088.img",)),
     Row("czdos", "soak", py("tests/czdos.py"), 10.0,
         "SPEC.md 20.17.4: OS88CZ.COM under a real DOS (DOSBox, headless, "
