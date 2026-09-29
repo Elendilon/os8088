@@ -122,6 +122,31 @@ def main():
         check(ok and len(s) <= 12 and not os88cz.is_part_name(s),
               "%r suggests %r, an 8.3 name that is not a part's"
               % (name, s))
+    # --- 5. where a DROPPED file goes (os88czgui.drop_tab) -----------------
+    # the classification is off the file's head, and a 'CZ' file needs more
+    # than its first two bytes: reading two once sent every one to Split
+    T = os88czgui
+    with tempfile.TemporaryDirectory() as d:
+        body = bytes(range(256)) * 200
+        cases = {"part": os88cz.split(body, "D.DAT", 40000,
+                                      os88cz.M_STORE, jobs=1)[1],
+                 "cz": os88cz.pack(body, os88cz.M_LZ4),
+                 "plain": body}
+        for want, blob in cases.items():
+            p = os.path.join(d, want)
+            open(p, "wb").write(blob)
+            check(T.file_kind(p) == want, "a %s file reads as %r"
+                  % (want, T.file_kind(p)))
+    for kind, cur, tab in (("part", T.T_SPLIT, T.T_JOIN),
+                           ("part", T.T_PACK, T.T_JOIN),
+                           ("cz", T.T_SPLIT, T.T_PACK),
+                           ("cz", T.T_JOIN, T.T_PACK),
+                           ("plain", T.T_SPLIT, T.T_SPLIT),
+                           ("plain", T.T_JOIN, T.T_SPLIT),
+                           ("plain", T.T_PACK, T.T_PACK)):
+        check(T.drop_tab(kind, cur) == tab, "a %s dropped on tab %d goes "
+              "to tab %d (wanted %d)" % (kind, cur, T.drop_tab(kind, cur),
+                                         tab))
     print("t_cz: %s" % ("FAILED" if fails else "ok"))
     return 1 if fails else 0
 

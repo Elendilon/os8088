@@ -41103,8 +41103,31 @@ the same arithmetic, and a size in bytes is taken as given.
 | | where it runs | what it does |
 |---|---|---|
 | `tools/os88cz.py` | any Python 3, no pip | `split`, `join`, `pack`, `unpack`, `info`; `split --images` also writes each part to its own FAT12 floppy image of that size (`NAME-001.IMG`), through `tools/os88disk.py`, ready to write to a disk |
-| `tools/os88czgui.py` | the same, with Tk | the same four verbs on three tabs, and the one thing a person wants before anything is written: how many disks a file will take |
-| `OS88CZ.COM` | MS-DOS 2 or later, an 8088 up | `J` joins a set, and **ASKS FOR THE DISK** when a part is not where the last one was, so a set is joined straight off a pile of floppies onto another drive, which the os8088 verb cannot do (§22.23.5). `S` splits, pausing for a fresh disk before each part with `/P`. `U` expands a `'CZ'` file, LZ4 or LZB |
+| `tools/os88czgui.py` | the same, with Tk | the same four verbs on three tabs, and the one thing a person wants before anything is written: how many disks a file will take. A file dropped on the window goes to its tab, below |
+| `OS88CZ.COM` | MS-DOS 2 or later, an 8088 up | `J` joins a set, and **ASKS FOR THE DISK** when a part is not where the last one was, so a set is joined straight off a pile of floppies onto another drive - which the os8088 side does too, as `Uncompress To...` (§22.23.6), and plain `Uncompress` does not (§22.23.5). `S` splits, pausing for a fresh disk before each part with `/P`. `U` expands a `'CZ'` file, LZ4 or LZB |
+
+**Drop a file on the window and it goes to the tab it belongs to**
+(`drop_tab`): any part of a set to Join, whichever part it is, with the set
+described and the result's folder filled in; a `'CZ'` file to Pack / Unpack;
+anything else to Split, unless Pack / Unpack is the tab showing, which takes a
+plain file as well. Of several files the first is taken, a folder is refused,
+and nothing is taken while a job runs, because its fields are what that job is
+working from. The folder a result goes to follows each file dropped, until the
+user browses or types one. What a file is, is read off its first 64 bytes
+(`file_kind`): the window's first version read two, which is enough for a
+part's `'CS'` and not for a `'CZ'` header, so every `'CZ'` file handed to it
+opened on Split.
+
+The drop itself is the video encoder's (§98.2.12), moved into
+`tools/os88drop.py` so both windows share one copy: `tkinterdnd2` where it is
+installed, the shell's own `WM_DROPFILES` on Windows without it, and no offer
+of a drop anywhere else. `tests/unit/t_cz.py` part 5 is the gate for the tab
+rule and `file_kind`, and goes red with the two-byte read put back. The
+`tkinterdnd2` path was driven in the real window under Xvfb, through tkdnd's
+own XDND handlers with an in-app drag source owning `XdndSelection`: a part in
+a folder whose name has a space, a `'CZ'` file, two files at once, a folder
+and a drop while busy. The same drive with the registration taken out is
+refused by tkdnd.
 
 **The DOS tool carries the kernel's decoder, not a copy of it.**
 `kernel/lz.inc` touches no kernel data, so `dostools/os88cz.asm` `%include`s
@@ -152751,7 +152774,8 @@ two processes of the group are left and the leg FAILS.
 **A video dropped on the encoder's window is the source to encode, and a
 dropped `.V88` goes to the preview** (`drop_target`); of several, the first
 is taken. Tk has no file drop of its own, so `enable_drop` uses the best
-this machine has:
+this machine has. It lives in `tools/os88drop.py`, which the split tool's
+window shares (§20.17.4):
 - `tkinterdnd2`, where it is installed (any platform);
 - on Windows without it, the shell's own `WM_DROPFILES` through `ctypes`,
   standard library only: the window's procedure is subclassed so the
