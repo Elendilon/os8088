@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TRACKER ON THE PC SPEAKER, with no card - SPEC.md 45.25.
 
-    make && python3 tests/trkspk.py [--leg play|refuse|turbo|end|card]
+    make && python3 tests/trkspk.py [--leg play|refuse|turbo|end|card|scrub|rate]
 
 On MartyPC's card-less Hercules 5150 with a fixed disk, BEVERLY.MOD opened
 from C:. With no card Tracker plays through the speaker on its own (the
@@ -25,6 +25,13 @@ window - after timing this machine once (question 5). What must hold:
   end     tools/mkmod.py's short song plays to its end: the door closes by
           itself and the kernel is left clean
   card    a Sound Blaster machine: the card's stream, the speaker untouched
+  rate    no card: the Rate menu is ONE greyed row (`Speaker (auto)`) and R
+          changes nothing and says why - the speaker's rate is the bench's to
+          pick. With a card the menu and R are what they were
+  scrub   paused, a click on the scrubber: the thumb stays where it was put
+          and Play resumes from there - on the speaker and on the card. A
+          paused player draws no frames, and the frame was the only thing that
+          re-read the position, so the thumb went straight back
 
 Broken on purpose - tw_vizxhi's speaker test removed: play FAILS on the
 visualiser. TSP_CS doubled: play FAILS on the rung (the 5150 is then
@@ -381,9 +388,103 @@ def leg_card(bad):
         t.close()
 
 
+def _scrub(bad, t, who):
+    """paused, a click three quarters along the scrubber: the thumb STAYS
+    there (the paused seek publishes the position - SPEC.md 45.21) and Play
+    resumes from it"""
+    t.until(lambda: t.rb("mp_playing") == 1, "the play")
+    os88marty.pace(t.m, 2.0)
+    t.m.type_text(" ")
+    t.until(lambda: t.rb("mp_playing") == 0 and t.rb("trk_pause") == 1,
+            "Space to pause")
+    os88marty.pace(t.m, 0.5)
+    rs = lambda n, o=0: int.from_bytes(t.m.read(t.a(n) + o, 2), "little",
+                                       signed=True)
+    ox, oy = rs("tw_ox"), rs("tw_oy")
+    x1, y1, x2, y2 = [rs("tw_lay", 22 + 2 * i) for i in range(4)]
+    p0 = t.rb("tui_apos")
+    os88ui.Mouse(marty=t.m, verbose=False).click(
+        ox + x1 + (x2 - x1) * 3 // 4, oy + (y1 + y2) // 2)
+    t.until(lambda: t.rb("mp_songpos") != p0, "the seek")
+    want = t.rb("mp_songpos")
+    os88marty.pace(t.m, 2.0)            # ...and nothing puts it back
+    print("   %s: paused at %d, clicked to %d; after 2 s the thumb is on %d" % (
+        who, p0, want, t.rb("tui_apos")))
+    check(bad, t.rb("tui_apos") == want and t.rb("trk_pause") == 1,
+          "%s: paused, the scrubber's thumb stays where it was put" % who)
+    t.m.type_text(" ")
+    t.until(lambda: t.rb("mp_playing") == 1, "Space to play on")
+    os88marty.pace(t.m, 1.0)
+    check(bad, want <= t.rb("tui_apos") <= want + 1,
+          "%s: Play resumes from there (%d)" % (who, t.rb("tui_apos")))
+
+
+def leg_scrub(bad):
+    """the paused scrubber, on the speaker and on the card"""
+    t = Trk(MACHINE, [("TRACKER.O88", os88build.at("build/tracker.o88")),
+                      ("BEVERLY.MOD", "apps/tracker/beverly.mod")],
+            "BEVERLY.MOD")
+    try:
+        _scrub(bad, t, "speaker")
+    finally:
+        t.close()
+    t = Trk(MACHINE_SB, [("TRACKER.O88", os88build.at("build/tracker.o88")),
+                         ("SOUND.DRV", os88build.at("build/sound.drv")),
+                         ("BEVERLY.MOD", "apps/tracker/beverly.mod")],
+            "BEVERLY.MOD")
+    try:
+        _scrub(bad, t, "card")
+    finally:
+        t.close()
+
+
+def leg_rate(bad, shot=None):
+    """no card, the rate is the speaker's to pick (45.25): the Rate menu is
+    ONE greyed row, and R changes nothing and says why. With a card both are
+    what they were"""
+    for mach, files, who in [
+            (MACHINE, [], "speaker"),
+            (MACHINE_SB, [("SOUND.DRV", os88build.at("build/sound.drv"))],
+             "card")]:
+        t = Trk(mach, [("TRACKER.O88", os88build.at("build/tracker.o88"))]
+                + files + [("BEVERLY.MOD", "apps/tracker/beverly.mod")],
+                "BEVERLY.MOD")
+        try:
+            t.until(lambda: t.rb("mp_playing") == 1, "the play")
+            os88marty.pace(t.m, 1.0)
+            t.m.type_text(" ")              # R is a windowed key: the speaker
+            t.until(lambda: t.rb("mp_playing") == 0, "Space to pause")
+            os88marty.pace(t.m, 0.5)        # play's imposter takes only the
+            n = u16(t.m.read(t.a("trk_e_rate") + 4, 2))    # transport's
+            item = t.m.read(t.a("trk_ritem0"), 20).split(b"\0")[0]
+            pick = lambda: t.rb("trk_xhi" if t.rb("mp_xt") else "trk_rsel")
+            r0 = pick()                     # XT mode keeps its own pick
+            t.m.type_text("r")
+            os88marty.pace(t.m, 1.0)
+            msg = t.m.read(t.base + t.rw("tui_msgp"), 40).split(b"\0")[0]
+            print("   %s: Rate menu %d row(s), the first %r; R: rsel %d -> %d, "
+                  "the line %r" % (who, n, item, r0, pick(), msg))
+            if shot and who == "speaker":
+                w, h, data = t.m.fbuf()
+                os88marty.write_png_rgb(shot, w, h, data)
+            if who == "speaker":
+                check(bad, n == 1 and item == b"\x01Speaker (auto)",
+                      "speaker: the Rate menu is one greyed row")
+                check(bad, pick() == r0 and
+                      msg == b"Rate: the speaker picks its own",
+                      "speaker: R changes nothing and says why")
+            else:
+                check(bad, n >= 2 and item[:1] != b"\x01",
+                      "card: the Rate menu offers the card's rates")
+                check(bad, pick() != r0, "card: R moves the rate")
+        finally:
+            t.close()
+
+
 LEGS = {"play": leg_play, "refuse": leg_refuse, "drop": leg_drop,
         "turbo": leg_turbo,
-        "end": leg_end, "card": leg_card}
+        "end": leg_end, "card": leg_card, "scrub": leg_scrub,
+        "rate": leg_rate}
 
 
 def main():

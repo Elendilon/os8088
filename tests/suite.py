@@ -8515,6 +8515,26 @@ SOAK = [
         "run's. Broken on purpose (os88spk_go taken out) it FAILS",
         needs=("marty",),
         wants=("build/spkbench360.img", "build/os8088-360.img")),
+    Row("trkspkrate", "soak", py("tests/trkspk.py", "--leg", "rate"), 60.0,
+        "SPEC.md 45.25.2: with NO card the speaker's rate is the bench's to "
+        "pick, so the Rate menu is ONE greyed row ('Speaker (auto)') and R, "
+        "paused, changes nothing and says why; on the Sound Blaster 5150 the "
+        "menu offers the card's rates and R moves the pick. Without "
+        "trk_spkq in trk_menus_build the speaker's menu offers card rates and "
+        "it FAILS",
+        needs=("marty",),
+        wants=("build/tracker.o88", "build/sound.drv", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin")),
+    Row("trkscrub", "soak", py("tests/trkspk.py", "--leg", "scrub"), 60.0,
+        "SPEC.md 45.21: PAUSED, a click on the scrubber moves the song and the "
+        "thumb STAYS there, and Play resumes from it - on the card-less 5150 "
+        "(the speaker) and on the Sound Blaster one. A paused player draws no "
+        "frames and the frame was the only thing that re-read the position, "
+        "so the thumb flashed to the click and went straight back. Without "
+        "tw_seek's tui_sync the thumb reads the pause's position and it FAILS",
+        needs=("marty",),
+        wants=("build/tracker.o88", "build/sound.drv", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin")),
     Row("trkspkref", "soak", py("tests/trkspk.py", "--leg", "refuse"),
         20.0,
         "SPEC.md 45.25: the refusal, on a Tracker assembled with a 50% ceiling "
