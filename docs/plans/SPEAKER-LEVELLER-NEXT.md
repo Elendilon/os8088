@@ -20,6 +20,8 @@ shaped it:
 | 3 | the steady low part moving with the punctuating hits | a HELD, DECAYING peak (re-armed within ~2.5 dB, 16 spans, then 1/16 a span) and a row that GLIDES a 2 dB step every 16 samples; `ZT` 2.0 -> 2.5 |
 | 4 | "still some 'a loud thing happens, the soft thing goes away and fades back in', but cleaner" | chosen for the release |
 | 5 | a second listener, side by side: round 3's fades out and back in are MORE obvious for being slower | round 3 REVERTED (a46deec); round 2's three-span hold ships |
+| 6 | candidate 1 as a RATCHET: "basically completely fixes it - no more weird warbles, no more fades in after dropping out" | Tracker plays ONE level a song (324267f, SPEC.md 34.11.9.1) |
+| 7 | a listening build with a hand on the level: 5 is the clearest on the T1100, up to 7 only louder, 10 blurs; on the 5150, 7 to 10 weakens the carrier's whine | the level SHIPS as Tracker's volume bar, and the rate as a menu (3b502c1, SPEC.md 45.25.3) |
 
 Measured on 40 s captures (section 3), "wander" being the level's spread within
 each second:
@@ -68,11 +70,24 @@ made four rounds possible without guessing, so it is worth keeping runnable:
   the level on both sides). The first two are loudness and steadiness, the
   third is what the hits cost, and the last two are what "hitch" meant.
 
-The scripts lived in a session scratchpad and are NOT in the tree. The first
-thing to do with this plan is commit them as `tools/os88spkcap.py` (the
-capture, writing a `.pkl` of spans) and `tools/os88spklev.py` (the replay and
-the table). The Elysium capture needs the owner's `ELYSIUM.MOD`, which is not
-in the tree either; BEVERLY.MOD is.
+**Both halves are in the tree**:
+
+    python3 tools/os88spkcap.py apps/tracker/beverly.mod --secs 40
+    python3 tools/os88spklev.py build/beverly.pkl [more.pkl] --fixed 3,5,7
+
+`os88spkcap.py` takes any module and writes a `.pkl` of spans (build/ by
+default). `os88spklev.py` first replays the capture through the model and
+says whether it is still EXACT against the machine - seeded from the state
+after the capture's first span, since the capture joins the song mid-way -
+and then prints the table below for each variant: today's ratchet, the
+per-span leveller it replaced, and any `--fixed` levels. A candidate is a
+Shaper subclass added to its `VARIANTS`. Measured when they were committed
+(2026-09-29, a 20 s BEVERLY.MOD capture on the current build): EXACT over
+628 spans, and 494 of them DIFFER with the model's `RTOL` off by one, so the
+first line does fail when the model drifts. A capture from an older build
+will not replay EXACT - the family table has changed under it - so capture
+again rather than trusting an old `.pkl`. The Elysium capture needs the
+owner's `ELYSIUM.MOD`, which is not in the tree; BEVERLY.MOD is.
 
 **Cost is the other half of every row.** `tests/spkfx.py` prints the shaper's
 cycles a sample. Audio's live 8,000 Hz leg on a 5150 (`tests/apspk.py`,
@@ -88,8 +103,13 @@ for any change here.
    the fading of things that shouldn't change, so this seems like it has
    promise").
 
-   **FIRST CUT BUILT, as a RATCHET rather than a pre-pass** (SPEC.md
-   34.11.9.1, `TSP_RATCHET`): the level starts at `TSP_LSTART` = 8 and only
+   **SHIPPED, as a RATCHET rather than a pre-pass, and with the user's hand
+   on it** (SPEC.md 34.11.9.1 and 45.25.3). The volume bar, `+` and `-` are
+   the level with no card: the ratchet picks it and the bar shows it, and
+   the first move makes it the user's for the session. What is still open
+   of this candidate is the pre-pass below, for the quiet intro.
+
+   The first cut (`TSP_RATCHET`): the level starts at `TSP_LSTART` = 8 and only
    ever steps down, for a span that overdrives it by more than 3 levels, so
    it finds the song's loud parts in its first seconds and then holds -
    ELYSIUM settles on 6 in 1.5 s, BEVERLY on 5 in 2.4 s. No pattern walk is
@@ -147,6 +167,23 @@ each candidate one self-contained commit, as round 3 was, so the one that
 loses is a `git revert`.
 
 ## 6. Also open, found on the way
+
+- **Tracker's rate prediction over-counts a 286.** Since `TSP_CS` went to
+  104 (SPEC.md 45.25.1), Auto on the owner's 16 MHz 286 opens at 16,000 Hz
+  predicting ~75%, where 22,050 Hz had held with the spectrum at full speed.
+  SPKBENCH's 286 numbers put 22,050 at ~107% (the ISR 32.6%, the shaper ~7%
+  and the mixer term ~63%), so it is the MIXER term: it is priced at the
+  worst case, four channels and the longest looped sample. A measured load
+  during the play, or a per-tier constant, is the fix. The Rate menu lets
+  the user pick 22,050 meanwhile.
+- **The carrier's whine against the level.** On the 5150, levels 7 to 10
+  weaken the whine: the louder the level, the more of the time the pulse
+  sits near an extreme, where the carrier is weak. Moving the carrier's
+  resting point towards an extreme in quiet passages might buy that at
+  level 5. Untried; the replay above can measure the duty spread first.
+- **BEVERLY.MOD's low notes** are gone on the speaker at every level. Not
+  investigated: it may be the speaker, or the load-time filter
+  (`tsp_natural`).
 
 - **The 86 against 108.** SPKBENCH's shaper loop runs at ~86 cycles a sample
   on a 5150 where Tracker's calibration of the same call reads ~108 (Ne =
