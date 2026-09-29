@@ -295,6 +295,17 @@ fpg_busy:
     call fpg_arm
     jc .out
 .armed:
+%ifndef NOCURDISK
+    call cur_busy               ; **A POINTER TAKEN DOWN SINCE THE ARM COMES BACK
+                                ; BEFORE THE READ** (SPEC.md 7.5.3.2). fpg_arm
+                                ; asks once per hold, so a handler that painted
+                                ; AFTER the chrome went up - a window repainting
+                                ; once a job has said its verdict - left the
+                                ; clock frozen on the glass for every sector
+                                ; that followed. cur_busy asks whose lock it is
+                                ; and is six instructions when there is nothing
+                                ; to do
+%endif
     cmp word [fpg_total], 0
     jne .out                    ; a phase with a scale owns the trough
     cmp byte [fpg_pat], 0
