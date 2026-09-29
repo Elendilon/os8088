@@ -32205,6 +32205,122 @@ clusters), 32 KB a call (`tests/vidkern.py`):
 At 12 MB, none of its 28 `int 13h` calls went below cylinder 16: the chain
 is followed from the resident FAT window and never re-read.
 
+### 18.4.9 `OSAPI_FILE_WRITE_SEQ` — a streaming append, whose place the CALLER keeps (`kern_big`)
+
+`OSAPI_FILE_APPEND` is a complete operation every call (18.4.4): it looks the
+name up, walks the file's chain from the front to its last cluster, writes,
+and commits the FAT and the entry. The walk makes a chunked write QUADRATIC
+in its length, and the commit is a FAT write and a directory write, and on a
+fixed disk three long seeks, for every chunk
+(docs/plans/STREAM-WRITER-PLAN.md §1 measured all of it). This slot is
+READ_SEQ's mirror (18.4.8), and it is stages 2 and 3 of that plan.
+
+| in | |
+|---|---|
+| `SI` | a NUL 8.3 name in the current directory, **on every call** |
+| `DX:BX` | the bytes |
+| `CX` | the count: a whole number of clusters, but the last, as APPEND's. **0 closes** |
+| `ES:DI` | the 16-byte cursor, zeroed to start, anywhere |
+
+Out `CF=0`, `AX = 0` and the cursor advanced; `CF=1` with `AX = FERR_*`.
+**The file must exist**: WRITE_SEQ grows a file, it never creates one, so
+the first chunk is an `OSAPI_FILE_WRITE` (or the file is written empty).
+
+| off | size | |
+|---|---|---|
+| 0 | 2 | the generation it was stamped under; **0 = not seeded** |
+| 2 | 1 | the volume |
+| 3 | 1 | **the caller's**: bit 0 = `WSEQF_HELD` |
+| 4 | 2 | the file's last cluster |
+| 6 | 2 | the directory entry's offset in its sector |
+| 8 | 4 | the size, every byte written counted |
+| 12 | 4 | the entry's sector (LBA) |
+
+**A hot call skips the lookup and the walk.** It writes the new clusters,
+links them to the cursor's last cluster and patches the size into the entry
+in place, reading its sector and writing it back. So no copy of the entry
+lives in the kernel between calls. A cold cursor seeds from the name once:
+one lookup and one walk, APPEND's cost. The size must be a cluster multiple,
+APPEND's rule (18.4.4), and `FERR_NAME` otherwise.
+
+**The generation is `[dsk_wgen]`, not READ_SEQ's `[dsk_mgen]`, and that is
+the decision the slot turns on.** Every mount bumps `[dsk_mgen]`, including
+the banked hop a batch makes between volumes (18.9.3), and Uncompress To...
+hops to its source and back every block. A cursor keyed on it would go
+stale every block, and a HELD one would commit every block. `[dsk_wgen]`
+moves only when something could have changed the file's place:
+- every write, in `dskw_sync_x`;
+- every mount that reads a boot sector because nothing vouches for the
+  media, which a banked hop inside a batch never does.
+
+The call re-stamps the cursor after its own write, so a stream stays hot
+across its own chunks. Any other write, anywhere, cools it: one re-seed.
+
+**`WSEQF_HELD` commits once.** A held call writes the data and grows an
+UNREACHABLE chain: the new clusters are allocated and linked to each other,
+never to the file. So a FAT flush at any moment, when the window moves or a
+hop parks it, puts nothing on the disk that a crash could make wrong: at
+worst the clusters are lost, the failure 18.4's order prefers. The link from
+the file's committed last cluster (or the entry's head), and the entry's
+size, are written by `dws_commit` in 18.4.7.6's order: the chain flushed,
+then the link, flushed, then the entry. It runs:
+- at the **close**, a call with `CX` = 0;
+- **before any other write on that volume**: `dskw_mounted`, the gate every
+  write body passes, commits first, so a delete, a rename or another stream
+  finds the FAT and the entry the disk will hold. Not WRITE_SEQ's own call;
+- **before a mount leaves the volume outside a batch**, where nothing
+  vouches for the disk still being in the drive when the machine comes back;
+- **at `gfx_unlock`**, the UI task's. That is every way the user can reach
+  the drive: a return, a failure, a question, a swap prompt (18.9.3). A
+  commit there hops to the held volume if the machine is standing on another,
+  and back; inside the batch that is ending, the hop is banked.
+
+So a held stream never outlives the callback that made it, and a swapped
+floppy can never receive another disk's FAT. A crash while held loses the
+bytes written since the stream began and nothing else. That is the right
+trade for a file that is useless until it is finished (the owner's case: a
+joined split set). A file that grows over a long time and must survive each
+chunk is written PLAIN, where every call is committed as APPEND's is and
+only the lookup and the walk are gone.
+
+It is not in `kern_small`: the cell is in both kernels (20.8 rule 4) and
+the small door answers `CF=1`, `FERR_NAME`, as READ_SEQ's does. A
+redirected volume (62.9) is refused `FERR_NAME` too: it has no clusters to
+keep a place in.
+
+**Measured** on MartyPC (`os8088_5150_herc_hdd_sb_gla`, XT-IDE), VIDDISK's
+W: 12.5 MB in 400 appends of 32 KB, read back off the VHD on the host dword
+for dword every time (`tests/viddisk.py --floppy --wmode`):
+
+| writer | W, guest s | one-sector writes an append | reads an append |
+|---|---|---|---|
+| `OSAPI_FILE_APPEND` | 570 | 3.2 | 1.0 |
+| `WRITE_SEQ`, plain | **204** | 3.2 | 1.0 |
+| `WRITE_SEQ`, HELD | **191** | **0.2** | **0.1** |
+
+The walk was most of APPEND's time, so plain is 2.8x. HELD removes nearly
+all of the per-append metadata. That is worth only 6% more on an XT-IDE,
+whose small writes are cheap, but on the ST-225 it is the three long seeks
+per chunk (docs/plans/STREAM-WRITER-PLAN.md §1).
+
+**Gated** by six soak rows, each red with what it guards taken out where
+that could be arranged:
+- `wseq` and `wseqheld` are the table above;
+- `wsequnclosed`: HELD and never closed, the bench mounting nothing after it
+  and the machine killed a guest second later. The disk must hold all
+  12.5 MB. With `gfx_unlock`'s commit taken out it holds 32 KB;
+- `wseqinter`: another file written every 64 chunks;
+- `wseqdeleted`: the stream deleted mid-hold and a file made in its
+  directory slot. Its own 16 bytes and a clean disk; with `dskw_mounted`'s
+  commit taken out that file's entry was patched to 2,048 bytes and the
+  disk check failed;
+- `wseqcut`: a POWER CUT, the emulator killed 150 chunks into a held
+  stream. The file is its committed 32 KB and the disk checks clean.
+
+Costs: `kern_big` **+941 bytes** (`.cold` +875, `.bss` +39 and `.text` +27:
+the cell's 6 and the `gfx_unlock` test), two `.cold` steps with stage 1's
+81. `kern_small` +6, the cell.
+
 ### 18.4.7 `OSAPI_FILE_WRITE_AT` — the same offset, going the other way
 
 `OSAPI_FILE_READ_AT` gave a package a byte offset to read from and left the

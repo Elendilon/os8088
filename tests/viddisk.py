@@ -62,6 +62,7 @@ from cycweb import pkg_syms                                   # noqa: E402
 from os88fixture import need                                  # noqa: E402
 
 TEMPLATE = "build/martypc/run/media/hdds/default_xtide.vhd"
+CHUNK = 32768                  # VK_CHUNK: one W append
 STREAM = 13212000               # ~12.6 MB: BADAPPLE in the plan's format
 WSTREAM = 400 * 32768           # what W writes: VK_NCHUNK x 32 KB
 FLOPPY = "build/viddisk360.img"
@@ -80,6 +81,113 @@ def u16(b, i=0):
     return struct.unpack_from("<H", b, i)[0]
 
 
+def cut(m, rw, vhd, n):
+    """kill the machine mid-hold and read what the disk holds"""
+    os88marty.until(m, lambda mm: rw("vk_wk") >= n, "W to reach the cut",
+                    poll=0.5, limit=1800.0, guest=2000.0)
+    wk = rw("vk_wk")
+    m.close()                           # SIGKILL: the power cut
+    bad = []
+    vol = os88flush.vhd_volume(vhd)
+    try:
+        got = vol.read("STREAM.DAT")
+    except Exception as e:
+        got, bad = None, ["STREAM.DAT unreadable: %s" % e]
+    if got is not None:
+        want = array.array("I", range(0, CHUNK, 4)).tobytes()
+        if got != want:
+            bad.append("STREAM.DAT is %d bytes after the cut, not the %d its "
+                       "committed first chunk holds, or not those bytes"
+                       % (len(got), CHUNK))
+    r = subprocess.run([sys.executable, "tools/os88disk.py", "--verify-hdd",
+                        vhd], capture_output=True, text=True)
+    out = (r.stdout + r.stderr).strip()
+    print("\n   CUT after %d chunks (held): STREAM.DAT %s; %s"
+          % (wk, "%d bytes" % len(got) if got is not None else "gone",
+             out.splitlines()[-1] if out else "(no fsck output)"))
+    if r.returncode:                    # chains, loops, cross-links, sizes,
+        bad.append("fsck: " + out)      # FAT1 = FAT2 (os88disk.verify_hdd)
+    print("viddisk: %s" % ("FAILED" if bad else "ok"))
+    return 1 if bad else 0
+
+
+def unclosed(m, rw, vhd):
+    """'u': a held stream never CLOSED, and the bench touches no file after
+    it - so the unlock that ends the callback is the only thing that can
+    commit it (SPEC.md 18.4.9). Killed a second after W returns, with nothing
+    else run, the disk must hold all 12.5 MB"""
+    os88marty.until(m, lambda mm: rw("vk_wdone") != 0, "W to finish",
+                    poll=2.0, limit=3600.0, guest=4000.0)
+    t0 = m.status()["cycles"]
+    os88marty.until(m, lambda mm: m.status()["cycles"] - t0 > 4_770_000,
+                    "a guest second", poll=0.2, guest=5.0)
+    m.close()
+    bad = []
+    try:
+        got = os88flush.vhd_volume(vhd).read("STREAM.DAT")
+    except Exception as e:
+        got = None
+        bad.append("STREAM.DAT unreadable: %s" % e)
+    want = 400 * CHUNK
+    if got is not None and (len(got) != want or got != array.array(
+            "I", range(0, want, 4)).tobytes()):
+        bad.append("STREAM.DAT is %d bytes on the disk once the callback "
+                   "returned, not %d: the unlock did not commit it"
+                   % (len(got), want))
+    r = subprocess.run([sys.executable, "tools/os88disk.py", "--verify-hdd",
+                        vhd], capture_output=True, text=True)
+    if r.returncode:
+        bad.append("fsck: " + (r.stdout + r.stderr).strip())
+    print("\n   UNCLOSED (held): STREAM.DAT %s on the disk after the unlock"
+          % ("%d bytes" % len(got) if got is not None else "gone"))
+    for b in bad:
+        print("   BAD " + b)
+    print("viddisk: %s" % ("FAILED" if bad else "ok"))
+    return 1 if bad else 0
+
+
+def deleted(m, rw, vhd):
+    """'k': the held stream is DELETED at chunk 64 and VKSIDE.TXT written,
+    which a freed directory slot is exactly where it lands. The delete's gate
+    must commit the hold first (SPEC.md 18.4.9) - else the close would patch
+    VKSIDE.TXT's entry with the stream's size and chain. So: W stops on the
+    next chunk (FERR_NOENT, the stream is gone), VKSIDE.TXT is its own 16
+    bytes, STREAM.DAT is gone, and the volume checks clean"""
+    os88marty.until(m, lambda mm: rw("vk_wdone") != 0, "W to stop",
+                    poll=1.0, limit=1800.0, guest=2000.0)
+    wk, werr = rw("vk_wk"), rw("vk_err")
+    m.close()
+    bad = []
+    vol = os88flush.vhd_volume(vhd)
+    names = vol.names()
+    if "STREAM.DAT" in names:
+        bad.append("STREAM.DAT survived its delete")
+    try:
+        got = vol.read("VKSIDE.TXT")
+    except Exception as e:
+        got = None
+        bad.append("VKSIDE.TXT unreadable: %s" % e)
+    if got is not None and len(got) != 16:
+        bad.append("VKSIDE.TXT is %d bytes, not its own 16 - a commit "
+                   "patched it with the deleted stream's entry" % len(got))
+    if werr != 1 or wk != 64:
+        bad.append("W stopped after %d chunks with %d errors; wanted 64 and "
+                   "the one refusal" % (wk, werr))
+    r = subprocess.run([sys.executable, "tools/os88disk.py", "--verify-hdd",
+                        vhd], capture_output=True, text=True)
+    out = (r.stdout + r.stderr).strip()
+    if r.returncode:
+        bad.append("fsck: " + out)
+    print("\n   DELETED at chunk 64 (held): W stopped at %d, %d error(s); "
+          "VKSIDE.TXT %s; %s" % (wk, werr, "%d bytes" % len(got)
+                                  if got is not None else "gone",
+                                  out.splitlines()[-1] if out else ""))
+    for b in bad:
+        print("   BAD " + b)
+    print("viddisk: %s" % ("FAILED" if bad else "ok"))
+    return 1 if bad else 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--machine", default="os8088_5150_herc_hdd_sb_gla")
@@ -89,6 +197,16 @@ def main():
     ap.add_argument("--no-stream", action="store_true",
                     help="leave STREAM.DAT off the disk, as a field disk "
                     "has it: the READ_AT rows must SKIP and int 13h still run")
+    ap.add_argument("--cut", type=int, default=0, metavar="N",
+                    help="a POWER CUT mid-hold (SPEC.md 18.4.9): kill the "
+                    "machine once W has written N chunks, then check the VHD "
+                    "on the host - the stream at its committed size and "
+                    "bytes, and nothing wrong with the volume but lost "
+                    "clusters")
+    ap.add_argument("--wmode", choices=("append", "seq", "held", "unclosed",
+                                        "inter", "deleted"),
+                    default="append", help="W's writer: OSAPI_FILE_APPEND, "
+                    "or OSAPI_FILE_WRITE_SEQ plain or HELD (SPEC.md 18.4.9)")
     ap.add_argument("--floppy", action="store_true",
                     help="the field floppy's path: the bench in B: off "
                     "build/viddisk360.img, no stream on C:, then W, R and D")
@@ -152,7 +270,15 @@ def main():
         try:
             base, rw = opened(m)
             if a.floppy:
-                m.type_text("w")
+                m.type_text({"append": "w", "seq": "p", "held": "h",
+                             "unclosed": "u", "inter": "i",
+                             "deleted": "k"}[a.wmode])
+                if a.cut:
+                    return cut(m, rw, vhd, a.cut)
+                if a.wmode == "deleted":
+                    return deleted(m, rw, vhd)
+                if a.wmode == "unclosed":
+                    return unclosed(m, rw, vhd)
                 if os.environ.get("VD_TRACE"):
                     # docs/plans/STREAM-WRITER-PLAN.md 6: the fixed disk's
                     # transfers for the first appends, by kind - a data run,

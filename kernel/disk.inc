@@ -2816,7 +2816,19 @@ disk_mount_x:
 %endif
 %ifdef KERN_BIG
     add word [dsk_mgen], 2      ; a new snapshot: READ_SEQ cursors re-seed
-%endif                          ; (SPEC.md 18.4.8)
+                                ; (SPEC.md 18.4.8)
+%ifndef KD_BUILD
+    cmp byte [dws_hold], 0      ; A HELD STREAM ENDS BEFORE A MOUNT LEAVES ITS
+    je .nohold                  ; VOLUME outside a batch (SPEC.md 18.4.9):
+    cmp byte [dsk_batch], 0     ; there, nothing vouches for the disk that is
+    jne .nohold                 ; still in the drive when we come back. Inside
+    mov al, [disk_drive]        ; one, a hop is banked and the hold keeps.
+    cmp al, [dws_hvol]          ; (AX is free: kentc_bp banked it.) The
+    jne .nohold                 ; commit clears the hold before its own sync,
+    call dws_commit             ; so a remount in there cannot come back here
+.nohold:
+%endif
+%endif
 
     call dsk_fatw_park          ; the OUTGOING volume's window, banked while
                                 ; [disk_drive] still says which one it is
@@ -2950,6 +2962,9 @@ disk_mount_x:
     ; always reads, because a floppy is the thing that can be swapped.
     call dsk_bpb_bank_get
     jnc .bpb_staged
+%ifdef KERN_BIG
+    add word [dsk_wgen], 2      ; the media is being re-read: a WRITE_SEQ
+%endif                          ; cursor trusts nothing it knew (18.4.9)
     push ss
     pop es
     xor ax, ax                  ; LBA 0
@@ -8752,6 +8767,9 @@ section .text
 ; zeroed carries 0, which it can then never match, and the add needs no wrap
 ; test. Not .bss - its resting value is not zero (SPEC.md 12.8.5.1)
 dsk_mgen:   dw 1
+dsk_wgen:   dw 1                ; WRITE_SEQ's (18.4.9): +2 on every write and
+                                ; every mount that READS a boot sector - not on
+                                ; a banked hop, which a batch vouches for
 dwr_c:      times 16 db 0       ; READ_SEQ's cursor, the kernel's copy for the
 %endif                          ; call (18.4.8). dwr_stat reads it on EVERY
                                 ; READ_AT, so .text and seeded: generation 0

@@ -1,7 +1,8 @@
 # STREAM-WRITER-PLAN - writing a big file without paying for it again every chunk
 
-**Status: OPEN. Stage 1 BUILT on branch `stream-writer` (SPEC.md
-18.4.7.6); stages 2 and 3 not started.** This is docs/plans/DISK-CPU-PLAN.md §6 taken on. That
+**Status: OPEN. Stages 1, 2 and 3 BUILT on branch `stream-writer`
+(SPEC.md 18.4.7.6 and 18.4.9); the consumers, the per-volume dirty range
+and a size pass are what is left (§8).** This is docs/plans/DISK-CPU-PLAN.md §6 taken on. That
 section named the write side and sketched a fix's SHAPE; this is the design,
 staged, with what each stage costs and what it must not break.
 
@@ -184,3 +185,43 @@ plan's to change.
   caller's, as READ_SEQ's is, precisely so that there is no kernel state a
   second writer or a remount could leave stale.
 - It does not touch the read side, which READ_SEQ already fixed.
+
+## 8. What was built, and what is left (2026-09-29)
+
+Stages 2 and 3 are one slot, `OSAPI_FILE_WRITE_SEQ` (SPEC.md 18.4.9), and
+the owner decided stage 3's question: HELD is right for a file that is
+useless until it is finished, and plain stays for a program that appends
+over a long time and needs every chunk to survive. Measured on VIDDISK's W
+(12.5 MB, 400 x 32 KB) on MartyPC: APPEND 570 guest seconds, WRITE_SEQ plain
+**204**, HELD **191**, with one-sector writes per append 3.2 -> 0.2.
+
+Three things the design found that this plan did not have:
+- **The generation had to be a new one.** READ_SEQ's `[dsk_mgen]` moves on
+  every mount, including a batch's banked hop between volumes, and the join
+  hops every block. So WRITE_SEQ keys on `[dsk_wgen]`, which moves on a
+  write or a mount that re-reads a boot sector, and on nothing a batch
+  vouches for.
+- **A held chain is never linked until the commit.** Linking as it grew
+  would put a link on the disk at the first window move, ahead of the chain
+  it points into. Unlinked, any flush of it is harmless, and a power cut
+  leaves the file at its committed size (`wseqcut`).
+- **The unlock commit is the one that matters for a floppy target**, not
+  the mount hook. A mount after the user swapped the disk would commit onto
+  the wrong disk. `wsequnclosed` is arranged so that nothing else can
+  commit, which took two tries: the bench's own trip home was committing
+  first.
+
+What is left, in order:
+1. **The consumers.** The split-set join (`CLONE.DRV`, branch `split-v88`)
+   and the file manager's copy (SPEC.md 22.5) are kernel-side and gain the
+   most. FTPD's `STOR` is a package and gains through the slot. None is
+   converted yet.
+2. **The per-volume dirty range.** `dsk_fatw_park` flushes the single dirty
+   FAT range whenever the machine hops volumes. So the two-volume join, even
+   HELD, still writes its unlinked chain's FAT sectors once per block. It is
+   safe, but it is a seek per block. Banking the range per volume when the
+   window is private would remove it. Measure the join first.
+3. **A size pass.** +875 bytes of `.cold` is a lot for one slot; the body
+   was written for clarity and repeats its cursor stores.
+4. **The ST-225.** 700 s for 12.8 MB is the number that started this;
+   VIDDISK's new `p` and `h` keys are how to re-take it.

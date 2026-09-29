@@ -510,6 +510,22 @@ dskw_gate83:
     mov ax, FERR_NAME
     jmp short dskw_mounted.fail
 dskw_mounted:
+%ifdef KERN_BIG
+%ifndef KD_BUILD
+    cmp byte [dws_hold], 0      ; A HELD STREAM ENDS BEFORE ANY OTHER WRITE ON
+    je .nohold                  ; ITS VOLUME (SPEC.md 18.4.9) - a delete of
+    cmp byte [dws_in], 0        ; its temporary, a rename, anything - so the
+    jne .nohold                 ; FAT and the entry that write finds are the
+    push ax                     ; ones the disk will hold. Not WRITE_SEQ's own
+    mov al, [disk_drive]        ; call, and not on another volume: a commit
+    cmp al, [dws_hvol]          ; from in here must not move the machine
+    jne .other
+    call dws_commit
+.other:
+    pop ax
+.nohold:
+%endif
+%endif
     cmp byte [dsk_mntok], 1
     je .ret
 .no:
@@ -2440,6 +2456,7 @@ dskw_nbody:
 ; -----------------------------------------------------------------------------
 dskw_sync_x:
 %ifdef KERN_BIG
+    add word [dsk_wgen], 2      ; ...and every WRITE_SEQ cursor (18.4.9)
     add word [dsk_mgen], 2      ; a write happened: every READ_SEQ cursor on
                                 ; the machine re-seeds (SPEC.md 18.4.8) -
                                 ; here, because the remount below may be
@@ -2894,6 +2911,423 @@ dwr_stat:
 .name:
     jmp dskw_stat_x
 %endif
+
+; -----------------------------------------------------------------------------
+; dskw_write_seq - a streaming append, whose place the CALLER keeps (SPEC.md
+;                  18.4.9, slot OSAPI_FILE_WRITE_SEQ; kern_big)
+; in:  SI -> a NUL 8.3 name, DX:BX -> the bytes, CX = the count (a cluster
+;      multiple, but the last), ES:DI -> the 16-byte cursor; CX = 0 CLOSES
+; out: CF=0 with AX = 0 and the cursor advanced; CF=1 with AX = FERR_*
+; clobbers: AX (the output), CF
+;
+; APPEND without the name lookup and without the walk: the cursor keeps where
+; the file's entry is, its last cluster and its size, and is trusted under
+; [dsk_wgen] - which every WRITE and every mount that re-reads a boot sector
+; bumps, and a banked hop inside a batch does not (18.9.3). So the join's
+; C: -> A: -> C: every block keeps it; READ_SEQ's [dsk_mgen] would not.
+;
+; +3 bit 0 is the caller's: HELD. A held call writes the data and grows an
+; UNREACHABLE chain - never linked to the file, so a FAT flush at any moment
+; puts nothing on the disk a crash could make wrong - and the ONE link, the
+; FAT flush and the entry's size wait for dws_commit: at a close, before any
+; other write on the volume, before a mount leaves it outside a batch, and at
+; gfx_unlock, which is every way the user can reach the drive (18.9.3).
+; -----------------------------------------------------------------------------
+%ifdef KERN_BIG
+%ifndef KD_BUILD
+WSQ_GEN     equ 0               ; [dsk_wgen] it was stamped under; 0 = never
+WSQ_VOL     equ 2               ; the volume
+WSQ_FLAGS   equ 3               ; THE CALLER'S: bit 0 = HELD
+WSQ_LAST    equ 4               ; the file's last cluster (the held chain's)
+WSQ_DOFF    equ 6               ; the entry's offset in its sector...
+WSQ_SIZE    equ 8               ; the size, with every byte written
+WSQ_DSEC    equ 12              ; ...and that sector's LBA, 32 bits
+WSQF_HELD   equ 1
+
+dwf_dskw_write_seq:
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    push si                     ; the cursor in, as READ_SEQ's is: ES:DI in
+    push cx                     ; the caller's segment, [dws_c] ours
+    push ds
+    push es
+    pop ds
+    pop es
+    mov si, di
+    mov di, dws_c
+    mov cx, 8
+    cld
+    rep movsw
+    push es
+    pop ds
+    pop cx
+    pop si
+    mov es, dx                  ; ES:BX = the bytes, as APPEND takes them
+    mov byte [dws_in], 1        ; our own gate must not commit our own hold
+    call dws_call
+    mov byte [dws_in], 0        ; (mov: CF survives)
+    pop es
+    pop di
+    push di
+    mov si, dws_c               ; ...and back, success or not; no flag is
+    mov cx, 8                   ; written from here to the retf
+    cld
+    rep movsw
+    pop di
+    pop si
+    pop cx
+    pop bx
+    retf
+
+dws_call:                       ; dskw_wrp's frame, as dskw_append_x builds it
+    push bx
+    push cx
+    push dx
+    xor dx, dx                  ; one 16-bit count
+    mov ax, dws_body
+    jmp dskw_wrp
+
+dws_body:
+    call dskw_mounted           ; (a refusal returns straight to dskw_wrp)
+    cmp byte [dsk_vkind], DVK_FILE
+    je .badarg                  ; a redirected volume has no clusters to keep
+    cmp word [dskw_len], 0
+    jne .write
+    test byte [dws_c+WSQ_FLAGS], WSQF_HELD      ; --- CLOSE ---
+    jz .ok
+    call dws_commit
+    jc .ret
+    jmp .stamp
+.write:
+    mov ax, [dsk_wgen]          ; HOT: nothing wrote, no media was re-read,
+    cmp ax, [dws_c+WSQ_GEN]     ; on this volume, since it was stamped
+    jne .seed
+    mov al, [disk_drive]
+    cmp al, [dws_c+WSQ_VOL]
+    je .hot
+.seed:
+    call dws_commit             ; a hold on the volume ends before a stream
+    jc .ret                     ; is looked up again (it IS the lookup's size)
+    call dskw_gate83
+    call dskw_find
+    jc .ret                     ; FERR_NOENT: WRITE_SEQ grows, it never creates
+    call dskw_pmask
+    test byte [dskw_raw+DSK_R_ATTR], al
+    jnz .prot
+    call dskw_clbytes           ; BX = bytes per cluster
+    mov bx, ax
+    dec ax
+    js .badarg                  ; 0: nothing mounted
+    test ax, [dskw_raw+DSK_R_SIZE]
+    jnz .badarg                 ; APPEND's rule: the file ends on a cluster
+    mov ax, [dskw_raw+DSK_R_SIZE]
+    mov dx, [dskw_raw+DSK_R_SIZE+2]
+    mov [dws_c+WSQ_SIZE], ax
+    mov [dws_c+WSQ_SIZE+2], dx
+    cmp dx, bx
+    jae .corrupt                ; a quotient past 16 bits: no volume holds it
+    div bx                      ; AX = the clusters it owns
+    xchg cx, ax
+    xor ax, ax
+    jcxz .seeded                ; empty: no last cluster
+    mov ax, [dskw_raw+DSK_R_CLUS]
+    dec cx
+    jcxz .seeded
+.skip:                          ; THE WALK, once per stream rather than once
+    call dsk_next_clus_x        ; per call
+    jc .corrupt
+    call dskw_clok
+    jc .corrupt
+    loop .skip
+.seeded:
+    mov [dws_c+WSQ_LAST], ax
+    mov ax, [dskw_doff]
+    mov [dws_c+WSQ_DOFF], ax
+    mov ax, [dskw_dsec]
+    mov [dws_c+WSQ_DSEC], ax
+    mov ax, [dskw_dsec+2]
+    mov [dws_c+WSQ_DSEC+2], ax
+    jmp short .data
+.hot:
+    call dws_mine               ; a hold on ANOTHER entry ends first
+    jnc .data
+    call dws_commit
+    jc .ret
+.data:
+    call dskw_norm
+    call dskw_size32
+    mov cx, [dskw_len]
+    xor dx, dx
+    call ct_fpg_begin           ; the widget, chunk by chunk (dskw_wrp ends it)
+    call dskw_wdata             ; the new sub-chain, allocated and written
+    jc .rollback
+    mov ax, [dskw_len]
+    add [dws_c+WSQ_SIZE], ax
+    adc word [dws_c+WSQ_SIZE+2], 0
+    test byte [dws_c+WSQ_FLAGS], WSQF_HELD
+    jnz .held
+
+    ; --- PLAIN: committed now, in 18.4.7.6's order ------------------------
+    mov ax, [dws_c+WSQ_LAST]
+    or ax, ax
+    jz .p1                      ; an empty file: the head is the entry's
+    call dskw_onesec
+    jc .p1
+    mov dx, [dskw_first]        ; one sector: link, then one flush
+    call dskw_setfat
+    jc .ret
+    jmp short .p2
+.p1:
+    call dskw_flush_x
+    jc .rollback
+    mov ax, [dws_c+WSQ_LAST]
+    or ax, ax
+    jz .p3
+    mov dx, [dskw_first]
+    call dskw_setfat
+    jc .ret
+.p2:
+    call dskw_flush_x
+    jc .ret
+.p3:
+    call dws_curent             ; the entry's place and size, from the cursor
+    mov ax, [dws_c+WSQ_LAST]
+    mov bx, [dskw_first]
+    call dws_entpatch
+    jc .ret
+    mov ax, [dskw_prev]
+    mov [dws_c+WSQ_LAST], ax
+    call dskw_sync_x
+    jmp short .stamp
+
+    ; --- HELD: an unreachable chain grows; the commit links it ------------
+.held:
+    cmp byte [dws_hold], 0
+    jne .more
+    mov byte [dws_hold], 1      ; a new hold: what dws_commit will need
+    mov al, [disk_drive]
+    mov [dws_hvol], al
+    mov ax, [dsk_cwd]
+    mov [dws_hcwd], ax
+    mov ax, [dws_c+WSQ_LAST]
+    mov [dws_hlink], ax
+    mov ax, [dskw_first]
+    mov [dws_hfirst], ax
+    mov ax, [dws_c+WSQ_DOFF]
+    mov [dws_hdoff], ax
+    mov ax, [dws_c+WSQ_DSEC]
+    mov [dws_hdsec], ax
+    mov ax, [dws_c+WSQ_DSEC+2]
+    mov [dws_hdsec+2], ax
+    jmp short .hsize
+.more:
+    mov ax, [dws_c+WSQ_LAST]    ; the held tail -> the new sub-chain: both
+    mov dx, [dskw_first]        ; unreachable, so any flush of it is harmless
+    call dskw_setfat
+    jc .ret
+.hsize:
+    mov ax, [dskw_prev]
+    mov [dws_c+WSQ_LAST], ax
+    mov ax, [dws_c+WSQ_SIZE]
+    mov [dws_hsize], ax
+    mov ax, [dws_c+WSQ_SIZE+2]
+    mov [dws_hsize+2], ax
+.stamp:
+    mov ax, [dsk_wgen]          ; stamped AFTER this call's own write, so the
+    mov [dws_c+WSQ_GEN], ax     ; next call finds it hot
+    mov al, [disk_drive]
+    mov [dws_c+WSQ_VOL], al
+.ok:
+    xor ax, ax
+    clc
+.ret:
+    ret
+.rollback:
+    call dskw_refat             ; the half-built sub-chain goes; it keeps AX
+    stc
+    ret
+.prot:
+    mov ax, FERR_PROT
+    stc
+    ret
+.corrupt:
+    mov ax, FERR_IO
+    stc
+    ret
+.badarg:
+    mov ax, FERR_NAME
+    stc
+    ret
+
+; dws_mine - is the pending hold THIS cursor's entry? CF=0 yes (or no hold)
+; clobbers: AX, flags
+dws_mine:
+    cmp byte [dws_hold], 0
+    je .yes
+    mov al, [disk_drive]
+    cmp al, [dws_hvol]
+    jne .no
+    mov ax, [dws_c+WSQ_DOFF]
+    cmp ax, [dws_hdoff]
+    jne .no
+    mov ax, [dws_c+WSQ_DSEC]
+    cmp ax, [dws_hdsec]
+    jne .no
+    mov ax, [dws_c+WSQ_DSEC+2]
+    cmp ax, [dws_hdsec+2]
+    je .yes
+.no:
+    stc
+    ret
+.yes:
+    clc
+    ret
+
+; dws_curent - [dskw_dsec]/[dskw_doff]/[dws_esz] from the cursor. clobbers AX
+dws_curent:
+    mov ax, [dws_c+WSQ_DSEC]
+    mov [dskw_dsec], ax
+    mov ax, [dws_c+WSQ_DSEC+2]
+    mov [dskw_dsec+2], ax
+    mov ax, [dws_c+WSQ_DOFF]
+    mov [dskw_doff], ax
+    mov ax, [dws_c+WSQ_SIZE]
+    mov [dws_esz], ax
+    mov ax, [dws_c+WSQ_SIZE+2]
+    mov [dws_esz+2], ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dws_entpatch - the entry at [dskw_dsec]:[dskw_doff] takes the size [dws_esz]
+;                and, when AX = 0 (the file was empty), the head BX
+; out: CF=0; CF=1 with AX = FERR_IO / FERR_WPROT
+;
+; The sector is read and the two fields patched in place, so no copy of the
+; entry lives in the kernel between calls: nothing else changed it, which is
+; what the cursor's generation vouches for
+; -----------------------------------------------------------------------------
+dws_entpatch:
+    push bx
+    push cx
+    push di
+    push es
+    push bx
+    push ax
+    push ss
+    pop es
+    DSK_RD1D dskw_dsec
+    pop ax
+    pop bx
+    jc .io
+    mov di, dsk_secbuf
+    add di, [dskw_doff]
+    mov cx, [dws_esz]
+    mov [es:di+DSK_R_SIZE], cx
+    mov cx, [dws_esz+2]
+    mov [es:di+DSK_R_SIZE+2], cx
+    or ax, ax
+    jnz .write
+    mov [es:di+DSK_R_CLUS], bx
+.write:
+    DSK_WR1D dskw_dsec
+    jc .io
+    jmp short .out              ; CF = 0 from the `jc`
+.io:
+    call dskw_ioerr
+    stc
+.out:
+    pop es
+    pop di
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dws_commit - end the pending HELD stream: its chain durable, its ONE link,
+;              its size (SPEC.md 18.4.9)
+; in:  nothing; out: CF=0 (or nothing held); CF=1 with AX = FERR_*
+; clobbers: AX, flags - everything else, [disk_drive] and [dsk_cwd] included,
+;           as it was: a commit that had to hop to the held volume hops back
+;
+; 18.4.7.6's order, once per stream instead of once per call: the chain the
+; held calls grew is flushed while nothing reaches it, then the link from the
+; file's committed last cluster (or the entry's head), then the entry. The
+; hold is cleared FIRST, so a failure is not retried at every gate and the
+; remount dskw_sync may run cannot re-enter here.
+; -----------------------------------------------------------------------------
+dws_commit:
+    cmp byte [dws_hold], 0
+    jne .go
+    clc
+    ret
+.go:
+    push bx
+    push cx
+    push dx
+    mov byte [dws_hold], 0
+    mov al, [disk_drive]
+    mov ah, 0
+    push ax                     ; where we stood, to hop back to
+    push word [dsk_cwd]
+    mov dl, [dws_hvol]
+    cmp dl, [disk_drive]
+    je .here
+    mov ax, [dws_hcwd]
+    call dsk_chdir_q_x          ; inside the batch it is still in: banked
+    jc .fail
+.here:
+    call dskw_flush_x           ; the held chain, durable and unreached
+    jc .fail
+    mov ax, [dws_hlink]
+    or ax, ax
+    jz .entry
+    mov dx, [dws_hfirst]
+    call dskw_setfat            ; THE link
+    jc .fail
+    call dskw_flush_x
+    jc .fail
+.entry:
+    mov ax, [dws_hdsec]
+    mov [dskw_dsec], ax
+    mov ax, [dws_hdsec+2]
+    mov [dskw_dsec+2], ax
+    mov ax, [dws_hdoff]
+    mov [dskw_doff], ax
+    mov ax, [dws_hsize]
+    mov [dws_esz], ax
+    mov ax, [dws_hsize+2]
+    mov [dws_esz+2], ax
+    mov ax, [dws_hlink]
+    mov bx, [dws_hfirst]
+    call dws_entpatch
+    jc .fail
+    call dskw_sync_x
+    xor ax, ax
+    jmp short .back
+.fail:
+    stc
+.back:
+    pop dx                      ; [dsk_cwd] as it was
+    pop bx                      ; BL = the volume
+    pushf
+    push ax
+    cmp bl, [disk_drive]
+    je .home
+    mov ax, dx
+    mov dl, bl
+    call dsk_chdir_q_x          ; ...back where the caller stood
+.home:
+    pop ax
+    popf
+    pop dx
+    pop cx
+    pop bx
+    ret
+%endif                          ; KD_BUILD
+%endif                          ; KERN_BIG
 
 ; -----------------------------------------------------------------------------
 ; dskw_write_at - write CX bytes at a byte offset: INSIDE what the file has
@@ -5391,6 +5825,21 @@ fm_fmt_drop:
 section .bss
 
 ; --- the located / staged directory entry ------------------------------------
+%ifdef KERN_BIG
+%ifndef KD_BUILD
+dws_c:        resb 16           ; WRITE_SEQ's cursor, the kernel's copy (18.4.9)
+dws_esz:      resd 1            ; dws_entpatch's size
+dws_in:       resb 1            ; 1 inside WRITE_SEQ: its own gate keeps its hold
+dws_hold:     resb 1            ; 1 = a HELD stream is pending (dws_commit)
+dws_hvol:     resb 1            ; ...on this volume
+dws_hcwd:     resw 1            ; ...in this folder (a hop back to commit)
+dws_hlink:    resw 1            ; the file's committed last cluster; 0 = empty
+dws_hfirst:   resw 1            ; the held chain's head
+dws_hdoff:    resw 1            ; the entry's place
+dws_hdsec:    resd 1
+dws_hsize:    resd 1            ; the size the commit gives it
+%endif
+%endif
 dskw_raw:     resb 32           ; one raw 32-byte entry, staged in the kernel
                                 ; segment (the write path's dsk_ent)
 dskw_n83:     resb 11           ; the 11-byte raw name being looked for
@@ -5539,7 +5988,16 @@ dwf_dskw_append:        call dskw_append_x
 %ifndef KERN_SMALL
 dwf_dskw_write_at:      call dskw_write_at_x
                     retf
+%ifdef KERN_BIG
+%ifndef KD_BUILD
+dwsf_commit:            push ax         ; gfx_unlock's (SPEC.md 18.4.9): every
+                        call dws_commit ; register kept, the answer dropped -
+                        pop ax          ; an unlock has nobody to tell
+                    retf
+%endif
+%endif
 %else                           ; (kern_big's READ_SEQ door is its body)
+dwf_dskw_write_seq:             ; SPEC.md 18.4.9: kern_big's alone too
 dwf_dskw_read_seq:  mov ax, FERR_NAME   ; SPEC.md 18.4.8: kern_big's alone, and
                                         ; the cell is in both kernels (20.8
                                         ; rule 4) - falling into the refusal

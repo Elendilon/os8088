@@ -8255,6 +8255,72 @@ SOAK = [
         wants=("build/viddisk.o88", "build/viddisk360.img",
                "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
                "build/hdd.drv")),
+    Row("wseq", "soak", py("tests/viddisk.py", "--floppy", "--wmode", "seq"),
+        182.0,
+        "SPEC.md 18.4.9: viddiskfd's W through OSAPI_FILE_WRITE_SEQ, plain - "
+        "every call committed, the name lookup and the chain walk gone. The "
+        "12.5 MB STREAM.DAT must read back off the VHD on the host dword for "
+        "dword, and R and D run as viddiskfd's do. W is 204 guest seconds "
+        "against APPEND's 570 on this XT-IDE",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/viddisk.o88", "build/viddisk360.img",
+               "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/hdd.drv")),
+    Row("wseqheld", "soak", py("tests/viddisk.py", "--floppy", "--wmode",
+                                "held"), 177.0,
+        "SPEC.md 18.4.9: the same W, HELD and closed: the FAT and the size "
+        "committed once, at the close. One-sector writes 0.2 an append "
+        "against plain's 3.2 (VD_TRACE=12), 191 guest seconds, and the file "
+        "byte for byte on the host",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/viddisk.o88", "build/viddisk360.img",
+               "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/hdd.drv")),
+    Row("wsequnclosed", "soak", py("tests/viddisk.py", "--floppy",
+                                    "--wmode", "unclosed"), 116.0,
+        "SPEC.md 18.4.9: HELD and never closed, and the bench touches no file "
+        "and mounts nothing after W - so the UI task's gfx_unlock is the only "
+        "commit there is. Killed a guest second after, the VHD must hold all "
+        "12.5 MB. Red with the unlock's commit taken out (the disk holds the "
+        "first 32 KB): that commit is what keeps a swapped floppy from being "
+        "written another disk's FAT at the next mount",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/viddisk.o88", "build/viddisk360.img",
+               "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/hdd.drv")),
+    Row("wseqinter", "soak", py("tests/viddisk.py", "--floppy", "--wmode",
+                                 "inter"), 168.0,
+        "SPEC.md 18.4.9: HELD, with another file written every 64 chunks: "
+        "each write's gate commits the hold first and the stream re-seeds "
+        "and carries on. STREAM.DAT byte for byte on the host",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/viddisk.o88", "build/viddisk360.img",
+               "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/hdd.drv")),
+    Row("wseqdeleted", "soak", py("tests/viddisk.py", "--floppy",
+                                   "--wmode", "deleted"), 39.0,
+        "SPEC.md 18.4.9: HELD, and at chunk 64 the stream is DELETED and "
+        "VKSIDE.TXT written - which takes the freed directory slot. The "
+        "delete's gate must commit the hold first: W then stops on its next "
+        "chunk (the stream is gone), VKSIDE.TXT is its own 16 bytes and the "
+        "VHD checks clean. Red with the gate's commit taken out: the late "
+        "commit patches VKSIDE.TXT's entry with the stream's size and chain "
+        "(2048 bytes) and the disk check fails",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/viddisk.o88", "build/viddisk360.img",
+               "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/hdd.drv")),
+    Row("wseqcut", "soak", py("tests/viddisk.py", "--floppy", "--wmode",
+                               "held", "--cut", "150"), 57.0,
+        "SPEC.md 18.4.9: a POWER CUT mid-hold - the emulator killed once W "
+        "has written 150 chunks. STREAM.DAT must be its committed first 32 "
+        "KB with the right bytes and the VHD must check clean: a held chain "
+        "is never linked to the file, so no flush of it can leave anything "
+        "a crash makes wrong",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/viddisk.o88", "build/viddisk360.img",
+               "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/hdd.drv")),
     Row("vidsnd", "soak", py("tests/vidsnd.py"), 37.0,
         "docs/plans/VIDEO-PLAN.md wave 0 (c)(e): ONE INTERRUPT PER VIDEO "
         "FRAME off a Sound Blaster 2.0 - the clock XDC plays by and the "

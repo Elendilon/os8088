@@ -4445,7 +4445,17 @@ api_gfx_blitp:                    ; (named: SPEC.md 5.4.3.6's walk far-calls it)
                                   ;          out AX = K, DX:BX = the chain;
                                   ;          AL = 1 close. kern_big; the
                                   ;          small body refuses AX = 1
-osapi_table_end:                  ; 0x0461 today (0x05A8 before pass 4's
+    OSAPI_RNCELL dwf_dskw_write_seq ; 0x0461 N: A STREAMING APPEND (SPEC.md
+                                  ;          18.4.9): SI = name, DX:BX = the
+                                  ;          bytes, CX = the count (0 closes),
+                                  ;          ES:DI = the caller's 16-byte
+                                  ;          cursor, +3 bit 0 = HELD. APPEND
+                                  ;          without the lookup and the walk;
+                                  ;          HELD commits the FAT and the
+                                  ;          size once, at the close or when
+                                  ;          the UI unlocks. kern_big; the
+                                  ;          small door refuses
+osapi_table_end:                  ; 0x0467 today (0x05A8 before pass 4's
                                   ; renumber). TWO cells came off the tail in
                                   ; the size pass: OSAPI_MEM_COMPACT_WAKE
                                   ; (0x0598) is 0x0590's MEMC_POST verb
@@ -4463,8 +4473,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 43*8 + 11*7 + 97*6 + 6*3 + 6 + 12*5 + 3*6
-%error "os8088 API jump table must be exactly 0x0451 bytes: 43 SLOT (8), 11 XCELL (7), 97 rare (6), 6 JCELL (3), 1 FCELL (6), 15 ICELL (12 of 5, 3 of 6)"
+%if OSAPI_TABLE_LEN != 43*8 + 11*7 + 98*6 + 6*3 + 6 + 12*5 + 3*6
+%error "os8088 API jump table must be exactly 0x0457 bytes: 43 SLOT (8), 11 XCELL (7), 98 rare (6), 6 JCELL (3), 1 FCELL (6), 15 ICELL (12 of 5, 3 of 6)"
 %endif
 
 ; =============================================================================

@@ -4264,6 +4264,29 @@ CLIP_MAXKB equ 32                ; the clipboard's ceiling, KB. A put longer
                                  ; FSEQ_OFF is yours to write
 FSEQ_OFF    equ 12              ; the cursor's offset field (dword)
 FSEQ_SIZE   equ 16              ; ...and the cursor's size
+%define OSAPI_FILE_WRITE_SEQ KERNEL_SEG:0x0461  ; A STREAMING APPEND (SPEC.md
+                                 ; 18.4.9, KERN_BIG; the small kernel answers
+                                 ; CF=1 FERR_NAME). SI = the name ON EVERY
+                                 ; CALL, DX:BX = the bytes (NOT ES:BX), CX =
+                                 ; the count - a cluster multiple but the last,
+                                 ; APPEND's rule - ES:DI = YOUR 16-byte cursor,
+                                 ; zeroed to start. The file must EXIST (make it
+                                 ; with OSAPI_FILE_WRITE). Out CF=0 AX=0, the
+                                 ; cursor advanced; CF=1 AX = FERR_*. APPEND
+                                 ; without the lookup and the walk: a 32 KB
+                                 ; append no longer grows dearer with the file.
+                                 ; WSEQ_FLAGS is yours: set WSEQF_HELD before
+                                 ; the first call and the FAT and the entry's
+                                 ; size are written ONCE - at a call with CX =
+                                 ; 0 (the CLOSE), before any other write, or
+                                 ; when your callback returns - and a crash in
+                                 ; between loses the held bytes and nothing
+                                 ; else. Plain (0): every call is committed, as
+                                 ; APPEND's is: for a file that grows over a
+                                 ; long time and must survive each chunk
+WSEQ_FLAGS  equ 3               ; the cursor's one byte that is yours
+WSEQF_HELD  equ 1               ; ...bit 0: commit once, not every call
+WSEQ_SIZE   equ 8               ; the size so far (dword), the kernel's
 %define OSAPI_FILE_FIND_RAW KERNEL_SEG:0x03D9   ; OSAPI_FILE_FIND, with +18 the
                                  ; size the file OCCUPIES rather than the one
                                  ; it expands to (SPEC.md 20.14.3). THE CELL A
