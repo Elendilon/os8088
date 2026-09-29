@@ -194,8 +194,9 @@ loses is a `git revert`.
   build opens at 16,000 again, note the percentage the status line gives,
   the module played first that session, and anything the machine was doing
   in that first second - the bench shares it with whatever else is running.
-- **The carrier's whine against the level: MEASURED, and the resting point
-  has nothing left to give.** `python3 tools/os88spklev.py --carrier CAP.pkl`
+- **The carrier's whine against the level: MEASURED and CLOSED** (the
+  owner, 2026-09-29: the user has the volume bar, and nothing else here
+  worked out). **The resting point has nothing left to give.** `python3 tools/os88spklev.py --carrier CAP.pkl`
   replays a capture at every fixed level and splits what the pulse train
   puts at the pulse rate into the steady TONE (each pulse's
   (1 - e^-i2piD)/i2pi averaged over 20 ms) and the rest, beside the MUSIC
@@ -213,11 +214,9 @@ loses is a `git revert`.
   is loud noise in the music, the width being the sound. What a higher level
   costs is clipping: at 4,800 Hz level 5 clips ~3% of samples, 7 ~11-12%, 10
   30-40% (the "blurred" the owner heard at 10). So the lever is the LEVEL, a
-  trade the volume bar already gives the user; the one thing left to decide
-  is whether a 4,800-5,512 Hz machine should START a couple of levels higher
-  than an 8,000 Hz one, where the tone sits at 8 kHz and matters less. (On
-  that capture ELYSIUM.MOD's ratchet settles on 7 at 4,800 Hz, against 6 at
-  8,000.)
+  trade the volume bar already gives the user, so a higher starting level
+  for a 4,800-5,512 Hz machine was NOT taken. (On that capture ELYSIUM.MOD's
+  ratchet settles on 7 at 4,800 Hz, against 6 at 8,000.)
 - **BEVERLY.MOD's low notes** are gone on the speaker at every level. Not
   investigated: it may be the speaker, or the load-time filter
   (`tsp_natural`).
