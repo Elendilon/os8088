@@ -76100,7 +76100,8 @@ the speaker is never touched).
 
 `TSP_CS` is the one term of the prediction Tracker cannot time on the
 machine, because timing it needs the speaker playing. `tests/spkbench/`
-(`make spkbench` -> `build/spkbench360.img`, `spkbench144.img`; one package,
+(`make spkbench` -> `build/spkbench360.img`, `spkbench720.img`,
+`spkbench144.img`; one package,
 press R, ~12 s hands off, SPKBENCH.TXT saved beside it) times it the way that
 works on any machine: a fixed workload (the shaper over 256-sample spans)
 counted for 32 ticks with the speaker SHUT, then again with it PLAYING a

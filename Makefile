@@ -6711,7 +6711,8 @@ mcbench: $(BUILD)/mcbench360.img
 # sample ISR's share of it at 4,800, 5,512 and 8,000 Hz, measured against a
 # fixed shaper workload, and RAM read speed per 64 KB bank (SPEC.md 45.25.1,
 # PERFORMANCE.md Part 8.2). For the owner's 5150 and an 86Box V20, which is
-# why the disks are 360 KB and 1.44 MB with nothing else on them. On demand:
+# why the disks are 360 KB, 720 KB (a Toshiba T1100 Plus) and
+# 1.44 MB with nothing else on them. On demand:
 # nothing here ships.
 $(BUILD)/spkbench.bin: tests/spkbench/spkbench.asm tests/benchlib.inc \
                        apps/os88api.inc apps/os88spk.inc apps/os88spkfx.inc \
@@ -6726,11 +6727,15 @@ $(BUILD)/spkbench.o88: $(BUILD)/spkbench.bin tools/os88pkg.py
 $(BUILD)/spkbench360.img: $(BUILD)/spkbench.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/spkbench.o88
 
+$(BUILD)/spkbench720.img: $(BUILD)/spkbench.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 720 $(BUILD)/spkbench.o88
+
 $(BUILD)/spkbench144.img: $(BUILD)/spkbench.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/spkbench.o88
 
 .PHONY: spkbench
-spkbench: $(BUILD)/spkbench360.img $(BUILD)/spkbench144.img
+spkbench: $(BUILD)/spkbench360.img $(BUILD)/spkbench720.img \
+          $(BUILD)/spkbench144.img
 
 # tests/filler is an instrument with no assertions of its own: it takes the
 # arena down to a few tens of KB and, on a keypress, asks for one KB more than
