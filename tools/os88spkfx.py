@@ -146,6 +146,7 @@ class Shaper(object):
         self.pre, self.idle = pre, idle
         self.c0 = self.fam[0][128]
         self.lev = 0
+        self.gate = True                        # a play starts as after silence
         self.d = self.c0 - 1 if idle else 0     # the carrier starts away
         self.h = self.d
         self.sub = 0
@@ -162,14 +163,18 @@ class Shaper(object):
     def level(self, xs):
         """the span's peak, one sample in SPARSE from its first, of the
         index the table is read at; the level it asks for (a rise of one
-        step a span at most, a fall at once); and the carrier's target"""
+        step a span at most, a fall at once - and after a SILENT span, the
+        level it asks for at once: nothing to step from); and the carrier's
+        target"""
         p, prev = 0, self.prev
         for j in range(0, len(xs), SPARSE):
             a = abs(self.index(xs[j], xs[j - 1] if j else prev) - 128)
             if a > p:
                 p = a
         want = self.lt[p]
-        self.lev = self.lev + 1 if want > self.lev else want
+        self.lev = (self.lev + 1 if want > self.lev and not self.gate
+                    else want)
+        self.gate = p < PGATE
         row = self.fam[self.lev]
         if p < PGATE:
             h = self.c0 - 1

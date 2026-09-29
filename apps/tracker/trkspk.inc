@@ -47,17 +47,19 @@ TSP_PCTMAX  equ 100                 ; the most a rung may predict: THE SOUND
                                     ; half full (tsp_wmain), the visualiser
                                     ; off (tw_vizxhi), so a short machine sheds
                                     ; the picture and keeps the music (question
-                                    ; 1). A 5150 predicts 95 at 5,512 Hz and
-                                    ; holds it with the ring never dry (45.25)
+                                    ; 1). A 5150 predicts ~103 at 5,512 Hz and
+                                    ; opens at 4,800 (45.25.1)
 %ifndef TSP_CS
-TSP_CS      equ 89                  ; THE SPEAKER'S SHARE against the shaper's
-                                    ; bench, MEASURED on MartyPC's 5150 (45.25):
-                                    ; the bench emits a sample in ~107 cycles
-                                    ; there (Ne = 9,728) and the sample ISR
-                                    ; takes ~325 a pulse (37% at 5,417 Hz), so
-                                    ; (325 / 107 + 1) x 400 / 18.2 = 89 - and
-                                    ; the share at R is R x 89 / Ne percent on
-                                    ; any machine the bench has timed
+TSP_CS      equ 104                 ; THE SPEAKER'S SHARE against the shaper's
+                                    ; bench, MEASURED on the owner's 5150 by
+                                    ; SPKBENCH (45.25.1): the sample ISR takes
+                                    ; ~395 cycles a sample and the bench this
+                                    ; one runs emits one in ~106, so
+                                    ; (395 / 106 + 1) x 400 / 18.2 = 104 - and
+                                    ; the share at R is R x 104 / Ne percent on
+                                    ; any machine the bench has timed. It was
+                                    ; 89, built on MartyPC's ~325, and a 5150
+                                    ; opened at 5,512 on a "95%" that was ~103
 %endif
 TSP_FSDIV   equ 21845               ; the full screen's period: 54.6 Hz, the
                                     ; text screen's frame clock (45.16)

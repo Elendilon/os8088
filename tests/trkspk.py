@@ -8,8 +8,9 @@ from C:. With no card Tracker plays through the speaker on its own (the
 owner's question 1), from inside its own FSXF_RATE bracket - the imposter
 window - after timing this machine once (question 5). What must hold:
 
-  play    the 5150 is CALIBRATED and takes the 5,512 Hz rung (question 3 and
-          the owner's "for a 5150 5.5 anyway"): the pulses run at that rate
+  play    the 5150 is CALIBRATED and takes the 4,800 Hz rung - the one it
+          can HOLD (45.25.1: the owner's 5150 measured the ISR at ~395 cycles a
+          sample, and 5,512's "95%" was ~103%): the pulses run at that rate
           (under LOSS lost to IF = 0), the ring NEVER runs dry while the song
           plays, the visualiser is forced off (tw_vizxhi, the 11 kHz rule) and
           the elapsed clock counts. Then Space pauses - the door shut, channel
@@ -27,9 +28,9 @@ window - after timing this machine once (question 5). What must hold:
 
 Broken on purpose - tw_vizxhi's speaker test removed: play FAILS on the
 visualiser. TSP_CS doubled: play FAILS on the rung (the 5150 is then
-refused). NOT seen, and said so: tsp_wmain's audio-first gate removed (a
+refused). TSP_CS back at 89: play FAILS on the rung (it takes 5,512). NOT seen, and said so: tsp_wmain's audio-first gate removed (a
 frame every period whatever the lead) still passes play - with the
-visualiser off a 5150's frame is cheap enough that BEVERLY.MOD at 5,512 Hz
+visualiser off a 5150's frame is cheap enough that BEVERLY.MOD at 4,800 Hz
 never needs it. The gate is a net for a heavier face, not something this
 machine exercises.
 """
@@ -158,8 +159,8 @@ def leg_play(bad):
         print("   the bench: shaper %d in 4 ticks, mixer %d in 8; %d Hz "
               "(rung %d) predicted at %d%%" % (t.rw("tsp_ne"), t.rw("tsp_nm"),
                                               rate, rung, pct))
-        check(bad, t.rb("tsp_open") == 1 and rate == 5512,
-              "play: the 5150 plays at 5,512 Hz by itself")
+        check(bad, t.rb("tsp_open") == 1 and rate == 4800,
+              "play: the 5150 plays at 4,800 Hz by itself")
         if t.rb("tsp_open") != 1:
             return
         want = "Spk %d Hz, %d%% cpu (CARRIER WHINES!)" % (rate, pct)
