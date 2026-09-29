@@ -153577,7 +153577,12 @@ Sound and the two PC speaker groups is greyed with that reason, `--audio` is
 left off (the sound IS the speaker's), and a finished WAV skips the frame
 preview and the disk. Leg 14 holds it: every target's form saved as a
 `.WAV` has exactly those five groups applying and no `--audio` on its
-command line.
+command line. **The type is a box on the Save as line**, to the right of its
+Browse... (`.V88` by default, the line above it being **Input**): Browse...
+offers the chosen type first, a name already on the line and a source's
+default name both take its extension, and a name typed or browsed to with
+the other extension moves the box to match - so a speaker WAV is a choice
+the window shows and not a file type buried in a Save dialog.
 
 
 #### 98.2.9 The pre-roll: the first picture is whole before the keyframes start

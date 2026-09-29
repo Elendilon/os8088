@@ -1046,12 +1046,19 @@ def disk_argv(v88, disk, out=None, build=None, stage=None):
     return argv + ["--file", "%s=%s" % (name, v88)], img
 
 
-def out_for(src):
-    """The .V88 a source is saved as by default: beside it, its own name
+def out_for(src, ext=".V88"):
+    """The file a source is saved as by default: beside it, its own name
     cut to 40 characters - the NAME, where the whole path used to be cut,
-    which put a long folder's file in its grandparent under half a name"""
+    which put a long folder's file in its grandparent under half a name -
+    as the Save as type (`ext`, a .V88 unless a speaker WAV was chosen)"""
     d, n = os.path.split(src)
-    return os.path.join(d, os.path.splitext(n)[0][:40] + ".V88")
+    return os.path.join(d, os.path.splitext(n)[0][:40] + ext)
+
+
+# the Save as line's types: what Browse... offers first, and the extension
+# a default name takes. A .WAV is a speaker WAV for Audio (86.21.1)
+OUT_TYPES = [(".V88", "os8088 video", "*.V88"),
+             (".WAV", "Speaker sound for Audio", "*.WAV")]
 
 
 def drop_target(paths):
@@ -1300,6 +1307,7 @@ class App(object):
         root.geometry("1080x760")
         self.src = tk.StringVar()
         self.out = tk.StringVar()
+        self.outtype = tk.StringVar(value=OUT_TYPES[0][0])
         self.target = tk.StringVar(value=TARGETS[0][0])
         self.info = tk.StringVar(value="Choose a video.")
         self.mkdisk = tk.BooleanVar(value=False)
@@ -1324,13 +1332,23 @@ class App(object):
         ess = ttk.Frame(left)
         ess.pack(fill="x")
         for row, (label, var, cmd) in enumerate((
-                ("Video", self.src, self.browse_src),
+                ("Input", self.src, self.browse_src),
                 ("Save as", self.out, self.browse_out))):
             ttk.Label(ess, text=label).grid(row=row, column=0, sticky="w")
-            ttk.Entry(ess, textvariable=var, width=60).grid(
+            ttk.Entry(ess, textvariable=var, width=52).grid(
                 row=row, column=1, sticky="we", padx=4)
             ttk.Button(ess, text="Browse...", command=cmd).grid(
                 row=row, column=2)
+        # WHAT is saved: a .V88, or the sound alone as a speaker WAV for
+        # Audio - Browse...'s type first, and a default name's extension
+        ot = ttk.Combobox(ess, textvariable=self.outtype, state="readonly",
+                          values=[t[0] for t in OUT_TYPES], width=6)
+        ot.grid(row=1, column=3, padx=(4, 0))
+        ot.bind("<<ComboboxSelected>>", lambda e: self.pick_outtype())
+        Tip(ot, "What to save: a .V88 video, or a .WAV - the sound alone, "
+                "shaped for the PC speaker, for Audio to play (SPEC.md "
+                "86.21.1). Browse... offers this type first, and the name "
+                "above takes its extension.")
         ttk.Label(ess, text="Made for").grid(row=2, column=0, sticky="w")
         tg = ttk.Combobox(ess, textvariable=self.target, state="readonly",
                           values=[t[0] for t in TARGETS], width=58)
@@ -1351,7 +1369,7 @@ class App(object):
                 "encoder will use them. Change any of them afterwards on "
                 "their tabs.")
         ttk.Label(ess, textvariable=self.info, foreground="#555").grid(
-            row=3, column=1, columnspan=2, sticky="w", padx=4)
+            row=3, column=1, columnspan=3, sticky="w", padx=4)
         ess.columnconfigure(1, weight=1)
         # --- make a disk, go, the progress and the log: packed from the
         # BOTTOM and before the tabs, so it is the tabs that give way in a
@@ -1425,6 +1443,7 @@ class App(object):
                 self.vars[d].trace_add("write",
                                        lambda *a: self.groups_dirty())
         self.out.trace_add("write", lambda *a: self.groups_dirty())
+        self.out.trace_add("write", lambda *a: self.sync_outtype())
         # --- the palette the Colour tab's choices give, redrawn as they
         # change: under the tab's fields, whatever the tab's note
         self.palframe = ttk.LabelFrame(pages["Colour"], text="Palette",
@@ -1635,7 +1654,7 @@ class App(object):
         # video dropped takes a name of its own
         if not self.out.get() or self.out.get() == getattr(self, "autoout",
                                                            None):
-            self.autoout = out_for(p)
+            self.autoout = out_for(p, self.outtype.get())
             self.out.set(self.autoout)
         try:
             text, vals = suggest(p)
@@ -1670,12 +1689,31 @@ class App(object):
             v.set(p)
 
     def browse_out(self):
+        ext = self.outtype.get()
+        types = sorted(OUT_TYPES, key=lambda t: t[0] != ext)
         p = filedialog.asksaveasfilename(
-            defaultextension=".V88",
-            filetypes=[("os8088 video", "*.V88"),
-                       ("Speaker sound for Audio", "*.WAV")])
+            defaultextension=ext, filetypes=[(w, g) for _, w, g in types])
         if p:
             self.out.set(p)
+
+    def pick_outtype(self):
+        """The Save as type chosen: a name already there takes its
+        extension, so what the line says is what will be written"""
+        cur = self.out.get().strip()
+        base, e = os.path.splitext(cur)
+        ext = self.outtype.get()
+        if cur and e.upper() != ext:
+            auto = cur == getattr(self, "autoout", None)
+            self.out.set((base if e.upper() in [t[0] for t in OUT_TYPES]
+                          else cur) + ext)
+            if auto:
+                self.autoout = self.out.get()
+
+    def sync_outtype(self):
+        """A name typed or browsed to: the type box follows its extension"""
+        e = os.path.splitext(self.out.get().strip())[1].upper()
+        if e in [t[0] for t in OUT_TYPES] and e != self.outtype.get():
+            self.outtype.set(e)
 
     def apply_target(self):
         i = [t[0] for t in TARGETS].index(self.target.get())
