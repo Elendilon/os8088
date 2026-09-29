@@ -769,6 +769,32 @@ sector is the same on a second attempt with a fresh disk, and the motor
 byte - bit 7 set is the ROM mid-write, and bit 0 clear on a write to A: is a
 motor the ROM believes is stopped.
 
+**Field run, 2026-09-29, on the build carrying all of the above** (build
+218, the `DISKCNT=1` system disk, the reporter's own 5150): the image
+written onto the very floppy it booted from, and then **eight more Write
+Img runs, every one clean** - the written disk mounting and `README.TXT`
+opening. It was reproducible before only in "several tries", so eight is
+not a close. The owner's reading, and the one this note carries: the
+hardware still fails a transfer now and then, and the question is what we
+do when it does - `dskimage` recovers from something that we turn into
+damage, and today the drive did not produce it. **So the note stays OPEN,
+waiting on a repro**, and the next one arrives with the diagnostic line
+on the glass instead of silence. Two things are different from every run
+before today and either could be why the failures stopped showing: a
+failed transfer is now SAID rather than swallowed (18.99.7), and the
+Write Img path had been unusable since the dialog lost its size
+(38.6.2), so the last month of intended repro attempts never reached a
+write at all.
+
+**What is ruled out**: the chunking, CHS arithmetic and sector-0-last on a
+whole-disk write (`wimgtrip`, both GLaBIOS and the 27 Oct 82 IBM ROM);
+the read-then-write spin-up race on Write Img's own path (no read of the
+target precedes a write). **What is still a candidate**: the retry ladder
+itself - three resets (recalibrate) per failed write run before a
+per-sector fallback, where `dskimage` presumably retries differently - and
+the spin-up race on CLONE DISK's same-drive path, which the lost branch's
+18.101 addresses and which is still unported.
+
 ---
 
 ## 33. A hard-disk install writes the whole volume to the wrong place, because SYSTEM.CFG carried another machine's geometry (CLOSED — drivers/hdd/cfg.inc, boot/boothd.asm)
