@@ -1211,6 +1211,156 @@ tsp_frame:
     pop ax
     ret
 
+;
+%ifdef TSP_BASS
+; -----------------------------------------------------------------------------
+; THE LISTENING BUILD FOR THE MISSING BASS (docs/plans/SPEAKER-LEVELLER-NEXT.md,
+; -DTSP_BASS=k): a sample the load filter took three quarters of - sum |y|
+; under sum |x| / 4, BEVERLY.MOD's digdug and bassdrum2 and nothing else - is
+; SQUARED UP so its harmonics land where the speaker plays and the ear hears
+; the note from them: y << k clamped at +-2P (P its peak after the filter, the
+; 2 because the second filter halves it again, capped at 127), then through
+; the same filter a second time to take back the fundamental the squaring
+; grew. Load time only, and only on those samples
+; -----------------------------------------------------------------------------
+; tsp_bsx - DS:SI, CX: [cs:tsp_bsx0] = sum |x| (a dword). Preserves all
+tsp_bsx:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    cld
+    xor bx, bx
+    xor di, di
+.l:
+    lodsb
+    cbw
+    cwd
+    xor ax, dx
+    sub ax, dx
+    add bx, ax
+    adc di, 0
+    loop .l
+    mov [cs:tsp_bsx0], bx
+    mov [cs:tsp_bsx0+2], di
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; tsp_bass - DS:SI, CX: the filtered sample; squared and filtered again if it
+; is a bass (above). Preserves all
+tsp_bass:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    or cx, cx
+    jnz .go
+    jmp .out
+.go:
+    cld
+    push si
+    push cx
+    xor bx, bx                      ; DI:BX = sum |y|, BP = its peak
+    xor di, di
+    xor bp, bp
+.sy:
+    lodsb
+    cbw
+    cwd
+    xor ax, dx
+    sub ax, dx
+    add bx, ax
+    adc di, 0
+    cmp ax, bp
+    jbe .sy1
+    mov bp, ax
+.sy1:
+    loop .sy
+    pop cx
+    pop si
+    shl bx, 1                       ; 4 sum |y| ...
+    rcl di, 1
+    shl bx, 1
+    rcl di, 1
+    cmp di, [cs:tsp_bsx0+2]         ; ...under sum |x|: a bass
+    jb .bass
+    ja .outj
+    cmp bx, [cs:tsp_bsx0]
+    jb .bass
+.outj:
+    jmp .out
+.bass:
+    or bp, bp
+    jz .outj
+    shl bp, 1                       ; the clamp: 2P, at most 127
+    cmp bp, 127
+    jbe .lim
+    mov bp, 127
+.lim:
+    push si
+    push cx
+.sq:
+    mov al, [si]
+    cbw
+%rep TSP_BASS
+    sal ax, 1
+%endrep
+    cmp ax, bp
+    jle .sq1
+    mov ax, bp
+.sq1:
+    mov dx, bp
+    neg dx
+    cmp ax, dx
+    jge .sq2
+    mov ax, dx
+.sq2:
+    mov [si], al
+    inc si
+    loop .sq
+    pop cx
+    pop si
+    xor di, di                      ; the load filter again, exactly
+    xor bp, bp
+.b:
+    mov ah, [si]
+    xor al, al
+    sar ax, 1
+    mov dx, ax
+    sub ax, bp
+    mov bp, dx
+    mov dx, di
+    sar dx, 1
+    sar dx, 1
+    sar dx, 1
+    sub di, dx
+    add di, ax
+    mov ax, di
+    mov [si], ah
+    inc si
+    loop .b
+.out:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+tsp_bsx0:   dw 0, 0
+%endif
+
 ; -----------------------------------------------------------------------------
 ; tsp_natural - the loaded module's SAMPLES through the NATURAL style's high-
 ; pass (98.2.15.1), in place: a one-pole DC blocker, y = (x - x_prev) +
@@ -1272,6 +1422,11 @@ tsp_natural:
     push ds
     mov si, [bx+MS_OFF]
     mov ds, [bx+MS_SEG]
+%ifdef TSP_BASS
+    call tsp_bsx                    ; sum |x|, before the filter takes it
+    push si
+    push cx
+%endif
     xor di, di                      ; DI = Y = 128 y, from rest
     xor bp, bp                      ; BP = 128 x_prev
 .b:
@@ -1291,6 +1446,11 @@ tsp_natural:
     mov [si], ah                    ; y / 2
     inc si
     loop .b
+%ifdef TSP_BASS
+    pop cx
+    pop si
+    call tsp_bass                   ; a BASS sample: squared up and filtered
+%endif                              ; again
     pop ds
     pop bp
 .n:

@@ -361,6 +361,22 @@ def tracker_hp(data):
     return bytes(out)
 
 
+def tracker_bass(data, k):
+    """one sample through tsp_natural in a -DTSP_BASS=k build: the load
+    filter, and then - for a BASS sample, sum |y| under sum |x| / 4 - y << k
+    clamped at +-min(2P, 127), P the filtered peak, and the filter again.
+    Exactly the machine's bytes (docs/plans/SPEAKER-LEVELLER-NEXT.md)"""
+    sgn = lambda b: b - 256 if b > 127 else b
+    y = tracker_hp(data)
+    ax = sum(abs(sgn(b)) for b in data)
+    ay = [abs(sgn(b)) for b in y]
+    if not ay or 4 * sum(ay) >= ax or not max(ay):
+        return y
+    lim = min(2 * max(ay), 127)
+    sq = bytes(max(-lim, min(lim, sgn(b) << k)) & 0xFF for b in y)
+    return tracker_hp(sq)
+
+
 # --------------------------------------------------------------------------
 # a WAV made for the speaker on the host: Audio copies it (SPEC.md 86.21.1).
 # The ENCODER makes them - `os88venc.py IN OUT.WAV`, the same shaping and

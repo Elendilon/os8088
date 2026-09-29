@@ -217,10 +217,36 @@ loses is a `git revert`.
   trade the volume bar already gives the user, so a higher starting level
   for a 4,800-5,512 Hz machine was NOT taken. (On that capture ELYSIUM.MOD's
   ratchet settles on 7 at 4,800 Hz, against 6 at 8,000.)
-- **BEVERLY.MOD's low notes** are gone on the speaker at every level. Not
-  investigated: it may be the speaker, or the load-time filter
-  (`tsp_natural`).
+- **BEVERLY.MOD's low notes: MEASURED, and a LISTENING BUILD out**
+  (`-DTSP_BASS=k`, 2026-09-29). The bass is sample 2, `digdug`, a slow,
+  nearly pure wave played at 4,390-13,964 Hz - a fundamental of ~50-160 Hz,
+  all of it under the speaker - and `tsp_natural`'s load filter takes 5.4 dB
+  of it on the way. Weighted by the notes the song plays and resampled as
+  the mixer does, the part at 400 Hz and up (where a PC speaker starts to
+  work) is **-16.5 dB against the melody's -1.3**: 15 dB down, which is
+  "gone". The idea is the ear's missing fundamental: square the wave up, so
+  its harmonics land where the speaker plays and the note is heard from
+  them, pitch kept (moving the NOTE up an octave or two was the other
+  idea, and it puts the bass line into the melody's register). The build
+  squares any sample the load filter took three quarters of (sum |y| under
+  sum |x| / 4: `digdug` 0.236 and `bassdrum2` 0.185, the next `dxtom` at
+  0.31, the melody ~0.45) by `y << k` clamped at its own peak, then runs the
+  filter again to take back the fundamental the squaring grew (without it
+  the sample's whole energy rose 5-6 dB for nothing the speaker plays).
+  `tools/os88spkfx.py`'s `tracker_bass` is it exactly, and the machine's
+  bytes after load equal it for both k on four samples. At 4,800 Hz:
 
+  | 400 Hz and up | shipped | k = 3 (x8) | k = 4 (x16) |
+  |---|---|---|---|
+  | digdug | -16.5 dB | -10.6 (+5.9) | -8.2 (+8.3) |
+  | bassdrum2 | -10.8 dB | -0.5 (+10.3) | +3.2 (+14.0) |
+  | hallbrass (melody) | -1.3 dB | unchanged | unchanged |
+
+  The ratchet still settles on 5 in all three builds. The listening build's
+  load is ESTIMATED ~1 s slower on a 5150, two extra passes over every
+  sample; a shipping version folds both sums into the filter pass. Waiting
+  on the owner's ear: whether the bass line is back, whether the kick
+  clicks, and which k.
 - **The 86 against 108.** SPKBENCH's shaper loop runs at ~86 cycles a sample
   on a 5150 where Tracker's calibration of the same call reads ~108 (Ne =
   9,728 in four ticks); neither the source data nor the pre-emphasis explains
