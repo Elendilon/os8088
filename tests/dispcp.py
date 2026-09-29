@@ -110,8 +110,11 @@ def _cp_win(m, S):
     return None
 
 
-CP_IVID = 4                     # kernel/ctrl.inc: the Display page's RECORD
+CP_IVID = 3                     # kernel/ctrl.inc: the Display page's RECORD
 CP_ITHM = 5                     # ...and SPEC.md 76.4's Theme page
+CP_IDOCK = 6                    # ...and SPEC.md 31.13's Dock page - which is
+                                # NOT the last row since SPEC.md 31.14.2 put
+                                # Floppy there, so `[cp_nst] - 1` is not it
 
 
 # --- the Control Panel's own verbs, CONFIRMED --------------------------------

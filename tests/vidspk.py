@@ -96,7 +96,7 @@ def clip(tmp, secs, rate, spk=False, spkp=1):
 
 
 CP_I0Y, CP_IROWH, CP_RX, CP_PGX, CP_PR0Y = 6, 14, 96, 4, 26  # kernel/ctrl.inc
-CP_SOUND = 3                    # cp_items' record: sched, time, drivers, SOUND
+CP_SOUND = 4                    # cp_items' record: sched, time, drivers, display, SOUND
 
 
 def cp_speaker(m, ui, bad):

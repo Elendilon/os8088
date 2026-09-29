@@ -395,30 +395,31 @@ cp_items:
                                 ; them would move no resident byte and would
                                 ; put a %ifdef through the Sound page, which
                                 ; stays
-    dw cp_s_snd,   cp_snd_paint,   cp_snd_click,   0
     dw cp_s_vid,   cp_vid_paint,   cp_vid_click,   0
+    ; THE ORDER IS THE LIST'S, and it is grouped (SPEC.md 31.14.2): Sound,
+    ; Theme and Dock are how the machine looks and sounds, so they stand
+    ; together; Floppy is LAST, so the first DRIVER page - the hard disk's,
+    ; DRVC_DISK being the lowest class that publishes one - lands directly
+    ; under it and the two disk pages read as a pair
+    dw cp_s_snd,   cp_snd_paint,   cp_snd_click,   0
 %ifdef OS88_THEME
     dw cp_s_thm,   cp_thm_paint,   cp_thm_click,   0
 %endif
-%ifdef OS88_DRIVERS             ; SPEC.md 31.14: the page is SYSTEM.CFG's, and
-    dw cp_s_fdd,   cp_fdd_paint,   cp_fdd_click,   0   ; kern_small reads none.
-%endif                          ; ABOVE Dock, so Dock stays last
 %ifdef DOCK_OPT
-    dw cp_s_dock,  cp_dock_paint,  cp_dock_click,  0   ; SPEC.md 31.13 - LAST,
-                                ; so no record index above it moves
+    dw cp_s_dock,  cp_dock_paint,  cp_dock_click,  0   ; SPEC.md 31.13
+%endif
+%ifdef OS88_DRIVERS             ; SPEC.md 31.14: the page is SYSTEM.CFG's, and
+    dw cp_s_fdd,   cp_fdd_paint,   cp_fdd_click,   0   ; kern_small reads none
 %endif
 cp_items_end:
 CP_ITEMS  equ (cp_items_end - cp_items) / CP_ISTRIDE
 %if CP_ITEMS > 8
 %error "ctrl: [cp_hide] is one byte, so the static list stops at eight rows"
 %endif
-%ifdef DOCK_OPT
-CP_IDOCK  equ CP_ITEMS - 1      ; the Dock item: the last row on every build
-%endif
 CP_ITIME  equ 1                 ; the Date/Time item: ui.inc selects it by
                                 ; name when the menu bar clock is clicked
                                 ; (SPEC.md 12.1/31.5)
-; ...and the three below it SHIFT when the Drivers row is not there
+; ...and the ones below it SHIFT when the Drivers row is not there
 ; (SPEC.md 51.0). An index into cp_items is what [cp_sel] holds, so every
 ; number after the gap has to move with it - written out per arm rather than
 ; derived, because deriving it would hide exactly the fact that makes it
@@ -428,18 +429,21 @@ CP_ITIME  equ 1                 ; the Date/Time item: ui.inc selects it by
 CP_IDRV   equ 2                 ; ...and the Drivers item, which drv_notice
                                 ; opens the panel on when a driver did not
                                 ; load at boot (SPEC.md 51.3)
-CP_ISND   equ 3                 ; ...and Sound, the tone tier's route (34.8)
-%ifdef OS88_THEME
-CP_ITHM   equ 5                 ; ...and Theme (SPEC.md 76.4)
-%endif
-CP_IVID   equ 4                 ; ...and Display, the one row that is HIDDEN
+CP_IVID   equ 3                 ; ...and Display, the one row that is HIDDEN
                                 ; on a machine with a single adapter (SPEC.md
                                 ; 39.11.1). vid_probe_avail names it by this
                                 ; rather than by "the last one", which is what
                                 ; frees the order above
+CP_ISND   equ 4                 ; ...and Sound, the tone tier's route (34.8)
+%ifdef OS88_THEME
+CP_ITHM   equ 5                 ; ...and Theme (SPEC.md 76.4)
+%endif
+%ifdef DOCK_OPT
+CP_IDOCK  equ 6                 ; ...and Dock (SPEC.md 31.13)
+%endif
 %else
-CP_ISND   equ 2                 ; no Drivers row, so Sound, Display and Theme
-CP_IVID   equ 3                 ; each come up one (SPEC.md 51.0)
+CP_IVID   equ 2                 ; no Drivers row, so Display and Sound each
+CP_ISND   equ 3                 ; come up one (SPEC.md 51.0)
 %ifdef OS88_THEME
 CP_ITHM   equ 4
 %endif

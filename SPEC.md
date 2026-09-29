@@ -55257,21 +55257,27 @@ CP_ISTRIDE equ 8   ; 4th word = the dispatch class (§31.9): 0 = a kernel proc
 cp_items:  dw cp_s_sched, cp_sched_paint, cp_sched_click, 0
            dw cp_s_time,  cp_time_paint,  cp_time_click,  0   ; §31.5
            dw cp_s_drv,   cp_drv_paint,   cp_drv_click,   0   ; §31.6
-           dw cp_s_snd,   cp_snd_paint,   cp_snd_click,   0   ; §31.7
            dw cp_s_vid,   cp_vid_paint,   cp_vid_click,   0   ; §31.10
+           dw cp_s_snd,   cp_snd_paint,   cp_snd_click,   0   ; §31.7
            dw cp_s_thm,   cp_thm_paint,   cp_thm_click,   0   ; §76.4
-           dw cp_s_fdd,   cp_fdd_paint,   cp_fdd_click,   0   ; §31.14
            dw cp_s_dock,  cp_dock_paint,  cp_dock_click,  0   ; §31.13
+           dw cp_s_fdd,   cp_fdd_paint,   cp_fdd_click,   0   ; §31.14
 cp_items_end:
 CP_ITEMS   equ (cp_items_end - cp_items) / CP_ISTRIDE
 CP_ITIME   equ 1     ; the Date/Time item's index: §12.1 selects it by name
 CP_IDRV    equ 2     ; ...the Drivers item (§51.3's drv_notice opens it)
-CP_ISND    equ 3     ; ...and Sound (§34.8)
-CP_IVID    equ 4     ; ...and Display, the one row that is HIDDEN on a
+CP_IVID    equ 3     ; ...and Display, the one row that is HIDDEN on a
                      ; single-adapter machine (§39.11.1). It is named here
                      ; rather than found as "the last one", which is what
                      ; frees the order above (§31.10.1)
+CP_ISND    equ 4     ; ...and Sound (§34.8)
+CP_ITHM    equ 5     ; ...Theme (§76.4)
+CP_IDOCK   equ 6     ; ...and Dock (§31.13)
 ```
+
+That is kern_big's table, grouped by §31.14.2. kern_small has no Drivers,
+Theme, Dock or Floppy row, so it reads Scheduler, Date/Time, Display, Sound,
+with `CP_IVID` = 2 and `CP_ISND` = 3.
 
 **List names are at most 9 characters** (72px): the selection bar runs from
 CP_IBX1 to CP_IBX2 = 85 and the name starts at CP_IX = 6, so a tenth glyph
@@ -56994,6 +57000,23 @@ lettered by where it landed (§18.98: C: is the hard disk's, and a retired B:
 hands its row to unit 2), so `cp_fdltr` reads the letter off the unit's row
 when it has one and otherwise names the one `dsk_flop_add_x`'s order would give
 it — A:, B:, D:, E: on a machine that has not put something there first.
+
+#### 31.14.2 Where the row sits: last, so the hard disk's page is under it
+
+The static list is grouped rather than appended: Scheduler, Date/Time,
+Drivers, Display, then **Sound, Theme and Dock** together — how the machine
+sounds and looks — and **Floppy last**. Driver pages follow the static rows in
+class order (§31.9), and `DRVC_DISK` is the lowest class that publishes one
+(`DRVC_SOUND` publishes none), so when `HDD.DRV` is loaded its page is the row
+directly under Floppy and the two disk pages read as a pair. Without it,
+Floppy is simply the last row.
+
+Nothing keys on the order but the record constants, which moved with it:
+`CP_IVID` 4 → 3 and `CP_ISND` 3 → 4 (and 3 ↔ 2 on kern_small), and
+`CP_IDOCK` is a literal 6 now rather than `CP_ITEMS - 1`, Dock no longer being
+last. `[cp_sel]` is not saved, so no settings file changes meaning. The gates
+that found Dock as `[cp_nst] - 1` (`dockpos`, `dockmodule`, `fsxdisp`) open it
+by record instead, through `dispcp.open_panel(page=CP_IDOCK)`.
 
 #### 31.14.1 What it cost, measured
 
