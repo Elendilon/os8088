@@ -8504,6 +8504,15 @@ SOAK = [
         needs=("marty",),
         wants=("build/tracker.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin")),
+    Row("spkbench", "soak", py("tests/spkbench.py"), 20.0,
+        "SPEC.md 45.25.1: SPKBENCH, the field bench for what the PC speaker's "
+        "sample ISR costs a machine, runs on MartyPC's Hercules 5150: the "
+        "shaper timed shut and then playing at 4,800/5,512/8,000 Hz, every "
+        "share between 5% and 90% and rising with the rate, and the ten RAM "
+        "bank rows. It checks that the bench RAN; the numbers are the field "
+        "run's. Broken on purpose (os88spk_go taken out) it FAILS",
+        needs=("marty",),
+        wants=("build/spkbench360.img", "build/os8088-360.img")),
     Row("trkspkref", "soak", py("tests/trkspk.py", "--leg", "refuse"),
         20.0,
         "SPEC.md 45.25: the refusal, on a Tracker assembled with a 50% ceiling "
