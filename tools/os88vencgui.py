@@ -149,13 +149,15 @@ def _sound(kind, what):
 
 def _shaping(c):
     return _sound("speaker", "the PC speaker")(c) or (
-        None if c["spk_shape"] == "on" else
-        "These shape the sound for the speaker here, and Spk shape is "
-        "pass-through: the file is a plain 8-bit WAV at the rate, and Audio "
-        "shapes it itself as it plays. Turn Spk shape on to use them."
-        if c["spk_shape"] == V.SPK_PASS else
-        "These shape the sound for the speaker, and Spk shape is off: the "
-        "sound goes on the speaker as it is. Turn Spk shape on to use them.")
+        None if c["spk_shape"] == V.SPK_ENC else
+        "These shape the sound for the speaker in the encoder, and Spk "
+        "shape is machine: the file is a plain 8-bit WAV at the rate, and "
+        "Audio shapes it itself as it plays. Set Spk shape to encoder to "
+        "use them."
+        if c["spk_shape"] == V.SPK_MACH else
+        "These shape the sound for the speaker, and Spk shape is none: the "
+        "sound goes on the speaker as it is. Set Spk shape to encoder to "
+        "use them.")
 
 
 def _pixel_kept(c):
@@ -417,7 +419,7 @@ def form_context(values):
                 text_colour=g("text_colour") or imp.get("text_colour") or
                 "colour",
                 comp_dither=g("comp_dither") or "diffuse",
-                spk_shape=g("spk_shape") or "on", aim=g("aim") or "asked",
+                spk_shape=g("spk_shape") or V.SPK_ENC, aim=g("aim") or "asked",
                 live=g("live"))
 
 

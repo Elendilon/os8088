@@ -8492,7 +8492,7 @@ SOAK = [
     Row("vidspkshape", "soak", py("tests/vidspkshape.py"), 2.0,
         "SPEC.md 98.2.15.1: a speaker clip's sound SHAPED for the speaker, on "
         "the host - a loud 60 Hz bass and a quiet 880 Hz line through "
-        "os88venc --audio speaker with --spk-shape on and off: the line at "
+        "os88venc --audio speaker with --spk-shape encoder and none: the line at "
         "least 25 dB up and the bass 25 dB down, read off the counts in the "
         "file; and os88vid speaker doing the same to the unshaped file after "
         "the fact, no byte outside the frame records' sound changed, the "

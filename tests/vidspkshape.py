@@ -7,9 +7,9 @@ bass the cone cannot move, and on the owner's 5150 that left the song 23-28
 dB under the carrier's whine: loud, and nothing but the whine. This row
 makes a clip of a loud 60 Hz bass and a quiet 880 Hz line and asserts:
 
-  1. `os88venc --audio speaker` (shaping on, the default) puts the line at
+  1. `os88venc --audio speaker` (shaped in the encoder, the default) puts the line at
      least 25 dB higher and the bass at least 20 dB lower than
-     `--spk-shape off` does, measured off the counts in the file;
+     `--spk-shape none` does, measured off the counts in the file;
   2. `os88vid speaker` on the unshaped file does the same after the fact,
      changes no byte outside the frame records' sound but the stored
      options (98.1.1.4) - which must now READ the shaping it did - and
@@ -68,12 +68,12 @@ def main():
              "[b][m]amix=inputs=2:normalize=0[a]", "-map", "0:v", "-map",
              "[a]", "-c:v", "libx264", "-c:a", "aac", src], check=True)
         out = {}
-        for sh in ("on", "off"):
+        for sh, arg in (("on", "encoder"), ("off", "none")):
             out[sh] = os.path.join(tmp, "t_%s.v88" % sh)
             subprocess.run(
                 [sys.executable, os.path.join(ROOT, "tools", "os88venc.py"),
                  src, out[sh], "--preset", "herc", "--box", "160x58",
-                 "--audio", "speaker", "--fps", "5", "--spk-shape", sh,
+                 "--audio", "speaker", "--fps", "5", "--spk-shape", arg,
                  "--quiet"], check=True)
         on, off = levels(out["on"]), levels(out["off"])
         print("   1: encoded - bass %.1f -> %.1f dB, line %.1f -> %.1f dB"
@@ -117,7 +117,7 @@ def main():
         o = rb.options()["o"] if rb.optsat else {}
         print("   2: the stored options say shaped %s, high-pass %s"
               % (o.get("spk_shape"), o.get("spk_highpass")))
-        if o.get("spk_shape") != "on" or o.get("spk_style") != vid.SPK_STYLE:
+        if o.get("spk_shape") != "encoder" or o.get("spk_style") != vid.SPK_STYLE:
             bad.append("2: the stored options do not say the sound was "
                        "shaped: %s" % {k: o.get(k) for k in (
                            "spk_shape", "spk_style")})

@@ -119209,24 +119209,30 @@ budget option are the video's and are ignored or refused. There was briefly
 a second tool for this (`os88spkfx.py shape`); it called the encoder's
 shaping with its defaults, could not take a style, and is gone.
 
-**`--spk-shape` takes THREE values for a `.WAV`**, and they are three
-different files:
-- **`on`** (the default): shaped here, stored as kind 2 - the file above.
-- **`off`**: the wave as it is, still stored as kind 2. Audio COPIES counts,
+**`--spk-shape` says WHERE the sound is shaped**, and for a `.WAV` its three
+values are three different files:
+- **`encoder`** (the default): shaped here, stored as kind 2 - the file above.
+- **`machine`**: a PLAIN 8-bit mono WAV at the rate, with NO `o8sp` chunk -
+  the encoder does the resample and the bit depth (a 16-bit 44.1 kHz source
+  becomes 8-bit 8 kHz) and nothing else, so Audio shapes it on the machine
+  as it would any WAV (§86.21, §34.11.9). `--spk-preview` on this mode is
+  `os88spkfx.Shaper`, the machine's shaper to the byte, so what it previews
+  is what Audio will play.
+- **`none`**: the wave as it is, still stored as kind 2. Audio COPIES counts,
   so nothing shapes it anywhere and it plays under the carrier's whine
   (§98.2.15.1's 25-30 dB) - the A/B for the shaping, and not a file to
   listen to.
-- **`pass-through`**: a PLAIN 8-bit mono WAV at the rate, with NO `o8sp`
-  chunk - the encoder does the resample and the bit depth (a 16-bit
-  44.1 kHz source becomes 8-bit 8 kHz) and nothing else, so Audio shapes it
-  on the machine as it would any WAV (§86.21, §34.11.9). `--spk-preview`
-  on this mode is `os88spkfx.Shaper`, the machine's shaper to the byte, so
-  what it previews is what Audio will play.
 
-`pass-through` is a WAV's alone: a `.V88` given it is refused, pointing at
+`machine` is a WAV's alone: a `.V88` given it is refused, pointing at
 `--audio pcm8`, which the Video Player shapes for the speaker itself. The
-third choice moved the options record to version 2 (§98.2.17) with an empty
-migration - a version-1 record's `on` and `off` mean what they meant.
+values were `on` and `off` until options version 2 (§98.2.17), whose
+migration reads a version-1 record's `on` as `encoder` and `off` as `none`.
+
+**Kind 1 has no writer and no mode**: `machine` hands Audio the whole of the
+shaping and `encoder` the whole of it to the host, and a file shaped here and
+levelled there buys nothing either does not - kind 2 already plays on a card
+as the samples it came from. Audio still reads kind 1 for the files and the
+gate that have it.
 
 **On a CARD a counts file plays as the samples it came from.** Audio notices
 the chunk on the card path too, builds `ap_cinv` - the inverse of the count
@@ -153547,7 +153553,7 @@ targeting a pc speaker"*). Each group carries a rule, read off what the form
 makes (`form_context`: the pixel format and layout the preset, format,
 layout and Live choice come to, and the sound): the CGA 4-colour group is
 CGA4's, the speaker's two need `--audio speaker` (and the shaping one
-`--spk-shape on`), *Aim: size* needs `--aim size`. The rules are the
+`--spk-shape encoder`), *Aim: size* needs `--aim size`. The rules are the
 ENCODER's own reading of each option, which is not always its tab: `--stable`
 is read by the one-bit dither AND the composite pattern dither, and
 `--vga4-stable` by every 4- and 16-colour format, so each is a group of its
@@ -154194,9 +154200,10 @@ goes red with them put on the command line.
 A synthetic clip of a loud 60 Hz bass and a quiet 880 Hz line measures it
 the other way round: the line −43.0 dB → −5.4 dB of full scale, the bass
 −21.9 → −65.8 under `lifted`, and −4.6 and −63.2 under `natural`
-(`tests/vidspkshape.py`). `--spk-shape off` takes the sound as it is, which is what every
-speaker file before this was. (A third value, `pass-through`, is a speaker
-WAV's alone and a `.V88` refuses it - §86.21.1.)
+(`tests/vidspkshape.py`). `--spk-shape none` (`off` before options
+version 2) takes the sound as it is, which is what every speaker file
+before this was. (A third value, `machine`, is a speaker WAV's alone and a
+`.V88` refuses it - §86.21.1.)
 
 **A file already made is shaped after the fact** by `os88vid.py speaker IN
 OUT [--highpass HZ] [--drive D] [--lows L] [--ratio R] [--range DB]`: each

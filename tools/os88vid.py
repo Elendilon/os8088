@@ -2750,7 +2750,7 @@ def spk_reshape(src, dst, hp=SPK_HP, drive=SPK_DRIVE, lows=SPK_LOWS,
             L, off, m = r.loop[:3]
             d[off + m - ab:off + m] = new[L * ab:(L + 1) * ab]
     _reshape_options(d, Reader(src), dict(
-        spk_shape="on", spk_style=style or SPK_STYLE, spk_highpass=hp,
+        spk_shape="encoder", spk_style=style or SPK_STYLE, spk_highpass=hp,
         spk_drive=drive, spk_lows=lows, spk_range=rng, spk_ratio=ratio,
         spk_idle=idle))
     with open(dst, "wb") as f:
