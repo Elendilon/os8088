@@ -59085,6 +59085,31 @@ and a play starts as if it were), and `tools/os88spkfx.py` carries the same
 rule, so `tests/spkfx.py` stays EXACT; with the jump taken out of the asm
 alone all five of its legs fail.
 
+**A span's level is asked by the largest peak of it and the two spans before
+it** - a peak HOLD of ~64 ms at 8,000 Hz. Deciding a level once a span from
+that span's own peak ducked the WHOLE span for a hit anywhere in it, notes
+before the hit included, and then climbed back a step a span, so a busy song
+pumped between its beats: the owner heard it on the T1100 Plus, after the
+silence fix, as ~50 ms "microdropouts" that a Sound Blaster does not have.
+Measured by capturing every span Tracker mixed on MartyPC's 8,000 Hz XT (40
+s each, zero dry grants, so not the ring) and running `tools/os88spkfx.py`
+over them, which reproduces the machine's output exactly:
+
+| song | | level travel | dips of 4 dB+ below both sides | mean level | at the curve's end |
+|---|---|---|---|---|---|
+| ELYSIUM.MOD | without the hold | 62.0 dB/s | 97 | 6.12 | 6.3% |
+| | with it | 31.4 dB/s | 9 | 5.37 | 3.6% |
+| BEVERLY.MOD | without | 87.7 dB/s | 162 | 5.38 | 4.6% |
+| | with | 55.2 dB/s | 38 | 4.57 | 2.9% |
+
+What it costs is ~1.5 dB of average loudness (a loud hit keeps the level down
+two spans longer) and ~40 bytes and a dozen instructions a span in each
+package that carries the shaper; nothing resident. Faster release and a
+tolerance before falling were both measured and both WORSE on every column.
+The carrier's target is still set by the span's own peak. `os88spkfx_pk1` and
+`os88spkfx_pk2` are the two held peaks; with the hold taken out of the asm
+alone `tests/spkfx.py` fails on all five legs.
+
 **What it costs, measured** on MartyPC's 4.77 MHz 5150 (`tests/spkfx.py`,
 emit plus the span's level, interrupts included): **~104 cycles a sample**
 with the pre-emphasis and the carrier moving, **~84** while the carrier sits

@@ -61,6 +61,8 @@ PFULL = 96                      # ...a "loud" peak, in index units (of 128)
 PGATE = 3                       # a block peaking under this is SILENCE
 SPARSE = 32                     # the peak is read one sample in this many
 SUB = 16                        # samples a sub-block: d moves once a sub-block
+HOLD = 2                        # a span's level is asked by the largest peak
+                                # of it and the HOLD spans before it (34.11.9)
 D_UP, D_DOWN = 1, 8             # ...by at most this many counts
 PRE_NONE, PRE_DIFF = 0, 1
 
@@ -147,6 +149,7 @@ class Shaper(object):
         self.c0 = self.fam[0][128]
         self.lev = 0
         self.gate = True                        # a play starts as after silence
+        self.held = [0] * HOLD                  # the last HOLD spans' peaks
         self.d = self.c0 - 1 if idle else 0     # the carrier starts away
         self.h = self.d
         self.sub = 0
@@ -162,16 +165,18 @@ class Shaper(object):
 
     def level(self, xs):
         """the span's peak, one sample in SPARSE from its first, of the
-        index the table is read at; the level it asks for (a rise of one
-        step a span at most, a fall at once - and after a SILENT span, the
-        level it asks for at once: nothing to step from); and the carrier's
-        target"""
+        index the table is read at; the level the largest of it and the
+        last HOLD spans' peaks asks for (a rise of one step a span at most, a
+        fall at once - and after a SILENT span, the level it asks for at once:
+        nothing to step from); and the carrier's target, from this span's own
+        peak"""
         p, prev = 0, self.prev
         for j in range(0, len(xs), SPARSE):
             a = abs(self.index(xs[j], xs[j - 1] if j else prev) - 128)
             if a > p:
                 p = a
-        want = self.lt[p]
+        want = self.lt[max([p] + self.held) if p >= PGATE else p]
+        self.held = [p] + self.held[:-1]
         self.lev = (self.lev + 1 if want > self.lev and not self.gate
                     else want)
         self.gate = p < PGATE
