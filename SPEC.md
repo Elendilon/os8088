@@ -76378,11 +76378,10 @@ play (`Rate: 5512 Hz at the next Play`). On the owner's 286 (16 MHz) Auto
 opens at 22,050 Hz predicting 93% and holds it with the spectrum at full
 speed - the same across two reboots and a dozen opens of both modules. One
 earlier session opened at 16,000 predicting 75%, which is 22,050 at 101.5%,
-just over `TSP_PCTMAX`: the prediction is `R x (44/Nm + TSP_CS/Ne) + 5`, and
-`Nm` is benched with the playback settings of the moment - XT mode (45.9)
-mixes straight into the output buffer with no zeroing or conversion pass -
-so a machine this close to the line may open a rung apart under different
-settings, which is correct, the play mixing the same way the bench did.
+just over `TSP_PCTMAX` (the prediction is `R x (44/Nm + TSP_CS/Ne) + 5`,
+both benches taken once a session, in the first play's first ~0.7 s). Why
+that session's bench read 9% slow is not known and has not recurred; a
+machine this close to the line opens a rung apart on a small difference.
 
 `tests/trkspk.py --leg rate` (`soak -k trkspkrate`) and `--leg level`
 (`soak -k trkspklevel`) are the gates.

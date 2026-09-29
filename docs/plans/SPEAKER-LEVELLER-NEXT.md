@@ -174,11 +174,13 @@ loses is a `git revert`.
   needed a per-tier constant. The owner then found build 07bc18e opening at
   22,050 predicting 93% and holding it with the spectrum on, the same across
   two reboots and a dozen opens of both modules, and called it right. The
-  prediction is `R x (44/Nm + TSP_CS/Ne) + 5`, and `Nm` is benched with the
-  playback settings of the moment - XT mode (SPEC.md 45.9) mixes straight
-  into the output buffer with no zeroing or conversion pass - so a machine
-  that close to the line can open a rung apart under different settings.
-  Nothing to fix; the Rate menu covers a pick the user disagrees with.
+  prediction is `R x (44/Nm + TSP_CS/Ne) + 5`, both benches taken once a
+  session in the first play's first ~0.7 s, so a machine that close to the
+  line opens a rung apart on a 9% difference. WHY that session read 9% slow
+  is not known (XT mode is not it: the owner never plays a 286 in it). If a
+  build opens at 16,000 again, note the percentage the status line gives,
+  the module played first that session, and anything the machine was doing
+  in that first second - the bench shares it with whatever else is running.
 - **The carrier's whine against the level.** On the 5150, levels 7 to 10
   weaken the whine: the louder the level, the more of the time the pulse
   sits near an extreme, where the carrier is weak. Moving the carrier's
