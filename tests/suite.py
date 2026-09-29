@@ -8455,7 +8455,8 @@ SOAK = [
         "SPEC.md 86.21: Audio with no card plays through the PC speaker in its "
         "own bracket, on MartyPC's card-less Hercules 5150 with a fixed disk - "
         "six WAVs (8 kHz PCM8; 22,050 Hz boxed to 7,350; 11,025 stepped to "
-        "8,000; IMA ADPCM; a file shaped on the host; a file of counts), each "
+        "8,000; IMA ADPCM; a file shaped on the host; a file of counts the "
+        "ENCODER made, os88venc.py IN OUT.WAV - SPEC.md 86.21.1), each "
         "double-clicked and played to the list's end on its own. 800 port-42h "
         "writes a leg against tools/os88spkfx.py's plan, resampler and shaper, "
         "EXACT from the first pulse; the lost share; the ring never dry once "
@@ -8471,6 +8472,15 @@ SOAK = [
         "the stream opened once, the list played to its end, the speaker's "
         "door never touched. The only row that plays Audio on a card at all",
         needs=("marty",),
+        wants=("build/audio.o88", "build/sound.drv", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin")),
+    Row("apspkcardc", "soak", py("tests/apspk.py", "--cardcounts"), 20.0,
+        "SPEC.md 86.21.1: a speaker WAV made by the ENCODER (os88venc.py IN "
+        "OUT.WAV, the o8sp counts) played on a Sound Blaster - the first half "
+        "staged to the card is the file's counts turned back into samples "
+        "through ap_cinv, byte for byte, and the speaker's door never opened. "
+        "With the conversion skipped it FAILS, 2,019 of 2,048 wrong",
+        needs=("marty", "ffmpeg"),
         wants=("build/audio.o88", "build/sound.drv", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin")),
     Row("apspkpause", "soak", py("tests/apspk.py", "--pause"), 20.0,

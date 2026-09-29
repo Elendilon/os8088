@@ -64,6 +64,12 @@ LOSSN = 3000        # ...and traced for the lost share: the first 800 alone
                     # shifted a few hundred bytes, and exactly 121 of ~3,140
                     # periods (3.85%) both times
 LOSS = 0.04         # the pulses a play may lose to IF = 0 (SPEC.md 34.11)
+LOSS2 = 0.05        # ...at TWO pulses a sample, whose periods are half as
+                    # long, so the same stretches at IF = 0 cost a larger
+                    # share: one pulse measures 2.3-3.0% and two 3.7-4.2%
+                    # across kernel layouts (2026-09-29), the stretches being
+                    # the kernel's (74 of 117 lost right after dskw_nbody's
+                    # read, 20 after the keyboard's) and not the player's
 MACHINE = "os8088_5150_herc_hdd_gla"
 MACHINE_SB = "os8088_5150_herc_hdd_sb_gla"     # the owner's 5150's shape
 TEMPLATE = "build/martypc/run/media/hdds/default_xtide.vhd"
@@ -461,7 +467,8 @@ def main():
                 # (not after M in the full screen: its 800 pulses are the
                 # first after a seek, the ring being read again from the
                 # disk while they play - 15.4% measured, SPEC.md 98.3.17)
-                if lost > LOSS * edges and not fast and not a.fs_on:
+                if lost > (LOSS2 if a.pulses > 1 else LOSS) * edges \
+                        and not fast and not a.fs_on:
                     bad.append("3: %.1f%% of the pulses were lost"
                                % (100.0 * lost / edges))
             if a.fs_on:                     # M: OPENED THERE, in step

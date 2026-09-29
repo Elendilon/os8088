@@ -610,6 +610,10 @@ ap_prep_track:
 ap_open_card:
     call ap_grant_ring
     jc .nomem
+    cmp byte [apw_spk], 2           ; A FILE OF SPEAKER COUNTS on a card:
+    jne .samples                    ; played as the samples they came from
+    call ap_cinv_build              ; (SPEC.md 86.21.1)
+.samples:
     ; --- pre-roll [ap_preroll] halves straight into the grant ------------
     mov cx, [ap_preroll]
 .pre:
@@ -673,6 +677,57 @@ ap_open_card:
     ret
 
 ; =============================================================================
+; ap_cinv_build - ap_cinv[c] = the sample a speaker count c came from: the
+; inverse of 34.11.2's t[s] = 1 + s(N-2)/255 at this file's rate, N =
+; 1,193,182 / rate - s = ((c - 1) x 255 + (N - 2) / 2) / (N - 2), clamped.
+; A counts file (86.21.1) on a CARD is then the shaped sound it was made
+; from, rather than a quiet wave sitting off the centre. preserves all
+; =============================================================================
+ap_cinv_build:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov ax, 0x34DE                  ; 1,193,182
+    mov dx, 0x0012
+    div word [ap_rate]              ; AX = N (a rate of 4,679 or more: a word)
+    sub ax, 2
+    mov bx, ax                      ; BX = N - 2
+    mov si, ax
+    shr si, 1                       ; SI = (N - 2) / 2, the rounding
+    mov di, ap_cinv
+    xor cx, cx
+.c:
+    mov ax, cx
+    dec ax                          ; c - 1 (count 0 is below the table)
+    jns .p
+    xor ax, ax
+.p:
+    mov dx, 255
+    mul dx
+    add ax, si
+    adc dx, 0
+    div bx
+    or ah, ah
+    jz .s
+    mov al, 255
+.s:
+    mov [di], al
+    inc di
+    inc cx
+    cmp cx, 256
+    jb .c
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; =============================================================================
 ; ap_stage_half - decode one 2048-byte half and stage it into the SND ring
 ;                 grant at (ap_total & ap_rmask); advance ap_total by 2048.
 ;                 Silence-pads a short final half and sets ap_lasthalf.
@@ -701,6 +756,26 @@ ap_stage_half:
     mov cx, AP_HALF
     call apd_pull                 ; AX = PCM8 bytes produced into apd_out
     mov bx, ax
+    cmp byte [apw_spk], 2         ; speaker COUNTS: back to samples, before
+    jne .pcm                      ; the end's pad of silence, which is one
+    push ax                       ; (SPEC.md 86.21.1)
+    push bx
+    push si
+    mov cx, ax
+    mov si, apd_out
+    mov bx, ap_cinv
+    jcxz .cvd
+.cv:
+    mov al, [si]
+    xlatb
+    mov [si], al
+    inc si
+    loop .cv
+.cvd:
+    pop si
+    pop bx
+    pop ax
+.pcm:
     xor dl, dl                    ; DL = "last half" flag
     cmp bx, AP_HALF
     jae .full

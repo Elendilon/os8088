@@ -177,6 +177,17 @@ def groups_leg():
         if (flag in G.argv_from("in.mp4", "o.V88", v, 30.0)) != on:
             offs.append("%s %s on %s" % (flag, "missing" if on else
                                          "left on", pre))
+    # A SPEAKER WAV (86.21.1): every target's form, saved as a .WAV, has
+    # only the sound's groups left and no --audio on its command line
+    for i, t in enumerate(G.TARGETS):
+        v = G.form_start()
+        v.update(G.target_fill(i, 30.0))
+        gs, fs = G.group_state(dict(v, _out="o.WAV"))
+        on = sorted(h for h, why in gs.items() if why is None)
+        if on != sorted(G.WAV_KEEP):
+            wrong.append("%s as a WAV: %s apply" % (t[0], on))
+        if "--audio" in G.argv_from("in.mp4", "o.WAV", v, 30.0):
+            offs.append("--audio on a WAV from %s" % t[0])
     print("   14: %d groups, %d options in none (on Advanced), %d targets: "
           "%d wrong, %d command lines wrong"
           % (len(G.GROUPS), len(loose), len(G.TARGETS), len(wrong),

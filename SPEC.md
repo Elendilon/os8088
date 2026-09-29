@@ -118325,7 +118325,7 @@ resampler and shaper - every leg EXACT from its first pulse):
 | PCM8, 11,025 | 8,000 stepped, then a rung down | 2.0% | kept, after one fall |
 | PCM8, 22,050 | 7,350 (a box of 3), then down to 4,800 | 1.7% | behind at every rung: 22 KB/s off MartyPC's XT-IDE, whose every byte the CPU copies (§98.2.15.5), and it plays on |
 | IMA ADPCM, 11,025 | 5,512 stepped, then 4,800 | 1.5% | kept at 4,800 |
-| shaped / counts (`os88spkfx.py shape`) | 8,000 | 2.0% | 5.16 s |
+| shaped / counts (§86.21.1) | 8,000 | 2.0% | 5.16 s |
 
 What the 4.77 MHz 8088 has left beside 8 kHz of pulses is ~25% of itself,
 and those rows are what it buys. **The owner's 5150 moves its sectors by DMA**
@@ -118340,6 +118340,56 @@ holds Space, the resume from the sample it stopped on, and Esc.
 17 KB ring claimed at the first speaker play and kept for the instance. That
 took the 360 KB apps disk past its last cluster; §24.6.1's decision made for
 it is in the Makefile's `APPS_GAMES_360`.
+
+### 86.21.1 A WAV made for the speaker: the encoder's `.WAV` target
+
+A WAV can carry one more chunk, `o8sp` = `<u8 kind><u8 pulses><u16 N>`,
+which every other player skips as RIFF allows:
+- **kind 2, COUNTS**: the data are the speaker's counts themselves (§34.11.2's
+  table already applied). On the speaker Audio COPIES them into the ring - no
+  resampling, no decode, no shaper - so the per-sample cost is the pulse and
+  a byte's copy. They play 1:1 or not at all: the file's rate must be at or
+  under the rung Audio starts on (8,000 Hz on an 8088).
+- **kind 1, SHAPED**: PCM8 already shaped on the host; Audio runs §34.11.9's
+  shaper without its pre-emphasis. Nothing in the tree writes one now; Audio
+  keeps reading it, and `tests/apspk.py` keeps it working.
+
+**THE ENCODER MAKES THEM** - `os88venc.py IN OUT.WAV`, an output named
+`.WAV`, or the window's Save as a speaker WAV (§98.2.8). It is the sound of
+any source ffmpeg reads, alone, through the SAME body a speaker `.V88`'s
+sound goes through (`speaker_pcm`: the style, the high-pass, the leveller's
+ratio and range, the drive, the lows, the idle slide - §98.2.15.1), stored as
+kind 2. The rate is 8,000 Hz unless asked, 4,679 to 8,000 on an 8088 profile
+and to 24,858 on a 286 one; `--spk-pulses` and every picture, colour and
+budget option are the video's and are ignored or refused. There was briefly
+a second tool for this (`os88spkfx.py shape`); it called the encoder's
+shaping with its defaults, could not take a style, and is gone.
+
+**On a CARD a counts file plays as the samples it came from.** Audio notices
+the chunk on the card path too, builds `ap_cinv` - the inverse of the count
+table at the file's rate, `s = ((c - 1) x 255 + (N - 2) / 2) / (N - 2)` - when
+the stream opens, and turns each decoded half back before the end's pad of
+silence (which is a sample already). Without it a counts file on a Sound
+Blaster was a quiet wave sitting off the centre. It is 60 bytes of code and
+256 of bss.
+
+**What it earns**, the file being made on a machine with the time for it:
+- **the machine's shaper and resampler are skipped**: ~104 cycles a sample
+  (§34.11.9) and the box or step (§86.21) - at 8,000 Hz on a 4.77 MHz 8088
+  about 17 points of the machine, plus the resampling;
+- **sources that fall behind live play at 8,000 Hz**: a 22,050 Hz file came
+  down to 4,800 Hz on MartyPC's XT-IDE and IMA ADPCM starts an 8088 at 5,512,
+  where their counts are 8 KB a second read and copied;
+- **the encoder's shaping**: floating point, a look-ahead limiter and the
+  owner's styles, where the machine has an integer approximation.
+
+What it costs is the disk: a byte a sample, 8 KB a second, so a 360 KB
+floppy holds ~45 s.
+
+`tests/apspk.py` is the gate: its `counts` leg plays an encoder-made file on
+the speaker exact against the file (row `apspk`), and `--cardcounts` (row
+`apspkcardc`) checks the first half staged to a Sound Blaster is the file's
+counts mapped back, byte for byte.
 
 ## 87. Hibernate — the machine to a file on the hard disk, and back (`kernel/hiber.inc`, `HIBER.DRV`)
 
@@ -152670,6 +152720,14 @@ apply to the speaker target alone; and a greyed option stays off the
 command line (`--cga-palette` on the speaker target, `--flip` on 13h,
 `--spk-pulses` on CGA4) while the same option on its own target is on
 it. With every group answering "applies" the leg FAILS on all sixteen.
+
+**Save as has a second type, a speaker WAV for Audio** (§86.21.1). An output
+named `.WAV` is the sound alone, so every group but Made for, The clip,
+Sound and the two PC speaker groups is greyed with that reason, `--audio` is
+left off (the sound IS the speaker's), and a finished WAV skips the frame
+preview and the disk. Leg 14 holds it: every target's form saved as a
+`.WAV` has exactly those five groups applying and no `--audio` on its
+command line.
 
 
 #### 98.2.9 The pre-roll: the first picture is whole before the keyframes start

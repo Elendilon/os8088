@@ -4,7 +4,6 @@
     python3 tools/os88spkfx.py counts IN.WAV OUT.RAW [--rate R] [--preemph M]
     python3 tools/os88spkfx.py preview IN.WAV OUT.WAV [--rate R] [--host]
     python3 tools/os88spkfx.py bands IN.WAV [--rate R]
-    python3 tools/os88spkfx.py shape IN.WAV OUT.WAV [--rate R] [--counts]
     python3 tools/os88spkfx.py gen OUT.INC
     python3 tools/os88spkfx.py --selfcheck
 
@@ -308,36 +307,19 @@ def load(path, rate=None, at=False):
 
 
 # --------------------------------------------------------------------------
-# a WAV already shaped on the host: Audio copies it (SPEC.md 86)
+# a WAV made for the speaker on the host: Audio copies it (SPEC.md 86.21.1).
+# The ENCODER makes them - `os88venc.py IN OUT.WAV`, the same shaping and
+# options a speaker .V88 gets - and the format is os88vid's; these names are
+# what the gates spell it with
 # --------------------------------------------------------------------------
-SPK_CHUNK = b"o8sp"             # RIFF chunk: <u8 kind><u8 pulses><u16 N>
 SPK_SHAPED, SPK_COUNTS = 1, 2   # shaped PCM8 / the speaker's counts themselves
 
 
 def write_wav(path, rate, data, kind=0, n=0):
-    extra = b""
-    if kind:
-        extra = SPK_CHUNK + struct.pack("<IBBH", 4, kind, 1, n)
-    body = (b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, 1, rate, rate, 1, 8)
-            + extra + b"data" + struct.pack("<I", len(data)) + data
-            + (b"\0" if len(data) & 1 else b""))
-    with open(path, "wb") as f:
-        f.write(b"RIFF" + struct.pack("<I", len(body)) + body)
-
-
-def cmd_shape(a):
+    """os88vid.write_spk_wav, which is the format (`n` is implied by the
+    rate: it is kept for the callers that pass it)"""
     import os88vid
-    src, xs = os88vid.read_wav(a.src)
-    r = a.rate or plan_rate(src)[0]
-    _, xs = load(a.src, r)
-    sh = bytes(os88vid.spk_shape(xs, r))
-    if a.counts:
-        write_wav(a.out, r, sh.translate(bytes(count_table(spk_n(r)))),
-                  SPK_COUNTS, spk_n(r))
-    else:
-        write_wav(a.out, r, sh, SPK_SHAPED, spk_n(r))
-    print("os88spkfx: %s: %d Hz, %.1f s, shaped for the speaker%s"
-          % (a.out, r, len(sh) / float(r), " (counts)" if a.counts else ""))
+    os88vid.write_spk_wav(path, rate, data, kind)
 
 
 def cmd_counts(a):
@@ -426,7 +408,7 @@ def main():
     ap.add_argument("--selfcheck", action="store_true")
     sub = ap.add_subparsers(dest="cmd")
     for name, fn in (("counts", cmd_counts), ("preview", cmd_preview),
-                     ("bands", cmd_bands), ("shape", cmd_shape)):
+                     ("bands", cmd_bands)):
         p = sub.add_parser(name)
         p.add_argument("src")
         if name != "bands":
@@ -439,7 +421,6 @@ def main():
         p.add_argument("--noidle", action="store_true")
         p.add_argument("--host", action="store_true")
         p.add_argument("--raw", action="store_true")
-        p.add_argument("--counts", action="store_true")
         p.set_defaults(fn=fn)
     g = sub.add_parser("gen")
     g.add_argument("out")
