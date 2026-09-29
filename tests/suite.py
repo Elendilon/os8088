@@ -8598,13 +8598,25 @@ SOAK = [
         "run's. Broken on purpose (os88spk_go taken out) it FAILS",
         needs=("marty",),
         wants=("build/spkbench360.img", "build/os8088-360.img")),
-    Row("trkspkrate", "soak", py("tests/trkspk.py", "--leg", "rate"), 60.0,
-        "SPEC.md 45.25.2: with NO card the speaker's rate is the bench's to "
-        "pick, so the Rate menu is ONE greyed row ('Speaker (auto)') and R, "
-        "paused, changes nothing and says why; on the Sound Blaster 5150 the "
-        "menu offers the card's rates and R moves the pick. Without "
-        "trk_spkq in trk_menus_build the speaker's menu offers card rates and "
-        "it FAILS",
+    Row("trkspkrate", "soak", py("tests/trkspk.py", "--leg", "rate"), 45.0,
+        "SPEC.md 45.25.3: with NO card the Rate menu is Auto and this "
+        "machine's speaker rungs, each with the load the calibration "
+        "predicts, and R (paused) picks one that the NEXT play takes - 5512 "
+        "where auto takes 4800 on a 5150; on the Sound Blaster 5150 the menu "
+        "offers the card's rates and R moves the pick. With tsp_pick "
+        "ignoring tsp_rsel the next play is 4800 again and it FAILS",
+        needs=("marty",),
+        wants=("build/tracker.o88", "build/sound.drv", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin")),
+    Row("trkspklevel", "soak", py("tests/trkspk.py", "--leg", "level"), 55.0,
+        "SPEC.md 45.25.3: with NO card the volume bar is the speaker's LEVEL "
+        "- auto picks it with the ratchet on, + in the play makes it the "
+        "user's (a step up, frozen, and said), a pause and a resume keep it; "
+        "in the play a press on the groove pauses (the arrow is off the "
+        "screen there), and paused a drag to its left end sets level 0, "
+        "which the resumed play takes; with a card - is still the master "
+        "volume. With tw_dragto's speaker branch skipping tsp_lvset the "
+        "drag sets nothing and it FAILS",
         needs=("marty",),
         wants=("build/tracker.o88", "build/sound.drv", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin")),

@@ -86,7 +86,18 @@ for any change here.
 1. **A static gain for Tracker, from a pre-pass at load. THE NEXT
    EXPERIMENT** (the owner, 2026-09-29: "the problem are all the changes and
    the fading of things that shouldn't change, so this seems like it has
-   promise"). Tracker is the one
+   promise").
+
+   **FIRST CUT BUILT, as a RATCHET rather than a pre-pass** (SPEC.md
+   34.11.9.1, `TSP_RATCHET`): the level starts at `TSP_LSTART` = 8 and only
+   ever steps down, for a span that overdrives it by more than 3 levels, so
+   it finds the song's loud parts in its first seconds and then holds -
+   ELYSIUM settles on 6 in 1.5 s, BEVERLY on 5 in 2.4 s. No pattern walk is
+   needed, and a song whose loudest part comes late steps down once when it
+   arrives. The pre-pass below is still the way to remove even that one step
+   and the too-loud opening a quiet intro gets at 8; it is the next cut if the
+   ear asks for it. `TSP_RATCHET=0` builds the per-span leveller back for the
+   A/B. Tracker is the one
    player that knows its whole piece in advance: the patterns say which
    sample plays at which volume, and every sample's peak is known once the
    module is loaded (`tsp_natural` already walks them). A pass over the

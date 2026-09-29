@@ -59182,6 +59182,51 @@ filter - natural back to this tilt - before the rate, so a machine that
 cannot hold it loses the lows it gained and not the sound (the owner, on
 reading these numbers).
 
+#### 34.11.9.1 The ratchet: one level for the piece
+
+`os88spkfx_ratchet` (AL = a level, after `os88spkfx_init`) turns the per-span
+leveller off and plays the piece at ONE level. The level only ever steps DOWN,
+one level a span, and only for a span whose peak asks for a level more than
+`SPKFX_RTOL` = 3 below it (6 dB past the soft clip's knee), so it settles on
+the piece's loud parts in its first seconds and then does not move at all.
+Silence changes nothing; the carrier's target is still set per span from the
+span's own peak. `os88spkfx_init` turns it off, so Audio and the Video Player,
+which never call it, level as before. `tools/os88spkfx.py`'s `Shaper.ratchet`
+is its reference.
+
+It exists because every leveller that MOVES was heard moving: the shipped
+three-span hold dips around a loud part, and the slower one built after it
+was heard by one listener as steadier and by another as longer, more obvious
+fades (34.11.9). What both disliked was parts that should not change,
+changing. docs/plans/SPEAKER-LEVELLER-NEXT.md is the record.
+
+Tracker is its one caller (`TSP_RATCHET`, default 1; 0 builds the leveller
+back, which is the A/B). A song starts at `TSP_LSTART` = 8 and keeps what it
+settles on across a pause, a resume and a rung down (`tsp_slev`, read back
+from `os88spkfx_lev` at each re-init); a new module starts again. Modelled on
+40 s captures of Tracker's mix at 8,000 Hz: ELYSIUM.MOD settles on level 6
+within 1.6 s and BEVERLY.MOD on level 5 within 2.4 s, with 6.4% and 3.5% of
+samples at the curve's end (the per-span leveller's 3.6% and 2.9%), and
+nothing moves after that. On MartyPC's 8,000 Hz XT, Tracker playing ELYSIUM.MOD
+steps 8 -> 7 -> 6 in its first 1.5 s and reads 6 for the rest of a minute.
+
+It costs less than the leveller it stands in for: `os88spkfx_level` is 6.2
+cycles a sample against 6.9. `tests/spkfx.py`'s sixth leg (PRE_NONE, the
+ratchet from 10) is EXACT against the model and FAILS with `SPKFX_RTOL` off by
+one in the asm alone; `tests/trkspk.py --leg play` requires the song's level to
+survive a pause and resume, and reads 5 then 8 with the carry taken out.
+
+**The hand on the level ships** (45.25.3). It began as a listening build,
+`-DTSP_LEVKEYS`, and the owner's ear on it is why the knob is gone: level 5 is
+the clearest on the T1100, up to 7 is only louder, 10 blurs - and on the 5150
+7 to 10 weakens the carrier's whine. So the release keeps the ratchet's choice
+as the default and lets the user move it: `+`/`-` or the volume bar set
+`os88spkfx_rat` = 2, which the shaper reads as "step no more", and the level
+is the user's until they move it again. The freeze is unconditional now, the
+`SPKFX_FREEZE` arm having been folded in: `os88spkfx_rat` is never 2 in a
+package that does not set it, so Audio and the Video Player assemble to the
+same behaviour.
+
 ## 35. Recorder — the sound layer's recording client
 
 `apps/recorder` needs `SND_CAP_PCM_IN` (a Sound Blaster) to record and
@@ -72903,6 +72948,12 @@ its one question. `trk_fdone` clears it at its single exit and the posted
 path jumps past that clear (`.outq`), so a load posts **once**: a second
 post because the first did not give the what-if's number is how a program
 spins, and the wake's own `OSAPI_MEM_AVAIL` is the number to decide on.
+The load that SUCCEEDS clears it too, just before `trk_play`: with no card a
+windowed play is the speaker's loop (45.25), which returns only when the song
+stops, so a clear at the exit alone held the byte up for the whole song and
+refused the next load its compaction. `soak -k trkcompact` reads the byte
+after the load and caught it the day the filler's layout left room for the
+speaker's ring.
 
 **It cost the region two declarations, and the second is what makes the
 first mean anything.** `OS88_REGION_MOVABLE` sits at the end of `trk_entry`
@@ -76262,29 +76313,54 @@ that it RAN: every share between 5% and 90% and rising with the rate, and
 all ten bank rows. With `os88spk_go` taken out every share reads 0 and it
 FAILS.
 
-#### 45.25.2 No card: the rate is not a choice
+#### 45.25.2 No card: what the controls say
 
-With no card the speaker's rate is the bench's to pick (45.25), so the Rate
-controls had nothing to set - they looked live and did nothing, and a paused
-face said `5.5 kHz  8 bit mono`, the card rate the mode would have taken and
-the speaker never plays at. `trk_spkq` (CF = 1: no `SND_CAP_PCM_BG`, asked
-live like `trk_hirate`) is the one predicate for all of it:
+With no card a paused face used to say `5.5 kHz  8 bit mono`, the card rate
+the mode would have taken and the speaker never plays at, and the Rate
+controls looked live and set nothing. `trk_spkq` (CF = 1: no
+`SND_CAP_PCM_BG`, asked live like `trk_hirate`) is the one predicate for all
+of the no-card face, and `tw_spkq` answers the same without the caps call
+while a speaker play is under way, since the face asks every frame of one.
+The LCD's format line reads `4.8 kHz  PC speaker  Level 5` - the rate the
+speaker last played at, or `PC speaker, auto rate` before its first play has
+benched one - and 45.25.3 is what the controls do.
 
-- the Rate menu is ONE greyed row, `Speaker (auto)`;
-- the face's rate button reads `Speaker`, greyed;
-- `trk_rate_set` refuses - R, or a pick that got there any other way - and
-  says `Rate: the speaker picks its own`. R is a windowed key, so it is
-  reached paused or stopped; the speaker play's imposter takes only the
-  transport's keys;
-- the LCD's format line reads `4.8 kHz  PC speaker`, the rate it last played
-  at, and `PC speaker, auto rate` before its first play has benched one.
+#### 45.25.3 No card: the volume bar is the level, and the rate is a choice
 
-`tw_spkq` answers "is the speaker the output" for the face without the caps
-call while a speaker play is under way, since the rate button's state is
-asked every frame of one. `tests/trkspk.py --leg rate` (`soak -k trkspkrate`):
-on the card-less 5150 the menu is one greyed row and R leaves the pick
-alone; on the Sound Blaster 5150 the menu offers the card's rates and R moves
-the pick.
+**The volume bar is the speaker's LEVEL** (34.11.9.1), 0 to 10, 2 dB a step,
+where with a card it is the mixer's master volume. The ratchet picks it -
+5 on BEVERLY.MOD and ELYSIUM.MOD, which the owner found the clearest - and
+the bar shows what it picked. The first move of the bar, or of `+` / `-`
+(the same keys as a card's master volume, `trk_ukey`), makes the level the
+USER'S: `tsp_ulev` holds it (level + 1, 0 = auto), `tsp_lvset` applies it
+live and freezes it (`os88spkfx_rat` = 2, which the shaper reads as "step no
+more"), and it is kept for the session - across a pause, a resume, a rung
+down and the next module - as a volume is. The status line says
+`Spk level N of 10 (+/-)`. During a play `+` and `-` are the way to it: the
+face is the imposter inside a fullscreen bracket, which takes the arrow off
+the screen (67.17), so a drag there would be blind and a press anywhere
+pauses - after which the arrow is back and the bar is a slider again. On
+the owner's machines: level 5 is the clearest on the T1100 Plus and up to 7
+is only louder; 10 blurs the loud parts together but stays listenable; and
+on the 5150 the carrier's whine falls from 7 up - the louder the level, the
+more of the time the pulse sits near an extreme, where the carrier is weak.
+
+**The Rate menu is Auto and the machine's rungs** - an 8088's 8,000, 5,512
+and 4,800 Hz, a 286's 22,050, 16,000, 11,025 and 8,000 - each with its
+predicted load once Tracker has benched the machine (the first play; the
+menu is rebuilt after it): `* 5512 Hz  103%`. The rate button names the pick
+(`Auto`, `5512 Hz`) and R and the button step through them, as with a card.
+`tsp_rsel` holds it (rung + 1, 0 = auto). Auto is 45.25's ladder; a picked
+rung is played from its start with no refusal, and the live drop still
+guards the tempo - a machine that cannot hold the pick comes down a rung
+rather than playing at the wrong speed. The pick takes effect at the next
+play (`Rate: 5512 Hz at the next Play`). On the owner's 286 (16 MHz) Auto
+opens at 16,000 Hz since `TSP_CS` went to 104 (45.25.1), where 22,050 had
+held with the spectrum at full speed: picking 22,050 Hz is the answer until
+the prediction learns the 286 (docs/plans/SPEAKER-LEVELLER-NEXT.md 6).
+
+`tests/trkspk.py --leg rate` (`soak -k trkspkrate`) and `--leg level`
+(`soak -k trkspklevel`) are the gates.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 

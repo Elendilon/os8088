@@ -8,7 +8,7 @@
 ; On open it claims the ring (os88spk.inc's table lives there), an input
 ; buffer and an output buffer, and publishes their segments at fx_rseg,
 ; fx_iseg, fx_oseg; fx_up = 1 says so. The harness then writes the input,
-; the parameters (fx_rate, fx_pre, fx_idle, fx_len, fx_span, fx_split) and
+; the parameters (fx_rate, fx_pre, fx_idle, fx_rat, fx_len, fx_span, fx_split) and
 ; presses 'g': os88spk_init, os88spkfx_init, then for each span of fx_span
 ; samples os88spkfx_level and os88spkfx_emit - in two pieces, the first
 ; fx_split long, when fx_split is not 0 - and fx_done counts the runs.
@@ -69,6 +69,12 @@ fx_onkey:
     mov al, [fx_pre]
     mov ah, [fx_idle]
     call os88spkfx_init
+    mov al, [fx_rat]                ; 0, or the ratchet's start level + 1
+    or al, al                       ; (SPEC.md 34.11.9.1)
+    jz .nr
+    dec ax
+    call os88spkfx_ratchet
+.nr:
     mov bx, [fx_len]
     mov dx, [fx_split]
     mov es, [fx_oseg]
@@ -125,6 +131,7 @@ fx_span:  dw 256
 fx_split: dw 0
 fx_pre:   db 1
 fx_idle:  db 1
+fx_rat:   db 0                      ; 0: the leveller; n: the ratchet from n - 1
 fx_up:    db 0
 fx_done:  db 0
 fx_rseg:  dw 0

@@ -137,6 +137,7 @@ os88spkfx_init:
     mov [cs:os88spkfx_lev], al
     mov [cs:os88spkfx_sub], al
     mov byte [cs:os88spkfx_gate], 1 ; a play starts as after silence
+    mov [cs:os88spkfx_rat], al      ; ...and levelled, not ratcheted
     mov [cs:os88spkfx_pk1], ax      ; ...with no peaks held (pk1, pk2)
     mov byte [cs:os88spkfx_prev], 0x80
     pop es
@@ -150,6 +151,19 @@ os88spkfx_init:
     ret
 
 CURVEMAX equ 128
+
+; -----------------------------------------------------------------------------
+; os88spkfx_ratchet - AL = a level (0..SPKFX_NLEV-1): after os88spkfx_init,
+; play at ONE level instead of levelling each span. The level only ever steps
+; down, a step for a span that overdrives it by more than SPKFX_RTOL levels,
+; so it settles on the piece's loud parts and then holds (SPEC.md 34.11.9.1).
+; A player keeps the settled level across its own re-inits (os88spkfx_lev is
+; readable) and hands it back here. Preserves all.
+; -----------------------------------------------------------------------------
+os88spkfx_ratchet:
+    mov [cs:os88spkfx_lev], al
+    mov byte [cs:os88spkfx_rat], 1
+    ret
 
 ; -----------------------------------------------------------------------------
 os88spkfx_level:
@@ -192,6 +206,22 @@ os88spkfx_level:
     sub cx, SPKFX_SPARSE
     ja .none
 .done:
+    cmp byte [cs:os88spkfx_rat], 0  ; THE RATCHET (os88spkfx_ratchet): one
+    je .adapt                       ; level for the piece. It only ever steps
+    mov al, [cs:os88spkfx_lev]      ; DOWN, one a span, and only for a span
+    cmp byte [cs:os88spkfx_rat], 2  ; 2: FROZEN - the user's hand is on the
+    je .set                         ; level (Tracker's volume bar, 45.25.3)
+    cmp dh, SPKFX_PGATE             ; that overdrives it by more than
+    jb .set                         ; SPKFX_RTOL levels - so it settles on
+    mov bl, dh                      ; the piece's loud parts in its first
+    xor bh, bh                      ; seconds and then does not move at all
+    mov ah, [cs:os88spkfx_lt+bx]    ; (34.11.9.1)
+    add ah, SPKFX_RTOL
+    cmp ah, al
+    jae .set
+    dec ax
+    jmp short .set
+.adapt:
     mov al, dh                      ; the level the peak asks for - HELD: the
     mov bl, al                      ; largest of this span's and the last two
     cmp bl, [cs:os88spkfx_pk1]      ; spans' peaks, so a loud hit keeps the
@@ -453,6 +483,7 @@ os88spkfx_idle: db 0                ; the carrier put away in the quiet
 os88spkfx_c0:   db 0                ; the centre count
 os88spkfx_lev:  db 0                ; the span's level
 os88spkfx_gate: db 0                ; the last span was silent (under PGATE)
+os88spkfx_rat:  db 0                ; 1: the ratchet (os88spkfx_ratchet)
 os88spkfx_pk1:  db 0                ; the last span's peak...
 os88spkfx_pk2:  db 0                ; ...and the one before it (HOLD 2)
 os88spkfx_d:    db 0                ; the carrier's shift now...

@@ -40,6 +40,15 @@ TSP_LOW     equ TSP_RL / 4          ; a lead under this: behind
 TSP_SPANS   equ 4                   ; spans a poll makes at most
 TSP_BTICKS  equ 4                   ; ticks the shaper is timed for...
 TSP_MTICKS  equ 8                   ; ...and the mixer
+%ifndef TSP_RATCHET
+TSP_RATCHET equ 1                   ; ONE LEVEL A SONG (SPEC.md 34.11.9.1): the
+%endif                              ; shaper's ratchet, not its per-span
+                                    ; leveller - 0 builds the leveller back, the
+                                    ; A/B the owner listens to
+%ifndef TSP_LSTART
+TSP_LSTART  equ 8                   ; ...and where a song's level starts: it
+%endif                              ; only steps DOWN from here, on the song's
+                                    ; loud parts, and then holds
 %ifndef TSP_PCTMAX
 TSP_PCTMAX  equ 100                 ; the most a rung may predict: THE SOUND
 %endif                              ; must fit, and the picture has what is
@@ -83,6 +92,12 @@ tsp_rat:    dw 22050, 16000, 11025, 8000, 0
     TRKB tsp_run                    ; a speaker play is on
     TRKB tsp_open                   ; ...and the door is open
     TRKB tsp_rung                   ; the rung, kept for the session
+    TRKB tsp_slev                   ; the song's level (TSP_RATCHET)...
+    TRKB tsp_lvok                   ; ...once it has one: 0 at each load
+    TRKB tsp_ulev                   ; THE USER'S LEVEL + 1 (45.25.3): 0 is
+                                    ; auto (the ratchet), set by the volume bar
+                                    ; or + / -, and kept for the session
+    TRKB tsp_rsel                   ; THE USER'S RATE: 0 auto, else rung + 1
     TRKB tsp_exit                   ; TSPX_*
     TRKB tsp_btn                    ; the mouse's buttons, last seen
     TRKB tsp_pend                   ; the imposter's first pass: tsp_prep
@@ -134,6 +149,7 @@ tsp_prep:
     jne .cal
     call tsp_calib
 .cal:
+    call trk_menus_build            ; the Rate menu's rows gain their loads
     call tsp_pick                   ; CF = 1 refused, the status line says why
     jc .out
     call tsp_start
@@ -196,9 +212,29 @@ tsp_tables:
     xor cl, cl
     call os88spk_init
     jc .out
+%if TSP_RATCHET
+    mov al, TSP_LSTART              ; THE SONG'S LEVEL: where it starts, or
+    cmp byte [tsp_lvok], 0          ; where its last play left it - a pause,
+    je .l0                          ; a resume and a rung down re-init the
+    mov al, [os88spkfx_lev]         ; shaper, and each would otherwise start
+.l0:                                ; the song over at TSP_LSTART
+    mov [tsp_slev], al
+    mov byte [tsp_lvok], 1
+%endif
     mov di, tsp_fam
     mov ax, 0x0100 | SPKFX_PRE_NONE ; the samples were filtered at load
     call os88spkfx_init
+%if TSP_RATCHET
+    mov al, [tsp_slev]
+    call os88spkfx_ratchet
+    mov al, [tsp_ulev]              ; THE USER'S LEVEL, when there is one:
+    or al, al                       ; frozen there (45.25.3), where the
+    jz .nf                          ; ratchet would step it
+    dec ax
+    mov [os88spkfx_lev], al
+    mov byte [os88spkfx_rat], 2
+.nf:
+%endif
     clc
 .out:
     pop di
@@ -365,6 +401,19 @@ tsp_pick:
     push bx
     push si
     call tsp_rates
+    mov bl, [tsp_rsel]              ; THE USER'S RATE (45.25.3): that rung,
+    or bl, bl                       ; predicted for the readout and never
+    jz .auto                        ; refused - the live drop still guards the
+    dec bx                          ; tempo if the machine cannot hold it
+    xor bh, bh
+    push bx
+    shl bx, 1
+    mov ax, [si+bx]
+    pop bx
+    call tsp_predict
+    mov [tsp_pct], ax
+    jmp short .ok
+.auto:
     mov bl, [tsp_rung]
     xor bh, bh
 .r:
@@ -476,6 +525,114 @@ tsp_readout:
     mov si, trk_s_spk6              ; say so than have it taken for a fault
     call tsp_mcat
 .e:
+    call tsp_mend
+    pop es
+    pop di
+    pop si
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; THE LEVEL AS A VOLUME (SPEC.md 45.25.3). With no card the volume bar, + and -
+; are the speaker's level, 0..10, 2 dB a step: the ratchet picks it (auto) and
+; the bar shows it, and the first move of the bar or a key makes it the
+; user's, frozen there for the session.
+;
+; tsp_lvnow - AL = the level the bar shows: the play's, the user's, the song's
+; last, or where the ratchet starts. Preserves all but AL
+tsp_lvnow:
+    cmp byte [tsp_run], 0
+    je .idle
+    mov al, [os88spkfx_lev]
+    ret
+.idle:
+    mov al, [tsp_ulev]
+    or al, al
+    jz .auto
+    dec ax
+    ret
+.auto:
+    mov al, TSP_LSTART
+    cmp byte [tsp_lvok], 0
+    je .out
+    mov al, [tsp_slev]
+.out:
+    ret
+
+; tsp_lvset - AL = a level, 0..SPKFX_NLEV-1: the user's from now on, live if a
+; play is on, and said. Preserves all
+tsp_lvset:
+    push ax
+    mov ah, al
+    inc ah
+    mov [tsp_ulev], ah
+    cmp byte [tsp_run], 0
+    je .say
+    mov [os88spkfx_lev], al         ; the next span's emit reads it, and the
+    mov byte [os88spkfx_rat], 2     ; ratchet steps it no more
+.say:
+    call tsp_levsay
+    pop ax
+    ret
+
+; tsp_lvstep - AL = +1 or -1: the level a step, clamped. Preserves all
+tsp_lvstep:
+    push ax
+    mov ah, al
+    call tsp_lvnow
+    add al, ah
+    jns .lo
+    xor al, al
+.lo:
+    cmp al, SPKFX_NLEV - 1
+    jbe .set
+    mov al, SPKFX_NLEV - 1
+.set:
+    call tsp_lvset
+    pop ax
+    ret
+
+; tsp_rstr - AX = a rung's rate -> SI = its name. Preserves all but SI
+tsp_rstr:
+    push bx
+    mov bx, tsp_rnames
+.f:
+    mov si, [bx+2]
+    cmp word [bx], 0
+    je .out
+    cmp ax, [bx]
+    je .out
+    add bx, 4
+    jmp short .f
+.out:
+    pop bx
+    ret
+
+tsp_rnames: dw 22050, tsp_s_r22, 16000, tsp_s_r16, 11025, tsp_s_r11
+            dw 8000, tsp_s_r8, 5512, tsp_s_r55, 4800, tsp_s_r48, 0, tsp_s_rq
+tsp_s_r22:  db '22050 Hz', 0
+tsp_s_r16:  db '16000 Hz', 0
+tsp_s_r11:  db '11025 Hz', 0
+tsp_s_r8:   db '8000 Hz', 0
+tsp_s_r55:  db '5512 Hz', 0
+tsp_s_r48:  db '4800 Hz', 0
+tsp_s_rq:   db '? Hz', 0
+tsp_s_rauto: db 'Auto', 0
+
+; tsp_levsay - the status line: `Spk level N of 10 (+/-)`. Preserves all
+tsp_levsay:
+    push ax
+    push si
+    push di
+    push es
+    call tsp_mbeg
+    mov si, trk_s_lev1
+    call tsp_mcat
+    mov al, [os88spkfx_lev]
+    xor ah, ah
+    call tsp_mnum
+    mov si, trk_s_lev2
+    call tsp_mcat
     call tsp_mend
     pop es
     pop di
@@ -970,6 +1127,20 @@ tsp_wmain:
     je .stop
     cmp al, 'f'
     je .swap
+    cmp al, '+'                     ; THE LEVEL (45.25.3): + or = up a
+    je .lup                         ; step, - down - the volume bar's own
+    cmp al, '='                     ; keys, the same as a card's
+    je .lup
+    cmp al, '-'
+    je .ldn
+    jmp .loop
+.lup:
+    mov al, 1
+    call tsp_lvstep
+    jmp .loop
+.ldn:
+    mov al, -1
+    call tsp_lvstep
     jmp .loop
 .wait:
     cmp byte [mp_playing], 0        ; BEHIND: room for a span and a song to
@@ -1049,6 +1220,7 @@ TSP_NSAY    equ 28672               ; sample bytes past which an 8088 is told:
                                     ; at 166 cycles a sample (BEVERLY.MOD's
                                     ; 81,200 bytes are 2.8 s, MEASURED)
 tsp_natural:
+    mov byte [tsp_lvok], 0          ; a new song: a new level (TSP_RATCHET)
     push ax
     push bx
     push cx

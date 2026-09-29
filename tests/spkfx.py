@@ -83,8 +83,10 @@ def signal(n, rate):
     return bytes(out)
 
 
-def model(xs, rate, pre, idle, span, split):
+def model(xs, rate, pre, idle, span, split, rat=0):
     s = fx.Shaper(rate, pre, idle)
+    if rat:
+        s.ratchet(rat - 1)
     out = []
     for j in range(0, len(xs), span):
         sp = xs[j:j + span]
@@ -108,7 +110,8 @@ def main():
             ("PRE_NONE, slide", 8000, 0, 1, 0),
             ("PRE_DIFF, no slide", 8000, 1, 0, 0),
             ("11,025 Hz", 11025, 1, 1, 37),
-            ("16,000 Hz", 16000, 1, 1, 300)]
+            ("16,000 Hz", 16000, 1, 1, 300),
+            ("PRE_NONE, ratchet from 10", 8000, 0, 1, 0, 11)]
     with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "build")) as tmp:
         img = build(tmp)
         with os88ui.boot("build/os8088-360.img", apps=img,
@@ -123,7 +126,9 @@ def main():
             os88marty.until(m, lambda mm: rb("fx_up") == 1, "the claims",
                             poll=0.2, limit=120.0, guest=20.0)
             iseg, oseg = rw("fx_iseg") << 4, rw("fx_oseg") << 4
-            for k, (name, rate, pre, idle, split) in enumerate(legs):
+            for k, leg in enumerate(legs):
+                name, rate, pre, idle, split = leg[:5]
+                rat = leg[5] if len(leg) > 5 else 0
                 n = min(a.samples, 32768)
                 xs = signal(n, rate)
                 span = fx.block_for(rate)
@@ -132,7 +137,7 @@ def main():
                 for nm, v in (("fx_rate", rate), ("fx_len", n),
                               ("fx_span", span), ("fx_split", split)):
                     m.write(base + syms[nm], bytes([v & 255, v >> 8]))
-                m.write(base + syms["fx_pre"], bytes([pre, idle]))
+                m.write(base + syms["fx_pre"], bytes([pre, idle, rat]))
                 done = rb("fx_done")
                 ent = base + syms["os88spkfx_emit"]
                 ext = base + syms["os88spkfx_emit.end"]
@@ -160,7 +165,7 @@ def main():
                     os88marty.until(m, lambda mm: rb("fx_done") > done, name,
                                     poll=0.3, limit=600.0, guest=60.0)
                 got = m.read(oseg, n)
-                want = model(xs, rate, pre, idle, span, split)
+                want = model(xs, rate, pre, idle, span, split, rat)
                 j = next((i for i in range(n) if got[i] != want[i]), None)
                 cyc = ""
                 if timed and t["emit"][1]:

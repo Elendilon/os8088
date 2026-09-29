@@ -540,10 +540,23 @@ tw_os_viz:
     mov si, [tw_s_vizs + bx]
     ret
 tw_os_rate:
-    call tw_spkq                    ; no card: the speaker's rate is picked for
-    jnc .card                       ; it (45.25) - the button says so, greyed
-    mov si, tw_s_rspk
-    mov ax, OS88UI_DIS
+    call tw_spkq                    ; no card: the speaker's pick (45.25.3) -
+    jnc .card                       ; Auto or a rung, by name
+    push bx
+    mov si, tsp_s_rauto
+    mov bl, [tsp_rsel]
+    or bl, bl
+    jz .sp
+    push ax
+    call tsp_rates
+    dec bl
+    xor bh, bh
+    shl bx, 1
+    mov ax, [si+bx]
+    call tsp_rstr
+    pop ax
+.sp:
+    pop bx
     ret
 .card:
     push ax
@@ -911,6 +924,19 @@ tw_lcd_line:
     mov si, tw_s_fxt
     call tw_put
 .v:
+    call tw_spkq                    ; no card: `Level N` (45.25.3)
+    jnc .vv
+    mov si, tw_s_lvl
+    call tw_put
+    call tsp_lvnow
+    xor ah, ah
+    push es
+    push ds
+    pop es
+    call tsp_mnum                   ; the digits at ES:DI
+    pop es
+    jmp .done
+.vv:
     mov si, tw_s_vol
     call tw_put
     mov al, [mp_master]             ; 0..64 as a percentage
@@ -1056,6 +1082,10 @@ tw_lkey:
     mov al, [mp_xt]
     stosb
     mov al, [mp_master]
+    call tw_spkq                    ; ...or the speaker's level (45.25.3)
+    jnc .fm
+    call tsp_lvnow
+.fm:
     stosb
     jmp short .cmp
 .pos:
@@ -1465,8 +1495,13 @@ tw_sliders:
     push di
     mov si, TWL_VX1
     mov al, [mp_master]
-    xor ah, ah
     mov cx, 64
+    call tw_spkq                    ; no card: the SPEAKER'S LEVEL, 0..10
+    jnc .vm                         ; (45.25.3)
+    call tsp_lvnow
+    mov cx, SPKFX_NLEV - 1
+.vm:
+    xor ah, ah
     call tw_slx                     ; a volume drag moves [mp_master] itself,
     mov di, tw_vthx                 ; so the thumb follows the hand from here
     call tw_slider
@@ -2930,9 +2965,21 @@ tw_dragto:
     cmp byte [tw_drag], 1
     jne .s
     mov si, TWL_VX1                 ; the volume is LIVE: heard as it moves
+    call tw_spkq                    ; no card: the speaker's level (45.25.3)
+    jc .lv
     mov cx, 64
     call tw_slval
     mov [mp_master], al
+    jmp short .out
+.lv:
+    mov cx, SPKFX_NLEV - 1
+    call tw_slval
+    mov ah, al
+    call tsp_lvnow
+    cmp al, ah
+    je .out
+    mov al, ah
+    call tsp_lvset
     jmp short .out
 .s:
     mov si, TWL_SX1                 ; the scrubber only SHOWS where it will
@@ -3233,7 +3280,6 @@ tw_s_rep2:  db 'Rpt List', 0
 tw_s_shuf:  db 'Shuffle', 0
 tw_s_list:  db 'PlayList', 0
 tw_s_xt:    db 'XT Mode', 0
-tw_s_rspk:  db 'Speaker', 0         ; the rate button with no card (45.25)
 tw_s_vizs:  dw tw_s_vu, tw_s_spec, tw_s_scope, tw_s_vnone, tw_s_vu
 tw_s_vnone: db 'Meter Off', 0
 tw_s_voff:  db 'No meters at 11 kHz', 0
@@ -3261,6 +3307,7 @@ tw_s_khzs:  db ' kHz  PC speaker', 0    ; ...with no card (45.25)
 tw_s_spka:  db 'PC speaker, auto rate', 0   ; ...before its first play
 tw_s_fxt:   db '  XT', 0
 tw_s_vol:   db '  Vol ', 0
+tw_s_lvl:   db '  Level ', 0
 tw_s_pos:   db 'Pos ', 0
 tw_s_pat:   db '  Pat ', 0
 tw_s_spd:   db '  Spd ', 0
