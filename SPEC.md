@@ -34869,6 +34869,20 @@ meant "the cloner could not be loaded" was acted on as "the user asked for an
 image target": a Save box, on a half-written disk, for an operation nobody
 chose.
 
+**…and the VERB must answer `CF=0`, which is the half nobody enforced.** The
+test above is only as good as the carry the image hands back, and
+`clo_key`/`clo_saved` returned `CLA_ERR` with the carry still set: their
+`.err` tails are reached by `jc` and `mov` writes no flag. The resident
+caller did exactly what this section tells it to — read `CF=1` as the
+other alphabet — and repacked the answer, so the code became `CLA_ERR`
+itself (83h), `toast_say` refused it as past the end of its table, and
+**every clone and Write Img that failed on a disk error ended its mode in
+silence**: no toast, no status line, the prompt simply gone. That is the
+report off the 5150 in docs/FIELD-NOTES.md 32, where a failed write left
+nothing on the screen to photograph. Both verbs `clc` at their one exit
+now. It could fire on an ordinary key too — `.line` is reached through
+`jne` after `cmp al, 13`, so a keystroke below 13 left the carry set.
+
 
 #### 18.99.8 One end may be a FILE — `IMG` and `Write Img...`
 
@@ -35068,6 +35082,35 @@ The cloner's buffer deliberately is not. Rounding its base up to a page would
 cost up to 64KB of the very claim whose **size is the trip count** (§18.99.4),
 so on a one-floppy machine the trade is *a disk swap to save half a second*.
 The alignment is refused for the same reason the buffer exists.
+
+#### 18.99.10 A field kernel's failure says WHICH transfer failed
+
+On a `DISKCNT=1` kernel — `$(FIELDKNOBS)`, so every field kernel — the cloner's
+`CERR_IO` toast is not the words *Disk error* but the last `int 13h` that
+failed, recorded by `dsk_flrec` on every failed attempt inside `dsk_xfer`:
+
+```
+S80 14/1/07 W0 n09 01FE
+ |  |  | |  || |   | +- 0040:0040, the ROM's motor-off count
+ |  |  | |  || |   +--- 0040:003F, the ROM's motor bits (bit n = drive n on)
+ |  |  | |  || +------- n: the sectors that call carried
+ |  |  | |  |+--------- the int 13h unit (80h prints as 0)
+ |  |  | |  +---------- R read / W write
+ |  +--+-+------------- cylinder / head / sector, as issued
+ +--------------------- the BIOS status in AH
+```
+
+Every field is hex. It is 23 characters because a toast holds 24 (§59.8); the
+first version of this, written against a longer toast, was 35 and would have
+been cut at the motor byte — the one field it exists for. The template starts
+as **dashes**: a `CERR_IO` with no failed `int 13h` behind it (a file-layer
+error, a driver-backed volume) shows dashes instead of an old transfer.
+
+It is here because docs/FIELD-NOTES.md 32 is reported off a machine with no
+debugger, and every question that note asks — the status, the sector, whether
+it recurs at the same place, what the ROM believed about the spindle — is a
+fact this line photographs. A shipped kernel carries none of it and still
+says *Disk error*.
 
 ### 18.100 …and the restart PARKS the heads, because the next boot inherits them
 
@@ -41021,12 +41064,13 @@ the case that matters is the one no diff shows.
 
 `apps/RETIRED.txt` is the registry — `tests/movable.txt`'s shape, one line per
 package, `<kind> <package>  # <reason>` — and `tests/unit/t_retired.py` is the
-gate, a `fast` row. **Two kinds, and they are checked differently:**
+gate, a `fast` row. The kinds are checked differently:
 
 | kind | what it means | what the gate demands |
 |---|---|---|
 | `retired` | a **failure**. Not worth shipping | on no shipped image, not in the live payload, and **not built by `all` at all** |
 | `instrument` | **not a product** — a bench or a gate that happens to be a package | on no shipped image. `all` MAY build it: keeping a bench assembling is usually the point of having one |
+| `local` | an application requiring user-supplied assets, such as DrMarco (§100) | standalone build/disk targets only; no standard image, live payload or `all` dependency |
 
 **A `retired` package keeps its source and its SPEC.md section.** Deleting
 them would leave no account of what was tried, and this tree already keeps
@@ -59001,7 +59045,12 @@ too much: the ring's lead FALLS 135 samples a second and the ladder would
 take the play a rung down (at 8 `nop`s it had). A one-pole is ~40-60 cycles,
 so it does not fit Audio's live 8 kHz; an encoder-made WAV (§86.21.1) is how
 Audio gets natural shaping at no cost to the machine, and Tracker, which
-filters its SAMPLES once at load (§45.25), can take it for nothing at play.
+filters its SAMPLES once at load, takes it for nothing at play (§45.25:
+BUILT). **If Audio or the Video Player ever take it live**, it must be
+something the play can SHED: the ladder's first step down would be the
+filter - natural back to this tilt - before the rate, so a machine that
+cannot hold it loses the lows it gained and not the sound (the owner, on
+reading these numbers).
 
 ## 35. Recorder — the sound layer's recording client
 
@@ -60280,6 +60329,31 @@ driver and never writes `dskw_raw`.
 
 **42 bytes of `.cold`**, no rung crossed, `KERN_CODE_MAX` untouched; on
 `kern_small` the module is `FDLG.DRV` and it costs nothing resident.
+
+#### 38.6.2 The size is taken BEFORE the teardown
+
+`fdlg_commit` asks `fdlg_sizeof` for `DX:CX` **before** `fdlg_close`, and the
+order is binding. The close frees the dialog's own listing store
+(`fdlg_vfree`: the listing is transient, which is why it costs no resident
+byte) and aims `[dsk_dseg]` at 0 — while `[disk_nfiles]` still counts the
+entries the dialog was showing. A lookup after the close therefore walks the
+right number of rows out of **segment 0**, compares the chosen name against
+the interrupt vector table, finds nothing, and answers the not-found `0:0`.
+
+**It did exactly that from the day the listing became transient until this
+section was written**: every Open reported a size of 0. Most consumers treat
+0 as "no size" and fall back to asking for the largest run, so they degraded
+quietly; **Write Img** (§18.99.8) sizes the geometry off this figure alone,
+so it refused every image — a 368,640-byte image of a 360KB floppy, picked
+off a 720KB disk or a hard disk alike — as **"Not a disk image"**, on real
+hardware and in every emulator. It is reported off the 5150.
+
+Nothing between the two points touches `CX` or `DX`: `fdlg_close`,
+`fdlg_home_save` and `snd_disp_set` preserve both, and the staleness triple
+spends `AX` and `DI`. The callback pointer is carried in `AX` for that reason.
+The cost is that the one directory walk of §38.6.1 now happens on a commit
+whose callback the staleness triple then skips — a commit from an app whose
+window has since closed, which is rare and pays one cached walk.
 
 ### 38.7 Lifecycle
 
@@ -75850,15 +75924,28 @@ the needles - reads the speaker the way it read the card; the display's gates
 that asked *"is a card stream open"* (`tw_want`, `tw_tick`, `tui_sync`, the
 scope, `tw_rate_now`) ask *"or a speaker play"* too.
 
-**The filter is paid once.** The shaper's first-difference pre-emphasis would
-be ~20 cycles an output sample; a linear filter commutes with the mix, so
-`tsp_preemph` runs it over the module's SAMPLES in place when a module loads
-on a machine with no card - ~1 s for BEVERLY.MOD on a 5150 - and the shaper
-is initialised `SPKFX_PRE_NONE`. It is applied in the sample-index domain, so
-at pitches far from one step it is a tilt rather than the exact output
-filter; `[tsp_pre]` says it was done, and a card mounted later in the session
-hears that module thinner until it is loaded again. Tracker never writes a
-module, so nothing filtered reaches a disk.
+**The filter is paid once, and it is the NATURAL style's.** A high-pass
+per output sample would be ~20-60 cycles; a linear filter commutes with the
+mix, so `tsp_natural` runs it over the module's SAMPLES in place when a
+module loads on a machine with no card, and the shaper is initialised
+`SPKFX_PRE_NONE`. It is a one-pole DC blocker, `y = (x - x_prev) + 7/8
+y_prev`, with `Y = 128 y` held in a word so the output `y / 2` is its high
+byte (for bytes in, |y| is at most 255: no clamp and no output shift) -
+`tools/os88spkfx.py`'s `tracker_hp` is it exactly and `tests/lzmod.py`
+compares every byte through it. In the sample's own time base its corner is
+~190 Hz for a sample played at C-2 (8,363 Hz) and moves with the note, flat
+above - 125 Hz -5 dB, 250 Hz -2, 400 Hz -1 against 1 kHz. It replaced the
+first difference, which is §34.11.9's lifted tilt (-18, -12 and -8 dB at the
+same three) and which took the lows the owner could not hear on the 5150.
+It costs **166 cycles a sample, MEASURED**: 2.8 s for BEVERLY.MOD's 81,200
+sample bytes and 3.6 s for ELYSIUM.MOD's 104,794 on a 4.77 MHz 5150, where
+the first difference was ~1 s (the first build of this was 303 cycles, its
+output shifted and clamped). So an 8088 loading more than `TSP_NSAY` =
+28,672 sample bytes - a second of it - is told first: `Filtering the
+samples for the speaker...` on the status line. `[tsp_pre]` says the
+filter ran, and a card mounted later in the session hears that module
+thinner until it is loaded again. Tracker never writes a module, so nothing
+filtered reaches a disk.
 
 **The first Play CALIBRATES** (the owner's question 5), inside the bracket
 where the worker is parked - outside one the worker draws a frame a tick
@@ -134236,14 +134323,20 @@ The honest degrade for a moving sprite is to leave the frame alone, which is a
 black window, so the package is in `SMALLOMIT_GAMES` and the 128 KB machine's
 floppies do not carry it. That is §24.5's rule and not a new one: a package
 that cannot reach the surface it needs is left off rather than shipped broken.
+**Withdrawn**: §5.4.2.5.1 gave `kern_small` a `gfx_blit1` body, and §24.5.5
+put the package back on the small floppies on a measurement taken on the floor
+machine — the paragraph stands as the record of why it was ever off.
 
-At **360 KB** it rides the ordinary apps disk like every other geometry, at
-352 of that disk's 354 clusters. It did not fit when it arrived — eight spare
-clusters against a package of eleven — and it rode `build/media360.img`, the
-second 360 KB disk §24.4 already exists for, until the earlier Pac-Man port
-came off the apps disk to make room. That is a **development** arrangement the
-owner asked for and not a shipping decision: a release that wants both puts
-this one back on the media disk, which is one line of the Makefile.
+At **360 KB** it rides `games360.img` (§24.6) and **not** the apps disk —
+§24.6.1's dated decision, taken by the owner on 2026-09-29 alongside
+Gorillas'. Every other geometry's apps disk carries it in `GAMES/`, and
+`smallapps360.img` too (`SMALLGAMES` is a list of its own). It did not fit
+`apps360.img` when it arrived — eight spare clusters against a package of
+eleven — and it rode `build/media360.img` until the earlier Pac-Man port came
+off the apps disk to make room; that was always a **development** arrangement
+and not a shipping decision, and the Makefile's `APPS_GAMES_360` is where it
+ended. Its rows (`tests/dotdel.py` and the four that import its `PKG`) boot
+`games360.img`, where the package sits at the root.
 
 ### 93.14 Acceptance
 
@@ -155976,7 +156069,10 @@ owner's rule). The text names both.
 ## 99. Gorillas (`apps/gorillas/gorillas.asm`)
 
 A native 8086 adaptation of the supplied Microsoft QBasic `gorilla.bas`
-(1990), packaged as `GORILLAS.O88`. One player faces a computer opponent,
+(1990), packaged as `GORILLAS.O88` and shipped in `GAMES/` on every apps
+disk but the 360KB one, and on `games360.img` — off `apps360.img` by
+§24.6.1's dated decision, the Makefile's `APPS_GAMES_360` carrying the
+arithmetic. One player faces a computer opponent,
 or two local players alternate angle and velocity entries, throwing bananas
 over a generated, destructible skyline. Eight to twelve building lots fill the 256-pixel
 width, each 18..36 pixels wide with one-pixel gutters on both sides. Each
@@ -156027,7 +156123,9 @@ gorilla dance score, with a circulating sparkle border and alternating raised-ar
 gorillas. Music starts on the first worker frame after the initial paint. The
 completed score or any key opens setup: one/two players (default two), two names (ten
 characters each, default Player 1/Player 2 or Computer), winning score, and
-positive decimal gravity (0.001..9999.999 m/s², default 9.8). Enter accepts defaults;
+positive decimal gravity (0.001..9999.999 m/s², default 9.8), and gameplay music
+(Yes/No, default Yes; case-insensitive Y/N also accepted). The music question
+explains the M toggle during gameplay. Enter accepts defaults;
 Backspace edits. Invalid numeric entries remain on the current question. Name
 entry consumes printable keys before gameplay shortcuts. Alt+Enter/Escape and
 the Game menu remain available. V selects the optional musical dance; P/Enter
@@ -156043,6 +156141,30 @@ planes/bands during longer paints, schedules tones at priority 0x40;
 durations round to 18.2 Hz ticks, minimum one tick. Timed tones expire even
 while covered; score progression resumes with the worker. No direct speaker
 port writes or blocking waits run under the graphics lock.
+
+**Gameplay FM music:** `grbgm.inc` plays three original 16-bar, three-voice
+scores generated by `tools/gorillas_bgm.py` into `grbgmdata.inc`: Rooftop Rumble
+(major, 21 seconds), Moonlit Mischief (minor, 28 seconds), and Banana Boulevard
+(swing, 21 seconds). Completed points modulo three selects the next skyline's
+track; a new match starts at track one. Every score loops through aiming,
+flight, impacts and celebrations, independently of the reference tone sequences.
+AdLib and Sound Blaster both use `OSAPI_SND_FM` through `SOUND.DRV`; the game's
+three voices claim any free channels 0–7 and leave reserved tone channel 8 alone.
+The setup preference persists across skylines. M toggles music during aiming,
+flight, celebrations and computer turns, in windowed and fullscreen play;
+while paused, enabling music waits for resume. Muting releases channels and
+retains the score position without changing reference effects. Carrier total
+levels add eighteen 0.75 dB steps (13.5 dB attenuation) to all
+nine music patches; modulator levels and sound-effect volume are unchanged.
+Unavailable FM or fewer than three free channels leaves the original effects
+working; partial claims are released and the next skyline retries. Pause,
+About and covered/unfocused windows release the FM voices and resume at the
+next score row with a fresh deadline. Setup, final scores and instance teardown
+release all music claims. Percussive envelopes decay even if servicing stops.
+The existing worker and band/plane service advance the score, with no new task,
+sample buffers or timer changes. `tests/gorillasmusic.py` checks actual guest
+loop boundaries, skyline rotation, driver key-on/rest state, contention and
+cleanup on AdLib, Sound Blaster and speaker-only machines.
 
 During flight, crossing sun ink opens an oval mouth without stopping the shot;
 the banana remains hidden until it leaves the sun.
@@ -156266,3 +156388,151 @@ for CGA/Hercules redraw. `--max-paint-ms 0` permits baseline measurements.
 The existing gameplay, frontend, input and animation gates cover throws,
 craters, fullscreen restoration, borrowed-cache transitions and incremental
 text. These are emulator cycle measurements, not hardware measurements.
+
+## 100. DrMarco (`apps/drmario/drmario.asm`)
+
+Native 8086 single-player adaptation of the supplied NES Dr. Mario disassembly.
+The reference is external: `NES-Games-Disassembly/Dr. Mario/bank_FF.asm` and
+`CHR_ROM.chr`. `make drmario` imports selected graphics and speed/color tables
+into the build directory, then builds `DRMARCO.O88`; `make drmarcodisk` creates
+four standalone application floppy geometries. `DRMARIO_SOURCE` overrides the
+reference directory. No NES interpreter, ROM redistribution in source control,
+new API slots, worker or kernel change is required. The desktop artwork uses
+one movable memory claim; fullscreen rendering adds no allocation.
+
+DrMarco is the displayed name and package identity. `make drmarco` and
+`make drmarcodisk` are the public targets; `drmario` and `drmariodisk` remain
+compatibility aliases. Internal source names and disk-image paths stay stable.
+`DRMARCO_PLAN.MD` tracks the remaining feature work.
+
+The original generated screen surround is committed at
+`apps/drmario/art/drmarco-screen.png`, with its prompt beside it. Build-time
+conversion adds an original 24-pixel checker surround, clipboard HUD/preview
+panels and title/prompt/control plaques. Writing surfaces stay black for the
+opaque glyph cache; unused HUD row 15 is never painted over the lower border.
+VGA checks are navy; CGA checks alternate red and black scanlines.
+The palette-indexed VGA planes and packed CGA banks use repeated-row records:
+a nonzero repeat byte precedes one encoded 80-byte native row. VGA packets
+pack a 1..31 pixel run in the upper five bits and an ink in the lower three.
+CGA packets 1..127 repeat the following byte; 128..255 copy 1..128 literal bytes.
+Zero terminates a row, and a zero repeat count terminates a plane/bank.
+Repeated rows replay source packets without reading video memory.
+Each VGA stream expands to 19,200 bytes; each CGA bank to 8,000 bytes. Only
+fullscreen entry/reentry decodes this trusted embedded art directly to VRAM.
+There is no new framebuffer. The right HUD reserves the doctor portrait;
+the game draws its own title, bottle boundary, score and state text over the
+surround. Capsule and bottle-virus tiles still require the local NES reference.
+
+A desktop splash supplies controls and settings. `front.inc` draws a generated
+capsule-logo/checkerboard scene with DrMarco and virus sprites; H opens a help
+page using the existing gameplay portrait and tile graphics. VGA gets 432x264
+color art; Hercules gets 432x264 line drawings and CGA gets 432x132 line drawings.
+The supporting `DRMARCO.VGA`, `.HRC`, and `.CGA` files ship beside the package.
+Each has a DMF1 header, dimensions/depth, two row-offset directories and bounded
+repeat/literal row streams (four native VGA planes per color row, packed bits
+per monochrome row). Repeated rows share directory offsets, including across
+the two pages. Only the current adapter's resource is loaded into
+an instance-owned movable claim. The painter uses bounded REP span decoding
+into the idle fullscreen font cache, then presents up to 16 rows per OS blit.
+Mode entry rebuilds that cache; the game queue holds a single-row packed
+fallback. No framebuffer or extra pixel storage is added. A real window
+ownership clip tests the whole band before temporarily disarming clipping for
+native planar copies; covered or otherwise refused copies retain a packed
+4bpp fallback. Clipping is restored before labels are drawn. Missing assets
+leave keyboard navigation and gameplay available with a visible explanation.
+The first paint shows controls and a loading message before disk I/O; the next
+timer callback loads the resource. Starting play before that callback is valid:
+returning to the desktop schedules the still-pending load with music paused.
+Setup keys repaint only the settings text row, without decoding art; on help
+they change state without repainting. The existing music timer reveals twelve
+rows per callback, preserves the
+revealed extent across exposures and shares no gameplay animation state.
+Labels appear immediately and are restored only where the reveal crosses them.
+Help/splash transitions restart this window-shade effect; returning from the
+game restores the complete page. Title music continues on help. H/Escape returns
+to the splash. Mouse hit testing asks for the live content origin after drags.
+The frontend guest gate is `tests/drmario_front.py`; Hercules gameplay remains
+unsupported.
+
+Enter/Alt+Enter opens the
+exclusive bracket; Escape/Alt+Enter restores the desktop with the game paused.
+VGA selects FSXM_MODEX (320x240); CGA selects FSXM_CGA320 (320x200), black
+background and bright green/red/yellow palette 0 (3D9h=10h). VGA retains
+blue/red/yellow. Unsupported adapters refuse fullscreen with an explanation.
+Original artwork uses offline converted native pixels: 16x12 VGA cells and
+16x10 CGA cells. VGA batches dirty cells by plane (four map-mask selections),
+CGA copies packed rows with bank alternation. A 128-byte displayed-cell shadow
+includes the active capsule. Ordinary movement visits only its two old and
+two new cells; locks, clears and gravity compare the complete 128-cell board.
+No pixel framebuffer is scanned or copied during ordinary play. Unchanged
+ticks without an animation change perform no video writes. Text has a character shadow and 63 cached native glyphs. VGA/CGA share
+4,032 bytes of native font storage, rebuilt only on mode entry. Initial paint and mode reentry invalidate the
+shadows. Board address tables eliminate per-cell coordinate multiplication.
+
+`anim.inc` supplies a decorative clock independent of the capsule state machine
+and RNG. Every four 54.6Hz ticks it advances one actor: blue, doctor, red,
+doctor, yellow, doctor. Each bottle-virus color alternates its original and
+mirrored tile every 24 ticks, with odd rows following even rows one tick later
+to bound dense-board video traffic; board data remains unchanged. Per-color counts
+increment at placement and decrement once per marked virus at removal.
+The matching geometric mascot shows crossed eyes for two scheduled beats,
+then resumes dancing or disappears if its count is zero. DrMarco blinks for
+eight ticks once per 264-tick cycle (about 4.8 seconds), including terminal
+states. The head and body stay fixed. Pause freezes the clock, phases and
+reaction counters. Mode reentry preserves poses
+and invalidates all four actor shadows.
+
+The asset compiler emits original geometric mascot poses and open/closed eye
+patches for DrMarco. His complete portrait remains in the static background;
+mascot pixels are stored only in their animation streams. Trusted animation
+streams contain absolute native destination words, byte lengths and literal
+data, with FFFF plane terminators.
+Mascot spans cover the union of all four pose footprints, including erasure.
+The doctor overwrites only the lens interiors and restores their original pixels
+on reopening, without a clear pass or head movement. VGA and CGA use separate
+native streams. Neither needs a scratch image or per-pixel conversion at runtime.
+The capsule preview is at (240,52) on VGA and (240,40) on CGA, above the doctor.
+These animations deliberately adapt NES $89B6, $89C9 and $89D4–$8C27;
+capsule throws and timed opening placement are still separate roadmap work.
+
+The bottle is 8x16. Cell low bits are color (1..3); high nibble distinguishes
+single, left, right, top, bottom and virus. Four-or-longer horizontal and
+vertical matches are marked together, flashed, removed together, and surviving
+partners detached. Gravity moves a linked pair only if both destinations are
+free; viruses never fall. Cascades finish before the next capsule spawns.
+A blocked spawn ends the game; clearing all viruses advances a level. Setup
+supports levels 0..20 and LOW/MED/HI. There are four viruses per level plus
+four, capped at 84. Capsule colors use the reference 128-entry sequence
+algorithm and feedback shift register. Fall intervals use the reference
+A795 table, converted from 60Hz to the OS's 54.6Hz fullscreen frame clock.
+Movement uses held scan codes and explicit repeat delays rather than BIOS
+keyboard typematic. BIOS-buffered action makes preserve taps shorter than
+one frame; repeats of held action keys are ignored. Timing is bounded and
+does not replay missed frames.
+
+Audio uses local-reference note arrangements compiled offline from the NES
+music sequencer ($DDEF–$E017); generated music stays in build/drmario-art.
+M selects FEVER / CHILL / OFF in the launcher or fullscreen; the HUD shows
+the selection. Initial launcher title/options audio uses WM_ONTIMER, suspends
+on loss of focus and is cancelled on fullscreen entry. AdLib and Sound Blaster use
+three OPL2 music voices through OSAPI_SND_FM; PC speaker uses the lead voice
+through OSAPI_SND_TONE. Sound Blaster uses FM, without PCM mixing or DMA.
+Effects take priority over the speaker melody and use a separate FM voice.
+Music patches use attack rate 14 instead of the instantaneous rate 15 to
+soften note onsets; the effect patch retains rate 15. The OPL chip shapes
+the envelope, with no per-frame software work or CPU-specific timing change.
+The sequencer runs once per fullscreen frame, with bounded work, fractional
+60Hz note timing and no missed-frame replay. Pausing freezes music position;
+exit silences and releases audio; reentry resumes the saved music position.
+Music OFF retains effects. Steady sequencer updates are capped at two notes per
+frame,
+including one immediate effect. Pending music voices use fair rotating service;
+a third simultaneous voice follows within one frame normally, two with effects.
+Only the latest pitch is retained. Speaker output has finite leases, refreshed
+before expiry. Whole-game frame timing and the deterministic decorative clock
+are unchanged. There are no new IRQs, workers or kernel services.
+Endings, attract sequences and competitive two-player mode remain absent.
+Guest tests must cover matches, links, gravity, rotation, game over, progression,
+input, mode restoration, incremental/full repaint equivalence and actual 8088
+cycle costs on VGA and CGA. Timing claims must distinguish emulator results
+from physical XT measurements.

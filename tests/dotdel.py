@@ -72,7 +72,9 @@ import os88geom as G                                        # noqa: E402
 import os88marty                                            # noqa: E402
 import os88ui                                               # noqa: E402
 
-PKG = "B:/GAMES/DOTDEL.O88"
+# games360.img, where a package sits at the ROOT (SPEC.md 24.6): the 360KB
+# apps disk no longer carries it (93.13).
+PKG = "B:/DOTDEL.O88"
 
 # The three adapters, with the tile SPEC.md 93.3's table says each should get
 # in a window on a 360KB machine. VGA is an XT with a VGA card; the two 1bpp
@@ -879,7 +881,7 @@ def run_arm(tag, machine, want_tile, a, say, floor=FPS_FLOOR):
 def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("--image", default="build/os8088-360.img")
-    ap.add_argument("--apps", default="build/apps360.img")
+    ap.add_argument("--apps", default="build/games360.img")
     ap.add_argument("--arm", default=None,
                     help="one of vga, cga, herc (default: all three)")
     a = ap.parse_args(argv)

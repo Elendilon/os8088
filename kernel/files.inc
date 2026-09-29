@@ -2296,7 +2296,11 @@ fm_s_clbusy:  db 'Clone already running', 0   ; ...and a SECOND one, refused
                                     ; FS_EDIT (SPEC.md 22.21.2). It borrowed
                                     ; fm_s_nomem, which said 'Out of memory'
                                     ; and sent the user closing applications
+%ifdef DISK_COUNTERS              ; a FIELD kernel says WHICH transfer
+fm_clotab:    dw fm_s_empty, dsk_flstr, fm_s_ewprot, fm_s_nomem
+%else                             ; failed (SPEC.md 18.99.10)
 fm_clotab:    dw fm_s_empty, fm_s_dskerr, fm_s_ewprot, fm_s_nomem
+%endif
               dw fm_s_enodisk, fm_s_clsml, fm_s_efull, fm_s_notimg
               dw fm_s_clsame2, fm_s_clbusy
 fm_s_size:    db 'Size ', 0         ; ...and the resting status line, which

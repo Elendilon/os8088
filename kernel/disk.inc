@@ -575,6 +575,37 @@ dsk_dbg_pmet: dw 0               ; +10 data area, widget NOT armed - a
 ; exactly why a bar that is 76% of the SECTORS is nothing like 76% of the
 ; wait.
 dsk_dbg_phc:  times 6 dw 0
+
+; --- WHAT the transfer that failed actually was (SPEC.md 18.99.10) ----------
+; docs/FIELD-NOTES.md 32 is reported off a machine with no debugger, by
+; PHOTOGRAPH, and the one surface a cloner failure is guaranteed to put on the
+; glass is its toast (SPEC.md 59.5). fm_clotab indexes its strings by CERR_*,
+; so on this build CERR_IO's entry points HERE and the toast carries the
+; failing int 13h instead of the words 'Disk error':
+;
+;     S80 14/1/07 W0 n09 01FE
+;
+; status, cylinder/head/sector AS ISSUED, direction and unit, the sectors the
+; call carried, and the BIOS's own motor byte (0040:003F) and motor-off count
+; (0040:0040) - every field hex. A TEMPLATE poked in place rather than a
+; formatter, and each sub-label IS its field's offset, so nobody counts the
+; characters of a quoted string. It starts as DASHES: a CERR_IO with no failed
+; int 13h behind it (a file error, a driver volume) says so instead of
+; repeating an old transfer.
+dsk_flstr:   db 'S'
+dsk_fl_st:   db '-- '
+dsk_fl_cyl:  db '--/'
+dsk_fl_hd:   db '-/'
+dsk_fl_sec:  db '-- '
+dsk_fl_op:   db '-'
+dsk_fl_un:   db '- n'
+dsk_fl_run:  db '-- '
+dsk_fl_mot:  db '--'
+dsk_fl_cnt:  db '--'
+dsk_fl_end:  db 0
+%if dsk_fl_end - dsk_flstr > TOAST_MAX
+  %error "dsk_flstr is longer than a toast can show (SPEC.md 59.8)"
+%endif
 section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
                                 ; segment of its own. DS is still KERNEL_SEG,
                                 ; so the DATA stays in .text at every toggle
@@ -625,6 +656,87 @@ dsk_dbg_class:
     pop bx
     pop ax
     popf
+    ret
+
+; -----------------------------------------------------------------------------
+; dsk_flrec - bank the failing transfer into dsk_flstr (SPEC.md 18.99.10)
+; in:  AH = the BIOS status, CH/CL/DH/DL as the int 13h was issued,
+;      [dsk_run] = the sectors it carried, [dsk_op] = 02h/03h
+; out: nothing - every register AND the flags preserved
+;
+; Called on EVERY failed attempt, so what the toast shows is the LAST one -
+; after SPEC.md 18.91's fallback that is normally a single sector, and n01
+; beside a sector number is the one that would not go.
+; -----------------------------------------------------------------------------
+dsk_flrec:
+    pushf
+    push ax
+    push bx
+    push es
+    mov bx, dsk_fl_st
+    call dsk_flhex              ; AH = the status
+    mov al, ch                  ; the cylinder's low 8 - a floppy has no high
+    mov bx, dsk_fl_cyl          ; bits
+    call dsk_flhex2
+    mov al, dh
+    mov bx, dsk_fl_hd
+    call dsk_flnib
+    mov al, cl
+    and al, 0x3F                ; the sector, without a cylinder's 9:8
+    mov bx, dsk_fl_sec
+    call dsk_flhex2
+    mov al, 'R'
+    cmp byte [dsk_op], 0x03
+    jne .op
+    mov al, 'W'
+.op:
+    mov [dsk_fl_op], al
+    mov al, dl                  ; 80h prints as 0: the motor byte beside it
+    mov bx, dsk_fl_un           ; says whether a floppy was in this at all
+    call dsk_flnib
+    mov al, [dsk_run]
+    mov bx, dsk_fl_run
+    call dsk_flhex2
+    mov ax, 0x0040              ; ...and the BIOS's own motor state, which is
+    mov es, ax                  ; what the spin-up question is about
+    mov al, [es:0x003F]
+    mov bx, dsk_fl_mot
+    call dsk_flhex2
+    mov al, [es:0x0040]
+    mov bx, dsk_fl_cnt
+    call dsk_flhex2
+    pop es
+    pop bx
+    pop ax
+    popf
+    ret
+
+; two hex digits of AH / of AL at [BX]; and one of AL's low nibble. AX and
+; BX preserved by all three
+dsk_flhex:
+    mov al, ah
+dsk_flhex2:
+    push ax
+    push cx
+    mov cl, 4
+    shr al, cl
+    call dsk_flnib
+    pop cx
+    pop ax
+    inc bx
+    call dsk_flnib
+    dec bx
+    ret
+dsk_flnib:
+    push ax
+    and al, 0x0F
+    add al, '0'
+    cmp al, '9'
+    jbe .put
+    add al, 7                   ; 'A'..'F'
+.put:
+    mov [bx], al
+    pop ax
     ret
 section .text                   ; ...but NOT this one. dsk_dbg_raw is a FAR
                                 ; ENTRY a package calls, and SPEC.md 18.94
@@ -1590,6 +1702,9 @@ dsk_xfer:
     CURXFER_OFF                  ; `mov` leaves the flags alone, so int 13h's CF
     jnc .ok                     ; still reaches this branch
     mov [dsk_ioerr], ah         ; keep the status for diskw.inc's mapping
+%ifdef DISK_COUNTERS
+    call dsk_flrec              ; ...and the WHOLE transfer, for the cloner's
+%endif                          ; toast (SPEC.md 18.99.10)
     cmp ah, 0x03
     je .fail                    ; write-protected: retrying cannot help
 %ifndef KD_BUILD

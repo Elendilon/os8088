@@ -194,7 +194,7 @@ def census(tag, ui, p, say, samples, nopok=False):
 def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("--image", default="build/os8088-360.img")
-    ap.add_argument("--apps", default="build/apps360.img")
+    ap.add_argument("--apps", default="build/games360.img")
     ap.add_argument("--samples", type=int, default=240)
     ap.add_argument("--nopok", action="store_true",
                     help="hold dd_pok at 0: the one-pen build, for the A/B")
