@@ -4689,11 +4689,18 @@ cur_busy_on:
     push ax
 .go:
     cmp byte [cur_shape], CUR_BUSYSH
-    je .yes                     ; already wearing it: a package asked before it
-                                ; touched a file. Above everything else, so the
-                                ; second call is four instructions - and it is
-                                ; what keeps the bank below from banking the
-                                ; clock as the thing to go back to
+    jne .fresh                  ; already wearing it: a package asked before it
+    cmp byte [cur_level], -1    ; touched a file, or the chrome armed earlier
+    jne .yes                    ; in this hold. Above everything else, so the
+                                ; second call is six instructions - UNLESS it
+                                ; is WORN AND DOWN (SPEC.md 7.5.3.2): a painter
+                                ; since the arm spent gfx_lock's promise, and
+                                ; the disk work after it froze the clock on
+                                ; the glass. That one goes back up below
+                                ; exactly as a DOWN arrow does, and .swap
+                                ; does not bank the clock as the thing to go
+                                ; back to
+.fresh:
     cmp byte [fsx_task], 0xFF
     jne cur_busy_no             ; an exclusive app owns every pixel of its own
                                 ; raster (SPEC.md 53.6)
@@ -4757,9 +4764,12 @@ cur_busy_on:
                                 ; an arrow the bar cannot reach (SPEC.md 7.4.3)
 .swap:
     mov al, [cur_shape]         ; bank what the clock replaces (SPEC.md 7.5.2):
+    cmp al, CUR_BUSYSH          ; (...unless it IS the clock, worn and down:
+    je .worn                    ; what it replaced is banked already)
     mov [cur_shprev], al        ; the arrow, or the crosshair of the window the
     mov al, CUR_BUSYSH          ; pointer was over - and gfx_unlock puts THAT
     call cur_shape_set          ; back, with no pass in between to correct it
+.worn:
     or [cur_lazy], ah
     call cursor_show
 .yes:

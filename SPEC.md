@@ -10477,6 +10477,34 @@ one failure a knob exists to make impossible.
 table is ABI and every cell is in every build (§20.8 rule 4). The knob is about
 the disk freeze, not about a package that says it is busy.
 
+##### 7.5.3.2 A clock taken DOWN after the arm comes back at the next transfer
+
+§7.5.3's DOWN arm ran once per hold, when `fpg_arm` put the chrome up. A
+handler that painted AFTER that, in the same hold, spent `gfx_lock`'s promise
+again and took the clock off the glass. Every transfer after it then ran with
+`[cur_level]` at -1, so the ISR kept away and the pointer stayed where it was
+for as long as the disk took. The field met it at its worst. Uncompress To...
+had armed the chrome for its own reads, and once it said `Disk error` the
+Disk window repainted over the prompt and re-read the same marginal floppy.
+Those reads failed slowly, the pointer did not move, and keys waited behind
+them. Measured on MartyPC, nudging the mouse at every failed attempt: the
+join's own retries track (the drawn position follows each nudge) and the
+re-read after the verdict does not (`[cur_level]` = -1, the drawn position
+fixed).
+
+So `fpg_busy`, when the chrome is already up, asks `cur_busy` again at the top
+of every transfer. `cur_busy` checks the lock is this task's. `cur_busy_on`
+no longer stops at "already wearing the clock" when the clock is also DOWN:
+it takes every test the DOWN arm takes (a fullscreen owner, a saver session,
+an armed clip region, the menu bar's rows, a refcount it did not take, a free
+lock) and then shows it with the promise put back, as §7.4.3.1 does. It does
+not re-bank the shape, so what `gfx_unlock` restores is still the arrow and
+never the clock. When there is nothing to do it costs six instructions.
+Inside `%ifndef NOCURDISK`, like the rest of §7.5.3. 14 bytes of `.text` on
+each kernel. `tests/czto.py`'s `alive` leg is the gate: after the verdict,
+with the disk still failing, the pointer reads `cur_level` 0 and moves 4
+pixels with each nudge. Without the `fpg_busy` call it reads -1 at a fixed x.
+
 #### 7.5.4 …and the window half is one slot with no argument
 
 `OSAPI_CUR_BUSY` (slot 0x040B) takes nothing and **answers nothing, flags
@@ -23324,8 +23352,8 @@ sectors inside a freeze that is already seconds. And `[fpg_warm]` no longer
 saturates: only sub-threshold calls feed it, so ~85 consecutive refused ones
 would wrap it, costing one further sector of delay, once.
 
-`drv_fs_call` goes through `fpg_now`, which is `fpg_busy` with the threshold
-already met: there is nothing to warm up to when the first verb is already the
+`drv_fs_call` calls `fpg_busy` with `CX` = `FPG_WARM`, the threshold already
+met: there is nothing to warm up to when the first verb is already the
 slowest thing in the machine.
 
 ##### A phase with no scale shows the 50% hatch, and does not animate
@@ -23485,6 +23513,40 @@ after it. The test is §18.9.1's own: the BIOS's motor-off countdown at
 wait for a spin-up on a READ, which is why no MartyPC profile shows the dark
 second. It changes when the widget appears and nothing about what it
 reports. It is left out of `kern_dos`, whose `fpg_busy` is a stub.
+
+#### 12.8.3.2 A failing read counts as warm too
+
+`FPG_WARM` counts sectors MOVED, and a retry moves none. `dsk_xfer` tries a
+failing transfer three times at its run length and three times a sector at a
+time, with a controller reset between tries (§18.91). So a one-sector read
+on marginal media could grind for as long as those six tries took with
+nothing on the glass: no widget, no busy pointer, the prompt it was answering
+still painted, and keys waiting behind it. On the 5150 a marginal floppy did
+that for 30 seconds after Uncompress To... had already said `Disk error`
+(§22.23.6.1): the Disk window re-read the same bad disk before it repainted.
+The motor stayed on and the head never moved, because a 360KB disk's first
+data cluster and all of its FAT and directory are on cylinder 0. The owner
+took it for a hang, reasonably: **anything that takes more than two or three
+seconds has to say that it is working.**
+
+So the FIRST failed attempt of a transfer arms the chrome, as a stopped motor
+does (§12.8.3.1). If `[fpg_on]` is still clear, the retry path drops
+`[sch_lock]` and calls `fpg_busy` with `CX` = `FPG_WARM`, then takes the
+lock back and retries. The widget and the clock are up one failed attempt
+in, a fraction of a second to a couple of seconds, instead of never. The lock
+is dropped because §12.8.3's rule is that the first draw must not happen with
+switching off, and between two attempts is between two transfers as far as
+the rest of the machine is concerned. The `[mem_pinseg]` pin stays: the only
+thing it can do to a draw is make a compaction refuse to move the
+destination, which fails safe (§66.3 rule 5). `fpg_arm`'s own refusals (the
+splash, a foreign mode, another task's lock, a fullscreen window) apply
+unchanged, and so does `kern_dos`'s stub.
+
+It costs 25 bytes of `.cold` on each kernel, resident, and it changes nothing on a
+disk that reads. `tests/czto.py`'s `arm` leg is the gate: a one-sector folder
+opened with the motor running and every read failing reads `[fpg_on]` 0 at
+the first failed attempt and 1 from the second. With this block taken out it
+reads 0 at every one.
 
 #### 12.8.4 An unlocked painter and the mouse ISR are TWO PAINTERS
 
@@ -41151,6 +41213,181 @@ rather than being quietly accepted, so the file cannot rot into a list of
 things that used to be true — and a line naming a directory that no longer
 exists fails too.
 
+### 20.17 A SPLIT SET — `NAME.001`, `NAME.002`… and the `'CS'` part
+
+**A file too big for one floppy travels as parts, and the file manager's
+`Uncompress` puts them back together** (§22.23.5). It exists because the field
+machine is an IBM 5150 whose only other way in is a parallel cable (§62), and
+walking 720KB disks over is faster than that cable — up to the first file that
+does not fit on one. The Video Player's `.V88` files (§98) are 1.5 to 4.7 MB,
+but nothing here knows what is inside a part: the container carries any file.
+
+**It is a CONTAINER OF ITS OWN and not a `'CZ'` file cut into pieces**, for
+three reasons, each enough on its own. A `'CZ'` file is expanded WHOLE, in
+place, into a claim of its unpacked size (§20.14.2), so one bigger than the
+heap can never be opened. Its hint holds 24 bits (§20.14.1). And an LZ4
+`'CZ'` stream is one segment of input (§20.13.3). A split set needs none of
+that. It is a sequence of **independent blocks of at most 32KB**, each small
+enough to expand in a fixed claim, so a set of any size is joined by
+streaming through 82KB of heap (§22.23.5).
+
+**The reference implementation is `tools/os88cz.py`** (`split`, `join`,
+`pack`, `unpack`, `--selfcheck`). `tools/os88czgui.py` is its window and
+`OS88CZ.COM` (`dostools/os88cz.asm`) its DOS twin. `tests/unit/t_cz.py`
+keeps the three and this section agreeing.
+
+#### 20.17.1 The part header — 32 bytes, at the front of every part
+
+```
+    +0   'C' 'S'        the magic, the word 5343h. NOT 'CZ': a part must
+                        never earn §20.14.1's hint, or the transparent read
+                        would try to expand one
+    +2   byte           version, 1
+    +3   byte           reserved, MUST be zero
+    +4   word           this part's index, 1-based
+    +6   word           how many parts the set has, 1..999
+    +8   dword          the ORIGINAL file's size, 1..0xFFFFFFFF
+    +12  dword          where this part's first block lands in the original -
+                        a multiple of 32,768, and exactly the sum of every
+                        earlier part's output
+    +16  dword          the SET ID: any value, the same in every part of one
+                        set. os88cz.py uses the CRC-32 of the original, so a
+                        set is reproducible byte for byte
+    +20  12 bytes       the original's 8.3 name, `NAME.EXT`, upper case,
+                        NUL-padded
+    +32                 the blocks, to the end of the file
+```
+
+**The parts are named after the original**: its base name, a dot and a
+three-digit index — `FILEA.V88` travels as `FILEA.001`, `FILEA.002`… That is
+what lets the joiner find part *k* from part 1 without a directory search, and
+it is why a set is at most 999 parts.
+
+#### 20.17.2 The block — a 10-byte header, then its payload
+
+```
+    +0   word   S, the stored payload's length, 1..32,768
+    +2   word   N, what the block expands to, 1..32,768
+    +4   byte   M: 0 = stored (S must equal N), 1 = an LZ4 stream,
+                2 = an LZB stream - a §20.13.7 stream either way, T word and
+                raw tail included. So M is the LZ_* id plus one
+    +5   byte   reserved, MUST be zero
+    +6   word   A \  the check over the N output bytes, as little-endian
+    +8   word   B /  words (an odd last byte zero-extended):
+                     A = B = 0;  per word w:  A += w;  B += A   (mod 65,536)
+    +10         S payload bytes
+```
+
+**Every block but the LAST OF THE SET expands to exactly 32,768 bytes**, and
+a part holds whole blocks. That one rule is what lets the joiner write the
+result in whole clusters: `OSAPI_FILE_APPEND` requires the file to be a whole
+number of clusters before it grows (§18.4.4), and 32KB is a multiple of every
+cluster this machine formats or mounts at the size a join allows (§22.23.5).
+A block that is stored rather than compressed costs ten bytes and nothing
+else, so a set never grows by more than 0.03% over the original. That matters
+here, because video that is already packed barely compresses.
+
+**The check is not a luxury.** A set exists to cross on floppies, and a disk
+copy that goes wrong without an `int 13h` error is exactly what nothing else on
+the path would notice. The two sums cost ~10 cycles a byte on an 8088 against
+the LZ4 decode's ~50. A single sum would miss two swapped words; B does not.
+
+#### 20.17.3 What it costs and what it saves, measured
+
+32KB blocks against LZ4 over the first 512KB of three shipped demo videos
+(`apps/video/demo/cga/`), `os88cz.py`'s encoder:
+
+| file | 16KB blocks | **32KB blocks** |
+|---|---:|---:|
+| `01-COTXT.V88` | 77.3% | **75.1%** |
+| `03-CGA4.V88` | 91.9% | **90.5%** |
+| `04-640FS.V88` | 93.2% | **91.1%** |
+
+So compression is worth one 720KB disk in four to ten on video, which is
+already packed, and far more on text or a program. The split is the feature;
+compression is what the ten-byte block header lets it take for free where it
+helps. **LZ4 is the default** for §20.13.5's reason: the 5150 pays the decode
+on every block. `--lzb` encodes through the MACHINE's LZB parse
+(`os88lz.lzb_compress_machine`, `cmz_pack`'s mirror), because the host's
+shortest-path LZB parse takes forty seconds on one 32KB block of anything
+repetitive. That parse has a 16KB window and depth 16, and on video it loses
+to LZ4: `02-BWPCS.V88` is 92.0% LZB against 90.5% LZ4. It wins on text.
+
+**A part fits a FRESH disk of its geometry**: `os88cz.py --size 720k` cuts
+parts of at most 730,112 bytes, which is 713 clusters of 1,024 — a 720KB
+floppy's whole data area with one file on it. `360k`, `1.2m` and `1.44m` are
+the same arithmetic, and a size in bytes is taken as given.
+
+#### 20.17.4 Three tools, one format: the host, a window, and DOS
+
+| | where it runs | what it does |
+|---|---|---|
+| `tools/os88cz.py` | any Python 3, no pip | `split`, `join`, `pack`, `unpack`, `info`; `split --images` also writes each part to its own FAT12 floppy image of that size (`NAME-001.IMG`), through `tools/os88disk.py`, ready to write to a disk |
+| `tools/os88czgui.py` | the same, with Tk | the same four verbs on three tabs, and the one thing a person wants before anything is written: how many disks a file will take. A file dropped on the window goes to its tab, below |
+| `OS88CZ.COM` | MS-DOS 2 or later, an 8088 up | `J` joins a set, and **ASKS FOR THE DISK** when a part is not where the last one was, so a set is joined straight off a pile of floppies onto another drive - which the os8088 side does too, as `Uncompress To...` (§22.23.6), and plain `Uncompress` does not (§22.23.5). `S` splits, pausing for a fresh disk before each part with `/P`. `U` expands a `'CZ'` file, LZ4 or LZB |
+
+**`pack` refuses a file over 449KB, and `--lzb` uses the machine's parse.**
+A `'CZ'` file is expanded whole into a claim of its unpacked size
+(§22.23.4). The most heap any machine gives a program is the 449KB a 640KB
+machine's arena measures (docs/plans/KERN-DOS-PLAN.md), so a bigger file
+packs perfectly well and is `Not enough memory` everywhere. `pack` says so
+before encoding anything and points at Split, whose sets join in 82KB
+whatever their size (`CZ_OPENMAX`). `pack --lzb` compresses with
+`os88lz.lzb_compress_machine`, the parse `cmz_pack` writes on the machine and
+the one a split's blocks already used, handed to `os88lz.cz_wrap` as
+`packed=`. `os88lz`'s own LZB parse is exact and is the build's. On a
+zero-heavy file it is effectively endless: the owner left it packing a 720KB
+os8088 disk image for 15 minutes on a 9800X3D, and it did not finish in five
+here. The machine's parse does 400KB of that image in 2 seconds. The build's
+path is unchanged and every shipped image is byte-identical.
+`tests/unit/t_cz.py` part 6 is the gate: the refusal names Split, 256KB of
+zero runs packs in under 20 seconds (0.3 here, against more than two
+minutes by the old path), and the stream is `lzb_compress_machine`'s byte
+for byte.
+
+**Drop a file on the window and it goes to the tab it belongs to**
+(`drop_tab`): any part of a set to Join, whichever part it is, with the set
+described and the result's folder filled in; a `'CZ'` file to Pack / Unpack;
+anything else to Split, unless Pack / Unpack is the tab showing, which takes a
+plain file as well, if it is small enough to pack; a bigger one goes to Split. Of several files the first is taken, a folder is refused,
+and nothing is taken while a job runs, because its fields are what that job is
+working from. The folder a result goes to follows each file dropped, until the
+user browses or types one. What a file is, is read off its first 64 bytes
+(`file_kind`): the window's first version read two, which is enough for a
+part's `'CS'` and not for a `'CZ'` header, so every `'CZ'` file handed to it
+opened on Split.
+
+The drop itself is the video encoder's (§98.2.12), moved into
+`tools/os88drop.py` so both windows share one copy: `tkinterdnd2` where it is
+installed, the shell's own `WM_DROPFILES` on Windows without it, and no offer
+of a drop anywhere else. `tests/unit/t_cz.py` part 5 is the gate for the tab
+rule and `file_kind`, and goes red with the two-byte read put back. The
+`tkinterdnd2` path was driven in the real window under Xvfb, through tkdnd's
+own XDND handlers with an in-app drag source owning `XdndSelection`: a part in
+a folder whose name has a space, a `'CZ'` file, two files at once, a folder
+and a drop while busy. The same drive with the registration taken out is
+refused by tkdnd.
+
+**The DOS tool carries the kernel's decoder, not a copy of it.**
+`kernel/lz.inc` touches no kernel data, so `dostools/os88cz.asm` `%include`s
+it as it is, the way kern_dos does. Its encoder is its own: a greedy LZ4
+parse over one block with one candidate per position, which only has to be
+VALID. What it must get exactly right is §20.13.7's cut. A stream cut
+anywhere but the first peak still decodes on the host, and would overrun an
+in-place expansion on the machine. `tests/czdos.py` checks every block it
+writes with `os88lz.in_place_margin`.
+
+**A DOS split is TWO passes**, because every part's header carries the part
+count (§20.17.1) and the parts may be on floppies that have left the drive
+before the count is known. Pass one encodes and measures, pass two encodes
+again and writes, and the two must agree block for block. It costs the parse
+twice. The alternative, patching part 1's header at the end, needs part 1's
+disk back in the drive.
+
+**`OS88CZ.COM` ships in `SYSTEM/DOS/` beside `OS88NET.COM`** on the 720KB,
+1.2MB and 1.44MB apps disks and the everything disk (§19.10). The 360KB apps
+disk is at 352 of 354 clusters and this program is five.
+
 ## 21. loader.inc
 
 State (.bss, **zero at boot** — §2.5, and there is no `loader_init`: all
@@ -45460,6 +45697,238 @@ file expands if the heap holds `U`. A package is under 64KB by construction,
 and one longer than that on the disk is not a compressed package and is
 `Not compressed` without being read.
 
+
+#### 22.23.5 A PART of a split set: `Uncompress` JOINS it (§20.17)
+
+**Select `FILEA.001` and pick `Uncompress`, and `FILEA.V88` appears beside
+it.** A third arm, reached where the other two leave off: the file carries no
+`'CZ'` mark and is not a compressed package, and its extension is three
+digits. Anything else is still `Not compressed` without a sector read, so the
+new arm costs a plain file nothing. Any part may be selected. Its own first 32 bytes are read
+before anything else, so a plain `NOTES.123` still says `Not compressed`
+rather than asking for a `NOTES.001` it never had. The join then starts at
+`.001` and reads the set in order, so the selection says only which set.
+
+**EVERY PART IS IN THE SAME FOLDER, AND THE RESULT LANDS THERE TOO.** On the
+5150 that is the hard disk: copy the parts across from their floppies, then
+join. What it costs is the parts and the result on one volume at once, and
+the parts can be deleted once the result is there. Reading the parts straight
+off a changing floppy into another volume is `Uncompress To...` (§22.23.6),
+which asks where the result goes and asks for each disk as it needs it.
+
+**IT STREAMS, so the size of the set is bounded by the DISK and not by the
+heap**, which is the whole difference from the other two arms (§22.23.4).
+One claim of 82KB, whatever the file. That is more than the 128KB machine's
+~50KB of heap, so on `kern_small` the join is `Not enough memory`; the
+module's image grows there by the same ~1,500 bytes at the build that landed
+it, and 118 more for §22.23.6's alignment below (9,413 -> 9,531), and nothing
+resident moves:
+
+| | |
+|---|---|
+| `[cmz_b]` | a 512-byte header (§22.23.6's saved state), then the INPUT window, 49KB, rounded up to a 512-byte boundary. Parts are read into it in 16KB chunks with `OSAPI_FILE_READ_AT`, at offsets that are multiples of 16KB, which that door requires to be whole clusters (§18.4.4). Before a block is parsed the window is topped up until the whole block is in it: the bytes left are moved down to the 512-byte boundary nearest the floor that leaves room for them, and chunks are read behind them, so **every read lands on a sector boundary of the claim**. A block is at most 32,778 bytes with its header, so the window never holds more than 32,777 + 16,384 + 511 |
+| `[cmz_o]` | the OUTPUT block, 32KB, where `lz_decomp_x` expands a compressed block at `ES:0`. A STORED block is copied here too before it is written, rather than written straight out of the window |
+
+**Every buffer the join hands the file layer starts on a 512-byte boundary**,
+and the claim is laid out so it does: header 512, window rounded up, output
+block after it. A transfer at an arbitrary offset is a sector that can
+straddle a 64KB physical page, which `int 13h` answers with error 09h and the
+file layer reports as `Disk error` (§1's alignment rule): `dsk_runcap` splits a
+multi-sector run at the page but cannot split one sector. The first build of
+this section read at `window + bytes left` and wrote stored blocks straight
+from the window, and came out `Disk error` on the third refill of a set - which
+§22.23.6's test found and the in-place join had simply not happened to reach
+at the heap depths its own row runs at. The copy of a stored block costs
+~13 cycles a byte (`rep movsw`) against a disk write it is beside.
+
+**The result is written under `CMPRESS~.TMP` and renamed at the end**, the
+streamed `Compress`'s own temporary name (§22.22.5), for the same reason: a
+join that fails half-way leaves the parts untouched and no half-file under
+the real name. The first block is a `WRITE` and every later one an `APPEND`.
+Every block but the last expands to exactly 32KB (§20.17.2), so the file is a
+whole number of clusters before each append, which is the rule that door
+enforces. **A volume whose cluster is over 16KB is refused before anything is
+claimed**, for both halves of that arithmetic. That is a FAT16 volume past
+1GB (§52.10), and not the 5150's ST-225.
+
+**Every part is checked against part 1 before a byte of it is written**: the
+magic and version, its own index, the same count, total and set ID, and an
+offset equal to what has been written so far. So a stale `.003` from another
+set, a part copied twice under two names or a set with one missing all stop
+at the first wrong part. Every block's two sums are checked against what it
+expanded to (§20.17.2). The final length must be the header's total, and the
+last block of the last part must end the file.
+
+| refusal | said as |
+|---|---|
+| the selected file's first 32 bytes are not a part (a plain `NOTES.123`) | `Not compressed` |
+| no part 1 in the folder | `Missing FILEA.001` |
+| a later part is not in the folder | `Missing FILEA.002` |
+| a part from another set, or out of order | `Wrong part FILEA.002` |
+| a block that will not expand, a check that fails, a short or overlong set | `Cannot expand this one` |
+| the result's name already exists in the folder | `fm_errtab`'s `FERR_EXIST` word, before anything is written |
+| a cluster over 16KB | `Clusters too big` |
+| the claim | `Not enough memory` |
+| a `FERR_*` from a read or a write | `fm_errtab`'s own word, and `CMPRESS~.TMP` is deleted |
+| success | `Uncompressed` |
+
+**The progress bar is scaled to the ORIGINAL's size**, and each block's
+expanded length is stepped onto it. Every `dskw_*` call arms the widget to
+its own length and ends it (§12.8), so `cmz_rearm` puts the verb's scale back
+after each one, which is the streamed `Compress`'s idiom (§22.22.5).
+
+`fm_onam` is the part name the join reads: its three digits are rewritten for
+each part and put back when the verb returns. The result's name, which is in
+part 1's header, is carried in the module and copied into `fm_onam` only for
+the final rename. The file layer takes names from `DS`, and the module's
+image is not `DS`.
+
+#### 22.23.6 `Uncompress To...` — the result goes where the user says, and the parts may be on floppies
+
+**Select any part, pick `Uncompress To...`, and the Save box opens on the
+original's name.** Wherever it is saved, the set is joined there, reading the
+parts from the folder they were selected in. When a part is not there and that
+drive is a floppy, the Disk window asks for it:
+
+```
+    Put FILEA.002 in A:
+    Enter=ready  Esc=stop
+```
+
+and Enter goes on from that part, looking for it in the ROOT of the disk now in
+the drive, because a folder is a cluster number and the old disk's clusters
+mean nothing on a new one. `os88cz.py split --images` puts every part in the
+root, which is what this is written against. Esc stops, and deletes what was
+written. A part that is not on the disk that was put in asks again, with
+`Missing FILEA.002` as a toast.
+
+**It is `kern_big`'s alone.** The join's 81KB claim is more than the whole of
+the 128KB machine's heap (§22.23.5), so on `kern_small` the item is not in
+either menu and none of its code is assembled: no resident byte and no image
+byte there. The ids after it are numbered by `FM_NUT`, which is 1 or 0.
+
+**It is the SAME join as §22.23.5**, with three things added. Everything
+else - the window, the checks, the `CMPRESS~.TMP` and the rename, every
+refusal - is that section's.
+
+1. **Two volumes.** The source is `(drive, folder)` as the verb found it and
+   the target is what the dialog left current. Every read goes to the source
+   and every write to the target through `fcpf_fcp_goto`, the far door
+   `CLONE.DRV` already uses between a floppy and an image file (§18.99.8). What
+   keeps a hop free is §18.9.3's batch bracket, opened once per run: inside
+   it a floppy's banked boot sector is trusted and its FAT window reused, so
+   going back to A: after writing C: is **no I/O at all**. The bracket ends at
+   the prompt, because the prompt unlocks, and that is exactly when the disk
+   is allowed to have changed. So the §22.23.5 window stays 49KB and is not
+   made bigger to amortise switches that cost nothing.
+2. **A prompt in the middle.** A part never spans two disks, so the join only
+   ever stops BETWEEN parts, and what it has to remember is small: the next
+   part's number, how much is written, the set's count, total and ID, both
+   places and both names. That is the 512-byte header at the front of the
+   claim (§22.23.5's table; 512 so the window behind it is sector-aligned),
+   written when the join starts and again at every prompt, not image scratch, because anything that drops and reloads
+   `CLONE.DRV` while the prompt is up - a Compress in another Disk window -
+   would lose image scratch and keeps the claim.
+3. **The claim IS `[clo_seg]`**, with `CLS_JOIN` where a clone keeps its
+   step. That buys the whole prompt for nothing: mode 7 (§22.21.1) already
+   routes every key to `CLV_KEY`, asks `CLV_LINE` for both lines and frees
+   through `CLV_FREE` when a click abandons it, and `clo_disp_x` sends all
+   three to the join when that marker is there. It also makes a clone and a
+   join mutually exclusive, which they must be - one `[clo_seg]` - and the
+   refusal is the one a second clone already gets.
+
+**What the resident half is**: the menu row and its string, a third label on
+the `Compress`/`Uncompress` body with one more answer from the image
+(`AX = 0xFFFF`, *ask for a target*), the Save box's completion proc, and one
+more answer on mode 7 (`CLA_JDONE`, *the join has said its verdict and freed
+its claim*). **It holds no state of its own.** The source is the Disk window
+the verb was picked in - its `FS_DRV`/`FS_CWD`, read by the completion proc
+through `[fm_vp]`, which the dialog does not move - and the original's name
+rides in `clo_fnbuf`, the cloner's resident 13-byte name, which is free
+because a clone and a join cannot both be running. A cancelled dialog calls
+nothing back (§38.2), so nothing is left to clean up.
+
+**Measured, `kern_big`** against the build before it: **+124 resident bytes**,
+`.text` +26 and `.cold` +98, `.bss` +0. That crossed the cold rung, 79 -> 80
+steps of 512: `KERN_SIZE` 105,984 -> 106,496, 23,040 spare of `KERN_BUDGET`
+(45 steps). The rung is the 512 billed to whoever was standing there (§1's
+banner); the bytes are 124, and 98 of them are `.cold`, which is resident.
+`CLONE.DRV`'s image went 9,411 -> 10,538 bytes (+1,127) and its file on the
+floppy 7,769 -> 8,702, and the claim 81 -> 82KB for the header. **`kern_small`:
++0 everywhere**, the whole feature being inside `%ifdef KERN_BIG`.
+
+`tests/czto.py` is the row, and it needed the emulator to change a floppy
+under a running guest: MartyPC's debug server gained a `mount` command
+(`Marty.mount(drive, path)`, the path absolute because the emulator's working
+directory is its own run folder). A swap is noticed the way a real one is,
+once the drive motor has stopped (§18.9.1), so the test waits for that before
+it mounts.
+
+| refusal | said as |
+|---|---|
+| the selection is not a part | `Not compressed` |
+| a clone or another join is already running | `A disk job is running` |
+| the result's name is taken in the target folder | `fm_errtab`'s `FERR_EXIST` word, before anything is written |
+| a part missing from a drive that is NOT a floppy, or from the drive the result is being written to | `Missing FILEA.002`, and the join stops |
+| a part missing from a floppy that is not the target's drive | the prompt |
+| the disk put in does not have it either | `Missing FILEA.002` as a toast, and the prompt stays |
+| everything else | §22.23.5's own words |
+
+##### 22.23.6.1 A disk error, and the hop that must not fail back into it
+
+**A read error on a part is the end of the join**, said in the error's own
+word (`Disk error`, `No disk`) with everything released: the claim, the
+prompt, the batch bracket and `CMPRESS~.TMP` on the target. The prompt is not
+offered again for it. A part half-joined cannot resume from the start of its
+part, because what it already wrote is in the result.
+
+**Before this fix the error path could loop for ever.** `cmz_jerr` deletes the
+half-written result, and that needs a hop to the target. The hop went through
+`CMZ_GO dst`, whose failure path IS `cmz_jerr`. So a target that could not be
+reached at that moment sent the join back into its own error path, with
+`[cmz_jwrote]` still set, to try the same hop again, for ever. It ran on the
+UI task, so the arrow stopped, a posted Ctrl-Alt-Del was never serviced, and
+no Disk window ever answered again. The hop in `cmz_jrmtmp` is now a plain
+`fcpf_fcp_goto` whose failure only skips the delete. The target keeps its
+`CMPRESS~.TMP`, as it does after a failed rename (§22.22.5). A later join into
+that folder then says `Name exists` until the file is deleted.
+
+**The field report that led here was not that loop.** On the 5150 a
+marginal second disk failed as soon as it went in. `Disk error` was said,
+and then for 30 seconds the prompt stayed painted, keys did nothing, the
+pointer did not move and the motor ran with the head still. The join had
+finished. The Disk window was re-reading the same bad disk before it
+repainted, and a failing read there took its time with nothing on the glass
+to show it. Two things made that look like a hang, and both are fixed in the
+progress layer rather than here. The pointer had been taken down by the
+repaint, and nothing brought it back while the reads went on (§7.5.3.2). A
+retry moves no sectors, so a failing read that had not already armed the
+chrome never would (§12.8.3.2). The owner's rule is the one both follow:
+anything that takes more than two or three seconds has to say that it is
+working. MartyPC answers a failed read in one revolution, so the same
+sequence there is under a second; on the iron each of those retries was
+slower, the head never moved because a 360KB disk's first data cluster is on
+cylinder 0, and 30 seconds of it is consistent with the report.
+
+`tests/czto.py` fails B:'s reads just after the kernel's own `int 13h`
+(AH = 10h, CRC), so the retries and everything above them are real. Four of
+its legs are this section's. Each was checked red against the build without
+its fix:
+- `ioerr` fails a marginal second disk after the prompt; the join must say
+  `Disk error` and leave A: clean.
+- `alive` keeps the disk failing after the verdict. At every failed attempt
+  the mouse is nudged, and the pointer must be up and following it. Without
+  §7.5.3.2 it reads `cur_level` -1 at a fixed x, exactly the field's picture.
+- `hopfail` points the error path's hop at a drive that is not there. With
+  the old hop it fails 50 hops in a row and never ends; now it fails one and
+  says `Disk error`.
+- `arm` opens a one-sector folder with the motor running and every read
+  failing. The chrome must be up from the second failed attempt; without
+  §12.8.3.2 it never comes up.
+
+The loop's fix is in `CLONE.DRV`'s image and moves no resident byte. The two
+progress-layer fixes are 39 resident bytes on each kernel: 14 of `.text`
+(§7.5.3.2) and 25 of `.cold` (§12.8.3.2). They cross no rung.
 
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)
 
@@ -152600,7 +153069,8 @@ two processes of the group are left and the leg FAILS.
 **A video dropped on the encoder's window is the source to encode, and a
 dropped `.V88` goes to the preview** (`drop_target`); of several, the first
 is taken. Tk has no file drop of its own, so `enable_drop` uses the best
-this machine has:
+this machine has. It lives in `tools/os88drop.py`, which the split tool's
+window shares (§20.17.4):
 - `tkinterdnd2`, where it is installed (any platform);
 - on Windows without it, the shell's own `WM_DROPFILES` through `ctypes`,
   standard library only: the window's procedure is subclassed so the
