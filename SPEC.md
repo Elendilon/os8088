@@ -34860,8 +34860,15 @@ the geometry.
 
 **`clo_call` answers in two alphabets on one register, and `CF` says which.**
 On success `AL` is a `CLA_*`; when `mod_need` cannot produce the image it is
-`CF=1` with `AX = CERR_NODISK`, which is the nearest true thing — there is no
-cloner, so there is no disk it can reach. **Every call site tests `CF` first.**
+`CF=1` with `AX = CERR_NOMOD`, said as **"No system disk in A:"** — the Task
+Manager's own resident string, its letter the boot drive's, stamped at boot.
+It was `CERR_NODISK` ("No disk", "the nearest true thing — there is no
+cloner, so there is no disk it can reach"), and off the 5150 that was read
+exactly the wrong way: booted from A:, the boot floppy swapped for the
+target, the image in B:, and *No disk* with a disk in both drives reads as
+"I cannot find a disk to image". The refusal is right — `mod_need` reads
+only the boot volume (§2.8) — and only the words were wrong. **Every call
+site tests `CF` first.**
 The two enumerations are also disjoint by construction — `CERR_*` from 1 and
 `CLA_*` from `0x80` — so a site that forgets reads a wrong answer instead of a
 plausible one. They used to overlap exactly, and `CERR_NODISK` = `CLA_SAVE` = 4
