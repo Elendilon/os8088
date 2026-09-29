@@ -119209,6 +119209,25 @@ budget option are the video's and are ignored or refused. There was briefly
 a second tool for this (`os88spkfx.py shape`); it called the encoder's
 shaping with its defaults, could not take a style, and is gone.
 
+**`--spk-shape` takes THREE values for a `.WAV`**, and they are three
+different files:
+- **`on`** (the default): shaped here, stored as kind 2 - the file above.
+- **`off`**: the wave as it is, still stored as kind 2. Audio COPIES counts,
+  so nothing shapes it anywhere and it plays under the carrier's whine
+  (§98.2.15.1's 25-30 dB) - the A/B for the shaping, and not a file to
+  listen to.
+- **`pass-through`**: a PLAIN 8-bit mono WAV at the rate, with NO `o8sp`
+  chunk - the encoder does the resample and the bit depth (a 16-bit
+  44.1 kHz source becomes 8-bit 8 kHz) and nothing else, so Audio shapes it
+  on the machine as it would any WAV (§86.21, §34.11.9). `--spk-preview`
+  on this mode is `os88spkfx.Shaper`, the machine's shaper to the byte, so
+  what it previews is what Audio will play.
+
+`pass-through` is a WAV's alone: a `.V88` given it is refused, pointing at
+`--audio pcm8`, which the Video Player shapes for the speaker itself. The
+third choice moved the options record to version 2 (§98.2.17) with an empty
+migration - a version-1 record's `on` and `off` mean what they meant.
+
 **On a CARD a counts file plays as the samples it came from.** Audio notices
 the chunk on the card path too, builds `ap_cinv` - the inverse of the count
 table at the file's rate, `s = ((c - 1) x 255 + (N - 2) / 2) / (N - 2)` - when
@@ -153578,7 +153597,8 @@ left off (the sound IS the speaker's), and a finished WAV skips the frame
 preview and the disk. Leg 14 holds it: every target's form saved as a
 `.WAV` has exactly those five groups applying and no `--audio` on its
 command line. **The type is a box on the Save as line**, to the right of its
-Browse... (`.V88` by default, the line above it being **Input**): Browse...
+Browse... (`.V88` by default, the line above it being **Input**, whose
+Browse... has **Load .V88** beside it in the same column): Browse...
 offers the chosen type first, a name already on the line and a source's
 default name both take its extension, and a name typed or browsed to with
 the other extension moves the box to match - so a speaker WAV is a choice
@@ -153722,7 +153742,7 @@ canvas, frames, rate, sound, keys, the poster, size and repeat. Beside that
 is **the keyframe a play from the scrubbed frame starts at**
 (`os88vid.key_at`: the last key at or before it, or key 0 before them all),
 drawn from that key's record alone, with its number. That number is what
-`--poster` takes. **Load a .V88...** (beside *Made for*, 98.2.17) puts any
+`--poster` takes. **Load .V88** (beside *Input*'s Browse..., 98.2.17) puts any
 file in the preview, not only the one just made - and the POSTER itself is
 drawn beside that keyframe, so what the player shows before a play and
 what Set as poster would make it are seen together.
@@ -154175,7 +154195,8 @@ A synthetic clip of a loud 60 Hz bass and a quiet 880 Hz line measures it
 the other way round: the line −43.0 dB → −5.4 dB of full scale, the bass
 −21.9 → −65.8 under `lifted`, and −4.6 and −63.2 under `natural`
 (`tests/vidspkshape.py`). `--spk-shape off` takes the sound as it is, which is what every
-speaker file before this was.
+speaker file before this was. (A third value, `pass-through`, is a speaker
+WAV's alone and a `.V88` refuses it - §86.21.1.)
 
 **A file already made is shaped after the fact** by `os88vid.py speaker IN
 OUT [--highpass HZ] [--drive D] [--lows L] [--ratio R] [--range DB]`: each
@@ -154408,7 +154429,7 @@ PC, Hercules and MDA too - text mode, black and white".
 #### 98.2.17 How a file was made: stored in it, and loaded back
 
 **Every `.V88` the encoder makes carries the options it was made with**
-(98.1.1.4), and **Load a .V88...** in the encoder's window sets every
+(98.1.1.4), and **Load .V88** in the encoder's window sets every
 field to them: the target it was made for, the preset, format and profile,
 every picture, colour, sound, budget and keyframe option. The owner's ask,
 2026-09-28: *"store the options used ... inside the .v88. Then when loading

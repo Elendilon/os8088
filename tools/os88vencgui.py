@@ -150,6 +150,10 @@ def _sound(kind, what):
 def _shaping(c):
     return _sound("speaker", "the PC speaker")(c) or (
         None if c["spk_shape"] == "on" else
+        "These shape the sound for the speaker here, and Spk shape is "
+        "pass-through: the file is a plain 8-bit WAV at the rate, and Audio "
+        "shapes it itself as it plays. Turn Spk shape on to use them."
+        if c["spk_shape"] == V.SPK_PASS else
         "These shape the sound for the speaker, and Spk shape is off: the "
         "sound goes on the speaker as it is. Turn Spk shape on to use them.")
 
@@ -1343,7 +1347,7 @@ class App(object):
         # Audio - Browse...'s type first, and a default name's extension
         ot = ttk.Combobox(ess, textvariable=self.outtype, state="readonly",
                           values=[t[0] for t in OUT_TYPES], width=6)
-        ot.grid(row=1, column=3, padx=(4, 0))
+        ot.grid(row=1, column=3, sticky="we", padx=(4, 0))
         ot.bind("<<ComboboxSelected>>", lambda e: self.pick_outtype())
         Tip(ot, "What to save: a .V88 video, or a .WAV - the sound alone, "
                 "shaped for the PC speaker, for Audio to play (SPEC.md "
@@ -1352,11 +1356,12 @@ class App(object):
         ttk.Label(ess, text="Made for").grid(row=2, column=0, sticky="w")
         tg = ttk.Combobox(ess, textvariable=self.target, state="readonly",
                           values=[t[0] for t in TARGETS], width=58)
-        tg.grid(row=2, column=1, sticky="we", padx=4)
+        tg.grid(row=2, column=1, columnspan=2, sticky="we", padx=4)
         # A .V88 MADE BEFORE: previewed, and the form set to the options it
-        # was made with when it carries them (98.2.17)
-        ob = ttk.Button(ess, text="Load a .V88...", command=self.browse_v88)
-        ob.grid(row=2, column=2)
+        # was made with when it carries them (98.2.17) - beside the Input's
+        # Browse..., being the other way to fill that line's role
+        ob = ttk.Button(ess, text="Load .V88", command=self.browse_v88)
+        ob.grid(row=0, column=3, sticky="we", padx=(4, 0))
         Tip(ob, "Open a .V88 made before: scrub it, change its poster or "
                 "its title - and, when it carries the options it was made "
                 "with, set every field below to them, so it can be made "

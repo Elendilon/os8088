@@ -349,6 +349,8 @@ CHOICE_HELP = {
               "be heard over its whine",
         "off": "The sound as it is: most of it lands under the whine on a "
                "real 5150",
+        "pass-through": "A speaker WAV only: a plain 8-bit WAV at the rate, "
+                        "shaped by Audio itself as it plays",
     },
     "spk_style": {
         "lifted": "Quiet passages raised, so a soft intro is heard",
@@ -455,7 +457,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 1
+OPTS_VERSION = 2
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles")
@@ -464,7 +466,7 @@ OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
 # fails when the parser no longer matches OPTS_VERSION's: an option was
 # added, renamed, removed or took other choices, and the version must go
 # up with a MIGRATIONS entry saying how an older record reads
-OPTS_FINGERPRINT = {1: "06108fff43ef1307"}
+OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "61107007f0f78314"}
 # THE VERSION MAPPER: MIGRATIONS[n] is what turns a version-n record into
 # version n+1, a list of steps applied in order:
 #   ("rename", old, new)          an option took a new name
@@ -477,7 +479,11 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307"}
 #   ("removed", dest, why)        an option went: dropped, with the reason
 # A record from a NEWER encoder than this one is read for what this one
 # knows, and says so; nothing is ever guessed
-MIGRATIONS = {}
+MIGRATIONS = {
+    # 2: --spk-shape took a third choice, pass-through (a speaker WAV's
+    # alone, 86.21.1) - a version-1 record's on and off read as they were
+    1: [],
+}
 
 
 def opts_actions():
@@ -2706,6 +2712,7 @@ def speaker_pcm(a, rate, say):
     return pcm
 
 
+SPK_PASS = "pass-through"   # --spk-shape's third: a plain WAV (86.21.1)
 SPK_WAV_RATE = 8000     # a speaker WAV's default rate: Audio's top rung on
                         # an 8088, which copies counts no faster (86.21)
 
@@ -2718,8 +2725,11 @@ def encode_wav(a, tick):
     """A SPEAKER WAV FOR AUDIO (SPEC.md 86.21.1): the source's sound alone,
     shaped for the speaker exactly as a speaker .V88's is (speaker_pcm) and
     stored as the speaker's COUNTS in an 'o8sp' WAV, which Audio copies
-    into the ring with no shaping, resampling or decoding of its own. No
-    picture: every picture, colour and budget option is the video's"""
+    into the ring with no shaping, resampling or decoding of its own
+    (--spk-shape on; off stores the unshaped wave's counts the same way) -
+    or, with --spk-shape pass-through, a PLAIN 8-bit mono WAV at the rate,
+    which Audio shapes itself as it plays. No picture: every picture,
+    colour and budget option is the video's"""
     say = (lambda *x: None) if a.quiet else print
     tick("prepare", 0, 0)
     need_tools()
@@ -2746,17 +2756,37 @@ def encode_wav(a, tick):
         pcm = ffmpeg_audio(a.src, rate, a.start, a.end, a.volume)
     if not pcm:
         raise vid.V88Error("no sound came out of %s" % a.src)
-    counts = vid.spk_counts(bytes(pcm), rate, 1)
     tick("write", 0, 0)
-    vid.write_spk_wav(a.out, rate, counts, vid.SPK_WAV_COUNTS)
-    secs = len(counts) / float(rate)
-    size = os.path.getsize(a.out)
-    say("os88venc: %s: %.1f s of the speaker's counts at %d Hz, %d bytes - "
-        "Audio copies them to the speaker, and plays them on a card as the "
-        "samples they came from (SPEC.md 86.21.1)" % (a.out, secs, rate, size))
+    if a.spk_shape != SPK_PASS:
+        # ON: shaped here; OFF: the wave as it is. Either way the speaker's
+        # COUNTS in an 'o8sp' WAV (kind 2), which Audio copies untouched -
+        # so an OFF file is the unshaped wave, under the carrier's whine
+        counts = vid.spk_counts(bytes(pcm), rate, 1)
+        vid.write_spk_wav(a.out, rate, counts, vid.SPK_WAV_COUNTS)
+        secs = len(counts) / float(rate)
+        size = os.path.getsize(a.out)
+        say("os88venc: %s: %.1f s of the speaker's counts at %d Hz, %d "
+            "bytes%s - Audio copies them to the speaker, and plays them on "
+            "a card as the samples they came from (SPEC.md 86.21.1)"
+            % (a.out, secs, rate, size, "" if a.spk_shape == "on" else
+               ", NOT shaped"))
+    else:
+        # PASS-THROUGH: a PLAIN 8-bit mono WAV at the rate, no 'o8sp'
+        # chunk, so Audio shapes it on the machine as it would any WAV
+        # (86.21) - the resample and the bit depth done here, nothing else
+        vid.write_spk_wav(a.out, rate, pcm, 0)
+        secs = len(pcm) / float(rate)
+        size = os.path.getsize(a.out)
+        say("os88venc: %s: %.1f s of 8-bit PCM at %d Hz, %d bytes, not "
+            "shaped - Audio shapes it for the speaker as it plays (SPEC.md "
+            "86.21)" % (a.out, secs, rate, size))
+        import os88spkfx
+        counts = os88spkfx.Shaper(rate, os88spkfx.PRE_DIFF).feed(bytes(pcm))
     if getattr(a, "spk_preview", None):
         s2 = vid.write_spk_preview(a.spk_preview, counts, rate, 1)
-        say("   speaker preview: %s, %.1f s" % (a.spk_preview, s2))
+        say("   speaker preview: %s, %.1f s%s" % (
+            a.spk_preview, s2, "" if a.spk_shape != SPK_PASS else
+            " (Audio's own shaping, as the machine will play it)"))
     return dict(bytes=size, secs=secs, rate=rate, wav=True)
 
 
@@ -2899,6 +2929,11 @@ def encode(a, keep=None, progress=None):
 
 def _encode(a, keep, tick, readers):
     tick("prepare", 0, 0)
+    if getattr(a, "spk_shape", "on") == SPK_PASS:
+        raise vid.V88Error(
+            "--spk-shape pass-through is a speaker WAV's (86.21.1): a plain "
+            "WAV for Audio to shape. A .V88 takes on or off - or --audio "
+            "pcm8, which the Video Player shapes for the speaker itself")
     need_tools()
     prof = dict(PROFILES[a.profile])
     if a.live and prof["avg"] is not None:
@@ -3554,11 +3589,14 @@ def parser():
     ap.add_argument("--jobs", type=int, help="cores for the search "
                     "(default: all)")
     ap.add_argument("--volume", help="ffmpeg's volume= (e.g. 1.5, 3dB)")
-    ap.add_argument("--spk-shape", choices=("on", "off"), default="on",
+    ap.add_argument("--spk-shape", choices=("on", "off", "pass-through"),
+                    default="on",
                     help="with --audio speaker: cut what the speaker cannot "
                          "play, even the level out and drive it loud, so the "
                          "sound is heard over the pulses' whine (SPEC.md "
-                         "98.2.15.1). off takes the sound as it is")
+                         "98.2.15.1). off takes the sound as it is; "
+                         "pass-through, for a .WAV only, writes a plain "
+                         "8-bit WAV that Audio shapes itself (86.21.1)")
     ap.add_argument("--spk-style", choices=sorted(vid.SPK_STYLES),
                     default=vid.SPK_STYLE,
                     help="with --spk-shape: LIFTED levels harder so quiet "
