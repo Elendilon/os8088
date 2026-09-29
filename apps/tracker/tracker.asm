@@ -2831,6 +2831,19 @@ trk_menus_build:
 .tterm:
     mov byte [di], 0
 
+    ; --- Rate: NO CARD, the speaker picks its own rung (SPEC.md 45.25): one
+    ; greyed row that says so, since a pick here would change nothing ---
+    call trk_spkq
+    jnc .rcard
+    mov word [trk_e_rate + AMENU_NITEM], 1
+    mov di, trk_ritem0
+    mov byte [di], MENU_DIS
+    inc di
+    mov si, trk_s_rspk
+    call trk_scpy
+    mov byte [di], 0
+    jmp short .rdone
+.rcard:
     ; --- Rate: XT mode's TWO, or the other mode's FOUR - or TWO -----------
     call trk_rcount                 ; CL = the rows this mode AND this card
     xor ch, ch                      ; can play: a card without SND_CAP_PCM_HI
@@ -2882,6 +2895,7 @@ trk_menus_build:
     cmp bx, cx
     jb .item
 
+.rdone:
     mov bx, [trk_win]               ; ONE MENU_SET for the whole set, which is
     mov si, trk_menus               ; why this is one routine: two that each
     call OSAPI_MENU_SET             ; ended in it meant the last one called
@@ -3036,6 +3050,26 @@ trk_hirate:
     clc
     ret
 
+; trk_spkq - CF = 1 when there is NO CARD: Tracker plays through the PC speaker
+; and picks the speaker's rate itself (SPEC.md 45.25), so the Rate menu, the
+; rate button and R have nothing to set. Asked LIVE, as trk_hirate is.
+; Preserves every register.
+trk_spkq:
+    push ax
+    push bx
+    push dx
+    call OSAPI_SND_CAPS
+    test ax, SND_CAP_PCM_BG
+    pop dx
+    pop bx
+    pop ax
+    jnz .card
+    stc
+    ret
+.card:
+    clc
+    ret
+
 ; DS:SI (asciiz, terminator dropped) -> [DI], DI left past it. AL, SI spent.
 trk_scpy:
     mov al, [si]
@@ -3054,6 +3088,12 @@ trk_rate_set:
     push cx
     push si
     push di
+    call trk_spkq                   ; NO CARD: the speaker's rung is picked by
+    jnc .card                       ; the bench (45.25), so a pick - R, or one
+    mov si, trk_s_rspkm             ; that got here any other way - changes
+    call tui_msg                    ; nothing, and says why
+    jmp .done
+.card:
     call trk_rcount                 ; CL = rows in THIS mode: 3 outside XT
     cmp al, cl                      ; mode, 2 inside it. A pick past the end
     jae .done                       ; cannot happen from the menu and can from
@@ -3657,6 +3697,8 @@ trk_xrname:  dw trk_s_x55, trk_s_x11
 trk_xrmsg:   dw trk_s_xm55, trk_s_xm11
 trk_s_xm55:  db 'Rate: 5.5 kHz - Enter plays', 0
 trk_s_xm11:  db 'Rate: 11 kHz - windowed only', 0
+trk_s_rspk:  db 'Speaker (auto)', 0     ; no card: the one, greyed, Rate row
+trk_s_rspkm: db 'Rate: the speaker picks its own', 0
 
 %if TRK_VSH == 1
 trk_ttl:     db 'Tracker 33', 0     ; the listening builds say which they are

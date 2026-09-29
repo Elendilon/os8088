@@ -75793,6 +75793,23 @@ whole-pane redraw.
 package image across the 5.5 → 11 → 5.5 round trip, which must come back
 byte for byte. With the defect in, it names the four stray bytes.
 
+#### 45.21.11 A paused seek says where it went
+
+**A click on the scrubber while PAUSED moved the song, showed the thumb at the
+click and then snapped it back** to where the pause left it (reported on the
+5150 with the speaker; the card did the same). The drag draws the thumb at
+the hand (`[tw_dx]`); the release seeks and redraws it at `[tui_apos]`, the
+position the face is drawn FROM. Only a frame's `tui_sync` writes that - and a
+paused player draws no frames (`tw_want`, so the pointer is not lifted
+eighteen times a second for nothing). So `tw_seek`'s stopped branch moved
+`[mp_songpos]` and nothing published it. It now calls `tui_sync` itself, and
+parks the stopped view's row (`[tui_vrow]`) on the new pattern's first row.
+The rewind and fast-forward buttons take the same branch and had the same
+defect. `tests/trkspk.py --leg scrub` (`soak -k trkscrub`) pauses, clicks
+three quarters along and reads the thumb two seconds later, then plays on:
+position 1 -> 62 and resumed at 62, on the speaker and on the Sound Blaster
+5150. The build before it reads 1.
+
 ### 45.22 The PlayList (`trklist.inc`)
 
 ModPlug Player's list and its editor (§56.8), moved to the player that
@@ -76255,6 +76272,30 @@ so it does not move the constant.
 that it RAN: every share between 5% and 90% and rising with the rate, and
 all ten bank rows. With `os88spk_go` taken out every share reads 0 and it
 FAILS.
+
+#### 45.25.2 No card: the rate is not a choice
+
+With no card the speaker's rate is the bench's to pick (45.25), so the Rate
+controls had nothing to set - they looked live and did nothing, and a paused
+face said `5.5 kHz  8 bit mono`, the card rate the mode would have taken and
+the speaker never plays at. `trk_spkq` (CF = 1: no `SND_CAP_PCM_BG`, asked
+live like `trk_hirate`) is the one predicate for all of it:
+
+- the Rate menu is ONE greyed row, `Speaker (auto)`;
+- the face's rate button reads `Speaker`, greyed;
+- `trk_rate_set` refuses - R, or a pick that got there any other way - and
+  says `Rate: the speaker picks its own`. R is a windowed key, so it is
+  reached paused or stopped; the speaker play's imposter takes only the
+  transport's keys;
+- the LCD's format line reads `4.8 kHz  PC speaker`, the rate it last played
+  at, and `PC speaker, auto rate` before its first play has benched one.
+
+`tw_spkq` answers "is the speaker the output" for the face without the caps
+call while a speaker play is under way, since the rate button's state is
+asked every frame of one. `tests/trkspk.py --leg rate` (`soak -k trkspkrate`):
+on the card-less 5150 the menu is one greyed row and R leaves the pick
+alone; on the Sound Blaster 5150 the menu offers the card's rates and R moves
+the pick.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
