@@ -2343,6 +2343,10 @@ fm_s_delete:  db 'Delete', 0
 fm_s_compress: db 'Compress', 0 ; SPEC.md 22.22 - no ellipsis: it asks nothing
 fm_s_uncomp:  db 'Uncompress', 0 ; and starts the moment it is picked, and
                                 ; SPEC.md 22.23's other half says the same
+%ifdef KERN_BIG
+fm_s_uncto:   db 'Uncompress To...', 0  ; SPEC.md 22.23.6 - kern_big's alone: the
+                                ; join it names cannot fit kern_small's heap
+%endif
 fm_s_cut:     db 'Cut', 0
 fm_s_copy:    db 'Copy', 0
 fm_s_paste:   db 'Paste', 0
@@ -2360,7 +2364,11 @@ fm_s_pastin:  db 'Paste Into', 0
 ; fm_bar_gate does the swap on the press that opens the bar, exactly as
 ; ui_loc_gate does for Close Window and for its reason: nothing relays the
 ; bar out when a mount verdict changes.
+%ifdef KERN_BIG                 ; ...as wide as 'Uncompress To...' there
+fm_s_fsep:    db MENU_DIS, '----------------', 0
+%else
 fm_s_fsep:    db MENU_DIS, '--------------', 0
+%endif
 fm_s_formatx: db MENU_DIS       ; fm_s_clonex's idiom, six lines down: two
 fm_s_format:  db 'Format Disk...', 0    ; labels over one `db`, so the live
                                 ; label is the tail of the greyed one
@@ -2390,18 +2398,29 @@ fm_s_newwin:  db 'New Window', 0
 fm_items_file:
     dw fm_s_open, fm_s_mkdir, fm_s_rename, fm_s_delete
     dw fm_s_compress, fm_s_uncomp
+%ifdef KERN_BIG
+    dw fm_s_uncto               ; SPEC.md 22.23.6, with the pair it belongs to
+%endif
     dw fm_s_fsep, fm_s_format   ; fm_bar_gate rewrites these last three words
     dw fm_s_clone, fm_s_wimg
 FM_ICOMP    equ 4               ; the compression pair (SPEC.md 22.22/22.23),
 FM_IUNCOMP  equ 5               ; written down because tests/lzcomp.py picks
                                 ; both by index and reads these rather than
                                 ; carrying a copy of the number
+%ifdef KERN_BIG                 ; LITERALS in both arms, the kern_big one
+FM_IFMT     equ 8               ; FIRST: tests/diskclone.py reads these with a
+FM_ICLONE   equ 9               ; regex that takes digits and the first match
+FM_IWIMG    equ 10
+FM_NFILE    equ 11              ; ...and the File menu is FULL on kern_big
+                                ; (MENU_POPMAX is 11): Uncompress To...
+                                ; (SPEC.md 22.23.6) took the last slot
+%else
 FM_IFMT     equ 7               ; ...at these item indices, which are also
 FM_ICLONE   equ 8               ; FMC_FORMAT/FMC_CLONE/FMC_WIMG - FMC_OPEN,
 FM_IWIMG    equ 9               ; and are written down once rather than being
                                 ; counted at the store
-FM_NFILE    equ 10              ; items in the File menu (MENU_POPMAX is 11,
-                                ; so this is the last one that fits)
+FM_NFILE    equ 10              ; items in the File menu (MENU_POPMAX is 11)
+%endif
 fm_items_edit:
     dw fm_s_cut, fm_s_copy, fm_s_paste
 fm_items_nav:
@@ -4532,28 +4551,34 @@ FMC_COMPRESS equ 4              ; SPEC.md 22.22, and the paragraph above is the
 FMC_UNCOMP  equ 5               ; SPEC.md 22.23 - the pair, and the licence
                                 ; above is what pays for the renumber below
                                 ; it a FOURTH time
-FMC_FMTSEP  equ 6               ; the RULE between the pair and Format. It is a
+%ifdef KERN_BIG
+FM_NUT      equ 1               ; Uncompress To... (SPEC.md 22.23.6): 1 where
+FMC_UNCTO   equ 6               ; it is in the menu, and every id after it
+%else                           ; moves by it - the FIFTH renumber, on the
+FM_NUT      equ 0               ; licence above
+%endif
+FMC_FMTSEP  equ 6 + FM_NUT ; the RULE between the pair and Format. It is a
                                 ; MENU_DIS item, so menu_hover can never land
                                 ; on it and this id can never be dispatched -
                                 ; but it occupies an item index, so it needs
                                 ; an id and a fm_jmp entry all the same, and
                                 ; that entry is a bare `ret` because a body
                                 ; may not assume which surface picked it
-FMC_FORMAT  equ 7
-FMC_CLONE   equ 8               ; SPEC.md 22.21, and the paragraph above is the
-FMC_WIMG    equ 9               ; licence for the renumber below it - twice
-FMC_CUT     equ 10              ; Edit
-FMC_COPY    equ 11
-FMC_PASTE   equ 12
-FMC_NEWWIN  equ 13              ; Nav
-FMC_OPENNEW equ 14
-FMC_REFRESH equ 15
-FMC_UP      equ 16
-FMC_ROOT    equ 17
-FMC_DRVA    equ 18
-FMC_DRVB    equ 19
-FMC_LIST    equ 20              ; no menu CELL of its own since SPEC.md 22.15
-FMC_ICONS   equ 21              ; retired View: the context menu (fm_cxc_dir)
+FMC_FORMAT  equ 7 + FM_NUT
+FMC_CLONE   equ 8 + FM_NUT      ; SPEC.md 22.21, and the paragraph above is the
+FMC_WIMG    equ 9 + FM_NUT      ; licence for the renumber below it - twice
+FMC_CUT     equ 10 + FM_NUT     ; Edit
+FMC_COPY    equ 11 + FM_NUT
+FMC_PASTE   equ 12 + FM_NUT
+FMC_NEWWIN  equ 13 + FM_NUT     ; Nav
+FMC_OPENNEW equ 14 + FM_NUT
+FMC_REFRESH equ 15 + FM_NUT
+FMC_UP      equ 16 + FM_NUT
+FMC_ROOT    equ 17 + FM_NUT
+FMC_DRVA    equ 18 + FM_NUT
+FMC_DRVB    equ 19 + FM_NUT
+FMC_LIST    equ 20 + FM_NUT     ; no menu CELL of its own since SPEC.md 22.15
+FMC_ICONS   equ 21 + FM_NUT     ; retired View: the context menu (fm_cxc_dir)
                                 ; and the in-window toggle button are the two
                                 ; surfaces left, and both reach these BY NAME.
                                 ; Nothing renumbers - a base + item sum simply
@@ -4562,9 +4587,9 @@ FMC_ICONS   equ 21              ; retired View: the context menu (fm_cxc_dir)
                                 ; other base is a VALUE that did not move
                                 ; (SPEC.md 12.7's FMC_CLOSEW reasoning)
 %ifdef KERN_BIG
-FMC_TIMER   equ 22              ; Builtins (SPEC.md 12.3.1) - the same three
-FMC_BOUNCE  equ 23              ; commands Locator's own Builtins menu has,
-FMC_DISK    equ 24              ; in the same order. Restart is NOT among them
+FMC_TIMER   equ 22 + FM_NUT     ; Builtins (SPEC.md 12.3.1) - the same three
+FMC_BOUNCE  equ 23 + FM_NUT     ; commands Locator's own Builtins menu has,
+FMC_DISK    equ 24 + FM_NUT     ; in the same order. Restart is NOT among them
                                 ; any more: it moved to the System menu, which
                                 ; is cell 0 of every application, so a Disk
                                 ; window reaches it there like everything else
@@ -4576,16 +4601,16 @@ FMC_DISK    equ 24              ; in the same order. Restart is NOT among them
                                 ; is fm_menu_base's, and every base there is a
                                 ; VALUE that did not move
 %ifdef KERN_BIG
-FMC_PASTEIN equ 25              ; no menu CELL of its own: the context menu's
+FMC_PASTEIN equ 25 + FM_NUT     ; no menu CELL of its own: the context menu's
                                 ; "paste into the folder under the pointer"
                                 ; (SPEC.md 22.3), which the bar cannot offer
                                 ; because the bar has no pointer. It sits
                                 ; PAST every menu's range so no base + item
                                 ; sum can reach it by accident.
-FMC_COUNT   equ 26
+FMC_COUNT   equ 26 + FM_NUT
 %else
-FMC_PASTEIN equ 22
-FMC_COUNT   equ 23
+FMC_PASTEIN equ 22 + FM_NUT
+FMC_COUNT   equ 23 + FM_NUT
 %endif
 
 ; --- how much of the acting window did the command change? (SPEC.md 22.13) ---
@@ -4630,6 +4655,10 @@ fm_jmp:
     dw fm_c_uncomp              ; inline (ditto, and with no module to fetch:
                                 ;         the DECODER is resident, which is
                                 ;         SPEC.md 22.23's whole asymmetry)
+%ifdef KERN_BIG
+    dw fm_c_uncto               ; inline (asks the image, then opens the Save
+                                ;         box - SPEC.md 22.23.6)
+%endif
     dw fm_c_nop                 ; the separator - unreachable through the bar
                                 ; (MENU_DIS), and a `ret` rather than a hole
                                 ; because fm_docmd's bound is FMC_COUNT and
@@ -5169,6 +5198,9 @@ fm_clone_go:
 ; fm_errtab, because the image has no copy of that table and does not want one.
 fm_c_compress:                  ; ...and fm_c_uncomp: ONE body, which fm_jmp
 fm_c_uncomp:                    ; names twice
+%ifdef KERN_BIG
+fm_c_uncto:                     ; ...three times on kern_big (SPEC.md 22.23.6)
+%endif
     mov di, [fm_vp]             ; fmv_sync_x takes the state block in DI, and
     call fmv_sync_x             ; act in OUR folder (SPEC.md 22.1). fm_docmd
                                 ; hands a body nothing in DI: the old shape
@@ -5190,6 +5222,11 @@ fm_c_uncomp:                    ; names twice
     jnc .done
     or ax, ax
     jz .none                    ; it has already spoken
+%ifdef KERN_BIG
+    cmp ax, 0xFFFF              ; ...or a FOURTH answer, Uncompress To's: the
+    je .ask                     ; selection is a part, and the image has put
+                                ; the original's name in fm_hdrbuf
+%endif
 .say:
     mov bx, fm_errtab
     mov cx, FM_NERR
@@ -5201,6 +5238,23 @@ fm_c_uncomp:                    ; names twice
     call fmv_bcast              ; every window showing this folder re-lists
     mov byte [fm_cmdchg], FMD_ALL
     ret
+%ifdef KERN_BIG
+    ; Where the result goes (SPEC.md 22.23.6). The dialog is opened from HERE
+    ; for Write Img's reason: fdlg_open wants a live owned window and a near
+    ; completion proc in KERNEL_SEG, and an image is neither. The image has
+    ; already been dropped, and a cancelled dialog calls nothing back, so
+    ; nothing is left holding anything.
+.ask:
+    mov di, [fm_vp]
+    call fmv_winof              ; BX = this block's window
+    jc .none
+    mov si, fm_hdrbuf           ; the default: the name it rejoins as, which
+    mov di, fm_uncto_done_x     ; fdlg_setname copies before anything else
+    mov al, 1                   ; could stage into fm_hdrbuf. The SAVE form
+    call fdlg_open_x
+    jmp short .none             ; not one pixel of this window is owed: the
+                                ; dialog drew itself (fm_c_wimg's note)
+%endif
 .nomod:
     mov al, FERR_NODISK         ; 'No disk' - the SAME words the cloner uses
     jmp short .say              ; when ITS image cannot be fetched, for the
@@ -5502,6 +5556,47 @@ fm_img_done_x:
 .out:                           ; is left exactly as it was
     jmp kretc_di
 
+%ifdef KERN_BIG
+; -----------------------------------------------------------------------------
+; fm_uncto_done - the Save box answered Uncompress To... (SPEC.md 22.23.6)
+; in:  SI = the requester window, [fdlg_name] = the result's name; the dialog
+;      has left the TARGET's volume mounted and its folder current, which is
+;      the whole of how the target is known. Gfx lock held
+; out: nothing
+;
+; The SOURCE is the requester window's own folder, read off its state block:
+; the dialog is modal, so nothing could have moved it - and that is what lets
+; the source need no resident bytes of its own beyond clo_fnbuf, where the
+; image staged the part's name before the dialog opened. The join starts here
+; and either finishes (CLA_JDONE, the verdict already said and the claim
+; already freed) or stops at a part on a floppy that is not there (CLA_LINE),
+; which arms the cloner's own mode 7: its keys, its lines and its teardown all
+; reach the image, and clo_disp_x hands them to the join (SPEC.md 22.23.6).
+; -----------------------------------------------------------------------------
+fm_uncto_done_x:
+    call kentc_di               ; KENT: push ax..di
+    mov bx, si
+    call fm_vp_set              ; fm_img_done's reason: the teardown's
+    mov di, [fm_vp]             ; repaint may have re-aimed [fm_vp]
+    mov al, [disk_drive]        ; the target...
+    mov bx, [dsk_cwd]
+    mov ah, [di+FS_DRV]         ; ...and the source
+    mov cx, [di+FS_CWD]
+    mov dl, CLV_JOIN
+    call clo_call               ; AL = CLA_LINE or CLA_JDONE
+    jc fm_img_done_x.bad        ; AX = CERR_NODISK: CLONE.DRV could not be had
+    cmp al, CLA_LINE
+    jne .done
+    mov di, [fm_vp]
+    mov al, 7                   ; a disk to ask for: the cloner's prompt mode
+    call fm_edit_arm
+    jmp fm_img_done_x.paint
+.done:
+    call clo_drop               ; nothing is armed, so nothing else will
+    call fmv_bcast              ; the target's windows re-list
+    jmp fm_img_done_x.paint
+%endif
+
 fm_c_cut:                       ; File > Cut - the selection, onto the
     mov al, FCP_CUT             ; clipboard (SPEC.md 22.3)
     jmp short fm_c_clip
@@ -5714,7 +5809,7 @@ MC_NITEM    equ 4               ; word: item count
 ; here to add it: it is doable, and the paragraph above is not an argument
 ; against it.
 fm_ctx_file:                    ; the row under the pointer is a file
-    dw fm_cxi_file, fm_cxc_file, 7
+    dw fm_cxi_file, fm_cxc_file, 7 + FM_NUT
 fm_ctx_fold:                    ; ...or a folder, which can also be opened
     dw fm_cxi_fold, fm_cxc_fold, 7
 fm_ctx_dir:                     ; empty space: the folder's own commands
@@ -5733,9 +5828,15 @@ fm_ctx_up:                      ; ...or '..' (SPEC.md 19.5), which opens and
 fm_cxi_file:
     dw fm_s_open, fm_s_cut, fm_s_copy, fm_s_rename, fm_s_delete
     dw fm_s_compress, fm_s_uncomp
+%ifdef KERN_BIG
+    dw fm_s_uncto               ; SPEC.md 22.23.6: the WF_FULL surface too
+%endif
 fm_cxc_file:
     db FMC_OPEN, FMC_CUT, FMC_COPY, FMC_RENAME, FMC_DELETE
     db FMC_COMPRESS, FMC_UNCOMP
+%ifdef KERN_BIG
+    db FMC_UNCTO
+%endif
 
 ; Paste is on the FOLDER menu as well as the empty-space one, because
 ; "paste into that folder" is the thing a right-click on a folder is for -
@@ -6052,10 +6153,20 @@ fm_editkey:
     jc .clonebad                ; ...unless CF=1, which is AX = CERR_* in the
     cmp al, CLA_SAVE            ; OTHER alphabet (SPEC.md 18.99.7): CLONE.DRV
     je .clone_save              ; could not be re-read, which is an error and
+%ifdef KERN_BIG
+    cmp al, CLA_JDONE           ; Uncompress To's join ended (SPEC.md 22.23.6):
+    je .joindone                ; it has said its verdict and freed its claim
+%endif
     cmp al, CLA_LINE            ; not an answer
     jne .clone_end
     jmp .lineonly               ; NEAR: three prompts' worth of code sits
                                 ; between here and it
+%ifdef KERN_BIG
+.joindone:
+    call fm_edit_end            ; mode 7's end: CLV_FREE finds no claim, and
+    call fmv_bcast              ; the image is dropped - then the target's
+    jmp .out                    ; windows re-list and this one repaints
+%endif
 .clonebad:
     mov ah, al                  ; AL was a CERR_*, so it is said as one
     mov al, CLA_ERR

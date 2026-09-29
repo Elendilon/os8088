@@ -1355,6 +1355,9 @@ in docs/TESTING.md, per capability.
 - `drivers/` — loadable drivers (§51): same format, but `.DRV`, header version
   4, no instance record, bss shipped inside the image. `drivers/ether/` is the NIC
   and the TCP/IP stack (§72) — the largest of them, and QEMU-only to test.
+- `dostools/` — MS-DOS programs that ship for the machine at the OTHER end
+  of a disk walk: `os88cz.asm` is `OS88CZ.COM`, the split set's DOS end
+  (§20.17.4), and `%include`s `kernel/lz.inc` as it is.
 - `tests/` — every package that is **not** shipped software: capability gates
   (pass/fail) and benchmarks (how fast). Built only by their own targets.
 - `apps/browser/`, `apps/telnet/` — the network clients (§71, §70), over

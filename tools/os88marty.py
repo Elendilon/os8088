@@ -1139,6 +1139,18 @@ class Marty:
         """
         return self.cmd(cmd="flush", drive=drive, path=path, format=fmt)
 
+    def mount(self, drive, path):
+        """Swap the floppy in `drive` for the image at `path`, while it runs.
+
+        The guest is not told: an XT drive has no change line, so os8088
+        notices a swap only once the motor has stopped (SPEC.md 18.9.1, 2.03
+        seconds) - give it that long, in GUEST time, before answering a
+        prompt that asked for the disk. `path` is used in place, so pass a
+        copy of anything you want to keep: the guest's writes land in RAM and
+        `flush` writes them back to it.
+        """
+        return self.cmd(cmd="mount", drive=drive, path=path)
+
     def quit(self):
         return self.cmd(cmd="quit")
 

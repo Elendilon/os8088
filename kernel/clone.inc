@@ -62,6 +62,10 @@ CLA_LINE     equ 0x80           ; the prompt changed and nothing else did
 CLA_DONE     equ 0x81           ; finished; BL/BH name the two volumes
 CLA_STOP     equ 0x82           ; Esc - the user said it, so nothing is said
 CLA_ERR      equ 0x83           ; AH = CERR_*
+CLA_JDONE    equ 0x85           ; Uncompress To... ended: it has said its
+                                ; verdict and freed its claim (SPEC.md 22.23.6)
+CLS_JOIN     equ 0x80           ; CL_STEP of a claim that is the JOIN's, not a
+                                ; clone's: clo_disp_x sends mode 7 to it
 CLA_SAVE     equ 0x84           ; ask for a file name, and come back through
                                 ; CLV_SAVED. The dialog is opened by the
                                 ; RESIDENT half (SPEC.md 18.99.8): fdlg_open
@@ -78,6 +82,8 @@ CLV_SAVED    equ 4              ; the Save dialog answered: do the whole
                                 ; disk -> file operation (SPEC.md 18.99.8)
 CLV_WIMG     equ 5              ; the Open dialog answered: size it, claim,
                                 ; and arm the confirmation
+CLV_JOIN     equ 6              ; Uncompress To...'s Save box answered: join
+                                ; the set there (SPEC.md 22.23.6, compress.inc)
 
 ; --- the job block, at offset 0 of the claim (SPEC.md 18.99.1) ---------------
 CL_SRC       equ 0              ; db: the source volume index
@@ -208,6 +214,25 @@ modl_e_cmz:     call cmz_verb   ; CF and AX are the answer, and `retf` leaves
 ; that has to be checked when a fifth one is added, not assumed.
 ; -----------------------------------------------------------------------------
 clo_disp_x:
+%ifdef KERN_BIG
+    cmp dl, CLV_JOIN            ; Uncompress To... (SPEC.md 22.23.6) rides the
+    jne .notjoin                ; cloner's claim word and its mode 7: a claim
+    jmp cmz_jgo                 ; marked CLS_JOIN is the join's, and its keys,
+.notjoin:                       ; lines and teardown go to compress.inc
+    cmp dl, CLV_KEY
+    jb .ladder                  ; CLV_START is never the join's: clo_start
+    cmp dl, CLV_FREE            ; refuses a busy [clo_seg] as it always has
+    ja .ladder
+    cmp word [clo_seg], 0
+    je .ladder
+    push es
+    mov es, [clo_seg]
+    cmp byte [es:CL_STEP], CLS_JOIN
+    pop es
+    jne .ladder
+    jmp cmz_jdisp
+.ladder:
+%endif
     cmp dl, CLV_START
     je clo_start                ; adjacent, so a short Jcc reaches it; the
     cmp dl, CLV_KEY             ; three below are hundreds of bytes away and
