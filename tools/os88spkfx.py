@@ -307,6 +307,31 @@ def load(path, rate=None, at=False):
 
 
 # --------------------------------------------------------------------------
+# TRACKER'S LOAD-TIME FILTER (SPEC.md 45.25): the natural style's high-pass
+# (98.2.15.1), paid once over the module's SAMPLES rather than per output
+# sample - a linear filter commutes with the mix. A one-pole DC blocker,
+# y = (x - x_prev) + 7/8 y_prev, in the sample's own time base: its corner
+# is ~190 Hz for a sample played at C-2 (8,363 Hz) and moves with the note.
+# Integer, exactly as apps/tracker/trkspk.inc's tsp_natural runs it, with
+# Y = 128 y so the output y/2 is Y's high byte: for x in -128..127, |y| is
+# at most 255 (y = x - 1/8 sum 7/8^(k-1) x[n-k]), so Y fits a word and the
+# output a signed byte with no clamp
+#   Y = Y - (Y >> 3) + 128 (x - x_prev),  out = Y >> 8
+# (Python's >> is the 8086's `sar`: both floor)
+# --------------------------------------------------------------------------
+def tracker_hp(data):
+    """one sample's signed 8-bit bytes through tsp_natural, from rest"""
+    out = bytearray(len(data))
+    y = xp = 0
+    for i, b in enumerate(data):
+        x = b - 256 if b > 127 else b
+        y = y - (y >> 3) + (x - xp) * 128
+        xp = x
+        out[i] = (y >> 8) & 0xFF
+    return bytes(out)
+
+
+# --------------------------------------------------------------------------
 # a WAV made for the speaker on the host: Audio copies it (SPEC.md 86.21.1).
 # The ENCODER makes them - `os88venc.py IN OUT.WAV`, the same shaping and
 # options a speaker .V88 gets - and the format is os88vid's; these names are
