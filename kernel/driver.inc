@@ -663,7 +663,17 @@ CFG_RBLOB   equ CFG_DBLOB + DRV_BLOB_SZ     ; DRV_RBLOB_SZ bytes: the SECOND
                                 ; its length and nothing about its contents,
                                 ; and it round-trips untouched on a machine
                                 ; whose driver never loads
-CFG_NB      equ CFG_RBLOB + DRV_RBLOB_SZ    ; ...the struct's size
+CFG_FDD     equ CFG_RBLOB + DRV_RBLOB_SZ    ; db: the Floppy page's four
+                                ; drives, two bits each, unit n at bits
+                                ; 2n..2n+1: 0 Auto, 1 None, 2 5.25", 3 3.5"
+                                ; (SPEC.md 31.14). NOT a plain store and not in
+                                ; _map: nothing resident reads it. It lives in
+                                ; this struct and nowhere else, like a blob -
+                                ; the overlay applies it once at boot and the
+                                ; panel's module edits it here
+CFG_FDR     equ CFG_FDD + 1     ; db: ...and the READ bound, 0 Auto, 1 Track,
+                                ; 2 Cylinder (SPEC.md 31.14, 18.91.1)
+CFG_NB      equ CFG_FDR + 1     ; ...the struct's size
 %else
 CFG_NB      equ CFG_DBLOB + DRV_BLOB_SZ     ; no RAM disk here, so no second
 %endif                          ; blob and 24 fewer bytes of settings struct
@@ -733,7 +743,10 @@ CFG_NB      equ CFG_DBLOB + DRV_BLOB_SZ     ; no RAM disk here, so no second
 %ifdef KERN_BIG
     dw 'RD'                     ; Ram Disk - the second one (51.9.1)
     db 1, DRV_RBLOB_SZ, CFG_RBLOB
-CFG_NKEY    equ 10              ; ...and 'DK' (DOCK_OPT is kern_big's)
+    dw 'FD'                     ; Floppy Drives - the Floppy page (31.14): ONE
+    db 1, 2, CFG_FDD            ; record for both of its bytes, so the page
+                                ; costs one key entry and one record header
+CFG_NKEY    equ 11              ; ...and 'DK' (DOCK_OPT is kern_big's)
 %else
 CFG_NKEY    equ 8               ; no 'RD' key: kern_small has no RAM disk, and
 %endif                          ; an unknown key is DROPPED rather than carried
@@ -4075,6 +4088,103 @@ ovl_cfg_load:
                                 ; that never touched them
 
 ; -----------------------------------------------------------------------------
+; ovl_fdd_apply - SYSTEM.CFG's 'FD' record over the boot's own detection
+;                 (SPEC.md 31.14)
+; in:  [drv_cfg+CFG_FDD], [drv_cfg+CFG_FDR], just read; DS = KERNEL_SEG
+; out: nothing
+; clobbers: AX, BX, CX, DX, SI - drv_boot_x's one caller sets each before it
+;           reads it again, CH last, and the blob has no byte for the pushes
+;
+; **HERE, AND NOT IN desk_init, BECAUSE OF WHEN THE FILE IS READABLE.**
+; desk_init is `.ovlw` and runs at MARK 20; SYSTEM.CFG is read by NAME, so it
+; needs the mount, and the mount is what takes the FAT window `.ovlw` lives
+; in. So the detection runs first and this corrects it - which costs nothing,
+; because every answer desk_init reaches is a byte in a dsk_vtab row and a
+; byte is as easy to overwrite as to write. `.ovl`, so no resident byte: the
+; blob dies at kmain's mem_unblob like the rest of drv_boot.
+;
+; Per unit, 0 Auto leaves the row exactly as detected. 1 None takes the ZONE
+; away and leaves the ROW - the state a drive the equipment word never claimed
+; has always been in (desk_init's .zloop), so a hidden B: keeps its letter and
+; its volume, and [disk_drive] may go on naming it. 2 and 3 force the zone on
+; and the drive's KIND (SPEC.md 26.4.1), clearing DVF_GUESS so desk_learn_x's
+; first mount does not take it back: the user said what the drive is, and a
+; medium is weaker evidence about a drive than that. A forced unit with no row
+; gets one, on dsk_flop_add_x's rules - that body is `.ovlw` and dead by now,
+; so its walk is repeated rather than reached.
+;
+; The read bound overwrites boot_cylrun's LOW BYTE, which is the finding every
+; mount re-reads (dsk_bpb_check) and the one hiber.inc carries to kern_dos:
+; overriding the finding, rather than adding a test beside it, is what makes
+; this free at every reader. The loader stores the RUN BOUND there, at most 36,
+; so the high byte is always 0 and the byte decides the word.
+; -----------------------------------------------------------------------------
+ovl_fdd_apply:
+    mov al, [drv_cfg+CFG_FDR]
+    dec ax                      ; 1 Track -> 0, 2 Cylinder -> 1, 0 Auto -> FF
+    cmp al, 1
+    ja .drives                  ; Auto, or a byte from a future version
+    mov [boot_cylrun], al       ; ...for every mount after this one
+    mov [dsk_cylrun], al        ; ...and the one drv_boot is standing on
+.drives:
+    mov dl, [drv_cfg+CFG_FDD]
+    xor cx, cx                  ; CL = the unit, CH = 0 = DVK_BIOS below
+.unit:
+    mov al, dl
+    and al, 3
+    jz .next                    ; Auto: what desk_init found stands
+    ; ONE walk, top row down, for both questions: the unit's own row, and
+    ; failing that the LOWEST free one - walking down, the last free row seen
+    ; is it. Row 0 is never free, and C: is the hard disk's (dsk_flop_add_x)
+    mov bx, dsk_vtab + (DVOL_MAX-1)*DV_SIZE
+    xor si, si                  ; SI = the free row, 0 = none
+.walk:
+    cmp byte [bx+DV_KIND], DVK_FREE
+    jne .used
+    cmp bx, dsk_vtab + 2*DV_SIZE
+    je .down
+    mov si, bx
+    jmp short .down
+.used:
+    cmp [bx+DV_KIND], ch        ; DVK_BIOS...
+    jne .down
+    cmp [bx+DV_UNIT], cl        ; ...and this unit
+    je .have
+.down:
+    sub bx, DV_SIZE
+    cmp bx, dsk_vtab
+    jae .walk
+    cmp al, 1
+    je .next                    ; None, and no row to hide
+    mov bx, si
+    or bx, bx
+    jz .next                    ; the table is full: detection stands
+    mov [bx+DV_UNIT], cl        ; dsk_flop_add_x's stores, less the two
+    mov [bx+DV_KIND], ch        ; zeros: no row has been freed by anything
+                                ; that leaves DV_SECS or DV_LBL set by the time
+                                ; drv_boot runs - a free row is the
+                                ; initialiser's, or dsk_fdd_retire's, which
+                                ; zeroes both. DVK_BIOS published LAST
+.have:
+    mov ah, [bx+DV_FLAGS]
+    and ah, ~(1 | DVF_525 | DVF_GUESS) & 0FFh
+    test al, 2
+    jz .set                     ; 1 None: no zone
+    or ah, 1                    ; 2 and 3: a zone...
+    test al, 1
+    jnz .set                    ; ...3.5"
+    or ah, DVF_525              ; ...5.25"
+.set:
+    mov [bx+DV_FLAGS], ah
+.next:
+    shr dl, 1
+    shr dl, 1
+    inc cx
+    cmp cl, 4
+    jb .unit
+    ret
+
+; -----------------------------------------------------------------------------
 ; drv_snd_sniff - is there an FM chip in this machine? (SPEC.md 51.3.1)
 ; in:  nothing (kmain, after drv_init and BEFORE drv_boot's first mount)
 ; out: nothing (all registers preserved). On a hit, row 0's DRVR_WANT is set
@@ -4313,6 +4423,12 @@ drv_boot_x:
     jc .nodisk
     call ovl_cfg_load       ; CF = 1: no file, so every default stands -
     jc .load                    ; and every default is now "not wanted", so
+    call ovl_fdd_apply          ; the Floppy page OVER desk_init's detection
+                                ; (SPEC.md 31.14) - BEFORE the driver loop, so
+                                ; a floppy row it makes lands where desk_init
+                                ; would have put it, ahead of any partition.
+                                ; It spends every register, CH included, so
+                                ; it goes ahead of the one CH carries
     mov ch, 1                   ; the loop below correctly loads nothing.
                                 ; OVLCALLC and never OVLCALL: the plain form
                                 ; banks the flags, which swallows this answer
