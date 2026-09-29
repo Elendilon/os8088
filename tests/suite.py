@@ -2519,9 +2519,8 @@ SOAK = [
         "eight left - it reads whether the CAST is on the glass at all, which "
         "nothing did until a refactor drew every actor at the wrong position "
         "and passed all of them. "
-        "`--arm cga` is one adapter. At 360 KB it rides the "
-        "ordinary apps disk, in the room the earlier Pac-Man port came off "
-        "it to make (93.13)",
+        "`--arm cga` is one adapter. At 360 KB it rides games360.img "
+        "and not the apps disk (93.13)",
         needs=("marty", "nasm"), serial=True),
     Row("ddcorner", "soak", py("tests/ddcorner.py"), 120.0,
         "DOT DELIRIUM's walls are NEVER on the glass in an actor's colour, "

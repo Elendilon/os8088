@@ -11491,7 +11491,13 @@ APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/tank.o88 $(BUILD)/cyclone.o88 \
 # the disk 352 -> 354 of 354 - it still BUILT, but a volume with no free
 # cluster refuses every SYSTEM/APPDATA write on it (SPEC.md 19.9), Cyclone's
 # high scores among them. games360.img and every other geometry carry it.
-APPS_GAMES_360 := $(filter-out $(BUILD)/pxstein.o88 $(BUILD)/gorillas.o88,$(APPS_GAMES))
+#
+# ...AND NEITHER IS DOT DELIRIUM (SPEC.md 93.13, the same dated decision,
+# the owner's, 2026-09-29): it had ridden this disk only as the development
+# arrangement 93.13 describes. games360.img and every other disk keep it -
+# smallapps360.img too, which is SMALLGAMES and not this list.
+APPS_GAMES_360 := $(filter-out $(BUILD)/pxstein.o88 $(BUILD)/gorillas.o88 \
+                    $(BUILD)/dotdel.o88,$(APPS_GAMES))
 
 # The CORE PACKAGES (SPEC.md 24.3) are a SECOND copy on the system disk and
 # never a move, so the two lists above are unchanged and still carry every

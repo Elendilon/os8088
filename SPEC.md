@@ -133425,14 +133425,20 @@ The honest degrade for a moving sprite is to leave the frame alone, which is a
 black window, so the package is in `SMALLOMIT_GAMES` and the 128 KB machine's
 floppies do not carry it. That is §24.5's rule and not a new one: a package
 that cannot reach the surface it needs is left off rather than shipped broken.
+**Withdrawn**: §5.4.2.5.1 gave `kern_small` a `gfx_blit1` body, and §24.5.5
+put the package back on the small floppies on a measurement taken on the floor
+machine — the paragraph stands as the record of why it was ever off.
 
-At **360 KB** it rides the ordinary apps disk like every other geometry, at
-352 of that disk's 354 clusters. It did not fit when it arrived — eight spare
-clusters against a package of eleven — and it rode `build/media360.img`, the
-second 360 KB disk §24.4 already exists for, until the earlier Pac-Man port
-came off the apps disk to make room. That is a **development** arrangement the
-owner asked for and not a shipping decision: a release that wants both puts
-this one back on the media disk, which is one line of the Makefile.
+At **360 KB** it rides `games360.img` (§24.6) and **not** the apps disk —
+§24.6.1's dated decision, taken by the owner on 2026-09-29 alongside
+Gorillas'. Every other geometry's apps disk carries it in `GAMES/`, and
+`smallapps360.img` too (`SMALLGAMES` is a list of its own). It did not fit
+`apps360.img` when it arrived — eight spare clusters against a package of
+eleven — and it rode `build/media360.img` until the earlier Pac-Man port came
+off the apps disk to make room; that was always a **development** arrangement
+and not a shipping decision, and the Makefile's `APPS_GAMES_360` is where it
+ended. Its rows (`tests/dotdel.py` and the four that import its `PKG`) boot
+`games360.img`, where the package sits at the root.
 
 ### 93.14 Acceptance
 
