@@ -58539,6 +58539,19 @@ The carrier's target is still set by the span's own peak. `os88spkfx_pk1` and
 `os88spkfx_pk2` are the two held peaks; with the hold taken out of the asm
 alone `tests/spkfx.py` fails on all five legs.
 
+**A slower leveller was built and REVERTED, on the ear.** A held peak that
+decays (re-armed within ~2.5 dB, held 16 spans, then 1/16 a span), a table row
+that glides a 2 dB step every 16 samples and `ZT` 2.5 took the level's spread
+within each second from 1.87 to 0.65 dB on ELYSIUM.MOD and from 2.21 to 0.84 dB
+on BEVERLY.MOD, at the same clipping, and the owner preferred it on the T1100
+Plus side by side. A second listener disliked it: its fades out and back in
+around a loud part were MORE obvious for being slower, where the three-span
+hold's are short enough to pass. So the three-span hold ships, and what is
+wrong with both is the same thing - the level moves at all, and parts that
+should not change fade with it. docs/plans/SPEAKER-LEVELLER-NEXT.md carries
+the measurements, the instrument, and the next idea, which attacks exactly
+that: ONE level for a whole song, chosen at load.
+
 **What it costs, measured** on MartyPC's 4.77 MHz 5150 (`tests/spkfx.py`,
 emit plus the span's level, interrupts included): **~104 cycles a sample**
 with the pre-emphasis and the carrier moving, **~84** while the carrier sits

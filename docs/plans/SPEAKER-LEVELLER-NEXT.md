@@ -1,10 +1,10 @@
 # The speaker's leveller: what is left, and how to go after it
 
-**OPEN - nothing here is built.** Written 2026-09-29, when the owner chose the
-shipped leveller for the first release ("cleaner sounding than the prior
-method overall") and asked for the remaining ideas to be written down before
-moving on. SPEC.md 34.11.9 is the contract for what ships; this is what might
-come after it, with the measurements the choices were made on.
+**OPEN.** Written 2026-09-29, after five rounds of field listening, when the
+owner asked for the remaining ideas to be written down before moving on - and
+then, the same day, picked candidate 1 below as the next experiment. SPEC.md
+34.11.9 is the contract for what ships; this is what might come after it, with
+the measurements the choices were made on.
 
 ## 1. Where it stands
 
@@ -18,7 +18,8 @@ shaped it:
 | 1 | "one volume, then super soft, then back a third of a second later" | a span after SILENCE takes its own level at once |
 | 2 | ~50 ms "microdropouts" | the peak held over three spans |
 | 3 | the steady low part moving with the punctuating hits | a HELD, DECAYING peak (re-armed within ~2.5 dB, 16 spans, then 1/16 a span) and a row that GLIDES a 2 dB step every 16 samples; `ZT` 2.0 -> 2.5 |
-| 4 | "still some 'a loud thing happens, the soft thing goes away and fades back in', but cleaner" | shipped as is |
+| 4 | "still some 'a loud thing happens, the soft thing goes away and fades back in', but cleaner" | chosen for the release |
+| 5 | a second listener, side by side: round 3's fades out and back in are MORE obvious for being slower | round 3 REVERTED (a46deec); round 2's three-span hold ships |
 
 Measured on 40 s captures (section 3), "wander" being the level's spread within
 each second:
@@ -26,19 +27,23 @@ each second:
 | song | shaper | wander | mean gain | at the curve's end |
 |---|---|---|---|---|
 | ELYSIUM.MOD | round 2 | 1.87 dB | 10.8 dB | 3.6% |
-| | shipped | 0.65 dB | 10.4 dB | 3.5% |
+| | round 3 (reverted) | 0.65 dB | 10.4 dB | 3.5% |
 | BEVERLY.MOD | round 2 | 2.21 dB | 10.3 dB | 2.9% |
-| | shipped | 0.84 dB | 8.9 dB | 1.8% |
+| | round 3 (reverted) | 0.84 dB | 8.9 dB | 1.8% |
 
 ## 2. What is left, and why it is structural
 
 **The gain is one number for the whole mix.** When a loud, infrequent part
 arrives, the level has to come down or the part clips, and everything else in
-the mix comes down with it. The hold makes that happen less often and more
-slowly, which is why the shipped leveller sounds cleaner, but it cannot remove
-it. A drum hit still takes the bass line down with it. Every idea below either
-splits the mix so the parts are levelled separately, or knows about the loud
-part before it arrives.
+the mix comes down with it. Round 3 made that happen less often and more
+slowly, and round 5 is the lesson from it: **slower is not better, only
+different.** One listener heard fewer, gentler movements; another heard the
+same movements as longer, more obvious fades. Both were describing the same
+defect - parts that should not change, changing - so the target is not a
+better-shaped movement but NO movement where the music has none. A drum hit
+still takes the bass line down with it. Every idea below either splits the
+mix so the parts are levelled separately, or knows about the loud part before
+it arrives - and candidate 1 does not move at all.
 
 ## 3. The instrument, so nobody re-derives it
 
@@ -78,7 +83,10 @@ for any change here.
 
 ## 4. The candidates, most promising first
 
-1. **A static gain for Tracker, from a pre-pass at load.** Tracker is the one
+1. **A static gain for Tracker, from a pre-pass at load. THE NEXT
+   EXPERIMENT** (the owner, 2026-09-29: "the problem are all the changes and
+   the fading of things that shouldn't change, so this seems like it has
+   promise"). Tracker is the one
    player that knows its whole piece in advance: the patterns say which
    sample plays at which volume, and every sample's peak is known once the
    module is loaded (`tsp_natural` already walks them). A pass over the
