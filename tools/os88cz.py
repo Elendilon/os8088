@@ -302,13 +302,39 @@ def join(parts, progress=None):
 # =============================================================================
 # 'CZ' (SPEC.md 20.14) - os88lz carries the container, this is the refusals
 # =============================================================================
+# The most a 'CZ' file can be and still be opened ANYWHERE: the machine
+# expands one whole, in place, into a claim of its unpacked size (SPEC.md
+# 20.14.2, 22.23.4), and the heap a 640KB machine gives a program is 449KB
+# (docs/plans/KERN-DOS-PLAN.md's measured arena). A bigger file packs
+# perfectly well and is `Not enough memory` on every machine there is - which
+# is what a split set is for (20.17)
+CZ_OPENMAX = 449 * 1024
+
+
 def pack(data, method=M_LZ4):
     """a 'CZ' file, or CZError saying why the machine could not use one"""
     if method == M_STORE:
         raise CZError("a 'CZ' file is compressed by definition")
-    if len(data) >= 1 << 24:
-        raise CZError("over 16MB - the directory hint is 24 bits; split it")
-    out, did = os88lz.cz_wrap(bytes(data), method - 1)
+    if len(data) > CZ_OPENMAX:
+        raise CZError(
+            f"{len(data):,} bytes is too big for a 'CZ' file: the machine "
+            f"expands one whole, in memory, and no machine has more than "
+            f"{CZ_OPENMAX // 1024}KB to give it. Split it instead - a split "
+            f"set of any size joins in 82KB (SPEC.md 20.17)")
+    data = bytes(data)
+    z = None
+    if method == M_LZB:
+        # the MACHINE's parse, as a split's blocks use: os88lz's own is
+        # exact and ran for longer than anyone waited on a 720KB disk image
+        # (a zero-filled region is the worst case for it). The machine's
+        # Compress writes 'CZ' files with this very parse (cmz_pack)
+        try:
+            z = os88lz.lzb_compress_machine(data)
+        except ValueError:
+            z = None
+        if z is None:
+            raise CZError("it would not get smaller")
+    out, did = os88lz.cz_wrap(data, method - 1, packed=z)
     if not did:
         raise CZError("it would not get smaller"
                       + (" (or the LZ4 stream is over 64KB - try --lzb, or "

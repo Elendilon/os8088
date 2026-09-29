@@ -41283,11 +41283,30 @@ the same arithmetic, and a size in bytes is taken as given.
 | `tools/os88czgui.py` | the same, with Tk | the same four verbs on three tabs, and the one thing a person wants before anything is written: how many disks a file will take. A file dropped on the window goes to its tab, below |
 | `OS88CZ.COM` | MS-DOS 2 or later, an 8088 up | `J` joins a set, and **ASKS FOR THE DISK** when a part is not where the last one was, so a set is joined straight off a pile of floppies onto another drive - which the os8088 side does too, as `Uncompress To...` (§22.23.6), and plain `Uncompress` does not (§22.23.5). `S` splits, pausing for a fresh disk before each part with `/P`. `U` expands a `'CZ'` file, LZ4 or LZB |
 
+**`pack` refuses a file over 449KB, and `--lzb` uses the machine's parse.**
+A `'CZ'` file is expanded whole into a claim of its unpacked size
+(§22.23.4). The most heap any machine gives a program is the 449KB a 640KB
+machine's arena measures (docs/plans/KERN-DOS-PLAN.md), so a bigger file
+packs perfectly well and is `Not enough memory` everywhere. `pack` says so
+before encoding anything and points at Split, whose sets join in 82KB
+whatever their size (`CZ_OPENMAX`). `pack --lzb` compresses with
+`os88lz.lzb_compress_machine`, the parse `cmz_pack` writes on the machine and
+the one a split's blocks already used, handed to `os88lz.cz_wrap` as
+`packed=`. `os88lz`'s own LZB parse is exact and is the build's. On a
+zero-heavy file it is effectively endless: the owner left it packing a 720KB
+os8088 disk image for 15 minutes on a 9800X3D, and it did not finish in five
+here. The machine's parse does 400KB of that image in 2 seconds. The build's
+path is unchanged and every shipped image is byte-identical.
+`tests/unit/t_cz.py` part 6 is the gate: the refusal names Split, 256KB of
+zero runs packs in under 20 seconds (0.3 here, against more than two
+minutes by the old path), and the stream is `lzb_compress_machine`'s byte
+for byte.
+
 **Drop a file on the window and it goes to the tab it belongs to**
 (`drop_tab`): any part of a set to Join, whichever part it is, with the set
 described and the result's folder filled in; a `'CZ'` file to Pack / Unpack;
 anything else to Split, unless Pack / Unpack is the tab showing, which takes a
-plain file as well. Of several files the first is taken, a folder is refused,
+plain file as well, if it is small enough to pack; a bigger one goes to Split. Of several files the first is taken, a folder is refused,
 and nothing is taken while a job runs, because its fields are what that job is
 working from. The folder a result goes to follows each file dropped, until the
 user browses or types one. What a file is, is read off its first 64 bytes

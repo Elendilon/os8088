@@ -78,16 +78,20 @@ def file_kind(path):
         return CZ.kind(f.read(64))
 
 
-def drop_tab(kind, current):
+def drop_tab(kind, current, size=0):
     """the tab a dropped file goes to: `kind` is os88cz.kind() of its first
-    bytes, `current` the tab showing. A part is a set to join and a 'CZ'
-    file one to unpack, whatever is showing; a plain file is split, unless
-    Pack is showing, which takes a plain file as well"""
+    bytes, `current` the tab showing, `size` its length. A part is a set to
+    join and a 'CZ' file one to unpack, whatever is showing; a plain file is
+    split, unless Pack is showing, which takes a plain file as well - one it
+    can pack: over CZ.CZ_OPENMAX no machine could open the result, so that
+    goes to Split whatever is showing"""
     if kind == "part":
         return T_JOIN
     if kind == "cz":
         return T_PACK
-    return T_PACK if current == T_PACK else T_SPLIT
+    if current == T_PACK and size <= CZ.CZ_OPENMAX:
+        return T_PACK
+    return T_SPLIT
 
 
 def estimate(nbytes, size):
@@ -218,7 +222,8 @@ class App:                                                   # pragma: no cover
         except OSError as e:
             self.say(str(e))
             return
-        t = drop_tab(k, self.nb.index(self.nb.select()))
+        t = drop_tab(k, self.nb.index(self.nb.select()),
+                     os.path.getsize(path))
         self.nb.select(t)
         (self._set_split, self._set_join, self._set_pack)[t](path)
 
@@ -301,6 +306,15 @@ class App:                                                   # pragma: no cover
         self.p_in.set(p)
         try:
             blob = open(p, "rb").read()
+            if CZ.kind(blob) == "plain" and len(blob) > CZ.CZ_OPENMAX:
+                self.p_info.set(
+                    f"{len(blob):,} bytes: too big to pack. The machine "
+                    f"expands a 'CZ' file whole, in memory, and no machine "
+                    f"has more than {CZ.CZ_OPENMAX // 1024}KB to give it - "
+                    "use the Split tab, whose sets join in 82KB whatever "
+                    "their size.")
+                self.p_out.set("")
+                return
             self.p_info.set(CZ.describe(blob))
             self.p_out.set(p[:-3] if CZ.kind(blob) == "cz" and
                            p.upper().endswith(".CZ") else
