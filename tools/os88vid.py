@@ -801,6 +801,29 @@ def spk_counts(samples, rate, pulses=1):
     return bytes(samples).translate(spk_table(rate, pulses))
 
 
+# A SPEAKER WAV FOR AUDIO (SPEC.md 86.21.1): an ordinary 8-bit mono WAV
+# with one more chunk, 'o8sp' = <u8 kind><u8 pulses><u16 N>. Kind 1 is PCM8
+# already shaped for the speaker (Audio skips the pre-emphasis); kind 2 is
+# the speaker's COUNTS themselves, which Audio copies straight into the ring
+# on the speaker and turns back into samples on a card. Any other player
+# skips the chunk as RIFF says it may.
+SPK_WAV_CHUNK = b"o8sp"
+SPK_WAV_SHAPED, SPK_WAV_COUNTS = 1, 2
+
+
+def write_spk_wav(path, rate, data, kind=SPK_WAV_COUNTS, pulses=1):
+    """`data` as a speaker WAV of `kind` at `rate` (0 writes a plain WAV)"""
+    extra = b""
+    if kind:
+        extra = SPK_WAV_CHUNK + struct.pack("<IBBH", 4, kind, pulses,
+                                            PIT_HZ // rate // pulses)
+    body = (b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, 1, rate, rate, 1, 8)
+            + extra + b"data" + struct.pack("<I", len(data)) + bytes(data)
+            + (b"\0" if len(data) & 1 else b""))
+    with open(path, "wb") as f:
+        f.write(b"RIFF" + struct.pack("<I", len(body)) + body)
+
+
 def spk_samples(counts, rate, pulses=1):
     """spk_counts undone: each count back to the lowest sample that makes
     it (the table is monotonic, and several samples share a count)"""

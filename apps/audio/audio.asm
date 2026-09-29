@@ -299,6 +299,7 @@ AP_B_NONE  equ 0xFF
     APD apw_datlen
     APW apw_err
     APB apw_spk                    ; 'o8sp': 1 shaped, 2 counts (SPEC.md 86.21)
+    APBUF ap_cinv, 256             ; ...counts back to samples, on a card (86.21.1)
 
 ; --- shared header window / cluster bounce -----------------------
 ; THE int 13h TARGET, so 512-ALIGNED (CLAUDE.md, SPEC.md 2.4): the loader's

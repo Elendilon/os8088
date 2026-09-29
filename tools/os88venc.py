@@ -10,6 +10,8 @@
         [--title T] [--credits C] [--keysecs S] [--poster K | --poster-at S]
         [--clip N]
         [--preview-png DIR] [--quiet]
+    python3 tools/os88venc.py IN OUT.WAV [--rate HZ] [--spk-style S] ...
+        (the SOUND alone, for Audio on the PC speaker: SPEC.md 86.21.1)
 
 THE FRONT END, AND THE BUDGETS. ffmpeg decodes and scales the source to a
 canvas whose DISPLAYED shape is the source's (the layout's pixels are not
@@ -2681,6 +2683,83 @@ def ffmpeg_audio(src, rate, start, end, volume, fmt="u8"):
     return subprocess.run(cmd, capture_output=True, check=True).stdout
 
 
+def speaker_pcm(a, rate, say):
+    """The source's sound SHAPED FOR THE SPEAKER (98.2.15.1), as PCM8 at
+    `rate`, by the style and the numbers `a` gives - the one body a speaker
+    .V88 and a speaker WAV (86.21.1) both take theirs from. What a 5150's
+    cone can play would otherwise sit 25-30 dB under the pulses' own
+    carrier"""
+    st = vid.SPK_STYLES[getattr(a, "spk_style", None) or vid.SPK_STYLE]
+    for k, v in (("spk_highpass", "hp"), ("spk_ratio", "ratio"),
+                 ("spk_range", "rng")):
+        if getattr(a, k, None) is None:
+            setattr(a, k, st[v])
+    pcm = vid.spk_shape_f(np.frombuffer(ffmpeg_audio(
+        a.src, rate, a.start, a.end, a.volume, "f32le"), dtype="<f4"),
+        rate, a.spk_highpass, a.spk_drive, lows=a.spk_lows,
+        rng=a.spk_range, ratio=a.spk_ratio, idle=a.spk_idle)
+    say("   speaker: shaped %s - nothing under %d Hz, the level evened "
+        "out %g:1 and driven to %.0f%% RMS (--spk-shape off to take the "
+        "sound as it is)" % (getattr(a, "spk_style", None)
+                             or vid.SPK_STYLE, a.spk_highpass,
+                             a.spk_ratio, 100 * a.spk_drive))
+    return pcm
+
+
+SPK_WAV_RATE = 8000     # a speaker WAV's default rate: Audio's top rung on
+                        # an 8088, which copies counts no faster (86.21)
+
+
+def is_wav(path):
+    return path.lower().endswith(".wav")
+
+
+def encode_wav(a, tick):
+    """A SPEAKER WAV FOR AUDIO (SPEC.md 86.21.1): the source's sound alone,
+    shaped for the speaker exactly as a speaker .V88's is (speaker_pcm) and
+    stored as the speaker's COUNTS in an 'o8sp' WAV, which Audio copies
+    into the ring with no shaping, resampling or decoding of its own. No
+    picture: every picture, colour and budget option is the video's"""
+    say = (lambda *x: None) if a.quiet else print
+    tick("prepare", 0, 0)
+    need_tools()
+    if a.audio not in (None, "speaker"):
+        raise vid.V88Error("a .WAV is made for the PC speaker (86.21.1): "
+                           "--audio %s is a .V88's" % a.audio)
+    if a.spk_pulses != 1:
+        raise vid.V88Error("--spk-pulses: a .V88's (34.11.7) - Audio plays "
+                           "one pulse a sample")
+    prof = PROFILES[a.profile]
+    fast = bool(prof.get("spk_us"))
+    rate = a.rate or SPK_WAV_RATE
+    top = SPK_MAX_AT if fast else SPK_MAX_8088
+    if not SPK_MIN <= rate <= top:
+        raise vid.V88Error(
+            "--rate %d: Audio plays a speaker WAV from %d to %d Hz on this "
+            "profile%s" % (rate, SPK_MIN, top, "" if fast else
+                           " - a 286 profile goes to %d" % SPK_MAX_AT))
+    vid.spk_table(rate, 1, fast=fast)
+    tick("sound", 0, 0)
+    if a.spk_shape == "on":
+        pcm = speaker_pcm(a, rate, say)
+    else:
+        pcm = ffmpeg_audio(a.src, rate, a.start, a.end, a.volume)
+    if not pcm:
+        raise vid.V88Error("no sound came out of %s" % a.src)
+    counts = vid.spk_counts(bytes(pcm), rate, 1)
+    tick("write", 0, 0)
+    vid.write_spk_wav(a.out, rate, counts, vid.SPK_WAV_COUNTS)
+    secs = len(counts) / float(rate)
+    size = os.path.getsize(a.out)
+    say("os88venc: %s: %.1f s of the speaker's counts at %d Hz, %d bytes - "
+        "Audio copies them to the speaker, and plays them on a card as the "
+        "samples they came from (SPEC.md 86.21.1)" % (a.out, secs, rate, size))
+    if getattr(a, "spk_preview", None):
+        s2 = vid.write_spk_preview(a.spk_preview, counts, rate, 1)
+        say("   speaker preview: %s, %.1f s" % (a.spk_preview, s2))
+    return dict(bytes=size, secs=secs, rate=rate, wav=True)
+
+
 def auto_levels(src, w, h, crop, start, end, eq):
     """The grey levels the picture really spans - its 1st and 99th
     percentile over a frame a second - so a source that lives in the
@@ -2805,6 +2884,8 @@ def encode(a, keep=None, progress=None):
     Cancelled to stop it (98.2.11)"""
     readers = []
     tick = progress or (lambda step, done, total: None)
+    if is_wav(a.out):                   # the SOUND alone (86.21.1)
+        return encode_wav(a, tick)
     try:
         if getattr(a, "aim", "asked") == "quality":
             a = aim_quality(a, tick, (lambda *x: None) if a.quiet else print)
@@ -3153,22 +3234,7 @@ def _encode(a, keep, tick, readers):
                 % (enc.reserve // 1024,
                    (vid.RING_SLOTS[-1] - 1) * vid.SLOT // 1024))
     if spk and afmt and a.spk_shape == "on":
-        st = vid.SPK_STYLES[getattr(a, "spk_style", None) or vid.SPK_STYLE]
-        for k, v in (("spk_highpass", "hp"), ("spk_ratio", "ratio"),
-                     ("spk_range", "rng")):
-            if getattr(a, k, None) is None:
-                setattr(a, k, st[v])
-        # SHAPED FOR THE SPEAKER (98.2.15.1): what a 5150's cone can play
-        # would otherwise sit 25-30 dB under the pulses' own carrier
-        pcm = vid.spk_shape_f(np.frombuffer(ffmpeg_audio(
-            a.src, rate, a.start, a.end, a.volume, "f32le"), dtype="<f4"),
-            rate, a.spk_highpass, a.spk_drive, lows=a.spk_lows,
-            rng=a.spk_range, ratio=a.spk_ratio, idle=a.spk_idle)
-        say("   speaker: shaped %s - nothing under %d Hz, the level evened "
-            "out %g:1 and driven to %.0f%% RMS (--spk-shape off to take the "
-            "sound as it is)" % (getattr(a, "spk_style", None)
-                                 or vid.SPK_STYLE, a.spk_highpass,
-                                 a.spk_ratio, 100 * a.spk_drive))
+        pcm = speaker_pcm(a, rate, say)
     else:
         pcm = ffmpeg_audio(a.src, rate, a.start, a.end, a.volume) \
             if afmt else b""
@@ -3396,7 +3462,9 @@ def _encode(a, keep, tick, readers):
 def parser():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("src")
-    ap.add_argument("out")
+    ap.add_argument("out", help="a .V88; or a .WAV for Audio - the sound "
+                    "alone, shaped for the PC speaker as --audio speaker "
+                    "would and stored as its counts (SPEC.md 86.21.1)")
     ap.add_argument("--preset", choices=sorted(PRESETS),
                     help="a named box on a layout (--profiles lists them); "
                          "the cga4, cga4-small and c160 ones name their "

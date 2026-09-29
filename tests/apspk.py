@@ -211,6 +211,89 @@ def prof(m, ui, i, name):
         print("      %5.1f%%  %s" % (100.0 * c / n, nm))
 
 
+def encoded(tmp, path, rate, xs):
+    """a speaker WAV made by THE ENCODER (os88venc.py IN OUT.WAV, SPEC.md
+    86.21.1), from xs at `rate`: its counts, read back out of the file"""
+    src = os.path.join(tmp, "src%d.wav" % rate)
+    wav(src, rate, xs)
+    subprocess.run([sys.executable, "tools/os88venc.py", src, path,
+                    "--rate", str(rate), "--quiet"], check=True)
+    d = open(path, "rb").read()
+    i = d.index(b"o8sp")
+    kind, pulses, n = struct.unpack_from("<BBH", d, i + 8)
+    if (kind, pulses, n) != (2, 1, fx.spk_n(rate)):
+        raise SystemExit("the encoder's o8sp chunk is %r" % ((kind, pulses,
+                                                               n),))
+    j = d.index(b"data")
+    return d[j + 8:j + 8 + struct.unpack_from("<I", d, j + 4)[0]]
+
+
+def cinv(n):
+    """apps/audio/apengine.inc's ap_cinv: a count back to its sample"""
+    return bytes(min(255, (max(c - 1, 0) * 255 + (n - 2) // 2) // (n - 2))
+                 for c in range(256))
+
+
+def cardcounts(a):
+    """--cardcounts: an encoder-made counts WAV on a CARD (86.21.1) - the
+    first half staged to the card is the file's counts turned back into
+    samples, byte for byte"""
+    os.chdir(ROOT)
+    bad = []
+    syms, _ = pkg_syms("apps/audio/audio.asm", ("apps/", "apps/audio/"))
+    rate = 8000
+    with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "build")) as tmp:
+        path = os.path.join(tmp, "T0.WAV")
+        c = encoded(tmp, path, rate, song(int(rate * a.secs), rate))
+        want = c[:2048].translate(cinv(fx.spk_n(rate)))
+        vhd = os.path.join(tmp, "apq.vhd")
+        subprocess.run(
+            [sys.executable, "tools/os88hdd.py", "--template", TEMPLATE,
+             "--out", vhd, "--kernel", os88build.at("build/kernel.sys"),
+             "--vbr", os88build.at("build/boothd.bin"),
+             "--mbr", os88build.at("build/mbr.bin"),
+             "--file", "SOUND.DRV=" + os88build.at("build/sound.drv"),
+             "--file", "AUDIO.O88=" + os88build.at("build/audio.o88"),
+             "--file", "T0.WAV=" + path], check=True, capture_output=True)
+        m = os88marty.launch(None, machine=MACHINE_SB, extra=[
+            "--mount", "hd:0:" + os.path.abspath(vhd)])
+        try:
+            ui = os88ui.UI(m)
+            ui.ready(limit=240)
+            k_st, k_spk = m.sym("osapi_snd_stream"), m.sym("osapi_fsx_spk")
+            ev = {"half": None, "spk": 0, "base": None}
+
+            def hit(mm, rec):
+                r_ = mm.regs()
+                if rec.get("addr") == k_spk:
+                    ev["spk"] += 1
+                elif r_["ax"] & 0xFF == 6 and ev["half"] is None:
+                    # verb 6, the first stage: the half is apd_out, in the
+                    # CALLER's segment (the X stub's ES)
+                    ev["half"] = mm.read((r_["es"] << 4) + syms["apd_out"],
+                                         2048)
+            with os88marty.bp_trace(m, k_st, k_spk, on_hit=hit) as tr:
+                ui.path("C:/T0.WAV")
+                tr.until(lambda: ev["half"] is not None, "the first half",
+                         limit=300.0)
+            got = ev["half"]
+            diff = [i for i in range(2048) if got[i] != want[i]]
+            print("   cardcounts: the first half staged %s (%d of 2048 "
+                  "differ%s); the speaker's door %d" % (
+                      "EXACT" if not diff else "WRONG", len(diff),
+                      ", first at %d: %d for %d" % (diff[0], got[diff[0]],
+                                                    want[diff[0]])
+                      if diff else "", ev["spk"]))
+            if diff or ev["spk"]:
+                bad.append("the counts did not reach the card as samples")
+        finally:
+            m.close()
+    for b in bad:
+        print("   FAIL: " + b)
+    print("apspk: %s" % ("FAIL" if bad else "ok"))
+    return 1 if bad else 0
+
+
 def card(a):
     """--card: the same open path (ap_prep_track, SPEC.md 86.21) with a card"""
     os.chdir(ROOT)
@@ -379,6 +462,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--legs", default=",".join(LEGS))
     ap.add_argument("--secs", type=float, default=5.0)
+    ap.add_argument("--cardcounts", action="store_true",
+                    help="an encoder-made counts WAV on a card (86.21.1)")
     ap.add_argument("--card", action="store_true",
                     help="a Sound Blaster and SOUND.DRV: the play must be the "
                          "CARD's - the stream opened, the list played to its "
@@ -388,6 +473,8 @@ def main():
                          "Space again (the play resumes AT the sample it "
                          "stopped on), then Esc (stopped, the door shut)")
     a = ap.parse_args()
+    if a.cardcounts:
+        return cardcounts(a)
     if a.card:
         return card(a)
     if a.pause:
@@ -409,10 +496,8 @@ def main():
                 sh = bytes(vid.spk_shape(xs, rate))
                 wav(path, rate, sh, fx.SPK_SHAPED)
                 want[name] = expect(sh, rate, spk=1)
-            elif kind == "counts":
-                c = bytes(vid.spk_shape(xs, rate)).translate(
-                    bytes(fx.count_table(fx.spk_n(rate))))
-                wav(path, rate, c, fx.SPK_COUNTS)
+            elif kind == "counts":        # made as a user makes one: by
+                c = encoded(tmp, path, rate, xs)  # the encoder (86.21.1)
                 want[name] = expect(c, rate, spk=2)
             else:
                 wav(path, rate, xs)

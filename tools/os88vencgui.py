@@ -175,6 +175,13 @@ def _greys(c):
 
 
 ALWAYS = lambda c: None
+# A SPEAKER WAV (SPEC.md 86.21.1) is the sound alone: of the groups only
+# these apply to it, and the rest say so
+WAV_KEEP = ("Made for", "The clip", "Sound", "PC speaker",
+            "PC speaker: the sound shaped")
+WAV_WHY = ("This file is a speaker WAV for Audio - the sound alone, shaped "
+           "for the PC speaker (SPEC.md 86.21.1) - so it has no picture. "
+           "Save as a .V88 to use these.")
 # (tab, header, options, rule): a rule is None where the group applies,
 # else the reason it does not - the group's tooltip while it is greyed
 GROUPS = [
@@ -354,6 +361,7 @@ def argv_from(src, out, values, sfps=None):
     profile imply - the window SHOWS those (98.2.10), and the command line
     stays the short one that says the same thing"""
     argv = [src, out]
+    values = dict(values, _out=out)     # (a .WAV greys the picture's groups)
     imp = implied_values(values, sfps)
     # ...but a choice that IMPLIES is compared with what the rest imply
     # without it - or a --pixfmt cgacomp would echo back as its own
@@ -365,9 +373,10 @@ def argv_from(src, out, values, sfps=None):
     # greyed (98.2.8.2), and a --detail or a --flip left over from another
     # format would only be refused
     off = group_state(values)[1]
+    wav = out.lower().endswith(".wav")
     for f in fields():
-        if off.get(f["dest"]):
-            continue
+        if off.get(f["dest"]) or (wav and f["dest"] == "audio"):
+            continue                    # (a WAV's sound IS the speaker's)
         v = str(values.get(f["dest"], "")).strip()
         if f["kind"] == "bool":
             if v in ("1", "True", "true") and imp.get(f["dest"]) != "1":
@@ -397,8 +406,10 @@ def form_context(values):
             {"c160": "c160", "text-80x100": "c512",
              "text-80x25": "text"}.get(lay, "mono")
     pf = pf or imp.get("pixfmt") or "mono"
+    wav = g("_out").lower().endswith(".wav")
     return dict(pixfmt=pf if pf in PF_WORDS else "mono", layout=lay,
-                audio=g("audio") or imp.get("audio") or "pcm8",
+                wav=wav, audio="speaker" if wav else
+                g("audio") or imp.get("audio") or "pcm8",
                 text_colour=g("text_colour") or imp.get("text_colour") or
                 "colour",
                 comp_dither=g("comp_dither") or "diffuse",
@@ -412,6 +423,10 @@ def group_state(values):
     group's, else its own (FIELD_WHEN). No Tk: the gate reads it"""
     c = form_context(values)
     groups = {g[1]: g[3](c) for g in GROUPS}
+    if c["wav"]:                        # the sound alone (86.21.1)
+        for g in GROUPS:
+            if g[1] not in WAV_KEEP:
+                groups[g[1]] = WAV_WHY
     opts = {}
     for f in fields():
         g = GROUP_OF.get(f["dest"])
@@ -1409,6 +1424,7 @@ class App(object):
             if d in self.vars:
                 self.vars[d].trace_add("write",
                                        lambda *a: self.groups_dirty())
+        self.out.trace_add("write", lambda *a: self.groups_dirty())
         # --- the palette the Colour tab's choices give, redrawn as they
         # change: under the tab's fields, whatever the tab's note
         self.palframe = ttk.LabelFrame(pages["Colour"], text="Palette",
@@ -1654,9 +1670,10 @@ class App(object):
             v.set(p)
 
     def browse_out(self):
-        p = filedialog.asksaveasfilename(defaultextension=".V88",
-                                         filetypes=[("os8088 video",
-                                                     "*.V88")])
+        p = filedialog.asksaveasfilename(
+            defaultextension=".V88",
+            filetypes=[("os8088 video", "*.V88"),
+                       ("Speaker sound for Audio", "*.WAV")])
         if p:
             self.out.set(p)
 
@@ -1776,6 +1793,7 @@ class App(object):
         and every option in it, and the rest put back (98.2.8.2)"""
         self.grppend = False
         vals = {k: v.get() for k, v in self.vars.items()}
+        vals["_out"] = self.out.get()   # (a .WAV: 86.21.1)
         self.gwhy, self.why = group_state(vals)
         for name, hdr in self.gheads.items():
             hdr.state(["disabled" if self.gwhy.get(name) else "!disabled"])
@@ -1945,6 +1963,9 @@ class App(object):
                 self.put(job, "fail", "".join(tail).strip() or
                          "the encoder stopped with %d" % rc)
                 return
+            if out.lower().endswith(".wav"):  # the sound alone (86.21.1):
+                self.put(job, "wavdone", out)   # no frames to preview and
+                return                          # no video for a disk
             if disk is not None:
                 if job == self.job:
                     self.prog = ("disk", 0, 0)
@@ -1995,6 +2016,12 @@ class App(object):
                 elif kind == "drop":
                     self.dropped(val)
                     continue
+                elif kind == "wavdone":
+                    self.finish("Done.", 1)
+                    self.write("\n%s: the sound for Audio on the PC "
+                               "speaker (SPEC.md 86.21.1). Copy it to the "
+                               "machine and open it; on a Sound Blaster it "
+                               "plays too.\n" % os.path.basename(val))
                 elif kind == "fail":
                     cancelled = val.startswith("Cancelled")
                     self.write("\n%s\n" % (val if cancelled else
