@@ -33764,13 +33764,13 @@ FILL, against a ~400 ms `int 13h`.
 A disk that reads perfectly and is not a FAT12 volume had exactly one thing
 the OS could say about it: `No os8088 disk (A:)`, in the Disk window's header,
 for ever. Every other operating system these machines ever ran could make one.
-`dskw_format` is that, and it is a **high-level format only** — the same line
-§52.3's hard-disk formatter draws, and for a sharper reason here: writing
-sector ID fields is `int 13h AH=05h`, one call per track with a four-byte
-descriptor per sector, and it is the operation that turns a disk this OS
-merely cannot read into one *nothing* can read. What is written is the boot
-sector, both FATs and the root directory: **12 sectors on a 360KB disk and 33
-on a 1.44MB one**, all of them metadata, and the data area is not touched.
+`dskw_format` is that, and since §18.96.3 it is a **full format, as DOS's
+FORMAT is**: every track laid down fresh with `int 13h AH=05h`, then the boot
+sector, both FATs and the root directory — **12 sectors of metadata on a 360KB
+disk and 33 on a 1.44MB one**. It was a high-level format only, the line
+§52.3's hard-disk formatter draws, on the argument that writing ID fields
+turns a disk this OS merely cannot read into one *nothing* can read; §18.96.3
+is why that argument had it backwards for a floppy.
 
 | routine | contract |
 |---------|----------|
@@ -33964,6 +33964,57 @@ that sector back and compares. Four things about it:
 
 The cost on the honest path is **two `int 13h` calls**, once per 720KB
 format, against a format that is already 7 writes and a remount.
+
+#### 18.96.3 Every format lays the tracks down — and an unreadable disk is the case it is for
+
+The high-level-only formatter could not reclaim a single disk anybody
+actually brought to it, and the owner's 5150 is the list: **a 1.44MB disk
+with its HD hole taped** for a 720KB drive (the HD recording is 500 kbps and a
+250 kbps controller reads none of it), **a disk a failed write had damaged**
+(docs/FIELD-NOTES.md 32 — only a low-level format recovers an ID field), and
+**a Minix disk**, most likely on HD media for the same reason. Every one needed
+DOS's FORMAT. They failed in two places, both by design: the probe had to
+*read* track 0 before it would name a size, and refused with `FERR_IO` when no
+read succeeded; and when it did read, rewriting 12 sectors of metadata over
+damaged tracks rewrote nothing that was broken.
+
+So both halves changed:
+
+- **The probe no longer refuses a medium it cannot read.** It picks the row
+  the DRIVE makes — its own sectors per track off `AH=08h`, and for the
+  9-sector pair its cylinders, resolved exactly as a readable 9-sector disk's
+  are (a ROM that answers nothing is a 360KB machine, and §18.96.2's Space
+  still offers 720KB on the external units). That is DOS's FORMAT's answer
+  too: absent `/F`, it formats what the drive is. An empty drive now reaches
+  the confirmation and fails at the first track instead of at the probe.
+- **`dskw_format` lays every track first** (`dskw_fmt_low`): one `AH=05h` per
+  track with a (C, H, R, N=2) field per sector, three attempts with a reset
+  between, then the metadata as before. The track's sector count reaches the
+  controller through the DPT — the IBM ROM takes the FORMAT command's SC from
+  byte 4 and the gap and fill from bytes 7 and 8 — so byte 4 is set for the
+  row first. An AT-class BIOS is asked `AH=18h` (set media type for format)
+  first, because that is the call that picks the **data rate**, and its table
+  is copied over int 1Eh's (§18.92's, ours); an XT ROM answers it with `CF=1`
+  and the kernel's table stands. The table in force before is put back after.
+  §12.8's bar is scaled to the whole disk and stepped a track at a time.
+
+**What it costs**: time, and it is DOS's time — one revolution a track plus a
+step, ~40 s for 360KB and ~80 s for 720KB on the field machine, against a few
+seconds for the metadata alone. No resident byte: all of it is in
+`FORMAT.DRV`.
+
+**No per-track verify.** DOS's FORMAT reads each track back with `AH=04h`; the
+IBM ROM checks a verify's whole DMA extent against a 64KB page though it moves
+nothing, and the one buffer the formatter owns is the 512-byte `dsk_secbuf`.
+The metadata writes, the remount and §18.96.2's last-sector write-and-read are
+what check the result. A surface verify wants a buffer claim of its own and is
+left for when a disk that formats and then fails turns up.
+
+**§18.96.2 composes with it unchanged, and gets better.** A 720KB pick on a
+40-cylinder drive now steps the head against its stop for cylinders 40–79 and
+lays those tracks over the last one it can reach; the reach test fails, and
+the fallback re-formats as 360KB — fully, so the track the stop overwrote is
+laid down again correctly.
 
 ### 18.97 The equipment word is a CLAIM; the FDC is the fact
 

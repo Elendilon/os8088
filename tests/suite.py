@@ -9607,6 +9607,19 @@ SOAK = [
         "floppies read back off the guest and diffed byte for byte. Cross "
         "drive, same drive, the un-swapped-disk guard and Esc",
         needs=("marty",), serial=True),
+    Row("fmtlow", "soak", py("tests/fmtlow.py"), 65.0,
+        "fmtlow - Format Disk... reclaims a disk it cannot READ (SPEC.md "
+        "18.96.3): with every probe read failed at the int 13h gate the "
+        "confirmation must still come up, at the 360K the drive makes, and "
+        "on a disk of random bytes the format must lay all 80 tracks with "
+        "AH=05h and leave a clean empty FAT12 volume the host reads back. "
+        "On os8088_5150_cga_720b_gla. VERIFIED RED both ways: the old probe "
+        "refusal alone fails the first leg ('Disk error'), and the kernel "
+        "before 18.96.3 fails that and lays 0 tracks. The probe failure is "
+        "injected because MartyPC's disk library cannot hold an unreadable "
+        "disk that it can then format (the docstring has the three ways). "
+        "Measured at 60s",
+        needs=("marty",), serial=True),
     Row("wimgtrip", "soak", py("tests/wimgtrip.py"), 45.0,
         "wimgtrip - Write Img... (SPEC.md 18.99.8) driven to the end and "
         "diffed: apps360.img as a FILE on a 720KB B:, written over the 360KB "
