@@ -770,7 +770,8 @@ overlays = [
 # into .bss at ico_stage+23 with the V20's mode flag clear and the tick
 # stopped - cpu_detect's FLAGS test leaves them right (F206 in and out), so
 # the fault is later, and nobody has yet said whether it is os8088's or
-# MartyPC's V20. Chase that before quoting a number off this machine.
+# MartyPC's V20. Chase that before quoting a number off this machine:
+# docs/plans/HANDOFF-V20-FREEZE.md is the account and the repro.
 [[machine]]
 name = "os8088_5150_herc_hdd_v20_gla"
 type = "Ibm5150v256K"

@@ -31,7 +31,7 @@
 ;   tsp_poll    the producer: the door, the ring filled, the ladder, the end
 ;   tsp_halt    the door shut and the play over (trk_play_stop's)
 ;   tsp_leave   ...the door shut at a bracket's end, the play going on
-;   tsp_preemph a loaded module's samples pre-emphasised (no card, at load)
+;   tsp_natural a loaded module's samples high-passed (no card, at load)
 ; =============================================================================
 
 TSP_RSIZE   equ 0x20                ; the ring: 4096 << 2
@@ -87,7 +87,7 @@ tsp_rat:    dw 22050, 16000, 11025, 8000, 0
     TRKB tsp_half                   ; after a rung down: the door opens on half
                                     ; a ring, not a full one (a shorter gap)
     TRKB tsp_pre                    ; the module's samples are filtered (a load
-                                    ; on this machine: tsp_preemph)
+                                    ; on this machine: tsp_natural)
     TRKW tsp_rseg                   ; the ring's claim
     TRKW tsp_rate                   ; the rate it plays at
     TRKW tsp_span                   ; samples a span
@@ -1019,48 +1019,95 @@ tsp_frame:
     ret
 
 ; -----------------------------------------------------------------------------
-; tsp_preemph - the loaded module's SAMPLES pre-emphasised, in place: the
-; first difference, y = (x - prev) / 2, each sample from a prev of 0 - the
-; shaper's high-pass and tilt (34.11.9) paid ONCE, at load, not per output
-; sample: a linear filter commutes with the mix. Only with no card, and for
-; the module's life (a card's route taken later hears it thinner). ~1 s for
-; 116 KB on a 5150
+; tsp_natural - the loaded module's SAMPLES through the NATURAL style's high-
+; pass (98.2.15.1), in place: a one-pole DC blocker, y = (x - x_prev) +
+; 7/8 y_prev, in the sample's own time base - ~190 Hz for a sample played at
+; C-2 and moving with the note, flat above it - where the first difference it
+; replaced tilted the whole band 6 dB an octave and took the lows the owner
+; could not hear (SPEC.md 45.25, 34.11.9). Paid ONCE, at load: a linear filter
+; commutes with the mix. Only with no card, and for the module's life (a
+; card's route taken later hears it thinner). tools/os88spkfx.py's tracker_hp
+; is it exactly: Y = 128 y, so the output y/2 is Y's HIGH BYTE - |y| <= 255
+; for bytes in, so Y fits a word and y/2 a signed byte, and there is no
+; clamp and no output shift. It was 303 cycles a sample with them. A big
+; module is still seconds on a 5150, so the status line SAYS so first (the
+; owner: a printout for anything past a second)
 ; -----------------------------------------------------------------------------
-tsp_preemph:
+TSP_NSAY    equ 28672               ; sample bytes past which an 8088 is told:
+                                    ; ~1 s of this filter on a 4.77 MHz 5150,
+                                    ; at 166 cycles a sample (BEVERLY.MOD's
+                                    ; 81,200 bytes are 2.8 s, MEASURED)
+tsp_natural:
     push ax
     push bx
     push cx
     push dx
     push si
+    push di
     push bp
     push ds
+    call OSAPI_CPU_INFO             ; AN 8088 WITH A BIG MODULE: say what the
+    cmp al, CPU_8086                ; next seconds are for
+    jne .go
+    mov bx, mp_smptab
+    mov cx, 31
+    xor ax, ax
+    xor dx, dx
+.sum:
+    add ax, [bx+MS_PLEN]
+    adc dx, 0
+    add bx, MS_SZ
+    loop .sum
+    or dx, dx
+    jnz .say
+    cmp ax, TSP_NSAY
+    jb .go
+.say:
+    push si
+    mov si, trk_s_spkflt
+    call tui_msg
+    call trk_say
+    pop si
+.go:
     mov bx, mp_smptab
     mov bp, 31
 .s:
     mov cx, [bx+MS_PLEN]
     jcxz .n
+    push bp
     push ds
     mov si, [bx+MS_OFF]
     mov ds, [bx+MS_SEG]
-    mov ah, 0x80                    ; prev = 0, biased
+    xor di, di                      ; DI = Y = 128 y, from rest
+    xor bp, bp                      ; BP = 128 x_prev
 .b:
-    mov al, [si]
-    xor al, 0x80                    ; BIASED: the borrow of x' - prev' is then
-    mov dl, al                      ; x < prev, the 9th bit of the true
-    sub al, ah                      ; difference - rotated back in, exactly
-    rcr al, 1                       ; (x - prev) >> 1, signed
-    mov [si], al
-    mov ah, dl
+    mov ah, [si]                    ; 128 x: x in the high byte, halved
+    xor al, al
+    sar ax, 1
+    mov dx, ax
+    sub ax, bp                      ; 128 (x - x_prev)
+    mov bp, dx
+    mov dx, di
+    sar dx, 1                       ; Y - Y/8
+    sar dx, 1
+    sar dx, 1
+    sub di, dx
+    add di, ax                      ; ...+ 128 (x - x_prev)
+    mov ax, di
+    mov [si], ah                    ; y / 2
     inc si
     loop .b
     pop ds
+    pop bp
 .n:
     add bx, MS_SZ
     dec bp
     jnz .s
     pop ds
+.done:
     mov byte [tsp_pre], 1           ; (tests/lzmod.py reads it: the bytes in
     pop bp                          ; memory are no longer the file's)
+    pop di
     pop si
     pop dx
     pop cx

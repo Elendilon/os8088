@@ -1415,7 +1415,7 @@ trk_fdone:
     call OSAPI_SND_CAPS             ; NO CARD: the samples filtered for the
     test ax, SND_CAP_PCM_BG         ; speaker now, once, rather than per
     jnz .card                       ; output sample (SPEC.md 45.25)
-    call tsp_preemph
+    call tsp_natural
 .card:
     mov byte [ttx_shok], 0          ; a NEW module can name the same pattern
                                     ; NUMBER with different rows in it, and
@@ -3685,6 +3685,7 @@ trk_s_nosb:   db 'No Sound Blaster: viewer only', 0
 trk_s_spk1:   db 'Speaker: needs ', 0
 trk_s_spk2:   db '% of this PC - Play again to try', 0
 trk_s_spk3:   db 'Speaker ', 0
+trk_s_spkflt: db 'Filtering the samples for the speaker...', 0
 trk_s_spk4:   db ' Hz, ', 0
 trk_s_spk5:   db '% of this PC', 0
 trk_s_spkbusy: db 'The PC speaker is busy', 0
