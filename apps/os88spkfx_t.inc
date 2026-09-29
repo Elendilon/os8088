@@ -4,8 +4,6 @@ SPKFX_NLEV    equ 11
 SPKFX_PGATE   equ 3
 SPKFX_SPARSE  equ 32
 SPKFX_SUB     equ 16
-SPKFX_HOLD    equ 16
-SPKFX_DECAY   equ 4
 SPKFX_DUP     equ 1
 SPKFX_DDOWN   equ 8
 os88spkfx_curve:
@@ -19,7 +17,7 @@ os88spkfx_curve:
     db 117, 118, 119, 119, 120, 121, 121, 122, 122, 123, 124, 124, 125, 125, 126, 126
     db 127
 os88spkfx_gf:
-    dw 853, 1074, 1352, 1703, 2143, 2698, 3397, 4277, 5384, 6778, 8533
+    dw 683, 859, 1082, 1362, 1715, 2159, 2718, 3421, 4307, 5423, 6827
 os88spkfx_lt:
     db 0, 0, 0, 10, 9, 9, 8, 8, 7, 7, 7, 6, 6, 6, 6, 5
     db 5, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4, 3, 3, 3
