@@ -137,7 +137,10 @@ os88spkfx_init:
     mov [cs:os88spkfx_lev], al
     mov [cs:os88spkfx_sub], al
     mov byte [cs:os88spkfx_gate], 1 ; a play starts as after silence
-    mov [cs:os88spkfx_pk1], ax      ; ...with no peaks held (pk1, pk2)
+    mov [cs:os88spkfx_hp], ax       ; ...with no peak held (hp, hc)
+    mov ax, [cs:os88spkfx_fam]      ; ...and the rows at level 0
+    mov [cs:os88spkfx_rowc], ah
+    mov [cs:os88spkfx_rowt], ah
     mov byte [cs:os88spkfx_prev], 0x80
     pop es
     pop ds
@@ -192,19 +195,41 @@ os88spkfx_level:
     sub cx, SPKFX_SPARSE
     ja .none
 .done:
-    mov al, dh                      ; the level the peak asks for - HELD: the
-    mov bl, al                      ; largest of this span's and the last two
-    cmp bl, [cs:os88spkfx_pk1]      ; spans' peaks, so a loud hit keeps the
-    jae .k1                         ; level down for ~64 ms and the leveller
-    mov bl, [cs:os88spkfx_pk1]      ; does not pump between beats (34.11.9)
-.k1:
-    cmp bl, [cs:os88spkfx_pk2]
-    jae .k2
-    mov bl, [cs:os88spkfx_pk2]
-.k2:
-    mov ah, [cs:os88spkfx_pk1]
-    mov [cs:os88spkfx_pk2], ah
-    mov [cs:os88spkfx_pk1], al
+    mov bl, [cs:os88spkfx_hp]       ; the level the peak asks for - HELD, so
+    mov al, bl                      ; a loud hit does not pump the steady
+    shr al, 1                       ; parts around it (34.11.9): a peak within
+    shr al, 1                       ; a quarter of the held one (~2.5 dB)
+    mov ah, bl                      ; re-arms a hold of SPKFX_HOLD spans (~0.5
+    sub ah, al                      ; s at 8,000 Hz)...
+    cmp dh, ah
+    jb .h1
+    cmp dh, bl
+    jbe .ha
+    mov bl, dh
+.ha:
+    mov byte [cs:os88spkfx_hc], SPKFX_HOLD - 1
+    jmp short .h3
+.h1:
+    cmp byte [cs:os88spkfx_hc], 0
+    je .h2
+    dec byte [cs:os88spkfx_hc]
+    jmp short .h3
+.h2:
+    mov al, bl                      ; ...and then it lets go by 1/2^DECAY a
+    mov cl, SPKFX_DECAY             ; span, at least 1, never below this
+    shr al, cl                      ; span's own
+    jnz .hd
+    inc ax
+.hd:
+    sub bl, al
+    jnc .he
+    xor bl, bl
+.he:
+    cmp bl, dh
+    jae .h3
+    mov bl, dh
+.h3:
+    mov [cs:os88spkfx_hp], bl
     cmp dh, SPKFX_PGATE             ; ...but silence asks by its own peak
     jae .k3
     mov bl, dh
@@ -220,6 +245,15 @@ os88spkfx_level:
     inc ax                          ; ~7 spans is the dip the field heard
 .set:
     mov [cs:os88spkfx_lev], al
+    cmp byte [cs:os88spkfx_gate], 0 ; after silence the row does not glide
+    je .ng                          ; from where it was: it is set
+    mov bx, [cs:os88spkfx_fam]
+    add bh, al
+    mov [cs:os88spkfx_rowc], bh
+.ng:
+    mov bx, [cs:os88spkfx_fam]      ; the row the sub-blocks glide to
+    add bh, al
+    mov [cs:os88spkfx_rowt], bh
     cmp dh, SPKFX_PGATE             ; this span silent: 0FFh, else 0
     sbb ah, ah
     mov [cs:os88spkfx_gate], ah
@@ -283,14 +317,13 @@ os88spkfx_emit:
     push bx
     push dx
     push bp
-    mov bh, [cs:os88spkfx_lev]      ; BX -> the span's row
-    xor bl, bl
-    add bx, [cs:os88spkfx_fam]
+    mov bx, [cs:os88spkfx_fam]      ; BX -> the row being emitted
+    mov bh, [cs:os88spkfx_rowc]
     mov ah, [cs:os88spkfx_prev]
     mov dh, [cs:os88spkfx_d]
     mov dl, [cs:os88spkfx_h]
     cld
-    jcxz .end
+    jcxz .endj
     cmp byte [cs:os88spkfx_sub], 0  ; A SUB-BLOCK PART DONE (a piece ended
     je .full                        ; inside it): finished with the same d
     push ax
@@ -307,9 +340,19 @@ os88spkfx_emit:
     pop ax
     sub cx, bp
     jmp short .go_k
+.endj:
+    jmp .end                        ; (out of a short jump's reach)
 .full:
     jcxz .end
-    cmp dh, dl                      ; A SUB-BLOCK: d toward h, up by
+    cmp bh, [cs:os88spkfx_rowt]     ; A SUB-BLOCK: the row a step (2 dB)
+    je .dm                          ; toward the span's, so the level GLIDES
+    jb .rup                         ; and never jumps (34.11.9)...
+    dec bh
+    jmp short .dm
+.rup:
+    inc bh
+.dm:
+    cmp dh, dl                      ; ...and d toward h, up by
     je .go                          ; SPKFX_DUP, down by SPKFX_DDOWN
     jb .up
     sub dh, SPKFX_DDOWN
@@ -350,6 +393,7 @@ os88spkfx_emit:
 .end:
     mov [cs:os88spkfx_prev], ah
     mov [cs:os88spkfx_d], dh
+    mov [cs:os88spkfx_rowc], bh
     pop bp
     pop dx
     pop bx
@@ -453,8 +497,10 @@ os88spkfx_idle: db 0                ; the carrier put away in the quiet
 os88spkfx_c0:   db 0                ; the centre count
 os88spkfx_lev:  db 0                ; the span's level
 os88spkfx_gate: db 0                ; the last span was silent (under PGATE)
-os88spkfx_pk1:  db 0                ; the last span's peak...
-os88spkfx_pk2:  db 0                ; ...and the one before it (HOLD 2)
+os88spkfx_rowc: db 0                ; the row emitted, its offset's high byte
+os88spkfx_rowt: db 0                ; ...and the span's, which it glides to
+os88spkfx_hp:   db 0                ; the peak held...
+os88spkfx_hc:   db 0                ; ...and the spans it is held for yet
 os88spkfx_d:    db 0                ; the carrier's shift now...
 os88spkfx_h:    db 0                ; ...and its target
 os88spkfx_sub:  db 0                ; samples into the sub-block
