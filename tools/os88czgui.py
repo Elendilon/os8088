@@ -10,8 +10,15 @@ functions and every refusal is its sentence, shown as it is.
 What the window adds is the part a person does four times a week and gets
 wrong once: choosing a file, seeing what it is, seeing how many disks it will
 take BEFORE anything is written, and getting floppy images out the other end
-that go straight onto the disks. Drop a `.001` on it (or any part) and the
-Join tab is already filled in.
+that go straight onto the disks.
+
+DROP A FILE ON THE WINDOW and it goes to the tab it belongs to (`drop_tab`):
+any part of a set to Join (a `.001` or any other part, and the Join tab is
+filled in), a 'CZ' file to Pack / Unpack, anything else to Split - or to
+Pack, if that is the tab showing, since a plain file is what Pack takes too.
+Of several files the first is taken. The drop itself is tools/os88drop.py,
+the video encoder's (SPEC.md 98.2.12), and it only QUEUES: the pump takes
+it, as it takes a split's log.
 
 tkinter because it is in the standard library: one file, no pip. Tk is
 imported SOFTLY, so everything above `App` loads on a machine with no display
@@ -33,6 +40,7 @@ except Exception:                                            # pragma: no cover
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 import os88cz as CZ                                           # noqa: E402
+import os88drop                                               # noqa: E402
 
 SIZE_CHOICES = ["720k", "360k", "1.2m", "1.44m"]
 METHOD_CHOICES = [("LZ4 - fast to expand on an 8088", CZ.M_LZ4),
@@ -59,6 +67,29 @@ def suggest_name(path):
         return base + ("." + ext if ext else "")
 
 
+T_SPLIT, T_JOIN, T_PACK = 0, 1, 2
+
+
+def file_kind(path):
+    """os88cz.kind() of a file off its head: a whole header, because a 'CZ'
+    file is not known by its first two bytes alone (os88lz.cz_parse wants
+    the format byte and the size behind them)"""
+    with open(path, "rb") as f:
+        return CZ.kind(f.read(64))
+
+
+def drop_tab(kind, current):
+    """the tab a dropped file goes to: `kind` is os88cz.kind() of its first
+    bytes, `current` the tab showing. A part is a set to join and a 'CZ'
+    file one to unpack, whatever is showing; a plain file is split, unless
+    Pack is showing, which takes a plain file as well"""
+    if kind == "part":
+        return T_JOIN
+    if kind == "cz":
+        return T_PACK
+    return T_PACK if current == T_PACK else T_SPLIT
+
+
 def estimate(nbytes, size):
     """how many parts a STORED split would be - the upper bound shown before
     anything is encoded, since compression only ever makes it fewer"""
@@ -73,6 +104,7 @@ class App:                                                   # pragma: no cover
         self.root = root
         self.q = queue.Queue()
         self.busy = False
+        self.auto = {}                  # var -> the value WE put there
         root.title("os88cz - split, join, pack")
         root.minsize(620, 440)
         nb = ttk.Notebook(root)
@@ -176,20 +208,41 @@ class App:                                                   # pragma: no cover
 
     # --- choosing ------------------------------------------------------------
     def take(self, path):
-        """a file handed over on the command line: the tab it belongs to"""
+        """a file handed over on the command line or dropped on the window:
+        the tab it belongs to (`drop_tab`), filled in"""
+        if os.path.isdir(path):
+            self.say(f"{path}: a folder - drop a file")
+            return
         try:
-            k = CZ.kind(open(path, "rb").read(2))
+            k = file_kind(path)
         except OSError as e:
             self.say(str(e))
             return
-        if k == "part":
-            self.nb.select(1)
-            self._set_join(path)
-        elif k == "cz":
-            self.nb.select(2)
-            self._set_pack(path)
-        else:
-            self._set_split(path)
+        t = drop_tab(k, self.nb.index(self.nb.select()))
+        self.nb.select(t)
+        (self._set_split, self._set_join, self._set_pack)[t](path)
+
+    def dropped(self, paths):
+        """a drop, on Tk's thread through the pump: the first file taken.
+        Not while a job runs - its fields are what it is working from"""
+        paths = [p for p in paths if p]
+        if self.busy:
+            self.say("Busy - drop it again when this one is done.")
+            return
+        if not paths:
+            return
+        if len(paths) > 1:
+            self.say(f"{len(paths)} files dropped: taking "
+                     f"{os.path.basename(paths[0])}.")
+        self.take(paths[0])
+
+    def _follow(self, var, value):
+        """put `value` in `var` unless the user chose what is there: a
+        second file dropped takes its own folder, a folder browsed or typed
+        stays"""
+        if not var.get() or var.get() == self.auto.get(str(var)):
+            var.set(value)
+            self.auto[str(var)] = value
 
     def _pick_split(self):
         p = filedialog.askopenfilename(title="A file to split")
@@ -198,8 +251,7 @@ class App:                                                   # pragma: no cover
 
     def _set_split(self, p):
         self.s_in.set(p)
-        if not self.s_out.get():
-            self.s_out.set(os.path.dirname(p))
+        self._follow(self.s_out, os.path.dirname(p))
         self.s_name.set(suggest_name(p))
         self._plan()
 
@@ -229,8 +281,7 @@ class App:                                                   # pragma: no cover
 
     def _set_join(self, p):
         self.j_in.set(p)
-        if not self.j_out.get():
-            self.j_out.set(os.path.dirname(p))
+        self._follow(self.j_out, os.path.dirname(p))
         try:
             self.j_info.set(CZ.describe(open(p, "rb").read()))
         except (OSError, CZ.CZError) as e:
@@ -302,6 +353,8 @@ class App:                                                   # pragma: no cover
                 elif m[0] == "err":
                     self.say("REFUSED: " + m[1])
                     messagebox.showerror("os88cz", m[1])
+                elif m[0] == "drop":
+                    self.dropped(m[1])
                 elif m[0] == "done":
                     self.busy = False
                     for b in (self.s_go, self.j_go, self.p_go, self.u_go):
@@ -375,8 +428,12 @@ def main():                                                  # pragma: no cover
     if tk is None:
         sys.exit("os88czgui: this Python has no tkinter - `os88cz.py` is the "
                  "same tool on the command line")
-    root = tk.Tk()
-    App(root, sys.argv[1] if len(sys.argv) > 1 else None)
+    root = os88drop.make_root()         # drag and drop, where installed
+    app = App(root, sys.argv[1] if len(sys.argv) > 1 else None)
+    how = os88drop.enable_drop(root, lambda paths: app.q.put(("drop", paths)))
+    if how:
+        app.say("Drop a file on this window: a part joins, a 'CZ' file "
+                "unpacks, anything else splits.")
     root.mainloop()
     return 0
 
