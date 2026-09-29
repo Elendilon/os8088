@@ -2699,6 +2699,15 @@ SOAK = [
         "on 128KB since the split and stage 1 refused it at 129 until 2.7.1, "
         "which no host-side row could have noticed",
         needs=("marty",), serial=True),
+    Row("v20boot", "soak", py("tests/v20boot.py"), 17.0,
+        "A NEC V20 boots, runs and reads CPU_8086. MartyPC's V20 let POPF "
+        "and IRET write FLAGS bit 15 (MD, the mode flag), which a real V20 "
+        "write-protects outside BRKEM - so cpu_detect's FLAGS probe called "
+        "it a 386, the kernel ran AT probes on an XT and the machine stopped "
+        "in .bss with MD clear. tools/martypc/patches/07 is the fix; without "
+        "it step 1 reads tier 2. Step 3 executes an 80186 shift so a profile "
+        "that is silently an 8088 fails too",
+        needs=("marty",), timeout=180),
     Row("dljunk", "soak", py("tests/dljunk.py"), 210.0,
         "SPEC.md 2.9.11's DL check, both ways: a BIOS that never set DL left "
         "0x61 in it and every int 13h named a unit that is not there, which "
