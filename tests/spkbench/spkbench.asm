@@ -3,7 +3,8 @@
 ;
 ; SPKBENCH: what the PC SPEAKER costs THIS machine (SPEC.md 34.11, 45.25).
 ;
-;   make spkbench           -> build/spkbench360.img, SPKBENCH.O88 alone
+;   make spkbench           -> build/spkbench{360,720,144}.img, SPKBENCH.O88
+;                              alone
 ;
 ; Double-click it, press R (or click the window), and wait ~12 seconds with
 ; your hands off the mouse. The report is saved as SPKBENCH.TXT beside it.
