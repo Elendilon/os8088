@@ -46370,7 +46370,12 @@ Audio and the games, none of which has a disk of its own.
 **Being curated onto it is not a property of a package, it is a decision with
 a date on it.** ArtfulType and TeXPad are on both disks today because a
 general disk with no writer on it is a poor general disk; that is the
-owner's call and it gets remade the next time this geometry runs out. The
+owner's call and it gets remade the next time this geometry runs out. It ran
+out on 2026-09-28, when the PC speaker's path grew Audio by 3.3 KB of disk
+(§86.21) with Tracker (§45.25) and the Video Player to follow: Gorillas came
+off, being the newest game and on `games360.img` whatever this disk carries -
+provisional that day, CONFIRMED by the owner on 2026-09-29 (*"fine for
+now"*), and so remade like every other row here the next time it runs out. The
 row to read is the Makefile's `APPS_TOOLS_360`, not a list here — a package
 list in prose goes stale the next time anything ships, and the enforcement is
 `os88disk.py` refusing an image that does not fit.
@@ -58238,7 +58243,13 @@ next one.
 when the counter runs out. A grant runs to the soonest of three things: the
 period's end, the queued data's end, or the ring's end. That keeps CONS exact
 at every period, never a period ahead of the pulse. With nothing queued, a
-grant is one sample of the table's middle (silence), not counted as played.
+grant is a run of `OS88SPK_DRYN` = 16 samples of silence (or the period's
+rest), not counted as played. It was ONE sample until Audio (§86.21): then a
+producer the ring had outrun made every pulse a grant event, ~400 cycles
+more each, and the pulses starved the very producer that was behind - a
+5-second clip played for 9.5. Sixteen is 2 ms at 8 kHz of a gap that was
+going to be heard anyway. The silence is the table's middle, or a count of 1
+where §34.11.9's shaper puts the carrier away.
 
 #### 34.11.3 What the kernel does differently under a sample ISR
 
@@ -58299,11 +58310,13 @@ is PCM8 at 5,512 Hz, with every frame budgeted around what the pulses leave.
   refuses beside `FSXF_FASTTICK` (one channel 0). A speaker play would be
   `FSXF_KEEPWORKER | FSXF_RATE` with a hook, its mixer writing counts, at a
   rate row below its lowest today (11,000 Hz is past the 8088's ceiling).
-- **Audio cannot, as it stands**: it plays on the desktop, and channel 0 is
-  not the desktop's to give (§34.1), so it would need a full-screen play of
-  its own - against its premise of music behind other windows. (ModPlug is
-  retired, §56.15.)
-- docs/plans/SPEAKER-PCM-HANDOFF.md is the brief for both.
+- **Audio** (§86.21), with no card, automatically: its window plays as an
+  imposter in its own `FSXF_RATE` bracket - the desktop given up for it,
+  against its premise of music behind other windows, because sound and
+  nothing else is better than no sound - through §34.11.9's shaper, with a
+  live ladder of rates that finds what the machine can keep up with. (ModPlug
+  is retired, §56.15.)
+- docs/plans/completed/SPEAKER-PCM-PLAN.md is the plan for all three consumers.
 - **No C package**: `apps/cc/os88.h` has no binding for a sample ISR, and
   §73's rules forbid most of what one needs. A C package that wants one gets
   an assembly module.
@@ -58451,6 +58464,73 @@ unmuted, its sound goes to the speaker, the door is open to the player
 with a rate divisor of whole 54-count pulses, the ring is played from and
 every frame drawn; `vidspk --rate 22050 --unmute` (MartyPC's 8088) is the
 refusal. How it SOUNDS on a 286's speaker is the owner's to hear.
+
+#### 34.11.9 The speaker shaper: `apps/os88spkfx.inc`
+
+**A straight wave through the pulse width is the carrier and nothing else on
+a 5150** (98.2.15.1): the width goes to bass the cone cannot move. The Video
+Player's encoder shapes its sound on the host; a package handed a WAV or a
+module cannot, so the shaping moves onto the machine, in the form an 8088
+can afford beside a pulse every ~600 cycles
+(docs/plans/completed/SPEAKER-PCM-PLAN.md). `tools/os88spkfx.py` is its reference, to
+the byte, and `tests/spkfx.py` holds the two equal.
+
+**Per sample**, x unsigned 8-bit at the speaker's rate:
+1. **Pre-emphasis** (`SPKFX_PRE_DIFF`): the first difference, i = (prev −
+   x + 256) >> 1 - the high-pass and the tilt in one, +6 dB an octave. The
+   wave comes out upside down, which no ear hears, and that is what keeps
+   the previous sample in AH for nothing: `xchg`, `sub`, `rcr`. The `rcr`
+   leaves the index's top bit flipped (no `cmc`), so a PRE_DIFF family is
+   stored at i ^ 80h. `SPKFX_PRE_NONE` takes x as it is - Tracker filters
+   its instrument samples at load instead, a linear filter commuting with
+   the mix.
+2. **One `xlatb`** through a row of the **level family**: gain 2^(l/3) in
+   2 dB steps (0..20 dB, `SPKFX_NLEV` = 11 rows of 256), a soft clip
+   (tanh to z = 1 and flat beyond, the encoder's own clip), and
+   os88spk.inc's count table, composed at init.
+3. **The carrier put away in the quiet** (98.2.15.3): a shift d subtracted,
+   saturating at a count of 1, moved once a sub-block of 16 samples toward
+   the span's target - 1 count up, 8 down.
+
+**Per span** (~32 ms - 256 samples up to 11,025 Hz, 512 above), before a
+sample of it is emitted: its peak, read one sample in 32; the level that
+peak asks for (ratio 3, one step up a span at most, any number down, so an
+onset is never driven into the clip); and the carrier's target from the
+headroom the level leaves - all the way down, every count 1, for a span
+under the gate.
+
+**What it costs, measured** on MartyPC's 4.77 MHz 5150 (`tests/spkfx.py`,
+emit plus the span's level, interrupts included): **~104 cycles a sample**
+with the pre-emphasis and the carrier moving, **~84** while the carrier sits
+still, **~72** without the pre-emphasis. The plain translation it replaces
+was ~50 (34.11.4). **What it buys**, 40 s of *Bad Carrot* at 8,000 Hz, each
+band's share of the speaker line in dB (98.2.15.1's table):
+
+| | < 150 Hz | 150-400 | 400-800 | 800-1,600 | 1,600-2,700 | carrier |
+|---|---|---|---|---|---|---|
+| straight | −9.1 | −17.8 | −21.1 | −20.6 | −23.2 | −2.6 |
+| the encoder's shaping | −31.8 | −16.0 | −14.8 | −10.7 | −10.4 | −4.7 |
+| **the machine's** | −20.2 | −19.1 | −16.0 | −11.3 | −9.6 | −5.2 |
+
+The voice bands land within a dB of the encoder's. What the encoder does
+better is the soft passages - its leveller is an RMS over 30 ms in two
+bands, where this one is a peak a span - which come out 3-4 dB quieter here.
+
+`os88spkfx_init` (after `os88spk_init`) takes DI = the family's place in
+the package's OWN segment - `cs xlatb`, DS being the source and ES the ring -
+AL = the pre-emphasis and AH = 1 for the carrier's slide, which also makes
+a dry ring's silence a count of 1. `os88spkfx_level` decides a span;
+`os88spkfx_emit` translates it in any number of pieces, as a ring's wrap
+splits one. `apps/os88spkfx_t.inc` is generated (`tools/os88spkfx.py gen`)
+and `t_spkfx` holds it to the model. The library is 1,745 bytes of the package
+(four unrolled bodies, the entry tables and the generated tables) and 2,816
+bytes of its bss.
+
+**A WAV shaped on the host** - the encoder's full shaping, for whoever
+prepares a file - is `tools/os88spkfx.py shape IN.WAV OUT.WAV [--counts]`:
+8-bit mono at the speaker's rate with an `o8sp` RIFF chunk (kind 1, shaped
+PCM8; kind 2, the counts themselves) saying a player need not shape it
+again (§86).
 
 ## 35. Recorder — the sound layer's recording client
 
@@ -72433,11 +72513,12 @@ edge-triggered, so no deadline machinery is needed.
 
 ### 45.8 The honest degradations
 
-- **No Sound Blaster: a viewer, not a player.** `osapi_snd_caps` without
-  `PCM_BG` refuses Play with a status-line message; loading, the pattern
-  view, scrolling and the whole fullscreen surface still work. No silent
-  tick-driven fake playback is attempted, and no FM fallback in v1 (FM is
-  now worker-whitelisted — that is future work, not a promise).
+- **No Sound Blaster: the PC speaker (§45.25).** `osapi_snd_caps` without
+  `PCM_BG` plays through the speaker instead, from Tracker's own bracket,
+  after timing the machine once - and refuses with the figure where even
+  its lowest rung would not fit. This line used to read *"a viewer, not a
+  player"*; that is still what a kernel with no `FSXF_RATE` gets. No FM
+  fallback (FM is worker-whitelisted - future work, not a promise).
 - **512KB machine: big modules play.** A fixed ~107KB package arena could
   not hold a 116KB blob at all, and that limit is gone. The claim heap is not
   a fixed arena — it is everything above the kernel — so a 640KB machine
@@ -75272,6 +75353,94 @@ then checks the 286 face's markers against a held bar (point 4). That
 15.0 is itself news, since the same spectrum drew 7.7 before this section and
 45.21.8: the LCD, the hold and the clock took half its cost away too. `TW_XTNB` and `TW_BHOLD` are `%ifndef`-overridable, so the table's
 arms can be rebuilt.
+
+### 45.25 No card: the PC speaker
+
+With no Sound Blaster, **Play plays through the PC speaker**, on its own and
+with nothing to switch on (the owner: *sound and nothing else is better than
+no sound*). It is §34.11's ring and door and §34.11.9's shaper, fed by the
+same mixer the card's worker feeds (`apps/tracker/trkspk.inc`,
+docs/plans/completed/SPEAKER-PCM-PLAN.md).
+
+**The bracket is the producer.** The speaker needs channel 0, so the play runs
+inside an `FSXF_RATE` bracket (§53.2.2), and under a sample ISR a task switch
+rides the 18.2 Hz tick - so it is not the worker that mixes but the bracket's
+own loop, `tsp_poll`: a span of the mixer, its level, its counts, into the
+ring. Windowed, the bracket is a same-mode one - the **imposter window**, the
+Video Player's in-window play (§98.3.7): the Tracker window stays live and
+the rest of the desktop waits; a click anywhere or Space pauses and gives the
+desktop back, Esc or S stops, F swaps to the full screen. The full screen's
+bracket takes `FSXF_RATE` in place of `FSXF_KEEPWORKER | FSXF_FASTTICK` when
+there is no card, at 54.6 Hz (`TSP_FSDIV`), its two loops calling `tsp_poll`
+once a frame, and falls back to the viewer's bracket where a kernel refuses
+the flag. `[trk_total]`/`[trk_consumed]` ARE the ring's TOTAL and CONS, so
+everything that shows what the listener hears (§45.15) - the rows, the clock,
+the needles - reads the speaker the way it read the card; the display's gates
+that asked *"is a card stream open"* (`tw_want`, `tw_tick`, `tui_sync`, the
+scope, `tw_rate_now`) ask *"or a speaker play"* too.
+
+**The filter is paid once.** The shaper's first-difference pre-emphasis would
+be ~20 cycles an output sample; a linear filter commutes with the mix, so
+`tsp_preemph` runs it over the module's SAMPLES in place when a module loads
+on a machine with no card - ~1 s for BEVERLY.MOD on a 5150 - and the shaper
+is initialised `SPKFX_PRE_NONE`. It is applied in the sample-index domain, so
+at pitches far from one step it is a tilt rather than the exact output
+filter; `[tsp_pre]` says it was done, and a card mounted later in the session
+hears that module thinner until it is loaded again. Tracker never writes a
+module, so nothing filtered reaches a disk.
+
+**The first Play CALIBRATES** (the owner's question 5), inside the bracket
+where the worker is parked - outside one the worker draws a frame a tick
+beside the bench. `tsp_calib` times two things:
+- the shaper: spans of 256 emitted for `TSP_BTICKS` = 4 ticks (Ne);
+- the mixer: `TSP_MTICKS` = 8 ticks of FOUR channels, all audible, each the
+  module's longest sample looped whole, in chunks of a tick's length at 125
+  BPM (rate / 50) with no tick falling due, so the replayer never moves (Nm).
+  Its channel records are put aside and back. The first build benched the
+  song's own opening and read BEVERLY.MOD's sparse intro - a third of the
+  mixer's cost in a full passage - and one that mixed 512-sample chunks
+  missed the per-chunk set-up a real tick's chunk pays.
+
+and predicts each rung's load as `R x 44 / Nm + R x TSP_CS / Ne + 5` percent.
+`TSP_CS` = 89 is MEASURED on MartyPC's 5150: the bench's ~107 cycles a shaped
+sample and the sample ISR's ~325 a pulse (37% of the machine at 5,417 Hz,
+sampled), `(325 / 107 + 1) x 400 / 18.2`. The rungs are an 8088's 8,000 and
+5,512 Hz and a 286's 22,050 / 16,000 / 11,025 / 8,000 (§34.11.8). The highest
+at `TSP_PCTMAX` = 100 or under is played: **the sound must fit and the picture
+has what is left**, because the imposter draws a frame only while the ring is
+at least half full (the worker's `trk_deep` rule, audio first) and books the
+clock without drawing otherwise, and the visualiser is forced off during a
+speaker play on any machine whose visualiser is already the XT meter
+(`tw_vizxhi`, the 11 kHz rule). None fitting, Play is **refused with the
+figure** - `Speaker: needs 107% of this PC - Play again to try` - and the next
+Play plays anyway at the last rung (question 2). A play that falls behind
+all the same (a lead under a quarter of the ring) drains, drops a rung and
+goes on, as Audio's does (§86.21); past the last rung it plays on behind.
+
+Measured on MartyPC:
+
+| machine | Ne | Nm | rung | predicted | held |
+|---|---|---|---|---|---|
+| 5150, 4.77 MHz, Hercules | 9,728 | 5,920 | 5,512 Hz | 95% | 5,416 pulses/s, ring never dry, window and full screen |
+| XT `--turbo`, VGA | 29,440 | 17,760 | 8,000 Hz | 48% | ring never dry |
+
+8,000 Hz on the 5150 predicts 137%. With the visualiser off, the audio-first
+frame gate is not reached on the 5150 with BEVERLY.MOD at 5,512 Hz - removing
+it leaves the ring still never dry - so it is a net for a heavier face and not
+something this machine exercises. `tools/mkmod.py`'s test song, whose 416
+sample bytes loop all four channels every few hundred samples, predicts 107%
+and is refused on the 5150: the bench is the module's own mixer, and a module
+of tiny loops really does cost more.
+
+It costs Tracker 4,189 bytes of image (27,927 -> 32,116), 3,070 of bss (2,816
+of them the shaper's level family) and 2,929 bytes of the packed file, and
+a 17 KB ring claimed the first time the speaker plays; no kernel byte.
+
+`tests/trkspk.py` is the gate: `trkspk` (the 5150 plays by itself, the rate,
+the dry ring, the visualiser, the clock, pause, resume, the full screen and
+back, stop), `trkspkref` (a build with a 50% ceiling: the refusal and its
+figure, and the override), `trkspkturbo` (the 8,000 Hz rung) and `trkspkend`
+(a song to its end, then a card machine where the speaker is never touched).
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
@@ -117811,9 +117980,12 @@ sample handed on is
 which needs no clamp of its own — `predictor >> 8` is [−128, 127], `+ 128` is
 [0, 255]. **There is no intermediate 16-bit PCM buffer.**
 
-Measured decode cost is well inside the background budget: at 11,025 Hz the
-inner loop is an estimated ~10–15 % of a 4.77 MHz 8088, against Tracker's
-44–165 % mixer (`PERFORMANCE.md` Sets 20/68) — a streamer does no mixing. The
+The decode cost was ESTIMATED here as ~10–15 % of a 4.77 MHz 8088 at 11,025
+Hz, and §86.21 measured otherwise: beside the speaker's pulses an 8088 cannot
+keep an 11,025 Hz IMA file fed at 5,512 Hz and can at 4,800, which puts the
+decode at most of what the pulses leave rather than a tenth of the machine.
+(Against Tracker's 44–165 % mixer, `PERFORMANCE.md` Sets 20/68, a streamer
+still does no mixing.) The
 decoder stays in assembly (it *is* the shim), not because C would be too slow
 but because the SDK does not expose the stream verbs to C at all.
 
@@ -118080,6 +118252,95 @@ the procedure); QEMU is functional verification only, where 28 s of PCM8 @
 22 kHz streams gap-free (0 quiet windows in the capture) with 14 s of it while
 another window holds the focus, and where the `AP_RD_CHUNK` change (§86.5.2)
 cut streaming reads from ~5/s to ~0.6/s with no underruns for either codec.
+### 86.21 No card: the PC speaker, and the desktop given up for it
+
+**With no Sound Blaster the player plays through the PC speaker, on its
+own** (docs/plans/completed/SPEAKER-PCM-PLAN.md; the owner: *"sound and nothing else is
+better than no sound"*). `ap_open_track` prepares a track the same way for
+either (`ap_prep_track`: the file parsed, the look-ahead claimed and primed)
+and then goes to the card (`ap_open_card`) or to `aps_open`
+(`apps/audio/apspk.inc`). The test is `SND_CAP_PCM_BG`, so the Control
+Panel's route to PC Speaker (§34.11's lesson 5) sends a machine WITH a card
+here too.
+
+**It inverts §86's premise, and says so.** The pulses need IRQ0 at the
+sample rate, which only a package's own `FSXF_RATE` bracket may have (§53.2.2,
+§34.11), so a speaker play is a BRACKET: the desktop frozen, every other
+program stopped, the pointer gone, for as long as it plays. It is the Video
+Player's in-window play (§98.3.7) - the **imposter window**: this window's
+clock and progress bar are the only pixels that move (`aps_draw`, through its
+own clip, only when either changed, at most every `AP_DRAW_TICKS`), and the
+status line says `PC speaker - click or Space to pause`. A click anywhere or
+Space takes it back to the desktop PAUSED - the session kept, the ring and
+CONS exact - and Play, Space or Enter resume it from the very sample it
+stopped on (`os88spk_go` plays from CONS); Esc or S stops; N/Right and
+P/Left change track inside it. The playlist plays on inside the bracket,
+track after track, each opened by the bracket's own body (the file slots are
+the UI task's, and this IS the UI task).
+
+**The bracket's body is the producer.** No worker: under a sample ISR a task
+switch rides the 18.2 Hz tick and a yield is ~2,200 cycles at IF = 0
+(§34.11.3), so `aps_main` reads the disk, decodes, resamples, shapes and fills
+the ring itself, and waits in `FSXW_FRAME` when it is full. The rate hook only
+counts periods, and the period is a whole tick (divisor 65,535), since every
+period's entry costs about a pulse. **The ring is 16 KB (2 s at 8 kHz) and is
+filled FULL before the door opens**, and **a dry ring plays a run of
+`OS88SPK_DRYN` samples of silence a grant** (§34.11.2): the first build
+granted one, a starving producer then made every pulse a grant event, the
+pulses took the machine the producer needed to catch up, and a 5-second clip
+played for 9.5.
+
+**The plan** (`aps_plan`) is the file's rate S to the speaker's R. A file
+of COUNTS (§34.11.9's `o8sp` kind 2) plays 1:1 and is copied; everything else
+goes through §34.11.9's shaper - with its pre-emphasis, or without for a file
+already shaped on the host (kind 1). R is S when S is at most the rung's TOP;
+else S / k averaged over k samples when k divides S, is 3 or less and leaves R
+at 4,679 Hz or more (the box - a cheap anti-alias; more than three samples
+cost more than the step they save); else a 16.16 step through the source to
+TOP, its whole part patched into the loop's `adc bx, imm16`. A 1:1 span is
+emitted straight out of the look-ahead ring whenever it does not cross that
+ring's seam, so a plain 8 kHz file is never copied at all.
+
+**The ladder is the calibration** (the owner's question 5), and it is live:
+TOP is a rung - an 8088's 8,000 / 5,512 / 4,800 Hz, a 286's 24,858 (a pulse
+of 48 counts, §34.11.8) / 16,000 / 11,025 / 8,000 / 5,512 - and an 8088
+starts IMA ADPCM a rung down, its decode being paid at the SOURCE rate. A
+play whose ring lead falls under a quarter (`APS_LOW`) while the file is
+still coming is BEHIND - this file, this rate, this CPU and this disk
+together - and `aps_behind` lets the ring play out, shuts the door, comes a
+rung down, rebuilds the tables, fills half the ring and opens it again: a gap
+of about a second, once, and a play that keeps time after it. The session
+keeps the rung - it has learned the machine - so the next track starts
+there. **Past the last rung**, IMA ADPCM stops and says `Too slow for this
+file on the speaker` (the owner: 5.5 kHz ADPCM *"only if it turns out
+viable"*), and PCM plays on behind the pulses, gaps and all.
+
+**Measured** on MartyPC's card-less Hercules 5150 with a fixed disk
+(`tests/apspk.py`: 800 port-42h writes against `tools/os88spkfx.py`'s plan,
+resampler and shaper - every leg EXACT from its first pulse):
+
+| the file | plays at | lost pulses | its time |
+|---|---|---|---|
+| PCM8, 8,000 Hz | 8,000 | 2.0% | 5.16 s for 5.00 |
+| PCM8, 11,025 | 8,000 stepped, then a rung down | 2.0% | kept, after one fall |
+| PCM8, 22,050 | 7,350 (a box of 3), then down to 4,800 | 1.7% | behind at every rung: 22 KB/s off MartyPC's XT-IDE, whose every byte the CPU copies (§98.2.15.5), and it plays on |
+| IMA ADPCM, 11,025 | 5,512 stepped, then 4,800 | 1.5% | kept at 4,800 |
+| shaped / counts (`os88spkfx.py shape`) | 8,000 | 2.0% | 5.16 s |
+
+What the 4.77 MHz 8088 has left beside 8 kHz of pulses is ~25% of itself,
+and those rows are what it buys. **The owner's 5150 moves its sectors by DMA**
+(an ST11M) where MartyPC's only hard disk is an XT-IDE, so the 22 kHz row is
+this emulator's answer and not that machine's - the ladder will find the
+rung there itself. `tests/apspk.py --card` holds the Sound Blaster path to
+the stream it always opened (one open, the door never touched); `--pause`
+holds Space, the resume from the sample it stopped on, and Esc.
+
+**The cost**: `AUDIO.O88` 7,502 -> 10,821 bytes of disk (the image 9,216 ->
+13,824 - os88spk.inc, os88spkfx.inc and apspk.inc) and 7 KB more bss, with a
+17 KB ring claimed at the first speaker play and kept for the instance. That
+took the 360 KB apps disk past its last cluster; §24.6.1's decision made for
+it is in the Makefile's `APPS_GAMES_360`.
+
 ## 87. Hibernate — the machine to a file on the hard disk, and back (`kernel/hiber.inc`, `HIBER.DRV`)
 
 **What it is.** `Hibernate...` is the System menu's item above `Restart`
@@ -154488,10 +154749,16 @@ it** (§98.3.17) - and mute is the one choice for every kind of sound:
   play goes on silent on the PIT, and a toast says `Sound off`.
 
 The ring is the card's layout (§34.5.3), claimed as `VP_RL` + 272 bytes, with
-the count table after the control words. `vp_aput` puts each byte through
-the table as it queues it, and the drain's silence fill is translated too -
-or, for a file of counts (98.1.1.3), copies them and fills with the table's
-middle.
+the count table after the control words. **A clip made for a card goes
+through §34.11.9's shaper**, as the encoder shapes one made for the speaker
+(98.2.15.1): a straight wave on a 5150 is the carrier and little else.
+`vp_aput` takes each queued piece - a frame's audio - to `os88spkfx_level`
+for its level and `os88spkfx_emit` for its counts, with the first-difference
+pre-emphasis on; the family is `vp_fam`, 11 x 256 bytes of bss. The drain's
+silence fill is `os88spk_sil`, a count of 1 once the shaper has the carrier
+away. A file of counts (98.1.1.3) is still a copy, filled with the table's
+middle. `tests/vidspk.py` reads its pulses back against `tools/os88spkfx.py`'s
+`Shaper` fed the same pieces, and they are EXACT.
 Everything that stops or restarts the card does the same to the speaker, by
 `vp_sclose`, `os88spk_stop` and `os88spk_go`:
 - a **pause** stops it where it is, CONS exact, and the resume goes on from

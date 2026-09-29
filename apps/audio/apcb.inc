@@ -432,6 +432,7 @@ ap_onwake:                         ; SI = window
 ; =============================================================================
 ap_onclose:                        ; SI = window; gfx lock held
     call ap_stream_close
+    call aps_free                  ; the speaker's ring back to the heap
     clc                            ; allow the close (no unsaved state)
     ret
 

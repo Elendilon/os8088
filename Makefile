@@ -4775,7 +4775,7 @@ $(shell mkdir -p $(BUILD); \
         [ -f $(VPSTAMP) ] || { rm -f $(BUILD)/.vplayer-livesnd $(BUILD)/.vplayer-nolivesnd \
                                       $(BUILD)/video.bin $(BUILD)/video.o88; \
                                 touch $(VPSTAMP); })
-$(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88api.inc apps/os88alt.inc \
+$(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
                     apps/os88ui.inc $(VPSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ $(VPDEF) -o $@ apps/video/video.asm
 	@echo "video:  $(call FILESIZE,$@) bytes"
@@ -5856,6 +5856,8 @@ $(BUILD)/recorder.o88: $(BUILD)/recorder.bin tools/os88pkg.py $(PKGZSTAMP)
 $(BUILD)/tracker.bin: apps/tracker/tracker.asm apps/tracker/trkplay.inc \
                       apps/tracker/trkui.inc apps/tracker/trktxt.inc \
                       apps/tracker/trkwin.inc apps/tracker/trklist.inc \
+                      apps/tracker/trkspk.inc apps/os88spk.inc \
+                      apps/os88spkfx.inc apps/os88spkfx_t.inc \
                       apps/os88api.inc apps/os88alt.inc apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/tracker/ -o $@ apps/tracker/tracker.asm
 	@echo "tracker: $(call FILESIZE,$@) bytes"
@@ -5872,6 +5874,8 @@ $(BUILD)/tracker.o88: $(BUILD)/tracker.bin tools/os88pkg.py $(PKGZSTAMP)
 TRKVOL_SRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
               apps/tracker/trkui.inc apps/tracker/trktxt.inc \
               apps/tracker/trkwin.inc apps/tracker/trklist.inc \
+              apps/tracker/trkspk.inc apps/os88spk.inc apps/os88spkfx.inc \
+              apps/os88spkfx_t.inc \
               apps/os88api.inc apps/os88alt.inc apps/os88ui.inc
 .PHONY: trkvol
 trkvol: $(BUILD)/trkvol360.img
@@ -5901,6 +5905,8 @@ AUDIO_SRC := apps/audio/audio.asm apps/audio/apengine.inc \
              apps/audio/apwork.inc apps/audio/apcb.inc \
              apps/audio/apwav.inc apps/audio/apdec.inc \
              apps/audio/apui.inc apps/audio/aplist.inc \
+             apps/audio/apspk.inc apps/os88spk.inc apps/os88spkfx.inc \
+             apps/os88spkfx_t.inc \
              apps/os88api.inc apps/os88ui.inc apps/os88type.inc
 # NB: apps/audio/audio.asm is named explicitly (as well as via $(AUDIO_SRC),
 # which begins with it) so tools/os88index.py finds the package here.
@@ -9277,7 +9283,8 @@ zscreens: $(BUILD)/stories.stamp
 # TRKLOG.TXT back to it, which is the point (docs/TESTING.md).
 TRKLOGSRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
              apps/tracker/trkui.inc apps/tracker/trktxt.inc \
-             apps/tracker/trkwin.inc apps/tracker/trklist.inc apps/os88ui.inc tests/trklog.inc
+             apps/tracker/trkwin.inc apps/tracker/trklist.inc apps/tracker/trkspk.inc \
+             apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88ui.inc tests/trklog.inc
 
 trklog: $(BUILD)/trklog.img $(BUILD)/trklog360.img
 
@@ -9317,7 +9324,8 @@ $(BUILD)/trklog360.img: $(BUILD)/trklog.o88 apps/tracker/beverly.mod tools/os88d
 # nothing playing has nothing to scroll.
 TRKSCRLSRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
               apps/tracker/trkui.inc apps/tracker/trktxt.inc \
-             apps/tracker/trkwin.inc apps/tracker/trklist.inc apps/os88ui.inc tests/trkscrl.inc
+             apps/tracker/trkwin.inc apps/tracker/trklist.inc apps/tracker/trkspk.inc \
+             apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88ui.inc tests/trkscrl.inc
 
 trkscrl: $(BUILD)/trkscrl.img
 
@@ -11485,7 +11493,14 @@ APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/tank.o88 $(BUILD)/cyclone.o88 \
 # ModPlug was RETIRED (SPEC.md 56.15). THE 360KB COMBO IS A FOURTH SITE and
 # does not take this list: it filters APPS_GAMES through COMBO_DROP, which
 # names the package there with its own ground (below, beside ETHER.DRV's).
-APPS_GAMES_360 := $(filter-out $(BUILD)/pxstein.o88,$(APPS_GAMES))
+# GORILLAS OFF THE 360KB APPS DISK (SPEC.md 24.6.1's decision with a date on
+# it: 2026-09-28, CONFIRMED by the owner 2026-09-29 "for now"). The disk was
+# full to the cluster and the PC speaker's path (docs/plans/completed/SPEAKER-PCM-PLAN.md)
+# grows three packages that ride it - Audio +3.3 KB of disk now, Tracker and
+# the Video Player next - so something had to move, and every game here is
+# also on games360.img. Gorillas is the newest arrival and its 14 clusters
+# cover all three packages' growth; it loses no disk it shipped on elsewhere.
+APPS_GAMES_360 := $(filter-out $(BUILD)/pxstein.o88 $(BUILD)/gorillas.o88,$(APPS_GAMES))
 
 # The CORE PACKAGES (SPEC.md 24.3) are a SECOND copy on the system disk and
 # never a move, so the two lists above are unchanged and still carry every
