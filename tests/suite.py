@@ -6614,7 +6614,7 @@ SOAK = [
         "the check's compare disabled in compress.inc the damaged copy "
         "joined into a wrong DMG.DAT and the row went red on it",
         needs=("marty",), wants=("build/os8088.img",)),
-    Row("czto", "soak", py("tests/czto.py"), 130.0,
+    Row("czto", "soak", py("tests/czto.py"), 80.0,
         "SPEC.md 22.23.6: File > Uncompress To... - the result goes where "
         "the Save box says and the join ASKS for each floppy it needs. The "
         "parts are on B: and the result goes to A:, and the harness swaps "
@@ -6625,8 +6625,14 @@ SOAK = [
         "same disk still in says `Missing SET.002` and asks again, and "
         "after each swap Enter reads the next part from that disk's root, "
         "to a result identical to the original, and os88disk --verify "
-        "over A: at the end. `--break` puts ANOTHER set's SET.002 on the "
-        "second disk and the row goes red",
+        "over A: at the end. Then a MARGINAL second disk (22.23.6.1): B:'s "
+        "reads fail with a CRC error injected just after the kernel's own "
+        "int 13h, so the retries above it are real - `ioerr` must say `Disk "
+        "error` and leave A: clean, and `hopfail` also fails the error "
+        "path's hop back to A:, which used to re-enter that path for ever "
+        "(with the old hop put back it fails 50 hops and goes red). "
+        "`--break` puts ANOTHER set's SET.002 on the second disk and the row "
+        "goes red. 78s measured",
         needs=("marty",), wants=("build/os8088.img",)),
     Row("czdos", "soak", py("tests/czdos.py"), 10.0,
         "SPEC.md 20.17.4: OS88CZ.COM under a real DOS (DOSBox, headless, "

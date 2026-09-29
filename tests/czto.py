@@ -22,6 +22,20 @@ bytes on the floppy afterwards:
           3; the third disk, Enter, `Uncompressed`, and A:'s copy is the
           original byte for byte.
 
+  ioerr   BAD.001 on the third disk, BAD.002 on the second, which is the
+          marginal one: after the prompt and the swap its reads fail, and
+          the join must say `Disk error`, delete what it wrote on A: and give
+          the machine back.
+
+  hopfail (last, because it leaves a CMPRESS~.TMP) HOP.001 and HOP.002 on
+          the second disk; B:'s reads fail part-way
+          (a CRC error, AH = 10h, injected just after the kernel's own
+          `int 13h`, so its retries and everything above them are real), and
+          the error path's hop back to A: - to delete the half-written result
+          - is pointed at a drive that is not there. That hop's failure
+          jumped back into the error path, which hopped again, FOR EVER
+          (SPEC.md 22.23.6.1): the join must say `Disk error` after one.
+
 Then A: is handed to os88disk's fsck.
 
 `--break` is the negative control (docs/WRITING-TESTS.md 1): the second disk
@@ -82,6 +96,10 @@ def main():
         sys.exit("czto: the fixtures are %d/%d/%d parts, wanted 2/2+/3"
                  % (len(qkp), len(escp), len(setp)))
 
+    bad = half_text(60000, 13)
+    badp = os88cz.split(bad, "BAD.DAT", 40000, os88cz.M_STORE, jobs=1)
+    hopp = os88cz.split(half_text(60000, 15), "HOP.DAT", 40000,
+                        os88cz.M_STORE, jobs=1)
     work = os.path.abspath(os.path.join(os88build.at("build"),
                                         "czto-%d" % os.getpid()))
     shutil.rmtree(work, ignore_errors=True)
@@ -108,8 +126,11 @@ def main():
               "ALL:" + put("x/ALL", "QK.002", qkp[1]),
               put("x", "ESC.001", escp[0]),
               "PARTS:" + put("x/PARTS", "SET.001", setp[0]))
-    dy = disk("y.img", put("y", "SET.002", (other if a.brk else setp)[1]))
-    dz = disk("z.img", put("z", "SET.003", setp[2]))
+    dy = disk("y.img", put("y", "SET.002", (other if a.brk else setp)[1]),
+              put("y", "BAD.002", badp[1]),
+              put("y", "HOP.001", hopp[0]), put("y", "HOP.002", hopp[1]))
+    dz = disk("z.img", put("z", "SET.003", setp[2]),
+              put("z", "BAD.001", badp[0]))
     fails = []
 
     def leg(tag, ok, msg):
@@ -252,13 +273,98 @@ def main():
         m.mount(1, dz)
         key("Enter")
         r = outcome(was=3)
+        swap_seen = (r, ui.toast(), claim(), mode())
         af = a_files()
         got = (fl.volume(0).read(af["SET.DAT"].path) if "SET.DAT" in af
                else None)
         leg("swap", r == ("said", "Uncompressed") and got == big
             and "CMPRESS~.TMP" not in af and mode() == 0,
-            "%r, SET.DAT %s" % (r, "identical" if got == big else
-                                "MISSING" if got is None else "WRONG"))
+            "%r, SET.DAT %s%s" % (r, "identical" if got == big else
+                                  "MISSING" if got is None else "WRONG",
+                                  "" if r[0] == "said" else
+                                  " - saw %r" % (swap_seen,)))
+
+        # --- a marginal floppy: B:'s reads fail, from the kernel's int 13h --
+        at = S("dsk_xfer.attempt")
+        i13 = at + m.read(at, 200).index(b"\xCD\x13") + 2   # after the int
+        gto = S("fcpf_fcp_goto")
+
+        seenhops = []
+
+        def marginal(skip, failhop, written=False):
+            """run with every read of B: after the first `skip` failing (CRC,
+            AH = 10h) for as long as the join holds its claim - and, with
+            `failhop`, every hop back to A: after the first failure pointed
+            at a drive that is not there. With `written`, nothing fails
+            until the join has hopped to A: twice - the name check, then a
+            write - so there is a result to delete. (toast, failed reads,
+            failed hops),
+            or ('LOOPING', ...) once the hop has failed 50 times"""
+            m.bp_exec(i13, gto)
+            good = hits = hops = 0
+            del seenhops[:]
+            try:
+                for _ in range(20000):
+                    if m.wait_stop(limit=0.3) != "breakpoint":
+                        if claim() is None and mode() == 0:
+                            t, on = ui.toast()
+                            return (t if on else None), hits, hops
+                        continue
+                    rg = m.regs()
+                    here = (rg["cs"] << 4) + rg["ip"]
+                    if here == gto:
+                        seenhops.append(rg["ax"] & 0xFF)
+                        if failhop and hits and rg["ax"] & 0xFF == 0:
+                            m.setreg("ax", (rg["ax"] & 0xFF00) | 25)
+                            hops += 1
+                            if hops >= 50:
+                                return "LOOPING", hits, hops
+                    elif (m.read(S("dsk_op"), 1)[0] == 0x02
+                          and m.read(S("dsk_unit"), 1)[0] == 0x01
+                          and w16("clo_seg")):
+                        good += 1
+                        if good > skip and (not written
+                                            or seenhops.count(0) >= 2):
+                            m.setreg("ax", 0x1000 | (rg["ax"] & 0xFF))
+                            m.setreg("flags", rg["flags"] | 1)
+                            hits += 1
+                    m.run()
+                return "TIMEOUT", hits, hops
+            finally:
+                m.bp_exec()
+                m.run()
+
+        # ioerr: BAD.001 on the third disk, BAD.002 on the second - which is
+        # the marginal one. The prompt, the swap, then its reads fail
+        ui.open("..")                   # the third disk's root
+        unto("BAD.001")
+        r = outcome()
+        leg("bad-ask", r == ("asked", 2), repr(r))
+        motor_off()
+        m.mount(1, dy)
+        key("Enter")
+        r = marginal(2, False)
+        af = a_files()
+        leg("ioerr", r[0] == "Disk error" and mode() == 0
+            and claim() is None and "BAD.DAT" not in af
+            and "CMPRESS~.TMP" not in af,
+            "%r after %d failed reads of B:; A: holds %s" % (
+                r[0], r[1], sorted(n for n in af
+                                   if n.startswith(("BAD", "CMP")))))
+
+        # hopfail: HOP.001 and HOP.002 both on the second disk, still in B:.
+        # B: fails part-way, and the error path's own hop back to A: - to
+        # delete the half-written result - fails too. That hop's failure
+        # jumped back into the error path, which hopped again, for ever
+        # (SPEC.md 22.23.6.1); now the result's CMPRESS~.TMP is left on A:
+        unto("HOP.001")
+        r = marginal(0, True, written=True)
+        af = a_files()
+        leg("hopfail", r[0] == "Disk error" and r[2] == 1 and mode() == 0
+            and claim() is None and "HOP.DAT" not in af,
+            "%r after %d failed reads and %d failed hop(s); A: holds %s"
+            % (r[0], r[1], r[2], sorted(n for n in af
+                                        if n.startswith(("HOP", "CMP")))))
 
         chk = os.path.join(work, "a-fsck.img")
         fl.save(0, chk)

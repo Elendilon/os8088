@@ -2416,7 +2416,16 @@ cmz_jsel2on:                    ; ...the name alone, for a join that pauses
 cmz_jrmtmp:
     cmp byte [cs:cmz_jwrote], 0
     je .no
-    CMZ_GO dst
+%ifdef KERN_BIG
+    push ax                     ; NOT `CMZ_GO dst`: this runs INSIDE cmz_jerr,
+    push bx                     ; and cmz_go's failure path IS cmz_jerr - so a
+    mov al, [cs:cmz_jtgtd]      ; hop that failed here went back round with
+    mov bx, [cs:cmz_jtgtc]      ; [cmz_jwrote] still set, for ever (SPEC.md
+    call COLD_SEG:fcpf_fcp_goto ; 22.23.6.1). A target it cannot reach keeps
+    pop bx                      ; its CMPRESS~.TMP, as a failed rename does
+    pop ax
+    jc .no
+%endif
     call cmz_jtmpn
     mov si, fm_ebuf
     call COLD_SEG:dwf_dskw_delete
