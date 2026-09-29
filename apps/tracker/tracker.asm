@@ -3731,6 +3731,10 @@ trk_s_spk3:   db 'Spk ', 0         ; (short: the compact face's strip holds
 trk_s_spkflt: db 'Filtering the samples for the speaker...', 0
 trk_s_spk4:   db ' Hz, ', 0
 trk_s_spk5:   db '% cpu', 0
+%ifdef TSP_LEVKEYS
+trk_s_lev1:  db 'Spk level ', 0
+trk_s_lev2:  db ' of 10 (+/-)', 0
+%endif
 trk_s_spk6:   db ' (CARRIER WHINES!)', 0
 trk_s_spkbusy: db 'The PC speaker is busy', 0
 trk_s_nomem:  db 'Out of memory', 0
@@ -3839,6 +3843,9 @@ trk_reloc:
 %include "trktxt.inc"
 %include "trkwin.inc"
 %include "trklist.inc"
+%ifdef TSP_LEVKEYS                  ; the debug build's hand on the level
+%define SPKFX_FREEZE                ; (SPEC.md 34.11.9.1)
+%endif
 %include "os88spk.inc"              ; the speaker's ring player (SPEC.md 34.11)
 %include "os88spkfx.inc"            ; ...and its shaper (34.11.9)
 %include "trkspk.inc"               ; ...played with no card (45.25)

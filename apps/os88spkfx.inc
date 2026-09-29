@@ -209,6 +209,10 @@ os88spkfx_level:
     cmp byte [cs:os88spkfx_rat], 0  ; THE RATCHET (os88spkfx_ratchet): one
     je .adapt                       ; level for the piece. It only ever steps
     mov al, [cs:os88spkfx_lev]      ; DOWN, one a span, and only for a span
+%ifdef SPKFX_FREEZE
+    cmp byte [cs:os88spkfx_rat], 2  ; 2: FROZEN - a player's hand is on the
+    je .set                         ; level (a debug build's, TSP_LEVKEYS)
+%endif
     cmp dh, SPKFX_PGATE             ; that overdrives it by more than
     jb .set                         ; SPKFX_RTOL levels - so it settles on
     mov bl, dh                      ; the piece's loud parts in its first

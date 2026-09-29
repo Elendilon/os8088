@@ -94,6 +94,9 @@ tsp_rat:    dw 22050, 16000, 11025, 8000, 0
     TRKB tsp_rung                   ; the rung, kept for the session
     TRKB tsp_slev                   ; the song's level (TSP_RATCHET)...
     TRKB tsp_lvok                   ; ...once it has one: 0 at each load
+%ifdef TSP_LEVKEYS
+    TRKB tsp_lfrz                   ; + or - pressed: the level is the hand's
+%endif
     TRKB tsp_exit                   ; TSPX_*
     TRKB tsp_btn                    ; the mouse's buttons, last seen
     TRKB tsp_pend                   ; the imposter's first pass: tsp_prep
@@ -222,6 +225,12 @@ tsp_tables:
 %if TSP_RATCHET
     mov al, [tsp_slev]
     call os88spkfx_ratchet
+%ifdef TSP_LEVKEYS
+    cmp byte [tsp_lfrz], 0          ; the hand was on it: still frozen
+    je .nf
+    mov byte [os88spkfx_rat], 2
+.nf:
+%endif
 %endif
     clc
 .out:
@@ -506,6 +515,29 @@ tsp_readout:
     pop si
     pop ax
     ret
+
+%ifdef TSP_LEVKEYS
+; tsp_levsay - the status line: `Spk level N of 10 (+/-)`. Preserves all
+tsp_levsay:
+    push ax
+    push si
+    push di
+    push es
+    call tsp_mbeg
+    mov si, trk_s_lev1
+    call tsp_mcat
+    mov al, [os88spkfx_lev]
+    xor ah, ah
+    call tsp_mnum
+    mov si, trk_s_lev2
+    call tsp_mcat
+    call tsp_mend
+    pop es
+    pop di
+    pop si
+    pop ax
+    ret
+%endif
 
 ; the message's parts: DI walks tsp_msg, ES = DS
 tsp_mbeg:
@@ -994,7 +1026,35 @@ tsp_wmain:
     je .stop
     cmp al, 'f'
     je .swap
+%ifdef TSP_LEVKEYS
+    cmp al, '+'                     ; THE DEBUG BUILD'S HAND ON THE LEVEL
+    je .lup                         ; (SPEC.md 34.11.9.1): + or = up a level,
+    cmp al, '='                     ; - down, 0..10. The first press freezes
+    je .lup                         ; it there for the song
+    cmp al, '-'
+    je .ldn
+%endif
     jmp .loop
+%ifdef TSP_LEVKEYS
+.lup:
+    mov al, [os88spkfx_lev]
+    cmp al, SPKFX_NLEV - 1
+    jae .lsay
+    inc ax
+    jmp short .lset
+.ldn:
+    mov al, [os88spkfx_lev]
+    or al, al
+    jz .lsay
+    dec ax
+.lset:
+    mov [os88spkfx_lev], al         ; the next span's emit reads it
+.lsay:
+    mov byte [os88spkfx_rat], 2     ; frozen: the ratchet steps no more...
+    mov byte [tsp_lfrz], 1          ; ...and a resume keeps it so
+    call tsp_levsay
+    jmp .loop
+%endif
 .wait:
     cmp byte [mp_playing], 0        ; BEHIND: room for a span and a song to
     je .idle                        ; make it from - no waiting for a frame
@@ -1074,6 +1134,9 @@ TSP_NSAY    equ 28672               ; sample bytes past which an 8088 is told:
                                     ; 81,200 bytes are 2.8 s, MEASURED)
 tsp_natural:
     mov byte [tsp_lvok], 0          ; a new song: a new level (TSP_RATCHET)
+%ifdef TSP_LEVKEYS
+    mov byte [tsp_lfrz], 0          ; ...found by the ratchet again
+%endif
     push ax
     push bx
     push cx

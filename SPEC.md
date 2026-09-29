@@ -58645,6 +58645,16 @@ ratchet from 10) is EXACT against the model and FAILS with `SPKFX_RTOL` off by
 one in the asm alone; `tests/trkspk.py --leg play` requires the song's level to
 survive a pause and resume, and reads 5 then 8 with the carry taken out.
 
+**`-DTSP_LEVKEYS` is the listening build** (a define, not a shipped arm: the
+default Tracker, Audio and Video Player assemble byte-identical). During a
+speaker play `+` (or `=`) and `-` move the level a step, 0..10, and the status
+line says `Spk level N of 10 (+/-)`. The song still starts on the ratchet, so
+the first press moves from the level it chose; from then on the level is the
+hand's - `os88spkfx_rat` = 2, which the shaper's `SPKFX_FREEZE` arm (defined by
+the knob) reads as "step no more" - across a pause and a resume, until the
+next module. Measured on MartyPC: BEVERLY.MOD settled on 5, `- - +` read 4,
+3, 4, and level 10 held through a pause, a resume and 15 s of the song.
+
 ## 35. Recorder — the sound layer's recording client
 
 `apps/recorder` needs `SND_CAP_PCM_IN` (a Sound Blaster) to record and
