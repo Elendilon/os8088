@@ -8387,6 +8387,32 @@ SOAK = [
         wants=("build/viddisk.o88", "build/viddisk360.img",
                "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
                "build/hdd.drv")),
+    Row("wseqioerr", "soak", py("tests/viddisk.py", "--floppy", "--wmode",
+                                 "held", "--ioerr", "100"), 75.0,
+        "SPEC.md 18.4.9: a HELD stream on a DYING disk - every write into "
+        "the data area fails from chunk 100 on, the per-sector retries "
+        "included. The failed call loses itself and nothing else: "
+        "STREAM.DAT keeps all 100 chunks byte for byte and the VHD checks "
+        "clean. Red on the first build, whose rollback DROPPED the FAT "
+        "window with the held chain's unflushed allocations in it and kept "
+        "the hold: an entry of 3,276,800 bytes over a 17-cluster chain",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/viddisk.o88", "build/viddisk360.img",
+               "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/hdd.drv")),
+    Row("wseqfull", "soak", py("tests/viddisk.py", "--floppy", "--wmode",
+                                "full"), 65.0,
+        "SPEC.md 18.4.9: a HELD stream into a VHD with 4 MB free and no room "
+        "check, so one call fails FERR_FULL at chunk 128. It keeps the 128 "
+        "chunks before it and the VHD checks clean. A full disk has walked "
+        "the whole FAT and flushed every window slide on the way, so this "
+        "cannot catch a dropped window (wseqioerr does); it catches the "
+        "opposite mistake, a refusal that abandons the stream: red then at "
+        "32 KB",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/viddisk.o88", "build/viddisk360.img",
+               "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/hdd.drv")),
     Row("vidsnd", "soak", py("tests/vidsnd.py"), 37.0,
         "docs/plans/VIDEO-PLAN.md wave 0 (c)(e): ONE INTERRUPT PER VIDEO "
         "FRAME off a Sound Blaster 2.0 - the clock XDC plays by and the "

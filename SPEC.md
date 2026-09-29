@@ -32298,12 +32298,21 @@ the first chunk is an `OSAPI_FILE_WRITE` (or the file is written empty).
 | 8 | 4 | the size, every byte written counted |
 | 12 | 4 | the entry's sector (LBA) |
 
+**It has no body of its own: it IS the append.** The cursor is an optional
+input to `dskw_wabody`, the one body `OSAPI_FILE_APPEND`, `APPEND_SYS` and
+`WRITE_AT` already share (18.4.7.3), and the slot is a door in front of it.
+So every argument an append refuses, WRITE_SEQ refuses the same way.
+
 **A hot call skips the lookup and the walk.** It writes the new clusters,
 links them to the cursor's last cluster and patches the size into the entry
 in place, reading its sector and writing it back. So no copy of the entry
-lives in the kernel between calls. A cold cursor seeds from the name once:
-one lookup and one walk, APPEND's cost. The size must be a cluster multiple,
-APPEND's rule (18.4.4), and `FERR_NAME` otherwise.
+lives in the kernel between calls. That patch is every grow's entry store on
+`kern_big`, cursor or none: a grow changes the size and, for an empty file,
+the head, and no other field. A cold cursor is an ordinary append that
+remembers what its lookup and walk found: one lookup and one walk, APPEND's
+cost. The size must be a cluster multiple, APPEND's rule (18.4.4), and
+`FERR_NAME` otherwise. A close (`CX` = 0) on a plain stream answers `AX` = 0
+and does nothing, there being nothing to commit.
 
 **The generation is `[dsk_wgen]`, not READ_SEQ's `[dsk_mgen]`, and that is
 the decision the slot turns on.** Every mount bumps `[dsk_mgen]`, including
@@ -32338,7 +32347,28 @@ then the link, flushed, then the entry. It runs:
   and back; inside the batch that is ending, the hop is banked.
 
 So a held stream never outlives the callback that made it, and a swapped
-floppy can never receive another disk's FAT. A crash while held loses the
+floppy can never receive another disk's FAT.
+
+**A held call that FAILS loses itself and nothing else**, as a failed APPEND
+does: the stream keeps every chunk before it, and the next commit writes
+them. The trap is the rollback. APPEND's is `dskw_refat`, which DROPS the
+FAT window, and a held chain's allocations are in that window wherever no
+slide has flushed them yet. The first build did exactly that and kept the
+hold, and the commit then linked the file into clusters the disk still
+called free: MEASURED, a dying disk at chunk 100 left an entry of 3,276,800
+bytes over a 17-cluster chain. So a held call's rollback FLUSHES instead.
+The held chain is unreachable until the commit, and the failed call's own
+half-built sub-chain was never linked to it, so it becomes lost clusters,
+18.4's preferred failure. Only a flush that ALSO fails abandons the stream
+to its last commit, the cursor re-seeding from the entry the disk holds.
+
+Gated by two rows, and they are both needed. `wseqioerr` fails every data
+write from chunk 100 on, which leaves held allocations dirty in the window;
+it is red on the first build. `wseqfull` fills the volume instead, and is
+green on either build: a full disk has walked the whole FAT for a free
+cluster, flushing every window slide on the way, so its chain is already
+down. It guards the other half, that the refusal keeps the 128 chunks
+before it rather than abandoning them. A crash while held loses the
 bytes written since the stream began and nothing else. That is the right
 trade for a file that is useless until it is finished (the owner's case: a
 joined split set). A file that grows over a long time and must survive each
@@ -32347,7 +32377,8 @@ only the lookup and the walk are gone.
 
 It is not in `kern_small`: the cell is in both kernels (20.8 rule 4) and
 the small door answers `CF=1`, `FERR_NAME`, as READ_SEQ's does. A
-redirected volume (62.9) is refused `FERR_NAME` too: it has no clusters to
+redirected volume (62.9) takes it as the append it is: `FSV_APPEND` every
+call, the cursor never stamped and HELD ignored, there being no clusters to
 keep a place in.
 
 **Measured** on MartyPC (`os8088_5150_herc_hdd_sb_gla`, XT-IDE), VIDDISK's
@@ -32377,11 +32408,17 @@ that could be arranged:
   commit taken out that file's entry was patched to 2,048 bytes and the
   disk check failed;
 - `wseqcut`: a POWER CUT, the emulator killed 150 chunks into a held
-  stream. The file is its committed 32 KB and the disk checks clean.
+  stream. The file is its committed 32 KB and the disk checks clean;
+- `wseqioerr` and `wseqfull`: a held call refused part-way, by a dying disk
+  and by a full one. The file keeps every chunk before the refusal and the
+  disk checks clean (above).
 
-Costs: `kern_big` **+941 bytes** (`.cold` +875, `.bss` +39 and `.text` +27:
-the cell's 6 and the `gfx_unlock` test), two `.cold` steps with stage 1's
-81. `kern_small` +6, the cell.
+Costs: `kern_big` **+696 bytes** (`.cold` +631, `.bss` +38 and `.text` +27:
+the cell's 6 and the `gfx_unlock` test), with stage 1's 81 on top.
+`kern_small` +6, the cell. It was +941 as first built, with a body of its
+own. Folding it into the append body, and giving READ_SEQ's and WRITE_SEQ's
+far doors one shared frame (`dsq_door`), took 259 bytes out. The rollback
+that flushes instead of dropping put 14 back.
 
 ### 18.4.7 `OSAPI_FILE_WRITE_AT` — the same offset, going the other way
 

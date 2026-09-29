@@ -212,16 +212,134 @@ Three things the design found that this plan did not have:
   first.
 
 What is left, in order:
-1. **The consumers.** The split-set join (`CLONE.DRV`, branch `split-v88`)
-   and the file manager's copy (SPEC.md 22.5) are kernel-side and gain the
-   most. FTPD's `STOR` is a package and gains through the slot. None is
-   converted yet.
-2. **The per-volume dirty range.** `dsk_fatw_park` flushes the single dirty
-   FAT range whenever the machine hops volumes. So the two-volume join, even
-   HELD, still writes its unlinked chain's FAT sectors once per block. It is
-   safe, but it is a seek per block. Banking the range per volume when the
-   window is private would remove it. Measure the join first.
-3. **A size pass.** +875 bytes of `.cold` is a lot for one slot; the body
-   was written for clarity and repeats its cursor stores.
+1. **The consumers.** The split-set join (`CLONE.DRV`, merged into this
+   branch from `split-v88`) and the file manager's copy (SPEC.md 22.5) are
+   kernel-side and gain the most. FTPD's `STOR` is a package and gains
+   through the slot. None is converted yet.
+2. **The FAT at a hop** - section 9. Research done, nothing built: measure
+   the converted join first.
+3. ~~A size pass.~~ **Done, and it was a design fix rather than a squeeze**
+   (section 10): WRITE_SEQ had grown a body of its own beside the append
+   body, and folding it in took 259 bytes out. The stream writer is
+   **+777** on `kern_big`: stage 1's 81 and the slot's 696, of which 14
+   are the fix for the defect the folding found (end of section 10).
 4. **The ST-225.** 700 s for 12.8 MB is the number that started this;
    VIDDISK's new `p` and `h` keys are how to re-take it.
+
+## 9. The FAT at a hop - what "flush" means, and what removing it would take
+
+**It is a disk write, with the seeks.** The per-volume FAT caches are real:
+every volume has its own FAT WINDOW, either the kernel's own (`FAT_SEG`,
+"the pin", 18.8.3) or a heap claim (18.8.1, 18.8.2), and a hop back to a
+volume reuses its window without reading a sector (the banked sector and
+the disk signature, `dsk_fatw_pick`). What is NOT per volume is the record
+of which of those sectors hold edits the disk has not seen:
+`[dsk_fatd0, dsk_fatd1]` is ONE pair, and `dskw_flush_x` writes it with the
+CURRENT volume's geometry. So `dsk_fatw_park`, at the top of every mount,
+writes the outgoing volume's dirty range to FAT1 and FAT2: two `int 13h`
+writes, each a seek to the FAT area and back.
+
+Its comment says this never costs an I/O, "every commit point already
+flushes", and that was true until HELD. Every other writer flushes before
+it returns; a held stream leaves its unlinked chain's allocations dirty on
+purpose. So a join that hops source -> target -> source writes the target's
+FAT twice per block, and a copy onto the same volume never does. On a
+floppy target that is the same order as the data write itself (PERFORMANCE:
+~400 ms a call, whatever it moves). **Not yet measured**: the join is not
+converted, and VIDDISK hops nowhere.
+
+**The fix is to bank the dirty range per volume**, beside the three words
+each volume already banks (`dsk_fatww`, `dsk_fatwc`, `dsk_fatwsig`):
+- `park` banks the pair instead of flushing;
+- `pick` restores it with the window it reuses.
+
+That is the easy half, and ~40 bytes. The rest is four places where a dirty
+window that is not the live one could be lost. Each needs an answer, and
+the third is the one that decides whether this is worth doing:
+1. **`pick` reloads**: a full mount, a banked sector of 0xFFFF, or a
+   signature that no longer matches. Same signature: flush the banked range
+   first, the window still holding the bytes. Different disk: drop it, and
+   abandon any hold on that volume by section 8's failed-call rule.
+2. **A shed or a compaction takes a banked dirty claim.** `mem_fatw_dirty`
+   refuses the live window today and must learn the banked ones: scan
+   `dsk_fatwc` for the record's segment and ask that volume's range.
+3. **The pin is evicted from a dirty holder.** `dsk_fatw_want`'s `.evict`
+   hands the kernel's window to a volume the heap refused, and the holder's
+   dirt would be overwritten. This is the common case, not the corner:
+   the boot volume takes the pin, and on an INSTALLED machine that is C:
+   (docs/plans/completed/SETTINGS-COST.md 5.1). So the join's target is
+   usually the pin holder. The answer is that the incoming volume claims at
+   a higher rank, shedding caches. If even that refuses (a 4.5 KB claim
+   with the caches gone), the MOUNT fails. That fails the operation and
+   loses nothing: the hold is committed at the `gfx_unlock` that follows.
+4. **Hibernate** zeroes `[dsk_fatd0]` (`kernel/hiber.inc`). It must flush
+   every banked range first, which means hopping to each dirty volume, or
+   refuse while one is dirty.
+
+Estimated ~120-160 bytes of `.cold` and `DVOL_MAX * 4` of `.text`, against
+two writes per hop on a held stream only. **Recommendation: convert the
+join, count its target writes per block with VIDDISK's `VD_TRACE` tally
+pointed at the join, and decide on the number.** If the join's block is
+small, a larger block cuts the hops for nothing. The block is `CLONE.DRV`'s
+to choose, and on a one-drive machine the hops are disk swaps anyway.
+
+## 10. The write API: one body per verb, and the doors are not the cost
+
+The concern was that the disk API grows a near-copy of itself every time a
+path gets optimised. Taking stock of the file-contents slots after this
+pass:
+
+| slots | body | what it is |
+|---|---|---|
+| `WRITE`, `WRITE_SYS` | `dskw_wbody` | create or replace a whole file |
+| `APPEND`, `APPEND_SYS`, `WRITE_AT`, `WRITE_SEQ` | `dskw_wabody` | grow at the end, or rewrite inside, by position |
+| `READ` | `dskw_rbody` | a whole file, sized before any I/O, CZ expanded |
+| `READ_AT`, `READ_SEQ` | `dskw_read_at_x` | by position |
+
+Eight slots and four bodies: two verbs times whole-or-positional, with a
+cursor as an optional input to the positional body. That is the shape a
+designed API would have, spelled as eight entry points. A slot and its door
+cost 6 bytes and 5 to 10 more, so the slots were never where the bytes
+went.
+
+**WRITE_SEQ was the one exception, and it has been fixed.** As first built it
+had a body of its own: a second lookup, a second cluster-multiple check, a
+second walk, a second allocate-flush-link sequence and a second entry store,
+805 bytes beside the append body's 458. It is now a 10-byte door and a
+15-byte shim into `dskw_wabody`, and the cursor is an optional input there:
+- **cold** is an ordinary append that remembers what its lookup and walk
+  found;
+- **hot** skips both;
+- **HELD** changes only what `.grow` does once the data is down.
+
+Two smaller shares came with it. The READ_SEQ and WRITE_SEQ far doors had
+the same 50-byte copy-in/call/copy-out frame, and it is now one (`dsq_door`).
+The grow's entry store is an in-place patch of the two fields a grow
+changes, which the hot path needed anyway and which is 4 bytes shorter than
+a whole-entry copy.
+
+**A single request-block slot is NOT recommended**, although the table
+would allow it: it is unfrozen while the OS is in alpha and `make` rebuilds
+every caller (SPEC.md 20.8 rule 4). One `FILE_IO` taking a verb, a name, a
+buffer, a count, an offset, a cursor and flags would be the tidiest possible
+spelling. But the bodies behind it are the four above whatever the
+spelling, the doors it would delete are the cheap part, and every package's
+SOURCE would change: a request block in each caller's segment where it now
+loads registers, which is bytes in every package for none in the kernel. The discipline worth
+keeping is the one this pass applied: **a new capability is an input to an
+existing body, never a new body.** Two other families are worth the same
+audit before they grow again: the directory slots (`FIND`, `FIND_RAW`) and
+the change-directory ones (`GOTO`, `GOTO_Q`, `GOTO_QM`). Not audited here.
+
+One defect was found by the folding and fixed with it. A HELD call that
+failed in its allocation or its data write rolled back with APPEND's
+`dskw_refat`, which drops the FAT window, including the held chain's
+unflushed allocations, and **kept the hold**. MEASURED with a dying disk
+at chunk 100 (`wseqioerr`): the commit wrote an entry of 3,276,800 bytes
+over a 17-cluster chain, the next chunk's clusters being free on the disk.
+The rollback now FLUSHES instead of dropping. The held chain is unreachable
+until the commit, so that is safe, and the failed call's own sub-chain
+becomes lost clusters. So a failed held call loses itself and nothing else,
+as a failed APPEND does (SPEC.md 18.4.9). The first fix abandoned the whole
+stream instead. It was correct, but it threw away 4 MB that a full disk had
+already flushed, and `wseqfull` now guards against that.

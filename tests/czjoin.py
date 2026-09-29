@@ -165,11 +165,17 @@ def main():
             x, y = ui.row_xy(win, row)
             ui.mo.click(x, y)
             ui.settle()
-            m.write(ui._S("toast_buf"), b"\0")
+            # the WHOLE buffer, and the answer once it stops changing: with
+            # only byte 0 cleared, a read landing inside the kernel's copy of
+            # "Missing MISS.002" came back "Mit compressed" - its first two
+            # letters over the last leg's "Not compressed"
+            m.write(ui._S("toast_buf"), bytes(25))
             c0 = int(m.status()["cycles"])
             ui.menu_pick("File", "Uncompress")
-            t = ui.wait_toast(limit=limit)
+            ui.wait_toast(limit=limit)
             secs = (int(m.status()["cycles"]) - c0) / os88marty.GUEST_HZ
+            t = os88marty.quiesce(m, lambda: ui.toast()[0],
+                                  what="the toast's text to be whole")
             ui.settle()
             return t, secs
 

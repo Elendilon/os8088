@@ -188,6 +188,91 @@ def deleted(m, rw, vhd):
     return 1 if bad else 0
 
 
+def failed(m, rw, vhd, inject=None):
+    """a HELD stream one of whose calls FAILS: 'f' fills the volume (~4 MB
+    free, no room check) and `inject` fails every data write from a chunk on.
+    A failed held call loses ITSELF and nothing else (SPEC.md 18.4.9), as a
+    failed APPEND does - so STREAM.DAT is every chunk W counted, byte for
+    byte, and the volume checks clean. The two failures are both needed:
+    a full disk has walked the whole FAT and flushed every window slide on
+    the way, so the held chain is already down when the call is refused, and
+    only an I/O error leaves held allocations dirty in the window - which is
+    where the first rollback dropped them and a commit then linked the file
+    into clusters the disk called free"""
+    if inject:
+        inject()
+    os88marty.until(m, lambda mm: rw("vk_wdone") != 0, "W to stop",
+                    poll=1.0, limit=1800.0, guest=2000.0)
+    wk, werr = rw("vk_wk"), rw("vk_err")
+    m.close()
+    bad = []
+    try:
+        got = os88flush.vhd_volume(vhd).read("STREAM.DAT")
+    except Exception as e:
+        got = None
+        bad.append("STREAM.DAT unreadable: %s" % e)
+    want = array.array("I", range(0, wk * CHUNK, 4)).tobytes()
+    if got is not None and got != want:
+        bad.append("STREAM.DAT is %d bytes after the refused call, not the "
+                   "%d of the %d chunks before it" % (len(got), len(want),
+                                                        wk))
+    if werr != 1 or not 1 < wk < 400:
+        bad.append("W stopped after %d chunks with %d errors; wanted ONE "
+                   "call refused part-way" % (wk, werr))
+    r = subprocess.run([sys.executable, "tools/os88disk.py", "--verify-hdd",
+                        vhd], capture_output=True, text=True)
+    out = (r.stdout + r.stderr).strip()
+    if r.returncode:
+        bad.append("fsck: " + out)
+    print("\n   REFUSED at chunk %d (held): %d error(s); STREAM.DAT %s; %s"
+          % (wk, werr, "%d bytes" % len(got) if got is not None else "gone",
+             out.splitlines()[-1] if out else ""))
+    for b in bad:
+        print("   BAD " + b)
+    print("viddisk: %s" % ("FAILED" if bad else "ok"))
+    return 1 if bad else 0
+
+
+def ioerr(m, rw, vhd, n):
+    """fail every fixed-disk write into the DATA AREA from chunk `n` on,
+    after the int 13h, as a dying patch of disk would answer - through
+    every retry, the per-sector ones included, until W has seen the
+    refusal. By WHERE and not by run length: dsk_xfer's last resort is a
+    sector at a time, and the FAT and the directory below the data area
+    must stay writable, or the rollback's own flush is what fails"""
+    at = m.sym("dsk_xfer.attempt")
+    i13 = at + m.read(at, 200).index(b"\xCD\x13") + 2
+    op, unit = m.sym("dsk_op"), m.sym("dsk_unit")
+    data = os88flush.vhd_volume(vhd).data_lba   # DI: the volume-relative LBA
+
+    def go():
+        os88marty.until(m, lambda mm: rw("vk_wk") >= n, "W to chunk %d" % n,
+                        poll=0.5, limit=1800.0, guest=2000.0)
+        m.bp_exec(i13)
+        try:
+            while not rw("vk_err"):
+                if m.wait_stop(limit=0.5) != "breakpoint":
+                    continue
+                rg = m.regs()
+                if (m.read(op, 1)[0] == 0x03 and m.read(unit, 1)[0] == 0x80
+                        and rg["di"] >= data):
+                    m.setreg("ax", 0x1000 | (rg["ax"] & 0xFF))
+                    m.setreg("flags", rg["flags"] | 1)
+                m.run()
+        finally:
+            m.bp_exec()
+            m.run()
+    return go
+
+
+def free_bytes(vhd):
+    """the volume's free space, counted off its FAT on the host"""
+    v = os88flush.vhd_volume(vhd)
+    n = sum(1 for c in range(2, v.clusters + 2)
+            if os88flush.fat_get(v.fat, v.fat12, c) == 0)
+    return n * v.spc * 512
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--machine", default="os8088_5150_herc_hdd_sb_gla")
@@ -203,8 +288,12 @@ def main():
                     "on the host - the stream at its committed size and "
                     "bytes, and nothing wrong with the volume but lost "
                     "clusters")
+    ap.add_argument("--ioerr", type=int, default=0, metavar="N",
+                    help="a DYING DISK mid-hold (SPEC.md 18.4.9): every data "
+                    "write fails from chunk N on, and the stream must keep "
+                    "every chunk before it")
     ap.add_argument("--wmode", choices=("append", "seq", "held", "unclosed",
-                                        "inter", "deleted"),
+                                        "inter", "deleted", "full"),
                     default="append", help="W's writer: OSAPI_FILE_APPEND, "
                     "or OSAPI_FILE_WRITE_SEQ plain or HELD (SPEC.md 18.4.9)")
     ap.add_argument("--floppy", action="store_true",
@@ -241,15 +330,21 @@ def main():
         with open(stream, "wb") as f:           # every dword its own offset,
             array.array("I", range(0, STREAM, 4)).tofile(f)     # as W writes
         vhd = os.path.join(tmp, "viddisk.vhd")
-        subprocess.run(
-            ["python3", "tools/os88hdd.py", "--template", TEMPLATE,
-             "--out", vhd, "--kernel", os88build.at("build/kernel.sys"),
-             "--vbr", os88build.at("build/boothd.bin"),
-             "--mbr", os88build.at("build/mbr.bin"),
-             "--file", "HDD.DRV=" + os88build.at("build/hdd.drv"),
-             "--file", "VIDDISK.O88=" + os88build.at("build/viddisk.o88")] +
-            ([] if a.no_stream else ["--file", a.stream_name + "=" + stream]),
-            check=True, capture_output=True)
+        hdd = (["python3", "tools/os88hdd.py", "--template", TEMPLATE,
+                "--out", vhd, "--kernel", os88build.at("build/kernel.sys"),
+                "--vbr", os88build.at("build/boothd.bin"),
+                "--mbr", os88build.at("build/mbr.bin"),
+                "--file", "HDD.DRV=" + os88build.at("build/hdd.drv"),
+                "--file", "VIDDISK.O88=" + os88build.at("build/viddisk.o88")] +
+               ([] if a.no_stream else
+                ["--file", a.stream_name + "=" + stream]))
+        subprocess.run(hdd, check=True, capture_output=True)
+        if a.wmode == "full":           # ~4 MB left: W fails a third of the
+            filler = os.path.join(tmp, "FILLER.DAT")    # way through
+            with open(filler, "wb") as f:
+                f.truncate(free_bytes(vhd) - 4 * 1024 * 1024)
+            subprocess.run(hdd + ["--file", "FILLER.DAT=" + filler],
+                           check=True, capture_output=True)
         def boot():
             return os88marty.launch(None, apps=FLOPPY if a.floppy else None,
                                     machine=a.machine,
@@ -272,11 +367,15 @@ def main():
             if a.floppy:
                 m.type_text({"append": "w", "seq": "p", "held": "h",
                              "unclosed": "u", "inter": "i",
-                             "deleted": "k"}[a.wmode])
+                             "deleted": "k", "full": "f"}[a.wmode])
                 if a.cut:
                     return cut(m, rw, vhd, a.cut)
                 if a.wmode == "deleted":
                     return deleted(m, rw, vhd)
+                if a.wmode == "full":
+                    return failed(m, rw, vhd)
+                if a.ioerr:
+                    return failed(m, rw, vhd, ioerr(m, rw, vhd, a.ioerr))
                 if a.wmode == "unclosed":
                     return unclosed(m, rw, vhd)
                 if os.environ.get("VD_TRACE"):

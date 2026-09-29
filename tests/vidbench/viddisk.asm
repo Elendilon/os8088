@@ -125,6 +125,9 @@ vk_onkey:
     inc byte [vk_wmode]             ; 'k': held, and at chunk 64 the stream is
     cmp bl, 'k'                     ; DELETED and another file made in its
     je .write                       ; place - the gate must commit it first
+    inc byte [vk_wmode]             ; 'f': held, with NO room check - the
+    cmp bl, 'f'                     ; volume fills mid-stream and the failed
+    je .write                       ; call must abandon the hold, not keep it
     cmp bl, 'd'
     je .del
     call bl_key
@@ -1079,6 +1082,8 @@ vk_wrun:
     jnz .write                      ; 64 MB free or more
     cmp ax, cx
     jae .write
+    cmp byte [vk_wmode], 6          ; 'f' writes into too little ON PURPOSE
+    je .write
     mov si, vk_s_wroom
     call bl_sline
     jmp .home
@@ -1135,6 +1140,8 @@ vk_wrun:
     inc word [vk_wk]
     cmp byte [vk_wmode], 4
     jb .chunk
+    cmp byte [vk_wmode], 5          ; 'i' and 'k' only
+    ja .chunk
     test word [vk_wk], 63
     jnz .chunk
     cmp byte [vk_wmode], 5
@@ -1168,6 +1175,8 @@ vk_wrun:
     cmp byte [vk_wmode], 2          ; a HELD stream is committed by its close
     je .close                       ; ('u' leaves it to the unlock)
     cmp byte [vk_wmode], 4
+    je .close
+    cmp byte [vk_wmode], 6
     jne .closed
 .close:
     push ds
