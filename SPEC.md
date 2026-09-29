@@ -75466,8 +75466,15 @@ through.
 owner's 5150, which took 5,512 for BEVERLY.MOD and starved in its heavy
 passages, and benched ELYSIUM.MOD (a 4-channel `FLT4` module) at 101%, just
 over the line. **The status line says what was chosen** as a play starts and
-again at a rung down - `Speaker 5512 Hz, 95% of this PC` - so a field run
-reports the machine's own figures module by module. The visualiser's pane
+again at a rung down - `Spk 5512 Hz, 95% cpu (CARRIER WHINES!)`, the warning
+under 8 kHz, where the carrier sits in the ear's best band and the owner
+would rather say so than have it taken for a fault; short, because the
+compact face's strip holds the transport legend's 38 cells and no more - so
+a field run reports the machine's own figures module by module. It STAYS
+up: a frame that saw the play start put the transport legend over it within
+a second, so `tsp_start` records the transition (`[tui_lplay]`) as the
+legend it has just said. Anything later may replace it; the play's own
+start does not. The visualiser's pane
 says `No meters: speaker` while the speaker plays, where it used to borrow
 XT mode's `No meters at 11 kHz`.
 
