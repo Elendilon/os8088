@@ -76063,9 +76063,10 @@ for a dry grant's 2.9 ms, which BEVERLY did 24 times in its first seven
 seconds and then not at all. ELYSIUM, forced, dropped out twice in fifteen
 seconds and played at its own tempo (the music's strongest period 0.120 s,
 one row at speed 6 and 125 BPM) - it "felt slow" at the proper tempo. So the
-iron is a little heavier than MartyPC, whose 5150 holds both at 95% and
-never runs dry: PERFORMANCE.md Part 8.2 is the measurement proposed for
-where the difference is.
+iron and MartyPC agree, though a first reading here said otherwise: MartyPC's
+5150, on GLaBIOS or on the 27 OCT 82 IBM ROM, also holds 5,512 Hz at "95%"
+for 14 to 64 seconds and then drops to 4,800. The prediction is optimistic,
+and 45.25.1 is the bench that says by how much.
 
 Measured on MartyPC:
 
@@ -76094,6 +76095,51 @@ told the speaker is cheap starts at 5,512, falls behind and comes down to
 4,800 live - the ticks and the clock right after it), `trkspkturbo` (the
 8,000 Hz rung) and `trkspkend` (a song to its end, then a card machine where
 the speaker is never touched).
+
+#### 45.25.1 SPKBENCH: the ISR's share, measured
+
+`TSP_CS` is the one term of the prediction Tracker cannot time on the
+machine, because timing it needs the speaker playing. `tests/spkbench/`
+(`make spkbench` -> `build/spkbench360.img`, `spkbench144.img`; one package,
+press R, ~12 s hands off, SPKBENCH.TXT saved beside it) times it the way that
+works on any machine: a fixed workload (the shaper over 256-sample spans)
+counted for 32 ticks with the speaker SHUT, then again with it PLAYING a
+ring of silence at 4,800, 5,512 and 8,000 Hz inside the same `FSXF_RATE`
+bracket Tracker uses. The workload gets what the ISR leaves, so
+`1 - open/shut` is the ISR's share of the machine at that rate, with
+everything the machine takes beside it (the ROM's tick, refresh, whatever a
+memory card adds) included. Each row prints beside the share Tracker assumes
+(325 cycles a sample, the figure `TSP_CS` = 89 was built on). It also times
+the load-time filter and a 4 KB `rep lodsw` in each 64 KB bank, which is
+PERFORMANCE.md Part 8.2's memory-card question.
+
+On MartyPC:
+
+| machine | 4,800 Hz | 5,512 Hz | 8,000 Hz | cycles a sample |
+|---|---|---|---|---|
+| Tracker assumes | 32.6% | 37.5% | 54.4% | 325 |
+| 5150 Hercules, GLaBIOS | 39.0% | 44.8% | 66.4% | 387-396 |
+| 5150 Hercules, IBM 27 OCT 82 | 39.5% | 45.6% | 66.4% | ~395 |
+| 5150 Hercules, V20, GLaBIOS | 39.4% | 45.0% | 66.4% | ~390 |
+
+So the ISR costs a fifth more than `TSP_CS` says, and at 5,512 Hz the
+prediction is 7-8 points low: BEVERLY's "95%" is ~103% of a 5150, which is
+why both machines fall behind within a minute. The same cost expressed in
+`TSP_CS` (`R x TSP_CS / Ne`, Ne = 9,728 on a 5150) is ~102 against 89, and
+at 102 the 5150 predicts ~103% at 5,512 and opens at 4,800 (~88%), which is
+the start the owner asked for without lowering `TSP_PCTMAX`. That change waits
+on the field run: SPKBENCH on the owner's 5150 and on 86Box's V20 says
+whether iron agrees with these rows. MartyPC's V20 keeps the 8088's cycle
+timings (tools/martypc/configs/os8088_machines.toml), so its row is not a V20
+measurement. Also open: the bench's shaper runs at 86 cycles a sample where
+Tracker's own calibration of the same call reads ~108 (Ne = 9,728 in four
+ticks), and neither the source data nor the pre-emphasis accounts for the
+difference. Measured and ruled out, not explained.
+
+`tests/spkbench.py` (`soak -k spkbench`) runs it on MartyPC and checks only
+that it RAN: every share between 5% and 90% and rising with the rate, and
+all ten bank rows. With `os88spk_go` taken out every share reads 0 and it
+FAILS.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
