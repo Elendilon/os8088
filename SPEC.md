@@ -155150,7 +155150,10 @@ owner's rule). The text names both.
 ## 99. Gorillas (`apps/gorillas/gorillas.asm`)
 
 A native 8086 adaptation of the supplied Microsoft QBasic `gorilla.bas`
-(1990), packaged as `GORILLAS.O88`. One player faces a computer opponent,
+(1990), packaged as `GORILLAS.O88` and shipped in `GAMES/` on every apps
+disk but the 360KB one, and on `games360.img` — off `apps360.img` by
+§24.6.1's dated decision, the Makefile's `APPS_GAMES_360` carrying the
+arithmetic. One player faces a computer opponent,
 or two local players alternate angle and velocity entries, throwing bananas
 over a generated, destructible skyline. Eight to twelve building lots fill the 256-pixel
 width, each 18..36 pixels wide with one-pixel gutters on both sides. Each
