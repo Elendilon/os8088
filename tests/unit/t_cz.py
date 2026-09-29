@@ -31,6 +31,7 @@ import tempfile
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import os88cz                                              # noqa: E402
+import os88lz                                              # noqa: E402
 import os88czgui                                           # noqa: E402
 
 fails = []
@@ -147,6 +148,33 @@ def main():
         check(T.drop_tab(kind, cur) == tab, "a %s dropped on tab %d goes "
               "to tab %d (wanted %d)" % (kind, cur, T.drop_tab(kind, cur),
                                          tab))
+    big = os88cz.CZ_OPENMAX + 1
+    check(T.drop_tab("plain", T.T_PACK, big) == T.T_SPLIT,
+          "a plain file too big to pack, dropped on Pack, goes to Split")
+
+    # --- 6. pack: what no machine can open is refused, and LZB is FAST ----
+    # A 'CZ' file is expanded whole into a claim of its size, so over
+    # CZ_OPENMAX it is `Not enough memory` everywhere; the refusal says Split.
+    # And --lzb takes the machine's parse: os88lz's exact one ran for longer
+    # than anyone waited on a 720KB disk image, and zero-filled runs are its
+    # worst case - this block is what made it slow, and must be seconds
+    import time
+    try:
+        os88cz.pack(bytes(big), os88cz.M_LZB)
+        check(False, "a %d-byte file is refused before anything is encoded"
+              % big)
+    except os88cz.CZError as e:
+        check("Split" in str(e), "a %d-byte file is refused, pointing at "
+              "Split: %s" % (big, str(e)[:60]))
+    zeros = (bytes(range(256)) * 64 + bytes(48 * 1024)) * 4    # 256KB
+    t = time.time()
+    z = os88cz.pack(zeros, os88cz.M_LZB)
+    dt = time.time() - t
+    check(os88cz.unpack(z) == zeros and dt < 20,
+          "--lzb over 256KB of zero runs: %.1fs, %d bytes, round trip" %
+          (dt, len(z)))
+    check(z[os88lz.CZ_HDR:] == os88lz.lzb_compress_machine(zeros),
+          "...and it IS the machine's parse (what cmz_pack writes)")
     print("t_cz: %s" % ("FAILED" if fails else "ok"))
     return 1 if fails else 0
 
