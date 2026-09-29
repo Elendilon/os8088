@@ -400,12 +400,18 @@ cp_items:
 %ifdef OS88_THEME
     dw cp_s_thm,   cp_thm_paint,   cp_thm_click,   0
 %endif
+%ifdef OS88_DRIVERS             ; SPEC.md 31.14: the page is SYSTEM.CFG's, and
+    dw cp_s_fdd,   cp_fdd_paint,   cp_fdd_click,   0   ; kern_small reads none.
+%endif                          ; ABOVE Dock, so Dock stays last
 %ifdef DOCK_OPT
     dw cp_s_dock,  cp_dock_paint,  cp_dock_click,  0   ; SPEC.md 31.13 - LAST,
                                 ; so no record index above it moves
 %endif
 cp_items_end:
 CP_ITEMS  equ (cp_items_end - cp_items) / CP_ISTRIDE
+%if CP_ITEMS > 8
+%error "ctrl: [cp_hide] is one byte, so the static list stops at eight rows"
+%endif
 %ifdef DOCK_OPT
 CP_IDOCK  equ CP_ITEMS - 1      ; the Dock item: the last row on every build
 %endif
@@ -505,6 +511,23 @@ cp_s_thm:   db 'Theme', 0       ; list name AND the page heading, so RESIDENT
 %endif
 
 cp_s_sched: db 'Scheduler', 0   ; list name AND the page heading, so RESIDENT
+%ifdef OS88_DRIVERS
+cp_s_fdd:   db 'Floppy', 0      ; ...and the Floppy page's (SPEC.md 31.14)
+
+; --- Floppy page (SPEC.md 31.14), PANE-relative ------------------------------
+; Five rows of one shape - a label, then a drop-down box - at a pitch of 18:
+; the four units a machine can claim (SPEC.md 18.98), then the read bound.
+; The box is the kernel's own popup menu (menu_popup) hung under a frame, so
+; the page owns no list, no bank and no tracker: all of that is resident
+; already, and the drop-down is 0 resident bytes.
+CPF_R0Y   equ 20                ; row 0's box top
+CPF_ROWH  equ 18                ; ...and the pitch
+CPF_BH    equ 14                ; box height: an 8px caption, 3px each side
+CPF_LX    equ CP_PMX + 2        ; label x
+CPF_BX1   equ 76                ; box left: 'Drive A:' is 64px from 4
+CPF_BX2   equ CPF_BX1 + 87      ; ...and right. 'Cylinder' plus the arrow
+CPF_CAPY  equ CPF_R0Y + 5*CPF_ROWH + 4  ; 114: the caption
+%endif
 %ifdef DOCK_OPT
 cp_s_dock:  db 'Dock', 0        ; ...and the Dock page's (SPEC.md 31.13)
 
@@ -3426,6 +3449,363 @@ cp_dock_click:
 
 cp_dock_fail: db 'Dock Module Unavailable', 0
 
+%endif
+
+%ifdef OS88_DRIVERS
+; =============================================================================
+; The Floppy page (SPEC.md 31.14)
+;
+; Five drop-downs over SYSTEM.CFG's 'FD' record: one per unit a machine can
+; claim, Auto / None / 5.25 / 3.5, and the read bound, Auto / Track /
+; Cylinder. The page EDITS THE RECORD AND NOTHING ELSE - the bytes live in
+; drv_cfg alone, nothing resident reads them, and ovl_fdd_apply applies them
+; at the next boot, which is when the detection they override runs. So the
+; caption says restart, and a pick costs no kernel code at all.
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; cp_fdd_paint - the Floppy page
+; in:  DI = pane left, BP = pane top (pane white, lock held)
+; out: nothing (all registers preserved)
+; -----------------------------------------------------------------------------
+cp_fdd_paint:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+
+    mov byte [gfx_color], CBLACK
+    mov si, cp_s_fdd            ; heading, same string as the list row
+    mov cx, di
+    add cx, CP_PMX
+    mov dx, bp
+    add dx, CP_PHY
+    call cp_run
+
+    xor bx, bx                  ; BL = the row
+.row:
+    cmp bl, 4
+    je .rlab
+    CPSTAGE cp_s_fdrv           ; 'Drive A:', lettered below
+    call cp_fdltr
+    mov [cp_sbuf + CPF_LTR], al
+    jmp short .lab
+.rlab:
+    CPSTAGE cp_s_frd
+.lab:
+    call cp_fdy                 ; DX = the row's box top
+    add dx, 3
+    mov cx, di
+    add cx, CPF_LX
+    call cp_run
+
+    call cp_fdy                 ; --- the box: its frame and its arrow
+    push bx
+    mov bx, dx                  ; y1
+    add dx, CPF_BH - 1          ; y2
+    mov ax, di
+    add ax, CPF_BX1
+    mov cx, di
+    add cx, CPF_BX2
+    call KERNEL_SEG:cw_gfx_pen_live ; a run clipped whole leaves the pen at its
+    call KERNEL_SEG:cw_gfx_frame    ; GROUND (font_run), so set it outright
+    mov ax, cx
+    sub ax, CP_DSW
+    mov si, cp_drv_trid         ; the Drivers page's down arrow (.text)
+    call cp_drv_tri
+    pop bx
+    clc                         ; the ground is the pane's: no tail to clear
+    call cp_fdcap
+    inc bx
+    cmp bl, 5
+    jb .row
+
+    CPSTAGE cp_s_fcap
+    mov cx, di
+    add cx, CP_PMX
+    mov dx, bp
+    add dx, CPF_CAPY
+    call cp_run
+
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cp_fdd_click - a press inside the Floppy page
+; in:  DI = pane left, BP = pane top, CX/DX = pane-relative; lock held
+; out: nothing (all registers preserved)
+;
+; A box is a SELECTING site (cp_ctl id 0, SPEC.md 13.8.3): it acts on the
+; PRESS, because the popup it opens IS the rest of the gesture - menu_drop
+; follows the held button and returns at the release. So the drag and the
+; release find nothing armed and do nothing. The label beside a box is part
+; of its row, as a radio's is.
+; -----------------------------------------------------------------------------
+cp_fdd_click:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+
+    cmp cx, CPF_BX2
+    jg .done
+    mov ax, dx
+    sub ax, CPF_R0Y
+    jl .done
+    mov bl, CPF_ROWH
+    div bl                      ; AL = the row, AH = where in it
+    cmp ah, CPF_BH
+    jae .done                   ; the gap between two boxes
+    cmp al, 4
+    ja .done
+    mov bl, al                  ; BL = the row, for good
+
+    xor al, al
+    call cp_ctl                 ; id 0: acts on the press only
+    jc .done
+
+    push bx
+    call cp_fdy
+    add dx, CPF_BH              ; the list hangs under the box...
+    mov cx, di
+    add cx, CPF_BX1             ; ...from its left edge
+    call cp_fdstg               ; BX = the item array, AX = the count
+    call KERNEL_SEG:cw_menu_popup ; CF = 1 nothing chosen, else AL = the pick
+    pop bx
+    jc .done
+
+    mov ah, al                  ; AH = the pick
+    cmp bl, 4
+    jne .drv
+    cmp ah, [drv_cfg+CFG_FDR]
+    je .done
+    mov [drv_cfg+CFG_FDR], ah
+    jmp short .changed
+.drv:
+    mov cl, bl
+    shl cl, 1                   ; CL = this unit's shift
+    mov al, 3
+    shl al, cl                  ; AL = its mask
+    shl ah, cl                  ; AH = the pick, in place
+    mov dl, [drv_cfg+CFG_FDD]
+    mov dh, dl
+    not al
+    and dl, al
+    or dl, ah
+    cmp dl, dh
+    je .done
+    mov [drv_cfg+CFG_FDD], dl
+.changed:
+    mov byte [cp_wdirty], 1     ; remembered on close (SPEC.md 31.8)
+    stc                         ; the old caption may be longer
+    call cp_fdcap
+.done:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cp_fdcap - row BL's box caption, the setting it holds
+; in:  BL = the row, CF = 1 to clear what a longer caption left to its right;
+;      DI = pane left, BP = pane top; lock held
+; out: nothing (all registers preserved)
+;
+; The caption is one opaque run and the tail is ONE fill of what it did not
+; cover, up to the arrow - so a changed pick writes each pixel once. A page
+; paint passes CF = 0: cp_page has already laid that ground.
+; -----------------------------------------------------------------------------
+cp_fdcap:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    pushf
+    call cp_fdval               ; AL = the setting
+    push bx
+    push ax
+    call cp_fdstg               ; its menu, whose strings are its captions
+    pop ax
+    pop bx
+    cbw
+    shl ax, 1
+    mov si, ax
+    mov si, [si + cp_sbuf]      ; SI -> the staged caption
+    call cp_fdy
+    mov bx, dx                  ; BX = the box top, for the tail
+    add dx, 3
+    mov cx, di
+    add cx, CPF_BX1 + 4
+    mov byte [gfx_color], CBLACK
+    call cp_run
+    popf
+    jnc .out
+.len:                           ; CX += 8 per cell of the caption
+    cmp byte [si], 0
+    je .tail
+    inc si
+    add cx, 8
+    jmp short .len
+.tail:
+    mov ax, cx                  ; x1 = where the run ended
+    inc bx                      ; y1 = inside the frame
+    mov cx, di
+    add cx, CPF_BX2 - CP_DSW + 3 ; x2 = short of the arrow
+    mov dx, bx
+    add dx, CPF_BH - 3          ; y2 = inside the frame
+    call KERNEL_SEG:cw_gfx_pen_live ; ...undithered
+    mov byte [gfx_color], CWHITE
+    call KERNEL_SEG:cw_gfx_fill
+    mov byte [gfx_color], CBLACK
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; cp_fdy - row BL's box top, absolute: DX = BP + CPF_R0Y + BL*CPF_ROWH
+cp_fdy:
+    push ax
+    mov al, CPF_ROWH
+    mul bl
+    add ax, bp
+    add ax, CPF_R0Y
+    mov dx, ax
+    pop ax
+    ret
+
+; cp_fdval - row BL's setting: AL = 0..3 for a unit, 0..2 for the reads
+cp_fdval:
+    mov al, [drv_cfg+CFG_FDR]
+    cmp bl, 4
+    je .rd
+    push cx
+    mov cl, bl
+    shl cl, 1
+    mov al, [drv_cfg+CFG_FDD]
+    shr al, cl
+    pop cx
+    and al, 3
+    ret
+.rd:
+    cmp al, 3
+    jb .ok
+    xor al, al                  ; a byte from a future version reads Auto,
+.ok:                            ; which is what ovl_fdd_apply does with it
+    ret
+
+; -----------------------------------------------------------------------------
+; cp_fdltr - the letter unit BL goes by: AL
+;
+; The row's own letter when the unit has one, since that is what the desktop
+; calls it. A unit with no row reads as the letter it would be given -
+; dsk_flop_add_x's order, where C: belongs to the hard disk - which is the
+; letter a forced unit gets at the next boot on a machine that has not
+; already put something there.
+; -----------------------------------------------------------------------------
+cp_fdltr:
+    push bx
+    push cx
+    mov al, bl
+    cmp al, 2
+    jb .dflt
+    inc ax                      ; units 2 and 3 skip C:
+.dflt:
+    add al, 'A'
+    mov cl, bl
+    mov bx, dsk_vtab
+    mov ah, 'A'
+.f:
+    cmp byte [bx+DV_KIND], DVK_BIOS
+    jne .n
+    cmp [bx+DV_UNIT], cl
+    jne .n
+    mov al, ah
+    jmp short .o
+.n:
+    inc ah
+    add bx, DV_SIZE
+    cmp bx, dsk_vtab + DVOL_MAX*DV_SIZE
+    jb .f
+.o:
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; cp_fdstg - stage row BL's menu into cp_sbuf, pointers and strings together
+; in:  BL = the row
+; out: BX = the item array (cp_sbuf), AX = the item count
+;
+; menu_popup reads its items through DS (SPEC.md 12.4: every popup is the
+; kernel's own), and an image's strings are CS-relative (SPEC.md 2.8.6) - so
+; the whole menu is copied down, laid out in the image EXACTLY as it lands,
+; pointers already naming cp_sbuf. The caption painter uses the same copy.
+; -----------------------------------------------------------------------------
+cp_fdstg:
+    push cx
+    push si
+    push di
+    mov di, cp_sbuf
+    xor si, si
+    mov cx, CPF_MDN
+    mov bh, 4
+    cmp bl, 4
+    jb .c
+    mov si, CPF_MRO
+    mov cx, CPF_MRN
+    mov bh, 3
+.c:
+    mov al, [cs:si + cp_fdmd]
+    mov [di], al
+    inc si
+    inc di
+    loop .c
+    mov al, bh
+    cbw
+    mov bx, cp_sbuf
+    pop di
+    pop si
+    pop cx
+    ret
+
+; The two menus, each laid out as it lands in cp_sbuf. Item n IS setting n.
+cp_fdmd:
+    dw cp_sbuf + (cp_fdm0 - cp_fdmd), cp_sbuf + (cp_fdm1 - cp_fdmd)
+    dw cp_sbuf + (cp_fdm2 - cp_fdmd), cp_sbuf + (cp_fdm3 - cp_fdmd)
+cp_fdm0: db 'Auto', 0
+cp_fdm1: db 'None', 0
+cp_fdm2: db '5.25', 0
+cp_fdm3: db '3.5', 0
+cp_fdmr:
+    dw cp_sbuf + (cp_fdr0 - cp_fdmr), cp_sbuf + (cp_fdr1 - cp_fdmr)
+    dw cp_sbuf + (cp_fdr2 - cp_fdmr)
+cp_fdr0: db 'Auto', 0
+cp_fdr1: db 'Track', 0
+cp_fdr2: db 'Cylinder', 0
+cp_fdend:
+CPF_MDN   equ cp_fdmr - cp_fdmd
+CPF_MRO   equ cp_fdmr - cp_fdmd
+CPF_MRN   equ cp_fdend - cp_fdmr
+%if CPF_MDN > CP_SBUF || CPF_MRN > CP_SBUF
+%error "ctrl: a Floppy page menu does not fit cp_sbuf (SPEC.md 31.14)"
+%endif
+
+CPS cp_s_fdrv,  'Drive A:'
+CPF_LTR   equ 6                 ; ...where the letter sits in it
+CPS cp_s_frd,   'Reads:'
+CPS cp_s_fcap,  'Applies at the next restart'
 %endif
 ; -----------------------------------------------------------------------------
 ; cp_sched_click - a click inside the Scheduler page

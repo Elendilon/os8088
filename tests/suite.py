@@ -6277,6 +6277,15 @@ SOAK = [
         "flush the disk the guest wrote and boot IT. Two boots, which is why it"
         "is here and not in the gate",
         needs=("marty",), serial=True),
+    Row("fddpage", "soak", py("tests/fddpage.py"), 20.0,
+        "SPEC.md 31.14: does the Control Panel's Floppy page override the"
+        "drive detection? Four drop-down picks by a real left-press gesture"
+        "(menu_popup, 12.4), the panel's close writes 'FD', and a second boot"
+        "of the written disk reads what ovl_fdd_apply made of dsk_vtab and the"
+        "read bound - A: forced 5.25 with no guess, B: hidden with its row"
+        "kept, a third unit given a row at D:, the canary's finding reversed."
+        "Measured 15s",
+        needs=("marty",), serial=True),
     Row("dispreboot", "soak", py("tests/dispreboot.py"), 100.0,
         "WHO WRITES ui_rebootq? (docs/plans/completed/DUAL-DISPLAY-VGA.md 8(11))",
         needs=("marty",), serial=True),

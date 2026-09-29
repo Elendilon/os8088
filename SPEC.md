@@ -953,20 +953,28 @@ KNOB build already has and a shipped build does not use:
   a knob build `.ovl` starts `OVL_KNOBGIVE` = **96** bytes lower, at
   `OVL_BASE` = 2,528. `SPLSTARS=1` is the one knob whose `.boot2` is above
   that (2,562 with `NOKZIP=1`) — it is what sets `OVL_AT`'s floor — so it
-  keeps the shipped split. `OVL_AT` stays the one literal, which is what
+  keeps the shipped split. **Every other knob but `BOOTDIAG=1` gives 144**
+  (`OVL_BASE` = 2,480): its `.boot2` is the shipped loader's, 2,470 at the
+  most (`MOUDIAG=1`), and §31.14's `ovl_fdd_apply` took the shipped blob from
+  147 spare to 20, which `BOOTMARK=1` needed. `OVL_AT` stays the one literal, which is what
   `tools/os88ladder.py` reads and what describes every kernel a disk carries.
 
 Both are compiled out of every shipped kernel, so `make`, `make small` and
 `make emu` are exactly what they would be without them. Measured (blob `.ovl`
-of 1,984 shipped / 2,080 knob; `.ovlw` region 2,560 on a kern_small knob):
+of 1,984 shipped / 2,128 knob; `.ovlw` region 2,560 on a kern_small knob), and
+the kern_big column re-measured after §31.14:
 
 | arm | kern_big `.ovl` | kern_small `.ovl` | kern_small `.ovlw` |
 |---|---:|---:|---:|
-| `BOOTMARK=1` | 1,979 (101 free) | 1,442 | 2,258 |
-| `BOOTMARK=1 BOOTHALT=20` | 1,983 (97 free) | 1,446 | 2,258 |
-| `BOOTPROF=1` | 1,888 | 1,351 | 2,150 |
-| `MOUDIAG=1` | 1,850 | 1,313 | 2,175 |
-| `BOOTMARK` + `BOOTPROF` + `MOUDIAG` | 2,053 (27 free) | 1,516 | 2,283 |
+| `BOOTMARK=1` | 2,111 (17 free) | 1,442 | 2,258 |
+| `BOOTMARK=1 BOOTHALT=20` | 2,115 (13 free) | 1,446 | 2,258 |
+| `BOOTPROF=1` | 2,020 | 1,351 | 2,150 |
+| `MOUDIAG=1` | 1,982 | 1,313 | 2,175 |
+| `BOOTMARK` + `BOOTPROF` + `MOUDIAG` | 2,185 — **57 over on kern_big** since §31.14 | 1,516 | 2,283 |
+
+The triple was never a `buildmatrix` row and does not fit kern_big's blob any
+more; each of the three alone does, and so does `BOOTMARK` with `DRVDIAG`
+(2,125).
 
 **A knob build is a different blob layout from the kernel it diagnoses**, and
 that is the price: the probe runs from the window on a kern_small `BOOTMARK=1`
@@ -19140,7 +19148,7 @@ sites that already exist:
 | `menu_draw_bar` | draw the bar: `menu_check`, white field + black rule, every `menu_bar` cell's title (cell 0 = the logo glyph), then `menu_draw_clock`. Gfx lock held by caller. The app name is one of those cell titles whenever an application owns the bar (§12.7); the standalone label draw is Locator's alone, and is skipped when `[menu_abcell]` is non-zero so the name is never double-struck. |
 | `menu_track`    | in: CX = mousedown x. Runs the whole interaction while the button is held (caller holds gfx lock): highlight title (xor), drop the menu (gfx_save under it to the save-under claim, `[menu_sseg]:0`), track item highlight following `mouse_y`, on release restore save-under + unhighlight; **out AX = 0xFFFF if nothing was selected, else AH = bar cell index (0 = System), AL = item index within that cell**. Item cells are 16px tall, menu width = widest item + 16px padding. Only the bar-specific half is its own: the cell find, `menu_title_xor` and the (cell, item) pack. The drop itself is `menu_drop` (§12.4). |
 | `menu_drop`     | the tracker, anchored by variables so it serves both the bar and a context menu (§12.4). |
-| `menu_popup`    | drop a menu anywhere on screen under the right button (§12.4). |
+| `menu_popup`    | drop a menu anywhere on screen, open while a button is held (§12.4). |
 | `menu_widest`   | in: BX = array of near item-string ptrs, CX = count. Out: AX = the widest `font_width` over them, 0 when CX = 0. Parameterized by array rather than by bar cell precisely so `menu_popup` can size a menu that has no bar cell. |
 
 `menu_track` polls `mouse_btn`/`mouse_x`/`mouse_y` directly (the ISR keeps
@@ -22778,7 +22786,11 @@ up (floor `MBAR_H`). Clipping would cut items in half and leave the ones
 below unreachable; shifting is what a Mac does, and it is the reason a
 right-click in the bottom-right corner is as usable as one in the middle.
 A popup MAY sit over the dock strip (§30) — the save-under puts it back.
-`[menu_btn]` = 2, so it lives exactly as long as the right button is held.
+`[menu_btn]` = **3**, so it lives exactly as long as **either** button is
+held. It was 2, the right, while every popup was a right-click's; §31.14's
+drop-downs open one on a LEFT press held the way a bar menu's is, and 3 serves
+both for the same five bytes. A right-click menu behaves as it always did
+unless the left button is also down, when it stays up until both are let go.
 
 Only one menu can be open at a time — both trackers run on the UI task
 under the gfx lock and both are driven by a held button — so both use
@@ -22788,7 +22800,8 @@ width — `menu_widest` is taken as-is — so the honest budget is stated over
 the descriptors that actually exist rather than as a general guarantee.
 All of them (`fm_ctx_file` / `fm_ctx_fold` / `fm_ctx_dir` / `fm_ctx_up`,
 and the dock's one-item `dock_ctx_items`, §30.2) are immutable
-`.text`, ≤ 8 items of ≤ 18 chars, worst case 4 planes × 130 rows × ~21
+`.text` — and §31.14's two, staged into `cp_sbuf` from `CTRL.DRV`'s image,
+four items of ≤ 8 chars — ≤ 8 items of ≤ 18 chars, worst case 4 planes × 130 rows × ~21
 bytes against the `MENU_SAVE_KB` claim, and there is no API
 slot through which a package could supply another. **A width clamp in
 `menu_popup` is the fix the day that stops being true** — a 16-item popup
@@ -55247,6 +55260,7 @@ cp_items:  dw cp_s_sched, cp_sched_paint, cp_sched_click, 0
            dw cp_s_snd,   cp_snd_paint,   cp_snd_click,   0   ; §31.7
            dw cp_s_vid,   cp_vid_paint,   cp_vid_click,   0   ; §31.10
            dw cp_s_thm,   cp_thm_paint,   cp_thm_click,   0   ; §76.4
+           dw cp_s_fdd,   cp_fdd_paint,   cp_fdd_click,   0   ; §31.14
            dw cp_s_dock,  cp_dock_paint,  cp_dock_click,  0   ; §31.13
 cp_items_end:
 CP_ITEMS   equ (cp_items_end - cp_items) / CP_ISTRIDE
@@ -56913,6 +56927,97 @@ of `CTRL.DRV`, which is module space and outside `KERN_BUDGET` (§51).
 bites**: with `cp_promise` removed the panel simply never promises, so the
 promise and the caching legs pass on a kernel that does nothing. Only the
 withdrawal is evidence about this routine.
+
+### 31.14 Floppy page — the drive detection, overridden
+
+Five drop-downs. One per floppy unit a machine can claim (§18.98) — **Auto,
+None, 5.25, 3.5** — and one for the read bound (§18.91.1) — **Auto, Track,
+Cylinder**. `kern_big` only (`OS88_DRIVERS`): the page is a `SYSTEM.CFG`
+record, and `kern_small` reads no settings file (§51.0).
+
+| setting | what the next boot does |
+|---|---|
+| a unit, **Auto** | what §18.97/§18.98/§26.4.1 detected, untouched |
+| a unit, **None** | no desktop zone. The ROW stays, so the drive keeps its letter and its volume — the state an unclaimed B: has always been in (`desk_init`'s `.zloop`) |
+| a unit, **5.25** / **3.5** | a zone, with that picture before the first read and after it: `DVF_GUESS` is cleared, so `desk_learn_x` does not take it back. A unit with no row — unclaimed, or retired by §18.97's probe — is given one on `dsk_flop_add_x`'s rules |
+| reads, **Auto** | the boot sector's canary decides (§18.93.1) |
+| reads, **Track** / **Cylinder** | the canary's finding is overwritten either way |
+
+**It takes effect at the next restart, and the caption says so.** The
+detection it overrides runs once, in `desk_init`, at MARK 20 — before
+`SYSTEM.CFG` can be read. `desk_init` is `.ovlw`, and the file is read by NAME,
+so it needs the mount that takes the FAT window `.ovlw` lives in. So the
+detection runs first and `ovl_fdd_apply` corrects it, from `drv_boot_x`,
+immediately after `ovl_cfg_load` and **before the driver loop** — so a floppy
+row it makes lands exactly where `desk_init` would have put it, ahead of any
+partition `HDD.DRV` then adds. Every answer `desk_init` reaches is a byte in a
+`dsk_vtab` row, and a byte is as easy to overwrite as to write.
+
+**The read bound overrides the FINDING rather than adding a test.** Its byte
+goes into `boot_cylrun`'s low byte (the loader stores a run bound there, at
+most 36, so the high byte is always 0) and into `dsk_cylrun`. Every later mount
+re-derives `dsk_cylrun` from that word (`dsk_bpb_check`) and `hiber.inc`
+carries it to `kern_dos` (§96.44.14), so both honour the setting with no code
+changed at either. **Cylinder on a ROM that cannot cross a head is the user's
+to choose**: a read then fails and `dsk_xfer`'s retry shortens it, which is
+§18.91.3's grind and not corruption.
+
+**Nothing resident reads the record.** `CFG_FDD` (two bits per unit, unit *n*
+at bits 2*n*..2*n*+1, value = the menu index) and `CFG_FDR` live in `drv_cfg`
+and nowhere else — not in `_map`, not in a variable of their own — the way the
+driver blobs do (§51.9). `_pack` does not touch them, so the page edits the
+struct in place, sets `[cp_wdirty]`, and §31.8's close writes it as key `FD`,
+ver 1, two bytes.
+
+**The drop-down is the kernel's own popup menu.** A box is a frame, the
+Drivers page's down arrow (`cp_drv_tri` over `cp_drv_trid`, both already
+there) and the pick's caption; a press on it calls `cw_menu_popup` anchored
+under the box, and `menu_drop` follows the held button and returns at the
+release. That is the bar menu's gesture — press, drag, release — and it is why
+a box is a **selecting** site (`cp_ctl` id 0, §13.8.3): it acts on the press,
+the popup IS the rest of the gesture, and the drag and the release find nothing
+armed. §13.14's `OS88UI_DROP` is not reachable from a kernel image (it is the
+include's `%ifndef OS88UI_KERNEL` half) and would be ~470 bytes of list,
+tracker and bank that `menu_drop` already is. What that took was one byte of
+`menu_popup`: `[menu_btn]` = 3 (§12.4).
+
+`menu_popup` reads its items through `DS` and an image's strings are
+`CS`-relative (§2.8.6), so each menu is laid out in the image **exactly as it
+lands** — pointers already naming `cp_sbuf` — and copied down whole by
+`cp_fdstg`: the drives' menu is 27 bytes and the reads' 26, against
+`CP_SBUF` = 28, and an `%error` says so if either grows. The box's caption is
+drawn out of the same copy, and a changed pick letters it as one opaque run
+and fills only what a longer old caption left to its right.
+
+**The labels are letters, and a letter is not a unit.** A unit's row is
+lettered by where it landed (§18.98: C: is the hard disk's, and a retired B:
+hands its row to unit 2), so `cp_fdltr` reads the letter off the unit's row
+when it has one and otherwise names the one `dsk_flop_add_x`'s order would give
+it — A:, B:, D:, E: on a machine that has not put something there first.
+
+#### 31.14.1 What it cost, measured
+
+Against the tree immediately before it, `kern_big`:
+
+| | bytes | what they are |
+|---|---:|---|
+| `.text` | **+15** | the `cp_items` record (8) and `'Floppy'` (7) — the list name is read by the list painter through `DS`, so it is resident like every other page's |
+| `.bss` | **+2** | `drv_cfg`'s two bytes — the whole of the setting's resident state |
+| `menu_popup` | **+0** | `[menu_btn]`'s immediate, 2 → 3 |
+| **resident** | **+17** | no rung crossed — and per §1's banner that is not the point: seventeen bytes is the price |
+| `.ovl` | +127 | `ovl_fdd_apply` (113), its call (3), the `FD` key row (5), the file buffer (6). **`.ovl` is now 1,964 of the blob's 1,984**: 20 bytes left, and the next boot-overlay body raises `BOOT2_SECS` (§2.9.6). The knob builds lost the same room, and §2.5.3.3.1's give went 96 → 144 to hand `BOOTMARK=1` it back |
+| `CTRL.DRV` | +615 image, +505 on disk | the page (507 of code, 97 of menus and strings) plus the writer's key row and buffer; loaded only while the panel is open |
+
+`kern_small` is **byte-identical in size** (`kernsize[small]` +0 on every
+section): it has no settings file and so no page, and the one shared edit is
+an immediate.
+
+`tests/fddpage.py` (soak) is the gate: four picks by a real left-press
+gesture, the close that writes `FD`, and a second boot of the written disk
+reading `dsk_vtab` and the read bound. With `call ovl_fdd_apply` taken out
+every boot-2 leg fails while the record still round-trips; with `[menu_btn]`
+back at 2 no pick reaches `drv_cfg` at all, because the popup closes the
+instant it opens under a held left button.
 
 ### 32.1 What the renderer does
 
@@ -80557,7 +80662,9 @@ the wrong settings. Every value now travels with a key that says what it is.
         db  data[len]
 ```
 
-`DK` is the dock's one byte (§30.5), a key of its own at ver 1, on `kern_big`
+`FD` is §31.14's Floppy page, two bytes at ver 1 on `kern_big` — the four
+drives' overrides and the read bound, one record so the page costs one key
+entry and one header. `DK` is the dock's one byte (§30.5), a key of its own at ver 1, on `kern_big`
 only. Seven keys at the time this paragraph was written, 81 bytes: `DW` driver-wanted bitmap, `SR` sound route, `CH`
 clock 12/24, `CS` clock seconds, `SM` scheduler mode, and
 `HD` — a **driver's** own settings, whose contents the kernel does not know

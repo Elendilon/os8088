@@ -354,7 +354,7 @@ kernel size pass 4 (docs/reports/KERNEL-BYTES-SINCE-SQUASH-2026-09-25.md).
 A 640KB machine reporting 639KB has ~534 KB under `kern_big` before any
 driver or read-ahead claim.
 
-**Not in the span**: the boot overlay (`.ovl` 1,837 bytes in stage 2's blob,
+**Not in the span**: the boot overlay (`.ovl` 1,964 bytes in stage 2's blob,
 `.ovlw` 5,104 bytes loaded onto the FAT window and `dsk_secbuf`, both
 dead by the first desktop — see below; on `kern_small` the split is a BUILD
 CHOICE and reads 1,942 / 1,502, SPEC.md §2.5.3.2), the on-demand modules (files read
@@ -863,12 +863,12 @@ it is two sections, because the two halves die at different times:
 
 | | bytes | lives until | lands on | reached by |
 |---|---:|---|---|---|
-| `.ovl` | 1,837 | `spl_finish` | stage 2's blob, at `OVL_AT` = 2,624 of `BOOT2_PAD` = 4,608, so **147 bytes** spare (152 until EXTD.DRV's boot call, SPEC.md 39.19.6) | `[spl_fseg]`, the pair of §2.9.5.1 — or `BLOBCALL` from a caller already in the blob |
+| `.ovl` | 1,964 | `spl_finish` | stage 2's blob, at `OVL_AT` = 2,624 of `BOOT2_PAD` = 4,608, so **20 bytes** spare (147 until SPEC.md 31.14's `ovl_fdd_apply`, 152 until EXTD.DRV's boot call, SPEC.md 39.19.6) | `[spl_fseg]`, the pair of §2.9.5.1 — or `BLOBCALL` from a caller already in the blob |
 | `.ovlw` | 5,104 | **the first mount** | `FAT_SEG`, off the kernel's own contiguous read, spilling into `dsk_secbuf`, the one mount-owned buffer left (4,608 + 512 = 5,120 bytes, all readable — SPEC.md §2.1.2), so **16 bytes** spare | `call FAT_SEG:`, a constant |
 
 Those are kern_big's figures (`tools/kernsize.py --json`). On `kern_small`
 (`--json -DKERN_SMALL`) `.ovl` is 1,942 of the blob's 1,984 (**42 spare** —
-kern_small binds the blob) and `.ovlw` 1,502, against a window of 1,024 (a
+kern_big's 20 is tighter now, SPEC.md 31.14) and `.ovlw` 1,502, against a window of 1,024 (a
 two-sector FAT) + 512 = 1,536, so 34 spare; SPEC.md §2.5.3.2 is why that build
 puts more of the overlay in the blob.
 
