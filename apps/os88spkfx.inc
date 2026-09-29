@@ -1,7 +1,7 @@
 ; =============================================================================
 ; os8088 - apps/os88spkfx.inc
 ;
-; THE SPEAKER SHAPER (docs/plans/SPEAKER-PCM-PLAN.md): 8-bit PCM made into the
+; THE SPEAKER SHAPER (docs/plans/completed/SPEAKER-PCM-PLAN.md): 8-bit PCM made into the
 ; PC speaker's pulse counts the way a 5150's 2 1/4-inch cone can PLAY them. A
 ; straight wave through 34.11's pulse width is the carrier and nothing else
 ; on the real machine (SPEC.md 98.2.15.1) - the width is spent on bass the

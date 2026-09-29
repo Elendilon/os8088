@@ -46359,9 +46359,10 @@ a date on it.** ArtfulType and TeXPad are on both disks today because a
 general disk with no writer on it is a poor general disk; that is the
 owner's call and it gets remade the next time this geometry runs out. It ran
 out on 2026-09-28, when the PC speaker's path grew Audio by 3.3 KB of disk
-(§86.21) with Tracker and the Video Player to follow: Gorillas came off,
-provisionally and for the owner to remake, being the newest game and on
-`games360.img` whatever this disk carries. The
+(§86.21) with Tracker (§45.25) and the Video Player to follow: Gorillas came
+off, being the newest game and on `games360.img` whatever this disk carries -
+provisional that day, CONFIRMED by the owner on 2026-09-29 (*"fine for
+now"*), and so remade like every other row here the next time it runs out. The
 row to read is the Makefile's `APPS_TOOLS_360`, not a list here — a package
 list in prose goes stale the next time anything ships, and the enforcement is
 `os88disk.py` refusing an image that does not fit.
@@ -58187,7 +58188,7 @@ is PCM8 at 5,512 Hz, with every frame budgeted around what the pulses leave.
   nothing else is better than no sound - through §34.11.9's shaper, with a
   live ladder of rates that finds what the machine can keep up with. (ModPlug
   is retired, §56.15.)
-- docs/plans/SPEAKER-PCM-PLAN.md is the plan for all three consumers.
+- docs/plans/completed/SPEAKER-PCM-PLAN.md is the plan for all three consumers.
 - **No C package**: `apps/cc/os88.h` has no binding for a sample ISR, and
   §73's rules forbid most of what one needs. A C package that wants one gets
   an assembly module.
@@ -58343,7 +58344,7 @@ a 5150** (98.2.15.1): the width goes to bass the cone cannot move. The Video
 Player's encoder shapes its sound on the host; a package handed a WAV or a
 module cannot, so the shaping moves onto the machine, in the form an 8088
 can afford beside a pulse every ~600 cycles
-(docs/plans/SPEAKER-PCM-PLAN.md). `tools/os88spkfx.py` is its reference, to
+(docs/plans/completed/SPEAKER-PCM-PLAN.md). `tools/os88spkfx.py` is its reference, to
 the byte, and `tests/spkfx.py` holds the two equal.
 
 **Per sample**, x unsigned 8-bit at the speaker's rate:
@@ -75231,7 +75232,7 @@ With no Sound Blaster, **Play plays through the PC speaker**, on its own and
 with nothing to switch on (the owner: *sound and nothing else is better than
 no sound*). It is §34.11's ring and door and §34.11.9's shaper, fed by the
 same mixer the card's worker feeds (`apps/tracker/trkspk.inc`,
-docs/plans/SPEAKER-PCM-PLAN.md).
+docs/plans/completed/SPEAKER-PCM-PLAN.md).
 
 **The bracket is the producer.** The speaker needs channel 0, so the play runs
 inside an `FSXF_RATE` bracket (§53.2.2), and under a sample ISR a task switch
@@ -118124,7 +118125,7 @@ cut streaming reads from ~5/s to ~0.6/s with no underruns for either codec.
 ### 86.21 No card: the PC speaker, and the desktop given up for it
 
 **With no Sound Blaster the player plays through the PC speaker, on its
-own** (docs/plans/SPEAKER-PCM-PLAN.md; the owner: *"sound and nothing else is
+own** (docs/plans/completed/SPEAKER-PCM-PLAN.md; the owner: *"sound and nothing else is
 better than no sound"*). `ap_open_track` prepares a track the same way for
 either (`ap_prep_track`: the file parsed, the look-ahead claimed and primed)
 and then goes to the card (`ap_open_card`) or to `aps_open`

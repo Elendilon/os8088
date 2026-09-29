@@ -11494,8 +11494,8 @@ APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/tank.o88 $(BUILD)/cyclone.o88 \
 # does not take this list: it filters APPS_GAMES through COMBO_DROP, which
 # names the package there with its own ground (below, beside ETHER.DRV's).
 # GORILLAS OFF THE 360KB APPS DISK (SPEC.md 24.6.1's decision with a date on
-# it: 2026-09-28, PROVISIONAL, the owner to confirm or remake). The disk was
-# full to the cluster and the PC speaker's path (docs/plans/SPEAKER-PCM-PLAN.md)
+# it: 2026-09-28, CONFIRMED by the owner 2026-09-29 "for now"). The disk was
+# full to the cluster and the PC speaker's path (docs/plans/completed/SPEAKER-PCM-PLAN.md)
 # grows three packages that ride it - Audio +3.3 KB of disk now, Tracker and
 # the Video Player next - so something had to move, and every game here is
 # also on games360.img. Gorillas is the newest arrival and its 14 clusters

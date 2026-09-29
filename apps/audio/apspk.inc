@@ -1,7 +1,7 @@
 ; =============================================================================
 ; os8088 - apps/audio/apspk.inc
 ;
-; THE PC SPEAKER, WITH NO CARD (SPEC.md 86.21, docs/plans/SPEAKER-PCM-PLAN.md).
+; THE PC SPEAKER, WITH NO CARD (SPEC.md 86.21, docs/plans/completed/SPEAKER-PCM-PLAN.md).
 ; A machine with no Sound Blaster plays a track through 34.11's pulse width -
 ; automatically, because the owner's rule is that sound and nothing else is
 ; better than no sound. The pulses need IRQ0 at the sample rate, which only a

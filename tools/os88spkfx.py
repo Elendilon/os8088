@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""os88spkfx - the SPEAKER SHAPER's reference (docs/plans/SPEAKER-PCM-PLAN.md).
+"""os88spkfx - the SPEAKER SHAPER's reference (docs/plans/completed/SPEAKER-PCM-PLAN.md).
 
     python3 tools/os88spkfx.py counts IN.WAV OUT.RAW [--rate R] [--preemph M]
     python3 tools/os88spkfx.py preview IN.WAV OUT.WAV [--rate R] [--host]

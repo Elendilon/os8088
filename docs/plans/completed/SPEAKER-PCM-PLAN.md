@@ -1,8 +1,12 @@
 # SPEAKER-PCM-PLAN - PC speaker PCM for Audio, Tracker and the Video Player
 
-**Status: PLAN, owner-approved 2026-09-28, nothing built yet.** Branch
-`pcspeaker`, cut from `elendilon-next` at 00a4c8e. It answers
-docs/plans/SPEAKER-PCM-HANDOFF.md's open questions (6) and replaces its
+**Status: BUILT, W0 to W4 (2026-09-29) - §9 is what it came to. W5, the
+render to disk, is DEFERRED behind streaming writes and lives in
+docs/plans/DISK-CPU-PLAN.md §6 now, as a consumer of the fix it needs.**
+Branch `pcspeaker`, cut from `elendilon-next` at 00a4c8e. The contract is
+SPEC.md 34.11.9 (the shaper), 86.21 (Audio), 98.3.15 (the Video Player) and
+45.25 (Tracker); this file is the design record behind them. It answers
+docs/plans/completed/SPEAKER-PCM-HANDOFF.md's open questions (6) and replaces its
 sections 4 and 5 as the brief; the handoff stays for its section 3, the
 lessons the Video Player's wave paid for.
 
@@ -149,3 +153,47 @@ counts in order, the lost share, the play's time, the kernel clean, the
 route obeyed - each broken on purpose once. Audio is timed on the card-less
 MartyPC 5150; Tracker's function on QEMU's 386, its timing only in the
 field (nothing here times a 286).
+
+## 9. What it came to (2026-09-29)
+
+Five commits on `pcspeaker`, no kernel byte. Every figure below is MartyPC's;
+the field listens on the owner's 5150 are the next step and nothing here has
+been heard on iron.
+
+- **W0/W1, the shaper** (SPEC.md 34.11.9): `apps/os88spkfx.inc`, ~104 cycles
+  a sample on a 5150 (72 without the pre-emphasis), byte-exact against
+  `tools/os88spkfx.py` in `tests/spkfx.py`'s five legs. Eleven levels at 2
+  dB, not §4's sixteen, and a leveller that reads the block ITSELF rather
+  than the one before (a sparse peak, 1 sample in 32) - both cheaper and
+  within a dB of the encoder in the voice bands.
+- **W2, Audio** (86.21): as §5 planned, with one change - the calibration is
+  a LIVE LADDER, a rung down when the ring's lead falls under a quarter,
+  rather than a timed pre-roll: Audio's cost depends on the FILE (its rate,
+  its kind, the disk it is on) and the play itself is the only honest
+  bench. `os88spk.inc` changed under it: a dry ring grants 16 samples of
+  silence, not one, or a starving producer never catches up. Two SPEC.md
+  86.4 claims were measured false on the way (the ADPCM decode is not
+  ffmpeg's, and its cost estimate was far low).
+- **W2b, the Video Player** (98.3.15): a card clip goes through the shaper,
+  EXACT against the model in `tests/vidspk.py`.
+- **W3, Tracker** (45.25). §3's arithmetic was PESSIMISTIC: a 5150 plays
+  5,512 Hz, predicted at 95% and held (5,416 pulses a second, the ring never
+  dry, windowed and full screen), because the ISR measures ~325 cycles a
+  pulse against §3's 449 and the visualiser goes off (the owner: *"the VU
+  display probably needs disabled ... for a 5150 5.5 anyway"*). So the
+  refusal is real but rare - a module of tiny loops, or a slower machine -
+  and its ceiling is 100%, "the sound fits", with the picture shed first.
+  Three things §5 did not foresee: the bench must run INSIDE the bracket
+  (outside it the worker draws beside it); it must mix four audible
+  channels in tick-sized chunks, not the song's own opening (a sparse
+  intro read the mixer at a third of its cost); and the display gates that
+  asked "is a card stream open" had to ask "or a speaker play".
+- **W4**: this section, the SPEC.md sections above, and Gorillas off
+  `apps360.img` (SPEC.md 24.6.1), confirmed by the owner.
+- **W5, deferred**: the render is ~0.9-1.1 KB of Tracker (ESTIMATED) and
+  writes 2.6-3.8 MB for BEVERLY.MOD - a hard disk's job - and every chunk of
+  it would pay `OSAPI_FILE_APPEND`'s walk of the whole chain. The owner put
+  streaming writes (docs/plans/DISK-CPU-PLAN.md §6.3's `WRITE_SEQ`) first,
+  which FTPD's uploads need as well; offer it only when the chosen volume
+  can hold the song, never by disk geometry (the owner's 5150 boots 360 KB
+  floppies AND has the ST-225 the render is for).

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""THE SPEAKER SHAPER'S TABLES are the model's (docs/plans/SPEAKER-PCM-PLAN.md).
+"""THE SPEAKER SHAPER'S TABLES are the model's (docs/plans/completed/SPEAKER-PCM-PLAN.md).
 
     python3 tests/unit/t_spkfx.py
 

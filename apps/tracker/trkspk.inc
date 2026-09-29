@@ -2,7 +2,7 @@
 ; os8088 - apps/tracker/trkspk.inc
 ;
 ; TRACKER ON THE PC SPEAKER, WITH NO CARD (SPEC.md 45.25,
-; docs/plans/SPEAKER-PCM-PLAN.md). The mixer's output goes through the
+; docs/plans/completed/SPEAKER-PCM-PLAN.md). The mixer's output goes through the
 ; speaker shaper (apps/os88spkfx.inc) into 34.11's ring and out as pulse
 ; widths, from inside Tracker's own FSXF_RATE bracket: the IMPOSTER WINDOW
 ; (the windowed face live, the desktop frozen - the Video Player's in-window

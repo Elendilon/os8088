@@ -8433,7 +8433,7 @@ SOAK = [
         "FAILS",
         needs=("marty", "nasm")),
     Row("spkfx", "soak", py("tests/spkfx.py"), 25.0,
-        "docs/plans/SPEAKER-PCM-PLAN.md: apps/os88spkfx.inc, the speaker "
+        "docs/plans/completed/SPEAKER-PCM-PLAN.md: apps/os88spkfx.inc, the speaker "
         "shaper Audio, Tracker and the Video Player share, against "
         "tools/os88spkfx.py to the byte - five legs (pre-emphasis with the "
         "carrier's slide, emitted in pieces; none; no slide; 11,025 and "
