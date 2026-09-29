@@ -1852,6 +1852,7 @@ IBM_TWIN = {
     "os8088_5150_herc_hdd": "os8088_5150_herc_hdd_gla",
     "os8088_5150_herc_hdd_sb": "os8088_5150_herc_hdd_sb_gla",
     "os8088_5150_cga_4fdd": "os8088_5150_cga_4fdd_gla",
+    "os8088_5150_cga_720b": "os8088_5150_cga_720b_gla",
 }
 
 

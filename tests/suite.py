@@ -9607,6 +9607,17 @@ SOAK = [
         "floppies read back off the guest and diffed byte for byte. Cross "
         "drive, same drive, the un-swapped-disk guard and Esc",
         needs=("marty",), serial=True),
+    Row("wimgtrip", "soak", py("tests/wimgtrip.py"), 35.0,
+        "wimgtrip - Write Img... (SPEC.md 18.99.8) driven to the end and "
+        "diffed: apps360.img as a FILE on a 720KB B:, written over the 360KB "
+        "system disk in A:, and drive 0 read back must BE the image, every "
+        "sector - with the positive control that it is not before the write. "
+        "The round trip diskclone says no 360KB machine can host, on "
+        "os8088_5150_cga_720b_gla. VERIFIED RED on the tree before SPEC.md "
+        "38.6.2, where the dialog handed its callback 0:0 and every image "
+        "was refused as 'Not a disk image' - 5 of 10 checks, 691 sectors "
+        "untouched. Measured at 33s",
+        needs=("marty",), serial=True),
     Row("rdup", "soak", py("tests/rdup.py"), 60.0,
         "SPEC.md 62.9.11.3: the Ram Disk page acts on the RELEASE.",
         needs=("marty",), serial=True),

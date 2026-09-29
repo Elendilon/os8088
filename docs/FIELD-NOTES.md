@@ -716,6 +716,37 @@ known-good disk — at the same sector number (arithmetic) or a wandering one
 (media/timing). Until then treat `Write Img...` as unsafe on media anyone
 minds losing.
 
+**Update, 2026-09-29 - "Not a disk image", and what is now ruled out.**
+Returning to reproduce this, the owner could not get as far as a write: every
+image was refused as *"Not a disk image"*, off a 720KB floppy and off the hard
+disk alike, on an image `dskimage` writes fine. That was a **separate
+regression and is fixed** (SPEC.md 38.6.2): since the dialog's listing became
+transient, `fdlg_commit` looked the chosen name up *after* `fdlg_close` had
+freed it, so every Open dialog reported a size of 0 and Write Img - which
+sizes the geometry off that figure alone - matched no layout. Reproduced on
+MartyPC with the reporter's own image, fixed, and gated by
+`tests/wimgtrip.py`, which is also **the first round trip this command has
+ever had**: the image as a file on a 720KB B: (`os8088_5150_cga_720b_gla`),
+written over the 360KB A:, and drive 0 read back is the image to the byte.
+So candidate 3 - the chunking, the CHS arithmetic, sector 0 last - is now
+measured dead on a write of a whole disk, not only on the cloner's.
+
+**A previous session's work never landed** and is on
+`claude/disk-image-corruption-o7d5b2` (commit `3bcc91e`, cut from a tree
+several squashes back). It is **section 18.101 of that branch's SPEC.md**: from the 27 Oct 82
+ROM, a WRITE waits for spin-up only if it is the call that started the motor,
+so a read that starts it licenses an immediate write into a slow platter -
+which the cloner's same-drive identity check does (`clo_issrc` then
+`clo_wr`). It adds a guard (`dsk_spinup`), a shorter write retry ladder, and
+on a `DISKCNT=1` field kernel a toast carrying the failing transfer - BIOS
+status, CHS, unit, direction, the ROM's motor byte and count, EOT and the
+attempts left. **Write Img has no such read** - `clo_imgrun` alternates a
+file read on the OTHER end with a write, and the ROM restarts (and waits for)
+a motor whose bit it cleared - so that session's own conclusion stands: a
+real defect, probably not this one. Its field toast is still the most useful
+thing anyone has built for this note, because the next failure could then
+say what it was.
+
 ---
 
 ## 33. A hard-disk install writes the whole volume to the wrong place, because SYSTEM.CFG carried another machine's geometry (CLOSED — drivers/hdd/cfg.inc, boot/boothd.asm)
