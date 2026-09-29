@@ -1813,9 +1813,13 @@ class App(object):
             elif f["dest"] == "spk_style":
                 w.bind("<<ComboboxSelected>>",
                        lambda e: self.apply_style())
-            ftip = lambda d=f["dest"], t=f["tip"]: \
+            # a field says why it is greyed only when it is greyed ALONE,
+            # in a group that applies (FIELD_WHEN): a greyed group says it
+            # once, on its header and outline, and its fields keep their
+            # own help
+            ftip = lambda d=f["dest"], t=f["tip"], n=name: \
                 "Not used for this file. %s\n\n%s" % (self.why[d], t) \
-                if self.why.get(d) else t
+                if self.why.get(d) and not self.gwhy.get(n) else t
             Tip(lab, ftip)
             Tip(w, ftip)
             ws = [lab, w]

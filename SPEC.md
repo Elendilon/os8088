@@ -152249,9 +152249,12 @@ follow `--comp-dither`, and the rate and volume grey with no sound.
 **Hovering a greyed group says why**, and what to change: over its header
 or its outline, *"Not used for this file. These are for CGA 4 colours, and
 this file is one bit, black and white. Choose a target that makes CGA 4
-colours under Made for, or its pixel format on Basic."*; over one of its
-fields, the same reason above that option's own help. A group that applies
-has no tip of its own. The outline's tip is on `<Motion>` and not
+colours under Made for, or its pixel format on Basic."*. Its fields keep
+their own help and do not repeat the reason (the owner's report: it read
+twice, once for the group and again for every field in it). A field greyed
+ALONE in a group that applies (`FIELD_WHEN`: `--flip` off Mode X, `--xms`
+without Live) says its own reason above its help, having no header to say
+it for it. A group that applies has no tip of its own. The outline's tip is on `<Motion>` and not
 `<Enter>`: Tk gives an Enter to the outline when the pointer crosses into
 a field from outside it, and its tip then stood beside the field's and
 stayed up after the pointer left - seen under Xvfb. A motion goes to the
