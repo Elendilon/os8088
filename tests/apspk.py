@@ -29,6 +29,11 @@ and its guest sampled from outside instead (flat_ip, ~150 a second, the
 guest charged nothing), bucketed by the package's labels, the kernel's and
 the ROM's - where a play's time goes when it does not keep up.
 
+--pause also reads the menu bar once the bracket is up: the progress
+widget the file's read armed must be gone from it (SPEC.md 86.21.2). Broken
+on purpose - apu_repaint's OSAPI_WM_CLIP_CLEAR taken out - it FAILS on the
+widget's black pixels.
+
 Broken on purpose - aps_put's copy made to skip os88spkfx_emit (raw samples
 in the ring) - 1 FAILS on every shaped leg; aps_dobox's average replaced by
 the first sample of the k - box3 FAILS at 1.
@@ -54,6 +59,8 @@ PULSES = 800
 LOSS = 0.04
 DRYMAX = 40         # dry grants the list's end may take: its last span
                     # played out, then the bracket's next pass sees it
+MBAR_H = 20         # kernel.asm: the menu bar's height
+FPG_W = 80          # fprog.inc: the progress widget's width
 MACHINE = "os8088_5150_herc_hdd_gla"
 MACHINE_SB = "os8088_5150_herc_hdd_sb_gla"
 TEMPLATE = "build/martypc/run/media/hdds/default_xtide.vhd"
@@ -402,6 +409,24 @@ def pause(a):
                 tr.until(lambda: len(ev["open"]) == 1 and not ev["cap"],
                          "the play", limit=300.0)
                 os88marty.pace(m, 0.3)
+                # THE BAR IS CLEAN (86.21.2): the file's read put the
+                # progress widget up, the bracket's door took it down, and
+                # nothing of it is left in its span of the menu bar
+                x0 = u16r(m, m.sym("fpg_x0"), 0)
+                wd, _, fb = m.fbuf()
+                dark = lambda x, y: fb[3 * (y * wd + x):3 * (y * wd + x) + 3] \
+                    == b"\0\0\0"
+                rule = [all(dark(x, y) for x in range(x0, x0 + FPG_W))
+                        for y in range(MBAR_H + 8)]
+                top = rule.index(False)          # the bar's INTERIOR: below
+                bot = rule.index(True, top)      # its top rule, above its
+                blk = sum(1 for y in range(top, bot)     # bottom one
+                          for x in range(x0, x0 + FPG_W) if dark(x, y))
+                print("   the bar: the widget's span at x %d, rows %d-%d, %d "
+                      "black pixels left in it" % (x0, top, bot - 1, blk))
+                if not x0 or blk:
+                    bad.append("the bar: the progress widget was left on "
+                               "the menu bar (%d px)" % blk)
                 m.type_text(" ")                    # PAUSE: the desktop
                 spk = m.sym("spk_seg")
                 tr.until(lambda: rb("ap_state") == 2 and

@@ -8571,7 +8571,9 @@ SOAK = [
         "PAUSED (the door shut, the session kept, the window's clock drawn "
         "inside the bracket), Space again resuming from the very sample it "
         "stopped on (the model's counts from CONS), Esc stopped and the "
-        "speaker left free",
+        "speaker left free - and, once the bracket is up, nothing of the "
+        "file's progress widget left on the menu bar (SPEC.md 86.21.2; with "
+        "apu_repaint's OSAPI_WM_CLIP_CLEAR taken out it FAILS, 576 px)",
         needs=("marty",),
         wants=("build/audio.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin")),

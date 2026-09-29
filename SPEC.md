@@ -23853,6 +23853,18 @@ armed by a read earlier in the same lock hold would otherwise stay on the
 bar, and go on being stepped, for the bracket's whole life. It is the ONE
 payoff now — being at the door, it covers `fsx_mode` too.
 
+**The payoff draws under whatever clip region the caller left armed.**
+`OSAPI_WM_CLIP_SET` lasts until the next `gfx_unlock` (§11.3), and a bracket
+entered from the same hold has not had one, so a package that repaints its
+window through a region and then calls `OSAPI_FSX_RUN` clips the teardown to
+its own window: `[fpg_on]` goes to 0 and the bar stays on the glass for good.
+Audio did exactly that (§86.21.2). The rule for a package is the one Tracker
+and the Video Player already keep: **disarm with `OSAPI_WM_CLIP_CLEAR` when
+the window is drawn**. The kernel does not do it for the caller - clearing a
+region the app armed at the door would change what a same-mode bracket's
+first frame is clipped to, for every bracket in the tree, to cover one
+package's omission.
+
 ### 12.9 The bar is three segments, and each answers for itself
 
 **Only the segment that changed may put pixels on the bar.** The menu bar
@@ -119335,6 +119347,20 @@ floppy holds ~45 s.
 the speaker exact against the file (row `apspk`), and `--cardcounts` (row
 `apspkcardc`) checks the first half staged to a Sound Blaster is the file's
 counts mapped back, byte for byte.
+
+### 86.21.2 The bracket takes the bar clean
+
+`aps_bracket` repaints the window (`apu_repaint`, through
+`OSAPI_WM_CLIP_SET`) and enters `OSAPI_FSX_RUN` in the same lock hold. The
+file's first read has put §12.8's progress widget on the menu bar by then,
+and the kernel pays it off at the bracket's door (§12.8.5.2) - but it drew
+that teardown under Audio's region, so it was clipped to the window and the
+bar stayed on the menu bar through the play and after it. Reported off the
+owner's machines. `apu_repaint` now ends with `OSAPI_WM_CLIP_CLEAR`, as
+Tracker's and the Video Player's painters do: 5 bytes of `AUDIO.O88` and no
+kernel byte. `tests/apspk.py --pause` reads the widget's span of the menu
+bar once the bracket is up and FAILS on any black pixel there, with the
+clear taken out.
 
 ## 87. Hibernate — the machine to a file on the hard disk, and back (`kernel/hiber.inc`, `HIBER.DRV`)
 

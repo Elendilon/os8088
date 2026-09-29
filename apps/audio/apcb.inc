@@ -49,6 +49,14 @@ apu_repaint:
     mov al, 0
     call OSAPI_SET_COLOR
     call apu_draw
+    call OSAPI_WM_CLIP_CLEAR        ; ...and DISARMED, as Tracker's and the
+                                    ; Video Player's are: aps_bracket repaints
+                                    ; and then enters OSAPI_FSX_RUN in the same
+                                    ; lock hold, and the kernel's teardown of
+                                    ; the file-progress widget at the bracket's
+                                    ; door (SPEC.md 12.8.5) drew under THIS
+                                    ; region - clipped to our window, so the
+                                    ; bar stayed on the menu bar for good
 .done:
     pop di
     pop si
