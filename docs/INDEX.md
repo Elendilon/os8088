@@ -325,6 +325,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | DOS | `apps/dos/dos.asm` | §96 | no |
 | DOS | `apps/dos/dosload.asm` | §96 | no |
 | DOTDEL | `apps/dotdel/dotdel.asm` | §93 | yes |
+| DRMARCO | `apps/drmario/drmario.asm` | §100 | no |
 | FONT VIEWER | `apps/fontview/fontview.asm` | §90 | yes |
 | FPTEST | `apps/fptest/fptest.asm` |  | no |
 | FRACTAL | `apps/fractal/fractal.asm` | §40 | yes |
@@ -468,6 +469,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 97 | PIXELSTEIN 3D — a raycast shooter in a foreign mode (`apps/pixelstein/`) |
 | 98 | VIDEO PLAYER — full-motion video on a 4.77 MHz 8088 (`apps/video/`, `.V88`) |
 | 99 | Gorillas (`apps/gorillas/gorillas.asm`) |
+| 100 | DrMarco (`apps/drmario/drmario.asm`) |
 
 ## docs/
 

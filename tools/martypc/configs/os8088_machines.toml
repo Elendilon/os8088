@@ -1545,6 +1545,43 @@ overlays = [
     type = "CGA"
     clock_mode = "Dynamic"
 
+# ...and its GLaBIOS twin, which is the one a row can actually run: the IBM
+# ROM is not in this tree. Written for Write Img... (SPEC.md 18.99.8), whose
+# round trip no other machine here can host - the image of a 360KB disk is
+# 720 sectors and a 360KB volume's data area is 708, so the FILE has to live
+# on a bigger disk than the one it is a picture of. A 720KB B: holds it, and
+# the 360KB A: is the target. That is also the reporter's own arrangement
+# (docs/FIELD-NOTES.md 32): a 5150 whose second drive is 80-cylinder.
+[[machine]]
+name = "os8088_5150_cga_720b_gla"
+type = "Ibm5150v256K"
+rom_set = "glabios_pc"
+speaker = true
+overlays = [
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [machine.fdc]
+    bus_type = "ISA"
+    type = "IbmNec"
+
+        [[machine.fdc.drive]]
+        type = "360k"
+
+        [[machine.fdc.drive]]
+        type = "720k"
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"
+
 # ...and the FOUR-drive 5150: two internal and the pair on the 5.25" adapter's
 # external 37-pin connector (SPEC.md 18.97). Upstream's own overlay, because
 # the FDC takes four and this is what four looks like. Drives 2 and 3 carry no
