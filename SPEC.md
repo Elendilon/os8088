@@ -32405,6 +32405,48 @@ appends the rest back. Before it, a count of 0 was `FERR_NAME` — *"the caller
 has miscomputed"* — and nothing in the tree passed one: the DOS box's flush
 returns on an empty window before it gets here.
 
+#### 18.4.7.6 One FAT flush when one sector is the whole update
+
+An append at the end commits in SPEC.md 18.4's order, refined for the FAT
+itself: write the data, flush the new sub-chain (allocated, terminated,
+unreachable), THEN set the link from the file's old last cluster and flush
+again, then store the entry. The two flushes are there for a power cut in
+the middle of a MULTI-sector flush: one writes the dirty range in a single
+transfer, and a cut part-way can land some sectors and not others. If the
+link's sector landed and the new chain's did not, the file's last cluster
+would point into clusters the disk still shows free, and the next allocation
+would hand them to another file.
+
+**When the link and every new entry share ONE FAT sector, the second flush
+is the whole update**: a sector lands whole or not at all, so there is no
+partial state for the first flush to guard. That is the common case by a
+wide margin. A 32 KB append on a 2 KB-cluster volume is 16 FAT16 entries,
+32 bytes, and the new chain continues from the link. A trace of Uncompress
+To... onto the fixed disk showed every append writing the same FAT1 and FAT2
+sectors twice in a row (docs/plans/STREAM-WRITER-PLAN.md §1).
+
+So `.grow` asks `dskw_onesec` first. It answers CF=0 when `[dsk_fatd0]` =
+`[dsk_fatd1]` (one sector dirty) and both bytes of the link's entry are in
+that sector. It is arithmetic only: no window, no I/O. On CF=0 the link is
+set first and one flush writes it all; otherwise the two flushes run as
+before. A FAT12 entry that straddles two sectors, a new chain that spilled
+into the next sector, or a window that had to move all answer CF=1 and take
+the two-flush path. An empty file has no link and was always one flush.
+
+**Measured** with `tests/viddisk.py --floppy` and `VD_TRACE=12`, which
+counts the fixed disk's transfers per 32 KB append over eleven appends of
+VIDDISK's W: **one-sector writes 5.2 -> 3.2 an append** (FAT1, FAT2 and the
+entry, where it was FAT1 and FAT2 twice), with the data writes (3.3) and the
+directory read (1.0) unchanged. The ~0.2 left over is an append whose new
+chain crossed into the next FAT sector and took the two-flush path. The
+12.5 MB STREAM.DAT reads back on the host byte for byte either way. On
+MartyPC's XT-IDE, which moves bytes with the CPU, W's time barely moves (575
+-> 570 guest seconds: the walk dominates there). On the ST-225 each saved
+write is a revolution at least. `fcpapi`, `fcpcopy`, `fcpsmall`, `dosfile`
+and `bigvol` are green on it. 81 bytes of `.cold` on each kernel, resident.
+
+It is stage 1 of docs/plans/STREAM-WRITER-PLAN.md.
+
 #### 18.4.7.1 What it cost, and where
 
 At its first commit the write-at was **14 bytes of `.text`, 1 of `.bss` and

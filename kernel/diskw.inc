@@ -3179,6 +3179,19 @@ dskw_wabody:
     call ct_fpg_begin
     call dskw_wdata             ; the new sub-chain, allocated and written
     jc .rollback
+    pop ax
+    push ax
+    or ax, ax                   ; **ONE FLUSH WHEN ONE SECTOR IS THE WHOLE
+    jz .flush1                  ; UPDATE** (SPEC.md 18.4.7.6). The two flushes
+    call dskw_onesec            ; below keep the link off the disk until the
+    jc .flush1                  ; chain it points into is there - which only
+    pop ax                      ; a MULTI-sector flush can get wrong. When the
+    mov si, sp                  ; link's entry and every new one share one FAT
+    mov dx, [dskw_first]        ; sector, both flushes write that sector and
+    call dskw_setfat            ; the second is the whole update: so link
+    jc .out2                    ; first and write it once. (SI: see below)
+    jmp short .flush2
+.flush1:
     call dskw_flush_x           ; ...and durable
     jc .rollback
     pop ax
@@ -3191,6 +3204,7 @@ dskw_wabody:
     jz .sethead                 ; the file was empty: the ENTRY takes the
     call dskw_setfat            ; head. Otherwise the join: last -> first
     jc .out2
+.flush2:
     call dskw_flush_x
     jc .out2
     jmp short .size
@@ -3893,6 +3907,51 @@ dskw_dirty:
     jbe .out
     mov [dsk_fatd1], ax
 .out:
+    ret
+
+; -----------------------------------------------------------------------------
+; dskw_onesec - would linking cluster AX leave the dirty FAT range ONE sector?
+; in:  AX = a cluster (2..[dsk_maxclus]), the dirty range as dskw_wdata left it
+; out: CF=0 when [dsk_fatd0] = [dsk_fatd1] and both bytes of AX's entry are in
+;      that sector - so its link can join the flush as ONE sector write per
+;      FAT, which lands whole or not at all (SPEC.md 18.4.7.6); CF=1 otherwise
+; clobbers: flags
+;
+; Arithmetic only: the window is not touched, so asking costs no I/O and a
+; "no" leaves everything as it was for the two-flush path.
+; -----------------------------------------------------------------------------
+dskw_onesec:
+    push ax
+    push cx
+    push dx
+    mov cx, [dsk_fatd0]
+    cmp cx, [dsk_fatd1]
+    jne .no                     ; two or more sectors dirty (or none)
+    cmp byte [dsk_fattype], 0
+    jne .f16
+    mov dx, ax                  ; FAT12: the entry is at clus + clus/2, and
+    shr dx, 1                   ; its second byte may be in the next sector
+    add ax, dx
+    mov dx, ax
+    inc dx
+    mov cl, 9
+    shr ax, cl
+    shr dx, cl
+    cmp ax, dx
+    jne .no                     ; it straddles: two sectors, the safe path
+    jmp short .cmp
+.f16:
+    mov cl, 8                   ; FAT16: 256 entries a sector, never split
+    shr ax, cl
+.cmp:
+    cmp ax, [dsk_fatd0]
+    je .out                     ; `je` taken on equal: CF is 0
+.no:
+    stc
+.out:
+    pop dx
+    pop cx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------

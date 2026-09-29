@@ -153,6 +153,31 @@ def main():
             base, rw = opened(m)
             if a.floppy:
                 m.type_text("w")
+                if os.environ.get("VD_TRACE"):
+                    # docs/plans/STREAM-WRITER-PLAN.md 6: the fixed disk's
+                    # transfers for the first appends, by kind - a data run,
+                    # a one-sector metadata write, a read
+                    at = m.sym("dsk_xfer.attempt")
+                    i13 = at + m.read(at, 200).index(b"\xCD\x13")
+                    m.bp_exec(i13)
+                    tally = {}
+                    n0 = rw("vk_wk")
+                    while rw("vk_wk") < n0 + int(os.environ["VD_TRACE"]):
+                        if m.wait_stop(limit=5.0) != "breakpoint":
+                            continue
+                        rg = m.regs()
+                        if rg["dx"] & 0xFF == 0x80 and rw("vk_wk") > n0:
+                            op, run = rg["ax"] >> 8, rg["ax"] & 0xFF
+                            k = ("read" if op == 2 else
+                                 "data write" if run > 1 else "1-sector write")
+                            tally[k] = tally.get(k, 0) + 1
+                        m.run()
+                    m.bp_exec()
+                    m.run()
+                    per = rw("vk_wk") - n0 - 1
+                    print("\n   TRACE, fixed disk, per 32 KB append over %d: %s"
+                          % (per, ", ".join("%s %.1f" % (k, v / per)
+                                            for k, v in sorted(tally.items()))))
                 os88marty.until(m, lambda mm: rw("vk_wdone") != 0,
                                 "W to write STREAM.DAT", poll=2.0,
                                 limit=3600.0, guest=4000.0)
