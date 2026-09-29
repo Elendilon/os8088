@@ -55,14 +55,19 @@ NLEV = 11                       # levels, 2 dB apart: 0..20 dB - ratio 3
 LEV_DB = 2.0
 CURVE_N = 129                   # the soft clip's curve, z = m/128, m 0..128
 RATIO = 3.0                     # the leveller's ratio (98.2.15.1's lifted)
-ZT = 2.0                        # z at a loud block's peak, level 0: how
-                                # hard the loudest parts drive the clip
+ZT = 2.5                        # z at a loud block's peak, level 0: how
+                                # hard the loudest parts drive the clip - 2.0
+                                # until HOLD 16 halved the clipping, and this
+                                # took the loudness back (34.11.9)
 PFULL = 96                      # ...a "loud" peak, in index units (of 128)
 PGATE = 3                       # a block peaking under this is SILENCE
 SPARSE = 32                     # the peak is read one sample in this many
 SUB = 16                        # samples a sub-block: d moves once a sub-block
-HOLD = 2                        # a span's level is asked by the largest peak
-                                # of it and the HOLD spans before it (34.11.9)
+HOLD = 16                       # a span's level is asked by a peak HELD for
+                                # HOLD spans, itself included (34.11.9): ~0.5 s
+                                # at 8,000 Hz, so a loud hit does not pump the
+                                # steady parts around it
+DECAY = 4                       # ...and then lets go by 1/2^DECAY a span
 D_UP, D_DOWN = 1, 8             # ...by at most this many counts
 PRE_NONE, PRE_DIFF = 0, 1
 
@@ -149,7 +154,9 @@ class Shaper(object):
         self.c0 = self.fam[0][128]
         self.lev = 0
         self.gate = True                        # a play starts as after silence
-        self.held = [0] * HOLD                  # the last HOLD spans' peaks
+        self.hp, self.hc = 0, 0                 # the peak held, spans left
+        self.cur = 0                            # the row being emitted: it
+                                                # GLIDES to lev a step a sub-block
         self.d = self.c0 - 1 if idle else 0     # the carrier starts away
         self.h = self.d
         self.sub = 0
@@ -165,8 +172,9 @@ class Shaper(object):
 
     def level(self, xs):
         """the span's peak, one sample in SPARSE from its first, of the
-        index the table is read at; the level the largest of it and the
-        last HOLD spans' peaks asks for (a rise of one step a span at most, a
+        index the table is read at; the level the HELD peak asks for (a
+        peak within a quarter of it re-arms a hold of HOLD spans, after which
+        it decays by 1/2^DECAY a span, never below the span's own) (a rise of one step a span at most, a
         fall at once - and after a SILENT span, the level it asks for at once:
         nothing to step from); and the carrier's target, from this span's own
         peak"""
@@ -175,10 +183,18 @@ class Shaper(object):
             a = abs(self.index(xs[j], xs[j - 1] if j else prev) - 128)
             if a > p:
                 p = a
-        want = self.lt[max([p] + self.held) if p >= PGATE else p]
-        self.held = [p] + self.held[:-1]
+        if p >= self.hp - (self.hp >> 2):       # a peak within ~2.5 dB of the
+            self.hp = max(self.hp, p)           # held one holds it HOLD more
+            self.hc = HOLD - 1                  # spans
+        elif self.hc:                           # still held
+            self.hc -= 1
+        else:                                   # let go SLOWLY: 1/16 a span
+            self.hp = max(p, self.hp - ((self.hp >> DECAY) or 1))
+        want = self.lt[self.hp if p >= PGATE else p]
         self.lev = (self.lev + 1 if want > self.lev and not self.gate
                     else want)
+        if self.gate:
+            self.cur = self.lev                 # after silence: no glide
         self.gate = p < PGATE
         row = self.fam[self.lev]
         if p < PGATE:
@@ -193,9 +209,12 @@ class Shaper(object):
 
     def emit(self, xs):
         out = bytearray()
-        row = self.fam[self.lev]
+        row = self.fam[self.cur]
         for x in xs:
             if self.sub == 0:
+                if self.cur != self.lev:        # a sub-block: the row a step
+                    self.cur += 1 if self.lev > self.cur else -1
+                    row = self.fam[self.cur]    # toward the span's, then d
                 if self.d < self.h:
                     self.d += min(D_UP, self.h - self.d)
                 elif self.d > self.h:
@@ -262,6 +281,8 @@ def gen_inc():
              "SPKFX_PGATE   equ %d" % PGATE,
              "SPKFX_SPARSE  equ %d" % SPARSE,
              "SPKFX_SUB     equ %d" % SUB,
+             "SPKFX_HOLD    equ %d" % HOLD,
+             "SPKFX_DECAY   equ %d" % DECAY,
              "SPKFX_DUP     equ %d" % D_UP,
              "SPKFX_DDOWN   equ %d" % D_DOWN,
              "os88spkfx_curve:"]
