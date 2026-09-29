@@ -155128,3 +155128,269 @@ Guest tests must cover matches, links, gravity, rotation, game over, progression
 input, mode restoration, incremental/full repaint equivalence and actual 8088
 cycle costs on VGA and CGA. Timing claims must distinguish emulator results
 from physical XT measurements.
+
+## 101. 1942 — native vertical shooter (`apps/1942/`)
+
+A standalone native game. `make 1942disk` builds 360KB and 1.44MB game
+floppies. With a local `1942.nes`, or `N1942_ROM=/path/to/1942.nes`, the host
+imports cartridge aircraft, terrain, encounter tables and note streams; `N1942_ROM=` selects the committed
+original artwork. Normal builds need NASM and Python's standard library.
+The cartridge and extracted assets are local inputs/outputs, never committed
+or downloaded. This is a native remake, not an NES emulator: movement,
+combat, timing and stage progression remain the package's own simulation.
+
+### 101.1 Video and memory
+
+VGA uses FSXM_MODEX, 320x240, with a 256x240 playfield at x=32. Two
+hidden/draw pages have a small row margin. Scrolling subtracts native rows
+from each page's CRTC start address. Previous actor rectangles move by the
+same displacement and are restored from the terrain ring, followed by the
+fixed HUD and newly exposed rows. When a page exhausts its margin, it is
+rebased and refreshed with write-mode-1 latch copies while the other page
+remains visible. The package programs the start address inside FSX and waits
+through the OS's bounded FSXW_VSYNC service. Page and cache sizes are generated
+from the deduplicated sprite cache so all regions fit below offset 65536.
+Sprite latch commands have two horizontal phases (even x positions); text
+uses opaque runs per plane. No per-pixel conversion runs in combat.
+
+CGA uses FSXM_CGA320, 320x200. Logical coordinates scale 5:4 horizontally
+and 5:6 vertically. The MC6845 display start address advances by one pair of
+native scanlines when the scroll accumulator reaches a pair, modulo 8192
+bytes per video bank.
+Presentation splits copies crossing a physical bank boundary. The fixed HUD
+and two incoming terrain rows are redrawn at the top; old actor footprints
+move down two rows. Old/new actor damage and the HUD are merged into scanline
+intervals, then equal adjacent intervals become rectangles. Every damaged
+region is restored once in the packed RAM canvas, actors are drawn in order,
+and each region transfers to VRAM once. A separate geometry pass ensures
+masked sprite stores see current terrain despite the hardware scroll.
+Aircraft, explosions and projectiles use compiled 8086 ES:DI stores ending
+in RETF; their geometry and horizontal phases are precomputed. C selects
+three legal 3D9h profiles; CGA's colors remain hardware fixed groups.
+
+Both adapters use a circular terrain cache with a fixed 16-row VGA / 14-row
+CGA HUD and a 224-row / 186-row playfield. Two incoming rows replace the
+oldest rows each simulation frame. Existing terrain does not shift in RAM
+or VRAM. The upper half of the canvas claim holds the cartridge terrain bank;
+CGA uses the lower half for background at 0 and composed pixels at 16384.
+VGA keeps its terrain ring in offscreen video RAM after the two display
+pages, followed by the sprite cache. The original-art build scrolls a cyclic
+native backdrop through the same display paths.
+
+Three instance-owned 64KB claims hold two sprite banks and terrain/canvas data; the
+loader releases them. The XT target remains 640KB RAM. Enter/F enters or
+resumes the FSX bracket; Escape/F restores the desktop. An executable-resident
+bitmap says `1942  LOADING GRAPHICS` before the first disk read, including
+resume and scenery reloads. It does not depend on the graphics being loaded.
+Missing or invalid graphics return to the launcher with an error.
+
+### 101.2 Graphics files
+
+`1942V.GFX` / `1942C.GFX` and their `1942VX.GFX` / `1942CX.GFX`
+continuation banks: magic `N42V` / `N42C`, word total length,
+word sprite count, then word record offsets. Records contain width/height
+bytes and four word stream offsets. VGA streams represent planes; CGA
+streams represent horizontal phases. Width bit 7 identifies compiled CGA
+8086 programs: immediate ES:DI AND/OR/MOV instructions, terminated by RETF.
+The host gate decodes their opcodes and checks store bounds. Other streams
+contain offset/count records terminated by FFFFh; VGA runs contain color
+bytes, CGA runs contain a type (opaque or AND-mask/OR-data) and data.
+Offsets use an 80-byte destination stride. The guest verifies expected
+length and 16-bit byte checksum before following offsets. These checks
+catch accidental damage, not malicious executable files.
+
+`1942L.GFX` holds four planes of the deduplicated VGA sprite cache. Grouped-mask display
+lists are generated into the package. The host refuses segment/cache overflow.
+
+`tools/1942nes.py` accepts the pinned 32KB PRG / 8KB CHR NROM payload,
+identified by SHA-256 independently of the iNES/NES 2.0 header. It follows
+the cartridge's metasprite pointers at CPU $C565, coordinate layouts at
+$CE0E, attribute pointers at $D010, CHR tile/flip pairs and palette at $A770.
+Landscape decoding follows the route at $844B, 23 pages of 16x15 metatiles
+at $854B, the four tile indices per metatile at $9ADB and palettes at $9EDB.
+These offsets come from the cartridge's routines at $C45A, $81EE, $824F and
+$82E7. RGB is an NES palette approximation; CGA uses an explicit ink mapping.
+
+`WORLD.V42` / `WORLD.C42`: `N42W`, word length, two reserved bytes,
+256 route IDs (eight pages per stage), 23*240 metatile IDs, 256*4 tile IDs,
+then adapter data. VGA data consists of deduplicated indexed 8x8 tiles with
+palettes resolved. CGA data consists of 256 metatiles, each 16 rows of five
+packed bytes (16 logical pixels -> 20 CGA pixels). Both banks fit in the upper
+32KB of the canvas claim. Each stage starts at its carrier page and moves
+backward through scanlines, advancing through its eight-page route. Native
+CGA row sampling uses floor(y*6/5); VGA uses the cartridge rows directly.
+Pause freezes scrolling; fullscreen resume reconstructs the same route
+position after the video mode and graphics caches are reloaded.
+
+Original-art builds retain `SEA.V42`, `REEF.V42`, `PORT.V42` (`N42B`, length,
+adapter byte 0, reserved byte, four 64x240 planes), and `.C42` equivalents
+(adapter byte 1, 80x200 packed bytes). Families cycle every four stages.
+Generated sprite/palette JSON beside the binaries supports independent tests.
+Source-selection stamps ensure switching between cartridge and original art
+rebuilds the matching package and disks.
+
+### 101.3 Gameplay and validation
+
+Arrows move; Space/Z fires; X rolls; P pauses; M toggles sound; C selects
+CGA colors; N starts again. Keyboard 1/2 selects player count at the title.
+There are three initial lives and three rolls per stage. The 32 stages use
+scripted formations, small-plane maneuvers and bomber paths. Complete orange
+formations award a weapon upgrade, screen clear, wingmen, extra roll or extra
+life. Wingmen fire and absorb bullet/contact hits independently. A secret
+plane appears after 200 kills, then every 150, dropping a 5,000-point reward.
+
+Carrier takeoff and landing bracket combat. Results award the cartridge's
+shooting-percentage bonus (500 at 50% up to 100,000 at 100%) and 1,000 per
+unused roll. Extra lives are awarded at 20,000, 80,000 and each further 80,000.
+Scores use 32-bit accumulation; the instance high score appears on the title.
+Collision extents and horizontal bounds follow each kind's sprite dimensions.
+
+`make 1942test` exercises both adapters on pinned 4.77MHz MartyPC models:
+pre-I/O loading pixels, controls, collisions, roll/grace, all POWs, formation
+completion/escape controls, results bonus boundaries, extra lives, two-player
+turns, sound controls, natural spawning, all aircraft kinds, bosses, victory,
+scenery/route transitions,
+ring wrapping, pause/resume, palette cycling, full-refresh equivalence and
+missing/damaged file rejection. The independent terrain reference reads
+CHR, metatiles and route bytes directly from the local cartridge rather than
+using the generated world bank or guest cache. VGA scanout mode is checked
+separately from plane contents. Performance includes rendering, presentation
+and pacing; loading is outside combat timing. Emulator results do not imply
+physical-hardware rates.
+
+The crowded-combat regression retains a 5fps minimum, including the slowest
+measured frame. The cartridge pacing build measured 6.52fps average /
+5.43fps slowest on VGA and 5.56 / 5.31 on CGA with twelve planes, sixteen
+enemy bullets, sixteen player shots and four explosions. These are emulator
+guest-cycle measurements using injected actors above the gameplay limits.
+Re-run the emulator gate after renderer changes; host asset
+checks alone do not establish frame rate or correct hardware scanout.
+
+### 101.4 Cartridge gameplay expansion
+
+The native engine uses build-time decoded stage events from $E26F and wave
+records from $EB19. Events are triggered by logical route distance, with a
+bounded twelve-entry wave scheduler. Complete orange formations earn typed
+POWs; escaped members invalidate their reward. The native movement interpreter
+uses cartridge waypoints and small-plane entry tables at $F3EC/$F12E/$F550,
+with dive/reversal, sweep and crossing maneuvers and aimed firing implemented
+in 8086. No 6502 interpreter is shipped. Timing is adapted to the host frame
+rate and is not a claim of cycle-level NES equivalence.
+
+Wave periods now decrement once per native update ($DA81), preserving the
+cartridge batch sizes instead of accelerating them threefold. Allocation
+uses eight regular aircraft slots ($DAC2), with a separate secret-plane
+slot, and eight enemy bullets ($FABF). A full aircraft pool retries after
+the wave period without accumulating overdue timer debt. Fighter firing
+uses the shared stage/page counter, 112-pixel range box, 32-pixel exclusion
+box, downward aiming sectors and heading checks from $FA32. Types 9..33
+retain their cartridge no-fire behavior. The $ADC9 aiming lookup and $FD2F
+bomber burst records are imported at build time. Bomber shots are sequenced
+at their cartridge intervals; the proximity gate also applies to bombers.
+See `reference/1942/README.md` for the local cartridge investigation and
+remaining native movement/timing adaptations.
+
+Campaign motion uses the cartridge's 16-direction fixed-point velocity and
+circle tables, per-type speeds, shared entry-position sequence, and waypoint
+steering. Aircraft outside the visible area continue their current heading
+until they leave the actor bounds; they cannot follow adjoining path records
+back onto the screen. Large bomber entry selects the player's horizontal
+half, as $F6E8 does. Route progress is three quarters of a logical pixel per
+simulation update ($DE42), on both adapters. VGA accumulates single rows;
+CGA accumulates paired scanlines to preserve the MC6845 bank alignment.
+Wave timers run even on updates without a terrain-row change. The native
+takeoff/results presentation and wall-clock frame rate remain adaptations.
+Orange formations split across several wave records share one reward group;
+an escape invalidates the whole formation. Boss handoff clears outstanding
+waves at logical distance 1297; final-page aircraft clear at 1792, followed
+by landing at 1824. Combat starts 45 pixels into the route after takeoff,
+and event distances exclude the HUD offset. The shared entry counter
+persists across stages.
+
+Stage flow includes takeoff, combat, landing, percentage/roll results and
+completion. The large boss encounters occur on played stages 7,15,23,31.
+Their aircraft is terrain page 2, with a 144x96 collision body and the
+cartridge's sequenced seven-shot burst from its native muzzle.
+Scrolling holds during the encounter; destruction rebuilds the cache using
+sea in place of the boss page.
+Two-player games alternate on death, retaining each player's score, lives,
+weapon, stage and extend state. A returning player restarts their stage.
+Keyboard 1/2 selects player count at the title; Enter starts or advances
+results. High scores last for the instance.
+
+Cartridge sprites include loop frames, directional aircraft, wingmen, POWs,
+projectiles and NES glyphs. Common sprites retain the compiled/latch fast
+paths; uncommon animation frames use bounded sprite streams. Rebase copies
+exclude the static VGA gutters; the HUD and playfield are restored separately.
+The frame loop caps simulation at the 18.2065 Hz system clock. While the
+BIOS tick equals the iteration's start tick, it yields to FSXW_FRAME and
+rechecks: FASTTICK wakes at 54.6 Hz, so a single yield is insufficient on
+faster CPUs. A busy frame that already crossed a tick incurs no additional
+delay or catch-up updates. Equality remains valid across tick wrap. The
+regression bypasses rendering to exercise consecutive fast frames, verifies
+the 18.2 Hz cap and tick wrap, and checks overdue frames return immediately.
+Music/effect note streams are decoded at build time from $A413. Gameplay cue
+14 is a looping variation of Game Over cue 7: an octave lower, durations at
+three quarters of the original, long cadences capped at 56 NES frames before
+that scaling, and a 14-frame rest between repeats. The decoder's clipped
+12000 Hz one-frame tail is omitted from the variation. Game Over keeps its
+original one-shot sequence. The arrangement is generated at build time and
+works with either cartridge or original fallback data. On fullscreen
+entry, SND_CAPS selects FM when SND_CAP_FM and the enabled card route are both
+present. AdLib and Sound Blaster use their FM hardware through SND_FM: channel
+0 carries music and channel 1 carries effects, with patches loaded once per
+entry. Failed claims release partial ownership and fall back to SND_TONE.
+Speaker playback gives effects priority; FM advances both streams together.
+The bounded sequencer emits at most one new note per voice per frame, caches
+held output, and freezes both streams while muted or paused. Resume restores
+held notes; exit releases FM claims, including failed graphics-load exits.
+FM pitches fold by octaves into the driver's 19..6208 Hz range. These are
+native FM arrangements of cartridge note data, not sampled NES APU playback.
+Combat FM effects use short, low percussive envelopes instead of the melody
+patch. Sound Blaster DSP 2+ can additionally play recorded gunfire, destruction
+and player-loss effects from the optional `1942.SFX` bank (CC0 sources and
+edits in `apps/1942/sfx/CREDITS.md`). Music stays on FM. The bank contains a
+16-byte N42S header and 1024/3072/4096 bytes of unsigned 8-bit mono PCM at
+8000 Hz; its length, header and checksum are checked before use.
+A page-safe 13KB DMA claim holds three prepared 4096-byte rings and their
+control words at offsets 0, 4112 and 8224. The bank is read and validated at
+offset zero, then expanded in place, last sample first. Each one-shot is
+padded with silence and played directly through SND_STREAM's external-ring
+interface. Starting an effect copies no samples. No mixer or refill worker
+is needed.
+At most one pending sample starts per game frame; louder events take priority
+over shots. Mute/pause cancels effects; exit closes the stream before freeing
+the claim. Missing samples, memory or unsupported DSP fall back to FM.
+The 360KB original-art disk omits the optional bank for space; the cartridge
+360KB disk and 1.44MB disk include it. The old tone path already used hardware
+tones, so richer sound does not promise an XT speedup.
+Both palette sets at $A770/$A790 are available for the cartridge's final area.
+Original-art builds implement the same game rules using original fallback
+assets and native schedules. No extracted cartridge content is committed.
+
+### 101.5 Desktop title splash
+
+The launcher paints a black title splash with an original vector recreation
+of the outlined 1942 logo and aircraft menu pointer. VGA uses native desktop
+resolution and the shared 16-color palette. Hercules uses white contour art;
+monochrome CGA uses a vertically compact contour version. These are separate
+build-time renders, with no runtime scaling or dithering. The window keeps
+its normal close, move and About affordances.
+
+1/2 or Up/Down selects players; Enter, Space or F starts directly with
+carrier takeoff. Mouse selection is supported. H displays controls. Returning
+from fullscreen offers Resume and New Game; resume preserves campaign state.
+Hercules displays the splash and controls with an explicit VGA/CGA gameplay
+requirement. Missing gameplay banks retain their existing error message.
+
+Compressed splash artwork is embedded in the executable, independent of the
+optional cartridge. Decode reuses the existing terrain/canvas claim while
+outside fullscreen. Native planes and a packed fallback fit together in that
+claim; fullscreen invalidates the decoded splash, and the next desktop paint
+rebuilds it. Native blits retain ownership clipping. The window timer decodes
+and reveals six artwork rows per tick, keeping each reveal step
+below one 55 ms tick on a 4.77 MHz XT. Completed bands stay cached. Help
+redraws only the menu area; player selection redraws only the pointer.
+The reveal pauses while About is visible. No new memory claim or worker is
+required. Kernels without window timers decode the cache during entry and
+show the static splash.

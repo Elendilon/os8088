@@ -310,6 +310,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 
 | package | source | SPEC | ships |
 |---|---|---|---|
+| 1942 | `apps/1942/1942.asm` | §101 | yes |
 | APPLE2 | `apps/apple2/apple2.asm` | `docs/APPLE2-SPEC.md` | yes |
 | ARKANOID | `apps/arkanoid/arkanoid.asm` | §44 | yes |
 | AUDIO PLAYER | `apps/audio/audio.asm` | §86 | yes |
@@ -468,6 +469,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 98 | VIDEO PLAYER — full-motion video on a 4.77 MHz 8088 (`apps/video/`, `.V88`) |
 | 99 | Gorillas (`apps/gorillas/gorillas.asm`) |
 | 100 | DrMarco (`apps/drmario/drmario.asm`) |
+| 101 | 1942 — native vertical shooter (`apps/1942/`) |
 
 ## docs/
 
