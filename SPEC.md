@@ -34807,6 +34807,20 @@ meant "the cloner could not be loaded" was acted on as "the user asked for an
 image target": a Save box, on a half-written disk, for an operation nobody
 chose.
 
+**…and the VERB must answer `CF=0`, which is the half nobody enforced.** The
+test above is only as good as the carry the image hands back, and
+`clo_key`/`clo_saved` returned `CLA_ERR` with the carry still set: their
+`.err` tails are reached by `jc` and `mov` writes no flag. The resident
+caller did exactly what this section tells it to — read `CF=1` as the
+other alphabet — and repacked the answer, so the code became `CLA_ERR`
+itself (83h), `toast_say` refused it as past the end of its table, and
+**every clone and Write Img that failed on a disk error ended its mode in
+silence**: no toast, no status line, the prompt simply gone. That is the
+report off the 5150 in docs/FIELD-NOTES.md 32, where a failed write left
+nothing on the screen to photograph. Both verbs `clc` at their one exit
+now. It could fire on an ordinary key too — `.line` is reached through
+`jne` after `cmp al, 13`, so a keystroke below 13 left the carry set.
+
 
 #### 18.99.8 One end may be a FILE — `IMG` and `Write Img...`
 
@@ -35006,6 +35020,35 @@ The cloner's buffer deliberately is not. Rounding its base up to a page would
 cost up to 64KB of the very claim whose **size is the trip count** (§18.99.4),
 so on a one-floppy machine the trade is *a disk swap to save half a second*.
 The alignment is refused for the same reason the buffer exists.
+
+#### 18.99.10 A field kernel's failure says WHICH transfer failed
+
+On a `DISKCNT=1` kernel — `$(FIELDKNOBS)`, so every field kernel — the cloner's
+`CERR_IO` toast is not the words *Disk error* but the last `int 13h` that
+failed, recorded by `dsk_flrec` on every failed attempt inside `dsk_xfer`:
+
+```
+S80 14/1/07 W0 n09 01FE
+ |  |  | |  || |   | +- 0040:0040, the ROM's motor-off count
+ |  |  | |  || |   +--- 0040:003F, the ROM's motor bits (bit n = drive n on)
+ |  |  | |  || +------- n: the sectors that call carried
+ |  |  | |  |+--------- the int 13h unit (80h prints as 0)
+ |  |  | |  +---------- R read / W write
+ |  +--+-+------------- cylinder / head / sector, as issued
+ +--------------------- the BIOS status in AH
+```
+
+Every field is hex. It is 23 characters because a toast holds 24 (§59.8); the
+first version of this, written against a longer toast, was 35 and would have
+been cut at the motor byte — the one field it exists for. The template starts
+as **dashes**: a `CERR_IO` with no failed `int 13h` behind it (a file-layer
+error, a driver-backed volume) shows dashes instead of an old transfer.
+
+It is here because docs/FIELD-NOTES.md 32 is reported off a machine with no
+debugger, and every question that note asks — the status, the sector, whether
+it recurs at the same place, what the ROM believed about the spindle — is a
+fact this line photographs. A shipped kernel carries none of it and still
+says *Disk error*.
 
 ### 18.100 …and the restart PARKS the heads, because the next boot inherits them
 

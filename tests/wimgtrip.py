@@ -97,6 +97,31 @@ def job(m, off, n=1):
     return b[0] if n == 1 else u16(b)
 
 
+def pick_image(ui, m):
+    """File > Write Img..., then B: and the image's row in the dialog."""
+    ui.menu_pick("File", "Write Img...")
+    M.settle(m)
+    d = dialog(m)
+    check(d is not None, "Write Img... opens the Open dialog",
+          "fm_c_wimg is fdlg_open_x and nothing else (SPEC.md 22.21.5)")
+    if d is None:
+        done("wimgtrip")
+    cx, cy = d[0] + 1, d[1] + TITLE_H
+    for _ in range(4):                  # Drive walks the volumes
+        if m.read(m.sym("disk_drive"), 1)[0] == 1:
+            break
+        ui.mo.click(cx + (FD_BX1 + FD_BX2) // 2, cy + FD_BY2 + FD_BH // 2)
+        M.settle(m)
+    check(m.read(m.sym("disk_drive"), 1)[0] == 1,
+          "...and its Drive button reaches B:", "",
+          got=m.read(m.sym("disk_drive"), 1)[0], want=1)
+    ui.mo.click(cx + FD_TEXTX + 24, cy + FD_ROW0 + FD_ROWH // 2)
+    M.settle(m)
+    name = bytes(m.read(m.sym("fdlg_name"), 13)).split(b"\0")[0]
+    check(name == IMGNAME.encode(), "a click on the row names the image",
+          "", got=name, want=IMGNAME.encode())
+
+
 # PER-PROCESS, for docs/WRITING-TESTS.md 5.5: the runner runs rows side by
 # side and scratch_disk would otherwise be one file three machines rebuild.
 FIX = M.scratch_disk("build/wimgtrip-%d.img" % os.getpid(), IMAGE, size=720)
@@ -109,34 +134,59 @@ try:
         print("== %s : Write Img... round trip (SPEC.md 18.99.8) ==" % MACHINE)
         ui.open_drive("A")
 
+        # --- 1. a write that FAILS must SAY so (SPEC.md 18.99.7) -----------
+        # No emulated drive here fails a write on its own, so the fault is
+        # made: the first WRITE int 13h is caught at the gate and [dsk_unit]
+        # pointed at drive 3, which is not there - so every attempt and the
+        # whole per-sector fallback time out (80h), exactly as a transfer
+        # the platter will not take. What is asserted is the VERDICT. It was
+        # silence: the verb returned CLA_ERR with CF still set, the resident
+        # side repacked it as error 83h, and toast_say refused that as past
+        # its table - the mode just ended, with nothing to photograph.
+        pick_image(ui, m)
+        m.key("Enter")
+        M.settle(m)
+        check(edit(m) == 7 and job(m, CL_STEP) == CLS_WIMG,
+              "Write Img arms its confirmation", "",
+              got=(edit(m), job(m, CL_STEP)), want=(7, CLS_WIMG))
+        m.breakpoints([{"type": "int", "addr": 0x13}])
+        m.key("Enter")
+        hit = False
+        for _ in range(200):
+            if not m.wait_stop(60):
+                break
+            r = m.regs()
+            if r["ax"] >> 8 == 0x03 and r["dx"] & 0xFF == 0:
+                m.write(m.sym("dsk_unit"), bytes([3]))
+                m.setreg("dx", (r["dx"] & 0xFF00) | 3)
+                hit = True
+                break
+            m.run()
+        m.breakpoints([])
+        m.run()
+        check(hit, "...and its first write to A: is reached, and failed", "")
+        M.settle(m, limit=400)
+        check(ui.toast()[0] == "Disk error",
+              "a FAILED Write Img says 'Disk error'",
+              "clo_key must answer CF=0 with CLA_ERR/CERR_IO; with the carry "
+              "left set the resident caller repacks it as code 83h and "
+              "toast_say says nothing (SPEC.md 18.99.7)",
+              got=ui.toast()[0], want="Disk error")
+        check(edit(m) == 0 and u16(m.read(m.sym("clo_seg"), 2)) == 0,
+              "...and still ends the mode and gives the claim back", "")
+        # FIRST, because it cannot change A: - the write fails at the first
+        # chunk and sector 0 goes down last (SPEC.md 18.99.2) - while the round
+        # trip below replaces the system disk, CLONE.DRV and all, and a second
+        # Write Img after it could not load the module at all ('No disk').
+
+        # --- 2. ...and one that works puts the image down exactly ----------
         m.flush(0, flush)
         before = open(flush, "rb").read()
         check(before != want, "the target is NOT the image before the write",
               "the positive control: A: is the system disk and the image is "
               "the apps disk, so a write that did nothing cannot pass below")
 
-        ui.menu_pick("File", "Write Img...")
-        M.settle(m)
-        d = dialog(m)
-        check(d is not None, "Write Img... opens the Open dialog",
-              "fm_c_wimg is fdlg_open_x and nothing else (SPEC.md 22.21.5)")
-        if d is None:
-            done("wimgtrip")
-        cx, cy = d[0] + 1, d[1] + TITLE_H
-        for _ in range(4):                  # Drive walks the volumes
-            if m.read(m.sym("disk_drive"), 1)[0] == 1:
-                break
-            ui.mo.click(cx + (FD_BX1 + FD_BX2) // 2, cy + FD_BY2 + FD_BH // 2)
-            M.settle(m)
-        check(m.read(m.sym("disk_drive"), 1)[0] == 1,
-              "...and its Drive button reaches B:", "",
-              got=m.read(m.sym("disk_drive"), 1)[0], want=1)
-        ui.mo.click(cx + FD_TEXTX + 24, cy + FD_ROW0 + FD_ROWH // 2)
-        M.settle(m)
-        name = bytes(m.read(m.sym("fdlg_name"), 13)).split(b"\0")[0]
-        check(name == IMGNAME.encode(), "a click on the row names the image",
-              "", got=name, want=IMGNAME.encode())
-
+        pick_image(ui, m)
         m.key("Enter")
         M.settle(m)
         check(ui.toast()[0] != "Not a disk image",
@@ -173,6 +223,7 @@ try:
               "the wrong offset all show here as sector numbers",
               got="%d sectors differ, first %s" % (len(bad), bad[:8]),
               want="0 sectors differ")
+
 finally:
     for p in (FIX, FIX + ".args", flush):
         try:

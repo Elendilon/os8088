@@ -747,6 +747,28 @@ real defect, probably not this one. Its field toast is still the most useful
 thing anyone has built for this note, because the next failure could then
 say what it was.
 
+**...and a failure said NOTHING, which is the second fix of the day.** Porting
+that toast found why this note never had one to photograph: `clo_key` handed
+back `CLA_ERR` with the carry still set, the resident side read the carry as
+"the module could not be loaded" and repacked the answer as error 83h, and
+`toast_say` refused that as past its table (SPEC.md 18.99.7). **Every clone
+and Write Img that failed on a disk error just ended its mode in silence.**
+Both verbs clear the carry now, and a shipped kernel says *Disk error*.
+
+**The toast is ported, re-cut to fit** (SPEC.md 18.99.10): a `DISKCNT=1`
+kernel says `S80 14/1/07 W0 n09 01FE` - BIOS status, C/H/S as issued,
+direction and unit, the sectors in that call, and the ROM's motor byte and
+motor-off count. The original was 35 characters and a toast holds 24, so it
+would have been cut at the motor byte. `tests/wimgtrip.py` makes a write
+fail on purpose and reads it back: `S80 00/0/02 W3 n01 8825`. The spin-up
+guard itself is NOT ported - the toast is what says whether it is wanted.
+
+**What the next report needs**, all of it on that one line: the status (80h
+a timeout, 04h sector not found, 10h a CRC, 08h a DMA overrun), whether the
+sector is the same on a second attempt with a fresh disk, and the motor
+byte - bit 7 set is the ROM mid-write, and bit 0 clear on a write to A: is a
+motor the ROM believes is stopped.
+
 ---
 
 ## 33. A hard-disk install writes the whole volume to the wrong place, because SYSTEM.CFG carried another machine's geometry (CLOSED — drivers/hdd/cfg.inc, boot/boothd.asm)

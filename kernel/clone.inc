@@ -1143,7 +1143,7 @@ clo_nextvol:
 ; clo_key - one keystroke, and the disk work it asks for (SPEC.md 22.21.2)
 ; in:  AL = ascii, AH = scan; ES free; gfx lock held, UI task
 ; out: AL = CLA_*, AH = CERR_* when AL is CLA_ERR, BL/BH = the two volumes
-;      when it is CLA_DONE
+;      when it is CLA_DONE; CF = 0 ALWAYS (SPEC.md 18.99.7)
 ; clobbers: AX, BX, flags
 ;
 ; **The transfer happens HERE**, inside the keystroke, and that is not a
@@ -1305,6 +1305,19 @@ clo_key:
     mov ah, al                  ; AL = CERR_* on the way out of every refusal
     mov al, CLA_ERR             ; and every pass
 .out:
+    clc                         ; **EVERY EXIT IS AN ANSWER, SO CF IS CLEAR**
+                                ; (SPEC.md 18.99.7). The resident caller reads
+                                ; CF=1 as the OTHER alphabet - CLONE.DRV could
+                                ; not be re-read, AX = a bare CERR_* - and
+                                ; repacks it. `.err` arrives from a `jc` and a
+                                ; `mov` writes no flag, so CLA_ERR went back
+                                ; with CF still set and was repacked as error
+                                ; 83h, which toast_say refuses as out of its
+                                ; table: every failed clone and Write Img
+                                ; ended its mode in SILENCE (SPEC.md 18.99.10).
+                                ; `.line` is reached through a `jne` after a
+                                ; `cmp al, 13`, so a key below 13 leaked the
+                                ; same carry out of an ordinary prompt
     pop es
     pop di
     pop si
@@ -1317,7 +1330,7 @@ clo_key:
 ; in:  ES free; [clo_seg] live with CL_STEP = CLS_PICK and CL_TGT = CLE_IMG,
 ;      clo_fnbuf staged, the FILE's volume mounted and current; gfx lock held
 ; out: AL = CLA_*, AH = CERR_* when it is CLA_ERR (clo_key's answers exactly,
-;      because the caller hands them to the same place)
+;      because the caller hands them to the same place); CF = 0 always
 ; clobbers: AX, BX, flags
 ;
 ; The whole operation, in one call, for the cross-drive clone's reason: both
@@ -1352,8 +1365,9 @@ clo_saved:
     mov ah, al
     mov al, CLA_ERR
 .out:
-    pop es
-    pop di
+    clc                         ; an ANSWER, never the other alphabet - see
+    pop es                      ; clo_key's own exit, and the resident .save
+    pop di                      ; half that repacks a CF=1
     pop si
     pop dx
     pop cx
