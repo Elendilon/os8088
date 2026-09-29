@@ -59085,54 +59085,43 @@ and a play starts as if it were), and `tools/os88spkfx.py` carries the same
 rule, so `tests/spkfx.py` stays EXACT; with the jump taken out of the asm
 alone all five of its legs fail.
 
-**The level is asked by a HELD peak, and the table row GLIDES to it.** Two
-defects the owner heard on the T1100 Plus at 8,000 Hz, after the silence fix,
-and one design answers both. A level decided once a span from that span's
-own peak ducked the WHOLE span for a hit anywhere in it and then climbed back
-a step a span, so a busy song pumped between its beats (~50 ms "hitches");
-and with that cured by holding the peak three spans, the steady low part of a
-song still moved with its punctuating hits ("the volume of the low consistent
-parts varying, tied to the volume of the higher less frequent parts"). The
-fix is to move the level SLOWLY and let a short hit meet the soft clip rather
-than pull the steady part down:
+**A span's level is asked by the largest peak of it and the two spans before
+it** - a peak HOLD of ~64 ms at 8,000 Hz. Deciding a level once a span from
+that span's own peak ducked the WHOLE span for a hit anywhere in it, notes
+before the hit included, and then climbed back a step a span, so a busy song
+pumped between its beats: the owner heard it on the T1100 Plus, after the
+silence fix, as ~50 ms "microdropouts" that a Sound Blaster does not have.
+Measured by capturing every span Tracker mixed on MartyPC's 8,000 Hz XT (40
+s each, zero dry grants, so not the ring) and running `tools/os88spkfx.py`
+over them, which reproduces the machine's output exactly:
 
-- **the held peak** `os88spkfx_hp`: a span whose peak is within a quarter of
-  it (~2.5 dB) re-arms a hold of `SPKFX_HOLD` = 16 spans (~0.5 s at 8,000
-  Hz) and raises it if higher; once the hold runs out it decays by
-  1/2^`SPKFX_DECAY` = 1/16 a span, never below the span's own peak. Constant
-  work a span - the first build scanned a 16-byte window and cost Audio's
-  live 8,000 Hz leg on a 5150 13 more dry grants in 5 s, this one costs none;
-- **the glide**: `os88spkfx_rowc`, the row being emitted, moves one row (2
-  dB) toward `os88spkfx_rowt`, the span's, at each 16-sample sub-block - one
-  `inc`/`dec bh` where the emitter already stops to move d - so a level
-  change is a ramp and never a step. After a silent span the row is SET, not
-  glided, so 34.11.9's silence rule still holds;
-- **`ZT` 2.0 -> 2.5**: the slower level halved the clipping, and the drive
-  takes the loudness back.
+| song | | level travel | dips of 4 dB+ below both sides | mean level | at the curve's end |
+|---|---|---|---|---|---|
+| ELYSIUM.MOD | without the hold | 62.0 dB/s | 97 | 6.12 | 6.3% |
+| | with it | 31.4 dB/s | 9 | 5.37 | 3.6% |
+| BEVERLY.MOD | without | 87.7 dB/s | 162 | 5.38 | 4.6% |
+| | with | 55.2 dB/s | 38 | 4.57 | 2.9% |
 
-Measured by capturing every span Tracker mixed on MartyPC's 8,000 Hz XT (40 s
-each, zero dry grants) and running `tools/os88spkfx.py` over them, which
-reproduces the machine's output exactly. "Wander" is the level's spread
-within each second, the thing that was heard:
+What it costs is ~1.5 dB of average loudness (a loud hit keeps the level down
+two spans longer) and ~40 bytes and a dozen instructions a span in each
+package that carries the shaper; nothing resident. Faster release and a
+tolerance before falling were both measured and both WORSE on every column.
+The carrier's target is still set by the span's own peak. `os88spkfx_pk1` and
+`os88spkfx_pk2` are the two held peaks; with the hold taken out of the asm
+alone `tests/spkfx.py` fails on all five legs.
 
-| song | shaper | wander | mean gain | at the curve's end |
-|---|---|---|---|---|
-| ELYSIUM.MOD | one span, no hold | - | 12.2 dB | 6.3% |
-| | three-span hold | 1.87 dB | 10.8 dB | 3.6% |
-| | **held peak + glide** | **0.65 dB** | 10.4 dB | 3.5% |
-| BEVERLY.MOD | three-span hold | 2.21 dB | 10.3 dB | 2.9% |
-| | **held peak + glide** | **0.84 dB** | 8.9 dB | 1.8% |
-
-So the steady parts hold within a decibel while the hits reach the clip no
-more often than before - they keep their height above the lows rather than
-being levelled into them, which was the owner's condition for the change.
-Faster release and a tolerance before falling were measured first and were
-worse on every column. What it costs: ~5 cycles a sample in the emitter and
-~1.5 in the level (`tests/spkfx.py`: PRE_NONE 65.2 -> 70.5 and 5.9 -> 7.4),
-~80 bytes in each package that carries the shaper, nothing resident; the
-5150 still opens Tracker at 4,800 (92%) with the ring never dry.
-`tests/spkfx.py` is EXACT on all five legs, and FAILS with the glide or the
-decay taken out of the asm alone.
+**A slower leveller was built and REVERTED, on the ear.** A held peak that
+decays (re-armed within ~2.5 dB, held 16 spans, then 1/16 a span), a table row
+that glides a 2 dB step every 16 samples and `ZT` 2.5 took the level's spread
+within each second from 1.87 to 0.65 dB on ELYSIUM.MOD and from 2.21 to 0.84 dB
+on BEVERLY.MOD, at the same clipping, and the owner preferred it on the T1100
+Plus side by side. A second listener disliked it: its fades out and back in
+around a loud part were MORE obvious for being slower, where the three-span
+hold's are short enough to pass. So the three-span hold ships, and what is
+wrong with both is the same thing - the level moves at all, and parts that
+should not change fade with it. docs/plans/SPEAKER-LEVELLER-NEXT.md carries
+the measurements, the instrument, and the next idea, which attacks exactly
+that: ONE level for a whole song, chosen at load.
 
 **What it costs, measured** on MartyPC's 4.77 MHz 5150 (`tests/spkfx.py`,
 emit plus the span's level, interrupts included): **~104 cycles a sample**

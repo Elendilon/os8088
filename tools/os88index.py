@@ -136,8 +136,8 @@ INCLUDES = [
     ("os88spkfx.inc", "34.11.9",
      "The SPEAKER SHAPER, beside os88spk.inc: 8-bit PCM made into pulse "
      "counts a 5150's cone can play - a first-difference pre-emphasis, a "
-     "leveller on a held, decaying peak whose table row glides 2 dB every 16 "
-     "samples, a soft clip and the "
+     "leveller chosen per span from the peak held over three spans, a soft "
+     "clip and the "
      "carrier put away in the quiet, all one `xlatb` and one subtract a "
      "sample. `os88spkfx_init` builds the level family in your own segment "
      "after `os88spk_init`; `os88spkfx_level` decides a span, "
