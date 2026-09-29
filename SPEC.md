@@ -953,20 +953,28 @@ KNOB build already has and a shipped build does not use:
   a knob build `.ovl` starts `OVL_KNOBGIVE` = **96** bytes lower, at
   `OVL_BASE` = 2,528. `SPLSTARS=1` is the one knob whose `.boot2` is above
   that (2,562 with `NOKZIP=1`) — it is what sets `OVL_AT`'s floor — so it
-  keeps the shipped split. `OVL_AT` stays the one literal, which is what
+  keeps the shipped split. **Every other knob but `BOOTDIAG=1` gives 144**
+  (`OVL_BASE` = 2,480): its `.boot2` is the shipped loader's, 2,470 at the
+  most (`MOUDIAG=1`), and §31.14's `ovl_fdd_apply` took the shipped blob from
+  147 spare to 20, which `BOOTMARK=1` needed. `OVL_AT` stays the one literal, which is what
   `tools/os88ladder.py` reads and what describes every kernel a disk carries.
 
 Both are compiled out of every shipped kernel, so `make`, `make small` and
 `make emu` are exactly what they would be without them. Measured (blob `.ovl`
-of 1,984 shipped / 2,080 knob; `.ovlw` region 2,560 on a kern_small knob):
+of 1,984 shipped / 2,128 knob; `.ovlw` region 2,560 on a kern_small knob), and
+the kern_big column re-measured after §31.14:
 
 | arm | kern_big `.ovl` | kern_small `.ovl` | kern_small `.ovlw` |
 |---|---:|---:|---:|
-| `BOOTMARK=1` | 1,979 (101 free) | 1,442 | 2,258 |
-| `BOOTMARK=1 BOOTHALT=20` | 1,983 (97 free) | 1,446 | 2,258 |
-| `BOOTPROF=1` | 1,888 | 1,351 | 2,150 |
-| `MOUDIAG=1` | 1,850 | 1,313 | 2,175 |
-| `BOOTMARK` + `BOOTPROF` + `MOUDIAG` | 2,053 (27 free) | 1,516 | 2,283 |
+| `BOOTMARK=1` | 2,111 (17 free) | 1,442 | 2,258 |
+| `BOOTMARK=1 BOOTHALT=20` | 2,115 (13 free) | 1,446 | 2,258 |
+| `BOOTPROF=1` | 2,020 | 1,351 | 2,150 |
+| `MOUDIAG=1` | 1,982 | 1,313 | 2,175 |
+| `BOOTMARK` + `BOOTPROF` + `MOUDIAG` | 2,185 — **57 over on kern_big** since §31.14 | 1,516 | 2,283 |
+
+The triple was never a `buildmatrix` row and does not fit kern_big's blob any
+more; each of the three alone does, and so does `BOOTMARK` with `DRVDIAG`
+(2,125).
 
 **A knob build is a different blob layout from the kernel it diagnoses**, and
 that is the price: the probe runs from the window on a kern_small `BOOTMARK=1`
@@ -19168,7 +19176,7 @@ sites that already exist:
 | `menu_draw_bar` | draw the bar: `menu_check`, white field + black rule, every `menu_bar` cell's title (cell 0 = the logo glyph), then `menu_draw_clock`. Gfx lock held by caller. The app name is one of those cell titles whenever an application owns the bar (§12.7); the standalone label draw is Locator's alone, and is skipped when `[menu_abcell]` is non-zero so the name is never double-struck. |
 | `menu_track`    | in: CX = mousedown x. Runs the whole interaction while the button is held (caller holds gfx lock): highlight title (xor), drop the menu (gfx_save under it to the save-under claim, `[menu_sseg]:0`), track item highlight following `mouse_y`, on release restore save-under + unhighlight; **out AX = 0xFFFF if nothing was selected, else AH = bar cell index (0 = System), AL = item index within that cell**. Item cells are 16px tall, menu width = widest item + 16px padding. Only the bar-specific half is its own: the cell find, `menu_title_xor` and the (cell, item) pack. The drop itself is `menu_drop` (§12.4). |
 | `menu_drop`     | the tracker, anchored by variables so it serves both the bar and a context menu (§12.4). |
-| `menu_popup`    | drop a menu anywhere on screen under the right button (§12.4). |
+| `menu_popup`    | drop a menu anywhere on screen, open while a button is held (§12.4). |
 | `menu_widest`   | in: BX = array of near item-string ptrs, CX = count. Out: AX = the widest `font_width` over them, 0 when CX = 0. Parameterized by array rather than by bar cell precisely so `menu_popup` can size a menu that has no bar cell. |
 
 `menu_track` polls `mouse_btn`/`mouse_x`/`mouse_y` directly (the ISR keeps
@@ -22806,7 +22814,11 @@ up (floor `MBAR_H`). Clipping would cut items in half and leave the ones
 below unreachable; shifting is what a Mac does, and it is the reason a
 right-click in the bottom-right corner is as usable as one in the middle.
 A popup MAY sit over the dock strip (§30) — the save-under puts it back.
-`[menu_btn]` = 2, so it lives exactly as long as the right button is held.
+`[menu_btn]` = **3**, so it lives exactly as long as **either** button is
+held. It was 2, the right, while every popup was a right-click's; §31.14's
+drop-downs open one on a LEFT press held the way a bar menu's is, and 3 serves
+both for the same five bytes. A right-click menu behaves as it always did
+unless the left button is also down, when it stays up until both are let go.
 
 Only one menu can be open at a time — both trackers run on the UI task
 under the gfx lock and both are driven by a held button — so both use
@@ -22816,7 +22828,8 @@ width — `menu_widest` is taken as-is — so the honest budget is stated over
 the descriptors that actually exist rather than as a general guarantee.
 All of them (`fm_ctx_file` / `fm_ctx_fold` / `fm_ctx_dir` / `fm_ctx_up`,
 and the dock's one-item `dock_ctx_items`, §30.2) are immutable
-`.text`, ≤ 8 items of ≤ 18 chars, worst case 4 planes × 130 rows × ~21
+`.text` — and §31.14's two, staged into `cp_sbuf` from `CTRL.DRV`'s image,
+four items of ≤ 8 chars — ≤ 8 items of ≤ 18 chars, worst case 4 planes × 130 rows × ~21
 bytes against the `MENU_SAVE_KB` claim, and there is no API
 slot through which a package could supply another. **A width clamp in
 `menu_popup` is the fix the day that stops being true** — a 16-item popup
@@ -34080,13 +34093,13 @@ FILL, against a ~400 ms `int 13h`.
 A disk that reads perfectly and is not a FAT12 volume had exactly one thing
 the OS could say about it: `No os8088 disk (A:)`, in the Disk window's header,
 for ever. Every other operating system these machines ever ran could make one.
-`dskw_format` is that, and it is a **high-level format only** — the same line
-§52.3's hard-disk formatter draws, and for a sharper reason here: writing
-sector ID fields is `int 13h AH=05h`, one call per track with a four-byte
-descriptor per sector, and it is the operation that turns a disk this OS
-merely cannot read into one *nothing* can read. What is written is the boot
-sector, both FATs and the root directory: **12 sectors on a 360KB disk and 33
-on a 1.44MB one**, all of them metadata, and the data area is not touched.
+`dskw_format` is that, and since §18.96.3 it is a **full format, as DOS's
+FORMAT is**: every track laid down fresh with `int 13h AH=05h`, then the boot
+sector, both FATs and the root directory — **12 sectors of metadata on a 360KB
+disk and 33 on a 1.44MB one**. It was a high-level format only, the line
+§52.3's hard-disk formatter draws, on the argument that writing ID fields
+turns a disk this OS merely cannot read into one *nothing* can read; §18.96.3
+is why that argument had it backwards for a floppy.
 
 | routine | contract |
 |---------|----------|
@@ -34280,6 +34293,57 @@ that sector back and compares. Four things about it:
 
 The cost on the honest path is **two `int 13h` calls**, once per 720KB
 format, against a format that is already 7 writes and a remount.
+
+#### 18.96.3 Every format lays the tracks down — and an unreadable disk is the case it is for
+
+The high-level-only formatter could not reclaim a single disk anybody
+actually brought to it, and the owner's 5150 is the list: **a 1.44MB disk
+with its HD hole taped** for a 720KB drive (the HD recording is 500 kbps and a
+250 kbps controller reads none of it), **a disk a failed write had damaged**
+(docs/FIELD-NOTES.md 32 — only a low-level format recovers an ID field), and
+**a Minix disk**, most likely on HD media for the same reason. Every one needed
+DOS's FORMAT. They failed in two places, both by design: the probe had to
+*read* track 0 before it would name a size, and refused with `FERR_IO` when no
+read succeeded; and when it did read, rewriting 12 sectors of metadata over
+damaged tracks rewrote nothing that was broken.
+
+So both halves changed:
+
+- **The probe no longer refuses a medium it cannot read.** It picks the row
+  the DRIVE makes — its own sectors per track off `AH=08h`, and for the
+  9-sector pair its cylinders, resolved exactly as a readable 9-sector disk's
+  are (a ROM that answers nothing is a 360KB machine, and §18.96.2's Space
+  still offers 720KB on the external units). That is DOS's FORMAT's answer
+  too: absent `/F`, it formats what the drive is. An empty drive now reaches
+  the confirmation and fails at the first track instead of at the probe.
+- **`dskw_format` lays every track first** (`dskw_fmt_low`): one `AH=05h` per
+  track with a (C, H, R, N=2) field per sector, three attempts with a reset
+  between, then the metadata as before. The track's sector count reaches the
+  controller through the DPT — the IBM ROM takes the FORMAT command's SC from
+  byte 4 and the gap and fill from bytes 7 and 8 — so byte 4 is set for the
+  row first. An AT-class BIOS is asked `AH=18h` (set media type for format)
+  first, because that is the call that picks the **data rate**, and its table
+  is copied over int 1Eh's (§18.92's, ours); an XT ROM answers it with `CF=1`
+  and the kernel's table stands. The table in force before is put back after.
+  §12.8's bar is scaled to the whole disk and stepped a track at a time.
+
+**What it costs**: time, and it is DOS's time — one revolution a track plus a
+step, ~40 s for 360KB and ~80 s for 720KB on the field machine, against a few
+seconds for the metadata alone. No resident byte: all of it is in
+`FORMAT.DRV`.
+
+**No per-track verify.** DOS's FORMAT reads each track back with `AH=04h`; the
+IBM ROM checks a verify's whole DMA extent against a 64KB page though it moves
+nothing, and the one buffer the formatter owns is the 512-byte `dsk_secbuf`.
+The metadata writes, the remount and §18.96.2's last-sector write-and-read are
+what check the result. A surface verify wants a buffer claim of its own and is
+left for when a disk that formats and then fails turns up.
+
+**§18.96.2 composes with it unchanged, and gets better.** A 720KB pick on a
+40-cylinder drive now steps the head against its stop for cylinders 40–79 and
+lays those tracks over the last one it can reach; the reach test fails, and
+the fallback re-formats as 360KB — fully, so the track the stop overwrote is
+laid down again correctly.
 
 ### 18.97 The equipment word is a CLAIM; the FDC is the fact
 
@@ -35114,14 +35178,35 @@ the geometry.
 
 **`clo_call` answers in two alphabets on one register, and `CF` says which.**
 On success `AL` is a `CLA_*`; when `mod_need` cannot produce the image it is
-`CF=1` with `AX = CERR_NODISK`, which is the nearest true thing — there is no
-cloner, so there is no disk it can reach. **Every call site tests `CF` first.**
+`CF=1` with `AX = CERR_NOMOD`, said as **"No system disk in A:"** — the Task
+Manager's own resident string, its letter the boot drive's, stamped at boot.
+It was `CERR_NODISK` ("No disk", "the nearest true thing — there is no
+cloner, so there is no disk it can reach"), and off the 5150 that was read
+exactly the wrong way: booted from A:, the boot floppy swapped for the
+target, the image in B:, and *No disk* with a disk in both drives reads as
+"I cannot find a disk to image". The refusal is right — `mod_need` reads
+only the boot volume (§2.8) — and only the words were wrong. **Every call
+site tests `CF` first.**
 The two enumerations are also disjoint by construction — `CERR_*` from 1 and
 `CLA_*` from `0x80` — so a site that forgets reads a wrong answer instead of a
 plausible one. They used to overlap exactly, and `CERR_NODISK` = `CLA_SAVE` = 4
 meant "the cloner could not be loaded" was acted on as "the user asked for an
 image target": a Save box, on a half-written disk, for an operation nobody
 chose.
+
+**…and the VERB must answer `CF=0`, which is the half nobody enforced.** The
+test above is only as good as the carry the image hands back, and
+`clo_key`/`clo_saved` returned `CLA_ERR` with the carry still set: their
+`.err` tails are reached by `jc` and `mov` writes no flag. The resident
+caller did exactly what this section tells it to — read `CF=1` as the
+other alphabet — and repacked the answer, so the code became `CLA_ERR`
+itself (83h), `toast_say` refused it as past the end of its table, and
+**every clone and Write Img that failed on a disk error ended its mode in
+silence**: no toast, no status line, the prompt simply gone. That is the
+report off the 5150 in docs/FIELD-NOTES.md 32, where a failed write left
+nothing on the screen to photograph. Both verbs `clc` at their one exit
+now. It could fire on an ordinary key too — `.line` is reached through
+`jne` after `cmp al, 13`, so a keystroke below 13 left the carry set.
 
 
 #### 18.99.8 One end may be a FILE — `IMG` and `Write Img...`
@@ -35322,6 +35407,35 @@ The cloner's buffer deliberately is not. Rounding its base up to a page would
 cost up to 64KB of the very claim whose **size is the trip count** (§18.99.4),
 so on a one-floppy machine the trade is *a disk swap to save half a second*.
 The alignment is refused for the same reason the buffer exists.
+
+#### 18.99.10 A field kernel's failure says WHICH transfer failed
+
+On a `DISKCNT=1` kernel — `$(FIELDKNOBS)`, so every field kernel — the cloner's
+`CERR_IO` toast is not the words *Disk error* but the last `int 13h` that
+failed, recorded by `dsk_flrec` on every failed attempt inside `dsk_xfer`:
+
+```
+S80 14/1/07 W0 n09 01FE
+ |  |  | |  || |   | +- 0040:0040, the ROM's motor-off count
+ |  |  | |  || |   +--- 0040:003F, the ROM's motor bits (bit n = drive n on)
+ |  |  | |  || +------- n: the sectors that call carried
+ |  |  | |  |+--------- the int 13h unit (80h prints as 0)
+ |  |  | |  +---------- R read / W write
+ |  +--+-+------------- cylinder / head / sector, as issued
+ +--------------------- the BIOS status in AH
+```
+
+Every field is hex. It is 23 characters because a toast holds 24 (§59.8); the
+first version of this, written against a longer toast, was 35 and would have
+been cut at the motor byte — the one field it exists for. The template starts
+as **dashes**: a `CERR_IO` with no failed `int 13h` behind it (a file-layer
+error, a driver-backed volume) shows dashes instead of an old transfer.
+
+It is here because docs/FIELD-NOTES.md 32 is reported off a machine with no
+debugger, and every question that note asks — the status, the sector, whether
+it recurs at the same place, what the ROM believed about the spindle — is a
+fact this line photographs. A shipped kernel carries none of it and still
+says *Disk error*.
 
 ### 18.100 …and the restart PARKS the heads, because the next boot inherits them
 
@@ -41275,12 +41389,13 @@ the case that matters is the one no diff shows.
 
 `apps/RETIRED.txt` is the registry — `tests/movable.txt`'s shape, one line per
 package, `<kind> <package>  # <reason>` — and `tests/unit/t_retired.py` is the
-gate, a `fast` row. **Two kinds, and they are checked differently:**
+gate, a `fast` row. The kinds are checked differently:
 
 | kind | what it means | what the gate demands |
 |---|---|---|
 | `retired` | a **failure**. Not worth shipping | on no shipped image, not in the live payload, and **not built by `all` at all** |
 | `instrument` | **not a product** — a bench or a gate that happens to be a package | on no shipped image. `all` MAY build it: keeping a bench assembling is usually the point of having one |
+| `local` | an application requiring user-supplied assets, such as DrMarco (§100) | standalone build/disk targets only; no standard image, live payload or `all` dependency |
 
 **A `retired` package keeps its source and its SPEC.md section.** Deleting
 them would leave no account of what was tried, and this tree already keeps
@@ -47093,7 +47208,12 @@ Audio and the games, none of which has a disk of its own.
 **Being curated onto it is not a property of a package, it is a decision with
 a date on it.** ArtfulType and TeXPad are on both disks today because a
 general disk with no writer on it is a poor general disk; that is the
-owner's call and it gets remade the next time this geometry runs out. The
+owner's call and it gets remade the next time this geometry runs out. It ran
+out on 2026-09-28, when the PC speaker's path grew Audio by 3.3 KB of disk
+(§86.21) with Tracker (§45.25) and the Video Player to follow: Gorillas came
+off, being the newest game and on `games360.img` whatever this disk carries -
+provisional that day, CONFIRMED by the owner on 2026-09-29 (*"fine for
+now"*), and so remade like every other row here the next time it runs out. The
 row to read is the Makefile's `APPS_TOOLS_360`, not a list here — a package
 list in prose goes stale the next time anything ships, and the enforcement is
 `os88disk.py` refusing an image that does not fit.
@@ -55980,20 +56100,27 @@ CP_ISTRIDE equ 8   ; 4th word = the dispatch class (§31.9): 0 = a kernel proc
 cp_items:  dw cp_s_sched, cp_sched_paint, cp_sched_click, 0
            dw cp_s_time,  cp_time_paint,  cp_time_click,  0   ; §31.5
            dw cp_s_drv,   cp_drv_paint,   cp_drv_click,   0   ; §31.6
-           dw cp_s_snd,   cp_snd_paint,   cp_snd_click,   0   ; §31.7
            dw cp_s_vid,   cp_vid_paint,   cp_vid_click,   0   ; §31.10
+           dw cp_s_snd,   cp_snd_paint,   cp_snd_click,   0   ; §31.7
            dw cp_s_thm,   cp_thm_paint,   cp_thm_click,   0   ; §76.4
            dw cp_s_dock,  cp_dock_paint,  cp_dock_click,  0   ; §31.13
+           dw cp_s_fdd,   cp_fdd_paint,   cp_fdd_click,   0   ; §31.14
 cp_items_end:
 CP_ITEMS   equ (cp_items_end - cp_items) / CP_ISTRIDE
 CP_ITIME   equ 1     ; the Date/Time item's index: §12.1 selects it by name
 CP_IDRV    equ 2     ; ...the Drivers item (§51.3's drv_notice opens it)
-CP_ISND    equ 3     ; ...and Sound (§34.8)
-CP_IVID    equ 4     ; ...and Display, the one row that is HIDDEN on a
+CP_IVID    equ 3     ; ...and Display, the one row that is HIDDEN on a
                      ; single-adapter machine (§39.11.1). It is named here
                      ; rather than found as "the last one", which is what
                      ; frees the order above (§31.10.1)
+CP_ISND    equ 4     ; ...and Sound (§34.8)
+CP_ITHM    equ 5     ; ...Theme (§76.4)
+CP_IDOCK   equ 6     ; ...and Dock (§31.13)
 ```
+
+That is kern_big's table, grouped by §31.14.2. kern_small has no Drivers,
+Theme, Dock or Floppy row, so it reads Scheduler, Date/Time, Display, Sound,
+with `CP_IVID` = 2 and `CP_ISND` = 3.
 
 **List names are at most 9 characters** (72px): the selection bar runs from
 CP_IBX1 to CP_IBX2 = 85 and the name starts at CP_IX = 6, so a tenth glyph
@@ -57650,6 +57777,114 @@ bites**: with `cp_promise` removed the panel simply never promises, so the
 promise and the caching legs pass on a kernel that does nothing. Only the
 withdrawal is evidence about this routine.
 
+### 31.14 Floppy page — the drive detection, overridden
+
+Five drop-downs. One per floppy unit a machine can claim (§18.98) — **Auto,
+None, 5.25, 3.5** — and one for the read bound (§18.91.1) — **Auto, Track,
+Cylinder**. `kern_big` only (`OS88_DRIVERS`): the page is a `SYSTEM.CFG`
+record, and `kern_small` reads no settings file (§51.0).
+
+| setting | what the next boot does |
+|---|---|
+| a unit, **Auto** | what §18.97/§18.98/§26.4.1 detected, untouched |
+| a unit, **None** | no desktop zone. The ROW stays, so the drive keeps its letter and its volume — the state an unclaimed B: has always been in (`desk_init`'s `.zloop`) |
+| a unit, **5.25** / **3.5** | a zone, with that picture before the first read and after it: `DVF_GUESS` is cleared, so `desk_learn_x` does not take it back. A unit with no row — unclaimed, or retired by §18.97's probe — is given one on `dsk_flop_add_x`'s rules |
+| reads, **Auto** | the boot sector's canary decides (§18.93.1) |
+| reads, **Track** / **Cylinder** | the canary's finding is overwritten either way |
+
+**It takes effect at the next restart, and the caption says so.** The
+detection it overrides runs once, in `desk_init`, at MARK 20 — before
+`SYSTEM.CFG` can be read. `desk_init` is `.ovlw`, and the file is read by NAME,
+so it needs the mount that takes the FAT window `.ovlw` lives in. So the
+detection runs first and `ovl_fdd_apply` corrects it, from `drv_boot_x`,
+immediately after `ovl_cfg_load` and **before the driver loop** — so a floppy
+row it makes lands exactly where `desk_init` would have put it, ahead of any
+partition `HDD.DRV` then adds. Every answer `desk_init` reaches is a byte in a
+`dsk_vtab` row, and a byte is as easy to overwrite as to write.
+
+**The read bound overrides the FINDING rather than adding a test.** Its byte
+goes into `boot_cylrun`'s low byte (the loader stores a run bound there, at
+most 36, so the high byte is always 0) and into `dsk_cylrun`. Every later mount
+re-derives `dsk_cylrun` from that word (`dsk_bpb_check`) and `hiber.inc`
+carries it to `kern_dos` (§96.44.14), so both honour the setting with no code
+changed at either. **Cylinder on a ROM that cannot cross a head is the user's
+to choose**: a read then fails and `dsk_xfer`'s retry shortens it, which is
+§18.91.3's grind and not corruption.
+
+**Nothing resident reads the record.** `CFG_FDD` (two bits per unit, unit *n*
+at bits 2*n*..2*n*+1, value = the menu index) and `CFG_FDR` live in `drv_cfg`
+and nowhere else — not in `_map`, not in a variable of their own — the way the
+driver blobs do (§51.9). `_pack` does not touch them, so the page edits the
+struct in place, sets `[cp_wdirty]`, and §31.8's close writes it as key `FD`,
+ver 1, two bytes.
+
+**The drop-down is the kernel's own popup menu.** A box is a frame, the
+Drivers page's down arrow (`cp_drv_tri` over `cp_drv_trid`, both already
+there) and the pick's caption; a press on it calls `cw_menu_popup` anchored
+under the box, and `menu_drop` follows the held button and returns at the
+release. That is the bar menu's gesture — press, drag, release — and it is why
+a box is a **selecting** site (`cp_ctl` id 0, §13.8.3): it acts on the press,
+the popup IS the rest of the gesture, and the drag and the release find nothing
+armed. §13.14's `OS88UI_DROP` is not reachable from a kernel image (it is the
+include's `%ifndef OS88UI_KERNEL` half) and would be ~470 bytes of list,
+tracker and bank that `menu_drop` already is. What that took was one byte of
+`menu_popup`: `[menu_btn]` = 3 (§12.4).
+
+`menu_popup` reads its items through `DS` and an image's strings are
+`CS`-relative (§2.8.6), so each menu is laid out in the image **exactly as it
+lands** — pointers already naming `cp_sbuf` — and copied down whole by
+`cp_fdstg`: the drives' menu is 27 bytes and the reads' 26, against
+`CP_SBUF` = 28, and an `%error` says so if either grows. The box's caption is
+drawn out of the same copy, and a changed pick letters it as one opaque run
+and fills only what a longer old caption left to its right.
+
+**The labels are letters, and a letter is not a unit.** A unit's row is
+lettered by where it landed (§18.98: C: is the hard disk's, and a retired B:
+hands its row to unit 2), so `cp_fdltr` reads the letter off the unit's row
+when it has one and otherwise names the one `dsk_flop_add_x`'s order would give
+it — A:, B:, D:, E: on a machine that has not put something there first.
+
+#### 31.14.2 Where the row sits: last, so the hard disk's page is under it
+
+The static list is grouped rather than appended: Scheduler, Date/Time,
+Drivers, Display, then **Sound, Theme and Dock** together — how the machine
+sounds and looks — and **Floppy last**. Driver pages follow the static rows in
+class order (§31.9), and `DRVC_DISK` is the lowest class that publishes one
+(`DRVC_SOUND` publishes none), so when `HDD.DRV` is loaded its page is the row
+directly under Floppy and the two disk pages read as a pair. Without it,
+Floppy is simply the last row.
+
+Nothing keys on the order but the record constants, which moved with it:
+`CP_IVID` 4 → 3 and `CP_ISND` 3 → 4 (and 3 ↔ 2 on kern_small), and
+`CP_IDOCK` is a literal 6 now rather than `CP_ITEMS - 1`, Dock no longer being
+last. `[cp_sel]` is not saved, so no settings file changes meaning. The gates
+that found Dock as `[cp_nst] - 1` (`dockpos`, `dockmodule`, `fsxdisp`) open it
+by record instead, through `dispcp.open_panel(page=CP_IDOCK)`.
+
+#### 31.14.1 What it cost, measured
+
+Against the tree immediately before it, `kern_big`:
+
+| | bytes | what they are |
+|---|---:|---|
+| `.text` | **+15** | the `cp_items` record (8) and `'Floppy'` (7) — the list name is read by the list painter through `DS`, so it is resident like every other page's |
+| `.bss` | **+2** | `drv_cfg`'s two bytes — the whole of the setting's resident state |
+| `menu_popup` | **+0** | `[menu_btn]`'s immediate, 2 → 3 |
+| **resident** | **+17** | no rung crossed — and per §1's banner that is not the point: seventeen bytes is the price |
+| `.ovl` | +127 | `ovl_fdd_apply` (113), its call (3), the `FD` key row (5), the file buffer (6). **`.ovl` is now 1,964 of the blob's 1,984**: 20 bytes left, and the next boot-overlay body raises `BOOT2_SECS` (§2.9.6). The knob builds lost the same room, and §2.5.3.3.1's give went 96 → 144 to hand `BOOTMARK=1` it back |
+| `CTRL.DRV` | +615 image, +505 on disk | the page (507 of code, 97 of menus and strings) plus the writer's key row and buffer; loaded only while the panel is open |
+
+`kern_small` is **byte-identical in size** (`kernsize[small]` +0 on every
+section): it has no settings file and so no page, and the one shared edit is
+an immediate.
+
+`tests/fddpage.py` (soak) is the gate: four picks by a real left-press
+gesture, the close that writes `FD`, and a second boot of the written disk
+reading `dsk_vtab` and the read bound. With `call ovl_fdd_apply` taken out
+every boot-2 leg fails while the record still round-trips; with `[menu_btn]`
+back at 2 no pick reaches `drv_cfg` at all, because the popup closes the
+instant it opens under a held left button.
+
 ### 32.1 What the renderer does
 
 RAM has no latches and no Set/Reset, so these routines do the VGA ALU's work
@@ -58846,7 +59081,13 @@ next one.
 when the counter runs out. A grant runs to the soonest of three things: the
 period's end, the queued data's end, or the ring's end. That keeps CONS exact
 at every period, never a period ahead of the pulse. With nothing queued, a
-grant is one sample of the table's middle (silence), not counted as played.
+grant is a run of `OS88SPK_DRYN` = 16 samples of silence (or the period's
+rest), not counted as played. It was ONE sample until Audio (§86.21): then a
+producer the ring had outrun made every pulse a grant event, ~400 cycles
+more each, and the pulses starved the very producer that was behind - a
+5-second clip played for 9.5. Sixteen is 2 ms at 8 kHz of a gap that was
+going to be heard anyway. The silence is the table's middle, or a count of 1
+where §34.11.9's shaper puts the carrier away.
 
 #### 34.11.3 What the kernel does differently under a sample ISR
 
@@ -58907,11 +59148,13 @@ is PCM8 at 5,512 Hz, with every frame budgeted around what the pulses leave.
   refuses beside `FSXF_FASTTICK` (one channel 0). A speaker play would be
   `FSXF_KEEPWORKER | FSXF_RATE` with a hook, its mixer writing counts, at a
   rate row below its lowest today (11,000 Hz is past the 8088's ceiling).
-- **Audio cannot, as it stands**: it plays on the desktop, and channel 0 is
-  not the desktop's to give (§34.1), so it would need a full-screen play of
-  its own - against its premise of music behind other windows. (ModPlug is
-  retired, §56.15.)
-- docs/plans/SPEAKER-PCM-HANDOFF.md is the brief for both.
+- **Audio** (§86.21), with no card, automatically: its window plays as an
+  imposter in its own `FSXF_RATE` bracket - the desktop given up for it,
+  against its premise of music behind other windows, because sound and
+  nothing else is better than no sound - through §34.11.9's shaper, with a
+  live ladder of rates that finds what the machine can keep up with. (ModPlug
+  is retired, §56.15.)
+- docs/plans/completed/SPEAKER-PCM-PLAN.md is the plan for all three consumers.
 - **No C package**: `apps/cc/os88.h` has no binding for a sample ISR, and
   §73's rules forbid most of what one needs. A C package that wants one gets
   an assembly module.
@@ -59059,6 +59302,152 @@ unmuted, its sound goes to the speaker, the door is open to the player
 with a rate divisor of whole 54-count pulses, the ring is played from and
 every frame drawn; `vidspk --rate 22050 --unmute` (MartyPC's 8088) is the
 refusal. How it SOUNDS on a 286's speaker is the owner's to hear.
+
+#### 34.11.9 The speaker shaper: `apps/os88spkfx.inc`
+
+**A straight wave through the pulse width is the carrier and nothing else on
+a 5150** (98.2.15.1): the width goes to bass the cone cannot move. The Video
+Player's encoder shapes its sound on the host; a package handed a WAV or a
+module cannot, so the shaping moves onto the machine, in the form an 8088
+can afford beside a pulse every ~600 cycles
+(docs/plans/completed/SPEAKER-PCM-PLAN.md). `tools/os88spkfx.py` is its reference, to
+the byte, and `tests/spkfx.py` holds the two equal.
+
+**Per sample**, x unsigned 8-bit at the speaker's rate:
+1. **Pre-emphasis** (`SPKFX_PRE_DIFF`): the first difference, i = (prev −
+   x + 256) >> 1 - the high-pass and the tilt in one, +6 dB an octave. The
+   wave comes out upside down, which no ear hears, and that is what keeps
+   the previous sample in AH for nothing: `xchg`, `sub`, `rcr`. The `rcr`
+   leaves the index's top bit flipped (no `cmc`), so a PRE_DIFF family is
+   stored at i ^ 80h. `SPKFX_PRE_NONE` takes x as it is - Tracker filters
+   its instrument samples at load instead, a linear filter commuting with
+   the mix.
+2. **One `xlatb`** through a row of the **level family**: gain 2^(l/3) in
+   2 dB steps (0..20 dB, `SPKFX_NLEV` = 11 rows of 256), a soft clip
+   (tanh to z = 1 and flat beyond, the encoder's own clip), and
+   os88spk.inc's count table, composed at init.
+3. **The carrier put away in the quiet** (98.2.15.3): a shift d subtracted,
+   saturating at a count of 1, moved once a sub-block of 16 samples toward
+   the span's target - 1 count up, 8 down.
+
+**Per span** (~32 ms - 256 samples up to 11,025 Hz, 512 above), before a
+sample of it is emitted: its peak, read one sample in 32; the level that
+peak asks for (ratio 3, one step up a span at most, any number down, so an
+onset is never driven into the clip); and the carrier's target from the
+headroom the level leaves - all the way down, every count 1, for a span
+under the gate.
+
+**A span after a silent one takes its own level at once.** A span under the
+gate asks for level 0, which is right for the silence (it keeps a noise floor
+of a count or two from being lifted 20 dB), and the one-step rise then held
+the music that came back after it up to 20 dB down for ~7 spans - a
+quarter-second dip after every gap in the song. Elysium on the 8,000 Hz rung
+fell to level 0 or 1 about once in six seconds, seven times in ten straight
+after a gated span, and the owner heard it on a Toshiba T1100 Plus as "one
+volume, then super soft, then back a third of a second later". The rise limit
+exists to keep steps out of CONTINUOUS music; after silence there is nothing
+to step from, and the attack is already the span's own peak, so the jump
+cannot clip. `os88spkfx_gate` is the byte (the last span was under the gate,
+and a play starts as if it were), and `tools/os88spkfx.py` carries the same
+rule, so `tests/spkfx.py` stays EXACT; with the jump taken out of the asm
+alone all five of its legs fail.
+
+**A span's level is asked by the largest peak of it and the two spans before
+it** - a peak HOLD of ~64 ms at 8,000 Hz. Deciding a level once a span from
+that span's own peak ducked the WHOLE span for a hit anywhere in it, notes
+before the hit included, and then climbed back a step a span, so a busy song
+pumped between its beats: the owner heard it on the T1100 Plus, after the
+silence fix, as ~50 ms "microdropouts" that a Sound Blaster does not have.
+Measured by capturing every span Tracker mixed on MartyPC's 8,000 Hz XT (40
+s each, zero dry grants, so not the ring) and running `tools/os88spkfx.py`
+over them, which reproduces the machine's output exactly:
+
+| song | | level travel | dips of 4 dB+ below both sides | mean level | at the curve's end |
+|---|---|---|---|---|---|
+| ELYSIUM.MOD | without the hold | 62.0 dB/s | 97 | 6.12 | 6.3% |
+| | with it | 31.4 dB/s | 9 | 5.37 | 3.6% |
+| BEVERLY.MOD | without | 87.7 dB/s | 162 | 5.38 | 4.6% |
+| | with | 55.2 dB/s | 38 | 4.57 | 2.9% |
+
+What it costs is ~1.5 dB of average loudness (a loud hit keeps the level down
+two spans longer) and ~40 bytes and a dozen instructions a span in each
+package that carries the shaper; nothing resident. Faster release and a
+tolerance before falling were both measured and both WORSE on every column.
+The carrier's target is still set by the span's own peak. `os88spkfx_pk1` and
+`os88spkfx_pk2` are the two held peaks; with the hold taken out of the asm
+alone `tests/spkfx.py` fails on all five legs.
+
+**A slower leveller was built and REVERTED, on the ear.** A held peak that
+decays (re-armed within ~2.5 dB, held 16 spans, then 1/16 a span), a table row
+that glides a 2 dB step every 16 samples and `ZT` 2.5 took the level's spread
+within each second from 1.87 to 0.65 dB on ELYSIUM.MOD and from 2.21 to 0.84 dB
+on BEVERLY.MOD, at the same clipping, and the owner preferred it on the T1100
+Plus side by side. A second listener disliked it: its fades out and back in
+around a loud part were MORE obvious for being slower, where the three-span
+hold's are short enough to pass. So the three-span hold ships, and what is
+wrong with both is the same thing - the level moves at all, and parts that
+should not change fade with it. docs/plans/SPEAKER-LEVELLER-NEXT.md carries
+the measurements, the instrument, and the next idea, which attacks exactly
+that: ONE level for a whole song, chosen at load.
+
+**What it costs, measured** on MartyPC's 4.77 MHz 5150 (`tests/spkfx.py`,
+emit plus the span's level, interrupts included): **~104 cycles a sample**
+with the pre-emphasis and the carrier moving, **~84** while the carrier sits
+still, **~72** without the pre-emphasis. The plain translation it replaces
+was ~50 (34.11.4). **What it buys**, 40 s of *Bad Carrot* at 8,000 Hz, each
+band's share of the speaker line in dB (98.2.15.1's table):
+
+| | < 150 Hz | 150-400 | 400-800 | 800-1,600 | 1,600-2,700 | carrier |
+|---|---|---|---|---|---|---|
+| straight | −9.1 | −17.8 | −21.1 | −20.6 | −23.2 | −2.6 |
+| the encoder's shaping | −31.8 | −16.0 | −14.8 | −10.7 | −10.4 | −4.7 |
+| **the machine's** | −20.2 | −19.1 | −16.0 | −11.3 | −9.6 | −5.2 |
+
+The voice bands land within a dB of the encoder's. What the encoder does
+better is the soft passages - its leveller is an RMS over 30 ms in two
+bands, where this one is a peak a span - which come out 3-4 dB quieter here.
+
+`os88spkfx_init` (after `os88spk_init`) takes DI = the family's place in
+the package's OWN segment - `cs xlatb`, DS being the source and ES the ring -
+AL = the pre-emphasis and AH = 1 for the carrier's slide, which also makes
+a dry ring's silence a count of 1. `os88spkfx_level` decides a span;
+`os88spkfx_emit` translates it in any number of pieces, as a ring's wrap
+splits one. `apps/os88spkfx_t.inc` is generated (`tools/os88spkfx.py gen`)
+and `t_spkfx` holds it to the model. The library is 1,745 bytes of the package
+(four unrolled bodies, the entry tables and the generated tables) and 2,816
+bytes of its bss.
+
+**A WAV shaped on the host** - the encoder's full shaping, for whoever
+prepares a file - is the encoder's `.WAV` target, `os88venc.py IN OUT.WAV`
+(§86.21.1): the speaker's counts in an `o8sp` WAV, which a player copies.
+
+**IT IS THE LIFTED STYLE, NOT THE NATURAL ONE** (§98.2.15.1's two), and the
+owner heard it on the 5150: the lows *"very low and almost inaudible"*. The
+model was fitted to the encoder the day before natural became its default -
+`RATIO` 3 is lifted's - and its high-pass is the first difference, which is
+not a corner at all but a tilt of 6 dB an octave down the whole band: at
+either rate, 125 Hz is -18 dB against 1 kHz, 250 Hz -12, 400 Hz -8 and 630 Hz
+-4, where natural is a 250 Hz high-pass and flat above it (a one-pole there
+reads -7, -3, -1, 0). The fit was checked in the voice bands, which is how
+the lows went unseen. The natural answer - a one-pole high-pass near 250 Hz,
+ratio 2, 24 dB of range - is priced in `tools/os88spkfx.py` before any
+assembly, and what it may cost is MEASURED:
+
+**What a heavier shaper can afford at 8,000 Hz on a 4.77 MHz 8088**: Audio
+playing an 8 kHz PCM8 WAV off MartyPC's XT-IDE (which the CPU copies) waits
+15-26% of the time, the sample ISR taking about half of that, so ~7-12% of
+the machine is spare - and `-DSPKFX_PAD=4`, a measuring knob that adds a
+`loop` of four `nop`s (~33 cycles) a sample to `os88spkfx_emit`, is already
+too much: the ring's lead FALLS 135 samples a second and the ladder would
+take the play a rung down (at 8 `nop`s it had). A one-pole is ~40-60 cycles,
+so it does not fit Audio's live 8 kHz; an encoder-made WAV (§86.21.1) is how
+Audio gets natural shaping at no cost to the machine, and Tracker, which
+filters its SAMPLES once at load, takes it for nothing at play (§45.25:
+BUILT). **If Audio or the Video Player ever take it live**, it must be
+something the play can SHED: the ladder's first step down would be the
+filter - natural back to this tilt - before the rate, so a machine that
+cannot hold it loses the lows it gained and not the sound (the owner, on
+reading these numbers).
 
 ## 35. Recorder — the sound layer's recording client
 
@@ -60337,6 +60726,31 @@ driver and never writes `dskw_raw`.
 
 **42 bytes of `.cold`**, no rung crossed, `KERN_CODE_MAX` untouched; on
 `kern_small` the module is `FDLG.DRV` and it costs nothing resident.
+
+#### 38.6.2 The size is taken BEFORE the teardown
+
+`fdlg_commit` asks `fdlg_sizeof` for `DX:CX` **before** `fdlg_close`, and the
+order is binding. The close frees the dialog's own listing store
+(`fdlg_vfree`: the listing is transient, which is why it costs no resident
+byte) and aims `[dsk_dseg]` at 0 — while `[disk_nfiles]` still counts the
+entries the dialog was showing. A lookup after the close therefore walks the
+right number of rows out of **segment 0**, compares the chosen name against
+the interrupt vector table, finds nothing, and answers the not-found `0:0`.
+
+**It did exactly that from the day the listing became transient until this
+section was written**: every Open reported a size of 0. Most consumers treat
+0 as "no size" and fall back to asking for the largest run, so they degraded
+quietly; **Write Img** (§18.99.8) sizes the geometry off this figure alone,
+so it refused every image — a 368,640-byte image of a 360KB floppy, picked
+off a 720KB disk or a hard disk alike — as **"Not a disk image"**, on real
+hardware and in every emulator. It is reported off the 5150.
+
+Nothing between the two points touches `CX` or `DX`: `fdlg_close`,
+`fdlg_home_save` and `snd_disp_set` preserve both, and the staleness triple
+spends `AX` and `DI`. The callback pointer is carried in `AX` for that reason.
+The cost is that the one directory walk of §38.6.1 now happens on a commit
+whose callback the staleness triple then skips — a commit from an app whose
+window has since closed, which is rare and pays one cached walk.
 
 ### 38.7 Lifecycle
 
@@ -73041,11 +73455,12 @@ edge-triggered, so no deadline machinery is needed.
 
 ### 45.8 The honest degradations
 
-- **No Sound Blaster: a viewer, not a player.** `osapi_snd_caps` without
-  `PCM_BG` refuses Play with a status-line message; loading, the pattern
-  view, scrolling and the whole fullscreen surface still work. No silent
-  tick-driven fake playback is attempted, and no FM fallback in v1 (FM is
-  now worker-whitelisted — that is future work, not a promise).
+- **No Sound Blaster: the PC speaker (§45.25).** `osapi_snd_caps` without
+  `PCM_BG` plays through the speaker instead, from Tracker's own bracket,
+  after timing the machine once - and refuses with the figure where even
+  its lowest rung would not fit. This line used to read *"a viewer, not a
+  player"*; that is still what a kernel with no `FSXF_RATE` gets. No FM
+  fallback (FM is worker-whitelisted - future work, not a promise).
 - **512KB machine: big modules play.** A fixed ~107KB package arena could
   not hold a 116KB blob at all, and that limit is gone. The claim heap is not
   a fixed arena — it is everything above the kernel — so a 640KB machine
@@ -75634,6 +76049,23 @@ whole-pane redraw.
 package image across the 5.5 → 11 → 5.5 round trip, which must come back
 byte for byte. With the defect in, it names the four stray bytes.
 
+#### 45.21.11 A paused seek says where it went
+
+**A click on the scrubber while PAUSED moved the song, showed the thumb at the
+click and then snapped it back** to where the pause left it (reported on the
+5150 with the speaker; the card did the same). The drag draws the thumb at
+the hand (`[tw_dx]`); the release seeks and redraws it at `[tui_apos]`, the
+position the face is drawn FROM. Only a frame's `tui_sync` writes that - and a
+paused player draws no frames (`tw_want`, so the pointer is not lifted
+eighteen times a second for nothing). So `tw_seek`'s stopped branch moved
+`[mp_songpos]` and nothing published it. It now calls `tui_sync` itself, and
+parks the stopped view's row (`[tui_vrow]`) on the new pattern's first row.
+The rewind and fast-forward buttons take the same branch and had the same
+defect. `tests/trkspk.py --leg scrub` (`soak -k trkscrub`) pauses, clicks
+three quarters along and reads the thumb two seconds later, then plays on:
+position 1 -> 62 and resumed at 62, on the speaker and on the Sound Blaster
+5150. The build before it reads 1.
+
 ### 45.22 The PlayList (`trklist.inc`)
 
 ModPlug Player's list and its editor (§56.8), moved to the player that
@@ -75880,6 +76312,246 @@ then checks the 286 face's markers against a held bar (point 4). That
 15.0 is itself news, since the same spectrum drew 7.7 before this section and
 45.21.8: the LCD, the hold and the clock took half its cost away too. `TW_XTNB` and `TW_BHOLD` are `%ifndef`-overridable, so the table's
 arms can be rebuilt.
+
+### 45.25 No card: the PC speaker
+
+With no Sound Blaster, **Play plays through the PC speaker**, on its own and
+with nothing to switch on (the owner: *sound and nothing else is better than
+no sound*). It is §34.11's ring and door and §34.11.9's shaper, fed by the
+same mixer the card's worker feeds (`apps/tracker/trkspk.inc`,
+docs/plans/completed/SPEAKER-PCM-PLAN.md).
+
+**The bracket is the producer.** The speaker needs channel 0, so the play runs
+inside an `FSXF_RATE` bracket (§53.2.2), and under a sample ISR a task switch
+rides the 18.2 Hz tick - so it is not the worker that mixes but the bracket's
+own loop, `tsp_poll`: a span of the mixer, its level, its counts, into the
+ring. Windowed, the bracket is a same-mode one - the **imposter window**, the
+Video Player's in-window play (§98.3.7): the Tracker window stays live and
+the rest of the desktop waits; a click anywhere or Space pauses and gives the
+desktop back, Esc or S stops, F swaps to the full screen. The full screen's
+bracket takes `FSXF_RATE` in place of `FSXF_KEEPWORKER | FSXF_FASTTICK` when
+there is no card, at 54.6 Hz (`TSP_FSDIV`), its two loops calling `tsp_poll`
+once a frame, and falls back to the viewer's bracket where a kernel refuses
+the flag. `[trk_total]`/`[trk_consumed]` ARE the ring's TOTAL and CONS, so
+everything that shows what the listener hears (§45.15) - the rows, the clock,
+the needles - reads the speaker the way it read the card; the display's gates
+that asked *"is a card stream open"* (`tw_want`, `tw_tick`, `tui_sync`, the
+scope, `tw_rate_now`) ask *"or a speaker play"* too.
+
+**The filter is paid once, and it is the NATURAL style's.** A high-pass
+per output sample would be ~20-60 cycles; a linear filter commutes with the
+mix, so `tsp_natural` runs it over the module's SAMPLES in place when a
+module loads on a machine with no card, and the shaper is initialised
+`SPKFX_PRE_NONE`. It is a one-pole DC blocker, `y = (x - x_prev) + 7/8
+y_prev`, with `Y = 128 y` held in a word so the output `y / 2` is its high
+byte (for bytes in, |y| is at most 255: no clamp and no output shift) -
+`tools/os88spkfx.py`'s `tracker_hp` is it exactly and `tests/lzmod.py`
+compares every byte through it. In the sample's own time base its corner is
+~190 Hz for a sample played at C-2 (8,363 Hz) and moves with the note, flat
+above - 125 Hz -5 dB, 250 Hz -2, 400 Hz -1 against 1 kHz. It replaced the
+first difference, which is §34.11.9's lifted tilt (-18, -12 and -8 dB at the
+same three) and which took the lows the owner could not hear on the 5150.
+It costs **166 cycles a sample, MEASURED**: 2.8 s for BEVERLY.MOD's 81,200
+sample bytes and 3.6 s for ELYSIUM.MOD's 104,794 on a 4.77 MHz 5150, where
+the first difference was ~1 s (the first build of this was 303 cycles, its
+output shifted and clamped). So an 8088 loading more than `TSP_NSAY` =
+28,672 sample bytes - a second of it - is told first: `Filtering the
+samples for the speaker...` on the status line. `[tsp_pre]` says the
+filter ran, and a card mounted later in the session hears that module
+thinner until it is loaded again. Tracker never writes a module, so nothing
+filtered reaches a disk.
+
+**The first Play CALIBRATES** (the owner's question 5), inside the bracket
+where the worker is parked - outside one the worker draws a frame a tick
+beside the bench. `tsp_calib` times two things:
+- the shaper: spans of 256 emitted for `TSP_BTICKS` = 4 ticks (Ne);
+- the mixer: `TSP_MTICKS` = 8 ticks of FOUR channels, all audible, each the
+  module's longest sample looped whole, in chunks of a tick's length at 125
+  BPM (rate / 50) with no tick falling due, so the replayer never moves (Nm).
+  Its channel records are put aside and back. The first build benched the
+  song's own opening and read BEVERLY.MOD's sparse intro - a third of the
+  mixer's cost in a full passage - and one that mixed 512-sample chunks
+  missed the per-chunk set-up a real tick's chunk pays.
+
+and predicts each rung's load as `R x 44 / Nm + R x TSP_CS / Ne + 5` percent.
+`TSP_CS` = 104 is MEASURED on the owner's 5150 by SPKBENCH (45.25.1): the
+sample ISR's ~395 cycles a sample against the ~106 this bench's shaper takes,
+`(395 / 106 + 1) x 400 / 18.2`. It was 89, built on a sampled ~325 off
+MartyPC, and that put BEVERLY.MOD at "95%" on a 5150 that could not hold it. The rungs are an 8088's 8,000 and
+5,512 Hz and a 286's 22,050 / 16,000 / 11,025 / 8,000 (§34.11.8). The highest
+at `TSP_PCTMAX` = 100 or under is played: **the sound must fit and the picture
+has what is left**, because the imposter draws a frame only while the ring is
+at least half full (the worker's `trk_deep` rule, audio first) and books the
+clock without drawing otherwise, and the visualiser is forced off during a
+speaker play on any machine whose visualiser is already the XT meter
+(`tw_vizxhi`, the 11 kHz rule). None fitting, Play is **refused with the
+figure** - `Speaker: needs 107% of this PC - Play again to try` - and the next
+Play plays anyway at the last rung (question 2). A play that falls behind
+all the same (a lead under a quarter of the ring) drains, drops a rung and
+goes on, as Audio's does (§86.21); past the last rung it plays on behind.
+The rung down recomputes the samples a replayer tick takes at the new rate
+(`mp_calc_spt`) and rescales the elapsed clock's bytes to it (`tsp_elscale`,
+a 32 x 16 multiply and a 48 / 16 divide) - the first build did neither, so a
+drop to 4,800 played at 87% and the clock jumped - and it reopens the door on
+HALF a ring rather than a full one, which is the gap the listener sits
+through.
+
+**The rungs on an 8088 are 8,000, 5,512 and 4,800 Hz.** 4,800 came from the
+owner's 5150, which took 5,512 for BEVERLY.MOD and starved in its heavy
+passages, and benched ELYSIUM.MOD (a 4-channel `FLT4` module) at 101%, just
+over the line. **The status line says what was chosen** as a play starts and
+again at a rung down - `Spk 5512 Hz, 95% cpu (CARRIER WHINES!)`, the warning
+under 8 kHz, where the carrier sits in the ear's best band and the owner
+would rather say so than have it taken for a fault; short, because the
+compact face's strip holds the transport legend's 38 cells and no more - so
+a field run reports the machine's own figures module by module. It STAYS
+up: a frame that saw the play start put the transport legend over it within
+a second, so `tsp_start` records the transition (`[tui_lplay]`) as the
+legend it has just said. Anything later may replace it; the play's own
+start does not. The visualiser's pane
+says `No meters: speaker` while the speaker plays, where it used to borrow
+XT mode's `No meters at 11 kHz`.
+
+**What the owner's 5150 did, read off a recording of its speaker** (a phone
+at the cone, 48 kHz): the carrier stays at 5,522-5,525 Hz throughout - the
+5,512 rung's PIT period (divisor 216 is 5,524 Hz) - so the sample ISR runs at
+its full rate on iron; the ring running dry shows as the carrier dropping out
+for a dry grant's 2.9 ms, which BEVERLY did 24 times in its first seven
+seconds and then not at all. ELYSIUM, forced, dropped out twice in fifteen
+seconds and played at its own tempo (the music's strongest period 0.120 s,
+one row at speed 6 and 125 BPM) - it "felt slow" at the proper tempo. So the
+iron and MartyPC agree, though a first reading here said otherwise: MartyPC's
+5150, on GLaBIOS or on the 27 OCT 82 IBM ROM, also holds 5,512 Hz at "95%"
+for 14 to 64 seconds and then drops to 4,800. The prediction is optimistic,
+and 45.25.1 is the bench that says by how much.
+
+Measured on MartyPC:
+
+| machine | Ne | Nm | rung | predicted | held |
+|---|---|---|---|---|---|
+| 5150, 4.77 MHz, Hercules | 9,728 | 5,920 | 4,800 Hz | 91% | 4,725 pulses/s, ring never dry, window and full screen |
+| XT `--turbo`, VGA | 29,440 | 17,760 | 8,000 Hz | 52% | ring never dry |
+
+(with `TSP_CS` = 104; at 89 the 5150 took 5,512 at "95%" and fell behind
+within a minute, 45.25.1). 8,000 Hz on the 5150 predicts ~150%. With the
+visualiser off, the audio-first frame gate is not reached on the 5150 with
+BEVERLY.MOD - removing
+it leaves the ring still never dry - so it is a net for a heavier face and not
+something this machine exercises. `tools/mkmod.py`'s test song, whose 416
+sample bytes loop all four channels every few hundred samples, predicts 107%
+and is refused on the 5150: the bench is the module's own mixer, and a module
+of tiny loops really does cost more.
+
+It costs Tracker 4,189 bytes of image (27,927 -> 32,116), 3,070 of bss (2,816
+of them the shaper's level family) and 2,929 bytes of the packed file, and
+a 17 KB ring claimed the first time the speaker plays; no kernel byte.
+
+`tests/trkspk.py` is the gate: `trkspk` (the 5150 plays by itself, the rate,
+the status line, the dry ring, the visualiser, the clock, pause, resume, the
+full screen and back, stop), `trkspkref` (a build with a 50% ceiling: the
+refusal and its figure, and the override at 4,800), `trkspkdrop` (a build
+told the speaker is cheap starts at 5,512, falls behind and comes down to
+4,800 live - the ticks and the clock right after it), `trkspkturbo` (the
+8,000 Hz rung) and `trkspkend` (a song to its end, then a card machine where
+the speaker is never touched).
+
+#### 45.25.1 SPKBENCH: the ISR's share, measured
+
+`TSP_CS` is the one term of the prediction Tracker cannot time on the
+machine, because timing it needs the speaker playing. `tests/spkbench/`
+(`make spkbench` -> `build/spkbench360.img`, `spkbench720.img`,
+`spkbench144.img`; one package,
+press R, ~12 s hands off, SPKBENCH.TXT saved beside it) times it the way that
+works on any machine: a fixed workload (the shaper over 256-sample spans)
+counted for 32 ticks with the speaker SHUT, then again with it PLAYING a
+ring of silence at 4,800, 5,512 and 8,000 Hz inside the same `FSXF_RATE`
+bracket Tracker uses. The workload gets what the ISR leaves, so
+`1 - open/shut` is the ISR's share of the machine at that rate, with
+everything the machine takes beside it (the ROM's tick, refresh, whatever a
+memory card adds) included. Each row prints beside the share Tracker assumes
+(325 cycles a sample, the figure `TSP_CS` = 89 was built on; it is 104
+now). It also times
+the load-time filter and a 4 KB `rep lodsw` in each 64 KB bank, which is
+PERFORMANCE.md Part 8.2's memory-card question.
+
+On MartyPC:
+
+| machine | 4,800 Hz | 5,512 Hz | 8,000 Hz | cycles a sample |
+|---|---|---|---|---|
+| Tracker assumes | 32.6% | 37.5% | 54.4% | 325 |
+| 5150 Hercules, GLaBIOS | 39.0% | 44.8% | 66.4% | 387-396 |
+| 5150 Hercules, IBM 27 OCT 82 | 39.5% | 45.6% | 66.4% | ~395 |
+| 5150 Hercules, V20, GLaBIOS | 39.4% | 45.0% | 66.4% | ~390 |
+
+So the ISR costs a fifth more than `TSP_CS` = 89 said, and at 5,512 Hz the
+prediction was 7-8 points low: BEVERLY's "95%" is ~103% of a 5150, which is
+why both machines fell behind within a minute. MartyPC's V20 keeps the 8088's
+cycle timings (tools/martypc/configs/os8088_machines.toml), so its row is not
+a V20 measurement.
+
+**The field run** (the owner, 2026-09-29; the V20 is 86Box on the 5150
+profile with the CPU swapped, the others are iron):
+
+| machine | 4,800 Hz | 5,512 Hz | 8,000 Hz | ISR cycles a sample | shaper cycles a sample | ratio |
+|---|---|---|---|---|---|---|
+| IBM 5150, 4.77 MHz, SixPakPlus | 39.5% | 45.7% | 66.6% | 392-397 | 85 | 4.65 |
+| Toshiba T1100 Plus, 7.16 MHz 80C86 | 20.8% | 23.3% | 34.5% | 201-206 | 46 | 4.43 |
+| 86Box 5150, NEC V20 7.16 MHz | 24.2% | 27.7% | 40.3% | 239-240 | 49 | 4.90 |
+| Packard Bell 286, 16 MHz | 7.1% | 8.3% | 11.8% | 70-71 | 12 | ~5.9 |
+
+(cycles in 4.77 MHz units, so a faster machine reads fewer). The 5150 agrees
+with MartyPC's IBM-ROM row to a tenth of a point, so the emulator was right
+and the constant was wrong: `TSP_CS` is **104** now, `(395 / 106 + 1) x 400 /
+18.2` with the shaper at the ~106 cycles Tracker's own bench of it reads, and
+a 5150 predicts ~103% at 5,512 and OPENS at 4,800 (91% for BEVERLY.MOD) -
+the start the owner asked for, with `TSP_PCTMAX` left at 100. The prediction
+rests on the ISR costing the same multiple of the shaper on every machine,
+and the last column is that assumption measured: within 6% across the three
+8088-class machines, so a V20 and a T1100 are predicted as well as a 5150 is.
+The 286 is the exception - its ISR is a quarter dearer against its shaper,
+the port writes running at the bus's pace and not the CPU's - so at 22,050 Hz
+it is predicted ~7 points low; it held that rate with the spectrum at full
+speed, so the margin covers it, but a slower 286 would be the one to watch.
+The T1100 held 8,000 Hz (it predicts ~84% there with 104).
+
+Every machine's ten RAM banks read within 0.03% of each other, the 5150's
+SixPakPlus banks included: PERFORMANCE.md Part 8.2's memory-card question is
+answered, and the answer is no wait states.
+
+Still unexplained, and measured rather than argued: the bench's shaper runs
+at ~86 cycles a sample on a 5150 where Tracker's calibration of the same call
+reads ~108 (Ne = 9,728 in four ticks), and neither the source data nor the
+pre-emphasis accounts for it. `TSP_CS` is expressed against Tracker's figure,
+so it does not move the constant.
+
+`tests/spkbench.py` (`soak -k spkbench`) runs it on MartyPC and checks only
+that it RAN: every share between 5% and 90% and rising with the rate, and
+all ten bank rows. With `os88spk_go` taken out every share reads 0 and it
+FAILS.
+
+#### 45.25.2 No card: the rate is not a choice
+
+With no card the speaker's rate is the bench's to pick (45.25), so the Rate
+controls had nothing to set - they looked live and did nothing, and a paused
+face said `5.5 kHz  8 bit mono`, the card rate the mode would have taken and
+the speaker never plays at. `trk_spkq` (CF = 1: no `SND_CAP_PCM_BG`, asked
+live like `trk_hirate`) is the one predicate for all of it:
+
+- the Rate menu is ONE greyed row, `Speaker (auto)`;
+- the face's rate button reads `Speaker`, greyed;
+- `trk_rate_set` refuses - R, or a pick that got there any other way - and
+  says `Rate: the speaker picks its own`. R is a windowed key, so it is
+  reached paused or stopped; the speaker play's imposter takes only the
+  transport's keys;
+- the LCD's format line reads `4.8 kHz  PC speaker`, the rate it last played
+  at, and `PC speaker, auto rate` before its first play has benched one.
+
+`tw_spkq` answers "is the speaker the output" for the face without the caps
+call while a speaker play is under way, since the rate button's state is
+asked every frame of one. `tests/trkspk.py --leg rate` (`soak -k trkspkrate`):
+on the card-less 5150 the menu is one greyed row and R leaves the pick
+alone; on the Sound Blaster 5150 the menu offers the card's rates and R moves
+the pick.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
@@ -81293,7 +81965,9 @@ the wrong settings. Every value now travels with a key that says what it is.
         db  data[len]
 ```
 
-`DK` is the dock's one byte (§30.5), a key of its own at ver 1, on `kern_big`
+`FD` is §31.14's Floppy page, two bytes at ver 1 on `kern_big` — the four
+drives' overrides and the read bound, one record so the page costs one key
+entry and one header. `DK` is the dock's one byte (§30.5), a key of its own at ver 1, on `kern_big`
 only. Seven keys at the time this paragraph was written, 81 bytes: `DW` driver-wanted bitmap, `SR` sound route, `CH`
 clock 12/24, `CS` clock seconds, `SM` scheduler mode, and
 `HD` — a **driver's** own settings, whose contents the kernel does not know
@@ -118417,9 +119091,12 @@ sample handed on is
 which needs no clamp of its own — `predictor >> 8` is [−128, 127], `+ 128` is
 [0, 255]. **There is no intermediate 16-bit PCM buffer.**
 
-Measured decode cost is well inside the background budget: at 11,025 Hz the
-inner loop is an estimated ~10–15 % of a 4.77 MHz 8088, against Tracker's
-44–165 % mixer (`PERFORMANCE.md` Sets 20/68) — a streamer does no mixing. The
+The decode cost was ESTIMATED here as ~10–15 % of a 4.77 MHz 8088 at 11,025
+Hz, and §86.21 measured otherwise: beside the speaker's pulses an 8088 cannot
+keep an 11,025 Hz IMA file fed at 5,512 Hz and can at 4,800, which puts the
+decode at most of what the pulses leave rather than a tenth of the machine.
+(Against Tracker's 44–165 % mixer, `PERFORMANCE.md` Sets 20/68, a streamer
+still does no mixing.) The
 decoder stays in assembly (it *is* the shim), not because C would be too slow
 but because the SDK does not expose the stream verbs to C at all.
 
@@ -118686,6 +119363,145 @@ the procedure); QEMU is functional verification only, where 28 s of PCM8 @
 22 kHz streams gap-free (0 quiet windows in the capture) with 14 s of it while
 another window holds the focus, and where the `AP_RD_CHUNK` change (§86.5.2)
 cut streaming reads from ~5/s to ~0.6/s with no underruns for either codec.
+### 86.21 No card: the PC speaker, and the desktop given up for it
+
+**With no Sound Blaster the player plays through the PC speaker, on its
+own** (docs/plans/completed/SPEAKER-PCM-PLAN.md; the owner: *"sound and nothing else is
+better than no sound"*). `ap_open_track` prepares a track the same way for
+either (`ap_prep_track`: the file parsed, the look-ahead claimed and primed)
+and then goes to the card (`ap_open_card`) or to `aps_open`
+(`apps/audio/apspk.inc`). The test is `SND_CAP_PCM_BG`, so the Control
+Panel's route to PC Speaker (§34.11's lesson 5) sends a machine WITH a card
+here too.
+
+**It inverts §86's premise, and says so.** The pulses need IRQ0 at the
+sample rate, which only a package's own `FSXF_RATE` bracket may have (§53.2.2,
+§34.11), so a speaker play is a BRACKET: the desktop frozen, every other
+program stopped, the pointer gone, for as long as it plays. It is the Video
+Player's in-window play (§98.3.7) - the **imposter window**: this window's
+clock and progress bar are the only pixels that move (`aps_draw`, through its
+own clip, only when either changed, at most every `AP_DRAW_TICKS`), and the
+status line says `PC speaker - click or Space to pause`. A click anywhere or
+Space takes it back to the desktop PAUSED - the session kept, the ring and
+CONS exact - and Play, Space or Enter resume it from the very sample it
+stopped on (`os88spk_go` plays from CONS); Esc or S stops; N/Right and
+P/Left change track inside it. The playlist plays on inside the bracket,
+track after track, each opened by the bracket's own body (the file slots are
+the UI task's, and this IS the UI task).
+
+**The bracket's body is the producer.** No worker: under a sample ISR a task
+switch rides the 18.2 Hz tick and a yield is ~2,200 cycles at IF = 0
+(§34.11.3), so `aps_main` reads the disk, decodes, resamples, shapes and fills
+the ring itself, and waits in `FSXW_FRAME` when it is full. The rate hook only
+counts periods, and the period is a whole tick (divisor 65,535), since every
+period's entry costs about a pulse. **The ring is 16 KB (2 s at 8 kHz) and is
+filled FULL before the door opens**, and **a dry ring plays a run of
+`OS88SPK_DRYN` samples of silence a grant** (§34.11.2): the first build
+granted one, a starving producer then made every pulse a grant event, the
+pulses took the machine the producer needed to catch up, and a 5-second clip
+played for 9.5.
+
+**The plan** (`aps_plan`) is the file's rate S to the speaker's R. A file
+of COUNTS (§34.11.9's `o8sp` kind 2) plays 1:1 and is copied; everything else
+goes through §34.11.9's shaper - with its pre-emphasis, or without for a file
+already shaped on the host (kind 1). R is S when S is at most the rung's TOP;
+else S / k averaged over k samples when k divides S, is 3 or less and leaves R
+at 4,679 Hz or more (the box - a cheap anti-alias; more than three samples
+cost more than the step they save); else a 16.16 step through the source to
+TOP, its whole part patched into the loop's `adc bx, imm16`. A 1:1 span is
+emitted straight out of the look-ahead ring whenever it does not cross that
+ring's seam, so a plain 8 kHz file is never copied at all.
+
+**The ladder is the calibration** (the owner's question 5), and it is live:
+TOP is a rung - an 8088's 8,000 / 5,512 / 4,800 Hz, a 286's 24,858 (a pulse
+of 48 counts, §34.11.8) / 16,000 / 11,025 / 8,000 / 5,512 - and an 8088
+starts IMA ADPCM a rung down, its decode being paid at the SOURCE rate. A
+play whose ring lead falls under a quarter (`APS_LOW`) while the file is
+still coming is BEHIND - this file, this rate, this CPU and this disk
+together - and `aps_behind` lets the ring play out, shuts the door, comes a
+rung down, rebuilds the tables, fills half the ring and opens it again: a gap
+of about a second, once, and a play that keeps time after it. The session
+keeps the rung - it has learned the machine - so the next track starts
+there. **Past the last rung**, IMA ADPCM stops and says `Too slow for this
+file on the speaker` (the owner: 5.5 kHz ADPCM *"only if it turns out
+viable"*), and PCM plays on behind the pulses, gaps and all.
+
+**Measured** on MartyPC's card-less Hercules 5150 with a fixed disk
+(`tests/apspk.py`: 800 port-42h writes against `tools/os88spkfx.py`'s plan,
+resampler and shaper - every leg EXACT from its first pulse):
+
+| the file | plays at | lost pulses | its time |
+|---|---|---|---|
+| PCM8, 8,000 Hz | 8,000 | 2.0% | 5.16 s for 5.00 |
+| PCM8, 11,025 | 8,000 stepped, then a rung down | 2.0% | kept, after one fall |
+| PCM8, 22,050 | 7,350 (a box of 3), then down to 4,800 | 1.7% | behind at every rung: 22 KB/s off MartyPC's XT-IDE, whose every byte the CPU copies (§98.2.15.5), and it plays on |
+| IMA ADPCM, 11,025 | 5,512 stepped, then 4,800 | 1.5% | kept at 4,800 |
+| shaped / counts (§86.21.1) | 8,000 | 2.0% | 5.16 s |
+
+What the 4.77 MHz 8088 has left beside 8 kHz of pulses is ~25% of itself,
+and those rows are what it buys. **The owner's 5150 moves its sectors by DMA**
+(an ST11M) where MartyPC's only hard disk is an XT-IDE, so the 22 kHz row is
+this emulator's answer and not that machine's - the ladder will find the
+rung there itself. `tests/apspk.py --card` holds the Sound Blaster path to
+the stream it always opened (one open, the door never touched); `--pause`
+holds Space, the resume from the sample it stopped on, and Esc.
+
+**The cost**: `AUDIO.O88` 7,502 -> 10,821 bytes of disk (the image 9,216 ->
+13,824 - os88spk.inc, os88spkfx.inc and apspk.inc) and 7 KB more bss, with a
+17 KB ring claimed at the first speaker play and kept for the instance. That
+took the 360 KB apps disk past its last cluster; §24.6.1's decision made for
+it is in the Makefile's `APPS_GAMES_360`.
+
+### 86.21.1 A WAV made for the speaker: the encoder's `.WAV` target
+
+A WAV can carry one more chunk, `o8sp` = `<u8 kind><u8 pulses><u16 N>`,
+which every other player skips as RIFF allows:
+- **kind 2, COUNTS**: the data are the speaker's counts themselves (§34.11.2's
+  table already applied). On the speaker Audio COPIES them into the ring - no
+  resampling, no decode, no shaper - so the per-sample cost is the pulse and
+  a byte's copy. They play 1:1 or not at all: the file's rate must be at or
+  under the rung Audio starts on (8,000 Hz on an 8088).
+- **kind 1, SHAPED**: PCM8 already shaped on the host; Audio runs §34.11.9's
+  shaper without its pre-emphasis. Nothing in the tree writes one now; Audio
+  keeps reading it, and `tests/apspk.py` keeps it working.
+
+**THE ENCODER MAKES THEM** - `os88venc.py IN OUT.WAV`, an output named
+`.WAV`, or the window's Save as a speaker WAV (§98.2.8). It is the sound of
+any source ffmpeg reads, alone, through the SAME body a speaker `.V88`'s
+sound goes through (`speaker_pcm`: the style, the high-pass, the leveller's
+ratio and range, the drive, the lows, the idle slide - §98.2.15.1), stored as
+kind 2. The rate is 8,000 Hz unless asked, 4,679 to 8,000 on an 8088 profile
+and to 24,858 on a 286 one; `--spk-pulses` and every picture, colour and
+budget option are the video's and are ignored or refused. There was briefly
+a second tool for this (`os88spkfx.py shape`); it called the encoder's
+shaping with its defaults, could not take a style, and is gone.
+
+**On a CARD a counts file plays as the samples it came from.** Audio notices
+the chunk on the card path too, builds `ap_cinv` - the inverse of the count
+table at the file's rate, `s = ((c - 1) x 255 + (N - 2) / 2) / (N - 2)` - when
+the stream opens, and turns each decoded half back before the end's pad of
+silence (which is a sample already). Without it a counts file on a Sound
+Blaster was a quiet wave sitting off the centre. It is 60 bytes of code and
+256 of bss.
+
+**What it earns**, the file being made on a machine with the time for it:
+- **the machine's shaper and resampler are skipped**: ~104 cycles a sample
+  (§34.11.9) and the box or step (§86.21) - at 8,000 Hz on a 4.77 MHz 8088
+  about 17 points of the machine, plus the resampling;
+- **sources that fall behind live play at 8,000 Hz**: a 22,050 Hz file came
+  down to 4,800 Hz on MartyPC's XT-IDE and IMA ADPCM starts an 8088 at 5,512,
+  where their counts are 8 KB a second read and copied;
+- **the encoder's shaping**: floating point, a look-ahead limiter and the
+  owner's styles, where the machine has an integer approximation.
+
+What it costs is the disk: a byte a sample, 8 KB a second, so a 360 KB
+floppy holds ~45 s.
+
+`tests/apspk.py` is the gate: its `counts` leg plays an encoder-made file on
+the speaker exact against the file (row `apspk`), and `--cardcounts` (row
+`apspkcardc`) checks the first half staged to a Sound Blaster is the file's
+counts mapped back, byte for byte.
+
 ## 87. Hibernate — the machine to a file on the hard disk, and back (`kernel/hiber.inc`, `HIBER.DRV`)
 
 **What it is.** `Hibernate...` is the System menu's item above `Restart`
@@ -134030,14 +134846,20 @@ The honest degrade for a moving sprite is to leave the frame alone, which is a
 black window, so the package is in `SMALLOMIT_GAMES` and the 128 KB machine's
 floppies do not carry it. That is §24.5's rule and not a new one: a package
 that cannot reach the surface it needs is left off rather than shipped broken.
+**Withdrawn**: §5.4.2.5.1 gave `kern_small` a `gfx_blit1` body, and §24.5.5
+put the package back on the small floppies on a measurement taken on the floor
+machine — the paragraph stands as the record of why it was ever off.
 
-At **360 KB** it rides the ordinary apps disk like every other geometry, at
-352 of that disk's 354 clusters. It did not fit when it arrived — eight spare
-clusters against a package of eleven — and it rode `build/media360.img`, the
-second 360 KB disk §24.4 already exists for, until the earlier Pac-Man port
-came off the apps disk to make room. That is a **development** arrangement the
-owner asked for and not a shipping decision: a release that wants both puts
-this one back on the media disk, which is one line of the Makefile.
+At **360 KB** it rides `games360.img` (§24.6) and **not** the apps disk —
+§24.6.1's dated decision, taken by the owner on 2026-09-29 alongside
+Gorillas'. Every other geometry's apps disk carries it in `GAMES/`, and
+`smallapps360.img` too (`SMALLGAMES` is a list of its own). It did not fit
+`apps360.img` when it arrived — eight spare clusters against a package of
+eleven — and it rode `build/media360.img` until the earlier Pac-Man port came
+off the apps disk to make room; that was always a **development** arrangement
+and not a shipping decision, and the Makefile's `APPS_GAMES_360` is where it
+ended. Its rows (`tests/dotdel.py` and the four that import its `PKG`) boot
+`games360.img`, where the package sits at the root.
 
 ### 93.14 Acceptance
 
@@ -151291,6 +152113,7 @@ file.
 sector 0          the header (98.1.1)
 sector 1..        the keyframe table (98.1.3), on a sector
                   the keyframe records, back to back, padded to a sector
+                  the options block (98.1.1.4), padded to a sector, if any
                   the stream: super-packets (98.1.4), each on a sector
 ```
 
@@ -151315,7 +152138,10 @@ stream behind them is read sequentially.
 | 20 | 2 | **the PIT divisor** for a timer-paced play (§53.2.2), `FSX_RATE_MIN`..65,535 |
 | 22 | 1 | **periods a frame** at that divisor, ≥ 1: 2 for a 15 fps file, whose own period is past 65,535 |
 | 23 | 1 | **the ring the stream assumes**, in 32 KB slots: 0 (nothing said), or 2, 4 or 8 - what its disk reserve banks bursts in (98.2.1.3). 0 in a RESIDENT file. A player with fewer plays it, and says so (98.3) |
-| 24 | 8 | 0 |
+| 24 | 1 | with SPKMUL, pulses a sample (98.1.1.3.1); else 0 |
+| 25 | 1 | 0 |
+| 26 | 4 | the OPTIONS block's offset (98.1.1.4), 0 for none |
+| 30 | 2 | its length in bytes, 0 for none |
 | 32 | 48 | title, ASCII, NUL-terminated within the field |
 | 80 | 96 | credits, the same |
 | 176 | 16 | the AUDIO block of a RESIDENT file (98.1.7); else 0 |
@@ -151511,6 +152337,54 @@ one that fits.
   samples, scaled by (N/P − 2)/255 and so quieter again.
 - `--spk-pulses P` (98.2.15) is what writes it; a resident file is refused
   it for now.
+
+#### 98.1.1.4 The options block: how the file was made
+
+**Header bytes 26 and 30 point at a block the ENCODER wrote**: every
+option it made the file with (98.2.17), so the encoder's window can load
+the file and show how it was made. It is the one part of a `.V88` no
+player reads, and where it sits is chosen so that no read of the player's
+can reach it:
+- **in a streamed file, in sectors of its own between the keyframe records
+  and the stream** - behind every table the player reads by offset, and in
+  front of the stream it reads in sequence from `R_SP0`. It is NOT a
+  trailer: the player finds the stream's end by a short read, and bytes
+  after the last super-packet could carry that short read a chunk further,
+  which with Repeat on a two-slot ring stalls the play at its last frame
+  for good (the seam waits on ring room that never comes);
+- **in a resident file, after the last block** - every block is read by
+  its offset and size, and a resident file is never read in sequence.
+
+A streamed file held in XMS (98.3.18) is held whole, block included: 1 KB
+more of the hold, and the "Held in XMS" line counts it.
+
+| off | size | field |
+|---|---|---|
+| 0 | 4 | `'V88O'` |
+| 4 | 1 | the CONTAINER: 1 is zlib with `os88vid.OPTS_ZDICT[1]` |
+| 5 | n | the record, canonical JSON (sorted keys, no spaces, ASCII), deflated |
+
+**The dictionary is what makes it small.** A record is mostly option names
+and their values, and zlib's preset dictionary is exactly that: version 1's
+options at their defaults, 1,280 bytes. Deflated against it a record of all
+79 options is **143 to 161 bytes** (every "Made for" target, measured);
+without it, 576 to 592. **The dictionary is FROZEN**: zlib names it by its
+checksum in the stream, so a changed one is refused rather than misread,
+and `tests/vencguitest.py` pins its SHA-256. A better dictionary later is
+container 2 beside it, never an edit to 1. The record inflates to at most
+64 KB or is refused.
+
+**A reader that cannot read the block still plays the file.**
+`os88vid.Reader` notes where the block is and reads it only when asked
+(`Reader.options()`), so a damaged block costs the window its options and
+nothing else; `verify_v88` does read it, because a block the encoder wrote
+must read. Bytes 25 to 31 were zero in every file made before and nothing -
+the player, `os88vid`, the tests - ever read them, so a file with no block
+reads as one made before the block existed, and an older reader sees a
+file with one as it always did. `set_poster` and `set_title` write only the
+header's sector and leave the block as it is; `os88vid speaker` (98.2.15.1)
+rewrites the record's shaping options in the block's own sectors, or clears
+the block if the new record no longer fits them.
 
 #### 98.1.2 Layouts: the file is laid out for its surface on the host
 
@@ -152933,9 +153807,12 @@ follow `--comp-dither`, and the rate and volume grey with no sound.
 **Hovering a greyed group says why**, and what to change: over its header
 or its outline, *"Not used for this file. These are for CGA 4 colours, and
 this file is one bit, black and white. Choose a target that makes CGA 4
-colours under Made for, or its pixel format on Basic."*; over one of its
-fields, the same reason above that option's own help. A group that applies
-has no tip of its own. The outline's tip is on `<Motion>` and not
+colours under Made for, or its pixel format on Basic."*. Its fields keep
+their own help and do not repeat the reason (the owner's report: it read
+twice, once for the group and again for every field in it). A field greyed
+ALONE in a group that applies (`FIELD_WHEN`: `--flip` off Mode X, `--xms`
+without Live) says its own reason above its help, having no header to say
+it for it. A group that applies has no tip of its own. The outline's tip is on `<Motion>` and not
 `<Enter>`: Tk gives an Enter to the outline when the pointer crosses into
 a field from outside it, and its tip then stood beside the field's and
 stayed up after the pointer left - seen under Xvfb. A motion goes to the
@@ -152960,6 +153837,14 @@ apply to the speaker target alone; and a greyed option stays off the
 command line (`--cga-palette` on the speaker target, `--flip` on 13h,
 `--spk-pulses` on CGA4) while the same option on its own target is on
 it. With every group answering "applies" the leg FAILS on all sixteen.
+
+**Save as has a second type, a speaker WAV for Audio** (§86.21.1). An output
+named `.WAV` is the sound alone, so every group but Made for, The clip,
+Sound and the two PC speaker groups is greyed with that reason, `--audio` is
+left off (the sound IS the speaker's), and a finished WAV skips the frame
+preview and the disk. Leg 14 holds it: every target's form saved as a
+`.WAV` has exactly those five groups applying and no `--audio` on its
+command line.
 
 
 #### 98.2.9 The pre-roll: the first picture is whole before the keyframes start
@@ -153099,8 +153984,10 @@ canvas, frames, rate, sound, keys, the poster, size and repeat. Beside that
 is **the keyframe a play from the scrubbed frame starts at**
 (`os88vid.key_at`: the last key at or before it, or key 0 before them all),
 drawn from that key's record alone, with its number. That number is what
-`--poster` takes. `Open a .V88...` puts any file in the preview, not only
-the one just made.
+`--poster` takes. **Load a .V88...** (beside *Made for*, 98.2.17) puts any
+file in the preview, not only the one just made - and the POSTER itself is
+drawn beside that keyframe, so what the player shows before a play and
+what Set as poster would make it are seen together.
 
 **Set as poster** makes that keyframe the poster WITHOUT re-encoding.
 `os88vid.set_poster(path, frame)` writes each rendition's poster word
@@ -153779,6 +154666,85 @@ a 5150 on average by the model, every frame exact on `5150-st225`.
 draw the cells in the model face (98.1.3.6), each dot made square. The
 window offers both as targets: "Any PC - text mode, 16 colours" and "Any
 PC, Hercules and MDA too - text mode, black and white".
+
+#### 98.2.17 How a file was made: stored in it, and loaded back
+
+**Every `.V88` the encoder makes carries the options it was made with**
+(98.1.1.4), and **Load a .V88...** in the encoder's window sets every
+field to them: the target it was made for, the preset, format and profile,
+every picture, colour, sound, budget and keyframe option. The owner's ask,
+2026-09-28: *"store the options used ... inside the .v88. Then when loading
+one in the interface have the interface reflect all the options used."*
+
+**EVERY option, not only the ones that differ from a default.** A record of
+the differences is 22 to 46 bytes deflated against 143 to 161 for all 79
+(both measured over every target), but it means *"the default, as it was
+that day"*, and a default moves: this very session moved `--spk-style`'s.
+A file that stored nothing for it would have loaded as `natural` whatever
+it was made with. So the record is the options as the encode USED them
+(`os88venc.options_record`): the command line's, else what the preset,
+format, profile and Live choice imply (`implied()`, 98.2.10) - the canvas,
+the frame rate after the source's cap, the budget, the sound - else the
+speaker style's own three numbers, else the parser's default. The frozen
+dictionary is what made all of it cost about what the differences alone
+cost without one. The record also carries the source's NAME, never its
+path: a file handed on should not carry the folders it was made in.
+
+**A version mapper, because the options will change.** A record carries its
+schema version (`OPTS_VERSION`, 1). `MIGRATIONS[n]` is how a version-n
+record reads as n+1, a list of steps in order:
+- `("rename", old, new)` - an option took a new name;
+- `("revalue", dest, {old: new})` - a choice was renamed, or a value's
+  meaning moved (a function in place of the dict for arithmetic);
+- `("added", dest, legacy)` - an option arrived, and a file made before it
+  was made AS IF it were `legacy`, which need not be the new default;
+- `("removed", dest, why)` - an option went, and the load says why.
+
+`opts_migrate` applies them from the record's version to today's, then
+drops what this encoder does not know, drops a value that is not plain or
+not one of an option's choices (a record came off a file, and a file is
+hostile until read), and names what the record does not hold - each a line
+in the window's log. A record from a NEWER encoder is read for what this
+one knows, and says so. **What keeps the mapper honest is a fingerprint**:
+`opts_schema()` is every option's name, kind and choices (not its
+default), and `tests/vencguitest.py` fails when it no longer hashes to
+`OPTS_FINGERPRINT[OPTS_VERSION]` - an option added, renamed, removed or
+given other choices cannot land without the version going up and a
+migration saying how the older records read. What a fingerprint cannot
+see is a value whose MEANING moved under the same name; that is a
+`revalue` step somebody has to write, and the section says so here so it
+is not forgotten.
+
+**Loading** (`form_from_file`, no Tk): the record migrated, each value put
+in its field the way the form spells it - the parser's own spelling of a
+default, the implied table's of what a choice implies - so a loaded form
+leaves the same short command line a form filled by hand would; the target
+it was made for picked again (`target_for`), or none named when no target
+matches. **The title and credits are the header's**, because Set title
+(98.2.11) changes them in place after the encode and a new encode should
+keep what the file says now. The Video field is left alone: the log names
+the source to choose to make the file again. A file made before options
+were stored leaves the form as it was and says so; a damaged block does
+the same, naming the damage, and the file still previews. A load of the
+file an encode has just made does not refill the form - it already is
+that form.
+
+`tests/vencguitest.py` leg 15 is the gate: every target's file carries its
+record, and LOADING it gives a form whose command line resolves to the
+very record stored, for the same target, with nothing noted as lost - red
+on every target with `form_value` answering nothing. It drives the mapper
+through a made-up history (a rename, a renamed choice, an option added
+with its legacy value, one removed, a newer encoder's record, a value no
+longer a choice), pins the dictionary and the fingerprint, and checks that
+a damaged block leaves the file opening and `verify_v88` refusing it.
+`tests/vidspkshape.py` checks that `os88vid speaker` leaves the record
+saying the new shaping.
+
+**The poster beside the keyframe.** The file panel shows **the poster** -
+what the player shows before a play - beside **the keyframe a play from
+the scrubbed frame starts at**, with Set as poster on that one's header.
+Before, the poster was a number in the file's facts and seen only by
+scrubbing to it.
 
 ### 98.3 The player — `VIDEO.O88`, fullscreen (waves 3 to 6)
 
@@ -154959,10 +155925,16 @@ it** (§98.3.17) - and mute is the one choice for every kind of sound:
   play goes on silent on the PIT, and a toast says `Sound off`.
 
 The ring is the card's layout (§34.5.3), claimed as `VP_RL` + 272 bytes, with
-the count table after the control words. `vp_aput` puts each byte through
-the table as it queues it, and the drain's silence fill is translated too -
-or, for a file of counts (98.1.1.3), copies them and fills with the table's
-middle.
+the count table after the control words. **A clip made for a card goes
+through §34.11.9's shaper**, as the encoder shapes one made for the speaker
+(98.2.15.1): a straight wave on a 5150 is the carrier and little else.
+`vp_aput` takes each queued piece - a frame's audio - to `os88spkfx_level`
+for its level and `os88spkfx_emit` for its counts, with the first-difference
+pre-emphasis on; the family is `vp_fam`, 11 x 256 bytes of bss. The drain's
+silence fill is `os88spk_sil`, a count of 1 once the shaper has the carrier
+away. A file of counts (98.1.1.3) is still a copy, filled with the table's
+middle. `tests/vidspk.py` reads its pulses back against `tools/os88spkfx.py`'s
+`Shaper` fed the same pieces, and they are EXACT.
 Everything that stops or restarts the card does the same to the speaker, by
 `vp_sclose`, `os88spk_stop` and `os88spk_go`:
 - a **pause** stops it where it is, CONS exact, and the resume goes on from
@@ -155620,7 +156592,10 @@ owner's rule). The text names both.
 ## 99. Gorillas (`apps/gorillas/gorillas.asm`)
 
 A native 8086 adaptation of the supplied Microsoft QBasic `gorilla.bas`
-(1990), packaged as `GORILLAS.O88`. One player faces a computer opponent,
+(1990), packaged as `GORILLAS.O88` and shipped in `GAMES/` on every apps
+disk but the 360KB one, and on `games360.img` — off `apps360.img` by
+§24.6.1's dated decision, the Makefile's `APPS_GAMES_360` carrying the
+arithmetic. One player faces a computer opponent,
 or two local players alternate angle and velocity entries, throwing bananas
 over a generated, destructible skyline. Eight to twelve building lots fill the 256-pixel
 width, each 18..36 pixels wide with one-pixel gutters on both sides. Each
@@ -155671,7 +156646,9 @@ gorilla dance score, with a circulating sparkle border and alternating raised-ar
 gorillas. Music starts on the first worker frame after the initial paint. The
 completed score or any key opens setup: one/two players (default two), two names (ten
 characters each, default Player 1/Player 2 or Computer), winning score, and
-positive decimal gravity (0.001..9999.999 m/s², default 9.8). Enter accepts defaults;
+positive decimal gravity (0.001..9999.999 m/s², default 9.8), and gameplay music
+(Yes/No, default Yes; case-insensitive Y/N also accepted). The music question
+explains the M toggle during gameplay. Enter accepts defaults;
 Backspace edits. Invalid numeric entries remain on the current question. Name
 entry consumes printable keys before gameplay shortcuts. Alt+Enter/Escape and
 the Game menu remain available. V selects the optional musical dance; P/Enter
@@ -155687,6 +156664,30 @@ planes/bands during longer paints, schedules tones at priority 0x40;
 durations round to 18.2 Hz ticks, minimum one tick. Timed tones expire even
 while covered; score progression resumes with the worker. No direct speaker
 port writes or blocking waits run under the graphics lock.
+
+**Gameplay FM music:** `grbgm.inc` plays three original 16-bar, three-voice
+scores generated by `tools/gorillas_bgm.py` into `grbgmdata.inc`: Rooftop Rumble
+(major, 21 seconds), Moonlit Mischief (minor, 28 seconds), and Banana Boulevard
+(swing, 21 seconds). Completed points modulo three selects the next skyline's
+track; a new match starts at track one. Every score loops through aiming,
+flight, impacts and celebrations, independently of the reference tone sequences.
+AdLib and Sound Blaster both use `OSAPI_SND_FM` through `SOUND.DRV`; the game's
+three voices claim any free channels 0–7 and leave reserved tone channel 8 alone.
+The setup preference persists across skylines. M toggles music during aiming,
+flight, celebrations and computer turns, in windowed and fullscreen play;
+while paused, enabling music waits for resume. Muting releases channels and
+retains the score position without changing reference effects. Carrier total
+levels add eighteen 0.75 dB steps (13.5 dB attenuation) to all
+nine music patches; modulator levels and sound-effect volume are unchanged.
+Unavailable FM or fewer than three free channels leaves the original effects
+working; partial claims are released and the next skyline retries. Pause,
+About and covered/unfocused windows release the FM voices and resume at the
+next score row with a fresh deadline. Setup, final scores and instance teardown
+release all music claims. Percussive envelopes decay even if servicing stops.
+The existing worker and band/plane service advance the score, with no new task,
+sample buffers or timer changes. `tests/gorillasmusic.py` checks actual guest
+loop boundaries, skyline rotation, driver key-on/rest state, contention and
+cleanup on AdLib, Sound Blaster and speaker-only machines.
 
 During flight, crossing sun ink opens an oval mouth without stopping the shot;
 the banana remains hidden until it leaves the sun.
@@ -155910,3 +156911,151 @@ for CGA/Hercules redraw. `--max-paint-ms 0` permits baseline measurements.
 The existing gameplay, frontend, input and animation gates cover throws,
 craters, fullscreen restoration, borrowed-cache transitions and incremental
 text. These are emulator cycle measurements, not hardware measurements.
+
+## 100. DrMarco (`apps/drmario/drmario.asm`)
+
+Native 8086 single-player adaptation of the supplied NES Dr. Mario disassembly.
+The reference is external: `NES-Games-Disassembly/Dr. Mario/bank_FF.asm` and
+`CHR_ROM.chr`. `make drmario` imports selected graphics and speed/color tables
+into the build directory, then builds `DRMARCO.O88`; `make drmarcodisk` creates
+four standalone application floppy geometries. `DRMARIO_SOURCE` overrides the
+reference directory. No NES interpreter, ROM redistribution in source control,
+new API slots, worker or kernel change is required. The desktop artwork uses
+one movable memory claim; fullscreen rendering adds no allocation.
+
+DrMarco is the displayed name and package identity. `make drmarco` and
+`make drmarcodisk` are the public targets; `drmario` and `drmariodisk` remain
+compatibility aliases. Internal source names and disk-image paths stay stable.
+`DRMARCO_PLAN.MD` tracks the remaining feature work.
+
+The original generated screen surround is committed at
+`apps/drmario/art/drmarco-screen.png`, with its prompt beside it. Build-time
+conversion adds an original 24-pixel checker surround, clipboard HUD/preview
+panels and title/prompt/control plaques. Writing surfaces stay black for the
+opaque glyph cache; unused HUD row 15 is never painted over the lower border.
+VGA checks are navy; CGA checks alternate red and black scanlines.
+The palette-indexed VGA planes and packed CGA banks use repeated-row records:
+a nonzero repeat byte precedes one encoded 80-byte native row. VGA packets
+pack a 1..31 pixel run in the upper five bits and an ink in the lower three.
+CGA packets 1..127 repeat the following byte; 128..255 copy 1..128 literal bytes.
+Zero terminates a row, and a zero repeat count terminates a plane/bank.
+Repeated rows replay source packets without reading video memory.
+Each VGA stream expands to 19,200 bytes; each CGA bank to 8,000 bytes. Only
+fullscreen entry/reentry decodes this trusted embedded art directly to VRAM.
+There is no new framebuffer. The right HUD reserves the doctor portrait;
+the game draws its own title, bottle boundary, score and state text over the
+surround. Capsule and bottle-virus tiles still require the local NES reference.
+
+A desktop splash supplies controls and settings. `front.inc` draws a generated
+capsule-logo/checkerboard scene with DrMarco and virus sprites; H opens a help
+page using the existing gameplay portrait and tile graphics. VGA gets 432x264
+color art; Hercules gets 432x264 line drawings and CGA gets 432x132 line drawings.
+The supporting `DRMARCO.VGA`, `.HRC`, and `.CGA` files ship beside the package.
+Each has a DMF1 header, dimensions/depth, two row-offset directories and bounded
+repeat/literal row streams (four native VGA planes per color row, packed bits
+per monochrome row). Repeated rows share directory offsets, including across
+the two pages. Only the current adapter's resource is loaded into
+an instance-owned movable claim. The painter uses bounded REP span decoding
+into the idle fullscreen font cache, then presents up to 16 rows per OS blit.
+Mode entry rebuilds that cache; the game queue holds a single-row packed
+fallback. No framebuffer or extra pixel storage is added. A real window
+ownership clip tests the whole band before temporarily disarming clipping for
+native planar copies; covered or otherwise refused copies retain a packed
+4bpp fallback. Clipping is restored before labels are drawn. Missing assets
+leave keyboard navigation and gameplay available with a visible explanation.
+The first paint shows controls and a loading message before disk I/O; the next
+timer callback loads the resource. Starting play before that callback is valid:
+returning to the desktop schedules the still-pending load with music paused.
+Setup keys repaint only the settings text row, without decoding art; on help
+they change state without repainting. The existing music timer reveals twelve
+rows per callback, preserves the
+revealed extent across exposures and shares no gameplay animation state.
+Labels appear immediately and are restored only where the reveal crosses them.
+Help/splash transitions restart this window-shade effect; returning from the
+game restores the complete page. Title music continues on help. H/Escape returns
+to the splash. Mouse hit testing asks for the live content origin after drags.
+The frontend guest gate is `tests/drmario_front.py`; Hercules gameplay remains
+unsupported.
+
+Enter/Alt+Enter opens the
+exclusive bracket; Escape/Alt+Enter restores the desktop with the game paused.
+VGA selects FSXM_MODEX (320x240); CGA selects FSXM_CGA320 (320x200), black
+background and bright green/red/yellow palette 0 (3D9h=10h). VGA retains
+blue/red/yellow. Unsupported adapters refuse fullscreen with an explanation.
+Original artwork uses offline converted native pixels: 16x12 VGA cells and
+16x10 CGA cells. VGA batches dirty cells by plane (four map-mask selections),
+CGA copies packed rows with bank alternation. A 128-byte displayed-cell shadow
+includes the active capsule. Ordinary movement visits only its two old and
+two new cells; locks, clears and gravity compare the complete 128-cell board.
+No pixel framebuffer is scanned or copied during ordinary play. Unchanged
+ticks without an animation change perform no video writes. Text has a character shadow and 63 cached native glyphs. VGA/CGA share
+4,032 bytes of native font storage, rebuilt only on mode entry. Initial paint and mode reentry invalidate the
+shadows. Board address tables eliminate per-cell coordinate multiplication.
+
+`anim.inc` supplies a decorative clock independent of the capsule state machine
+and RNG. Every four 54.6Hz ticks it advances one actor: blue, doctor, red,
+doctor, yellow, doctor. Each bottle-virus color alternates its original and
+mirrored tile every 24 ticks, with odd rows following even rows one tick later
+to bound dense-board video traffic; board data remains unchanged. Per-color counts
+increment at placement and decrement once per marked virus at removal.
+The matching geometric mascot shows crossed eyes for two scheduled beats,
+then resumes dancing or disappears if its count is zero. DrMarco blinks for
+eight ticks once per 264-tick cycle (about 4.8 seconds), including terminal
+states. The head and body stay fixed. Pause freezes the clock, phases and
+reaction counters. Mode reentry preserves poses
+and invalidates all four actor shadows.
+
+The asset compiler emits original geometric mascot poses and open/closed eye
+patches for DrMarco. His complete portrait remains in the static background;
+mascot pixels are stored only in their animation streams. Trusted animation
+streams contain absolute native destination words, byte lengths and literal
+data, with FFFF plane terminators.
+Mascot spans cover the union of all four pose footprints, including erasure.
+The doctor overwrites only the lens interiors and restores their original pixels
+on reopening, without a clear pass or head movement. VGA and CGA use separate
+native streams. Neither needs a scratch image or per-pixel conversion at runtime.
+The capsule preview is at (240,52) on VGA and (240,40) on CGA, above the doctor.
+These animations deliberately adapt NES $89B6, $89C9 and $89D4–$8C27;
+capsule throws and timed opening placement are still separate roadmap work.
+
+The bottle is 8x16. Cell low bits are color (1..3); high nibble distinguishes
+single, left, right, top, bottom and virus. Four-or-longer horizontal and
+vertical matches are marked together, flashed, removed together, and surviving
+partners detached. Gravity moves a linked pair only if both destinations are
+free; viruses never fall. Cascades finish before the next capsule spawns.
+A blocked spawn ends the game; clearing all viruses advances a level. Setup
+supports levels 0..20 and LOW/MED/HI. There are four viruses per level plus
+four, capped at 84. Capsule colors use the reference 128-entry sequence
+algorithm and feedback shift register. Fall intervals use the reference
+A795 table, converted from 60Hz to the OS's 54.6Hz fullscreen frame clock.
+Movement uses held scan codes and explicit repeat delays rather than BIOS
+keyboard typematic. BIOS-buffered action makes preserve taps shorter than
+one frame; repeats of held action keys are ignored. Timing is bounded and
+does not replay missed frames.
+
+Audio uses local-reference note arrangements compiled offline from the NES
+music sequencer ($DDEF–$E017); generated music stays in build/drmario-art.
+M selects FEVER / CHILL / OFF in the launcher or fullscreen; the HUD shows
+the selection. Initial launcher title/options audio uses WM_ONTIMER, suspends
+on loss of focus and is cancelled on fullscreen entry. AdLib and Sound Blaster use
+three OPL2 music voices through OSAPI_SND_FM; PC speaker uses the lead voice
+through OSAPI_SND_TONE. Sound Blaster uses FM, without PCM mixing or DMA.
+Effects take priority over the speaker melody and use a separate FM voice.
+Music patches use attack rate 14 instead of the instantaneous rate 15 to
+soften note onsets; the effect patch retains rate 15. The OPL chip shapes
+the envelope, with no per-frame software work or CPU-specific timing change.
+The sequencer runs once per fullscreen frame, with bounded work, fractional
+60Hz note timing and no missed-frame replay. Pausing freezes music position;
+exit silences and releases audio; reentry resumes the saved music position.
+Music OFF retains effects. Steady sequencer updates are capped at two notes per
+frame,
+including one immediate effect. Pending music voices use fair rotating service;
+a third simultaneous voice follows within one frame normally, two with effects.
+Only the latest pitch is retained. Speaker output has finite leases, refreshed
+before expiry. Whole-game frame timing and the deterministic decorative clock
+are unchanged. There are no new IRQs, workers or kernel services.
+Endings, attract sequences and competitive two-player mode remain absent.
+Guest tests must cover matches, links, gravity, rotation, game over, progression,
+input, mode restoration, incremental/full repaint equivalence and actual 8088
+cycle costs on VGA and CGA. Timing claims must distinguish emulator results
+from physical XT measurements.

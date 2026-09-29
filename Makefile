@@ -4775,7 +4775,7 @@ $(shell mkdir -p $(BUILD); \
         [ -f $(VPSTAMP) ] || { rm -f $(BUILD)/.vplayer-livesnd $(BUILD)/.vplayer-nolivesnd \
                                       $(BUILD)/video.bin $(BUILD)/video.o88; \
                                 touch $(VPSTAMP); })
-$(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88api.inc apps/os88alt.inc \
+$(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
                     apps/os88ui.inc $(VPSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ $(VPDEF) -o $@ apps/video/video.asm
 	@echo "video:  $(call FILESIZE,$@) bytes"
@@ -5856,6 +5856,8 @@ $(BUILD)/recorder.o88: $(BUILD)/recorder.bin tools/os88pkg.py $(PKGZSTAMP)
 $(BUILD)/tracker.bin: apps/tracker/tracker.asm apps/tracker/trkplay.inc \
                       apps/tracker/trkui.inc apps/tracker/trktxt.inc \
                       apps/tracker/trkwin.inc apps/tracker/trklist.inc \
+                      apps/tracker/trkspk.inc apps/os88spk.inc \
+                      apps/os88spkfx.inc apps/os88spkfx_t.inc \
                       apps/os88api.inc apps/os88alt.inc apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/tracker/ -o $@ apps/tracker/tracker.asm
 	@echo "tracker: $(call FILESIZE,$@) bytes"
@@ -5872,6 +5874,8 @@ $(BUILD)/tracker.o88: $(BUILD)/tracker.bin tools/os88pkg.py $(PKGZSTAMP)
 TRKVOL_SRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
               apps/tracker/trkui.inc apps/tracker/trktxt.inc \
               apps/tracker/trkwin.inc apps/tracker/trklist.inc \
+              apps/tracker/trkspk.inc apps/os88spk.inc apps/os88spkfx.inc \
+              apps/os88spkfx_t.inc \
               apps/os88api.inc apps/os88alt.inc apps/os88ui.inc
 .PHONY: trkvol
 trkvol: $(BUILD)/trkvol360.img
@@ -5901,6 +5905,8 @@ AUDIO_SRC := apps/audio/audio.asm apps/audio/apengine.inc \
              apps/audio/apwork.inc apps/audio/apcb.inc \
              apps/audio/apwav.inc apps/audio/apdec.inc \
              apps/audio/apui.inc apps/audio/aplist.inc \
+             apps/audio/apspk.inc apps/os88spk.inc apps/os88spkfx.inc \
+             apps/os88spkfx_t.inc \
              apps/os88api.inc apps/os88ui.inc apps/os88type.inc
 # NB: apps/audio/audio.asm is named explicitly (as well as via $(AUDIO_SRC),
 # which begins with it) so tools/os88index.py finds the package here.
@@ -6298,7 +6304,7 @@ $(BUILD)/dotdel.o88: $(BUILD)/dotdel.bin tools/os88pkg.py $(PKGZSTAMP)
 .PHONY: gorillas
 gorillas: $(BUILD)/gorillas.o88
 
-$(BUILD)/gorillas.bin: apps/gorillas/gorillas.asm apps/gorillas/grart.inc apps/gorillas/grfront.inc apps/gorillas/grdraw.inc apps/gorillas/grmusic.inc apps/gorillas/grai.inc apps/gorillas/grplay.inc apps/gorillas/grphysics.inc apps/os88api.inc apps/os88ui.inc apps/os88alt.inc | $(BUILD)
+$(BUILD)/gorillas.bin: apps/gorillas/gorillas.asm apps/gorillas/grart.inc apps/gorillas/grfront.inc apps/gorillas/grdraw.inc apps/gorillas/grmusic.inc apps/gorillas/grbgm.inc apps/gorillas/grbgmdata.inc apps/gorillas/grai.inc apps/gorillas/grplay.inc apps/gorillas/grphysics.inc apps/os88api.inc apps/os88ui.inc apps/os88alt.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/gorillas/ -o $@ apps/gorillas/gorillas.asm
 
 $(BUILD)/gorillas.o88: $(BUILD)/gorillas.bin tools/os88pkg.py $(PKGZSTAMP)
@@ -6700,6 +6706,36 @@ $(BUILD)/mcbench360.img: $(BUILD)/mcbench.o88 tools/os88disk.py
 
 .PHONY: mcbench
 mcbench: $(BUILD)/mcbench360.img
+
+# SPKBENCH (tests/spkbench): what the PC speaker costs THIS machine - the
+# sample ISR's share of it at 4,800, 5,512 and 8,000 Hz, measured against a
+# fixed shaper workload, and RAM read speed per 64 KB bank (SPEC.md 45.25.1,
+# PERFORMANCE.md Part 8.2). For the owner's 5150 and an 86Box V20, which is
+# why the disks are 360 KB, 720 KB (a Toshiba T1100 Plus) and
+# 1.44 MB with nothing else on them. On demand:
+# nothing here ships.
+$(BUILD)/spkbench.bin: tests/spkbench/spkbench.asm tests/benchlib.inc \
+                       apps/os88api.inc apps/os88spk.inc apps/os88spkfx.inc \
+                       apps/os88spkfx_t.inc tools/benchlint.py | $(BUILD)
+	python3 tools/benchlint.py tests/spkbench/spkbench.asm
+	$(NASM) -f bin -w+error -I apps/ -I tests/ -o $@ tests/spkbench/spkbench.asm
+	@echo "spkbench: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/spkbench.o88: $(BUILD)/spkbench.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/spkbench.bin -o $@
+
+$(BUILD)/spkbench360.img: $(BUILD)/spkbench.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/spkbench.o88
+
+$(BUILD)/spkbench720.img: $(BUILD)/spkbench.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 720 $(BUILD)/spkbench.o88
+
+$(BUILD)/spkbench144.img: $(BUILD)/spkbench.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/spkbench.o88
+
+.PHONY: spkbench
+spkbench: $(BUILD)/spkbench360.img $(BUILD)/spkbench720.img \
+          $(BUILD)/spkbench144.img
 
 # tests/filler is an instrument with no assertions of its own: it takes the
 # arena down to a few tens of KB and, on a keypress, asks for one KB more than
@@ -9277,7 +9313,8 @@ zscreens: $(BUILD)/stories.stamp
 # TRKLOG.TXT back to it, which is the point (docs/TESTING.md).
 TRKLOGSRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
              apps/tracker/trkui.inc apps/tracker/trktxt.inc \
-             apps/tracker/trkwin.inc apps/tracker/trklist.inc apps/os88ui.inc tests/trklog.inc
+             apps/tracker/trkwin.inc apps/tracker/trklist.inc apps/tracker/trkspk.inc \
+             apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88ui.inc tests/trklog.inc
 
 trklog: $(BUILD)/trklog.img $(BUILD)/trklog360.img
 
@@ -9317,7 +9354,8 @@ $(BUILD)/trklog360.img: $(BUILD)/trklog.o88 apps/tracker/beverly.mod tools/os88d
 # nothing playing has nothing to scroll.
 TRKSCRLSRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
               apps/tracker/trkui.inc apps/tracker/trktxt.inc \
-             apps/tracker/trkwin.inc apps/tracker/trklist.inc apps/os88ui.inc tests/trkscrl.inc
+             apps/tracker/trkwin.inc apps/tracker/trklist.inc apps/tracker/trkspk.inc \
+             apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88ui.inc tests/trkscrl.inc
 
 trkscrl: $(BUILD)/trkscrl.img
 
@@ -11485,7 +11523,24 @@ APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/tank.o88 $(BUILD)/cyclone.o88 \
 # ModPlug was RETIRED (SPEC.md 56.15). THE 360KB COMBO IS A FOURTH SITE and
 # does not take this list: it filters APPS_GAMES through COMBO_DROP, which
 # names the package there with its own ground (below, beside ETHER.DRV's).
-APPS_GAMES_360 := $(filter-out $(BUILD)/pxstein.o88,$(APPS_GAMES))
+# GORILLAS OFF THE 360KB APPS DISK (SPEC.md 24.6.1's decision with a date on
+# it: 2026-09-28, CONFIRMED by the owner 2026-09-29 "for now"). The disk was
+# full to the cluster and the PC speaker's path (docs/plans/completed/SPEAKER-PCM-PLAN.md)
+# grows three packages that ride it - Audio +3.3 KB of disk now, Tracker and
+# the Video Player next - so something had to move, and every game here is
+# also on games360.img. Gorillas is the newest arrival and its 14 clusters
+# cover all three packages' growth; it loses no disk it shipped on elsewhere.
+# The same decision was reached on elendilon from the other side: its music
+# (#205) took the package 14,261 -> 16,206 bytes and the disk 352 -> 354 of
+# 354 - it still BUILT, but a volume with no free cluster refuses every
+# SYSTEM/APPDATA write on it (SPEC.md 19.9), Cyclone's high scores among them.
+#
+# ...AND NEITHER IS DOT DELIRIUM (SPEC.md 93.13, the same dated decision,
+# the owner's, 2026-09-29): it had ridden this disk only as the development
+# arrangement 93.13 describes. games360.img and every other disk keep it -
+# smallapps360.img too, which is SMALLGAMES and not this list.
+APPS_GAMES_360 := $(filter-out $(BUILD)/pxstein.o88 $(BUILD)/gorillas.o88 \
+                    $(BUILD)/dotdel.o88,$(APPS_GAMES))
 
 # The CORE PACKAGES (SPEC.md 24.3) are a SECOND copy on the system disk and
 # never a move, so the two lists above are unchanged and still carry every
@@ -13678,3 +13733,48 @@ clean-nasm3:
 	rm -rf $(BUILD)/nasm3
 
 distclean: clean clean-marty clean-cc clean-nasm3
+
+# Native DrMarco. NES cell tiles remain local; original surround is committed.
+DRMARIO_SOURCE ?= ../NES-Games-Disassembly/Dr. Mario
+.PHONY: drmarco drmarcodisk drmario drmariodisk drmario-assets drmario-source-check
+drmario-source-check:
+drmario-assets: | $(BUILD)
+	python3 tools/drmario_assets.py "$(DRMARIO_SOURCE)" $(BUILD)/drmario-art
+	python3 tools/drmario_audio.py "$(DRMARIO_SOURCE)" $(BUILD)/drmario-art
+
+$(BUILD)/drmario-art/dm-tables.inc: tools/drmario_assets.py apps/drmario/art/drmarco-screen.png apps/drmario/art/drmarco-splash.png drmario-source-check | $(BUILD)
+	python3 tools/drmario_assets.py "$(DRMARIO_SOURCE)" $(BUILD)/drmario-art
+
+$(BUILD)/drmario-art/dm-music.inc: tools/drmario_audio.py drmario-source-check | $(BUILD)
+	python3 tools/drmario_audio.py "$(DRMARIO_SOURCE)" $(BUILD)/drmario-art
+
+# The graphics compiler emits these alongside dm-tables.inc; the phony source
+# check above refreshes the complete set, including a deleted side output.
+$(BUILD)/drmario-art/dm-anim-vga.inc $(BUILD)/drmario-art/dm-anim-cga.inc: $(BUILD)/drmario-art/dm-tables.inc
+
+$(BUILD)/drmario.bin: apps/drmario/drmario.asm apps/drmario/front.inc apps/drmario/audio.inc $(BUILD)/drmario-art/dm-music.inc $(BUILD)/drmario-art/dm-anim-vga.inc $(BUILD)/drmario-art/dm-anim-cga.inc apps/drmario/game.inc apps/drmario/video.inc apps/drmario/anim.inc apps/os88api.inc apps/os88ui.inc apps/os88alt.inc $(BUILD)/drmario-art/dm-tables.inc
+	$(NASM) -f bin -w+error -I apps/ -I apps/drmario/ -I $(BUILD)/drmario-art/ -l $(BUILD)/drmario.lst -o $@ $<
+
+$(BUILD)/drmarco.o88: $(BUILD)/drmario.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $< -o $@
+
+drmarco: $(BUILD)/drmarco.o88
+drmario: drmarco
+
+DM_FRONT_FILES := $(BUILD)/drmario-art/DRMARCO.VGA $(BUILD)/drmario-art/DRMARCO.CGA $(BUILD)/drmario-art/DRMARCO.HRC
+$(DM_FRONT_FILES): $(BUILD)/drmario-art/dm-tables.inc
+
+$(BUILD)/drmario.img: $(BUILD)/drmarco.o88 apps/drmario/README.md $(DM_FRONT_FILES)
+	python3 tools/os88disk.py -o $@ --size 1440 $^
+	python3 tools/os88disk.py --verify $@
+$(BUILD)/drmario720.img: $(BUILD)/drmarco.o88 apps/drmario/README.md $(DM_FRONT_FILES)
+	python3 tools/os88disk.py -o $@ --size 720 $^
+	python3 tools/os88disk.py --verify $@
+$(BUILD)/drmario120.img: $(BUILD)/drmarco.o88 apps/drmario/README.md $(DM_FRONT_FILES)
+	python3 tools/os88disk.py -o $@ --size 1200 $^
+	python3 tools/os88disk.py --verify $@
+$(BUILD)/drmario360.img: $(BUILD)/drmarco.o88 apps/drmario/README.md $(DM_FRONT_FILES)
+	python3 tools/os88disk.py -o $@ --size 360 $^
+	python3 tools/os88disk.py --verify $@
+drmariodisk: drmarcodisk
+drmarcodisk: $(BUILD)/drmario.img $(BUILD)/drmario720.img $(BUILD)/drmario120.img $(BUILD)/drmario360.img

@@ -2296,9 +2296,15 @@ fm_s_clbusy:  db 'Clone already running', 0   ; ...and a SECOND one, refused
                                     ; FS_EDIT (SPEC.md 22.21.2). It borrowed
                                     ; fm_s_nomem, which said 'Out of memory'
                                     ; and sent the user closing applications
+%ifdef DISK_COUNTERS              ; a FIELD kernel says WHICH transfer
+fm_clotab:    dw fm_s_empty, dsk_flstr, fm_s_ewprot, fm_s_nomem
+%else                             ; failed (SPEC.md 18.99.10)
 fm_clotab:    dw fm_s_empty, fm_s_dskerr, fm_s_ewprot, fm_s_nomem
+%endif
               dw fm_s_enodisk, fm_s_clsml, fm_s_efull, fm_s_notimg
               dw fm_s_clsame2, fm_s_clbusy
+              dw ui_s_nodisk        ; CERR_NOMOD: 'No system disk in A:',
+                                    ; the letter stamped at boot (ui.inc)
 fm_s_size:    db 'Size ', 0         ; ...and the resting status line, which
 fm_s_free:    db '   Free ', 0      ; carries both figures (SPEC.md 22.7)
 %if fm_s_free - fm_s_size != 6
@@ -5550,8 +5556,8 @@ fm_img_done_x:
     call fm_repaint
     jmp short .out
 .nodrv:
-    mov ax, CERR_NODISK
-.bad:
+    mov ax, CERR_NOMOD          ; CLONE.DRV is on the system disk, and it is
+.bad:                           ; not in the boot drive (SPEC.md 18.99.7)
     call fm_clone_bad           ; AX = CERR_*; nothing is armed, so the window
 .out:                           ; is left exactly as it was
     jmp kretc_di

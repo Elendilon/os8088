@@ -131,6 +131,7 @@ TWV_OFF     equ 3                   ; nothing: a PICK now (SPEC.md 45.23), and
 TWV_N       equ 4                   ; ...the four a pick cycles through; the
 TWV_THIN    equ 4                   ; one below is only ever FORCED: the XT meter
 TW_OFFLEN   equ 19                  ; tw_s_voff's length (asserted below)
+TW_SOFFLEN  equ 18                  ; tw_s_soff's
 TW_UOFFLEN  equ 9                   ; ...and tw_s_uoff's
 TW_NBAND    equ 16                  ; the 286+ spectrum: sixteen bands...
 TW_BPITCH2  equ 14                  ; ...at this pitch...
@@ -539,6 +540,12 @@ tw_os_viz:
     mov si, [tw_s_vizs + bx]
     ret
 tw_os_rate:
+    call tw_spkq                    ; no card: the speaker's rate is picked for
+    jnc .card                       ; it (45.25) - the button says so, greyed
+    mov si, tw_s_rspk
+    mov ax, OS88UI_DIS
+    ret
+.card:
     push ax
     call trk_rsel_get               ; AH = this mode's pick
     mov bl, ah
@@ -626,12 +633,15 @@ tw_vgeom:
 ; -----------------------------------------------------------------------------
 ; tw_vizxhi - is the visualiser forced to NONE? ZF = 0 (jne) yes: forced to
 ; the XT meter (tw_vizfx) AND in XT mode at 11 kHz, where the mixer leaves the
-; XT no time to draw one (SPEC.md 45.21.5). The one state the visualiser
+; XT no time to draw one (SPEC.md 45.21.5) - or AND playing on the PC speaker,
+; whose pulses leave it less still (45.25). The one state the visualiser
 ; button greys in. Preserves all but the flags.
 ; -----------------------------------------------------------------------------
 tw_vizxhi:
     call tw_vizfx
     je .out                         ; not forced at all
+    cmp byte [tsp_run], 0           ; the speaker's play: none (ZF = 0)
+    jne .out
     cmp byte [mp_xt], 0
     je .out                         ; a tier-0 machine outside XT mode
     cmp byte [trk_xhi], 0
@@ -860,6 +870,12 @@ tw_lcd_line:
 .fmt:
     ; --- 2: the format -------------------------------------------------------
     call tw_rate_now                ; AX = Hz
+    or ax, ax                       ; 0: the speaker, before the bench has
+    jnz .num                        ; picked it a rate (45.25)
+    mov si, tw_s_spka
+    call tw_put
+    jmp short .xtf
+.num:
     xor dx, dx
     mov bx, 100
     div bx                          ; AX = tenths of a kHz
@@ -884,7 +900,12 @@ tw_lcd_line:
     mov [di+1], al
     add di, 2
     mov si, tw_s_khz
+    call tw_spkq
+    jnc .kp
+    mov si, tw_s_khzs
+.kp:
     call tw_put
+.xtf:
     cmp byte [mp_xt], 0
     je .v
     mov si, tw_s_fxt
@@ -1090,8 +1111,22 @@ tw_rate_now:
     mov ax, [mp_mixrate]
     cmp byte [trk_sopen], 0
     jne .out
-    call trk_rate_pick
-.out:
+    cmp byte [tsp_run], 0           ; ...or the speaker's (45.25)
+    jne .out
+    mov ax, [tsp_rate]              ; NO CARD, paused or stopped: the rate the
+    call trk_spkq                   ; speaker last played at (0 before its
+    jc .out                         ; first play: the bench has not picked
+    call trk_rate_pick              ; one) - not the card rate this mode would
+.out:                               ; take, which it never plays at
+    ret
+
+; tw_spkq - CF = 1 when the speaker is Tracker's output: a speaker play under
+; way (no caps call - this is asked every frame of one), or no card at all.
+; Preserves all but the flags.
+tw_spkq:
+    cmp byte [tsp_run], 0
+    je trk_spkq
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1669,6 +1704,11 @@ tw_voff:
     je .out
     mov si, tw_s_voff               ; XT mode's 11 kHz forced it...
     mov di, TW_OFFLEN
+    cmp byte [tsp_run], 0
+    je .pick
+    mov si, tw_s_soff               ; ...or the speaker's play (SPEC.md 45.25)
+    mov di, TW_SOFFLEN
+.pick:
     cmp byte [tw_viz], TWV_OFF
     jne .str
     mov si, tw_s_uoff               ; ...or the user PICKED it (SPEC.md 45.23)
@@ -2264,7 +2304,10 @@ tw_scope:
     call tw_fills
 .trace:
     cmp byte [trk_sopen], 0
+    jne .tron
+    cmp byte [tsp_run], 0           ; the speaker's play (45.25)
     je .flat
+.tron:
     cmp byte [mp_playing], 0
     je .flat
     mov byte [tw_scflat], 0
@@ -2660,8 +2703,11 @@ tw_tick:
     push ax
     call tw_vtick
     cmp byte [trk_sopen], 0         ; the elapsed clock counts what the card
-    je .up                          ; has PLAYED (tui_play, 45.15), so it
-    push bx                         ; stops with the music, pauses with it,
+    jne .cnt                        ; has PLAYED (tui_play, 45.15), so it
+    cmp byte [tsp_run], 0           ; stops with the music, pauses with it,
+    je .up                          ; - or the speaker, off its CONS (45.25) -
+.cnt:
+    push bx
     mov ax, [tui_play]              ; and a covered window misses nothing -
     mov bx, ax                      ; because a covered window's frame still
     sub ax, [tw_lplay]              ; books it (tw_book). AX = the bytes heard
@@ -2694,6 +2740,8 @@ tw_want:
     push si
     cmp byte [trk_sopen], 0
     jne .busy
+    cmp byte [tsp_run], 0           ; ...or the speaker's (SPEC.md 45.25),
+    jne .busy                       ; which opens no stream
     mov al, [mp_playing]
     cmp al, [tui_lplay]
     jne .busy
@@ -3039,7 +3087,8 @@ tw_synced:
 ; tw_seek - AL = an order position to play from. Playing, the stream is
 ; RESTARTED there: a seek that only moved the mixer would be heard a ring's
 ; worth later - seconds on an XT - and the thumb would snap back to where the
-; music still was. Stopped, it only moves the position.
+; music still was. Stopped or paused, it moves the position and publishes it
+; (tui_sync): nothing else will while no frames are drawn.
 ; -----------------------------------------------------------------------------
 tw_seek:
     push ax
@@ -3057,9 +3106,12 @@ tw_seek:
 .park:
     call mp_setposn
     call tw_seekclk
-.out:
-    pop ax
-    ret
+    mov al, [mp_row]                ; ...and SAID: a paused player draws no
+    mov [tui_vrow], al              ; frames (tw_want), and the frame was the
+    call tui_sync                   ; only thing that re-read the position, so
+.out:                               ; the thumb went back to where the pause
+    pop ax                          ; left it and the stopped view stayed on
+    ret                             ; the old row
 
 ; tw_seekclk - the clock goes WITH the seek: the time the song reaches the
 ; position it landed on (mp_timeat), which also leaves the tempo there for the
@@ -3181,11 +3233,16 @@ tw_s_rep2:  db 'Rpt List', 0
 tw_s_shuf:  db 'Shuffle', 0
 tw_s_list:  db 'PlayList', 0
 tw_s_xt:    db 'XT Mode', 0
+tw_s_rspk:  db 'Speaker', 0         ; the rate button with no card (45.25)
 tw_s_vizs:  dw tw_s_vu, tw_s_spec, tw_s_scope, tw_s_vnone, tw_s_vu
 tw_s_vnone: db 'Meter Off', 0
 tw_s_voff:  db 'No meters at 11 kHz', 0
 %if $ - tw_s_voff - 1 != TW_OFFLEN
 %error "tw_s_voff: TW_OFFLEN is the string's length"
+%endif
+tw_s_soff:  db 'No meters: speaker', 0
+%if $ - tw_s_soff - 1 != TW_SOFFLEN
+%error "tw_s_soff: TW_SOFFLEN is the string's length"
 %endif
 tw_s_uoff:  db 'Meter off', 0         ; ...the PICKED Off's line (SPEC.md 45.23)
 %if $ - tw_s_uoff - 1 != TW_UOFFLEN
@@ -3200,6 +3257,8 @@ tw_s_nomod:    db 'Tracker - no module loaded', 0
 tw_s_untitled: db '(untitled module)', 0
 tw_s_nofile:   db '- no module -', 0
 tw_s_khz:   db ' kHz  8 bit mono', 0
+tw_s_khzs:  db ' kHz  PC speaker', 0    ; ...with no card (45.25)
+tw_s_spka:  db 'PC speaker, auto rate', 0   ; ...before its first play
 tw_s_fxt:   db '  XT', 0
 tw_s_vol:   db '  Vol ', 0
 tw_s_pos:   db 'Pos ', 0

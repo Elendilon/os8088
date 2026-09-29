@@ -10,6 +10,8 @@
         [--title T] [--credits C] [--keysecs S] [--poster K | --poster-at S]
         [--clip N]
         [--preview-png DIR] [--quiet]
+    python3 tools/os88venc.py IN OUT.WAV [--rate HZ] [--spk-style S] ...
+        (the SOUND alone, for Audio on the PC speaker: SPEC.md 86.21.1)
 
 THE FRONT END, AND THE BUDGETS. ffmpeg decodes and scales the source to a
 canvas whose DISPLAYED shape is the source's (the layout's pixels are not
@@ -444,6 +446,159 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
                rate=num(d.get("rate", prof["rate"])),
                audio=d.get("audio", prof["audio"]))
     return out
+
+# THE OPTIONS A FILE WAS MADE WITH (98.2.17): every option, as the encode
+# USED it, stored in the .V88 (os88vid's options block, 98.1.1.4) so the
+# encoder's window can load the file and show how it was made. EVERY
+# option and not only the ones that differ from a default: a default is
+# today's, and a file that stored "fps left at its default" would change
+# its story the day that default moved. What a preset, a format or a
+# profile implied is stored as the value it came to, and so is the
+# speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
+OPTS_VERSION = 1
+# what is the encode's plumbing rather than how the file was made
+OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
+             "profiles")
+# the SCHEMA each version's records are written in - every option's name,
+# kind and choices, not its default (opts_schema). tests/vencguitest.py
+# fails when the parser no longer matches OPTS_VERSION's: an option was
+# added, renamed, removed or took other choices, and the version must go
+# up with a MIGRATIONS entry saying how an older record reads
+OPTS_FINGERPRINT = {1: "06108fff43ef1307"}
+# THE VERSION MAPPER: MIGRATIONS[n] is what turns a version-n record into
+# version n+1, a list of steps applied in order:
+#   ("rename", old, new)          an option took a new name
+#   ("revalue", dest, {old: new}) a choice was renamed, or a value's
+#                                 meaning moved (a dict, or a function
+#                                 value -> value)
+#   ("added", dest, legacy)       an option arrived: a file made before it
+#                                 was made as if it were `legacy` - which
+#                                 need not be the new option's default
+#   ("removed", dest, why)        an option went: dropped, with the reason
+# A record from a NEWER encoder than this one is read for what this one
+# knows, and says so; nothing is ever guessed
+MIGRATIONS = {}
+
+
+def opts_actions():
+    """dest -> the parser's action, for every option a record holds"""
+    return {x.dest: x for x in parser()._actions
+            if x.option_strings and x.dest not in OPTS_SKIP}
+
+
+def opts_schema():
+    """[dest, kind, choices] for every option a record holds: what its KEYS
+    mean at this version (98.2.17), and not what their defaults are"""
+    out = []
+    for d, x in sorted(opts_actions().items()):
+        kind = "bool" if x.nargs == 0 else \
+            getattr(x.type, "__name__", "str") if x.type else "str"
+        out.append([d, kind, sorted(str(c) for c in x.choices)
+                    if x.choices is not None else None])
+    return out
+
+
+def opts_fingerprint():
+    import hashlib
+    import json
+    return hashlib.sha256(json.dumps(opts_schema(), sort_keys=True)
+                          .encode()).hexdigest()[:16]
+
+
+def _opt_typed(x, v):
+    """A string the implied table gave, as the parser would have typed it"""
+    if x.nargs == 0:
+        return v in ("1", "True", "true", True)
+    return x.type(v) if x.type else v
+
+
+def options_record(a, sfps=None):
+    """dest -> the value the encode USED for every option (98.2.17): the
+    command line's, else what the preset, format, profile and Live choice
+    imply (implied()), else the speaker style's own three numbers, else the
+    parser's default - None only where None is itself the choice (the CGA4
+    palette left to the clip, no end time)"""
+    acts = opts_actions()
+    o = {d: getattr(a, d, None) for d in acts}
+    imp = implied(o.get("preset"), o.get("pixfmt"),
+                  o.get("profile") or "5150-st225", o.get("live"), sfps)
+    for d, v in imp.items():
+        if d in o and (o[d] is None or (acts[d].nargs == 0 and not o[d])) \
+                and v != "":
+            o[d] = _opt_typed(acts[d], v)
+    st = vid.SPK_STYLES[o.get("spk_style") or vid.SPK_STYLE]
+    for d, k in (("spk_highpass", "hp"), ("spk_ratio", "ratio"),
+                 ("spk_range", "rng")):
+        if o.get(d) is None:
+            o[d] = st[k]
+    return o
+
+
+def options_doc(a, sfps=None, opts=None):
+    """The record the file carries: its version, the source's NAME (not
+    its path - a file handed on should not carry the maker's folders) and
+    every option"""
+    return {"v": OPTS_VERSION,
+            "src": os.path.basename(getattr(a, "src", "") or ""),
+            "o": opts if opts is not None else options_record(a, sfps)}
+
+
+def opts_migrate(doc):
+    """A stored record -> (dest -> value in TODAY's schema, [notes]): the
+    MIGRATIONS from its version to OPTS_VERSION, then what this encoder
+    does not know dropped and what the record does not hold named - each a
+    note, so the window can say what it could not carry over. A value
+    that is not a plain one, or not one of an option's choices, is dropped
+    too: the record came off a file, and a file is hostile until read"""
+    v = doc.get("v")
+    o = doc.get("o")
+    if not isinstance(v, int) or v < 1 or not isinstance(o, dict):
+        raise vid.V88Error("an options record of version %r" % (v,))
+    o, notes = dict(o), []
+    if v > OPTS_VERSION:
+        notes.append("made by a newer encoder (options version %d; this "
+                     "one knows %d): what it does not know is left out"
+                     % (v, OPTS_VERSION))
+    while v < OPTS_VERSION:
+        for step in MIGRATIONS.get(v, ()):
+            kind = step[0]
+            if kind == "rename" and step[1] in o:
+                o[step[2]] = o.pop(step[1])
+            elif kind == "revalue" and step[1] in o:
+                m = step[2]
+                o[step[1]] = m(o[step[1]]) if callable(m) else \
+                    m.get(o[step[1]], o[step[1]])
+            elif kind == "added" and step[1] not in o:
+                o[step[1]] = step[2]
+            elif kind == "removed" and step[1] in o:
+                del o[step[1]]
+                notes.append("--%s is gone: %s"
+                             % (step[1].replace("_", "-"), step[2]))
+        v += 1
+    acts = opts_actions()
+    for d in sorted(set(o) - set(acts)):
+        del o[d]
+        notes.append("--%s is not an option here: left out"
+                     % d.replace("_", "-"))
+    for d in sorted(o):
+        x, val = acts[d], o[d]
+        if val is not None and not isinstance(val, (str, int, float, bool)):
+            bad = True
+        elif x.choices is not None and val is not None:
+            bad = str(val) not in [str(c) for c in x.choices]
+        else:
+            bad = False
+        if bad:
+            del o[d]
+            notes.append("--%s %r is not a value it takes: left out"
+                         % (d.replace("_", "-"), val))
+    missing = sorted(set(acts) - set(o))
+    if missing:
+        notes.append("not in the record, so at today's default: %s"
+                     % ", ".join("--" + d.replace("_", "-")
+                                 for d in missing))
+    return o, notes
+
 
 HOOK_CYC = 3040.0        # the hook's own cycles a frame, outside the decode
                         # and the sound's copy: measured on the Hercules
@@ -2528,6 +2683,83 @@ def ffmpeg_audio(src, rate, start, end, volume, fmt="u8"):
     return subprocess.run(cmd, capture_output=True, check=True).stdout
 
 
+def speaker_pcm(a, rate, say):
+    """The source's sound SHAPED FOR THE SPEAKER (98.2.15.1), as PCM8 at
+    `rate`, by the style and the numbers `a` gives - the one body a speaker
+    .V88 and a speaker WAV (86.21.1) both take theirs from. What a 5150's
+    cone can play would otherwise sit 25-30 dB under the pulses' own
+    carrier"""
+    st = vid.SPK_STYLES[getattr(a, "spk_style", None) or vid.SPK_STYLE]
+    for k, v in (("spk_highpass", "hp"), ("spk_ratio", "ratio"),
+                 ("spk_range", "rng")):
+        if getattr(a, k, None) is None:
+            setattr(a, k, st[v])
+    pcm = vid.spk_shape_f(np.frombuffer(ffmpeg_audio(
+        a.src, rate, a.start, a.end, a.volume, "f32le"), dtype="<f4"),
+        rate, a.spk_highpass, a.spk_drive, lows=a.spk_lows,
+        rng=a.spk_range, ratio=a.spk_ratio, idle=a.spk_idle)
+    say("   speaker: shaped %s - nothing under %d Hz, the level evened "
+        "out %g:1 and driven to %.0f%% RMS (--spk-shape off to take the "
+        "sound as it is)" % (getattr(a, "spk_style", None)
+                             or vid.SPK_STYLE, a.spk_highpass,
+                             a.spk_ratio, 100 * a.spk_drive))
+    return pcm
+
+
+SPK_WAV_RATE = 8000     # a speaker WAV's default rate: Audio's top rung on
+                        # an 8088, which copies counts no faster (86.21)
+
+
+def is_wav(path):
+    return path.lower().endswith(".wav")
+
+
+def encode_wav(a, tick):
+    """A SPEAKER WAV FOR AUDIO (SPEC.md 86.21.1): the source's sound alone,
+    shaped for the speaker exactly as a speaker .V88's is (speaker_pcm) and
+    stored as the speaker's COUNTS in an 'o8sp' WAV, which Audio copies
+    into the ring with no shaping, resampling or decoding of its own. No
+    picture: every picture, colour and budget option is the video's"""
+    say = (lambda *x: None) if a.quiet else print
+    tick("prepare", 0, 0)
+    need_tools()
+    if a.audio not in (None, "speaker"):
+        raise vid.V88Error("a .WAV is made for the PC speaker (86.21.1): "
+                           "--audio %s is a .V88's" % a.audio)
+    if a.spk_pulses != 1:
+        raise vid.V88Error("--spk-pulses: a .V88's (34.11.7) - Audio plays "
+                           "one pulse a sample")
+    prof = PROFILES[a.profile]
+    fast = bool(prof.get("spk_us"))
+    rate = a.rate or SPK_WAV_RATE
+    top = SPK_MAX_AT if fast else SPK_MAX_8088
+    if not SPK_MIN <= rate <= top:
+        raise vid.V88Error(
+            "--rate %d: Audio plays a speaker WAV from %d to %d Hz on this "
+            "profile%s" % (rate, SPK_MIN, top, "" if fast else
+                           " - a 286 profile goes to %d" % SPK_MAX_AT))
+    vid.spk_table(rate, 1, fast=fast)
+    tick("sound", 0, 0)
+    if a.spk_shape == "on":
+        pcm = speaker_pcm(a, rate, say)
+    else:
+        pcm = ffmpeg_audio(a.src, rate, a.start, a.end, a.volume)
+    if not pcm:
+        raise vid.V88Error("no sound came out of %s" % a.src)
+    counts = vid.spk_counts(bytes(pcm), rate, 1)
+    tick("write", 0, 0)
+    vid.write_spk_wav(a.out, rate, counts, vid.SPK_WAV_COUNTS)
+    secs = len(counts) / float(rate)
+    size = os.path.getsize(a.out)
+    say("os88venc: %s: %.1f s of the speaker's counts at %d Hz, %d bytes - "
+        "Audio copies them to the speaker, and plays them on a card as the "
+        "samples they came from (SPEC.md 86.21.1)" % (a.out, secs, rate, size))
+    if getattr(a, "spk_preview", None):
+        s2 = vid.write_spk_preview(a.spk_preview, counts, rate, 1)
+        say("   speaker preview: %s, %.1f s" % (a.spk_preview, s2))
+    return dict(bytes=size, secs=secs, rate=rate, wav=True)
+
+
 def auto_levels(src, w, h, crop, start, end, eq):
     """The grey levels the picture really spans - its 1st and 99th
     percentile over a frame a second - so a source that lives in the
@@ -2652,6 +2884,8 @@ def encode(a, keep=None, progress=None):
     Cancelled to stop it (98.2.11)"""
     readers = []
     tick = progress or (lambda step, done, total: None)
+    if is_wav(a.out):                   # the SOUND alone (86.21.1)
+        return encode_wav(a, tick)
     try:
         if getattr(a, "aim", "asked") == "quality":
             a = aim_quality(a, tick, (lambda *x: None) if a.quiet else print)
@@ -2720,6 +2954,9 @@ def _encode(a, keep, tick, readers):
         raise vid.V88Error("a %d x %d box does not fit %s (%d x %d)"
                            % (bw, bh, lay, stride * ppb, rows))
     sw, sh, dar, sfps, dur, has_audio = probe(a.src)
+    # HOW IT WAS MADE (98.2.17), resolved now, before anything below fills
+    # in a.* for itself: the file carries it for the encoder's window
+    optsblk = vid.pack_options(options_doc(a, sfps))
     pasp = vid.CGA4_ASPECT if cga4 else LIVE_ASPECT[a.live] if a.live \
         else None
     w, h, crop = canvas_size(lay, bw, bh, dar, a.fit, pasp)
@@ -2988,6 +3225,7 @@ def _encode(a, keep, tick, readers):
                     spkp=a.spk_pulses if spk and afmt else 1,
                     live=vid.TARGETS[a.live] if a.live and not a.resident
                     else None)
+    wr.opts = optsblk                   # (98.1.1.4)
     if not a.resident and enc.disk.per is not None:
         wr.ring = vid.ring_for(enc.reserve)     # (98.2.1.3)
         if wr.ring is None:
@@ -2996,22 +3234,7 @@ def _encode(a, keep, tick, readers):
                 % (enc.reserve // 1024,
                    (vid.RING_SLOTS[-1] - 1) * vid.SLOT // 1024))
     if spk and afmt and a.spk_shape == "on":
-        st = vid.SPK_STYLES[getattr(a, "spk_style", None) or vid.SPK_STYLE]
-        for k, v in (("spk_highpass", "hp"), ("spk_ratio", "ratio"),
-                     ("spk_range", "rng")):
-            if getattr(a, k, None) is None:
-                setattr(a, k, st[v])
-        # SHAPED FOR THE SPEAKER (98.2.15.1): what a 5150's cone can play
-        # would otherwise sit 25-30 dB under the pulses' own carrier
-        pcm = vid.spk_shape_f(np.frombuffer(ffmpeg_audio(
-            a.src, rate, a.start, a.end, a.volume, "f32le"), dtype="<f4"),
-            rate, a.spk_highpass, a.spk_drive, lows=a.spk_lows,
-            rng=a.spk_range, ratio=a.spk_ratio, idle=a.spk_idle)
-        say("   speaker: shaped %s - nothing under %d Hz, the level evened "
-            "out %g:1 and driven to %.0f%% RMS (--spk-shape off to take the "
-            "sound as it is)" % (getattr(a, "spk_style", None)
-                                 or vid.SPK_STYLE, a.spk_highpass,
-                                 a.spk_ratio, 100 * a.spk_drive))
+        pcm = speaker_pcm(a, rate, say)
     else:
         pcm = ffmpeg_audio(a.src, rate, a.start, a.end, a.volume) \
             if afmt else b""
@@ -3152,7 +3375,7 @@ def _encode(a, keep, tick, readers):
             wr.title, wr.credits, a.repeat, vid.PK_LZB,
             posters=[poster] if poster is not None else None,
             live=[vid.TARGETS[a.live]] if a.live else None,
-            spk=spk and bool(afmt))
+            spk=spk and bool(afmt), opts=optsblk)
         vid.verify_v88(a.out)
         rr = vid.Reader(a.out)
         res = dict(bytes=st["bytes"], stream=st["blocks"][0][0] +
@@ -3239,7 +3462,9 @@ def _encode(a, keep, tick, readers):
 def parser():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("src")
-    ap.add_argument("out")
+    ap.add_argument("out", help="a .V88; or a .WAV for Audio - the sound "
+                    "alone, shaped for the PC speaker as --audio speaker "
+                    "would and stored as its counts (SPEC.md 86.21.1)")
     ap.add_argument("--preset", choices=sorted(PRESETS),
                     help="a named box on a layout (--profiles lists them); "
                          "the cga4, cga4-small and c160 ones name their "

@@ -2140,7 +2140,7 @@ reprogrammed for everyone.
 - **Audio** plays on the desktop, where channel 0 is not its (34.1), so it
   would need a full-screen play first. (ModPlug was in this line once; it is
   RETIRED, SPEC.md 56.15, and needs nothing.) **Tracker and Audio are a
-  handoff to another session: docs/plans/SPEAKER-PCM-HANDOFF.md.**
+  handoff to another session: docs/plans/completed/SPEAKER-PCM-HANDOFF.md.**
 - **No C binding**: a C package would need an assembly module for the ISR.
 - ~~**ADPCM4 on the speaker**~~ - SET ASIDE, LIKELY PERMANENTLY (the
   owner, 2026-09-27: *"That would leave almost no room at all for video"*):
@@ -2309,7 +2309,7 @@ idea, so the next choice can start at the desk.
 
 **PC speaker follow-ons** (15.9):
 - **Tracker's full screen and Audio**: a HANDOFF to another session,
-  docs/plans/SPEAKER-PCM-HANDOFF.md. Audio needs a full-screen play first.
+  docs/plans/completed/SPEAKER-PCM-HANDOFF.md. Audio needs a full-screen play first.
 - **A C binding**: none; a C package would need an assembly module.
 - **Live without a card stays silent**: the desktop cannot give up
   channel 0.

@@ -39,7 +39,12 @@ CERR_FULL    equ 6              ; the volume the image would go on is too full
 CERR_NOTIMG  equ 7              ; that file is not a whole floppy (SPEC.md 18.99.8)
 CERR_SAME    equ 8              ; ...and it may not live on the disk itself
 CERR_BUSY    equ 9              ; a clone is ALREADY running (SPEC.md 22.21.2)
-CLO_NERR     equ 10
+CERR_NOMOD   equ 10             ; CLONE.DRV itself could not be read: the
+                                ; system disk is not in the boot drive
+                                ; (SPEC.md 18.99.7). NOT CERR_NODISK, whose
+                                ; 'No disk' read as "no disk to image" off
+                                ; the 5150 with a disk in both drives
+CLO_NERR     equ 11
 
 ; --- which prompt is up (SPEC.md 22.21.1) ------------------------------------
 CLS_PICK     equ 0              ; 'Clone A: to B:, ERASING it'
@@ -1168,7 +1173,7 @@ clo_nextvol:
 ; clo_key - one keystroke, and the disk work it asks for (SPEC.md 22.21.2)
 ; in:  AL = ascii, AH = scan; ES free; gfx lock held, UI task
 ; out: AL = CLA_*, AH = CERR_* when AL is CLA_ERR, BL/BH = the two volumes
-;      when it is CLA_DONE
+;      when it is CLA_DONE; CF = 0 ALWAYS (SPEC.md 18.99.7)
 ; clobbers: AX, BX, flags
 ;
 ; **The transfer happens HERE**, inside the keystroke, and that is not a
@@ -1330,6 +1335,19 @@ clo_key:
     mov ah, al                  ; AL = CERR_* on the way out of every refusal
     mov al, CLA_ERR             ; and every pass
 .out:
+    clc                         ; **EVERY EXIT IS AN ANSWER, SO CF IS CLEAR**
+                                ; (SPEC.md 18.99.7). The resident caller reads
+                                ; CF=1 as the OTHER alphabet - CLONE.DRV could
+                                ; not be re-read, AX = a bare CERR_* - and
+                                ; repacks it. `.err` arrives from a `jc` and a
+                                ; `mov` writes no flag, so CLA_ERR went back
+                                ; with CF still set and was repacked as error
+                                ; 83h, which toast_say refuses as out of its
+                                ; table: every failed clone and Write Img
+                                ; ended its mode in SILENCE (SPEC.md 18.99.10).
+                                ; `.line` is reached through a `jne` after a
+                                ; `cmp al, 13`, so a key below 13 leaked the
+                                ; same carry out of an ordinary prompt
     pop es
     pop di
     pop si
@@ -1342,7 +1360,7 @@ clo_key:
 ; in:  ES free; [clo_seg] live with CL_STEP = CLS_PICK and CL_TGT = CLE_IMG,
 ;      clo_fnbuf staged, the FILE's volume mounted and current; gfx lock held
 ; out: AL = CLA_*, AH = CERR_* when it is CLA_ERR (clo_key's answers exactly,
-;      because the caller hands them to the same place)
+;      because the caller hands them to the same place); CF = 0 always
 ; clobbers: AX, BX, flags
 ;
 ; The whole operation, in one call, for the cross-drive clone's reason: both
@@ -1377,8 +1395,9 @@ clo_saved:
     mov ah, al
     mov al, CLA_ERR
 .out:
-    pop es
-    pop di
+    clc                         ; an ANSWER, never the other alphabet - see
+    pop es                      ; clo_key's own exit, and the resident .save
+    pop di                      ; half that repacks a CF=1
     pop si
     pop dx
     pop cx
@@ -2708,7 +2727,7 @@ clo_need:
 ; -----------------------------------------------------------------------------
 ; clo_call - the whole resident dispatch (SPEC.md 18.99.7)
 ; in:  DL = CLV_*, everything else the verb's own
-; out: the verb's; CF=1 with AX = CERR_NODISK if the image cannot be had
+; out: the verb's; CF=1 with AX = CERR_NOMOD if the image cannot be had
 ;
 ; ONE thunk, because the image dispatches on DL itself - four of the
 ; formatter's shape would have been eighty bytes of `.cold` for four verbs.
@@ -2722,12 +2741,16 @@ clo_call:
     call far [CLFP + CLE_DISP*4]
     ret
 .no:
-    mov ax, CERR_NODISK         ; the nearest true thing: there is no cloner,
-    ret                         ; so there is no disk it can reach - and CF IS
+    mov ax, CERR_NOMOD          ; the cloner is on the system disk and the
+    ret                         ; system disk is not in the boot drive - said
+                                ; as 'No system disk in A:', the Task
+                                ; Manager's own string. It was CERR_NODISK
+                                ; ('No disk'), and on a two-drive machine with
+                                ; a disk in each that reads as "no disk to
+                                ; image" (docs/FIELD-NOTES.md 32). CF IS
                                 ; ALREADY SET: `.no` is reachable only through
-                                ; the `jc` above, and `mov r16, imm16` (B8 iw)
-                                ; writes no flag, which this file already
-                                ; states two headers up for `pop ax` and `ret`
+                                ; the `jc` above, and `mov r16, imm16` writes
+                                ; no flag
 
 ; -----------------------------------------------------------------------------
 ; clo_drop - the cloner is finished with (SPEC.md 2.8.3)

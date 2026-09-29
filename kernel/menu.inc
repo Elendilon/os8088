@@ -1739,8 +1739,8 @@ menu_track:
     ret
 
 ; -----------------------------------------------------------------------------
-; menu_popup - drop a menu anywhere on screen and track it under the right
-;              button (SPEC.md 12.4)
+; menu_popup - drop a menu anywhere on screen and track it while a button
+;              is held (SPEC.md 12.4)
 ; in:  CX = anchor x, DX = anchor y (absolute screen), BX = array of near
 ;      pointers to NUL item strings, AX = item count. Caller holds the gfx
 ;      lock.
@@ -1819,7 +1819,14 @@ menu_popup:
     dec bx
     mov [menu_y2], bx
 
-    mov byte [menu_btn], 2      ; the RIGHT button keeps a popup open
+    mov byte [menu_btn], 3      ; EITHER button keeps a popup open. It was
+                                ; 2, the right, when every popup was a
+                                ; right-click's; the Floppy page's drop-downs
+                                ; (SPEC.md 31.14) open on a LEFT press held
+                                ; exactly as a bar menu's is, and 3 serves
+                                ; both for the same five bytes. A right-click
+                                ; menu is unchanged unless the left is ALSO
+                                ; held, when it stays up until both are let go
     call menu_drop              ; AX = item index, or 0xFFFF
     cmp ax, 0xFFFF
     je .none

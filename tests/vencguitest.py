@@ -80,6 +80,19 @@ so it is checked here with no Tk at all:
    off the command line: --cga-palette on the speaker target, --flip on
    13h. With group_state answering "applies" for everything, 14 FAILS on
    every target.
+15. A FILE SAYS HOW IT WAS MADE (SPEC.md 98.1.1.4, 98.2.17): every target's
+   file carries its options, and LOADING it gives a form whose command line
+   resolves to the very record stored - every option, the target it was
+   made for picked again, nothing noted as lost. The frozen deflate
+   dictionary is pinned by SHA-256, the parser's schema by its fingerprint
+   (an option added, renamed or given other choices FAILS here until
+   OPTS_VERSION goes up with a MIGRATIONS entry), and the version mapper
+   is driven through a made-up history - a rename, a renamed choice, an
+   option added with its legacy value, one removed, a record from a newer
+   encoder, a value no longer a choice. A damaged block leaves the file
+   opening and playing (Reader) but refused by verify_v88; a file made
+   before options were stored loads as None. With form_value answering ""
+   the round trip FAILS on every target.
 
 Broken on purpose - an option dropped from the table, or a help string
 emptied - 1 FAILS naming it. Needs ffmpeg for 3 to 5 and SKIPS without it.
@@ -164,6 +177,17 @@ def groups_leg():
         if (flag in G.argv_from("in.mp4", "o.V88", v, 30.0)) != on:
             offs.append("%s %s on %s" % (flag, "missing" if on else
                                          "left on", pre))
+    # A SPEAKER WAV (86.21.1): every target's form, saved as a .WAV, has
+    # only the sound's groups left and no --audio on its command line
+    for i, t in enumerate(G.TARGETS):
+        v = G.form_start()
+        v.update(G.target_fill(i, 30.0))
+        gs, fs = G.group_state(dict(v, _out="o.WAV"))
+        on = sorted(h for h, why in gs.items() if why is None)
+        if on != sorted(G.WAV_KEEP):
+            wrong.append("%s as a WAV: %s apply" % (t[0], on))
+        if "--audio" in G.argv_from("in.mp4", "o.WAV", v, 30.0):
+            offs.append("--audio on a WAV from %s" % t[0])
     print("   14: %d groups, %d options in none (on Advanced), %d targets: "
           "%d wrong, %d command lines wrong"
           % (len(G.GROUPS), len(loose), len(G.TARGETS), len(wrong),
@@ -172,6 +196,120 @@ def groups_leg():
         bad.append("14: %s" % "; ".join(wrong))
     if offs:
         bad.append("14: %s" % "; ".join(offs))
+    return bad
+
+
+ZDICT_SHA256 = ("2f1a524ffb7c1ca2ff54102a28e41201"
+                "077dc25be32e295f46270508b9bbccd0")
+
+
+def options_leg():
+    """15, the half with no encode: the container, the schema, the mapper"""
+    import hashlib
+    bad = []
+    got = hashlib.sha256(vid.OPTS_ZDICT[1]).hexdigest()
+    if got != ZDICT_SHA256:
+        bad.append("15: os88vid.OPTS_ZDICT[1] is not the frozen dictionary "
+                   "(sha256 %s): every file made with it would stop reading "
+                   "- a new dictionary is a new container version" % got)
+    fp = V.opts_fingerprint()
+    if fp != V.OPTS_FINGERPRINT.get(V.OPTS_VERSION):
+        bad.append("15: the encoder's options are not version %d's any more "
+                   "(fingerprint %s, pinned %s): an option was added, "
+                   "renamed, removed or given other choices. Raise "
+                   "os88venc.OPTS_VERSION, add MIGRATIONS[%d] saying how a "
+                   "version-%d record reads now, and pin the new "
+                   "fingerprint (SPEC.md 98.2.17)"
+                   % (V.OPTS_VERSION, fp,
+                      V.OPTS_FINGERPRINT.get(V.OPTS_VERSION),
+                      V.OPTS_VERSION, V.OPTS_VERSION))
+    # the MAPPER through a made-up history: version 1 called --keysecs
+    # --key-secs and --dither's bayer "ordered", had no --flip (and made
+    # every file as if it were on), and had an --old-thing since removed
+    keep = V.OPTS_VERSION, V.MIGRATIONS
+    try:
+        V.OPTS_VERSION = 2
+        V.MIGRATIONS = {1: [("rename", "key_secs", "keysecs"),
+                            ("revalue", "dither", {"ordered": "bayer"}),
+                            ("added", "flip", True),
+                            ("removed", "old_thing", "folded into --stable")]}
+        base = {d: V.parser().get_default(d) for d in V.opts_actions()}
+        o1 = dict(base, key_secs=1.5, dither="ordered", old_thing=3)
+        del o1["keysecs"], o1["flip"]
+        o, notes = V.opts_migrate({"v": 1, "o": o1})
+        want = dict(base, keysecs=1.5, dither="bayer", flip=True)
+        if o != want or not any("old-thing" in n for n in notes):
+            bad.append("15: the version mapper made %s, noting %s"
+                       % ({k: o.get(k) for k in ("keysecs", "dither",
+                                                  "flip", "old_thing")},
+                          notes))
+        o, notes = V.opts_migrate({"v": 3, "o": dict(base, novel=1,
+                                                     dither="sierra")})
+        if "novel" in o or "dither" in o or len(notes) < 3:
+            bad.append("15: a newer encoder's record read as %s, noting %s"
+                       % ({k: o.get(k) for k in ("novel", "dither")}, notes))
+    finally:
+        V.OPTS_VERSION, V.MIGRATIONS = keep
+    # the container: a round trip, and damage refused where it is read
+    doc = {"v": 1, "src": "x.mp4", "o": {"fps": 23.0}}
+    if vid.unpack_options(vid.pack_options(doc)) != doc:
+        bad.append("15: pack_options does not round-trip")
+    old = os.path.join(ROOT, "apps", "video", "os8088.v88")
+    with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "build")) as t:
+        if G.form_from_file(vid.Reader(old)) is not None:
+            bad.append("15: a file with no options loaded as if it had some")
+        d = bytearray(open(old, "rb").read())
+        blob = vid.pack_options(doc)
+        struct.pack_into("<IH", d, vid.H_OPTS, len(d), len(blob))
+        good, hurt = os.path.join(t, "G.V88"), os.path.join(t, "H.V88")
+        open(good, "wb").write(bytes(d + blob))
+        blob = bytearray(blob)
+        blob[len(blob) // 2] ^= 0x55
+        open(hurt, "wb").write(bytes(d + blob))
+        try:
+            vid.verify_v88(good)
+            if vid.Reader(good).options() != doc:
+                bad.append("15: a stored record reads back differently")
+        except vid.V88Error as e:
+            bad.append("15: a good options block is refused: %s" % e)
+        try:
+            vid.Reader(hurt)            # it OPENS: the player never reads it
+        except vid.V88Error as e:
+            bad.append("15: a damaged options block stops the file "
+                       "opening: %s" % e)
+        try:
+            vid.verify_v88(hurt)
+            bad.append("15: verify_v88 passed a damaged options block")
+        except vid.V88Error:
+            pass
+    print("   15: dictionary %s, schema %s (version %d), the mapper and the "
+          "container checked" % (got[:12], fp, V.OPTS_VERSION))
+    return bad
+
+
+def roundtrip(i, label, src, out):
+    """15: the file made for target `i` loads into a form whose command
+    line resolves to the record it carries, for the same target"""
+    r = vid.Reader(out)
+    try:
+        got = G.form_from_file(r)
+    except vid.V88Error as e:
+        return ["15: %s: its options do not read: %s" % (label, e)]
+    if got is None:
+        return ["15: %s: the file carries no options" % label]
+    vals, ti, notes, name = got
+    stored = r.options()["o"]
+    a2 = V.parser().parse_args(G.argv_from(src, out + ".2", vals))
+    again = V.options_record(a2, 15.0)
+    diff = ["%s %r -> %r" % (k, stored[k], again.get(k)) for k in stored
+            if k not in ("title", "credits") and stored[k] != again.get(k)]
+    bad = []
+    if diff or ti != i or notes or name != os.path.basename(src):
+        bad.append("15: %s: loaded as target %s from %r, noting %s; the "
+                   "form's command line differs in %s"
+                   % (label, ti, name, notes, "; ".join(diff) or "nothing"))
+    print("   15: %-56s %d-byte record, loads as itself"
+          % (label[:56], r.optslen))
     return bad
 
 
@@ -265,6 +403,7 @@ def main():
         bad.append("11: drops taken wrongly: %s" % wrong)
     leg13(bad)
     bad += groups_leg()
+    bad += options_leg()
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         for b in bad:
             print("   FAIL: %s" % b)
@@ -295,6 +434,7 @@ def main():
             except Exception as e:
                 bad.append("%s: %s" % (label, e))
                 continue
+            bad += roundtrip(i, label, src, out)
             r, frames = G.preview_frames(out)
             w, h = frames[0][1].size
             an, ad = r.aspect

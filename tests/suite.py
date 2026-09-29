@@ -350,6 +350,12 @@ FAST = [
     Row("mirror", "fast", py("tests/unit/t_mirror.py"), 4.5,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
+    Row("spkfxtab", "fast", py("tests/unit/t_spkfx.py"), 0.1,
+        "the speaker shaper's GENERATED tables (apps/os88spkfx_t.inc) are "
+        "tools/os88spkfx.py's, and the model passes its own selfcheck: a "
+        "table edited by hand or a model nobody regenerated would put the "
+        "machine and its reference apart while both still ran. FAST because "
+        "three packages include it and it costs 0.04s"),
     Row("bits", "fast", py("tests/unit/t_bits.py"), 0.5,
         "TWO FLAGS THAT SHARE ONE BYTE MAY NOT SHARE A BIT (SPEC.md 96.11.10). "
         "t_mirror's sibling and the same class of gate: a flag is `NAME equ "
@@ -2449,6 +2455,15 @@ SOAK = [
         "states are injected by the test. Saves screenshots of each adapter",
         needs=("marty", "nasm"), serial=True,
         wants=("build/gorillas.o88", "build/os8088-360.img")),
+    Row("gorillasmusic", "soak", py("tests/gorillasmusic.py"), 253.5,
+        "Gorillas FM music (SPEC.md 99): AdLib, Sound Blaster and speaker-only "
+        "guests. Complete loops of three scores, skyline rotation, idle and "
+        "fullscreen progression, Yes/No setup, M during every gameplay state, "
+        "pause/focus/About, driver note/rest state, "
+        "channel contention and cleanup on setup, results, restart and close. "
+        "The corrupted-loop control fails at row 128; measured 253.5s",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/gorillas.o88", "build/os8088-360.img")),
     Row("gorillasreactions", "soak", py("tests/gorillasreactions.py"), 300.0,
         "Gorillas feature parity (SPEC.md 99.0): reference trajectory samples, "
         "numeric bounds, silhouette collision, throw/banana/blast animations, "
@@ -2510,9 +2525,8 @@ SOAK = [
         "eight left - it reads whether the CAST is on the glass at all, which "
         "nothing did until a refactor drew every actor at the wrong position "
         "and passed all of them. "
-        "`--arm cga` is one adapter. At 360 KB it rides the "
-        "ordinary apps disk, in the room the earlier Pac-Man port came off "
-        "it to make (93.13)",
+        "`--arm cga` is one adapter. At 360 KB it rides games360.img "
+        "and not the apps disk (93.13)",
         needs=("marty", "nasm"), serial=True),
     Row("ddcorner", "soak", py("tests/ddcorner.py"), 120.0,
         "DOT DELIRIUM's walls are NEVER on the glass in an actor's colour, "
@@ -2693,6 +2707,15 @@ SOAK = [
         "on 128KB since the split and stage 1 refused it at 129 until 2.7.1, "
         "which no host-side row could have noticed",
         needs=("marty",), serial=True),
+    Row("v20boot", "soak", py("tests/v20boot.py"), 17.0,
+        "A NEC V20 boots, runs and reads CPU_8086. MartyPC's V20 let POPF "
+        "and IRET write FLAGS bit 15 (MD, the mode flag), which a real V20 "
+        "write-protects outside BRKEM - so cpu_detect's FLAGS probe called "
+        "it a 386, the kernel ran AT probes on an XT and the machine stopped "
+        "in .bss with MD clear. tools/martypc/patches/07 is the fix; without "
+        "it step 1 reads tier 2. Step 3 executes an 80186 shift so a profile "
+        "that is silently an 8088 fails too",
+        needs=("marty",), timeout=180),
     Row("dljunk", "soak", py("tests/dljunk.py"), 210.0,
         "SPEC.md 2.9.11's DL check, both ways: a BIOS that never set DL left "
         "0x61 in it and every int 13h named a unit that is not there, which "
@@ -6277,6 +6300,15 @@ SOAK = [
         "flush the disk the guest wrote and boot IT. Two boots, which is why it"
         "is here and not in the gate",
         needs=("marty",), serial=True),
+    Row("fddpage", "soak", py("tests/fddpage.py"), 20.0,
+        "SPEC.md 31.14: does the Control Panel's Floppy page override the"
+        "drive detection? Four drop-down picks by a real left-press gesture"
+        "(menu_popup, 12.4), the panel's close writes 'FD', and a second boot"
+        "of the written disk reads what ovl_fdd_apply made of dsk_vtab and the"
+        "read bound - A: forced 5.25 with no guess, B: hidden with its row"
+        "kept, a third unit given a row at D:, the canary's finding reversed."
+        "Measured 15s",
+        needs=("marty",), serial=True),
     Row("dispreboot", "soak", py("tests/dispreboot.py"), 100.0,
         "WHO WRITES ui_rebootq? (docs/plans/completed/DUAL-DISPLAY-VGA.md 8(11))",
         needs=("marty",), serial=True),
@@ -8611,6 +8643,138 @@ SOAK = [
         "release's store removed, the sub-tick's hand-back removed - each "
         "FAILS",
         needs=("marty", "nasm")),
+    Row("spkfx", "soak", py("tests/spkfx.py"), 25.0,
+        "docs/plans/completed/SPEAKER-PCM-PLAN.md: apps/os88spkfx.inc, the speaker "
+        "shaper Audio, Tracker and the Video Player share, against "
+        "tools/os88spkfx.py to the byte - five legs (pre-emphasis with the "
+        "carrier's slide, emitted in pieces; none; no slide; 11,025 and "
+        "16,000 Hz) over a signal that reaches every level, the gate and "
+        "silence, each EXACT, with the cycles a sample printed. Broken on "
+        "purpose (the pre-emphasis's rcr made a shr, in either of the two "
+        "bodies) the PRE_DIFF legs that reach it FAIL",
+        needs=("marty", "nasm")),
+    Row("apspk", "soak", py("tests/apspk.py"), 80.0,
+        "SPEC.md 86.21: Audio with no card plays through the PC speaker in its "
+        "own bracket, on MartyPC's card-less Hercules 5150 with a fixed disk - "
+        "six WAVs (8 kHz PCM8; 22,050 Hz boxed to 7,350; 11,025 stepped to "
+        "8,000; IMA ADPCM; a file shaped on the host; a file of counts the "
+        "ENCODER made, os88venc.py IN OUT.WAV - SPEC.md 86.21.1), each "
+        "double-clicked and played to the list's end on its own. 800 port-42h "
+        "writes a leg against tools/os88spkfx.py's plan, resampler and shaper, "
+        "EXACT from the first pulse; the lost share; the ring never dry once "
+        "the ladder has found its rung (the 22 kHz leg may lag: MartyPC's "
+        "XT-IDE is copied by the CPU, and PCM then plays on regardless); the "
+        "list's end; the kernel clean. Broken on purpose (aps_put copying "
+        "where it shapes) every shaped leg FAILS at 1",
+        needs=("marty", "ffmpeg"),
+        wants=("build/audio.o88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin")),
+    Row("apspkcard", "soak", py("tests/apspk.py", "--card"), 18.0,
+        "SPEC.md 86.21: the same open path WITH a Sound Blaster (SOUND.DRV) - "
+        "the stream opened once, the list played to its end, the speaker's "
+        "door never touched. The only row that plays Audio on a card at all",
+        needs=("marty",),
+        wants=("build/audio.o88", "build/sound.drv", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin")),
+    Row("apspkcardc", "soak", py("tests/apspk.py", "--cardcounts"), 20.0,
+        "SPEC.md 86.21.1: a speaker WAV made by the ENCODER (os88venc.py IN "
+        "OUT.WAV, the o8sp counts) played on a Sound Blaster - the first half "
+        "staged to the card is the file's counts turned back into samples "
+        "through ap_cinv, byte for byte, and the speaker's door never opened. "
+        "With the conversion skipped it FAILS, 2,019 of 2,048 wrong",
+        needs=("marty", "ffmpeg"),
+        wants=("build/audio.o88", "build/sound.drv", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin")),
+    Row("apspkpause", "soak", py("tests/apspk.py", "--pause"), 20.0,
+        "SPEC.md 86.21: the imposter window's keys - Space back to the desktop "
+        "PAUSED (the door shut, the session kept, the window's clock drawn "
+        "inside the bracket), Space again resuming from the very sample it "
+        "stopped on (the model's counts from CONS), Esc stopped and the "
+        "speaker left free",
+        needs=("marty",),
+        wants=("build/audio.o88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin")),
+    Row("trkspk", "soak", py("tests/trkspk.py", "--leg", "play"), 45.0,
+        "SPEC.md 45.25: Tracker with no card plays BEVERLY.MOD through the PC "
+        "speaker on its own, on MartyPC's card-less Hercules 5150 - the machine "
+        "benched once inside the imposter bracket and the 4,800 Hz rung taken "
+        "(the one a 5150 holds, SPEC.md 45.25.1); "
+        "3,000 port-42h writes at the rate, the ring never dry, the visualiser "
+        "forced off (tw_vizxhi), the clock counting; Space pauses and resumes "
+        "on, F takes the play into the full screen and back with the ring "
+        "never dry, S stops with the kernel clean. Broken on purpose "
+        "(tw_vizxhi's speaker test out; TSP_CS doubled; TSP_CS back at 89) it "
+        "FAILS",
+        needs=("marty",),
+        wants=("build/tracker.o88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin")),
+    Row("spkbench", "soak", py("tests/spkbench.py"), 20.0,
+        "SPEC.md 45.25.1: SPKBENCH, the field bench for what the PC speaker's "
+        "sample ISR costs a machine, runs on MartyPC's Hercules 5150: the "
+        "shaper timed shut and then playing at 4,800/5,512/8,000 Hz, every "
+        "share between 5% and 90% and rising with the rate, and the ten RAM "
+        "bank rows. It checks that the bench RAN; the numbers are the field "
+        "run's. Broken on purpose (os88spk_go taken out) it FAILS",
+        needs=("marty",),
+        wants=("build/spkbench360.img", "build/os8088-360.img")),
+    Row("trkspkrate", "soak", py("tests/trkspk.py", "--leg", "rate"), 60.0,
+        "SPEC.md 45.25.2: with NO card the speaker's rate is the bench's to "
+        "pick, so the Rate menu is ONE greyed row ('Speaker (auto)') and R, "
+        "paused, changes nothing and says why; on the Sound Blaster 5150 the "
+        "menu offers the card's rates and R moves the pick. Without "
+        "trk_spkq in trk_menus_build the speaker's menu offers card rates and "
+        "it FAILS",
+        needs=("marty",),
+        wants=("build/tracker.o88", "build/sound.drv", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin")),
+    Row("trkscrub", "soak", py("tests/trkspk.py", "--leg", "scrub"), 60.0,
+        "SPEC.md 45.21: PAUSED, a click on the scrubber moves the song and the "
+        "thumb STAYS there, and Play resumes from it - on the card-less 5150 "
+        "(the speaker) and on the Sound Blaster one. A paused player draws no "
+        "frames and the frame was the only thing that re-read the position, "
+        "so the thumb flashed to the click and went straight back. Without "
+        "tw_seek's tui_sync the thumb reads the pause's position and it FAILS",
+        needs=("marty",),
+        wants=("build/tracker.o88", "build/sound.drv", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin")),
+    Row("trkspkref", "soak", py("tests/trkspk.py", "--leg", "refuse"),
+        20.0,
+        "SPEC.md 45.25: the refusal, on a Tracker assembled with a 50% ceiling "
+        "(-DTSP_PCTMAX=50): the load's play is refused with the predicted "
+        "figure on the status line and the door never opens; Play again plays "
+        "anyway at the last rung (the owner's question 2)",
+        needs=("marty", "nasm"),
+        wants=("build/tracker.o88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin")),
+    Row("trkspkdrop", "soak", py("tests/trkspk.py", "--leg", "drop"), 40.0,
+        "SPEC.md 45.25: THE LIVE RUNG DOWN - a Tracker told the speaker is "
+        "cheap (-DTSP_CS=40) starts mkmod's song at 5,512 Hz, falls behind "
+        "and comes down to 4,800 mid-play: the door reopening on half a ring, "
+        "the status line saying the new rate, the ring never dry after it, "
+        "the ticks recomputed for the new rate (a drop that kept 5,512's "
+        "played at 87%) and the elapsed clock rescaled rather than jumping. "
+        "Broken on purpose (either line out) it FAILS",
+        needs=("marty", "nasm"),
+        wants=("build/tracker.o88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin")),
+    Row("trkspkturbo", "soak", py("tests/trkspk.py", "--leg", "turbo"),
+        36.0,
+        "SPEC.md 45.25: the same bench on MartyPC's 7.16 MHz XT (--turbo, "
+        "VGA), the only faster machine it has: the 8,000 Hz rung taken and the "
+        "ring never dry - the ladder's upper rung, reached",
+        needs=("marty",),
+        wants=("build/tracker.o88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin")),
+    Row("trkspkend", "soak", py("tests/trkspk.py", "--leg", "end", "--leg",
+                                "card"), 40.0,
+        "SPEC.md 45.25: tools/mkmod.py's song (refused on a 5150 - its 400 "
+        "sample bytes loop all four channels - and played on the override) "
+        "played to its end with Repeat off: the door closed by itself and the "
+        "kernel clean; then a Sound Blaster machine, where the card's stream "
+        "opens and the speaker is never benched or touched",
+        needs=("marty",),
+        wants=("build/tracker.o88", "build/sound.drv", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin")),
     Row("vidspkat", "soak", py("tests/vidspkat.py"), 40.0,
         "SPEC.md 34.11.8: 22,050 Hz through the PC speaker on a 286 or "
         "better - QEMU's 386, closed list entry 1. A pulse of N = 54 PIT "
@@ -9774,6 +9938,32 @@ SOAK = [
         "with the assertion that cannot pass for the wrong reason: the two "
         "floppies read back off the guest and diffed byte for byte. Cross "
         "drive, same drive, the un-swapped-disk guard and Esc",
+        needs=("marty",), serial=True),
+    Row("fmtlow", "soak", py("tests/fmtlow.py"), 65.0,
+        "fmtlow - Format Disk... reclaims a disk it cannot READ (SPEC.md "
+        "18.96.3): with every probe read failed at the int 13h gate the "
+        "confirmation must still come up, at the 360K the drive makes, and "
+        "on a disk of random bytes the format must lay all 80 tracks with "
+        "AH=05h and leave a clean empty FAT12 volume the host reads back. "
+        "On os8088_5150_cga_720b_gla. VERIFIED RED both ways: the old probe "
+        "refusal alone fails the first leg ('Disk error'), and the kernel "
+        "before 18.96.3 fails that and lays 0 tracks. The probe failure is "
+        "injected because MartyPC's disk library cannot hold an unreadable "
+        "disk that it can then format (the docstring has the three ways). "
+        "Measured at 60s",
+        needs=("marty",), serial=True),
+    Row("wimgtrip", "soak", py("tests/wimgtrip.py"), 45.0,
+        "wimgtrip - Write Img... (SPEC.md 18.99.8) driven to the end and "
+        "diffed: apps360.img as a FILE on a 720KB B:, written over the 360KB "
+        "system disk in A:, and drive 0 read back must BE the image, every "
+        "sector - with the positive control that it is not before the write. "
+        "The round trip diskclone says no 360KB machine can host, on "
+        "os8088_5150_cga_720b_gla. FIRST a write made to fail (the first "
+        "write int 13h caught at the gate and aimed at absent drive 3) must "
+        "say 'Disk error'. VERIFIED RED twice: on the tree before SPEC.md "
+        "38.6.2 every image was 'Not a disk image' (5 of 10 checks, 691 "
+        "sectors untouched), and before 18.99.7's carry fix the failed "
+        "write said NOTHING (1 of 17). Measured at 41s",
         needs=("marty",), serial=True),
     Row("rdup", "soak", py("tests/rdup.py"), 60.0,
         "SPEC.md 62.9.11.3: the Ram Disk page acts on the RELEASE.",

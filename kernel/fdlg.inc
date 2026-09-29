@@ -980,6 +980,26 @@ fdlg_commit:
     push dx
     push si
     push di
+    call fdlg_sizeof            ; DX:CX = what the READ will deliver (SPEC.md
+                                ; 20.14.3: the unpacked size for a compressed
+                                ; file), 0 if this listing has no such file -
+                                ; a typed Save name, a folder. A RAM lookup,
+                                ; plus ONE directory walk when it is really a
+                                ; file, for the hint.
+                                ;
+                                ; **BEFORE fdlg_close, and the order is the
+                                ; whole of it**: the close frees the LISTING
+                                ; STORE (fdlg_vfree - it is transient) and aims
+                                ; [dsk_dseg] at 0, while [disk_nfiles] still
+                                ; counts the entries - so a lookup after it
+                                ; compares the name against the INTERRUPT
+                                ; VECTOR TABLE, finds nothing, and every Open
+                                ; reported a size of 0. Write Img refused
+                                ; every image as 'Not a disk image' that way
+                                ; (SPEC.md 38.6.2). DX:CX survives from here to
+                                ; the callback: fdlg_close, fdlg_home_save and
+                                ; snd_disp_set preserve both, and the tests
+                                ; below spend AX and DI only
     call fdlg_close
 
     mov di, [fdlg_rqrec]        ; the staleness triple (SPEC.md 38.6)
@@ -996,8 +1016,8 @@ fdlg_commit:
     call fdlg_home_save         ; this app's folder and name, for its NEXT
                                 ; dialog (SPEC.md 38.10) - after the staleness
                                 ; triple, so a dead record is never written to
-    mov cx, [fdlg_rqcb]
-    or cx, cx
+    mov ax, [fdlg_rqcb]         ; AX and not CX: CX is the size's low half
+    or ax, ax
     jz .out
     push word [snd_inst]        ; STAMP THE DISPATCHED INSTANCE (SPEC.md
     call KERNEL_SEG:cw_snd_disp_set ; 34.3), exactly as W_ONKEY, W_ONCLICK, the
@@ -1022,13 +1042,7 @@ fdlg_commit:
                                 ; by instance and nothing owns 0xFF.
     push es                     ; the callback owes us nothing (SPEC.md
     push bp                     ; 38.6), and ES is the one register the
-    mov bp, cx                  ; kernel cannot shrug off (SPEC.md 1)
-    call fdlg_sizeof            ; DX:CX = what the READ will deliver (SPEC.md
-                                ; 20.14.3: the unpacked size for a compressed
-                                ; file), 0 if this listing has no such file -
-                                ; a typed Save name, a folder. A RAM lookup,
-                                ; plus ONE directory walk when it is really a
-                                ; file, for the hint
+    mov bp, ax                  ; kernel cannot shrug off (SPEC.md 1)
     mov al, [fdlg_mode]         ; the callback's contract: AL = mode,
     mov ah, 0                   ; SI = its window, ES:DI = the name - ES,
     mov si, [fdlg_rqwin]        ; because for a package DS is its own

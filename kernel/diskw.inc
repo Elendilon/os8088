@@ -5288,9 +5288,25 @@ dskw_fmt_probe_x:
     inc cx
     cmp cx, DFMT_ROWS
     jb .row
-    call .undo                  ; nothing answered: there is no medium here
-    mov ax, FERR_IO             ; that this can read, so there is none it can
-    jmp short .fail             ; safely write either
+    ; NOTHING ANSWERED, and that is not a refusal any more (SPEC.md
+    ; 18.96.3). It used to be FERR_IO - "no medium here this can read, so
+    ; none it can safely write either" - which was true of a formatter that
+    ; only ever rewrote METADATA over sectors that had to exist already. Now
+    ; that every format lays the tracks down itself, an unreadable disk is
+    ; exactly the one it exists for: a 1.44MB disk taped for a 250 kbps
+    ; drive, whose HD recording nothing here can read; a disk whose ID
+    ; fields are damaged; a medium formatted for another machine. What it
+    ; gets is what the DRIVE makes - the same answer DOS's FORMAT gives -
+    ; so the row is chosen from SI (its sectors per track) and, for the
+    ; 9-sector pair, DI (its cylinders) by the code below, exactly as a
+    ; readable 9-sector disk's is.
+    mov cx, 2                   ; the 9-sector pair, 720K or 360K below...
+    cmp si, 15
+    jb .got
+    dec cx                      ; ...1.2MB on the 5.25" HD drive...
+    cmp si, 18
+    jb .got
+    dec cx                      ; ...and 1.44MB on the 3.5" one
 .got:
 
     ; --- the row: how many CYLINDERS? ---------------------------------------
@@ -5334,11 +5350,12 @@ dskw_fmt_probe_x:
     jmp short .pop6             ; they push the same six
 
 .noflop:
-    mov ax, FERR_PROT           ; a hard-disk partition is HDDTOOL's (52.2);
-    jmp short .fail_nb          ; refused BEFORE the cache bypass went up
-.fail:
-    dec byte [dsk_rah_busy]
-.fail_nb:
+    mov ax, FERR_PROT           ; a hard-disk partition is HDDTOOL's (52.2),
+                                ; refused BEFORE the cache bypass went up - and
+                                ; the probe's ONLY refusal now: a medium that
+                                ; nothing reads is formatted, not refused
+                                ; (SPEC.md 18.96.3), so the `.fail` that took
+                                ; the bypass down on the way out is gone
 .stcpop:
     stc
 .pop6:                          ; (a pop writes no flag)
@@ -5469,6 +5486,10 @@ dskw_format_x:
     mov ax, [si+DFMT_TOT]       ; ...and the extent §18.95's fill clamps to,
     mov [dsk_totsec], ax        ; for dskw_fmt_probe_x's reason
 
+    ; --- 0. every TRACK, laid down fresh (SPEC.md 18.96.3) -----------------
+    call dskw_fmt_low
+    jc .ioerr
+
     ; --- 1. the boot sector, at LBA 0 --------------------------------------
     call dskw_fmt_boot
     xor ax, ax
@@ -5524,6 +5545,182 @@ dskw_format_x:
 .ioerr:
     call dskw_fmt_ioerr             ; AX = FERR_IO / FERR_WPROT
     jmp dskw_fmt_probe_x.stcpop
+
+;-----------------------------------------------------------------------------
+; dskw_fmt_low - lay every track of the row in SI down fresh (SPEC.md 18.96.3)
+; in:  SI = a dskw_fmt_tab row, [disk_drive] = the volume (a BIOS floppy: the
+;      probe refused anything else); UI task, gfx lock held
+; out: CF=0; CF=1 with [dsk_ioerr] = the BIOS status of the call that failed
+; clobbers: AX, flags
+;
+; int 13h AH=05h, one call per track with a four-byte (C, H, R, N) address
+; field per sector - which is what DOS's FORMAT does and what 18.96 once
+; refused to, on the grounds that it can turn a disk this OS merely cannot
+; read into one nothing can. That was the wrong way round for the disks
+; people actually bring to a formatter: every one this OS could not reclaim
+; was a disk it could not READ - HD recording taped for a DD drive, ID
+; fields a failed write had damaged, a foreign filesystem on HD media - and
+; only new tracks reclaim those. Laid at the row's own geometry, the result
+; is a disk this drive reads by construction.
+;
+; **The track's sector count reaches the controller through the DPT**, not
+; AL: the IBM ROM's FORMAT takes SC out of byte 4 (EOT) and the gap and
+; fill out of bytes 7 and 8, so byte 4 is written for this row first, as
+; dsk_xfer writes it before every transfer. On an AT-class BIOS, AH=18h
+; (SET MEDIA TYPE FOR FORMAT) is asked first and its table used instead -
+; that is the call that picks the DATA RATE, and a 720KB format in a 1.44MB
+; drive at the wrong rate is not a 720KB disk. An XT ROM answers it with
+; CF=1 and the kernel's own table stands. Either way the table in force
+; before is put back after: it is int 1Eh's for the rest of the session
+; (18.92).
+;
+; No per-track VERIFY (AH=04h). The IBM ROM checks the whole track's DMA
+; extent against a 64KB page even though a verify moves nothing, and
+; dsk_secbuf is 512 bytes; a buffer that could stand in would be a claim of
+; its own. The metadata writes, the remount and 18.96.2's last-sector test
+; are what check the result.
+; -----------------------------------------------------------------------------
+dskw_fmt_low:
+    push bx
+    push cx
+    push dx
+    push di
+    push bp
+    push es
+    push word [dsk_dpt+10]      ; the table in force, banked whole: DPT_LEN
+    push word [dsk_dpt+8]       ; is 11, so six words cover it - and the
+    push word [dsk_dpt+6]       ; twelfth byte is fdd_unit's, which nothing
+    push word [dsk_dpt+4]       ; on this path writes, so putting it back is
+    push word [dsk_dpt+2]       ; putting back what was there
+    push word [dsk_dpt+0]
+%if DPT_LEN > 12
+  %error "dskw_fmt_low banks the DPT as six words"
+%endif
+
+    ; --- an AT BIOS picks the data rate for this medium --------------------
+    call dskw_fmt_unit          ; DL = the int 13h drive
+    push si
+    mov ah, 0x18
+    mov ch, [si+DFMT_CYL]
+    dec ch                      ; the LAST cylinder, as AH=18h takes it
+    mov cl, [si+DFMT_SPT]
+    int 0x13
+    pop si
+    jc .noset                   ; an XT ROM: the kernel's table stands
+    push si
+    push ds
+    mov ax, es                  ; ES:DI = the BIOS's table for this medium
+    mov si, di
+    mov di, dsk_dpt
+    mov bx, KERNEL_SEG          ; ...copied over int 1Eh's, which is ours
+    mov es, bx                  ; (18.92) - so the BIOS reads it from there
+    mov ds, ax
+    mov cx, DPT_LEN
+    cld
+    rep movsb
+    pop ds
+    pop si
+.noset:
+    mov al, [si+DFMT_SPT]       ; SC for the FORMAT command, read from EOT
+    mov [dsk_dpt+4], al
+
+    ; --- the bar: the whole disk, a track at a time (SPEC.md 12.8) ---------
+    mov ax, [si+DFMT_TOT]
+    mov cx, 512
+    mul cx
+    mov cx, ax                  ; DX:CX = the disk in bytes
+    call KERNEL_SEG:fpg_begin
+
+    xor di, di                  ; DI = the cylinder
+    xor bp, bp                  ; BP = the head
+.track:
+    mov ax, LOW_SEG             ; the address fields go in dsk_secbuf, which
+    mov es, ax                  ; is 512-aligned (SPEC.md 2.1.1) and so
+    mov bx, dsk_secbuf          ; cannot straddle a DMA page
+    mov cx, [si+DFMT_SPT]
+    mov dl, 1                   ; R, from 1
+.id:
+    mov ax, di
+    mov [es:bx], al             ; C
+    mov ax, bp
+    mov [es:bx+1], al           ; H
+    mov [es:bx+2], dl           ; R
+    mov byte [es:bx+3], 2       ; N: 512 bytes
+    add bx, 4
+    inc dl
+    loop .id
+
+    mov cx, 3                   ; attempts at this track
+.try:
+    push cx
+    call dskw_fmt_unit          ; DL
+    mov ax, di
+    mov ch, al                  ; CH = the cylinder
+    mov cl, 1
+    mov ax, bp
+    mov dh, al                  ; DH = the head
+    mov bx, dsk_secbuf          ; ES:BX = the address fields
+    mov al, [si+DFMT_SPT]
+    mov ah, 0x05
+    inc byte [sch_lock]         ; dsk_xfer's bracket: nothing switches under
+    CURXFER_ON                  ; an int 13h (SPEC.md 18), and the arrow may
+    int 0x13                    ; move through it (SPEC.md 7.4)
+    CURXFER_OFF                 ; `mov` and `dec` leave CF alone, so the
+    dec byte [sch_lock]         ; int 13h's answer reaches the jnc
+    pop cx
+    jnc .ok
+    mov [dsk_ioerr], ah
+    cmp ah, 0x03
+    je .fail                    ; write-protected: retrying cannot help
+    push cx
+    call dskw_fmt_unit
+    xor ah, ah                  ; reset, and try the track again
+    inc byte [sch_lock]
+    int 0x13
+    dec byte [sch_lock]
+    pop cx
+    loop .try
+.fail:
+    stc
+    jmp short .out
+.ok:
+    mov ax, [si+DFMT_SPT]
+    mov cl, 9
+    shl ax, cl                  ; this track's bytes, for the bar
+    call KERNEL_SEG:apic_fpg_stepb
+    inc bp
+    cmp bp, 2
+    jb .track
+    xor bp, bp
+    inc di
+    cmp di, [si+DFMT_CYL]
+    jb .track
+    clc
+.out:
+    call KERNEL_SEG:fpg_end     ; preserves the flags (fprog.inc)
+    pop word [dsk_dpt+0]        ; the table back; pops leave CF alone
+    pop word [dsk_dpt+2]
+    pop word [dsk_dpt+4]
+    pop word [dsk_dpt+6]
+    pop word [dsk_dpt+8]
+    pop word [dsk_dpt+10]
+    pop es
+    pop bp
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; dskw_fmt_unit - DL = [disk_drive]'s int 13h drive; every other register
+; preserved except the flags
+dskw_fmt_unit:
+    push bx
+    mov bl, [disk_drive]
+    call COLD_SEG:dskf_dsk_vol_row
+    mov dl, [bx+DV_UNIT]
+    pop bx
+    ret
 
 ; -----------------------------------------------------------------------------
 ; dskw_fmt_run - write CX copies of the staged sector from LBA DI up
