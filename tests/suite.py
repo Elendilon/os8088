@@ -8495,12 +8495,14 @@ SOAK = [
     Row("trkspk", "soak", py("tests/trkspk.py", "--leg", "play"), 45.0,
         "SPEC.md 45.25: Tracker with no card plays BEVERLY.MOD through the PC "
         "speaker on its own, on MartyPC's card-less Hercules 5150 - the machine "
-        "benched once inside the imposter bracket and the 5,512 Hz rung taken; "
+        "benched once inside the imposter bracket and the 4,800 Hz rung taken "
+        "(the one a 5150 holds, SPEC.md 45.25.1); "
         "3,000 port-42h writes at the rate, the ring never dry, the visualiser "
         "forced off (tw_vizxhi), the clock counting; Space pauses and resumes "
         "on, F takes the play into the full screen and back with the ring "
         "never dry, S stops with the kernel clean. Broken on purpose "
-        "(tw_vizxhi's speaker test out; TSP_CS doubled) it FAILS",
+        "(tw_vizxhi's speaker test out; TSP_CS doubled; TSP_CS back at 89) it "
+        "FAILS",
         needs=("marty",),
         wants=("build/tracker.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin")),

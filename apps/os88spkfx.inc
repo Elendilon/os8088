@@ -136,6 +136,7 @@ os88spkfx_init:
     xor ax, ax
     mov [cs:os88spkfx_lev], al
     mov [cs:os88spkfx_sub], al
+    mov byte [cs:os88spkfx_gate], 1 ; a play starts as after silence
     mov byte [cs:os88spkfx_prev], 0x80
     pop es
     pop ds
@@ -196,10 +197,15 @@ os88spkfx_level:
     mov ah, [cs:os88spkfx_lev]
     cmp al, ah                      ; up one step a span at most, down at once
     jbe .set
-    mov al, ah
-    inc ax
+    cmp byte [cs:os88spkfx_gate], 0 ; ...but after SILENCE its own level at
+    jne .set                        ; once: there is no gain to step from,
+    mov al, ah                      ; and a re-entry held 20 dB down for
+    inc ax                          ; ~7 spans is the dip the field heard
 .set:
     mov [cs:os88spkfx_lev], al
+    cmp dh, SPKFX_PGATE             ; this span silent: 0FFh, else 0
+    sbb ah, ah
+    mov [cs:os88spkfx_gate], ah
     mov byte [cs:os88spkfx_sub], 0
     xor cl, cl                      ; the carrier's target, h
     cmp byte [cs:os88spkfx_idle], 0
@@ -429,6 +435,7 @@ os88spkfx_pre:  db 0                ; SPKFX_PRE_*
 os88spkfx_idle: db 0                ; the carrier put away in the quiet
 os88spkfx_c0:   db 0                ; the centre count
 os88spkfx_lev:  db 0                ; the span's level
+os88spkfx_gate: db 0                ; the last span was silent (under PGATE)
 os88spkfx_d:    db 0                ; the carrier's shift now...
 os88spkfx_h:    db 0                ; ...and its target
 os88spkfx_sub:  db 0                ; samples into the sub-block

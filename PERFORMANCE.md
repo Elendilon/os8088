@@ -1547,9 +1547,19 @@ row and `shl clk/bit book` at 0.
 
 ---
 
-## Part 8.2 — PROPOSED: `sysbench` by memory REGION (not built)
+## Part 8.2 — `sysbench` by memory REGION: ANSWERED by SPKBENCH
 
-**Status: a proposal, 2026-09-29 - nothing measures this yet.** `sysbench`'s
+**Status: answered 2026-09-29, and the answer is no wait states.** SPKBENCH
+(`tests/spkbench/`, SPEC.md 45.25.1) carries the per-bank row this proposed -
+4 KB of `rep lodsw` in each 64 KB bank, 0 to 9 - and the owner's 5150 reads
+all ten within 0.02% (74,021-74,032 PIT counts), the SixPakPlus banks
+included; so do the T1100 Plus, the 286 and 86Box. The difference below was
+the speaker ISR's own cost (~395 cycles a sample on iron against the 325 the
+predictor assumed), not the memory. The rest of this section is the proposal
+as it was written, kept for why the question came up; a `sysbench` section
+remains unbuilt and is not needed for this.
+
+**The proposal, as written (2026-09-29):** `sysbench`'s
 RAM rows time ONE buffer wherever the package happens to land. The owner's
 5150 (docs/FIELD-MACHINES.md) is 256 KB on the planar and 384 KB on a
 SixPakPlus, and a question came up that the one buffer cannot answer:

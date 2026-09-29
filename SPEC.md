@@ -58499,6 +58499,21 @@ onset is never driven into the clip); and the carrier's target from the
 headroom the level leaves - all the way down, every count 1, for a span
 under the gate.
 
+**A span after a silent one takes its own level at once.** A span under the
+gate asks for level 0, which is right for the silence (it keeps a noise floor
+of a count or two from being lifted 20 dB), and the one-step rise then held
+the music that came back after it up to 20 dB down for ~7 spans - a
+quarter-second dip after every gap in the song. Elysium on the 8,000 Hz rung
+fell to level 0 or 1 about once in six seconds, seven times in ten straight
+after a gated span, and the owner heard it on a Toshiba T1100 Plus as "one
+volume, then super soft, then back a third of a second later". The rise limit
+exists to keep steps out of CONTINUOUS music; after silence there is nothing
+to step from, and the attack is already the span's own peak, so the jump
+cannot clip. `os88spkfx_gate` is the byte (the last span was under the gate,
+and a play starts as if it were), and `tools/os88spkfx.py` carries the same
+rule, so `tests/spkfx.py` stays EXACT; with the jump taken out of the asm
+alone all five of its legs fail.
+
 **What it costs, measured** on MartyPC's 4.77 MHz 5150 (`tests/spkfx.py`,
 emit plus the span's level, interrupts included): **~104 cycles a sample**
 with the pre-emphasis and the carrier moving, **~84** while the carrier sits
@@ -75441,9 +75456,10 @@ beside the bench. `tsp_calib` times two things:
   missed the per-chunk set-up a real tick's chunk pays.
 
 and predicts each rung's load as `R x 44 / Nm + R x TSP_CS / Ne + 5` percent.
-`TSP_CS` = 89 is MEASURED on MartyPC's 5150: the bench's ~107 cycles a shaped
-sample and the sample ISR's ~325 a pulse (37% of the machine at 5,417 Hz,
-sampled), `(325 / 107 + 1) x 400 / 18.2`. The rungs are an 8088's 8,000 and
+`TSP_CS` = 104 is MEASURED on the owner's 5150 by SPKBENCH (45.25.1): the
+sample ISR's ~395 cycles a sample against the ~106 this bench's shaper takes,
+`(395 / 106 + 1) x 400 / 18.2`. It was 89, built on a sampled ~325 off
+MartyPC, and that put BEVERLY.MOD at "95%" on a 5150 that could not hold it. The rungs are an 8088's 8,000 and
 5,512 Hz and a 286's 22,050 / 16,000 / 11,025 / 8,000 (§34.11.8). The highest
 at `TSP_PCTMAX` = 100 or under is played: **the sound must fit and the picture
 has what is left**, because the imposter draws a frame only while the ring is
@@ -75495,11 +75511,13 @@ Measured on MartyPC:
 
 | machine | Ne | Nm | rung | predicted | held |
 |---|---|---|---|---|---|
-| 5150, 4.77 MHz, Hercules | 9,728 | 5,920 | 5,512 Hz | 95% | 5,416 pulses/s, ring never dry, window and full screen |
-| XT `--turbo`, VGA | 29,440 | 17,760 | 8,000 Hz | 48% | ring never dry |
+| 5150, 4.77 MHz, Hercules | 9,728 | 5,920 | 4,800 Hz | 91% | 4,725 pulses/s, ring never dry, window and full screen |
+| XT `--turbo`, VGA | 29,440 | 17,760 | 8,000 Hz | 52% | ring never dry |
 
-8,000 Hz on the 5150 predicts 137%. With the visualiser off, the audio-first
-frame gate is not reached on the 5150 with BEVERLY.MOD at 5,512 Hz - removing
+(with `TSP_CS` = 104; at 89 the 5150 took 5,512 at "95%" and fell behind
+within a minute, 45.25.1). 8,000 Hz on the 5150 predicts ~150%. With the
+visualiser off, the audio-first frame gate is not reached on the 5150 with
+BEVERLY.MOD - removing
 it leaves the ring still never dry - so it is a net for a heavier face and not
 something this machine exercises. `tools/mkmod.py`'s test song, whose 416
 sample bytes loop all four channels every few hundred samples, predicts 107%
@@ -75533,7 +75551,8 @@ bracket Tracker uses. The workload gets what the ISR leaves, so
 `1 - open/shut` is the ISR's share of the machine at that rate, with
 everything the machine takes beside it (the ROM's tick, refresh, whatever a
 memory card adds) included. Each row prints beside the share Tracker assumes
-(325 cycles a sample, the figure `TSP_CS` = 89 was built on). It also times
+(325 cycles a sample, the figure `TSP_CS` = 89 was built on; it is 104
+now). It also times
 the load-time filter and a 4 KB `rep lodsw` in each 64 KB bank, which is
 PERFORMANCE.md Part 8.2's memory-card question.
 
@@ -75546,19 +75565,46 @@ On MartyPC:
 | 5150 Hercules, IBM 27 OCT 82 | 39.5% | 45.6% | 66.4% | ~395 |
 | 5150 Hercules, V20, GLaBIOS | 39.4% | 45.0% | 66.4% | ~390 |
 
-So the ISR costs a fifth more than `TSP_CS` says, and at 5,512 Hz the
-prediction is 7-8 points low: BEVERLY's "95%" is ~103% of a 5150, which is
-why both machines fall behind within a minute. The same cost expressed in
-`TSP_CS` (`R x TSP_CS / Ne`, Ne = 9,728 on a 5150) is ~102 against 89, and
-at 102 the 5150 predicts ~103% at 5,512 and opens at 4,800 (~88%), which is
-the start the owner asked for without lowering `TSP_PCTMAX`. That change waits
-on the field run: SPKBENCH on the owner's 5150 and on 86Box's V20 says
-whether iron agrees with these rows. MartyPC's V20 keeps the 8088's cycle
-timings (tools/martypc/configs/os8088_machines.toml), so its row is not a V20
-measurement. Also open: the bench's shaper runs at 86 cycles a sample where
-Tracker's own calibration of the same call reads ~108 (Ne = 9,728 in four
-ticks), and neither the source data nor the pre-emphasis accounts for the
-difference. Measured and ruled out, not explained.
+So the ISR costs a fifth more than `TSP_CS` = 89 said, and at 5,512 Hz the
+prediction was 7-8 points low: BEVERLY's "95%" is ~103% of a 5150, which is
+why both machines fell behind within a minute. MartyPC's V20 keeps the 8088's
+cycle timings (tools/martypc/configs/os8088_machines.toml), so its row is not
+a V20 measurement.
+
+**The field run** (the owner, 2026-09-29; the V20 is 86Box on the 5150
+profile with the CPU swapped, the others are iron):
+
+| machine | 4,800 Hz | 5,512 Hz | 8,000 Hz | ISR cycles a sample | shaper cycles a sample | ratio |
+|---|---|---|---|---|---|---|
+| IBM 5150, 4.77 MHz, SixPakPlus | 39.5% | 45.7% | 66.6% | 392-397 | 85 | 4.65 |
+| Toshiba T1100 Plus, 7.16 MHz 80C86 | 20.8% | 23.3% | 34.5% | 201-206 | 46 | 4.43 |
+| 86Box 5150, NEC V20 7.16 MHz | 24.2% | 27.7% | 40.3% | 239-240 | 49 | 4.90 |
+| Packard Bell 286, 16 MHz | 7.1% | 8.3% | 11.8% | 70-71 | 12 | ~5.9 |
+
+(cycles in 4.77 MHz units, so a faster machine reads fewer). The 5150 agrees
+with MartyPC's IBM-ROM row to a tenth of a point, so the emulator was right
+and the constant was wrong: `TSP_CS` is **104** now, `(395 / 106 + 1) x 400 /
+18.2` with the shaper at the ~106 cycles Tracker's own bench of it reads, and
+a 5150 predicts ~103% at 5,512 and OPENS at 4,800 (91% for BEVERLY.MOD) -
+the start the owner asked for, with `TSP_PCTMAX` left at 100. The prediction
+rests on the ISR costing the same multiple of the shaper on every machine,
+and the last column is that assumption measured: within 6% across the three
+8088-class machines, so a V20 and a T1100 are predicted as well as a 5150 is.
+The 286 is the exception - its ISR is a quarter dearer against its shaper,
+the port writes running at the bus's pace and not the CPU's - so at 22,050 Hz
+it is predicted ~7 points low; it held that rate with the spectrum at full
+speed, so the margin covers it, but a slower 286 would be the one to watch.
+The T1100 held 8,000 Hz (it predicts ~84% there with 104).
+
+Every machine's ten RAM banks read within 0.03% of each other, the 5150's
+SixPakPlus banks included: PERFORMANCE.md Part 8.2's memory-card question is
+answered, and the answer is no wait states.
+
+Still unexplained, and measured rather than argued: the bench's shaper runs
+at ~86 cycles a sample on a 5150 where Tracker's calibration of the same call
+reads ~108 (Ne = 9,728 in four ticks), and neither the source data nor the
+pre-emphasis accounts for it. `TSP_CS` is expressed against Tracker's figure,
+so it does not move the constant.
 
 `tests/spkbench.py` (`soak -k spkbench`) runs it on MartyPC and checks only
 that it RAN: every share between 5% and 90% and rising with the rate, and
