@@ -72,6 +72,7 @@ import os88marty                                       # noqa: E402
 import os88mouse                                       # noqa: E402
 import os88sym                                         # noqa: E402
 import os88build                                       # noqa: E402
+import os88spkfx                                        # noqa: E402
 import os88lz                                          # noqa: E402
 import dispcp                                          # noqa: E402
 import os88geom                                        # noqa: E402
@@ -405,14 +406,11 @@ def run(a, apps, plain, P, fails):
                     sg, of, pl = (int.from_bytes(tab[i * 12 + k:i * 12 + k + 2],
                                                  "little") for k in (0, 2, 4))
                     at = (sg << 4) + of - (modseg << 4)
-                    prev = 0x80
-                    for j in range(at, at + pl):
-                        xb = want[j] ^ 0x80
-                        want[j] = ((xb - prev) & 0x1FF) >> 1
-                        prev = xb
+                    want[at:at + pl] = os88spkfx.tracker_hp(bytes(want[at:at + pl]))
                 want = bytes(want)
-                say("  samples    pre-emphasised in place (no card, SPEC.md "
-                    "45.25): compared through the filter")
+                say("  samples    high-passed in place (no card, SPEC.md "
+                    "45.25): compared through tools/os88spkfx.py's "
+                    "tracker_hp")
         got = b""
         while len(got) < len(plain):        # 116KB, in segment-sized reads
             k = min(0x8000, len(plain) - len(got))

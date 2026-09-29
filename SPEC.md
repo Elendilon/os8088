@@ -59045,7 +59045,12 @@ too much: the ring's lead FALLS 135 samples a second and the ladder would
 take the play a rung down (at 8 `nop`s it had). A one-pole is ~40-60 cycles,
 so it does not fit Audio's live 8 kHz; an encoder-made WAV (§86.21.1) is how
 Audio gets natural shaping at no cost to the machine, and Tracker, which
-filters its SAMPLES once at load (§45.25), can take it for nothing at play.
+filters its SAMPLES once at load, takes it for nothing at play (§45.25:
+BUILT). **If Audio or the Video Player ever take it live**, it must be
+something the play can SHED: the ladder's first step down would be the
+filter - natural back to this tilt - before the rate, so a machine that
+cannot hold it loses the lows it gained and not the sound (the owner, on
+reading these numbers).
 
 ## 35. Recorder — the sound layer's recording client
 
@@ -75919,15 +75924,28 @@ the needles - reads the speaker the way it read the card; the display's gates
 that asked *"is a card stream open"* (`tw_want`, `tw_tick`, `tui_sync`, the
 scope, `tw_rate_now`) ask *"or a speaker play"* too.
 
-**The filter is paid once.** The shaper's first-difference pre-emphasis would
-be ~20 cycles an output sample; a linear filter commutes with the mix, so
-`tsp_preemph` runs it over the module's SAMPLES in place when a module loads
-on a machine with no card - ~1 s for BEVERLY.MOD on a 5150 - and the shaper
-is initialised `SPKFX_PRE_NONE`. It is applied in the sample-index domain, so
-at pitches far from one step it is a tilt rather than the exact output
-filter; `[tsp_pre]` says it was done, and a card mounted later in the session
-hears that module thinner until it is loaded again. Tracker never writes a
-module, so nothing filtered reaches a disk.
+**The filter is paid once, and it is the NATURAL style's.** A high-pass
+per output sample would be ~20-60 cycles; a linear filter commutes with the
+mix, so `tsp_natural` runs it over the module's SAMPLES in place when a
+module loads on a machine with no card, and the shaper is initialised
+`SPKFX_PRE_NONE`. It is a one-pole DC blocker, `y = (x - x_prev) + 7/8
+y_prev`, with `Y = 128 y` held in a word so the output `y / 2` is its high
+byte (for bytes in, |y| is at most 255: no clamp and no output shift) -
+`tools/os88spkfx.py`'s `tracker_hp` is it exactly and `tests/lzmod.py`
+compares every byte through it. In the sample's own time base its corner is
+~190 Hz for a sample played at C-2 (8,363 Hz) and moves with the note, flat
+above - 125 Hz -5 dB, 250 Hz -2, 400 Hz -1 against 1 kHz. It replaced the
+first difference, which is §34.11.9's lifted tilt (-18, -12 and -8 dB at the
+same three) and which took the lows the owner could not hear on the 5150.
+It costs **166 cycles a sample, MEASURED**: 2.8 s for BEVERLY.MOD's 81,200
+sample bytes and 3.6 s for ELYSIUM.MOD's 104,794 on a 4.77 MHz 5150, where
+the first difference was ~1 s (the first build of this was 303 cycles, its
+output shifted and clamped). So an 8088 loading more than `TSP_NSAY` =
+28,672 sample bytes - a second of it - is told first: `Filtering the
+samples for the speaker...` on the status line. `[tsp_pre]` says the
+filter ran, and a card mounted later in the session hears that module
+thinner until it is loaded again. Tracker never writes a module, so nothing
+filtered reaches a disk.
 
 **The first Play CALIBRATES** (the owner's question 5), inside the bracket
 where the worker is parked - outside one the worker draws a frame a tick
