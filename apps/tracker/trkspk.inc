@@ -49,6 +49,7 @@ TSP_PCTMAX  equ 100                 ; the most a rung may predict: THE SOUND
                                     ; the picture and keeps the music (question
                                     ; 1). A 5150 predicts 95 at 5,512 Hz and
                                     ; holds it with the ring never dry (45.25)
+%ifndef TSP_CS
 TSP_CS      equ 89                  ; THE SPEAKER'S SHARE against the shaper's
                                     ; bench, MEASURED on MartyPC's 5150 (45.25):
                                     ; the bench emits a sample in ~107 cycles
@@ -57,6 +58,7 @@ TSP_CS      equ 89                  ; THE SPEAKER'S SHARE against the shaper's
                                     ; (325 / 107 + 1) x 400 / 18.2 = 89 - and
                                     ; the share at R is R x 89 / Ne percent on
                                     ; any machine the bench has timed
+%endif
 TSP_FSDIV   equ 21845               ; the full screen's period: 54.6 Hz, the
                                     ; text screen's frame clock (45.16)
 
@@ -68,7 +70,10 @@ TSPX_ERR    equ 5                   ; the status line says why
 
 ; THE RUNGS: an 8088's, and a 286's (a pulse of 54 counts at 22,050 Hz,
 ; 34.11.8). The owner: the higher rates on a 286, the field confirms them
-tsp_r88:    dw 8000, 5512, 0
+tsp_r88:    dw 8000, 5512, 4800, 0  ; (4,800: the owner's 5150 slowed at 5,512
+                                    ; in BEVERLY's heavy passages, and a
+                                    ; module benched at 101% there took half
+                                    ; speed - SPEC.md 45.25)
 tsp_rat:    dw 22050, 16000, 11025, 8000, 0
 
     TRKB tsp_cal                    ; calibrated this session
@@ -79,6 +84,8 @@ tsp_rat:    dw 22050, 16000, 11025, 8000, 0
     TRKB tsp_exit                   ; TSPX_*
     TRKB tsp_btn                    ; the mouse's buttons, last seen
     TRKB tsp_pend                   ; the imposter's first pass: tsp_prep
+    TRKB tsp_half                   ; after a rung down: the door opens on half
+                                    ; a ring, not a full one (a shorter gap)
     TRKB tsp_pre                    ; the module's samples are filtered (a load
                                     ; on this machine: tsp_preemph)
     TRKW tsp_rseg                   ; the ring's claim
@@ -427,32 +434,84 @@ tsp_predict:
     ret
 
 ; tsp_refuse - the status line: the load the last rung would need, and what
-; to do about it. [tsp_pct] is that load
+; to do about it. [tsp_pct] is that load (preserves all)
 tsp_refuse:
-    push ax
-    push bx
-    push cx
-    push dx
     push si
     push di
     push es
+    call tsp_mbeg
+    mov si, trk_s_spk1
+    call tsp_mcat
+    call tsp_mpct
+    mov si, trk_s_spk2
+    call tsp_mcat
+    call tsp_mend
+    pop es
+    pop di
+    pop si
+    ret
+
+; tsp_readout - THE STATUS LINE AS A PLAY STARTS, or comes down a rung: the
+; rate this machine plays at and the load it was predicted at - so a field
+; run reports the machine's own numbers module by module (preserves all)
+tsp_readout:
+    push ax
+    push si
+    push di
+    push es
+    call tsp_mbeg
+    mov si, trk_s_spk3
+    call tsp_mcat
+    mov ax, [tsp_rate]
+    call tsp_mnum
+    mov si, trk_s_spk4
+    call tsp_mcat
+    call tsp_mpct
+    mov si, trk_s_spk5
+    call tsp_mcat
+    call tsp_mend
+    pop es
+    pop di
+    pop si
+    pop ax
+    ret
+
+; the message's parts: DI walks tsp_msg, ES = DS
+tsp_mbeg:
     push ds
     pop es
     cld
-    mov si, trk_s_spk1
     mov di, tsp_msg
-.c1:
+    ret
+
+tsp_mcat:                           ; SI's string, not its NUL
+    push ax
+.c:
     lodsb
     or al, al
-    jz .num
+    jz .e
     stosb
-    jmp short .c1
-.num:
-    mov ax, [tsp_pct]               ; the figure, 1..999
+    jmp short .c
+.e:
+    pop ax
+    ret
+
+tsp_mpct:                           ; [tsp_pct], 999 at most
+    push ax
+    mov ax, [tsp_pct]
     cmp ax, 999
     jbe .n
     mov ax, 999
 .n:
+    call tsp_mnum
+    pop ax
+    ret
+
+tsp_mnum:                           ; AX in decimal
+    push ax
+    push bx
+    push cx
+    push dx
     mov bx, 10
     xor cx, cx
     ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
@@ -468,22 +527,18 @@ tsp_refuse:
     add al, '0'
     stosb
     loop .p
-    mov si, trk_s_spk2
-.c2:
-    lodsb
-    stosb
-    or al, al
-    jnz .c2
-    mov si, tsp_msg
-    call tui_msg
-    call trk_say
-    pop es
-    pop di
-    pop si
     pop dx
     pop cx
     pop bx
     pop ax
+    ret
+
+tsp_mend:                           ; the NUL, and the line said
+    mov al, 0
+    stosb
+    mov si, tsp_msg
+    call tui_msg
+    call trk_say
     ret
 
 ; -----------------------------------------------------------------------------
@@ -534,6 +589,7 @@ tsp_start:
     mov byte [tsp_open], 0
     mov byte [tsp_run], 1
     call trk_transport
+    call tsp_readout                ; the rate and its predicted load
     clc
     jmp short .out
 .rate:
@@ -578,9 +634,18 @@ tsp_poll:
     push es
     cmp byte [tsp_open], 0
     jne .fill
-.pre:                               ; the ring FULL before the door opens
-    call tsp_fill
-    jnc .pre
+.pre:                               ; the ring FULL before the door opens -
+    call tsp_fill                   ; or half, after a rung down (tsp_behind),
+    jc .go                          ; where the gap is the listener's to sit
+    cmp byte [tsp_half], 0          ; through
+    je .pre
+    mov es, [tsp_rseg]
+    mov ax, [es:TSP_RL]
+    sub ax, [es:TSP_RL+2]
+    cmp ax, TSP_RL / 2
+    jb .pre
+.go:
+    mov byte [tsp_half], 0
     call os88spk_go
     jnc .opened
     mov byte [tsp_run], 0
@@ -718,16 +783,69 @@ tsp_behind:
     call tsp_leave
     inc byte [tsp_rung]
     mov ax, [si+bx]
+    call tsp_elscale                ; the clock's bytes, in the new rate's
     call tsp_tables
     mov [mp_mixrate], ax
+    push ax
+    push bx
+    push dx
+    call mp_calc_spt                ; THE TEMPO: samples a tick at the new
+    pop dx                          ; rate - left at the old one, a drop to
+    pop bx                          ; 4,800 played at 87% (tests/trkspk.py)
+    pop ax
     push dx
     mov dx, 3600
     mul dx
     mov [tui_bpt], dx
     pop dx
+    mov byte [tsp_half], 1          ; the door opens on half a ring
+    mov ax, [tsp_rate]
+    call tsp_predict
+    mov [tsp_pct], ax
+    call tsp_readout                ; ...and the line says the new rate
 .out:
     pop es
     pop si
+    pop bx
+    pop ax
+    ret
+
+; tsp_elscale - AX = the new rate: [tw_el], the stream bytes HEARD this song
+; (tw_secs divides it by the rate), rescaled from [mp_mixrate]'s bytes to
+; AX's, so the elapsed clock goes on from where it was across a rung down
+; (preserves all). A 32 x 16 multiply and a 48 / 16 divide, once a drop
+tsp_elscale:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov bx, ax                      ; BX = new
+    mov ax, [tw_el]
+    mul bx
+    mov si, ax                      ; SI = w0
+    mov di, dx                      ; DI = carry into w1
+    mov ax, [tw_el + 2]
+    mul bx                          ; DX:AX = hi x new
+    add ax, di
+    adc dx, 0                       ; DX:AX:SI = the 48-bit product
+    mov cx, [mp_mixrate]            ; / old
+    or cx, cx
+    jz .out
+    cmp dx, cx
+    jae .out                        ; (cannot: the quotient fits 32 bits)
+    div cx                          ; AX = q1, DX = remainder
+    mov bx, ax
+    mov ax, si
+    div cx                          ; AX = q0
+    mov [tw_el], ax
+    mov [tw_el + 2], bx
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
     pop bx
     pop ax
     ret

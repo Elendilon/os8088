@@ -354,7 +354,17 @@ def run(a, apps, plain, P, fails):
                             poll=0.2, guest=60.0)
         except os88marty.MartyError:
             pass
-        os88marty.settle(m)
+        # ...and THE LOAD DONE, read rather than settled on: with no card
+        # Tracker PLAYS what it loaded, through the speaker in its window
+        # (SPEC.md 45.25), so the screen never stops changing and a settle
+        # there waits out its whole budget
+        try:
+            os88marty.until(
+                m, lambda mm: int.from_bytes(
+                    mm.readseg(pseg, P["mp_loaded"], 2), "little"),
+                "Tracker to finish the load", poll=0.2, guest=60.0)
+        except os88marty.MartyError:
+            pass
         modseg = claimed(m)
         if not modseg:
             msg = int.from_bytes(m.readseg(pseg, P["tui_msgp"], 2), "little")

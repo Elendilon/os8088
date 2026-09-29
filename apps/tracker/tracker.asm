@@ -3684,6 +3684,9 @@ trk_s_noload: db 'No module loaded - L loads one', 0
 trk_s_nosb:   db 'No Sound Blaster: viewer only', 0
 trk_s_spk1:   db 'Speaker: needs ', 0
 trk_s_spk2:   db '% of this PC - Play again to try', 0
+trk_s_spk3:   db 'Speaker ', 0
+trk_s_spk4:   db ' Hz, ', 0
+trk_s_spk5:   db '% of this PC', 0
 trk_s_spkbusy: db 'The PC speaker is busy', 0
 trk_s_nomem:  db 'Out of memory', 0
 trk_s_toobig: db 'File too big', 0
