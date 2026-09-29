@@ -106,8 +106,21 @@ for any change here.
    **SHIPPED, as a RATCHET rather than a pre-pass, and with the user's hand
    on it** (SPEC.md 34.11.9.1 and 45.25.3). The volume bar, `+` and `-` are
    the level with no card: the ratchet picks it and the bar shows it, and
-   the first move makes it the user's for the session. What is still open
-   of this candidate is the pre-pass below, for the quiet intro.
+   the first move makes it the user's for the session.
+
+   **The pre-pass is NOT TAKEN** (the owner, 2026-09-29: on the songs tested
+   the quiet intro is not a real problem, and a quiet-then-loud song is
+   probably fine as it is). The owner's bar was ~300 ms, and it was priced
+   against it, ESTIMATED at 150-200 cycles a cell on an 8088 and never
+   written: BEVERLY.MOD walked in play order is 21,248 cells, ~0.7-0.8 s on
+   a 5150, on top of the ~2.8 s `tsp_natural` already spends there; each
+   pattern once is 8,448 cells, ~0.3 s, but loses the sample and volume
+   carried in from the pattern before; ELYSIUM.MOD is 7,424 cells in order,
+   ~0.25-0.3 s. The bigger doubt was accuracy - a sum of sample peaks times
+   volumes is a proxy for the level the ratchet settles on, and a wrong one
+   plays the whole song too hot or too quiet, which is worse than one step
+   down. If it is ever reopened, check the estimate against the ratchet on
+   the host with section 3's replay before writing the loop.
 
    The first cut (`TSP_RATCHET`): the level starts at `TSP_LSTART` = 8 and only
    ever steps down, for a span that overdrives it by more than 3 levels, so
