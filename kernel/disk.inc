@@ -1592,6 +1592,17 @@ dsk_xfer:
     mov [dsk_ioerr], ah         ; keep the status for diskw.inc's mapping
     cmp ah, 0x03
     je .fail                    ; write-protected: retrying cannot help
+%ifndef KD_BUILD
+    cmp byte [fpg_on], 0        ; **A FAILING DISK SAYS SO** (SPEC.md 12.8.3.2).
+    jne .said                   ; FPG_WARM counts sectors MOVED and a retry
+    dec byte [sch_lock]         ; moves none, so a one-sector read failing on
+    push cx                     ; marginal media ground on for as long as its
+    mov cx, FPG_WARM            ; retries took with nothing on the glass - the
+    call KERNEL_SEG:fpg_busy    ; field saw 30 seconds of it and took it for a
+    pop cx                      ; hang. So the FIRST failure arms the chrome
+    inc byte [sch_lock]         ; and the clock, as a stopped motor does
+.said:                          ; (12.8.3.1): outside the switch lock, as at
+%endif                          ; the top; the pin stays, and only ever refuses
     mov ah, 0x00                ; failed: reset the controller and retry
     mov dl, [dsk_unit]          ; the ROW's drive (SPEC.md 52.10.3): resetting
     CURXFER_ON                   ; ...and the arrow keeps moving through it too
