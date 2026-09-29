@@ -5856,6 +5856,8 @@ $(BUILD)/recorder.o88: $(BUILD)/recorder.bin tools/os88pkg.py $(PKGZSTAMP)
 $(BUILD)/tracker.bin: apps/tracker/tracker.asm apps/tracker/trkplay.inc \
                       apps/tracker/trkui.inc apps/tracker/trktxt.inc \
                       apps/tracker/trkwin.inc apps/tracker/trklist.inc \
+                      apps/tracker/trkspk.inc apps/os88spk.inc \
+                      apps/os88spkfx.inc apps/os88spkfx_t.inc \
                       apps/os88api.inc apps/os88alt.inc apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/tracker/ -o $@ apps/tracker/tracker.asm
 	@echo "tracker: $(call FILESIZE,$@) bytes"
@@ -5872,6 +5874,8 @@ $(BUILD)/tracker.o88: $(BUILD)/tracker.bin tools/os88pkg.py $(PKGZSTAMP)
 TRKVOL_SRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
               apps/tracker/trkui.inc apps/tracker/trktxt.inc \
               apps/tracker/trkwin.inc apps/tracker/trklist.inc \
+              apps/tracker/trkspk.inc apps/os88spk.inc apps/os88spkfx.inc \
+              apps/os88spkfx_t.inc \
               apps/os88api.inc apps/os88alt.inc apps/os88ui.inc
 .PHONY: trkvol
 trkvol: $(BUILD)/trkvol360.img
@@ -9279,7 +9283,8 @@ zscreens: $(BUILD)/stories.stamp
 # TRKLOG.TXT back to it, which is the point (docs/TESTING.md).
 TRKLOGSRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
              apps/tracker/trkui.inc apps/tracker/trktxt.inc \
-             apps/tracker/trkwin.inc apps/tracker/trklist.inc apps/os88ui.inc tests/trklog.inc
+             apps/tracker/trkwin.inc apps/tracker/trklist.inc apps/tracker/trkspk.inc \
+             apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88ui.inc tests/trklog.inc
 
 trklog: $(BUILD)/trklog.img $(BUILD)/trklog360.img
 
@@ -9319,7 +9324,8 @@ $(BUILD)/trklog360.img: $(BUILD)/trklog.o88 apps/tracker/beverly.mod tools/os88d
 # nothing playing has nothing to scroll.
 TRKSCRLSRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
               apps/tracker/trkui.inc apps/tracker/trktxt.inc \
-             apps/tracker/trkwin.inc apps/tracker/trklist.inc apps/os88ui.inc tests/trkscrl.inc
+             apps/tracker/trkwin.inc apps/tracker/trklist.inc apps/tracker/trkspk.inc \
+             apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88ui.inc tests/trkscrl.inc
 
 trkscrl: $(BUILD)/trkscrl.img
 

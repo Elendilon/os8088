@@ -1412,6 +1412,11 @@ trk_fdone:
                                 ; reason (66.3 rule 5) - this ordering does not
                                 ; NEED that guard, and having both is how a
                                 ; rule survives the next author
+    call OSAPI_SND_CAPS             ; NO CARD: the samples filtered for the
+    test ax, SND_CAP_PCM_BG         ; speaker now, once, rather than per
+    jnz .card                       ; output sample (SPEC.md 45.25)
+    call tsp_preemph
+.card:
     mov byte [ttx_shok], 0          ; a NEW module can name the same pattern
                                     ; NUMBER with different rows in it, and
                                     ; that is the one thing SPEC.md 45.13.6's
@@ -1422,7 +1427,7 @@ trk_fdone:
     mov byte [trk_pause], 0         ; a NEW module is not paused in the old
     call tpl_note                   ; one's place - and it is on the list now
     mov al, 0
-    call trk_play                   ; caps-gated: no SB machine stays a viewer
+    call trk_play                   ; a card, or the speaker (SPEC.md 45.25)
     call trk_repaint_done           ; the mandatory completion repaint - two
     jmp .out                        ; LINES when windowed, not the whole card
 
@@ -1577,6 +1582,7 @@ trk_fs_enter:
     push bx
     push cx
     push dx
+    push di                         ; (the speaker's bracket takes a hook)
     cmp byte [trk_fs], 0
     jne .out                        ; the bracket blocks, so this is belt-only
 %ifdef TTXFSANY
@@ -1648,6 +1654,17 @@ trk_fs_enter:
     mov [ttx_shseg], dx             ; [ttx_shseg] is that fall-back - the
     mov byte [ttx_shok], 0          ; graphics bracket. A NEW claim holds
 .noshadow:                          ; nothing, so the shadow is rebuilt
+    call OSAPI_SND_CAPS             ; NO CARD: a RATE bracket, whose door the
+    test ax, SND_CAP_PCM_BG         ; speaker's play opens (SPEC.md 45.25) -
+    jnz .cardfs                     ; its period the text screen's 54.6 Hz
+    mov ax, trk_fsx_main            ; frame clock, which FSXW_FRAME then is,
+    mov bx, [trk_win]               ; and no worker kept: this bracket's own
+    mov cx, FSXF_RATE               ; loop mixes (tsp_poll). The caps are
+    mov dx, TSP_FSDIV               ; asked FIRST: the call is free to spend
+    mov di, tsp_hook                ; BX, and the fence reads it
+    call OSAPI_FSX_RUN
+    jnc .ran                        ; (refused - a kernel with no FSXF_RATE:
+.cardfs:                            ; the viewer's bracket, as it always was)
     mov ax, trk_fsx_main
     mov bx, [trk_win]
 %ifdef TTXNOFAST
@@ -1661,6 +1678,8 @@ trk_fs_enter:
                                     ; rather than a whole one (SPEC.md 53.2.1)
     call OSAPI_FSX_RUN              ; blocks until trk_fsx_main returns; the
                                     ; kernel then repaints the desktop whole
+.ran:
+    call tsp_leave                  ; (the bracket's end shut the door)
     mov byte [trk_fs], 0            ; back to the windowed splash
     mov dx, [ttx_shseg]             ; ...and the shadow goes back to the heap:
     or dx, dx                       ; nothing outside a text bracket reads it
@@ -1668,6 +1687,7 @@ trk_fs_enter:
     call OSAPI_MEM_FREE
     mov word [ttx_shseg], 0
 .out:
+    pop di
     pop dx
     pop cx
     pop bx
@@ -1710,6 +1730,7 @@ trk_fsx_main:
     call ttx_draw_all
     call ttx_clkpick                ; the frame clock (SPEC.md 45.16/53.5.1)
 .txloop:
+    call tsp_poll                   ; no card: the speaker's producer (45.25)
     call trk_sover_ck               ; F00 / song end: close, walk the list
     call os88alt_edge               ; ...and Alt+Enter, which int 16h below
     jc .txdone                      ; cannot carry: no XT BIOS enqueues the
@@ -1748,6 +1769,7 @@ trk_fsx_main:
 .gfx:
     call tui_draw_all               ; the whole FT2 screen
 .loop:
+    call tsp_poll                   ; no card: the speaker's producer (45.25)
     call trk_sover_ck               ; F00 / song end: close, walk the list
     call os88alt_edge               ; ...and Alt+Enter, for .txloop's reason
     jc .done                        ; one screen along (SPEC.md 11.2.1.1)
@@ -2175,7 +2197,7 @@ trk_play:
     je .noload
     call OSAPI_SND_CAPS             ; AX = merged caps word
     test ax, SND_CAP_PCM_BG
-    jz .nosb
+    jz .spk                         ; no card: the SPEAKER (SPEC.md 45.25)
     call trk_stream_close           ; restart = close + reopen; the close's
                                     ; drain parks the worker, which is what
                                     ; makes the mp_start reset and the two
@@ -2272,9 +2294,8 @@ trk_play:
     mov si, trk_s_noload
     call tui_msg
     jmp .out
-.nosb:
-    mov si, trk_s_nosb
-    call tui_msg
+.spk:
+    call tsp_play
     jmp .out
 .nogrant:
     mov si, trk_s_nomem
@@ -2616,6 +2637,7 @@ trk_ukey:
     ret
 
 trk_play_stop:
+    call tsp_halt                   ; the speaker's door, if it is its play
     mov byte [trk_pause], 1         ; a stop PARKS (SPEC.md 45.17): Play resumes
     call tui_sync                   ; where the LISTENER is, asked while the
                                     ; stream can still answer (SPEC.md 45.15)
@@ -3660,6 +3682,9 @@ trk_s_nofit:  db 'Too big for free memory', 0
 trk_s_cpq:    db 'Making room...', 0
 trk_s_noload: db 'No module loaded - L loads one', 0
 trk_s_nosb:   db 'No Sound Blaster: viewer only', 0
+trk_s_spk1:   db 'Speaker: needs ', 0
+trk_s_spk2:   db '% of this PC - Play again to try', 0
+trk_s_spkbusy: db 'The PC speaker is busy', 0
 trk_s_nomem:  db 'Out of memory', 0
 trk_s_toobig: db 'File too big', 0
 trk_s_noent:  db 'File not found', 0
@@ -3766,6 +3791,9 @@ trk_reloc:
 %include "trktxt.inc"
 %include "trkwin.inc"
 %include "trklist.inc"
+%include "os88spk.inc"              ; the speaker's ring player (SPEC.md 34.11)
+%include "os88spkfx.inc"            ; ...and its shaper (34.11.9)
+%include "trkspk.inc"               ; ...played with no card (45.25)
 %ifdef TRKLOG
 %include "trklog.inc"               ; tests/ - the bench build only, and the
 %endif                              ; only thing -DTRKLOG adds beyond hooks

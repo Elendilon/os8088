@@ -72384,11 +72384,12 @@ edge-triggered, so no deadline machinery is needed.
 
 ### 45.8 The honest degradations
 
-- **No Sound Blaster: a viewer, not a player.** `osapi_snd_caps` without
-  `PCM_BG` refuses Play with a status-line message; loading, the pattern
-  view, scrolling and the whole fullscreen surface still work. No silent
-  tick-driven fake playback is attempted, and no FM fallback in v1 (FM is
-  now worker-whitelisted — that is future work, not a promise).
+- **No Sound Blaster: the PC speaker (§45.25).** `osapi_snd_caps` without
+  `PCM_BG` plays through the speaker instead, from Tracker's own bracket,
+  after timing the machine once - and refuses with the figure where even
+  its lowest rung would not fit. This line used to read *"a viewer, not a
+  player"*; that is still what a kernel with no `FSXF_RATE` gets. No FM
+  fallback (FM is worker-whitelisted - future work, not a promise).
 - **512KB machine: big modules play.** A fixed ~107KB package arena could
   not hold a 116KB blob at all, and that limit is gone. The claim heap is not
   a fixed arena — it is everything above the kernel — so a 640KB machine
@@ -75223,6 +75224,94 @@ then checks the 286 face's markers against a held bar (point 4). That
 15.0 is itself news, since the same spectrum drew 7.7 before this section and
 45.21.8: the LCD, the hold and the clock took half its cost away too. `TW_XTNB` and `TW_BHOLD` are `%ifndef`-overridable, so the table's
 arms can be rebuilt.
+
+### 45.25 No card: the PC speaker
+
+With no Sound Blaster, **Play plays through the PC speaker**, on its own and
+with nothing to switch on (the owner: *sound and nothing else is better than
+no sound*). It is §34.11's ring and door and §34.11.9's shaper, fed by the
+same mixer the card's worker feeds (`apps/tracker/trkspk.inc`,
+docs/plans/SPEAKER-PCM-PLAN.md).
+
+**The bracket is the producer.** The speaker needs channel 0, so the play runs
+inside an `FSXF_RATE` bracket (§53.2.2), and under a sample ISR a task switch
+rides the 18.2 Hz tick - so it is not the worker that mixes but the bracket's
+own loop, `tsp_poll`: a span of the mixer, its level, its counts, into the
+ring. Windowed, the bracket is a same-mode one - the **imposter window**, the
+Video Player's in-window play (§98.3.7): the Tracker window stays live and
+the rest of the desktop waits; a click anywhere or Space pauses and gives the
+desktop back, Esc or S stops, F swaps to the full screen. The full screen's
+bracket takes `FSXF_RATE` in place of `FSXF_KEEPWORKER | FSXF_FASTTICK` when
+there is no card, at 54.6 Hz (`TSP_FSDIV`), its two loops calling `tsp_poll`
+once a frame, and falls back to the viewer's bracket where a kernel refuses
+the flag. `[trk_total]`/`[trk_consumed]` ARE the ring's TOTAL and CONS, so
+everything that shows what the listener hears (§45.15) - the rows, the clock,
+the needles - reads the speaker the way it read the card; the display's gates
+that asked *"is a card stream open"* (`tw_want`, `tw_tick`, `tui_sync`, the
+scope, `tw_rate_now`) ask *"or a speaker play"* too.
+
+**The filter is paid once.** The shaper's first-difference pre-emphasis would
+be ~20 cycles an output sample; a linear filter commutes with the mix, so
+`tsp_preemph` runs it over the module's SAMPLES in place when a module loads
+on a machine with no card - ~1 s for BEVERLY.MOD on a 5150 - and the shaper
+is initialised `SPKFX_PRE_NONE`. It is applied in the sample-index domain, so
+at pitches far from one step it is a tilt rather than the exact output
+filter; `[tsp_pre]` says it was done, and a card mounted later in the session
+hears that module thinner until it is loaded again. Tracker never writes a
+module, so nothing filtered reaches a disk.
+
+**The first Play CALIBRATES** (the owner's question 5), inside the bracket
+where the worker is parked - outside one the worker draws a frame a tick
+beside the bench. `tsp_calib` times two things:
+- the shaper: spans of 256 emitted for `TSP_BTICKS` = 4 ticks (Ne);
+- the mixer: `TSP_MTICKS` = 8 ticks of FOUR channels, all audible, each the
+  module's longest sample looped whole, in chunks of a tick's length at 125
+  BPM (rate / 50) with no tick falling due, so the replayer never moves (Nm).
+  Its channel records are put aside and back. The first build benched the
+  song's own opening and read BEVERLY.MOD's sparse intro - a third of the
+  mixer's cost in a full passage - and one that mixed 512-sample chunks
+  missed the per-chunk set-up a real tick's chunk pays.
+
+and predicts each rung's load as `R x 44 / Nm + R x TSP_CS / Ne + 5` percent.
+`TSP_CS` = 89 is MEASURED on MartyPC's 5150: the bench's ~107 cycles a shaped
+sample and the sample ISR's ~325 a pulse (37% of the machine at 5,417 Hz,
+sampled), `(325 / 107 + 1) x 400 / 18.2`. The rungs are an 8088's 8,000 and
+5,512 Hz and a 286's 22,050 / 16,000 / 11,025 / 8,000 (§34.11.8). The highest
+at `TSP_PCTMAX` = 100 or under is played: **the sound must fit and the picture
+has what is left**, because the imposter draws a frame only while the ring is
+at least half full (the worker's `trk_deep` rule, audio first) and books the
+clock without drawing otherwise, and the visualiser is forced off during a
+speaker play on any machine whose visualiser is already the XT meter
+(`tw_vizxhi`, the 11 kHz rule). None fitting, Play is **refused with the
+figure** - `Speaker: needs 107% of this PC - Play again to try` - and the next
+Play plays anyway at the last rung (question 2). A play that falls behind
+all the same (a lead under a quarter of the ring) drains, drops a rung and
+goes on, as Audio's does (§86.21); past the last rung it plays on behind.
+
+Measured on MartyPC:
+
+| machine | Ne | Nm | rung | predicted | held |
+|---|---|---|---|---|---|
+| 5150, 4.77 MHz, Hercules | 9,728 | 5,920 | 5,512 Hz | 95% | 5,416 pulses/s, ring never dry, window and full screen |
+| XT `--turbo`, VGA | 29,440 | 17,760 | 8,000 Hz | 48% | ring never dry |
+
+8,000 Hz on the 5150 predicts 137%. With the visualiser off, the audio-first
+frame gate is not reached on the 5150 with BEVERLY.MOD at 5,512 Hz - removing
+it leaves the ring still never dry - so it is a net for a heavier face and not
+something this machine exercises. `tools/mkmod.py`'s test song, whose 416
+sample bytes loop all four channels every few hundred samples, predicts 107%
+and is refused on the 5150: the bench is the module's own mixer, and a module
+of tiny loops really does cost more.
+
+It costs Tracker 4,189 bytes of image (27,927 -> 32,116), 3,070 of bss (2,816
+of them the shaper's level family) and 2,929 bytes of the packed file, and
+a 17 KB ring claimed the first time the speaker plays; no kernel byte.
+
+`tests/trkspk.py` is the gate: `trkspk` (the 5150 plays by itself, the rate,
+the dry ring, the visualiser, the clock, pause, resume, the full screen and
+back, stop), `trkspkref` (a build with a 50% ceiling: the refusal and its
+figure, and the override), `trkspkturbo` (the 8,000 Hz rung) and `trkspkend`
+(a song to its end, then a card machine where the speaker is never touched).
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 

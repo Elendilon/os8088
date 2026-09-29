@@ -8473,6 +8473,45 @@ SOAK = [
         needs=("marty",),
         wants=("build/audio.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin")),
+    Row("trkspk", "soak", py("tests/trkspk.py", "--leg", "play"), 45.0,
+        "SPEC.md 45.25: Tracker with no card plays BEVERLY.MOD through the PC "
+        "speaker on its own, on MartyPC's card-less Hercules 5150 - the machine "
+        "benched once inside the imposter bracket and the 5,512 Hz rung taken; "
+        "3,000 port-42h writes at the rate, the ring never dry, the visualiser "
+        "forced off (tw_vizxhi), the clock counting; Space pauses and resumes "
+        "on, F takes the play into the full screen and back with the ring "
+        "never dry, S stops with the kernel clean. Broken on purpose "
+        "(tw_vizxhi's speaker test out; TSP_CS doubled) it FAILS",
+        needs=("marty",),
+        wants=("build/tracker.o88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin")),
+    Row("trkspkref", "soak", py("tests/trkspk.py", "--leg", "refuse"),
+        20.0,
+        "SPEC.md 45.25: the refusal, on a Tracker assembled with a 50% ceiling "
+        "(-DTSP_PCTMAX=50): the load's play is refused with the predicted "
+        "figure on the status line and the door never opens; Play again plays "
+        "anyway at the last rung (the owner's question 2)",
+        needs=("marty", "nasm"),
+        wants=("build/tracker.o88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin")),
+    Row("trkspkturbo", "soak", py("tests/trkspk.py", "--leg", "turbo"),
+        36.0,
+        "SPEC.md 45.25: the same bench on MartyPC's 7.16 MHz XT (--turbo, "
+        "VGA), the only faster machine it has: the 8,000 Hz rung taken and the "
+        "ring never dry - the ladder's upper rung, reached",
+        needs=("marty",),
+        wants=("build/tracker.o88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin")),
+    Row("trkspkend", "soak", py("tests/trkspk.py", "--leg", "end", "--leg",
+                                "card"), 40.0,
+        "SPEC.md 45.25: tools/mkmod.py's song (refused on a 5150 - its 400 "
+        "sample bytes loop all four channels - and played on the override) "
+        "played to its end with Repeat off: the door closed by itself and the "
+        "kernel clean; then a Sound Blaster machine, where the card's stream "
+        "opens and the speaker is never benched or touched",
+        needs=("marty",),
+        wants=("build/tracker.o88", "build/sound.drv", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin")),
     Row("vidspkat", "soak", py("tests/vidspkat.py"), 40.0,
         "SPEC.md 34.11.8: 22,050 Hz through the PC speaker on a 286 or "
         "better - QEMU's 386, closed list entry 1. A pulse of N = 54 PIT "

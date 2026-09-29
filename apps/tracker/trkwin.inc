@@ -626,12 +626,15 @@ tw_vgeom:
 ; -----------------------------------------------------------------------------
 ; tw_vizxhi - is the visualiser forced to NONE? ZF = 0 (jne) yes: forced to
 ; the XT meter (tw_vizfx) AND in XT mode at 11 kHz, where the mixer leaves the
-; XT no time to draw one (SPEC.md 45.21.5). The one state the visualiser
+; XT no time to draw one (SPEC.md 45.21.5) - or AND playing on the PC speaker,
+; whose pulses leave it less still (45.25). The one state the visualiser
 ; button greys in. Preserves all but the flags.
 ; -----------------------------------------------------------------------------
 tw_vizxhi:
     call tw_vizfx
     je .out                         ; not forced at all
+    cmp byte [tsp_run], 0           ; the speaker's play: none (ZF = 0)
+    jne .out
     cmp byte [mp_xt], 0
     je .out                         ; a tier-0 machine outside XT mode
     cmp byte [trk_xhi], 0
@@ -1089,6 +1092,8 @@ tw_lkey:
 tw_rate_now:
     mov ax, [mp_mixrate]
     cmp byte [trk_sopen], 0
+    jne .out
+    cmp byte [tsp_run], 0           ; ...or the speaker's (45.25)
     jne .out
     call trk_rate_pick
 .out:
@@ -2264,7 +2269,10 @@ tw_scope:
     call tw_fills
 .trace:
     cmp byte [trk_sopen], 0
+    jne .tron
+    cmp byte [tsp_run], 0           ; the speaker's play (45.25)
     je .flat
+.tron:
     cmp byte [mp_playing], 0
     je .flat
     mov byte [tw_scflat], 0
@@ -2660,8 +2668,11 @@ tw_tick:
     push ax
     call tw_vtick
     cmp byte [trk_sopen], 0         ; the elapsed clock counts what the card
-    je .up                          ; has PLAYED (tui_play, 45.15), so it
-    push bx                         ; stops with the music, pauses with it,
+    jne .cnt                        ; has PLAYED (tui_play, 45.15), so it
+    cmp byte [tsp_run], 0           ; stops with the music, pauses with it,
+    je .up                          ; - or the speaker, off its CONS (45.25) -
+.cnt:
+    push bx
     mov ax, [tui_play]              ; and a covered window misses nothing -
     mov bx, ax                      ; because a covered window's frame still
     sub ax, [tw_lplay]              ; books it (tw_book). AX = the bytes heard
@@ -2694,6 +2705,8 @@ tw_want:
     push si
     cmp byte [trk_sopen], 0
     jne .busy
+    cmp byte [tsp_run], 0           ; ...or the speaker's (SPEC.md 45.25),
+    jne .busy                       ; which opens no stream
     mov al, [mp_playing]
     cmp al, [tui_lplay]
     jne .busy
