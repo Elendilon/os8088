@@ -45635,6 +45635,50 @@ it mounts.
 | the disk put in does not have it either | `Missing FILEA.002` as a toast, and the prompt stays |
 | everything else | §22.23.5's own words |
 
+##### 22.23.6.1 A disk error, and the hop that must not fail back into it
+
+**A read error on a part is the end of the join**, said in the error's own
+word (`Disk error`, `No disk`) with everything released: the claim, the
+prompt, the batch bracket and `CMPRESS~.TMP` on the target. The prompt is not
+offered again for it. A part half-joined cannot resume from the start of its
+part, because what it already wrote is in the result.
+
+**Before this fix the error path could loop for ever.** `cmz_jerr` deletes the
+half-written result, and that needs a hop to the target. The hop went through
+`CMZ_GO dst`, whose failure path IS `cmz_jerr`. So a target that could not be
+reached at that moment sent the join back into its own error path, with
+`[cmz_jwrote]` still set, to try the same hop again, for ever. It ran on the
+UI task, so the arrow stopped, a posted Ctrl-Alt-Del was never serviced, and
+no Disk window ever answered again. The hop in `cmz_jrmtmp` is now a plain
+`fcpf_fcp_goto` whose failure only skips the delete. The target keeps its
+`CMPRESS~.TMP`, as it does after a failed rename (§22.22.5). A later join into
+that folder then says `Name exists` until the file is deleted.
+
+**What it is not, yet: the field report that led here.** On the 5150 a
+marginal second disk failed as soon as it went in, probably in its FAT; the
+motor stayed on, the arrow froze and Ctrl-Alt-Del did nothing. Every
+reproduction of that on MartyPC ends cleanly. That includes the owner's own
+layout (booted from the hard disk, parts in A:, the result to C:) and CRC
+errors on the boot sector, on the FAT and part-way into the data: `No disk`
+or `Disk error` in 7-13 guest seconds, with the CPU idle afterwards. What a
+failed mount costs is the kernel's, and it is not small: ONE mount of a disk
+whose FAT will not read is four failing transfers of six `int 13h` calls
+each, three at the run length and three a sector at a time (§18.91). That is
+24 calls with a controller reset between tries, and on real media each can
+be a ROM timeout, so a minute of what looks like a freeze is possible without
+anything being stuck. A hang that outlives that minute is not explained. The
+instrument for it is a `KFZ=1` kernel (§9.6.5): if the strip goes on
+changing, the machine is alive and busy; if it stops, IRQ0 died, and that is
+also what would keep the motor on.
+
+`tests/czto.py` fails B:'s reads just after the kernel's own `int 13h`
+(AH = 10h, CRC), so the retries and everything above them are real. Its
+`ioerr` leg fails a marginal second disk after the prompt, and its `hopfail`
+leg also points the error path's hop at a drive that is not there. With the
+old hop put back, `hopfail` fails 50 hops in a row and never ends; with the
+fix it fails one hop and says `Disk error`. The fix is in `CLONE.DRV`'s image
+and moves no resident byte.
+
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)
 
 Not kernel code: a .o88 package built with os88api.inc, org 0 (§20.1), all
