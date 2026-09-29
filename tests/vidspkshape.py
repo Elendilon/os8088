@@ -11,7 +11,9 @@ makes a clip of a loud 60 Hz bass and a quiet 880 Hz line and asserts:
      least 25 dB higher and the bass at least 20 dB lower than
      `--spk-shape off` does, measured off the counts in the file;
   2. `os88vid speaker` on the unshaped file does the same after the fact,
-     changes no byte outside the frame records' sound, and leaves a file
+     changes no byte outside the frame records' sound but the stored
+     options (98.1.1.4) - which must now READ the shaping it did - and
+     leaves a file
      that verifies.
 
 Broken on purpose (spk_shape_f returning its input's scaling, or
@@ -106,6 +108,19 @@ def main():
                 sound[o + m - r.abytes:o + m] = b"\1" * r.abytes
                 o += m
             at, nsec = at + nsec * vid.SECTOR, nxt
+        # ...and the options block, whose record now says how it was
+        # shaped (98.2.17): its pointer and its sectors before the stream
+        sound[vid.H_OPTS:vid.H_OPTS + 6] = b"\1" * 6
+        if r.optsat:
+            sound[r.optsat:r.sp0] = b"\1" * (r.sp0 - r.optsat)
+        rb = vid.Reader(after)
+        o = rb.options()["o"] if rb.optsat else {}
+        print("   2: the stored options say shaped %s, high-pass %s"
+              % (o.get("spk_shape"), o.get("spk_highpass")))
+        if o.get("spk_shape") != "on" or o.get("spk_style") != vid.SPK_STYLE:
+            bad.append("2: the stored options do not say the sound was "
+                       "shaped: %s" % {k: o.get(k) for k in (
+                           "spk_shape", "spk_style")})
         if len(a) != len(b):
             bad.append("2: the file changed size")
         else:
