@@ -59731,6 +59731,31 @@ driver and never writes `dskw_raw`.
 **42 bytes of `.cold`**, no rung crossed, `KERN_CODE_MAX` untouched; on
 `kern_small` the module is `FDLG.DRV` and it costs nothing resident.
 
+#### 38.6.2 The size is taken BEFORE the teardown
+
+`fdlg_commit` asks `fdlg_sizeof` for `DX:CX` **before** `fdlg_close`, and the
+order is binding. The close frees the dialog's own listing store
+(`fdlg_vfree`: the listing is transient, which is why it costs no resident
+byte) and aims `[dsk_dseg]` at 0 — while `[disk_nfiles]` still counts the
+entries the dialog was showing. A lookup after the close therefore walks the
+right number of rows out of **segment 0**, compares the chosen name against
+the interrupt vector table, finds nothing, and answers the not-found `0:0`.
+
+**It did exactly that from the day the listing became transient until this
+section was written**: every Open reported a size of 0. Most consumers treat
+0 as "no size" and fall back to asking for the largest run, so they degraded
+quietly; **Write Img** (§18.99.8) sizes the geometry off this figure alone,
+so it refused every image — a 368,640-byte image of a 360KB floppy, picked
+off a 720KB disk or a hard disk alike — as **"Not a disk image"**, on real
+hardware and in every emulator. It is reported off the 5150.
+
+Nothing between the two points touches `CX` or `DX`: `fdlg_close`,
+`fdlg_home_save` and `snd_disp_set` preserve both, and the staleness triple
+spends `AX` and `DI`. The callback pointer is carried in `AX` for that reason.
+The cost is that the one directory walk of §38.6.1 now happens on a commit
+whose callback the staleness triple then skips — a commit from an app whose
+window has since closed, which is rare and pays one cached walk.
+
 ### 38.7 Lifecycle
 
 1. **Ask.** The application calls slot 0x0124 from a menu command or a key
