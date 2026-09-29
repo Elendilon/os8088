@@ -6583,7 +6583,7 @@ SOAK = [
         needs=("marty",), serial=True, wants=("build/os8088.img",)),
     Row("czjoin", "soak", py("tests/czjoin.py"), 120.0,
         "SPEC.md 20.17 and 22.23.5: File > Uncompress on a PART of a split "
-        "set joins it, STREAMING - an 81KB claim whatever the set's size. "
+        "set joins it, STREAMING - an 82KB claim whatever the set's size. "
         "tools/os88cz.py cuts the sets on the host and every assertion is "
         "the bytes the machine wrote, read off the live floppy: a 340KB "
         "original in three parts of stored and LZ4 blocks, joined from its "
@@ -6598,6 +6598,20 @@ SOAK = [
         "controls were run: `--break` drops a part and goes red, and with "
         "the check's compare disabled in compress.inc the damaged copy "
         "joined into a wrong DMG.DAT and the row went red on it",
+        needs=("marty",), wants=("build/os8088.img",)),
+    Row("czto", "soak", py("tests/czto.py"), 130.0,
+        "SPEC.md 22.23.6: File > Uncompress To... - the result goes where "
+        "the Save box says and the join ASKS for each floppy it needs. The "
+        "parts are on B: and the result goes to A:, and the harness swaps "
+        "B: at run time (the debug server's `mount`). Two parts in one "
+        "folder join with no prompt; a set whose part 2 is nowhere asks "
+        "for it and Esc leaves nothing on A: - no result, no CMPRESS~.TMP, "
+        "no claim; then a three-part set over three disks: Enter with the "
+        "same disk still in says `Missing SET.002` and asks again, and "
+        "after each swap Enter reads the next part from that disk's root, "
+        "to a result identical to the original, and os88disk --verify "
+        "over A: at the end. `--break` puts ANOTHER set's SET.002 on the "
+        "second disk and the row goes red",
         needs=("marty",), wants=("build/os8088.img",)),
     Row("czdos", "soak", py("tests/czdos.py"), 10.0,
         "SPEC.md 20.17.4: OS88CZ.COM under a real DOS (DOSBox, headless, "

@@ -41009,7 +41009,7 @@ heap can never be opened. Its hint holds 24 bits (§20.14.1). And an LZ4
 `'CZ'` stream is one segment of input (§20.13.3). A split set needs none of
 that. It is a sequence of **independent blocks of at most 32KB**, each small
 enough to expand in a fixed claim, so a set of any size is joined by
-streaming through 81KB of heap (§22.23.5).
+streaming through 82KB of heap (§22.23.5).
 
 **The reference implementation is `tools/os88cz.py`** (`split`, `join`,
 `pack`, `unpack`, `--selfcheck`). `tools/os88czgui.py` is its window and
@@ -45451,20 +45451,33 @@ rather than asking for a `NOTES.001` it never had. The join then starts at
 5150 that is the hard disk: copy the parts across from their floppies, then
 join. What it costs is the parts and the result on one volume at once, and
 the parts can be deleted once the result is there. Reading the parts straight
-off a changing floppy into another volume needs a destination to be ASKED for
-and a disk swap to wait on, neither of which a menu verb can do today. That
-is left for whoever needs it enough.
+off a changing floppy into another volume is `Uncompress To...` (§22.23.6),
+which asks where the result goes and asks for each disk as it needs it.
 
 **IT STREAMS, so the size of the set is bounded by the DISK and not by the
 heap**, which is the whole difference from the other two arms (§22.23.4).
-One claim of 81KB, whatever the file. That is more than the 128KB machine's
+One claim of 82KB, whatever the file. That is more than the 128KB machine's
 ~50KB of heap, so on `kern_small` the join is `Not enough memory`; the
-module's image grows there by the same 1,500 bytes and nothing resident moves:
+module's image grows there by the same ~1,500 bytes at the build that landed
+it, and 118 more for §22.23.6's alignment below (9,413 -> 9,531), and nothing
+resident moves:
 
 | | |
 |---|---|
-| `[cmz_b]` | the INPUT window, 49KB. Parts are read into it in 16KB chunks with `OSAPI_FILE_READ_AT`, at offsets that are multiples of 16KB, which that door requires to be whole clusters (§18.4.4). Before a block is parsed the window is topped up until the whole block is in it: the bytes left are moved to its floor and chunks are read behind them. A block is at most 32,778 bytes with its header, so the window never holds more than 32,777 + 16,384 |
-| `[cmz_o]` | the OUTPUT block, 32KB, where `lz_decomp_x` expands a compressed block at `ES:0`. A stored block is written straight out of the window and never copied |
+| `[cmz_b]` | a 512-byte header (§22.23.6's saved state), then the INPUT window, 49KB, rounded up to a 512-byte boundary. Parts are read into it in 16KB chunks with `OSAPI_FILE_READ_AT`, at offsets that are multiples of 16KB, which that door requires to be whole clusters (§18.4.4). Before a block is parsed the window is topped up until the whole block is in it: the bytes left are moved down to the 512-byte boundary nearest the floor that leaves room for them, and chunks are read behind them, so **every read lands on a sector boundary of the claim**. A block is at most 32,778 bytes with its header, so the window never holds more than 32,777 + 16,384 + 511 |
+| `[cmz_o]` | the OUTPUT block, 32KB, where `lz_decomp_x` expands a compressed block at `ES:0`. A STORED block is copied here too before it is written, rather than written straight out of the window |
+
+**Every buffer the join hands the file layer starts on a 512-byte boundary**,
+and the claim is laid out so it does: header 512, window rounded up, output
+block after it. A transfer at an arbitrary offset is a sector that can
+straddle a 64KB physical page, which `int 13h` answers with error 09h and the
+file layer reports as `Disk error` (§1's alignment rule): `dsk_runcap` splits a
+multi-sector run at the page but cannot split one sector. The first build of
+this section read at `window + bytes left` and wrote stored blocks straight
+from the window, and came out `Disk error` on the third refill of a set - which
+§22.23.6's test found and the in-place join had simply not happened to reach
+at the heap depths its own row runs at. The copy of a stored block costs
+~13 cycles a byte (`rep movsw`) against a disk write it is beside.
 
 **The result is written under `CMPRESS~.TMP` and renamed at the end**, the
 streamed `Compress`'s own temporary name (§22.22.5), for the same reason: a
@@ -45507,6 +45520,97 @@ each part and put back when the verb returns. The result's name, which is in
 part 1's header, is carried in the module and copied into `fm_onam` only for
 the final rename. The file layer takes names from `DS`, and the module's
 image is not `DS`.
+
+#### 22.23.6 `Uncompress To...` — the result goes where the user says, and the parts may be on floppies
+
+**Select any part, pick `Uncompress To...`, and the Save box opens on the
+original's name.** Wherever it is saved, the set is joined there, reading the
+parts from the folder they were selected in. When a part is not there and that
+drive is a floppy, the Disk window asks for it:
+
+```
+    Put FILEA.002 in A:
+    Enter=ready  Esc=stop
+```
+
+and Enter goes on from that part, looking for it in the ROOT of the disk now in
+the drive, because a folder is a cluster number and the old disk's clusters
+mean nothing on a new one. `os88cz.py split --images` puts every part in the
+root, which is what this is written against. Esc stops, and deletes what was
+written. A part that is not on the disk that was put in asks again, with
+`Missing FILEA.002` as a toast.
+
+**It is `kern_big`'s alone.** The join's 81KB claim is more than the whole of
+the 128KB machine's heap (§22.23.5), so on `kern_small` the item is not in
+either menu and none of its code is assembled: no resident byte and no image
+byte there. The ids after it are numbered by `FM_NUT`, which is 1 or 0.
+
+**It is the SAME join as §22.23.5**, with three things added. Everything
+else - the window, the checks, the `CMPRESS~.TMP` and the rename, every
+refusal - is that section's.
+
+1. **Two volumes.** The source is `(drive, folder)` as the verb found it and
+   the target is what the dialog left current. Every read goes to the source
+   and every write to the target through `fcpf_fcp_goto`, the far door
+   `CLONE.DRV` already uses between a floppy and an image file (§18.99.8). What
+   keeps a hop free is §18.9.3's batch bracket, opened once per run: inside
+   it a floppy's banked boot sector is trusted and its FAT window reused, so
+   going back to A: after writing C: is **no I/O at all**. The bracket ends at
+   the prompt, because the prompt unlocks, and that is exactly when the disk
+   is allowed to have changed. So the §22.23.5 window stays 49KB and is not
+   made bigger to amortise switches that cost nothing.
+2. **A prompt in the middle.** A part never spans two disks, so the join only
+   ever stops BETWEEN parts, and what it has to remember is small: the next
+   part's number, how much is written, the set's count, total and ID, both
+   places and both names. That is the 512-byte header at the front of the
+   claim (§22.23.5's table; 512 so the window behind it is sector-aligned),
+   written when the join starts and again at every prompt, not image scratch, because anything that drops and reloads
+   `CLONE.DRV` while the prompt is up - a Compress in another Disk window -
+   would lose image scratch and keeps the claim.
+3. **The claim IS `[clo_seg]`**, with `CLS_JOIN` where a clone keeps its
+   step. That buys the whole prompt for nothing: mode 7 (§22.21.1) already
+   routes every key to `CLV_KEY`, asks `CLV_LINE` for both lines and frees
+   through `CLV_FREE` when a click abandons it, and `clo_disp_x` sends all
+   three to the join when that marker is there. It also makes a clone and a
+   join mutually exclusive, which they must be - one `[clo_seg]` - and the
+   refusal is the one a second clone already gets.
+
+**What the resident half is**: the menu row and its string, a third label on
+the `Compress`/`Uncompress` body with one more answer from the image
+(`AX = 0xFFFF`, *ask for a target*), the Save box's completion proc, and one
+more answer on mode 7 (`CLA_JDONE`, *the join has said its verdict and freed
+its claim*). **It holds no state of its own.** The source is the Disk window
+the verb was picked in - its `FS_DRV`/`FS_CWD`, read by the completion proc
+through `[fm_vp]`, which the dialog does not move - and the original's name
+rides in `clo_fnbuf`, the cloner's resident 13-byte name, which is free
+because a clone and a join cannot both be running. A cancelled dialog calls
+nothing back (§38.2), so nothing is left to clean up.
+
+**Measured, `kern_big`** against the build before it: **+124 resident bytes**,
+`.text` +26 and `.cold` +98, `.bss` +0. That crossed the cold rung, 79 -> 80
+steps of 512: `KERN_SIZE` 105,984 -> 106,496, 23,040 spare of `KERN_BUDGET`
+(45 steps). The rung is the 512 billed to whoever was standing there (§1's
+banner); the bytes are 124, and 98 of them are `.cold`, which is resident.
+`CLONE.DRV`'s image went 9,411 -> 10,538 bytes (+1,127) and its file on the
+floppy 7,769 -> 8,702, and the claim 81 -> 82KB for the header. **`kern_small`:
++0 everywhere**, the whole feature being inside `%ifdef KERN_BIG`.
+
+`tests/czto.py` is the row, and it needed the emulator to change a floppy
+under a running guest: MartyPC's debug server gained a `mount` command
+(`Marty.mount(drive, path)`, the path absolute because the emulator's working
+directory is its own run folder). A swap is noticed the way a real one is,
+once the drive motor has stopped (§18.9.1), so the test waits for that before
+it mounts.
+
+| refusal | said as |
+|---|---|
+| the selection is not a part | `Not compressed` |
+| a clone or another join is already running | `A disk job is running` |
+| the result's name is taken in the target folder | `fm_errtab`'s `FERR_EXIST` word, before anything is written |
+| a part missing from a drive that is NOT a floppy, or from the drive the result is being written to | `Missing FILEA.002`, and the join stops |
+| a part missing from a floppy that is not the target's drive | the prompt |
+| the disk put in does not have it either | `Missing FILEA.002` as a toast, and the prompt stays |
+| everything else | §22.23.5's own words |
 
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)
 

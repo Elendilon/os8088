@@ -30,6 +30,7 @@ with a part MISSING and a byte damaged, and the row must go red.
 """
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -126,7 +127,7 @@ def main():
         bigp = bigp[:1] + bigp[2:]      # join - and would, if the machine
                                         # did not look at the order
 
-    d = os.path.join(os88build.at("build"), "czjoin")
+    d = os.path.join(os88build.at("build"), "czjoin-%d" % os.getpid())
     for sub in ("", "MISS", "DMG", "WRG", "EX"):
         os.makedirs(os.path.join(d, sub), exist_ok=True)
     files = []
@@ -237,6 +238,7 @@ def main():
             os.remove(f)
         except OSError:
             pass
+    shutil.rmtree(d, ignore_errors=True)
     for f in fails:
         say("  FAIL: " + f)
     say("czjoin: %s" % ("FAILED" if fails else "ok"))
