@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TRACKER ON THE PC SPEAKER, with no card - SPEC.md 45.25.
 
-    make && python3 tests/trkspk.py [--leg play|refuse|turbo|end|card|scrub|rate]
+    make && python3 tests/trkspk.py [--leg play|refuse|turbo|end|card|scrub|rate|level]
 
 On MartyPC's card-less Hercules 5150 with a fixed disk, BEVERLY.MOD opened
 from C:. With no card Tracker plays through the speaker on its own (the
@@ -25,9 +25,12 @@ window - after timing this machine once (question 5). What must hold:
   end     tools/mkmod.py's short song plays to its end: the door closes by
           itself and the kernel is left clean
   card    a Sound Blaster machine: the card's stream, the speaker untouched
-  rate    no card: the Rate menu is ONE greyed row (`Speaker (auto)`) and R
-          changes nothing and says why - the speaker's rate is the bench's to
-          pick. With a card the menu and R are what they were
+  rate    no card: the Rate menu is Auto and the machine's rungs, each with
+          its load once benched, and R picks the rung the next play takes.
+          With a card the menu and R are what they were
+  level   no card: the volume bar is the speaker's level - auto picks it, +
+          makes it the user's and frozen, a pause keeps it, a press on the
+          volume groove sets it without pausing. With a card - is the master
   scrub   paused, a click on the scrubber: the thumb stays where it was put
           and Play resumes from there - on the speaker and on the card. A
           paused player draws no frames, and the frame was the only thing that
@@ -443,9 +446,9 @@ def leg_scrub(bad):
 
 
 def leg_rate(bad, shot=None):
-    """no card, the rate is the speaker's to pick (45.25): the Rate menu is
-    ONE greyed row, and R changes nothing and says why. With a card both are
-    what they were"""
+    """no card (45.25.3): the Rate menu is Auto and this machine's rungs, the
+    loads beside them once benched, and R picks one the next play takes.
+    With a card the menu and R are what they were"""
     for mach, files, who in [
             (MACHINE, [], "speaker"),
             (MACHINE_SB, [("SOUND.DRV", os88build.at("build/sound.drv"))],
@@ -460,35 +463,118 @@ def leg_rate(bad, shot=None):
             t.until(lambda: t.rb("mp_playing") == 0, "Space to pause")
             os88marty.pace(t.m, 0.5)        # play's imposter takes only the
             n = u16(t.m.read(t.a("trk_e_rate") + 4, 2))    # transport's
-            item = t.m.read(t.a("trk_ritem0"), 20).split(b"\0")[0]
-            pick = lambda: t.rb("trk_xhi" if t.rb("mp_xt") else "trk_rsel")
-            r0 = pick()                     # XT mode keeps its own pick
-            t.m.type_text("r")
-            os88marty.pace(t.m, 1.0)
+            items = [t.m.read(t.a("trk_ritem%d" % i), 32).split(b"\0")[0]
+                     for i in range(n)]
+            pick = lambda: t.rb("tsp_rsel") if who == "speaker" else \
+                t.rb("trk_xhi" if t.rb("mp_xt") else "trk_rsel")
+            r0 = pick()
+            # two presses on the speaker: Auto -> 8000 -> 5512. ONE with a
+            # card - an XT's menu is two rates, so a second press cycles back
+            for _ in range(2 if who == "speaker" else 1):
+                t.m.type_text("r")
+                os88marty.pace(t.m, 0.6)
             msg = t.m.read(t.base + t.rw("tui_msgp"), 40).split(b"\0")[0]
-            print("   %s: Rate menu %d row(s), the first %r; R: rsel %d -> %d, "
-                  "the line %r" % (who, n, item, r0, pick(), msg))
+            print("   %s: Rate menu %r; R R: pick %d -> %d, the line %r" % (
+                who, items, r0, pick(), msg))
             if shot and who == "speaker":
                 w, h, data = t.m.fbuf()
                 os88marty.write_png_rgb(shot, w, h, data)
             if who == "speaker":
-                check(bad, n == 1 and item == b"\x01Speaker (auto)",
-                      "speaker: the Rate menu is one greyed row")
-                check(bad, pick() == r0 and
-                      msg == b"Rate: the speaker picks its own",
-                      "speaker: R changes nothing and says why")
+                check(bad, n == 4 and items[0] == b"* Auto" and
+                      items[2].startswith(b"  5512 Hz  ") and
+                      items[2].endswith(b"%"),
+                      "speaker: Auto and the rungs, each with its load")
+                check(bad, pick() == 2 and
+                      msg == b"Rate: 5512 Hz at the next Play",
+                      "speaker: R picks a rung and says so")
+                t.m.type_text(" ")
+                t.until(lambda: t.rb("tsp_open") == 1, "Space to play on")
+                check(bad, t.rw("tsp_rate") == 5512,
+                      "speaker: the next play takes it (%d Hz, auto was "
+                      "4800)" % t.rw("tsp_rate"))
             else:
-                check(bad, n >= 2 and item[:1] != b"\x01",
+                check(bad, n >= 2 and items[0][:1] != b"\x01",
                       "card: the Rate menu offers the card's rates")
                 check(bad, pick() != r0, "card: R moves the rate")
         finally:
             t.close()
 
 
+def leg_level(bad):
+    """no card (45.25.3): the volume bar is the speaker's LEVEL. Auto picks
+    it; + in the play makes it the user's and frozen; a pause and a resume
+    keep it; a press on the volume GROOVE sets it without pausing; and it
+    outlives the song. With a card + is still the master volume"""
+    t = Trk(MACHINE, [("TRACKER.O88", os88build.at("build/tracker.o88")),
+                      ("BEVERLY.MOD", "apps/tracker/beverly.mod")],
+            "BEVERLY.MOD")
+    try:
+        t.until(lambda: t.rb("tsp_open") == 1, "the play")
+        os88marty.pace(t.m, 4.0)
+        lev = lambda: t.rb("os88spkfx_lev")
+        l0 = lev()
+        check(bad, t.rb("os88spkfx_rat") == 1 and t.rb("tsp_ulev") == 0,
+              "level: auto picks it (%d), the ratchet on" % l0)
+        t.m.type_text("+")
+        os88marty.pace(t.m, 0.8)
+        msg = t.m.read(t.base + t.rw("tui_msgp"), 40).split(b"\0")[0]
+        check(bad, lev() == l0 + 1 and t.rb("os88spkfx_rat") == 2 and
+              t.rb("tsp_ulev") == l0 + 2 and
+              msg == b"Spk level %d of 10 (+/-)" % (l0 + 1),
+              "level: + makes it the user's, a step up and frozen (%r)" % msg)
+        t.m.type_text(" ")
+        t.until(lambda: t.rb("mp_playing") == 0, "Space to pause")
+        os88marty.pace(t.m, 0.5)
+        t.m.type_text(" ")
+        t.until(lambda: t.rb("tsp_open") == 1, "Space to play on")
+        os88marty.pace(t.m, 1.0)
+        check(bad, lev() == l0 + 1 and t.rb("os88spkfx_rat") == 2,
+              "level: a pause and a resume keep it (%d)" % lev())
+        # the groove, in the play: its left end is level 0, and the play
+        # goes on - a press anywhere else would have paused it
+        rs = lambda n, o=0: int.from_bytes(t.m.read(t.a(n) + o, 2), "little",
+                                           signed=True)
+        ox, oy = rs("tw_ox"), rs("tw_oy")
+        x1, y1, x2, y2 = [rs("tw_lay", 14 + 2 * i) for i in range(4)]
+        # PRESSED, HELD and released like a hand: the play loop polls the
+        # mouse between blocks of mixing, and `click`'s ~25 ms press can
+        # fall wholly between two polls
+        mo = os88ui.Mouse(marty=t.m, verbose=False)
+        mo.to(ox + x1 + 1, oy + (y1 + y2) // 2)
+        mo._sep()
+        mo._edge(True)
+        try:
+            t.until(lambda: lev() <= 1, "the groove's level", limit=20.0)
+        except Exception:
+            pass                        # ...and the check below says so
+        mo._edge(False)
+        os88marty.pace(t.m, 1.0)
+        check(bad, lev() <= 1 and t.rb("tsp_open") == 1 and
+              t.rb("mp_playing") == 1,
+              "level: a press on the volume groove sets it (%d) and the "
+              "play goes on" % lev())
+    finally:
+        t.close()
+    t = Trk(MACHINE_SB, [("TRACKER.O88", os88build.at("build/tracker.o88")),
+                         ("SOUND.DRV", os88build.at("build/sound.drv")),
+                         ("BEVERLY.MOD", "apps/tracker/beverly.mod")],
+            "BEVERLY.MOD")
+    try:
+        t.until(lambda: t.rb("trk_sopen") == 1, "the card's stream")
+        v0 = t.rb("mp_master")
+        t.m.type_text("-")
+        os88marty.pace(t.m, 0.8)
+        check(bad, t.rb("mp_master") == v0 - 4 and t.rb("tsp_ulev") == 0,
+              "card: - is the master volume (%d -> %d)" % (v0,
+                                                           t.rb("mp_master")))
+    finally:
+        t.close()
+
+
 LEGS = {"play": leg_play, "refuse": leg_refuse, "drop": leg_drop,
         "turbo": leg_turbo,
         "end": leg_end, "card": leg_card, "scrub": leg_scrub,
-        "rate": leg_rate}
+        "rate": leg_rate, "level": leg_level}
 
 
 def main():

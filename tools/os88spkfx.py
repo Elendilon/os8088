@@ -151,7 +151,7 @@ class Shaper(object):
         self.c0 = self.fam[0][128]
         self.lev = 0
         self.gate = True                        # a play starts as after silence
-        self.rat = False                        # levelled, not ratcheted
+        self.rat = 0                            # levelled (1 ratchet, 2 frozen)
         self.held = [0] * HOLD                  # the last HOLD spans' peaks
         self.d = self.c0 - 1 if idle else 0     # the carrier starts away
         self.h = self.d
@@ -170,7 +170,12 @@ class Shaper(object):
         """os88spkfx_ratchet: ONE level for the piece, stepping down only,
         a step for a span that overdrives it by more than RTOL levels
         (SPEC.md 34.11.9.1)"""
-        self.lev, self.rat = lev, True
+        self.lev, self.rat = lev, 1
+
+    def freeze(self, lev):
+        """os88spkfx_rat = 2: the level is the user's, and steps no more
+        (Tracker's volume bar, SPEC.md 45.25.3)"""
+        self.lev, self.rat = lev, 2
 
     def level(self, xs):
         """the span's peak, one sample in SPARSE from its first, of the
@@ -185,7 +190,8 @@ class Shaper(object):
             if a > p:
                 p = a
         if self.rat:                            # the ratchet: down only, a
-            if p >= PGATE and self.lt[p] + RTOL < self.lev:   # step a span
+            if (self.rat == 1 and p >= PGATE and      # step a span; frozen,
+                    self.lt[p] + RTOL < self.lev):    # not at all
                 self.lev -= 1
         else:
             want = self.lt[max([p] + self.held) if p >= PGATE else p]
