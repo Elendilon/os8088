@@ -9684,9 +9684,28 @@ BENCHDATA := $(BUILD)/bench.dat $(BUILD)/benchsml.dat $(BUILD)/bigfile.dat
 # field calibration. It is therefore named HERE, for the two bench disks
 # only, and never added to BENCHPKGS - the plan's APPS_GAMES lesson
 # (docs/plans/PIXELSTEIN-PLAN.md 0, tree-6) applied to the list it missed.
-BENCHIMGPKGS := $(BENCHPKGS) $(BUILD)/pxsbench.o88
+BENCHIMGPKGS := $(BENCHPKGS) $(BUILD)/pxsbench.o88 $(BUILD)/romfont.o88
 
 bench: $(BUILD)/bench.img $(BUILD)/bench360.img
+
+# ROMFONT (tests/romfont): the 8x8 table read out of the machine's ROM against
+# a RAM copy, PIT-timed - the field instrument for SPEC.md 6's ROM-resident
+# glyph table, because MartyPC prices a ROM read exactly as a RAM one by
+# construction and so cannot be the evidence. `make romfont` is a 360KB disk
+# with nothing else on it, for a real XT's B:; it rides the bench disks too.
+romfont: $(BUILD)/romfont360.img
+.PHONY: romfont
+
+$(BUILD)/romfont.bin: tests/romfont/romfont.asm tests/benchlib.inc apps/os88api.inc tools/benchlint.py | $(BUILD)
+	python3 tools/benchlint.py tests/romfont/romfont.asm
+	$(NASM) -f bin -w+error -I apps/ -I tests/ -o $@ tests/romfont/romfont.asm
+	@echo "romfont: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/romfont.o88: $(BUILD)/romfont.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/romfont.bin -o $@
+
+$(BUILD)/romfont360.img: $(BUILD)/romfont.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/romfont.o88
 
 $(BUILD)/fontbnch.bin: tests/fontbench/fontbench.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/fontbench/fontbench.asm

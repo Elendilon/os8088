@@ -7241,6 +7241,36 @@ the one glyph pair that has to be RAM: `font_ch_seam` points the pair at
 them for the one draw, so nothing in any other glyph's path tests for a
 seam.
 
+**What a ROM read costs, and what can say so.** On the IBM 5150 the planar
+ROM and RAM are both zero-wait-state and DMA channel 0's refresh takes the
+BUS, not a memory, so a glyph byte costs the same wherever it is. MartyPC
+models exactly that and nothing else: `bus/memory.rs` answers **0 wait
+states** for any address that is not a device window, and every ROM - the
+system BIOS and a VGA's option ROM alike - is installed through the same
+copy with no wait cost, so **the emulator prices a ROM read as a RAM read by
+construction and cannot be the evidence for this change.** Re-taken on the
+genuine 27 OCT 82 BIOS (`os8088_5150_cga` / `_herc`, not the GLaBIOS twins),
+the change measures `font_char` −0.9% (CGA) / −1.1% (Hercules),
+`font_run_x` +0.8% / +1.0%, `font_run_cell` +0.1%, and a whole 40-cell
+`FONT_RUN` −0.02% / +0.01% - the `font_run_x` cost is the segment load and
+the `cs:` prefixes above, not the ROM. Where a ROM read CAN differ is
+off the target: an 8-bit ISA VGA's option ROM on an AT-class bus, or an
+unshadowed system ROM on a 286/386, is a slower cycle than cached or
+planar RAM. **`tests/romfont` (`make romfont`) is the instrument for that**:
+the same inner loop against the ROM table and against a RAM copy,
+PIT-timed on whatever machine boots it, with the table's seg:off on the
+glass. Under MartyPC it reads ROM/RAM = 1000 x1000 on both adapters, which
+is the prediction a field photograph is checked against.
+
+The table's LOCATION is not new: the plain build's probe is the one the copy
+was always taken from (int 10h AX=1130h BH=3, else F000:FA6E), and every
+BIOS image in reach answers it with a table whose glyph 32 is eight zero
+rows - the IBM 27 OCT 82 ROM, every GLaBIOS in MartyPC's set (the `T`
+variants carry a different face at the same address), SeaBIOS (`bios.bin`,
+F000:FA6E) and every QEMU and Bochs VGA BIOS (their own table, at C000).
+What is new is only that the pointer has to stay good for the session,
+which a ROM does.
+
 | symbol       | in                       | effect                              |
 |--------------|--------------------------|--------------------------------------|
 | `font_init`  | —                        | find the ROM font and point `[font_seg]:[font_base]` at its glyph 32 (`ovl_font_init` under `BAKED_FONT` copies the baked face to `.lowbss` and points the pair there, §6.2) |
