@@ -1278,13 +1278,7 @@ cmz_verb:
     xor ax, ax                  ; ...and has nothing to say
     stc
 .out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp clo_x6                 ; (the shared epilogue, below clo_cat)
 
 ; -----------------------------------------------------------------------------
 ; cmz_sizes - what the selected file OCCUPIES and what it BECOMES
@@ -3026,7 +3020,7 @@ cmz_jline:
     jnz .one
     mov es, [clo_seg]
     mov si, cmz_s_put
-    call .cat
+    call clo_cat
     mov si, CMZ_HSEL   ; the part's name, with the missing one's
     xor bx, bx                  ; digits: BX = where they go
 .nm:
@@ -3050,30 +3044,17 @@ cmz_jline:
     pop di
 .nodig:
     mov si, cmz_s_in
-    call .cat
+    call clo_cat
     mov al, [es:CMZ_HSRC]
-    add al, 'A'
-    mov [di], al
-    inc di
+    call clo_drv
     mov si, cmz_s_colon
 .one:
-    call .cat
-    mov byte [di], 0
+    call clo_cat                ; ...which writes the NUL and leaves DI on it
     pop es
     pop si
     pop bx
     pop ax
     clc
-    ret
-.cat:
-    mov al, [cs:si]
-    inc si
-    or al, al
-    jz .catd
-    mov [di], al
-    inc di
-    jmp short .cat
-.catd:
     ret
 %endif
 

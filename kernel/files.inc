@@ -651,9 +651,11 @@ fm_kinit_x:
 ; -----------------------------------------------------------------------------
 ; fm_vp_set - publish the acting window's view
 ; in:  BX = window ptr
-; out: nothing (all registers preserved); [fm_vp] = its state block,
+; out: DI = [fm_vp] = its state block (every other register preserved),
 ;      [fm_vseg] = its cache segment, [fm_vinst] = its instance record (0 if
-;      the window is unowned)
+;      the window is unowned). DI IS AN OUTPUT since size pass 8: six of its
+;      ten callers loaded it straight back, and the other four never read the
+;      DI they had
 ;
 ; Everything in this module that reads per-window state reads it through
 ; [fm_vp], and every listing read goes through [fm_vseg]. Both are published
@@ -664,7 +666,6 @@ fm_kinit_x:
 ; -----------------------------------------------------------------------------
 fm_vp_set:
     push bx
-    push di
     call ct_cw_inst_win_owner         ; DI = record, or 0; BX preserved
     mov [fm_vinst], di
     or di, di
@@ -682,7 +683,6 @@ fm_vp_set:
     mov [fm_vp], di
     mov bx, [di+FS_VSEG]        ; 0 = this window has no cache; every reader
     mov [fm_vseg], bx           ; below falls back to the global snapshot
-    pop di
     pop bx
     ret
 
@@ -1865,7 +1865,7 @@ fm_focus_x:
     jz .clean
     mov byte [di+FS_DIRTY], 0
     call fm_vp_set              ; BX = the window: everything below reads the
-    mov di, [fm_vp]             ; acting window through the published block
+                                ; acting window through the published block
 
     ; --- WHICH DEBT? (docs/plans/LISTING-HOME-PLAN.md 13) ------------------
     ; This used to ask whether the GLOBAL snapshot happened to be this
@@ -2554,7 +2554,6 @@ fm_choose:
     call fm_front_win           ; BX = the frontmost visible one
     jc .unlock                  ; every window minimized: nothing to move
     call fm_vp_set
-    mov di, [fm_vp]
     call fmv_load               ; AL = drive, DX = cwd, DI = block
 %ifdef KERN_BIG
     mov bx, di                  ; this window is being MOVED to a folder it
@@ -2897,7 +2896,6 @@ fm_layout:
     push di
 
     call fm_vp_set              ; BX = window ptr -> [fm_vp]/[fm_vseg]
-    mov di, [fm_vp]
     mov al, [di+FS_VIEW]
     mov [fm_lview], al
     mov al, [di+FS_MOK]
@@ -3355,7 +3353,7 @@ fm_onclick_x:
     mov bx, si                  ; publish the clicked window BEFORE anything
     call fm_vp_set              ; reads or writes per-window state
 
-    mov di, [fm_vp]             ; was an editor line up in THIS window? ending
+                                ; was an editor line up in THIS window? ending
     mov al, [di+FS_EDIT]        ; one rewrites the status line, and that is the
     mov [fm_wased], al          ; only thing besides the two selection bands a
                                 ; row click can change (SPEC.md 22.2)
@@ -3811,7 +3809,6 @@ fm_onkey_x:
 
     mov bx, si                  ; publish the window this key belongs to
     call fm_vp_set
-    mov di, [fm_vp]
 
     cmp byte [di+FS_EDIT], 0
     jne .editing                ; naming: nothing below is reachable - and the
@@ -5081,8 +5078,9 @@ fm_c_format:                    ; File > Format Disk... (SPEC.md 22.12)
     mov byte [fm_swapwho], 0    ; on the FORMATTER's behalf (SPEC.md 22.21.4).
                                 ; .bss arrives as whatever was in memory, so
                                 ; both bytes are written by whoever arms the
-                                ; prompt rather than trusted from last time
-    mov di, [fm_vp]
+                                ; prompt rather than trusted from last time.
+                                ; DI is still the block: dskw_fmt_load banks
+                                ; AX alone and mod_need preserves the rest
     mov al, 6
     jmp fm_edit_arm
 .no:
@@ -5110,15 +5108,10 @@ fm_fmt_go:                      ; the image is here; the drive is the user's
     mov al, 5                   ; ...and ask, with the size in the question
     jmp fm_edit_arm
 .bad:
-    push bx                     ; an unreadable medium is a verdict about what
-    push cx                     ; just happened, so it is a toast (60.5) - and
-    mov bx, fm_errtab           ; nothing is armed, so the window is left
-    mov cx, FM_NERR             ; exactly as it was
-    call ct_toast_say
-    pop cx
-    pop bx
-.no:
-    ret
+    call fm_sayerr              ; an unreadable medium is a verdict about what
+.no:                            ; just happened, so it is a toast (60.5) - and
+    ret                         ; nothing is armed, so the window is left
+                                ; exactly as it was
 
 ; -----------------------------------------------------------------------------
 ; fm_c_clone - File > Clone Disk... (SPEC.md 22.21)
@@ -5129,15 +5122,25 @@ fm_fmt_go:                      ; the image is here; the drive is the user's
 ; the user is asked to swap; where they are not, or where CLONE.DRV is still
 ; loaded from a previous clone, this is six compares and nothing is asked.
 ; -----------------------------------------------------------------------------
-fm_c_clone:
+; fm_cloneok - may this window's volume be cloned or imaged NOW? CF=0 yes, with
+; DI = [fm_vp]: a BIOS floppy (fm_fmt_ok) and no clone or join already holding
+; [clo_seg]. Clone Disk's and Write Img's one head (size pass 8)
+fm_cloneok:
     mov di, [fm_vp]
-    call fm_fmt_ok              ; THE SAME predicate Format greys from - "this
+    call fm_fmt_ok
+    jc .r
+    cmp word [clo_seg], 1       ; CF=1 exactly when the word is 0 - free...
+    cmc                         ; ...so CF=1 now means busy
+.r:
+    ret
+
+fm_c_clone:
+    call fm_cloneok             ; THE SAME predicate Format greys from - "this
     jc .no                      ; window's volume is a BIOS floppy" is exactly
                                 ; what a clone needs too, so the two items can
                                 ; never disagree about one disk (SPEC.md 47
-                                ; rule 2)
-    cmp word [clo_seg], 0       ; ...and a clone ALREADY running is refused
-    jne .no                     ; before anything is read: nothing gates the
+                                ; rule 2) - and a clone ALREADY running is
+                                ; refused before anything is read: nothing gates the
                                 ; bar on FS_EDIT, so a second Disk window can
                                 ; pick this item while the first is sitting at
                                 ; a prompt with a live claim (SPEC.md 22.21.2)
@@ -5145,7 +5148,8 @@ fm_c_clone:
     jnc fm_clone_go
     mov byte [fm_fmtstep], 0    ; ...and if it could not: the swap prompt,
     mov byte [fm_swapwho], 1    ; asking for the system disk on the CLONER's
-    mov di, [fm_vp]             ; behalf (SPEC.md 22.21.4)
+                                ; behalf (SPEC.md 22.21.4). DI is still the
+                                ; block: clo_need preserves every register
     mov al, 6
     jmp fm_edit_arm
 .no:
@@ -5231,9 +5235,7 @@ fm_c_uncto:                     ; ...three times on kern_big (SPEC.md 22.23.6)
     or ax, ax
     jz .none                    ; it has already spoken
 .say:
-    mov bx, fm_errtab
-    mov cx, FM_NERR
-    call ct_toast_say
+    call fm_sayerr
 .none:
     mov byte [fm_cmdchg], FMD_NONE  ; nothing moved, so nothing to draw
     ret
@@ -5277,6 +5279,16 @@ fm_saycl:
     push cx
     mov bx, fm_clotab
     mov cx, CLO_NERR
+    jmp short fm_saytab
+
+; fm_sayerr - ...and a FILE verdict, AL = its FERR_*, off fm_errtab. The four
+; sites that said one inline were ten bytes each (size pass 8)
+fm_sayerr:
+    push bx
+    push cx
+    mov bx, fm_errtab
+    mov cx, FM_NERR
+fm_saytab:
     call ct_toast_say
     pop cx
     pop bx
@@ -5366,14 +5378,9 @@ fm_clone_res:
                                 ; clone has one volume, so this call covers
                                 ; both ends
 .relist:
-    mov di, [fm_vp]
-    mov al, [di+FS_DRV]
-    xor dx, dx
-    call fmv_load
-    push si
-    xor si, si                  ; 'Disk' is the one name fm_settitle can always
-    call fm_settitle            ; derive, and the volume is a new one now
-    pop si
+    mov di, [fm_vp]             ; fm_mount: the ROOT, re-listed and titled -
+    mov dl, [di+FS_DRV]         ; 'Disk' is the one name fm_settitle can always
+    call fm_mount               ; derive, and the volume is a new one now
     pop bx
     pop ax
     cmp al, CLA_DONE
@@ -5416,19 +5423,14 @@ fm_clone_res:
 ; standing over.
 ; -----------------------------------------------------------------------------
 fm_c_wimg:
-    mov di, [fm_vp]
-    call fm_fmt_ok              ; the same predicate Format and Clone grey
-    jc .no                      ; from - a BIOS floppy, and nothing else
-    cmp word [clo_seg], 0       ; ...and the same refusal a running clone
-    jne .no                     ; earns there (SPEC.md 22.21.2): this one
-                                ; would open a dialog first and only discover
-                                ; it in the completion proc
-    push ax
-    push bx
-    push si
-    push di
+    call fm_cloneok             ; the same predicate Format and Clone grey
+    jc .no                      ; from - a BIOS floppy, and nothing else - and
+                                ; the same refusal a running clone earns there
+                                ; (SPEC.md 22.21.2): this one would open a
+                                ; dialog first and only discover it in the
+                                ; completion proc
     call fmv_winof              ; BX = this block's window; CF=1 = no live
-    jc .nowin                   ; record owns it, which fdlg_open would refuse
+    jc .no                      ; record owns it, which fdlg_open would refuse
     mov di, fm_img_done_x       ; the COLD body: wm_pkgcall dispatches a
                                 ; kernel window's completion proc (SPEC.md
                                 ; 38.6) into `.cold` (SPEC.md 2.6.3), and
@@ -5437,13 +5439,10 @@ fm_c_wimg:
     xor al, al                  ; one is the better answer here
     call fdlg_open_x            ; near - fdlg.inc is `.cold` too
     mov byte [fm_cmdchg], FMD_NONE  ; ...and NOT ONE PIXEL of this window is
-.nowin:                         ; owed: what changed is a modal dialog that
+                                ; owed: what changed is a modal dialog that
                                 ; drew itself, and a repaint would land on top
-                                ; of it (SPEC.md 22.13)
-    pop di
-    pop si
-    pop bx
-    pop ax
+                                ; of it (SPEC.md 22.13). NOTHING IS BANKED: a
+                                ; body may clobber anything (fm_docmd's note)
 .no:
     ret
 
@@ -5840,7 +5839,7 @@ fm_rclick_x:
     mov bx, si                  ; repaint needs it too
     call fm_vp_set
 
-    mov di, [fm_vp]             ; was an editor line up in THIS window? Bank
+                                ; was an editor line up in THIS window? Bank
     mov al, [di+FS_EDIT]        ; it BEFORE ending one, exactly as fm_onclick
     mov [fm_wased], al          ; does - the two selection bands below cannot
                                 ; put a rewritten status line back, and this
@@ -6410,13 +6409,13 @@ fm_edit_commit:
 .jdone:
     jmp short .done             ; is showing this folder
 .bad:
-    push bx                     ; every failure gets visible text (22) - as a
-    push cx                     ; TOAST now (SPEC.md 59.5): a verdict is a
-    mov bx, fm_errtab           ; report about what just happened, not a fact
-    mov cx, FM_NERR             ; about this window, so it wants no per-window
-    call ct_toast_say            ; byte, no status-line rung, and no later
-    pop cx                      ; interaction to come along and retire it.
-    pop bx                      ; BX/CX are pushed because this routine
+    call fm_sayerr              ; every failure gets visible text (22) - as a
+                                ; TOAST now (SPEC.md 59.5): a verdict is a
+                                ; report about what just happened, not a fact
+                                ; about this window, so it wants no per-window
+                                ; byte, no status-line rung, and no later
+                                ; interaction to come along and retire it.
+                                ; fm_sayerr banks BX/CX, because this routine
                                 ; promises to preserve every register and
                                 ; saves only AX, SI and DI
 .done:
@@ -6696,9 +6695,7 @@ fm_paste_res:
     cmp al, FCPS_ERR
     jne .all
     mov al, [fcp_err]
-    mov bx, fm_errtab           ; SPEC.md 59
-    mov cx, FM_NERR
-    call ct_toast_say
+    call fm_sayerr              ; SPEC.md 59
 .all:
     call fmv_repaint_all        ; fmv_reload_all moved every window's CACHE;
     jmp short .out              ; their PIXELS are still the old listing, and

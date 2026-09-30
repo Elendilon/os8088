@@ -319,13 +319,7 @@ clo_start:
     pop bx                      ; the banked AX, discarded: AX is the code
     stc
 .out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp clo_x6                 ; (the shared epilogue, below clo_cat)
 
 ; -----------------------------------------------------------------------------
 ; clo_fits - can the TARGET DRIVE hold what the source is? (SPEC.md 18.99.6)
@@ -516,12 +510,11 @@ clo_geom:
     push si
     push di
 
-    mov ax, [disk_spt]          ; bank the caller's live geometry before
-    mov [es:CL_BSPT], ax        ; anything is aimed anywhere: a refusal below
-    mov ax, [disk_heads]        ; must leave the machine as it found it, and
-    mov [es:CL_BHDS], ax        ; a raw transfer between here and the next
-    mov ax, [dsk_totsec]        ; mount would otherwise use a TRIAL value
-    mov [es:CL_BTOT], ax
+    mov bx, CL_BSPT             ; bank the caller's live geometry before
+    call clo_gget               ; anything is aimed anywhere: a refusal below
+                                ; must leave the machine as it found it, and
+                                ; a raw transfer between here and the next
+                                ; mount would otherwise use a TRIAL value
 
     mov bl, [es:CL_SRC]         ; is it a floppy at all? DL = the int 13h
     call clo_flop               ; drive, for AH=08h below
@@ -531,13 +524,9 @@ clo_geom:
 
     cmp byte [es:CL_MOK], 0
     je .probe
-    mov ax, [disk_spt]          ; it mounted: the BPB has answered, through
-    mov [es:CL_SPT], ax         ; SPEC.md 18.2's one hostile pipeline
-    mov ax, [disk_heads]
-    mov [es:CL_HDS], ax
-    mov ax, [dsk_totsec]
-    mov [es:CL_TOT], ax
-    or ax, ax
+    mov bx, CL_SPT              ; it mounted: the BPB has answered, through
+    call clo_gget               ; SPEC.md 18.2's one hostile pipeline
+    or ax, ax                   ; (AX = the total, clo_gget's last word)
     jz .jio                     ; a mounted volume of no sectors is not one
     jmp .ok
 
@@ -646,22 +635,13 @@ clo_geom:
 .io:
     mov ax, CERR_IO
 .bad:
-    push ax
-    mov ax, [es:CL_BSPT]        ; put the caller's geometry back - dskw_fmt_
-    mov [disk_spt], ax          ; probe_x's .undo, and for its reason: a
-    mov ax, [es:CL_BHDS]        ; refusal must not leave a trial value where
-    mov [disk_heads], ax        ; a raw transfer would read it
-    mov ax, [es:CL_BTOT]
-    mov [dsk_totsec], ax
-    pop ax
+    mov bx, CL_BSPT             ; put the caller's geometry back - dskw_fmt_
+    call clo_gput               ; probe_x's .undo, and for its reason: a
+                                ; refusal must not leave a trial value where
+                                ; a raw transfer would read it
     stc
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp clo_x5                 ; (the shared epilogue, below clo_cat)
 
 ; -----------------------------------------------------------------------------
 ; clo_flop - is volume BL a BIOS FLOPPY? (SPEC.md 18.7: DV_KIND is the
@@ -716,23 +696,58 @@ clo_extent:
 ; -----------------------------------------------------------------------------
 ; clo_live - make the machine's live geometry the clone's (module internal)
 ; in:  ES = the claim
-; out: nothing (all registers preserved)
+; out: nothing (all registers preserved) - and clo_asrc / clo_atgt / clo_aim
+;      point [disk_drive] at the source, the target or AL first, clobbering AL
 ;
 ; Both ends of the copy are addressed with the SOURCE's geometry, because an
 ; exact clone writes the source's LBAs under the source's CHS mapping. The
 ; caller owes a re-mount afterwards, which re-derives everything off whatever
 ; BPB is now on the platter (SPEC.md 22.21.3).
 ; -----------------------------------------------------------------------------
+clo_asrc:                       ; ...aimed at the SOURCE's drive first,
+    mov al, [es:CL_SRC]         ; or the TARGET's, or AL's (clobbers AL): the
+    jmp short clo_aim           ; three shapes every transfer starts with
+clo_atgt:
+    mov al, [es:CL_TGT]
+clo_aim:
+    mov [disk_drive], al
 clo_live:
+    push bx
+    mov bx, CL_SPT
+    call clo_gput
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; clo_gget - the live geometry - [disk_spt], [disk_heads], [dsk_totsec] - into
+;            three claim words at ES:BX. out: AX = the total. clobbers: AX
+; clo_gput - ...and back, from ES:BX. Every register preserved
+;
+; SIX copies of this triple, both ways, for the source, the caller's bank and
+; the image file's volume: CL_SPT, CL_BSPT and CL_FSPT each lead three words
+; in this order (asserted below).
+; -----------------------------------------------------------------------------
+clo_gget:
+    mov ax, [disk_spt]
+    mov [es:bx], ax
+    mov ax, [disk_heads]
+    mov [es:bx+2], ax
+    mov ax, [dsk_totsec]
+    mov [es:bx+4], ax
+    ret
+clo_gput:
     push ax
-    mov ax, [es:CL_SPT]
+    mov ax, [es:bx]
     mov [disk_spt], ax
-    mov ax, [es:CL_HDS]
+    mov ax, [es:bx+2]
     mov [disk_heads], ax
-    mov ax, [es:CL_TOT]
+    mov ax, [es:bx+4]
     mov [dsk_totsec], ax
     pop ax
     ret
+%if CL_HDS - CL_SPT != 2 || CL_TOT - CL_SPT != 4 || CL_BHDS - CL_BSPT != 2 || CL_BTOT - CL_BSPT != 4 || CL_FHDS - CL_FSPT != 2 || CL_FTOT - CL_FSPT != 4
+    %error "CL_SPT, CL_BSPT and CL_FSPT must each lead spt, heads, total in three words: clo_gget/clo_gput copy them as a block"
+%endif
 
 ; -----------------------------------------------------------------------------
 ; clo_read1 - read LBA AX into dsk_secbuf (module internal)
@@ -812,12 +827,7 @@ clo_size:
     mov ax, CERR_MEM
     stc
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp clo_x5                 ; (the shared epilogue, below clo_cat)
 
 ; -----------------------------------------------------------------------------
 ; clo_xmsup - one trip instead of many, if the store can pay for it (18.99.4)
@@ -938,12 +948,8 @@ clo_fbank:
                                 ; FERR_NOENT, which reaches the user as
                                 ; 'Disk error' two seconds in. Measured,
                                 ; exactly that way round
-    mov ax, [disk_spt]
-    mov [es:CL_FSPT], ax
-    mov ax, [disk_heads]
-    mov [es:CL_FHDS], ax
-    mov ax, [dsk_totsec]
-    mov [es:CL_FTOT], ax
+    mov bx, CL_FSPT
+    call clo_gget
     call COLD_SEG:dwf_dskw_dfree    ; DX:AX = free bytes, BX = SECTORS per
     jc .bad                         ; cluster (SPEC.md 18.4)
     or bx, bx
@@ -979,13 +985,11 @@ clo_fend:
     mov [dsk_cwd], ax           ; the disk end does not touch but which one
                                 ; word is cheaper to restore than to reason
                                 ; about (clo_imgrun's own note)
-    mov ax, [es:CL_FSPT]
-    mov [disk_spt], ax
-    mov ax, [es:CL_FHDS]
-    mov [disk_heads], ax
-    mov ax, [es:CL_FTOT]
-    mov [dsk_totsec], ax
     pop ax
+    push bx
+    mov bx, CL_FSPT
+    call clo_gput
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1044,12 +1048,7 @@ clo_fput:
     call clo_ferr               ; AL = CERR_*, out of the FERR_* the file API
     stc                         ; answered
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp clo_x5                 ; (the shared epilogue, below clo_cat)
 
 ; -----------------------------------------------------------------------------
 ; clo_fadv - CL_FOFF += CL_HELD sectors (module internal)
@@ -1115,12 +1114,7 @@ clo_fget:
     call clo_ferr
     stc
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp clo_x5                 ; (the shared epilogue, below clo_cat)
 
 ; -----------------------------------------------------------------------------
 ; clo_ferr - a FERR_* from the file API, as a CERR_* (module internal)
@@ -1520,13 +1514,7 @@ clo_wimg:
     pop bx                      ; the banked volume, discarded
     stc
 .out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp clo_x6                 ; (the shared epilogue, below clo_cat)
 
 ; -----------------------------------------------------------------------------
 ; clo_geom_img - which standard floppy is a file of DX:CX bytes? (18.99.8)
@@ -1588,12 +1576,7 @@ clo_geom_img:
     mov ax, CERR_NOTIMG
     stc
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp clo_x5                 ; (the shared epilogue, below clo_cat)
 
 ; -----------------------------------------------------------------------------
 ; clo_fsame - is the image on the very disk it is about to be written to?
@@ -1859,9 +1842,7 @@ clo_rd:
     push dx
     push si
     push di
-    mov al, [es:CL_SRC]
-    mov [disk_drive], al
-    call clo_live
+    call clo_asrc
     call clo_want               ; CX = sectors this run, SI = its first LBA
     mov [es:CL_HLBA], si
     mov [es:CL_HELD], cx
@@ -1875,12 +1856,7 @@ clo_rd:
                                 ; staging load by the time this returns, not
                                 ; the first (SPEC.md 18.99.2). Its CF is ours
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp clo_x5                 ; (the shared epilogue, below clo_cat)
 
 ; -----------------------------------------------------------------------------
 ; clo_wr - write the run in hand to the TARGET (module internal)
@@ -1899,9 +1875,7 @@ clo_wr:
     push dx
     push si
     push di
-    mov al, [es:CL_TGT]
-    mov [disk_drive], al
-    call clo_live
+    call clo_atgt
     mov si, [es:CL_HLBA]
     mov cx, [es:CL_HELD]
     xor dx, dx
@@ -1918,12 +1892,7 @@ clo_wr:
 .none:
     clc
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp clo_x5                 ; (the shared epilogue, below clo_cat)
 
 ; -----------------------------------------------------------------------------
 ; clo_fin - put the source's sector 0 down, last (SPEC.md 18.99.2)
@@ -1938,9 +1907,7 @@ clo_fin:
     push di
     push ds
     push es
-    mov al, [es:CL_TGT]
-    mov [disk_drive], al
-    call clo_live
+    call clo_atgt
 
     ; **Out of the STAGING BUFFER and not out of CL_BOOT**, because SPEC.md
     ; 2.4 wants every disk-visible base 512-byte aligned: the buffer's is, by
@@ -2080,17 +2047,11 @@ clo_move:
 .sok:
     clc
 .done:
-    pushf                       ; fpg_end preserves the flags anyway; this
-    call KERNEL_SEG:fpg_end     ; says that CF is the answer in flight
-    popf
+    call KERNEL_SEG:fpg_end     ; ...which writes no flag (a `mov` and a
+                                ; `retf`): CF is still the answer
     pop es
     pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp clo_x5                 ; (the shared epilogue, below clo_cat)
 
 ; -----------------------------------------------------------------------------
 ; clo_span - CX sectors from LBA AX, between the drive and ES:0
@@ -2212,12 +2173,7 @@ clo_span:
 .out:
     pop es
     pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp clo_x5                 ; (the shared epilogue, below clo_cat)
 
 ; -----------------------------------------------------------------------------
 ; clo_xms - move one staging load between the buffer and the store
@@ -2266,13 +2222,7 @@ clo_xms:
 .go:
     call KERNEL_SEG:CLO_XCOPY
     jc .bad
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp clo_x6                 ; (the shared epilogue, below clo_cat)
 .bad:
     pop es
     pop di
@@ -2362,8 +2312,7 @@ clo_issrc:
     mov al, [es:CL_SRC]
     cmp al, [es:CL_TGT]
     jne .no                     ; one disk cannot be in two drives
-    mov [disk_drive], al
-    call clo_live
+    call clo_aim
     inc byte [dsk_rah_busy]
     xor ax, ax
     call clo_read1              ; LBA 0 of whatever is in the drive
@@ -2596,6 +2545,21 @@ clo_line:
 ; segment override on a string instruction is legal but says the opposite of
 ; what is meant here.
 ; -----------------------------------------------------------------------------
+; clo_x6 / clo_x5 - the epilogue thirteen of this image's routines share,
+; fcp_x6's shape exactly: they bank bx, cx, dx, si, di (and es), and reach
+; this by `jmp`, never `call`, so the `ret` finds the routine's own caller.
+; Every site's flags are set above its jump, and a `pop` touches none.
+; The order ENDS at bx, so it is no suffix of the kernel's kret ladders.
+clo_x6:
+    pop es
+clo_x5:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
 clo_cat:
     mov al, [cs:si]
     inc si
