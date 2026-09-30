@@ -21,7 +21,8 @@ shaped it:
 | 4 | "still some 'a loud thing happens, the soft thing goes away and fades back in', but cleaner" | chosen for the release |
 | 5 | a second listener, side by side: round 3's fades out and back in are MORE obvious for being slower | round 3 REVERTED (a46deec); round 2's three-span hold ships |
 | 6 | candidate 1 as a RATCHET: "basically completely fixes it - no more weird warbles, no more fades in after dropping out" | Tracker plays ONE level a song (324267f, SPEC.md 34.11.9.1) |
-| 7 | a listening build with a hand on the level: 5 is the clearest on the T1100, up to 7 only louder, 10 blurs; on the 5150, 7 to 10 weakens the carrier's whine | the level SHIPS as Tracker's volume bar, and the rate as a menu (3b502c1, SPEC.md 45.25.3) |
+| 7 | a listening build with a hand on the level: 5 is the clearest on the T1100, up to 7 only louder, 10 blurs; on the 5150, 7 to 10 weakens the carrier's whine | the level SHIPS as Tracker's volume bar, and the rate as a menu (3b502c1, SPEC.md 45.25.3); the T1100 confirmed working well on the release build |
+| 8 | the missing bass, squared up: "It's audible! ... good enough to show off" | SHIPS (336aa39, SPEC.md 45.25.4) |
 
 Measured on 40 s captures (section 3), "wander" being the level's spread within
 each second:
@@ -151,7 +152,10 @@ for any change here.
    5150 cannot afford. It is a V20/T1100/286 rung, chosen by the tier the way
    Tracker's rates are. It changes the family table's shape (two families,
    or one family indexed twice), so it wants the model first.
-3. **Look-ahead by delay.** Tracker already runs a ring seconds deep, so
+3. **Look-ahead by delay: DROPPED** (the owner, 2026-09-29: one level a
+   song, the ratchet, leaves nothing for it to do - Tracker's level no longer
+   moves on a hit, so there is no pre-duck to cure). The idea, for the
+   record: Tracker already runs a ring seconds deep, so
    delaying the shaper by one span would let the level fall exactly AT the hit
    instead of at the top of the span holding it. Finer detection costs
    per-sub-block peaks: reading 1 sample in 8 instead of 1 in 32, a few more
@@ -164,7 +168,10 @@ for any change here.
    soft knee) at no cost to any 8088. Today it runs the machine's model, so a
    file sounds exactly like live playback; it need not. Counts files (kind 2)
    need no change on the machine to benefit.
-5. **Tuning the shipped shape.** Ratio 3 -> 2 moves the level less and leaves
+5. **Tuning the shipped shape: the finer level steps are DROPPED** (the
+   owner, 2026-09-29, for the ratchet's reason: a level that does not glide
+   needs no finer glide). The rest, for the record: ratio 3 -> 2 moves the
+   level less and leaves
    the lows quieter. 1 dB rows instead of 2 give a finer glide but a family
    of 21 rows, 5.4 KB of every carrier's bss against 2.8 KB. An RMS detector
    in place of the sparse peak is less spiky, but per-span squares need a
