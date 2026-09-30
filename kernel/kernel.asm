@@ -6049,9 +6049,10 @@ osapi_vol_stat:
     call COLD_SEG:dwf_dskw_vstat    ; AX/BX/CX/DX and CF are ours
     ret
 %else
-osapi_vol_stat:                     ; DOS-only, and the DOS box is not on the
-    stc                             ; small disks (SPEC.md 18.4.7.4): the cell
-    ret                             ; refuses in two bytes
+osapi_vol_stat equ osapi_snd_fm     ; DOS-only, and the DOS box is not on the
+                                    ; small disks (SPEC.md 18.4.7.4): the cell
+                                    ; refuses with snd.inc's kern_small FM
+                                    ; body, the same `stc` / `ret`
 %endif
 
 ; ---- osapi_file_here / osapi_file_goto - the volume's location (SPEC.md 19.2)

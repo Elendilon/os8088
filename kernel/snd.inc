@@ -682,9 +682,9 @@ osapi_snd_caps:
 ; AX = 0 is how every stream verb says OK and a phantom grant is what handed
 ; Recorder a buffer that did not exist.
 osapi_snd_fm_x:
-osapi_snd_fm:
-    stc
-    ret
+osapi_snd_fm:                   ; ALSO xm_free's and osapi_vol_stat's kern_small
+    stc                         ; body (xmem.inc, kernel.asm): three cells,
+    ret                         ; one `stc` / `ret`
 
 osapi_snd_stream:
     mov ax, 4

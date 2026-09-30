@@ -670,7 +670,7 @@ mem_floor_ax:
 mem_claim_dma_hi_x:
     push si
     push di
-    mov di, 1                   ; ...and this one MEANS top-down, where the
+    mov di, MC_DMA_HI           ; ...and this one MEANS top-down, where the
     jmp short mem_claim_dma_x.head  ; door below asks the tag
 mem_claim_dma_x:
     push si
@@ -696,7 +696,7 @@ mem_claim_hi_x:
     push si
     push di
     xor si, si
-    mov di, 1                   ; ...and this one MEANS it: an explicit hi
+    mov di, MC_DMA_HI           ; ...and this one MEANS it: an explicit hi
     jmp short mem_claim_x.go    ; claim is a caller's request, not a tag's
 mem_claim_x:
     push si
@@ -905,10 +905,11 @@ mem_claim_1:
                                 ; tenant's proc to tell it about it
     push ax
     mov ax, [mem_dma]           ; ...and the page constraint it was granted
-    cmp word [mem_dir], 0       ; under, with WHICH DOOR it came in through in
-    je .lodoor                  ; the top bit of the same word - the two being
-    or ax, MC_DMA_HI            ; the whole of where a later move may put it
-.lodoor:                        ; (SPEC.md 50.3.2)
+    or ax, [mem_dir]            ; under, with WHICH DOOR it came in through in
+                                ; the top bit of the same word - the two being
+                                ; the whole of where a later move may put it
+                                ; (SPEC.md 50.3.2). [mem_dir] IS that bit: 0
+                                ; or MC_DMA_HI, and a head is <= 0x1000
     mov [ss:di+MC_DMA], ax
     pop ax
     popf
@@ -1510,10 +1511,14 @@ mem_can_move:
     jc .pin                     ; into, which the kernel is holding a pointer
                                 ; into on its own stack (SPEC.md 66.3 rule 5)
     mov bx, [ss:si+MC_OWN]      ; A PURGEABLE CACHE MOVES IF IT DECLARED A
-    cmp bh, MEM_PG_MIN          ; PROC, AND IS PINNED IF IT DID NOT - which is
-    jb .notpg                   ; the rule every other claim is under, and the
-    cmp bh, MEM_PG_MAX          ; MC_RLOC test at the top of this routine has
-    jbe .notpg                  ; already applied it. What stood here was a
+                                ; PROC, AND IS PINNED IF IT DID NOT - which is
+                                ; the rule every other claim is under, and the
+                                ; MC_RLOC test at the top of this routine has
+                                ; already applied it. (A range test on BH
+                                ; stood here after the refusal went, with
+                                ; both arms and the fall-through all landing
+                                ; on .notpg: ten dead bytes, taken out in
+                                ; kernel size pass 8.) What stood here was a
                                 ; BLANKET refusal that overrode a declaration
                                 ; (SPEC.md 50.6.7), on three reasons that have
                                 ; each stopped being true:
@@ -2317,41 +2322,34 @@ mem_cp_fill0:                   ; BX = the fill point to start from, and the
 
 mem_cp_step:                    ; the key steps past SI's ORIGINAL base, which
     push ax                     ; is the one quantity that reads the same in
-    mov ax, [ss:si+MC_SEG]      ; both passes
-    cmp byte [mem_cp_msk], 0
-    je .up
-    dec ax
-    jmp short .set
-.up:
-    inc ax
-.set:
+    mov ax, [mem_cp_msk]        ; both passes: +1 going up and -1 coming down,
+    add ax, ax                  ; which is the mask (0 or 0xFFFF) doubled, plus
+    inc ax                      ; one - no branch
+    add ax, [ss:si+MC_SEG]
     mov [mem_cp_key], ax
     pop ax
     ret
 
 mem_cp_near:                    ; AX = the edge that must MEET the fill point
-    mov ax, [ss:si+MC_SEG]      ; for the claim to be already packed: its base
-    cmp byte [mem_cp_msk], 0     ; going up, its end coming down
-    je .out
-    add ax, [ss:si+MC_PARA]
-.out:
+    mov ax, [ss:si+MC_PARA]     ; for the claim to be already packed: its base
+    and ax, [mem_cp_msk]        ; going up, its end coming down - the length
+    add ax, [ss:si+MC_SEG]      ; masked in (0 or 0xFFFF), no branch
     ret
 
 mem_cp_far:                     ; AX = where the fill point resumes past a
-    mov ax, [ss:si+MC_SEG]      ; barrier: its end going up, its base coming
-    cmp byte [mem_cp_msk], 0     ; down
-    jne .out
-    add ax, [ss:si+MC_PARA]
-.out:
+    mov ax, [mem_cp_msk]        ; barrier: its end going up, its base coming
+    not ax                      ; down - the length masked by the complement
+    and ax, [ss:si+MC_PARA]
+    add ax, [ss:si+MC_SEG]
     ret
 
 mem_cp_adv:                     ; BX past a claim this pass just packed -
-    mov bx, di                  ; FROM ITS DESTINATION and not from the old
-    cmp byte [mem_cp_msk], 0     ; fill point, because mem_cp_dest's page bump
-    jne .out                    ; can put the two apart (SPEC.md 66.4.2).
-    add bx, [ss:si+MC_PARA]     ; Coming down the destination IS the new fill
-.out:                           ; point; going up it is a block-length below it
-    ret
+    mov bx, [mem_cp_msk]        ; FROM ITS DESTINATION and not from the old
+    not bx                      ; fill point, because mem_cp_dest's page bump
+    and bx, [ss:si+MC_PARA]     ; can put the two apart (SPEC.md 66.4.2).
+    add bx, di                  ; Coming down the destination IS the new fill
+    ret                         ; point; going up it is a block-length below it.
+                                ; (All three leave flags no caller reads.)
 
 ; mem_cp_dest - DI = where SI's bytes belong at the fill point, PAGE-SAFELY.
 ;
@@ -3043,12 +3041,15 @@ mem_compact:
 .rank:                          ; literally the same door, which is what
                                 ; SPEC.md 50.6.4 needs
 
-    inc byte [mem_cp_busy]
-    mov word [mem_cp_msk], 0     ; THE ASCENDING PASS FIRST, always: it is the
+    inc byte [mem_cp_busy]      ; THE ASCENDING PASS FIRST, always: it is the
                                 ; cheaper of the two and it is the one that
-                                ; answers the ordinary case. mem_avail plans
-                                ; through here too (SPEC.md 66.10.3), so this
-                                ; byte is left 0 on every path out
+                                ; answers the ordinary case. [mem_cp_msk] is
+                                ; ALREADY 0 here and needs no store: .bss
+                                ; arrives zeroed, nothing but this routine and
+                                ; mem_cp_end writes it, and every path out
+                                ; past the busy byte leaves through mem_cp_end,
+                                ; which zeroes it (mem_avail plans through here
+                                ; too, SPEC.md 66.10.3)
     inc byte [sch_lock]         ; pause task switching across the PLAN as well
                                 ; as the moves - the dsk_xfer bargain (SPEC.md
                                 ; 18.9), where the tick, the mouse and any
@@ -3131,7 +3132,8 @@ mem_compact:
 .flip:
     cmp byte [mem_cp_msk], 0
     jne .both                   ; the walk has already been turned round, so
-    mov word [mem_cp_msk], 0xFFFF     ; the last thing left to try is the PAIR
+    not word [mem_cp_msk]       ; the last thing left to try is the PAIR;
+                                ; else 0 -> 0xFFFF, the descending plan
     jmp short .plan
 .doit:
     call mem_cp_run
@@ -3162,12 +3164,12 @@ mem_compact:
     ; claims, left where they stood - and 250K floor-first. The two orders
     ; cut the same free space differently and the plan models the other one;
     ; that mismatch is recorded there and is NOT fixed by reordering here.
-    mov word [mem_cp_msk], 0
+    not word [mem_cp_msk]       ; 0xFFFF (.flip's) -> 0: the ascending walk
     call mem_cp_run             ; ...the floor packs down, under the park
     mov bx, dx                  ; DX = what it moved, banked across the second
                                 ; walk (mem_cp_walk preserves BX, and BX has
                                 ; been spent since .rank)
-    mov word [mem_cp_msk], 0xFFFF
+    not word [mem_cp_msk]       ; 0 -> 0xFFFF (no walk writes it)
     call mem_cp_run             ; ...and then the ceiling packs up
     or bx, dx                   ; DID EITHER PASS MOVE ANYTHING? mem_claim's
     call mem_cp_end             ; retry loop rests on CF = 1 when nothing did -
@@ -4601,7 +4603,8 @@ mem_fptr: resw 2                  ; mem_reloc_call's staged far pointer. HERE
 section .bss
 
 
-mem_dir:  resw 1                  ; 0 = mem_claim (bottom up), 1 = mem_claim_hi
+mem_dir:  resw 1                  ; 0 = mem_claim (bottom up), MC_DMA_HI =
+                                  ; mem_claim_hi
                                   ; (top down, a package's region). A word so
                                   ; the entries can stage it in a register and
                                   ; store it INSIDE the cli window - it is a
