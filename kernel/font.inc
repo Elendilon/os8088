@@ -1883,8 +1883,10 @@ fnt_rn_edge:
 .vrow:                          ; clocks where `inc bp / cmp bp,8 / jb` is 6
     mov al, [si]                ; and ~22, and FONT_RN_NEXTROW touches only DI
     inc si                      ; and the flags
-    mov ah, [es:di]             ; the latches; the masked-out bits come back
-    mov [es:di], al             ; from them untouched
+    xchg [es:di], al            ; the latches (the read), then AL (the write):
+                                ; the masked-out bits come back from them
+                                ; untouched. xchg is that read and that write
+                                ; in one instruction - font_char's latch idiom
     FONT_RN_NEXTROW
     loop .vrow
     mov ax, 0xFF08              ; ...and the Bit Mask back to its resting FF
