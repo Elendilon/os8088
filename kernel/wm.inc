@@ -1998,8 +1998,9 @@ wm_timer:
     inc ax
 .set:
     mov [bx+W_TIMER], ax
-    mov byte [wm_tarm], 1
-    mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
+    mov al, 1                   ; AX is dead - the pop below settles it - and
+    mov [wm_tarm], al           ; a register store is two bytes less than
+    mov [ui_post], al           ; `mov byte [m], 1`. ...and SAY SO once (13.13)
     pop ax
     ret
 .cancel:
@@ -2190,7 +2191,12 @@ wm_ask_close:
 ; -----------------------------------------------------------------------------
 wm_close_req:
     mov [wm_clreq], bx
-    mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
+    inc byte [ui_post]          ; ...and SAY SO once (SPEC.md 13.13). `inc`
+                                ; and not `mov byte ..., 1`, a byte less: the
+                                ; flag is only ever tested for nonzero, and a
+                                ; wrap to 0 after 256 posts with no walk is a
+                                ; forgotten post, which the tick's sweep turns
+                                ; into 55 ms of latency (ui.inc, 13.12)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3480,7 +3486,12 @@ wm_fs_zpos:
 ; -----------------------------------------------------------------------------
 wm_raise:
     mov byte [cur_shchk], 1     ; the window under a STANDING pointer just
-    mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
+    inc byte [ui_post]          ; ...and SAY SO once (SPEC.md 13.13). `inc`
+                                ; and not `mov byte ..., 1`, a byte less: the
+                                ; flag is only ever tested for nonzero, and a
+                                ; wrap to 0 after 256 posts with no walk is a
+                                ; forgotten post, which the tick's sweep turns
+                                ; into 55 ms of latency (ui.inc, 13.12)
                                 ; changed (SPEC.md 7.2): cur_shape_pass gates
                                 ; on the pointer having moved, and this is one
                                 ; of the two ways the answer moves under it
@@ -4542,8 +4553,9 @@ wm_cursor:
                                 ; WF_HIBITS is the one place they are named
     or al, ah
     mov [bx + W_FLAGS + 1], al
-    mov byte [cur_shchk], 1
-    mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
+    mov al, 1                   ; AL is dead (.out pops AX), and a register
+    mov [cur_shchk], al         ; store is two bytes less than an immediate
+    mov [ui_post], al           ; ...and SAY SO once (SPEC.md 13.13)
 .out:
     pop ax
     popf
@@ -5035,7 +5047,12 @@ wm_paint_chrome:
 ; -----------------------------------------------------------------------------
 wm_paint_dmg:
     mov byte [cur_shchk], 1     ; ...and the other way (SPEC.md 7.2): a window
-    mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
+    inc byte [ui_post]          ; ...and SAY SO once (SPEC.md 13.13). `inc`
+                                ; and not `mov byte ..., 1`, a byte less: the
+                                ; flag is only ever tested for nonzero, and a
+                                ; wrap to 0 after 256 posts with no walk is a
+                                ; forgotten post, which the tick's sweep turns
+                                ; into 55 ms of latency (ui.inc, 13.12)
                                 ; hidden, destroyed, dragged or grown out from
                                 ; under a pointer that never moved. Every one
                                 ; of those pays a repaint through here, which
@@ -9783,7 +9800,7 @@ wm_dc_take:
     mov di, bx
     call wm_su_rect             ; ...AND SOME OF IT ON SCREEN WHERE IT IS GOING
     call wm_su_vset             ; (SPEC.md 11.96.14). This asked for the WHOLE
-    jc .out                     ; rect and refused, which cost the commonest
+    jc short .out               ; rect and refused, which cost the commonest
     mov word [wm_su_von], 0     ; drag there is: ui_drag clamps the TITLE BAR
                                 ; onto the screen and not the window, so a tall
                                 ; window dragged down hangs its bottom off, and
@@ -9843,7 +9860,11 @@ wm_dc_take:
     or ax, ax
     jz .drop
     mov es, ax
-    mov ax, [di+W_X]            ; RELABEL: the header is the rect wm_su_ck
+    xchg ax, cx                 ; RELABEL: the header is the rect wm_su_ck
+                                ; (CX still holds the new W_X it was put back
+                                ; from, and kret_cx restores CX. One byte
+                                ; where the load was three, and the two it
+                                ; saves are what lets `jc .out` above reach)
     sub ax, [ui_origx]          ; compares, so moving it by the drag's own
     add [es:WSU_X1], ax         ; delta is the whole trick. WSU_EXT is left
     add [es:WSU_X2], ax         ; alone because a drag does not resize, so the

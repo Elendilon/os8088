@@ -211,9 +211,8 @@ clip_get:
                                 ; writes a flag, and .out's own `pop ds` is
                                 ; two lines down. A `push cs / pop ds` here
                                 ; wrote a register nobody read
-    pop cx
-    clc
-    jmp short .out
+    pop cx                      ; CF = 0 from the `xor si, si` above: neither
+    jmp short .out              ; `rep movsb` nor a pop writes a flag
 .empty:
     xor cx, cx
     stc

@@ -432,9 +432,9 @@ font_char:
     call font_char_bb           ; below is the only cell writer, and `.done`
     push cs                     ; still owns the frame this pushed - with DS
     pop ds                      ; the kernel's again: font_char_bb leaves it
-    jmp .done                   ; on the framebuffer
-%ifdef GFX_VGA
-.vram:
+%ifdef GFX_VGA                  ; on the framebuffer. With no VGA in the build
+    jmp .done                   ; `.done` is the NEXT instruction, and nasm
+.vram:                          ; spends two bytes on `jmp short $+2`
     mov di, cx                  ; x/8 goes STRAIGHT into DI and x&7 stays in
     shr di, 1                   ; CL: the old spelling hopped x through BX and
     shr di, 1                   ; back (`mov bx,cx` ... `mov ax,bx` ...
