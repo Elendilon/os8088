@@ -6019,8 +6019,8 @@ osapi_rand:
 ; int 10h and carried the kernel's F000:FA6E fallback - 40 lines to arrive
 ; at a table the kernel already had.
 osapi_font_glyphs:
-    mov si, font_glyphs
-    mov dx, LOW_SEG
+    mov si, [font_base]         ; wherever font_init found it: the ROM's own
+    mov dx, [font_seg]          ; table, or a baked face's copy in LOW_SEG
     mov ax, FONT_FIRST | (FONT_LAST << 8)   ; AL and AH in one instruction
     mov cx, 8
     ret

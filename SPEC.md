@@ -6262,7 +6262,8 @@ nesting, the planar prologue (§6.1.10), the unaligned phase (§6.1.11) and the
 clip machinery, and threading a RAM destination through all of that puts the
 hottest primitive in the system at risk to save the small half of the work. A
 band is always 1bpp, so only the MONO composition is needed. What is shared is
-the thing worth sharing: `font_glyphs` itself.
+the thing worth sharing: the glyph table itself (`[font_seg]:[font_base]`,
+§6).
 
 **The bodies are `.cold` and every crossing into `.text` is in the caller's
 prologue.** A `.cold` body near-calling a resident routine is §5.4.2.1's defect
@@ -7212,29 +7213,52 @@ property of the file rather than of the loop.
 ## 6. font.inc
 
 `font_init` runs **after** `vid_setmode` (§39.6): zero ES:BP, then int 10h
-AX=1130h BH=03h returns ES:BP → the ROM 8x8 font; copy glyphs 32..126
-(95 glyphs × 8 bytes) into a kernel buffer. A pre-EGA BIOS does not
+AX=1130h BH=03h returns ES:BP → the ROM 8x8 font. A pre-EGA BIOS does not
 implement AH=11h and leaves the pair as we set it, which is why it is zeroed
 first — that case falls back to the IBM ROM 8x8 set at F000:FA6E. No font
 bytes are hard-coded — **unless the build asks for some: §6.2.**
 
+**The table is READ IN THE ROM, not copied** (kernel size pass 8).
+`font_init` stores where glyph 32 is — `[font_seg]:[font_base]`, two words
+of `.bss` — and every renderer reads the glyph rows through DS or ES loaded
+from `[font_seg]`: `font_char`'s VGA writer and `font_char_bb` put the
+FRAMEBUFFER in DS for their row loops (the latch and read-modify-write
+accesses then carry no override, and the VGA latch pair became one `xchg`)
+and the glyph table in ES; `font_run_x`'s row passes and `font_run_cell`
+the same way round or the other, each restoring DS with `push cs / pop ds`
+before anything reads a kernel word through it. It used to copy the 95
+glyphs into `font_glyphs` in `.lowbss` and keep an 8-byte blank cell
+`font_zero` beside it: **768 resident bytes on both kernels, gone.** The
+blank cell an unprintable character draws is the ROM's own SPACE, glyph 32,
+which is eight zero rows on every set the probe can reach. The price is one
+segment load per glyph or per run and three `cs:` prefixes a row in
+`font_run_x`'s row passes, measured on MartyPC over a desktop workload:
+`font_char` −0.9% on CGA and +0.7% on VGA, `font_run_x` +1.0% (CGA), +1.2%
+(Hercules) and +0.04% (VGA), `font_run_cell` +0.1%. A hibernated image
+carries the pointer and resumes only on the machine that wrote it, whose ROM
+the image's own IVT already names (§87.3). §39.14.11's two seam cells are
+the one glyph pair that has to be RAM: `font_ch_seam` points the pair at
+them for the one draw, so nothing in any other glyph's path tests for a
+seam.
+
 | symbol       | in                       | effect                              |
 |--------------|--------------------------|--------------------------------------|
-| `font_init`  | —                        | copy ROM font to RAM (`ovl_font_init` under `BAKED_FONT`, §6.2) |
+| `font_init`  | —                        | find the ROM font and point `[font_seg]:[font_base]` at its glyph 32 (`ovl_font_init` under `BAKED_FONT` copies the baked face to `.lowbss` and points the pair there, §6.2) |
 | `font_char`  | CX=x, DX=y, AL=char      | draw 8x8 glyph, color `[gfx_color]`, transparent background |
 | `font_str`   | CX=x, DX=y, SI=NUL str   | draw string left→right               |
 | `font_width` | SI=NUL str               | out AX = pixel width (8 × length)    |
 | `font_str_x` / `font_width_x` | ES:SI = NUL str | the same two, reading the string through **ES** — what the `X` stubs of §20.3 call so a package's string can live in its own segment |
 | `font_run` / `font_run_x` | CX=x, DX=y, SI (ES:SI) = NUL str, AL=ink, AH=background | one **opaque** run: the cells' background AND their glyphs, in a single pass (§6.1). API slot 0x01E5 |
-| `osapi_font_glyphs` | — | out **DX:SI** = the `font_glyphs` table (DX = LOW_SEG — the table left the kernel's own segment when it moved to `.lowbss`), AL = FONT_FIRST (32), AH = FONT_LAST (126), CX = 8 bytes per glyph. API slot 0x01B6, amended from SI-only as a recorded one-time exception to §20.8 rule 4 |
+| `osapi_font_glyphs` | — | out **DX:SI** = the glyph table, `[font_seg]:[font_base]` — the ROM's own on a plain build, a `.lowbss` copy under `BAKED_FONT` (it was LOW_SEG:`font_glyphs` until kernel size pass 8, and before that an offset in KERNEL_SEG) — AL = FONT_FIRST (32), AH = FONT_LAST (126), CX = 8 bytes per glyph. API slot 0x01B6, amended from SI-only as a recorded one-time exception to §20.8 rule 4. **Read the table; never write it** - it is ROM |
 
 **Handing out the bitmaps** (`osapi_font_glyphs`) is for an app that draws
 text into its OWN pixels rather than onto the screen — apps/paint's text tool
 stamps glyphs into the canvas, so `font_char` is no use to it. The table is
 95 glyphs of 8 rows, row 0 first, bit 7 leftmost, and it is read through the
-**DX the cell answers** — the table lives in `.lowbss` (LOW_SEG), NOT in
-KERNEL_SEG, so the ES a callback arrives with is the wrong segment for it;
-load ES (or any segment register) from DX first. Before the slot existed the
+**DX the cell answers** — the table is the ROM's (F000 on a CGA or Hercules
+machine, the card's BIOS on an EGA or VGA), NOT in KERNEL_SEG, so the ES a
+callback arrives with is the wrong segment for it; load ES (or any segment
+register) from DX first. Before the slot existed the
 package re-ran `font_init`'s probe — int 10h AX=1130h BH=03h with the
 kernel's own F000:FA6E fallback behind it — to arrive at a table the kernel
 had already built, and got whatever typeface the BIOS happened to hold rather
@@ -8322,7 +8346,9 @@ staying the machine's own ROM set. Verified both ways on a cycle-accurate
 with the 760 bytes of `fonts/tallx.f8` **byte-identical in guest RAM**, the
 desktop comes up at the CGA's usual 60.1% lit and a Disk window lists and
 letters correctly; the shipped `os8088-360.img` boots with `font_glyphs`
-byte-identical to the ROM at `F000:FA6E` instead. The seven shipped images are
+byte-identical to the ROM at `F000:FA6E` instead (as it was then: a plain
+build has not copied the table since kernel size pass 8, §6, and the baked
+face is the only one that still lands in `.lowbss`). The seven shipped images are
 md5-identical before and after — checked by stashing the change and
 rebuilding, not by reasoning about it.
 
@@ -29282,7 +29308,7 @@ reads as a hang — but nothing says what is being read.
 `font_run` into the framebuffer (§15.6.3) and `font_run` lives in `.text` —
 which is precisely what stage 2 is reading. `spl_mdraw`'s far call to
 `ovw_font_run_x` is the whole of the dependency, and there is no font either:
-`font_glyphs` is `LOW_SEG` and `font_init` does not run until `kmain`.
+`[font_seg]:[font_base]` is not set until `font_init` runs, in `kmain`.
 
 ##### 15.6.5.1 NOT BIOS teletype, and that is the measurement worth keeping
 
@@ -61569,7 +61595,8 @@ cost no budget. 256 bytes into the image rung crosses a 512-byte step and puts
 `KERN_SIZE` over `KERN_BUDGET`; the low rung had 362 bytes free. It costs
 nothing to reach — **SS is `LOW_SEG` for all kernel code (§1)**, so
 `[ss:bx + vid_rowtab]` is the same one override byte `[cs:…]` would have been.
-`font_glyphs` is read exactly this way, for exactly this reason.
+`font_glyphs` was read exactly this way, for exactly this reason, until kernel
+size pass 8 stopped copying it and read the ROM's own table instead (§6).
 
 **348 rows on `kern_big`, which is every row of a Hercules** and therefore of
 both 1bpp adapters — a CGA is 200. On the target machine the table never
@@ -63480,12 +63507,19 @@ edge test on the way back in.
   the difference between a straddle and a cell that is simply not here — and
   without it the spill would resolve back to the primary at the same coordinates
   and the cut would call itself for ever.
-- **A cut cell is re-entered by CHARACTER CODE.** The two scratch cells sit
-  immediately after `font_zero`, so `font_glyphs + (al - FONT_FIRST) * 8` — the
-  arithmetic already in the body — addresses them from codes 128 and 129 with
-  nothing added anywhere. They are private: a counter guards the one branch that
-  lets a code above `FONT_LAST` through, so `OSAPI_FONT_CHAR` with 128 draws
-  what it has always drawn, which is nothing.
+- **A cut cell is re-entered by CHARACTER CODE.** The glyph table is the ROM's
+  (§6) and the two scratch cells are RAM in `.lowbss`, so `font_ch_seam` points
+  `[font_seg]:[font_base]` at them for the one draw - LOW_SEG, and a base
+  biased so that `(al - FONT_FIRST) * 8 + [font_base]`, the arithmetic already
+  in the body, lands on them from codes 128 and 129 - and puts the pair back
+  after. Nothing in any other glyph's path tests for a seam. They are private:
+  a counter guards the one branch that lets a code above `FONT_LAST` through,
+  so `OSAPI_FONT_CHAR` with 128 draws what it has always drawn, which is
+  nothing. **Both halves are drawn by a font_char of their own**: the spill on
+  the far display as always, and the part in place NESTED on this display
+  (`font_ch_hi` sends code 128 straight to `.edgeok`, its edges being proven)
+  so that the pair is restored when it returns rather than at an exit every
+  glyph shares.
 - **The spill is issued BEFORE the part in place, and the display is put back.**
   §39.14.3 leaves the last display drawn on current, so the recursion returns
   with the *other* card's geometry live; `vid_ctx_act` on the banked `[vid_cur]`
