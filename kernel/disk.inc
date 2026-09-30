@@ -4470,8 +4470,10 @@ dsk_clus2lba_x:
     add ax, [dsk_datalba]
     jc .bad
 %endif
-    clc
-    jmp short .out
+    jmp short .out              ; CF = 0 on both arms: kern_small's from the
+                                ; `jc`, and kern_big's `adc dx, 0` cannot carry
+                                ; - (cluster-2) * spc is under 2^22, so DX is
+                                ; far below 0FFFFh
 .bad:
     stc
 .out:

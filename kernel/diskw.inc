@@ -572,7 +572,9 @@ dskw_mkbody:
     call dskw_find              ; CF=0 = the name is already taken
     jnc .exists
     cmp ax, FERR_NOENT
-    jne .fail                   ; FERR_IO: the scan itself failed
+    jne dskw_mounted.ret        ; FERR_IO: the scan itself failed (CF = 1, as
+                                ; 2 < 4). The `ret` just above this routine,
+                                ; where .fail's is past short reach (-3)
     cmp word [DSKW_FNONE], 0xFFFF
     je .dirfull                 ; scanned to the end with no reusable slot
 
@@ -1006,7 +1008,10 @@ dskw_rtbody:
     mov di, dskw_n83
     call dskw_copy11
     call dskw_find
-    jc .out                     ; AX = FERR_NOENT / FERR_IO already
+    jc .fsok                    ; AX = FERR_NOENT / FERR_IO already - and
+                                ; .fsok is a bare `ret` a hop back (this
+                                ; routine's own, at its foot, was one past
+                                ; short reach, and nothing else reached it)
     mov al, [dskw_raw+DSK_R_ATTR]
     test al, DSKW_NPROT
     jnz .protj                  ; read-only, hidden, system or volume label
@@ -1079,10 +1084,7 @@ dskw_rtbody:
 .ioerr:
     jmp dskw_rdata.corrupt      ; FERR_IO, spelled once
 .prot:
-    mov ax, FERR_PROT
-    stc
-.out:
-    ret
+    jmp dskw_wbody.prot         ; FERR_PROT, spelled once (there)
 .home:                          ; a failure part-way down: report it from
     push ax                     ; where the caller left us, not from wherever
     call dskw_rt_go_home        ; the walk happened to stop
@@ -1873,8 +1875,7 @@ dskw_rbody:
     jc .out                     ; AX = FERR_NOENT / FERR_IO already
     test byte [dskw_raw+DSK_R_ATTR], 0x18
     jz .isfile
-    mov ax, FERR_PROT           ; a volume label or a subdirectory
-    stc
+    jmp dskw_wbody.prot         ; a volume label or a subdirectory: FERR_PROT
 .out:
     ret
 .isfile:
@@ -1993,7 +1994,8 @@ dskw_rbody:
     mov [dskw_cur], ax              ; capacity refusal, the compressed
     call dskw_rdata             ; walk the chain into the caller's buffer
 .read_done:
-    jc .out
+    jc .ret                     ; (a `ret` a hop on: .out is past short
+                                ; reach, and CF=1 rides through either)
     mov al, [dskw_raw+DSK_R_CZM]    ; ...and if it arrived COMPRESSED, expand
     sub al, DSK_CZ_MARK             ; it before anyone is told it is there.
     cmp al, LZ_LZB                  ; The hint again, dskw_raw being untouched
@@ -2002,7 +2004,8 @@ dskw_rbody:
     jc .czbad
     mov ax, [dskw_uz]           ; the caller is told the UNPACKED size, which
     mov dx, [dskw_uzhi]         ; is the whole point (SPEC.md 20.14) - CF = 0
-    ret                         ; from the `jc`
+.ret:                           ; from the `jc`
+    ret
 .plainlen:
     mov ax, [dskw_len]          ; bytes read = the file's size, 32-bit
     mov dx, [dskw_lenhi]
@@ -2357,9 +2360,8 @@ dskw_dbody_n83:                 ; dskw_n83 already filled (dskw_rmtree)
     jc .out
     test byte [dskw_raw+DSK_R_ATTR], DSKW_PROT
     jz .live
-    mov ax, FERR_PROT           ; read-only, hidden, system, label or dir
-    stc
-.out:
+    jmp dskw_wbody.prot         ; read-only, hidden, system, label or dir:
+.out:                           ; FERR_PROT
     ret
 .live:
     mov ax, [dskw_raw+DSK_R_CLUS]
@@ -5128,6 +5130,13 @@ dskw_fmt_probe_x:
     inc ax
     mov di, ax                  ; DI = its cylinders
     jmp short .geom
+.noflop:                        ; (HERE, a hop from the three tests at the top
+    mov ax, FERR_PROT           ; that jump to it, rather than past the whole
+    jmp .stcpop                 ; routine) a hard-disk partition is HDDTOOL's
+                                ; (52.2), refused BEFORE the cache bypass went
+                                ; up - and the probe's ONLY refusal now: a
+                                ; medium that nothing reads is formatted, not
+                                ; refused (SPEC.md 18.96.3)
 .nogeom:
     mov di, 40                  ; no usable answer is a 360KB machine - and
     mov si, 9                   ; these are SET here, not left standing from
@@ -5212,13 +5221,6 @@ dskw_fmt_probe_x:
     clc                         ; dskw_format_x and dskw_fmt_reach_x too:
     jmp short .pop6             ; they push the same six
 
-.noflop:
-    mov ax, FERR_PROT           ; a hard-disk partition is HDDTOOL's (52.2),
-                                ; refused BEFORE the cache bypass went up - and
-                                ; the probe's ONLY refusal now: a medium that
-                                ; nothing reads is formatted, not refused
-                                ; (SPEC.md 18.96.3), so the `.fail` that took
-                                ; the bypass down on the way out is gone
 .stcpop:
     stc
 .pop6:                          ; (a pop writes no flag)

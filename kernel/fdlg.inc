@@ -543,8 +543,11 @@ FDBODY fdlg_open_x
                                 ; taken down on every Open and every Save
 %endif
     mov [fdlg_win], bx          ; take the gate LAST: until this store the
-    mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
                                 ; window is an ordinary one
+    inc byte [ui_post]          ; ...and SAY SO once (SPEC.md 13.13): only
+                                ; ever tested for non-zero and cleared every
+                                ; pass, so an `inc` is a set - one byte under
+                                ; `mov byte`
     call KERNEL_SEG:cw_wm_show  ; raise + repaint, under the caller's lock
     clc
     jmp short .out
