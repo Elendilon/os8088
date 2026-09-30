@@ -2782,32 +2782,6 @@ cmz_jmsg:
     mov ax, cmz_buf
     ret
 
-; cmz_jsayx - AX = a FERR_* (under 16, said off the kernel's own fm_errtab)
-;             or a string of this image. clobbers: nothing but the flags
-cmz_jsayx:
-    cmp ax, 16
-    jae .img
-    push ax
-    push bx
-    push cx
-    push si
-    push es
-    mov bx, ax
-    add bx, bx
-    mov si, [fm_errtab+bx]
-    push ds
-    pop es
-    xor cx, cx
-    call KERNEL_SEG:CMZ_XTOAST
-    pop es
-    pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
-.img:
-    jmp cmz_say
-
 %ifdef KERN_BIG
 ; =============================================================================
 ; Uncompress To... (SPEC.md 22.23.6) - kern_big's alone
@@ -3075,6 +3049,7 @@ cmz_say:
     push cs
     pop es
     mov si, ax
+.tail:
     xor cx, cx                  ; TOAST_TICKS, the default life
     call KERNEL_SEG:CMZ_XTOAST
     pop es
@@ -3082,6 +3057,22 @@ cmz_say:
     pop cx
     pop ax
     ret
+
+; cmz_jsayx - AX = a FERR_* (under 16, said off the kernel's own fm_errtab)
+;             or a string of this image. clobbers: nothing but the flags
+cmz_jsayx:
+    cmp ax, 16
+    jae cmz_say
+    push ax
+    push cx
+    push si
+    push es
+    push ds                     ; the kernel's own string, through DS
+    pop es
+    mov si, ax
+    add si, si
+    mov si, [fm_errtab+si]
+    jmp short cmz_say.tail
 
 ; -----------------------------------------------------------------------------
 ; cmz_pct - 'Compressed to 47%' (SPEC.md 22.22)
