@@ -6490,7 +6490,7 @@ SOAK = [
         "just dropped the latch, that a missing guard throws the box "
         "straight back into full screen",
         needs=("marty",), serial=True),
-    Row("fontpick", "soak", py("tests/fontpick.py"), 150.0,
+    Row("fontpick", "soak", py("tests/fontpick.py"), 75.0,
         "SPEC.md 6.0.1: which 8x8 table the kernel reads. On the VGA XT the "
         "BIOS answers with its option ROM at C000 and the kernel must read "
         "the planar F000:FB6E instead (same glyphs), with no MEM_K_FONT "
