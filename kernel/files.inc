@@ -1006,8 +1006,8 @@ fmv_here:
 ; -----------------------------------------------------------------------------
 fm_owed:
     mov byte [fm_fchk], 1
-    mov byte [ui_post], 1
-    ret
+    inc byte [ui_post]          ; nonzero is all it means, and a wrap after 256
+    ret                         ; posts costs one tick (the sweep, SPEC.md 13.12)
 
 ; -----------------------------------------------------------------------------
 fmv_winof:
@@ -4113,7 +4113,8 @@ fm_open_sel:
     mov [ld_pending], al        ; lock drops (SPEC.md 21) - a BYTE, and
                                 ; AH is 0 anyway: the index came out of a
                                 ; [dsk_nmax]-bounded loop
-    mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
+    mov [ui_post], al           ; ...and SAY SO once (SPEC.md 13.13): AL is
+                                ; the index + 1, so never 0
     mov [ld_pwin], di           ; ...resolved against THIS window (22.1)
 .quiet:
     clc                         ; A PACKAGE AND A DOCUMENT BOTH OPEN SOMEBODY
