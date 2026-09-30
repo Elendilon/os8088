@@ -1771,13 +1771,11 @@ vid_disp_find:
     add di, VID_CTX_SZ
     inc cl
     cmp cl, [vid_ndisp]
-    jb .next
-    stc                         ; the MISS pays the jump, and that is the
-    jmp short .out              ; dead zone - which is what mou_clamp exists
-.hit:                           ; to correct, so it is once per ISR pass with
-    mov al, cl                  ; the pointer between monitors: 15 clocks
-    clc                         ; against a ~4,500-clock pass
-.out:
+    jb .next                    ; the MISS falls out with CF = 0 (jb not
+.hit:                           ; taken) and the HIT arrives with CF = 1 (jb
+    mov al, cl                  ; taken), so ONE cmc answers both: 0 on a hit,
+    cmc                         ; 1 on a miss - with AL = the count on a miss,
+                                ; which the header's "clobbers AX" allows
     pop di                      ; pop touches no flag, so the CF set above
     pop dx                      ; survives all four
     pop cx

@@ -4007,11 +4007,7 @@ gfx_bank_ok:                    ; unlocked caller banks the arrow and nothing
     call vga_save_vram          ; on a card rather than in a coordinate space,
     GFXDLEAVE                   ; so this is whole-shape like gfx_scroll and
     call gfx_1bpp_off           ; ...and a ONE-PLANE arm is spent (11.96.17)
-    pop dx                      ; NOT split like a blit's runs. The caller owes
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_dx                 ; NOT split like a blit's runs. The caller owes
                                 ; the straddle test - wm_su_take asks
                                 ; vid_span_one - because a cut save and a cut
                                 ; restore agree with each other and leave the
@@ -4683,17 +4679,17 @@ gfx_unlock:
                                 ; own push/pop (vid_ctx_act's AL, the clock's
                                 ; banked shape) spend it under this one
 %ifdef KERN_BIG
-    cmp byte [sch_cur], 0       ; A HELD STREAM ENDS WITH THE HOLD (SPEC.md
-    jne .nohold                 ; 18.4.9): this is every way the user can reach
-    call COLD_SEG:dwsf_commit   ; the drive, dsk_batch's own argument below. The
-.nohold:                        ; UI task's unlock only - a worker's may not
-                                ; touch the disk (20.6 rule 7) - and first,
-                                ; while the widget and the lock are still ours.
-                                ; NO [dws_hold] TEST IN FRONT OF IT: dws_commit
-                                ; opens with its own `xchg al, [dws_hold]`, so
-                                ; the filter was 7 resident bytes to save ~180
-                                ; cycles on a UI-task unlock - once per event,
-                                ; against a handler priced in milliseconds
+    cmp byte [dws_hold], 0      ; A HELD STREAM ENDS WITH THE HOLD (SPEC.md
+    je .nohold                  ; 18.4.9): this is every way the user can reach
+    cmp byte [sch_cur], 0       ; the drive, dsk_batch's own argument below. The
+    jne .nohold                 ; UI task's unlock only - a worker's may not
+    call COLD_SEG:dwsf_commit   ; touch the disk (20.6 rule 7) - and first,
+.nohold:                        ; while the widget and the lock are still ours.
+                                ; The [dws_hold] filter STAYS although
+                                ; dws_commit tests the byte itself: without it
+                                ; every UI-task unlock pays the far round trip,
+                                ; ~160 cycles, and gfxbench's UNLOCK+LOCK row
+                                ; is exactly that pair
 %endif
     xor ax, ax
     mov [wm_clip_n], ax
@@ -5017,9 +5013,13 @@ vgas_bankcopy:
     mul word [vid_stride]       ; the bank count (mul's low word again)
     mov dx, ax
     cld
-    cmp word [vgas_step], 0
-    jl .rdn
-.rup:                           ; up: destination walks DOWN the screen
+    push bp                     ; ONE loop for both directions: the row step is
+    mov bp, gfx_nextrow         ; a routine in BP, `call bp` being two bytes
+    cmp word [vgas_step], 0     ; and a cycle cheaper than the `call rel16` it
+    jge .rstep                  ; replaces - up walks the destination DOWN the
+    mov bp, gfx_prevrow         ; screen, down walks it bottom-up
+.rstep:
+.rup:
     mov si, di
     add si, dx
     mov cx, [vgas_nb]
@@ -5032,26 +5032,10 @@ vgas_bankcopy:
                                 ; nb past it, and the advance below is
                                 ; column-preserving, so it has to start from
                                 ; the column it is preserving (SPEC.md 5.7.1)
-    call gfx_nextrow            ; DI and flags only, and CS-relative reads, so
-    dec word [vgas_left]        ; it is safe whatever DS was left at
-    jnz .rup
-    jmp short .out
-.rdn:                           ; down: bottom-up, so the mirror
-    mov si, di
-    add si, dx
-    mov cx, [vgas_nb]
-    push es
-    pop ds
-    rep movsb
-    push cs
-    pop ds
-    sub di, [vgas_nb]           ; back to the row's own byte: rep movsb left DI
-                                ; nb past it, and the advance below is
-                                ; column-preserving, so it has to start from
-                                ; the column it is preserving (SPEC.md 5.7.1)
-    call gfx_prevrow
-    dec word [vgas_left]
-    jnz .rdn
+    call bp                     ; gfx_nextrow/gfx_prevrow: DI and flags only,
+    dec word [vgas_left]        ; and CS-relative reads, so it is safe
+    jnz .rup                    ; whatever DS was left at
+    pop bp
     jmp short .out
 %endif
 .gen:                           ; the general form: one rowbase per END per row
