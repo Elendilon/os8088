@@ -2051,7 +2051,9 @@ splash needed to be aboard in, and it was raised three times, never once by
 anything in `splash.inc` — *"the assertion fires on whatever crosses the line,
 not on whatever is to blame."* The first tick probes the adapter, so what the
 gate actually waits for is `vid_detect`, `vid_apply`, `vid_setmode` and
-`gfx_rowbase`. Their far shims sit at the end of `viddet.inc` — deliberately,
+`gfx_rowbase`. Their far door sits at the end of `viddet.inc` — one
+`call bp` / `retf`, `spw_near`, with BP naming the routine (it was a shim per
+routine until kernel size pass 8) — deliberately,
 because `kernel.asm`'s `cw_` block is at the end of `.text` and a gate on
 *that* would be the last sector of the image — and the assertion is on
 `spw_resident_end`.

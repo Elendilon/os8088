@@ -4114,16 +4114,18 @@ vga_save_vram:                              ; only renderer gfx_save has
 vga_pn      db 4                ; planes a SAVE walks: 4, or 1 for one plane
 vga_pm      db 1                ; ...and the Map Mask a RESTORE starts on: the
                                 ; single-plane bit 1, or 0Fh to broadcast
+%if vga_pm - vga_pn != 1
+  %error "vga_pn/vga_pm must stay adjacent, pn first: gfx_1bpp_on/off store the pair as one word, and cur_saveu/cur_restoreu bank it with push/pop word"
+%endif
 
 ; gfx_1bpp_on / gfx_1bpp_off - arm the next gfx_save/gfx_restore for ONE plane
-; Preserves every register and the flags.
+; Preserves every register and the flags. ONE word store each: the pair is
+; adjacent (the %error above)
 gfx_1bpp_on:
-    mov byte [vga_pn], 1
-    mov byte [vga_pm], 0x0F
+    mov word [vga_pn], 0x0F01
     ret
 gfx_1bpp_off:
-    mov byte [vga_pn], 4
-    mov byte [vga_pm], 1
+    mov word [vga_pn], 0x0104
     ret
 
 gfx_sub_st  dw 0                ; buffer offset of the sub-rect's first byte
@@ -4235,9 +4237,12 @@ gfx_sub_arm:
 ; which both callers have already finished with.
 ; -----------------------------------------------------------------------------
 gfx_sub_off:
-    mov word [gfx_sub_st], 0
-    mov word [gfx_sub_rs], 0
-    mov word [gfx_sub_ps], 0
+    push ax
+    xor ax, ax
+    mov [gfx_sub_st], ax
+    mov [gfx_sub_rs], ax
+    mov [gfx_sub_ps], ax
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4370,42 +4375,29 @@ thm_ink:                        ; 5-byte immediate store it replaced, so the
     mov byte [gfx_color], CBLACK; small build comes out AHEAD of the tree that
     ret                         ; never had a theme. Flags survive: neither
 %else                           ; instruction writes any
-thm_bg:
-    pushf
-    push ax
-    mov al, [thm_bgc]
-    mov [gfx_color], al
-    pop ax
-    popf
-    ret
+thm_bg:                         ; ...and none of these do either: MOV, PUSH,
+    push ax                     ; POP and JMP write no flag, so the pushf/popf
+    mov al, [thm_bgc]           ; pair each of the four used to carry bought
+    jmp short thm_pen           ; nothing. Four doors and one tail
 thm_ink:
-    pushf
     push ax
     mov al, [thm_inkc]
-    mov [gfx_color], al
-    pop ax
-    popf
-    ret
+    jmp short thm_pen
 
 ; ...and the ACTIVE TITLE BAR's pair (SPEC.md 76.12). Equal to the two above in
 ; both 1bpp themes, so a build that only ever had one pair draws the same
 ; pixels; under Color they are white-on-blue, which is the whole of what makes
 ; focus visible at a glance.
 thm_tbg:
-    pushf
     push ax
     mov al, [thm_tbgc]
-    mov [gfx_color], al
-    pop ax
-    popf
-    ret
+    jmp short thm_pen
 thm_tink:
-    pushf
     push ax
     mov al, [thm_tinkc]
+thm_pen:
     mov [gfx_color], al
     pop ax
-    popf
     ret
 %endif
 
@@ -4494,18 +4486,16 @@ thm_set:
                                 ; On kern_small THM_NKIND is 2, so the range
                                 ; test above has already clamped it
     mov [thm_kind], al
-    mov bl, al                  ; the row: index * 8, the row being padded to
-    xor bh, bh                  ; 8 for exactly this
-    mov cl, 3
-    shl bx, cl
-    add bx, thm_tab
+    mov ah, 8                   ; the row: index * 8, the row being padded to
+    mul ah                      ; 8 for exactly this (a byte MUL: AX only)
+    add ax, thm_tab
+    xchg ax, si
     push ds                     ; ONE copy, so the live block cannot fall out
     pop es                      ; of step with the table field by field
-    mov si, bx
     mov di, thm_bgc
-    mov cx, 8
+    mov cx, 4                   ; ...of four WORDS: the block is 8 bytes
     cld
-    rep movsb
+    rep movsw
     call menu_force             ; THE TWO DIFFING PAINTERS CANNOT SEE THIS
     call dock_force             ; (SPEC.md 76.7). menu_bcell is a record of
     pop es                      ; CHARACTERS and a dock tile's key is its icon
@@ -4591,21 +4581,21 @@ gfx_pen_dis:
 thm_pen_live    equ gfx_pen_live
 thm_pen_dis     equ gfx_pen_dis
 %else
-thm_pen_live:
-    push ax
-    mov al, [thm_inkc]
-    mov [gfx_color], al
+thm_pen_live:                   ; [gfx_color] and [gfx_dis] are adjacent (the
+    push ax                     ; %error under gfx_disink), so the pen and the
+    mov al, [thm_inkc]          ; flag are ONE word store - and MOV writes no
+    mov ah, 0                   ; flag, so neither routine touches the
+    mov [gfx_color], ax         ; caller's
     pop ax
-    mov byte [gfx_dis], 0
     ret
 thm_pen_dis:
     push ax
-    mov al, [thm_disc]          ; CDGRAY on white is a legible grey and on
-    mov [gfx_color], al         ; black is very nearly nothing, so Dark takes
-    mov al, [thm_inkc]          ; CLGRAY. That is the VGA answer; on 1bpp the
-    mov [gfx_disink], al        ; flag buys a checkerboard and [gfx_disink]
-    pop ax                      ; says what it is laid ON - this surface's own
-    mov byte [gfx_dis], 1       ; live ink, so black on Bright and white on
+    mov al, [thm_inkc]          ; CDGRAY on white is a legible grey and on
+    mov [gfx_disink], al        ; black is very nearly nothing, so Dark takes
+    mov al, [thm_disc]          ; CLGRAY. That is the VGA answer; on 1bpp the
+    mov ah, 1                   ; flag buys a checkerboard and [gfx_disink]
+    mov [gfx_color], ax         ; says what it is laid ON - this surface's own
+    pop ax                      ; live ink, so black on Bright and white on
     ret                         ; Dark (SPEC.md 76.6.1)
 %endif
 

@@ -1347,13 +1347,9 @@ mouse_unhook:
     or  al, cl
     out 0x21, al
     mov si, [bx+mou_ivecs]      ; ...and put its vector back
-    pushf
-    cli
     mov ax, [bx+mou_old_off]
-    mov [es:si], ax
-    mov ax, [bx+mou_old_seg]
-    mov [es:si+2], ax
-    popf
+    mov cx, [bx+mou_old_seg]
+    call mou_vset
 .next:
     inc bx
     inc bx
@@ -1371,13 +1367,9 @@ mouse_unhook:
     cmp byte [mou_p2st], 8
     jb .nop2
     mov si, MOU_P2VEC
-    pushf
-    cli
     mov ax, [mou_p2old]
-    mov [es:si], ax
-    mov ax, [mou_p2old+2]
-    mov [es:si+2], ax
-    popf
+    mov cx, [mou_p2old+2]
+    call mou_vset
 .nop2:
 %endif
 
@@ -1400,17 +1392,25 @@ mouse_unhook:
     ; is a tight loop inside an interrupt gate, so IF is 0, IRQ1 is in service
     ; with no EOI coming, and the machine stops dead with the picture it had.
     ; The first key pressed after a soft restart ended the session.
-    pushf
-    cli
+    mov si, 0x24
     mov ax, [kbm_old9]
-    mov [es:0x24], ax
-    mov ax, [kbm_old9+2]
-    mov [es:0x26], ax
-    popf
+    mov cx, [kbm_old9+2]
+    call mou_vset
 
     pop es
     pop si
     jmp kret_cx
+
+; mou_vset - ES:SI = CX:AX, the one IVT write the three restores above share,
+; under pushf/cli so no interrupt can take the vector half-written.
+; in: ES:SI = the vector, CX:AX = segment:offset.  preserves everything
+mou_vset:
+    pushf
+    cli
+    mov [es:si], ax
+    mov [es:si+2], cx
+    popf
+    ret
 
 ; -----------------------------------------------------------------------------
 ; osapi_mouse - out: CX = [mouse_x], DX = [mouse_y], AL = [mouse_btn]
