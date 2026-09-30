@@ -153798,9 +153798,16 @@ It costs the encoder about twice its time (Sonic 2's 10 s: 5.3 s -> 9.8 s).
 and wanes could bank a calm stretch's bytes for its next burst. The default
 is the profile's ring less two slots - 192 KB with 8 - and **the header
 says which ring that needs** (98.1.1's byte 23: the smallest power of two
-whose slots less one hold the reserve). A player that gets fewer slots
-plays it, a burst may pause it, and in the full screen it says `Low memory`
-before the first frame (98.3.13's toast).
+whose slots less TWO hold the reserve - the default's own rule, a slot for
+the one being decoded and one for a super-packet straddling into the next).
+A player that gets fewer slots plays it, a burst may pause it, and in the
+full screen it says `Low memory` before the first frame (98.3.13's toast).
+
+**A reserve past the largest ring less two is REFUSED**, `--reserve 224`
+and up on today's 8-slot player. It was "less one" until 2026-09-30, which
+let the encoder bank a slot the player never has: StarClip's two white
+flashes (below), re-encoded at 224 KB for MartyPC's disk, paused the card
+once at 4.5 s where 192 and 128 KB played the same 12 s with no pause.
 
 **A disk slows when the decode takes the CPU, and the reserve is spent in
 exactly the bursts that take it** - so the budget refills from each frame's
