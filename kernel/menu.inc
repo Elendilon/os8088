@@ -293,8 +293,9 @@ menu_init:
     push ax
     push bx
     push dx
-    mov byte [menu_bovr], 1     ; .bss is not zeroed at boot (-f bin), and the
-    mov byte [menu_bdirty], 1   ; furniture has never been drawn: menu_force's
+    mov word [menu_bdirty], 0x0101 ; [menu_bovr] too. .bss is not zeroed at
+                                ; boot (-f bin), and the
+                                ; furniture has never been drawn: menu_force's
                                 ; whole body, and the second store is the one
                                 ; this routine used to make before calling it
     xor bx, bx
@@ -325,8 +326,7 @@ section .text
 ; time it finished.
 ; -----------------------------------------------------------------------------
 menu_force:
-    mov byte [menu_bovr], 1
-    mov byte [menu_bdirty], 1
+    mov word [menu_bdirty], 0x0101  ; [menu_bovr] too: adjacent, asserted
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2744,6 +2744,9 @@ menu_bovr:  resb 1              ; ...and somebody painted OVER the bar, so the
                                 ; A different question from the one above and
                                 ; a far rarer one: this is the only flag that
                                 ; erases anything (SPEC.md 12.9)
+%if menu_bovr - menu_bdirty != 1  ; ADJACENT: menu_force and menu_init
+%error "menu_bovr must follow menu_bdirty - menu_force sets both with one word store"
+%endif
 menu_bcell: resb MENU_BCMAX + 1 ; the menus segment as it is ON THE GLASS, one
                                 ; byte per 8px cell - composed into, diffed
                                 ; against and emitted from. The spare cell is

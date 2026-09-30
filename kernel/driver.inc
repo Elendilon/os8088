@@ -841,15 +841,18 @@ DRV_CFG_MAPN equ 8
                                 ; the long kind for exactly as long as the
                                 ; absolute mouse's row was kern_big's
 %1 %+ _sig:  db 'O88CFG', 0, 0  ; 8 bytes, byte for byte the file's head
+%ifnidn %1, cpc                 ; (CTRL.DRV's copy is its module BSS: below,
+                                ; at CFG_DATA cpc's expansion)
 %1 %+ _buf:  times CFG_FBUF db 0   ; ...AND THE FILE ITSELF (SPEC.md 51.5.3).
                                 ; It was 120 bytes of .bss doing nothing
                                 ; between a boot and a Control Panel click,
                                 ; and it is the half of a setting's cost that
                                 ; grows fastest: CFG_FBUF is derived, so every
                                 ; new key takes CFR_HDR + its payload. In the
-                                ; image it is `times` and not `resb` because a
-                                ; module and an overlay are both FILE bytes -
-                                ; there is no .bss in either
+                                ; image it is `times` and not `resb` because
+                                ; an overlay is FILE bytes - there is no .bss
+                                ; in it. The module has one now (above)
+%endif
 %endmacro
 
 ; =============================================================================
@@ -1287,22 +1290,11 @@ DRVM_CEIL_NET  equ 33           ; ...ditto
   %error "a class ceiling has drifted from drv_memk - apps/os88api.inc too"
 %endif
 
-drv_errstr:                     ; DRVE_* -> what the user is told
-    dw drv_e0, drv_e1, drv_e2, drv_e3, drv_e4, drv_e5, drv_e6, drv_e7
-drv_e0: db 'Loaded', 0
-drv_s_off: db 'Not loaded', 0   ; ...and what a row that never failed and is
-                                ; not up says instead (drv_status)
-drv_e1: db 'No system disk in '
-drv_e1_l: db 'A:', 0            ; the letter, stamped (SPEC.md 52.10.3): this
-                                ; is the string an installed machine showed
-                                ; as "No system disk in A:" about a driver
-                                ; sitting on C:
-drv_e2: db 'Not on the system disk', 0
-drv_e3: db 'Not a valid driver', 0
-drv_e4: db 'Not enough memory', 0
-drv_e5: db 'No hardware found', 0
-drv_e6: db 'Port or IRQ in use', 0
-drv_e7: db 'Attached twice (bug)', 0    ; 20 chars, drv_e1's width - the widest
+; The loader's words for each DRVE_* code (drv_errstr) are in CTRL.DRV's
+; image, beside drv_status and drv_errstg - every reader of them is a Control
+; Panel page (kernel size pass 8, -173 resident). DRVE_DISK's drive letter is
+; stamped into the panel's own cp_s_nodrv at boot and copied in at staging.
+drv_e1_l    equ cp_s_nodrv      ; disk.inc's stamp still names this label
 section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
                                 ; segment of its own. DS is still KERNEL_SEG,
                                 ; so the DATA stays in .text at every toggle
@@ -1522,26 +1514,68 @@ section .modc                   ; CTRL.DRV's image (SPEC.md 2.8): the Drivers
 drv_status_x:
     push ax
     mov al, [bx+DRVR_ERR]       ; A REPORTED REASON OUTRANKS 'Loaded', which is
-    cmp al, DRVE_OK             ; the one thing that changed here: a driver can
-    je .noerr                   ; now be up AND have said something went wrong
-    cmp al, DRVE_NERR           ; (DRVE_TWICE, banked by drv_attach off the
-    jae .noerr                  ; DRVV_READY call), and 'Loaded' would be true
-    mov ah, 0                   ; and useless. Nothing else reaches that state
-    shl ax, 1                   ; - every success path stores DRVE_OK - so no
-    mov si, ax                  ; existing row's caption moves. A code from a
-    mov si, [si+drv_errstr]     ; future version still says nothing rather than
-    pop ax                      ; indexing past the table
-    ret
-.noerr:
-    cmp word [bx+DRVR_SEG], 0
-    jne .loaded
-    mov si, drv_s_off
+    cmp al, DRVE_NERR           ; the one thing that changed here: a driver can
+    jae .noerr                  ; now be up AND have said something went wrong
+    or al, al                   ; (DRVE_TWICE, banked by drv_attach off the
+    jnz .say                    ; DRVV_READY call), and 'Loaded' would be true
+.noerr:                         ; and useless. Nothing else reaches that state
+    mov al, DRVE_OK             ; - every success path stores DRVE_OK - so no
+    cmp word [bx+DRVR_SEG], 0   ; existing row's caption moves. A code from a
+    jne .say                    ; future version still says nothing rather
+    mov al, DRVE_NERR           ; than indexing past the table: 'Not loaded'
+.say:
+    call drv_errstg
     pop ax
     ret
-.loaded:
-    mov si, drv_e0
+
+; -----------------------------------------------------------------------------
+; drv_errstg - a DRVE_* code's words, STAGED (SPEC.md 51.3, 2.8.6)
+; in:  AL = DRVE_OK .. DRVE_NERR (the last is 'Not loaded', drv_status's)
+; out: SI -> cp_sbuf, the words with DRVE_DISK's drive letter in place
+; clobbers: SI (the output), flags
+;
+; The strings are the image's, so they are staged like every page string;
+; the letter is the boot volume's, which dsk_bootltr stamps into the resident
+; cp_s_nodrv at boot (SPEC.md 52.10.3), and is copied in here - the image is
+; loaded long after that stamp and could not have taken it.
+; -----------------------------------------------------------------------------
+drv_errstg:
+    push bx
+    mov bl, al
+    xor bh, bh
+    shl bx, 1
+    mov si, [cs:bx+drv_errstr]
+    call cp_stage               ; SI = cp_sbuf
+    cmp bl, DRVE_DISK * 2
+    jne .out
+    push ax
+    mov ax, [cp_s_nodrv]        ; 'A:' - letter and colon
+    mov [cp_sbuf + DRV_E1L], ax
     pop ax
+.out:
+    pop bx
     ret
+
+drv_errstr:                     ; DRVE_* -> what the user is told
+    dw drv_e0, drv_e1, drv_e2, drv_e3, drv_e4, drv_e5, drv_e6, drv_e7
+    dw drv_s_off                ; [DRVE_NERR]: what a row that never failed
+                                ; and is not up says instead (drv_status)
+drv_e0: db 'Loaded', 0
+drv_s_off: db 'Not loaded', 0
+drv_e1: db 'No system disk in A:', 0    ; the letter is copied in at staging
+DRV_E1L equ 18                  ; ...here (SPEC.md 52.10.3): this is the
+                                ; string an installed machine showed as "No
+                                ; system disk in A:" about a driver on C:
+drv_e2: db 'Not on the system disk', 0
+drv_e3: db 'Not a valid driver', 0
+drv_e4: db 'Not enough memory', 0
+drv_e5: db 'No hardware found', 0
+drv_e6: db 'Port or IRQ in use', 0
+drv_e7: db 'Attached twice (bug)', 0    ; 20 chars, drv_e1's width - the widest
+DRV_E1LEN equ drv_e2 - drv_e1
+%if DRV_E1LEN != DRV_E1L + 3 || DRVE_DISK != 1
+%error "driver: DRV_E1L must index the DRVE_DISK string's drive letter"
+%endif
 section .cold
 
 
@@ -4753,6 +4787,13 @@ section .modc                   ; CTRL.DRV's image (SPEC.md 2.8)
 CFG_DATA   cpc
 CFG_SHARED cpc
 CFG_SAVE   cpc
+section .modcb                  ; ...and the writer's file buffer is the
+cpc_buf:    resb CFG_FBUF       ; module's own BSS (docs/plans/MODULE-
+                                ; SELFCONTAIN-PLAN.md 3): cpc_ser fills it whole
+                                ; before a byte of it is written, so it wants
+                                ; no zeroing, and it costs the image nothing
+                                ; (kernel size pass 8). ES = CS reaches it
+section .modc
 
 ; -----------------------------------------------------------------------------
 ; cp_cfg_save - what cp_flush_x calls (SPEC.md 51.5)
@@ -5002,8 +5043,10 @@ drv_cp_count_x:
     retf
 section .modc                   ; ...and the stub goes where the body went, or
 drv_status_x:                   ; the two builds would put one name in two
-    mov si, drv_s_off           ; different segments (the one status a row
-    ret                         ; could ever have)
+drv_errstg:                     ; different segments (the one status a row
+    CPSTAGE drv_s_off           ; could ever have, and the one word cp_snd_note
+    ret                         ; can have to say) - staged, the image's own
+drv_s_off:  db 'Not loaded', 0
 section .cold
 
 section .ovlw                   ; ...and these two are BOOT-OVERLAY code on the
@@ -5100,12 +5143,8 @@ drv_owner:    times DRVC_MAX dw 0
                                 ; published: the speaker is all the machine
                                 ; has" (SPEC.md 34.8) is now a fact rather
                                 ; than a state
-drv_s_off:    db 'Not loaded', 0
-drv_errstr:   times DRVE_NERR dw drv_s_off
-                                ; cp_snd_note indexes this when a tier click
-                                ; is refused, so the table has to be as long
-                                ; as DRVE_NERR even though only one answer is
-                                ; reachable. One string, DRVE_NERR pointers
+                                ; (drv_s_off and drv_errstr went into the
+                                ; image with drv_errstg, kernel size pass 8)
 fdlg_s_drive: db 'Drive', 0     ; the Standard File dialog's own button
                                 ; caption. On kern_big it is the tail of
                                 ; drv_t_hdd's 'Hard Drive' and costs nothing;

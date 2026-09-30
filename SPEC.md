@@ -1945,7 +1945,17 @@ for, and the page heading - which is the same string - is drawn once by
 `cp_item_paint` rather than by each page. `kern_big` −119 `.text`, `kern_small`
 −75, for +6 of `CTRL.DRV` net of the eight heading blocks it deleted;
 `'Sound'` alone is resident still, as `drv_t_sound`, because `drv_tab` names
-the class by it. What moved is page *body* text, whose only readers are the `cp_*_paint` bodies
+the class by it. The same pass moved the rest of what only the image reads:
+the loader's `DRVE_*` sentences and `drv_errstr` (−173 on `kern_big`, −27 on
+`kern_small`, staged by `drv_errstg` with `DRVE_DISK`'s drive letter copied
+out of the resident, boot-stamped `cp_s_nodrv`), the Date/Time field table
+`cp_tflds` and the Sound page's two tier tables (read `[cs:]`), the Drivers
+page's figure buffer and three scratch bytes (folded into `cp_sbuf`, whose
+one-user argument they already shared), the arrow triangles' half-width
+tables (computed now: row r's width is r, or 3 − r), and `CTRL.DRV`'s own
+`SYSTEM.CFG` file buffer, which is the image's `.modcb` BSS rather than
+`times` bytes (MODULE-SELFCONTAIN-PLAN 3; it fits the claim's KB rounding and
+kernel.asm asserts so). What moved is page *body* text, whose only readers are the `cp_*_paint` bodies
 and their click ladders — every one inside the image, entered only through
 `call far [CPFP+…]` after `mod_need` succeeded. **The module-cannot-load path
 reads none of them**: `cp_open_x` is `.cold` and letters `cp_s_noload` /
@@ -56912,7 +56922,9 @@ Third item, index `CP_IDRV` = 2, list name and heading `'Drivers'`. One row
 per `drv_tab` row (§51): a checkbox, the driver's name, roughly what that
 driver costs to run (§31.6.2), and under it the
 sentence `drv_status` derives from the row's live state — `'Loaded'`,
-`'Not loaded'`, or why the last attempt failed.
+`'Not loaded'`, or why the last attempt failed. `drv_status` answers it STAGED
+in `cp_sbuf` (`drv_errstg`): the sentences are `CTRL.DRV`'s since kernel size
+pass 8 (§2.8.6.1), and every reader of them is a page.
 
 **The checkbox tracks what is LOADED, not what the settings file wants.** A
 driver enabled on a machine with no card is unchecked, with `'No hardware

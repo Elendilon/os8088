@@ -705,22 +705,8 @@ CPT_OB0Y1 equ CPT_O0Y - 4                   ; 64: row 0 top
 CPT_OB0Y2 equ CPT_O1Y - 3                   ; 81: row 0 bottom = row 1 top-1
 CPT_OB1Y2 equ CPT_O1Y + CP_GW + 3           ; 99: row 1 bottom
 
-; The editable fields, {x, w, y, pad} - stride 4, so index -> record is two
-; shl-by-1s. The INDEX IS the field number clk_fld_str/clk_fld_adj take
-; (SPEC.md 37), which is what keeps this page free of any knowledge of what
-; a month or an hour actually is. The LAST entry exists only in 12-hour
-; mode: the active count is 6 + [clk_h12], and both the draw loop and the
-; hit test take their bound from it.
-cp_tflds:
-    db CPT_FX,    CPT_MONW, CPT_DY, 0       ; 0 month  'Mmm'
-    db CPT_FX+32, CPT_NUMW, CPT_DY, 0       ; 1 day    'DD'
-    db CPT_FX+56, CPT_YRW,  CPT_DY, 0       ; 2 year   'YYYY'
-    db CPT_FX,    CPT_NUMW, CPT_TY, 0       ; 3 hour   'HH'
-    db CPT_FX+24, CPT_NUMW, CPT_TY, 0       ; 4 minute 'MM'
-    db CPT_FX+48, CPT_NUMW, CPT_TY, 0       ; 5 second 'SS'
-    db CPT_FX+72, CPT_NUMW, CPT_TY, 0       ; 6 AM/PM  - 12-hour mode only
-cp_tflds_end:
-CPT_NFLD  equ (cp_tflds_end - cp_tflds) / 4
+; The editable fields' table, cp_tflds, is in the image beside its two
+; readers (cp_time_fld, cp_time_pick) - kernel size pass 8.
 
 cp_tsel:  db 0                  ; selected field; initialised .text data like
                                 ; cp_sel, so the panel stays boot-clean
@@ -755,8 +741,6 @@ cp_tfull: db 0
 cp_tpair: dw 0                  ; ...and the field's (ink, bg), decided where
                                 ; the selection is known and read where the
                                 ; run is drawn
-cp_tendp: dw 0                  ; cp_time_pick scratch: one past the last
-                                ; ACTIVE field record
 
 ; The Display page's PENDING adapter - which row the dot is on, not which
 ; adapter is running (that is [vid_kind], read live like every other page
@@ -2229,11 +2213,11 @@ cp_larrow:
     call kentm_si                ; KENT: push ax..si
     call cp_larrowok            ; CF = the pen's argument...
     pushf                       ; ...spent below by the direction test
-    mov si, cp_drv_triu
+    xor si, si                  ; CP_TRI_UP
     or al, al                   ; the direction BEFORE AX is the cell's x
     mov ax, CP_LAX0
     jz .have                    ; (a mov writes no flags)
-    mov si, cp_drv_trid
+    mov si, CP_TRI_DN
     mov ax, CP_LAX1
 .have:
     add ax, di
@@ -2937,14 +2921,18 @@ cp_thm_click:
     jz .nowinj                  ; out loud rather than swallowed the way every
     cmp al, DRVE_NERR           ; other one in SPEC.md 79 is (SPEC.md 2.8.4,
     jae .nowinj                 ; 47 rule 3) - AND IT SAYS WHY, out of the
-    push bx                     ; LOADER's own words (drv_errstr), which
-    push cx                     ; cp_snd_note already borrows for these same
-    mov bx, drv_errstr          ; causes. drv_load_at wrote the code into the
-    mov cx, DRVE_NERR           ; row before ssf_cfg ever answered, so naming
-    call KERNEL_SEG:toast_say   ; it is one byte read and no string of our own.
-    pop cx                      ; An out-of-range code takes the beep rather
-    pop bx                      ; than toast_say's silence: a bounds miss here
-    jmp short .donej            ; would be a press that did nothing
+    push cx                     ; LOADER's own words (drv_errstg), which
+    push si                     ; cp_snd_note already borrows for these same
+    push es                     ; causes. drv_load_at wrote the code into the
+    call drv_errstg             ; row before ssf_cfg ever answered, so naming
+    push ds                     ; it is one byte read and no string of our own.
+    pop es                      ; An out-of-range code takes the beep rather
+    xor cx, cx                  ; than silence: a bounds miss here would be a
+    call KERNEL_SEG:cw_toast_show ; press that did nothing
+    pop es
+    pop si
+    pop cx
+    jmp short .donej
 .nowinj:
     call KERNEL_SEG:cw_snd_beep ; DRVE_OK = the image loaded and SSV_CFG itself
                                 ; refused, which today is wm_create finding the
@@ -3357,7 +3345,7 @@ cp_fdd_paint:
     call KERNEL_SEG:cw_gfx_frame    ; GROUND (font_run), so set it outright
     mov ax, cx
     sub ax, CP_DSW
-    mov si, cp_drv_trid         ; the Drivers page's down arrow (.text)
+    mov si, CP_TRI_DN           ; the Drivers page's down arrow
     call cp_drv_tri
     pop bx
     clc                         ; the ground is the pane's: no tail to clear
@@ -4509,6 +4497,23 @@ cp_time_rows:
 
     jmp kretm_si
 
+; The editable fields, {x, w, y, pad} - stride 4, so index -> record is two
+; shl-by-1s. The INDEX IS the field number clk_fld_str/clk_fld_adj take
+; (SPEC.md 37), which is what keeps this page free of any knowledge of what
+; a month or an hour actually is. The LAST entry exists only in 12-hour
+; mode: the active count is 6 + [clk_h12], and both the draw loop and the
+; hit test take their bound from it.
+cp_tflds:
+    db CPT_FX,    CPT_MONW, CPT_DY, 0       ; 0 month  'Mmm'
+    db CPT_FX+32, CPT_NUMW, CPT_DY, 0       ; 1 day    'DD'
+    db CPT_FX+56, CPT_YRW,  CPT_DY, 0       ; 2 year   'YYYY'
+    db CPT_FX,    CPT_NUMW, CPT_TY, 0       ; 3 hour   'HH'
+    db CPT_FX+24, CPT_NUMW, CPT_TY, 0       ; 4 minute 'MM'
+    db CPT_FX+48, CPT_NUMW, CPT_TY, 0       ; 5 second 'SS'
+    db CPT_FX+72, CPT_NUMW, CPT_TY, 0       ; 6 AM/PM  - 12-hour mode only
+cp_tflds_end:
+CPT_NFLD  equ (cp_tflds_end - cp_tflds) / 4
+
 ; -----------------------------------------------------------------------------
 ; cp_time_fld - draw one field, barred if it is the selected one
 ;
@@ -4523,13 +4528,12 @@ cp_time_fld:
     mov bl, al
     mov bh, 0
     shl bx, 1
-    shl bx, 1
-    add bx, cp_tflds            ; BX -> {x, w, y, pad}
+    shl bx, 1                   ; BX = the record's offset in cp_tflds
 
-    mov cl, [bx]                ; CX = the field text's screen x
+    mov cl, [cs:bx+cp_tflds]    ; CX = the field text's screen x
     mov ch, 0
     add cx, di
-    mov dl, [bx+2]              ; DX = its screen y
+    mov dl, [cs:bx+cp_tflds+2]  ; DX = its screen y
     mov dh, 0
     add dx, bp
 
@@ -4565,7 +4569,7 @@ cp_time_fld:
     dec ax                      ; x1 = x - 2
     dec ax
     mov si, cx
-    mov cl, [bx+1]              ; the field's width
+    mov cl, [cs:bx+cp_tflds+1]  ; the field's width
     mov ch, 0
     add cx, si
     inc cx                      ; x2 = x + w + 1
@@ -4604,16 +4608,13 @@ cp_time_pick:
     push bx
     push si
     push di
-    mov al, 6                   ; one past the last ACTIVE record: the
-    add al, [clk_h12]           ; meridiem is only there in 12-hour mode
-    mov ah, 0
-    shl ax, 1
-    shl ax, 1
-    add ax, cp_tflds
-    mov [cp_tendp], ax
-    mov bx, cp_tflds
+    mov bl, 5                   ; the last ACTIVE record, walking DOWN: the
+    add bl, [clk_h12]           ; meridiem is only there in 12-hour mode, and
+    mov bh, 0                   ; the fields do not overlap, so the order of
+    shl bx, 1                   ; the walk is free - and down ends on a borrow
+    shl bx, 1                   ; with CF = 1 already, the miss's answer
 .scan:
-    mov ax, [bx]                ; AL = field x, AH = field width
+    mov ax, [cs:bx+cp_tflds]    ; AL = field x, AH = field width
     mov di, ax
     and di, 0x00FF              ; DI = x
     mov al, ah
@@ -4628,7 +4629,7 @@ cp_time_pick:
     jl .next
     cmp cx, si
     jg .next
-    mov al, [bx+2]              ; the field's row y
+    mov al, [cs:bx+cp_tflds+2]  ; the field's row y
     mov ah, 0
     mov si, ax
     add si, 11                  ; y2
@@ -4637,17 +4638,14 @@ cp_time_pick:
     jl .next
     cmp dx, si
     jg .next
-    mov ax, bx                  ; hit: index = (record - table) / 4
-    sub ax, cp_tflds
+    mov ax, bx                  ; hit: index = offset / 4
     shr ax, 1
     shr ax, 1
     clc                         ; after the shifts - they write CF
     jmp .out
 .next:
-    add bx, 4
-    cmp bx, [cp_tendp]
-    jb .scan
-    stc
+    sub bx, 4
+    jnc .scan                   ; ...past record 0: CF = 1, not found
 .out:
     pop di
     pop si
@@ -5152,13 +5150,6 @@ CPS_NOTEY equ 104                       ; the refusal notice's text row
 section .text
 
 
-; Which row a click asked for, in [snd_route] order, so the band test is an
-; index rather than a ladder of compares - and the same rows as DSV_TIERS
-; bits, which is a table rather than a shift because cp_snd_rowok promises to
-; clobber nothing and a variable shift count costs CL.
-cp_snd_tiers: db SND_RT_SPK, SND_RT_FM, SND_RT_SB
-cp_snd_tbit:  db 0, 1 << SND_RT_FM, 1 << SND_RT_SB
-
 ; The last click's refusal, as a DRVE_* (0 = the last click was fine, and the
 ; notice line is blank). .text and not .bss for the reason everything else
 ; here is: -f bin zeroes nothing.
@@ -5167,6 +5158,14 @@ section .modc                   ; the on-demand image (SPEC.md 2.8): a segment
                                 ; of its own with DS still KERNEL_SEG, so
                                 ; every reference below - this module's own
                                 ; strings included - is unchanged
+
+; Which row a click asked for, in [snd_route] order, so the band test is an
+; index rather than a ladder of compares - and the same rows as DSV_TIERS
+; bits, which is a table rather than a shift because cp_snd_rowok promises to
+; clobber nothing and a variable shift count costs CL. In the image, read
+; [cs:] (kernel size pass 8).
+cp_snd_tiers: db SND_RT_SPK, SND_RT_FM, SND_RT_SB
+cp_snd_tbit:  db 0, 1 << SND_RT_FM, 1 << SND_RT_SB
 
 
 ; -----------------------------------------------------------------------------
@@ -5236,7 +5235,7 @@ cp_snd_rowok:
     push bx
     mov bl, al
     xor bh, bh
-    mov bl, [bx+cp_snd_tbit]
+    mov bl, [cs:bx+cp_snd_tbit]
     test byte [drv_svc+DSV_TIERS], bl
     pop bx                      ; POP does not touch flags
     jz .no
@@ -5402,9 +5401,8 @@ cp_snd_note:
     jz .draw
     cmp bl, DRVE_NERR           ; the code came out of a driver, and a table
     jae .draw                   ; index is not a thing to take on trust
-    xor bh, bh
-    shl bx, 1
-    mov si, [bx+drv_errstr]
+    xchg ax, bx
+    call drv_errstg             ; SI -> the loader's words, staged
 .draw:
     mov dx, bp
     add dx, CPS_NOTEY
@@ -5480,7 +5478,7 @@ cp_snd_click:
     mov al, bl
 %endif
     xor bh, bh
-    mov ah, [bx+cp_snd_tiers]   ; the SND_RT_* that row asks for
+    mov ah, [cs:bx+cp_snd_tiers] ; the SND_RT_* that row asks for
     mov byte [cp_snd_err], 0
     cmp ah, [snd_route]
     je .redraw                  ; already the setting: still redraw, because
@@ -6071,11 +6069,11 @@ cp_drv_arrowok:
 cp_drv_arrow1:
     call kentm_si                ; KENT: push ax..si
     pushf                           ; ...CF is the ARGUMENT, and the branch
-    mov si, cp_drv_triu             ; below spends it
+    xor si, si                      ; below spends it (CP_TRI_UP)
     mov dx, CP_DBY1
     or al, al
     jz .have
-    mov si, cp_drv_trid
+    mov si, CP_TRI_DN
     mov dx, CP_DBYN - CP_DSAH
 .have:
 %ifdef KERN_BIG
@@ -6144,14 +6142,16 @@ cp_drv_arrfill:
     jmp kretm_dx
 
 ; --- cp_drv_tri - the triangle inside an arrow cell -------------------------
-; in:  AX/BX/CX/DX = the cell, SI = a four-byte half-width table; pen already
-;      set by the caller
+; in:  AX/BX/CX/DX = the cell, SI = CP_TRI_UP or CP_TRI_DN; pen already set
+;      by the caller
 ;
 ; Four scan lines drawn as FILLS, because a gfx_fill with y1 = y2 IS an hline
-; and one primitive is one thing to keep right. The half-widths come from a
-; table rather than from arithmetic so that up and down are one loop: the
-; alternative is two loops differing by a sign, which is two places to get an
-; off-by-one into.
+; and one primitive is one thing to keep right. Up and down are ONE loop: row
+; r's half-width is r XOR the mask in SI's high byte (0 up, 3 down), and SI's
+; low byte is r itself - so the table it used to read, and the byte of memory
+; its counter lived in, are both gone (kernel size pass 8).
+CP_TRI_UP equ 0
+CP_TRI_DN equ 0x0300
 cp_drv_tri:
     push ax
     push bx
@@ -6162,10 +6162,10 @@ cp_drv_tri:
     mov di, ax
     add di, CP_DSW / 2              ; DI = the cell's centre column
     add bx, 4                       ; ...and the triangle's first row
-    mov byte [cp_dtri_n], 0
 .row:
-    xor ax, ax
-    mov al, [si]
+    mov ax, si
+    xor al, ah                      ; AL = r, or 3 - r
+    xor ah, ah
     mov cx, di
     add cx, ax                      ; CX = x2
     mov dx, di
@@ -6175,9 +6175,8 @@ cp_drv_tri:
     call KERNEL_SEG:cw_gfx_fill
     inc si
     inc bx
-    inc byte [cp_dtri_n]
-    cmp byte [cp_dtri_n], 4
-    jb .row
+    test si, 4                      ; four rows: r runs 0..3
+    jz .row
     jmp kretm_di
 
 section .text                   ; DATA, so out of the on-demand image and back
@@ -6185,21 +6184,17 @@ section .text                   ; DATA, so out of the on-demand image and back
                                 ; module's data stays in .text, and
                                 ; os88ovlchk.py refuses it here otherwise -
                                 ; which is what caught this one)
-cp_drv_triu: db 0, 1, 2, 3      ; up: a point at the top, widening downward
-cp_drv_trid: db 3, 2, 1, 0      ; down: the same triangle upside down
-cp_darr_dn:  db 0               ; is the arrow being drawn the one HELD? In
-                                ; memory for cp_dtri_n's reason below, and
-                                ; because CF is already this routine's
-                                ; argument and AL its direction
+; cp_darr_dn - is the arrow being drawn the one HELD? In memory for
+; the UI task's one-user reason, and because CF is already this routine's argument
+; and AL its direction. It is a byte of cp_sbuf's tail now (see there).
 ; --- the memory column's scratch (SPEC.md 31.6.2) ---------------------------
-; In memory rather than in registers for cp_dtri_n's reason: the panel runs on
+; In memory rather than in registers: the panel runs on
 ; the UI task under the gfx lock, so a scratch byte here has exactly one user
 ; at a time - and cp_drv_memstr has a divide, which spends DX:AX, and a digit
 ; stack, which spends CX.
-cp_dmbuf:    times CP_DMMAX db 0 ; the figure as text, built per row
-cp_dmkc:     db 0               ; ...cells in it up to AND INCLUDING the 'K',
-                                ; which is what cp_drv_mem1 aligns on
-cp_dmplus:   db 0               ; DRVM_PLUS, parked out of AX for the divide
+; cp_dmbuf - the figure as text, built per row - and cp_dmkc, the cells in
+; it up to AND INCLUDING the 'K' (what cp_drv_mem1 aligns on), and cp_dmplus,
+; DRVM_PLUS parked out of AX for the divide, are cp_sbuf and its tail now.
 cp_dmpar:    db 1               ; 1 = there is room for the brackets, decided
                                 ; once per paint by cp_drv_mempar and the same
                                 ; for every row on the page
@@ -6219,14 +6214,22 @@ cp_sbuf:     resb CP_SBUF       ; cp_stage's landing ground - ONE string at a
                                 ; is the same argument for the Drivers page's
                                 ; figure, and the two are never live together
                                 ; only because that page has no staged string)
+; ...AND THREE SCRATCH OWNERS BESIDE IT, for the same one-user argument
+; (kernel size pass 8, -16 resident). Each is live only INSIDE one routine
+; with no stage in it: the Drivers page's figure is composed and drawn by
+; cp_drv_mem1 without a stage between (cp_dmbuf/cp_dmkc/cp_dmplus - a staged
+; string is always drawn before the next routine runs), and the arrow's
+; held flag lives across cp_drv_arrow1 alone. cp_dmpar/cp_dmnw/cp_dmdg are NOT here: they persist
+; across a whole Drivers page paint, which stages.
+cp_dmbuf     equ cp_sbuf
+cp_dmkc      equ cp_sbuf + CP_DMMAX
+cp_dmplus    equ cp_sbuf + CP_DMMAX + 1
+cp_darr_dn   equ cp_sbuf + CP_DMMAX + 2
+%if CP_DMMAX + 3 > CP_SBUF
+%error "ctrl: the Drivers page's scratch no longer fits cp_sbuf's tail"
+%endif
 section .text
 
-cp_dtri_n:   db 0               ; the row counter. In memory because every
-                                ; general register is spoken for - DI is the
-                                ; centre, SI the table, BX the row, and the
-                                ; fill eats AX/CX/DX - and the panel runs on
-                                ; the UI task under the gfx lock, so a scratch
-                                ; byte here has exactly one user at a time
 section .modc                   ; ...and back to the image
 
 ; --- cp_drv_pane - repaint the whole Drivers pane, after a SCROLL -----------
