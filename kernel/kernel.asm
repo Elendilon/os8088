@@ -5657,7 +5657,7 @@ kmain_o:
     MARKW 13
     BPMARKW 2                    ; ...the claim heap and the module table
 %ifdef BAKED_FONT
-    OVWCALL  ovl_font_init  ; the typeface this BUILD carries (SPEC.md
+    OVBCALL  ovl_font_init  ; the typeface this BUILD carries (SPEC.md
                                 ; 6.2), out of the overlay - so it needs no
                                 ; int 10h and no F000:FA6E, and the machine's
                                 ; own ROM font is not consulted at all
@@ -6007,8 +6007,8 @@ osapi_rand:
 ; int 10h and carried the kernel's F000:FA6E fallback - 40 lines to arrive
 ; at a table the kernel already had.
 osapi_font_glyphs:
-    mov si, font_glyphs
-    mov dx, LOW_SEG
+    mov si, [font_base]         ; wherever font_init found it: the ROM's own
+    mov dx, [font_seg]          ; table, or a baked face's copy in LOW_SEG
     mov ax, FONT_FIRST | (FONT_LAST << 8)   ; AL and AH in one instruction
     mov cx, 8
     ret
