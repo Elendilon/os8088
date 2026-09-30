@@ -71,12 +71,12 @@ CLA_JDONE    equ 0x85           ; Uncompress To... ended: it has said its
                                 ; verdict and freed its claim (SPEC.md 22.23.6)
 CLS_JOIN     equ 0x80           ; CL_STEP of a claim that is the JOIN's, not a
                                 ; clone's: clo_disp_x sends mode 7 to it
-CLA_SAVE     equ 0x84           ; ask for a file name, and come back through
-                                ; CLV_SAVED. The dialog is opened by the
-                                ; RESIDENT half (SPEC.md 18.99.8): fdlg_open
-                                ; wants a live owned window and a near
-                                ; completion proc in KERNEL_SEG, neither of
-                                ; which an image can be
+                                ; 0x84 was CLA_SAVE, "ask for a file name":
+                                ; the image opens that Save box itself now,
+                                ; through fdf_fdlg_open with the RESIDENT
+                                ; fm_img_done_x as its completion proc - the
+                                ; one thing fdlg_open needs that an image
+                                ; cannot be (SPEC.md 18.99.8)
 
 ; --- the verbs (SPEC.md 18.99.7), in DL ---------------------------------------
 CLV_START    equ 0
@@ -84,11 +84,11 @@ CLV_KEY      equ 1
 CLV_LINE     equ 2
 CLV_FREE     equ 3
 CLV_SAVED    equ 4              ; the Save dialog answered: do the whole
-                                ; disk -> file operation (SPEC.md 18.99.8)
+                                ; disk -> file operation (SPEC.md 18.99.8) -
+                                ; or, with NO claim live, start Uncompress
+                                ; To...'s join there (SPEC.md 22.23.6)
 CLV_WIMG     equ 5              ; the Open dialog answered: size it, claim,
                                 ; and arm the confirmation
-CLV_JOIN     equ 6              ; Uncompress To...'s Save box answered: join
-                                ; the set there (SPEC.md 22.23.6, compress.inc)
 
 ; --- the job block, at offset 0 of the claim (SPEC.md 18.99.1) ---------------
 CL_SRC       equ 0              ; db: the source volume index
@@ -220,16 +220,16 @@ modl_e_cmz:     call cmz_verb   ; CF and AX are the answer, and `retf` leaves
 ; -----------------------------------------------------------------------------
 clo_disp_x:
 %ifdef KERN_BIG
-    cmp dl, CLV_JOIN            ; Uncompress To... (SPEC.md 22.23.6) rides the
-    jne .notjoin                ; cloner's claim word and its mode 7: a claim
-    jmp cmz_jgo                 ; marked CLS_JOIN is the join's, and its keys,
-.notjoin:                       ; lines and teardown go to compress.inc
-    cmp dl, CLV_KEY
-    jb .ladder                  ; CLV_START is never the join's: clo_start
-    cmp dl, CLV_FREE            ; refuses a busy [clo_seg] as it always has
-    ja .ladder
-    cmp word [clo_seg], 0
-    je .ladder
+    cmp word [clo_seg], 0       ; Uncompress To... (SPEC.md 22.23.6) rides the
+    jne .claimed                ; cloner's claim word and its mode 7. With NO
+    cmp dl, CLV_SAVED           ; claim, the Save box's answer is the join's:
+    jne .ladder                 ; a clone's is asked with its claim live
+    jmp cmz_jgo
+.claimed:                       ; ...and a claim marked CLS_JOIN is the join's,
+    cmp dl, CLV_KEY             ; so its keys, lines and teardown go to
+    jb .ladder                  ; compress.inc. CLV_START is never the join's:
+    cmp dl, CLV_FREE            ; clo_start refuses a busy [clo_seg] as it
+    ja .ladder                  ; always has
     push es
     mov es, [clo_seg]
     cmp byte [es:CL_STEP], CLS_JOIN
@@ -1238,9 +1238,25 @@ clo_key:
     jne .linej
     cmp byte [es:CL_TGT], CLE_IMG
     jne .picdisk
-    mov al, CLA_SAVE            ; the resident half owns the dialog: fdlg_open
-    jmp .out                    ; wants a live owned window and a KERNEL_SEG
-.picdisk:                       ; completion proc (SPEC.md 18.99.8)
+    ; The image target wants a NAME (SPEC.md 18.99.8): the Save box, opened
+    ; from here through the far door, with the RESIDENT fm_img_done_x as its
+    ; completion proc - fdlg_open dispatches a kernel window's proc as a near
+    ; call into `.cold`, which an image cannot be. SI is the window: fm_onkey_x
+    ; was handed it and nothing on the way here moves it. The mode stays armed
+    ; across the box; a cancelled one calls nothing back (SPEC.md 38.2), so the
+    ; user comes back to the pick prompt they left. CF=1 (refused - one is up
+    ; already) cannot happen from a keystroke this window owns, and the prompt
+    ; stands either way.
+    mov bx, si
+    mov si, clo_s_defimg        ; the default, staged where the box reads it
+    mov di, fm_hdrbuf           ; (DS); fdlg_setname copies it before anything
+    call cmz_cs13               ; else can stage into fm_hdrbuf
+    mov si, fm_hdrbuf
+    mov di, fm_img_done_x
+    mov al, 1                   ; the SAVE form
+    call COLD_SEG:fdf_fdlg_open
+    jmp .line
+.picdisk:
     call clo_fits               ; SPEC.md 18.99.6, asked HERE and not at
     jc .err                     ; CLV_START: the target is not chosen until
     call clo_xmsup              ; this key, and neither is the trip count
@@ -1358,7 +1374,8 @@ clo_key:
 ; -----------------------------------------------------------------------------
 ; clo_saved - the Save dialog answered: image this disk into that file
 ; in:  ES free; [clo_seg] live with CL_STEP = CLS_PICK and CL_TGT = CLE_IMG,
-;      clo_fnbuf staged, the FILE's volume mounted and current; gfx lock held
+;      [fdlg_name] the box's answer, the FILE's volume mounted and current;
+;      gfx lock held
 ; out: AL = CLA_*, AH = CERR_* when it is CLA_ERR (clo_key's answers exactly,
 ;      because the caller hands them to the same place); CF = 0 always
 ; clobbers: AX, BX, flags
@@ -1373,6 +1390,7 @@ clo_saved:
     push si
     push di
     push es
+    call clo_fnget              ; the box's answer, where the file API reads it
     mov es, [clo_seg]
     mov byte [es:CL_END], 1     ; the TARGET is a file
     mov word [es:CL_FOFF], 0
@@ -1406,8 +1424,8 @@ clo_saved:
 ; -----------------------------------------------------------------------------
 ; clo_wimg - the Open dialog answered: size that file and ask (SPEC.md 18.99.8)
 ; in:  AL = the target volume (the acting window's), **BX:CX** = the file's
-;      size as the dialog reported it, clo_fnbuf staged, the FILE's volume
-;      mounted and current; gfx lock held
+;      size as the dialog reported it, [fdlg_name] the box's answer, the
+;      FILE's volume mounted and current; gfx lock held
 ;
 ; BX:CX and not DX:CX, which is what the dialog hands its callback and what
 ; every other 32-bit count in this tree uses (SPEC.md 18.4.1): **DL is the
@@ -1433,6 +1451,8 @@ clo_wimg:
     push si
     push di
     push es
+    call clo_fnget              ; the box's answer, where the file API reads
+                                ; it - CX is the size and comes back intact
     mov dx, bx                  ; ...and DX:CX from here on, which is what
                                 ; clo_geom_img reads and what the rest of the
                                 ; tree means by a 32-bit count
@@ -2607,9 +2627,34 @@ clo_s_img:   db 'an image file', 0  ; ...and the IMAGE end (SPEC.md 18.99.8)
 clo_s_wr1:   db 'ERASE ', 0         ; 'ERASE A: and write DISK.IMG?'
 clo_s_wr2:   db ': and write ', 0
 clo_s_q:     db '?', 0
+clo_s_defimg: db 'DISK.IMG', 0     ; the Save box's default (SPEC.md 18.99.8)
 clo_s_yn:    db 'Enter=yes  Esc=no', 0
 clo_s_wrok:  db 'Wrote ', 0         ; ...and the two verdicts the image end
 clo_s_imgok: db 'Imaged ', 0        ; earns
+
+; -----------------------------------------------------------------------------
+; clo_fnget - the file dialog's answer into clo_fnbuf (SPEC.md 18.99.8)
+; clo_ds13  - ...and the copy under it: 13 bytes DS:SI -> DS:DI
+; clobbers: SI DI, flags - CX and ES preserved, because clo_wimg's size is in CX
+;
+; [fdlg_name] is the dialog's own buffer and the next dialog reuses it, while a
+; Write Img waits for its Enter with the name still wanted - so it is copied,
+; and HERE rather than in the resident completion proc, which used to spend
+; eighteen bytes doing it for all three of its answers.
+; -----------------------------------------------------------------------------
+clo_fnget:
+    mov si, fdlg_name
+    mov di, clo_fnbuf
+clo_ds13:
+    push cx
+    push es
+    push ds
+    pop es
+    mov cx, 13
+    rep movsb                   ; DF=0 (SPEC.md 1), no segment override
+    pop es
+    pop cx
+    ret
 
 ; -----------------------------------------------------------------------------
 ; clo_dscat - clo_cat over a KERNEL string (module internal)

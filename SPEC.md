@@ -35236,7 +35236,9 @@ The two enumerations are also disjoint by construction — `CERR_*` from 1 and
 plausible one. They used to overlap exactly, and `CERR_NODISK` = `CLA_SAVE` = 4
 meant "the cloner could not be loaded" was acted on as "the user asked for an
 image target": a Save box, on a half-written disk, for an operation nobody
-chose.
+chose. (`CLA_SAVE` itself is gone since the image opens that box itself - see
+*The dialog is opened through the far door* below - and its value, `0x84`, is
+not reused.)
 
 **…and the VERB must answer `CF=0`, which is the half nobody enforced.** The
 test above is only as good as the carry the image hands back, and
@@ -45487,19 +45489,28 @@ test and the three items can never disagree about one disk. Its confirmation is
 That one *does* say ERASE, because it does, and §22.12's rule is that the line
 between a command and an unrecoverable act names the act.
 
-##### The dialog is opened by the resident half, always
+##### The dialog is opened through the far door, with a resident completion proc
 
 `fdlg_open` fences on a **live owned window** and dispatches a kernel window's
 completion proc as a **near call in the kernel's cold segment** (§38.6,
-§2.6.3). An on-demand module is neither of those things, so `CLV_KEY` answers
-**`CLA_SAVE`** — "ask for a name" — and `fm_editkey` opens the dialog.
-`drv_dlg_done_x` is armed the same way for the same reason (§51.10), and
-`fm_img_done_x` is this feature's copy of that shape: a `.cold` body, named
-directly.
+§2.6.3). An on-demand module cannot be that proc, so the proc is resident:
+`fm_img_done_x`, a `.cold` body named directly, the shape `drv_dlg_done_x` has
+for the same reason (§51.10). **Opening** the dialog is another matter: the
+image does it itself, through `fdf_fdlg_open` - the far door `OSAPI_FILE_DLG`
+already reaches `fdlg_open` by - with `BX` = the window its keystroke arrived
+for, the default name staged in `fm_hdrbuf` (the box copies it before anything
+can stage there again) and `DI` = `fm_img_done_x`. `CLV_KEY` then answers
+`CLA_LINE`, and the prompt stands under the box. It was `CLA_SAVE`, "ask for a
+name", answered by `fm_editkey` opening the box: 24 resident bytes that are 12
+of the image's now, and `DISK.IMG` moved into the image with them (§2.8.6).
 
-**One completion proc serves both commands**, because the dialog's own mode
-tells them apart — Save is the clone's, Open is `Write Img`'s — and only one
-dialog can ever be up (§38.2).
+**One completion proc serves all three questions**, because the dialog's own
+mode tells two of them apart — Save is the clone's, Open is `Write Img`'s —
+and the image tells the third, Uncompress To...'s Save box (§22.23.6), from
+the clone's by the claim: a clone asks with its claim live and the join has
+none yet. Only one dialog can ever be up (§38.2). **The name is copied into
+`clo_fnbuf` by the image** (`clo_fnget`, at `CLV_SAVED` and `CLV_WIMG`),
+not by the proc, which used to spend 18 bytes on it for all three.
 
 ##### A cancelled dialog calls nothing back, and both halves are built for it
 
@@ -46165,15 +46176,22 @@ refusal - is that section's.
    refusal is the one a second clone already gets.
 
 **What the resident half is**: the menu row and its string, a third label on
-the `Compress`/`Uncompress` body with one more answer from the image
-(`AX = 0xFFFF`, *ask for a target*), the Save box's completion proc, and one
-more answer on mode 7 (`CLA_JDONE`, *the join has said its verdict and freed
-its claim*). **It holds no state of its own.** The source is the Disk window
-the verb was picked in - its `FS_DRV`/`FS_CWD`, read by the completion proc
-through `[fm_vp]`, which the dialog does not move - and the original's name
-rides in `clo_fnbuf`, the cloner's resident 13-byte name, which is free
-because a clone and a join cannot both be running. A cancelled dialog calls
-nothing back (§38.2), so nothing is left to clean up.
+the `Compress`/`Uncompress` body, and two more answers from `CLV_SAVED` and
+mode 7 (`CLA_LINE` to arm the prompt, `CLA_JDONE`, *the join has said its
+verdict and freed its claim*). **It holds no state and no dialog code of its
+own.** The image opens the Save box itself, through `fdf_fdlg_open` with the
+window `[fm_cmdwin]` names, and hands it the cloner's completion proc,
+`fm_img_done_x` (§18.99.8): with no claim live, `CLV_SAVED` is the join's. The
+source is the Disk window the verb was picked in - its `FS_DRV`/`FS_CWD`, read
+by the image through `[fm_vp]`, which the proc re-aims and the dialog does not
+move - and the part's name rides in `clo_fnbuf`, the cloner's resident 13-byte
+name, which is free because a clone and a join cannot both be running and the
+image, not the proc, copies the box's answer into it. A cancelled dialog calls
+nothing back (§38.2), so nothing is left to clean up. **Size pass 8 moved the
+dialog into the image** for this and for the Clone's image target together:
+`kern_big` resident -125 (`.cold` -116, `.text` -9 for `DISK.IMG`) and
+`kern_small` -57, for +37 bytes of `CLONE.DRV`. The proc this feature had of
+its own, 55 bytes, is gone.
 
 **Measured, `kern_big`** against the build before it: **+124 resident bytes**,
 `.text` +26 and `.cold` +98, `.bss` +0. That crossed the cold rung, 79 -> 80

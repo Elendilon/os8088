@@ -2284,7 +2284,6 @@ FM_NSWAP  equ 2
 ;   * the MENU ITEM below - the bar is built when the user PRESSES it, which
 ;     is the gesture that leads to loading.
 fm_s_clsml:   db 'Target too small', 0
-fm_s_defimg:  db 'DISK.IMG', 0      ; the Save box's default (SPEC.md 18.99.8)
 fm_s_notimg:  db 'Not a disk image', 0   ; ...a file whose length is not one of
                                     ; the four standard floppies (SPEC.md
                                     ; 18.99.8), which is the only validation
@@ -5228,11 +5227,6 @@ fm_c_uncto:                     ; ...three times on kern_big (SPEC.md 22.23.6)
     jnc .done
     or ax, ax
     jz .none                    ; it has already spoken
-%ifdef KERN_BIG
-    cmp ax, 0xFFFF              ; ...or a FOURTH answer, Uncompress To's: the
-    je .ask                     ; selection is a part, and the image has put
-                                ; the original's name in fm_hdrbuf
-%endif
 .say:
     mov bx, fm_errtab
     mov cx, FM_NERR
@@ -5244,23 +5238,6 @@ fm_c_uncto:                     ; ...three times on kern_big (SPEC.md 22.23.6)
     call fmv_bcast              ; every window showing this folder re-lists
     mov byte [fm_cmdchg], FMD_ALL
     ret
-%ifdef KERN_BIG
-    ; Where the result goes (SPEC.md 22.23.6). The dialog is opened from HERE
-    ; for Write Img's reason: fdlg_open wants a live owned window and a near
-    ; completion proc in KERNEL_SEG, and an image is neither. The image has
-    ; already been dropped, and a cancelled dialog calls nothing back, so
-    ; nothing is left holding anything.
-.ask:
-    mov di, [fm_vp]
-    call fmv_winof              ; BX = this block's window
-    jc .none
-    mov si, fm_hdrbuf           ; the default: the name it rejoins as, which
-    mov di, fm_uncto_done_x     ; fdlg_setname copies before anything else
-    mov al, 1                   ; could stage into fm_hdrbuf. The SAVE form
-    call fdlg_open_x
-    jmp short .none             ; not one pixel of this window is owed: the
-                                ; dialog drew itself (fm_c_wimg's note)
-%endif
 .nomod:
     mov al, FERR_NODISK         ; 'No disk' - the SAME words the cloner uses
     jmp short .say              ; when ITS image cannot be fetched, for the
@@ -5469,15 +5446,17 @@ fm_c_wimg:
 
 ; -----------------------------------------------------------------------------
 ; fm_img_done - the file dialog answered (SPEC.md 18.99.8)
-; in:  AL = 0 the OPEN form (Write Img) / 1 the SAVE form (Clone to an image),
+; in:  AL = 0 the OPEN form (Write Img) / 1 the SAVE form (Clone to an image,
+;      or Uncompress To...'s target - SPEC.md 22.23.6, opened by the image),
 ;      DX:CX = the chosen file's size, [fdlg_name] = the name. The gfx lock is
 ;      held and the dialog is already down; the FILE's volume is mounted and
 ;      its folder is current, which is what the dialog left behind and what
 ;      both halves below depend on.
 ; out: nothing
 ;
-; ONE completion proc for both, because the MODE tells them apart and only one
-; dialog can ever be up (SPEC.md 38.2). A cancelled dialog does not arrive
+; ONE completion proc for all three, because the MODE tells them apart and
+; only one dialog can ever be up (SPEC.md 38.2) - and the image tells the two
+; SAVEs apart by whether a claim is live. A cancelled dialog does not arrive
 ; here at all.
 ; -----------------------------------------------------------------------------
 fm_img_done_x:
@@ -5495,21 +5474,11 @@ fm_img_done_x:
                                 ; Disk window's W_PAINT republishes [fm_vp]:
                                 ; with two Disk windows open it could name
                                 ; the WRONG one here
-    push cx                     ; **THE SIZE, BANKED**: the copy below spends
-    push dx                     ; CX as a counter, and DX:CX is the only thing
-                                ; that says which floppy this file is a
-                                ; picture of (SPEC.md 18.99.8). Without this
-                                ; a 720KB image arrives as 13 bytes and is
-                                ; refused as 'Not a disk image'
-    mov si, fdlg_name           ; the name goes where the file API can read it
-    mov di, clo_fnbuf           ; (SPEC.md 18.99.8): DS-relative, resident, and
-    push ax                     ; the one thing about this feature that is not
-    mov cx, 13                  ; in the image. AL is the Open/Save flag and
-    call fm_ncpy                ; fm_ncpy walks with lodsb, so it is banked
-    pop ax
-.named:
-    pop dx                      ; ...and the size back
-    pop cx
+                                ; THE NAME IS NOT COPIED HERE ANY MORE: the
+                                ; image copies [fdlg_name] into clo_fnbuf
+                                ; itself (clo_fnget), so DX:CX - the size, the
+                                ; only thing that says which floppy an image
+                                ; is a picture of - arrives untouched
     or al, al
     jnz .save
 
@@ -5524,22 +5493,32 @@ fm_img_done_x:
                                 ; good 720KB image as 'Not a disk image'.
                                 ; Measured, exactly that way round
     jc .bad
+.arm:
     mov di, [fm_vp]
     mov al, 7                   ; ...and the confirmation, in the cloner's own
     call fm_edit_arm            ; mode (SPEC.md 22.21.1)
     jmp short .paint            ; ...drawn by the shared tail below
 
-    ; --- the SAVE form: Clone Disk, with an image as the target -------------
-    ; The prompt is still armed and the claim is still live - the dialog was
-    ; opened from inside CLV_KEY and nothing has ended the mode - so this is
-    ; the same operation resuming, and it runs to completion here.
+    ; --- the SAVE form: Clone Disk with an image as the target, or the join
+    ; Uncompress To... asked for (SPEC.md 22.23.6) ---------------------------
+    ; A CLONE's prompt is still armed and its claim still live - the dialog
+    ; was opened from inside CLV_KEY and nothing has ended the mode - so this
+    ; is the same operation resuming, and it runs to completion here. The
+    ; image tells the two apart by that claim: none is the join's.
+    ;
+    ; CF=1 (the image could not be had) is the JOIN's alone: an armed clone
+    ; holds CLONE.DRV, and mod_need on a loaded module cannot fail. So it is
+    ; said as the refusal it is, with nothing armed and the image dropped.
 .save:
     mov dl, CLV_SAVED
     call clo_call               ; AL = CLA_*, exactly as a keystroke answers
-    jnc .savedone               ; ...unless CF=1, which is AX = CERR_* in the
-    mov ah, al                  ; other alphabet (SPEC.md 18.99.7) and would
-    mov al, CLA_ERR             ; otherwise be read as an outcome code
-.savedone:
+    jc .bad
+%ifdef KERN_BIG
+    cmp al, CLA_LINE            ; the join stopped at a part on a floppy that
+    je .arm                     ; is not in: the cloner's prompt mode asks
+    cmp al, CLA_JDONE           ; ...or it ended, its verdict said and its
+    je .jdone                   ; claim freed
+%endif
     call fm_clone_res
 
     ; ONE tail, and it is a REPAINT for both halves. Nothing here can get
@@ -5561,46 +5540,11 @@ fm_img_done_x:
     call fm_clone_bad           ; AX = CERR_*; nothing is armed, so the window
 .out:                           ; is left exactly as it was
     jmp kretc_di
-
 %ifdef KERN_BIG
-; -----------------------------------------------------------------------------
-; fm_uncto_done - the Save box answered Uncompress To... (SPEC.md 22.23.6)
-; in:  SI = the requester window, [fdlg_name] = the result's name; the dialog
-;      has left the TARGET's volume mounted and its folder current, which is
-;      the whole of how the target is known. Gfx lock held
-; out: nothing
-;
-; The SOURCE is the requester window's own folder, read off its state block:
-; the dialog is modal, so nothing could have moved it - and that is what lets
-; the source need no resident bytes of its own beyond clo_fnbuf, where the
-; image staged the part's name before the dialog opened. The join starts here
-; and either finishes (CLA_JDONE, the verdict already said and the claim
-; already freed) or stops at a part on a floppy that is not there (CLA_LINE),
-; which arms the cloner's own mode 7: its keys, its lines and its teardown all
-; reach the image, and clo_disp_x hands them to the join (SPEC.md 22.23.6).
-; -----------------------------------------------------------------------------
-fm_uncto_done_x:
-    call kentc_di               ; KENT: push ax..di
-    mov bx, si
-    call fm_vp_set              ; fm_img_done's reason: the teardown's
-    mov di, [fm_vp]             ; repaint may have re-aimed [fm_vp]
-    mov al, [disk_drive]        ; the target...
-    mov bx, [dsk_cwd]
-    mov ah, [di+FS_DRV]         ; ...and the source
-    mov cx, [di+FS_CWD]
-    mov dl, CLV_JOIN
-    call clo_call               ; AL = CLA_LINE or CLA_JDONE
-    jc fm_img_done_x.bad        ; AX = CERR_NODISK: CLONE.DRV could not be had
-    cmp al, CLA_LINE
-    jne .done
-    mov di, [fm_vp]
-    mov al, 7                   ; a disk to ask for: the cloner's prompt mode
-    call fm_edit_arm
-    jmp fm_img_done_x.paint
-.done:
+.jdone:
     call clo_drop               ; nothing is armed, so nothing else will
     call fmv_bcast              ; the target's windows re-list
-    jmp fm_img_done_x.paint
+    jmp short .paint
 %endif
 
 fm_c_cut:                       ; File > Cut - the selection, onto the
@@ -6157,8 +6101,8 @@ fm_editkey:
     mov dl, CLV_KEY
     call clo_call               ; AL = CLA_*, AH = CERR_*, BL/BH = the volumes
     jc .clonebad                ; ...unless CF=1, which is AX = CERR_* in the
-    cmp al, CLA_SAVE            ; OTHER alphabet (SPEC.md 18.99.7): CLONE.DRV
-    je .clone_save              ; could not be re-read, which is an error and
+                                ; OTHER alphabet (SPEC.md 18.99.7): CLONE.DRV
+                                ; could not be re-read, which is an error and
 %ifdef KERN_BIG
     cmp al, CLA_JDONE           ; Uncompress To's join ended (SPEC.md 22.23.6):
     je .joindone                ; it has said its verdict and freed its claim
@@ -6180,26 +6124,6 @@ fm_editkey:
     call fm_clone_res           ; the verdict, the re-home and the re-list -
     jmp .out                    ; and fm_edit_end inside it is what frees the
                                 ; claim and drops the image (SPEC.md 2.8.3)
-
-    ; The image target wants a NAME (SPEC.md 18.99.8), and the dialog is
-    ; opened from HERE rather than from inside the image: fdlg_open fences on
-    ; a live owned window and dispatches a kernel window's completion proc as
-    ; a near call in KERNEL_SEG, and a module can be neither of those things.
-    ;
-    ; The mode stays armed across it. A cancelled dialog calls nothing back
-    ; (SPEC.md 38.2), so what the user comes back to is the pick prompt they
-    ; left - where Space still offers the drives and Esc still cancels.
-.clone_save:
-    push si
-    call fmv_winof              ; BX = the window this block belongs to; DI is
-    jc .clone_savex             ; the block, which is what fm_editkey holds
-    mov si, fm_s_defimg
-    mov di, fm_img_done_x
-    mov al, 1                   ; the SAVE form
-    call fdlg_open_x            ; CF=1 is refused - a dialog already up, which
-.clone_savex:                   ; cannot happen from a keystroke this window
-    pop si                      ; owns. The prompt is left as it was either
-    jmp .out                    ; way, which is the right answer for both
 
 .swap:
     ; Enter advances a step and anything else abandons the whole operation -

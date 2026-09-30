@@ -2371,18 +2371,9 @@ cmz_jend:
     cmp ax, [cs:cmz_jtot+2]
     jne cmz_jloop.bad           ; short of what part 1 promised
     CMZ_GO dst
-    push es                     ; the result takes its name: fm_onam,
-    push ds                     ; because the file layer reads names from DS
-    pop es
-    mov si, cmz_jnam
-    mov di, fm_onam
-    mov cx, 13
-.fn:
-    mov al, [cs:si]
-    inc si
-    stosb
-    loop .fn
-    pop es
+    mov si, cmz_jnam            ; the result takes its name: fm_onam,
+    mov di, fm_onam             ; because the file layer reads names from DS
+    call cmz_cs13
 %ifdef KERN_BIG
     call cmz_jtmpn              ; THE CLOSE: the held stream's link, FAT and
     xor cx, cx                  ; size, before the rename - whose own gate
@@ -2420,19 +2411,9 @@ cmz_jend:
 cmz_jundo:
     call cmz_drop
 cmz_jsel2on:                    ; ...the name alone, for a join that pauses
-    push es
-    push ds
-    pop es
     mov si, cmz_jsel
     mov di, fm_onam
-    mov cx, 13
-.l:
-    mov al, [cs:si]
-    inc si
-    stosb
-    loop .l
-    pop es
-    ret
+    jmp short cmz_cs13
 
 ; cmz_jrmtmp - CMPRESS~.TMP goes, if this join created it. clobbers: SI
 cmz_jrmtmp:
@@ -2461,10 +2442,17 @@ cmz_jtmpn:
     mov si, cmz_s_tmpn
 ; cmz_jcp13 - 13 bytes from CS:SI to fm_ebuf. clobbers: SI
 cmz_jcp13:
-    push ax
-    push cx
     push di
     mov di, fm_ebuf
+    call cmz_cs13
+    pop di
+    ret
+
+; cmz_cs13 - 13 bytes from CS:SI to DS:DI: a name of this image's out to where
+;            the file layer or the file dialog reads it. clobbers: SI DI
+cmz_cs13:
+    push ax
+    push cx
     mov cx, 13
 .c:
     mov al, [cs:si]
@@ -2472,7 +2460,6 @@ cmz_jcp13:
     mov [di], al
     inc di
     loop .c
-    pop di
     pop cx
     pop ax
     ret
@@ -2884,8 +2871,8 @@ cmz_jmv:
 ; cmz_uncto - File > Uncompress To... (SPEC.md 22.23.6): is the selection a
 ; part, and what is it called? Asked BEFORE the Save box, so the box can open
 ; on the name the set rejoins as.
-; out: cmz_verb's answers, and a fourth: CF=1 with AX = 0xFFFF = open the box,
-;      with fm_hdrbuf = the default name and clo_fnbuf = the part's
+; out: cmz_verb's answers - CF=1 with AX = 0, "it has spoken", when the Save
+;      box is up, with clo_fnbuf = the part's name
 ; -----------------------------------------------------------------------------
 cmz_uncto:
     cmp word [clo_seg], 0       ; a clone or another join: one claim word
@@ -2929,17 +2916,17 @@ cmz_uncto:
     inc di
     loop .nm
     mov byte [di], 0
-    mov si, fm_onam             ; ...and the part's own, for the completion
-    mov di, clo_fnbuf           ; proc to hand back: a cancelled box calls
-    mov cx, 13                  ; nothing, and the image is not held across
-.pn:                            ; it, so it waits in the resident buffer
-    mov al, [si]                ; (DS, deliberately: os88ovlchk)
-    inc si
-    mov [di], al
-    inc di
-    loop .pn
-    call cmz_drop
-    mov ax, 0xFFFF
+    mov si, fm_onam             ; ...and the part's own, for the join to
+    mov di, clo_fnbuf           ; read back: a cancelled box calls nothing,
+    call clo_ds13               ; and the image is not held across it, so it
+    call cmz_drop               ; waits in the resident buffer
+    mov bx, [fm_cmdwin]         ; the Save box, opened HERE: the window the
+    mov si, fm_hdrbuf           ; command acts on, the name it rejoins as, and
+    mov di, fm_img_done_x       ; the RESIDENT completion proc, which starts
+    mov al, 1                   ; the join through CLV_SAVED with no claim
+    call COLD_SEG:fdf_fdlg_open ; live (SPEC.md 22.23.6). CF=1 (a box already
+.spoke:                         ; up) cannot happen from a menu pick
+    xor ax, ax                  ; ...and either way it has spoken
     stc
     ret
 .ferr:
@@ -2962,34 +2949,32 @@ cmz_uncto:
     mov ax, cmz_s_nomem
 .say:
     call cmz_say
-    xor ax, ax
-    stc
-    ret
+    jmp short .spoke
 
 ; -----------------------------------------------------------------------------
-; cmz_jgo - CLV_JOIN: the Save box answered (SPEC.md 22.23.6)
-; in:  AL = the target's drive, BX = its folder; AH = the source's drive, CX
-;      = its folder; clo_fnbuf = the part, fdlg_name = the result's name
+; cmz_jgo - CLV_SAVED with no claim live: the Save box answered Uncompress
+; To... (SPEC.md 22.23.6), through the resident fm_img_done_x
+; in:  the TARGET is the volume and folder the box left current; the SOURCE is
+;      the requester window's, [fm_vp] (fm_img_done_x re-aimed it, and the box
+;      is modal, so nothing moved it); clo_fnbuf = the part, fdlg_name = the
+;      result's name
 ; out: AL = CLA_LINE (a disk is asked for) or CLA_JDONE (it ended, and said
 ;      so), CF = 0
 ; -----------------------------------------------------------------------------
 cmz_jgo:
     cld
+    mov al, [disk_drive]        ; the target...
     mov [cs:cmz_jtgtd], al
-    mov [cs:cmz_jtgtc], bx
-    mov [cs:cmz_jsrcd], ah
-    mov [cs:cmz_jsrcc], cx
-    cmp word [clo_seg], 0
-    jne .busy
+    mov ax, [dsk_cwd]
+    mov [cs:cmz_jtgtc], ax
+    mov si, [fm_vp]             ; ...and the source
+    mov al, [si+FS_DRV]
+    mov [cs:cmz_jsrcd], al
+    mov ax, [si+FS_CWD]
+    mov [cs:cmz_jsrcc], ax
     mov si, clo_fnbuf           ; the part's name where the file layer and
     mov di, fm_onam             ; cmz_jisname read it
-    mov cx, 13
-.pn:
-    mov al, [si]                ; (DS, deliberately: os88ovlchk)
-    inc si
-    mov [di], al
-    inc di
-    loop .pn
+    call clo_ds13
     call cmz_jisname            ; [cmz_jext], cmz_jsel - checked once already
     jc .plain
     mov si, fdlg_name           ; the result's name, as the box gave it
@@ -3023,9 +3008,6 @@ cmz_jgo:
 .clok:
     call cmz_jname              ; the result's name free, BEFORE part 1 - which
     jmp cmz_jloop               ; may be on a disk that is not in yet
-.busy:
-    mov ax, cmz_s_jbusy
-    jmp short .say
 .plain:
     mov ax, cmz_s_plain
     jmp short .say
