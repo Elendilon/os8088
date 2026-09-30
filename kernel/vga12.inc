@@ -3845,8 +3845,9 @@ gfx_xor_rect_d:
     GFXDENTERR
     call gfx_xor_strips
     GFXDLEAVE
-    pop bp
-    pop dx
+.pops:                          ; (softgfx.inc's sw_xfer leaves through here:
+    pop bp                      ; the same five registers, once a save or a
+    pop dx                      ; restore rather than once a primitive)
     pop cx
     pop bx
     pop ax

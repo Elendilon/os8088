@@ -1165,12 +1165,7 @@ sw_xfer:
                                 ; gfx_save between the arm and the restore
                                 ; would disarm it - and wm_su_edge is exactly
                                 ; that, twice
-    pop bp
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp gfx_xor_rect_d.pops     ; the same five pops (bp dx cx bx ax) and ret
 
 ; -----------------------------------------------------------------------------
 section .bss

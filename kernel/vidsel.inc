@@ -1558,13 +1558,7 @@ vid_ctx_capture:
     mov [di+VID_CTX_KIND], cl   ; rather than in the run, because the run is
                                 ; what the RENDERER reads and a kind is not
                                 ; renderer state (SPEC.md 39.12)
-    pop es
-    pop ds
-    pop di
-    pop si
-    pop cx
-    pop ax
-    ret
+    jmp short vid_ctx_act.pops  ; the same six pushes, so the same six pops
 
 ; -----------------------------------------------------------------------------
 ; vid_ctx_act - make display AL the one the renderer draws on
@@ -1637,6 +1631,7 @@ vid_ctx_act:
     mov di, VID_ROWTAB
 .norow:
     mov [vid_rowmax], di
+.pops:                          ; (vid_ctx_capture leaves through here too)
     pop es                      ; the pops are HERE, not above the origin
     pop ds                      ; block: DS is KERNEL_SEG either way (every
     pop di                      ; caller of this routine already has it, or
