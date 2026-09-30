@@ -380,7 +380,8 @@ ap_refill_chunk:
     mov cx, [ap_rd_len]
     mov ax, [ap_rd_pos]
     mov dx, [ap_rd_pos+2]
-    call OSAPI_FILE_READ_AT        ; out CF, DX:AX = bytes delivered
+    mov di, ap_rd_cur              ; one FAT link a gulp, not a walk from the
+    call os88_rseq                 ; front (SPEC.md 18.4.8.1); out CF, DX:AX
     APCNT apc_readat
     APCNT apc_refill
     jc .ioerr                     ; an I/O error ends the data - and says why
@@ -565,6 +566,8 @@ ap_prep_track:
     and ax, bx
     mov [ap_rd_pos], ax
     mov [ap_rd_pos+2], dx
+    mov di, ap_rd_cur              ; a new track: the cursor names no file
+    call os88_rseq_new
 
     mov word [ap_got], 0
     mov word [ap_got+2], 0

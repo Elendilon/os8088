@@ -12431,7 +12431,7 @@ PKT_FUNC    equ 2                   ; basic plus extended: set/get_rcv_mode
 PKT_VERSION equ 9
 
 ; **THE CHAIN STARTS PAST THE PARTS STANDARD'S OWN BSS** in the trace build
-; (SPEC.md 96.29.1). os88parts.inc puts its 86 bytes at OP_BSS_AT, which
+; (SPEC.md 96.29.1). os88parts.inc puts its OP_BSS bytes at OP_BSS_AT, which
 ; defaults to `os88_image_end` - exactly where this chain starts - so with
 ; `DB` at 0 the two OVERLAP, silently and completely. What it looked like:
 ; op_load ran perfectly (op_allkb 35, op_optok 1, op_base and dos_trseg both

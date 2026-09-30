@@ -244,6 +244,9 @@ cmz_pack:
     xor ax, ax                  ; STREAMED: the window's first CMZ_SBUF bytes
     mov [cs:cmz_sfill], ax      ; off the disk, from offset 0
     mov [cs:cmz_sfill+2], ax
+%ifdef KERN_BIG
+    mov [cs:cmz_scur+RSQ_GEN], ax   ; ...and a new file: its cursor unseeded
+%endif
     xor bx, bx
     mov cx, CMZ_SBUF
     call cmz_sfetch
@@ -803,7 +806,7 @@ cmz_sfetch:
     mov si, KERNEL_SEG
     mov ds, si
     mov si, fm_onam
-    call COLD_SEG:dwf_dskw_read_at  ; DX:AX = what arrived
+    CLO_RSEQ cs, cmz_scur       ; DX:AX = what arrived (SPEC.md 18.4.8.1)
     jc cmz_ioerr
     call cmz_rearm
     pop es
@@ -2637,8 +2640,8 @@ cmz_jneed:
     mov ax, [cs:cmz_jfo]
     mov dx, [cs:cmz_jfo+2]
     mov si, fm_onam
-    call COLD_SEG:dwf_dskw_read_at  ; DX:AX = what arrived, DX = 0
-    jc .err
+    CLO_RSEQ cs, cmz_jcur       ; DX:AX = what arrived, DX = 0 - one FAT
+    jc .err                     ; link a chunk (SPEC.md 18.4.8.1)
     call cmz_rearm
     add [cs:cmz_javl], ax
     add [cs:cmz_jfo], ax
@@ -2680,6 +2683,9 @@ cmz_jneed:
 ; clobbers: AX
 cmz_jrst:
     xor ax, ax
+%ifdef KERN_BIG
+    mov [cs:cmz_jcur+RSQ_GEN], ax   ; the cursor names no file (18.4.8.1)
+%endif
     mov [cs:cmz_jpos], ax
     mov [cs:cmz_javl], ax
     mov [cs:cmz_jfo], ax
@@ -3609,6 +3615,8 @@ cmz_jnn:    dw 0                ; its N,
 cmz_jseg:   dw 0                ; and where its N bytes are
 cmz_jofs:   dw 0
 %ifdef KERN_BIG
+cmz_jcur:   times 16 db 0       ; the part's READ_SEQ cursor (18.4.8.1)...
+cmz_scur:   times 16 db 0       ; ...and the compressor's source's
 cmz_jtok:   dw 0                ; the result's WRITE_SEQ token (18.4.9).
                                 ; Never reset: it is only a generation, and
                                 ; a new temporary is a WRITE, which leaves

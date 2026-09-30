@@ -3708,7 +3708,7 @@ $(BUILD)/hddtool.bin: drivers/hdd/hddtool.asm apps/os88ui.inc drivers/hdd/hddabi
                   drivers/hdd/hdcom.inc drivers/hdd/hdsvc.inc drivers/hdd/hdsec.inc \
                   drivers/hdd/partw.inc drivers/hdd/fmt.inc drivers/hdd/tool.inc \
                   drivers/hdd/inst.inc drivers/hdd/cppage.inc \
-                  drivers/os88drv.inc apps/os88api.inc \
+                  drivers/os88drv.inc apps/os88api.inc apps/os88rseq.inc \
                   $(BUILD)/mbr.bin $(BUILD)/boothd.bin | $(BUILD)
 	$(NASM) -f bin -w+error $(DRVDEF) -I drivers/hdd/ -I drivers/ -I apps/ -I $(BUILD) -o $@ $<
 	@echo "hddtool: $(call FILESIZE,$@) bytes"
@@ -3887,7 +3887,7 @@ $(BUILD)/ramdisk.bin: drivers/ramdisk/ramdisk.asm drivers/ramdisk/rdabi.inc \
                       drivers/ramdisk/rdpkg.inc \
                       drivers/ramdisk/rdstore.inc drivers/ramdisk/rdfsv.inc \
                       drivers/ramdisk/rdimg.inc drivers/ramdisk/rdpage.inc \
-                      drivers/os88drv.inc \
+                      apps/os88rseq.inc drivers/os88drv.inc \
                       apps/os88api.inc $(BUILD)/mines.o88 \
                       $(BUILD)/rampage.bin | $(BUILD)
 	$(NASM) -f bin -w+error $(RDSEEDDEF) -I drivers/ramdisk/ -I drivers/ \
@@ -5013,7 +5013,7 @@ $(BUILD)/dos.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
                       apps/dos/doscents.inc apps/os88ui.inc \
                   apps/os88line.inc apps/os88sock.inc \
                   apps/os88con.inc apps/os88cp437.inc \
-                  apps/os88parts.inc apps/os88partsbody.inc \
+                  apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc \
                   drivers/net/netpkg.inc $(DOSNETSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -I drivers/net/ \
 	        $(if $(DOSNETCARD),-DDOSNET_CARD) \
@@ -5105,7 +5105,7 @@ $(BUILD)/kerndos.bin: kerndos/kdos.asm $(KERNDOS_INC) $(KERNEL_INC) \
                       apps/os88api.inc apps/dos/doscall.inc \
                       apps/dos/doscents.inc apps/os88ui.inc apps/os88line.inc \
                       apps/os88sock.inc apps/os88con.inc apps/os88cp437.inc \
-                      apps/os88parts.inc apps/os88partsbody.inc \
+                      apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc \
                       drivers/net/netpkg.inc $(KDSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error $(KDSTKDIAGDEF) $(KDKBDDEF) -DDOS_EXTCORE \
 	        -I kernel/ -I kerndos/ -I apps/ \
@@ -5122,7 +5122,7 @@ $(BUILD)/dosp.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
                       apps/dos/doscents.inc apps/os88ui.inc \
                    apps/os88line.inc apps/os88sock.inc \
                    apps/os88con.inc apps/os88cp437.inc \
-                   apps/os88parts.inc apps/os88partsbody.inc \
+                   apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc \
                    kerndos/kdlaunch.inc \
                    drivers/net/netpkg.inc $(DOSNETSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -I drivers/net/ \
@@ -5141,7 +5141,7 @@ $(BUILD)/doscore.bin: apps/dos/doscore.asm apps/dos/dos.asm apps/dos/dosh.inc \
                       apps/dos/doscents.inc \
                       apps/os88ui.inc apps/os88line.inc apps/os88sock.inc \
                       apps/os88con.inc apps/os88cp437.inc \
-                      apps/os88parts.inc apps/os88partsbody.inc \
+                      apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc \
                       kerndos/kdlaunch.inc drivers/net/netpkg.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -I drivers/net/ \
 	        -I kerndos/ -o $@ apps/dos/doscore.asm
@@ -5168,7 +5168,7 @@ $(BUILD)/kdos/DOS.O88: $(BUILD)/dosload.bin $(BUILD)/dosp.bin \
 $(BUILD)/dosload.bin: apps/dos/dosload.asm apps/dos/dosicon.inc \
                       apps/os88api.inc apps/dos/doscall.inc \
                       apps/dos/doscents.inc apps/os88parts.inc \
-                      apps/os88partsbody.inc | $(BUILD)
+                      apps/os88partsbody.inc apps/os88rseq.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -DDOS_EXTCORE \
 	        -o $@ apps/dos/dosload.asm
 	@echo "dosload: $(call FILESIZE,$@) bytes of parts loader"
@@ -5774,7 +5774,7 @@ $(FTPDSTAMP): | $(BUILD)
 
 $(BUILD)/ftpd.bin: apps/ftpd/ftpd.asm apps/os88api.inc apps/os88ui.inc \
                    apps/os88line.inc apps/os88sock.inc apps/os88pit.inc \
-                   drivers/net/netpkg.inc $(FTPDSTAMP) | $(BUILD)
+                   apps/os88rseq.inc drivers/net/netpkg.inc $(FTPDSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error $(FTPDSLOWDEF) -I apps/ -I apps/ftpd/ -I drivers/net/ -o $@ apps/ftpd/ftpd.asm
 	@echo "ftpd:   $(call FILESIZE,$@) bytes"
 
@@ -5906,6 +5906,7 @@ AUDIO_SRC := apps/audio/audio.asm apps/audio/apengine.inc \
              apps/audio/apwav.inc apps/audio/apdec.inc \
              apps/audio/apui.inc apps/audio/aplist.inc \
              apps/audio/apspk.inc apps/os88spk.inc apps/os88spkfx.inc \
+             apps/os88rseq.inc \
              apps/os88spkfx_t.inc \
              apps/os88api.inc apps/os88ui.inc apps/os88type.inc
 # NB: apps/audio/audio.asm is named explicitly (as well as via $(AUDIO_SRC),
@@ -6162,7 +6163,7 @@ SKIES_SRC := apps/skies/skies.asm apps/skies/csraster.inc \
              apps/skies/csset.inc $(CSWORLDS) \
              apps/skies/csload.asm apps/skies/csicon.inc \
              apps/os88api.inc apps/os88ui.inc \
-             apps/os88parts.inc apps/os88partsbody.inc \
+             apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc \
                   apps/os88alt.inc
 # **THE PRIVATE TREE CARRIES THE SOURCES IT IS BUILT FROM**
 # (docs/WRITING-TESTS.md 13 row 33). The recursive make below is the RECIPE,
@@ -6269,7 +6270,7 @@ $(BUILD)/csart.bin: tools/csart.py tools/os88lz.py | $(BUILD)
 # loader is 1,343 bytes uncompressed and everything large is an OP_COMP part.
 $(BUILD)/csload.bin: apps/skies/csload.asm apps/skies/csicon.inc \
                      apps/skies/csart.inc apps/os88api.inc \
-                     apps/os88parts.inc apps/os88partsbody.inc | $(BUILD)
+                     apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ -o $@ apps/skies/csload.asm
 	@echo "csload: $(call FILESIZE,$@) bytes"
 
@@ -6332,7 +6333,7 @@ PXSTEIN_GEN := apps/pixelstein/pxtab.inc apps/pixelstein/pxlev.inc \
                apps/pixelstein/pxart.inc apps/pixelstein/pxhuda.inc
 PXSTEIN_SRC := apps/pixelstein/pxstein.asm apps/pixelstein/pxicon.inc \
                apps/pixelstein/pxlev.inc apps/pixelstein/pxart.inc \
-               apps/os88api.inc apps/os88parts.inc apps/os88partsbody.inc
+               apps/os88api.inc apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc
 PXGAME_SRC  := apps/pixelstein/pxgame.asm apps/pixelstein/pxicon.inc \
                apps/pixelstein/pxcast.inc apps/pixelstein/pxgen.inc \
                apps/pixelstein/pxcomp.inc apps/pixelstein/pxrast.inc \
@@ -7258,12 +7259,12 @@ $(BUILD)/rhprog.bin: tests/rehome/rhprog.asm apps/os88api.inc | $(BUILD)
 $(BUILD)/rhasset.bin: tests/rehome/rhasset.asm | $(BUILD)
 	$(NASM) -f bin -w+error -o $@ $<
 
-$(BUILD)/rehome.bin: tests/rehome/rehome.asm apps/os88api.inc apps/os88parts.inc apps/os88partsbody.inc | $(BUILD)
+$(BUILD)/rehome.bin: tests/rehome/rehome.asm apps/os88api.inc apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ $<
 
 $(BUILD)/rehome.o88: $(BUILD)/rehome.bin $(BUILD)/rhprog.bin \
                      $(BUILD)/rhasset.bin tools/os88pkg.py \
-                     apps/os88parts.inc apps/os88partsbody.inc
+                     apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc
 	python3 tools/os88pkg.py $(BUILD)/rehome.bin -o $@ \
 		--part $(BUILD)/rhprog.bin --part $(BUILD)/rhasset.bin
 
@@ -7342,12 +7343,12 @@ rehome: $(BUILD)/rehome.img $(BUILD)/rehome360.img $(BUILD)/rehomemove.img \
 $(BUILD)/msegp%.bin: tests/multiseg/msegp%.asm tests/multiseg/msegpart.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I tests/multiseg/ -o $@ $<
 
-$(BUILD)/mseg.bin: tests/multiseg/mseg.asm apps/os88api.inc apps/os88parts.inc apps/os88partsbody.inc | $(BUILD)
+$(BUILD)/mseg.bin: tests/multiseg/mseg.asm apps/os88api.inc apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I tests/multiseg/ -o $@ $<
 
 $(BUILD)/mseg.o88: $(BUILD)/mseg.bin $(BUILD)/msegp0.bin $(BUILD)/msegp1.bin \
                    $(BUILD)/msegp2.bin $(BUILD)/msegp3.bin $(BUILD)/msegp4.bin \
-                   tools/os88pkg.py apps/os88parts.inc apps/os88partsbody.inc
+                   tools/os88pkg.py apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc
 	python3 tools/os88pkg.py $(BUILD)/mseg.bin -o $@ \
 		--part $(BUILD)/msegp0.bin --part $(BUILD)/msegp1.bin \
 		--part $(BUILD)/msegp2.bin --part $(BUILD)/msegp3.bin \
@@ -7358,7 +7359,7 @@ $(BUILD)/mseg.o88: $(BUILD)/mseg.bin $(BUILD)/msegp0.bin $(BUILD)/msegp1.bin \
 # BELOW the run and op_claim's head slack is what makes the segments land
 # (SPEC.md 20.12.2). At 1.44MB the slack is always zero and the arithmetic
 # never runs.
-$(BUILD)/msegbig.bin: tests/multiseg/msegbig.asm apps/os88api.inc apps/os88parts.inc apps/os88partsbody.inc | $(BUILD)
+$(BUILD)/msegbig.bin: tests/multiseg/msegbig.asm apps/os88api.inc apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ $<
 
 $(BUILD)/msegbig.o88: $(BUILD)/msegbig.bin $(BUILD)/msegp0.bin \
@@ -7389,12 +7390,12 @@ mseg: $(BUILD)/mseg.img $(BUILD)/mseg360.img
 # carve), part 2 is in the middle (a plain row is expanded past on each side),
 # and parts 1 and 5 are plain (op_unpack's `move it down` arm).
 $(BUILD)/msegz.bin: tests/multiseg/mseg.asm apps/os88api.inc \
-                    apps/os88parts.inc apps/os88partsbody.inc | $(BUILD)
+                    apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc | $(BUILD)
 	$(NASM) -f bin -w+error -DMSEG_COMP -I apps/ -I tests/multiseg/ -o $@ $<
 
 $(BUILD)/msegz.o88: $(BUILD)/msegz.bin $(BUILD)/msegp0.bin $(BUILD)/msegp1.bin \
                     $(BUILD)/msegp2.bin $(BUILD)/msegp3.bin $(BUILD)/msegp4.bin \
-                    tools/os88pkg.py tools/os88lz.py apps/os88parts.inc apps/os88partsbody.inc
+                    tools/os88pkg.py tools/os88lz.py apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc
 	python3 tools/os88pkg.py $(BUILD)/msegz.bin -o $@ \
 		--part-compress $(if $(MSEGFMT),$(MSEGFMT),lz4) \
 		--part $(BUILD)/msegp0.bin --part $(BUILD)/msegp1.bin \
@@ -9003,7 +9004,7 @@ $(BUILD)/word.bin: $(WORDSRC) apps/os88api.inc apps/os88ui.inc apps/os88type.inc
 # that says so and carries on); both PARTS are OP_COMP, which is where the
 # bytes are. The loader is 1,357 bytes and ships raw.
 $(BUILD)/wdload.bin: apps/word/wdload.asm apps/word/wdicon.inc apps/os88api.inc \
-                     apps/os88parts.inc apps/os88partsbody.inc | $(BUILD)
+                     apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/word/ -o $@ apps/word/wdload.asm
 	@echo "wdload: $(call FILESIZE,$@) bytes of parts loader"
 

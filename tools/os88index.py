@@ -169,6 +169,13 @@ INCLUDES = [
      "line needs somewhere to land. An app-side rasteriser is FASTER than the "
      "slot (24.6 us a pixel against `gfx_line`'s 31.6 with the arrival "
      "removed)."),
+    ("os88rseq.inc", "18.4.8.1",
+     "`os88_rseq`: `OSAPI_FILE_READ_AT`'s registers plus a 16-byte cursor at "
+     "`DS:DI`, served by `OSAPI_FILE_READ_SEQ` - one FAT link a chunk where "
+     "`READ_AT` walks the chain from the front every call. The offset stays "
+     "yours and a cursor whose offset differs is re-seeded, so a seek needs "
+     "nothing; the small kernel's `FERR_NAME` is retried as `READ_AT`. Zero "
+     "the cursor with `os88_rseq_new` whenever the FILE changes."),
     ("os88pit.inc", "72.15.1",
      "`pit_now`: a 32-bit clock in 838ns units off the 8253 and the BIOS tick, "
      "good for an hour before it wraps. Sub-tick timing for a profiler."),

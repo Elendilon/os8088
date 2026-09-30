@@ -125,6 +125,7 @@ CL_FSPT      equ 46             ; dw \ the FILE volume's live geometry, banked
 CL_FHDS      equ 48             ; dw  | so a raw transfer on the DISK end can
 CL_FTOT      equ 50             ; dw /  borrow those words and give them back
 CL_FTOK      equ 54             ; dw: the image file's WRITE_SEQ token (18.4.9)
+CL_FCUR      equ 56             ; 16: ...and its READ_SEQ cursor (18.4.8.1)
 CL_FCLUS     equ 52             ; dw: the FOLDER the image file is in - the
                                 ; volume alone is not enough, because the
                                 ; current directory is GLOBAL and the UI runs
@@ -191,6 +192,25 @@ CLO_XCAPS    equ apic_xm_caps          ; SPEC.md 41: out AX = free KB
 CLO_XALLOC   equ apic_xm_alloc         ; in DX:AX = bytes; out CF, DX:AX = the base
 CLO_XFREE    equ apic_xm_free          ; in DX:AX = a base this caller owns
 CLO_XCOPY    equ apic_xm_copy          ; in ES:SI / DX:AX / CX / DI = direction
+
+; CLO_RSEQ seg, off - dwf_dskw_read_at, served by READ_SEQ from the 16-byte
+; cursor at seg:off (SPEC.md 18.4.8.1): READ_AT's registers in and out, every
+; other register kept. The image's three chunked readers - clo_fget, the
+; join's cmz_jneed and the compressor's cmz_sfetch - each walked the chain
+; from the front on every chunk. kern_small has no READ_SEQ and gets READ_AT.
+%macro CLO_RSEQ 2
+%ifdef KERN_BIG
+    push bp
+    push di
+    mov bp, %1
+    mov di, %2
+    call clo_rseq
+    pop di
+    pop bp
+%else
+    call COLD_SEG:dwf_dskw_read_at
+%endif
+%endmacro
 
 section .modl                   ; the on-demand image (SPEC.md 2.8)
 modl_hdr:
@@ -1075,10 +1095,12 @@ clo_fadv:
 ;      CF=1 with AL = CERR_*
 ; clobbers: AX, flags
 ;
-; `dskw_read_at` is stateless and takes the offset outright (SPEC.md 18.4.4),
-; which is exactly what this loop needs: the WRITE half between two reads
-; walks directories and the FAT, so a resume token living in the kernel would
-; be destroyed by the very work it is feeding.
+; The offset is still the whole argument (SPEC.md 18.4.4): the WRITE half
+; between two reads walks directories and the FAT, so a resume token living in
+; the kernel would be destroyed by the very work it is feeding. The cursor is
+; the CALLER's, in the claim's header, and only caches the walk - READ_SEQ
+; re-seeds it from the name whenever the media generation moved (SPEC.md
+; 18.4.8.1).
 ; -----------------------------------------------------------------------------
 clo_fget:
     push bx
@@ -1086,6 +1108,7 @@ clo_fget:
     push dx
     push si
     push di
+    push bp
     call clo_fend
     mov ax, [es:CL_CHUNK]
     mov cl, 9
@@ -1096,9 +1119,10 @@ clo_fget:
     mov di, [es:CL_BUFSG]
     mov si, clo_fnbuf
     push es
-    mov es, di
+    mov bp, es                  ; BP = the claim, whose header holds the
+    mov es, di                  ; cursor: clo_zerohdr blanks it per job
     xor bx, bx                  ; ES:BX = the buffer
-    call COLD_SEG:dwf_dskw_read_at  ; DX:AX = the bytes delivered
+    CLO_RSEQ bp, CL_FCUR        ; DX:AX = the bytes delivered
     pop es
     jc .bad
     add [es:CL_FOFF], ax
@@ -1112,12 +1136,45 @@ clo_fget:
     call clo_ferr
     stc
 .out:
+    pop bp
     pop di
     pop si
     pop dx
     pop cx
     pop bx
     ret
+
+%ifdef KERN_BIG
+; -----------------------------------------------------------------------------
+; clo_rseq - CLO_RSEQ's body (module internal; SPEC.md 18.4.8.1)
+; in:  DS:SI -> the name, ES:BX -> the buffer, CX = the capacity, DX:AX = the
+;      offset (dwf_dskw_read_at's), BP:DI -> the 16-byte cursor
+; out: dwf_dskw_read_at's: CF=0 DX:AX = the bytes; CF=1 AX = FERR_*
+; preserves: BX, CX, SI, DI, BP, DS, ES
+;
+; THE OFFSET STAYS THE CALLER'S. A cursor whose offset is not DX:AX is
+; re-seeded there, so a seek, a cut-out's rewind, a new part at 0 and a retry
+; need nothing from the caller. It names no file, so a caller moving to a new
+; one zeroes it (cmz_jrst, the compressor's streamed start, clo_zerohdr).
+; -----------------------------------------------------------------------------
+clo_rseq:
+    push es
+    mov es, bp                  ; ES:DI = the cursor
+    cmp ax, [es:di+FSEQ_OFF]
+    jne .seed
+    cmp dx, [es:di+FSEQ_OFF+2]
+    je .go
+.seed:
+    mov word [es:di+RSQ_GEN], 0 ; not seeded: the next call stats the name
+    mov [es:di+FSEQ_OFF], ax    ; and walks once, to here
+    mov [es:di+FSEQ_OFF+2], dx
+.go:
+    pop dx                      ; DX:BX = the buffer (the caller's ES)
+    push dx
+    call COLD_SEG:dwf_dskw_read_seq
+    pop es
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; clo_ferr - a FERR_* from the file API, as a CERR_* (module internal)

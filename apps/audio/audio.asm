@@ -229,6 +229,7 @@ AP_B_NONE  equ 0xFF
     APW ap_la_rd
     APW ap_clu
     APD ap_rd_pos
+    APBUF ap_rd_cur, FSEQ_SIZE     ; the refill's READ_SEQ cursor (os88rseq.inc)
     APW ap_skip
     APW ap_rd_len                  ; bytes the current ap_refill_chunk read pulls
     APD ap_data_off
@@ -451,6 +452,7 @@ ap_entry:
 ;           the ui, the playlist.
 ; =============================================================================
 %include "apengine.inc"
+%include "os88rseq.inc"
 %include "apwork.inc"
 %include "apcb.inc"
 %include "apwav.inc"
