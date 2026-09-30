@@ -360,6 +360,21 @@ cmz_pack:
     call cmz_oslide
     jmp .next
 
+    ; The refusals, HERE and not after the tail: .oend and all three of
+    ; .done's tests reach them with a short jcc from here (size pass 8)
+.tail:
+    mov ax, 1
+    jmp short .fail
+.no:
+    xor ax, ax
+.fail:
+    CMZ_TRACK 0                 ; ...on every way out, cmz_ioerr's included
+    pop bp
+    pop es
+    pop ds
+    stc
+    ret
+
 .done:
     ; --- the tail: the symbols end at the cut, and the source from there on
     ; --- goes across as it is, behind the T word (SPEC.md 20.13.7). A tag byte
@@ -491,7 +506,7 @@ cmz_pack:
     call cmz_oflush
     pop ax
     or al, al
-    jz .pop
+    jz .popj                    ; (the `jmp .pop` below: a free trampoline)
     xor ax, ax                  ; the T word was written as 0 with the first
     xor dx, dx                  ; 16KB, so the first sector comes back, takes
     mov cx, [cs:cmz_clb]        ; it, and goes out again IN PLACE
@@ -503,19 +518,8 @@ cmz_pack:
     mov cx, 512
     mov bx, dwf_dskw_write_at
     call cmz_tio
+.popj:
     jmp .pop
-.tail:
-    mov ax, 1
-    jmp short .fail
-.no:
-    xor ax, ax
-.fail:
-    CMZ_TRACK 0                 ; ...on every way out, cmz_ioerr's included
-    pop bp
-    pop es
-    pop ds
-    stc
-    ret
 
 ; cmz_ioerr - a streamed read or write failed: AX = its FERR_*, and the stack
 ;             goes back to cmz_pack's frame from wherever this was reached
@@ -525,7 +529,7 @@ cmz_ioerr:
     mov [cs:cmz_err], ax
     mov sp, [cs:cmz_sp]
     mov ax, 2
-    jmp short cmz_pack.fail
+    jmp cmz_pack.fail
 
 ; cmz_tio - one file call on the NEW file, fm_ebuf (module internal)
 ; in:  BX = the dwf_ shim (read_at or write_at), DX:AX = the offset, CX = the
@@ -1274,13 +1278,7 @@ cmz_verb:
     xor ax, ax                  ; ...and has nothing to say
     stc
 .out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp clo_x6                 ; (the shared epilogue, below clo_cat)
 
 ; -----------------------------------------------------------------------------
 ; cmz_sizes - what the selected file OCCUPIES and what it BECOMES
@@ -1362,6 +1360,30 @@ cmz_compress:
     call cmz_route              ; too big to hold twice? (SPEC.md 22.22.5)
     jnc .whole
     jmp cmz_stream              ; ...then streamed, and its answer is ours
+    ; The refusals with no claim held, and the FERR_* ones: HERE, in the
+    ; middle, so that the tests above and the read below all reach them with
+    ; a short jcc (size pass 8)
+.rdisk:
+    mov ax, FERR_IO             ; the volume moved under us between the
+.rferr:                         ; directory read and the data read
+    call cmz_drop               ; the claim is still held (flags only)
+.ferr:
+    stc                         ; AX = FERR_*, and the caller says it: this
+    ret                         ; image has no fm_errtab of its own and does
+                                ; not want one
+.worse:
+    mov ax, cmz_s_worse
+    jmp short .say
+.nomem:
+    mov ax, cmz_s_nomem
+    jmp short .say
+.big:
+    mov ax, cmz_s_big
+    jmp short .say
+.already:
+    mov ax, cmz_s_alr
+.say:
+    jmp cmz_jret                ; ...said here, so the caller says nothing
 .whole:
     call cmz_claim              ; DX = the base, [cs:cmz_k]/[cs:cmz_w] set
     jc .nomem
@@ -1479,40 +1501,16 @@ cmz_compress:
     clc
     ret
 
-.rdisk:
-    mov ax, FERR_IO             ; the volume moved under us between the
-.rferr:                         ; directory read and the data read
-    call cmz_drop               ; the claim is still held (flags only)
-.ferr:
-    stc                         ; AX = FERR_*, and the caller says it: this
-    ret                         ; image has no fm_errtab of its own and does
-                                ; not want one
 .rpack:
     or ax, ax
     jz .rworse                  ; AX = 0: it did not get smaller
     mov ax, cmz_s_tail          ; AX = 1: a raw tail over 64KB
     jmp short .rsay
 .rworse:
-    call cmz_drop
-.worse:
     mov ax, cmz_s_worse
-    jmp short .say
-.rsay:                          ; cmz_pkg's refusal: the claim is held
-    call cmz_drop               ; (flags only: AX, the error, survives)
-    jmp short .say
-.nomem:
-    mov ax, cmz_s_nomem
-    jmp short .say
-.big:
-    mov ax, cmz_s_big
-    jmp short .say
-.already:
-    mov ax, cmz_s_alr
-.say:
-    call cmz_say
-    xor ax, ax                  ; ...said here, so the caller says nothing
-    stc
-    ret
+.rsay:                          ; the claim is held: back, then said
+    call cmz_drop               ; (flags only: AX, the string, survives)
+    jmp cmz_jret                ; ...said, and the caller says nothing
 
 ; -----------------------------------------------------------------------------
 ; cmz_route - does this file go through memory WHOLE, or STREAMED?
@@ -1607,16 +1605,10 @@ cmz_stream:
     jmp .say
 .got:
     mov [cs:cmz_b], dx
-    push ds                     ; the new file's name, where the file layer
-    pop es                      ; can read it (DS:SI) - fm_ebuf, the status
-    mov si, cmz_s_tmpn          ; line's edit buffer, idle while a menu verb
-    mov di, fm_ebuf             ; runs
-    mov cx, CMZ_TMPL
-.cp:
-    mov al, [cs:si]
-    inc si
-    stosb
-    loop .cp
+    call cmz_jtmpn              ; the new file's name, where the file layer
+                                ; can read it (DS:SI) - fm_ebuf, the status
+                                ; line's edit buffer, idle while a menu verb
+                                ; runs
     mov si, fm_ebuf             ; a name already TAKEN refuses: the write
     call COLD_SEG:dwf_dskw_stat ; below would replace it, and it may be the
     mov ax, FERR_EXIST          ; result a failed rename left there (SPEC.md
@@ -1705,10 +1697,7 @@ cmz_stream:
 .rsay:
     call cmz_drop               ; (flags only: AX, the error, survives)
 .say:
-    call cmz_say
-    xor ax, ax
-    stc
-    ret
+    jmp cmz_jret                ; ...said, and the caller says nothing
 
 ; -----------------------------------------------------------------------------
 ; cmz_uncomp - File > Uncompress (SPEC.md 22.23)
@@ -1743,6 +1732,33 @@ cmz_uncomp:
     jne .rbad                   ; the hint said one thing and the read another
     xor bx, bx
     jmp .writeit
+
+    ; The refusals, HERE in the middle so both arms reach them with a short
+    ; jcc (size pass 8)
+.rferr:
+    call cmz_ufree              ; (flags only)
+.ferr:
+    stc
+    ret
+.rbad:
+    mov ax, cmz_s_bad
+    jmp short .rsay
+.rplain:
+    mov ax, cmz_s_plain
+    jmp short .rsay
+.rnomem:
+    mov ax, cmz_s_nomem
+.rsay:
+    call cmz_ufree              ; (flags only)
+    jmp short .say
+.plain:
+    jmp cmz_join                ; ...or a PART of a split set, which says
+                                ; `Not compressed` itself when it is not one
+                                ; (SPEC.md 22.23.5)
+.nomem:
+    mov ax, cmz_s_nomem
+.say:
+    jmp cmz_jret                ; ...said, and the caller says nothing
 
     ; --- a package (SPEC.md 20.13): read it as it lies, then expand -------
 .pkg:
@@ -1806,33 +1822,6 @@ cmz_uncomp:
     clc
     ret
 
-.rferr:
-    call cmz_ufree              ; (flags only)
-.ferr:
-    stc
-    ret
-.rbad:
-    mov ax, cmz_s_bad
-    jmp short .rsay
-.rplain:
-    mov ax, cmz_s_plain
-    jmp short .rsay
-.rnomem:
-    mov ax, cmz_s_nomem
-.rsay:
-    call cmz_ufree              ; (flags only)
-    jmp short .say
-.plain:
-    jmp cmz_join                ; ...or a PART of a split set, which says
-                                ; `Not compressed` itself when it is not one
-                                ; (SPEC.md 22.23.5)
-.nomem:
-    mov ax, cmz_s_nomem
-.say:
-    call cmz_say
-    xor ax, ax
-    stc
-    ret
 
 ; -----------------------------------------------------------------------------
 ; cmz_uclaim - one block big enough to expand DX:AX bytes into
@@ -2028,61 +2017,154 @@ CMZ_JST     equ 16              ; where the saved state sits in the claim's
 %endif
 %endmacro
 
+; cmz_jopen - the start all three ways in share
+; in:  [cmz_jsp] banked by the caller (kern_big: and the source's place)
+; out: CF=0 with fm_onam a part (cmz_jisname), the claim held and its state
+;      zeroed, standing in the source's folder, on a volume whose clusters
+;      a 16KB take reads whole; CF=1 with AX = the refusal, NOTHING held. A
+;      failure once the claim is held leaves through cmz_jerr
+cmz_jopen:
+    call cmz_jisname            ; BASE.NNN, or not ours
+    mov ax, cmz_s_plain
+    jc .r
+    call cmz_jclaim
+    mov ax, cmz_s_nomem
+    jc .r
+    CMZ_GO src
+    call COLD_SEG:dwf_dskw_dfree    ; BX = sectors a cluster
+    jc .err
+    mov ax, cmz_s_clus
+    cmp bx, CMZ_JRD / 512
+    ja .err
+    clc
+.r:
+    ret
+.err:
+    jmp cmz_jerr
+
+; cmz_jhdr - a new file (fm_onam): its first 32 bytes, as a part's header
+; out: CF=0 with ES:DI = the header, 'CS' version 1; CF=1 it is not one (or
+;      the file is shorter). A read error never returns (cmz_jneed)
+; clobbers: AX BX CX DX SI DI ES
+cmz_jhdr:
+    call cmz_jrst
+    mov ax, CMZ_JHDR
+    call cmz_jneed
+    jc .r
+    mov es, [cs:cmz_jwin]
+    mov di, [cs:cmz_jpos]
+    cmp word [es:di], 'CS'      ; the magic...
+    jne .no
+    cmp word [es:di+2], 1       ; ...version 1 and the reserved zero
+    je .r                       ; (equal: CF = 0)
+.no:
+    stc
+.r:
+    ret
+
+; cmz_jhname - the name a set rejoins as, out of a part's header: 12 chars
+;              at ES:DI+20, NUL-ended at AX:BX. clobbers: CX SI DI ES
+cmz_jhname:
+    push ds
+    push es
+    pop ds
+    mov es, ax
+    lea si, [di+20]
+    mov di, bx
+    mov cx, 12
+    rep movsb
+    mov [es:di], cl             ; CX is 0: the NUL
+    pop ds
+    ret
+
+; cmz_jret   - AX = a string of this image or a FERR_*, said; the caller's
+;              "it has spoken" (CF=1, AX=0). Nothing is held
+; cmz_jspoke - ...the same answer with nothing said
+cmz_jret:
+    call cmz_jsayx
+cmz_jspoke:
+    xor ax, ax
+    stc
+    ret
+
 ; -----------------------------------------------------------------------------
-; cmz_join - plain Uncompress of a PART: the set, joined beside it
+; cmz_join  - plain Uncompress of a PART: the set, joined beside it
+; cmz_uncto - Uncompress To... (SPEC.md 22.23.6, kern_big): is the selection a
+;             part, and what is it called? Asked BEFORE the Save box, so the
+;             box can open on the name the set rejoins as - and the box is
+;             opened HERE, through fdf_fdlg_open, with the resident
+;             fm_img_done_x as its completion proc
 ; in:  fm_onam = the selection, a file with no 'CZ' mark that is not a
 ;      compressed package
-; out: cmz_verb's three answers
+; out: cmz_verb's answers. Every refusal and every verdict is said HERE,
+;      FERR_*s included (cmz_jsayx, off the kernel's own fm_errtab), so the
+;      caller only ever hears CF=0 (the folder changed) or CF=1 with AX = 0
+;
+; ONE START for both, and for cmz_jgo below: [cmz_jto] says which (0 plain,
+; 1 Uncompress To...'s join, 2 its probe), and everything from the claim on
+; is the same code - the probe reads the selection's header through the
+; join's own window, which is a 16KB take like the one it used to claim for
+; itself.
 ; -----------------------------------------------------------------------------
+%ifdef KERN_BIG
+cmz_uncto:
+    mov ax, cmz_s_jbusy
+    cmp word [clo_seg], 0       ; a clone or another join: one claim word
+    jne cmz_jret
+    mov al, 2                   ; the probe
+    jmp short cmz_jstart
+%endif
 cmz_join:
+    xor al, al                  ; plain
+cmz_jstart:
     cld
-    call cmz_jisname            ; BASE.NNN, or not ours
-    jc .notpart
-    call COLD_SEG:dwf_dskw_dfree    ; BX = sectors a cluster
-    jc .ret                     ; (AX = the FERR_*, and nothing is held)
-    cmp bx, CMZ_JRD / 512
-    ja .bigclus
-    call cmz_jclaim
-    jc .nomem
-    mov byte [cs:cmz_jto], 0
+    mov [cs:cmz_jto], al
 %ifdef KERN_BIG
     mov al, [disk_drive]        ; source and target are this one folder, so
-    mov bx, [dsk_cwd]           ; every hop is a word (fcp_goto's quiet arm)
-    mov [cs:cmz_jsrcd], al
-    mov [cs:cmz_jtgtd], al
-    mov [cs:cmz_jsrcc], bx
-    mov [cs:cmz_jtgtc], bx
+    mov ah, al                  ; every hop is a word (fcp_goto's quiet arm):
+    mov [cs:cmz_jsrcd], ax      ; both drive bytes at once (adjacent, below)
+    mov ax, [dsk_cwd]
+    mov [cs:cmz_jsrcc], ax
+    mov [cs:cmz_jtgtc], ax
     call COLD_SEG:dkf_dsk_batch_begin
 %endif
     mov [cs:cmz_jsp], sp
-    call cmz_jrst               ; --- the SELECTION first: a plain file that
-    mov ax, CMZ_JHDR            ; only looks like a part is not compressed,
-    call cmz_jneed              ; and must not be told part 1 is missing
-    jc .notcs
-    mov es, [cs:cmz_jwin]
-    mov di, [cs:cmz_jpos]
-    cmp word [es:di], 'CS'
-    jne .notcs
-    cmp word [es:di+2], 1
-    jne .notcs
-    jmp cmz_jloop
-.notcs:
-    jmp cmz_jloop.notcs
+    call cmz_jopen              ; a part, the claim, clusters a take reads whole
+    jc cmz_jret                 ; nothing held: say why
+    call cmz_jhdr               ; --- the SELECTION first: a plain file that
+    jc cmz_jnotcs               ; only looks like a part is not compressed,
+%ifdef KERN_BIG                 ; and must not be told part 1 is missing
+    cmp byte [cs:cmz_jto], 0
+    je cmz_jloop
+    ; --- Uncompress To...'s probe: the name it rejoins as, the box's default
+    mov ax, ds
+    mov bx, fm_hdrbuf
+    call cmz_jhname
+    mov si, fm_onam             ; ...and the part's own, for the join to read
+    mov di, clo_fnbuf           ; back: a cancelled box calls nothing, and the
+    call clo_ds13               ; image is not held across it, so it waits in
+    call cmz_jundo              ; the resident buffer - with the claim gone
+    mov bx, [fm_cmdwin]         ; the Save box: the window the command acts on,
+    mov si, fm_hdrbuf           ; the default name, and the RESIDENT completion
+    mov di, fm_img_done_x       ; proc, which starts the join through
+    mov al, 1                   ; CLV_SAVED with no claim live (22.23.6). CF=1
+    call COLD_SEG:fdf_fdlg_open ; (a box already up) cannot happen from a
+    jmp short cmz_jspoke        ; menu pick - and either way it has spoken
+%else
+    jmp short cmz_jloop
+%endif
 
-.notpart:
+; cmz_jnotcs - not a part at all - or, past part 1, a part of nothing this
+;              set knows. A tail, reached by a jump; the frame is banked
+cmz_jnotcs:
+    cmp word [cs:cmz_jk], 1
+    ja cmz_jwrong
     mov ax, cmz_s_plain
-    jmp short .say
-.bigclus:
-    mov ax, cmz_s_clus
-    jmp short .say
-.nomem:
-    mov ax, cmz_s_nomem
-.say:
-    call cmz_say
-    xor ax, ax
-    stc
-.ret:
-    ret
+    jmp cmz_jerr
+cmz_jwrong:
+    mov si, cmz_s_wrong
+    call cmz_jmsg
+    jmp cmz_jerr
 
 ; -----------------------------------------------------------------------------
 ; cmz_jloop - the parts, from the one after [cmz_jk] (SPEC.md 22.23.5)
@@ -2104,25 +2186,17 @@ cmz_jloop:
 .next:
     mov [cs:cmz_jk], ax
     call cmz_jdig
-    call cmz_jrst
-    mov ax, CMZ_JHDR
-    call cmz_jneed
-    jc .notcs
-    mov es, [cs:cmz_jwin]
-    mov di, [cs:cmz_jpos]
-    cmp word [es:di], 'CS'      ; the magic...
-    jne .notcs
-    cmp word [es:di+2], 1       ; ...version 1 and the reserved zero
-    jne .notcs
+    call cmz_jhdr
+    jc cmz_jnotcs
     mov ax, [es:di+4]
     cmp ax, [cs:cmz_jk]
-    jne .wrong                  ; not the part its name says
-    cmp ax, 1
-    jne .later
+    jne cmz_jwrong              ; not the part its name says
+    dec ax
+    jnz .same
     mov ax, [es:di+6]           ; --- part 1 says what the set is ------
     dec ax
     cmp ax, 999 - 1
-    ja .notcs                   ; 1..999 parts
+    ja cmz_jnotcs               ; 1..999 parts
     inc ax
     mov [cs:cmz_jn], ax
     mov ax, [es:di+8]
@@ -2132,56 +2206,31 @@ cmz_jloop:
     mov [cs:cmz_utot], ax       ; ...and the bar is the original's size
     mov [cs:cmz_utot+2], dx
     or ax, dx
-    jz .notcs
+    jz cmz_jnotcs
     mov ax, [es:di+16]
     mov [cs:cmz_jid], ax
     mov ax, [es:di+18]
     mov [cs:cmz_jid+2], ax
     cmp byte [cs:cmz_jto], 0    ; Uncompress To... was TOLD the name, and has
     jne .named                  ; checked it and the temporary's already
-    push ds                     ; the name it rejoins as, NUL-ended
-    push es
-    pop ds
-    lea si, [di+20]
-    mov di, cmz_jnam
-    mov cx, 12
-.nm:
-    mov al, [si]                ; (DS, deliberately: os88ovlchk)
-    inc si
-    mov [cs:di], al
-    inc di
-    loop .nm
-    mov byte [cs:di], 0
-    pop ds
+    mov ax, cs                  ; the name it rejoins as, NUL-ended
+    mov bx, cmz_jnam
+    call cmz_jhname
     call cmz_jname              ; that name is free, and so is the temporary
 .named:
     call cmz_rearm
     mov es, [cs:cmz_jwin]
     mov di, [cs:cmz_jpos]
-    jmp short .offs
-.later:                         ; --- every later part: the same set ------
-    mov ax, [es:di+6]
-    cmp ax, [cs:cmz_jn]
-    jne .wrong
-    mov ax, [es:di+8]
-    cmp ax, [cs:cmz_jtot]
-    jne .wrong
-    mov ax, [es:di+10]
-    cmp ax, [cs:cmz_jtot+2]
-    jne .wrong
-    mov ax, [es:di+16]
-    cmp ax, [cs:cmz_jid]
-    jne .wrong
-    mov ax, [es:di+18]
-    cmp ax, [cs:cmz_jid+2]
-    jne .wrong
-.offs:
-    mov ax, [es:di+12]          ; ...and it starts where the last one ended
-    cmp ax, [cs:cmz_jw]
-    jne .wrong
-    mov ax, [es:di+14]
-    cmp ax, [cs:cmz_jw+2]
-    jne .wrong
+.same:                          ; --- the same set, and it starts where the
+    push ds                     ; last one ended: n, total, offset and ID are
+    push cs                     ; the header's bytes 6..20 in cmz_jn..cmz_jid's
+    pop ds                      ; order (asserted below), and the offset is
+    mov si, cmz_jn              ; cmz_jw - 0 for part 1, which is its check
+    add di, 6
+    mov cx, 7
+    repe cmpsw                  ; REP alone, no segment override (SPEC.md 1's
+    pop ds                      ; 8088 hazard)
+    jne cmz_jwrong
     add word [cs:cmz_jpos], CMZ_JHDR
     sub word [cs:cmz_javl], CMZ_JHDR
 
@@ -2196,12 +2245,10 @@ cmz_jloop:
     mov ax, [es:di+4]           ; M, and the reserved zero above it
     mov bx, cx
     dec bx
-    cmp bx, 0x7FFF
-    ja .bad                     ; S in 1..32,768
+    js .bad                     ; S in 1..32,768: 0 and 32,769 up go negative
     mov bx, dx
     dec bx
-    cmp bx, 0x7FFF
-    ja .bad                     ; N in 1..32,768
+    js .bad                     ; N in 1..32,768
     cmp ax, 2
     ja .bad                     ; stored, LZ4 or LZB - and the zero
     or ax, ax
@@ -2244,6 +2291,8 @@ cmz_jloop:
     pop es
     pop ds
     jmp short .out
+.bad:                           ; HERE, in the middle of the eleven jumps to
+    jmp cmz_jbad                ; it, so every one of them is a short jcc
 .dec:
     CMZ_TRACK 1                 ; the decode draws nothing
     push ds
@@ -2259,14 +2308,10 @@ cmz_jloop:
     pop ds
     CMZ_TRACK 0                 ; (moves and pushes: CF is the decoder's)
     jc .bad
-.out:
-    mov ax, [cs:cmz_o]
-    xor si, si
-.have:
-    mov [cs:cmz_jseg], ax       ; AX:SI = the N bytes
-    mov [cs:cmz_jofs], si
+.out:                           ; the N bytes are at [cmz_o]:0 either way
     push ds
-    mov ds, ax
+    mov ds, [cs:cmz_o]
+    xor si, si
     mov cx, [cs:cmz_jnn]
     call cmz_jsum               ; AX = A, DX = B
     pop ds
@@ -2277,8 +2322,8 @@ cmz_jloop:
     cmp dx, [es:di+8]
     jne .bad                    ; a damaged copy
     CMZ_GO dst                  ; --- out it goes ------------------------
-    mov es, [cs:cmz_jseg]
-    mov bx, [cs:cmz_jofs]
+    mov es, [cs:cmz_o]
+    xor bx, bx
     mov cx, [cs:cmz_jnn]
     mov si, fm_ebuf
     cmp byte [cs:cmz_jwrote], 0
@@ -2321,16 +2366,7 @@ cmz_jloop:
 .pnext:
     jmp .part
 
-.notcs:                         ; not a part at all - or, past part 1, a part
-    cmp word [cs:cmz_jk], 1     ; of nothing this set knows
-    ja .wrong
-    mov ax, cmz_s_plain
-    jmp short cmz_jerr
-.wrong:
-    mov si, cmz_s_wrong
-    call cmz_jmsg
-    jmp short cmz_jerr
-.bad:
+cmz_jbad:
     mov ax, cmz_s_bad
     ; ...into cmz_jerr
 
@@ -2343,96 +2379,87 @@ cmz_jerr:
     push ax
     call cmz_jrmtmp             ; a result half-written goes
     pop ax
-%ifdef KERN_BIG
-    cmp byte [cs:cmz_jto], 0
-    je .plain
-    call cmz_jsayx              ; Uncompress To... says its own verdict, even
-    jmp cmz_jfin                ; a FERR_*: mode 7 has nobody else to say it
-.plain:
-%endif
+    stc                         ; ...and it is a refusal
+    ; ...into cmz_jexit
+
+; cmz_jexit - the join ends, every way: the claim back, the bar ended, the
+;             selection's name restored, and AX said
+; in:  AX = a FERR_* (under 16, said off the kernel's own fm_errtab), a string
+;      of this image, or 0 = nothing to say; CF = 1 it failed. Every way here
+;      is reached with the frame [cmz_jsp] names under SP
+; out: plain Uncompress (and Uncompress To's probe): cmz_verb's answers - CF=0
+;      the folder changed, CF=1 with AX=0 it has spoken. Uncompress To...'s
+;      join: AL = CLA_JDONE, CF = 0, with [clo_seg] empty
+cmz_jexit:
+    pushf
     push ax
+%ifdef KERN_BIG
+    cmp byte [cs:cmz_jto], 1
+    jne .keep
+    mov word [clo_seg], 0       ; cleared FIRST, clo_free's reason: the free
+.keep:                          ; can compact. cmz_drop frees [cmz_b], which
+%endif                          ; IS the claim [clo_seg] named
     call cmz_jundo
     pop ax
-    cmp ax, 16
-    jb .ferr
-    call cmz_say
-    xor ax, ax
-.ferr:
-    stc
+    or ax, ax
+    jz .quiet
+    call cmz_jsayx
+.quiet:
+%ifdef KERN_BIG
+    cmp byte [cs:cmz_jto], 1
+    je .to
+%endif
+    popf
+    mov ax, 0                   ; (`mov` keeps CF)
     ret
+%ifdef KERN_BIG
+.to:
+    popf
+    mov al, CLA_JDONE
+    clc
+    ret
+%endif
 
 ; cmz_jend - every part read: the length must be the total, and the result
 ; takes its name. Reached from cmz_jloop with the frame banked
 cmz_jend:
     mov ax, [cs:cmz_jw]
     cmp ax, [cs:cmz_jtot]
-    jne cmz_jloop.bad
+    jne cmz_jbad
     mov ax, [cs:cmz_jw+2]
     cmp ax, [cs:cmz_jtot+2]
-    jne cmz_jloop.bad           ; short of what part 1 promised
+    jne cmz_jbad           ; short of what part 1 promised
     CMZ_GO dst
-    push es                     ; the result takes its name: fm_onam,
-    push ds                     ; because the file layer reads names from DS
-    pop es
-    mov si, cmz_jnam
-    mov di, fm_onam
-    mov cx, 13
-.fn:
-    mov al, [cs:si]
-    inc si
-    stosb
-    loop .fn
-    pop es
+    mov si, cmz_jnam            ; the result takes its name: fm_onam,
+    mov di, fm_onam             ; because the file layer reads names from DS
+    call cmz_cs13
 %ifdef KERN_BIG
     call cmz_jtmpn              ; THE CLOSE: the held stream's link, FAT and
     xor cx, cx                  ; size, before the rename - whose own gate
     call COLD_SEG:dwf_dskw_write_seq    ; would commit it too, but DROPS a
-    jnc .closed                 ; commit's failure on the floor. The size is
+    jc .err                     ; commit's failure on the floor. The size is
                                 ; exactly what cmz_jw counted, so a failure
                                 ; here is the disk's, and leaves through
                                 ; cmz_jerr like any other write
-    jmp cmz_jerr
-.closed:
 %endif
     mov byte [cs:cmz_jwrote], 0 ; a failed rename leaves the result on the
     mov si, fm_ebuf             ; disk under the temporary name, as the
     mov di, fm_onam             ; streamed Compress does (SPEC.md 22.22.5)
     call COLD_SEG:dwf_dskw_rename
-    jnc .named
+    jc .err
+    mov ax, cmz_s_undone        ; a WORD and not a number, and CF = 0
+    jmp short cmz_jexit
+.err:
     jmp cmz_jerr
-.named:
-%ifdef KERN_BIG
-    cmp byte [cs:cmz_jto], 0
-    je .plain
-    mov ax, cmz_s_undone
-    call cmz_say
-    jmp cmz_jfin
-.plain:
-%endif
-    call cmz_jundo              ; clobbers AX, so the string comes after it
-    mov ax, cmz_s_undone
-    call cmz_say
-    clc
-    ret
 
 ; cmz_jundo - the claim back, the bar ended, the selection's name restored
 ; clobbers: AX CX SI DI, flags
 cmz_jundo:
     call cmz_drop
 cmz_jsel2on:                    ; ...the name alone, for a join that pauses
-    push es
-    push ds
-    pop es
     mov si, cmz_jsel
     mov di, fm_onam
-    mov cx, 13
-.l:
-    mov al, [cs:si]
-    inc si
-    stosb
-    loop .l
-    pop es
-    ret
+    jmp short cmz_cs13
 
 ; cmz_jrmtmp - CMPRESS~.TMP goes, if this join created it. clobbers: SI
 cmz_jrmtmp:
@@ -2461,10 +2488,17 @@ cmz_jtmpn:
     mov si, cmz_s_tmpn
 ; cmz_jcp13 - 13 bytes from CS:SI to fm_ebuf. clobbers: SI
 cmz_jcp13:
-    push ax
-    push cx
     push di
     mov di, fm_ebuf
+    call cmz_cs13
+    pop di
+    ret
+
+; cmz_cs13 - 13 bytes from CS:SI to DS:DI: a name of this image's out to where
+;            the file layer or the file dialog reads it. clobbers: SI DI
+cmz_cs13:
+    push ax
+    push cx
     mov cx, 13
 .c:
     mov al, [cs:si]
@@ -2472,7 +2506,6 @@ cmz_jcp13:
     mov [di], al
     inc di
     loop .c
-    pop di
     pop cx
     pop ax
     ret
@@ -2585,7 +2618,9 @@ cmz_jslice:
 ; -----------------------------------------------------------------------------
 cmz_jneed:
     cmp [cs:cmz_javl], ax
-    jae .ok
+    jb .need
+    ret                         ; CF = 0: they are
+.need:
     push ax
     push ds
     mov cx, [cs:cmz_javl]
@@ -2777,23 +2812,17 @@ cmz_go:
 
 ; cmz_jfloppy - may a missing part be ASKED for? CF=0 = yes: this is
 ;               Uncompress To..., the source is a BIOS floppy, and the result
-;               is not being written to that same drive. clobbers: AX BX
+;               is not being written to that same drive. clobbers: AX BX DL
 cmz_jfloppy:
-    cmp byte [cs:cmz_jto], 0
-    je .no
+    cmp byte [cs:cmz_jto], 1    ; the join, not plain Uncompress or the probe
+    jne .no
     mov al, [cs:cmz_jsrcd]
     cmp al, [cs:cmz_jtgtd]
     je .no                      ; swapping it would take the result out too
     mov bl, al
-    call COLD_SEG:dskf_dsk_vol_row
-    jc .no
-    cmp byte [bx+DV_KIND], DVK_BIOS
-    jne .no
-    test byte [bx+DV_UNIT], 0x80    ; fm_fmt_ok's own predicate
-    jz .yes                     ; (`test` leaves CF = 0)
+    jmp clo_flop                ; ...the cloner's own question
 .no:
     stc
-.yes:
     ret
 
 ; cmz_jsusp - part [cmz_jk] is not on the floppy: keep everything in the
@@ -2815,43 +2844,6 @@ cmz_jsusp:
     mov al, CLA_LINE
     clc
     ret
-
-; cmz_jfin - Uncompress To... ends, whichever way: the claim back, the bar
-; ended, the selection's name restored, [clo_seg] empty. out: AL = CLA_JDONE,
-; CF = 0 - the verdict, if any, already said
-cmz_jfin:
-    mov word [clo_seg], 0       ; cleared FIRST, clo_free's reason: the free
-    call cmz_jundo              ; can compact. cmz_drop frees [cmz_b], which
-                                ; IS the claim [clo_seg] named
-    mov al, CLA_JDONE
-    clc
-    ret
-
-; cmz_jsayx - AX = a FERR_* (under 16, said off the kernel's own fm_errtab)
-;             or a string of this image. clobbers: nothing but the flags
-cmz_jsayx:
-    cmp ax, 16
-    jae .img
-    push ax
-    push bx
-    push cx
-    push si
-    push es
-    mov bx, ax
-    add bx, bx
-    mov si, [fm_errtab+bx]
-    push ds
-    pop es
-    xor cx, cx
-    call KERNEL_SEG:CMZ_XTOAST
-    pop es
-    pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
-.img:
-    jmp cmz_say
 
 ; cmz_jsave / cmz_jload - the state block, to and from the claim's header
 ; clobbers: CX SI DI, flags
@@ -2881,157 +2873,48 @@ cmz_jmv:
     ret
 
 ; -----------------------------------------------------------------------------
-; cmz_uncto - File > Uncompress To... (SPEC.md 22.23.6): is the selection a
-; part, and what is it called? Asked BEFORE the Save box, so the box can open
-; on the name the set rejoins as.
-; out: cmz_verb's answers, and a fourth: CF=1 with AX = 0xFFFF = open the box,
-;      with fm_hdrbuf = the default name and clo_fnbuf = the part's
-; -----------------------------------------------------------------------------
-cmz_uncto:
-    cmp word [clo_seg], 0       ; a clone or another join: one claim word
-    jne .busy
-    call cmz_jisname
-    jc .plain
-    call COLD_SEG:dwf_dskw_dfree
-    jc .ret
-    cmp bx, CMZ_JRD / 512
-    ja .bigclus
-    mov ax, CMZ_JRD / 1024 + 1  ; the selection's first 16KB, into a base
-    mov bx, MEM_K_CMPR          ; rounded up to 512 (CMZ_JHP's note)
-    call COLD_SEG:mmf_mem_claim
-    jc .nomem
-    mov [cs:cmz_b], dx
-    add dx, 31
-    and dx, 0xFFE0
-    mov [cs:cmz_jwin], dx
-    mov es, dx
-    xor bx, bx
-    mov cx, CMZ_JRD
-    xor ax, ax
-    xor dx, dx
-    mov si, fm_onam
-    call COLD_SEG:dwf_dskw_read_at
-    jc .ferr
-    cmp ax, CMZ_JHDR
-    jb .notcs
-    mov es, [cs:cmz_jwin]
-    cmp word [es:0], 'CS'
-    jne .notcs
-    cmp word [es:2], 1
-    jne .notcs
-    mov si, 20                  ; the name it rejoins as - the box's default
-    mov di, fm_hdrbuf
-    mov cx, 12
-.nm:
-    mov al, [es:si]
-    inc si
-    mov [di], al
-    inc di
-    loop .nm
-    mov byte [di], 0
-    mov si, fm_onam             ; ...and the part's own, for the completion
-    mov di, clo_fnbuf           ; proc to hand back: a cancelled box calls
-    mov cx, 13                  ; nothing, and the image is not held across
-.pn:                            ; it, so it waits in the resident buffer
-    mov al, [si]                ; (DS, deliberately: os88ovlchk)
-    inc si
-    mov [di], al
-    inc di
-    loop .pn
-    call cmz_drop
-    mov ax, 0xFFFF
-    stc
-    ret
-.ferr:
-    call cmz_drop
-    stc
-.ret:
-    ret
-.notcs:
-    call cmz_drop
-.plain:
-    mov ax, cmz_s_plain
-    jmp short .say
-.busy:
-    mov ax, cmz_s_jbusy
-    jmp short .say
-.bigclus:
-    mov ax, cmz_s_clus
-    jmp short .say
-.nomem:
-    mov ax, cmz_s_nomem
-.say:
-    call cmz_say
-    xor ax, ax
-    stc
-    ret
-
-; -----------------------------------------------------------------------------
-; cmz_jgo - CLV_JOIN: the Save box answered (SPEC.md 22.23.6)
-; in:  AL = the target's drive, BX = its folder; AH = the source's drive, CX
-;      = its folder; clo_fnbuf = the part, fdlg_name = the result's name
+; cmz_jgo - CLV_SAVED with no claim live: the Save box answered Uncompress
+; To... (SPEC.md 22.23.6), through the resident fm_img_done_x
+; in:  the TARGET is the volume and folder the box left current; the SOURCE is
+;      the requester window's, [fm_vp] (fm_img_done_x re-aimed it, and the box
+;      is modal, so nothing moved it); clo_fnbuf = the part, fdlg_name = the
+;      result's name
 ; out: AL = CLA_LINE (a disk is asked for) or CLA_JDONE (it ended, and said
 ;      so), CF = 0
 ; -----------------------------------------------------------------------------
 cmz_jgo:
     cld
-    mov [cs:cmz_jtgtd], al
-    mov [cs:cmz_jtgtc], bx
-    mov [cs:cmz_jsrcd], ah
-    mov [cs:cmz_jsrcc], cx
-    cmp word [clo_seg], 0
-    jne .busy
+    mov si, [fm_vp]             ; the source's drive and the target's, as ONE
+    mov al, [si+FS_DRV]         ; word (adjacent, asserted)...
+    mov ah, [disk_drive]
+    mov [cs:cmz_jsrcd], ax
+    mov ax, [si+FS_CWD]         ; ...and their folders
+    mov [cs:cmz_jsrcc], ax
+    mov ax, [dsk_cwd]
+    mov [cs:cmz_jtgtc], ax
+    mov byte [cs:cmz_jto], 1
     mov si, clo_fnbuf           ; the part's name where the file layer and
     mov di, fm_onam             ; cmz_jisname read it
-    mov cx, 13
-.pn:
-    mov al, [si]                ; (DS, deliberately: os88ovlchk)
-    inc si
-    mov [di], al
-    inc di
-    loop .pn
-    call cmz_jisname            ; [cmz_jext], cmz_jsel - checked once already
-    jc .plain
-    mov si, fdlg_name           ; the result's name, as the box gave it
-    mov di, cmz_jnam
-    mov cx, 13
-.rn:
-    mov al, [si]                ; (DS, deliberately: os88ovlchk)
-    inc si
-    mov [cs:di], al
-    inc di
-    loop .rn
-    mov byte [cs:cmz_jnam+12], 0
-    call cmz_jclaim
-    jc .nomem
+    call clo_ds13
+    push ds                     ; the result's name, as the box gave it -
+    pop es                      ; cmz_jhname's copy, off a "header" 20 bytes
+    mov di, fdlg_name - 20      ; before it
+    mov ax, cs
+    mov bx, cmz_jnam
+    call cmz_jhname
+    call COLD_SEG:dkf_dsk_batch_begin
+    mov [cs:cmz_jsp], sp
+    call cmz_jopen              ; a part (checked once already), the claim,
+    jc .say                     ; and the SOURCE's clusters
     mov ax, [cs:cmz_b]          ; the claim IS [clo_seg], marked as ours:
     mov [clo_seg], ax           ; mode 7's keys, lines and teardown come here
     mov es, ax                  ; through clo_disp_x (SPEC.md 22.23.6)
     mov byte [es:CL_STEP], CLS_JOIN
-    mov byte [cs:cmz_jto], 1
     call cmz_jsave              ; the header is never garbage: k = 0 until a
-    mov [cs:cmz_jsp], sp        ; prompt saves the part it wants
-    call COLD_SEG:dkf_dsk_batch_begin
-    call cmz_gosrc
-    call COLD_SEG:dwf_dskw_dfree
-    jc .ferr
-    cmp bx, CMZ_JRD / 512
-    jbe .clok
-    mov ax, cmz_s_clus
-.ferr:
-    jmp cmz_jerr
-.clok:
+                                ; prompt saves the part it wants
     call cmz_jname              ; the result's name free, BEFORE part 1 - which
     jmp cmz_jloop               ; may be on a disk that is not in yet
-.busy:
-    mov ax, cmz_s_jbusy
-    jmp short .say
-.plain:
-    mov ax, cmz_s_plain
-    jmp short .say
-.nomem:
-    mov ax, cmz_s_nomem
-.say:
+.say:                           ; nothing held
     call cmz_say
     mov al, CLA_JDONE
     clc
@@ -3047,29 +2930,25 @@ cmz_jdisp:
     jne .notline
     jmp cmz_jline
 .notline:
-    cmp dl, CLV_KEY
-    je .key
-    call cmz_jabort             ; CLV_FREE: the prompt was abandoned - a click
-    clc                         ; elsewhere, another prompt - and what was
-    ret                         ; written goes with it
-.key:
-    cmp al, 27
-    jne .notesc
-    call cmz_jabort             ; Esc: stopped, and the user said so, so
-    mov al, CLA_JDONE           ; nothing is said back
-    clc
-    ret
-.notesc:
-    cmp al, 13
-    je .resume
-    mov al, CLA_LINE            ; any other key: the prompt stands
-    clc
-    ret
-.resume:                        ; --- Enter: the disk is in ---------------
     cld
-    call cmz_jload
-    mov ax, [clo_seg]
-    mov [cs:cmz_b], ax
+    call cmz_jload              ; the paused state - clobbers CX SI DI
+    mov cx, [clo_seg]
+    mov [cs:cmz_b], cx
+    mov [cs:cmz_jsp], sp        ; a hop that fails lands in cmz_jerr
+    cmp dl, CLV_KEY
+    jne .abort                  ; CLV_FREE: the prompt was abandoned - a click
+    cmp al, 13                  ; elsewhere, another prompt - and what was
+    je .resume                  ; written goes with it
+    cmp al, 27
+    je .abort                   ; Esc: stopped, and the user said so, so
+    mov al, CLA_LINE            ; nothing is said back. Any other key: the
+    clc                         ; prompt stands
+    ret
+.abort:                         ; the temporary deleted, the claim back and
+    call cmz_jrmtmp             ; nothing said: AL = CLA_JDONE, CF = 0
+    xor ax, ax
+    jmp cmz_jexit
+.resume:                        ; --- Enter: the disk is in ---------------
     call cmz_jslice
     mov word [cs:cmz_jsrcc], 0  ; the ROOT of the disk now in the drive: a
                                 ; folder is a cluster on the OLD disk
@@ -3078,31 +2957,22 @@ cmz_jdisp:
     call cmz_jisname            ; ...and [cmz_jext] = its digits
     call cmz_jtmpn              ; the temporary's name, which the prompt's
                                 ; arming cleared out of fm_ebuf
-    mov ax, [cs:cmz_jtot]       ; the bar, from where it got to
-    mov [cs:cmz_utot], ax
-    mov ax, [cs:cmz_jtot+2]
-    mov [cs:cmz_utot+2], ax
-    mov ax, [cs:cmz_jw]
-    mov [cs:cmz_done], ax
-    mov ax, [cs:cmz_jw+2]
-    mov [cs:cmz_done+2], ax
+    push ds                     ; the bar, from where it got to: the total
+    push es                     ; and what is written, into its scale and
+    push cs                     ; its progress - both pairs adjacent, in the
+    pop ds                      ; same order (asserted)
+    push cs
+    pop es
+    mov si, cmz_jtot
+    mov di, cmz_utot
+    mov cx, 4
+    rep movsw
+    pop es
+    pop ds
     dec word [cs:cmz_jk]        ; .part moves on to the one that was missing
-    mov [cs:cmz_jsp], sp
     call COLD_SEG:dkf_dsk_batch_begin
     call cmz_rearm
     jmp cmz_jloop
-
-; cmz_jabort - the claim back and the temporary deleted, nothing said
-; clobbers: AX BX CX SI DI, flags
-cmz_jabort:
-    cld
-    call cmz_jload
-    mov ax, [clo_seg]
-    mov [cs:cmz_b], ax
-    mov [cs:cmz_jsp], sp        ; a hop that fails lands in cmz_jerr, which
-    call cmz_jrmtmp             ; would say it and end the join all the same
-    call cmz_jfin
-    ret
 
 ; cmz_jline - CLV_LINE: 'Put FILEA.002 in A:' over 'Enter=ready  Esc=stop'
 ; in:  AL = 0 / 1, DI = the kernel buffer. out: DI on the NUL, CF = 0
@@ -3124,7 +2994,7 @@ cmz_jline:
     jnz .one
     mov es, [clo_seg]
     mov si, cmz_s_put
-    call .cat
+    call clo_cat
     mov si, CMZ_HSEL   ; the part's name, with the missing one's
     xor bx, bx                  ; digits: BX = where they go
 .nm:
@@ -3148,32 +3018,20 @@ cmz_jline:
     pop di
 .nodig:
     mov si, cmz_s_in
-    call .cat
+    call clo_cat
     mov al, [es:CMZ_HSRC]
-    add al, 'A'
-    mov [di], al
-    inc di
+    call clo_drv
     mov si, cmz_s_colon
 .one:
-    call .cat
-    mov byte [di], 0
+    call clo_cat                ; ...which writes the NUL and leaves DI on it
     pop es
     pop si
     pop bx
     pop ax
     clc
     ret
-.cat:
-    mov al, [cs:si]
-    inc si
-    or al, al
-    jz .catd
-    mov [di], al
-    inc di
-    jmp short .cat
-.catd:
-    ret
 %endif
+
 
 ; -----------------------------------------------------------------------------
 ; cmz_say - AX -> a NUL string in THIS image, as a toast (SPEC.md 59)
@@ -3191,6 +3049,7 @@ cmz_say:
     push cs
     pop es
     mov si, ax
+.tail:
     xor cx, cx                  ; TOAST_TICKS, the default life
     call KERNEL_SEG:CMZ_XTOAST
     pop es
@@ -3198,6 +3057,22 @@ cmz_say:
     pop cx
     pop ax
     ret
+
+; cmz_jsayx - AX = a FERR_* (under 16, said off the kernel's own fm_errtab)
+;             or a string of this image. clobbers: nothing but the flags
+cmz_jsayx:
+    cmp ax, 16
+    jae cmz_say
+    push ax
+    push cx
+    push si
+    push es
+    push ds                     ; the kernel's own string, through DS
+    pop es
+    mov si, ax
+    add si, si
+    mov si, [fm_errtab+si]
+    jmp short cmz_say.tail
 
 ; -----------------------------------------------------------------------------
 ; cmz_pct - 'Compressed to 47%' (SPEC.md 22.22)
@@ -3486,7 +3361,10 @@ cmz_s_worse: db 'It would not get smaller', 0
 cmz_s_tail:  db "Its end won't compress", 0 ; a raw tail over 64KB (20.15.4)
 cmz_s_busy:  db 'Compressing...', 0
 cmz_s_tmpn:  db 'CMPRESS~.TMP', 0  ; a streamed Compress's new file (22.22.5)
-CMZ_TMPL     equ $ - cmz_s_tmpn    ; ...13 with its NUL, fm_ebuf's size
+CMZ_TMPL     equ $ - cmz_s_tmpn    ; ...13 with its NUL, fm_ebuf's size -
+%if CMZ_TMPL != 13                 ; and cmz_jtmpn's cmz_cs13 moves exactly 13
+    %error "cmz_s_tmpn must be 13 bytes with its NUL: cmz_cs13 copies 13 into fm_ebuf"
+%endif
 cmz_s_plain: db 'Not compressed', 0         ; ...and Uncompress's (SPEC.md 22.23.3)
 cmz_s_bad:   db 'Cannot expand this one', 0
 cmz_s_undone: db 'Uncompressed', 0
@@ -3573,8 +3451,11 @@ cmz_jwrote: db 0                ; CMPRESS~.TMP exists
 cmz_jk:     dw 0                ; the part being read, 1-based...
 cmz_jn:     dw 0                ; ...of how many
 cmz_jtot:   dd 0                ; the original's size...
-cmz_jid:    dd 0                ; ...the set's ID...
-cmz_jw:     dd 0                ; ...and how much of it is written
+cmz_jw:     dd 0                ; ...how much of it is written...
+cmz_jid:    dd 0                ; ...and the set's ID. A part's header bytes
+                                ; 6..20 in the same order - n, total, where it
+                                ; starts, ID - so cmz_jloop checks all four
+                                ; with one `repe cmpsw` (asserted below)
 cmz_jsel:   times 13 db 0       ; the selection's name - a part's
 cmz_jnam:   times 13 db 0       ; the result's
 CMZ_JSTL    equ $ - cmz_jst
@@ -3589,8 +3470,16 @@ cmz_jeof:   db 0                ; ...and whether the part has none left
 cmz_jm:     db 0                ; this block's M,
 cmz_js:     dw 0                ; its S,
 cmz_jnn:    dw 0                ; its N,
-cmz_jseg:   dw 0                ; and where its N bytes are
-cmz_jofs:   dw 0
+; THREE ADJACENCIES the join's code stores or compares as one (size pass 8):
+%if cmz_jtgtd - cmz_jsrcd != 1
+    %error "cmz_jtgtd must follow cmz_jsrcd: cmz_jstart and cmz_jgo store both drives as one word"
+%endif
+%if cmz_jtot - cmz_jn != 2 || cmz_jw - cmz_jn != 6 || cmz_jid - cmz_jn != 10
+    %error "cmz_jn, cmz_jtot, cmz_jw, cmz_jid must be a part header's bytes 6..20 in order: cmz_jloop checks them with one repe cmpsw"
+%endif
+%if cmz_done - cmz_utot != 4 || cmz_jw - cmz_jtot != 4
+    %error "cmz_done must follow cmz_utot as cmz_jw follows cmz_jtot: cmz_jdisp restores the bar with one rep movsw"
+%endif
 %ifdef KERN_BIG
 cmz_jtok:   dw 0                ; the result's WRITE_SEQ token (18.4.9).
                                 ; Never reset: it is only a generation, and
