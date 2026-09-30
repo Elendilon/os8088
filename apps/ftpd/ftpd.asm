@@ -6035,6 +6035,18 @@ fd_do_write:
 .append:
     jcxz .ok                        ; an empty tail needs no append at all -
                                     ; and APPEND's own contract wants CX >= 1
+    cmp byte [fd_noseq], 0          ; A STREAMING APPEND (SPEC.md 77.49): the
+    jne .app                        ; kernel keeps the file's entry and last
+    mov di, [fd_wtok]               ; cluster under this token, so a chunk is
+    xor al, al                      ; no lookup and no walk of the chain from
+    call OSAPI_FILE_WRITE_SEQ       ; its front - which made a long STOR
+    mov [fd_wtok], di               ; QUADRATIC. PLAIN, not HELD: a wake
+    jnc .ok                         ; commits one chunk and the unlock after
+                                    ; it would commit a hold anyway
+    cmp ax, FERR_NAME               ; kern_small's cell answers this - and so
+    jne .no                         ; does APPEND, for the arguments it would
+    mov byte [fd_noseq], 1          ; refuse, so falling back to it is exact
+.app:
     call OSAPI_FILE_APPEND
     jc .no
 .ok:
@@ -8943,6 +8955,11 @@ fd_cfgb     equ fd_rclus + 2                    ; FD_CFGSZ: FTPD.CFG, whole
 fd_dbclus   equ fd_cfgb + FD_CFGSZ              ; word: the banked folder
 fd_dbdrv    equ fd_dbclus + 2                   ; byte: ...and its drive
 fd_cfgn     equ fd_dbdrv + 1                    ; word: bytes read
+fd_wtok     equ fd_cfgn + 2                     ; word: STOR's WRITE_SEQ token
+                                     ; (SPEC.md 77.49), PLAIN: every chunk
+                                     ; committed, as APPEND's were
+fd_noseq    equ fd_wtok + 2                    ; byte: the kernel has no
+                                     ; WRITE_SEQ (kern_small): APPEND instead
 ; -----------------------------------------------------------------------------
 ; THE TWO RECT TABLES - CONTIGUOUS, because os88ui_bfind strides an array
 ;
@@ -8957,7 +8974,7 @@ fd_cfgn     equ fd_dbdrv + 1                    ; word: bytes read
 ; the four Setup fields keep the press, because focusing a field is
 ; SELECTING and SPEC.md 13.8.8 keeps the press for exactly that.
 ; -----------------------------------------------------------------------------
-fd_rects    equ fd_cfgn + 2                     ; 24: the LOG page's three
+fd_rects    equ fd_noseq + 1                    ; 24: the LOG page's three
 fd_btn      equ fd_rects + 0                    ; ...Start/Stop
 fd_rob      equ fd_rects + 8                    ; ...the Read Only box
 fd_setb     equ fd_rects + 16                   ; ...and Setup

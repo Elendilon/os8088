@@ -4687,6 +4687,14 @@ gfx_lock:
 ; -----------------------------------------------------------------------------
 gfx_unlock:
     CURLOG 'U'
+%ifdef KERN_BIG
+    cmp byte [dws_hold], 0      ; A HELD STREAM ENDS WITH THE HOLD (SPEC.md
+    je .nohold                  ; 18.4.9): this is every way the user can reach
+    cmp byte [sch_cur], 0       ; the drive, dsk_batch's own argument below. The
+    jne .nohold                 ; UI task's unlock only - a worker's may not
+    call COLD_SEG:dwsf_commit   ; touch the disk (20.6 rule 7) - and first,
+.nohold:                        ; while the widget and the lock are still ours
+%endif
     mov word [wm_clip_n], 0
 %ifdef KERN_BIG
     mov byte [gfx_b1ink], CWHITE ; ...and so does gfx_blit1's (SPEC.md 5.4.2.2),

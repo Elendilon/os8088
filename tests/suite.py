@@ -3162,6 +3162,20 @@ SOAK = [
         "defect.",
         needs=("marty",), serial=True,
         wants=("build/dosmou360.img",)),
+    Row("fcproom", "soak", py("tests/fcproom.py"), 70.0,
+        "THE COPY'S ROOM CHECK STOPS COUNTING ONCE THE FILE FITS (SPEC.md "
+        "22.5.2.1). fcp_room asked for the whole free count, which on a "
+        "FAT16 hard disk is the whole FAT through a nine-sector window - "
+        "four window loads and ~350 ms before a 100KB paste could start. "
+        "Three arms of the user's Copy/Paste B: -> C: on os8088_xt_hdd, read "
+        "back off the VHD: EMPTY (at most one hard-disk read between the "
+        "check and the create), FITS (a filler leaves the room at the far "
+        "end of the FAT, so the count cannot stop early and must still pass) "
+        "and FULL (60KB for a 100,000-byte file: FERR_FULL, no create, "
+        "nothing on C:). VERIFIED TO FAIL: the early-out removed reads four "
+        "windows in EMPTY; fcp_room forced to yes runs the create in FULL. "
+        "Measured 66s.",
+        needs=("marty",)),
     Row("kdhdd", "soak", py("tests/kdhdd.py"), 25.0,
         "THE FIXED DISK IS A VOLUME UNDER kern_dos, AND A PROGRAM READS ITS "
         "OWN DRIVE (SPEC.md 96.46). Two defects with one instrument: the "
@@ -8353,6 +8367,125 @@ SOAK = [
         "VIDDISK.O88 is not build/'s: it first ran against one cut before "
         "the bench's completion words and waited for ever on a flag at the "
         "wrong address. W is 571 guest seconds on this XT-IDE",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/viddisk.o88", "build/viddisk360.img",
+               "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/hdd.drv")),
+    Row("wseq", "soak", py("tests/viddisk.py", "--floppy", "--wmode", "seq"),
+        182.0,
+        "SPEC.md 18.4.9: viddiskfd's W through OSAPI_FILE_WRITE_SEQ, plain - "
+        "every call committed, the name lookup and the chain walk gone. The "
+        "12.5 MB STREAM.DAT must read back off the VHD on the host dword for "
+        "dword, and R and D run as viddiskfd's do. W is 204 guest seconds "
+        "against APPEND's 570 on this XT-IDE",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/viddisk.o88", "build/viddisk360.img",
+               "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/hdd.drv")),
+    Row("wseqheld", "soak", py("tests/viddisk.py", "--floppy", "--wmode",
+                                "held"), 177.0,
+        "SPEC.md 18.4.9: the same W, HELD and closed: the FAT and the size "
+        "committed once, at the close. One-sector writes 0.2 an append "
+        "against plain's 3.2 (VD_TRACE=12), 191 guest seconds, and the file "
+        "byte for byte on the host",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/viddisk.o88", "build/viddisk360.img",
+               "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/hdd.drv")),
+    Row("wsequnclosed", "soak", py("tests/viddisk.py", "--floppy",
+                                    "--wmode", "unclosed"), 116.0,
+        "SPEC.md 18.4.9: HELD and never closed, and the bench touches no file "
+        "and mounts nothing after W - so the UI task's gfx_unlock is the only "
+        "commit there is. Killed a guest second after, the VHD must hold all "
+        "12.5 MB. Red with the unlock's commit taken out (the disk holds the "
+        "first 32 KB): that commit is what keeps a swapped floppy from being "
+        "written another disk's FAT at the next mount",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/viddisk.o88", "build/viddisk360.img",
+               "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/hdd.drv")),
+    Row("wseqinter", "soak", py("tests/viddisk.py", "--floppy", "--wmode",
+                                 "inter"), 168.0,
+        "SPEC.md 18.4.9: HELD, with another file written every 64 chunks: "
+        "each write's gate commits the hold first and the stream re-seeds "
+        "and carries on. STREAM.DAT byte for byte on the host",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/viddisk.o88", "build/viddisk360.img",
+               "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/hdd.drv")),
+    Row("wseqdeleted", "soak", py("tests/viddisk.py", "--floppy",
+                                   "--wmode", "deleted"), 39.0,
+        "SPEC.md 18.4.9: HELD, and at chunk 64 the stream is DELETED and "
+        "VKSIDE.TXT written - which takes the freed directory slot. The "
+        "delete's gate must commit the hold first: W then stops on its next "
+        "chunk (the stream is gone), VKSIDE.TXT is its own 16 bytes and the "
+        "VHD checks clean. Red with the gate's commit taken out: the late "
+        "commit patches VKSIDE.TXT's entry with the stream's size and chain "
+        "(2048 bytes) and the disk check fails",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/viddisk.o88", "build/viddisk360.img",
+               "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/hdd.drv")),
+    Row("wseqcut", "soak", py("tests/viddisk.py", "--floppy", "--wmode",
+                               "held", "--cut", "150"), 57.0,
+        "SPEC.md 18.4.9: a POWER CUT mid-hold - the emulator killed once W "
+        "has written 150 chunks. STREAM.DAT must be its committed first 32 "
+        "KB with the right bytes and the VHD must check clean: a held chain "
+        "is never linked to the file, so no flush of it can leave anything "
+        "a crash makes wrong",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/viddisk.o88", "build/viddisk360.img",
+               "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/hdd.drv")),
+    Row("czseq", "soak", py("tests/czseq.py"), 150.0,
+        "SPEC.md 18.8.5 on the split-set join (22.23.5): a 640KB set on B: "
+        "joined by Uncompress To... onto A:, every block a hop, every int "
+        "13h filed by drive, direction and region. The result must be the "
+        "original byte for byte and A: must check clean, and the target "
+        "must take at most one FAT write per two blocks - the held stream's "
+        "dirt BANKED across the hops. Red with the bank taken out: 42 FAT "
+        "writes for 20 blocks. It prints the table SPEC.md quotes",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/os8088.img",)),
+    Row("czseqlose", "soak", py("tests/czseq.py", "--lose"), 40.0,
+        "SPEC.md 18.8.5's LOST hold: once A:'s dirt is banked and the "
+        "machine stands on B:, the harness zeroes A:'s banked disk "
+        "signature, so the next hop re-reads the window. The hold is "
+        "POISONED and the join's next write answers FERR_IO: `Disk error`, "
+        "no result and no CMPRESS~.TMP on A:, and a clean FAT. Red without "
+        "the poison: the stream re-seeds from the committed entry and the "
+        "join says `Uncompressed` over a file with a hole in it",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/os8088.img",)),
+    Row("czseqnone", "soak", py("tests/czseq.py", "--fatwnone"), 330.0,
+        "SPEC.md 18.8.5 on a FATWNONE=1 kernel (a private tree): no heap "
+        "windows, so A: and B: take the pin from each other at every hop, "
+        "and the held volume's dirt must be FLUSHED at the park. The join "
+        "must still be byte for byte. Red with the park banking the pin "
+        "regardless: `Disk error` at the first hop, 19 guest seconds in",
+        needs=("marty", "nasm"), serial=True, timeout=900),
+    Row("wseqioerr", "soak", py("tests/viddisk.py", "--floppy", "--wmode",
+                                 "held", "--ioerr", "100"), 75.0,
+        "SPEC.md 18.4.9: a HELD stream on a DYING disk - every write into "
+        "the data area fails from chunk 100 on, the per-sector retries "
+        "included. The failed call loses itself and nothing else: "
+        "STREAM.DAT keeps all 100 chunks byte for byte and the VHD checks "
+        "clean. Red on the first build, whose rollback DROPPED the FAT "
+        "window with the held chain's unflushed allocations in it and kept "
+        "the hold: an entry of 3,276,800 bytes over a 17-cluster chain",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/viddisk.o88", "build/viddisk360.img",
+               "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/hdd.drv")),
+    Row("wseqfull", "soak", py("tests/viddisk.py", "--floppy", "--wmode",
+                                "full"), 65.0,
+        "SPEC.md 18.4.9: a HELD stream into a VHD with 4 MB free and no room "
+        "check, so one call fails FERR_FULL at chunk 128. It keeps the 128 "
+        "chunks before it and the VHD checks clean. A full disk has walked "
+        "the whole FAT and flushed every window slide on the way, so this "
+        "cannot catch a dropped window (wseqioerr does); it catches the "
+        "opposite mistake, a refusal that abandons the stream: red then at "
+        "32 KB",
         needs=("marty", "nasm"), serial=True,
         wants=("build/viddisk.o88", "build/viddisk360.img",
                "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",

@@ -2288,7 +2288,18 @@ cmz_jloop:
     mov byte [cs:cmz_jwrote], 1 ; (`mov` leaves CF alone)
     jmp short .wchk
 .ap:
-    call COLD_SEG:dwf_dskw_append   ; ...and every later one grows it
+%ifdef KERN_BIG
+    mov di, [cs:cmz_jtok]       ; ...and every later one grows it, as ONE
+    mov al, WSQF_HELD           ; HELD stream (SPEC.md 18.4.9): no lookup and
+    call COLD_SEG:dwf_dskw_write_seq    ; no walk per block, and no FAT or
+    mov [cs:cmz_jtok], di       ; directory write until the close below. The
+                                ; result is useless until it is whole, and a
+                                ; join that stops deletes it, so HELD's one
+                                ; loss is nothing. A paused join reloads this
+                                ; image, and a token of 0 is merely COLD
+%else
+    call COLD_SEG:dwf_dskw_append
+%endif
 .wchk:
     jnc .wok
     jmp cmz_jerr
@@ -2372,6 +2383,17 @@ cmz_jend:
     stosb
     loop .fn
     pop es
+%ifdef KERN_BIG
+    call cmz_jtmpn              ; THE CLOSE: the held stream's link, FAT and
+    xor cx, cx                  ; size, before the rename - whose own gate
+    call COLD_SEG:dwf_dskw_write_seq    ; would commit it too, but DROPS a
+    jnc .closed                 ; commit's failure on the floor. The size is
+                                ; exactly what cmz_jw counted, so a failure
+                                ; here is the disk's, and leaves through
+                                ; cmz_jerr like any other write
+    jmp cmz_jerr
+.closed:
+%endif
     mov byte [cs:cmz_jwrote], 0 ; a failed rename leaves the result on the
     mov si, fm_ebuf             ; disk under the temporary name, as the
     mov di, fm_onam             ; streamed Compress does (SPEC.md 22.22.5)
@@ -3569,5 +3591,11 @@ cmz_js:     dw 0                ; its S,
 cmz_jnn:    dw 0                ; its N,
 cmz_jseg:   dw 0                ; and where its N bytes are
 cmz_jofs:   dw 0
+%ifdef KERN_BIG
+cmz_jtok:   dw 0                ; the result's WRITE_SEQ token (18.4.9).
+                                ; Never reset: it is only a generation, and
+                                ; a new temporary is a WRITE, which leaves
+                                ; the last one stale
+%endif
 
 section .text

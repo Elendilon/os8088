@@ -31307,6 +31307,89 @@ only taken out of memory that is free without shedding anybody. What the
 number was defending is now defended by the tag: a machine that needs the room
 back takes it.
 
+### 18.8.5 A held stream's dirty FAT stays with its window across a hop (`kern_big`)
+
+The windows are per volume and the DIRTY RANGE is not: `[dsk_fatd0,
+dsk_fatd1]` is one pair, and `dskw_flush_x` writes it with the CURRENT
+volume's geometry. So `dsk_fatw_park`, at the top of every mount, WRITES the
+outgoing volume's dirt to FAT1 and FAT2: a seek to the FAT and back. Its own
+comment called that free, because every commit point flushes before it
+returns. A HELD stream (§18.4.9) is the one writer that does not, and a join
+hops its target every block (§22.23.5), so it paid two FAT writes a block at
+the hop instead of at the append.
+
+**One bank is enough.** Only a held stream leaves dirt for a park to meet, and
+there is one hold at a time. So the dirt is banked beside it (`dws_hd0`/
+`dws_hd1`, `.text`, empty = `0xFFFF`), and the window that holds it stays
+where it is. `dsk_fatw_pick` gives both back when it reuses that window. The
+commit, or a window slide, writes them as it always did. Banking and
+restoring are one exchange (`dws_hswap`): the live pair after a park is
+empty, and so is the bank after a restore.
+
+**It banks only where the hop cannot take the window away.** A mounted
+volume always has a window (§18.8.3's "no third state"). When that window is
+the PIN, though, the incoming volume may evict it. On a machine whose heap
+refused the windows (`FATWNONE=1` is that machine), two volumes do so at
+EVERY hop. So `dws_hpark` banks when the incoming volume (DL at the park)
+already has a claim of its own, which cannot take anybody's window.
+Otherwise the flush is today's: slower, and never lost. (A held volume with
+a claim of its own would be safe to bank whatever the incoming one has; the
+size pass stopped asking, one test cheaper, because the join's target in the
+case that matters is the system disk, which holds the pin.)
+
+What must not happen is a window going while its dirt is banked, and there
+are four ways. **Three of them end at ONE place**, which is why there is one
+hook for them and not three:
+- **a shed** takes the claim (`dsk_fatw_demote`), or **the pin is evicted**
+  from the held volume by a third, homeless volume (`dsk_fatw_evict`). Both
+  leave the volume's banked sector `0xFFFF`, so the way back to it is a
+  LOAD;
+- **the volume is re-read**: a full mount, or a signature that no longer
+  matches. Inside the batch a held stream lives in, every hop is a quiet
+  reuse, so a re-read can vouch for nothing;
+- so `dsk_fatw_pick`, about to LOAD the held volume's window with dirt
+  banked for it, loses the hold (`dws_hload`) - before anything can link into
+  it, because the one routine that links, `dws_commit`, goes back to the
+  volume first and reads the poison after the hop. A shed is no longer
+  refused for it: `mem_fatw_dirty` guards the live window only, and a held
+  stream whose banked window was taken by memory pressure fails `FERR_IO`
+  instead of pinning the heap;
+- **a hibernate** zeroes the pair. It is started from a menu, and
+  `gfx_unlock` has committed every hold before any menu can be reached.
+
+**A LOST hold is POISONED rather than dropped** (`dws_hlose`). Its dirt goes
+with the window, the bank is emptied - both halves, or a stale top would be
+swapped back into the live range at the next park and widen it past the
+window - every token goes stale (`[dsk_mgen]`), and the hold stays pending
+with `dws_hlink` = `0xFFFF`, which no cluster is. The first commit to meet it
+answers `FERR_IO` and clears it, writing nothing. None of its allocations
+reached the disk, so nothing there links to them. That commit is the
+stream's own cold call, a close, another write's gate or the unlock. So the
+stream's next call fails instead of re-seeding from the committed entry and
+appending past a hole.
+
+**Measured** on the join of a 640 KB set, B: to A: on two 1.44 MB floppies
+(`tests/czseq.py`, 20 blocks):
+
+| writer | guest s | target FAT writes |
+|---|---|---|
+| `OSAPI_FILE_APPEND` | 127.7 | 48 |
+| `WRITE_SEQ`, HELD | 134.6 | 42 |
+| HELD, dirt banked | **116.8** | **6** |
+
+HELD alone was SLOWER. The ROM runs one floppy motor at a time and waits
+out the spin-up before a WRITE, and APPEND's per-block lookup was a READ
+that spun A: up for free. Banking takes the per-hop FAT flush off instead,
+and the join is 8.7% faster than it was. From a floppy to a fixed disk
+(`--hdd`), the target's metadata falls from 4 calls a block to 0.6. MartyPC's
+XT-IDE has no seek time, so what that saves on an ST-225 is a prediction:
+two long seeks a block.
+
+Costs: `kern_big` +198 bytes as first built (`.cold` +194, `.text` +4), and
+about half that since the size pass (docs/reports/STREAM-WRITER-SIZE-2026-09-30.md).
+Gated by `czseqlose` (the poison) and `czseqnone` (`FATWNONE=1`, where the
+flush has to stay).
+
 ### 18.9 A volume switch is not a mount
 
 `dsk_chdir` re-runs the whole of `disk_mount` because the LISTING has to
@@ -32222,12 +32305,19 @@ stats the name and walks once to the offset (one `READ_AT`'s worth of
 walking), then reads. Every later call walks ONE FAT link from `+6`, the
 last cluster the call before it read, however far into the file that is.
 
-**The mount generation is the whole validity rule.** `disk_mount_x` bumps
-`[dsk_mgen]` (never to 0) every time it runs, and every volume snapshot the
-kernel builds goes through it: navigation (§19.2), a media change (§18.9.1),
-the remount after a write (§18.4), another instance's file call moving the
-volume (§19.2.1). A cursor whose generation or volume disagrees is
-**re-seeded from the name, silently**, at the offset it holds. So:
+**The media generation is the whole validity rule.** `[dsk_mgen]` moves
+(by 2, never to 0) on every write `dskw_sync` closes and every mount that
+READS a boot sector: navigation and a media change on a floppy (§19.2,
+§18.9.1) both do. A mount that trusts a banked boot sector - a quiet hop a
+batch vouches for (§18.9.3), or a fixed disk, whose bytes nothing but a write
+can change - does not, and neither does another instance's file call moving
+the volume (§19.2.1): the volume is checked beside the generation. It moved
+on EVERY mount until the stream writer's size pass, which made it the one
+generation WRITE_SEQ's tokens use as well (§18.4.9) - the join hops its
+source and target every block, and a generation that moved on a hop would
+have made both kinds of stream cold every block. A cursor whose generation or
+volume disagrees is **re-seeded from the name, silently**, at the offset it
+holds. So:
 - a caller never sees a stale cursor as an error;
 - a write to the file, anywhere, invalidates it, and the next call reads the
   file as it now is;
@@ -32291,6 +32381,157 @@ clusters), 32 KB a call (`tests/vidkern.py`):
 
 At 12 MB, none of its 28 `int 13h` calls went below cylinder 16: the chain
 is followed from the resident FAT window and never re-read.
+
+### 18.4.9 `OSAPI_FILE_WRITE_SEQ` — a streaming append, whose place the KERNEL keeps (`kern_big`)
+
+`OSAPI_FILE_APPEND` is a complete operation every call (18.4.4): it looks the
+name up, walks the file's chain from the front to its last cluster, writes,
+and commits the FAT and the entry. The walk makes a chunked write QUADRATIC
+in its length, and the commit is a FAT write and a directory write, and on a
+fixed disk three long seeks, for every chunk
+(docs/plans/STREAM-WRITER-PLAN.md §1 measured all of it). This slot is
+stages 2 and 3 of that plan.
+
+| in | |
+|---|---|
+| `SI` | a NUL 8.3 name in the current directory, **on every call** |
+| `ES:BX` | the bytes - APPEND's registers |
+| `CX` | the count: a whole number of clusters, but the last, as APPEND's. **0 closes** |
+| `AL` | flags: bit 0 = `WSEQF_HELD`, the same on every call of a stream |
+| `DI` | the TOKEN the stream's last call handed back; 0 (or anything stale) = none |
+
+Out `CF=0`, `AX = 0`, `DI` = the token for the next call; `CF=1` with
+`AX = FERR_*` and `DI` as it was. A close touches nothing but `AX`.
+**The file must exist**: WRITE_SEQ grows a file, it never creates one, so
+the first chunk is an `OSAPI_FILE_WRITE` (or the file is written empty).
+
+**The place is the kernel's, and there is ONE.** `dws_rec` is the stream
+record: the entry's head and size, the sector and offset the entry lives at,
+the file's last cluster and the head of a held chain - sixteen bytes that are
+`dskw_raw`'s tail, `dskw_dsec`, `dskw_doff`, `dskw_prev` and `dskw_first`,
+declared adjacent so that saving and restoring them is one `rep movsw` - and
+its volume. Every successful call writes it (`.stamp`, after the sync). The
+caller keeps only a WORD, the token, which is the `[dsk_mgen]` that call left
+(18.4.8): a generation that moves on every write, every mount that reads a
+boot sector, and the first call of a new hold, the one call that writes
+nothing the disk shows. So a token equal to it names the stream the record
+describes and no other, and the volume is checked beside it because a banked
+hop moves nothing. Two streams at once are both CORRECT, each call that finds
+the record another's being cold: one lookup and one walk, APPEND's cost.
+It was a 16-byte caller cursor copied in and out of a kernel copy first
+(`dsq_door`), and the record plus the token is what took its door, its stamp
+and the held stream's second copy of the same fields out.
+
+**It has no body of its own: it IS the append.** The door decides HOT or
+COLD, commits any hold a cold call must not look past, and calls
+`dskw_append_x`; `dskw_wabody`, the one body `OSAPI_FILE_APPEND`,
+`APPEND_SYS` and `WRITE_AT` already share (18.4.7.3), reads `[dws_flg]`. A
+hot call loads the record in place of the lookup and starts the grow at the
+record's last cluster instead of walking. So every argument an append
+refuses, WRITE_SEQ refuses the same way.
+
+**A grow stores the entry's TAIL** (`dskw_ent_tail`): its head and size, the
+two fields a grow changes and the two the record keeps, read-modify-write of
+the entry's sector as ever. That is every grow's entry store on `kern_big`,
+cursor or none, and it never re-zeroes the slot after the entry, which only
+a create can owe (`[dskw_zapnext]`).
+
+**`WSEQF_HELD` commits once.** A held call writes the data and grows an
+UNREACHABLE chain: the new clusters are allocated and linked to each other,
+never to the file. So a FAT flush at any moment, when the window moves or a
+hop parks it, puts nothing on the disk that a crash could make wrong: at
+worst the clusters are lost, the failure 18.4's order prefers. The link from
+the file's committed last cluster (or the entry's head), and the entry's
+size, are written by `dws_commit`, which loads the record and enters the
+append body at `.seal` - the SAME chain flush, link, flush and entry store an
+append makes once its data is down, once per stream instead of once per call.
+It runs:
+- at the **close**, a call with `CX` = 0, and at any COLD call;
+- **before any other write on that volume**: `dskw_mounted`, the gate every
+  write body passes, commits first, so a delete, a rename or another stream
+  finds the FAT and the entry the disk will hold. Not WRITE_SEQ's own call;
+- **at `gfx_unlock`**, the UI task's. That is every way the user can reach
+  the drive: a return, a failure, a question, a swap prompt (18.9.3). A
+  commit there hops to the held volume's ROOT if the machine is standing on
+  another (the entry is reached by its sector, so any folder will do), and
+  back; inside the batch that is ending, the hop is banked.
+
+So a held stream never outlives the callback that made it, and a swapped
+floppy can never receive another disk's FAT. A mount that leaves the volume
+mid-hold outside a batch no longer commits it: nothing between that mount and
+the unlock can reach the drive, and if the way back RE-READS the volume the
+bank is lost and POISONED (18.8.5) rather than trusted.
+
+**A held call that FAILS loses itself and nothing else**, as a failed APPEND
+does: the stream keeps every chunk before it, and the next commit writes
+them. The trap is the rollback. APPEND's is `dskw_refat`, which DROPS the
+FAT window, and a held chain's allocations are in that window wherever no
+slide has flushed them yet. The first build did exactly that and kept the
+hold, and the commit then linked the file into clusters the disk still
+called free: MEASURED, a dying disk at chunk 100 left an entry of 3,276,800
+bytes over a 17-cluster chain. So a held call's rollback FLUSHES instead.
+The held chain is unreachable until the commit, and the failed call's own
+half-built sub-chain was never linked to it, so it becomes lost clusters,
+18.4's preferred failure. Only a flush that ALSO fails loses the stream, and
+it is POISONED as a lost bank is (18.8.5), so the next call answers `FERR_IO`
+rather than appending past chunks that never reached the disk.
+
+Gated by two rows, and they are both needed. `wseqioerr` fails every data
+write from chunk 100 on, which leaves held allocations dirty in the window;
+it is red on the first build. `wseqfull` fills the volume instead, and is
+green on either build: a full disk has walked the whole FAT for a free
+cluster, flushing every window slide on the way, so its chain is already
+down. It guards the other half, that the refusal keeps the 128 chunks
+before it rather than abandoning them. A crash while held loses the
+bytes written since the stream began and nothing else. That is the right
+trade for a file that is useless until it is finished (the owner's case: a
+joined split set). A file that grows over a long time and must survive each
+chunk is written PLAIN, where every call is committed as APPEND's is and
+only the lookup and the walk are gone.
+
+It is not in `kern_small`: the cell is in both kernels (20.8 rule 4) and
+the small door answers `CF=1`, `FERR_NAME` with `DI` untouched, as READ_SEQ's
+does. A redirected volume (62.9) takes it as the append it is: `FSV_APPEND`
+every call, HELD ignored, there being no clusters to keep a place in.
+
+**Measured** on MartyPC (`os8088_5150_herc_hdd_sb_gla`, XT-IDE), VIDDISK's
+W: 12.5 MB in 400 appends of 32 KB, read back off the VHD on the host dword
+for dword every time (`tests/viddisk.py --floppy --wmode`):
+
+| writer | W, guest s | one-sector writes an append | reads an append |
+|---|---|---|---|
+| `OSAPI_FILE_APPEND` | 570 | 3.2 | 1.0 |
+| `WRITE_SEQ`, plain | **204** | 3.2 | 1.0 |
+| `WRITE_SEQ`, HELD | **191** | **0.2** | **0.1** |
+
+The walk was most of APPEND's time, so plain is 2.8x. HELD removes nearly
+all of the per-append metadata. That is worth only 6% more on an XT-IDE,
+whose small writes are cheap, but on the ST-225 it is the three long seeks
+per chunk (docs/plans/STREAM-WRITER-PLAN.md §1).
+
+**Gated** by six soak rows, each red with what it guards taken out where
+that could be arranged:
+- `wseq` and `wseqheld` are the table above;
+- `wsequnclosed`: HELD and never closed, the bench mounting nothing after it
+  and the machine killed a guest second later. The disk must hold all
+  12.5 MB. With `gfx_unlock`'s commit taken out it holds 32 KB;
+- `wseqinter`: another file written every 64 chunks;
+- `wseqdeleted`: the stream deleted mid-hold and a file made in its
+  directory slot. Its own 16 bytes and a clean disk; with `dskw_mounted`'s
+  commit taken out that file's entry was patched to 2,048 bytes and the
+  disk check failed;
+- `wseqcut`: a POWER CUT, the emulator killed 150 chunks into a held
+  stream. The file is its committed 32 KB and the disk checks clean;
+- `wseqioerr` and `wseqfull`: a held call refused part-way, by a dying disk
+  and by a full one. The file keeps every chunk before the refusal and the
+  disk checks clean (above).
+
+Costs: the whole stream writer - this slot, the bank (18.8.5), the copy's
+room check (22.5.2.1) and the converted writers - is **+503 bytes** on
+`kern_big` (`.cold` +451, `.bss` +21, `.text` +31: the cell's 6, the
+`gfx_unlock` test, `[dsk_fcgoal]` and the bank). As first built it was
+**+1,077**; docs/reports/STREAM-WRITER-SIZE-2026-09-30.md is where the 574
+went, stage 1 (18.4.7.6) included. `kern_small` +6, the cell.
 
 ### 18.4.7 `OSAPI_FILE_WRITE_AT` — the same offset, going the other way
 
@@ -32491,6 +32732,64 @@ CX=0` (§96.11.6.2), which rounds any size down to a cluster, cuts there and
 appends the rest back. Before it, a count of 0 was `FERR_NAME` — *"the caller
 has miscomputed"* — and nothing in the tree passed one: the DOS box's flush
 returns on an empty window before it gets here.
+
+#### 18.4.7.6 One FAT flush when one sector is the whole update
+
+An append at the end commits in SPEC.md 18.4's order, refined for the FAT
+itself: write the data, flush the new sub-chain (allocated, terminated,
+unreachable), THEN set the link from the file's old last cluster and flush
+again, then store the entry. The two flushes are there for a power cut in
+the middle of a MULTI-sector flush: one writes the dirty range in a single
+transfer, and a cut part-way can land some sectors and not others. If the
+link's sector landed and the new chain's did not, the file's last cluster
+would point into clusters the disk still shows free, and the next allocation
+would hand them to another file.
+
+**When the link and every new entry share ONE FAT sector, the second flush
+is the whole update**: a sector lands whole or not at all, so there is no
+partial state for the first flush to guard. That is the common case by a
+wide margin. A 32 KB append on a 2 KB-cluster volume is 16 FAT16 entries,
+32 bytes, and the new chain continues from the link. A trace of Uncompress
+To... onto the fixed disk showed every append writing the same FAT1 and FAT2
+sectors twice in a row (docs/plans/STREAM-WRITER-PLAN.md §1).
+
+**How it knows, with no arithmetic.** At `.seal`, before anything is
+flushed, the last cluster's own end mark is stored back UNCHANGED
+(`mov dx, DSKW_EOC16 / call dskw_setfat`). That puts its sector - both, for a
+FAT12 straddle - in the dirty range without changing a byte, and for an empty
+file's 0 it is no store at all (`dskw_clok` refuses it with CF = 0). If
+`[dsk_fatd0]` still equals `[dsk_fatd1]`, the link and every new entry share
+ONE sector: the link is set and one flush writes it all. Otherwise the chain
+is flushed alone first, then the link, as 18.4 has it. If that store had to
+MOVE the window, the move flushed the chain before it slid, and the range is
+the link's sector alone - the one-sector case again, and correct. It has no
+CF test of its own: it fails only when the window will not load, and the
+link's store is the same load and fails the same way. A held stream's
+commit enters the same `.seal` (18.4.9), so it gets the single flush too,
+once per file.
+
+It was first built as `dskw_onesec`, 56 bytes of arithmetic over the link
+entry's sector (81 with its branches), and withdrawn once in the stream
+writer's size pass; the store-it-back form is **16 bytes of `.cold`**,
+resident, on each kernel (docs/reports/STREAM-WRITER-SIZE-2026-09-30.md).
+Re-measured on it with `VD_TRACE=12 tests/viddisk.py --floppy`: **3.2
+one-sector writes an append**, data writes 3.3 and the directory read 1.0,
+W 572 guest seconds and the 12.5 MB file exact - the figures below, to the
+decimal.
+
+**Measured** with `tests/viddisk.py --floppy` and `VD_TRACE=12`, which
+counts the fixed disk's transfers per 32 KB append over eleven appends of
+VIDDISK's W: **one-sector writes 5.2 -> 3.2 an append** (FAT1, FAT2 and the
+entry, where it was FAT1 and FAT2 twice), with the data writes (3.3) and the
+directory read (1.0) unchanged. The ~0.2 left over is an append whose new
+chain crossed into the next FAT sector and took the two-flush path. The
+12.5 MB STREAM.DAT reads back on the host byte for byte either way. On
+MartyPC's XT-IDE, which moves bytes with the CPU, W's time barely moves (575
+-> 570 guest seconds: the walk dominates there). On the ST-225 each saved
+write is a revolution at least. `fcpapi`, `fcpcopy`, `fcpsmall`, `dosfile`
+and `bigvol` are green on it. 81 bytes of `.cold` on each kernel, resident, as `dskw_onesec`.
+
+It is stage 1 of docs/plans/STREAM-WRITER-PLAN.md.
 
 #### 18.4.7.1 What it cost, and where
 
@@ -43963,6 +44262,65 @@ and the choice is between a missing file and a corrupt one wearing its name.
 **This is not the RAM disk's**, and it was found there only because a RAM disk is
 the easiest volume to fill: `dskw_append` grows a file incrementally by design
 and the copy engine chunks, so a floppy filling mid-copy did the same thing.
+
+#### 22.5.2.1 …and on a hard disk it stops counting once the file fits
+
+**§22.5.2's "no disk I/O" is true of a floppy and was never true of a hard
+disk.** A floppy's FAT is resident whole (§18.8), but a FAT16 partition's is
+paged through a nine-sector window, so `dskw_dfree`'s count reads the WHOLE FAT
+— on a 31MB partition four window loads and ~350 ms of 8088 before a 100KB file
+may start, and the last load leaves the window at the END of the FAT, so the
+create that follows reads the start of it back in. The field ST-225 measured
+`FILE_DFREE` at **315,823 µs** (PERFORMANCE.md Set 24).
+
+`fcp_room` wants a yes or a no about ONE file, not the count. So it sets
+`[dsk_fcgoal]` to the file's whole SECTORS (`[fcp_need]` shifted down 9 - a
+count of clusters can only need fewer), calls `dskw_dfree` as ever and puts
+the goal back, and `dsk_free_clus_x`'s FAT16 walk stops after the first FAT
+sector that brings the count PAST it. The answer is
+then a **lower bound that already covers the request**; short of it the count
+is exact, as before. Three things hold it up:
+
+- **The bytes compare after the count is untouched**, and it is what makes a
+  short count safe: a count that stopped early is at least the request, and one
+  that did not stop is the whole truth. A goal set too low can therefore only
+  ever refuse a file that fits — the direction a room check may err, by
+  §22.5.2's own rule.
+- **`dsk_fcgoal` rests at 0FFFFh**, "count them all" (no count can pass it),
+  and `fcp_room` puts it back with a `mov`, which keeps the answer's carry.
+  `OSAPI_FILE_DFREE`, `dskw_vstat` and the status line's figure (§22.7) never
+  see anything else. A file of 32MB or more wraps the goal, which can only
+  stop the count early and answer "no room" - and no FAT16 volume here has
+  room for it.
+- **FAT12 is not touched.** Its FAT is resident on every geometry that ships, so
+  the count there is CPU alone, and its fast path reads the whole FAT with no
+  window to page.
+
+Measured on `os8088_xt_hdd`, the same 100KB paste: the check went from four
+hard-disk reads to **one**, the create's FAT re-read went with them, and the
+paste 9.4 s → **9.0 s**. `kern_big` +57 bytes as first built, with a
+`dskw_dfree_to` of its own that divided by the cluster size; the size pass
+moved the goal into `fcp_room` and made it sectors, **+28** (docs/reports/
+STREAM-WRITER-SIZE-2026-09-30.md). **`kern_small` +0**: it has no hard disk, a
+floppy's FAT is resident whole and there is no window to stop loading, so
+`dsk_fcgoal`, the early-out and `fcp_room`'s goal are all `OS88_BIGVOL`'s. `tests/fcproom.py` is the gate: an empty partition, one whose
+only room is at the far end of the FAT, and one without room.
+
+#### 22.5.3 …and each file is written as one HELD stream (`kern_big`)
+
+Every chunk after the first used to be an `OSAPI_FILE_APPEND`: a lookup of
+the destination's name, a walk of its chain from the front, and a FAT and a
+directory write, per chunk. On `kern_big` each is a `WRITE_SEQ` call with
+`WSEQF_HELD` (§18.4.9), its token carried in `DI` from the create to the
+close - nothing else in the loop touches that register - and the file's close
+is made at `fcp_xfer`'s `.fin`. So a file costs one lookup, one walk and one
+commit, and between two volumes the FAT stays banked across the hops
+(§18.8.5).
+
+HELD's one loss is nothing here. A copy that stops part-way is deleted by
+`fcp_undo` (§22.5.2), whose own write gate commits the hold before it
+deletes. A close that fails is the disk's, and goes the same way.
+`kern_small` has no `WRITE_SEQ` and keeps its appends.
 
 ### 22.19 A move inside one volume is three sector writes
 
@@ -86271,6 +86629,37 @@ Rule 3 is what costs `kern_big` its 7 bytes.
 
 ---
 
+### 22.3.1 …and a paste re-lists only the windows it could have changed
+
+`fm_paste_res` ends every paste with `fmv_reload_all` and `fmv_repaint_all`,
+the coherence pass §22.3 says a multi-file operation owes — and it re-listed
+and repainted **every** Disk window on the screen. A Copy writes nothing on its
+source volume, so the window the file was copied FROM paid a full mount for a
+listing that could not have changed: on a floppy that is the FAT and the root
+read again after a seek back to cylinder 0, plus an icon harvest. Measured on a
+floppy-to-C: paste, it was the two slowest `int 13h` after the data itself,
+~0.5 s of a 9.9 s paste on `os8088_xt_hdd`.
+
+A window is now re-listed when either:
+
+- **it is DIRTY.** `fmv_mark` marks every window on a folder any write of the
+  operation touched — `dskw_sync` calls it ahead of the batch test, so a tree
+  walk marks every folder it made or wrote into — and it is also how any write
+  BEFORE the paste that nothing has collected yet is recorded, so a debt the
+  old pass paid by accident is still paid; or
+- **it shows a volume the operation WROTE**: `[fcp_ddrv]`, and `[fcp_drv]` too
+  when it was a Cut. The volume and not the folder, because the status line's
+  Free figure (§22.7) belongs to the volume, and a window on another folder of
+  it would otherwise go on quoting the space the paste just took.
+
+A window neither describes keeps its cache and its pixels. **The repaint union
+is the reload's now** — the reload folds each visible window it re-lists into
+`fmv_ux1`… as it goes, and `fmv_repaint_all` only commits the union. It walked
+`wm_zord` for every visible Disk window, and once the reload is selective a
+separate walk would have to re-derive the predicate after the reload had
+already cleared its `FS_DIRTY` half. `kern_big` **−5 bytes**: the walk it
+deletes is bigger than the predicate.
+
 ### 38.0 ON `kern_small` THIS IS AN ON-DEMAND MODULE (§2.8)
 
 `kern_big` keeps every body in §38 resident in `.cold`, unchanged to the
@@ -112877,6 +113266,25 @@ thirteen-assertion gate had been silently unrunnable since that snap shipped.
 
 
 ---
+
+### 77.49 A STOR is one streaming append
+
+Every chunk of a STOR after the first used to be an `OSAPI_FILE_APPEND`.
+That meant a lookup of the name and a walk of the file's chain from its
+first cluster to its last, per chunk, so an upload was QUADRATIC in its
+length (docs/plans/DISK-CPU-PLAN.md 6). It is `OSAPI_FILE_WRITE_SEQ` now
+(§18.4.9), through one token, `fd_wtok`: a lookup and a walk per FILE.
+
+**PLAIN, not HELD.** Each chunk is committed by the wake that stages it
+(§77.1), and the `gfx_unlock` after that wake would commit a hold anyway.
+So HELD would buy nothing but a commit in a different place, while PLAIN
+keeps §77's own promise that every chunk that has been acknowledged is on the
+disk.
+
+**On `kern_small` the cell refuses** with `FERR_NAME`, and FTPD falls back to
+`OSAPI_FILE_APPEND` for the rest of its run (`fd_noseq`). That is exact, not
+a guess: on `kern_big`, `FERR_NAME` is the answer APPEND would give for the
+same arguments.
 
 ## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
 

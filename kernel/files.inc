@@ -6805,8 +6805,8 @@ fm_paste_res:
     ret
 
 ; -----------------------------------------------------------------------------
-; fmv_repaint_all - put every Disk window's PIXELS where fmv_reload_all just
-;                   put its cache (SPEC.md 22.3)
+; fmv_repaint_all - put the PIXELS of every Disk window fmv_reload_all just
+;                   re-listed where it put their caches (SPEC.md 22.3)
 ; in:  the gfx lock HELD - both callers are inside one (the drag loop keeps
 ;      it to the end, and the replace answer is a W_ONKEY callback), which is
 ;      also why the wm_paint_all this replaced was called bare
@@ -6839,10 +6839,14 @@ fm_paste_res:
 ; so a window partly covered by another would come back with blank rows
 ; wherever a clip edge crossed it.
 ;
-; The walk is over wm_zord and not inst_tab, because the question is "which
-; VISIBLE windows are Disk windows" - inst_win_owner answers it in that
-; direction, and the other way round would need a reverse map that does not
-; exist.
+; **THE UNION IS fmv_reload_all's**, and there is no walk here any more
+; (SPEC.md 22.3.1). This walked wm_zord for every visible Disk window, which
+; was right while the reload re-listed every one of them; once it re-lists
+; only the windows the operation could have changed, a separate walk would
+; have to re-derive that predicate - after the reload had already cleared the
+; FS_DIRTY half of it. So the reload folds each visible window it re-lists
+; into the union as it goes, and this commits it. A window the paste did not
+; touch is not repainted, and it keeps exactly the pixels it had.
 ; -----------------------------------------------------------------------------
 fmv_repaint_all:
     call kentc_di               ; KENT: push ax..di
@@ -6851,31 +6855,6 @@ fmv_repaint_all:
 
 
 
-    mov byte [fmv_uany], 0
-    mov si, wm_zord
-    mov cl, [wm_zn]
-    xor ch, ch
-    jcxz .done
-.scan:
-    mov al, [si]
-    inc si
-    push cx
-    push si
-    call KERNEL_SEG:cw_wm_idx2ptr ; BX = the window record
-    test byte [bx+W_FLAGS], 2   ; hidden windows have no pixels to correct
-    jz .next
-    call ct_cw_inst_win_owner         ; DI = its instance, 0 = unowned
-    or di, di
-    jz .next
-    cmp byte [di+I_KIND], KIND_FILES
-    jne .next
-    mov si, bx
-    call KERNEL_SEG:cw_wm_win_rect ; AX/BX/CX/DX = its frame, inclusive
-    call fmv_uadd
-.next:
-    pop si
-    pop cx
-    loop .scan
 .done:
     cmp byte [fmv_uany], 0
     je .out
@@ -6924,15 +6903,34 @@ fmv_uadd:
     ret
 
 ; -----------------------------------------------------------------------------
-; fmv_reload_all - re-list EVERY live Disk window from its own (drive, folder)
-; out: nothing (all registers preserved)
+; fmv_reload_all - re-list every Disk window the operation COULD have changed,
+;                  each from its own (drive, folder)
+; in:  the operation record (fcp_op, [fcp_drv], [fcp_ddrv]) still describes
+;      the paste that just ended - fm_paste_res is the one caller
+; out: nothing (all registers preserved); the pending union (fmv_ux1..) holds
+;      the frames of the VISIBLE ones, for fmv_repaint_all
 ;
 ; The coherence pass a multi-file operation owes (SPEC.md 22.3). fmv_bcast
 ; reaches only the windows on the CURRENT (drive, cwd), which after a tree
 ; walk is wherever the walk happened to stop - and a paste changes the
 ; destination folder, a Cut's source folder, and every folder it created on
-; the way down. Up to four mounts, once per operation, against a listing
-; that would otherwise be silently wrong.
+; the way down.
+;
+; **NOT EVERY WINDOW, THOUGH** (SPEC.md 22.3.1). It re-listed them all, and a
+; COPY writes nothing on its source volume - so the Disk window the file was
+; copied FROM paid a full mount for a listing that could not have changed,
+; which on a floppy is the FAT and the root read again, a seek back to
+; cylinder 0 and an icon harvest: measured, the two slowest `int 13h` of a
+; floppy-to-C: paste after its data. A window is re-listed when either
+;   - it is DIRTY: fmv_mark marked it, which dskw_sync does for every folder
+;     any write of this operation touched - and for any write before it that
+;     no refresh has collected yet, so a debt the old pass paid by accident is
+;     still paid; or
+;   - it shows a VOLUME THIS OPERATION WROTE: the destination, and the source
+;     too when it was a Cut. Not the folder, the volume: the status line's
+;     Free figure (SPEC.md 22.7) is the volume's, so a window on another
+;     folder of it is stale too.
+; A window neither describes is left exactly as it was, cache and pixels.
 ; -----------------------------------------------------------------------------
 fmv_reload_all:
     call kentc_di               ; KENT: push ax..di
@@ -6941,10 +6939,30 @@ fmv_reload_all:
 
 
 
+    mov byte [fmv_uany], 0      ; the repaint owes exactly what is re-listed
     call fmv_ifirst
     jc .done
 .scan:
     mov di, [si+I_SPTR]
+    cmp byte [di+FS_DIRTY], 0
+    jne .owed                   ; marked by a write: owed whatever its volume
+    mov al, [di+FS_DRV]
+    cmp al, [fcp_ddrv]
+    je .owed                    ; ...the destination volume
+    cmp byte [fcp_op], FCP_CUT
+    jne .next                   ; a Copy wrote nothing anywhere else
+    cmp al, [fcp_drv]
+    jne .next                   ; ...and a Cut, the source volume too
+.owed:
+    push si
+    mov si, [si+I_WIN]          ; a HIDDEN window has no pixels to correct -
+    mov bx, si                  ; fm_focus rebuilds those when it is shown
+    test byte [bx+W_FLAGS], 2
+    jz .nopix
+    call KERNEL_SEG:cw_wm_win_rect ; AX/BX/CX/DX = its frame, inclusive
+    call fmv_uadd
+.nopix:
+    pop si
     call fmv_here
     call fmv_load               ; resets FS_SEL/FS_SCRL, which is honest:
     mov byte [di+FS_DIRTY], 0   ; every index into the old listing is

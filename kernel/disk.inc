@@ -345,6 +345,13 @@ dsk_boothds: dw 0
 ; 0040:003F's motor bit per int 13h drive (SPEC.md 18.9.1). A table because
 ; dsk_here_ok preserves every register and `shl al, cl` would spend CX.
 dsk_mbit:    db 1, 2, 4, 8
+%ifdef OS88_BIGVOL              ; kern_big and kern_dos: the builds with a
+dsk_fcgoal:  dw 0xFFFF           ; hard disk behind them. dsk_free_clus_x may
+                                 ; STOP once it has counted MORE (SPEC.md
+                                 ; 22.5.2.1) - 0FFFFh, the value it always
+                                 ; rests at, is "count them all". Only
+                                 ; fcp_room lowers it, round one dskw_dfree,
+%endif                           ; and puts it back
 
 disk_drive:  db 1                ; current VOLUME (0 = A:, 1 = B:), init B:
 disk_spt:    dw 9                ; sectors per track  } fallback geometry,
@@ -2940,9 +2947,6 @@ disk_mount_x:
 %ifdef DISK_COUNTERS
     inc word [dsk_dbg_mnt]
 %endif
-%ifdef KERN_BIG
-    add word [dsk_mgen], 2      ; a new snapshot: READ_SEQ cursors re-seed
-%endif                          ; (SPEC.md 18.4.8)
 
     call dsk_fatw_park          ; the OUTGOING volume's window, banked while
                                 ; [disk_drive] still says which one it is
@@ -3076,6 +3080,10 @@ disk_mount_x:
     ; always reads, because a floppy is the thing that can be swapped.
     call dsk_bpb_bank_get
     jnc .bpb_staged
+%ifdef KERN_BIG
+    add word [dsk_mgen], 2      ; the media is being re-read: no READ_SEQ
+%endif                          ; cursor or WRITE_SEQ token trusts what it
+                                ; knew (18.4.8, 18.4.9)
     push ss
     pop es
     xor ax, ax                  ; LBA 0
@@ -4535,6 +4543,12 @@ dsk_fatw_park:
                                 ; wrong LBA
     cmp word [dsk_fatd0], 0xFFFF
     je .bank
+%ifdef KERN_BIG
+%ifndef KD_BUILD
+    call dws_hpark              ; A HELD STREAM'S FAT IS BANKED, NOT WRITTEN
+    jnc .bank                   ; (SPEC.md 18.8.5): its window stays, so a hop
+%endif                          ; costs no seek to the FAT and back
+%endif
     call dskw_flush_x             ; CF is not propagated: a flush that fails has
                                 ; already lost those bytes, and refusing the
                                 ; mount would lose the volume as well
@@ -4591,7 +4605,12 @@ dsk_fatw_pick:
     jne .load                   ; a different disk: reload, do not trust it
     mov ax, [bx]                ; (the equal compare left CF = 0, and `mov`
     mov [dsk_fatw0], ax         ; keeps it) still resident, and nothing can
-    jmp short .out              ; have overwritten it: this window is ours
+%ifdef KERN_BIG                 ; have overwritten it: this window is ours
+%ifndef KD_BUILD
+    call dws_hret               ; ...and so is a held stream's dirt (18.8.5)
+%endif
+%endif
+    jmp short .out
 .homeless:                      ; ABOUT TO WRITE THE KERNEL'S OWN WINDOW
     call dsk_fatw_evict         ; WITHOUT HOLDING THE PIN (SPEC.md 18.8.3), so
                                 ; nobody may go on believing they hold it: the
@@ -4601,7 +4620,18 @@ dsk_fatw_pick:
                                 ; not let this happen; the invariant is
                                 ; enforced here as well because THIS is the
                                 ; routine that would do the damage
+%ifdef KERN_BIG
+%ifndef KD_BUILD
+.load:                          ; ...and a homeless volume LOADS as well:
+    call dws_hload              ; a held stream's volume, re-read or rehomed,
+                                ; loses the hold (18.8.5). The same disk,
+                                ; reused above, keeps its dirt
+%else
 .load:
+%endif
+%else
+.load:
+%endif
     stc
 .out:
     pop bx
@@ -5149,6 +5179,11 @@ dsk_free_clus_x:
     inc bx
     loop .word
     dec byte [sch_lock]
+%ifdef OS88_BIGVOL
+    cmp di, [dsk_fcgoal]        ; ...and a caller that asked only "is there
+    ja .counted                 ; room for this" has its answer (22.5.2.1):
+                                ; the rest of the FAT is window loads for a
+%endif                          ; number nobody reads
     cmp si, [dsk_maxclus]
     jbe .f16
 .counted:
@@ -8871,12 +8906,17 @@ fdd_wait:
 section .text
 
 %ifdef KERN_BIG
-; [dsk_mgen] - the MOUNT GENERATION (SPEC.md 18.4.8): +2 on every snapshot
-; disk_mount_x builds and every write dskw_sync closes, so a READ_SEQ cursor
-; stamped with it is trusted exactly while nothing on the machine has
-; remounted or written. ODD FOR EVER, seeded 1 in .text: a cursor the caller
-; zeroed carries 0, which it can then never match, and the add needs no wrap
-; test. Not .bss - its resting value is not zero (SPEC.md 12.8.5.1)
+; [dsk_mgen] - the MEDIA GENERATION (SPEC.md 18.4.8, 18.4.9): +2 on every
+; write dskw_sync closes and every mount that READS a boot sector - not on a
+; mount that trusts a banked one, which is a quiet hop a batch vouches for or
+; a fixed disk, whose bytes nothing but a write can change. So a READ_SEQ
+; cursor or a WRITE_SEQ token stamped with it is trusted exactly while the
+; disks under it are the disks it saw; the join's C: -> A: -> C: every block
+; keeps both. (WRITE_SEQ moves it twice more: a new HOLD, the one call that
+; writes nothing the disk shows, and a LOST one.) ODD FOR EVER, seeded 1 in
+; .text: a cursor the caller zeroed carries 0, which it can then never match,
+; and the add needs no wrap test. Not .bss - its resting value is not zero
+; (SPEC.md 12.8.5.1)
 dsk_mgen:   dw 1
 dwr_c:      times 16 db 0       ; READ_SEQ's cursor, the kernel's copy for the
 %endif                          ; call (18.4.8). dwr_stat reads it on EVERY

@@ -1680,9 +1680,11 @@ fcp_chunkset:
 ; throwing it away would merely be wasteful; doing the work and leaving
 ; something that looks like the file is the part that costs the user data.
 ;
-; It is free: dskw_dfree answers from the resident FAT snapshot with no disk
-; I/O at all, and the destination volume is current here anyway because the
-; create is the next thing that happens.
+; It costs no volume switch: the destination is current here anyway, because
+; the create is the next thing that happens. It is NOT free on a hard disk,
+; whose FAT is paged through a nine-sector window - which is why it sets
+; [dsk_fcgoal] to the file's sectors round the count, and a partition with
+; room stops at the first window (SPEC.md 22.5.2.1). On a floppy the FAT is resident and the count is CPU alone.
 ;
 ; **"I DO NOT KNOW" ANSWERS YES.** A volume whose dfree fails - a redirector
 ; that publishes no FSV_DFREE (SPEC.md 62.9.1) is the real case - falls through
@@ -1698,9 +1700,23 @@ fcp_chunkset:
 ; under any rounding.
 ; -----------------------------------------------------------------------------
 fcp_room:                       ; clobbers AX, BX, DX - its ONE caller reloads
-    FCPX dskw_dfree_x           ; all three between here and the create, so
-    jc .yes                     ; saving them would be four bytes spent on
-    add ax, [fcp_ovwsz]         ; nothing. CX is untouched: [fcp_flen] is
+%ifdef OS88_BIGVOL              ; all three between here and the create, so
+    mov ax, [fcp_need+1]        ; saving them would be four bytes spent on
+    mov dl, [fcp_need+3]        ; nothing. THE WANT GOES IN (22.5.2.1): a hard
+    shr dl, 1                   ; disk's count may stop once it has MORE than
+    rcr ax, 1                   ; this many CLUSTERS - the file's whole
+    mov [dsk_fcgoal], ax        ; sectors, which is at least its clusters
+                                ; however big they are. Past 32MB the goal
+                                ; wraps and may stop the count early, which
+                                ; answers "no room" - and no FAT16 volume
+                                ; here has room for such a file
+%endif
+    FCPX dskw_dfree_x
+%ifdef OS88_BIGVOL
+    mov word [dsk_fcgoal], 0xFFFF   ; ...and back to "all" (`mov`: CF stays)
+%endif
+    jc .yes
+    add ax, [fcp_ovwsz]         ; CX is untouched: [fcp_flen] is
     adc dx, [fcp_ovwsz+2]       ; already in it and the create needs it
     jc .yes                     ; the sum wrapped: bigger than any file
     cmp dx, [fcp_need+2]
@@ -1831,6 +1847,10 @@ fcp_xfer:
 .jerr:
     jmp short .err              ; check costs no switch of its own - and it is
 .create:                        ; still before anything has been created
+%ifdef KERN_BIG
+    xor di, di                  ; no WRITE_SEQ token yet: the first is COLD.
+%endif                          ; DI carries it from here: nothing in the loop
+                                ; below touches it but WRITE_SEQ itself
     call fcp_wprep
     xor dx, dx                  ; DX:CX = the chunk (SPEC.md 18.4.1) - the one
     FCPX dskw_write_x           ; argument the two sites do not share
@@ -1851,10 +1871,24 @@ fcp_xfer:
     FCPX fcp_gofd
     jc .err
     call fcp_wprep
+%ifdef KERN_BIG
+    mov al, WSQF_HELD           ; ONE HELD STREAM per file (SPEC.md 22.5.3):
+    call COLD_SEG:dwf_dskw_write_seq    ; no lookup and no walk a chunk, and
+                                ; no FAT or directory write until the close
+                                ; below - a partial copy is deleted anyway,
+                                ; so HELD's one loss is nothing
+%else
     FCPX dskw_append_x
+%endif
     jc .err
     jmp .chunk
 .fin:
+%ifdef KERN_BIG
+    xor cx, cx                  ; THE CLOSE: the stream's link, FAT and size.
+    call COLD_SEG:dwf_dskw_write_seq    ; Nothing held (one chunk, a
+    jc .err                     ; redirected copy) answers AX = 0 at once; a
+%endif                          ; failure is the disk's, and the partial copy
+                                ; goes with it
     mov byte [fcp_made], 0      ; whole and committed: nothing to undo
     clc
     jmp short .out
