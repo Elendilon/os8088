@@ -1937,15 +1937,19 @@ hbm_imgsize:
     pop cx
     ret
 
+hbm_res_f:                      ; hbm_res's two first refusals, whose .fail
+    jmp hbm_res.fail            ; is past short reach: one trampoline behind
+                                ; the `ret` above for two 5-byte jccs
+
 ; -----------------------------------------------------------------------------
 ; hbm_res - put the image back (SPEC.md 87.5): the extents, then the stub
 ; in:  the question was answered Resume; no lock held
 ; -----------------------------------------------------------------------------
 hbm_res:
     call hbm_enter              ; where the user stands, for a refusal
-    jc .fail
+    jc hbm_res_f
     call hbm_findimg            ; BX = its first cluster
-    jc .fail
+    jc hbm_res_f
     push bx
     call hbm_xcap               ; 2. sized for THIS volume, not the worst one
     mov bx, MEM_K_HIB
