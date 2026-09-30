@@ -357,6 +357,10 @@ ui_task:
                                 ; out of short range is a five-byte
                                 ; inverted pair. Every branch below that
                                 ; reaches HERE reaches .yield one hop on
+.grow_box:                      ; (HERE, behind .yj1's jump and in short
+    call ui_grow                ; reach of the region dispatch, so its `je`
+    jmp short .yj1              ; is two bytes and not five) in: BX = window,
+                                ; CX/DX = mousedown x/y
 
 .content_front:
     mov bp, [si + W_ONCLICK]
@@ -494,9 +498,6 @@ ui_task:
     call gfx_unlock
     jmp .yj2
 
-.grow_box:
-    call ui_grow                ; in: BX = window, CX/DX = mousedown x/y
-    jmp .yj2
 
 .title_bar:
     mov si, bx                  ; keep the hit window; wm_top returns in BX

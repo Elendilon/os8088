@@ -849,7 +849,7 @@ mem_claim_1:
     mov cx, dx                  ; it straddles. Going UP, the next base that
     and cx, 0xF000              ; can work is the next page's floor...
     add cx, 0x1000
-    jc .fail                    ; ...past 1MB, so there is no next page
+    jc .fail0                   ; ...past 1MB, so there is no next page
     cmp word [mem_dir], 0
     je .dmago
     sub cx, [mem_dma]           ; ...and going DOWN, the highest base in THIS
