@@ -17,8 +17,9 @@ The rule, per call site of `drv_cls_svc_x`, `drv_cls_fp_x` or their far
 
   * a `jc`/`jnc` within the next few instructions, with nothing between that
     can change CF (a push, a pop, a mov, an xchg), OR
-  * the very next instruction is `retf` - a far thunk hands CF straight back,
-    and ITS callers are the ones checked, by the far name, OR
+  * the very next instruction is `retf` or `ret` - a thunk hands CF straight
+    back, and ITS callers are the ones checked, by its name (drvf_drv_cls_svc
+    far, CTRL.DRV's cp_clssvc near), OR
   * a `; CLSCF: <reason>` on the call line, for a site whose class is known to
     have a slot - the reason is required and is what a reviewer reads.
 
@@ -31,11 +32,12 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-CALL = re.compile(r"^\s*call\s+(?:COLD_SEG:)?(drv_cls_svc_x|drv_cls_fp_x|"
-                  r"drvf_drv_cls_svc)\b", re.I)
+CALL = re.compile(r"^(?:[A-Za-z_]\w*:)?\s*call\s+(?:COLD_SEG:)?"
+                  r"(drv_cls_svc_x|drv_cls_fp_x|drvf_drv_cls_svc|cp_clssvc)\b",
+                  re.I)
 JCF = re.compile(r"^\s*j(?:c|nc|b|nb|ae|nae)\s", re.I)
 KEEPS = re.compile(r"^\s*(?:push|pop|mov|xchg|lea|pushf)\b", re.I)
-RETF = re.compile(r"^\s*retf\b", re.I)
+RETF = re.compile(r"^\s*retf?\b", re.I)
 REACH = 4
 
 
