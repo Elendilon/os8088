@@ -1364,6 +1364,11 @@ vp_parse:
     cmp bx, 64
     ja .nokeys
     mov [vp_kbkb], bx
+    mov cx, 16                      ; ...and a TABLE ENTRY's, which is all
+    push ax                         ; a seek's claim reads (vp_kent): the
+    call vp_spankb                  ; ring keeps back this and not a record's
+    mov [vp_kekb], ax               ; (SPEC.md 98.3)
+    pop ax
     mov [vp_nkeys], ax
 .nokeys:
     ; --- REPEAT (98.3.9): on if the file asks, and how a lap joins the next -
@@ -5831,8 +5836,8 @@ vp_sstart:
     cmp ax, [vp_kload]
     je .k0ok
     push ax
-    mov ax, [vp_kbkb]               ; vp_rdat's buffer, as vp_loadkey claims
-    call OSAPI_MEM_CLAIM            ; it: a refusal leaves the old start
+    mov ax, [vp_kekb]               ; vp_rdat's buffer for the ENTRY alone:
+    call OSAPI_MEM_CLAIM            ; a refusal leaves the old start
     jc .k0no
     mov [vp_rdseg], dx
     mov ax, [vp_sel]
@@ -5977,9 +5982,11 @@ vp_sstart:
     mov cx, [vp_kmax]
     cmp byte [vp_livem], 0
     jne .klive
-    sub ax, [vp_kbkb]               ; ...less a seek's key entry, claimed
-    jnc .kbig                       ; AFTER the ring (98.3.14), which would
-    xor ax, ax                      ; otherwise quietly refuse
+    sub ax, [vp_kekb]               ; ...less the claim a seek reads its key's
+    jnc .kbig                       ; ENTRY into AFTER the ring (98.3.14),
+    xor ax, ax                      ; which would otherwise quietly refuse -
+                                    ; the entry, not the record: the record
+                                    ; is read into the ring (vp_spos)
 .kbig:
     call .kslots
     cmp cx, ax
@@ -6610,7 +6617,7 @@ vp_keyat:
     div word [vp_frames]            ; (t < frames, so the key < keys)
     mov [vp_kat_i], ax
     mov word [vp_kat_n], 24
-    mov ax, [vp_kbkb]
+    mov ax, [vp_kekb]               ; (it reads entries and nothing else)
     call OSAPI_MEM_CLAIM
     jc .fail
     mov [vp_rdseg], dx
@@ -7383,7 +7390,7 @@ vp_skdue:
     call vp_keyat                   ; AX = the key at or before it
     jc .back
     mov [vp_skk], ax
-    mov ax, [vp_kbkb]               ; its entry - and ON, the first key past
+    mov ax, [vp_kekb]               ; its entry - and ON, the first key past
     call OSAPI_MEM_CLAIM            ; the frame on the glass
     jc .back
     mov [vp_rdseg], dx
@@ -11999,6 +12006,7 @@ vp_ktab:      dw 0, 0
 vp_poster:    dw 0                  ; the header's poster, FFFFh none
 vp_kmaxb:     dw 0                  ; the largest keyframe record
 vp_kbkb:      dw 0                  ; ...and the claim that reads one, KB
+vp_kekb:      dw 0                  ; ...and one that reads a table entry, KB
 vp_sel:       dw 0                  ; the key Play starts at; 0 = the start
 vp_kload:     dw 0xFFFF             ; the key vp_ke holds
 vp_ke:        times 16 db 0         ; its table entry (98.1.3)

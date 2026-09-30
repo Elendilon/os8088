@@ -155755,9 +155755,18 @@ on time however long the disk takes:
 **The reader is the foreground**, the bracket's own loop, through
 `OSAPI_FILE_READ_SEQ` in 32 KB chunks:
 - **A ring of *K* 32 KB slots, as many as the machine has, up to 15**
-  (`VP_KBIG`), sized from `OSAPI_MEM_AVAIL` less the mirror and less one
-  keyframe entry (`[vp_kbkb]`), which a seek in the full screen claims
-  after the ring is up (98.3.14) and would otherwise quietly refuse. A
+  (`VP_KBIG`), sized from `OSAPI_MEM_AVAIL` less the mirror and less the
+  claim a seek in the full screen reads its key's table ENTRY into
+  (`[vp_kekb]`) after the ring is up (98.3.14), which would otherwise
+  quietly refuse. **The entry, not the record**: a seek's claims
+  (`vp_keyat`, `vp_fseek`'s) read 16-byte entries and nothing else - the
+  key's record is read into the ring (`vp_spos`) - so they are two
+  clusters (4 KB on a 2 KB volume), where the ring once kept back a whole
+  record's read, `[vp_kbkb]`, 48 KB for a 256-colour clip whose keys are
+  45 KB. On a 640 KB VGA machine with a Sound Blaster and a fixed disk
+  that one slot was the difference: a 24 fps 320x240 VGA8 clip encoded
+  for `286-vga` (a ring of 8) got **7 slots and `Low memory`**, and gets
+  8 (VIDEO.O88 +13 bytes). A
   stream that fits is read whole before the first frame, so every slot
   past the header's ring is headroom the encode never counted on: an
   early burst is read before the picture starts, and a later one spends
