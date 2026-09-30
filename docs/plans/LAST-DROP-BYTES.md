@@ -806,7 +806,12 @@ Re-derive it with a listing walk rather than by reading source: assemble
 out of the table, and keep the ones whose body is `stc`/`ret`, `stc`/`retf` or
 `xor ax, ax`/`stc`/`ret`. Measured on `5ca2de18`.
 
-#### 7.7.8 OPEN — the `drv_cls_svc_x` CF gate: a CHECK, worth more than the 38 bytes that motivated it
+#### 7.7.8 BUILT — the `drv_cls_svc_x` CF gate: a CHECK, worth more than the 38 bytes that motivated it
+
+**Built in kernel size pass 8**: `tests/unit/t_clscf.py` (fast row `clscf`)
+is the gate, and the size change took `.bss` −36 for `.cold` +7 — the
+`drv_owner` word stays, `drv_release` finding a class's row by it. SPEC.md
+9.12's list of what was not taken carries the detail.
 
 Not a saving — a **gate**, and it is filed here because it is what stands
 between this file and 38 bytes of `.bss` that are dead by construction.

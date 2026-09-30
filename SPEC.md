@@ -15236,6 +15236,17 @@ a rare cell is six bytes (§20.3).*
   **docs/plans/LAST-DROP-BYTES.md §7.7.8**, gate first and size change second,
   because the same walk covers `drv_cls_fp_x`'s identical refusal and is worth
   more than the 38 bytes that motivated it.
+  **BUILT, kernel size pass 8**: the gate is `tests/unit/t_clscf.py` (fast
+  tier, row `clscf`) - a `jc`/`jnc` within four CF-neutral instructions of
+  every call, or a `; CLSCF: <why>` naming why that site's class has a slot
+  (three sites: a block volume's class, and a loaded row's for the two
+  `drv_cls_fp` stores). Then `drv_cls_svc_x` refuses `DRVC_POINT` (`cmp` /
+  `cmc` / `jc`, the class being `DRVC_MAX` and asserted so), `drv_svc` is
+  `DSV_SIZE * (DRVC_MAX - 2)`, `drv_publish` still writes the class's owner
+  and far pointer on that refusal, and `drv_svc_clear` gained the one `jc` the
+  walk found missing. **`.bss` −36, `.cold` +7**: the `drv_owner` word stays,
+  because `drv_release` finds a class's row by it. DI is no longer defined
+  on a refusal.
 - **`kern_small`'s two-byte refusal** could be a second label on
   `drv_pkg_call_x`'s existing `stc`/`ret`, for **−2**. It would put a
   `mouse.inc` symbol in `driver.inc` against §4's ownership table, for two

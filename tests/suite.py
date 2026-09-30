@@ -976,6 +976,12 @@ FAST = [
         "GLaBIOS twin still differs from its IBM original in `rom_set` alone "
         "- a drifted twin measures the config's difference and calls it the "
         "kernel's"),
+    Row("clscf", "fast", py("tests/unit/t_clscf.py"), 0.1,
+        "every call to drv_cls_svc / drv_cls_fp tests the carry, or says in a "
+        "CLSCF: comment why its class has a slot. A missed test reads another "
+        "class's services and does not crash, and since kernel size pass 8 "
+        "drv_cls_svc refuses a real class, DRVC_POINT "
+        "(docs/plans/LAST-DROP-BYTES.md 7.7.8)"),
     Row("asmrules", "fast", py("tests/unit/t_asmrules.py"), 2.0,
         "unreachable code after an unconditional jump, a prologue restored in "
         "the WRONG ORDER (SPEC.md 1's register discipline: balanced depth, "

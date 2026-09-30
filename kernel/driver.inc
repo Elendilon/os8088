@@ -1358,7 +1358,12 @@ drv_init_x:
 ; in:  AL = class (1..DRVC_MAX)
 ; out: drv_cls_fp:  DI = &drv_fptr for that class
 ;      drv_cls_svc: DI = &drv_svc  for that class
-;      CF = 1 and DI = 0 if the class is out of range (an empty table row)
+;      CF = 1 if the class is out of range, and drv_cls_svc ALSO refuses
+;      DRVC_POINT, which has an fptr and an owner and no copied table: its one
+;      driver (USBMOUSE.DRV, SPEC.md 9.12) publishes DSV_NAME alone and nothing
+;      in the kernel reads that. DI is NOT defined on a refusal - every caller
+;      tests CF, and tests/unit/t_clscf.py fails the build on one that does not
+;      (docs/plans/LAST-DROP-BYTES.md 7.7.8). 36 bytes of .bss.
 ; clobbers: DI (the output), flags
 ; -----------------------------------------------------------------------------
 section .cold                   ; ...and back to resident cold code
@@ -1377,8 +1382,11 @@ drv_cls_fp_x:
 drv_cls_svc_x:
     push ax
     push cx
-    call drv_cls_idx            ; ...same: DI = 0 and CF = 1 on a refusal, and
-    jc .out                     ; `pop` writes no flag
+    call drv_cls_idx            ; ...same: CF = 1 on a refusal, and `pop`
+    jc .out                     ; writes no flag
+    cmp al, DRVC_POINT          ; ...and the class with no copy: CF = 1 below
+    cmc                         ; it, so complemented CF = 1 AT it (it is the
+    jc .out                     ; last class, DRVC_MAX)
     cmp al, DRVC_RETIRED3       ; class 3 has no drv_svc slot: the index is
     jbe .lo                     ; COMPACTED past it (drv_fptr/drv_owner are
     dec di                      ; not - a class number is shipped ABI)
@@ -2528,6 +2536,7 @@ drv_svc_clear:
     shl di, 1                   ; and drv_cls_idx writes DI alone
     mov word [di+drv_owner], 0
     call drv_cls_svc_x
+    jc .out                     ; DRVC_POINT: no table to clear (drv_cls_svc)
     mov cx, DSV_SIZE            ; the table alone: the 16-byte staged sink
     xor al, al                  ; name this once also cleared is gone, and
                                 ; drv_cfg now sits right behind drv_svc
@@ -3110,7 +3119,8 @@ drv_publish:
     push di
     mov al, [bx+DRVR_CLASS]
     call drv_cls_svc_x            ; DI = this CLASS's copy, not the one copy
-    jc .out
+    jc .owner                   ; DRVC_POINT keeps no copy, and still has an
+                                ; owner and a dispatcher (drv_cls_svc)
     push di                     ; every cell is published as 0 FIRST, so a
     xor ax, ax                  ; cell the driver's table stops short of is
     mov cx, DSV_SIZE / 2        ; refused by every consumer's `or bp, bp / jz`
@@ -3141,11 +3151,13 @@ drv_publish:
     inc di
     loop .copy
 
+.owner:
     mov al, [bx+DRVR_CLASS]     ; which row these belong to, so a detach can
     call drv_cls_idx            ; take them away again...
     shl di, 1
     mov [di+drv_owner], bx      ; ...and the far pointer this class's
-    call drv_cls_fp_x             ; dispatcher goes through (AL survives:
+    call drv_cls_fp_x           ; CLSCF: a loaded row's class - every class has an fptr
+                                ; ...the dispatcher goes through (AL survives:
                                 ; drv_cls_idx writes DI alone)
     mov ax, [bx+DRVR_SEG]
     mov [di+2], ax
@@ -3269,7 +3281,8 @@ drv_release:
                                 ; its way back out, and it was visible: the
                                 ; drive zone left the desktop the moment the
                                 ; cable was ticked
-    call drv_cls_fp_x           ; AL survives drv_cls_idx, which writes DI
+    call drv_cls_fp_x           ; CLSCF: a loaded row's class - every class has an fptr
+                                ; AL survives drv_cls_idx, which writes DI
     mov word [di+2], 0          ; alone
     call drv_svc_clear          ; ...and drv_cls_fp_x, which banks AX
     call cp_drv_gone_x            ; a page this driver owned is on screen no
@@ -4641,7 +4654,10 @@ drv_dlg_name: resb 14           ; the caller's default name, staged out of its
 %endif
 drv_owner:  resw DRVC_MAX       ; per class: the row whose services are
                                 ; published, or 0. Class 1 is index 0
-drv_svc:    resb DSV_SIZE*(DRVC_MAX-1) ; ...and a copy of each one's table, so
+%if DRVC_POINT != DRVC_MAX
+%error "driver: drv_cls_svc refuses DRVC_POINT by `>= it`, so it must be the last class, and drv_svc stops short of it"
+%endif
+drv_svc:    resb DSV_SIZE*(DRVC_MAX-2) ; ...and a copy of each one's table, so
                                 ; every `[drv_svc+DSV_*]` in snd.inc still
                                 ; names the SOUND driver's and did not change
 drv_cfg:    resb CFG_NB         ; the live settings, staged (layout above).
