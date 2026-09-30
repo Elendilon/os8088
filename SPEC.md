@@ -8209,6 +8209,16 @@ buys is not a fix for a bug in the field but the removal of a dependency
 nobody can check from inside the kernel — and a typeface this project
 chooses, on a machine whose UI is otherwise entirely its own.
 
+**Since kernel size pass 8 this is the arm that pays the 768 resident
+bytes**, and only it: a plain build reads the ROM's table in place (§6), and
+a baked one still copies its face into `font_glyphs`/`font_zero` in
+`.lowbss`, measured +768 of `.lowbss` against the same knob build unbaked on
+both kernels (plus the face in the overlay, which is not resident). On
+**kern_small** the face and `ovl_font_init` are in the BLOB half (`.ovl`,
+§2.5.3.2), `font_init`'s own placement, reached through `OVBCALL`: in the
+window half they overran kern_small's `.ovlw` guard, so until kernel size
+pass 8 `FONT=` did not build on kern_small at all.
+
 **The bytes ride in the boot overlay (§2.5), which is why this is nearly
 free.** `ovl_font_bits` is 760 bytes of `.ovl`, and `ovl_font_init` — an
 overlay entry like `ovl_clk_init`, reached by `kmain` as

@@ -2296,7 +2296,15 @@ font_dith:      resb 1          ; 1 = this glyph is disabled text on a mono
 ; data reference across that boundary, only a call, so the rule is worth
 ; keeping to rather than working around.
 ; =============================================================================
+%ifndef KERN_SMALL
 section .ovlw
+%else
+section .ovl                    ; kern_small: the BLOB half, font_init's own
+                                ; placement and for its reason - that kernel's
+                                ; `.ovlw` sits on the FAT window and the mount
+                                ; buffers, and 760 more bytes overran it, so
+                                ; FONT= did not build on kern_small at all
+%endif
 ; -----------------------------------------------------------------------------
 ; ovl_font_init - copy the baked typeface into font_glyphs
 ;

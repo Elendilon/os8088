@@ -5668,7 +5668,7 @@ kmain_o:
     MARKW 13
     BPMARKW 2                    ; ...the claim heap and the module table
 %ifdef BAKED_FONT
-    OVWCALL  ovl_font_init  ; the typeface this BUILD carries (SPEC.md
+    OVBCALL  ovl_font_init  ; the typeface this BUILD carries (SPEC.md
                                 ; 6.2), out of the overlay - so it needs no
                                 ; int 10h and no F000:FA6E, and the machine's
                                 ; own ROM font is not consulted at all
