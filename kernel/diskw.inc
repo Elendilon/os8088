@@ -1349,6 +1349,18 @@ dskw_scan1:
 ; which is the whole point of SPEC.md 18.4.1. What replaces it is the sector
 ; count's own ceiling, below.
 ; -----------------------------------------------------------------------------
+%ifdef OS88_REDIR
+; dskw_fsargs - a redirected transfer's buffer and count, as FSV_READ and
+; FSV_WRITE both take them (SPEC.md 51.8's rule): DX:BX = [dskw_seg]:
+; [dskw_src], DI:CX = [dskw_lenhi]:[dskw_len]. Clobbers exactly those four.
+dskw_fsargs:
+    mov bx, [dskw_src]
+    mov dx, [dskw_seg]
+    mov cx, [dskw_len]
+    mov di, [dskw_lenhi]
+    ret
+%endif
+
 ; -----------------------------------------------------------------------------
 ; dskw_fsop - run one FSV_* write verb and reconcile (module internal)
 ; in:  BP = the verb, plus whatever that verb's own arguments are
@@ -1390,10 +1402,7 @@ dskw_wbody:
                                 ; FSV_WRITE through OSAPI_FS_PROG, and without
                                 ; this that report has nothing to report into.
                                 ; dskw_write_x ends it either way
-    mov bx, [dskw_src]
-    mov dx, [dskw_seg]          ; DX:BX = the bytes (SPEC.md 51.8's rule)
-    mov cx, [dskw_len]
-    mov di, [dskw_lenhi]        ; DI:CX = how many
+    call dskw_fsargs            ; DX:BX = the bytes, DI:CX = how many
     mov bp, FSV_WRITE
     jmp dskw_fsop
 %endif                          ; OS88_REDIR
@@ -2062,10 +2071,10 @@ dskw_rbody:
                                 ; until the verb returns
     push bp
     mov ax, [dskw_raw+DSK_R_CLUS]   ; the handle FSV_STAT answered, banked
-    mov bx, [dskw_src]          ; ...and the destination the placement above
-    mov dx, [dskw_seg]          ; has already moved up by R when the file is
-    mov cx, [dskw_len]          ; compressed, which is the whole point of
-    mov di, [dskw_lenhi]        ; joining: P bytes, where P is what the FILE
+    call dskw_fsargs            ; ...and the destination the placement above
+                                ; has already moved up by R when the file is
+                                ; compressed, which is the whole point of
+                                ; joining: P bytes, where P is what the FILE
     mov bp, FSV_READ            ; occupies and never what it becomes
     call drv_fs_call              ; -> DX:AX = bytes read
     pop bp
