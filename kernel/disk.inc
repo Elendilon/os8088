@@ -3829,16 +3829,10 @@ dsk_bpb_check:
     ja .jfail2
 .r14:
 
-    ; the raw fields are now trusted: stash them (SPEC.md 18.1) - the
-    ; volume's extent, [dsk_totsec], at rule 14 where the count is loaded
-    mov al, [dsk_bpb+DSK_B_SPC]
-    mov [dsk_spc], al
-    mov al, [dsk_bpb+DSK_B_NFATS]
-    mov [dsk_nfats], al
-    mov ax, [dsk_bpb+DSK_B_RSVD]
-    mov [dsk_fatlba], ax        ; FAT1 starts at RsvdSecCnt
-    mov ax, [dsk_bpb+DSK_B_FATSZ]
-    mov [dsk_fatsz], ax
+    ; the raw fields are now trusted, and dsk_spc, dsk_nfats, dsk_fatlba and
+    ; dsk_fatsz ARE four of them (SPEC.md 18.1: they alias the staged BPB, see
+    ; the .bss) - the volume's extent, [dsk_totsec], at rule 14 where the
+    ; count is loaded
 
     ; derived layout (SPEC.md 19 detection; all sums carry-checked - a
     ; hostile RsvdSecCnt near 0xFFFF must reject, not wrap)
@@ -8994,11 +8988,19 @@ dsk_bpb       equ dsk_bpbh - DSK_B_BPS  ; ...addressed as sector offsets, so
                                 ; [dsk_bpb+DSK_B_*] is the field for every
                                 ; DSK_B_* from DSK_B_BPS up. DSK_B_JMP is
                                 ; asked of dsk_secbuf and never through this
+; FOUR OF THE 18.1 VARIABLES ARE THE STAGED BPB ITSELF, and not copies of it:
+; dsk_bpbh is written by nothing but disk_mount_x (the read, the bank and
+; dsk_bpb_check's TotSec32 fold), so after a mount it holds the mounted
+; volume's fields until the next mount - exactly the lifetime these had as
+; copies, which dsk_bpb_check's rule 14 used to make at 24 bytes of .cold
+; and six of .bss. A failed mount leaves them the new disk's rather than the
+; last one's, and every consumer is gated on the mount either way (above).
+dsk_spc       equ dsk_bpb + DSK_B_SPC   ; BPB_SecPerClus (validated power of two)
+dsk_fatlba    equ dsk_bpb + DSK_B_RSVD  ; = RsvdSecCnt (FAT1 start LBA)
+dsk_fatsz     equ dsk_bpb + DSK_B_FATSZ ; = FATSz16 (SPEC.md 18.2 rule 10
+                                ; caps a BIOS floppy's by refusing it)
+dsk_nfats     equ dsk_bpb + DSK_B_NFATS ; 1 or 2
 dsk_fattype:  resb 1            ; 0 = FAT12, 1 = FAT16 (SPEC.md 19)
-dsk_spc:      resb 1            ; BPB_SecPerClus (validated power of two)
-dsk_fatlba:   resw 1            ; = RsvdSecCnt (FAT1 start LBA)
-dsk_fatsz:    resw 1            ; = FATSz16 - capped at DSK_FAT_SECS only on
-                                ; a BIOS floppy (SPEC.md 18.2 rule 10)
 dsk_fatwn:    resw 1            ; ...and how many are resident. On a floppy
                                 ; this is the whole FAT and the window never
                                 ; moves - the degenerate case, byte for byte
@@ -9028,7 +9030,6 @@ dsk_fsup:     resw 1            ; the current folder's PARENT handle, answered
                                 ; Opaque: only the driver knows what it means,
                                 ; and there is no '..' on a disk to read it
                                 ; from
-dsk_nfats:    resb 1            ; 1 or 2
 dsk_totsec:   resw 1            ; TotSec16, the volume's extent in sectors
 dsk_rootlba:  resw 1            ; first root-dir LBA
 dsk_rootsecs: resw 1            ; root-dir sector count (<= 32)

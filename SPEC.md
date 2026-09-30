@@ -29628,12 +29628,13 @@ including `dsk_cherr`, `dsk_read_chain`'s failure-code byte carried across
 its register-restore epilogue.
 
 ```nasm
-dsk_bpb:      resb 64  ; staged boot-sector head (mount scratch, §18.2)
+dsk_bpbh:     resb 18  ; staged BPB fields 11..28 (mount scratch, §18.2),
+dsk_bpb equ dsk_bpbh - 11 ; addressed as boot-sector offsets
+dsk_spc    equ dsk_bpb + 13  ; BPB_SecPerClus (validated power of two)
+dsk_fatlba equ dsk_bpb + 14  ; = RsvdSecCnt (FAT1 start LBA)
+dsk_nfats  equ dsk_bpb + 16  ; 1 or 2
+dsk_fatsz  equ dsk_bpb + 22  ; = FATSz16 (<= DSK_FAT_SECS on a floppy)
 dsk_fattype:  resb 1   ; 0 = FAT12, 1 = FAT16 (§19 detection)
-dsk_spc:      resb 1   ; BPB_SecPerClus (validated power of two)
-dsk_fatlba:   resw 1   ; = RsvdSecCnt (FAT1 start LBA)
-dsk_fatsz:    resw 1   ; = FATSz16 (<= DSK_FAT_SECS)
-dsk_nfats:    resb 1   ; 1 or 2
 dsk_rootlba:  resw 1   ; first root-dir LBA
 dsk_rootsecs: resw 1   ; root-dir sector count (<= 32)
 dsk_datalba:  resw 1   ; FirstDataSec
@@ -29652,6 +29653,14 @@ dsk_rover:    resw 1   ; next cluster the allocator examines (§18.4), reset
 dsk_fatd0:    resw 1   ; dirty FAT sector range, [lo, hi] inclusive, sector
 dsk_fatd1:    resw 1   ; indices within one FAT; lo = 0FFFFh = clean
 ```
+
+**Four of these ARE the staged BPB** — `dsk_spc`, `dsk_fatlba`, `dsk_nfats`
+and `dsk_fatsz` are `equ`s into `dsk_bpbh`, not copies of it (kernel size
+pass 8: 24 bytes of `.cold` and 6 of `.bss`). `dsk_bpbh` is written by
+nothing but `disk_mount` — the boot sector's read, the §18.8.2 bank and rule
+14's TotSec32 fold — so it holds the mounted volume's fields exactly as long
+as the copies did. A redirected mount's `[dsk_spc]` = 1 (§62.9.1) is a store
+into that scratch, which the next FAT mount refills before it reads it.
 
 ### 18.2 BPB validation (`dsk_bpb_check`, in check order)
 
