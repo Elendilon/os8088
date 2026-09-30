@@ -95,7 +95,7 @@ merge. **Every merge reproduced the sum of the branches to the byte.**
   `snd_xlat_build` and `snd_abort` left the kernel. RECORDER is the one
   program that carries the loop (+463 of package). **kern_small plays no clip
   at all** (−173 more, SPEC.md 34.4.1): its only player is live-media-only.
-* **`OSAPI_FSX_SPK` as a thin door** (speaker, −108 big; LAST-DROP §7.11,
+* **`OSAPI_FSX_SPK` as a thin door** (speaker, −108 big; LAST-DROP-BYTES 7.11,
   priced at 70-80). The caller writes the IRQ0 vector and channel 0 through
   `apps/os88spk.inc`; the N range check, `fsx_mine`, the SI/DI fence, the
   block, the DX:BX return and the close's answer went. **The SI/DI fence
@@ -176,10 +176,10 @@ matches, the kernel's choice, and ROM/RAM ×1000 for both tables. MartyPC reads
 | candidate | bytes | why not taken |
 |---|---:|---|
 | **Standard File dialog and Cut/Copy/Paste as modules on kern_big** | **~−7,400** | the ON-DEMAND test fails for the dialog on a one-drive machine (a package on a data disk would need the system disk to open a file); **the owner's call**, offered and not answered |
-| LAST-DROP §7.8.1, the Dock's patched far jump | −42 | self-modifying code: **the owner's call** |
+| LAST-DROP-BYTES 7.8.1, the Dock's patched far jump | −42 | self-modifying code: **the owner's call** |
 | `osapi_drv_dlg` + `drv_dlg_done` into CTRL.DRV | ~−120 | the driver's completion is lost if the module is dropped with the system disk out; no row reaches `OSAPI_DRV_DLG` |
 | `drv_cp_call` + `drv_cp_closed` into CTRL.DRV | ~−90 | same disk hazard |
-| kern_small's sixteen refusal cells (§7.7.7) | 128 + | a cell's offset is the ABI both kernels share; dropping them is a second ABI. Their bodies were taken |
+| kern_small's sixteen refusal cells (LAST-DROP-BYTES 7.7.7) | 128 + | a cell's offset is the ABI both kernels share; dropping them is a second ABI. Their bodies were taken |
 | demote rarely-called SLOT cells to RSLOT | ~2 each | renumbers the whole table |
 | Timer / Bounce as packages | ~1.8KB big | a product decision |
 | a PIT-timed ROM-font detector | +66 overlay | does not fit the blob (§3) |
@@ -189,7 +189,7 @@ matches, the kernel's choice, and ROM/RAM ×1000 for both tables. MartyPC reads
 | `desk.inc` `ovw_desk_rowcalc` through `spw_near` | −4 resident | +3 to +5 `.ovlw`, which has 28 left |
 | `toast_pass`'s lock/call/unlock through `ui_lcall` | −1 | BP is live (the routine preserves every register) |
 | remaining relaxed jccs (ui dispatch, sched, wm 5, font 5, icons 3, diskw 5, files ~15) | −3 each | hot, or no free trampoline, or measured flat |
-| `wm_su_flay`/`wm_su_try`, `wm_paint_dmg`'s S2/S3 stores | ~−26 | `rect_get`/`rect_put`'s other sets are HELD by the owner (LAST-DROP §7.10) |
+| `wm_su_flay`/`wm_su_try`, `wm_paint_dmg`'s S2/S3 stores | ~−26 | `rect_get`/`rect_put`'s other sets are HELD by the owner (LAST-DROP-BYTES 7.10) |
 | `W_DISP` removal | −13 big | needs two static far pointers |
 | `hbf_*` thunks through a BP helper | ~−11 `.cold` | a BP audit across every window callback |
 
