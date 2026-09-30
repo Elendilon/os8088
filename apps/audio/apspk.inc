@@ -54,6 +54,9 @@ APX_ERR     equ 4                   ; ap_msg says why
     APW aps_posi                    ; ...and whole samples past the next read
     APB aps_dir                     ; aps_skip's direction
     APB aps_rung                    ; the ladder's rung, for the session
+%ifdef APS_RATCHET
+    APB aps_slev                    ; the track's level, across a rung down
+%endif
     APB aps_lag                     ; the last rung is still behind: play on
     APW aps_crem                    ; the clock's remainder, in 1/R samples
     APB aps_mode                    ; SPKFX_PRE_* or APS_COPY
@@ -250,6 +253,10 @@ aps_setup:
     mov al, [aps_mode]
     mov ah, 1                       ; the carrier put away in the quiet
     call os88spkfx_init
+%ifdef APS_RATCHET
+    mov al, [aps_slev]              ; THE LISTENING BUILD: one level a track,
+    call os88spkfx_ratchet          ; Tracker's ratchet (SPEC.md 34.11.9.1) -
+%endif                              ; from APS_LSTART, down only
 .ring:
     mov es, [aps_rseg]
     xor ax, ax
@@ -274,8 +281,14 @@ aps_setup:
     pop ax
     ret
 
+%ifdef APS_RATCHET
+APS_LSTART  equ 8                   ; where a track's level starts: Tracker's
+%endif                              ; TSP_LSTART
 ; aps_trk_reset - a new track's clock and source flags
 aps_trk_reset:
+%ifdef APS_RATCHET
+    mov byte [aps_slev], APS_LSTART ; a new track: the ratchet from the top
+%endif
     mov byte [aps_eot], 0
     mov byte [aps_lag], 0
     mov word [ap_played], 0
@@ -493,6 +506,10 @@ aps_behind:
 .down:
     call os88spk_stop
     call aps_clock
+%ifdef APS_RATCHET
+    mov al, [cs:os88spkfx_lev]      ; the level the track has come to goes
+    mov [aps_slev], al              ; on at the rung below
+%endif
     inc byte [aps_rung]
     call aps_plan
     jnc .set

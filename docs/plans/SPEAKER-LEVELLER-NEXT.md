@@ -145,6 +145,22 @@ for any change here.
    Risk: a song with a quiet intro and a loud chorus gets the chorus's level
    throughout; a slow leveller on top (hold of seconds, not spans) would
    cover that.
+   **Audio first gets the RATCHET instead** (the owner, 2026-09-30): Audio
+   and the Video Player still run the per-span leveller that rounds 1-5
+   were about, and two bands were proposed to cure its pumping - which one
+   level a piece cures for nothing. `-DAPS_RATCHET` is the listening build:
+   `aps_setup` ratchets from `APS_LSTART` = 8 after `os88spkfx_init`, a new
+   track starts there again, and a rung down carries the level the track
+   had reached (Tracker's `tsp_slev`, as `aps_slev`); a resume keeps the
+   shaper's state by itself. Replayed through Audio's own shaping
+   (PRE_DIFF, whose peaks are jumpier than Tracker's), today's leveller
+   travels 159 dB/s on BEVERLY.MOD's mix with 412 V-dips and 53 dB/s with
+   40 on ELYSIUM.MOD's; the ratchet does not move, settling on 7 and 8. On
+   MartyPC's card-less 5150, 20 s of BEVERLY's mix as an 8 kHz WAV: the
+   shipped Audio's level read 8, 0, 9, 7, 10 at ~4.5 s intervals and the
+   listening build held 8. The shipped AUDIO.O88 assembles byte-identical.
+   Waiting on the owner's ear.
+
 2. **Two bands.** Split the mix at ~300 Hz with a one-pole filter, level
    each band on its own, and sum. A hit in the highs no longer takes the bass
    down. Cost is per sample, not per span: a one-pole split plus a second
