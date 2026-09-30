@@ -189,11 +189,13 @@ inst_kinds:                     ; indexed by KIND_* * 16; caps are binding
     dw inst_ico_about
     db 1, 0                     ; About: stateless singleton
 %ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
-    dw app_tpl_timer,  app_tmr_task,    app_tmr_pool,  TMR_SIZE, app_tmr_kinit, app_ttl_timer
+    dw app_tpl_timer,  0,               app_tmr_pool,  TMR_SIZE, app_tmr_kinit, app_ttl_timer
     dw inst_ico_timer
-    db 10, 0                    ; Timer: 10 x 16-byte time state, one task each
-                                ; (8 of the 16 are the cells on screen, so a
-                                ; redraw can be the ones that moved - SPEC.md 14)
+    db 10, 0                    ; Timer: 10 x 16-byte time state and NO task -
+                                ; its clock is the window's one-shot timer
+                                ; (SPEC.md 13.9, 14.7). 8 of the 16 are the
+                                ; cells on screen, so a redraw can be the ones
+                                ; that moved (SPEC.md 14)
     dw app_tpl_bounce, app_bounce_task, app_ball_pool, 8,   app_bounce_kinit, app_ttl_bounce
     dw inst_ico_bounce
     db 10, 0                    ; Bounce: 10 x 8-byte ball state, one task each
@@ -1667,9 +1669,10 @@ app_launch:
     xor bx, bx                  ; written next: a built-in kind's task is
                                 ; kernel code
     mov cx, SCH_BUILTIN_STK     ; ...and asks for a sleeper's stack (SPEC.md
-                                ; 8.7): the two built-ins that take a task are
-                                ; Timer and Bounce, and six Bounces at once
-                                ; measured +10..24 over the floor
+                                ; 8.7): Bounce is the one built-in that takes
+                                ; a task, and six at once measured +10..24
+                                ; over the floor. The Timer took one too until
+                                ; SPEC.md 14.7 measured it going through it
     call task_spawn             ; in AX, BX, CX, DX; out CF / AL = slot
     jc .rollback
     mov [ds:bp+I_TASK], al

@@ -130,9 +130,13 @@ SCH_IDLE_STK    equ 128         ; the idle task. Its own footprint is at most 4
                                 ; interrupt floor, measured at 32 on QEMU and
                                 ; 40-64 on real iron (docs/plans/completed/STACK-SLOTS-PLAN.md
                                 ; 7.1). 128 is 2x the worst of those
-SCH_BUILTIN_STK equ 128         ; a built-in kind's task. Timer and Bounce are
-                                ; the two that take one, and six Bounces at
-                                ; once measured +10..24 over the floor
+SCH_BUILTIN_STK equ 128         ; a built-in kind's task. Bounce is the one
+                                ; that takes one, and six Bounces at once
+                                ; measured +10..24 over the floor. The Timer
+                                ; was the other, sized from Bounce and never
+                                ; measured: half covered it reached 112 of 128
+                                ; on a floor of 32, so 132 on vm/pc5150's 52 -
+                                ; and it has no task at all now (SPEC.md 14.7)
 SCH_DRV_STK     equ 192         ; a driver's worker. The only one in the tree
                                 ; is the sound driver's stream task, whose
                                 ; deepest static chain is 28 bytes
@@ -203,7 +207,7 @@ SCH_FRAME   equ 24              ; saved-frame size: 9 regs + IP/CS/FLAGS
 %macro SCH_PARTITION 0
     SCH_SLOT 128                ; the sleepers. ONE of these is the idle task's
     SCH_SLOT 128                ; for as long as the machine is up, so two are
-    SCH_SLOT 128                ; really available: a Timer, a Bounce, the
+    SCH_SLOT 128                ; really available: a Bounce, the
                                 ; sound driver's stream task. NOT a C package
                                 ; whose worker "only sleeps": CWORD's and
                                 ; RUNCPM's close the window from that worker,

@@ -10266,6 +10266,15 @@ SOAK = [
     Row("tmrup", "soak", py("tests/tmrup.py"), 60.0,
         "SPEC.md 13.8: the Timer's three buttons fire on the RELEASE.",
         needs=("marty",), serial=True),
+    Row("tmrnotask", "soak", py("tests/tmrnotask.py"), 15.0,
+        "SPEC.md 14.7: the Timer holds NO task slice - its clock is the "
+        "window's one-shot timer (13.9) on the UI task. It had a 128-byte "
+        "slice sized from Bounce and never measured, and a window cutting its "
+        "digit line took it through the canary (STACK OVERFLOW TASK 02 Timer "
+        "on vm/pc5150). Asserts no task is spawned, the clock keeps guest "
+        "time, and SPEC.md 14.4's cut line still draws above the edge and "
+        "not below it.",
+        needs=("marty",), serial=True),
     Row("kernresident", "full", py("tests/kernresident.py"), 20.0,
         "kernel.asm rule 3: kern_big fully RESIDES in KERN_RESIDENT_KB at a "
         "bare desktop - the half of the rule an assembler cannot see, which "

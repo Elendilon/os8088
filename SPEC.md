@@ -11540,7 +11540,7 @@ A driver and the two kernel-side spawners have no header to declare in, so
 | | bytes | why |
 |---|---|---|
 | `SCH_IDLE_STK` | 128 | the idle task's own footprint is ≤ 4 bytes (§8.1.2), so what it needs *is* the interrupt floor — 32 on QEMU, 40–64 on real iron |
-| `SCH_BUILTIN_STK` | 128 | Timer and Bounce are the built-in kinds that take a task; six Bounces at once measured +10…24 over the floor |
+| `SCH_BUILTIN_STK` | 128 | Bounce is the built-in kind that takes a task; six at once measured +10…24 over the floor. The Timer was the other until §14.7, sized from Bounce and never measured — it read 112 of 128 half covered, on a floor of 32 |
 | `SCH_DRV_STK` | 192 | the sound driver's stream task, the only driver worker in the tree, walks 28 bytes statically — 64 + 28 = 92, so 2.1× |
 
 `OSAPI_DRV_TASK` is called from one driver in the whole tree — the sound
@@ -27064,18 +27064,20 @@ the gfx lock) may stay shared. Kind behavior:
   position keeps the whole +16·9 cascade on-screen and above the dock —
   330 + 144 + 160 = 634 on a 640px screen; on a
   shorter screen `wm_fit` clamps its tail back onto it, §39.7).
-  Per-instance
-  task (`app_tmr_task`; entry receives DX = instance index, caches the
-  record and state ptrs): loop { task_sleep 9; **if I_STATE = 2 →
-  teardown via `inst_task_die`** (§29); AX = [ticks]; delta = AX −
+  **No task** (§14.7): the clock is the window's one-shot timer (§13.9),
+  installed and armed for `APP_TMR_TICKS` = 9 by `app_tmr_kinit`, and
+  `app_tmr_tick` is its `W_ONTIMER` — the UI task, gfx lock held. Each
+  firing: re-arm 9; AX = [ticks]; delta = AX −
   TMR_LAST (subtraction idiom, safe across wrap); **TMR_LAST = AX
   unconditionally**; if TMR_RUN = 0 the delta is discarded here; else TMR_ACC
   += delta*10, and while TMR_ACC >= 182: TMR_ACC −= 182 and advance seconds
   with carries (s 60→0/m+1, m 60→0/h+1, h 24→0). This sampling runs
-  every iteration; only drawing is conditional: gfx_lock; **re-check
-  under the lock** that the window (I_WIN) is visible, then `wm_clip_set`
-  (§11.3) — if either fails, gfx_unlock and skip; else draw HH:MM:SS from
-  the instance's TMR_HRS/MIN/SEC; gfx_unlock }. A half-covered
+  every firing, and a timer fires whether or not its window shows (§13.9),
+  so a minimized Timer keeps time; only drawing is conditional: `wm_clip_set`
+  (§11.3), which answers CF = 1 for a hidden window as well — if it does,
+  skip; else draw HH:MM:SS from the instance's TMR_HRS/MIN/SEC. The clip dies
+  at `ui_timer_pass`'s `gfx_unlock`. A task-less kind closes at once, and
+  `wm_destroy` zeroing `W_FLAGS` is what stops a dead Timer firing. A half-covered
   Timer therefore redraws the half that shows, whole glyphs only, instead of
   stopping. Paint proc forgets TMR_SHOWN (§14.1 — `wm_draw_win` has just
   white-filled the content) and renders the same string from the state block,
@@ -27302,7 +27304,8 @@ digits **stop moving** — reading `00:00:04` while the timer on top of it read
 clipped, so the window says "running" and "00:00:04" at the same moment.
 
 **Nothing in `apps.inc` was wrong**, and that is the part worth keeping.
-`app_tmr_task` re-checks visibility under the lock, arms `wm_clip_set`, and
+`app_tmr_task` (the Timer's task until §14.7, whose `app_tmr_tick` does the
+same from the UI task) re-checks visibility under the lock, arms `wm_clip_set`, and
 takes CF = 1 as "not one visible pixel" exactly as §11.3 asks; `app_tmr_render`
 asks `wm_clip_test` about the whole line and, when an edge cuts it, forgets
 `TMR_SHOWN` and draws the line whole so that a cell the region refuses can
@@ -27413,9 +27416,10 @@ kind-table rows and the whole **Builtins** menu are behind `%ifdef KERN_BIG`.
 -1,030, `.lowbss` -240. `kern_big` is byte-identical.
 
 **What goes with them.** The two kinds are not only their own bodies: they are
-the only users of `apps.inc`'s task scaffolding, so `app_state_of`,
-`app_kind_open`, `app_kind_wait` and `app_kind_arm` leave with them - About is
-`KD_TASK` = 0 and never calls one. `app_tmr_pool` (160 bytes) and
+the only users of `apps.inc`'s scaffolding, so `app_state_of` leaves with them -
+About is `KD_TASK` = 0 and never calls it. (`app_kind_open`, `app_kind_wait`
+and `app_kind_arm` left with them too when this was written; §14.7 took the
+Timer's task away and Bounce, their last caller, carries the three inline.) `app_tmr_pool` (160 bytes) and
 `app_ball_pool` (80) are the `.lowbss` half, and the two 64-byte icon bodies
 `inst_ico_timer` and `inst_ico_bounce` the `.text` one.
 
@@ -27484,6 +27488,68 @@ both worth recording so the next reader does not re-derive them:
   `filecp.inc` as well. Gating the block gates the include, and five modules
   stop assembling; the include has to be lifted out first.
 
+
+### 14.7 The Timer has no task
+
+Reported off `vm/pc5150` with a photograph: `STACK OVERFLOW  TASK 02  SP 0BAC
+Timer`, an FTP upload running beside it. Slot 2 is the first 128-byte sleeper
+slice after the idle task's, and the Timer's task asked for it through
+`SCH_BUILTIN_STK` (§8.7.3).
+
+**128 was never a measurement of the Timer.** STACK-SLOTS-PLAN measured
+*Bounce* — six at once, +10…24 over the floor — and put the Timer in the same
+class beside it. Bounce draws two 8×8 fills; the Timer draws TEXT, and the
+moment another window cuts its digit line `font_run` takes the per-cell path
+§14.4 depends on. Read live off the slice under MartyPC (a breakpoint on each
+routine, the stack dumped where the Timer's own task stood at it):
+
+| depth at entry | |
+|---|---|
+| 4 | `app_tmr_task` → far into `.cold` |
+| 28 | `font_run`, through `app_tmr_digits` / `app_tmr_render` and the `.cold` trampoline |
+| 48 | `font_run_cell`, from `font_run_x`'s escape |
+| 66 | `wm_clip_rows`, seven registers later |
+| ~90 | the bottom of `wm_clip_test`'s walk |
+
+and an IRQ0 on top of that is `sch_isr`'s 24-byte frame and its calls. The
+slice's 0xCC fill read **112 of 128** after a covered Timer ran for a few
+seconds, on a MartyPC 5150 whose idle floor is **32**. `vm/pc5150`'s floor is
+**52** with `SOUND.DRV` resident (docs/reports/STKDIAG-PC5150-2026-09-10.md)
+and the iron's 64, so the same path is ~132 there and ~144 on the machine —
+through the canary on both. Uncovered, the Timer reads 60 here (80 and 92).
+**The photograph's Timer is the FRONT window at the halt**, so the exact field
+excursion is not reproduced here; what is measured is that one ordinary path
+does not fit the slice on that machine by 6 bytes and on the iron by 18, where
+the class rule (STACK-SLOTS-PLAN §7.2) asks for 1.25× headroom.
+
+**Trimming does not reach it.** Everything above `font_run` is 28 bytes, and
+the cheap cuts in it — a `jmp` rather than a `call` into `.cold`, the three
+registers `app_tmr_digits` saves for callers that do not need them, the
+trampoline — are about 14. The other ~62 are the kernel's shared text path,
+which every window draws through.
+
+**So the Timer does not hold a stack at all.** §13.9's window timer is the
+facility that section names as the replacement for *"a worker task … for a
+165 ms flash"*: it runs in `W_ONCLICK`'s environment, on the UI task, whose
+stack is `STK0_TOP` and not a slice. `app_tmr_tick` is the old task's body
+with its three spine calls removed — the sleep is the re-arm, the die check
+is `wm_destroy`, and the lock is `ui_timer_pass`'s — and the Timer's kind row
+is `KD_TASK` = 0. What does not change: the accumulator, TMR_SHOWN's
+incremental redraw (§14.1), §14.4's cut line, and a minimized Timer keeping
+time. What does: the digits move when the UI task passes rather than when a
+task is scheduled, which is a difference only while the UI task is busy — and
+the task was blocked on the gfx lock through every one of those anyway.
+
+**Bytes.** `kern_big` `.text` **−6** (the `.text` thunk into the task), `.cold`
+**+5**: the handler and its install/arm in `app_tmr_kinit` against the old
+loop, paid for by carrying `app_kind_open` / `app_kind_wait` / `app_kind_arm`
+inline in Bounce, their one remaining caller — one resident byte fewer in all. `cw_wm_timer` was already
+resident on every shipping `kern_big` (under `OS88UI_SBDRAG`) and is now
+under `KERN_BIG` so `SBDRAGOFF=1` keeps it. `kern_small` has no Timer (§14.6)
+and is byte-identical. The 128 slot a Timer held is free for a Bounce or
+anything else that fits there, and ten Timers no longer take ten task slots. `tests/tmrnotask.py` is the row: no task
+spawned, guest time kept to the second, and §14.4's cut line drawing above
+the edge and not below it.
 
 ## 15. kernel.asm — boot sequence
 
@@ -38863,13 +38929,12 @@ Two teardown corollaries, both about not trading a crash for a leak:
    covered pixel, which for a worker that spends minutes on a frame is the
    wrong trade. This is the §14 Bounce idiom, and `app_bounce_task` in
    `kernel/apps.inc` is the reference implementation for everything a
-   worker does — with one indirection to see through: Timer and Bounce
-   ran the identical open / sleep-and-die / lock-check-clip spine, so
-   those three steps live in `app_kind_open`, `app_kind_wait` and
-   `app_kind_arm` beside them rather than twice over. Those three are
-   **kernel-private**; a package writes their bodies inline, and
-   `app_kind_arm` is exactly this rule's `gfx_lock` → `test W_FLAGS, 2`
-   → `OSAPI_WM_CLIP_SET` sequence, with the lock held on both exits.
+   worker does, written inline as a package writes it: open, then
+   sleep / die-check / `gfx_lock` → `test W_FLAGS, 2` →
+   `OSAPI_WM_CLIP_SET` → draw → unlock. (It called three shared steps,
+   `app_kind_open`, `app_kind_wait` and `app_kind_arm`, while the Timer ran
+   the same spine; §14.7 took the Timer's task away and the indirection
+   went with it.)
 6. **The worker's stack is the CLASS the package's header declares** (§8.7.2,
    byte +15), resolved through `sch_clsbytes`: 128, 192, 256 or `SCH_STACK`
    (**384**). A header that declares nothing gets `SCH_STACK`, which is what

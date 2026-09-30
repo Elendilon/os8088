@@ -7225,8 +7225,8 @@ cw_task_exit:            call task_exit
 cw_task_spawn:           call task_spawn
                      retf
 %ifdef KERN_BIG                 ; its callers are kern_big only
-cw_task_sleep:           call task_sleep     ; the Timer's 9 ticks and Bounce's
-                     retf                    ; 2 (SPEC.md 14), from .cold
+cw_task_sleep:           call task_sleep     ; Bounce's 2 ticks (SPEC.md 14),
+                     retf                    ; from .cold
 %endif
 cw_task_yield:          call task_yield
                     retf
@@ -7291,16 +7291,17 @@ cw_wm_onmouseup:        call wm_onmouseup
                     retf
 cw_wm_ondrag:           call wm_ondrag
                     retf
-%ifdef OS88UI_SBDRAG
 cw_wm_timer:            call wm_timer       ; SPEC.md 13.10.5.4.2's PAUSE
-                    retf                    ; commit: the kernel's two bars ARM
-                                            ; the same one-shot a package does.
-                                            ; Only the arm needs a wrapper -
-                                            ; it sets [wm_tarm] and [ui_post] -
-                                            ; where the install (wm_ontimer)
-                                            ; and the cancel are each one
-                                            ; store, made in place
-%endif                                      ; OS88UI_SBDRAG
+                    retf                    ; commit and the Timer's clock
+                                            ; (14.7): the kernel ARMS the same
+                                            ; one-shot a package does. Only the
+                                            ; arm needs a wrapper - it sets
+                                            ; [wm_tarm] and [ui_post] - where
+                                            ; the install (wm_ontimer) and the
+                                            ; cancel are each one store, made
+                                            ; in place. KERN_BIG and not
+                                            ; OS88UI_SBDRAG: the Timer needs it
+                                            ; under SBDRAGOFF=1 as well
 ; ...and HIBER.DRV's seven needs go through cw_mem_disp (`call bp / retf`)
 %endif
 cw_wm_dmg_add:           call wm_dmg_add
@@ -7521,10 +7522,6 @@ app_tmr_kinit:        call COLD_SEG:app_tmr_kinit_x
 %ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_bounce_kinit:     call COLD_SEG:app_bounce_kinit_x
                     ret
-%endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
-%ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
-app_tmr_task:         call COLD_SEG:app_tmr_task_x
-                    ret                     ; never reached (inst_task_die)
 %endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 %ifdef KERN_BIG                 ; SPEC.md 14.6: Timer and Bounce are kern_big's
 app_bounce_task:      call COLD_SEG:app_bounce_task_x
