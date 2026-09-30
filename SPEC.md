@@ -23547,9 +23547,12 @@ took it for a hang, reasonably: **anything that takes more than two or three
 seconds has to say that it is working.**
 
 So the FIRST failed attempt of a transfer arms the chrome, as a stopped motor
-does (§12.8.3.1). If `[fpg_on]` is still clear, the retry path drops
-`[sch_lock]` and calls `fpg_busy` with `CX` = `FPG_WARM`, then takes the
-lock back and retries. The widget and the clock are up one failed attempt
+does (§12.8.3.1). The retry path drops `[sch_lock]` and calls `fpg_busy` with
+`CX` = `FPG_WARM`, then takes the lock back and retries. It does that at
+every failed attempt and not only while `[fpg_on]` is clear: armed,
+`fpg_busy` is the same `cur_busy` and compare the top of `dsk_xfer` makes for
+every transfer anyway, so the test that skipped it saved nothing but cost 7
+bytes (kernel size pass 8). The widget and the clock are up one failed attempt
 in, a fraction of a second to a couple of seconds, instead of never. The lock
 is dropped because §12.8.3's rule is that the first draw must not happen with
 switching off, and between two attempts is between two transfers as far as
@@ -23559,8 +23562,8 @@ destination, which fails safe (§66.3 rule 5). `fpg_arm`'s own refusals (the
 splash, a foreign mode, another task's lock, a fullscreen window) apply
 unchanged, and so does `kern_dos`'s stub.
 
-It costs 25 bytes of `.cold` on each kernel, resident, and it changes nothing on a
-disk that reads. `tests/czto.py`'s `arm` leg is the gate: a one-sector folder
+It costs 18 bytes of `.cold` on each kernel, resident (25 as it shipped), and it
+changes nothing on a disk that reads. `tests/czto.py`'s `arm` leg is the gate: a one-sector folder
 opened with the motor running and every read failing reads `[fpg_on]` 0 at
 the first failed attempt and 1 from the second. With this block taken out it
 reads 0 at every one.

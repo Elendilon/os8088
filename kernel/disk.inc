@@ -1714,17 +1714,21 @@ dsk_xfer:
 %endif                          ; toast (SPEC.md 18.99.10)
     cmp ah, 0x03
     je .fail                    ; write-protected: retrying cannot help
-%ifndef KD_BUILD
-    cmp byte [fpg_on], 0        ; **A FAILING DISK SAYS SO** (SPEC.md 12.8.3.2).
-    jne .said                   ; FPG_WARM counts sectors MOVED and a retry
-    dec byte [sch_lock]         ; moves none, so a one-sector read failing on
-    push cx                     ; marginal media ground on for as long as its
-    mov cx, FPG_WARM            ; retries took with nothing on the glass - the
-    call KERNEL_SEG:fpg_busy    ; field saw 30 seconds of it and took it for a
-    pop cx                      ; hang. So the FIRST failure arms the chrome
-    inc byte [sch_lock]         ; and the clock, as a stopped motor does
-.said:                          ; (12.8.3.1): outside the switch lock, as at
-%endif                          ; the top; the pin stays, and only ever refuses
+%ifndef KD_BUILD                ; **A FAILING DISK SAYS SO** (SPEC.md 12.8.3.2).
+    dec byte [sch_lock]         ; FPG_WARM counts sectors MOVED and a retry
+    push cx                     ; moves none, so a one-sector read failing on
+    mov cx, FPG_WARM            ; marginal media ground on for as long as its
+    call KERNEL_SEG:fpg_busy    ; retries took with nothing on the glass - the
+    pop cx                      ; field saw 30 seconds of it and took it for a
+    inc byte [sch_lock]         ; hang. So a failure arms the chrome and the
+%endif                          ; clock, as a stopped motor does (12.8.3.1):
+                                ; outside the switch lock, as at the top; the
+                                ; pin stays, and only ever refuses. EVERY
+                                ; failure and not only the first: armed, it is
+                                ; the call the top of this routine makes for
+                                ; every transfer anyway (cur_busy and a
+                                ; compare), so the `[fpg_on]` test that
+                                ; skipped it bought nothing but its 7 bytes
     mov ah, 0x00                ; failed: reset the controller and retry
     mov dl, [dsk_unit]          ; the ROW's drive (SPEC.md 52.10.3): resetting
     CURXFER_ON                   ; ...and the arrow keeps moving through it too
