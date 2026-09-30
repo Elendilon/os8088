@@ -3509,17 +3509,32 @@ dskw_wabody:
                                 ; does on this arm, and dskw_wdata has just
                                 ; spent SI on the source (it is module-
                                 ; internal and banks nothing). SP is never 0
-    xchg bx, ax                 ; (dskw_flush_x keeps BX)
-    call dskw_flush_x           ; the chain alone, durable and unreached
-    jc .rbdrop
-    xchg bx, ax
+    mov dx, DSKW_EOC16          ; the mark it already holds (setfat keeps 12
+    call dskw_setfat            ; bits), stored back UNCHANGED: its sector -
+                                ; both, for a FAT12 straddle - joins the dirty
+                                ; range, and an empty file's 0 is no store at
+                                ; all. No CF test: it fails only when the
+                                ; window will not load, and .link's store is
+                                ; the same load and answers the same way
     mov dx, [dskw_first]
     or ax, ax
     jnz .grown
     mov [dskw_raw+DSK_R_CLUS], dx   ; the file was empty: the ENTRY takes the
-.grown:                         ; head, stored at .size - and setfat refuses
-    call dskw_setfat            ; the 0 with CF = 0, so there is no link.
-    jc .out2                    ; Otherwise THE link: last -> first
+.grown:                         ; head, stored at .size after the chain
+    mov cx, [dsk_fatd0]         ; **ONE FLUSH WHEN ONE SECTOR IS THE WHOLE
+    cmp cx, [dsk_fatd1]         ; UPDATE** (SPEC.md 18.4.7.6): the link and
+    je .link                    ; every new entry share it, and one write
+                                ; lands them whole or not at all. (A store
+                                ; above that MOVED the window flushed the
+                                ; chain first, leaving the link's sector
+                                ; alone: the same one-sector case.)
+    xchg bx, ax                 ; otherwise the chain alone, durable and
+    call dskw_flush_x           ; unreached, first (dskw_flush_x keeps BX
+    jc .rbdrop                  ; and DX)
+    xchg bx, ax
+.link:
+    call dskw_setfat            ; THE link: last -> first. setfat refuses an
+    jc .out2                    ; empty file's 0 with CF = 0: no link
     call dskw_flush_x
     jc .out2
 

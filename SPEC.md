@@ -32515,11 +32515,11 @@ that could be arranged:
   disk checks clean (above).
 
 Costs: the whole stream writer - this slot, the bank (18.8.5), the copy's
-room check (22.5.2.1) and the converted writers - is **+487 bytes** on
-`kern_big` (`.cold` +435, `.bss` +21, `.text` +31: the cell's 6, the
+room check (22.5.2.1) and the converted writers - is **+503 bytes** on
+`kern_big` (`.cold` +451, `.bss` +21, `.text` +31: the cell's 6, the
 `gfx_unlock` test, `[dsk_fcgoal]` and the bank). As first built it was
-**+1,077**; docs/reports/STREAM-WRITER-SIZE-2026-09-30.md is where the 590
-went. `kern_small` +6, the cell.
+**+1,077**; docs/reports/STREAM-WRITER-SIZE-2026-09-30.md is where the 574
+went, stage 1 (18.4.7.6) included. `kern_small` +6, the cell.
 
 ### 18.4.7 `OSAPI_FILE_WRITE_AT` — the same offset, going the other way
 
@@ -32721,7 +32721,7 @@ appends the rest back. Before it, a count of 0 was `FERR_NAME` — *"the caller
 has miscomputed"* — and nothing in the tree passed one: the DOS box's flush
 returns on an empty window before it gets here.
 
-#### 18.4.7.6 One FAT flush when one sector is the whole update - WITHDRAWN
+#### 18.4.7.6 One FAT flush when one sector is the whole update
 
 An append at the end commits in SPEC.md 18.4's order, refined for the FAT
 itself: write the data, flush the new sub-chain (allocated, terminated,
@@ -32741,26 +32741,29 @@ wide margin. A 32 KB append on a 2 KB-cluster volume is 16 FAT16 entries,
 To... onto the fixed disk showed every append writing the same FAT1 and FAT2
 sectors twice in a row (docs/plans/STREAM-WRITER-PLAN.md §1).
 
-**WITHDRAWN in the size pass that brought the stream writer under 500
-resident bytes** (docs/reports/STREAM-WRITER-SIZE-2026-09-30.md). What it
-bought is below, and it is the smallest measured win of the branch: 575 -> 570
-guest seconds on the XT-IDE, a revolution a chunk predicted on an ST-225, and
-nothing at all for a HELD stream, whose commit runs once per file. The two
-flushes are 18.4's order again, exactly as before this section.
+**How it knows, with no arithmetic.** At `.seal`, before anything is
+flushed, the last cluster's own end mark is stored back UNCHANGED
+(`mov dx, DSKW_EOC16 / call dskw_setfat`). That puts its sector - both, for a
+FAT12 straddle - in the dirty range without changing a byte, and for an empty
+file's 0 it is no store at all (`dskw_clok` refuses it with CF = 0). If
+`[dsk_fatd0]` still equals `[dsk_fatd1]`, the link and every new entry share
+ONE sector: the link is set and one flush writes it all. Otherwise the chain
+is flushed alone first, then the link, as 18.4 has it. If that store had to
+MOVE the window, the move flushed the chain before it slid, and the range is
+the link's sector alone - the one-sector case again, and correct. It has no
+CF test of its own: it fails only when the window will not load, and the
+link's store is the same load and fails the same way. A held stream's
+commit enters the same `.seal` (18.4.9), so it gets the single flush too,
+once per file.
 
-**How to put it back, costed**, because the arithmetic `dskw_onesec` did (56
-bytes) is not needed. At `.seal`, store the last cluster's own end mark back
-unchanged (`mov dx, DSKW_EOC16 / call dskw_setfat`): that puts its sector -
-both, for a FAT12 straddle - in the dirty range without changing a byte, and
-for an empty file's 0 it is no store at all. If `[dsk_fatd0]` still equals
-`[dsk_fatd1]`, the link and every new entry share one sector and ONE flush
-lands them whole; otherwise flush the chain first, as now. If that store had
-to move the window, the move flushed the chain first and the range is the
-link's sector alone, which is the one-flush case again and correct. **+16
-bytes of `.cold`**, which would take the branch to 503 - three over the 500
-it was set.
-
-What it measured, when it shipped:
+It was first built as `dskw_onesec`, 56 bytes of arithmetic over the link
+entry's sector (81 with its branches), and withdrawn once in the stream
+writer's size pass; the store-it-back form is **16 bytes of `.cold`**,
+resident, on each kernel (docs/reports/STREAM-WRITER-SIZE-2026-09-30.md).
+Re-measured on it with `VD_TRACE=12 tests/viddisk.py --floppy`: **3.2
+one-sector writes an append**, data writes 3.3 and the directory read 1.0,
+W 572 guest seconds and the 12.5 MB file exact - the figures below, to the
+decimal.
 
 **Measured** with `tests/viddisk.py --floppy` and `VD_TRACE=12`, which
 counts the fixed disk's transfers per 32 KB append over eleven appends of

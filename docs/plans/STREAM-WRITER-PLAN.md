@@ -1,10 +1,10 @@
 # STREAM-WRITER-PLAN - writing a big file without paying for it again every chunk
 
-**Status: OPEN. Stages 2 and 3 BUILT (SPEC.md 18.4.9), the consumers and
-the FAT at a hop built (§8, §11), and a SECOND size pass (§12) took the
-whole branch from +1,077 to +487 resident bytes on `kern_big` - withdrawing
-stage 1 (SPEC.md 18.4.7.6) on the way, costed to put back at +16. What is
-left is the ST-225 (§8 item 4).** This is docs/plans/DISK-CPU-PLAN.md §6 taken on. That
+**Status: OPEN. Stages 1, 2 and 3 BUILT (SPEC.md 18.4.7.6, 18.4.9), the
+consumers and the FAT at a hop built (§8, §11), and a SECOND size pass (§12)
+took the whole branch from +1,077 to +503 resident bytes on `kern_big`, the
+owner accepting 503 for stage 1 in its 16-byte form. What is left is the
+ST-225 (§8 item 4).** This is docs/plans/DISK-CPU-PLAN.md §6 taken on. That
 section named the write side and sketched a fix's SHAPE; this is the design,
 staged, with what each stage costs and what it must not break.
 
@@ -396,7 +396,7 @@ Gated by `czseq` (the table, and at most one FAT write per two blocks),
 `czseqlose` (the poison; without it the join says `Uncompressed` over a file
 with a hole in it) and `czseqnone` (the fence).
 
-## 12. The second size pass: +1,077 -> +487 (2026-09-30)
+## 12. The second size pass: +1,077 -> +503 (2026-09-30)
 
 The branch arrived at +1,077 resident bytes on `kern_big` against a budget
 of 500. docs/reports/STREAM-WRITER-SIZE-2026-09-30.md is the step-by-step
@@ -422,9 +422,12 @@ measurement; what it found, in the order it mattered:
 - **One generation.** READ_SEQ's `[dsk_mgen]` moved on every mount; moving it
   only on writes and boot-sector reads is `[dsk_wgen]`'s rule, and it keeps
   a READ_SEQ cursor hot across quiet hops too.
-- **Stage 1 was the smallest measured win and went.** 575 -> 570 guest
-  seconds on the XT-IDE and nothing for a held stream; its cheap form is
-  written down in SPEC.md 18.4.7.6 at +16.
+- **Stage 1 needed no arithmetic.** It was withdrawn as the smallest
+  measured win, then put back at the owner's word in a 16-byte form: store
+  the last cluster's end mark back unchanged, so its sector joins the dirty
+  range, and ask whether the range is still one sector (SPEC.md 18.4.7.6).
+  It re-measures exactly as `dskw_onesec` did, 3.2 one-sector writes an
+  append.
 
 What changed in behaviour is listed in the report, and the ABI change is
 SPEC.md 18.4.9's: `ES:BX` bytes, `AL` flags, `DI` the token.

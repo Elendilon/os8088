@@ -21,11 +21,13 @@ A later measurement is a new file.
 |---|---|---|---|---|---|
 | base | 47,491 | 5,543 | 40,484 | 100,220 | - |
 | before | 47,524 | 5,597 | 41,474 | 101,297 | **+1,077** |
-| after | 47,522 | 5,564 | 40,919 | 100,707 | **+487** |
+| after | 47,522 | 5,564 | 40,935 | 100,723 | **+503** |
 
-The brief was under 500. `kern_small` is +6 on both, the API cell.
+The brief was under 500, and the pass reached +487; the owner then took
+stage 1 back at the +16 it was costed at, for **+503**. `kern_small` is +6
+on both before it, the API cell, and +22 with stage 1 (the seal is shared).
 
-## Where the 590 bytes went
+## Where the 574 bytes went
 
 Each row is one step of the pass, and the figure is the resident total
 `kernsize` printed after it, against the base:
@@ -44,7 +46,8 @@ Each row is one step of the pass, and the figure is the resident total
 | a latent defect fixed (a lost bank emptied only its bottom half); the park banks on the incoming volume's claim alone | +496 | -3 |
 | ONE media generation for READ_SEQ and WRITE_SEQ; `[dsk_wgen]` gone | +484 | -12 |
 | `ovlchk`: the tail store names `dsk_secbuf` as an offset, not through `lea` | +485 | +1 |
-| the tail store's parameters survive `DSK_RD1D`, which loads BX (the first soak found it: every join said `No such file`) | **+487** | +2 |
+| the tail store's parameters survive `DSK_RD1D`, which loads BX (the first soak found it: every join said `No such file`) | +487 | +2 |
+| stage 1 BACK, in its store-it-back form (SPEC.md 18.4.7.6): re-measured at 3.2 one-sector writes an append, as `dskw_onesec` measured | **+503** | +16 |
 
 ## What changed in behaviour
 
@@ -65,8 +68,22 @@ Each row is one step of the pass, and the figure is the resident total
   so its next call answers `FERR_IO`; before, the stream was abandoned to its
   last commit and the next call appended past the chunks that never reached
   the disk.
-- **Stage 1** (one FAT flush when one sector is the whole update) is gone:
-  a plain append flushes twice again, as before the branch.
+- **Stage 1** (one FAT flush when one sector is the whole update) was
+  withdrawn and then put back in 16 bytes instead of 81: the last cluster's
+  end mark is stored back unchanged so its sector joins the dirty range, and
+  one flush is enough when the range is still one sector. It now also serves
+  a held stream's commit, which enters the same seal.
+
+## The gates
+
+On the +487 tree, the scoped soak - the write path, the joins, the copies,
+hibernate and the READ_SEQ players, 34 rows - ran 31 ok with `bigvol`
+skipped (no mtools on the box); `dosfile` (its gate disk unbuilt) and
+`vidplay` (a guest-clock assertion, 5.55 s against 5.00, under four lanes)
+failed there and pass alone. `tests/ftpd.py` passes under QEMU, the STOR read
+back exact. On the +503 tree the write-path rows were run again, 23 of 23 ok,
+and `VD_TRACE=12 tests/viddisk.py --floppy` reads 3.2 one-sector writes, 3.3
+data writes and 1.0 reads an append, W 572 guest seconds.
 - **The copy's room check** stops at the first FAT sector that brings the
   count past the file's sectors, where it stopped at its clusters plus one:
   the same single window load on any partition with room.
