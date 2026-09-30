@@ -60621,7 +60621,7 @@ click back to `fdlg_draw_both`. A **click** can never trigger it — the hit
 test is bounded by what is drawn — but the keyboard shares `fdlg_setsel`,
 and comparing one word is cheaper than proving that.
 
-`fdlg_sel_bar` asks `fdlg_rows` for the total instead of reading
+`fdlg_sel_bar` reads `[disk_nfiles]` for the total instead of reading
 `[fdlg_shown]`, which is painter scratch and means nothing on a click.
 
 **The button column** carries Open/Save, Cancel, Drive and — in **save mode
@@ -60651,8 +60651,9 @@ The dialog lists **the mounted volume's current directory** — `disk_dir` /
 through `dsk_get_dir`. It never touches `VIEW_SEG` and never copies the
 listing anywhere (§38.2).
 
-**A display row IS a directory index**, and `fdlg_rows` is just
-`disk_nfiles`. It used not to be: this module synthesized its own `..` row
+**A display row IS a directory index**, and the row count is just
+`[disk_nfiles]`, read in place (`fdlg_rows` was that one load, and went in
+kernel size pass 8). It used not to be: this module synthesized its own `..` row
 and carried the resulting +1 offset through every row ↔ index conversion in
 it. The mount puts the parent link in the listing now (§19.5), as a type-3
 entry carrying the parent's first cluster, so the dialog, the Disk window
@@ -61029,7 +61030,6 @@ no longer always reaches it.
 | `fdlg_paint` / `fdlg_onkey` / `fdlg_onclick` | The window procs; all three assume the held lock and never take it. |
 | `fdlg_draw_name` / `fdlg_draw_list` / `fdlg_draw_both` | §38.8. Erase one rectangle and redraw it. All assume the held lock and a valid `[fdlg_cx]`/`[fdlg_cy]`; all preserve every register. |
 | `fdlg_name_body` / `fdlg_list_body` | The same drawing without the erase, for `fdlg_paint`, which is handed a white content. |
-| `fdlg_rows` | Out: AX = `disk_nfiles`. There is no offset any more — §19.5 put the `..` row in the listing, so a display row is a directory index. |
 | `fdlg_stage` | In: AX = display row, which IS a directory index (§19.5 put the `..` row in the listing, so this module no longer synthesizes one or carries an offset). Out: `fdlg_row` = its name, `fdlg_type` / `fdlg_size`+`fdlg_sizeh` its §19 type word and size dword. |
 | `fdlg_go` | In: AX = first cluster. `dsk_chdir` + reset selection and scroll. |
 | `fdlg_hidx` | Internal. Out: CF=0 with BX = this instance's file-home slot **and SI → that slot's `inst_fname` row**; CF=1 = no live requester. The SI half is why `fdlg_home_name` and `fdlg_home_save` are nine and twenty-six bytes: `slot * INST_FNSZ` is a `mul` (13 is not a shift) and it was written at both. The two index-only callers bank SI already. |

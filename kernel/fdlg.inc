@@ -1152,20 +1152,17 @@ fdlg_setname:
     jmp fdk_si
 
 ; -----------------------------------------------------------------------------
-; fdlg_rows - the display row count (SPEC.md 38.4)
-; in:  nothing
-; out: AX = [disk_nfiles]. Preserves everything else.
+; THE DISPLAY ROW COUNT IS [disk_nfiles] (SPEC.md 38.4), read in place.
 ;
 ; A display row IS a directory index. It used not to be: this module
 ; synthesized its own '..' row and carried a +1 offset through every row <->
 ; index conversion in it. The MOUNT puts the parent link in the listing now
 ; (SPEC.md 19.5), so the dialog, the Disk window and every view cache get the
 ; same row from the same place - and the offset, and the one routine that
-; existed to decide it, are gone.
+; existed to decide it, are gone. `fdlg_rows` outlived its reason as a
+; `mov ax, [disk_nfiles]` / `ret`, and three of its six callers banked AX
+; around it to get the count in BX; it is read in place now.
 ; -----------------------------------------------------------------------------
-fdlg_rows:
-    mov ax, [disk_nfiles]
-    ret
 
 ; -----------------------------------------------------------------------------
 ; fdlg_sizeof - how big is the file the box now names? (SPEC.md 38.6)
@@ -1265,7 +1262,7 @@ fdlg_sizeof:
 
 ; -----------------------------------------------------------------------------
 ; fdlg_stage - stage one display row (SPEC.md 38.4)
-; in:  AX = display row = directory index, already checked against fdlg_rows
+; in:  AX = display row = directory index, already checked against [disk_nfiles]
 ; out: fdlg_row = its NUL name, [fdlg_type] / [fdlg_size] = the SPEC.md 19
 ;      type and size words. Preserves all registers.
 ; -----------------------------------------------------------------------------
@@ -1391,10 +1388,7 @@ fdlg_setsel:
     push bx
     push cx
     push dx
-    push ax
-    call fdlg_rows              ; AX = total rows
-    mov bx, ax
-    pop ax
+    mov bx, [disk_nfiles]       ; BX = total rows (a row IS an index)
     or bx, bx
     jz .none
     or ax, ax
@@ -1433,13 +1427,13 @@ fdlg_setsel:
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 fdlg_clamp:
-    push ax                     ; NOT CX: fdlg_rows is `mov ax,[disk_nfiles] /
-                                ; ret` and nothing else here names it
+    push ax                     ; NOT CX: the count below is read into AX,
+                                ; and nothing else here names CX
     cmp word [fdlg_scrl], 0x8000    ; a decrement below zero wrapped: the
     jb .top                         ; floor is tested FIRST, or the wrapped
     mov word [fdlg_scrl], 0         ; value would clamp to the ceiling and
 .top:                               ; the up-arrow would jump to the end
-    call fdlg_rows              ; AX = total rows
+    mov ax, [disk_nfiles]       ; AX = total rows
     sub ax, FD_ROWS
     jg .cap
     xor ax, ax
@@ -2063,7 +2057,7 @@ fdlg_draw_rows:
     push di
     push bp
 
-    call fdlg_rows              ; AX = total rows
+    mov ax, [disk_nfiles]       ; AX = total rows
     sub ax, [fdlg_scrl]         ; shown = min(total - scroll, FD_ROWS)
     jg .some
     xor ax, ax
@@ -2144,7 +2138,7 @@ fdlg_draw_rows:
 ; instead of refilling the list. Range-checked here rather than at the call
 ; sites, because one of them hands it a row it has not looked at.
 ;
-; It asks fdlg_rows for the total instead of reading [fdlg_shown], which is
+; It reads [disk_nfiles] for the total instead of reading [fdlg_shown], which is
 ; painter scratch and means nothing on the click path.
 ; -----------------------------------------------------------------------------
 fdlg_sel_bar:
@@ -2152,10 +2146,7 @@ fdlg_sel_bar:
     push bx
     push cx
     push dx
-    push ax
-    call fdlg_rows              ; AX = total display rows
-    mov bx, ax
-    pop ax
+    mov bx, [disk_nfiles]       ; BX = total rows (a row IS an index)
     cmp ax, bx                  ; 0FFFFh (none) also fails this
     jae .out
     sub ax, [fdlg_scrl]
@@ -2197,7 +2188,7 @@ fdlg_sbset:
     mov [os88ui_ksb+2], ax
     add ax, FD_LY2-FD_LY1
     mov [os88ui_ksb+6], ax
-    call fdlg_rows
+    mov ax, [disk_nfiles]       ; AX = total rows
     mov [os88ui_ksb+8], ax      ; total
     mov word [os88ui_ksb+10], FD_ROWS
     mov ax, [fdlg_scrl]
@@ -3177,10 +3168,7 @@ FDBODY fdlg_onclick_x
     cmp ax, FD_ROWS
     jae .outj
     add ax, [fdlg_scrl]
-    push ax
-    call fdlg_rows              ; AX = total rows
-    mov bx, ax
-    pop ax
+    mov bx, [disk_nfiles]       ; BX = total rows (a row IS an index)
     cmp ax, bx
     jae .out                    ; past the last row: leave the selection
 
@@ -3321,7 +3309,7 @@ fdlg_cy:    resw 1
 fdlg_shown: resw 1              ; rows the painter actually drew: scratch,
                                 ; valid inside one draw and nowhere else -
                                 ; which is why fdlg_sel_bar, reachable from a
-                                ; click, asks fdlg_rows instead
+                                ; click, reads [disk_nfiles] instead
 fdlg_row:   resb 18             ; one staged row's name (16 + NUL, padded)
 fdlg_type:  resw 1              ; and its SPEC.md 19 type...
 fdlg_size:  resw 1              ; ...and size dword, lo...
