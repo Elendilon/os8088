@@ -300,6 +300,13 @@ def main():
         leg("ask3", r == ("asked", 3), "%r%s" % (r, "" if r == ("asked", 3)
                                                else " - because %r"
                                                % (last_why[0],)))
+        # ...and asking for part 3 is NEWS, not a miss: Enter said part 2
+        # was in, and it was. [cmz_jretry] used to be a flag that only the
+        # prompt cleared, so this said 'Missing SET.003' for a part nobody
+        # had been asked for yet (size pass 8's follow-up)
+        t, _ = ui.toast()
+        leg("ask3quiet", not t.startswith("Missing"),
+            "toast %r (wanted none: part 3 has not been asked for)" % (t,))
         motor_off()
         m.mount(1, dz)
         key("Enter")

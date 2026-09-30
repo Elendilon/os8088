@@ -521,16 +521,6 @@ cmz_pack:
 .popj:
     jmp .pop
 
-; cmz_ioerr - a streamed read or write failed: AX = its FERR_*, and the stack
-;             goes back to cmz_pack's frame from wherever this was reached
-cmz_ioerr:
-    ; STKBALANCE-OK: abandons the stack on purpose - SP goes back to the frame
-    ; cmz_pack banked at entry, whatever cmz_sfetch/cmz_oflush had pushed
-    mov [cs:cmz_err], ax
-    mov sp, [cs:cmz_sp]
-    mov ax, 2
-    jmp cmz_pack.fail
-
 ; cmz_tio - one file call on the NEW file, fm_ebuf (module internal)
 ; in:  BX = the dwf_ shim (read_at or write_at), DX:AX = the offset, CX = the
 ;      count, the buffer at (ES-1):8 - the output window's first byte
@@ -820,6 +810,17 @@ cmz_sfetch:
     ret
 
 ; -----------------------------------------------------------------------------
+; cmz_ioerr - a streamed read or write failed: AX = its FERR_*, and the stack
+;             goes back to cmz_pack's frame from wherever this was reached.
+;             HERE, between its two deepest callers: both jccs are short
+cmz_ioerr:
+    ; STKBALANCE-OK: abandons the stack on purpose - SP goes back to the frame
+    ; cmz_pack banked at entry, whatever cmz_sfetch/cmz_oflush had pushed
+    mov [cs:cmz_err], ax
+    mov sp, [cs:cmz_sp]
+    mov ax, 2
+    jmp cmz_pack.fail
+
 ; cmz_oflush - write CX bytes from (ES-1):8 to fm_ebuf (module internal; pass
 ;              2's only write). The first is a WRITE, which creates the file
 ;              and lets dskw_czstamp see the 'CZ' header; every later one is
@@ -1484,6 +1485,16 @@ cmz_compress:
     mov dx, [cs:cmz_z+2]        ; spent on the header's segment
     mov bx, 8
     jmp short .writeit
+.rpack:                         ; (before .pkghdr, in the pack's jcc reach)
+    or ax, ax
+    jz .rworse                  ; AX = 0: it did not get smaller
+    mov ax, cmz_s_tail          ; AX = 1: a raw tail over 64KB
+    jmp short .rsay
+.rworse:
+    mov ax, cmz_s_worse
+.rsay:                          ; the claim is held: back, then said - a
+    call cmz_drop               ; string, or the write's FERR_* off fm_errtab
+    jmp cmz_jret                ; (cmz_jsayx): the caller says nothing
 .pkghdr:
     call cmz_hdr                ; ES:BX = the whole file, AX = its length -
     jc .rworse                  ; under 64KB, a package being one segment
@@ -1492,7 +1503,7 @@ cmz_compress:
     mov cx, ax                  ; DX:CX, the write's 32-bit count
     mov si, fm_onam
     call COLD_SEG:dwf_dskw_write    ; ...and dskw_czstamp derives the directory
-    jc .rferr                       ; hint from the bytes (SPEC.md 20.14.4) -
+    jc .rsay                        ; hint from the bytes (SPEC.md 20.14.4) -
                                     ; or CLEARS it, which is what a package
                                     ; needs: a `.o88` begins 'O8' and carries
                                     ; its own
@@ -1501,16 +1512,6 @@ cmz_compress:
     clc
     ret
 
-.rpack:
-    or ax, ax
-    jz .rworse                  ; AX = 0: it did not get smaller
-    mov ax, cmz_s_tail          ; AX = 1: a raw tail over 64KB
-    jmp short .rsay
-.rworse:
-    mov ax, cmz_s_worse
-.rsay:                          ; the claim is held: back, then said
-    call cmz_drop               ; (flags only: AX, the string, survives)
-    jmp cmz_jret                ; ...said, and the caller says nothing
 
 ; -----------------------------------------------------------------------------
 ; cmz_route - does this file go through memory WHOLE, or STREAMED?
@@ -2580,7 +2581,7 @@ cmz_jclaim:
     call cmz_jslice
     xor ax, ax
     mov [cs:cmz_jwrote], al
-    mov [cs:cmz_jretry], al
+    mov [cs:cmz_jretry], ax
     mov [cs:cmz_jw], ax
     mov [cs:cmz_jw+2], ax
     mov [cs:cmz_jk], ax
@@ -2831,13 +2832,13 @@ cmz_jfloppy:
 cmz_jsusp:
     ; STKBALANCE-OK: abandons the stack on purpose, cmz_jerr's reason
     mov sp, [cs:cmz_jsp]
-    cmp byte [cs:cmz_jretry], 0 ; Enter was pressed and it is still not
-    je .quiet                   ; there: say so, and ask again
-    mov si, cmz_s_miss
-    call cmz_jmsg
-    call cmz_say
-.quiet:
-    mov byte [cs:cmz_jretry], 0
+    mov ax, [cs:cmz_jk]         ; Enter was pressed for THIS part and it is
+    cmp ax, [cs:cmz_jretry]     ; still not there: say so, and ask again. A
+    jne .quiet                  ; LATER part missing is the first time it has
+    mov si, cmz_s_miss          ; been asked for, and says nothing - it was a
+    call cmz_jmsg               ; flag, set by Enter and cleared only here, so
+    call cmz_say                ; reading part 2 off the disk put in and
+.quiet:                         ; missing part 3 said 'Missing SET.003'
     call cmz_jsave
     call cmz_jsel2on            ; the selection's name back
     call KERNEL_SEG:fpg_end     ; the bar is not up while the prompt is
@@ -2952,7 +2953,8 @@ cmz_jdisp:
     call cmz_jslice
     mov word [cs:cmz_jsrcc], 0  ; the ROOT of the disk now in the drive: a
                                 ; folder is a cluster on the OLD disk
-    mov byte [cs:cmz_jretry], 1
+    mov ax, [cs:cmz_jk]         ; the part Enter says is in now - a miss of
+    mov [cs:cmz_jretry], ax     ; THAT one is news, and of a later one is not
     call cmz_jsel2on            ; fm_onam = the part's name again...
     call cmz_jisname            ; ...and [cmz_jext] = its digits
     call cmz_jtmpn              ; the temporary's name, which the prompt's
@@ -3459,7 +3461,7 @@ cmz_jid:    dd 0                ; ...and the set's ID. A part's header bytes
 cmz_jsel:   times 13 db 0       ; the selection's name - a part's
 cmz_jnam:   times 13 db 0       ; the result's
 CMZ_JSTL    equ $ - cmz_jst
-cmz_jretry: db 0                ; Enter said the disk is in: a miss is news
+cmz_jretry: dw 0                ; the part Enter said is in: a miss of it is news
 cmz_jext:   dw 0                ; where fm_onam's three digits are
 cmz_jsp:    dw 0                ; the join's frame, for cmz_jerr and cmz_jsusp
 cmz_jwin:   dw 0                ; the input window's segment, behind the header

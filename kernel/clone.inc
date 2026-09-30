@@ -529,6 +529,9 @@ clo_geom:
     or ax, ax                   ; (AX = the total, clo_gget's last word)
     jz .jio                     ; a mounted volume of no sectors is not one
     jmp .ok
+.nodisk:                        ; (here, in the floppy test's jcc reach)
+    mov ax, CERR_NODISK
+    jmp .bad
 
     ; --- sectors per track, off the MEDIUM ---------------------------------
     ; One disk_read of CHS (0,0,N) for N in 18, 15, 9, first success wins:
@@ -629,9 +632,6 @@ clo_geom:
     call clo_live               ; the live geometry IS the clone's from here
     clc                         ; to the re-mount the caller owes
     jmp short .out
-.nodisk:
-    mov ax, CERR_NODISK
-    jmp short .bad
 .io:
     mov ax, CERR_IO
 .bad:
@@ -2420,13 +2420,9 @@ clo_line:
     pop ax
     ret
 
-.swap:
-    mov si, clo_s_ins           ; ...and step 1 of mode 6 is the SAME line out
-    call clo_cat                ; of the same three strings: the disk it wants
-    mov si, clo_s_src           ; is this operation's source
-    call clo_cat
-    mov si, clo_s_disk
-    jmp .tail
+.swap:                          ; ...and step 1 of mode 6 is the SAME line
+    mov bl, CLS_SRC             ; as CLS_SRC's, out of the same three strings:
+    jmp short .ins              ; the disk it wants is this operation's source
 
     ; 'Cloned A: to B:' (SPEC.md 22.21.3) - not a prompt line at all, but the
     ; toast, composed here because the image is what knows the two volumes and
@@ -2475,6 +2471,7 @@ clo_line:
     je .wimg
     cmp bl, CLS_NOSRC
     je .nosrc
+.ins:
     mov si, clo_s_ins           ; 'Insert the ' + SOURCE/TARGET + ' disk, ...'
     call clo_cat
     mov si, clo_s_src
