@@ -10014,6 +10014,29 @@ SOAK = [
     Row("rdup", "soak", py("tests/rdup.py"), 60.0,
         "SPEC.md 62.9.11.3: the Ram Disk page acts on the RELEASE.",
         needs=("marty",), serial=True),
+    Row("rdpreserve", "soak", py("tests/rdpreserve.py"), 60.0,
+        "SPEC.md 62.9.12, 62.9.12.1: the RAM disk's Preserve and Load, round "
+        "tripped and read from the HOST - the only gate either button has, "
+        "and the one for Preserve's conversion to one HELD "
+        "OSAPI_FILE_WRITE_SEQ stream. A typed 136KB conventional store (four "
+        "32KB chunks and an 8KB tail), a 40,000-byte seeded file copied on "
+        "from a scratch B:, Preserve As onto B:, Unmount, Load, and the file "
+        "copied back off the LOADED volume. The .RAM is parsed by a reader "
+        "written from 62.9.12 that shares no code with the writer: its size "
+        "to the byte, its header, its arena == the store in guest memory "
+        "chunk by chunk, its chain table == the chain claim, the file "
+        "reassembled from the image alone == the source, the round-tripped "
+        "copy == the source, and B: fscks clean. Q is the stream itself: the "
+        "controller's read count across the preserve, because a lost token "
+        "makes every call COLD and writes a byte-identical image. VERIFIED "
+        "RED with RAMDISK.DRV swapped on a copy of the system disk: a skipped "
+        "chunk fails S, A, F and L (Load refuses the short file); a dropped "
+        "`mov [rd_itok], di` fails Q alone (6 reads, as the APPEND writer it "
+        "replaced). The CLOSE removed stays green by design - 18.4.9 commits "
+        "a held stream at gfx_unlock and Preserve runs under it. The XMS "
+        "4KB-chunk path is not reached: no machine here has extended memory "
+        "(62.9.14). Measured at 55s on a loaded box",
+        needs=("marty",), serial=True),
     Row("rdcz", "soak", py("tests/rdcz.py"), 70.0,
         "SPEC.md 20.14.6: a compressed file with NO HINT is still read as a "
         "compressed file. The hint is a CACHE and SPEC.md 20.14 has said "

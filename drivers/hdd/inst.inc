@@ -3030,8 +3030,11 @@ hd_icopy_one:
                                 ; terminator a RAW copier can use and the rule
                                 ; the whole-file shape got wrong by not having
                                 ; a loop at all
-.notmine:                       ; SPEC.md 52.10.12: not the apps phase's
 .ok:
+    xor cx, cx                  ; THE CLOSE: the file's link, FAT and size,
+    call OSAPI_FILE_WRITE_SEQ   ; once - from the source too, the commit
+    jc .fail                    ; hopping to the file and back
+.notmine:                       ; SPEC.md 52.10.12: not the apps phase's
     clc
     jmp short .out
 .fail:
@@ -3195,12 +3198,16 @@ hd_iwrite_chunk:
     call OSAPI_FILE_WRITE_SYS   ; ...hidden + system, as it is on the floppy
     jmp short .out
 .append:
-    cmp byte [hd_isys], 0
-    jne .appsys
-    call OSAPI_FILE_APPEND      ; every later chunk, SPEC.md 18.4.4
-    jmp short .out
-.appsys:
-    call OSAPI_FILE_APPEND_SYS  ; ...past the two bits the create stamped
+    mov al, WSEQF_HELD          ; every later chunk: ONE HELD STREAM per file
+    cmp byte [hd_isys], 0       ; (SPEC.md 18.4.9, 52.10.13) - no lookup and
+    je .appu                    ; no walk per chunk, and no FAT or directory
+    or al, WSEQF_SYS            ; write until hd_icopy_one's close, which on
+.appu:                          ; the ST-225 is three long seeks a chunk. A
+    push di                     ; SYSTEM file is extended past the two bits
+    mov di, [hd_itok]           ; the create stamped (APPEND_SYS's rule,
+    call OSAPI_FILE_WRITE_SEQ   ; WSEQF_SYS). A copy that stops leaves an
+    mov [hd_itok], di           ; install that has failed anyway
+    pop di
 .out:
     pop es
     pop si
@@ -4218,7 +4225,12 @@ hd_kpad:
     call OSAPI_FILE_WRITE
     jmp short .did
 .app:
-    call OSAPI_FILE_APPEND
+    push di                     ; the pad is ONE HELD STREAM too: the
+    mov di, [hd_itok]           ; kernel's own WRITE is the next write on this
+    mov al, WSEQF_HELD          ; volume and commits it first (18.4.9), so its
+    call OSAPI_FILE_WRITE_SEQ   ; clusters are taken before the kernel's are
+    mov [hd_itok], di           ; placed
+    pop di
 .did:
     pop si
     pop ax
@@ -4229,7 +4241,8 @@ hd_kpad:
     mov dx, si
     or dx, di
     jnz .more
-    clc
+    xor cx, cx                  ; ...and closed here, so a failure to commit
+    call OSAPI_FILE_WRITE_SEQ   ; it is this routine's to report
 .out:
     pop es
     pop di
@@ -4760,6 +4773,7 @@ hd_isize:     dd 0
 hd_isys:      db 0
 hd_ioff:      dd 0
 hd_itake:     dw 0
+hd_itok:      dw 0              ; the file's WRITE_SEQ token (SPEC.md 18.4.9)
 
 ; --- state this module owns (moved out of hdd.asm's data block) ---
 hd_idev:     db 0               ; ...and the installer's, for the same reason

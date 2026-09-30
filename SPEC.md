@@ -32397,7 +32397,7 @@ stages 2 and 3 of that plan.
 | `SI` | a NUL 8.3 name in the current directory, **on every call** |
 | `ES:BX` | the bytes - APPEND's registers |
 | `CX` | the count: a whole number of clusters, but the last, as APPEND's. **0 closes** |
-| `AL` | flags: bit 0 = `WSEQF_HELD`, the same on every call of a stream |
+| `AL` | flags: bit 0 = `WSEQF_HELD`, the same on every call of a stream; bit 1 = `WSEQF_SYS`. A close reads none |
 | `DI` | the TOKEN the stream's last call handed back; 0 (or anything stale) = none |
 
 Out `CF=0`, `AX = 0`, `DI` = the token for the next call; `CF=1` with
@@ -32429,6 +32429,28 @@ COLD, commits any hold a cold call must not look past, and calls
 hot call loads the record in place of the lookup and starts the grow at the
 record's last cluster instead of walking. So every argument an append
 refuses, WRITE_SEQ refuses the same way.
+
+**`WSEQF_SYS` is `OSAPI_FILE_APPEND_SYS`'s permission** (§19.6.1): the
+file may be hidden + system, and the stream may still grow it. The door sets
+`[dskw_syswr]` from the bit on EVERY call - 0 as often as 1 - and
+`dskw_wrp` clears it on the way out as it always has, so a close or a refused
+call that never reaches the body cannot leave it set for the next write. It
+is what lets the installer copy KERNEL.SYS and the drivers as streams
+(§52.10.13.2). 8 bytes of `.cold`, resident. Drivers only, as APPEND_SYS is.
+
+**The writers on it**, and what each holds:
+
+| writer | § | stream |
+|---|---|---|
+| the file manager's copy | 22.5.3 | HELD, one per file |
+| the split-set join | 22.23.5 | HELD |
+| Compress's second pass | 22.22.5.1 | PLAIN: it reads its own output back |
+| a disk image, `Clone Disk...` to `IMG` | 18.99.8.1 | HELD |
+| the installer, every file and `KPAD.TMP` | 52.10.13.2 | HELD, `WSEQF_SYS` for a system file |
+| a RAM disk's Preserve | 62.9.12.1 | HELD |
+| Telnet's Zmodem receive | 70.11.7 | PLAIN, FTPD's shape |
+| FTPD's `STOR` | 77.49 | PLAIN |
+| VIDDISK's W | - | the bench: either |
 
 **A grow stores the entry's TAIL** (`dskw_ent_tail`): its head and size, the
 two fields a grow changes and the two the record keeps, read-modify-write of
@@ -32527,11 +32549,11 @@ that could be arranged:
   disk checks clean (above).
 
 Costs: the whole stream writer - this slot, the bank (18.8.5), the copy's
-room check (22.5.2.1) and the converted writers - is **+503 bytes** on
-`kern_big` (`.cold` +451, `.bss` +21, `.text` +31: the cell's 6, the
+room check (22.5.2.1) and the converted writers - is **+511 bytes** on
+`kern_big` (`.cold` +459, `.bss` +21, `.text` +31: the cell's 6, the
 `gfx_unlock` test, `[dsk_fcgoal]` and the bank). As first built it was
 **+1,077**; docs/reports/STREAM-WRITER-SIZE-2026-09-30.md is where the 574
-went, stage 1 (18.4.7.6) included. `kern_small` +6, the cell.
+went, stage 1 (18.4.7.6) included; `WSEQF_SYS` is the last 8. `kern_small` +6, the cell.
 
 ### 18.4.7 `OSAPI_FILE_WRITE_AT` — the same offset, going the other way
 
@@ -35402,6 +35424,18 @@ it**: all three present a floppy as an array of sectors, so a write with the
 wrong gap length or track width lands in the right slot and the image is
 correct afterwards. A green run says nothing about this. Until the note closes,
 `Write Img...` is unsafe on media anyone minds losing.
+
+##### 18.99.8.1 …and the image file is one HELD stream (`kern_big`)
+
+`clo_fput`'s first chunk is a `dwf_dskw_write` and every one after it was a
+`dwf_dskw_append`: a lookup of the image's name, a walk of its chain from the
+front, and a FAT and a directory write, per chunk of up to 127 sectors. On
+`kern_big` every later chunk is a `WRITE_SEQ` call with `WSEQF_HELD`
+(§18.4.9), its token in the claim's header at `CL_FTOK`, and `clo_imgrun`
+closes the stream once the last chunk is down, a failure to commit being the
+file's (`clo_ferr`). Nothing between two chunks MOUNTS anything - the disk
+end is a bank of three geometry words, not a mount - so the held chain's FAT
+dirt simply stays in the live window. `kern_small` keeps its appends.
 
 #### 18.99.9 The window is whole CYLINDERS, and why the DMA page is not
 
@@ -45914,6 +45948,18 @@ there, as it was before streaming. The bar is scaled
 to both passes, and since every `dskw_*` call arms the widget to its own
 length and ends it (§12.8), `cmz_rearm` puts the verb's scale back after each
 read and write.
+
+##### 22.22.5.1 …and pass 2 writes one PLAIN stream (`kern_big`)
+
+Pass 2's output went out as a WRITE and then 16KB APPENDs, each a lookup and
+a walk of the chain from its first cluster - at ~142 ms a MB of offset
+(§18.4.8), a 5MB result spends on the order of 100 seconds walking. On
+`kern_big` every later chunk is a PLAIN `WRITE_SEQ` (§18.4.9), its token in
+the module's image (`cmz_otok`). **Not HELD**: the cut-out path reads its own
+output back (`cmz_tio`'s `READ_AT`) before it rewrites it, and a read commits
+no hold, so a held stream would be read past the size the disk shows. The
+`WRITE_AT` that path makes is a write, so the token goes stale and the next
+chunk is simply cold.
 
 #### 22.22.6 The pointer tracks and the bar says `Compressing...`
 
@@ -84951,6 +84997,20 @@ has to say `[hd_ilvl] == 0`, or a user's own file of that name in a folder of
 their own would be skipped for sharing a name with the kernel.
 
 
+#### 52.10.13.2 …and each file is one HELD stream, system files included
+
+Every chunk after a file's first was an `OSAPI_FILE_APPEND` (or
+`APPEND_SYS`), and on the ST-225 each of those was three long seeks - the
+directory, the FAT and back (docs/plans/STREAM-WRITER-PLAN.md §1). Each file
+is one `OSAPI_FILE_WRITE_SEQ` stream with `WSEQF_HELD` now, `WSEQF_SYS` for a
+hidden + system one (§18.4.9), its token in `hd_itok`, and `hd_icopy_one`
+closes it at `.ok` - from the source side too, the commit hopping to the file
+and back. `KPAD.TMP` (§52.10.15's pad) is one held stream as well: the
+kernel's own WRITE is the next write on that volume and commits the pad
+first, so its clusters are taken before the kernel's are placed, which is
+all the pad is for. An install that stops part-way is an install that has
+failed, so HELD's one loss is nothing here.
+
 ### 52.10.14 …and it builds the volume's OWN `ASSOC.DAT`, because a copied one is a lie
 
 **An install copied the source disk's association cache onto the hard disk,
@@ -92922,6 +92982,17 @@ the file alone. The failure is quiet by design: the disk the image was on may
 simply not be in the drive, and a machine that boots to a notice because a RAM
 disk could not be restored is worse than one that boots to an empty one — the
 page says so when it is next opened.
+
+##### 62.9.12.1 …and the arena is one HELD stream
+
+The chain table and every arena chunk after the metadata block's WRITE were
+`OSAPI_FILE_APPEND`s - through the XMS bounce, **4,096 bytes at a time**, so a
+multi-megabyte RAM disk was about a thousand lookups and a thousand walks of
+a chain that grew each time. They are one `OSAPI_FILE_WRITE_SEQ` stream with
+`WSEQF_HELD` now (§18.4.9), token in `rd_itok`, closed once the arena is
+down. An image is useless until it is whole and Load refuses a short one
+(above), so HELD's one loss is nothing. `RAMDISK.DRV` does not ship on
+`kern_small` (§62.9.15), so it needs no fallback.
 
 #### 62.9.13 Ticking the row no longer mounts anything
 
@@ -104555,6 +104626,16 @@ records, and then they were seventy-seven bytes of a package whose 360KB
 floppy has two clusters left (§24.3.1). Scaffolding earns its keep while the
 scaffold is up; what survives is the byte no other observer can replace and
 the account of what the counters said.
+
+#### 70.11.7 A received file is one streaming append
+
+`tz_commit`'s chunks after the first were `OSAPI_FILE_APPEND`s, 4,096 bytes
+each, so a download was QUADRATIC in its length the way FTPD's upload was
+(§77.49): a 1MB file is ~256 appends and ~18 seconds of chain walking alone.
+They are PLAIN `OSAPI_FILE_WRITE_SEQ` calls now (§18.4.9), token in
+`tz_wtok`. PLAIN because every chunk the sender is told was received must be
+on the disk, which is §70.11.3's promise. A `FERR_NAME` - `kern_small`'s cell
+- is asked of APPEND instead, which answers it exactly.
 
 ### 70.12 The gates
 

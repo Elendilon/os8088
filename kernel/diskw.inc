@@ -2957,7 +2957,9 @@ dwr_stat:
 ; 62.9) takes it as the append it is.
 ; -----------------------------------------------------------------------------
 %ifdef DSKW_WSEQ
-WSQF_HELD   equ 0x01            ; the caller's AL
+WSQF_HELD   equ 0x01            ; the caller's AL...
+WSQF_SYS    equ 0x02            ; ...and APPEND_SYS's permission (18.4.4):
+                                ; a hidden + system file may be grown
 WSQF_HOT    equ 0x40            ; the door's: the token names the record
 WSQF_IN     equ 0x80            ; ...and inside a call at all
 DWS_REC0    equ dskw_raw + DSK_R_CLUS   ; the record's run: the entry's head
@@ -2980,6 +2982,9 @@ dwf_dskw_write_seq:
     jc .out                     ; again: its size IS the lookup's answer - and
     jcxz .out                   ; a close's answer is the commit's (AX = 0
 .go:                            ; when nothing was held)
+    mov al, [dws_flg]           ; WSQF_SYS is [dskw_syswr], which dskw_wrp
+    and al, WSQF_SYS            ; clears on the way out - set on EVERY call,
+    mov [dskw_syswr], al        ; so none can leak into the next write
     call dskw_append_x
     jc .out                     ; DI as it was: the record is untouched too
     mov di, [dsk_mgen]          ; THE TOKEN: what the call left (`mov`: CF

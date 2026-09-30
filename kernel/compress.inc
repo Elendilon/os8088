@@ -820,8 +820,13 @@ cmz_sfetch:
 ;              2's only write). The first is a WRITE, which creates the file
 ;              and lets dskw_czstamp see the 'CZ' header; every later one is
 ;              an APPEND, whose rule - the file a whole number of clusters -
-;              the 16KB chunks keep until the last. clobbers: flags; a
-;              failure never returns (cmz_ioerr)
+;              the 16KB chunks keep until the last. On kern_big the APPEND
+;              is a PLAIN WRITE_SEQ (SPEC.md 18.4.9, 22.22.5): no lookup and
+;              no walk from the front per chunk. Not HELD: the cut-out path
+;              reads its own output back (cmz_tio), and a read commits no
+;              hold. Its WRITE_AT then makes the token stale, and the next
+;              chunk is simply cold. clobbers: flags; a failure never
+;              returns (cmz_ioerr)
 ; -----------------------------------------------------------------------------
 cmz_oflush:
     CMZ_TRACK 0
@@ -845,7 +850,16 @@ cmz_oflush:
     mov byte [cs:cmz_wrote], 1  ; `mov` leaves CF alone
     jmp short .chk
 .ap:
+%ifdef KERN_BIG
+    push di
+    mov di, [cs:cmz_otok]
+    xor al, al                  ; PLAIN
+    call COLD_SEG:dwf_dskw_write_seq
+    mov [cs:cmz_otok], di       ; (`mov` and `pop` leave CF alone)
+    pop di
+%else
     call COLD_SEG:dwf_dskw_append
+%endif
 .chk:
     jc cmz_ioerr
     call cmz_rearm
@@ -3531,6 +3545,9 @@ cmz_obase:  dd 0                ; ...and the output
 cmz_rstop:  dd 0                ; where the parse stops, from DS
 cmz_sseg:   dw 0                ; the source's FIRST segment
 cmz_mode:   db 0                ; 0 whole, 1 and 2 the streamed passes
+%ifdef KERN_BIG
+cmz_otok:   dw 0                ; pass 2's WRITE_SEQ token (18.4.9): the
+%endif                          ; WRITE that makes each file leaves it stale
 cmz_wrote:  db 0                ; the streamed pass has created its file
 cmz_sp:     dw 0                ; cmz_pack's frame, for cmz_ioerr
 cmz_err:    dw 0                ; ...and the FERR_* it unwound with

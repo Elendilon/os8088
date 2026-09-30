@@ -3,8 +3,9 @@
 **Status: OPEN. Stages 1, 2 and 3 BUILT (SPEC.md 18.4.7.6, 18.4.9), the
 consumers and the FAT at a hop built (§8, §11), and a SECOND size pass (§12)
 took the whole branch from +1,077 to +503 resident bytes on `kern_big`, the
-owner accepting 503 for stage 1 in its 16-byte form. What is left is the
-ST-225 (§8 item 4).** This is docs/plans/DISK-CPU-PLAN.md §6 taken on. That
+owner accepting 503 for stage 1 in its 16-byte form; `WSEQF_SYS` (+8) then
+let five more writers convert at no resident cost (SPEC.md 18.4.9's table).
+What is left is the ST-225 (§8 item 4).** This is docs/plans/DISK-CPU-PLAN.md §6 taken on. That
 section named the write side and sketched a fix's SHAPE; this is the design,
 staged, with what each stage costs and what it must not break.
 

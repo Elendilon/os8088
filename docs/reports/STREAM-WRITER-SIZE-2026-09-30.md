@@ -21,10 +21,11 @@ A later measurement is a new file.
 |---|---|---|---|---|---|
 | base | 47,491 | 5,543 | 40,484 | 100,220 | - |
 | before | 47,524 | 5,597 | 41,474 | 101,297 | **+1,077** |
-| after | 47,522 | 5,564 | 40,935 | 100,723 | **+503** |
+| after | 47,522 | 5,564 | 40,943 | 100,731 | **+511** |
 
 The brief was under 500, and the pass reached +487; the owner then took
-stage 1 back at the +16 it was costed at, for **+503**. `kern_small` is +6
+stage 1 back at the +16 it was costed at, for +503, and asked for a system-file
+flag so the installer could be converted, for **+511**. `kern_small` is +6
 on both before it, the API cell, and +22 with stage 1 (the seal is shared).
 
 ## Where the 574 bytes went
@@ -47,7 +48,8 @@ Each row is one step of the pass, and the figure is the resident total
 | ONE media generation for READ_SEQ and WRITE_SEQ; `[dsk_wgen]` gone | +484 | -12 |
 | `ovlchk`: the tail store names `dsk_secbuf` as an offset, not through `lea` | +485 | +1 |
 | the tail store's parameters survive `DSK_RD1D`, which loads BX (the first soak found it: every join said `No such file`) | +487 | +2 |
-| stage 1 BACK, in its store-it-back form (SPEC.md 18.4.7.6): re-measured at 3.2 one-sector writes an append, as `dskw_onesec` measured | **+503** | +16 |
+| stage 1 BACK, in its store-it-back form (SPEC.md 18.4.7.6): re-measured at 3.2 one-sector writes an append, as `dskw_onesec` measured | +503 | +16 |
+| `WSEQF_SYS` (SPEC.md 18.4.9), so the installer's hidden + system files can be streams: the door sets `[dskw_syswr]` from the flag on every call | **+511** | +8 |
 
 ## What changed in behaviour
 
