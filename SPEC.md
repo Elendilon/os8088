@@ -76370,6 +76370,19 @@ did rather than seeming to ignore it. The speaker's play loop is its own key
 reader, so it takes R as an exit of its own (`TSPX_RATE`) and leaves the
 bracket through `trk_rcyc`, the routine the windowed and fullscreen keys
 already call.
+
+**The clock carries on across the new rate.** The elapsed time is the bytes
+heard this song over the rate they play at (`tw_el` / `[mp_mixrate]`), and a
+Play after R RESUMES - the song's clock is kept (`tw_newstream`) - at another
+rate. Both starts stored the new rate over the old bytes, so the clock read
+the old rate's bytes at the new rate and jumped: forward by over a minute on
+the owner's 286, where R took 22,050 Hz to a slower rung, and backward with a
+card (5.5 to 11 kHz halved it). `tw_elscale`, which the speaker's rung drop
+already called, rescales the bytes wherever a rate is stored - `tsp_start`
+and `trk_play` - and moved to `trkwin.inc`, the clock's own file.
+`tests/trkspk.py --leg rate` plays ~50 s, presses R, resumes, and reads the
+clock both sides; with the rescale taken out it reads 50 then 45 s on the
+speaker and 53 then 26 with a card, and FAILS.
 `tsp_rsel` holds it (rung + 1, 0 = auto). Auto is 45.25's ladder; a picked
 rung is played from its start with no refusal, and the live drop still
 guards the tempo - a machine that cannot hold the pick comes down a rung

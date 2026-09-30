@@ -458,7 +458,13 @@ def leg_rate(bad, shot=None):
                 "BEVERLY.MOD")
         try:
             t.until(lambda: t.rb("mp_playing") == 1, "the play")
-            os88marty.pace(t.m, 1.0)
+            os88marty.pace(t.m, 12.0)       # ~50 s in: far enough that a clock read
+            # at the wrong rate is seconds wrong: the elapsed time is the
+            # bytes heard over the rate, and a resume at a new rate once kept
+            # the old rate's bytes (the owner's 286: over a minute)
+            secs = lambda: (u16(t.m.read(t.a("tw_el"), 2)) |
+                            u16(t.m.read(t.a("tw_el") + 2, 2)) << 16) // \
+                max(1, t.rw("mp_mixrate"))
             pick = lambda: t.rb("tsp_rsel") if who == "speaker" else \
                 t.rb("trk_xhi" if t.rb("mp_xt") else "trk_rsel")
             r0 = pick()
@@ -469,6 +475,7 @@ def leg_rate(bad, shot=None):
             t.until(lambda: t.rb("mp_playing") == 0, "R to pause the play",
                     limit=20.0)
             os88marty.pace(t.m, 0.5)
+            s0 = secs()
             m1 = t.m.read(t.base + t.rw("tui_msgp"), 40).split(b"\0")[0]
             p1 = pick()
             print("   %s: R in the play: paused, pick %d -> %d, the line %r"
@@ -505,10 +512,23 @@ def leg_rate(bad, shot=None):
                 check(bad, t.rw("tsp_rate") == 5512,
                       "speaker: the next play takes it (%d Hz, auto was "
                       "4800)" % t.rw("tsp_rate"))
+                os88marty.pace(t.m, 0.2)    # ~a second of the guest's
+                s1 = secs()
+                check(bad, 0 <= s1 - s0 <= 3,
+                      "speaker: the clock carries on at the new rate "
+                      "(%d s at the pause, %d s a second into the resume)"
+                      % (s0, s1))
             else:
                 check(bad, n >= 2 and items[0][:1] != b"\x01",
                       "card: the Rate menu offers the card's rates")
                 check(bad, pick() != r0, "card: R moves the rate")
+                t.m.type_text(" ")
+                t.until(lambda: t.rb("mp_playing") == 1, "Space to play on")
+                os88marty.pace(t.m, 0.2)    # ~a second of the guest's
+                s1 = secs()
+                check(bad, 0 <= s1 - s0 <= 3,
+                      "card: the clock carries on at the new rate (%d s at "
+                      "the pause, %d s a second into the resume)" % (s0, s1))
         finally:
             t.close()
 

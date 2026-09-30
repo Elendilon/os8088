@@ -2235,7 +2235,8 @@ trk_play:
     mov byte [trk_ghave], 1
 .granted:
     call trk_rate_pick              ; AX = the rate this mode asks for
-    mov [mp_mixrate], ax
+    call tw_elscale                 ; a resume at another rate keeps its
+    mov [mp_mixrate], ax            ; clock, in the new rate's bytes
     mov al, [trk_pmode]
     call tw_newstream               ; the face's clock: restarted with a song,
     call mp_start                   ; kept across a resume

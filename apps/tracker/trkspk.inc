@@ -732,8 +732,9 @@ tsp_start:
     mov [es:TSP_RL], ax             ; TOTAL
     mov [es:TSP_RL+2], ax           ; CONS
     mov ax, [tsp_rate]
-    mov [mp_mixrate], ax
-    mov al, [trk_pmode]
+    call tw_elscale                 ; a RESUME at another rate keeps its clock
+    mov [mp_mixrate], ax            ; (R, paused, then Play): its bytes in
+    mov al, [trk_pmode]             ; the new rate's, or it jumps
     call tw_newstream               ; the face's clock, as trk_play's
     mov al, [trk_pmode]
     call mp_start
@@ -952,7 +953,7 @@ tsp_behind:
     call tsp_leave
     inc byte [tsp_rung]
     mov ax, [si+bx]
-    call tsp_elscale                ; the clock's bytes, in the new rate's
+    call tw_elscale                 ; the clock's bytes, in the new rate's
     call tsp_tables
     mov [mp_mixrate], ax
     push ax
@@ -975,46 +976,6 @@ tsp_behind:
 .out:
     pop es
     pop si
-    pop bx
-    pop ax
-    ret
-
-; tsp_elscale - AX = the new rate: [tw_el], the stream bytes HEARD this song
-; (tw_secs divides it by the rate), rescaled from [mp_mixrate]'s bytes to
-; AX's, so the elapsed clock goes on from where it was across a rung down
-; (preserves all). A 32 x 16 multiply and a 48 / 16 divide, once a drop
-tsp_elscale:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    mov bx, ax                      ; BX = new
-    mov ax, [tw_el]
-    mul bx
-    mov si, ax                      ; SI = w0
-    mov di, dx                      ; DI = carry into w1
-    mov ax, [tw_el + 2]
-    mul bx                          ; DX:AX = hi x new
-    add ax, di
-    adc dx, 0                       ; DX:AX:SI = the 48-bit product
-    mov cx, [mp_mixrate]            ; / old
-    or cx, cx
-    jz .out
-    cmp dx, cx
-    jae .out                        ; (cannot: the quotient fits 32 bits)
-    div cx                          ; AX = q1, DX = remainder
-    mov bx, ax
-    mov ax, si
-    div cx                          ; AX = q0
-    mov [tw_el], ax
-    mov [tw_el + 2], bx
-.out:
-    pop di
-    pop si
-    pop dx
-    pop cx
     pop bx
     pop ax
     ret

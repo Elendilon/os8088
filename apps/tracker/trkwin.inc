@@ -1006,6 +1006,50 @@ tw_lcd_line:
     pop bx
     ret
 
+; tw_elscale - AX = the new rate: [tw_el], the stream bytes HEARD this song
+; (tw_secs divides it by the rate), rescaled from [mp_mixrate]'s bytes to
+; AX's, so the elapsed clock goes on from where it was across a change of
+; rate: the speaker's rung down (tsp_behind), and a RESUME at another rate,
+; on either route - R pauses, and the Play after it starts the new rate with
+; the song's clock kept (tw_newstream), which read the old rate's bytes over
+; the new rate and jumped (the owner's 286: over a minute). Preserves all. A
+; 32 x 16 multiply and a 48 / 16 divide, once a change
+tw_elscale:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov bx, ax                      ; BX = new
+    mov ax, [tw_el]
+    mul bx
+    mov si, ax                      ; SI = w0
+    mov di, dx                      ; DI = carry into w1
+    mov ax, [tw_el + 2]
+    mul bx                          ; DX:AX = hi x new
+    add ax, di
+    adc dx, 0                       ; DX:AX:SI = the 48-bit product
+    mov cx, [mp_mixrate]            ; / old
+    or cx, cx
+    jz .out
+    cmp dx, cx
+    jae .out                        ; (cannot: the quotient fits 32 bits)
+    div cx                          ; AX = q1, DX = remainder
+    mov bx, ax
+    mov ax, si
+    div cx                          ; AX = q0
+    mov [tw_el], ax
+    mov [tw_el + 2], bx
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; tw_secs - AX = the elapsed seconds: bytes HEARD over the rate they play at.
 ; Preserves the rest.
 tw_secs:

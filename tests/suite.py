@@ -8604,14 +8604,17 @@ SOAK = [
         "run's. Broken on purpose (os88spk_go taken out) it FAILS",
         needs=("marty",),
         wants=("build/spkbench360.img", "build/os8088-360.img")),
-    Row("trkspkrate", "soak", py("tests/trkspk.py", "--leg", "rate"), 45.0,
+    Row("trkspkrate", "soak", py("tests/trkspk.py", "--leg", "rate"), 70.0,
         "SPEC.md 45.25.3: with NO card the Rate menu is Auto and this "
         "machine's speaker rungs, each with the load the calibration "
         "predicts; R IN THE PLAY pauses it, moves the pick and says so, with "
         "a card and without; and the next play takes the pick - 5512 where "
         "auto takes 4800 on a 5150. With tsp_pick ignoring tsp_rsel the next "
         "play is 4800 again and it FAILS; with R taken out of the speaker's "
-        "play loop the play never pauses and it FAILS",
+        "play loop the play never pauses and it FAILS. And the CLOCK: ~50 s "
+        "in, R, then a resume at the new rate must carry the elapsed time on "
+        "- with tw_elscale not called at the start it reads 50 then 45 s on "
+        "the speaker and 53 then 26 with a card, and FAILS",
         needs=("marty",),
         wants=("build/tracker.o88", "build/sound.drv", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin")),
