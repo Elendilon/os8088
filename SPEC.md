@@ -7291,17 +7291,75 @@ rows - the IBM 27 OCT 82 ROM, every GLaBIOS in MartyPC's set (the `T`
 variants carry a different face at the same address), SeaBIOS (`bios.bin`,
 F000:FA6E) and every QEMU and Bochs VGA BIOS (their own table, at C000).
 What is new is only that the pointer has to stay good for the session,
-which a ROM does.
+which a ROM does - and across a hibernate, which §6.0.1's resume half is for.
+
+#### 6.0.1 Which ROM table, and when it is copied
+
+The field case is an IBM 5150 with a Paradise PVGA1A: int 10h AX=1130h names
+the table in the card's OPTION ROM at C000, which an 8-bit ISA card serves
+through its own bus cycle - the one kind of ROM read that can carry a wait
+state the system board's does not. So `font_init` does not simply take the
+BIOS's answer. Its choice is the macro `FONT_PICK`, and the rule is two
+tests and no measurement:
+
+1. **The planar ROM, when it holds the same glyphs.** F000:FA6E is the IBM
+   PC's fixed address for the 8x8 set - every PC-compatible BIOS keeps it
+   there, because the CGA graphics modes draw from it - and when its 95
+   glyphs (760 bytes, one `repe cmpsb`) are BYTE-IDENTICAL to the answer,
+   the kernel reads them there: no pixel changes and the read is the
+   planar's. A BIOS that answers nothing (pre-EGA) takes it directly. Every
+   VGA BIOS in reach (QEMU's six, Bochs's) carries the IBM set, so on every
+   emulator here the pointer is F000:FB6E whatever the adapter.
+2. **Otherwise the face is the card's and is KEPT** - the rule never changes
+   what text looks like - but it is COPIED: 760 bytes into a 1KB heap claim
+   `MEM_K_FONT`, and `[font_seg]:[font_base]` points there. That is what the
+   768 resident bytes used to buy, paid only by a machine that can use it and
+   billed to the arena instead of to every kernel. It is claimed TOP-DOWN
+   and PINNED at boot, before any driver, module or package region exists,
+   so it takes the arena's ceiling and everything later stacks under it:
+   never a barrier to either compaction pass (§66), and a relocation proc
+   would be resident bytes buying nothing. A refused claim keeps the ROM
+   pointer.
+
+**What it costs**: zero resident bytes on both kernels - the macro, the
+claim and the copy are boot overlay (`.ovlw` on kern_big, 5,023 -> 5,095 of
+the 5,120 the FAT window rounds to; `.ovl` on kern_small, 1,897 -> 1,969 of
+1,984) and one 760-byte compare at boot. **What a PIT measurement would have
+cost, and why it is not here**: timing the chosen table and RAM (a latch
+helper, a timed `rep lodsb`, a 1.25x threshold) assembles to 66 more
+overlay bytes, where 25 and 15 are left - it does not fit either kernel
+without a blob sector. **What the rule misses**: a machine whose PLANAR ROM
+is itself slow (an AT-class board with the system BIOS unshadowed; it is
+read in place), and a card whose face differs from the planar set on a
+machine where that card's ROM is fast (copied anyway, 1KB of heap for
+nothing). `tests/romfont` measures both tables against RAM on the machine
+in front of it, which is what settles either.
+
+**The resume re-asks** (`hbm_wake` step 4a, HIBER.DRV - no resident byte).
+The image carries the pointer the writing machine's boot chose; the reading
+machine runs the same `FONT_PICK`, refills a heap copy in place (its claim
+came back with the image) or replaces a ROM pointer. It makes no claim
+there, so an option ROM found only at a resume is read in place. This is
+the one routine both routes home share - a hibernate resume and
+`kern_dos`'s live return (§96.49) both enter `hbm_wake` - and nothing else
+restores a kernel image. It is belt and braces rather than a fix for a
+crash: the image's own IVT names the writing machine's BIOS too (§87.3),
+and `hb_ask` refuses a different adapter kind or memory size.
+
+**`make FONTSLOW=1`** skips test 1's early-out, so the copy runs on any
+machine: no emulator here has a BIOS whose tables differ, and without the
+knob the copy path would never run where a row can see it.
+`tests/fontpick.py` is the A/B.
 
 | symbol       | in                       | effect                              |
 |--------------|--------------------------|--------------------------------------|
-| `font_init`  | —                        | find the ROM font and point `[font_seg]:[font_base]` at its glyph 32 (`ovl_font_init` under `BAKED_FONT` copies the baked face to `.lowbss` and points the pair there, §6.2) |
+| `font_init`  | —                        | pick the ROM table (§6.0.1: the planar set when it is the same glyphs), copy it into a `MEM_K_FONT` claim when it is an option ROM's, and point `[font_seg]:[font_base]` at its glyph 32 (`ovl_font_init` under `BAKED_FONT` copies the baked face to `.lowbss` and points the pair there, §6.2) |
 | `font_char`  | CX=x, DX=y, AL=char      | draw 8x8 glyph, color `[gfx_color]`, transparent background |
 | `font_str`   | CX=x, DX=y, SI=NUL str   | draw string left→right               |
 | `font_width` | SI=NUL str               | out AX = pixel width (8 × length)    |
 | `font_str_x` / `font_width_x` | ES:SI = NUL str | the same two, reading the string through **ES** — what the `X` stubs of §20.3 call so a package's string can live in its own segment |
 | `font_run` / `font_run_x` | CX=x, DX=y, SI (ES:SI) = NUL str, AL=ink, AH=background | one **opaque** run: the cells' background AND their glyphs, in a single pass (§6.1). API slot 0x01E5 |
-| `osapi_font_glyphs` | — | out **DX:SI** = the glyph table, `[font_seg]:[font_base]` — the ROM's own on a plain build, a `.lowbss` copy under `BAKED_FONT` (it was LOW_SEG:`font_glyphs` until kernel size pass 8, and before that an offset in KERNEL_SEG) — AL = FONT_FIRST (32), AH = FONT_LAST (126), CX = 8 bytes per glyph. API slot 0x01B6, amended from SI-only as a recorded one-time exception to §20.8 rule 4. **Read the table; never write it** - it is ROM |
+| `osapi_font_glyphs` | — | out **DX:SI** = the glyph table, `[font_seg]:[font_base]` — the ROM's own on a plain build (or its `MEM_K_FONT` heap copy, §6.0.1), a `.lowbss` copy under `BAKED_FONT` (it was LOW_SEG:`font_glyphs` until kernel size pass 8, and before that an offset in KERNEL_SEG) — AL = FONT_FIRST (32), AH = FONT_LAST (126), CX = 8 bytes per glyph. API slot 0x01B6, amended from SI-only as a recorded one-time exception to §20.8 rule 4. **Read the table; never write it** - it is ROM |
 
 **Handing out the bitmaps** (`osapi_font_glyphs`) is for an app that draws
 text into its OWN pixels rather than onto the screen — apps/paint's text tool
@@ -120399,7 +120457,8 @@ still up from step 3 of §87.4 and the gfx lock still held:
    empty, the read-ahead flushed, the write gate shut, the batch depths
    zeroed, `mem_pinseg` cleared and the progress widget given back with
    `fpg_end` — every one of them a word the write was in the middle of.
-4. `vid_setmode`, then `[hb_mode]` = `HB_M_GONE` and the Hibernate window
+4. `vid_setmode`, then the glyph table re-asked (`FONT_PICK`, §6.0.1: a
+   heap copy refilled, a ROM pointer replaced), then `[hb_mode]` = `HB_M_GONE` and the Hibernate window
    closed with `app_close_win` — GONE first, so §87.1's hook leaves this
    image, which is the code running, to the thunk — then
    `menu_force`, `dock_force`, `wm_paint_all` — `fsx_restore`'s return from a

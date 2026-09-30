@@ -21,35 +21,38 @@
 ;   ...boot the system disk, put this one in B:, open ROMFONT.O88, click the
 ;   window (or press R), photograph it. The photograph is the result.
 ;
-; THE ROWS, and why each:
+; THE ROWS, and why each. There are TWO ROM tables on most machines, and the
+; kernel's choice between them is SPEC.md 6.0.1's rule, so both are timed:
 ;
-;   ROM read 768B    `rep lodsb` over the whole table (glyphs 32..127) where
-;                    the BIOS keeps it. Pure read traffic: the row most
-;                    sensitive to a wait state, so the one that shows a ROM
-;                    that is slower than RAM at all
-;   RAM read 768B    ...the identical loop over the copy
-;   ROM glyph rows   96 cells x 8 rows of a renderer-shaped inner loop - load
-;                    the glyph row, invert it, AND it into a RAM canvas, step
-;                    a stride. One table read per two canvas accesses, which
-;                    is the ratio the kernel's 1bpp cell writer has (and a
-;                    VGA's is lower still: its other accesses are VRAM)
-;   RAM glyph rows   ...the identical loop over the copy
-;   FONT_RUN 40      the kernel's own opaque run of 40 cells, aligned - the
-;                    whole cost a caller sees, on whichever kernel is booted.
-;                    Its table is the one the "kernel reads" line names
+;   BIOS read 768B    `rep lodsb` over the table int 10h AX=1130h BH=3 names
+;                     (glyphs 32..127) - on an EGA or VGA the card's OPTION
+;                     ROM. Pure read traffic: the row most sensitive to a
+;                     wait state, so the one that shows a ROM slower than RAM
+;   RAM read 768B     ...the identical loop over a copy in this segment
+;   BIOS glyph rows   96 cells x 8 rows of a renderer-shaped inner loop - load
+;                     the glyph row, invert it, AND it into a RAM canvas, step
+;                     a stride. One table read per two canvas accesses, which
+;                     is the ratio the kernel's 1bpp cell writer has
+;   RAM glyph rows    ...the identical loop over the copy
+;   planar read/rows  ...and the same two over F000:FA6E, the system board's
+;                     own set, which the kernel reads instead whenever its
+;                     glyphs are the BIOS table's
+;   FONT_RUN 40       the kernel's own opaque run of 40 cells, aligned - the
+;                     whole cost a caller sees, from whichever table the
+;                     "kernel reads" line names
 ;
-; and two derived rows, ROM/RAM x1000 for each pair: 1000 is no difference,
-; 1020 is the 2% a hot path may cost under the size pass's rule.
+; and four derived rows, table/RAM x1000: 1000 is no difference, 1250 is where
+; a copy would have been worth a kilobyte of heap.
 ;
-; The header lines say WHERE: the ROM table's seg:off (int 10h AX=1130h
-; BH=3, else F000:FA6E - the probe font_init makes), and the seg:off
-; OSAPI_FONT_GLYPHS answers - equal to it on a kernel that reads the ROM,
-; LOW_SEG's on one that kept the copy. And "copy matches ROM", so the RAM
-; rows are known to have read the same 768 bytes.
+; The header lines say WHAT THE KERNEL DECIDED: the BIOS table's seg:off,
+; whether the planar set carries the same glyphs (the kernel's test), and the
+; seg:off OSAPI_FONT_GLYPHS answers with its kind - planar ROM, option ROM,
+; or HEAP COPY (the 1KB MEM_K_FONT claim, SPEC.md 6.0.1). The kernel times
+; nothing itself (the overlay has no room for it); these rows are the
+; measurement its rule is checked against.
 ;
-; PREDICTION (MartyPC, the genuine 27 OCT 82 BIOS, CGA): the ROM/RAM rows
-; within a count of each other, x1000 = 1000 +- 1. Recorded beside each run in
-; the size pass's report.
+; PREDICTION (MartyPC, genuine 27 OCT 82 BIOS, CGA or Hercules): kernel reads
+; F000:FB6E "planar ROM, in place", every table/RAM row 1000 +- 1.
 ; =============================================================================
 
 %include "os88api.inc"
@@ -61,6 +64,7 @@ BL_ARENA_BYTES equ 3000             ; a ~20-line report (benchlib.inc)
 section .bss align=1 follows=.text
 section .text
 
+RF_PLANAR   equ 0xFA6E + 32 * 8     ; F000: the planar ROM's glyph 32
 RF_TAB      equ 96 * 8              ; glyphs 32..127, the kernel's FONT_BYTES
 RF_STRIDE   equ 96                  ; the canvas: one byte column per glyph
 RF_N        equ 32                  ; iterations a table row
@@ -160,6 +164,21 @@ rf_probe:
     jne .diff
     mov byte [rf_same], 1
 .diff:
+    push ds                         ; ...and the kernel's own test 1 (SPEC.md
+    push es                         ; 6.0.1): does the PLANAR set at F000:FA6E
+    mov ax, 0xF000                  ; carry the same 95 glyphs as the BIOS's
+    mov es, ax                      ; answer? Then the kernel reads it there
+    mov di, RF_PLANAR
+    mov si, [rf_roff]
+    mov ds, [rf_rseg]
+    mov cx, 95 * 8
+    repe cmpsb
+    pop es
+    pop ds
+    mov byte [rf_psame], 0
+    jne .pdiff
+    mov byte [rf_psame], 1
+.pdiff:
     pop bp
     pop di
     pop si
@@ -209,14 +228,17 @@ rf_where:
     mov ax, [rf_koff]
     mov di, BL_C_N + 5
     call bl_hex4
-    mov si, rf_s_isram              ; ...and which one that is
-    mov ax, [rf_kseg]
-    cmp ax, [rf_rseg]
-    jne .say
-    mov ax, [rf_koff]
-    cmp ax, [rf_roff]
-    jne .say
-    mov si, rf_s_isrom
+    mov ax, [rf_kseg]               ; ...and WHICH KIND, which is the
+    mov si, rf_s_isplan             ; kernel's verdict (SPEC.md 6.0.1)
+    cmp ax, 0xF000
+    je .say
+    mov si, rf_s_isopt
+    cmp ax, 0xC000
+    jae .say
+    mov si, rf_s_isheap             ; below the ROMs: a copy in RAM - the
+    cmp word [rf_koff], 0           ; 1KB MEM_K_FONT claim starts at offset 0,
+    je .say                         ; a BAKED_FONT face in .lowbss does not
+    mov si, rf_s_isbake
 .say:
     mov di, BL_C_N + 11
     call bl_lput
@@ -228,6 +250,13 @@ rf_where:
     je .same
     mov di, rf_s_no
 .same:
+    call bl_kvs
+    mov si, rf_r_psame
+    mov di, rf_s_yes
+    cmp byte [rf_psame], 1
+    je .psame
+    mov di, rf_s_pno
+.psame:
     call bl_kvs
     pop si
     pop di
@@ -378,6 +407,11 @@ rf_rom:
     pop ax
     ret
 
+rf_planar:
+    mov word [rf_tseg], 0xF000
+    mov word [rf_toff], RF_PLANAR
+    ret
+
 rf_ram:
     mov [rf_tseg], ds
     mov word [rf_toff], rf_copy
@@ -455,6 +489,22 @@ rf_run:
     mov di, rf_res + 12
     call rf_bank
 
+    call rf_planar
+    mov word [bl_body], rf_b_read
+    mov si, rf_r_plrd
+    xor al, al
+    call bl_run
+    mov di, rf_res + 20
+    call rf_bank
+
+    call rf_planar
+    mov word [bl_body], rf_b_rows
+    mov si, rf_r_plrw
+    xor al, al
+    call bl_run
+    mov di, rf_res + 24
+    call rf_bank
+
     mov word [bl_n], RF_NRUN
     mov word [bl_body], rf_b_run
     mov si, rf_r_run
@@ -468,9 +518,19 @@ rf_run:
     call bl_sline
     mov si, rf_r_xrd
     mov bx, rf_res + 0
+    mov di, rf_res + 4
     call rf_ratio
     mov si, rf_r_xrw
     mov bx, rf_res + 8
+    mov di, rf_res + 12
+    call rf_ratio
+    mov si, rf_r_xprd
+    mov bx, rf_res + 20
+    mov di, rf_res + 4
+    call rf_ratio
+    mov si, rf_r_xprw
+    mov bx, rf_res + 24
+    mov di, rf_res + 12
     call rf_ratio
     mov byte [rf_done], 1
 
@@ -492,8 +552,8 @@ rf_bank:
     pop ax
     ret
 
-; rf_ratio - one "ROM/RAM x1000" line: SI = label, BX -> the ROM dword, the
-; RAM dword after it. Preserves every register.
+; rf_ratio - one "ROM/RAM x1000" line: SI = label, BX -> the table's dword,
+; DI -> RAM's. Preserves every register.
 rf_ratio:
     push ax
     push bx
@@ -503,8 +563,8 @@ rf_ratio:
     push di
     mov ax, [bx]
     mov dx, [bx+2]
-    mov cx, [bx+6]                  ; CX:DI = the RAM figure (the divisor)
-    mov di, [bx+4]
+    mov cx, [di+2]                  ; CX:DI = the RAM figure (the divisor)
+    mov di, [di]
 .fit:
     or cx, cx                       ; fit the divisor into 16 bits, the
     jz .fitted                      ; dividend with it - a ratio survives
@@ -552,30 +612,39 @@ rf_s_title: db 'ROMFONT - the 8x8 table read from ROM against a RAM copy', 0
 rf_s_hint:  db 'Click the window, or press R, to run.', 0
 rf_s_ratio: db '-- ROM/RAM x1000 (1000 = no difference) --', 0
 
-rf_r_rom:   db 'ROM table (glyph 32)', 0
+rf_r_rom:   db 'BIOS table (glyph 32)', 0
 rf_r_kern:  db 'kernel reads', 0
-rf_r_same:  db 'copy matches ROM', 0
-rf_s_isrom: db '= the ROM', 0
-rf_s_isram: db '= a RAM copy', 0
+rf_r_same:  db 'copy matches BIOS', 0
+rf_r_psame: db 'planar = BIOS glyphs', 0
+rf_s_pno:   db 'no - kernel keeps BIOS', 0
+rf_s_isplan: db 'planar ROM, in place', 0
+rf_s_isopt: db 'option ROM, in place', 0
+rf_s_isheap: db 'HEAP COPY (1KB claim)', 0
+rf_s_isbake: db 'baked face (.lowbss)', 0
 rf_s_yes:   db 'yes', 0
 rf_s_no:    db 'NO - rows invalid', 0
 
-rf_r_romrd: db 'ROM read 768B', 0
+rf_r_romrd: db 'BIOS read 768B', 0
 rf_r_ramrd: db 'RAM read 768B', 0
-rf_r_romrw: db 'ROM glyph rows 96', 0
+rf_r_romrw: db 'BIOS glyph rows 96', 0
 rf_r_ramrw: db 'RAM glyph rows 96', 0
+rf_r_plrd:  db 'planar read 768B', 0
+rf_r_plrw:  db 'planar glyph rows 96', 0
 rf_r_run:   db 'FONT_RUN 40 aligned', 0
-rf_r_xrd:   db 'read 768B', 0
-rf_r_xrw:   db 'glyph rows 96', 0
+rf_r_xrd:   db 'BIOS read 768B', 0
+rf_r_xrw:   db 'BIOS glyph rows', 0
+rf_r_xprd:  db 'planar read 768B', 0
+rf_r_xprw:  db 'planar glyph rows', 0
 
 rf_str:     db 'The quick brown fox jumps over 13 dogs. ', 0
 
 ; THE RESULT BLOCK: a harness finds 'RFNTRES' in guest memory and reads the
-; five dwords after it - hundredths of a microsecond per iteration, in row
+; seven dwords after it (BIOS read, RAM read, BIOS rows, RAM rows, FONT_RUN,
+; planar read, planar rows) - hundredths of a microsecond per iteration, in row
 ; order - and [rf_done] after those. Kept in the IMAGE so it is at a fixed
 ; offset from the magic.
 rf_magic:   db 'RFNTRES'
-rf_res:     dd 0, 0, 0, 0, 0
+rf_res:     dd 0, 0, 0, 0, 0, 0, 0
 rf_done:    db 0
 
 rf_win:     dw 0
@@ -592,6 +661,7 @@ rf_koff:    dw 0
 rf_tseg:    dw 0
 rf_toff:    dw 0
 rf_same:    db 0
+rf_psame:   db 0
 
 RF_BSS_OWN  equ RF_TAB + RF_STRIDE * 8
 RF_BSS_TOTAL equ RF_BSS_OWN + BL_BSS_SIZE + 16

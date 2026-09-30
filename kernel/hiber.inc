@@ -3221,6 +3221,34 @@ hbm_wake:
     ;    any disk work, so the progress widget has a graphics mode to draw in
     mov bp, vid_setmode
     call KERNEL_SEG:cw_mem_disp
+%ifndef BAKED_FONT
+    ; 4a. ...AND THE GLYPH TABLE, which the image names BY ADDRESS (SPEC.md
+    ;     6.0.1). The renderers read [font_seg]:[font_base] in a ROM, and the
+    ;     image carries the pointer the WRITING machine's boot chose - so
+    ;     this asks the reading machine the same question, with the same
+    ;     body (FONT_PICK). A heap copy is refilled in place, since its claim
+    ;     came back with the image; a ROM pointer is simply replaced. No
+    ;     claim is made here: an option ROM found only at a resume is read
+    ;     in place, which is slower and never wrong. Nothing is live across
+    ;     it - every register below is reloaded before it is read.
+    FONT_PICK                   ; DX:BP = this machine's table
+    mov ax, [font_seg]
+    cmp ax, 0xA000              ; a ROM (C000 up) or the image's heap copy
+    jae .fptr
+    push ds
+    mov es, ax
+    mov ds, dx
+    mov si, bp
+    xor di, di
+    mov cx, FONT_BYTES / 2
+    rep movsw
+    pop ds
+    jmp short .fdone
+.fptr:
+    mov [font_seg], dx
+    mov [font_base], bp
+.fdone:
+%endif
     mov byte [hb_mode], HB_M_GONE   ; before the close: app_close_win's hook
     call hbm_win                ; leaves a GONE window's image to the thunk
     jc .nowin                   ; (SPEC.md 87.1), and this code IS the image
