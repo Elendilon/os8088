@@ -3228,10 +3228,11 @@ hbm_wake:
     ;     this asks the reading machine the same question, with the same
     ;     body (FONT_PICK). A heap copy is refilled in place, since its claim
     ;     came back with the image; a ROM pointer is simply replaced. No
-    ;     claim is made here: an option ROM found only at a resume is read
-    ;     in place, which is slower and never wrong. Nothing is live across
+    ;     claim is made here: an option ROM found slow only at a resume is
+    ;     read in place, which is slower and never wrong. The same TIMED
+    ;     pick, so the fastest candidate is still the one taken. Nothing is live across
     ;     it - every register below is reloaded before it is read.
-    FONT_PICK                   ; DX:BP = this machine's table
+    FONT_PICK hbf               ; DX:BP = this machine's fastest table
     mov ax, [font_seg]
     cmp ax, 0xA000              ; a ROM (C000 up) or the image's heap copy
     jae .fptr
@@ -3356,6 +3357,9 @@ hbm_wake:
                                 ; from that is a machine that never switches
     mov sp, [hb_sp]
     ret
+%ifndef BAKED_FONT
+    FONT_TIMERS hbf             ; step 4a's clock (kernel/font.inc)
+%endif
 
 ; =============================================================================
 ; THE STUB (SPEC.md 87.5). Copied to HS_CODE in the text framebuffer and

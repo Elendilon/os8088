@@ -47,9 +47,10 @@
 ; The header lines say WHAT THE KERNEL DECIDED: the BIOS table's seg:off,
 ; whether the planar set carries the same glyphs (the kernel's test), and the
 ; seg:off OSAPI_FONT_GLYPHS answers with its kind - planar ROM, option ROM,
-; or HEAP COPY (the 1KB MEM_K_FONT claim, SPEC.md 6.0.1). The kernel times
-; nothing itself (the overlay has no room for it); these rows are the
-; measurement its rule is checked against.
+; or HEAP COPY (the 1KB MEM_K_FONT claim, SPEC.md 6.0.1) - and the kernel's
+; OWN clock: font_init times the candidates and RAM at boot and leaves the
+; counts at 0040:00F8, so the photograph shows the ratio it decided on
+; beside the rows below that check it.
 ;
 ; PREDICTION (MartyPC, genuine 27 OCT 82 BIOS, CGA or Hercules): kernel reads
 ; F000:FB6E "planar ROM, in place", every table/RAM row 1000 +- 1.
@@ -258,9 +259,66 @@ rf_where:
     mov di, rf_s_pno
 .psame:
     call bl_kvs
+    call rf_kclock                  ; ...and what the kernel's clock said
     pop si
     pop di
     pop ax
+    ret
+
+; rf_kclock - the kernel's own measurement (SPEC.md 6.0.1): font_init leaves
+; three PIT counts at 0040:00F8 behind 'FP' - the table it chose, RAM, and the
+; BIOS's answer - and this prints them with the ratio it decided on. A copy
+; is taken when the chosen/RAM ratio passes 1250. Preserves every register.
+rf_kclock:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov ax, 0x0040
+    mov es, ax
+    cmp word [es:0x00F8], 'FP'
+    jne .none
+    mov si, rf_r_kbest
+    mov ax, [es:0x00FA]
+    call .one
+    mov si, rf_r_kram
+    mov ax, [es:0x00FC]
+    call .one
+    mov si, rf_r_kbios
+    mov ax, [es:0x00FE]
+    call .one
+    mov ax, [es:0x00FA]             ; chosen x 1000 / RAM
+    mov cx, 1000
+    mul cx
+    mov cx, [es:0x00FC]
+    jcxz .out
+    cmp dx, cx
+    jae .out                        ; would not fit a word: say nothing
+    div cx
+    xor dx, dx
+    mov si, rf_r_kratio
+    mov cx, 9
+    call bl_kv
+    jmp short .out
+.none:
+    mov si, rf_r_knone
+    call bl_sline
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.one:
+    xor dx, dx
+    mov cx, 9
+    call bl_kv
     ret
 
 rf_paint:
@@ -624,6 +682,11 @@ rf_s_isbake: db 'baked face (.lowbss)', 0
 rf_s_yes:   db 'yes', 0
 rf_s_no:    db 'NO - rows invalid', 0
 
+rf_r_kbest: db 'kernel: chosen counts', 0
+rf_r_kram:  db 'kernel: RAM counts', 0
+rf_r_kbios: db 'kernel: BIOS counts', 0
+rf_r_kratio: db 'kernel: chosen/RAM x1000', 0
+rf_r_knone: db 'kernel left no clock at 0040:00F8', 0
 rf_r_romrd: db 'BIOS read 768B', 0
 rf_r_ramrd: db 'RAM read 768B', 0
 rf_r_romrw: db 'BIOS glyph rows 96', 0

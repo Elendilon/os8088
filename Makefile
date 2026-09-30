@@ -859,7 +859,10 @@ BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
 # runtime fence one line down, and it is enough on its own: a payload shorter
 # than this offset gets no -DKSIG, boot/boot.asm's `%define KSIG 0` applies,
 # and stage 2's `cmp word [b2_ksig], 0` skips the compare.
-KSIG_OFF := 6144
+# SPEC.md 6.0.1 took the blob to TEN sectors, and the probe moved one memory
+# sector down with it - 5632, memory sector 11, file sector 11 + 10 = 21, the
+# same file sector - so the band argument above is untouched.
+KSIG_OFF := 5632
 #
 # A PAYLOAD SHORTER THAN THE OFFSET DEFINES NO KSIG AT ALL, and that is the
 # whole of this line's second job. It used to answer 0, and a fabricated zero is

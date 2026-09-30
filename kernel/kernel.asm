@@ -2500,7 +2500,11 @@ XM_MAX_BLKS equ 8               ; the pool's fixed block table, entries: a
 ; The whole blob is freed before the desktop; KERN_BUDGET is unchanged. It is
 ; nine on kern_small too, which has no such copy: KSIG_OFF (the Makefile) is
 ; one constant for every kernel, and it names file sector 21 only at nine.
-BOOT2_SECS  equ 9               ; sectors stage 1 reads before it jumps - the
+; TEN since SPEC.md 6.0.1: the tenth sector is `.ovl`'s, for the timed font
+; pick (font_init in the blob on both kernels), and KSIG_OFF moved one memory
+; sector down with it (6144 -> 5632) so the FILE sector is still 21. It sits
+; inside the same int 13h run on all four geometries (tests/unit/t_blobruns.py).
+BOOT2_SECS  equ 10              ; sectors stage 1 reads before it jumps - the
                                 ; loader and its screen up to OVL_AT, then the
                                 ; boot overlay from there to BOOT2_PAD. THE
                                 ; SPLIT IS OVL_AT AND THE TOTAL IS THIS, so
@@ -5663,7 +5667,8 @@ kmain_o:
                                 ; int 10h and no F000:FA6E, and the machine's
                                 ; own ROM font is not consulted at all
 %else
-    OVBCALL   font_init          ; needs int 10h, so after the mode is set
+    BLOBCALL  font_init          ; needs int 10h, so after the mode is set;
+                                ; in the blob on BOTH kernels (SPEC.md 6.0.1)
 %endif
     MARKW 14
     BPMARKW 3                    ; ...the typeface

@@ -7293,67 +7293,92 @@ F000:FA6E) and every QEMU and Bochs VGA BIOS (their own table, at C000).
 What is new is only that the pointer has to stay good for the session,
 which a ROM does - and across a hibernate, which §6.0.1's resume half is for.
 
-#### 6.0.1 Which ROM table, and when it is copied
+#### 6.0.1 Which ROM table, and when it is copied - MEASURED at boot
 
 The field case is an IBM 5150 with a Paradise PVGA1A: int 10h AX=1130h names
 the table in the card's OPTION ROM at C000, which an 8-bit ISA card serves
 through its own bus cycle - the one kind of ROM read that can carry a wait
 state the system board's does not. So `font_init` does not simply take the
-BIOS's answer. Its choice is the macro `FONT_PICK`, and the rule is two
-tests and no measurement:
+BIOS's answer. It TIMES the candidates, with the macro `FONT_PICK`:
 
-1. **The planar ROM, when it holds the same glyphs.** F000:FA6E is the IBM
-   PC's fixed address for the 8x8 set - every PC-compatible BIOS keeps it
-   there, because the CGA graphics modes draw from it - and when its 95
-   glyphs (760 bytes, one `repe cmpsb`) are BYTE-IDENTICAL to the answer,
-   the kernel reads them there: no pixel changes and the read is the
-   planar's. A BIOS that answers nothing (pre-EGA) takes it directly. Every
-   VGA BIOS in reach (QEMU's six, Bochs's) carries the IBM set, so on every
-   emulator here the pointer is F000:FB6E whatever the adapter.
-2. **Otherwise the face is the card's and is KEPT** - the rule never changes
-   what text looks like - but it is COPIED: 760 bytes into a 1KB heap claim
-   `MEM_K_FONT`, and `[font_seg]:[font_base]` points there. That is what the
-   768 resident bytes used to buy, paid only by a machine that can use it and
-   billed to the arena instead of to every kernel. It is claimed TOP-DOWN
-   and PINNED at boot, before any driver, module or package region exists,
-   so it takes the arena's ceiling and everything later stacks under it:
-   never a barrier to either compaction pass (§66), and a relocation proc
-   would be resident bytes buying nothing. A refused claim keeps the ROM
-   pointer.
+1. **The candidates.** The BIOS's answer, and F000:FA6E - the IBM PC's fixed
+   address for the 8x8 set, which every PC-compatible BIOS keeps because the
+   CGA graphics modes draw from it - but the planar table only when its 95
+   glyphs (760 bytes, one `repe cmpsb`) are BYTE-IDENTICAL to the answer, so
+   the choice never changes what text looks like. A BIOS that answers
+   nothing (pre-EGA) leaves the planar table the only one.
+2. **The clock.** PIT channel 0 latched either side of a `rep lodsb` over
+   the 760 bytes, IF clear, for each candidate and for RAM (the kernel's
+   own first bytes). All three readings are taken in whatever mode the
+   channel is in, so the comparison is a RATIO and the count-by-two of the
+   ROM's mode 3 cancels; the down-count's modular difference is right across
+   a reload. The **planar table is taken unless the answer beats it by an
+   eighth**: a tie goes to the system board, which is zero-wait on every PC,
+   and the margin is what keeps two boots of one machine from picking two
+   tables on noise.
+3. **The verdict.** When even the chosen table is within a QUARTER of RAM it
+   is read in place. Past that - an unshadowed 8-bit option ROM on an AT bus
+   crosses it by multiples - its 760 bytes go into a 1KB heap claim
+   `MEM_K_FONT` and `[font_seg]:[font_base]` points there: what the 768
+   resident bytes used to buy, paid only by the machine that measured the
+   need and billed to the arena instead of to every kernel. A quarter
+   because a glyph byte is one read in a cell writer that makes two or more
+   framebuffer accesses per row, so a table 25% slower is under ~10% of a
+   cell - the most a copy could buy back for its kilobyte - while the 8088's
+   jitter between two passes of one loop is under 1% (tests/romfont). The
+   claim is TOP-DOWN and PINNED at boot, before any driver, module or
+   package region exists, so it takes the arena's ceiling and everything
+   later stacks under it: never a barrier to either compaction pass (§66),
+   and a relocation proc would be resident bytes buying nothing. A refused
+   claim keeps the ROM pointer.
+4. **The record.** The three counts - chosen, RAM, the BIOS's answer - are
+   left at **0040:00F8** behind the word `'FP'`, the upper half of the BDA's
+   intra-application area. The kernel keeps none of them (no resident byte);
+   `tests/romfont` prints them and the ratio the kernel decided on, and
+   `tests/fontpick.py` asserts it. kern_dos's mailbox is the LOWER half,
+   0040:00F0..00F7 (§96.41), which `hbm_ask` reads after `font_init` runs, so
+   the two never meet.
 
-**What it costs**: zero resident bytes on both kernels - the macro, the
-claim and the copy are boot overlay (`.ovlw` on kern_big, 5,023 -> 5,095 of
-the 5,120 the FAT window rounds to; `.ovl` on kern_small, 1,897 -> 1,969 of
-1,984) and one 760-byte compare at boot. **What a PIT measurement would have
-cost, and why it is not here**: timing the chosen table and RAM (a latch
-helper, a timed `rep lodsb`, a 1.25x threshold) assembles to 66 more
-overlay bytes, where 25 and 15 are left - it does not fit either kernel
-without a blob sector. **What the rule misses**: a machine whose PLANAR ROM
-is itself slow (an AT-class board with the system BIOS unshadowed; it is
-read in place), and a card whose face differs from the planar set on a
-machine where that card's ROM is fast (copied anyway, 1KB of heap for
-nothing). `tests/romfont` measures both tables against RAM on the machine
-in front of it, which is what settles either.
+**What it costs.** **Zero resident bytes** on both kernels (kern_big 97,384,
+kern_small 65,398, both unchanged). `font_init`, the timers and the claim
+are in the BLOB half of the boot overlay on BOTH kernels now, reached by
+`BLOBCALL`, and the blob grew one sector to hold them: **`BOOT2_SECS` 9 ->
+10**, `.ovl` 1,953 -> 2,178 of 2,496 on kern_big (and `.ovlw` 5,092 -> 4,968,
+the body having left it) and 1,969 -> 2,071 of 2,496 on kern_small.
+`KSIG_OFF` moved one memory sector down with it (6144 -> 5632) so the canary
+is still FILE sector 21 (§18.93.1, `tests/unit/t_canary.py`), and the extra
+sector sits inside the same `int 13h` run on all four geometries
+(`tests/unit/t_blobruns.py`: still 2/2/2/2). The overlay could not supply
+the room itself: kern_small's blob had 15 bytes, and the one relaxed
+conditional jump in any overlay body buys 3. **Boot time, MartyPC,
+`tools/os88boot.py`, against the tree before:** `font_init` +49,868 cycles
+(+10.4 ms: three timed reads and the compare) on a CGA 5150 and +31,476
+(+6.6 ms) on the VGA XT over the untimed pick; to a settled desktop the
+5150 CGA is **+72 cycles** (the serial mouse's fixed identify window absorbs
+it), the VGA XT +10.9 ms, and kern_small's 360KB boot **-166 ms** - the
+tenth sector moves where the image's runs split, and that boot's `int 13h`
+lost a revolution.
 
 **The resume re-asks** (`hbm_wake` step 4a, HIBER.DRV - no resident byte).
 The image carries the pointer the writing machine's boot chose; the reading
-machine runs the same `FONT_PICK`, refills a heap copy in place (its claim
-came back with the image) or replaces a ROM pointer. It makes no claim
-there, so an option ROM found only at a resume is read in place. This is
-the one routine both routes home share - a hibernate resume and
+machine runs the same timed `FONT_PICK`, refills a heap copy in place (its
+claim came back with the image) or replaces a ROM pointer. It makes no
+claim there, so a table found slow only at a resume is read in place. This
+is the one routine both routes home share - a hibernate resume and
 `kern_dos`'s live return (§96.49) both enter `hbm_wake` - and nothing else
 restores a kernel image. It is belt and braces rather than a fix for a
 crash: the image's own IVT names the writing machine's BIOS too (§87.3),
 and `hb_ask` refuses a different adapter kind or memory size.
 
-**`make FONTSLOW=1`** skips test 1's early-out, so the copy runs on any
-machine: no emulator here has a BIOS whose tables differ, and without the
-knob the copy path would never run where a row can see it.
-`tests/fontpick.py` is the A/B.
+**`make FONTSLOW=1`** skips the verdict and copies on any machine: MartyPC
+prices every ROM read as a RAM read (the clock reads 1000 x1000 there), so
+without the knob the copy path would never run where a row can see it.
+`tests/fontpick.py` is the A/B, and its first leg asserts the kernel's own
+recorded ratio.
 
 | symbol       | in                       | effect                              |
 |--------------|--------------------------|--------------------------------------|
-| `font_init`  | —                        | pick the ROM table (§6.0.1: the planar set when it is the same glyphs), copy it into a `MEM_K_FONT` claim when it is an option ROM's, and point `[font_seg]:[font_base]` at its glyph 32 (`ovl_font_init` under `BAKED_FONT` copies the baked face to `.lowbss` and points the pair there, §6.2) |
+| `font_init`  | —                        | pick the ROM table by the PIT (§6.0.1: the planar set when it is the same glyphs and no slower), copy it into a `MEM_K_FONT` claim when even that is a quarter slower than RAM, and point `[font_seg]:[font_base]` at its glyph 32 (`ovl_font_init` under `BAKED_FONT` copies the baked face to `.lowbss` and points the pair there, §6.2) |
 | `font_char`  | CX=x, DX=y, AL=char      | draw 8x8 glyph, color `[gfx_color]`, transparent background |
 | `font_str`   | CX=x, DX=y, SI=NUL str   | draw string left→right               |
 | `font_width` | SI=NUL str               | out AX = pixel width (8 × length)    |
@@ -33128,7 +33153,9 @@ The change is §15.3.8.5.1: the knob arm's blob was brought under 4,096, so
 **there is one blob length**, the band is the seven-sector single-length one,
 and `KSIG_OFF` became **6,656 — memory sector 13, file sector 21.**
 §30.5's layout setup later raises the blob to nine sectors, so the offset is
-now **6,144 — memory sector 12, still file sector 21**.
+now **6,144 — memory sector 12, still file sector 21** — and §6.0.1's timed
+font pick raises it to ten, so it is **5,632 — memory sector 11, still file
+sector 21**, and the floor under `.text` is 5,634.
 
 It is a *lone* sector where 106 sat in a run of five, and that trade is
 deliberate: margin against a BPB that moves is worth less than margin against
@@ -146049,7 +146076,9 @@ Five things the round trip needs, each the cheapest answer to its own question:
   `'KDX1'` and the exit code. It does not have to survive the restore — it has
   to survive `int 19h` and a boot, which is a much weaker requirement: the BIOS
   sets that area up at POST and never touches it again, `int 19h` is the
-  bootstrap and not POST, and os8088's own boot writes nothing below `0x0600`.
+  bootstrap and not POST, and os8088's own boot writes nothing below `0x0600`
+  but the area's UPPER half, 0040:00F8..00FF, which is `font_init`'s timing
+  record (§6.0.1) and never meets these eight bytes.
   **Measured on the machine**, byte for byte at a settled desktop. `hbm_res`
   reads it once, as it stages the code, and clears the magic, so a second
   reader gets nothing rather than a code from a session two boots ago.
