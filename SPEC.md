@@ -3426,7 +3426,7 @@ identical masked-byte shape — left edge, `rep stosb`, right edge — and the
 interior can be a `rep stosb` of a byte whose *value* is irrelevant, exactly as
 `gfx_fill`'s own interior is. **Enable Set/Reset (GC1) is armed once a CALL**
 (`vga_sr_on`) and cleared at the end with `vga_gc_reset`, because it is the half
-that does not change between runs; `vga_set_color` writes both halves together,
+that does not change between runs; the fill's GC arm writes both halves together,
 which is right for a primitive that arrives once and a wasted `out` per run
 here. It is a little behind the 1bpp figure for the obvious reason: a run costs
 two to four `out`s here against none there.
@@ -6738,7 +6738,8 @@ interval genuinely is per row. It fills the same `vga_*` scratch
 `vga_rect_setup` fills, so both renderers' bodies are the ones already there:
 1bpp goes through `sw_rect_pl` — `sw_rect`'s plane loop, split out at this
 change and otherwise untouched — and VGA through a copy of `gfx_fill_raw`'s
-row body with **`vga_set_color` and `vga_gc_reset` hoisted out of the loop**,
+row body with **the GC arm (it was `vga_set_color`, inlined since) and
+`vga_gc_reset` hoisted out of the loop**,
 which on that adapter is four `out`s and a three-`out` reset saved per span
 rather than per call.
 

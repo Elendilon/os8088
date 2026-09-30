@@ -971,45 +971,6 @@ gfx_clip_run:
 
 %ifdef GFX_VGA
 ; -----------------------------------------------------------------------------
-; vga_set_color - internal: arm Set/Reset with [gfx_color] on all planes
-; in:       -
-; out:      GC0 = [gfx_color], GC1 = 0Fh
-; clobbers: flags only (all registers preserved)
-; -----------------------------------------------------------------------------
-vga_set_color:
-    push ax
-    push dx
-    mov dx, VGA_GC
-    mov ah, [gfx_color]
-    xor al, al                  ; GC0: Set/Reset value
-    out dx, ax
-    mov ax, 0x0F01              ; GC1: enable Set/Reset on all planes
-    out dx, ax
-    pop dx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; vga_set_xor - internal: arm Set/Reset 0Fh with ALU function = XOR
-; in:       -
-; out:      GC0 = 0Fh, GC1 = 0Fh, GC3 = 18h
-; clobbers: flags only
-; -----------------------------------------------------------------------------
-vga_set_xor:
-    push ax
-    push dx
-    mov dx, VGA_GC
-    mov ax, 0x0F00              ; GC0: Set/Reset value = 0Fh
-    out dx, ax
-    mov ax, 0x0F01              ; GC1: enable on all planes
-    out dx, ax
-    mov ax, 0x1803              ; GC3: rotate 0, function = XOR
-    out dx, ax
-    pop dx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; vga_gc_reset - internal: restore the GC default state (SPEC.md 1.7)
 ; in:       -
 ; out:      GC1 = 0, GC3 = 0, GC8 = FF
@@ -2253,8 +2214,8 @@ gfx_blit4:
 ; vga_sr_on - internal: Enable Set/Reset on all four planes, and nothing else
 ;
 ; gfx_blit4's planar fast path arms this ONCE for the whole call and clears it
-; with vga_gc_reset at the end (SPEC.md 5.4.1). vga_set_color writes GC0 and
-; GC1 together, which is right for a primitive that arrives once and is a
+; with vga_gc_reset at the end (SPEC.md 5.4.1). The fill's GC arm writes GC0
+; and GC1 together, which is right for a primitive that arrives once and is a
 ; wasted `out` per RUN here - the colour is the only half that changes.
 ; -----------------------------------------------------------------------------
 vga_sr_on:
@@ -3158,6 +3119,21 @@ gfx_vline:
     pop cx
     ret
 
+%ifdef GFX_VGA
+; vga_solid_rect's two rare arms, placed ABOVE gfx_fill so the common path
+; falls straight through (backward short jumps reach them; nasm refuses one
+; that does not): the XOR arm's ALU function and 0Fh Set/Reset value - which
+; is all vga_set_xor added to vga_set_color, and it had no other caller - and
+; the clipped-away exit, which pays a near jmp to reach .done.
+vga_sr_xor:
+    mov ax, 0x1803              ; GC3: rotate 0, function = XOR
+    out dx, ax
+    mov ah, 0x0F                ; ...and the Set/Reset value is all planes
+    jmp short vga_solid_rect.arm
+vga_sr_dq:
+    jmp vga_solid_rect.done
+%endif
+
 ; -----------------------------------------------------------------------------
 ; gfx_fill - solid rectangle in [gfx_color], inclusive corners
 ; in:       AX = x1, BX = y1, CX = x2, DX = y2
@@ -3185,7 +3161,7 @@ gfx_fill_raw:
 ;
 ; in:  AX/BX/CX/DX = the rect; [vga_xorm] = 0 replace, 1 XOR
 ;
-; The two differed in exactly two places: which routine arms the GC, and
+; The two differed in exactly two places: how the GC is armed, and
 ; whether the interior is `rep stosb` or a byte-at-a-time read-then-write
 ; (the XOR ALU needs fresh latches per byte). The seven pushes, gfx_rect_setup,
 ; the `jc`, the ES/DX setup, BOTH masked edge column loops, the span tests, the
@@ -3211,19 +3187,19 @@ vga_solid_rect:
     push di
     push es
     call gfx_rect_setup
-    jc .dq
-    cmp byte [vga_xorm], 0
-    jne .armx
-    call vga_set_color
-    jmp short .armed
-.dq:                            ; (clipped away: .done in two SHORT jumps, not
-    jmp short .done             ; a five-byte `jcc` every fill pays 16 for)
-.armx:
-    call vga_set_xor
-.armed:
+    jc vga_sr_dq                ; clipped away: out through the stub ABOVE the
+                                ; entry, so the fill path pays a not-taken jc
+    mov dx, VGA_GC              ; --- ARM THE GC, INLINE (kernel size pass 8):
+    mov ah, [gfx_color]         ; this routine has AX and DX banked already, so
+    cmp byte [vga_xorm], 0      ; the call into vga_set_color's own push/pop
+    jne vga_sr_xor              ; pair was ~100 clocks of every VGA fill. XOR
+.arm:                           ; takes its two extra OUTs above the entry
+    xor al, al                  ; GC0: Set/Reset value (XOR: 0Fh)
+    out dx, ax
+    mov ax, 0x0F01              ; GC1: enable Set/Reset on all planes
+    out dx, ax
     mov ax, VGA_SEG
     mov es, ax
-    mov dx, VGA_GC
     mov ax, [vga_m8l]           ; left edge column (whole rect if 1 byte
     out dx, ax                  ; wide): AL = 8, AH = the mask, one word
     mov di, [gfx_roff]
@@ -3407,8 +3383,13 @@ gfx_spans:
     cmp byte [vid_mono], 0      ; the screen and a hide is owed (7.1.4)
     jne sw_spans                ; 1bpp: softgfx.inc's row loop, then .done
 .vga:
-    call vga_set_color          ; THE LIST'S, not the row's - four OUTs and a
-    mov ax, VGA_SEG             ; GC reset hoisted out of every span but one
+    mov dx, VGA_GC              ; THE LIST'S, not the row's - four OUTs and a
+    mov ah, [gfx_color]         ; GC reset hoisted out of every span but one.
+    xor al, al                  ; GC0: Set/Reset value. INLINE: this routine
+    out dx, ax                  ; banked AX and DX itself, and it was the last
+    mov ax, 0x0F01              ; caller of vga_set_color, whose own push/pop
+    out dx, ax                  ; pair was all the call bought. GC1: enable
+    mov ax, VGA_SEG
     mov [gfx_sp_fb], ax         ; gfx_sp_next puts ES back to this
     mov es, ax
 .vrow:
@@ -3887,9 +3868,10 @@ gfx_xor_rect_d:
 ; BP CARRIES THE FILL, which is how gfx_line already uses it in this file. It
 ; survives every callee: gfx_fill and gfx_xor_fill document "clobbers: flags";
 ; vga_solid_rect names no BP at all; gfx_clip_run, gfx_disp_run,
-; gfx_rect_setup, vga_set_color, vga_set_xor and vga_gc_reset name none
-; either; sw_rect brackets push bp/pop bp around sw_plane_op, whose own header
-; declares it clobbers BP; and cur_unlazy's cursor_hide pushes it.
+; gfx_rect_setup and vga_gc_reset name none either (and the inline GC arms
+; that replaced vga_set_color and vga_set_xor touch AX/DX only); sw_rect
+; brackets push bp/pop bp around sw_plane_op, whose own header declares it
+; clobbers BP; and cur_unlazy's cursor_hide pushes it.
 ; gfx_fill_pat_raw's "BP is not ours to spend" is the same invariant from the
 ; other side.
 ;
