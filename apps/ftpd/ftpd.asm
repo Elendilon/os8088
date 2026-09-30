@@ -6036,17 +6036,16 @@ fd_do_write:
     jcxz .ok                        ; an empty tail needs no append at all -
                                     ; and APPEND's own contract wants CX >= 1
     cmp byte [fd_noseq], 0          ; A STREAMING APPEND (SPEC.md 77.49): the
-    jne .app                        ; cursor keeps the file's entry and last
-    mov dx, es                      ; cluster, so a chunk is no lookup and no
-    push ds                         ; walk of the chain from its front - which
-    pop es                          ; made a long STOR QUADRATIC. PLAIN, not
-    mov di, fd_wcur                 ; HELD: a wake commits one chunk and the
-    call OSAPI_FILE_WRITE_SEQ       ; unlock after it would commit a hold anyway
-    jnc .ok
+    jne .app                        ; kernel keeps the file's entry and last
+    mov di, [fd_wtok]               ; cluster under this token, so a chunk is
+    xor al, al                      ; no lookup and no walk of the chain from
+    call OSAPI_FILE_WRITE_SEQ       ; its front - which made a long STOR
+    mov [fd_wtok], di               ; QUADRATIC. PLAIN, not HELD: a wake
+    jnc .ok                         ; commits one chunk and the unlock after
+                                    ; it would commit a hold anyway
     cmp ax, FERR_NAME               ; kern_small's cell answers this - and so
     jne .no                         ; does APPEND, for the arguments it would
     mov byte [fd_noseq], 1          ; refuse, so falling back to it is exact
-    mov es, dx
 .app:
     call OSAPI_FILE_APPEND
     jc .no
@@ -8956,10 +8955,10 @@ fd_cfgb     equ fd_rclus + 2                    ; FD_CFGSZ: FTPD.CFG, whole
 fd_dbclus   equ fd_cfgb + FD_CFGSZ              ; word: the banked folder
 fd_dbdrv    equ fd_dbclus + 2                   ; byte: ...and its drive
 fd_cfgn     equ fd_dbdrv + 1                    ; word: bytes read
-fd_wcur     equ fd_cfgn + 2                     ; 16: STOR's WRITE_SEQ cursor
+fd_wtok     equ fd_cfgn + 2                     ; word: STOR's WRITE_SEQ token
                                      ; (SPEC.md 77.49), PLAIN: every chunk
                                      ; committed, as APPEND's were
-fd_noseq    equ fd_wcur + 16                    ; byte: the kernel has no
+fd_noseq    equ fd_wtok + 2                    ; byte: the kernel has no
                                      ; WRITE_SEQ (kern_small): APPEND instead
 ; -----------------------------------------------------------------------------
 ; THE TWO RECT TABLES - CONTIGUOUS, because os88ui_bfind strides an array

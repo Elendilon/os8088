@@ -1094,17 +1094,13 @@ vk_wrun:
 
     ; --- the chunks: a WRITE makes the file, APPENDs grow it ---
 .write:
-    push ds                         ; the WRITE_SEQ cursor, zeroed, and HELD
-    pop es                          ; in mode 2
-    mov di, vk_wcur
-    mov cx, 8
-    xor ax, ax
-    cld
-    rep stosw
+    xor ax, ax                      ; the WRITE_SEQ token, none yet, and
+    mov [vk_wtok], ax               ; HELD from mode 2 up
     cmp byte [vk_wmode], 2
     jb .nohold
-    mov byte [vk_wcur+WSEQ_FLAGS], WSEQF_HELD
+    mov al, WSEQF_HELD
 .nohold:
+    mov [vk_wflg], al
     call OSAPI_GET_TICKS
     mov [vk_ct0], ax
 .chunk:
@@ -1135,11 +1131,10 @@ vk_wrun:
     call OSAPI_FILE_APPEND
     jmp short .wrote
 .seq:
-    mov dx, es                      ; DX:BX = the bytes, ES:DI = the cursor
-    push ds
-    pop es
-    mov di, vk_wcur
+    mov di, [vk_wtok]               ; ES:BX = the bytes, DI = the token
+    mov al, [vk_wflg]
     call OSAPI_FILE_WRITE_SEQ
+    mov [vk_wtok], di
 .wrote:
     push ds
     pop es
@@ -1189,10 +1184,6 @@ vk_wrun:
     cmp byte [vk_wmode], 6
     jne .closed
 .close:
-    push ds
-    pop es
-    mov si, vk_f_names
-    mov di, vk_wcur
     xor cx, cx
     call OSAPI_FILE_WRITE_SEQ
     jnc .closed
@@ -1406,7 +1397,8 @@ vk_wmode:     db 0              ; 0 APPEND, 1 WRITE_SEQ, 2 WRITE_SEQ HELD,
                                 ; 3 held unclosed, 4 held interleaved,
                                 ; 5 held, the stream deleted mid-way
 vk_f_side:    db 'VKSIDE.TXT', 0
-vk_wcur:      times 16 db 0     ; ...and its cursor
+vk_wtok:      dw 0              ; ...its token
+vk_wflg:      db 0              ; ...and its flags
 vk_wdone:     dw 0
 vk_ddone:     dw 0
 vk_wfrom:     dw 0

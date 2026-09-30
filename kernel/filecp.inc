@@ -1701,10 +1701,22 @@ fcp_chunkset:
 ; under any rounding.
 ; -----------------------------------------------------------------------------
 fcp_room:                       ; clobbers AX, BX, DX - its ONE caller reloads
-    mov ax, [fcp_need]          ; all three between here and the create, so
-    mov dx, [fcp_need+2]        ; saving them would be four bytes spent on
-    FCPX dskw_dfree_to_x        ; nothing. The WANT goes in (22.5.2.1): a hard
-    jc .yes                     ; disk's count stops once it covers the file
+%ifdef OS88_BIGVOL              ; all three between here and the create, so
+    mov ax, [fcp_need+1]        ; saving them would be four bytes spent on
+    mov dl, [fcp_need+3]        ; nothing. THE WANT GOES IN (22.5.2.1): a hard
+    shr dl, 1                   ; disk's count may stop once it has MORE than
+    rcr ax, 1                   ; this many CLUSTERS - the file's whole
+    mov [dsk_fcgoal], ax        ; sectors, which is at least its clusters
+                                ; however big they are. Past 32MB the goal
+                                ; wraps and may stop the count early, which
+                                ; answers "no room" - and no FAT16 volume
+                                ; here has room for such a file
+%endif
+    FCPX dskw_dfree_x
+%ifdef OS88_BIGVOL
+    mov word [dsk_fcgoal], 0xFFFF   ; ...and back to "all" (`mov`: CF stays)
+%endif
+    jc .yes
     add ax, [fcp_ovwsz]         ; CX is untouched: [fcp_flen] is
     adc dx, [fcp_ovwsz+2]       ; already in it and the create needs it
     jc .yes                     ; the sum wrapped: bigger than any file
@@ -1836,6 +1848,10 @@ fcp_xfer:
 .jerr:
     jmp short .err              ; check costs no switch of its own - and it is
 .create:                        ; still before anything has been created
+%ifdef KERN_BIG
+    xor di, di                  ; no WRITE_SEQ token yet: the first is COLD.
+%endif                          ; DI carries it from here: nothing in the loop
+                                ; below touches it but WRITE_SEQ itself
     call fcp_wprep
     xor dx, dx                  ; DX:CX = the chunk (SPEC.md 18.4.1) - the one
     FCPX dskw_write_x           ; argument the two sites do not share
@@ -1857,12 +1873,11 @@ fcp_xfer:
     jc .err
     call fcp_wprep
 %ifdef KERN_BIG
-    mov dx, es                  ; ONE HELD STREAM per file (SPEC.md 22.5.3):
-    push ds                     ; no lookup and no walk a chunk, and no FAT
-    pop es                      ; or directory write until the close below -
-    mov di, fcp_wcur            ; a partial copy is deleted anyway, so HELD's
-    mov byte [fcp_wcur+3], 1    ; one loss is nothing. WSEQF_HELD every call:
-    call COLD_SEG:dwf_dskw_write_seq    ; the cursor is shared by every file
+    mov al, WSQF_HELD           ; ONE HELD STREAM per file (SPEC.md 22.5.3):
+    call COLD_SEG:dwf_dskw_write_seq    ; no lookup and no walk a chunk, and
+                                ; no FAT or directory write until the close
+                                ; below - a partial copy is deleted anyway,
+                                ; so HELD's one loss is nothing
 %else
     FCPX dskw_append_x
 %endif
@@ -1870,14 +1885,11 @@ fcp_xfer:
     jmp .chunk
 .fin:
 %ifdef KERN_BIG
-    push ds                     ; THE CLOSE: the stream's link, FAT and size.
-    pop es                      ; Nothing held (one chunk, a redirected copy)
-    mov di, fcp_wcur            ; answers AX = 0 at once; a failure is the
-    xor cx, cx                  ; disk's, and the partial copy goes with it
-    mov si, fcp_fname
-    call COLD_SEG:dwf_dskw_write_seq
-    jc .err
-%endif
+    xor cx, cx                  ; THE CLOSE: the stream's link, FAT and size.
+    call COLD_SEG:dwf_dskw_write_seq    ; Nothing held (one chunk, a
+    jc .err                     ; redirected copy) answers AX = 0 at once; a
+%endif                          ; failure is the disk's, and the partial copy
+                                ; goes with it
     mov byte [fcp_made], 0      ; whole and committed: nothing to undo
     clc
     jmp short .out
@@ -2132,11 +2144,6 @@ fcp_need:   resw 2              ; the whole file, banked across dskw_dfree -
                                 ; which answers in DX:AX and so spends the
                                 ; register the count arrives in
 fcp_flen:   resw 1              ; ...and the byte count dskw_read reported
-%ifdef KERN_BIG
-fcp_wcur:   resb 16             ; the destination's WRITE_SEQ cursor (18.4.9),
-                                ; one for every file: each is created by a
-                                ; WRITE, which moves the generation on
-%endif
 
 section .cold
 ; =============================================================================
@@ -2433,7 +2440,7 @@ fcp_pfail:
     FCPXF dskw_append_x
     FCPXF dskw_clbytes
     FCPXF dskw_delete_x
-    FCPXF dskw_dfree_to_x
+    FCPXF dskw_dfree_x
     FCPXF dskw_ent_store
     FCPXF dskw_mkdir_x
     FCPXF dskw_rmtree

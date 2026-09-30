@@ -2947,21 +2947,6 @@ disk_mount_x:
 %ifdef DISK_COUNTERS
     inc word [dsk_dbg_mnt]
 %endif
-%ifdef KERN_BIG
-    add word [dsk_mgen], 2      ; a new snapshot: READ_SEQ cursors re-seed
-                                ; (SPEC.md 18.4.8)
-%ifndef KD_BUILD
-    cmp byte [dws_hold], 0      ; A HELD STREAM ENDS BEFORE A MOUNT LEAVES ITS
-    je .nohold                  ; VOLUME outside a batch (SPEC.md 18.4.9):
-    cmp byte [dsk_batch], 0     ; there, nothing vouches for the disk that is
-    jne .nohold                 ; still in the drive when we come back. Inside
-    mov al, [disk_drive]        ; one, a hop is banked and the hold keeps.
-    cmp al, [dws_hvol]          ; (AX is free: kentc_bp banked it.) The
-    jne .nohold                 ; commit clears the hold before its own sync,
-    call dws_commit             ; so a remount in there cannot come back here
-.nohold:
-%endif
-%endif
 
     call dsk_fatw_park          ; the OUTGOING volume's window, banked while
                                 ; [disk_drive] still says which one it is
@@ -3096,8 +3081,9 @@ disk_mount_x:
     call dsk_bpb_bank_get
     jnc .bpb_staged
 %ifdef KERN_BIG
-    add word [dsk_wgen], 2      ; the media is being re-read: a WRITE_SEQ
-%endif                          ; cursor trusts nothing it knew (18.4.9)
+    add word [dsk_mgen], 2      ; the media is being re-read: no READ_SEQ
+%endif                          ; cursor or WRITE_SEQ token trusts what it
+                                ; knew (18.4.8, 18.4.9)
     push ss
     pop es
     xor ax, ax                  ; LBA 0
@@ -4636,10 +4622,10 @@ dsk_fatw_pick:
                                 ; routine that would do the damage
 %ifdef KERN_BIG
 %ifndef KD_BUILD
-    jmp short .stc
-.load:
-    call dws_hload              ; a held stream's volume, re-read: the same
-.stc:                           ; disk keeps its dirt, another loses the hold
+.load:                          ; ...and a homeless volume LOADS as well:
+    call dws_hload              ; a held stream's volume, re-read or rehomed,
+                                ; loses the hold (18.8.5). The same disk,
+                                ; reused above, keeps its dirt
 %else
 .load:
 %endif
@@ -4823,11 +4809,6 @@ dsk_fatw_pinned:
     ret
 
 dsk_fatw_evict:
-%ifdef KERN_BIG
-%ifndef KD_BUILD
-    call dws_hevict             ; the held volume's banked window, overwritten
-%endif                          ; by the next load: the hold is lost (18.8.5)
-%endif
     push cx
     push si
     mov si, dsk_fatwc
@@ -5200,7 +5181,7 @@ dsk_free_clus_x:
     dec byte [sch_lock]
 %ifdef OS88_BIGVOL
     cmp di, [dsk_fcgoal]        ; ...and a caller that asked only "is there
-    jae .counted                ; room for this" has its answer (22.5.2.1):
+    ja .counted                 ; room for this" has its answer (22.5.2.1):
                                 ; the rest of the FAT is window loads for a
 %endif                          ; number nobody reads
     cmp si, [dsk_maxclus]
@@ -8925,16 +8906,18 @@ fdd_wait:
 section .text
 
 %ifdef KERN_BIG
-; [dsk_mgen] - the MOUNT GENERATION (SPEC.md 18.4.8): +2 on every snapshot
-; disk_mount_x builds and every write dskw_sync closes, so a READ_SEQ cursor
-; stamped with it is trusted exactly while nothing on the machine has
-; remounted or written. ODD FOR EVER, seeded 1 in .text: a cursor the caller
-; zeroed carries 0, which it can then never match, and the add needs no wrap
-; test. Not .bss - its resting value is not zero (SPEC.md 12.8.5.1)
+; [dsk_mgen] - the MEDIA GENERATION (SPEC.md 18.4.8, 18.4.9): +2 on every
+; write dskw_sync closes and every mount that READS a boot sector - not on a
+; mount that trusts a banked one, which is a quiet hop a batch vouches for or
+; a fixed disk, whose bytes nothing but a write can change. So a READ_SEQ
+; cursor or a WRITE_SEQ token stamped with it is trusted exactly while the
+; disks under it are the disks it saw; the join's C: -> A: -> C: every block
+; keeps both. (WRITE_SEQ moves it twice more: a new HOLD, the one call that
+; writes nothing the disk shows, and a LOST one.) ODD FOR EVER, seeded 1 in
+; .text: a cursor the caller zeroed carries 0, which it can then never match,
+; and the add needs no wrap test. Not .bss - its resting value is not zero
+; (SPEC.md 12.8.5.1)
 dsk_mgen:   dw 1
-dsk_wgen:   dw 1                ; WRITE_SEQ's (18.4.9): +2 on every write and
-                                ; every mount that READS a boot sector - not on
-                                ; a banked hop, which a batch vouches for
 dwr_c:      times 16 db 0       ; READ_SEQ's cursor, the kernel's copy for the
 %endif                          ; call (18.4.8). dwr_stat reads it on EVERY
                                 ; READ_AT, so .text and seeded: generation 0
