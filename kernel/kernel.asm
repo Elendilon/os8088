@@ -327,8 +327,10 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; made unreachable rather than merely unwanted: every route to an OPL2 or a
 ; Sound Blaster is a `[drv_svc + DSV_*]` read, and on a build that can load no
 ; driver that table is zero for the life of the machine. The PC SPEAKER is
-; untouched and stays on both kernels - tones, beeps and PCM clips all still
-; play - because it is resident code that needs no driver at all.
+; untouched and stays on both kernels - tones and beeps still play - because
+; it is resident code that needs no driver at all. (PCM CLIPS are kern_big's
+; since kernel size pass 8: their one caller reads its clip out of a driver's
+; grant, SPEC.md 34.4.1.)
 ;
 ; A SEPARATE symbol from OS88_DRIVERS, and not `%ifdef OS88_DRIVERS` reused,
 ; because the two are different claims: this one says "there is no card to
@@ -4763,12 +4765,8 @@ api_gfx_save:
 %endif                          ; guard because the extended desktop is, so on
     call gfx_save               ; the small kernel the question cannot arise
     clc                         ; and the cell is five bytes lighter
-    ret
-%ifdef KERN_BIG
-.no:
-    stc
-    ret
-%endif
+.no:                            ; (vid_span_one's CF = 1 is the refusal as it
+    ret                         ; stands: no `stc` of its own)
 
 api_gfx_rest:
 %ifdef KERN_BIG
@@ -4777,12 +4775,8 @@ api_gfx_rest:
 %endif                          ; the other is the kind that costs somebody a
     call gfx_restore            ; day
     clc
-    ret
-%ifdef KERN_BIG
 .no:
-    stc
     ret
-%endif
 
 ; -----------------------------------------------------------------------------
 ; api_file_find - slot 0x0283 (X). in CX = ordinal, ES:DI = a DSK_FIND_SZ
@@ -4824,24 +4818,20 @@ api_gfx_rest:
 ; a package, on this cell exactly as on the other one (SPEC.md 19.6.1).
 ; -----------------------------------------------------------------------------
 api_file_find_raw:
-    push ds
-    push si
-    push bx
-    mov bx, ds
-    push cs
-    pop ds
-    mov byte [dsk_fdraw], 1
-    jmp short api_ff_fence
+    mov al, 1                   ; AL is not an input here (CX and ES:DI are)
+    jmp short api_ff_go         ; and the fence below spends it anyway, so it
+                                ; carries the raw flag across the one prologue
 
 api_file_find:
+    xor al, al
+api_ff_go:
     push ds
     push si
     push bx
     mov bx, ds                  ; the caller's segment, for the fence
     push cs
     pop ds                      ; DS = KERNEL
-    mov byte [dsk_fdraw], 0
-api_ff_fence:
+    mov [dsk_fdraw], al
     call inst_vol_enter         ; this instance's own folder; preserves
                                 ; everything including the flags
     call COLD_SEG:dvf_drv_owns_seg ; CF = 0: a loaded driver, so it may see the
@@ -5911,9 +5901,8 @@ kmain:
     MARK 32
     BPMARK 8                    ; ...the store above 1MB, the palette, the bar
 
-    call gfx_lock
-    call wm_paint_all
-    call gfx_unlock
+    mov bp, wm_paint_all
+    call ui_lcall
     BPMARK 9                    ; ...and the first desktop frame
 
     ; --- stop the boot timer (SPEC.md 15.4) ----------------------------------
@@ -6049,9 +6038,10 @@ osapi_vol_stat:
     call COLD_SEG:dwf_dskw_vstat    ; AX/BX/CX/DX and CF are ours
     ret
 %else
-osapi_vol_stat:                     ; DOS-only, and the DOS box is not on the
-    stc                             ; small disks (SPEC.md 18.4.7.4): the cell
-    ret                             ; refuses in two bytes
+osapi_vol_stat equ osapi_snd_fm     ; DOS-only, and the DOS box is not on the
+                                    ; small disks (SPEC.md 18.4.7.4): the cell
+                                    ; refuses with snd.inc's kern_small FM
+                                    ; body, the same `stc` / `ret`
 %endif
 
 ; ---- osapi_file_here / osapi_file_goto - the volume's location (SPEC.md 19.2)

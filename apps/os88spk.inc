@@ -3,11 +3,12 @@
 ;
 ; THE SPEAKER RING PLAYER (SPEC.md 34.11): PCM through the PC speaker, on a
 ; machine with no card, from inside the caller's own FSXF_RATE bracket. A
-; LIBRARY, os88ui.inc's shape: the kernel's half is the door OSAPI_FSX_SPK -
-; channel 0 at the sample rate, channel 2 as 34.4's PWM, IRQ0 handed to a
-; sample ISR and all of it put back when the bracket ends - and the ISR and
-; the ring it plays are here, in the package that plays them. The whole
-; player in the kernel measured 554 resident bytes; the door is 221.
+; LIBRARY, os88ui.inc's shape: the kernel's half is the THIN door
+; OSAPI_FSX_SPK - channel 2 as 34.4's PWM and owned, the rate period trimmed
+; to whole samples, and all of it put back when the bracket ends - and the
+; rest is here, in the package that plays: IRQ0's vector and channel 0's
+; count (os88spk_go), the ISR and the ring it plays. The whole player in the
+; kernel measured 554 resident bytes; the door is ~50 (34.11.1).
 ;
 ; THE RING is the external ring's layout (SPEC.md 34.5.3), so a player that
 ; feeds a Sound Blaster feeds this the same way: RL bytes at seg:0 (RL = 4096
@@ -83,8 +84,8 @@ os88spk_init:
     cmp ax, 74                      ; ...and 74 the shortest period a pulse
     jae .nlo                        ; ends in (SPEC.md 34.4) - or 48 on a
     cmp al, 48                      ; 286 or better, whose ISR is a fraction
-    jb .no                          ; of an 8088's (34.11.8), as the door
-    push ax                         ; has it
+    jb .no                          ; of an 8088's (34.11.8). THE ONLY
+    push ax                         ; CHECK: the door trusts this one
     call OSAPI_CPU_INFO
     cmp al, CPU_8086
     pop ax
@@ -158,8 +159,8 @@ os88spk_go:
     mov byte [cs:os88spk_dry], 1
     mov word [cs:os88spk_g], 1
     mov word [cs:os88spk_left], 1
-    mov word [cs:os88spk_kr], 1     ; ...which ends a period: the door has
-    popf                            ; written K and the chain by then
+    mov word [cs:os88spk_kr], 1     ; ...which ends a period: K and the
+    popf                            ; chain are set by then, below
     mov dx, [cs:os88spk_n]
     mov si, os88spk_isr
     mov al, [cs:os88spk_pp]
@@ -171,13 +172,35 @@ os88spk_go:
                                     ; silence until it has a count
     mov si, os88spk_isrm
 .one:
-    mov di, os88spk_kn              ; K, and the chain after it
+    mov bx, cs                      ; the ISR's segment, for the door
     xor al, al
-    push di
-    call OSAPI_FSX_SPK
-    pop di
-    jc .out
+    pushf                           ; IF = 0 FROM THE DOOR until IRQ0 is the
+    cli                             ; ISR's and channel 0 counts N (34.11.1)
+    call OSAPI_FSX_SPK              ; AX = K; BX and DX spent
+    jc .no
+    mov [cs:os88spk_kn], ax
+    push ds
     xor ax, ax
+    mov ds, ax
+    mov ax, si                      ; IRQ0 IS THE ISR'S, and what it was -
+    xchg ax, [0x20]                 ; the kernel's own IRQ0, which the door's
+    mov [cs:os88spk_chain], ax      ; close puts back - is the chain a
+    mov ax, cs                      ; period's last sample jumps to
+    xchg ax, [0x22]
+    mov [cs:os88spk_chain+2], ax
+    pop ds
+    mov al, 0x34                    ; channel 0 at N, a sample an IRQ0: mode
+    out 0x43, al                    ; 2, lobyte then hibyte - exactly the N
+    mov ax, [cs:os88spk_n]          ; the door trimmed the period to, or
+    out 0x40, al                    ; [ticks] drifts
+    mov al, ah
+    out 0x40, al
+    popf
+    xor ax, ax
+    jmp short .out
+.no:
+    popf
+    stc
 .out:
     pop di
     pop si
@@ -374,8 +397,8 @@ os88spk_left:   dw 0                ; the grant's samples not yet played
 os88spk_g:      dw 0                ; the grant, as made
 os88spk_kr:     dw 0                ; the period's samples after the grant...
 os88spk_kn:     dw 0                ; ...and a period's (K, the door's)
-os88spk_chain:  dw 0, 0             ; the kernel's IRQ0, far - the door writes
-                                    ; these two with os88spk_kn, in this order
+os88spk_chain:  dw 0, 0             ; the kernel's IRQ0, far: what the vector
+                                    ; held when os88spk_go took it
 os88spk_sil:    db 0                ; a dry grant's count: the table's middle
 os88spk_silb:   times OS88SPK_DRYN db 0     ; ...a run of it, os88spk_go's
 os88spk_dry:    db 0                ; the grant is that, and plays nothing

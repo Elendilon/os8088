@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""OSAPI_SND_PLAY's PWM CLIP, end to end - SPEC.md 34.4, 34.3, 53.2.1.
+"""THE PWM CLIP, end to end - apps/os88pcm.inc on the OSAPI_SND_PLAY door,
+SPEC.md 34.4, 34.3, 53.2.1.
 
     make && python3 tests/sndplay.py [--keep DIR]
 
@@ -22,7 +23,7 @@ on the desktop, key 'f' inside an FSXF_FASTTICK bracket. What must hold:
      after the clip, [sch_fast] = 3 again;
   4. the speaker SOUNDED: the capture's level varies across each clip.
 
-Broken on purpose - spk_pcm_run's `out 0x42, al` taken out - 2 FAILS (no
+Broken on purpose - os88pcm_play's `out 0x42, al` taken out - 2 FAILS (no
 pulses) and 4 FAILS (flat); spk_pcm_idle's release store taken out - 1
 FAILS (the tone after the clip is refused) and 3 FAILS.
 """
@@ -118,7 +119,9 @@ def main():
                          geom.WIN_SIZE)
             base = u16(rec, geom.W_SEG) << 4
             fmark = base + syms["sp_fmark"]
-            k_run = m.sym("spk_pcm_run")
+            k_run = base + syms["os88pcm_play.grant"]   # past the rate
+                                        # check: where the kernel's clip
+                                        # engine used to be entered
             ev = []                     # ("run", cyc) / ("fmark", ...) / port
 
             def hit(mm, r):
@@ -164,12 +167,12 @@ def main():
     # --- 2: the ports, per clip ----------------------------------------------
     runs = [i for i, e in enumerate(ev) if e[0] == "run"]
     if len(runs) != 2:
-        bad.append("2: spk_pcm_run entered %d times, want 2" % len(runs))
+        bad.append("2: the clip granted %d times, want 2" % len(runs))
     else:
         for k, (lo, hi, fsx) in enumerate([(runs[0], runs[1], False),
                                            (runs[1], len(ev), True)]):
             seg = [e[0] for e in ev[lo + 1:hi] if isinstance(e[0], tuple)]
-            # from spk_pcm_run's entry: what follows the clip (the tone after
+            # from the grant: what follows the clip (the tone after
             # it, the bracket's own exit) is cut off at the expected length
             want = phase(None, fsx)
             got = seg[:len(want)]
@@ -202,7 +205,7 @@ def main():
     else:
         hr, vals, _ = wav
         k = hr / 4772727.0
-        # the desktop clip alone: spk_pcm_run's entry to its idle word, the
+        # the desktop clip alone: the grant to the idle word, the
         # tones either side of it kept out of the window
         c0 = next((e[1] for e in ev if e[0] == "run"), None)
         c1 = next((e[1] for e in ev if e[0] == (0x43, 0xB6) and c0 is not

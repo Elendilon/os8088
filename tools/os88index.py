@@ -155,6 +155,13 @@ INCLUDES = [
      "`os88spk_init` writes the table a sample goes through. `os88spk_go` "
      "plays, `os88spk_stop` pauses or stops. It costs the machine an "
      "interrupt a sample (SPEC.md 34.11 has the measured share)."),
+    ("os88pcm.inc", "34.4",
+     "A PWM CLIP through the PC speaker on the desktop, run to completion: "
+     "`os88pcm_play` takes ES:SI, CX samples and a rate and answers AX = 0 "
+     "or 1..5, the contract OSAPI_SND_PLAY had before it became this "
+     "player's door (grant, release, the scheduler lock and the click's "
+     "drain). It FREEZES the desktop for the clip; a click skips it. UI task "
+     "only. 256 bytes of your image are its rescale table."),
     ("os88sock.inc", "20.11, 62.11, 72",
      "Finding the socket driver: `net_find` answers CF=1 when neither "
      "ETHER.DRV nor NET.DRV is loaded and sets `NET_CLASS` otherwise, so every "

@@ -974,7 +974,11 @@ inst_rel_rec:
     call inst_idx               ; AL = the instance slot, once for the pair
     call snd_release_inst       ; "clobbers: nothing", so AL survives it
     pop ax
+%ifdef KERN_BIG
     jmp xm_release_rec          ; ...and every extended-memory block with it
+%else                           ; (kern_small has no store above 1MB and its
+    ret                         ; xm_release_rec is a bare `ret`: this IS it)
+%endif
 
 ; -----------------------------------------------------------------------------
 ; inst_of_win - find the instance owning a window
@@ -1557,11 +1561,10 @@ app_launch:
 
     call inst_find_kind         ; a true singleton: front the live one instead
     jc .failj                   ; only dying ones exist: retry later
-    call gfx_lock
-    call inst_restore           ; un-minimize and show, THE one copy of it -
-                                ; it banks BX, which neither this path nor
-                                ; ui_tm_open's reads afterwards
-    call gfx_unlock
+    mov bp, inst_restore        ; un-minimize and show, THE one copy of it -
+    call ui_lcall               ; it banks BX, which neither this path nor
+                                ; ui_tm_open's reads afterwards (BP is not
+                                ; this routine's record until .alloc)
     jmp .ok
 
 .alloc:
@@ -2244,7 +2247,7 @@ inst_launch_post:
     mov ah, 0
     inc ax
     mov [inst_launch], ax
-    mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
+    inc byte [ui_post]          ; ...and SAY SO once (SPEC.md 13.13)
     pop ax
     retf
 

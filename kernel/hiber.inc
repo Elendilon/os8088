@@ -233,7 +233,6 @@ section .bss
 hb_mode:    resb 1              ; HB_M_*
 hb_vol:     resb 1              ; the volume the image is (or will be) on
 hb_down:    resb 1              ; the button the press armed, 1/2, 0 = none
-hb_pad:     resb 1
 hb_drvmask: resw 1              ; drv_tab rows detached before the image
 hb_sp:      resw 1              ; hbm_perform's entry SP (SPEC.md 87.4)
 hb_wakep:   resw 2              ; hbm_wake as off:seg, in the image's module

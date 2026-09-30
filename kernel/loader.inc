@@ -1877,9 +1877,8 @@ osapi_pkg_rehome_x:
 ; so ld_start's step 8a never fires without this, and CF=1 is the refusal the
 ; body itself gives when it declines. Cell-only, so a bare retf is the whole of
 ; it (SPEC.md 20.3.2).
-osapi_pkg_rehome_x:
-    stc
-    retf
+osapi_pkg_rehome_x equ mod_gone ; mod.inc's `stc` / `retf`, the same two
+                                ; bytes in the same section
 %endif
 
 section .text
