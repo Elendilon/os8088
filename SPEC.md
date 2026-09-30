@@ -1973,13 +1973,17 @@ the pane's 27-character limit, and both ends are guarded — `CPS` refuses a
 longer string at **assembly** time and `cp_stage` bounds the copy at **run**
 time, so a bypass truncates a caption instead of writing past the buffer.
 
-What did **not** move, and is the honest limit: `dskw_fmt_tab`, the four
-standard geometries. It is `.text` and stays there, because `dskw_fmt_row_x`
-hands callers an `SI` into it and every one of them dereferences `[si+DFMT_*]`
-through `DS` — so moving the table means changing each of those to `[cs:si+…]`
-inside the formatter's write path, which is 56 bytes bought against the one
-piece of this code that erases disks. A string has one reader; a table has
-several, and each is a place to get the segment wrong.
+What did not move at the time, and has since: `dskw_fmt_tab`, the four
+standard geometries. It stayed `.text` for two reasons — every `[si+DFMT_*]`
+in the formatter would have to become `[cs:si+…]`, and `CLONE.DRV` sized a
+disk image against the same rows through `DS`. Kernel size pass 8 moved it
+into `FORMAT.DRV` anyway: the formatter's write path was being rewritten
+under §18.96.3 regardless, so the prefixes cost no second pass over the code
+that erases disks, and `CLONE.DRV` carries its own four (size, spt) pairs in
+sixteen bytes (§18.99.8). **56 resident bytes on both kernels**, and a row
+became the BPB itself (§18.96), which is what paid for the prefixes. The
+segment risk the refusal named is held by `tools/os88ovlchk.py`'s module-data
+rule, which refuses a module reference that does not name `CS`.
 
 
 ### 2.9 Stage 2 — the loader is not in the boot sector any more
@@ -23579,9 +23583,12 @@ took it for a hang, reasonably: **anything that takes more than two or three
 seconds has to say that it is working.**
 
 So the FIRST failed attempt of a transfer arms the chrome, as a stopped motor
-does (§12.8.3.1). If `[fpg_on]` is still clear, the retry path drops
-`[sch_lock]` and calls `fpg_busy` with `CX` = `FPG_WARM`, then takes the
-lock back and retries. The widget and the clock are up one failed attempt
+does (§12.8.3.1). The retry path drops `[sch_lock]` and calls `fpg_busy` with
+`CX` = `FPG_WARM`, then takes the lock back and retries. It does that at
+every failed attempt and not only while `[fpg_on]` is clear: armed,
+`fpg_busy` is the same `cur_busy` and compare the top of `dsk_xfer` makes for
+every transfer anyway, so the test that skipped it saved nothing but cost 7
+bytes (kernel size pass 8). The widget and the clock are up one failed attempt
 in, a fraction of a second to a couple of seconds, instead of never. The lock
 is dropped because §12.8.3's rule is that the first draw must not happen with
 switching off, and between two attempts is between two transfers as far as
@@ -23591,8 +23598,8 @@ destination, which fails safe (§66.3 rule 5). `fpg_arm`'s own refusals (the
 splash, a foreign mode, another task's lock, a fullscreen window) apply
 unchanged, and so does `kern_dos`'s stub.
 
-It costs 25 bytes of `.cold` on each kernel, resident, and it changes nothing on a
-disk that reads. `tests/czto.py`'s `arm` leg is the gate: a one-sector folder
+It costs 18 bytes of `.cold` on each kernel, resident (25 as it shipped), and it
+changes nothing on a disk that reads. `tests/czto.py`'s `arm` leg is the gate: a one-sector folder
 opened with the motor running and every read failing reads `[fpg_on]` 0 at
 the first failed attempt and 1 from the second. With this block taken out it
 reads 0 at every one.
@@ -29657,12 +29664,13 @@ including `dsk_cherr`, `dsk_read_chain`'s failure-code byte carried across
 its register-restore epilogue.
 
 ```nasm
-dsk_bpb:      resb 64  ; staged boot-sector head (mount scratch, §18.2)
+dsk_bpbh:     resb 18  ; staged BPB fields 11..28 (mount scratch, §18.2),
+dsk_bpb equ dsk_bpbh - 11 ; addressed as boot-sector offsets
+dsk_spc    equ dsk_bpb + 13  ; BPB_SecPerClus (validated power of two)
+dsk_fatlba equ dsk_bpb + 14  ; = RsvdSecCnt (FAT1 start LBA)
+dsk_nfats  equ dsk_bpb + 16  ; 1 or 2
+dsk_fatsz  equ dsk_bpb + 22  ; = FATSz16 (<= DSK_FAT_SECS on a floppy)
 dsk_fattype:  resb 1   ; 0 = FAT12, 1 = FAT16 (§19 detection)
-dsk_spc:      resb 1   ; BPB_SecPerClus (validated power of two)
-dsk_fatlba:   resw 1   ; = RsvdSecCnt (FAT1 start LBA)
-dsk_fatsz:    resw 1   ; = FATSz16 (<= DSK_FAT_SECS)
-dsk_nfats:    resb 1   ; 1 or 2
 dsk_rootlba:  resw 1   ; first root-dir LBA
 dsk_rootsecs: resw 1   ; root-dir sector count (<= 32)
 dsk_datalba:  resw 1   ; FirstDataSec
@@ -29681,6 +29689,14 @@ dsk_rover:    resw 1   ; next cluster the allocator examines (§18.4), reset
 dsk_fatd0:    resw 1   ; dirty FAT sector range, [lo, hi] inclusive, sector
 dsk_fatd1:    resw 1   ; indices within one FAT; lo = 0FFFFh = clean
 ```
+
+**Four of these ARE the staged BPB** — `dsk_spc`, `dsk_fatlba`, `dsk_nfats`
+and `dsk_fatsz` are `equ`s into `dsk_bpbh`, not copies of it (kernel size
+pass 8: 24 bytes of `.cold` and 6 of `.bss`). `dsk_bpbh` is written by
+nothing but `disk_mount` — the boot sector's read, the §18.8.2 bank and rule
+14's TotSec32 fold — so it holds the mounted volume's fields exactly as long
+as the copies did. A redirected mount's `[dsk_spc]` = 1 (§62.9.1) is a store
+into that scratch, which the next FAT mount refills before it reads it.
 
 ### 18.2 BPB validation (`dsk_bpb_check`, in check order)
 
@@ -34183,7 +34199,7 @@ is why that argument had it backwards for a floppy.
 
 | routine | contract |
 |---------|----------|
-| `dskw_fmt_probe` | in: `[disk_drive]` = the volume. Out: CF=0 with AL = a row of `dskw_fmt_tab`; CF=1 with AX = `FERR_*` — the medium could not be read at all (`FERR_IO`), or the volume is not a floppy (`FERR_PROT`). Clobbers AX, flags. **Reads only**, so it is safe to call before the user has agreed to anything, and that is the point: the confirmation names the size it is about to make. |
+| `dskw_fmt_probe` | in: `[disk_drive]` = the volume. Out: CF=0 with AL = a row of `dskw_fmt_tab`; CF=1 with AX = `FERR_*` — the volume is not a floppy (`FERR_PROT`), or `FORMAT.DRV` could not be read (`FERR_NODISK`). A medium nothing can read is **not** a refusal (§18.96.3). Clobbers AX, flags. **Reads only**, so it is safe to call before the user has agreed to anything, and that is the point: the confirmation names the size it is about to make. |
 | `dskw_format` | in: AL = a `dskw_fmt_tab` row, `[disk_drive]` = the volume. Out: CF=0; CF=1 with AX = `FERR_IO` / `FERR_WPROT` / `FERR_PROT`. Clobbers flags. Writes the boot sector **first** and the root directory last. |
 | `dskw_fmt_reach` | in: AL = the row just written, `[disk_drive]` = the volume, `[disk_spt]`/`[disk_heads]` still the format's. Out: CF=0 — the volume's **last** sector was written and read back intact; CF=1 — it was not. Clobbers AX, flags. Destroys that sector's contents, so it is callable only on a disk the user has already agreed to erase (§18.96.2). |
 
@@ -34223,6 +34239,14 @@ key that would do nothing (§47).
 This is an **assertion about hardware**, not a probe, and it is the same
 assertion DOS took at face value from `DRIVER.SYS /d:2 /t:80 /s:9`. The
 difference is what §18.96.2 does with it.
+
+**A `dskw_fmt_tab` row is the BPB itself**, bytes 13–25 of the boot sector
+(`SecPerClus` to `SecPerTrk`) in the boot sector's own order, plus the
+cylinder count the BPB does not carry — so the boot sector is three copies out
+of the image (a template, the row, a template running on into the
+not-bootable stub) and not a load and a store per field, and the confirmation's
+size is `TotSec16 / 2`. The table is in `FORMAT.DRV` and read through `CS`
+(§2.8.6.1); nothing outside the image reads a row.
 
 #### 18.96.1 Reading cylinder 40 to settle it is WRONG — the negative result
 
@@ -35403,13 +35427,16 @@ to be something it is not.
 
 The disk `Write Img...` writes to may be blank, so there is nothing to probe —
 and what a raw write needs is a sectors-per-track and a head count. The only
-honest source for them is the image itself. `dskw_fmt_tab` already pins the four
-standard layouts (§18.96), so **a file whose length is one of those four is a
+honest source for them is the image itself. The four standard layouts
+(§18.96) are pinned, so **a file whose length is one of those four is a
 disk image and a file whose length is not is `CERR_NOTIMG`** — which also
 refuses, for free, every ordinary document somebody picks by mistake.
 
-That table is read through `DS` and stays in `.text` (§2.8.6.1). Two on-demand
-modules may not far-call each other: only one of them need be loaded.
+`CLONE.DRV` carries those four as its own (sectors, sectors-per-track) pairs,
+`clo_imgtab`, read through `CS`. It read `dskw_fmt_tab`'s rows through `DS`
+out of `.text` until that table moved into `FORMAT.DRV` (§2.8.6.1) — two
+on-demand modules may not far-call each other, only one of them need be
+loaded, and sixteen bytes in this image were cheaper than 56 resident.
 
 ##### The name is the one resident byte the feature added
 
@@ -36470,7 +36497,7 @@ is why there is no path string anywhere in os8088."*
 directory sectors and four lines into its entry loop has `cmp al, '.'` / `je
 .skip`, so **neither `.` nor `..` is ever reported to a package** — on either
 cell, since `api_file_find` and `api_file_find_raw` join at `api_ff_go` and
-differ in the size field alone. `OSAPI_FT_UP` exists because `dsk_synth_up`
+differ in the size field alone. `OSAPI_FT_UP` exists because `dsk_up_open`
 builds an up-entry for `disk_mount`'s **listing** (§19.5), a different
 structure a package cannot reach. `OSAPI_FILE_HERE` answers a cluster, and a
 cluster is not a path.
@@ -36745,7 +36772,7 @@ size column, first in both the list and the icon grid, and above the sort
 because it is placed before the scan runs (§19.4). Double-clicking it goes
 up, exactly like double-clicking any folder.
 
-**It is synthesized in the mount** (`dsk_synth_up`), for the same reason the
+**It is synthesized in the mount** (`dsk_up_open`), for the same reason the
 sort lives there: the Disk window, the Standard File dialog and every view
 cache read one snapshot, so putting the row in that snapshot gives all of
 them the same row from the same place. The dialog used to synthesize its own
@@ -60715,7 +60742,7 @@ click back to `fdlg_draw_both`. A **click** can never trigger it — the hit
 test is bounded by what is drawn — but the keyboard shares `fdlg_setsel`,
 and comparing one word is cheaper than proving that.
 
-`fdlg_sel_bar` asks `fdlg_rows` for the total instead of reading
+`fdlg_sel_bar` reads `[disk_nfiles]` for the total instead of reading
 `[fdlg_shown]`, which is painter scratch and means nothing on a click.
 
 **The button column** carries Open/Save, Cancel, Drive and — in **save mode
@@ -60745,8 +60772,9 @@ The dialog lists **the mounted volume's current directory** — `disk_dir` /
 through `dsk_get_dir`. It never touches `VIEW_SEG` and never copies the
 listing anywhere (§38.2).
 
-**A display row IS a directory index**, and `fdlg_rows` is just
-`disk_nfiles`. It used not to be: this module synthesized its own `..` row
+**A display row IS a directory index**, and the row count is just
+`[disk_nfiles]`, read in place (`fdlg_rows` was that one load, and went in
+kernel size pass 8). It used not to be: this module synthesized its own `..` row
 and carried the resulting +1 offset through every row ↔ index conversion in
 it. The mount puts the parent link in the listing now (§19.5), as a type-3
 entry carrying the parent's first cluster, so the dialog, the Disk window
@@ -61123,7 +61151,6 @@ no longer always reaches it.
 | `fdlg_paint` / `fdlg_onkey` / `fdlg_onclick` | The window procs; all three assume the held lock and never take it. |
 | `fdlg_draw_name` / `fdlg_draw_list` / `fdlg_draw_both` | §38.8. Erase one rectangle and redraw it. All assume the held lock and a valid `[fdlg_cx]`/`[fdlg_cy]`; all preserve every register. |
 | `fdlg_name_body` / `fdlg_list_body` | The same drawing without the erase, for `fdlg_paint`, which is handed a white content. |
-| `fdlg_rows` | Out: AX = `disk_nfiles`. There is no offset any more — §19.5 put the `..` row in the listing, so a display row is a directory index. |
 | `fdlg_stage` | In: AX = display row, which IS a directory index (§19.5 put the `..` row in the listing, so this module no longer synthesizes one or carries an offset). Out: `fdlg_row` = its name, `fdlg_type` / `fdlg_size`+`fdlg_sizeh` its §19 type word and size dword. |
 | `fdlg_go` | In: AX = first cluster. `dsk_chdir` + reset selection and scroll. |
 | `fdlg_hidx` | Internal. Out: CF=0 with BX = this instance's file-home slot **and SI → that slot's `inst_fname` row**; CF=1 = no live requester. The SI half is why `fdlg_home_name` and `fdlg_home_save` are nine and twenty-six bytes: `slot * INST_FNSZ` is a `mul` (13 is not a shift) and it was written at both. The two index-only callers bank SI already. |

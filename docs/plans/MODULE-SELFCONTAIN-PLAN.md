@@ -657,6 +657,9 @@ wave.
    `dskw_fmt_row_x` hands callers an `SI` into it and every one dereferences
    `[si+DFMT_*]`. Re-opening that means changing the contract of a routine
    with resident callers, which is a bigger change than 56 bytes buys.
+   **TAKEN in kernel size pass 8** (SPEC.md 2.8.6.1): the premise had gone -
+   `dskw_fmt_row_x` had no resident caller left, only `CLONE.DRV` reading
+   the rows through `DS`, and that now carries its own sixteen bytes.
 3. **The six Control Panel list names.** SPEC.md 2.8.6.1: *"a list name may
    equally be a driver's staged one and `cp_list` draws it through DS."*
    They are the reason tier 2 of the measurement is 62 bytes rather than a
