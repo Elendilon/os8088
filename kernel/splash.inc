@@ -189,12 +189,9 @@ splf_anim:      call spl_anim
                                 ; screen's life, so the animation reaches the
                                 ; blob the same way every other kernel caller
                                 ; does
-splf_fill:      call spl_fill
-                retf            ; ...and SPEC.md 15.5's BOOTMARK beacon, which
-                                ; borrows the splash's byte-granular fill and
-                                ; is `.text`. os88ovlchk found this one: two
-                                ; near calls that were right for as long as
-                                ; both ends were in the same segment
+; (splf_fill, SPEC.md 15.5's BOOTMARK beacon's door into spl_fill, is gone:
+; the marker carries its own mark_fill since it stopped borrowing the blob -
+; kernel.asm says why - and the shim had no caller left)
 
 ; -----------------------------------------------------------------------------
 ; spl_tick - stage 2 calls this after every run it reads (SPEC.md 15).

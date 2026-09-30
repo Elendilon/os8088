@@ -1480,11 +1480,12 @@ gfx_pt_row:
     pop cx
     ret
 
-; --- the bit a pixel is, and the seven it is not ----------------------------
-; Read `cs:` (see the header). A table because the shift these replace is
-; 8+4n clocks and wants CL, and CL is the loop counter's.
+; --- the bit a pixel is ------------------------------------------------------
+; Read `cs:` (see the header). A table because the shift this replaces is
+; 8+4n clocks and wants CL, and CL is the loop counter's. (gfx_bitclr, the
+; seven it is not, stood beside it with no reader since the loops became one
+; per ink class - the paper loop inverts the set mask it already has.)
 gfx_bitset: db 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01
-gfx_bitclr: db 0x7F, 0xBF, 0xDF, 0xEF, 0xF7, 0xFB, 0xFD, 0xFE
 
 ; gfx_ls_ink - resolve [gfx_color] to the 1bpp class once (00 / FF / 01)
 ; clobbers AX

@@ -5680,7 +5680,7 @@ So what changed is instruction COUNT, four ways, none of them data-dependent:
   The loop loads no segment register at all where it loaded two a point. Every
   kernel word is reached `cs:` — `.bss` and `.text` share the kernel's segment,
   which is what `KERN_CODE_MAX` says — and `vid_rowtab` stays `ss:`.
-- **The bit comes from a table**, `gfx_bitset` / `gfx_bitclr`, because
+- **The bit comes from a table**, `gfx_bitset`, because
   `shr bl, cl` is 8+4n clocks and wants CL, which is the loop counter's.
 - **The ink class is three loops rather than one loop with two tests in it.**
   `gfx_ls_ink` resolves a colour to three 1bpp classes, and specialising the
