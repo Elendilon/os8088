@@ -83882,14 +83882,28 @@ PREDICTED from PERFORMANCE.md's table rather than measured: ~15ms of bar and
 ~20ms of line on a 4.77MHz 8088, against a full repaint of ~230ms that every
 row click already pays.
 
-**What it cost, measured**: 564 bytes of `HDDTOOL.DRV`'s code and data, none
-resident. The image is followed by its two 512-aligned sector buffers
-(`hdsec.inc`), so the FILE moved 1,024 and the tool's claim 20KB to 21KB,
-while it is open; the packed file 14,157 to 14,644 bytes, which is **one more
-360KB cluster** (15 against 14) of a system disk with eight to spare. The
-window grew 28px (`HTW_H` 150 to 178), past CGA's 156-row desktop band, so
-`wm_fit` pins it under the menu bar over the dock — accepted. `tests/hdmap.py`
-is the gate.
+**What it cost, measured, and what paid for it.** The map is 564 bytes of
+`HDDTOOL.DRV` and the `WF_KEEPH` call nine more, none resident — and as first
+built that crossed the image's sector buffers' 512 alignment (`hdsec.inc`), so
+the tool's claim went 20KB to 21KB while open and the packed file 14,157 to
+14,653 bytes: one more 360KB cluster (15 against 14) of a system disk with
+eight to spare. Three things already in the image took it back, and none of
+them is a feature:
+
+| | raw | packed |
+|---|---|---|
+| ONE button tail, `hd_btn_draw` (`tool.inc`), where the Format window, the installer and the page (twice, for its +/- pair) each carried one with a record, a rect and two staging words of its own | −239 | −112 |
+| `OS88UI_NOGEST`: all three windows drive their buttons through `os88ui_arm`/`fire`/`armed`, so the record-based gesture half (§20.5.1.3.4) was compiled in and never called | −226 | −195 |
+| `hd_dev_row_ck` is the resident's alone (`%ifndef HD_TOOL`), and `hd_map_x` clamps after its shift and keeps no dword total | −30 | −29 |
+
+The near-duplicates were the cheap half on DISK — LZ4 had already matched most
+of one button tail against another — and code nothing calls was the dear
+half. Net: the image 19,581 → **19,867** bytes, still a 20KB claim, and the
+packed file 14,157 → **14,317**, 14 clusters with 19 bytes left before a 15th.
+`HDD.DRV` is byte-identical. The window grew 28px (`HTW_H` 150 to 178), past
+CGA's 156-row desktop band, so it sets `WF_KEEPH` (§11.93) and hangs over the
+dock whole rather than being cut at it with its buttons drawn through the cut.
+`tests/hdmap.py` is the gate.
 
 ### 52.3 The formatter
 

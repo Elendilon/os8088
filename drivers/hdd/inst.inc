@@ -539,79 +539,32 @@ hd_iw_paint:
 ; its three captions is on it (SPEC.md 52.10.6.1).
 ; -----------------------------------------------------------------------------
 
-; --- the one control's staging (SPEC.md 20.5.1.3) --------------------------
-; A Control Panel page draws its buttons one at a time, so the record is
-; pointed at whichever rect the caller staged. The GESTURE here is the
-; panel's own cp_ctl/cp_pgprobe probe (SPEC.md 13.8.4), which is already
-; release-fired; what changed is that the DRAW goes through the control.
-hdi_btlbl: dw 0
-hdi_btflg: dw 0
-    OS88UI_BTNREC hdi_btrec, 0, hdi_btlbl, hdi_btflg, 1
-
 hd_iw_button:
     push ax
-    push bx
     push cx
     push dx
-    push si
-    push di
-    mov [hd_ibx], ax
-    mov [hd_ibw], bx            ; latched across the predicate call; SI is not
-                                ; any more - os88ui_btn takes the label there,
-                                ; so hd_ibl went with the drawing
-    mov al, cl                  ; ...and PRESSED if it is the one being held.
-    inc al                      ; ASKED FIRST, because CL is the predicate
-    cmp al, [hd_idown]          ; selector on the way in and the DIS flag on
-    mov dx, 0                   ; the way out - two meanings, one register
+    mov dl, cl                  ; PRESSED if it is the one being held. ASKED
+    inc dl                      ; FIRST, because CL is the predicate selector
+    cmp dl, [hd_idown]          ; on the way in and the DIS flag on the way
+    mov dx, 0                   ; out - two meanings, one register
     jne .nodn
     mov dx, OS88UI_DOWN
 .nodn:
     cmp cl, 1
-    je .live
+    je .live                    ; equal: CF = 0, live
     call hd_iact_ok             ; the ONE predicate, shared by the greying,
-    jmp short .pen              ; the refusal and the explanation (47 rule 2)
-.live:
-    clc
-.pen:
+.live:                          ; the refusal and the explanation (47 rule 2)
     mov cx, 0                   ; CF -> the shared control's DIS flag. `mov`
-    adc cx, 0                   ; does not touch flags, so the carry the
-                                ; predicate answered in survives into the adc
-    mov ax, di                  ; ...and the rect, in screen coordinates
-    add ax, [hd_ibx]
-    mov [hd_ibrect+0], ax
-    add ax, [hd_ibw]
-    dec ax
-    mov [hd_ibrect+4], ax
-    mov ax, bp
-    add ax, HIW_BY
-    mov [hd_ibrect+2], ax
-    add ax, HIW_BH - 1
-    mov [hd_ibrect+6], ax
-    mov di, cx
-    or di, dx                   ; DIS | DOWN, and DIS outranks it inside the
-                                ; control, so a greyed button never says it
-                                ; will fire (SPEC.md 13.8)
-    mov bx, hd_ibrect           ; OS88UI_FILL because a RELEASE redraws this
-    or di, OS88UI_FILL          ; button over a pressed one; on a full pass
-    push ax                     ; THE ONE CONTROL (SPEC.md 20.5.1.3): BX
-    push bx                     ; already holds this button's rect, SI its
-    mov [hdi_btlbl], si          ; label and DI its flags, so the record takes
-    mov [hdi_btflg], di          ; all three and the picture is identical
-    mov [hdi_btrec+OS88UI_BT_RECTS], bx
-    mov bx, hdi_btrec
-    mov al, 1
-    call os88ui_btn
-    pop bx
-    pop ax
-    pop di
-    pop si
+    adc cx, 0                   ; does not touch flags
+    or cx, dx
+    add ax, di                  ; ...and the rect, in screen coordinates
+    lea dx, [bp+HIW_BY]
+    call hd_btn_draw16          ; tool.inc: one tail for the image's four
     pop dx
     pop cx
-    pop bx
     pop ax
     ret
 
-hd_ibrect:  dw 0, 0, 0, 0       ; the button being drawn, screen coordinates
 hd_idown:   db 0                ; which button is DRAWN pressed, 0 = none
                                 ; (SPEC.md 13.8.4). hd_isetdown is its one
                                 ; writer and hd_iw_button its one reader
@@ -4708,8 +4661,6 @@ hd_ivcur:     db 0              ; ...and whether it found a volume to keep
 hd_irow:      db 0
 hd_iclx:      dw 0
 hd_icly:      dw 0
-hd_ibx:       dw 0
-hd_ibw:       dw 0
 hd_ibufseg:   dw 0
 hd_ibufkb:    dw 0
 hd_idrv:      db 0              ; the destination's kernel volume index

@@ -445,61 +445,72 @@ hd_tw_paint:
 ; buttons.
 ; -----------------------------------------------------------------------------
 
-; --- the one control's staging (SPEC.md 20.5.1.3) --------------------------
-; A Control Panel page draws its buttons one at a time, so the record is
-; pointed at whichever rect the caller staged. The GESTURE here is the
-; panel's own cp_ctl/cp_pgprobe probe (SPEC.md 13.8.4), which is already
-; release-fired; what changed is that the DRAW goes through the control.
-hdt_btlbl: dw 0
-hdt_btflg: dw 0
-    OS88UI_BTNREC hdt_btrec, 0, hdt_btlbl, hdt_btflg, 1
-
 hd_tw_button:
+    push ax
+    push cx
+    push dx
+    add ax, di                  ; the rect's left, in screen coordinates
+    lea dx, [bp+HTW_BY]
+    cmp ch, [hd_tdown]          ; CH = the control's id (SPEC.md 13.8.4)
+    mov ch, 0                   ; CX = CL, the DIS flag (`mov` keeps ZF)
+    jne .up
+    or cl, OS88UI_DOWN          ; DIS outranks it inside the control, so a
+.up:                            ; greyed button never says it will fire
+    call hd_btn_draw16
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_btn_draw - one standard button, for all THREE of this image's windows
+; in:  AX = left, DX = top (screen), BX = width, SI = the label, CX = the
+;      caller's OS88UI_DIS | OS88UI_DOWN, and at hd_btn_draw DI = the height
+;      less one (hd_btn_draw16 is every 16-high one); the lock is held
+; out: nothing (all registers preserved)
+;
+; The Format window, the installer and the Control Panel page each carried
+; this tail - the page twice, for its +/- pair - and a record, a rect and two
+; staging words of their own for it: four copies of one thing, and the only
+; differences were the row, which is DX now, and the +/- pair's 13 rows.
+; OS88UI_FILL because a RELEASE redraws a button over a pressed one, and on a
+; full paint the ground behind it is white anyway.
+; -----------------------------------------------------------------------------
+hd_btn_draw16:
+    push di
+    mov di, 15
+    jmp short hd_btn_body
+hd_btn_draw:
+    push di
+hd_btn_body:
     push ax
     push bx
     push cx
     push dx
-    push si
-    push di
-    add ax, di                  ; the rect, in screen coordinates
-    mov [hd_tbrect+0], ax
+    mov [hd_brect+0], ax
     add ax, bx
     dec ax
-    mov [hd_tbrect+4], ax
-    mov ax, bp
-    add ax, HTW_BY
-    mov [hd_tbrect+2], ax
-    add ax, HTW_BH - 1
-    mov [hd_tbrect+6], ax
-    mov dl, cl                  ; CL = the flag word; DI is about to be it
-    xor dh, dh
-    mov di, dx
-    mov al, ch                  ; CH = the control's id (SPEC.md 13.8.4)
-    cmp al, [hd_tdown]
-    jne .nodn
-    or di, OS88UI_DOWN          ; DIS outranks it inside the control, so a
-.nodn:                          ; greyed button never says it will fire
-    mov bx, hd_tbrect           ; OS88UI_FILL because a RELEASE redraws this
-    or di, OS88UI_FILL          ; button over a pressed one; on a full repaint
-    push ax                     ; THE ONE CONTROL (SPEC.md 20.5.1.3): BX
-    push bx                     ; already holds this button's rect, SI its
-    mov [hdt_btlbl], si          ; label and DI its flags, so the record takes
-    mov [hdt_btflg], di          ; all three and the picture is identical
-    mov [hdt_btrec+OS88UI_BT_RECTS], bx
-    mov bx, hdt_btrec
+    mov [hd_brect+4], ax
+    mov [hd_brect+2], dx
+    add dx, di
+    mov [hd_brect+6], dx
+    mov [hd_btlbl], si          ; THE ONE CONTROL (SPEC.md 20.5.1.3)
+    or cl, OS88UI_FILL
+    mov [hd_btflg], cx
+    mov bx, hd_btrec
     mov al, 1
     call os88ui_btn
-    pop bx
-    pop ax
-    pop di
-    pop si
     pop dx
     pop cx
     pop bx
     pop ax
+    pop di
     ret
 
-hd_tbrect:  dw 0, 0, 0, 0       ; the button being drawn, screen coordinates
+hd_btlbl:   dw 0
+hd_btflg:   dw 0
+    OS88UI_BTNREC hd_btrec, hd_brect, hd_btlbl, hd_btflg, 1
+hd_brect:   dw 0, 0, 0, 0       ; the button being drawn, screen coordinates
 
 ; -----------------------------------------------------------------------------
 ; hd_tw_rowtext - one slot's line, into hd_line (module internal)
@@ -1306,8 +1317,8 @@ hd_tw_szmax:
     mov al, [hd_tdev]
     call hd_dev_row
     call hd_dev_secs            ; the whole drive is the map's width, and a
-    mov [hd_mtot], ax           ; sector count to a column is x * W / total:
-    mov [hd_mtot+2], dx         ; shifted until the total fits a word, so the
+                                ; sector count to a column is x * W / total:
+                                ; shifted until the total fits a word, so the
     xor cl, cl                  ; product fits a dword and the quotient a word
 .norm:
     or dx, dx
@@ -1523,28 +1534,28 @@ hd_map_span:
 
 ; --- hd_map_x - DX:AX sectors to a column, 0..HTW_MAPW ----------------------
 ; in: DX:AX; out: AX; everything else preserved
-; Past the end of the drive is the end: the product then cannot pass the
-; divisor's range, so the divide cannot fault on a hostile table.
+; Past the end of the drive is the end, asked AFTER the shift - x > total
+; exactly when x >> k passes total >> k or overflows a word - so the product
+; cannot pass the divisor's range and the divide cannot fault on a hostile
+; table.
 hd_map_x:
     push cx
     push dx
-    cmp dx, [hd_mtot+2]
-    jb .in
-    ja .cap
-    cmp ax, [hd_mtot]
-    jbe .in
-.cap:
-    mov ax, [hd_mtot]
-    mov dx, [hd_mtot+2]
-.in:
     mov cl, [hd_mk]
     or cl, cl
-    jz .scale
+    jz .fit
 .shift:
     shr dx, 1
     rcr ax, 1
     dec cl
     jnz .shift
+.fit:
+    or dx, dx
+    jnz .cap
+    cmp ax, [hd_mt16]
+    jbe .scale
+.cap:
+    mov ax, [hd_mt16]
 .scale:
     mov cx, HTW_MAPW
     mul cx
@@ -1895,9 +1906,8 @@ hd_tmsg:     dw 0               ; ...and its caption
 hd_tsize:    dw 0               ; the size typed on the size line, MB; 0 =
                                 ; all of the extent (SPEC.md 52.2.7)
 hd_tsmax:    dw 0               ; ...and the extent it may not pass, MB
-hd_mtot:     dd 0               ; the drive map (SPEC.md 52.2.8): the drive's
-                                ; sectors,
-hd_mt16:     dw 0               ; ...shifted right until it fits a word,
+hd_mt16:     dw 0               ; the drive map (SPEC.md 52.2.8): the drive's
+                                ; sectors shifted right until they fit a word,
 hd_mk:       db 0               ; ...by this many
 hd_mux:      dw 0, -1           ; the underline's columns; last < first = none
 hd_mfree:    dd 0               ; every hole's sectors,

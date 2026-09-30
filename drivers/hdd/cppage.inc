@@ -328,83 +328,31 @@ hd_page_paint:
 ; be one that would have worked.
 ; -----------------------------------------------------------------------------
 
-; --- the one control's staging (SPEC.md 20.5.1.3) --------------------------
-; A Control Panel page draws its buttons one at a time, so the record is
-; pointed at whichever rect the caller staged. The GESTURE here is the
-; panel's own cp_ctl/cp_pgprobe probe (SPEC.md 13.8.4), which is already
-; release-fired; what changed is that the DRAW goes through the control.
-hdp_btlbl: dw 0
-hdp_btflg: dw 0
-    OS88UI_BTNREC hdp_btrec, 0, hdp_btlbl, hdp_btflg, 1
-
 hd_page_button:
     push ax
-    push bx
     push cx
     push dx
-    push si
-    push di
-    push ax
-    push bx
-    push si
-    mov al, cl                  ; ...and PRESSED if it is the one being held.
+    mov dx, ax                  ; the x, while AL asks two questions
+    mov al, cl                  ; PRESSED if it is the one being held.
     inc al                      ; ASKED FIRST, because CL is the button index
     call hd_isdown              ; on the way in and the DIS flag on the way
-    mov dx, 0                   ; out - two meanings, one register, four
-    jne .nodn                   ; instructions apart
-    mov dx, OS88UI_DOWN
+    mov al, cl                  ; out (`mov` keeps ZF)
+    mov cx, 0
+    jne .nodn
+    mov cl, OS88UI_DOWN
 .nodn:
-    mov al, cl
     call hd_btn_ok              ; CF = 1 = this control is disabled, which is
-    mov cx, 0                   ; the shape the shared control's flag takes:
-    adc cx, 0                   ; OS88UI_DIS is 1 and `mov` does not touch CF,
-                                ; so the flag IS the carry, with no test in
-                                ; between. It sets CDGRAY and [gfx_dis]
-                                ; together and colours the FRAME as well as
-                                ; the label - greying half a control is worse
-                                ; than not greying it, and on mono the flag is
-                                ; what stops the label being the half left
-    pop si
-    pop bx
-    pop ax
+    adc cl, 0                   ; the shape the shared control's flag takes:
+                                ; OS88UI_DIS is 1, so the flag IS the carry
+    mov ax, dx
     add ax, di                  ; ...and the rect, in screen coordinates
-    mov [hd_pbrect+0], ax
-    add ax, bx
-    dec ax
-    mov [hd_pbrect+4], ax
-    mov ax, bp
-    add ax, HDP_BY
-    mov [hd_pbrect+2], ax
-    add ax, HDP_BH - 1
-    mov [hd_pbrect+6], ax
-    mov di, cx
-    or di, dx                   ; DIS | DOWN - and DIS outranks it inside the
-                                ; control, so a greyed button never says it
-                                ; will fire (SPEC.md 13.8)
-    mov bx, hd_pbrect           ; OS88UI_FILL: the ground behind this is the
-    or di, OS88UI_FILL          ; pane's white on a full paint and a PRESSED
-    push ax                     ; THE ONE CONTROL (SPEC.md 20.5.1.3): BX
-    push bx                     ; already holds this button's rect, SI its
-    mov [hdp_btlbl], si          ; label and DI its flags, so the record takes
-    mov [hdp_btflg], di          ; all three and the picture is identical
-    mov [hdp_btrec+OS88UI_BT_RECTS], bx
-    mov bx, hdp_btrec
-    mov al, 1
-    call os88ui_btn
-    pop bx
-    pop ax
-                                ; the control leaves the pen live by itself,
-                                ; so the clc/GFX_PEN that used to close this
-                                ; routine is gone
-    pop di
-    pop si
+    lea dx, [bp+HDP_BY]
+    call hd_btn_draw16          ; tool.inc: one tail for the image's four
     pop dx
     pop cx
-    pop bx
     pop ax
     ret
 
-hd_pbrect:  dw 0, 0, 0, 0       ; the button being drawn, screen coordinates
 
 ; --- SPEC.md 13.8.4: this page acts on the RELEASE ---------------------------
 ; THE LADDER IS THE HIT TEST, which is ctrl.inc's own answer (SPEC.md 13.8.3)
@@ -768,38 +716,21 @@ hd_page_pm:
     push bx
     push cx
     push dx
-    push si
     push di
-    add ax, di
-    mov [hd_pbrect+0], ax
-    add ax, HDP_BTW - 1
-    mov [hd_pbrect+4], ax
-    mov ax, bp
-    add ax, HDP_EY - 1
-    mov [hd_pbrect+2], ax
-    add ax, HDP_FH + 1
-    mov [hd_pbrect+6], ax
-    mov di, OS88UI_FILL         ; always live, never the default - and it FILLS
-                                ; for the reason hd_page_button does: a
-                                ; release redraws it over a pressed one
-    mov al, cl                  ; CL = the id, set by the caller (nothing here
-    call hd_isdown              ; overwrites CX, unlike hd_page_button)
-    jne .nodn
-    or di, OS88UI_DOWN
+    add ax, di                  ; the rect, in screen coordinates
+    mov bx, HDP_BTW
+    lea dx, [bp+HDP_EY-1]
+    mov di, HDP_FH + 1          ; 13 rows, the editor's field and its frame
+    push ax
+    mov al, cl                  ; CL = the id, set by the caller
+    call hd_isdown
+    mov cx, 0                   ; always live, never the default (`mov` keeps
+    jne .nodn                   ; ZF, and so does the pop)
+    mov cl, OS88UI_DOWN
 .nodn:
-    mov bx, hd_pbrect
-    push ax                     ; THE ONE CONTROL (SPEC.md 20.5.1.3): BX
-    push bx                     ; already holds this button's rect, SI its
-    mov [hdp_btlbl], si          ; label and DI its flags, so the record takes
-    mov [hdp_btflg], di          ; all three and the picture is identical
-    mov [hdp_btrec+OS88UI_BT_RECTS], bx
-    mov bx, hdp_btrec
-    mov al, 1
-    call os88ui_btn
-    pop bx
     pop ax
+    call hd_btn_draw            ; tool.inc's, at 13 rows
     pop di
-    pop si
     pop dx
     pop cx
     pop bx
