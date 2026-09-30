@@ -4687,67 +4687,91 @@ gfx_lock:
 ; -----------------------------------------------------------------------------
 gfx_unlock:
     CURLOG 'U'
+    push ax                     ; ONE SAVE FOR THE WHOLE ROUTINE: AX = 0 is
+                                ; the value half the stores below write, and
+                                ; the two calls that used to bracket their
+                                ; own push/pop (vid_ctx_act's AL, the clock's
+                                ; banked shape) spend it under this one
 %ifdef KERN_BIG
-    cmp byte [dws_hold], 0      ; A HELD STREAM ENDS WITH THE HOLD (SPEC.md
-    je .nohold                  ; 18.4.9): this is every way the user can reach
-    cmp byte [sch_cur], 0       ; the drive, dsk_batch's own argument below. The
-    jne .nohold                 ; UI task's unlock only - a worker's may not
-    call COLD_SEG:dwsf_commit   ; touch the disk (20.6 rule 7) - and first,
-.nohold:                        ; while the widget and the lock are still ours
+    cmp byte [sch_cur], 0       ; A HELD STREAM ENDS WITH THE HOLD (SPEC.md
+    jne .nohold                 ; 18.4.9): this is every way the user can reach
+    call COLD_SEG:dwsf_commit   ; the drive, dsk_batch's own argument below. The
+.nohold:                        ; UI task's unlock only - a worker's may not
+                                ; touch the disk (20.6 rule 7) - and first,
+                                ; while the widget and the lock are still ours.
+                                ; NO [dws_hold] TEST IN FRONT OF IT: dws_commit
+                                ; opens with its own `xchg al, [dws_hold]`, so
+                                ; the filter was 7 resident bytes to save ~180
+                                ; cycles on a UI-task unlock - once per event,
+                                ; against a handler priced in milliseconds
 %endif
-    mov word [wm_clip_n], 0
+    xor ax, ax
+    mov [wm_clip_n], ax
 %ifdef KERN_BIG
-    mov byte [gfx_b1ink], CWHITE ; ...and so does gfx_blit1's (SPEC.md 5.4.2.2),
-    mov byte [gfx_b1pap], CBLACK ; for the same reason one line down - the
-%ifdef BANDCOMP
-    mov byte [gfx_b1adp], 0      ; composer's polarity declaration with it
+    mov word [gfx_b1ink], CBLACK*256 + CWHITE ; ...and so does gfx_blit1's pen
+%ifdef BANDCOMP                 ; (SPEC.md 5.4.2.2), for the same reason one line
+    mov [gfx_b1adp], al         ; down - ONE store, the pair being adjacent
+%endif                          ; (the %error at its declaration) - and the
+                                ; composer's polarity declaration with it
+                                ; (SPEC.md 5.9.3.1): it is part of the pen and
+                                ; has exactly the pen's lifetime
 %endif
-                                 ; (SPEC.md 5.9.3.1): it is part of the pen and
-                                 ; has exactly the pen's lifetime
-%endif
-    mov byte [gfx_mono1], 0     ; ...and so does whose content this was
+    mov [gfx_mono1], al         ; ...and so does whose content this was
                                 ; (SPEC.md 11.96.17.1)
-    mov byte [gfx_dis], 0       ; the disabled pen dies with the lock, for the
+    mov [gfx_dis], al           ; the disabled pen dies with the lock, for the
                                 ; clip region's reason (SPEC.md 11.3/47): a
                                 ; site that forgets gfx_pen_live cannot leak
                                 ; dithered text into whatever draws next
+    mov [dsk_batch], al         ; ANY UNLOCKING OF THE USER INTERFACE ENDS A
+                                ; BATCH (SPEC.md 18.9.3). One store, and it is
+                                ; the whole safety argument: a caller cannot
+                                ; leave a bracket open across a moment when the
+                                ; user could reach the drive, because every way
+                                ; out of a locked run of kernel code - return,
+                                ; failure, a question, a swap prompt - comes
+                                ; through here. HERE rather than after the
+                                ; release so it can store AL: nothing below
+                                ; reads it (fpg_finish and the pointer draw),
+                                ; the held stream above has already committed
+                                ; inside the batch it was written under, and
+                                ; ending it a few instructions early is the
+                                ; conservative direction
 %ifdef KERN_BIG
-    push ax                     ; ...and so does the DISPLAY CONTEXT (SPEC.md
-    xor al, al                  ; 39.14.3). Nothing in 39.14 restores it any
-    call vid_ctx_act            ; more - the last display drawn on stays
-    pop ax                      ; current, so a repaint pays one swap instead
-                                ; of two per primitive - and this is what
-                                ; bounds that to one lock hold, exactly as the
-                                ; two stores above bound theirs. It is a
-                                ; compare and a branch when nothing moved
+    call vid_ctx_act            ; ...and so does the DISPLAY CONTEXT (SPEC.md
+                                ; 39.14.3), AL = 0 already. Nothing in 39.14
+                                ; restores it any more - the last display
+                                ; drawn on stays current, so a repaint pays one
+                                ; swap instead of two per primitive - and this
+                                ; is what bounds that to one lock hold,
+                                ; exactly as the stores above bound theirs. It
+                                ; is a compare and a branch when nothing moved
 %endif
     call fpg_finish             ; ANY UNLOCKING OF THE USER INTERFACE TAKES
                                 ; SPEC.md 12.8'S PROGRESS WIDGET DOWN
                                 ; (SPEC.md 12.8.3), and it is dsk_batch's
-                                ; argument below in the other direction: the
+                                ; argument above in the other direction: the
                                 ; freeze the widget reports IS this hold, so
                                 ; the hold is its extent and no caller can
                                 ; leave it on the bar - not by forgetting a
                                 ; bracket, not by returning early, not by a
                                 ; file operation that failed.
                                 ;
-                                ; HERE, and not below with the batch: it
+                                ; HERE, and not below with the release: it
                                 ; DRAWS, so it has to run while we still own
                                 ; the screen and the arrow is still down - and
                                 ; after the clip region above, or the fills
                                 ; that give the bed back would be cut by
                                 ; whatever region the hold happened to leave
-                                ; armed. It preserves the flags, which this
-                                ; routine's contract requires, and is a
-                                ; compare and a return on the unlocks that saw
-                                ; no file work, which is nearly all of them
+                                ; armed. It is a compare and a return on the
+                                ; unlocks that saw no file work, which is
+                                ; nearly all of them
     cmp byte [cur_shape], CUR_BUSYSH ; **AND THE CLOCK DIES WITH THE HOLD**
     jne .nowait                      ; (SPEC.md 7.5) - fpg_finish's argument
-    push ax                          ; above applied to the pointer's picture:
-    mov al, [cur_shprev]             ; the hold IS the busy, so the hold is the
-    call cur_shape_set               ; extent and no caller can leave one on
-    pop ax                           ; the screen. HERE, above the test below,
-.nowait:                             ; because cur_shape_set spends the promised
+    mov al, [cur_shprev]             ; above applied to the pointer's picture:
+    call cur_shape_set               ; the hold IS the busy, so the hold is the
+.nowait:                             ; extent and no caller can leave one on
+                                     ; the screen. HERE, above the test below,
+                                     ; because cur_shape_set spends the promised
                                      ; hide - which is what sends that test to
                                      ; cursor_show and draws the picture back.
                                      ; THE BANKED SHAPE, not the arrow plus a
@@ -4766,19 +4790,13 @@ gfx_unlock:
     CURLOG 'e'                  ; the promise SURVIVED: no show is owed
     call cur_lazyend            ; ...but the ISR could not move it all hold
 .rel:
-    mov byte [gfx_lock_own], 0xFF   ; owner first: a task switch between the
-                                    ; two stores must not show flag-free with
-                                    ; a stale owner still named
-    mov byte [gfx_lock_flag], 0
-    mov byte [dsk_batch], 0     ; ANY UNLOCKING OF THE USER INTERFACE ENDS A
-                                ; BATCH (SPEC.md 18.9.3). One store, and it is
-                                ; the whole safety argument: a caller cannot
-                                ; leave a bracket open across a moment when the
-                                ; user could reach the drive, because every way
-                                ; out of a locked run of kernel code - return,
-                                ; failure, a question, a swap prompt - comes
-                                ; through here. mov leaves the flags alone,
-                                ; which this routine's contract requires
+    mov word [gfx_lock_flag], 0xFF00 ; owner 0xFF and flag 0 in ONE store (the
+                                ; pair is adjacent - the %error at their
+                                ; declaration). It used to be two, owner first,
+                                ; so that a task switch between them could not
+                                ; show flag-free with a stale owner named; one
+                                ; instruction has no between
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------

@@ -4688,10 +4688,11 @@ cur_busy_no:                    ; ...and every refusal below, and the success
 cur_busy_on:
     push ax
 .go:
-    cmp byte [cur_shape], CUR_BUSYSH
+    mov ax, [cur_shape]         ; AL = the shape, AH = [cur_level]: the pair
+    cmp al, CUR_BUSYSH          ; is adjacent (the %error at the declaration)
     jne .fresh                  ; already wearing it: a package asked before it
-    cmp byte [cur_level], -1    ; touched a file, or the chrome armed earlier
-    jne .yes                    ; in this hold. Above everything else, so the
+    inc ah                      ; touched a file, or the chrome armed earlier
+    jnz .yes                    ; in this hold. Above everything else, so the
                                 ; second call is six instructions - UNLESS it
                                 ; is WORN AND DOWN (SPEC.md 7.5.3.2): a painter
                                 ; since the arm spent gfx_lock's promise, and
@@ -5523,6 +5524,10 @@ cur_hy      dw 0                ; cell that sits under the pointer. WORDS
                                 ; scratch register left to widen a byte in
 cur_shape   db CUR_ARROWSH      ; which shape that is - compared per UI pass,
                                 ; so the swap is what is rare, not the check
+cur_level   db -1               ; refcount; < 0 = hidden (boot state)
+%if cur_level - cur_shape != 1
+  %error "cur_shape/cur_level must stay adjacent: cur_busy_on reads the pair as ONE word (AL = shape, AH = level)"
+%endif
 cur_shprev  db CUR_ARROWSH      ; ...and what it was before the clock went
                                 ; on (SPEC.md 7.5). ONE BYTE rather than
                                 ; letting gfx_unlock restore the arrow and
@@ -5535,7 +5540,6 @@ cur_shchk   db 0                ; "the window under the pointer may have
                                 ; changed without the pointer moving": a
                                 ; raise, a hide, a destroy or a drag. One
                                 ; byte, the [fm_fchk] shape (SPEC.md 22.8)
-cur_level   db -1               ; refcount; < 0 = hidden (boot state)
 %ifndef NOCURDISK
 cur_barok   db 0                ; **THE PAINTER ON TASK (this - 1) IS CONFINED
                                 ; TO THE MENU BAR** (SPEC.md 7.4.3): the
