@@ -36450,7 +36450,7 @@ is why there is no path string anywhere in os8088."*
 directory sectors and four lines into its entry loop has `cmp al, '.'` / `je
 .skip`, so **neither `.` nor `..` is ever reported to a package** — on either
 cell, since `api_file_find` and `api_file_find_raw` join at `api_ff_fence` and
-differ in the size field alone. `OSAPI_FT_UP` exists because `dsk_synth_up`
+differ in the size field alone. `OSAPI_FT_UP` exists because `dsk_up_open`
 builds an up-entry for `disk_mount`'s **listing** (§19.5), a different
 structure a package cannot reach. `OSAPI_FILE_HERE` answers a cluster, and a
 cluster is not a path.
@@ -36725,7 +36725,7 @@ size column, first in both the list and the icon grid, and above the sort
 because it is placed before the scan runs (§19.4). Double-clicking it goes
 up, exactly like double-clicking any folder.
 
-**It is synthesized in the mount** (`dsk_synth_up`), for the same reason the
+**It is synthesized in the mount** (`dsk_up_open`), for the same reason the
 sort lives there: the Disk window, the Standard File dialog and every view
 cache read one snapshot, so putting the row in that snapshot gives all of
 them the same row from the same place. The dialog used to synthesize its own

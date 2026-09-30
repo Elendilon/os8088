@@ -1128,14 +1128,10 @@ dskw_chdir_dl:
 ; -----------------------------------------------------------------------------
 dskw_clok:
     cmp ax, 2
-    jb .bad
-    cmp ax, [dsk_maxclus]
-    ja .bad
-    clc
-    ret
-.bad:
-    stc
-    ret
+    jb .out                     ; CF = 1: below the first data cluster
+    cmp [dsk_maxclus], ax       ; CF = 1 exactly when AX is past the last -
+.out:                           ; the compare turned round, so the flag IS
+    ret                         ; the answer and needs no stc/clc arms
 
 %ifndef KD_BUILD                ; ...and the second band of the same pipeline
 
@@ -1166,7 +1162,6 @@ dskw_rt_scan:
 .sector:
     call dsk_dirw_get_x ; dsk_secbuf = the next sector (19.2.1)
     jnc .secok
-    or ax, ax
     jz .none                    ; the chain ended with nothing found
     jmp short .ioerr
 .secok:
@@ -1298,7 +1293,6 @@ dskw_isempty:
 .sector:
     call dsk_dirw_get_x ; dsk_secbuf = the next sector (19.2.1)
     jnc .secok
-    or ax, ax
     jz .empty                   ; the chain ended with nothing found
     jmp short .ioerr
 .secok:
@@ -3840,7 +3834,6 @@ dskw_find:
 .sector:
     call dsk_dirw_get_x ; dsk_secbuf = the next sector (19.2.1)
     jnc .secok
-    or ax, ax
     jz .noent                   ; the directory ended
     jmp short .ioerr
 .secok:

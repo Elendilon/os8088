@@ -3209,20 +3209,16 @@ disk_mount_x:
     ; driver's claim, so nothing below has to (SPEC.md 22.6).
     push ss
     pop es
-    xor bp, bp                  ; BP = accepted entry count
-    cmp word [dsk_cwd], 0
-    je .noup
-    call dsk_synth_up           ; in a subdirectory the listing OPENS with
-    xor ax, ax                  ; '..' (SPEC.md 19.5) - built before the scan
-    call dsk_put_dir            ; so the scan's entries land above it and the
-    mov bp, 1                   ; sort below never has to keep it in place
-.noup:
+    call dsk_up_open            ; BP = accepted entry count: in a subdirectory
+                                ; the listing OPENS with '..' (SPEC.md 19.5) -
+                                ; built before the scan so the scan's entries
+                                ; land above it and the sort below never has
+                                ; to keep it in place
     mov ax, [dsk_cwd]           ; the current directory (0 = root at mount;
     call dsk_dirw_start_x         ; dsk_chdir re-enters here, SPEC.md 19.2)
 .rootsec:
     call dsk_dirw_get_x           ; dsk_secbuf = the next directory sector
     jnc .rootok
-    or ax, ax
     jz .scan_done               ; ...the directory ended
     jmp .jfail                  ; ...as against a torn mount, which fails
 .rootok:
@@ -3566,7 +3562,7 @@ disk_mount_x:
                                 ; unreadable boot sector does and for the same
                                 ; reason: nothing below may run against a
                                 ; folder we are not standing in
-    mov [dsk_fsup], dx          ; the parent's handle, which dsk_synth_up
+    mov [dsk_fsup], dx          ; the parent's handle, which dsk_up_open
                                 ; spends - there is no '..' on a disk here to
                                 ; read one out of (62.9.1)
 
@@ -3591,16 +3587,14 @@ disk_mount_x:
                                 ; button read as a freeze rather than a failure
 
 .fslist:
-    mov ax, LOW_SEG             ; dsk_synth_up and dsk_put_dir both stage
+    mov ax, LOW_SEG             ; dsk_up_open stages
     mov es, ax                  ; through the kernel segment, so ES only has
-    xor bp, bp                  ; to hold something valid until .scan_done
-    cmp word [dsk_cwd], 0       ; reloads it from [dsk_dseg]
-    je .fsnoup
-    call dsk_synth_up           ; the parent link, type 3, opening the listing
-    xor ax, ax                  ; exactly as it does on a FAT volume - built
-    call dsk_put_dir            ; before the driver's entries so the sort below
-    mov bp, 1                   ; never has to keep it in place (19.5)
-.fsnoup:
+    call dsk_up_open            ; to hold something valid until .scan_done
+                                ; reloads it from [dsk_dseg]. The parent link,
+                                ; type 3, opens the listing exactly as it does
+                                ; on a FAT volume - built before the driver's
+                                ; entries so the sort below never has to keep
+                                ; it in place (19.5)
     mov [dsk_fsn], bp           ; THE DRIVER APPENDS AND THE KERNEL COUNTS
     mov byte [dsk_fslist], 1    ; (62.9.1). osapi_fs_ent is legal only between
     mov bp, FSV_LIST            ; these two stores, because an append outside a
@@ -4172,10 +4166,13 @@ dsk_sanit:
     ret
 
 ; -----------------------------------------------------------------------------
-; dsk_synth_up - build the parent-link entry '..' (module-internal, 19.5)
-; in:       [dsk_cwd] != 0 (the caller has checked it)
-; out:      dsk_ent = the 32-byte entry: name '..', TYPE 3, the parent's
-;           first cluster at +18, size 0. All registers preserved.
+; dsk_up_open - open a listing with the parent link '..' (module-internal,
+;               19.5): the mount's two listing paths, FAT and redirected
+; in:       nothing
+; out:      BP = the entries staged - 0 at the root; 1 in a subdirectory, the
+;           32-byte entry at listing index 0: name '..', TYPE 3, the parent's
+;           first cluster at +18, size 0
+; clobbers: AX, flags (dsk_ent)
 ;
 ; Type 3 is what makes this safe to put in the listing at all. It behaves
 ; like a folder everywhere that navigates and everywhere that draws, but it
@@ -4189,8 +4186,10 @@ dsk_sanit:
 ; entry at all. Losing the row would strand the user in a folder whose only
 ; way out is Root Folder, and the root is where Root Folder would take them.
 ; -----------------------------------------------------------------------------
-dsk_synth_up:
-    push ax
+dsk_up_open:
+    xor bp, bp
+    cmp word [dsk_cwd], 0
+    je .out                     ; the root has no parent
     push cx
     push di
     call dsk_ent_zero           ; the name's NUL padding and the unused tail
@@ -4208,7 +4207,10 @@ dsk_synth_up:
     mov [dsk_ent+18], ax
     pop di
     pop cx
-    pop ax
+    xor ax, ax                  ; ...at index 0
+    call dsk_put_dir
+    inc bp
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -6200,9 +6202,13 @@ osapi_dsk_cache_x:
 ; dsk_dirw_get - the next directory sector's CONTENTS (SPEC.md 19.2)
 ;
 ; out: CF=0 - AX = the sector's LBA, and dsk_secbuf holds its 512 bytes
-;      CF=1 with AX = 0 - the directory ends here (dsk_dirw_next's own CF)
-;      CF=1 with AX = 1 - a read failed; [dsk_ioerr] is int 13h's status
-; clobbers: AX (the output), CF
+;      CF=1, ZF=1, AX = 0 - the directory ends here (dsk_dirw_next's own CF)
+;      CF=1, ZF=0, AX != 0 - a read failed; [dsk_ioerr] is int 13h's status
+; clobbers: AX (the output), flags
+;
+; ZF IS PART OF THE ANSWER, so a caller that tells the two failures apart
+; writes `jnc` / `jz end` and no `or ax, ax` between them - five walks did,
+; at two bytes each.
 ;
 ; Every directory walk in the kernel used to be dsk_dirw_next followed by a
 ; one-sector disk_read into dsk_secbuf, spelled out at seven call sites. This
@@ -6226,15 +6232,13 @@ dsk_dirw_get_x:
 %endif
     call dsk_rd1_x
     pop ax
-    jc .ioerr
-    jmp short .out              ; CF = 0 from the `jc`
+    jnc .out
+    or al, 1                    ; a read failed: AX != 0 and ZF = 0
+    jmp short .stc
 .end:
-    xor ax, ax                  ; the directory ended...
-    stc
-    jmp short .out
-.ioerr:
-    mov ax, 1                   ; ...as against a read that failed
-    stc
+    xor ax, ax                  ; the chain ended: AX = 0 and ZF = 1
+.stc:
+    stc                         ; (and neither pop below writes a flag)
 .out:
     pop es
     pop dx
@@ -6302,7 +6306,6 @@ dsk_find_x:
 .sector:
     call dsk_dirw_get_x           ; dsk_secbuf = the next directory sector, and
     jnc .secok                  ; ES:DI stays the CALLER's buffer throughout
-    or ax, ax
     jz .jend
     jmp .ioerr
 .jend:                          ; a relay, .jfail1's device one routine along:
@@ -9021,7 +9024,7 @@ dsk_fsn:      resw 1            ; how many entries have been appended, parent
                                 ; the count is disk_nfiles' and a driver has
                                 ; no business holding it
 dsk_fsup:     resw 1            ; the current folder's PARENT handle, answered
-                                ; by FSV_CHDIR and spent by dsk_synth_up.
+                                ; by FSV_CHDIR and spent by dsk_up_open.
                                 ; Opaque: only the driver knows what it means,
                                 ; and there is no '..' on a disk to read it
                                 ; from
