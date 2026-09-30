@@ -1158,30 +1158,16 @@ dskw_rt_scan:
     push ss
     pop es
     mov ax, [dsk_cwd]
-    call dsk_dirw_start_x
-.sector:
-    call dsk_dirw_get_x ; dsk_secbuf = the next sector (19.2.1)
-    jnc .secok
-    jz .none                    ; the chain ended with nothing found
-    jmp short .ioerr
-.secok:
-    mov [dskw_cursec], ax       ; dskw_find's cell: dskw_hit reads it
-    mov si, dsk_secbuf
-    mov cx, 16                  ; entries per sector
-.entry:
-    mov al, [es:si]
-    test al, al
-    jz .none                    ; end of directory: nothing past it counts
-    cmp al, 0xE5
-    je .next                    ; a deleted entry
-    cmp al, '.'
-    jne .found
-    mov al, [es:si+1]           ; a dot link's second byte is the other dot
-    cmp al, '.'                 ; or a pad space (SPEC.md 18.6)
-    je .next
-    cmp al, ' '
-    je .next
+    call dskw_scan1             ; the walk is dskw_isempty's, shared
+    jnc .found
+    jz .none
+    mov byte [dskw_rt_ioerr], 1
+.none:
+    stc
+    jmp short .out
 .found:
+    mov [dskw_cursec], dx       ; ...and its high word is the walker's
+
     call dskw_hit               ; the WHOLE entry, and where it is - exactly
                                 ; as dskw_find does, so dskw_rt_zap can
                                 ; rewrite the slot without a name lookup
@@ -1195,15 +1181,6 @@ dskw_rt_scan:
     mov ax, [dskw_raw+DSK_R_CLUS]
     mov [dskw_rt_clus], ax
     clc
-    jmp short .out
-.next:
-    add si, 32
-    loop .entry
-    jmp short .sector
-.ioerr:
-    mov byte [dskw_rt_ioerr], 1
-.none:
-    stc
 .out:
     jmp dskw_find.out           ; the same six pushes in the same order, so
                                 ; dskw_find's pop run is this one's too
@@ -1284,52 +1261,74 @@ dskw_rt_zap:
 dskw_isempty:
     push bx
     push cx
+    push dx
     push si
     push es
     push ss
     pop es
     mov ax, [dskw_oldclus]
-    call dsk_dirw_start_x
-.sector:
-    call dsk_dirw_get_x ; dsk_secbuf = the next sector (19.2.1)
-    jnc .secok
-    jz .empty                   ; the chain ended with nothing found
-    jmp short .ioerr
-.secok:
-    mov si, dsk_secbuf
-    mov cx, 16                  ; entries per sector
-.entry:
-    mov al, [es:si]
-    test al, al
-    jz .empty                   ; end of directory: nothing past it counts
-    cmp al, 0xE5
-    je .next                    ; a deleted entry
-    cmp al, '.'
-    jne .occupied               ; anything that is not '.' or '..'
-    mov al, [es:si+1]           ; ...and a dot link's SECOND byte is the other
-    cmp al, '.'                 ; dot or a pad space. DOS never makes a name
-    je .next                    ; like '.XT     TXT', but a foreign disk may
-    cmp al, ' '                 ; carry one, and this module trusts nothing
-    jne .occupied               ; it reads (SPEC.md 18.6)
-.next:
-    add si, 32
-    loop .entry
-    jmp short .sector
-.empty:
-    clc
+    call dskw_scan1             ; the walk is dskw_rt_scan's, shared
+    cmc                         ; CF = 1 now means "something is in it"
+    jnc .none
+    mov ax, FERR_PROT           ; anything that is not '.' or '..'
     jmp short .out
-.occupied:
-    mov ax, FERR_PROT
-    stc
-    jmp short .out
-.ioerr:
+.none:
+    jz .out                     ; the chain ended with nothing found: CF = 0
     call dskw_ioerr             ; AX = FERR_IO / FERR_WPROT
     stc
 .out:
     pop es
     pop si
+    pop dx
     pop cx
     pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dskw_scan1 - the first LIVE entry of a directory: not free, not deleted,
+;              not '.' or '..' - the one walk dskw_isempty and dskw_rt_scan
+;              share, so "occupied" there and "nameable" here cannot disagree
+; in:  AX = the directory's first cluster (0 = the root), ES = SS
+; out: CF=0 - ES:SI -> the entry inside dsk_secbuf, DX = that sector's LBA
+;      (the walker holds its high word); CF=1, ZF=1 - there is none;
+;      CF=1, ZF=0 - a sector could not be read ([dsk_ioerr])
+; clobbers: AX, CX, DX, SI, flags
+;
+; A dot link's SECOND byte is the other dot or a pad space. DOS never makes a
+; name like '.XT     TXT', but a foreign disk may carry one, and this module
+; trusts nothing it reads (SPEC.md 18.6) - so such an entry is live.
+; -----------------------------------------------------------------------------
+dskw_scan1:
+    call dsk_dirw_start_x
+.sector:
+    call dsk_dirw_get_x         ; dsk_secbuf = the next sector (19.2.1)
+    jc .out                     ; ...and ZF says which failure it was
+    xchg dx, ax                 ; DX = its LBA
+    mov si, dsk_secbuf
+    mov cx, 16                  ; entries per sector
+.entry:
+    mov al, [es:si]
+    test al, al
+    jz .none                    ; end of directory: nothing past it counts
+    cmp al, 0xE5
+    je .next                    ; a deleted entry
+    cmp al, '.'
+    jne .live                   ; anything that is not '.' or '..'
+    mov al, [es:si+1]
+    cmp al, '.'
+    je .next
+    cmp al, ' '
+    jne .live
+.next:
+    add si, 32
+    loop .entry
+    jmp short .sector
+.live:
+    clc
+    ret
+.none:
+    stc                         ; ZF = 1 from the `test`, which is the answer
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
