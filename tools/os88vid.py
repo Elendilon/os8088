@@ -37,6 +37,7 @@ Change one and the other must change with it.
 """
 import argparse
 import os
+import re
 import struct
 import sys
 
@@ -268,26 +269,32 @@ def hidden_runs(ops, rmin=RUN_MIN):
     ~7 cycles a byte where a copy is ~13 (wave 0). Pieces keep their order
     and their addresses; nothing written changes."""
     out = []
+    # (the runs found by a regular expression, in C, where a byte at a
+    # time in Python was a third of the encoder: a run can only start
+    # where the value changes, and one starting inside a shorter group of
+    # its value is shorter still, so it finds exactly what that walk found)
+    find = _RUNS.get(rmin)
+    if find is None:
+        find = _RUNS[rmin] = re.compile(
+            b"(.)\\1{%d,}" % (rmin - 1), re.S).finditer
     for a, bs, run in ops:
         if run or len(bs) < rmin:
             out.append((a, bs, run))
             continue
-        i = 0
         start = 0
         n = len(bs)
-        while i < n:
-            j = i
-            while j < n and bs[j] == bs[i]:
-                j += 1
-            if j - i >= rmin:
-                if i > start:
-                    out.append((a + start, bs[start:i], False))
-                out.append((a + i, bs[i:j], True))
-                start = j
-            i = j
+        for m in find(bs):
+            i, j = m.span()
+            if i > start:
+                out.append((a + start, bs[start:i], False))
+            out.append((a + i, bs[i:j], True))
+            start = j
         if start < n:
             out.append((a + start, bs[start:], False))
     return out
+
+
+_RUNS = {}
 
 
 ABS_BELOW = 4                   # a cluster of fewer entries than this goes
@@ -2792,30 +2799,81 @@ def cycles_of(rec, planar=False, layout=None):
     and an absolute entry's extra address. A MODEX record's sub-records
     are decoded once each whatever their mask, and pay an OUT. `layout`
     picks another decoder's constants (CYC_LAYOUT)"""
-    fr, sg, ab, cp, csl, crn = cyc_table(layout)
-    c = [fr]
-
-    def write(k, di, m):
-        c[0] += ab if mode[0] else 0
-        if k <= L_P6:
-            c[0] += cp[k]
-        elif k in (L_SLICE, L_SLICEL):
-            c[0] += csl[0] + csl[1] * m
-        else:
-            c[0] += crn[0] + crn[1] * m
-
-    def seg(absolute):
-        c[0] += 0 if absolute else sg
-        mode[0] = absolute
-    mode = [False]
+    t = cyc_table(layout)
     if not planar:
-        walk_lists(bytearray(65536), rec, REC_HDR, write, seg)
-        return c[0]
-    si = REC_HDR
+        return _cycles_lists(rec, REC_HDR, t[0], t)[1]
+    c, si = t[0], REC_HDR
     while rec[si]:
-        c[0] += CYC_SUB
-        si = walk_lists(bytearray(65536), rec, si + 1, write, seg)
-    return c[0]
+        c += CYC_SUB
+        si, c = _cycles_lists(rec, si + 1, c, t)
+    return c
+
+
+def _cycles_lists(data, si, c, t):
+    """cycles_of's walk: walk_lists' over the ten lists at data[si:] -
+    the same entries, the same checks and the same sums in the same order
+    - with nothing written, where the encoder had a fresh 64 KB surface
+    written for every record it priced. -> (the index past them, c plus
+    their cycles)"""
+    fr, sg, ab, cp, csl, crn = t
+    nd = len(data)
+    mode = False
+    try:
+        for k in range(NLISTS):
+            short = k <= L_P6
+            slice_ = k in (L_SLICE, L_SLICEL)
+            len8 = k in (L_SLICE, L_RUN)
+            while True:
+                n = data[si]
+                si += 1
+                if n == 0:
+                    break
+                if n & 0x80:
+                    todo, absolute = n & 0x7F, True
+                else:
+                    todo, absolute = n, False
+                    di = data[si] | data[si + 1] << 8
+                    si += 2
+                c += 0 if absolute else sg
+                mode = absolute
+                for _ in range(todo):
+                    if absolute:
+                        di = data[si] | data[si + 1] << 8
+                        si += 2
+                    else:
+                        di += data[si]
+                        si += 1
+                    if short:
+                        m = k - L_P1 + 1
+                        si += m
+                    else:
+                        if len8:
+                            m = data[si]
+                            si += 1
+                        else:
+                            m = data[si] | data[si + 1] << 8
+                            si += 2
+                        if slice_:
+                            si += m
+                        else:
+                            data[si]        # (the value: there, or short)
+                            si += 1
+                    if si > nd:
+                        raise IndexError
+                    c += ab if mode else 0
+                    if short:
+                        c += cp[k]
+                    elif slice_:
+                        c += csl[0] + csl[1] * m
+                    else:
+                        c += crn[0] + crn[1] * m
+                    if di + m > 65536:
+                        raise V88Error("a write at %04x+%d wraps the segment"
+                                       % (di, m))
+                    di += m
+    except IndexError:
+        raise V88Error("the lists run off the end of their record")
+    return si, c
 
 
 # --------------------------------------------------------------------------
@@ -3095,6 +3153,9 @@ def _adpcm4_tables():
             nibt[q, j] = nib
     _A4.update(idx=idx, nibt=nibt,
                gidx=np.ascontiguousarray(idx.transpose(0, 2, 1)),
+               # (the same, arriving groups second: a step's cheapest way
+               # in is then an elementwise minimum across rows)
+               gidxt=np.ascontiguousarray(idx),
                sq=((r[None, :] - r[:, None]) ** 2).astype(np.int32))
     return _A4
 
@@ -3108,7 +3169,7 @@ def _adpcm4_viterbi(pcm, start, zeros, chunk=2048, end=None):
     survivor agrees, so the memory is a window and not the stream."""
     import numpy as np
     T = _adpcm4_tables()
-    idx, nibt, gidx, sq = T["idx"], T["nibt"], T["gidx"], T["sq"]
+    idx, nibt, gidxt, sq = T["idx"], T["nibt"], T["gidxt"], T["sq"]
     x = np.frombuffer(bytes(pcm), np.uint8).astype(np.int64)
     n = len(x)
     cap = np.full(n, 3, np.int64)
@@ -3143,9 +3204,11 @@ def _adpcm4_viterbi(pcm, start, zeros, chunk=2048, end=None):
         return path
 
     for t in range(n):
-        cand = cost[gidx]                           # (4, 256, G)
-        j = cand.argmin(axis=2)
-        best = cand.min(axis=2)
+        cand = cost[gidxt]                          # (4, G, 256)
+        best = cand.min(axis=1)
+        # the FIRST way in at that cost, as argmin's: about twice as fast
+        # as argmin over a short last axis, and the same choice
+        j = (cand == best[:, None, :]).argmax(axis=1)
         best += sq[x[t]]
         if cap[t] < 3:
             best[cap[t] + 1:, :] = INF
@@ -3174,8 +3237,13 @@ def _adpcm4_seg(args):
     return _adpcm4_viterbi(*args)
 
 
+ADPCM4_SEG = 88200         # adpcm4_search's segment, at most (8 s at 11 kHz)
+ADPCM4_SEG_MIN = 16384     # ...and at least, where there are more cores:
+                           # its lead is a quarter of that again
+
+
 def adpcm4_search(pcm, ref=ADPCM4_REF, scale=0, zeros=(), jobs=1,
-                  seg=88200, lead=4096):
+                  seg=None, lead=4096):
     """PCM8 -> ADPCM4 by EXACT SEARCH (Viterbi): the nibble sequence whose
     decode has the least total squared error, where adpcm4_encode picks
     each nibble for its own sample alone. The decoder has 1,024 states - a
@@ -3183,7 +3251,8 @@ def adpcm4_search(pcm, ref=ADPCM4_REF, scale=0, zeros=(), jobs=1,
     a sample. MEASURED on 12 s of Bad Apple's sound: 27.3 dB against the
     greedy encoder's 19.9. `zeros` as adpcm4_encode's.
 
-    ON `jobs` CORES the stream is cut into segments, and each is searched
+    ON `jobs` CORES the stream is cut into segments - a core's share of it,
+    from ADPCM4_SEG_MIN samples up to ADPCM4_SEG - and each is searched
     from `lead` samples BEFORE its cut, starting from any state: survivors
     merge within tens of samples, so over the lead its path becomes the one
     the whole search would have taken. The two are stitched at the latest
@@ -3198,6 +3267,9 @@ def adpcm4_search(pcm, ref=ADPCM4_REF, scale=0, zeros=(), jobs=1,
                        % len(pcm))
     n = len(pcm)
     s0 = (scale // 16) * 256 + ref
+    if seg is None:     # A SEGMENT A CORE: a clip whose sound is under two
+        seg = min(ADPCM4_SEG,   # of the long ones was searched on one
+                  max(ADPCM4_SEG_MIN, -(-n // max(1, jobs))))
     if jobs <= 1 or n <= 2 * seg:
         nibs, _ = _adpcm4_viterbi(pcm, s0, zeros)
     else:

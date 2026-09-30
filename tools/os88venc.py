@@ -895,7 +895,7 @@ class CompDitherer:
         d = ((self.yuv(c)[..., None, :] - self.pyuv) ** 2).sum(-1)
         return d.argmin(-1)
 
-    def __call__(self, rgb):
+    def raw(self, rgb):
         c = rgb.astype(float)
         h, cw = c.shape[:2]
         err = np.zeros_like(c)
@@ -908,9 +908,11 @@ class CompDitherer:
         lum = self.pyuv[cands, 0]
         rank = np.argsort(lum, axis=0, kind="stable")
         pick = np.take_along_axis(rank, self.t[None], 0)[0]
-        best = np.take_along_axis(cands, pick[None], 0)[0]
+        return np.take_along_axis(cands, pick[None], 0)[0]
+
+    def settle(self, rgb, best):
         if self.prev is not None and self.stable:
-            y = self.yuv(c)
+            y = self.yuv(rgb.astype(float))
             dp = ((y - self.pyuv[self.prev]) ** 2).sum(-1)
             db = ((y - self.pyuv[best]) ** 2).sum(-1)
             best = np.where(np.abs(dp - db) < self.stable ** 2, self.prev,
@@ -918,6 +920,9 @@ class CompDitherer:
         self.prev = best
         n = best.astype(np.uint8)
         return (n[:, 0::2] << 4) | n[:, 1::2]
+
+    def __call__(self, rgb):
+        return self.settle(rgb, self.raw(rgb))
 
 
 class CompDiffuser:
@@ -1016,10 +1021,9 @@ def comp_parallel(frames, w, h, a, jobs, per=150, tick=None):
     chunk's first frame dithered without a previous one - which costs that
     one frame the dead band, about a keyframe's worth every `per` frames -
     and at most `jobs` chunks in memory at once"""
-    import multiprocessing
     out = []
     look = not a.comp_quick
-    with multiprocessing.Pool(jobs) as pool:
+    with worker_pool(jobs) as pool:
         batch = []
 
         def flush():
@@ -1041,6 +1045,151 @@ def comp_parallel(frames, w, h, a, jobs, per=150, tick=None):
         if batch:
             flush()
     return out
+
+
+class Staged:
+    """A STAGED DITHERER, on every core with nothing changed. A ditherer's
+    frame is two stages: `raw`, the frame's own choice, which reads no
+    state - nearly all of the work - and `settle`, which weighs it against
+    what the LAST frame chose (the dead band, and a text cell's glyph) and
+    must go in order. So `raw` runs `jobs` frames at once in processes of
+    its own and `settle` here, and the frames come out exactly as one
+    process makes them - where cutting the clip into chunks (comp_parallel)
+    starts each chunk's dead band afresh. `d` is the ditherer, `post`
+    finishes a settled frame, and `part` picks from an item what `raw`
+    reads (an item may carry more: a text frame's OCR words)"""
+
+    def __init__(self, d, post=None, part=None, rest=None):
+        self.d, self.post, self.part, self.rest = d, post, part, rest
+
+    def raw(self, item):
+        return self.d.raw(self.part(item) if self.part else item)
+
+    def settle(self, item, r):
+        if self.part:
+            v = self.d.settle(self.part(item), r, *self.rest(item))
+        else:
+            v = self.d.settle(item, r)
+        return self.post(v) if self.post else v
+
+    def __call__(self, item):
+        return self.settle(item, self.raw(item))
+
+
+_DW = None
+
+
+def _dw_init(d):
+    global _DW
+    _DW = d
+
+
+def _dw_raw(f):
+    return _DW.raw(f)
+
+
+# the variables that size a numeric library's own thread pool: a worker
+# is one core, so its BLAS is one thread (eight workers of eight threads
+# each are slower than eight workers)
+ONE_THREAD = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+              "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS")
+
+
+class _Done(object):
+    def __init__(self, v):
+        self.v = v
+
+    def get(self, timeout=None):
+        return self.v
+
+    def wait(self, timeout=None):
+        pass
+
+    def ready(self):
+        return True
+
+
+class _InProcess(object):
+    """worker_pool's stand-in where a pool cannot be had - inside another
+    pool's worker, which may not start processes of its own: the same
+    calls, made here, in order"""
+
+    def __init__(self, init=None, args=()):
+        if init:
+            init(*args)
+
+    def apply_async(self, f, args=()):
+        return _Done(f(*args))
+
+    def map(self, f, it):
+        return [f(x) for x in it]
+
+    def terminate(self):
+        pass
+
+    close = join = terminate
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *x):
+        pass
+
+
+def worker_pool(jobs, init=None, args=()):
+    """`jobs` processes. FORKED on Linux, as this encoder's pools always
+    were, while this process has no other thread: a fork copies a thread's
+    locks mid-hold, so with one running (the OCR's readers) - and on the
+    systems where a fork is not the default at all - SPAWNED, each with
+    one thread of numeric library; a spawned worker imports the program
+    that started it, so a script calling encode() wants the usual
+    `if __name__ == "__main__"`. In a pool's worker (--aim quality's trial
+    encodes) the work is done in that worker instead: the same results,
+    one core each"""
+    import multiprocessing
+    import threading
+    if multiprocessing.current_process().daemon:
+        return _InProcess(init, args)
+    if sys.platform.startswith("linux") and threading.active_count() == 1:
+        return multiprocessing.get_context("fork").Pool(jobs, init, args)
+    ctx = multiprocessing.get_context("spawn")
+    saved = {k: os.environ.get(k) for k in ONE_THREAD}
+    for k in ONE_THREAD:
+        os.environ.setdefault(k, "1")
+    try:
+        return ctx.Pool(jobs, init, args)
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def dither_all(dith, items, jobs):
+    """dith(item) for every item, in order: a Staged ditherer's `raw` on
+    `jobs` processes, a few frames a process in flight, and its `settle`
+    here; anything else, or one job, here alone"""
+    if jobs <= 1 or not isinstance(dith, Staged):
+        for it in items:
+            yield dith(it)
+        return
+    from collections import deque
+    pool = worker_pool(jobs, _dw_init, (dith.d,))
+    try:
+        q = deque()
+        for it in items:
+            q.append((it, pool.apply_async(
+                _dw_raw, (dith.part(it) if dith.part else it,))))
+            if len(q) >= 2 * jobs:
+                it, r = q.popleft()
+                yield dith.settle(it, r.get())
+        while q:
+            it, r = q.popleft()
+            yield dith.settle(it, r.get())
+    finally:
+        pool.terminate()
+        pool.join()
 
 
 # --------------------------------------------------------------------------
@@ -1068,16 +1217,24 @@ class Vga8Ditherer:
         self.stable = stable
         self.prev = None
 
-    def __call__(self, rgb):
+    def raw(self, rgb):
+        """The frame's own choice, which reads no state (STAGED, below)"""
         f = rgb.astype(np.float32)
         q = np.clip(np.rint((f + self.t) * (31 / 255)), 0, 31).astype(
             np.int32)
-        idx = self.lut[(q[..., 0] << 10) | (q[..., 1] << 5) | q[..., 2]]
+        return self.lut[(q[..., 0] << 10) | (q[..., 1] << 5) | q[..., 2]]
+
+    def settle(self, rgb, idx):
+        """...and last frame's taken into account, in order"""
         if self.prev is not None and self.stable:
+            f = rgb.astype(np.float32)
             err = np.sqrt(((self.pal[self.prev] - f) ** 2).sum(2))
             idx = np.where(err < self.stable, self.prev, idx)
         self.prev = idx
         return idx
+
+    def __call__(self, rgb):
+        return self.settle(rgb, self.raw(rgb))
 
 
 class KnollDitherer(Vga8Ditherer):
@@ -1098,7 +1255,7 @@ class KnollDitherer(Vga8Ditherer):
         pal = self.pal
         self.luma = pal[:, 0] * 0.299 + pal[:, 1] * 0.587 + pal[:, 2] * 0.114
 
-    def __call__(self, rgb):
+    def raw(self, rgb):
         f = rgb.astype(np.float32)
         err = np.zeros_like(f)
         cands = []
@@ -1111,8 +1268,11 @@ class KnollDitherer(Vga8Ditherer):
         cands = np.stack(cands, -1)                     # (h, w, N)
         order = np.argsort(self.luma[cands], axis=-1, kind="stable")
         pick = np.take_along_axis(order, self.cell[..., None], -1)[..., 0]
-        idx = np.take_along_axis(cands, pick[..., None], -1)[..., 0] \
+        return np.take_along_axis(cands, pick[..., None], -1)[..., 0] \
             .astype(np.uint8)
+
+    def settle(self, rgb, idx):
+        f = rgb.astype(np.float32)
         if self.prev is not None and self.stable:
             # STABLE BY THE SOURCE: a pixel keeps its colour while what it
             # was chosen for has moved less than `stable` - a pattern's
@@ -1147,7 +1307,6 @@ class C512Ditherer:
 
     def __init__(self, w, h, card, amp, stable, mix=0, mstable=24.0):
         import os88cgacomp as cc
-        self.cc = cc
         cards = {vid.CARD_OLD: (False,), vid.CARD_NEW: (True,),
                  vid.CARD_BOTH: (False, True)}[card]
         self.labs = [cc.srgb2lab(cc.c512_palette(n)).astype(np.float32)
@@ -1198,7 +1357,10 @@ class C512Ditherer:
         cands = np.stack(cands, -1)                     # (h, w, mix)
         order = np.argsort(self.luma[cands], axis=-1, kind="stable")
         pick = np.take_along_axis(order, self.cell[..., None], -1)[..., 0]
-        best = np.take_along_axis(cands, pick[..., None], -1)[..., 0]
+        return np.take_along_axis(cands, pick[..., None], -1)[..., 0]
+
+    def pattern_settle(self, rgb, best):
+        f = rgb.astype(np.float32)
         if self.prev is not None and self.mstable:
             moved = np.sqrt(((f - self.at) ** 2).sum(2))
             keep = moved < self.mstable
@@ -1209,15 +1371,22 @@ class C512Ditherer:
         self.prev = best
         return best
 
-    def codes(self, rgb):
+    def raw(self, rgb):
         if self.mix >= 2:
             return self.pattern(rgb)
         t = np.clip(rgb.astype(np.float32) + self.t, 0, 255)
         q = np.clip(np.rint(t * (31 / 255)), 0, 31).astype(np.int32)
         qi = (q[..., 0] << 10) | (q[..., 1] << 5) | q[..., 2]
-        lab = self.cc.srgb2lab(t).astype(np.float32)
+        import os88cgacomp as cc
+        lab = cc.srgb2lab(t).astype(np.float32)
         c0, c1 = self.lut[0][qi], self.lut[1][qi]
         e0, e1 = self.cost(lab, c0), self.cost(lab, c1)
+        return lab, c0, c1, e0, e1
+
+    def codes(self, rgb, r):
+        if self.mix >= 2:
+            return self.pattern_settle(rgb, r)
+        lab, c0, c1, e0, e1 = r
         best = np.where(e1 < e0, c1, c0)
         eb = np.minimum(e0, e1)
         if self.prev is not None:
@@ -1232,12 +1401,15 @@ class C512Ditherer:
         self.prev = best
         return best
 
-    def __call__(self, rgb):
-        c = self.codes(rgb)
+    def settle(self, rgb, r):
+        c = self.codes(rgb, r)
         out = np.empty((c.shape[0], c.shape[1] * 2), np.uint8)
         out[:, 0::2] = np.where(c >= 256, 0x55, 0x13)
         out[:, 1::2] = c & 255
         return out
+
+    def __call__(self, rgb):
+        return self.settle(rgb, self.raw(rgb))
 
 
 PREFER_COLOUR = 1.0     # TextMatcher's --text-prefer-colour
@@ -1388,7 +1560,11 @@ class TextMatcher:
               2 * np.einsum("nxlc,nxlc->nx", mv, av) + PP[:, None])
         return self.wf * ef + self.wb * eb + self.pen[k]
 
-    def __call__(self, rgb, ocr=None):
+    def raw(self, rgb):
+        """Everything of a frame that reads no state (STAGED, below): the
+        prefilter's candidates and each priced exactly. `settle` puts last
+        frame's glyph among them - repricing only the cells it was not in,
+        each cell's price being its own - and chooses"""
         R, C = self.rows, self.cells
         f = self._sharp(rgb.astype(np.float32))
         if self.sat != 1:
@@ -1412,13 +1588,19 @@ class TextMatcher:
             self.pen[None, :] / max(self.wf, 1e-3)
         top = min(self.top, K)
         ks = np.argpartition(e0, top - 1, axis=1)[:, :top]     # (N, T)
-        if self.prev is not None:           # ...and last frame's, always,
-            ar = np.arange(N)               # in place of the least likely
-            worst = e0[ar[:, None], ks].argmax(1)
-            ks[ar, worst] = np.where((ks == self.prev[0][:, None]).any(1),
-                                     ks[ar, worst], self.prev[0])
+        # (the least likely, which last frame's glyph would stand in for)
+        worst = e0[np.arange(N)[:, None], ks].argmax(1)
+        st = (S, SS, GT, P, (P ** 2).sum((1, 2)))
+        e, fi, bi, A = self._price(st, ks)
+        return dict(st=st, ks=ks, worst=worst, e=e, fi=fi, bi=bi, A=A,
+                    t=t if self.ocr_exact or self.ocr_large else None)
+
+    def _price(self, st, ks):
+        """The glyphs `ks` (N, T) priced exactly in their colours: the
+        errors (N, X) and the colours (N, X), and st's per-glyph A"""
+        S, SS, GT, P, PP = st
+        N, top = ks.shape
         A = np.einsum("ntlq,nqc->ntlc", self.oh[ks], P)        # (N, T, 5, 3)
-        st = (S, SS, GT, P, (P ** 2).sum((1, 2)), A)
         ar = np.arange(N)
         cols = np.broadcast_to(np.arange(top), (N, top))
         if self.colour:
@@ -1445,9 +1627,28 @@ class TextMatcher:
             ax = np.repeat(cols, len(at), 1)
             fi = np.tile(at & 15, (N, top))
             bi = np.tile(at >> 4, (N, top))
-        e = self._err(st, kx, fi, bi, ax)
+        e = self._err(st + (A,), kx, fi, bi, ax)
+        return e, fi, bi, A
+
+    def settle(self, rgb, r, ocr=None):
+        R, C = self.rows, self.cells
+        ks, e, fi, bi, A = r["ks"], r["e"], r["fi"], r["bi"], r["A"]
+        st = r["st"]
+        N = ks.shape[0]
+        ar = np.arange(N)
+        if self.prev is not None:           # ...and last frame's, always,
+            pk0 = self.prev[0]              # in place of the least likely
+            new = np.nonzero(~(ks == pk0[:, None]).any(1))[0]
+            if len(new):
+                ks, e, fi, bi, A = (x.copy() for x in (ks, e, fi, bi, A))
+                ks[new, r["worst"][new]] = pk0[new]
+                e[new], fi[new], bi[new], A[new] = self._price(
+                    tuple(x[new] for x in st), ks[new])
+        st = st + (A,)
+        n = e.shape[1] // ks.shape[1]
         best = e.argmin(1)
-        eb, k, fg, bg = e[ar, best], kx[ar, best], fi[ar, best], bi[ar, best]
+        eb, fg, bg = e[ar, best], fi[ar, best], bi[ar, best]
+        k = ks[ar, best // n]
         if self.prev is not None and self.stable:
             pk, pf, pb = self.prev
             pa = (ks == pk[:, None]).argmax(1)
@@ -1462,6 +1663,7 @@ class TextMatcher:
         out = np.empty((R, C * 2), np.uint8)
         out[:, 0::2] = self.codes[k].reshape(R, C)
         out[:, 1::2] = ((bg << 4) | fg).astype(np.uint8).reshape(R, C)
+        t, SS = r["t"], st[1]
         if ocr:                         # ...and the words read off it, over
             flat = out.reshape(-1)      # it. prev stays the matcher's own,
             for w in ocr:               # so a word that goes goes cleanly
@@ -1471,6 +1673,9 @@ class TextMatcher:
                     flat[idx * 2], flat[idx * 2 + 1] = codes, attrs
                     self.ocr_used[1 if crisp else 0] += 1
         return out
+
+    def __call__(self, rgb, ocr=None):
+        return self.settle(rgb, self.raw(rgb), ocr)
 
     # a character is "about one cell" (--text-ocr) from half a cell to two
     # cells tall, and a third of a cell wide or more - wider is spread one
@@ -1728,6 +1933,9 @@ def cga4_pick(frames, bg=None, pal=None, bright=None):
                          frames[::step]]).astype(np.float32)
     if len(px) > 200000:
         px = px[::len(px) // 200000 + 1]
+    # each sample's distance to each of the sixteen, once: a palette's
+    # four are then columns of it, not 200,000 distances again each
+    dd = np.stack([((px - c) ** 2).sum(1) for c in std], 1)
     best = None
     for sel in range(0x80):
         if (sel & 0x60) == 0x60:
@@ -1737,8 +1945,7 @@ def cga4_pick(frames, bg=None, pal=None, bright=None):
                 (pal is not None and p != pal) or \
                 (bright is not None and bool(sel & 16) != bool(bright)):
             continue
-        cols = std[vid.cga4_colours(sel)]
-        d = ((px[:, None, :] - cols[None, :, :]) ** 2).sum(2).min(1).mean()
+        d = dd[:, list(vid.cga4_colours(sel))].min(1).mean()
         if best is None or d < best[0]:
             best = (d, sel)
     if best is None:
@@ -1842,6 +2049,65 @@ def span_cost(bs, run, layout=None):
     return c + 20, b
 
 
+def span_costs(pairs, layout=None):
+    """[span_cost(bs, run, layout) for bs, run in pairs], the model's table
+    fetched once rather than once a span - the same sums"""
+    fr, sg, ab, cp, csl, crn = vid.cyc_table(layout)
+    r0, r1 = crn
+    s0, s1 = csl
+    out = []
+    add = out.append
+    for bs, run in pairs:
+        n = len(bs)
+        if run or (n >= 7 and bs.count(bs[:1]) == n):
+            add((r0 + r1 * n + 20, 4 if n < 256 else 5))
+        elif n <= 6:
+            add((cp[n - 1] + 20, 1 + n))
+        else:
+            add((s0 + s1 * n + 20, 1 + n + (1 if n < 256 else 2)))
+    return out
+
+
+def by_mask(chosen, masks):
+    """[(mask, its spans sorted)] for each of `masks`, in that order - one
+    pass over the chosen, not one a mask"""
+    at = {m: [] for m in masks}
+    for m, a, bs, run in chosen:
+        if m in at:
+            at[m].append((a, bs, run))
+    return [(m, sorted(at[m])) for m in masks]
+
+
+def totals(costs):
+    """(cycles, bytes) of a frame's candidate writes, each summed in order"""
+    return sum(c for c, b in costs), sum(b for c, b in costs)
+
+
+def ranked(p, look):
+    """rank()'s order from the spans' priorities `p`: the highest first, a
+    tie to the later span - sorted((p, i), reverse=True)'s order - and, with
+    a look-ahead, none whose writing is worth nothing"""
+    i = np.arange(len(p))
+    o = np.lexsort((-i, -p))
+    if look:
+        o = o[p[o] > 0]
+    return o.tolist()
+
+
+def span_arrays(sp, costs, a_at=0):
+    """A frame's spans as arrays: address, length, cycles, bytes"""
+    n = len(sp)
+    return (np.fromiter((x[a_at] for x in sp), np.int64, n),
+            np.fromiter((len(x[a_at + 1]) for x in sp), np.int64, n),
+            np.fromiter((c for c, b in costs), np.float64, n),
+            np.fromiter((b for c, b in costs), np.float64, n))
+
+
+def per_budget(c, b, er, eb):
+    """Each span's share of the scarcer budget, as rank() divides by it"""
+    return np.maximum(c / max(er, 1.0), b / max(eb, 1.0))
+
+
 PRE_SECS = 2.0          # the longest the first picture may be held (98.2.9)
 SPLIT = 1024            # a span longer than this is cut when a frame is
 
@@ -1914,6 +2180,33 @@ class Budget:
     def spend(self, n):
         if self.per is not None:
             self.level -= n
+
+
+_BINOM = {}
+
+
+def _sum3_same():
+    """Whether this numpy's sum over a last axis of three is the plain
+    left-to-right one (it is a reduction, free to pair its terms): the
+    channels then add as three slices, bit for bit what sum(2) makes"""
+    if np is None:
+        return False
+    d = np.random.default_rng(88).random((64, 67, 3), dtype=np.float32)
+    return bool(np.array_equal(d.sum(2), d[..., 0] + d[..., 1] + d[..., 2]))
+
+
+_SUM3 = _sum3_same()
+
+
+def _binomial(r):
+    """The 2r+1 taps of a binomial low-pass, float32, summing to 1"""
+    k = _BINOM.get(r)
+    if k is None:
+        k = np.array([math.comb(2 * r, i) for i in range(2 * r + 1)],
+                     np.float32)
+        k /= k.sum()
+        _BINOM[r] = k
+    return k
 
 
 class Encoder:
@@ -2001,6 +2294,7 @@ class Encoder:
         self.blur_r = 1
         self.q_vis = self.q_wrong = self.q_flick = self.q_tflick = 0.0
         self.q_prev = self.q_tprev = (None, None)
+        self.tcache, self.scache = {}, None     # (tpix, spix)
 
     def begin(self):
         """A frame starts: the buckets fill, and WHEN the player will
@@ -2116,21 +2410,21 @@ class Encoder:
                 return [], vid.record([], g, audio)
         cyc_room = min(self.cpu.room(), self.ceil)
         byte_room = max(0.0, self.disk.room() - self.disk_floor())
-        costs = [span_cost(bs, run, g.layout) for a, bs, run in sp]
+        costs = span_costs(((bs, run) for a, bs, run in sp), g.layout)
+        tc, tb = totals(costs)
         order = None
         er = cyc_room - vid.cyc_table(g.layout)[0]
         eb = min(byte_room, REC_MAX - len(audio)) - REC_OVER
         for attempt in range(16 if self.live else 8):
-            tc = sum(c for c, b in costs)
-            tb = sum(b for c, b in costs)
             if tc <= er and tb <= eb:
                 chosen = sp
             else:
                 if order is None:
                     self.why(tc, tb, er, eb, cyc_room)
                     sp = split_big(sp)
-                    costs = [span_cost(bs, run, g.layout)
-                             for a, bs, run in sp]
+                    costs = span_costs(((bs, run) for a, bs, run in sp),
+                                       g.layout)
+                    tc, tb = totals(costs)
                     order = self.rank(target, sp, costs, er, eb)
                 chosen, uc, ub = [], 0, 0
                 for i in order:
@@ -2218,21 +2512,66 @@ class Encoder:
         most of the 8 x 8 Bayer tile, whose patterns it is to see past"""
         out = im.astype(np.float32)
         for axis, r in ((0, 2), (1, 2 * self.blur_r)):
-            k = np.array([math.comb(2 * r, i) for i in range(2 * r + 1)],
-                         np.float32)
-            k /= k.sum()
+            k = _binomial(r)
             pad = [(0, 0)] * out.ndim
             pad[axis] = (r, r)
             pp = np.pad(out, pad, mode="edge")
             n = out.shape[axis]
-            out = sum(k[i] * np.take(pp, range(i, i + n), axis=axis)
-                      for i in range(2 * r + 1))
+            # the taps summed in order, as sum() did - a view each rather
+            # than a copy, and one sum rather than a new one a tap
+            sl = [slice(None)] * out.ndim
+            sl[axis] = slice(0, n)
+            acc = k[0] * pp[tuple(sl)]
+            acc += 0                    # (sum()'s start: -0.0 is 0.0)
+            tmp = np.empty_like(acc)
+            for i in range(1, 2 * r + 1):
+                sl[axis] = slice(i, i + n)
+                np.multiply(k[i], pp[tuple(sl)], out=tmp)
+                acc += tmp
+            out = acc
         return out
+
+    def tpix(self, T):
+        """[T, pixels(T), blur of them]: a target's, made once - the
+        look-ahead weighs a target on each of the frames before it, and
+        the report on its own (the blur made when first asked for)"""
+        c = self.tcache.get(id(T))
+        if c is None or c[0] is not T:
+            c = self.tcache[id(T)] = [T, self.pixels(T), None]
+            while len(self.tcache) > self.look + 4:
+                del self.tcache[next(iter(self.tcache))]
+        return c
+
+    def tblur(self, T):
+        c = self.tpix(T)
+        if c[2] is None:
+            c[2] = self.blur(c[1])
+        return c[2]
+
+    def spix(self):
+        """...and the screen's: the report's, after a frame, is the
+        look-ahead's before the next - checked against a copy, as MODEX
+        writes its screen in place"""
+        c = self.scache
+        if c is None or not np.array_equal(c[0], self.screen):
+            c = self.scache = [self.screen.copy(), self.pixels(self.screen),
+                               None]
+        return c
+
+    def sblur(self):
+        c = self.spix()
+        if c[2] is None:
+            c[2] = self.blur(c[1])
+        return c[2]
 
     @staticmethod
     def dist(a, b):
         d = np.abs(a - b)
-        return d.sum(2) / 3.0 if d.ndim == 3 else d
+        if d.ndim != 3:
+            return d
+        if _SUM3:                       # (the same sum, ~7x as fast)
+            return (d[..., 0] + d[..., 1] + d[..., 2]) / 3.0
+        return d.sum(2) / 3.0
 
     def value(self, target):
         """PER PIXEL, what writing the target now is worth (98.2.1.2),
@@ -2249,14 +2588,14 @@ class Encoder:
         (The low-passed error's own gradient, which amplifies an edge, was
         tried first and measured WORSE: it starves a region of middling
         contrast for ever - 98.2.1.2.) None: no pixel form"""
-        S = self.pixels(self.screen)
+        S = self.spix()[1]
         if S is None:
             return None
-        T0 = self.pixels(target)
-        bS = self.blur(S) if self.vis else None
+        T0 = self.tpix(target)[1]
+        bS = self.sblur() if self.vis else None
         v = 0.0
         for k, T in enumerate([target] + self.future[:self.look]):
-            Tk = T0 if k == 0 else self.pixels(T)
+            Tk = T0 if k == 0 else self.tpix(T)[1]
             plain = self.dist(S, Tk) - self.dist(T0, Tk)
             if not self.vis:
                 v = v + plain
@@ -2266,7 +2605,7 @@ class Encoder:
             # 1 where the picture is wrong, near 0 where only the dither
             # pattern is. A swap is discounted to a quarter, never more,
             # so a pattern still converges; nothing is amplified
-            vis = self.dist(bS, self.blur(Tk)) / \
+            vis = self.dist(bS, self.tblur(T)) / \
                 np.maximum(self.blur(self.dist(S, Tk)), 1e-3)
             v = v + plain * np.clip(vis, 0.25, 1.0)
         return v
@@ -2303,11 +2642,12 @@ class Encoder:
         its error as seen, its pixels wrong, and its FLICKER - pixels that
         go back to what they were two frames ago, as a dither pattern
         swapping back and forth does"""
-        S = self.pixels(self.screen)
+        S = self.spix()[1]
         if S is None:
             return
-        T = self.pixels(target)
-        self.q_vis += float(self.dist(self.blur(S), self.blur(T)).mean())
+        T = self.tpix(target)[1]
+        self.q_vis += float(self.dist(self.sblur(), self.tblur(target))
+                            .mean())
         ne = S != T
         if ne.ndim == 3:
             ne = ne.any(2)
@@ -2339,13 +2679,9 @@ class Encoder:
         self.wv[:] = 0
         self.wv[self.idx] = bits * (1.0 + self.age / 8.0)
         cs = np.concatenate(([0.0], np.cumsum(self.wv)))
-        pri = []
-        for i, (a, bs, run) in enumerate(sp):
-            c, b = costs[i]
-            pri.append(((cs[a + len(bs)] - cs[a]) /
-                        max(c / max(er, 1.0), b / max(eb, 1.0)), i))
-        pri.sort(reverse=True)
-        return [i for p, i in pri if p > 0 or not self.look]
+        a, n, c, b = span_arrays(sp, costs)
+        return ranked((cs[a + n] - cs[a]) / per_budget(c, b, er, eb),
+                      self.look)
 
     def cost(self, rec):
         """A record's cycles in the model: its decode, and on a LIVE file
@@ -2405,22 +2741,22 @@ class EncoderX(Encoder):
             return [], vid.record([], g, audio)
         subs = vid.modex_subs(target.tobytes(), diff.ravel().tolist(), g)
         cand = [(m, a, bs, run) for m, sp in subs for a, bs, run in sp]
-        costs = [span_cost(bs, run) for m, a, bs, run in cand]
+        costs = span_costs((bs, run) for m, a, bs, run in cand)
+        tc, tb = totals(costs)
         cyc_room = min(self.cpu.room(), self.ceil) - self.prev_c
         byte_room = max(0.0, self.disk.room() - self.disk_floor())
         order = None
         er = cyc_room - vid.CYC_FRAME - 7 * vid.CYC_SUB
         eb = min(byte_room, REC_MAX - len(audio)) - REC_OVER - 7
         for attempt in range(8):
-            tc = sum(c for c, b in costs)
-            tb = sum(b for c, b in costs)
             if tc <= er and tb <= eb:
                 chosen = cand
             else:
                 if order is None:
                     self.why(tc, tb, er, eb, cyc_room)
                     cand = split_big(cand)
-                    costs = [span_cost(bs, run) for m, a, bs, run in cand]
+                    costs = span_costs((bs, run) for m, a, bs, run in cand)
+                    tc, tb = totals(costs)
                     order = self.rank(target, cand, costs, er, eb)
                 chosen, uc, ub = [], 0, 0
                 for i in order:
@@ -2430,9 +2766,7 @@ class EncoderX(Encoder):
                     chosen.append(cand[i])
                     uc += c
                     ub += b
-            ops = [(m, sorted((a, bs, run) for mm, a, bs, run in chosen
-                              if mm == m))
-                   for m in (0x0F, 0x03, 0x0C, 1, 2, 4, 8)]
+            ops = by_mask(chosen, (0x0F, 0x03, 0x0C, 1, 2, 4, 8))
             rec = vid.record(ops, g, audio, limit=65535)
             mc = vid.cycles_of(rec, True)
             if mc <= cyc_room and len(rec) - len(audio) <= byte_room and \
@@ -2469,14 +2803,13 @@ class EncoderX(Encoder):
             wv[(self.base[:, None] + np.arange(g.wb)).ravel()] = \
                 err[:, p::4].ravel()
             cs.append(np.concatenate(([0.0], np.cumsum(wv))))
-        pri = []
-        for i, (m, a, bs, run) in enumerate(cand):
-            c, b = costs[i]
-            wsum = sum(cs[p][a + len(bs)] - cs[p][a] for p in range(4)
-                       if m >> p & 1)
-            pri.append((wsum / max(c / max(er, 1.0), b / max(eb, 1.0)), i))
-        pri.sort(reverse=True)
-        return [i for p, i in pri if p > 0 or not self.look]
+        a, n, c, b = span_arrays(cand, costs, 1)
+        m = np.fromiter((x[0] for x in cand), np.int64, len(cand))
+        wsum = np.zeros(len(cand))      # the planes' in order, as sum() did
+        for p in range(4):
+            wsum = np.where(m >> p & 1, wsum + (cs[p][a + n] - cs[p][a]),
+                            wsum)
+        return ranked(wsum / per_budget(c, b, er, eb), self.look)
 
     def charge(self, rec, abytes):
         c = vid.cycles_of(rec, True)
@@ -2550,7 +2883,8 @@ class EncoderP(Encoder):
             return [], vid.record([], g, audio)
         cand = [(m, a, bs, run) for m, sp in self.subs(target)
                 for a, bs, run in sp]
-        costs = [span_cost(bs, run) for m, a, bs, run in cand]
+        costs = span_costs((bs, run) for m, a, bs, run in cand)
+        tc, tb = totals(costs)
         cyc_room = min(self.cpu.room(), self.ceil)
         byte_room = max(0.0, self.disk.room() - self.disk_floor())
         order = None
@@ -2558,15 +2892,14 @@ class EncoderP(Encoder):
         eb = min(byte_room, REC_MAX - len(audio)) - REC_OVER - 15
         masks = sorted({c[0] for c in cand}, key=lambda v: (v != 15, v))
         for attempt in range(8):
-            tc = sum(c for c, b in costs)
-            tb = sum(b for c, b in costs)
             if tc <= er and tb <= eb:
                 chosen = cand
             else:
                 if order is None:
                     self.why(tc, tb, er, eb, cyc_room)
                     cand = split_big(cand)
-                    costs = [span_cost(bs, run) for m, a, bs, run in cand]
+                    costs = span_costs((bs, run) for m, a, bs, run in cand)
+                    tc, tb = totals(costs)
                     order = self.rank(target, cand, costs, er, eb)
                 chosen, uc, ub = [], 0, 0
                 for i in order:
@@ -2576,8 +2909,7 @@ class EncoderP(Encoder):
                     chosen.append(cand[i])
                     uc += c
                     ub += b
-            ops = [(m, sorted((a, bs, run) for mm, a, bs, run in chosen
-                              if mm == m)) for m in masks]
+            ops = by_mask(chosen, masks)
             rec = vid.record(ops, g, audio, limit=65535)
             mc = self.cost(rec)
             if mc <= cyc_room and len(rec) - len(audio) <= byte_room and \
@@ -2614,13 +2946,11 @@ class EncoderP(Encoder):
         wv = np.zeros(65537, dtype=np.float64)
         wv[(self.base[:, None] + np.arange(g.wb)).ravel()] = byte.ravel()
         cs = np.concatenate(([0.0], np.cumsum(wv)))
-        pri = []
-        for i, (m, a, bs, run) in enumerate(cand):
-            c, b = costs[i]
-            wsum = (cs[a + len(bs)] - cs[a]) * bin(m).count("1") / 4.0
-            pri.append((wsum / max(c / max(er, 1.0), b / max(eb, 1.0)), i))
-        pri.sort(reverse=True)
-        return [i for p, i in pri if p > 0 or not self.look]
+        a, n, c, b = span_arrays(cand, costs, 1)
+        pc = np.fromiter((bin(x[0]).count("1") for x in cand), np.float64,
+                         len(cand))
+        wsum = (cs[a + n] - cs[a]) * pc / 4.0
+        return ranked(wsum / per_budget(c, b, er, eb), self.look)
 
     def charge(self, rec, abytes):
         c = self.cost(rec)
@@ -2633,7 +2963,73 @@ class EncoderP(Encoder):
 # --------------------------------------------------------------------------
 # the source
 # --------------------------------------------------------------------------
-def ffmpeg_video(src, w, h, crop_dar, fps_expr, start, end, eq, pix="gray"):
+AHEAD = 256 << 20       # the most frames read ahead while a pass runs
+
+
+class _Ahead(object):
+    """ffmpeg_video's frames READ AHEAD: ffmpeg started now and its output
+    read on a thread, up to `cap` bytes of frames, while this process does
+    something else - the levels pass, the palette's - so the decode is
+    done beside that pass rather than after it. The same frames, in the
+    same order; closed, ffmpeg goes with it (a cancel)"""
+
+    def __init__(self, cmd, shape, cap, src):
+        import queue
+        import threading
+        self.shape, self.src = shape, src
+        self.n = n = int(np.prod(shape))
+        self.q = queue.Queue(max(2, cap // max(1, n)))
+        self.stop = threading.Event()
+        self.p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+        self.t = threading.Thread(target=self._pump, daemon=True)
+        self.t.start()
+        self.done = False
+
+    def _pump(self):
+        import queue
+        while not self.stop.is_set():
+            b = self.p.stdout.read(self.n)
+            while not self.stop.is_set():
+                try:
+                    self.q.put(b, timeout=0.2)
+                    break
+                except queue.Full:
+                    pass
+            if len(b) < self.n:
+                return
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.done:
+            raise StopIteration
+        b = self.q.get()
+        if len(b) < self.n:
+            self.done = True
+            self.p.wait()
+            rc = self.p.returncode
+            self.close()
+            if rc:
+                raise vid.V88Error("ffmpeg failed on %s" % self.src)
+            raise StopIteration
+        return np.frombuffer(b, dtype=np.uint8).reshape(self.shape)
+
+    def close(self):
+        self.done = True
+        self.stop.set()
+        if self.p.poll() is None:
+            self.p.kill()
+        self.t.join()
+        self.p.stdout.close()
+        self.p.wait()
+
+
+def ffmpeg_video(src, w, h, crop_dar, fps_expr, start, end, eq, pix="gray",
+                 ahead=0):
+    """The frames, (h, w) grey or (h, w, 3) rgb24. `ahead`: started NOW
+    and read ahead up to that many bytes (_Ahead), for a pass to run
+    beside"""
     vf = []
     if crop_dar:
         vf.append("crop='if(gt(dar,%f),ih*%f*sar,iw)':'if(gt(dar,%f),ih,"
@@ -2650,8 +3046,14 @@ def ffmpeg_video(src, w, h, crop_dar, fps_expr, start, end, eq, pix="gray"):
         cmd += ["-t", "%.3f" % (end - (start or 0))]
     cmd += ["-an", "-vf", ",".join(vf), "-f", "rawvideo", "-pix_fmt", pix,
             "-"]
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
     ch = 3 if pix == "rgb24" else 1
+    if ahead:
+        return _Ahead(cmd, (h, w, 3) if ch == 3 else (h, w), ahead, src)
+    return _ffmpeg_frames(cmd, src, w, h, ch)
+
+
+def _ffmpeg_frames(cmd, src, w, h, ch):
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
     n = w * h * ch
     try:
         while True:
@@ -2838,6 +3240,15 @@ AIM_CUT = 0.05          # ...and cut this share more of its frames
 AIM_WORTH = 1.0         # --aim size's floor: pixels fixed a byte of stream
 
 
+def _trial(b):
+    """One --aim quality trial window: (error as seen, share cut)"""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        b.out = os.path.join(tmp, "t.V88")
+        res = _encode(b, None, lambda *x: None, [])
+    return res.get("q_vis", 0.0), res.get("cutf", 0.0)
+
+
 def aim_quality(a, tick, say):
     """--aim quality (98.2.1.4): what the budget can afford, found by
     TRYING it. Trial encodes of the clip (or three windows of a long one)
@@ -2846,7 +3257,6 @@ def aim_quality(a, tick, say):
     within AIM_ERR of the asked one's error as seen and cuts no more than
     AIM_CUT more of its frames. -> the args to encode with"""
     import copy
-    import tempfile
     dur = probe(a.src)[4] or 0.0
     end = a.end if a.end is not None else dur
     span = max(0.0, end - a.start)
@@ -2857,34 +3267,70 @@ def aim_quality(a, tick, say):
                  a.start + span * f + AIM_WINDOW / 2)
                 for f in (1 / 6.0, 0.5, 5 / 6.0)]
 
-    def trial(args):
-        errs, cuts = [], []
-        with tempfile.TemporaryDirectory() as tmp:
-            for i, (t0, t1) in enumerate(wins):
-                b = copy.copy(args)
-                b.start, b.end = t0, t1
-                b.out = os.path.join(tmp, "t%d.V88" % i)
-                b.quiet, b.preview_png, b.aim = True, None, "asked"
-                b.adpcm = "greedy"
+    jobs = a.jobs or os.cpu_count() or 1
+
+    def window(args, i):
+        b = copy.copy(args)
+        b.start, b.end = wins[i]
+        b.quiet, b.preview_png, b.aim = True, None, "asked"
+        b.adpcm = "greedy"
+        return b
+
+    def trials(argss):
+        """Each args' (error as seen, share cut), its windows averaged -
+        EVERY window of every one at once, `jobs` encodes at a time, each
+        in a process of its own (and one core: a pool's worker dithers in
+        itself). The numbers are one encode's each, whichever process made
+        them, so what is taken is what the trials one by one took"""
+        work = [window(x, i) for x in argss for i in range(len(wins))]
+        if jobs > 1 and len(work) > 1:
+            pool = worker_pool(min(jobs, len(work)))
+            try:
+                rs = [pool.apply_async(_trial, (b,)) for b in work]
+                for r in rs:
+                    while not r.ready():
+                        tick("prepare", 0, 0)   # (a cancel is heard)
+                        r.wait(0.2)
+                res = [r.get() for r in rs]
+            finally:
+                pool.terminate()
+                pool.join()
+        else:
+            res = []
+            for b in work:
                 tick("prepare", 0, 0)  # (a trial: the window waits)
-                res = _encode(b, None, lambda *x: None, [])
-                errs.append(res.get("q_vis", 0.0))
-                cuts.append(res.get("cutf", 0.0))
-        return sum(errs) / len(errs), sum(cuts) / len(cuts)
+                res.append(_trial(b))
+        out, k = [], len(wins)
+        for n in range(len(argss)):
+            errs = [e for e, c in res[n * k:(n + 1) * k]]
+            cuts = [c for e, c in res[n * k:(n + 1) * k]]
+            out.append((sum(errs) / len(errs), sum(cuts) / len(cuts)))
+        return out
 
     def fine(q, q0):
         return q[0] <= q0[0] * AIM_ERR + AIM_ERR0 and q[1] <= q0[1] + AIM_CUT
 
-    q0 = trial(a)
-    say("   aim quality: as asked, %.2f%% error as seen, %.0f%% of frames "
-        "cut" % (100 * q0[0], 100 * q0[1]))
     best = a
     lad = next((l for l in LADDERS if a.preset in l), None)
+    steps = []
     if lad and not a.box and not a.live:
         for p in lad[lad.index(a.preset) + 1:]:
-            b = copy.copy(best)
-            b.preset = p
-            q = trial(b)
+            b = copy.copy(a)            # (a step up is the asked settings
+            b.preset = p                # at the next preset: what copying
+            steps.append(b)             # the last one taken made)
+    # THE LADDER ON SPARE CORES: when every step's windows fit the cores at
+    # once they are all tried now, beside the asked settings, and taken or
+    # not in order as before - a step past one not taken is work wasted,
+    # which idle cores cost nothing
+    ahead = steps if jobs >= (1 + len(steps)) * len(wins) else []
+    got = trials([a] + ahead)
+    q0 = got[0]
+    say("   aim quality: as asked, %.2f%% error as seen, %.0f%% of frames "
+        "cut" % (100 * q0[0], 100 * q0[1]))
+    if steps:
+        for n, b in enumerate(steps):
+            p = b.preset
+            q = got[1 + n] if ahead else trials([b])[0]
             ok = fine(q, q0)
             say("   aim quality: %s, %.2f%% and %.0f%% - %s" % (
                 p, 100 * q[0], 100 * q[1], "taken" if ok else "not taken"))
@@ -2899,7 +3345,7 @@ def aim_quality(a, tick, say):
             not in ("none", "speaker") and rate < AIM_SOUND and not a.live:
         b = copy.copy(best)
         b.rate = AIM_SOUND
-        q = trial(b)
+        q = trials([b])[0]
         ok = fine(q, q0)
         say("   aim quality: %d Hz sound, %.2f%% and %.0f%% - %s" % (
             AIM_SOUND, 100 * q[0], 100 * q[1],
@@ -3106,13 +3552,22 @@ def _encode(a, keep, tick, readers):
                            "needs the cga layout")
     pattern = comp and a.comp_dither == "pattern"
     lw, lh = w // dw, h // dh           # what is made, before the repeat
+    tcol = None
+    if text:
+        tcol = a.text_colour or PRESET_DEFAULTS.get(a.preset, {}).get(
+            "text_colour", "colour")
+    # A PASS BEFORE THE FRAMES - the levels', or the palette's - reads the
+    # clip through once more, and the frames are read beside it
+    levels = a.levels == "auto" and not (vga8 or vga4 or cga4 or c160 or
+                                        c512 or (text and tcol == "colour"))
     frames = ffmpeg_video(              # (TEXT: eight by eight a cell)
         a.src, w // 4 if pattern else lw * 8 if text else lw,
         lh * 8 if text else lh, crop,
                           "%d/%d" % (rate, spf), a.start, a.end,
                           ":".join(eq),
                           "rgb24" if comp or vga8 or vga4 or cga4 or c160
-                          or c512 or text else "gray")
+                          or c512 or text else "gray",
+                          ahead=AHEAD if levels or vga8 else 0)
     # the frame count to expect, for the progress: the clip's length at the
     # file's rate (ffmpeg's own count can differ by a frame or two)
     est = max(1, round(((a.end or dur or 0) - (a.start or 0)) * fps)) \
@@ -3133,12 +3588,7 @@ def _encode(a, keep, tick, readers):
         say("   the SPEAKER: %.0f%% of the machine at %d Hz, so decode gets "
             "%.0f%% of a period on average, %.0f%% at most"
             % (100 * spk_share, rate, 100 * prof["avg"], 100 * prof["peak"]))
-    tcol = None
-    if text:
-        tcol = a.text_colour or PRESET_DEFAULTS.get(a.preset, {}).get(
-            "text_colour", "colour")
-    if a.levels == "auto" and not (vga8 or vga4 or cga4 or c160 or c512 or
-                                   (text and tcol == "colour")):
+    if levels:
         lo, hi = auto_levels(a.src, w, h, crop, a.start, a.end, ":".join(eq))
         say("   levels: grey %d..%d stretched to 0..255" % (lo, hi))
         frames = (stretch(f, lo, hi) for f in frames)
@@ -3152,10 +3602,10 @@ def _encode(a, keep, tick, readers):
             cgapal, " ".join(str(c) for c in cols)))
         pal6 = b"".join(vid.STD16[3 * c:3 * c + 3] for c in cols)
         k4 = KnollDitherer(lw, lh, pal6, a.vga4_stable)
-        dith = lambda f, k4=k4: pack_pixels(k4(f), 4)
+        dith = Staged(k4, post=lambda i: pack_pixels(i, 4))
     elif c160:
         k16 = KnollDitherer(lw, lh, vid.STD16, a.vga4_stable)
-        dith = lambda f, k16=k16: pack_pixels(k16(f), 2)
+        dith = Staged(k16, post=lambda i: pack_pixels(i, 2))
     elif text:
         cgapal = vid.TEXT_COLOUR if tcol == "colour" else vid.TEXT_MONO
         tm = TextMatcher(lw, lh, cgapal, a.text_glyphs, a.text_stable,
@@ -3163,7 +3613,7 @@ def _encode(a, keep, tick, readers):
                          top=16 if cgapal else 32,
                          prefer=a.text_prefer_colour, ocr_exact=a.text_ocr,
                          ocr_large=a.text_ocr_large)
-        dith = tm
+        dith = Staged(tm)
         if a.text_ocr or a.text_ocr_large:  # a copy of each frame to READ
             ocr = TextOCR(a.text_ocr_conf, a.text_ocr_every, a.jobs)
             big = ffmpeg_video(a.src, lw * OCR_CW, lh * OCR_CH, crop,
@@ -3171,7 +3621,8 @@ def _encode(a, keep, tick, readers):
                                ":".join(eq), "rgb24")
             readers.append(big)
             frames = zip(frames, ocr.words(big))
-            dith = lambda fw, tm=tm: tm(fw[0], fw[1])
+            dith = Staged(tm, part=lambda fw: fw[0],
+                          rest=lambda fw: (fw[1],))
             say("   OCR by tesseract: %s, a frame in %d read, %d at once, "
                 "confidence %g" % (
                     " and ".join(x for x, on in (
@@ -3189,24 +3640,24 @@ def _encode(a, keep, tick, readers):
                 if cgapal else ""))
     elif c512:
         cgapal = vid.CARD_BY_NAME[a.cga_card]
-        dith = C512Ditherer(lw, lh, cgapal, a.c512_dither, a.c512_stable,
-                            a.c512_mix, a.vga4_stable)
+        dith = Staged(C512Ditherer(lw, lh, cgapal, a.c512_dither,
+                                   a.c512_stable, a.c512_mix, a.vga4_stable))
         say("   C512 for %s CGA: %s" % (
             {"old": "the OLD", "new": "the NEW", "both": "either"}[
                 a.cga_card],
             "a pattern of %d codes" % a.c512_mix if a.c512_mix >= 2 else
             "dither %g, dead band %g" % (a.c512_dither, a.c512_stable)))
     elif vga4:
-        dith = KnollDitherer(lw, lh, vid.STD16, a.vga4_stable)
+        dith = Staged(KnollDitherer(lw, lh, vid.STD16, a.vga4_stable))
     elif vga8:
         palette = vga8_palette(a.src, lw, lh, crop, "%d/%d" % (rate, spf),
                                a.start, a.end, ":".join(eq),
                                lambda: tick("prepare", 0, 0))
         d8 = Vga8Ditherer(lw, lh, palette, a.vga8_dither, a.vga8_stable)
-        dith = d8 if dw == 1 else \
-            (lambda f, d8=d8: np.repeat(d8(f), dw, axis=1))
+        dith = Staged(d8, post=None if dw == 1 else
+                      (lambda i: np.repeat(i, dw, axis=1)))
     elif pattern:
-        dith = CompDitherer(w, h, a.mix, a.stable, n=a.levels_mix)
+        dith = Staged(CompDitherer(w, h, a.mix, a.stable, n=a.levels_mix))
     elif comp:
         dith = CompDiffuser(w, h, a.comp_stable, not a.comp_quick)
     else:
@@ -3276,13 +3727,12 @@ def _encode(a, keep, tick, readers):
         pcm = ffmpeg_audio(a.src, rate, a.start, a.end, a.volume) \
             if afmt else b""
     cyc, recs, n = [], [], 0
-    pend = []
-    if isinstance(dith, CompDiffuser) and (a.jobs or os.cpu_count() or 1) > 1:
-        pend = comp_parallel(frames, w, h, a, a.jobs or os.cpu_count(),
+    jobs = a.jobs or os.cpu_count() or 1
+    if isinstance(dith, CompDiffuser) and jobs > 1:
+        pend = comp_parallel(frames, w, h, a, jobs,
                              tick=lambda n: tick("read", n, est))
     else:
-        for grey in frames:
-            pend.append(dith(grey))
+        pend = list(dither_all(dith, frames, jobs))
     if text and (a.text_ocr or a.text_ocr_large):
         say("   OCR: %d words drawn exact, %d crisp (a word counts once a "
             "frame)" % tuple(tm.ocr_used))
@@ -3309,7 +3759,6 @@ def _encode(a, keep, tick, readers):
             "whole (%.2f s); the keyframes start there" % (pre, pre / fps))
     if keep is not None:            # the targets frame for frame, the
         keep.extend(pend)           # pre-roll's included
-    jobs = a.jobs or os.cpu_count() or 1
     tick("sound", 0, 0)
     # a RESIDENT file's ADPCM4 ends where its lap joins (98.1.7.2): the
     # seam's frame L, or 80h at scale 0 before frame 0
@@ -3588,8 +4037,10 @@ def parser():
     ap.add_argument("--adpcm", choices=("search", "greedy"), default="search",
                     help="ADPCM4's encoder: the exact search (~7 dB better, "
                          "about real time on four cores) or greedy")
-    ap.add_argument("--jobs", type=int, help="cores for the search "
-                    "(default: all)")
+    ap.add_argument("--jobs", type=int,
+                    help="cores to use (default: all): the dither, the ADPCM "
+                         "search and --aim quality's trials are spread over "
+                         "them")
     ap.add_argument("--volume", help="ffmpeg's volume= (e.g. 1.5, 3dB)")
     ap.add_argument("--spk-shape", choices=(SPK_ENC, SPK_MACH, SPK_NONE),
                     default=SPK_ENC,
@@ -3892,4 +4343,8 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # run as the MODULE, not as __main__: a worker pool pickles this file's
+    # functions and classes by name, and os88venc.X is a name any process
+    # can import however this one was started (a profiler, a launcher)
+    import os88venc
+    sys.exit(os88venc.main())
