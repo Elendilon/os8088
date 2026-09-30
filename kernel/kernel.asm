@@ -327,8 +327,10 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; made unreachable rather than merely unwanted: every route to an OPL2 or a
 ; Sound Blaster is a `[drv_svc + DSV_*]` read, and on a build that can load no
 ; driver that table is zero for the life of the machine. The PC SPEAKER is
-; untouched and stays on both kernels - tones, beeps and PCM clips all still
-; play - because it is resident code that needs no driver at all.
+; untouched and stays on both kernels - tones and beeps still play - because
+; it is resident code that needs no driver at all. (PCM CLIPS are kern_big's
+; since kernel size pass 8: their one caller reads its clip out of a driver's
+; grant, SPEC.md 34.4.1.)
 ;
 ; A SEPARATE symbol from OS88_DRIVERS, and not `%ifdef OS88_DRIVERS` reused,
 ; because the two are different claims: this one says "there is no card to

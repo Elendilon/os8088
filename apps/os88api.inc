@@ -476,8 +476,9 @@ KSC_ALT     equ 0x38             ; ...and Alt, which is a MODIFIER and so is
                                  ; OSAPI_SND_FM.
 
 ; capability bits returned by OSAPI_SND_CAPS (SPEC.md 34.2). TONE and
-; PCM_EXCL are the resident PC speaker's and are always there; the rest
-; appear only while a sound driver is loaded (SPEC.md 51.4).
+; PCM_EXCL are the resident PC speaker's - TONE always, PCM_EXCL on kern_big
+; (kern_small plays no clip, SPEC.md 34.4.1); the rest appear only while a
+; sound driver is loaded (SPEC.md 51.4).
 SND_CAP_TONE     equ 01h
 SND_CAP_FM       equ 02h
 SND_CAP_PCM_BG   equ 04h

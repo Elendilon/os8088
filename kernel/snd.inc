@@ -199,15 +199,18 @@ spk_tone:
 ; speaker door both open the PWM here.
 ; clobbers: AL
 ; -----------------------------------------------------------------------------
-spk_pwm_on:
+%ifdef KERN_BIG                 ; (kern_small plays no PWM at all: SPEC.md
+spk_pwm_on:                     ; 34.4.1 - only the tone's second half is its)
     mov al, 0x90
     out 0x43, al
+%endif
 spk_gate_on:
     in al, 0x61
     or al, 0x03
     out 0x61, al
     ret
 
+%ifdef KERN_BIG                 ; the clip is kern_big's (SPEC.md 34.4.1)
 ; =============================================================================
 ; The PC speaker PWM clip driver (SPEC.md 34.4, Phase 2)
 ; =============================================================================
@@ -244,6 +247,7 @@ spk_pcm_idle:
     pop dx                      ; driver, not a port write
     pop ax
     ret
+%endif
 
 ; =============================================================================
 ; The tone tier router (SPEC.md 34.3): one logical channel, single owner,
@@ -634,12 +638,13 @@ snd_unhook:
 ;           speaker is present (always), bit 1 = a sound driver is loaded
 ; clobbers: nothing else (flags)
 ;
-; Without OS88_SNDCARD (kern_small) the answer is a constant - the speaker's
-; caps, BL = 0, DX = 1 - because that build can drive nothing else.
+; Without OS88_SNDCARD (kern_small) the answer is a constant - SND_CAP_TONE,
+; BL = 0, DX = 1 - because that build can drive nothing else, and plays no
+; PWM clip (SPEC.md 34.4.1).
 ; -----------------------------------------------------------------------------
 osapi_snd_caps:
-    mov ax, SND_CAP_TONE | SND_CAP_PCM_EXCL
 %ifdef OS88_SNDCARD
+    mov ax, SND_CAP_TONE | SND_CAP_PCM_EXCL
     or ax, [drv_svc+DSV_CAPS]   ; ...plus whatever a loaded driver adds
     call snd_rt_card            ; BL = where a tone would go RIGHT NOW: 0 the
     sbb bl, bl                  ; speaker (CF = 1: -1 + 1), 1 the driver's
@@ -652,10 +657,11 @@ osapi_snd_caps:
                                 ; three instructions up, so DH is already 0)
 .out:
 %else
-    xor bl, bl                  ; SPEC.md 34.0: the speaker, and only ever the
-    mov dx, 1                   ; speaker. The SHAPE a package reads is the
-%endif                          ; same - it just cannot vary
-    ret
+    mov ax, SND_CAP_TONE        ; ...and no PCM_EXCL here: kern_small plays no
+    xor bl, bl                  ; clip (SPEC.md 34.4.1). SPEC.md 34.0: the
+    mov dx, 1                   ; speaker, and only ever the speaker. The SHAPE
+%endif                          ; a package reads is the same - it just cannot
+    ret                         ; vary
 
 ; -----------------------------------------------------------------------------
 ; osapi_snd_fm - the public FM request (slot 0x00E3, SPEC.md 20.3/34.2)
@@ -857,6 +863,7 @@ osapi_snd_tone:
 ; first instruction (instance.inc), so its callers reach the body directly.
 ; -----------------------------------------------------------------------------
 
+%ifdef KERN_BIG
 ; -----------------------------------------------------------------------------
 ; osapi_snd_play - slot 0x00DB (SPEC.md 34.4): the PWM CLIP'S DOOR. The clip
 ; itself - the rate, the rescale table, the pacer, the click-abort - is
@@ -946,6 +953,18 @@ osapi_snd_play:
     call sch_fast_on            ; 2 as the no-op a parked 0 wants
     dec byte [sch_lock]
     ret
+%else                           ; kern_small CANNOT PLAY A CLIP, and no
+osapi_snd_play equ osapi_snd_stream ; shipped caller can reach it there: the one
+                                ; package that plays clips is Recorder, which
+                                ; ships on the live media alone - a kern_big
+                                ; image - and whose clips come out of a sound
+                                ; DRIVER's grant, which kern_small cannot load
+                                ; (SPEC.md 34.4.1). So the door refuses as
+                                ; `mov ax, 4 / stc / ret` - "nothing can
+                                ; sound", the grant's own code 4 - which is
+                                ; osapi_snd_stream's kern_small body to the
+                                ; byte, and os88pcm_play hands that on
+%endif
 
 section .text
 
@@ -1109,12 +1128,14 @@ snd_inst:      resw 1           ; low byte: instance slot being dispatched
                                 ; that pre-empted it. A word for both reasons:
                                 ; the dispatch sites push/pop it whole
 
+%ifdef KERN_BIG
 snd_evtmp:     resb 8           ; the click-abort drain's scratch (evq_pop
                                 ; copies each record into DS memory); it was
                                 ; overlaid on the clip's 256-byte rescale
                                 ; table, which is the library's now (34.4)
 snd_pcm_fast:  resb 1           ; the fsx sub-tick parked across a clip
                                 ; (SPEC.md 53.2.1), GRANT to RELEASE
+%endif
 %ifdef KERN_BIG
 spk_seg:       resw 1           ; THE SAMPLE ISR's segment (34.11) - the
                                 ; caller's, while IRQ0's vector is its ISR;

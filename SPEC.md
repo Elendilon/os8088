@@ -58235,9 +58235,9 @@ and a driverless machine that answered 0 once handed Recorder a phantom
 grant whose buffer did not exist. `snd_str_busy` answers a constant "not
 busy", which is what no streaming sink means.
 
-**`osapi_snd_caps` keeps its shape and loses its variables**: `SND_CAP_TONE |
-SND_CAP_PCM_EXCL`, BL = 0 (a tone goes to the speaker), DX = 1 (the speaker
-is present, no driver is). A package reads the same three registers and
+**`osapi_snd_caps` keeps its shape and loses its variables**: `SND_CAP_TONE`
+(and no `SND_CAP_PCM_EXCL` since kernel size pass 8, §34.4.1), BL = 0 (a
+tone goes to the speaker), DX = 1 (the speaker is present, no driver is). A package reads the same three registers and
 tests them the same way.
 
 **What is left behind, deliberately.** `drv_svc` survives as 36 bytes of
@@ -58328,7 +58328,7 @@ There is no driver table any more — a table with one row is a lie about
 how much choice there is. `osapi_snd_caps` answers a **constant**:
 
 ```
-AX = SND_CAP_TONE | SND_CAP_PCM_EXCL   (01h | 08h)
+AX = SND_CAP_TONE | SND_CAP_PCM_EXCL   (01h | 08h; kern_small: 01h, §34.4.1)
 BL = 0        ; the tone sink is the speaker, and only the speaker
 DX = 1        ; bit 0: the speaker is present. It always is.
 ```
@@ -58567,6 +58567,21 @@ end.
   the §31.4 caption"; §31.4 is *Sound page — retired* and there is no
   caption to read it on. `checkdocs.py` cannot catch this: it checks that
   a cited heading EXISTS, not that it still describes anything.)
+
+#### 34.4.1 `kern_small` plays no clip
+
+**The clip door is `kern_big`'s** (kernel size pass 8). On `kern_small`
+`OSAPI_SND_PLAY` answers AX = 4, CF = 1 - the grant's own "nothing can
+sound" - with `osapi_snd_stream`'s refusing body, `osapi_snd_caps` answers
+`SND_CAP_TONE` without `SND_CAP_PCM_EXCL`, and `spk_pwm_on`, `spk_pcm_idle`
+and the door's nine bytes of state are not built: **173 resident bytes**.
+No shipped configuration loses anything. The one package that plays clips is
+Recorder, which ships on the live media alone - a `kern_big` image - and
+whose clips are read back out of a sound DRIVER's grant, which `kern_small`
+cannot load at all (§34.0). A `kern_big`-built package that calls
+`os88pcm_play` on the small kernel is told 4 in its own vocabulary and plays
+nothing, which is §20.8 rule 4's refusal. Tones and beeps are untouched: the
+tone path enters `spk_gate_on` below the PWM half.
 
 ### 34.5 Sound Blaster — back, as a driver
 
