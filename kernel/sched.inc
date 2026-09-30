@@ -207,8 +207,13 @@ SCH_FRAME   equ 24              ; saved-frame size: 9 regs + IP/CS/FLAGS
 %macro SCH_PARTITION 0
     SCH_SLOT 128                ; the sleepers. ONE of these is the idle task's
     SCH_SLOT 128                ; for as long as the machine is up, so two are
-    SCH_SLOT 128                ; really available: a Bounce, the
-                                ; sound driver's stream task. NOT a C package
+    SCH_SLOT 128                ; really available, and since SPEC.md 14.7
+                                ; took the Timer's task away Bounce is the one
+                                ; thing that asks for 128 (the sound driver's
+                                ; stream tasks ask SCH_DRV_STK = 192). Trading
+                                ; two of these for one 256 is costed and NOT
+                                ; taken: docs/plans/completed/STACK-SLOTS-PLAN.md
+                                ; 13. NOT a C package
                                 ; whose worker "only sleeps": CWORD's and
                                 ; RUNCPM's close the window from that worker,
                                 ; and wm_destroy repaints what it uncovered
