@@ -801,10 +801,6 @@ wm_dmg_bands:
     jg .next                            ; here - and an empty seed must not
     cmp bx, dx                          ; grow the bounding box either
     jg .next
-    mov [wm_cl_fx1], ax
-    mov [wm_cl_fy1], bx
-    mov [wm_cl_fx2], cx
-    mov [wm_cl_fy2], dx
     call wm_clip_add                    ; WM_CLIP_MAX is 16 and this appends at
                                         ; most VID_NDISP_MAX, so the full case
                                         ; is unreachable rather than handled
@@ -946,10 +942,6 @@ wm_dmg_bands:
     jg .next                            ; here - and an empty seed must not
     cmp bx, dx                          ; grow the bounding box either
     jg .next
-    mov [wm_cl_fx1], ax
-    mov [wm_cl_fy1], bx
-    mov [wm_cl_fx2], cx
-    mov [wm_cl_fy2], dx
     call wm_clip_add                    ; WM_CLIP_MAX is 16 and this appends at
                                         ; most VID_NDISP_MAX, so the full case
                                         ; is unreachable rather than handled
@@ -2767,30 +2759,33 @@ wm_rz_paint:
     call wm_rz_precover         ; SPEC.md 11.96.16.2, and BEFORE either branch
 %endif                          ; below puts a pixel anywhere
 
-    mov ax, [bx+W_X]            ; --- did the new rect swallow the old one?
-    cmp ax, [wm_rz_ox]
-    jg .dmg
-    mov ax, [bx+W_Y]
-    cmp ax, [wm_rz_oy]
-    jg .dmg
-    mov ax, [bx+W_X]
-    add ax, [bx+W_W]
-    mov cx, [wm_rz_ox]
-    add cx, [wm_rz_ow]
-    cmp ax, cx
-    jl .dmg
-    mov ax, [bx+W_Y]
-    add ax, [bx+W_H]
-    mov cx, [wm_rz_oy]
-    add cx, [wm_rz_oh]
-    cmp ax, cx
-    jl .dmg
-
-    mov si, bx                  ; --- and is there nothing above it?
-    call wm_top                 ; BX = the frontmost visible window
-    cmp bx, si
-    mov bx, si
+    mov si, bx                  ; SI = the window from here down
+    mov ax, [wm_rz_ox]          ; --- where it was, and where it is: the old
+    mov bx, [wm_rz_oy]          ; rect, one pixel wide at the far edges as the
+    mov cx, ax                  ; new one is, grown to cover the new - which
+    add cx, [wm_rz_ow]          ; is what a shrink owes, and it is the new
+    mov dx, bx                  ; rect EXACTLY when the new rect swallowed the
+    add dx, [wm_rz_oh]          ; old one
+    call wm_dmg_union           ; AX,BX,CX,DX = the union, shadow included
+    cmp ax, [si+W_X]            ; --- did the new rect swallow the old one?
     jne .dmg
+    cmp bx, [si+W_Y]
+    jne .dmg
+    push ax
+    add ax, [si+W_W]
+    cmp ax, cx
+    pop ax
+    jne .dmg
+    push bx
+    add bx, [si+W_H]
+    cmp bx, dx
+    pop bx
+    jne .dmg
+
+    call wm_top                 ; --- and is there nothing above it? BX = the
+    cmp bx, si                  ; frontmost visible window
+    mov bx, si
+    jne .dmgy                   ; (the union's y was W_Y, spent by the ask)
     push bp                     ; wm_draw_win takes "which window is FRONTMOST"
     mov bp, bx                  ; in BP, and this path has just proved we are
                                 ; it. Without this the title bar is drawn with
@@ -2806,35 +2801,10 @@ wm_rz_paint:
     call dock_paint
     jmp short .out
 
-.dmg:                           ; --- otherwise: where it was, and where it is
-    mov ax, [bx+W_X]
-    cmp ax, [wm_rz_ox]
-    jle .x1
-    mov ax, [wm_rz_ox]
-.x1:
-    mov si, [bx+W_Y]
-    cmp si, [wm_rz_oy]
-    jle .y1
-    mov si, [wm_rz_oy]
-.y1:
-    mov cx, [bx+W_X]
-    add cx, [bx+W_W]
-    mov dx, [wm_rz_ox]
-    add dx, [wm_rz_ow]
-    cmp cx, dx
-    jge .x2
-    mov cx, dx
-.x2:
-    mov dx, [bx+W_Y]
-    add dx, [bx+W_H]
-    mov bx, [wm_rz_oy]
-    add bx, [wm_rz_oh]
-    cmp dx, bx
-    jge .y2
-    mov dx, bx
-.y2:
-    mov bx, si                  ; AX,BX,CX,DX = the union, shadow included
-    call wm_paint_dmg
+.dmgy:
+    mov bx, [si+W_Y]
+.dmg:                           ; --- otherwise: the union, through the damage
+    call wm_paint_dmg           ; repaint
 .out:
     jmp kret_si
 
@@ -3726,10 +3696,7 @@ wm_hide:
     call wm_lk                  ; SPEC.md 11.101.2, and wm_su_take below is
     push ax                     ; exactly why: it BANKS the window going down
     call wm_hide_b
-    pop ax
-    call wm_unlk
-    pop ax
-    ret
+    jmp wm_lk_tail
 
 wm_hide_b:
     push ax
@@ -4423,10 +4390,7 @@ wm_front:
     call wm_lk                  ; SPEC.md 11.101.2
     push ax
     call wm_front_b
-    pop ax
-    call wm_unlk
-    pop ax
-    ret
+    jmp wm_lk_tail
 
 wm_front_b:
     test byte [bx+W_FLAGS], 2
@@ -4966,34 +4930,17 @@ wm_runion:
 ; Both rects include the 1px drop shadow, exactly as wm_obscured tests them.
 ; -----------------------------------------------------------------------------
 wm_win_hit:
-    push ax
-    push dx
-    mov ax, [si+W_X]            ; A.left > B.right?
-    mov dx, [di+W_X]
-    add dx, [di+W_W]
-    cmp ax, dx
-    jg .no
-    mov ax, [si+W_X]            ; A.right < B.left?
-    add ax, [si+W_W]
-    cmp ax, [di+W_X]
-    jl .no
-    mov ax, [si+W_Y]            ; A.top > B.bottom?
-    mov dx, [di+W_Y]
-    add dx, [di+W_H]
-    cmp ax, dx
-    jg .no
-    mov ax, [si+W_Y]            ; A.bottom < B.top?
-    add ax, [si+W_H]
-    cmp ax, [di+W_Y]
-    jl .no
+    push dx                     ; wm_win_over's arithmetic with A in DI, B in
+    push bx                     ; BX and B's far edges INCLUSIVE (k = 0), and
+    push di                     ; the answer the other way up
+    mov bx, di
+    mov di, si
+    xor dx, dx
+    call wm_ovl
+    cmc
+    pop di
+    pop bx
     pop dx
-    pop ax
-    stc
-    ret
-.no:
-    pop dx
-    pop ax
-    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -5690,34 +5637,50 @@ wm_geom:
 ; the sort of detail one of them would lose.
 ; -----------------------------------------------------------------------------
 wm_win_over:
-    push ax
     push dx
-    mov ax, [di+W_X]            ; above.x <= our right edge?
-    mov dx, [bx+W_X]
-    add dx, [bx+W_W]
-    cmp ax, dx
-    jge .no
-    mov ax, [di+W_X]            ; above right edge + shadow >= our left?
+    mov dx, 1                   ; BX's far edges EXCLUSIVE
+    call wm_ovl
+    pop dx                      ; a pop touches no flag
+    ret
+
+; -----------------------------------------------------------------------------
+; wm_ovl - the one overlap test behind wm_win_over and wm_win_hit
+; in:  DI = window A, BX = window B, DX = k: 1 = B's right and bottom edges
+;      are exclusive (wm_win_over), 0 = inclusive (wm_win_hit)
+; out: CF = 0 = A's rect, drop shadow included, reaches B's; CF = 1 = it does
+;      not. Every register preserved
+;
+; A.x > B.x + B.w - k, or A.x + A.w < B.x, and the same down the y axis, is
+; "clear". The two routines above were this arithmetic twice with the edge
+; rule the only difference - two opinions about what covers what, which is the
+; thing wm_win_over's header says must not exist.
+; -----------------------------------------------------------------------------
+wm_ovl:
+    push ax
+    mov ax, [bx+W_X]            ; A.left past B's right edge?
+    add ax, [bx+W_W]
+    sub ax, dx
+    cmp [di+W_X], ax
+    jg .no
+    mov ax, [di+W_X]            ; A's right edge + shadow short of B.left?
     add ax, [di+W_W]
     cmp ax, [bx+W_X]
     jl .no
-    mov ax, [di+W_Y]            ; above.y <= our bottom edge?
-    mov dx, [bx+W_Y]
-    add dx, [bx+W_H]
-    cmp ax, dx
-    jge .no
-    mov ax, [di+W_Y]            ; above bottom edge + shadow >= our top?
+    mov ax, [bx+W_Y]            ; A.top past B's bottom edge?
+    add ax, [bx+W_H]
+    sub ax, dx
+    cmp [di+W_Y], ax
+    jg .no
+    mov ax, [di+W_Y]            ; A's bottom edge + shadow short of B.top?
     add ax, [di+W_H]
     cmp ax, [bx+W_Y]
     jl .no
-    pop dx                      ; a pop touches no flag, so the clc/stc below
-    pop ax                      ; is what the caller reads
     clc
+    pop ax                      ; a pop touches no flag
     ret
 .no:
-    pop dx
-    pop ax
     stc
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -6516,113 +6479,95 @@ wm_clip_subr:                   ; ...and the walk, from those four words
 wm_clip_split:
     push ax
     push bx
-    mov ax, [si+WCR_X1]         ; the rect is about to be overwritten
-    mov [wm_cl_rx1], ax
-    mov ax, [si+WCR_Y1]
-    mov [wm_cl_ry1], ax
-    mov ax, [si+WCR_X2]
-    mov [wm_cl_rx2], ax
-    mov ax, [si+WCR_Y2]
-    mov [wm_cl_ry2], ax
+    push cx
+    push dx
+    push di
+    mov di, wm_cl_rx1           ; the rect is about to be overwritten: bank it
+    call wm_cpy4                ; (SI -> it; wm_cl_r* are x1,y1,x2,y2 in order)
 
-    mov ax, [wm_clip_n]         ; drop it: the last rect moves into its slot
-    dec ax                      ; (a self-copy when it WAS the last)
-    mov [wm_clip_n], ax
-    call wm_clip_ptr            ; BX -> the last rect
-    mov ax, [bx+WCR_X1]
-    mov [si+WCR_X1], ax
-    mov ax, [bx+WCR_Y1]
-    mov [si+WCR_Y1], ax
-    mov ax, [bx+WCR_X2]
-    mov [si+WCR_X2], ax
-    mov ax, [bx+WCR_Y2]
-    mov [si+WCR_Y2], ax
+    mov bx, [wm_clip_n]         ; drop it: the last rect moves into its slot
+    dec bx                      ; (a self-copy when it WAS the last)
+    mov [wm_clip_n], bx
+    shl bx, 1                   ; WCR_SZ is 8, and it is meant to stay 8
+    shl bx, 1
+    shl bx, 1
+    add bx, wm_clip_tab         ; BX -> the last rect
+    push si
+    mov di, si
+    mov si, bx
+    call wm_cpy4
+    pop si
 
     mov ax, [wm_cl_rx1]         ; above: full width, r.y1 .. o.y1-1
-    mov [wm_cl_fx1], ax
-    mov ax, [wm_cl_rx2]
-    mov [wm_cl_fx2], ax
-    mov ax, [wm_cl_ry1]
-    mov [wm_cl_fy1], ax
-    mov ax, [wm_cl_oy1]
-    dec ax
-    mov [wm_cl_fy2], ax
-    call wm_clip_add
+    mov bx, [wm_cl_ry1]
+    mov cx, [wm_cl_rx2]
+    mov dx, [wm_cl_oy1]
+    dec dx
+    call wm_clip_add            ; (which preserves every register)
     jc .full
-    mov ax, [wm_cl_oy2]         ; below: full width, o.y2+1 .. r.y2
-    inc ax
-    mov [wm_cl_fy1], ax
-    mov ax, [wm_cl_ry2]
-    mov [wm_cl_fy2], ax
+    mov bx, [wm_cl_oy2]         ; below: full width, o.y2+1 .. r.y2
+    inc bx
+    mov dx, [wm_cl_ry2]
     call wm_clip_add
     jc .full
 
-    mov ax, [wm_cl_ry1]         ; the band the occluder shares with us
-    cmp ax, [wm_cl_oy1]
+    mov bx, [wm_cl_ry1]         ; the band the occluder shares with us
+    cmp bx, [wm_cl_oy1]
     jge .my1
-    mov ax, [wm_cl_oy1]
+    mov bx, [wm_cl_oy1]
 .my1:
-    mov [wm_cl_fy1], ax
-    mov ax, [wm_cl_ry2]
-    cmp ax, [wm_cl_oy2]
+    mov dx, [wm_cl_ry2]
+    cmp dx, [wm_cl_oy2]
     jle .my2
-    mov ax, [wm_cl_oy2]
+    mov dx, [wm_cl_oy2]
 .my2:
-    mov [wm_cl_fy2], ax
-    mov ax, [wm_cl_rx1]         ; left of it
-    mov [wm_cl_fx1], ax
-    mov ax, [wm_cl_ox1]
-    dec ax
-    mov [wm_cl_fx2], ax
+    mov cx, [wm_cl_ox1]         ; left of it (AX is still r.x1)
+    dec cx
     call wm_clip_add
     jc .full
     mov ax, [wm_cl_ox2]         ; and right of it
     inc ax
-    mov [wm_cl_fx1], ax
-    mov ax, [wm_cl_rx2]
-    mov [wm_cl_fx2], ax
+    mov cx, [wm_cl_rx2]
     call wm_clip_add            ; ...whose CF is the answer, as each jc
 .full:                          ; above already carried it
+    pop di
+    pop dx
+    pop cx
     pop bx
     pop ax
     ret
 
 ; -----------------------------------------------------------------------------
-; wm_clip_add - internal: append wm_cl_f* to the list if it is non-empty
-; in:  wm_cl_fx1/fy1/fx2/fy2
-; out: CF = 1 the list is full (nothing appended)
-; clobbers: flags
+; wm_clip_add - internal: append a fragment to the list if it is non-empty
+; in:  AX = x1, BX = y1, CX = x2, DX = y2 (inclusive) - in REGISTERS, where it
+;      was staged through four words of .bss (wm_cl_f*) and read back
+; out: CF = 1 the list is full (nothing appended); every register preserved
 ; -----------------------------------------------------------------------------
 wm_clip_add:
-    push ax
-    push bx
-    mov ax, [wm_cl_fx1]
-    cmp ax, [wm_cl_fx2]
+    cmp ax, cx
     jg .empty
-    mov ax, [wm_cl_fy1]
-    cmp ax, [wm_cl_fy2]
+    cmp bx, dx
     jg .empty
-    mov ax, [wm_clip_n]
-    cmp ax, WM_CLIP_MAX
+    push di
+    mov di, [wm_clip_n]
+    cmp di, WM_CLIP_MAX
     jae .full
     inc word [wm_clip_n]
-    call wm_clip_ptr            ; BX -> the new slot
-    mov ax, [wm_cl_fx1]
-    mov [bx+WCR_X1], ax
-    mov ax, [wm_cl_fy1]
-    mov [bx+WCR_Y1], ax
-    mov ax, [wm_cl_fx2]
-    mov [bx+WCR_X2], ax
-    mov ax, [wm_cl_fy2]
-    mov [bx+WCR_Y2], ax
+    shl di, 1                   ; WCR_SZ = 8
+    shl di, 1
+    shl di, 1
+    add di, wm_clip_tab         ; DI -> the new slot
+    mov [di+WCR_X1], ax
+    mov [di+WCR_Y1], bx
+    mov [di+WCR_X2], cx
+    mov [di+WCR_Y2], dx
+    pop di
 .empty:
     clc
-    jmp short .out
+    ret
 .full:
+    pop di
     stc
-.out:
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -6656,20 +6601,11 @@ wm_dw_cull:
 .out:
     ret
 
-; -----------------------------------------------------------------------------
-; wm_clip_ptr - internal: clip-list index to rect pointer
-; in:  AX = index
-; out: BX = wm_clip_tab + index*WCR_SZ
-; clobbers: flags
-; -----------------------------------------------------------------------------
-wm_clip_ptr:
-    push cx
-    mov bx, ax
-    mov cl, 3                   ; WCR_SZ is 8, and it is meant to stay 8
-    shl bx, cl
-    add bx, wm_clip_tab
-    pop cx
-    ret
+; (wm_clip_ptr is gone: wm_clip_split and wm_clip_add scale the index
+; themselves, three `shl r, 1` apiece)
+%if WCR_SZ != 8 || WCR_X1 != 0 || WCR_Y1 != 2 || WCR_X2 != 4 || WCR_Y2 != 6
+  %error "a clip rect is four words x1,y1,x2,y2: the shl-by-three and wm_cpy4 in wm_clip_split say so"
+%endif
 
 ; -----------------------------------------------------------------------------
 ; wm_clip_test - may a whole rect be drawn?
@@ -10234,23 +10170,15 @@ wm_su_edge:
     cmp word [wm_su_dol], 0     ; the LEFT byte column as it is on screen now,
     jne .noleft                 ; over the RESTORED rect's rows only
     mov ax, [wm_su_x1]
-    mov bx, [wm_su_ey1]
-    mov cx, ax                  ; x2 = x1: one byte wide, whole bytes copied
-    mov dx, [wm_su_ey2]
     mov di, [wm_su_scr]
-    SU1ARM                      ; the scratch is sized to this cache's depth,
-    call gfx_save               ; so the read must be too - or gfx_save writes
-.noleft:                        ; four planes into one plane's room
+    call .col
+.noleft:
     cmp word [wm_su_dor], 0     ; ...and the right one
     jne .nomask
     mov ax, [wm_su_x2]
-    mov bx, [wm_su_ey1]
-    mov cx, ax
-    mov dx, [wm_su_ey2]
     mov di, [wm_su_scr]
     add di, [wm_su_nrow]
-    SU1ARM
-    call gfx_save
+    call .col
 .nomask:
     cmp word [wm_su_bpr], 1
     jne .two
@@ -10286,6 +10214,13 @@ wm_su_edge:
     pop ax
 .skip:
     ret
+.col:                           ; AX = the column's x, DI = its scratch
+    mov bx, [wm_su_ey1]
+    mov cx, ax                  ; x2 = x1: one byte wide, whole bytes copied
+    mov dx, [wm_su_ey2]
+    SU1ARM                      ; the scratch is sized to this cache's depth,
+    jmp gfx_save                ; so the read must be too - or gfx_save writes
+                                ; four planes into one plane's room
 
 ; wm_su_merge - ES:DI = the buffer byte to patch in the restored rect's FIRST
 ;               row of plane 0, ES:SI = the screen column, DL = the bits to
@@ -11690,10 +11625,6 @@ wm_an_i:    resw 1                  ; which frame
 wm_an_dl:   resw 2                  ; ...and when it is due to end
 wm_an_armed: resb 1                 ; 1 = wm_an_s is a caller's, not a centre
 %endif
-wm_cl_fx1:  resw 1                  ; wm_clip_add: the fragment to append
-wm_cl_fy1:  resw 1
-wm_cl_fx2:  resw 1
-wm_cl_fy2:  resw 1
 section .text
 ; rect_get/rect_put's named rects must be four ADJACENT words in x1,y1,x2,y2
 ; order (the helpers read and write [r], [r+2], [r+4], [r+6])
@@ -11709,3 +11640,4 @@ RECT4 wm_dmg_x1, wm_dmg_y1, wm_dmg_x2, wm_dmg_y2
 RECT4 wm_rz_ox, wm_rz_oy, wm_rz_ow, wm_rz_oh
 RECT4 wm_su_ex1, wm_su_ey1, wm_su_ex2, wm_su_ey2
 RECT4 wm_su_x1, wm_su_y1, wm_su_x2, wm_su_y2
+RECT4 wm_cl_rx1, wm_cl_ry1, wm_cl_rx2, wm_cl_ry2
