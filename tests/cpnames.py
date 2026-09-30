@@ -3,6 +3,7 @@
 31.1, 31.9)
 
     python3 tests/cpnames.py [machine]
+    python3 tests/cpnames.py hdd        # ...and a DRIVER's row, on os8088_xt_hdd
 
 Kernel size pass 8 moved the item table and every static list name into
 CTRL.DRV's image, and made the page HEADING - which is the same string - the
@@ -36,7 +37,9 @@ import os88sym                                             # noqa: E402
 import dispcp                                              # noqa: E402
 
 S = os88sym.linear
-MACHINE = sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_cga_gla"
+HDD = len(sys.argv) > 1 and sys.argv[1] == "hdd"
+MACHINE = ("os8088_xt_hdd" if HDD else
+           sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_cga_gla")
 DUMP = os.environ.get("CPNAMES_DUMP")     # a directory: the panel, per page,
                                          # for an A/B against another build
 
@@ -45,6 +48,8 @@ TITLE_H = 18
 CP_IX, CP_I0Y, CP_IROWH, CP_ITDY, CP_RX = 6, 6, 14, 2, 96
 CP_PMX, CP_PHY = 2, 6
 CP_DIVX = 90
+CP_IDRV, CP_DBY1, CP_DROWH, CP_RX = 2, 20, 26, 96  # the Drivers page (hddcp.py)
+HDD_ROW, HDD_PAGE = 1, "Hard Drive"     # drv_tab row 1; drivers/hdd's DSV_CPNAME
 
 # kernel/ctrl.inc's cp_items, kern_big's order (SPEC.md 31.14.2).
 NAMES = ["Scheduler", "Date/Time", "Drivers", "Display", "Sound", "Theme",
@@ -127,6 +132,26 @@ def main():
             if r not in lettered:
                 fails.append("%s: its list row never lettered the name"
                              % NAMES[r])
+        if HDD:
+            # A DRIVER's list name is staged too - cp_drv_name, out of the
+            # driver's own segment into cp_sbuf - and it is a different stager
+            # from a static row's. Tick the hard disk in on the Drivers page
+            # (hddcp.py's opening) and its page's row must letter.
+            dispcp.open_panel(m, mo, S, os88marty.settle, page=CP_IDRV)
+            wx, wy = dispcp._cp_win(m, S)
+            mo.click(wx + 1 + CP_RX + 40, wy + TITLE_H + 1 + CP_DBY1
+                     + HDD_ROW * CP_DROWH + CP_DROWH // 2)
+            os88marty.settle(m)
+            nst = m.read(S("cp_nst"), 1)[0]
+            _w, _h, rows = m.vram()
+            cx, cy = wx + 1, wy + TITLE_H + 1
+            at = find(rows, cx + CP_IX - 1, cy + CP_I0Y, CP_DIVX - CP_IX,
+                      CP_IROWH * 8, render(HDD_PAGE, tab))
+            print("  %-10s list    %s (a driver's page, row %d)"
+                  % (HDD_PAGE, at, nst))
+            if at is None:
+                fails.append("the hard disk's page row does not letter %r"
+                             % HDD_PAGE)
     for f in fails:
         print("FAIL: " + f)
     print("cpnames: %s" % ("FAIL" if fails else "ok"))

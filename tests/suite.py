@@ -6322,6 +6322,13 @@ SOAK = [
         "the framebuffer, per page. Red with the staging call removed (every"
         "name) and with the heading block removed (every page). Measured 16s",
         needs=("marty",), serial=True),
+    Row("cpnameshdd", "soak", py("tests/cpnames.py", "hdd"), 25.0,
+        "cpnames on os8088_xt_hdd, plus a DRIVER's row: the hard disk ticked in"
+        "on the Drivers page, and its page's list name - staged out of the"
+        "driver's segment by CTRL.DRV's cp_drv_name into cp_sbuf since kernel"
+        "size pass 8 - must letter. Red with the staging copy skipped."
+        "Measured 20s",
+        needs=("marty",), serial=True),
     Row("fddpage", "soak", py("tests/fddpage.py"), 20.0,
         "SPEC.md 31.14: does the Control Panel's Floppy page override the"
         "drive detection? Four drop-down picks by a real left-press gesture"

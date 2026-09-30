@@ -57340,11 +57340,14 @@ because the kernel does not repaint after it returns.
 
 Three things hold it up:
 
-- **The list name is STAGED into the kernel**, 12 bytes per class, at publish
-  time. `cp_list` draws it with `font_str` and `font_str` reads through DS; a
-  pointer into the driver's segment would render the driver's own image. It is
-  the `dsk_get_dir` idiom, in the place `drv_publish`'s retired `DSV_NAME`
-  staging always belonged. **It is also the line the panel's own strings are
+- **The list name is STAGED into the kernel segment**, at most 12 bytes
+  (`DRV_CPNSZ`), each time it is drawn. `cp_list` draws it with `font_run`,
+  which reads through DS; a pointer into the driver's segment would render the
+  driver's own image. It is the `dsk_get_dir` idiom. The stager is
+  `CTRL.DRV`'s `cp_drv_name` and the landing ground is the panel's own
+  `cp_sbuf`, since kernel size pass 8 - it was `driver.inc`'s resident
+  `drv_cp_name` with a 12-byte `.bss` buffer of its own, for a name only the
+  panel ever draws (−62 resident). **It is also the line the panel's own strings are
   drawn on** (§2.8.6): one reader, two possible segments. The *static* list
   names stayed in `.text` on that argument until kernel size pass 8, which
   staged them as well (§2.8.6.1): the reader is `cp_item_name`, it is in the

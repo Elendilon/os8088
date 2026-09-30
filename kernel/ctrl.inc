@@ -299,6 +299,9 @@ cp_wdirty:  db 0                ; 1 = a setting changed and SYSTEM.CFG is owed
                                 ; RECORD of it waits.
                                 ; .text and not .bss, like everything else
                                 ; here: nothing zeroes .bss (-f bin)
+%if cp_wdirty - cp_dirty != 1
+%error "ctrl: cp_repost sets [cp_dirty] and [cp_wdirty] with one word store"
+%endif
 cp_dsave:   db 0                ; the last SYSTEM.CFG write: 0 = fine, 1 =
                                 ; wrong disk in A:, 2 = the write failed. Said
                                 ; as a TOAST at the moment it happens (SPEC.md
@@ -1723,9 +1726,11 @@ cp_item_name:
     push ax
     call cp_drv_item
     jc .static
-    call COLD_SEG:drvf_drv_cp_name            ; the staged copy, so font_str can read it
-    pop ax
+%ifdef OS88_DRIVERS             ; (kern_small: cp_drv_item never answers
+    call cp_drv_name            ; CF = 0, there being no driver layer)
+    pop ax                      ; staged into cp_sbuf, so font_run can read it
     ret
+%endif
 .static:
     cmp al, CP_ITEMS            ; a vanished driver's row has no name; the
     jae .gone                   ; empty string letters as a blank row
@@ -1737,6 +1742,57 @@ cp_item_name:
     CPSTAGE cp_s_gone
     pop ax
     ret
+
+%ifdef OS88_DRIVERS
+; -----------------------------------------------------------------------------
+; cp_drv_name - a driver class's page name, staged (SPEC.md 31.9)
+; in:  AL = class
+; out: SI -> cp_sbuf, a NUL string in the kernel segment ('' if none)
+; clobbers: SI (the output), flags
+;
+; It was driver.inc's drv_cp_name, RESIDENT, with a 12-byte .bss buffer of
+; its own - for a name only this image ever draws. It stages into cp_sbuf
+; now, like every other name the list letters (kernel size pass 8), so the
+; buffer and the body both left the kernel.
+; -----------------------------------------------------------------------------
+cp_drv_name:
+    push ax
+    push cx
+    push di
+    push es
+    mov si, cp_sbuf             ; '' unless a PUBLISHED class names a page
+    mov byte [si], 0
+    call COLD_SEG:drvf_drv_cls_svc ; DI = this class's published table
+    jc .out
+    mov cx, [di+DSV_CPNAME]     ; the driver's own pointer, in ITS segment
+    jcxz .out
+    cbw                         ; AL = the class, 1..DRVC_MAX
+    xchg di, ax
+    shl di, 1
+    shl di, 1
+    mov es, [di + drv_fseg - 4] ; ...whose segment is the dispatch half - 0
+    mov di, es                  ; between drv_release's two clears
+    or di, di
+    jz .out
+    mov di, si
+    mov si, cx
+    mov cx, DRV_CPNSZ - 1
+.c:
+    mov al, [es:si]             ; ES:SI (the driver's) -> DS:DI (ours)
+    inc si
+    mov [di], al
+    inc di
+    or al, al
+    loopnz .c
+    mov byte [di], 0            ; the bound was hit: terminate what was copied
+    mov si, cp_sbuf
+.out:
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; cp_item_paint / cp_item_click - dispatch one row's page
@@ -2673,6 +2729,15 @@ cp_bemit:
 %endif
     ret
 
+; cp_repost - a setting that changes the WORLD: remembered on close (SPEC.md
+; 31.8), every window repainted by ui_task (SPEC.md 13) and said once (13.13).
+; [cp_dirty] and [cp_wdirty] are adjacent, so one word store sets both.
+; clobbers: nothing
+cp_repost:
+    mov word [cp_dirty], 0x0101
+    mov byte [ui_post], 1
+    ret
+
 ; cp_runp - cp_run at PANE-relative CX/DX: DI/BP are added first, so a caller
 ; names its row's offsets with two plain immediates. Falls into cp_run.
 ; out: CX/DX absolute, as cp_run's callers had them
@@ -2924,9 +2989,9 @@ cp_thm_click:
     cmp al, [thm_kind]
     je .done                    ; already live: change nothing
     call KERNEL_SEG:cw_thm_set
-    mov byte [cp_wdirty], 1     ; remembered on close (SPEC.md 31.8)
-    mov byte [cp_dirty], 1      ; ui_task repaints the world (SPEC.md 13)
-    mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
+    call cp_repost              ; remembered on close (SPEC.md 31.8)
+                                ; ui_task repaints the world (SPEC.md 13)
+                                ; ...and SAY SO once (SPEC.md 13.13)
     call cp_thm_radios
     jmp short .done
 
@@ -3231,9 +3296,9 @@ cp_dock_click:
     pop cx
     jmp short .done
 .changed:
-    mov byte [cp_wdirty], 1     ; remembered on close (SPEC.md 31.8)
-    mov byte [cp_dirty], 1      ; ui_task repaints the world (SPEC.md 13)
-    mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
+    call cp_repost              ; remembered on close (SPEC.md 31.8)
+                                ; ui_task repaints the world (SPEC.md 13)
+                                ; ...and SAY SO once (SPEC.md 13.13)
 .done:
     pop ax
     ret
@@ -3600,9 +3665,9 @@ cp_sched_click:
     je .done                    ; that row is already live: change nothing
     mov al, ah
     call KERNEL_SEG:sched_mode_set            ; live on the next tick (SPEC.md 8.2)
-    mov byte [cp_wdirty], 1     ; ...and remembered on close (31.8)
-    mov byte [cp_dirty], 1      ; ui_task step 3 repaints the About box's
-    mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
+    call cp_repost              ; ...and remembered on close (31.8)
+                                ; ui_task step 3 repaints the About box's
+                                ; ...and SAY SO once (SPEC.md 13.13)
                                 ; third line and any other mode-quoting
                                 ; window, outside the lock (SPEC.md 13)
     call cp_radios              ; the two glyph boxes only
@@ -4037,9 +4102,9 @@ cp_vid_click:
     mov al, [cp_vsel]
     call KERNEL_SEG:vid_switch
     jc .donej                   ; refused: the adapter went away under us
-    mov byte [cp_wdirty], 1     ; ...remembered on close (SPEC.md 31.8)
-    mov byte [cp_dirty], 1      ; ...and the whole screen is a new shape
-    mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
+    call cp_repost              ; ...remembered on close (SPEC.md 31.8)
+                                ; ...and the whole screen is a new shape
+                                ; ...and SAY SO once (SPEC.md 13.13)
 .donej:                         ; ...and SEVEN refusals share it
     jmp .done                   ; NEAR: 13.8.3's probe calls grew the body past
                                 ; a short jump's reach
@@ -4087,9 +4152,7 @@ cp_vid_click:
     jc .mref                    ; refused, and [vid_dmode] is Single again
     call KERNEL_SEG:vid_disp_relayout
     call COLD_SEG:exf_sync      ; Single: the image goes AFTER the collapse
-    mov byte [cp_wdirty], 1
-    mov byte [cp_dirty], 1
-    mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
+    call cp_repost              ; ...and SAY SO once (SPEC.md 13.13)
 %endif
     jmp short .done
 

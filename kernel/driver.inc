@@ -952,7 +952,9 @@ drv_t_eth:   db 'Ethernet', 0    ; a RAM disk is made of is what kern_small has
 ; and not one line of it changed.
 DRV_FPSZ    equ 4               ; bytes per class: offset + segment
 DRV_CPNSZ   equ 12              ; a staged Control Panel page name: the list
-                                ; column is 9 glyphs wide (SPEC.md 31.1)
+                                ; column is 9 glyphs wide (SPEC.md 31.1). The
+                                ; panel stages it into its own cp_sbuf now
+                                ; (ctrl.inc, cp_drv_name)
 ; THE OFFSET WORDS ARE NEVER WRITTEN. drv_publish writes [di+2] and
 ; drv_release writes `word [di+2], 0` - the SEGMENT half, both of them - so
 ; every drv_fptrN below holds PKG_DISP for the life of the machine.
@@ -2508,40 +2510,6 @@ drv_cp_class_x:
     ret
 
 ; -----------------------------------------------------------------------------
-; drv_cp_name - a class's staged page name
-; in:  AL = class
-; out: SI -> a NUL string in the kernel segment ('' if none)
-; clobbers: SI (the output), flags
-; -----------------------------------------------------------------------------
-drv_cp_name_x:
-    push ax
-    push cx
-    push di
-    push es
-    mov si, drv_cpname          ; '' unless a PUBLISHED class names a page
-    mov byte [si], 0
-    call drv_cls_svc_x          ; DI = this class's published table
-    jc .out
-    mov cx, [di+DSV_CPNAME]     ; the driver's own pointer, in ITS segment
-    jcxz .out
-    call drv_cls_fp_x           ; ...whose segment is the dispatch half
-    cmp word [di+2], 0          ; - 0 between drv_release's two clears
-    je .out
-    mov es, [di+2]
-    push si
-    mov di, si
-    mov si, cx
-    mov cx, DRV_CPNSZ - 1
-    call fm_ncpye               ; ES:SI (the driver's) -> DS:DI (ours), NUL
-    pop si
-.out:                           ; ...and drv_svc_clear's tail too, below
-    pop es
-    pop di
-    pop cx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; drv_svc_clear - forget an unloaded driver's services (module internal)
 ; in:  nothing
 ; out: nothing (all registers preserved)
@@ -2566,7 +2534,11 @@ drv_svc_clear:
     cld
     rep stosb
 .out:
-    jmp short drv_cp_name_x.out ; the same four pops, one routine up
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
 
 ; -----------------------------------------------------------------------------
 ; drv_svc_clear_all - forget every class's services (module internal)
@@ -4669,8 +4641,6 @@ drv_dlg_name: resb 14           ; the caller's default name, staged out of its
 %endif
 drv_owner:  resw DRVC_MAX       ; per class: the row whose services are
                                 ; published, or 0. Class 1 is index 0
-drv_cpname: resb DRV_CPNSZ      ; ONE staged Control Panel page
-                                ; name; empty = that class has no page
 drv_svc:    resb DSV_SIZE*(DRVC_MAX-1) ; ...and a copy of each one's table, so
                                 ; every `[drv_svc+DSV_*]` in snd.inc still
                                 ; names the SOUND driver's and did not change
@@ -4728,8 +4698,6 @@ drvf_drv_unload:         call drv_unload_x
 drvf_drv_tier:           call drv_tier_x
                     retf
 drvf_drv_load:           call drv_load_x
-                    retf
-drvf_drv_cp_name:        call drv_cp_name_x
                     retf
 drvf_drv_cp_class:       call drv_cp_class_x
                     retf
@@ -5062,7 +5030,6 @@ osapi_drv_classk_x:
 ; %ifdef through the middle of the Sound page, which stays.
 drvf_drv_cls_svc:
 drvf_drv_cp_class:
-drvf_drv_cp_name:
 drvf_drv_cp_call:
 drvf_drv_row:
 drvf_drv_tier:
