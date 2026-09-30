@@ -6314,6 +6314,14 @@ SOAK = [
         "flush the disk the guest wrote and boot IT. Two boots, which is why it"
         "is here and not in the gate",
         needs=("marty",), serial=True),
+    Row("cpnames", "soak", py("tests/cpnames.py"), 20.0,
+        "SPEC.md 2.8.6.1/31.9: do the Control Panel's list names and page"
+        "headings letter, now that the item table and every static name are"
+        "in CTRL.DRV's image and staged per draw, and the heading is drawn by"
+        "the dispatcher? Text rendered from font_glyphs and searched for in"
+        "the framebuffer, per page. Red with the staging call removed (every"
+        "name) and with the heading block removed (every page). Measured 16s",
+        needs=("marty",), serial=True),
     Row("fddpage", "soak", py("tests/fddpage.py"), 20.0,
         "SPEC.md 31.14: does the Control Panel's Floppy page override the"
         "drive detection? Four drop-down picks by a real left-press gesture"

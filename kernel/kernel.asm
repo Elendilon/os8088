@@ -2600,7 +2600,8 @@ OVL_AT      equ 2624            ; ...and it is ONE value for every build now.
 ; kernel a disk carries.
 ; ...and 144 on a knob build whose `.boot2` is the shipped loader's, which is
 ; every one but BOOTDIAG=1's (2,470 at the most, MOUDIAG=1's): SPEC.md 31.14's
-; ovl_fdd_apply took the shipped blob from 147 bytes spare to 20, and
+; ovl_fdd_apply took the shipped blob from 147 bytes spare to 20 (39
+; since kernel size pass 8 cut it 113 -> 94), and
 ; BOOTMARK=1's MARKW sites need 127 of a knob's give (BOOTHALT=20 131,
 ; DRVDIAG=1 with it 141). BOOTDIAG=1 keeps the 96 its own loader leaves room
 ; for (2,507 with MOUDIAG=1).
@@ -7948,7 +7949,7 @@ OVL_SIZE equ ovl_end - $$       ; `$$` is the SECTION's base, which is OVL_BASE
 ;               34 bytes of payload spare.
 ;
 ; So KERN_BIG binds this guard. The blob is the other home for a boot body:
-; since SPEC.md 2.5.3.3 put kmain's boot half in it, `.ovl` leaves 20 bytes
+; since SPEC.md 2.5.3.3 put kmain's boot half in it, `.ovl` leaves 39 bytes
 ; of it on kern_big (147 until SPEC.md 31.14's ovl_fdd_apply) and 42 on
 ; kern_small, so kern_big binds the blob too now. A KNOB
 ; build has DSK_OVLPAD's 1,024 more here, and 2.5.3.3.1 is what spends it.

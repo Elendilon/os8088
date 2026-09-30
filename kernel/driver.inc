@@ -888,9 +888,10 @@ DRV_BLOBE   equ 4               ; bytes per row above
 ; =============================================================================
 
 drv_f_sound: db 'SOUND.DRV', 0
-drv_t_sound  equ cp_s_snd       ; the Control Panel's Sound page is named for
+drv_t_sound: db 'Sound', 0      ; the Control Panel's Sound page is named for
                                 ; the class, so its heading is this row's
-                                ; title to the byte (ctrl.inc)
+                                ; title to the byte - the panel's own copy is
+                                ; in CTRL.DRV's image (ctrl.inc, cp_s_snd)
 drv_f_hdd:   db 'HDD.DRV', 0
 drv_t_hdd:   db 'Hard '         ; TWO LABELS OVER ONE `db`, and the second of
 fdlg_s_drive: db 'Drive', 0     ; them belongs to fdlg.inc - the Standard File
@@ -4120,16 +4121,16 @@ ovl_cfg_load:
 ; so the high byte is always 0 and the byte decides the word.
 ; -----------------------------------------------------------------------------
 ovl_fdd_apply:
-    mov al, [drv_cfg+CFG_FDR]
+    mov dx, [drv_cfg+CFG_FDD]   ; DL = the four drives, DH = the read bound
+    mov al, dh
     dec ax                      ; 1 Track -> 0, 2 Cylinder -> 1, 0 Auto -> FF
     cmp al, 1
     ja .drives                  ; Auto, or a byte from a future version
     mov [boot_cylrun], al       ; ...for every mount after this one
     mov [dsk_cylrun], al        ; ...and the one drv_boot is standing on
 .drives:
-    mov dl, [drv_cfg+CFG_FDD]
-    xor cx, cx                  ; CL = the unit, CH = 0 = DVK_BIOS below
-.unit:
+    xor cx, cx                  ; CX = a DV_KIND:DV_UNIT word - CL = DVK_BIOS,
+.unit:                          ; CH = the unit
     mov al, dl
     and al, 3
     jz .next                    ; Auto: what desk_init found stands
@@ -4139,50 +4140,46 @@ ovl_fdd_apply:
     mov bx, dsk_vtab + (DVOL_MAX-1)*DV_SIZE
     xor si, si                  ; SI = the free row, 0 = none
 .walk:
+    cmp [bx+DV_KIND], cx        ; DVK_BIOS AND this unit, in one compare
+    je .have
     cmp byte [bx+DV_KIND], DVK_FREE
-    jne .used
+    jne .down
     cmp bx, dsk_vtab + 2*DV_SIZE
     je .down
     mov si, bx
-    jmp short .down
-.used:
-    cmp [bx+DV_KIND], ch        ; DVK_BIOS...
-    jne .down
-    cmp [bx+DV_UNIT], cl        ; ...and this unit
-    je .have
 .down:
     sub bx, DV_SIZE
     cmp bx, dsk_vtab
     jae .walk
     cmp al, 1
     je .next                    ; None, and no row to hide
-    mov bx, si
+    xchg bx, si
     or bx, bx
     jz .next                    ; the table is full: detection stands
-    mov [bx+DV_UNIT], cl        ; dsk_flop_add_x's stores, less the two
-    mov [bx+DV_KIND], ch        ; zeros: no row has been freed by anything
+    mov [bx+DV_KIND], cx        ; dsk_flop_add_x's stores, less the two
+                                ; zeros: no row has been freed by anything
                                 ; that leaves DV_SECS or DV_LBL set by the time
                                 ; drv_boot runs - a free row is the
                                 ; initialiser's, or dsk_fdd_retire's, which
-                                ; zeroes both. DVK_BIOS published LAST
+                                ; zeroes both. ONE word store, so no interrupt
+                                ; can see the kind without the unit
 .have:
-    mov ah, [bx+DV_FLAGS]
-    and ah, ~(1 | DVF_525 | DVF_GUESS) & 0FFh
-    test al, 2
-    jz .set                     ; 1 None: no zone
-    or ah, 1                    ; 2 and 3: a zone...
-    test al, 1
-    jnz .set                    ; ...3.5"
-    or ah, DVF_525              ; ...5.25"
-.set:
-    mov [bx+DV_FLAGS], ah
+    and byte [bx+DV_FLAGS], ~(1 | DVF_525 | DVF_GUESS) & 0FFh
+    shr al, 1                   ; 1 None -> 0; 2 5.25" -> 1, CF 0; 3 3.5" -> 1, CF 1
+    jz .next                    ; None: no zone
+    sbb al, al
+    add al, al
+    add al, 1 | DVF_525         ; 5.25" -> a zone and DVF_525; 3.5" -> a zone
+    or [bx+DV_FLAGS], al
 .next:
+    inc ch
     shr dl, 1
     shr dl, 1
-    inc cx
-    cmp cl, 4
-    jb .unit
+    jnz .unit                   ; the units left are all Auto once DL is 0
     ret
+%if DV_UNIT != DV_KIND + 1 || DVK_BIOS != 0 || CFG_FDR != CFG_FDD + 1 || DVF_525 != 2
+%error "ovl_fdd_apply compares DV_KIND:DV_UNIT as one word against CL = DVK_BIOS = 0, loads CFG_FDD:CFG_FDR as one, and builds 1|DVF_525 as 3 - 2*CF"
+%endif
 
 ; -----------------------------------------------------------------------------
 ; drv_snd_sniff - is there an FM chip in this machine? (SPEC.md 51.3.1)

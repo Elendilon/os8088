@@ -361,61 +361,14 @@ cp_down:    db 0                ; which control is DRAWN pressed (0 = none).
                                 ; draws the held control held
 %endif
 
-; --- item table: one 8-byte record per panel item (SPEC.md 31.1) ------------
-; The 4th word is reserved (a future page onkey proc) and keeps the stride a
-; power of two, so index -> record is three shl-by-1s and no CL.
-CP_I_NAME   equ 0               ; -> list name, ASCIIZ
+; --- item table: one 6-byte record per panel item (SPEC.md 31.1) ------------
+; The TABLE is in CTRL.DRV's image, below (SPEC.md 31.1, 2.8.6): every reader
+; of it is a module body, so it is read [cs:] and stages its name.
+CP_I_NAME   equ 0               ; -> list name, ASCIIZ, IN THE IMAGE
 CP_I_PAINT  equ 2               ; -> page paint proc (in DI/BP = pane origin)
 CP_I_CLICK  equ 4               ; -> page click proc (in DI/BP, CX/DX = rel)
-CP_ISTRIDE  equ 8
+CP_ISTRIDE  equ 6
 
-; ANY ROW HERE MAY BE HIDDEN, AND ITS POSITION DOES NOT MATTER (SPEC.md
-; 31.10.1). Display is the one that is - a machine with one adapter has
-; nothing to choose between - and it USED to have to be last, because
-; [cp_sel] and every consumer of it indexed this table by the row's position
-; in the DRAWN LIST. Hiding a row in the middle then renumbered every row
-; below it, which is a second opinion about what the user clicked on at four
-; call sites, so "last" was doing real work and was a real constraint: it had
-; been spent here and by drv_tab's settings bitmap (SPEC.md 51.2.1), and
-; SPEC.md 41.12 nearly spent it a third time.
-;
-; The two spaces are separated now. [cp_sel] and every routine below name a
-; RECORD (an index into this table, stable for the life of the build);
-; cp_list and cp_pick work in VISIBLE ORDINALS, and cp_v2r is the one place
-; that converts. So [cp_hide] can carry a bit for any row, and the order here
-; is free.
-cp_items:
-    dw cp_s_sched, cp_sched_paint, cp_sched_click, 0
-    dw cp_s_time,  cp_time_paint,  cp_time_click,  0
-%ifdef OS88_DRIVERS             ; SPEC.md 51.0: kern_small can load no driver,
-    dw cp_s_drv,   cp_drv_paint,   cp_drv_click,   0
-%endif                          ; so the page has nothing to list and is not
-                                ; offered. The BODIES stay compiled - this
-                                ; image is a module on both builds, so gating
-                                ; them would move no resident byte and would
-                                ; put a %ifdef through the Sound page, which
-                                ; stays
-    dw cp_s_vid,   cp_vid_paint,   cp_vid_click,   0
-    ; THE ORDER IS THE LIST'S, and it is grouped (SPEC.md 31.14.2): Sound,
-    ; Theme and Dock are how the machine looks and sounds, so they stand
-    ; together; Floppy is LAST, so the first DRIVER page - the hard disk's,
-    ; DRVC_DISK being the lowest class that publishes one - lands directly
-    ; under it and the two disk pages read as a pair
-    dw cp_s_snd,   cp_snd_paint,   cp_snd_click,   0
-%ifdef OS88_THEME
-    dw cp_s_thm,   cp_thm_paint,   cp_thm_click,   0
-%endif
-%ifdef DOCK_OPT
-    dw cp_s_dock,  cp_dock_paint,  cp_dock_click,  0   ; SPEC.md 31.13
-%endif
-%ifdef OS88_DRIVERS             ; SPEC.md 31.14: the page is SYSTEM.CFG's, and
-    dw cp_s_fdd,   cp_fdd_paint,   cp_fdd_click,   0   ; kern_small reads none
-%endif
-cp_items_end:
-CP_ITEMS  equ (cp_items_end - cp_items) / CP_ISTRIDE
-%if CP_ITEMS > 8
-%error "ctrl: [cp_hide] is one byte, so the static list stops at eight rows"
-%endif
 CP_ITIME  equ 1                 ; the Date/Time item: ui.inc selects it by
                                 ; name when the menu bar clock is clicked
                                 ; (SPEC.md 12.1/31.5)
@@ -441,6 +394,10 @@ CP_ITHM   equ 5                 ; ...and Theme (SPEC.md 76.4)
 %ifdef DOCK_OPT
 CP_IDOCK  equ 6                 ; ...and Dock (SPEC.md 31.13)
 %endif
+CP_IFDD   equ 7                 ; ...and Floppy (SPEC.md 31.14), the LAST - the
+                                ; table is in the image, so a host tool that
+                                ; wants the record reads this equate rather
+                                ; than the table (tests/fddpage.py)
 %else
 CP_IVID   equ 2                 ; no Drivers row, so Display and Sound each
 CP_ISND   equ 3                 ; come up one (SPEC.md 51.0)
@@ -494,9 +451,7 @@ cp_hide:  db 0
 ; A FOURTH page does not fit CGA (see CP_CH), so the answer then is a
 ; scrolling list rather than another 14 rows of window. kern_small has no
 ; Dock page (SPEC.md 30.5), so its list still fits unscrolled.
-%if CP_ITEMS + 3 > (CP_CH - CP_I0Y) / CP_IROWH
-%error "ctrl: the item list can overflow its pane - grow CP_CH (SPEC.md 31.1)"
-%endif
+; The %error is beside cp_items, in the image: CP_ITEMS is known there.
 %endif
 
 ; List names are at most 9 characters (72px): the selection bar ends at
@@ -509,15 +464,11 @@ cp_hide:  db 0
 ; the ground the desktop is laid with. It changes no geometry and claims no
 ; memory, so the only thing a switch owes is a repaint - which is [cp_dirty],
 ; the flag that already means "every window has to be told".
-cp_s_thm:   db 'Theme', 0       ; list name AND the page heading, so RESIDENT
-                                ; (SPEC.md 31.9). The page's own strings are
-                                ; in the image, at cp_modstr below
+; The page's name - its list row and its heading - and its own strings are
+; in the image, at cp_modstr below (SPEC.md 31.9)
 %endif
 
-cp_s_sched: db 'Scheduler', 0   ; list name AND the page heading, so RESIDENT
 %ifdef OS88_DRIVERS
-cp_s_fdd:   db 'Floppy', 0      ; ...and the Floppy page's (SPEC.md 31.14)
-
 ; --- Floppy page (SPEC.md 31.14), PANE-relative ------------------------------
 ; Five rows of one shape - a label, then a drop-down box - at a pitch of 18:
 ; the four units a machine can claim (SPEC.md 18.98), then the read bound.
@@ -533,8 +484,6 @@ CPF_BX2   equ CPF_BX1 + 87      ; ...and right. 'Cylinder' plus the arrow
 CPF_CAPY  equ CPF_R0Y + 5*CPF_ROWH + 4  ; 114: the caption
 %endif
 %ifdef DOCK_OPT
-cp_s_dock:  db 'Dock', 0        ; ...and the Dock page's (SPEC.md 31.13)
-
 ; --- Dock page (SPEC.md 31.13), PANE-relative --------------------------------
 ; The Theme page's pitch and shape: a radio group, then a check box, then one
 ; caption line. On BOTH builds - the strip moves and hides on kern_small too,
@@ -562,7 +511,6 @@ CPK_AY2   equ CPK_AY + CP_GW + 3        ; 89  gap above it is dead (76.4's rule)
 ; The names are indexed by VID_* and so is everything else on this page - the
 ; kernel's own enum is the row order, which is what keeps the label, the dot,
 ; the click and vid_switch from ever disagreeing about which row is which.
-cp_s_vid:   db 'Display', 0     ; list name AND the page heading, so RESIDENT
 
 %ifdef KERN_BIG
 ; The DESKTOP line (SPEC.md 31.1.4): one row of three radios under the button.
@@ -650,14 +598,12 @@ CPV_MB2   equ CPV_MY + CP_GW + 3
 %endif
 
 ; --- Date/Time page (SPEC.md 31.5/37) ----------------------------------------
-cp_s_time:  db 'Date/Time', 0   ; list name AND the page heading
 
 ; --- Drivers page (SPEC.md 31.6/51) ------------------------------------------
 ; One row per drv_tab row: a checkbox, the driver's name, and - in the caption
 ; - what the last load attempt actually answered. The click loads or unloads
 ; ON THE SPOT and then writes SYSTEM.CFG, so the box is never a promise about
 ; the next boot: what it shows is what is running right now.
-cp_s_drv:   db 'Drivers', 0     ; list name AND the page heading
 ; Both 27 characters, which is the pane's limit: 222px of pane less CP_PMX,
 ; and font_str clips to the SCREEN and not to the pane (SPEC.md 5). The one
 ; string these replace was THIRTY, and painted through the window's right
@@ -731,9 +677,6 @@ CP_NOPEN  equ 2
 ; a Sound Blaster read 'Sound Blaster' with the DSP tier up and 'AdLib' with it
 ; down - the label moved as the setting moved, so the one control on the page
 ; could not be read as a choice between two things.
-cp_s_snd:   db 'Sound', 0       ; list name AND the page heading, so RESIDENT
-cp_s_gone:  db 0                ; the empty string: what a vanished driver's
-                                ; list row letters as (cp_item_name's guard)
 
 ; Date/Time geometry, PANE-relative: the date row above the time row, the
 ; +/- buttons in their own column to the right of both, and the clock's two
@@ -1654,19 +1597,22 @@ cp_pgact:
 ; cp_entry - item index -> item record
 ;
 ; in:  AL = item index (0..CP_ITEMS-1)
-; out: SI = record ptr
+; out: SI = the record's OFFSET in cp_items, so a field is
+;      [cs:si + cp_items + CP_I_*] - the table is in the image (SPEC.md 2.8.6),
+;      and naming it in the operand is what lets os88ovlchk see the cs:
 ; clobbers: nothing else (flags only)
-; CP_ISTRIDE is 8, so the multiply is three shl-by-1s: no CL to save, and no
-; 8086-illegal shl by an immediate count.
+; CP_ISTRIDE is 6: x2, +x, x2 - no CL to save, no multiply.
 ; -----------------------------------------------------------------------------
+%if CP_ISTRIDE != 6
+%error "ctrl: cp_entry multiplies by 6 (SPEC.md 31.1)"
+%endif
 cp_entry:
     push ax
     mov ah, 0
     mov si, ax
     shl si, 1
+    add si, ax
     shl si, 1
-    shl si, 1
-    add si, cp_items
     pop ax
     ret
 
@@ -1842,11 +1788,11 @@ cp_item_name:
     cmp al, CP_ITEMS            ; a vanished driver's row has no name; the
     jae .gone                   ; empty string letters as a blank row
     call cp_entry
-    mov si, [si + CP_I_NAME]
+    CPSTAGEX cp_items + CP_I_NAME ; staged: the name is the image's (2.8.6)
     pop ax
     ret
 .gone:
-    mov si, cp_s_gone
+    CPSTAGE cp_s_gone
     pop ax
     ret
 
@@ -1879,7 +1825,19 @@ cp_item_paint:
     cmp al, CP_ITEMS            ; a vanished driver's row paints nothing -
     jae .done                   ; unreachable while cp_drv_gone_x clamps
     call cp_entry               ; [cp_sel] at detach, and checked anyway
-    call [si + CP_I_PAINT]
+    push si
+    ; THE HEADING IS THE LIST NAME (SPEC.md 31.9), so it is drawn HERE, once,
+    ; for every static page, rather than by eight page bodies each naming its
+    ; own string. A page is entered with the heading drawn and the pen black.
+    CPSTAGEX cp_items + CP_I_NAME
+    mov byte [gfx_color], CBLACK
+    mov cx, di
+    add cx, CP_PMX
+    mov dx, bp
+    add dx, CP_PHY
+    call cp_run
+    pop si
+    call [cs:si + cp_items + CP_I_PAINT]
 .done:
     pop bp
     pop di
@@ -1913,7 +1871,7 @@ cp_item_click:
     cmp al, CP_ITEMS            ; a vanished driver's row refuses the click
     jae .done                   ; (same reasoning as cp_item_paint's guard)
     call cp_entry
-    call [si + CP_I_CLICK]
+    call [cs:si + cp_items + CP_I_CLICK]
 .done:
     pop bp
     pop di
@@ -2748,14 +2706,6 @@ cp_sched_paint:
     push dx
     push si
 
-    mov byte [gfx_color], CBLACK ; entry pen is CWHITE (cp_page's erase)
-
-    mov si, cp_s_sched          ; 'Scheduler' heading, same string as the
-    mov cx, di                  ; list row that selects this page
-    add cx, CP_PMX
-    mov dx, bp
-    add dx, CP_PHY
-    call cp_run
 
     CPSTAGE cp_s_pre            ; row 0 label
     mov cx, di
@@ -2871,17 +2821,6 @@ cp_thm_paint:
     push dx
     push si
 
-    mov byte [gfx_color], CBLACK ; entry pen is CWHITE (cp_page's erase) - the
-                                ; PANE is content and is not themed, so this
-                                ; page is drawn in the ordinary pens like
-                                ; every other one
-
-    mov si, cp_s_thm            ; heading, same string as the list row
-    mov cx, di
-    add cx, CP_PMX
-    mov dx, bp
-    add dx, CP_PHY
-    call cp_run
 
     CPSTAGE cp_s_tbrt           ; theme row 0
     mov dx, bp
@@ -3250,14 +3189,6 @@ cp_dock_paint:
     push dx
     push si
 
-    mov byte [gfx_color], CBLACK ; the pane is content: the ordinary pens
-
-    mov si, cp_s_dock           ; heading, same string as the list row
-    mov cx, di
-    add cx, CP_PMX
-    mov dx, bp
-    add dx, CP_PHY
-    call cp_run
 
     CPSTAGE cp_s_kbot           ; row 0
     mov dx, bp
@@ -3479,13 +3410,6 @@ cp_fdd_paint:
     push dx
     push si
 
-    mov byte [gfx_color], CBLACK
-    mov si, cp_s_fdd            ; heading, same string as the list row
-    mov cx, di
-    add cx, CP_PMX
-    mov dx, bp
-    add dx, CP_PHY
-    call cp_run
 
     xor bx, bx                  ; BL = the row
 .row:
@@ -4260,13 +4184,6 @@ cp_vid_paint:
     push dx
     push si
 
-    mov byte [gfx_color], CBLACK ; entry pen is CWHITE (cp_page's erase)
-    mov si, cp_s_vid            ; heading, same string as the list row
-    mov cx, di
-    add cx, CP_PMX
-    mov dx, bp
-    add dx, CP_PHY
-    call cp_run
 
     call cp_vid_rows
     call cp_vid_btn
@@ -4471,14 +4388,6 @@ cp_time_paint:
     push dx
     push si
 
-    mov byte [gfx_color], CBLACK ; entry pen is CWHITE (cp_page's erase)
-
-    mov si, cp_s_time           ; heading, same string as the list row
-    mov cx, di
-    add cx, CP_PMX
-    mov dx, bp
-    add dx, CP_PHY
-    call cp_run
 
     mov al, 1                   ; the page draw: everything (SPEC.md 31.5.1)
     call cp_time_rows           ; both field rows, from the live clock
@@ -5473,13 +5382,6 @@ cp_snd_paint:
     push dx
     push si
 
-    mov byte [gfx_color], CBLACK    ; entry pen is CWHITE (cp_page's erase)
-    mov si, cp_s_snd
-    mov cx, di
-    add cx, CP_PMX
-    mov dx, bp
-    add dx, CP_PHY
-    call cp_run
 
     xor bx, bx                      ; BX = row 0..2
 .lbl:
@@ -5850,13 +5752,6 @@ cp_drv_paint:
     push dx
     push si
 
-    mov byte [gfx_color], CBLACK    ; entry pen is CWHITE (cp_page's erase)
-    mov si, cp_s_drv                ; heading, same string as the list row
-    mov cx, di
-    add cx, CP_PMX
-    mov dx, bp
-    add dx, CP_PHY
-    call cp_run
 
     call cp_drv_mempar              ; ...and one bit for the whole page before
                                     ; any row is lettered: do the memory
@@ -6926,17 +6821,15 @@ cp_drv_line:
 ; They are here now, in CTRL.DRV's own image, which is claimed when the panel
 ; opens and given back when it closes.
 ;
-; **What did NOT move, and why it is the line the trap is on.** SPEC.md 31.9's
-; `DSV_CPNAME` trap is about the ITEM LIST: a row's name may be a static kernel
-; string OR a driver's staged one, `cp_list` draws it with `font_str`, and
-; `font_str` reads through DS - so a pointer into a driver's segment would
-; render the driver's own image. All six list names therefore stay resident
-; (`cp_s_thm`, `cp_s_sched`, `cp_s_vid`, `cp_s_drv`, `cp_s_snd`, `cp_s_time`),
-; and each of them is ALSO its page's heading, which is why they read as page
-; strings and are not. What moved is page BODY text, whose only readers are
-; the `cp_*_paint` bodies and their click ladders - every one of them in this
-; image, entered only through `call far [CPFP+...]` after `mod_need` succeeded.
-;
+; **The list names moved last** (kernel size pass 8). SPEC.md 31.9's
+; `DSV_CPNAME` trap is about the ITEM LIST: a row's name may be a static
+; string OR a driver's staged one, and `cp_list` draws it through DS - so a
+; pointer into another segment renders that segment. They stayed resident on
+; that argument, and it only ever required that a name be STAGED before it is
+; drawn, which cp_item_name now does for a static row exactly as the driver's
+; slot does for a driver's. The item table came with them, and the heading -
+; the same string - is drawn by cp_item_paint rather than by each page.
+
 ; The module-cannot-load path reads NONE of these: `cp_open_x` is `.cold` and
 ; letters `cp_s_noload` / `cp_s_nodrv` out of `cp_opentab`, all of which stay
 ; in `.text`. A refusal costs no module read and reads no moved string.
@@ -6946,6 +6839,86 @@ cp_drv_line:
 ; `mov si, cp_s_*` here; it assembles, it draws rubbish, and the gate is the
 ; only thing between the two.
 ; -----------------------------------------------------------------------------
+; ANY ROW HERE MAY BE HIDDEN, AND ITS POSITION DOES NOT MATTER (SPEC.md
+; 31.10.1). Display is the one that is - a machine with one adapter has
+; nothing to choose between - and it USED to have to be last, because
+; [cp_sel] and every consumer of it indexed this table by the row's position
+; in the DRAWN LIST. Hiding a row in the middle then renumbered every row
+; below it, which is a second opinion about what the user clicked on at four
+; call sites, so "last" was doing real work and was a real constraint: it had
+; been spent here and by drv_tab's settings bitmap (SPEC.md 51.2.1), and
+; SPEC.md 41.12 nearly spent it a third time.
+;
+; The two spaces are separated now. [cp_sel] and every routine below name a
+; RECORD (an index into this table, stable for the life of the build);
+; cp_list and cp_pick work in VISIBLE ORDINALS, and cp_v2r is the one place
+; that converts. So [cp_hide] can carry a bit for any row, and the order here
+; is free.
+cp_items:
+    dw cp_s_sched, cp_sched_paint, cp_sched_click
+    dw cp_s_time,  cp_time_paint,  cp_time_click
+%ifdef OS88_DRIVERS             ; SPEC.md 51.0: kern_small can load no driver,
+    dw cp_s_drv,   cp_drv_paint,   cp_drv_click
+%endif                          ; so the page has nothing to list and is not
+                                ; offered. The BODIES stay compiled - this
+                                ; image is a module on both builds, so gating
+                                ; them would move no resident byte and would
+                                ; put a %ifdef through the Sound page, which
+                                ; stays
+    dw cp_s_vid,   cp_vid_paint,   cp_vid_click
+    ; THE ORDER IS THE LIST'S, and it is grouped (SPEC.md 31.14.2): Sound,
+    ; Theme and Dock are how the machine looks and sounds, so they stand
+    ; together; Floppy is LAST, so the first DRIVER page - the hard disk's,
+    ; DRVC_DISK being the lowest class that publishes one - lands directly
+    ; under it and the two disk pages read as a pair
+    dw cp_s_snd,   cp_snd_paint,   cp_snd_click
+%ifdef OS88_THEME
+    dw cp_s_thm,   cp_thm_paint,   cp_thm_click
+%endif
+%ifdef DOCK_OPT
+    dw cp_s_dock,  cp_dock_paint,  cp_dock_click   ; SPEC.md 31.13
+%endif
+%ifdef OS88_DRIVERS             ; SPEC.md 31.14: the page is SYSTEM.CFG's, and
+    dw cp_s_fdd,   cp_fdd_paint,   cp_fdd_click   ; kern_small reads none
+%endif
+cp_items_end:
+CP_ITEMS  equ (cp_items_end - cp_items) / CP_ISTRIDE
+%if CP_ITEMS > 8
+%error "ctrl: [cp_hide] is one byte, so the static list stops at eight rows"
+%endif
+%ifdef OS88_DRIVERS
+%if CP_IFDD != CP_ITEMS - 1
+%error "ctrl: CP_IFDD must name the Floppy record, the table's last"
+%endif
+%endif
+%ifndef DOCK_OPT
+%if CP_ITEMS + 3 > (CP_CH - CP_I0Y) / CP_IROWH
+%error "ctrl: the item list can overflow its pane - grow CP_CH (SPEC.md 31.1)"
+%endif
+%endif
+
+; The list names. Each is ALSO its page's heading, which cp_item_paint draws
+; before it dispatches (SPEC.md 31.9) - so one string, one reader, and it
+; lives in the image beside its only reader. 'Sound' is here a SECOND time:
+; driver.inc's drv_t_sound is the resident copy drv_tab names its row by, and
+; a string in an image may be copied rather than shared (SPEC.md 2.8.6).
+CPS cp_s_sched, 'Scheduler'
+CPS cp_s_time,  'Date/Time'
+%ifdef OS88_DRIVERS
+CPS cp_s_drv,   'Drivers'
+CPS cp_s_fdd,   'Floppy'
+%endif
+CPS cp_s_vid,   'Display'
+CPS cp_s_snd,   'Sound'
+%ifdef OS88_THEME
+CPS cp_s_thm,   'Theme'
+%endif
+%ifdef DOCK_OPT
+CPS cp_s_dock,  'Dock'
+%endif
+cp_s_gone:  db 0                ; the empty string: what a vanished driver's
+                                ; list row letters as (cp_item_name's guard)
+
 %ifdef OS88_THEME
 CPS cp_s_tbrt,  'Bright'
 CPS cp_s_tdrk,  'Dark'

@@ -1936,11 +1936,16 @@ reached exactly.
 The Control Panel's page strings followed, and are the largest single body of
 them: **443 bytes of `.text` out, 28 of `.bss` back, −415 resident**, with
 `MODC_SIZE` 6,944 → 7,502 of `MOD_MAX_KB`'s 16,384 (kern_small 5,433 → 5,858).
-The whole of what stayed is §31.9's line and it is the same line the trap is
-on: **all six list names are resident**, because a list name may equally be a
-driver's staged one and `cp_list` draws it through DS. Each of those six is
-also its page's heading, which is why they read as page strings and are not.
-What moved is page *body* text, whose only readers are the `cp_*_paint` bodies
+The whole of what stayed was §31.9's line and it is the same line the trap is
+on: **all six list names stayed resident**, because a list name may equally be
+a driver's staged one and `cp_list` draws it through DS. **Kernel size pass 8
+moved them too**, with the item table: a static name is STAGED per draw
+exactly as a driver's is, `cp_item_name` being the one place both are asked
+for, and the page heading - which is the same string - is drawn once by
+`cp_item_paint` rather than by each page. `kern_big` −119 `.text`, `kern_small`
+−75, for +6 of `CTRL.DRV` net of the eight heading blocks it deleted;
+`'Sound'` alone is resident still, as `drv_t_sound`, because `drv_tab` names
+the class by it. What moved is page *body* text, whose only readers are the `cp_*_paint` bodies
 and their click ladders — every one inside the image, entered only through
 `call far [CPFP+…]` after `mod_need` succeeded. **The module-cannot-load path
 reads none of them**: `cp_open_x` is `.cold` and letters `cp_s_noload` /
@@ -56189,25 +56194,27 @@ CP_IBX1  equ 2       ; sel bar left           CP_IBX2 equ CP_DIVX-3  ; 85
 - **Right pane**, x CP_RX..CP_CW−1, top = the content top: the selected
   item's page, drawn by its own proc in **pane-relative** coordinates.
 
-**Item table (binding).** One 8-byte record per item, stride a power of two
-so index → record is three `shl`-by-1s (no CL, no 8086-illegal immediate
-shift). `CP_ITEMS` is computed from the table's own extent, so adding an
-item is one row plus a paint/click pair — the pane machinery does not
-change.
+**Item table (binding).** One 6-byte record per item — ×2, +×1, ×2, no CL
+and no multiply — and **the table is in `CTRL.DRV`'s image**, read `[cs:]`,
+with its list names beside it (§2.8.6.1, kernel size pass 8): every reader of
+either is a module body. `CP_ITEMS` is computed from the table's own extent,
+so adding an item is one row plus a paint/click pair — the pane machinery
+does not change. It was 8 bytes, the fourth word a reserved dispatch class
+that was 0 in every row for the table's whole life.
 
 ```nasm
 CP_I_NAME  equ 0   ; -> list name, ASCIIZ
 CP_I_PAINT equ 2   ; -> page paint proc   (in DI = pane left, BP = pane top)
 CP_I_CLICK equ 4   ; -> page click proc   (in DI/BP, CX/DX = pane-relative)
-CP_ISTRIDE equ 8   ; 4th word = the dispatch class (§31.9): 0 = a kernel proc
-cp_items:  dw cp_s_sched, cp_sched_paint, cp_sched_click, 0
-           dw cp_s_time,  cp_time_paint,  cp_time_click,  0   ; §31.5
-           dw cp_s_drv,   cp_drv_paint,   cp_drv_click,   0   ; §31.6
-           dw cp_s_vid,   cp_vid_paint,   cp_vid_click,   0   ; §31.10
-           dw cp_s_snd,   cp_snd_paint,   cp_snd_click,   0   ; §31.7
-           dw cp_s_thm,   cp_thm_paint,   cp_thm_click,   0   ; §76.4
-           dw cp_s_dock,  cp_dock_paint,  cp_dock_click,  0   ; §31.13
-           dw cp_s_fdd,   cp_fdd_paint,   cp_fdd_click,   0   ; §31.14
+CP_ISTRIDE equ 6
+cp_items:  dw cp_s_sched, cp_sched_paint, cp_sched_click       ; in the image
+           dw cp_s_time,  cp_time_paint,  cp_time_click        ; §31.5
+           dw cp_s_drv,   cp_drv_paint,   cp_drv_click         ; §31.6
+           dw cp_s_vid,   cp_vid_paint,   cp_vid_click         ; §31.10
+           dw cp_s_snd,   cp_snd_paint,   cp_snd_click         ; §31.7
+           dw cp_s_thm,   cp_thm_paint,   cp_thm_click         ; §76.4
+           dw cp_s_dock,  cp_dock_paint,  cp_dock_click        ; §31.13
+           dw cp_s_fdd,   cp_fdd_paint,   cp_fdd_click         ; §31.14
 cp_items_end:
 CP_ITEMS   equ (cp_items_end - cp_items) / CP_ISTRIDE
 CP_ITIME   equ 1     ; the Date/Time item's index: §12.1 selects it by name
@@ -56545,11 +56552,11 @@ every setting-change redraw leave it at — so `cp_radios`, `cp_snd_radios`,
 |--------|-----------|
 | `cp_paint` | W_PAINT (§11): in SI = window ptr; the gfx lock is **already held** by the caller and wm has already white-filled the content. Preserves all registers. Derives DI/BP from `wm_content`, then `cp_list` → `cp_divider` → `cp_page`. Must not lock, block, spawn, or call BIOS. |
 | `cp_onclick` | W_ONCLICK (§11): in CX = x, DX = y (**absolute screen coords** — convert with `wm_content` before hit-testing), SI = window ptr. The gfx lock is already held and the call is already billed to the instance by ui.inc (§8.1/§13). Preserves all registers. Content-relative x < CP_DIVX → `cp_pick`: a hit on a different item stores it in `cp_sel` and redraws both panes (`cp_list` + `cp_page`); a hit on the live item, or a miss below the last row, does nothing. Otherwise the click is handed to the selected item's `CP_I_CLICK` proc with DI advanced to the pane left and CX made pane-relative. |
-| `cp_entry` | module-internal: in AL = item index, out SI = record ptr (`cp_items + 8*AL`). Preserves everything else. |
+| `cp_entry` | module-internal: in AL = item index, out SI = the record's OFFSET, `6*AL`, so a field is `[cs:si + cp_items + CP_I_*]` (the table is in the image, and naming it in the operand is what lets `os88ovlchk` see the `cs:`). Preserves everything else. |
 | `cp_pick` | module-internal hit test of the item list: in DX = content-relative y, out CF=0 and AL = item index on a row, CF=1 above the first row or below the last. Rows are contiguous — row *i* owns `CP_IROWH` rows from `CP_I0Y + i*CP_IROWH`, so the bar and the 2px gap under it both select. x is not tested: the whole pane width selects. |
 | `cp_list` | module-internal, in DI/BP = content origin, lock held. Preserves all registers. White-fills the whole left pane, then draws every item name with the `cp_sel` row barred — so it doubles as the redraw path when the selection moves. |
 | `cp_divider` | module-internal, in DI/BP, lock held: the 1px black rule at content x = CP_DIVX. Preserves all registers. |
-| `cp_page` | module-internal, in DI/BP, lock held. Preserves all registers. White-fills the right pane (divider column excluded), then calls the selected record's `CP_I_PAINT` with DI advanced by CP_RX — the redraw path when the selection moves. |
+| `cp_page` | module-internal, in DI/BP, lock held. Preserves all registers. White-fills the right pane (divider column excluded), then — for a static page — draws the page's HEADING, which is its list name, black at (CP_PMX, CP_PHY), and calls the record's `CP_I_PAINT` with DI advanced by CP_RX and `[gfx_color]` = CBLACK — the redraw path when the selection moves. A static page body draws no heading of its own (kernel size pass 8); a driver's page still does. |
 | `cp_sched_paint` | Scheduler page paint (page contract above): heading, both radio rows (glyph + label, filled glyph per `sched_mode_get`) and the caption. |
 | `cp_sched_click` | Scheduler page click (page contract above). x is ignored — the two hit bands span the whole pane. A hit on the row whose mode is already live does nothing; a hit that changes the mode calls `sched_mode_set` with AL = the row index (0 = pre-emptive, 1 = cooperative), sets `[cp_dirty]` = 1, then redraws **only the two radio glyphs**. A click outside both bands does nothing. |
 | `os88ui_glyph` | **the shared control's** (§20.5.1) 12×12 check or radio: in CX = x, DX = y, AL = `OS88UI_G*`, AH non-zero = disabled. Preserves all registers, white-fills its own box, and leaves the pen live. It was `cp_glyph`, module-internal and taking a bitmap POINTER in SI — which no package could name, and which is why the widget stayed the Control Panel's for as long as it did. |
@@ -57338,10 +57345,12 @@ Three things hold it up:
   pointer into the driver's segment would render the driver's own image. It is
   the `dsk_get_dir` idiom, in the place `drv_publish`'s retired `DSV_NAME`
   staging always belonged. **It is also the line the panel's own strings are
-  drawn on** (§2.8.6): one reader, two possible segments, so all six *static*
-  list names stay in `.text` while the page BODY text lives in `CTRL.DRV`'s
-  image and is staged per draw. Each of the six is its page's heading as well,
-  which is the only reason they look movable.
+  drawn on** (§2.8.6): one reader, two possible segments. The *static* list
+  names stayed in `.text` on that argument until kernel size pass 8, which
+  staged them as well (§2.8.6.1): the reader is `cp_item_name`, it is in the
+  image, and staging a static name into `cp_sbuf` is the same one step as
+  staging a driver's. Each is its page's heading too, drawn by
+  `cp_item_paint` before the page body.
 - **`[cp_sel]` is clamped when a driver detaches** (`cp_drv_gone`, called from
   `drv_release`). The selection persists across opens by design, so a
   `[cp_sel]` naming a page that no longer exists would dispatch through a
@@ -57970,11 +57979,11 @@ Against the tree immediately before it, `kern_big`:
 
 | | bytes | what they are |
 |---|---:|---|
-| `.text` | **+15** | the `cp_items` record (8) and `'Floppy'` (7) — the list name is read by the list painter through `DS`, so it is resident like every other page's |
+| `.text` | **+15** | the `cp_items` record (8) and `'Floppy'` (7) — the list name is read by the list painter through `DS`, so it is resident like every other page's. **Kernel size pass 8 took both back**, with every other page's: the table and its names are in the image now (§2.8.6.1) |
 | `.bss` | **+2** | `drv_cfg`'s two bytes — the whole of the setting's resident state |
 | `menu_popup` | **+0** | `[menu_btn]`'s immediate, 2 → 3 |
 | **resident** | **+17** | no rung crossed — and per §1's banner that is not the point: seventeen bytes is the price |
-| `.ovl` | +127 | `ovl_fdd_apply` (113), its call (3), the `FD` key row (5), the file buffer (6). **`.ovl` is now 1,964 of the blob's 1,984**: 20 bytes left, and the next boot-overlay body raises `BOOT2_SECS` (§2.9.6). The knob builds lost the same room, and §2.5.3.3.1's give went 96 → 144 to hand `BOOTMARK=1` it back |
+| `.ovl` | +127 | `ovl_fdd_apply` (113), its call (3), the `FD` key row (5), the file buffer (6). **`.ovl` is now 1,964 of the blob's 1,984**: 20 bytes left (39 since kernel size pass 8 took `ovl_fdd_apply` to 94: one word compare for DV_KIND:DV_UNIT, one word store for a new row, the zone bits as `3 - 2*CF`, and the unit loop ending when the settings byte runs out), and the next boot-overlay body raises `BOOT2_SECS` (§2.9.6). The knob builds lost the same room, and §2.5.3.3.1's give went 96 → 144 to hand `BOOTMARK=1` it back |
 | `CTRL.DRV` | +615 image, +505 on disk | the page (507 of code, 97 of menus and strings) plus the writer's key row and buffer; loaded only while the panel is open |
 
 `kern_small` is **byte-identical in size** (`kernsize[small]` +0 on every
