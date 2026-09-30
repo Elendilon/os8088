@@ -136,6 +136,9 @@ WIN_SIZE equ 65
 %if W_MINH - W_MINW != 2
   %error "wm_min_ax reads W_MINH as W_MINW + 2"
 %endif
+%if W_MENUS != W_X + 16 || WIN_SIZE - W_MENUS > 255
+  %error "wm_create's zero run starts where the 8-word template copy leaves DI, and is counted in CL"
+%endif
 %if WIN_SIZE > 127
   %error "every per-slot field is addressed [bx+disp8]; past 127 each costs a byte"
 %endif
@@ -1054,24 +1057,18 @@ NR_SIZE equ 8
 ; -----------------------------------------------------------------------------
 %ifdef KERN_BIG
 wm_nat_bank_xy:                 ; SPEC.md 11.100.3 - see its header below: the
-    pushf                       ; POSITION only. Entered here, it shares the
-    push ax                     ; tail of wm_nat_bank
-    jmp short wm_nb_xy
+    push word [bx+W_NATR+NR_H]  ; POSITION only - the whole bank is taken and
+    push word [bx+W_NATR+NR_W]  ; the SIZE put back as it was. Push, pop and
+    call wm_nat_bank            ; the bank write no flags
+    pop word [bx+W_NATR+NR_W]
+    pop word [bx+W_NATR+NR_H]
+    ret
 %endif
 wm_nat_bank:
-    pushf
-    push ax
-    mov ax, [bx+W_W]
-    mov [bx+W_NATR+NR_W], ax
-    mov ax, [bx+W_H]
-    mov [bx+W_NATR+NR_H], ax
-wm_nb_xy:
-    mov ax, [bx+W_X]
-    mov [bx+W_NATR+NR_X], ax
-    mov ax, [bx+W_Y]
-    mov [bx+W_NATR+NR_Y], ax
-    pop ax
-    popf
+    push di
+    lea di, [bx+W_NATR]
+    call wm_bank4               ; flags and all preserved (wm_bank4's header)
+    pop di
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1293,38 +1290,40 @@ wm_create:
 .free:
     mov word [bx+W_FLAGS], 1    ; used, not visible
     lea di, [bx+W_X]
-    mov cx, 8
+    mov ax, es                  ; AX = the CALLER's segment, kept for W_SEG
     push ds                     ; the template is at ES:SI - the CALLER's
     push es                     ; segment (SPEC.md 11) - and the record is
-    pop ds                      ; ours, so swap the two for the movsw and
-    pop es                      ; swap them straight back
-    cld
-    rep movsw                   ; copy the template into x..onclick
-    push ds
+    pop ds                      ; ours, so swap the two for the movsw: DS =
+    pop es                      ; the template's, ES = the kernel's (ES stays
+                                ; the kernel's to the end; `.out` pops the
+                                ; caller's back)
+    mov cx, 8
+    rep movsw                   ; copy the template into x..onclick (DF = 0
+                                ; is the system contract, SPEC.md 1 rule 3)
     push es
-    pop ds
-    pop es
-    push es                     ; W_MENUS..WIN_SIZE: NOT template words
-    push ds                     ; (SPEC 11/12.2) - menus, the negotiators,
-    pop es                      ; every handler, the timer, the per-slot
-    lea di, [bx+W_MENUS]        ; state - so a reused slot inherits nothing
-    mov cx, WIN_SIZE - W_MENUS  ; of its last tenant's. W_DISP/W_SEG are in
-    xor ax, ax                  ; the run and written just below
-    rep stosb
-    pop es
+    pop ds                      ; DS = the kernel's again. DI has walked to
+                                ; W_X + 16 = W_MENUS (asserted below), which
+                                ; is where the zero run starts, and CX is 0
+    mov cl, WIN_SIZE - W_MENUS  ; W_MENUS..WIN_SIZE: NOT template words (SPEC
+    xchg ax, si                 ; 11/12.2) - menus, the negotiators, every
+    xor ax, ax                  ; handler, the timer, the per-slot state - so
+    rep stosb                   ; a reused slot inherits nothing of its last
+                                ; tenant's. W_DISP/W_SEG are in the run and
+                                ; written just below. SI - the template
+                                ; pointer, spent - carries the caller's
+                                ; segment across it
                                 ; The template copy above is EIGHT words and
                                 ; must stay eight: growing it would read one
                                 ; word past every existing package's template
     mov word [bx+W_DISP], PKG_DISP  ; the far pointer wm_pkgcall uses: the
-    mov ax, es                      ; dispatcher's fixed offset, and the
-    mov cx, cs                      ; segment the caller called us in. Ours
-    cmp ax, cx                      ; means a KERNEL window, which is what
-    jne .pkgseg                     ; W_SEG = 0 says (SPEC.md 20.1)
-    xor ax, ax
+    mov ax, cs                      ; dispatcher's fixed offset, and the
+    cmp si, ax                      ; segment the caller called us in. Ours
+    jne .pkgseg                     ; means a KERNEL window, which is what
+    xor si, si                      ; W_SEG = 0 says (SPEC.md 20.1)
 .pkgseg:
-    mov [bx+W_SEG], ax
-    mov cx, 8                   ; (wm_fit and the index math below want CX
-                                ; free; the rep consumed it)
+    mov [bx+W_SEG], si
+                                ; (CX is spent: wm_fit and the index math
+                                ; below set their own)
                                 ; (no size-changed handler either: W_ONSZ
                                 ; was in the zero run. Formerly:)
                                 ; lines up AX is 0 only for a KERNEL window and
@@ -2717,16 +2716,44 @@ wm_dg_precover:
 ; pixel wide at the far edges, which is exactly the drop shadow.
 ; -----------------------------------------------------------------------------
 wm_rz_bank:
-    push ax
-    mov ax, [bx+W_X]
-    mov [wm_rz_ox], ax
-    mov ax, [bx+W_Y]
-    mov [wm_rz_oy], ax
-    mov ax, [bx+W_W]
-    mov [wm_rz_ow], ax
-    mov ax, [bx+W_H]
-    mov [wm_rz_oh], ax
-    pop ax
+    push di
+    mov di, wm_rz_ox
+    call wm_bank4
+    pop di
+    ret
+
+; -----------------------------------------------------------------------------
+; wm_bank4 - copy the record's X..H (BX -> window) to DS:DI
+; wm_cpy4  - copy four words DS:SI -> DS:DI
+; in:  BX = window ptr (wm_bank4); SI = source (wm_cpy4); DI = destination
+; out: nothing - EVERY register preserved, FLAGS INCLUDED (nothing here writes
+;      them: lea, mov, push, pop and a rep movsw), which wm_nat_bank's callers
+;      sit between a compare and its jump on
+;
+; The kernel's rects are four adjacent words in x,y,w,h or x1,y1,x2,y2 order
+; (RECT4 below, and W_X..W_H's own %if), so one copier serves the record, the
+; zoom bank, the natural bank, wm_rz_o* and wm_fs_save alike. DF = 0 is the
+; system contract (SPEC.md 1 rule 3).
+; -----------------------------------------------------------------------------
+wm_bank4:
+    push si
+    lea si, [bx+W_X]
+    call wm_cpy4
+    pop si
+    ret
+wm_cpy4:
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov cx, 4
+    rep movsw
+    pop es
+    pop di
+    pop si
+    pop cx
     ret
 
 wm_rz_paint:
@@ -3033,17 +3060,11 @@ wm_zoom:
                                 ; the origin moves, or wm_resize would bank
                                 ; the new x/y with the old w/h and the band
                                 ; the window VACATED would never be redrawn
-    push ax                     ; the standard x, which the bank writes over
-    mov ax, [bx+W_X]
-    mov [si+ZR_X], ax
-    mov ax, [bx+W_Y]
-    mov [si+ZR_Y], ax
-    mov ax, [bx+W_W]
-    mov [si+ZR_W], ax
-    mov ax, [bx+W_H]
-    mov [si+ZR_H], ax
-    pop ax
-    mov [bx+W_X], ax
+    push di                     ; ...and the user state, into the zoom bank
+    mov di, si
+    call wm_bank4
+    pop di
+    mov [bx+W_X], ax            ; the standard x
     pop si                      ; ...and the standard y back
     mov [bx+W_Y], si            ; its DISPLAY's standard y (SPEC.md 39.17.2):
                                 ; wm_resize's y clamp only ever pushes a window
@@ -3761,15 +3782,13 @@ wm_hide_b:
 wm_fs_drop:
     cmp bx, [wm_fs]
     jne .out
-    push ax
-    mov ax, [wm_fs_save]
-    mov [bx+W_X], ax
-    mov ax, [wm_fs_save+2]
-    mov [bx+W_Y], ax
-    mov ax, [wm_fs_save+4]
-    mov [bx+W_W], ax
-    mov ax, [wm_fs_save+6]
-    mov [bx+W_H], ax
+    push si
+    push di
+    mov si, wm_fs_save
+    lea di, [bx+W_X]
+    call wm_cpy4
+    pop di
+    pop si
     and word [bx+W_FLAGS], 0xFFF7
     mov word [wm_fs], 0
     call wm_fit                 ; the saved rect was fitted to the screen this
@@ -3780,7 +3799,6 @@ wm_fs_drop:
                                 ; (SPEC.md 39.11.2.1). A no-op on every other
                                 ; path: an unchanged screen re-fits a rect that
                                 ; already fitted it
-    pop ax
 .out:
     ret
 
@@ -4325,14 +4343,10 @@ wm_fullscreen:
     jmp .out
 .claim:
     mov [wm_fs], bx
-    mov ax, [bx+W_X]
-    mov [wm_fs_save], ax
-    mov ax, [bx+W_Y]
-    mov [wm_fs_save+2], ax
-    mov ax, [bx+W_W]
-    mov [wm_fs_save+4], ax
-    mov ax, [bx+W_H]
-    mov [wm_fs_save+6], ax
+    push di
+    mov di, wm_fs_save
+    call wm_bank4
+    pop di
     call wm_fs_setrect          ; the display this window is primarily ON
                                 ; (SPEC.md 39.17.1), which is the primary on a
                                 ; machine with one
@@ -4712,9 +4726,9 @@ wm_hit:
     pop si
     ret
 
-; 1 << n for a window index - MAX_WIN is 12, an 8086 has no variable shift
-; worth the code, and this is read once per window per damage repaint.
-wm_bit1: dw 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048
+; (wm_bit1, the 1 << n table, is gone: `mov cl, al / mov reg, 1 / shl reg, cl`
+; is seven bytes against the lookup's ten and 24 of table, and a damage repaint
+; asks it once per window - 8 + 4n clocks, n <= 11, beside a whole repaint)
 
 ; -----------------------------------------------------------------------------
 ; wm_win_rect - a window's occupied rect, drop shadow included
@@ -4787,13 +4801,11 @@ wm_dmg_vacate:
 wm_dmg_bit:
     push bx                     ; BX IS LIVE AT A CALLER: the shadow site in
     push cx                     ; wm_paint_dmg holds the rect's y1 in it and
-    push di                     ; falls through into dock_px_hit, which reads
-    mov bx, si                  ; AX/BX/CX/DX as that rect. The finding that
-    call wm_ptr2idx             ; brought this call here said both callers
-    mov di, ax                  ; reload BX; one does not
-    shl di, 1
-    mov ax, [wm_bit1+di]
-    pop di
+    mov bx, si                  ; falls through into dock_px_hit, which reads
+    call wm_ptr2idx             ; AX/BX/CX/DX as that rect. The finding that
+    xchg ax, cx                 ; brought this call here said both callers
+    mov ax, 1                   ; reload BX; one does not
+    shl ax, cl
     pop cx
     pop bx
     ret
@@ -5187,10 +5199,8 @@ wm_paint_dmg:
     call wm_top
     or bx, bx
     jz .out
-    call wm_ptr2idx             ; AL = its index, AH = 0
-    mov di, ax
-    shl di, 1
-    mov ax, [wm_bit1+di]
+    mov si, bx                  ; (SI is spent here: `.out` restores it)
+    call wm_dmg_bit
     test [wm_dmg_mask], ax
     jnz .out                    ; redrawn in this pass: it has them already
     mov di, bx
@@ -5252,9 +5262,7 @@ wm_dmg_wins:
     xor ah, ah
     cmp bp, ax
     jae .draw
-    mov si, wm_zord
-    add si, bp
-    mov al, [si]
+    mov al, [ds:bp+wm_zord]     ; (DS: BP addresses SS otherwise)
     call wm_idx2ptr             ; BX = window ptr (AX and CX survive)
     test byte [bx+W_FLAGS], 2
     jz .mnext
@@ -5305,13 +5313,11 @@ wm_dmg_wins:
     mov ax, [wm_dmg_j]
     cmp ax, bp
     jae .mnext
-    mov di, wm_zord
-    add di, ax
-    mov al, [di]                ; AL = that window's index
-    mov bl, al
-    xor bh, bh
-    shl bx, 1
-    mov bx, [wm_bit1+bx]
+    xchg ax, di
+    mov al, [di+wm_zord]        ; AL = that window's index
+    mov cl, al                  ; CX is free in this loop: the rect in it is
+    mov bx, 1                   ; dock_px_hit's, spent above
+    shl bx, cl
     test [wm_dmg_mask], bx
     jz .mbnext
     call wm_idx2ptr             ; BX = its record (AL still its index)
@@ -5349,13 +5355,10 @@ wm_dmg_wins:
     xor ah, ah
     cmp si, ax
     jae .wdone
-    mov di, wm_zord
-    add di, si
-    mov al, [di]
-    mov bl, al
-    xor bh, bh
-    shl bx, 1
-    mov bx, [wm_bit1+bx]
+    mov al, [si+wm_zord]
+    mov cl, al
+    mov bx, 1
+    shl bx, cl
     test [wm_dmg_mask], bx
     jnz .dfull
     test [wm_dmg_shad], bx      ; not redrawn, but the dither ate its drop
@@ -7387,6 +7390,38 @@ wm_title_band:
     jmp kret_dx
 %endif
 
+; -----------------------------------------------------------------------------
+; wm_tbox - one of the active title bar's two boxes (module internal)
+; in:  AX = the box's LEFT edge (the stripe break's: W_X+6 or W_X+W_W-21),
+;      DI = the window
+; out: AX,BX,CX,DX = the frame just drawn (left+2, W_Y+4, left+12, W_Y+14);
+;      the pen is the bar's ink
+;
+; The break fill in the bar's ground, 2px round an 11x11 frame in its ink -
+; the interior is the break's white. Both boxes are this shape and differ only
+; in where they stand, which is why the minimize box's collapse bar is drawn
+; by the caller off the frame this leaves in the registers.
+; -----------------------------------------------------------------------------
+wm_tbox:
+    call thm_tbg
+    mov bx, [di+W_Y]
+    inc bx
+    inc bx                      ; the break: left .. left+14, W_Y+2 .. W_Y+16
+    mov cx, ax
+    add cx, 14
+    lea dx, [bx+14]
+    call gfx_fill
+    call thm_tink
+    inc ax                      ; ...and the frame 2px inside it
+    inc ax
+    inc bx
+    inc bx
+    dec cx
+    dec cx
+    dec dx
+    dec dx
+    jmp gfx_frame               ; which preserves every register
+
 wm_draw_title:
 %ifdef SNAPAUDIT
     ; SPEC.md 11.94.2: THE CAPTION IS CHROME. The pen is centred in the title
@@ -7452,77 +7487,33 @@ wm_draw_title:
                                 ; kern_big can ever take the branch
     mov dx, [di+W_Y]            ; 6 stripes, rows y+3,5,7,9,11,13
     add dx, 3
-    mov cx, 6
-.stripe:
-    mov ax, [di+W_X]            ; inset 3px from each side
+    mov ax, [di+W_X]            ; inset 3px from each side - once, outside the
+    mov bx, ax                  ; loop: gfx_hline preserves every register
     add ax, 3
-    mov bx, [di+W_X]
     add bx, [di+W_W]
     sub bx, 4
+    mov cx, 6
+.stripe:
     call gfx_hline
     inc dx
     inc dx
     loop .stripe
 
 .boxes:
-    call thm_tbg             
-    mov ax, [di+W_X]            ; break the stripes 2px around the close box
+    mov ax, [di+W_X]            ; the close box at W_X+6...
     add ax, 6
-    mov bx, [di+W_Y]
-    inc bx
-    inc bx
-    mov cx, [di+W_X]
-    add cx, 20
-    mov dx, [di+W_Y]
-    add dx, 16
-    call gfx_fill
-
-    call thm_tink             
-    mov ax, [di+W_X]            ; close box: 11x11 black frame, white inside
-    add ax, 8                   ; (interior is white from the break fill)
-    mov bx, [di+W_Y]
-    add bx, 4
-    mov cx, [di+W_X]
-    add cx, 18
-    mov dx, [di+W_Y]
-    add dx, 14
-    call gfx_frame
-
-    call thm_tbg             
-    mov ax, [di+W_X]            ; break the stripes around the minimize box
-    add ax, [di+W_W]            ; (mirror of the close-box break, SPEC.md 11)
-    sub ax, 21
-    mov bx, [di+W_Y]
-    inc bx
-    inc bx
-    mov cx, [di+W_X]
-    add cx, [di+W_W]
-    sub cx, 7
-    mov dx, [di+W_Y]
-    add dx, 16
-    call gfx_fill
-
-    call thm_tink             
-    mov ax, [di+W_X]            ; minimize box: 11x11 black frame at
-    add ax, [di+W_W]            ; W_X+W_W-19 .. W_X+W_W-9, rows +4..+14
-    sub ax, 19
-    mov bx, [di+W_Y]
-    add bx, 4
-    mov cx, [di+W_X]
-    add cx, [di+W_W]
-    sub cx, 9
-    mov dx, [di+W_Y]
-    add dx, 14
-    call gfx_frame
-
-    mov ax, [di+W_X]            ; collapse glyph: black bar across row
-    add ax, [di+W_W]            ; W_Y+9, cols W_X+W_W-17 .. W_X+W_W-11
-    sub ax, 17
-    mov bx, [di+W_X]
-    add bx, [di+W_W]
-    sub bx, 11
-    mov dx, [di+W_Y]
-    add dx, 9
+    call wm_tbox
+    mov ax, [di+W_X]            ; ...and the minimize box, its mirror (SPEC.md
+    add ax, [di+W_W]            ; 11), at W_X+W_W-21 - the same shape, so one
+    sub ax, 21                  ; body draws both
+    call wm_tbox
+    inc ax                      ; collapse glyph: black bar across row W_Y+9,
+    inc ax                      ; cols W_X+W_W-17 .. W_X+W_W-11 - the frame
+    add bx, 5                   ; wm_tbox leaves in AX..DX, inset 2px and taken
+    mov dx, bx                  ; down to its middle row
+    mov bx, cx
+    dec bx
+    dec bx
     call gfx_hline
 
 .title:
@@ -7532,8 +7523,10 @@ wm_draw_title:
                                 ; but the separator under it is still owed
     push es                     ; the title is the OWNER's string, so it is
     call wm_strseg              ; read through ES: the package's segment for
-    call font_width_x           ; a package window, ours for everything else
-    pop es
+    call font_width_x           ; a package window, ours for everything else -
+                                ; and ES stays the owner's down to font_str_x,
+                                ; nothing between reading it (the pen and the
+                                ; fill preserve every register)
     mov cx, [di+W_W]
     sub cx, ax
     sar cx, 1
@@ -7574,8 +7567,6 @@ wm_draw_title:
     pop cx
     mov dx, [di+W_Y]
     add dx, 5                   ; 8px glyphs centered in the 16-row bar
-    push es
-    call wm_strseg
     call font_str_x
     pop es
 .sep:
@@ -8446,9 +8437,8 @@ wm_su_segs: times MAX_WIN dw 0  ; the banked content, one word per window
                                 ; which every window has by construction
                                 ; rather than by initialisation. Same reason
                                 ; for being in .text as the row above
-wm_su_kex: times 4 db 0         ; ...those four CLAMPED to the content rect of
-                                ; the operation in hand (wm_su_flay), which is
-                                ; what everything downstream reads
+                                ; (wm_su_kex - those four CLAMPED - is below,
+                                ; after wm_su_y2: see the %if there)
 wm_su_kany: db 0                ; ...and whether any of them is non-zero
 wm_su_ftab: times 16 dw 0       ; the four fragment rects, x1/y1/x2/y2 each;
                                 ; an empty one has x1 > x2 (SPEC.md 11.96.11.1)
@@ -8456,30 +8446,6 @@ wm_su_fn: dw 0                  ; ...which one the loop in hand is on
 wm_su_fsz: dw 0                 ; ...and how many buffer bytes it occupies
 wm_su_scrb: dw 0                ; where the fragments end and 11.96.2's edge
 wm_su_scrsz: dw 0               ; scratch begins, and how big that is
-%ifdef KERN_BIG
-wm_su_pw: dw 4                  ; HOW DEEP THE DISPLAY THIS CACHE IS ON IS, in
-                                ; planes, which is not [vid_planes_w] the
-                                ; moment two displays can differ
-                                ; (docs/plans/completed/DUAL-DISPLAY-VGA.md 4.3). Set by
-                                ; wm_su_flay, which is the one place both the
-                                ; take and the check establish the content
-                                ; rect, and read by wm_su_bytes, wm_su_scrset,
-                                ; wm_su_edge and wm_su_merge - the sizing, the
-                                ; scratch, the restore stride and the merge.
-                                ;
-                                ; THE BUG IT CLOSES IS A HEAP OVERRUN, not a
-                                ; wrong picture. gfx_save takes GFXDENTER and
-                                ; so writes with the planes of the display the
-                                ; rect is ON, while the claim was sized from
-                                ; whichever display happened to be current -
-                                ; the primary, since every hook restores it.
-                                ; Primary Hercules with a window on the VGA is
-                                ; a buffer sized x1 and a save that writes x4.
-                                ; The other way round merely wastes.
-                                ;
-                                ; .text with a real initialiser for this file's
-                                ; own reason: -f bin zeroes nothing.
-%endif
 
 ; ...AND kern_small READS [vid_planes_w] DIRECTLY, because that build has ONE
 ; display by construction and the two words can never differ in it. Selecting
@@ -8512,6 +8478,50 @@ wm_su_x1:  dw 0                 ; the rect the operation in hand is working
 wm_su_y1:  dw 0                 ; on - written by wm_su_take before the claim
 wm_su_x2:  dw 0                 ; that will hold it exists, and read back out
 wm_su_y2:  dw 0                 ; of that claim's header by wm_su_ck
+wm_su_kex: times 4 db 0         ; ...the four band extents CLAMPED to the
+                                ; content rect of the operation in hand
+                                ; (wm_su_flay), which is what everything
+                                ; downstream reads
+%ifdef KERN_BIG
+wm_su_pw: dw 4                  ; HOW DEEP THE DISPLAY THIS CACHE IS ON IS, in
+                                ; planes, which is not [vid_planes_w] the
+                                ; moment two displays can differ
+                                ; (docs/plans/completed/DUAL-DISPLAY-VGA.md 4.3). Set by
+                                ; wm_su_flay, which is the one place both the
+                                ; take and the check establish the content
+                                ; rect, and read by wm_su_bytes, wm_su_scrset,
+                                ; wm_su_edge and wm_su_merge - the sizing, the
+                                ; scratch, the restore stride and the merge.
+                                ;
+                                ; THE BUG IT CLOSES IS A HEAP OVERRUN, not a
+                                ; wrong picture. gfx_save takes GFXDENTER and
+                                ; so writes with the planes of the display the
+                                ; rect is ON, while the claim was sized from
+                                ; whichever display happened to be current -
+                                ; the primary, since every hook restores it.
+                                ; Primary Hercules with a window on the VGA is
+                                ; a buffer sized x1 and a save that writes x4.
+                                ; The other way round merely wastes.
+                                ;
+                                ; .text with a real initialiser for this file's
+                                ; own reason: -f bin zeroes nothing.
+%endif
+; THE BUFFER'S HEADER IS THESE, IN THIS ORDER: WSU_X1..WSU_Y2, WSU_EXT and
+; (kern_big) WSU_PW are wm_su_x1..wm_su_y2, wm_su_kex and wm_su_pw laid end to
+; end, so wm_su_take writes the header with ONE rep movsw and wm_su_ck checks
+; it with ONE repe cmpsw. kern_small's depth is [vid_planes_w] and is written
+; and compared beside the run.
+%if wm_su_kex - wm_su_x1 != WSU_EXT || WSU_X1 != 0 || WSU_Y2 != 6
+  %error "wm_su_x1..y2 and wm_su_kex must be the buffer header's first twelve bytes, in order"
+%endif
+%ifdef KERN_BIG
+%if wm_su_pw - wm_su_x1 != WSU_PW || WSU_PW + 2 != WSU_IMG
+  %error "wm_su_pw must follow wm_su_kex as WSU_PW follows WSU_EXT"
+%endif
+WSU_HDRW equ WSU_PW / 2 + 1     ; words the header run copies/compares
+%else
+WSU_HDRW equ WSU_PW / 2         ; ...stopping short of the depth word
+%endif
 
 ; --- and the rect the NEXT window drawn owes (SPEC.md 11.96.6) --------------
 ; A one-shot, wm_dmg_dk's rule: 0 means "the whole window", which is what a
@@ -9752,28 +9762,20 @@ wm_su_ck:
                                 ; a function of - so a band that changed, or a
                                 ; window that resized past one, disagrees here
                                 ; with no new comparison anywhere
-    mov ax, [wm_su_x1]
-    cmp ax, [es:WSU_X1]
+    push di                     ; the header, as ONE compare - wm_su_take
+    xor di, di                  ; wrote it as one run, so the rect, the
+    push si                     ; extents and (kern_big) the depth are checked
+    mov si, wm_su_x1            ; in one repe cmpsw
+    mov cx, WSU_HDRW
+    repe cmpsw
+    pop si
+    pop di                      ; a pop touches no flag, so ZF survives
     jne .no
-    mov ax, [wm_su_y1]
-    cmp ax, [es:WSU_Y1]
-    jne .no
-    mov ax, [wm_su_x2]
-    cmp ax, [es:WSU_X2]
-    jne .no
-    mov ax, [wm_su_y2]
-    cmp ax, [es:WSU_Y2]
-    jne .no
-    mov ax, [wm_su_kex+0]
-    cmp ax, [es:WSU_EXT+0]
-    jne .no
-    mov ax, [wm_su_kex+2]
-    cmp ax, [es:WSU_EXT+2]
-    jne .no
+%ifndef KERN_BIG
     mov ax, [WM_SU_PW]          ; ...and the DEPTH the bytes were laid out to
     cmp ax, [es:WSU_PW]         ; (SPEC.md 11.96.17): a two-colour claim
     jne .no                     ; withdrawn, or a window that has crossed to a
-                                ; display of another depth, leaves a buffer
+%endif                          ; display of another depth, leaves a buffer
                                 ; that means something else at the same stride
     mov ax, si                  ; ...and the segment, for wm_su_try
     clc
@@ -10030,16 +10032,14 @@ wm_su_take:
     mov es, dx
     push si                     ; the header first: the content rect and the
     mov si, wm_su_x1            ; four extents go WITH the pixels, so nothing
-    xor di, di                  ; outside the claim has to be kept in step
-    mov cx, 4
-    cld
-    rep movsw
-    mov si, wm_su_kex
-    mov cx, 2
-    rep movsw
-    mov ax, [WM_SU_PW]          ; ...AND THE DEPTH (SPEC.md 11.96.17), which
-    mov [es:WSU_PW], ax         ; wm_su_flay has just decided and which the
-    pop si                      ; bytes below are laid out to
+    xor di, di                  ; outside the claim has to be kept in step -
+    mov cx, WSU_HDRW            ; ...AND THE DEPTH (SPEC.md 11.96.17), which
+    rep movsw                   ; wm_su_flay has just decided and which the
+%ifndef KERN_BIG                ; bytes below are laid out to: one run, the
+    mov ax, [WM_SU_PW]          ; three being laid end to end in .text (see
+    stosw                       ; the %if under wm_su_kex). kern_small's depth
+%endif                          ; is [vid_planes_w] and follows the run
+    pop si
     mov di, WSU_IMG             ; ...and the fragments start after it, in index
     mov word [wm_su_fn], 0      ; order and back to back - gfx_save walks DI
 .frag:                          ; itself, and leaves it alone for an empty rect
@@ -10677,18 +10677,18 @@ wm_draw_win:
 .whole:
 %endif
 
-    test byte [di+W_FLAGS], WF_FULL
-    jz .chrome                  ; fullscreen: no chrome at all - the whole
-    mov byte [gfx_color], CWHITE; frame is content, white-filled, then
-    mov ax, [di+W_X]            ; W_PAINT (SPEC.md 11.2)
-    mov bx, [di+W_Y]
-    mov cx, ax
+    mov ax, [di+W_X]            ; the whole frame, inclusive - both arms
+    mov bx, [di+W_Y]            ; below start from it (wm_chrome_clip and the
+    mov cx, ax                  ; pens preserve every register)
     add cx, [di+W_W]
     dec cx
     mov dx, bx
     add dx, [di+W_H]
     dec dx
-    call gfx_fill
+    test byte [di+W_FLAGS], WF_FULL
+    jz .chrome                  ; fullscreen: no chrome at all - the whole
+    mov byte [gfx_color], CWHITE; frame is content, white-filled, then
+    call gfx_fill               ; W_PAINT (SPEC.md 11.2)
     jmp .paint
 
 .chrome:
@@ -10698,15 +10698,7 @@ wm_draw_win:
                                 ; now (SPEC.md 11.97). Both are gfx_fill, which
                                 ; clips per PIXEL; the title bar below is not,
                                 ; and 11.97.1 is why the region stops short of it
-    call thm_ink                
-    mov ax, [di+W_X]            ; 1px outline around the whole frame
-    mov bx, [di+W_Y]
-    mov cx, ax
-    add cx, [di+W_W]
-    dec cx
-    mov dx, bx
-    add dx, [di+W_H]
-    dec dx
+    call thm_ink                ; 1px outline around the whole frame
     push bx                     ; ...or TWO SIDES of one, on a window that
     mov bx, di                  ; spans the screen and so has neither side
     call wm_flush               ; border (SPEC.md 11.95.3). push/pop write no
@@ -11587,6 +11579,9 @@ wm_rz_oh:   resw 1              ; Not per-slot: it never outlives the call.
 %endif
 %if W_Y - W_X != 2 || W_W - W_X != 4 || W_H - W_X != 6
   %error "W_X..W_H must stay four adjacent words: wm_rz_swap walks them"
+%endif
+%if ZR_X != 0 || ZR_Y != 2 || ZR_W != 4 || ZR_H != 6 || NR_X != 0 || NR_Y != 2 || NR_W != 4 || NR_H != 6
+  %error "the zoom and natural banks are the record's X..H in order: wm_bank4 copies them whole"
 %endif
 ;m_zoomr:   resb MAX_WIN * ZR_SIZE  ; per slot: the USER state a zoomed window
                                     ; goes back to (SPEC.md 11.95). A side
