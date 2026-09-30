@@ -154137,13 +154137,44 @@ without them (`ffmpeg` capability).
   to 0 at every keyframe's frame *k*+1 as the greedy encoder holds it. A
   decision is committed once every live state's survivor agrees, so the
   memory is a window. On `--jobs` cores (default all) the sound is cut into
-  segments, each searched from 4,096 samples BEFORE its cut starting from
+  segments - a core's share of it, 16,384 to 88,200 samples, so a clip
+  whose sound is under two of the long ones is not searched on one core -
+  each searched from 4,096 samples BEFORE its cut starting from
   any state, and stitched at the latest sample where the two paths' STATES
   agree - the best way into that state and the best way on from it, which
   is the whole search's path. `videnc` asserts the stitched result is
-  BYTE-IDENTICAL to one whole search. About real time on four cores. A step
+  BYTE-IDENTICAL to one whole search. A step
   that would clamp at 0 or 255 is not taken, so every stream decodes by the
   card's own arithmetic.
+- **Every core, and the same file** (`--jobs N`, default all). What a core
+  count can change is WHEN the work is done, never what comes out: every
+  format writes the file the one-process encoder wrote, byte for byte (the
+  stored options aside, which record `--jobs`) - measured at 1 and 4 jobs
+  over every format and at 3 and 8 on the ADPCM search - but `cgacomp`'s
+  diffusion, whose chunks (below) have been the one exception since they
+  were written.
+  THE DITHER IS STAGED: each ditherer's frame is its own choice, which
+  reads no state and is nearly all of the work - on `jobs` processes, a few
+  frames each in flight - and then last frame's taken into account (the
+  dead band; a text cell's glyph, repriced only in the cells where it was
+  not among the candidates), in order, here. Where cutting the clip into
+  chunks restarts every chunk's dead band, this does not. THE FRAMES ARE
+  STREAMED: each goes to the encoder as it is dithered, so the dither's
+  cores work beside the encoder's one and the decode beside both (ffmpeg's
+  frames read ahead on a thread, 256 MB at most) - unless the sound needs
+  the frame count first (ADPCM4, whose search runs to the last keyframe) or
+  the dither comes in `cgacomp`'s chunks, which dither every frame and then
+  encode as before. Streamed, the window's bar is ONE count spread over its
+  read, sound and encode steps - the frames encoded against the clip's
+  length - since all three go on at once. THE PASS BEFORE THE FRAMES - the
+  levels', or the palette's - reads the clip beside the frames' own decode,
+  read ahead the same way. `--aim quality`'s trials run at once
+  (98.2.1.4). What stays on
+  one core is THE ENCODER ITSELF - each frame's budgets are what the last
+  left, so frames cannot be encoded side by side - ffmpeg's `palettegen`,
+  whose time grows with the colours the clip holds, and `cgacomp`'s
+  diffusion, which spreads over the cores in its 5-second chunks
+  (98.2.2) and so only on a clip longer than one.
 
 ##### 98.2.1.1 Owed time: a scene cut may run past its period
 
@@ -154329,7 +154360,13 @@ the owner's "maximize quality, minimize size":
   -> `vga-full`, `cga-small` -> `cga`, and the colour presets' own), then
   22,050 Hz sound. The report says what it tried and why it stopped. Bad
   Apple at `--preset herc`: `herc-mid` taken (0.03% seen, 0% cut),
-  `herc-full` not (0.55%, 4%), 22 kHz sound taken.
+  `herc-full` not (0.55%, 4%), 22 kHz sound taken. **The trials run at
+  once**, a process each and one core each: every window of a trial
+  together, and when the cores hold every window of every step, the whole
+  ladder beside the asked settings - taken or not in order as before, so a
+  step past one not taken is work spent on cores that were idle. Each
+  trial's numbers are one encode's, whichever process made them, so what
+  is taken is what the trials one by one took.
 - **`size` leaves off changes not worth their bytes**, even in a frame the
   budget would take whole: a span is sent only if what it fixes - value
   over the look-ahead as 98.2.1.2 prices it, weighted by how long its
