@@ -36432,7 +36432,7 @@ is why there is no path string anywhere in os8088."*
 **True of the kernel, and of nothing else.** `dsk_find` filters the raw
 directory sectors and four lines into its entry loop has `cmp al, '.'` / `je
 .skip`, so **neither `.` nor `..` is ever reported to a package** — on either
-cell, since `api_file_find` and `api_file_find_raw` join at `api_ff_fence` and
+cell, since `api_file_find` and `api_file_find_raw` join at `api_ff_go` and
 differ in the size field alone. `OSAPI_FT_UP` exists because `dsk_synth_up`
 builds an up-entry for `disk_mount`'s **listing** (§19.5), a different
 structure a package cannot reach. `OSAPI_FILE_HERE` answers a cluster, and a
