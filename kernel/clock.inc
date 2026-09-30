@@ -1746,16 +1746,15 @@ clk_inc_sec:
                                 ; the file already has rather than a new one.
                                 ; `[bx]` addresses DS, which IS KERNEL_SEG
                                 ; here - this is .text and not a BP form.
+    mov ax, 0x0200 + 60         ; the SECONDS and the MINUTES are one loop:
+.sm:                            ; AL = their bound, AH = how many of them
     inc byte [bx]
-    cmp byte [bx], 60
+    cmp [bx], al
     jb .out
     mov byte [bx], 0
     inc bx
-    inc byte [bx]
-    cmp byte [bx], 60
-    jb .out
-    mov byte [bx], 0
-    inc bx
+    dec ah
+    jnz .sm                     ; ...and BX = clk_hour after both
     inc byte [bx]
     cmp byte [bx], 24
     jb .out

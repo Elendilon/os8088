@@ -1437,7 +1437,10 @@ dkx_slot_rect:
 ; -----------------------------------------------------------------------------
 dkx_pass:
     cmp byte [cs:dock_auto], 0
-    je .ret
+    jne .go                     ; (a `je` to a `ret` at the far end was a
+    ret                         ; relaxed five bytes and the `ret`: this is
+                                ; three)
+.go:
     push ax
     push bx
     push cx
@@ -1500,8 +1503,6 @@ dkx_pass:
     call KERNEL_SEG:cw_gfx_unlock
 .out:
     jmp dkx_ret_di
-.ret:
-    ret
 
 ; Open over windows without holding the lock between UI passes. All registers
 ; preserved. Closing repaints, so neither a save-under nor stale flag is needed.

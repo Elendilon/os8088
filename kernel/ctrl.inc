@@ -4125,14 +4125,14 @@ cp_vid_click:
     cmp dx, CPV_MB2
     jg .donej
     call KERNEL_SEG:cw_vid_dual_ok
-    jc .done                    ; not drawn on this machine, so not clickable
+    jc .donej                   ; not drawn on this machine, so not clickable
     mov ax, cx                  ; AH = 0: cx is pane-relative and CP_PRGT is
     sub ax, CP_PGX              ; 221, so this cannot carry
-    jl .done
-    mov cl, CPV_MSTEP
-    div cl                      ; AL = which radio, AH = the remainder
+    jl .donej                   ; (.donej, not .done: in SHORT reach, where
+    mov cl, CPV_MSTEP           ; .done is not and would cost a relaxed jcc's
+    div cl                      ; five bytes)
     cmp al, 3
-    jae .done
+    jae .donej
     mov ah, al                  ; ...and is it the one already on?
 %ifdef KERN_BIG
     add al, 2                   ; ids 2..4, the Activate button being 1
