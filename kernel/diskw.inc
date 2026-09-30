@@ -4529,34 +4529,30 @@ dskw_now:
     push bx
     push cx
     call KERNEL_SEG:cw_clk_snapshot ; read the fields the SPEC.md 37 way
-    xor ah, ah
-    mov al, [clk_sn_hour]
-    mov cl, 11
-    shl ax, cl
-    mov bl, [clk_sn_min]
-    xor bh, bh
-    mov cl, 5
-    shl bx, cl
-    or ax, bx
+    mov al, [clk_sn_hour]       ; Horner's rule, one field at a time: shift
+    cbw                         ; what is there up by the next field's width
+    mov bl, [clk_sn_min]        ; and OR it in (.pk) - every field is below
+    mov cl, 6                   ; its width, so the OR is an add
+    call .pk                    ; hour:minute
     mov bl, [clk_sn_sec]
-    xor bh, bh
-    shr bx, 1
-    or ax, bx
+    shr bl, 1                   ; FAT keeps seconds in twos
+    dec cx                      ; CL = 5 (.pk leaves CL alone)
+    call .pk
     mov [dskw_time], ax
     mov ax, [clk_sn_year]
     sub ax, 1980
-    mov cl, 9
-    shl ax, cl
     mov bl, [clk_sn_mon]
-    xor bh, bh
-    mov cl, 5
-    shl bx, cl
-    or ax, bx
+    mov cl, 4
+    call .pk
     mov bl, [clk_sn_day]
-    xor bh, bh
-    or ax, bx
+    inc cx                      ; CL = 5
+    call .pk
     mov [dskw_date], ax
     jmp kretc_cx
+.pk:
+    shl ax, cl
+    or al, bl
+    ret
 
 ; -----------------------------------------------------------------------------
 ; dskw_name83 - display name -> the raw 11-byte FAT name field
