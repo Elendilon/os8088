@@ -8525,6 +8525,13 @@ SOAK = [
         "skipped) it FAILS at exactly those holds",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidplay3", "soak", py("tests/vidplay.py", "--k1", "3"), 40.0,
+        "SPEC.md 98.3: vidplay's two plays with play 1's ring held to THREE "
+        "slots - not a power of two, so a chunk's slot is its number mod K "
+        "(vp_slot) and the wrap and the mirror run at an odd K. Frame-exact "
+        "at every hold, the mirror's included, as vidplay is at 2",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidplayherc", "soak", py("tests/vidplay.py", "--layout", "herc"),
         40.0,
         "SPEC.md 98.3: vidplay's two plays with a HERCULES-layout clip on "

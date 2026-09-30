@@ -155271,9 +155271,28 @@ on time however long the disk takes:
 
 **The reader is the foreground**, the bracket's own loop, through
 `OSAPI_FILE_READ_SEQ` in 32 KB chunks:
-- **A ring of *K* 32 KB slots, *K* a power of two up to 8**, sized from
-  `OSAPI_MEM_AVAIL`. A stream that fits is read whole before the first
-  frame. **A *K* short of the header's ring** (98.1.1 byte 23, what the
+- **A ring of *K* 32 KB slots, as many as the machine has, up to 15**
+  (`VP_KBIG`), sized from `OSAPI_MEM_AVAIL` less the mirror and less one
+  keyframe entry (`[vp_kbkb]`), which a seek in the full screen claims
+  after the ring is up (98.3.14) and would otherwise quietly refuse. A
+  stream that fits is read whole before the first frame, so every slot
+  past the header's ring is headroom the encode never counted on: an
+  early burst is read before the picture starts, and a later one spends
+  what a calm stretch banked. **A LIVE play keeps the old rule** - *K* a
+  power of two up to 8 (`VP_KMAX`) - because it runs on the desktop, where
+  the rest of the machine wants the memory; everything else is inside the
+  fsx bracket, the window play included, and nothing can be launched
+  beside it. A chunk's slot is its number mod *K* (`vp_slot`, one `div`),
+  and the mirror is copied once a lap, so a bigger ring copies less often.
+  **Measured on MartyPC's Hercules 5150 + SB off its XT-IDE**, StarClip's
+  ST-225 encode (two white flashes 2 s in, 258 KB of stream in 1.6 s):
+  8 slots ran the card dry twice in 9 s, and the 10 this machine has room
+  for none; F to the play ready 2.00 -> 2.27 s, the extra slots' pre-fill;
+  `vp_slot` 213 cycles entry to `ret` (209-217), 2.6 calls a frame, ~0.33%
+  of a 25 fps period against the mask it replaced - and back about as much
+  in the mirror copy (1.2% at 8 slots, a fifth fewer laps at 10).
+  `VIDEO.O88` +48 bytes, no kernel byte. `tests/vidplay.py --k1 3`
+  (`vidplay3`) wraps an odd ring frame-exact. **A *K* short of the header's ring** (98.1.1 byte 23, what the
   encoder's disk reserve banked for, 98.2.1.3) is played, not refused - a
   burst may pause it - and the full screen says `Low memory` once, before
   the first frame (`vp_rsay`, a toast of 98.3.13's box). `tests/vidplay.py`

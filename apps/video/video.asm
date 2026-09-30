@@ -17,11 +17,12 @@
 ;   the rest   the window: the file's numbers, P to play, and what the last
 ;              play cost.
 ;
-; THE RING (SPEC.md 98.3). K slots of 32 KB, K a power of two, and a MIRROR
+; THE RING (SPEC.md 98.3). K slots of 32 KB (a power of two only in a LIVE
+; play; elsewhere as many as the machine has), and a MIRROR
 ; slot after them: every chunk that lands in slot 0 is copied there too, so a
 ; super-packet (<= 32 KB) that starts in slot K-1 runs on into the mirror and
 ; is contiguous. Positions are (chunk, offset) pairs; chunk c lives in slot
-; c & (K-1). The reader may fill chunk c only when c < (the hook's
+; c mod K (vp_slot). The reader may fill chunk c only when c < (the hook's
 ; super-packet's chunk) + K; the hook may enter a super-packet only when
 ; every chunk it touches has been loaded. [vp_lc], the chunks loaded, is the
 ; ONE word both sides read, and the reader writes it last.
@@ -81,7 +82,8 @@ VP_SPKMAX   equ 8000                ; the fastest PCM an 8088 plays through
 VP_AMAX     equ 4                   ; frames of audio a hook call puts in
 VP_SKIPMAX  equ 8                   ; shadow copies a play behind may skip
 VP_SLOTP    equ VP_CHUNK / 16       ; ...in paragraphs
-VP_KMAX     equ 8
+VP_KMAX     equ 8                   ; a LIVE play's most slots (a power of two)
+VP_KBIG     equ 15                  ; ...and any other's (SPEC.md 98.3)
 VP_COLS     equ 35                  ; the info panel's text columns
 VP_LINES    equ 8
 VP_LINE     equ VP_COLS + 1
@@ -5967,17 +5969,41 @@ vp_sstart:
     mov word [vp_msg], vp_s_mem
     jmp .fail
 .strm:
-    ; --- the ring: K slots and the mirror, K a power of two, 2..VP_KMAX
+    ; --- the ring: K slots and the mirror (SPEC.md 98.3). IN THE BRACKET,
+    ;     as many as the machine has, 2..[vp_kmax]: every slot past the
+    ;     header's ring is headroom the encode never counted on. LIVE plays
+    ;     on the desktop, so it keeps the old rule, a power of two to VP_KMAX
     call OSAPI_MEM_AVAIL            ; AX = the largest free run, KB
-    mov cl, 5
-    shr ax, cl                      ; ...in 32 KB slots
-    dec ax                          ; less the mirror
     mov cx, [vp_kmax]
+    cmp byte [vp_livem], 0
+    jne .klive
+    sub ax, [vp_kbkb]               ; ...less a seek's key entry, claimed
+    jnc .kbig                       ; AFTER the ring (98.3.14), which would
+    xor ax, ax                      ; otherwise quietly refuse
+.kbig:
+    call .kslots
+    cmp cx, ax
+    jbe .kfit
+    mov cx, ax                      ; (AX is -1 with no room: CX stays)
+    jmp short .kfit
+.klive:
+    cmp cx, VP_KMAX
+    jbe .kl0
+    mov cx, VP_KMAX
+.kl0:
+    call .kslots
 .k:
     cmp cx, ax
     jbe .kfit
     shr cx, 1
     jmp short .k
+.kslots:
+    mov dx, cx
+    mov cl, 5
+    shr ax, cl                      ; ...in 32 KB slots
+    dec ax                          ; less the mirror
+    mov cx, dx
+    ret
 .kfit:
     cmp cx, 2
     jae .kok2
@@ -5990,9 +6016,6 @@ vp_sstart:
     jae .rok                        ; which the full screen says once
     mov byte [vp_rshort], 1
 .rok:
-    dec cx
-    mov [vp_kmask], cx              ; chunk -> slot
-    inc cx
     mov ax, cx
     inc ax
     mov cl, 5
@@ -8522,9 +8545,10 @@ vp_fill:
     add bx, [vp_k]                  ; and every one after it are still live
     cmp ax, bx
     jae .none
-    mov bx, [vp_k]
-    dec bx
-    and bx, ax                      ; its slot
+    push ax
+    call vp_slot
+    xchg bx, ax                     ; its slot
+    pop ax
     mov cl, 11
     shl bx, cl
     add bx, [vp_ring]
@@ -8560,9 +8584,8 @@ vp_fill:
     cmp ax, VP_CHUNK                ; ZF=0: the stream's last, short chunk -
     pushf                           ; said after [vp_lc] has it (vp_nextw)
     mov ax, [vp_lc]
-    mov bx, [vp_k]
-    dec bx
-    test ax, bx
+    call vp_slot
+    or ax, ax                       ; slot 0?
     jnz .pub
     call vp_mneed                   ; slot 0 is copied to the MIRROR, so a
     jcxz .pub                       ; super-packet starting in slot K-1 runs
@@ -8714,7 +8737,7 @@ vp_warm:
     cmp byte [vp_wkind], 0
     je .cont
     mov ax, [vp_lc]                 ; the read goes to the chunk's slot, and
-    and ax, [vp_kmask]              ; on into the next or the mirror: two
+    call vp_slot                    ; on into the next or the mirror: two
     mov cl, 11                      ; slots from any are contiguous
     shl ax, cl
     add ax, [vp_ring]
@@ -9778,10 +9801,21 @@ vp_nextw:
     clc
     ret
 
+; vp_slot - AX = a chunk -> AX = its slot, the chunk mod K (SPEC.md 98.3:
+; K is whatever the machine had room for, not a power of two). Everything
+; else preserved but the flags. One `div`, 2-4 calls a frame
+vp_slot:
+    push dx
+    xor dx, dx
+    div word [vp_k]
+    xchg ax, dx
+    pop dx
+    ret
+
 ; vp_addr - AX = a chunk, BX = an offset in it -> DX:SI, a far pointer
 ; (clobbers AX, BX, CX)
 vp_addr:
-    and ax, [vp_kmask]              ; (a slot: < 8)
+    call vp_slot                    ; (a slot: <= VP_KBIG)
     mov ah, al
     xor al, al
     shl ah, 1
@@ -11738,7 +11772,7 @@ vp_s_ticks:   db ', ', 0
 vp_s_want:    db ' ticks of ', 0
 
 ; --- state ------------------------------------------------------------------------
-vp_kmax:      dw VP_KMAX            ; the ring's most slots (a test may lower it)
+vp_kmax:      dw VP_KBIG            ; the ring's most slots (a test may lower it)
 vp_rneed:     db 0                  ; the slots the stream's bursts assume
 vp_rshort:    db 0                  ; ...and this play has fewer: say so once
 vp_stopat:    dw 0xFFFF             ; the gate's hold: stop before this frame
@@ -11782,8 +11816,7 @@ vp_clsec:     dw 0
 vp_tmp:       dw 0
 ; the play
 vp_ring:      dw 0
-vp_k:         dw 0
-vp_kmask:     dw 0
+vp_k:         dw 1                  ; the ring's slots (1 before any play: vp_slot answers 0)
 vp_vseg:      dw 0
 vp_org:       dw 0
 vp_t0:        dw 0
