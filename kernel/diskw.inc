@@ -4698,15 +4698,13 @@ dskw_char_x:
 ; SPEC.md 18.96), so nothing a package can name changed and one .o88 still
 ; serves both kernels.
 ;
-; A HIGH-LEVEL format: the boot sector, both FATs and the root directory, and
-; nothing else. int 13h AH=05h - writing sector ID fields - is deliberately
-; absent, and the line is the same one SPEC.md 52.3 draws for the hard disk
-; with a sharper edge here: a surface format is the operation that turns a
-; disk this OS merely cannot read into one NOTHING can read, and every disk
-; this feature exists for is already perfectly readable.
-;
-; So 12 sectors on a 360KB disk and 33 on a 1.44MB one, all of them metadata,
-; and the data area is never touched.
+; Every TRACK is laid down first with int 13h AH=05h (dskw_fmt_low, SPEC.md
+; 18.96.3), and then the boot sector, both FATs and the root directory - 12
+; sectors on a 360KB disk and 33 on a 1.44MB one - over the tracks just laid.
+; It used to be that second half alone, on the argument that a surface format
+; turns a disk this OS cannot read into one nothing can; every disk anybody
+; actually brought to it was one it could not read, so that was the wrong
+; way round.
 ; =============================================================================
 
 ; --- the four standard IBM formats (SPEC.md 18.96) ---------------------------
@@ -4717,15 +4715,25 @@ dskw_char_x:
 ; 1.44MB's FAT is 9 sectors = DSK_FAT_SECS exactly, and SPEC.md 18.2 rule 10
 ; refuses a floppy whose FAT is larger - so the biggest thing this can write
 ; is the biggest thing that can be mounted, by construction.
-DFMT_SPT     equ 0              ; word: sectors per track (the MEDIUM's)
-DFMT_CYL     equ 2              ; word: cylinders (the DRIVE's - see the probe)
-DFMT_TOT     equ 4              ; word: BPB_TotSec16 = spt * 2 * cyl
-DFMT_SPC     equ 6              ; byte: BPB_SecPerClus
-DFMT_MEDIA   equ 7              ; byte: BPB_Media
-DFMT_FATSZ   equ 8              ; word: BPB_FATSz16
-DFMT_ROOTN   equ 10             ; word: BPB_RootEntCnt
-DFMT_KB      equ 12             ; word: the size the confirmation says
+;
+; **A ROW IS THE BPB ITSELF**, bytes 13 to 25 of the boot sector in the boot
+; sector's own order - so dskw_fmt_boot lays a row down with ONE copy where it
+; used to load and store six fields and three constants - plus the cylinder
+; count the BPB does not carry. The size the confirmation says is TOT/2.
+DFMT_SPC     equ 0              ; byte: BPB_SecPerClus
+DFMT_RSVD    equ 1              ; word: BPB_RsvdSecCnt (1, every row)
+DFMT_NFATS   equ 3              ; byte: BPB_NumFATs (2, every row)
+DFMT_ROOTN   equ 4              ; word: BPB_RootEntCnt
+DFMT_TOT     equ 6              ; word: BPB_TotSec16 = spt * 2 * cyl
+DFMT_MEDIA   equ 8              ; byte: BPB_Media
+DFMT_FATSZ   equ 9              ; word: BPB_FATSz16
+DFMT_SPT     equ 11             ; word: BPB_SecPerTrk (the MEDIUM's)
+DFMT_BPB     equ 13             ; ...the BPB span ends here
+DFMT_CYL     equ 13             ; byte: cylinders (the DRIVE's - see the probe)
 DFMT_SIZE    equ 14
+%if DFMT_RSVD != DSK_B_RSVD-DSK_B_SPC || DFMT_NFATS != DSK_B_NFATS-DSK_B_SPC || DFMT_ROOTN != DSK_B_ROOTN-DSK_B_SPC || DFMT_TOT != DSK_B_TOT16-DSK_B_SPC || DFMT_MEDIA != DSK_B_MEDIA-DSK_B_SPC || DFMT_FATSZ != DSK_B_FATSZ-DSK_B_SPC || DFMT_SPT != DSK_B_SPT-DSK_B_SPC || DFMT_BPB != DSK_B_HEADS-DSK_B_SPC
+  %error "a dskw_fmt_tab row is the BPB from BPB_SecPerClus to BPB_SecPerTrk, byte for byte: dskw_fmt_boot copies it whole"
+%endif
 
 DFMT_ROWS    equ 4
 
@@ -4787,35 +4795,6 @@ dskw_fmt_ioerr:
 .out:
     ret
 
-section .text                   ; DATA, so back to the kernel segment: cold
-                                ; code reads it through DS (SPEC.md 2.6), and
-                                ; a `dw` left on the cold side of this toggle
-                                ; is read at the wrong segment with NO
-                                ; diagnostic - which is exactly what this
-                                ; table did on its first run, and it showed
-                                ; as a confirmation offering to format a
-                                ; 360KB floppy "as 14594K"
-dskw_fmt_tab:
-    dw 18, 80, 2880
-    db 1, 0xF0
-    dw 9, 224, 1440             ; 1.44MB
-    dw 15, 80, 2400
-    db 1, 0xF9
-    dw 7, 224, 1200             ; 1.2MB
-    dw 9, 80, 1440
-    db 2, 0xF9
-    dw 3, 112, 720              ; 720KB
-    dw 9, 40, 720
-    db 2, 0xFD
-    dw 2, 112, 360              ; 360KB
-
-    ; the caller's live geometry, banked across dskw_fmt_probe_x's reads and put
-    ; back by its .undo. Three words rather than a constant, because the probe
-    ; is no longer only ever run over a volume that failed to mount (see .undo)
-dskw_fmt_bspt:  dw 9
-dskw_fmt_bhds:  dw 2
-dskw_fmt_btot:  dw 0
-section .modf                   ; ...and back to the image
 
 ; -----------------------------------------------------------------------------
 ; dskw_fmt_row_x - a table row's address (module-internal)
@@ -4825,15 +4804,52 @@ section .modf                   ; ...and back to the image
 ; -----------------------------------------------------------------------------
 dskw_fmt_row_x:
     push ax
-    push dx
-    xor ah, ah
-    mov dx, DFMT_SIZE
-    mul dx
-    mov si, dskw_fmt_tab
-    add si, ax
-    pop dx
+    mov ah, DFMT_SIZE
+    mul ah                      ; AX = AL * DFMT_SIZE (AL <= 3)
+    add ax, dskw_fmt_tab
+    xchg si, ax
     pop ax
     ret
+
+; The four standard IBM formats - IN THE IMAGE, and read through CS like its
+; strings (SPEC.md 2.8.6). They were `.text`, 56 resident bytes on every
+; machine, because CLONE.DRV sized a disk image against the same rows; the
+; cloner carries its own four (size, spt) pairs now (clo_geom_img), and
+; nothing but this image reads a row.
+;
+;        SPC RSVD NFATS ROOTN  TOT  MEDIA FATSZ SPT         CYL
+dskw_fmt_tab:
+    db 1
+    dw 1
+    db 2
+    dw 224, 2880
+    db 0xF0
+    dw 9, 18
+    db 80                       ; 1.44MB
+    db 1
+    dw 1
+    db 2
+    dw 224, 2400
+    db 0xF9
+    dw 7, 15
+    db 80                       ; 1.2MB
+    db 2
+    dw 1
+    db 2
+    dw 112, 1440
+    db 0xF9
+    dw 3, 9
+    db 80                       ; 720KB
+    db 2
+    dw 1
+    db 2
+    dw 112, 720
+    db 0xFD
+    dw 2, 9
+    db 40                       ; 360KB
+%if $ - dskw_fmt_tab != DFMT_ROWS * DFMT_SIZE
+  %error "dskw_fmt_tab's rows are DFMT_SIZE bytes"
+%endif
 
 ; =============================================================================
 ; The formatter's own STRINGS and the composer that letters them (SPEC.md
@@ -4979,7 +4995,8 @@ dskw_fmt_line_x:
     call dskw_fmt_cat
     mov al, [fm_fmtrow]
     call dskw_fmt_row_x         ; SI = the row it is about to write
-    mov ax, [si+DFMT_KB]
+    mov ax, [cs:si+DFMT_TOT]    ; ...in sectors, so the KB are half of it
+    shr ax, 1
     call COLD_SEG:fmf_fm_utoa   ; the one thing this image does NOT carry: a
                                 ; decimal formatter is real code and a second
                                 ; copy of it is a second thing to be wrong
@@ -5059,13 +5076,6 @@ dskw_fmt_probe_x:
     push di
     push es
 
-    ; the three words .try writes, banked before anything is aimed anywhere
-    mov ax, [disk_spt]
-    mov [dskw_fmt_bspt], ax
-    mov ax, [disk_heads]
-    mov [dskw_fmt_bhds], ax
-    mov ax, [dsk_totsec]
-    mov [dskw_fmt_btot], ax
 
     ; --- is it a floppy at all? (SPEC.md 18.7: DV_KIND is the TRANSPORT,
     ;     and a BIOS unit below 80h is the MEDIUM - disk_mount's own test)
@@ -5084,6 +5094,11 @@ dskw_fmt_probe_x:
                                 ; a failed mount - and a fill would cache
                                 ; sectors read under a TRIAL geometry, keyed
                                 ; as if the real one had read them
+    push word [disk_spt]        ; ...and the three words .try writes, banked
+    push word [disk_heads]      ; on the stack until .got2 puts them back -
+    push word [dsk_totsec]      ; the probe leaves NO geometry behind (see
+                                ; there). After the refusals: none of them
+                                ; has aimed anything anywhere yet
 
     ; --- the DRIVE's own idea of itself, before anything is read -----------
     ; DI = its cylinders, SI = its sectors per track. int 13h AH=08h is the
@@ -5190,9 +5205,10 @@ dskw_fmt_probe_x:
     je .got2
     mov al, 2                   ; 720KB
 .got2:
-    push ax
-    call .undo                  ; the probe leaves NO geometry behind
-    pop ax
+    pop word [dsk_totsec]       ; THE PROBE LEAVES NO GEOMETRY BEHIND: .try
+    pop word [disk_heads]       ; wrote these three to aim its reads, and they
+    pop word [disk_spt]         ; go back as they came in (the account is the
+                                ; paragraph below .try)
 .done:
     dec byte [dsk_rah_busy]
 .clcpop:                        ; ...and the module's ONE pop run, for
@@ -5237,17 +5253,17 @@ dskw_fmt_probe_x:
     mov dx, si                  ; DX = the drive's spt, before SI becomes the
     mov al, cl                  ; row
     call dskw_fmt_row_x
-    mov ax, [si+DFMT_SPT]
+    mov ax, [cs:si+DFMT_SPT]
     cmp ax, dx
     ja .try_no
     mov [disk_spt], ax
     mov word [disk_heads], 2
-    mov dx, [si+DFMT_TOT]       ; §18.95's read-ahead clamps its fill against
+    mov dx, [cs:si+DFMT_TOT]    ; §18.95's read-ahead clamps its fill against
     mov [dsk_totsec], dx        ; the volume's extent, and a failed mount
                                 ; leaves whatever the last good one set. It
                                 ; only ever shortens a fill, so a stale value
                                 ; cannot read wrong bytes - but it can make
-                                ; the probe's own surplus meaningless. .undo
+                                ; the probe's own surplus meaningless. .got2
                                 ; puts the caller's back, and a format's own
                                 ; mount re-derives it from the BPB regardless
     dec ax                      ; LBA spt-1 = CHS (0,0,spt) under this spt
@@ -5265,7 +5281,7 @@ dskw_fmt_probe_x:
     pop ax
     ret
 
-    ; --- put the fallback geometry back ------------------------------------
+    ; --- why the geometry is banked and put back (.got2) ------------------
     ; The probe writes [disk_spt]/[disk_heads] to aim its reads, and it must
     ; not leave them written: its caller may ARM a confirmation and then be
     ; cancelled, and until the next mount those words are what any raw
@@ -5284,16 +5300,6 @@ dskw_fmt_probe_x:
     ; nothing at all to say so. Banking is two words more than the constant was
     ; and it is right whichever way the caller arrived. dskw_format_x sets the
     ; row's geometry itself and owes this nothing.
-.undo:
-    push ax
-    mov ax, [dskw_fmt_bspt]
-    mov [disk_spt], ax
-    mov ax, [dskw_fmt_bhds]
-    mov [disk_heads], ax
-    mov ax, [dskw_fmt_btot]
-    mov [dsk_totsec], ax
-    pop ax
-    ret
 
 ; -----------------------------------------------------------------------------
 ; dskw_format_x - lay a fresh FAT12 volume on the floppy in [disk_drive]
@@ -5329,68 +5335,75 @@ dskw_format_x:
     push di
     push es
 
-    call dskw_fmt_row_x           ; SI = the row, live for the whole routine
-    mov ax, [si+DFMT_SPT]
+    call dskw_fmt_row_x         ; SI = the row, IN THIS IMAGE, live throughout
+    mov ax, [cs:si+DFMT_SPT]
     mov [disk_spt], ax
     mov word [disk_heads], 2
-    mov ax, [si+DFMT_TOT]       ; ...and the extent §18.95's fill clamps to,
+    mov ax, [cs:si+DFMT_TOT]    ; ...and the extent §18.95's fill clamps to,
     mov [dsk_totsec], ax        ; for dskw_fmt_probe_x's reason
 
     ; --- 0. every TRACK, laid down fresh (SPEC.md 18.96.3) -----------------
     call dskw_fmt_low
     jc .ioerr
 
-    ; --- 1. the boot sector, at LBA 0 --------------------------------------
-    call dskw_fmt_boot
-    xor ax, ax
-    call dskw_fmt_put
-    jc .ioerr
-
-    ; --- 2. FAT1 and FAT2 ---------------------------------------------------
+    ; --- 1-3. every METADATA sector, in LBA order --------------------------
+    ; The boot sector at 0, FAT1 from 1, FAT2 from BX, the root directory
+    ; after it - ONE walk, each sector zeroed and then given what it holds.
     ; Sector 0 of a FAT is the only one with content in it - the media byte
-    ; and an EOC mark - so it is built once and written to the head of each
-    ; copy, and everything after it is the zeroed scratch.
-    mov di, 1                   ; DI = the LBA walker, past the reserved
-    mov cx, 2                   ; sector. CX = FAT copies left
-.fat:
-    push cx
-    call dskw_fmt_zero
-    push es                     ; dsk_secbuf is .lowbss - LOW_SEG, reached
-    mov ax, LOW_SEG             ; through ES and NEVER through DS (SPEC.md
-    mov es, ax                  ; 2.1). Without the override these three
-    mov al, [si+DFMT_MEDIA]     ; stores land in KERNEL_SEG at the same
-    mov [es:dsk_secbuf+0], al   ; offset, which is kernel code: the FAT went
-    mov byte [es:dsk_secbuf+1], 0xFF    ; out all zeros and three bytes of the
-    mov byte [es:dsk_secbuf+2], 0xFF    ; kernel were overwritten, neither of
-    pop es                      ; which announced itself
-                                ; entry 0 is the media byte then all ones,
-                                ; entry 1 the EOC mark - what a host fsck
-                                ; reads back to identify the volume
-    mov ax, di
-    call dskw_fmt_put
-    pop cx
-    jc .ioerr
-    inc di
-    push cx
-    call dskw_fmt_zero          ; ...and the rest of this copy, all zeros
-    mov cx, [si+DFMT_FATSZ]
-    dec cx                      ; sector 0 is done
-    call dskw_fmt_run
-    pop cx
-    jc .ioerr
-    loop .fat
-
-    ; --- 3. the root directory ----------------------------------------------
-    ; Zeroed whole: 0x00 in a name byte is "this entry and every one after it
-    ; is free", which is what disk_mount's walk stops on.
-    call dskw_fmt_zero
-    mov cx, [si+DFMT_ROOTN]
-    mov ax, cx
+    ; then all ones (entry 0), and entry 1's EOC mark - which is what a host
+    ; fsck reads back to identify the volume. The root is zeroed whole: 0x00
+    ; in a name byte is "this entry and every one after it is free", which is
+    ; what disk_mount's walk stops on. The boot sector going FIRST and the
+    ; root directory LAST is the header's order and is kept by walking up.
+    mov bx, [cs:si+DFMT_FATSZ]
+    inc bx                      ; BX = FAT2's first sector (FAT1's is 1)
+    mov ax, [cs:si+DFMT_ROOTN]
     mov cl, 4
     shr ax, cl                  ; RootDirSectors = RootEntCnt/16, and every
-    mov cx, ax                  ; row here is a multiple of 16 by construction
-    call dskw_fmt_run
+    add ax, bx                  ; row here is a multiple of 16 by construction
+    add ax, bx
+    dec ax                      ; 1 + 2*FATSZ + RootDirSectors...
+    xchg dx, ax                 ; ...DX = the first sector past the root
+    xor di, di                  ; DI = the LBA
+.meta:
+    call dskw_fmt_zero          ; ...and ES = LOW_SEG, where dsk_secbuf is
+                                ; (.lowbss, SPEC.md 2.1): every store below is
+                                ; `es:`, and without it one lands in the
+                                ; KERNEL at the same offset - which is exactly
+                                ; how a FAT once went out all zeros
+    or di, di
+    jnz .notboot
+    push bx                     ; --- the boot sector -----------------------
+    mov di, dsk_secbuf          ; Byte for byte what tools/os88disk.py's
+    mov bx, dskw_fmt_jmp        ; boot_sector() writes for a data floppy,
+    mov cx, DFMT_T1             ; which is what makes a formatted disk and a
+    call dskw_fmt_cpy           ; built image the same kind of object: the
+    mov bx, si                  ; jump, 'MSDOS5.0' and BPB_BytsPerSec; the
+    mov cl, DFMT_BPB            ; ROW, which IS the BPB from SecPerClus to
+    call dskw_fmt_cpy           ; SecPerTrk; then the heads, BootSig 0x29 and
+    mov bx, dskw_fmt_t2         ; a volume id, 'FAT12   ' and the
+    mov cl, DFMT_T2             ; not-bootable stub. Every byte past the stub
+    call dskw_fmt_cpy           ; is the zeroed scratch's.
+    mov word [es:dsk_secbuf+510], 0xAA55    ; rule 1's signature, last
+    pop bx
+    xor di, di
+    jmp short .put
+.notboot:
+    cmp di, 1
+    je .head                    ; FAT1's first sector...
+    cmp di, bx
+    jne .put                    ; ...or FAT2's
+.head:
+    mov al, [cs:si+DFMT_MEDIA]
+    mov [es:dsk_secbuf], al
+    mov word [es:dsk_secbuf+1], 0xFFFF
+.put:
+    mov ax, di
+    call dskw_fmt_put
     jc .ioerr
+    inc di
+    cmp di, dx
+    jb .meta
     jmp dskw_fmt_probe_x.clcpop ; the same six pops
 .ioerr:
     call dskw_fmt_ioerr             ; AX = FERR_IO / FERR_WPROT
@@ -5437,123 +5450,112 @@ dskw_fmt_low:
     push di
     push bp
     push es
-    push word [dsk_dpt+10]      ; the table in force, banked whole: DPT_LEN
-    push word [dsk_dpt+8]       ; is 11, so six words cover it - and the
-    push word [dsk_dpt+6]       ; twelfth byte is fdd_unit's, which nothing
-    push word [dsk_dpt+4]       ; on this path writes, so putting it back is
-    push word [dsk_dpt+2]       ; putting back what was there
-    push word [dsk_dpt+0]
+    ; STKBALANCE-LOOP: .bank pushes six words a turn at a time and .rest pops the six; the count is in CX
+    mov bx, dsk_dpt+10          ; the table in force, banked whole: DPT_LEN
+    mov cx, 6                   ; is 11, so six words cover it - and the
+.bank:                          ; twelfth byte is fdd_unit's, which nothing
+    push word [bx]              ; on this path writes, so putting it back is
+    dec bx                      ; putting back what was there. A loop and not
+    dec bx                      ; six `push word [mem]`: 12 bytes against 24,
+    loop .bank                  ; and the same again at .out
 %if DPT_LEN > 12
   %error "dskw_fmt_low banks the DPT as six words"
 %endif
+    cld
 
     ; --- an AT BIOS picks the data rate for this medium --------------------
-    call dskw_fmt_unit          ; DL = the int 13h drive
     push si
     mov ah, 0x18
-    mov ch, [si+DFMT_CYL]
+    mov ch, [cs:si+DFMT_CYL]
     dec ch                      ; the LAST cylinder, as AH=18h takes it
-    mov cl, [si+DFMT_SPT]
-    int 0x13
+    mov cl, [cs:si+DFMT_SPT]
+    call .i13
     pop si
     jc .noset                   ; an XT ROM: the kernel's table stands
     push si
+    push ds                     ; (the one to put back)
     push ds
-    mov ax, es                  ; ES:DI = the BIOS's table for this medium
-    mov si, di
+    push es
+    pop ds                      ; DS:SI = the BIOS's table for this medium...
+    pop es                      ; ...ES:DI = int 1Eh's, which is ours (18.92)
+    mov si, di                  ; - so the BIOS reads it from there
     mov di, dsk_dpt
-    mov bx, KERNEL_SEG          ; ...copied over int 1Eh's, which is ours
-    mov es, bx                  ; (18.92) - so the BIOS reads it from there
-    mov ds, ax
     mov cx, DPT_LEN
-    cld
     rep movsb
     pop ds
     pop si
 .noset:
-    mov al, [si+DFMT_SPT]       ; SC for the FORMAT command, read from EOT
+    mov al, [cs:si+DFMT_SPT]    ; SC for the FORMAT command, read from EOT
     mov [dsk_dpt+4], al
 
-    ; --- the bar: the whole disk, a track at a time (SPEC.md 12.8) ---------
-    mov ax, [si+DFMT_TOT]
-    mov cx, 512
-    mul cx
-    mov cx, ax                  ; DX:CX = the disk in bytes
+    ; --- the bar: the whole disk, a TRACK a unit (SPEC.md 12.8) -----------
+    mov al, [cs:si+DFMT_CYL]
+    cbw                         ; (a cylinder count is under 128)
+    mov cx, 1024                ; two 512-byte units a cylinder, so .ok
+    mul cx                      ; steps the bar one unit a track
+    xchg ax, cx                 ; DX:CX = that, in bytes
     call KERNEL_SEG:fpg_begin
 
-    xor di, di                  ; DI = the cylinder
-    xor bp, bp                  ; BP = the head
+    xor bp, bp                  ; BP = the track: cylinder BP/2, head BP&1
 .track:
     mov ax, LOW_SEG             ; the address fields go in dsk_secbuf, which
     mov es, ax                  ; is 512-aligned (SPEC.md 2.1.1) and so
-    mov bx, dsk_secbuf          ; cannot straddle a DMA page
-    mov cx, [si+DFMT_SPT]
-    mov dl, 1                   ; R, from 1
+    mov ax, bp                  ; cannot straddle a DMA page
+    shr ax, 1                   ; AL = C, AH = 0, CF = H...
+    adc ah, 0                   ; ...so AX = C | H<<8: the first half of every
+    push ax                     ; field, and DL/DH for every attempt below
+    mov di, dsk_secbuf
+    mov cx, [cs:si+DFMT_SPT]
+    mov dx, 0x0201              ; R from 1, N = 2: 512 bytes
 .id:
-    mov ax, di
-    mov [es:bx], al             ; C
-    mov ax, bp
-    mov [es:bx+1], al           ; H
-    mov [es:bx+2], dl           ; R
-    mov byte [es:bx+3], 2       ; N: 512 bytes
-    add bx, 4
-    inc dl
+    stosw                       ; C, H
+    xchg ax, dx
+    stosw                       ; R, N
+    xchg ax, dx
+    inc dx                      ; R never reaches DH: SPT <= 18
     loop .id
 
-    mov cx, 3                   ; attempts at this track
+    mov di, 3                   ; attempts at this track
 .try:
-    push cx
-    call dskw_fmt_unit          ; DL
-    mov ax, di
-    mov ch, al                  ; CH = the cylinder
-    mov cl, 1
-    mov ax, bp
-    mov dh, al                  ; DH = the head
+    pop dx                      ; DL = C, DH = H
+    push dx
+    mov ch, dl                  ; CH = the cylinder
+    mov cl, 1                   ; (CL is no diskette FORMAT's, and is set as
+                                ; dsk_xfer would so no ROM sees sector 0)
     mov bx, dsk_secbuf          ; ES:BX = the address fields
-    mov al, [si+DFMT_SPT]
+    mov al, [cs:si+DFMT_SPT]
     mov ah, 0x05
-    inc byte [sch_lock]         ; dsk_xfer's bracket: nothing switches under
-    CURXFER_ON                  ; an int 13h (SPEC.md 18), and the arrow may
-    int 0x13                    ; move through it (SPEC.md 7.4)
-    CURXFER_OFF                 ; `mov` and `dec` leave CF alone, so the
-    dec byte [sch_lock]         ; int 13h's answer reaches the jnc
-    pop cx
+    call .i13
     jnc .ok
     mov [dsk_ioerr], ah
     cmp ah, 0x03
     je .fail                    ; write-protected: retrying cannot help
-    push cx
-    call dskw_fmt_unit
     xor ah, ah                  ; reset, and try the track again
-    inc byte [sch_lock]
-    int 0x13
-    dec byte [sch_lock]
-    pop cx
-    loop .try
+    call .i13
+    dec di
+    jnz .try
 .fail:
+    pop dx
     stc
     jmp short .out
 .ok:
-    mov ax, [si+DFMT_SPT]
-    mov cl, 9
-    shl ax, cl                  ; this track's bytes, for the bar
+    pop dx
+    mov ax, 512                 ; one unit: this track
     call KERNEL_SEG:apic_fpg_stepb
     inc bp
-    cmp bp, 2
-    jb .track
-    xor bp, bp
-    inc di
-    cmp di, [si+DFMT_CYL]
-    jb .track
-    clc
+    mov ax, bp
+    shr ax, 1                   ; AL = the next track's cylinder
+    cmp al, [cs:si+DFMT_CYL]
+    jb .track                   ; ...and CF = 0 falling out of it
 .out:
     call KERNEL_SEG:fpg_end     ; preserves the flags (fprog.inc)
-    pop word [dsk_dpt+0]        ; the table back; pops leave CF alone
-    pop word [dsk_dpt+2]
-    pop word [dsk_dpt+4]
-    pop word [dsk_dpt+6]
-    pop word [dsk_dpt+8]
-    pop word [dsk_dpt+10]
+    mov bx, dsk_dpt             ; the table back: `mov`, `pop`, `inc` and
+    mov cx, 6                   ; `loop` all leave CF alone
+.rest:
+    pop word [bx]
+    inc bx
+    inc bx
+    loop .rest
     pop es
     pop bp
     pop di
@@ -5562,42 +5564,29 @@ dskw_fmt_low:
     pop bx
     ret
 
-; dskw_fmt_unit - DL = [disk_drive]'s int 13h drive; every other register
-; preserved except the flags
-dskw_fmt_unit:
+    ; --- one int 13h at [disk_drive]'s unit, in dsk_xfer's bracket ---------
+    ; in: AH = the function and its other registers but DL. out: the BIOS's.
+    ; DL is looked up here rather than carried, because it is every call's
+    ; and the BIOS need not give it back. [sch_lock] because nothing switches
+    ; under an int 13h (SPEC.md 18), and CURXFER because the arrow may move
+    ; through it (SPEC.md 7.4) - the reset included, as dsk_xfer's is; `mov`
+    ; and `dec` leave CF alone, so the BIOS's answer reaches the caller
+.i13:
     push bx
     mov bl, [disk_drive]
     call COLD_SEG:dskf_dsk_vol_row
     mov dl, [bx+DV_UNIT]
     pop bx
-    ret
-
-; -----------------------------------------------------------------------------
-; dskw_fmt_run - write CX copies of the staged sector from LBA DI up
-; in:  CX = sectors (0 is legal and writes nothing), DI = first LBA,
-;      dsk_secbuf staged
-; out: CF=0 and DI past them; CF=1 = I/O. Clobbers DI, CX, flags
-;
-; One sector per call, because disk_write advances ES:BX per sector and one
-; 512-byte buffer cannot cover a run of identical ones. A 1.44MB format is 33
-; of these and a 360KB one is 12, which is what a format costs.
-; -----------------------------------------------------------------------------
-dskw_fmt_run:
-    jcxz .out
-.next:
-    push cx
-    mov ax, di
-    call dskw_fmt_put
-    pop cx
-    jc .out
-    inc di
-    loop .next                  ; (CF = 0 from the `jc`: inc and loop keep it)
-.out:
+    inc byte [sch_lock]
+    CURXFER_ON
+    int 0x13
+    CURXFER_OFF
+    dec byte [sch_lock]
     ret
 
 ; -----------------------------------------------------------------------------
 ; dskw_fmt_put - write the staged sector to LBA AX
-; in:  AX = LBA, dsk_secbuf staged
+; in:  AX = LBA, dsk_secbuf staged, ES = LOW_SEG (dskw_fmt_zero leaves it)
 ; out: CF as disk_write; every register but the flags preserved
 ;
 ; dsk_secbuf is the kernel's sector scratch and this is a sector - the same
@@ -5611,33 +5600,26 @@ dskw_fmt_run:
 ; controller's rather than this routine's.
 ; -----------------------------------------------------------------------------
 dskw_fmt_put:
-    push ax
     push bx
     push cx
-    push es
-    push ax
-    mov ax, LOW_SEG
-    mov es, ax
-    pop ax
     mov bx, dsk_secbuf
     mov cx, 1
-    call COLD_SEG:dskf_disk_write
-    pop es
+    call COLD_SEG:dskf_disk_write   ; (which preserves AX: dsk_xfer is KENT)
     pop cx
     pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
 ; dskw_fmt_zero - blank the staging sector
 ; in:  nothing
-; out: nothing (all registers preserved)
+; out: ES = LOW_SEG, where dsk_secbuf is - and every caller's next store is
+;      into it, so ES is an OUTPUT rather than a register to bank (both callers
+;      bank the caller's ES at their own entry); DF = 0. All else preserved.
 ; -----------------------------------------------------------------------------
 dskw_fmt_zero:
     push ax
     push cx
     push di
-    push es
     mov ax, LOW_SEG
     mov es, ax
     mov di, dsk_secbuf
@@ -5645,7 +5627,6 @@ dskw_fmt_zero:
     mov cx, 256
     cld
     rep stosw
-    pop es
     pop di
     pop cx
     pop ax
@@ -5690,13 +5671,12 @@ dskw_fmt_reach_x:
     push di
     push es
     call dskw_fmt_row_x
-    mov di, [si+DFMT_TOT]
+    mov di, [cs:si+DFMT_TOT]
     dec di                      ; DI = the last sector the BPB now claims
-    call dskw_fmt_zero
-    mov ax, LOW_SEG
-    mov es, ax                  ; dsk_secbuf is .lowbss (SPEC.md 2.1), so the
-    mov word [es:dsk_secbuf+0], 'o8'    ; marker goes in through ES and never
-    mov word [es:dsk_secbuf+2], '8R'    ; through DS - dskw_format_x's own trap
+    call dskw_fmt_zero          ; ...and ES = LOW_SEG: dsk_secbuf is .lowbss
+                                ; (SPEC.md 2.1), so the marker goes in
+    mov word [es:dsk_secbuf+0], 'o8'    ; through ES and never through DS -
+    mov word [es:dsk_secbuf+2], '8R'    ; dskw_format_x's own trap
     mov [es:dsk_secbuf+4], di   ; ...and the LBA, so a seek that landed on a
                                 ; DIFFERENT track cannot match by accident
     mov ax, di
@@ -5720,128 +5700,26 @@ dskw_fmt_reach_x:
     jmp dskw_fmt_probe_x.stcpop
 
 ; -----------------------------------------------------------------------------
-; dskw_fmt_boot - build the boot sector for the row in SI
-; in:  SI = a dskw_fmt_tab row
-; out: dsk_secbuf holds it; all registers preserved
-;
-; Byte for byte what tools/os88disk.py's boot_sector() writes for a data
-; floppy, which is what makes a formatted disk and a built image the same
-; kind of object: 'MSDOS5.0' as the OEM name, BS_BootSig 0x29 and a volume id,
-; 'FAT12   ' as the type string, and the not-bootable stub in the code area.
-;
-; Every field it does NOT write is one the zeroed scratch already has right:
-; BPB_HiddSec, BPB_TotSec32, BS_DrvNum and BS_Reserved1 are all 0 on a floppy,
-; and int 13h is told the drive by dsk_xfer rather than by the sector.
-; -----------------------------------------------------------------------------
-dskw_fmt_boot:
-    push ax
-    push bx
-    push cx
-    push si
-    push di
-    push es
-
-    call dskw_fmt_zero
-    mov ax, LOW_SEG
-    mov es, ax
-
-    mov di, dsk_secbuf                      ; the jump AND BS_OEMName: eleven
-    mov bx, dskw_fmt_jmp                    ; contiguous bytes on the disk, so
-    mov cx, 11                              ; one copy rather than two stores
-    call dskw_fmt_cpy                       ; and a copy
-
-    mov word [es:dsk_secbuf+DSK_B_BPS], 512
-    mov al, [si+DFMT_SPC]
-    mov [es:dsk_secbuf+DSK_B_SPC], al
-    mov word [es:dsk_secbuf+DSK_B_RSVD], 1
-    mov byte [es:dsk_secbuf+DSK_B_NFATS], 2
-    mov ax, [si+DFMT_ROOTN]
-    mov [es:dsk_secbuf+DSK_B_ROOTN], ax
-    mov ax, [si+DFMT_TOT]
-    mov [es:dsk_secbuf+DSK_B_TOT16], ax
-    mov al, [si+DFMT_MEDIA]
-    mov [es:dsk_secbuf+DSK_B_MEDIA], al
-    mov ax, [si+DFMT_FATSZ]
-    mov [es:dsk_secbuf+DSK_B_FATSZ], ax
-    mov ax, [si+DFMT_SPT]
-    mov [es:dsk_secbuf+DSK_B_SPT], ax
-    mov word [es:dsk_secbuf+DSK_B_HEADS], 2
-    ; BPB_HiddSec and BPB_TotSec32 stay 0, and so do BS_DrvNum and
-    ; BS_Reserved1: int 13h is told the drive by dsk_xfer, never by this.
-
-    mov byte [es:dsk_secbuf+38], 0x29       ; BS_BootSig: VolID/Lab/Type follow
-    mov word [es:dsk_secbuf+39], 0x0888     ; BS_VolID, os88disk.py's own -
-    mov word [es:dsk_secbuf+41], 0x8800     ; a fixed serial, so two disks
-                                            ; formatted here are as alike as
-                                            ; two images built here (18.8.2's
-                                            ; accepted residual)
-    mov di, dsk_secbuf+43                   ; BS_VolLab
-    mov bx, dskw_fmt_lab
-    mov cx, 11
-    call dskw_fmt_cpy
-    mov di, dsk_secbuf+54                   ; BS_FilSysType
-    mov bx, dskw_fmt_typ
-    mov cx, 8
-    call dskw_fmt_cpy
-
-    mov di, dsk_secbuf+62                   ; the not-bootable stub
-    mov bx, dskw_fmt_stub
-    mov cx, DFMT_STUB_LEN
-    call dskw_fmt_cpy
-    mov word [es:dsk_secbuf+510], 0xAA55    ; rule 1's signature, last
-
-    pop es
-    pop di
-    pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; dskw_fmt_cpy - CX bytes from CS:BX to ES:DI (module-internal)
-; in:  BX = source IN THIS IMAGE, ES:DI = destination, CX = count
-; out: nothing (all registers preserved, AX included)
+; in:  BX = source IN THIS IMAGE, ES:DI = destination, CX = count, DF = 0
+; out: BX and DI past the copy, CX = 0 - so the boot sector is three calls
+;      that each start where the last ended; AL clobbered
 ;
-; The source arrives in BX only because SI is the live table row at every call
-; site and is cheaper to bank here than at four of them.
-;
-; IT WAS `rep movsb` FROM `.text`, and the four blocks it copies are now in
-; the image with it (SPEC.md 2.8.6): they are bytes written into a SECTOR and
+; IT WAS `rep movsb` FROM `.text`, and the blocks it copies are now in the
+; image with it (SPEC.md 2.8.6): they are bytes written into a SECTOR and
 ; nothing ever draws them, so the ordering rule has no window to fail in.
 ; What that costs is the instruction: a `cs rep movsb` is refused on this
 ; machine because an 8086 drops the segment prefix if an interrupt lands
 ; mid-`rep` (SPEC.md 5.9), and the rest of a boot sector would then come from
 ; whatever is at that offset in KERNEL_SEG - which assembles, runs, and writes
-; a disk that SPEC.md 18.2 rule 2 will not mount. So it is a byte loop.
+; a disk that SPEC.md 18.2 rule 2 will not mount. So it is a byte loop
+; (kernel/vga12.inc's is the other site that obeys the rule).
 ; -----------------------------------------------------------------------------
 dskw_fmt_cpy:
-    push ax
-    push cx
-    push si
-    push di
-    mov si, bx
-    cld
-.b:
-    mov al, [cs:si]             ; THE SOURCE IS THIS IMAGE (SPEC.md 2.8.6), so
-    inc si                      ; it is read through CS - and a byte loop and
-    stosb                       ; not `cs rep movsb`, because an 8086 LOSES the
-    loop .b                     ; prefix if an interrupt lands mid-`rep` and
-                                ; the rest of the copy would silently come
-                                ; from KERNEL_SEG (SPEC.md 5.9's rule, and
-                                ; kernel/vga12.inc:5223 is the other site that
-                                ; obeys it). ES:DI is LOW_SEG's sector buffer
-                                ; throughout, which `stosb` wants anyway.
-                                ;
-                                ; It costs ~8 bytes of the IMAGE and 4 clocks a
-                                ; byte over `rep movsb` - 97 bytes once per
-                                ; format, against an operation that is minutes
-                                ; of floppy - and takes 97 bytes of `.text`
-                                ; off every machine for ever.
-    pop di
-    pop si
-    pop cx
-    pop ax
+    mov al, [cs:bx]
+    inc bx
+    stosb
+    loop dskw_fmt_cpy
     ret
 
                                 ; DATA, and it STAYS IN THE IMAGE (SPEC.md
@@ -5853,27 +5731,45 @@ dskw_fmt_cpy:
                                 ; only thing that wants them is the format
                                 ; itself. dskw_fmt_cpy above reads them
                                 ; through CS.
+; THE BOOT SECTOR, as two templates either side of the row (dskw_format_x):
+; bytes 0-12 here, 13-25 the dskw_fmt_tab row, and 26 onward the second
+; template - which runs on into the stub, so the boot sector is three copies.
+; Every field NOT written is the zeroed scratch's, and right: nothing past the
+; stub, and nothing a floppy wants non-zero.
 dskw_fmt_jmp: db 0xEB, 0x3C, 0x90   ; jmp short 0x3E / nop - and SPEC.md 18.2
                                 ; rule 2 tests this first byte for 0EBh/0E9h,
                                 ; so a sector without it would not mount the
                                 ; volume this has just finished writing
               db 'MSDOS5.0'     ; interop OEM name, os88disk.py's
-dskw_fmt_lab: db 'NO NAME    '  ; 11 bytes, and DOS's own word for a volume
+              dw 512            ; BPB_BytsPerSec
+DFMT_T1 equ $ - dskw_fmt_jmp
+dskw_fmt_t2:  dw 2              ; BPB_NumHeads: every row is double-sided
+              dd 0, 0           ; BPB_HiddSec, BPB_TotSec32
+              db 0, 0           ; BS_DrvNum, BS_Reserved1: int 13h is told the
+                                ; drive by dsk_xfer, never by this
+              db 0x29           ; BS_BootSig: VolID/Lab/Type follow
+              dw 0x0888, 0x8800 ; BS_VolID, os88disk.py's own - a fixed
+                                ; serial, so two disks formatted here are as
+                                ; alike as two images built here (18.8.2's
+                                ; accepted residual)
+              db 'NO NAME    '  ; BS_VolLab: DOS's own word for a volume
                                 ; nobody has named - which is what this is,
                                 ; since no label ENTRY is written either
-dskw_fmt_typ: db 'FAT12   '
+              db 'FAT12   '     ; BS_FilSysType
 
 ; The not-bootable stub, byte for byte os88disk.py's BOOT_STUB: set up DS,
 ; print the message with int 10h AH=0Eh, wait for a key and int 19h. It is 44
 ; bytes and it is the difference between a machine that says what is wrong
 ; and one that executes a root directory.
-dskw_fmt_stub:
     db 0x31, 0xC0, 0x8E, 0xD8, 0xBE, 0x59, 0x7C, 0xAC
     db 0x08, 0xC0, 0x74, 0x09, 0xB4, 0x0E, 0xBB, 0x07
     db 0x00, 0xCD, 0x10, 0xEB, 0xF2, 0x30, 0xE4, 0xCD
     db 0x16, 0xCD, 0x19
     db 0x0D, 0x0A, 'Not a bootable disk. Press any key.', 0x0D, 0x0A, 0
-DFMT_STUB_LEN equ $ - dskw_fmt_stub
+DFMT_T2 equ $ - dskw_fmt_t2
+%if DFMT_T1 != DSK_B_SPC || DFMT_T1 + DFMT_BPB != DSK_B_HEADS || DFMT_T2 > 255 || DSK_B_HEADS + DFMT_T2 > 510
+  %error "the boot sector is template 1, a dskw_fmt_tab row, then template 2 and the stub - contiguous, and short of the signature"
+%endif
 
 %endif                              ; KD_BUILD
 section .text                   ; ...and back to the kernel segment for what

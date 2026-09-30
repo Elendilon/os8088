@@ -1421,7 +1421,7 @@ clo_saved:
 ; **The GEOMETRY comes from the SIZE, and that is the whole validation.** The
 ; disk in the drive may be blank, so there is nothing to probe; what a raw
 ; write needs is a sectors-per-track and a head count, and the only honest
-; source for them is the image itself. dskw_fmt_tab already pins the four
+; source for them is the image itself. clo_imgtab pins the four
 ; standard layouts (SPEC.md 18.96), so a file whose length is one of those
 ; four is a disk image and a file whose length is not is CERR_NOTIMG - which
 ; also refuses, for free, every ordinary document somebody picks by mistake.
@@ -1493,9 +1493,11 @@ clo_wimg:
 ;      exactly as it was, which is the file volume's; CF=1 with AX =
 ;      CERR_NOTIMG. Clobbers AX, flags.
 ;
-; dskw_fmt_tab is READ THROUGH DS and stays in `.text` (SPEC.md 2.8.6.1): it
-; is the formatter's table and this is the cloner's image, and two modules may
-; not far-call each other - only one of them need be loaded.
+; The four layouts are THIS IMAGE's own (size, spt) pairs, read through CS.
+; They were dskw_fmt_tab's rows, read through DS from `.text` - 56 resident
+; bytes kept there for this one reader, since two modules may not far-call
+; each other (only one of them need be loaded). The formatter's table is in
+; FORMAT.DRV now, and these sixteen bytes are the whole of what this needed.
 ; -----------------------------------------------------------------------------
 clo_geom_img:
     push bx
@@ -1503,10 +1505,10 @@ clo_geom_img:
     push dx
     push si
     push di
-    mov di, DFMT_ROWS
-    mov si, dskw_fmt_tab
+    mov di, 4
+    mov si, clo_imgtab
 .row:
-    mov ax, [si+DFMT_TOT]       ; sectors -> bytes, as DX:AX
+    mov ax, [cs:si]             ; sectors -> bytes, as DX:AX
     push dx
     push cx
     mov bx, dx
@@ -1518,10 +1520,10 @@ clo_geom_img:
     cmp dx, bx
     jne .next
     pop dx
-    mov ax, [si+DFMT_SPT]
+    mov ax, [cs:si+2]
     mov [es:CL_SPT], ax
     mov word [es:CL_HDS], 2     ; every row in the table is double-sided, and
-    mov ax, [si+DFMT_TOT]       ; dskw_format_x hard-codes the same 2
+    mov ax, [cs:si]             ; dskw_format_x hard-codes the same 2
     mov [es:CL_TOT], ax
     clc                         ; ...and THE LIVE WORDS ARE NOT TOUCHED, which
                                 ; cost a debugging session: this runs while the
@@ -1540,7 +1542,7 @@ clo_geom_img:
     jmp short .out
 .next:
     pop dx
-    add si, DFMT_SIZE
+    add si, 4
     dec di
     jnz .row
     mov ax, CERR_NOTIMG
@@ -1552,6 +1554,12 @@ clo_geom_img:
     pop cx
     pop bx
     ret
+
+clo_imgtab:                     ; (sectors, sectors per track), SPEC.md 18.96
+    dw 2880, 18                 ; 1.44MB
+    dw 2400, 15                 ; 1.2MB
+    dw 1440, 9                  ; 720KB
+    dw 720, 9                   ; 360KB
 
 ; -----------------------------------------------------------------------------
 ; clo_fsame - is the image on the very disk it is about to be written to?

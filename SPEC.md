@@ -1958,13 +1958,17 @@ the pane's 27-character limit, and both ends are guarded — `CPS` refuses a
 longer string at **assembly** time and `cp_stage` bounds the copy at **run**
 time, so a bypass truncates a caption instead of writing past the buffer.
 
-What did **not** move, and is the honest limit: `dskw_fmt_tab`, the four
-standard geometries. It is `.text` and stays there, because `dskw_fmt_row_x`
-hands callers an `SI` into it and every one of them dereferences `[si+DFMT_*]`
-through `DS` — so moving the table means changing each of those to `[cs:si+…]`
-inside the formatter's write path, which is 56 bytes bought against the one
-piece of this code that erases disks. A string has one reader; a table has
-several, and each is a place to get the segment wrong.
+What did not move at the time, and has since: `dskw_fmt_tab`, the four
+standard geometries. It stayed `.text` for two reasons — every `[si+DFMT_*]`
+in the formatter would have to become `[cs:si+…]`, and `CLONE.DRV` sized a
+disk image against the same rows through `DS`. Kernel size pass 8 moved it
+into `FORMAT.DRV` anyway: the formatter's write path was being rewritten
+under §18.96.3 regardless, so the prefixes cost no second pass over the code
+that erases disks, and `CLONE.DRV` carries its own four (size, spt) pairs in
+sixteen bytes (§18.99.8). **56 resident bytes on both kernels**, and a row
+became the BPB itself (§18.96), which is what paid for the prefixes. The
+segment risk the refusal named is held by `tools/os88ovlchk.py`'s module-data
+rule, which refuses a module reference that does not name `CS`.
 
 
 ### 2.9 Stage 2 — the loader is not in the boot sector any more
@@ -34147,7 +34151,7 @@ is why that argument had it backwards for a floppy.
 
 | routine | contract |
 |---------|----------|
-| `dskw_fmt_probe` | in: `[disk_drive]` = the volume. Out: CF=0 with AL = a row of `dskw_fmt_tab`; CF=1 with AX = `FERR_*` — the medium could not be read at all (`FERR_IO`), or the volume is not a floppy (`FERR_PROT`). Clobbers AX, flags. **Reads only**, so it is safe to call before the user has agreed to anything, and that is the point: the confirmation names the size it is about to make. |
+| `dskw_fmt_probe` | in: `[disk_drive]` = the volume. Out: CF=0 with AL = a row of `dskw_fmt_tab`; CF=1 with AX = `FERR_*` — the volume is not a floppy (`FERR_PROT`), or `FORMAT.DRV` could not be read (`FERR_NODISK`). A medium nothing can read is **not** a refusal (§18.96.3). Clobbers AX, flags. **Reads only**, so it is safe to call before the user has agreed to anything, and that is the point: the confirmation names the size it is about to make. |
 | `dskw_format` | in: AL = a `dskw_fmt_tab` row, `[disk_drive]` = the volume. Out: CF=0; CF=1 with AX = `FERR_IO` / `FERR_WPROT` / `FERR_PROT`. Clobbers flags. Writes the boot sector **first** and the root directory last. |
 | `dskw_fmt_reach` | in: AL = the row just written, `[disk_drive]` = the volume, `[disk_spt]`/`[disk_heads]` still the format's. Out: CF=0 — the volume's **last** sector was written and read back intact; CF=1 — it was not. Clobbers AX, flags. Destroys that sector's contents, so it is callable only on a disk the user has already agreed to erase (§18.96.2). |
 
@@ -34187,6 +34191,14 @@ key that would do nothing (§47).
 This is an **assertion about hardware**, not a probe, and it is the same
 assertion DOS took at face value from `DRIVER.SYS /d:2 /t:80 /s:9`. The
 difference is what §18.96.2 does with it.
+
+**A `dskw_fmt_tab` row is the BPB itself**, bytes 13–25 of the boot sector
+(`SecPerClus` to `SecPerTrk`) in the boot sector's own order, plus the
+cylinder count the BPB does not carry — so the boot sector is three copies out
+of the image (a template, the row, a template running on into the
+not-bootable stub) and not a load and a store per field, and the confirmation's
+size is `TotSec16 / 2`. The table is in `FORMAT.DRV` and read through `CS`
+(§2.8.6.1); nothing outside the image reads a row.
 
 #### 18.96.1 Reading cylinder 40 to settle it is WRONG — the negative result
 
@@ -35365,13 +35377,16 @@ to be something it is not.
 
 The disk `Write Img...` writes to may be blank, so there is nothing to probe —
 and what a raw write needs is a sectors-per-track and a head count. The only
-honest source for them is the image itself. `dskw_fmt_tab` already pins the four
-standard layouts (§18.96), so **a file whose length is one of those four is a
+honest source for them is the image itself. The four standard layouts
+(§18.96) are pinned, so **a file whose length is one of those four is a
 disk image and a file whose length is not is `CERR_NOTIMG`** — which also
 refuses, for free, every ordinary document somebody picks by mistake.
 
-That table is read through `DS` and stays in `.text` (§2.8.6.1). Two on-demand
-modules may not far-call each other: only one of them need be loaded.
+`CLONE.DRV` carries those four as its own (sectors, sectors-per-track) pairs,
+`clo_imgtab`, read through `CS`. It read `dskw_fmt_tab`'s rows through `DS`
+out of `.text` until that table moved into `FORMAT.DRV` (§2.8.6.1) — two
+on-demand modules may not far-call each other, only one of them need be
+loaded, and sixteen bytes in this image were cheaper than 56 resident.
 
 ##### The name is the one resident byte the feature added
 
