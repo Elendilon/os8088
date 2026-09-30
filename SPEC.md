@@ -12656,7 +12656,10 @@ rather than a detail:
 
 Twenty-two outbound calls widen to the far form through five `ovw_` shims. The
 whole move is `.text` **−1,006** for `.ovl` **+1,110**, and the `.ovl` bytes are
-not footprint.
+not footprint. (Kernel size pass 8 took the five shims out of `.text` too: the
+probe's calls are near calls to overlay-side stubs, `mou_ov_*`, that share one
+far call through §2.9.4's `spw_near` with BP naming the routine — 20 resident
+bytes on kern_big and 8 on kern_small, for 11 fewer bytes of overlay.)
 
 #### 9.4.8 The first offer is timed from the desktop, and the drain ends on quiet
 

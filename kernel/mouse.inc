@@ -494,6 +494,42 @@ section .ovl                    ; ...and kern_small: the BLOB half instead
 %endif
 
 ; -----------------------------------------------------------------------------
+; THE PROBE'S DOORS INTO THE RESIDENT WRITERS (kernel size pass 8). This block
+; runs from the boot overlay and the writers are `.text`, so each call is a far
+; one - and it used to reach its target through a four-byte `call`/`retf` shim
+; per routine in kernel.asm's `.text`, resident for the life of the machine for
+; a probe that runs once. It goes through viddet.inc's ONE door now, spw_near,
+; with BP naming the routine; these stubs are the overlay's side of it, one per
+; routine, sharing the far call and the BP bank. All registers and the flags
+; pass through both ways (CF is mou_p2cw's answer).
+; -----------------------------------------------------------------------------
+mou_ov_pall:
+    push bp
+    mov bp, mou_pall
+    jmp short mou_ov_go
+%ifdef KERN_BIG
+mou_ov_p2cw:
+    push bp
+    mov bp, mou_p2cw
+    jmp short mou_ov_go
+mou_ov_p2dw:
+    push bp
+    mov bp, mou_p2dw
+    jmp short mou_ov_go
+mou_ov_p2wcmd:
+    push bp
+    mov bp, mou_p2wcmd
+    jmp short mou_ov_go
+%endif
+mou_ov_newround:
+    push bp
+    mov bp, mou_newround
+mou_ov_go:
+    call KERNEL_SEG:spw_near
+    pop bp
+    ret
+
+; -----------------------------------------------------------------------------
 ; mou_uart - is there an 8250 at port BX's base? (SPEC.md 9.5)
 ;
 ; The DIVISOR LATCH is the test. With LCR's DLAB set, base+0 is an ordinary
@@ -646,13 +682,13 @@ mouse_init:
     OVLMARK 42
     ; --- UART: 1200 baud, 7 data bits, no parity, 1 stop ---------------------
     mov ax, 0x0382              ; LCR: DLAB=1 + 7N1 bits
-    call KERNEL_SEG:ovw_mou_pall
+    call mou_ov_pall
     mov ax, 0x0060              ; divisor low = 96 (115200/96 = 1200)
-    call KERNEL_SEG:ovw_mou_pall
+    call mou_ov_pall
     mov ax, 0x0100              ; divisor high = 0
-    call KERNEL_SEG:ovw_mou_pall
+    call mou_ov_pall
     mov ax, 0x0302              ; LCR: DLAB=0, 7N1
-    call KERNEL_SEG:ovw_mou_pall
+    call mou_ov_pall
 
     OVLMARK 43
     ; --- reset the mouse: DTR/RTS LOW, hold, then raise ----------------------
@@ -666,7 +702,7 @@ mouse_init:
     ; >=100ms unpowered to guarantee a reset), then raise: every boot now
     ; hands the mouse the same clean power-on a cold start does.
     mov ax, 0x0408              ; MCR: OUT2 only - DTR and RTS low. OUT2
-    call KERNEL_SEG:ovw_mou_pall               ; stays up throughout so the IRQ gate never
+    call mou_ov_pall            ; stays up throughout so the IRQ gate never
                                 ; glitches the bus
     mov bx, [ticks]
     mov byte [mou_splt], 0      ; SPEC.md 15.3.3: the bar moves THROUGH this
@@ -681,7 +717,7 @@ mouse_init:
     cmp ax, MOU_RSTLOW
     jb .rstlow
     mov ax, 0x040B              ; MCR: DTR|RTS|OUT2 - powers the mouse and
-    call KERNEL_SEG:ovw_mou_pall               ; gates the IRQ onto the bus; this rising
+    call mou_ov_pall            ; gates the IRQ onto the bus; this rising
                                 ; edge is the mouse's reset
 %ifdef MOU_DIAG
     mov ax, [ticks]             ; SPEC.md 9.4.6.5: the edge mdb_dt is measured
@@ -758,8 +794,8 @@ mouse_init:
     call mou_idjudge            ; ...and who sounded like a mouse?
 
     mov ax, 0x0101              ; IER: RX data available only
-    call KERNEL_SEG:ovw_mou_pall
-    call KERNEL_SEG:ovw_mou_newround           ; ...before anything is unmasked, or the store
+    call mou_ov_pall
+    call mou_ov_newround        ; ...before anything is unmasked, or the store
                                 ; could land on a packet already in progress
 
     OVLMARK 45
@@ -1683,10 +1719,10 @@ section .ovl                    ; ...SPLIT WITH mou_uart's BLOCK ABOVE, and
 mou_p2dev:
     push ax
     mov al, 0xD4                ; "the next data byte is for the aux device"
-    call KERNEL_SEG:ovw_mou_p2cw
+    call mou_ov_p2cw
     pop ax
     jc .out
-    call KERNEL_SEG:ovw_mou_p2dw
+    call mou_ov_p2dw
     jc .out
     call mou_p2rd
     jc .out
@@ -1766,7 +1802,7 @@ mou_p2_init:
                                 ; here is ever racing an interrupt
 
     mov al, 0xAD                ; THE KEYBOARD INTERFACE OFF, and not for
-    call KERNEL_SEG:ovw_mou_p2cw               ; tidiness: the 8042 has ONE output buffer and
+    call mou_ov_p2cw            ; tidiness: the 8042 has ONE output buffer and
     jc .quit                    ; int 09h is live, so a keystroke landing in
                                 ; the middle of this raises IRQ1, the BIOS
                                 ; reads 60h, and the byte it takes is OUR
@@ -1782,7 +1818,7 @@ mou_p2_init:
     mov byte [mou_p2sub], 1     ; the controller before the device reset
 %endif
     mov al, 0x20
-    call KERNEL_SEG:ovw_mou_p2cw
+    call mou_ov_p2cw
     jc .quit                    ; NOT .fail: nothing is banked yet, so there is
     call mou_p2rd               ; no command byte to put back and .fail would
     jc .quit                    ; write a zero over this machine's
@@ -1841,11 +1877,11 @@ mou_p2_init:
     mov byte [mou_p2sub], 3
 %endif
     mov al, 0xA8
-    call KERNEL_SEG:ovw_mou_p2cw
+    call mou_ov_p2cw
     jc .jnoaux
     call mou_p2flush
     mov al, 0x20
-    call KERNEL_SEG:ovw_mou_p2cw
+    call mou_ov_p2cw
     jc .jnoaux
     call mou_p2rd
     jc .jnoaux
@@ -1866,7 +1902,7 @@ mou_p2_init:
     mov byte [mou_p2aux], 0xE0
 %endif
     mov al, 0xA8                ; enable it - and NOTHING is read back. Step 3
-    call KERNEL_SEG:ovw_mou_p2cw               ; writes the command byte with bit 5 clear as
+    call mou_ov_p2cw            ; writes the command byte with bit 5 clear as
     jc .jfail                   ; well, so the port is enabled BOTH ways that
     call mou_p2flush            ; controllers differ about, and the device
                                 ; reset below is what actually decides
@@ -1875,7 +1911,7 @@ mou_p2_init:
     mov al, [mou_p2cmd0]
     and al, 0xDD                ; bit 5 clear: run the aux clock. Bit 1 clear:
     or  al, MOU_P2KOFF          ; IRQ12 stays OFF until the vector is ours
-    call KERNEL_SEG:ovw_mou_p2wcmd             ; ...AND BIT 4 STAYS SET, which is 0xAD's own
+    call mou_ov_p2wcmd          ; ...AND BIT 4 STAYS SET, which is 0xAD's own
     jc .jfail                   ; doing held rather than handed back. The bank
                                 ; above deliberately clears it - mou_p2_off
                                 ; writes that byte on the UI task and must not
@@ -1945,7 +1981,7 @@ mou_p2_init:
     mov al, [mou_p2cmd0]
     and al, 0xDF                ; the aux clock on...
     or  al, 0x02 | MOU_P2KOFF   ; ...and IRQ12 armed AT THE CONTROLLER, still
-    call KERNEL_SEG:ovw_mou_p2wcmd             ; masked at the 8259 and now pointing at us -
+    call mou_ov_p2wcmd          ; masked at the 8259 and now pointing at us -
     jc .fail                    ; and bit 4 still SET, because the 0xF4 below
                                 ; is one more reply to collect and the 0xAE at
                                 ; the bottom is what hands the keyboard back
@@ -1956,7 +1992,7 @@ mou_p2_init:
 
     call mou_p2flush            ; before 0xAE, so a keystroke arriving as the
     mov al, 0xAE                ; interface comes back is not flushed away
-    call KERNEL_SEG:ovw_mou_p2cw
+    call mou_ov_p2cw
     in  al, 0xA1                ; IRQ12 at the SLAVE...
     and al, 0xEF                ; ...clearing MOU_P2SL
     out 0xA1, al
@@ -1976,9 +2012,9 @@ mou_p2_init:
     mov [mou_p2sta], al
 %endif
     mov al, 0xA7
-    call KERNEL_SEG:ovw_mou_p2cw
+    call mou_ov_p2cw
     mov al, [mou_p2cmdr]        ; ...AND THE COMMAND BYTE. Only 0xAD and 0xA8
-    call KERNEL_SEG:ovw_mou_p2wcmd             ; have been sent on this road, so it is the
+    call mou_ov_p2wcmd          ; have been sent on this road, so it is the
     jmp short .quit             ; byte the BIOS had either way - and writing it
                                 ; costs nothing where nothing changed it
 
@@ -1989,9 +2025,9 @@ mou_p2_init:
 %endif                          ; is the fact no amount of reading this source
                                 ; can supply (SPEC.md 9.9.6)
     mov al, 0xA7                ; the auxiliary port off again...
-    call KERNEL_SEG:ovw_mou_p2cw
+    call mou_ov_p2cw
     mov al, [mou_p2cmdr]        ; ...and its command byte EXACTLY as the BIOS
-    call KERNEL_SEG:ovw_mou_p2wcmd             ; had it, bit 4 aside - which is what this
+    call mou_ov_p2wcmd          ; had it, bit 4 aside - which is what this
                                 ; line SAID it did and did not (SPEC.md 9.9.7).
                                 ; It wrote the bank with bit 5 forced set, and
                                 ; on an AT controller that bit is PC MODE.
@@ -2005,7 +2041,7 @@ mou_p2_init:
                                 ; which unmasks on the path that succeeds
 .quit:
     mov al, 0xAE                ; the keyboard interface, ON EVERY PATH - a
-    call KERNEL_SEG:ovw_mou_p2cw               ; boot that leaves it disabled is a machine
+    call mou_ov_p2cw            ; boot that leaves it disabled is a machine
     in  al, 0x21                ; ...and IRQ1 back as it was found, which is
     and al, 0xFF & ~MOU_P2KIRQ  ; the bit alone: the success path has just
     mov ah, [mou_p2m1]          ; cleared the cascade in this same byte and

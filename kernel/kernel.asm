@@ -5064,15 +5064,12 @@ ovw_band_init:      call band_init
 ovw_dock_geom:      call dock_geom
                     retf
 %endif
-; ...and the MOUSE's five (SPEC.md 9.4.7). mouse_init's boot half is in the
+; ...and the MOUSE's (SPEC.md 9.4.7). mouse_init's boot half is in the
 ; overlay and everything mou_hotplug or mouse_unhook can reach stayed resident,
-; so these are the five edges that now cross: the port writers the probe uses
-; and the round counter it resets. Four bytes each, and the 22 sites that call
-; them pay two apiece for the far form.
-ovw_mou_pall:       call mou_pall
-                    retf
-ovw_mou_newround:   call mou_newround
-                    retf
+; so the port writers the probe uses and the round counter it resets are edges
+; that cross. They had five shims here; they go through viddet.inc's spw_near
+; now, from overlay-side stubs in mouse.inc (kernel size pass 8), and what is
+; left is the two knob builds' own.
 %ifdef MOU_DIAG
 ovw_mdb_rxb:        call mdb_rxb        ; SPEC.md 9.4.6.5's wire counter, which
                     retf                ; mou_idbyte reaches from the overlay.
@@ -5080,19 +5077,13 @@ ovw_mdb_rxb:        call mdb_rxb        ; SPEC.md 9.4.6.5's wire counter, which
                                         ; kernel nothing at all
 %endif
 %ifdef KERN_BIG                 ; the PS/2 half is kern_small's absent one
-ovw_mou_p2cw:       call mou_p2cw
-                    retf
-ovw_mou_p2dw:       call mou_p2dw
-                    retf
-ovw_mou_p2wcmd:     call mou_p2wcmd
-                    retf
 %ifdef KERN_EMU
-ovw_mou_lockon:     call mou_lockon     ; ...and a sixth, for SPEC.md 9.11:
+ovw_mou_lockon:     call mou_lockon     ; ...and one for SPEC.md 9.11:
                     retf                ; vmm_boot_x settles the contest on the
                                         ; backdoor and has to retire the UARTs
                                         ; from `.ovl`, where mouse_init already
-                                        ; is. The five above were mouse_init's
-                                        ; own and are kern_big's; THIS ONE IS
+                                        ; is. The five that stood above were
+                                        ; mouse_init's; THIS ONE IS
                                         ; kern_emu's, because vmm_boot_x is its
                                         ; only caller and that routine does not
                                         ; exist on the other builds (SPEC.md
