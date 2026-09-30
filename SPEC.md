@@ -157194,6 +157194,94 @@ disk, and after the same swap the same key REFUSED. Broken on purpose -
 `vp_xput` out of `vp_fill`, the hold short at the play's end (163,840 of
 973,312); `vp_xrdat` out of `vp_rdat`, the key refused - `vidxms` FAILS.
 
+#### 98.3.19 Under memory pressure: the keeper given up, and the player moved
+
+**The keeper is the one claim a play can do without**, and only in the full
+screen. It is how a canvas crosses brackets (98.3.7): put onto the surface
+as a bracket starts, taken back as it ends, and the box's picture on the
+desktop. A full-screen play of a native file reads it back only on a SWAP -
+F or Alt+Enter out - so where memory is short it is the claim to give up,
+and 75 KB of Mode X keeper is two ring slots (the owner's arithmetic: two
+slots for the least-used thing the player does).
+
+**The plan** (`vp_sstart`, after the sound's ring):
+1. The keeper is **claimed and measured**: `OSAPI_MEM_AVAIL` beside it, less
+   what the ring keeps back (`vp_kres`), must hold the header's slots and the
+   mirror (`vp_kroom`; 2 slots where the header says nothing, `vp_kwant`).
+   Claiming it first is the exact form of the question - a keeper may fit a
+   hole the ring's run does not include.
+2. **If not**, it is given back, and the what-if is asked: would moving the
+   player's OWN region make room for the keeper and the ring together
+   (98.3.19.1)? If so, the play posts that and returns.
+3. **Else the play goes on without it** (`[vp_nokeep]`) and the ring takes
+   everything, `VP_KBIG` at most. The card's `keep 0` says so.
+
+**Eligible** (`vp_kelig`): the keeper is only the canvas's image - not a
+decode target (`[vp_kneed]`), not a RESIDENT or LIVE play's, not the shadow
+a full-screen copy decodes into (`[vp_fsshd]`), no page flipping - and the
+play is in the full screen: F, or Play where `vp_canwin` refuses. Everywhere
+else the keeper is claimed as before and a refusal is `Out of memory`.
+
+**Without it**, its three readers:
+- a PUT - the black a session starts on, a seek's or a Repeat's clear
+  (`vp_cclear`) - writes black straight onto the screen's canvas rows,
+  all four planes at once for Mode X (`vp_kmove`);
+- a GET, as a bracket ends, has nowhere to go and is skipped;
+- **a SWAP to the desktop STOPS the session** at the keyframe at or before
+  the frame on the glass, its picture in the box, exactly as Esc does
+  (98.3.6) - and plays on from that key in the window if it was playing and
+  the window can host it. F again enters the full screen paused at that key;
+  Space plays from it. What is lost is up to one key's spacing of replay
+  (2 s on the owner's clip), never a wrong picture.
+
+A stop re-plans: the next session asks for the keeper again, so a play that
+lost it to pressure gets it back when the memory is there.
+
+**Measured** on MartyPC's `os8088_xt_vga_hdd_sb`, 640 KB, the owner's
+`LXVGA256.V88` (Mode X VGA8, header ring 8), the heap arranged
+by writing pinned records into `mem_tab`: with 100 KB pinned under the
+player the keeper is given up and the ring is **10 slots of 356 KB** where
+the keeper would have left it 7; F out at frame 132 stops at key 3
+(frame 96) with its picture in the box, F in is paused at frame 97. Fresh,
+the keeper is kept and the ring is 10 slots as before.
+
+##### 98.3.19.1 The player moves itself
+
+A heap that has been used is not a fresh one: open programs, then the
+player, then close the programs, and the player's region is **stranded**
+under the hole they left - the one barrier between two runs that together
+hold the play. A claim cannot move the claimant's own region (66.4.3), so
+before giving the keeper up the play asks `OSAPI_MEM_COMPACT`'s what-if
+(`vp_cptry`): the largest run there would be if the player moved too,
+against the ring and mirror, the keeper and the ring's reserves. Where it
+fits, the play **frees what it holds and POSTS** the compaction
+(`MEMC_POST` at an ordinary claim's rank, so every cache counts), says
+`Making room for the play...`, and returns; the wake (`vp_onwake`,
+`[vp_cpgo]`) starts it again from Play or F as it was pressed. **One post a
+press** (`[vp_cpq]`): the play the wake starts cannot post again, and if the
+room is still not there it goes on without the keeper. A gate or a caller
+other than Play and F never posts (`[vp_cpent]`).
+
+**Measured**: a 60 KB hole above the player's region and 340 KB below it -
+the keeper would have cost the ring its eighth slot. The play posted, the
+region moved up into the hole (8400 -> 9300) with the poster, and the play
+that started on the wake kept its keeper with a ring of 8. A gate reading
+the player's bss after this must re-read the region's segment: it moves.
+
+##### 98.3.19.2 Nothing pinned between brackets
+
+**The session's claims are movable on the desktop** - the ring, the keeper
+and the page-flip copy (`vp_smov`, relocation proc `vp_smove`) - and pinned
+again for each bracket, whose hook reads them at interrupt time, which no
+relocation can reach (66.3); RESIDENT blocks already worked this way
+(`vp_rmov`, 98.1.7.4). Every word naming one of them holds its base and
+every other segment is derived at its use, so the proc moves a word equal
+to the old base and nothing else. **The poster is movable** once it is made
+(`vp_pmov`) - not at its claim, which the decode's own claims follow. What
+stays pinned: the sound's ring (`MC_DMA`, which the kernel never moves -
+66.3), a LIVE session's claims (its worker decodes out of them on the
+desktop), and a claim for the length of a read into it (66.3 rule 5).
+
 ### 98.4 The window: the Preview (wave 6)
 
 **The window IS the Preview** (VIDEO-PLAN 3.3): the file's poster in a

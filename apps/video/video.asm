@@ -345,6 +345,22 @@ vp_onwake:
     call vp_stopfor
     pop si
 .nle:
+    mov al, [vp_cpgo]               ; A PLAY THAT POSTED A COMPACTION
+    or al, al                       ; (98.3.19.1), started again now that
+    jz .ncp                         ; it has run - with the room it made
+    mov byte [vp_cpgo], 0
+    mov word [vp_msg], vp_s_ready
+    push si
+    mov si, [vp_win]
+    cmp al, 2
+    je .cpf
+    call vp_play
+    jmp short .cpd
+.cpf:
+    call vp_fsenter
+.cpd:
+    pop si
+.ncp:
     cmp byte [vp_argpend], 0
     je .lay
     mov byte [vp_argpend], 0
@@ -1800,6 +1816,7 @@ vp_loadkey:
     mov [vp_dkey], bx
     mov ax, [vp_ps]
     mov [vp_pscale], ax
+    call vp_pmov                    ; (movable once it is made: 98.3.19.2)
     jmp short .free
 .nent:
     call vp_pfree
@@ -1817,6 +1834,23 @@ vp_loadkey:
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+; vp_pmov - the poster's claim MOVABLE (SPEC.md 98.3.19.2): it is read at
+; each paint through [vp_pseg] and by nothing at interrupt time, so it is
+; declared once it is made - not at its claim, which the decode's own
+; claims follow. Preserves all
+vp_pmov:
+    push ax
+    push dx
+    mov dx, [vp_pseg]
+    or dx, dx
+    jz .out
+    mov ax, vp_smove
+    call OSAPI_MEM_MOVABLE
+.out:
+    pop dx
     pop ax
     ret
 
@@ -2048,6 +2082,7 @@ vp_sesspic:
     jz .out
     mov [vp_kshd], ax
     call vp_mkpic
+    call vp_pmov
     mov ax, [vp_ps]
     mov [vp_pscale], ax
     mov word [vp_dkey], 0xFFFE
@@ -4124,7 +4159,9 @@ vp_play:                            ; Space, P, Enter, the Play button: play,
     cmp byte [vp_sess], 0
     jne .resume
     mov byte [vp_startp], 0
+    mov byte [vp_cpent], 1          ; (Play may post a compaction, 98.3.19.1)
     call vp_sstart
+    mov byte [vp_cpent], 0
     jc .out
     jmp short .run
 .resume:
@@ -4143,7 +4180,9 @@ vp_fsenter:                         ; F, Alt+Enter: full screen, PAUSED -
     cmp byte [vp_sess], 0
     jne .run
     mov byte [vp_startp], 1
+    mov byte [vp_cpent], 2          ; (...and so may F)
     call vp_sstart
+    mov byte [vp_cpent], 0
     jc .out
 .run:
     cmp byte [vp_lsess], 0          ; LIVE -> the full screen: the worker
@@ -5931,13 +5970,38 @@ vp_sstart:
     xor ah, ah
 .kc:
     mov [vp_kkb], al                ; (what vp_zero clears of it)
+    mov byte [vp_nokeep], 0
+    call vp_kelig                   ; A KEEPER THIS PLAY CAN DO WITHOUT
+    jc .kreq                        ; (98.3.19): claimed, and given back if
+    push ax                         ; the ring cannot reach the header's
+    call OSAPI_MEM_CLAIM_HI         ; slots beside it
+    pop ax
+    jc .knone
+    call vp_kroom
+    jnc .kok
+    call OSAPI_MEM_FREE
+.knone:
+    call vp_cptry                   ; ...unless moving OURSELVES too would
+    jnc .posted                     ; make room for it (98.3.19.1)
+    mov byte [vp_nokeep], 1         ; ...and else the play goes on without
+    xor dx, dx                      ; it: a swap out of the full screen
+    jmp short .kok                  ; stops at the key at or before
+.posted:
+    call vp_sfree                   ; POSTED: nothing held while the pass
+    mov word [vp_msg], vp_s_room    ; runs, and the play starts again on the
+    call vp_fmt                     ; wake (vp_onwake)
+    call vp_repaint
+    mov byte [vp_cppost], 1
+    stc
+    jmp .out
+.kreq:
     call OSAPI_MEM_CLAIM_HI         ; FROM THE TOP, streamed or RESIDENT
-    jnc .kok                        ; (98.1.7.4, 98.3): it is pinned, and
-                                    ; claimed from the bottom it landed on the
-                                    ; kernel's caches and walled them off from
-                                    ; the ring - 75 KB of Mode X keeper left
-                                    ; the ring the 313 KB above it, not the
-                                    ; 381 KB the machine had
+    jnc .kok                        ; (98.1.7.4, 98.3): pinned for a bracket
+                                    ; (98.3.19.2), and claimed from the bottom
+                                    ; it landed on the kernel's caches and
+                                    ; walled them off from the ring - 75 KB of
+                                    ; Mode X keeper left the ring the 313 KB
+                                    ; above it, not the 381 KB the machine had
     mov word [vp_msg], vp_s_mem
     jmp .fail
 .kok:
@@ -5954,9 +6018,12 @@ vp_sstart:
     mov dx, [vp_keep]               ; (the KEEPER is what is zeroed and is
 .nopv:                              ; the shadow: the copy claimed after it is
     mov [vp_shseg], dx              ; 31 KB, and zeroing it at the keeper's
+    or dx, dx                       ; (NO KEEPER: nothing to zero - and ES 0
+    jz .nkz                         ; is the vector table)
     mov es, dx                      ; size ran 45 KB past it into the heap
     call vp_zero                    ; and left the keeper as the claim found
                                     ; it - onto both pages, 98.3.8)
+.nkz:
     ; --- RESIDENT (98.1.7): no ring - the block, loaded and kept, and a
     ;     key's record read into a claim of its own if the play starts at one
     cmp byte [vp_resid], 0
@@ -5987,7 +6054,11 @@ vp_sstart:
     call OSAPI_MEM_AVAIL            ; AX = the largest free run, KB
     mov [vp_mrun], ax               ; (the card's memory lines, and what
     mov dl, [vp_kkb]                ; was claimed before it: a stop
-    mov [vp_mkeep], dl              ; clears both)
+    cmp byte [vp_nokeep], 0         ; clears both)
+    je .mk0
+    xor dl, dl
+.mk0:
+    mov [vp_mkeep], dl
     xor dx, dx
     cmp word [vp_aseg], 0
     je .ms0
@@ -5997,19 +6068,7 @@ vp_sstart:
     mov cx, [vp_kmax]
     cmp byte [vp_livem], 0
     jne .klive
-    cmp byte [vp_audio], 0          ; ...less the SOUND's ring, where the file
-    je .kau                         ; has sound and this play claimed none
-    cmp word [vp_aseg], 0           ; (MUTED): M claims it in the full screen
-    jne .kau                        ; after the ring is up (98.3.17), and a
-    sub ax, VP_RL / 1024 + 1        ; ring that took every slot refused it
-    jnc .kau
-    xor ax, ax
-.kau:
-    sub ax, [vp_kekb]               ; ...less the claim a seek reads its key's
-    jnc .kbig                       ; ENTRY into AFTER the ring (98.3.14),
-    xor ax, ax                      ; which would otherwise quietly refuse -
-                                    ; the entry, not the record: the record
-                                    ; is read into the ring (vp_spos)
+    call vp_kres                    ; ...less what is claimed after it
 .kbig:
     call .kslots
     cmp cx, ax
@@ -6110,6 +6169,13 @@ vp_sstart:
 .fc:
     stc
 .out:
+    pushf                           ; ONE POST A PRESS (98.3.19.1): the
+    cmp byte [vp_cppost], 0         ; play the wake starts again may not
+    jne .cpk                        ; post a second time, and anything else
+    mov byte [vp_cpq], 0            ; ends the press
+.cpk:
+    mov byte [vp_cppost], 0
+    popf
     pop es
     pop di
     pop si
@@ -6117,6 +6183,190 @@ vp_sstart:
     pop cx
     pop bx
     ret
+
+; vp_kres - AX = the largest free run, KB -> AX = what the ring may take of
+; it (SPEC.md 98.3): less the SOUND's ring where the file has sound and this
+; play claimed none - MUTED: M claims it in the full screen after the ring
+; is up (98.3.17), and a ring that took every slot refused it - and less
+; the claim a seek reads its key's ENTRY into after the ring (98.3.14),
+; which would otherwise quietly refuse: the entry, not the record, which is
+; read into the ring (vp_spos). 0 at the least. Preserves all but AX, flags
+vp_kres:
+    cmp byte [vp_audio], 0
+    je .a
+    cmp word [vp_aseg], 0
+    jne .a
+    sub ax, VP_RL / 1024 + 1
+    jc .z
+.a:
+    sub ax, [vp_kekb]
+    jnc .r
+.z:
+    xor ax, ax
+.r:
+    ret
+
+; vp_kwant - AX = the slots this play wants: the header's ring (98.1.1),
+; and 2 where it says nothing. Preserves all but AX
+vp_kwant:
+    mov al, [vp_rneed]
+    xor ah, ah
+    cmp al, 2
+    jae .r
+    mov al, 2
+.r:
+    ret
+
+; vp_kelig - CF=0 this play may go WITHOUT its keeper (SPEC.md 98.3.19):
+; the keeper is only the canvas's image here - not a shadow the decoder
+; writes, not a Live or RESIDENT play's, no second page to flip to - and the
+; play is in the FULL SCREEN, where nothing but a swap reads it back. In the
+; window the keeper is how the canvas crosses every bracket. Preserves all
+vp_kelig:
+    cmp byte [vp_kneed], 0          ; (the decoder writes INTO it)
+    jne .no
+    cmp byte [vp_resid], 0
+    jne .no
+    cmp byte [vp_livem], 0
+    jne .no
+    cmp byte [vp_flip], 0
+    jne .no
+    cmp byte [vp_fsshd], 0
+    jne .no
+    cmp byte [vp_startp], 0         ; F: the full screen, paused
+    jne .yes
+    call vp_track
+    call vp_canwin                  ; Play: the full screen where the window
+    cmc                             ; cannot host it
+    ret
+.yes:
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; vp_kroom - DX = the keeper, just claimed: CF=0 the ring can still reach
+; the header's slots beside it, and the mirror. Preserves all
+vp_kroom:
+    push ax
+    push bx
+    push cx
+    call OSAPI_MEM_AVAIL
+    call vp_kres
+    mov cl, 5
+    shr ax, cl                      ; ...in 32 KB slots
+    mov bx, ax
+    call vp_kwant
+    inc ax                          ; (and the mirror)
+    cmp bx, ax                      ; CF = short
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; vp_cptry - the keeper and the ring will not both fit: CF=0 a compaction
+; is POSTED that will make room for both if our own region moves too
+; (SPEC.md 98.3.19.1, 66.4.3), and the caller frees what it holds and
+; RETURNS - the play starts again on the wake. CF=1 no: not from Play or F
+; ([vp_cpent]), asked once already for this press ([vp_cpq]), or the
+; what-if says even that would not do. Preserves all
+vp_cptry:
+    push ax
+    push bx
+    push cx
+    cmp byte [vp_cpent], 0
+    je .no
+    cmp byte [vp_cpq], 0
+    jne .no
+    call vp_kwant                   ; the ring and its mirror...
+    inc ax
+    mov cl, 5
+    shl ax, cl
+    mov bl, [vp_kkb]                ; ...and the keeper
+    xor bh, bh
+    add ax, bx
+    add ax, [vp_kekb]               ; ...and what vp_kres keeps back
+    cmp byte [vp_audio], 0
+    je .w
+    cmp word [vp_aseg], 0
+    jne .w
+    add ax, VP_RL / 1024 + 1
+.w:
+    mov cx, ax                      ; (CX: the what-if answers in AX AND BX)
+    mov ax, MEM_LVL_TOP             ; AH = MEMC_WHATIF, AL = the level
+    call OSAPI_MEM_COMPACT          ; AX = the largest run if we moved too:
+    cmp ax, cx                      ; a MEASUREMENT, never a promise
+    jb .no
+    mov bx, [vp_win]
+    mov ax, (MEMC_POST << 8) | MEM_LVL_TOP  ; an ordinary claim's rank: every
+    call OSAPI_MEM_COMPACT          ; cache counts as free (SPEC.md 50.6.4)
+    jc .no
+    mov byte [vp_cpq], 1
+    mov al, [vp_cpent]
+    mov [vp_cpgo], al
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+.no:
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+
+; vp_smov - AX = vp_smove, or 0: the SESSION's claims - the ring, the keeper
+; and the page copy - movable between brackets, or pinned for one (SPEC.md
+; 98.3.19.2). A bracket's hook reads them at interrupt time, which no
+; relocation can reach (66.3); on the desktop nothing does. A LIVE session
+; keeps them pinned: its worker decodes out of them on the desktop.
+; Preserves all
+vp_smov:
+    push dx
+    cmp byte [vp_lsess], 0
+    je .go
+    xor ax, ax
+.go:
+    mov dx, [vp_ring]
+    call .d
+    mov dx, [vp_keep]
+    call .d
+    mov dx, [vp_prevseg]
+    call .d
+    pop dx
+    ret
+.d:
+    or dx, dx
+    jz .n
+    push ax
+    call OSAPI_MEM_MOVABLE
+    pop ax
+.n:
+    ret
+
+; vp_smove - THE SESSION'S AND THE POSTER'S RELOCATION PROC (SPEC.md 66.3,
+; 98.3.19.2): BX = the old base, DX = the new. Every word naming one of
+; those claims holds its BASE - every other segment is derived at its use -
+; so a word equal to the old base is the one to move. Clobbers AX, SI
+vp_smove:
+    mov si, vp_smtab
+.w:
+    lodsw
+    or ax, ax
+    jz .out
+    xchg ax, si
+    cmp [si], bx
+    jne .n
+    mov [si], dx
+.n:
+    xchg ax, si
+    jmp short .w
+.out:
+    ret
+
+vp_smtab:     dw vp_ring, vp_keep, vp_prevseg, vp_shseg, vp_pseg, 0
 
 ; -----------------------------------------------------------------------------
 ; vp_spos - DX = the ring (or, resident, the key's claim, or 0): the session
@@ -6300,20 +6550,23 @@ vp_srun:
     mov di, vp_hook
     push ax                         ; THE BLOCKS STAY PUT FOR THE BRACKET: its
     xor ax, ax                      ; hook reads them at interrupt time
-    call vp_rmov                    ; (98.1.7.4)
+    call vp_rmov                    ; (98.1.7.4) - and so do the session's
+    call vp_smov                    ; (98.3.19.2)
     pop ax
     call OSAPI_FSX_RUN
     pushf
     push ax
     mov ax, vp_rmove
     call vp_rmov
+    mov ax, vp_smove                ; ...movable again on the desktop
+    call vp_smov
     pop ax
     popf
     jnc .ran
     mov word [vp_msg], vp_s_refused
     mov byte [vp_stopq], 2
     call vp_sstop
-    jmp short .out
+    jmp .out
 .ran:
     mov al, [vp_exitr]
     cmp al, VPX_SWAP
@@ -6321,7 +6574,7 @@ vp_srun:
     cmp al, VPX_DESK
     je .desk
     call vp_sstop                   ; STOPPED: over, and where it got to kept
-    jmp short .out
+    jmp .out
 .swap:
     cmp byte [vp_winm], 0
     je .tow
@@ -6329,9 +6582,25 @@ vp_srun:
     jmp .again
 .tow:                               ; the full screen -> the window: playing
     cmp byte [vp_lsess], 0          ; (LIVE: back on the desktop, 98.3.10)
-    je .tw
+    je .tnk
     call vp_lback
     jmp short .out
+.tnk:
+    cmp byte [vp_nokeep], 0         ; NO KEEPER (98.3.19): the canvas cannot
+    je .tw                          ; cross into the window, so the session
+    mov bl, [vp_autop]              ; stops at the key at or before the frame
+    xor al, al                      ; on the glass, its picture in the box -
+    call vp_stopfor                 ; and plays on from that key in the
+    or bl, bl                       ; window if it was playing and the
+    jz .out                         ; window can host it
+    call vp_track
+    call vp_canwin
+    jc .out
+    mov byte [vp_startp], 0
+    call vp_sstart
+    jc .out
+    mov byte [vp_wantwin], 1
+    jmp .again
 .desk:
     cmp byte [vp_unmq], 0           ; UNMUTED in the window (98.3.17): the
     je .out                         ; play starts again from the key at or
@@ -7672,6 +7941,31 @@ vp_kmove:                           ; AL = 0 keeper -> screen, 1 screen -> keepe
     mov [vp_kdir], al
     cld
     mov ax, [vp_keep]
+    or ax, ax                       ; NO KEEPER (98.3.19): a put is black on
+    jnz .kh                         ; the screen, and a get has nowhere to go
+    cmp byte [vp_kdir], 0
+    jne .d
+    cmp byte [vp_planar], 0         ; (all four planes at once)
+    je .zr
+    call vp_mxall
+.zr:
+    xor dx, dx
+.zl:
+    cmp dx, [vp_h]
+    jae .d
+    mov ax, dx
+    mov bl, [vp_layout]
+    call vp_rowaddr                 ; AX = the row, in the canvas's layout
+    mov di, ax
+    add di, [vp_org]
+    add di, [vp_kpo]
+    mov cx, [vp_wb]
+    mov es, [vp_vseg]
+    xor al, al
+    rep stosb
+    inc dx
+    jmp short .zl
+.kh:
     mov [vp_kseg], ax
     cmp byte [vp_planar], 0
     je .one
@@ -9480,6 +9774,8 @@ vp_decboth:
 ; the shadow it is the shadow, and the next copy takes every row.
 ; clobbers AX, BX, CX, DX, SI, DI, ES
 vp_cclear:
+    cmp word [vp_keep], 0           ; (NO KEEPER, 98.3.19: vp_kput below
+    je .native                      ; blacks the screen itself)
     mov es, [vp_keep]
     call vp_zero
     cmp byte [vp_shadow], 0
@@ -11861,6 +12157,7 @@ vp_s_stall:   db ', stalls ', 0
 vp_s_pause:   db ', pauses ', 0
 vp_s_late:    db 'Late ', 0
 vp_s_heap:    db 'Heap ', 0
+vp_s_room:    db 'Making room for the play...', 0
 vp_s_krun:    db 'K run, ', 0
 vp_s_kfree:   db 'K free at Play', 0
 vp_s_ring:    db 'Ring ', 0
@@ -12103,6 +12400,11 @@ vp_mrun0:     dw 0                  ; the heap as Play found it: the largest
 vp_mfre0:     dw 0                  ; claim and all that is free, KB (98.3)
 vp_mrun:      dw 0                  ; ...and what the ring was sized from
 vp_mkeep:     db 0                  ; ...after the keeper, KB
+vp_nokeep:    db 0                  ; this play goes without its keeper (98.3.19)
+vp_cpent:     db 0                  ; vp_sstart from Play (1) or F (2): may post
+vp_cpq:       db 0                  ; ...and posted already, for this press
+vp_cppost:    db 0                  ; ...just now: vp_sstart returns into it
+vp_cpgo:      db 0                  ; the wake starts it again: 1 Play, 2 F
 vp_msnd:      db 0                  ; ...and the card's ring, KB
 vp_sel:       dw 0                  ; the key Play starts at; 0 = the start
 vp_kload:     dw 0xFFFF             ; the key vp_ke holds
