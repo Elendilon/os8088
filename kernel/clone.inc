@@ -1234,7 +1234,7 @@ clo_key:
     cmp al, 'Y'
     je .force
     cmp al, 13
-    jne .line
+    jne .linej2
     mov byte [es:CL_STEP], CLS_TGT
 .jtgt:
     jmp .tgt                    ; NEAR: CLS_NOSRC's answers sit between here
@@ -1277,6 +1277,7 @@ clo_key:
     jmp short .line
 .srcwarn:
     mov byte [es:CL_STEP], CLS_NOSRC
+.linej2:                        ; (a free trampoline for CLS_SAME's `jne`)
     jmp short .line
 
     ; CLS_NOSRC: CLS_SAME's three answers on the other prompt (SPEC.md

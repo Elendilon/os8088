@@ -3470,7 +3470,7 @@ fm_onclick_x:
     pop cx
 %ifdef OS88UI_SBDRAG
     cmp al, 0xFF
-    je .quiet                   ; ...and not one pixel outside the bar changed
+    je .sbq                     ; ...and not one pixel outside the bar changed
 %endif
     cmp al, OS88UI_SBNONE
     je .rows                    ; not on the bar at all
@@ -3494,6 +3494,7 @@ fm_onclick_x:
 .sb_move:                       ; SPEC.md 22.11: the view moves, and the
     call fm_scroll_by           ; header, the buttons and the status line do
     jc .redraw                  ; not. CF = 1 is 11.3's granularity refusal
+.sbq:                           ; (a free trampoline: the drag's `je` lands here)
     jmp .quiet                  ; .quiet pays the status line if this click
                                 ; also retired a verdict (22.9), and nothing
                                 ; else - a scroll moves no selection
@@ -3887,55 +3888,6 @@ fm_onkey_x:
                                 ; ends the keystroke without drawing, and the
                                 ; ladder runs once per KEY, not per row
 
-.editing:
-    or al, al
-    jnz .edkey                  ; a bare scan code is swallowed and nothing
-    cmp ax, 0x5300              ; moves - with ONE exception, because the key
-    jne .outj                   ; that says yes to the delete confirmation
-    cmp byte [di+FS_EDIT], 3    ; carries no ASCII. The MODE is tested HERE so
-    jne .outj                   ; that every other mode's swallow stays byte
-    call fm_delrep              ; for byte what it was: mode 4 in particular
-    jc .outj                    ; reads "any other key" as STOP the paste, and
-                                ; a scan code must not be able to answer that.
-                                ; CF = 1 is typematic - a repeat is not a
-                                ; press (SPEC.md 22/9.6.1), and it is
-                                ; SWALLOWED rather than read as "no", so the
-                                ; confirmation is still up for the deliberate
-                                ; second press
-.edkey:
-    call fm_editkey
-    sbb bx, bx                  ; BANK THE ANSWER (0 / -1) BEFORE THE COMPARE
-                                ; BELOW WRITES CF (SPEC.md 22.13.3).
-                                ; `cmp word [x], 0` cannot borrow, so it
-                                ; CLEARED the carry every time and the `jc`
-                                ; under it was dead code: a Delete, a Rename
-                                ; or a New Folder committed and then took the
-                                ; status line's cheap path, leaving the row it
-                                ; had just removed on the glass. BX is free
-                                ; here - fm_onkey_x pushed it and nothing
-                                ; below this label reads it
-    cmp word [fdlg_win], 0
-    jne .out                    ; **THIS KEYSTROKE PUT A MODAL DIALOG UP**
-                                ; (SPEC.md 18.99.8/38.2), so everything it
-                                ; changed about this window is behind one now
-                                ; and drawing it would draw OVER the dialog -
-                                ; measured, as a Disk window repainted whole
-                                ; on top of a Save box it had just opened. A
-                                ; self-initiated repaint clips to the window
-                                ; and not to what is above it, which is right
-                                ; everywhere else because a window that has
-                                ; the keyboard is the window on top. The
-                                ; modal dialog is the one exception and this
-                                ; is the general test for it - no flag, and
-                                ; it cannot fire wrongly: a dialog that was
-                                ; already up would have taken this key
-                                ; (fdlg_top)
-    or bx, bx
-    jnz .redraw                 ; it changed the listing or the mode
-    call fm_status_only         ; ...otherwise the name being typed lives on
-    jc .redraw                  ; the status line and that is ALL that moved.
-    jmp .out                    ; CF = 1 is 11.3's granularity refusal
-
 .remount:
     call fm_reload              ; r: re-list, without leaving the folder
     jmp .redraw
@@ -4033,6 +3985,57 @@ fm_onkey_x:
 ; and fires anyway - [kbm_btick]'s own lesson. Its power-on value cannot
 ; matter: the ARM stamps it, and nothing can be confirmed before it is armed.
 ; -----------------------------------------------------------------------------
+    ; The editor's keys, AFTER the exit (size pass 8): the command keys'
+    ; bodies above are then a short je from the ladder
+.editing:
+    or al, al
+    jnz .edkey                  ; a bare scan code is swallowed and nothing
+    cmp ax, 0x5300              ; moves - with ONE exception, because the key
+    jne .out                   ; that says yes to the delete confirmation
+    cmp byte [di+FS_EDIT], 3    ; carries no ASCII. The MODE is tested HERE so
+    jne .out                   ; that every other mode's swallow stays byte
+    call fm_delrep              ; for byte what it was: mode 4 in particular
+    jc .out                    ; reads "any other key" as STOP the paste, and
+                                ; a scan code must not be able to answer that.
+                                ; CF = 1 is typematic - a repeat is not a
+                                ; press (SPEC.md 22/9.6.1), and it is
+                                ; SWALLOWED rather than read as "no", so the
+                                ; confirmation is still up for the deliberate
+                                ; second press
+.edkey:
+    call fm_editkey
+    sbb bx, bx                  ; BANK THE ANSWER (0 / -1) BEFORE THE COMPARE
+                                ; BELOW WRITES CF (SPEC.md 22.13.3).
+                                ; `cmp word [x], 0` cannot borrow, so it
+                                ; CLEARED the carry every time and the `jc`
+                                ; under it was dead code: a Delete, a Rename
+                                ; or a New Folder committed and then took the
+                                ; status line's cheap path, leaving the row it
+                                ; had just removed on the glass. BX is free
+                                ; here - fm_onkey_x pushed it and nothing
+                                ; below this label reads it
+    cmp word [fdlg_win], 0
+    jne .out                    ; **THIS KEYSTROKE PUT A MODAL DIALOG UP**
+                                ; (SPEC.md 18.99.8/38.2), so everything it
+                                ; changed about this window is behind one now
+                                ; and drawing it would draw OVER the dialog -
+                                ; measured, as a Disk window repainted whole
+                                ; on top of a Save box it had just opened. A
+                                ; self-initiated repaint clips to the window
+                                ; and not to what is above it, which is right
+                                ; everywhere else because a window that has
+                                ; the keyboard is the window on top. The
+                                ; modal dialog is the one exception and this
+                                ; is the general test for it - no flag, and
+                                ; it cannot fire wrongly: a dialog that was
+                                ; already up would have taken this key
+                                ; (fdlg_top)
+    or bx, bx
+    jnz .redraw                 ; it changed the listing or the mode
+    call fm_status_only         ; ...otherwise the name being typed lives on
+    jc .redraw                  ; the status line and that is ALL that moved.
+    jmp .out                    ; CF = 1 is 11.3's granularity refusal
+
 fm_delrep:
     push ax
     push bx
@@ -5959,87 +5962,30 @@ fm_editkey:
     push bx
     push di
     mov di, [fm_vp]
-    cmp byte [di+FS_EDIT], 4
+    mov bl, [di+FS_EDIT]        ; the mode, once: BL is free until the text
+    cmp bl, 4                   ; arm loads the length into it
     je .replace
-    cmp byte [di+FS_EDIT], 7
+    cmp bl, 7
     je .clone                   ; the cloner (SPEC.md 22.21.2), and the ONE
                                 ; place in this file it is answered: four
                                 ; prompts, one FS_EDIT value, and the step
                                 ; lives in the cloner's own claim
-    cmp byte [di+FS_EDIT], 6
+    cmp bl, 6
     je .swap                    ; the disk-swap prompt (SPEC.md 2.8.5)
-    cmp byte [di+FS_EDIT], 5
+    cmp bl, 5
     je .confirmf                ; Format (SPEC.md 22.12) takes mode 3's
                                 ; asymmetry unchanged, and wants it more:
                                 ; there is no undo, and the operation is not
                                 ; one file but every one of them
-    cmp byte [di+FS_EDIT], 3
-    je .confj
+    cmp bl, 3
+    je .confirm
     cmp al, 13
     je .commit
     cmp al, 27
     je .cancel
-    cmp al, 8
-    je .back
-
-    mov bl, [fm_elen]
-    xor bh, bh
-    cmp bl, 12
-    jae .nochg                  ; 8 + '.' + 3 is the whole 8.3 budget
-    cmp al, '.'
-    jne .ordinary
-    or bl, bl
-    jz .nochg                   ; a short name may not start with the dot
-    call fm_hasdot
-    jc .nochg                   ; ...and may not carry a second one
-    jmp short .store
-.nochg:                         ; A REFUSED CHARACTER MOVED NOTHING, so it owes
-    jmp .lineonly               ; what an accepted one owes and no more - the
-                                ; prompt already says what it says. These four
-                                ; sites answered .out, "the caller owes the
-                                ; whole window", which was harmless only for
-                                ; as long as nothing read that answer (SPEC.md
-                                ; 22.13.3): reconnecting the branch without
-                                ; this would repaint the window every time a
-                                ; rename prompt was typed a comma
-.ordinary:
-    call dskw_char_x            ; upper-cases, or CF=1 = not in the FAT set
-    jc .nochg
-.store:
-    mov [fm_ebuf+bx], al
-    inc bx
-    mov byte [fm_ebuf+bx], 0
-    mov [fm_elen], bl
-    jmp .lineonly               ; NEAR: the swap prompt (SPEC.md 2.8.5) sits
-                                ; between here and .lineonly now
-
-.back:
-    mov bl, [fm_elen]
-    xor bh, bh
-    or bl, bl
-    jz .nochg                   ; ...and a BACKSPACE THAT REMOVED NOTHING owes
-                                ; the same as a refused character: the prompt
-                                ; is already empty. `.out` answers CF=1, which
-                                ; fm_onkey_x now reads as "repaint the whole
-                                ; window" - so holding Backspace on an empty
-                                ; Rename or New Folder box repainted the
-                                ; listing at every typematic repeat
-    dec bl                      ; `dec bl` IS `dec bx` here (BH is 0), so BX
-    mov [fm_elen], bl           ; is the NEW length and the terminator lands
-    mov byte [fm_ebuf+bx], 0    ; on the character just dropped - the -1 that
-    jmp .lineonly               ; used to be here punched a NUL one byte
-                                ; EARLIER, so the name displayed short and
-                                ; every character typed after a backspace
-                                ; landed behind that NUL and never appeared
-
-.confj:                         ; a trampoline, on a path nothing falls into:
-    jmp .confirm                ; `.confirm` is past 190 bytes of edit modes and
-                                ; the 8086 has no near `jcc`, so the three arms
-                                ; aimed at it were NASM's five-byte inverted-
-                                ; short-plus-near-jmp.  From here they are two
-                                ; bytes each: -6.  Every one of them ends the
-                                ; keystroke on the confirmation line and the
-                                ; ladder runs once per KEY, not per row
+    jmp .text                   ; the name being typed: AFTER the exit, so
+                                ; every mode's `je` above is short (size pass
+                                ; 8)
 
     ; The replace question (SPEC.md 22.3). Three answers, and the default is
     ; the safe one for the same reason mode 3's is: Enter replaces THIS file,
@@ -6076,12 +6022,12 @@ fm_editkey:
     ; is not advertised must not quietly change what it used to do.
 .confirmf:
     cmp al, ' '
-    jne .confj
+    jne .confirm
     push ax
     mov al, [di+FS_DRV]
     call fm_fmt_sizeable        ; the SAME predicate the line is composed
     pop ax                      ; from, so the two cannot disagree
-    jc .confj                   ; nothing to offer: Space still means no
+    jc .confirm                   ; nothing to offer: Space still means no
     xor byte [fm_fmtrow], 1
     jmp .lineonly               ; the size on the line IS [fm_fmtrow], so the
                                 ; redraw is the one a typed rename character
@@ -6124,56 +6070,6 @@ fm_editkey:
     call fm_clone_res           ; the verdict, the re-home and the re-list -
     jmp .out                    ; and fm_edit_end inside it is what frees the
                                 ; claim and drops the image (SPEC.md 2.8.3)
-
-.swap:
-    ; Enter advances a step and anything else abandons the whole operation -
-    ; mode 5's asymmetry, for mode 5's reason. Step 0 asks for the system disk
-    ; and step 1 asks for the disk to be formatted, so the SECOND Enter is the
-    ; one that reaches the probe.
-    cmp al, 13
-    jne .cancel                 ; two lines, so .cancel takes .cancelfull
-    cmp byte [fm_fmtstep], 0
-    jne .swapgo
-    push ax
-    mov al, MOD_FMT             ; ...or the CLONER's, which is the whole of
-    cmp byte [fm_swapwho], 0    ; what SPEC.md 22.21.4 costs this prompt: one
-    je .swapneed                ; byte and one branch, rather than a second
-    mov al, MOD_CLONE           ; mode every ladder in this file would have to
-.swapneed:                      ; learn about
-    call mod_need               ; the system disk is in NOW - or it is not
-    pop ax
-    jc .swapno
-    mov byte [fm_fmtstep], 1    ; FORMATTER AND CLONER ALIKE: re-arm the same
-    mov al, 6                   ; mode at step 1, only the line changes. The
-    jmp .swaparm                ; cloner asks for its OWN disks itself, so it
-                                ; has no second step - and it wants step 1 for
-                                ; the formatter's reason anyway, the disk in
-                                ; the drive being the SYSTEM disk now
-                                ; (SPEC.md 22.21.4). These were two arms of a
-                                ; `cmp byte [fm_swapwho], 0` whose sides were
-                                ; identical to the byte
-.swapno:
-    push bx                     ; it still could not be read: say which disk
-    push cx                     ; and leave the window as it was (SPEC.md 59)
-    mov al, 1
-    mov bx, fm_swaptab
-    mov cx, FM_NSWAP
-    call ct_toast_say
-    pop cx
-    pop bx
-    jmp short .cancelfull
-.swapgo:
-    call fm_edit_end            ; the prompt is spent; each of these arms its
-    cmp byte [fm_swapwho], 0    ; own prompt, or toasts what it could not read
-    jne .swapgoc
-    call fm_fmt_go
-    jmp .out
-.swapgoc:
-    call fm_clone_go
-    jmp .out
-.swaparm:
-    call fm_edit_arm
-    jmp .out
 
 .confirm:
     cmp byte [di+FS_EDIT], 5    ; ...and the FORMAT confirmation still takes
@@ -6240,6 +6136,111 @@ fm_editkey:
 ; answers with 'Name taken'. That reads as a refusal when it was a no-op.
 ; Uppercase-exact: both sides are 19.1 display names, sanitized alike.
 ; -----------------------------------------------------------------------------
+    ; Mode 6's answers, AFTER the exit (size pass 8): the ladder's other
+    ; targets are then nearer
+.swap:
+    ; Enter advances a step and anything else abandons the whole operation -
+    ; mode 5's asymmetry, for mode 5's reason. Step 0 asks for the system disk
+    ; and step 1 asks for the disk to be formatted, so the SECOND Enter is the
+    ; one that reaches the probe.
+    cmp al, 13
+    jne .cancel                 ; two lines, so .cancel takes .cancelfull
+    cmp byte [fm_fmtstep], 0
+    jne .swapgo
+    push ax
+    mov al, MOD_FMT             ; ...or the CLONER's, which is the whole of
+    cmp byte [fm_swapwho], 0    ; what SPEC.md 22.21.4 costs this prompt: one
+    je .swapneed                ; byte and one branch, rather than a second
+    mov al, MOD_CLONE           ; mode every ladder in this file would have to
+.swapneed:                      ; learn about
+    call mod_need               ; the system disk is in NOW - or it is not
+    pop ax
+    jc .swapno
+    mov byte [fm_fmtstep], 1    ; FORMATTER AND CLONER ALIKE: re-arm the same
+    mov al, 6                   ; mode at step 1, only the line changes. The
+    jmp .swaparm                ; cloner asks for its OWN disks itself, so it
+                                ; has no second step - and it wants step 1 for
+                                ; the formatter's reason anyway, the disk in
+                                ; the drive being the SYSTEM disk now
+                                ; (SPEC.md 22.21.4). These were two arms of a
+                                ; `cmp byte [fm_swapwho], 0` whose sides were
+                                ; identical to the byte
+.swapno:
+    push bx                     ; it still could not be read: say which disk
+    push cx                     ; and leave the window as it was (SPEC.md 59)
+    mov al, 1
+    mov bx, fm_swaptab
+    mov cx, FM_NSWAP
+    call ct_toast_say
+    pop cx
+    pop bx
+    jmp short .cancelfull
+.swapgo:
+    call fm_edit_end            ; the prompt is spent; each of these arms its
+    cmp byte [fm_swapwho], 0    ; own prompt, or toasts what it could not read
+    jne .swapgoc
+    call fm_fmt_go
+    jmp .out
+.swapgoc:
+    call fm_clone_go
+    jmp .out
+.swaparm:
+    call fm_edit_arm
+    jmp .out
+
+.text:
+    cmp al, 8
+    je .back
+    mov bl, [fm_elen]
+    xor bh, bh
+    cmp bl, 12
+    jae .nochg                  ; 8 + '.' + 3 is the whole 8.3 budget
+    cmp al, '.'
+    jne .ordinary
+    or bl, bl
+    jz .nochg                   ; a short name may not start with the dot
+    call fm_hasdot
+    jc .nochg                   ; ...and may not carry a second one
+    jmp short .store
+.nochg:                         ; A REFUSED CHARACTER MOVED NOTHING, so it owes
+    jmp .lineonly               ; what an accepted one owes and no more - the
+                                ; prompt already says what it says. These four
+                                ; sites answered .out, "the caller owes the
+                                ; whole window", which was harmless only for
+                                ; as long as nothing read that answer (SPEC.md
+                                ; 22.13.3): reconnecting the branch without
+                                ; this would repaint the window every time a
+                                ; rename prompt was typed a comma
+.ordinary:
+    call dskw_char_x            ; upper-cases, or CF=1 = not in the FAT set
+    jc .nochg
+.store:
+    mov [fm_ebuf+bx], al
+    inc bx
+    mov byte [fm_ebuf+bx], 0
+    mov [fm_elen], bl
+    jmp .lineonly               ; NEAR: the swap prompt (SPEC.md 2.8.5) sits
+                                ; between here and .lineonly now
+
+.back:
+    mov bl, [fm_elen]
+    xor bh, bh
+    or bl, bl
+    jz .nochg                   ; ...and a BACKSPACE THAT REMOVED NOTHING owes
+                                ; the same as a refused character: the prompt
+                                ; is already empty. `.out` answers CF=1, which
+                                ; fm_onkey_x now reads as "repaint the whole
+                                ; window" - so holding Backspace on an empty
+                                ; Rename or New Folder box repainted the
+                                ; listing at every typematic repeat
+    dec bl                      ; `dec bl` IS `dec bx` here (BH is 0), so BX
+    mov [fm_elen], bl           ; is the NEW length and the terminator lands
+    mov byte [fm_ebuf+bx], 0    ; on the character just dropped - the -1 that
+    jmp .lineonly               ; used to be here punched a NUL one byte
+                                ; EARLIER, so the name displayed short and
+                                ; every character typed after a backspace
+                                ; landed behind that NUL and never appeared
+
 fm_samename:
     mov si, fm_ebuf             ; ...which is dsk_streq with its two operands
     mov di, fm_onam             ; hardwired, byte for byte (fdlg.inc)

@@ -506,7 +506,7 @@ cmz_pack:
     call cmz_oflush
     pop ax
     or al, al
-    jz .pop
+    jz .popj                    ; (the `jmp .pop` below: a free trampoline)
     xor ax, ax                  ; the T word was written as 0 with the first
     xor dx, dx                  ; 16KB, so the first sector comes back, takes
     mov cx, [cs:cmz_clb]        ; it, and goes out again IN PLACE
@@ -518,6 +518,7 @@ cmz_pack:
     mov cx, 512
     mov bx, dwf_dskw_write_at
     call cmz_tio
+.popj:
     jmp .pop
 
 ; cmz_ioerr - a streamed read or write failed: AX = its FERR_*, and the stack
@@ -2623,7 +2624,9 @@ cmz_jslice:
 ; -----------------------------------------------------------------------------
 cmz_jneed:
     cmp [cs:cmz_javl], ax
-    jae .ok
+    jb .need
+    ret                         ; CF = 0: they are
+.need:
     push ax
     push ds
     mov cx, [cs:cmz_javl]
