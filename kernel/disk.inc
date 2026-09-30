@@ -1452,9 +1452,12 @@ dsk_xfer:
                                 ; THE ROW SAYS WHICH CLASS (SPEC.md 18.7). This
     push ax                     ; was `drv_svc + DSV_SIZE`, the DISK class's
     mov al, [drv_blkcls]        ; entry hard-coded - right while one class
-    call drv_cls_svc_x            ; served blocks and silently wrong the moment
-    mov bp, [di+DSV_BLK]        ; two did: a network volume's sectors would
-    pop ax                      ; have been handed to the hard-disk driver
+                                ; served blocks and silently wrong the moment
+                                ; two did: a network volume's sectors would
+                                ; have been handed to the hard-disk driver
+    call drv_cls_svc_x          ; CLSCF: a volume's class serves blocks, so it has a slot
+    mov bp, [di+DSV_BLK]
+    pop ax
 %ifdef OS88_BIGVOL
     mov di, [dsk_lbahi]         ; DI = the LBA's HIGH word (SPEC.md 18.7.5);
 %else                           ; SI is the low one. The LBA itself is dead on

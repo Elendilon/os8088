@@ -976,6 +976,12 @@ FAST = [
         "GLaBIOS twin still differs from its IBM original in `rom_set` alone "
         "- a drifted twin measures the config's difference and calls it the "
         "kernel's"),
+    Row("clscf", "fast", py("tests/unit/t_clscf.py"), 0.1,
+        "every call to drv_cls_svc / drv_cls_fp tests the carry, or says in a "
+        "CLSCF: comment why its class has a slot. A missed test reads another "
+        "class's services and does not crash, and since kernel size pass 8 "
+        "drv_cls_svc refuses a real class, DRVC_POINT "
+        "(docs/plans/LAST-DROP-BYTES.md 7.7.8)"),
     Row("asmrules", "fast", py("tests/unit/t_asmrules.py"), 2.0,
         "unreachable code after an unconditional jump, a prologue restored in "
         "the WRONG ORDER (SPEC.md 1's register discipline: balanced depth, "
@@ -6321,6 +6327,21 @@ SOAK = [
         "the assertion is the round trip: poke three settings, close the panel,"
         "flush the disk the guest wrote and boot IT. Two boots, which is why it"
         "is here and not in the gate",
+        needs=("marty",), serial=True),
+    Row("cpnames", "soak", py("tests/cpnames.py"), 20.0,
+        "SPEC.md 2.8.6.1/31.9: do the Control Panel's list names and page"
+        "headings letter, now that the item table and every static name are"
+        "in CTRL.DRV's image and staged per draw, and the heading is drawn by"
+        "the dispatcher? Text rendered from font_glyphs and searched for in"
+        "the framebuffer, per page. Red with the staging call removed (every"
+        "name) and with the heading block removed (every page). Measured 16s",
+        needs=("marty",), serial=True),
+    Row("cpnameshdd", "soak", py("tests/cpnames.py", "hdd"), 25.0,
+        "cpnames on os8088_xt_hdd, plus a DRIVER's row: the hard disk ticked in"
+        "on the Drivers page, and its page's list name - staged out of the"
+        "driver's segment by CTRL.DRV's cp_drv_name into cp_sbuf since kernel"
+        "size pass 8 - must letter. Red with the staging copy skipped."
+        "Measured 20s",
         needs=("marty",), serial=True),
     Row("fddpage", "soak", py("tests/fddpage.py"), 20.0,
         "SPEC.md 31.14: does the Control Panel's Floppy page override the"

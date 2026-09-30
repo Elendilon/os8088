@@ -97,12 +97,10 @@ def main(argv=None):
         # the read bound is forced to the OPPOSITE of what the canary found
         rd, want_cyl = (1, 0) if cyl0 else (2, 1)
 
-        # the page's RECORD, found by its name rather than by position
-        items = m.read(S("cp_items"), 8 * 8)
-        name = S("cp_s_fdd") - (KERNEL_SEG << 4)
-        rec = [i for i in range(8) if u16(items[i * 8:]) == name]
-        if not rec:
-            sys.exit("fddpage: no cp_items record names cp_s_fdd")
+        # the page's RECORD. cp_items is in CTRL.DRV's image now (kernel
+        # size pass 8), so it is the kernel's own equate rather than a walk of
+        # the table - ctrl.inc asserts CP_IFDD is the Floppy row at build time
+        rec = [os88sym.equates()["CP_IFDD"]]
         f = os88flush.Flush(marty=m)
         mo = os88mouse.Mouse(marty=m)
         dispcp.open_panel(m, mo, S, settle, page=rec[0])

@@ -2602,7 +2602,8 @@ OVL_AT      equ 2624            ; ...and it is ONE value for every build now.
 ; kernel a disk carries.
 ; ...and 144 on a knob build whose `.boot2` is the shipped loader's, which is
 ; every one but BOOTDIAG=1's (2,470 at the most, MOUDIAG=1's): SPEC.md 31.14's
-; ovl_fdd_apply took the shipped blob from 147 bytes spare to 20, and
+; ovl_fdd_apply took the shipped blob from 147 bytes spare to 20 (39
+; since kernel size pass 8 cut it 113 -> 94), and
 ; BOOTMARK=1's MARKW sites need 127 of a knob's give (BOOTHALT=20 131,
 ; DRVDIAG=1 with it 141). BOOTDIAG=1 keeps the 96 its own loader leaves room
 ; for (2,507 with MOUDIAG=1).
@@ -2657,6 +2658,13 @@ section .ovlw    start=OVLW_START vstart=0
 ; They are LAST in the file and unpadded, so truncating at MODC_START yields
 ; byte for byte the kernel.bin that would have been emitted without them.
 section .modc    start=MODC_START vstart=0
+%ifdef OS88_DRIVERS
+section .modcb   nobits vfollows=.modc ; CTRL.DRV's own scratch: the SYSTEM.CFG
+                                ; writer's file buffer (driver.inc, CFG_DATA
+                                ; cpc). NOT zeroed - MOD_BSS stays kern_small's
+                                ; FCP_MOD alone - because its one user fills it
+                                ; before it reads it (kernel size pass 8)
+%endif
 section .modf    start=MODF_START vstart=0
 section .modl    start=MODL_START vstart=0
 %ifdef KERN_BIG
@@ -7938,7 +7946,7 @@ OVL_SIZE equ ovl_end - $$       ; `$$` is the SECTION's base, which is OVL_BASE
 ;               34 bytes of payload spare.
 ;
 ; So KERN_BIG binds this guard. The blob is the other home for a boot body:
-; since SPEC.md 2.5.3.3 put kmain's boot half in it, `.ovl` leaves 20 bytes
+; since SPEC.md 2.5.3.3 put kmain's boot half in it, `.ovl` leaves 39 bytes
 ; of it on kern_big (147 until SPEC.md 31.14's ovl_fdd_apply) and 42 on
 ; kern_small, so kern_big binds the blob too now. A KNOB
 ; build has DSK_OVLPAD's 1,024 more here, and 2.5.3.3.1 is what spends it.
@@ -8006,6 +8014,12 @@ modh_end:
 MODH_SIZE equ modh_end - $$
 %endif
 
+%ifdef OS88_DRIVERS
+section .modcb
+modcb_end:
+MODC_BSS equ modcb_end - $$
+%endif
+
 %ifdef FCP_MOD
 section .modp
 modp_end:
@@ -8028,6 +8042,11 @@ MODD_SIZE equ modd_end - $$
 ; This is where that gets said, while the number is still a constant.
 %if MODC_SIZE > MOD_MAX_KB*1024
 %error "the ctrl module is over MOD_MAX_KB - mod_need would refuse it at run time"
+%endif
+%ifdef OS88_DRIVERS
+ %if MODC_SIZE + MODC_BSS > ((MODC_SIZE + 1023) / 1024) * 1024
+%error "CTRL.DRV's bss (the SYSTEM.CFG writer's buffer) does not fit its claim's KB rounding - see MODULE-SELFCONTAIN-PLAN 3.2"
+ %endif
 %endif
 %if MODF_SIZE > MOD_MAX_KB*1024
 %error "the format module is over MOD_MAX_KB - mod_need would refuse it at run time"
