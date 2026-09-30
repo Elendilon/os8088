@@ -1178,17 +1178,17 @@ section .text
 ; os88ui.inc is, because the whole of it measured 554 resident bytes against
 ; the ~400 the owner set for a kernel call.
 ; =============================================================================
-SPK_NMIN        equ 74          ; a pulse ends inside its period (34.4)...
-SPK_NMIN_AT     equ 48          ; ...on a 286 or better, whose ISR is a
-                                ; fraction of an 8088's: 24,858 Hz (34.11.8)
-SPK_NMAX        equ 255         ; ...and mode 0 is programmed lobyte-only
+; The pulse's range - 74..255 PIT counts on an 8088, 48..255 on a 286 or
+; better (34.11.8) - is the LIBRARY's to hold to (os88spk_init), and the
+; door does not re-check it: packages are trusted (34.11.1).
 
 ; -----------------------------------------------------------------------------
-; spk_off - the sample ISR released: channel 0 back at the bracket's own rate,
-; channel 2 idle. The door's close (jumped into from osapi_fsx_spk below, with
-; AX = 4), and fsx_restore's on every way out of a bracket.
-; out: CF = 0 and AX = 0, it was open; CF = 1 and AX untouched, it was not.
-; clobbers nothing else
+; spk_off - the sample ISR released: IRQ0 back to sch_isr, channel 0 back at
+; the bracket's own rate, channel 2 idle. The door's close (AL = 1 jumps
+; here), and fsx_restore's on every way out of a bracket - which is why the
+; teardown stays the kernel's while the set-up is the library's (34.11.1).
+; out: nothing - harmless with nothing open, and nobody asks which it was
+; clobbers AX, the flags
 ; -----------------------------------------------------------------------------
 spk_off:
     cmp word [spk_seg], 1       ; CF = 1: segment 0, nothing open
@@ -1207,7 +1207,6 @@ spk_off:
     call sch_pit0
     popf
     call spk_pcm_idle           ; ch2's ports and its ownership, one window
-    xor ax, ax                  ; the close's answer: AX = 0, CF = 0
 .out:
     ret
 .err:                           ; osapi_fsx_spk's refusals, AX = the code
@@ -1215,100 +1214,44 @@ spk_off:
     ret
 
 ; -----------------------------------------------------------------------------
-; osapi_fsx_spk - slot 0x045B (SPEC.md 34.11)
-; in:  AL = 0 OPEN: DX = N, the PIT counts a sample (74..255: 4,679..16,124
-;           Hz; 48..255 on a 286 or better, 34.11.8), SI = your sample
-;           ISR, a near offset in your own image, DI = a 6-byte block in
-;           your image the kernel fills BEFORE IRQ0 is the ISR's: K, the
-;           samples in one rate period - which becomes K x N PIT counts
-;           exactly, within a sample of your divisor, so [ticks] stays exact
-;           - and the far address a period's LAST sample jumps to, with
-;           every register and the interrupt frame as they were
+; osapi_fsx_spk - slot 0x045B (SPEC.md 34.11.1): a THIN door. The kernel does
+; only what is the kernel's - the arbitration of channel 2, the divisor it
+; banks and trims so [ticks] stays exact, and the open flag spk_off tears
+; down by. The IRQ0 vector and channel 0's count are the CALLER'S to write,
+; after this returns and before its IF = 0 window ends (apps/os88spk.inc).
+; in:  IF = 0, held by the caller from before this call until IRQ0's vector
+;      is its ISR and channel 0 counts N
+;      AL = 0 OPEN: DX = N, the PIT counts a sample (the library's range,
+;           34.11.8 - not checked here: packages are trusted), BX = the
+;           ISR's segment (your CS), non-zero
 ;      AL = 1 CLOSE
-; out: OPEN CF = 0: AX = K and DX:BX = that address too. CF =
-;      1: AX = 1 not in your own FSXF_RATE bracket, 2 N out of range, 3 the
-;      speaker is taken, 4 (close) nothing open, 5 SI or DI's 6 bytes not
-;      inside your image+bss. Preserves the rest
+; out: OPEN CF = 0: AX = K, the samples in one rate period, which is now K x
+;      N PIT counts exactly. CF = 1: AX = 1 not in a rate bracket (53.2.2), 3
+;      the speaker is taken. CLOSE: nothing, harmless with nothing open.
+;      clobbers BX, DX; IF untouched
 ; -----------------------------------------------------------------------------
 osapi_fsx_spk:
     cmp al, 1
-    mov ax, 4                   ; the close's refusal, unless spk_off finds
-    je spk_off                  ; the door open - its answer is ours
-    mov al, 1
-    call fsx_mine               ; a bracket, and ours...
+    je spk_off
+    mov ax, 1                   ; SPK_E_NOTRATE
+    cmp byte [sch_fast], SCH_RATE ; a rate bracket's own divisor to trim
     jne spk_off.err
-    cmp byte [sch_fast], SCH_RATE ; ...at its own rate (53.2.2)
-    jne spk_off.err
-    inc ax
-    or dh, dh                   ; N > 255: mode 0 is lobyte-only
-    jnz spk_off.err
-    cmp dl, SPK_NMIN
-    jae .nlo
-    cmp dl, SPK_NMIN_AT         ; shorter, on a 286 or better alone
-    jb spk_off.err
-    cmp byte [cpu_tier], CPU_8086
-    je spk_off.err
-.nlo:
-    inc ax
+    mov al, 3                   ; SPK_E_BUSY
     cmp byte [snd_pcm_busy], 0  ; a clip (34.4) - or this door, which sets
     jne spk_off.err             ; the same byte for as long as it is open
-    inc ax                      ; 5 (4 is the close's): SI and DI inside the
-    inc ax                      ; bracket owner's image+bss, fenced as
-    push bx                     ; fsx_run fences the hook - IRQ0 jumps to SI
-    push di                     ; on every sample and the block takes 6 bytes.
-    mov bx, [sch_rwin]          ; fsx_run's fence proved it owned and live,
-    call inst_of_win            ; and fsx_mine above that it is the caller's
-    mov bx, [di+I_SIZE]
-    pop di
-    cmp si, bx                  ; CF = 1 once SI is PAST the size...
-    cmc
-    jc .fence
-    sub bx, 6                   ; ...or DI + 6 is, with no carry to lose
-    jb .fence
-    cmp bx, di
-.fence:
-    pop bx                      ; (the flags ride the pop)
-    jc spk_off.err
-    push es
-    mov bx, [sch_rwin]          ; the caller's image, where its block is
-    mov es, [bx+W_SEG]
+    mov [spk_seg], bx           ; the open flag, and the ISR's CS
+    call snd_town_off           ; a tone of the caller's own: channel 2 is
+    mov word [snd_ch2mode], 0x0102 ; the ISR's now (mode 2, busy 1), and a
+                                ; clip or a tone is refused while it is (34.1)
+    call spk_pwm_on             ; ch2 as the PWM (34.4), gate and speaker on
     mov bx, dx                  ; BX = N
     mov ax, [sch_rdiv]          ; the bracket's own divisor, banked for the
     mov [spk_rdsv], ax          ; close...
     xor dx, dx
     div bx                      ; ...and AX = K, DX = the remainder: K x N is
-    push ax                     ; the divisor less DX. K is the answer too
-    push di                     ; K and the chain INTO THE CALLER'S BLOCK,
-    stosw                       ; before IRQ0 is its ISR's: the first sample
-    mov ax, sch_isr             ; can come the moment the old period ends,
-    stosw                       ; and it must find both. DF = 0 by SPEC.md 1
-    mov ax, cs
-    stosw
-    pop di
-    mov ax, es                  ; the caller's segment: the open flag, and
-    pushf                       ; the ISR's CS
-    cli
-    sub [sch_rdiv], dx          ; the period, exactly K x N
-    mov [spk_seg], ax
-    push ds                     ; IRQ0 IS THE ISR'S: its vector, so no sample
-    xor dx, dx                  ; pays for a test of ours (SPEC.md 34.11) -
-    mov ds, dx                  ; spk_off puts sch_isr back, on every way out
-    mov [0x20], si
-    mov [0x22], ax
-    pop ds
-    call snd_town_off           ; a tone of the caller's own: channel 2 is
-    mov word [snd_ch2mode], 0x0102 ; the ISR's now (mode 2, busy 1), and a
-                                ; clip or a tone is refused while it is (34.1)
-    call spk_pwm_on             ; ch2 as the PWM (34.4), gate and speaker on
-    xchg ax, bx                 ; AX = N (BX is an output, below)
-    call sch_pit0               ; ch0 at N: a sample an IRQ0
-    popf
-    pop ax                      ; AX = K
-    pop es
-    mov dx, cs
-    mov bx, sch_isr
-    clc
-    ret
+    sub [sch_rdiv], dx          ; the divisor less DX, the period exactly -
+    ret                         ; and CF = 0, the remainder never exceeding
+                                ; the divisor it came from
 %else                           ; kern_small has no FSXF_RATE (53.2.2), so
 osapi_fsx_spk equ xm_copy       ; there is never a bracket of the caller's own
                                 ; rate to play one in: AX = 1 (SPK_E_NOTRATE),

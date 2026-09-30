@@ -8829,7 +8829,8 @@ SOAK = [
         "player with a rate divisor of whole 54-count pulses, the ring's "
         "CONS moves, every frame is drawn and the kernel is left clean. "
         "Nothing timed; QEMU's speaker cannot sound a pulse width. Broken on "
-        "purpose (SPK_NMIN_AT back to 74) - red at 1 and 2",
+        "purpose (os88spk_init's 48 back to 74: the door no longer checks N, "
+        "34.11.1) - red at 1 and 2",
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
     Row("vidspk22", "soak", py("tests/vidspk.py", "--rate", "22050",

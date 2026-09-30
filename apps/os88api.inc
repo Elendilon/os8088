@@ -570,44 +570,45 @@ SND_EXT_TAB      equ 16          ; os88spk.inc's PWM table, written by its
                                  ; RATE (SPEC.md 34.11), from INSIDE YOUR OWN
                                  ; FSXF_RATE BRACKET only (53.2.2) - PCM with
                                  ; no card. apps/os88spk.inc is the ring player
-                                 ; built on it; this is the door it opens.
+                                 ; built on it; this is the THIN door it opens
+                                 ; (34.11.1). Call it at IF = 0 and hold IF = 0
+                                 ; until you have done YOUR half.
                                  ; AL = 0 OPEN: DX = N, the PIT counts a sample
                                  ; (74..255 = 16,124..4,679 Hz; 48..255 when
                                  ; OSAPI_CPU_INFO answers past CPU_8086,
-                                 ; SPEC.md 34.11.8), SI = your
-                                 ; SAMPLE ISR, a near offset in your image, DI
-                                 ; = a 6-byte block in your image the kernel
-                                 ; fills with K and the chain (below) BEFORE
-                                 ; IRQ0 is your ISR's - the first sample can
-                                 ; come as soon as the old period ends.
+                                 ; SPEC.md 34.11.8 - YOURS to hold to, it is
+                                 ; not checked), BX = your CS.
                                  ; out CF=0: AX = K, samples in one rate period
-                                 ; (the period becomes K x N counts, within a
+                                 ; (the period is now K x N counts, within a
                                  ; sample of your divisor, and the hook's AX
-                                 ; counts those), DX:BX = the CHAIN. Channel 2
-                                 ; is 34.4's PWM and yours: `out 0x42` a count
-                                 ; 1..N-1 a sample. From then EVERY IRQ0 is
-                                 ; your ISR's, entered with the interrupt frame
-                                 ; alone, IF = 0, on whatever stack it hit (48
-                                 ; bytes, 53.2.2's rule): it sends the EOI and
-                                 ; irets, except on each K-th entry, where it
-                                 ; restores every register and jumps FAR to the
-                                 ; chain instead (the kernel's IRQ0, which does
-                                 ; the EOI, the tick and your hook). IRQ0's
-                                 ; VECTOR is your ISR while it is open, and
-                                 ; TWO THINGS CHANGE UNDER IT: your hook is
-                                 ; entered with IF = 1, and a rate period is no
-                                 ; task switch - switches ride the tick, as
+                                 ; counts those); BX, DX spent. Channel 2 is
+                                 ; 34.4's PWM and yours: `out 0x42` a count
+                                 ; 1..N-1 a sample. YOUR HALF, still at IF = 0:
+                                 ; point IRQ0's vector (0:0x20) at your SAMPLE
+                                 ; ISR, keeping what it held as the CHAIN, and
+                                 ; program channel 0 at exactly N (43h = 34h,
+                                 ; then N's two bytes to 40h). From then EVERY
+                                 ; IRQ0 is your ISR's, entered with the
+                                 ; interrupt frame alone, IF = 0, on whatever
+                                 ; stack it hit (48 bytes, 53.2.2's rule): it
+                                 ; sends the EOI and irets, except on each K-th
+                                 ; entry, where it restores every register and
+                                 ; jumps FAR to the chain instead (the kernel's
+                                 ; IRQ0, which does the EOI, the tick and your
+                                 ; hook). TWO THINGS CHANGE UNDER IT: your hook
+                                 ; is entered with IF = 1, and a rate period is
+                                 ; no task switch - switches ride the tick, as
                                  ; they do outside a bracket (34.11.3). AL = 1
-                                 ; CLOSE, and the bracket's end closes it.
-                                 ; CF=1 AX = SPK_E_*
-SPK_E_NOTRATE    equ 1           ; not in your own FSXF_RATE bracket (and
-                                 ; always, on kern_small)
-SPK_E_N          equ 2           ; N is outside 74..255 (48..255 on a 286
-                                 ; or better)
+                                 ; CLOSE - the vector, channel 0 and channel 2
+                                 ; put back; harmless with nothing open, AX
+                                 ; and the flags spent - and the bracket's end
+                                 ; closes it. OPEN's CF=1: AX = SPK_E_*
+SPK_E_NOTRATE    equ 1           ; not in a FSXF_RATE bracket (and always,
+                                 ; on kern_small)
 SPK_E_BUSY       equ 3           ; open already, or a clip plays
-SPK_E_NOTOPEN    equ 4           ; close with nothing open
-SPK_E_ADDR       equ 5           ; SI, or DI's 6 bytes, not inside your
-                                 ; image+bss
+                                 ; (2, 4 and 5 are retired: the door no
+                                 ; longer checks N, SI or DI, nor answers a
+                                 ; close)
 
 ; --- window management (SPEC.md 11.1/11.2) -------------------------------------
 %define OSAPI_WM_SIZABLE    KERNEL_SEG:0x00F1   ; BX=win ptr, AL = 0 clear / non-zero set

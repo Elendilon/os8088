@@ -59096,8 +59096,11 @@ its own `FSXF_RATE` bracket (§53.2.2).
 kernel, make it a library, used per app like the UI libraries.* The whole
 player written into the kernel measured **554 resident bytes**, so it is two
 halves:
-- **the door**, `OSAPI_FSX_SPK` (slot `0x045B`), in the kernel: the PIT and
-  the vector, which are the kernel's to give out and to take back;
+- **the door**, `OSAPI_FSX_SPK` (slot `0x045B`), in the kernel: channel 2's
+  arbitration, the rate period trimmed to whole samples, and the TEARDOWN -
+  the vector, channel 0 and channel 2 put back on every way out of the
+  bracket, which is the kernel's because it must happen whatever the
+  package does;
 - **the player**, `apps/os88spk.inc`, in the package that plays: the ISR, the
   count table, and the ring it reads.
 
@@ -59110,37 +59113,46 @@ stub that refuses). The library is ~480 bytes of the including package.
 fence, which landed beside the pass at 38 bytes and was ported onto its
 door at 30 - and its `.bss` from 6 to 4, and the
 IRQ0 arms from 24 to 15: `spk_off` is the close's own tail (AL = 1 jumps
-into it with AX = 4), K x N is the divisor less `div`'s remainder, the
+into it), K x N is the divisor less `div`'s remainder, the
 open flag is `[spk_seg]` alone (the ISR's offset was never read back),
 "taken" is `[snd_pcm_busy]` alone (the door sets it), and the `sti` arm is
 `sch_rhook`'s first test rather than a copy at each call. `kern_small`'s
 cell names `xm_copy`'s refusing body, which is the same three instructions,
-so it costs the cell's 6 bytes and nothing else. The register contract is
-unchanged.
+so it costs the cell's 6 bytes and nothing else. **Kernel size pass 8 made
+it a THIN door** (§34.11.1), on the owner's ruling that packages are
+trusted: the open is ~50 bytes and the whole of it **-108 bytes of
+`kern_big` `.text`**, the IRQ0 vector and channel 0's count having moved
+into `os88spk.inc` (+~40 bytes of each playing package, resident only
+while it runs).
 
 #### 34.11.1 The door
 
-`OSAPI_FSX_SPK` works only **inside the caller's own `FSXF_RATE` bracket**
-(`fsx_mine`, and `[sch_fast]` = `SCH_RATE`). Its contract is in
-`apps/os88api.inc`. In short:
-- **AL = 0 opens.** DX = N, the PIT counts a sample. It must be 74..255,
-  which is 16,124..4,679 Hz: 255 is mode 0's lobyte, and 74 is the shortest
-  period a pulse still ends inside - on an 8088; past `CPU_8086` it may be
-  48..255 (§34.11.8). SI = the package's sample ISR (a near
-  offset in its image). DI = a 6-byte block in its image. **Both are
-  fenced** against the bracket owner's `I_SIZE`, as `fsx_run` fences the
-  hook: SI below it and DI + 6 no further, because IRQ0 jumps to SI on
-  every sample and the kernel writes the block before the vector is set.
-- **The kernel then**:
-  1. works out K = the caller's divisor / N, the samples in one rate period,
-     and sets the divisor to exactly K × N (within a sample of what was asked
-     for), banking the old one;
-  2. writes **K and the chain** (`KERNEL_SEG:sch_isr`) into the block
-     *before* it touches the vector, so the first sample cannot find them
-     unset;
-  3. takes channel 2 for the PWM (tone off, `snd_ch2mode` = 2,
-     `snd_pcm_busy`), programs channel 0 at N, and points **IRQ0's vector
-     at the package's ISR**.
+`OSAPI_FSX_SPK` works only **inside a `FSXF_RATE` bracket** (`[sch_fast]` =
+`SCH_RATE`, §53.2.2). Its contract is in `apps/os88api.inc`. It is a **thin
+door** (kernel size pass 8): the kernel does only what is the kernel's, and
+the package does the rest inside the same IF = 0 window. In short:
+- **The caller holds IF = 0** from before the call until its own half below
+  is done, so no IRQ0 can land between the two halves.
+- **AL = 0 opens.** DX = N, the PIT counts a sample, and BX = the caller's
+  CS. N must be 74..255, which is 16,124..4,679 Hz: 255 is mode 0's lobyte,
+  and 74 is the shortest period a pulse still ends inside - on an 8088; past
+  `CPU_8086` it may be 48..255 (§34.11.8). **The range is the caller's to
+  hold to** - `os88spk_init` refuses a table for anything else - and the
+  door does not re-check it: packages are trusted (the owner's ruling,
+  docs/plans/LAST-DROP-BYTES.md §7.11), and a door that fenced its caller's
+  N, ISR and block cost 55 bytes of every `kern_big` for a package that
+  could take the machine down anyway.
+- **The kernel's half**: it takes channel 2 for the PWM (tone off,
+  `snd_ch2mode` = 2, `snd_pcm_busy`, gate and speaker on), records BX as
+  the open flag `[spk_seg]`, and works out K = the bracket's divisor / N,
+  the samples in one rate period, setting the divisor to exactly K × N
+  (within a sample of what was asked for) and banking the old one. It
+  answers AX = K.
+- **The caller's half**, still at IF = 0: it points **IRQ0's vector at its
+  ISR**, keeping what the vector held (the kernel's own IRQ0, `sch_isr`) as
+  the CHAIN, and programs **channel 0 at exactly N** (43h = 34h, then N's
+  two bytes to 40h). Anything but N makes `[ticks]` drift, which is why the
+  door answers K rather than taking it.
 - **The ISR** is entered with the interrupt frame alone, IF = 0, on whatever
   stack it hit. On every entry but the K-th it `out 0x42`s a count, sends the
   EOI and `iret`s. On the K-th it restores everything and **jumps far to the
@@ -59148,12 +59160,16 @@ unchanged.
   the EOI and the package's hook exactly as §53.2.2 describes. So `[ticks]`,
   the BIOS clock and the hook's period count stay exact.
 - **AL = 1 closes**: the vector, the divisor and channel 0 go back, and channel
-  2 goes idle. **`fsx_restore` closes it too**, on every bracket exit, so a
-  package that leaves its bracket by any path leaves nothing behind.
-- **Refusals** (CF = 1, AX = `SPK_E_*`): not in the caller's own rate bracket
-  (always, on `kern_small`); N out of range; the speaker already taken by a
-  clip or another door; close with nothing open; and `SPK_E_ADDR` = 5, SI or
-  DI's block outside the caller's image+bss.
+  2 goes idle; harmless with nothing open, and it answers nothing. **`fsx_restore` closes it too**, on every bracket exit, so a
+  package that leaves its bracket by any path leaves nothing behind. The
+  teardown stays the kernel's for exactly that reason.
+- **Refusals** (CF = 1, AX = `SPK_E_*`): not in a rate bracket
+  (`SPK_E_NOTRATE`, always on `kern_small`), and the speaker already taken
+  by a clip or another door (`SPK_E_BUSY`). Codes 2 (N out of range), 4
+  (close with nothing open) and 5 (`SPK_E_ADDR`, SI or DI's block outside
+  the caller's image+bss) are retired with the checks that gave them. The
+  door no longer writes a block into the caller either, and no longer asks
+  whether the bracket is the CALLER's own (`fsx_mine`).
 
 #### 34.11.2 The library
 
@@ -59380,11 +59396,10 @@ N = 54 PIT counts. The door's floor was 74 for the 8088's sake - its ISR is
 ~400 cycles, near a whole 5,512 Hz period - and a 286's is a fraction of
 that. So **the floor is 48 on `CPU_286` and up** (`SPK_NMIN_AT`, 24,858
 Hz), and stays 74 on an 8086:
-- **the door** (`osapi_fsx_spk`): a DX of 48..73 is refused unless
-  `[cpu_tier]` is past `CPU_8086`. **+15 bytes of `kern_big` `.text`**, no
-  rung crossed; `kern_small`'s door refuses everything anyway;
-- **the library** (`os88spk_init`): the same test through
-  `OSAPI_CPU_INFO`, so a table is not built for a door that will say no;
+- **the library** (`os88spk_init`): a pulse of 48..73 counts is refused
+  unless `OSAPI_CPU_INFO` answers past `CPU_8086`, so no table is built for
+  it. It is the ONLY check since kernel size pass 8 made the door thin
+  (§34.11.1); the door's own copy was +15 bytes of `kern_big` `.text`;
 - **the file**: a pulse of 48..255 counts is VALID (`os88vid.spk_table`),
   and which machine may play it is the player's question;
 - **the player**: `VP_SPKMAX` already binds an 8086-class CPU alone, so a
