@@ -2117,7 +2117,9 @@ dsk_bootltr:
     ; inside its string, never an offset, for the reason above.
     mov [ui_s_nodisk_l], al     ; the Task Manager's notice (SPEC.md 28.3)
     mov [cp_s_dsdrv], al        ; the Control Panel's save refusal (51.5.1)
-    mov [drv_e1_l], al          ; DRVE_DISK, the Drivers page's status (51)
+%ifndef OS88_DRIVERS
+    mov [drv_e1_l], al          ; DRVE_DISK's 'A:' (kern_small's stub arm, 51.0;
+%endif                          ; with drivers it IS cp_s_nodrv, stamped below)
     mov [cp_s_nodrv], al        ; ...and its OPEN refusal (SPEC.md 2.8.4), now
                                 ; that the panel's own code is a file on that
                                 ; same disk

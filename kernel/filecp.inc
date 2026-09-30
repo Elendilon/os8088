@@ -1218,8 +1218,8 @@ fcp_scan:
 .readsec:
     FCPX dsk_dirw_get_x ; dsk_secbuf = the sector holding the
     jnc .secok                  ; ordinal (SPEC.md 19.2.3)
-    or ax, ax
-    jz .end
+    jz .end                     ; ZF=1: the chain ended (the thunk's retf
+                                ; keeps the flags dsk_dirw_get_x answered)
     jmp .ioerr
 .secok:
     mov si, dsk_secbuf

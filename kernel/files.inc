@@ -5683,7 +5683,7 @@ fm_c_up:                        ; Nav > Up One Folder
                                 ; back to when a window has none - is OUR
                                 ; folder (SPEC.md 22.1)
     xor ax, ax                  ; SLOT 0 OF A SUBDIRECTORY'S LISTING IS THE
-    call fmv_get_dir            ; PARENT LINK (SPEC.md 19.5), and dsk_synth_up
+    call fmv_get_dir            ; PARENT LINK (SPEC.md 19.5), and dsk_up_open
     cmp word [si+16], 3         ; filled it for whichever volume kind this is:
     jne .none                   ; from '..' on a FAT disk, from [dsk_fsup] on
     mov ax, [si+18]             ; a REDIRECTED one, which has no sectors at
@@ -7203,7 +7203,7 @@ fm_repaint:
 ; clobbers: AX (the output), flags
 ;
 ; Asked of the LISTING rather than derived from FS_CWD, because those two can
-; disagree for exactly one mount: dsk_synth_up gives an unreadable '..' the
+; disagree for exactly one mount: dsk_up_open gives an unreadable '..' the
 ; root as its target rather than dropping the row (SPEC.md 19.5), and a
 ; window can also be showing a cache taken before it moved. One staged entry
 ; per paint is cheaper than a mirror that could be wrong.

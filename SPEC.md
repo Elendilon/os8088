@@ -42809,7 +42809,7 @@ to call `dsk_dotdot`.** That routine reads the directory's first **sector**
 to find the `..` entry, and a `DRVC_FILE` volume (§62.9) has no sectors — so
 it answered CF=1 and Up One Folder, and the Backspace bound to it, were
 **silently dead on the RAM disk and the network volume**. The `..` *row*
-directly above them worked the whole time, because `dsk_synth_up` fills it
+directly above them worked the whole time, because `dsk_up_open` fills it
 from `[dsk_fsup]` for a redirected volume and from the disk for a FAT one
 (§19.5), and `fm_open_sel` takes the handle straight out of it — which is
 also `fdlg_dive`'s route, and why the file dialog never had this. Reading
@@ -91856,7 +91856,7 @@ is. It is answered by `FSV_CHDIR` rather than by a verb of its own because
 **`dsk_chdir` is the only thing that ever moves `[dsk_cwd]`** — the driver is
 being told where to go at the exact moment it could say what is above it, so
 a verb of its own would ask a question `FSV_CHDIR` has just answered.
-`disk_mount` banks it in `[dsk_fsup]` and `dsk_synth_up` spends it, which is
+`disk_mount` banks it in `[dsk_fsup]` and `dsk_up_open` spends it, which is
 one word of `.bss` against a whole round trip per listing.
 
 **A DRIVER CANNOT WRITE THE LISTING AND MUST NOT LEARN HOW.** `FSV_LIST`
@@ -92166,7 +92166,7 @@ the `Size … Free …` line are right, `..` is synthesized, and every icon is
 
 What the kernel gained: `drv_fs_call`; `disk_mount`'s `DVK_FILE` branch;
 `dsk_xfer`'s refusal; `dsk_free_clus` → `FSV_DFREE`; `OSAPI_FS_ENT`;
-`dsk_synth_up`'s banked parent handle; and `DVK_FILE` awareness in
+`dsk_up_open`'s banked parent handle; and `DVK_FILE` awareness in
 `dsk_vol_fixed`, `dsk_vol_del`, `dsk_vol_drop_drv`, `dsk_vol_add` and
 `dsk_here_ok`. **Measured: `.text` +341, `.bss` +5, `.cold` +0 — one image
 rung, `KERN_SIZE` 99,840 → 100,352, spare 2,560 → 2,048 (four steps).** That
@@ -146934,7 +146934,7 @@ machine on which no such volume can be mounted.
 
 **The `DVK_FILE` branches inside the read paths are deliberately LEFT.**
 `dsk_find_x`, `dsk_free_clus_x`, `dsk_read_chain_x`, `dskw_rbody`,
-`dskw_stat_x`, `dskw_read_at_x` and `dsk_synth_up` each carry a
+`dskw_stat_x`, `dskw_read_at_x` and `dsk_up_open` each carry a
 `cmp byte [dsk_vkind], DVK_FILE` and an arm. They are unreachable for the same
 reason, and gating them means threading a conditional through seven live read
 paths for a few hundred bytes — a worse trade than the bytes are worth, and
