@@ -214,15 +214,6 @@ dkx_live_rect:
     mov dx, [dock_ly2]
     ret
 
-; dkx_px_rect - AX,BX,CX,DX = the part of the live strip the last dkx_paint
-; PAINTED (SPEC.md 30.3.3), as a rect. Clobbers the four.
-dkx_px_rect:
-    mov ax, [dock_px1]
-    mov cx, [dock_px2]
-    mov bx, [dock_lc1]
-    mov dx, [dock_lc2]
-    jmp short dkx_swap_side
-
 ; dkx_span_fill - fill ALONG AX..CX, ACROSS BX..DX in the current pen
 ; in:  AX = a1, CX = a2, BX = c1, DX = c2; gfx lock held
 ; out: nothing (all registers preserved)
@@ -1595,16 +1586,10 @@ dkx_hole_sub:
     ret
 
 ; -----------------------------------------------------------------------------
-; dkx_hole_win - is window DI (or BX, for dkx_hole_winb) under the open strip?
+; dkx_hole_win - is window DI under the open strip?
 ; out: CF = 1 yes - its pixels there are the strip's, so no cache may be taken
 ;      from or restored to them; every register preserved
 ; -----------------------------------------------------------------------------
-dkx_hole_winb:
-    push di
-    mov di, bx
-    call dkx_hole_win
-    pop di
-    ret
 dkx_hole_win:
     cmp word [gfx_hole], 0
     je .no

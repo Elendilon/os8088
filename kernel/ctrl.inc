@@ -717,11 +717,6 @@ cp_tsel:  db 0                  ; selected field; initialised .text data like
 ; full draw - so an incremental pass draws seven opaque runs and NOTHING else.
 ; A byte rather than a register because cp_time_fld's AL and AH are already
 ; the field index and the field count.
-; The page list row's PAPER (SPEC.md 31.11). The ink is [gfx_color] like every
-; other label here, but this is the one surface whose ground is not the pane -
-; a selected row is white on a black bar - so the run's other half is decided
-; at the same branch that decides the pen and read back at the draw.
-cp_ipap:  db CWHITE
 ; cp_list has JUST laid the whole pane's ground, so an unselected row's bar
 ; rect is already white and cp_listrow may skip its fill (SPEC.md 31.1.4).
 ; Set around cp_list's row loop and nowhere else: a selection that MOVES calls

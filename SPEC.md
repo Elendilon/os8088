@@ -57816,7 +57816,8 @@ case at all — §6.1.12 folds the checkerboard into the run's own mask.
 **It is smaller, too.** `cp_run` is a near call inside `ctrl.inc`'s segment
 where `cw_font_str` was a far call to the shim, so twenty-six sites lost two
 bytes each and the helper cost twelve back — `.text` +1 for the whole
-conversion, the byte being `cp_ipap`.
+conversion, the byte being `cp_ipap` (deleted by kernel size pass 8: the
+row's paper moved onto the stack and the byte had had no reader since).
 
 **`cp_run` is defined outside every `%ifdef`, and it was not at first.** It
 landed next to `cp_thm_lbl`, which is inside `OS88_THEME` — on in the default
