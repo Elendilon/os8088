@@ -2066,7 +2066,9 @@ splash needed to be aboard in, and it was raised three times, never once by
 anything in `splash.inc` — *"the assertion fires on whatever crosses the line,
 not on whatever is to blame."* The first tick probes the adapter, so what the
 gate actually waits for is `vid_detect`, `vid_apply`, `vid_setmode` and
-`gfx_rowbase`. Their far shims sit at the end of `viddet.inc` — deliberately,
+`gfx_rowbase`. Their far door sits at the end of `viddet.inc` — one
+`call bp` / `retf`, `spw_near`, with BP naming the routine (it was a shim per
+routine until kernel size pass 8) — deliberately,
 because `kernel.asm`'s `cw_` block is at the end of `.text` and a gate on
 *that* would be the last sector of the image — and the assertion is on
 `spw_resident_end`.
@@ -3439,7 +3441,7 @@ identical masked-byte shape — left edge, `rep stosb`, right edge — and the
 interior can be a `rep stosb` of a byte whose *value* is irrelevant, exactly as
 `gfx_fill`'s own interior is. **Enable Set/Reset (GC1) is armed once a CALL**
 (`vga_sr_on`) and cleared at the end with `vga_gc_reset`, because it is the half
-that does not change between runs; `vga_set_color` writes both halves together,
+that does not change between runs; the fill's GC arm writes both halves together,
 which is right for a primitive that arrives once and a wasted `out` per run
 here. It is a little behind the 1bpp figure for the obvious reason: a run costs
 two to four `out`s here against none there.
@@ -5693,7 +5695,7 @@ So what changed is instruction COUNT, four ways, none of them data-dependent:
   The loop loads no segment register at all where it loaded two a point. Every
   kernel word is reached `cs:` — `.bss` and `.text` share the kernel's segment,
   which is what `KERN_CODE_MAX` says — and `vid_rowtab` stays `ss:`.
-- **The bit comes from a table**, `gfx_bitset` / `gfx_bitclr`, because
+- **The bit comes from a table**, `gfx_bitset`, because
   `shr bl, cl` is 8+4n clocks and wants CL, which is the loop counter's.
 - **The ink class is three loops rather than one loop with two tests in it.**
   `gfx_ls_ink` resolves a colour to three 1bpp classes, and specialising the
@@ -6751,7 +6753,8 @@ interval genuinely is per row. It fills the same `vga_*` scratch
 `vga_rect_setup` fills, so both renderers' bodies are the ones already there:
 1bpp goes through `sw_rect_pl` — `sw_rect`'s plane loop, split out at this
 change and otherwise untouched — and VGA through a copy of `gfx_fill_raw`'s
-row body with **`vga_set_color` and `vga_gc_reset` hoisted out of the loop**,
+row body with **the GC arm (it was `vga_set_color`, inlined since) and
+`vga_gc_reset` hoisted out of the loop**,
 which on that adapter is four `out`s and a three-`out` reset saved per span
 rather than per call.
 
@@ -10473,8 +10476,11 @@ and it has three arms:
   for an arrow the bar cannot reach; the DOWN arm's re-arm is an `or` of a
   register that is 1 on that arm and 0 on this one.
 
-The two arms share one tail — bank `[cur_shape]` into `[cur_shprev]`, set the
-clock, `cursor_show` — and the refusals below the first arm are each somebody
+The two arms share one tail — set the clock, `cursor_show` — and the bank of
+`[cur_shape]` into `[cur_shprev]` is made at the door, before any refusal: a
+refusal leaves the shape alone and `[cur_shprev]` is read only while the clock
+is the shape, so a bank nothing follows is never seen (kernel size pass 8). The
+refusals below the first arm are each somebody
 else's rule rather than this one's: an **fsx bracket** (§53.6, `fpg_arm`'s own
 first test), a **saver session** (§79.6.1, `wm_clip_set`'s test and
 `kern_big`'s alone — the overlay owns the glass and its hide is the
@@ -12669,7 +12675,10 @@ rather than a detail:
 
 Twenty-two outbound calls widen to the far form through five `ovw_` shims. The
 whole move is `.text` **−1,006** for `.ovl` **+1,110**, and the `.ovl` bytes are
-not footprint.
+not footprint. (Kernel size pass 8 took the five shims out of `.text` too: the
+probe's calls are near calls to overlay-side stubs, `mou_ov_*`, that share one
+far call through §2.9.4's `spw_near` with BP naming the routine — 20 resident
+bytes on kern_big and 8 on kern_small, for 11 fewer bytes of overlay.)
 
 #### 9.4.8 The first offer is timed from the desktop, and the drain ends on quiet
 
@@ -63689,9 +63698,10 @@ card it subtracts zero.
 
 #### 39.15.2 `[cur_disp]`, and the bracket that makes it true
 
-The arrow is on one display, named by `[cur_disp]`, and `cur_put`, `cur_get`
-and `cur_move` each make it current before touching a framebuffer and put the
-previous one back. They have to own that themselves: `cur_get` is reached from
+The arrow is on one display, named by `[cur_disp]`, and the show/hide body
+(`cur_vis`, behind `cursor_show` and `cursor_hide`) and `cur_move` each make it
+current before touching a framebuffer and put the previous one back. They have
+to own that themselves: a hide is reached from
 `gfx_lock`'s deferred hide and from the **mouse ISR**, neither of which is
 inside a §39.14 drawing hook, and the display live at either moment is
 whatever the last primitive left.
