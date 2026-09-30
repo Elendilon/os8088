@@ -1452,9 +1452,12 @@ dsk_xfer:
                                 ; THE ROW SAYS WHICH CLASS (SPEC.md 18.7). This
     push ax                     ; was `drv_svc + DSV_SIZE`, the DISK class's
     mov al, [drv_blkcls]        ; entry hard-coded - right while one class
-    call drv_cls_svc_x            ; served blocks and silently wrong the moment
-    mov bp, [di+DSV_BLK]        ; two did: a network volume's sectors would
-    pop ax                      ; have been handed to the hard-disk driver
+                                ; served blocks and silently wrong the moment
+                                ; two did: a network volume's sectors would
+                                ; have been handed to the hard-disk driver
+    call drv_cls_svc_x          ; CLSCF: a volume's class serves blocks, so it has a slot
+    mov bp, [di+DSV_BLK]
+    pop ax
 %ifdef OS88_BIGVOL
     mov di, [dsk_lbahi]         ; DI = the LBA's HIGH word (SPEC.md 18.7.5);
 %else                           ; SI is the low one. The LBA itself is dead on
@@ -1714,17 +1717,21 @@ dsk_xfer:
 %endif                          ; toast (SPEC.md 18.99.10)
     cmp ah, 0x03
     je .fail                    ; write-protected: retrying cannot help
-%ifndef KD_BUILD
-    cmp byte [fpg_on], 0        ; **A FAILING DISK SAYS SO** (SPEC.md 12.8.3.2).
-    jne .said                   ; FPG_WARM counts sectors MOVED and a retry
-    dec byte [sch_lock]         ; moves none, so a one-sector read failing on
-    push cx                     ; marginal media ground on for as long as its
-    mov cx, FPG_WARM            ; retries took with nothing on the glass - the
-    call KERNEL_SEG:fpg_busy    ; field saw 30 seconds of it and took it for a
-    pop cx                      ; hang. So the FIRST failure arms the chrome
-    inc byte [sch_lock]         ; and the clock, as a stopped motor does
-.said:                          ; (12.8.3.1): outside the switch lock, as at
-%endif                          ; the top; the pin stays, and only ever refuses
+%ifndef KD_BUILD                ; **A FAILING DISK SAYS SO** (SPEC.md 12.8.3.2).
+    dec byte [sch_lock]         ; FPG_WARM counts sectors MOVED and a retry
+    push cx                     ; moves none, so a one-sector read failing on
+    mov cx, FPG_WARM            ; marginal media ground on for as long as its
+    call KERNEL_SEG:fpg_busy    ; retries took with nothing on the glass - the
+    pop cx                      ; field saw 30 seconds of it and took it for a
+    inc byte [sch_lock]         ; hang. So a failure arms the chrome and the
+%endif                          ; clock, as a stopped motor does (12.8.3.1):
+                                ; outside the switch lock, as at the top; the
+                                ; pin stays, and only ever refuses. EVERY
+                                ; failure and not only the first: armed, it is
+                                ; the call the top of this routine makes for
+                                ; every transfer anyway (cur_busy and a
+                                ; compare), so the `[fpg_on]` test that
+                                ; skipped it bought nothing but its 7 bytes
     mov ah, 0x00                ; failed: reset the controller and retry
     mov dl, [dsk_unit]          ; the ROW's drive (SPEC.md 52.10.3): resetting
     CURXFER_ON                   ; ...and the arrow keeps moving through it too
@@ -2110,7 +2117,9 @@ dsk_bootltr:
     ; inside its string, never an offset, for the reason above.
     mov [ui_s_nodisk_l], al     ; the Task Manager's notice (SPEC.md 28.3)
     mov [cp_s_dsdrv], al        ; the Control Panel's save refusal (51.5.1)
-    mov [drv_e1_l], al          ; DRVE_DISK, the Drivers page's status (51)
+%ifndef OS88_DRIVERS
+    mov [drv_e1_l], al          ; DRVE_DISK's 'A:' (kern_small's stub arm, 51.0;
+%endif                          ; with drivers it IS cp_s_nodrv, stamped below)
     mov [cp_s_nodrv], al        ; ...and its OPEN refusal (SPEC.md 2.8.4), now
                                 ; that the panel's own code is a file on that
                                 ; same disk
@@ -3205,20 +3214,16 @@ disk_mount_x:
     ; driver's claim, so nothing below has to (SPEC.md 22.6).
     push ss
     pop es
-    xor bp, bp                  ; BP = accepted entry count
-    cmp word [dsk_cwd], 0
-    je .noup
-    call dsk_synth_up           ; in a subdirectory the listing OPENS with
-    xor ax, ax                  ; '..' (SPEC.md 19.5) - built before the scan
-    call dsk_put_dir            ; so the scan's entries land above it and the
-    mov bp, 1                   ; sort below never has to keep it in place
-.noup:
+    call dsk_up_open            ; BP = accepted entry count: in a subdirectory
+                                ; the listing OPENS with '..' (SPEC.md 19.5) -
+                                ; built before the scan so the scan's entries
+                                ; land above it and the sort below never has
+                                ; to keep it in place
     mov ax, [dsk_cwd]           ; the current directory (0 = root at mount;
     call dsk_dirw_start_x         ; dsk_chdir re-enters here, SPEC.md 19.2)
 .rootsec:
     call dsk_dirw_get_x           ; dsk_secbuf = the next directory sector
     jnc .rootok
-    or ax, ax
     jz .scan_done               ; ...the directory ended
     jmp .jfail                  ; ...as against a torn mount, which fails
 .rootok:
@@ -3562,7 +3567,7 @@ disk_mount_x:
                                 ; unreadable boot sector does and for the same
                                 ; reason: nothing below may run against a
                                 ; folder we are not standing in
-    mov [dsk_fsup], dx          ; the parent's handle, which dsk_synth_up
+    mov [dsk_fsup], dx          ; the parent's handle, which dsk_up_open
                                 ; spends - there is no '..' on a disk here to
                                 ; read one out of (62.9.1)
 
@@ -3587,16 +3592,14 @@ disk_mount_x:
                                 ; button read as a freeze rather than a failure
 
 .fslist:
-    mov ax, LOW_SEG             ; dsk_synth_up and dsk_put_dir both stage
+    mov ax, LOW_SEG             ; dsk_up_open stages
     mov es, ax                  ; through the kernel segment, so ES only has
-    xor bp, bp                  ; to hold something valid until .scan_done
-    cmp word [dsk_cwd], 0       ; reloads it from [dsk_dseg]
-    je .fsnoup
-    call dsk_synth_up           ; the parent link, type 3, opening the listing
-    xor ax, ax                  ; exactly as it does on a FAT volume - built
-    call dsk_put_dir            ; before the driver's entries so the sort below
-    mov bp, 1                   ; never has to keep it in place (19.5)
-.fsnoup:
+    call dsk_up_open            ; to hold something valid until .scan_done
+                                ; reloads it from [dsk_dseg]. The parent link,
+                                ; type 3, opens the listing exactly as it does
+                                ; on a FAT volume - built before the driver's
+                                ; entries so the sort below never has to keep
+                                ; it in place (19.5)
     mov [dsk_fsn], bp           ; THE DRIVER APPENDS AND THE KERNEL COUNTS
     mov byte [dsk_fslist], 1    ; (62.9.1). osapi_fs_ent is legal only between
     mov bp, FSV_LIST            ; these two stores, because an append outside a
@@ -3831,16 +3834,10 @@ dsk_bpb_check:
     ja .jfail2
 .r14:
 
-    ; the raw fields are now trusted: stash them (SPEC.md 18.1) - the
-    ; volume's extent, [dsk_totsec], at rule 14 where the count is loaded
-    mov al, [dsk_bpb+DSK_B_SPC]
-    mov [dsk_spc], al
-    mov al, [dsk_bpb+DSK_B_NFATS]
-    mov [dsk_nfats], al
-    mov ax, [dsk_bpb+DSK_B_RSVD]
-    mov [dsk_fatlba], ax        ; FAT1 starts at RsvdSecCnt
-    mov ax, [dsk_bpb+DSK_B_FATSZ]
-    mov [dsk_fatsz], ax
+    ; the raw fields are now trusted, and dsk_spc, dsk_nfats, dsk_fatlba and
+    ; dsk_fatsz ARE four of them (SPEC.md 18.1: they alias the staged BPB, see
+    ; the .bss) - the volume's extent, [dsk_totsec], at rule 14 where the
+    ; count is loaded
 
     ; derived layout (SPEC.md 19 detection; all sums carry-checked - a
     ; hostile RsvdSecCnt near 0xFFFF must reject, not wrap)
@@ -4168,10 +4165,13 @@ dsk_sanit:
     ret
 
 ; -----------------------------------------------------------------------------
-; dsk_synth_up - build the parent-link entry '..' (module-internal, 19.5)
-; in:       [dsk_cwd] != 0 (the caller has checked it)
-; out:      dsk_ent = the 32-byte entry: name '..', TYPE 3, the parent's
-;           first cluster at +18, size 0. All registers preserved.
+; dsk_up_open - open a listing with the parent link '..' (module-internal,
+;               19.5): the mount's two listing paths, FAT and redirected
+; in:       nothing
+; out:      BP = the entries staged - 0 at the root; 1 in a subdirectory, the
+;           32-byte entry at listing index 0: name '..', TYPE 3, the parent's
+;           first cluster at +18, size 0
+; clobbers: AX, flags (dsk_ent)
 ;
 ; Type 3 is what makes this safe to put in the listing at all. It behaves
 ; like a folder everywhere that navigates and everywhere that draws, but it
@@ -4185,8 +4185,10 @@ dsk_sanit:
 ; entry at all. Losing the row would strand the user in a folder whose only
 ; way out is Root Folder, and the root is where Root Folder would take them.
 ; -----------------------------------------------------------------------------
-dsk_synth_up:
-    push ax
+dsk_up_open:
+    xor bp, bp
+    cmp word [dsk_cwd], 0
+    je .out                     ; the root has no parent
     push cx
     push di
     call dsk_ent_zero           ; the name's NUL padding and the unused tail
@@ -4204,7 +4206,10 @@ dsk_synth_up:
     mov [dsk_ent+18], ax
     pop di
     pop cx
-    pop ax
+    xor ax, ax                  ; ...at index 0
+    call dsk_put_dir
+    inc bp
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4470,8 +4475,10 @@ dsk_clus2lba_x:
     add ax, [dsk_datalba]
     jc .bad
 %endif
-    clc
-    jmp short .out
+    jmp short .out              ; CF = 0 on both arms: kern_small's from the
+                                ; `jc`, and kern_big's `adc dx, 0` cannot carry
+                                ; - (cluster-2) * spc is under 2^22, so DX is
+                                ; far below 0FFFFh
 .bad:
     stc
 .out:
@@ -6196,9 +6203,13 @@ osapi_dsk_cache_x:
 ; dsk_dirw_get - the next directory sector's CONTENTS (SPEC.md 19.2)
 ;
 ; out: CF=0 - AX = the sector's LBA, and dsk_secbuf holds its 512 bytes
-;      CF=1 with AX = 0 - the directory ends here (dsk_dirw_next's own CF)
-;      CF=1 with AX = 1 - a read failed; [dsk_ioerr] is int 13h's status
-; clobbers: AX (the output), CF
+;      CF=1, ZF=1, AX = 0 - the directory ends here (dsk_dirw_next's own CF)
+;      CF=1, ZF=0, AX != 0 - a read failed; [dsk_ioerr] is int 13h's status
+; clobbers: AX (the output), flags
+;
+; ZF IS PART OF THE ANSWER, so a caller that tells the two failures apart
+; writes `jnc` / `jz end` and no `or ax, ax` between them - five walks did,
+; at two bytes each.
 ;
 ; Every directory walk in the kernel used to be dsk_dirw_next followed by a
 ; one-sector disk_read into dsk_secbuf, spelled out at seven call sites. This
@@ -6222,15 +6233,13 @@ dsk_dirw_get_x:
 %endif
     call dsk_rd1_x
     pop ax
-    jc .ioerr
-    jmp short .out              ; CF = 0 from the `jc`
+    jnc .out
+    or al, 1                    ; a read failed: AX != 0 and ZF = 0
+    jmp short .stc
 .end:
-    xor ax, ax                  ; the directory ended...
-    stc
-    jmp short .out
-.ioerr:
-    mov ax, 1                   ; ...as against a read that failed
-    stc
+    xor ax, ax                  ; the chain ended: AX = 0 and ZF = 1
+.stc:
+    stc                         ; (and neither pop below writes a flag)
 .out:
     pop es
     pop dx
@@ -6298,7 +6307,6 @@ dsk_find_x:
 .sector:
     call dsk_dirw_get_x           ; dsk_secbuf = the next directory sector, and
     jnc .secok                  ; ES:DI stays the CALLER's buffer throughout
-    or ax, ax
     jz .jend
     jmp .ioerr
 .jend:                          ; a relay, .jfail1's device one routine along:
@@ -8987,11 +8995,19 @@ dsk_bpb       equ dsk_bpbh - DSK_B_BPS  ; ...addressed as sector offsets, so
                                 ; [dsk_bpb+DSK_B_*] is the field for every
                                 ; DSK_B_* from DSK_B_BPS up. DSK_B_JMP is
                                 ; asked of dsk_secbuf and never through this
+; FOUR OF THE 18.1 VARIABLES ARE THE STAGED BPB ITSELF, and not copies of it:
+; dsk_bpbh is written by nothing but disk_mount_x (the read, the bank and
+; dsk_bpb_check's TotSec32 fold), so after a mount it holds the mounted
+; volume's fields until the next mount - exactly the lifetime these had as
+; copies, which dsk_bpb_check's rule 14 used to make at 24 bytes of .cold
+; and six of .bss. A failed mount leaves them the new disk's rather than the
+; last one's, and every consumer is gated on the mount either way (above).
+dsk_spc       equ dsk_bpb + DSK_B_SPC   ; BPB_SecPerClus (validated power of two)
+dsk_fatlba    equ dsk_bpb + DSK_B_RSVD  ; = RsvdSecCnt (FAT1 start LBA)
+dsk_fatsz     equ dsk_bpb + DSK_B_FATSZ ; = FATSz16 (SPEC.md 18.2 rule 10
+                                ; caps a BIOS floppy's by refusing it)
+dsk_nfats     equ dsk_bpb + DSK_B_NFATS ; 1 or 2
 dsk_fattype:  resb 1            ; 0 = FAT12, 1 = FAT16 (SPEC.md 19)
-dsk_spc:      resb 1            ; BPB_SecPerClus (validated power of two)
-dsk_fatlba:   resw 1            ; = RsvdSecCnt (FAT1 start LBA)
-dsk_fatsz:    resw 1            ; = FATSz16 - capped at DSK_FAT_SECS only on
-                                ; a BIOS floppy (SPEC.md 18.2 rule 10)
 dsk_fatwn:    resw 1            ; ...and how many are resident. On a floppy
                                 ; this is the whole FAT and the window never
                                 ; moves - the degenerate case, byte for byte
@@ -9017,11 +9033,10 @@ dsk_fsn:      resw 1            ; how many entries have been appended, parent
                                 ; the count is disk_nfiles' and a driver has
                                 ; no business holding it
 dsk_fsup:     resw 1            ; the current folder's PARENT handle, answered
-                                ; by FSV_CHDIR and spent by dsk_synth_up.
+                                ; by FSV_CHDIR and spent by dsk_up_open.
                                 ; Opaque: only the driver knows what it means,
                                 ; and there is no '..' on a disk to read it
                                 ; from
-dsk_nfats:    resb 1            ; 1 or 2
 dsk_totsec:   resw 1            ; TotSec16, the volume's extent in sectors
 dsk_rootlba:  resw 1            ; first root-dir LBA
 dsk_rootsecs: resw 1            ; root-dir sector count (<= 32)

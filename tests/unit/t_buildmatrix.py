@@ -284,6 +284,7 @@ KNOBS = [
     # pass for a configuration nobody assembled.
     ("band",        ["BAND=1"]),
     ("titlesnap",   ["TITLESNAP=1"]),
+    ("fontslow",    ["FONTSLOW=1"]),     # SPEC.md 6.0.1: the copy verdict forced
     # SPLSTARS= is TITLESNAP's sentence one screen along - the loading screen's
     # animation A/B (SPEC.md 15.3.7) - and it carries a second reason this
     # roster is the only thing watching: it is the ONE configuration whose

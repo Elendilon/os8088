@@ -827,7 +827,7 @@ assoc_post_x:
     mov al, ASSOC_FIND          ; is not
 .known:
     mov [assoc_dapp], al
-    mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
+    inc byte [ui_post]          ; ...and SAY SO once (SPEC.md 13.13)
     mov [assoc_pwin], dx        ; ONLY on this arm: a nameless entry must not
                                 ; repoint a post still waiting for assoc_run
     mov di, assoc_doc           ; stage the document's own name - files.inc's

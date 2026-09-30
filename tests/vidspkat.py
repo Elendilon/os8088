@@ -20,8 +20,9 @@ so what is asserted is the machine's own state, read off the guest:
   4. every frame is drawn, and the kernel is left as it was (channel 2
      nobody's, no sample ISR).
 
-Broken on purpose - SPK_NMIN_AT back to 74 in kernel/snd.inc - the door
-refuses N = 54 and step 1's [vp_snd] is not 2.
+Broken on purpose - os88spk_init's `cmp al, 48` back to 74 in apps/os88spk.inc
+(the door no longer checks N: SPEC.md 34.11.1) - the library refuses N = 54
+and step 1's [vp_snd] is not 2.
 """
 import atexit
 import math

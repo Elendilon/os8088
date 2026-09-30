@@ -1276,6 +1276,38 @@ desk_draw_zone:
     jz .flop                    ; booted through the BIOS (DVK_BIOS, unit
     add si, byte 4              ; 80h+) drew the FLOPPY icon, which is what a
     jmp short .icon             ; machine booting off its own disk always saw
+%ifndef KERN_SMALL
+; -----------------------------------------------------------------------------
+; ...and the SERVICE zone's icon, which THE DRIVER DRAWS (SPEC.md 26.7)
+;
+; The kernel has no glyph and wants none: a picture in here is a picture every
+; machine carries, and the machines this one is for mostly have no network
+; card. So the record names a class and a verb and this calls the driver back
+; through drv_pkg_call - the same door a package reaches a driver by
+; (SPEC.md 20.11) - with CX,DX = the icon's top-left and the gfx lock HELD,
+; which is desk_paint's own context.
+;
+; The refusal is free and correct: drv_pkg_call answers CF=1 / AX=0 when no
+; driver of that class is published, so a driver that went away without
+; withdrawing draws nothing rather than far-calling a freed image.
+;
+; HERE, behind the floppy arm's unconditional jump, so the volume zones pay
+; nothing for it but the one compare that selects them - and both jumps are
+; SHORT, the `je` down and the jump back to .label. It was past the tail, the
+; `je` a relaxed five bytes and the way back near (kernel size pass 8, -4).
+; -----------------------------------------------------------------------------
+.svcico:
+    push ds
+    pop es                      ; ES = KERNEL_SEG: drv_pkg_call hands the
+                                ; driver whatever is in it and this is the
+                                ; one segment a kernel caller may promise
+    mov bh, [desk_svc_cls]
+    mov bl, [desk_svc_vrb]
+    mov cx, [desk_zx]
+    mov dx, [desk_zy]
+    call KERNEL_SEG:cw_drv_pkg_call
+    jmp .label
+%endif
 .flop:
     call dsk_vol_slot_x         ; ...and a floppy is drawn as the KIND of
     mov al, [bx+DV_FLAGS]       ; diskette its drive takes (SPEC.md 26.4.1):
@@ -1366,37 +1398,6 @@ desk_draw_zone:
     pop ax
     mov [gfx_color], ah
     jmp kretc_si
-%ifndef KERN_SMALL
-; -----------------------------------------------------------------------------
-; ...and the SERVICE zone's icon, which THE DRIVER DRAWS (SPEC.md 26.7)
-;
-; The kernel has no glyph and wants none: a picture in here is a picture every
-; machine carries, and the machines this one is for mostly have no network
-; card. So the record names a class and a verb and this calls the driver back
-; through drv_pkg_call - the same door a package reaches a driver by
-; (SPEC.md 20.11) - with CX,DX = the icon's top-left and the gfx lock HELD,
-; which is desk_paint's own context.
-;
-; The refusal is free and correct: drv_pkg_call answers CF=1 / AX=0 when no
-; driver of that class is published, so a driver that went away without
-; withdrawing draws nothing rather than far-calling a freed image.
-;
-; Down here, past the tail, so the volume zones pay nothing for it but the one
-; compare that selects them - and a NEAR jump back, the caption between here
-; and there being longer than a rel8 reaches.
-; -----------------------------------------------------------------------------
-.svcico:
-    push ds
-    pop es                      ; ES = KERNEL_SEG: drv_pkg_call hands the
-                                ; driver whatever is in it and this is the
-                                ; one segment a kernel caller may promise
-    mov bh, [desk_svc_cls]
-    mov bl, [desk_svc_vrb]
-    mov cx, [desk_zx]
-    mov dx, [desk_zy]
-    call KERNEL_SEG:cw_drv_pkg_call
-    jmp .label
-%endif
 
 %ifndef KERN_SMALL
 ; -----------------------------------------------------------------------------

@@ -819,10 +819,12 @@ fcp_step:
     jne .copyit
     call fcp_relink             ; CF=0 done; CF=1 with AX=0 not attempted;
     jnc .finish2                ; CF=1 with AX = FERR_* past the point of
-    or ax, ax                   ; no return
-    jnz .fail
+    or ax, ax                   ; no return - which lands on the `jc .fail`
+    stc                         ; below with CF set: .fail is one byte past a
+    jnz .jcfail                 ; short jnz's reach from here (size pass 8)
 .copyit:
     call fcp_claim              ; THE COPY BUFFER, CLAIMED ONLY NOW - after the
+.jcfail:
     jc .fail                    ; re-link has had its chance, and before the
                                 ; first thing the copy engine creates
                                 ; (fcp_mkroot below), so a heap that cannot
@@ -1216,8 +1218,8 @@ fcp_scan:
 .readsec:
     FCPX dsk_dirw_get_x ; dsk_secbuf = the sector holding the
     jnc .secok                  ; ordinal (SPEC.md 19.2.3)
-    or ax, ax
-    jz .end
+    jz .end                     ; ZF=1: the chain ended (the thunk's retf
+                                ; keeps the flags dsk_dirw_get_x answered)
     jmp .ioerr
 .secok:
     mov si, dsk_secbuf

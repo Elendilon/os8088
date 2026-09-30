@@ -859,7 +859,10 @@ BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
 # runtime fence one line down, and it is enough on its own: a payload shorter
 # than this offset gets no -DKSIG, boot/boot.asm's `%define KSIG 0` applies,
 # and stage 2's `cmp word [b2_ksig], 0` skips the compare.
-KSIG_OFF := 6144
+# SPEC.md 6.0.1 took the blob to TEN sectors, and the probe moved one memory
+# sector down with it - 5632, memory sector 11, file sector 11 + 10 = 21, the
+# same file sector - so the band argument above is untouched.
+KSIG_OFF := 5632
 #
 # A PAYLOAD SHORTER THAN THE OFFSET DEFINES NO KSIG AT ALL, and that is the
 # whole of this line's second job. It used to answer 0, and a fabricated zero is
@@ -1079,6 +1082,16 @@ endif
 # and its pen is off-grid seven times in eight.
 ifneq ($(TITLESNAP),)
 VIDDEF += -DTITLESNAP
+endif
+
+# FONTSLOW=1 forces font_init's COPY verdict (SPEC.md 6.0.1): the 8x8 table is
+# copied into a 1KB heap claim (MEM_K_FONT) on every machine, instead of only
+# on one whose planar ROM does not carry the glyphs the adapter's BIOS names.
+# No emulator here has such a machine - every BIOS in reach carries the IBM
+# set at F000:FA6E - so without this the copy path would never run anywhere a
+# row can see it. tests/fontpick.py is the A/B.
+ifneq ($(FONTSLOW),)
+VIDDEF += -DFONTSLOW
 endif
 
 # SPLSTARS=1 swaps the loading screen's animation (SPEC.md 15.3.7): the "8088"
@@ -1855,7 +1868,7 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
                              FONT INSTCHUNK PICOMEM PM_BASE PM_SB_PORT ANIMOFF DISINK0 \
                              BOOTPROF STKDIAG BOOTMARK BOOTHALT BOOTSTOP NOPS2 MOUIDSLOW MOUDIAG MOUROUND DOSRMARK FDDSLOW TRACKRUN SBDRAGOFF SBRATE SBRATE286 SBIDLE \
                              ETHPROF FTPDSLOW FTPDBG \
-                             KERN_SMALL KERN_EMU FSNOSTAMP THEMEDARK TITLESNAP SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL LDDIAG DRVDIAG BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOMOUPRIV NOCHAINPRIV NOHEDGE NOLIVESND NOATBLIT1 NOATFAST NOATWALK NOATSBAR NOATROW NOATBLANK NOATPLAIN NOATCX NOATRESPAN NOATFETCH NOATCELL NOATTAIL NOATONE NOATSU NOCURDISK NOFDDPARK NOKDKBD VGADIRTY DLJUNK DPTROM COMPRESS NOKZIP,\
+                             KERN_SMALL KERN_EMU FSNOSTAMP THEMEDARK TITLESNAP FONTSLOW SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL LDDIAG DRVDIAG BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOMOUPRIV NOCHAINPRIV NOHEDGE NOLIVESND NOATBLIT1 NOATFAST NOATWALK NOATSBAR NOATROW NOATBLANK NOATPLAIN NOATCX NOATRESPAN NOATFETCH NOATCELL NOATTAIL NOATONE NOATSU NOCURDISK NOFDDPARK NOKDKBD VGADIRTY DLJUNK DPTROM COMPRESS NOKZIP,\
                              $(if $($(k)),$(k)=$($(k)))))
 # **A KNOB KERNEL IS NOT THE SHIPPED KERNEL, so KERN_BUDGET does not bind it**
 # (kernel.asm guard 1). It is built to answer a question about a machine and
@@ -1918,7 +1931,7 @@ endif
 # `make` believes is current, and every image shipped from it wrong. The
 # knob roster above still carries NOKZIP, because that is what somebody asks
 # for and what a knob build has to announce.
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSEAMCUT),-nsc$(NOSEAMCUT))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KERN_EMU),-emu$(KERN_EMU))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(GFXAUDIT),-ga$(GFXAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))$(if $(BOOTPROF),-bp$(BOOTPROF))$(if $(STKDIAG),-sd$(STKDIAG))$(if $(NOMOUPRIV),-nmp$(NOMOUPRIV))$(if $(NOCHAINPRIV),-ncp$(NOCHAINPRIV))$(if $(BOOTMARK),-bm$(BOOTMARK))$(if $(BOOTHALT),-bh$(BOOTHALT))$(if $(BOOTSTOP),-bs$(BOOTSTOP))$(if $(NOPS2),-np$(NOPS2))$(if $(MOUIDSLOW),-mis$(MOUIDSLOW))$(if $(MOUDIAG),-mdg$(MOUDIAG))$(if $(MOUROUND),-mrd$(MOUROUND))$(if $(DOSRMARK),-drm$(DOSRMARK))$(if $(FDDSLOW),-fsl$(FDDSLOW))$(if $(TRACKRUN),-tr$(TRACKRUN))$(if $(SBDRAGOFF),-sbo$(SBDRAGOFF))$(if $(SBRATE),-sbr$(SBRATE))$(if $(SBRATE286),-sbr2$(SBRATE286))$(if $(SBIDLE),-sbi$(SBIDLE))$(if $(TITLESNAP),-ts$(TITLESNAP))$(if $(SPLSTARS),-sst$(SPLSTARS))$(if $(NOSIZESNAP),-nzs$(NOSIZESNAP))$(if $(NOFLUSHR),-nfr$(NOFLUSHR))$(if $(NOUNAL),-nu$(NOUNAL))$(if $(LDDIAG),-ldd$(LDDIAG))$(if $(DRVDIAG),-drd$(DRVDIAG))$(if $(BAND),-bnd$(BAND))$(if $(NOPLANE),-npl$(NOPLANE))$(if $(NOCOLFAST),-ncf$(NOCOLFAST))$(if $(NOBLITCUT),-nbc$(NOBLITCUT))$(if $(NOUIBLOCK),-nub$(NOUIBLOCK))$(if $(NOCURDISK),-ncd$(NOCURDISK))$(if $(NOFDDPARK),-nfp$(NOFDDPARK))$(if $(VGADIRTY),-vd$(VGADIRTY))$(if $(BOOTDIAG),-bd$(BOOTDIAG))$(if $(PICOMEM),-pm$(PICOMEM))$(if $(PM_BASE),-pmb$(PM_BASE))$(if $(PM_SB_PORT),-pms$(PM_SB_PORT))$(if $(ETHPROF),-ep$(ETHPROF))$(if $(FTPDSLOW),-fs$(FTPDSLOW))$(if $(FTPDBG),-fd$(FTPDBG))$(if $(DLJUNK),-dlj$(DLJUNK))$(if $(DPTROM),-dpr$(DPTROM))$(if $(FATWNONE),-fwn$(FATWNONE))$(if $(FATWGATE),-fwg$(FATWGATE))-cmp$(LZFMTS)$(if $(KZIP),-kz)
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSEAMCUT),-nsc$(NOSEAMCUT))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KERN_EMU),-emu$(KERN_EMU))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(GFXAUDIT),-ga$(GFXAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))$(if $(BOOTPROF),-bp$(BOOTPROF))$(if $(STKDIAG),-sd$(STKDIAG))$(if $(NOMOUPRIV),-nmp$(NOMOUPRIV))$(if $(NOCHAINPRIV),-ncp$(NOCHAINPRIV))$(if $(BOOTMARK),-bm$(BOOTMARK))$(if $(BOOTHALT),-bh$(BOOTHALT))$(if $(BOOTSTOP),-bs$(BOOTSTOP))$(if $(NOPS2),-np$(NOPS2))$(if $(MOUIDSLOW),-mis$(MOUIDSLOW))$(if $(MOUDIAG),-mdg$(MOUDIAG))$(if $(MOUROUND),-mrd$(MOUROUND))$(if $(DOSRMARK),-drm$(DOSRMARK))$(if $(FDDSLOW),-fsl$(FDDSLOW))$(if $(TRACKRUN),-tr$(TRACKRUN))$(if $(SBDRAGOFF),-sbo$(SBDRAGOFF))$(if $(SBRATE),-sbr$(SBRATE))$(if $(SBRATE286),-sbr2$(SBRATE286))$(if $(SBIDLE),-sbi$(SBIDLE))$(if $(TITLESNAP),-ts$(TITLESNAP))$(if $(FONTSLOW),-fsw$(FONTSLOW))$(if $(SPLSTARS),-sst$(SPLSTARS))$(if $(NOSIZESNAP),-nzs$(NOSIZESNAP))$(if $(NOFLUSHR),-nfr$(NOFLUSHR))$(if $(NOUNAL),-nu$(NOUNAL))$(if $(LDDIAG),-ldd$(LDDIAG))$(if $(DRVDIAG),-drd$(DRVDIAG))$(if $(BAND),-bnd$(BAND))$(if $(NOPLANE),-npl$(NOPLANE))$(if $(NOCOLFAST),-ncf$(NOCOLFAST))$(if $(NOBLITCUT),-nbc$(NOBLITCUT))$(if $(NOUIBLOCK),-nub$(NOUIBLOCK))$(if $(NOCURDISK),-ncd$(NOCURDISK))$(if $(NOFDDPARK),-nfp$(NOFDDPARK))$(if $(VGADIRTY),-vd$(VGADIRTY))$(if $(BOOTDIAG),-bd$(BOOTDIAG))$(if $(PICOMEM),-pm$(PICOMEM))$(if $(PM_BASE),-pmb$(PM_BASE))$(if $(PM_SB_PORT),-pms$(PM_SB_PORT))$(if $(ETHPROF),-ep$(ETHPROF))$(if $(FTPDSLOW),-fs$(FTPDSLOW))$(if $(FTPDBG),-fd$(FTPDBG))$(if $(DLJUNK),-dlj$(DLJUNK))$(if $(DPTROM),-dpr$(DPTROM))$(if $(FATWNONE),-fwn$(FATWNONE))$(if $(FATWGATE),-fwg$(FATWGATE))-cmp$(LZFMTS)$(if $(KZIP),-kz)
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin \
                                       $(BUILD)/kernel-full.bin \
@@ -5838,7 +5851,7 @@ $(BUILD)/piano.o88: $(BUILD)/piano.bin tools/os88pkg.py $(PKGZSTAMP)
 # It needs no card to be USEFUL -
 # DEMO stages a built-in sweep and PLAY falls back to speaker clips - so it
 # ships on every disk and greys REC on a machine with no Sound Blaster.
-$(BUILD)/recorder.bin: apps/recorder/recorder.asm apps/os88api.inc apps/os88ui.inc | $(BUILD)
+$(BUILD)/recorder.bin: apps/recorder/recorder.asm apps/os88api.inc apps/os88ui.inc apps/os88pcm.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/recorder/recorder.asm
 	@echo "recorder: $(call FILESIZE,$@) bytes"
 
@@ -9685,9 +9698,28 @@ BENCHDATA := $(BUILD)/bench.dat $(BUILD)/benchsml.dat $(BUILD)/bigfile.dat
 # field calibration. It is therefore named HERE, for the two bench disks
 # only, and never added to BENCHPKGS - the plan's APPS_GAMES lesson
 # (docs/plans/PIXELSTEIN-PLAN.md 0, tree-6) applied to the list it missed.
-BENCHIMGPKGS := $(BENCHPKGS) $(BUILD)/pxsbench.o88
+BENCHIMGPKGS := $(BENCHPKGS) $(BUILD)/pxsbench.o88 $(BUILD)/romfont.o88
 
 bench: $(BUILD)/bench.img $(BUILD)/bench360.img
+
+# ROMFONT (tests/romfont): the 8x8 table read out of the machine's ROM against
+# a RAM copy, PIT-timed - the field instrument for SPEC.md 6's ROM-resident
+# glyph table, because MartyPC prices a ROM read exactly as a RAM one by
+# construction and so cannot be the evidence. `make romfont` is a 360KB disk
+# with nothing else on it, for a real XT's B:; it rides the bench disks too.
+romfont: $(BUILD)/romfont360.img
+.PHONY: romfont
+
+$(BUILD)/romfont.bin: tests/romfont/romfont.asm tests/benchlib.inc apps/os88api.inc tools/benchlint.py | $(BUILD)
+	python3 tools/benchlint.py tests/romfont/romfont.asm
+	$(NASM) -f bin -w+error -I apps/ -I tests/ -o $@ tests/romfont/romfont.asm
+	@echo "romfont: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/romfont.o88: $(BUILD)/romfont.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/romfont.bin -o $@
+
+$(BUILD)/romfont360.img: $(BUILD)/romfont.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/romfont.o88
 
 $(BUILD)/fontbnch.bin: tests/fontbench/fontbench.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/fontbench/fontbench.asm

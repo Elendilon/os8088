@@ -527,8 +527,8 @@ fsx_mode:
     jmp short .fill
 .herc:
     call vid_setmode            ; the 6845 body + the load-bearing 32KB clear
-    jmp short .fill
-%ifdef GFX_VGA
+%ifdef GFX_VGA                  ; (without a VGA .fill is the next instruction,
+    jmp short .fill             ; and a jump onto it is two dead bytes)
 .modex:
     mov al, 0x13
     call fsx_setbios

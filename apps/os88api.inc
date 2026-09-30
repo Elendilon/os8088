@@ -421,13 +421,21 @@ KSC_ALT     equ 0x38             ; ...and Alt, which is a MODIFIER and so is
                                  ; duration ticks (0 = until off), DL =
                                  ; priority (default 0x40); out CF=1 refused,
                                  ; else AL = owner generation
-%define OSAPI_SND_PLAY      KERNEL_SEG:0x00DB   ; PCM_EXCL clip (SPEC.md 34.4):
-                                 ; ES:SI = your 8-bit unsigned samples, CX =
-                                 ; count, DX = rate 4,679..16,124 Hz; out
-                                 ; AX = 0 ok / 1..5 err. Runs on your task
-                                 ; with the scheduler locked: it FREEZES the
-                                 ; desktop for the length of the clip, and a
-                                 ; mouse click aborts it (err 5)
+%define OSAPI_SND_PLAY      KERNEL_SEG:0x00DB   ; THE PCM_EXCL CLIP'S DOOR
+                                 ; (SPEC.md 34.4). PLAY A CLIP WITH
+                                 ; apps/os88pcm.inc's os88pcm_play, which is
+                                 ; this door's one caller and has the contract
+                                 ; this slot used to (ES:SI, CX, DX = rate ->
+                                 ; AX = 0 ok / 1..5 err). UI task only.
+                                 ; AL = 0 GRANT: CF=1 AX = 1 busy / 3 disabled
+                                 ; by the user / 4 nothing can sound; CF=0
+                                 ; channel 2 is the PWM and yours, the
+                                 ; scheduler LOCKED and the fsx sub-tick
+                                 ; parked until the release, BX = the mouse
+                                 ; button byte's offset in KERNEL_SEG (the
+                                 ; click-abort's). AL = 1 RELEASE, played out;
+                                 ; AL = 2 RELEASE after a click, the event
+                                 ; ring drained first. AX spent
 
 %define OSAPI_SND_FM        KERNEL_SEG:0x00E3   ; FM verbs (SPEC.md 34.2), live
                                  ; only while a sound DRIVER is loaded
@@ -468,8 +476,9 @@ KSC_ALT     equ 0x38             ; ...and Alt, which is a MODIFIER and so is
                                  ; OSAPI_SND_FM.
 
 ; capability bits returned by OSAPI_SND_CAPS (SPEC.md 34.2). TONE and
-; PCM_EXCL are the resident PC speaker's and are always there; the rest
-; appear only while a sound driver is loaded (SPEC.md 51.4).
+; PCM_EXCL are the resident PC speaker's - TONE always, PCM_EXCL on kern_big
+; (kern_small plays no clip, SPEC.md 34.4.1); the rest appear only while a
+; sound driver is loaded (SPEC.md 51.4).
 SND_CAP_TONE     equ 01h
 SND_CAP_FM       equ 02h
 SND_CAP_PCM_BG   equ 04h
@@ -570,44 +579,45 @@ SND_EXT_TAB      equ 16          ; os88spk.inc's PWM table, written by its
                                  ; RATE (SPEC.md 34.11), from INSIDE YOUR OWN
                                  ; FSXF_RATE BRACKET only (53.2.2) - PCM with
                                  ; no card. apps/os88spk.inc is the ring player
-                                 ; built on it; this is the door it opens.
+                                 ; built on it; this is the THIN door it opens
+                                 ; (34.11.1). Call it at IF = 0 and hold IF = 0
+                                 ; until you have done YOUR half.
                                  ; AL = 0 OPEN: DX = N, the PIT counts a sample
                                  ; (74..255 = 16,124..4,679 Hz; 48..255 when
                                  ; OSAPI_CPU_INFO answers past CPU_8086,
-                                 ; SPEC.md 34.11.8), SI = your
-                                 ; SAMPLE ISR, a near offset in your image, DI
-                                 ; = a 6-byte block in your image the kernel
-                                 ; fills with K and the chain (below) BEFORE
-                                 ; IRQ0 is your ISR's - the first sample can
-                                 ; come as soon as the old period ends.
+                                 ; SPEC.md 34.11.8 - YOURS to hold to, it is
+                                 ; not checked), BX = your CS.
                                  ; out CF=0: AX = K, samples in one rate period
-                                 ; (the period becomes K x N counts, within a
+                                 ; (the period is now K x N counts, within a
                                  ; sample of your divisor, and the hook's AX
-                                 ; counts those), DX:BX = the CHAIN. Channel 2
-                                 ; is 34.4's PWM and yours: `out 0x42` a count
-                                 ; 1..N-1 a sample. From then EVERY IRQ0 is
-                                 ; your ISR's, entered with the interrupt frame
-                                 ; alone, IF = 0, on whatever stack it hit (48
-                                 ; bytes, 53.2.2's rule): it sends the EOI and
-                                 ; irets, except on each K-th entry, where it
-                                 ; restores every register and jumps FAR to the
-                                 ; chain instead (the kernel's IRQ0, which does
-                                 ; the EOI, the tick and your hook). IRQ0's
-                                 ; VECTOR is your ISR while it is open, and
-                                 ; TWO THINGS CHANGE UNDER IT: your hook is
-                                 ; entered with IF = 1, and a rate period is no
-                                 ; task switch - switches ride the tick, as
+                                 ; counts those); BX, DX spent. Channel 2 is
+                                 ; 34.4's PWM and yours: `out 0x42` a count
+                                 ; 1..N-1 a sample. YOUR HALF, still at IF = 0:
+                                 ; point IRQ0's vector (0:0x20) at your SAMPLE
+                                 ; ISR, keeping what it held as the CHAIN, and
+                                 ; program channel 0 at exactly N (43h = 34h,
+                                 ; then N's two bytes to 40h). From then EVERY
+                                 ; IRQ0 is your ISR's, entered with the
+                                 ; interrupt frame alone, IF = 0, on whatever
+                                 ; stack it hit (48 bytes, 53.2.2's rule): it
+                                 ; sends the EOI and irets, except on each K-th
+                                 ; entry, where it restores every register and
+                                 ; jumps FAR to the chain instead (the kernel's
+                                 ; IRQ0, which does the EOI, the tick and your
+                                 ; hook). TWO THINGS CHANGE UNDER IT: your hook
+                                 ; is entered with IF = 1, and a rate period is
+                                 ; no task switch - switches ride the tick, as
                                  ; they do outside a bracket (34.11.3). AL = 1
-                                 ; CLOSE, and the bracket's end closes it.
-                                 ; CF=1 AX = SPK_E_*
-SPK_E_NOTRATE    equ 1           ; not in your own FSXF_RATE bracket (and
-                                 ; always, on kern_small)
-SPK_E_N          equ 2           ; N is outside 74..255 (48..255 on a 286
-                                 ; or better)
+                                 ; CLOSE - the vector, channel 0 and channel 2
+                                 ; put back; harmless with nothing open, AX
+                                 ; and the flags spent - and the bracket's end
+                                 ; closes it. OPEN's CF=1: AX = SPK_E_*
+SPK_E_NOTRATE    equ 1           ; not in a FSXF_RATE bracket (and always,
+                                 ; on kern_small)
 SPK_E_BUSY       equ 3           ; open already, or a clip plays
-SPK_E_NOTOPEN    equ 4           ; close with nothing open
-SPK_E_ADDR       equ 5           ; SI, or DI's 6 bytes, not inside your
-                                 ; image+bss
+                                 ; (2, 4 and 5 are retired: the door no
+                                 ; longer checks N, SI or DI, nor answers a
+                                 ; close)
 
 ; --- window management (SPEC.md 11.1/11.2) -------------------------------------
 %define OSAPI_WM_SIZABLE    KERNEL_SEG:0x00F1   ; BX=win ptr, AL = 0 clear / non-zero set
@@ -1963,6 +1973,7 @@ MEM_K_HIB   equ 0xFF0C          ; the resume's extent list (SPEC.md 87.5)
 ; claims it - and it is kept unreusable for the reason above, so the dialog's
 ; listing below is 0xFF0F.
 MEM_K_FDLG  equ 0xFF0F          ; the Standard File dialog's listing (SPEC.md 38.2)
+MEM_K_FONT  equ 0xFF10          ; the 8x8 glyph table copied out of an option ROM (SPEC.md 6.0.1)
 
 MEM_PG_TRIV equ 0xFB            ; the purge tiers (SPEC.md 50.6.4), low to
 MEM_PG_LOW  equ 0xFC            ; high: what LOSING the block costs, which is
@@ -2798,7 +2809,7 @@ DRVC_POINT   equ 6              ; a pointing device the kernel does not
 ;     by `snd_release_inst` when you are torn down. Ask for a DURATION and it
 ;     self-expires through `snd_tick`, so a worker need never come back to
 ;     silence it. You may NOT call the file slots, OSAPI_FILE_DLG or
-;     OSAPI_SND_PLAY from a worker - those are UI-task-only and the kernel
+;     os88pcm_play (OSAPI_SND_PLAY) from a worker - those are UI-task-only and the kernel
 ;     cannot stop you. SND_PLAY is not on that list for the tone's reasons:
 ;     it runs the whole clip with the scheduler locked, so a worker calling
 ;     it freezes the desktop instead of merely misattributing something.

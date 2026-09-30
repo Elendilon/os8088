@@ -293,8 +293,9 @@ menu_init:
     push ax
     push bx
     push dx
-    mov byte [menu_bovr], 1     ; .bss is not zeroed at boot (-f bin), and the
-    mov byte [menu_bdirty], 1   ; furniture has never been drawn: menu_force's
+    mov word [menu_bdirty], 0x0101 ; [menu_bovr] too. .bss is not zeroed at
+                                ; boot (-f bin), and the
+                                ; furniture has never been drawn: menu_force's
                                 ; whole body, and the second store is the one
                                 ; this routine used to make before calling it
     xor bx, bx
@@ -325,8 +326,7 @@ section .text
 ; time it finished.
 ; -----------------------------------------------------------------------------
 menu_force:
-    mov byte [menu_bovr], 1
-    mov byte [menu_bdirty], 1
+    mov word [menu_bdirty], 0x0101  ; [menu_bovr] too: adjacent, asserted
     ret
 
 ; -----------------------------------------------------------------------------
@@ -392,7 +392,9 @@ menu_activate:
     je .same
     mov [menu_win], bx
     mov byte [fm_fchk], 1       ; the active application changed, so a Disk
-    mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
+    inc byte [ui_post]          ; ...and SAY SO once (SPEC.md 13.13): tested
+                                ; zero/non-zero and swept every tick, so a
+                                ; count is as good as a 1
                                 ; window may have just gained the focus with
                                 ; a refresh owing (SPEC.md 22.8). This is the
                                 ; catch-all rather than the main path -
@@ -2300,7 +2302,7 @@ menu_kbnav:
     mov [mouse_x], ax           ; two-display seam is honoured by construction
     mov [mouse_y], bx           ; rather than by a rectangle known here
     mov byte [cur_shchk], 1     ; ...and the pointer MOVED (SPEC.md 7.2.1.1)
-    mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
+    inc byte [ui_post]          ; ...and SAY SO once (SPEC.md 13.13)
     pop di
     pop si
     pop dx
@@ -2744,6 +2746,9 @@ menu_bovr:  resb 1              ; ...and somebody painted OVER the bar, so the
                                 ; A different question from the one above and
                                 ; a far rarer one: this is the only flag that
                                 ; erases anything (SPEC.md 12.9)
+%if menu_bovr - menu_bdirty != 1  ; ADJACENT: menu_force and menu_init
+%error "menu_bovr must follow menu_bdirty - menu_force sets both with one word store"
+%endif
 menu_bcell: resb MENU_BCMAX + 1 ; the menus segment as it is ON THE GLASS, one
                                 ; byte per 8px cell - composed into, diffed
                                 ; against and emitted from. The spare cell is

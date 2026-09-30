@@ -1368,6 +1368,8 @@ tm_s_thib:  db 'Resume', 0      ; the resume's extent list (SPEC.md 87.5), alive
                                 ; only on the way into the stub
 
 tm_s_tcmpr: db 'Compress', 0
+tm_s_tfont: db 'Font', 0        ; the glyph table copied out of an option
+                                ; ROM at boot (SPEC.md 6.0.1): 1KB, top-down
 tm_s_tfdlg: db 'FileDlg', 0     ; the Standard File dialog's listing (SPEC.md
                                 ; 38.2). It is the FOURTH the prose above
                                 ; warned about: the dialog claimed its own
@@ -1399,6 +1401,7 @@ tm_ktab:
     dw MEM_K_HIB,   tm_s_thib
     dw MEM_K_CMPR,  tm_s_tcmpr
     dw MEM_K_FDLG,  tm_s_tfdlg
+    dw MEM_K_FONT,  tm_s_tfont
     dw MEM_P_DIRW,  tm_s_tdirw
     dw MEM_P_ICO,   tm_s_tico
     dw 0

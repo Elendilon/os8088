@@ -488,8 +488,10 @@ ico_pass:
     cmp word [ico_col], ROW_BYTES
     jae .b1
     out dx, al
-    mov al, [es:di]             ; load latches
-    mov [es:di], al
+    xchg [es:di], al            ; load latches and write back in ONE: xchg
+                                ; reads then writes, and every plane takes
+                                ; Set/Reset (GC1 = 0Fh) so the byte written
+                                ; is don't-care - font_char's latch idiom
 .b1:
     mov al, bl                  ; --- byte 1, column +1 ---
     or  al, al
@@ -497,8 +499,7 @@ ico_pass:
     cmp word [ico_col], ROW_BYTES-1
     jae .b2
     out dx, al
-    mov al, [es:di+1]
-    mov [es:di+1], al
+    xchg [es:di+1], al
 .b2:
     mov al, ah                  ; --- byte 2, column +2 ---
     or  al, al
@@ -506,8 +507,7 @@ ico_pass:
     cmp word [ico_col], ROW_BYTES-2
     jae .wnext
     out dx, al
-    mov al, [es:di+2]
-    mov [es:di+2], al
+    xchg [es:di+2], al
 .wnext:
     inc di                      ; next word of this row
     inc di

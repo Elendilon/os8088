@@ -976,6 +976,12 @@ FAST = [
         "GLaBIOS twin still differs from its IBM original in `rom_set` alone "
         "- a drifted twin measures the config's difference and calls it the "
         "kernel's"),
+    Row("clscf", "fast", py("tests/unit/t_clscf.py"), 0.1,
+        "every call to drv_cls_svc / drv_cls_fp tests the carry, or says in a "
+        "CLSCF: comment why its class has a slot. A missed test reads another "
+        "class's services and does not crash, and since kernel size pass 8 "
+        "drv_cls_svc refuses a real class, DRVC_POINT "
+        "(docs/plans/LAST-DROP-BYTES.md 7.7.8)"),
     Row("asmrules", "fast", py("tests/unit/t_asmrules.py"), 2.0,
         "unreachable code after an unconditional jump, a prologue restored in "
         "the WRONG ORDER (SPEC.md 1's register discipline: balanced depth, "
@@ -6226,6 +6232,14 @@ SOAK = [
         # move it.
         needs=("marty", "wiredisk"), serial=True,
         wants=("build/wire360.img",)),
+    Row("stkpanel", "soak", py("tests/stkpanel.py"), 15.0,
+        "SPEC.md 8.8: the stack-overflow death panel, the one scheduler path "
+        "nothing else reaches - task 0's canary zeroed on a paused desktop, "
+        "and the panel must run to .hang having drawn all 41 characters with "
+        "the parked SP in the SP field (kernel size pass 8 carries its "
+        "evidence across the move of SP on the stack). Broken on purpose "
+        "(two pushes swapped) it FAILS on the pen and the SP digit",
+        needs=("marty",), serial=True),
     Row("evqfull", "soak", py("tests/evqfull.py"), 20.0,
         "SPEC.md 10.1: a full event ring discards its OLDEST input, and never"
         "a coalesced WAKE - asked of evq_push directly, with the CPU parked",
@@ -6313,6 +6327,21 @@ SOAK = [
         "the assertion is the round trip: poke three settings, close the panel,"
         "flush the disk the guest wrote and boot IT. Two boots, which is why it"
         "is here and not in the gate",
+        needs=("marty",), serial=True),
+    Row("cpnames", "soak", py("tests/cpnames.py"), 20.0,
+        "SPEC.md 2.8.6.1/31.9: do the Control Panel's list names and page"
+        "headings letter, now that the item table and every static name are"
+        "in CTRL.DRV's image and staged per draw, and the heading is drawn by"
+        "the dispatcher? Text rendered from [font_seg]:[font_base] and searched for in"
+        "the framebuffer, per page. Red with the staging call removed (every"
+        "name) and with the heading block removed (every page). Measured 16s",
+        needs=("marty",), serial=True),
+    Row("cpnameshdd", "soak", py("tests/cpnames.py", "hdd"), 25.0,
+        "cpnames on os8088_xt_hdd, plus a DRIVER's row: the hard disk ticked in"
+        "on the Drivers page, and its page's list name - staged out of the"
+        "driver's segment by CTRL.DRV's cp_drv_name into cp_sbuf since kernel"
+        "size pass 8 - must letter. Red with the staging copy skipped."
+        "Measured 20s",
         needs=("marty",), serial=True),
     Row("fddpage", "soak", py("tests/fddpage.py"), 20.0,
         "SPEC.md 31.14: does the Control Panel's Floppy page override the"
@@ -6461,6 +6490,14 @@ SOAK = [
         "just dropped the latch, that a missing guard throws the box "
         "straight back into full screen",
         needs=("marty",), serial=True),
+    Row("fontpick", "soak", py("tests/fontpick.py"), 75.0,
+        "SPEC.md 6.0.1: which 8x8 table the kernel reads. On the VGA XT the "
+        "BIOS answers with its option ROM at C000 and the kernel must read "
+        "the planar F000:FB6E instead (same glyphs), with no MEM_K_FONT "
+        "claim; then `make FONTSLOW=1` forces the copy - one 1KB claim at "
+        "the arena's ceiling, the pointer at it, the ROM's bytes in it, and "
+        "the same desktop pixel for pixel",
+        needs=("marty",)),
     Row("dispseam", "soak", py("tests/dispseam.py"), 300.0,
         "Does the one cell a display SEAM crosses still reach the glass?"
         "(SPEC.md 39.14.11) - it builds `make NOSEAMCUT=1` itself for the A/B"
@@ -6654,7 +6691,11 @@ SOAK = [
         "for it and Esc leaves nothing on A: - no result, no CMPRESS~.TMP, "
         "no claim; then a three-part set over three disks: Enter with the "
         "same disk still in says `Missing SET.002` and asks again, and "
-        "after each swap Enter reads the next part from that disk's root, "
+        "after each swap Enter reads the next part from that disk's root "
+        "- and asks for part 3 WITHOUT saying `Missing SET.003` "
+        "(`ask3quiet`: [cmz_jretry] was a flag nothing but the prompt "
+        "cleared, so a part read off the new disk left it set; red with the "
+        "old flag test put back), "
         "to a result identical to the original, and os88disk --verify "
         "over A: at the end. Then a MARGINAL second disk (22.23.6.1): B:'s "
         "reads fail with a CRC error injected just after the kernel's own "
@@ -8836,7 +8877,8 @@ SOAK = [
         "player with a rate divisor of whole 54-count pulses, the ring's "
         "CONS moves, every frame is drawn and the kernel is left clean. "
         "Nothing timed; QEMU's speaker cannot sound a pulse width. Broken on "
-        "purpose (SPK_NMIN_AT back to 74) - red at 1 and 2",
+        "purpose (os88spk_init's 48 back to 74: the door no longer checks N, "
+        "34.11.1) - red at 1 and 2",
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
     Row("vidspk22", "soak", py("tests/vidspk.py", "--rate", "22050",
@@ -10005,7 +10047,7 @@ SOAK = [
         "disk that it can then format (the docstring has the three ways). "
         "Measured at 60s",
         needs=("marty",), serial=True),
-    Row("wimgtrip", "soak", py("tests/wimgtrip.py"), 45.0,
+    Row("wimgtrip", "soak", py("tests/wimgtrip.py"), 56.0,
         "wimgtrip - Write Img... (SPEC.md 18.99.8) driven to the end and "
         "diffed: apps360.img as a FILE on a 720KB B:, written over the 360KB "
         "system disk in A:, and drive 0 read back must BE the image, every "
@@ -10016,7 +10058,14 @@ SOAK = [
         "say 'Disk error'. VERIFIED RED twice: on the tree before SPEC.md "
         "38.6.2 every image was 'Not a disk image' (5 of 10 checks, 691 "
         "sectors untouched), and before 18.99.7's carry fix the failed "
-        "write said NOTHING (1 of 17). Measured at 41s",
+        "write said NOTHING (1 of 17). Between them, Clone Disk... with "
+        "the IMAGE as its target: the Save As box CLONE.DRV opens itself "
+        "since size pass 8 (fdf_fdlg_open, fm_img_done_x as the proc) must "
+        "be up on DISK.IMG with the pick prompt armed under it, and its "
+        "commit must reach clo_saved on the clone's claim - the name in "
+        "clo_fnbuf, refused 'Disk full' by clo_froom (B: has 706 of the 720 "
+        "sectors). VERIFIED RED with clo_saved's clo_fnget taken out (the "
+        "name stays the Write Img's). Measured at 56s, 41s charged",
         needs=("marty",), serial=True),
     Row("rdup", "soak", py("tests/rdup.py"), 60.0,
         "SPEC.md 62.9.11.3: the Ram Disk page acts on the RELEASE.",
