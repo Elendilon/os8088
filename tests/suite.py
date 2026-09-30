@@ -6490,6 +6490,14 @@ SOAK = [
         "just dropped the latch, that a missing guard throws the box "
         "straight back into full screen",
         needs=("marty",), serial=True),
+    Row("fontpick", "soak", py("tests/fontpick.py"), 75.0,
+        "SPEC.md 6.0.1: which 8x8 table the kernel reads. On the VGA XT the "
+        "BIOS answers with its option ROM at C000 and the kernel must read "
+        "the planar F000:FB6E instead (same glyphs), with no MEM_K_FONT "
+        "claim; then `make FONTSLOW=1` forces the copy - one 1KB claim at "
+        "the arena's ceiling, the pointer at it, the ROM's bytes in it, and "
+        "the same desktop pixel for pixel",
+        needs=("marty",)),
     Row("dispseam", "soak", py("tests/dispseam.py"), 300.0,
         "Does the one cell a display SEAM crosses still reach the glass?"
         "(SPEC.md 39.14.11) - it builds `make NOSEAMCUT=1` itself for the A/B"

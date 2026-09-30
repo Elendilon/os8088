@@ -152,9 +152,64 @@ SNAP_NCALL   equ 24             ; SPEC.md 11.94.2: off-grid callers logged per
 
 %ifndef BAKED_FONT
 ; -----------------------------------------------------------------------------
-; font_init - find the ROM 8x8 font and point [font_seg]:[font_base] at it
+; FONT_PICK - which ROM 8x8 table to read (SPEC.md 6.0.1)
 ;
-; in:       nothing (must run after vid_init; uses int 10h)
+; out:      DX:BP = glyph FONT_FIRST of the table; DS = KERNEL_SEG untouched
+; clobbers: AX, BX, CX, SI, DI, ES, flags
+;
+; A MACRO and not a routine because its two callers can reach no common copy:
+; font_init runs from the boot overlay, which is gone by the desktop, and
+; hbm_wake runs from HIBER.DRV, which is not there at boot. One body, written
+; once, assembled into each - so the resume cannot pick a different table
+; from the one a fresh boot of the same machine would.
+;
+; THE BIOS'S ANSWER, UNLESS THE PLANAR ROM HOLDS THE SAME GLYPHS. int 10h
+; AX=1130h BH=3 names the table the adapter's BIOS uses - on an EGA or VGA
+; that is the card's OPTION ROM, which on an 8-bit ISA card is read through
+; the card's own bus cycle and can carry wait states the system board's ROM
+; does not (an IBM 5150 with a PVGA1A is the case this was written for). The
+; motherboard's copy at F000:FA6E is the IBM PC's fixed address - every
+; PC-compatible BIOS keeps it there, because the CGA graphics modes draw from
+; it - and when its 95 glyphs are BYTE-IDENTICAL to the answer, reading them
+; there changes no pixel and takes the zero-wait planar ROM. When they differ
+; the face is the card's and is kept: this never changes what text LOOKS
+; like. A pre-EGA BIOS answers nothing (ES:BP stay the zero set here) and
+; that falls straight to the planar table, which is font_init's old fallback.
+; -----------------------------------------------------------------------------
+FONT_PLANAR equ 0xFA6E + FONT_FIRST * 8    ; F000:FB6E, the planar glyph 32
+
+%macro FONT_PICK 0
+    xor ax, ax                  ; zero the answer first: on a pre-EGA BIOS
+    mov es, ax                  ; AH=11h is not implemented and returns with
+    xor bp, bp                  ; ES:BP untouched
+    mov ax, 0x1130              ; get font information
+    mov bh, 0x03                ; pointer wanted: ROM 8x8 character set
+    int 0x10                    ; -> ES:BP = font table
+    mov dx, es
+    mov ax, dx
+    or ax, bp
+    jz %%planar                 ; no answer: the planar ROM's own set
+    add bp, FONT_FIRST * 8
+    push ds                     ; DS:SI = the answer, ES:DI = the planar
+    mov ds, dx                  ; copy - and the same pair when the answer
+    mov si, bp                  ; IS F000:FA6E, which then compares equal
+    mov ax, 0xF000              ; and costs one pass over 760 bytes at boot
+    mov es, ax
+    mov di, FONT_PLANAR
+    mov cx, FONT_BYTES
+    repe cmpsb
+    pop ds
+    jne %%done                  ; a different face: the card's, kept
+%%planar:
+    mov dx, 0xF000
+    mov bp, FONT_PLANAR
+%%done:
+%endmacro
+
+; -----------------------------------------------------------------------------
+; font_init - pick the ROM 8x8 table and point [font_seg]:[font_base] at it
+;
+; in:       nothing (must run after vid_init and mem_init; uses int 10h)
 ; out:      nothing
 ; clobbers: nothing
 ;
@@ -164,19 +219,23 @@ SNAP_NCALL   equ 24             ; SPEC.md 11.94.2: off-grid callers logged per
 ; baked table would be dead code on every machine that ever runs it, and a
 ; baked table kept behind a probe would never be the thing being tested.
 ;
-; IN THE BOOT OVERLAY (SPEC.md 2.5.2, docs/plans/LAST-DROP-BYTES.md row 7), where it
-; sits beside ovl_font_init - the twin it is the alternative to, which has been
-; there since SPEC.md 6.2. One caller, kmain:4287, and zero outbound. What it
-; reads is the int 10h answer in ES:BP and what it writes is two .bss words
-; through DS = KERNEL_SEG, which the overlay has throughout.
+; IN THE BOOT OVERLAY (SPEC.md 2.5.2, docs/plans/LAST-DROP-BYTES.md row 7), so
+; the whole choice below costs no resident byte. One caller, kmain.
 ;
-; IT USED TO COPY the 760 bytes into a table in .lowbss, and every renderer
-; read that table through SS. The ROM is as readable as the copy and it does
-; not move - on a VGA or EGA it is the card's BIOS, on everything else the
-; motherboard's at F000:FA6E - so the renderers read it where it is, through
-; DS or ES, and the copy's 768 resident bytes are gone (SPEC.md 6). A
-; hibernated image carries the pointer; it resumes only on the machine that
-; wrote it, whose ROM the IVT in that image already names (SPEC.md 87.3).
+; THE TABLE IS READ IN PLACE (SPEC.md 6) - unless FONT_PICK had to settle on
+; an OPTION ROM, the one kind of ROM an ISA bus can put wait states on. Then
+; the 760 bytes go into a 1KB heap claim, MEM_K_FONT, and the renderers read
+; that: what the 768 resident bytes used to buy, paid only by the machines
+; that can use it and billed to the arena rather than to every kernel. It is
+; claimed TOP-DOWN and PINNED, which is what makes it free of fragmentation:
+; nothing is above it at boot (drivers and regions arrive later, and stack
+; under it), so it is never a barrier to either compaction pass and it takes
+; 1KB off the arena's ceiling and nothing out of its middle (SPEC.md 6.0.1).
+; A refused claim keeps the ROM pointer - slower is not wrong.
+;
+; NO TIMING: a PIT measurement of the candidates against RAM was costed and
+; does not fit the overlay (SPEC.md 6.0.1). `make FONTSLOW=1` forces the copy
+; on any machine, so the copy path has a row.
 ; -----------------------------------------------------------------------------
 %ifndef KERN_SMALL
 section .ovlw                   ; kern_big: the WINDOW half (SPEC.md 2.5.3),
@@ -204,29 +263,44 @@ font_init:
     push bx
     push cx
     push dx
+    push si
+    push di
     push bp
     push es
-
-    xor ax, ax                  ; zero the answer first: on a pre-EGA BIOS
-    mov es, ax                  ; AH=11h is not implemented and returns with
-    xor bp, bp                  ; ES:BP untouched
-    mov ax, 0x1130              ; get font information
-    mov bh, 0x03                ; pointer wanted: ROM 8x8 character set
-    int 0x10                    ; -> ES:BP = font table
-    mov ax, es
-    or ax, bp
-    jnz .have
-    mov ax, 0xF000              ; the IBM PC/XT ROM's own 8x8 set, which is
-    mov es, ax                  ; where a CGA or Hercules machine gets it
-    mov bp, 0xFA6E
-.have:
-    add bp, FONT_FIRST * 8      ; skip the control-character glyphs: glyph
-    mov [font_base], bp         ; FONT_FIRST, a SPACE, is where the table
-    mov [font_seg], es          ; starts and what an unprintable one draws.
+    FONT_PICK                   ; DX:BP = the table
+%ifndef FONTSLOW
+    cmp dx, 0xF000              ; the planar ROM: read in place
+    je .point
+%endif
+    mov si, dx                  ; an OPTION ROM (or FONTSLOW): copy it
+    push bp
+    mov ax, 1                   ; 1KB, the claim granule
+    mov bx, MEM_K_FONT
+    mov bp, mem_claim_hi_x      ; TOP-DOWN, pinned (see above)
+    call COLD_SEG:wm_cbd        ; DX = the block; clobbers nothing else
+    pop bp
+    jc .refused
+    push ds
+    mov es, dx
+    mov ds, si
+    mov si, bp
+    xor di, di
+    mov cx, FONT_BYTES / 2
+    rep movsw
+    pop ds
+    xor bp, bp                  ; the copy's glyph FONT_FIRST is its byte 0
+    jmp short .point
+.refused:
+    mov dx, si                  ; no room: the ROM, where it is
+.point:
+    mov [font_base], bp         ; glyph FONT_FIRST, a SPACE, is where the table
+    mov [font_seg], dx          ; starts and what an unprintable one draws.
                                 ; (39.14.11's seam cells need no clearing:
                                 ; font_ch_cut writes all eight rows of each)
     pop es
     pop bp
+    pop di
+    pop si
     pop dx
     pop cx
     pop bx

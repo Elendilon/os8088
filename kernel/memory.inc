@@ -230,6 +230,12 @@ MEM_K_FDLG equ 0xFF0F           ; the Standard File dialog's LISTING (SPEC.md
                                 ;
                                 ; 0xFF0E is MEM_K_ICO_UNUSED above, kept as a
                                 ; tombstone, so this is 0xFF0F
+MEM_K_FONT equ 0xFF10           ; the 8x8 glyph table COPIED OUT OF AN OPTION
+                                ; ROM (SPEC.md 6.0.1): 1KB, claimed top-down
+                                ; and pinned by font_init at boot, and only on
+                                ; a machine whose planar ROM does not carry
+                                ; the same glyphs. 0xFF0E is a tombstone and
+                                ; 0xFF0F the dialog's, so this is 0xFF10
 MEM_K_CLIP equ 0xFF07           ; the system clipboard's text (SPEC.md 55) -
                                 ; sized to what is in it, freed when it is
                                 ; emptied, and deliberately NOT an instance's,

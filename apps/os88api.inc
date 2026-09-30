@@ -1973,6 +1973,7 @@ MEM_K_HIB   equ 0xFF0C          ; the resume's extent list (SPEC.md 87.5)
 ; claims it - and it is kept unreusable for the reason above, so the dialog's
 ; listing below is 0xFF0F.
 MEM_K_FDLG  equ 0xFF0F          ; the Standard File dialog's listing (SPEC.md 38.2)
+MEM_K_FONT  equ 0xFF10          ; the 8x8 glyph table copied out of an option ROM (SPEC.md 6.0.1)
 
 MEM_PG_TRIV equ 0xFB            ; the purge tiers (SPEC.md 50.6.4), low to
 MEM_PG_LOW  equ 0xFC            ; high: what LOSING the block costs, which is
