@@ -154158,10 +154158,18 @@ without them (`ffmpeg` capability).
   frames each in flight - and then last frame's taken into account (the
   dead band; a text cell's glyph, repriced only in the cells where it was
   not among the candidates), in order, here. Where cutting the clip into
-  chunks restarts every chunk's dead band, this does not. THE PASS BEFORE
-  THE FRAMES - the levels', or the palette's - reads the clip beside the
-  frames' own decode, which is read ahead into memory meanwhile (256 MB at
-  most). `--aim quality`'s trials run at once (98.2.1.4). What stays on
+  chunks restarts every chunk's dead band, this does not. THE FRAMES ARE
+  STREAMED: each goes to the encoder as it is dithered, so the dither's
+  cores work beside the encoder's one and the decode beside both (ffmpeg's
+  frames read ahead on a thread, 256 MB at most) - unless the sound needs
+  the frame count first (ADPCM4, whose search runs to the last keyframe) or
+  the dither comes in `cgacomp`'s chunks, which dither every frame and then
+  encode as before. Streamed, the window's bar is ONE count spread over its
+  read, sound and encode steps - the frames encoded against the clip's
+  length - since all three go on at once. THE PASS BEFORE THE FRAMES - the
+  levels', or the palette's - reads the clip beside the frames' own decode,
+  read ahead the same way. `--aim quality`'s trials run at once
+  (98.2.1.4). What stays on
   one core is THE ENCODER ITSELF - each frame's budgets are what the last
   left, so frames cannot be encoded side by side - ffmpeg's `palettegen`,
   whose time grows with the colours the clip holds, and `cgacomp`'s

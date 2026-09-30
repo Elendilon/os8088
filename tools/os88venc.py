@@ -3560,6 +3560,13 @@ def _encode(a, keep, tick, readers):
     # clip through once more, and the frames are read beside it
     levels = a.levels == "auto" and not (vga8 or vga4 or cga4 or c160 or
                                         c512 or (text and tcol == "colour"))
+    jobs = a.jobs or os.cpu_count() or 1
+    # STREAMED (98.2.1): the frames go to the encoder as they are dithered,
+    # so the dither's cores work beside the encoder's one - unless the
+    # sound needs the frame count first (ADPCM4's search, its keyframes
+    # counted to the end) or the dither comes in chunks (cgacomp's)
+    stream = afmt != vid.AUD_ADPCM4 and not (comp and not pattern and
+                                              jobs > 1)
     frames = ffmpeg_video(              # (TEXT: eight by eight a cell)
         a.src, w // 4 if pattern else lw * 8 if text else lw,
         lh * 8 if text else lh, crop,
@@ -3567,7 +3574,7 @@ def _encode(a, keep, tick, readers):
                           ":".join(eq),
                           "rgb24" if comp or vga8 or vga4 or cga4 or c160
                           or c512 or text else "gray",
-                          ahead=AHEAD if levels or vga8 else 0)
+                          ahead=AHEAD if levels or vga8 or stream else 0)
     # the frame count to expect, for the progress: the clip's length at the
     # file's rate (ffmpeg's own count can differ by a frame or two)
     est = max(1, round(((a.end or dur or 0) - (a.start or 0)) * fps)) \
@@ -3575,7 +3582,8 @@ def _encode(a, keep, tick, readers):
 
     def counted(it):
         for n, f in enumerate(it, 1):
-            tick("read", n, est)
+            if not stream:          # (streamed: the encode says it)
+                tick("read", n, est)
             yield f
     readers.append(frames)
     frames = counted(frames)
@@ -3726,18 +3734,17 @@ def _encode(a, keep, tick, readers):
     else:
         pcm = ffmpeg_audio(a.src, rate, a.start, a.end, a.volume) \
             if afmt else b""
-    cyc, recs, n = [], [], 0
-    jobs = a.jobs or os.cpu_count() or 1
+    cyc = []
     if isinstance(dith, CompDiffuser) and jobs > 1:
-        pend = comp_parallel(frames, w, h, a, jobs,
-                             tick=lambda n: tick("read", n, est))
+        src = iter(comp_parallel(frames, w, h, a, jobs,
+                                 tick=lambda n: tick("read", n, est)))
     else:
-        pend = list(dither_all(dith, frames, jobs))
-    if text and (a.text_ocr or a.text_ocr_large):
-        say("   OCR: %d words drawn exact, %d crisp (a word counts once a "
-            "frame)" % tuple(tm.ocr_used))
-    nf = len(pend)
-    if not nf:
+        src = dither_all(dith, frames, jobs)
+        readers.append(src)             # (a cancel ends its pool)
+    if not stream:                      # every frame before the sound
+        src = iter(list(src))
+    first = next(src, None)
+    if first is None:
         raise vid.V88Error("no frames came out of %s" % a.src)
     # THE PRE-ROLL (SPEC.md 98.2.9): a first picture the budgets cannot
     # paint in one frame is HELD - the source's frame 0 again, over silence -
@@ -3745,11 +3752,9 @@ def _encode(a, keep, tick, readers):
     # of a half-painted screen, and a colour play STARTS from key 0, so the
     # first frames of a colour file came out streaked (the owner's report: a
     # 320 x 180 VGA8 frame is 57,600 bytes against a 30 KB record)
-    pre = preroll(enc, pend[0], abytes if afmt and not a.resident else 0,
+    pre = preroll(enc, first, abytes if afmt and not a.resident else 0,
                   round(PRE_SECS * fps))
     if pre:
-        pend = [pend[0]] * pre + pend
-        nf += pre
         if afmt:
             pcm = b"\x80" * (pre * spf) + pcm
         wr.key0 = pre
@@ -3757,27 +3762,75 @@ def _encode(a, keep, tick, readers):
             wr.loop += pre
         say("   pre-roll: %d frame(s) hold the first picture until it is "
             "whole (%.2f s); the keyframes start there" % (pre, pre / fps))
-    if keep is not None:            # the targets frame for frame, the
-        keep.extend(pend)           # pre-roll's included
-    tick("sound", 0, 0)
-    # a RESIDENT file's ADPCM4 ends where its lap joins (98.1.7.2): the
-    # seam's frame L, or 80h at scale 0 before frame 0
-    join = (wr.loop if wr.loop is not None else "start") \
-        if a.resident and afmt == vid.AUD_ADPCM4 else None
-    chunks = vid.audio_chunks(pcm, nf, spf, afmt, vid.key_frames(
-        nf, wr.keyint, wr.key0), search=jobs if a.adpcm == "search" else 0,
-        join=join) if afmt else None
-    if spk and chunks:                  # THE SPEAKER'S COUNTS, not samples
-        chunks = [vid.spk_counts(c, rate, a.spk_pulses)     # (98.1.1.3)
-                  for c in chunks]
+    import itertools
+    from collections import deque
+    targets = itertools.chain([first] * (pre + 1), src)
+    if stream:
+        # THE SOUND A FRAME AT A TIME: PCM8's chunk f is its samples, 80h
+        # past the end of the clip's sound - audio_chunks' own, with no
+        # frame count wanted
+        def chunk(f):
+            c = bytes(pcm[f * spf:(f + 1) * spf])
+            return c + b"\x80" * (spf - len(c))
+        total = est + pre if est else 0
+        R, S, E = (dict(STEPS)[k] for k in ("read", "sound", "encode"))
+
+        def progress(f):
+            """ONE BAR for reading, the sound and encoding, which all go
+            on at once: the frames encoded, spread over those steps"""
+            if not total:
+                tick("encode", f, 0)
+                return
+            x = min(1.0, f / total) * (R + S + E)
+            if x < R:
+                tick("read", round(x / R * total), total)
+            elif x < R + S:
+                tick("sound", 0, 0)
+            else:
+                tick("encode", round((x - R - S) / E * total), total)
+        tick("read", 0, total)
+        if not total:
+            tick("sound", 0, 0)
+    else:
+        rest = list(targets)
+        nf = len(rest)
+        targets = iter(rest)
+        tick("sound", 0, 0)
+        # a RESIDENT file's ADPCM4 ends where its lap joins (98.1.7.2): the
+        # seam's frame L, or 80h at scale 0 before frame 0
+        join = (wr.loop if wr.loop is not None else "start") \
+            if a.resident and afmt == vid.AUD_ADPCM4 else None
+        chunks = vid.audio_chunks(pcm, nf, spf, afmt, vid.key_frames(
+            nf, wr.keyint, wr.key0),
+            search=jobs if a.adpcm == "search" else 0, join=join) \
+            if afmt else None
+        chunk = chunks.__getitem__ if afmt else None
+    ahead = deque()
     sound = []
-    for f, target in enumerate(pend):
-        tick("encode", f, nf)
-        au = chunks[f] if afmt else b""
+    f = -1
+    while True:
+        while len(ahead) < 1 + enc.look:
+            t = next(targets, None)
+            if t is None:
+                break
+            ahead.append(t)
+        if not ahead:
+            break
+        f += 1
+        target = ahead.popleft()
+        if keep is not None:        # the targets frame for frame, the
+            keep.append(target)     # pre-roll's included
+        if stream:
+            progress(f)
+        else:
+            tick("encode", f, nf)
+        au = chunk(f) if afmt else b""
+        if spk and afmt:            # THE SPEAKER'S COUNTS, not samples
+            au = vid.spk_counts(au, rate, a.spk_pulses)     # (98.1.1.3)
         if a.resident:              # the sound is ONE block (98.1.7)
             sound.append(au)
             au = b""
-        enc.future = pend[f + 1:f + 1 + enc.look]
+        enc.future = list(ahead)[:enc.look]
         ops, rec = enc.frame(target, au)
         cyc.append(enc.charge(rec, len(au)) + audio_cyc)
         if enc.metric:
@@ -3836,7 +3889,12 @@ def _encode(a, keep, tick, readers):
             else:
                 vid.write_png(out, g.wb, g.h, g.canvas(enc.surf))
         if not a.quiet and f % 300 == 299:
-            print("   frame %d of %d" % (f + 1, nf), file=sys.stderr)
+            print("   frame %d of %d" % (f + 1, nf if not stream else
+                                         est + pre), file=sys.stderr)
+    nf = f + 1
+    if text and (a.text_ocr or a.text_ocr_large):
+        say("   OCR: %d words drawn exact, %d crisp (a word counts once a "
+            "frame)" % tuple(tm.ocr_used))
     tick("write", 0, 0)
     poster = a.poster
     if a.poster_at is not None:
