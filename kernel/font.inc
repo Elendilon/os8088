@@ -152,33 +152,75 @@ SNAP_NCALL   equ 24             ; SPEC.md 11.94.2: off-grid callers logged per
 
 %ifndef BAKED_FONT
 ; -----------------------------------------------------------------------------
-; FONT_PICK - which ROM 8x8 table to read (SPEC.md 6.0.1)
+; FONT_PICK - which ROM 8x8 table to read, TIMED (SPEC.md 6.0.1)
 ;
-; out:      DX:BP = glyph FONT_FIRST of the table; DS = KERNEL_SEG untouched
-; clobbers: AX, BX, CX, SI, DI, ES, flags
+; in:       %1 = the label prefix of a FONT_TIMERS expansion in reach
+; out:      DX:BP = glyph FONT_FIRST of the ROM table to read - the planar
+;           one unless the BIOS's answer is an eighth faster -
+;           BX = its PIT count, CX = RAM's for the same read; the three
+;           counts are also left in the BDA's intra-application area at
+;           0040:00F8 behind the word 'FP' (FONT_ICA), for tests/romfont
+;           and tests/fontpick to read - the kernel keeps none of them
+; clobbers: AX, SI, DI, ES, flags. DS = KERNEL_SEG untouched
 ;
-; A MACRO and not a routine because its two callers can reach no common copy:
-; font_init runs from the boot overlay, which is gone by the desktop, and
-; hbm_wake runs from HIBER.DRV, which is not there at boot. One body, written
-; once, assembled into each - so the resume cannot pick a different table
-; from the one a fresh boot of the same machine would.
+; A MACRO because its two callers can reach no common copy: font_init runs
+; from the boot overlay, which is gone by the desktop, and hbm_wake runs from
+; HIBER.DRV, which is not there at boot. One body assembled into each, so a
+; resume asks the reading machine exactly what a fresh boot of it would.
 ;
-; THE BIOS'S ANSWER, UNLESS THE PLANAR ROM HOLDS THE SAME GLYPHS. int 10h
-; AX=1130h BH=3 names the table the adapter's BIOS uses - on an EGA or VGA
-; that is the card's OPTION ROM, which on an 8-bit ISA card is read through
-; the card's own bus cycle and can carry wait states the system board's ROM
-; does not (an IBM 5150 with a PVGA1A is the case this was written for). The
-; motherboard's copy at F000:FA6E is the IBM PC's fixed address - every
-; PC-compatible BIOS keeps it there, because the CGA graphics modes draw from
-; it - and when its 95 glyphs are BYTE-IDENTICAL to the answer, reading them
-; there changes no pixel and takes the zero-wait planar ROM. When they differ
-; the face is the card's and is kept: this never changes what text LOOKS
-; like. A pre-EGA BIOS answers nothing (ES:BP stay the zero set here) and
-; that falls straight to the planar table, which is font_init's old fallback.
+; THE CANDIDATES. int 10h AX=1130h BH=3 names the table the adapter's BIOS
+; uses - on an EGA or VGA the card's OPTION ROM, which on an 8-bit ISA card is
+; read through the card's own bus cycle (an IBM 5150 with a PVGA1A is the
+; case this was written for). F000:FA6E is the IBM PC's fixed address for the
+; same set, and every PC-compatible BIOS keeps it there because the CGA
+; graphics modes draw from it - but it is a candidate only when its 95 glyphs
+; are BYTE-IDENTICAL to the answer, so the choice never changes what text
+; looks like. A BIOS that answers nothing (pre-EGA) makes the planar table
+; the only candidate: it is compared with itself and timed twice, 2 ms of a
+; boot on a 5150, which is cheaper in bytes than a branch around it.
+;
+; THE CLOCK. PIT channel 0 latched, before and after a `rep lodsb` over the
+; 760 bytes with IF clear. Whichever mode the channel is in - the ROM's mode
+; 3 counts by two, the kernel's mode 2 by one (SPEC.md 8.1) - all three
+; readings are taken in it, so the comparison is a RATIO and the unit
+; cancels; the down-count's modular difference is right across a reload.
 ; -----------------------------------------------------------------------------
 FONT_PLANAR equ 0xFA6E + FONT_FIRST * 8    ; F000:FB6E, the planar glyph 32
+FONT_ICA    equ 0x00F8                      ; 0040:00F8: 'FP', best, RAM, BIOS.
+                                            ; kern_dos's mailbox is F0..F7
+                                            ; (KDB_OFF), so the two halves of
+                                            ; the 16 bytes never meet
 
-%macro FONT_PICK 0
+%macro FONT_TIMERS 1
+; %1_time - AX:SI = a table; out AX = PIT counts to read FONT_BYTES of it.
+; Clobbers CX, DX, SI and the flags.
+%1_time:
+    push ds
+    mov ds, ax
+    pushf
+    cli                         ; nothing may land inside the measurement
+    call %1_pit
+    xchg dx, ax
+    mov cx, FONT_BYTES
+    rep lodsb
+    call %1_pit
+    popf
+    pop ds
+    sub dx, ax                  ; a DOWN-count: start - end, modular
+    xchg ax, dx
+    ret
+; %1_pit - AX = channel 0's count, latched. Clobbers nothing else.
+%1_pit:
+    xor al, al
+    out 0x43, al
+    in al, 0x40
+    mov ah, al
+    in al, 0x40
+    xchg al, ah
+    ret
+%endmacro
+
+%macro FONT_PICK 1
     xor ax, ax                  ; zero the answer first: on a pre-EGA BIOS
     mov es, ax                  ; AH=11h is not implemented and returns with
     xor bp, bp                  ; ES:BP untouched
@@ -186,24 +228,64 @@ FONT_PLANAR equ 0xFA6E + FONT_FIRST * 8    ; F000:FB6E, the planar glyph 32
     mov bh, 0x03                ; pointer wanted: ROM 8x8 character set
     int 0x10                    ; -> ES:BP = font table
     mov dx, es
-    mov ax, dx
-    or ax, bp
-    jz %%planar                 ; no answer: the planar ROM's own set
     add bp, FONT_FIRST * 8
-    push ds                     ; DS:SI = the answer, ES:DI = the planar
-    mov ds, dx                  ; copy - and the same pair when the answer
-    mov si, bp                  ; IS F000:FA6E, which then compares equal
-    mov ax, 0xF000              ; and costs one pass over 760 bytes at boot
+    or dx, dx                   ; a table is never in segment 0: no answer
+    jnz %%timea
+    mov dx, 0xF000              ; no answer: the planar ROM's own set
+    mov bp, FONT_PLANAR
+%%timea:
+    mov ax, dx                  ; BX = the answer's count
+    mov si, bp
+    push dx
+    call %1_time
+    pop dx
+    xchg bx, ax
+    push bx                     ; ...kept for the ICA
+    push ds                     ; is the planar set the SAME glyphs?
+    mov ds, dx
+    mov si, bp
+    mov ax, 0xF000
     mov es, ax
     mov di, FONT_PLANAR
     mov cx, FONT_BYTES
     repe cmpsb
     pop ds
-    jne %%done                  ; a different face: the card's, kept
-%%planar:
+    jne %%ram                   ; a different face: the card's, the only one
+    push dx
+    mov ax, es                  ; AX = 0xF000
+    mov si, FONT_PLANAR
+    call %1_time
+    pop dx
+    mov si, bx                  ; the planar ROM unless the answer beats it
+    shr si, 1                   ; by an EIGHTH: a tie goes to the system
+    shr si, 1                   ; board, which is zero-wait on every PC, and a
+    shr si, 1                   ; margin is what keeps two boots of one
+    add si, bx                  ; machine from picking two tables on noise
+    cmp ax, si
+    ja %%ram
+    xchg bx, ax                 ; take the planar ROM
     mov dx, 0xF000
     mov bp, FONT_PLANAR
-%%done:
+%%ram:
+    push dx
+    mov ax, ds                  ; ...and RAM: the kernel's own first bytes
+    xor si, si
+    call %1_time
+    pop dx
+    xchg cx, ax                 ; CX = RAM
+    mov ax, 0x0040
+    mov es, ax
+    mov di, FONT_ICA
+    mov ax, 'FP'
+    stosw
+    xchg ax, bx
+    stosw                       ; best
+    xchg ax, bx
+    xchg ax, cx
+    stosw                       ; RAM
+    xchg ax, cx
+    pop ax
+    stosw                       ; the BIOS answer's own
 %endmacro
 
 ; -----------------------------------------------------------------------------
@@ -219,45 +301,29 @@ FONT_PLANAR equ 0xFA6E + FONT_FIRST * 8    ; F000:FB6E, the planar glyph 32
 ; baked table would be dead code on every machine that ever runs it, and a
 ; baked table kept behind a probe would never be the thing being tested.
 ;
-; IN THE BOOT OVERLAY (SPEC.md 2.5.2, docs/plans/LAST-DROP-BYTES.md row 7), so
-; the whole choice below costs no resident byte. One caller, kmain.
+; IN THE BLOB HALF OF THE BOOT OVERLAY (`.ovl`) ON BOTH KERNELS, reached by
+; BLOBCALL: SPEC.md 6.0.1 grew the blob to ten sectors for exactly this body,
+; so it costs no resident byte and no window byte. One caller, kmain.
 ;
-; THE TABLE IS READ IN PLACE (SPEC.md 6) - unless FONT_PICK had to settle on
-; an OPTION ROM, the one kind of ROM an ISA bus can put wait states on. Then
-; the 760 bytes go into a 1KB heap claim, MEM_K_FONT, and the renderers read
-; that: what the 768 resident bytes used to buy, paid only by the machines
-; that can use it and billed to the arena rather than to every kernel. It is
-; claimed TOP-DOWN and PINNED, which is what makes it free of fragmentation:
-; nothing is above it at boot (drivers and regions arrive later, and stack
-; under it), so it is never a barrier to either compaction pass and it takes
-; 1KB off the arena's ceiling and nothing out of its middle (SPEC.md 6.0.1).
-; A refused claim keeps the ROM pointer - slower is not wrong.
+; THE TABLE IS READ IN PLACE (SPEC.md 6) - unless even the fastest candidate
+; FONT_PICK timed is slower than RAM by more than a quarter. Then the 760
+; bytes go into a 1KB heap claim, MEM_K_FONT, and the renderers read that:
+; what the 768 resident bytes used to buy, paid only by the machine that
+; measured the need and billed to the arena rather than to every kernel. It
+; is claimed TOP-DOWN and PINNED, before any driver, module or region
+; exists, so it takes the arena's ceiling and everything later stacks under
+; it - never a barrier to either compaction pass. A refused claim keeps the
+; ROM pointer: slower is not wrong.
 ;
-; NO TIMING: a PIT measurement of the candidates against RAM was costed and
-; does not fit the overlay (SPEC.md 6.0.1). `make FONTSLOW=1` forces the copy
-; on any machine, so the copy path has a row.
+; WHY A QUARTER: a glyph byte is one read in a cell writer that makes two or
+; more framebuffer accesses per row, so a table 25% slower than RAM is under
+; ~10% of a cell - the most a copy could buy back for its kilobyte - and the
+; 8088's own jitter between two passes of the same loop is under 1%
+; (tests/romfont). A machine that crosses it, an unshadowed 8-bit option ROM
+; on an AT bus, crosses it by multiples. `make FONTSLOW=1` takes the copy on
+; any machine, so the copy path has a row.
 ; -----------------------------------------------------------------------------
-%ifndef KERN_SMALL
-section .ovlw                   ; kern_big: the WINDOW half (SPEC.md 2.5.3),
-                                ; whose window has room to spare
-%else
-section .ovl                    ; ...and kern_small: the BLOB half instead
-                                ; (SPEC.md 2.5.3.2, mouse_init's shape). The
-                                ; deadline is the same either way - kmain runs
-                                ; this long before drv_boot - so the choice is
-                                ; only about WHOSE bytes. On that kernel
-                                ; `.ovlw` is read onto the FAT window and the
-                                ; mount buffers, and SPEC.md 22.6.3 has just
-                                ; taken the LISTING out of that region: the
-                                ; 800 bytes it gave back are only 288 of heap
-                                ; while the overlay still needs the rest, so
-                                ; every body moved here turns one more of them
-                                ; into heap. `.ovl` is written LAST on
-                                ; purpose: tools/os88ovlchk.py reads SOURCE
-                                ; and cannot evaluate the %ifdef, so it files
-                                ; this block by the arm below - which is the
-                                ; build the check exists to protect
-%endif
+section .ovl
 font_init:
     push ax
     push bx
@@ -267,12 +333,16 @@ font_init:
     push di
     push bp
     push es
-    FONT_PICK                   ; DX:BP = the table
+    FONT_PICK fi                ; DX:BP = the table, BX = its count, CX = RAM's
 %ifndef FONTSLOW
-    cmp dx, 0xF000              ; the planar ROM: read in place
-    je .point
+    mov ax, cx
+    shr ax, 1
+    shr ax, 1
+    add ax, cx                  ; RAM x 1.25
+    cmp bx, ax
+    jbe .point                  ; within a quarter of RAM: read in place
 %endif
-    mov si, dx                  ; an OPTION ROM (or FONTSLOW): copy it
+    mov si, dx                  ; slower than that (or FONTSLOW): copy it
     push bp
     mov ax, 1                   ; 1KB, the claim granule
     mov bx, MEM_K_FONT
@@ -305,7 +375,8 @@ font_init:
     pop cx
     pop bx
     pop ax
-    retf                        ; FAR: kmain reaches this through OVLGATE1
+    retf                        ; FAR: kmain reaches this through BLOBCALL
+    FONT_TIMERS fi
 section .text
 %endif
 

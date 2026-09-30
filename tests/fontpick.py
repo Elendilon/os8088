@@ -13,6 +13,10 @@ SPEC.md 6.0.1's two verdicts, off the guest's own memory and the glass:
      reads F000:FB6E here too on a CGA (the answer IS the planar table there),
      which is why the default machine is the VGA XT: there the answer is the
      option ROM at C000 and only the test brings it to F000.
+     And the kernel's OWN measurement, which font_init leaves at 0040:00F8
+     behind 'FP' (chosen table, RAM, the BIOS's answer, in PIT counts):
+     the chosen/RAM ratio must be within the quarter that keeps the table in
+     place - MartyPC prices every ROM read as a RAM read, so it reads ~1000.
   B. `make FONTSLOW=1`, which forces the copy verdict on any machine. The
      kernel must have ONE 1KB MEM_K_FONT claim, pinned at the arena's CEILING
      (its last paragraph is [mem_top] - 1, the top-down placement that makes
@@ -71,6 +75,7 @@ def leg(tree, machine, say):
             if u16(r, MC_SEG) and u16(r, MC_OWN) == MEM_K_FONT:
                 claims.append((u16(r, MC_SEG), u16(r, MC_PARA)))
         glyphs = bytes(m.read(seg * 16 + off, FONT_BYTES))
+        ica = bytes(m.read(0x4F8, 8))
         rom = bytes(m.read(PLANAR[0] * 16 + PLANAR[1], FONT_BYTES))
         ui.open_drive("A")
         ui.settle()
@@ -83,7 +88,16 @@ def leg(tree, machine, say):
             rows = [bytes(r) for r in rows]
     say("font %04X:%04X, mem_top %04X, MEM_K_FONT claims %s"
         % (seg, off, top, ["%04X+%d" % c for c in claims] or "none"))
-    return seg, off, top, claims, glyphs, rom, rows
+    if ica[:2] == b"FP":
+        best, ram, bios = struct.unpack_from("<HHH", ica, 2)
+        ratio = 1000.0 * best / ram if ram else 0.0
+        say("the kernel's own clock (0040:00F8): chosen %d, RAM %d, BIOS "
+            "answer %d PIT counts - chosen/RAM x1000 = %.0f"
+            % (best, ram, bios, ratio))
+    else:
+        ratio = None
+        say("no 'FP' record at 0040:00F8")
+    return seg, off, top, claims, glyphs, rom, rows, ratio
 
 
 def main(argv):
@@ -98,8 +112,14 @@ def main(argv):
         print("fontpick: " + s)
 
     print("=== A: the shipped kernel on %s ===" % a.machine)
-    seg, off, top, claims, glyphs, rom, pa = leg(
+    seg, off, top, claims, glyphs, rom, pa, ratio = leg(
         os88build.plain(), a.machine, say)
+    if ratio is None:
+        fail.append("A: font_init left no timing record at 0040:00F8")
+    elif not 900 <= ratio < 1250:
+        fail.append("A: the kernel measured the chosen table at %.0f x1000 "
+                    "of RAM - MartyPC prices a ROM read as a RAM read, so "
+                    "this is 1000 or the clock is wrong" % ratio)
     if (seg, off) != PLANAR:
         fail.append("A: the kernel reads %04X:%04X, not the planar table "
                     "F000:FB6E whose glyphs every BIOS here carries "
@@ -113,7 +133,10 @@ def main(argv):
     if not a.no_build:
         print("\n=== B: FONTSLOW=1, the copy verdict forced ===")
         knob = os88build.tree("FONTSLOW=1")
-        seg, off, top, claims, glyphs, rom, pb = leg(knob, a.machine, say)
+        seg, off, top, claims, glyphs, rom, pb, ratio = leg(knob, a.machine,
+                                                            say)
+        if ratio is None:
+            fail.append("B: no timing record at 0040:00F8")
         if len(claims) != 1:
             fail.append("B: %d MEM_K_FONT claims, want exactly one"
                         % len(claims))
