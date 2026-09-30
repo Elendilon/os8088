@@ -611,11 +611,11 @@ rd_preserve:
     call OSAPI_FILE_WRITE
     jc .nofile
     call rd_ctab_build          ; --- ...then the chain table, one append ----
-    mov es, [rd_wseg]
-    xor bx, bx
-    mov cx, RDI_CTAB
-    mov si, rd_iname
-    call OSAPI_FILE_APPEND
+    mov es, [rd_wseg]           ; ...which OPENS the image's one HELD stream
+    xor bx, bx                  ; (SPEC.md 18.4.9): no lookup and no walk a
+    mov cx, RDI_CTAB            ; chunk, and no FAT or directory write until
+    mov word [rd_itok], 0       ; the close below. An image is useless until
+    call rd_wseq                ; it is whole, so HELD's one loss is nothing
     jc .nofile
     call rd_wbuf_free
                                 ; --- then the arena, chunk by chunk ---------
@@ -647,13 +647,15 @@ rd_preserve:
     mov cx, [rd_ilen]
     mov es, bx
     xor bx, bx
-    mov si, rd_iname
-    call OSAPI_FILE_APPEND
+    call rd_wseq
     jc .nofile2
     mov cx, [rd_ilen]
     call rd_chunk_adv
     jmp short .chunk
 .done:
+    xor cx, cx                  ; THE CLOSE: the link, the FAT and the size,
+    call OSAPI_FILE_WRITE_SEQ   ; once. A failure is the disk's
+    jc .nofile2
     mov byte [rd_flags], RDCF_BOOT
     call rd_cfg_mark
     pop es
@@ -685,6 +687,16 @@ rd_preserve:
     pop cx
     pop bx
     stc
+    ret
+
+; rd_wseq - one HELD chunk of the image: ES:BX, CX bytes, onto [rd_iname]
+; under [rd_itok]. out: CF/AX as OSAPI_FILE_WRITE_SEQ. clobbers: AX, SI, DI
+rd_wseq:
+    mov si, rd_iname
+    mov di, [rd_itok]
+    mov al, WSEQF_HELD
+    call OSAPI_FILE_WRITE_SEQ
+    mov [rd_itok], di           ; (`mov`: CF stays the answer)
     ret
 
 ; rd_arena_left - DX:AX = the arena bytes this preserve has not moved yet

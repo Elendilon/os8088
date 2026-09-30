@@ -124,6 +124,7 @@ CL_FOFF      equ 42             ; dd: the byte offset reached in the file
 CL_FSPT      equ 46             ; dw \ the FILE volume's live geometry, banked
 CL_FHDS      equ 48             ; dw  | so a raw transfer on the DISK end can
 CL_FTOT      equ 50             ; dw /  borrow those words and give them back
+CL_FTOK      equ 54             ; dw: the image file's WRITE_SEQ token (18.4.9)
 CL_FCLUS     equ 52             ; dw: the FOLDER the image file is in - the
                                 ; volume alone is not enough, because the
                                 ; current directory is GLOBAL and the UI runs
@@ -1005,19 +1006,33 @@ clo_fput:
 .isapp:
     mov cx, di                  ; CX = the count, DX:CX for the write
     xor dx, dx
-    mov di, [es:CL_BUFSG]
     mov si, clo_fnbuf
     xor bx, bx                  ; ES:BX = the buffer at offset 0
     push es
-    mov es, di
+%ifdef KERN_BIG
+    mov di, [es:CL_FTOK]
+%endif
+    mov es, [es:CL_BUFSG]
     or ah, ah
     jnz .append
     call COLD_SEG:dwf_dskw_write
     jmp short .did
 .append:
+%ifdef KERN_BIG
+    mov al, WSQF_HELD           ; ONE HELD STREAM (SPEC.md 18.4.9, 18.99.8):
+    call COLD_SEG:dwf_dskw_write_seq    ; no lookup and no walk a chunk, no
+                                ; FAT or directory write until clo_imgrun's
+                                ; close. Nothing between two chunks mounts
+                                ; anything - the disk end is a bank - so the
+                                ; FAT dirt simply stays in the window
+%else
     call COLD_SEG:dwf_dskw_append
+%endif
 .did:
     pop es
+%ifdef KERN_BIG
+    mov [es:CL_FTOK], di        ; (`mov`: CF stays the answer)
+%endif
     jc .bad
     call clo_fadv
     clc
@@ -1708,6 +1723,13 @@ clo_imgrun:
     mov cx, [es:CL_NEXT]
     cmp cx, [es:CL_TOT]
     jb .image
+%ifdef KERN_BIG
+    xor cx, cx                  ; THE CLOSE: the image's link, FAT and size,
+    call COLD_SEG:dwf_dskw_write_seq    ; once - the last clo_fput left the
+    jnc .out                    ; file end standing
+    call clo_ferr
+    stc
+%endif
     jmp short .out
 .write:                         ; file -> disk
     call clo_fget
