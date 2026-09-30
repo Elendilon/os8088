@@ -2061,6 +2061,8 @@ dos_fsx_main:
 
 dos_prog_done:                      ; the INT 21h terminate path jumps here,
                                     ; having already put SS:SP back
+    call dos_fh_sweep               ; EVERY HANDLE CLOSED, as DOS closes them
+                                    ; for a terminating process (SPEC.md 96.52)
     cmp word [dos_hkv + DHK_SNAP], 0 ; **THE LAST SCREEN FIRST** (SPEC.md 96.34):
     je .nosnap                       ; the BDA's mode byte and cursor are the
     call word [dos_hkv + DHK_SNAP]   ; PROGRAM's until dos_restore_machine runs,
@@ -3145,8 +3147,9 @@ dos_int21:
     call dos_fh_new                 ; BX = the handle, SI = the record, zeroed
     jc .fmany
     call dos_fh_setname
-    mov al, [dos_pvol]              ; THE VOLUME THE NAME LANDED ON, which is
-    mov [si+FH_VOL], al             ; where every later read of this handle
+    call dos_fh_here                ; THE VOLUME AND FOLDER THE NAME LANDED
+                                    ; ON (dos_fh_at), which is
+                                    ; where every later read of this handle
                                     ; goes. **IT IS `[dos_pvol]` AND NOT
                                     ; `[dos_vol]`** (SPEC.md 96.48.3): this
                                     ; used to read the PROGRAM's drive on the
@@ -3240,8 +3243,8 @@ dos_int21:
     call dos_fh_new
     jc .fmany
     call dos_fh_setname
-    mov al, [dos_pvol]              ; ...and the same for a file just CREATED
-    mov [si+FH_VOL], al             ; (SPEC.md 96.48.3)
+    call dos_fh_here                ; ...and the same for a file just CREATED
+                                    ; (SPEC.md 96.48.3)
     mov byte [si+FH_FLAGS], FHF_USED | FHF_WRITE
     call dos_jft_sync
     mov ax, bx
@@ -3252,26 +3255,8 @@ dos_int21:
     push bx
     call dos_fh_slot                ; SI = the record, BX = its index
     jc .fhbad
-    cmp bl, [dos_wown]
-    jne .clnw
-    call dos_fh_flush
+    call dos_fh_close
     jc .fherr
-.clnw:
-    test byte [si+FH_FLAGS], FHF_WRITE
-    jz .cldone
-    test byte [si+FH_FLAGS], FHF_MADE | FHF_INPLC
-    jnz .cldone                     ; ...OR OPENED, WHICH IS THE SAME ANSWER
-                                    ; HERE and is why this is one immediate
-                                    ; rather than a second test: an AH=3Dh
-                                    ; handle never created anything, so
-                                    ; "created and never written" is not a
-                                    ; state it can be in - and touching its
-                                    ; file would truncate the one it just
-                                    ; overwrote in place (SPEC.md 96.11.6)
-    call dos_fh_touch               ; created, never written: DOS leaves a
-    jc .fherr                       ; zero-length file and so does this
-.cldone:
-    mov byte [si+FH_FLAGS], 0
     call dos_jft_sync
     xor ax, ax
     jmp .fhok
@@ -12783,7 +12768,14 @@ FH_VOL      equ 22                  ; the VOLUME the name is resolved against
                                     ; happens to be standing - which is how a
                                     ; copy off B: onto C: reads the
                                     ; destination back into itself
-FH_SIZEOF   equ 23
+FH_DIR      equ 23                  ; ...and the FOLDER, a word: where the
+                                    ; machine stood when the name resolved.
+                                    ; Without it a name opened as SUB\X.DAT
+                                    ; was re-resolved in the drive's CURRENT
+                                    ; folder at every read and flush - the
+                                    ; wrong file, from the first byte
+                                    ; (docs/plans/DOS-STREAM-PLAN.md 3.1)
+FH_SIZEOF   equ 25
 ; --- FH_FLAGS: ONE BYTE, SEVEN BITS, AND THEY GO IN ORDER (SPEC.md 96.11.10)
 ; **NOTHING ELSE MAY BE DEFINED BETWEEN THEM.** This block used to have the
 ; four DOS_DEV_* codes sitting in the middle of it, and the reader that added
@@ -15962,10 +15954,63 @@ dos_fh_setname:
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
+; dos_fh_close - AH=3Eh's body: the record at SI, index BL, is closed
+; out: CF=0; CF=1 with AL = a DOS error code, the record freed either way
+;
+; ONE BODY FOR THE CALL AND FOR THE EXIT (SPEC.md 96.52): a process that
+; terminates has every handle closed for it, which is DOS's rule and was not
+; this box's - the dirty window a program left behind was never written, and
+; the next launch's dos_fh_setup threw it away. dos_fh_sweep is the exit's
+; loop over this.
+; -----------------------------------------------------------------------------
+dos_fh_close:
+    cmp bl, [dos_wown]
+    jne .clnw
+    call dos_fh_flush
+    jc .out
+.clnw:
+    test byte [si+FH_FLAGS], FHF_WRITE
+    jz .done
+    test byte [si+FH_FLAGS], FHF_MADE | FHF_INPLC
+    jnz .done                       ; ...OR OPENED, WHICH IS THE SAME ANSWER
+                                    ; HERE and is why this is one immediate
+                                    ; rather than a second test: an AH=3Dh
+                                    ; handle never created anything, so
+                                    ; "created and never written" is not a
+                                    ; state it can be in - and touching its
+                                    ; file would truncate the one it just
+                                    ; overwrote in place (SPEC.md 96.11.6)
+    call dos_fh_touch               ; created, never written: DOS leaves a
+                                    ; zero-length file and so does this
+.done:
+.out:
+    mov byte [si+FH_FLAGS], 0       ; flags only: CF is the answer
+    ret
+
+; dos_fh_sweep - close every handle still open, as DOS does at a terminate.
+; No error goes anywhere: there is no program left to tell.
+; clobbers: AX, BX, SI
+dos_fh_sweep:
+    mov si, dos_fhtab
+    xor bx, bx
+.l:
+    test byte [si+FH_FLAGS], FHF_USED
+    jz .n
+    call dos_fh_close
+.n:
+    add si, FH_SIZEOF
+    inc bx
+    cmp bl, DOS_NFH
+    jb .l
+    ret
+
+; -----------------------------------------------------------------------------
 ; dos_fh_touch - make the zero-length file the record at SI names
 ; in:  SI = the record; out: CF=1 with AL = a DOS error code
 ; -----------------------------------------------------------------------------
 dos_fh_touch:
+    call dos_fh_at                  ; where the NAME was resolved, not where
+    jc .err                         ; the machine happens to stand now
     push bx
     push cx
     push dx
@@ -16126,15 +16171,9 @@ dos_fh_shrink:
     mov byte [dos_wfill], 0
     mov word [dos_wlen], 0
 
-    mov al, [si+FH_VOL]             ; THE BYTES GO WHERE THE FILE IS (96.6.2),
-    call dos_vol_to                 ; and one switch covers the whole rewrite
-    jc .terr                        ; where dos_fh_fill brackets each call
-    push ax
+    call dos_fh_at                  ; THE BYTES GO WHERE THE FILE IS (96.6.2),
+    jc .terr                        ; and one stand covers the whole rewrite
     call .body
-    pop ax
-    pushf                           ; ...and the walk home happens whatever the
-    call dos_vol_to                 ; body did, or the program is left standing
-    popf                            ; somewhere it never asked to be
     jc .terr
 
     mov ax, [si+FH_POS]             ; the record last, as everywhere else here
@@ -17300,6 +17339,53 @@ dos_vol_park:
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
 ; -----------------------------------------------------------------------------
+; dos_fh_at - stand the MACHINE where the file of the record at SI is
+; out: CF=0; CF=1 = that volume or folder cannot be reached
+; clobbers: nothing but the flags
+;
+; **THE RECORD'S OWN FOLDER, NOT THE DRIVE'S CURRENT ONE** (SPEC.md 96.52).
+; A handle used to keep only its volume and re-resolve its bare name in that
+; drive's current folder at every refill and flush, so SUB\X.DAT opened from
+; the root read the root's X.DAT - or nothing - from its first byte on. The
+; record keeps [dos_pdir] from the open now (dos_fh_here), and this stands
+; exactly there. It never moves the PROGRAM's drive, so there is nothing to
+; walk home afterwards; and when the machine already stands there it is two
+; compares, which is the read loop's common case.
+; -----------------------------------------------------------------------------
+dos_fh_at:
+    push ax
+    push bx
+    push dx
+    mov bl, [si+FH_VOL]
+    mov dx, [si+FH_DIR]
+    cmp bl, [dos_pvol]
+    jne .go
+    cmp dx, [dos_pdir]
+    je .ok
+.go:
+    call dos_be_goto
+    jc .no
+.ok:
+    clc
+.no:
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; dos_fh_here - the record at SI resolves where the machine stands now: the
+; open's and the create's, after dos_fh_enter has walked the name's folder
+; clobbers: AX
+dos_fh_here:
+    mov al, [dos_pvol]
+    mov [si+FH_VOL], al
+    mov ax, [dos_pdir]
+    mov [si+FH_DIR], ax
+    ret
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
 ; dos_fh_leave - back to the drive dos_fh_enter left, if it left one
 ; clobbers: nothing, flags included
 ;
@@ -17425,10 +17511,10 @@ dos_fh_flush:
     mul bl
     mov si, ax
     add si, dos_fhtab
-    mov al, [si+FH_VOL]             ; THE BYTES GO WHERE THE FILE IS, not where
-    call dos_vol_to                 ; the program is standing: a copy off B:
-    jc .err                         ; onto C: writes with B: current every
-    mov [dos_wvsv], al              ; other window (SPEC.md 96.6.2)
+    call dos_fh_at                  ; THE BYTES GO WHERE THE FILE IS, not where
+    jc .err                         ; the program is standing: a copy off B:
+                                    ; onto C: writes with B: current every
+                                    ; other window (SPEC.md 96.6.2)
     mov al, [si+FH_FLAGS]
     add si, FH_NAME
     mov bx, [dos_wseg]
@@ -17461,20 +17547,15 @@ dos_fh_flush:
     mov dx, [dos_wbase+2]
     call dos_be_wrat
     jc .errv
-.home:
-    mov al, [dos_wvsv]              ; ...and back, before anything else can
-    call dos_vol_park               ; run - the PROGRAM's drive only, the
-.clean:                             ; machine staying where the write went
-                                    ; (SPEC.md 96.48)
+.home:                              ; the machine stays where the write went
+.clean:                             ; (SPEC.md 96.48)
     mov byte [dos_wdirty], 0
     mov word [dos_wlen], 0
 .ok:
     clc
     jmp short .out
 .errv:
-    mov al, [dos_wvsv]              ; a failed write still comes home, or the
-    call dos_vol_park               ; program is left standing somewhere it
-.err:                               ; never asked to be
+.err:
     mov byte [dos_wdirty], 0        ; do not retry it for ever - one write that
     mov word [dos_wlen], 0          ; will not go is reported once
     pop es
@@ -17563,12 +17644,6 @@ dos_fh_fill:
 .rfclean:                           ; and a write that spans two windows would
                                     ; otherwise have the second refill discard
                                     ; the first one's bytes
-    mov al, [si+FH_VOL]             ; THE VOLUME FIRST, because AX becomes the
-    mov [dos_fvvol], al             ; file OFFSET four lines down and AL is its
-                                    ; low byte. Reading it later cost a whole
-                                    ; round: FH_VOL is 0 for A:, so the arm
-                                    ; under test read correctly and every
-                                    ; ordinary read on B: came back EMPTY
     test byte [si+FH_FLAGS], FHF_WHOLE
     jnz .whole                      ; the window IS the file on that arm, and
                                     ; it is re-read rather than kept because
@@ -17643,7 +17718,7 @@ dos_fh_fill:
     ret
 
 ; --- .onvol - dos_be_go, standing where the WINDOW OWNER's file is ----------
-; [dos_fvtgt] is the back end's target and [dos_fvvol] is the volume.  It is
+; [dos_fvtgt] is the back end's target and SI the record (dos_fh_at).  It is
 ; one routine rather than two brackets because dos_be_rdat and dos_be_read
 ; differ in that word alone, and a bracket written twice is one that gets
 ; fixed once.
@@ -17655,37 +17730,20 @@ dos_fh_fill:
 ; DIRECTORY GOTO - which returns, so the caller read a byte count out of
 ; whatever it left in DX:AX and called the file empty.
 .onvol:
-    push ax
-    push dx
-    mov al, [dos_fvvol]
-    call dos_vol_to
+    call dos_fh_at                  ; SI = the record: where its FILE is
     jc .onbad
-    mov [dos_fvsv], al
-    pop dx
-    pop ax
     push ax                         ; ...and only now, with every mount the
     mov ax, [dos_fvtgt]             ; switch needed already made. BP IS NOT A
     mov [dos_betgt], ax             ; SCRATCH REGISTER HERE - it is the INT 21h
     pop ax                          ; frame, and [bp] is the program's own DS
-    call dos_be_go
-    pushf                           ; the back end's answer is DX:AX and CF,
-    push ax                         ; and the walk home must not spend any of
-    push dx                         ; them
-    mov al, [dos_fvsv]
-    call dos_vol_park               ; **PARK AND NOT GO** (SPEC.md 96.48): the
-                                    ; program's drive comes back and the
-                                    ; machine stays on the file's, so a read
-                                    ; loop over one file mounts once rather
-                                    ; than twice a call
-    pop dx
-    pop ax
-    popf
-    ret
-.onbad:
-    pop dx                          ; THE VOLUME IS GONE - the floppy came out
-    pop ax                          ; between the open and the read.  The
-    stc                             ; caller reads this as end of file, which
-    ret                             ; is the honest half of it: no bytes, and
+    jmp dos_be_go                   ; ...and the machine stays on the file's,
+                                    ; so a read loop over one file mounts once
+                                    ; (SPEC.md 96.48). The PROGRAM's drive was
+                                    ; never moved, so nothing walks home
+.onbad:                             ; THE VOLUME IS GONE - the floppy came out
+    ret                             ; between the open and the read.  The
+                                    ; caller reads this as end of file, which
+                                    ; is the honest half of it: no bytes, and
 %endif                              ; DOS_EXTCORE
                                     ; no lie about which ones
 
@@ -17793,12 +17851,11 @@ dos_fh_fill:
     DBSS DOS_B_PVOL,  1
     DBSS DOS_B_PDIR,  2
     DBSS DOS_B_FVTGT, 2        ; the back end call a bracketed read makes
-    DBSS DOS_B_FVVOL, 1        ; the window owner's volume, and where the read
-    DBSS DOS_B_FVSV,  1        ; came from; the FLUSH has a byte of its own
     DBSS DOS_B_OPMODE, 1       ; AH=3Dh's access mode, banked (96.11.6)
-    DBSS DOS_B_WVSV,  1        ; because it runs INSIDE a fill, through
-    DBSS DOS_B_WFIL,  1        ; dos_fh_take, and must not spend the fill's
-                               ; own. WFIL was that byte's PAD: the gap's
+    DBSS DOS_B_WFIL,  1        ; (FVVOL, FVSV and WVSV went with dos_fh_at:
+                               ; a handle stands by its own record now and
+                               ; never moves the program's drive, so there
+                               ; is nothing to bank.) WFIL was a PAD: the gap's
                                ; "the source is a fill byte, not the
                                ; program's buffer" flag is free (96.11.6.1)
     DBSS DOS_B_GAPN,  4        ; ...and what is left of the gap to lay
@@ -18527,10 +18584,7 @@ dos_fdrv    equ DOS_CBASE + DOS_B_FDRV    ; byte: the drive a name named
 dos_pvol    equ DOS_CBASE + DOS_B_PVOL    ; byte: the volume the MACHINE is
 dos_pdir    equ DOS_CBASE + DOS_B_PDIR    ; word: ...and the folder in it
 dos_fvtgt   equ DOS_CBASE + DOS_B_FVTGT   ; word: the read's back end
-dos_fvvol   equ DOS_CBASE + DOS_B_FVVOL   ; byte: the fill's volume...
-dos_fvsv    equ DOS_CBASE + DOS_B_FVSV    ; byte: ...and where it came from
 dos_opmode  equ DOS_CBASE + DOS_B_OPMODE  ; byte: AH=3Dh's access mode
-dos_wvsv    equ DOS_CBASE + DOS_B_WVSV    ; byte: the flush's own
 dos_wfil    equ DOS_CBASE + DOS_B_WFIL    ; byte: fill the window, not copy
 dos_gapn    equ DOS_CBASE + DOS_B_GAPN    ; dword: the gap still to lay
 dos_trnof   equ DOS_CBASE + DOS_B_TRNOF   ; dword: a shrink's copy offset

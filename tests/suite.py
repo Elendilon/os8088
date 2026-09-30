@@ -4375,6 +4375,29 @@ SOAK = [
         "B against the build that shipped the defect.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/wrgap360.img")),
+    Row("dosfix", "soak", py("tests/dosfix.py"), 60.0,
+        "A HANDLE KEEPS ITS FOLDER, AND A TERMINATING PROGRAM'S FILES ARE "
+        "CLOSED (SPEC.md 96.52). DOSFIX.COM opens SUB\\X.DAT from the root "
+        "with a DECOY X.DAT in the root, so a refill that re-resolves the bare "
+        "name in the drive's current folder reads 0xEE and says FDIR BAD at "
+        "its offset; then it writes 3,000 bytes and exits without AH=3Eh, and "
+        "the host reads NOCLOSE.DAT off the floppy. VERIFIED TO FAIL on both "
+        "against the build before 96.52: FDIR BAD at 0, and no NOCLOSE.DAT.",
+        needs=("marty",),
+        wants=("build/os8088-360.img", "build/dosfix360.img")),
+    Row("dosseq", "soak", py("tests/dosseq.py", "--hdd", "--kd"), 240.0,
+        "A DOS PROGRAM'S SEQUENTIAL I/O COSTS THE SAME AT EVERY OFFSET "
+        "(docs/plans/DOS-STREAM-PLAN.md). SEQCOST.COM writes a "
+        "1MB file in 8KB chunks off an XT-IDE C:, reads it back and seeks, "
+        "printing the ticks each 128KB took, windowed and then under "
+        "kern_dos; the row asserts the SHAPE - the last block within 1.5x "
+        "of the first - which a layer walking the chain from the front "
+        "cannot pass. Before the streams: write 49 -> 85, read 28 -> 62 "
+        "ticks a block in the box, and the same climb under kern_dos.",
+        needs=("marty",),
+        wants=("build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/hiber.drv", "build/ctrl.drv", "build/hdd.drv",
+               "build/kdos/DOS.O88", "build/SEQCOST.COM")),
     Row("dosmouevt", "soak", py("tests/dosmouevt.py"), 60.0,
         "INT 33h's EVENT HANDLER IS CALLED (SPEC.md 96.10.4). Microsoft Works "
         "'had a mouse' and had none, and 96.10.3's histogram says why in one "

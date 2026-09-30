@@ -149010,6 +149010,41 @@ It repaints by calling `dos_paint` rather than repairing the card's rect,
 because what the card covered is a console band or a setup page and
 `dos_paint` is the only thing that knows how to put either back.
 
+### 96.52 A handle keeps its folder, and a terminating program's files are closed
+
+Two defects in the handle layer (§96.11), found planning the box's move onto
+the stream slots (docs/plans/DOS-STREAM-PLAN.md 3) and fixed before it,
+because both would have changed character under a stream. `tests/dosfix.py`
+is the row, and it failed on both before this section.
+
+**A handle forgot its folder.** `AH=3Dh` and `AH=3Ch` walk a name's folder
+part (§96.12.3) and walk back, and the record kept the bare name and the
+volume - so every refill and every flush re-resolved the bare name in that
+drive's CURRENT folder. `SUB\X.DAT` opened from the root read the root's
+`X.DAT`, from its first byte (the probe's decoy answered `FDIR BAD at 0`), or
+nothing at all where there was no decoy; and a file CREATED as `SUB\NEW.DAT`
+landed in the current folder at its first flush. The record carries the
+folder now (`FH_DIR`, a word: `[dos_pdir]` when the name resolved), and
+`dos_fh_at` stands the machine at the record's volume and folder before the
+refill, the flush, the shrink and the close's zero-length create. It never
+moves the PROGRAM's drive - which `dos_vol_to` did, only to stand in that
+drive's current folder - so nothing walks home afterwards, and the three
+bytes that banked where to walk home to (`FVVOL`, `FVSV`, `WVSV`) are gone.
+
+**A terminating program's files stayed open.** DOS closes every handle of a
+process that terminates. The box closed none: `dos_prog_done` never flushed,
+and the next launch's `dos_fh_setup` threw the window away, so a program
+that wrote and exited without `AH=3Eh` lost up to 8 KB - all of it, for a
+file that never filled a window (the probe's 3,000-byte `NOCLOSE.DAT` was not
+on the disk at all). `AH=3Eh`'s body is `dos_fh_close` now, and
+`dos_fh_sweep` runs it over every open handle at the top of `dos_prog_done`.
+A child's exit (§96.14) does not sweep: the table is the parent's too, and
+the parent's own exit closes what is left.
+
+The record is 25 bytes where it was 23, and the core's bss **+13**
+(`CORE_BSS_SIZE` 3,328 -> 3,341, which had no slack left); the core's code
++10.
+
 ## 97. PIXELSTEIN 3D — a raycast shooter in a foreign mode (`apps/pixelstein/`)
 
 A first-person shooter in the shape of the 1992 one: a 64×64 grid of cells,

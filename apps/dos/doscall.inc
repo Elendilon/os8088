@@ -88,7 +88,7 @@ CORE_MAX    equ 16384            ; +512 for SPEC.md 96.7.2's stack swap and
 ; rather than derived, the way `KERN_BUDGET` is, and the slack is what a later
 ; core cell is spent out of.
 %ifndef CORE_BSS_SIZE               ; `-DCORE_BSS_SIZE=n` is how the budget is
-CORE_BSS_SIZE equ 3328              ; probed: bisect on it and the assertion
+CORE_BSS_SIZE equ 3341              ; probed: bisect on it and the assertion
 %endif                              ; below names the exact figure
                                     ;
                                     ;   3,251 the core's cells at W9b
@@ -97,9 +97,14 @@ CORE_BSS_SIZE equ 3328              ; probed: bisect on it and the assertion
                                     ;         the block they pad and which
                                     ;         nothing NAMES, so the classifier
                                     ;         could not see them
-                                    ;      60 slack
+                                    ;     +60 later cells, which spent the
+                                    ;         slack to the byte
+                                    ;     +13 SPEC.md 96.52: FH_DIR, a word a
+                                    ;         handle, less the three bytes
+                                    ;         dos_fh_at stopped banking
+                                    ;       0 slack
                                     ;   ----- -------------------------------
-                                    ;   3,328
+                                    ;   3,341
 
 ; ...and the core's bss sits directly above its code, at the same address in
 ; every host, which is what SPEC.md 96.44.2 requires of every `DBSS` cell.
