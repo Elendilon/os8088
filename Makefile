@@ -5465,6 +5465,35 @@ $(BUILD)/DOSFILE.COM: tests/dosfile/file.asm | $(BUILD)
 $(BUILD)/dosfile360.img: $(BUILD)/DOSFILE.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSFILE.COM
 
+# --- ...THE STREAM PLAN'S PROBES (docs/plans/DOS-STREAM-PLAN.md W0) ---------
+# SEQCOST.COM times a DOS program's sequential write, read and seek BY
+# POSITION, from inside, alone on an empty 360KB floppy it fills with a 256KB
+# BIGSEQ.DAT. DOSFIX.COM is the plan's two handle defects: SUB\X.DAT read
+# from the root past the first window, with a DECOY X.DAT in the root whose
+# every byte is 0xEE, and a file written and never closed.
+$(BUILD)/SEQCOST.COM: tests/dostrap/seqcost.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/seqcost.asm
+
+$(BUILD)/seqcost360.img: $(BUILD)/SEQCOST.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/SEQCOST.COM
+
+$(BUILD)/DOSFULL.COM: tests/dostrap/dosfull.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/dosfull.asm
+
+$(BUILD)/dosfull360.img: $(BUILD)/DOSFULL.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSFULL.COM
+
+$(BUILD)/DOSFIX.COM: tests/dostrap/dosfix.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/dosfix.asm
+
+$(BUILD)/dosfix/X.DAT: | $(BUILD)
+	@mkdir -p $(BUILD)/dosfix/sub
+	python3 -c "import sys; open('$(BUILD)/dosfix/X.DAT','wb').write(b'\xee'*12288); open('$(BUILD)/dosfix/sub/X.DAT','wb').write(bytes((i>>10)+1 for i in range(12288)))"
+
+$(BUILD)/dosfix360.img: $(BUILD)/DOSFIX.COM $(BUILD)/dosfix/X.DAT tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSFIX.COM \
+		$(BUILD)/dosfix/X.DAT SUB:$(BUILD)/dosfix/sub/X.DAT
+
 # ...and the directory gate's, whose DISK is the fixture: the find counts are
 # assertions about the files beside the program, so the three .TXT files and
 # the one .DAT are chosen to make `*.*`, `*.TXT` and `?.TXT` three DIFFERENT

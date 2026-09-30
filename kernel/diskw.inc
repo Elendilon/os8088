@@ -156,11 +156,9 @@ DSKW_EOC12   equ 0x0FFF        ; end-of-chain marks: >= the spec's EOC floor
 DSKW_EOC16   equ 0xFFFF        ; (0FF8h / 0FFF8h), so a host fsck walks the
                                ; chains exactly the way this kernel does
 
-%ifdef KERN_BIG                  ; WRITE_SEQ's record rides the append body
-%ifndef KD_BUILD                 ; (SPEC.md 18.4.9) on kern_big, and not in
-%define DSKW_WSEQ                ; kern_dos, which never publishes the slot
-%endif
-%endif
+%ifdef DSK_STREAM                ; WRITE_SEQ's record rides the append body
+%define DSKW_WSEQ                ; (SPEC.md 18.4.9) on kern_big and in
+%endif                           ; kern_dos, whose DOS box streams (96.53.1)
 
 ; the legal short-name symbols, beyond A-Z and 0-9 (SPEC.md 18.4). Spaces,
 ; path separators, wildcards and "+,;=[]:" are absent on purpose.
@@ -506,6 +504,9 @@ dskw_mkdir_x:
 ; one word deep - which is why dskw_stat_x (a push frame) spells its own.
 ; -----------------------------------------------------------------------------
 dskw_gate:
+%ifdef DSKW_WSEQ
+    call dws_gate               ; DELETE, MKDIR and RMDIR come in HERE and not
+%endif                          ; through dskw_mounted (SPEC.md 18.4.9.2)
     cmp byte [dsk_mntok], 1
     jne dskw_mounted.no
 %ifdef OS88_REDIR
@@ -523,16 +524,8 @@ dskw_gate83:
     jmp short dskw_mounted.fail
 dskw_mounted:
 %ifdef DSKW_WSEQ
-    push ax                     ; A HELD STREAM ENDS BEFORE ANY OTHER WRITE ON
-    call dws_ours               ; ITS VOLUME (SPEC.md 18.4.9) - a delete of
-    jne .nohold                 ; its temporary, a rename, anything - so the
-    call dws_commit
-.nohold:
-    pop ax
-%endif                          ; FAT and the entry that write finds are the
-                                ; ones the disk will hold. Not WRITE_SEQ's own
-                                ; call, and not on another volume: a commit
-                                ; from in here must not move the machine
+    call dws_gate
+%endif
     cmp byte [dsk_mntok], 1
     je .ret
 .no:
@@ -544,6 +537,25 @@ dskw_mounted:
     inc sp                      ; `inc`
 .ret:
     ret
+
+%ifdef DSKW_WSEQ
+; dws_gate - A HELD STREAM ENDS BEFORE ANY OTHER WRITE ON ITS VOLUME (SPEC.md
+; 18.4.9) - a delete of its temporary, a rename, anything - so the FAT and the
+; entry that write finds are the ones the disk will hold. Not WRITE_SEQ's own
+; call, and not on another volume: a commit from in here must not move the
+; machine. BOTH gates call it: DELETE, MKDIR and RMDIR open with dskw_gate and
+; never reach dskw_mounted, and until 18.4.9.2 they skipped it - a delete of
+; the held file freed its committed chain and left the hold pending, to link
+; a freed cluster at the next commit. clobbers: nothing
+dws_gate:
+    push ax
+    call dws_ours
+    jne .no
+    call dws_commit
+.no:
+    pop ax
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; dskw_mkbody - the mkdir pipeline (module-internal)
@@ -2466,7 +2478,7 @@ dskw_nbody:
 ; wrong-directory write, not just a display glitch.
 ; -----------------------------------------------------------------------------
 dskw_sync_x:
-%ifdef KERN_BIG
+%ifdef DSK_STREAM
     add word [dsk_mgen], 2      ; a write happened: every READ_SEQ cursor and
                                 ; WRITE_SEQ token on the machine goes stale
                                 ; (SPEC.md 18.4.8, 18.4.9) -
@@ -2653,7 +2665,7 @@ dskw_read_at_x:
     test ax, ax
     jz .badarg                  ; an unmounted volume has no cluster size
 
-%ifdef KERN_BIG
+%ifdef DSK_STREAM
     xor di, di                  ; DI = 0 (it is pushed above, and nothing
     call dwr_stat               ; below reads it but the walk): BX = first
                                 ; cluster, DX:CX = the size - or a READ_SEQ
@@ -2718,7 +2730,7 @@ dskw_read_at_x:
     mov dx, [dwr_off+2]
     div word [dwr_clb]          ; AX = clusters to skip
     mov cx, ax
-%ifdef KERN_BIG
+%ifdef DSK_STREAM
     or di, di                   ; ...ONE, from a HOT READ_SEQ cursor's
     jz .walk                    ; cluster, which is the last one the previous
     mov cx, di                  ; call read (SPEC.md 18.4.8) - so its FAT link
@@ -2824,7 +2836,7 @@ dskw_read_at_x:
 ; writes that §18.4.4 kept statelessness for cannot destroy it - they only
 ; cost one re-walk.
 ; -----------------------------------------------------------------------------
-%ifdef KERN_BIG
+%ifdef DSK_STREAM
 RSQ_GEN     equ 0               ; the mount generation it was seeded under
 RSQ_VOL     equ 2               ; the volume
 RSQ_CUR     equ 6               ; the cluster holding FSEQ_OFF
@@ -3578,13 +3590,18 @@ dskw_wabody:
     test byte [dws_flg], WSQF_HELD  ; A FAILED HELD CALL LOSES ITSELF AND
     jz .rbdrop                  ; NOTHING ELSE (SPEC.md 18.4.9), as a failed
     push ax                     ; APPEND does. Dropping the window would take
+    mov ax, [dskw_first]        ; **ITS OWN SUB-CHAIN FREED FIRST** (SPEC.md
+    call dskw_free_chain        ; 18.4.9.1): never linked, so it is this
+                                ; call's alone, and a flush of it would leak
+                                ; every cluster it took - on a DISK FULL,
+                                ; every free cluster the volume had left
     call dskw_flush_x           ; the held chain's unflushed allocations with
     pop ax                      ; it, and the commit would then link the file
     jnc .rbkept                 ; into clusters the disk calls free. So FLUSH
     call dws_hlose              ; it: the held chain is unreachable until the
-                                ; commit, and this call's own half-built
-                                ; sub-chain, never linked to it, is lost
-                                ; clusters - 18.4's preferred failure. Only a
+                                ; commit; this call's own half-built
+                                ; sub-chain is freed above rather than left
+                                ; as lost clusters. Only a
                                 ; flush that ALSO fails loses the stream: it
                                 ; is POISONED, as a lost bank is, so its next
                                 ; call answers FERR_IO rather than appending
@@ -5980,7 +5997,7 @@ dskw_time:    resw 1            ; ...and time
 ; a transfer holds sch_lock, so nothing can be inside this twice.
 dwr_buf:      resw 1            ; the caller's buffer offset (ES is theirs)
 dwr_cap:      resw 1            ; ...and its capacity in bytes
-%ifdef KERN_BIG                 ; ...TWO OF THEM ARE READ_SEQ'S CURSOR on
+%ifdef DSK_STREAM               ; ...TWO OF THEM ARE READ_SEQ'S CURSOR on
 dwr_off     equ dwr_c + FSEQ_OFF ; kern_big (SPEC.md 18.4.8): the offset and
 dwr_sz      equ dwr_c + RSQ_SIZE ; the size are the cursor's own fields, so
 %else                           ; READ_AT leaves them where the wrapper wants

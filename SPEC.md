@@ -32877,6 +32877,38 @@ room check (22.5.2.1) and the converted writers - is **+511 bytes** on
 **+1,077**; docs/reports/STREAM-WRITER-SIZE-2026-09-30.md is where the 574
 went, stage 1 (18.4.7.6) included; `WSEQF_SYS` is the last 8. `kern_small` +6, the cell.
 
+#### 18.4.9.1 A held call that runs out of room frees what it took
+
+A HELD call that fails must not drop the FAT window, because the held
+chain's allocations are in it unflushed, so its rollback FLUSHES instead
+(above). The first version flushed the failed call's own half-built
+sub-chain with it, as lost clusters - which is 18.4's preferred failure for
+one sector's worth and a disaster for the failure that actually happens:
+**on a DISK FULL the half-built sub-chain is every free cluster the volume
+had left**, so the stream's file could be deleted afterwards and the disk
+stayed full until a host fsck. The DOS box found it (`tests/dosshell.py`'s
+out-of-space COPY, SPEC.md 96.53): the copy was undone and the probe's next
+file could not be created.
+
+The sub-chain is `[dskw_first]`'s - `dskw_wdata` links it as it allocates,
+each cluster marked EOC, and a HELD call links it to the held tail only once
+it has SUCCEEDED (`.hmore`) - so it is this call's alone, and `dskw_free_chain`
+zeroes it in the window before the flush. **6 bytes.**
+
+#### 18.4.9.2 …and DELETE, MKDIR and RMDIR commit it too
+
+*Any other write on the volume commits the hold first* was true of every
+write that opens with `dskw_mounted` and FALSE of the three that open with
+`dskw_gate` - DELETE, MKDIR and RMDIR - because the gate's FAT arm parses the
+name and returns through `dskw_mounted`'s `ret` without running its body.
+A delete of the held file therefore marked the entry deleted, freed the chain
+the entry named - the COMMITTED part - and left the hold pending: the held
+chain stayed allocated and unreachable (345 lost clusters, measured, after a
+DOS program filled a floppy and deleted its file), and the hold's own commit
+would later link a cluster the delete had FREED and store the dead entry
+back. The hold test is one routine now, `dws_gate`, and both gates call it:
+**+7 bytes**. The same DOS probe verifies clean after it.
+
 ### 18.4.7 `OSAPI_FILE_WRITE_AT` — the same offset, going the other way
 
 `OSAPI_FILE_READ_AT` gave a package a byte offset to read from and left the
@@ -149091,6 +149123,162 @@ at, so the key that dismisses it must not also take the machine full screen.
 It repaints by calling `dos_paint` rather than repairing the card's rect,
 because what the card covered is a console band or a setup page and
 `dos_paint` is the only thing that knows how to put either back.
+
+### 96.52 A handle keeps its folder, and a terminating program's files are closed
+
+Two defects in the handle layer (§96.11), found planning the box's move onto
+the stream slots (docs/plans/completed/DOS-STREAM-PLAN.md 3) and fixed before it,
+because both would have changed character under a stream. `tests/dosfix.py`
+is the row, and it failed on both before this section.
+
+**A handle forgot its folder.** `AH=3Dh` and `AH=3Ch` walk a name's folder
+part (§96.12.3) and walk back, and the record kept the bare name and the
+volume - so every refill and every flush re-resolved the bare name in that
+drive's CURRENT folder. `SUB\X.DAT` opened from the root read the root's
+`X.DAT`, from its first byte (the probe's decoy answered `FDIR BAD at 0`), or
+nothing at all where there was no decoy; and a file CREATED as `SUB\NEW.DAT`
+landed in the current folder at its first flush. The record carries the
+folder now (`FH_DIR`, a word: `[dos_pdir]` when the name resolved), and
+`dos_fh_at` stands the machine at the record's volume and folder before the
+refill, the flush, the shrink and the close's zero-length create. It never
+moves the PROGRAM's drive - which `dos_vol_to` did, only to stand in that
+drive's current folder - so nothing walks home afterwards, and the three
+bytes that banked where to walk home to (`FVVOL`, `FVSV`, `WVSV`) are gone.
+
+**A terminating program's files stayed open.** DOS closes every handle of a
+process that terminates. The box closed none: `dos_prog_done` never flushed,
+and the next launch's `dos_fh_setup` threw the window away, so a program
+that wrote and exited without `AH=3Eh` lost up to 8 KB - all of it, for a
+file that never filled a window (the probe's 3,000-byte `NOCLOSE.DAT` was not
+on the disk at all). `AH=3Eh`'s body is `dos_fh_close` now, and
+`dos_fh_sweep` runs it over every open handle at the top of `dos_prog_done`.
+A child's exit (§96.14) does not sweep: the table is the parent's too, and
+the parent's own exit closes what is left.
+
+**Two created files written in turn were refused at the second round.**
+One window serves every handle, so a program writing an output while it
+writes (or reads) another file takes the window away from the output mid-way,
+and `dos_fh_take` flushes it PARTIAL: the file then ends off a cluster
+boundary, and the accumulator's next flush - an append - is refused, because
+an append may only extend a file that is a whole number of clusters. The
+program got `access denied` on its second round (the probe's 700-byte
+interleave answered `ILV BAD, rounds left 19`). A partial flush now makes the
+handle a VIEW (`FHF_INPLC`) - `.ihstep`'s move for the gap - so its next
+write fills the last cluster's slack in place and hands back to the
+accumulator at the boundary, which is the path `dosfile`'s CROSS step
+already covers.
+
+The record is 25 bytes where it was 23, and the core's bss **+13**
+(`CORE_BSS_SIZE` 3,328 -> 3,341, which had no slack left); the core's code
++24 (the folder +10, the interleave +14).
+
+### 96.53 A DOS program's file I/O is a stream (`READ_SEQ`, `WRITE_SEQ`)
+
+Every byte a DOS program reads or writes goes through the box's one window
+(§96.11). It was refilled with `READ_AT` and drained with one `WRITE` and then
+one `APPEND` a window - and both re-walk the file's cluster chain from the
+front on every call (§18.4.8, §18.4.9), so the OS's cost of a chunk grew with
+its offset and a file's cost with the square of its length. The window, every
+`int 21h` handler and the handle's life are unchanged; what changed is the
+window's two edges (docs/plans/completed/DOS-STREAM-PLAN.md is the design record).
+
+**The state is in the handle record**: `FH_CUR`, a 16-byte `READ_SEQ` cursor,
+and `FH_TOK`, the `WRITE_SEQ` token the last flush got back - 43 bytes a
+record where §96.52 left 25. In the record because `dos_fh_new` already
+zeroes it, which is §18.4.8.1's one rule (*zero the cursor when the file
+changes*) kept by code that exists; and per handle because the window
+THRASHES by design - a copy loop alternates two handles and `dos_fh_take`
+resets the window at every switch, so a cursor beside the window would be
+cold at every refill of the loop it exists for.
+
+**Two doors, 22 -> 24** (§96.44.1), each with two bodies:
+
+| door | registers | the box | `kern_dos` |
+|---|---|---|---|
+| `DBE_RSEQ` | `DBE_RDAT`'s + `DI` = the cursor, in the core's `DS` | `os88_rseq` (§18.4.8.1), which is `READ_AT` on the small kernel | `READ_AT`, until §96.53.1 |
+| `DBE_WSEQ` | `SI`, `ES:BX`, `CX` (0 = commit), `AL` = `WSEQF_*`, `DI` = the token in and out | `OSAPI_FILE_WRITE_SEQ`; `APPEND` on the small kernel | `APPEND`, until §96.53.1 |
+
+**Reads**: a refill is `DBE_RSEQ` through the owner's `FH_CUR`, with the
+offset still the core's own (`[dos_wbase]`) - so a seek, a re-read and a retry
+need nothing, the helper re-seeding a cursor whose offset is not the one
+asked for.
+
+**Writes are ONE HELD STREAM a file** (§18.4.9): the first flush is still
+the `WRITE` that creates the file (a stream wants one that exists) and every
+later one is `DBE_WSEQ` with `WSEQF_HELD`, so the data goes down every window
+and the FAT, the link and the entry once, at the commit - which is when DOS
+writes them too. The commit is `DBE_WSEQ` with `CX = 0`, made at:
+
+- `AH=3Eh`, and so at a program's exit (§96.52's sweep);
+- `AH=0Dh`, and `AH=68h`/`6Ah` (COMMIT FILE, which answered *invalid
+  function* before and is `AH=0Dh`'s body now: one window and one held stream,
+  so committing one handle and committing all are the same two steps);
+- a refill by a handle that has streamed - **the entry keeps its last
+  committed size until the commit, and a read by name stops at the entry's
+  size**, which is the trap §22.22.5.1 chose `PLAIN` to avoid; here the
+  handle that reads its own tail back commits first, once;
+- a shrink (`AH=40h`, `CX=0`), which reads its own prefix by name.
+
+**Only the streaming handle's own close commits**, because the hold is the
+machine's, one at a time: a program that opens and closes read files while it
+writes one output would otherwise end its output's hold at every close, and
+every flush after it would be a cold one. Any other WRITE, `WRITE_AT`,
+`DELETE` or `RENAME` on the volume commits the hold first anyway (§18.4.9's
+gate), so an in-place write, a shrink's rewrite and the gap's laying all mix
+with it correctly and merely leave the next flush cold. A second handle on the
+file reads the size the directory held when it opened, which is DOS's answer
+too.
+
+**The shell's COPY** (`dsh_stream`) is the same pair with its own cursor and
+token, the commit at its end and the undo's `DELETE` committing first.
+
+**Measured** on MartyPC, `tests/dosseq.py` (a 4.77 MHz XT; BIOS ticks, 55
+ms): SEQCOST.COM writes a file in 8 KB chunks, reads it back and seeks
+between its ends, timing each block.
+
+| | write | read | the last block against the first |
+|---|---|---|---|
+| 1 MB, XT-IDE C:, 2 KB clusters, before | 29.9 s | 19.8 s | write 49 -> 85, read 28 -> 62 ticks a 128 KB |
+| ...after | **16.4 s** | **10.5 s** | write 37 -> 37, read 24 -> 24 |
+| ...under `kern_dos`, before | 29.3 s | 19.1 s | the same climb |
+| ...under `kern_dos`, after (96.53.1) | **16.4 s** | **9.9 s** | flat |
+| 256 KB, 360 KB floppy, before | 51.4 s | 24.1 s | write 179 -> 262, read 102 -> 113 a 64 KB |
+| ...after | **28.2 s** | 23.0 s | flat |
+
+The fixed disk's READ half is the walk (0.27 ms a FAT link, the rate
+§18.4.8 measured, times the links a refill used to walk); a floppy's read is
+the drive's and moves little. The WRITE half is the walk AND the commits:
+HELD writes the FAT and the entry once where every 8 KB window used to, and
+on the floppy that is most of the saving. `tests/dosseq.py --hdd --kd` is the
+row, and it asserts the SHAPE - the last block within 1.5x of the first -
+which the walk cannot pass.
+
+What it costs: the core's bss **+166** (`CORE_BSS_SIZE` 3,341 -> 3,507: 18
+bytes a handle, the shell's 18, 4 of padding) and the core's code +99 - it
+fits `CORE_MAX` with 8 bytes left, so neither host's program pays a code rung;
+the box's own image `os88_rseq` (76) and `dos_k_wseq`. `kern_big` resident:
+**+13**, both of them the two stream-writer defects this work found
+(§18.4.9.1, §18.4.9.2), which are fixes whoever streams.
+
+#### 96.53.1 …and under `kern_dos`
+
+`kern_dos`'s disk layer is the kernel's own source, and the stream slots'
+machinery was `KERN_BIG`'s: READ_SEQ's cursor and body behind `%ifdef
+KERN_BIG`, WRITE_SEQ's record behind an explicit `%ifndef KD_BUILD`. One
+define decides it now, `DSK_STREAM` (kern_big's and kern_dos's), and the two
+bodies are the slots' own far entries - `dos_k_rseq` the box's `os88_rseq`
+without the small kernel's fallback, `dos_k_wseq` a straight call.
+
+**The FAT bank comes with it, and has to** (§18.8.5): `kern_dos` hops A:, B:
+and C: as the box does, and it is the bank that POISONS a hold whose floppy
+was swapped under it. Without it a commit after a swap would link the held
+chain into the NEW disk's FAT. The gfx unlock's commit stays out:
+`kern_dos`'s unlock is a no-op and the exit sweep (§96.52) closes every stream
+first.
+
+It costs **823 bytes** of `kern_dos`'s image (34,780 -> 35,603) and fits
+`KD_IMG_KB`'s existing 35 KB with 237 to spare, so the program under
+`kern_dos` loses no memory to it. The numbers are in the table above.
 
 ## 97. PIXELSTEIN 3D — a raycast shooter in a foreign mode (`apps/pixelstein/`)
 

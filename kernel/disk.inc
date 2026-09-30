@@ -28,6 +28,16 @@
 ; dsk_next_clus is its single reader.
 ; =============================================================================
 
+; DSK_STREAM: the stream slots' machinery - [dsk_mgen], READ_SEQ's cursor and
+; WRITE_SEQ's record and FAT bank (SPEC.md 18.4.8, 18.4.9) - is kern_big's
+; and kern_dos's, whose disk layer is this source (SPEC.md 96.53.1)
+%ifdef KERN_BIG
+%define DSK_STREAM
+%endif
+%ifdef KD_BUILD
+%define DSK_STREAM
+%endif
+
 DSK_FIND_SZ  equ 24              ; dsk_find's answer (SPEC.md 19.7.1): a
                                  ; 13-byte NUL name, the attribute, the type
                                  ; word, the first cluster, a 32-bit size and
@@ -3089,7 +3099,7 @@ disk_mount_x:
     ; always reads, because a floppy is the thing that can be swapped.
     call dsk_bpb_bank_get
     jnc .bpb_staged
-%ifdef KERN_BIG
+%ifdef DSK_STREAM
     add word [dsk_mgen], 2      ; the media is being re-read: no READ_SEQ
 %endif                          ; cursor or WRITE_SEQ token trusts what it
                                 ; knew (18.4.8, 18.4.9)
@@ -4550,12 +4560,10 @@ dsk_fatw_park:
                                 ; wrong LBA
     cmp word [dsk_fatd0], 0xFFFF
     je .bank
-%ifdef KERN_BIG
-%ifndef KD_BUILD
+%ifdef DSK_STREAM
     call dws_hpark              ; A HELD STREAM'S FAT IS BANKED, NOT WRITTEN
     jnc .bank                   ; (SPEC.md 18.8.5): its window stays, so a hop
 %endif                          ; costs no seek to the FAT and back
-%endif
     call dskw_flush_x             ; CF is not propagated: a flush that fails has
                                 ; already lost those bytes, and refusing the
                                 ; mount would lose the volume as well
@@ -4612,10 +4620,8 @@ dsk_fatw_pick:
     jne .load                   ; a different disk: reload, do not trust it
     mov ax, [bx]                ; (the equal compare left CF = 0, and `mov`
     mov [dsk_fatw0], ax         ; keeps it) still resident, and nothing can
-%ifdef KERN_BIG                 ; have overwritten it: this window is ours
-%ifndef KD_BUILD
+%ifdef DSK_STREAM               ; have overwritten it: this window is ours
     call dws_hret               ; ...and so is a held stream's dirt (18.8.5)
-%endif
 %endif
     jmp short .out
 .homeless:                      ; ABOUT TO WRITE THE KERNEL'S OWN WINDOW
@@ -4627,15 +4633,11 @@ dsk_fatw_pick:
                                 ; not let this happen; the invariant is
                                 ; enforced here as well because THIS is the
                                 ; routine that would do the damage
-%ifdef KERN_BIG
-%ifndef KD_BUILD
+%ifdef DSK_STREAM
 .load:                          ; ...and a homeless volume LOADS as well:
     call dws_hload              ; a held stream's volume, re-read or rehomed,
                                 ; loses the hold (18.8.5). The same disk,
                                 ; reused above, keeps its dirt
-%else
-.load:
-%endif
 %else
 .load:
 %endif
@@ -8913,7 +8915,7 @@ fdd_wait:
 %endif                              ; KD_BUILD
 section .text
 
-%ifdef KERN_BIG
+%ifdef DSK_STREAM
 ; [dsk_mgen] - the MEDIA GENERATION (SPEC.md 18.4.8, 18.4.9): +2 on every
 ; write dskw_sync closes and every mount that READS a boot sector - not on a
 ; mount that trusts a banked one, which is a quiet hop a batch vouches for or
