@@ -76386,6 +76386,71 @@ machine this close to the line opens a rung apart on a small difference.
 `tests/trkspk.py --leg rate` (`soak -k trkspkrate`) and `--leg level`
 (`soak -k trkspklevel`) are the gates.
 
+#### 45.25.4 No card: the missing bass, squared up
+
+A PC speaker plays almost nothing under ~400 Hz, and a tracker bass is a slow,
+nearly pure wave under it - BEVERLY.MOD's `digdug` sits at ~50-160 Hz - so
+`tsp_natural`'s load filter (45.25) takes 5.4 dB of it and the speaker the
+rest: its part at 400 Hz and up was 15 dB under the melody's, and the owner
+heard the bass line as missing, and 1:20-1:29, where the bass IS the melody,
+as a drum tick. The ear hears a note's pitch from its harmonics when the
+fundamental is gone, which is how a small speaker plays bass at all - so a
+bass sample is SQUARED UP at load, and its harmonics land where the speaker
+plays.
+
+**Which samples**: one the load filter took three quarters of - `sum |x| >
+4 sum |y|`, one signed dword summed inside `tsp_natural`'s own pass (`BX`
+and `[tsp_bhi]`), in BEVERLY.MOD `digdug` (0.236) and `bassdrum2` (0.185)
+against 0.31 for the next and ~0.45 for the melody. **Which kind**: a picked
+sample's zero crossings after the filter - under one in sixteen samples is a
+slow wave, a BASS (`digdug` ~24 in 1,000), more a noisy thud, a DRUM
+(`bassdrum2` ~250).
+
+- **A bass** is squared into the WHOLE stored range, `y << 4` clamped at
+  +-127 - the load filter stores every sample at half scale, and those 6 dB
+  are what a bass may use - and then through TWO passes of a steeper
+  high-pass, `y = y - y/4 + (x - x_prev)` out clamped to +-127, which take
+  the fundamental the squaring grew and keep the harmonics.
+- **A drum** is squared gently, `y << 2` clamped at twice its own filtered
+  peak, and through the load filter again: at the bass's strength the kick
+  drowned the high notes on the owner's 286.
+
+Measured on the card-less 5150 at 4,800 Hz, 95 s of BEVERLY.MOD, the energy
+at 400 Hz and up at the level played:
+
+| | level | clip | 0:30-0:35 | 1:20-1:29 |
+|---|---|---|---|---|
+| without it | 5 | 2.9% | 27.5 dB | 25.8 dB |
+| with it | 5 | 5.4% | 29.8 dB | 29.0 dB |
+
+The owner: *"It's audible! The speaker is still terrible at this, but this is
+good enough to show off."* What did NOT work is in
+docs/plans/SPEAKER-LEVELLER-NEXT.md: a plain square (the shape keeps ~80% of
+its energy under 400 Hz at these notes, so x16 bought the bass section
+0.8 dB), a narrow pulse (too little energy under an 8-bit peak), and the whole
+stored range with no second filter (38% of the song clipped, the level down
+to 4: the square's fundamental took the headroom).
+
+**Which samples** is decided on ONE BYTE IN EIGHT (`tsp_bsum`, a sparse pass
+before the filter and one after), and that is a measured decision: the first
+version summed every byte inside the filter's own loop, and on an 8088 that
+is ~170 cycles a byte of instruction fetch - BEVERLY.MOD's load went from
+2.86 s to 6.16 s. Sparse, the cut moved to the middle of the gap - 7 sum |y|
+under 2 sum |x|, a filter that took more than ~5/7 - because one in eight
+reads `digdug` at 0.239 and `bassdrum2` at 0.172 against `dxtom`'s 0.307
+(one in sixteen read `digdug` at 0.256, over the old 1/4 cut). The load is
+now **4.01 s against 2.86** on a 4.77 MHz 8088, MEASURED as `tsp_natural`'s
+cycles on MartyPC; most of the difference is the squaring and the passes over
+the two samples it picks, which a module with no bass does not pay.
+`soak -k trkload` holds it under 4.4 s.
+
+`tools/os88spkfx.py`'s `tracker_natural` is it exactly, and `soak -k lzmod`
+compares every byte of a module Tracker has loaded against it - 116,085 of
+BEVERLY.MOD, the squared samples included - so a wrong route, sum or clamp
+fails there (5,283 bytes differ with `tsp_bass` not called). `-DTSP_NOBASS`
+assembles the Tracker before it, byte for byte - the A/B. It costs 373 bytes
+of `TRACKER.O88`'s image and no kernel byte.
+
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
 A port of ActionRetro's **ArtfulType** — "a distraction-free Markdown

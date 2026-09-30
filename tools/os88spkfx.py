@@ -361,44 +361,42 @@ def tracker_hp(data):
     return bytes(out)
 
 
-def tracker_bass(data, k, full=False, kick=None):
-    """one sample through tsp_natural in a -DTSP_BASS=k build: the load
-    filter, and then - for a BASS sample, sum |y| under sum |x| / 4 - y << k
-    clamped at +-min(2P, 127), P the filtered peak, and the filter again.
-    Exactly the machine's bytes (docs/plans/SPEAKER-LEVELLER-NEXT.md).
-    full: -DTSP_BASSFULL - clamped at +-127, the stored range's whole, then
-    TWO passes of a steeper high-pass at full range, y = y - (y >> 2) + (x -
-    x_prev) out clamped to +-127: the fundamental the squaring grew goes, and
-    the harmonics keep the whole range. kick: -DTSP_BASSKICK=j - a selected
-    sample whose zero crossings (sign changes of y from a non-negative start)
-    are NOT under len / 16 is a DRUM, and takes j by the first route"""
+BSHIFT, BKICK = 4, 2            # the bass x16 into +-127, a drum x4 (45.25.4)
+
+
+def tracker_natural(data):
+    """one sample as tsp_natural leaves it (SPEC.md 45.25.4), exactly: the
+    load filter; and a sample it took ~5/7 of - 7 sum |y| under 2 sum |x|,
+    each over one byte in 8 from the first - squared up, by its zero
+    crossings (sign changes of y from a
+    non-negative start). Under len / 16 is a BASS: y << BSHIFT clamped at
+    +-127, then two passes of y = y - (y >> 2) + (x - x_prev), out clamped to
+    +-127. More is a DRUM: y << BKICK clamped at +-min(2P, 127), P its
+    filtered peak, then the load filter again"""
     sgn = lambda b: b - 256 if b > 127 else b
     y = tracker_hp(data)
-    ax = sum(abs(sgn(b)) for b in data)
     ay = [abs(sgn(b)) for b in y]
-    if not ay or 4 * sum(ay) >= ax or not max(ay):
+    if not ay or 7 * sum(ay[::8]) >= 2 * sum(abs(sgn(b)) for b in data[::8]) \
+            or not max(ay):
         return y
-    sq_ = lambda sh, lim: bytes(max(-lim, min(lim, sgn(b) << sh)) & 0xFF
-                                for b in y)
-    if kick is not None:
-        zc, neg = 0, False
-        for b in y:
-            if (sgn(b) < 0) != neg:
-                zc, neg = zc + 1, not neg
-        if zc >= len(y) >> 4:                  # a DRUM
-            return tracker_hp(sq_(kick, min(2 * max(ay), 127)))
-    if not full:
-        return tracker_hp(sq_(k, min(2 * max(ay), 127)))
-    sq = sq_(k, 127)
+    zc, neg = 0, False
+    for b in y:
+        if (sgn(b) < 0) != neg:
+            zc, neg = zc + 1, not neg
+    sq = lambda sh, lim: bytes(max(-lim, min(lim, sgn(b) << sh)) & 0xFF
+                               for b in y)
+    if zc >= len(y) >> 4:                       # a DRUM
+        return tracker_hp(sq(BKICK, min(2 * max(ay), 127)))
+    out = sq(BSHIFT, 127)                       # a BASS
     for _ in range(2):
-        out, v, xp = bytearray(len(sq)), 0, 0
-        for i, b in enumerate(sq):
+        nxt, v, xp = bytearray(len(out)), 0, 0
+        for i, b in enumerate(out):
             x = sgn(b)
             v = v - (v >> 2) + (x - xp)
             xp = x
-            out[i] = max(-127, min(127, v)) & 0xFF
-        sq = bytes(out)
-    return sq
+            nxt[i] = max(-127, min(127, v)) & 0xFF
+        out = bytes(nxt)
+    return out
 
 
 # --------------------------------------------------------------------------

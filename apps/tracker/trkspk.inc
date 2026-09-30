@@ -1211,55 +1211,24 @@ tsp_frame:
     pop ax
     ret
 
-;
-%ifdef TSP_BASS
+%ifndef TSP_NOBASS
 ; -----------------------------------------------------------------------------
-; THE LISTENING BUILD FOR THE MISSING BASS (docs/plans/SPEAKER-LEVELLER-NEXT.md,
-; -DTSP_BASS=k): a sample the load filter took three quarters of - sum |y|
-; under sum |x| / 4, BEVERLY.MOD's digdug and bassdrum2 and nothing else - is
-; SQUARED UP so its harmonics land where the speaker plays and the ear hears
-; the note from them: y << k clamped at +-2P (P its peak after the filter, the
-; 2 because the second filter halves it again, capped at 127), then through
-; the same filter a second time to take back the fundamental the squaring
-; grew. Load time only, and only on those samples
+; THE MISSING BASS (SPEC.md 45.25.4). A sample the load filter took three
+; ~5/7 of - 7 sum |y| under 2 sum |x|, over one byte in 8 before and after
+; the filter - is SQUARED UP so its harmonics land where the
+; speaker plays and the ear hears the note from them. Its zero crossings say
+; which kind: under one in sixteen samples is a slow wave, a BASS, squared
+; y << TSP_BSHIFT into the whole stored range (the load filter stores every
+; sample at half scale) and then through TWO passes of a steeper high-pass
+; that take the fundamental the squaring grew and keep the harmonics; more is
+; a noisy thud, a DRUM, squared gently, y << TSP_BKICK clamped at twice its
+; own peak, and through the load filter again - the owner's 286 had the kick
+; drown the high notes at the bass's strength. -DTSP_NOBASS is the A/B.
+; tools/os88spkfx.py's tracker_natural is it exactly
 ; -----------------------------------------------------------------------------
-; tsp_bsx - DS:SI, CX: [cs:tsp_bsx0] = sum |x| (a dword). Preserves all
-tsp_bsx:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    cld
-    xor bx, bx
-    xor di, di
-.l:
-    lodsb
-    cbw
-    cwd
-    xor ax, dx
-    sub ax, dx
-    add bx, ax
-    adc di, 0
-    loop .l
-    mov [cs:tsp_bsx0], bx
-    mov [cs:tsp_bsx0+2], di
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+TSP_BSHIFT  equ 4                   ; the bass: x16 into +-127
+TSP_BKICK   equ 2                   ; a drum: x4, at twice its peak
 
-; tsp_bass - DS:SI, CX: the filtered sample; squared and filtered again if it
-; is a bass (above). Preserves all
-;
-; -DTSP_BASSKICK=j splits what it squares by ZERO CROSSINGS: under one in
-; sixteen samples is a slow wave, a BASS (digdug, 24.5 in 1,000), and takes
-; TSP_BASS; more is a noisy thud, a DRUM (bassdrum2, 250), and takes the
-; gentler j by the first route - the kick drowned the high notes on a 286
 %macro TSP_SQ 1                     ; y << %1 clamped at +-BP, in place
     push si
     push cx
@@ -1285,6 +1254,81 @@ tsp_bsx:
     pop cx
     pop si
 %endmacro
+
+; tsp_bsum - DS:SI, CX: DX:AX = the sum of |b| over one byte in 8, from the
+; first. A sparse pass rather than a sum folded into the filter's loop: that
+; fold was ~170 cycles a byte on an 8088 - the instruction bytes, not the
+; arithmetic - and doubled BEVERLY.MOD's load. Preserves all but AX, DX
+tsp_bsum:
+    push bx
+    push cx
+    push si
+    push di
+    dec cx                          ; ((len - 1) >> 3) + 1 bytes: every 8th,
+    shr cx, 1                       ; from the first (len >= 1, the callers'
+    shr cx, 1                       ; jcxz; `add cx, 7` would wrap at 64K)
+    shr cx, 1
+    inc cx
+    xor bx, bx
+    xor di, di
+.l:
+    mov al, [si]
+    cbw
+    cwd
+    xor ax, dx
+    sub ax, dx
+    add bx, ax
+    adc di, 0
+    add si, 8
+    loop .l
+    mov ax, bx
+    mov dx, di
+    pop di
+    pop si
+    pop cx
+    pop bx
+    ret
+
+; tsp_bpick - DS:SI, CX: the filtered sample. Picked when 7 sum |y| is under
+; 2 sum |x| (one byte in 8 each, [cs:tsp_bsx] the |x| one): the load filter
+; took more than ~5/7 of it. Then tsp_bass. Preserves all
+tsp_bpick:
+    push ax
+    push bx
+    push dx
+    push di
+    jcxz .no
+    call tsp_bsum                   ; DX:AX = sum |y|
+    mov bx, ax                      ; DI:BX = 7 sum |y| = 8 s - s
+    mov di, dx
+    shl bx, 1
+    rcl di, 1
+    shl bx, 1
+    rcl di, 1
+    shl bx, 1
+    rcl di, 1
+    sub bx, ax
+    sbb di, dx
+    mov ax, [cs:tsp_bsx]            ; DX:AX = 2 sum |x|
+    mov dx, [cs:tsp_bsx+2]
+    shl ax, 1
+    rcl dx, 1
+    cmp di, dx
+    ja .no
+    jb .yes
+    cmp bx, ax
+    jae .no
+.yes:
+    call tsp_bass
+.no:
+    pop di
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; tsp_bass - DS:SI, CX: a filtered sample the sum picked (above): its peak
+; and zero crossings, then the bass's route or the drum's. Preserves all
 tsp_bass:
     push ax
     push bx
@@ -1293,31 +1337,25 @@ tsp_bass:
     push si
     push di
     push bp
-    or cx, cx
-    jnz .go
-    jmp .out
-.go:
     cld
     push si
     push cx
-    mov word [cs:tsp_bzc], 0        ; zero crossings, from a non-negative start
-    mov byte [cs:tsp_bsg], 0
-    xor bx, bx                      ; DI:BX = sum |y|, BP = its peak
-    xor di, di
-    xor bp, bp
+    xor bx, bx                      ; BX = zero crossings, from a non-
+    xor di, di                      ; negative start (DI's low byte: the sign
+    xor bp, bp                      ; last seen); BP = the peak
 .sy:
     lodsb
     cbw
-    cmp ah, [cs:tsp_bsg]
+    mov dx, di
+    cmp ah, dl
     je .sy0
-    inc word [cs:tsp_bzc]
-    mov [cs:tsp_bsg], ah
+    inc bx
+    mov dl, ah
+    mov di, dx
 .sy0:
     cwd
     xor ax, dx
     sub ax, dx
-    add bx, ax
-    adc di, 0
     cmp ax, bp
     jbe .sy1
     mov bp, ax
@@ -1325,53 +1363,51 @@ tsp_bass:
     loop .sy
     pop cx
     pop si
-    shl bx, 1                       ; 4 sum |y| ...
-    rcl di, 1
-    shl bx, 1
-    rcl di, 1
-    cmp di, [cs:tsp_bsx0+2]         ; ...under sum |x|: a bass
-    jb .bass
-    ja .outj
-    cmp bx, [cs:tsp_bsx0]
-    jb .bass
-.outj:
-    jmp .out
-.bass:
     or bp, bp
-    jz .outj
-%ifdef TSP_BASSKICK
+    jnz .some
+    jmp .out
+.some:
     mov ax, cx                      ; crossings under len / 16: a BASS
     shr ax, 1
     shr ax, 1
     shr ax, 1
     shr ax, 1
-    cmp [cs:tsp_bzc], ax
+    cmp bx, ax
     jb .isbass
-    shl bp, 1                       ; a DRUM: j, by the first route - 2P,
-    cmp bp, 127                     ; and the load filter again
+    shl bp, 1                       ; a DRUM: 2P at most 127, x4, and the
+    cmp bp, 127                     ; load filter again
     jbe .klim
     mov bp, 127
 .klim:
-    TSP_SQ TSP_BASSKICK
-    jmp .second
+    TSP_SQ TSP_BKICK
+    xor di, di
+    xor bp, bp
+.b:
+    mov ah, [si]
+    xor al, al
+    sar ax, 1
+    mov dx, ax
+    sub ax, bp
+    mov bp, dx
+    mov dx, di
+    sar dx, 1
+    sar dx, 1
+    sar dx, 1
+    sub di, dx
+    add di, ax
+    mov ax, di
+    mov [si], ah
+    inc si
+    loop .b
+    jmp .out
 .isbass:
-%endif
-%ifdef TSP_BASSFULL
-    mov bp, 127                     ; -DTSP_BASSFULL: the WHOLE stored range,
-%else                               ; the 6 dB the half-scale storage leaves
-    shl bp, 1                       ; the clamp: 2P, at most 127
-    cmp bp, 127
-    jbe .lim
-    mov bp, 127
-.lim:
-%endif
-    TSP_SQ TSP_BASS
-%ifdef TSP_BASSFULL
-    mov bx, 2                       ; ...and TWO passes of a steeper high-pass
-.fp:                                ; at full range: y = y - y/4 + (x - x_p),
-    push si                         ; out clamped to +-127 - the fundamental
-    push cx                         ; the squaring grew goes, the harmonics
-    xor di, di                      ; keep the whole range
+    mov bp, 127                     ; the BASS: the whole stored range...
+    TSP_SQ TSP_BSHIFT
+    mov bx, 2                       ; ...and two passes of y = y - y/4 +
+.fp:                                ; (x - x_prev), out clamped to +-127
+    push si
+    push cx
+    xor di, di
     xor bp, bp
 .fh:
     mov al, [si]
@@ -1400,28 +1436,6 @@ tsp_bass:
     pop si
     dec bx
     jnz .fp
-    jmp .out
-%endif
-.second:
-    xor di, di                      ; the load filter again, exactly
-    xor bp, bp
-.b:
-    mov ah, [si]
-    xor al, al
-    sar ax, 1
-    mov dx, ax
-    sub ax, bp
-    mov bp, dx
-    mov dx, di
-    sar dx, 1
-    sar dx, 1
-    sar dx, 1
-    sub di, dx
-    add di, ax
-    mov ax, di
-    mov [si], ah
-    inc si
-    loop .b
 .out:
     pop bp
     pop di
@@ -1431,9 +1445,7 @@ tsp_bass:
     pop bx
     pop ax
     ret
-tsp_bzc:    dw 0
-tsp_bsg:    db 0
-tsp_bsx0:   dw 0, 0
+tsp_bsx:    dw 0, 0                 ; sum |x|, one byte in 8
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -1497,8 +1509,10 @@ tsp_natural:
     push ds
     mov si, [bx+MS_OFF]
     mov ds, [bx+MS_SEG]
-%ifdef TSP_BASS
-    call tsp_bsx                    ; sum |x|, before the filter takes it
+%ifndef TSP_NOBASS
+    call tsp_bsum                   ; sum |x| one byte in 8 (45.25.4), before
+    mov [cs:tsp_bsx], ax            ; the filter takes it
+    mov [cs:tsp_bsx+2], dx
     push si
     push cx
 %endif
@@ -1521,11 +1535,11 @@ tsp_natural:
     mov [si], ah                    ; y / 2
     inc si
     loop .b
-%ifdef TSP_BASS
+%ifndef TSP_NOBASS
     pop cx
     pop si
-    call tsp_bass                   ; a BASS sample: squared up and filtered
-%endif                              ; again
+    call tsp_bpick                  ; ...and the same after it: a bass or a
+%endif                              ; drum, squared up
     pop ds
     pop bp
 .n:

@@ -217,8 +217,19 @@ loses is a `git revert`.
   trade the volume bar already gives the user, so a higher starting level
   for a 4,800-5,512 Hz machine was NOT taken. (On that capture ELYSIUM.MOD's
   ratchet settles on 7 at 4,800 Hz, against 6 at 8,000.)
-- **BEVERLY.MOD's low notes: MEASURED, and a LISTENING BUILD out**
-  (`-DTSP_BASS=k`, 2026-09-29). The bass is sample 2, `digdug`, a slow,
+- **BEVERLY.MOD's low notes: SHIPPED (SPEC.md 45.25.4), and CLOSED.** The
+  owner, on round 2's build: *"It's audible! The speaker is still terrible
+  at this, but this is good enough to show off."* What follows is the
+  record of how it got there; the listening knobs it names (`-DTSP_BASS=k`,
+  `TSP_BASSFULL`, `TSP_BASSKICK`, and `tracker_bass` in the model) became
+  the shipped constants `TSP_BSHIFT`/`TSP_BKICK` and
+  `tools/os88spkfx.py`'s `tracker_natural`, with `-DTSP_NOBASS` the A/B.
+  **Round 3, shipping it, found the cost that matters**: summing |x| and
+  |y| inside the load filter's own loop took BEVERLY.MOD's load from 2.86 s
+  to 6.16 s on a 5150, ~170 cycles a byte of instruction FETCH for an
+  8088; sparse sums over one byte in eight, with the cut moved to 5/7 to
+  keep its margin, read 4.01 s, and `soak -k trkload` holds it under 4.4.
+  First measured 2026-09-29. The bass is sample 2, `digdug`, a slow,
   nearly pure wave played at 4,390-13,964 Hz - a fundamental of ~50-160 Hz,
   all of it under the speaker - and `tsp_natural`'s load filter takes 5.4 dB
   of it on the way. Weighted by the notes the song plays and resampled as

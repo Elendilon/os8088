@@ -406,11 +406,11 @@ def run(a, apps, plain, P, fails):
                     sg, of, pl = (int.from_bytes(tab[i * 12 + k:i * 12 + k + 2],
                                                  "little") for k in (0, 2, 4))
                     at = (sg << 4) + of - (modseg << 4)
-                    want[at:at + pl] = os88spkfx.tracker_hp(bytes(want[at:at + pl]))
+                    want[at:at + pl] = os88spkfx.tracker_natural(bytes(want[at:at + pl]))
                 want = bytes(want)
-                say("  samples    high-passed in place (no card, SPEC.md "
-                    "45.25): compared through tools/os88spkfx.py's "
-                    "tracker_hp")
+                say("  samples    high-passed in place, a bass or a drum "
+                    "squared up (no card, SPEC.md 45.25.4): compared "
+                    "through tools/os88spkfx.py's tracker_natural")
         got = b""
         while len(got) < len(plain):        # 116KB, in segment-sized reads
             k = min(0x8000, len(plain) - len(got))

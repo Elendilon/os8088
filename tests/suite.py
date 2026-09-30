@@ -6691,7 +6691,11 @@ SOAK = [
         "retiring the offset compare - runs here and nowhere else. All "
         "116,085 bytes are compared BYTE FOR BYTE, because a decoder that got "
         "one match wrong across the boundary still opens a window, still "
-        "shows the title, and still plays - it plays a click",
+        "shows the title, and still plays - it plays a click. With no card "
+        "the samples are compared through tools/os88spkfx.py's "
+        "tracker_natural, so it is also the gate on 45.25.4's squared bass "
+        "and drum: with tsp_bpick's call to tsp_bass taken out, 5,283 bytes "
+        "differ and it FAILS",
         needs=("marty",), serial=True,
         wants=("build/lzmod360.img",)),
     Row("lzmod-dialog", "soak", py("tests/lzmod.py", "--dialog"), 30.0,
@@ -8624,6 +8628,15 @@ SOAK = [
         needs=("marty",),
         wants=("build/tracker.o88", "build/sound.drv", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin")),
+    Row("trkload", "soak", py("tests/trkload.py"), 20.0,
+        "SPEC.md 45.25.4: how long Tracker's speaker load takes - tsp_natural "
+        "on BEVERLY.MOD on the card-less 5150, cycles between breakpoints at "
+        "its entry and .done in the package as loaded, exact: under 4.4 s. "
+        "2.86 s without the bass handling, 4.01 s with it; the first version "
+        "summed inside the filter's loop and read 6.16 s, which FAILS",
+        needs=("marty",),
+        wants=("build/tracker.o88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin")),
     Row("trkscrub", "soak", py("tests/trkspk.py", "--leg", "scrub"), 60.0,
         "SPEC.md 45.21: PAUSED, a click on the scrubber moves the song and the "
         "thumb STAYS there, and Play resumes from it - on the card-less 5150 "
