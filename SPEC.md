@@ -32448,6 +32448,61 @@ clusters), 32 KB a call (`tests/vidkern.py`):
 At 12 MB, none of its 28 `int 13h` calls went below cylinder 16: the chain
 is followed from the resident FAT window and never re-read.
 
+#### 18.4.8.1 Every chunked reader is a stream: `os88_rseq` and `CLO_RSEQ`
+
+The slot shipped for the Video Player (§98), and for a cycle it had one
+customer while seven other loops read a file a chunk at a time through
+`READ_AT` and paid its walk from the front on every chunk. They are streams
+now, and none of them changed shape to become one, because the offset
+**stays the caller's**: a helper takes `READ_AT`'s own registers plus a
+cursor, compares the cursor's `+12` with the offset asked for, and re-seeds
+the cursor there when they differ. A seek, a restart, a rewind and a retry
+after an error therefore need nothing at the call site - the conversion is
+the call and a 16-byte cursor.
+
+| helper | for | where | out of READ_SEQ's reach |
+|---|---|---|---|
+| `os88_rseq` (`apps/os88rseq.inc`) | packages and drivers | cursor at `DS:DI` | `FERR_NAME` from the door - the small kernel, or a refusal `READ_AT` would repeat - is retried as `READ_AT` at the same offset |
+| `CLO_RSEQ seg, off` (`kernel/clone.inc`) | `CLONE.DRV`, the module | cursor at any `seg:off`, through `BP:DI` | assembles as the plain `READ_AT` call on `kern_small` |
+
+**Moving to another file zeroes the cursor**, and that is the one rule the
+helper cannot keep for its caller: the cursor names no file, and a valid one
+is trusted for whatever name the call carries, so a cursor left at the offset
+a second file starts at would read the FIRST file's clusters under the second
+one's name. `os88_rseq_new` zeroes one; kernel code writes `0` to its
+generation word (`RSQ_GEN`), which is all "unseeded" means.
+
+| reader | § | cursor | zeroed |
+|---|---|---|---|
+| Audio's refill, 16 KB a gulp | 86.5 | `ap_rd_cur`, bss | at every track |
+| FTPD's `RETR` | 77.3 | `fd_rcur`, bss | at every `RETR` |
+| RAM disk **Load**: both metadata blocks, then the arena | 62.9.12 | `rd_rcur`, the image | at every Load |
+| the installer's copy, 32 KB a take | 52.10.13.1 | `hd_ircur`, the image | at every file |
+| the parts standard's carve and XMS stage (`op_read`, `op_xload`) | 20.12 | `op_rcur`, `OP_BSS` (now 102) | never: the file is always the package's own, and a lazy fetch finds the cursor where the carve left it |
+| Clone's image-file read (`clo_fget`) | 18.99.8 | `CL_FCUR`, the claim's header | by `clo_zerohdr`, per job |
+| the join's parts (`cmz_jneed`) | 22.23.5 | `cmz_jcur`, the image | by `cmz_jrst`, per part |
+| the compressor's streamed source (`cmz_sfetch`) | 22.22.5 | `cmz_scur`, the image | at the streamed pass's start |
+
+**What each one buys is set by what WRITES between two of its reads**, because
+a write `dskw_sync` closes moves `[dsk_mgen]` and the next call re-seeds -
+one `READ_AT`'s walk, which is what every call paid before, so no reader is
+slower for the change:
+- Audio, FTPD, a RAM disk Load, the parts loader: nothing writes between the
+  reads, so every call after the first is one FAT link.
+- The installer, Clone to a file and the join write between their reads, but
+  as a HELD stream (§18.4.9): only its first chunk (a new hold) and its
+  close move the generation, so the source stays hot for the whole file.
+- The compressor's second pass writes a PLAIN stream, which syncs every
+  chunk, so a source fetch that follows an output flush is cold. It is hot
+  across the fetches no flush separates - the more the file compresses, the
+  more of them.
+
+**The resident cost is none**: the kernel's half is `CLONE.DRV`'s image, and
+`kernsize` reads `kern_big` byte for byte as before. What it costs is 16
+bytes of cursor per reader and 76 bytes of helper (`os88_rseq`, measured) per
+package or driver that carries one, `OP_BSS` included in every package with
+parts.
+
 ### 18.4.9 `OSAPI_FILE_WRITE_SEQ` — a streaming append, whose place the KERNEL keeps (`kern_big`)
 
 `OSAPI_FILE_APPEND` is a complete operation every call (18.4.4): it looks the
@@ -35351,7 +35406,8 @@ ordinary file on an ordinary volume:
   the file that names.
 * **`Write Img...`** is the same machinery with the ends the other way round:
   the Open dialog picks an image, and its bytes are written onto the disk in
-  the window's drive.
+  the window's drive. The image is read as a stream on `kern_big`
+  (`clo_fget`, cursor `CL_FCUR` in the job header, §18.4.8.1).
 
 **Nothing about the middle changed.** The buffer, the chunk loop, the geometry,
 §12.8's progress bar and the refusal paths are the same code; `CL_END` says
@@ -39589,7 +39645,8 @@ version number would advertise a kernel capability that does not exist.
 
 That is the whole of it. Everything else a package needs was already
 published, and the table in docs/plans/completed/O88-MULTISEG-PLAN.md §4.1 is the mapping,
-row by row: `OSAPI_FILE_READ_AT` for the bytes, `OSAPI_FILE_DFREE` for the
+row by row: `OSAPI_FILE_READ_AT` for the bytes (read as `OSAPI_FILE_READ_SEQ`
+through `os88_rseq` since §18.4.8.1, with `READ_AT` the small kernel's answer), `OSAPI_FILE_DFREE` for the
 cluster size the alignment needs, `OSAPI_MEM_AVAIL` to size, `OSAPI_MEM_CLAIM`
 and `_HI` to claim (both legal from the entry proc), `OSAPI_XMEM_ALLOC` and
 `_COPY` for a part above 1MB, `OSAPI_TOAST` to refuse in the package's own
@@ -40071,7 +40128,8 @@ lazy row. They were also the last thing in the tree referencing `op_fetch`,
 `op_drop` and `op_lazyok`, so without moving them nothing else would have
 been gated at all.
 
-`OP_BSS` stays at 86 whatever the table says, and 42 of those bytes are the
+`OP_BSS` stays at 102 whatever the table says (86 until §18.4.8.1's
+cursor), and 42 of those bytes are the
 XMS and compression words. That is a deliberate non-take: `apps/cc/crt0.asm`
 reserves `OP_BSS` bytes inside the span the loader zeroes, and it does so
 **before** the package's table has been written — so gating the chain would
@@ -45945,7 +46003,8 @@ does not and every one of these holds:
   cheaper claim);
 - the volume's cluster is **16KB or less**, because the refills are 16KB and
   32KB at offsets that are multiples of 16KB, and `OSAPI_FILE_READ_AT` takes
-  whole clusters on both (§18.4.4);
+  whole clusters on both (§18.4.4) - `READ_SEQ`'s rule too, which is what the
+  refill (`cmz_sfetch`) reads through on `kern_big` (§18.4.8.1);
 - the heap holds the windows at the smallest dial;
 - the heap holds **`U` too**, as the one claim every reader of a `'CZ'` file
   and Uncompress make (§22.23.4) — a streamed result past it would be a file
@@ -46145,7 +46204,9 @@ digits. Anything else is still `Not compressed` without a sector read, so the
 new arm costs a plain file nothing. Any part may be selected. Its own first 32 bytes are read
 before anything else, so a plain `NOTES.123` still says `Not compressed`
 rather than asking for a `NOTES.001` it never had. The join then starts at
-`.001` and reads the set in order, so the selection says only which set.
+`.001` and reads the set in order, so the selection says only which set -
+each part as a stream on `kern_big`, one FAT link a 16KB chunk (`cmz_jneed`,
+§18.4.8.1), its cursor zeroed per part by `cmz_jrst`.
 
 **EVERY PART IS IN THE SAME FOLDER, AND THE RESULT LANDS THERE TOO.** On the
 5150 that is the hard disk: copy the parts across from their floppies, then
@@ -85023,7 +85084,9 @@ copier can use. That is also the rule the small shape got wrong by having no
 loop at all.
 
 **A package needs no new slot for any of this.** `OSAPI_FILE_READ_AT` is
-already raw and already answers the bytes delivered; a raw copy is
+already raw and already answers the bytes delivered (the take is
+`OSAPI_FILE_READ_SEQ` through `os88_rseq` since §18.4.8.1, which IS
+`READ_AT` without the walk, raw alike); a raw copy is
 `READ_AT` → `WRITE` for the first chunk, `READ_AT` → `APPEND` after, and stop
 on a short take. Bit 0 of `OSAPI_FILE_FIND`'s +22 is how a caller knows the
 question even arises.
@@ -93002,7 +93065,9 @@ whole 8KB, so what is left over at the end of a 32,768-byte run of chunks is
 still a multiple of 4,096. Lose that and the final append of a 40KB store is
 fine while a 216KB one is `FERR_NAME` — a size-dependent failure with nothing
 on screen to connect it to the size. `OSAPI_FILE_READ_AT`'s two alignment
-preconditions are satisfied by the same constants on the way back.
+preconditions are satisfied by the same constants on the way back - and the
+Load reads through `os88_rseq` (§18.4.8.1), so its arena costs one FAT link a
+chunk rather than a walk from the front of the image.
 
 **Preserve As opens where the PANEL stands, and after working on the RAM disk
 that is the RAM disk** — §38.10's instance folder doing exactly what it says.
@@ -110222,7 +110287,12 @@ writes nothing, so the failure is a refused transfer rather than a wrong file.
 **`OSAPI_FILE_READ_AT` being stateless is what makes the download half work.**
 The offset is the whole argument — there is no handle and no cursor — and
 between two of these the worker has been out on the wire, where anything at
-all may have walked a directory.
+all may have walked a directory. The read is `OSAPI_FILE_READ_SEQ` now,
+through `os88_rseq` (§18.4.8.1), and nothing in that changes: the offset is
+still the argument and the name still goes in on every call, and the cursor
+only caches the walk, which a mount or a write in between makes the kernel
+rebuild from the name. What it takes away is `READ_AT`'s walk from the front
+on every chunk, which made a `RETR`'s CPU grow with the square of the file.
 
 ### 77.4 Four handles is the floor, and this is what spends them
 
@@ -119395,13 +119465,14 @@ pauses both the kernel refill task and the package worker (§34.5's pinned "a
 stream fed live from disk *will* underrun" rule):
 
 ```
-disk --OSAPI_FILE_READ_AT--> 32 KB look-ahead ring (heap claim) --decoder-->
+disk --OSAPI_FILE_READ_SEQ--> 32 KB look-ahead ring (heap claim) --decoder-->
     2048-byte halves --verb 6/1--> 16 KB SND ring --> SB DMA
 ```
 
 - **The UI task does every disk read**, because the file slots are UI-task
   context only (§20.6 rule 7). `ap_refill_chunk` reads a **`AP_RD_CHUNK`
-  (16 KB) gulp** — clamped to the free room in the ring and floored to a whole
+  (16 KB) gulp** through `os88_rseq` (§18.4.8.1), one FAT link a gulp —
+  clamped to the free room in the ring and floored to a whole
   number of clusters — from the data chunk, head-skipping the first read's
   pre-data bytes and tail-clamping the last read at the data end, and
   `ap_ring_put`s the usable bytes into the look-ahead ring. The gulp size is a
@@ -146329,7 +146400,7 @@ see — §96.44.2.1, which is what to read before trusting any of them.
 - **A PADDING row belongs to the block it pads**, and nothing NAMES one — so a
   classifier that asks *"does the core read this cell?"* puts all nine of them
   on the host's side and quietly un-aligns the core's table. They are `DBSS`.
-- **The parts standard's own 86 bytes are the HOST's.** `%assign DB OP_BSS`
+- **The parts standard's own `OP_BSS` bytes are the HOST's.** `%assign DB OP_BSS`
   put them at the head of the CORE's block, which made `CORE_BSS_SIZE` a figure
   that depended on whether this was a `DOSTRACE` build — so the diagnostic
   build and the shipped one disagreed about where every core cell was, and

@@ -2953,6 +2953,10 @@ hd_icopy_one:
     mov [hd_ioff], ax
     mov [hd_ioff+2], ax
     mov [hd_isys], al
+    push di
+    mov di, hd_ircur            ; a new file: the cursor names none
+    call os88_rseq_new
+    pop di
 
     mov si, hd_iname            ; how big is it, and is it a system file?
     HDBSTEP 2
@@ -3118,6 +3122,7 @@ hd_iread_chunk:
     push cx
     push dx
     push si
+    push di
     push es
     mov es, [hd_ibufseg]
     xor bx, bx
@@ -3126,8 +3131,11 @@ hd_iread_chunk:
     mov cx, ax
     mov ax, [hd_ioff]
     mov dx, [hd_ioff+2]
-    call OSAPI_FILE_READ_AT     ; out DX:AX = the bytes, 0 at the end
+    mov di, hd_ircur            ; one FAT link a take, not a walk from the
+    call os88_rseq              ; front (SPEC.md 18.4.8.1): out DX:AX = the
+                                ; bytes, 0 at the end
     pop es
+    pop di
     pop si
     pop dx
     pop cx
@@ -4774,6 +4782,8 @@ hd_isys:      db 0
 hd_ioff:      dd 0
 hd_itake:     dw 0
 hd_itok:      dw 0              ; the file's WRITE_SEQ token (SPEC.md 18.4.9)
+hd_ircur:     times FSEQ_SIZE db 0 ; ...and its READ_SEQ cursor (SPEC.md
+                                ; 18.4.8.1), zeroed with [hd_ioff] per file
 
 ; --- state this module owns (moved out of hdd.asm's data block) ---
 hd_idev:     db 0               ; ...and the installer's, for the same reason

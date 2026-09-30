@@ -873,7 +873,9 @@ rd_load:
     xor dx, dx
     xor ax, ax
     mov si, rd_iname
-    call OSAPI_FILE_READ_AT     ; DX:AX = what arrived
+    mov di, rd_rcur             ; a fresh cursor: the image may not be the
+    call os88_rseq_new          ; file the last Load read
+    call os88_rseq              ; DX:AX = what arrived
     jc .nofile
     cmp ax, RDI_META
     jne .nofile                 ; a short read is not one of ours
@@ -897,7 +899,8 @@ rd_load:
     xor dx, dx
     xor ax, ax
     mov si, rd_iname
-    call OSAPI_FILE_READ_AT
+    mov di, rd_rcur
+    call os88_rseq
     jc .nofile
     call rd_meta_apply          ; the directory, out of the block just read
 
@@ -907,7 +910,8 @@ rd_load:
     xor dx, dx
     mov ax, RDI_META
     mov si, rd_iname
-    call OSAPI_FILE_READ_AT
+    mov di, rd_rcur
+    call os88_rseq
     jc .nofile
     call rd_ctab_apply
     call rd_wbuf_free
@@ -942,7 +946,8 @@ rd_load:
     add ax, RDI_ARENA           ; the arena starts after BOTH metadata blocks
     adc dx, 0
     mov si, rd_iname
-    call OSAPI_FILE_READ_AT     ; CX is the capacity; DX:AX comes back as the
+    mov di, rd_rcur             ; one FAT link a chunk (SPEC.md 18.4.8.1)
+    call os88_rseq              ; CX is the capacity; DX:AX comes back as the
     pop bx                      ; count, which for a whole chunk is CX
     jc .nofile3
     cmp ax, [rd_ilen]           ; ...and a SHORT one is a truncated image, the
