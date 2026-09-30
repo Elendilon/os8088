@@ -3087,8 +3087,10 @@ wm_destroy:
                                 ; went at the wm_hide, so an empty rect - the
                                 ; chrome is all this owes (x1 > x2 is empty)
 .bank:
-    call rect_put               ; <- AX..DX, four adjacent words
-    dw wm_hide_r
+    push ax                     ; the rect, banked on the stack across the
+    push bx                     ; teardown - which is call-balanced, so it
+    push cx                     ; comes straight back off at .paint
+    push dx
     mov bx, si
     call wm_fs_drop             ; a dying fullscreen window must release the
                                 ; screen (SPEC.md 11.2)
@@ -3155,8 +3157,10 @@ wm_destroy:
 .count:
     dec byte [wm_zn]
 .paint:
-    call rect_get               ; the rect -> AX..DX, four adjacent words
-    dw wm_hide_r
+    pop dx                      ; the rect -> AX..DX
+    pop cx
+    pop bx
+    pop ax
     call wm_paint_dmg
     jmp kret_di
 
@@ -5811,10 +5815,9 @@ wm_dmg_st1  dw 0                ; ...and where it WAS, shadow included
 wm_dmg_sy1  dw 0
 wm_dmg_st2  dw 0
 wm_dmg_sy2  dw 0
-wm_hide_r   times 4 dw 0        ; wm_hide/wm_destroy: the vacated rect,
-                                ; banked across the record teardown
-wm_dg_r     times 4 dw 0        ; wm_dmg_gray's rect, banked across the
-                                ; region build that eats its registers
+                                ; (wm_hide_r and wm_dg_r, the vacated rect
+                                ; and wm_dmg_gray's damage, are banked on the
+                                ; STACK now - see those two routines)
 
 wm_clipwin  dw 0                ; the window wm_clip_set was given, banked
                                 ; because BX does not survive the occlusion
@@ -6162,11 +6165,10 @@ wm_dmg_gray:
     push cx
     push dx
     push si
-    call cur_unlazy              ; ...as the unclipped fill did (see above)
-    mov [wm_dg_r + 0], ax       ; the DAMAGE, banked: the overflow path below
-    mov [wm_dg_r + 2], bx       ; has to re-seed from it and the region build
-    mov [wm_dg_r + 4], cx       ; eats every register
-    mov [wm_dg_r + 6], dx
+    call cur_unlazy              ; ...as the unclipped fill did (see above).
+                                ; The DAMAGE is banked by the pushes above:
+                                ; the overflow path below re-seeds from it,
+                                ; and the region build eats every register
     call wm_dmg_bands           ; the seeds are each display's own band inside
     jc .out                     ; that rect (SPEC.md 39.16.2.1), and AX..DX
                                 ; their bounding box - which the fill wants and
@@ -6177,8 +6179,16 @@ wm_dmg_gray:
     je .out                     ; wholly covered: not one pixel is revealed
     jmp short .fill
 .whole:
-    call rect_get               ; ...THE BANDS, not their bounding box, and not
-    dw wm_dg_r                  ; the damage: re-seeding from the box would
+    pop si                      ; ...THE BANDS, not their bounding box, and not
+    pop dx                      ; the damage: re-seeding from the box would
+    pop cx                      ; (the damage is the entry frame's AX..DX,
+    pop bx                      ; taken off it and put straight back for
+    pop ax                      ; kret_si)
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
                                 ; dither columns of display 0 that the damage
                                 ; never covered, because the box spans the seam
     call wm_dmg_bands           ; and each display then clamps it back to its
@@ -8397,10 +8407,8 @@ wm_su_fbase: dw 0               ; ...and where the fragment being restored
                                 ; STARTS, which is what wm_su_edge patches
                                 ; relative to. It was WSU_IMG, which is the
                                 ; first fragment's base and nobody else's
-wm_su_ex1: dw 0                 ; wm_su_edge's OWN four (SPEC.md 11.96.11.1):
-wm_su_ey1: dw 0                 ; it used to borrow wm_su_sx1..sy2, and a cache
-wm_su_ex2: dw 0                 ; of FRAGMENTS calls it once per fragment while
-wm_su_ey2: dw 0                 ; the sub-rect is still owed to every one
+                                ; (wm_su_ex1..ey2, wm_su_edge's own four, are
+                                ; its entry frame now, read through BP)
 wm_su_bok: db 0                 ; the band came back off the cache in the draw
                                 ; in hand, so wm_damage owes the app the rest
                                 ; and not the lot. Cleared at the top of every
@@ -10071,6 +10079,10 @@ wm_su_kb:
 ;
 ; gfx_rect_setup's own mask tables answer which bits those are, the one-byte
 ; rect included (x1 and x2 in the same byte: one column, one combined mask).
+%define WSE_Y2 bp+6               ; wm_su_edge's rect, off its entry frame:
+%define WSE_X2 bp+8               ; push ax, bx, cx, dx, si, di, bp and then
+%define WSE_Y1 bp+10               ; `mov bp, sp` leave AX..DX - x1, y1, x2, y2 -
+%define WSE_X1 bp+12               ; at these offsets
 wm_su_edge:
     mov si, [wm_su_x1]          ; A WHOLE-BYTE RECT HAS NO OVERHANG, so there
     test si, 7                  ; is nothing outside it in either edge byte
@@ -10091,9 +10103,13 @@ wm_su_edge:
     push dx
     push si
     push di
-    call rect_put               ; the rect being restored, banked: every
-    dw wm_su_ex1                ; register is wanted below. FOUR WORDS OF ITS
-                                ; OWN (SPEC.md 11.96.11.1) - it used to borrow
+    push bp                     ; the rect being restored, banked: every
+    mov bp, sp                  ; register is wanted below, so it is read off
+                                ; the pushes above through BP - WSE_X1..Y2,
+                                ; which address SS with no override. FOUR
+                                ; WORDS OF ITS OWN (SPEC.md 11.96.11.1): it
+                                ; lived in wm_su_ex1..ey2, and before that it
+                                ; used to borrow
                                 ; wm_su_sx1..sy2 on the reasoning that the
                                 ; one-shot was already spent, and a CACHE OF
                                 ; FRAGMENTS calls this once per fragment while
@@ -10109,8 +10125,8 @@ wm_su_edge:
     inc bx
     mov [wm_su_bpr], bx
 
-    mov ax, [wm_su_ey2]         ; the restored rect's own rows, which is what
-    sub ax, [wm_su_ey1]         ; every walk below is bounded by
+    mov ax, [WSE_Y2]         ; the restored rect's own rows, which is what
+    sub ax, [WSE_Y1]         ; every walk below is bounded by
     inc ax
     mov [wm_su_srow], ax
     mov cx, [WM_SU_PW]          ; ...x planes = the bytes gfx_save writes for
@@ -10130,7 +10146,7 @@ wm_su_edge:
                                 ; while there was one fragment and lands inside
                                 ; the next one's pixels when there are four
 
-    mov ax, [wm_su_ey1]         ; where the restored rect's first row sits in
+    mov ax, [WSE_Y1]         ; where the restored rect's first row sits in
     sub ax, [wm_su_y1]          ; the buffer
     mul bx
     mov [wm_su_rofs], ax
@@ -10150,7 +10166,7 @@ wm_su_edge:
     ; the "overhang" is the window's own content, which this pass did not paint,
     ; so the cache and the screen already agree and there is nothing to merge.
     mov cl, 3
-    mov ax, [wm_su_ex1]
+    mov ax, [WSE_X1]
     shr ax, cl
     mov bx, [wm_su_x1]
     shr bx, cl
@@ -10158,7 +10174,7 @@ wm_su_edge:
     mov [wm_su_dol], ax         ; 0 = the left column IS this rect's left byte
     mov ax, [wm_su_x2]
     shr ax, cl
-    mov bx, [wm_su_ex2]
+    mov bx, [WSE_X2]
     shr bx, cl
     sub ax, bx
     mov [wm_su_dor], ax         ; 0 = ...and the right one is its right byte
@@ -10202,6 +10218,7 @@ wm_su_edge:
     mov dl, [wm_su_rm]
     call wm_su_merge
 .out:
+    pop bp
     pop di
     pop si
     pop dx
@@ -10211,9 +10228,9 @@ wm_su_edge:
 .skip:
     ret
 .col:                           ; AX = the column's x, DI = its scratch
-    mov bx, [wm_su_ey1]
+    mov bx, [WSE_Y1]
     mov cx, ax                  ; x2 = x1: one byte wide, whole bytes copied
-    mov dx, [wm_su_ey2]
+    mov dx, [WSE_Y2]
     SU1ARM                      ; the scratch is sized to this cache's depth,
     jmp gfx_save                ; so the read must be too - or gfx_save writes
                                 ; four planes into one plane's room
@@ -11634,6 +11651,5 @@ RECT4 wm_cov_c1, wm_cov_c2, wm_cov_c3, wm_cov_c4
 RECT4 wm_dmg_st1, wm_dmg_sy1, wm_dmg_st2, wm_dmg_sy2
 RECT4 wm_dmg_x1, wm_dmg_y1, wm_dmg_x2, wm_dmg_y2
 RECT4 wm_rz_ox, wm_rz_oy, wm_rz_ow, wm_rz_oh
-RECT4 wm_su_ex1, wm_su_ey1, wm_su_ex2, wm_su_ey2
 RECT4 wm_su_x1, wm_su_y1, wm_su_x2, wm_su_y2
 RECT4 wm_cl_rx1, wm_cl_ry1, wm_cl_rx2, wm_cl_ry2
