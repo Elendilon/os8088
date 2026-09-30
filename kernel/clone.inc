@@ -523,14 +523,9 @@ clo_geom:
     mov ax, [dsk_totsec]        ; mount would otherwise use a TRIAL value
     mov [es:CL_BTOT], ax
 
-    mov bl, [es:CL_SRC]         ; is it a floppy at all? (SPEC.md 18.7:
-    call COLD_SEG:dskf_dsk_vol_row  ; DV_KIND is the TRANSPORT and a BIOS unit
-    jc .nodisk                  ; below 80h is the MEDIUM - disk_mount's own
-    cmp byte [bx+DV_KIND], DVK_BIOS ; test, and fm_fmt_ok's)
-    jne .nodisk
-    mov dl, [bx+DV_UNIT]        ; DL = the int 13h drive, for AH=08h below
-    test dl, 0x80
-    jnz .nodisk
+    mov bl, [es:CL_SRC]         ; is it a floppy at all? DL = the int 13h
+    call clo_flop               ; drive, for AH=08h below
+    jc .nodisk
     mov al, [es:CL_SRC]
     mov [disk_drive], al
 
@@ -666,6 +661,29 @@ clo_geom:
     pop dx
     pop cx
     pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; clo_flop - is volume BL a BIOS FLOPPY? (SPEC.md 18.7: DV_KIND is the
+;            TRANSPORT and a BIOS unit below 80h is the MEDIUM - disk_mount's
+;            own test, and fm_fmt_ok's)
+; out: CF=0 it is, with BX = its row and DL = its int 13h unit; CF=1 it is not
+; clobbers: BX DL, flags
+;
+; The cloner's own question and Uncompress To's (cmz_jfloppy, "may a missing
+; part be ASKED for?"), which were two copies of it.
+; -----------------------------------------------------------------------------
+clo_flop:
+    call COLD_SEG:dskf_dsk_vol_row
+    jc .r
+    cmp byte [bx+DV_KIND], DVK_BIOS
+    jne .no
+    mov dl, [bx+DV_UNIT]
+    test dl, 0x80
+    jz .r                       ; (`test` leaves CF = 0)
+.no:
+    stc
+.r:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1216,59 +1234,14 @@ clo_key:
     cmp al, 'Y'
     je .force
     cmp al, 13
-    jne .linej
+    jne .line
     mov byte [es:CL_STEP], CLS_TGT
 .jtgt:
     jmp .tgt                    ; NEAR: CLS_NOSRC's answers sit between here
                                 ; and it now (SPEC.md 18.99.3)
-
-.pick:
-    cmp al, ' '
-    jne .pickgo
-    mov al, [es:CL_TGT]
-    call clo_nextvol            ; ...which walks THROUGH the image file
-    mov [es:CL_TGT], al         ; (SPEC.md 18.99.8), so IMG is one more stop
-.linej:                         ; ...and the two `jne` around it: NASM spelt each
-    jmp .line                   ; as a five-byte inverted pair (an 8086 has no
-                                ; near `jcc`) and from here they are two, with
-                                ; nothing added at all - this jump was here
-                                ; already.  -6 on CLONE.DRV
-.pickgo:
-    cmp al, 13
-    jne .linej
-    cmp byte [es:CL_TGT], CLE_IMG
-    jne .picdisk
-    ; The image target wants a NAME (SPEC.md 18.99.8): the Save box, opened
-    ; from here through the far door, with the RESIDENT fm_img_done_x as its
-    ; completion proc - fdlg_open dispatches a kernel window's proc as a near
-    ; call into `.cold`, which an image cannot be. SI is the window: fm_onkey_x
-    ; was handed it and nothing on the way here moves it. The mode stays armed
-    ; across the box; a cancelled one calls nothing back (SPEC.md 38.2), so the
-    ; user comes back to the pick prompt they left. CF=1 (refused - one is up
-    ; already) cannot happen from a keystroke this window owns, and the prompt
-    ; stands either way.
-    mov bx, si
-    mov si, clo_s_defimg        ; the default, staged where the box reads it
-    mov di, fm_hdrbuf           ; (DS); fdlg_setname copies it before anything
-    call cmz_cs13               ; else can stage into fm_hdrbuf
-    mov si, fm_hdrbuf
-    mov di, fm_img_done_x
-    mov al, 1                   ; the SAVE form
-    call COLD_SEG:fdf_fdlg_open
-    jmp .line
-.picdisk:
-    call clo_fits               ; SPEC.md 18.99.6, asked HERE and not at
-    jc .err                     ; CLV_START: the target is not chosen until
-    call clo_xmsup              ; this key, and neither is the trip count
-    mov al, [es:CL_SRC]
-    cmp al, [es:CL_TGT]
-    je .samedrv
-    call clo_both               ; two drives: the WHOLE operation, here, with
-    jc .err                     ; no prompt between the halves - no disk has
-    jmp short .done             ; to move, so there is nothing to ask
-.samedrv:
-    mov byte [es:CL_STEP], CLS_SRC
-    jmp short .line
+.stop:                          ; Esc, HERE: the top's `je` is short
+    mov al, CLA_STOP
+    jmp .out
 
     ; `Write Img...`'s confirmation (SPEC.md 18.99.8): Enter runs the whole
     ; operation here and now - the file and the disk are both in the machine,
@@ -1344,9 +1317,6 @@ clo_key:
 .line:
     mov al, CLA_LINE
     jmp short .out
-.stop:
-    mov al, CLA_STOP
-    jmp short .out
 .err:
     mov ah, al                  ; AL = CERR_* on the way out of every refusal
     mov al, CLA_ERR             ; and every pass
@@ -1370,6 +1340,57 @@ clo_key:
     pop dx
     pop cx
     ret
+
+    ; CLS_PICK's answers, AFTER the exit: the ladder's other five targets
+    ; are then in a short jcc's reach (size pass 8)
+.pick:
+    cmp al, ' '
+    jne .pickgo
+    mov al, [es:CL_TGT]
+    call clo_nextvol            ; ...which walks THROUGH the image file
+    mov [es:CL_TGT], al         ; (SPEC.md 18.99.8), so IMG is one more stop
+.linej:                         ; ...and the two `jne` around it: NASM spelt each
+    jmp .line                   ; as a five-byte inverted pair (an 8086 has no
+                                ; near `jcc`) and from here they are two, with
+                                ; nothing added at all - this jump was here
+                                ; already.  -6 on CLONE.DRV
+.pickgo:
+    cmp al, 13
+    jne .linej
+    cmp byte [es:CL_TGT], CLE_IMG
+    jne .picdisk
+    ; The image target wants a NAME (SPEC.md 18.99.8): the Save box, opened
+    ; from here through the far door, with the RESIDENT fm_img_done_x as its
+    ; completion proc - fdlg_open dispatches a kernel window's proc as a near
+    ; call into `.cold`, which an image cannot be. SI is the window: fm_onkey_x
+    ; was handed it and nothing on the way here moves it. The mode stays armed
+    ; across the box; a cancelled one calls nothing back (SPEC.md 38.2), so the
+    ; user comes back to the pick prompt they left. CF=1 (refused - one is up
+    ; already) cannot happen from a keystroke this window owns, and the prompt
+    ; stands either way.
+    mov bx, si
+    mov si, clo_s_defimg        ; the default, staged where the box reads it
+    mov di, fm_hdrbuf           ; (DS); fdlg_setname copies it before anything
+    call cmz_cs13               ; else can stage into fm_hdrbuf
+    mov si, fm_hdrbuf
+    mov di, fm_img_done_x
+    mov al, 1                   ; the SAVE form
+    call COLD_SEG:fdf_fdlg_open
+    jmp .line
+.picdisk:
+    call clo_fits               ; SPEC.md 18.99.6, asked HERE and not at
+    jc .err                     ; CLV_START: the target is not chosen until
+    call clo_xmsup              ; this key, and neither is the trip count
+    mov al, [es:CL_SRC]
+    cmp al, [es:CL_TGT]
+    je .samedrv
+    call clo_both               ; two drives: the WHOLE operation, here, with
+    jc .err                     ; no prompt between the halves - no disk has
+    jmp short .done             ; to move, so there is nothing to ask
+.samedrv:
+    mov byte [es:CL_STEP], CLS_SRC
+    jmp short .line
+
 
 ; -----------------------------------------------------------------------------
 ; clo_saved - the Save dialog answered: image this disk into that file
@@ -2422,7 +2443,79 @@ clo_line:
     cmp al, 2                   ; and this is what makes that a fact rather
     je .verdict                 ; than a segment register pointed at 0000
     or al, al
-    jnz .keys
+    jz .line0                   ; line 0: the prompt itself, after the
+                                ; exit - so all three tests here are
+                                ; short jccs (size pass 8)
+.keys:
+    mov si, clo_s_key           ; 'Spc=drive  Enter=yes  Esc=no'
+    cmp bl, CLS_PICK
+    je .tail
+    mov si, clo_s_samek         ; 'Enter=re-check  Y=go  Esc=no'
+    cmp bl, CLS_SAME
+    je .tail
+    cmp bl, CLS_NOSRC           ; ...the same three answers, on the other
+    je .tail                    ; prompt (SPEC.md 18.99.3)
+    mov si, clo_s_yn            ; 'Enter=yes  Esc=no'
+    cmp bl, CLS_WIMG
+    je .tail
+    mov si, clo_s_rdy           ; 'Enter=ready  Esc=no'
+.tail:
+    call clo_cat
+.none:
+    mov byte [di], 0
+    pop es
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+.swap:
+    mov si, clo_s_ins           ; ...and step 1 of mode 6 is the SAME line out
+    call clo_cat                ; of the same three strings: the disk it wants
+    mov si, clo_s_src           ; is this operation's source
+    call clo_cat
+    mov si, clo_s_disk
+    jmp .tail
+
+    ; 'Cloned A: to B:' (SPEC.md 22.21.3) - not a prompt line at all, but the
+    ; toast, composed here because the image is what knows the two volumes and
+    ; because the alternative was thirty bytes of `.cold` in files.inc making
+    ; the same five calls. The caller asks for it while the image is still
+    ; loaded, which is before fm_edit_end and therefore before the drop.
+.verdict:
+    cmp byte [es:CL_END], 0
+    jne .vimg
+    mov si, clo_s_ok
+    call clo_cat
+    mov al, [es:CL_SRC]
+    call clo_drv
+    mov si, clo_s_to
+    call clo_cat
+    mov al, [es:CL_TGT]
+    call clo_drv
+    mov si, clo_s_colon
+    jmp .tail
+                                ; ...and the image end's two, which name the
+                                ; DISK and not the file: the file is the one
+                                ; the user just chose in a dialog and the disk
+                                ; is the thing that changed
+.vimg:
+    mov si, clo_s_imgok         ; 'Imaged A:'
+    mov al, [es:CL_SRC]
+    cmp byte [es:CL_END], 1
+    je .vsay
+    mov si, clo_s_wrok          ; 'Wrote A:'
+    mov al, [es:CL_TGT]
+.vsay:
+    push ax
+    call clo_cat
+    pop ax
+    call clo_drv
+    mov si, clo_s_colon
+    jmp .tail
+
+.line0:
 
     cmp bl, CLS_PICK
     je .pick
@@ -2439,13 +2532,6 @@ clo_line:
     je .which
     mov si, clo_s_tgt
 .which:
-    call clo_cat
-    mov si, clo_s_disk
-    jmp .tail
-.swap:
-    mov si, clo_s_ins           ; ...and step 1 of mode 6 is the SAME line out
-    call clo_cat                ; of the same three strings: the disk it wants
-    mov si, clo_s_src           ; is this operation's source
     call clo_cat
     mov si, clo_s_disk
     jmp .tail
@@ -2486,68 +2572,8 @@ clo_line:
     mov si, clo_fnbuf           ; the name is RESIDENT (it has to be - the
     call clo_dscat              ; file API reads it through DS), so this one
     mov si, clo_s_q             ; string is lettered the kernel's way
-    jmp short .tail
+    jmp .tail
 
-    ; 'Cloned A: to B:' (SPEC.md 22.21.3) - not a prompt line at all, but the
-    ; toast, composed here because the image is what knows the two volumes and
-    ; because the alternative was thirty bytes of `.cold` in files.inc making
-    ; the same five calls. The caller asks for it while the image is still
-    ; loaded, which is before fm_edit_end and therefore before the drop.
-.verdict:
-    cmp byte [es:CL_END], 0
-    jne .vimg
-    mov si, clo_s_ok
-    call clo_cat
-    mov al, [es:CL_SRC]
-    call clo_drv
-    mov si, clo_s_to
-    call clo_cat
-    mov al, [es:CL_TGT]
-    call clo_drv
-    mov si, clo_s_colon
-    jmp short .tail
-                                ; ...and the image end's two, which name the
-                                ; DISK and not the file: the file is the one
-                                ; the user just chose in a dialog and the disk
-                                ; is the thing that changed
-.vimg:
-    mov si, clo_s_imgok         ; 'Imaged A:'
-    mov al, [es:CL_SRC]
-    cmp byte [es:CL_END], 1
-    je .vsay
-    mov si, clo_s_wrok          ; 'Wrote A:'
-    mov al, [es:CL_TGT]
-.vsay:
-    push ax
-    call clo_cat
-    pop ax
-    call clo_drv
-    mov si, clo_s_colon
-    jmp short .tail
-
-.keys:
-    mov si, clo_s_key           ; 'Spc=drive  Enter=yes  Esc=no'
-    cmp bl, CLS_PICK
-    je .tail
-    mov si, clo_s_samek         ; 'Enter=re-check  Y=go  Esc=no'
-    cmp bl, CLS_SAME
-    je .tail
-    cmp bl, CLS_NOSRC           ; ...the same three answers, on the other
-    je .tail                    ; prompt (SPEC.md 18.99.3)
-    mov si, clo_s_yn            ; 'Enter=yes  Esc=no'
-    cmp bl, CLS_WIMG
-    je .tail
-    mov si, clo_s_rdy           ; 'Enter=ready  Esc=no'
-.tail:
-    call clo_cat
-.none:
-    mov byte [di], 0
-    pop es
-    pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
 
 ; -----------------------------------------------------------------------------
 ; clo_cat - fm_scat, in the image, over the image's OWN strings (SPEC.md 2.8.6)

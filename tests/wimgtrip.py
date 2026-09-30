@@ -55,6 +55,10 @@ CL_STEP = equ("kernel/clone.inc", "CL_STEP")
 CL_TOT = equ("kernel/clone.inc", "CL_TOT")
 CL_SPT = equ("kernel/clone.inc", "CL_SPT")
 CLS_WIMG = equ("kernel/clone.inc", "CLS_WIMG")
+CLS_PICK = equ("kernel/clone.inc", "CLS_PICK")
+CL_TGT = equ("kernel/clone.inc", "CL_TGT")
+CLE_IMG = int(re.search(r"^CLE_IMG\s+equ\s+(0x[0-9A-Fa-f]+)",
+                        open("kernel/clone.inc").read(), re.M).group(1), 16)
 FD_BX1 = equ("kernel/fdlg.inc", "FD_BX1")
 FD_BX2 = equ("kernel/fdlg.inc", "FD_BX2")
 FD_BY2 = equ("kernel/fdlg.inc", "FD_BY2")
@@ -69,9 +73,9 @@ def u16(b, o=0):
     return b[o] | (b[o + 1] << 8)
 
 
-def dialog(m):
-    """The Open dialog's (x, y), or None - found by its TITLE pointer."""
-    want = m.sym("fdlg_s_topen") - (M.KERNEL_SEG << 4)
+def dialog(m, title="fdlg_s_topen"):
+    """The Open (or Save As) dialog's (x, y), or None - by its TITLE pointer."""
+    want = m.sym(title) - (M.KERNEL_SEG << 4)
     blob = m.read(m.sym("wm_wins"), WIN_SIZE * MAX_WIN)
     for i in range(MAX_WIN):
         r = blob[i * WIN_SIZE:(i + 1) * WIN_SIZE]
@@ -97,15 +101,8 @@ def job(m, off, n=1):
     return b[0] if n == 1 else u16(b)
 
 
-def pick_image(ui, m):
-    """File > Write Img..., then B: and the image's row in the dialog."""
-    ui.menu_pick("File", "Write Img...")
-    M.settle(m)
-    d = dialog(m)
-    check(d is not None, "Write Img... opens the Open dialog",
-          "fm_c_wimg is fdlg_open_x and nothing else (SPEC.md 22.21.5)")
-    if d is None:
-        done("wimgtrip")
+def to_b(ui, m, d):
+    """Walk the dialog's Drive button to B:."""
     cx, cy = d[0] + 1, d[1] + TITLE_H
     for _ in range(4):                  # Drive walks the volumes
         if m.read(m.sym("disk_drive"), 1)[0] == 1:
@@ -115,6 +112,19 @@ def pick_image(ui, m):
     check(m.read(m.sym("disk_drive"), 1)[0] == 1,
           "...and its Drive button reaches B:", "",
           got=m.read(m.sym("disk_drive"), 1)[0], want=1)
+
+
+def pick_image(ui, m):
+    """File > Write Img..., then B: and the image's row in the dialog."""
+    ui.menu_pick("File", "Write Img...")
+    M.settle(m)
+    d = dialog(m)
+    check(d is not None, "Write Img... opens the Open dialog",
+          "fm_c_wimg is fdlg_open_x and nothing else (SPEC.md 22.21.5)")
+    if d is None:
+        done("wimgtrip")
+    to_b(ui, m, d)
+    cx, cy = d[0] + 1, d[1] + TITLE_H
     ui.mo.click(cx + FD_TEXTX + 24, cy + FD_ROW0 + FD_ROWH // 2)
     M.settle(m)
     name = bytes(m.read(m.sym("fdlg_name"), 13)).split(b"\0")[0]
@@ -178,6 +188,58 @@ try:
         # chunk and sector 0 goes down last (SPEC.md 18.99.2) - while the round
         # trip below replaces the system disk, CLONE.DRV and all, and a second
         # Write Img after it could not load the module at all ('No disk').
+
+        # --- 1b. Clone Disk... with an IMAGE as its target: the Save box ---
+        # SPEC.md 18.99.8. CLONE.DRV opens this box ITSELF (size pass 8),
+        # through fdf_fdlg_open with the resident fm_img_done_x as the
+        # completion proc - where it used to answer CLA_SAVE and have
+        # fm_editkey open it. So what is asserted is everything the image now
+        # hands the box: the requester window (the prompt must still be armed
+        # under it, because a cancel comes back to it), the default name, and
+        # - through the commit - the SAVE half of the proc reaching the CLONE
+        # and not Uncompress To's join, with the box's answer copied into
+        # clo_fnbuf by the image (clo_fnget). A whole image of A: cannot be
+        # written here (B: holds the apps image, 706 free sectors of the 720
+        # it needs), and that is useful rather than a gap: the refusal is
+        # clo_froom's, reached only once clo_saved has run on the clone's own
+        # claim with the name the box gave.
+        ui.menu_pick("File", "Clone Disk...")
+        M.settle(m)
+        for _ in range(6):
+            if job(m, CL_TGT) == CLE_IMG:
+                break
+            m.key("Space")
+            M.settle(m)
+        check(job(m, CL_TGT) == CLE_IMG, "Clone Disk's Space reaches IMG", "",
+              got=job(m, CL_TGT), want=CLE_IMG)
+        m.key("Enter")
+        M.settle(m)
+        d = dialog(m, "fdlg_s_tsave")
+        check(d is not None, "Enter on IMG opens the Save As box",
+              "clo_key's .pickgo: fdf_fdlg_open, with BX = the window the key "
+              "came to - a wrong window is refused and nothing opens")
+        if d is None:
+            done("wimgtrip")
+        name = bytes(m.read(m.sym("fdlg_name"), 13)).split(b"\0")[0]
+        check(name == b"DISK.IMG", "...on the default name DISK.IMG",
+              "staged by the image into fm_hdrbuf, which the box copies",
+              got=name, want=b"DISK.IMG")
+        check(edit(m) == 7 and job(m, CL_STEP) == CLS_PICK,
+              "...with the pick prompt still armed under it", "",
+              got=(edit(m), job(m, CL_STEP)), want=(7, CLS_PICK))
+        to_b(ui, m, d)
+        m.key("Enter")                          # commit DISK.IMG on B:
+        M.settle(m, limit=200)
+        fn = bytes(m.read(m.sym("clo_fnbuf"), 13)).split(b"\0")[0]
+        check(fn == b"DISK.IMG", "the box's answer reaches clo_fnbuf",
+              "clo_fnget, in the image, at CLV_SAVED", got=fn, want=b"DISK.IMG")
+        check(ui.toast()[0] == "Disk full",
+              "...and the clone's own room check refuses it: 'Disk full'",
+              "706 sectors free on B: against 720 - clo_froom, which only a "
+              "CLV_SAVED dispatched to clo_saved on the live claim reaches",
+              got=ui.toast()[0], want="Disk full")
+        check(edit(m) == 0 and u16(m.read(m.sym("clo_seg"), 2)) == 0,
+              "...and the mode ends and the claim goes back", "")
 
         # --- 2. ...and one that works puts the image down exactly ----------
         m.flush(0, flush)

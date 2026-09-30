@@ -9998,7 +9998,7 @@ SOAK = [
         "disk that it can then format (the docstring has the three ways). "
         "Measured at 60s",
         needs=("marty",), serial=True),
-    Row("wimgtrip", "soak", py("tests/wimgtrip.py"), 45.0,
+    Row("wimgtrip", "soak", py("tests/wimgtrip.py"), 56.0,
         "wimgtrip - Write Img... (SPEC.md 18.99.8) driven to the end and "
         "diffed: apps360.img as a FILE on a 720KB B:, written over the 360KB "
         "system disk in A:, and drive 0 read back must BE the image, every "
@@ -10009,7 +10009,14 @@ SOAK = [
         "say 'Disk error'. VERIFIED RED twice: on the tree before SPEC.md "
         "38.6.2 every image was 'Not a disk image' (5 of 10 checks, 691 "
         "sectors untouched), and before 18.99.7's carry fix the failed "
-        "write said NOTHING (1 of 17). Measured at 41s",
+        "write said NOTHING (1 of 17). Between them, Clone Disk... with "
+        "the IMAGE as its target: the Save As box CLONE.DRV opens itself "
+        "since size pass 8 (fdf_fdlg_open, fm_img_done_x as the proc) must "
+        "be up on DISK.IMG with the pick prompt armed under it, and its "
+        "commit must reach clo_saved on the clone's claim - the name in "
+        "clo_fnbuf, refused 'Disk full' by clo_froom (B: has 706 of the 720 "
+        "sectors). VERIFIED RED with clo_saved's clo_fnget taken out (the "
+        "name stays the Write Img's). Measured at 56s, 41s charged",
         needs=("marty",), serial=True),
     Row("rdup", "soak", py("tests/rdup.py"), 60.0,
         "SPEC.md 62.9.11.3: the Ram Disk page acts on the RELEASE.",
