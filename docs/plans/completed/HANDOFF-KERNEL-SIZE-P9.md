@@ -54,7 +54,7 @@ Resident = `.text` + `.bss` + `.cold` + `.lowbss` + `.vgabuf`, by
 | CTRL.DRV image | 9,104 | **8,781** | −323 (52.5% of +615, net of ~300 moved IN from resident) |
 | CLONE.DRV image | 10,585 | **9,932** | −653 (24% of +2,699; the rest is the join itself) |
 | FORMAT.DRV image | 1,499 | **1,304** | −195 (−251, 83%, net of the 56-byte table moved IN) |
-| HIBER.DRV image | 6,474 | **6,556** | +82 (the resume's font re-pick) |
+| HIBER.DRV image | 6,474 | **6,662** | +188 (the resume's timed font re-pick; −3 of jccs) |
 | DOCK.DRV image | 2,547 | 2,515 | −32 |
 
 **The pass took out 18x what the target added on kern_big and 69x on
@@ -145,26 +145,39 @@ cannot price - and could not run the field benchmark for a week. The kernel
 already asked `int 10h AX=1130h` first, which on that machine answers the
 CARD's ROM at `C000:`, not the zero-wait planar one.
 
-A PIT-timed detector with a 1.25x threshold and a 1KB claim was costed and
-**does not fit**: 66 overlay bytes against 25 left in kern_big's `.ovlw` and 15
-in kern_small's `.ovl`, so it would cost a blob sector on both. What shipped
-is the cheaper rule, `FONT_PICK`, at **0 resident bytes**:
+A PIT-timed detector with a 1.25x threshold and a 1KB claim did not fit the
+nine-sector blob (15 bytes of kern_small's `.ovl` left, and an overlay scan
+found 3 bytes), so it first shipped as a cheaper planar-match rule. The owner
+asked for the room to be made, and **`BOOT2_SECS` went 9 -> 10**: still 2
+`int 13h` calls on all four geometries (`t_blobruns`), `KSIG_OFF` 6144 -> 5632
+so the canary stays at file sector 21, KERNEL.SYS +384 bytes. What shipped,
+at **0 resident bytes** on both kernels:
 
-* If `F000:FA6E` holds the same 760 bytes as the BIOS's table (one `repe
-  cmpsb`), read the planar ROM in place. Every BIOS reachable here passes -
-  IBM, every GLaBIOS image, SeaBIOS, every QEMU/Bochs VGA BIOS - so every
-  emulator reads `F000:FB6E`, and so will the owner's 5150.
-* If the table is left in an option ROM, copy it into a 1KB `MEM_K_FONT`
-  claim, made top-down and pinned before any driver or package exists, so it
-  sits at the heap's top and is no barrier to either compaction pass.
-* `hbm_wake` re-runs the pick after a resume (HIBER.DRV, +82 of module):
-  a hibernated image resumed elsewhere no longer keeps a pointer into the
-  writing machine's ROM. The same path serves kern_dos's live return.
-* What it MISSES: an AT board whose own planar ROM is slow and unshadowed (read
-  in place), and a fast option ROM with a different face (copied for nothing).
-  `ROMFONT` on the machine settles either.
-* `FONTSLOW=1` forces the copy; `tests/fontpick.py` (soak) is its row and went
-  red for two planted breaks.
+* `FONT_PICK` (in the blob on both kernels now) times, with PIT channel 0
+  latched around a `rep lodsb` and IF off, the BIOS's `AX=1130h` table, RAM,
+  and `F000:FA6E` - the last only when its 760 bytes are identical to the
+  BIOS's, so the choice never changes what text looks like. The planar table
+  wins unless the BIOS table beats it by an eighth (a tie goes to the system
+  board; the margin stops two boots picking differently on noise).
+* Only when even the chosen table is more than a quarter slower than RAM is
+  it copied, into a 1KB `MEM_K_FONT` claim made top-down and pinned before
+  any driver or package exists - the heap's top, no barrier to either
+  compaction pass.
+* The three counts (chosen, RAM, BIOS) are left at `0040:00F8` behind `'FP'`
+  (the upper half of the BIOS's inter-application area; kern_dos's mailbox
+  is the lower half) for ROMFONT to show.
+* `hbm_wake` re-runs the timed pick after a resume (HIBER.DRV +188 of module
+  across both steps): a hibernated image resumed elsewhere no longer keeps a
+  pointer into the writing machine's ROM. The same path serves kern_dos's
+  live return.
+* Boot time, MartyPC: `font_init` +10.4 ms on a 5150 CGA, absorbed by the
+  mouse probe's fixed window (+72 cycles to a settled desktop); +10.9 ms on
+  the VGA XT; and **-166 ms** on kern_small's 360KB disk, where the tenth
+  sector moved the kernel read's split and saved a revolution. The kernel's
+  own reading on MartyPC's VGA XT: 2525 / 2525 / 2526 PIT counts, reads
+  `F000:FB6E` in place.
+* `FONTSLOW=1` forces the copy; `tests/fontpick.py` (soak) checks both arms
+  and the recorded ratio (900-1250), and went red for three planted breaks.
 
 **`ROMFONT` is the owner's field instrument** (`make romfont`,
 `build/romfont360.img`): it shows the BIOS table, whether the planar set
@@ -182,7 +195,6 @@ matches, the kernel's choice, and ROM/RAM ×1000 for both tables. MartyPC reads
 | kern_small's sixteen refusal cells (LAST-DROP-BYTES 7.7.7) | 128 + | a cell's offset is the ABI both kernels share; dropping them is a second ABI. Their bodies were taken |
 | demote rarely-called SLOT cells to RSLOT | ~2 each | renumbers the whole table |
 | Timer / Bounce as packages | ~1.8KB big | a product decision |
-| a PIT-timed ROM-font detector | +66 overlay | does not fit the blob (§3) |
 | `gfx_unlock`'s `[dws_hold]` filter | −7 | +~160 cycles every UI-task unlock |
 | mono `jne sw_*` dispatches, `gfx_blit4`'s loop jccs | −3 each | +12 cycles a 1bpp primitive / loop bodies over 127 bytes |
 | `font_run_x`'s per-row `cs:` | 0 bytes | the accepted +1% |
@@ -193,9 +205,12 @@ matches, the kernel's choice, and ROM/RAM ×1000 for both tables. MartyPC reads
 | `W_DISP` removal | −13 big | needs two static far pointers |
 | `hbf_*` thunks through a BP helper | ~−11 `.cold` | a BP audit across every window callback |
 
-**The overlays are nearly full**: kern_big `.ovlw` has 28 bytes left of 5,120
-and `.ovl` 31 of 1,984; kern_small `.ovl` 15 of 1,984 and `.ovlw` 39 of 1,536. The next boot-time
-feature pays a blob sector (LAST-DROP-BYTES §4).
+**The overlays at the close**, blob at ten sectors (capacity 2,496 of `.ovl`):
+kern_big `.ovl` 308 bytes left and `.ovlw` 152 of 5,120; kern_small `.ovl`
+415 and `.ovlw` 39 of 1,536. An eleventh sector is still 2 calls on every
+geometry (`t_blobruns --sectors 11`). `make NOKZIP=1`'s 360KB system disk
+does not fit (361 of 354 clusters; 360 before the tenth sector, so it was
+already over).
 
 ## 5. BEHAVIOUR AND ABI CHANGES
 

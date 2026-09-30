@@ -237,7 +237,7 @@ had added.
 {
   "big": {
     "boot2": 2252,
-    "bootmax": 192000,
+    "bootmax": 191488,
     "bss": 5246,
     "budget": 129536,
     "codemax": 65536,
@@ -251,8 +251,8 @@ had added.
     "lowbss": 5598,
     "lowpara": 384,
     "minramkb": 196,
-    "ovl": 1953,
-    "ovlw": 5092,
+    "ovl": 2188,
+    "ovlw": 4968,
     "stk0": 512,
     "text": 45766,
     "vgabuf": 336,
@@ -283,7 +283,7 @@ had added.
   },
   "small": {
     "boot2": 2252,
-    "bootmax": 122368,
+    "bootmax": 121856,
     "bss": 3203,
     "budget": 107520,
     "codemax": 65536,
@@ -297,7 +297,7 @@ had added.
     "lowbss": 2868,
     "lowpara": 224,
     "minramkb": 128,
-    "ovl": 1969,
+    "ovl": 2081,
     "ovlw": 1497,
     "stk0": 512,
     "text": 33941,

@@ -2607,8 +2607,9 @@ OVL_AT      equ 2624            ; ...and it is ONE value for every build now.
 ; ...and 144 on a knob build whose `.boot2` is the shipped loader's, which is
 ; every one but BOOTDIAG=1's (2,470 at the most, MOUDIAG=1's): SPEC.md 31.14's
 ; ovl_fdd_apply took the shipped blob from 147 bytes spare to 20 (kernel size
-; pass 8 cut it 113 -> 94, and its FONT_PICK spent the difference again: 31
-; spare on kern_big and 15 on kern_small at that pass's close), and
+; pass 8 cut it 113 -> 94, spent it again on SPEC.md 6.0.1's FONT_PICK, and
+; then took BOOT2_SECS 9 -> 10 for the timed pick: 308 spare on kern_big and
+; 415 on kern_small at that pass's close), and
 ; BOOTMARK=1's MARKW sites need 127 of a knob's give (BOOTHALT=20 131,
 ; DRVDIAG=1 with it 141). BOOTDIAG=1 keeps the 96 its own loader leaves room
 ; for (2,507 with MOUDIAG=1).
@@ -7937,17 +7938,17 @@ OVL_SIZE equ ovl_end - $$       ; `$$` is the SECTION's base, which is OVL_BASE
 ; Since LISTING-HOME-PLAN 13 took the listing out of the region it is the
 ; FAT window plus dsk_secbuf, and both builds are measured (kernel size pass 4):
 ;
-;   kern_big    region 5,120 (4,608 + 512), `.ovlw` 5,092 -> 5,120 rounded.
-;               28 bytes of payload spare, NO whole sector (kernel size
-;               pass 8's close, SPEC.md 6.0.1's FONT_PICK included).
+;   kern_big    region 5,120 (4,608 + 512), `.ovlw` 4,968 -> 5,120 rounded.
+;               152 bytes of payload spare, NO whole sector (kernel size
+;               pass 8's close, after font_init moved into the blob).
 ;   kern_small  region 1,536 (1,024 + 512), `.ovlw` 1,497 -> 1,536 rounded.
 ;               39 bytes of payload spare.
 ;
 ; So KERN_BIG binds this guard. The blob is the other home for a boot body:
-; since SPEC.md 2.5.3.3 put kmain's boot half in it, `.ovl` leaves 31 bytes
-; of it on kern_big (147 until SPEC.md 31.14's ovl_fdd_apply) and 15 on
-; kern_small (SPEC.md 6.0.1's FONT_PICK is there), so kern_small binds the
-; blob now. A KNOB
+; since SPEC.md 2.5.3.3 put kmain's boot half in it, `.ovl` leaves 308 bytes
+; of it on kern_big and 415 on kern_small at ten sectors (kernel size pass 8
+; grew it from nine for SPEC.md 6.0.1's timed font pick), so the window half
+; binds kern_big again. A KNOB
 ; build has DSK_OVLPAD's 1,024 more here, and 2.5.3.3.1 is what spends it.
 %if ((OVLW_SIZE + 511) / 512) * 512 > FAT_PARA * 16 + DSK_WIN_BYTES
 %error "the boot overlay's window half has outgrown the FAT window plus dsk_secbuf - see SPEC.md 2.1.2 and 2.5.3. Move a body to the blob (`.ovl`, SPEC.md 2.5.3.2) or out of the boot path"
