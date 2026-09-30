@@ -155766,7 +155766,17 @@ on time however long the disk takes:
   45 KB. On a 640 KB VGA machine with a Sound Blaster and a fixed disk
   that one slot was the difference: a 24 fps 320x240 VGA8 clip encoded
   for `286-vga` (a ring of 8) got **7 slots and `Low memory`**, and gets
-  8 (VIDEO.O88 +13 bytes). A
+  8 (VIDEO.O88 +13 bytes). **And the keeper is claimed from the TOP**
+  (`OSAPI_MEM_CLAIM_HI`, as a RESIDENT file's always was, 98.1.7.4), with
+  the page-flip copy (98.3.8). Claimed from the bottom it is pinned right
+  on top of the kernel's caches - the directory read-ahead (32 KB), a
+  window's raise cache (30 KB) and the icon store (4 KB) - and walls them
+  off from the ring, which `OSAPI_MEM_AVAIL` counts as free because a
+  claim sheds them (50.6.3). None of them is a stream buffer: a 32 KB
+  `READ_SEQ` chunk bypasses the read-ahead entirely (18.95.1). Measured
+  with the same clip on the same machine: the ring's run 313 KB -> 379 KB
+  and the ring 8 slots -> 10, one 352 KB block from the heap's floor; the
+  caches are rebuilt at their next use. A
   stream that fits is read whole before the first frame, so every slot
   past the header's ring is headroom the encode never counted on: an
   early burst is read before the picture starts, and a later one spends
@@ -155825,7 +155835,16 @@ A bad one ends the play with the reason in the window. The lists are not
 checked, and cannot reach past the adapter's own segment (98.1.6).
 
 **The window after a play shows**: frames drawn of the file's, stalls, late
-periods, and the play's length in ticks against the file's own.
+periods, and the play's length in ticks against the file's own - and, once
+a play has started, **the heap**, two lines for anyone doing this section's
+arithmetic by hand: the largest claim and all that was free when Play was
+pressed (`[vp_mrun0]`, `[vp_mfre0]`), then the ring's slots against the
+header's, the run it was sized from (`[vp_mrun]`, after the keeper and the
+card's ring) and those two claims' KB - `Heap 474K run, 474K free at Play`,
+`Ring 10/8 of 379K; keep 75 snd 17`. They are drawn where the card holds
+its text alone; with the buttons in the card (`VP_LINESB`) its text stops
+at eight lines, above them. A play's **pauses are its own**, as its stalls
+are: `[vp_pause]` counted every play since the window opened.
 
 **Measured** (`tests/vidplay.py`, a 150-frame 30 fps clip the row makes,
 opened by double-clicking it):
@@ -156070,7 +156089,7 @@ when that is key 0. The entry's four facts are all it needs (98.1.3):
   from the video's after that, so both start at frame *k*+1.
 - **`[vp_base]` = *k*+1 is the frame count's zero**: `[vp_done]` starts
   there, the gate's holds are absolute frames, the card's clock adds it to
-  the frames it has played, and the window's *Drew N of M* and *T ticks of W*
+  the frames it has played, and the window's *Drew N/M* and *T ticks of W*
   count from it. **The clock is SEEDED there too**: until the card's first
   block interrupt the extrapolation runs from `[vp_syncf]`, and a `[vp_syncf]`
   left at 0 held the first three frames back and then made them all due at

@@ -85,7 +85,8 @@ VP_SLOTP    equ VP_CHUNK / 16       ; ...in paragraphs
 VP_KMAX     equ 8                   ; a LIVE play's most slots (a power of two)
 VP_KBIG     equ 15                  ; ...and any other's (SPEC.md 98.3)
 VP_COLS     equ 35                  ; the info panel's text columns
-VP_LINES    equ 8
+VP_LINES    equ 10                  ; (the last two the heap's, 98.3)
+VP_LINESB   equ 8                   ; ...and all a card with its buttons in
 VP_LINE     equ VP_COLS + 1
 VP_LPITCH   equ 11                  ; ...and its line pitch
 ; --- the window (SPEC.md 98.4.1): content-relative, every x a byte's. What
@@ -883,6 +884,7 @@ vp_open:
     mov byte [vp_ok], 0
     mov byte [vp_played], 0
     mov byte [vp_loaded], 0
+    mov word [vp_mfre0], 0          ; (no play of this file's to report)
     call vp_pfree                   ; the last file's poster, and its keys
     call vp_rfree                   ; ...and its loaded block
     call vp_xfree                   ; ...and its hold in XMS (98.3.18)
@@ -5815,6 +5817,11 @@ vp_sstart:
     push si
     push di
     push es
+    call OSAPI_MEM_AVAIL            ; THE HEAP AS PLAY FOUND IT, for the
+    mov [vp_mrun0], ax              ; card's memory lines (98.3): the
+    mov [vp_mfre0], bx              ; largest claim, and all that is free
+    mov word [vp_mrun], 0           ; ...and nothing from the ring's sizing
+                                    ; yet (a RESIDENT play has no ring)
     ; --- KEY 0's ENTRY for a colour play from the start (98.3.5, 98.2.9): a
     ;     colour play starts from key 0 and not from the stream's first
     ;     record, but only once key 0's entry is the one in hand - and a
@@ -5924,22 +5931,21 @@ vp_sstart:
     xor ah, ah
 .kc:
     mov [vp_kkb], al                ; (what vp_zero clears of it)
-    cmp byte [vp_resid], 0          ; RESIDENT: from the TOP (98.1.7.4) - it
-    je .kbu                         ; is pinned, and claimed from the bottom
-    call OSAPI_MEM_CLAIM_HI         ; it lay under the movable blocks, so the
-    jmp short .kk                   ; room below them could never reach them
-.kbu:
-    call OSAPI_MEM_CLAIM
-.kk:
-    jnc .kok
+    call OSAPI_MEM_CLAIM_HI         ; FROM THE TOP, streamed or RESIDENT
+    jnc .kok                        ; (98.1.7.4, 98.3): it is pinned, and
+                                    ; claimed from the bottom it landed on the
+                                    ; kernel's caches and walled them off from
+                                    ; the ring - 75 KB of Mode X keeper left
+                                    ; the ring the 313 KB above it, not the
+                                    ; 381 KB the machine had
     mov word [vp_msg], vp_s_mem
     jmp .fail
 .kok:
     mov [vp_keep], dx
     cmp byte [vp_flip], 0           ; PAGE FLIPPING: the last record's copy
     je .nopv                        ; (98.3.8)
-    mov ax, VP_PREVKB
-    call OSAPI_MEM_CLAIM
+    mov ax, VP_PREVKB               ; (from the top too, for the same
+    call OSAPI_MEM_CLAIM_HI         ; reason)
     jnc .pv
     mov word [vp_msg], vp_s_mem
     jmp .fail
@@ -5979,9 +5985,26 @@ vp_sstart:
     ;     header's ring is headroom the encode never counted on. LIVE plays
     ;     on the desktop, so it keeps the old rule, a power of two to VP_KMAX
     call OSAPI_MEM_AVAIL            ; AX = the largest free run, KB
+    mov [vp_mrun], ax               ; (the card's memory lines, and what
+    mov dl, [vp_kkb]                ; was claimed before it: a stop
+    mov [vp_mkeep], dl              ; clears both)
+    xor dx, dx
+    cmp word [vp_aseg], 0
+    je .ms0
+    mov dl, VP_RL / 1024 + 1
+.ms0:
+    mov [vp_msnd], dl
     mov cx, [vp_kmax]
     cmp byte [vp_livem], 0
     jne .klive
+    cmp byte [vp_audio], 0          ; ...less the SOUND's ring, where the file
+    je .kau                         ; has sound and this play claimed none
+    cmp word [vp_aseg], 0           ; (MUTED): M claims it in the full screen
+    jne .kau                        ; after the ring is up (98.3.17), and a
+    sub ax, VP_RL / 1024 + 1        ; ring that took every slot refused it
+    jnc .kau
+    xor ax, ax
+.kau:
     sub ax, [vp_kekb]               ; ...less the claim a seek reads its key's
     jnc .kbig                       ; ENTRY into AFTER the ring (98.3.14),
     xor ax, ax                      ; which would otherwise quietly refuse -
@@ -6183,7 +6206,8 @@ vp_spos:
     mov [vp_fleft], ax
     mov [vp_owed], ax
     mov [vp_stall], ax
-    mov [vp_ptk], ax
+    mov [vp_pause], ax              ; (this play's, as the stalls are: it
+    mov [vp_ptk], ax                ; counted every play since the open)
     mov [vp_late], ax
     mov [vp_dt], ax
     mov [vp_gap], ax
@@ -10457,6 +10481,11 @@ vp_ptext:
 .l:
     cmp bx, VP_LINES
     jae .out
+    cmp byte [vp_lbin], 0           ; the buttons in the card: its text ends
+    je .lok                         ; above them (VP_CARDBY)
+    cmp bx, VP_LINESB
+    jae .out
+.lok:
     mov ax, (CWHITE << 8) | CBLACK
     call OSAPI_FONT_RUN
     add si, VP_LINE
@@ -10899,8 +10928,13 @@ vp_ground:
     call vp_ghole
     add bx, VP_LPITCH
     inc si
+    cmp si, VP_LINESB
+    jb .ln
+    cmp byte [vp_lbin], 0           ; (the buttons in the card: its text
+    jne .lnd                        ; ends above them)
     cmp si, VP_LINES
     jb .ln
+.lnd:
     cmp byte [vp_lbin], 0           ; ...and its buttons, if they are in it
     je .cf
     cmp byte [vp_abon], 0
@@ -11400,7 +11434,7 @@ vp_fmt:
     cmp byte [vp_played], 0
     jne .res
     call vp_xsay                    ; 6: the hold, until a play's figures
-    jmp .out
+    jmp .mem
 .res:
     ; 6: frames drawn, stalls, pauses
     mov di, vp_lines + 6 * VP_LINE
@@ -11411,8 +11445,8 @@ vp_fmt:
     xor dx, dx
     xor bl, bl
     call vp_putn
-    mov si, vp_s_of
-    call vp_puts
+    mov al, '/'                     ; (' of ' ran a whole play's line past
+    call vp_putc                    ; the card: its pauses fell off the end)
     mov ax, [vp_frames]
     sub ax, [vp_base]
     xor dx, dx
@@ -11455,6 +11489,57 @@ vp_fmt:
     mov cx, [vp_rate]
     call vp_div32
     xor bl, bl
+    call vp_putn
+.mem:
+    ; 8 and 9: THE HEAP (98.3), once a play has started - what Play found,
+    ; and what the ring was sized from and took
+    cmp word [vp_mfre0], 0
+    je .out
+    mov di, vp_lines + 8 * VP_LINE
+    mov si, vp_s_heap               ; Heap 405K run, 471K free at Play
+    call vp_puts
+    xor dx, dx
+    xor bl, bl
+    mov ax, [vp_mrun0]
+    call vp_putn
+    mov si, vp_s_krun
+    call vp_puts
+    mov ax, [vp_mfre0]
+    call vp_putn
+    mov si, vp_s_kfree
+    call vp_puts
+    mov di, vp_lines + 9 * VP_LINE
+    cmp word [vp_mrun], 0           ; Ring 10/8 of 381K; keep 75 snd 17
+    je .mk
+    mov si, vp_s_ring
+    call vp_puts
+    mov ax, [vp_k]
+    call vp_putn
+    mov al, '/'
+    call vp_putc
+    mov al, [vp_rneed]
+    xor ah, ah
+    call vp_putn
+    mov si, vp_s_of
+    call vp_puts
+    mov ax, [vp_mrun]
+    call vp_putn
+    mov si, vp_s_kk
+    call vp_puts
+    jmp short .mk2
+.mk:
+    mov byte [vp_mkeep], 0          ; (RESIDENT: no ring, and its keeper and
+    mov byte [vp_msnd], 0           ; sound are not captured - say nothing)
+    jmp short .out
+.mk2:
+    mov si, vp_s_keep
+    call vp_puts
+    mov al, [vp_mkeep]
+    xor ah, ah
+    call vp_putn
+    mov si, vp_s_snd
+    call vp_puts
+    mov al, [vp_msnd]
     call vp_putn
 .out:
     pop es
@@ -11775,6 +11860,13 @@ vp_s_kb:      db ' KB', 0
 vp_s_stall:   db ', stalls ', 0
 vp_s_pause:   db ', pauses ', 0
 vp_s_late:    db 'Late ', 0
+vp_s_heap:    db 'Heap ', 0
+vp_s_krun:    db 'K run, ', 0
+vp_s_kfree:   db 'K free at Play', 0
+vp_s_ring:    db 'Ring ', 0
+vp_s_kk:      db 'K; ', 0
+vp_s_keep:    db 'keep ', 0
+vp_s_snd:     db ' snd ', 0
 vp_s_ticks:   db ', ', 0
 vp_s_want:    db ' ticks of ', 0
 
@@ -12007,6 +12099,11 @@ vp_poster:    dw 0                  ; the header's poster, FFFFh none
 vp_kmaxb:     dw 0                  ; the largest keyframe record
 vp_kbkb:      dw 0                  ; ...and the claim that reads one, KB
 vp_kekb:      dw 0                  ; ...and one that reads a table entry, KB
+vp_mrun0:     dw 0                  ; the heap as Play found it: the largest
+vp_mfre0:     dw 0                  ; claim and all that is free, KB (98.3)
+vp_mrun:      dw 0                  ; ...and what the ring was sized from
+vp_mkeep:     db 0                  ; ...after the keeper, KB
+vp_msnd:      db 0                  ; ...and the card's ring, KB
 vp_sel:       dw 0                  ; the key Play starts at; 0 = the start
 vp_kload:     dw 0xFFFF             ; the key vp_ke holds
 vp_ke:        times 16 db 0         ; its table entry (98.1.3)
