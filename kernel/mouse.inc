@@ -4794,7 +4794,9 @@ cur_busy_on:
 ; cur_shape_pass - the UI task's end-of-pass service: which window is the
 ;                  pointer over, and does it want a different picture?
 ; in:  nothing; NO lock held (this is a .yield-tail caller)
-; out: nothing (all registers preserved)
+; out: nothing; every register preserved but BP, which ui_lcall spends on a
+;      shape change (the one caller, ui_task's .chk_curs, loads BP itself
+;      one step above and keeps nothing in it)
 ;
 ; One compare per pass when nothing moved, which is toast_pass's discipline
 ; and for toast_pass's reason: this runs as fast as the scheduler lets ui_task
@@ -4858,9 +4860,10 @@ cur_shape_pass:
                                 ; reference kernel found the pointer MISSING
                                 ; from 5 of 18 captured frames
     mov al, ah
-    call gfx_lock               ; cur_shape_set draws, so it needs the lock -
-    call cur_shape_set          ; and this is a .yield caller, which holds
-    call gfx_unlock             ; none
+    mov bp, cur_shape_set       ; cur_shape_set draws, so it needs the lock -
+    call ui_lcall               ; and this is a .yield caller, which holds
+                                ; none. ui_lcall is the lock/call/unlock
+                                ; triple in six bytes; BP is spent on it
 .out:
     pop dx
     pop cx

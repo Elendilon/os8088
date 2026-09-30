@@ -2315,15 +2315,14 @@ vga_blit_span:
     and ah, bl
     mov al, 8
     out dx, ax
-    mov al, [es:di]             ; the read loads the latches; the write is what
-    mov [es:di], al             ; the ALU and the bit mask act on
+    xchg [es:di], al            ; the read loads the latches; the write is what
+                                ; the ALU and the bit mask act on
     jmp short .out
 .multi:
     mov ah, bh                  ; --- the left edge byte
     mov al, 8
     out dx, ax
-    mov al, [es:di]
-    mov [es:di], al
+    xchg [es:di], al            ; latch load and masked write in ONE instruction
     inc di
     dec si
     jz .right
@@ -2335,8 +2334,7 @@ vga_blit_span:
     mov ah, bl                  ; --- and the right edge byte
     mov al, 8
     out dx, ax
-    mov al, [es:di]
-    mov [es:di], al
+    xchg [es:di], al            ; latch load and masked write in ONE instruction
 .out:
     pop es
     pop di
@@ -3221,8 +3219,10 @@ vga_solid_rect:
     mov di, [gfx_roff]
     mov si, [gfx_rrows]
 .lcol:
-    mov al, [es:di]             ; load latches
-    mov [es:di], al
+    xchg [es:di], al            ; load latches, and the masked write, in ONE
+                                ; instruction: Set/Reset supplies all four
+                                ; planes, so the byte written (AL's old value)
+                                ; is don't-care - font.inc's idiom
     add di, ROW_BYTES
     dec si
     jnz .lcol
@@ -3235,8 +3235,7 @@ vga_solid_rect:
     add di, bx
     mov si, [gfx_rrows]
 .rcol:
-    mov al, [es:di]
-    mov [es:di], al
+    xchg [es:di], al            ; latch load and masked write in ONE instruction
     add di, ROW_BYTES
     dec si
     jnz .rcol
@@ -3415,16 +3414,14 @@ gfx_spans:
     mov dx, VGA_GC
     mov al, 8
     out dx, ax                  ; GC8 = left edge (the row if 1 byte wide)
-    mov al, [es:di]             ; load latches
-    mov [es:di], al
+    xchg [es:di], al            ; load latches
     or bx, bx
     jz .vnext
     mov ah, cl                  ; right edge column
     mov al, 8
     out dx, ax
     add di, bx
-    mov al, [es:di]
-    mov [es:di], al
+    xchg [es:di], al            ; latch load and masked write in ONE instruction
     dec bx                      ; interior bytes
     jz .vnext
     mov ax, 0xFF08              ; full bytes: latches irrelevant, and Set/Reset
@@ -3584,8 +3581,8 @@ gfx_fill_gray_raw:                              ; only renderer gfx_fill_gray ha
     mov si, [gfx_rrows]
     mov bh, bl
 .lcol:
-    mov al, [es:di]             ; load latches for the masked write
-    mov [es:di], bh
+    mov al, bh                  ; the dither byte, then ONE xchg: the read
+    xchg [es:di], al            ; loads the latches, the write is masked
     not bh                      ; AA <-> 55 each row
     add di, ROW_BYTES
     dec si
@@ -3600,8 +3597,8 @@ gfx_fill_gray_raw:                              ; only renderer gfx_fill_gray ha
     mov si, [gfx_rrows]
     mov bh, bl
 .rcol:
-    mov al, [es:di]
-    mov [es:di], bh
+    mov al, bh
+    xchg [es:di], al            ; latch load, then the dither byte
     not bh
     add di, ROW_BYTES
     dec si
@@ -3730,8 +3727,7 @@ gfx_fill_pat_raw:                              ; only renderer gfx_fill_pat has
     and bx, 7
 .lcol:
     mov ah, [gfx_patbuf+bx]     ; row byte first: the masked write must
-    mov al, [es:di]             ; follow the latch load immediately
-    mov [es:di], ah
+    xchg [es:di], ah            ; follow the latch load immediately
     inc bx
     and bx, 7
     add di, ROW_BYTES
@@ -3749,8 +3745,7 @@ gfx_fill_pat_raw:                              ; only renderer gfx_fill_pat has
     and bx, 7
 .rcol:
     mov ah, [gfx_patbuf+bx]
-    mov al, [es:di]
-    mov [es:di], ah
+    xchg [es:di], ah            ; latch load, then the row byte
     inc bx
     and bx, 7
     add di, ROW_BYTES
