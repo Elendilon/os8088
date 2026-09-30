@@ -56519,7 +56519,8 @@ this lands in `ctrl.drv` — an on-demand module (§2.8), so **the kernel's own
 rungs do not move**: `.text` +1, `.bss` +0, `.cold` +0, footprint +0, and the
 one byte is `[cp_darr_dn]`, which is `.text` for §2.8's rule (a module's data
 has to survive the module being dropped, and `tools/os88ovlchk.py` refuses it
-anywhere else). The module itself is **4,092 → 4,197 bytes on `kern_big` and
+anywhere else). Kernel size pass 8 made it a byte of `cp_sbuf`'s tail: it lives
+across `cp_drv_arrow1` alone, and that routine stages nothing (§2.8.6.1). The module itself is **4,092 → 4,197 bytes on `kern_big` and
 3,261 → 3,298 on `kern_small`**, and the first of those **crosses a sector**,
 8 → 9 — a sector inside the run the panel's open already issues, and the honest
 place to record it rather than to call the change free.
@@ -56805,7 +56806,9 @@ needed no padding at all.
 
 **The `(ink, paper)` pair is decided where the selection is known and read where
 the run is drawn** — `[cp_tpair]`, a word, because `cp_time_fld` has already
-spent `AL` on the field index and `AH` on the field count. `[cp_tfull]` is the
+spent `AL` on the field index and `AH` on the field count. (Kernel size pass 8:
+the pair is decided in `BX` at the draw now, by the same `[cp_tsel]` compare,
+and the resident word is gone.) `[cp_tfull]` is the
 flag for the same reason.
 
 **What it costs on the tick**, counted in primitive calls, which is how a
@@ -57958,8 +57961,8 @@ struct in place, sets `[cp_wdirty]`, and §31.8's close writes it as key `FD`,
 ver 1, two bytes.
 
 **The drop-down is the kernel's own popup menu.** A box is a frame, the
-Drivers page's down arrow (`cp_drv_tri` over `cp_drv_trid`, both already
-there) and the pick's caption; a press on it calls `cw_menu_popup` anchored
+Drivers page's down arrow (`cp_drv_tri`, already there - its half-widths are
+computed since kernel size pass 8, where they were the `cp_drv_trid` table) and the pick's caption; a press on it calls `cw_menu_popup` anchored
 under the box, and `menu_drop` follows the held button and returns at the
 release. That is the bar menu's gesture — press, drag, release — and it is why
 a box is a **selecting** site (`cp_ctl` id 0, §13.8.3): it acts on the press,

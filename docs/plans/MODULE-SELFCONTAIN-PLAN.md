@@ -638,6 +638,14 @@ shims to save ten.
 
 **That is the whole of W5's ~90 accounted for, and none of it moves** — which
 is 5.4's rule holding on every row of one image rather than on a sample.
+
+*Kernel size pass 8* took two of those rows by routes this section did not
+price, neither of which moves a buffer INTO the image: `cp_dmbuf` became
+`cp_sbuf` itself (both are one-user staging on the UI task, and nothing stages
+between the figure's composition and its draw), and the SYSTEM.CFG writer's
+own file buffer - `times` bytes in the image, not resident - became `.modcb`,
+CTRL.DRV's nobits bss on 3.1's pattern, which only the image's `ES = CS` stores
+and `dskw_write_sys`'s `ES:BX` ever touch. `cp_savetab` and the rest stand.
 `HIBER.DRV`'s `hb_onup` (6) is the only untested remainder and is not worth a
 wave.
 
