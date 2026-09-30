@@ -63577,9 +63577,10 @@ card it subtracts zero.
 
 #### 39.15.2 `[cur_disp]`, and the bracket that makes it true
 
-The arrow is on one display, named by `[cur_disp]`, and `cur_put`, `cur_get`
-and `cur_move` each make it current before touching a framebuffer and put the
-previous one back. They have to own that themselves: `cur_get` is reached from
+The arrow is on one display, named by `[cur_disp]`, and the show/hide body
+(`cur_vis`, behind `cursor_show` and `cursor_hide`) and `cur_move` each make it
+current before touching a framebuffer and put the previous one back. They have
+to own that themselves: a hide is reached from
 `gfx_lock`'s deferred hide and from the **mouse ISR**, neither of which is
 inside a §39.14 drawing hook, and the display live at either moment is
 whatever the last primitive left.

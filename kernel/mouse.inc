@@ -1625,20 +1625,13 @@ section .text                   ; ...and the writers below are RESIDENT: they
 ; mou_p2cw / mou_p2dw - a command byte to 64h / a data byte to 60h
 ; ins:  AL = the byte
 ; outs: CF = 1 if the controller never took it (all registers preserved)
+; (OUT writes no flag, so a successful write returns mou_p2wr's CF = 0 and
+; needs no clc of its own)
 ; -----------------------------------------------------------------------------
 mou_p2cw:
     call mou_p2wr
     jc .out
     out MOU_P2CMD, al
-    clc
-.out:
-    ret
-
-mou_p2dw:
-    call mou_p2wr
-    jc .out
-    out MOU_P2DAT, al
-    clc
 .out:
     ret
 
@@ -1646,14 +1639,20 @@ mou_p2dw:
 ; mou_p2wcmd - write AL as the 8042's COMMAND BYTE (0x60, then the value)
 ; ins:  AL = the new command byte
 ; outs: CF = 1 if either half stalled (all registers preserved)
+; ...and it FALLS INTO mou_p2dw for the value, which is why it sits between
+; the two writers.
 ; -----------------------------------------------------------------------------
 mou_p2wcmd:
     push ax
     mov al, 0x60
     call mou_p2cw
     pop ax
+    jc mou_p2cw.out
+
+mou_p2dw:
+    call mou_p2wr
     jc .out
-    jmp mou_p2dw
+    out MOU_P2DAT, al
 .out:
     ret
 
@@ -2080,8 +2079,8 @@ mou_p2_isr:
                                 ; to the iret, so it cannot nest on itself - and
                                 ; it cannot nest with mou_isr either, so the two
                                 ; share one private stack
-    push ax
-    push bx
+    push bx                     ; mou_isr_body's ORDER, bx before ax: the two
+    push ax                     ; leave through one epilogue, mou_eoi
     push cx
     push dx
     push si
@@ -2107,18 +2106,9 @@ mou_p2_isr:
 .eoi:
     mov al, 0x20                ; the SLAVE first and then the master: the BIOS
     out 0xA0, al                ; handles IRQ12 for nobody, and a cascaded line
-    out 0x20, al                ; owes both controllers an EOI
-    pop es
-    pop ds
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    MOUPRIV_LEAVE
-    iret
+    jmp mou_eoi                 ; owes both controllers an EOI - mou_eoi is the
+                                ; master's and the serial ISR's own epilogue,
+                                ; so the frame above is pushed in its order
 
 ; -----------------------------------------------------------------------------
 ; mou_p2_byte - one byte from the auxiliary device
@@ -3294,16 +3284,17 @@ kbd_ovb     db 0                ; ...and one the ISR has asked for and no pass
 ; could starve the real mouse out of ever being found (SPEC.md 9.5).
 ; -----------------------------------------------------------------------------
 mou_isr:                        ; IRQ4, and...
-    MOUPRIV_ENTER               ; docs/plans/completed/STACK-SLOTS-PLAN.md 4.2: onto a private
-    push bx                     ; stack, before anything is pushed
-    mov bl, MOU_L4              ; ...the ONE thing the two entries disagree
-    jmp short mou_isr_body      ; about: which LINE fired. Not which PORT has
-mou_isr3:                       ; the byte - that is scanned for below - but
-    MOUPRIV_ENTER               ; ...and the same two instructions again, which
-    push bx                     ; is the duplication this buys the saving with
-    mov bl, MOU_L3              ; nothing else can tell mou_lockon that
+    mov byte [cs:mou_lfired], MOU_L4 ; ...the ONE thing the two entries
+    jmp short mou_isr_body      ; disagree about: which LINE fired. Not which
+mou_isr3:                       ; PORT has the byte - that is scanned for
+    mov byte [cs:mou_lfired], MOU_L3 ; below - but nothing else can tell
+                                ; mou_lockon that. STAMPED FIRST, through CS
+                                ; and with no register, so the private-stack
+                                ; switch below is ONE copy for both doors
 mou_isr_body:
-    push ax
+    MOUPRIV_ENTER               ; docs/plans/completed/STACK-SLOTS-PLAN.md 4.2:
+    push bx                     ; onto a private stack, before anything is
+    push ax                     ; pushed
     push cx
     push dx
     push si
@@ -3313,8 +3304,7 @@ mou_isr_body:
     push es
     push cs
     pop ds
-    mov [mou_lfired], bl        ; BL survives the pushes above; AX does not, so
-    cld                         ; this is the first instruction that can store
+    cld
 
     ; --- whoever is holding a byte, take it ---------------------------------
     ; Not "the port this vector belongs to": there is no such thing. A card at
@@ -3389,7 +3379,7 @@ mou_byte:
     cmp dx, MOU_DRAINQ          ; user's first real motion and must be read
     jae .drainover
     mov [mou_dstamp], cx        ; still arriving: push the window's close out
-    jmp .jbout                  ; to MOU_DRAINQ past THIS byte, and drop it
+    ret                         ; to MOU_DRAINQ past THIS byte, and drop it
 .drainover:
     mov byte [mou_drain], 0     ; window over: this byte is live
 .live:
@@ -3404,14 +3394,14 @@ mou_byte:
     mov [bx+mou_b0], al
     mov byte [bx+mou_phase], 1
 .jbout:
-    jmp .bout
+    ret
 
 .cont:
     cmp byte [bx+mou_phase], 1
     jne .chk2
     mov [bx+mou_b1], al         ; second byte: X low 6 bits
     mov byte [bx+mou_phase], 2
-    jmp .bout
+    ret
 
 .chk2:
     cmp byte [bx+mou_phase], 2  ; anything else is a stray byte - drop it, and
@@ -3419,14 +3409,14 @@ mou_byte:
     cmp byte [bx+mou_phase], 3  ; with bit 6 clear arriving between packets is
     jne .stray                  ; a thing the protocol cannot produce...
     mov byte [bx+mou_phase], 0  ; ...UNLESS it is the FOURTH byte of a wheel
-    jmp short .bout             ; mouse's packet, which is exactly a bit-6-clear
+    ret                         ; mouse's packet, which is exactly a bit-6-clear
                                 ; byte in exactly this position (SPEC.md 9.5.4).
                                 ; Consumed, and the run is NOT broken - that
                                 ; break is what made a wheel mouse unable to
                                 ; win the contest at all (docs/FIELD-NOTES.md 44)
 .stray:
     mov byte [bx+mou_run], 0
-    jmp short .bout
+    ret
 .pkt:
     mov byte [bx+mou_phase], 3  ; third byte: Y low 6 bits, packet complete -
                                 ; and phase 3 rather than 0, so the wheel byte
@@ -3822,6 +3812,9 @@ mou_apply:
 mou_eoi:
     mov al, 0x20                ; EOI - the BIOS handles neither IRQ4 nor
     out 0x20, al                ; IRQ3 for us, and both are on the master
+                                ; (mou_p2_isr joins here too, IRQ12's slave
+                                ; EOI already sent, with the frame in this
+                                ; order)
     pop es
     pop ds
     pop bp
@@ -3864,13 +3857,31 @@ cur_logput:
 ; -----------------------------------------------------------------------------
 ; cursor_show - increment cur_level; on the -1 -> 0 transition, save under and
 ;               draw the cursor at the latest mouse position (clipped) and
-;               clear cur_dirty. Interrupt-safe: the critical section runs
-;               under pushf/cli so the ISR never sees a half-drawn state.
+;               clear cur_dirty.
+; cursor_hide - decrement cur_level; on the 0 -> -1 transition, restore the
+;               save-under (the buffer is only valid while the cursor is
+;               drawn).
+; Interrupt-safe: the critical section runs under pushf/cli so the ISR never
+; sees a half-drawn state.
 ; ins:  none
-; outs: none (all registers preserved)
+; outs: none (all registers preserved, and the flags: popf)
+;
+; ONE BODY FOR THE PAIR. They shared the frame, the critical section and the
+; epilogue already, and on kern_big the display bracket (SPEC.md 39.15.2) was
+; two macro expansions in two wrappers, cur_put and cur_get, that nothing but
+; these two called. AH carries the direction in from the two short doors and
+; the saved AX gives it back, so no flag is spent on it - the caller's flags
+; are exactly what popf restores. cur_move_multi calls cur_put_1/cur_get_1
+; under its own bracket, as it always did.
 ; -----------------------------------------------------------------------------
+cursor_hide:
+    push ax
+    mov ah, -1
+    jmp short cur_vis
 cursor_show:
     push ax
+    mov ah, 1
+cur_vis:
     push bx
     push cx
     push dx
@@ -3880,6 +3891,8 @@ cursor_show:
     push es
     pushf
     cli
+    or ah, ah
+    js .hide
     inc byte [cur_level]
     jnz .done                   ; only the -1 -> 0 edge draws
 
@@ -3888,47 +3901,48 @@ cursor_show:
     mov [cur_drawn_x], ax
     mov [cur_drawn_y], bx
 %ifdef KERN_BIG
-    push ax                     ; ...and WHICH display that is (SPEC.md
-    call vid_disp_of            ; 39.15.2) - the one place besides cur_move's
-    mov [cur_disp], al          ; jump where the arrow can change display
-    pop ax
-%endif
+    call vid_disp_of            ; ...and WHICH display that is (SPEC.md
+    mov [cur_disp], al          ; 39.15.2) - the one place besides cur_move's
+%endif                          ; jump where the arrow can change display
     mov byte [cur_dirty], 0
     CURLOG 'S'                  ; DRAWN, at the position just stored
-    call cur_put
-.done:
-    popf
-    jmp kret_es
-
-; -----------------------------------------------------------------------------
-; cursor_hide - decrement cur_level; on the 0 -> -1 transition, restore the
-;               save-under (the buffer is only valid while the cursor is
-;               drawn). Same pushf/cli guard as cursor_show.
-; ins:  none
-; outs: none (all registers preserved)
-; -----------------------------------------------------------------------------
-cursor_hide:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    push es
-    pushf
-    cli
-    dec byte [cur_level]
-    cmp byte [cur_level], -1
-    jne .done                   ; only the 0 -> -1 edge erases
+%ifdef KERN_BIG
+    mov si, cur_put_1
+    jmp short .draw
+%else
+    call cur_put_1
+    jmp short .done
+%endif
+.hide:
+    sub byte [cur_level], 1     ; CF = a borrow out of 0: exactly the 0 -> -1
+    jnc .done                   ; edge, the only one that erases
     CURLOG 'H'                  ; ERASED, from where the pixels are
-    call cur_get
+%ifdef KERN_BIG
+    mov si, cur_get_1
+; --- the display bracket (SPEC.md 39.15.2) -----------------------------------
+; The cursor owns this itself rather than inheriting it, because a hide is
+; reached from gfx_lock's deferred hide AND from the mouse ISR - neither of
+; which is inside a 39.14 drawing hook, so the display live at either moment is
+; whatever the last primitive left. The outgoing display is banked on the
+; stack for the length of the one call.
+.draw:
+    mov al, [vid_cur]
+    push ax
+    mov al, [cur_disp]
+    call vid_ctx_act
+    call si                     ; cur_put_1 or cur_get_1 (clobbers: ax, bx,
+    pop ax                      ; cx, dx, si, di, bp, es - all banked above)
+    call vid_ctx_act
+%else
+    call cur_get_1
+%endif
 .done:
     popf
     jmp kret_es
 
 ; -----------------------------------------------------------------------------
-; cur_put / cur_get - draw the cursor over what it covers, and put that back
+; cur_put_1 / cur_get_1 - draw the cursor over what it covers, and put that
+; back, on the CURRENT display (cur_vis and cur_move_multi own the bracket)
 ;
 ; The pair is the whole of what gfx_lock and gfx_unlock cost (SPEC.md 7.1):
 ; the mutex itself is one flag and six instructions, and everything else in
@@ -3949,56 +3963,11 @@ cursor_hide:
 ; Internal; the caller guarantees IF = 0 or the gfx lock.
 ; clobbers: ax, bx, cx, dx, si, di, bp, es
 ; -----------------------------------------------------------------------------
-%ifdef KERN_BIG
-; --- the display bracket (SPEC.md 39.15.2) -----------------------------------
-; cur_put/cur_get/cur_move own this themselves rather than inheriting it,
-; because cur_get is reached from gfx_lock's deferred hide AND from the mouse
-; ISR - neither of which is inside a 39.14 drawing hook, so the display live at
-; either moment is whatever the last primitive left.
-;
-; CUR_DBEGIN banks the outgoing display on the stack and makes [cur_disp]
-; current; CUR_DEND puts it back, preserving every register and the flags.
-%macro CUR_DBEGIN 0
-    push ax
-    mov al, [vid_cur]
-    mov [cur_dprev], al
-    mov al, [cur_disp]
-    call vid_ctx_act
-    pop ax
-%endmacro
-
-%macro CUR_DEND 0
-    pushf
-    push ax
-    mov al, [cur_dprev]
-    call vid_ctx_act
-    pop ax
-    popf
-%endmacro
-%else
-%macro CUR_DBEGIN 0
-%endmacro
-%macro CUR_DEND 0
-%endmacro
-%endif
-
-cur_put:
-    CUR_DBEGIN
-    call cur_put_1
-    CUR_DEND
-    ret
-
 cur_put_1:
     cmp byte [vid_mono], 0
     jne cur_put_mono
     call cur_saveu
     jmp cur_draw
-
-cur_get:
-    CUR_DBEGIN
-    call cur_get_1
-    CUR_DEND
-    ret
 
 cur_get_1:
     cmp byte [vid_mono], 0
