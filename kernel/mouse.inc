@@ -1262,12 +1262,14 @@ mou_lockon:
 ; of never mistaking a PnP string for a click.
 ; -----------------------------------------------------------------------------
 mou_hotplug:
+    cmp byte [mou_hpst], 2      ; TERMINAL: the mouse exists and its ports are
+    je .out                     ; settled (.have, below). ONE compare a pass
+    push ax                     ; for the rest of the session - and state 2 is
+    push bx                     ; reached only through .have, so it implies
+    push cx                     ; [mou_seen], which nothing ever clears
+    push dx
     cmp byte [mou_seen], 0
     jne .have                   ; the mouse exists: stand down - but see .have
-    push ax
-    push bx
-    push cx
-    push dx
     mov bx, [ticks]
     mov ax, bx
     sub ax, [mou_hpt]           ; the ONE stamp both wait states measure from
@@ -1335,20 +1337,15 @@ mou_hotplug:
     jmp kret_dx
 
 .have:                          ; proof can arrive at an awkward moment: a
-    cmp byte [mou_hpst], 2      ; byte the UART latched before a drop can
-    je .out                     ; complete a packet while DTR is LOW, and
-    push ax                     ; standing down right there would leave the
-    push bx                     ; mouse UNPOWERED forever - deader than the
-    push cx                     ; bug this exists to fix. So put the power
-    push dx                     ; back up on every port FIRST...
-    mov ax, 0x040B
-    call mou_pall
+    mov ax, 0x040B              ; byte the UART latched before a drop can
+    call mou_pall               ; complete a packet while DTR is LOW, and
+                                ; standing down right there would leave the
+                                ; mouse UNPOWERED forever - deader than the
+                                ; bug this exists to fix. So put the power
+                                ; back up on every port FIRST...
     call mou_lockon             ; ...and only then retire the ports the mouse
     mov byte [mou_hpst], 2      ; did not speak on. State 2 is terminal: this
-    pop dx                      ; is two compares per UI pass from here on
-    pop cx
-    pop bx
-    pop ax
+    jmp short .done             ; is one compare per UI pass from here on
 .out:
     ret
 
