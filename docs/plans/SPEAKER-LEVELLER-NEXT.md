@@ -244,9 +244,49 @@ loses is a `git revert`.
 
   The ratchet still settles on 5 in all three builds. The listening build's
   load is ESTIMATED ~1 s slower on a 5150, two extra passes over every
-  sample; a shipping version folds both sums into the filter pass. Waiting
-  on the owner's ear: whether the bass line is back, whether the kick
-  clicks, and which k.
+  sample; a shipping version folds both sums into the filter pass.
+
+  **Round 1, the owner's ear:** at x16 the kick at 0:30-0:35 is more audible
+  and fine on the 5150, but on the 286 it drowns the high notes; the bass
+  is "barely audible" where it was missing, at 0:30-0:35 and at 1:20-1:29,
+  where the bass IS the melody. Measured across those sections of the whole
+  song (95 s captures on the 5150 at 4,800 Hz, energy at 400 Hz and up at
+  the level played), x16 bought the bass section 0.8 dB: barely audible, in
+  numbers.
+
+  **Round 2, what limits it and what does not:**
+  - The clamp is not the limit: squaring at the ORIGINAL peak or at +-127
+    instead of 2P buys 1-2 dB. A square's own shape is: at a 60-130 Hz
+    fundamental ~80% of its energy is the fundamental and third harmonic,
+    still under 400 Hz.
+  - A narrow PULSE spreads more of its energy into the harmonics, but
+    carries too little of it under the 8-bit peak, and digdug DECAYS, so a
+    threshold on its one peak catches its first cycles only.
+  - Squared into the whole stored range (the load filter stores every
+    sample at half scale, so there are 6 dB unused) with NO second filter
+    gives the bass the melody's audible level on its own - and CLIPS 38% OF
+    THE SONG, the level falling to 4: the square's fundamental, which the
+    speaker cannot play, takes the headroom. REFUSED.
+  - `-DTSP_BASSFULL` is what works: the whole stored range, then TWO passes
+    of a steeper high-pass (y - y/4 + (x - x_prev), out clamped to +-127),
+    which take the fundamental and keep the harmonics.
+  - `-DTSP_BASSKICK=j` separates the drum: after the load filter the bass
+    crosses zero ~24 times in 1,000 samples and the kick ~250, so a selected
+    sample with crossings under len / 16 is a bass and takes the full route,
+    and anything else takes the gentle first route at j - the owner asked
+    for the kick at x4.
+
+  | whole song, 5150, 4,800 Hz | level | clip | 0:30-0:35 | 1:20-1:29 |
+  |---|---|---|---|---|
+  | shipped | 5 | 2.9% | 27.5 dB | 25.8 dB |
+  | x16, round 1 | 5 | 5.8% | 29.4 dB | 26.6 dB |
+  | bass and kick full | 5 | 7.6% | 33.1 dB | 28.9 dB |
+  | bass full, kick x4 | 5 | 5.4% | 29.8 dB | 29.0 dB |
+
+  The last is `TSP_BASS=4 TSP_BASSFULL TSP_BASSKICK=2`, the round 2 build;
+  its bytes after load equal `tracker_bass(..., full=True, kick=2)` on four
+  samples. `tools/os88spkcap.py --pkg ... --define ...` captures a listening
+  build.
 - **The 86 against 108.** SPKBENCH's shaper loop runs at ~86 cycles a sample
   on a 5150 where Tracker's calibration of the same call reads ~108 (Ne =
   9,728 in four ticks); neither the source data nor the pre-emphasis explains

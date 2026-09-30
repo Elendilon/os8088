@@ -1255,6 +1255,36 @@ tsp_bsx:
 
 ; tsp_bass - DS:SI, CX: the filtered sample; squared and filtered again if it
 ; is a bass (above). Preserves all
+;
+; -DTSP_BASSKICK=j splits what it squares by ZERO CROSSINGS: under one in
+; sixteen samples is a slow wave, a BASS (digdug, 24.5 in 1,000), and takes
+; TSP_BASS; more is a noisy thud, a DRUM (bassdrum2, 250), and takes the
+; gentler j by the first route - the kick drowned the high notes on a 286
+%macro TSP_SQ 1                     ; y << %1 clamped at +-BP, in place
+    push si
+    push cx
+%%sq:
+    mov al, [si]
+    cbw
+%rep %1
+    sal ax, 1
+%endrep
+    cmp ax, bp
+    jle %%a
+    mov ax, bp
+%%a:
+    mov dx, bp
+    neg dx
+    cmp ax, dx
+    jge %%b
+    mov ax, dx
+%%b:
+    mov [si], al
+    inc si
+    loop %%sq
+    pop cx
+    pop si
+%endmacro
 tsp_bass:
     push ax
     push bx
@@ -1270,12 +1300,19 @@ tsp_bass:
     cld
     push si
     push cx
+    mov word [cs:tsp_bzc], 0        ; zero crossings, from a non-negative start
+    mov byte [cs:tsp_bsg], 0
     xor bx, bx                      ; DI:BX = sum |y|, BP = its peak
     xor di, di
     xor bp, bp
 .sy:
     lodsb
     cbw
+    cmp ah, [cs:tsp_bsg]
+    je .sy0
+    inc word [cs:tsp_bzc]
+    mov [cs:tsp_bsg], ah
+.sy0:
     cwd
     xor ax, dx
     sub ax, dx
@@ -1302,34 +1339,70 @@ tsp_bass:
 .bass:
     or bp, bp
     jz .outj
+%ifdef TSP_BASSKICK
+    mov ax, cx                      ; crossings under len / 16: a BASS
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    cmp [cs:tsp_bzc], ax
+    jb .isbass
+    shl bp, 1                       ; a DRUM: j, by the first route - 2P,
+    cmp bp, 127                     ; and the load filter again
+    jbe .klim
+    mov bp, 127
+.klim:
+    TSP_SQ TSP_BASSKICK
+    jmp .second
+.isbass:
+%endif
+%ifdef TSP_BASSFULL
+    mov bp, 127                     ; -DTSP_BASSFULL: the WHOLE stored range,
+%else                               ; the 6 dB the half-scale storage leaves
     shl bp, 1                       ; the clamp: 2P, at most 127
     cmp bp, 127
     jbe .lim
     mov bp, 127
 .lim:
-    push si
-    push cx
-.sq:
+%endif
+    TSP_SQ TSP_BASS
+%ifdef TSP_BASSFULL
+    mov bx, 2                       ; ...and TWO passes of a steeper high-pass
+.fp:                                ; at full range: y = y - y/4 + (x - x_p),
+    push si                         ; out clamped to +-127 - the fundamental
+    push cx                         ; the squaring grew goes, the harmonics
+    xor di, di                      ; keep the whole range
+    xor bp, bp
+.fh:
     mov al, [si]
     cbw
-%rep TSP_BASS
-    sal ax, 1
-%endrep
-    cmp ax, bp
-    jle .sq1
-    mov ax, bp
-.sq1:
-    mov dx, bp
-    neg dx
-    cmp ax, dx
-    jge .sq2
-    mov ax, dx
-.sq2:
+    mov dx, ax
+    sub ax, bp
+    mov bp, dx
+    mov dx, di
+    sar dx, 1
+    sar dx, 1
+    sub di, dx
+    add di, ax
+    mov ax, di
+    cmp ax, 127
+    jle .fh1
+    mov ax, 127
+.fh1:
+    cmp ax, -127
+    jge .fh2
+    mov ax, -127
+.fh2:
     mov [si], al
     inc si
-    loop .sq
+    loop .fh
     pop cx
     pop si
+    dec bx
+    jnz .fp
+    jmp .out
+%endif
+.second:
     xor di, di                      ; the load filter again, exactly
     xor bp, bp
 .b:
@@ -1358,6 +1431,8 @@ tsp_bass:
     pop bx
     pop ax
     ret
+tsp_bzc:    dw 0
+tsp_bsg:    db 0
 tsp_bsx0:   dw 0, 0
 %endif
 

@@ -3,6 +3,7 @@
 
     python3 tools/os88spkcap.py MODULE.MOD [--secs 40] [--out cap.pkl]
                                 [--machine NAME] [--no-turbo]
+                                [--pkg TRACKER.O88 --define NAME[=V] ...]
 
 The instrument docs/plans/SPEAKER-LEVELLER-NEXT.md section 3 describes, kept
 runnable. Boots MartyPC (by default the 7.16 MHz VGA XT with a fixed disk,
@@ -54,6 +55,11 @@ def main():
                     help="the pickle (default: the module's name + .pkl, "
                          "beside it in build/)")
     ap.add_argument("--machine", default=trkspk.TURBO)
+    ap.add_argument("--pkg", default=None,
+                    help="a Tracker package other than build/tracker.o88 - a "
+                         "listening build - with --define for each define "
+                         "it was assembled with, so its symbols are read")
+    ap.add_argument("--define", action="append", default=[])
     ap.add_argument("--no-turbo", action="store_true",
                     help="run the machine at its own clock (the rung it "
                          "picks is then that machine's)")
@@ -63,9 +69,10 @@ def main():
     out = a.out or os.path.join("build", os.path.splitext(mod)[0].lower()
                                 + ".pkl")
     t = trkspk.Trk(a.machine,
-                   [("TRACKER.O88", os88build.at("build/tracker.o88")),
+                   [("TRACKER.O88", a.pkg or os88build.at("build/tracker.o88")),
                     (mod, os.path.abspath(a.module))],
-                   mod, extra=[] if a.no_turbo else ["--turbo"])
+                   mod, defines=tuple(a.define),
+                   extra=[] if a.no_turbo else ["--turbo"])
     try:
         t.until(lambda: t.rb("tsp_open") == 1 or t.rb("tsp_force") == 1,
                 "the play")

@@ -361,20 +361,44 @@ def tracker_hp(data):
     return bytes(out)
 
 
-def tracker_bass(data, k):
+def tracker_bass(data, k, full=False, kick=None):
     """one sample through tsp_natural in a -DTSP_BASS=k build: the load
     filter, and then - for a BASS sample, sum |y| under sum |x| / 4 - y << k
     clamped at +-min(2P, 127), P the filtered peak, and the filter again.
-    Exactly the machine's bytes (docs/plans/SPEAKER-LEVELLER-NEXT.md)"""
+    Exactly the machine's bytes (docs/plans/SPEAKER-LEVELLER-NEXT.md).
+    full: -DTSP_BASSFULL - clamped at +-127, the stored range's whole, then
+    TWO passes of a steeper high-pass at full range, y = y - (y >> 2) + (x -
+    x_prev) out clamped to +-127: the fundamental the squaring grew goes, and
+    the harmonics keep the whole range. kick: -DTSP_BASSKICK=j - a selected
+    sample whose zero crossings (sign changes of y from a non-negative start)
+    are NOT under len / 16 is a DRUM, and takes j by the first route"""
     sgn = lambda b: b - 256 if b > 127 else b
     y = tracker_hp(data)
     ax = sum(abs(sgn(b)) for b in data)
     ay = [abs(sgn(b)) for b in y]
     if not ay or 4 * sum(ay) >= ax or not max(ay):
         return y
-    lim = min(2 * max(ay), 127)
-    sq = bytes(max(-lim, min(lim, sgn(b) << k)) & 0xFF for b in y)
-    return tracker_hp(sq)
+    sq_ = lambda sh, lim: bytes(max(-lim, min(lim, sgn(b) << sh)) & 0xFF
+                                for b in y)
+    if kick is not None:
+        zc, neg = 0, False
+        for b in y:
+            if (sgn(b) < 0) != neg:
+                zc, neg = zc + 1, not neg
+        if zc >= len(y) >> 4:                  # a DRUM
+            return tracker_hp(sq_(kick, min(2 * max(ay), 127)))
+    if not full:
+        return tracker_hp(sq_(k, min(2 * max(ay), 127)))
+    sq = sq_(k, 127)
+    for _ in range(2):
+        out, v, xp = bytearray(len(sq)), 0, 0
+        for i, b in enumerate(sq):
+            x = sgn(b)
+            v = v - (v >> 2) + (x - xp)
+            xp = x
+            out[i] = max(-127, min(127, v)) & 0xFF
+        sq = bytes(out)
+    return sq
 
 
 # --------------------------------------------------------------------------
