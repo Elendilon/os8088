@@ -83823,6 +83823,74 @@ stands (§52.10), and `[hd_tsize]` is the disk tool's alone. All of it is in
 `HDDTOOL.DRV`, so it costs no resident byte - 512 bytes of that image, the box's share
 142 of them, and the tool's 19KB claim did not move.
 
+#### 52.2.8 The drive map — where on the drive each slot is
+
+The rows say what a slot holds and how big it is, and nothing said **where**.
+That is the one question a table cannot answer from its rows, and it was asked
+off a real drive: a 128MB disk with two 32MB partitions an old tool had put in
+the MIDDLE, 63MB free, and every empty slot offering `31`. The tool was right
+— the free space is two holes and §52.2.1 takes the larger — and nothing on
+the screen said so.
+
+So between the slot rows and the size line is a bar, the whole drive to
+scale, an underline beneath it, and one line of text:
+
+```
+[1####|2@@@@                ]   a slot is its DIGIT (one cell, white on black)
+      ======                    and a fill: SOLID black for a volume (Formatted
+Free 63M, largest 31M           or Booted From), 50% GREY for anything else the
+                                table holds; white is free space
+```
+
+- **The underline is the selected slot's extent**, exactly as Format would
+  take it (`hd_slot_extent`). For a slot in use that is its own entry; for a
+  FREE slot it is the **hole** — which is the whole point: pick the empty slot
+  and the underline lands on the larger gap, with the other one plainly beside
+  it. With no room anywhere there is no underline.
+- **The line is every hole's sectors and the largest a Format would make of
+  one** — `hd_slot_hole`, §52.2.1's walk with NO slot excused (`[hd_xslot]` =
+  FFh matches none), which sums each hole into `[hd_xsum]` as it passes. The
+  largest is cylinder-trimmed and under the ceiling, so it is the number a
+  free slot's size line offers. Whole MB, rounded down, like the rows.
+- **A click on the bar picks the slot under it** (`hd_map_hit`), or on white
+  the first FREE slot — not "that hole": Format still takes the largest one,
+  and the underline says so the moment the click lands. Choosing the hole is
+  §52.2.1's behaviour to change, and it is deliberately not done here.
+
+**Measured where the tool already measured, never in the painter.** Both
+figures come out of `hd_slot_extent`, which writes `[hd_fbase]`/`[hd_fsecs]` —
+and a paint can arrive at any moment, including while the installer's copy
+holds those two words as the partition it is writing. So `hd_tw_szmax` — the
+tool's own open, row click, Format and Delete, which is where it always wrote
+them — stores the columns and the two totals (`[hd_mux]`, `[hd_mfree]`,
+`[hd_mlarge]`, and the scale in `[hd_mtot]`/`[hd_mt16]`/`[hd_mk]`), and
+`hd_tw_map` only reads them.
+
+**A column is `x * 280 / total`, in one multiply and one divide** (`hd_map_x`):
+the total is shifted right until it fits a word (`[hd_mk]`), the extent by the
+same, so the product fits a dword and the quotient — never past 280, because
+an extent past the end of the drive is clamped to it first — fits a word and
+cannot fault on a hostile table. A segment ends one column early
+(`hd_map_span`), so neighbours read as two.
+
+**Every pixel is written once** (PERFORMANCE.md rule 2): the content is white
+on a full paint, the bar's inner height is ONE glyph cell (8px), the digit is
+that cell at the segment's left, and the fill starts after it. A segment
+narrower than nine columns is a fill with no digit. At most ten calls — the
+frame, four cells, four fills, the underline — and the line is one run.
+PREDICTED from PERFORMANCE.md's table rather than measured: ~15ms of bar and
+~20ms of line on a 4.77MHz 8088, against a full repaint of ~230ms that every
+row click already pays.
+
+**What it cost, measured**: 564 bytes of `HDDTOOL.DRV`'s code and data, none
+resident. The image is followed by its two 512-aligned sector buffers
+(`hdsec.inc`), so the FILE moved 1,024 and the tool's claim 20KB to 21KB,
+while it is open; the packed file 14,157 to 14,644 bytes, which is **one more
+360KB cluster** (15 against 14) of a system disk with eight to spare. The
+window grew 28px (`HTW_H` 150 to 178), past CGA's 156-row desktop band, so
+`wm_fit` pins it under the menu bar over the dock — accepted. `tests/hdmap.py`
+is the gate.
+
 ### 52.3 The formatter
 
 A **FAT format, not a surface format**. Its window is §52.2's, along with the

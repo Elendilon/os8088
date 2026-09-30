@@ -7499,6 +7499,17 @@ SOAK = [
         "volumes checked on the host. Broken on purpose - hd_tw_cap's call "
         "removed - slot 1 is the whole drive.",
         needs=("marty",), serial=True, timeout=900),
+    Row("hdmap", "soak", py("tests/hdmap.py"), 65.0,
+        "SPEC.md 52.2.8: the disk tool's drive map. A 321MB XT-IDE drive "
+        "with two 32MB partitions in the MIDDLE - slot 1 an empty extent, "
+        "slot 2 a volume - the shape the map was asked for. The bar is read "
+        "column by column against the table (grey, black, white, the digit "
+        "cells), the underline is slot 1's extent and then, for free slot 3, "
+        "the LARGER hole behind slot 2; `Free 257M, largest 225M`; a click on "
+        "slot 2's segment picks it and one on white picks the first free "
+        "slot. Broken on purpose - the walk's hd_xsum add removed - the line "
+        "reads `Free 0M`.",
+        needs=("marty",), serial=True, timeout=900),
     Row("hddcp", "soak",
         py("tests/hddcp.py", "build/os8088-360.img", "build/hddcp-out.bin"),
         90.0,
