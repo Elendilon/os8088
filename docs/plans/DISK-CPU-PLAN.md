@@ -214,7 +214,7 @@ scales: `ETHER.DRV` is bigger.
 
 **Status: BUILT as SPEC.md 18.4.9 (`OSAPI_FILE_WRITE_SEQ`), and every
 chunked writer in the tree but the DOS box moved onto it; the box is
-docs/plans/DOS-STREAM-PLAN.md.** Written down 2026-09-27 at the owner's
+docs/plans/completed/DOS-STREAM-PLAN.md.** Written down 2026-09-27 at the owner's
 request, from the VIDDISK work that found it. §3.1 is about READS looking
 a name up again. This is the same shape on the way OUT, and on a large file
 it is the bigger of the two, because it grows with the file.

@@ -5477,6 +5477,12 @@ $(BUILD)/SEQCOST.COM: tests/dostrap/seqcost.asm | $(BUILD)
 $(BUILD)/seqcost360.img: $(BUILD)/SEQCOST.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/SEQCOST.COM
 
+$(BUILD)/DOSFULL.COM: tests/dostrap/dosfull.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/dosfull.asm
+
+$(BUILD)/dosfull360.img: $(BUILD)/DOSFULL.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DOSFULL.COM
+
 $(BUILD)/DOSFIX.COM: tests/dostrap/dosfix.asm | $(BUILD)
 	$(NASM) -f bin -w+error -o $@ tests/dostrap/dosfix.asm
 

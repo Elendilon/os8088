@@ -1,4 +1,4 @@
-"""The two handle defects docs/plans/DOS-STREAM-PLAN.md 3 found, as a row.
+"""The two handle defects docs/plans/completed/DOS-STREAM-PLAN.md 3 found, as a row.
 
 tests/dostrap/dosfix.asm opens SUB\\X.DAT from the ROOT and reads it past the
 box's 8KB window, with a DECOY X.DAT in the root whose bytes are all 0xEE -
@@ -9,8 +9,9 @@ exits WITHOUT AH=3Eh, and this reads the floppy back: DOS closes every
 handle of a terminating process, so all 3,000 must be on the disk.
 
 WHAT IT WOULD CATCH: the handle forgetting its folder (FDIR BAD at 8192, the
-first refill), and the window left dirty at exit (NOCLOSE.DAT missing or
-empty - the box never flushed it). Both failed before SPEC.md 96.52.
+first refill), an interleaved writer refused at its second round (ILV BAD,
+DOS error 5), and the window left dirty at exit (NOCLOSE.DAT missing or
+empty - the box never flushed it). All three failed before SPEC.md 96.52.
 """
 import os
 import shutil
@@ -63,6 +64,12 @@ def main():
             bad.append("a handle opened as SUB\\X.DAT refilled from the WRONG "
                        "FOLDER: %r (DOS-STREAM-PLAN 3.1)"
                        % [r for r in text if r.startswith("FDIR")])
+        if not any(r.startswith("ILV ok") for r in text):
+            bad.append("two created files written in turn, 700 bytes a go, "
+                       "failed: %r - a window flushed PARTIAL by the other "
+                       "file left its file off a cluster boundary and the "
+                       "next append was refused (SPEC.md 96.52)"
+                       % [r for r in text if r.startswith("ILV")])
         m.type_text("x")                    # ...and it exits, unclosed
         os88marty.until(m, lambda mm: "Disk" in ui.titles(),
                         "the desktop to come back", guest=60.0, poll=0.5)
@@ -86,6 +93,14 @@ def main():
     else:
         print("dosfix: NOCLOSE.DAT holds all 3,000 bytes after an exit with "
               "no close")
+    for n in ("ILVA.DAT", "ILVB.DAT"):
+        try:
+            b = v.read(n)
+        except Exception:                                      # noqa: BLE001
+            b = None
+        if b != b"I" * 14000:
+            bad.append("%s holds %r bytes, not 14,000 of 'I'"
+                       % (n, None if b is None else len(b)))
     if bad:
         for b in bad:
             print("dosfix: FAIL: %s" % b)

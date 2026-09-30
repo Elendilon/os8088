@@ -1,5 +1,5 @@
-"""A DOS program's sequential file I/O, timed BY POSITION (docs/plans/
-DOS-STREAM-PLAN.md W0 and W6).
+"""A DOS program's sequential file I/O, timed BY POSITION
+(docs/plans/completed/DOS-STREAM-PLAN.md W0 and W6, SPEC.md 96.53).
 
 tests/dostrap/seqcost.asm writes BIGSEQ.DAT in 8KB chunks, reads it back and
 seeks between its ends, printing the BIOS ticks each block of chunks took.

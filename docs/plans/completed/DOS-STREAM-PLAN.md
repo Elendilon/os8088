@@ -1,10 +1,13 @@
 # The DOS box on the stream reader and the stream writer
 
-**Status: PLAN, nothing built.** Branch `dos-stream-io`, cut from `elendilon`
-at `c459871` (kernel size pass 8 merged). Written 2026-09-30 at the owner's
-request, as the DOS half deferred from SPEC.md 18.4.8.1 - which moved every
-other chunked reader in the tree onto `OSAPI_FILE_READ_SEQ` and left the box
-for a branch of its own.
+**Status: BUILT - SPEC.md 96.52, 96.53, 96.53.1, 18.4.9.1 and 18.4.9.2 are
+the contract, and this is the design record behind them.** Branch
+`dos-stream-io`, cut from `elendilon` at `c459871`. Written 2026-09-30 at
+the owner's request as the DOS half deferred from SPEC.md 18.4.8.1, and built
+the same day on the owner's three answers: HELD, `kern_dos` included, and
+*"as small as possible, but up to 1.5 KB is worth the load and write time"*.
+**Section 9 is what the build found against what this predicted**, and it is
+the part to read first: two of its five defects were the kernel's.
 
 **The one-paragraph version.** A DOS program's every data byte goes through
 ONE 8 KB, cluster-aligned window in the box (`dos_wseg`). Reading refills it
@@ -384,3 +387,57 @@ new section and into this document's section 2 as MEASURED; this plan to
   offset. A sequential overwrite slot does not exist and is not proposed.
 - **FCB reads and writes**: not implemented at all today (they answer
   invalid function), so there is nothing to convert.
+
+---
+
+## 9. What building it found
+
+**The result, measured** (`tests/dosseq.py`, SPEC.md 96.53's table): on a
+1 MB file off an XT-IDE C:, the box's write 29.9 -> 16.4 s and read 19.8 ->
+10.5 s, `kern_dos`'s 29.3 -> 16.4 and 19.1 -> 9.9, every block flat where it
+climbed; on a 360 KB floppy the write 51.4 -> 28.2 s and the read unchanged,
+the drive being the whole of it. Section 2's estimate of the read walk was
+right to within the tick: 17 ms more per refill per 128 KB of offset,
+against the 0.28 ms a link it was built from.
+
+**The cost, against the 1.5 KB allowed**: `kern_dos`'s image +823 (inside
+its existing 35 KB, 237 to spare, so no program memory); the core's bss +179
+and code +123, the latter inside `CORE_MAX` with 8 bytes left; `kern_big`
+resident +13. Section 5 had estimated the core's code at 150-200 and the
+`kern_dos` arm at 650-750: the core came in under, the arm over, because
+the FAT bank had to come with it (SPEC.md 96.53.1 says why).
+
+**Five defects, three the box's and two the kernel's**:
+
+1. **The folder** (section 3.1): worse than predicted. The refill that
+   re-resolved the bare name ran at the very FIRST read, not the first
+   refill, so `SUB\X.DAT` opened from anywhere else was the wrong file
+   from byte 0 - and a file CREATED in a subfolder landed in the current
+   one. SPEC.md 96.52.
+2. **The exit** (section 3.2): as predicted, and worse for a small file -
+   a file that never filled one window was not on the disk at all.
+3. **Interleaved writers** - NOT in this plan, found by the probe written
+   for 1 and 2: two created files written in turn in non-cluster chunks got
+   `access denied` at the second round, because a window taken away mid-
+   cluster flushed partial and the next append was refused. Section 8's
+   *"the window's thrash itself"* was filed as a cost and was also a
+   correctness defect. SPEC.md 96.52.
+4. **A held call that runs out of room leaked what it took**: the rollback
+   flushed its half-built sub-chain rather than freeing it, which on a full
+   disk is every free cluster left. SPEC.md 18.4.9.1, +6 bytes.
+5. **DELETE, MKDIR and RMDIR never committed a pending hold**: they open
+   with `dskw_gate`, which returns through `dskw_mounted`'s `ret` without
+   running its hold test - so a delete of the held file freed only the
+   committed chain (345 lost clusters, measured) and left the hold to link
+   a freed cluster later. Found by `tests/dosshell.py`'s out-of-space COPY,
+   which the probe then reduced to eight lines. SPEC.md 18.4.9.2, +7 bytes.
+
+4 and 5 are the stream writer's own, from the cycle before, and were
+invisible to every writer that shipped then because none of them deletes
+its own file mid-stream or streams onto a full disk. A DOS program does
+both as a matter of course - which is the argument for putting the box on
+a new kernel mechanism early rather than late.
+
+**The rows**: `dosfix` (1-3), `dosfull` (4-5, verified red on each),
+`dosseq` (the shape, both hosts). All three fail on the tree before this
+work.

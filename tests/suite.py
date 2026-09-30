@@ -4385,9 +4385,21 @@ SOAK = [
         "against the build before 96.52: FDIR BAD at 0, and no NOCLOSE.DAT.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/dosfix360.img")),
+    Row("dosfull", "soak", py("tests/dosfull.py"), 120.0,
+        "A HELD STREAM THAT RUNS OUT OF ROOM, AND A DELETE WHILE ITS HOLD IS "
+        "PENDING (SPEC.md 18.4.9.1, 18.4.9.2). DOSFULL.COM fills an empty "
+        "360KB floppy through one handle - the box's flushes are one held "
+        "WRITE_SEQ stream since SPEC.md 96.53 - then deletes the file "
+        "without closing it, and the host fscks the floppy: every cluster "
+        "free but the program's. The failed held call used to flush its "
+        "half-built sub-chain (every free cluster, on a full disk) and "
+        "DELETE never committed the hold at all: VERIFIED TO FAIL with 345 "
+        "lost clusters before 18.4.9.2.",
+        needs=("marty",),
+        wants=("build/os8088-360.img", "build/dosfull360.img")),
     Row("dosseq", "soak", py("tests/dosseq.py", "--hdd", "--kd"), 240.0,
         "A DOS PROGRAM'S SEQUENTIAL I/O COSTS THE SAME AT EVERY OFFSET "
-        "(docs/plans/DOS-STREAM-PLAN.md). SEQCOST.COM writes a "
+        "(docs/plans/completed/DOS-STREAM-PLAN.md). SEQCOST.COM writes a "
         "1MB file in 8KB chunks off an XT-IDE C:, reads it back and seeks, "
         "printing the ticks each 128KB took, windowed and then under "
         "kern_dos; the row asserts the SHAPE - the last block within 1.5x "

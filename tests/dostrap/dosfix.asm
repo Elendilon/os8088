@@ -1,4 +1,4 @@
-; DOSFIX.COM - the two handle defects docs/plans/DOS-STREAM-PLAN.md 3 found,
+; DOSFIX.COM - the two handle defects docs/plans/completed/DOS-STREAM-PLAN.md 3 found,
 ; as a probe. OURS, MIT with the rest of the tree.
 ;
 ; 1. FDIR: open SUB\X.DAT from the ROOT and read all of it. X.DAT is 12 KB,
@@ -7,7 +7,9 @@
 ;    a root X.DAT whose every byte is 0xEE - where the real one's byte i is
 ;    (i >> 10) + 1. A wrong folder is therefore a wrong BYTE, named with its
 ;    offset, and not an end of file that could be mistaken for a short read.
-; 2. NOCLOSE: create NOCLOSE.DAT, write 3,000 bytes of 'N' and EXIT without
+; 2. INTERLEAVE: two created files written in turn, 700 bytes a go, so
+;    each switch flushes the other's window PARTIAL (ILV ok / ILV BAD).
+; 3. NOCLOSE: create NOCLOSE.DAT, write 3,000 bytes of 'N' and EXIT without
 ;    AH=3Eh. DOS closes every handle of a process that terminates; the host
 ;    reads the file off the floppy afterwards and wants all 3,000.
 ;
@@ -75,7 +77,59 @@ start:
     mov bx, [fh]
     int 0x21
 .nc:
-    ; --- 2. NOCLOSE --------------------------------------------------------
+    ; --- 2. INTERLEAVE: two CREATED files written in turn, 700 bytes a go --
+    ; Each switch takes the box's one window from the other file, so each
+    ; file's window is flushed PARTIAL, at a size that is not a cluster
+    ; multiple - and a flush after that has to extend a file the kernel's
+    ; append refuses to extend. DOS writes both whole. ILV ok, or ILV BAD.
+    mov ah, 0x3C
+    xor cx, cx
+    mov dx, n_ia
+    int 0x21
+    mov byte [stage], 'a'
+    jc fail
+    mov [fha], ax
+    mov ah, 0x3C
+    xor cx, cx
+    mov dx, n_ib
+    int 0x21
+    mov byte [stage], 'b'
+    jc fail
+    mov [fhb], ax
+    mov di, buf
+    mov al, 'I'
+    mov cx, 700
+    cld
+    rep stosb
+    mov word [nil], 20
+.il:
+    mov bx, [fha]
+    call w700
+    jc .ilbad
+    mov bx, [fhb]
+    call w700
+    jc .ilbad
+    dec word [nil]
+    jnz .il
+    mov ah, 0x3E
+    mov bx, [fha]
+    int 0x21
+    jc .ilbad
+    mov ah, 0x3E
+    mov bx, [fhb]
+    int 0x21
+    jc .ilbad
+    mov dx, s_iok
+    call puts
+    jmp short .ild
+.ilbad:
+    mov dx, s_ibad
+    call puts
+    mov ax, [nil]
+    call putn
+    call crlf
+.ild:
+    ; --- 3. NOCLOSE, LAST: its window must still be dirty at the exit ----
     mov ah, 0x3C
     xor cx, cx
     mov dx, n_nc
@@ -100,6 +154,18 @@ start:
     int 0x21                    ; screen before the desktop comes back
     mov ax, 0x4C00              ; ...and NO AH=3Eh: the exit must close it
     int 0x21
+
+w700:                           ; 700 bytes of 'I' to handle BX
+    mov ah, 0x40
+    mov cx, 700
+    mov dx, buf
+    int 0x21
+    jc .x
+    cmp ax, 700
+    je .x
+    stc
+.x:
+    ret
 
 fail:
     mov dx, s_fail
@@ -142,6 +208,10 @@ putn:                           ; AX, unsigned decimal
 
 n_sub:   db 'SUB\X.DAT', 0
 n_nc:    db 'NOCLOSE.DAT', 0
+n_ia:    db 'ILVA.DAT', 0
+n_ib:    db 'ILVB.DAT', 0
+s_iok:   db 'ILV ok', 13, 10, '$'
+s_ibad:  db 'ILV BAD, rounds left $'
 s_fok:   db 'FDIR ok', 13, 10, '$'
 s_fbad:  db 'FDIR BAD at $'
 s_got:   db ' got $'
@@ -149,5 +219,8 @@ s_ready: db 'READY', 13, 10, '$'
 s_fail:  db 'FAILED at $'
 s_crlf:  db 13, 10, '$'
 fh:      dw 0
+fha:     dw 0
+fhb:     dw 0
+nil:     dw 0
 stage:   db 0
 buf:

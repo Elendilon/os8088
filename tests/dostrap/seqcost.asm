@@ -1,5 +1,5 @@
 ; SEQCOST.COM - what a DOS program's sequential READ and WRITE cost, by
-; POSITION in the file (docs/plans/DOS-STREAM-PLAN.md W0).
+; POSITION in the file (docs/plans/completed/DOS-STREAM-PLAN.md W0).
 ; OURS, MIT with the rest of the tree.  docs/DOS-DEBUGGING.md is the manual.
 ;
 ; diskcost.asm counts int 13h from outside; this one times from INSIDE, in

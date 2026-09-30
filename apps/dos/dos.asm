@@ -2954,6 +2954,10 @@ dos_int21:
     je .fn
     cmp ah, 0x0D
     je .dskreset
+    cmp ah, 0x68
+    je .dskreset
+    cmp ah, 0x6A
+    je .dskreset
     cmp ah, 0x39
     je .mkdir
     cmp ah, 0x3A
@@ -4204,7 +4208,11 @@ dos_int21:
     ; **DOS RETURNS NOTHING AND CANNOT FAIL**, so a flush that refuses is
     ; swallowed rather than reported: there is no register to report it in,
     ; and the close will try again and has somewhere to say so.
+    ; **AND AH=68h/6Ah, COMMIT FILE, IS THE SAME CALL** (SPEC.md 96.53):
+    ; one window and one held stream on the machine, so committing one
+    ; handle's writes and committing all of them are the same two steps.
     call dos_fh_flush               ; ONE window, so this IS "flush everything"
+    call dos_fh_cmall               ; ...and the held stream's FAT and entry
     jmp .ok
 
 .ioctl:
@@ -5035,7 +5043,13 @@ DBE_HERE    equ 40                  ; out DX = where this instance stands,
                                     ; BL = its drive (SPEC.md 19.2.4)
 DBE_VKIND   equ 42                  ; AL = a volume index; out CF=1 no such
                                     ; volume, else AL/AH = VK_*/VT_*
-DBE_NENT    equ 22
+DBE_RSEQ    equ 44                  ; DBE_RDAT's registers + DI = a 16-byte
+                                    ; READ_SEQ cursor in DS (SPEC.md 18.4.8.1)
+DBE_WSEQ    equ 46                  ; SI = name, ES:BX = bytes, CX = count
+                                    ; (0 = commit the held stream), AL =
+                                    ; WSEQF_*, DI = the token in and out
+                                    ; (SPEC.md 18.4.9)
+DBE_NENT    equ 24
 
 ; --- THE HOST'S HOOKS (SPEC.md 96.44.3) -------------------------------------
 ; Where the CORE would otherwise have to know which host it is in. Each is a
@@ -5191,6 +5205,16 @@ dos_be_here:
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_vkind:
     mov word [dos_betgt], DBE_VKIND
+    jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+dos_be_rseq:
+    mov word [dos_betgt], DBE_RSEQ
+    jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+dos_be_wseq:
+    mov word [dos_betgt], DBE_WSEQ
     jmp dos_be_go
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
@@ -5375,6 +5399,27 @@ dos_k_wrat:
     call OSAPI_FILE_WRITE_AT
     ret
 
+dos_k_rseq:                         ; SPEC.md 18.4.8.1: READ_AT's registers
+    jmp os88_rseq                   ; plus DS:DI, and READ_AT itself on the
+                                    ; small kernel
+dos_k_wseq:                         ; SPEC.md 18.4.9 ...
+    call OSAPI_FILE_WRITE_SEQ
+    jnc .ok
+    cmp ax, FERR_NAME               ; ...and on the small kernel, which has
+    jne .no                         ; none, APPEND - whose refusals are the
+    jcxz .none                      ; same - and a close that is nothing
+    call OSAPI_FILE_APPEND
+    ret
+.none:
+    xor ax, ax                      ; CF=0
+.ok:
+    ret
+.no:
+    stc
+    ret
+
+%include "os88rseq.inc"
+
 ; -----------------------------------------------------------------------------
 ; dos_be_bind - the twenty-two doors, as addresses (SPEC.md 96.44.1)
 ; in:  nothing; out: nothing, every register preserved
@@ -5554,7 +5599,7 @@ dos_betab:
     dw dos_k_append, dos_k_delete, dos_k_dfree, dos_k_mkdir, dos_k_rmdir
     dw dos_k_xcaps, dos_k_xalloc, dos_k_xfree, dos_k_xcopy, dos_k_rename
     dw dos_k_copy, dos_k_move, dos_k_path, dos_k_vstat, dos_k_wrat
-    dw dos_k_here, dos_k_vkind
+    dw dos_k_here, dos_k_vkind, dos_k_rseq, dos_k_wseq
 
 %endif                              ; KD_BACKEND
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
@@ -12774,8 +12819,16 @@ FH_DIR      equ 23                  ; ...and the FOLDER, a word: where the
                                     ; was re-resolved in the drive's CURRENT
                                     ; folder at every read and flush - the
                                     ; wrong file, from the first byte
-                                    ; (docs/plans/DOS-STREAM-PLAN.md 3.1)
-FH_SIZEOF   equ 25
+                                    ; (docs/plans/completed/DOS-STREAM-PLAN.md 3.1)
+FH_TOK      equ 25                  ; the WRITE_SEQ token a flush last got
+                                    ; back, 0 = never streamed (SPEC.md 96.53)
+FH_CUR      equ 27                  ; the READ_SEQ cursor, FSEQ_SIZE bytes: a
+                                    ; refill steps one FAT link from where the
+                                    ; last one read instead of walking from
+                                    ; the front. dos_fh_new's zeroing is what
+                                    ; keeps a reused slot's cursor from naming
+                                    ; the file before (SPEC.md 18.4.8.1)
+FH_SIZEOF   equ 27 + FSEQ_SIZE
 ; --- FH_FLAGS: ONE BYTE, SEVEN BITS, AND THEY GO IN ORDER (SPEC.md 96.11.10)
 ; **NOTHING ELSE MAY BE DEFINED BETWEEN THEM.** This block used to have the
 ; four DOS_DEV_* codes sitting in the middle of it, and the reader that added
@@ -15981,10 +16034,35 @@ dos_fh_close:
                                     ; file would truncate the one it just
                                     ; overwrote in place (SPEC.md 96.11.6)
     call dos_fh_touch               ; created, never written: DOS leaves a
-                                    ; zero-length file and so does this
+    jc .out                         ; zero-length file and so does this
 .done:
+    call dos_fh_commit              ; ...and its held stream, if it has one
 .out:
     mov byte [si+FH_FLAGS], 0       ; flags only: CF is the answer
+    ret
+
+; dos_fh_commit - the held stream of the record at SI, if it ever streamed,
+; ends: its FAT, its link and its entry go to the disk (SPEC.md 96.53).
+; dos_fh_cmall ends whichever stream is held - AH=0Dh's and AH=68h's.
+; out: CF=0; CF=1 with AL = 5. clobbers: AX
+;
+; ONLY THE STREAMING HANDLE'S OWN CLOSE, because the hold is the MACHINE's,
+; one at a time: a program that opens and closes read files while it writes
+; one output - a compiler with its includes - would otherwise end its output's
+; hold at every close, and every flush after would be a cold one.
+dos_fh_commit:
+    cmp word [si+FH_TOK], 0
+    je dos_fh_cmret                 ; never streamed: CF=0 off the compare
+dos_fh_cmall:
+    push cx
+    push di
+    xor cx, cx                      ; CX = 0 is WRITE_SEQ's CLOSE
+    call dos_be_wseq
+    pop di
+    pop cx
+    jnc dos_fh_cmret
+    mov al, 5
+dos_fh_cmret:
     ret
 
 ; dos_fh_sweep - close every handle still open, as DOS does at a terminate.
@@ -16167,6 +16245,8 @@ dos_fh_shrink:
 
     call dos_fh_flush               ; the window is about to describe a file
     jc .terr                        ; that has been rewritten under it
+    call dos_fh_commit              ; ...and it reads its own prefix BY NAME
+    jc .terr
     mov byte [dos_wown], 0xFF
     mov byte [dos_wfill], 0
     mov word [dos_wlen], 0
@@ -17496,6 +17576,7 @@ dos_fh_flush:
     push cx
     push dx
     push si
+    push di
     push es
 
     cmp byte [dos_wdirty], 0
@@ -17527,12 +17608,23 @@ dos_fh_flush:
     xor dx, dx
     call dos_be_write
     jc .errv
-    sub si, FH_NAME
-    or byte [si+FH_FLAGS], FHF_MADE
-    jmp short .home
+    or byte [si+FH_FLAGS], FHF_MADE ; (FH_NAME is 0: SI is the record)
+    jmp short .acc
 .append:
-    call dos_be_append
+    mov al, WSEQF_HELD              ; ONE HELD STREAM a file (SPEC.md 96.53):
+    mov di, [si+FH_TOK]             ; the data goes down every window and the
+    call dos_be_wseq                ; FAT and the entry once, at the commit -
+    mov [si+FH_TOK], di             ; which is when DOS writes them too
     jc .errv
+.acc:
+    mov ax, [dos_cbytes]            ; **A PARTIAL FLUSH MAKES THE FILE A VIEW**
+    dec ax                          ; (SPEC.md 96.52): another handle took the
+    test ax, [dos_wlen]             ; window mid-cluster, so the file now ends
+    jz .home                        ; off a cluster boundary and the next
+    or byte [si+FH_FLAGS], FHF_INPLC ; append would be refused. In place, the
+                                    ; next write fills the last cluster's
+                                    ; slack and hands back to the accumulator
+                                    ; at the boundary - .ihstep's move
     jmp short .home
 .inplace:
                                     ; THE COUNT GOES OVER EXACT and nothing is
@@ -17559,6 +17651,7 @@ dos_fh_flush:
     mov byte [dos_wdirty], 0        ; do not retry it for ever - one write that
     mov word [dos_wlen], 0          ; will not go is reported once
     pop es
+    pop di
     pop si
     pop dx
     pop cx
@@ -17569,6 +17662,7 @@ dos_fh_flush:
     ret
 .out:
     pop es
+    pop di
     pop si
     pop dx
     pop cx
@@ -17616,6 +17710,7 @@ dos_fh_take:
 dos_fh_fill:
     push bx
     push dx
+    push di
     push es
 
     call dos_fh_take
@@ -17644,6 +17739,11 @@ dos_fh_fill:
 .rfclean:                           ; and a write that spans two windows would
                                     ; otherwise have the second refill discard
                                     ; the first one's bytes
+    call dos_fh_commit              ; **A HELD STREAM READ BACK BY ITS OWN
+    jc .errp                        ; HANDLE IS COMMITTED FIRST** (SPEC.md
+                                    ; 96.53): the entry keeps its last
+                                    ; committed size until then, and a read by
+                                    ; name stops at the entry's size
     test byte [si+FH_FLAGS], FHF_WHOLE
     jnz .whole                      ; the window IS the file on that arm, and
                                     ; it is re-read rather than kept because
@@ -17661,8 +17761,8 @@ dos_fh_fill:
     mov es, bx                      ; not from where the program is standing
     xor bx, bx                      ; (SPEC.md 96.6.2)
     mov cx, [dos_wbytes]
-    add si, FH_NAME
-    mov word [dos_fvtgt], DBE_RDAT  ; AN ORDINAL, not an address (96.44.1):
+    lea di, [si+FH_CUR]             ; ...through the handle's own cursor
+    mov word [dos_fvtgt], DBE_RSEQ  ; AN ORDINAL, not an address (96.44.1):
                                     ; .onvol stores this into [dos_betgt]
                                     ; and dos_be_go is what resolves it
     call .onvol                     ; out DX:AX = the bytes delivered, 0 at or
@@ -17713,6 +17813,7 @@ dos_fh_fill:
     stc
 .outp:
     pop es
+    pop di
     pop dx
     pop bx
     ret
@@ -17977,6 +18078,8 @@ dos_fh_fill:
     DBSS DOS_B_SHCPKB,  2           ; ...and how many KB it turned out to be
     DBSS DOS_B_SHMADE,  1           ; the destination has been created
     DBSS DOS_B_SHGOT,   2           ; bytes in the buffer this pass
+    DBSS DOS_B_SHRCUR,  FSEQ_SIZE   ; COPY's READ_SEQ cursor and its HELD
+    DBSS DOS_B_SHWTOK,  2           ; WRITE_SEQ token (SPEC.md 96.53)
     DBSS DOS_B_SHWHY,   1           ; DSHW_*: WHICH refusal, for a debugger
     ; --- DIR's SWITCHES, and the state a SUSPENDED listing resumes from -----
     ; (SPEC.md 96.33.9). /P cannot wait for a key: dos_con_key holds the gfx
@@ -18505,6 +18608,8 @@ dsh_cpseg   equ DOS_CBASE + DOS_B_SHCPSEG
 dsh_cpkb    equ DOS_CBASE + DOS_B_SHCPKB
 dsh_made    equ DOS_CBASE + DOS_B_SHMADE
 dsh_got     equ DOS_CBASE + DOS_B_SHGOT
+dsh_rcur    equ DOS_CBASE + DOS_B_SHRCUR
+dsh_wtok    equ DOS_CBASE + DOS_B_SHWTOK
 dsh_why     equ DOS_CBASE + DOS_B_SHWHY
 dsh_dsw     equ DOS_CBASE + DOS_B_SHDSW   ; DIR's switches (SPEC.md 96.33.9)
 dsh_more    equ DOS_CBASE + DOS_B_SHMORE  ; ...a listing is suspended
