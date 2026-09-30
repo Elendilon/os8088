@@ -2615,8 +2615,10 @@ sch_stkdie:
 ;
 ;   * **A STACK THAT IS NOT THE DEAD ONE.** SP is currently somewhere below the
 ;     dead slice's canary, scribbling on the slot underneath. So the evidence -
-;     the slot, its parked SP, its instance - is banked into `.bss` FIRST, in
-;     nine instructions on the stack we arrived on, and only then is SP moved.
+;     the slot, its parked SP, its instance - is read into REGISTERS FIRST, in
+;     seven instructions on the stack we arrived on, and only then is SP moved
+;     (and the evidence pushed onto the new one; it was banked in four bytes
+;     of `.bss` until kernel size pass 8).
 ;     It moves to task 0's, the largest in the machine and, at IF = 0 for ever,
 ;     owned by nobody: if task 0 is itself the corpse then its contents are
 ;     already banked and overwriting them costs the panel nothing.
@@ -2643,32 +2645,34 @@ SDP_Y       equ 24              ; no geometry: it fits 720, 640 and 640 alike.
                                 ; advance, and this has a byte budget
 
 sch_diepanel:
-    mov bl, [sch_cur]           ; --- bank the evidence, still on the dead
-    mov [sch_dpn], bl           ;     stack: after this nothing here reads a
-    xor bh, bh                  ;     task record, so nothing here cares that
-    mov cl, 3                   ;     the table is suspect
-    shl bx, cl
-    mov ax, [bx+sch_tasks+T_SP]
-    mov [sch_dpsp], ax
-    mov al, [bx+sch_tasks+T_INST]
-    mov [sch_dpi], al
+    mov bl, [sch_cur]           ; --- read the evidence, still on the dead
+    mov dl, bl                  ;     stack, into REGISTERS: after this nothing
+    xor bh, bh                  ;     here reads a task record, so nothing here
+    mov cl, 3                   ;     cares that the table is suspect. DL = the
+    shl bx, cl                  ;     slot, DH = its instance, AX = its parked
+    mov ax, [bx+sch_tasks+T_SP] ;     SP - and registers survive the move of
+    mov dh, [bx+sch_tasks+T_INST] ;   SP, so they go on the NEW stack below
 
     mov sp, STK0_TOP            ; ...and OFF it (see the header)
+    push dx                     ; the instance, for the last field...
+    push ax                     ; ...the SP...
+    push dx                     ; ...and the slot, popped in the order drawn
     call wm_clip_clear          ; nothing may clip the panel away
     mov word [sch_dpcol], SDP_X
 
     mov si, sch_s_over          ; WHAT happened, WHICH task, WHOSE, and where
     call sch_dpstr              ; its SP was. The slice's BASE and SIZE are
-    mov al, [sch_dpn]           ; deliberately not here: they are
+    pop ax                      ; deliberately not here: they are
     call sch_dphex2             ; sch_stkbase[n] and sch_stksize[n] in the very
     mov si, sch_s_sp            ; binary the reader has open, and the slot
     call sch_dpstr              ; number is the whole of what it takes to look
-    mov ax, [sch_dpsp]          ; them up
+    pop ax                      ; them up. AL = the slot, then AX = the SP
     call sch_dphex4
     mov si, sch_s_in
     call sch_dpstr
     mov si, sch_s_ui            ; the UI task owns no instance record...
-    mov al, [sch_dpi]
+    pop ax
+    xchg al, ah                 ; AL = the instance
     cmp al, 0xFF
     je .name
     xor ah, ah                  ; ...and any other slot names its own
@@ -2919,9 +2923,6 @@ sch_tasks:  resb MAX_TASKS * T_SIZE     ; task records (layout above)
 sch_old08:  resb 4                      ; saved BIOS int 08h vector (off:seg)
 sch_dpcol:  resw 1                      ; the death panel's pen x (SPEC.md
                                         ; 8.8); its y is the constant SDP_Y
-sch_dpsp:   resw 1                      ; ...and the evidence it banks off the
-sch_dpn:    resb 1                      ; dead stack before it leaves it: the
-sch_dpi:    resb 1                      ; parked SP, the slot and its instance
 sch_dphc:   resb 2                      ; one hex digit, as an ASCIIZ string
 %ifndef NO_CHAINPRIV
 sch_chsave: resw 1                      ; the task's SP across the chain...

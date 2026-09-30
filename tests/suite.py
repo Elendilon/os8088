@@ -6226,6 +6226,14 @@ SOAK = [
         # move it.
         needs=("marty", "wiredisk"), serial=True,
         wants=("build/wire360.img",)),
+    Row("stkpanel", "soak", py("tests/stkpanel.py"), 15.0,
+        "SPEC.md 8.8: the stack-overflow death panel, the one scheduler path "
+        "nothing else reaches - task 0's canary zeroed on a paused desktop, "
+        "and the panel must run to .hang having drawn all 41 characters with "
+        "the parked SP in the SP field (kernel size pass 8 carries its "
+        "evidence across the move of SP on the stack). Broken on purpose "
+        "(two pushes swapped) it FAILS on the pen and the SP digit",
+        needs=("marty",), serial=True),
     Row("evqfull", "soak", py("tests/evqfull.py"), 20.0,
         "SPEC.md 10.1: a full event ring discards its OLDEST input, and never"
         "a coalesced WAKE - asked of evq_push directly, with the CPU parked",
