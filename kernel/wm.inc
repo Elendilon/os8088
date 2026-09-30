@@ -4625,28 +4625,26 @@ wm_hit:
     jge .content
     test bp, bp                 ; the boxes exist on the frontmost only
     jz .title
-    cmp ax, WM_BOX_Y0           ; both boxes occupy rows W_Y+4 .. W_Y+14
-    jl .title
-    cmp ax, WM_BOX_Y1
-    jg .title
+    ; EVERY RANGE TEST BELOW IS ONE UNSIGNED COMPARE: lo <= v <= lo+K is
+    ; (lo+K) - v <= K unsigned, since a v below the range wraps high. The
+    ; coordinates are screen pixels, so nothing near 32K is in play.
+    sub ax, WM_BOX_Y0           ; both boxes occupy rows W_Y+4 .. W_Y+14
+    cmp ax, WM_BOX_Y1 - WM_BOX_Y0
+    ja .title
     mov ax, [bx+W_X]            ; close box columns W_X+8 .. W_X+18
-    add ax, WM_BOX_X0
-    cmp cx, ax
-    jl .minbox
-    add ax, WM_BOX_W
-    cmp cx, ax
-    jg .minbox
+    add ax, WM_BOX_X0 + WM_BOX_W
+    sub ax, cx
+    cmp ax, WM_BOX_W
+    ja .minbox
     mov al, 2
     jmp .out
 .minbox:
     mov ax, [bx+W_X]            ; minimize box: W_X+W_W-19 .. W_X+W_W-9
     add ax, [bx+W_W]            ; (the close box mirrored, SPEC.md 11)
-    sub ax, WM_BOX_X0 + WM_BOX_W + 1
-    cmp cx, ax
-    jl .title
-    add ax, WM_BOX_W
-    cmp cx, ax
-    jg .title
+    sub ax, WM_BOX_X0 + 1
+    sub ax, cx
+    cmp ax, WM_BOX_W
+    ja .title
     mov al, 3
     jmp .out
 .title:
@@ -4658,21 +4656,19 @@ wm_hit:
     test byte [bx+W_FLAGS], WF_SIZABLE ; above)
     jz .plain
     mov ax, [bx+W_X]            ; 13x13 rect: cols W_X+W_W-14 .. W_X+W_W-2
-    add ax, [bx+W_W]
-    sub ax, 14
-    cmp cx, ax
-    jl .plain
-    add ax, 12
-    cmp cx, ax
-    jg .plain
+    add ax, [bx+W_W]            ; (the unsigned range test above)
+    dec ax
+    dec ax
+    sub ax, cx
+    cmp ax, 12
+    ja .plain
     mov ax, [bx+W_Y]            ; rows W_Y+W_H-14 .. W_Y+W_H-2
     add ax, [bx+W_H]
-    sub ax, 14
-    cmp dx, ax
-    jl .plain
-    add ax, 12
-    cmp dx, ax
-    jg .plain
+    dec ax
+    dec ax
+    sub ax, dx
+    cmp ax, 12
+    ja .plain
     mov al, 4
     jmp .out
 .plain:
