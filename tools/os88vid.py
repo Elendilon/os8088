@@ -1575,10 +1575,12 @@ SLOT = 32768
 
 def ring_for(reserve):
     """The ring slots a disk reserve of `reserve` bytes needs: what it
-    banks is read ahead of the slot being decoded, so the reserve and one
-    slot more, as a power of two - None if no ring holds it"""
+    banks is read ahead of the slot being decoded AND of a super-packet
+    straddling into the next, so the reserve and two slots more, as a power
+    of two - None if no ring holds it (SPEC.md 98.2.1.3). It was one slot
+    more, which let --reserve 224 bank a slot an 8-slot player never has"""
     for k in RING_SLOTS[1:]:
-        if (k - 1) * SLOT >= reserve:
+        if (k - 2) * SLOT >= reserve:
             return k
     return None
 

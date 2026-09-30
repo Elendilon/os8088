@@ -3269,7 +3269,7 @@ def _encode(a, keep, tick, readers):
             raise vid.V88Error(
                 "--reserve %d KB: the player's ring banks %d KB at most"
                 % (enc.reserve // 1024,
-                   (vid.RING_SLOTS[-1] - 1) * vid.SLOT // 1024))
+                   (vid.RING_SLOTS[-1] - 2) * vid.SLOT // 1024))
     if spk and afmt and a.spk_shape == SPK_ENC:
         pcm = speaker_pcm(a, rate, say)
     else:
