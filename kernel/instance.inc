@@ -974,7 +974,11 @@ inst_rel_rec:
     call inst_idx               ; AL = the instance slot, once for the pair
     call snd_release_inst       ; "clobbers: nothing", so AL survives it
     pop ax
+%ifdef KERN_BIG
     jmp xm_release_rec          ; ...and every extended-memory block with it
+%else                           ; (kern_small has no store above 1MB and its
+    ret                         ; xm_release_rec is a bare `ret`: this IS it)
+%endif
 
 ; -----------------------------------------------------------------------------
 ; inst_of_win - find the instance owning a window

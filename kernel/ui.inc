@@ -1239,14 +1239,12 @@ ui_rdown:
     call wm_fs_vis              ; a fullscreen window (SPEC.md 11.2) owns the
     jc .hit                     ; bar's rows like any other point (39.17.1)
     cmp dx, MBAR_H
-    jb .rbar                    ; the menu bar has no right-button behaviour
-    jmp short .hit
-.rbar:
+    jae .hit                    ; the menu bar has no right-button behaviour
 %ifdef KERN_BIG
     cmp cx, [vid_pw]            ; ...but only where there IS a bar (39.16.2)
     jae .hit
 %endif
-    jmp .ret
+    ret
 .hit:
 %ifdef DOCK_OPT
     cmp byte [dock_up], 0       ; an OPEN hidden dock answers first, over the
