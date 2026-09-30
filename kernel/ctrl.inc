@@ -937,13 +937,7 @@ modc_e_ondrag:  call cp_ondrag_x
 ; otherwise be an error the user did not make.
 ; -----------------------------------------------------------------------------
 modc_e_onkey:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentm_bp                ; KENT: push ax..bp
     mov bx, ax                  ; the KEY, banked: every test below answers in
                                 ; AL and the page wants both halves back
     mov al, [cp_sel]
@@ -1061,13 +1055,7 @@ section .modc                   ; ...and back to the image
 ; helper below takes it in the same pair.
 ; -----------------------------------------------------------------------------
 cp_paint_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentm_bp                ; KENT: push ax..bp
 
     mov bx, si                  ; wm_content takes the window in BX
     call KERNEL_SEG:cw_wm_content             ; AX = content left, DX = content top
@@ -1078,14 +1066,7 @@ cp_paint_x:
     call cp_divider             ; the rule between them
     call cp_page                ; right pane: the selected item's page
 
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_bp
 
 ; -----------------------------------------------------------------------------
 ; cp_onclick_x - W_ONCLICK for the Control Panel window (far body)
@@ -1107,13 +1088,7 @@ cp_paint_x:
 ; other windows repainted posts a deferred flag instead (SPEC.md 31.2).
 ; -----------------------------------------------------------------------------
 cp_onclick_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentm_bp                ; KENT: push ax..bp
 
     mov bx, si                  ; wm_content takes the window in BX
     mov si, dx                  ; SI = click y; the window ptr is done with
@@ -1229,14 +1204,7 @@ cp_onclick_x:
     call cp_item_click          ; kern_small acts on the press, which is what
 %endif                          ; it did before and all it can afford
 .done:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_bp
 
 ; -----------------------------------------------------------------------------
 ; cp_onup_x - W_ONMOUSEUP (SPEC.md 13.7/13.8.3): a panel control fires HERE
@@ -1261,13 +1229,7 @@ cp_onclick_x:
 ; look - that half is the drag's company inside the guard below.
 ; -----------------------------------------------------------------------------
 cp_onup_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentm_bp                ; KENT: push ax..bp
     call cp_pt                  ; DI/BP = pane origin, CX/DX = pane-relative
     mov ax, DSV_CPUP            ; SPEC.md 13.8.4: a driver page owns its own
     call cp_drv_ev              ; gesture, so the probe below must not run
@@ -1288,14 +1250,7 @@ cp_onup_x:
     call cp_pgact               ; ...and only now does anything happen
 %endif
 .done:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_bp
 
 %ifdef KERN_BIG
 ; -----------------------------------------------------------------------------
@@ -1310,13 +1265,7 @@ cp_onup_x:
 ; affordable at all.
 ; -----------------------------------------------------------------------------
 cp_ondrag_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentm_bp                ; KENT: push ax..bp
     call cp_pt
     mov ax, DSV_CPDRAG          ; SPEC.md 13.8.4, and cp_onup_x's reasoning
     call cp_drv_ev
@@ -1333,14 +1282,7 @@ cp_ondrag_x:
 .dset:
     call cp_setdown             ; ...which draws only if that CHANGED
 .ddone:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_bp
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -1804,13 +1746,7 @@ cp_item_name:
 ; clobbers: whatever the page clobbers
 ; -----------------------------------------------------------------------------
 cp_item_paint:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentm_bp                ; KENT: push ax..bp
     call cp_drv_item
     jc .static
     mov bx, di                  ; BX = the pane left, banked: drv_cls_svc
@@ -1831,31 +1767,16 @@ cp_item_paint:
     ; own string. A page is entered with the heading drawn and the pen black.
     CPSTAGEX cp_items + CP_I_NAME
     mov byte [gfx_color], CBLACK
-    mov cx, di
-    add cx, CP_PMX
-    mov dx, bp
-    add dx, CP_PHY
-    call cp_run
+    mov cx, CP_PMX
+    mov dx, CP_PHY
+    call cp_runp
     pop si
     call [cs:si + cp_items + CP_I_PAINT]
 .done:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_bp
 
 cp_item_click:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentm_bp                ; KENT: push ax..bp
     call cp_drv_item
     jc .static
     mov bx, dx                  ; BX = the pane-relative y...
@@ -1873,14 +1794,7 @@ cp_item_click:
     call cp_entry
     call [cs:si + cp_items + CP_I_CLICK]
 .done:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_bp
 
 ; -----------------------------------------------------------------------------
 ; cp_drv_ev - forward a RELEASE or a DRAG to a driver's page (SPEC.md 13.8.4)
@@ -1904,13 +1818,7 @@ cp_item_click:
 ; cp_item_click's argument shuffle exactly, because the ABI is the same one.
 ; -----------------------------------------------------------------------------
 cp_drv_ev:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentm_bp                ; KENT: push ax..bp
     mov si, ax                  ; SI = the DSV_* cell wanted, banked across
     mov al, [cp_sel]            ; cp_drv_item's own use of AL
     call cp_drv_item
@@ -1938,14 +1846,7 @@ cp_drv_ev:
     clc
 .no:
 .out:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_bp
 
 ; (cp_drv_gone_x was here. It is RESIDENT now, above the .modc switch, because
 ; drv_shutdown calls it after cp_flush_close has dropped this image - SPEC.md
@@ -2269,11 +2170,7 @@ cp_larrows:
     ret
 
 cp_larrow:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
     call cp_larrowok            ; CF = the pen's argument...
     pushf                       ; ...spent below by the direction test
     mov si, cp_drv_triu
@@ -2351,11 +2248,7 @@ cp_larrow:
 ; screen changed.
 ; -----------------------------------------------------------------------------
 cp_listrow:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
 
     mov bl, al                  ; BL = the ordinal, wanted after the multiply
 %ifdef DOCK_OPT
@@ -2466,12 +2359,7 @@ cp_listrow:
     call KERNEL_SEG:cw_font_run ; why the row top could live there until now
 
 %endif
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 
 ; -----------------------------------------------------------------------------
 ; cp_list - draw the left pane: every item name, the selected one barred
@@ -2680,13 +2568,7 @@ cp_page:
     add di, CP_RX               ; DI = pane left, BP = pane top
     call cp_item_paint
 
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_di
 
 ; =============================================================================
 ; Item 0: the Scheduler page
@@ -2708,25 +2590,19 @@ cp_sched_paint:
 
 
     CPSTAGE cp_s_pre            ; row 0 label
-    mov cx, di
-    add cx, CP_PLX
-    mov dx, bp
-    add dx, CP_PR0Y + CP_PLDY
-    call cp_run
+    mov cx, CP_PLX
+    mov dx, CP_PR0Y + CP_PLDY
+    call cp_runp
 
     CPSTAGE cp_s_coop           ; row 1 label
-    mov cx, di
-    add cx, CP_PLX
-    mov dx, bp
-    add dx, CP_PR0Y + CP_PROWH + CP_PLDY
-    call cp_run
+    mov cx, CP_PLX
+    mov dx, CP_PR0Y + CP_PROWH + CP_PLDY
+    call cp_runp
 
     CPSTAGE cp_s_cap            ; caption: the flip is immediate
-    mov cx, di
-    add cx, CP_PMX
-    mov dx, bp
-    add dx, CP_PCAPY
-    call cp_run
+    mov cx, CP_PMX
+    mov dx, CP_PCAPY
+    call cp_runp
 
     call cp_radios              ; both glyphs, filled per the live mode
 
@@ -2797,6 +2673,12 @@ cp_bemit:
 %endif
     ret
 
+; cp_runp - cp_run at PANE-relative CX/DX: DI/BP are added first, so a caller
+; names its row's offsets with two plain immediates. Falls into cp_run.
+; out: CX/DX absolute, as cp_run's callers had them
+cp_runp:
+    add cx, di
+    add dx, bp
 cp_run:
     push ax
     mov al, [gfx_color]
@@ -2842,11 +2724,9 @@ cp_thm_paint:
 
 %ifdef WM_ANIM
     CPSTAGE cp_s_tanim          ; --- the second group's heading
-    mov cx, di
-    add cx, CP_PMX
-    mov dx, bp
-    add dx, CPH_H2Y
-    call cp_run
+    mov cx, CP_PMX
+    mov dx, CPH_H2Y
+    call cp_runp
 
     CPSTAGE cp_s_ton            ; anim row 0
     mov dx, bp
@@ -2907,13 +2787,7 @@ cp_thm_btn:
     mov al, CPH_CSAVE
     call cp_dnbtn               ; ...pressed if it is the one down (13.8.3)
     call cp_bemit
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_di
 %endif
 
 ; cp_thm_colpen - the pen for the Color row: greyed unless this machine has
@@ -3091,11 +2965,7 @@ cp_thm_click:
 ; cp_thm_radios - all four glyphs, each group's live row filled
 ; -----------------------------------------------------------------------------
 cp_thm_radios:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
 
     mov cx, di
     add cx, CP_PGX              ; CX = glyph left x (every row)
@@ -3166,12 +3036,7 @@ cp_thm_radios:
     call cp_gemit
 %endif
 
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 
 %endif
 
@@ -3231,11 +3096,7 @@ cp_dock_lbl:
 ; setting's own edge (a byte from a future version stands at the bottom).
 ; -----------------------------------------------------------------------------
 cp_dock_ctls:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
 
     mov cx, di
     add cx, CP_PGX              ; CX = glyph left x (every row)
@@ -3293,12 +3154,7 @@ cp_dock_ctls:
 %endif
     call cp_gemit
 
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 
 ; -----------------------------------------------------------------------------
 ; cp_dock_click - a click inside the Dock page
@@ -3404,11 +3260,7 @@ cp_dock_fail: db 'Dock Module Unavailable', 0
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 cp_fdd_paint:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
 
 
     xor bx, bx                  ; BL = the row
@@ -3450,18 +3302,11 @@ cp_fdd_paint:
     jb .row
 
     CPSTAGE cp_s_fcap
-    mov cx, di
-    add cx, CP_PMX
-    mov dx, bp
-    add dx, CPF_CAPY
-    call cp_run
+    mov cx, CP_PMX
+    mov dx, CPF_CAPY
+    call cp_runp
 
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 
 ; -----------------------------------------------------------------------------
 ; cp_fdd_click - a press inside the Floppy page
@@ -3475,11 +3320,7 @@ cp_fdd_paint:
 ; of its row, as a radio's is.
 ; -----------------------------------------------------------------------------
 cp_fdd_click:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
 
     cmp cx, CPF_BX2
     jg .done
@@ -3534,12 +3375,7 @@ cp_fdd_click:
     stc                         ; the old caption may be longer
     call cp_fdcap
 .done:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 
 ; -----------------------------------------------------------------------------
 ; cp_fdcap - row BL's box caption, the setting it holds
@@ -3549,26 +3385,20 @@ cp_fdd_click:
 ;
 ; The caption is one opaque run and the tail is ONE fill of what it did not
 ; cover, up to the arrow - so a changed pick writes each pixel once. A page
-; paint passes CF = 0: cp_page has already laid that ground.
+; paint passes CF = 0: cp_page has already laid that ground. (Padding every
+; caption to its menu's longest would delete the tail, and does not fit:
+; the Reads menu would stage 33 bytes into cp_sbuf's 28.)
 ; -----------------------------------------------------------------------------
 cp_fdcap:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
     pushf
+    call cp_fdy                 ; DX = the box top
     call cp_fdval               ; AL = the setting
-    push bx
-    push ax
-    call cp_fdstg               ; its menu, whose strings are its captions
-    pop ax
-    pop bx
     cbw
     shl ax, 1
-    mov si, ax
+    xchg si, ax                 ; SI = its slot in the menu's pointer array
+    call cp_fdstg               ; its menu, whose strings are its captions
     mov si, [si + cp_sbuf]      ; SI -> the staged caption
-    call cp_fdy
     mov bx, dx                  ; BX = the box top, for the tail
     add dx, 3
     mov cx, di
@@ -3584,7 +3414,7 @@ cp_fdcap:
     add cx, 8
     jmp short .len
 .tail:
-    mov ax, cx                  ; x1 = where the run ended
+    xchg ax, cx                 ; x1 = where the run ended
     inc bx                      ; y1 = inside the frame
     mov cx, di
     add cx, CPF_BX2 - CP_DSW + 3 ; x2 = short of the arrow
@@ -3595,12 +3425,7 @@ cp_fdcap:
     call KERNEL_SEG:cw_gfx_fill
     mov byte [gfx_color], CBLACK
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 
 ; cp_fdy - row BL's box top, absolute: DX = BP + CPF_R0Y + BL*CPF_ROWH
 cp_fdy:
@@ -3796,11 +3621,7 @@ cp_sched_click:
 ; lets cp_sched_click repaint in place without touching the rest of the page.
 ; -----------------------------------------------------------------------------
 cp_radios:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
 
     call KERNEL_SEG:sched_mode_get         ; AL = 0 pre-emptive, 1 cooperative
     mov bl, al                  ; BL = the row whose glyph is filled
@@ -3835,12 +3656,7 @@ cp_radios:
     call cp_dngly
 %endif
     call cp_gemit
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 
 ; =============================================================================
 ; Display page (SPEC.md 31.10/39.11) - which adapter, and where display 1 sits
@@ -3954,11 +3770,7 @@ cpf_vidok:
 ; first, so nothing is left half-erased between the two.
 ; -----------------------------------------------------------------------------
 cp_vid_rows:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
     call cp_vid_pick            ; [cp_vsel] now names a row that exists
     xor bl, bl                  ; BL = slot
 .r:
@@ -3999,12 +3811,7 @@ cp_vid_rows:
     cmp bl, 3
     jb .r
 .done:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 
 %ifdef KERN_BIG
 ; -----------------------------------------------------------------------------
@@ -4041,21 +3848,15 @@ cp_vid_msel:
 ; be left with a heading over nothing.
 ; -----------------------------------------------------------------------------
 cp_vid_mode:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
     call KERNEL_SEG:cw_vid_dual_ok
     jc .done
 
     mov byte [gfx_color], CBLACK    ; --- the row's label (SPEC.md 31.10.3).
     CPSTAGE cp_s_vdesk              ; No erase: cp_page has already whitened
-    mov cx, di                      ; the pane and nothing else ever draws
-    add cx, CP_PMX                  ; here - the caption below is constant
-    mov dx, bp                      ; too, so this page has no state line
-    add dx, CPV_MLY
-    call cp_run
+    mov cx, CP_PMX              ; the pane and nothing else ever draws
+    mov dx, CPV_MLY             ; here - the caption below is constant
+    call cp_runp                ; too, so this page has no state line
 
     call cp_vid_msel
     mov bh, al                  ; BH = the radio that is on
@@ -4101,12 +3902,7 @@ cp_vid_mode:
     cmp bl, 3
     jb .r
 .done:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -4159,13 +3955,7 @@ cp_vid_btn:
     CPSTAGE cp_s_vact
     mov bx, os88ui_krect
     call cp_bemit
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_di
 
 ; -----------------------------------------------------------------------------
 ; cp_vid_paint - the Display page
@@ -4193,11 +3983,9 @@ cp_vid_paint:
 
     mov byte [gfx_color], CBLACK ; ...and the caption, LAST on the page as it
     CPSTAGE cp_s_vcap            ; is on every other one
-    mov cx, di
-    add cx, CP_PMX
-    mov dx, bp
-    add dx, CPV_CAPY
-    call cp_run
+    mov cx, CP_PMX
+    mov dx, CPV_CAPY
+    call cp_runp
 
     pop si
     pop dx
@@ -4399,17 +4187,13 @@ cp_time_paint:
 
     mov byte [gfx_color], CBLACK ; the two option labels; their glyphs are
     CPSTAGE cp_s_t12            ; drawn by cp_timechk, which is also the
-    mov cx, di                  ; redraw path when one is toggled
-    add cx, CP_PLX
-    mov dx, bp
-    add dx, CPT_O0Y + CP_PLDY
-    call cp_run
+    mov cx, CP_PLX              ; redraw path when one is toggled
+    mov dx, CPT_O0Y + CP_PLDY
+    call cp_runp
     CPSTAGE cp_s_tsec
-    mov cx, di
-    add cx, CP_PLX
-    mov dx, bp
-    add dx, CPT_O1Y + CP_PLDY
-    call cp_run
+    mov cx, CP_PLX
+    mov dx, CPT_O1Y + CP_PLDY
+    call cp_runp
     call cp_timechk
 
     mov byte [gfx_color], CBLACK
@@ -4426,11 +4210,9 @@ cp_time_paint:
     CPSTAGE cp_s_tnrt           ; `mov si, X` then a conditional `mov si, Y`,
 .cap:                           ; which is the one place a blanket conversion
                                 ; of this file stages the WRONG string)
-    mov cx, di
-    add cx, CP_PMX
-    mov dx, bp
-    add dx, CPT_CAP2Y
-    call cp_run
+    mov cx, CP_PMX
+    mov dx, CPT_CAP2Y
+    call cp_runp
 
     pop si
     pop dx
@@ -4590,13 +4372,7 @@ cp_time_click:
 ; live window rect and the two rows redrawn in place.
 ; -----------------------------------------------------------------------------
 cp_tick_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentm_bp                ; KENT: push ax..bp
 
     cmp byte [cp_sel], CP_ITIME
     jne .out
@@ -4617,14 +4393,7 @@ cp_tick_x:
     call cp_time_rows           ; runs and nothing else - no erase, no flash
 
 .out:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_bp
 
 ; -----------------------------------------------------------------------------
 ; cp_time_rows - redraw both field rows from the live clock
@@ -4638,11 +4407,7 @@ cp_tick_x:
 ; selection, a +/- step, and the once-a-second tick.
 ; -----------------------------------------------------------------------------
 cp_time_rows:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
 
     mov [cp_tfull], al          ; SPEC.md 31.5.1: 0 = the once-a-second tick
     or al, al
@@ -4660,11 +4425,9 @@ cp_time_rows:
 
     mov byte [gfx_color], CBLACK ; the time row's two ':' separators (the
     CPSTAGE cp_s_tcol            ; date row's gaps are simply blank)
-    mov cx, di
-    add cx, CPT_FX + 16
-    mov dx, bp
-    add dx, CPT_TY
-    call cp_run
+    mov cx, CPT_FX + 16
+    mov dx, CPT_TY
+    call cp_runp
     mov cx, di
     add cx, CPT_FX + 40
     call cp_run
@@ -4681,12 +4444,7 @@ cp_time_rows:
     cmp al, ah
     jb .fld
 
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 
 ; -----------------------------------------------------------------------------
 ; cp_time_fld - draw one field, barred if it is the selected one
@@ -4696,11 +4454,7 @@ cp_time_rows:
 ; clobbers: nothing (flags only; leaves [gfx_color] = CBLACK or CWHITE)
 ; -----------------------------------------------------------------------------
 cp_time_fld:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
 
     mov ah, al                  ; AH = the field index; AL is needed below
     mov bl, al
@@ -4772,12 +4526,7 @@ cp_time_fld:
     mov ax, [cp_tpair]
     call KERNEL_SEG:cw_font_run               ; in SI, CX = x, DX = y
 
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 
 ; -----------------------------------------------------------------------------
 ; cp_time_pick - hit-test the six field bands
@@ -4938,13 +4687,7 @@ cp_timebtn:
 %endif
     mov bx, os88ui_krect
     call cp_bemit
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_di
 
 ; SPEC.md 37's RTC WRITE HALF, hosted here too (SPEC.md 37.94). A file of its
 ; own rather than 600 lines of MC146818, MM58167 and RP5C01 in the middle of
@@ -5156,11 +4899,7 @@ clk_fld_adj:
     mov byte [clk_barq], 1      ; ...and step 4 refreshes the bar, which may
                                 ; otherwise be a minute from noticing
     popf
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_dx
 
 ; -----------------------------------------------------------------------------
 ; clk_step - add a signed step to a byte, wrapping into a closed range
@@ -5258,10 +4997,7 @@ cp_flush_x:
     mov bx, cp_savetab
     mov cx, CP_NSAVE
     call KERNEL_SEG:toast_say
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_cx
 
 ; -----------------------------------------------------------------------------
 ; cp_flush_close_x - spend [cp_wdirty], if there is anything to spend
@@ -5376,11 +5112,7 @@ section .modc                   ; the on-demand image (SPEC.md 2.8): a segment
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 cp_snd_paint:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
 
 
     xor bx, bx                      ; BX = row 0..2
@@ -5415,12 +5147,7 @@ cp_snd_paint:
     call cp_snd_radios
     call cp_snd_note
 
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 
 ; -----------------------------------------------------------------------------
 ; cp_snd_rowok - is tier row AL selectable? (module internal)
@@ -5559,11 +5286,7 @@ cp_snd_test:
 
 ; -----------------------------------------------------------------------------
 cp_snd_radios:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
     call cp_snd_row             ; BH = the row that owns the dot
     mov bh, al
     xor bl, bl
@@ -5596,12 +5319,7 @@ cp_snd_radios:
     inc bl                      ; loop is gone too
     cmp bl, 3
     jb .r
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 
 ; -----------------------------------------------------------------------------
 ; cp_snd_note - the notice line: why the last click did not take (internal)
@@ -5614,11 +5332,7 @@ cp_snd_radios:
 ; vocabulary for both is one less thing for the user to map.
 ; -----------------------------------------------------------------------------
 cp_snd_note:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
     xor si, si                  ; SI = the note, or 0 for none: cp_drv_line
     mov bl, [cp_snd_err]        ; takes both, and the line is usually empty
     or bl, bl
@@ -5635,12 +5349,7 @@ cp_snd_note:
     call cp_drv_line            ; the strings differ in length, so the TAIL is
                                 ; what gets cleared - after the run, not before
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 
 ; -----------------------------------------------------------------------------
 ; cp_snd_click - a click inside the Sound page
@@ -5724,11 +5433,7 @@ cp_snd_click:
     call cp_snd_radios
     call cp_snd_note
 .done:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_dx
 
 ; =============================================================================
 ; The Drivers page (SPEC.md 31.6/51)
@@ -5746,11 +5451,7 @@ cp_snd_click:
 ; the click all read one word, so they cannot disagree.
 ; -----------------------------------------------------------------------------
 cp_drv_paint:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
 
 
     call cp_drv_mempar              ; ...and one bit for the whole page before
@@ -5809,12 +5510,7 @@ cp_drv_paint:
                                     ; as a toast at the moment it fails
                                     ; (SPEC.md 59.6), so this page has nothing
                                     ; left to report from a previous session
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 
 ; -----------------------------------------------------------------------------
 ; cp_drv_rowy - a driver row's glyph top (module internal)
@@ -5934,11 +5630,7 @@ cp_drv_rowy:
 ; one per row for exactly that reason.
 ; -----------------------------------------------------------------------------
 cp_drv_mempar:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
     mov byte [cp_dmnw], 0
     mov byte [cp_dmdg], 1       ; a one-digit figure at the very least
     xor bx, bx
@@ -6002,12 +5694,7 @@ cp_drv_mempar:
     mov byte [cp_dmpar], 0      ; two cells narrower without them, and the
                                 ; digits still align on the 'K'
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 
 ; -----------------------------------------------------------------------------
 ; cp_drv_memstr - one drv_memk word as text (module internal)
@@ -6086,11 +5773,7 @@ cp_drv_memstr:
 ; the click budget.
 ; -----------------------------------------------------------------------------
 cp_drv_mem1:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
     mov bl, al
     xor bh, bh
     shl bx, 1
@@ -6118,12 +5801,7 @@ cp_drv_mem1:
     mov byte [gfx_color], CBLACK
     call cp_run
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 
 ; -----------------------------------------------------------------------------
 ; cp_drv_box1 - one driver row's checkbox, drawn from the live table
@@ -6144,11 +5822,7 @@ cp_drv_mem1:
 ; that did not change.
 ; -----------------------------------------------------------------------------
 cp_drv_box1:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
     mov byte [gfx_color], CBLACK    ; kept for the EMPTY-row path only: that
                                     ; one draws nothing, so os88ui_glyph never
                                     ; runs and the documented pen would not
@@ -6182,12 +5856,7 @@ cp_drv_box1:
 %endif
     call cp_gemit
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 
 ; -----------------------------------------------------------------------------
 ; cp_drv_boxes - every driver row's checkbox (the page's own paint)
@@ -6275,11 +5944,7 @@ cp_drv_arrows:
     mov al, 1                       ; ...and the DOWN one
     call cp_drv_arrowx
     mov byte [gfx_color], CBLACK
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_dx
 
 ; --- cp_drv_arrowx - one arrow, greyed or not by its own end stop -----------
 ; in:  AL = 0 up / 1 down, DI/BP = pane origin; gfx lock held
@@ -6341,11 +6006,7 @@ cp_drv_arrowok:
 ; cw_gfx_pen_cf reads CF and `or al, al` writes it. That is the whole reason
 ; this routine is shaped the way it is rather than testing AL where it reads.
 cp_drv_arrow1:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
     pushf                           ; ...CF is the ARGUMENT, and the branch
     mov si, cp_drv_triu             ; below spends it
     mov dx, CP_DBY1
@@ -6384,12 +6045,7 @@ cp_drv_arrow1:
     call cp_drv_tri                 ; ...the rect is still in AX/BX/CX/DX: a
                                     ; kernel primitive preserves everything it
                                     ; does not document (SPEC.md 1)
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 
 ; --- cp_drv_arrfill - the cell's interior, so an arrow is IDEMPOTENT --------
 ; in:  AX/BX/CX/DX = the cell; gfx lock held
@@ -6422,11 +6078,7 @@ cp_drv_arrfill:
     mov byte [gfx_color], CWHITE    ; ...otherwise the pane's own background
 .go:
     call KERNEL_SEG:cw_gfx_fill
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_dx
 
 ; --- cp_drv_tri - the triangle inside an arrow cell -------------------------
 ; in:  AX/BX/CX/DX = the cell, SI = a four-byte half-width table; pen already
@@ -6463,13 +6115,7 @@ cp_drv_tri:
     inc byte [cp_dtri_n]
     cmp byte [cp_dtri_n], 4
     jb .row
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_di
 
 section .text                   ; DATA, so out of the on-demand image and back
                                 ; to the kernel segment (SPEC.md 2.8: a
@@ -6711,11 +6357,7 @@ cp_drv_click:
 ; both painters walked all of drv_tab, the untouched row's too.
 ; -----------------------------------------------------------------------------
 cp_drv_line1:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
     call COLD_SEG:drvf_drv_row      ; AL survives both of these
     cmp word [bx+DRVR_FILE], 0
     je .out
@@ -6726,12 +6368,7 @@ cp_drv_line1:
     mov ax, CP_PLX                  ; ...and NOT CP_PMX: see above
     call cp_drv_line
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 
 ; -----------------------------------------------------------------------------
 ; cp_drv_line - one VARIABLE-LENGTH text line of the pane (module internal)
@@ -6763,11 +6400,7 @@ cp_drv_line1:
 ; nothing to its left, passes CP_PMX.
 ; -----------------------------------------------------------------------------
 cp_drv_line:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentm_si                ; KENT: push ax..si
 
     add ax, di                  ; AX = the line's left, in screen x
     mov bx, ax                  ; BX = it, kept clear of the calls below
@@ -6805,12 +6438,7 @@ cp_drv_line:
     call KERNEL_SEG:cw_gfx_fill
 .out:
     mov byte [gfx_color], CBLACK
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretm_si
 
 
 ; =============================================================================
@@ -7034,6 +6662,60 @@ CPS cp_s_tcol,  ':'
 ;
 ; `lodsb` is not used and cannot be: it reads DS:SI, and DS is KERNEL_SEG here.
 ; os88ovlchk.py refuses it in a module image for that reason.
+; -----------------------------------------------------------------------------
+; THE IMAGE'S OWN SHARED-EPILOGUE LADDER (kernel.asm's, SPEC.md 15.1.2, one
+; segment along). `jmp kretm_si` IS `pop si / pop dx / pop cx / pop bx /
+; pop ax / ret`. The kernel's ladders are a CS away from here, so the image
+; carries its own: 39 routines spend three bytes on the jump instead of four to
+; eight on the run and its `ret`. Near only - no far entry (a `retf`) takes
+; it. tests/unit/t_asmrules.py reads the rung -> pop map out of THIS ladder as
+; well as the kernel's, and stkbalance walks a rung as a continuation; a rung
+; nothing jumps to is a build error there, so only used rungs are labelled.
+; -----------------------------------------------------------------------------
+; ...AND ITS PROLOGUE HALF (kernel.asm's kentc_*, one segment along).
+; `call kentm_si` IS `push ax / bx / cx / dx / si`, and `call kentm_bp` the
+; same through `push bp`: the words land exactly where the pushes would put
+; them, so the routine's own pops and the ladder below end it unchanged.
+; Stack only - every write is at or above SP, so an interrupt can land
+; anywhere in here - and no flag moves, so a routine that takes an input in
+; CF (cp_fdcap) keeps it. 3 bytes a site against 5 and 7.
+; -----------------------------------------------------------------------------
+kentm_si:
+    ; STKBALANCE-NET: +5 - banks AX..SI on the CALLER's stack; its epilogue pops them
+    push bx
+    push cx
+    push dx
+    push si                     ; [si][dx][cx][bx][ret]
+    mov si, sp
+    push word [ss:si+8]         ; [ret][si][dx][cx][bx][ret]
+    mov [ss:si+8], ax           ; ...[bx][ax]
+    mov si, [ss:si]             ; SI back
+    ret
+
+kentm_bp:
+    ; STKBALANCE-NET: +7 - banks AX..BP on the CALLER's stack; its epilogue pops them
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp                     ; [bp][di][si][dx][cx][bx][ret]
+    mov bp, sp
+    push word [bp+12]           ; [ret][bp]...[bx][ret]
+    mov [bp+12], ax             ; ...[bx][ax]
+    mov bp, [bp]                ; BP back
+    ret
+
+; -----------------------------------------------------------------------------
+kretm_bp:         pop bp
+kretm_di:         pop di
+kretm_si:         pop si
+kretm_dx:         pop dx
+kretm_cx:         pop cx
+                  pop bx
+                  pop ax
+                  ret
+
 ; -----------------------------------------------------------------------------
 cp_stage:
     push ax
