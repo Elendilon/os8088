@@ -5937,6 +5937,22 @@ $(BUILD)/audio-prof.bin: $(AUDIO_SRC) | $(BUILD)
 $(BUILD)/audiop.o88: $(BUILD)/audio-prof.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/audio-prof.bin -o $@
 
+# ...and with -DAPS_RATCHET (ON DEMAND: `make audrat`): the LISTENING BUILD of
+# one level a track on the speaker, Tracker's ratchet, for the owner's A/B
+# against the shipped AUDIO.O88 (docs/plans/SPEAKER-LEVELLER-NEXT.md, the
+# Audio item under candidate 1; `soak -k audrat` says it still builds and
+# engages). Copied onto a disk as AUDRAT.O88 beside the shipped one. Never on
+# a shipped disk.
+$(BUILD)/audio-rat.bin: $(AUDIO_SRC) | $(BUILD)
+	$(NASM) -f bin -w+error -DAPS_RATCHET -I apps/ -I apps/audio/ -o $@ apps/audio/audio.asm
+	@echo "audio (APS_RATCHET): $(call FILESIZE,$@) bytes"
+
+$(BUILD)/AUDRAT.O88: $(BUILD)/audio-rat.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/audio-rat.bin -o $@
+
+.PHONY: audrat
+audrat: $(BUILD)/AUDRAT.O88
+
 # A stand-alone Audio Player test disk (ON DEMAND: `make audiodisk`): AUDIO.O88
 # at the root beside whatever WAV files AUDIOWAV= names (each an 8.3 name), so
 #   make audiodisk AUDIOWAV="build/wav/adp11k.wav"

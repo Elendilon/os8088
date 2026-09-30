@@ -8570,6 +8570,18 @@ SOAK = [
         needs=("marty", "ffmpeg"),
         wants=("build/audio.o88", "build/sound.drv", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin")),
+    Row("audrat", "soak", py("tests/audrat.py"), 30.0,
+        "docs/plans/SPEAKER-LEVELLER-NEXT.md: Audio's -DAPS_RATCHET "
+        "LISTENING build (`make audrat`, one level a track on the speaker) "
+        "still builds and engages - %ifdef'd out of everything that ships, "
+        "so nothing else would notice it rot while it waits for the owner's "
+        "ear. On the card-less 5150 with tests/apspk.py's song as a WAV: the "
+        "ratchet on all through, the level starting at 8 or under and never "
+        "rising, the play to the list's end. With the shipped audio.o88 in "
+        "its place (--pkg) the level jumps both ways and it FAILS",
+        needs=("marty",),
+        wants=("build/AUDRAT.O88", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin")),
     Row("apspkpause", "soak", py("tests/apspk.py", "--pause"), 20.0,
         "SPEC.md 86.21: the imposter window's keys - Space back to the desktop "
         "PAUSED (the door shut, the session kept, the window's clock drawn "

@@ -6,6 +6,65 @@ then, the same day, picked candidate 1 below as the next experiment. SPEC.md
 34.11.9 is the contract for what ships; this is what might come after it, with
 the measurements the choices were made on.
 
+## 0. PARKED 2026-09-30 - pick up here
+
+The owner is away for about a week with no machines to listen on, and the
+kernel and tree will move a lot meanwhile. Everything in this plan that has
+shipped is on `elendilon`. **One thing waits, on branch `pcspeaker`**: the
+owner's A/B of Audio with Tracker's ratchet, `-DAPS_RATCHET` (the Audio item
+under candidate 1, section 4). `pcspeaker` is ahead of `elendilon` by the knob
+itself (9189756) and by the commit that parked it; nothing else.
+
+**To resume, in order:**
+
+1. `make deps`, and `git fetch --unshallow` if the clone is shallow
+   (CLAUDE.md, fork rule 1). Then `git fetch origin elendilon pcspeaker`,
+   check out `pcspeaker`, and **MERGE** `origin/elendilon` into it - a merge,
+   not a rebase (fork rule 7). If `apps/audio/apspk.inc` conflicts, the knob
+   is five `%ifdef APS_RATCHET` spots and nothing else: `aps_slev` beside
+   `aps_rung`; `APS_LSTART` and its store in `aps_trk_reset` (a new track
+   starts at 8); the `os88spkfx_ratchet` call right after `os88spkfx_init` in
+   `aps_setup`; and the level saved into `aps_slev` before `inc byte
+   [aps_rung]` in `aps_behind` (a rung down keeps the track's level). A
+   resume needs nothing - `aps_resume` does not re-run `aps_setup`.
+2. `make`, `make audrat` (build/AUDRAT.O88), and `make marty` if the
+   container was reclaimed - it takes minutes and everything in `build/` goes
+   with it.
+3. `python3 tools/os88test.py soak -k audrat -k 'apspk*'`. `audrat` says the
+   knob still builds and ENGAGES (the ratchet on, the level never rising,
+   the play to its end - and it fails against the shipped player, so it
+   cannot pass by testing nothing); the `apspk*` rows say the shipped Audio
+   is untouched. Both were green when this was parked.
+4. Send `build/AUDRAT.O88` with the six 360KB disks and the 720KB pair
+   (fork rule 3; the owner's T1100 takes 720KB). The owner copies AUDRAT.O88
+   beside the disk's own AUDIO.O88 and plays the same WAV in each.
+5. What the owner listens for: whether the pumping is gone (Audio's leveller
+   moves far more than Tracker's ever did - PRE_DIFF's peaks are jumpier);
+   whether level 8 is too loud (Audio's peaks rarely overdrive the ratchet
+   enough to step it down, so most files will sit at 8 where Tracker's
+   modules sat at 5-6); and speech or quiet recordings, where one level a
+   track may suit less well than it suits music.
+
+**Then, by the verdict:**
+
+- **Kept**: make it the default - the `%ifdef` becomes the shipped path with
+  a `-DAPS_NORATCHET` A/B, `Tracker`'s `-DTSP_NOBASS` shape. **`tests/apspk.py`
+  WILL FAIL at that point and must change with it**: its `expect()` models
+  Audio's pulses with the per-span leveller (`fx.Shaper(...)` and no
+  `.ratchet(8)`), and it compares 800 pulses a leg EXACTLY. Write SPEC.md's
+  86.21 section for it; ask whether Audio should get Tracker's volume bar as
+  the level (45.25.3); the Video Player shares the shaper and is next.
+- **Too loud**: lower `APS_LSTART` - the only knob - and re-listen.
+- **Rejected**: `git revert 9189756` and the parking commit's `make audrat` /
+  `tests/audrat.py` / row, then two bands (candidate 2) are back on the
+  table, with the capacity question the owner asked answered in section 4.
+
+**Lost if the container goes, and how to get each back**: the leveller
+captures (`build/*.pkl` - `tools/os88spkcap.py` retakes them, two minutes
+each); the owner's `ELYSIUM.MOD` (theirs, never committed - ask for it
+again); and the MartyPC build (`make marty`). Nothing else this work needs
+lives outside git.
+
 ## 1. Where it stands
 
 `apps/os88spkfx.inc` turns 8-bit PCM into pulse widths for the PC speaker, and
