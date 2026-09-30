@@ -1413,6 +1413,9 @@ VID_CTX_SZ   equ VID_CTX_W*2+5
 vid_ndisp   db 1                ; displays the kernel has brought up. 1 for
                                 ; ever on a machine with one card
 vid_cur     db 0                ; which display's geometry is in the live block
+%if vid_cur - vid_ndisp != 1
+  %error "vid_ndisp/vid_cur must stay adjacent, ndisp first: vid_disp_init and vid_ctx_init reset the pair to 1 display, display 0 in ONE word store"
+%endif
 vid_ox      dw 0                ; ...and its ORIGIN in the virtual desktop,
 vid_oy      dw 0                ; which is what every 39.14 hook subtracts.
                                 ; OUTSIDE the sixteen-word run on purpose:
@@ -1677,8 +1680,7 @@ vid_ctx_init:
     push es
     mov cx, KERNEL_SEG
     mov es, cx
-    mov byte [vid_ndisp], 1
-    mov byte [vid_cur], 0
+    mov word [vid_ndisp], 1     ; one display, display 0 current (a pair)
     xor al, al
     call KERNEL_SEG:cw_vid_ctx_ptr
     xor ax, ax                  ; display 0 sits at the virtual origin
@@ -2052,8 +2054,10 @@ vid_disp_init:
     ; --- SINGLE (SPEC.md 39.19) ---------------------------------------------
 .single:
     call vid_blank_kind         ; AL is still the other kind: dark its monitor
-    mov byte [vid_ndisp], 1     ; ...before anything can compute a union over
-    mov byte [vid_cur], 0       ; a display that is no longer there
+    mov word [vid_ndisp], 1     ; ...before anything can compute a union over
+                                ; a display that is no longer there: one
+                                ; display, and display 0 current (vid_cur is
+                                ; the byte after, the %error beside them)
     mov [vid_kind], ah          ; (a no-op unless a caller moved it)
     call vid_apply              ; republishes the chrome extent AND re-homes
     xor al, al                  ; the pointer onto display 0 - which is what

@@ -669,9 +669,12 @@ sw_pairbuild:
     inc bx
     cmp bx, 256
     jb .byte
-    mov byte [gfx_pairbuilt], 1
 %ifdef GFX_PLANE
-    mov byte [vga_p4built], 0   ; UNION: the pair tables overwrote it
+    mov word [gfx_pairbuilt], 0x0001 ; built - and vga_p4built = 0, UNION: the
+                                ; pair tables overwrote it (one word store,
+                                ; the pair adjacent under vga12.inc's %error)
+%else
+    mov byte [gfx_pairbuilt], 1
 %endif
     jmp kret_di                 ; once a boot: the shared epilogue, not six
                                 ; pops of its own

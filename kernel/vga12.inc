@@ -1003,6 +1003,9 @@ gfx_pairbuilt db 0
 ; leaves as whatever the last boot wrote there.
 %ifdef GFX_PLANE
 vga_p4built db 0
+%if vga_p4built - gfx_pairbuilt != 1
+  %error "gfx_pairbuilt/vga_p4built must stay adjacent, pair first: sw_pairbuild and vga_p4build each set one and clear the other (the tables are a UNION in .lowbss) in ONE word store"
+%endif
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -2442,8 +2445,9 @@ vga_p4build:
     inc bx
     cmp bx, 256
     jb .byte
-    mov byte [vga_p4built], 1
-    mov byte [gfx_pairbuilt], 0 ; ...which it has just overwritten
+    mov word [gfx_pairbuilt], 0x0100 ; vga_p4built = 1, and gfx_pairbuilt =
+                                ; 0: its tables are what this just overwrote
+                                ; (the pair is adjacent, the %error above)
     jmp kret_si                 ; the shared ladder (SPEC.md 15.1.2): built
                                 ; once a mode, so the jump costs nothing
 
