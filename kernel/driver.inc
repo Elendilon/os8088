@@ -1912,8 +1912,8 @@ drv_blk_call_x:
     jmp wm_nest_pop             ; the segment the pop reads
 .none:
     pop ax
-    pop di
-    jmp drv_svc_none
+    pop di                      ; ...and FALLS INTO drv_svc_none: the next
+.fall:                          ; .cold bytes, past the .text data below
 section .text                   ; DATA, so back to the kernel segment
                                 ; (SPEC.md 2.6 rule 1)
 
@@ -1938,6 +1938,9 @@ drv_svc_none:
     xor ax, ax
     stc
     ret
+%if drv_svc_none - drv_blk_call_x.fall != 0
+%error "driver: drv_blk_call's refusal falls into drv_svc_none, so nothing may sit between them in .cold"
+%endif
 
 ; -----------------------------------------------------------------------------
 ; drv_fs_call - dispatch one FSV_* verb of the DRVC_FILE driver (SPEC.md 62.9)
@@ -2987,8 +2990,9 @@ drv_bss:
     mov cx, si
     xor al, al
     cld
-    rep stosb                   ; the bytes that used to ride on the floppy
-    clc
+    rep stosb                   ; the bytes that used to ride on the floppy -
+                                ; and CF = 0 from the `xor al, al` above:
+                                ; neither `cld` nor a string op writes it
 .out:
     pop es
     jmp kretc_di                ; `pop` leaves the flags alone, so the answer
@@ -4270,7 +4274,9 @@ drv_snd_sniff:
     jne .nofm
     mov byte [drv_tab+DRVR_WANT], 1   ; row 0 is the sound driver. Through DS,
                                 ; which is KERNEL_SEG in here (SPEC.md 2.5)
-    jmp short .out
+%ifdef SND_SNIFF_SB
+    jmp short .out              ; (without the scan below, .out IS the next
+%endif                          ; instruction)
 .nofm:                          ; No OPL2. On real hardware that settles it -
                                 ; every Sound Blaster has one - so what follows
                                 ; is built only under SNDSNIFF=sb, and with the

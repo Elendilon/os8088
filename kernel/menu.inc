@@ -392,7 +392,9 @@ menu_activate:
     je .same
     mov [menu_win], bx
     mov byte [fm_fchk], 1       ; the active application changed, so a Disk
-    mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
+    inc byte [ui_post]          ; ...and SAY SO once (SPEC.md 13.13): tested
+                                ; zero/non-zero and swept every tick, so a
+                                ; count is as good as a 1
                                 ; window may have just gained the focus with
                                 ; a refresh owing (SPEC.md 22.8). This is the
                                 ; catch-all rather than the main path -
@@ -2300,7 +2302,7 @@ menu_kbnav:
     mov [mouse_x], ax           ; two-display seam is honoured by construction
     mov [mouse_y], bx           ; rather than by a rectangle known here
     mov byte [cur_shchk], 1     ; ...and the pointer MOVED (SPEC.md 7.2.1.1)
-    mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
+    inc byte [ui_post]          ; ...and SAY SO once (SPEC.md 13.13)
     pop di
     pop si
     pop dx

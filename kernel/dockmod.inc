@@ -127,7 +127,7 @@ dkxf_drop:      DKXPAD dkx_drop
 dkxf_pass:      DKXPAD dkx_pass
 dkxf_hole_arm:  DKXPAD dkx_gfx_hole_arm
 dkxf_hole_sub:  DKXPAD dkx_hole_sub
-dkxf_hole_win:  DKXPAD dkx_hole_win
+dkxf_hole_win:  call dkx_hole_win  ; the LAST pad falls into dkxf_home
 dkxf_home:
     jmp KERNEL_SEG:dkb_ret
 dkx_force:
@@ -900,9 +900,8 @@ dkx_tile_xy:
     mul word [cs:dock_astep]       ; index <= 11 and a step <= 28: no DX
     add ax, [cs:dock_a0]
     mov bx, [dock_c0]
-    pop dx
-    jmp dkx_tile_swap          ; bottom: AX along = x. A side: exchange
-
+    pop dx                      ; ...and FALLS INTO dkx_tile_swap - bottom:
+                                ; AX along = x. A side: exchange
 dkx_tile_swap:
     cmp byte [dock_side], DOCK_P_BOTTOM
     je .out

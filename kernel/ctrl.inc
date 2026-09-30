@@ -736,9 +736,6 @@ cp_skip:  db 0
 CPT_FBOX  equ 2                 ; [cp_tfull]'s third value: draw MY OWN box,
                                 ; whichever way round it goes (SPEC.md 31.5.3)
 cp_tfull: db 0
-cp_tpair: dw 0                  ; ...and the field's (ink, bg), decided where
-                                ; the selection is known and read where the
-                                ; run is drawn
 
 ; The Display page's PENDING adapter - which row the dot is on, not which
 ; adapter is running (that is [vid_kind], read live like every other page
@@ -2735,7 +2732,7 @@ cp_drvcall: call COLD_SEG:drvf_drv_cp_call
 ; clobbers: nothing
 cp_repost:
     mov word [cp_dirty], 0x0101
-    mov byte [ui_post], 1
+    inc byte [ui_post]          ; zero/non-zero, and swept every tick
     ret
 
 ; cp_lbl - stage an image string and letter it at a PANE-relative spot: the
@@ -4559,7 +4556,6 @@ cp_time_fld:
     jne .plain
 
     ; --- selected: white text on a black box ---------------------------------
-    mov word [cp_tpair], (CBLACK << 8) | CWHITE   ; AL = ink, AH = paper
     mov byte [gfx_color], CBLACK
     cmp byte [cp_tfull], 0
     je .text                    ; SPEC.md 31.5.1: on a tick the box is already
@@ -4568,7 +4564,6 @@ cp_time_fld:
                                 ; second write of pixels that did not change
     jmp short .box
 .plain:
-    mov word [cp_tpair], (CWHITE << 8) | CBLACK
     mov byte [gfx_color], CWHITE    ; ...and the SAME box in the GROUND, which
     cmp byte [cp_tfull], CPT_FBOX   ; is what takes the black one off a field
     jne .text                       ; that has just been DESELECTED - one write
@@ -4601,6 +4596,11 @@ cp_time_fld:
     pop dx
     pop cx
 .text:
+    mov bx, (CWHITE << 8) | CBLACK  ; the run's pair, AL = ink and AH = paper:
+    cmp ah, [cp_tsel]               ; black on white, or white on the selected
+    jne .pair                       ; field's black - decided HERE, in a
+    xchg bl, bh                     ; register, where it used to be a word of
+.pair:                              ; .text written at the two arms above
     mov al, ah                  ; AL = field index for the formatter
     call clk_fld_str            ; SI = that field's text (SPEC.md 37) - near,
                                 ; same image (SPEC.md 37.93)
@@ -4608,7 +4608,7 @@ cp_time_fld:
     ; exactly its own width - 'Mmm' is CPT_MONW, 'DD' is CPT_NUMW, 'YYYY' is
     ; CPT_YRW - so the run covers its field exactly and IS the erase for it
     ; (SPEC.md 27.2). That is what lets the tick above skip the band fill.
-    mov ax, [cp_tpair]
+    xchg ax, bx
     call KERNEL_SEG:cw_font_run               ; in SI, CX = x, DX = y
 
     jmp kretm_si
