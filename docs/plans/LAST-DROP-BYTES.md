@@ -752,6 +752,18 @@ justification.
 
 #### 7.7.7 OPEN — the SIXTEEN refusal cells `kern_small` carries for features it does not have (128 bytes of table, plus their bodies)
 
+*Kernel size pass 8 re-derived it with the ABI open and took the bodies
+only: `xm_free` and `osapi_vol_stat` name `osapi_snd_fm`'s `stc`/`ret` and
+`osapi_pkg_rehome_x` names `mod_gone`'s `stc`/`retf` (−6), and the clip door
+joined the list the other way - `OSAPI_SND_PLAY` refuses on `kern_small` with
+`osapi_snd_stream`'s body (SPEC.md 34.4.1, −173). The CELLS still cannot go:
+a cell's offset is the ABI both kernels share (a small-built package runs on
+`kern_big` and the default-arm packages ship on the small disks), so a
+`kern_small` without them is a second ABI, and a refusal that became a wild
+far call is the one outcome §20.8 rule 4 exists to prevent. Packages being
+trusted does not change that - it is not a fence against a hostile caller but
+the answer a correct one is built to test.*
+
 *Since kernel size pass 4 three of the sixteen (`gfx_line`, `gfx_lstep`,
 `gfx_lstepv`) are DELETED and the table has two cell sizes (SPEC.md 20.3), so
 the 8-byte arithmetic below is the old table's: the thirteen left cost 6 bytes
@@ -1087,6 +1099,13 @@ counts are the pass's scratch findings (`rect-count.md`); re-derive rather
 than quote if the window manager has moved.
 
 ### 7.11 The speaker door (`OSAPI_FSX_SPK`) as a thin door — ~70-80 resident bytes, DEFERRED FOR TIME
+
+**BUILT in kernel size pass 8, at −108 bytes of `kern_big` `.text`**
+(SPEC.md 34.11.1): step 1 and step 3 as priced, and step 2 by a route this
+row did not consider - the LIBRARY reads the chain out of the IRQ0 vector it
+is about to replace, so there is neither a block nor a published JCELL. The
+SI/DI fence (`SPK_E_ADDR`, #203's) went with the rest - upstream's to agree,
+as the row says. The row below is kept as the costing it was.
 
 **This row is NOT a refusal.** Kernel size pass 6
 (docs/plans/completed/HANDOFF-KERNEL-SIZE-P7.md) took the door from 280 bytes
