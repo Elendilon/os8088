@@ -501,7 +501,7 @@ sch_fast_on:
     cmp al, SCH_RATE            ; N = 2..4, or SCH_RATE = 5: the caller's own
 %else                           ; divisor (SPEC.md 53.2.2), banked by fsx_run
     cmp al, 4                   ; as the table's fourth row - and by the same
-%endif                          ; token re-armed by spk_pcm_run, which parks
+%endif                          ; token re-armed by the clip door, which parks
     ja .out                     ; [sch_fast] and hands it back
     cbw                         ; AH = 0 (N is 2..5)
     mov bx, ax

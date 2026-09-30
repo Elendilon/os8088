@@ -421,13 +421,21 @@ KSC_ALT     equ 0x38             ; ...and Alt, which is a MODIFIER and so is
                                  ; duration ticks (0 = until off), DL =
                                  ; priority (default 0x40); out CF=1 refused,
                                  ; else AL = owner generation
-%define OSAPI_SND_PLAY      KERNEL_SEG:0x00DB   ; PCM_EXCL clip (SPEC.md 34.4):
-                                 ; ES:SI = your 8-bit unsigned samples, CX =
-                                 ; count, DX = rate 4,679..16,124 Hz; out
-                                 ; AX = 0 ok / 1..5 err. Runs on your task
-                                 ; with the scheduler locked: it FREEZES the
-                                 ; desktop for the length of the clip, and a
-                                 ; mouse click aborts it (err 5)
+%define OSAPI_SND_PLAY      KERNEL_SEG:0x00DB   ; THE PCM_EXCL CLIP'S DOOR
+                                 ; (SPEC.md 34.4). PLAY A CLIP WITH
+                                 ; apps/os88pcm.inc's os88pcm_play, which is
+                                 ; this door's one caller and has the contract
+                                 ; this slot used to (ES:SI, CX, DX = rate ->
+                                 ; AX = 0 ok / 1..5 err). UI task only.
+                                 ; AL = 0 GRANT: CF=1 AX = 1 busy / 3 disabled
+                                 ; by the user / 4 nothing can sound; CF=0
+                                 ; channel 2 is the PWM and yours, the
+                                 ; scheduler LOCKED and the fsx sub-tick
+                                 ; parked until the release, BX = the mouse
+                                 ; button byte's offset in KERNEL_SEG (the
+                                 ; click-abort's). AL = 1 RELEASE, played out;
+                                 ; AL = 2 RELEASE after a click, the event
+                                 ; ring drained first. AX spent
 
 %define OSAPI_SND_FM        KERNEL_SEG:0x00E3   ; FM verbs (SPEC.md 34.2), live
                                  ; only while a sound DRIVER is loaded
@@ -2799,7 +2807,7 @@ DRVC_POINT   equ 6              ; a pointing device the kernel does not
 ;     by `snd_release_inst` when you are torn down. Ask for a DURATION and it
 ;     self-expires through `snd_tick`, so a worker need never come back to
 ;     silence it. You may NOT call the file slots, OSAPI_FILE_DLG or
-;     OSAPI_SND_PLAY from a worker - those are UI-task-only and the kernel
+;     os88pcm_play (OSAPI_SND_PLAY) from a worker - those are UI-task-only and the kernel
 ;     cannot stop you. SND_PLAY is not on that list for the tone's reasons:
 ;     it runs the whole clip with the scheduler locked, so a worker calling
 ;     it freezes the desktop instead of merely misattributing something.

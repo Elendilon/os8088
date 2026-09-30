@@ -1,9 +1,10 @@
 ; =============================================================================
 ; os8088 - tests/sndplay/sndplay.asm
 ;
-; SNDPLAY: the PWM clip's probe (SPEC.md 34.4) - OSAPI_SND_PLAY's grant, its
+; SNDPLAY: the PWM clip's probe (SPEC.md 34.4) - apps/os88pcm.inc's player on
+; the OSAPI_SND_PLAY door: the grant, its
 ; refusals, the clip itself and its release, on the desktop and inside an
-; FSXF_FASTTICK bracket (whose sub-tick spk_pcm_run parks and hands back,
+; FSXF_FASTTICK bracket (whose sub-tick the door parks and hands back,
 ; SPEC.md 53.2.1). NEVER shipped: tests/sndplay.py assembles it into a
 ; scratch floppy of its own and drives it on MartyPC.
 ;
@@ -45,7 +46,7 @@ sp_put:
     inc bx
     ret
 
-; sp_clip - OSAPI_SND_PLAY the clip at DX Hz. out: as the slot
+; sp_clip - os88pcm_play the clip at DX Hz. out: as the library
 sp_clip:
     push es
     push si
@@ -54,7 +55,7 @@ sp_clip:
     pop es
     mov si, sp_samp
     mov cx, SP_N
-    call OSAPI_SND_PLAY
+    call os88pcm_play
     pop cx
     pop si
     pop es
@@ -139,6 +140,8 @@ sp_samp:                            ; the clip: (i * 37) & 0xFF, a pattern
     db (i * 37) & 0xFF
 %assign i i + 1
 %endrep
+
+%include "os88pcm.inc"
 
 SP_BSS equ 17
     OS88_BSS SP_BSS

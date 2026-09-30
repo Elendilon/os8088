@@ -459,7 +459,7 @@ Linear 0x30000–0x3FFFF was claimed whole by the sound layer: a 4KB SB DMA
 double buffer, an 8KB record ring and a ~52KB staging pool granted to
 instances. All three belonged to hardware this OS no longer drives (§34),
 and the segment is **gone** — 64KB back on every machine, a quarter of the
-256KB floor. The speaker tiers need no buffer: `osapi_snd_play` paces the
+256KB floor. The speaker tiers need no buffer: `os88pcm_play` paces the
 caller's own `ES:SI`.
 
 Nothing may quietly re-claim 0x30000 by name. The block is part of the
@@ -9016,8 +9016,9 @@ lines are mixed, and both say which halves are cases and which are the pair.
   internals, exactly **two** routines raise it, both with the same meaning
   — the tick still runs, the BIOS chain feeds the floppy motor,
   `sch_account` runs and sleepers mark ready; only involuntary switching
-  pauses: `disk_read` across its int 13h window (§18), and `spk_pcm_run`
-  for the duration of an exclusive speaker clip (§34.4, Phase 2). The clip
+  pauses: `disk_read` across its int 13h window (§18), and the clip door
+  `OSAPI_SND_PLAY` from its grant to its release, for the duration of an
+  exclusive speaker clip (§34.4, Phase 2). The clip
   case adds nothing new for the cursor either: the mouse ISR keeps
   `mouse_x/y/btn` fresh throughout, and when the clip was started from a
   window callback — which holds the gfx lock, the normal trigger — the
@@ -38122,7 +38123,7 @@ A caller inside a window callback holds the gfx lock and stalls painters for
 the write's duration (§18.4) — a save is not a free operation and must never
 sit in a paint path.
 
-The file buffer is **ES:BX** (not DS:BX), like `osapi_snd_play`, so a caller
+The file buffer is **ES:BX** (not DS:BX), like `os88pcm_play`, so a caller
 can write out of its own image without a copy; a package that keeps data in
 its own bss just sets ES = DS. ES is restored per §1.
 
@@ -38867,7 +38868,7 @@ Two teardown corollaries, both about not trading a crash for a leak:
    inside an exclusive bracket as well — §53.1's last bullet contemplates
    sound grants taken there and §53.2 keeps `snd_tick` running — which is
    what makes it right for Telnet's full-screen renderer too. It is
-   `osapi_snd_play` that is out, and the paragraph below already says why.
+   `os88pcm_play` that is out, and the paragraph below already says why.
    **`OSAPI_WM_WAKE` was missing from this list and is not new** — its
    own cell has said "any context — ISR-safe and worker-safe, no lock
    needed" since it was written (§74.1), and it is the carrier of the
@@ -38890,7 +38891,7 @@ Two teardown corollaries, both about not trading a crash for a leak:
    marks *UI-task/window-callback context only* is forbidden to it: the
    file slots, `OSAPI_FILE_*` (§18.4 — shared `dsk_secbuf`, FAT snapshot and
    `sch_lock`), the file dialog `OSAPI_FILE_DLG` (§38.6), and every verb of
-   `osapi_snd_play` blocks with `sch_lock` raised and is likewise out.
+   `os88pcm_play` blocks with `sch_lock` raised and is likewise out.
    `OSAPI_DRV_CALL` (§20.11) is on the list, and it is the one entry whose
    safety is only half the kernel's: the **cell** takes no lock, raises no
    `sch_lock` and touches no disk, so reaching a driver is legal from a
@@ -47736,8 +47737,9 @@ level on the diskettes, and every other picture got faster.
 this machinery (190 of them past `ico_stage`, §25.7.2), and the only way to
 spend less is to expand into scratch that is idle during an icon draw — the
 argument that already lets it share `ico_stage`. No DS-addressable `.bss`
-buffer that large qualifies: `cur_save` is the mouse ISR's, `snd_xlat` is live
-sound state, `fm_pool` the file manager's. A share that is not provably idle
+buffer that large qualifies: `cur_save` is the mouse ISR's, `fm_pool` the
+file manager's (and `snd_xlat`, the clip's table, left the kernel for the
+clip library in kernel size pass 8, §34.4). A share that is not provably idle
 is a corruption bug, so none is taken.
 
 ### 25.8 `kern_small`'s harvested icons are a POOL, because a listing repeats itself
@@ -58086,7 +58088,7 @@ changelog: `SND_SEG` — 64KB of conventional memory at linear
 ring and a staging pool — is **gone**, and with it the largest single
 reservation in the memory map (§2). On the 256KB floor machine that is a
 quarter of the RAM handed back. The speaker tiers need no kernel buffer at
-all: a tone is two `out`s, and `osapi_snd_play` paces samples out of the
+all: a tone is two `out`s, and `os88pcm_play` paces samples out of the
 **caller's** `ES:SI`. A future package that plays a WAV over the speaker
 therefore needs nothing new from the kernel — it holds its own samples,
 claims its own memory (§50) and calls slot 0x00DB.
@@ -58344,11 +58346,9 @@ stays a superset of what the old ABI returned — a package that read
   CF = 1 on a bad voice or frequency. On: divisor = 1193182/AX, then the
   mode-3 quad (0B6h → 43h, divisor lo/hi → 42h, 61h |= 03h) under one
   `pushf`/`cli` … `popf`. Off: 61h &= 0FCh in the same kind of window.
-- `spk_pcm_run` — the PCM_EXCL clip engine of §34.4, entered directly.
-  It used to sit behind a three-verb `spk_pcm_op` (0 start, 1 stop, 2
-  status); the router only ever asked for verb 0, so verbs 1 and 2 — and
-  with them the `snd_stop` door verb 1 called — were deleted as
-  unreachable. `snd_release_inst` is the sole writer of `snd_abort` now.
+- `spk_pcm_run` — the PCM_EXCL clip engine of §34.4 — is GONE: kernel
+  size pass 8 made the clip `apps/os88pcm.inc`'s and `OSAPI_SND_PLAY` its
+  door (grant and release), and `snd_abort` with it.
 
 Both are called directly by the router. There is no indirection to
 dispatch through, no presence flag to consult and no probe at boot: the
@@ -58458,6 +58458,33 @@ stamp; it is a geometry negotiator and has no business granting sound.
 
 ### 34.4 Speaker PWM — exclusive clips (Phase 2)
 
+**The player is a LIBRARY and the slot is its DOOR** (kernel size pass 8).
+`apps/os88pcm.inc`'s `os88pcm_play` plays a clip with exactly the contract
+`OSAPI_SND_PLAY` used to have - ES:SI samples, CX count, DX rate, AX = 0 or
+error 1..5, CF mirroring it - and everything below that is about the clip
+(the rate check, the rescale table, the pacer, the resync rule, the click's
+fold) is the library's. The kernel keeps what only the kernel can do, as the
+door `OSAPI_SND_PLAY` (slot `0x00DB`):
+- **AL = 0 GRANT**: the refusals (1 busy - a clip, or a PCM_BG stream by
+  §34.9 - 3 disabled by the user, 4 nothing can sound), the grant window of
+  §34.3 (a lower tone stolen, the generation, `snd_ch2mode` = 2 and
+  `snd_pcm_busy`), **`sch_lock` raised**, the fsx sub-tick parked, and
+  channel 2 put in PWM mode. It answers BX = the offset in `KERNEL_SEG` of
+  the mouse button byte the click-abort reads.
+- **AL = 1 RELEASE** after a clip that played out, **AL = 2** after a click:
+  the event ring drained first (AL = 2 only), then channel 2 back to tone
+  idle, the sub-tick handed back and the lock dropped.
+
+The lock is ONE raise from the grant to the release and across the drain, so
+the structural guarantee below is unchanged. What moved: ~630 resident bytes
+on **both** kernels - the player, the per-clip table's 256 bytes of `.bss`
+and the clip's state - for a slot whose only caller is Recorder, which ships
+on the live media alone; the door is ~90 bytes, and the library costs the
+including package ~180 bytes of code and a 256-byte table in its image.
+**`snd_abort` is gone with it**: a clip holds the lock on its owner's own UI
+callback from grant to release, so nothing can release the owning instance
+while one plays, and the flag `snd_release_inst` raised could not be read.
+
 **Modulator**: ch2 in **mode 0, lobyte-only** (90h → 43h once at clip
 start), 61h bits 0–1 held high. One `out 42h, AL` per sample emits a low
 pulse of AL PIT-cycles; the speaker cone integrates the pulse train; the
@@ -58477,8 +58504,8 @@ end.
   a third of the sample period, so quality is jitter-dominated below the
   nominal depth. The documented audible truth at the default: an 8 kHz
   carrier whine + telephone-grade audio — that *is* speaker PCM.
-- **Rescale**: far code builds a 256-byte xlat table per clip —
-  t[s] = 1 + s·(N−2)/255, ~8 ms — in `.bss` (DS-addressable for `xlat`).
+- **Rescale**: the library builds a 256-byte xlat table per clip —
+  t[s] = 1 + s·(N−2)/255, ~8 ms — in the package's own image (`cs xlatb`).
   Non-destructive: the caller's clip buffer is never modified, so replay
   and re-rate work. (Rejected: per-sample `mul` scaling — the table saves
   ~70 cycles/sample.)
@@ -58513,20 +58540,18 @@ end.
   handlers — dispatched on EVT_MDOWN with the button *still held* — so the
   baseline starts with bit 0 set; the release retires it and the next
   press differs from the baseline and aborts. (Without the fold, no left
-  click could ever abort a click-launched clip.) `snd_abort` — whose sole
-  writer is `snd_release_inst` — is checked in the same window. On
-  click-abort the kernel **drains the aborting EVT_MDOWN (and its EVT_MUP)
-  from the event queue** before returning, so the skip gesture cannot fire
-  a menu, close box or icon under the cursor. The guarantee is structural,
-  not a property of the caller's identity: `osapi_snd_play` holds its own
-  raise of `sch_lock` from before the driver op runs until the drain
-  completes, so a tick landing between the op's internal release and the
-  drain can never switch to a task that would pop the aborting click
+  click could ever abort a click-launched clip.) On click-abort the kernel
+  **drains the aborting EVT_MDOWN (and its EVT_MUP) from the event queue**
+  (the door's AL = 2 release) before the lock drops, so the skip gesture
+  cannot fire a menu, close box or icon under the cursor. The guarantee is
+  structural, not a property of the caller's identity: the door's grant
+  raises `sch_lock` and only its release drops it, after the drain, so no
+  tick in between can switch to a task that would pop the aborting click
   first. No code is added to `mou_isr` — the checks are byte loads on the
   emit path; the mouse module stays sound-free.
-- **Scheduling contract**: `spk_pcm_run` executes on the **caller's task**
-  with IF=1 throughout, wrapped in `inc byte [sch_lock]` …
-  `dec byte [sch_lock]` — the second sanctioned raiser (§7), with exactly
+- **Scheduling contract**: the clip runs on the **caller's task**
+  with IF=1 throughout, between the door's grant (`inc byte [sch_lock]`)
+  and its release (`dec byte [sch_lock]`) — the second sanctioned raiser (§7), with exactly
   `disk_read`'s meaning (§18) and not a new one: ticks advance, the BIOS
   chain feeds the floppy motor, `sch_account` runs, sleepers mark ready;
   only involuntary switching pauses. The mouse ISR keeps `mouse_x/y/btn`
@@ -58538,7 +58563,7 @@ end.
   bounds the user's worst case regardless. The desktop freezes for the
   clip; that is disclosed in the API (`PCM_EXCL`) and gated by the user
   policy byte `snd_excl_ok` (default on, CP-flippable) —
-  `osapi_snd_play` returns err 3 while it is off. (It used to say "and in
+  the door's grant returns err 3 while it is off. (It used to say "and in
   the §31.4 caption"; §31.4 is *Sound page — retired* and there is no
   caption to read it on. `checkdocs.py` cannot catch this: it checks that
   a cited heading EXISTS, not that it still describes anything.)
@@ -58950,14 +58975,15 @@ again.
   either initialised `.text` data, or behind the `snd_live` gate.
 - **Initialised `.text` data**: `snd_live`, `snd_excl_ok` (default 1) and
   the speaker's name string. That is the whole of it.
-- **`.bss`** (~20 bytes of state + the 256-byte xlat table): the tone
-  owner record, generations, the expiry deadline, `snd_ch2mode`, the saved
-  61h boot bits, `snd_btn0`/`snd_abort`, and the clip's owner and divisor.
+- **`.bss`** (~20 bytes of state): the tone owner record, generations,
+  the expiry deadline, `snd_ch2mode`, the saved 61h boot bits, and the
+  clip's parked sub-tick and drain scratch (its table is the library's
+  since kernel size pass 8, §34.4).
   All stored explicitly by `snd_init` (§8's rule) and unreadable by the
   tick until `snd_live` publishes. (It also held two debug counters no
   reader ever existed for; §34.4 says where they went.)
 - **Buffers: none.** The layer owns no memory outside its own `.bss` —
-  `osapi_snd_play` reads the caller's `ES:SI` in place. This is the whole
+  `os88pcm_play` reads the caller's `ES:SI` in place. This is the whole
   reason `SND_SEG` could be deleted from §2 rather than merely shrunk.
 - **Boot**: `snd_init` joins kmain's §15 sequence **after `drv_init`**:
   save the 61h boot bits, store the `.bss` state, set `snd_live` last.
@@ -58968,9 +58994,8 @@ again.
   speaker owns no vector, no IRQ and no DMA channel, so that is all of it.
 - **Sections** (§33): everything `snd_tick` can reach stays in `.text` —
   the owner record, the tone core, `snd_beep`, `snd_tick`, the router, the
-  three API slot targets, `snd_release_inst`, `snd_unhook` and
-  `spk_pcm_run`. Cold, but near like everything else (§33): the PWM builder
-  alone. Far code keeps DS = KERNEL_SEG, so it reads its data from `.text`
+  three API slot targets, `snd_release_inst` and `snd_unhook`. (The PWM
+  builder and the clip engine are the clip library's now, §34.4.) Far code keeps DS = KERNEL_SEG, so it reads its data from `.text`
   (§33 rule 2).
 
 ### 34.10 The PicoMEM tier — `make PICOMEM=1`
@@ -72464,7 +72489,7 @@ and with the **running task's own `T_INST`** when one is not — which is
 exactly the worker's case — so the tone is attributed to this instance and
 `snd_release_inst` releases it at teardown like any other. A duration-limited
 tone self-expires through `snd_tick`, so the worker never has to come back and
-turn it off. `osapi_snd_play` stays UI-task-only for a different reason: it
+turn it off. `os88pcm_play` stays UI-task-only for a different reason: it
 runs the clip with the scheduler locked, so a worker calling it freezes the
 desktop rather than merely misattributing a grant.
 
@@ -85847,7 +85872,7 @@ invariant in §12/§13 needs an fsx gate — the clock cell, `fdlg_reap`, the
 ladder's branches, the cursor. The bracket makes the only rule that matters
 — **the kernel never runs while the mode is foreign** — true by
 construction, because the kernel is parked on the stack underneath the app.
-`osapi_snd_play` blocks and the §38 dialog is modal for the same reason.
+`os88pcm_play` blocks and the §38 dialog is modal for the same reason.
 
 What falls out, all of it free:
 
@@ -86016,9 +86041,8 @@ each need their own code:
 - `sch_account`'s pause (§53.2.1);
 - `fsx_restore`'s unconditional `sch_fast_off`, which is therefore also the
   rate's teardown on every way out of the bracket;
-- `spk_pcm_run`'s park and re-arm (§34.4), which sets its own pace on
-  channel 0 for a clip and puts `[sch_fast]` back after it, and so puts the
-  rate back too.
+- the clip door's park and re-arm (§34.4), which parks `[sch_fast]` at its
+  grant and puts it back at its release, and so puts the rate back too.
 
 **The hook** is called on **every** IRQ0, after the EOI (from the ROM, on a
 tick), as `wm_pkgcall` would call it: through the package's dispatcher, with
