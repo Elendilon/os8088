@@ -1580,11 +1580,15 @@ gfx_ls_box:
 .next:
     add bx, WCR_SZ
     loop .scan
-    mov word [gfx_ls_bx1], 1    ; nothing holds it: an empty box, so every
-    mov word [gfx_ls_bx2], 0    ; later pixel re-resolves rather than
-    mov word [gfx_ls_by1], 1    ; inheriting a stale rect - and no OOB either,
-    mov word [gfx_ls_by2], 0    ; the point being CLIPPED and not off-display
-    jmp short .out
+    mov ax, 1                   ; nothing holds it: an empty box, so every
+    mov [gfx_ls_bx1], ax        ; later pixel re-resolves rather than
+    mov [gfx_ls_by1], ax        ; inheriting a stale rect - and no OOB either,
+    dec ax                      ; the point being CLIPPED and not off-display.
+    mov [gfx_ls_bx2], ax        ; AX is banked at the entry, so the four
+    mov [gfx_ls_by2], ax        ; stores take the accumulator forms
+%ifdef GFX_VGA                  ; (without the multi-display test below .oobck
+    jmp short .out              ; IS .out, and the jump is not assembled)
+%endif
 .oobck:
 %ifdef GFX_VGA
     ; SPEC.md 5.6.9.5: IS THE POINT OFF THIS DISPLAY ALTOGETHER? The box above
@@ -1611,6 +1615,13 @@ gfx_ls_box:
     pop cx
     pop ax
     ret
+
+; gfx_blit4's EMPTY-BLOCK exit (below): its `jz`s reach this backward in two
+; bytes, where .out, 700 bytes down, needs the five-byte jump-over form - and
+; a jump-over is 16 clocks on the path that does NOT jump, which is every
+; non-empty blit. The empty block pays a jmp more instead
+vga_b4out:
+    jmp gfx_blit4.out
 
 
 ; -----------------------------------------------------------------------------
@@ -1751,10 +1762,10 @@ gfx_blit4:
                                 ; does not clip - which is the picture drawn
                                 ; over the window on top of it
 %endif
-    or cx, cx
-    jz .out
-    or dx, dx
-    jz .out
+    or cx, cx                   ; an empty block leaves through the stub
+    jz vga_b4out                ; ABOVE the entry: a short jz there is 4
+    or dx, dx                   ; clocks not taken, where the five-byte form
+    jz vga_b4out                ; .out needs is 16 - on every non-empty blit
 
 %ifdef KERN_BIG
     ; --- THE WHOLE-SHAPE HOOK, TAKEN WHEN THE BLOCK FITS ONE DISPLAY -------
@@ -1863,9 +1874,9 @@ gfx_blit4:
     cmp byte [gfx_pairbuilt], 0
     jne .slow
     call sw_pairbuild           ; once a boot, from gfx_inktab
-    jmp short .slow
-%ifdef GFX_VGA
-.vga:
+%ifdef GFX_VGA                  ; (with no planar arm between, .slow is the
+    jmp short .slow             ; next instruction and the jump is not
+.vga:                           ; assembled)
     mov byte [gfx_blit_fst], 2  ; 2 = the planar SPAN writer, whose Enable
     call vga_sr_on              ; Set/Reset is armed ONCE here and cleared at
                                 ; .out: only the colour and the bit mask

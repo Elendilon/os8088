@@ -1267,8 +1267,8 @@ vid_bk:
 .m8:
     mov dx, 0x3B8
     out dx, al
-    jmp short .out
-%ifdef GFX_VGA
+%ifdef GFX_VGA                  ; (without the planar arm .out is the next
+    jmp short .out              ; instruction, and the jump is not assembled)
 .planar:
     mov al, dh                  ; BOTH planar kinds blank the same way - the
     call vid_ac_pal             ; Attribute Controller's Color Plane Enable,

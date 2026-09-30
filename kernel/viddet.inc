@@ -568,11 +568,12 @@ vid_depth_set:
                                 ; the tight one). Two bytes could be had by
                                 ; dropping this pair; they are a contract
                                 ; change and are not taken.
-    cmp al, VID_VGA
-    je .colour                  ; **ZF IS THE ANSWER AND IT SURVIVES TO THE
+    cmp al, VID_VGA             ; **ZF IS THE ANSWER AND IT SURVIVES TO THE
 %ifdef GFX_VGA                  ; `jne` BELOW**, and without a VGA renderer
-    cmp al, VID_EGA             ; the first compare is the whole answer.
-%endif                          ; EGA is the same four-plane
+    je .colour                  ; the first compare is the whole answer - so
+    cmp al, VID_EGA             ; the `je` is inside the %ifdef too, or it is
+%endif                          ; a jump onto the next instruction. EGA is the
+                                ; same four-plane
 .colour:                        ; 16-colour depth as VGA - mode 10h, just
                                 ; shorter (SPEC.md 39.24) - so `colour` is
                                 ; `al == VID_VGA || al == VID_EGA`, and the
