@@ -819,15 +819,12 @@ did not go, and the reasons stop them being re-proposed:
   the record, and the dock, the menu bar and the Task Manager all letter it
   through DS. This was tried: the build was clean and the machine booted to a
   desktop that could not launch anything.
-- **`snd_xlat` (256 B) is refused on speed.** Two sites, but they are
-  `spk_pcm_run`'s per-sample loop. **And three harnesses now depend on those
-  256 bytes staying idle**: `tests/evqfull.py` and
-  `tools/os88linecost.py` each plant an executable stub in `snd_xlat`
-  *because* it is 256 unused `KERNEL_SEG` `.bss` bytes at a fixed symbol. So
-  the largest single `.bss` item in the kernel is held in place by the test
-  rig as well as by the mixer, and anybody who reclaims it has three rigs to
-  re-home first. That is a reason that could be removed, and writing it down
-  is not the same as endorsing it.
+- **`snd_xlat` (256 B) is GONE** (kernel size pass 8): the PWM clip moved
+  into `apps/os88pcm.inc` (SPEC.md 34.4) and its table with it. The two rigs
+  that parked an executable stub in it were re-homed: `tests/evqfull.py` to
+  `fcp_stack` (36 idle `KERNEL_SEG` `.bss` bytes on kern_big) and
+  `tools/os88linecost.py` to `fsx_caps` (the fullscreen bracket's resident
+  code, which no line measurement reaches - the machine is thrown away after).
 
 **`font_glyphs` needed the ABI amended, and was worth it**: `OSAPI_FONT_GLYPHS`
 answers `DX:SI` now, a recorded one-time amendment to a shipped slot (§20.8

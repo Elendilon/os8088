@@ -6332,7 +6332,7 @@ SOAK = [
         "SPEC.md 2.8.6.1/31.9: do the Control Panel's list names and page"
         "headings letter, now that the item table and every static name are"
         "in CTRL.DRV's image and staged per draw, and the heading is drawn by"
-        "the dispatcher? Text rendered from font_glyphs and searched for in"
+        "the dispatcher? Text rendered from [font_seg]:[font_base] and searched for in"
         "the framebuffer, per page. Red with the staging call removed (every"
         "name) and with the heading block removed (every page). Measured 16s",
         needs=("marty",), serial=True),

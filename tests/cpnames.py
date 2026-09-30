@@ -14,7 +14,7 @@ that otherwise draws. Neither moves a byte of `kernsize`, and every row that
 opens the panel by RECORD ([cp_sel]) passes either way.
 
 So this asserts TEXT, rendered on the host from the kernel's own glyph table
-(font_glyphs) and searched for in the framebuffer - the instrest.py method:
+([font_seg]:[font_base], SPEC.md 6) and searched for in the framebuffer - the instrest.py method:
 
   * every static page SHOWN on this machine has its name in the LEFT pane,
     black on white (or white on the selection bar when it is the page open);
@@ -90,7 +90,9 @@ def main():
         os88marty.no_saver(m)
         os88marty.settle(m, gate=os88marty.desktop_up)
         mo = os88mouse.Mouse(marty=m)
-        tab = m.read(S("font_glyphs"), FONT_N * 8)
+        seg = int.from_bytes(m.read(S("font_seg"), 2), "little")
+        off = int.from_bytes(m.read(S("font_base"), 2), "little")
+        tab = m.read(seg * 16 + off, FONT_N * 8)   # where the renderers read
         dispcp.open_panel(m, mo, S, os88marty.settle, page=None)
         os88marty.settle(m)
         hide = m.read(S("cp_hide"), 1)[0]
