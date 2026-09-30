@@ -10460,8 +10460,11 @@ and it has three arms:
   for an arrow the bar cannot reach; the DOWN arm's re-arm is an `or` of a
   register that is 1 on that arm and 0 on this one.
 
-The two arms share one tail — bank `[cur_shape]` into `[cur_shprev]`, set the
-clock, `cursor_show` — and the refusals below the first arm are each somebody
+The two arms share one tail — set the clock, `cursor_show` — and the bank of
+`[cur_shape]` into `[cur_shprev]` is made at the door, before any refusal: a
+refusal leaves the shape alone and `[cur_shprev]` is read only while the clock
+is the shape, so a bank nothing follows is never seen (kernel size pass 8). The
+refusals below the first arm are each somebody
 else's rule rather than this one's: an **fsx bracket** (§53.6, `fpg_arm`'s own
 first test), a **saver session** (§79.6.1, `wm_clip_set`'s test and
 `kern_big`'s alone — the overlay owns the glass and its hide is the

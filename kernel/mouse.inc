@@ -4695,17 +4695,16 @@ cur_busy_on:
 .go:
     mov ax, [cur_shape]         ; AL = the shape, AH = [cur_level]: the pair
     cmp al, CUR_BUSYSH          ; is adjacent (the %error at the declaration)
-    jne .fresh                  ; already wearing it: a package asked before it
-    inc ah                      ; touched a file, or the chrome armed earlier
-    jnz .yes                    ; in this hold. Above everything else, so the
-                                ; second call is six instructions - UNLESS it
-                                ; is WORN AND DOWN (SPEC.md 7.5.3.2): a painter
-                                ; since the arm spent gfx_lock's promise, and
-                                ; the disk work after it froze the clock on
-                                ; the glass. That one goes back up below
-                                ; exactly as a DOWN arrow does, and .swap
-                                ; does not bank the clock as the thing to go
-                                ; back to
+    je .wornh                   ; already wearing it: .wornh, below
+    mov [cur_shprev], al        ; BANK what the clock replaces (SPEC.md 7.5.2),
+                                ; HERE and before the refusals: a refusal
+                                ; leaves [cur_shape] alone, and [cur_shprev]
+                                ; is read only while the clock IS the shape, so
+                                ; a bank nothing follows is never seen. It is
+                                ; the arrow, or the crosshair of the window
+                                ; the pointer was over - and gfx_unlock puts
+                                ; THAT back, with no pass in between to
+                                ; correct it
 .fresh:
     cmp byte [fsx_task], 0xFF
     jne cur_busy_no             ; an exclusive app owns every pixel of its own
@@ -4761,6 +4760,15 @@ cur_busy_on:
                                 ; consumer takes over unchanged. It is stored
                                 ; BELOW cur_shape_set, whose own cur_unlazy
                                 ; would otherwise spend it on the way past
+.wornh:                         ; ALREADY WEARING IT: a package asked before it
+    inc ah                      ; touched a file, or the chrome armed earlier
+    jnz .yes                    ; in this hold - four instructions - UNLESS it
+    jmp short .fresh            ; is WORN AND DOWN (SPEC.md 7.5.3.2): a painter
+                                ; since the arm spent gfx_lock's promise, and
+                                ; the disk work after it froze the clock on
+                                ; the glass. That one goes back up below
+                                ; exactly as a DOWN arrow does, with nothing
+                                ; banked - what it replaced is banked already
 .lit:
     call cursor_hide            ; --- LIT, and the arm that costs something: the
     xor ah, ah                  ; erase here and the draw below are the only
@@ -4769,13 +4777,8 @@ cur_busy_on:
                                 ; CURBAR_ON is a promise cur_unlazy KEPT, for
                                 ; an arrow the bar cannot reach (SPEC.md 7.4.3)
 .swap:
-    mov al, [cur_shape]         ; bank what the clock replaces (SPEC.md 7.5.2):
-    cmp al, CUR_BUSYSH          ; (...unless it IS the clock, worn and down:
-    je .worn                    ; what it replaced is banked already)
-    mov [cur_shprev], al        ; the arrow, or the crosshair of the window the
-    mov al, CUR_BUSYSH          ; pointer was over - and gfx_unlock puts THAT
-    call cur_shape_set          ; back, with no pass in between to correct it
-.worn:
+    mov al, CUR_BUSYSH          ; (worn and down, this is the shape it has, and
+    call cur_shape_set          ; cur_shape_set's first compare returns)
     or [cur_lazy], ah
     call cursor_show
 .yes:
@@ -5534,7 +5537,10 @@ cur_level   db -1               ; refcount; < 0 = hidden (boot state)
   %error "cur_shape/cur_level must stay adjacent: cur_busy_on reads the pair as ONE word (AL = shape, AH = level)"
 %endif
 cur_shprev  db CUR_ARROWSH      ; ...and what it was before the clock went
-                                ; on (SPEC.md 7.5). ONE BYTE rather than
+                                ; on (SPEC.md 7.5) - MEANINGFUL ONLY WHILE
+                                ; [cur_shape] IS THE CLOCK: cur_busy_on banks
+                                ; it before deciding whether to put the clock
+                                ; up at all. ONE BYTE rather than
                                 ; letting gfx_unlock restore the arrow and
                                 ; posting [cur_shchk] for the UI pass to
                                 ; correct: over a window that named a shape
