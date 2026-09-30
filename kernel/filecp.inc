@@ -1682,10 +1682,9 @@ fcp_chunkset:
 ;
 ; It costs no volume switch: the destination is current here anyway, because
 ; the create is the next thing that happens. It is NOT free on a hard disk,
-; whose FAT is paged through a nine-sector window - which is why it asks
-; dskw_dfree_to with the file's size rather than dskw_dfree for the whole
-; count, and a partition with room stops at the first window (SPEC.md
-; 22.5.2.1). On a floppy the FAT is resident and the count is CPU alone.
+; whose FAT is paged through a nine-sector window - which is why it sets
+; [dsk_fcgoal] to the file's sectors round the count, and a partition with
+; room stops at the first window (SPEC.md 22.5.2.1). On a floppy the FAT is resident and the count is CPU alone.
 ;
 ; **"I DO NOT KNOW" ANSWERS YES.** A volume whose dfree fails - a redirector
 ; that publishes no FSV_DFREE (SPEC.md 62.9.1) is the real case - falls through

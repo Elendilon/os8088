@@ -8,8 +8,9 @@ created (22.5.2). It asked `dskw_dfree` for the whole free count, and on a
 FAT16 hard disk that is the whole FAT through a nine-sector window - four
 window loads and ~350 ms of 8088 on a 31MB partition before a 100KB file could
 start, with the window left at the END of the FAT for the create to read the
-start of back in. It now asks `dskw_dfree_to` with the file's size, and the
-count stops at the first FAT window that settles it.
+start of back in. It now sets `[dsk_fcgoal]` to the file's sectors round the
+count, and the count stops at the first FAT window that settles it. The trace
+opens at `fcp_room` itself.
 
 Three arms, each the user's own Copy/Paste from B: to C: on an os8088_xt_hdd
 booted off a fixture VHD, the result read back off the VHD on the host:
@@ -118,7 +119,7 @@ def arm(kind):
             select(ui, NAME, src)
             ui.menu_pick("Edit", "Copy")
             ui.open_drive("C")
-            bps = ["dskw_dfree_to_x", "dskw_write_x",
+            bps = ["fcp_room", "dskw_write_x",
                    {"type": "int", "addr": 0x13}]
             with M.bp_trace(m, *bps, regs=True, cap=2000) as tr:
                 ui.menu_pick("Edit", "Paste")
@@ -132,7 +133,7 @@ def arm(kind):
         # hard-disk reads between the room check and the create
         inside, seen, created = 0, False, False
         for h in tr.hits:
-            if h["name"] == "dskw_dfree_to_x":
+            if h["name"] == "fcp_room":
                 seen = True
             elif h["name"] == "dskw_write_x":
                 created = True
@@ -144,7 +145,7 @@ def arm(kind):
         say("%s: fcp_err %d, %d hard-disk reads inside the room check"
             % (kind, err, inside))
         if not seen:
-            fails.append("%s: the paste never reached dskw_dfree_to_x" % kind)
+            fails.append("%s: the paste never reached fcp_room" % kind)
 
         got = ID.partition(vhd).read(NAME)
         if kind == "full":

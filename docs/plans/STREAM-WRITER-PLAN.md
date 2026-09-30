@@ -1,8 +1,10 @@
 # STREAM-WRITER-PLAN - writing a big file without paying for it again every chunk
 
-**Status: OPEN. Stages 1, 2 and 3 BUILT on branch `stream-writer`
-(SPEC.md 18.4.7.6 and 18.4.9); the consumers, the per-volume dirty range
-and a size pass are what is left (§8).** This is docs/plans/DISK-CPU-PLAN.md §6 taken on. That
+**Status: OPEN. Stages 2 and 3 BUILT (SPEC.md 18.4.9), the consumers and
+the FAT at a hop built (§8, §11), and a SECOND size pass (§12) took the
+whole branch from +1,077 to +487 resident bytes on `kern_big` - withdrawing
+stage 1 (SPEC.md 18.4.7.6) on the way, costed to put back at +16. What is
+left is the ST-225 (§8 item 4).** This is docs/plans/DISK-CPU-PLAN.md §6 taken on. That
 section named the write side and sketched a fix's SHAPE; this is the design,
 staged, with what each stage costs and what it must not break.
 
@@ -200,7 +202,8 @@ Three things the design found that this plan did not have:
   every mount, including a batch's banked hop between volumes, and the join
   hops every block. So WRITE_SEQ keys on `[dsk_wgen]`, which moves on a
   write or a mount that re-reads a boot sector, and on nothing a batch
-  vouches for.
+  vouches for. (§12 then made that READ_SEQ's rule too, and there is one
+  generation again, `[dsk_mgen]`.)
 - **A held chain is never linked until the commit.** Linking as it grew
   would put a link on the disk at the first window move, ahead of the chain
   it points into. Unlinked, any flush of it is harmless, and a power cut
@@ -225,6 +228,8 @@ What is left, in order:
    body, and folding it in took 259 bytes out. The stream writer is
    **+777** on `kern_big`: stage 1's 81 and the slot's 696, of which 14
    are the fix for the defect the folding found (end of section 10).
+   With the bank, the copy's room check and the consumers the branch was
+   **+1,077**, over the 500 its owner set, and §12 is the second pass.
 4. **The ST-225.** 700 s for 12.8 MB is the number that started this;
    VIDDISK's new `p` and `h` keys are how to re-take it.
 
@@ -390,3 +395,37 @@ before.
 Gated by `czseq` (the table, and at most one FAT write per two blocks),
 `czseqlose` (the poison; without it the join says `Uncompressed` over a file
 with a hole in it) and `czseqnone` (the fence).
+
+## 12. The second size pass: +1,077 -> +487 (2026-09-30)
+
+The branch arrived at +1,077 resident bytes on `kern_big` against a budget
+of 500. docs/reports/STREAM-WRITER-SIZE-2026-09-30.md is the step-by-step
+measurement; what it found, in the order it mattered:
+
+- **The caller's cursor was the expensive part, not the append.** A 16-byte
+  cursor copied in and out of a kernel copy, and a held stream keeping a
+  SECOND copy of the same fields for its commit, is two records and two
+  doors' worth of moves. The kernel keeping ONE record and the caller one
+  WORD (the generation that call left) is the same information: a token that
+  equals `[dsk_mgen]` can only name the stream the record describes, because
+  every write, every boot-sector read and every new hold moves it. Two
+  streams at once stay correct and merely go cold on each other. -346 in the
+  first step, with the commit made an ENTRY into the append body's own seal.
+- **§10's rule applied one level down.** "A new capability is an input to an
+  existing body" had been applied to the append and not to its COMMIT, which
+  still carried its own flush-link-flush-store; entering `.seal` removed it.
+- **Hazards met where they converge.** The bank's shed and pin-eviction
+  hooks each guarded a window going away; both leave the volume's banked
+  sector `0xFFFF`, so both are met at the LOAD that the way back must make,
+  where the re-read hazard was already met. One hook instead of three, at
+  the price that a shed now LOSES a held stream rather than being refused.
+- **One generation.** READ_SEQ's `[dsk_mgen]` moved on every mount; moving it
+  only on writes and boot-sector reads is `[dsk_wgen]`'s rule, and it keeps
+  a READ_SEQ cursor hot across quiet hops too.
+- **Stage 1 was the smallest measured win and went.** 575 -> 570 guest
+  seconds on the XT-IDE and nothing for a held stream; its cheap form is
+  written down in SPEC.md 18.4.7.6 at +16.
+
+What changed in behaviour is listed in the report, and the ABI change is
+SPEC.md 18.4.9's: `ES:BX` bytes, `AL` flags, `DI` the token.
+

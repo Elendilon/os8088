@@ -347,11 +347,11 @@ dsk_boothds: dw 0
 dsk_mbit:    db 1, 2, 4, 8
 %ifdef OS88_BIGVOL              ; kern_big and kern_dos: the builds with a
 dsk_fcgoal:  dw 0xFFFF           ; hard disk behind them. dsk_free_clus_x may
-                                 ; STOP once it has counted this many (SPEC.md
+                                 ; STOP once it has counted MORE (SPEC.md
                                  ; 22.5.2.1) - 0FFFFh, the value it always
                                  ; rests at, is "count them all". Only
-                                 ; dskw_dfree_to_x lowers it, and puts it back
-%endif                           ; before it returns
+                                 ; fcp_room lowers it, round one dskw_dfree,
+%endif                           ; and puts it back
 
 disk_drive:  db 1                ; current VOLUME (0 = A:, 1 = B:), init B:
 disk_spt:    dw 9                ; sectors per track  } fallback geometry,

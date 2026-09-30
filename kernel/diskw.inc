@@ -156,7 +156,7 @@ DSKW_EOC12   equ 0x0FFF        ; end-of-chain marks: >= the spec's EOC floor
 DSKW_EOC16   equ 0xFFFF        ; (0FF8h / 0FFF8h), so a host fsck walks the
                                ; chains exactly the way this kernel does
 
-%ifdef KERN_BIG                  ; WRITE_SEQ's cursor rides the append body
+%ifdef KERN_BIG                  ; WRITE_SEQ's record rides the append body
 %ifndef KD_BUILD                 ; (SPEC.md 18.4.9) on kern_big, and not in
 %define DSKW_WSEQ                ; kern_dos, which never publishes the slot
 %endif
@@ -3435,7 +3435,7 @@ dskw_wabody:
 %ifdef DSKW_WSEQ
     mov ax, [dwr_end]           ; THE NEW SIZE, into the entry now: nothing
     mov [dskw_raw+DSK_R_SIZE], ax   ; below reads the old one, .size stores
-    mov ax, [dwr_end+2]         ; it only when it moved, and dws_stamp keeps
+    mov ax, [dwr_end+2]         ; it only when it moved, and .stamp keeps
     mov [dskw_raw+DSK_R_SIZE+2], ax ; the entry a HELD call's commit will
                                 ; store - so the copy is made once, here
     test byte [dws_flg], WSQF_HOT   ; a hot record KNOWS the last cluster: no
@@ -4056,7 +4056,13 @@ dskw_ent_store:
     push es
     push ss
     pop es
+%ifdef DSKW_WSEQ
+    push bx                     ; (DSK_RD1D names its LBA in BX)
+%endif
     DSK_RD1D dskw_dsec          ; all 32 bits of it (SPEC.md 18.7.5)
+%ifdef DSKW_WSEQ
+    pop bx                      ; `pop` leaves CF alone
+%endif
     jc .ioerr
 %ifdef DSKW_WSEQ
     xor cx, cx
