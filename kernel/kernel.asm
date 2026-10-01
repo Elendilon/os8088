@@ -5789,6 +5789,16 @@ kmain_o:
                                 ; because settling the contest a second time
                                 ; is what winning it looks like from here
 %endif
+%ifndef KERN_SMALL
+    mov byte [desk_ready], 1    ; from here on the desktop places things...
+%endif
+    call COLD_SEG:desk_rowcalc_x    ; every volume the boot added and every
+                                ; shortcut and placed drive SYSTEM.CFG put
+                                ; back, into their cells in one pass - and
+                                ; rowcalc, not the bare reflow, because the
+                                ; file is HOSTILE: a cell this screen does not
+                                ; have is dropped before the reflow places it
+                                ; anew (SPEC.md 26.9)
                                 ; (SPEC.md 51.3). Before the first paint, so
                                 ; a machine whose sound driver loads has
                                 ; sound from the first frame; nothing here

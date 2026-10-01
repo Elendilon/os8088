@@ -57,9 +57,11 @@ import os88marty   # noqa: E402
 
 ROOT = os.path.join(HERE, "..")
 SC_REC = 128
-SC_MAX = 16
-DESK_SC0 = 16
-SC_PX, SC_X0, SC_W, SC_H = 104, 4, 96, 30
+SC_MAX = 15
+DESK_SC0 = 9                            # 8 volumes and the service item
+DESK_CW, DESK_PX, DESK_ZW = 96, 104, 32  # SPEC.md 26.9's cell on kern_big
+SC_PICX = (DESK_CW - DESK_ZW) // 2 + DESK_ZW - 16
+DSL_SLOT, DSL_PIN, DSL_GONE = 0x3F, 0x40, 0x80
 DESK_ZY0 = 32
 FCP_NONE = 0
 
@@ -85,8 +87,9 @@ def trailer(data):
     """(count, rows) of SYSTEM.CFG's shortcut trailer, or (0, []) for none."""
     if len(data) < 4 or data[-4:-2] != b"SC":
         return 0, []
-    n = data[-1]
-    rows = data[-4 - n * SC_REC:-4]
+    n = data[-1]                        # version 2: the rows, then the
+    end = -4 - DESK_SC0                 # placed drives' DESK_SC0 cells
+    rows = data[end - n * SC_REC:end]
     return n, [rows[i * SC_REC:(i + 1) * SC_REC] for i in range(n)]
 
 
@@ -127,13 +130,13 @@ BADGE = (0xFFC0, 0x8040, 0x8740, 0x8340, 0x8540,
          0xB840, 0xA040, 0xA040, 0x8040, 0xFFC0)
 
 
-def badge_on_glass(m, cx, cy, inverted):
+def badge_on_glass(m, cx, cy, lky, inverted):
     """The badge's 10x10 pixels, against BADGE. A 1bpp card is read out of
     guest MEMORY (`vram`, a lit bit is white): MartyPC's rendered Hercules
     frame starts some pixels into the screen, so `fbuf` coordinates are not
     the kernel's there. VGA has no flat framebuffer, so it is the card's own
     rasterised frame - which is 1:1 on that card."""
-    bx, by = cx + (SC_W - 16) // 2 - 11, cy + 16 - 10
+    bx, by = cx + SC_PICX - 11, cy + lky + 16 - 10
     if m.cmd(cmd="video")["type"] == "vga":
         w, _h, data = m.fbuf()
         black = lambda x, y: sum(data[(y * w + x) * 3:(y * w + x) * 3 + 3]) \
@@ -149,8 +152,24 @@ def badge_on_glass(m, cx, cy, inverted):
     return bad
 
 
-def cell_xy(col, row, zstep, x0):
-    return (x0 + SC_X0 + col * SC_PX, DESK_ZY0 + row * zstep)
+def cell_xy(ui, cell):
+    """A cell's origin (SPEC.md 26.9): cell 0 is the top of the rightmost
+    column, and cells run down a column and then to the next one LEFT."""
+    rows = ui._word("desk_rows")
+    col, row = divmod(cell, rows)
+    return (ui._word("vid_desk_zx") - col * DESK_PX,
+            DESK_ZY0 + row * ui._word("desk_zstep"))
+
+
+def cell_mid(ui, cell):
+    x, y = cell_xy(ui, cell)
+    return x + DESK_CW // 2, y + ui._word("desk_zh1") // 2
+
+
+def zslot(ui, zone):
+    """Zone `zone`'s byte of the one table: its cell, or None if not shown."""
+    v = ui.m.read(ui._S("desk_zslot") + zone, 1)[0]
+    return None if v >= DSL_GONE else v & DSL_SLOT
 
 
 def saved(ui):
@@ -196,8 +215,10 @@ def main():
 
     with os88ui.boot(sysimg, apps=appimg, machine=machine) as ui:
         m = ui.m
-        zstep = ui._word("desk_zstep")
-        x0 = ui._word("vid_band_x0")
+        ncell = ui._byte("desk_ncell")
+        lky = ui._word("desk_lky")
+        far = ncell - 1                 # the bottom of the LEFTMOST column,
+                                        # which the default windows leave bare
 
         # --- A: create ----------------------------------------------------
         print("A: drag B:\\APPS\\CALC.O88 onto the desktop")
@@ -207,9 +228,7 @@ def main():
         idx, _ty = ui.entry("CALC.O88", win)
         row = ui.scroll_to(idx, win=win)
         px, py = ui.row_xy(win, row)
-        # the bottom-left cell's centre, which the default windows leave bare
-        tx, ty = cell_xy(0, ui._word("desk_rows") - 1, zstep, x0)
-        tx, ty = bare_point(ui, (tx + SC_W // 2, ty + SC_H // 2))
+        tx, ty = bare_point(ui, cell_mid(ui, far))
         fresh(ui)
         ui.mo.drag(px, py, tx, ty)
         saved(ui)
@@ -225,14 +244,15 @@ def main():
         check(r0[3] == 1, "kind 1, a package (%d)" % r0[3])
         check(cstr(r0[51:64]) == "CALCULATOR",
               "the header-name caption (%r)" % cstr(r0[51:64]))
-        col, rw = r0[1], r0[2]
-        check((col, rw) == (0, ui._word("desk_rows") - 1),
-              "the cell nearest the drop (%d,%d)" % (col, rw))
-        cx, cy = cell_xy(col, rw, zstep, x0)
-        ui.mo.to(cx + SC_PX + SC_W, cy)    # the arrow is drawn INTO the
+        cell = zslot(ui, DESK_SC0)
+        check(cell == far, "the cell nearest the drop (%r, want %d), PLACED "
+              "(%#x)" % (cell, far, m.read(ui._S("desk_zslot") + DESK_SC0,
+                                            1)[0]))
+        cx, cy = cell_xy(ui, cell)
+        ui.mo.to(cx + DESK_PX + DESK_CW, cy)    # the arrow is drawn INTO the
         ui.settle()                        # framebuffer: off the badge first
         sel = ui._byte("desk_sel") == DESK_SC0
-        bad = badge_on_glass(m, cx, cy, sel)
+        bad = badge_on_glass(m, cx, cy, lky, sel)
         check(bad == 0, "the badge is on the glass beside the picture "
               "(%d of 100 pixels wrong, %s)"
               % (bad, "selected" if sel else "not selected"))
@@ -255,9 +275,7 @@ def main():
 
         # --- C: open ------------------------------------------------------
         print("C: double-click the shortcut")
-        cx, cy = cell_xy(col, rw, zstep, x0)
-        cx += SC_W // 2
-        cy += 8
+        cx, cy = cell_mid(ui, cell)
         before_t = set(ui.titles())
         ui.mo.dblclick(cx, cy)
         ui._wait(lambda: any(t.upper().startswith("CALC")
@@ -275,16 +293,13 @@ def main():
 
         # --- D: move ------------------------------------------------------
         print("D: drag the shortcut one cell up")
-        nx, ny = cell_xy(col, rw - 1, zstep, x0)
-        nx, ny = bare_point(ui, (nx + SC_W // 2, ny + SC_H // 2))
+        nx, ny = bare_point(ui, cell_mid(ui, cell - 1))
         fresh(ui)
         ui.mo.drag(cx, cy, nx, ny)
         saved(ui)
-        _seg, _n, rows = table(ui)
-        check((rows[0][1], rows[0][2]) == (col, rw - 1),
-              "it moved to (%d,%d) (%d,%d)" % (col, rw - 1,
-                                               rows[0][1], rows[0][2]))
-        rw -= 1
+        check(zslot(ui, DESK_SC0) == cell - 1,
+              "it moved to cell %d (%r)" % (cell - 1, zslot(ui, DESK_SC0)))
+        cell -= 1
 
         # --- E: reboot ----------------------------------------------------
         print("E: reboot, and it comes back")
@@ -295,18 +310,17 @@ def main():
         live = [r for r in rows if r[0] != 0xFF]
         check(len(live) == 1, "one shortcut after the reboot (%d)" % len(live))
         if live:
-            check((live[0][1], live[0][2]) == (col, rw)
+            check(zslot(ui, DESK_SC0) == cell
                   and cstr(live[0][51:64]) == "CALCULATOR",
-                  "same cell and caption (%d,%d %r)"
-                  % (live[0][1], live[0][2], cstr(live[0][51:64])))
+                  "same cell and caption (%r %r)"
+                  % (zslot(ui, DESK_SC0), cstr(live[0][51:64])))
         if shots:
             ui.settle()
             shot(m, os.path.join(shots, "e_rebooted.png"))
 
         # --- F: remove ----------------------------------------------------
         print("F: select it and press Delete")
-        cx, cy = cell_xy(col, rw, zstep, x0)
-        ui.mo.click(cx + SC_W // 2, cy + 8)
+        ui.mo.click(*cell_mid(ui, cell))
         ui._wait(lambda: ui._byte("desk_sel") == DESK_SC0,
                  "the shortcut selected", 10,
                  snapshot=lambda: "desk_sel %#x" % ui._byte("desk_sel"))
@@ -325,9 +339,9 @@ def main():
         idx, _ty = ui.entry("MEDIA", root)
         row = ui.scroll_to(idx, win=root)
         px, py = ui.row_xy(root, row)
-        gx, gy = cell_xy(0, ui._word("desk_rows") - 1, zstep, x0)
+        gx, gy = cell_mid(ui, far)
         fresh(ui)
-        ui.mo.drag(px, py, *bare_point(ui, (gx + SC_W // 2, gy + SC_H // 2)))
+        ui.mo.drag(px, py, *bare_point(ui, (gx, gy)))
         saved(ui)
         _s, _n, rows = table(ui)
         live = [r for r in rows if r[0] != 0xFF]
@@ -336,7 +350,7 @@ def main():
               "a folder shortcut \\MEDIA, kind 2, captioned MEDIA (%r)"
               % [(cstr(r[5:51]), r[3], cstr(r[51:64])) for r in live])
         zone = DESK_SC0 + rows.index(live[0]) if live else 0
-        ui.mo.click(gx + SC_W // 2, gy + 8)
+        ui.mo.click(gx, gy)
         ui._wait(lambda: ui._byte("desk_sel") == zone,
                  "the folder shortcut selected", 10,
                  snapshot=lambda: "desk_sel %#x" % ui._byte("desk_sel"))
@@ -360,9 +374,9 @@ def main():
         idx, _ty = ui.entry("GUIDE.TEX", mw)
         row = ui.scroll_to(idx, win=mw)
         px, py = ui.row_xy(mw, row)
-        hx, hy = cell_xy(0, ui._word("desk_rows") - 2, zstep, x0)
+        hx, hy = cell_mid(ui, far - 1)
         fresh(ui)
-        ui.mo.drag(px, py, *bare_point(ui, (hx + SC_W // 2, hy + SC_H // 2)))
+        ui.mo.drag(px, py, *bare_point(ui, (hx, hy)))
         saved(ui)
         _s, _n, rows = table(ui)
         doc = [r for r in rows if r[0] != 0xFF and r[3] == 0]
@@ -371,7 +385,7 @@ def main():
               "a document shortcut, the full 8.3 caption (%r)"
               % [(cstr(r[5:51]), cstr(r[51:64])) for r in doc])
         before_t = ui.titles()
-        ui.mo.dblclick(hx + SC_W // 2, hy + 8)
+        ui.mo.dblclick(hx, hy)
         ui._wait(lambda: len(ui.titles()) > len(before_t),
                  "the document's program to open", 90,
                  snapshot=lambda: (ui.titles(), ui.toast()))
@@ -390,7 +404,7 @@ def main():
         fpath = (ui._word("sc_seg") << 4) + fidx * SC_REC + 5
         m.write(fpath, b"\\NOPE\0")         # memory only: no save follows
         fresh(ui)
-        ui.mo.dblclick(gx + SC_W // 2, gy + 8)
+        ui.mo.dblclick(gx, gy)
         said = ui.wait_toast(says="not found", limit=60)
         check(said == "Shortcut not found (B:)",
               "a missing target names its drive (%r)" % said)
@@ -413,7 +427,7 @@ def main():
 
         fresh(ui)
         m.write(ui._S("menu_x1"), b"\xff\xff")
-        ui.mo.rmenu(hx + SC_W // 2, hy + 8, 0, 0, aim=aim)
+        ui.mo.rmenu(hx, hy, 0, 0, aim=aim)
         saved(ui)
         _s, _n, rows = table(ui)
         live = [r for r in rows if r[0] != 0xFF]
@@ -422,7 +436,7 @@ def main():
 
         # --- K: Locator's File > Remove Shortcut --------------------------
         print("K: select the folder's shortcut, File > Remove Shortcut")
-        ui.mo.click(gx + SC_W // 2, gy + 8)
+        ui.mo.click(gx, gy)
         ui._wait(lambda: ui._byte("desk_sel") >= DESK_SC0
                  and ui._byte("desk_sel") != 0xFF,
                  "the folder shortcut selected", 10)
@@ -437,6 +451,40 @@ def main():
         saved(ui)
         seg, n, _rows = table(ui)
         check(seg == 0 and n == 0, "the menu took the last one, and the claim")
+
+        # --- L: a DRIVE is an item like any other ------------------------
+        if shots:
+            ui.settle()
+            shot(m, os.path.join(shots, "k_after.png"))
+        print("L: drag A:'s icon three cells down; B: packs into cell 0")
+        a0, b0 = zslot(ui, 0), zslot(ui, 1)
+        check((a0, b0) == (0, 1), "A: and B: flow into cells 0 and 1 (%r, %r)"
+              % (a0, b0))
+        tx, ty = bare_point(ui, cell_mid(ui, 3))
+        fresh(ui)
+        ui.mo.drag(*cell_mid(ui, 0), tx, ty)
+        saved(ui)
+        av = m.read(ui._S("desk_zslot"), 1)[0]
+        check(av == DSL_PIN | 3, "A: is PLACED in cell 3 (%#x)" % av)
+        check(zslot(ui, 1) == 0, "B: packed up into cell 0 (%r)"
+              % zslot(ui, 1))
+        cnt, _ = trailer(live_cfg(m, tmp))
+        data = live_cfg(m, tmp)
+        check(data[-4:-2] == b"SC" and data[-4 - DESK_SC0] == DSL_PIN | 3,
+              "SYSTEM.CFG keeps A:'s cell with no shortcut at all (%r)"
+              % data[-4 - DESK_SC0:])
+        if shots:
+            ui.settle()
+            shot(m, os.path.join(shots, "l_drive_moved.png"))
+        print("L: ...and after a reboot")
+        m.reset()
+        m.run()
+        ui.ready()
+        check((zslot(ui, 0), zslot(ui, 1)) == (3, 0),
+              "A: back in cell 3 and B: in cell 0 (%r, %r)"
+              % (zslot(ui, 0), zslot(ui, 1)))
+        w = ui.open_drive("A")
+        check(w is not None, "A: still opens from its new cell")
 
     shutil.rmtree(tmp, ignore_errors=True)
     print("desksc: %s" % ("PASS" if not fails else

@@ -2514,7 +2514,7 @@ dsk_vol_add:
                                 ; way for the row and the dispatch to
                                 ; disagree. Published LAST either way: the
                                 ; row is live from this store on
-    call desk_zmark_x             ; the desktop owes a zone - and a driver adds
+    call desk_reflow              ; the desktop owes a zone - and a driver adds
                                 ; a volume from a page click, with the gfx
                                 ; lock HELD, so the repaint is deferred to
                                 ; ui_task's idle pass exactly as the Control
@@ -2563,15 +2563,11 @@ dsk_vol_del:
     cmp ah, DVK_FILE            ; are that driver's to take away. A BIOS
     jne .out                    ; floppy is not, and neither is a free row
 .mine:
-    call desk_zmark_x             ; ...and owes the zone's removal likewise -
-                                ; BEFORE the flag goes, so the mark counts the
-                                ; zone that is about to vanish. Its pixels are
-                                ; at the ordinal nothing will occupy after
-                                ; this, and they are exactly what the repaint
-                                ; has to reach (SPEC.md 26.3)
     mov byte [bx+DV_KIND], DVK_FREE
     mov byte [bx+DV_FLAGS], 0
     mov byte [bx+DV_LBL], 0
+    call desk_reflow              ; ...and its cell goes back: the zones after
+                                  ; it pack up into it (SPEC.md 26.9)
     call dsk_fatw_drop          ; AL is still the index; it also puts the
                                 ; live window back if this volume owned it
     cmp al, [disk_drive]

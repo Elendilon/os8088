@@ -24,22 +24,23 @@
 ; and shrunk a KB at a time (eight records a KB), freed when the last one goes.
 ; A machine with no shortcuts pays this file's code and four bytes of .bss.
 ;
-; A shortcut is zone index DESK_SC0 + its row, so desk.inc's selection,
-; double-click and redraw machinery serve it through one-compare arms - the
-; Wire zone's arrangement (SPEC.md 26.7) with a table instead of a record.
+; A shortcut is zone index DESK_SC0 + its row, one more ITEM in desk.inc's
+; grid (SPEC.md 26.9): its cell is its byte of [desk_zslot], PLACED, and the
+; grid's routines draw, hit, highlight and repaint it with the drives. What is
+; here is only what is a shortcut's own: the record, the open by name, and the
+; gestures and the SYSTEM.CFG trailer CTRL.DRV carries.
 ; =============================================================================
 
 %ifdef OS88_SHORTCUTS
 
 ; --- the record (SPEC.md 26.8.1) - the claim's row AND the file's, verbatim --
 SC_R_VOL    equ 0               ;  1: the volume index (0 = A:), 0xFF = free row
-SC_R_COL    equ 1               ;  1: the grid cell's column...
-SC_R_ROW    equ 2               ;  1: ...and its row; together, a WORD
+SC_R_SLOT   equ 1               ;  1: its byte of [desk_zslot], for the FILE
+                                ;     only: CTRL.DRV writes it from the table
+                                ;     and the boot reader puts it back. 2 and 4
+                                ;     are spare
 SC_R_KIND   equ 3               ;  1: 0 document, 1 package, 2 folder - the
                                 ;     SPEC.md 19.1 type word's low byte
-SC_R_CAPX   equ 4               ;  1: the caption's pen, px into the cell. It
-                                ;     is CENTRED, so its width is SC_W - 2x
-                                ;     this, and nothing measures it at paint
 SC_R_PATH   equ 5               ; 46: the ENTRY's whole path, `\APPS\CALC.O88`,
 SC_PATHMAX  equ 46              ;     NUL: a 32-byte folder path (dsk_path's
                                 ;     own bound), a `\` and an 8.3 name
@@ -48,30 +49,17 @@ SC_CAPMAX   equ 13
 SC_R_BODY   equ 64              ; 64: the 16x16 picture (SPEC.md 25 body form),
                                 ;     as the Disk window had it
 SC_REC      equ 128
-SC_MAX      equ 16              ; ...rows, and [sc_nrows] never exceeds it
-SC_PERKB    equ 8               ; rows a KB: 8 * 128, exactly
-SC_VER      equ 1               ; the trailer's own version (SPEC.md 26.8.6)
+SC_PERKB    equ 8               ; rows a KB: 8 * 128, exactly. SC_MAX, the
+                                ; rows [sc_nrows] never exceeds, is desk.inc's
+SC_VER      equ 2               ; the trailer's own version (SPEC.md 26.8.6):
+                                ; 2 carries the placed drives' cells
 %if SC_PERKB * SC_REC > 1024
   %error "desksc: SC_PERKB records must fit one KB of the claim"
 %endif
 
-; --- the grid (SPEC.md 26.8.2) -----------------------------------------------
-SC_PX       equ 104             ; cell pitch, rightwards from the band's edge
-SC_W        equ 96              ; the caption's room: twelve 8px glyphs - the
-                                ; longest 8.3 name, and every header name the
-                                ; tree ships but one (26.8.4)
-SC_H        equ 16 + DESK_ZGAP + DESK_LBLH  ; the picture, the gap, the label
-SC_X0       equ 4               ; the first column's left, off the band's edge
-SC_ICX      equ (SC_W - 16) / 2 ; the picture, centred over the caption
-DESK_SC0    equ 16              ; zone index of row 0: desk_sel's byte holds
-                                ; 16..31, which no volume index can be
-DESK_SCBIT  equ 0x8000          ; the zone mask's bit for "and [sc_dmgm]"
 SC_OP_NEW   equ 0               ; CTRL.DRV's one entry, CPE_SC, takes these
 SC_OP_MOVE  equ 1               ; in AH (SPEC.md 26.8.7)
 SC_OP_DEL   equ 2
-%if DESK_NZ >= 15
-  %error "desksc: bit 15 of the zone mask is the shortcuts' and DESK_NZ has reached it"
-%endif
 
 ; =============================================================================
 section .cold
@@ -81,8 +69,7 @@ section .cold
 ; sc_row - a zone's record, and whether it is a shortcut that exists
 ; in:  AL = a shortcut zone (DESK_SC0..)
 ; out: CF = 0 it is, ES:BX = its record; CF = 1 no claim, past the claim or a
-;      free row (ES:BX are its record's address whenever the row is inside the
-;      claim, which is what sc_xy relies on)
+;      free row
 ; clobbers: ES, BX, flags
 ; -----------------------------------------------------------------------------
 sc_row:
@@ -98,171 +85,6 @@ sc_row:
     cmp byte [es:bx+SC_R_VOL], 0xFF
     cmc                         ; CF = 1 iff the free mark
 .out:
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; sc_xy - a shortcut's cell origin (SPEC.md 26.8.2)
-; in:  AL = a live shortcut zone
-; out: AX = the cell's left, DX = its top
-; clobbers: AX, DX (the outputs), flags
-;
-; Columns run rightwards from the BAND's left edge - a left dock pushes them
-; over (SPEC.md 30.5) - and rows down on the drive zones' own pitch, so the
-; two grids line up row for row. A machine moved to a smaller screen keeps
-; the cell numbers and draws them where they now fall; the next move snaps.
-; -----------------------------------------------------------------------------
-sc_xy:
-    push bx
-    push cx
-    push es
-    call sc_row
-    mov al, [es:bx+SC_R_ROW]
-    cbw                         ; rows are under 16: AH = 0
-    mul word [desk_zstep]       ; 15 * 60: DX = 0
-    add ax, DESK_ZY0
-    xchg ax, cx                 ; CX = the top
-    mov al, [es:bx+SC_R_COL]
-    mov ah, SC_PX
-    mul ah
-    add ax, SC_X0
-    add ax, [vid_band_x0]
-    mov dx, cx
-    pop es
-    pop cx
-    pop bx
-    ret
-
-; -----------------------------------------------------------------------------
-; sc_rect - a shortcut's DRAWN rect, desk_zone_rect's contract
-; in:  AL = a live shortcut zone
-; out: AX = x1, BX = y1, CX = x2, DX = y2, inclusive - the cell plus the
-;      label's overhang, which is what the refill, the damage and a hit cover
-; clobbers: the four outputs
-; -----------------------------------------------------------------------------
-sc_rect:
-    call sc_xy
-    mov bx, dx
-    mov cx, ax
-    add cx, SC_W + DESK_ZOVER - 1
-    sub ax, DESK_ZOVER
-    add dx, SC_H - 1
-    ret
-
-; -----------------------------------------------------------------------------
-; sc_caprect - the white rect that HUGS a shortcut's caption (SPEC.md 26.4's
-;              rule), its overhang included; the pen is at x1 + DESK_ZOVER,
-;              y1 + 2. The draw and the highlight both come here, so the two
-;              cannot disagree about it.
-; in:  AL = a live shortcut zone
-; out: AX = x1, BX = y1, CX = x2, DX = y2
-; clobbers: the four outputs, flags
-; -----------------------------------------------------------------------------
-sc_caprect:
-    push es
-    call sc_row
-    mov cl, [es:bx+SC_R_CAPX]
-    pop es
-    xor ch, ch
-    call sc_xy                  ; AX = the cell's left, DX = its top
-    add ax, cx                  ; AX = the pen
-    neg cx
-    shl cx, 1
-    add cx, ax
-    add cx, SC_W + DESK_ZOVER - 1   ; x2: pen + (SC_W - 2 * capx) - 1 + overhang
-    sub ax, DESK_ZOVER
-    add dx, 16 + DESK_ZGAP
-    mov bx, dx
-    add dx, DESK_LBLH - 1
-    ret
-
-; -----------------------------------------------------------------------------
-; sc_hit - the shortcut under a desktop press, if any
-; in:  DI = x, SI = y
-; out: CF = 0 and CL = its zone; CF = 1 none
-; clobbers: AX, BX, CX, DX, flags
-; -----------------------------------------------------------------------------
-sc_hit:
-    push es
-    mov cl, DESK_SC0
-.z:
-    push cx
-    mov al, cl
-    call sc_row
-    jc .n
-    call sc_rect
-    cmp di, ax
-    jb .n
-    cmp di, cx
-    ja .n
-    cmp si, bx
-    jb .n
-    cmp si, dx
-    ja .n
-    pop cx
-    clc
-    jmp short .out
-.n:
-    pop cx
-    inc cl
-    cmp cl, DESK_SC0 + SC_MAX
-    jb .z
-    stc
-.out:
-    pop es
-    ret
-
-; -----------------------------------------------------------------------------
-; sc_dmg - desk_dmg_zones' second half: which shortcuts the damage touches
-; in:  [wm_dmg_*]; DI = the volume mask under construction; lock held
-; out: [sc_dmgm] = bit n set = row n is in the damage, and the damage rect
-;      grown to cover each; DI gains DESK_SCBIT when any is
-; clobbers: AX, BX, CX, DX, SI, flags (desk_dmg_zones banked them all)
-; -----------------------------------------------------------------------------
-sc_dmg:
-    push es
-    mov si, DESK_SC0 + SC_MAX   ; the LAST row first: each answer is rotated
-.z:                             ; in at the bottom, so sixteen rotations
-    dec si                      ; leave row n at bit n and nothing stale
-    mov ax, si
-    call sc_row
-    jc .n                       ; CF = 1 there - turned into a 0 below
-    call sc_rect
-    call KERNEL_SEG:cw_wm_dmg_hit
-    jnc .r                      ; CF = 0: not in the damage
-    call KERNEL_SEG:cw_wm_dmg_add
-    or di, DESK_SCBIT
-    stc
-    jmp short .r
-.n:
-    clc
-.r:
-    rcl word [sc_dmgm], 1
-    cmp si, DESK_SC0
-    ja .z
-    pop es
-    ret
-
-; -----------------------------------------------------------------------------
-; sc_paint_mask - draw the shortcuts [sc_dmgm] names; lock held
-; out: nothing (all registers preserved)
-; -----------------------------------------------------------------------------
-sc_paint_mask:                  ; BX and DX are desk_pm_body's to restore
-    push ax
-    push es
-    mov dx, [sc_dmgm]
-    mov al, DESK_SC0
-.n:
-    shr dx, 1
-    jnc .s
-    call sc_row
-    jc .s
-    call sc_draw
-.s:
-    inc al
-    or dx, dx
-    jnz .n
-    pop es
     pop ax
     ret
 
@@ -292,98 +114,6 @@ sc_stage:
     mov si, dsk_ico
     pop di
     ret
-
-; -----------------------------------------------------------------------------
-; sc_draw - repaint one shortcut whole: the desktop under its cell, its
-;           picture, its caption, and the highlight when it is selected.
-;           desk_draw_zone's contract.
-; in:  AL = a live shortcut zone; the gfx lock held
-; out: nothing (all registers preserved; [gfx_color] restored)
-;
-; THE BADGE IS ITS OWN RECORD, drawn BESIDE the picture (SPEC.md 26.8.3): a
-; body that arrived all zero leaves the badge alone, which is the fallback
-; the ask named.
-; -----------------------------------------------------------------------------
-sc_draw:
-    call kentc_di
-    push es
-    mov ah, [gfx_color]         ; the pen on the stack: thm_desk writes it
-    push ax                     ; (desk_draw_zone's note) - AL is the zone
-    call sc_rect
-    call KERNEL_SEG:cw_thm_desk ; the desktop under the cell
-    pop ax
-    push ax
-    mov si, SC_R_BODY
-    mov cx, 64
-    call sc_stage               ; SI = the picture
-    pop ax
-    push ax
-    call sc_xy
-    xchg ax, cx
-    add cx, SC_ICX
-    call KERNEL_SEG:cw_icon_draw16
-    pop ax
-    push ax
-    call sc_xy                  ; THE BADGE, beside the picture rather than
-    xchg ax, cx                 ; over it: its own small record, its bottom
-    add cx, SC_ICX - 11         ; on the picture's and one column clear of
-    add dx, 16 - 10             ; its left edge (SPEC.md 26.8.3)
-    mov si, sc_bdg
-    call KERNEL_SEG:cw_icon_draw
-    pop ax
-    push ax
-    mov si, SC_R_CAP
-    mov cx, SC_CAPMAX
-    call sc_stage               ; SI = the caption...
-    mov byte [dsk_ico+SC_CAPMAX-1], 0   ; ...terminated: the file is untrusted
-    pop ax
-    push ax
-    call sc_caprect
-    mov byte [gfx_color], CWHITE
-    call ct_cw_gfx_fill
-    mov cx, ax
-    add cx, DESK_ZOVER
-    mov dx, bx
-    add dx, 2
-    mov ax, (CWHITE << 8) | CBLACK
-    call ct_cw_font_run         ; OPAQUE, SPEC.md 26.6's rule
-    pop ax
-    push ax
-    cmp al, [desk_sel]
-    jne .done
-    call sc_hilite
-.done:
-    pop ax
-    mov [gfx_color], ah
-    pop es
-    jmp kretc_di
-
-; -----------------------------------------------------------------------------
-; sc_hilite - XOR a shortcut's picture and its caption: the selection, and
-;             desk_zone_hilite's contract (self-inverse; lock held)
-; in:  AL = a live shortcut zone
-; clobbers: AX, BX, CX, DX
-;
-; Not the CELL: a 96x30 inverted block around a 16x16 picture reads as a hole
-; in the desktop. The two rects are the two things that ARE the shortcut.
-; -----------------------------------------------------------------------------
-sc_hilite:
-    push ax
-    call sc_xy
-    add ax, SC_ICX
-    mov bx, dx
-    mov cx, ax
-    add cx, 15
-    add dx, 15
-    call ct_cw_gfx_xor_fill
-    sub ax, 11                  ; ...the badge beside it, which IS part of the
-    add bx, 16 - 10             ; picture: its rect off the picture's (sc_draw)
-    mov cx, ax
-    add cx, 9
-    call ct_cw_gfx_xor_fill
-    pop ax
-    call sc_caprect
-    jmp ct_cw_gfx_xor_fill      ; the NEAR trampoline (desk_zone_hilite's note)
 
 ; -----------------------------------------------------------------------------
 ; sc_open - what a double-click on a shortcut does (SPEC.md 26.8.5)
@@ -557,56 +287,6 @@ sc_modcall:
     jmp hbf_nodisk              ; the panel's own sentence (SPEC.md 2.8.4)
 
 ; -----------------------------------------------------------------------------
-; desk_open - spend a desktop zone: what a double-click or Enter does
-; in:  AL = the zone; no lock held
-; out: nothing; clobbers AX..DI
-;
-; desk_click's double-click arm, made a routine of its own because Enter on a
-; selected zone is the same act (SPEC.md 26.8.5).
-; -----------------------------------------------------------------------------
-desk_open:
-    call ct_cw_gfx_lock         ; the store is INSIDE the lock (SPEC.md 26.2)
-    mov byte [desk_sel], 0xFF
-    call desk_zone_redraw
-    call ct_cw_gfx_unlock
-    cmp al, DESK_SC0
-    jae sc_open
-    cmp al, DESK_SVZ
-    je .svc
-    jmp files_open_drive_x      ; AL = the drive, no lock held (SPEC.md 22)
-.svc:
-    call KERNEL_SEG:cw_ui_svc_open
-    ret
-
-; -----------------------------------------------------------------------------
-; desk_select - make AL the desktop's selection (SPEC.md 26.2)
-; in:  AL = the zone; no lock held
-; out: nothing; AL preserved, AH and BX clobbered
-;
-; desk_click's selection arm, shared with the right press (SPEC.md 26.8.5):
-; the store is inside the lock hold, because desk_zone_redraw's partial case
-; FLIPS the highlight rather than repainting it.
-; -----------------------------------------------------------------------------
-desk_select:
-    mov bx, [ui_click_t]        ; the double-click timer restarts here
-    mov [desk_clkt], bx
-    mov ah, [desk_sel]
-    cmp ah, al
-    je .out
-    call ct_cw_gfx_lock
-    mov [desk_sel], al
-    cmp ah, 0xFF
-    je .new
-    xchg al, ah
-    call desk_zone_redraw       ; the old one, deselected
-    xchg al, ah
-.new:
-    call desk_zone_redraw       ; ...and the new one
-    call ct_cw_gfx_unlock
-.out:
-    ret
-
-; -----------------------------------------------------------------------------
 ; desk_key - Enter and Delete on the desktop's selection (SPEC.md 26.8.5)
 ; in:  AX = the keystroke (AL = ASCII, AH = scan); no lock held
 ; out: CF = 1 the desktop took it (registers clobbered - a window's own key
@@ -659,14 +339,16 @@ sc_menu_del_f:
 ; in:  CX, DX = the press
 ; out: nothing; clobbers what ui_rdown may (AX..BP, its own header)
 ;
-; On a shortcut: select it and pop its one command (SPEC.md 26.8.5).
+; On a shortcut: select it and pop its one command (SPEC.md 26.8.5). A drive
+; or the service item has no command to offer, so the press does nothing.
 ; -----------------------------------------------------------------------------
 sc_rclick_x:
     mov di, cx
     mov si, dx
-    call sc_hit
+    call desk_hit               ; AL = the zone under it...
     jc .out
-    mov al, cl
+    cmp al, DESK_SC0            ; ...and only a SHORTCUT has the command
+    jb .out
     call desk_select
     call ct_cw_gfx_lock
     push ax
@@ -685,7 +367,9 @@ sc_rclick_x:
     retf
 
 ; --- far entries for CTRL.DRV and the boot overlay (SPEC.md 2.8) -------------
-sc_rect_f:      call sc_rect
+sc_owner_f:     call desk_owner
+                retf
+sc_cmark_f:     call desk_cmark
                 retf
 sc_peek_f:      call dsk_peek_x
                 retf
@@ -695,24 +379,20 @@ sc_dgmove_f:    call fm_dgmove
                 retf
 
 ; -----------------------------------------------------------------------------
-; sc_mem_f - the table's door to the heap (SPEC.md 26.8.1), FAR
-; in:  AX = KB (0 = free the claim at DX); DX = the claim, 0 = a new one;
-;      CX = a NEW claim's relocation proc, 0 = leave it pinned
-; out: CF = 0 and DX = the claim now; CF = 1 refused, the old one as it was
+; sc_mem_f - a NEW claim for the table (SPEC.md 26.8.1), FAR
+; in:  AX = KB; CX = its relocation proc, 0 = leave it pinned
+; out: CF = 0 and DX = the claim; CF = 1 refused
 ; clobbers: DX (the output), flags
 ;
-; ONE door, MEM_K_SC every time, and the bookkeeping is the callers': the
-; heap's routines are `.cold` (SPEC.md 50.3), CTRL.DRV and the boot overlay
-; reach `.cold` only far, and three doors would be three times the stub.
+; MEM_K_SC every time. A claim and its declaration are two heap calls the
+; boot overlay and CTRL.DRV both make, and they reach `.cold` only far; a
+; resize and a free are one call each, so those go through the heap's own far
+; entries (mmf_mem_free, and sc_regrow_f below) instead of a door here.
 ; -----------------------------------------------------------------------------
 sc_mem_f:
     push ax
     push bx
     mov bx, MEM_K_SC
-    or ax, ax
-    jz .free
-    or dx, dx
-    jnz .regrow
     call mem_claim_x
     jc .out
     jcxz .out                   ; CF is the claim's 0: a pinned claim
@@ -721,16 +401,13 @@ sc_mem_f:
     call mem_movable_x          ; a refusal only PINS it (ico_need's note)
     pop dx
     clc
-    jmp short .out
-.regrow:
-    call mem_regrow
-    jmp short .out
-.free:
-    call mem_free_x
 .out:
     pop bx
     pop ax
     retf
+
+sc_regrow_f:    call mem_regrow ; DX = the claim, AX = KB, BX = MEM_K_SC
+                retf
 
 ; =============================================================================
 section .text
@@ -764,7 +441,6 @@ section .bss
 sc_seg      resw 1              ; the table's claim, 0 = no shortcuts
 sc_nrows    resb 1              ; rows the claim holds, 0..SC_MAX
 sc_vol      resb 1              ; sc_open: the volume, across its walk
-sc_dmgm     resw 1              ; bit n = row n is in the damage (26.8.3)
 
 ; =============================================================================
 section .modc                   ; CTRL.DRV (SPEC.md 26.8.7): CS = the image,
@@ -819,8 +495,6 @@ sc_m_new:
     jc .noroom
     mov al, [cs:sc_mz]
     call sc_m_off
-    mov ax, [cs:sc_bc]
-    mov [es:di+SC_R_COL], ax
     mov al, [fcp_cbtype]
     cmp al, 2
     jbe .kind
@@ -915,29 +589,8 @@ sc_m_new:
     jmp short .st
 .cut:
     mov byte [es:di], 0
-.capx:
-    mov al, [cs:sc_mz]          ; the caption's pen, centred: it is FIXED-cell
-    call sc_m_off               ; text (font_width is 8 a glyph), so its width
-    xor cx, cx                  ; is its length and nothing measures it again
-.cl:
-    cmp byte [es:di+SC_R_CAP], 0
-    je .cle
-    inc di
-    inc cx
-    cmp cx, SC_CAPMAX - 1
-    jb .cl
-.cle:
-    shl cx, 1
-    shl cx, 1
-    shl cx, 1                   ; its width
-    mov ax, SC_W
-    sub ax, cx
-    shr ax, 1
-    mov ah, al                  ; AH = the pen's offset
-    mov al, [cs:sc_mz]
-    call sc_m_off
-    mov [es:di+SC_R_CAPX], ah
-    jmp short .done
+.capx:                          ; the caption is measured at paint, as every
+    jmp short .done             ; item's is (SPEC.md 26.9)
 .bad:
     mov al, [cs:sc_mz]          ; the folder is gone or its path will not fit
     call sc_m_off
@@ -947,13 +600,40 @@ sc_m_new:
     jmp sc_m_say
 .done:
     call COLD_SEG:drvf_drv_vol_back
-    mov al, [cs:sc_mz]
-    call sc_m_paint
+    mov bl, [cs:sc_mz]          ; its cell, PLACED, in the one table (SPEC.md
+    xor bh, bh                  ; 26.9) - and posted, so ui_task paints it
+    mov al, [cs:sc_bc]
+    call COLD_SEG:sc_cmark_f
+    or al, DSL_PIN
+    mov [bx+desk_zslot], al
     jmp sc_m_save
 .noroom:
     mov si, sc_s_room
     jmp sc_m_say
 .ret:
+    ret
+
+; sc_m_mem - the table's claims, one door: AX = KB (0 = free the claim at DX),
+; DX = the claim (0 = a new one), CX = a new claim's relocation proc (0 = pin
+; it). CF = 0 and DX = the claim now; CF = 1 refused, the old one as it was.
+sc_m_mem:
+    push ax
+    push bx
+    mov bx, MEM_K_SC
+    or ax, ax
+    jz .free
+    or dx, dx
+    jnz .regrow
+    call COLD_SEG:sc_mem_f
+    jmp short .out
+.regrow:
+    call COLD_SEG:sc_regrow_f
+    jmp short .out
+.free:
+    call COLD_SEG:mmf_mem_free
+.out:
+    pop bx
+    pop ax
     ret
 
 ; sc_m_say - toast one of THIS image's strings, at CS:SI
@@ -975,18 +655,13 @@ sc_m_off:
     pop ax
     ret
 
-; sc_m_paint - AL = a zone: repaint its rect
-sc_m_paint:
-    call COLD_SEG:sc_rect_f
-    call KERNEL_SEG:cw_wm_paint_dmg
-    ret
-
 ; sc_m_save - SYSTEM.CFG, NOW: a shortcut is meant to survive a power-off, so
 ; it does not wait for the panel to close. cp_flush_close_x is the panel's own
 ; spend - it writes, says so, and keeps [cp_wdirty] on a failure so the next
 ; close or Restart tries again (SPEC.md 59.6).
 sc_m_save:
-    mov byte [cp_wdirty], 1
+    call COLD_SEG:desk_reflow_f ; ...after the flowing items pack round what
+    mov byte [cp_wdirty], 1     ; changed (SPEC.md 26.9)
     jmp cp_flush_close_x
 
 ; -----------------------------------------------------------------------------
@@ -1004,7 +679,7 @@ sc_m_kb:
     xor ah, ah
     mov dx, [sc_seg]
     mov cx, sc_reloc            ; a NEW claim moves with its proc
-    call COLD_SEG:sc_mem_f
+    call sc_m_mem      
     jc .out
     or ax, ax
     jnz .live
@@ -1084,131 +759,62 @@ sc_m_row:
     ret
 
 ; -----------------------------------------------------------------------------
-; sc_m_cell - the free grid cell NEAREST a point (SPEC.md 26.8.2)
+; sc_m_cell - the free cell NEAREST a point (SPEC.md 26.9)
 ; in:  CX, DX = the point; BL = a zone to treat as absent (its own cell is
 ;      free to it, which is what a move wants), 0xFF for none
-; out: CF = 0 and [cs:sc_bc] = the cell, a WORD in the record's own order -
-;      the column, then the row; CF = 1 the grid is full
+; out: CF = 0 and [cs:sc_bc] = the cell; CF = 1 every cell is taken
 ; clobbers: AX, BX, CX, DX, flags
 ;
 ; Nearest by the cell's CENTRE, in city-block pixels: the user never has to
-; aim at an edge, and a drop on a taken cell lands beside it.
-;
-; THE GRID STOPS SHORT OF EVERY COLUMN THE DRIVE ZONES COULD REACH. They wrap
-; leftwards as volumes mount (SPEC.md 26.1), so the columns DESK_NZ zones would
-; need are reserved whatever is mounted now - a hard disk mounted later cannot
-; land on a shortcut, and no damage pass has to reconcile the two.
+; aim at an edge, and a drop on a taken cell lands beside it. A cell a FLOWING
+; drive is in is taken, like any other: the drive does not get pushed out of
+; the way, it packs round whatever lands next to it.
 ; -----------------------------------------------------------------------------
 sc_m_cell:
     mov [cs:sc_px], cx
     mov [cs:sc_py], dx
     mov [cs:sc_ex], bl
     mov word [cs:sc_best], 0xFFFF
-    mov ax, [desk_rows]
-    cmp ax, 15
-    jbe .rows
-    mov ax, 15
-.rows:
-    mov [cs:sc_nr], al
-    mov cx, ax
-    mov ax, DESK_NZ - 1
-    add ax, cx
-    xor dx, dx
-    div cx                      ; AX = the drive columns DESK_NZ zones need
-    dec ax
-    mov cx, DESK_COLW
-    mul cx
-    mov dx, [vid_desk_zx]
-    sub dx, ax                  ; DX = the leftmost such column's left
-    sub dx, [vid_band_x0]
-    sub dx, SC_X0 + SC_W + 2*DESK_ZOVER + 4
-    js .none                    ; not even one column of room
-    mov ax, dx
-    xor dx, dx
-    mov cx, SC_PX
-    div cx
-    inc ax
-    cmp ax, 15
-    jbe .cols
-    mov ax, 15
-.cols:
-    mov [cs:sc_nc], al
-    xor bx, bx                  ; BL = the column, BH = the row: BX is the
-.cell:                          ; cell word itself
-    call sc_m_occ
-    jc .next
+    xor bx, bx                  ; BL = the cell
+.cell:
+    cmp bl, [desk_ncell]
+    jae .end
     mov al, bl
-    mov ah, SC_PX
-    mul ah
-    add ax, [vid_band_x0]
-    add ax, SC_X0 + SC_W / 2
+    call COLD_SEG:sc_owner_f    ; CF = 1 free, else AH = the zone in it
+    jc .free
+    cmp ah, [cs:sc_ex]
+    jne .next
+.free:
+    mov al, bl
+    call COLD_SEG:desk_cell_xy_f    ; AX = left, DX = top
+    add ax, DESK_CW / 2
     sub ax, [cs:sc_px]
     jns .xa
     neg ax
 .xa:
-    mov cx, ax
-    mov al, bh
-    xor ah, ah
-    mul word [desk_zstep]
-    add ax, DESK_ZY0 + SC_H / 2
+    xchg ax, dx                 ; DX = the x distance, AX = the top
+    mov cx, [desk_zh1]
+    shr cx, 1
+    add ax, cx
     sub ax, [cs:sc_py]
     jns .ya
     neg ax
 .ya:
-    add ax, cx
+    add ax, dx
     cmp ax, [cs:sc_best]
     jae .next
     mov [cs:sc_best], ax
-    mov [cs:sc_bc], bx
+    mov [cs:sc_bc], bl
 .next:
-    inc bh
-    cmp bh, [cs:sc_nr]
-    jb .cell
-    xor bh, bh
-    inc bl
-    cmp bl, [cs:sc_nc]
-    jb .cell
+    inc bx
+    jmp short .cell
+.end:
     cmp word [cs:sc_best], 0xFFFF
     je .none
     clc
     ret
 .none:
     stc
-    ret
-
-; sc_m_occ - BX = a cell word: CF = 1 another live shortcut is on it
-sc_m_occ:
-    push ax
-    push cx
-    push di
-    push es
-    mov ch, [sc_nrows]
-    mov cl, DESK_SC0
-    or ch, ch
-    jz .free
-.o:
-    mov al, cl
-    call sc_m_off
-    cmp byte [es:di+SC_R_VOL], 0xFF
-    je .n
-    cmp cl, [cs:sc_ex]
-    je .n
-    cmp bx, [es:di+SC_R_COL]
-    je .occ
-.n:
-    inc cl
-    dec ch
-    jnz .o
-.free:
-    clc
-    jmp short .out
-.occ:
-    stc
-.out:
-    pop es
-    pop di
-    pop cx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1245,28 +851,17 @@ sc_m_move:
     mov bl, [cs:sc_mz]          ; its own cell is free to it
     call sc_m_cell
     jc .ret
-    mov al, [cs:sc_mz]
-    call sc_m_off
-    mov ax, [cs:sc_bc]
-    cmp ax, [es:di+SC_R_COL]
+    mov bl, [cs:sc_mz]
+    xor bh, bh
+    mov al, [bx+desk_zslot]
+    and al, DSL_SLOT
+    cmp al, [cs:sc_bc]
     je .ret                     ; it went nowhere: nothing to write
-    mov al, [cs:sc_mz]
-    call COLD_SEG:sc_rect_f     ; the OLD rect, before the cell changes
-    push ax
-    push bx
-    push cx
-    push dx
-    mov al, [cs:sc_mz]
-    call sc_m_off
-    mov ax, [cs:sc_bc]
-    mov [es:di+SC_R_COL], ax
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    call KERNEL_SEG:cw_wm_paint_dmg ; the old place, bare desktop now
-    mov al, [cs:sc_mz]
-    call sc_m_paint             ; ...and the new one
+    call COLD_SEG:sc_cmark_f    ; the old cell, bare desktop or the next
+    mov al, [cs:sc_bc]          ; drive to pack into it...
+    call COLD_SEG:sc_cmark_f    ; ...and the new one
+    or al, DSL_PIN              ; PLACED, whatever it is: a drive dragged is
+    mov [bx+desk_zslot], al     ; where the user put it (SPEC.md 26.9)
     jmp sc_m_save
 .ret:
     ret
@@ -1287,24 +882,20 @@ sc_m_del:
     call sc_m_off
     cmp byte [es:di+SC_R_VOL], 0xFF
     je .ret
-    mov [cs:sc_mz], al
-    call COLD_SEG:sc_rect_f
-    push ax
-    push bx
-    push cx
-    push dx
-    mov al, [cs:sc_mz]
-    call sc_m_off
     mov byte [es:di+SC_R_VOL], 0xFF
     cmp al, [desk_sel]
     jne .ns
     mov byte [desk_sel], 0xFF
 .ns:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    call KERNEL_SEG:cw_wm_paint_dmg
+    mov bl, al                  ; its cell goes, and is posted bare (SPEC.md
+    xor bh, bh                  ; 26.9)
+    mov al, 0xFF
+    xchg al, [bx+desk_zslot]
+    cmp al, DSL_GONE
+    jae .kbz
+    and al, DSL_SLOT
+    call COLD_SEG:sc_cmark_f
+.kbz:
     mov cl, [sc_nrows]          ; the highest row still in use decides the KB
 .h:
     or cl, cl
@@ -1342,13 +933,15 @@ sc_m_del:
 ; in:  ES:BX = the settings cpc_ser just built (CTRL.DRV's own buffer), CX =
 ;      their length
 ; out: CF = 0 and ES:BX, CX = what to WRITE - unchanged when there are no
-;      shortcuts, else a claim of its own holding the settings, the live rows
-;      verbatim and compacted, and a 4-byte footer: 'SC', its version and the
-;      count. CF = 1: there are shortcuts and no room to compose them
+;      shortcuts and no PLACED drive, else a claim of its own holding the
+;      settings, the live rows verbatim and compacted, DESK_SC0 bytes of the
+;      placed drives' and service item's cells (SPEC.md 26.9), and a 4-byte
+;      footer: 'SC', its version and the count. CF = 1: there was something to
+;      keep and no room to compose it
 ; clobbers: ES, BX, CX (the outputs), flags
 ;
 ; The footer is read from the END, so the boot reader needs no walk of the
-; records above it. NO SHORTCUTS, NO TRAILER: the file is then byte for byte
+; records above it. NOTHING PLACED, NO TRAILER: the file is then byte for byte
 ; what it was before this feature - the "costs nothing in the file when there
 ; is none" the ask set.
 ;
@@ -1373,6 +966,12 @@ sc_m_ser:
     call sc_m_off
     cmp byte [es:di+SC_R_VOL], 0xFF
     je .cn
+    push bx                     ; the table's byte into the row: the FILE's
+    mov bl, al                  ; copy of where it is (SPEC.md 26.9)
+    xor bh, bh
+    mov ah, [bx+desk_zslot]
+    mov [es:di+SC_R_SLOT], ah
+    pop bx
     inc dx
 .cn:
     inc ax
@@ -1382,18 +981,36 @@ sc_m_ser:
     pop es
     mov [cs:sc_tcnt], dl
     or dl, dl
-    jz .plain                   ; none: the settings, as they are
+    jnz .go
+    push cx                     ; no shortcut - but a PLACED drive is kept
+    mov si, desk_zslot          ; the same way
+    mov cx, DESK_SC0
+    cld
+.anyp:
+    mov al, [si]                ; the KERNEL's table, through DS
+    inc si
+    cmp al, 0xFF
+    je .anyn
+    test al, DSL_PIN
+    jnz .anyy
+.anyn:
+    loop .anyp
+    pop cx
+    jmp .plain                  ; nothing placed at all
+.anyy:
+    pop cx
+.go:
     mov al, dl
     mov ah, SC_REC
     mul ah
     add ax, cx
-    add ax, 4 + 1023
+    add ax, DESK_SC0 + 4 + 1023
     push cx
     mov cl, 10
     shr ax, cl                  ; the KB the whole file needs
     xor cx, cx                  ; PINNED
     xor dx, dx
-    call COLD_SEG:sc_mem_f      ; DX = the claim
+    call sc_m_mem            ; DX = the claim
     pop cx
     jc .out                     ; CF = 1: the caller refuses the write
     mov [cs:sc_tseg], dx
@@ -1408,6 +1025,8 @@ sc_m_ser:
     pop ds
     mov ax, [sc_seg]
     mov dh, [sc_nrows]
+    or dh, dh
+    jz .rows                    ; no claim at all: only placed drives
     push ds
     mov ds, ax                  ; DS = the table: no kernel word below
     xor si, si
@@ -1423,6 +1042,19 @@ sc_m_ser:
     dec dh
     jnz .r
     pop ds
+.rows:
+    mov si, desk_zslot          ; ...the placed drives' cells, the table's
+    mov cx, DESK_SC0            ; own bytes, 0xFF for any that flows...
+.pin:
+    mov al, [si]
+    inc si
+    test al, DSL_PIN            ; placed - or 0xFF, which has the bit too -
+    jnz .sp                     ; goes as it is, for the boot to read back
+
+    mov al, 0xFF
+.sp:
+    stosb
+    loop .pin
     mov ax, 'SC'                ; ...and the footer
     stosw
     mov al, SC_VER
@@ -1450,7 +1082,7 @@ sc_m_serx:
     or dx, dx
     jz .out
     xor ax, ax
-    call COLD_SEG:sc_mem_f
+    call sc_m_mem      
 .out:
     pop dx
     pop ax
@@ -1507,14 +1139,7 @@ ovl_sc_load:
     mov cx, sc_reloc
     call COLD_SEG:sc_mem_f      ; DX = the claim, whole-file sized
     jc .plain
-    mov [sc_seg], dx
-    mov cl, 3
-    shl al, cl                  ; the rows it holds, at most SC_MAX
-    cmp al, SC_MAX
-    jbe .cap
-    mov al, SC_MAX
-.cap:
-    mov [sc_nrows], al
+    mov [sc_seg], dx            ; [sc_nrows] stays 0 until the rows are in
     mov es, dx
     xor bx, bx
     mov cx, di
@@ -1523,20 +1148,18 @@ ovl_sc_load:
     call COLD_SEG:dwf_dskw_read ; AX = the bytes read
     jc .drop
     mov dx, ax                  ; DX = where the head ends: the whole file...
-    xor bl, bl                  ; BL = the rows: none until the footer says
-    mov di, ax
-    sub di, 4
+    xor bx, bx                  ; BL = the rows, BH = 1 once a trailer is seen
+    mov di, ax                  ; the footer is the last 4 bytes and the
+    sub di, 4 + DESK_SC0        ; placed cells the DESK_SC0 before it
     jb .stage
-    cmp word [es:di], 'SC'
+    cmp word [es:di+DESK_SC0], 'SC'
     jne .stage
-    cmp byte [es:di+2], SC_VER
+    cmp byte [es:di+DESK_SC0+2], SC_VER
     jne .stage
-    mov bh, [es:di+3]
-    mov al, bh
-    dec al
-    cmp al, SC_MAX              ; 1..SC_MAX, and 0 wraps to 255 and fails
-    jae .stage
-    mov al, bh
+    mov al, [es:di+DESK_SC0+3]
+    cmp al, SC_MAX              ; 0..SC_MAX: none is legal, the file may be
+    ja .stage                   ; keeping only placed drives
+    mov bl, al
     mov ah, SC_REC
     mul ah
     sub di, ax                  ; DI = where the rows start
@@ -1544,7 +1167,7 @@ ovl_sc_load:
     cmp di, CFG_REC0 + 2
     jb .stage
     mov dx, di                  ; ...unless a trailer is there
-    mov bl, bh
+    inc bh
 .stage:
     mov cx, dx                  ; the settings head, into ovc_buf
     cmp cx, CFG_FBUF
@@ -1563,9 +1186,9 @@ ovl_sc_load:
     rep movsb
     pop ds
     mov es, [sc_seg]
-    or bl, bl
+    or bh, bh
     jz .none
-    mov al, bl                  ; the rows, down to the claim's base
+    mov al, bl                  ; the rows, down to the claim's base...
     mov ah, SC_REC
     mul ah
     mov cx, ax
@@ -1574,22 +1197,27 @@ ovl_sc_load:
     pop ds
     mov si, dx
     xor di, di
-    rep movsb
-    pop ds
+    rep movsb                   ; ...which leaves DS:SI on the placed cells
+    pop es                      ; ES = the kernel
+    push es
+    mov di, desk_zslot          ; THE TABLE'S zones 0..DESK_SC0-1, verbatim
+    mov cl, DESK_SC0            ; (SPEC.md 26.9): the writer put them in their
+    rep movsb                   ; final form, and the boot's rowcalc drops any
+    pop ds                      ; cell this screen does not have
+    mov es, [sc_seg]
+    mov [sc_nrows], bl
+    mov cl, bl
+    jcxz .none                  ; placed drives and no shortcut: no claim
     xor di, di                  ; every string terminated, whatever the file
-    mov cl, bl                  ; said (CL = the count, CH = the row), and
-    xor ch, ch                  ; every row past the count FREE
+    mov bx, desk_zslot + DESK_SC0   ; said, and each row's cell into the table
 .san:
-    cmp ch, cl
-    jb .lv
-    mov byte [es:di+SC_R_VOL], 0xFF
-.lv:
     mov byte [es:di+SC_R_PATH+SC_PATHMAX-1], 0
     mov byte [es:di+SC_R_CAP+SC_CAPMAX-1], 0
+    mov al, [es:di+SC_R_SLOT]
+    mov [bx], al
+    inc bx
     add di, SC_REC
-    inc ch
-    cmp ch, [sc_nrows]
-    jb .san
+    loop .san
     jmp short .done
 .none:
     call .free                  ; no trailer after all: give the claim back
@@ -1610,9 +1238,10 @@ ovl_sc_load:
     pop bx
     ret
 .free:
-    xor ax, ax
     mov dx, [sc_seg]
-    call COLD_SEG:sc_mem_f
+    mov bx, MEM_K_SC
+    call COLD_SEG:mmf_mem_free
+    xor ax, ax
     mov [sc_seg], ax
     mov [sc_nrows], al
     ret
@@ -1623,9 +1252,8 @@ sc_px       dw 0                ; (MODULE-SELFCONTAIN-PLAN), and its bss is
 sc_py       dw 0                ; only the slack in its KB rounding, which
 sc_ex       db 0                ; the settings buffer already spends
 sc_best     dw 0                ; sc_m_cell: the point, the zone it leaves
-sc_bc       dw 0                ; out, the nearest distance so far and its
-sc_nr       db 0                ; cell, and the grid's rows and columns;
-sc_nc       db 0                ; sc_m_ser's claim and the rows it holds
+sc_bc       db 0                ; out, the nearest distance so far and its
+                                ; cell; sc_m_ser's claim and the rows it holds
 sc_tseg     dw 0
 sc_tcnt     db 0
 

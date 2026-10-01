@@ -49472,6 +49472,15 @@ growth and not for the reader. `KERNEL.SYS` there ended on the last sector of
 a cylinder with 48 bytes free, so ~60 resident bytes of anything would have
 crossed it. That cost was accepted when this was planned.
 
+### 26.9 One desktop: every item in one grid of cells
+
+`kernel/desk.inc`, both kernels, and docs/plans/UNIFIED-DESKTOP-PLAN.md is
+the design record behind it. The volumes (§26.1), the service item a driver
+registers (§26.7) and the shortcuts (§26.8) are all ZONES in one grid of
+CELLS, and `[desk_zslot]` holds one byte per zone saying which cell it is in.
+This section is the contract; it is written out in full by the last wave of
+that plan.
+
 ## 27. HELLO and NOTEPAD — the second and third packages
 
 Deliberately minimal, to prove the SDK surface and the no-icon fallback:

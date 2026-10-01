@@ -391,7 +391,7 @@ dkx_band:
 .done:
     mov [vid_band_xe], bx
     mov [vid_dock_y0], dx
-    sub bx, 56
+    sub bx, DESK_ZXOFF          ; cell 0 (SPEC.md 26.9)
     mov [vid_desk_zx], bx
     pop dx
     pop bx

@@ -2828,9 +2828,8 @@ SOAK = [
         "50% dither so its longest run is 1, and anything drawn over it is "
         "solid somewhere - 36 px against 1 px measured, which separates the "
         "two states by more than a tuned threshold could. It is the only "
-        "thing in the tree that reaches wz_withdraw, desk_zmark's delete edge "
-        "and the `inc byte [desk_zhw]` that covers the ordinal past the last "
-        "volume, and the bug they guard - an icon left on the glass after its "
+        "thing in the tree that reaches wz_withdraw and desk_reflow's "
+        "posting of the cell the item leaves (SPEC.md 26.9), and the bug they guard - an icon left on the glass after its "
         "driver has gone - is invisible to every assertion about state. QEMU "
         "by name: MartyPC has no network card of any kind",
         needs=("qemu", "nasm"), serial=True, timeout=420, builds=True),

@@ -282,7 +282,7 @@ vid_popmax  dw MENU_POPMAX      ; pull-down items that fit under the bar, and
                                 ; because vid_apply overwrote it on the
                                 ; splash's first tick, long before a menu.
                                 ; The %error beside MENU_POPMAX is the guard
-vid_desk_zx dw SCREEN_W-56      ; desktop drive column: the hit zone's left
+vid_desk_zx dw SCREEN_W-DESK_ZXOFF ; the desktop grid's cell 0: its left
                                 ; edge, and the ONLY word of it that is
                                 ; published. The drawn rect either side of it
                                 ; is desk_zone_rect's arithmetic over
@@ -721,7 +721,7 @@ vid_apply:
     mov [vid_bankmask], ax      ; which is what makes prevrow a bare subtract
 
     mov ax, [vid_w]             ; --- the desktop's drive column, right-hung.
-    sub ax, 56                  ; ONE word: desk_zone_rect derives the drawn
+    sub ax, DESK_ZXOFF          ; ONE word: desk_zone_rect derives the drawn
     mov [vid_desk_zx], ax       ; rect from it (SPEC.md 26.4). dock_geom moves
                                 ; it in off a right-hand strip (30.5)
 
