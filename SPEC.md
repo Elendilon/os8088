@@ -49372,10 +49372,15 @@ then dispatch.
 
   What the entry IS NOW decides, not what it was when the shortcut was made.
 
-- **A target that is not there says so in the Disk window's own words.**
-  `No disk` means the volume would not mount. `No such file` means a
-  component or the entry is gone, or a component is a file where a folder
-  was. A package that will not load gets `ld_say_status`'s verdict.
+- **A target that is not there says `Shortcut not found (B:)`**, naming
+  the drive the shortcut points at. That covers a volume that would not
+  mount, a component or entry that is gone, and a component that is a file
+  where a folder was: to whoever double-clicked, all three are the same
+  thing. The Disk window's `No disk` and `No such file` were the first
+  answer and were too vague here. The letter is patched into the string
+  before each toast, `desk_lbl_gen`'s way, and the 23 characters are
+  exactly a toast's room. 29 resident bytes. A package that will not load
+  gets `ld_say_status`'s verdict.
 
 **Remove** has three routes and one door, `sc_del`:
 
@@ -49455,9 +49460,10 @@ saved anyway.
 
 What every kern_big machine carries resident is drawing, hit-testing,
 selection, the open, the keys, the right-click and the drag's threshold.
-Measured against `elendilon` at `fb544b1`: **`.cold` +958, `.text` +110,
-`.bss` +10 = 1,078 bytes**, against a 1 KB budget. It was 1,002 until the
-badge moved beside the picture (§26.8.3), which is the 76 over it. The boot reader is +291
+Measured against `elendilon` at `fb544b1`: **`.cold` +963, `.text` +134,
+`.bss` +10 = 1,107 bytes**, against a 1 KB budget. It was 1,002; the badge
+beside the picture (§26.8.3) and the drive-naming toast (§26.8.5) are the 105
+over it, both taken knowingly. The boot reader is +291
 bytes of `.ovl`, which is given back at `spl_finish`. `CTRL.DRV` grows by
 the gestures and the writer, read only while one of them runs.
 

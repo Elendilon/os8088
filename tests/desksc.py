@@ -27,8 +27,12 @@ claim 26.8 makes is asked of the GUEST'S OWN STATE rather than of a picture:
      and Enter on it, selected, opens a Disk window there.
   H  a DOCUMENT's (MEDIA\\GUIDE.TEX) keeps its full 8.3 caption and a
      double-click opens it in its program, through the association.
-  I  a right-click on it and `Remove Shortcut` removes that one only.
-  J  Locator's File > Remove Shortcut removes the selected one, the last, and
+  I  a shortcut whose target is GONE (the folder's, its path rewritten in
+     guest memory to one that does not exist) says `Shortcut not found (B:)`
+     on a double-click, naming its drive.
+  J  a right-click on the document's and `Remove Shortcut` removes that one
+     only.
+  K  Locator's File > Remove Shortcut removes the selected one, the last, and
      the claim goes with it.
 
 **BREAK IT ON PURPOSE** (docs/WRITING-TESTS.md 1): take `call sc_m_ser` out
@@ -380,8 +384,20 @@ def main():
             if w.visible and w.title not in before_t:
                 ui.close(w)
 
-        # --- I: right-click > Remove Shortcut -----------------------------
-        print("I: right-click the document's shortcut, Remove Shortcut")
+        # --- I: a target that is not there -------------------------------
+        print("I: the folder's target gone, double-click it")
+        fidx = zone - DESK_SC0
+        fpath = (ui._word("sc_seg") << 4) + fidx * SC_REC + 5
+        m.write(fpath, b"\\NOPE\0")         # memory only: no save follows
+        fresh(ui)
+        ui.mo.dblclick(gx + SC_W // 2, gy + 8)
+        said = ui.wait_toast(says="not found", limit=60)
+        check(said == "Shortcut not found (B:)",
+              "a missing target names its drive (%r)" % said)
+        m.write(fpath, b"\\MEDIA\0")
+
+        # --- J: right-click > Remove Shortcut -----------------------------
+        print("J: right-click the document's shortcut, Remove Shortcut")
 
         def aim(_mo):
             # rmenu calls this straight after the PRESS, and the popup opens
@@ -404,8 +420,8 @@ def main():
         check(len(live) == 1 and live[0][3] == 2,
               "the right-click took the document's and left the folder's")
 
-        # --- J: Locator's File > Remove Shortcut --------------------------
-        print("J: select the folder's shortcut, File > Remove Shortcut")
+        # --- K: Locator's File > Remove Shortcut --------------------------
+        print("K: select the folder's shortcut, File > Remove Shortcut")
         ui.mo.click(gx + SC_W // 2, gy + 8)
         ui._wait(lambda: ui._byte("desk_sel") >= DESK_SC0
                  and ui._byte("desk_sel") != 0xFF,

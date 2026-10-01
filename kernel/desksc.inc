@@ -399,7 +399,8 @@ sc_hilite:
 ; THE PATH IS WALKED, never a cluster trusted: there is no volume identity on
 ; this system (every disk carries one serial), so the same path on another
 ; copy of the disk is the same shortcut - and one whose disk is not in the
-; drive says so. 'No disk' and 'No such file' are the Disk window's own words.
+; drive says so, as one toast naming the drive: no disk and no file are the
+; same thing to whoever double-clicked.
 ;
 ; assoc_doc is the component buffer and then the document's locator: it is
 ; UI-task-only scratch, and ld_pkg_byname copies the locator into exactly that
@@ -416,8 +417,7 @@ sc_open:
     mov [sc_vol], al
     xor bx, bx
     call fcp_goto               ; the volume's root - CF = no disk there
-    mov si, fm_s_enodisk
-    jc .fail
+    jc .nf
     lea di, [bp+SC_R_PATH]
 .comp:
     mov es, [sc_seg]
@@ -479,9 +479,11 @@ sc_open:
     mov dx, bx                  ; already showing it, opens one, or moves the
     call fm_choose              ; frontmost at the cap (SPEC.md 22.1)
     jmp short .out
-.nf:
-    mov si, fm_s_enoent
-.fail:
+.nf:                            ; ONE answer, naming the drive: no disk
+    mov al, [sc_vol]            ; and no file are the same thing to whoever
+    add al, 'A'                 ; double-clicked (the letter is the volume's,
+    mov [sc_s_nf+20], al        ; desk_lbl_gen's way)
+    mov si, sc_s_nf
     call drv_vol_back           ; the volume FIRST, then the toast - putting
     push ds                     ; it back touches the floppy (ui_sys_open's
     pop es                      ; order)
@@ -747,6 +749,7 @@ sc_reloc:
 ; idiom (menu.inc), so the greyed twin costs one byte and not a second string.
 sc_s_remx   db MENU_DIS
 sc_s_rem    db 'Remove Shortcut'
+sc_s_nf     db 'Shortcut not found (?:)', 0   ; 23: exactly a toast
 sc_nul      db 0                ; ...and an EMPTY name, for a document's open
 sc_popup    dw sc_s_rem         ; the right-click's one-item menu
 sc_bdg      db 1, 10            ; the badge: 10x10, one word across - a box
