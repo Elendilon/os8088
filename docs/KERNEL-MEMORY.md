@@ -40,9 +40,14 @@ binding one; `kernsize` prints both lines now.
 left to decide. Raising it means changing the rule. The assembler sees only
 the static half of rule 3; a claim made at boot and never given back is the
 other half, and `tests/kernresident.py` boots a bare VGA desktop under MartyPC
-and walks `mem_tab` for it. As blessed it reads: kernel span ends 114,176,
-last non-purgeable byte 114,176, limit 131,072 — 16,896 spare, with the
-directory read-ahead (63KB, purgeable) the only claim on the heap.
+and walks `mem_tab` for it. With desktop shortcuts (§26.8), it reads:
+kernel span ends 108,544, last non-purgeable byte 112,640, limit 131,072 —
+18,432 spare. DESKTOP.DRV is retained by the UI after the first frame in a
+bottom-up 4KB claim after shedding the boot read-ahead cache. Its assembly
+guard limits it to 4KB; shortcut records claim another 5KB only when needed.
+kern_small excludes this feature
+entirely; `tests/small128.py` requires zero pinned claims on its bare 128KB
+desktop.
 
 **`kern_small`'s `KERN_BUDGET` is a literal** — 107,520, in the `%else` arm —
 mirrored as `KERN_SMALL_BUDGET` beside big's so that a big build can report
@@ -261,23 +266,23 @@ had added.
   "emu": {
     "boot2": 2249,
     "bootmax": 192000,
-    "bss": 5525,
+    "bss": 5589,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 40556,
-    "coldpara": 2560,
+    "cold": 41403,
+    "coldpara": 2592,
     "fatpara": 288,
-    "imgpara": 3328,
-    "kend": 6752,
+    "imgpara": 3360,
+    "kend": 6816,
     "kseg": 96,
-    "ksize": 106496,
+    "ksize": 107520,
     "lowbss": 6366,
     "lowpara": 448,
     "minramkb": 196,
     "ovl": 1843,
-    "ovlw": 5104,
+    "ovlw": 5105,
     "stk0": 512,
-    "text": 47598,
+    "text": 48150,
     "vgabuf": 336,
     "vgabufpara": 32
   },
@@ -733,6 +738,7 @@ there and nowhere else.
 | `stkdiag.inc` — what an interrupt costs a task stack (STACK-SLOTS-PLAN §10), `STKDIAG=1` | — | — | **0** | — | — | — |
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
 | `compress.inc` — the LZB compressor (§20.15), an on-demand module and 0 resident | — | — | **0** | — | — | — |
+| `linkcfg.inc` — DESKTOP.DRV persistence, no static kernel bytes (§26.8) | — | — | **0** | — | — | — |
 | `dockmod.inc` — `DOCK.DRV`, the Advanced Dock runtime (§30.5), an on-demand module on `kern_big` | — | — | **0** | — | — | — |
 | `kernel.asm` — API table, entry points, `kmain`, the shims | 2,316 | 163 | **2,479** | — | — | 421 |
 | **total** | **45,766** | **40,438** | **86,204** | **5,246** | **5,598** | **2,252** |
