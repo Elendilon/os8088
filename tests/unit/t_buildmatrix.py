@@ -355,6 +355,10 @@ KNOBS = [
     # tests/vidsound.py runs as its negative control. A package row, for
     # ArtfulType's reason.
     ("nolivesnd",   ["NOLIVESND=1"], "video.o88"),
+    # ...and VPDIAG=, the player's field diagnostic on the info card (SPEC.md
+    # 98.3): four lines a shipped player does not carry, so this is the only
+    # thing that assembles them.
+    ("vpdiag",      ["VPDIAG=1"], "video.o88"),
     # MOUDIAG= is SPEC.md 9.9.6's identify-window table drawn on the finished
     # desktop, and it had NO ROW HERE AT ALL until SPEC.md 2.9.12 - which is
     # how a short jump out of range inside the moved mouse cluster went

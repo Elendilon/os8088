@@ -156730,9 +156730,28 @@ on time however long the disk takes:
 **The reader is the foreground**, the bracket's own loop, through
 `OSAPI_FILE_READ_SEQ` in 32 KB chunks:
 - **A ring of *K* 32 KB slots, as many as the machine has, up to 15**
-  (`VP_KBIG`), sized from `OSAPI_MEM_AVAIL` less the mirror and less one
-  keyframe entry (`[vp_kbkb]`), which a seek in the full screen claims
-  after the ring is up (98.3.14) and would otherwise quietly refuse. A
+  (`VP_KBIG`), sized from `OSAPI_MEM_AVAIL` less the mirror and less the
+  claim a seek in the full screen reads its key's table ENTRY into
+  (`[vp_kekb]`) after the ring is up (98.3.14), which would otherwise
+  quietly refuse. **The entry, not the record**: a seek's claims
+  (`vp_keyat`, `vp_fseek`'s) read 16-byte entries and nothing else - the
+  key's record is read into the ring (`vp_spos`) - so they are two
+  clusters (4 KB on a 2 KB volume), where the ring once kept back a whole
+  record's read, `[vp_kbkb]`, 48 KB for a 256-colour clip whose keys are
+  45 KB. On a 640 KB VGA machine with a Sound Blaster and a fixed disk
+  that one slot was the difference: a 24 fps 320x240 VGA8 clip encoded
+  for `286-vga` (a ring of 8) got **7 slots and `Low memory`**, and gets
+  8 (VIDEO.O88 +13 bytes). **And the keeper is claimed from the TOP**
+  (`OSAPI_MEM_CLAIM_HI`, as a RESIDENT file's always was, 98.1.7.4), with
+  the page-flip copy (98.3.8). Claimed from the bottom it is pinned right
+  on top of the kernel's caches - the directory read-ahead (32 KB), a
+  window's raise cache (30 KB) and the icon store (4 KB) - and walls them
+  off from the ring, which `OSAPI_MEM_AVAIL` counts as free because a
+  claim sheds them (50.6.3). None of them is a stream buffer: a 32 KB
+  `READ_SEQ` chunk bypasses the read-ahead entirely (18.95.1). Measured
+  with the same clip on the same machine: the ring's run 313 KB -> 379 KB
+  and the ring 8 slots -> 10, one 352 KB block from the heap's floor; the
+  caches are rebuilt at their next use. A
   stream that fits is read whole before the first frame, so every slot
   past the header's ring is headroom the encode never counted on: an
   early burst is read before the picture starts, and a later one spends
@@ -156791,7 +156810,36 @@ A bad one ends the play with the reason in the window. The lists are not
 checked, and cannot reach past the adapter's own segment (98.1.6).
 
 **The window after a play shows**: frames drawn of the file's, stalls, late
-periods, and the play's length in ticks against the file's own.
+periods, and the play's length in ticks against the file's own - and, in a
+player built with **`VPDIAG=1`** (a field diagnostic: the shipped player
+carries none of this, its card stays at eight lines), once a play has
+started, **the heap**, two lines for anyone doing this section's arithmetic
+by hand: the largest claim and all that was free when Play was
+pressed (`[vp_mrun0]`, `[vp_mfre0]`), then the ring's slots against the
+header's, the run it was sized from (`[vp_mrun]`, after the keeper and the
+card's ring) and those two claims' KB - `Heap 474K run, 474K free at Play`,
+`Ring 10/8 of 379K; keep 75 snd 17`. They are drawn where the card holds
+its text alone; with the buttons in the card (`VP_LINESB`) its text stops
+at eight lines, above them. A play's **pauses are its own**, as its stalls
+are: `[vp_pause]` counted every play since the window opened.
+
+**And two lines for the reader, after a play** - `VPDIAG=1` too, for
+telling a stream that ran dry from a card that did: `Lead 1 at f470; hook
+gap 3` is the fewest chunks the reader was ever loaded past the hook's
+super-packet (`[vp_lmin]`, sampled every foreground pass until the stream
+is read to its end) and the frame it was at, and the most hook periods
+between two hook calls (`[vp_gap]`); `Dry 9/11 stream; most 6t f480` is
+how many of the card's pauses had its sound waiting on an UNREAD record
+(`vp_afill` stopped at one: `[vp_astv]`, seen on any pass while the pause
+lasted) out of all of them, and the longest pause in ticks with the frame
+it ended at. **With a card, a stream that runs dry is a PAUSE and not a
+stall**: the card is the clock, and the sound - filled ahead of the
+picture - runs out first, so the clock stops before the picture reaches
+the frame it has no record for; muted, the same starvation is a stall.
+So a lead near 0 and dry pauses that are the stream's say the reader did
+not keep up; a lead that held and pauses that are not say the card did.
+Measured on MartyPC's 8088 with the owner's 358 KB/s VGA8 clip, which it
+cannot read fast enough: lead 1 at frame 25, 14 of 14 the stream's.
 
 **Measured** (`tests/vidplay.py`, a 150-frame 30 fps clip the row makes,
 opened by double-clicking it):
@@ -157036,7 +157084,7 @@ when that is key 0. The entry's four facts are all it needs (98.1.3):
   from the video's after that, so both start at frame *k*+1.
 - **`[vp_base]` = *k*+1 is the frame count's zero**: `[vp_done]` starts
   there, the gate's holds are absolute frames, the card's clock adds it to
-  the frames it has played, and the window's *Drew N of M* and *T ticks of W*
+  the frames it has played, and the window's *Drew N/M* and *T ticks of W*
   count from it. **The clock is SEEDED there too**: until the card's first
   block interrupt the extrapolation runs from `[vp_syncf]`, and a `[vp_syncf]`
   left at 0 held the first three frames back and then made them all due at
@@ -158140,6 +158188,133 @@ loading the file to its end, the card's line drawn from the timer.
 disk, and after the same swap the same key REFUSED. Broken on purpose -
 `vp_xput` out of `vp_fill`, the hold short at the play's end (163,840 of
 973,312); `vp_xrdat` out of `vp_rdat`, the key refused - `vidxms` FAILS.
+
+#### 98.3.19 Under memory pressure: the keeper given up, and the player moved
+
+**The keeper is the one claim a play can do without**, and only in the full
+screen. It is how a canvas crosses brackets (98.3.7): put onto the surface
+as a bracket starts, taken back as it ends, and the box's picture on the
+desktop. A full-screen play of a native file reads it back only on a SWAP -
+F or Alt+Enter out - so where memory is short it is the claim to give up,
+and 75 KB of Mode X keeper is two ring slots (the owner's arithmetic: two
+slots for the least-used thing the player does).
+
+**The plan** (`vp_sstart`, after the sound's ring):
+1. The keeper is **claimed and measured**: `OSAPI_MEM_AVAIL` beside it, less
+   what the ring keeps back (`vp_kres`), must hold the header's slots and the
+   mirror (`vp_kroom`; 2 slots where the header says nothing, `vp_kwant`).
+   Claiming it first is the exact form of the question - a keeper may fit a
+   hole the ring's run does not include.
+2. **If not**, it is given back, and the what-if is asked: would moving the
+   player's OWN region make room for the keeper and the ring together
+   (98.3.19.1)? If so, the play posts that and returns.
+3. **Else the play goes on without it** (`[vp_nokeep]`) and the ring takes
+   everything, `VP_KBIG` at most. `VPDIAG=1`'s card says `keep 0`.
+
+**Eligible** (`vp_kelig`): the keeper is only the canvas's image - not a
+decode target (`[vp_kneed]`), not a RESIDENT or LIVE play's, not the shadow
+a full-screen copy decodes into (`[vp_fsshd]`), no page flipping - and the
+play is in the full screen: F, or Play where `vp_canwin` refuses. Everywhere
+else the keeper is claimed as before and a refusal is `Out of memory`.
+
+**Without it**, its three readers:
+- a PUT - the black a session starts on, a seek's or a Repeat's clear
+  (`vp_cclear`) - writes black straight onto the screen's canvas rows,
+  all four planes at once for Mode X (`vp_kmove`);
+- a GET, as a bracket ends, has nowhere to go and is skipped;
+- **a SWAP to the desktop STOPS the session** at the keyframe at or before
+  the frame on the glass, its picture in the box, exactly as Esc does
+  (98.3.6) - and plays on from that key in the window if it was playing and
+  the window can host it. F again enters the full screen paused at that key;
+  Space plays from it. What is lost is up to one key's spacing of replay
+  (2 s on the owner's clip), never a wrong picture.
+
+A stop re-plans: the next session asks for the keeper again, so a play that
+lost it to pressure gets it back when the memory is there.
+
+**Measured** on MartyPC's `os8088_xt_vga_hdd_sb`, 640 KB, the owner's
+`LXVGA256.V88` (Mode X VGA8, header ring 8), the heap arranged
+by writing pinned records into `mem_tab`: with 100 KB pinned under the
+player the keeper is given up and the ring is **10 slots of 356 KB** where
+the keeper would have left it 7; F out at frame 132 stops at key 3
+(frame 96) with its picture in the box, F in is paused at frame 97. Fresh,
+the keeper is kept and the ring is 10 slots as before.
+
+##### 98.3.19.1 The player moves itself
+
+A heap that has been used is not a fresh one: open programs, then the
+player, then close the programs, and the player's region is **stranded**
+under the hole they left - the one barrier between two runs that together
+hold the play. A claim cannot move the claimant's own region (66.4.3), so
+before giving the keeper up the play asks `OSAPI_MEM_COMPACT`'s what-if
+(`vp_cptry`): the largest run there would be if the player moved too,
+against the ring and mirror, the keeper and the ring's reserves. Where it
+fits, the play **frees what it holds and POSTS** the compaction
+(`MEMC_POST` at an ordinary claim's rank, so every cache counts), says
+`Making room for the play...`, and returns; the wake (`vp_onwake`,
+`[vp_cpgo]`) starts it again from Play or F as it was pressed. **One post a
+press** (`[vp_cpq]`): the play the wake starts cannot post again, and if the
+room is still not there it goes on without the keeper. A gate or a caller
+other than Play and F never posts (`[vp_cpent]`).
+
+**Measured**: a 60 KB hole above the player's region and 340 KB below it -
+the keeper would have cost the ring its eighth slot. The play posted, the
+region moved up into the hole (8400 -> 9300) with the poster, and the play
+that started on the wake kept its keeper with a ring of 8. A gate reading
+the player's bss after this must re-read the region's segment: it moves.
+
+##### 98.3.19.2 Nothing pinned between brackets
+
+**The session's claims are movable on the desktop** - the ring, the keeper
+and the page-flip copy (`vp_smov`, relocation proc `vp_smove`) - and pinned
+again for each bracket, whose hook reads them at interrupt time, which no
+relocation can reach (66.3); RESIDENT blocks already worked this way
+(`vp_rmov`, 98.1.7.4). Every word naming one of them holds its base and
+every other segment is derived at its use, so the proc moves a word equal
+to the old base and nothing else. **The poster is movable** once it is made
+(`vp_pmov`) - not at its claim, which the decode's own claims follow. What
+stays pinned: the sound's ring (`MC_DMA`, which the kernel never moves -
+66.3), a LIVE session's claims (its worker decodes out of them on the
+desktop), and a claim for the length of a read into it (66.3 rule 5).
+
+##### 98.3.19.3 The poster IS the keeper, at the video's own size
+
+**A play drawn onto the screen at its own size claims no keeper at all**
+(`[vp_nokeep]` = 2, `vp_pcanv`). The poster the box shows is the canvas
+already: one-bit, its rows dense out of the file's layout (`vp_linear`);
+VGA4, packed two pixels a byte (`vp_v4pack`) - every pixel at scale 1. So
+the keeper's three jobs move onto it:
+- **a GET** as a bracket ends (`vp_pcget`) takes the canvas off the screen
+  into the poster - one-bit a row at a time, VGA4 four planes' byte into
+  four packed bytes through the Read Map - and the box shows that frame
+  after the desktop's repaint, `[vp_dkey]` = FFFEh as `vp_sesspic` made it
+  from the keeper;
+- **a PUT** as a bracket starts (`vp_pcput`) lays it back onto the screen,
+  the window's place or the full screen's centre alike, VGA4 through the
+  Map Mask - or black, until the session has put a frame there
+  (`[vp_pcv]`): a play from frame 0 still starts on black, and the poster
+  stays up until it does (98.3.7.1);
+- **a clear** (a seek, a Repeat through key 0) is black on the screen, and
+  the poster's frame stops being the canvas.
+
+Eligible (`vp_pcanv`): the poster held at scale 1, a one-bit file in the
+desktop's own layout or a VGA4 one, drawn onto the screen (no shadow, no
+decode into a keeper, not RESIDENT, LIVE or flipped). That is **every play
+the window can host** - one-bit files, and VGA4 on a VGA desktop, whose
+mode 12h is the file's own - and the same files in the full screen, where
+F swaps between the two with the frame intact and no stop. A relayout that
+changes the poster's scale mid-session stops it at the key at or before,
+as a keeperless full screen does; a get that finds the poster gone or
+rescaled drops the session to 98.3.19's rule, which a desk pause then
+honours the same way. What it saves is the whole keeper: 16-38 KB for a
+one-bit layout, and for VGA4 the four planes at mode 12h's 80-byte rows -
+75 KB for 320 x 240 - against a poster of 38.
+
+`vidwin`, `vidvga4`, `vidpreview` and
+the `vidfskeys*` rows cover it (`vidwinshd` is the keeper it still needs,
+the shadow): frame-exact at every hold, a click's pause
+with the stopped frame in the box byte for byte, and F out and back.
+VIDEO.O88 +735 bytes.
 
 ### 98.4 The window: the Preview (wave 6)
 
