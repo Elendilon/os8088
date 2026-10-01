@@ -47295,6 +47295,43 @@ and the reason is worth keeping: a removal list argued from *"nothing names
 it"* removes the things nobody will miss until they do, where one argued from
 *"the Wire has it"* removes the things anybody can put back.
 
+#### 24.3.1.2 Browser and Telnet leave the 360KB system disk
+
+**`SYS360OMIT` is `BROWSER.O88` and `TELNET.O88`**, on 24.3.1.1's test taken
+one step further, and by the owner's decision. On this branch the list had
+gone EMPTY - lz4 packing (§20.13) and the packed kernel (§2.9.13) gave the
+disk back enough room that `PAINT.O88` came home - and the disk then grew to
+**350 of 354, four clusters free**, which is the state 24.3.1 calls the
+dangerous one.
+
+The argument that put Browser and Telnet on this disk (24.3) was that a
+network machine's system disk should carry the programs that use its driver.
+**The Wire answers that argument rather than overriding it**: a machine that
+can use either program has a link up, a machine with a link up has The Wire
+(§92), which stays in `SYSTEM/` on this disk, and the Wire's catalog carries
+both. So the one network program this geometry needs to carry is the one
+that fetches the others - and the two together are the largest pair of core
+packages that are recoverable that way.
+
+| the 360KB system disk | clusters |
+|---|---|
+| before, with every core package on | 350 of 354, 4 free |
+| `BROWSER.O88` (13,495 bytes) and `TELNET.O88` (13,162) off | **323 of 354, 31 free** (measured) |
+
+Nothing else moves. Both packages stay on the 720KB, 1.44MB and 1.2MB system
+disks and on every apps disk, `build/apps360.img` included, and **`BROWSER.HTM`
+was never on this disk**: it rides `MEDIA/` on the apps disk beside the
+browser that opens it (§71.12, §24.6.2), so the 360KB apps disk is
+byte-identical across the change. What the system disk loses with Browser is
+its `ASSOC.DAT` row binding `.HTM`, which is correct rather than a casualty -
+with no browser on the volume there is nothing for the row to name, and
+mounting the apps disk teaches the machine the extension as it always has.
+
+The 360KB gate disks (`ether360.img`, `thewire360.img`, the `usbm` pair)
+take the same list, as they took 24.3.1.1's; every network row opens the
+browser off `B:`. `tests/btnall.py` and `tests/btngesture.py`, which launched
+both off `A:`, now launch them off the apps disk they already boot with.
+
 ### 24.4 The MEDIA DISK — a third shipped disk, at 360KB alone
 
 `build/media360.img` is a data floppy carrying `MEDIA/BEVERLY.MOD` and

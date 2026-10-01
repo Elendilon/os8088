@@ -3318,6 +3318,8 @@ SYSDOCRAW := $(BUILD)/readme-plain.txt
 # SPEC.md 70.9's ANSI-BBS parser, which takes TELNET.O88 from 7 clusters to 10.
 #
 # **TELNET STAYS, BECAUSE THE XT IS THE MACHINE §24.3's ARGUMENT IS ABOUT.**
+# (It stayed until SPEC.md 24.3.1.2, which took it and Browser off this
+# geometry on the Wire's test - see SYS360OMIT below. Kept as the record.)
 # A network machine's system disk carries the driver, so it should carry the
 # programs that use it; a 360KB disk is precisely the machine that has no other
 # floppy to swap in. What gives way instead, on THIS GEOMETRY ONLY:
@@ -3380,7 +3382,21 @@ SYSDOCRAW := $(BUILD)/readme-plain.txt
 # rather than a decision anyone took. The MACHINERY stays: it is where
 # the next thing that grows this geometry gives something up, and os88disk.py
 # refusing the image is the enforcement.
-SYS360OMIT :=
+#
+# **AND BROWSER AND TELNET ARE WHAT IT GIVES UP NOW** (SPEC.md 24.3.1.2). The
+# disk reached 350 of 354 - four clusters free - and the owner took them both
+# off on 24.3.1.1's test: can the machine get it BACK. A machine that can use
+# either one has a link up, and a machine with a link up has THE WIRE, which
+# stays in SYSTEM/ on this disk and whose catalog carries both. So the "a
+# network machine's system disk should carry the programs that use its
+# driver" argument further up is spent at this geometry: the one network
+# program it carries is the one that fetches the others. Both stay on the
+# 720KB, 1.44MB and 1.2MB system disks and on every apps disk, and
+# BROWSER.HTM is in MEDIA/ on build/apps360.img beside the browser that
+# opens it - this disk never carried the page. The 360KB gate disks
+# (ether360, thewire360, the usbm pair) take the same list; every network
+# row opens the browser off B:.
+SYS360OMIT := $(BUILD)/browser.o88 $(BUILD)/telnet.o88
 CORE_TOOLS360 := $(filter-out $(SYS360OMIT),$(CORE_TOOLS))
 CORE_GAMES360 := $(filter-out $(SYS360OMIT),$(CORE_GAMES))
 COREAPPS360 := $(CORE_TOOLS360) $(CORE_GAMES360)
