@@ -17,7 +17,8 @@
                 plain   a small window moved over plain desktop beside two
                         others - the dither-only control, no cell touched
 
-The instrument docs/plans/DESK-CLIP-PLAN.md section 2 was measured with. It
+The instrument docs/plans/completed/DESK-CLIP-PLAN.md section 2 was measured
+with, and what tests/deskclip.py drives. It
 exists because a reveal repaint (`wm_paint_dmg`, SPEC.md 11.91) is FIVE jobs
 in one call - the ground, the desktop cells, the dock and bar, the windows,
 the promotion - and the question that plan asks ("what do the cells cost, and
@@ -114,10 +115,15 @@ def shrink(ui, w, dx, dy):
 
 # --- the armed gesture -------------------------------------------------------
 
-def armed(ui, trigger, quiet=3.0, first=40.0):
-    """Run `trigger` with every mark armed; collect until the guest goes quiet."""
+def armed(ui, trigger, quiet=3.0, first=40.0, names=None):
+    """Run `trigger` with every mark armed; collect until the guest goes quiet.
+
+    `names` narrows the set - a gate that asks only WHICH windows were drawn
+    arms `wm_paint_dmg`, its `.out` and `wm_draw_win`, and runs at nearly the
+    guest's own speed instead of stopping at every primitive."""
     m = ui.m
-    names = [p[0] for p in PHASES] + MARKS + PRIMS
+    if names is None:
+        names = [p[0] for p in PHASES] + MARKS + PRIMS
     wins = m.sym("wm_wins")
     su = m.sym("wm_su_son")
 
@@ -316,6 +322,7 @@ def sc_drag(ui):
     tx = sw - a.w - 4
     trig = drag_setup(ui, tx - a.x, 0, a)
     over = isect(occ(b), cb)
+    LAST["spared"] = (b.i, over)
     print("  parked %r %r over B:'s cell at %r; mover %r dragged %d px right"
           % (b.title, (b.x, b.y, b.w, b.h), over, (a.x, a.y, a.w, a.h),
              tx - a.x))
@@ -335,6 +342,7 @@ def sc_close(ui):
     v = ui.move_window(v, geom.word(m, "vid_w") - v.w - 10, w.y + w.h + 6)
     ui.mo.to(4, 4)
     ui.settle()
+    LAST["spared"] = (w.i, isect(occ(w), cell))
     print("  W %r over the cell at %r; V %r"
           % ((w.x, w.y, w.w, w.h), isect(occ(w), cell), (v.x, v.y, v.w, v.h)))
     ui.raise_window(v)
@@ -383,6 +391,7 @@ def sc_cell(ui):
     a = ui.move_window(a, 0, 24)
     ui.mo.to(4, 4)
     ui.settle()
+    LAST["spared"] = (b.i, isect(occ(b), cb))
     print("  parked %r over B:'s cell (cell %d) at %r"
           % ((b.x, b.y, b.w, b.h), cell, isect(occ(b), cb)))
     dirty = m.sym("desk_cdirty") + (cell >> 3)
@@ -396,6 +405,10 @@ def sc_cell(ui):
 
 
 PARKED = "disk"
+# what the last scenario set up: "spared" = (the slot of the window that sits
+# over a cell and that nothing but the cell would mark, and its rect AND the
+# cell's) - tests/deskclip.py's two assertions are about exactly that window
+LAST = {}
 SCENARIOS = {"cell": sc_cell, "drag": sc_drag, "close": sc_close, "plain": sc_plain}
 
 
@@ -444,14 +457,19 @@ def main():
             verify(ui, a.png and os.path.join(a.png, "%s-%s" % (a.scenario, a.machine)))
 
 
-def verify(ui, png=None):
+def verify(ui, png=None, only=None):
     """The screen the damage pass left, against a forced WHOLE repaint.
 
     `[cp_dirty]` makes ui_task run wm_paint_all, which draws the desktop and
     then every window over it whole and so cannot get the layering wrong
     (tests/zonedmg.py's reference). A Task Manager is masked out: its
     performance page changes by construction (SPEC.md 28.11.2), and so is the
-    menu bar's clock, which a slow traced run carries across a minute."""
+    menu bar's clock, which a slow traced run carries across a minute.
+
+    `only` restricts the compare to one rect, which is what a GATE wants:
+    the whole repaint is not a perfect reference (DESK-CLIP-PLAN 6.2 - it
+    under-draws a title whose visible part spans two fragments). Answers the
+    count of differing pixels."""
     m = ui.m
     ui.mo.to(4, 4)
     ui.settle()
@@ -484,6 +502,9 @@ def verify(ui, png=None):
             if got[y][x] != ref[y][x]:
                 if any(r[0] <= x <= r[2] and r[1] <= y <= r[3] for r in skip):
                     continue
+                if only and not (only[0] <= x <= only[2]
+                                 and only[1] <= y <= only[3]):
+                    continue
                 bad += 1
                 for k, b in enumerate(boxes):       # cluster, 8 px slack
                     if b[0] - 8 <= x <= b[2] + 8 and b[1] - 8 <= y <= b[3] + 8:
@@ -495,6 +516,7 @@ def verify(ui, png=None):
     print("  verify: %d pixels differ from a whole repaint%s"
           % (bad, "" if not bad else " in %s" % " ".join(
               "(%d,%d)-(%d,%d):%d" % b for b in boxes[:8])))
+    return bad
 
 
 if __name__ == "__main__":

@@ -881,7 +881,10 @@ desk_reflow:
 ; One wm_paint_dmg (SPEC.md 11.91) per cell that changed: the dither clipped to
 ; that cell, whatever is shown in it, and only the windows that overlap it. A
 ; mount at the end of a column is one cell. Nothing between two columns is
-; ever painted, so SPEC.md 26.3's phantom column cannot come back.
+; ever painted, so SPEC.md 26.3's phantom column cannot come back. No window
+; moved, so the pass is told it uncovered nothing and promotes nobody (SPEC.md
+; 11.91.6) - on kern_big that leaves a window over the cell untouched, the
+; cell being drawn only where it shows.
 ; -----------------------------------------------------------------------------
 desk_zones_paint_x:
     call kentc_di
@@ -895,6 +898,16 @@ desk_zones_paint_x:
     and [bx+desk_cdirty], ah
     mov ax, si
     call desk_cell_rect
+%ifdef KERN_BIG
+    mov word [wm_dmg_stwin], 1  ; NOTHING WAS UNCOVERED - no window moved
+    mov word [wm_dmg_st1+4], 8000h ; (SPEC.md 11.91.6): 11.91.2's vacated
+                                ; rect, armed EMPTY (x2 = -32768 meets no rect)
+                                ; for a "moved window" at 1, which is none.
+                                ; Every window over the cell is then owed only
+                                ; what the clipped cell and the dither reached
+%endif
+    mov byte [wm_dmg_npro], 1   ; ...and so nothing was PROMOTED: the front
+                                ; window is the one it was. Both kernels
     call KERNEL_SEG:cw_wm_paint_dmg
 .n:
     inc si
@@ -1052,41 +1065,114 @@ desk_caprect:
 ; desk_paint - draw every shown zone. Called by wm_paint_all after the desktop
 ;              fill; caller holds the gfx lock. All registers preserved.
 ; desk_paint_mask - draw the zones desk_dmg_zones collected into [desk_dmgm];
-;              AX (wm.inc's "any" word) is not read. Lock held.
+;              AX (wm.inc's "any" word) is not read. Lock held. On kern_big
+;              each is drawn only where the pass reveals it (desk_zone_clip,
+;              SPEC.md 11.91.6); wm_paint_all's pass draws them whole, the
+;              painter's algorithm putting every window back over them.
 ; -----------------------------------------------------------------------------
 desk_paint_x:
     push ax
     mov ax, 0xFFFF
     mov [desk_dmgm], ax
     mov [desk_dmgm+2], ax
+%ifdef KERN_BIG
+    mov ax, desk_draw_zone      ; the routine each set bit is handed to
+%endif
     jmp short desk_pm_body
 desk_paint_mask_x:
     push ax
+%ifdef KERN_BIG
+    mov ax, desk_zone_clip
+%endif
 desk_pm_body:
     push bx
     push cx
     push dx
+%ifdef KERN_BIG
+    xchg ax, dx                 ; DX = it, for the whole walk
+%endif
     xor cx, cx
 .next:
     shl word [desk_dmgm], 1     ; zone CL's bit, top of the dword first:
     rcl word [desk_dmgm+2], 1   ; desk_dmg_zones rotated zone 0 in LAST
     jnc .skip
     mov al, cl
+%ifdef KERN_BIG
+    call dx                     ; both preserve every register
+%else
     call desk_draw_zone         ; a zone not shown draws nothing
+%endif
 .skip:
     inc cx
     cmp cl, DESK_NZ
     jb .next
     jmp kretfc_dx
 
+%ifdef KERN_BIG
+; -----------------------------------------------------------------------------
+; desk_zone_clip - draw a touched zone ONLY where this damage pass reveals it
+;                  (SPEC.md 11.91.6)
+; in:  AL = a zone desk_dmg_zones marked (so a SHOWN one); [wm_dmg_*] set;
+;      the gfx lock held
+; out: nothing (all registers preserved)
+;
+; The region is wm_zone_r's: zone AND damage minus every window's frame. Each
+; fragment is drawn ALONE - copied into slot 0 with the count at 1 - because
+; font_char and ico_clip are exact against ONE fragment and under-draw against
+; several (11.3.2, 11.3.4). The fragments are disjoint, so no pixel is drawn
+; twice, and copying over slot 0 loses nothing: it was drawn first. Nothing
+; in desk_draw_zone writes wm_clip_tab.
+;
+; Overflow is the old answer: the zone whole, its box grown so every window
+; over it is owed a repaint (11.91's per-window test).
+; -----------------------------------------------------------------------------
+desk_zone_clip:
+    call kentc_di
+    push ax
+    call desk_zone_rect
+    call KERNEL_SEG:cw_wm_zone_r
+    pop ax
+    jc .whole
+    jz .out                     ; nothing of it revealed
+    xchg ax, dx                 ; DL = the zone
+    mov cx, [wm_clip_n]
+    mov si, wm_clip_tab
+    push es
+    push ds
+    pop es
+.frag:
+    mov di, wm_clip_tab         ; fragment k into slot 0...
+    movsw
+    movsw
+    movsw
+    movsw
+    mov word [wm_clip_n], 1     ; ...and only it armed
+    mov al, dl
+    call desk_draw_zone
+    loop .frag
+    pop es
+    call KERNEL_SEG:cw_wm_clip_clear
+    jmp short .out
+.whole:
+    push ax
+    call desk_zone_rect
+    call KERNEL_SEG:cw_wm_dmg_zadd
+    pop ax
+    call desk_draw_zone
+.out:
+    jmp kretc_di
+%endif
+
 ; -----------------------------------------------------------------------------
 ; desk_dmg_zones - which zones does the damage rect touch?
 ; in:  [wm_dmg_*] (wm.inc); [wm_dmg_zb] EMPTY; caller holds the gfx lock
-; out: [desk_dmgm] = the zones, for desk_paint_mask; [wm_dmg_zb] = their
-;      bounding box (a zone is redrawn whole, so a window over one has to be
-;      marked too - per window, by wm_dmg_wins). The DAMAGE is not grown:
-;      folded in, it damaged every window the box reached rather than the
-;      ones over a zone (SPEC.md 11.91). AX clobbered, everything else
+; out: [desk_dmgm] = the zones, for desk_paint_mask. kern_small: a zone the
+;      pass reveals NONE of is left out (SPEC.md 11.91.6), and [wm_dmg_zb] =
+;      the box of the rest (a zone is redrawn whole, so a window over one has
+;      to be marked too - per window, by wm_dmg_wins); on kern_big
+;      desk_zone_clip makes both decisions at the draw. The DAMAGE is not
+;      grown: folded in, it damaged every window the box reached rather than
+;      the ones over a zone (SPEC.md 11.91). AX clobbered, everything else
 ;      preserved.
 ;
 ; THE MASK IS A DWORD now, zone z at bit 31-z: shortcuts and drives share one
@@ -1107,15 +1193,29 @@ desk_dmg_zones_x:
     dec di
     mov ax, di
     call desk_zs
-    jc .no                      ; not shown: shift in a 0
+    cmc
+    jnc .r                      ; not shown: shift in a 0
     call desk_cell_rect
     call KERNEL_SEG:cw_wm_dmg_hit   ; CF = 1: it touches the damage
+%ifdef KERN_SMALL
     jnc .r
-    call KERNEL_SEG:cw_wm_dmg_zadd  ; ...so the zones' box grows to it
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    call KERNEL_SEG:cw_wm_zone_r    ; ...but is any of it REVEALED?
+    pop si                      ; (`pop` writes no flag)
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    jc .grow                    ; overflowed: say yes
+    jz .r                       ; wholly under frames: CF = 0, not drawn
+.grow:
+    call KERNEL_SEG:cw_wm_dmg_zadd  ; drawn whole: the zones' box grows to it
     stc
-    jmp short .r
-.no:
-    clc
+%endif
 .r:
     rcr word [desk_dmgm+2], 1
     rcr word [desk_dmgm], 1

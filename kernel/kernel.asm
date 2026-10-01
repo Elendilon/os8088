@@ -7334,6 +7334,8 @@ cw_wm_dmg_zadd:          push si             ; desk_dmg_zones grows the
                          retf
 cw_wm_dmg_hit:           call wm_dmg_hit
                      retf
+cw_wm_zone_r:            call wm_zone_r      ; a zone's revealed region
+                     retf                    ; (SPEC.md 11.91.6)
 cw_wm_dmg_wins:         call wm_dmg_wins
                     retf
 cw_wm_grow_paint:       call wm_grow_paint

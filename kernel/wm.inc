@@ -5177,6 +5177,12 @@ wm_paint_dmg:
     ; front was redrawn above it already has them; if it sat well clear of
     ; the damage it was never touched, and this is the one rect it owes.
 .promote:
+    shr byte [wm_dmg_npro], 1   ; ...unless a pass that uncovered NOTHING says
+    jc .out                     ; no window changed place (SPEC.md 11.91.6):
+                                ; the front window then is the one it was, and
+                                ; its title bar is already right. A one-shot,
+                                ; spent here: `shr` takes the bit into CF and
+                                ; leaves the byte 0
     call wm_top
     or bx, bx
     jz .out
@@ -5839,6 +5845,9 @@ wm_dmg_zb   dw 7FFFh, 7FFFh, 8000h, 8000h ; the box of every desktop zone
                                 ; one-shot wm_dmg_wins empties. EMPTY is
                                 ; x1 > x2 signed: no rect hits it and the
                                 ; first union replaces it
+wm_dmg_npro db 0                ; 1 = this pass promotes nobody: it
+                                ; uncovered nothing (desk_zones_paint, SPEC.md
+                                ; 11.91.6). A one-shot .promote spends
 wm_dmg_fs   db 0                ; 1 = a fullscreen window is over the chrome,
                                 ; so this pass draws windows and nothing else
 wm_dmg_dk   db 0                ; 1 = the dock strip really was drawn, so a
@@ -6402,6 +6411,41 @@ wm_clip_rect:
     pop bx
     pop ax
     retf
+
+; -----------------------------------------------------------------------------
+; wm_zone_r - what a damage pass really reveals of one desktop ZONE
+; in:  AX..DX = the zone's rect, touching [wm_dmg_x1..y2] (desk.inc only ever
+;      asks about one that does, so the intersection is never empty); the
+;      gfx lock held
+; out: CF = 1 the region overflowed - nothing armed;
+;      CF = 0, ZF = 1 nothing of the zone is revealed - nothing armed;
+;      CF = 0, ZF = 0 kern_big: ARMED with that region, for the caller to
+;      draw the zone into and disarm; kern_small: disarmed, a question only
+; clobbers: AX, BX, CX, DX, SI, flags
+;
+; SPEC.md 11.91.6. The region is zone AND damage minus every visible window's
+; FRAME - wm_dmg_gray's own (11.91.1), so the zone and the dither agree on
+; every pixel: an OCCUPIED box would hold the two shadow corners no window
+; draws and the dither does, and a zone clipped by it would leave a dithered
+; pixel where its picture should be. It keeps the shadow L lines, which the
+; zone then draws over - inside the damage, where wm_dmg_shadowed already owes
+; every L the damage reaches. Placed here for the two short `jc`s into
+; wm_clip_clear, which writes no flag.
+; -----------------------------------------------------------------------------
+wm_zone_r:
+    mov si, wm_dmg_x1
+    call gfx_rect_isect         ; zone AND damage...
+    mov si, dx
+    mov dx, bx
+    call wm_clip_seed
+    call wm_dmg_occl            ; ...minus every frame (and an open dock)
+    jc wm_clip_clear            ; overflowed: disarmed, CF still 1
+    cmp word [wm_clip_n], 0     ; ZF = 1: wholly covered (and so disarmed)
+%ifdef KERN_SMALL
+    jmp short wm_clip_clear     ; ...and on kern_small only ever a question
+%else
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; wm_clip_clear - disarm clipping

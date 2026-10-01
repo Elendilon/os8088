@@ -1,12 +1,65 @@
 # DESK-CLIP - THE DESKTOP'S CELLS DRAWN ONLY WHERE THEY SHOW
 
-**STATUS: OPEN, COSTED, NOTHING BUILT.** Every number below was measured on
-MartyPC against a throwaway prototype in a private tree; no kernel change is
-committed. The instrument is `tools/deskclip.py`, which is committed and
-re-derives every row of section 2 and section 4 in one command each.
-Measured 2026-10-01 on `claude/jolly-mayer-sxly49` at `db44c20`, on a 4-core
-container (other sessions' emulators running beside it - which moves wall
-clock and not one guest cycle).
+**STATUS: BUILT - SPEC.md §11.3.5 and §11.91.6 are the contract and this file
+is the design record behind them.** The owner chose section 5.1's answer for
+both kernels: option A + C2 on `kern_big`, option B + C2's promotion
+one-shot on `kern_small`. Everything from section 1 on is the COSTING as it
+was written, against throwaway prototypes in private trees on
+`claude/jolly-mayer-sxly49` at `db44c20`, 2026-10-01; section 0 is what the
+production build measured. The instrument is `tools/deskclip.py`, and
+`tests/deskclip.py` (`deskclip`, `deskclipsmall`) is the gate.
+
+## 0. What was built, measured
+
+**Bytes, resident, `tools/kernsize.py --json` against the tree before it**
+(no rung crossed on either kernel):
+
+| build | built | the plan said |
+|---|---|---|
+| `kern_big` (A + C2) | **+322**: `.text` +233, `.bss` +4, `.cold` +85 | 484 prototype, ~400 ESTIMATED |
+| `kern_small` (B + one-shot) | **+58**: `.text` +36, `.cold` +22 | 92 prototype |
+
+By symbol span: `ico_clip` 198 (prototype 268), `wm_zone_r` 24 (44),
+`desk_zone_clip` 72 (121). Where the bytes went: `wm_zone_r` clobbers rather
+than preserves and leaves through `wm_clip_clear`, which writes no flag;
+`desk_zone_clip` copies each fragment over slot 0 instead of swapping it
+there and back (slot 0 is drawn first, so nothing is lost); the walk is
+handed its draw routine in DX instead of testing a flag; the overflow path
+is the only one that grows `[wm_dmg_zb]`, so `desk_dmg_zones` lost its call
+on `kern_big`; `ico_clip` clobbers what `ico_core` resets anyway and folds
+the "anything cut" test into an AND of the masks; and the promotion one-shot
+is one `shr` and a `jc`. `kern_small` asks `wm_zone_r` as a QUESTION at
+`desk_dmg_zones`, so it needs none of the fragment machinery, and takes only
+the one-shot of C2: without the clip, its windows over a partly visible cell
+are marked by the zones' box whatever the vacated rect says, so the empty
+rect would change nothing there.
+
+**Gestures, one reveal pass, guest ms on a 4.77 MHz 8088** (section 2.2's
+layouts; the Task Manager rows carry its worker's +-20 ms):
+
+| gesture | Hercules before -> after | VGA before -> after |
+|---|---|---|
+| drag over the cell column, a window parked over a cell | 233.3 -> **151.1** | 195.1 -> **139.2** |
+| ...the parked window the Task Manager | 779.7 / 761.3 -> **444.5** | 630.7 / 633.7 -> **332.2** |
+| close a window whose frame reaches a cell another covers | 156.9 -> **115.6** | 120.5 -> **86.8** |
+| a cell repainted in place under a window | 131.0 -> **72.7** | 238.3 -> **59.3** |
+| plain desktop, no cell (the control) | 202.1 -> 202.2 | 221.0 -> 221.0 |
+
+`kern_small`, Hercules: drag **214.9 -> 118.6**, in-place repaint **118.3 ->
+83.2**, close 146.8 -> 147.2. Every row read 0 differing pixels against a
+whole repaint except `drag` on `kern_big`, whose 32 are the reference's own
+(section 6.2).
+
+**The gate goes red for each part broken**, measured on the production
+build: `wm_zone_r` without its frame subtraction - 495 pixels (`cell`, both
+adapters) and 313 (`close`, Hercules); `ico_clip`'s column masks forced to
+0FFFFh - 32 pixels (`cell`, both) and 27 (`close`, Hercules); C2's stores
+taken out - the window over the cell redrawn on both, and on Hercules a
+title promoted; `kern_small`'s skip taken out - both covered cells drawn
+and the parked window redrawn. `drag` is green under the first two breaks
+on both adapters, and correctly: the part of the parked window the cell
+would wrongly cover inside the damage is under the mover, which is drawn
+after it - so `cell` is the row's sharp edge and `drag` is its coverage.
 
 **The owner's ask:** *"the cells are not clipping to only visible areas, thus
 damaging windows they do not need to. That can and will cause repaint
@@ -14,7 +67,7 @@ cascades, just like when that bug existed on the original desktop. Lets cost
 fixing that, we should have draw calls that know which parts need drawn and
 which do not (thus avoiding damaging windows that don't need damaged)."*
 
-**The answer, in one table** (section 5 has the derivation). Option A+C2 is a
+**The answer, in one table, as COSTED** (section 5 has the derivation). Option A+C2 is a
 prototype measured at **+484 resident bytes on `kern_big`** (no rung crossed;
 per CLAUDE.md's banner that is not the point). `kern_small` gets a different
 answer, because its cells are a different shape (section 4.1): option B plus

@@ -31,9 +31,19 @@ repaint (`[cp_dirty]`, `wm_paint_all`, which draws the desktop and then
 every window over it whole and so cannot get it wrong). A Disk window's
 listing does not change by itself, and the pointer is parked off the rect.
 
+**SINCE SPEC.md 11.91.6 kern_big draws the cell only where it shows**, so
+the cell no longer reaches W at all and the per-window zone test is that
+kernel's OVERFLOW fallback: this row still asserts the pixels, and
+tests/deskclip.py asserts that W is not even redrawn. The per-window test is
+still every partly visible cell's answer on kern_small, and the break below
+is that kernel's (and was kern_big's before 11.91.6):
+
 **BREAK IT ON PURPOSE** (docs/WRITING-TESTS.md 1): put `clc` in front of
 the `jc .mset` after `wm_dmg_wins`' zone test at `.mnodmg` and the overlap
-comes back as B:'s cell: 348 of the 840 pixels differ, measured.
+comes back as B:'s cell: 348 of the 840 pixels differ, measured. On kern_big
+today the break is tests/deskclip.py's - `wm_zone_r` without its frame
+subtraction - which reads 313 pixels in this layout (deskclip's `close`,
+measured).
 """
 import os
 import sys

@@ -8028,15 +8028,36 @@ SOAK = [
         "before it must differ in one cell).",
         needs=("marty",), timeout=600),
     Row("zonedmg", "soak", py("tests/zonedmg.py"), 15.0,
-        "SPEC.md 11.91: a desktop zone the damage reached is drawn WHOLE, so "
-        "the windows over IT owe a redraw - asked per window against the "
-        "zones' own box, [wm_dmg_zb], since folding the zone into the damage "
-        "owed every window the box reached (tmgraph's BAR leg). A window "
-        "over B:'s cell, a second window closed below it whose frame reaches "
-        "the cell and not the first: the first window's pixels over the cell "
-        "must match a whole repaint. Without the per-window test the cell "
-        "is left painted over it.",
+        "SPEC.md 11.91/11.91.6: a window over B:'s cell, a second window "
+        "closed below it whose frame reaches the cell and not the first: the "
+        "first window's pixels over the cell must match a whole repaint. "
+        "Where a zone is drawn WHOLE (kern_small's partly visible cell, "
+        "kern_big's overflow fallback) the windows over it owe a redraw, "
+        "asked per window against [wm_dmg_zb] (tmgraph's BAR leg is the "
+        "over-reach the fold had); on kern_big the cell is drawn only where "
+        "it shows and the window is not touched at all - deskclip is that "
+        "half's gate.",
         needs=("marty",), timeout=600),
+    Row("deskclip", "soak", py("tests/deskclip.py"), 100.0,
+        "SPEC.md 11.91.6: on kern_big a desktop cell is drawn only where the "
+        "damage pass reveals it - zone AND damage minus every window's "
+        "frame, a fragment at a time, ico_clip cutting the picture's rows "
+        "and columns (11.3.5) - so a window lying on the cell is NOT owed a "
+        "repaint; and an in-place cell repaint uncovered nothing and "
+        "promotes nobody. Three gestures (cell, close, drag) on Hercules and "
+        "VGA: the window over the cell is not redrawn and its pixels there "
+        "match a whole repaint. Red without the frame subtraction (495 px), "
+        "without ico_clip's column masks (32 px) and without the "
+        "nothing-uncovered stores (the window redrawn, a title promoted).",
+        needs=("marty",), serial=True, timeout=900),
+    Row("deskclipsmall", "soak", py("tests/deskclip.py", "--small"), 50.0,
+        "SPEC.md 11.91.6, kern_small's half: a cell the pass reveals NONE "
+        "of is not drawn and marks nobody, and an in-place cell repaint "
+        "promotes nobody. A drag whose mover and a parked window cover B:'s "
+        "cell between them: neither cell is drawn, the parked window is not "
+        "redrawn, its pixels match. Red without the skip (both cells drawn, "
+        "the window redrawn). Builds kern_small into small128's private tree.",
+        needs=("marty",), serial=True, timeout=900),
     Row("deskitem", "soak", py("tests/deskitem.py"), 25.0,
         "SPEC.md 26.9: OSAPI_DESK_ITEM from a PACKAGE. `make deskitem`'s "
         "DESKITEM.O88 hands the kernel a link to itself through its File "
