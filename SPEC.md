@@ -155846,6 +155846,24 @@ its text alone; with the buttons in the card (`VP_LINESB`) its text stops
 at eight lines, above them. A play's **pauses are its own**, as its stalls
 are: `[vp_pause]` counted every play since the window opened.
 
+**And two lines for the reader, after a play** - a field diagnostic, for
+telling a stream that ran dry from a card that did: `Lead 1 at f470; hook
+gap 3` is the fewest chunks the reader was ever loaded past the hook's
+super-packet (`[vp_lmin]`, sampled every foreground pass until the stream
+is read to its end) and the frame it was at, and the most hook periods
+between two hook calls (`[vp_gap]`); `Dry 9/11 stream; most 6t f480` is
+how many of the card's pauses had its sound waiting on an UNREAD record
+(`vp_afill` stopped at one: `[vp_astv]`, seen on any pass while the pause
+lasted) out of all of them, and the longest pause in ticks with the frame
+it ended at. **With a card, a stream that runs dry is a PAUSE and not a
+stall**: the card is the clock, and the sound - filled ahead of the
+picture - runs out first, so the clock stops before the picture reaches
+the frame it has no record for; muted, the same starvation is a stall.
+So a lead near 0 and dry pauses that are the stream's say the reader did
+not keep up; a lead that held and pauses that are not say the card did.
+Measured on MartyPC's 8088 with the owner's 358 KB/s VGA8 clip, which it
+cannot read fast enough: lead 1 at frame 25, 14 of 14 the stream's.
+
 **Measured** (`tests/vidplay.py`, a 150-frame 30 fps clip the row makes,
 opened by double-clicking it):
 - **Frame-exact on CGA and on Hercules.** With the ring held to 2 slots the

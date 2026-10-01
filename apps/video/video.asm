@@ -85,7 +85,8 @@ VP_SLOTP    equ VP_CHUNK / 16       ; ...in paragraphs
 VP_KMAX     equ 8                   ; a LIVE play's most slots (a power of two)
 VP_KBIG     equ 15                  ; ...and any other's (SPEC.md 98.3)
 VP_COLS     equ 35                  ; the info panel's text columns
-VP_LINES    equ 10                  ; (the last two the heap's, 98.3)
+VP_LINES    equ 12                  ; (the last four the heap's and the
+                                    ; reader's, 98.3: a field diagnostic)
 VP_LINESB   equ 8                   ; ...and all a card with its buttons in
 VP_LINE     equ VP_COLS + 1
 VP_LPITCH   equ 11                  ; ...and its line pitch
@@ -6687,6 +6688,13 @@ vp_spos:
     mov [vp_stall], ax
     mov [vp_pause], ax              ; (this play's, as the stalls are: it
     mov [vp_ptk], ax                ; counted every play since the open)
+    mov [vp_pstrm], ax              ; THE READER'S DIAGNOSTIC (98.3): pauses
+    mov [vp_pmax], ax               ; with the sound waiting on the stream,
+    mov [vp_pmaxf], ax              ; the longest and where, and the least
+    mov [vp_lminf], ax              ; lead the reader had over the picture
+    mov [vp_astv], al
+    mov [vp_pin], al
+    mov word [vp_lmin], 0xFFFF
     mov [vp_late], ax
     mov [vp_dt], ax
     mov [vp_gap], ax
@@ -7447,6 +7455,16 @@ vp_main:
     cmp ax, [vp_frames]             ; - unless it repeats (98.3.9)
     jae .drain
 .rd:
+    cmp byte [vp_eof], 0            ; THE READER'S LEAST LEAD over the
+    jne .rl                         ; picture, in chunks (98.3's diagnostic):
+    mov ax, [vp_lc]                 ; loaded past the hook's super-packet,
+    sub ax, [vp_pc]                 ; sampled every pass until the stream
+    cmp ax, [vp_lmin]               ; has been read to its end
+    jae .rl
+    mov [vp_lmin], ax
+    mov ax, [vp_done]
+    mov [vp_lminf], ax
+.rl:
     call vp_skeep                   ; EVERY pass, not only an idle one: after
                                     ; an underrun the reader is catching up,
                                     ; so a chunk arrives each pass and the
@@ -9033,6 +9051,18 @@ vp_skeep:
 .und:
     cmp ax, 1
     jne .out
+    push dx                         ; THE DIAGNOSTIC (98.3): a pause is
+    cmp byte [vp_pin], 0            ; timed from the pass that first sees
+    jne .pi                         ; it, and called the STREAM's when the
+    mov byte [vp_pin], 1            ; sound was waiting on an unread record
+    call OSAPI_GET_TICKS            ; at any pass while it lasted
+    mov [vp_pt0], ax
+.pi:
+    cmp byte [vp_astv], 0           ; (bit 1: the stream's, seen)
+    je .pn
+    or byte [vp_pin], 2
+.pn:
+    pop dx
     mov ax, [vp_atot]
     sub ax, dx
     cmp ax, [vp_blk]
@@ -9042,6 +9072,18 @@ vp_skeep:
     mov cx, [vp_atot]
     call OSAPI_SND_STREAM
     inc word [vp_pause]
+    test byte [vp_pin], 2           ; (the stream's)
+    jz .pc
+    inc word [vp_pstrm]
+.pc:
+    mov byte [vp_pin], 0
+    call OSAPI_GET_TICKS
+    sub ax, [vp_pt0]
+    cmp ax, [vp_pmax]
+    jbe .out
+    mov [vp_pmax], ax
+    mov ax, [vp_done]
+    mov [vp_pmaxf], ax
 .out:
     ret
 
@@ -10432,7 +10474,10 @@ vp_afill:
     call vp_next
     jnc .rec
     or al, al
-    jz .out                         ; not read yet: next call
+    jnz .ae
+    mov byte [vp_astv], 1           ; NOT READ YET: the sound waits on the
+    ret                             ; stream (the card line's diagnostic)
+.ae:
     mov byte [vp_aend], 2           ; the end early, or damage: the video
     ret                             ; says which when it gets there
 .rec:
@@ -10449,6 +10494,7 @@ vp_afill:
 .rput:
     mov cx, [vp_abytes]
     call vp_aput
+    mov byte [vp_astv], 0
     inc word [vp_afr]
 .nx:
     inc word [vp_aseq]
@@ -12074,7 +12120,7 @@ vp_fmt:
 .mk:
     mov byte [vp_mkeep], 0          ; (RESIDENT: no ring, and its keeper and
     mov byte [vp_msnd], 0           ; sound are not captured - say nothing)
-    jmp short .out
+    jmp .out
 .mk2:
     mov si, vp_s_keep
     call vp_puts
@@ -12084,6 +12130,43 @@ vp_fmt:
     mov si, vp_s_snd
     call vp_puts
     mov al, [vp_msnd]
+    call vp_putn
+    cmp byte [vp_played], 0         ; 10 and 11: THE READER (98.3), after a
+    je .out                         ; play - its least lead over the picture,
+    cmp word [vp_lmin], 0xFFFF      ; the hook's longest gap, and the card's
+    je .out                         ; pauses: the stream's of all, the longest
+    mov di, vp_lines + 10 * VP_LINE
+    mov si, vp_s_lead               ; Lead 1 at f470; hook gap 3
+    call vp_puts
+    xor dx, dx
+    mov ax, [vp_lmin]
+    call vp_putn
+    mov si, vp_s_atf
+    call vp_puts
+    mov ax, [vp_lminf]
+    call vp_putn
+    mov si, vp_s_hgap
+    call vp_puts
+    mov ax, [vp_gap]
+    call vp_putn
+    cmp byte [vp_msnd], 0
+    je .out
+    mov di, vp_lines + 11 * VP_LINE
+    mov si, vp_s_dry                ; Dry 9/11 stream; most 6t f480
+    call vp_puts
+    mov ax, [vp_pstrm]
+    call vp_putn
+    mov al, '/'
+    call vp_putc
+    mov ax, [vp_pause]
+    call vp_putn
+    mov si, vp_s_most
+    call vp_puts
+    mov ax, [vp_pmax]
+    call vp_putn
+    mov si, vp_s_tf
+    call vp_puts
+    mov ax, [vp_pmaxf]
     call vp_putn
 .out:
     pop es
@@ -12412,6 +12495,12 @@ vp_s_ring:    db 'Ring ', 0
 vp_s_kk:      db 'K; ', 0
 vp_s_keep:    db 'keep ', 0
 vp_s_snd:     db ' snd ', 0
+vp_s_lead:    db 'Lead ', 0
+vp_s_atf:     db ' at f', 0
+vp_s_hgap:    db '; hook gap ', 0
+vp_s_dry:     db 'Dry ', 0
+vp_s_most:    db ' stream; most ', 0
+vp_s_tf:      db 't f', 0
 vp_s_ticks:   db ', ', 0
 vp_s_want:    db ' ticks of ', 0
 
@@ -12648,6 +12737,14 @@ vp_mrun0:     dw 0                  ; the heap as Play found it: the largest
 vp_mfre0:     dw 0                  ; claim and all that is free, KB (98.3)
 vp_mrun:      dw 0                  ; ...and what the ring was sized from
 vp_mkeep:     db 0                  ; ...after the keeper, KB
+vp_lmin:      dw 0xFFFF             ; THE READER'S DIAGNOSTIC (98.3): the least
+vp_lminf:     dw 0                  ; lead in chunks, and the frame it was at
+vp_pstrm:     dw 0                  ; pauses with the sound waiting on the stream
+vp_pmax:      dw 0                  ; the longest pause, ticks, and its frame
+vp_pmaxf:     dw 0
+vp_pt0:       dw 0                  ; ...this one's start
+vp_pin:       db 0                  ; ...in one: bit 0, and bit 1 the stream's
+vp_astv:      db 0                  ; the sound is waiting on an unread record
 vp_nokeep:    db 0                  ; this play goes without its keeper (98.3.19):
                                     ; 1 under pressure, 2 the poster is it
 vp_pcv:       db 0                  ; ...and the poster holds this session's frame

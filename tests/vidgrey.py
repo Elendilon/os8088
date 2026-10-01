@@ -41,7 +41,7 @@ GREY = tuple((v * 255 + 31) // 63 for v in vid.STD16[3 * 7:3 * 7 + 3])
 NBTN = 7                        # VP_NBTN: the four, Repeat, Mute (SPEC.md
                                 # 98.3.17) and the info card's
 VP_BOXX, VP_BOXY, VP_BARH = 8, 6, 10
-VP_TXTY, VP_LPITCH, VP_LINES, VP_CARDW = 6, 11, 10, 280
+VP_TXTY, VP_LPITCH, VP_LINES, VP_CARDW = 6, 11, 12, 280
 VP_LINESB = 8                   # ...with the buttons in the card (98.3)
 VP_CARDH = VP_TXTY + VP_LINES * VP_LPITCH + 4
 VP_CARDHB = 96 + 20 + 4
