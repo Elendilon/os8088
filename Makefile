@@ -6992,6 +6992,22 @@ $(BUILD)/muptest.o88: $(BUILD)/muptest.bin tools/os88pkg.py
 $(BUILD)/muptest.img: $(BUILD)/muptest.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/muptest.o88
 
+# deskitem: OSAPI_DESK_ITEM's gate from a PACKAGE (SPEC.md 26.9) - a package
+# that links itself onto the desktop and takes the link off again, on a 360KB
+# scratch disk for B: beside the shipped system disk. On demand, like every
+# gate here: `make deskitem && python3 tests/deskitem.py`.
+.PHONY: deskitem
+deskitem: $(BUILD)/deskitem360.img
+$(BUILD)/deskitem.bin: tests/deskitem/deskitem.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/deskitem/deskitem.asm
+	@echo "deskitem: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/deskitem.o88: $(BUILD)/deskitem.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/deskitem.bin -o $@
+
+$(BUILD)/deskitem360.img: $(BUILD)/deskitem.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/deskitem.o88
+
 # fcpapi: OSAPI_FILE_COPY's gate (SPEC.md 22.24). EVERY ANSWER IS A FILE - the
 # copies it makes and the verdict it writes - because a copy engine that goes
 # wrong strands clusters or cross-links chains, and both look fine from inside

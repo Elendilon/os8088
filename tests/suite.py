@@ -7625,6 +7625,14 @@ SOAK = [
         "File > Remove Shortcut; and the claim and the trailer go with the "
         "last one. `--machine os8088_5150_cga` / `_herc` are the 1bpp looks.",
         needs=("marty",), timeout=600),
+    Row("deskitem", "soak", py("tests/deskitem.py"), 25.0,
+        "SPEC.md 26.9: OSAPI_DESK_ITEM from a PACKAGE. `make deskitem`'s "
+        "DESKITEM.O88 hands the kernel a link to itself through its File "
+        "menu: the link lands in the cell it ASKED for, its hostile record "
+        "comes back terminated and stamped, SYSTEM.CFG carries it, a "
+        "double-click launches the package, and Remove takes the cell, the "
+        "claim and the trailer away again.",
+        needs=("marty",), timeout=600, wants=("build/deskitem360.img",)),
     Row("curdisk", "soak", py("tests/curdisk.py"), 240.0,
         "SPEC.md 7.4: the arrow TRACKS the hand through a disk transfer. It "
         "used to freeze with the machine and then LEAVE THE SCREEN - once an "

@@ -4226,32 +4226,20 @@ api_gfx_blitp:                    ; (named: SPEC.md 5.4.3.6's walk far-calls it)
                                   ;         image arm, where it is true: with
                                   ;         no file there is nothing for
                                   ;         op_load to read a part out of
-    OSAPI_RCXCELL osapi_desk_svc_x   ; 0x03F8 - X: a DRIVER registers the
-                                  ;          desktop SERVICE zone (SPEC.md
-                                  ;          26.7). in AL = 1 add / 0
-                                  ;          withdraw, ES:SI = a 39-byte
-                                  ;          record in the driver's own
-                                  ;          segment: a caption, the 8.3 file
-                                  ;          the zone launches out of SYSTEM/,
-                                  ;          its DRVC_* class, the verb the
-                                  ;          kernel calls to PAINT its icon,
-                                  ;          and the package's header name.
-                                  ;          out CF=1 refused - not a
-                                  ;          published driver (osapi_vol_add's
-                                  ;          own fence), a second registration
-                                  ;          (there is ONE zone), or a
-                                  ;          withdraw of somebody else's.
-                                  ;          The kernel keeps no glyph: a
-                                  ;          desktop icon whose picture lived
-                                  ;          in here would be carried by every
-                                  ;          machine, and most of them have no
-                                  ;          card to use it with.
-                                  ;          THE CELL IS IN BOTH KERNELS
-                                  ;          (SPEC.md 20.8 rule 4) and on
-                                  ;          kern_small the body is two
-                                  ;          instructions that refuse: there is
-                                  ;          no driver there that would
-                                  ;          register one
+    OSAPI_RCXCELL osapi_desk_item_x  ; 0x03F8 - X: put an ITEM on the
+                                  ;          desktop, or take one off
+                                  ;          (SPEC.md 26.9). in AL = 1 add /
+                                  ;          0 remove, ES:SI = a record in
+                                  ;          the caller's own segment: a
+                                  ;          DRIVER's is the 40-byte service
+                                  ;          record (26.7), a PACKAGE's a
+                                  ;          128-byte link (26.8.1), and each
+                                  ;          names the cell it would like.
+                                  ;          out CF=0 AL = the zone. It was
+                                  ;          OSAPI_DESK_SVC, a driver's door
+                                  ;          only. kern_small's body refuses
+                                  ;          (SPEC.md 20.8 rule 4: the cell
+                                  ;          is in both kernels)
     OSAPI_RCXCELL osapi_pkg_rehome_x ; 0x03FE - X: a LOADER hands its identity to
                                   ;          one of its own parts (SPEC.md
                                   ;          20.12.10). in DX = the segment the

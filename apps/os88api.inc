@@ -1137,23 +1137,35 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ; proc it calls runs with the lock free like
                                  ; every other package's.
 
-; --- the desktop SERVICE zone, DRIVERS ONLY (SPEC.md 26.7) --------------------
-; A driver puts an icon on the desktop. It is here rather than in
-; drivers/os88drv.inc for OSAPI_FILE_WRITE_SYS's reason: a driver assembles
-; against this same file, and an application author reading the list is owed
-; the refusal's reason rather than a silent CF=1.
+; --- an ITEM on the desktop (SPEC.md 26.9) -----------------------------------
+; Drives, the network driver's service icon and shortcuts are all ITEMS in one
+; grid of CELLS on the desktop, and this is the door every one of them comes
+; through: put one there, in the cell you ask for or the first free one, or
+; take it away. Cell 0 is the top of the rightmost column and cells run down a
+; column and then to the next column LEFT; 0xFF is "the first free one".
 ;
-; The kernel keeps no glyph and no name: it holds the record, draws the
-; caption, hit-tests the zone and launches the file, and calls the DRIVER back
-; to paint the picture. That is the whole design - most XTs have no network
-; card, and a desktop icon whose art sat in every kernel would be carried by
-; every machine that cannot use it.
-%define OSAPI_DESK_SVC      KERNEL_SEG:0x03F8   ; AL = 1 add / 0 withdraw;
-                                 ; ES:SI = a 39-byte record in YOUR segment
-                                 ; (add only):
+; Who you are decides what you add (OSAPI_VOL_ADD's fence answers it):
+;
+;   A DRIVER adds the SERVICE item - ONE on the machine, gone when you are,
+;   and DRAWN BY YOU: the kernel keeps no glyph and no name, because most XTs
+;   have no network card and art in the kernel is carried by every machine.
+;   It holds the record, draws the caption, hit-tests and launches the file,
+;   and calls you back to paint the picture. drivers/wirezone.inc is the
+;   worked example. WITHDRAW AT DETACH: your paint verb lives in your image.
+;
+;   A PACKAGE adds a LINK - a shortcut, exactly as a file dragged out of a Disk
+;   window makes one (SPEC.md 26.8): its own 16x16 picture with the shortcut
+;   badge beside it, and a double-click opens the path the way the Disk window
+;   would. It is KEPT in SYSTEM.CFG, so it needs the system disk, and you call
+;   this from a WINDOW CALLBACK - never from a worker (SPEC.md 20.6 rule 7).
+;   tests/deskitem/deskitem.asm is the worked example.
+%define OSAPI_DESK_ITEM     KERNEL_SEG:0x03F8   ; AL = 1 add / 0 remove
+                                 ; add: ES:SI = a record in YOUR segment,
+                                 ; COPIED, so it may be anything of yours.
+                                 ; A DRIVER's, 40 bytes:
                                  ;   +0  12  the caption, NUL (<= 11 chars)
-                                 ;   +12 13  the 8.3 file the zone launches,
-                                 ;           from the BOOT volume's SYSTEM/
+                                 ;   +12 13  the 8.3 file it launches, from
+                                 ;           the BOOT volume's SYSTEM/
                                  ;   +25  1  your DRVC_* class
                                  ;   +26  1  the verb the kernel calls to
                                  ;           PAINT the icon: CX,DX = its
@@ -1163,23 +1175,34 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ;           another task is inside one of
                                  ;           your other verbs
                                  ;   +27 12  the package's HEADER name, NUL -
-                                 ;           what makes the zone a singleton
-                                 ;           (a failed launch is a toast, so
-                                 ;           the record carries no lead line
-                                 ;           since kernel size pass 4)
-                                 ; out CF=1 refused: not a published driver
-                                 ; (OSAPI_VOL_ADD's own fence), a second
-                                 ; registration - there is ONE zone and
-                                 ; whoever attaches first has it - or a
-                                 ; withdraw of somebody else's.
-                                 ;
-                                 ; The record is COPIED, so it may be
-                                 ; anything of yours; the kernel terminates
-                                 ; the caption itself and trusts the other
-                                 ; three the way it trusts your DSV table.
-                                 ; WITHDRAW AT DETACH: the kernel is about to
-                                 ; free the image your paint verb lives in.
-                                 ; drivers/wirezone.inc is the worked example.
+                                 ;           what makes it a singleton
+                                 ;   +39  1  the cell you would like
+                                 ; A PACKAGE's, 128 bytes (OSAPI_DI_*):
+                                 ;   +0   1  the volume, 0 = A:
+                                 ;   +1   1  the cell you would like
+                                 ;   +2   1  0 document, 1 package, 2 folder
+                                 ;   +4  45  the path BELOW THE ROOT, NUL:
+                                 ;           `APPS\CALC.O88`
+                                 ;   +49 13  the caption, NUL
+                                 ;   +62  2  the kernel's (the picture's
+                                 ;           record header)
+                                 ;   +64 64  the 16x16 picture, the icon body
+                                 ;           of SPEC.md 25 (mask, then data)
+                                 ; out CF=0 AL = its ZONE; CF=1 refused: a
+                                 ; second service item, a full desktop, too
+                                 ; many links, no system disk, or a record
+                                 ; with a kind or a volume nobody can have.
+                                 ; remove: a driver its own service item
+                                 ; (withdraw at detach); a package the link
+                                 ; in zone AH. Both strings are terminated by
+                                 ; the kernel whatever you put in them.
+OSAPI_DI_VOL    equ 0           ; a package's link record, field by field
+OSAPI_DI_CELL   equ 1
+OSAPI_DI_KIND   equ 2
+OSAPI_DI_PATH   equ 4
+OSAPI_DI_CAP    equ 49
+OSAPI_DI_BODY   equ 64
+OSAPI_DI_SIZE   equ 128
 
 ; --- a LOADER hands its identity to one of its own PARTS (SPEC.md 20.12.10) ---
 ; A package whose image is a small LOADER, whose parts include a full package

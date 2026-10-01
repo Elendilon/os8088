@@ -52,11 +52,12 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "tools"))
 import os88ui      # noqa: E402
+import os88geom as geom   # noqa: E402
 import os88fat     # noqa: E402
 import os88marty   # noqa: E402
 
 ROOT = os.path.join(HERE, "..")
-SC_REC = 128
+SC_REC = geom.SC_REC
 SC_MAX = 15
 DESK_SC0 = 9                            # 8 volumes and the service item
 DESK_CW, DESK_PX, DESK_ZW = 96, 104, 32  # SPEC.md 26.9's cell on kern_big
@@ -239,11 +240,11 @@ def main():
         check(len(live) == 1, "exactly one live shortcut (%d)" % len(live))
         r0 = rows[0] if rows else bytes(SC_REC)
         check(r0[0] == 1, "row 0 names volume 1, B: (%d)" % r0[0])
-        check(cstr(r0[5:51]) == "\\APPS\\CALC.O88",
-              "the WHOLE path (%r)" % cstr(r0[5:51]))
-        check(r0[3] == 1, "kind 1, a package (%d)" % r0[3])
-        check(cstr(r0[51:64]) == "CALCULATOR",
-              "the header-name caption (%r)" % cstr(r0[51:64]))
+        check(cstr(r0[4:49]) == "APPS\\CALC.O88",
+              "the WHOLE path (%r)" % cstr(r0[4:49]))
+        check(r0[2] == 1, "kind 1, a package (%d)" % r0[2])
+        check(cstr(r0[49:62]) == "CALCULATOR",
+              "the header-name caption (%r)" % cstr(r0[49:62]))
         cell = zslot(ui, DESK_SC0)
         check(cell == far, "the cell nearest the drop (%r, want %d), PLACED "
               "(%#x)" % (cell, far, m.read(ui._S("desk_zslot") + DESK_SC0,
@@ -311,9 +312,9 @@ def main():
         check(len(live) == 1, "one shortcut after the reboot (%d)" % len(live))
         if live:
             check(zslot(ui, DESK_SC0) == cell
-                  and cstr(live[0][51:64]) == "CALCULATOR",
+                  and cstr(live[0][49:62]) == "CALCULATOR",
                   "same cell and caption (%r %r)"
-                  % (zslot(ui, DESK_SC0), cstr(live[0][51:64])))
+                  % (zslot(ui, DESK_SC0), cstr(live[0][49:62])))
         if shots:
             ui.settle()
             shot(m, os.path.join(shots, "e_rebooted.png"))
@@ -345,10 +346,10 @@ def main():
         saved(ui)
         _s, _n, rows = table(ui)
         live = [r for r in rows if r[0] != 0xFF]
-        check(len(live) == 1 and cstr(live[0][5:51]) == "\\MEDIA"
-              and live[0][3] == 2 and cstr(live[0][51:64]) == "MEDIA",
+        check(len(live) == 1 and cstr(live[0][4:49]) == "MEDIA"
+              and live[0][2] == 2 and cstr(live[0][49:62]) == "MEDIA",
               "a folder shortcut \\MEDIA, kind 2, captioned MEDIA (%r)"
-              % [(cstr(r[5:51]), r[3], cstr(r[51:64])) for r in live])
+              % [(cstr(r[4:49]), r[2], cstr(r[49:62])) for r in live])
         zone = DESK_SC0 + rows.index(live[0]) if live else 0
         ui.mo.click(gx, gy)
         ui._wait(lambda: ui._byte("desk_sel") == zone,
@@ -379,11 +380,11 @@ def main():
         ui.mo.drag(px, py, *bare_point(ui, (hx, hy)))
         saved(ui)
         _s, _n, rows = table(ui)
-        doc = [r for r in rows if r[0] != 0xFF and r[3] == 0]
-        check(len(doc) == 1 and cstr(doc[0][5:51]) == "\\MEDIA\\GUIDE.TEX"
-              and cstr(doc[0][51:64]) == "GUIDE.TEX",
+        doc = [r for r in rows if r[0] != 0xFF and r[2] == 0]
+        check(len(doc) == 1 and cstr(doc[0][4:49]) == "MEDIA\\GUIDE.TEX"
+              and cstr(doc[0][49:62]) == "GUIDE.TEX",
               "a document shortcut, the full 8.3 caption (%r)"
-              % [(cstr(r[5:51]), cstr(r[51:64])) for r in doc])
+              % [(cstr(r[4:49]), cstr(r[49:62])) for r in doc])
         before_t = ui.titles()
         ui.mo.dblclick(hx, hy)
         ui._wait(lambda: len(ui.titles()) > len(before_t),
@@ -401,14 +402,14 @@ def main():
         # --- I: a target that is not there -------------------------------
         print("I: the folder's target gone, double-click it")
         fidx = zone - DESK_SC0
-        fpath = (ui._word("sc_seg") << 4) + fidx * SC_REC + 5
-        m.write(fpath, b"\\NOPE\0")         # memory only: no save follows
+        fpath = (ui._word("sc_seg") << 4) + fidx * SC_REC + 4
+        m.write(fpath, b"NOPE\0")         # memory only: no save follows
         fresh(ui)
         ui.mo.dblclick(gx, gy)
         said = ui.wait_toast(says="not found", limit=60)
         check(said == "Shortcut not found (B:)",
               "a missing target names its drive (%r)" % said)
-        m.write(fpath, b"\\MEDIA\0")
+        m.write(fpath, b"MEDIA\0")
 
         # --- J: right-click > Remove Shortcut -----------------------------
         print("J: right-click the document's shortcut, Remove Shortcut")
@@ -431,7 +432,7 @@ def main():
         saved(ui)
         _s, _n, rows = table(ui)
         live = [r for r in rows if r[0] != 0xFF]
-        check(len(live) == 1 and live[0][3] == 2,
+        check(len(live) == 1 and live[0][2] == 2,
               "the right-click took the document's and left the folder's")
 
         # --- K: Locator's File > Remove Shortcut --------------------------

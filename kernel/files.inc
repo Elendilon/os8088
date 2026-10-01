@@ -6460,9 +6460,14 @@ fm_drag:
     push di
     mov [fm_dgidx], ax
     mov [fm_dgwin], si
+    mov byte [fm_dgon], 0
+%ifdef OS88_SHORTCUTS
+    call fm_dgwait              ; the WAIT is a routine on this build, press,
+    jnc .begin                  ; mouse test and all: the desktop's items
+    jmp .click                  ; move by the same four pixels (SPEC.md 26.9)
+%else
     mov [fm_startx], cx
     mov [fm_starty], dx
-    mov byte [fm_dgon], 0
     cmp byte [mou_ptr], 0       ; ...but there is nothing to disambiguate with
     je .wclick                  ; no mouse on the machine (SPEC.md 9.6.1). The
                                 ; keyboard's button is latched for the whole
@@ -6472,12 +6477,6 @@ fm_drag:
                                 ; row click would cost two and a double-click
                                 ; four. Drag and drop wants a mouse, exactly
                                 ; as it did before the keyboard mouse existed
-%ifdef OS88_SHORTCUTS
-    call fm_dgwait              ; the WAIT is a routine on this build: the
-    jnc .begin                  ; desktop's shortcuts move by the same four
-.wclick:                        ; pixels (SPEC.md 26.8.4)
-    jmp .click
-%else
 
 .wait:                          ; not a drag until the pointer leaves the row
     mov di, ui_ev
@@ -6572,14 +6571,25 @@ fm_drag:
 
 %ifdef OS88_SHORTCUTS
 ; -----------------------------------------------------------------------------
-; fm_dgwait - fm_drag's wait, shared with the desktop's shortcuts (SPEC.md
-;             26.8.4): has the pointer left the press point by FM_DRAGMIN?
-; in:  [fm_startx]/[fm_starty] = the press; the gfx lock HELD
+; fm_dgwait - fm_drag's wait, shared with the desktop's items (SPEC.md
+;             26.9): has the pointer left the press point by FM_DRAGMIN?
+; in:  CX, DX = the press, held in the registers for the whole wait - every
+;      call in it keeps them (register discipline, SPEC.md 1); the gfx lock
+;      HELD
 ; out: CF = 0 it has, with the button still down; CF = 1 the button came up
-;      first - an ordinary click. The lock is held again either way
+;      first - an ordinary click - or there is no mouse at all. The lock is
+;      held again either way
 ; clobbers: AX, DI, flags - both callers have them banked
+;
+; NO MOUSE, NO DRAG: the keyboard's button is latched for the whole dispatch
+; of the press and the pointer cannot move until that returns, so the wait
+; could only ever end on a SECOND press - an ordinary click would cost two and
+; a double-click four. Drag and drop wants a mouse, exactly as it did before
+; the keyboard mouse existed (fm_drag's note).
 ; -----------------------------------------------------------------------------
 fm_dgwait:
+    cmp byte [mou_ptr], 0
+    je .click
 .wait:
     mov di, ui_ev
     call KERNEL_SEG:cw_evq_mup  ; the discard owes the wake bookkeeping
@@ -6587,12 +6597,12 @@ fm_dgwait:
     test byte [mouse_btn], 1
     jz .click                   ; released without moving: a click
     mov ax, [mouse_x]
-    sub ax, [fm_startx]
+    sub ax, cx
     call fm_dgabs
     cmp ax, FM_DRAGMIN
     jae .drag
     mov ax, [mouse_y]
-    sub ax, [fm_starty]
+    sub ax, dx
     call fm_dgabs
     cmp ax, FM_DRAGMIN
     jae .drag
@@ -6728,19 +6738,13 @@ fm_dgdrop:
 %ifdef OS88_SHORTCUTS
 .desk:
     ; The drag armed a CUT the moment it began (fm_drag's .begin), and a drop
-    ; on the desktop pastes nothing - so the clipboard is DISARMED here, or a
-    ; Paste in another folder later would move the original out from under
-    ; the shortcut just made of it. It was the same latent defect when a drop
-    ; here did nothing at all.
+    ; on the desktop pastes nothing - so the clipboard is DISARMED here, even
+    ; when CTRL.DRV cannot be read, or a Paste in another folder later would
+    ; move the original out from under the shortcut just made of it.
     mov byte [fcp_cbop], FCP_NONE
-    mov bx, [fm_dgwin]          ; the picture, out of the window the drag
-    call fm_vp_set              ; began in - the one fm_drag's index is into
-    mov ax, [fm_dgidx]
-    call fmv_get_icon           ; dsk_ico = its 64-byte body
-    mov cx, [mouse_x]
-    mov dx, [mouse_y]
-    mov ah, SC_OP_NEW           ; CTRL.DRV makes it and writes SYSTEM.CFG
-    jmp sc_modcall              ; (SPEC.md 26.8.7); the gfx lock is held
+    mov ah, SC_OP_NEW           ; CTRL.DRV makes a SHORTCUT of it out of the
+    jmp sc_modcall              ; drag's own state and writes SYSTEM.CFG
+                                ; (SPEC.md 26.8.4); the gfx lock is held
 %endif
 .out:
     ret
@@ -9067,8 +9071,10 @@ fm_dvp:     resw 1              ; ...and whose. There can be FOUR Disk windows
 %endif
 fm_dgidx:   resw 1              ; fm_drag: the row it began on...
 fm_dgwin:   resw 1              ; ...the window it began in...
+%ifndef OS88_SHORTCUTS          ; (kern_big's wait holds the press in CX/DX)
 fm_startx:  resw 1              ; ...and where the button went down
 fm_starty:  resw 1
+%endif
 fm_dgx:     resw 1              ; where the outline is DRAWN (fm_dgxor)
 fm_dgy:     resw 1
 fm_dgon:    resb 1              ; 1 = the outline is on screen

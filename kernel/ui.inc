@@ -2175,16 +2175,8 @@ ui_loc_gate:
     mov [menu_items_file], ax   ; Close Window is item 0 now: Locator's File
                                 ; menu is that item and nothing else, the
                                 ; builtins having moved to Builtins (12.3.1)
-%ifdef OS88_SHORTCUTS
-    mov bl, [desk_sel]          ; ...and item 1, Remove Shortcut, live only
-    sub bl, DESK_SC0            ; while a shortcut is the desktop's
-    cmp bl, SC_MAX              ; selection (SPEC.md 26.8.5) - 0xFF, none,
-    mov ax, sc_s_remx           ; lands above the range too. Its twin is ONE
-    jae .scset                  ; byte before it, so live is an inc
-    inc ax
-.scset:
-    mov [menu_items_file+2], ax
-%endif
+                                ; (item 1, Remove Shortcut, is desk_select's:
+                                ; it changes when the selection does)
 %ifdef KERN_BIG
     call COLD_SEG:hb_ok_x       ; ...and Hibernate greys with its reason
                                 ; (SPEC.md 87.2): no fixed disk, or extended
@@ -2748,8 +2740,9 @@ ui_cmd:
 %endif
 %ifdef OS88_SHORTCUTS
 .scdel:
-    call COLD_SEG:sc_menu_del_f ; Remove Shortcut (SPEC.md 26.8.5): CTRL.DRV
-    ret                         ; does it and writes SYSTEM.CFG
+    mov ax, 0x5300              ; Remove Shortcut (SPEC.md 26.8.5) is the
+    call COLD_SEG:desk_key_x    ; Delete key on the selection: CTRL.DRV does
+    ret                         ; it and writes SYSTEM.CFG
 %endif
 
 .about:

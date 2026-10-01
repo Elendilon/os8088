@@ -105,15 +105,10 @@ DSV_R_CLS   equ 25              ;  1: the driver's DRVC_* class
 DSV_R_VERB  equ 26              ;  1: the verb the kernel calls to PAINT it
 DSV_R_NAME  equ 27              ; 12: the package's header name, NUL - what
                                 ;     makes the zone a singleton (SPEC.md 26.7)
-DSV_R_LEAD  equ 39              ; 26: the failure notice's lead line, NUL
-                                ;     ('Cannot open Wire:'). THE DRIVER'S, and
-                                ;     that is the design rather than a saving:
-                                ;     it names the driver's own program, so a
-                                ;     kernel that composed it would carry both
-                                ;     the words and the composer on every
-                                ;     machine, including the ones with no such
-                                ;     driver at all
-DSV_R_SIZE  equ 39
+DSV_R_CELL  equ 39              ;  1: the cell it would like, 0xFF = the
+                                ;     first free one after the volumes
+                                ;     (OSAPI_DESK_ITEM, SPEC.md 26.9)
+DSV_R_SIZE  equ 40
 DSV_CAPMAX  equ 12              ; the four field widths, named because the copy
 DSV_FILEMAX equ 13              ; and the .bss cells must agree
 DSV_NAMEMAX equ 12
@@ -553,10 +548,12 @@ desk_rowcalc_x:
 ;
 ;   DSL_SLOT  bits 0..5   the cell, 0..[desk_ncell]-1
 ;   DSL_PIN   bit 6       PLACED: the user put it there (a shortcut always is)
-;   DSL_GONE  bit 7       not shown. On a PLACED item it means "live again ->
-;                         back to this cell"; on a FLOWING one it only lives
-;                         inside desk_reflow, holding the old cell for the
-;                         repaint
+;   DSL_GONE  bit 7       not shown. On a PLACED item it is a remembered
+;                         cell - an unmounted drive's, or a cell an
+;                         OSAPI_DESK_ITEM caller asked for - which it gets
+;                         back when it is live and the cell is free; on a
+;                         FLOWING one it only lives inside desk_reflow,
+;                         holding the old cell for the repaint
 ;   0xFF                  nothing
 ;
 ; Cells are numbered column-major from the TOP-RIGHT: down a column, then the
@@ -617,7 +614,8 @@ desk_live:
     mov al, bl
     call sc_row                 ; CF = 1: no claim, past it, or a free row
     sbb al, al                  ; 0xFF dead, 0 live...
-    inc ax                      ; ...0 dead (ZF = 1), 1 live (ZF = 0)
+    inc al                      ; ...0 dead (ZF = 1), 1 live (ZF = 0) - AL,
+                                ; not AX: ZF off a word is AH's to spoil
     pop es                      ; and neither pop writes a flag
     pop ax
     ret
@@ -726,13 +724,22 @@ desk_cbit:
 ; and the order is the design:
 ;
 ;   1. every FLOWING item lets go of its cell (keeping it, under DSL_GONE, for
-;      the repaint); a PLACED one that is no longer live is forgotten, and so
-;      is any item in a cell this screen has not got;
-;   2. every live item without a cell, IN INDEX ORDER, takes the first free
-;      one. Index order is volumes, then the service item, then shortcuts, so
-;      the Wire is after the drives whichever driver loaded first - today's
-;      order. A shortcut reaches this pass only when it has no cell at all
-;      (the screen shrank under it), and is PLACED wherever it lands.
+;      the repaint); a PLACED one that is no longer live goes from the screen
+;      but REMEMBERS its cell; any item in a cell this screen has not got is
+;      forgotten;
+;   2. every live item without a cell, IN INDEX ORDER, takes one: a PLACED
+;      one its remembered cell if that is free, else - and every flowing one
+;      - the first free cell. Index order is volumes, then the service item,
+;      then shortcuts, so the Wire is after the drives whichever driver loaded
+;      first - today's order. A shortcut reaches this pass only when it has
+;      no cell at all (the screen shrank under it), and is PLACED wherever it
+;      lands.
+;
+; A WISH IS A REMEMBERED CELL. OSAPI_DESK_ITEM writes the cell its caller
+; asked for as DSL_PIN | DSL_GONE | cell, and pass 2 gives it that cell if it
+; can and the first free one if it cannot - so "the slot you ask for, or the
+; first available" is this routine and nothing new. A wish of 0xFF is already
+; 0xFF, which is "nothing", and simply flows.
 ;
 ; NOTHING HAPPENS UNTIL [desk_ready]. The boot reads SYSTEM.CFG - the placed
 ; cells - and then the drivers add their volumes one at a time; a pass run
@@ -781,7 +788,7 @@ desk_reflow:
 .a:
     mov al, [di+desk_zslot]
     cmp al, DSL_GONE
-    jae .an                     ; nothing here
+    jae .an                     ; nothing here, or a place remembered
     mov ah, al
     and ah, DSL_SLOT
     cmp ah, [desk_ncell]
@@ -791,44 +798,70 @@ desk_reflow:
     mov bx, di
     call desk_live
     jnz .an                     ; placed and live: it stays
-    mov al, ah                  ; placed and gone: its cell goes bare
-    call desk_cmark
-.forget:
-    mov byte [di+desk_zslot], 0xFF
-    jmp short .an
+    mov al, ah                  ; placed and gone: its cell goes bare and the
+    call desk_cmark             ; item REMEMBERS it, to have back (pass 2)
 .rel:
     or byte [di+desk_zslot], DSL_GONE
+    jmp short .an
+.forget:
+    mov byte [di+desk_zslot], 0xFF
 .an:
     inc di
     cmp di, DESK_NZ
     jb .a
-    xor di, di                  ; --- 2: pack, in index order ----------------
+    xor di, di                  ; --- 2: place, in index order ---------------
 .c:
-    mov dl, [di+desk_zslot]     ; DL = the old byte: 0xFF, or GONE + its cell
+    mov dl, [di+desk_zslot]     ; DL = the old byte
     cmp dl, DSL_GONE
     jb .cn                      ; shown: placed, and staying
     mov bx, di
     call desk_live
-    mov dh, 0xFF                ; DH = the new byte: nothing...
-    jz .cset
-    call desk_free
-    jc .cset                    ; ...or nothing, because the screen is full
+    mov dh, dl                  ; dead: a PLACED one keeps what it remembers
+    jz .cdead                   ; (0xFF has the bit too and stays 0xFF)...
+    test dl, DSL_PIN            ; live and PLACED: its own cell back, if this
+    jz .first                   ; screen has it and nothing else is in it -
+    mov al, dl                  ; which is also what a wish is, the cell an
+    and al, DSL_SLOT            ; OSAPI_DESK_ITEM caller asked for
+    cmp al, [desk_ncell]
+    jae .first
+    call desk_owner
+    jnc .first
+    and dh, ~DSL_GONE & 0FFh
+    jmp short .cset
+.first:
+    call desk_free              ; ...else the first free one, FLOWING from
+    mov dh, 0xFF                ; here on - unless it is a shortcut, which is
+    jc .cset                    ; placed wherever it lands
     mov dh, al
 %ifdef OS88_SHORTCUTS
     cmp di, DESK_SC0
     jb .cset
-    or dh, DSL_PIN              ; a shortcut is placed wherever it lands
+    or dh, DSL_PIN
 %endif
+    jmp short .cset
+.cdead:
+    test dl, DSL_PIN
+    jnz .cset
+    mov dh, 0xFF                ; ...and a flowing one has nothing
 .cset:
     mov [di+desk_zslot], dh
-    mov al, dl                  ; --- ...and post what moved. "Nothing" is
-    and al, DSL_SLOT            ; 0xFF, whose cell bits are DSL_SLOT itself:
-    and dh, DSL_SLOT            ; a cell no screen has (desk_ncell stops short
-    cmp al, dh                  ; of it), so posting it paints nothing and the
-    je .cn                      ; two ends need no case of their own
-    call desk_cmark             ; the cell it had...
-    mov al, dh
-    call desk_cmark             ; ...and the cell it has
+    mov al, DSL_SLOT            ; --- ...and post what moved. AL = the cell
+    test dl, DSL_PIN            ; it WAS shown in - only a flowing one this
+    jnz .m1                     ; pass let go of had one, and "none" is
+    mov al, dl                  ; DSL_SLOT's cell, which no screen has
+    and al, DSL_SLOT            ; (desk_ncell stops short of it)
+.m1:
+    mov ah, DSL_SLOT            ; AH = the cell it IS shown in
+    cmp dh, DSL_GONE
+    jae .m2
+    mov ah, dh
+    and ah, DSL_SLOT
+.m2:
+    cmp al, ah
+    je .cn                      ; the same cell: nothing moved
+    call desk_cmark
+    mov al, ah
+    call desk_cmark
 .cn:
     inc di
     cmp di, DESK_NZ
@@ -839,10 +872,6 @@ desk_reflow:
 
 %endif
 
-; far entry, for the boot (kernel.asm) and CTRL.DRV
-desk_reflow_f:
-    call desk_reflow
-    retf
 
 ; -----------------------------------------------------------------------------
 ; desk_zones_paint - spend the posted cells (SPEC.md 26.9)
@@ -903,9 +932,6 @@ desk_cell_xy:
     pop bx
     ret
 
-desk_cell_xy_f:
-    call desk_cell_xy
-    retf
 
 ; -----------------------------------------------------------------------------
 ; desk_zone_xy - a SHOWN zone's cell origin
@@ -943,30 +969,27 @@ desk_rect_ax:                   ; ...and the arithmetic alone, for a caller
 ; -----------------------------------------------------------------------------
 ; desk_zone_label - a zone's caption
 ; in:  AL = zone index
-; out: SI -> a NUL string in the kernel segment
-; clobbers: SI (the output), flags
+; out: ES:SI -> a NUL string
+; clobbers: ES, SI (the outputs), flags
 ;
 ; A volume's row names itself or is derived as 'A:' (SPEC.md 26.4); the
-; service item's was copied in at registration (26.7); a shortcut's is staged
-; out of its claim row into [dsk_ico], which is free at paint time (26.8).
+; service item's was copied in at registration (26.7); a shortcut's is read
+; IN PLACE, out of its claim row (26.8.1) - which is why the answer is a far
+; pointer, and why every reader of it takes ES:SI.
 ; -----------------------------------------------------------------------------
 desk_zone_label:
     push ax
     push bx
+    push ds
+    pop es
 %ifndef KERN_SMALL
     cmp al, DESK_SVZ
     jb .vol
     mov si, desk_svc_cap
   %ifdef OS88_SHORTCUTS
     je .out
-    push cx
-    push es
-    mov si, SC_R_CAP
-    mov cx, SC_CAPMAX
-    call sc_stage
-    mov byte [dsk_ico+SC_CAPMAX-1], 0
-    pop es
-    pop cx
+    call sc_row                 ; ES:BX = the record
+    lea si, [bx+SC_R_CAP]
   %endif
     jmp short .out
 .vol:
@@ -987,17 +1010,19 @@ desk_zone_label:
 ; -----------------------------------------------------------------------------
 ; desk_caprect - a zone's caption and the white rect that HUGS it (SPEC.md 26.4)
 ; in:  AL = a shown zone
-; out: AX = x1, BX = y1, CX = x2, DX = y2 of the white rect; SI -> the caption.
-;      The pen is (AX + DESK_ZOVER, BX + 2).
-; clobbers: AX, BX, CX, DX, SI (the outputs), flags
+; out: AX = x1, BX = y1, CX = x2, DX = y2 of the white rect; ES:SI -> the
+;      caption. The pen is (AX + DESK_ZOVER, BX + 2).
+; clobbers: AX, BX, CX, DX, SI, ES (the outputs), flags
 ;
 ; Measured at paint for every kind, centred in the cell. One routine draws it
 ; and one highlight inverts it, so the two cannot disagree about where it is.
 ; -----------------------------------------------------------------------------
 desk_caprect:
+    push bp
     push ax
-    call desk_zone_label        ; SI -> it
-    call ct_font_width          ; AX = its width
+    call desk_zone_label        ; ES:SI -> it
+    mov bp, font_width_x
+    call ct_cw_mem_disp         ; AX = its width
     mov bx, ax
     mov cx, DESK_CW
     sub cx, bx
@@ -1016,6 +1041,7 @@ desk_caprect:
     add dx, [desk_zh1]          ; y2 is the cell's bottom...
     mov bx, dx
     sub bx, DESK_LBLH - 1       ; ...and y1 the label band's top
+    pop bp
     ret
 
 ; =============================================================================
@@ -1105,51 +1131,55 @@ desk_dmg_zones_x:
 
 ; -----------------------------------------------------------------------------
 ; desk_click - desktop hit test, called by ui.inc when wm_hit found no window
-;              under an EVT_MDOWN. NO lock held. A zone: select it, a second
-;              click within DESK_DBLT ticks opens it; on kern_big a press that
-;              then travels FM_DRAGMIN px MOVES it (SPEC.md 26.9). Bare
-;              desktop: clear the selection.
+;              under an EVT_MDOWN. NO lock held. An item: select it, and a
+;              second click within DESK_DBLT ticks opens it; on kern_big a
+;              press that then travels FM_DRAGMIN px MOVES it, whatever it
+;              is (SPEC.md 26.9). Bare desktop: clear the selection.
 ; ins:  CX = x, DX = y. outs: none (all registers preserved)
 ; -----------------------------------------------------------------------------
 desk_click_x:
-    call kentc_di
-    mov di, cx
-    mov si, dx
-    call desk_hit
-    jc .miss
-    cmp al, [desk_sel]
-    jne .select
-    mov bx, [ui_click_t]        ; same zone: a double-click? Click birth ticks
-    sub bx, [desk_clkt]         ; (EV_C), wrap-safe
-    cmp bx, DESK_DBLT
-    jae .select
+    call kentc_bp
+    call desk_hit               ; AL = the zone, or 0xFF and CF on a miss
+    jc .sel
+    call desk_select            ; CF = 1: the second click of a double
+    jnc .drag
     call desk_open
     jmp short .out
-.select:
-    call desk_select
+.sel:
+    call desk_select            ; a miss clears the selection
+    jmp short .out
+.drag:
 %ifdef OS88_SHORTCUTS
     mov cx, di                  ; the press that selected it is the press that
-    mov dx, si                  ; drags it - ANY item now (SPEC.md 26.9)
-    call sc_drag
+    mov dx, si                  ; drags it: fm_drag's own four pixels, waited
+    call ct_cw_gfx_lock         ; out with the lock free inside the wait
+    call fm_dgwait              ; CF = 1: let go where it was pressed - a click
+    jc .u
+    mov al, [desk_sel]          ; past them the gesture is CTRL.DRV's, which
+    mov ah, SC_OP_MOVE          ; has to load to write SYSTEM.CFG anyway
+    call sc_modcall
+.u:
+    call ct_cw_gfx_unlock
 %endif
-    jmp short .out
-.miss:
-    mov al, 0xFF                ; bare desktop: clear the selection
-    call desk_select
 .out:
-    jmp kretfc_di
+    jmp kretfc_bp
 
 ; -----------------------------------------------------------------------------
-; desk_hit - the zone whose drawn rect holds (DI, SI)
-; out: CF = 0 AL = the zone; CF = 1 none. Clobbers AX, BX, CX, DX.
+; desk_hit - the zone whose drawn rect holds a point
+; in:  CX, DX = the point
+; out: CF = 0 AL = the zone; CF = 1 AL = 0xFF, none. DI, SI = the point
+; clobbers: AX, BX, CX, DX, BP
 ; -----------------------------------------------------------------------------
 desk_hit:
-    xor cx, cx
-.z:
-    push cx
-    mov al, cl
+    mov di, cx
+    mov si, dx
+    mov bp, DESK_NZ
+.n:
+    dec bp
+    js .miss
+    mov ax, bp
     call desk_zone_xy
-    jc .n
+    jc .n                       ; not shown
     call desk_rect_ax
     cmp di, ax
     jb .n
@@ -1157,48 +1187,64 @@ desk_hit:
     ja .n
     cmp si, bx
     jb .n
-    cmp si, dx
-    ja .n
-    pop ax                      ; AL = the zone
-    clc
+    cmp dx, si                  ; the last compare leaves CF = 0 on a hit
+    jb .n
+    xchg ax, bp                 ; AL = the zone
     ret
-.n:
-    pop cx
-    inc cx
-    cmp cl, DESK_NZ
-    jb .z
+.miss:
     stc
+    xchg ax, bp                 ; AX = 0xFFFF
     ret
 
 ; -----------------------------------------------------------------------------
-; desk_select - make AL the desktop's selection (0xFF = none)
-; in:  AL; NO lock held. out: nothing; clobbers AH, BX, flags
+; desk_select - make AL the desktop's selection (0xFF = none); the ONE writer
+;               of [desk_sel]
+; in:  AL; NO lock held
+; out: CF = 1 AL was ALREADY the selection and this is its second click
+;      within DESK_DBLT ticks - a double-click; CF = 0 otherwise
+; clobbers: AH, BX, flags
 ;
-; The store is INSIDE the lock hold, because desk_zone_redraw's partial case
-; FLIPS the highlight rather than redrawing it (SPEC.md 26.2), so no other
-; painter may see the new selection and act on it in between.
+; The click's birth tick (EV_C) is stamped on every call, so a slow second
+; click restarts the window. The store is INSIDE the lock hold, because
+; desk_zone_redraw's partial case FLIPS the highlight rather than redrawing
+; it (SPEC.md 26.2). On kern_big it also keeps Locator's File > Remove
+; Shortcut current - live while a shortcut is the selection, greyed otherwise
+; - so the menu and the right-click's popup, which IS that item, cannot
+; disagree. Its greyed twin is ONE byte before it, so live is a carry added.
 ; -----------------------------------------------------------------------------
 desk_select:
     mov bx, [ui_click_t]
-    mov [desk_clkt], bx
+    sub bx, [desk_clkt]         ; BX = ticks since the last click, wrap-safe
+    add [desk_clkt], bx         ; ...and the stamp is now this click's
     mov ah, [desk_sel]
     cmp ah, al
-    je .out
+    jne .chg
+    cmp bx, DESK_DBLT           ; the same one: CF = 1 inside the window
+    ret
+.chg:
     call ct_cw_gfx_lock
     mov [desk_sel], al
-    cmp ah, 0xFF
-    je .new
+%ifdef OS88_SHORTCUTS
+    push ax
+    sub al, DESK_SC0
+    cmp al, SC_MAX              ; CF = 1: a shortcut
+    mov ax, sc_s_remx
+    adc ax, 0
+    mov [menu_items_file+2], ax
+    pop ax
+%endif
     xchg al, ah
-    call desk_zone_redraw       ; the old one loses it...
+    call .one                   ; the old one loses it...
     xchg al, ah
-.new:
-    cmp al, 0xFF
-    je .unl
-    call desk_zone_redraw       ; ...and the new one gains it
-.unl:
+    call .one                   ; ...and the new one gains it
     call ct_cw_gfx_unlock
-.out:
+    clc
+.r:
     ret
+.one:
+    cmp al, 0xFF
+    je .r
+    jmp desk_zone_redraw
 
 ; -----------------------------------------------------------------------------
 ; desk_open - a double-click, or Enter, on zone AL: deselect, then dispatch
@@ -1297,7 +1343,9 @@ desk_zone_hilite:
     call ct_cw_gfx_xor_fill     ; and no pixel is flipped twice
     pop ax
     push si
+    push es
     call desk_caprect
+    pop es
     pop si
 %else
     call desk_zone_xy           ; kern_small: the drive's column, top to bottom
@@ -1326,6 +1374,7 @@ desk_draw_zone:
     push cx
     push dx
     push si
+    push bp
     push es
     mov ah, [gfx_color]         ; read ABOVE cw_thm_desk, which under
     push ax                     ; OS88_THEME writes [gfx_color] itself
@@ -1367,15 +1416,15 @@ desk_draw_zone:
     jmp short .label
 %endif
 %ifdef OS88_SHORTCUTS
-.link:                          ; THE CACHE: the stored body (SPEC.md 26.8.1)
-    mov al, bl
-    mov si, SC_R_BODY
-    mov cx, 64
-    call sc_stage               ; SI -> [dsk_ico]
-    mov cx, [desk_zx]
+.link:                          ; THE CACHE: the stored picture, drawn
+    mov al, bl                  ; straight out of the claim - the record
+    call sc_row                 ; carries an icon header in front of its body
+    lea si, [bx+SC_R_HDR]       ; (SPEC.md 26.8.1), so the two ARE a record
+    mov cx, [desk_zx]           ; for icon_draw_x, which reads ES:SI
     add cx, SC_PICX
     add dx, [desk_lky]          ; bottom-aligned on a drive's picture box, so
-    call KERNEL_SEG:cw_icon_draw16  ; a row of mixed items lines up
+    mov bp, icon_draw_x         ; a row of mixed items lines up
+    call ct_cw_mem_disp
     sub cx, 11                  ; ...and the badge BESIDE it (SPEC.md 26.8.3)
     add dx, 16 - 10
     mov si, sc_bdg
@@ -1393,14 +1442,14 @@ desk_draw_zone:
 .label:
     mov al, [desk_zdrv]         ; --- the caption, in a white rect that hugs
     call desk_caprect           ; it (SPEC.md 26.4), drawn as one opaque run
-    mov byte [gfx_color], CWHITE    ; (26.6)
-    call ct_cw_gfx_fill
+    mov byte [gfx_color], CWHITE    ; (26.6) - out of ES:SI, which for a
+    call ct_cw_gfx_fill         ; shortcut is its claim row
     mov cx, ax
     add cx, DESK_ZOVER
-    mov dx, bx
-    add dx, 2
+    lea dx, [bx+2]
     mov ax, (CWHITE << 8) | CBLACK
-    call ct_cw_font_run
+    mov bp, font_run_x
+    call ct_cw_mem_disp
     mov al, [desk_sel]
     cmp al, [desk_zdrv]
     jne .done
@@ -1409,6 +1458,7 @@ desk_draw_zone:
     pop ax
     mov [gfx_color], ah
     pop es
+    pop bp
     jmp kretc_si
 
 ; -----------------------------------------------------------------------------
@@ -1459,48 +1509,53 @@ desk_learn_x:
 
 %ifndef KERN_SMALL
 ; -----------------------------------------------------------------------------
-; osapi_desk_svc - slot 0x03F8: a DRIVER registers the desktop SERVICE zone
-;                  (SPEC.md 26.7)
-; in:  AL = 1 add / 0 withdraw; ES:SI -> a DSV_R_SIZE record in the driver's
-;      own segment (add only). ES is the caller's segment either way - the
-;      cell is an X stub, exactly like the OSAPI_VOL_* family
-; out: CF = 0 done; CF = 1 refused - not a published driver, a second
-;      registration (there is ONE zone, stated), or a withdraw of somebody
-;      else's
-; clobbers: flags
+; osapi_desk_item - slot 0x03F8: put an ITEM on the desktop, or take one off
+;                   (SPEC.md 26.9)
+; in:  AL = 1 add / 0 remove; ES = the caller's segment (an X cell)
+;      add, from a DRIVER:  ES:SI -> a DSV_R_SIZE service record (SPEC.md
+;                           26.7), whose +39 is the cell it would like
+;      add, from a PACKAGE: ES:SI -> an SC_REC link record (SPEC.md 26.8.1),
+;                           whose +1 is the cell it would like
+;      remove: a driver its own service item; a package the link in zone AH
+;      0xFF as the cell is "the first free one". A package calls this from a
+;      window callback - the UI task, the gfx lock held - and never from a
+;      worker: a link is PERSISTED, which writes SYSTEM.CFG (SPEC.md 20.6 r7)
+; out: CF = 0 done, AL = the item's zone (an add); CF = 1 refused
+; clobbers: AX (the output), flags
 ;
-; THE FENCE IS osapi_vol_fence's, unchanged and shared: the caller's segment
-; must be the segment of a driver whose services are published (SPEC.md 51.8).
-; A package gets CF=1 and nothing else, which is the same answer it gets from
-; OSAPI_VOL_ADD and for the same reason - the kernel is about to far-call this
-; segment on every desktop repaint, so it may only ever be a driver's.
+; ONE DOOR, TWO CALLERS, decided by who is calling and not by a field, which
+; is osapi_vol_fence's question: the caller's segment is a published driver's
+; or it is not.
 ;
-; ONE RECORD, and that is a stated limit rather than an oversight: a second
-; service zone is a count and a table, and nothing has asked for one. The
-; refusal says so by being a refusal.
+; A DRIVER gets the SERVICE item: ONE of them, transient - it goes with the
+; driver - and drawn by the driver, because a picture in here is a picture
+; every machine carries and most have no network card (SPEC.md 26.7). The
+; strings are COPIED here at registration: font_run and ld_run_name take an
+; SI relative to DS, and SS is not DS (SPEC.md 1), so each site would need a
+; kernel buffer anyway. The cell it asks for is taken if the user has not
+; placed the item somewhere already and the cell is free; else it flows.
 ;
-; THE STRINGS ARE COPIED, ONCE, HERE. The alternative - keeping seg:off and
-; reading them far at every use - needs a kernel buffer at each site anyway,
-; because font_run and ld_run_name both take an SI relative to DS and SS is
-; not DS on this system (SPEC.md 1 rule 2), so neither can read a caption
-; staged on the stack. The .bss cells are laid out in the RECORD's own order,
-; so the copy is one `rep movsb`.
+; A PACKAGE gets a LINK - a shortcut in all but who made it: CTRL.DRV copies
+; the caller's record into a row, distrusting every byte of it, places it in
+; the cell it asked for or the first free one, and writes SYSTEM.CFG. That is
+; the drag-out-of-a-Disk-window's own door, so it needs the system disk for
+; exactly the reason a drag does (SPEC.md 26.8.7).
 ; -----------------------------------------------------------------------------
-osapi_desk_svc_x:
-    push ax
+osapi_desk_item_x:
     push bx
     push cx
+    push dx
     push si
     push di
     push es
     call osapi_vol_fence        ; ES = the caller's; CF=1 = not a driver
-    jc .no
+    jc .pkg
     or al, al
     jz .withdraw
 
-    ; --- add ---------------------------------------------------------------
+    ; --- a driver adds its service item ------------------------------------
     cmp word [desk_svc_seg], 0
-    jne .no                     ; ONE zone
+    jne .no                     ; ONE of it
     mov ax, es                  ; the driver's segment, kept across the copy
     push ds
     push ds
@@ -1511,30 +1566,46 @@ osapi_desk_svc_x:
     cld
     rep movsb
     pop ds                      ; DS = KERNEL_SEG again, and ES already is
-    mov [desk_svc_seg], ax      ; ...which is what makes the zone exist
-
+    mov [desk_svc_seg], ax      ; ...which is what makes the item exist
     mov byte [desk_svc_cap + DSV_CAPMAX - 1], 0
                                 ; THE CAPTION IS TERMINATED HERE and not
-                                ; trusted to be, because it is the one field
-                                ; drawn on EVERY desktop repaint: without a
-                                ; NUL, font_run letters the rest of this block
-                                ; and then the kernel's .bss across the screen,
-                                ; for ever, and one store buys it. The other
-                                ; three are used once each and the driver is
-                                ; trusted about them exactly as it is about
-                                ; the offsets in its own DSV table, which the
-                                ; kernel far-calls without looking
-    call desk_reflow            ; it takes the first free cell after the
-    jmp short .ok               ; volumes (SPEC.md 26.9)
+                                ; trusted to be: it is drawn on EVERY desktop
+                                ; repaint, and without a NUL font_run letters
+                                ; the rest of .bss across the screen for ever
+    mov al, [desk_svc_cell]     ; THE CELL IT ASKED FOR, as a wish the
+    cmp byte [desk_zslot + DESK_SVZ], 0xFF  ; reflow grants if it can - unless
+    jne .flow                   ; the user placed it already (SYSTEM.CFG's
+    or al, DSL_PIN | DSL_GONE   ; cell wins). 0xFF stays 0xFF: it flows
+    mov [desk_zslot + DESK_SVZ], al
+.flow:
+    call desk_reflow
+    mov al, DESK_SVZ
+    jmp short .ok
 
-    ; --- withdraw ----------------------------------------------------------
+    ; --- a driver withdraws it ---------------------------------------------
 .withdraw:
     mov bx, es
     cmp bx, [desk_svc_seg]
     jne .no                     ; not yours, or there is none
     mov word [desk_svc_seg], 0
-    call desk_reflow            ; its cell is posted, and anything after it
-                                ; packs up (SPEC.md 26.9)
+    call desk_reflow            ; its cell is posted, and what flows after it
+    jmp short .ok               ; packs up into it
+
+    ; --- a package: a LINK, CTRL.DRV's (SPEC.md 26.8.7) ----------------------
+.pkg:
+    mov dx, es                  ; DX:CX = the caller's record, which survives
+    mov cx, si                  ; the module's load where ES:SI would not
+    or al, al
+    jz .pdel
+    mov ax, (SC_OP_ADD << 8) | 0xFF ; AL = 0xFF unless the module answers a
+    call sc_modcall             ; zone - and one that cannot be read answers
+    cmp al, 0xFF                ; nothing, having said why
+    je .no
+    jmp short .ok
+.pdel:
+    mov al, ah                  ; the zone; CTRL.DRV refuses anything that is
+    mov ah, SC_OP_DEL           ; not a live link, as it does for Delete
+    call sc_modcall
 .ok:
     clc
     jmp short .out
@@ -1544,9 +1615,9 @@ osapi_desk_svc_x:
     pop es
     pop di
     pop si
+    pop dx
     pop cx
     pop bx
-    pop ax
     retf
 %else
 ; -----------------------------------------------------------------------------
@@ -1555,7 +1626,7 @@ osapi_desk_svc_x:
 ; that depends on a knob (SPEC.md 20.8 rule 4, wm_noanim's precedent); no
 ; driver on that kernel would register a zone, so the body is the refusal.
 ; -----------------------------------------------------------------------------
-osapi_desk_svc_x:
+osapi_desk_item_x:
     stc
     retf
 %endif
@@ -1635,6 +1706,7 @@ desk_svc_file resb DSV_FILEMAX  ; the 8.3 file it launches out of SYSTEM/
 desk_svc_cls  resb 1            ; its DRVC_* class...
 desk_svc_vrb  resb 1            ; ...and the verb that paints the icon
 desk_svc_name resb DSV_NAMEMAX  ; the package's header name - the singleton
+desk_svc_cell resb 1            ; the cell it asked for (SPEC.md 26.9)
 %if ($ - desk_svc_rec) != DSV_R_SIZE
   %error "the .bss mirror and the registered record must be the same shape: osapi_desk_svc copies DSV_R_SIZE bytes into it with one rep movsb"
 %endif

@@ -216,6 +216,8 @@ _MIRROR = {
     "DESK_PX": ("kernel/desk.inc", {"big": 104, "small": 44}),
     "DSL_SLOT": ("kernel/desk.inc", 0x3F),
     "DSL_GONE": ("kernel/desk.inc", 0x80),
+    # kernel/desksc.inc - one LINK row, which is OSAPI_DESK_ITEM's record too
+    "SC_REC": ("kernel/desksc.inc", {"big": 128}),   # OS88_SHORTCUTS: big only
     # kernel/disk.inc - the volume table (SPEC.md 18.7)
     # PER ARM (SPEC.md 51.0): kern_small can load no driver, so it can have no
     # DVK_DRV volume, so every volume it will ever have is one of the four
