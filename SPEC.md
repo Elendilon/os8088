@@ -37236,16 +37236,22 @@ place — `sys_attr` in `tools/os88disk.py` — for everything the build ships:
 | `KERNEL.SYS` | read-only + hidden + system | deleting it unboots the disk, and it is not a document |
 | `*.DRV` | read-only + hidden + system | the same, per driver (§51) |
 | `SYSTEM.CFG` | hidden + system | written by the kernel, so **not** read-only |
-| `TASKMGR.O88` | read-only + archive | **visible**: it is an application, and the chip menu loads it by name (§28). Read-only so it cannot be deleted out from under that menu |
-| `README.TXT` | read-only + archive | **visible**: it is the manual and it is meant to be opened (§19.7). Read-only for `TASKMGR.O88`'s reason — it is the machine's copy, not a scratch file |
-| everything on a data disk | archive | ordinary — **including the apps disk's own copy of `TASKMGR.O88`** (§28.3): the rule is the DISK, not the name, because that disk is the user's |
+| everything else, on either disk | archive | ordinary and **visible** — `TASKMGR.O88` (the chip menu loads it by name, §28), `README.TXT` (the manual, meant to be opened, §19.7), every package in `APPS/` and `GAMES/`, `SYSTEM/DOS/`'s tools and the faces |
 
-The last three rows are **one rule and not three**: `sys_attr` stamps
-read-only + archive on anything on the boot disk that is not a `.DRV`,
-wherever on it the file sits, so a file added to the system disk is protected
-by default and a row here is a description rather than a registration. That is
-also why `TASKMGR.O88` keeps its stamp on the way into `SYSTEM/` and
-`README.TXT` gets the same one staying in the root.
+**Only what would unboot the disk is locked.** The last row used to be split
+in two: anything on the boot disk that was not a `.DRV` was stamped
+read-only + archive, on the reasoning that *"the boot disk holds nothing a
+user should be deleting by accident"*. That named the wrong owner. A system
+disk is also the disk a user reworks — taking games off it to make room,
+dropping `SYSTEM/DOS/` on a machine with no DOS — and a lock on every
+package made that impossible from inside os8088 without a host tool. It also
+made the files impossible to UPGRADE: a hard disk built with the same stamp
+could not be keep-installed over, because the kernel's replace refuses a
+read-only entry (§52.10.15.1). So `sys_attr` now stamps read-only on
+`KERNEL.SYS` and the `.DRV`s alone, and everything else is archive wherever
+it sits. If the user deletes `SYSTEM/TASKMGR.O88`, the chip menu says so the
+next time, which is the failure it already has words for (§28.3). A hard disk
+goes one step further and locks nothing (§52.10.15.1).
 
 The hiding itself costs nothing new. `disk_mount`'s species filter (§19) has
 always dropped hidden and system entries from the listing — the DOS
@@ -54550,16 +54556,14 @@ floppy drive was the ordinary machine, and swapping disks is what you do on
 one.
 
 So the file ships on both disks, in a folder of the same name on each,
-because the menu cannot know which one is in the drive. The two copies differ
-in exactly one way:
+because the menu cannot know which one is in the drive. The two copies are
+the same file:
 
-- on the system disk it is **read-only** (§19.6), because the chip menu
-  loads it by name and deleting it would break a menu item with no other
-  way back;
-- on the apps disk it is an **ordinary file** — archive, nothing else —
-  because that disk is the user's. It can be renamed, deleted or replaced
-  like anything else on it, and if it is, the chip menu simply says so the
-  next time, which is the failure it already has words for.
+- on both it is an **ordinary file** — archive, nothing else — because
+  both disks are the user's (§19.6). It was read-only on the system disk,
+  on the reasoning that deleting it breaks a menu item; that reasoning was
+  never strong enough to forbid it, because if it goes the chip menu simply
+  says so the next time, which is the failure it already has words for.
 
 Four things about the placement:
 
@@ -86578,6 +86582,48 @@ boot, and the pad skipped leaves the kernel in the holes (38–41, 56–57, 61�
 and the rows built on it (`hdboot`, `instassoc`) still test the erasing
 install they were written for, and it now refuses a volume on which the
 fixture's DOS survived.
+
+#### 52.10.15.1 CLOSED: a hard disk the HOST built could not be upgraded
+
+**Field report**: a keep-install from current system disks onto a
+`make viddemo` disk (§98.5, ST-238R on an ST11R) paused for a long time and
+stopped with the caption reading `ARCHIVO.F88`. That caption is
+`hd_icopy_one` naming the file it stopped on, and the file is the first
+ORDINARY file the walk reaches — root, `SYSTEM/`, the empty `APPDATA/`, then
+`FONTS/`.
+
+**The installer was right and the volume was wrong.** `os88disk.py --hdd`
+stamped a hard disk with a FLOPPY's attributes (§19.6): read-only + hidden +
+system on `KERNEL.SYS` and every `.DRV`, and read-only on everything else.
+A keep-install replaces each file the install disks carry, and
+`dskw_pmask` refuses to replace a read-only entry — forgiving it only on a
+file already wearing hidden + system (§19.6.2's `DSKW_KPROT`). So the kernel
+and the drivers went down and committed, and the first font answered
+`FERR_PROT`. Every package, face and document on the volume was the same
+`0x21`, so it was the whole of the copy that could not proceed, not one file.
+Measured on MartyPC's XT-IDE (the same 615/4/26 geometry, the ST11's hidden
+cylinder dropped) with the field VHD transplanted: `ARCHIVO.F88` exactly, and
+with the read-only bits cleared on the host the same install runs to `Done`.
+
+**The fix is the generator, and it costs no kernel byte.** Under `--hdd`,
+`os88disk.py` now stamps what the installer itself writes: `KERNEL.SYS` and
+every `.DRV` `0x26` (hidden + system + archive — `OSAPI_FILE_WRITE_SYS`'s
+create plus the commit's archive), every other file `0x20`, `ASSOC.DAT`
+`0x06` as before. A host-built hard disk and an installed one are then the
+same volume. It reaches every `--hdd` image — the demo video disks and the
+live USB/CD (§80) alike. The floppies went the same way in the same change
+(§19.6): only `KERNEL.SYS` and the `.DRV`s are read-only there now, and
+everything a user might take off a system disk is theirs to take.
+
+What it does not do is change the kernel's rule: a driver still cannot
+replace an ordinary read-only file (§19.6.2), so a volume carrying the OLD
+stamp — any `VIDDEMO-*.VHD` or live image built before this — still stops
+the same way. Rebuild it, or clear the bit on the host
+(`mattrib -i <partition> -r -/ ::/*`) and install again.
+
+`tests/unit/t_hddgeom.py` is the gate: it builds a small `--hdd` volume from
+`make`'s own artefacts and reads every class's attributes with a walker of
+its own. With the old stamp it fails on all four classes.
 
 ## 52.11 Two images: the transport, and the tool
 
