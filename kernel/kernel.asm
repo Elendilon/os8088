@@ -2624,6 +2624,12 @@ OVL_AT      equ 2624            ; ...and it is ONE value for every build now.
 ; BOOTMARK=1's MARKW sites need 127 of a knob's give (BOOTHALT=20 131,
 ; DRVDIAG=1 with it 141). BOOTDIAG=1 keeps the 96 its own loader leaves room
 ; for (2,507 with MOUDIAG=1).
+; KERN_EMU TAKES THE KNOB GIVE TOO (SPEC.md 2.5.3.3). It is a product and
+; not a knob, but its `.boot2` IS the shipped loader's (2,467) and its `.ovl`
+; is kern_big's plus `vmm_boot_x`'s far call - which is 6 bytes past the line
+; since SPEC.md 26.8.6's ovl_sc_load left kern_big's own `.ovl` 1 byte inside
+; it (2,495 of 2,496). The split is free to move, so the 386 build moves it
+; rather than every shipped image paying an eleventh blob sector.
 %define OVL_KNOBGIVE 0
 %ifdef KERN_KNOB
 %ifndef SPLSTARS
@@ -2633,6 +2639,8 @@ OVL_AT      equ 2624            ; ...and it is ONE value for every build now.
   %define OVL_KNOBGIVE 144
 %endif
 %endif
+%elifdef KERN_EMU
+  %define OVL_KNOBGIVE 144
 %endif
 OVL_BASE    equ OVL_AT - OVL_KNOBGIVE
 

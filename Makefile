@@ -13863,8 +13863,21 @@ $(BUILD)/1942.o88: $(BUILD)/1942.bin tools/os88pkg.py $(PKGZSTAMP)
 1942disk: $(BUILD)/1942.img $(BUILD)/1942-360.img
 $(BUILD)/1942.img: $(N1942DISK) apps/1942/README.TXT tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(N1942DISK) apps/1942/README.TXT
-$(BUILD)/1942-360.img: $(N1942DISK) apps/1942/README.TXT tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 360 $(if $(strip $(N1942_ROM)),$(N1942DISK),$(filter-out $(BUILD)/1942.SFX,$(N1942DISK))) apps/1942/README.TXT
+# THE 360KB DISK CARRIES THE BANKS PACKED (SPEC.md 101, 20.14.3). Raw, the
+# original-art set is 355 data clusters of a disk that holds 354 - it never
+# fitted, from the commit that added it - and the three 61,448-byte V42 scenes
+# are 61 clusters each where 41,920 packed are 41. 1942 reads every bank with
+# OSAPI_FILE_READ, which is the TRANSPARENT read, so the package checks the
+# same size and checksum against the same bytes and nothing in it changes.
+# The 1.44MB disk has the room and keeps them raw.
+N1942Z := $(ZDATA)/1942
+N1942BANKS360 := $(filter-out $(BUILD)/1942.o88 $(if $(strip $(N1942_ROM)),,$(BUILD)/1942.SFX),$(N1942DISK))
+N1942DISK360 := $(BUILD)/1942.o88 $(if $(PKGZ),$(patsubst $(BUILD)/%,$(N1942Z)/%,$(N1942BANKS360)),$(N1942BANKS360))
+$(N1942Z)/%: $(BUILD)/% tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
+	@mkdir -p $(N1942Z)
+	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
+$(BUILD)/1942-360.img: $(N1942DISK360) apps/1942/README.TXT tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(N1942DISK360) apps/1942/README.TXT
 1942test: 1942disk $(BUILD)/os8088-360.img
 	python3 tests/n1942front.py
 	python3 tests/n1942.py

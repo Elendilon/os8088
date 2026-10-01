@@ -958,9 +958,16 @@ KNOB build already has and a shipped build does not use:
   most (`MOUDIAG=1`), and §31.14's `ovl_fdd_apply` took the shipped blob from
   147 spare to 20, which `BOOTMARK=1` needed. `OVL_AT` stays the one literal, which is what
   `tools/os88ladder.py` reads and what describes every kernel a disk carries.
+  **`kern_emu` takes the 144 as well, and it is the one PRODUCT that does**:
+  §26.8.6's `ovl_sc_load` left kern_big's own `.ovl` at **2,495 of 2,496**,
+  and kern_emu's is that plus `vmm_boot_x`'s five-byte far call - six past
+  the line. Its `.boot2` is the shipped loader's (2,467), so the split moves
+  for nothing, where the alternative was an eleventh blob sector on every
+  shipped image for a build that ships on one.
 
-Both are compiled out of every shipped kernel, so `make`, `make small` and
-`make emu` are exactly what they would be without them. Measured (blob `.ovl`
+Both are compiled out of every shipped kernel, so `make` and `make small`
+are exactly what they would be without them (`make emu` differs only in
+where its `.ovl` starts, above). Measured (blob `.ovl`
 of 1,984 shipped / 2,128 knob; `.ovlw` region 2,560 on a kern_small knob), and
 the kern_big column re-measured after §31.14:
 
@@ -159240,8 +159247,12 @@ At most one pending sample starts per game frame; louder events take priority
 over shots. Mute/pause cancels effects; exit closes the stream before freeing
 the claim. Missing samples, memory or unsupported DSP fall back to FM.
 The 360KB original-art disk omits the optional bank for space; the cartridge
-360KB disk and 1.44MB disk include it. The old tone path already used hardware
-tones, so richer sound does not promise an XT speedup.
+360KB disk and 1.44MB disk include it. **The 360KB disk carries every bank
+lz4-packed** (§20.14): raw, the original-art set is 355 data clusters of 354
+and never fitted, and every bank is read with `OSAPI_FILE_READ`, the
+transparent read, so the package's size and checksum tests see the same bytes
+(230 of 354 packed). The 1.44MB disk keeps them raw. The old tone path already
+used hardware tones, so richer sound does not promise an XT speedup.
 Both palette sets at $A770/$A790 are available for the cartridge's final area.
 Original-art builds implement the same game rules using original fallback
 assets and native schedules. No extracted cartridge content is committed.
