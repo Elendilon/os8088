@@ -748,9 +748,10 @@ sc_reloc:
 ; ui_loc_gate points item 1 at the MENU_DIS byte or past it, the Close Window
 ; idiom (menu.inc), so the greyed twin costs one byte and not a second string.
 sc_s_remx   db MENU_DIS
-sc_s_rem    db 'Remove Shortcut'
+sc_s_rem    db 'Remove Shortcut'    ; NO NUL OF ITS OWN: it ends on sc_nul's,
+sc_nul      db 0                ; ...which is also an EMPTY name, for a
+                                ; document's open. Nothing may go between
 sc_s_nf     db 'Shortcut not found (?:)', 0   ; 23: exactly a toast
-sc_nul      db 0                ; ...and an EMPTY name, for a document's open
 sc_popup    dw sc_s_rem         ; the right-click's one-item menu
 sc_bdg      db 1, 10            ; the badge: 10x10, one word across - a box
             times 10 dw 0xFFC0  ; the mask: the whole box white

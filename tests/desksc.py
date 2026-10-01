@@ -32,8 +32,8 @@ claim 26.8 makes is asked of the GUEST'S OWN STATE rather than of a picture:
      on a double-click, naming its drive.
   J  a right-click on the document's and `Remove Shortcut` removes that one
      only.
-  K  Locator's File > Remove Shortcut removes the selected one, the last, and
-     the claim goes with it.
+  K  Locator's File > Remove Shortcut (its label exact) removes the selected
+     one, the last, and the claim goes with it.
 
 **BREAK IT ON PURPOSE** (docs/WRITING-TESTS.md 1): take `call sc_m_ser` out
 of driver.inc's CFG_SAVE and B fails (no trailer) and E fails (nothing comes
@@ -426,6 +426,12 @@ def main():
         ui._wait(lambda: ui._byte("desk_sel") >= DESK_SC0
                  and ui._byte("desk_sel") != 0xFF,
                  "the folder shortcut selected", 10)
+        # menu_pick matches by SUBSTRING, so it cannot see a label that runs
+        # on into the next string - the item has no NUL of its own and
+        # borrows sc_nul's, which a string put between them once took
+        label = bytes(m.read(ui._S("sc_s_rem"), 16))
+        check(label == b"Remove Shortcut\0",
+              "the menu item reads exactly 'Remove Shortcut' (%r)" % label)
         fresh(ui)
         ui.menu_pick("File", "Remove Shortcut")
         saved(ui)
