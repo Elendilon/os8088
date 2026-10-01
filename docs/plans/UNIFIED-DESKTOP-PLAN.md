@@ -34,13 +34,14 @@ item answers the same four questions:
 - what is it called: its caption;
 - what does a double-click do: one of three actions.
 
-One routine answers each question for every kind. One `desk_add`/`desk_del`
-pair places and removes items for the kernel, the drivers and CTRL.DRV
-alike. The public slot `OSAPI_DESK_SVC` (0x03F8) becomes **`OSAPI_DESK_ITEM`**,
+One routine answers each question for every kind. One placement rule
+serves the kernel, the drivers, CTRL.DRV and packages alike: a placed item
+goes in its slot or the nearest free one, and every drive nobody has
+placed stays packed, gapless, into the first free cells around it. The public slot `OSAPI_DESK_SVC` (0x03F8) becomes **`OSAPI_DESK_ITEM`**,
 which a driver and a package can both call. Every item can be dragged to a
 new cell, drives included, and a drive's place is kept in SYSTEM.CFG beside
 the shortcuts. **The net is ESTIMATED at about −420 resident bytes on
-`kern_big` (range −300 to −500)**, most of it the shortcut code that
+`kern_big` (range −180 to −420, section 4)**, most of it the shortcut code that
 duplicated the drive zones' geometry, plus a smaller saving on `kern_small`.
 
 ---
@@ -104,10 +105,9 @@ before. Store the position and both the walk and the debt disappear.
 | Hercules 720×348 | 4 | 6 | 24 |
 | CGA 640×200 | 4 | 6 | 24 |
 
-`kern_big` can show 8 + 1 + 16 = 25 items, so a 24-cell screen with every
-kind at its limit leaves one item without a cell. That item is not drawn
-and nothing breaks. Creating a shortcut then says `No room on the desktop`,
-as it does today.
+`kern_big` can show 8 + 1 + 15 = 24 items, which is exactly the smallest
+screens' 24 cells, so every item always has one (decision D3). Creating a
+16th shortcut says `Too many shortcuts`, as the 17th does today.
 
 - **The picture box** is `IH` = 32 rows, or 16 on the CGA. Captions sit at
   `y + IH + gap` for every kind, so a row of mixed items lines up. A 32×32
@@ -122,19 +122,20 @@ as it does today.
 desk_zslot  resb DESK_NZ      ; per zone index:
                               ;   0..0x3F  shown, in that slot
                               ;   bit 6    the USER put it there (a pin)
-                              ;   bit 7    remembered, not shown (an
-                              ;            unmounted volume keeps its place)
+                              ;   bit 7    a pinned item that is not live
+                              ;            now: it keeps its place
                               ;   0xFF     nothing
 ```
 
 Zones are renumbered compactly: 0..7 volumes, 8 the service item,
-`DESK_SC0` = 9 for 16 shortcuts, so `DESK_NZ` = 25 on `kern_big` and 8 on
-`kern_small`. That is 25 bytes of `.bss` against today's `desk_zhw` and
+`DESK_SC0` = 9 for 15 shortcuts, so `DESK_NZ` = 24 on `kern_big` and 8 on
+`kern_small`. `SC_MAX` drops from 16 to 15 so that the item limit equals the
+smallest screen's 24 cells (owner, D3). That is 25 bytes of `.bss` against today's `desk_zhw` and
 `sc_dmgm`.
 
 **The table is the one answer to "where is it, and is it shown".**
 
-- "Is slot `s` taken" is `repne scasb` over 25 bytes.
+- "Is slot `s` taken" is a short scan of 24 bytes.
 - "Where is zone `z`" is one load and `desk_cell_xy`.
 - Nobody walks the volume table to find a position any more.
 
@@ -164,40 +165,60 @@ band. They now invert the picture and the caption, which is the Mac's look.
 
 A hit is anywhere in the cell, for every kind, as a shortcut's is today.
 
-### 2.4 One placement rule, for kernel, drivers, CTRL.DRV and packages
+### 2.4 One placement rule: placed items stay, everything else packs
+
+There are two kinds of position, and that is the whole rule:
+
+- **PLACED**: a link (where it was dropped), and any drive or the Wire the
+  user has dragged (bit 6). A placed item never moves on its own.
+- **FLOWING**: every drive and the Wire that nobody has dragged. These are
+  kept PACKED, in index order, into the first free cells around the placed
+  ones. That is today's gapless column, flowing around whatever sits in it.
+
+The packing is one routine, and it needs to know nothing about what was
+added or removed (owner, D2):
 
 ```
-desk_add   in AL = zone, AH = slot wanted (0xFF = any)
-           The wanted slot if it is inside [desk_ncell] and free. Else a
-           remembered place (bit 7) if it is free. Else the first free
-           slot in order. CF = 1 when no cell is free: the item exists but
-           is not drawn. Marks the cell for the posted repaint.
-desk_del   in AL = zone
-           A volume or the service item keeps its slot with bit 7 set, so it
-           comes back to the same place. A link's slot becomes 0xFF. Marks
-           the cell.
+desk_reflow   for every FLOWING zone 0..8: drop its slot.
+              for every FLOWING zone 0..8 that is live, in index order:
+                  take the first free cell.
+              for every zone whose slot changed: mark the old cell and the
+                  new cell dirty, and post.
+              a PLACED drive that is not live keeps its cell with bit 7;
+              when it comes back, it takes that cell if it is free, and
+              otherwise it is unpinned and flows.
 ```
 
-- `osapi_vol_add`/`_del` and the extra-floppy add call these where they call
-  `desk_zmark` today.
-- The service registration calls `desk_add(8, hint)`.
-- CTRL.DRV's create, move and remove call them through two far shims.
+It runs:
 
-**Boot order is kept by deferring.** Until `[desk_ready]` is set, `desk_add`
-only records that the zone is live. One `desk_place_all` at the end of
-`drv_boot` then places every live zone in index order. That happens after
-SYSTEM.CFG has put the pins and the shortcuts in, so they win their cells.
-Volumes 0..7 then take the first free cells and the Wire takes the next one,
-which is today's order whichever driver loaded first. `kern_small` calls
-`desk_place_all` at the same point in `kmain`. `desk_rowcalc` calls it too,
-for every zone whose slot no longer fits the new `[desk_ncell]`, so an
-adapter switch or a dock move reflows without overlapping anything.
+- when a volume is added or removed (`osapi_vol_add`/`_del`,
+  `dsk_flop_add`, `dsk_fdd_retire`), where `desk_zmark` is called today;
+- when the service item is registered or withdrawn;
+- when a link is created, moved or removed, so a drive packs into a cell a
+  link has just given up;
+- from `desk_rowcalc` (adapter switch, dock move), after it drops every slot
+  at or past the new `[desk_ncell]`;
+- once at the end of `drv_boot`, after SYSTEM.CFG has put the links and the
+  pins in. Until then, `[desk_ready]` is 0 and the calls above return at
+  once, so the boot order is the index order whichever driver loads first.
+  `kern_small` makes that one call at the same point in `kmain`.
 
-**The repaint becomes exact.** A removed volume keeps its slot (bit 7), so
-its old rect can still be computed after the row is gone. `[desk_zdirty]`
-becomes a WORD mask of the zones that changed. `ui_task`'s idle pass unions
-their rects and makes one `wm_paint_dmg`. There is no high-water mark and
-no reflow, and the CGA phantom-column case of §26.3 cannot happen.
+**It has to be resident, and it costs almost nothing.** Volumes change in
+more places than boot and the Control Panel. `RAMDISK`'s package verb
+mounts one (`drivers/ramdisk/rdpkg.inc`), hibernate detaches and reloads
+the hardware drivers (`hbm_detach`/`hbm_reload`), and the kernel drops a
+driver's volumes when it unloads. A reflow in CTRL.DRV would need the
+system disk on every one of those paths. Resident, it is about 45 bytes,
+and it IS `desk_place_all`, which the adapter switch needed anyway.
+
+**The repaint is the CELLS that changed.** `[desk_zdirty]` becomes an
+8-byte bit set of cells (64 is more than any screen has). `ui_task`'s idle
+pass paints each RUN of consecutive dirty slots as one rect. Slots in a
+column are numbered consecutively, so a run is exactly a strip of one
+column. Mounting a disk that lands at the end of the column is one cell.
+Unmounting `C:` above `D:` and `E:` is one strip of three. A cell between
+two columns is never painted, so §26.3's phantom column cannot happen, and
+`desk_zones_dmg`'s corner arithmetic and the `desk_zhw` high-water mark go.
 
 ### 2.5 One public slot: `OSAPI_DESK_ITEM` (0x03F8, replaces `OSAPI_DESK_SVC`)
 
@@ -246,8 +267,8 @@ Opening never needs the module.
 
 ```
 +T      count * SC_REC           ; the links, as now, with SC_R_SLOT at +1
-+T'     DESK_SC0 bytes           ; the slot byte of zones 0..8, bit 7 set
-                                 ; (remembered), 0xFF where nothing was pinned
++T'     DESK_SC0 bytes           ; the slot byte of zones 0..8 with bit 6
+                                 ; set where the user PLACED it, 0xFF where not
 +end-4  dw 'SC'  db 2  db count
 ```
 
@@ -267,16 +288,16 @@ still CTRL.DRV, so neither costs resident bytes.
 1. **Drives sit 12 px further left on `kern_big`.** A 32 px picture is
    centred in a 96 px cell 4 px off the edge. A second column of drives is
    104 px to the left instead of 44. `kern_small` is unchanged.
-2. **A removed drive leaves a hole**, which the next mounted volume or
-   anything dropped there fills. Today everything after it closes up. The
-   hole is what keeps positions stable, and that stability is what lets a
-   placed item and an auto-placed one share a grid.
+2. **Drives stay gapless, as today, around anything PLACED.** A drive the
+   user has dragged stays where it was put, and leaves its cell empty while
+   it is unmounted, so it can come back to it.
 3. **Shortcuts no longer start at the left edge.** They are dropped at the
    nearest free cell anywhere, including the cells drive columns used to
    reserve. Nothing else is reserved.
 4. **Drive and Wire highlights** invert the picture and the caption, not the
    32 px band (section 2.3 here).
-5. **25 items, 24 cells** on CGA, EGA and Hercules (section 2.1 here).
+5. **15 shortcuts, not 16**, so 24 items fit the 24 cells of CGA, EGA and
+   Hercules (section 2.1 here).
 
 ---
 
@@ -297,16 +318,16 @@ ESTIMATED from a sketch, against group A to C's MEASURED 1,260:
 | `desk_click` (one loop) | 70 |
 | `desk_dmg_zones` (one loop, the mask a dword: `[wm_dmg_zn]` + a word beside it) | 55 |
 | `desk_paint` / `desk_paint_mask` | 40 |
-| `desk_add` / first free / `repne scasb` occupancy | 55 |
-| `desk_place_all` | 20 |
-| `desk_del` | 20 |
-| `desk_zones_paint` (dirty mask → union → one `wm_paint_dmg`) | 45 |
+| first free / occupancy scan, shared by the reflow and a placed add | 35 |
+| `desk_reflow` (section 2.4) | 45 |
+| link add/remove into the table | 15 |
+| `desk_zones_paint` (dirty cells → one `wm_paint_dmg` per column run) | 50 |
 | `osapi_desk_item` (driver half as today, plus the package branch) | 100 |
 | **total** | **~810** |
 
 | | `.cold` | `.bss` | net |
 |---|---:|---:|---:|
-| **kern_big** | −1,260 + ~810 = **~−450** | +25 table −3 (`desk_zhw`, `sc_dmgm` folded into the dword) = **+22** | **~−430** |
+| **kern_big** | −1,260 + ~810 = **~−450** | +24 table, +8 dirty cells, −4 (`desk_zhw`, `desk_zdirty`, `sc_dmgm` folded into the dword) = **+28** | **~−420** |
 | **kern_small**: removes B (183 MEASURED) and rewrites C's drive-only half (530 MEASURED) for ~575 | **~−140** | +8 | **~−130** |
 
 CTRL.DRV shrinks as well. `sc_m_cell` (192) and `sc_m_occ` (53) become a
@@ -321,14 +342,14 @@ at use is move-safe. That is about −35 net, and the caption already goes
 through the link's stager. It is a measured A/B for wave 4, not part of the
 estimate.
 
-**How sure is ~−430?** The removals are measured to the byte. The additions
+**How sure is ~−420?** The removals are measured to the byte. The additions
 are a count of a sketch, and sketches in this tree have run 10-30% low.
 
 | additions run | `.cold` | net with `.bss` |
 |---|---:|---:|
-| as sketched (810) | −450 | **−428** |
-| 10% over (891) | −369 | −347 |
-| 30% over (1,053) | −207 | −185 |
+| as sketched (810) | −450 | **−422** |
+| 10% over (891) | −369 | −341 |
+| 30% over (1,053) | −207 | −179 |
 
 So 400 is reachable but not certain. It depends on the new
 `desk_draw_zone` and `osapi_desk_item` coming in near their estimates, and
@@ -345,8 +366,8 @@ before, and is looked at on VGA, the CGA and Hercules (§1's rule about
 the CGA).
 
 1. **The grid and the table, for drives and the Wire.** `desk_zslot`,
-   `desk_cell_xy`, `desk_add`/`desk_del`/`desk_place_all`, the deferred boot
-   placement, the posted dirty mask, and one `desk_draw_zone`/hilite/click
+   `desk_cell_xy`, `desk_reflow` and the deferred boot
+   placement, the dirty-cell set, and one `desk_draw_zone`/hilite/click
    /damage over zones 0..8. Group B goes. On `kern_small` this is the whole
    change. Gates: `deskfdd`, `wirezone`, `hdboot`, `small128`, `deskbench`,
    and `tools/os88geom.py`'s `drive_xy`, which reads the table instead of
@@ -367,12 +388,22 @@ the CGA).
 
 ---
 
-## 6. Open questions for the owner
+## 6. Decisions
 
-| # | question | recommendation |
+The owner answered on 2026-10-01:
+
+| # | question | DECIDED |
 |---|---|---|
-| U1 | one cell size (section 2.1 here) moves `kern_big`'s drives 12 px left and makes a second drive column 104 px away | accept: one grid is the whole point, and a narrower cell truncates the captions §26.8.2 chose 104 for |
-| U2 | holes instead of closing up (section 3, item 2) | accept: stable slots are what make "flow around a placed item" possible |
-| U3 | may a package remove a link it did not add? | yes: there is no owner identity to check, and the user can make it again. Refusing would need a field in every record |
-| U4 | should `Remove` on a drive mean unmount? | no: keep removal for links, and keep unmounting in the Control Panel |
-| U5 | `kern_small` takes the same code (section 4, about −130) rather than staying byte-identical | yes: one model in both kernels. If wave 1 measures it positive on `kern_small`, that kernel keeps its ordinal flow behind `%ifdef` and this is reported |
+| D1 | one cell size moves `kern_big`'s drives 12 px left | build it and look. **Fallback if the look fails:** a narrower cell, with captions cut to an 8-character stem, and possibly a short display name a package can store for its shortcut |
+| D2 | holes or gapless | **gapless**: re-pack every unplaced drive on any change, knowing only that they are drives (section 2.4). It stays resident, because volumes change outside boot and the Control Panel |
+| D3 | 25 items, 24 cells | `SC_MAX` 15, so the item limit equals the cells |
+| D4 | moving an icon needs the system disk | accepted: it is a setting like any other, and a setting needs the system disk to persist |
+| D5 | `kern_small` | takes the same code if it is negative or under about +100 bytes; otherwise gated behind `%ifdef` |
+| D6 | the trailer format | free to change; the feature has shipped to no one |
+
+Still open, decided by default unless the owner says otherwise:
+
+| # | question | default |
+|---|---|---|
+| U3 | may a package remove a link it did not add? | yes: there is no owner identity to check, and the user can make it again |
+| U4 | should `Remove` on a drive mean unmount? | no: removal stays for links, and unmounting stays in the Control Panel |
