@@ -157429,6 +157429,17 @@ the kernel or the driver:
   those periods; a Live pass turns the ticks since the last one into them
   (a tick is 65,536 PIT counts, a period the file's divisor, the remainder
   kept). Up to `VP_LCAP` frames a pass, as a silent Live play draws.
+- **The card starts LAST.** `vp_lsetup` draws the buttons (Play turned to
+  Pause, 111 ms on a 5150) and hires the worker first, then opens the card
+  on the key's frame, then takes the clock - `vp_lback`'s rule below, at the
+  start. It opened the card first, so the card played on through that draw
+  while the worker waited on the lock, and the worker's first pass landed
+  ~130 or ~185 ms after the card started - before or after its first block
+  interrupt (2,048 bytes is 184 ms at 11,111 Hz) - by WHERE IN A TICK the
+  key arrived. After it, the clock jumped to the block and the pass owed 5
+  to 7 frames against `VP_LCAP`'s 4: 0 to 3 forgiven at the start, the same
+  file, the same machine, decided by the keystroke's phase. Six bytes of
+  `video.o88`'s image (36,900 -> 36,906), no kernel byte.
 - **Pause, F and back go through `vp_upaus`**, the bracket's own pause: Space
   halts the card where it is (verb 10) and resumes it (verb 1); F pauses it
   as the worker stops and the bracket resumes it on its first frame; F back

@@ -4276,16 +4276,7 @@ vp_lsetup:
     call vp_lprime                  ; A STREAM: the ring filled, over the key
     mov byte [vp_sfirst], 0
     mov byte [vp_ready], 1
-%ifdef VP_LIVESND
-    cmp byte [vp_snd], 0            ; the card, started on the key's frame
-    je .ns                          ; with the picture (98.3.10.1)
-    call vp_acur
-    call vp_sopen
-.ns:
-%endif
-    call OSAPI_GET_TICKS
-    mov [vp_t0], ax
-    call vp_lgo
+    call vp_lgo                     ; (its clock is taken again below)
     cmp byte [vp_hired], 0          ; THE WORKER, once for the instance
     jne .h
     mov ax, vp_worker
@@ -4308,7 +4299,18 @@ vp_lsetup:
                                     ; finds the worker blocked on it and every
                                     ; block pinned (66.5.3)
 .h:
-    call vp_lbtn
+    call vp_lbtn                    ; Play turned to Pause BEFORE the card:
+%ifdef VP_LIVESND                   ; a card started first plays on through
+    cmp byte [vp_snd], 0            ; this draw while the worker waits on
+    je .ns                          ; the lock, and the start is then 0 to
+    call vp_acur                    ; 3 frames late by where in a tick the
+    call vp_sopen                   ; key landed (98.3.10.1) - the card,
+.ns:                                ; started on the key's frame with the
+%endif                              ; picture, the last thing done
+    call OSAPI_GET_TICKS
+    mov [vp_t0], ax
+    mov [vp_ltk], ax                ; ...and the worker's clock from it
+.out:
     pop si
     pop dx
     pop cx
@@ -4319,7 +4321,8 @@ vp_lsetup:
     mov word [vp_msg], vp_s_refused
     xor al, al
     call vp_stopfor
-    jmp short .h
+    call vp_lbtn
+    jmp short .out
 
 ; vp_lgo - a live play (re)started from where it is: the shadow the keeper
 ; and every row owed to the box, the clock from now, and the worker on
