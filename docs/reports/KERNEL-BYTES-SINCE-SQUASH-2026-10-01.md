@@ -114,37 +114,59 @@ no change was made twice and kept once, which the previous cycle had. 84 of the
 189 non-merge commits move a byte; the other 105 measure 0 in every section on
 both kernels.
 
-## `main`'s arm: +504 on `kern_big`, and the PR takes it back out
+## `main`'s arm: +504 resident on `kern_big` and a retained 4KB module, and the PR takes both back out
 
 | commit | what it touched | `kern_big` resident | `kern_small` |
 |---|---|---:|---:|
-| #211 `40a017f3` *Add desktop shortcuts with no static kernel memory growth* | `kernel/links.inc` (new), `linkcfg.inc`, `ui.inc`, `menu.inc`, `mod.inc`, `files.inc`, `desk.inc`, `kernel.asm`, `wm.inc`, `memory.inc` | **+504** (`.text` +349, `.bss` +44, `.cold` +111) | 0 |
+| #211 `40a017f3` *Add desktop shortcuts with no static kernel memory growth* | `kernel/links.inc` (new), `linkcfg.inc`, `ui.inc`, `menu.inc`, `mod.inc`, `files.inc`, `desk.inc`, `kernel.asm`, `wm.inc`, `memory.inc`, and a new module, `DESKTOP.DRV` | **+504** (`.text` +349, `.bss` +44, `.cold` +111), **plus `DESKTOP.DRV`'s 4,038 bytes held for the whole session** (below) | 0 |
 | #204, #205, #202, #207, #206 | packages: DrMarco, Gorillas' music, 1942, DrMarco standalone, Excitebike | 0 | 0 |
 | #208, #209, #210 | the everything-disk set, the native-game-port skill (twice) | 0 | 0 |
 
-**#211's title is true of rungs and not of bytes**: it crossed none, and it
-spent 504 bytes to do it, leaving C's image rung 2 bytes from its edge and the
-cold rung 2 bytes from its own. On `kern_small` it is 0, as it said.
+**#211's title is true of rungs and not of bytes**: `KERN_SIZE` did not
+move, but it spent 504 resident bytes, leaving C's image rung 2 bytes from
+its edge and the cold rung 2 bytes from its own. **And `KERN_SIZE` is not
+the whole of what #211 keeps resident.** Its behaviour is a module,
+`DESKTOP.DRV` (4,038-byte image, 3,192 on disk, a 4KB claim), and the module
+is never freed: `ui_task` loads it before its first pass, on every `kern_big`
+boot whether or not the desktop has a shortcut, and keeps it (C's SPEC.md 2.8:
+*"`DESKTOP.DRV` (§26.8) is retained when the UI starts on big/emu builds"*,
+claimed bottom-up). A module that is never dropped costs RAM like the kernel
+and is counted with it here, as the on-demand rule (CLAUDE.md) and
+docs/plans/completed/O88-MULTISEG-PLAN.md §1 count one. On top of that, the
+shortcut record store (`DL_MAX` 16 records of 256 bytes plus a 512-byte
+header) is a **5KB claim**, taken lazily at the first shortcut or the first
+`DESKTOP.CFG` and then held. On `kern_small` #211 costs 0, as it said.
 
 **The branch reverts #211** (`e9da2dcd`, −504 to the byte) and puts its own
 desktop in its place (SPEC.md 26.8 and 26.9, below), so that one tree does not
 carry two desktop designs. **That is a decision about upstream's merged
 feature, and the PR should say so in its description** rather than leave it
-to be found in the diff: the PR removes `kernel/links.inc` and
-`kernel/linkcfg.inc`, and `main`'s desktop and desktopcga suite rows with
-them. Side by side:
+to be found in the diff: the PR removes `kernel/links.inc`,
+`kernel/linkcfg.inc` and `DESKTOP.DRV`, and `main`'s desktop and desktopcga
+suite rows with them. Side by side, on `kern_big`:
 
-| | `kern_big` resident | overlay | `CTRL.DRV` image | `kern_small` resident |
-|---|---:|---:|---:|---:|
-| `main`'s #211 | +504 | 0 | 0 | 0 |
-| `elendilon`'s shortcuts + one desktop + the settings core | **+960** | +324 | +1,613 | +42 |
-| **what replacing it costs `main`** | **+456** | +324 | +1,613 | +42 |
+| | `main`'s #211 | `elendilon`'s shortcuts + one desktop |
+|---|---:|---:|
+| resident kernel sections | +504 | **+960** |
+| a module held from the UI's start to power-off | **`DESKTOP.DRV`, 4,038 (a 4KB claim)** | **none** |
+| **always resident, total** | **4,542 (4,600 with the claim's rounding)** | **960** |
+| the shortcut store, claimed lazily | **5KB** at the first shortcut or `DESKTOP.CFG`, 16 records | **1KB per 8 shortcuts** on the desktop (128-byte rows, `SC_PERKB` 8), grown as they are added and declared movable |
+| what a gesture reads off the system disk | nothing: the module is already in | `CTRL.DRV`'s settings core, 2,134 bytes, freed again after the gesture |
+| boot overlay (given back after boot) | 0 | +324 |
+| `CTRL.DRV` image (on demand) | 0 | +1,613 |
+| `kern_small` resident | 0 | +42 |
 
-What the 456 buys is SPEC.md 26.9.8's list: every desktop item (drive, Wire,
-shortcut) in one grid that the user rearranges, a package-facing
-`OSAPI_DESK_ITEM`, and a drag-out that reads 2,134 bytes of `CTRL.DRV`
-instead of the whole file. Whether it is worth that is the PR's argument and
-not this file's.
+**So replacing #211 takes about 3.6KB of always-resident RAM back off
+`main`'s `kern_big`** (4,542 → 960 by image, 4,600 → 960 by claim), and the
+shortcut store goes from 5KB on the first shortcut to 1KB for every eight. Its
+kernel sections alone read the other way (+456), and that figure is not the
+cost: it counts the resident dispatch #211 kept in the kernel and leaves out
+the behaviour it kept in a module that is never freed. It also buys
+SPEC.md 26.9.8's list: every desktop item (drive, Wire, shortcut) in one grid
+that the user rearranges, and a package-facing `OSAPI_DESK_ITEM`. What it
+costs is `CTRL.DRV` +1,613 on demand, +324 of boot overlay, +42 on
+`kern_small`, and a 2,134-byte read off the system disk per gesture where
+#211 held its module.
 
 `main`'s packages are billed to floppies, never to resident RAM: `DRMARCO.O88`
 25,550 bytes on disk (49,685 image), `1942.O88` 31,448 (46,962), and
@@ -225,7 +247,8 @@ been briefed with, that is **~487 bytes owed on `kern_big`**, ~21 on
 `kern_small`, and ~807 of `CTRL.DRV`.
 
 **`main`'s #211 is not on that list** because B does not carry it. If the PR
-were to keep both designs, its +504 would be.
+were to keep both designs, its +504 and `DESKTOP.DRV`'s retained 4KB would
+be.
 
 ## How close B stands to the next rung
 
@@ -250,7 +273,9 @@ come out.
 
 A module is read into a heap claim when its feature is used and freed after,
 so none of this is in `KERN_SIZE`. Images (unpacked) and files (as shipped),
-off each point's own build. C's images are A's to the byte.
+off each point's own build. C's images are A's to the byte, and C has one
+more, #211's `DESKTOP.DRV` (4,038-byte image, 3,192 on disk), which is held
+from the UI's start (above) and which B does not have.
 
 | module | A image | B image | Δ | A file | B file | claim, whole KB |
 |---|---:|---:|---:|---:|---:|---|
@@ -336,19 +361,22 @@ read in the ROM rather than copied (SPEC.md 6), the largest single item.
 | `KERN_SIZE` at the PR tip (D) | **103,936** | **67,584** |
 | **change, A → D** | **−3,072** (six rungs net) | **−3,584** (seven rungs) |
 | resident bytes, A → D | **−2,550** | **−3,162** |
-| resident bytes, C → D (against `main` as it stands, #211 included) | **−3,054** | **−3,162** |
+| resident bytes, C → D (against `main` as it stands, #211 included) | **−3,054**, and **−7,092** counting `DESKTOP.DRV`'s retained 4,038 | **−3,162** |
 | overlay bytes, A → D | +538 | +156 |
-| heap a machine gets back | **3,072** | **3,584** |
+| heap a machine gets back, against A | **3,072** | **3,584** |
+| heap a machine gets back, against `main` as it stands (C) | **7,168**: `KERN_SIZE` 3,072 and `DESKTOP.DRV`'s 4KB claim | **3,584** |
 | spare of the budget | 22,528 → **25,600** (44 → 50 steps) | 36,352 → **39,936** (71 → 78 steps) |
 | `.text`+`.bss` of `KERN_CODE_MAX` (65,536) | 53,365 → **51,186**: 12,171 → **14,350 left** | 39,055 → **37,168**: 26,481 → **28,368 left** |
 | guard 5 (boots on `MIN_RAM_KB`) | 84,992 → **87,552** before it cannot boot on 196KB | 51,200 → **54,272** on 128KB |
 
 **In one line each:**
 
-- **`main`** spent **504 resident bytes on `kern_big`** (#211's desktop
-  shortcuts) and nothing on `kern_small`; the rest of its arm is packages.
-  **The PR reverts #211** and replaces it with the branch's own desktop, at
-  456 bytes more for one grid, a package API and a cheaper drag-out.
+- **`main`** spent **504 resident bytes on `kern_big` plus a 4KB module it
+  never frees** (#211's desktop shortcuts, ~4.5KB always resident) and a 5KB
+  lazy store; nothing on `kern_small`; the rest of its arm is packages.
+  **The PR reverts #211** and replaces it with the branch's own desktop: 960
+  bytes always resident and 1KB per 8 shortcuts, about **3.6KB less** than
+  #211 on every `kern_big` machine.
 - **We** added **2,231 resident bytes on `kern_big` and 165 on
   `kern_small`**: the stream writer (1,077 as it came in), shortcuts and one
   desktop (960), split sets (124), a failing disk that looks alive (40), the
