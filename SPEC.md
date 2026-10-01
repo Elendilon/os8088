@@ -157282,6 +157282,45 @@ stays pinned: the sound's ring (`MC_DMA`, which the kernel never moves -
 66.3), a LIVE session's claims (its worker decodes out of them on the
 desktop), and a claim for the length of a read into it (66.3 rule 5).
 
+##### 98.3.19.3 The poster IS the keeper, at the video's own size
+
+**A play drawn onto the screen at its own size claims no keeper at all**
+(`[vp_nokeep]` = 2, `vp_pcanv`). The poster the box shows is the canvas
+already: one-bit, its rows dense out of the file's layout (`vp_linear`);
+VGA4, packed two pixels a byte (`vp_v4pack`) - every pixel at scale 1. So
+the keeper's three jobs move onto it:
+- **a GET** as a bracket ends (`vp_pcget`) takes the canvas off the screen
+  into the poster - one-bit a row at a time, VGA4 four planes' byte into
+  four packed bytes through the Read Map - and the box shows that frame
+  after the desktop's repaint, `[vp_dkey]` = FFFEh as `vp_sesspic` made it
+  from the keeper;
+- **a PUT** as a bracket starts (`vp_pcput`) lays it back onto the screen,
+  the window's place or the full screen's centre alike, VGA4 through the
+  Map Mask - or black, until the session has put a frame there
+  (`[vp_pcv]`): a play from frame 0 still starts on black, and the poster
+  stays up until it does (98.3.7.1);
+- **a clear** (a seek, a Repeat through key 0) is black on the screen, and
+  the poster's frame stops being the canvas.
+
+Eligible (`vp_pcanv`): the poster held at scale 1, a one-bit file in the
+desktop's own layout or a VGA4 one, drawn onto the screen (no shadow, no
+decode into a keeper, not RESIDENT, LIVE or flipped). That is **every play
+the window can host** - one-bit files, and VGA4 on a VGA desktop, whose
+mode 12h is the file's own - and the same files in the full screen, where
+F swaps between the two with the frame intact and no stop. A relayout that
+changes the poster's scale mid-session stops it at the key at or before,
+as a keeperless full screen does; a get that finds the poster gone or
+rescaled drops the session to 98.3.19's rule, which a desk pause then
+honours the same way. What it saves is the whole keeper: 16-38 KB for a
+one-bit layout, and for VGA4 the four planes at mode 12h's 80-byte rows -
+75 KB for 320 x 240 - against a poster of 38.
+
+`vidwin`, `vidvga4`, `vidpreview` and
+the `vidfskeys*` rows cover it (`vidwinshd` is the keeper it still needs,
+the shadow): frame-exact at every hold, a click's pause
+with the stopped frame in the box byte for byte, and F out and back.
+VIDEO.O88 +735 bytes.
+
 ### 98.4 The window: the Preview (wave 6)
 
 **The window IS the Preview** (VIDEO-PLAN 3.3): the file's poster in a

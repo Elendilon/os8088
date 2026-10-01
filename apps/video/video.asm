@@ -2068,6 +2068,12 @@ vp_sesspic:
     mov ax, [vp_pscale]
     cmp ax, [vp_ps]
     je .same
+    cmp byte [vp_nokeep], 2         ; THE POSTER IS THE CANVAS (98.3.19.3):
+    jne .rs                         ; at another scale it no longer can be,
+    xor al, al                      ; so the session stops at the key at or
+    call vp_stopfor                 ; before where it is, as a full screen
+    jmp short .out                  ; without a keeper does
+.rs:
     call vp_pfree                   ; a claim for another scale
 .same:
     cmp word [vp_pseg], 0
@@ -2079,7 +2085,12 @@ vp_sesspic:
 .have:
     mov ax, [vp_keep]
     or ax, ax
-    jz .out
+    jnz .hk
+    cmp byte [vp_pcv], 0            ; the poster HOLDS the frame (vp_pcget)
+    je .out
+    mov word [vp_dkey], 0xFFFE
+    jmp short .out
+.hk:
     mov [vp_kshd], ax
     call vp_mkpic
     call vp_pmov
@@ -5971,6 +5982,13 @@ vp_sstart:
 .kc:
     mov [vp_kkb], al                ; (what vp_zero clears of it)
     mov byte [vp_nokeep], 0
+    mov byte [vp_pcv], 0            ; (the poster holds no frame of this yet)
+    call vp_pcanv                   ; THE POSTER IS THE KEEPER (98.3.19.3):
+    jc .kel                         ; at the video's own size it IS the
+    mov byte [vp_nokeep], 2         ; canvas, one-bit or VGA4, and a play
+    xor dx, dx                      ; that draws onto the screen needs no
+    jmp .kok                        ; second copy of it
+.kel:
     call vp_kelig                   ; A KEEPER THIS PLAY CAN DO WITHOUT
     jc .kreq                        ; (98.3.19): claimed, and given back if
     push ax                         ; the ring cannot reach the header's
@@ -6244,6 +6262,217 @@ vp_kelig:
     ret
 .no:
     stc
+    ret
+
+; vp_pcanv - CF=0 the poster can stand in for the keeper (SPEC.md
+; 98.3.19.3): it is at the video's own size - one-bit dense rows (vp_linear)
+; or VGA4 packed two pixels a byte (vp_v4pack), the canvas exactly - and the
+; play draws onto the screen in the file's own layout: no decode INTO a
+; keeper, no RESIDENT, LIVE or flipped play, no shadow in either surface.
+; Preserves all
+vp_pcanv:
+    cmp word [vp_pseg], 0
+    je .no
+    cmp word [vp_ps], 1
+    jne .no
+    cmp word [vp_pscale], 1
+    jne .no
+    cmp byte [vp_kneed], 0
+    jne .no
+    cmp byte [vp_resid], 0
+    jne .no
+    cmp byte [vp_livem], 0
+    jne .no
+    cmp byte [vp_flip], 0
+    jne .no
+    cmp byte [vp_fsshd], 0
+    jne .no
+    cmp byte [vp_pixfmt], PF_VGA4   ; 16 colours, on mode 12h's planes
+    je .yes
+    cmp byte [vp_pixfmt], PF_VGA8   ; ...or one bit, in the desktop's own
+    jae .no                         ; layout - another's is the window's
+    push ax                         ; shadow (98.3.2), which the keeper IS
+    mov al, [vp_layout]
+    cmp al, [vp_dlay]
+    pop ax
+    jne .no
+.yes:
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; vp_pcput / vp_pcget - the canvas between the screen and the POSTER, where
+; it stands in for the keeper (98.3.19.3): its rows in the file's layout at
+; [vp_org] on the screen, dense at [vp_pbw] in [vp_pseg]. A put with no frame
+; of this session in the poster yet ([vp_pcv] 0) is black, as the keeper's
+; would have been; a get sets [vp_pcv]. Clobbers AX, BX, CX, DX, SI, DI, ES
+vp_pcput:
+    cmp byte [vp_pcv], 0
+    je .blk
+    cmp word [vp_pseg], 0
+    jne .go
+.blk:
+    mov byte [vp_pcv], 0            ; (vp_kmove's own black - and with no
+    xor al, al                      ; frame, it does not come back here)
+    jmp vp_kmove
+.go:
+    xor dx, dx
+.r:
+    cmp dx, [vp_h]
+    jae .done
+    call vp_pcrow
+    mov es, [vp_vseg]
+    mov cx, [vp_wb]
+    push ds
+    cmp byte [vp_planar], 0
+    jne .v4
+    mov ds, [vp_pseg]
+    rep movsb                       ; ONE BIT: the row as it is
+    pop ds
+    inc dx
+    jmp short .r
+.v4:
+    push bp
+    push dx
+    mov bp, cx
+    mov ds, [vp_pseg]
+    pushf
+    cli                             ; (the Map Mask is the hook's too)
+.v4b:                               ; 16 COLOURS: 4 packed bytes -> 8 pixels'
+%rep 4                              ; bit in each of the four planes, b3 of
+    lodsb                           ; a pixel's nibble plane 3's
+%rep 2
+    shl al, 1
+    rcl ch, 1
+    shl al, 1
+    rcl cl, 1
+    shl al, 1
+    rcl bh, 1
+    shl al, 1
+    rcl bl, 1
+%endrep
+%endrep
+    mov dx, 0x3C4
+    mov ax, 0x0102
+    out dx, ax
+    mov [es:di], bl
+    mov ah, 2
+    out dx, ax
+    mov [es:di], bh
+    mov ah, 4
+    out dx, ax
+    mov [es:di], cl
+    mov ah, 8
+    out dx, ax
+    mov [es:di], ch
+    inc di
+    dec bp
+    jnz .v4b
+    popf
+    pop dx
+    pop bp
+    pop ds
+    inc dx
+    jmp .r
+.done:
+    cmp byte [vp_planar], 0
+    je .ret
+    call vp_mxall                   ; the writes back to all four planes
+.ret:
+    ret
+
+vp_pcget:
+    cmp word [vp_pseg], 0           ; A POSTER THAT CANNOT HOLD THE CANVAS -
+    je .lost                        ; gone, or at another scale since - and the
+    cmp word [vp_pscale], 1         ; session is a keeperless one (98.3.19):
+    je .ok                          ; it stops at the key on the way back
+.lost:
+    mov byte [vp_nokeep], 1
+    mov byte [vp_pcv], 0
+    ret
+.ok:
+    xor dx, dx
+.r:
+    cmp dx, [vp_h]
+    jae .done
+    call vp_pcrow
+    xchg si, di                     ; SI the screen, DI the poster
+    mov es, [vp_pseg]
+    mov cx, [vp_wb]
+    push ds
+    cmp byte [vp_planar], 0
+    jne .v4
+    mov ds, [vp_vseg]
+    rep movsb
+    pop ds
+    inc dx
+    jmp short .r
+.v4:
+    push bp
+    push dx
+    mov bp, cx
+    mov ds, [vp_vseg]
+    pushf
+    cli
+.v4b:                               ; four planes' byte -> 4 packed bytes
+    mov dx, 0x3CE
+    mov ax, 0x0004
+    out dx, ax
+    mov bl, [si]
+    mov ah, 1
+    out dx, ax
+    mov bh, [si]
+    mov ah, 2
+    out dx, ax
+    mov cl, [si]
+    mov ah, 3
+    out dx, ax
+    mov ch, [si]
+%rep 4
+%rep 2
+    shl ch, 1
+    rcl al, 1
+    shl cl, 1
+    rcl al, 1
+    shl bh, 1
+    rcl al, 1
+    shl bl, 1
+    rcl al, 1
+%endrep
+    stosb
+%endrep
+    inc si
+    dec bp
+    jnz .v4b
+    mov ax, 0x0004                  ; the Read Map back to plane 0, where the
+    out dx, ax                      ; desktop keeps it
+    popf
+    pop dx
+    pop bp
+    pop ds
+    inc dx
+    jmp .r
+.done:
+    mov byte [vp_pcv], 1
+.ret:
+    ret
+
+; vp_pcrow - DX = a canvas row: DI = it on the screen, SI = it in the
+; poster. Preserves all but AX, BX, SI, DI
+vp_pcrow:
+    mov ax, dx
+    mov bl, [vp_layout]
+    call vp_rowaddr
+    add ax, [vp_org]
+    add ax, [vp_kpo]
+    mov di, ax
+    push dx
+    mov ax, dx
+    mul word [vp_pbw]
+    mov si, ax
+    pop dx
     ret
 
 ; vp_kroom - DX = the keeper, just claimed: CF=0 the ring can still reach
@@ -6584,10 +6813,10 @@ vp_srun:
     cmp byte [vp_lsess], 0          ; (LIVE: back on the desktop, 98.3.10)
     je .tnk
     call vp_lback
-    jmp short .out
+    jmp .out
 .tnk:
-    cmp byte [vp_nokeep], 0         ; NO KEEPER (98.3.19): the canvas cannot
-    je .tw                          ; cross into the window, so the session
+    cmp byte [vp_nokeep], 1         ; NO KEEPER (98.3.19): the canvas cannot
+    jne .tw                         ; cross into the window, so the session
     mov bl, [vp_autop]              ; stops at the key at or before the frame
     xor al, al                      ; on the glass, its picture in the box -
     call vp_stopfor                 ; and plays on from that key in the
@@ -6602,6 +6831,12 @@ vp_srun:
     mov byte [vp_wantwin], 1
     jmp .again
 .desk:
+    cmp byte [vp_nokeep], 1         ; NO FRAME KEPT (98.3.19): stopped at the
+    jne .dk                         ; key at or before, as a swap is
+    xor al, al
+    call vp_stopfor
+    jmp .out
+.dk:
     cmp byte [vp_unmq], 0           ; UNMUTED in the window (98.3.17): the
     je .out                         ; play starts again from the key at or
     mov byte [vp_unmq], 0           ; before where it was, its sound in step,
@@ -7943,6 +8178,18 @@ vp_kmove:                           ; AL = 0 keeper -> screen, 1 screen -> keepe
     mov ax, [vp_keep]
     or ax, ax                       ; NO KEEPER (98.3.19): a put is black on
     jnz .kh                         ; the screen, and a get has nowhere to go
+    cmp byte [vp_nokeep], 2         ; ...unless the POSTER stands in for it
+    jne .nk2                        ; (98.3.19.3)
+    cmp byte [vp_kdir], 0
+    jne .pg
+    cmp byte [vp_pcv], 0            ; (no frame in it yet: black, below)
+    je .nk2
+    call vp_pcput
+    jmp .d
+.pg:
+    call vp_pcget
+    jmp .d
+.nk2:
     cmp byte [vp_kdir], 0
     jne .d
     cmp byte [vp_planar], 0         ; (all four planes at once)
@@ -9774,6 +10021,7 @@ vp_decboth:
 ; the shadow it is the shadow, and the next copy takes every row.
 ; clobbers AX, BX, CX, DX, SI, DI, ES
 vp_cclear:
+    mov byte [vp_pcv], 0            ; (the poster's frame is not the canvas now)
     cmp word [vp_keep], 0           ; (NO KEEPER, 98.3.19: vp_kput below
     je .native                      ; blacks the screen itself)
     mov es, [vp_keep]
@@ -12400,7 +12648,9 @@ vp_mrun0:     dw 0                  ; the heap as Play found it: the largest
 vp_mfre0:     dw 0                  ; claim and all that is free, KB (98.3)
 vp_mrun:      dw 0                  ; ...and what the ring was sized from
 vp_mkeep:     db 0                  ; ...after the keeper, KB
-vp_nokeep:    db 0                  ; this play goes without its keeper (98.3.19)
+vp_nokeep:    db 0                  ; this play goes without its keeper (98.3.19):
+                                    ; 1 under pressure, 2 the poster is it
+vp_pcv:       db 0                  ; ...and the poster holds this session's frame
 vp_cpent:     db 0                  ; vp_sstart from Play (1) or F (2): may post
 vp_cpq:       db 0                  ; ...and posted already, for this press
 vp_cppost:    db 0                  ; ...just now: vp_sstart returns into it
