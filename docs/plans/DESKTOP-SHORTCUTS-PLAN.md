@@ -3,8 +3,8 @@
 **OPEN. Nothing here is built.** Written on branch `desktop-shortcuts`, cut
 from `elendilon` at `fb544b1`. Every figure for existing code is read out of
 that tree or out of its build. Every figure for code that does not exist yet
-is marked ESTIMATED. §9 lists the questions that change what gets built,
-and the build waits on their answers.
+is marked ESTIMATED. §9 records the owner's decisions of 2026-10-01 and the
+one question still open.
 
 The ask:
 
@@ -86,11 +86,16 @@ It is freed when the last shortcut is removed, so a machine with no
 shortcuts pays `.bss` and code and no table.
 
 ```
-SC_MAX   equ 7          ; see 6: the zone damage mask is one word, 9 bits taken
-SC_REC   equ 48         ; ESTIMATED, the record below
-claim    = SC_MAX * SC_REC = 336 bytes -> 1 KB claim (mem rounds to KB)
-           (+ 64 a record if the bodies live here, 4.2 option I -> 784, still 1 KB)
+SC_MAX   equ 16         ; see 6: a second damage-mask word (decided, +~25)
+SC_REC   equ 124        ; the record below, body included (4.2 option I)
+claim    = ONE claim for all of them, grown in 1 KB steps as rows are needed
+           (8 rows a KB): 1 KB for 1-8 shortcuts, 2 KB for 9-16, and shrunk
+           back the same way when shortcuts are removed. Never a claim each.
 ```
+
+The claim grows through `mem_regrow`, which is the same door every other
+growable claim uses; its relocation proc (§3.1 step 4) covers a regrow that
+moves it.
 
 ### 2.1 The record
 
@@ -102,7 +107,8 @@ claim    = SC_MAX * SC_REC = 336 bytes -> 1 KB claim (mem rounds to KB)
 | 3 | 1 | flags (reserved; 0) |
 | 4 | 32 | the PATH of the parent folder, `\APPS` style, NUL. 32 is `PTH_MAX`, the same cap as `FS_PATH` |
 | 36 | 12 | the entry's 8.3 name, NUL-padded |
-| (48) | (64) | the icon body, option I only (§4.2) |
+| 48 | 12 | the CAPTION, NUL-padded, decided at the drop (§5.2) |
+| 60 | 64 | the icon body (§4.2 option I) |
 
 **A path and not a cluster, and that is a deliberate choice.** A
 (volume, cluster) pair is cheaper to resolve: one `dsk_chdir_q` and no
@@ -117,8 +123,7 @@ costs:
   `dsk_chdir_q_x`;
 - one directory read per component, which only happens on a double-click.
 
-The cluster form is the fallback if the bytes are needed elsewhere; it is
-listed in §9.
+DECIDED: the path form (§9 Q10).
 
 The path has a cap: an entry whose folder path exceeds 31 characters is
 refused at the drop with a toast, `Path too long`. A drive ROOT is the
@@ -159,11 +164,18 @@ addition is ESTIMATED at ~70 bytes:
    directory the mount already holds, so no I/O.
 2. If size ≤ `CFG_FBUF`, take today's path exactly.
 3. Otherwise:
-   - `mem_claim` the shortcut table (1 KB);
+   - `mem_claim` the shortcut table, sized from the file in whole KB: the
+     trailer is `count * SC_REC`, so 1 KB for up to 8 shortcuts and 2 KB
+     for 9 to 16, and the settings half needs no room of its own (next
+     step);
    - `dskw_read_x` the WHOLE file into it, with capacity = the claim. That
-     is ONE read, and for a ≤ 1 KB file it is the same `int 13h` count as
-     today: one cluster on 360 KB, and two contiguous sectors on 1.44 MB,
-     because `dskw_write_sys` writes the file in one allocation;
+     is ONE `dskw_read` call. **What it costs in `int 13h` is TO VERIFY
+     before the reader is written, not assumed.** A file of 2 sectors (≤ 8
+     shortcuts) is one 360 KB cluster. A full 16 is ~2.1 KB: 3 clusters at
+     360 KB and 5 sectors at 1.44 MB. That is one call only if
+     `dskw_write_sys` allocates the run contiguously AND the read coalesces
+     it. If either is false, the fix is in the writer (allocate the run
+     whole) and not in the format;
    - `rep movsb` the first `CFG_FBUF` bytes into `ovc_buf`;
    - run today's deserialiser;
    - walk to the terminator (the deserialiser already finds it), check
@@ -235,20 +247,27 @@ The ask says to reuse the global icon store. The store is a CACHE (fact
 | resident code | `icon_draw16` from a staged copy: ~15 | key match + `ico_find` per paint + boot seeding: ~45 | II + a purge-rank switch: ~60 |
 | what is reused | the store as the SOURCE at the drop; the format and the draw routine always | the store as the only home | as II |
 
-**I is recommended.** The shortcut persists its own picture, which is what
+**DECIDED: I.** The shortcut persists its own picture, which is what
 "embedded icon data" in the ask already implies. It never degrades. It costs
-no kernel bytes beyond the draw, and its heap cost sits inside a claim that
-exists anyway. II re-introduces exactly the degradation I avoids, and III
-spends 4 KB of every shortcut user's heap to prevent it.
+no kernel bytes beyond the draw, and its 64 bytes of heap a shortcut sit in
+the one shared claim (§2). II re-introduces exactly the degradation I avoids,
+and III spends 4 KB of every shortcut user's heap to prevent it.
 
-### 4.3 The fallback picture
+### 4.3 The shortcut badge, which is also the fallback
 
-The fallback is for a body that is all zero at the drop: a package with no
-icon, or a store that had been shed. The tiny shortcut picture is an 8×8
-curved arrow drawn into the 16×16 cell's lower left. It is staged into
-`dsk_ico`'s scratch and drawn with `icon_draw16`. ESTIMATED 8 bytes of glyph
-+ ~18 to expand it. Whether the arrow also OVERLAYS every shortcut, as a
-Windows or System 7 alias badge does, is §9 Q5.
+The badge is an 8×8 arrow in the 16×16 cell's lower left, on EVERY shortcut,
+System 7 alias style (§9 Q5: decided, because it is cheap):
+
+- The body is staged into `dsk_ico`'s scratch, as every draw already does.
+- The badge's eight rows are OR'd into the low-left byte of the mask rows
+  and written into the data rows.
+- The result is drawn with `icon_draw16`.
+
+ESTIMATED 8 bytes of glyph + ~20 of overlay. **The fallback costs nothing
+more**: a body that is all zero at the drop (a package with no icon, or a
+store that had been shed) is the same staging with nothing under the badge,
+so the picture is the badge alone, which is the "tiny shortcut icon" of the
+ask. Folders draw `dsk_folder_ico` under the badge.
 
 ### 4.4 Size on the desktop
 
@@ -257,7 +276,8 @@ like a drive zone. **It is not pixel-doubled to 32×32.** A doubler is a
 256-byte stage and ~40 bytes of code, and on the CGA, whose drive pictures
 are 14 rows tall (SPEC.md 26.4), a doubled 16-row picture is 32 tall in a
 34-row step. The Disk window's own icon view is 16×16, so the desktop
-matches what the user dragged. This is §9 Q4.
+matches what the user dragged. DECIDED: 16×16 first; both are to be looked at
+once it is in (§9 Q4).
 
 ---
 
@@ -271,18 +291,27 @@ matches what the user dragged. This is §9 Q4.
    - on the menu bar or the dock, or
    - inside a drive or service zone's rect, or
    - not on the primary display: the extended desktop gets no shortcuts.
-2. **Snap**: cell = ((x − origin) / pitch, (y − `MBAR_H`) / step), rounded
-   to the nearest cell. If that cell is taken, toast `No room there`. The
-   alternative, searching for the nearest free cell, is ~30 bytes more and
-   is §9 Q7.
+2. **Snap to the NEAREST FREE cell** (§9 Q7, decided), so the user never
+   has to aim at a cell edge:
+   - cell = ((x − origin) / pitch, (y − `MBAR_H`) / step), rounded to the
+     nearest cell;
+   - if that cell is taken or blocked (the drive columns), test the ring of
+     cells around it, distance 1, then 2, and so on, taking the first free
+     one by smallest distance.
+
+   With ≤ 16 shortcuts the search is short. A desktop with no free cell at
+   all toasts `No room`. This runs in `CTRL.DRV` (§7.1), so it costs no
+   resident byte, and the move gesture (§5.3) shares it.
 3. **Fill a free row**:
    - volume = `[fcp_cbdrv]`;
    - parent path = the source window's `FS_PATH`;
    - name and kind = the clipboard record;
-   - body = `fmv_get_icon`.
+   - body = `fmv_get_icon`;
+   - caption = §5.2's rule.
 
    If there is no free row (`SC_MAX` reached), toast `Too many shortcuts`.
-   If no claim exists yet, `mem_claim` one first.
+   If the claim has no free row, `mem_regrow` it by 1 KB first; if there is
+   no claim yet, `mem_claim` one.
 4. **Disarm the clipboard**: `[fcp_cbop]` = none (fact 7). It is one store,
    and it fixes today's latent defect as well.
 5. `desk_zmark` the new zone and write (§3.3).
@@ -296,9 +325,23 @@ shortcut zone gets the same arms in:
 
 - `desk_zone_rect`: from its grid cell, not from `desk_ord_xy`;
 - `desk_draw_zone`: an icon16 and a caption;
-- `desk_zone_label`: the 8.3 name, or the stem, §9 Q6;
+- `desk_zone_label`: the record's CAPTION field, so painting decides
+  nothing;
 - `desk_click_x`: hit rect and double-click dispatch;
 - `desk_dmg_zones`: its mask bits.
+
+**The caption is decided ONCE, at the drop, and stored** (§9 Q6, decided):
+
+| kind | caption |
+|---|---|
+| package | its HEADER name (SPEC.md 20.2, header +16, e.g. `Calculator`), **if** `font_width` of it fits the cell pitch less 8 px; otherwise the 8.3 stem without `.O88` |
+| document, folder | the full 8.3 name |
+
+The header name costs one `dsk_peek_x` of the package's first sector at the
+drop: one `int 13h`, inside a gesture that is about to spend ~5 more on the
+write. It runs in `CTRL.DRV`. Deciding at the drop rather than at paint is
+what keeps the measuring out of the paint path, and what keeps a long name
+from being re-tested on every repaint.
 
 `desk_sel` and `desk_zone_hilite` serve it unchanged, so selection inverts
 exactly as a drive's does, with §26.2's flip-not-repaint under a covering
@@ -335,30 +378,55 @@ by-name twin, and those twins are what other desktop launchers use. So
 
 ### 5.3 Move: drag a shortcut
 
-This is in the ask ("snapped to a grid"), and it is §9 Q2. `desk_click_x`
+DECIDED, in scope (§9 Q2). `desk_click_x`
 sees the button still down after `FM_DRAGMIN` pixels and runs a drag loop.
 The loop is `fm_drag`'s shape with its outline routine:
 
 - `fm_dgxor` draws the 96×16 XOR bar. Called with the zone's own rect
   instead, it is a one-register change.
-- Drop → snap (§5.1 step 2) → store the cell → `desk_zmark` old and new →
-  write.
+- Drop → nearest free cell (§5.1 step 2; the shortcut's own cell counts as
+  free) → store the cell → `desk_zmark` old and new → write.
 
-A drop on the dock or a drive refuses and leaves the shortcut where it was.
+A drop on the menu bar or the dock leaves the shortcut where it was.
 
-### 5.4 Remove
+### 5.4 Remove: three routes, one body
 
-**The ask does not say how a shortcut goes away**, and there is no Trash.
-§9 Q3 offers three ways.
+DECIDED (§9 Q3): all three of the routes below, and no drag back into a
+Disk window. **They converge on ONE module entry, `sc_remove(i)`**, which
+does the following:
+
+- frees the row;
+- shrinks the claim by a KB when its top KB is empty, and frees it when the
+  last row goes;
+- clears `desk_sel`;
+- `desk_zmark`s the cell;
+- writes.
+
+| route | what it costs resident | how |
+|---|---|---|
+| Locator **`File` → `Remove Shortcut`** | ~30 | A second item in `menu_items_file`. `ui_loc_gate` already swaps item 0 between `Close Window` and its `MENU_DIS` twin on every drop of the bar; it does the same for item 1 on "is `desk_sel` a shortcut zone". The twin costs ONE byte, not a second string: `menu_s_closex db MENU_DIS` sitting immediately before `menu_s_close` is the idiom already in `menu.inc:2608`. Plus one `CMD_*` id and one arm in `ui_cmd`'s compare ladder. |
+| **right-click** a shortcut | ~45 | `ui_rdown`'s `.strip` arm today gives the bare desktop nothing (`ui.inc:1258`). It gains: a shortcut zone under the press → select it (the same lock-held `desk_sel` store `desk_click_x` makes) → `menu_popup` a one-item descriptor whose item is the same `Remove Shortcut` string → the pick calls `sc_remove`. `menu_popup` exists and already serves both buttons (`menu.inc:1759`). The rule that a right press must not stamp `[ui_click_t]` holds as written. |
+| select + **Delete** | ~18 | The key path sends keys to `wm_top` only, so the desktop gets them nowhere today. The arm is: when Locator owns the bar (`[menu_win]` = 0, which a click on the bare desktop makes so) and `desk_sel` is a shortcut, scan code 0x53 calls `sc_remove`. Any other key, or any window owning the bar, is today's path untouched. |
+
+The right-click route's cost is what was asked about ("if right click isn't
+too expensive"): about 45 bytes, because the popup machinery and the
+selection store both exist. It is in. A second popup item, `Open`, would be
+~8 more; it is left out unless asked for.
 
 ---
 
 ## 6. Limits that fall out
 
-- **`SC_MAX` = 7 on kern_big.** The damage mask is ONE word (`wm_dmg_zn`;
-  `desk.inc:950` asserts at most 16 zones). The 8 volume zones and the Wire
-  take 9 bits, which leaves 7. Eight or more costs a second mask word through
-  `wm_paint_dmg`, ESTIMATED +25 bytes. §9 Q8.
+- **`SC_MAX` = 16 on kern_big** (§9 Q8, decided). The damage mask was ONE
+  word (`wm_dmg_zn`; `desk.inc:950` asserts at most 16 zones), and the 8
+  volume zones and the Wire take 9 bits of it. Shortcuts get a SECOND word
+  of their own, so shortcut `i` is bit `i` of it:
+  - `desk_dmg_zones` answers it in DX beside AX;
+  - `wm_paint_dmg` stores it;
+  - `desk_paint_mask` walks it.
+
+  ESTIMATED +25 bytes, and the `%error` at 16 then guards each word
+  separately. `desk_sel` stays a byte: zone indices run to 24.
 - **The grid** shares the drive column's pitch so the two line up:
   - row step = `[desk_zstep]`: 60 on VGA and Hercules, 34 on the CGA;
   - column pitch = `DESK_COLW` (44) is too narrow for a caption. An 8-letter
@@ -368,10 +436,10 @@ A drop on the dock or a drive refuses and leaves the shortcut where it was.
   - 4 bits a coordinate suffices on every adapter. The cells under the drive
     columns are refused (§5.1).
 - **The extended desktop is out.** A shortcut lives on the primary display.
-- **`kern_small` is out unless §9 Q1 says otherwise.** It reads no
-  SYSTEM.CFG at all (fact 3), so persistence there is a reader and a writer
-  that do not exist, rather than a trailer. The `desk.inc` arms would be
-  `%ifndef KERN_SMALL`, as the Wire's are. `kern_emu` inherits kern_big's.
+- **`kern_small` is out** (§9 Q1, decided). It reads no SYSTEM.CFG at all
+  (fact 3). Every arm is `%ifndef KERN_SMALL`, as the Wire's are, so
+  kern_small must build BYTE-IDENTICAL, and that is a gate (§8). `kern_emu`
+  inherits kern_big's.
 
 ---
 
@@ -387,27 +455,47 @@ gestures can be module entries in it, and their resident cost falls to a
 thunk each. ONDEMAND-PLAN's test is met: the gesture is only worth making
 if it can be persisted, and persisting needs the system disk.
 
-| piece | where | A: all resident | **B: gestures in `CTRL.DRV`** (recommended) |
+| piece | where | A: all resident | **B: gestures in `CTRL.DRV`** (DECIDED) |
 |---|---|---:|---:|
-| zone arms: rect, draw, label, click, damage | `.cold` | 220 | 220 |
+| zone arms: rect, draw, label, click | `.cold` | 220 | 220 |
+| second damage-mask word (16 shortcuts) | `.text`/`.cold` | 25 | 25 |
 | `sc_open`: resolver + 3-way dispatch + toasts | `.cold` | 180 | 180 |
-| fallback arrow glyph + expand | `.cold` | 26 | 26 |
-| drop → create: snap, refuse, fill, disarm | `.cold` / module | 200 | 30 |
-| move: drag loop + snap | `.cold` / module | 110 | 70 (the loop stays; the commit moves) |
-| remove (§9 Q3) | `.cold` / module | 60-90 | 25 |
+| badge on every icon, which is also the fallback | `.cold` | 28 | 28 |
+| drop → create: nearest-free snap, header-name caption, fill, regrow, disarm | `.cold` / module | 280 | 30 |
+| move: drag loop / commit | `.cold` / module | 110 | 70 (the loop stays; the commit moves) |
+| remove: `File` menu item + gate + `ui_cmd` arm | `.cold`/`.text` | 30 | 30 |
+| remove: right-click popup | `.cold`/`.text` | 45 | 45 |
+| remove: Delete key | `.text` | 18 | 18 |
+| remove: the body (free row, shrink claim, mark) | `.cold` / module | 50 | 0 (module) |
 | write trigger + live-panel guard | `.cold` | 30 | 15 (folded into the module call) |
-| module entries: 4 `.bss` + thunk each, x3 | `.bss`/`.cold` | - | 50 |
-| `.bss`: `sc_seg`, `sc_n` | `.bss` | 3 | 3 |
+| module entries: 4 `.bss` + thunk each, x3 (create, move, remove) | `.bss`/`.cold` | - | 50 |
+| `.bss`: `sc_seg`, `sc_n`, `sc_kb` | `.bss` | 4 | 4 |
 | claim relocation proc | `.text` | 8 | 8 |
-| toast strings not already in the tree (~5) | `.text` | 60 | 60 |
-| **resident total** | | **~900-930** | **~690** |
+| strings not already in the tree (`Remove Shortcut`, ~4 toasts) | `.text` | 70 | 70 |
+| **resident total** | | **~1,100** | **~795** |
 | boot reader | `.ovl` (308 spare, no disk cost) | 70 | 70 |
-| writer + gesture bodies | `CTRL.DRV` (not resident) | 40 | 330 |
+| writer + gesture bodies | `CTRL.DRV` (not resident) | 40 | 450 |
 
-**B fits with ~330 bytes of headroom. A fits only if the estimates hold.**
-Neither touches `.lowbss`, which has 34 bytes left and is not needed. The
-cold rung currently has 497 bytes before its next crossing, so either option
-crosses it. Per CLAUDE.md, that is the bytes' business and not the rung's.
+**DECIDED: B, at ~795 resident, ~230 bytes under the 1 KB bar.** A no
+longer fits once the decided features are added, so it is not an option.
+Nothing touches `.lowbss`, which has 34 bytes left. The cold rung currently
+has 497 bytes before its next crossing, so this crosses it, and per
+CLAUDE.md that is the bytes' business and not the rung's.
+
+**What B costs in behaviour, stated rather than discovered.** A create, move
+or remove loads `CTRL.DRV` from the BOOT volume at the moment of the
+gesture:
+
+- On a hard-disk boot, or a two-drive machine with the system disk in A:,
+  this is invisible.
+- On a ONE-drive machine with a data disk in A:, the gesture REFUSES with
+  the existing `Needs Sys Disk A:` toast (SPEC.md 2.8.4), and nothing
+  changes on the desktop.
+- Opening a shortcut needs no module and works with any disk in A:.
+
+The refusal is the price of the ~300 bytes B saves. It is consistent: the
+same machine could not have SAVED the shortcut either. It is §9's one open
+question.
 
 ### 7.2 The one `int 13h` this cannot avoid
 
@@ -423,8 +511,9 @@ It does not (§3.1). **The resident code does, on the 360 KB disk.**
   the run and pay nothing.
 
 This is not specific to shortcuts; any resident feature over ~60 bytes pays
-it next. It is named here so that it is decided rather than discovered. The
-options are in §9 Q9.
+it next. DECIDED (§9 Q9): accepted. It is recovered by a later size pass,
+or not, as the tree keeps growing either way. The commit that crosses it
+says so.
 
 ---
 
@@ -438,6 +527,9 @@ Each gate is to be broken on purpose and watched go red before it counts.
 | `screboot` (soak) | `system_reset`; the zone comes back at the same cell with the same body; settings are untouched | read the trailer with the wrong `ver` |
 | `scopen` (soak) | double-click each kind: a folder fronts or opens a Disk window on it; a package runs; a document opens in its program | swap two dispatch arms |
 | `scmiss` (soak) | B: empty → `No disk in B:`; file renamed → `Not found`; volume row free → `No drive` | read the toast cell out of guest memory |
+| `scremove` (soak) | each of the three routes removes the selected shortcut and only it; the `File` item is greyed with no shortcut selected; Delete with a WINDOW owning the bar reaches the window, not the desktop; a right press never composes into a double-click | point `ui_loc_gate`'s swap at the wrong item |
+| `scgrid` (soak) | a drop on an occupied cell lands on the nearest free one; a desktop with every cell taken toasts `No room`; the 17th shortcut toasts `Too many shortcuts`; the claim is 1 KB at 8 and 2 KB at 9 | drop the ring search |
+| `t_scsmall` (fast) | `kern_small` builds byte-identical to its blessed baseline | leave one arm outside its `%ifndef` |
 | `t_sccfg` (fast, host-side) | `tools/` round-trips the trailer format against the SPEC.md table; a file with no shortcuts is byte-identical to today's | change `SC_REC` in one place only |
 
 All of these run on MartyPC, `os88ui` driven, `os8088_xt_vga` and a 1bpp
@@ -446,18 +538,26 @@ twin. A drawing change is not done until it has been looked at on the CGA
 
 ---
 
-## 9. Questions
+## 9. Decisions, and the one question left
 
-| # | question | recommendation | what changes |
-|---|---|---|---|
-| Q1 | `kern_small` too, or `kern_big` (and `kern_emu`) only? | big only; small has no SYSTEM.CFG to persist into | small needs a reader and writer from scratch, +~300 |
-| Q2 | can a shortcut be dragged to a new cell after creation? | yes, §5.3 | -110 / -70 if not |
-| Q3 | how is a shortcut REMOVED? (a) drag it back into any Disk window; (b) select it, Locator `File` → `Remove Shortcut`; (c) select it + Delete key | (a): no menu item, no predicate, no keyboard route; the gesture undoes the gesture | (b) is a menu row + greying predicate, +~60 |
-| Q4 | 16×16 centred, or doubled to 32×32 to match the drives? | 16×16 (§4.4) | doubling +~40 code and a 256-byte stage |
-| Q5 | arrow badge on EVERY shortcut, or only as the no-icon fallback? | fallback only, as asked | always: +~10, and the badge covers part of a 16×16 picture |
-| Q6 | caption: full 8.3 (`CALC.O88`), stem (`CALC`), or the package's header name (`Calculator`)? | stem for packages, full 8.3 otherwise | header name needs a read at the drop and 12 more record bytes |
-| Q7 | drop on an occupied cell: refuse with a toast, or take the nearest free cell? | refuse | nearest-free +~30 |
-| Q8 | is 7 shortcuts enough? | yes for now; the record and trailer allow more | 8+ costs a second damage word, +~25 |
-| Q9 | the 360 KB boot's extra `int 13h` (§7.2): accept it, find an offsetting ~60 packed bytes elsewhere first, or something else? | accept, and say so in the commit | an offset is its own size pass |
-| Q10 | path (§2.1) or (volume, cluster)? | path: survives a different copy of the same disk | cluster saves ~40 resident and 20 bytes a record, and breaks on any other copy |
-| Q11 | the store fork (§4.2): I, II or III? | I | II/III as tabled |
+The owner answered on 2026-10-01:
+
+| # | question | DECIDED |
+|---|---|---|
+| Q1 | which kernels | `kern_big` (and so `kern_emu`) only |
+| Q2 | move after creation | yes (§5.3) |
+| Q3 | how to remove | Locator `File` → `Remove Shortcut`, right-click, and select + Delete; NOT a drag back into a Disk window (§5.4) |
+| Q4 | 16×16 or 32×32 | 16×16 first; both are looked at once it is in |
+| Q5 | badge | on every icon, because it is cheap; it is also the fallback (§4.3) |
+| Q6 | caption | a package's header name when it fits the cell, else the stem; 8.3 otherwise (§5.2) |
+| Q7 | occupied cell | nearest free cell (§5.1) |
+| Q8 | how many | 16, for a second damage word (§6) |
+| Q9 | the 360 KB boot's extra `int 13h` | accepted, recovered later or never (§7.2) |
+| Q10 | path or cluster | path (§2.1) |
+| Q11 | the store fork | I: 64 bytes of heap a shortcut, all in ONE claim regrown in 1 KB steps, and the bodies persisted in SYSTEM.CFG (§2, §4.2) |
+
+**Open:**
+
+| # | question | recommendation |
+|---|---|---|
+| Q12 | placement B means a one-drive machine with a DATA disk in A: cannot create, move or remove a shortcut until the system disk goes back in (`Needs Sys Disk A:`); opening one works with any disk. Acceptable, or should the gestures be resident and the save deferred to the next panel close or Restart, at ~+300 resident (~1,100, over the 1 KB bar)? | accept: a shortcut made there could not have been saved anyway |
