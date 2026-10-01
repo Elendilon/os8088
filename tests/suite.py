@@ -7625,6 +7625,17 @@ SOAK = [
         "File > Remove Shortcut; and the claim and the trailer go with the "
         "last one. `--machine os8088_5150_cga` / `_herc` are the 1bpp looks.",
         needs=("marty",), timeout=600),
+    Row("tpstore", "soak", py("tests/tpstore.py"), 40.0,
+        "SPEC.md 66: TeXPad's parser stores its own variables through DS. "
+        "Two routines wrote them with `stos` while ES was the SOURCE "
+        "segment, so the bytes went to the source claim at the variable's "
+        "offset - and past a small claim into the next heap block. A: a "
+        "\\begin{tabular} cleared 12 bytes of a Disk window's raise cache, "
+        "which a close put back as a cyan line (no colour may survive). B: "
+        "a \\textbackslash command's name was lost, so `Type \\textbackslash "
+        "section` printed `\\ype` (two documents differing in one letter "
+        "before it must differ in one cell).",
+        needs=("marty",), timeout=600),
     Row("deskitem", "soak", py("tests/deskitem.py"), 25.0,
         "SPEC.md 26.9: OSAPI_DESK_ITEM from a PACKAGE. `make deskitem`'s "
         "DESKITEM.O88 hands the kernel a link to itself through its File "

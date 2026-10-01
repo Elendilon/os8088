@@ -103026,6 +103026,19 @@ inside it. That is the standing hazard in this package and the reason §69.7's
 ceilings are written as constants next to the copies that use them rather than
 inferred at the call site.
 
+**While the parser walks a document ES IS THE SOURCE CLAIM, so a `stos` into
+one of the package's own variables writes OUTSIDE IT.** Every bss field is an
+offset past the ~22KB image and the claim is 8KB, so the store lands in
+whatever heap block follows the claim. Two routines did exactly that from the
+package's first commit. `tp_tab_body` cleared `tp_colw` (12 bytes) on every
+`\begin{tabular}`, and on a VGA machine that was a Disk window's raise cache
+(§11.96): closing TeXPad over it put back a cyan line through a row of the
+listing. `tp_c_bslash` copied a `\textbackslash` command's name the same
+way, so `Type \textbackslash section` printed `Type \ype`, a leftover of the
+previous word. Both now write with ES = DS or through `[di]`, and
+`tests/tpstore.py` (soak) is the gate on each. The rule is SPEC.md 20's for
+every package: ES is never your segment unless you just made it so.
+
 ### 69.5 Export: PDF 1.4 and PostScript Level 1
 
 Both writers build the whole file in the export claim and hand it to
