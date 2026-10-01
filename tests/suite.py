@@ -10196,6 +10196,13 @@ SOAK = [
     Row("tmrup", "soak", py("tests/tmrup.py"), 60.0,
         "SPEC.md 13.8: the Timer's three buttons fire on the RELEASE.",
         needs=("marty",), serial=True),
+    Row("desktop", "soak", py("tests/desktop.py"), 200.0,
+        "SPEC.md 26.8: delayed desktop links, name captions, Get Info, persistence, "
+        "source/clipboard integrity and repainting on Hercules.",
+        needs=("marty",), serial=True),
+    Row("desktopcga", "soak", py("tests/desktop.py", "--machine", "os8088_5150_cga_gla"), 200.0,
+        "SPEC.md 26.8: delayed desktop links, Get Info, removal and repainting on CGA.",
+        needs=("marty",), serial=True),
     Row("kernresident", "full", py("tests/kernresident.py"), 20.0,
         "kernel.asm rule 3: kern_big fully RESIDES in KERN_RESIDENT_KB at a "
         "bare desktop - the half of the rule an assembler cannot see, which "

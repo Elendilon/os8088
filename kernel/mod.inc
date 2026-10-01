@@ -44,8 +44,11 @@ MOD_MAX     equ 5               ; SMALL: file operations, no hibernate, and
 %else
 MOD_DOCK    equ 4
 MOD_EXT     equ 5               ; ...and the extended desktop (SPEC.md 39.19.6)
-MOD_MAX     equ 6               ; BIG: hibernate, resident file operations,
+MOD_MAX     equ 7               ; BIG: hibernate, resident file operations,
                                 ; the optional Dock and EXTD.DRV
+%endif
+%ifdef KERN_BIG
+MOD_DESK    equ MOD_MAX-1       ; desktop shortcuts, big/emu only (26.8)
 %endif
 MOD_CTRL    equ 0               ; the Control Panel (SPEC.md 31)
 MOD_FMT     equ 1               ; the floppy formatter (SPEC.md 18.96)
@@ -146,6 +149,9 @@ mod_f_dock: db 'DOCK.DRV', 0
 %ifdef KERN_BIG
 mod_f_ext:  db 'EXTD.DRV', 0
 %endif
+%ifdef KERN_BIG
+mod_f_desk: db 'DESKTOP.DRV', 0
+%endif
 mod_f_ctrl: db 'CTRL.DRV', 0    ; .DRV for the attributes and nothing else
 mod_f_fmt:  db 'FORMAT.DRV', 0  ; (SPEC.md 19.6): os88disk.py stamps anything
 mod_f_clon: db 'CLONE.DRV', 0   ; ...and a third of them (SPEC.md 18.99)
@@ -194,6 +200,11 @@ mod_r_dock:
 %endif
 %ifdef KERN_BIG
     dw 0, mod_f_ext             ; MOD_EXT, kern_big's alone (SPEC.md 39.19.6)
+%endif
+
+%ifdef KERN_BIG
+mod_r_desk:
+    dw 0, mod_f_desk            ; MOD_DESK
 %endif
 
 ; mod_fpt - each module's slot block by id, and one word more: where the LAST
@@ -318,6 +329,9 @@ mod_need:
 
     push es
 
+%ifdef KERN_BIG
+    call mod_row                ; canonicalize AL before keeping the id
+%endif
     mov di, ax                  ; THE ID, FOR THE WHOLE ROUTINE, and in a
                                 ; register rather than on the stack: it used
                                 ; to be pushed here and popped by both exit
@@ -332,7 +346,9 @@ mod_need:
                                 ; preserved" - and dskw_read_x banks BP/DI
                                 ; itself), and mod_check reads it instead of
                                 ; deriving the id back out of the row pointer
-    call mod_row
+%ifndef KERN_BIG
+    call mod_row                ; retain the original small-kernel sequence
+%endif
     cmp word [bx+MODR_SEG], 0
     jne .already
 
@@ -357,8 +373,19 @@ mod_need:
     ja .fail
     push bx
     mov bx, MEM_K_MOD
-    call mem_claim_hi_x                   ; a module's base IS its CS, so it can never
-    pop bx                      ; move: top down, like a package's region
+%ifdef KERN_BIG
+    cmp di, MOD_DESK
+    je .desktop_claim           ; UI-retained code must reside below 128KB
+    call mem_claim_hi_x         ; other modules remain top-down
+    jmp short .claimed
+.desktop_claim:
+    call mem_shed_one            ; release boot read-ahead before pinning code
+    call mem_claim_x
+.claimed:
+%else
+    call mem_claim_hi_x
+%endif
+    pop bx
     jc .fail
     mov [bx+MODR_SEG], dx
 

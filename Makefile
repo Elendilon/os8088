@@ -1927,7 +1927,7 @@ $(shell mkdir -p $(BUILD); \
                                       $(BUILD)/boothd.bin \
                                       $(BUILD)/ctrl.drv $(BUILD)/format.drv \
                                       $(BUILD)/clone.drv $(BUILD)/hiber.drv \
-                                      $(BUILD)/dock.drv $(BUILD)/extd.drv \
+                                      $(BUILD)/dock.drv $(BUILD)/extd.drv $(BUILD)/desktop.drv \
                                       $(BUILD)/boot.bin $(BUILD)/boot360.bin \
                                       $(BUILD)/boot120.bin \
                                       $(BUILD)/hdd.bin $(BUILD)/hdd.drv \
@@ -2292,13 +2292,14 @@ KMODS = $(KMODDIR)/ctrl.drv $(KMODDIR)/format.drv $(KMODDIR)/clone.drv
 # builds exactly that combination and is how it surfaced.
 # DOCK.DRV (SPEC.md 30.5) is kern_big's for hibernate's reason: kern_small has
 # no Dock placement or auto-hide, so no MOD_DOCK row and no file to cut. So is
-# EXTD.DRV (SPEC.md 39.19.6): kern_small has no second display at all. Being
+# EXTD.DRV (SPEC.md 39.19.6): kern_small has no second display at all.
+# DESKTOP.DRV (SPEC.md 26.8) is big/emu only to keep kern_small unchanged. Being
 # in $(DRIVERS) through here is what puts it on every kern_big system disk in
 # all four geometries, the emu disk and the live media, beside CTRL.DRV.
 ifneq ($(KERN_SMALL),)
 BIGMODS =
 else
-BIGMODS = $(KMODDIR)/hiber.drv $(KMODDIR)/dock.drv $(KMODDIR)/extd.drv
+BIGMODS = $(KMODDIR)/hiber.drv $(KMODDIR)/dock.drv $(KMODDIR)/extd.drv $(KMODDIR)/desktop.drv
 endif
 KMODARGS = -m 0=$(BUILD)/ctrl.drv -m 1=$(BUILD)/format.drv \
            -m 2=$(BUILD)/clone.drv
@@ -2318,7 +2319,8 @@ ifneq ($(KERN_SMALL),)
 KMODARGS += -m 3=$(BUILD)/filecp.drv
 KMODARGS += -m 4=$(BUILD)/fdlg.drv
 else
-KMODARGS += -m 3=$(BUILD)/hiber.drv -m 4=$(BUILD)/dock.drv -m 5=$(BUILD)/extd.drv
+KMODARGS += -m 3=$(BUILD)/hiber.drv -m 4=$(BUILD)/dock.drv -m 5=$(BUILD)/extd.drv \
+            -m 6=$(BUILD)/desktop.drv
 endif
 # ...AND THE MODULES ARE 'CZ' FILES ON THE DISK (SPEC.md 2.8, 20.13.5), by
 # the route a driver took: mod_need sizes its claim from the directory hint
