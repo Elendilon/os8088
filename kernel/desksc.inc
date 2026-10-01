@@ -46,7 +46,7 @@ SC_PATHMAX  equ 46              ;     NUL: a 32-byte folder path (dsk_path's
 SC_R_CAP    equ 51              ; 13: the caption, NUL, decided at the drop
 SC_CAPMAX   equ 13
 SC_R_BODY   equ 64              ; 64: the 16x16 picture (SPEC.md 25 body form),
-                                ;     the shortcut badge already stamped in
+                                ;     as the Disk window had it
 SC_REC      equ 128
 SC_MAX      equ 16              ; ...rows, and [sc_nrows] never exceeds it
 SC_PERKB    equ 8               ; rows a KB: 8 * 128, exactly
@@ -143,10 +143,6 @@ sc_xy:
 sc_rect:
     call sc_xy
     mov bx, dx
-%ifdef OS88_SC32
-    call sc_ext                 ; the doubled picture's extra 16 rows
-    add dx, cx
-%endif
     mov cx, ax
     add cx, SC_W + DESK_ZOVER - 1
     sub ax, DESK_ZOVER
@@ -176,10 +172,6 @@ sc_caprect:
     add cx, SC_W + DESK_ZOVER - 1   ; x2: pen + (SC_W - 2 * capx) - 1 + overhang
     sub ax, DESK_ZOVER
     add dx, 16 + DESK_ZGAP
-%ifdef OS88_SC32
-    call sc_ext
-    add dx, cx
-%endif
     mov bx, dx
     add dx, DESK_LBLH - 1
     ret
@@ -308,9 +300,9 @@ sc_stage:
 ; in:  AL = a live shortcut zone; the gfx lock held
 ; out: nothing (all registers preserved; [gfx_color] restored)
 ;
-; THE BADGE IS ALREADY IN THE PICTURE: CTRL.DRV stamps it at the drop (SPEC.md
-; 26.8.3), so it costs this routine nothing - and a body that arrived all zero
-; draws the badge alone, which is the fallback the ask named.
+; THE BADGE IS ITS OWN RECORD, drawn BESIDE the picture (SPEC.md 26.8.3): a
+; body that arrived all zero leaves the badge alone, which is the fallback
+; the ask named.
 ; -----------------------------------------------------------------------------
 sc_draw:
     call kentc_di
@@ -329,22 +321,15 @@ sc_draw:
     call sc_xy
     xchg ax, cx
     add cx, SC_ICX
-%ifdef OS88_SC32
-    push cx
-    call sc_ext
-    jcxz .small
-    pop cx
-    sub cx, 8                   ; 32 wide, centred where 16 was
-    call sc_dbl                 ; SI = the doubled record
-    call KERNEL_SEG:cw_icon_draw
-    jmp short .pic
-.small:
-    pop cx
-%endif
     call KERNEL_SEG:cw_icon_draw16
-%ifdef OS88_SC32
-.pic:
-%endif
+    pop ax
+    push ax
+    call sc_xy                  ; THE BADGE, beside the picture rather than
+    xchg ax, cx                 ; over it: its own small record, its bottom
+    add cx, SC_ICX - 11         ; on the picture's and one column clear of
+    add dx, 16 - 10             ; its left edge (SPEC.md 26.8.3)
+    mov si, sc_bdg
+    call KERNEL_SEG:cw_icon_draw
     pop ax
     push ax
     mov si, SC_R_CAP
@@ -387,98 +372,18 @@ sc_hilite:
     call sc_xy
     add ax, SC_ICX
     mov bx, dx
-%ifdef OS88_SC32
-    call sc_ext                 ; CX = 16 doubled, 0 not
-    add dx, cx
-    shr cx, 1
-    sub ax, cx                  ; x1 moves left by half the growth...
-    shl cx, 1
-    add cx, ax                  ; ...and x2 is x1 + 15 + the growth
-%else
     mov cx, ax
-%endif
     add cx, 15
     add dx, 15
+    call ct_cw_gfx_xor_fill
+    sub ax, 11                  ; ...the badge beside it, which IS part of the
+    add bx, 16 - 10             ; picture: its rect off the picture's (sc_draw)
+    mov cx, ax
+    add cx, 9
     call ct_cw_gfx_xor_fill
     pop ax
     call sc_caprect
     jmp ct_cw_gfx_xor_fill      ; the NEAR trampoline (desk_zone_hilite's note)
-
-%ifdef OS88_SC32
-; -----------------------------------------------------------------------------
-; sc_ext - how much the picture grows: SCBIG's 32x32 test (SPEC.md 26.8.8)
-; out: CX = 16 where the drive zones use the 32-row icon, 0 where they use
-;      the 14-row one (CGA): the cell is sized off the same pitch, and a
-;      46-row cell on a 34-row pitch would overlap the row below
-; clobbers: CX, flags
-; -----------------------------------------------------------------------------
-sc_ext:
-    xor cx, cx
-    cmp word [desk_zstep], DESK_ZSTEP
-    jne .r
-    mov cl, 16
-.r:
-    ret
-
-; -----------------------------------------------------------------------------
-; sc_dbl - the staged 16x16 body (dsk_ico), doubled both ways into a 32x32
-;          record: every pixel two across and every row twice
-; out: SI = sc_x32, a whole record (header 2 words x 32 rows); lock held
-; clobbers: SI, flags
-;
-; A row word is MSB-leftmost and stored low byte first (ico_pass), so its
-; LEFT byte is AH: that one becomes the record's left word. A byte doubles
-; as two nibble lookups.
-; -----------------------------------------------------------------------------
-sc_dbl:
-    push ax
-    push bx
-    push cx
-    push dx
-    push di
-    push es
-    push ds
-    pop es
-    cld
-    mov si, dsk_ico
-    mov di, sc_x32
-    mov ax, (32 << 8) | 2       ; 2 words across, 32 rows
-    stosw
-    mov bx, sc_nib
-    mov dx, 32                  ; 16 mask rows, then 16 data rows
-.w:
-    lodsw
-    push ax
-    mov al, ah
-    call .half                  ; the left byte, as the left word
-    pop ax
-    call .half
-    mov ax, [di-4]              ; ...and the row a second time
-    stosw
-    mov ax, [di-4]
-    stosw
-    dec dx
-    jnz .w
-    mov si, sc_x32
-    pop es
-    pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-.half:                          ; AL -> the word that doubles it, stored
-    mov ah, al
-    and al, 0x0F
-    xlat                        ; AL = the low nibble, doubled
-    mov cl, 4
-    shr ah, cl
-    xchg al, ah
-    xlat                        ; AL = the high nibble, doubled
-    xchg al, ah                 ; AH = the left half, as a row word wants
-    stosw
-    ret
-%endif
 
 ; -----------------------------------------------------------------------------
 ; sc_open - what a double-click on a shortcut does (SPEC.md 26.8.5)
@@ -844,10 +749,10 @@ sc_s_remx   db MENU_DIS
 sc_s_rem    db 'Remove Shortcut'
 sc_nul      db 0                ; ...and an EMPTY name, for a document's open
 sc_popup    dw sc_s_rem         ; the right-click's one-item menu
-%ifdef OS88_SC32
-sc_nib      db 0x00, 0x03, 0x0C, 0x0F, 0x30, 0x33, 0x3C, 0x3F
-            db 0xC0, 0xC3, 0xCC, 0xCF, 0xF0, 0xF3, 0xFC, 0xFF
-%endif
+sc_bdg      db 1, 10            ; the badge: 10x10, one word across - a box
+            times 10 dw 0xFFC0  ; the mask: the whole box white
+            dw 0xFFC0, 0x8040, 0x8740, 0x8340, 0x8540   ; the box, and an arrow
+            dw 0xB840, 0xA040, 0xA040, 0x8040, 0xFFC0   ; curving up and right
 
 ; =============================================================================
 section .bss
@@ -856,9 +761,6 @@ sc_seg      resw 1              ; the table's claim, 0 = no shortcuts
 sc_nrows    resb 1              ; rows the claim holds, 0..SC_MAX
 sc_vol      resb 1              ; sc_open: the volume, across its walk
 sc_dmgm     resw 1              ; bit n = row n is in the damage (26.8.3)
-%ifdef OS88_SC32
-sc_x32      resb 2 + 32 * 2 * 4 ; sc_dbl's record: header, 32 rows of mask and
-%endif                          ; of data at two words a row
 
 ; =============================================================================
 section .modc                   ; CTRL.DRV (SPEC.md 26.8.7): CS = the image,
@@ -931,17 +833,6 @@ sc_m_new:
     mov cx, 32
     rep movsw                   ; ...and the picture
     pop di
-    mov si, sc_badge            ; THE BADGE, stamped into the picture HERE so
-    lea bx, [di+SC_R_BODY+2*8+1]    ; the paint never has to (SPEC.md 26.8.3):
-    mov cx, 8                   ; eight mask rows' left byte turned WHITE and
-.badge:                         ; the data rows' replaced, so the 8x8 square
-    or byte [es:bx], 0xFF       ; reads whatever the picture had there
-    mov al, [cs:si]
-    mov [es:bx+32], al
-    inc si
-    inc bx
-    inc bx
-    loop .badge
     mov al, [fcp_cbdrv]
     mov [es:di+SC_R_VOL], al    ; LIVE from here: nothing can paint it before
                                 ; this returns, the lock being ours
@@ -1565,19 +1456,6 @@ sc_m_serx:
 sc_s_room   db 'No room on the desktop', 0  ; the image's own strings: a toast
 sc_s_many   db 'Too many shortcuts', 0      ; copies, and these cost the
 sc_s_path   db 'Path too long', 0           ; kernel nothing (SPEC.md 2.8)
-
-; --- the badge (SPEC.md 26.8.3): an 8x8 box with an arrow out of it ---------
-; Black on a white square, one byte a row, leftmost pixel in bit 7; stamped
-; into every shortcut's picture at the drop.
-sc_badge:
-    db 11111111b
-    db 10001111b
-    db 10000111b
-    db 10001011b
-    db 10010001b
-    db 10100001b
-    db 11000001b
-    db 11111111b
 
 ; =============================================================================
 section .ovl                    ; the BOOT half (SPEC.md 2.5.1): runs once,

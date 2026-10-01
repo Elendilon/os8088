@@ -2,8 +2,6 @@
 """SPEC.md 26.8: DESKTOP SHORTCUTS, end to end on an XT.
 
     make && python3 tests/desksc.py [--shots DIR] [--machine NAME]
-    make BUILD=build/sc32 SCBIG=1 && OS88_BUILD=build/sc32 \
-        OS88_DEFINES=OS88_SC32 python3 tests/desksc.py   # 26.8.8's knob
 
 One boot of the shipped 360KB pair on a VGA XT (os8088_xt_vga), and every
 claim 26.8 makes is asked of the GUEST'S OWN STATE rather than of a picture:
@@ -11,7 +9,8 @@ claim 26.8 makes is asked of the GUEST'S OWN STATE rather than of a picture:
   A  a drag of B:\\APPS\\CALC.O88 out of its Disk window onto bare desktop
      makes ONE shortcut: the table claim exists, its row 0 names volume 1,
      the WHOLE path `\\APPS\\CALC.O88`, kind 1 (a package), the header-name
-     caption `CALCULATOR`, a picture with the BADGE stamped in, and the
+     caption `CALCULATOR`, the BADGE drawn beside the picture to the
+     pixel (inverted with it when selected), and the
      cell nearest the drop. The Cut the drag armed is DISARMED, and the
      toast says the settings were saved.
   B  SYSTEM.CFG on A: carries the TRAILER: the live row verbatim, then
@@ -118,6 +117,34 @@ def table(ui):
     return seg, n, [raw[i * SC_REC:(i + 1) * SC_REC] for i in range(n)]
 
 
+# sc_bdg's ten rows, MSB leftmost: drawn with its bottom on the picture's
+# and one column clear of its left edge (SPEC.md 26.8.3)
+BADGE = (0xFFC0, 0x8040, 0x8740, 0x8340, 0x8540,
+         0xB840, 0xA040, 0xA040, 0x8040, 0xFFC0)
+
+
+def badge_on_glass(m, cx, cy, inverted):
+    """The badge's 10x10 pixels, against BADGE. A 1bpp card is read out of
+    guest MEMORY (`vram`, a lit bit is white): MartyPC's rendered Hercules
+    frame starts some pixels into the screen, so `fbuf` coordinates are not
+    the kernel's there. VGA has no flat framebuffer, so it is the card's own
+    rasterised frame - which is 1:1 on that card."""
+    bx, by = cx + (SC_W - 16) // 2 - 11, cy + 16 - 10
+    if m.cmd(cmd="video")["type"] == "vga":
+        w, _h, data = m.fbuf()
+        black = lambda x, y: sum(data[(y * w + x) * 3:(y * w + x) * 3 + 3]) \
+            < 384
+    else:
+        _w, _h, rows = m.vram()
+        black = lambda x, y: not rows[y][x]
+    bad = 0
+    for r in range(10):
+        for c in range(10):
+            want = bool(BADGE[r] >> (15 - c) & 1) != inverted
+            bad += black(bx + c, by + r) != want
+    return bad
+
+
 def cell_xy(col, row, zstep, x0):
     return (x0 + SC_X0 + col * SC_PX, DESK_ZY0 + row * zstep)
 
@@ -157,8 +184,8 @@ def main():
     sysimg = os.path.join(tmp, "os8088-360.img")
     appimg = os.path.join(tmp, "apps360.img")
     bdir = os.path.join(ROOT, os.environ.get("OS88_BUILD", "build"))
-    shutil.copy(os.path.join(bdir, "os8088-360.img"), sysimg)   # a knob tree
-    shutil.copy(os.path.join(bdir, "apps360.img"), appimg)     # ($OS88_BUILD)
+    shutil.copy(os.path.join(bdir, "os8088-360.img"), sysimg)
+    shutil.copy(os.path.join(bdir, "apps360.img"), appimg)
     before = cfg_bytes(sysimg)
     print("SYSTEM.CFG before: %d bytes, trailer %r" % (len(before),
                                                        trailer(before)[0]))
@@ -197,9 +224,14 @@ def main():
         col, rw = r0[1], r0[2]
         check((col, rw) == (0, ui._word("desk_rows") - 1),
               "the cell nearest the drop (%d,%d)" % (col, rw))
-        body = r0[64:128]
-        badge = [body[2 * (8 + k) + 1] for k in range(8)]
-        check(badge == [0xFF] * 8, "the badge's mask rows are stamped white")
+        cx, cy = cell_xy(col, rw, zstep, x0)
+        ui.mo.to(cx + SC_PX + SC_W, cy)    # the arrow is drawn INTO the
+        ui.settle()                        # framebuffer: off the badge first
+        sel = ui._byte("desk_sel") == DESK_SC0
+        bad = badge_on_glass(m, cx, cy, sel)
+        check(bad == 0, "the badge is on the glass beside the picture "
+              "(%d of 100 pixels wrong, %s)"
+              % (bad, "selected" if sel else "not selected"))
         check(ui._byte("fcp_cbop") == FCP_NONE,
               "the Cut the drag armed is DISARMED (fcp_cbop %d)"
               % ui._byte("fcp_cbop"))
@@ -353,9 +385,9 @@ def main():
 
         def aim(_mo):
             # rmenu calls this straight after the PRESS, and the popup opens
-            # only after the select has repainted the shortcut - which the
-            # SCBIG build's doubling made slow enough to lose the race and
-            # aim at the PREVIOUS menu's rect. So the popup's x1 was poisoned
+            # only after the select has repainted the shortcut - and a
+            # repaint slow enough loses that race and aims at the PREVIOUS
+            # menu's rect (a 32x32 draw did, SPEC.md 26.8.3). So the popup's x1 was poisoned
             # below, and this waits for menu_popup to write it.
             ui._wait(lambda: ui._word("menu_x1") != 0xFFFF,
                      "the shortcut's popup to open", 30)
