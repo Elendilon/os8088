@@ -1953,6 +1953,19 @@ dskw_rbody:
     cmp ax, [dskw_cap]
     jbe .fits
 .toobig:                        ; too big for the buffer: nothing is written
+%ifdef OS88_SHORTCUTS
+    cmp byte [dskw_trunc], 0    ; ...UNLESS the caller asked for the file's
+    je .big                     ; first bytes and no more - mod_need's
+    cmp ax, bx                  ; settings core (SPEC.md 2.8.7) - and the
+    jne .big                    ; file is PLAIN (U = P): a packed stream's
+    mov ax, [dskw_cap]          ; prefix decodes to nothing. P becomes the
+    mov dx, [dskw_caphi]        ; capacity, so the chain walk stops there and
+    mov bx, ax                  ; the answer is what arrived
+    mov [dskw_len], ax
+    mov [dskw_lenhi], dx
+    jmp .fits
+.big:
+%endif
     cmp dx, 0x3FF               ; 64MB or more SATURATES at 0xFFFF KB, which
     jb .kb                      ; no claim meets: the shift below would drop
     mov dx, 0xFFFF              ; U's top bits and the inc would wrap, and a
@@ -5958,6 +5971,12 @@ dskw_len:     resw 1            ; the file's byte count, low word...
 dskw_lenhi:   resw 1            ; ...and high (the DX:AX answer on a read)
 dskw_cap:     resw 1            ; the destination's capacity, low word...
 dskw_caphi:   resw 1            ; ...and high
+%ifdef OS88_SHORTCUTS
+dskw_trunc:   resb 1            ; 1 = read a PLAIN file's first [dskw_cap]
+                                ; bytes rather than refuse it as too big -
+                                ; mod_need's settings core, for one read
+                                ; (SPEC.md 2.8.7). Zero at boot, like .bss
+%endif
 dskw_rem:     resw 1            ; sectors still to move
 dskw_tail:    resw 1            ; bytes in the partial final sector (0 = none)
 dskw_rlba:    LBARES 1            ; the pending data run: its first LBA, 32

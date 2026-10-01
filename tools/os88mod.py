@@ -142,6 +142,12 @@ def main():
                          "format (SPEC.md 20.14) - checked FIRST, as the "
                          "image, then wrapped; a module that would not get "
                          "smaller is written plain")
+    ap.add_argument("--plain", action="append", type=int, default=[],
+                    metavar="N",
+                    help="write module N PLAIN even under --wrap: kern_big's "
+                         "CTRL.DRV, whose first bytes are read on their own "
+                         "as the settings core (SPEC.md 2.8.7) - and a packed "
+                         "stream's prefix decodes to nothing")
     ap.add_argument("-q", "--quiet", action="store_true")
     args = ap.parse_args()
 
@@ -181,7 +187,7 @@ def main():
                  "of one assembly cannot disagree about the kernel they are "
                  "for" % (os.path.basename(path), layout, out[0][0], out[0][3]))
         data = img
-        if args.wrap:
+        if args.wrap and i not in args.plain:
             data, _ = os88lz.cz_wrap(
                 img, os88lz.LZ4 if args.wrap == "lz4" else os88lz.LZB)
         with open(path, "wb") as fh:

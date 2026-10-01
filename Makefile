@@ -2342,7 +2342,15 @@ endif
 # decodes ~6KB, ~50 ms on the 8088, against the sectors it no longer reads.
 ifneq ($(PKGZ),)
 KMODARGS += --wrap $(PKGZ)
+ifeq ($(KERN_SMALL),)
+KMODARGS += --plain 0
 endif
+endif
+# ...EXCEPT CTRL.DRV on kern_big, which ships PLAIN (SPEC.md 2.8.7): a desktop
+# gesture reads only its first MODS_SIZE bytes - the settings core - and a
+# packed stream's prefix decodes to nothing. It packs to 90% anyway, so what
+# that costs is two sectors of disk, and the decode it no longer pays (~85 ms
+# on the 8088) is about what those two sectors take to read.
 # ...and the compressor (SPEC.md 20.15) has no file of its own: it rides in
 # CLONE.DRV as that image's second entry (20.15.3), on both builds.
 # ...but $(KMODS) is NOT guarded, and that is the trap this comment exists for.
