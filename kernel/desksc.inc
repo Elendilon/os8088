@@ -64,9 +64,9 @@ SC_VER      equ 2               ; the trailer's own version (SPEC.md 26.8.6):
   %error "desksc: the record's fields must tile it - header against body"
 %endif
 
-SC_OP_NEW   equ 0               ; CTRL.DRV's door - CPE_ONKEY with SI = 0,
-SC_OP_MOVE  equ 1               ; which costs no slot - takes these in AH
-SC_OP_DEL   equ 2               ; (SPEC.md 26.8.7)
+SC_OP_NEW   equ 0               ; CTRL.DRV's door - CPE_SC, the settings
+SC_OP_MOVE  equ 1               ; core's one entry (SPEC.md 2.8.7) - takes
+SC_OP_DEL   equ 2               ; these in AH (SPEC.md 26.8.7)
 SC_OP_ADD   equ 3               ; a package's link, OSAPI_DESK_ITEM (26.9)
 
 ; =============================================================================
@@ -186,26 +186,40 @@ sc_open:
 ;      lock held
 ; out: AL = the operation's answer; a module that cannot be read says
 ;      `Needs Sys Disk A:` and leaves AL as it came
-; clobbers: SI, and whatever the operation clobbers
+; clobbers: whatever the operation clobbers
 ;
-; THE DOOR IS CPE_ONKEY WITH SI = 0 - a key with no window, which no key ever
-; is - so the operations cost CTRL.DRV no slot. And the IMAGE says whether to
-; go: it answers CF = 1 when no Control Panel is open, so a panel that is
-; open keeps the image it is using (cpf_cp_flush_close's mod_drop cannot tell).
+; THE SETTINGS CORE, AND ONLY THE CORE (SPEC.md 2.8.7). Every operation is
+; CPE_SC, which lives in CTRL.DRV's first MODS_SIZE bytes, so a desktop gesture
+; reads those and not the panel behind them: MOD_SETS is the same file, cut
+; short. A panel that is OPEN already holds the whole image, entry and all at
+; the same offset, so then the gesture runs in that copy and leaves it loaded
+; for the panel; otherwise the core comes in, runs, and goes.
 ; -----------------------------------------------------------------------------
 sc_modcall:
-    call cpf_need
-    jc .no
-    xor si, si
-    call far [CPFP + CPE_ONKEY * 4]
-    jnc .r
+    push bx                     ; mod_live answers a row in BX
     push ax
     mov al, MOD_CTRL
+    call mod_live               ; CF = 0: a Control Panel is open
+    pop ax
+    jnc .full
+    push ax
+    mov al, MOD_SETS
+    call mod_need
+    pop ax
+    jc .no
+    call far [SETFP]            ; the core's one slot, CPE_SC
+    push ax
+    mov al, MOD_SETS
     call mod_drop
     pop ax
-.r:
+    pop bx
+    ret
+.full:
+    call far [CPFP + CPE_SC * 4]
+    pop bx
     ret
 .no:
+    pop bx
     jmp hbf_nodisk              ; the panel's own sentence (SPEC.md 2.8.4)
 
 ; -----------------------------------------------------------------------------
@@ -316,7 +330,7 @@ section .modc                   ; CTRL.DRV (SPEC.md 26.8.7): CS = the image,
 ; strings and scratch alike, read through `cs:`. Every routine here runs with
 ; the gfx lock HELD (sc_modcall's contract).
 
-modc_e_sc:                      ; CPE_ONKEY with SI = 0: AH = the operation
+modc_e_sc:                      ; CPE_SC (SPEC.md 2.8.7): AH = the operation
     push bp                     ; wm_cbd takes its routine in BP
     or ah, ah
     jz .new
@@ -335,12 +349,8 @@ modc_e_sc:                      ; CPE_ONKEY with SI = 0: AH = the operation
 .move:
     call sc_m_move
 .out:
-    pop bp
-    push ax                     ; AL is the operation's answer (sc_m_add)
-    mov al, KIND_CTRL           ; CF = 1: no Control Panel is open, so the
-    call KERNEL_SEG:cw_inst_find_kind   ; image goes with this call - the
-    pop ax                      ; panel's own drop decides when it is. `pop`
-    retf                        ; writes no flag
+    pop bp                      ; AL is the operation's answer (sc_m_add);
+    retf                        ; sc_modcall decides whether the image goes
 
 ; sc_m_cold - call the kernel's cold routine at BP (wm_cbd), near from here:
 ; one far entry the kernel already has, where a resident stub per routine
@@ -622,14 +632,14 @@ sc_m_off:
     ret
 
 ; sc_m_save - SYSTEM.CFG, NOW: a shortcut is meant to survive a power-off, so
-; it does not wait for the panel to close. cp_flush_close_x is the panel's own
-; spend - it writes, says so, and keeps [cp_wdirty] on a failure so the next
-; close or Restart tries again (SPEC.md 59.6).
+; it does not wait for the panel to close. cp_flush_cfg is the panel's own
+; spend, the core's half of it - it writes, says so, and keeps [cp_wdirty] on
+; a failure so the next close or Restart tries again (SPEC.md 59.6).
 sc_m_save:
     mov bp, desk_reflow
     call sc_m_cold ; ...after the flowing items pack round what
     mov byte [cp_wdirty], 1     ; changed (SPEC.md 26.9)
-    jmp cp_flush_close_x
+    jmp cp_flush_cfg
 
 ; -----------------------------------------------------------------------------
 ; sc_m_kb - the table's claim, to AL KB (0 = none), with its bookkeeping

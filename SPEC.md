@@ -1986,6 +1986,72 @@ segment risk the refusal named is held by `tools/os88ovlchk.py`'s module-data
 rule, which refuses a module reference that does not name `CS`.
 
 
+#### 2.8.7 A module may be loaded in PART: CTRL.DRV's settings core
+
+A desktop gesture (§26.9.5) ends in a SYSTEM.CFG write, and the writer is
+`CTRL.DRV`'s (§51.5.3). Loading the whole Control Panel for that was most of
+the wait. On a 4.77 MHz XT, from the 360KB disk, a shortcut drag-out spent
+**~1.9 s reading a 19-sector image** before the gesture ran, and 1.35 s of
+that was the two data reads. Disk placement made no difference: the same
+file at cylinder 28 instead of 35 measured within noise. Rotation and
+transfer cost the time, so the lever is how many sectors are read.
+
+**So CTRL.DRV is two halves in one file, and kern_big can read just the
+first.**
+
+| section | what | size |
+|---|---|---:|
+| `.modc` | the header and the SETTINGS CORE: `modc_e_sc` and the `sc_m_*` gestures (§26.8.7), the SYSTEM.CFG writer (`CFG_DATA`/`CFG_SAVE cpc`, `cpc_buf`, `cp_cfg_save`), `cp_flush_x`, `cp_flush_cfg`, and the image's epilogue ladder | `MODS_SIZE` = 2,134 bytes, 5 sectors |
+| `.modu` | the panel: every page, `cp_flush_close_x`'s RTC half and `clockw.inc` | the rest, 10,394 in all |
+
+`.modu` is `follows=.modc vfollows=.modc align=1`, so the two halves are
+one image at one set of offsets, and the panel reaches the core with a near
+call. The reverse is refused at build time. `tools/os88ovlchk.py` fails
+if any identifier in `.modc` names a `.modu` label, because on a core-only
+load that label is not in memory and the call runs off the end of the claim
+without faulting. The one exemption is `modc_hdr`'s entry table.
+
+**`MOD_SETS` is a row with no image of its own.** It names the same file
+as `MOD_CTRL` and comes last, after every real module, so `MOD_NIMG` (the
+images `os88mod.py` cuts) is one less than `MOD_MAX` (the rows). Its slot
+block has one entry, `CPE_SC`, which is header entry 0 on this build. For
+that row:
+
+- `mod_need` sizes the claim and the read from `MODS_SIZE`, an assembly
+  constant like every offset the module is called at, and sets
+  `[dskw_trunc]` for one read;
+- `dskw_rbody` then reads a PLAIN file's first `[dskw_cap]` bytes instead of
+  refusing it as too big (a packed file is still refused, since a
+  compressed stream's prefix decodes to nothing);
+- `mod_check` accepts the header's id `MOD_CTRL`, an image longer than what
+  arrived, and a slot count below the header's. It still bounds the one entry
+  it arms against the bytes that arrived.
+
+**`sc_modcall` picks the copy.** If a Control Panel is open (`mod_live`),
+the whole image is already in memory and the gesture runs in it, at the same
+offset, and leaves it loaded. Otherwise the core is loaded, run and dropped.
+
+**CTRL.DRV ships PLAIN on kern_big** (`os88mod.py --plain 0`). It packed to
+90%, so it costs two sectors of disk, about what the decode it no longer
+pays (~85 ms) would buy. kern_small has no shortcuts, so it has no core row,
+and its CTRL.DRV is still packed.
+
+**Measured** on a 4.77 MHz 8088 (MartyPC, `os8088_xt_vga`), 360KB disks,
+against the commit before (`8d4381f`):
+
+| | before | after |
+|---|---:|---:|
+| shortcut drag-out: module in | 1,847–1,992 ms, 5 reads, 29 sectors | **1,123–1,156 ms**, 4 reads, 11 sectors |
+| shortcut drag-out: whole gesture | 4,264–4,410 ms | **3,741–3,773 ms** |
+| Control Panel open: `mod_need` to `mod_check` | 1,437–1,538 ms (median ~1,450), 3 reads | 1,441–1,570 ms (median ~1,520), 4 reads |
+
+The panel opens about 70 ms slower, which is within run-to-run noise. The
+plain file is the same 24 sectors in one more read, and that read is nearly
+paid for by the decode it skips. kern_big resident: `.text` +6 (the row and
+its `mod_fpt` word), `.bss` +9 (the slot block and `[dskw_trunc]`), `.cold`
++88 (`mod_need`, `mod_check`, `dskw_rbody` and `sc_modcall`), **+103 bytes
+in all**.
+
 ### 2.9 Stage 2 — the loader is not in the boot sector any more
 
 The 512-byte sector had **fifteen bytes spare**. Everything it might want to do
@@ -49476,12 +49542,14 @@ read: it went to nobody.
 
 Creating, moving and removing an item and a package's `OSAPI_DESK_ITEM` each
 END in a SYSTEM.CFG write, and the writer is `CTRL.DRV`'s (§51.5.3). So all
-of them are that image's, through one door that costs no API slot:
-`CPE_ONKEY` with SI = 0 and the operation in AH (`SC_OP_NEW`, `_MOVE`,
-`_DEL`, `_ADD`). `sc_modcall` loads the image, calls it, and drops it again
-unless the Control Panel already had it resident. Each gesture saves at once,
-through the panel's own `cp_flush_close`, because a placement is meant to
-survive a power-off rather than wait for the panel to close.
+of them are that image's, through one entry, `CPE_SC`, with the operation in
+AH (`SC_OP_NEW`, `_MOVE`, `_DEL`, `_ADD`). It lives in the image's SETTINGS
+CORE, its first 2,134 bytes (§2.8.7), so `sc_modcall` reads only those. It
+uses the whole image instead when a Control Panel already has it loaded,
+and otherwise loads the core, calls it and drops it. Each gesture saves at
+once, through `cp_flush_cfg` (the core's half of the panel's own
+`cp_flush_close`), because a placement is meant to survive a power-off
+rather than wait for the panel to close.
 
 **What that costs on a one-drive machine is stated rather than discovered.**
 A create, move or remove needs the SYSTEM disk in the drive at that moment.

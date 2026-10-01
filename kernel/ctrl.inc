@@ -813,26 +813,32 @@ CPS_CBY2  equ CPS_CBY + CP_GW - 1       ; 63: checkbox band bottom
 ; The entry indices, which are the image's ABI with its own thunks. They are
 ; here rather than beside those thunks because kernel.asm sizes CPFP's slot
 ; block from CP_NENT, and RESB wants a constant it has already seen.
-CPE_PAINT   equ 0
-CPE_ONCLICK equ 1
-CPE_FLUSH   equ 2
-CPE_TICK    equ 3
-CPE_ONUP    equ 4               ; SPEC.md 13.8.3's two edges. The RELEASE is on
+%ifdef OS88_SHORTCUTS
+CPE_SC      equ 0               ; THE SETTINGS CORE'S ONE ENTRY, and FIRST, so
+CPE_B       equ 1               ; MOD_SETS's one-slot block arms exactly it off
+%else                           ; a header it shares with MOD_CTRL (SPEC.md
+CPE_B       equ 0               ; 2.8.7): mod_check arms the first CX entries
+%endif
+CPE_PAINT   equ CPE_B + 0
+CPE_ONCLICK equ CPE_B + 1
+CPE_FLUSH   equ CPE_B + 2
+CPE_TICK    equ CPE_B + 3
+CPE_ONUP    equ CPE_B + 4       ; SPEC.md 13.8.3's two edges. The RELEASE is on
 %ifdef KERN_BIG                 ; both kernels - a driver's page acts on it
-CPE_ONDRAG  equ 5               ; (SPEC.md 13.8.4) - and the drag and the KEY
-CPE_ONKEY   equ 6               ; (SPEC.md 31.9.2) are kern_big's alone, so
+CPE_ONDRAG  equ CPE_B + 5       ; (SPEC.md 13.8.4) - and the drag and the KEY
+CPE_ONKEY   equ CPE_B + 6       ; (SPEC.md 31.9.2) are kern_big's alone, so
 %ifdef DOCK_OPT                 ; CP_NENT differs between the builds. Which is
-CPE_DOCK_GEOM equ 7             ; safe because MOD_H_NENT is IN the header and
-CP_NENT     equ 8               ; mod_check compares it against the file it
+CPE_DOCK_GEOM equ CPE_B + 7     ; safe because MOD_H_NENT is IN the header and
+CP_NENT     equ CPE_B + 8       ; mod_check compares it against the file it
 %else                           ; just read, so a CTRL.DRV with the wrong count
-CP_NENT     equ 7               ; is refused rather than dispatched into - and
+CP_NENT     equ CPE_B + 7       ; is refused rather than dispatched into - and
 %endif                          ; MOD_H_STAMP rejects one from another build
 %else
 %ifdef DOCK_OPT
-CPE_DOCK_GEOM equ 5
-CP_NENT     equ 6
+CPE_DOCK_GEOM equ CPE_B + 5
+CP_NENT     equ CPE_B + 6
 %else
-CP_NENT     equ 5
+CP_NENT     equ CPE_B + 5
 %endif
 %endif
 
@@ -853,6 +859,9 @@ modc_hdr:
     dw modc_end                 ; MOD_H_IMG - vstart is 0, so the end label IS
                                 ; the size
     dw CP_NENT                  ; MOD_H_NENT
+%ifdef OS88_SHORTCUTS
+    dw modc_e_sc                ; CPE_SC - the core's, so FIRST (SPEC.md 2.8.7)
+%endif
     dw modc_e_paint             ; CPE_PAINT
     dw modc_e_onclick           ; CPE_ONCLICK
     dw modc_e_flush             ; CPE_FLUSH
@@ -865,6 +874,9 @@ modc_hdr:
 %ifdef DOCK_OPT
     dw modc_e_dock_geom         ; CPE_DOCK_GEOM: Dock and Display settings
 %endif
+section .modu                   ; ...and the PANEL from here on: the stubs below
+                                ; name the UI's bodies, so they are UI too.
+                                ; Only the header has to be at offset 0
 
 ; --- the far entries, which are the WHOLE reason this is not a body pointer --
 ; A module's entries are reached by `call far [mod_fp + K]`, so they have to
@@ -919,10 +931,6 @@ modc_e_ondrag:  call cp_ondrag_x
 ; otherwise be an error the user did not make.
 ; -----------------------------------------------------------------------------
 modc_e_onkey:
-%ifdef OS88_SHORTCUTS
-    or si, si                   ; NO WINDOW: not a key at all, but a desktop
-    jz modc_e_sc                ; item's operation (SPEC.md 26.8.7) -
-%endif                          ; sc_modcall's door, which costs no slot
     call kentm_bp                ; KENT: push ax..bp
     mov bx, ax                  ; the KEY, banked: every test below answers in
                                 ; AL and the page wants both halves back
@@ -1027,7 +1035,7 @@ cp_drv_gone_x:
     pop ax
     ret
 
-section .modc                   ; ...and back to the image
+section .modu                   ; ...and back to the panel's image
 
 ; -----------------------------------------------------------------------------
 ; cp_paint_x - W_PAINT for the Control Panel window (far body of cp_paint_x)
@@ -5060,7 +5068,31 @@ cp_flush_x:
     jmp kretm_cx
 
 ; -----------------------------------------------------------------------------
-; cp_flush_close_x - spend [cp_wdirty], if there is anything to spend
+; cp_flush_cfg - [cp_wdirty]'s half of cp_flush_close_x, and the SETTINGS
+;                CORE's door (SPEC.md 2.8.7)
+; in:  nothing
+; out: nothing (all registers preserved)
+;
+; A desktop gesture that wrote a placement ends here with nothing but the core
+; loaded, so this may not reach the clock's half below it, which is the
+; panel's and lives in .modu.
+; -----------------------------------------------------------------------------
+cp_flush_cfg:
+    cmp byte [cp_wdirty], 0
+    je .out
+    call cp_flush_x
+    cmp byte [cp_dsave], 0      ; the write failed: KEEP the flag, so closing
+    jne .out                    ; the panel again - or rebooting - tries once
+    mov byte [cp_wdirty], 0     ; more rather than dropping the settings
+.out:
+    ret
+
+section .modu                   ; ...the clock's half is the PANEL's: only a
+                                ; Date & Time edit sets [clk_dirty], and the
+                                ; core never runs while a panel is open
+; -----------------------------------------------------------------------------
+; cp_flush_close_x - spend [clk_dirty] and [cp_wdirty], if there is anything
+;                    to spend
 ; in:  nothing
 ; out: nothing (all registers preserved)
 ;
@@ -5085,14 +5117,7 @@ cp_flush_close_x:
                                 ; to, so the edit is the SESSION's and the
                                 ; flag is cleared rather than acted on
 %endif
-    cmp byte [cp_wdirty], 0
-    je .out
-    call cp_flush_x
-    cmp byte [cp_dsave], 0      ; the write failed: KEEP the flag, so closing
-    jne .out                    ; the panel again - or rebooting - tries once
-    mov byte [cp_wdirty], 0     ; more rather than dropping the settings
-.out:
-    ret
+    jmp cp_flush_cfg            ; ...and the settings, in the core
 
 ; =============================================================================
 ; The Sound page (SPEC.md 31.7/34.8)
@@ -5153,7 +5178,7 @@ section .text
 ; notice line is blank). .text and not .bss for the reason everything else
 ; here is: -f bin zeroes nothing.
 cp_snd_err: db 0
-section .modc                   ; the on-demand image (SPEC.md 2.8): a segment
+section .modu                   ; the on-demand image (SPEC.md 2.8): a segment
                                 ; of its own with DS still KERNEL_SEG, so
                                 ; every reference below - this module's own
                                 ; strings included - is unchanged
@@ -6231,7 +6256,7 @@ cp_dmdg      equ cp_sbuf + CP_DMMAX + 4  ; live across that routine alone
 %endif
 section .text
 
-section .modc                   ; ...and back to the image
+section .modu                   ; ...and back to the panel's image
 
 ; --- cp_drv_pane - repaint the whole Drivers pane, after a SCROLL -----------
 ; in:  DI = PANE left, BP = pane top; gfx lock held
@@ -6747,6 +6772,9 @@ CPS cp_s_tcol,  ':'
 ; anywhere in here - and no flag moves, so a routine that takes an input in
 ; CF (cp_fdcap) keeps it. 3 bytes a site against 5 and 7.
 ; -----------------------------------------------------------------------------
+section .modc                   ; THE LADDER IS THE CORE'S (SPEC.md 2.8.7):
+                                ; cp_flush_x ends on kretm_cx, and the panel
+                                ; reaches it near from .modu either way
 kentm_si:
     ; STKBALANCE-NET: +5 - banks AX..SI on the CALLER's stack; its epilogue pops them
     push bx
@@ -6782,6 +6810,7 @@ kretm_cx:         pop cx
                   pop bx
                   pop ax
                   ret
+section .modu
 
 ; -----------------------------------------------------------------------------
 cp_stage:

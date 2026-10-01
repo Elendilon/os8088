@@ -1498,7 +1498,7 @@ drv_owns_seg_x:
 ; nothing went wrong" is the absence of both. Only a FAILURE has a stored
 ; code, which is the only one of the three that could not be re-derived.
 ; -----------------------------------------------------------------------------
-section .modc                   ; CTRL.DRV's image (SPEC.md 2.8): the Drivers
+section .modu                   ; CTRL.DRV's image (SPEC.md 2.8): the Drivers
                                 ; page is this routine's only caller, twice,
                                 ; and the page is `.modc` on BOTH builds. It
                                 ; calls NOTHING out - every operand is either a
@@ -5073,7 +5073,7 @@ drv_task_x:
 drv_cp_count_x:
     xor al, al                  ; no class publishes a Control Panel page
     retf
-section .modc                   ; ...and the stub goes where the body went, or
+section .modu                   ; ...and the stub goes where the body went, or
 drv_status_x:                   ; the two builds would put one name in two
 drv_errstg:                     ; different segments (the one status a row
     CPSTAGE drv_s_off           ; could ever have, and the one word cp_snd_note

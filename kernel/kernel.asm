@@ -2675,8 +2675,19 @@ section .ovlw    start=OVLW_START vstart=0
 ; They are LAST in the file and unpadded, so truncating at MODC_START yields
 ; byte for byte the kernel.bin that would have been emitted without them.
 section .modc    start=MODC_START vstart=0
+section .modu    follows=.modc vfollows=.modc align=1 valign=1
+                                ; ...CTRL.DRV's SECOND half, the panel's UI,
+                                ; straight after the first in the file and in
+                                ; the address space (SPEC.md 2.8.7). `.modc`
+                                ; is the header and the SETTINGS CORE - what a
+                                ; desktop gesture needs to write SYSTEM.CFG -
+                                ; so MOD_SETS reads the file's first MODS_SIZE
+                                ; bytes and stops. `.modu` may name anything
+                                ; in `.modc`; `.modc` may name NOTHING in
+                                ; `.modu` (tools/os88ovlchk.py), because on a
+                                ; core-only load it is not there
 %ifdef OS88_DRIVERS
-section .modcb   nobits vfollows=.modc ; CTRL.DRV's own scratch: the SYSTEM.CFG
+section .modcb   nobits vfollows=.modu ; CTRL.DRV's own scratch: the SYSTEM.CFG
                                 ; writer's file buffer (driver.inc, CFG_DATA
                                 ; cpc). NOT zeroed - MOD_BSS stays kern_small's
                                 ; FCP_MOD alone - because its one user fills it
@@ -6621,6 +6632,9 @@ mod_fpt:
 %ifdef KERN_BIG
     MODFP EXFP, MOD_EXT, EXT_NENT
 %endif
+%ifdef OS88_SHORTCUTS
+    MODFP SETFP, MOD_SETS, 1    ; the settings core's ONE slot, CPE_SC (2.8.7)
+%endif
 %if MODFP_I != MOD_MAX
   %error "MODFP: MODFP_I blocks against MOD_MAX rows"
 %endif
@@ -8007,8 +8021,13 @@ MODK_SIZE equ modk_end - $$
 %endif
 
 section .modc
+mods_end:
+MODS_SIZE equ mods_end - $$     ; the settings core: CTRL.DRV's first bytes
+section .modu
 modc_end:
-MODC_SIZE equ modc_end - $$
+MODU_SIZE equ modc_end - $$     ; ...the panel behind it...
+MODC_SIZE equ MODS_SIZE + MODU_SIZE ; ...and the WHOLE image: align=1 on both
+                                ; ends of `.modu`, so there is no pad between
 
 section .modf
 modf_end:
@@ -8104,7 +8123,8 @@ MODD_SIZE equ modd_end - $$
 section .modmap
 mod_map:
     db 'O8MM'
-    db MOD_MAX                  ; rows below
+    db MOD_NIMG                 ; rows below - IMAGES, so MOD_SETS (CTRL.DRV's
+                                ; own first bytes, SPEC.md 2.8.7) is not one
     db 0
     dd MODC_START, MODC_SIZE
     dw CP_NENT                  ; ...and each row the KERNEL's entry count
@@ -8661,8 +8681,12 @@ section .ovlw
   %error "something landed in .ovlw below ovlw_end - OVLW_SIZE under-reports it and MODC_START with it"
 %endif
 section .modc
-%if ($ - $$) != MODC_SIZE
-  %error "something landed in .modc below modc_end - os88mod.py would CUT CTRL.DRV short of it and a call into it lands in unclaimed heap"
+%if ($ - $$) != MODS_SIZE
+  %error "something landed in .modc below mods_end - MOD_SETS would read the settings core short of it and a call into it lands in unclaimed heap"
+%endif
+section .modu
+%if ($ - $$) != MODU_SIZE
+  %error "something landed in .modu below modc_end - os88mod.py would CUT CTRL.DRV short of it and a call into it lands in unclaimed heap"
 %endif
 section .modf
 %if ($ - $$) != MODF_SIZE
