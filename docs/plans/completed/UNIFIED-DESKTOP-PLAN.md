@@ -423,7 +423,7 @@ MEASURED with `tools/kernsize.py` against `9a760ab`, at one commit each:
 | `.cold` | −300 | −5 |
 | **resident** | **−288** | **+10** |
 | `.ovl` / `.ovlw` | +14 / +17 | +5 / +17 |
-| `CTRL.DRV` | +87 | — |
+| `CTRL.DRV` | +103 | — |
 
 **kern_big came in 132 short of the ~−420 estimate, and inside section 4's
 "10 to 30% over" band, at about 20% over.** Two things were added after
