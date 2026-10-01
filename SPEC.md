@@ -155835,9 +155835,11 @@ A bad one ends the play with the reason in the window. The lists are not
 checked, and cannot reach past the adapter's own segment (98.1.6).
 
 **The window after a play shows**: frames drawn of the file's, stalls, late
-periods, and the play's length in ticks against the file's own - and, once
-a play has started, **the heap**, two lines for anyone doing this section's
-arithmetic by hand: the largest claim and all that was free when Play was
+periods, and the play's length in ticks against the file's own - and, in a
+player built with **`VPDIAG=1`** (a field diagnostic: the shipped player
+carries none of this, its card stays at eight lines), once a play has
+started, **the heap**, two lines for anyone doing this section's arithmetic
+by hand: the largest claim and all that was free when Play was
 pressed (`[vp_mrun0]`, `[vp_mfre0]`), then the ring's slots against the
 header's, the run it was sized from (`[vp_mrun]`, after the keeper and the
 card's ring) and those two claims' KB - `Heap 474K run, 474K free at Play`,
@@ -155846,7 +155848,7 @@ its text alone; with the buttons in the card (`VP_LINESB`) its text stops
 at eight lines, above them. A play's **pauses are its own**, as its stalls
 are: `[vp_pause]` counted every play since the window opened.
 
-**And two lines for the reader, after a play** - a field diagnostic, for
+**And two lines for the reader, after a play** - `VPDIAG=1` too, for
 telling a stream that ran dry from a card that did: `Lead 1 at f470; hook
 gap 3` is the fewest chunks the reader was ever loaded past the hook's
 super-packet (`[vp_lmin]`, sampled every foreground pass until the stream
@@ -157232,7 +157234,7 @@ slots for the least-used thing the player does).
    player's OWN region make room for the keeper and the ring together
    (98.3.19.1)? If so, the play posts that and returns.
 3. **Else the play goes on without it** (`[vp_nokeep]`) and the ring takes
-   everything, `VP_KBIG` at most. The card's `keep 0` says so.
+   everything, `VP_KBIG` at most. `VPDIAG=1`'s card says `keep 0`.
 
 **Eligible** (`vp_kelig`): the keeper is only the canvas's image - not a
 decode target (`[vp_kneed]`), not a RESIDENT or LIVE play's, not the shadow

@@ -85,8 +85,12 @@ VP_SLOTP    equ VP_CHUNK / 16       ; ...in paragraphs
 VP_KMAX     equ 8                   ; a LIVE play's most slots (a power of two)
 VP_KBIG     equ 15                  ; ...and any other's (SPEC.md 98.3)
 VP_COLS     equ 35                  ; the info panel's text columns
+%ifdef VP_DIAG
 VP_LINES    equ 12                  ; (the last four the heap's and the
-                                    ; reader's, 98.3: a field diagnostic)
+                                    ; reader's: VPDIAG=1, a field diagnostic)
+%else
+VP_LINES    equ 8
+%endif
 VP_LINESB   equ 8                   ; ...and all a card with its buttons in
 VP_LINE     equ VP_COLS + 1
 VP_LPITCH   equ 11                  ; ...and its line pitch
@@ -901,7 +905,9 @@ vp_open:
     mov byte [vp_ok], 0
     mov byte [vp_played], 0
     mov byte [vp_loaded], 0
+%ifdef VP_DIAG
     mov word [vp_mfre0], 0          ; (no play of this file's to report)
+%endif
     call vp_pfree                   ; the last file's poster, and its keys
     call vp_rfree                   ; ...and its loaded block
     call vp_xfree                   ; ...and its hold in XMS (98.3.18)
@@ -5868,11 +5874,12 @@ vp_sstart:
     push si
     push di
     push es
+%ifdef VP_DIAG
     call OSAPI_MEM_AVAIL            ; THE HEAP AS PLAY FOUND IT, for the
     mov [vp_mrun0], ax              ; card's memory lines (98.3): the
     mov [vp_mfre0], bx              ; largest claim, and all that is free
     mov word [vp_mrun], 0           ; ...and nothing from the ring's sizing
-                                    ; yet (a RESIDENT play has no ring)
+%endif                              ; yet (a RESIDENT play has no ring)
     ; --- KEY 0's ENTRY for a colour play from the start (98.3.5, 98.2.9): a
     ;     colour play starts from key 0 and not from the stream's first
     ;     record, but only once key 0's entry is the one in hand - and a
@@ -6071,6 +6078,7 @@ vp_sstart:
     ;     header's ring is headroom the encode never counted on. LIVE plays
     ;     on the desktop, so it keeps the old rule, a power of two to VP_KMAX
     call OSAPI_MEM_AVAIL            ; AX = the largest free run, KB
+%ifdef VP_DIAG
     mov [vp_mrun], ax               ; (the card's memory lines, and what
     mov dl, [vp_kkb]                ; was claimed before it: a stop
     cmp byte [vp_nokeep], 0         ; clears both)
@@ -6084,6 +6092,7 @@ vp_sstart:
     mov dl, VP_RL / 1024 + 1
 .ms0:
     mov [vp_msnd], dl
+%endif
     mov cx, [vp_kmax]
     cmp byte [vp_livem], 0
     jne .klive
@@ -6688,6 +6697,7 @@ vp_spos:
     mov [vp_stall], ax
     mov [vp_pause], ax              ; (this play's, as the stalls are: it
     mov [vp_ptk], ax                ; counted every play since the open)
+%ifdef VP_DIAG
     mov [vp_pstrm], ax              ; THE READER'S DIAGNOSTIC (98.3): pauses
     mov [vp_pmax], ax               ; with the sound waiting on the stream,
     mov [vp_pmaxf], ax              ; the longest and where, and the least
@@ -6695,6 +6705,7 @@ vp_spos:
     mov [vp_astv], al
     mov [vp_pin], al
     mov word [vp_lmin], 0xFFFF
+%endif
     mov [vp_late], ax
     mov [vp_dt], ax
     mov [vp_gap], ax
@@ -7455,6 +7466,7 @@ vp_main:
     cmp ax, [vp_frames]             ; - unless it repeats (98.3.9)
     jae .drain
 .rd:
+%ifdef VP_DIAG
     cmp byte [vp_eof], 0            ; THE READER'S LEAST LEAD over the
     jne .rl                         ; picture, in chunks (98.3's diagnostic):
     mov ax, [vp_lc]                 ; loaded past the hook's super-packet,
@@ -7465,6 +7477,7 @@ vp_main:
     mov ax, [vp_done]
     mov [vp_lminf], ax
 .rl:
+%endif
     call vp_skeep                   ; EVERY pass, not only an idle one: after
                                     ; an underrun the reader is catching up,
                                     ; so a chunk arrives each pass and the
@@ -9051,6 +9064,7 @@ vp_skeep:
 .und:
     cmp ax, 1
     jne .out
+%ifdef VP_DIAG
     push dx                         ; THE DIAGNOSTIC (98.3): a pause is
     cmp byte [vp_pin], 0            ; timed from the pass that first sees
     jne .pi                         ; it, and called the STREAM's when the
@@ -9063,6 +9077,7 @@ vp_skeep:
     or byte [vp_pin], 2
 .pn:
     pop dx
+%endif
     mov ax, [vp_atot]
     sub ax, dx
     cmp ax, [vp_blk]
@@ -9072,6 +9087,7 @@ vp_skeep:
     mov cx, [vp_atot]
     call OSAPI_SND_STREAM
     inc word [vp_pause]
+%ifdef VP_DIAG
     test byte [vp_pin], 2           ; (the stream's)
     jz .pc
     inc word [vp_pstrm]
@@ -9084,6 +9100,7 @@ vp_skeep:
     mov [vp_pmax], ax
     mov ax, [vp_done]
     mov [vp_pmaxf], ax
+%endif
 .out:
     ret
 
@@ -10474,10 +10491,14 @@ vp_afill:
     call vp_next
     jnc .rec
     or al, al
+%ifdef VP_DIAG
     jnz .ae
     mov byte [vp_astv], 1           ; NOT READ YET: the sound waits on the
     ret                             ; stream (the card line's diagnostic)
 .ae:
+%else
+    jz .out                         ; not read yet: next call
+%endif
     mov byte [vp_aend], 2           ; the end early, or damage: the video
     ret                             ; says which when it gets there
 .rec:
@@ -10494,7 +10515,9 @@ vp_afill:
 .rput:
     mov cx, [vp_abytes]
     call vp_aput
+%ifdef VP_DIAG
     mov byte [vp_astv], 0
+%endif
     inc word [vp_afr]
 .nx:
     inc word [vp_aseq]
@@ -11071,11 +11094,13 @@ vp_ptext:
 .l:
     cmp bx, VP_LINES
     jae .out
+%ifdef VP_DIAG
     cmp byte [vp_lbin], 0           ; the buttons in the card: its text ends
     je .lok                         ; above them (VP_CARDBY)
     cmp bx, VP_LINESB
     jae .out
 .lok:
+%endif
     mov ax, (CWHITE << 8) | CBLACK
     call OSAPI_FONT_RUN
     add si, VP_LINE
@@ -11518,10 +11543,12 @@ vp_ground:
     call vp_ghole
     add bx, VP_LPITCH
     inc si
+%ifdef VP_DIAG
     cmp si, VP_LINESB
     jb .ln
     cmp byte [vp_lbin], 0           ; (the buttons in the card: its text
     jne .lnd                        ; ends above them)
+%endif
     cmp si, VP_LINES
     jb .ln
 .lnd:
@@ -12081,6 +12108,7 @@ vp_fmt:
     xor bl, bl
     call vp_putn
 .mem:
+%ifdef VP_DIAG
     ; 8 and 9: THE HEAP (98.3), once a play has started - what Play found,
     ; and what the ring was sized from and took
     cmp word [vp_mfre0], 0
@@ -12168,6 +12196,7 @@ vp_fmt:
     call vp_puts
     mov ax, [vp_pmaxf]
     call vp_putn
+%endif
 .out:
     pop es
     pop di
@@ -12487,8 +12516,9 @@ vp_s_kb:      db ' KB', 0
 vp_s_stall:   db ', stalls ', 0
 vp_s_pause:   db ', pauses ', 0
 vp_s_late:    db 'Late ', 0
-vp_s_heap:    db 'Heap ', 0
 vp_s_room:    db 'Making room for the play...', 0
+%ifdef VP_DIAG
+vp_s_heap:    db 'Heap ', 0
 vp_s_krun:    db 'K run, ', 0
 vp_s_kfree:   db 'K free at Play', 0
 vp_s_ring:    db 'Ring ', 0
@@ -12501,6 +12531,7 @@ vp_s_hgap:    db '; hook gap ', 0
 vp_s_dry:     db 'Dry ', 0
 vp_s_most:    db ' stream; most ', 0
 vp_s_tf:      db 't f', 0
+%endif
 vp_s_ticks:   db ', ', 0
 vp_s_want:    db ' ticks of ', 0
 
@@ -12733,6 +12764,7 @@ vp_poster:    dw 0                  ; the header's poster, FFFFh none
 vp_kmaxb:     dw 0                  ; the largest keyframe record
 vp_kbkb:      dw 0                  ; ...and the claim that reads one, KB
 vp_kekb:      dw 0                  ; ...and one that reads a table entry, KB
+%ifdef VP_DIAG
 vp_mrun0:     dw 0                  ; the heap as Play found it: the largest
 vp_mfre0:     dw 0                  ; claim and all that is free, KB (98.3)
 vp_mrun:      dw 0                  ; ...and what the ring was sized from
@@ -12745,6 +12777,7 @@ vp_pmaxf:     dw 0
 vp_pt0:       dw 0                  ; ...this one's start
 vp_pin:       db 0                  ; ...in one: bit 0, and bit 1 the stream's
 vp_astv:      db 0                  ; the sound is waiting on an unread record
+%endif
 vp_nokeep:    db 0                  ; this play goes without its keeper (98.3.19):
                                     ; 1 under pressure, 2 the poster is it
 vp_pcv:       db 0                  ; ...and the poster holds this session's frame
@@ -12752,7 +12785,9 @@ vp_cpent:     db 0                  ; vp_sstart from Play (1) or F (2): may post
 vp_cpq:       db 0                  ; ...and posted already, for this press
 vp_cppost:    db 0                  ; ...just now: vp_sstart returns into it
 vp_cpgo:      db 0                  ; the wake starts it again: 1 Play, 2 F
-vp_msnd:      db 0                  ; ...and the card's ring, KB
+%ifdef VP_DIAG
+vp_msnd:      db 0                  ; ...and the card's ring, KB (VPDIAG=1)
+%endif
 vp_sel:       dw 0                  ; the key Play starts at; 0 = the start
 vp_kload:     dw 0xFFFF             ; the key vp_ke holds
 vp_ke:        times 16 db 0         ; its table entry (98.1.3)
