@@ -958,16 +958,15 @@ KNOB build already has and a shipped build does not use:
   most (`MOUDIAG=1`), and §31.14's `ovl_fdd_apply` took the shipped blob from
   147 spare to 20, which `BOOTMARK=1` needed. `OVL_AT` stays the one literal, which is what
   `tools/os88ladder.py` reads and what describes every kernel a disk carries.
-  **`kern_emu` takes the 144 as well, and it is the one PRODUCT that does**:
-  §26.8.6's `ovl_sc_load` left kern_big's own `.ovl` at **2,495 of 2,496**,
-  and kern_emu's is that plus `vmm_boot_x`'s five-byte far call - six past
-  the line. Its `.boot2` is the shipped loader's (2,467), so the split moves
-  for nothing, where the alternative was an eleventh blob sector on every
-  shipped image for a build that ships on one.
+  §26.8.6's `ovl_sc_load` first left kern_big's own `.ovl` at **2,495 of
+  2,496** - kern_emu six past the line and `BOOTMARK=1` two past even with
+  the give - because its six early refusals were 5-byte `jcc`/`jmp near`
+  pairs to an exit 250 bytes away. Its exits sit AHEAD of its entry now and
+  every one is short: kern_big **2,473**, kern_emu 2,479, `BOOTMARK=1`
+  2,620 and `BOOTHALT=20` 2,624 of a knob's 2,640.
 
-Both are compiled out of every shipped kernel, so `make` and `make small`
-are exactly what they would be without them (`make emu` differs only in
-where its `.ovl` starts, above). Measured (blob `.ovl`
+Both are compiled out of every shipped kernel, so `make`, `make small` and
+`make emu` are exactly what they would be without them. Measured (blob `.ovl`
 of 1,984 shipped / 2,128 knob; `.ovlw` region 2,560 on a kern_small knob), and
 the kern_big column re-measured after §31.14:
 
