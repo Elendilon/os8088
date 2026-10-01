@@ -17351,7 +17351,10 @@ whose rect overlaps that box, and `wm_su_owed` widens **that window's** owed
 rect by it — the dock strip's two tests, asked of the zones, through one
 `wm_rgrow` the dock's widening now shares. The box is a one-shot argument
 emptied on the way out (x1 > x2 signed, which nothing overlaps). Every pixel
-drawn is drawn as before; what changed is only which windows are told so.
+drawn is drawn as before; what changed is only which windows are told so. `tmgraph` gates the over-reach; `zonedmg` gates the other half — a window
+over a cell that a CLOSED window's frame reached, but which that frame never
+touched, must still come back over the cell (348 of 840 pixels are the cell's
+with the per-window test taken out).
 kern_big **+27** bytes resident (`.text` +34, `.cold` −7), kern_small **+58**
 (`.text` +65, `.cold` −7): the dock's widening going through `wm_rgrow` pays
 for the helper on kern_big, and kern_small has no `DOCK_OPT` widening to

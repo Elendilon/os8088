@@ -8027,6 +8027,16 @@ SOAK = [
         "section` printed `\\ype` (two documents differing in one letter "
         "before it must differ in one cell).",
         needs=("marty",), timeout=600),
+    Row("zonedmg", "soak", py("tests/zonedmg.py"), 15.0,
+        "SPEC.md 11.91: a desktop zone the damage reached is drawn WHOLE, so "
+        "the windows over IT owe a redraw - asked per window against the "
+        "zones' own box, [wm_dmg_zb], since folding the zone into the damage "
+        "owed every window the box reached (tmgraph's BAR leg). A window "
+        "over B:'s cell, a second window closed below it whose frame reaches "
+        "the cell and not the first: the first window's pixels over the cell "
+        "must match a whole repaint. Without the per-window test the cell "
+        "is left painted over it.",
+        needs=("marty",), timeout=600),
     Row("deskitem", "soak", py("tests/deskitem.py"), 25.0,
         "SPEC.md 26.9: OSAPI_DESK_ITEM from a PACKAGE. `make deskitem`'s "
         "DESKITEM.O88 hands the kernel a link to itself through its File "
