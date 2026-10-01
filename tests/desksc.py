@@ -461,6 +461,29 @@ def main():
         seg, n, _rows = table(ui)
         check(seg == 0 and n == 0, "the menu took the last one, and the claim")
 
+        # --- K2: the focus leaves the desktop, the selection goes with it --
+        print("K2: select B:, then click a window")
+        bx0, by0 = cell_xy(ui, zslot(ui, 1))
+        zh = ui._word("desk_zh1") + 1
+
+        def bpix():
+            w, _h, d = m.fbuf()
+            return [bytes(d[(y * w + bx0) * 3:(y * w + bx0 + DESK_CW) * 3])
+                    for y in range(by0, by0 + zh)]
+        ui.settle()
+        plain = bpix()
+        ui.mo.click(*cell_mid(ui, zslot(ui, 1)))
+        ui._wait(lambda: ui._byte("desk_sel") == 1, "B: selected", 10)
+        ui.settle()
+        check(bpix() != plain, "B: selected, and lit on the glass")
+        win = [w for w in ui.windows() if w.visible][0]
+        ui.mo.click(win.x + win.w // 2, win.y + 6)  # its title bar
+        ui._wait(lambda: ui._byte("desk_sel") == 0xFF,
+                 "the desktop selection to go when a window takes the focus",
+                 10, snapshot=lambda: "desk_sel %#x" % ui._byte("desk_sel"))
+        ui.settle()
+        check(bpix() == plain, "B:'s cell is UNLIT again, pixel for pixel")
+
         # --- L: a DRIVE is an item like any other ------------------------
         if shots:
             ui.settle()

@@ -410,6 +410,10 @@ menu_activate:
                                 ; focus change passes, including the one no
                                 ; raise reaches: losing the front window
                                 ; promotes the window under it (menu_check)
+    or bx, bx                   ; ...and for the same reason the DESKTOP'S
+    jz .loc                     ; selection is let go here when a window
+    call COLD_SEG:desk_unsel_x  ; takes the bar (SPEC.md 26.9.5)
+.loc:
     call menu_relayout
     stc
     ret

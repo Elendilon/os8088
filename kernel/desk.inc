@@ -1247,6 +1247,35 @@ desk_select:
     jmp desk_zone_redraw
 
 ; -----------------------------------------------------------------------------
+; desk_unsel_x - the FOCUS left the desktop: nothing on it stays selected
+;                (SPEC.md 26.9.5)
+; in:  nothing. out: nothing; every register and the flags preserved.
+; FAR, from menu_activate - the one place every focus change passes (a click,
+; a raise, a window that opens, the window under a closed one) - which draws
+; nothing and takes no lock. So neither does this: it forgets the selection
+; and POSTS the item's cell, and ui_task's desk_zones_paint repaints that
+; cell whole without the highlight. A repaint and not desk_zone_redraw's
+; flip: no XOR is outstanding, so there is no pairing to keep.
+; -----------------------------------------------------------------------------
+desk_unsel_x:
+    pushf
+    push ax
+    mov al, 0xFF
+    xchg al, [desk_sel]
+    cmp al, 0xFF
+    je .o                       ; nothing was selected
+%ifdef OS88_SHORTCUTS
+    mov word [menu_items_file+2], sc_s_remx ; ...so Remove Shortcut greys,
+%endif                          ; desk_select's other half
+    call desk_zs                ; AL = its cell; CF = 1 not shown
+    jc .o
+    call desk_cmark
+.o:
+    pop ax
+    popf
+    retf
+
+; -----------------------------------------------------------------------------
 ; desk_open - a double-click, or Enter, on zone AL: deselect, then dispatch
 ; in:  AL = a zone; NO lock held. out: nothing; clobbers AX, BX, flags
 ; -----------------------------------------------------------------------------

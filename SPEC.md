@@ -49644,6 +49644,17 @@ caption's own rect, for every item. A drive's 32×32 picture fills the column
 and a shortcut's 16×16 sits in its right half with the badge left of it, so
 one rule covers both.
 
+**The selection belongs to the desktop's FOCUS.** When a window takes the
+menu bar, whether by a click, a raise, a window opening or the window under
+a closed one being promoted, nothing on the desktop stays selected.
+`menu_activate` is the one place every one of those passes, so it calls
+`desk_unsel_x` whenever the bar goes to a window. Like `menu_activate`, that
+routine draws nothing and takes no lock: it forgets `[desk_sel]`, greys
+Remove Shortcut, and posts the item's cell for §26.9.4's repaint, which
+redraws it unlit. 38 resident bytes on kern_big and 27 on kern_small.
+`desksc`'s step K2 selects B:, clicks a window's title bar, and requires the
+cell back pixel for pixel.
+
 **A drag needs the system disk** (the plan's D4): the move ends in a
 SYSTEM.CFG write. A press that never travels `FM_DRAGMIN` pixels — every
 ordinary click — never loads anything; `fm_dgwait` is `fm_drag`'s threshold
