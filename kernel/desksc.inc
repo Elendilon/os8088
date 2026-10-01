@@ -143,6 +143,10 @@ sc_xy:
 sc_rect:
     call sc_xy
     mov bx, dx
+%ifdef OS88_SC32
+    call sc_ext                 ; the doubled picture's extra 16 rows
+    add dx, cx
+%endif
     mov cx, ax
     add cx, SC_W + DESK_ZOVER - 1
     sub ax, DESK_ZOVER
@@ -172,6 +176,10 @@ sc_caprect:
     add cx, SC_W + DESK_ZOVER - 1   ; x2: pen + (SC_W - 2 * capx) - 1 + overhang
     sub ax, DESK_ZOVER
     add dx, 16 + DESK_ZGAP
+%ifdef OS88_SC32
+    call sc_ext
+    add dx, cx
+%endif
     mov bx, dx
     add dx, DESK_LBLH - 1
     ret
@@ -321,7 +329,22 @@ sc_draw:
     call sc_xy
     xchg ax, cx
     add cx, SC_ICX
+%ifdef OS88_SC32
+    push cx
+    call sc_ext
+    jcxz .small
+    pop cx
+    sub cx, 8                   ; 32 wide, centred where 16 was
+    call sc_dbl                 ; SI = the doubled record
+    call KERNEL_SEG:cw_icon_draw
+    jmp short .pic
+.small:
+    pop cx
+%endif
     call KERNEL_SEG:cw_icon_draw16
+%ifdef OS88_SC32
+.pic:
+%endif
     pop ax
     push ax
     mov si, SC_R_CAP
@@ -364,13 +387,98 @@ sc_hilite:
     call sc_xy
     add ax, SC_ICX
     mov bx, dx
+%ifdef OS88_SC32
+    call sc_ext                 ; CX = 16 doubled, 0 not
+    add dx, cx
+    shr cx, 1
+    sub ax, cx                  ; x1 moves left by half the growth...
+    shl cx, 1
+    add cx, ax                  ; ...and x2 is x1 + 15 + the growth
+%else
     mov cx, ax
+%endif
     add cx, 15
     add dx, 15
     call ct_cw_gfx_xor_fill
     pop ax
     call sc_caprect
     jmp ct_cw_gfx_xor_fill      ; the NEAR trampoline (desk_zone_hilite's note)
+
+%ifdef OS88_SC32
+; -----------------------------------------------------------------------------
+; sc_ext - how much the picture grows: SCBIG's 32x32 test (SPEC.md 26.8.8)
+; out: CX = 16 where the drive zones use the 32-row icon, 0 where they use
+;      the 14-row one (CGA): the cell is sized off the same pitch, and a
+;      46-row cell on a 34-row pitch would overlap the row below
+; clobbers: CX, flags
+; -----------------------------------------------------------------------------
+sc_ext:
+    xor cx, cx
+    cmp word [desk_zstep], DESK_ZSTEP
+    jne .r
+    mov cl, 16
+.r:
+    ret
+
+; -----------------------------------------------------------------------------
+; sc_dbl - the staged 16x16 body (dsk_ico), doubled both ways into a 32x32
+;          record: every pixel two across and every row twice
+; out: SI = sc_x32, a whole record (header 2 words x 32 rows); lock held
+; clobbers: SI, flags
+;
+; A row word is MSB-leftmost and stored low byte first (ico_pass), so its
+; LEFT byte is AH: that one becomes the record's left word. A byte doubles
+; as two nibble lookups.
+; -----------------------------------------------------------------------------
+sc_dbl:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push es
+    push ds
+    pop es
+    cld
+    mov si, dsk_ico
+    mov di, sc_x32
+    mov ax, (32 << 8) | 2       ; 2 words across, 32 rows
+    stosw
+    mov bx, sc_nib
+    mov dx, 32                  ; 16 mask rows, then 16 data rows
+.w:
+    lodsw
+    push ax
+    mov al, ah
+    call .half                  ; the left byte, as the left word
+    pop ax
+    call .half
+    mov ax, [di-4]              ; ...and the row a second time
+    stosw
+    mov ax, [di-4]
+    stosw
+    dec dx
+    jnz .w
+    mov si, sc_x32
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.half:                          ; AL -> the word that doubles it, stored
+    mov ah, al
+    and al, 0x0F
+    xlat                        ; AL = the low nibble, doubled
+    mov cl, 4
+    shr ah, cl
+    xchg al, ah
+    xlat                        ; AL = the high nibble, doubled
+    xchg al, ah                 ; AH = the left half, as a row word wants
+    stosw
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; sc_open - what a double-click on a shortcut does (SPEC.md 26.8.5)
@@ -736,6 +844,10 @@ sc_s_remx   db MENU_DIS
 sc_s_rem    db 'Remove Shortcut'
 sc_nul      db 0                ; ...and an EMPTY name, for a document's open
 sc_popup    dw sc_s_rem         ; the right-click's one-item menu
+%ifdef OS88_SC32
+sc_nib      db 0x00, 0x03, 0x0C, 0x0F, 0x30, 0x33, 0x3C, 0x3F
+            db 0xC0, 0xC3, 0xCC, 0xCF, 0xF0, 0xF3, 0xFC, 0xFF
+%endif
 
 ; =============================================================================
 section .bss
@@ -744,6 +856,9 @@ sc_seg      resw 1              ; the table's claim, 0 = no shortcuts
 sc_nrows    resb 1              ; rows the claim holds, 0..SC_MAX
 sc_vol      resb 1              ; sc_open: the volume, across its walk
 sc_dmgm     resw 1              ; bit n = row n is in the damage (26.8.3)
+%ifdef OS88_SC32
+sc_x32      resb 2 + 32 * 2 * 4 ; sc_dbl's record: header, 32 rows of mask and
+%endif                          ; of data at two words a row
 
 ; =============================================================================
 section .modc                   ; CTRL.DRV (SPEC.md 26.8.7): CS = the image,

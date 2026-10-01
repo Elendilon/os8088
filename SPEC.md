@@ -49452,6 +49452,25 @@ growth and not for the reader. `KERNEL.SYS` there ended on the last sector of
 a cylinder with 48 bytes free, so ~60 resident bytes of anything would have
 crossed it. That cost was accepted when this was planned.
 
+#### 26.8.8 SCBIG: the 32x32 picture, as a knob
+
+`make SCBIG=1` (`-DOS88_SC32`) is a LOOK test the owner asked for: a
+shortcut's picture drawn at 32x32 by DOUBLING the stored 16x16 body both ways
+at draw time. Storage, the record and the trailer are unchanged, so a KB still
+holds eight shortcuts and a SYSTEM.CFG moves between the two kernels freely.
+
+`sc_dbl` expands the staged body into `sc_x32`, a 258-byte record (two words
+across, 32 rows of mask and then of data), through a 16-byte nibble table, and
+`icon_draw` draws it. `sc_ext` is the cell's growth: 16 rows where the drive
+zones use the 32-row icon and **0 on CGA**, whose 34-row pitch has no room for
+a 46-row cell, so that adapter draws 16x16 on either kernel. The cell, the
+caption and the highlight all move by it, so the hit test, the damage and the
+drag outline follow. The badge doubles with the body.
+
+It is a knob, not a design: the 258 bytes are `.bss` and the doubling runs on
+every repaint. A kept 32x32 would decide those two (a shared scratch buffer,
+a stored body) against what the look turns out to be worth.
+
 ## 27. HELLO and NOTEPAD — the second and third packages
 
 Deliberately minimal, to prove the SDK surface and the no-icon fallback:

@@ -2,6 +2,8 @@
 """SPEC.md 26.8: DESKTOP SHORTCUTS, end to end on an XT.
 
     make && python3 tests/desksc.py [--shots DIR] [--machine NAME]
+    make BUILD=build/sc32 SCBIG=1 && OS88_BUILD=build/sc32 \
+        OS88_DEFINES=OS88_SC32 python3 tests/desksc.py   # 26.8.8's knob
 
 One boot of the shipped 360KB pair on a VGA XT (os8088_xt_vga), and every
 claim 26.8 makes is asked of the GUEST'S OWN STATE rather than of a picture:
@@ -154,8 +156,9 @@ def main():
     tmp = tempfile.mkdtemp(prefix="desksc-")
     sysimg = os.path.join(tmp, "os8088-360.img")
     appimg = os.path.join(tmp, "apps360.img")
-    shutil.copy(os.path.join(ROOT, "build", "os8088-360.img"), sysimg)
-    shutil.copy(os.path.join(ROOT, "build", "apps360.img"), appimg)
+    bdir = os.path.join(ROOT, os.environ.get("OS88_BUILD", "build"))
+    shutil.copy(os.path.join(bdir, "os8088-360.img"), sysimg)   # a knob tree
+    shutil.copy(os.path.join(bdir, "apps360.img"), appimg)     # ($OS88_BUILD)
     before = cfg_bytes(sysimg)
     print("SYSTEM.CFG before: %d bytes, trailer %r" % (len(before),
                                                        trailer(before)[0]))
@@ -349,11 +352,19 @@ def main():
         print("I: right-click the document's shortcut, Remove Shortcut")
 
         def aim(_mo):
+            # rmenu calls this straight after the PRESS, and the popup opens
+            # only after the select has repainted the shortcut - which the
+            # SCBIG build's doubling made slow enough to lose the race and
+            # aim at the PREVIOUS menu's rect. So the popup's x1 was poisoned
+            # below, and this waits for menu_popup to write it.
+            ui._wait(lambda: ui._word("menu_x1") != 0xFFFF,
+                     "the shortcut's popup to open", 30)
             mx = ui._word("menu_x1")
             my = ui._word("menu_y1")
             return mx + 12, my + 1 + 8
 
         fresh(ui)
+        m.write(ui._S("menu_x1"), b"\xff\xff")
         ui.mo.rmenu(hx + SC_W // 2, hy + 8, 0, 0, aim=aim)
         saved(ui)
         _s, _n, rows = table(ui)
