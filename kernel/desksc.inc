@@ -801,8 +801,22 @@ sc_m_move:
     mov bp, fm_dgxor
     call sc_m_cold    ; the outline is up from here on
 .track:
-    test byte [mouse_btn], 1
-    jz .drop
+    mov di, ui_ev               ; THE RELEASE IS AN EVENT, and the mouse ISR
+    call KERNEL_SEG:cw_evq_mup  ; queued it with the point it happened at -
+    jnc .drop                   ; which matters most HERE, because the hand
+                                ; drags WHILE this image is read off the
+                                ; floppy and has often let go before the
+                                ; first pass of this loop (fm_drag's .track
+                                ; drains the same way, wake bookkeeping and
+                                ; all, SPEC.md 74.1.1)
+    test byte [mouse_btn], 1    ; ...and the level, should the event have
+    jnz .held                   ; been lost: then the pointer NOW is all
+    mov ax, [mouse_x]           ; there is
+    mov [ui_ev+EV_A], ax
+    mov ax, [mouse_y]
+    mov [ui_ev+EV_B], ax
+    jmp short .drop
+.held:
     mov bp, fm_dgxor
     call sc_m_cold    ; erase at the old place...
     call KERNEL_SEG:cw_gfx_unlock   ; ...and only then may the lock drop
@@ -821,8 +835,8 @@ sc_m_move:
 .drop:
     mov bp, fm_dgxor
     call sc_m_cold
-    mov cx, [mouse_x]
-    mov dx, [mouse_y]
+    mov cx, [ui_ev+EV_A]        ; WHERE IT WAS LET GO, not where the pointer
+    mov dx, [ui_ev+EV_B]        ; has wandered since (SPEC.md 26.9.5)
     mov bl, [cs:sc_mz]          ; its own cell is free to it
     call sc_m_cell
     jc .ret

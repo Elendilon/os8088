@@ -300,7 +300,11 @@ def main():
         print("D: drag the shortcut one cell up")
         nx, ny = bare_point(ui, cell_mid(ui, cell - 1))
         fresh(ui)
-        ui.mo.drag(cx, cy, nx, ny)
+        ui.mo.drag(cx, cy, nx, ny, settle=0)
+        # ...and AWAY at once, as step A does: the hand drags WHILE CTRL.DRV
+        # is read off the floppy and usually lets go before it is in, so the
+        # drop is the queued RELEASE's point and not where the pointer went
+        ui.mo.to(*cell_mid(ui, 6))
         saved(ui)
         check(zslot(ui, DESK_SC0) == cell - 1,
               "it moved to cell %d (%r)" % (cell - 1, zslot(ui, DESK_SC0)))

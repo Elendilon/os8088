@@ -49615,6 +49615,18 @@ made a routine and the desktop shares it. Past it the tracking loop and the
 outline (`fm_dgxor`, the Disk window's own) are `CTRL.DRV`'s. The item's own
 cell counts as free, so a short drag stays where it was and writes nothing.
 
+**The drop is where the button was RELEASED, and that is an event.** The
+module is read off the floppy while the hand is still dragging, and on an XT
+the hand has usually let go before the tracking loop's first pass. So the
+loop drains the queue for `EVT_MUP` as `fm_drag`'s does (`evq_mup`), and drops
+at that event's own x,y, which the mouse ISR recorded at the release. Only a
+release whose event was lost falls back to the pointer as it is now. The
+first build read `[mouse_x]`/`[mouse_y]` at the drop, so an item landed under
+wherever the pointer had wandered during the load. `desksc`'s step D moves
+away at once after the release to catch that. A NEW shortcut's drop
+(§26.8.4) is the same rule one step earlier: `fm_dgdrop` reads the point
+before the module is asked for, and hands it over in CX,DX.
+
 **The CGA's picture box is `DESK_IH_S` = 16 on kern_big**, a link's own
 height, so a link's picture sits at the top of the cell above its caption and
 a drive's 14-row diskette sits top-aligned beside it. On the 32-row box a
@@ -49692,7 +49704,7 @@ one commit each:
 | `.cold` | **−300** | −5 |
 | **resident** | **−288** | **+10** |
 | `.ovl` / `.ovlw` (not resident) | +14 / +17 | +5 / +17 |
-| `CTRL.DRV` (on demand) | +79 | — |
+| `CTRL.DRV` (on demand) | +103 | — |
 
 **kern_big is 288 bytes SMALLER and does more**: every item moves, drives
 remember where they were put, a package can place one, and the Wire no
