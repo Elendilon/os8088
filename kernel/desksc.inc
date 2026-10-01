@@ -7,17 +7,17 @@
 ; drag, removed by Delete, a right-click or Locator's File menu - and kept in
 ; SYSTEM.CFG, so it is there after a reboot. kern_big only (OS88_SHORTCUTS).
 ;
-; WHERE EACH HALF LIVES, which is the whole of the design (docs/plans/
-; completed/DESKTOP-SHORTCUTS-PLAN.md 7):
+; WHERE EACH HALF LIVES (SPEC.md 26.8.7):
 ;
-;   .cold    drawing, hit-testing, selection, the drag's tracking loop, the
-;            open, the keys and the right-click - what a click needs at once
-;   .text    the claim (sc_resize, sc_reloc), the strings, the badge
-;   .modc    CTRL.DRV: CREATING, MOVING and REMOVING one, and the SYSTEM.CFG
-;            trailer. Every one of them ends in a SYSTEM.CFG write and the
-;            writer is already in that image, so the gesture's body rides the
-;            load the save needed anyway - and a machine that never makes a
-;            shortcut never carries a byte of it
+;   .cold    the record lookup, the open by name, the keys and the
+;            right-click's popup - what a click needs AT ONCE. The popup was
+;            CTRL.DRV's for a cycle and is not: an XT pays 2-3 s to load an
+;            image, which is a menu that does not come up
+;   .text    the claim's relocation proc, the strings, the badge
+;   .modc    CTRL.DRV: CREATING, MOVING and REMOVING an item, a package's
+;            OSAPI_DESK_ITEM link, and the SYSTEM.CFG trailer. Every one of
+;            them ends in a SYSTEM.CFG write and the writer is already in that
+;            image, so the gesture rides the load the save needed anyway
 ;   .ovl     the boot reader, which runs once and is gone
 ;
 ; THE TABLE IS A HEAP CLAIM, never .bss: one claim for every shortcut, grown
@@ -290,7 +290,7 @@ sc_reloc:
     ret
 
 ; --- the File menu's item and the right-click's, ONE string ------------------
-; ui_loc_gate points item 1 at the MENU_DIS byte or past it, the Close Window
+; desk_select points item 1 at the MENU_DIS byte or past it, the Close Window
 ; idiom (menu.inc), so the greyed twin costs one byte and not a second string.
 sc_s_remx   db MENU_DIS
 sc_s_rem    db 'Remove Shortcut'    ; NO NUL OF ITS OWN: it ends on sc_nul's,
@@ -350,7 +350,7 @@ sc_m_cold:
     ret
 
 ; -----------------------------------------------------------------------------
-; sc_m_new - CPE_SC_NEW: a Disk window's entry dropped on the bare desktop
+; sc_m_new - SC_OP_NEW: a Disk window's entry dropped on the bare desktop
 ; in:  the drag's own state: [fm_dgwin]/[fm_dgidx] the entry, [fcp_cb*] its
 ;      identity (the Cut fm_drag armed, which the caller has disarmed), the
 ;      pointer where it was let go
@@ -514,7 +514,7 @@ sc_m_new:
     ret
 
 ; -----------------------------------------------------------------------------
-; sc_m_add - CPE_SC_ADD: a PACKAGE's link, through OSAPI_DESK_ITEM (SPEC.md 26.9)
+; sc_m_add - SC_OP_ADD: a PACKAGE's link, through OSAPI_DESK_ITEM (SPEC.md 26.9)
 ; in:  DX:CX = the caller's SC_REC record
 ; out: AL = its zone, or 0xFF refused (and said, where there is a sentence)
 ;
@@ -786,7 +786,7 @@ sc_m_cell:
     ret
 
 ; -----------------------------------------------------------------------------
-; sc_m_move - CPE_SC_MOVE: a shortcut dragged past the threshold
+; sc_m_move - SC_OP_MOVE: ANY item dragged past the threshold (SPEC.md 26.9.5)
 ; in:  AL = its zone; the button still down
 ;
 ; fm_drag's tracking loop and its outline (fm_dgxor), the outline erased
@@ -843,7 +843,8 @@ sc_m_move:
     ret
 
 ; -----------------------------------------------------------------------------
-; sc_m_del - CPE_SC_DEL: Remove Shortcut, from any of its three routes
+; sc_m_del - SC_OP_DEL: Remove Shortcut from any of its three routes, and a
+;            package's OSAPI_DESK_ITEM remove
 ; in:  AL = its zone
 ;
 ; The claim gives back a KB once the rows above the highest one in use fill

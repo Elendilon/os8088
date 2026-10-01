@@ -1,9 +1,11 @@
 # One desktop: every icon is an item in one slot grid
 
-**Status: PLAN, nothing built.** Written on branch `unified-desktop`, cut from
-`desktop-shortcuts` at `9a760ab`. Every figure marked MEASURED is a symbol
-span off that commit (`tools/os88sym.py`, both kernels). Every figure marked
-ESTIMATED is a sketch's count and has to be re-measured per wave.
+**Status: BUILT, all five waves. SPEC.md 26.9 is the contract and this file
+is the design record behind it.** Written on branch `unified-desktop`, cut
+from `desktop-shortcuts` at `9a760ab`. Every figure marked MEASURED is a
+symbol span off that commit (`tools/os88sym.py`, both kernels). Every figure
+marked ESTIMATED is a sketch's count, and section 7 is what the build
+actually measured.
 
 The ask, in the owner's words:
 
@@ -407,3 +409,69 @@ Still open, decided by default unless the owner says otherwise:
 |---|---|---|
 | U3 | may a package remove a link it did not add? | yes: there is no owner identity to check, and the user can make it again |
 | U4 | should `Remove` on a drive mean unmount? | no: removal stays for links, and unmounting stays in the Control Panel |
+
+---
+
+## 7. What it came to
+
+MEASURED with `tools/kernsize.py` against `9a760ab`, at one commit each:
+
+| | kern_big | kern_small |
+|---|---:|---:|
+| `.text` | −16 | 0 |
+| `.bss` | +28 | +15 |
+| `.cold` | −308 | −5 |
+| **resident** | **−296** | **+10** |
+| `.ovl` / `.ovlw` | +14 / +17 | +5 / +17 |
+| `CTRL.DRV` | +87 | — |
+
+**kern_big came in 124 short of the ~−420 estimate, and inside section 4's
+"10 to 30% over" band, at about 20% over.** Two things were added after
+the estimate and are named rather than absorbed. A package's half of
+`OSAPI_DESK_ITEM` sends a 128-byte link through `CTRL.DRV`. A placed drive
+REMEMBERS its cell across an unmount (section 3, item 2, built as written).
+The 39-byte mirror lever was not taken: the right-click work below wanted the
+bytes more.
+
+**kern_small came in at +10, not ~−130.** Its one-loop reflow and table
+replaced the ordinal arithmetic nearly byte for byte, so the estimate's
+removal of group B was offset by the table's `.bss`. That is well inside D5's
+line, so the code is shared and not gated.
+
+Four things the build found that this plan did not have:
+
+1. **The right-click popup went into `CTRL.DRV` for a cycle, and that was
+   wrong.** Every gesture already loaded the image for its SYSTEM.CFG write,
+   so moving the popup too looked free. But the popup has no write until the
+   pick, and on an XT the load is 2–3 seconds between the click and the
+   menu. The owner caught it on the glass. The popup is resident again and
+   only the pick loads the module (SPEC.md 26.8.5).
+2. **The `desktop-shortcuts-optimization` branch had already done a size
+   pass on the PRE-unification shortcuts, and most of it still applied.**
+   It contributed:
+   - one record whose +62 is the icon record's header, so a link's picture
+     draws straight out of the claim;
+   - the path stored below the root;
+   - `sc_open` as one body with the volume and kind in BP;
+   - the caption rect measured with `font_width` at paint, not stored;
+   - the repaint per CELL rather than per column run. The dirty set already
+     names cells, so section 2.4's run-merging was code for no saving.
+3. **`desk_live`'s `sbb al, al / inc ax` read ZF off a word.** With AH
+   non-zero, a dead link zone answered LIVE, so the first reflow gave all 15
+   empty link zones a cell each. Nothing drew them, because the draw asks
+   `sc_row` itself. They showed up only when a package asked for cell 5 and
+   was given the first free cell, because 2..16 were all "taken".
+   `tests/deskitem.py` caught it. The fix is `inc al`.
+4. **The first build of the placed-item rule forgot placed drives at boot.**
+   The trailer is read before `drv_boot` adds the hard disk's volumes, so a
+   reflow in between saw a placed C: that was not live yet and dropped its
+   cell. `[desk_ready]` holds every reflow until kmain has added all the
+   volumes (SPEC.md 26.9.3).
+
+U3 and U4 shipped as their defaults. Section 2.4's run-merging repaint and
+section 4's mirror lever were not built.
+
+Gates: `desksc` (now also a drive dragged and a reboot), `deskitem` (new: a
+package adds a link at cell 5 and removes it), `deskfdd`, `wirezone`,
+`thewire`, `uilayer`, `hdnoclaim`, `small128` and the fast tier, all green
+on the final tree.

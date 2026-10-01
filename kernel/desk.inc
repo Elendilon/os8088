@@ -127,9 +127,9 @@ DESK_NZ     equ DVOL_MAX
 
 section .ovlw                  ; the boot overlay (SPEC.md 2.5): counting the
                                 ; volumes and laying their zones out happens
-                                ; once, before the first paint. desk_ord and
-                                ; desk_zone_label below are called by the
-                                ; RUNTIME zone painters and stay resident
+                                ; once, before the first paint. desk_reflow
+                                ; places them, and it and the painters are
+                                ; resident
 ; -----------------------------------------------------------------------------
 desk_init:
     push ax
@@ -427,16 +427,6 @@ desk_init:
                                 ; kmain names this body directly through
                                 ; OVLGATE1 and nothing near-calls it
 
-; -----------------------------------------------------------------------------
-; desk_ord - a volume's ORDINAL among the zones that are shown
-; in:  AL = volume index
-; out: CF = 0 and AH = the ordinal; CF = 1 = this volume has no zone
-; clobbers: AH (the output), flags
-;
-; The zone list IS the volume table (SPEC.md 18.7/26), so there is no second
-; array to keep in step - which is what makes a driver's C: appear by setting
-; one flag and disappear by clearing it.
-
 section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
                                 ; segment of its own. Drive zones and the
                                 ; desktop dither: drawn on a mount, a volume
@@ -445,10 +435,11 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
                                 ; there is no toggle in it (rule 1)
 
 ; -----------------------------------------------------------------------------
-; desk_rowcalc - how many drive zones fit in one column (SPEC.md 26.1)
+; desk_rowcalc - the grid's shape for this screen, then a reflow (SPEC.md 26.9)
 ;
-; in:       [vid_dock_y0]
-; out:      [desk_rows]
+; in:       [vid_dock_y0], [vid_desk_zx], [vid_kind]
+; out:      [desk_zh1], [desk_zstep], [desk_pico], [desk_rows], on kern_big
+;           [desk_ncell] - and every item placed in it by desk_reflow
 ; clobbers: flags
 ;
 ; 7 on VGA, 4 on Hercules, 2 on CGA - and at least one, always: a screen with
@@ -459,11 +450,6 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; -----------------------------------------------------------------------------
 desk_rowcalc_x:
     call kentc_di               ; KENT: push ax..di
-
-
-
-
-
 
     ; --- which ICON, and therefore how tall a zone is (SPEC.md 26.4) --------
     ; The CGA's pixels are 2.4:1 tall, so the 32-row diskette renders as a

@@ -2465,8 +2465,8 @@ dsk_vol_add:
                                     ; starts its search one row up.
                                     ;
                                     ; THE GAP COSTS NOTHING ON THE DESKTOP:
-                                    ; desk_zone_xy places a zone by its ORDINAL
-                                    ; among the shown volumes (desk_ord), not
+                                    ; desk_reflow gives each flowing volume the
+                                    ; first FREE cell (SPEC.md 26.9), not one
                                     ; by its table index, so a reserved C: on a
                                     ; machine with no hard disk leaves no hole -
                                     ; the RAM disk is simply the third icon and

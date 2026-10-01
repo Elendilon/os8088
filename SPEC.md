@@ -48400,6 +48400,12 @@ inline `DV_LBL` ('HDD C') or is derived as `Disk X` from the index, and a
 driver-backed volume gets `ico_hdd32` instead of `ico_disk32` because a hard
 disk should not read as a floppy that will not eject.
 
+> **§26.9 has replaced the arithmetic below with a table**: every item is
+> given a CELL by `desk_reflow` and `[desk_zslot]` says which, so nothing
+> computes a position from an ordinal any more. The cell order is the one this
+> section describes — down a column, then a new column to the left — and the
+> CGA argument for it is unchanged; the pitch is §26.9.1's.
+
 **Zones fill a column downwards and then start a new one to the LEFT**, and
 that is CGA's doing. Zone *n* is at `y = 32 + 60 × (n mod rows)` and
 `x = [vid_desk_zx] - 56 × (n / rows)`, where `[desk_rows]` is computed at boot
@@ -48484,6 +48490,13 @@ that overlap. On the measured case — a Disk window open, the Control Panel
 up, two partitions mounted — 371 glyphs became 182, and the 182 is almost
 entirely the Control Panel redrawing its own page after the click. No
 `wm_paint_all` runs at all.
+
+> **§26.9.4 has replaced the rest of this section.** The grid rect and its
+> high-water mark (`[desk_zhw]`, `desk_zmark`, `desk_zones_dmg`) are gone:
+> `desk_reflow` knows exactly which CELLS changed, so it posts those and
+> `desk_zones_paint` repaints each one, which is never more than the strip the
+> mark below was computing and usually much less. What follows is the record
+> of why the strip had to be what it was.
 
 **The rect covers ordinals 0..n-1, and n is a HIGH-WATER MARK.** The subtle
 part is that adding or removing a volume moves the zones *after* it — a
@@ -48673,7 +48686,7 @@ drive where the medium CAN —
 | 720 sectors or fewer (160–360KB, all 40-track) | 5.25" |
 | anything larger (720KB, 1.44MB, 2.88MB) | 3.5" |
 
-— and a changed bit posts the zone repaint through `desk_zmark_x` (§26.3),
+— and a changed bit posts the zone's CELL through `desk_cmark` (§26.9.4),
 the same mark a mount or an unmount of a volume already uses. An unmarked row
 is **never** touched: a drive whose ROM answered is not second-guessed by what
 happens to be in it. The boot drive's first mount is `drv_boot`'s, which runs
@@ -48778,27 +48791,34 @@ register the Wire's out of the shared `drivers/wirezone.inc`. No driver, no
 zone, and the only thing a cardless machine pays at runtime is one compare in
 `desk_svflag`.
 
-#### `OSAPI_DESK_SVC` — slot `KERNEL_SEG:0x03F8`
+#### `OSAPI_DESK_ITEM` — slot `KERNEL_SEG:0x03F8`, a driver's half
+
+This slot was `OSAPI_DESK_SVC`, a driver's door only. §26.9.6 made it the one
+door ANY item comes through. A package's half is there; this is a driver's.
 
 ```
   in   AL    = 1 add / 0 withdraw
-       ES:SI = (add) a 39-byte record in the DRIVER's own segment:
+       ES:SI = (add) a 40-byte record in the DRIVER's own segment:
                +0  12  caption, NUL (<= 11 chars; 'Wire')
-               +12 13  the 8.3 file the zone launches, from the BOOT
+               +12 13  the 8.3 file the item launches, from the BOOT
                        volume's SYSTEM/ ('THEWIRE.O88')
                +25  1  the driver's DRVC_* class
                +26  1  the verb the kernel calls to PAINT the icon
                +27 12  the package's HEADER name, NUL ('The Wire')
-  out  CF = 1 refused: not a published driver, a SECOND registration, or a
-              withdraw of somebody else's zone
+               +39  1  the CELL it would like, 0xFF = the first free one
+                       after the volumes (§26.9.3)
+  out  CF = 0 AL = DESK_SVZ, its zone
+       CF = 1 refused: a SECOND registration, or a withdraw of somebody
+              else's item
 ```
 
 An **X cell**, so the caller's segment arrives in ES — which is both where
-the record is and what the fence tests. **The fence is `osapi_vol_fence`,
-unchanged and shared** (§51.8): the caller's segment must be the segment of a
-driver whose services are published. A package gets CF=1 and nothing else,
-for `OSAPI_VOL_ADD`'s reason — the kernel is about to far-call this segment
-on every desktop repaint.
+the record is and what tells the two halves apart. **The test is
+`osapi_vol_fence`, unchanged and shared** (§51.8): a segment that is a
+published driver's takes this half; anything else is a package and takes
+§26.9.6's. The kernel far-calls a driver's segment on every desktop repaint,
+which is `OSAPI_VOL_ADD`'s reason for the fence and the reason a package can
+never register a service item.
 
 **ONE record, stated as the limit.** A second registration is refused; whoever
 attaches first has the zone, and on a machine with both network drivers loaded
@@ -48817,6 +48837,13 @@ ever. The other three are used once each and the driver is trusted about them
 exactly as it is about the offsets in its own DSV table, which the kernel
 far-calls without looking.
 
+**The cell is a WISH, and the user's placement beats it.** It is written as
+§26.9.2's remembered cell — `DSL_PIN | DSL_GONE | cell` — only when the
+table has nothing for the item, so a Wire the user dragged elsewhere, whose
+cell SYSTEM.CFG brought back before the driver attached, stays where the
+user put it. `drivers/wirezone.inc` asks for 0xFF and flows after the drives,
+as it always did.
+
 **There is no lead line any more** (kernel size pass 4). The record ended
 with `+39 26`, the driver's own `Cannot open Wire:` for the failure notice,
 because a kernel that composed it would have carried the words and the
@@ -48827,22 +48854,19 @@ driver's string went with the notice.
 
 #### The zone itself
 
-`DESK_SVZ` = `DVOL_MAX`, one past the last volume row, so `desk_ord` answers
-"the number of volume zones shown" for it and it lands at the end of §26.1's
-column flow. Every other routine in `desk.inc` is asked about an INDEX and
-never about a drive, so the zone selects, highlights, repaints under a dragged
-window and wraps into the next column exactly as a disk does. Five routines
-carry a one-compare arm — `desk_zflag` (→ `desk_svflag`), `desk_ord`,
-`desk_zone_label`, `desk_draw_zone`, `desk_click` — and `desk_zones_dmg` gains
-one `inc`, because the zone sits one ordinal past the last volume and
-therefore MOVES whenever one is mounted.
+`DESK_SVZ` = `DVOL_MAX`, one past the last volume row. It is an ITEM in
+§26.9's grid like any other: `desk_reflow` gives it a cell after the volumes,
+and every routine in `desk.inc` is asked about a zone INDEX and never about a
+drive, so it selects, highlights, repaints under a dragged window, moves when
+dragged and packs into the next free cell exactly as a disk does. What is its
+own is three arms: `desk_live` (`[desk_svc_seg]` non-zero), `desk_zone_label`
+and `desk_draw_zone`.
 
-**Two conditions make it visible**: a driver has registered one
-(`[desk_svc_seg]` is its segment, and 0 is the whole of what a machine without
-such a driver tests), and fewer than `DVOL_MAX` volumes have zones. It is not
-shown when eight volumes are — a fact rather than a crash: it is a desktop
-SERVICE and a machine with `DVOL_MAX` mounted volumes has said what it wants
-the right-hand edge for.
+**It is visible when a driver has registered one** (`[desk_svc_seg]` is its
+segment, and 0 is the whole of what a machine without such a driver tests)
+and the grid has a free cell for it. It used to vanish when eight volumes
+were mounted, because it sat at the ordinal past the last one; on §26.9's
+grid it simply takes another cell.
 
 **Painting calls the driver back.** `desk_draw_zone` reaches `drv_pkg_call`
 with `BH` = the record's class, `BL` = its verb and `CX,DX` = the icon's
@@ -48869,11 +48893,10 @@ and `ui_sys_open` is not, so it goes out through `cw_ui_svc_open` — with **no
 gfx lock held**, which is that routine's contract and why the deselect and its
 redraw happen inside their own lock hold first.
 
-**The repaint on both edges is `desk_zmark`'s** (§26.3), and the withdraw's is
-the interesting one: it marks while the zone is still counted and then adds one
-more to `[desk_zhw]`, because `desk_zones_dmg`'s own `+1` for this zone is
-gated on the segment the withdraw has just cleared and the stale pixels are at
-the ordinal past the last volume.
+**The repaint on both edges is `desk_reflow`'s** (§26.9.4): an add or a
+withdraw changes whether the item is live and nothing else, and the reflow
+posts every cell that changed as a result, including the cells of whatever
+packed up behind it.
 
 **The damage mask is a WORD.** It was one byte and `DVOL_MAX` = 8 sat exactly
 at that limit, so zone index 8 had **no bit under any volume count** — the
@@ -48882,7 +48905,9 @@ their own indices whatever their number. A bit that does not fit is a zone
 `desk_paint_x` still draws and every damage-driven path silently stops
 repainting. `[wm_dmg_zn]` is a `dw`, `desk_dmg_zones` answers in AX and
 `desk_paint_mask` shifts DX: **two bytes**, because `mov [mem],ax` and
-`mov ax,[mem]` are the same length as their byte forms.
+`mov ax,[mem]` are the same length as their byte forms. **§26.9.4 has since
+made it a DWORD** of its own, `[desk_dmgm]`, because 24 items do not fit a
+word either.
 
 **`kern_small` leaves the species out** (`%ifndef KERN_SMALL`) — it has no
 driver that would register one. **The CELL is in both kernels** and refuses in
@@ -48914,7 +48939,8 @@ the price of the strings being the driver's: the kernel holds a copy because
 nothing it hands them to can read the driver's segment.
 
 **What a machine with no such driver pays**: those 243 + 67 bytes, and at
-runtime one `cmp word [desk_svc_seg], 0` per zone test. It carries no glyph,
+runtime one `cmp word [desk_svc_seg], 0` per zone test. These are the slot's
+figures as it shipped; §26.9.8 is what the unified grid made of them. It carries no glyph,
 no caption, no file name and no lead line.
 
 ### 26.7.1 The picture is the driver's: `drivers/wirezone.inc`
@@ -49204,44 +49230,42 @@ and a caption, and it sits on a grid cell. It behaves like a drive zone:
 It is kept in SYSTEM.CFG, so it is still there after a reboot or a power
 cycle. A machine with no shortcuts writes the same SYSTEM.CFG it always did.
 
-**A shortcut is a ZONE**, index `DESK_SC0` + its row (16..31), so `desk_sel`,
-`desk_zone_redraw` and §26.2's flip-not-repaint serve it unchanged. One
-compare in each of the following sends a shortcut zone to its own body, which
-is the Wire zone's arrangement (§26.7) with a table where that has one record:
+**A shortcut is an ITEM in §26.9's grid**, zone index `DESK_SC0` + its row
+(9..23 on kern_big), so `desk_sel`, `desk_zone_redraw`, §26.2's
+flip-not-repaint, the drag and the damage pass serve it with the drives. What
+is a shortcut's own is the record, its picture and badge, the open by name,
+the remove, and the SYSTEM.CFG trailer. §26.8.1 to §26.8.7 are those.
 
-- `desk_zone_rect`
-- `desk_zone_hilite`
-- `desk_draw_zone`
-- `desk_click`
-- `desk_dmg_zones`
-- `desk_paint_mask`
-
-`kern_small` assembles byte for byte what it did before; it reads no
-SYSTEM.CFG at all (§51.5), so there would be nothing to keep a shortcut in.
+`kern_small` has no shortcuts; it reads no SYSTEM.CFG at all (§51.5), so
+there would be nothing to keep one in.
 
 #### 26.8.1 The record and the claim
 
 | off | len | field |
 |---|---|---|
 | 0 | 1 | the volume index (0 = A:), `0xFF` = a free row |
-| 1 | 2 | the grid cell: column, then row |
-| 3 | 1 | the kind: 0 document, 1 package, 2 folder (§19.1's type word) |
-| 4 | 1 | the caption's pen offset in the cell. The caption is centred, so its width is `SC_W` − 2 × this, and nothing measures it at paint |
-| 5 | 46 | the entry's WHOLE path, `\APPS\CALC.O88`, NUL: `dsk_path`'s 32-byte folder path, a `\` and an 8.3 name |
-| 51 | 13 | the caption, NUL |
-| 64 | 64 | the 16×16 picture, §25's body form, with the badge already stamped in |
+| 1 | 1 | its byte of `[desk_zslot]` — in the FILE only: CTRL.DRV writes it from the table and the boot reader puts it back (§26.8.6) |
+| 2 | 1 | the kind: 0 document, 1 package, 2 folder (§19.1's type word) |
+| 3 | 1 | spare |
+| 4 | 45 | the entry's path BELOW THE ROOT, `APPS\CALC.O88`, NUL: `dsk_path`'s 32-byte folder path less its leading `\`, a `\` and an 8.3 name |
+| 49 | 13 | the caption, NUL |
+| 62 | 2 | `db 1, 16`: an icon record's header, so header and body ARE a record and the picture draws straight out of the claim |
+| 64 | 64 | the 16×16 picture, §25's body form, as the Disk window had it |
 
-`SC_REC` is **128 bytes**, so a KB holds exactly eight records.
+`SC_REC` is **128 bytes**, so a KB holds exactly eight records. It is also a
+PACKAGE's `OSAPI_DESK_ITEM` record, byte for byte (§26.9.6): the row a
+package hands over is copied in whole and two bytes of it fixed up.
 
 **The table is one heap claim** (`MEM_K_SC`), never `.bss`:
 
 - It is grown a KB at a time and shrunk the same way, so 1 KB holds one to
-  eight shortcuts and 2 KB holds nine to sixteen.
+  eight shortcuts and 2 KB holds nine to fifteen.
 - It is freed when the last shortcut goes.
 - It is MOVABLE, with `sc_reloc` as its relocation proc, because a claim made
   at boot is otherwise a wall low in the arena for the whole session
   (docs/plans/HEAP-UNPIN-PLAN.md 2.0).
-- `SC_MAX` is 16.
+- `SC_MAX` is 15: with eight volumes and the service item that is 24 items,
+  the cell count of the smallest screens (§26.9.1).
 
 **THE PATH, NOT A CLUSTER.** This system has no volume identity: every disk
 carries one serial. A `(volume, cluster)` pair would mean only *this copy of
@@ -49250,82 +49274,54 @@ clusters. So a shortcut to `B:\APPS\CALC.O88` is a path, and it opens on any
 disk in B: that has that file. At the drop the path comes from `dsk_path`
 (§19.2.4) and not from the window's `FS_PATH`, because `FS_PATH` records
 navigation: a window opened part-way down a disk knows only the last folder
-of its path.
+of its path. The leading `\` is not stored, because the open walks from the
+root anyway; that byte and the old pen-offset byte are what bought the header
+at +62.
 
-#### 26.8.2 The grid, and what a shortcut draws
+#### 26.8.2 What a shortcut draws
 
-Cells are `SC_PX` = 104 pixels apart. The first column is 4 pixels in from
-the BAND's left edge, so a left dock moves the grid over (§30.5). Rows use
-`[desk_zstep]`, the drive zones' own pitch, so the two line up row for row.
+A shortcut sits in one of §26.9.1's cells like any item, and draws:
 
-**The grid stops short of every column the drive zones could reach.** Those
-zones wrap leftwards as volumes mount (§26.1), so the columns `DESK_NZ` zones
-would need are reserved whatever is mounted now. A hard disk mounted later
-can therefore never land on a shortcut, and no damage pass has to reconcile
-the two. That leaves 5 columns × 7 rows on VGA, 5 × 4 on Hercules and 4 × 4
-on the CGA, so even the smallest grid holds all 16 shortcuts.
+- the 16×16 picture in the RIGHT half of the cell's 32-wide picture column
+  (`SC_PICX`), straight out of the claim through `icon_draw_x`;
+- the badge (§26.8.3) one clear column to its left;
+- the caption, black on a white rect that HUGS it (§26.4), as one opaque run
+  (§26.6). The rect is measured with `font_width` at paint and not stored.
 
-A cell is `SC_W` = 96 wide and `SC_H` = 30 tall, laid out like a drive zone:
+The selection is §26.9.5's: the picture column down to the label band, and
+the caption's rect — two XORs, both self-inverse. Inverting the whole cell
+would read as a hole in the desktop. The picture is 16×16, as in the Disk
+window's icon view, and not doubled to a drive's 32×32 (§26.8.3).
 
-- the 16×16 picture, centred over the caption;
-- the drive zones' 2-pixel gap;
-- the caption, black on a white rect that HUGS it (§26.4), drawn as one
-  opaque run (§26.6).
-
-The selection inverts the PICTURE and the CAPTION's rect: two XORs, both
-self-inverse, through `sc_hilite`, which is `desk_zone_hilite`'s contract.
-Inverting the whole cell would read as a hole in the desktop. The picture is
-16×16, as in the Disk window's icon view, and not doubled to the drive
-zones' 32×32; that is a look question to settle once it has been seen.
-
-#### 26.8.3 The badge, and the damage word
+#### 26.8.3 The badge
 
 Every shortcut carries the BADGE: a 10×10 box with an arrow curving up and
-to the right. It is drawn BESIDE the picture and not over it: its bottom on
-the picture's and one column clear of its left edge. It is its own icon
-record, `sc_bdg` in `.text`, and `sc_draw` draws it after the picture. A
-body that arrived all zero (a package with no icon) leaves the badge alone,
-which is the "tiny shortcut icon" the request asked for when no icon is
-available. The selection inverts the badge with the picture, because it is
-part of it.
+to the right. It is drawn BESIDE the picture and not over it, so the stored
+picture is the Disk window's own and nothing is written into it. It is its
+own icon record, `sc_bdg` in `.text`. A body that arrived all zero (a
+package with no icon) leaves the badge alone, which is the "tiny shortcut
+icon" the request asked for when no icon is available. The selection's
+picture column covers the badge, because it is part of the picture.
 
 It was first stamped INTO the picture's lower left by `CTRL.DRV` at the drop,
-which cost nothing resident and covered a quarter of the icon. Beside it
-costs **76 resident bytes**: the record is 42 (a 10-word mask has to say
-"white box" row by row), the draw 20 and the highlight 14. `CTRL.DRV` lost
-the stamp. The stored picture is the Disk window's own and nothing is
-written into it.
+which cost nothing resident and covered a quarter of the icon. A 32×32
+picture, the stored 16×16 doubled at draw time, was built as a knob and
+looked at, and REMOVED: doubling suits some icons and not others, and a cell
+46 rows tall has no room on CGA's 34-row pitch.
 
-A 32×32 picture, the stored 16×16 doubled at draw time, was built as a knob
-and looked at. It was REMOVED: doubling suits some icons and not others, and
-a cell 46 rows tall has no room on CGA's 34-row pitch.
-
-**The damage mask needed a second word.** `[wm_dmg_zn]` is one word,
-`DESK_NZ` takes nine bits of it, and sixteen shortcuts do not fit. So:
-
-- `desk_dmg_zones` gathers the shortcuts into `[sc_dmgm]`, one bit a row,
-  rotating each answer in from the last row to the first.
-- It sets bit 15 of the zone mask, `DESK_SCBIT`, when any is touched.
-- `desk_paint_mask` sees bit 15 and paints `[sc_dmgm]`, so `wm.inc` changes
-  nowhere.
-- `desk_paint`'s full paint sets both, meaning every zone and every
-  shortcut.
-
-#### 26.8.4 Creating, moving, and the caption
+#### 26.8.4 Creating, and the caption
 
 **A drop on the bare desktop creates one.** `fm_dgdrop`, finding no window
-under the release, used to return having done nothing. Now it:
-
-1. Disarms the clipboard. The drag armed a CUT when it began (§22.4), so
-   until this change a drop here left a Paste somewhere else ready to MOVE
-   the original out from under the shortcut.
-2. Stages the entry's picture out of the window the drag began in.
-3. Hands the drop point to `CTRL.DRV`.
+under the release, used to return having done nothing. Now it disarms the
+clipboard — the drag armed a CUT when it began (§22.4), so a drop here would
+otherwise leave a Paste somewhere else ready to MOVE the original out from
+under the shortcut — and hands the gesture to `CTRL.DRV` (`SC_OP_NEW`).
 
 There, a drop on the menu bar, on the dock or on another display does
-nothing. Anywhere else the shortcut lands on the **NEAREST FREE CELL**: by
-the cell's centre, in city-block pixels, so nobody has to aim at a cell edge
-and a drop on a taken cell lands beside it.
+nothing. Anywhere else the shortcut is PLACED on the **NEAREST FREE CELL**:
+by the cell's centre, in city-block pixels, so nobody has to aim at a cell
+edge and a drop on a taken cell lands beside it. The picture is staged out of
+the window the drag began in.
 
 **THE CAPTION is decided once, at the drop, and stored**:
 
@@ -49338,14 +49334,7 @@ The header name costs one `dsk_peek` of the package's first sector, inside a
 gesture that is about to spend several on the write. Deciding it at the drop
 keeps the measuring out of the paint path.
 
-**A press on a shortcut that travels FM_DRAGMIN pixels MOVES it.**
-`fm_dgwait` is `fm_drag`'s four-pixel wait made a routine, and the desktop
-shares it. Only that threshold is resident: past it, the tracking loop and
-the outline (`fm_dgxor`, the Disk window's own) are `CTRL.DRV`'s, because
-the drop has to load that image to write SYSTEM.CFG anyway. A press that
-never moves four pixels, which is every ordinary click, never asks for it.
-The release goes to the nearest free cell with the shortcut's own cell
-counted free, so a short drag stays where it was and writes nothing.
+Moving a shortcut is moving any item, and is §26.9.5's.
 
 #### 26.8.5 Opening, and removing
 
@@ -49358,11 +49347,9 @@ then dispatch.
   bar (§12), so a window the user went back to keeps its keys even with a
   zone still lit.
 - **A shortcut opens by name, through the doors the Disk window's double-click
-  already has.** `fm_open_sel` is welded to a listing index; every arm it
-  reaches has a by-name twin, and `sc_open` is a path walk in front of three
-  of them. It banks the user's volume, goes to the shortcut's volume root,
-  and walks the path a component at a time (`dskw_stat`, then `fcp_goto`).
-  Then, on the entry:
+  already has.** `sc_open` banks the user's volume, goes to the shortcut's
+  volume root, and walks the path a component at a time (`dskw_stat`, then
+  `fcp_goto`). Then, on the entry:
 
   | the entry is | `sc_open` does |
   |---|---|
@@ -49376,22 +49363,22 @@ then dispatch.
   the drive the shortcut points at. That covers a volume that would not
   mount, a component or entry that is gone, and a component that is a file
   where a folder was: to whoever double-clicked, all three are the same
-  thing. The Disk window's `No disk` and `No such file` were the first
-  answer and were too vague here. The letter is patched into the string
-  before each toast, `desk_lbl_gen`'s way, and the 23 characters are
-  exactly a toast's room. 29 resident bytes. A package that will not load
-  gets `ld_say_status`'s verdict.
+  thing. The letter is patched into the string before each toast,
+  `desk_lbl_gen`'s way, and the 23 characters are exactly a toast's room. A
+  package that will not load gets `ld_say_status`'s verdict.
 
-**Remove** has three routes and one door, `sc_del`:
+**Remove** has three routes and one door, `SC_OP_DEL`:
 
 - **Delete** with a shortcut selected, while Locator owns the bar.
 - A **right-click** on a shortcut, which selects it through `desk_select`
-  (the same lock-held store a click makes) and pops a one-item menu. It
-  stamps nothing into `[ui_click_t]`, which is `ui_rdown`'s own binding
-  rule.
-- **Locator's File > Remove Shortcut**, which `ui_loc_gate` greys unless a
-  shortcut is the selection. Its greyed twin is one `MENU_DIS` byte in front
-  of the string, the Close Window idiom.
+  and pops a one-item menu. It stamps nothing into `[ui_click_t]`, which is
+  `ui_rdown`'s own binding rule. **The popup is RESIDENT** (`sc_rclick_x`,
+  `.cold`) and only the pick goes to `CTRL.DRV`: for one cycle the whole
+  popup was the module's, and on an XT that is 2–3 seconds of image load
+  between the click and a menu, which is a menu that does not come up.
+- **Locator's File > Remove Shortcut.** `desk_select` points the item at its
+  greyed twin, one `MENU_DIS` byte in front of the string (the Close Window
+  idiom), unless the selection is a shortcut.
 
 The routes do not check the zone. `CTRL.DRV` refuses anything that is not a
 live shortcut, so a drive's zone or "none" arriving by Delete or the menu is
@@ -49402,38 +49389,41 @@ use fill it, and goes with the last shortcut.
 
 §51.5's records are FIXED-length and its writer rewrites every key from
 resident state, so a setting at its default still costs its record. That is
-not the "costs nothing when absent" this feature was asked for, and it is
-not what the shortcuts use. They go AFTER the `dw 0` terminator, and only
-when there is at least one:
+not the "costs nothing when absent" this feature was asked for. The desktop
+goes AFTER the `dw 0` terminator, and only when there is something to keep —
+a shortcut, or an item the user PLACED (§26.9.5):
 
 ```
-+0    'O88CFG',0,0  dw 3           ; unchanged
-+10   records ... dw 0             ; unchanged - every reader stops here
-+T    count * SC_REC               ; the live rows, verbatim and compacted
-+end-4 dw 'SC'  db SC_VER  db count
++0     'O88CFG',0,0  dw 3            ; unchanged
++10    records ... dw 0              ; unchanged - every reader stops here
++T     count * SC_REC                ; the live rows, verbatim and compacted,
+                                     ;   each row's +1 its table byte
++T'    DESK_SC0 bytes                ; zones 0..8's table bytes: a PLACED
+                                     ;   one's, 0xFF for everything else
++end-4 dw 'SC'  db SC_VER  db count  ; SC_VER = 2
 ```
 
 The footer is read from the END, so the reader never walks the records to
-find it. With no shortcuts the file is byte for byte what it was before.
+find it. With nothing placed the file is byte for byte what it was before.
+Version 1 (no pins block, a two-byte column/row cell) is refused rather than
+read: it went to nobody.
 
-- **The writer is `CTRL.DRV`'s.** `sc_m_ser` composes settings, rows and
-  footer in a claim of its own, PINNED, for the length of the write.
+- **The writer is `CTRL.DRV`'s.** `sc_m_ser` composes settings, rows, pins
+  and footer in a claim of its own, PINNED, for the length of the write.
   `CTRL.DRV`'s bss is only the slack in its own KB rounding (kernel.asm's
   `MODC_BSS` assertion), and a buffer the write is reading must not be moved
   by a compaction the write itself triggers. With no room to compose them,
   the write is REFUSED rather than made without them, because a file without
   the trailer deletes every shortcut at the next boot. `[cp_wdirty]` keeps
   the save owed.
-- **The reader is in `.ovl`**, so it costs no resident byte and no disk read
-  (the blob is a fixed ten sectors). `ovl_sc_load` runs before `ovc_load`'s
-  own read and passes it through untouched for a file of `CFG_FBUF` or less,
-  which is every file this feature did not write. That costs one `dskw_stat`
-  answered out of the directory the mount already holds. A bigger file is
-  read whole into the shortcut claim. Its settings head is staged where
-  `ovc_load`'s reader expects it, so a future kernel's longer file costs the
-  shortcuts and not the settings. A valid trailer's rows move down to the
-  claim's base with every string force-terminated, because the file is
-  untrusted.
+- **The reader is in `.ovl`**, so it costs no resident byte and no disk read.
+  `ovl_sc_load` runs before `ovc_load`'s own read and passes it through
+  untouched for a file of `CFG_FBUF` or less, which is every file with no
+  trailer. A bigger file is read whole into the shortcut claim; a valid
+  trailer's rows move down to the claim's base with every string
+  force-terminated, and the pins block and each row's table byte go into
+  `[desk_zslot]` VERBATIM, because the file is untrusted only in what it can
+  break and §26.9.3's first reflow drops any cell this screen has not got.
 - **An OLDER kernel refuses a file that carries a trailer, and loses every
   setting.** Its `ovc_load` reads with `CX = CFG_FBUF` and `dskw_read`
   answers a larger file with `FERR_BIG` before any I/O. It cannot be fixed
@@ -49442,44 +49432,247 @@ find it. With no shortcuts the file is byte for byte what it was before.
 
 #### 26.8.7 What is resident, and what is CTRL.DRV's
 
-Creating, moving and removing a shortcut each END in a SYSTEM.CFG write, and
-the writer is `CTRL.DRV`'s (§51.5.3). So all three gestures are that image's:
-one entry, `CPE_SC`, with the operation in AH. `sc_modcall` loads the image,
-calls it, and drops it again, unless the Control Panel already had it
-resident. `cpf_cp_flush_close`'s `mod_drop` cannot tell the difference, so
-this asks `mod_live` first. Each gesture then saves at once, through the
-panel's own `cp_flush_close`, because a shortcut is meant to survive a
-power-off rather than wait for the panel to close.
+Creating, moving and removing an item and a package's `OSAPI_DESK_ITEM` each
+END in a SYSTEM.CFG write, and the writer is `CTRL.DRV`'s (§51.5.3). So all
+of them are that image's, through one door that costs no API slot:
+`CPE_ONKEY` with SI = 0 and the operation in AH (`SC_OP_NEW`, `_MOVE`,
+`_DEL`, `_ADD`). `sc_modcall` loads the image, calls it, and drops it again
+unless the Control Panel already had it resident. Each gesture saves at once,
+through the panel's own `cp_flush_close`, because a placement is meant to
+survive a power-off rather than wait for the panel to close.
 
 **What that costs on a one-drive machine is stated rather than discovered.**
 A create, move or remove needs the SYSTEM disk in the drive at that moment.
 With a data disk there it refuses with the panel's own `Needs Sys Disk A:`,
-and nothing changes. Opening a shortcut needs no module and works with any
-disk in the drive. A shortcut made on such a machine could not have been
-saved anyway.
+and nothing changes. Moving an icon is a setting like any other, and a
+setting is not kept without the disk it is kept on. Opening a shortcut needs
+no module and works with any disk in the drive.
 
 What every kern_big machine carries resident is drawing, hit-testing,
-selection, the open, the keys, the right-click and the drag's threshold.
-Measured against `elendilon` at `fb544b1`: **`.cold` +963, `.text` +134,
-`.bss` +10 = 1,107 bytes**, against a 1 KB budget. It was 1,002; the badge
-beside the picture (§26.8.3) and the drive-naming toast (§26.8.5) are the 105
-over it, both taken knowingly. The boot reader is +291
-bytes of `.ovl`, which is given back at `spl_finish`. `CTRL.DRV` grows by
-the gestures and the writer, read only while one of them runs.
-
-**The 360 KB system disk pays one more `int 13h` at boot**, for the image
-growth and not for the reader. `KERNEL.SYS` there ended on the last sector of
-a cylinder with 48 bytes free, so ~60 resident bytes of anything would have
-crossed it. That cost was accepted when this was planned.
+selection, the open, the keys, the right-click's popup and the drag's
+threshold. §26.9.8 is what it costs.
 
 ### 26.9 One desktop: every item in one grid of cells
 
-`kernel/desk.inc`, both kernels, and docs/plans/UNIFIED-DESKTOP-PLAN.md is
-the design record behind it. The volumes (§26.1), the service item a driver
-registers (§26.7) and the shortcuts (§26.8) are all ZONES in one grid of
-CELLS, and `[desk_zslot]` holds one byte per zone saying which cell it is in.
-This section is the contract; it is written out in full by the last wave of
-that plan.
+`kernel/desk.inc`, both kernels, and
+docs/plans/completed/UNIFIED-DESKTOP-PLAN.md is the design record behind it.
+The volumes (§26.1), the service item a driver registers (§26.7) and the
+shortcuts (§26.8) used to be three species placed three ways: volumes by
+their ordinal down the right-hand column, the Wire one ordinal past them,
+and shortcuts on a grid of their own that stopped short of every column the
+volumes could reach. Now they are all ITEMS in one grid of CELLS, placed by
+one routine and drawn, hit, selected, highlighted, damaged, moved and opened
+by one set. A user can drag a drive where they want it and the rest flow
+round it; a package can put an item on the desktop.
+
+#### 26.9.1 The grid
+
+A CELL is `DESK_CW` wide and `[desk_zstep]` tall (§26.4: 60 rows, 34 on the
+CGA). Cell 0 is the top of the rightmost column, whose left edge is
+`[vid_desk_zx]` = the band's right edge − `DESK_ZXOFF`; cells run DOWN a
+column of `[desk_rows]` and then to the next column on the LEFT, `DESK_PX`
+along — §26.1's order, kept because it is CGA's. `desk_cell_xy` is that
+arithmetic, and nothing else computes a position.
+
+| | `DESK_CW` | `DESK_PX` | `DESK_ZXOFF` | why |
+|---|---:|---:|---:|---|
+| kern_big | 96 | 104 | 100 | a shortcut's twelve-glyph caption wide |
+| kern_small | 32 | 44 | 56 | the drive zone it always was: it has drives and nothing else |
+
+**ONE cell size, and a drive's picture centres in it** (`DESK_PICX`). On
+kern_big that moved the drives 12 pixels left of where they were and widened
+the column pitch, which was looked at and accepted (the plan's D1): the
+fallback was shorter shortcut captions, and nothing needed it.
+
+`[desk_ncell]` (kern_big) is how many cells this screen has: the columns from
+cell 0's left to the band's left edge, a left dock included, times
+`[desk_rows]`, capped at 63. `desk_rowcalc` computes it with the rows, so a
+display switch (§39.11.2) or a dock move re-shapes the grid and reflows it in
+the same call. VGA has 42; the smallest screens have 24, which is why
+§26.8.1's `SC_MAX` is 15.
+
+#### 26.9.2 The table
+
+`[desk_zslot]` holds ONE BYTE PER ZONE, and that byte is the whole answer to
+"where is it, and is it shown":
+
+| bits | | |
+|---|---|---|
+| 0..5 | `DSL_SLOT` | the cell, 0..`[desk_ncell]`−1 |
+| 6 | `DSL_PIN` | PLACED: the user put it there. A shortcut always is |
+| 7 | `DSL_GONE` | not shown. On a placed item it is a REMEMBERED cell — an unmounted drive's, or the cell an `OSAPI_DESK_ITEM` caller asked for — which it gets back when it is live and the cell is free |
+| `0xFF` | | nothing: no item, or a flowing one that is not live |
+
+The ZONE INDEX says what the item is: 0..`DVOL_MAX`−1 the volumes, `DESK_SVZ`
+= 8 the service item, `DESK_SC0` = 9 .. `DESK_NZ`−1 = 23 the shortcuts.
+kern_small has only the volumes, so its `DESK_NZ` is `DVOL_MAX`. "Is it
+live" is `desk_live`: a volume's `DV_FLAGS` bit 0, the service item's
+`[desk_svc_seg]`, a shortcut's row. `desk_owner` answers the inverse, which
+zone a cell is showing.
+
+**A cell no screen has is DSL_SLOT itself**, 63, which `[desk_ncell]` is
+capped below — so "nothing" needs no test of its own in the reflow's compares.
+
+#### 26.9.3 The placement rule: `desk_reflow`
+
+Placed items stay; everything else packs into the first free cells. The
+routine knows NOTHING about what was added or removed — only which zones are
+live — so it is the whole of "a volume came", "a volume went", "the Wire
+came", "an item was moved or removed" and "the screen changed shape". Two
+passes, and their order is the design:
+
+1. **Let go.** Every FLOWING item releases its cell (kept under `DSL_GONE`
+   for the repaint). A PLACED item that is no longer live goes from the
+   screen but REMEMBERS its cell. Any item in a cell this screen has not got
+   is forgotten.
+2. **Take.** Every live item without a cell, IN INDEX ORDER, takes one: a
+   placed one its remembered cell if that is free, otherwise — and every
+   flowing one — the first free cell. Index order is volumes, then the
+   service item, then shortcuts, so the Wire follows the drives whichever
+   driver loaded first, exactly as it did.
+
+So the plan's D2 — *gapless, by re-adding every unplaced drive on any
+change* — costs no knowledge of what changed: an unplaced item is a "drive"
+to the reflow whatever it is. **A WISH IS A REMEMBERED CELL**: `OSAPI_DESK_ITEM`
+writes the asked-for cell as `DSL_PIN | DSL_GONE | cell` and pass 2 grants it
+if it can — "the slot you ask for, or the first available" is this routine
+and nothing new.
+
+**NOTHING HAPPENS UNTIL `[desk_ready]`.** The boot reads SYSTEM.CFG — the
+placed cells — and then the drivers add their volumes one at a time; a pass
+run between the two would forget a placed hard disk because its volume had
+not arrived yet. kmain sets the byte once `drv_boot` is done and runs the
+first pass itself.
+
+**kern_small's reflow is ONE loop**: with nothing placed, every live volume
+in index order gets the next cell. That is §26.1's ordinal flow with the
+answer written down, and it needs neither `desk_owner` nor `[desk_ready]`.
+
+#### 26.9.4 What a change repaints
+
+`desk_reflow` posts every cell it CHANGED — the one an item left and the one
+it took — through `desk_cmark`, which sets the cell's bit in the 64-bit
+`[desk_cdirty]` and `[desk_zdirty]`, and posts `ui_task`. Nothing else is
+needed to repaint a mount, an unmount, a driver attaching, a drag or a
+remove. `desk_zones_paint` runs `wm_paint_dmg` (§11.91) once per dirty cell:
+the desktop dither under it, any item now in it, and only the windows that
+overlap it. §26.3's strip — the high-water mark over every zone that might
+have moved — is gone, because the reflow knows exactly which moved.
+
+**The damage mask is a DWORD**, `[desk_dmgm]`, zone *z* at bit 31 − *z*:
+24 items fit neither §26.7's word nor `[wm_dmg_zn]`. `desk_dmg_zones`
+rotates each zone's answer in and `desk_paint_mask` spends it, so `wm.inc`
+still sees only "some zone is damaged".
+
+#### 26.9.5 One set of gestures, for every item
+
+| gesture | any item | |
+|---|---|---|
+| click | selects it | §26.2's flip |
+| double-click, Enter | opens it | a drive's Disk window, the service item's package, a shortcut's target |
+| drag past `FM_DRAGMIN` | MOVES it to the nearest free cell under the drop, and PLACES it there | `SC_OP_MOVE`, `CTRL.DRV`'s |
+| Delete, right-click, File > Remove Shortcut | removes a SHORTCUT | anything else is a no-op (§26.8.5) |
+
+**The selection** is the picture column down to the label band and the
+caption's own rect, for every item. A drive's 32×32 picture fills the column
+and a shortcut's 16×16 sits in its right half with the badge left of it, so
+one rule covers both.
+
+**A drag needs the system disk** (the plan's D4): the move ends in a
+SYSTEM.CFG write. A press that never travels `FM_DRAGMIN` pixels — every
+ordinary click — never loads anything; `fm_dgwait` is `fm_drag`'s threshold
+made a routine and the desktop shares it. Past it the tracking loop and the
+outline (`fm_dgxor`, the Disk window's own) are `CTRL.DRV`'s. The item's own
+cell counts as free, so a short drag stays where it was and writes nothing.
+
+**A dragged drive is placed, and remembers its cell** — across an unmount
+and across a reboot, through the trailer's pins block (§26.8.6). There is no
+"unplace": the cell was the user's choice and it stays theirs.
+
+#### 26.9.6 `OSAPI_DESK_ITEM` — slot `KERNEL_SEG:0x03F8`
+
+One slot puts any item on the desktop and takes it off. It tells the two
+callers apart by `osapi_vol_fence` (§51.8): a published driver adds §26.7's
+SERVICE item, and anything else is a PACKAGE and adds a LINK.
+
+```
+  in   AL    = 1 add / 0 remove
+       ES:SI = (add) the record, in YOUR segment - copied, so it may be
+               anything of yours:
+                 a driver's   40 bytes (§26.7): +39 the cell it would like
+                 a package's 128 bytes, §26.8.1's row (OSAPI_DI_*):
+                   +0   1  the volume, 0 = A:
+                   +1   1  the cell it would like, 0xFF = the first free
+                   +2   1  0 document, 1 package, 2 folder
+                   +4  45  the path BELOW THE ROOT, NUL
+                   +49 13  the caption, NUL
+                   +62  2  the kernel's - whatever is there is overwritten
+                   +64 64  the 16x16 picture (§25's body form)
+       AH    = (a package's remove) the zone its add returned
+  out  CF = 0 AL = the item's ZONE
+       CF = 1 refused: a second service item, a withdraw of somebody
+              else's, a full desktop or table, no system disk, or a link
+              whose kind or volume nobody can have
+```
+
+**A package's link IS a shortcut**: it is copied into the shortcut claim
+whole, so it draws, opens, moves, persists and is removed by every route
+§26.8 has. What the kernel does NOT take on trust is fixed rather than
+validated: both strings are force-terminated and the picture's header is
+stamped `1, 16`, so a hostile record can mislead nobody but its own user.
+A kind above 2 or a volume past `DVOL_MAX` is refused, because those would
+send the open somewhere no code path goes.
+
+**From a WINDOW CALLBACK only**, never a worker: the add loads `CTRL.DRV` and
+writes SYSTEM.CFG, and a worker may not touch a file (§20.6 rule 7).
+`tests/deskitem/deskitem.asm` is the worked example: a package whose File
+menu adds a link to itself at cell 5 and removes it again.
+
+**kern_small's body is the refusal**, two instructions. The cell is in both
+kernels because a slot that exists in one build and not another is an ABI
+that depends on a knob (§20.8 rule 4).
+
+#### 26.9.7 What is not done
+
+- **The C SDK has no binding.** A C package would hand the record across the
+  DS boundary like any other far buffer; nothing has asked yet, and the
+  thunk is the place it goes.
+- **A package cannot name its own short caption** for a shortcut a USER
+  makes by dragging it out (§26.8.4 takes the header name or the 8.3 stem).
+  The plan offered it as D1's fallback and the 96-wide cell made it
+  unnecessary.
+
+#### 26.9.8 What it cost, measured
+
+`tools/kernsize.py` against `9a760ab`, the tree this work was cut from, at
+one commit each:
+
+| | kern_big | kern_small |
+|---|---:|---:|
+| `.text` | **−16** | 0 |
+| `.bss` | **+28** | +15 |
+| `.cold` | **−308** | −5 |
+| **resident** | **−296** | **+10** |
+| `.ovl` / `.ovlw` (not resident) | +14 / +17 | +5 / +17 |
+| `CTRL.DRV` (on demand) | +87 | — |
+
+**kern_big is 296 bytes SMALLER and does more**: every item moves, drives
+remember where they were put, a package can place one, and the Wire no
+longer vanishes at eight volumes. The ask was ~400 — the overrun is named
+rather than absorbed, and it is the new slot's package half and the
+remembered cell, both of which were added after the target was set. Most of
+the saving is DELETED code: the ordinal walk and its three callers, §26.3's
+high-water mark and grid rect, the shortcut grid and its reserved-column
+arithmetic, `sc_dmgm` and its bit-15 bridge, the shortcut-only draw, hit,
+highlight and damage arms, and the per-gesture shims into `CTRL.DRV`.
+Ideas from the `desktop-shortcuts-optimization` branch carried a share of it:
+one record that IS the icon record, the path below the root, `sc_open` as
+one body with the volume and kind in BP, the caption rect off `font_width`,
+and a per-cell repaint.
+
+**kern_small takes it** (+10, the plan's D5 set ~100 as the line): its
+table and one-loop reflow replace the ordinal arithmetic nearly byte for
+byte.
 
 ## 27. HELLO and NOTEPAD — the second and third packages
 
