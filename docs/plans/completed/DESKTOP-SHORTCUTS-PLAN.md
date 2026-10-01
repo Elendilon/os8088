@@ -1,10 +1,61 @@
 # Desktop shortcuts: drag an entry out of a Disk window, keep it across a reboot
 
-**OPEN. Nothing here is built.** Written on branch `desktop-shortcuts`, cut
-from `elendilon` at `fb544b1`. Every figure for existing code is read out of
-that tree or out of its build. Every figure for code that does not exist yet
-is marked ESTIMATED. §9 records the owner's decisions of 2026-10-01 and the
-one question still open.
+**BUILT. SPEC.md 26.8 is the contract**, and this file is the design record
+behind it: the plan as it was written against `fb544b1`, the owner's
+decisions of 2026-10-01 (§9), and, directly below, where what was built
+differs from what was planned. Figures in §2 to §8 marked ESTIMATED are
+the estimates the plan was written against. The measured ones are in
+"What was built".
+
+## What was built, and where it differs from the plan
+
+**Measured against `elendilon` at `fb544b1`:**
+
+- **Resident on kern_big: `.cold` +924, `.text` +68, `.bss` +10 = 1,002
+  bytes**, inside the 1 KB budget.
+- **kern_small: byte-identical.**
+- `.ovl`: +293 bytes, which is not resident.
+- `CTRL.DRV`: 8,781 bytes grew to 10,322.
+
+The first build came in at 1,389 resident bytes. Getting to 1,002 took six
+changes, each one a refinement of §7.1's placement B rather than a different
+design:
+
+| change | what moved or went |
+|---|---|
+| the drag's tracking loop | into `CTRL.DRV`. Only `fm_drag`'s four-pixel wait stays resident, now `fm_dgwait`, shared with the Disk window |
+| the claim bookkeeping | into `CTRL.DRV` and the boot reader, behind one resident heap door, `sc_mem_f` |
+| the badge | stamped into the picture at the drop, so the paint does nothing for it |
+| the caption's centring | stored as one byte (`SC_R_CAPX`), so the paint measures nothing |
+| path and name | one field holding the whole path, so `sc_open` walks one string |
+| the three module entries | one entry, `CPE_SC`, with the operation in AH |
+
+**Differences from the text below:**
+
+- **The record is 128 bytes, not 124.** The cell is two bytes (column, then
+  row) rather than a packed nibble pair. The separate name field is gone,
+  folded into the path. A caption-pen byte was added. Eight records fill one
+  KB exactly.
+- **The trailer's footer is at the END of the file** (§3 put the header first),
+  so the reader finds it without walking the settings records.
+- **The trailer is written from a claim of its own, PINNED, for the length of
+  the write**, not from a bigger `cpc_buf`. `CTRL.DRV`'s bss is only the slack
+  in its own KB rounding (kernel.asm's `MODC_BSS` assertion), and the rows do
+  not fit there. `cpc_buf` itself moved into the image on this build for the
+  same reason.
+- **The grid pitch is 104 pixels, not 72.** That makes room for a full 12-glyph
+  8.3 name or header name. It still gives the CGA 4 × 4 = 16 cells.
+- **A move that is dropped on the dock or the menu bar does not refuse.** It
+  snaps to the nearest free cell, like any other drop. A CREATE dropped
+  there still does nothing, as §5.1 says.
+- **Enter opens any desktop zone**, drives included (it is the double-click),
+  at no extra cost. It was asked for after this plan was written.
+- **`tools/os88ui.py`'s `menu_pick` had a stale-greying bug.** It read an
+  item's MENU_DIS state before pressing the bar, but `ui_loc_gate` swaps
+  Locator's items ON that press. It reads the state after the drop now.
+
+**`tests/desksc.py`** drives every route on MartyPC. It passes on the VGA XT,
+on the CGA 5150 and on the Hercules 5150.
 
 The ask:
 

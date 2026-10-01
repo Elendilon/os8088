@@ -236,6 +236,10 @@ MEM_K_FONT equ 0xFF10           ; the 8x8 glyph table COPIED OUT OF AN OPTION
                                 ; a machine whose planar ROM does not carry
                                 ; the same glyphs. 0xFF0E is a tombstone and
                                 ; 0xFF0F the dialog's, so this is 0xFF10
+MEM_K_SC   equ 0xFF11           ; the desktop SHORTCUTS' table (SPEC.md 26.8):
+                                ; one claim for all of them, a KB per eight,
+                                ; movable, freed with the last one. 0xFF10 is
+                                ; the font's, so this is 0xFF11
 MEM_K_CLIP equ 0xFF07           ; the system clipboard's text (SPEC.md 55) -
                                 ; sized to what is in it, freed when it is
                                 ; emptied, and deliberately NOT an instance's,

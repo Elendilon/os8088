@@ -181,6 +181,10 @@ ui_task:
                                 ; kbm_tab and AL = 0 is not Space, so the
                                 ; synthesised key passes through untouched
     KFZ 4                       ; 4: kbm_key passed it through (SPEC.md 9.6)
+%ifdef OS88_SHORTCUTS
+    call COLD_SEG:desk_key_x    ; Enter / Delete on the DESKTOP's selection,
+    jc .events                  ; while Locator owns the bar (SPEC.md 26.8.5).
+%endif                          ; With the lock FREE: an open locks itself
     call gfx_lock               ; handler draws; it runs under the lock
     KFZ 5                       ; 5: WE HAVE THE GFX LOCK. A bar that stops at
                                 ;    4 is a mutex nobody released
@@ -1322,9 +1326,16 @@ ui_rdown:
     ret
 
 .strip:
+%ifdef OS88_SHORTCUTS
+    call dock_rclick            ; the dock first, as before...
+    jc .ret
+    call COLD_SEG:sc_rclick_x   ; ...and a SHORTCUT's menu (SPEC.md 26.8.5)
+    ret
+%else
     jmp dock_rclick             ; CX/DX; CF = 1 = consumed (locks internally,
                                 ; SPEC.md 30.2). CF is nobody's answer here -
                                 ; the desktop's case IS "do nothing"
+%endif
 
 ; -----------------------------------------------------------------------------
 ; ui_tdbl - was this title-bar press the second half of a double-click?
@@ -2164,6 +2175,16 @@ ui_loc_gate:
     mov [menu_items_file], ax   ; Close Window is item 0 now: Locator's File
                                 ; menu is that item and nothing else, the
                                 ; builtins having moved to Builtins (12.3.1)
+%ifdef OS88_SHORTCUTS
+    mov bl, [desk_sel]          ; ...and item 1, Remove Shortcut, live only
+    sub bl, DESK_SC0            ; while a shortcut is the desktop's
+    cmp bl, SC_MAX              ; selection (SPEC.md 26.8.5) - 0xFF, none,
+    mov ax, sc_s_remx           ; lands above the range too. Its twin is ONE
+    jae .scset                  ; byte before it, so live is an inc
+    inc ax
+.scset:
+    mov [menu_items_file+2], ax
+%endif
 %ifdef KERN_BIG
     call COLD_SEG:hb_ok_x       ; ...and Hibernate greys with its reason
                                 ; (SPEC.md 87.2): no fixed disk, or extended
@@ -2712,7 +2733,9 @@ ui_cmd:
                                 ; fm_jmp's. os88ovlchk cannot see an indirect
                                 ; transfer, so EVERY ENTRY HERE MUST BE .text
                                 ; and is
-%ifdef KERN_BIG
+%ifdef OS88_SHORTCUTS
+    dw .about, .ctrl, .tasks, .done, .hiber, .reboot, .close, .scdel, .timer, .bounce, .files
+%elifdef KERN_BIG
     dw .about, .ctrl, .tasks, .done, .hiber, .reboot, .close, .timer, .bounce, .files
 %else
     dw .about, .ctrl, .tasks, .done, .reboot, .close, .files
@@ -2722,6 +2745,11 @@ ui_cmd:
 .hiber:
     call COLD_SEG:hbf_open      ; the module first, then the window (SPEC.md
     ret                         ; 87.1) - cp_open's shape, and its refusal
+%endif
+%ifdef OS88_SHORTCUTS
+.scdel:
+    call COLD_SEG:sc_menu_del_f ; Remove Shortcut (SPEC.md 26.8.5): CTRL.DRV
+    ret                         ; does it and writes SYSTEM.CFG
 %endif
 
 .about:

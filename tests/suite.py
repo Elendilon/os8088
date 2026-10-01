@@ -7615,6 +7615,17 @@ SOAK = [
         "SPIN COUNT. This compares three readings computed three ways: the "
         "kernel's sch_cycles, the page's tm_load, and the page's tm_pct.",
         needs=("marty",), serial=True, timeout=900),
+    Row("desksc", "soak", py("tests/desksc.py"), 60.0,
+        "SPEC.md 26.8: DESKTOP SHORTCUTS, every route on one boot. A drag out "
+        "of a Disk window makes one (whole path, header-name caption, the "
+        "badge, the nearest free cell, the drag's Cut DISARMED); SYSTEM.CFG "
+        "carries the trailer verbatim, read back off the guest's own drive "
+        "A:; a double-click opens it, a drag moves it, a REBOOT brings it "
+        "back through the .ovl reader; Delete, Enter on a folder's, a "
+        "document's through its association, a right-click's Remove and "
+        "File > Remove Shortcut; and the claim and the trailer go with the "
+        "last one. `--machine os8088_5150_cga` / `_herc` are the 1bpp looks.",
+        needs=("marty",), timeout=600),
     Row("curdisk", "soak", py("tests/curdisk.py"), 240.0,
         "SPEC.md 7.4: the arrow TRACKS the hand through a disk transfer. It "
         "used to freeze with the machine and then LEAVE THE SCREEN - once an "

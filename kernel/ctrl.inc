@@ -823,7 +823,15 @@ CPE_ONDRAG  equ 5               ; (SPEC.md 13.8.4) - and the drag and the KEY
 CPE_ONKEY   equ 6               ; (SPEC.md 31.9.2) are kern_big's alone, so
 %ifdef DOCK_OPT                 ; CP_NENT differs between the builds. Which is
 CPE_DOCK_GEOM equ 7             ; safe because MOD_H_NENT is IN the header and
-CP_NENT     equ 8               ; mod_check compares it against the file it
+%ifdef OS88_SHORTCUTS           ; mod_check compares it against the file it
+CPE_SC      equ 8               ; just read, so a CTRL.DRV with the wrong count
+CP_NENT     equ 9               ; (SPEC.md 26.8.7: create, move and remove a
+                                ; desktop shortcut, AH = which - each ends in
+                                ; this image's SYSTEM.CFG write, so its body
+                                ; rides that load)
+%else
+CP_NENT     equ 8
+%endif
 %else                           ; just read, so a CTRL.DRV with the wrong count
 CP_NENT     equ 7               ; is refused rather than dispatched into - and
 %endif                          ; MOD_H_STAMP rejects one from another build
@@ -864,6 +872,9 @@ modc_hdr:
 %endif
 %ifdef DOCK_OPT
     dw modc_e_dock_geom         ; CPE_DOCK_GEOM: Dock and Display settings
+%endif
+%ifdef OS88_SHORTCUTS
+    dw modc_e_sc                ; CPE_SC: desktop shortcuts (SPEC.md 26.8.7)
 %endif
 
 ; --- the far entries, which are the WHOLE reason this is not a body pointer --

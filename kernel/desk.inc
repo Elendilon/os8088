@@ -627,7 +627,12 @@ desk_zone_label:
 ; -----------------------------------------------------------------------------
 desk_paint_x:
     push ax
+%ifdef OS88_SHORTCUTS
+    mov word [sc_dmgm], 0xFFFF  ; ...and every shortcut (SPEC.md 26.8.3): bit
+    mov ax, ((1 << DESK_NZ) - 1) | DESK_SCBIT ; 15 says "and [sc_dmgm] too"
+%else
     mov ax, (1 << DESK_NZ) - 1  ; every zone, the Wire's included (SPEC.md
+%endif
     jmp short desk_pm_body      ; 26.7) - the push is FIRST, so the caller's
                                 ; AX is what reaches the stack
 
@@ -651,6 +656,13 @@ desk_pm_body:
     push bx
     push cx
     push dx
+%ifdef OS88_SHORTCUTS
+    test ah, DESK_SCBIT >> 8    ; the shortcuts' bit (SPEC.md 26.8.3): their
+    jz .nosc                    ; own mask is [sc_dmgm], and bit 15 is not a
+    and ah, ~(DESK_SCBIT >> 8)  ; ZONE - the walk below would hand it to
+    call sc_paint_mask          ; desk_zflag as volume 15. Drawn FIRST: they
+.nosc:                          ; never overlap a volume zone (26.8.2)
+%endif
     mov dx, ax                  ; DX = the mask for the duration - the one
     xor cl, cl                  ; register desk_zflag does not clobber. A WORD
                                 ; since SPEC.md 26.7: the Wire's bit is bit
@@ -684,6 +696,10 @@ desk_pm_body:
 ; for its own overlap test.
 ; -----------------------------------------------------------------------------
 desk_zone_rect:
+%ifdef OS88_SHORTCUTS
+    cmp al, DESK_SC0            ; a SHORTCUT's rect is its grid cell's, and it
+    jae sc_rect                 ; is wider than a drive's (SPEC.md 26.8.2)
+%endif
     call desk_zone_xy           ; AX = zone left, DX = zone top
 desk_rect_ax:                   ; ...and the arithmetic ALONE, for a caller
                                 ; that is already holding the origin. Costs
@@ -983,6 +999,14 @@ desk_dmg_zones_x:
     inc si
     cmp si, DESK_NZ
     jb .zone
+%ifdef OS88_SHORTCUTS
+    call sc_dmg                 ; ...the shortcuts, into [sc_dmgm] and bit 15
+                                ; of DI (SPEC.md 26.8.3). AFTER the volumes, so
+                                ; a shortcut's growth is the last word - and it
+                                ; cannot reach a volume zone, the grid ending
+                                ; short of every column the drives could wrap
+                                ; into (26.8.2)
+%endif
     mov ax, di
     pop di
     pop si
@@ -1068,6 +1092,10 @@ desk_click_x:
     inc cl                      ; the bound is at the BOTTOM: DESK_NZ is a
     cmp cl, DESK_NZ             ; compile-time constant >= 1, so a do-while
     jb .zone                    ; cannot under-run - and .miss is then inside
+%ifdef OS88_SHORTCUTS
+    call sc_hit                 ; ...and then the shortcuts (SPEC.md 26.8):
+    jnc .hit                    ; CL = the zone, DI/SI the click as above
+%endif
     jmp short .miss             ; short range, where a top test needed NASM's
                                 ; 5-byte `jcc +3 / jmp near` trampoline
 
@@ -1084,6 +1112,12 @@ desk_click_x:
                                 ; finds "same zone" and returns, which IS the
                                 ; restamp, with the tick already stamped
     ; --- double-click: deselect + redraw under our lock, then open ----------
+%ifdef OS88_SHORTCUTS
+    call desk_open              ; ...which is a routine of its own here, because
+    jmp .out                    ; Enter on a selected zone is the same act
+                                ; (SPEC.md 26.8.5) and a shortcut is a third
+                                ; thing it can open
+%else
     call ct_cw_gfx_lock                       ; the store is INSIDE the lock, here and in
     mov byte [desk_sel], 0xFF   ; both paths below: desk_zone_redraw's partial
     call desk_zone_redraw       ; case flips the highlight rather than redrawing
@@ -1106,7 +1140,19 @@ desk_click_x:
                                 ; file out of SYSTEM. NO lock held, which is
                                 ; that routine's own contract
 %endif
+%endif                          ; OS88_SHORTCUTS
 
+%ifdef OS88_SHORTCUTS
+.select:
+    call desk_select            ; a routine of its own here: the right press
+                                ; selects through it too (SPEC.md 26.8.5)
+    cmp al, DESK_SC0            ; a SHORTCUT may be dragged to another cell
+    jb .out                     ; (SPEC.md 26.8.4): the press that selected it
+    mov cx, di                  ; is the press that drags it, so the tracking
+    mov dx, si                  ; starts here, with the press point in CX/DX
+    call sc_drag
+    jmp .out
+%else
 .select:                        ; new selection: redraw old + new zones -
     mov bx, [ui_click_t]        ; and, arriving from the too-slow arm above,
     mov [desk_clkt], bx         ; the restart of the timer on its own
@@ -1126,6 +1172,8 @@ desk_click_x:
     call desk_zone_redraw       ; selected redraw of the new zone
     call ct_cw_gfx_unlock
     jmp .out
+
+%endif
 
 .miss:
     mov al, [desk_sel]          ; empty desktop click clears the selection
@@ -1215,6 +1263,10 @@ desk_zone_redraw:
 ;       dead, and this is the last thing either does
 ; -----------------------------------------------------------------------------
 desk_zone_hilite:
+%ifdef OS88_SHORTCUTS
+    cmp al, DESK_SC0            ; a shortcut inverts its PICTURE and its
+    jae sc_hilite               ; CAPTION, not its cell (SPEC.md 26.8.2)
+%endif
     call desk_zone_rect         ; the DRAWN rect...
     add ax, DESK_ZOVER          ; ...less the label's overhang at each edge,
     sub cx, DESK_ZOVER          ; which is the HIT rect this one wants
@@ -1234,6 +1286,10 @@ desk_zone_hilite:
 ; outs: none (all registers preserved; [gfx_color] restored)
 ; -----------------------------------------------------------------------------
 desk_draw_zone:
+%ifdef OS88_SHORTCUTS
+    cmp al, DESK_SC0            ; a SHORTCUT draws itself (SPEC.md 26.8.2),
+    jae sc_draw                 ; with this routine's contract
+%endif
     push ax
     push bx
     push cx

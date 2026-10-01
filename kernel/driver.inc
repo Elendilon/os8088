@@ -3889,8 +3889,15 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     xor dx, dx
     mov si, drv_cfgname         ; ...but the NAME is read through DS, so it is
                                 ; one of the two things that stay resident
+%ifdef OS88_SHORTCUTS
+    call ovl_sc_load            ; a file with SHORTCUTS after its terminator
+    jnc %%have                  ; is read whole into their claim and its head
+%endif                          ; staged here (SPEC.md 26.8.6); AX = the head
     call COLD_SEG:dwf_dskw_read ; AX = bytes actually read (DX = 0: CFG_FBUF)
     jc %%ld_out                    ; no file: the defaults stand
+%ifdef OS88_SHORTCUTS
+%%have:
+%endif
     call %1 %+ _pack            ; the LIVE state into the struct first: that
                                 ; is what a key the file does not carry - or
                                 ; carries at a ver we do not accept - falls
@@ -4039,13 +4046,25 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     push cs
     pop es                      ; the buffer is the image's, and this is where
     mov bx, %1 %+ _buf          ; dskw_write_sys reads it from
+%ifdef OS88_SHORTCUTS
+    call sc_m_ser               ; ...unless there are desktop SHORTCUTS: then
+    jc %%nomem                  ; ES:BX is a claim holding these settings AND
+%endif                          ; their trailer (SPEC.md 26.8.6)
     xor dx, dx                  ; DX:CX = the count; a settings file is bytes
     mov si, drv_cfgname
     call COLD_SEG:dwf_dskw_write_sys
                                 ; _sys: SYSTEM.CFG is hidden + system, so it
                                 ; is neither listed nor deletable, and only
                                 ; that entry point may rewrite one (19.6)
+%ifdef OS88_SHORTCUTS
+    call sc_m_serx              ; ...and that claim back; CF and AX survive
+%endif
     jmp short %%out
+%ifdef OS88_SHORTCUTS
+%%nomem:                        ; no room to compose them: a write WITHOUT the
+    mov ax, FERR_FULL           ; shortcuts would delete them at the next
+    jmp short %%out             ; boot, so it is refused - CF is still set -
+%endif                          ; and [cp_wdirty] keeps it owed
 %%notsys:
     mov ax, FERR_NOENT          ; a disk, but not ours. [cp_dsave] carries it
     stc                         ; to the Drivers page, whose caption already
@@ -4793,8 +4812,15 @@ section .modc                   ; CTRL.DRV's image (SPEC.md 2.8)
 CFG_DATA   cpc
 CFG_SHARED cpc
 CFG_SAVE   cpc
+%ifdef OS88_SHORTCUTS
+section .modc                   ; IN THE IMAGE on this build: the shortcuts'
+cpc_buf:    times CFG_FBUF db 0 ; CTRL.DRV code (SPEC.md 26.8.7) leaves too
+                                ; little of the image's last KB for a BSS -
+                                ; zeros, which the 'CZ' wrap packs to nothing
+%else
 section .modcb                  ; ...and the writer's file buffer is the
 cpc_buf:    resb CFG_FBUF       ; module's own BSS (docs/plans/MODULE-
+%endif
                                 ; SELFCONTAIN-PLAN.md 3): cpc_ser fills it whole
                                 ; before a byte of it is written, so it wants
                                 ; no zeroing, and it costs the image nothing

@@ -49185,6 +49185,273 @@ one three-sector re-read at the next mount rather than a sector per package.
 The rank stays `MEM_PG_TRIV` regardless: what is lost is still recoverable
 without asking the user for anything.
 
+### 26.8 Desktop shortcuts
+
+`kernel/desksc.inc`, kern_big only (`OS88_SHORTCUTS`), and
+docs/plans/completed/DESKTOP-SHORTCUTS-PLAN.md is the design record behind it.
+
+**A file or folder dragged out of a Disk window and dropped on the bare
+desktop becomes a SHORTCUT.** It has the entry's picture with a small badge
+and a caption, and it sits on a grid cell. It behaves like a drive zone:
+
+- a click selects it by inversion;
+- a double-click, or Enter, does what a double-click on that entry in its
+  Disk window would do;
+- a drag moves it to another cell;
+- Delete, a right-click's `Remove Shortcut` or Locator's `File > Remove
+  Shortcut` takes it away.
+
+It is kept in SYSTEM.CFG, so it is still there after a reboot or a power
+cycle. A machine with no shortcuts writes the same SYSTEM.CFG it always did.
+
+**A shortcut is a ZONE**, index `DESK_SC0` + its row (16..31), so `desk_sel`,
+`desk_zone_redraw` and §26.2's flip-not-repaint serve it unchanged. One
+compare in each of the following sends a shortcut zone to its own body, which
+is the Wire zone's arrangement (§26.7) with a table where that has one record:
+
+- `desk_zone_rect`
+- `desk_zone_hilite`
+- `desk_draw_zone`
+- `desk_click`
+- `desk_dmg_zones`
+- `desk_paint_mask`
+
+`kern_small` assembles byte for byte what it did before; it reads no
+SYSTEM.CFG at all (§51.5), so there would be nothing to keep a shortcut in.
+
+#### 26.8.1 The record and the claim
+
+| off | len | field |
+|---|---|---|
+| 0 | 1 | the volume index (0 = A:), `0xFF` = a free row |
+| 1 | 2 | the grid cell: column, then row |
+| 3 | 1 | the kind: 0 document, 1 package, 2 folder (§19.1's type word) |
+| 4 | 1 | the caption's pen offset in the cell. The caption is centred, so its width is `SC_W` − 2 × this, and nothing measures it at paint |
+| 5 | 46 | the entry's WHOLE path, `\APPS\CALC.O88`, NUL: `dsk_path`'s 32-byte folder path, a `\` and an 8.3 name |
+| 51 | 13 | the caption, NUL |
+| 64 | 64 | the 16×16 picture, §25's body form, with the badge already stamped in |
+
+`SC_REC` is **128 bytes**, so a KB holds exactly eight records.
+
+**The table is one heap claim** (`MEM_K_SC`), never `.bss`:
+
+- It is grown a KB at a time and shrunk the same way, so 1 KB holds one to
+  eight shortcuts and 2 KB holds nine to sixteen.
+- It is freed when the last shortcut goes.
+- It is MOVABLE, with `sc_reloc` as its relocation proc, because a claim made
+  at boot is otherwise a wall low in the arena for the whole session
+  (docs/plans/HEAP-UNPIN-PLAN.md 2.0).
+- `SC_MAX` is 16.
+
+**THE PATH, NOT A CLUSTER.** This system has no volume identity: every disk
+carries one serial. A `(volume, cluster)` pair would mean only *this copy of
+this disk*, and the shipped apps disks all carry `APPS\` at different
+clusters. So a shortcut to `B:\APPS\CALC.O88` is a path, and it opens on any
+disk in B: that has that file. At the drop the path comes from `dsk_path`
+(§19.2.4) and not from the window's `FS_PATH`, because `FS_PATH` records
+navigation: a window opened part-way down a disk knows only the last folder
+of its path.
+
+#### 26.8.2 The grid, and what a shortcut draws
+
+Cells are `SC_PX` = 104 pixels apart. The first column is 4 pixels in from
+the BAND's left edge, so a left dock moves the grid over (§30.5). Rows use
+`[desk_zstep]`, the drive zones' own pitch, so the two line up row for row.
+
+**The grid stops short of every column the drive zones could reach.** Those
+zones wrap leftwards as volumes mount (§26.1), so the columns `DESK_NZ` zones
+would need are reserved whatever is mounted now. A hard disk mounted later
+can therefore never land on a shortcut, and no damage pass has to reconcile
+the two. That leaves 5 columns × 7 rows on VGA, 5 × 4 on Hercules and 4 × 4
+on the CGA, so even the smallest grid holds all 16 shortcuts.
+
+A cell is `SC_W` = 96 wide and `SC_H` = 30 tall, laid out like a drive zone:
+
+- the 16×16 picture, centred over the caption;
+- the drive zones' 2-pixel gap;
+- the caption, black on a white rect that HUGS it (§26.4), drawn as one
+  opaque run (§26.6).
+
+The selection inverts the PICTURE and the CAPTION's rect: two XORs, both
+self-inverse, through `sc_hilite`, which is `desk_zone_hilite`'s contract.
+Inverting the whole cell would read as a hole in the desktop. The picture is
+16×16, as in the Disk window's icon view, and not doubled to the drive
+zones' 32×32; that is a look question to settle once it has been seen.
+
+#### 26.8.3 The badge, and the damage word
+
+Every shortcut's picture carries the BADGE: an 8×8 box with an arrow out of
+it, in its lower left. `CTRL.DRV` stamps it in at the drop: the eight mask
+rows' left byte turned white and the data rows' replaced. So painting a
+shortcut costs nothing extra for it, and a body that arrived all zero (a
+package with no icon) draws the badge alone. That is the "tiny shortcut
+icon" the request asked for when no icon is available.
+
+**The damage mask needed a second word.** `[wm_dmg_zn]` is one word,
+`DESK_NZ` takes nine bits of it, and sixteen shortcuts do not fit. So:
+
+- `desk_dmg_zones` gathers the shortcuts into `[sc_dmgm]`, one bit a row,
+  rotating each answer in from the last row to the first.
+- It sets bit 15 of the zone mask, `DESK_SCBIT`, when any is touched.
+- `desk_paint_mask` sees bit 15 and paints `[sc_dmgm]`, so `wm.inc` changes
+  nowhere.
+- `desk_paint`'s full paint sets both, meaning every zone and every
+  shortcut.
+
+#### 26.8.4 Creating, moving, and the caption
+
+**A drop on the bare desktop creates one.** `fm_dgdrop`, finding no window
+under the release, used to return having done nothing. Now it:
+
+1. Disarms the clipboard. The drag armed a CUT when it began (§22.4), so
+   until this change a drop here left a Paste somewhere else ready to MOVE
+   the original out from under the shortcut.
+2. Stages the entry's picture out of the window the drag began in.
+3. Hands the drop point to `CTRL.DRV`.
+
+There, a drop on the menu bar, on the dock or on another display does
+nothing. Anywhere else the shortcut lands on the **NEAREST FREE CELL**: by
+the cell's centre, in city-block pixels, so nobody has to aim at a cell edge
+and a drop on a taken cell lands beside it.
+
+**THE CAPTION is decided once, at the drop, and stored**:
+
+| kind | caption |
+|---|---|
+| package | its HEADER name (§20.2, header +16) when that is 12 characters or fewer, the cell's width; otherwise the 8.3 stem without `.O88` |
+| document, folder | the full 8.3 name |
+
+The header name costs one `dsk_peek` of the package's first sector, inside a
+gesture that is about to spend several on the write. Deciding it at the drop
+keeps the measuring out of the paint path.
+
+**A press on a shortcut that travels FM_DRAGMIN pixels MOVES it.**
+`fm_dgwait` is `fm_drag`'s four-pixel wait made a routine, and the desktop
+shares it. Only that threshold is resident: past it, the tracking loop and
+the outline (`fm_dgxor`, the Disk window's own) are `CTRL.DRV`'s, because
+the drop has to load that image to write SYSTEM.CFG anyway. A press that
+never moves four pixels, which is every ordinary click, never asks for it.
+The release goes to the nearest free cell with the shortcut's own cell
+counted free, so a short drag stays where it was and writes nothing.
+
+#### 26.8.5 Opening, and removing
+
+**A double-click, or Enter on a selected zone, is `desk_open`**: deselect,
+then dispatch.
+
+- **Enter opens ANY zone**, drives included, since it is the double-click.
+  It reaches the desktop only while LOCATOR owns the bar
+  (`[menu_win]` = 0). A click on the bare desktop is what hands Locator the
+  bar (§12), so a window the user went back to keeps its keys even with a
+  zone still lit.
+- **A shortcut opens by name, through the doors the Disk window's double-click
+  already has.** `fm_open_sel` is welded to a listing index; every arm it
+  reaches has a by-name twin, and `sc_open` is a path walk in front of three
+  of them. It banks the user's volume, goes to the shortcut's volume root,
+  and walks the path a component at a time (`dskw_stat`, then `fcp_goto`).
+  Then, on the entry:
+
+  | the entry is | `sc_open` does |
+  |---|---|
+  | a folder | `fm_choose`: fronts a Disk window already showing it, opens one, or moves the frontmost one at `FM_MAXWIN` |
+  | a package | `OSAPI_PKG_START`'s by-name arm |
+  | a document | that slot's document arm (§21.5.3): the association route, `Needs X.O88` and all |
+
+  What the entry IS NOW decides, not what it was when the shortcut was made.
+
+- **A target that is not there says so in the Disk window's own words.**
+  `No disk` means the volume would not mount. `No such file` means a
+  component or the entry is gone, or a component is a file where a folder
+  was. A package that will not load gets `ld_say_status`'s verdict.
+
+**Remove** has three routes and one door, `sc_del`:
+
+- **Delete** with a shortcut selected, while Locator owns the bar.
+- A **right-click** on a shortcut, which selects it through `desk_select`
+  (the same lock-held store a click makes) and pops a one-item menu. It
+  stamps nothing into `[ui_click_t]`, which is `ui_rdown`'s own binding
+  rule.
+- **Locator's File > Remove Shortcut**, which `ui_loc_gate` greys unless a
+  shortcut is the selection. Its greyed twin is one `MENU_DIS` byte in front
+  of the string, the Close Window idiom.
+
+The routes do not check the zone. `CTRL.DRV` refuses anything that is not a
+live shortcut, so a drive's zone or "none" arriving by Delete or the menu is
+a no-op. The claim gives back a KB once the rows above the highest one in
+use fill it, and goes with the last shortcut.
+
+#### 26.8.6 SYSTEM.CFG: a trailer after the terminator
+
+§51.5's records are FIXED-length and its writer rewrites every key from
+resident state, so a setting at its default still costs its record. That is
+not the "costs nothing when absent" this feature was asked for, and it is
+not what the shortcuts use. They go AFTER the `dw 0` terminator, and only
+when there is at least one:
+
+```
++0    'O88CFG',0,0  dw 3           ; unchanged
++10   records ... dw 0             ; unchanged - every reader stops here
++T    count * SC_REC               ; the live rows, verbatim and compacted
++end-4 dw 'SC'  db SC_VER  db count
+```
+
+The footer is read from the END, so the reader never walks the records to
+find it. With no shortcuts the file is byte for byte what it was before.
+
+- **The writer is `CTRL.DRV`'s.** `sc_m_ser` composes settings, rows and
+  footer in a claim of its own, PINNED, for the length of the write.
+  `CTRL.DRV`'s bss is only the slack in its own KB rounding (kernel.asm's
+  `MODC_BSS` assertion), and a buffer the write is reading must not be moved
+  by a compaction the write itself triggers. With no room to compose them,
+  the write is REFUSED rather than made without them, because a file without
+  the trailer deletes every shortcut at the next boot. `[cp_wdirty]` keeps
+  the save owed.
+- **The reader is in `.ovl`**, so it costs no resident byte and no disk read
+  (the blob is a fixed ten sectors). `ovl_sc_load` runs before `ovc_load`'s
+  own read and passes it through untouched for a file of `CFG_FBUF` or less,
+  which is every file this feature did not write. That costs one `dskw_stat`
+  answered out of the directory the mount already holds. A bigger file is
+  read whole into the shortcut claim. Its settings head is staged where
+  `ovc_load`'s reader expects it, so a future kernel's longer file costs the
+  shortcuts and not the settings. A valid trailer's rows move down to the
+  claim's base with every string force-terminated, because the file is
+  untrusted.
+- **An OLDER kernel refuses a file that carries a trailer, and loses every
+  setting.** Its `ovc_load` reads with `CX = CFG_FBUF` and `dskw_read`
+  answers a larger file with `FERR_BIG` before any I/O. It cannot be fixed
+  from this side, and it bites only on a downgrade, since the file sits
+  beside `KERNEL.SYS` on the one boot volume.
+
+#### 26.8.7 What is resident, and what is CTRL.DRV's
+
+Creating, moving and removing a shortcut each END in a SYSTEM.CFG write, and
+the writer is `CTRL.DRV`'s (§51.5.3). So all three gestures are that image's:
+one entry, `CPE_SC`, with the operation in AH. `sc_modcall` loads the image,
+calls it, and drops it again, unless the Control Panel already had it
+resident. `cpf_cp_flush_close`'s `mod_drop` cannot tell the difference, so
+this asks `mod_live` first. Each gesture then saves at once, through the
+panel's own `cp_flush_close`, because a shortcut is meant to survive a
+power-off rather than wait for the panel to close.
+
+**What that costs on a one-drive machine is stated rather than discovered.**
+A create, move or remove needs the SYSTEM disk in the drive at that moment.
+With a data disk there it refuses with the panel's own `Needs Sys Disk A:`,
+and nothing changes. Opening a shortcut needs no module and works with any
+disk in the drive. A shortcut made on such a machine could not have been
+saved anyway.
+
+What every kern_big machine carries resident is drawing, hit-testing,
+selection, the open, the keys, the right-click and the drag's threshold.
+Measured against `elendilon` at `fb544b1`: **`.cold` +925, `.text` +79,
+`.bss` +10 = 1,014 bytes**, against a 1 KB budget. The boot reader is +291
+bytes of `.ovl`, which is given back at `spl_finish`. `CTRL.DRV` grows by
+the gestures and the writer, read only while one of them runs.
+
+**The 360 KB system disk pays one more `int 13h` at boot**, for the image
+growth and not for the reader. `KERNEL.SYS` there ended on the last sector of
+a cylinder with 48 bytes free, so ~60 resident bytes of anything would have
+crossed it. That cost was accepted when this was planned.
+
 ## 27. HELLO and NOTEPAD — the second and third packages
 
 Deliberately minimal, to prove the SDK surface and the no-icon fallback:

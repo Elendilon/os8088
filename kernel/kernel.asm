@@ -304,6 +304,17 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %define OS88_ASSOC 1
 %endif
 
+; SPEC.md 26.8's desktop SHORTCUTS - an entry dragged out of a Disk window
+; onto the desktop, kept in SYSTEM.CFG across a reboot - are kern_big's alone.
+; kern_small reads no SYSTEM.CFG at all (SPEC.md 51.5), so there is nothing to
+; keep one in, and every site the feature touches is `%ifdef` over the new code
+; so the 128KB floor assembles byte for byte what it did before. It leans on
+; OS88_ASSOC (a document opens through the association route) and on DOCK_OPT
+; (the grid starts at the band's left edge), both kern_big's already.
+%ifdef KERN_BIG
+  %define OS88_SHORTCUTS 1
+%endif
+
 ; SPEC.md 51's LOADABLE DRIVERS are kern_big's too (SPEC.md 51.0). It is the
 ; largest single item in docs/plans/KERN-SMALL-CUT-PLAN.md's hardware group and the
 ; only one there that is not a device - it is the ABILITY to load one - so it
@@ -6562,6 +6573,10 @@ EXT_YLOW    equ 11              ; ui_ylow's arm, behind its caller's gate
 %include "extmod.inc"             ; EXTD.DRV, the extended desktop
                                   ; (SPEC.md 39.19.6) - kern_big only
 %include "ctrl.inc"
+%include "desksc.inc"           ; desktop shortcuts (SPEC.md 26.8): empty
+                                ; unless OS88_SHORTCUTS (kern_big). AFTER
+                                ; ctrl.inc, because it emits into CTRL.DRV's
+                                ; .modc and that image's HEADER must be first
 %include "hiber.inc"            ; hibernate and resume (SPEC.md 87): the
                                 ; resident thunks, the probe, and HIBER.DRV.
                                 ; After mod.inc for MOD_*, a size here
