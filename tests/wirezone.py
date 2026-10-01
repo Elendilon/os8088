@@ -58,6 +58,7 @@ import heapmap                                              # noqa: E402
 import os88sym                                              # noqa: E402
 import os88qemu                                             # noqa: E402
 import dispcp                                               # noqa: E402
+import os88geom as geom                                     # noqa: E402
 import shot                                                 # noqa: E402
 
 SOCK = os.path.join(ROOT, "build", "wirezone.sock")
@@ -66,7 +67,8 @@ PPM = os.path.join(ROOT, "build", "wirezone.ppm")
 
 # kernel/desk.inc and kernel/disk.inc, mirrored - the geometry is derived from
 # the kernel's own published words below and only these constants are copied.
-DESK_ZY0, DESK_ZOVER, DESK_CW, DESK_PX = 32, 2, 96, 104   # SPEC.md 26.9
+DESK_ZY0, DESK_ZOVER = 32, 2
+DESK_CW, DESK_PX = geom.DESK_CW, geom.DESK_PX       # SPEC.md 26.9
 DV_FLAGS, DV_SIZE, DVOL_MAX = 2, 16, 8
 
 RUN_DRAWN = 8                   # the longest horizontal run that says "drawn"

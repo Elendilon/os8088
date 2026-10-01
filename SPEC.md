@@ -49476,7 +49476,7 @@ arithmetic, and nothing else computes a position.
 
 | | `DESK_CW` | `DESK_PX` | `DESK_ZXOFF` | why |
 |---|---:|---:|---:|---|
-| kern_big | 96 | 104 | 100 | a shortcut's twelve-glyph caption wide |
+| kern_big | 96 | 102 | 100 | a shortcut's twelve-glyph caption wide |
 | kern_small | 32 | 44 | 56 | the drive zone it always was: it has drives and nothing else |
 
 **ONE cell size, and a drive's picture centres in it** (`DESK_PICX`). On
@@ -49484,12 +49484,36 @@ kern_big that moved the drives 12 pixels left of where they were and widened
 the column pitch, which was looked at and accepted (the plan's D1): the
 fallback was shorter shortcut captions, and nothing needed it.
 
+**The grid uses every slot the screen has, on every adapter, with no table
+of adapters.** Two rules make that true, and both were wrong once:
+
+- **Rows: the first, then every whole pitch below it.** `[desk_rows]` =
+  (`[vid_dock_y0]` − 32 − `[desk_zh1]` − 1) / pitch + 1, because the LAST row
+  needs its own 46 rows (27 on the CGA) and not a whole pitch. It was
+  (`[vid_dock_y0]` − 32) / pitch, and on Hercules that is 4 where 5 fit:
+  the fifth row ends at y = 317 against a dock at 324, a whole row of desktop
+  left bare. VGA and the CGA come out the same either way.
+- **Columns: a 102 pitch, not 104.** At 104, Hercules's 720 pixels gave six
+  columns with the leftmost at x = 100, a whole column's width empty at the
+  edge the user reaches first. At 102 the seventh lands at x = 8. A widest
+  caption's white rect is 96 + 2 × 2 = 100, so neighbours still clear by
+  2 pixels. 640-wide screens stay at six columns, because no pitch fits
+  seven 96-wide cells in 640.
+
+| adapter | rows | columns | cells |
+|---|---:|---:|---:|
+| VGA 640×480 | 7 | 6 | 42 |
+| Hercules 720×348 | 5 | 7 | 35 |
+| EGA geometry 640×350 | 5 | 6 | 30 |
+| CGA 640×200 | 4 | 6 | 24 |
+
 `[desk_ncell]` (kern_big) is how many cells this screen has: the columns from
 cell 0's left to the band's left edge, a left dock included, times
 `[desk_rows]`, capped at 63. `desk_rowcalc` computes it with the rows, so a
 display switch (§39.11.2) or a dock move re-shapes the grid and reflows it in
-the same call. VGA has 42; the smallest screens have 24, which is why
-§26.8.1's `SC_MAX` is 15.
+the same call. The ITEM count does not follow the cell count: it stays at
+24 (§26.8.1's `SC_MAX` is 15), the CGA's cells. More cells means more places
+to put the same items.
 
 #### 26.9.2 The table
 
@@ -49585,6 +49609,14 @@ made a routine and the desktop shares it. Past it the tracking loop and the
 outline (`fm_dgxor`, the Disk window's own) are `CTRL.DRV`'s. The item's own
 cell counts as free, so a short drag stays where it was and writes nothing.
 
+**The CGA's picture box is `DESK_IH_S` = 16 on kern_big**, a link's own
+height, so a link's picture sits at the top of the cell above its caption and
+a drive's 14-row diskette sits top-aligned beside it. On the 32-row box a
+link is bottom-aligned instead (`[desk_lky]` = 16). `desk_rowcalc` sets both
+with the adapter. For one build the link was 16 rows down on the CGA too,
+under its own caption, and `desksc --machine os8088_5150_cga_gla` is the
+gate that caught it.
+
 **A dragged drive is placed, and remembers its cell** — across an unmount
 and across a reboot, through the trailer's pins block (§26.8.6). There is no
 "unplace": the cell was the user's choice and it stays theirs.
@@ -49651,12 +49683,12 @@ one commit each:
 |---|---:|---:|
 | `.text` | **−16** | 0 |
 | `.bss` | **+28** | +15 |
-| `.cold` | **−308** | −5 |
-| **resident** | **−296** | **+10** |
+| `.cold` | **−300** | −5 |
+| **resident** | **−288** | **+10** |
 | `.ovl` / `.ovlw` (not resident) | +14 / +17 | +5 / +17 |
 | `CTRL.DRV` (on demand) | +87 | — |
 
-**kern_big is 296 bytes SMALLER and does more**: every item moves, drives
+**kern_big is 288 bytes SMALLER and does more**: every item moves, drives
 remember where they were put, a package can place one, and the Wire no
 longer vanishes at eight volumes. The ask was ~400 — the overrun is named
 rather than absorbed, and it is the new slot's package half and the

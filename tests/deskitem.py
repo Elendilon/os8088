@@ -128,7 +128,7 @@ def main():
         print("B: double-click it")
         rows = ui._word("desk_rows")
         col, r = divmod(5, rows)
-        x = ui._word("vid_desk_zx") - col * 104 + 48
+        x = ui._word("vid_desk_zx") - col * geom.DESK_PX + geom.DESK_CW // 2
         y = 32 + r * ui._word("desk_zstep") + ui._word("desk_zh1") // 2
         first = [w.i for w in ui.windows() if w.title == "DeskItem"]
         ui.mo.dblclick(x, y)

@@ -213,7 +213,7 @@ _MIRROR = {
     # kern_small's is the drive zone it always was, kern_big's a shortcut's
     # twelve-glyph caption wide
     "DESK_CW": ("kernel/desk.inc", {"big": 96, "small": 32}),
-    "DESK_PX": ("kernel/desk.inc", {"big": 104, "small": 44}),
+    "DESK_PX": ("kernel/desk.inc", {"big": 102, "small": 44}),
     "DSL_SLOT": ("kernel/desk.inc", 0x3F),
     "DSL_GONE": ("kernel/desk.inc", 0x80),
     # kernel/desksc.inc - one LINK row, which is OSAPI_DESK_ITEM's record too

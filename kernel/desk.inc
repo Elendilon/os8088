@@ -34,9 +34,12 @@ DESK_ZXOFF  equ 56              ; ...cell 0's left, off the band's right edge
 DESK_IH_S   equ 14              ; the CGA's picture box: a drive's
 %else
 DESK_CW     equ 96
-DESK_PX     equ 104
+DESK_PX     equ 102             ; 6 columns at 640 and 7 at Hercules's 720:
+                                ; a widest caption's rect (96 + 2 x 2) still
+                                ; clears its neighbour's by 2 (SPEC.md 26.9.1)
 DESK_ZXOFF  equ 100             ; the caption's overhang and two clear px
-DESK_IH_S   equ 16              ; ...and a shortcut's 16 rows on kern_big
+DESK_IH_S   equ 16              ; ...and a shortcut's 16 rows on kern_big, so
+                                ; a link's picture fits above its caption
 %endif
 DESK_PICX   equ (DESK_CW - DESK_ZW) / 2     ; a drive's picture in its cell
 
@@ -442,7 +445,7 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ;           [desk_ncell] - and every item placed in it by desk_reflow
 ; clobbers: flags
 ;
-; 7 on VGA, 4 on Hercules, 2 on CGA - and at least one, always: a screen with
+; 7 on VGA, 5 on Hercules, 4 on CGA - and at least one, always: a screen with
 ; no room for a single drive icon is not one this OS boots. It was inline in
 ; desk_init, which is boot-overlay code and therefore dead by the time the
 ; Control Panel can change the adapter under it (SPEC.md 39.11.2), so it is
@@ -477,25 +480,36 @@ desk_rowcalc_x:
     mov ax, 32 + DESK_ZGAP + DESK_LBLH - 1
     mov bx, DESK_ZSTEP
     mov si, desk_ico32
+%ifdef OS88_SHORTCUTS
+    mov cx, 32 - 16             ; a link's 16-row picture, bottom-aligned on
+%endif                          ; the drives' 32-row box...
     cmp byte [vid_kind], VID_CGA
     jne .set
-    mov ax, 14 + DESK_ZGAP_S + DESK_LBLH - 1
+    mov ax, DESK_IH_S + DESK_ZGAP_S + DESK_LBLH - 1
     mov bx, DESK_ZSTEP_S
     mov si, desk_ico14
+%ifdef OS88_SHORTCUTS
+    xor cx, cx                  ; ...and at the TOP of the CGA's DESK_IH_S =
+%endif                          ; 16, which is the link's own height
 .set:
     mov [desk_zh1], ax
     mov [desk_zstep], bx
     mov [desk_pico], si
+%ifdef OS88_SHORTCUTS
+    mov [desk_lky], cx
+%endif
 
-    mov ax, [vid_dock_y0]
-    sub ax, DESK_ZY0
+    ; ROWS: the first, and then every whole PITCH that fits below it. The
+    ; last row needs its own [desk_zh1]+1 rows and not a pitch - it was
+    ; (dock - DESK_ZY0) / pitch, which left Hercules a whole row of room
+    ; above its dock unused (324: 4 rows where 5 fit, SPEC.md 26.9.1)
+    neg ax                      ; AX = [desk_zh1] still, from .set
+    add ax, [vid_dock_y0]
+    sub ax, DESK_ZY0 + 1        ; AX = room below the first row
     xor dx, dx
     mov cx, bx                  ; BX still holds the pitch - nothing between
     div cx                      ; .set and here writes it
-    or ax, ax
-    jnz .rows
-    inc ax                      ; AX is 0 by the test above, so the floor of
-.rows:                          ; one row is an inc
+    inc ax                      ; ...and the first row itself
     mov [desk_rows], ax
 
 %ifndef KERN_SMALL
@@ -1638,8 +1652,8 @@ desk_zh1    dw 32 + DESK_ZGAP + DESK_LBLH - 1   ; ...the zone's, MINUS ONE:
 desk_zstep  dw DESK_ZSTEP       ; zone-to-zone pitch
 desk_pico   dw desk_ico32       ; -> the pictures at that height, below
 %ifdef OS88_SHORTCUTS
-desk_lky    dw 32 - 16          ; a shortcut's 16-row picture, bottom-aligned
-                                ; on the drives' picture box (SPEC.md 26.9)
+desk_lky    dw 32 - 16          ; a shortcut's picture row in its cell: 16 on
+                                ; the 32-row box, 0 on the CGA (desk_rowcalc)
 %endif
 
 ; --- the pictures, per height (SPEC.md 26.4.1) - constants, never written ----
@@ -1660,8 +1674,8 @@ section .cold                   ; ...and back to cold code for the far entries
 ; -----------------------------------------------------------------------------
 section .bss
 desk_rows    resw 1             ; zones that fit in one column above the dock
-                                ; (SPEC.md 26.1) - 7 on VGA, 4 on Hercules,
-                                ; 2 on CGA, which is why the wrap exists
+                                ; (SPEC.md 26.9.1) - 7 on VGA, 5 on
+                                ; Hercules, 4 on CGA
 %ifndef KERN_SMALL
 desk_ready   resb 1             ; 0 until kmain has everything in: no reflow
 desk_ncell   resb 1             ; cells on this screen, <= DSL_SLOT

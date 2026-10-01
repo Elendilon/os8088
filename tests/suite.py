@@ -1451,7 +1451,7 @@ FULL = [
         "its own two disks, and it DELETES them first - QEMU mounts B: "
         "writable and the write assertion would otherwise find last run's "
         "files already there",
-        needs=("qemu",), serial=True, builds=True, wants=("build/hello.o88", "build/mines.o88",)),
+        needs=("qemu",), serial=True, builds=True, wants=("build/hello.o88", "build/mines.o88", "build/mseg.o88")),
     Row("stk0water", "soak", py("tests/stk0water.py"), 70.0,
         "how deep TASK 0's stack has actually been (SPEC.md 15.1). That "
         "section says `redo the fill probe before lowering either` and the "

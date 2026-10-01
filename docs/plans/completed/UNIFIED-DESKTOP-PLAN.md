@@ -420,12 +420,12 @@ MEASURED with `tools/kernsize.py` against `9a760ab`, at one commit each:
 |---|---:|---:|
 | `.text` | −16 | 0 |
 | `.bss` | +28 | +15 |
-| `.cold` | −308 | −5 |
-| **resident** | **−296** | **+10** |
+| `.cold` | −300 | −5 |
+| **resident** | **−288** | **+10** |
 | `.ovl` / `.ovlw` | +14 / +17 | +5 / +17 |
 | `CTRL.DRV` | +87 | — |
 
-**kern_big came in 124 short of the ~−420 estimate, and inside section 4's
+**kern_big came in 132 short of the ~−420 estimate, and inside section 4's
 "10 to 30% over" band, at about 20% over.** Two things were added after
 the estimate and are named rather than absorbed. A package's half of
 `OSAPI_DESK_ITEM` sends a 128-byte link through `CTRL.DRV`. A placed drive
@@ -438,7 +438,7 @@ replaced the ordinal arithmetic nearly byte for byte, so the estimate's
 removal of group B was offset by the table's `.bss`. That is well inside D5's
 line, so the code is shared and not gated.
 
-Four things the build found that this plan did not have:
+Six things the build found that this plan did not have:
 
 1. **The right-click popup went into `CTRL.DRV` for a cycle, and that was
    wrong.** Every gesture already loaded the image for its SYSTEM.CFG write,
@@ -467,6 +467,19 @@ Four things the build found that this plan did not have:
    reflow in between saw a placed C: that was not live yet and dropped its
    cell. `[desk_ready]` holds every reflow until kmain has added all the
    volumes (SPEC.md 26.9.3).
+
+5. **The grid left visible slots bare on Hercules**, which the owner saw
+   on the glass. There were two causes. Rows were counted as whole pitches
+   above the dock, though the last row needs only its own 46 rows. And a
+   104 pitch put the leftmost of six columns at x = 100. The fixes are a
+   row count of `(dock − 32 − zh1 − 1) / pitch + 1` and a 102 pitch, so
+   Hercules went from 24 cells to 35, VGA and the CGA are unchanged, and the
+   cost is −1 byte (SPEC.md 26.9.1). The one-byte saving then STALLED
+   kern_small's assembly. `mod.inc` compares against `MOD_STAMP`, which is
+   the sum of the section sizes that compare sits in, and a stamp of
+   0xFF80..0xFFFF has no fixed point. `strict word` ends it, for nothing.
+6. **On the CGA, a link's picture was drawn under its own caption.** Nothing
+   wrote `[desk_lky]` after the port (+9 bytes).
 
 U3 and U4 shipped as their defaults. Section 2.4's run-merging repaint and
 section 4's mirror lever were not built.
