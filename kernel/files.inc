@@ -6744,7 +6744,9 @@ fm_dgdrop:
     mov byte [fcp_cbop], FCP_NONE
     mov ah, SC_OP_NEW           ; CTRL.DRV makes a SHORTCUT of it out of the
     jmp sc_modcall              ; drag's own state and writes SYSTEM.CFG
-                                ; (SPEC.md 26.8.4); the gfx lock is held
+                                ; (SPEC.md 26.8.4); the gfx lock is held, and
+                                ; CX,DX are still the RELEASE point read
+                                ; above - the module may take seconds to load
 %endif
 .out:
     ret

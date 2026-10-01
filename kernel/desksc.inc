@@ -351,9 +351,12 @@ sc_m_cold:
 
 ; -----------------------------------------------------------------------------
 ; sc_m_new - SC_OP_NEW: a Disk window's entry dropped on the bare desktop
-; in:  the drag's own state: [fm_dgwin]/[fm_dgidx] the entry, [fcp_cb*] its
-;      identity (the Cut fm_drag armed, which the caller has disarmed), the
-;      pointer where it was let go
+; in:  CX, DX = where the button was let go - fm_dgdrop's reading, taken
+;      BEFORE this image was loaded: read here, after a floppy load, it was
+;      wherever the hand had gone in the meantime, and the shortcut landed
+;      there and not under the drop; and the drag's own state: [fm_dgwin]/
+;      [fm_dgidx] the entry, [fcp_cb*] its identity (the Cut fm_drag armed,
+;      which the caller has disarmed)
 ; out: nothing; a new shortcut on the nearest free cell and SYSTEM.CFG written,
 ;      or a toast saying why not
 ;
@@ -362,8 +365,6 @@ sc_m_cold:
 ; access after the first far call re-reads [sc_seg] through sc_m_off.
 ; -----------------------------------------------------------------------------
 sc_m_new:
-    mov cx, [mouse_x]
-    mov dx, [mouse_y]
     cmp dx, MBAR_H              ; not the bar, not the dock, not another
     jb .ret                     ; display: those are not the desktop, and a
     cmp dx, [vid_dock_y0]       ; drop there does what it always did -

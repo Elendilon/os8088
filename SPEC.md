@@ -49317,6 +49317,12 @@ clipboard — the drag armed a CUT when it began (§22.4), so a drop here would
 otherwise leave a Paste somewhere else ready to MOVE the original out from
 under the shortcut — and hands the gesture to `CTRL.DRV` (`SC_OP_NEW`).
 
+The drop point goes WITH the gesture, in CX,DX: `fm_dgdrop` read it at the
+release, and the module is read off a floppy after that. For one build
+`CTRL.DRV` read the pointer itself once it had loaded, so a hand that moved
+on during the load put the shortcut under wherever it had gone instead of
+under the drop (`desksc`'s step A moves away at once to catch it).
+
 There, a drop on the menu bar, on the dock or on another display does
 nothing. Anywhere else the shortcut is PLACED on the **NEAREST FREE CELL**:
 by the cell's centre, in city-block pixels, so nobody has to aim at a cell
@@ -49686,7 +49692,7 @@ one commit each:
 | `.cold` | **−300** | −5 |
 | **resident** | **−288** | **+10** |
 | `.ovl` / `.ovlw` (not resident) | +14 / +17 | +5 / +17 |
-| `CTRL.DRV` (on demand) | +87 | — |
+| `CTRL.DRV` (on demand) | +79 | — |
 
 **kern_big is 288 bytes SMALLER and does more**: every item moves, drives
 remember where they were put, a package can place one, and the Wire no

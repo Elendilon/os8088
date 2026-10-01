@@ -231,7 +231,11 @@ def main():
         px, py = ui.row_xy(win, row)
         tx, ty = bare_point(ui, cell_mid(ui, far))
         fresh(ui)
-        ui.mo.drag(px, py, tx, ty)
+        ui.mo.drag(px, py, tx, ty, settle=0)
+        # ...and AWAY at once, while CTRL.DRV is still being read: the cell is
+        # the RELEASE point's, and a module that re-read the pointer once it
+        # had loaded put the shortcut under wherever the hand went next
+        ui.mo.to(*cell_mid(ui, 6))
         saved(ui)
         seg, n, rows = table(ui)
         check(seg != 0, "the table claim exists (sc_seg %#06x, %d rows)"
