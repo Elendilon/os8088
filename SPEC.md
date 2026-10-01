@@ -17336,10 +17336,26 @@ runs bottom-to-top over `wm_zord`, so one pass reaches the whole transitive
 closure. Nothing in that pass may keep a loop counter in a general
 register: `wm_win_rect` writes all four.
 
-**A touched drive zone is folded into the damage rect** before the marking
-pass rather than special-cased inside it: the zone is drawn whole — gray
-fill, icon, label — so a window sitting over it has to be redrawn, and
-growing the rect is what makes the marking notice.
+**A touched drive zone is a per-window test, like the dock below.** The
+zone is drawn whole — gray fill, icon, label — so a window sitting over it
+has to be redrawn. It used to be *folded into the damage rect* to make the
+marking notice, and that over-reached exactly the way the dock's fold did:
+the rect is one box, so a zone grew it for **every** window the box reached,
+over a zone or not. `tmgraph`'s BAR leg is the case — a cover dragged
+sideways below the Task Manager's graph clipped the corner of a desktop cell
+at x 618..717, y 92..137, the damage's top went 94 → 92, and the Task
+Manager, nowhere near the cell, was owed two rows of its graph and redrew 16
+columns of it (§28.10.3). So `desk_dmg_zones` grows its own box,
+`[wm_dmg_zb]`, and leaves the damage alone; `wm_dmg_wins` marks a window
+whose rect overlaps that box, and `wm_su_owed` widens **that window's** owed
+rect by it — the dock strip's two tests, asked of the zones, through one
+`wm_rgrow` the dock's widening now shares. The box is a one-shot argument
+emptied on the way out (x1 > x2 signed, which nothing overlaps). Every pixel
+drawn is drawn as before; what changed is only which windows are told so.
+kern_big **+27** bytes resident (`.text` +34, `.cold` −7), kern_small **+58**
+(`.text` +65, `.cold` −7): the dock's widening going through `wm_rgrow` pays
+for the helper on kern_big, and kern_small has no `DOCK_OPT` widening to
+share it with.
 
 **The dock is not folded in, and that asymmetry is load-bearing.** The strip
 runs the full width of the screen, so a rect grown to reach it is a rect
@@ -17482,11 +17498,11 @@ Four things are load-bearing.
   long enough to land clear of where it started does not overlap its own
   vacated rect, and the mechanism would otherwise decline to draw the one
   window that certainly changed.
-- **A touched drive zone disarms it.** `desk_dmg_zones` grows the damage to
-  every zone it reached and `desk_paint_mask` redraws those zones *whole*, so
-  a window over one is damaged by something that is not the move — at which
-  point the vacated rect no longer describes everything that can have gone
-  stale, and it is dropped rather than reasoned about.
+- **A touched drive zone no longer disarms it.** It did while the zones were
+  folded into the damage, because a window over one was then damaged by
+  something that is not the move. A zone is a per-window test now (§11.91),
+  reached by a skipped window through `.mnodmg` like the dock's, so the
+  vacated rect still describes everything the move itself can have staled.
 - **A skipped window still falls through to the other two tests.** The dock is
   drawn *under* windows, and a marked window *below* is redrawn whole and
   reaches wherever its own rect reaches; this answers only "was anything of
@@ -49052,7 +49068,7 @@ repainting. `[wm_dmg_zn]` is a `dw`, `desk_dmg_zones` answers in AX and
 `desk_paint_mask` shifts DX: **two bytes**, because `mov [mem],ax` and
 `mov ax,[mem]` are the same length as their byte forms. **§26.9.4 has since
 made it a DWORD** of its own, `[desk_dmgm]`, because 24 items do not fit a
-word either.
+word either, and §11.91 retired `[wm_dmg_zn]` for the zones' box.
 
 **`kern_small` leaves the species out** (`%ifndef KERN_SMALL`) — it has no
 driver that would register one. **The CELL is in both kernels** and refuses in
@@ -49733,13 +49749,15 @@ it took — through `desk_cmark`, which sets the cell's bit in the 64-bit
 needed to repaint a mount, an unmount, a driver attaching, a drag or a
 remove. `desk_zones_paint` runs `wm_paint_dmg` (§11.91) once per dirty cell:
 the desktop dither under it, any item now in it, and only the windows that
-overlap it. §26.3's strip — the high-water mark over every zone that might
+overlap it — the CELL, and any neighbouring zone the cell's rect reaches,
+each as its own per-window test and never as a grown damage rect, so a
+window beside the cell is not owed rows of it (§11.91). §26.3's strip — the high-water mark over every zone that might
 have moved — is gone, because the reflow knows exactly which moved.
 
 **The damage mask is a DWORD**, `[desk_dmgm]`, zone *z* at bit 31 − *z*:
-24 items fit neither §26.7's word nor `[wm_dmg_zn]`. `desk_dmg_zones`
+24 items fit neither §26.7's word nor the `[wm_dmg_zn]` it replaced. `desk_dmg_zones`
 rotates each zone's answer in and `desk_paint_mask` spends it, so `wm.inc`
-still sees only "some zone is damaged".
+still sees only the zones' box, `[wm_dmg_zb]`.
 
 #### 26.9.5 One set of gestures, for every item
 

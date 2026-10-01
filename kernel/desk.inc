@@ -1081,10 +1081,13 @@ desk_pm_body:
 
 ; -----------------------------------------------------------------------------
 ; desk_dmg_zones - which zones does the damage rect touch?
-; in:  [wm_dmg_*] (wm.inc); caller holds the gfx lock
-; out: AX != 0 iff any; [desk_dmgm] = the zones, for desk_paint_mask; the
-;      damage rect is GROWN to cover every one (a zone is redrawn whole, so a
-;      window over it has to be marked too). Everything else preserved.
+; in:  [wm_dmg_*] (wm.inc); [wm_dmg_zb] EMPTY; caller holds the gfx lock
+; out: [desk_dmgm] = the zones, for desk_paint_mask; [wm_dmg_zb] = their
+;      bounding box (a zone is redrawn whole, so a window over one has to be
+;      marked too - per window, by wm_dmg_wins). The DAMAGE is not grown:
+;      folded in, it damaged every window the box reached rather than the
+;      ones over a zone (SPEC.md 11.91). AX clobbered, everything else
+;      preserved.
 ;
 ; THE MASK IS A DWORD now, zone z at bit 31-z: shortcuts and drives share one
 ; index space (SPEC.md 26.9) and it is 24 zones on kern_big. Rotated in from
@@ -1098,9 +1101,7 @@ desk_dmg_zones_x:
     push bx
     push cx
     push dx
-    push si
     push di
-    xor si, si                  ; SI = "any"
     mov di, DESK_NZ
 .zone:
     dec di
@@ -1110,8 +1111,7 @@ desk_dmg_zones_x:
     call desk_cell_rect
     call KERNEL_SEG:cw_wm_dmg_hit   ; CF = 1: it touches the damage
     jnc .r
-    call KERNEL_SEG:cw_wm_dmg_add
-    inc si
+    call KERNEL_SEG:cw_wm_dmg_zadd  ; ...so the zones' box grows to it
     stc
     jmp short .r
 .no:
@@ -1121,9 +1121,7 @@ desk_dmg_zones_x:
     rcr word [desk_dmgm], 1
     or di, di
     jnz .zone
-    mov ax, si
     pop di
-    pop si
     pop dx
     pop cx
     pop bx

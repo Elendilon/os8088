@@ -7327,8 +7327,11 @@ cw_wm_timer:            call wm_timer       ; SPEC.md 13.10.5.4.2's PAUSE
                                             ; under SBDRAGOFF=1 as well
 ; ...and HIBER.DRV's seven needs go through cw_mem_disp (`call bp / retf`)
 %endif
-cw_wm_dmg_add:           call wm_dmg_add
-                     retf
+cw_wm_dmg_zadd:          push si             ; desk_dmg_zones grows the
+                         mov si, wm_dmg_zb   ; ZONES' box, not the damage
+                         call wm_runion      ; (SPEC.md 11.91)
+                         pop si
+                         retf
 cw_wm_dmg_hit:           call wm_dmg_hit
                      retf
 cw_wm_dmg_wins:         call wm_dmg_wins
