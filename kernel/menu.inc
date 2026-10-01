@@ -74,9 +74,16 @@ CMD_SEP     equ 4               ; the RULE above Hibernate. It is a MENU_DIS
 CMD_HIBER   equ 5               ; Hibernate... (SPEC.md 87), kern_big only:
 CMD_REBOOT  equ 6               ; kern_small's menu has no such item and its
 CMD_CLOSE   equ 7               ; ids stay one lower
+%ifdef OS88_SHORTCUTS
+CMD_SCDEL   equ 8               ; Locator: File > Remove Shortcut (SPEC.md 26.8.5)
+CMD_TIMER   equ 9               ; --- Locator: Builtins (SPEC.md 12.3.1) ---
+CMD_BOUNCE  equ 10
+CMD_FILES   equ 11
+%else
 CMD_TIMER   equ 8               ; --- Locator: Builtins (SPEC.md 12.3.1) ---
 CMD_BOUNCE  equ 9
 CMD_FILES   equ 10
+%endif
 %else
 CMD_REBOOT  equ 5
 CMD_CLOSE   equ 6               ; --- Locator: File ---
@@ -2659,6 +2666,12 @@ MENU_LOGO_N equ 5               ; ...and menu_relayout stamps this into cell
                                 ; a different file from the list it counts
 menu_items_file:
     dw menu_s_close
+%ifdef OS88_SHORTCUTS
+    dw sc_s_remx                ; item 1, swapped by ui_loc_gate (SPEC.md 26.8.5)
+MENU_FILE_N equ 2
+%else
+MENU_FILE_N equ 1
+%endif
 %ifdef KERN_BIG
 menu_items_builtin:
     dw menu_s_timer
@@ -2677,7 +2690,7 @@ menu_loc_set:
     dw 0                        ; AM_ONCMD: kernel-dispatched
 %ifdef KERN_BIG
     dw 2                        ; AM_COUNT
-    dw menu_s_file,    menu_items_file,    1
+    dw menu_s_file,    menu_items_file,    MENU_FILE_N
     dw menu_s_builtin, menu_items_builtin, 3
 %else
     dw 1                        ; AM_COUNT: File alone (SPEC.md 14.6). The

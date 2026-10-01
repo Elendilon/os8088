@@ -84,6 +84,7 @@ ovl_spl_redraw      spl_reset only (splash.inc:488) - repaint after a mode set
 # --- the settings parser, SPEC.md 51.5 / docs/plans/completed/SETTINGS-COST.md -------------
 # ovl_cfg_load was here for the same reason and has left for the same one: its
 # only caller moved into the section with it.
+ovl_sc_load         ovc_load only (CFG_BOOT's expansion, which IS `.ovl` - the macro is merely DEFINED under `.modc`, where the reader cannot tell a definition from an emission). ovc_load's one caller is ovl_cfg_load, drv_boot_x's, inside kmain_o: the desktop shortcuts' boot read, SPEC.md 26.8.6
 
 # --- not a call at all ------------------------------------------------------
 # kernel.asm:6008 `kbld_ovl: dw ovl_end` is the overlay's LENGTH, resolved by

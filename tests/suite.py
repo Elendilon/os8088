@@ -1486,7 +1486,7 @@ FULL = [
         "its own two disks, and it DELETES them first - QEMU mounts B: "
         "writable and the write assertion would otherwise find last run's "
         "files already there",
-        needs=("qemu",), serial=True, builds=True, wants=("build/hello.o88", "build/mines.o88",)),
+        needs=("qemu",), serial=True, builds=True, wants=("build/hello.o88", "build/mines.o88", "build/mseg.o88")),
     Row("stk0water", "soak", py("tests/stk0water.py"), 70.0,
         "how deep TASK 0's stack has actually been (SPEC.md 15.1). That "
         "section says `redo the fill probe before lowering either` and the "
@@ -3219,9 +3219,8 @@ SOAK = [
         "50% dither so its longest run is 1, and anything drawn over it is "
         "solid somewhere - 36 px against 1 px measured, which separates the "
         "two states by more than a tuned threshold could. It is the only "
-        "thing in the tree that reaches wz_withdraw, desk_zmark's delete edge "
-        "and the `inc byte [desk_zhw]` that covers the ordinal past the last "
-        "volume, and the bug they guard - an icon left on the glass after its "
+        "thing in the tree that reaches wz_withdraw and desk_reflow's "
+        "posting of the cell the item leaves (SPEC.md 26.9), and the bug they guard - an icon left on the glass after its "
         "driver has gone - is invisible to every assertion about state. QEMU "
         "by name: MartyPC has no network card of any kind",
         needs=("qemu", "nasm"), serial=True, timeout=420, builds=True),
@@ -8006,6 +8005,36 @@ SOAK = [
         "SPIN COUNT. This compares three readings computed three ways: the "
         "kernel's sch_cycles, the page's tm_load, and the page's tm_pct.",
         needs=("marty",), serial=True, timeout=900),
+    Row("desksc", "soak", py("tests/desksc.py"), 60.0,
+        "SPEC.md 26.8: DESKTOP SHORTCUTS, every route on one boot. A drag out "
+        "of a Disk window makes one (whole path, header-name caption, the "
+        "badge, the nearest free cell, the drag's Cut DISARMED); SYSTEM.CFG "
+        "carries the trailer verbatim, read back off the guest's own drive "
+        "A:; a double-click opens it, a drag moves it, a REBOOT brings it "
+        "back through the .ovl reader; Delete, Enter on a folder's, a "
+        "document's through its association, a right-click's Remove and "
+        "File > Remove Shortcut; and the claim and the trailer go with the "
+        "last one. `--machine os8088_5150_cga` / `_herc` are the 1bpp looks.",
+        needs=("marty",), timeout=600),
+    Row("tpstore", "soak", py("tests/tpstore.py"), 40.0,
+        "SPEC.md 66: TeXPad's parser stores its own variables through DS. "
+        "Two routines wrote them with `stos` while ES was the SOURCE "
+        "segment, so the bytes went to the source claim at the variable's "
+        "offset - and past a small claim into the next heap block. A: a "
+        "\\begin{tabular} cleared 12 bytes of a Disk window's raise cache, "
+        "which a close put back as a cyan line (no colour may survive). B: "
+        "a \\textbackslash command's name was lost, so `Type \\textbackslash "
+        "section` printed `\\ype` (two documents differing in one letter "
+        "before it must differ in one cell).",
+        needs=("marty",), timeout=600),
+    Row("deskitem", "soak", py("tests/deskitem.py"), 25.0,
+        "SPEC.md 26.9: OSAPI_DESK_ITEM from a PACKAGE. `make deskitem`'s "
+        "DESKITEM.O88 hands the kernel a link to itself through its File "
+        "menu: the link lands in the cell it ASKED for, its hostile record "
+        "comes back terminated and stamped, SYSTEM.CFG carries it, a "
+        "double-click launches the package, and Remove takes the cell, the "
+        "claim and the trailer away again.",
+        needs=("marty",), timeout=600, wants=("build/deskitem360.img",)),
     Row("curdisk", "soak", py("tests/curdisk.py"), 240.0,
         "SPEC.md 7.4: the arrow TRACKS the hand through a disk transfer. It "
         "used to freeze with the machine and then LEAVE THE SCREEN - once an "

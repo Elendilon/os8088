@@ -304,6 +304,17 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %define OS88_ASSOC 1
 %endif
 
+; SPEC.md 26.8's desktop SHORTCUTS - an entry dragged out of a Disk window
+; onto the desktop, kept in SYSTEM.CFG across a reboot - are kern_big's alone.
+; kern_small reads no SYSTEM.CFG at all (SPEC.md 51.5), so there is nothing to
+; keep one in, and every site the feature touches is `%ifdef` over the new code
+; so the 128KB floor assembles byte for byte what it did before. It leans on
+; OS88_ASSOC (a document opens through the association route) and on DOCK_OPT
+; (the grid starts at the band's left edge), both kern_big's already.
+%ifdef KERN_BIG
+  %define OS88_SHORTCUTS 1
+%endif
+
 ; SPEC.md 51's LOADABLE DRIVERS are kern_big's too (SPEC.md 51.0). It is the
 ; largest single item in docs/plans/KERN-SMALL-CUT-PLAN.md's hardware group and the
 ; only one there that is not a device - it is the ABILITY to load one - so it
@@ -4215,32 +4226,20 @@ api_gfx_blitp:                    ; (named: SPEC.md 5.4.3.6's walk far-calls it)
                                   ;         image arm, where it is true: with
                                   ;         no file there is nothing for
                                   ;         op_load to read a part out of
-    OSAPI_RCXCELL osapi_desk_svc_x   ; 0x03F8 - X: a DRIVER registers the
-                                  ;          desktop SERVICE zone (SPEC.md
-                                  ;          26.7). in AL = 1 add / 0
-                                  ;          withdraw, ES:SI = a 39-byte
-                                  ;          record in the driver's own
-                                  ;          segment: a caption, the 8.3 file
-                                  ;          the zone launches out of SYSTEM/,
-                                  ;          its DRVC_* class, the verb the
-                                  ;          kernel calls to PAINT its icon,
-                                  ;          and the package's header name.
-                                  ;          out CF=1 refused - not a
-                                  ;          published driver (osapi_vol_add's
-                                  ;          own fence), a second registration
-                                  ;          (there is ONE zone), or a
-                                  ;          withdraw of somebody else's.
-                                  ;          The kernel keeps no glyph: a
-                                  ;          desktop icon whose picture lived
-                                  ;          in here would be carried by every
-                                  ;          machine, and most of them have no
-                                  ;          card to use it with.
-                                  ;          THE CELL IS IN BOTH KERNELS
-                                  ;          (SPEC.md 20.8 rule 4) and on
-                                  ;          kern_small the body is two
-                                  ;          instructions that refuse: there is
-                                  ;          no driver there that would
-                                  ;          register one
+    OSAPI_RCXCELL osapi_desk_item_x  ; 0x03F8 - X: put an ITEM on the
+                                  ;          desktop, or take one off
+                                  ;          (SPEC.md 26.9). in AL = 1 add /
+                                  ;          0 remove, ES:SI = a record in
+                                  ;          the caller's own segment: a
+                                  ;          DRIVER's is the 40-byte service
+                                  ;          record (26.7), a PACKAGE's a
+                                  ;          128-byte link (26.8.1), and each
+                                  ;          names the cell it would like.
+                                  ;          out CF=0 AL = the zone. It was
+                                  ;          OSAPI_DESK_SVC, a driver's door
+                                  ;          only. kern_small's body refuses
+                                  ;          (SPEC.md 20.8 rule 4: the cell
+                                  ;          is in both kernels)
     OSAPI_RCXCELL osapi_pkg_rehome_x ; 0x03FE - X: a LOADER hands its identity to
                                   ;          one of its own parts (SPEC.md
                                   ;          20.12.10). in DX = the segment the
@@ -5778,6 +5777,16 @@ kmain_o:
                                 ; because settling the contest a second time
                                 ; is what winning it looks like from here
 %endif
+%ifndef KERN_SMALL
+    mov byte [desk_ready], 1    ; from here on the desktop places things...
+%endif
+    call COLD_SEG:desk_rowcalc_x    ; every volume the boot added and every
+                                ; shortcut and placed drive SYSTEM.CFG put
+                                ; back, into their cells in one pass - and
+                                ; rowcalc, not the bare reflow, because the
+                                ; file is HOSTILE: a cell this screen does not
+                                ; have is dropped before the reflow places it
+                                ; anew (SPEC.md 26.9)
                                 ; (SPEC.md 51.3). Before the first paint, so
                                 ; a machine whose sound driver loads has
                                 ; sound from the first frame; nothing here
@@ -6562,6 +6571,10 @@ EXT_YLOW    equ 11              ; ui_ylow's arm, behind its caller's gate
 %include "extmod.inc"             ; EXTD.DRV, the extended desktop
                                   ; (SPEC.md 39.19.6) - kern_big only
 %include "ctrl.inc"
+%include "desksc.inc"           ; desktop shortcuts (SPEC.md 26.8): empty
+                                ; unless OS88_SHORTCUTS (kern_big). AFTER
+                                ; ctrl.inc, because it emits into CTRL.DRV's
+                                ; .modc and that image's HEADER must be first
 %include "hiber.inc"            ; hibernate and resume (SPEC.md 87): the
                                 ; resident thunks, the probe, and HIBER.DRV.
                                 ; After mod.inc for MOD_*, a size here

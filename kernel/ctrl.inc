@@ -919,6 +919,10 @@ modc_e_ondrag:  call cp_ondrag_x
 ; otherwise be an error the user did not make.
 ; -----------------------------------------------------------------------------
 modc_e_onkey:
+%ifdef OS88_SHORTCUTS
+    or si, si                   ; NO WINDOW: not a key at all, but a desktop
+    jz modc_e_sc                ; item's operation (SPEC.md 26.8.7) -
+%endif                          ; sc_modcall's door, which costs no slot
     call kentm_bp                ; KENT: push ax..bp
     mov bx, ax                  ; the KEY, banked: every test below answers in
                                 ; AL and the page wants both halves back

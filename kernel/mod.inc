@@ -457,7 +457,14 @@ mod_check:
                                 ; the safe direction
     cmp word [es:MOD_H_BUILD], BUILD_NUM
     jne .bad
-    cmp word [es:MOD_H_STAMP], MOD_STAMP
+    cmp word [es:MOD_H_STAMP], strict word MOD_STAMP
+                                ; STRICT, because MOD_STAMP is the sum of the
+                                ; section sizes THIS instruction is in: a
+                                ; stamp of 0xFF80..0xFFFF fits a sign-extended
+                                ; byte, the byte shortens .cold, the stamp
+                                ; leaves that range, and nasm never settles
+                                ; ("stalled for 1001 passes"). kern_small hit
+                                ; it on a one-byte saving in desk_rowcalc
     jne .bad
     mov ax, [es:MOD_H_IMG]
     cmp ax, bp                  ; the image IS the file

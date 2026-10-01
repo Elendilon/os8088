@@ -59,7 +59,7 @@ about a state that never existed. It tests the whole desktop from one frame
 now (os88marty `_desktop_up`), so `boot=True` is the wait again.
 
 EVERY COORDINATE IS DERIVED, so this runs on all three adapters. The drive
-zone is desk_ord_xy's arithmetic (SPEC.md 26.1) over [vid_desk_zx] and
+zone is desk_cell_xy (SPEC.md 26.9) on its [desk_zslot] cell, [vid_desk_zx] and
 [desk_rows] read out of the guest - 2 rows on CGA, 4 on Hercules, 7 on VGA,
 so a written-down zone is a different drive on each; the file rows are
 fm_layout's (FM_ROW_Y0 + i*FM_ROW_H below the content top). The frame itself
