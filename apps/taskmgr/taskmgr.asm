@@ -1376,6 +1376,10 @@ tm_s_tfdlg: db 'FileDlg', 0     ; the Standard File dialog's listing (SPEC.md
                                 ; store the moment SPEC.md 22.6.3 abolished
                                 ; the floor listing, and 'FF0F' was on this
                                 ; page for as long as any Save or Open was up
+tm_s_tsc:   db 'Shortcut', 0    ; the desktop shortcuts' one table (SPEC.md
+                                ; 26.8), read off SYSTEM.CFG at boot and held
+                                ; while any shortcut exists - a permanent
+                                ; 'FF11' row on a machine with one, otherwise
 ; (owner word, name) pairs, ended by a 0 owner. MEM_P_WSAVE is NOT here: it is
 ; a RANGE (SPEC.md 11.96.3), one cache per window slot, and tm_htype tests it
 ; before it walks this.
@@ -1402,6 +1406,7 @@ tm_ktab:
     dw MEM_K_CMPR,  tm_s_tcmpr
     dw MEM_K_FDLG,  tm_s_tfdlg
     dw MEM_K_FONT,  tm_s_tfont
+    dw MEM_K_SC,    tm_s_tsc
     dw MEM_P_DIRW,  tm_s_tdirw
     dw MEM_P_ICO,   tm_s_tico
     dw 0

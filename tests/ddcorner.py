@@ -61,6 +61,8 @@ def census(tag, ui, p, say, samples, nopok=False):
     fail = []
     if not D.settle_playing(m, p):
         return ["%s: never reached a playing state" % tag]
+    if "windowed" in tag:
+        D.park(ui)                  # the arrow is not the maze: dotdel.PARK
     m.pause()
     tw, th = p.w("dd_tw"), p.w("dd_th")
     bdx, bdy = p.w("dd_bdx"), p.w("dd_bdy")

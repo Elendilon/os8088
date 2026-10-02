@@ -4899,8 +4899,8 @@ wm_dmg_stale:
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 wm_dmg_add:
-    push si                     ; "all registers preserved", and cw_wm_dmg_add
-    mov si, wm_dmg_x1           ; publishes that to a package
+    push si                     ; "all registers preserved", which
+    mov si, wm_dmg_x1           ; wm_dmg_wins' .dfull relies on
     call wm_runion
     pop si
     ret
@@ -4932,6 +4932,33 @@ wm_runion:
     cmp dx, [si+6]
     jle .d
     mov [si+6], dx
+.d:
+    ret
+
+; -----------------------------------------------------------------------------
+; wm_rgrow - AX/BX/CX/DX grown to cover the rect at DS:SI as well
+; in:  AX = x1, BX = y1, CX = x2, DX = y2 (inclusive); SI = a four-word block
+; out: the four registers grown; flags clobbered, everything else preserved
+;
+; wm_runion the other way round: wm_su_owed widens ONE window's owed rect by
+; the dock strip or the zones' box, and must not move the shared block.
+; -----------------------------------------------------------------------------
+wm_rgrow:
+    cmp ax, [si]
+    jle .a
+    mov ax, [si]
+.a:
+    cmp bx, [si+2]
+    jle .b
+    mov bx, [si+2]
+.b:
+    cmp cx, [si+4]
+    jge .c
+    mov cx, [si+4]
+.c:
+    cmp dx, [si+6]
+    jge .d
+    mov dx, [si+6]
 .d:
     ret
 
@@ -5103,29 +5130,19 @@ wm_paint_dmg:
     mov [wm_dmg_y2], dx
 
     cmp byte [wm_dmg_fs], 0
-    jne .wins                   ; fullscreen: no zones to grow the rect to
-    call COLD_SEG:desk_dmg_zones_x ; AX = the zone mask; the rect grows to cover
-    mov [wm_dmg_zn], ax         ; every zone it touched. A WORD since SPEC.md
-                                ; 26.7: the Wire zone's index is one past the
-                                ; last volume's and DVOL_MAX is 8, so its bit
-                                ; is bit 8 and no volume count makes it fit a
-                                ; byte. The two accessors are the same length
-                                ; either way (A1/A3 vs A0/A2)
-    or ax, ax
-    jz .fill                    ; ...and a zone is redrawn WHOLE, so a window
-    mov word [wm_dmg_stwin], 0  ; over one is damaged by something other than
-                                ; the move: 11.91.2's rect no longer describes
-                                ; everything that can have gone stale, so it
-                                ; is disarmed rather than reasoned about
-
+    jne .wins                   ; fullscreen: no zones to draw
+    call COLD_SEG:desk_dmg_zones_x ; the zones the rect touched, and their
+                                ; box in [wm_dmg_zb] - NOT grown into the
+                                ; damage, which owed every window that box
+                                ; reached (SPEC.md 11.91). wm_dmg_wins asks it
+                                ; per window, as it asks the dock's, so the
+                                ; vacated rect (11.91.2) stays armed too
 .fill:
     mov ax, [wm_dmg_x1]         ; the desktop dither, clipped to the damage,
     mov bx, [wm_dmg_y1]         ; to EACH display's own chrome band and to the
     mov cx, [wm_dmg_x2]         ; windows about to cover it. The band used to
     mov dx, [wm_dmg_y2]         ; be worked out here, from this rect's top-left
     call wm_dmg_gray            ; corner alone - see wm_dmg_bands
-.zones:
-    mov ax, [wm_dmg_zn]
     call COLD_SEG:desk_paint_mask_x ; the touched drive zones, whole
 %ifdef DOCK_OPT
     mov ax, [wm_dmg_x1]         ; reached the strip? then whatever WAS covering
@@ -5160,6 +5177,12 @@ wm_paint_dmg:
     ; front was redrawn above it already has them; if it sat well clear of
     ; the damage it was never touched, and this is the one rect it owes.
 .promote:
+    shr byte [wm_dmg_npro], 1   ; ...unless a pass that uncovered NOTHING says
+    jc .out                     ; no window changed place (SPEC.md 11.91.6):
+                                ; the front window then is the one it was, and
+                                ; its title bar is already right. A one-shot,
+                                ; spent here: `shr` takes the bit into CF and
+                                ; leaves the byte 0
     call wm_top
     or bx, bx
     jz .out
@@ -5261,6 +5284,11 @@ wm_dmg_wins:
                                 ; should be, which reads as a dock overlap
                                 ; test that is right by accident or not at all
 .mnodmg:
+    push si                     ; a desktop ZONE was drawn whole under it
+    mov si, wm_dmg_zb           ; (SPEC.md 11.91): the dock's question, asked
+    call gfx_rect_hit           ; of the zones' box. Empty - x1 > x2, which
+    pop si                      ; no rect overlaps - when none was drawn
+    jc .mset
     cmp byte [wm_dmg_dk], 0     ; the strip was drawn, and it is drawn UNDER
     je .mnodock                 ; windows, so a window the strip was drawn
     call dock_px_hit            ; under is damaged by it - per window, rather
@@ -5376,6 +5404,12 @@ wm_dmg_wins:
     inc si
     jmp .dwin
 .wdone:
+    mov ax, 7FFFh               ; the zones' box is a one-shot too: EMPTY for
+    mov [wm_dmg_zb], ax         ; the next caller, which may draw no zone at
+    mov [wm_dmg_zb+2], ax       ; all (wm_dock_under, fmv_store). AX is the
+    inc ax                      ; entry frame's, and kret_bp puts it back
+    mov [wm_dmg_zb+4], ax
+    mov [wm_dmg_zb+6], ax
     mov byte [wm_dmg_dk], 0     ; consumed: a one-shot argument must not be
     mov word [wm_dmg_stwin], 0  ; left set for a caller that draws no strip -
     mov word [wm_su_son], 0     ; and the vacated rect is one for the same
@@ -5806,9 +5840,14 @@ wm_dmg_shad dw 0                ; bit n = window n owes its DROP SHADOW and
                                 ; nothing else (SPEC.md 11.91.4). Never both:
                                 ; a window in wm_dmg_mask is redrawn whole and
                                 ; the shadow comes with it
-wm_dmg_zn   dw 0                ; bit n = desktop zone n must be redrawn. A
-                                ; WORD, because zone DVOL_MAX is the Wire's
-                                ; (SPEC.md 26.7) and DVOL_MAX is 8
+wm_dmg_zb   dw 7FFFh, 7FFFh, 8000h, 8000h ; the box of every desktop zone
+                                ; this pass draws WHOLE (SPEC.md 11.91), a
+                                ; one-shot wm_dmg_wins empties. EMPTY is
+                                ; x1 > x2 signed: no rect hits it and the
+                                ; first union replaces it
+wm_dmg_npro db 0                ; 1 = this pass promotes nobody: it
+                                ; uncovered nothing (desk_zones_paint, SPEC.md
+                                ; 11.91.6). A one-shot .promote spends
 wm_dmg_fs   db 0                ; 1 = a fullscreen window is over the chrome,
                                 ; so this pass draws windows and nothing else
 wm_dmg_dk   db 0                ; 1 = the dock strip really was drawn, so a
@@ -6372,6 +6411,41 @@ wm_clip_rect:
     pop bx
     pop ax
     retf
+
+; -----------------------------------------------------------------------------
+; wm_zone_r - what a damage pass really reveals of one desktop ZONE
+; in:  AX..DX = the zone's rect, touching [wm_dmg_x1..y2] (desk.inc only ever
+;      asks about one that does, so the intersection is never empty); the
+;      gfx lock held
+; out: CF = 1 the region overflowed - nothing armed;
+;      CF = 0, ZF = 1 nothing of the zone is revealed - nothing armed;
+;      CF = 0, ZF = 0 kern_big: ARMED with that region, for the caller to
+;      draw the zone into and disarm; kern_small: disarmed, a question only
+; clobbers: AX, BX, CX, DX, SI, flags
+;
+; SPEC.md 11.91.6. The region is zone AND damage minus every visible window's
+; FRAME - wm_dmg_gray's own (11.91.1), so the zone and the dither agree on
+; every pixel: an OCCUPIED box would hold the two shadow corners no window
+; draws and the dither does, and a zone clipped by it would leave a dithered
+; pixel where its picture should be. It keeps the shadow L lines, which the
+; zone then draws over - inside the damage, where wm_dmg_shadowed already owes
+; every L the damage reaches. Placed here for the two short `jc`s into
+; wm_clip_clear, which writes no flag.
+; -----------------------------------------------------------------------------
+wm_zone_r:
+    mov si, wm_dmg_x1
+    call gfx_rect_isect         ; zone AND damage...
+    mov si, dx
+    mov dx, bx
+    call wm_clip_seed
+    call wm_dmg_occl            ; ...minus every frame (and an open dock)
+    jc wm_clip_clear            ; overflowed: disarmed, CF still 1
+    cmp word [wm_clip_n], 0     ; ZF = 1: wholly covered (and so disarmed)
+%ifdef KERN_SMALL
+    jmp short wm_clip_clear     ; ...and on kern_small only ever a question
+%else
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; wm_clip_clear - disarm clipping
@@ -8572,10 +8646,18 @@ wm_cov_c4: dw 0
 ; cannot come to disagree about which windows the strip damages.
 ; -----------------------------------------------------------------------------
 wm_su_owed:
-    mov ax, [wm_dmg_x1]
-    mov bx, [wm_dmg_y1]
-    mov cx, [wm_dmg_x2]
+    push si
+    call wm_win_rect            ; this window, shadow included...
+    mov si, wm_dmg_zb           ; ...against the desktop zones this pass drew
+    call gfx_rect_hit           ; WHOLE (CF = 1: one was under it) - the
+    mov ax, [wm_dmg_x1]         ; marking's own test, so the two cannot come
+    mov bx, [wm_dmg_y1]         ; to disagree (SPEC.md 11.91). `mov` writes no
+    mov cx, [wm_dmg_x2]         ; flag
     mov dx, [wm_dmg_y2]
+    jnc .nozone
+    call wm_rgrow               ; it owes the zones too, as a WIDENING - and
+.nozone:                        ; only this window does, which is the point
+    pop si
     cmp byte [wm_dmg_dk], 0
     je .out                     ; dock_paint put nothing on the strip
 %ifdef DOCK_OPT
@@ -8592,21 +8674,15 @@ wm_su_owed:
     pop bx
     pop ax
     jnc .out
-    cmp ax, [dock_lx1]          ; it does, and the strip is drawn UNDER windows,
-    jle .a                      ; so this window owes the whole of it - as a
-    mov ax, [dock_lx1]          ; WIDENING of the painted box, never a
-.a:                             ; replacement. The strip is the PRIMARY's
-    cmp bx, [dock_ly1]          ; (39.14), so replacing would hand a window on
-    jle .b                      ; display 1 a rect disjoint from itself, and
-    mov bx, [dock_ly1]          ; wm_su_srect reads that as "nothing this pass
-.b:                             ; painted reached the content" - which is
-    cmp cx, [dock_lx2]          ; permanent, nothing repaints it after
-    jge .c
-    mov cx, [dock_lx2]
-.c:
-    cmp dx, [dock_ly2]
-    jge .out
-    mov dx, [dock_ly2]
+    push si                     ; it does, and the strip is drawn UNDER windows,
+    mov si, dock_lx1            ; so this window owes the whole of it - as a
+    call wm_rgrow               ; WIDENING of the painted box, never a
+    pop si                      ; replacement. The strip is the PRIMARY's
+                                ; (39.14), so replacing would hand a window on
+                                ; display 1 a rect disjoint from itself, and
+                                ; wm_su_srect reads that as "nothing this pass
+                                ; painted reached the content" - which is
+                                ; permanent, nothing repaints it after
 %else
     push di
     mov di, [si+W_Y]

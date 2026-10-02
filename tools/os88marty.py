@@ -2595,6 +2595,15 @@ def ui_done(m, what="the UI to finish with that input", hold=0.06,
     """
     prog = _Progress(m, what, limit * GUEST_BUDGET_RATIO)
     while True:
+        # THE CLOCK IS READ HERE, EVERY PASS. `spent()` is only as fresh as the
+        # last `check()`, and the commonest way round this loop calls none: a
+        # busy blip breaks the hold on its first poll, the next poll finds the
+        # UI idle again so the busy loop is skipped, and the hold breaks again.
+        # Without this the cap AND the budget were tested against the clock as
+        # it stood when the wait began - a Gorillas key capped at 0.5 guest
+        # seconds ran 67, ending only when a hold survived the host's polls by
+        # luck, which is host timing deciding a guest wait.
+        prog.check()
         if cap is not None and prog.spent() >= cap:
             return prog.spent()
         while not ui_idle(m):

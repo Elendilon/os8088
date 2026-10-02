@@ -2490,18 +2490,18 @@ SOAK = [
     Row("1942front", "soak", py("tests/n1942front.py"), 180.0,
         "1942 desktop splash: native color/contour pixels, XT paint timing, "
         "player selection, help, dragging, direct launch and resume on three adapters",
-        needs=("marty", "nasm", "pil"), wants=("build/1942-360.img", "build/os8088-360.img")),
+        needs=("marty", "nasm", "pil"), wants=("build/1942-360.img", "build/1942.SFX", "build/os8088-360.img")),
     Row("1942sound", "soak", py("tests/n1942sound.py"), 65.2,
         "XT speaker, AdLib-only and Sound Blaster FM/PCM: overlapping music/effects, "
         "all cartridge cues, rests/loops, pause/mute/resume, route preference, "
         "claim refusal, DMA sample bytes/priority, missing-bank fallback, exit/error cleanup, WAV output and guest cycle costs",
-        needs=("marty", "nasm"), wants=("build/1942-360.img", "build/os8088-360.img")),
+        needs=("marty", "nasm"), wants=("build/1942-360.img", "build/1942.SFX", "build/os8088-360.img")),
     Row("1942", "soak", py("tests/n1942.py"), 216.1,
         "Native VGA/CGA graphics, pre-I/O loading, scrolling/ring wrap, aircraft "
         "variety, formations, POWs, results, two-player turns, sound controls, combat, "
         "XT frame rate, missing/damaged banks and desktop restore; "
         "uses a local cartridge when the package was built with one",
-        needs=("marty", "nasm"), wants=("build/1942-360.img", "build/os8088-360.img")),
+        needs=("marty", "nasm"), wants=("build/1942-360.img", "build/1942.SFX", "build/os8088-360.img")),
     Row("excitebikeassets", "soak", py("tests/excitebike_assets.py"), 9.0,
         "EXCITEBIKE asset compiler (SPEC.md 102.2): two compiles of the "
         "committed sources are byte-identical file for file, contact sheets "
@@ -8029,6 +8029,37 @@ SOAK = [
         "section` printed `\\ype` (two documents differing in one letter "
         "before it must differ in one cell).",
         needs=("marty",), timeout=600),
+    Row("zonedmg", "soak", py("tests/zonedmg.py"), 15.0,
+        "SPEC.md 11.91/11.91.6: a window over B:'s cell, a second window "
+        "closed below it whose frame reaches the cell and not the first: the "
+        "first window's pixels over the cell must match a whole repaint. "
+        "Where a zone is drawn WHOLE (kern_small's partly visible cell, "
+        "kern_big's overflow fallback) the windows over it owe a redraw, "
+        "asked per window against [wm_dmg_zb] (tmgraph's BAR leg is the "
+        "over-reach the fold had); on kern_big the cell is drawn only where "
+        "it shows and the window is not touched at all - deskclip is that "
+        "half's gate.",
+        needs=("marty",), timeout=600),
+    Row("deskclip", "soak", py("tests/deskclip.py"), 100.0,
+        "SPEC.md 11.91.6: on kern_big a desktop cell is drawn only where the "
+        "damage pass reveals it - zone AND damage minus every window's "
+        "frame, a fragment at a time, ico_clip cutting the picture's rows "
+        "and columns (11.3.5) - so a window lying on the cell is NOT owed a "
+        "repaint; and an in-place cell repaint uncovered nothing and "
+        "promotes nobody. Three gestures (cell, close, drag) on Hercules and "
+        "VGA: the window over the cell is not redrawn and its pixels there "
+        "match a whole repaint. Red without the frame subtraction (495 px), "
+        "without ico_clip's column masks (32 px) and without the "
+        "nothing-uncovered stores (the window redrawn, a title promoted).",
+        needs=("marty",), serial=True, timeout=900),
+    Row("deskclipsmall", "soak", py("tests/deskclip.py", "--small"), 50.0,
+        "SPEC.md 11.91.6, kern_small's half: a cell the pass reveals NONE "
+        "of is not drawn and marks nobody, and an in-place cell repaint "
+        "promotes nobody. A drag whose mover and a parked window cover B:'s "
+        "cell between them: neither cell is drawn, the parked window is not "
+        "redrawn, its pixels match. Red without the skip (both cells drawn, "
+        "the window redrawn). Builds kern_small into small128's private tree.",
+        needs=("marty",), serial=True, timeout=900),
     Row("deskitem", "soak", py("tests/deskitem.py"), 25.0,
         "SPEC.md 26.9: OSAPI_DESK_ITEM from a PACKAGE. `make deskitem`'s "
         "DESKITEM.O88 hands the kernel a link to itself through its File "

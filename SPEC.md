@@ -958,6 +958,12 @@ KNOB build already has and a shipped build does not use:
   most (`MOUDIAG=1`), and §31.14's `ovl_fdd_apply` took the shipped blob from
   147 spare to 20, which `BOOTMARK=1` needed. `OVL_AT` stays the one literal, which is what
   `tools/os88ladder.py` reads and what describes every kernel a disk carries.
+  §26.8.6's `ovl_sc_load` first left kern_big's own `.ovl` at **2,495 of
+  2,496** - kern_emu six past the line and `BOOTMARK=1` two past even with
+  the give - because its six early refusals were 5-byte `jcc`/`jmp near`
+  pairs to an exit 250 bytes away. Its exits sit AHEAD of its entry now and
+  every one is short: kern_big **2,473**, kern_emu 2,479, `BOOTMARK=1`
+  2,620 and `BOOTHALT=20` 2,624 of a knob's 2,640.
 
 Both are compiled out of every shipped kernel, so `make`, `make small` and
 `make emu` are exactly what they would be without them. Measured (blob `.ovl`
@@ -16511,7 +16517,7 @@ rectangle vocabulary is one choke point. The clipped set is seven:
 | `gfx_xor_fill` | per fragment |
 | `gfx_xor_rect` | **decomposed first**: an outline is not the intersection of its bounding rect with anything, so it becomes four `gfx_xor_fill` strips (each pixel touched once, still self-inverting). `gfx_xor_strips` is that decomposition, written ONCE and given the fill to draw a strip with in `BP` — `gfx_frame` is the same four strips with `gfx_fill`, and the software renderer reaches it through `gfx_xor_fill`'s own `[vid_mono]` dispatch rather than through a twin of its own |
 | `font_char` | whole-cell; covers `font_str` |
-| `icon_draw16` | whole-icon; covers `icon_draw` and `ico_core` |
+| `icon_draw16` | whole-icon on `kern_small`; on `kern_big` the rows AND columns of the one fragment holding most of it (§11.3.5); covers `icon_draw` and `ico_core` |
 
 `gfx_fill_pat` was missing from this list for as long as the list existed,
 and the Task Manager's memory map is drawn almost entirely out of it — every
@@ -17012,6 +17018,45 @@ columns. So a cell whose visible part is two side-by-side fragments is erased
 across both and lettered in one, until the next repaint. It never draws outside
 the region.
 
+#### 11.3.5 An icon draws the part of it ONE fragment holds
+
+§11.3.2 gave a glyph whole rows and §11.3.4 whole columns; an icon stayed
+whole-or-nothing, which was harmless while nothing armed a region over the
+desktop and is the thing §11.91.6 could not be built without: a cell cut by a
+window's edge would have kept its ground and lost its picture. So on
+`kern_big` `ico_core` asks `ico_clip` where it asked `wm_clip_test`.
+
+`ico_clip` takes `wm_clip_rows`'s answer - the row range and the winning
+fragment, the one offering the most rows - works out one 16-bit column mask
+per icon word from that fragment's x1/x2 (`(0FFFFh >> d0) & (0FFFFh << d1)`,
+§11.3.4's two distances with 16 bits for 8), and when the fragment does not
+hold the whole icon **restages the body into `ico_ibuf`**: only the drawable
+rows of the mask table, then the same rows of the data table, every word
+ANDed with its mask, `[ico_h]` and `[ico_y]` moved to match. Both passes
+write only SET bits, so a cleared column is a clipped column, and the passes
+are untouched. Four things are load-bearing.
+
+- **The unclipped path pays nothing.** The call is behind `CLIPQ`'s `je
+  .noclip`, and an icon one fragment holds whole is drawn from its own body,
+  unstaged.
+- **The stage is bounded by construction, not by a test.** `icon_draw_x`
+  refuses wider than a word and taller than `ICO_STAGE_H`, the indexed kind
+  is 32x32, `icon_draw16` is 16x16 and the kernel's plain records are a word
+  wide, so the two tables never exceed `ICO_IBUF_SZ`. The copy runs forward
+  and never passes its source - an indexed body IS `ico_ibuf` and an
+  `icon_draw_x` body starts two bytes into it.
+- **A shift count is clamped to 16, not to "16 or more".** A 286 masks the
+  count to five bits, so a distance of 256 would shift by nothing there.
+- **The cull (§11.3.3) is unchanged**: under it `wm_clip_rows` answers every
+  row, and the icon is drawn whole as before.
+
+It is §11.3.2's direction for every caller, a background painter's included:
+ONE fragment's part, never a pixel outside the region, fewer than are
+visible when the visible part spans fragments - which is why §11.91.6 hands
+it one fragment at a time. `kern_small` keeps the whole-icon answer: its
+desktop never arms a region (§11.91.6's half there is a question, not a
+clip). 198 bytes of `.text` and 4 of `.bss` (`ico_cmw`), `kern_big` only.
+
 ### 11.90 Showing a window costs one window, not one screen
 
 `wm_show` does **not** call `wm_paint_all`. Showing a window is the one
@@ -17316,7 +17361,8 @@ What it draws, in `wm_paint_all`'s order so the layering is identical:
 1. the desktop dither, **clipped to the damage rect** and to the band below
    the menu bar;
 2. every drive zone the rect touches (`desk_dmg_zones` / `desk_paint_mask`,
-   §26), drawn whole;
+   §26) - on `kern_big` only where the pass REVEALS it, on `kern_small`
+   whole unless nothing of it is revealed (§11.91.6);
 3. the dock and the menu bar, **always** — both carry state that a hide or a
    destroy has just changed (a tile leaves, the focus cue moves, the bar
    may lose its owner);
@@ -17330,10 +17376,32 @@ runs bottom-to-top over `wm_zord`, so one pass reaches the whole transitive
 closure. Nothing in that pass may keep a loop counter in a general
 register: `wm_win_rect` writes all four.
 
-**A touched drive zone is folded into the damage rect** before the marking
-pass rather than special-cased inside it: the zone is drawn whole — gray
-fill, icon, label — so a window sitting over it has to be redrawn, and
-growing the rect is what makes the marking notice.
+**A touched drive zone is a per-window test, like the dock below.** The
+zone is drawn whole — gray fill, icon, label — so a window sitting over it
+has to be redrawn. It used to be *folded into the damage rect* to make the
+marking notice, and that over-reached exactly the way the dock's fold did:
+the rect is one box, so a zone grew it for **every** window the box reached,
+over a zone or not. `tmgraph`'s BAR leg is the case — a cover dragged
+sideways below the Task Manager's graph clipped the corner of a desktop cell
+at x 618..717, y 92..137, the damage's top went 94 → 92, and the Task
+Manager, nowhere near the cell, was owed two rows of its graph and redrew 16
+columns of it (§28.10.3). So `desk_dmg_zones` grows its own box,
+`[wm_dmg_zb]`, and leaves the damage alone; `wm_dmg_wins` marks a window
+whose rect overlaps that box, and `wm_su_owed` widens **that window's** owed
+rect by it — the dock strip's two tests, asked of the zones, through one
+`wm_rgrow` the dock's widening now shares. The box is a one-shot argument
+emptied on the way out (x1 > x2 signed, which nothing overlaps). Every pixel
+drawn is drawn as before; what changed is only which windows are told so. `tmgraph` gates the over-reach; `zonedmg` gates the other half — a window
+over a cell that a CLOSED window's frame reached, but which that frame never
+touched, must still come back over the cell (348 of 840 pixels are the cell's
+with the per-window test taken out). **Since §11.91.6 that is the
+fallback on `kern_big`**: a zone is drawn there only where the pass reveals
+it, so it reaches no window and the box is grown only when the region
+overflows; on `kern_small` it is still every partly visible zone's answer.
+kern_big **+27** bytes resident (`.text` +34, `.cold` −7), kern_small **+58**
+(`.text` +65, `.cold` −7): the dock's widening going through `wm_rgrow` pays
+for the helper on kern_big, and kern_small has no `DOCK_OPT` widening to
+share it with.
 
 **The dock is not folded in, and that asymmetry is load-bearing.** The strip
 runs the full width of the screen, so a rect grown to reach it is a rect
@@ -17476,11 +17544,11 @@ Four things are load-bearing.
   long enough to land clear of where it started does not overlap its own
   vacated rect, and the mechanism would otherwise decline to draw the one
   window that certainly changed.
-- **A touched drive zone disarms it.** `desk_dmg_zones` grows the damage to
-  every zone it reached and `desk_paint_mask` redraws those zones *whole*, so
-  a window over one is damaged by something that is not the move — at which
-  point the vacated rect no longer describes everything that can have gone
-  stale, and it is dropped rather than reasoned about.
+- **A touched drive zone no longer disarms it.** It did while the zones were
+  folded into the damage, because a window over one was then damaged by
+  something that is not the move. A zone is a per-window test now (§11.91),
+  reached by a skipped window through `.mnodmg` like the dock's, so the
+  vacated rect still describes everything the move itself can have staled.
 - **A skipped window still falls through to the other two tests.** The dock is
   drawn *under* windows, and a marked window *below* is redrawn whole and
   reaches wherever its own rect reaches; this answers only "was anything of
@@ -17668,6 +17736,106 @@ swallows the old *and* the window is frontmost → one `wm_draw_win`) that the
 identical-rect case already reaches whenever the window is in front. The
 remaining case — a by-name no-op resize on a window that is *not* frontmost —
 is worth a look and is not this change.
+
+#### 11.91.6 A desktop zone is drawn only where the pass reveals it
+
+A zone used to be drawn WHOLE wherever the damage touched it, so it was
+drawn over every window lying on it, so each of those windows was owed a
+repaint (§11.91's per-window `[wm_dmg_zb]` test), so every window above one
+of THEM was marked transitively (§11.91.3's rule). The dither had stopped
+doing this at §11.91.1; the zones were the last layer of the desktop that
+still damaged windows it did not need to. Measured on a 4.77 MHz 8088 before
+this section: a Task Manager lying on a cell repainted itself for 296 ms
+behind a drag that never touched it, and on VGA an in-place cell repaint
+cost a 164.5 ms W_PAINT of the window ABOVE the one on the cell.
+
+**THE REGION is `wm_zone_r`'s: zone AND damage, minus every visible window's
+FRAME** (and an open hidden dock, §30.6.1) - `wm_dmg_gray`'s own region
+intersected with the zone. AND damage, because outside it the zone is
+already right on the glass, and redrawing it flashed the picture's black
+pixels white for a mask pass. FRAMES and not occupied boxes, because a box
+holds the two shadow corners no window draws and the dither does: a zone
+clipped by boxes would leave a dithered pixel where its picture should be.
+The region keeps the shadow L lines, and the zone draws over them - inside
+the damage, where `wm_dmg_shadowed` (§11.91.4) already owes every L the
+damage reaches, so nothing new is needed for them. (A separate "zones'
+shadow box" was built for it, broken on purpose, read 0 pixels, and came
+out.)
+
+**`kern_big` draws each zone into that region, ONE FRAGMENT AT A TIME**
+(`desk_zone_clip`): each fragment is copied into slot 0 of `wm_clip_tab`
+with `[wm_clip_n]` at 1 and `desk_draw_zone` runs unchanged, because
+`font_char` (§11.3.4) and `ico_clip` (§11.3.5) are exact against one
+fragment and under-draw against several. The fragments are disjoint, so no
+pixel is drawn twice, and overwriting slot 0 loses nothing - it was drawn
+first. `wm_paint_all`'s pass still draws every zone whole (`desk_paint_x`
+hands the walk `desk_draw_zone` where the damage pass hands it
+`desk_zone_clip`): there the windows are drawn over it after. **Overflow is
+the old answer** - the zone whole, its box grown into `[wm_dmg_zb]` - so
+§11.91's per-window zone test is the fallback rather than the rule. A zone
+nothing of which is revealed is not drawn at all.
+
+**`kern_small` takes the cheap half.** Its cell is 32 wide and 56 px in from
+the band's edge, so windows cover one routinely; `desk_dmg_zones` asks
+`wm_zone_r` - which on that kernel always leaves the list disarmed, a
+question and not a clip - and a zone nothing of which is revealed is left
+out of the mask and out of the box. Any other zone is drawn whole and marks
+the windows over it, as before. On `kern_big` the same verdict alone would
+buy nothing for the drive column: a cell's caption overhang reaches x 717 /
+637 and §11.94 stops a window's shadow at 713 / 633, so that column is never
+covered.
+
+**A cell repainted IN PLACE uncovered nothing** - a mount, a medium change,
+an item moving between cells (§26.9.4) - and `desk_zones_paint` says so.
+On `kern_big` it arms §11.91.2's vacated rect EMPTY (`[wm_dmg_stwin]` = 1,
+which is no window, and the rect's x2 = -32768, which meets no rect), so a
+window over the cell is not marked by the cell's own damage: with the cell
+clipped it owes only the L the dither ate. Without it the clipped cell is
+dearer and every window over it still repaints (measured: 145 ms against
+131 on Hercules). On BOTH kernels it sets `[wm_dmg_npro]`, a one-shot
+`.promote` spends with one `shr`: **the promotion asked only whether the
+front window was redrawn in this pass, not whether it changed**, so every
+in-place cell repaint redrew the front window's title bar and grow box -
+38 calls, 37.6 ms on Hercules - for pixels that were already right.
+`kern_small` takes only that half: without the clip its windows over a
+partly visible cell are marked by the zones' box whatever the vacated rect
+says, so the empty rect would change nothing there.
+
+The cell's rect is never empty after the clamp - cells are inside the
+desktop band by construction - so these one-shots always reach
+`wm_dmg_wins`, which spends `[wm_dmg_stwin]`, and `.promote`, which spends
+`[wm_dmg_npro]`.
+
+Measured with `tools/deskclip.py` (guest cycles on `os8088_5150_herc_gla`
+and `os8088_xt_vga`, one reveal pass, docs/plans/completed/DESK-CLIP-PLAN.md
+§2.2's layouts):
+
+| gesture | Hercules before -> after | VGA before -> after |
+|---|---|---|
+| a window dragged over the cell column, a window parked over a cell | 233.3 -> **151.1** ms | 195.1 -> **139.2** |
+| ...the parked window the Task Manager (its worker runs inside the span: about +-20 ms) | 779.7 / 761.3 -> **444.5** | 630.7 / 633.7 -> **332.2** |
+| a window closed whose frame reaches a cell another window covers | 156.9 -> **115.6** | 120.5 -> **86.8** |
+| a cell repainted in place under a window | 131.0 -> **72.7** | 238.3 -> **59.3** |
+| a window moved over plain desktop, no cell touched | 202.1 -> 202.2 | 221.0 -> 221.0 |
+
+and `kern_small` on Hercules: the drag **214.9 -> 118.6** (both cells
+covered, the parked window untouched), the in-place repaint **118.3 ->
+83.2** (the promotion), the close 146.8 -> 147.2 (the cell partly visible:
+drawn whole, plus a region build). What it costs: a zone split into two
+fragments pays `desk_draw_zone`'s fixed calls twice, and the in-place row's
+cells phase is 34.9 -> 49.8 ms on Hercules - paid for many times over by
+the window it no longer marks, and dearer only where no window would have
+been spared.
+
+**Bytes, resident.** `kern_big` **+322** (`.text` +233, `.bss` +4, `.cold`
++85: `ico_clip` 198, `wm_zone_r` 24, `desk_zone_clip` 72, the C2 stores and
+the one-shot the rest); `kern_small` **+58** (`.text` +36, `.cold` +22). No
+rung crossed on either, which per §1 is not the point.
+`tests/deskclip.py` (`deskclip`, `deskclipsmall`) is the gate and goes red
+without the frame subtraction (495 pixels), without `ico_clip`'s columns (32
+pixels), without the nothing-uncovered stores (the window redrawn, a title
+promoted), and on `kern_small` without the skip (both cells drawn).
+
 
 ### 11.92 Retitling costs a strip — `wm_title_set`
 
@@ -49052,7 +49220,7 @@ repainting. `[wm_dmg_zn]` is a `dw`, `desk_dmg_zones` answers in AX and
 `desk_paint_mask` shifts DX: **two bytes**, because `mov [mem],ax` and
 `mov ax,[mem]` are the same length as their byte forms. **§26.9.4 has since
 made it a DWORD** of its own, `[desk_dmgm]`, because 24 items do not fit a
-word either.
+word either, and §11.91 retired `[wm_dmg_zn]` for the zones' box.
 
 **`kern_small` leaves the species out** (`%ifndef KERN_SMALL`) — it has no
 driver that would register one. **The CELL is in both kernels** and refuses in
@@ -49733,13 +49901,19 @@ it took — through `desk_cmark`, which sets the cell's bit in the 64-bit
 needed to repaint a mount, an unmount, a driver attaching, a drag or a
 remove. `desk_zones_paint` runs `wm_paint_dmg` (§11.91) once per dirty cell:
 the desktop dither under it, any item now in it, and only the windows that
-overlap it. §26.3's strip — the high-water mark over every zone that might
+overlap it — the CELL, and any neighbouring zone the cell's rect reaches,
+each as its own per-window test and never as a grown damage rect, so a
+window beside the cell is not owed rows of it (§11.91). The pass is told it
+uncovered nothing and promotes nobody, and on `kern_big` each zone is drawn
+only where it shows, so a window lying on the cell is not owed it at all
+(§11.91.6). §26.3's strip — the high-water mark over every zone that might
 have moved — is gone, because the reflow knows exactly which moved.
 
 **The damage mask is a DWORD**, `[desk_dmgm]`, zone *z* at bit 31 − *z*:
-24 items fit neither §26.7's word nor `[wm_dmg_zn]`. `desk_dmg_zones`
+24 items fit neither §26.7's word nor the `[wm_dmg_zn]` it replaced. `desk_dmg_zones`
 rotates each zone's answer in and `desk_paint_mask` spends it, so `wm.inc`
-still sees only "some zone is damaged".
+still sees only the zones' box, `[wm_dmg_zb]` - grown, since §11.91.6, only
+for a zone drawn whole.
 
 #### 26.9.5 One set of gestures, for every item
 
@@ -157496,6 +157670,17 @@ the kernel or the driver:
   those periods; a Live pass turns the ticks since the last one into them
   (a tick is 65,536 PIT counts, a period the file's divisor, the remainder
   kept). Up to `VP_LCAP` frames a pass, as a silent Live play draws.
+- **The card starts LAST.** `vp_lsetup` draws the buttons (Play turned to
+  Pause, 111 ms on a 5150) and hires the worker first, then opens the card
+  on the key's frame, then takes the clock - `vp_lback`'s rule below, at the
+  start. It opened the card first, so the card played on through that draw
+  while the worker waited on the lock, and the worker's first pass landed
+  ~130 or ~185 ms after the card started - before or after its first block
+  interrupt (2,048 bytes is 184 ms at 11,111 Hz) - by WHERE IN A TICK the
+  key arrived. After it, the clock jumped to the block and the pass owed 5
+  to 7 frames against `VP_LCAP`'s 4: 0 to 3 forgiven at the start, the same
+  file, the same machine, decided by the keystroke's phase. Six bytes of
+  `video.o88`'s image (36,900 -> 36,906), no kernel byte.
 - **Pause, F and back go through `vp_upaus`**, the bracket's own pause: Space
   halts the card where it is (verb 10) and resumes it (verb 1); F pauses it
   as the worker stops and the bracket resumes it on its first frame; F back
@@ -159461,8 +159646,12 @@ At most one pending sample starts per game frame; louder events take priority
 over shots. Mute/pause cancels effects; exit closes the stream before freeing
 the claim. Missing samples, memory or unsupported DSP fall back to FM.
 The 360KB original-art disk omits the optional bank for space; the cartridge
-360KB disk and 1.44MB disk include it. The old tone path already used hardware
-tones, so richer sound does not promise an XT speedup.
+360KB disk and 1.44MB disk include it. **The 360KB disk carries every bank
+lz4-packed** (§20.14): raw, the original-art set is 355 data clusters of 354
+and never fitted, and every bank is read with `OSAPI_FILE_READ`, the
+transparent read, so the package's size and checksum tests see the same bytes
+(230 of 354 packed). The 1.44MB disk keeps them raw. The old tone path already
+used hardware tones, so richer sound does not promise an XT speedup.
 Both palette sets at $A770/$A790 are available for the cartridge's final area.
 Original-art builds implement the same game rules using original fallback
 assets and native schedules. No extracted cartridge content is committed.

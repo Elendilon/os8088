@@ -1102,6 +1102,31 @@ section .ovl                    ; the BOOT half (SPEC.md 2.5.1): runs once,
 ; from ovc_load, and costs no resident byte and no disk read - .ovl rides the
 ; fixed ten-sector blob (docs/plans/completed/DESKTOP-SHORTCUTS-PLAN.md 3.1).
 
+; ovl_sc_load's EXITS, AHEAD OF ITS ENTRY. Behind the body they were ~250
+; bytes past its six early refusals, so each assembled as a 5-byte jcc-over-
+; jmp-near pair - 18 bytes of a blob that had ONE left on kern_big and was
+; over on kern_emu and BOOTMARK=1 (SPEC.md 2.5.3.3). Here every one is short.
+ovl_sc_drop:
+    call ovl_sc_free
+ovl_sc_plain:
+    stc
+ovl_sc_out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+ovl_sc_free:
+    mov dx, [sc_seg]
+    mov bx, MEM_K_SC
+    call COLD_SEG:mmf_mem_free
+    xor ax, ax
+    mov [sc_seg], ax
+    mov [sc_nrows], al
+    ret
+
 ; -----------------------------------------------------------------------------
 ; ovl_sc_load - SYSTEM.CFG, when it carries shortcuts (SPEC.md 26.8.6)
 ; in:  the boot volume mounted at its root; ovc_load's read set up in BX, CX,
@@ -1127,21 +1152,20 @@ ovl_sc_load:
     push es
     mov si, drv_cfgname
     call COLD_SEG:dwf_dskw_stat ; DX:CX = its size
-    jc .plain
+    jc ovl_sc_plain
     or dx, dx
-    jnz .plain
+    jnz ovl_sc_plain
     cmp cx, CFG_FBUF
-    jbe .plain                  ; no room for a trailer: today's read
+    jbe ovl_sc_plain                  ; no room for a trailer: today's read
     cmp ch, 4096 >> 8
-    jae .plain                  ; nothing this kernel writes is that big
+    jae ovl_sc_plain                  ; nothing this kernel writes is that big
     mov di, cx                  ; DI = the size
-    mov ax, cx
-    add ax, 1023
+    lea ax, [di+1023]
     mov cl, 10
     shr ax, cl                  ; ...in KB: 3 at the most
     mov bx, MEM_K_SC
     call COLD_SEG:mmf_mem_claim ; DX = the claim, whole-file sized
-    jc .plain
+    jc ovl_sc_plain
     mov ax, sc_reloc            ; ...and MOVABLE: made at boot, it would
     call COLD_SEG:mmf_mem_movable   ; otherwise be a wall low in the arena for
                                 ; the whole session (HEAP-UNPIN-PLAN 2.0)
@@ -1152,7 +1176,7 @@ ovl_sc_load:
     xor dx, dx                  ; SI is still drv_cfgname: dskw_stat and the
                                 ; heap's entries all keep it
     call COLD_SEG:dwf_dskw_read ; AX = the bytes read
-    jc .drop
+    jc ovl_sc_drop
     mov dx, ax                  ; DX = where the head ends: the whole file...
     xor bx, bx                  ; BL = the rows, BH = 1 once a trailer is seen
     mov di, ax                  ; the footer is the last 4 bytes and the
@@ -1182,6 +1206,7 @@ ovl_sc_load:
 .hc:
     push cx                     ; ...which is ovc_deser's AX
     push ds
+    push es                     ; the claim, back into ES after the copy
     push es
     pop ds                      ; DS = the claim
     push cs
@@ -1190,14 +1215,15 @@ ovl_sc_load:
     mov di, ovc_buf
     cld
     rep movsb
+    pop es                      ; ES = the claim
     pop ds
-    mov es, [sc_seg]
     or bh, bh
     jz .none
     mov al, bl                  ; the rows, down to the claim's base...
     mov ah, SC_REC
     mul ah
     mov cx, ax
+    push es                     ; the claim, for the sanitise below
     push ds
     push es
     pop ds
@@ -1210,7 +1236,7 @@ ovl_sc_load:
     mov cl, DESK_SC0            ; (SPEC.md 26.9): the writer put them in their
     rep movsb                   ; final form, and the boot's rowcalc drops any
     pop ds                      ; cell this screen does not have
-    mov es, [sc_seg]
+    pop es                      ; ES = the claim
     mov [sc_nrows], bl
     mov cl, bl
     jcxz .none                  ; placed drives and no shortcut: no claim
@@ -1226,31 +1252,11 @@ ovl_sc_load:
     loop .san
     jmp short .done
 .none:
-    call .free                  ; no trailer after all: give the claim back
+    call ovl_sc_free            ; no trailer after all: give the claim back
 .done:
     pop ax                      ; the head's length
     clc
-    jmp short .out
-.drop:
-    call .free
-.plain:
-    stc
-.out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
-.free:
-    mov dx, [sc_seg]
-    mov bx, MEM_K_SC
-    call COLD_SEG:mmf_mem_free
-    xor ax, ax
-    mov [sc_seg], ax
-    mov [sc_nrows], al
-    ret
+    jmp ovl_sc_out
 
 section .modc                   ; ...and the image's own scratch, IN the
 sc_mz       db 0                ; image: a module may write its own bytes

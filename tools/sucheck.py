@@ -116,8 +116,14 @@ def trivial(m):
 # tile / zone / row are os88geom's, under this module's older names - every
 # coordinate in them is either a live guest word or a checked constant.
 tile = tile_xy
-zone = drive_xy
 row = row_xy
+
+
+def zone(m, vol):
+    """Volume `vol`'s picture centre. drive_xy takes a CELL since SPEC.md 26.9,
+    and a volume's cell is its desk_zslot byte - so B: is cell 1 only while
+    nothing else is placed before it."""
+    return drive_xy(m, drive_ordinal(m, "ABCDEFGH"[vol]))
 
 
 def idle(m, guest=2.0):
