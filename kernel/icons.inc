@@ -171,6 +171,14 @@ icon_draw:
 ; between the two entries is how [ico_ww] and [ico_h] get set, and where SI
 ; is pointing when they are.
 ico_draw_common:
+%ifdef OS88_SHORTCUTS
+    cmp byte [ico_bnd], 0       ; a desktop cell is COMPOSING (SPEC.md 26.9.9):
+    je .scr                     ; the picture goes into its band and not onto
+    call COLD_SEG:ico_band_x    ; the glass, whichever entry it came in by -
+    mov word [ico_c1], (CBLACK << 8) | CWHITE   ; a volume's indexed record,
+    jmp kret_es                 ; a shortcut's, its badge or the Wire's
+.scr:                           ; driver through OSAPI_ICON_DRAW
+%endif
     GFXDENTERCD                 ; whole-shape, like a glyph (SPEC.md 39.14.2)
     call ico_core
     mov word [ico_c1], (CBLACK << 8) | CWHITE   ; SPEC.md 25.6: ONE-SHOT
@@ -1295,5 +1303,25 @@ ico_y       resw 1              ; requested y, clamped to 0 after top clip
 ico_bbop    resb 1              ; bb pass: 0 = or (white), 1 = and-not (black)
 %ifdef KERN_BIG
 ico_cmw     resw ICO_IBUF_WW    ; ico_clip: each icon word's column mask
+%endif
+%ifdef OS88_SHORTCUTS
+; --- a desktop cell's COMPOSE band (SPEC.md 26.9.9) ---------------------------
+; desk_draw_zone lays the ground into ico_band, sets [ico_bnd], draws its
+; picture - every icon entry lands in ico_band_x instead of on the glass - and
+; puts the band down with ONE gfx_blit1, so no pixel of the picture column is
+; written twice. 1 = white, 0 = black, bit 7 leftmost, ICO_BSTR bytes a row.
+ICO_BSTR    equ 4               ; 32 px: the picture column, on the byte grid
+ICO_BROWS   equ 34              ; the picture box and the gap under it: 32 +
+                                ; DESK_ZGAP, asserted in desk.inc where that
+                                ; is defined (a resb wants it on pass one)
+ico_bnd     resb 1              ; 1 = icon draws go to the band
+ico_bx0     resw 1              ; the band's screen x (a multiple of 8)...
+ico_by0     resw 1              ; ...and y
+ico_bh      resw 1              ; its rows, <= ICO_BROWS
+ico_bw      resw 1              ; ...its width in pixels,
+ico_bstr    resw 1              ; ...its stride, and where it is: ico_band,
+ico_bsi     resw 1              ; or desk_cap's text band in ico_ibuf
+ico_bxl     resw 1              ; ...and its first REAL pixel, >= ico_bx0
+ico_band    resb ICO_BSTR * ICO_BROWS
 %endif
 section .text

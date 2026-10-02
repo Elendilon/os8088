@@ -4509,6 +4509,14 @@ whole row, which is what "stride equals width" means. And the `jnc`/`movsb`
 pair goes too — **a stride is odd or even for the whole band**, so the tail
 byte is decided once, outside the loop, by branching to one of two bodies.
 
+
+**`kern_big` lets the caller name that byte's mask** (§26.9.9): with
+`[gfx_b1hm]` nonzero it is the tail's mask instead of the one `CX & 7` makes,
+so a band under 8 px wide is ONE byte under ANY mask - a byte column's right
+pixels as well as its left. A desktop cell is the one caller: it sets it,
+blits a one-pixel-wide band, and clears it. Eleven bytes of the routine and one
+of `.bss`, against a general left-edge mask in every path of it.
+
 #### Which bands take it, and which do not
 
 **It is a SPRITE's path.** A band cut to its own box, a multiple of 8 wide, with
@@ -9876,6 +9884,13 @@ reason: nothing that answers the questions below it may be read stale.
 The rect test stays kern_big's anyway, because §39.27.4 puts kern_small on a
 DIET and nothing may be spent there — so that build keeps the unconditional
 `cur_unlazy` at the same site, which is correct and merely slower.
+
+**`wm_dmg_gray` asks about the DAMAGE rect** on `kern_big` (§26.9.9), where
+it spent the hide outright: an arrow parked away from a desktop repaint
+blinked with every one, 37 px for two or three frames. Nothing the damage
+pass draws under a region reaches outside the damage, and everything it
+draws outside it - a window whole, the dock, the bar - asks for itself, so
+the question is the same answer whenever the arrow could be reached.
 
 #### 7.1.4.5.1 …and what is left is the EAGER spend, which is load-bearing
 
@@ -17760,7 +17775,12 @@ The region keeps the shadow L lines, and the zone draws over them - inside
 the damage, where `wm_dmg_shadowed` (§11.91.4) already owes every L the
 damage reaches, so nothing new is needed for them. (A separate "zones'
 shadow box" was built for it, broken on purpose, read 0 pixels, and came
-out.)
+out.) **On `kern_big` it no longer keeps them** (§26.9.9): `wm_occl_l`
+subtracts each window's frame moved (1,1), which is the L and nothing the
+frame had not already taken, and leaves exactly the two corners. Drawing a
+zone under an L the window pass then draws back was a 1-px column of every
+cell a dragged window stopped on - drawing for nothing, which is what the
+owner's gesture asks to be NONE.
 
 **`kern_big` draws each zone into that region, ONE FRAGMENT AT A TIME**
 (`desk_zone_clip`): each fragment is copied into slot 0 of `wm_clip_tab`
@@ -50055,6 +50075,108 @@ and a per-cell repaint.
 **kern_small takes it** (+10, the plan's D5 set ~100 as the line): its
 table and one-loop reflow replace the ordinal arithmetic nearly byte for
 byte.
+
+#### 26.9.9 A cell is drawn ONCE, and only where it shows
+
+Repainting a desktop cell used to blank it and then draw it: `wm_dmg_gray`
+laid the dither over the cell, `desk_draw_zone` laid it again over the whole
+cell rect, the icon went down in two passes over that (a white mask, then the
+black data), the caption's white rect was filled and the text lettered over
+it, and a selected item was inverted on top of all of it. Every one of those
+passes was on the glass for a frame or more on a 4.77 MHz 8088 - measured
+on MartyPC as **600-1,050 pixels flashing** on VGA and Hercules for one
+in-place repaint of an unchanged cell. It is now **zero** on all three
+adapters, and a window dragged half over the drive column draws **no cell
+at all**. `kern_big` only: `kern_small` is byte-identical to the kernel
+before this and draws as it did.
+
+**The picture column and the caption are on the byte grid.** `DESKPIC`
+rounds a cell's centred column (`DESK_PICX`) to the nearest multiple of 8,
+and `desk_caprect` does the same to the caption's pen whenever the result
+still fits the cell - every caption but a twelve-glyph one. Each moves at
+most 4 px. `DESK_PX` is 102, so the centred x alone is on the grid one
+column in four. Every picture whose x is the column's - a volume's, a
+shortcut's (at +16), the Wire driver's two quadrants - is whole band bytes.
+
+**The column is composed in RAM and put down by ONE `gfx_blit1`** (§5.4.2).
+`ico_band` is 32 x 34 at 1bpp (136 bytes of `.bss`): `desk_gnd` lays the
+desktop's ground into it, and while `[ico_bnd]` is set every icon entry -
+`icon_draw`, `icon_draw_x`, `icon_draw_ix`, and so the Wire driver's
+`OSAPI_ICON_DRAW` through §26.7's paint verb - lands in `ico_band_x` instead
+of on the glass, the mask setting bits and the data clearing them. A selected
+cell is inverted IN the band, which is exactly `desk_zone_hilite`'s XOR of the
+column, so §26.2's partial-flip path still agrees with it. The band takes the
+column when the ground is black or white - Bright's dither or Dark's black,
+which is every 1bpp machine and both monochrome themes on VGA. **Color's teal
+is a third colour a 1bpp band cannot say**, so that theme draws the column
+the way it always did.
+
+**So is the caption, margins and text both.** `desk_cap` composes its whole
+rect - 12 rows, the ground in the selection's colour and the glyphs read out
+of `[font_seg]:[font_base]` - into `ico_ibuf`, which is free once the picture
+is on the glass, and puts it down by the column's own door. A `font_run`
+cannot be the answer here: one that a fragment's edge cuts goes per cell, a
+fill and a transparent glyph over it (§6.1.2), and that IS the blink.
+
+**The ground goes ROUND the column and the caption, not under them.**
+`desk_gnd` fills the cell rect minus the band and minus the caption's rect,
+and `wm_dmg_gray` takes every zone the pass will draw out of its own region
+(`desk_gnd_sub_x`), so nothing lays the dither under a cell first.
+
+**A window's DROP-SHADOW L is no part of a zone's region** (`wm_occl_l`,
+§11.91.6): the frame moved (1,1) covers the L in one rect and leaves the two
+corners no window draws. Before it, a window dragged ONTO the cells
+repainted a 1-px column of every cell it stopped on, and the window pass
+drew the shadow straight back over it - drawing that writes the values
+already there, which no pixel count sees and `tests/deskflash.py` therefore
+counts as calls.
+
+**A band's first pixel off the byte grid is exact in one pass too** -
+a fragment's revealed edge, or a twelve-glyph caption's pen. A window's x
+snaps to 8 (§11.94), so its revealed edge is off the grid whenever its width
+is: a 322-wide Disk window's is 3 px off every time. `gfx_blit1` under-draws
+up to seven columns at such an edge (§5.4.2.7), so `desk_bout` puts that
+byte column down alone: a one-pixel-wide band, which is §5.4.2.5's tail byte
+and only it, under `[gfx_b1hm]`'s exact mask, with the fragment widened to
+the byte so the region still answers its rows - and then the rest from the
+next byte, on the grid. A band that starts right of the region draws
+nothing at all: the mask would be empty, which `[gfx_b1hm]` reads as "no
+override".
+
+**A cell cut into fragments is composed once.** `desk_zone_clip` calls
+`desk_draw_zone` for its first fragment and `desk_draw_zone_k` for the rest,
+which reuse the picture's band (`[desk_bz]`).
+
+**And the pointer stops blinking with the desktop**: `wm_dmg_gray` asks
+`cur_lazyrect` about the damage instead of spending the hide outright
+(§7.1.4.5).
+
+**Measured** - the owner's gesture on a 4.77 MHz 8088 under MartyPC
+(a Disk window dragged to half cover the drive column, then back left by 8
+and by 24 px; pixels in the drive column outside the window), and an
+in-place repaint of an unchanged cell:
+
+| | before: changed / flashed | after: changed / flashed |
+|---|---:|---:|
+| in-place repaint, VGA / Hercules | 1,161 / 636 · 1,346 / 900 | **0 / 0** · **0 / 0** |
+| VGA, half over the column | 198 / 1 | **0 / 0, no cell drawn** |
+| VGA, 8 px back (edge 3 px off the grid) | 897 / 203 | 599 / **0** |
+| VGA, 24 px back | 1,880 / 135 | 1,639 / **0** |
+| Hercules, 24 px back | 639 / 28 | 516 / **0** |
+| CGA: in place, over, 8 back, 24 back | - | 0/0, 0/0, 374/0, 1,127/0 |
+
+What still flashes beside a dragged window is NOT a cell's: the drag outline
+is drawn at the pointer's unsnapped x and erased after §11.96.13's snap, and
+on Hercules the shadow's row under the window - both identical on the kernel
+before this.
+
+Time, `tools/deskclip.py` (guest ms, one pass, Hercules / VGA): a drag over
+the cells **151.1 → 129.0 / 139.2 → 122.0**; an in-place repaint of a cell a
+parked window cuts into three fragments 72.7 → 72.1 / 59.3 → 67.6.
+
+**Cost**, `tools/kernsize.py` against the same commit without it: kern_big
+`.text` +104, `.cold` +914, `.bss` +153 - **1,171 resident bytes**;
+kern_small 0. `tests/deskflash.py` is the gate.
 
 ## 27. HELLO and NOTEPAD — the second and third packages
 

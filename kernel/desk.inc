@@ -42,6 +42,17 @@ DESK_IH_S   equ 16              ; ...and a shortcut's 16 rows on kern_big, so
                                 ; a link's picture fits above its caption
 %endif
 DESK_PICX   equ (DESK_CW - DESK_ZW) / 2     ; a drive's picture in its cell
+%ifdef OS88_SHORTCUTS
+; THE PICTURE COLUMN IS ON THE BYTE GRID (SPEC.md 26.9.9): the centred x
+; rounded to the nearest multiple of 8, so it moves at most 4 px and every
+; picture whose x is the column's - a volume's, the Wire's, a shortcut's - is
+; whole band bytes. DESK_PX is 102, so the centred x alone is on the grid one
+; column in four. %1 = a cell's left in, the column's left out; %2 its low byte
+%macro DESKPIC 2
+    add %1, DESK_PICX + 4
+    and %2, 0F8h
+%endmacro
+%endif
 
 ; --- the table's byte (SPEC.md 26.9) ------------------------------------------
 DSL_SLOT    equ 0x3F            ; the cell...
@@ -1046,6 +1057,29 @@ desk_caprect:
     shr cx, 1                   ; CX = the pen's offset in the cell
     pop ax
     call desk_zone_xy           ; AX = cell left, DX = cell top
+%ifdef OS88_SHORTCUTS
+    ; ON THE BYTE GRID when it still fits the cell (SPEC.md 26.9.9): the pen
+    ; rounded to the nearest multiple of 8, which moves it at most 4 px and
+    ; leaves desk_cap's band a whole number of bytes from its first glyph.
+    ; Twelve glyphs fill the cell and keep the exact centre
+    push di
+    mov di, ax
+    add di, cx
+    add di, 4
+    and di, 0FFF8h              ; DI = the rounded pen
+    cmp di, ax
+    jl .exact                   ; left of the cell
+    push ax
+    add ax, DESK_CW
+    sub ax, bx                  ; AX = the last pen the cell holds
+    cmp di, ax
+    pop ax
+    jg .exact
+    mov cx, di
+    sub cx, ax                  ; the offset that pen makes
+.exact:
+    pop di
+%endif
     add ax, cx                  ; AX = the pen
     lea cx, [bx-1]
     add cx, ax
@@ -1140,6 +1174,7 @@ desk_zone_clip:
     push es
     push ds
     pop es
+    mov bx, desk_draw_zone      ; the first fragment composes the cell...
 .frag:
     mov di, wm_clip_tab         ; fragment k into slot 0...
     movsw
@@ -1148,7 +1183,8 @@ desk_zone_clip:
     movsw
     mov word [wm_clip_n], 1     ; ...and only it armed
     mov al, dl
-    call desk_draw_zone
+    call bx
+    mov bx, desk_draw_zone_k    ; ...and the rest reuse it (SPEC.md 26.9.9)
     loop .frag
     pop es
     call KERNEL_SEG:cw_wm_clip_clear
@@ -1460,20 +1496,22 @@ desk_zone_redraw:
 desk_zone_hilite:
 %ifdef OS88_SHORTCUTS
     push ax                     ; THE PICTURE COLUMN, the picture box and the
-    call desk_zone_xy           ; gap under it - which holds a drive's picture,
-    add ax, DESK_PICX           ; the Wire's, and a shortcut's with its badge
-    mov bx, dx                  ; (both sit in it, desk_draw_zone) - then the
-    mov cx, ax                  ; CAPTION, which may be wider than the column
-    add cx, DESK_ZW - 1         ; and is the other half of what a selected
-    add dx, [desk_zh1]          ; item looks like. The column stops where the
-    sub dx, DESK_LBLH           ; label band starts, so the two never overlap
-    call ct_cw_gfx_xor_fill     ; and no pixel is flipped twice
-    pop ax
-    push si
-    push es
-    call desk_caprect
-    pop es
-    pop si
+    call desk_col_xor           ; gap under it - which holds a drive's picture,
+    pop ax                      ; the Wire's, and a shortcut's with its badge
+    push si                     ; (both sit in it, desk_draw_zone) - then the
+    push es                     ; CAPTION, which may be wider than the column
+    call desk_caprect           ; and is the other half of what a selected
+    pop es                      ; item looks like. The column stops where the
+    pop si                      ; label band starts, so the two never overlap
+    jmp ct_cw_gfx_xor_fill      ; and no pixel is flipped twice
+desk_col_xor:                   ; ...the column alone, AL = the zone
+    call desk_zone_xy
+    DESKPIC ax, al
+    mov bx, dx
+    mov cx, ax
+    add cx, DESK_ZW - 1
+    add dx, [desk_zh1]
+    sub dx, DESK_LBLH
 %else
     call desk_zone_xy           ; kern_small: the drive's column, top to bottom
     mov bx, dx                  ; - picture, gap and label band - which is
@@ -1496,6 +1534,10 @@ desk_zone_hilite:
 ;   CACHE   a shortcut: its stored 16x16 body, and the badge beside it (26.8.3)
 ; -----------------------------------------------------------------------------
 desk_draw_zone:
+%ifdef OS88_SHORTCUTS
+    mov byte [desk_bz], 0       ; a FRESH draw: nothing composed is reused
+desk_draw_zone_k:               ; ...and desk_zone_clip's later fragments of
+%endif                          ; the same cell, which reuse its band
     push ax
     push bx
     push cx
@@ -1510,8 +1552,61 @@ desk_draw_zone:
     jc .done                    ; not shown: nothing to draw
     mov [desk_zx], ax
     mov [desk_zy], dx
+%ifdef OS88_SHORTCUTS
+    ; EVERY PIXEL ONCE (SPEC.md 26.9.9). The ground goes round the picture
+    ; column and the caption rather than under them; the column is composed
+    ; in ico_band and put down by one gfx_blit1, selection and all; and the
+    ; caption is its margins plus one font_run in the selection's colours. A
+    ; cell repainted in place used to blank to the dither and then draw - a
+    ; blink on every repaint, measured at 600-1,050 px on VGA and Hercules.
+    call desk_gnd               ; the ground; [desk_bz] = zone + 1 when the
+    mov al, [desk_zdrv]         ; band takes the column, and [ico_bnd] = 1
+    inc ax                      ; when it still has to be composed
+    cmp al, [desk_bz]
+    jne .scr
+    shr byte [ico_bnd], 1
+    jnc .have                   ; an earlier fragment of this cell composed it
+    inc byte [ico_bnd]
+    call desk_pic               ; the picture into the band...
+    mov byte [ico_bnd], 0
+    mov al, [desk_sel]          ; ...and the selection, every bit of it: the
+    cmp al, [desk_zdrv]         ; band IS the column
+    jne .have
+    mov si, ico_band
+    mov cx, [ico_bh]
+.inv:
+    not word [si]
+    not word [si+2]
+    add si, ICO_BSTR
+    loop .inv
+.have:
+    call desk_bout              ; ...onto the glass
+    jnc .label
+    mov byte [desk_bz], 0       ; refused: the column's ground, and the
+    call desk_pgnd              ; picture drawn the way it always was
+.scr:
+    call desk_pic
+    mov al, [desk_sel]
+    cmp al, [desk_zdrv]
+    jne .label
+    call desk_col_xor           ; ...and its selection the way it always was
+.label:
+    call desk_cap
+.done:
+    pop ax
+    mov [gfx_color], ah
+    pop es
+    pop bp
+    jmp kretc_si
+
+; desk_pic - desk_draw_zone's picture: the zone's 32-wide column at
+; [desk_zx]/[desk_zy], into ico_band or onto the glass as [ico_bnd] says.
+; Clobbers AX, BX, CX, DX, SI, BP, ES.
+desk_pic:
+%else
     call desk_rect_ax
     call KERNEL_SEG:cw_thm_desk ; the ground under the cell and the overhang
+%endif
     mov cx, [desk_zx]
     mov dx, [desk_zy]
     mov bl, [desk_zdrv]
@@ -1519,8 +1614,8 @@ desk_draw_zone:
     cmp bl, DESK_SC0
     jae .link
 %endif
-%if DESK_PICX
-    add cx, DESK_PICX           ; the 32-wide picture, centred in the cell
+%ifdef OS88_SHORTCUTS
+    DESKPIC cx, cl              ; the 32-wide picture, in the cell's middle
 %endif
     mov si, [desk_pico]         ; [diskette, 5.25", hard disk] at this height
 %ifndef KERN_SMALL
@@ -1548,7 +1643,8 @@ desk_draw_zone:
     call sc_row                 ; carries an icon header in front of its body
     lea si, [bx+SC_R_HDR]       ; (SPEC.md 26.8.1), so the two ARE a record
     mov cx, [desk_zx]           ; for icon_draw_x, which reads ES:SI
-    add cx, SC_PICX
+    DESKPIC cx, cl
+    add cx, SC_PICX - DESK_PICX
     add dx, [desk_lky]          ; bottom-aligned on a drive's picture box, so
     mov bp, icon_draw_x         ; a row of mixed items lines up
     call ct_cw_mem_disp
@@ -1567,6 +1663,9 @@ desk_draw_zone:
     mov si, [si]
     call KERNEL_SEG:cw_icon_draw_ix
 .label:
+%ifdef OS88_SHORTCUTS
+    ret
+%else
     mov al, [desk_zdrv]         ; --- the caption, in a white rect that hugs
     call desk_caprect           ; it (SPEC.md 26.4), drawn as one opaque run
     mov byte [gfx_color], CWHITE    ; (26.6) - out of ES:SI, which for a
@@ -1587,6 +1686,472 @@ desk_draw_zone:
     pop es
     pop bp
     jmp kretc_si
+%endif
+
+%ifdef OS88_SHORTCUTS
+%if ICO_BROWS != 32 + DESK_ZGAP
+  %error "ico_band's rows are the tallest picture box plus DESK_ZGAP (icons.inc's ICO_BROWS)"
+%endif
+; -----------------------------------------------------------------------------
+; desk_gnd - the ground of zone [desk_zdrv]'s rect, MINUS its picture column
+;            when that can be composed, and minus its caption's rect - and
+;            the band armed and laid with the same ground when it can
+; in:  [desk_zdrv], [desk_zx], [desk_zy]; the gfx lock held
+; out: [ico_bnd] = 1 and ico_band holds the ground, or 0; clobbers AX..DI
+;
+; The band can take the column when the ground is black or white - Bright's
+; dither or Dark's black, which is every 1bpp machine and both monochrome
+; themes on VGA - and when at most one fragment is armed. Color's teal is a
+; third colour a 1bpp band cannot say, so that theme draws the column the way
+; it always did.
+; -----------------------------------------------------------------------------
+desk_gnd:
+    mov word [ico_bsi], ico_band    ; the picture's band: desk_cap's text
+    mov word [ico_bstr], ICO_BSTR   ; band reuses the descriptor after it
+    mov word [ico_bw], ICO_BSTR * 8
+    mov ax, [desk_zx]
+    DESKPIC ax, al              ; the band IS the column
+    mov [ico_bx0], ax
+    mov [ico_bxl], ax
+    mov dx, [desk_zy]
+    mov [ico_by0], dx
+    mov cx, [desk_zh1]
+    sub cx, DESK_LBLH - 1       ; the picture box and the gap under it
+    mov [ico_bh], cx
+%ifdef OS88_THEME
+    mov bx, 0AAFFh              ; BH = an even row's byte, BL what an odd row
+    cmp byte [thm_deskc], THM_DITHER    ; XORs it with: SPEC.md 26's dither...
+    je .pat
+    xor bx, bx                  ; ...or Dark's black
+    cmp byte [thm_deskc], CBLACK
+    jne .whole
+.pat:
+%else
+    mov bx, 0AAFFh
+%endif
+    cmp word [wm_clip_n], 1     ; nothing armed, or the ONE fragment
+    ja .whole                   ; desk_zone_clip arms (desk_bout cuts it)
+    mov al, [desk_zdrv]
+    inc ax
+    cmp al, [desk_bz]
+    je .lr                      ; composed already, for this cell
+    mov [desk_bz], al
+    push es
+    push ds
+    pop es
+    mov di, ico_band
+.row:
+    mov al, bh                  ; the dither's phase is the ABSOLUTE row's
+    test dl, 1                  ; (gfx_fill_gray), and the band's x is even
+    jz .even
+    xor al, bl
+.even:
+    mov ah, al
+    stosw                       ; ICO_BSTR = 4
+    stosw
+    inc dx
+    loop .row
+    pop es
+    mov byte [ico_bnd], 1
+.lr:
+    mov ax, [ico_bx0]           ; the ground LEFT of the band...
+    dec ax
+    mov cx, ax
+    mov ax, [desk_zx]
+    sub ax, DESK_ZOVER
+    call desk_gpic
+    mov ax, [ico_bx0]           ; ...and RIGHT of it
+    add ax, ICO_BSTR * 8
+    jmp short .right
+.whole:
+    mov byte [desk_bz], 0
+    mov ax, [desk_zx]           ; the picture rows, the whole width
+    sub ax, DESK_ZOVER
+.right:
+    mov cx, [desk_zx]
+    add cx, DESK_CW + DESK_ZOVER - 1
+    call desk_gpic
+    mov al, [desk_zdrv]         ; the caption's rows, either side of its rect
+    call desk_caprect
+    push cx
+    mov cx, ax
+    dec cx
+    mov ax, [desk_zx]
+    sub ax, DESK_ZOVER
+    call desk_gfill
+    pop ax
+    inc ax
+    mov cx, [desk_zx]
+    add cx, DESK_CW + DESK_ZOVER - 1
+    jmp short desk_gfill
+
+%if ICO_BSTR != 4 || ICO_BSTR * 8 != DESK_ZW
+  %error "the band is the 32-wide column: desk_gnd lays a row as two stosw and desk_bout inverts it as two words"
+%endif
+
+; desk_pgnd - the ground under the band's rect (a refused blit)
+desk_pgnd:
+    mov ax, [ico_bx0]
+    mov cx, ax
+    add cx, ICO_BSTR * 8 - 1
+; desk_gpic - the ground over AX..CX in the picture rows
+desk_gpic:
+    mov bx, [ico_by0]
+    mov dx, bx
+    add dx, [ico_bh]
+    dec dx
+; desk_gfill - the ground over AX,BX..CX,DX, if it is not empty
+desk_gfill:
+    cmp ax, cx
+    jg .no
+    call KERNEL_SEG:cw_thm_desk
+.no:
+    ret
+
+; -----------------------------------------------------------------------------
+; desk_bout - a band onto the glass: [ico_bsi] at [ico_bx0],[ico_by0],
+;             [ico_bw] x [ico_bh], [ico_bstr] bytes a row - the picture
+;             column's, or the caption text's
+; out: CF = gfx_blit1's answer; clobbers AX..SI, BP, ES
+; -----------------------------------------------------------------------------
+desk_bout:
+    mov ax, [ico_bxl]           ; the band's own first pixel...
+    mov bx, 7FFFh               ; (BX = the last pixel a region allows)
+    cmp word [wm_clip_n], 0
+    je .edge
+    mov bx, [wm_clip_tab+WCR_X2]
+    mov dx, [wm_clip_tab+WCR_X1]
+    cmp dx, ax
+    jle .edge
+    xchg ax, dx                 ; ...or the fragment's, right of it
+.edge:
+    cmp ax, bx
+    jg .done                    ; it starts past the region: nothing shows
+    test al, 7
+    jz desk_blit                ; on the grid: one blit, the region exact
+    mov dx, [ico_bx0]
+    add dx, [ico_bw]
+    dec dx
+    cmp ax, dx
+    jg desk_blit                ; right of the band: the region leaves nothing
+    ; THE HEAD: the first pixel is off the byte grid - a fragment's edge, or
+    ; the caption text's pen - where gfx_blit1 would under-draw (SPEC.md
+    ; 5.4.2.7) or write the band's leading ground over what is beside it. That
+    ; byte column goes down ALONE, one byte a row under its exact mask
+    ; (gfx_b1hm), and the rest from the next byte, on the grid
+    push ax
+    mov cx, ax
+    and cx, 7
+    mov dl, 0FFh
+    shr dl, cl                  ; DL = the first pixel and those right of it...
+    or al, 7
+    cmp bx, ax
+    jge .hm                     ; ...and only those up to the region's last,
+    mov cl, bl                  ; when that is in the same byte
+    and cl, 7
+    mov dh, 07Fh
+    shr dh, cl
+    not dh
+    and dl, dh
+.hm:
+    mov [gfx_b1hm], dl
+    push word [wm_clip_tab+WCR_X1]  ; the fragment widened to the head's whole
+    push word [wm_clip_tab+WCR_X2]  ; byte, so the region still answers its
+    cmp bx, ax                      ; rows and the mask is the cut (with none
+    jge .hx                         ; armed the slot is not read)
+    mov [wm_clip_tab+WCR_X2], ax
+.hx:
+    and al, 0F8h
+    mov [wm_clip_tab+WCR_X1], ax
+    push bx
+    call desk_bpart             ; one pixel wide: the tail byte and only it
+    mov byte [gfx_b1hm], 0
+    pop bx
+    pop word [wm_clip_tab+WCR_X2]
+    pop word [wm_clip_tab+WCR_X1]
+    pop ax
+    or al, 7
+    inc ax                      ; the next byte...
+    cmp ax, bx
+    jg .done                    ; ...past what the region allows: done
+    mov cx, [ico_bw]
+    add cx, [ico_bx0]
+    sub cx, ax                  ; CX = what is left of the band
+    jle .done
+    jmp short desk_bpart_w
+.done:
+    clc
+    ret
+
+; desk_bpart - the band from column AX (on the grid) on: one pixel of it, or
+; desk_bpart_w's CX of them
+desk_bpart:
+    mov cx, 1
+desk_bpart_w:
+    mov si, ax
+    sub si, [ico_bx0]
+    shr si, 1
+    shr si, 1
+    shr si, 1
+    add si, [ico_bsi]
+    jmp short desk_b1
+desk_blit:
+    mov si, [ico_bsi]
+    mov ax, [ico_bx0]
+    mov cx, [ico_bw]
+desk_b1:                        ; ...SI, AX and CX the caller's
+    push ds
+    pop es
+    mov bp, [ico_bstr]
+    mov bx, [ico_by0]
+    mov dx, [ico_bh]
+    jmp gfx_blit1_x
+
+; -----------------------------------------------------------------------------
+; ico_band_x - icons.inc's ico_draw_common while a cell composes: the record
+;              into ico_band instead of onto the glass (SPEC.md 26.9.9)
+; in:  CX = x, DX = y (screen), SI -> the body (mask rows, then data rows),
+;      [ico_ww], [ico_h]; the band armed
+; out: nothing; clobbers AX..DI, BP and [ico_h] (ico_draw_common's entry saved
+;      every register, and every entry sets [ico_h] afresh)
+;
+; The screen pass's rule, in RAM: the mask lays white and the data black over
+; it. Rows and bytes outside the band are dropped - nothing a cell draws is
+; outside it, and the test is what makes that a property rather than a hope.
+; -----------------------------------------------------------------------------
+ico_band_x:
+    mov al, [ico_h]             ; <= 32
+    mul byte [ico_ww]
+    shl ax, 1
+    mov bp, ax                  ; BP = a data word's distance from its mask's
+    sub cx, [ico_bx0]           ; x in the band...
+    jl .out                     ; (left of it: never, by construction)
+    sub dx, [ico_by0]           ; ...and the record's top row
+.row:
+    cmp dx, [ico_bh]            ; unsigned: above the band is huge
+    jae .next
+    mov di, dx                  ; DI -> the band's row (ICO_BSTR = 4)
+    shl di, 1
+    shl di, 1
+    add di, ico_band
+    push cx
+    push si
+    mov bh, [ico_ww]
+.w:
+    mov ax, cx                  ; ON THE BYTE GRID - every picture but the
+    test al, 7                  ; badge, the column being on it (DESKPIC):
+    jnz .slow                   ; the word is two band bytes as it stands
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    cmp ax, ICO_BSTR - 1
+    jae .slow                   ; (past the band: the slow path drops it)
+    push di
+    add di, ax
+    mov ax, [si]                ; the mask, set...
+    xchg al, ah
+    or [di], ax
+    mov ax, [ds:si+bp]          ; ...and the data over it, cleared
+    xchg al, ah
+    not ax
+    and [di], ax
+    pop di
+    jmp short .wn
+.slow:
+    mov ax, [si]                ; the mask, set...
+    mov bl, 0
+    call ico_bput
+    mov ax, [ds:si+bp]          ; ...and the data over it, cleared
+    inc bx
+    call ico_bput
+.wn:
+    inc si
+    inc si
+    add cx, 16
+    dec bh
+    jnz .w
+    pop si
+    pop cx
+.next:
+    mov ax, [ico_ww]
+    shl ax, 1
+    add si, ax
+    inc dx
+    dec word [ico_h]
+    jnz .row
+.out:
+    retf
+
+; ico_bput - 16 pixels into one band row: AX = them (bit 15 leftmost), CX =
+; their x in the band (>= 0), DI -> the row, BL = 0 to set, 1 to clear;
+; [ico_bstr] bytes a row.
+; Clobbers AX, flags.
+ico_bput:
+    push cx
+    push dx
+    push si
+    push di
+    mov si, cx
+    and cx, 7
+    xor dl, dl
+    jcxz .al
+.sh:
+    shr ax, 1                   ; AH, AL, DL = the three band bytes the
+    rcr dl, 1                   ; sixteen pixels land in
+    loop .sh
+.al:
+    shr si, 1
+    shr si, 1
+    shr si, 1                   ; SI = the first byte's index
+    add di, si                  ; ...and DI the byte
+    xchg al, ah
+    mov dh, 3
+.b:
+    cmp si, [ico_bstr]
+    jae .out                    ; past the band, and so is the rest
+    or bl, bl
+    jnz .clr
+    or [di], al
+    jmp short .nb
+.clr:
+    not al
+    and [di], al
+.nb:
+    mov al, ah
+    mov ah, dl
+    inc si
+    inc di
+    dec dh
+    jnz .b
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; desk_gnd_sub - take every zone [desk_dmgm] marks out of the armed list
+; (wm_dmg_gray's region): each draws its own whole rect now, ground included
+; (SPEC.md 26.9.9), so the dither laid under it first was the blank half of a
+; blink. Far, from wm_dmg_gray. out: CF = 1 the list overflowed; all registers
+; preserved.
+; -----------------------------------------------------------------------------
+desk_gnd_sub_x:
+    call kentc_bp
+    mov si, [desk_dmgm]
+    mov di, [desk_dmgm+2]       ; DI:SI = the mask, zone 0 at bit 31
+    xor bp, bp
+.z:
+    shl si, 1
+    rcl di, 1
+    jnc .n
+    mov ax, bp
+    call desk_zone_rect
+    mov [wm_cl_ox1], ax
+    mov [wm_cl_oy1], bx
+    mov [wm_cl_ox2], cx
+    mov [wm_cl_oy2], dx
+    push bp
+    mov bp, wm_clip_subr
+    call ct_cw_mem_disp
+    pop bp
+    jc .out
+.n:
+    inc bp
+    cmp bp, DESK_NZ
+    jb .z
+    clc
+.out:
+    jmp kretfc_bp
+
+; -----------------------------------------------------------------------------
+; desk_cap - the caption: its rect's MARGINS in the ground colour and the text
+;            by one font_run, so the text is never blanked first. Selected is
+;            the pair exchanged, which is exactly what desk_zone_hilite's XOR
+;            makes of it, so the two still agree. Clobbers AX..SI, BP, ES.
+; -----------------------------------------------------------------------------
+desk_cap:
+    mov al, [desk_zdrv]
+    call desk_caprect           ; AX..DX the rect, ES:SI the caption
+    push si
+    mov si, 01FFh               ; SI: the band's ground byte, and the ink's op
+    push ax                     ; (1 = clear) - black on white...
+    mov al, [desk_sel]
+    cmp al, [desk_zdrv]
+    pop ax
+    jne .pair
+    xor si, si                  ; ...or white on black, selected
+.pair:
+    ; THE RECT IS A BAND, margins and text both: a font_run that a fragment's
+    ; edge cuts goes per cell, a fill and a glyph over it (SPEC.md 6.1.2), and
+    ; that is the blink this exists to remove. ico_ibuf is free here - the
+    ; picture is on the glass - and it goes down by the column's own door
+    mov [ico_bxl], ax
+    mov [ico_by0], bx
+    mov word [ico_bh], DESK_LBLH
+    mov word [ico_bstr], DESK_TBSTR
+    mov word [ico_bsi], ico_ibuf
+    mov dx, ax
+    and dl, 0F8h
+    mov [ico_bx0], dx
+    sub cx, dx
+    inc cx
+    mov [ico_bw], cx
+    sub ax, dx
+    add ax, DESK_ZOVER          ; AX = the pen's x in the band
+    push ax
+    push es
+    push ds
+    pop es
+    mov di, ico_ibuf
+    mov cx, DESK_TBSTR * DESK_LBLH / 2
+    mov ax, si
+    mov ah, al
+    rep stosw                   ; the ground: the rect's colour
+    pop es
+    pop cx                      ; CX = the first glyph's x in the band
+    mov bx, si
+    mov bl, bh                  ; BL = the ink's op
+    pop si                      ; ES:SI = the caption
+.ch:
+    es lodsb
+    or al, al
+    jz .out
+    sub al, FONT_FIRST
+    cmp al, FONT_LAST - FONT_FIRST
+    ja .nx                      ; outside the face: the ground
+    xor ah, ah
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    add ax, [font_base]         ; the face wherever it is (SPEC.md 6):
+    push si                     ; [font_seg]:[font_base] is glyph FONT_FIRST
+    push es
+    mov es, [font_seg]
+    xchg ax, si                 ; ES:SI -> the glyph's eight rows
+    mov di, ico_ibuf + 2 * DESK_TBSTR   ; under the two-row margin
+    mov dh, 8
+.gr:
+    mov ah, [es:si]             ; a row, bit 7 leftmost, as eight of
+    xor al, al                  ; ico_bput's sixteen
+    call ico_bput
+    inc si
+    add di, DESK_TBSTR
+    dec dh
+    jnz .gr
+    pop es
+    pop si
+.nx:
+    add cx, 8
+    jmp short .ch
+.out:
+    jmp desk_bout
+DESK_TBSTR  equ 14              ; the widest rect, 100 px, off the byte grid
+%if DESK_TBSTR * DESK_LBLH > ICO_IBUF_SZ
+  %error "desk_cap composes its caption in ico_ibuf"
+%endif
+%endif
 
 ; -----------------------------------------------------------------------------
 ; desk_learn_x - a floppy just mounted: settle its drive's KIND off the medium,
@@ -1816,6 +2381,9 @@ desk_dmgm    resw 2             ; desk_dmg_zones -> desk_paint_mask, a dword
 desk_sel     resb 1             ; selected ZONE index, 0xFF = none
 desk_clkt    resw 1             ; click birth tick (EV_C) of the last zone click
 desk_zy      resw 1             ; desk_draw_zone: current zone top
+%ifdef OS88_SHORTCUTS
+desk_bz      resb 1             ; the zone ico_band holds, + 1; 0 = none
+%endif
 desk_zx      resw 1             ; ...and its left column (SPEC.md 26.1)
 %ifndef KERN_SMALL
 ; --- the SERVICE zone a driver registered (SPEC.md 26.7) ---------------------

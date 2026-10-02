@@ -6221,7 +6221,15 @@ wm_dmg_gray:
     push cx
     push dx
     push si
+%ifdef KERN_BIG
+    call cur_lazyrect           ; ...or the DAMAGE's own question (SPEC.md
+                                ; 7.1.4.5): everything this pass draws outside
+                                ; the damage - a window whole, the dock, the
+                                ; bar - asks its own, so an arrow parked away
+                                ; from the repaint no longer blinks with it
+%else
     call cur_unlazy              ; ...as the unclipped fill did (see above).
+%endif
                                 ; The DAMAGE is banked by the pushes above:
                                 ; the overflow path below re-seeds from it,
                                 ; and the region build eats every register
@@ -6231,6 +6239,10 @@ wm_dmg_gray:
                                 ; which stays in wm_db_b across the build
     call wm_dmg_occl            ; every visible window, shadow included
     jc .whole                   ; overflowed: dither the lot, as before
+%ifdef OS88_SHORTCUTS
+    call COLD_SEG:desk_gnd_sub_x    ; ...and every zone about to be drawn: a
+    jc .whole                   ; cell lays its own ground (SPEC.md 26.9.9)
+%endif
     cmp word [wm_clip_n], 0
     je .out                     ; wholly covered: not one pixel is revealed
     jmp short .fill
@@ -6440,10 +6452,65 @@ wm_zone_r:
     call wm_clip_seed
     call wm_dmg_occl            ; ...minus every frame (and an open dock)
     jc wm_clip_clear            ; overflowed: disarmed, CF still 1
+%ifdef KERN_BIG
+    call wm_occl_l              ; ...and every drop shadow's L
+    jc wm_clip_clear
+%endif
     cmp word [wm_clip_n], 0     ; ZF = 1: wholly covered (and so disarmed)
 %ifdef KERN_SMALL
     jmp short wm_clip_clear     ; ...and on kern_small only ever a question
 %else
+    ret
+%endif
+
+%ifdef KERN_BIG
+; wm_occl_l - subtract every visible window's DROP-SHADOW L from the armed list
+; (SPEC.md 11.91.6): a zone drawn under one was drawn twice, the window pass
+; putting the L back over it - which made a window dragged ONTO the cells
+; repaint a 1-px column of every cell it stopped on. The frame moved (1,1)
+; covers exactly the L and the frame, so it is one rect; the two corners it
+; leaves, (x+w, y) and (x, y+h), are the pixels no window draws. A fullscreen
+; window has no shadow. out: CF = 1 overflowed; clobbers flags.
+wm_occl_l:
+    push ax
+    push bx
+    push cx
+    push si
+    mov ch, 0
+    mov cl, [wm_zn]
+    mov si, wm_zord
+    jcxz .done
+.scan:
+    mov al, [si]
+    inc si
+    call wm_idx2ptr
+    mov al, [bx+W_FLAGS]
+    and al, 2 | WF_FULL
+    cmp al, 2
+    jne .next                   ; hidden, or fullscreen
+    mov ax, [bx+W_X]
+    inc ax
+    mov [wm_cl_ox1], ax
+    add ax, [bx+W_W]
+    dec ax
+    mov [wm_cl_ox2], ax
+    mov ax, [bx+W_Y]
+    inc ax
+    mov [wm_cl_oy1], ax
+    add ax, [bx+W_H]
+    dec ax
+    mov [wm_cl_oy2], ax
+    call wm_clip_subr
+    jc .over
+.next:
+    loop .scan
+.done:
+    clc
+.over:
+    pop si
+    pop cx
+    pop bx
+    pop ax
     ret
 %endif
 
