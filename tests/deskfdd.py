@@ -97,8 +97,10 @@ def check_zone(ui, letter, want_525, want_guess, fails):
     rows_per = word(m, "desk_rows")
     col, r = divmod(ordinal, rows_per)
     x0 = (word(m, "vid_desk_zx") - col * geom.DESK_PX     # its cell, and the
-          + (geom.DESK_CW - geom.DESK_ZW) // 2)            # picture column in
-                                                           # it (SPEC.md 26.9)
+          + (geom.DESK_CW - geom.DESK_ZW) // 2 + 4) & ~7   # picture column in
+                                                           # it, on the byte
+                                                           # grid (SPEC.md
+                                                           # 26.9.9's DESKPIC)
     y0 = DESK_ZY0 + r * word(m, "desk_zstep")
     sel = m.read(os88sym.linear("desk_sel"), 1)[0] == v
     w, h, fb = m.vram()
