@@ -4795,6 +4795,18 @@ $(BUILD)/hello.bin: apps/hello/hello.asm apps/os88api.inc apps/os88ui.inc \
 $(BUILD)/hello.o88: $(BUILD)/hello.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/hello.bin -o $@
 
+# CAT DEMO: four cats in vector line art behind a drop-down. A demo, in
+# $(APPS_TOOLS) so it rides every apps disk. apps/catdemo/cats.inc is
+# committed output of apps/catdemo/mkcats.py, which the build does not run.
+$(BUILD)/catdemo.bin: apps/catdemo/catdemo.asm apps/catdemo/cats.inc \
+                      apps/os88api.inc apps/os88ui.inc apps/os88gfx.inc \
+                      | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/catdemo/ -o $@ apps/catdemo/catdemo.asm
+	@echo "catdemo: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/catdemo.o88: $(BUILD)/catdemo.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/catdemo.bin -o $@
+
 # VIDEO PLAYER (SPEC.md 98.3, docs/plans/VIDEO-PLAN.md), in $(APPS_TOOLS) - on
 # every apps disk, by the owner's decision - and in $(SMALLOMIT), because what
 # it plays through is kern_big's. No video ships beside it yet (the owner's
@@ -11605,7 +11617,7 @@ APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
               $(BUILD)/paint.o88 $(BUILD)/piano.o88 \
               $(BUILD)/ftpd.o88 $(BUILD)/sheet.o88 $(BUILD)/telnet.o88 \
               $(BUILD)/texpad.o88 $(BUILD)/tracker.o88 $(BUILD)/audio.o88 \
-              $(BUILD)/video.o88
+              $(BUILD)/video.o88 $(BUILD)/catdemo.o88
 # MODPLUG.O88 IS RETIRED too (SPEC.md 56.15): Tracker's windowed face
 # (SPEC.md 45.21) is ModPlug's player done to the tree's standards, with the
 # playlist, the Repeat modes and the per-adapter faces carried over, so two

@@ -323,6 +323,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | BROWSER | `apps/browser/browser.asm` | §71 | yes |
 | C64 | `apps/c64/c64.asm` | `docs/C64-SPEC.md` | yes |
 | CALCULATOR | `apps/calc/calc.asm` | §65 | yes |
+| CATDEMO | `apps/catdemo/catdemo.asm` |  | yes |
 | CHART | `apps/chart/chart.asm` | §82 | yes |
 | CWORD | `apps/cword/cword.asm` | §73.12 | yes |
 | CYCLONE 88 | `apps/cyclone/cyclone.asm` | §67 | yes |
