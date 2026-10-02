@@ -50162,7 +50162,11 @@ place this build is slower than that one, by the windows a partly covered
 cell now marks, and it flashes the picture as it always did there. An
 overflowing region takes the same whole answer on every theme, after
 `desk_dmg_zones` has marked every touched zone again (`desk_zones_r` may have
-drawn some that the whole dither then covers).
+drawn some that the whole dither then covers) - called ABOVE `.whole`'s pops,
+because it spends AX and AX is the damage's x1 the bands are re-seeded from.
+It first landed below them, and a zoomed window's restore - whose damage
+overflows sixteen fragments - left the desktop it had covered undithered
+left of x 618 (39,565 px on Hercules; `tests/deskzoom.py` is the gate).
 
 **A window's DROP-SHADOW L is no part of the region** (`wm_occl_l`): the
 frame moved (1,1) covers the L in one rect and leaves the two corners no

@@ -8066,6 +8066,14 @@ SOAK = [
         "flashing on one row - on the kernel before as well (tests/"
         "deskflash.py's note).",
         needs=("marty",), timeout=600),
+    Row("deskzoom", "soak", py("tests/deskzoom.py"), 25.0,
+        "SPEC.md 11.91.6: a zoomed Disk window's RESTORE leaves the screen a "
+        "whole repaint would, on Hercules and VGA. Its damage overflows the "
+        "region, so it is the one ordinary gesture that reaches wm_dmg_gray's "
+        "`.whole` fallback. Red with desk_dmg_zones_x called below .whole's "
+        "pops, where it first landed: 39,565 px stale on Hercules - the "
+        "field's maximize-and-restore report.",
+        needs=("marty",), timeout=600),
     Row("deskclipsmall", "soak", py("tests/deskclip.py", "--small"), 50.0,
         "SPEC.md 11.91.6, kern_small's half: a cell the pass reveals NONE "
         "of is not drawn and marks nobody, and an in-place cell repaint "
