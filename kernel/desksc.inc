@@ -318,9 +318,14 @@ sc_nul      db 0                ; ...which is also an EMPTY name, for a
                                 ; document's open. Nothing may go between
 sc_s_nf     db 'Shortcut not found (?:)', 0   ; 23: exactly a toast
 sc_bdg      db 1, 10            ; the badge: 10x10, one word across - a box
-            times 10 dw 0xFFC0  ; the mask: the whole box white
-            dw 0xFFC0, 0x8040, 0x8740, 0x8340, 0x8540   ; the box, and an arrow
-            dw 0xB840, 0xA040, 0xA040, 0x8040, 0xFFC0   ; curving up and right
+            times 10 dw 0x07FE  ; the mask: the whole box white
+            dw 0x07FE, 0x0402, 0x043A, 0x041A, 0x042A   ; the box, and an arrow
+            dw 0x05C2, 0x0502, 0x0502, 0x0402, 0x07FE   ; curving up and right
+                                ; ...FIVE PIXELS IN from the word's left, so
+                                ; it is drawn at the picture column's own x,
+                                ; on the byte grid (SPEC.md 26.9.9), and lands
+                                ; where the 10x10 box always did: eleven left
+                                ; of the link's 16x16 picture
 
 ; =============================================================================
 section .bss

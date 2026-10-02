@@ -28,21 +28,32 @@ it lands in the drive column.
 Each drag is also checked RIGHT and not only quiet: the drive column right of
 the window against a forced whole repaint (tools/deskclip.py's verify).
 
-**BREAK IT ON PURPOSE** (docs/WRITING-TESTS.md 1), each measured:
-  * wm_dmg_gray's `call COLD_SEG:desk_gnd_sub_x` taken out: `cell` red, 566
-    px flashing - the dither laid under the cell before it is drawn;
-  * wm_zone_r's `call wm_occl_l` taken out: `over` red on the DRAW count
-    alone - a cell redrawn under the shadow's L writes the values already
-    on the glass, so no pixel count can see it, which is why the row arms
-    `desk_draw_zone`;
-  * desk_bout's head arm taken out (the grid test's `jz desk_blit` made a
-    `jmp`): `cell` red on the caption's pen (8 px), and `back8` and
-    `back24` red on the whole-repaint compare (202 and 16 px) - the
-    sliver's head is left STALE, not flashed.
+**BREAK IT ON PURPOSE** (docs/WRITING-TESTS.md 1), each measured on VGA
+against the second build of SPEC.md 26.9.9:
+  * wm_dmg_gray's `call wm_occl_l` taken out: `over` red on the DRAW count
+    alone (2 cells drawn) - a cell redrawn under the shadow's L writes the
+    values already on the glass, so no pixel count can see it, which is why
+    the row arms `desk_draw_zone`;
+  * gfx_blit1's `.offg` head piece taken out (SPEC.md 5.4.2.8): `back8` red
+    on the whole-repaint compare, 204 px - the sliver's head byte column
+    left STALE, not flashed;
+  * desk_zones_r's take-out of each drawn zone from the region (its
+    `wm_clip_subr` call) made a no-op: `back8` red, 243 px flashed and 351
+    stale, and `over` 782 stale - the dither laid over the cells just
+    drawn. The `cell` legs stay green there, and that is the leg's shape
+    rather than a hole: they count CHANGE, and with that break the boot's
+    own paint has already dithered the icons away, so a repaint changes
+    nothing.
 
-The compare is also what found the one bug this work shipped to itself: a
-caption whose pen lies RIGHT of the damage drew its head byte under an empty
-mask, which `gfx_b1hm` reads as "no override" - one stray column at x 576.
+(The first build's breaks - its zone ground subtraction, 566 px, and
+`desk_bout`'s head, 8/202/16 px - are the same three properties; the
+compare also found that build's one bug, a caption head byte drawn under an
+empty `gfx_b1hm` mask, one stray column at x 576.)
+
+ONE READING IN ABOUT SIX shows three alternating pixels on one CGA row
+change and change back (`ffffff`, `000000`, `ffffff`) - on the kernel before
+the second build as well (1 of 6 runs), at a different row each time, and in
+an in-place leg as often as a drag one. It is not a cell's draw order.
 """
 import argparse
 import os

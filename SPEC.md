@@ -4654,6 +4654,27 @@ through a far entry from `.cold` instead was built first and was 19 bytes
 smaller, and was REFUSED: it cost **+327 to +369 cycles a frame**, about 1%,
 ~90 a fragment in the far call and its return.
 
+#### 5.4.2.8 An x off the byte grid is a HEAD mask, and the walk is exact
+
+**§5.4.2.7's concession is gone on `kern_big`.** `gfx_blit1` takes an `AX`
+off the byte grid: the band's first byte is the byte column holding `x`, and
+its first `x & 7` pixels are not drawn - `CX` still counts from `x`. With no
+region armed, `.offg` puts that byte column down alone - a band one pixel
+wide, which is §5.4.2.5's tail byte and only it, under `[gfx_b1hm]`'s exact
+mask - and then the rest from the next byte, on the grid. Under a region the
+fragment walk takes it, and the walk no longer rounds a piece's left edge up
+to the grid: each piece is cut EXACTLY and comes back through the same door
+disarmed. So the seven columns a band left stale at a fragment's left edge off
+the grid - **six, every time, beside a snapped window** (§11.94) - are drawn,
+for every caller of the slot and not only the desktop's (§26.9.9), which had
+carried its own copy of the head (`desk_bout`, 145 bytes) to get them.
+
+A piece's band byte is counted from the byte column the band's x is in, so
+the walk's planar pieces (§5.4.3.6), whose x is always on the grid, compute
+what they always did. `kern_small` still refuses an x off the grid: none of
+its callers passes one. **+88 bytes of `.cold`** on `kern_big`, against the
+145 of `desk_bout` and its four helpers it deletes.
+
 ### 5.4.3 `gfx_blitp` — a block that is already framebuffer bytes
 
 The other end of §5.4. `gfx_blit4` takes **pixels** and works out what the card
@@ -17036,42 +17057,24 @@ the region.
 
 #### 11.3.5 An icon draws the part of it ONE fragment holds
 
-§11.3.2 gave a glyph whole rows and §11.3.4 whole columns; an icon stayed
-whole-or-nothing, which was harmless while nothing armed a region over the
-desktop and is the thing §11.91.6 could not be built without: a cell cut by a
-window's edge would have kept its ground and lost its picture. So on
-`kern_big` `ico_core` asks `ico_clip` where it asked `wm_clip_test`.
+**WITHDRAWN on `kern_big`, and it was only ever `kern_big`'s.** §11.3.2 gave a
+glyph whole rows and §11.3.4 whole columns; an icon stayed whole-or-nothing,
+which was harmless while nothing armed a region over the desktop. §11.91.6's
+first build drew a desktop cell into a region one fragment at a time, and
+could not without this: `ico_clip` answered one fragment's rows and a 16-bit
+column mask per icon word, and restaged the body into `ico_ibuf` with every
+word masked - 198 bytes of `.text` and 4 of `.bss`.
 
-`ico_clip` takes `wm_clip_rows`'s answer - the row range and the winning
-fragment, the one offering the most rows - works out one 16-bit column mask
-per icon word from that fragment's x1/x2 (`(0FFFFh >> d0) & (0FFFFh << d1)`,
-§11.3.4's two distances with 16 bits for 8), and when the fragment does not
-hold the whole icon **restages the body into `ico_ibuf`**: only the drawable
-rows of the mask table, then the same rows of the data table, every word
-ANDed with its mask, `[ico_h]` and `[ico_y]` moved to match. Both passes
-write only SET bits, so a cleared column is a clipped column, and the passes
-are untouched. Four things are load-bearing.
-
-- **The unclipped path pays nothing.** The call is behind `CLIPQ`'s `je
-  .noclip`, and an icon one fragment holds whole is drawn from its own body,
-  unstaged.
-- **The stage is bounded by construction, not by a test.** `icon_draw_x`
-  refuses wider than a word and taller than `ICO_STAGE_H`, the indexed kind
-  is 32x32, `icon_draw16` is 16x16 and the kernel's plain records are a word
-  wide, so the two tables never exceed `ICO_IBUF_SZ`. The copy runs forward
-  and never passes its source - an indexed body IS `ico_ibuf` and an
-  `icon_draw_x` body starts two bytes into it.
-- **A shift count is clamped to 16, not to "16 or more".** A 286 masks the
-  count to five bits, so a distance of 256 would shift by nothing there.
-- **The cull (§11.3.3) is unchanged**: under it `wm_clip_rows` answers every
-  row, and the icon is drawn whole as before.
-
-It is §11.3.2's direction for every caller, a background painter's included:
-ONE fragment's part, never a pixel outside the region, fewer than are
-visible when the visible part spans fragments - which is why §11.91.6 hands
-it one fragment at a time. `kern_small` keeps the whole-icon answer: its
-desktop never arms a region (§11.91.6's half there is a question, not a
-clip). 198 bytes of `.text` and 4 of `.bss` (`ico_cmw`), `kern_big` only.
+**§26.9.9 removed the reason.** A desktop cell's pictures are composed into a
+1bpp band and put down by `gfx_blit1`, which is exact against any region
+(§5.4.2.7, §5.4.2.8), so no desktop icon is drawn on the glass under a cut
+any more, and `ico_clip` is deleted. `ico_core` asks `wm_clip_test` again on
+both kernels - the font_char rule: a whole icon or none. Under the damage
+cull (§11.3.3) that was always the answer anyway, the icon drawn whole and
+the windows above repainting after; what goes back to the old answer is a
+BACKGROUND painter's icon cut by a window's edge, which is left for the next
+repaint of that window instead of drawn in part, as it was before this
+section.
 
 ### 11.90 Showing a window costs one window, not one screen
 
@@ -17765,9 +17768,10 @@ this section: a Task Manager lying on a cell repainted itself for 296 ms
 behind a drag that never touched it, and on VGA an in-place cell repaint
 cost a 164.5 ms W_PAINT of the window ABOVE the one on the cell.
 
-**THE REGION is `wm_zone_r`'s: zone AND damage, minus every visible window's
-FRAME** (and an open hidden dock, §30.6.1) - `wm_dmg_gray`'s own region
-intersected with the zone. AND damage, because outside it the zone is
+**THE REGION is zone AND damage, minus every visible window's FRAME** (and
+an open hidden dock, §30.6.1) - `wm_dmg_gray`'s own region intersected with
+the zone, which on `kern_big` is now literally the region it is drawn into
+(below) and on `kern_small` is `wm_zone_r`'s question. AND damage, because outside it the zone is
 already right on the glass, and redrawing it flashed the picture's black
 pixels white for a mask pass. FRAMES and not occupied boxes, because a box
 holds the two shadow corners no window draws and the dither does: a zone
@@ -17778,23 +17782,27 @@ damage reaches, so nothing new is needed for them. (A separate "zones'
 shadow box" was built for it, broken on purpose, read 0 pixels, and came
 out.) **On `kern_big` it no longer keeps them** (§26.9.9): `wm_occl_l`
 subtracts each window's frame moved (1,1), which is the L and nothing the
-frame had not already taken, and leaves exactly the two corners. Drawing a
+frame had not already taken, and leaves exactly the two corners - from the
+dither's region as well, now that the two are one. Drawing a
 zone under an L the window pass then draws back was a 1-px column of every
 cell a dragged window stopped on - drawing for nothing, which is what the
 owner's gesture asks to be NONE.
 
-**`kern_big` draws each zone into that region, ONE FRAGMENT AT A TIME**
-(`desk_zone_clip`): each fragment is copied into slot 0 of `wm_clip_tab`
-with `[wm_clip_n]` at 1 and `desk_draw_zone` runs unchanged, because
-`font_char` (§11.3.4) and `ico_clip` (§11.3.5) are exact against one
-fragment and under-draw against several. The fragments are disjoint, so no
-pixel is drawn twice, and overwriting slot 0 loses nothing - it was drawn
-first. `wm_paint_all`'s pass still draws every zone whole (`desk_paint_x`
-hands the walk `desk_draw_zone` where the damage pass hands it
-`desk_zone_clip`): there the windows are drawn over it after. **Overflow is
-the old answer** - the zone whole, its box grown into `[wm_dmg_zb]` - so
-§11.91's per-window zone test is the fallback rather than the rule. A zone
-nothing of which is revealed is not drawn at all.
+**`kern_big` draws each zone into `wm_dmg_gray`'s OWN region** (§26.9.9,
+`desk_zones_r`): the dither's region is zone-for-zone the same arithmetic,
+so the touched zones are drawn into it before the dither, each one's rect
+then taken out of it, and the dither laid over what is left. One region per
+pass and not one per zone, and no fragment loop: a cell's two pictures are
+`gfx_blit1` bands, exact against any region, and its ground is clipped
+fills. Its first build armed `wm_zone_r`'s region per zone and drew it ONE
+FRAGMENT AT A TIME (`desk_zone_clip`, each fragment copied into slot 0 with
+`[wm_clip_n]` at 1), because `font_char` and `ico_clip` (§11.3.5) were exact
+against one fragment and under-drew against several; both that routine and
+`ico_clip` are gone. `wm_paint_all`'s pass still draws every zone whole: there
+the windows are drawn over it after. **Overflow is the old answer** - every
+touched zone whole, its box grown into `[wm_dmg_zb]` - and so is Color's
+theme, whose teal a band cannot say. A zone nothing of which is revealed is
+not drawn at all.
 
 **`kern_small` takes the cheap half.** Its cell is 32 wide and 56 px in from
 the band's edge, so windows cover one routinely; `desk_dmg_zones` asks
@@ -17851,7 +17859,9 @@ been spared.
 **Bytes, resident.** `kern_big` **+322** (`.text` +233, `.bss` +4, `.cold`
 +85: `ico_clip` 198, `wm_zone_r` 24, `desk_zone_clip` 72, the C2 stores and
 the one-shot the rest); `kern_small` **+58** (`.text` +36, `.cold` +22). No
-rung crossed on either, which per §1 is not the point.
+rung crossed on either, which per §1 is not the point. §26.9.9's second
+build deleted `ico_clip`, `desk_zone_clip` and `kern_big`'s `wm_zone_r`
+again, its own bill counting them.
 `tests/deskclip.py` (`deskclip`, `deskclipsmall`) is the gate and goes red
 without the frame subtraction (495 pixels), without `ico_clip`'s columns (32
 pixels), without the nothing-uncovered stores (the window redrawn, a title
@@ -50006,7 +50016,7 @@ for a zone drawn whole.
 
 | gesture | any item | |
 |---|---|---|
-| click | selects it | §26.2's flip |
+| click | selects it | the two cells repainted (§26.9.9); §26.2's flip on `kern_small` |
 | double-click, Enter | opens it | a drive's Disk window, the service item's package, a shortcut's target |
 | drag past `FM_DRAGMIN` | MOVES it to the nearest free cell under the drop, and PLACES it there | `SC_OP_MOVE`, `CTRL.DRV`'s |
 | Delete, right-click, File > Remove Shortcut | removes a SHORTCUT | anything else is a no-op (§26.8.5) |
@@ -50163,98 +50173,137 @@ black data), the caption's white rect was filled and the text lettered over
 it, and a selected item was inverted on top of all of it. Every one of those
 passes was on the glass for a frame or more on a 4.77 MHz 8088 - measured
 on MartyPC as **600-1,050 pixels flashing** on VGA and Hercules for one
-in-place repaint of an unchanged cell. It is now **zero** on all three
-adapters, and a window dragged half over the drive column draws **no cell
-at all**. `kern_big` only: `kern_small` is byte-identical to the kernel
-before this and draws as it did.
+in-place repaint of an unchanged cell. It is **zero** on all three adapters,
+and a window dragged half over the drive column draws **no cell at all**.
+`kern_big` only: `kern_small` is byte-identical to the kernel before this and
+draws as it did.
 
-**The picture column and the caption are on the byte grid.** `DESKPIC`
-rounds a cell's centred column (`DESK_PICX`) to the nearest multiple of 8,
-and `desk_caprect` does the same to the caption's pen whenever the result
-still fits the cell - every caption but a twelve-glyph one. Each moves at
-most 4 px. `DESK_PX` is 102, so the centred x alone is on the grid one
-column in four. Every picture whose x is the column's - a volume's, a
-shortcut's (at +16), the Wire driver's two quadrants - is whole band bytes.
+**This section was built twice, and the second build is the one to read.**
+The first (`44b4771`) reached the behaviour above for 1,171 resident bytes on
+top of §11.91.6's 322, and the owner's brief for the second was the same
+behaviour for half the desktop's bill. What it kept and what it replaced:
 
-**The column is composed in RAM and put down by ONE `gfx_blit1`** (§5.4.2).
-`ico_band` is 32 x 34 at 1bpp (136 bytes of `.bss`): `desk_gnd` lays the
-desktop's ground into it, and while `[ico_bnd]` is set every icon entry -
-`icon_draw`, `icon_draw_x`, `icon_draw_ix`, and so the Wire driver's
-`OSAPI_ICON_DRAW` through §26.7's paint verb - lands in `ico_band_x` instead
-of on the glass, the mask setting bits and the data clearing them. A selected
-cell is inverted IN the band, which is exactly `desk_zone_hilite`'s XOR of the
-column, so §26.2's partial-flip path still agrees with it. The band takes the
-column when the ground is black or white - Bright's dither or Dark's black,
-which is every 1bpp machine and both monochrome themes on VGA. **Color's teal
-is a third colour a 1bpp band cannot say**, so that theme draws the column
-the way it always did.
+**The cell is drawn INTO `wm_dmg_gray`'s own region, before the dither**
+(`desk_zones_r`, §11.91.6). That region is the damage minus every visible
+window's frame - and since this section, minus every window's drop-shadow L
+too (`wm_occl_l`, below) - so it is already exactly "where a cell shows". Each
+touched zone that region reveals any of is drawn into it, then its rect is
+taken OUT of it, and only then is the dither laid over what is left: the
+ground goes round every cell and never under one, with no second region and
+no per-zone build. The first build armed a region of its own per zone
+(`wm_zone_r`) and drew it one fragment at a time (`desk_zone_clip`, with
+`desk_draw_zone_k` re-using the composed column across fragments), because
+an icon and a glyph are exact against ONE fragment only; all three are
+deleted. A zone nothing of which is revealed is not drawn at all.
 
-**So is the caption, margins and text both.** `desk_cap` composes its whole
-rect - 12 rows, the ground in the selection's colour and the glyphs read out
-of `[font_seg]:[font_base]` - into `ico_ibuf`, which is free once the picture
-is on the glass, and puts it down by the column's own door. A `font_run`
-cannot be the answer here: one that a fragment's edge cuts goes per cell, a
-fill and a transparent glyph over it (§6.1.2), and that IS the blink.
+**The picture column and the caption each go down by ONE `gfx_blit1`**, and
+that is what makes one region enough: §5.4.2.7's fragment walk cuts a band
+exactly against any number of fragments, and since §5.4.2.8 at a left edge
+off the byte grid too - a window's snapped edge leaves the fragment beside it
+six pixels off the grid every time (§11.94). The first build carried that
+head mask as a desk routine of its own (`desk_bout` and four helpers, 194
+bytes); it is the primitive's now, for every caller, at 88.
 
-**The ground goes ROUND the column and the caption, not under them.**
-`desk_gnd` fills the cell rect minus the band and minus the caption's rect,
-and `wm_dmg_gray` takes every zone the pass will draw out of its own region
-(`desk_gnd_sub_x`), so nothing lays the dither under a cell first.
+- **The column** (`desk_col`) is 32 x 34 at 1bpp: the ground pattern, then
+  the picture - every icon entry lands in the band while `[ico_bnd]` is set
+  (`ico_band_x`), the Wire driver's `OSAPI_ICON_DRAW` through §26.7's paint
+  verb included - then the selection as the band inverted. **Every picture
+  in a cell is on the byte grid** (`DESKPIC`): a volume's and the Wire's are
+  at the column's x and x + 16, a link's at + 16 and its badge at + 0, its
+  10 x 10 box stored five pixels into its word (`sc_bdg`) so that it lands
+  where it always did, eleven left of the link. So the composer is two
+  instructions a word, and the general shifter the first build carried for
+  the badge (`ico_bput`) is deleted. **The band is the top of `ico_ibuf`**
+  (`ico_band`, no `.bss` of its own): an indexed record - a volume's
+  picture - composes straight from its runs into the band
+  (`icon_draw_ix`'s `.band`), mask rows ORed and data rows AND-NOTed, so it
+  never decodes into that buffer; `icon_draw_x`'s stage is the buffer's
+  first 66 bytes, which the band clears.
+- **The caption** (`desk_cap`) is composed in `ico_ibuf` once the column is
+  on the glass: the rect's colour, white or (selected) black, then each
+  glyph row XORed on at the pen's phase - glyphs a pitch apart never meet,
+  and the ink is the ground's complement either way. It goes down at the
+  rect's own x, whatever its byte phase, so the pen is centred exactly
+  again: the first build had rounded it onto the byte grid, moving most
+  captions up to 4 px.
+- **The ground** is four clipped `thm_desk` fills either side of the column
+  and of the caption (`desk_g2`), each drawing pixels nothing else in the
+  cell does.
 
-**A window's DROP-SHADOW L is no part of a zone's region** (`wm_occl_l`,
-§11.91.6): the frame moved (1,1) covers the L in one rect and leaves the two
-corners no window draws. Before it, a window dragged ONTO the cells
-repainted a 1-px column of every cell it stopped on, and the window pass
-drew the shadow straight back over it - drawing that writes the values
-already there, which no pixel count sees and `tests/deskflash.py` therefore
-counts as calls.
+**Color's teal is a third colour a 1bpp band cannot say**, so under Color
+`desk_zones_r` draws nothing and leaves the mask whole: the dither lays its
+ground and `desk_paint_mask` draws each touched zone WHOLE over it, its box
+grown so every window over it is owed a repaint (`desk_zone_whole`) - which
+is how every theme drew before §11.91.6. The first build drew Color's
+picture column on the glass under its per-fragment clip; Color is the one
+place this build is slower than that one, by the windows a partly covered
+cell now marks, and it flashes the picture as it always did there. An
+overflowing region takes the same whole answer on every theme, after
+`desk_dmg_zones` has marked every touched zone again (`desk_zones_r` may have
+drawn some that the whole dither then covers).
 
-**A band's first pixel off the byte grid is exact in one pass too** -
-a fragment's revealed edge, or a twelve-glyph caption's pen. A window's x
-snaps to 8 (§11.94), so its revealed edge is off the grid whenever its width
-is: a 322-wide Disk window's is 3 px off every time. `gfx_blit1` under-draws
-up to seven columns at such an edge (§5.4.2.7), so `desk_bout` puts that
-byte column down alone: a one-pixel-wide band, which is §5.4.2.5's tail byte
-and only it, under `[gfx_b1hm]`'s exact mask, with the fragment widened to
-the byte so the region still answers its rows - and then the rest from the
-next byte, on the grid. A band that starts right of the region draws
-nothing at all: the mask would be empty, which `[gfx_b1hm]` reads as "no
-override".
+**A window's DROP-SHADOW L is no part of the region** (`wm_occl_l`): the
+frame moved (1,1) covers the L in one rect and leaves the two corners no
+window draws. It is `wm_dmg_occl`'s own walk with a second subtract
+(`wm_clip_subl`), where the first build carried a copy of the walk. Before
+it, a window dragged ONTO the cells repainted a 1-px column of every cell it
+stopped on and the window pass drew the shadow straight back over it; and
+since the region is now the dither's too, the dither no longer lays its 1-px
+line under every L the damage reaches either (§11.91.4 owes that L to the
+window pass whatever the dither does).
 
-**A cell cut into fragments is composed once.** `desk_zone_clip` calls
-`desk_draw_zone` for its first fragment and `desk_draw_zone_k` for the rest,
-which reuse the picture's band (`[desk_bz]`).
+**A SELECTION is a repaint of two cells**, not an XOR flip. `desk_select`
+posts the old and the new item's cells and spends them there and then, under
+its own lock hold, by the path a mount takes (`desk_zones_paint`): each is
+drawn once and only where it shows, which is everything the flip saved,
+without the region of its own the flip built per zone (`wm_clip_rect`) or
+its whole-screen repaint when that overflowed. `desk_zone_redraw`, `desk_zone_hilite` and `desk_col_xor`, 97 bytes,
+are `kern_small`'s alone now. §26.9.5's focus-change deselect was already
+this.
 
 **And the pointer stops blinking with the desktop**: `wm_dmg_gray` asks
 `cur_lazyrect` about the damage instead of spending the hide outright
-(§7.1.4.5).
+(§7.1.4.5), and `gfx_blit1` asks it about each band's own rect.
 
 **Measured** - the owner's gesture on a 4.77 MHz 8088 under MartyPC
 (a Disk window dragged to half cover the drive column, then back left by 8
 and by 24 px; pixels in the drive column outside the window), and an
-in-place repaint of an unchanged cell:
+in-place repaint of an unchanged cell. `tests/deskflash.py`, unchanged:
 
-| | before: changed / flashed | after: changed / flashed |
+| | VGA: changed / flashed | CGA: changed / flashed |
 |---|---:|---:|
-| in-place repaint, VGA / Hercules | 1,161 / 636 · 1,346 / 900 | **0 / 0** · **0 / 0** |
-| VGA, half over the column | 198 / 1 | **0 / 0, no cell drawn** |
-| VGA, 8 px back (edge 3 px off the grid) | 897 / 203 | 599 / **0** |
-| VGA, 24 px back | 1,880 / 135 | 1,639 / **0** |
-| Hercules, 24 px back | 639 / 28 | 516 / **0** |
-| CGA: in place, over, 8 back, 24 back | - | 0/0, 0/0, 374/0, 1,127/0 |
+| in place, plain and selected | **0 / 0** · **0 / 0** | **0 / 0** · **0 / 0** |
+| half over the column | **0 / 0, no cell drawn** | **0 / 0, no cell drawn** |
+| 8 px back (edge 3 px off the grid) | 626 / **0** | 395 / **0** |
+| 24 px back | 1,639 / **0** | 1,127 / **0** |
 
-What still flashes beside a dragged window is NOT a cell's: the drag outline
-is drawn at the pointer's unsnapped x and erased after §11.96.13's snap, and
-on Hercules the shadow's row under the window - both identical on the kernel
-before this.
+and in each drag the column matches a whole repaint to the pixel. One
+reading in about six of either kernel shows THREE alternating pixels on one
+row of the CGA changing and changing back (`ffffff`, `000000`, `ffffff`) -
+on the kernel before this as well (1 of 6 runs; this one 2 of 8), at a
+different row each time, so it is not a cell's draw order.
 
-Time, `tools/deskclip.py` (guest ms, one pass, Hercules / VGA): a drag over
-the cells **151.1 → 129.0 / 139.2 → 122.0**; an in-place repaint of a cell a
-parked window cuts into three fragments 72.7 → 72.1 / 59.3 → 67.6.
+Time, `tools/deskclip.py` (guest ms, one pass; before = the first build):
 
-**Cost**, `tools/kernsize.py` against the same commit without it: kern_big
-`.text` +104, `.cold` +914, `.bss` +153 - **1,171 resident bytes**;
-kern_small 0. `tests/deskflash.py` is the gate.
+| gesture (`deskclip.py`) | Hercules before -> after | VGA before -> after |
+|---|---|---|
+| `cell`: a cell repainted in place under a parked window | 72.1 -> **51.7** ms | 67.6 -> **47.2** |
+| `drag`: a window dragged over the cells, one parked over a cell | 129.0 -> **121.0** | 122.0 -> **113.2** |
+| `close`: a window closed whose frame reaches a covered cell | 126.7 -> **123.3** | 99.0 -> **93.2** |
+| `plain`: a window moved over bare desktop, no cell touched | 202.7 -> 202.4 | 221.5 -> 223.6 |
+
+Two runs each, identical to 0.1 ms but for Hercules `close`'s second
+(122.1) and VGA `plain`'s first, which moved the window less (163.5, one
+window fewer owed) and is the scene's variance rather than the kernel's.
+What made it faster is fewer CALLS, per PERFORMANCE.md's first sentence: one
+region per pass instead of one per zone, no pass per fragment, and the
+column's picture composed once.
+
+**Cost**, `tools/kernsize.py` against the first build (`0d8ddcc`): kern_big
+`.text` -169, `.bss` -149, `.cold` -457 - **775 resident bytes back**, and the
+desktop's redraw costs **+718** over the kernel before §11.91.6 (`1b382ac`)
+where the two builds before this one cost +1,493. kern_small is byte-identical. `tests/deskflash.py` and
+`tests/deskclip.py` are the gates.
 
 ## 27. HELLO and NOTEPAD — the second and third packages
 

@@ -8086,14 +8086,14 @@ SOAK = [
         needs=("marty",), timeout=600),
     Row("deskclip", "soak", py("tests/deskclip.py"), 100.0,
         "SPEC.md 11.91.6: on kern_big a desktop cell is drawn only where the "
-        "damage pass reveals it - zone AND damage minus every window's "
-        "frame, a fragment at a time, ico_clip cutting the picture's rows "
-        "and columns (11.3.5) - so a window lying on the cell is NOT owed a "
+        "damage pass reveals it - into wm_dmg_gray's own region, the damage "
+        "minus every window's frame and shadow L, its pictures gfx_blit1 "
+        "bands cut exactly (26.9.9) - so a window lying on the cell is NOT owed a "
         "repaint; and an in-place cell repaint uncovered nothing and "
         "promotes nobody. Three gestures (cell, close, drag) on Hercules and "
         "VGA: the window over the cell is not redrawn and its pixels there "
-        "match a whole repaint. Red without the frame subtraction (495 px), "
-        "without ico_clip's column masks (32 px) and without the "
+        "match a whole repaint. Red without the frame subtraction (495 px, "
+        "measured on the first build's per-zone region) and without the "
         "nothing-uncovered stores (the window redrawn, a title promoted).",
         needs=("marty",), serial=True, timeout=900),
     Row("deskflash", "soak", py("tests/deskflash.py"), 85.0,
@@ -8103,9 +8103,12 @@ SOAK = [
         "dragged half over the drive column draws NO cell (desk_draw_zone "
         "never entered); dragged back 8 and 24 px it changes the revealed "
         "sliver and flashes nothing, and the column matches a whole "
-        "repaint. Red without wm_dmg_gray's ground subtraction (566 px "
-        "flash), without wm_occl_l (2 cells drawn) and without desk_bout's "
-        "head (8 px flash, 202 px stale).",
+        "repaint. Red without wm_occl_l (2 cells drawn), without gfx_blit1's "
+        "head piece (SPEC.md 5.4.2.8: 204 px stale) and without desk_zones_r "
+        "taking each drawn cell out of the dither's region (243 px "
+        "flashed). About one run in six reads 3 alternating CGA pixels "
+        "flashing on one row - on the kernel before as well (tests/"
+        "deskflash.py's note).",
         needs=("marty",), timeout=600),
     Row("deskclipsmall", "soak", py("tests/deskclip.py", "--small"), 50.0,
         "SPEC.md 11.91.6, kern_small's half: a cell the pass reveals NONE "
