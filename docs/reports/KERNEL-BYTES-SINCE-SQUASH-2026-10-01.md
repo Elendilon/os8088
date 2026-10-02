@@ -421,13 +421,13 @@ read in the ROM rather than copied (SPEC.md 6), the largest single item.
   is past it**: every `make` at B prints *"the image rung CROSSED: 100 -> 101"*
   and *"the cold rung CROSSED: 79 -> 81"* on `kern_big` (sum +1,631 with the
   overlay) and +180 on `kern_small`. Nothing is wrong with the kernel; the
-  desktop's commits did not re-bless. Re-bless (`tools/kernsize.py --bless`,
-  both kernels) before or in the PR, so `main`'s first `make` does not report
-  this cycle's desktop as a crossing of its own.
+  desktop's commits did not re-bless. **Closed before the PR was cut**: the
+  commit after this file's re-blesses both kernels at B, and `kernsize` then
+  reads +0 against the tree on both.
 - **`kernsize --modules` still cannot describe `desksc.inc`**: `e7efcc90`
   gave it a THEME, so the theme table counts its 393 bytes with the desktop
-  now, but the module table still reads `**(undescribed)**`. A description
-  line before the bless closes it. `extmod.inc`, `mouproto.inc` and
+  now, but the module table still reads `**(undescribed)**`. **Closed in the
+  same commit as the bless**: its row in docs/KERNEL-MEMORY.md is described. `extmod.inc`, `mouproto.inc` and
   `dockmod.inc`, which an earlier report named, are described now.
 - **The stream writer's report says `kern_small` +22 where the tree measures
   +17** (above): the difference is the paste's −5, which came in on the same
