@@ -829,18 +829,20 @@ CPE_ONDRAG  equ CPE_B + 5       ; (SPEC.md 13.8.4) - and the drag and the KEY
 CPE_ONKEY   equ CPE_B + 6       ; (SPEC.md 31.9.2) are kern_big's alone, so
 %ifdef DOCK_OPT                 ; CP_NENT differs between the builds. Which is
 CPE_DOCK_GEOM equ CPE_B + 7     ; safe because MOD_H_NENT is IN the header and
-CP_NENT     equ CPE_B + 8       ; mod_check compares it against the file it
+CP_NENT     equ CPE_B + 9       ; mod_check compares it against the file it
 %else                           ; just read, so a CTRL.DRV with the wrong count
-CP_NENT     equ CPE_B + 7       ; is refused rather than dispatched into - and
+CP_NENT     equ CPE_B + 8       ; is refused rather than dispatched into - and
 %endif                          ; MOD_H_STAMP rejects one from another build
 %else
 %ifdef DOCK_OPT
 CPE_DOCK_GEOM equ CPE_B + 5
-CP_NENT     equ CPE_B + 6
+CP_NENT     equ CPE_B + 7
 %else
-CP_NENT     equ CPE_B + 5
+CP_NENT     equ CPE_B + 6
 %endif
 %endif
+
+CPE_SHUTDOWN equ CP_NENT - 1
 
 section .modc                   ; the on-demand image starts HERE, at its own
                                 ; offset 0, so the header below is the first
@@ -874,6 +876,7 @@ modc_hdr:
 %ifdef DOCK_OPT
     dw modc_e_dock_geom         ; CPE_DOCK_GEOM: Dock and Display settings
 %endif
+    dw modc_e_shutdown          ; CPE_SHUTDOWN: confirmation and terminal splash
 section .modu                   ; ...and the PANEL from here on: the stubs below
                                 ; name the UI's bodies, so they are UI too.
                                 ; Only the header has to be at offset 0
@@ -891,6 +894,8 @@ section .modu                   ; ...and the PANEL from here on: the stubs below
 ; marched forward through whatever the image had after it - which reached the
 ; panel's own drawing code and painted a Control Panel, with no window, over
 ; the desktop, once a minute. Nothing errored and nothing hung.
+%include "shutdown.inc"
+
 modc_e_paint:   call cp_paint_x
             retf
 modc_e_onclick: call cp_onclick_x
@@ -6874,6 +6879,20 @@ cpf_need:
     pop ax
     ret
 
+cpf_shutdown:
+    call cp_open_need           ; same refusal as opening the Control Panel
+    jc .out
+    call far [CPFP + CPE_SHUTDOWN*4]
+    push di
+    mov al, KIND_CTRL
+    call KERNEL_SEG:cw_inst_find_kind
+    pop di
+    jnc .out                   ; an open panel still owns CTRL.DRV
+    mov al, MOD_CTRL
+    call mod_drop              ; cancellation must not pin the image
+.out:
+    retf
+
 cpf_cp_paint:
     call cpf_need
     jc .p_gone
@@ -7002,8 +7021,8 @@ cpf_cp_open:           call cp_open_x
 ; -----------------------------------------------------------------------------
 cp_open_x:
     push ax                     ; the bank is the BODY's, not the load's:
-    call cpf_need               ; cpf_need banks AX itself, but `mov al,
-    jc .no                      ; KIND_CTRL` below and `mov al, 1` at .no do not
+    call cp_open_need           ; cpf_need banks AX itself, but `mov al,
+    jc .failed                  ; KIND_CTRL` below and `mov al, 1` at .no do not
     mov al, KIND_CTRL
     call KERNEL_SEG:cw_app_launch
     jc .beep                    ; the panel itself refused - no instance slot,
@@ -7017,7 +7036,17 @@ cp_open_x:
     pop ax                      ; what every one of these call sites did with
     stc                         ; a CF=1 from app_launch before cp_open owned
     ret                         ; the decision
+.failed:
+    pop ax
+    stc
+    ret
+
+cp_open_need:
+    call cpf_need
+    jc .no
+    ret
 .no:
+    push ax
 %ifdef KERN_BIG
     call hbf_nodisk             ; ...but THIS one is about the disk, and a
     pop ax                      ; beep cannot say which disk - and it is the

@@ -40,9 +40,9 @@ binding one; `kernsize` prints both lines now.
 left to decide. Raising it means changing the rule. The assembler sees only
 the static half of rule 3; a claim made at boot and never given back is the
 other half, and `tests/kernresident.py` boots a bare VGA desktop under MartyPC
-and walks `mem_tab` for it. As blessed it reads: kernel span ends 114,176,
-last non-purgeable byte 114,176, limit 131,072 — 16,896 spare, with the
-directory read-ahead (63KB, purgeable) the only claim on the heap.
+and walks `mem_tab` for it. As blessed it reads: kernel span ends 105,984,
+last non-purgeable byte 105,984, limit 131,072 — 25,088 spare, with the
+directory read-ahead (32KB, purgeable) the only claim on the heap.
 
 **`kern_small`'s `KERN_BUDGET` is a literal** — 107,520, in the `%else` arm —
 mirrored as `KERN_SMALL_BUDGET` beside big's so that a big build can report
@@ -62,6 +62,16 @@ five diagnostics were exempted one afternoon each, and the sixth case was a
 `BOOTMARK=1` would not assemble with it — a knob build setting the ceiling
 for the product. `make test-full`'s build matrix is the only thing that
 builds the knob kernels, so a `.text` budget is really spent there.
+
+Confirmed shutdown (§12.3.2) keeps its confirmation, terminal screen and
+shared startup spinner in CTRL.DRV's UI tail (`.modu`). The settings-only
+loader therefore brings in no shutdown code or buffers. Compared with main
+at `343cb176`, the resident change is **75 bytes**: 35 in `.text`, 36 in
+`.cold`, and one 4-byte module entry pointer. Both kernels spend existing
+allocation slack: the rounded big footprint stays **104,448 bytes**, and
+the small footprint stays **67,584 bytes**. No budget or minimum-RAM limit
+changes. Cancelling releases CTRL.DRV when no Control Panel owns it; the
+shutdown screen retains the module only after the OS stops.
 
 ### The three guards
 
@@ -238,10 +248,10 @@ had added.
   "big": {
     "boot2": 2252,
     "bootmax": 191488,
-    "bss": 5297,
+    "bss": 5301,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 41385,
+    "cold": 41421,
     "coldpara": 2592,
     "fatpara": 288,
     "imgpara": 3232,
@@ -254,40 +264,40 @@ had added.
     "ovl": 2489,
     "ovlw": 4985,
     "stk0": 512,
-    "text": 46173,
+    "text": 46208,
     "vgabuf": 336,
     "vgabufpara": 32
   },
   "emu": {
-    "boot2": 2249,
-    "bootmax": 192000,
-    "bss": 5525,
+    "boot2": 2252,
+    "bootmax": 191488,
+    "bss": 5301,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 40556,
-    "coldpara": 2560,
+    "cold": 41545,
+    "coldpara": 2624,
     "fatpara": 288,
-    "imgpara": 3328,
-    "kend": 6752,
+    "imgpara": 3264,
+    "kend": 6688,
     "kseg": 96,
-    "ksize": 106496,
-    "lowbss": 6366,
-    "lowpara": 448,
+    "ksize": 105472,
+    "lowbss": 5598,
+    "lowpara": 384,
     "minramkb": 196,
-    "ovl": 1843,
-    "ovlw": 5104,
+    "ovl": 2495,
+    "ovlw": 4985,
     "stk0": 512,
-    "text": 47598,
+    "text": 46473,
     "vgabuf": 336,
     "vgabufpara": 32
   },
   "small": {
     "boot2": 2252,
     "bootmax": 121856,
-    "bss": 3218,
+    "bss": 3222,
     "budget": 107520,
     "codemax": 65536,
-    "cold": 25431,
+    "cold": 25467,
     "coldpara": 1600,
     "fatpara": 64,
     "imgpara": 2336,
@@ -300,7 +310,7 @@ had added.
     "ovl": 2086,
     "ovlw": 1514,
     "stk0": 512,
-    "text": 34051,
+    "text": 34086,
     "vgabuf": 0,
     "vgabufpara": 0
   }
@@ -671,14 +681,14 @@ there and nowhere else.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 32,713 | 37.4% |
-| the window system and its furniture | 23,308 | 26.6% |
+| the file system, end to end | 32,713 | 37.3% |
+| the window system and its furniture | 23,331 | 26.6% |
 | drawing: adapters, primitives, glyphs, icons | 13,579 | 15.5% |
 | hardware: drivers, clock, mouse, sound, CPU, XMS | 8,477 | 9.7% |
-| the kernel proper: API table, heap, scheduler, events | 7,624 | 8.7% |
+| the kernel proper: API table, heap, scheduler, events | 7,636 | 8.7% |
 | the three built-in kinds | 1,487 | 1.7% |
-| the Control Panel | 370 | 0.4% |
-| **total** | **87,558** | |
+| the Control Panel | 406 | 0.5% |
+| **total** | **87,629** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
@@ -692,8 +702,8 @@ there and nowhere else.
 | `fdlg.inc` — the Standard File dialog (§38) | 101 | 5,010 | **5,111** | 188 | — | — |
 | `mouse.inc` — serial mouse and the cursor (§9) | 4,081 | — | **4,081** | 151 | 128 | — |
 | `memory.inc` — the claim heap (§50) | 217 | 2,885 | **3,102** | 26 | 324 | — |
-| `ui.inc` — the UI task and the event ladder (§13) | 3,018 | — | **3,018** | 58 | — | — |
-| `menu.inc` — the menu bar and pull-downs (§12) | 2,754 | 176 | **2,930** | 197 | 84 | — |
+| `ui.inc` — the UI task and the event ladder (§13) | 3,026 | — | **3,026** | 58 | — | — |
+| `menu.inc` — the menu bar and pull-downs (§12) | 2,769 | 176 | **2,945** | 197 | 84 | — |
 | `assoc.inc` — file type associations (§54) | 419 | 2,018 | **2,437** | 31 | — | — |
 | `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 396 | 1,949 | **2,345** | 255 | — | — |
 | `font.inc` — the 8×8 glyph renderer (§6) | 2,278 | — | **2,278** | 22 | 16 | — |
@@ -701,7 +711,7 @@ there and nowhere else.
 | `instance.inc` — instances and the built-in kinds (§29) | 1,977 | 160 | **2,137** | 724 | — | — |
 | `desk.inc` — the desktop and volume zones (§14/§26.1) | 23 | 1,543 | **1,566** | 91 | — | — |
 | `apps.inc` — the three built-in kinds (§14) | 282 | 1,205 | **1,487** | 11 | 240 | — |
-| `sched.inc` — pre-emptive scheduling (§7–8) | 1,452 | — | **1,452** | 212 | 2,944 | — |
+| `sched.inc` — pre-emptive scheduling (§7–8) | 1,464 | — | **1,464** | 212 | 2,944 | — |
 | `softgfx.inc` — the software renderer, §39.5's 1bpp driver (§32) | 1,284 | — | **1,284** | 20 | — | — |
 | `loader.inc` — the package loader (§21) | 4 | 1,227 | **1,231** | 46 | — | — |
 | `icons.inc` — the icon renderer (§10) | 1,231 | — | **1,231** | 285 | — | — |
@@ -715,10 +725,10 @@ there and nowhere else.
 | `mod.inc` — on-demand kernel modules (§2.8) | 86 | 348 | **434** | — | — | — |
 | `toast.inc` — the menu bar's transient message (§59) | 433 | — | **433** | 25 | — | — |
 | `blank.inc` — the idle screen blanker (§64) | 200 | 226 | **426** | — | — | — |
+| `ctrl.inc` — the Control Panel (§31) | 176 | 230 | **406** | 28 | — | — |
 | `lz.inc` — the LZ decoder for packages, drivers, files and the kernel itself (§20.13) | — | 405 | **405** | — | — | — |
 | `desksc.inc` — desktop shortcuts: the record table, the open by name, the keys and the popup (§26.8), `kern_big` only | 88 | 309 | **397** | 4 | — | — |
-| `ctrl.inc` — the Control Panel (§31) | 176 | 194 | **370** | 28 | — | — |
-| `hiber.inc` — hibernate, the resident half of `HIBER.DRV` (§87) | 61 | 305 | **366** | 185 | — | — |
+| `hiber.inc` — hibernate, the resident half of `HIBER.DRV` (§87) | 61 | 305 | **366** | 189 | — | — |
 | `xmem.inc` — memory above 1MB (§41.4–41.5) | 242 | — | **242** | 22 | — | — |
 | `clip.inc` — the system clipboard (§55) | 176 | — | **176** | 5 | — | — |
 | `events.inc` — the event ring (§10) | 154 | — | **154** | 3 | 128 | — |
@@ -736,7 +746,7 @@ there and nowhere else.
 | `compress.inc` — the LZB compressor (§20.15), an on-demand module and 0 resident | — | — | **0** | — | — | — |
 | `dockmod.inc` — `DOCK.DRV`, the Advanced Dock runtime (§30.5), an on-demand module on `kern_big` | — | — | **0** | — | — | — |
 | `kernel.asm` — API table, entry points, `kmain`, the shims | 2,319 | 163 | **2,482** | — | — | 421 |
-| **total** | **46,173** | **41,385** | **87,558** | **5,297** | **5,598** | **2,252** |
+| **total** | **46,208** | **41,421** | **87,629** | **5,301** | **5,598** | **2,252** |
 <!-- END generated table -->
 
 ### Reading it
