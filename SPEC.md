@@ -161169,3 +161169,109 @@ environment that wrote this.
   The banner flash's beam position, the Hercules's monitor and the sound on a real card are what
   docs/FIELD-MACHINES.md would be asked. The fullscreen title and results screens stay the
   text-mode menus of wave 4: this wave gave them no art.
+
+
+## 103 REDLINE — CPU and graphics benchmarks (`apps/redline/`)
+
+REDLINE.O88 is an on-demand native benchmark and inventory package. `make redline`
+builds it; `make redlinedisk` builds dedicated FAT12 media in all four geometries.
+The everything application set carries it in APPS/. No resident kernel bytes.
+
+### 103.1 Measurements and interface
+
+R / Bench > Run executes fixed-work CPU ALU, shifts, multiply, divide, RAM copy
+and fill, then graphics fill, horizontal line, frame, opaque text, 1bpp and 4bpp
+blits. S / Save Report writes REDLINE.TXT in the instance's current directory;
+In Detailed, Home, End, Up, Down and PgUp/PgDn browse the report. The About handler returns
+to the provenance. The existing benchlib source is shared, including PIT latch,
+32-bit accumulation, empty-body subtraction, overflow flags, pagination and save.
+Slow bodies fall back to ticks; lab resize explicitly uses method T. All
+graphics use OS slots and a clipped 256x64 or 256x128 canvas inside a separate native
+Graphics Lab on VGA, Hercules and CGA. The report
+states adapter/geometry and timing method. Comparisons are per workload; graphics
+indices use the matching CGA 640x200x1, Hercules 720x348x1 or VGA 640x480x4
+reference. Other modes keep raw timings without a graphics index. No combined universal score.
+
+### 103.2 Inventory and frequency
+
+The kernel CPU tier gates every newer instruction. Early processors use shift
+masking, interrupted repeated-string restart and prefetch-queue behavior, with
+FLAGS restored and self-modified bytes restored on every invocation. A NEC verdict
+requires evidence that IRQ0 occurred during the test; inconclusive results stay
+unknown. 286/386/486 are generation classes, not claims about manufacturer or bus
+width. AC/ID flag tests gate CPUID; vendor, signature, family/model/stepping, brand
+and feature bits are reported when provided. Cyrix without CPUID uses its historic
+DIV-flags fingerprint and is labelled a Cyrix-compatible signature rather than
+a guessed part number. No writes to CPU configuration ports, cache controls or MSRs.
+
+CPU MHz uses CPUID leaf 16 nominal MHz when available and timed TSC when supported,
+explicitly labelled TSC MHz (may differ from core frequency). Pre-TSC CPU
+clock estimates use separate MUL/DIV book timings only for 8088/8086, 286 and 386
+classes. NEC, 186 and unknown clones report clock unavailable rather than applying
+Intel timing tables. Estimates are shown independently, including disagreement.
+BIOS conventional KB is distinct from OS free KB, largest run and free extended
+KB. BIOS extended-memory reports are queried only on AT-class processors and are
+labelled BIOS-reported, not destructive RAM sizing. FPU presence comes from the
+OS's existing probe. Equipment, serial/parallel port bases, BIOS date and model
+byte are read-only inventory. No claim to detect every board/card or all installed
+RAM when firmware supplies no trustworthy size.
+
+### 103.3 Reproducible reference
+
+`os8088_redline_pc` and its redistributable GLaBIOS twin select IBM 5150, Intel
+8088, normal master-crystal/3 clock (14.31818/3 = 4.772727… MHz), no turbo, 640KB
+zero-wait RAM, dynamic CGA, 360KB floppies and serial mouse. MartyPC is pinned by
+`tools/martypc/UPSTREAM`; its validated cycle-accurate model is an emulator
+reference, not a claim of perfect physical hardware equivalence. IBM ROM is
+user-supplied. `tools/redline_profile.py` boots, launches, runs, saves and extracts
+the report and records configuration, binary hashes and measured workload counts.
+The CGA profile supplies the common CPU/RAM reference. The same 5150 CPU, clock
+and RAM with Hercules or VGA supplies separate mode-matched graphics references.
+Each reference takes the median of three trials; every trial averages three
+complete runs. All 25 rows, samples, flags, means and hashes are committed in
+reference*.json; baseline*.inc embeds the measured counts.
+
+### 103.4 Dashboard and detailed report
+
+The default Summary view uses framed performance, system snapshot, workload
+bars and hardware-details panels, with Summary, Detailed, Compare, Run, Save
+and Quit buttons. The large headline is the arithmetic mean of the six CPU/RAM
+workload indices, explicitly labelled CPU + RAM; it is not a universal score.
+VGA bars use blue for CPU, green for RAM and red for graphics; monochrome bars
+use dithering. Their common ceiling rounds the largest available score up to a
+whole multiplier and adds 5x (69x becomes 74x; no scores yields 5x), saturating
+at the index type's maximum. Fractional axis labels follow the shared scale;
+full-range numerical ratios remain visible. A UI timer animates widths after completion, outside timed work.
+Detailed preserves the entire original paginated report and saved text file.
+Compare expands the workload bars. U/D/C select views; R/S/Q run/save/quit;
+Tab cycles views and F1 opens Detailed at the report's provenance. PgUp/PgDn
+page compact workload panels or the Detailed report. Home/End/arrows in
+Detailed retain their existing behavior. Buttons arm on press and act only
+on release over the same control. Layout follows the live content geometry;
+short CGA screens use smaller panels and paginate the results. Painting and
+view changes are outside benchmark timing spans and add no resident bytes.
+
+### 103.5 Averaged runs and live graphics lab
+
+One benchmark performs three complete passes over 25 fixed workloads and uses
+48-bit sums divided by three to obtain each mean count. The first six rows are
+CPU/RAM; six basic graphics rows are followed by six larger primitive workloads
+and seven advanced workloads. The report retains each sample, its timing method
+flags and the mean, plus sample 3's original detailed timing table. Progress
+names the run and workload and draws only between timed spans.
+
+The report window fits the available viewport and has no grow box. A separate
+resizable native Graphics Lab owns the drawing canvas and is destroyed with
+OSAPI_WM_DESTROY after each benchmark; only Quit closes the main instance.
+The canvas doubles in height when the main window has at least 224 content rows;
+short viewports retain 64 rows. The larger primitive rows, scene and fractal
+fill that mode's canvas; exact mode-matched references record its dimensions.
+The advanced tier projects a cube with signed integer rotation, fixed X tilt
+and perspective division. Both wireframe and shaded rows render 48 frames,
+four complete Y revolutions; shading culls back faces and scan-converts visible
+triangles. A Q8.8 Mandelbrot row computes 64x32 points up to 24 iterations and
+draws 4x2 or 4x4 blocks. The suite also generates patterned blits, scrolls the
+canvas, moves nested scene windows, and shrinks/restores the actual lab window through OSAPI_WM_RESIZE.
+The scene supports window, button and 3D viewport objects with parent-relative
+coordinates. Logical nested windows are drawn inside the lab's clip; the OS
+manages the top-level lab. No resident kernel state or bytes are added.
