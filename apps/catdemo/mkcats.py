@@ -32,6 +32,17 @@ class Pic:
             pts = pts[253:]
         self.recs.append(("p", pts))
 
+    def clipline(self, pts, ymax):
+        """Draw only the runs of a polyline whose points are above ymax."""
+        run = []
+        for x, y in pts + [(0, ymax + 1)]:
+            if y <= ymax:
+                run.append((x, y))
+            else:
+                if len(run) > 1:
+                    self.line(run)
+                run = []
+
     def ellipse(self, cx, cy, rx, ry, a0=0, a1=360, n=None):
         if n is None:
             n = max(8, int((rx + ry) * abs(a1 - a0) / 360 * 1.2))
@@ -176,11 +187,85 @@ def walking(p):
     p.line([(4, 119), (195, 119)])                                  # ground
 
 
+def rect(p, x0, y0, x1, y1):
+    p.line([(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)])
+
+
+def glyph(p, ch, x, y):
+    """A stroke letter in an 8 x 14 cell at (x, y)."""
+    if ch == "o":
+        p.ellipse(x + 4, y + 10, 4, 4, n=12)
+    elif ch == "s":
+        p.line([(x + 8, y + 6), (x + 1, y + 6), (x, y + 7), (x, y + 9),
+                (x + 1, y + 10), (x + 7, y + 10), (x + 8, y + 11),
+                (x + 8, y + 13), (x + 7, y + 14), (x, y + 14)])
+    elif ch == "8":
+        p.ellipse(x + 4, y + 3.5, 3.5, 3.5, n=12)
+        p.ellipse(x + 4, y + 10.5, 4, 3.5, n=12)
+    elif ch == "0":
+        p.ellipse(x + 4, y + 7, 4, 7, n=16)
+        p.line([(x + 1, y + 11), (x + 7, y + 3)])
+
+
+def mascot(p):
+    """The os8088 mascot: a cat peering over an IBM PC with the name lit."""
+    p.ink(BLACK)
+    rect(p, 30, 96, 170, 122)                                # system unit
+    for y in (101, 111):                                     # two floppies
+        rect(p, 112, y, 162, y + 7)
+        p.line([(118, y + 3), (156, y + 3)])
+        p.line([(136, y + 1), (140, y + 1)])
+    p.line([(30, 105), (38, 105)])
+    p.ink(LRED)
+    p.ellipse(42, 116, 2, 2, n=6)                            # power lamp
+    p.ink(BLACK)
+    p.line([(80, 96), (76, 92), (124, 92), (120, 96)])      # monitor stand
+    rect(p, 55, 46, 145, 92)                                 # monitor
+    rect(p, 62, 53, 138, 86)                                 # the glass
+    p.ink(GREEN)
+    for i, ch in enumerate("os8088"):                        # the name, lit
+        glyph(p, ch, 67 + i * 11, 61)
+    p.line([(67, 79), (75, 79)])                             # a cursor
+    p.ink(BLACK)
+    head = [(100 + 23 * math.cos(math.radians(a)),
+             29 + 19 * math.sin(math.radians(a))) for a in range(0, 361, 8)]
+    p.clipline(head, 46)                                     # head, behind
+    p.line([(80, 20), (80, 2), (93, 12)])                    # ears
+    p.line([(107, 12), (120, 2), (120, 20)])
+    p.ink(MAGENTA)
+    p.line([(83, 17), (83, 8), (90, 13)])
+    p.line([(110, 13), (117, 8), (117, 17)])
+    p.ink(GREEN)
+    for ex in (91, 109):
+        p.ellipse(ex, 27, 4, 5)
+    p.ink(BLACK)
+    for ex in (91, 109):
+        p.line([(ex, 24), (ex, 30)])
+    p.ink(MAGENTA)
+    p.line([(97, 35), (103, 35), (100, 38), (97, 35)])
+    p.ink(BLACK)
+    p.line([(100, 38), (100, 40)])
+    p.bez((100, 40), (98, 43), (94, 42), n=4)
+    p.bez((100, 40), (102, 43), (106, 42), n=4)
+    for s in (-1, 1):                                        # whiskers
+        for dy, ey in ((-1, -5), (1, 0), (3, 5)):
+            p.line([(100 + s * 12, 37 + dy), (100 + s * 36, 37 + ey)])
+    for px in (80, 120):                                     # paws over
+        p.ellipse(px, 47, 7, 4, 180, 360, n=8)               # the bezel
+        p.line([(px - 7, 47), (px - 7, 50), (px + 7, 50), (px + 7, 47)])
+        p.line([(px - 2, 48), (px - 2, 50)])
+        p.line([(px + 2, 48), (px + 2, 50)])
+    p.bez((145, 50), (162, 52), (150, 72), (164, 94), n=18)  # tail, down
+    p.bez((145, 55), (156, 58), (144, 74), (158, 96), n=18)  # the side
+    p.line([(164, 94), (158, 96)])
+
+
 cats = []
 for name, fn in (("ct_pic0", lambda p: sitting(p)),
                  ("ct_pic1", sleeping),
                  ("ct_pic2", lambda p: sitting(p, calico=True)),
-                 ("ct_pic3", walking)):
+                 ("ct_pic3", walking),
+                 ("ct_pic4", mascot)):
     p = Pic(name)
     fn(p)
     cats.append(p.emit())

@@ -2,7 +2,7 @@
 ; os8088 - apps/catdemo/catdemo.asm
 ;
 ; CAT DEMO: a small demo package. One window, a drop-down (os88ui.inc's,
-; SPEC.md 13.14) choosing one of four cats, and the cat drawn below it as
+; SPEC.md 13.14) choosing one of five cats, and the cat drawn below it as
 ; vector line art. The lines are os88gfx.inc's app-side walk committed
 ; through OSAPI_GFX_POINTS (SPEC.md 5.12), so each stroke takes the pen
 ; colour it was given - the calico's patches are brown and black on a
@@ -31,7 +31,7 @@ CT_DR_H   equ 14
 CT_PIC_X  equ 6                     ; the 200 x 125 drawing space
 CT_PIC_Y  equ 24
 
-CT_NPICS  equ 4
+CT_NPICS  equ 5
 CT_PTMAX  equ 256                   ; points batched per OSAPI_GFX_POINTS
 
 ; -----------------------------------------------------------------------------
@@ -313,12 +313,13 @@ ct_drop:
     db 0, 0FFh                      ; open, hot
     dw 0, 0, 0, 0                   ; bank seg/KB, list top, disabled
 
-ct_items:   dw ct_n0, ct_n1, ct_n2, ct_n3
-ct_pics:    dw ct_pic0, ct_pic1, ct_pic2, ct_pic3
+ct_items:   dw ct_n0, ct_n1, ct_n2, ct_n3, ct_n4
+ct_pics:    dw ct_pic0, ct_pic1, ct_pic2, ct_pic3, ct_pic4
 ct_n0:      db 'Sitting Cat', 0
 ct_n1:      db 'Sleeping Cat', 0
 ct_n2:      db 'Calico Cat', 0
 ct_n3:      db 'Walking Cat', 0
+ct_n4:      db 'os8088 Mascot', 0
 
 ct_ttl:     db 'Cat Demo', 0
 ct_s_lbl:   db 'Cat:', 0
@@ -327,7 +328,7 @@ ct_ablines:
     dw ct_ab1, ct_ab2, ct_ab3, 0
 ct_ab1:     db 'Cat Demo for os8088', 0
 ct_ab2:     db 0
-ct_ab3:     db 'Four cats in vector art', 0
+ct_ab3:     db 'Five cats in vector art', 0
 
 %include "cats.inc"
 

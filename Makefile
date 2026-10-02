@@ -4795,7 +4795,7 @@ $(BUILD)/hello.bin: apps/hello/hello.asm apps/os88api.inc apps/os88ui.inc \
 $(BUILD)/hello.o88: $(BUILD)/hello.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/hello.bin -o $@
 
-# CAT DEMO: four cats in vector line art behind a drop-down. A demo, in
+# CAT DEMO: five cats in vector line art behind a drop-down. A demo, in
 # $(APPS_TOOLS) so it rides every apps disk. apps/catdemo/cats.inc is
 # committed output of apps/catdemo/mkcats.py, which the build does not run.
 $(BUILD)/catdemo.bin: apps/catdemo/catdemo.asm apps/catdemo/cats.inc \
