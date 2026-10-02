@@ -957,7 +957,10 @@ def drive_xy(m, ordinal, sym=None):
     zh1 = word(m, "desk_zh1", sym)
     zx = word(m, "vid_desk_zx", sym)
     col, row = divmod(ordinal, rows)
-    return (zx - col * DESK_PX + (DESK_CW - DESK_ZW) // 2 + DESK_ZW // 2,
+    # the column on the byte grid (SPEC.md 26.9.9's DESKPIC: the centred x
+    # rounded to the nearest multiple of 8)
+    return (((zx - col * DESK_PX + (DESK_CW - DESK_ZW) // 2 + 4) & ~7)
+            + DESK_ZW // 2,
             DESK_ZY0 + row * step + zh1 // 2)
 
 
