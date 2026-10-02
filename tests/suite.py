@@ -8096,6 +8096,17 @@ SOAK = [
         "without ico_clip's column masks (32 px) and without the "
         "nothing-uncovered stores (the window redrawn, a title promoted).",
         needs=("marty",), serial=True, timeout=900),
+    Row("deskflash", "soak", py("tests/deskflash.py"), 85.0,
+        "SPEC.md 26.9.9: a desktop cell is drawn ONCE, and only where it "
+        "shows. On VGA and CGA, frame by frame: an in-place cell repaint "
+        "(plain and selected) changes and flashes nothing; a Disk window "
+        "dragged half over the drive column draws NO cell (desk_draw_zone "
+        "never entered); dragged back 8 and 24 px it changes the revealed "
+        "sliver and flashes nothing, and the column matches a whole "
+        "repaint. Red without wm_dmg_gray's ground subtraction (566 px "
+        "flash), without wm_occl_l (2 cells drawn) and without desk_bout's "
+        "head (8 px flash, 202 px stale).",
+        needs=("marty",), timeout=600),
     Row("deskclipsmall", "soak", py("tests/deskclip.py", "--small"), 50.0,
         "SPEC.md 11.91.6, kern_small's half: a cell the pass reveals NONE "
         "of is not drawn and marks nobody, and an in-place cell repaint "

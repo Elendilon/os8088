@@ -5173,6 +5173,13 @@ gfx_b1b          resb 1          ; ...and pass 2's Map Mask, B alone. It rides
   %error "gfx_b1act/gfx_b1inv must stay adjacent: gfx_blit1_x clears both in one word store"
 %endif
 %endif
+%ifdef OS88_SHORTCUTS
+gfx_b1hm         resb 1          ; nonzero: the TAIL byte's mask instead of the
+                                 ; one CX & 7 makes (SPEC.md 5.4.2.5) - so a
+                                 ; band under 8 px wide is ONE byte under ANY
+                                 ; mask. desk.inc's head column is the one
+                                 ; caller, and it sets and clears it
+%endif
 vgas_sdy         resw 1          ;   signed dy (positive = content up)
 vgas_ydst        resw 1          ;   first destination row
 vgas_step        resw 1          ;   +1 (up: top-down) / -1 (down: bottom-up)
@@ -5451,6 +5458,11 @@ gfx_blit1_x:
     not ch                      ; every t of 1..7, and it needs neither the
                                 ; negate nor the add: CL already holds the
                                 ; tail, and only CH is read back ([bp+7])
+%ifdef OS88_SHORTCUTS
+    cmp byte [gfx_b1hm], 0      ; ...or the caller's own (desk.inc's head
+    je .notail                  ; column, SPEC.md 26.9.9). DS is still ours
+    mov ch, [gfx_b1hm]
+%endif
 .notail:
     push bp                     ; [bp+8]  the band's step
     push cx                     ; [bp+6]  the tail mask, in its HIGH byte
