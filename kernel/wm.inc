@@ -6249,6 +6249,13 @@ wm_dmg_gray:
     je .out                     ; wholly covered: not one pixel is revealed
     jmp short .fill
 .whole:
+%ifdef OS88_SHORTCUTS
+    call COLD_SEG:desk_dmg_zones_x  ; every touched zone owed again: desk_zones_r
+%endif                          ; may have drawn some that this dithers over.
+                                ; HERE, above the pops: it spends AX, and AX
+                                ; is the damage's x1 the bands are re-seeded
+                                ; from - called below them it cut the whole
+                                ; dither down to x 618 on a zoom's restore
     pop si                      ; ...THE BANDS, not their bounding box, and not
     pop dx                      ; the damage: re-seeding from the box would
     pop cx                      ; (the damage is the entry frame's AX..DX,
@@ -6259,9 +6266,6 @@ wm_dmg_gray:
     push cx
     push dx
     push si
-%ifdef OS88_SHORTCUTS
-    call COLD_SEG:desk_dmg_zones_x  ; every touched zone owed again: desk_zones_r
-%endif                          ; may have drawn some that this dithers over
                                 ; dither columns of display 0 that the damage
                                 ; never covered, because the box spans the seam
     call wm_dmg_bands           ; and each display then clamps it back to its
