@@ -1026,9 +1026,11 @@ vid_setmode:
     cmp byte [vid_kind], VID_CGA    ; renderer in the build [vid_kind] can only
     jne .nocga                  ; be VID_HERC or VID_CGA and the mono arm
 %endif                          ; branched away above, so .bios IS the CGA
-    mov ax, 0x0040              ; there and the test is dead weight.
+    xor ax, ax                  ; there and the test is dead weight.
     mov es, ax                  ; NO PUSH: this routine banks ES at entry and
-    mov al, [es:0x0065]         ; nothing below reads it - the planar arms and
+    mov al, [es:0x0465]         ; nothing below reads it - the planar arms and
+                                ; (0000:0465 = 0040:0065, segment 0 being a byte
+                                ; cheaper to load - size pass 9)
     mov [vid_cgamode], al       ; vid_wipe each load their own
 .nocga:
 %ifdef GFX_VGA
@@ -1247,13 +1249,13 @@ vid_wipe:
 vid_cga_equip:
     push ax
     push ds
-    mov ax, 0x0040              ; the BIOS data area
-    mov ds, ax
-    mov al, [0x0010]            ; equipment flag, bits 5:4 = the display
-    and al, 0x30
+    xor ax, ax                  ; the BIOS data area, by segment 0 and the
+    mov ds, ax                  ; LINEAR offset (0040:0010 = 0000:0410, a byte
+    mov al, [0x0410]            ; cheaper than mov ax, 40h - size pass 9):
+    and al, 0x30                ; equipment flag, bits 5:4 = the display
     cmp al, 0x30                ; 11b = monochrome at B000
     jne .out
-    and byte [0x0010], 0xEF     ; 11b -> 10b is "clear bit 4, leave bit 5", and
+    and byte [0x0410], 0xEF     ; 11b -> 10b is "clear bit 4, leave bit 5", and
                                 ; ONE and does it. Correct only because the
                                 ; `cmp al, 0x30 / jne .out` above has already
                                 ; proved the pair IS 11b - relax that guard and

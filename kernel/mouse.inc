@@ -2375,9 +2375,9 @@ kbm_pass:
 kbm_slock:
     push ax
     push es
-    mov ax, 0x40
-    mov es, ax
-    test byte [es:0x17], 0x10   ; KB_FLAG bit 4 = Scroll Lock active
+    xor ax, ax                  ; segment 0, LINEAR offset: 0040:0017 is
+    mov es, ax                  ; 0000:0417 (a byte shorter than mov ax, 40h)
+    test byte [es:0x417], 0x10  ; KB_FLAG bit 4 = Scroll Lock active
     pop es                      ; pop does not disturb flags
     pop ax
     ret
@@ -2756,13 +2756,15 @@ kbm_isr:
     cmp al, KBM_5SCAN
     jne .chain
     push es
-    mov ax, 0x40                ; the BIOS data area, NOT zero: KB_FLAG is at
-    mov es, ax                  ; 0040:0017, and an ES of 0 reads the middle of
-                                ; the vector table instead - which has bits in
-                                ; 0x30 set, so the test below always chained
-                                ; and this key stayed dead (kbm_slock is the
-                                ; idiom; the vector install above is not)
-    test byte [es:0x17], 0x30   ; KB_FLAG: NumLock (20h) - int 16h will deliver
+    xor ax, ax                  ; the BIOS data area through segment 0 and its
+    mov es, ax                  ; LINEAR offset 0x417 = 0040:0017. NOT 0x17 with
+                                ; ES 0: that reads the middle of the vector
+                                ; table, which has bits in 0x30 set, so the
+                                ; test below always chained and this key stayed
+                                ; dead - the defect the 0x40 segment fixed, and
+                                ; why the offset here is 0x417 (size pass 9:
+                                ; xor is a byte shorter than mov ax, 40h)
+    test byte [es:0x417], 0x30  ; KB_FLAG: NumLock (20h) - int 16h will deliver
     pop es                      ; it and kbm_key claims it - or ScrollLock
     jnz .chain                  ; (10h), the hatch. pop leaves the flags alone
     mov byte [kbm_p5], 1        ; ...otherwise it is a press, spent in task
@@ -3002,10 +3004,11 @@ kbd_ovflow:
     push ax
     push bx
     push es
-    mov ax, 0x40
-    mov es, ax
-    mov ax, [es:0x1A]           ; head - where the reader is
-    mov bx, [es:0x1C]           ; tail - where the BIOS is about to write
+    xor ax, ax                  ; segment 0, LINEAR offsets: 0040:001A is
+    mov es, ax                  ; 0000:041A (size pass 9, a byte shorter). The
+    mov ax, [es:0x41A]          ; head - where the reader is - and the
+    mov bx, [es:0x41C]          ; tail - where the BIOS is about to write -
+                                ; are still 0040-relative VALUES (1Eh..3Dh)
     cmp ax, bx
     je .drained                 ; empty: the reader has caught up, so the next
                                 ; burst is a new one and beeps again
@@ -3029,7 +3032,7 @@ kbd_ovflow:
     jae .wind                   ; newest is gone
     add ax, KBD_BUFE - KBD_BUFB
 .wind:
-    mov [es:0x1C], ax
+    mov [es:0x41C], ax
     cmp byte [kbd_ovn], KBD_OVBEEPS
     jae .out                    ; three beeps is the lot: past that the drop is
                                 ; silent, so the machine spends the time

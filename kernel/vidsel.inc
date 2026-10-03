@@ -437,12 +437,12 @@ vid_equip:
     jne .go
     mov bl, 0x30                ; 11b = monochrome at B000
 .go:
-    mov ax, 0x0040              ; the BIOS data area
-    mov ds, ax
-    mov al, [0x0010]
+    xor ax, ax                  ; the BIOS data area, by segment 0 and the
+    mov ds, ax                  ; LINEAR offset 0x410 = 0040:0010 (a byte
+    mov al, [0x0410]            ; shorter than mov ax, 40h - size pass 9)
     and al, 0xCF
     or al, bl
-    mov [0x0010], al
+    mov [0x0410], al
     pop ds
     pop bx
     pop ax
