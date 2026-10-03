@@ -1587,6 +1587,24 @@ def _drop_instance(d, heavy_only=False):
     the record and the log stay until `reap()` prunes them.
     """
     import shutil
+    # A LEDGER OF EVERY DROP, one line each, beside the records. A launch
+    # once died because its own `media/hdds` was gone before MartyPC read it
+    # (1942front, at the start of a scoped soak - once in 132 instances, and
+    # not reproduced since), and nothing could say WHO had removed it. The
+    # next time it happens this names the process, the record and the reason.
+    try:
+        import traceback
+        why = "<".join(f.name for f in traceback.extract_stack(limit=4)[-2::-1])
+        led = os.path.join(_inst_root(), "drops.log")
+        big = os.path.exists(led) and os.path.getsize(led) > (1 << 20)
+        with open(led, "w" if big else "a") as f:       # a MB, then restart
+            f.write("%.3f pid %d %s drop %s run_dir %s heavy=%d ended=%s\n"
+                    % (time.time(), os.getpid(), why,
+                       os.path.basename(d.get("dir", "?")),
+                       d.get("run_dir"), int(bool(heavy_only)),
+                       d.get("ended_reason") or d.get("ended")))
+    except OSError:
+        pass
     # PRIVATE ONLY. A caller that staged its own run tree keeps it - the
     # record is ours to retire and the directory is not, and a registry that
     # deleted somebody's staging tree would be a worse bug than the one this
@@ -3581,9 +3599,15 @@ def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
     port = None
     for _ in range(240):
         if proc.poll() is not None:
+            try:                        # what the emulator found, BEFORE _die
+                had = sorted(os.listdir(os.path.join(run_dir, "media")))
+            except OSError as e:        # drops the private half of it
+                had = "unreadable (%s)" % e
             _die("martypc_headless exited at once (rc=%s). The last lines of "
                  "the log say why - a missing ROM set and a port already held "
-                 "are the two usual answers." % proc.returncode)
+                 "are the two usual answers. media/ held %s at exit; "
+                 "build/martypc/inst/drops.log says who removed what."
+                 % (proc.returncode, had))
         try:
             with open(portfile) as f:
                 text = f.read().split()

@@ -2497,6 +2497,16 @@ SOAK = [
         "since SPEC.md 5.4.2.8, so the row re-arms trigger B by retargeting "
         "gfx_blit1_x's `jnz .offg` at `.refuse` in the running kernel.",
         needs=("marty",), serial=True),
+    Row("arkpuwipesmall", "soak", py("tests/arkpuwipe.py", "--small"), 35.0,
+        "SPEC.md 44.10.6.2's TRIGGER A as it ships: kern_small refuses every "
+        "off-grid x by itself, so this is the one arm where the refusal is the "
+        "kernel's and not one the row poked in. Hercules, because kern_small "
+        "has no VGA and CGA floors ARK_PUFALL to 1. The forced column is the "
+        "in-row negative control - 28 px of streak with the old flag put back. "
+        "It builds nothing: `make small smallapps` is what it reads.",
+        needs=("marty",), serial=True,
+        wants=("build/small360.img", "build/smallapps360.img",
+               "build/smallk/kernel.bin")),
     Row("gfxewalk", "soak", py("tests/gfxewalk.py"), 90.0,
         "SPEC.md 5.12.5: Cyclone's warp and Missile's trails step the"
         " resumable walk in their OWN images now (apps/os88gfx.inc) and commit"
