@@ -427,7 +427,7 @@ lz_lz4:
     mov dl, al                  ; match length - 4 in the low one
     mov cl, 4
     shr al, cl
-    xor ah, ah                  ; lz_len's body, inline for the literal: a run
+    cbw                         ; lz_len's body, inline for the literal: a run
     mov cx, ax                  ; of 16KB or more can only arrive through the
     cmp al, 15                  ; extension bytes, so that is where it is
     je .litx                    ; caught, and a short run pays nothing
@@ -505,8 +505,8 @@ lz_tail:
 ; out: CX = the length
 ; clobbers: AX, CX
 lz_len:
-    xor ah, ah
-    mov cx, ax
+    cbw                         ; AH = 0: AL is a nibble, so its sign is 0 -
+    mov cx, ax                  ; one byte and a clock under `xor ah, ah`
     cmp al, 15
     jne .done
 .x:

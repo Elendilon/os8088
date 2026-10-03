@@ -422,11 +422,14 @@ desk_init:
     cmp cl, DVOL_MAX
     jb .kloop
 
-    call KERNEL_SEG:ovw_desk_rowcalc  ; FAR: overlay -> resident. The row
+    call COLD_SEG:desk_rowcalc_x    ; FAR: overlay -> resident. The row
                                 ; count is geometry, and geometry can change
                                 ; after boot now (SPEC.md 39.11.2), so the
-                                ; arithmetic lives in .text where vid_switch
-                                ; can reach it too
+                                ; arithmetic is resident where vid_switch can
+                                ; reach it too - and it ends in a `retf`
+                                ; already, so the overlay names the body and
+                                ; the ovw_ shim that bounced through .text is
+                                ; gone (kernel size pass 9, -4 resident)
 
     xor ax, ax                  ; AX is popped two lines down, so it is free
     mov [desk_clkt], ax
@@ -584,12 +587,11 @@ desk_zs:
     xor bh, bh
     mov al, [bx+desk_zslot]
     pop bx
-    cmp al, DSL_GONE            ; GONE, and 0xFF, are "not shown"
-    jae .no
+    cmp al, DSL_GONE            ; GONE, and 0xFF, are "not shown": CF = 0
+    cmc                         ; there, so complemented CF = 1 is the answer
+    jc .no
     and al, DSL_SLOT            ; ...which also leaves CF = 0
-    ret
 .no:
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -793,8 +795,8 @@ desk_reflow:
 %else
 desk_reflow:
     cmp byte [desk_ready], 0
-    je .ret
-    call kentc_di
+    je desk_free.ret            ; a `ret` in short reach (desk_free's own) -
+    call kentc_di               ; this one's was five bytes off the far end
     xor di, di                  ; --- 1: let go -----------------------------
 .a:
     mov al, [di+desk_zslot]
@@ -885,8 +887,6 @@ desk_reflow:
     cmp di, DESK_NZ
     jb .c
     jmp kretc_di
-.ret:
-    ret
 
 %endif
 
@@ -1363,15 +1363,22 @@ desk_unsel_x:
     push ax
     mov al, 0xFF
     xchg al, [desk_sel]
-    cmp al, 0xFF
-    je .o                       ; nothing was selected
 %ifdef OS88_SHORTCUTS
     mov word [menu_items_file+2], sc_s_remx ; ...so Remove Shortcut greys,
-%endif                          ; desk_select's other half
+                                ; desk_select's other half - and harmlessly
+                                ; again when nothing was selected, which
+                                ; already left it there
+    call desk_select.one        ; 0xFF = nothing was selected; else its cell
+                                ; (if shown) owes a repaint - .one's body, a
+                                ; copy of which stood here (kernel size pass 9)
+%else
+    cmp al, 0xFF
+    je .o                       ; nothing was selected
     call desk_zs                ; AL = its cell; CF = 1 not shown
     jc .o
     call desk_cmark
 .o:
+%endif
     pop ax
     popf
     retf
@@ -1386,10 +1393,13 @@ desk_open:
     call desk_select
     pop ax
 %ifdef OS88_SHORTCUTS
-    cmp al, DESK_SC0
-    jae sc_open                 ; a shortcut opens BY NAME (SPEC.md 26.8.5)
-%endif
-%ifndef KERN_SMALL
+    cmp al, DESK_SVZ
+    je .svc
+    jb .vol                     ; ...the shortcuts last, so neither branch to
+    jmp sc_open                 ; a far label is a 5-byte inverted pair - the
+.vol:                           ; `jae sc_open` this was is (kernel size pass
+                                ; 9). A shortcut opens BY NAME (SPEC.md 26.8.5)
+%elifndef KERN_SMALL
     cmp al, DESK_SVZ
     je .svc
 %endif
@@ -1605,8 +1615,7 @@ desk_col:
     dec byte [ico_bnd]
     mov si, ico_band
     mov dx, [ico_bh]
-    mov al, [desk_sel]
-    cmp al, [desk_zdrv]
+    call desk_issel
     jne .put
     mov di, si
     mov cx, dx
@@ -1627,12 +1636,18 @@ desk_col:
     call desk_colr              ; Color: its ground, the picture over it...
     call KERNEL_SEG:cw_thm_desk
     call desk_pic
-    mov al, [desk_sel]
-    cmp al, [desk_zdrv]
-    jne .r
+    call desk_issel
+    jne desk_ret
     call desk_colr              ; ...and its selection the way it always was
     jmp ct_cw_gfx_xor_fill
-.r:
+
+; desk_issel - ZF = 1 when the zone being drawn ([desk_zdrv]) is the selected
+; one; clobbers AL. The three sites were one compare written three times
+; (kernel size pass 9), and its `ret` is desk_col's as well
+desk_issel:
+    mov al, [desk_sel]
+    cmp al, [desk_zdrv]
+desk_ret:
     ret
 %if ICO_BSTR != 4 || ICO_BSTR * 8 != DESK_ZW
   %error "ico_band is the 32-wide column: desk_col lays a row as two stosw and inverts it as two words"
@@ -1777,8 +1792,7 @@ desk_cap:
     and ax, 7
     add ax, DESK_ZOVER
     xchg ax, bp                 ; BP = the pen, in bits from the band's start
-    mov al, [desk_sel]
-    cmp al, [desk_zdrv]
+    call desk_issel
     mov al, 0FFh                ; white...
     jne .g
     inc ax                      ; ...or black, selected
@@ -2180,7 +2194,8 @@ desk_ready   resb 1             ; 0 until kmain has everything in: no reflow
 desk_ncell   resb 1             ; cells on this screen, <= DSL_SLOT
 %endif
 desk_zdirty  resb 1             ; 1 = [desk_cdirty] holds cells that owe a
-                                ; repaint (SPEC.md 26.9), posted
+                                ; repaint (SPEC.md 26.9), posted - 0 or 1
+                                ; ONLY: ui_task tests it with `shr`
 desk_cdirty  resb (DSL_SLOT + 1) / 8    ; ...one bit a cell
 desk_zslot   resb DESK_NZ       ; THE TABLE: one byte a zone (SPEC.md 26.9).
                                 ; desk_init fills it with 0xFF, "nothing"

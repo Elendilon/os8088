@@ -531,7 +531,11 @@ def walk(corp, name):
         if dd is None:
             dd = 0
             m2 = CALL.match(text)
-            if m2:
+            if kind == "call" and mtgt in corp.nets:
+                # `FDENT kentc_di` (fdlg.inc) is `call %1` - a macro call to
+                # a declared banking routine banks exactly what the call does
+                dd = corp.nets[mtgt]
+            elif m2:
                 if m2.group(1) in corp.nets:
                     dd = corp.nets[m2.group(1)]     # a declared banking pair
                 elif CALLFAR.match(text) and _pushf_before(u, i):

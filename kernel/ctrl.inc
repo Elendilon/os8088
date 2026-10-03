@@ -275,7 +275,8 @@ cp_sname:   db 'Control', 0     ; KD_NAME: fits the memory view's 7-char
 ; Deferred-repaint flag, drained by ui_task step 3 (SPEC.md 13/31.2). Inline
 ; .text data, not .bss, so it is initialised on disk and needs no cp_init -
 ; the osapi_seed trick from kernel.asm.
-cp_dirty:   db 0                ; 1 = the mode changed, repaint everything
+cp_dirty:   db 0                ; 1 = the mode changed, repaint everything -
+                                ; 0 or 1 ONLY: ui_task tests it with `shr`
 cp_wdirty:  db 0                ; 1 = a setting changed and SYSTEM.CFG is owed
                                 ; a write. Deferred to the panel's teardown
                                 ; (cp_flush_close) rather than taken on the
@@ -630,7 +631,6 @@ CPV_MB2   equ CPV_MY + CP_GW + 3
 ; user has been working off it - and what it is not is the SYSTEM disk
 ; (drv_cfg_save asks dskw_stat for KERNEL.SYS, SPEC.md 51.5.1). `need disk`
 ; reads as an empty drive and sends the reader to look at the light.
-cp_s_dsok:  db 'Settings Saved', 0
 cp_s_dsdsk: db 'Not Saved: No Sys in '
 cp_s_dsdrv: db 'A:', 0          ; the letter, stamped (SPEC.md 52.10.3): the
                                 ; system volume is not A: on a machine booted
@@ -639,14 +639,12 @@ cp_s_dsdrv: db 'A:', 0          ; the letter, stamped (SPEC.md 52.10.3): the
                                 ; none. This is the only string in the kernel
                                 ; that needs it, and dsk_bootltr's second
                                 ; store exists for it
-cp_s_dserr: db 'Not saved: disk error', 0
-; Indexed by [cp_dsave] + 1, so slot 0 keeps toast_say's "nothing to say" and
-; SUCCESS gets a message of its own - a save is a thing the user asked for and
-; waited seconds of floppy for, so silence is the wrong report. It only fires
-; when [cp_wdirty] was set, because that is what cp_flush_close_x gates on:
-; closing a panel nobody changed says nothing.
-cp_savetab: dw 0, cp_s_dsok, cp_s_dsdsk, cp_s_dserr
-CP_NSAVE  equ 4
+; ...and the other two verdicts, `Settings Saved` and `Not saved: disk error`,
+; are CTRL.DRV's own lines beside cp_flush_x, which is the only thing that
+; says any of the three. SUCCESS gets a message of its own - a save is a thing
+; the user asked for and waited seconds of floppy for, so silence is the wrong
+; report. It only fires when [cp_wdirty] was set, because that is what
+; cp_flush_close_x gates on: closing a panel nobody changed says nothing.
 
 ; ...and the other end of the same conversation (SPEC.md 2.8.4): the panel's
 ; own code is a file on the system disk now, so OPENING it can fail for the
@@ -988,18 +986,17 @@ cp_tick_due_x:
     push ax
     push bx
     push di
-    cmp byte [cp_sel], CP_ITIME
-    jne .no
+    mov al, [cp_sel]
+    xor al, CP_ITIME            ; ...and `xor` leaves CF = 0, so every "no"
+    jnz .out                    ; below can go straight to .out
     mov al, KIND_CTRL
     call KERNEL_SEG:cw_inst_find_kind         ; CF = 1: no live Control Panel
-    jc .no
+    cmc
+    jnc .out
     mov bx, [di+I_WIN]
-    test byte [bx+W_FLAGS], 2   ; visible?
-    jz .no
+    test byte [bx+W_FLAGS], 2   ; visible? (`test` clears CF too)
+    jz .out
     stc
-    jmp .out
-.no:
-    clc
 .out:
     pop di
     pop bx
@@ -3310,7 +3307,7 @@ cp_dock_click:
     je .done                    ; already the setting: change nothing
     mov ah, [dock_cfg]
     mov [dock_cfg], al
-    call KERNEL_SEG:cw_dock_apply
+    call COLD_SEG:dkf_apply
     jnc .changed
     mov [dock_cfg], ah          ; failed enable: keep the working preference
     push cx
@@ -5068,17 +5065,26 @@ cp_flush_x:
 .wrongdisk:
     mov byte [cp_dsave], 1
 .say:
-    mov al, [cp_dsave]
-    inc al                      ; slot 0 stays toast_say's "nothing to say"
-    mov bx, cp_savetab
-    mov cx, CP_NSAVE
-    call KERNEL_SEG:toast_say
+    push si
+    push es
+    mov si, cp_s_dsdsk          ; [cp_dsave] = 1, no system disk: RESIDENT,
+    push ds                     ; because its drive letter is stamped by the
+    pop es                      ; mount (disk.inc) - every other line is
+    mov al, [cp_dsave]          ; this image's own, out through ES = CS. The
+    cmp al, 1                   ; save's verdicts were a resident word table
+    je .tell                    ; and three resident lines for a message only
+    push cs                     ; this image ever says (kernel size pass 9)
+    pop es                      ; ...flags untouched by the push, pop and mov
+    mov si, [cs:cp_dsvt]        ; 0: saved - a POINTER to image data, read
+    jb .tell                    ; `cs:` (SPEC.md 2.8.6, cp_fdnop's shape)
+    mov si, [cs:cp_dsvt+2]      ; 2: the write itself failed
+.tell:
+    xor cx, cx                  ; a toast COPIES its line, so image data is
+    call KERNEL_SEG:cw_toast_show   ; fine for the drop that follows
 %ifdef OS88_DRIVERS
     cmp byte [cs:cp_fdno], 0    ; ...unless the save turned Cylinder back to
     je .said                    ; Auto (SPEC.md 31.14): that is the news, and
     mov byte [cs:cp_fdno], 0    ; it replaces 'Settings Saved' on the bar
-    push si
-    push es
     push cs
     pop es                      ; the line is this image's: a toast copies it
     mov si, [cs:cp_fdnop]       ; a POINTER to image data, read `cs:` - the
@@ -5086,11 +5092,14 @@ cp_flush_x:
                                 ; the line goes out through ES = CS
     xor cx, cx
     call KERNEL_SEG:cw_toast_show
-    pop es
-    pop si
 .said:
 %endif
+    pop es
+    pop si
     jmp kretm_cx
+cp_dsvt:    dw cp_s_dsok, cp_s_dserr       ; [cp_dsave] = 0 and 2, read `cs:`
+cp_s_dsok:  db 'Settings Saved', 0
+cp_s_dserr: db 'Not saved: disk error', 0
 
 ; -----------------------------------------------------------------------------
 ; cp_flush_cfg - [cp_wdirty]'s half of cp_flush_close_x, and the SETTINGS

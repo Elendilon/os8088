@@ -5749,10 +5749,14 @@ walk does.
 ##### 5.6.9.1 The box is invalidated on entry, and that is not a nicety
 
 `gfx_ls_bx1..by2` is whatever the last caller left in it, and the region may
-have been re-armed since. The loop therefore stores an EMPTY box before the
-first point, so the first one always takes the `.miss` arm and re-resolves.
-Without it a call whose first point happens to fall inside a stale rect draws
-through a clip nobody set — which is invisible until two windows overlap.
+have been re-armed since. The loop therefore RESOLVES the box for the first
+point before the loop starts (a direct `gfx_ls_box` while DS is still the
+kernel's), so the first point is tested against a box this call built. Without
+it a call whose first point happens to fall inside a stale rect draws through a
+clip nobody set — which is invisible until two windows overlap. (Until size
+pass 9 it stored an EMPTY box instead, which sent the first point of every call
+down the `.miss` arm; on `kern_big` that arm is now one routine,
+`gfx_pt_miss`, shared by the three ink loops of 5.6.9.3.)
 
 The exposure is one-sided, and worth stating because it says what a gate for
 this has to arrange: the `.miss` arm re-resolves a box that is too SMALL, so
@@ -20252,7 +20256,8 @@ fragment of it"*:
 
 - **`wm_su_flay` lays the fragments out ONCE** into `wm_su_ftab`, from the
   content rect and the four extents clamped left-then-right and top-then-bottom
-  into what the one before left. `wm_su_take`, `wm_su_kb` and `wm_su_try` then
+  into what the one before left. `wm_su_take` (its sizing through `wm_su_scrset`,
+  which was `wm_su_kb` until size pass 9 folded it in) and `wm_su_try` then
   walk that table in index order, so the claim's size, the offsets written into
   it and the offsets read back out cannot disagree.
 - **With no extents at all, fragment 0 is the WHOLE content and 1..3 are
@@ -20389,7 +20394,8 @@ Six things are load-bearing:
   *both* of `wm_su_try`'s success paths — including the one that restores
   nothing because nothing this pass painted reached the content, which is
   equally a statement that the band is still right.
-- **`wm_su_orect` insets by `wm_su_flay`'s already-clamped extents**, never by
+- **`wm_damage`'s owed rect insets by `wm_su_flay`'s already-clamped extents** (it was
+  `wm_su_orect` until size pass 9, and is read off `wm_su_flay`'s table), never by
   the raw ones. Two bands that together overrun the content would otherwise
   leave a borrowed subtraction reading as an enormous `x2`; this way the kept
   rect and the fragments are complementary by construction rather than by two
@@ -22414,7 +22420,7 @@ is 0, 1, 2, so the kind indexes it directly. `SI = 0` withdraws it. A `(0, 0)`
 pair means *no preference on that adapter*, so an app may say only the thing it
 has something to say about and leave the other two to its template.
 
-It registers **and applies** — `wm_nat_take`, then the preference, then
+It registers **and applies** — the banked rect put back, then the preference, then
 `wm_fit` — and is **FLAGS-preserving**, which is `wm_keeph`'s contract for
 `wm_keeph`'s reasons: by the time an entry proc can call this `wm_create` has
 already fitted the window, so the unclamped size survives only in the bank, and
@@ -22533,7 +22539,7 @@ whatever the app did with `wm_resize` between drags.
 
 **`wm_refit` applies the preference too, and that is the single-display half of
 the same rule.** §39.11.2 re-fits every window when the adapter changes under
-it, and that was `wm_nat_take` then `wm_fit`; it is now `wm_nat_take`, then the
+it, and that was the banked rect put back then `wm_fit`; it is now the banked rect, then the
 new adapter's preference, then `wm_fit`. So switching a VGA machine to its CGA
 row on the Display page gives every window its CGA size rather than the VGA one
 cut to the band — which is where most people will meet this, most machines
@@ -23004,7 +23010,10 @@ accessory like Timer or Bounce.
 is unavailable: `menu_drop` draws the rest of it in `CDGRAY` and skips the
 marker, `menu_widest` does not measure the marker, and `menu_hover` refuses
 to land on the cell — so it cannot be highlighted and cannot be selected, and
-the whole feature is those three places. It is a **string prefix**, not a
+the whole feature is those three places. (`menu_hover` asks `menu_item_dis`,
+which tests the first byte BELOW 2 in one compare, so an EMPTY item string is
+refused the same way: a blank row nothing could mean picking. Kernel size
+pass 9.) It is a **string prefix**, not a
 flags array, because an application that wants an item disabled already had
 to point `AMENU_ITEMS` at a different string to relabel it ("Save Gif" vs
 "Save Gif (NoRam)"); one byte in front of that string costs no structure
@@ -30169,9 +30178,10 @@ The FAT routines (all UI-task-only like the rest of the module; all in
 ### 18.1 Mount-derived variables (kernel .bss)
 
 Valid only after a successful mount — every consumer is already gated by
-`disk_nfiles` ≠ 0 (readers) or by `[dsk_mntok]` (writers, §18.4). 90 bytes
-including `dsk_cherr`, `dsk_read_chain`'s failure-code byte carried across
-its register-restore epilogue.
+`disk_nfiles` ≠ 0 (readers) or by `[dsk_mntok]` (writers, §18.4). 89 bytes.
+`dsk_read_chain`'s failure code no longer rides a byte of its own across the
+epilogue: it is written into the banked AX on the stack, so the ladder's
+`pop ax` returns it.
 
 ```nasm
 dsk_bpbh:     resb 18  ; staged BPB fields 11..28 (mount scratch, §18.2),
@@ -30185,8 +30195,6 @@ dsk_rootlba:  resw 1   ; first root-dir LBA
 dsk_rootsecs: resw 1   ; root-dir sector count (<= 32)
 dsk_datalba:  resw 1   ; FirstDataSec
 dsk_maxclus:  resw 1   ; CountOfClusters+1 = highest valid cluster number
-dsk_cherr:    resb 1   ; dsk_read_chain failure code, carried across the
-                       ; register-restore epilogue
 dsk_op:       resb 1   ; int 13h function for dsk_xfer: 02h read / 03h write
 dsk_ioerr:    resb 1   ; last int 13h status (AH) of a FAILED transfer;
                        ; 03h = write-protected media (§18.4)
@@ -32487,6 +32495,36 @@ is thorough and is entirely READ-side — `KERNEL.SYS` out of guest RAM and
 two paths.** A bound proved safe on one is a hypothesis about the other, and
 `tests/diskclone.py` is where that hypothesis gets tested, because a clone is
 the only thing that writes like a boot reads.
+
+#### 18.91.4 …and ONE sector across a 64KB page goes through `dsk_secbuf`
+
+`dsk_runcap` caps a run at the 64KB physical page, and a base that is
+512-aligned can never put one sector across one. §18.4.1 lets a caller hand
+the file layer a buffer at **any** offset, though, and an unaligned buffer
+whose page end is under a sector away has no legal transfer at all: int 13h
+answers it with **09h**, and `FERR_IO` reaches the user as `Disk error`.
+
+`dskw_runadd` stages that case for an append and a whole-file read
+(§18.4.2.1), but two paths reach `dsk_xfer` with the caller's own ES:BX:
+`OSAPI_FILE_WRITE_AT`'s INSIDE arm (§18.4.7) through `dsk_write_chain_x`, and
+every `dsk_read_chain_x` caller. Until this `dsk_runcap` answered **1** there
+("only reachable from a base SPEC.md 2.4 forbids") and the transfer failed.
+It was found when kernel size pass 9 moved the heap floor 512 bytes down and
+a streamed Compress (§22.22.5) - whose header is rewritten at `(ES-1):8` at
+the end - put that sector at `2FE0:0008`: `tests/lzbig.py`'s BIG3 and BIG4
+went red on the identical code that passed with the floor one rung higher.
+
+So `dsk_runcap` answers **0**, and `dsk_xfer` banks the caller's ES, BX and
+count in `dsk_bnc_*` (the count, never 0 there, doubling as the flag), copies the sector into `dsk_secbuf` for a write, and
+sends **that one sector** round `.sector` again with ES:BX on the scratch -
+which is 512-aligned and cannot straddle. `.success` then puts the caller's
+buffer back, copies the sector out for a read, and carries on with the rest
+of the run; `.fail` puts the caller's ES back. It is staged in the LOOP and
+not by calling `dsk_xfer` again, because the routine's head calls `fpg_busy`,
+which may draw, and a draw inside `[sch_lock]` can wait on a gfx lock another
+task holds. At most one sector per 64KB of caller buffer is staged, and a
+512-aligned base (every buffer of the kernel's own making, `clo_size`'s and
+`cmz`'s rounded ones) never reaches it.
 
 ### 18.92 The diskette parameter table is OURS, and EOT is why
 
@@ -36667,7 +36705,9 @@ all-zero slot, and viewers fall back to the built-in `ico_app16` (§25).
 **Type 2 and type 3 are the one exception**: a folder has nothing on disk to
 harvest an icon *from*, so `dsk_folder_ico` — a hand-authored 16×16 body in
 `disk.inc`'s `.text`, the only icon in the kernel besides the menu-bar logo
-that is drawn by hand — is copied into the slot instead. Doing it at
+that is drawn by hand — is copied into the slot instead. (It is held as
+eleven runs of identical rows, 34 bytes, and `dsk_ico_stage` expands them
+with a `rep stosw` each: kernel size pass 9.) Doing it at
 harvest time rather than at draw time means every viewer keeps the one rule
 it already had: read `disk_icons` entry i, fall back to `ico_app16` if it
 is all zero.
@@ -40151,6 +40191,10 @@ driver both publishing the cell. So the dispatch ends in five fixed sites,
 `call far [cs:drv_fptr]` … `[cs:drv_fptr5]`, which is what `drv_svc_call` and
 `drv_fs_call` already do with the same pairs. Cost: `.text` +38, no rung
 crossed on either kernel.
+(Kernel size pass 9 took the same frame further: `drv_call`, `drv_fs_call`
+and `drv_cp_call` are one body now, `drv_stamped`, which takes the driver's
+segment ON THE STACK - per task, so re-entrant for this paragraph's reason -
+and enters through `drv_pkg_disp`'s synthesised far frame.)
 
 #### 20.11.1 Verb 0 is IDENTIFY, and it is not a formality
 
@@ -43816,14 +43860,16 @@ performance input, not a precondition.
 | `fm_focus` | in BX = the window gaining the focus (0 = none), AL = 0 the caller draws it / 1 draw it here; **gfx lock held, UI task**. On a file-manager window owing a refresh: re-list (`fmv_take` where the globals allow, else `fmv_load`), clear `FS_DIRTY`, and either repaint or answer **CF = 1** so the caller draws it whole (§22.8). CF = 0 = nothing owed. Preserves all registers. |
 
 **`fm_layout` is the sole authority on `[fm_vseg]`** (and `[fm_vp]`): it
-calls `fm_vp_set` at its head, then mirrors **eight** fields — `FS_VIEW`,
-`FS_MOK`, `FS_DRV`, `FS_EDIT`, `FS_FERR`, `FS_N`, `FS_SCRL`, `FS_SEL` —
-into `fm_lview` / `fm_lmok` / `fm_ldrv` / `fm_ledit` / `fm_lferr` /
-`fm_lnf` / `fm_lscr` / `fm_lsel` for the painter, which uses every register
-including BP and has none free to thread a pointer through. (`fm_lpad`
-exists only to keep the words after it even-aligned.) **The mirror list is
-part of this contract**: a new per-window field that the painter reads and
-that is not mirrored here reads the previous window's value. `fm_clamp_scroll` is the **one** write-back (every scroll
+calls `fm_vp_set` at its head, then mirrors the state block's first
+`FM_LREC` bytes — `FS_SEL`, `FS_SCRL`, `FS_N`, `FS_DRV`, `FS_MOK`,
+`FS_VIEW`, `FS_EDIT` and `FS_2UP` among them — with one `rep movsb` into
+`fm_lrec`, whose `fm_lsel` / `fm_lscr` / `fm_lnf` / `fm_ldrv` / `fm_lmok` /
+`fm_lview` / `fm_ledit` / `fm_l2up` are offsets into that copy (kernel size
+pass 9), for the painter, which uses every register including BP and has
+none free to thread a pointer through. **The mirror is part of this
+contract**: a new per-window field that the painter reads has to sit inside
+the first `FM_LREC` bytes (an `%if` beside `fm_lrec` holds the ones there
+now), or it reads the previous window's value. `fm_clamp_scroll` is the **one** write-back (every scroll
 path already funnels through it). Any painter or hit-tester that reads a
 cache without calling `fm_layout` (or `fm_vp_set`) first reads the *previous*
 window's directory: wrong names, wrong icons, and a double-click that opens
@@ -48912,7 +48958,7 @@ cap. That is the whole reason this section is `kern_small`'s.
 
 **One more thing that is not duplicated, because the wording invites the
 error:** there is exactly ONE folder icon in this kernel. `dsk_folder_ico` is
-a single hand-authored 64-byte body (§19.2) and `icons.inc` holds no duplicate
+a single hand-authored 64-byte body (§19.2, held as runs) and `icons.inc` holds no duplicate
 assets at all — §25.7 deduped the four drive icons already. The twelve copies
 were in the harvest BUFFER at run time, made by `dsk_put_icon_k_x` copying
 those same 64 bytes per folder. No duplicated bytes ship in the image.
@@ -56574,7 +56620,7 @@ the rest"*, and `wm_draw_win` distinguishes the two restores:
 ```
 
 A band covering the **whole content** is the degenerate case: everything
-banked, nothing owed. `wm_su_orect` insets `x1` by the band's extent, which
+banked, nothing owed. `wm_damage` (its owed rect was `wm_su_orect`) insets `x1` by the band's extent, which
 takes it past `x2`, and `wm_damage` answers the **empty** rect §11.90.2
 already documents as legal — *"it may be empty (x1 > x2), meaning draw nothing
 at all"*. So the app is called, told it owes nothing, and spends its own debt.
@@ -56998,7 +57044,7 @@ init-less:
 | `inst_charge` | in DI = record (non-zero), DX:AX = a `task_cycles` stamp (§8.1): `task_debit`, then add the returned cycles to I_CYC. Preserves all registers. Called only by the W_PAINT / W_ONKEY / W_ONCLICK dispatch sites (§11/§13), which hold the gfx lock — and a task-owned instance destroys its window, clearing `wm_owner`, under that same lock before its record is freed (29.2), so the record named by wm_owner stays live for the whole charged stretch. |
 | `inst_find_kind` | in AL = kind byte (exact match incl. bit 7); out CF=0 + DI = first record with I_STATE=1 of that kind, CF=1 none. |
 | `inst_alloc` | out CF=0 + DI = a free record **wholly zeroed** — all `I_RECSZ` bytes, so I_NAME, I_WIN and I_TASK go with I_FLAGS/I_SPTR/I_SIZE/I_ICON/I_CYC; CF=1 table full. I_TASK therefore momentarily reads 0 rather than the last tenant's slot, which nothing can see: I_STATE is 0 across the whole gap and every walker skips a free row, and both callers write I_TASK = 0xFF before the record publishes. DF is left clear. Does NOT publish. UI task only. |
-| `inst_set_name` | in DI = record, SI = name source (NUL-terminated or NUL-padded; at most 15 chars taken). Zero-fills all 16 I_NAME bytes first. Safe on a package header's 16-byte name field. |
+| `inst_set_name_x` | in DI = record, **ES:SI** = name source (NUL-terminated or NUL-padded; at most 15 chars taken). Byte I_NAME+15 is always 0 and the tail after a short name is NUL-padded by the same 15-step loop. Safe on a package header's 16-byte name field. The DS-relative `inst_set_name` was a thunk with one caller and is gone (kernel size pass 9): `app_launch` sets ES = DS and calls this. |
 | `inst_bind_win` | in DI = record, BX = window ptr: I_WIN ← BX, `wm_owner[window index]` ← record index. |
 | `app_launch` | in AL = kind (built-in). UI task only, no lock held; takes its own locks. out CF=1 failed (instance/window/task table full — silent no-op for the caller), CF=0 done. Order: cap check (at cap → gfx_lock, clear the live instance's minimized bit, wm_show it, gfx_unlock — i.e. "launch" of a full singleton fronts it; only-dying-instances → CF=1, retry after a task period) → inst_alloc → pool-slot pick (first candidate `pool + s·stride` not held by a same-kind record with I_STATE != 0) → template copied to scratch with x/y cascaded +16·s → wm_create (CF → fail; record was never published), then OR the kind's `KD_WFLAG` byte into the new window's W_FLAGS (§29.3/§11.1) → fill record (I_KIND, I_TASK=0xFF, I_ICON, name) + inst_bind_win → KD_INIT → **publish I_STATE ← 1** → if KD_TASK: task_spawn (AX = entry, DX = instance index), I_TASK ← returned slot; spawn CF → rollback (I_STATE ← 0, then locked wm_destroy) → gfx_lock, wm_show, gfx_unlock. |
 | `app_close_win` | in BX = window ptr; **caller holds the gfx lock**; UI task only. Unowned window → wm_hide (fallback). I_STATE = 2 already → wm_hide (idempotent). Task-less (I_TASK = 0xFF) → I_STATE ← 2, wm_destroy (clears wm_owner, repaints), I_WIN ← 0, I_STATE ← 0 — for a package instance that final store frees the region (rule 29.2.7). Task-owned → I_STATE ← 2 (the die flag), wm_hide (instant feedback); the task tears down at its next wake — and for a package instance that took a §20.6 worker, `task_exit`'s release-byte store is what frees the region. A package instance reaches this second branch exactly when it owns a worker. |
@@ -61817,7 +61863,7 @@ is the only thing that jumps by 12.
 | `clk_probe` | Boot, from `clk_init`. Walks the §37.90 ladder, seeds the fields from whatever answers and publishes `[clk_tier]`. Out: CF = 1 = no clock, nothing written. Preserves all registers. |
 | `clk_rtc_write` | **In `CTRL.DRV`, not in the kernel (§37.94).** Pushes the live time back to the hardware RTC if `[clk_rtc]`, through the rung `[clk_tier]` names; no-op otherwise. Called by `cp_flush_close_x` and nothing else. Preserves all registers. |
 | `clk_dow` | **In `CTRL.DRV` (§37.94)** — the three rungs that write are its only callers. The day of the week for the live date, Sakamoto's method. Out: AL = 0..6, 0 = Sunday. Preserves everything else. Both XT chips have a weekday counter they do not derive themselves. |
-| `clk_bcd` / `clk_tobcd` | BCD ↔ binary byte helpers; `clk_bcd` returns CF = 1 on a non-decimal nibble. `clk_tobcd` clobbers AH. `clk_bcd` is boot-overlay only; `clk_tobcd` is one of §37.94's six resident survivors and is far-called from the module as `cw_clk_tobcd`. |
+| `clk_bcd` / `clk_tobcd` | BCD ↔ binary byte helpers; `clk_bcd` returns CF = 1 on a non-decimal nibble. `clk_tobcd` clobbers AH. `clk_bcd` is boot-overlay only; `clk_tobcd` is one of §37.94's six port helpers, a copy in each image (`clk_tobcd` in the overlay, `clkw_tobcd` in `CTRL.DRV`) and resident in neither. |
 
 **Month names** are a 12×3 ASCII table (`'Jan'`…`'Dec'`), indexed by
 month−1 ×3 — the same data serves `clk_fmt` and `clk_fld_str`.
@@ -62250,37 +62296,33 @@ which is read `[cs:]` per §2.8.6 — nothing can ask for a weekday while the
 image is not loaded, because the only thing that ever asks is a rung writing
 a chip.
 
-**Six routines stay resident, and the reason is written in their returns.**
-The boot overlay READS the clock and this module WRITES it, and these six are
-the port helpers both halves share:
+**The six port helpers both halves share are a COPY IN EACH IMAGE** (kernel
+size pass 9). The boot overlay READS the clock and this module WRITES it, and
+these six were resident for that alone - far-called from both address spaces,
+ending in `retf` so that §2.6.1's gate refused any near caller in `.text`:
 
-| | bytes | ends in | because |
+| | bytes | the overlay's copy | the module's copy |
 |---|---:|---|---|
-| `clk_at_get` | 9 | **`retf`** | no near caller left in `.text` |
-| `clk_at_done` | 14 | **`retf`** | " |
-| `clk_ns_stamp` | 52 | **`retf`** | " |
-| `clk_rp_get` | 11 | **`retf`** | " |
-| `clk_ns_put` | 13 | `ret` | `clk_ns_stamp` near-calls it ×4 |
-| `clk_tobcd` | 11 | `ret` | `clk_ns_stamp` near-calls it ×1 |
+| `clk_at_get` | 8 | `clk_at_get`, `.ovlw` | `clkw_at_get`, `.modc` |
+| `clk_at_done` | 13 | `clk_at_done` | `clkw_at_done` |
+| `clk_ns_stamp` | 51 | `clk_ns_stamp` | `clkw_ns_stamp` |
+| `clk_rp_get` | 10 | `clk_rp_get` | `clkw_rp_get` |
+| `clk_ns_put` | 13 | `clk_ns_put` | `clkw_ns_put` |
+| `clk_tobcd` | 11 | `clk_tobcd` | `clkw_tobcd` |
 
-**The byte column is re-measured at every size pass and has moved twice**
-(`routsize.py`, off `[map all]`). It read 13/18/64/14/16/11 when this section
-was written; kernel size pass 2 took `clk_ns_stamp` to 57, and pass 3 took the
-four port helpers onto the immediate/low-half addressing forms and
-`clk_ns_stamp`'s year clamp to a subtract-first one. **It is consulted to
-decide whether a body is worth moving, so a stale figure argues the wrong
-way** — `clk_ns_stamp` at 64 looks like twice the case it is at 52.
-
-**That table is enforced, not documented.** §2.6.1's gate refuses a near call
-to a `retf` body and a far call to a `ret` one, so the four that end in `retf`
-are *declaring* that nothing in this segment may call them — which is exactly
-the statement "I am resident only because two other address spaces need me",
-and it fails the build the moment it stops being true. The two that cannot
-say it that way are the two `clk_ns_stamp` reaches, and they keep a `cw_`
-thunk each. The `ovw_clk_*` block is gone: four of its five shims are not owed
-any more, and the fifth is no longer the *overlay's* — the module is its
-main caller for the rest of the session — so it is `cw_clk_ns_put` now, beside
-the new `cw_clk_tobcd`.
+Every one ends in a near `ret` and is near-called inside its own image, so
+the far calls (nineteen in the overlay, eighteen in the module) shrink by two
+bytes each and pay most of each copy back. **The BODIES are written once**, as
+`clock.inc`'s `CLK_*_BODY` macros, and each file writes its own LABEL in front
+of its expansion - which is what LAST-DROP-BYTES 7.7.3 found missing when it
+first priced this: a fragment `%include`d twice defines one label twice, and a
+label emitted INSIDE a macro is invisible to `tools/os88ovlchk.py`'s label map.
+Neither is true of this shape; the gate covers both copies as it covers any
+other `.ovlw` or `.modc` routine. `cw_clk_ns_put` and `cw_clk_tobcd` are gone
+with them. **Measured**: `kern_big` resident **-118** (the six bodies and the
+two `cw_` thunks), `.ovlw` **+71**, `CTRL.DRV` **+76**; `kern_small` -11,
+because `clk_tobcd` was assembled there with no caller at all - `OS88_RTC` is
+`kern_big`'s (§37.0.1) and every reader of it was inside that gate.
 
 **Measured**, `kernsize[big]`: the move is **814 bytes** of `.text` — 787 out
 of `clock.inc`, 12 more as the `ovw_` block shrinks to two `cw_` thunks, and
@@ -64005,8 +64047,9 @@ calls it, so the boot path is untouched.
 
 **`desk_rowcalc` moved out of `desk_init` for this.** `desk_init` is boot
 overlay code (§2.5) and is dead FAT by the time the Control Panel can change
-the adapter under it, so the arithmetic is resident and the overlay
-far-calls it through `ovw_desk_rowcalc` like any other overlay→text step.
+the adapter under it, so the arithmetic is resident - `desk_rowcalc_x`, in
+`.cold` and ending in a `retf` - and the overlay far-calls that body by name
+(the `ovw_desk_rowcalc` shim it bounced through went in kernel size pass 9).
 
 #### 39.11.2.1 …and back again — the natural bank
 
@@ -83283,7 +83326,7 @@ one of them rather than a reader:
 3. **`drv_svc` is `.text` with real zero bytes, not `.bss`.** `snd.inc` reads
    `[drv_svc+DSV_TONE]` directly to ask whether a driver offered it a tone
    proc, and nothing zeroes `.bss` on this assembler (§8) — the live build
-   gets its zeros from `drv_svc_clear_all`, which is inside the gate.
+   gets its zeros from `drv_init_x`, which is inside the gate.
 
 The Control Panel's Drivers page is **stubbed rather than gated**, and the
 row is taken out of `cp_items` so nothing can select it. `CTRL.DRV` is an
@@ -91460,8 +91503,11 @@ there after the panel's own window has been destroyed.
 is a thing the user asked for and then waited seconds of floppy for, so
 silence is the wrong report. It fires only when `[cp_wdirty]` was set, which
 is what `cp_flush_close_x` already gates on — closing a panel nobody changed
-says nothing. The table is indexed by `[cp_dsave] + 1` so that slot 0 keeps
-`toast_say`'s "nothing to say".
+says nothing. **Two of the three lines are `CTRL.DRV`'s own** (kernel size
+pass 9): `cp_flush_x` is the only thing that ever says any of them, so 0 and 2
+are read through CS out of the image beside it - a toast COPIES its line, so
+the module drop that follows costs nothing - and only slot 1 is resident,
+because the mount stamps its drive letter (§52.10.3).
 
 **Outcome, cause — and one string per cause.** A message that says only that
 something failed sends the reader looking, and the two causes here want
@@ -97556,12 +97602,15 @@ the cheaper mechanism.
 #### 66.0.2 What is compiled out, and what stays
 
 Out: `mem_can_move` and the five predicates only it asks (`mem_is_region`,
-`mem_frameless`, `mem_busy_seg`, `mem_in_nest`, `mem_in_xfer`), the seventeen
-`mem_cp_*` routines, `mem_reloc_call`, `mem_rr_walk` / `mem_region_reloc` /
+`mem_frameless` - a predicate written inline in `mem_can_move` at the local
+label `.frameless` since kernel size pass 9, its one caller - `mem_busy_seg`,
+`mem_in_nest`, `mem_in_xfer`), the `mem_cp_*` routines (seventeen when this
+was written; size pass 9 inlined six single-call ones into the walk), `mem_reloc_call`, `mem_rr_walk` / `mem_region_reloc` /
 `mem_rr_tab`, `mem_compact`, `OSAPI_MEM_MOVABLE`'s body, the four kernel
 relocation procs (`menu_reloc`, `clip_reloc`, and `fm_reloc` / `fmv_movable`
 which §50.6.5 had already taken), the **worker park** (§66.5) entire —
-thirteen routines in `instance.inc`, `gfx_lock`'s two hooks and
+thirteen routines in `instance.inc` (fewer since size pass 9 folded
+single-caller ones into their callers), `gfx_lock`'s two hooks and
 `sch_wk_restart` — and `[mem_pinseg]`, whose only reader was `mem_in_xfer`, so
 its writes in `disk.inc`, `clip.inc` and `hiber.inc` go with it.
 
@@ -97841,7 +97890,8 @@ into the hole above it. The ceiling packs against the ceiling exactly as the
 floor packs against the floor.
 
 **`MC_DMA` bit 15 — a claim goes back through the door it came in by.** It is
-stamped at `mem_claim_1`'s publish site from `[mem_dir]`, alongside the
+stamped at `mem_claim_1`'s publish site from the door's direction (BP there;
+it was the `[mem_dir]` word until size pass 9), alongside the
 page-safe head that shares the word. `mem_cp_mine` is the filter: a claim whose
 door disagrees with the pass in flight is a **barrier** in that pass, exactly
 as a pinned one is, so the two passes never contend for a block and neither can
@@ -97867,15 +97917,18 @@ walk that diverged would report room that never arrives: keeping two bodies in
 step is a thing somebody has to remember, and one body with the moves behind a
 flag is a thing nobody can get wrong. The two DIRECTIONS disagree about
 **eight** decisions and about nothing else, and each is a routine that walk
-calls:
+calls - or, for three of them, a masked three-instruction sequence written once
+at its only call site (kernel size pass 9 inlined `mem_cp_near` into
+`mem_cp_gap` and `mem_cp_far`/`mem_cp_adv` into the walk; there is still one
+copy of each, which is the property this paragraph is about):
 
 | routine | what it answers |
 |---|---|
 | `mem_cp_fill0` | where the fill point and its search key start |
 | `mem_cp_step` | which way the key steps past a claim's original base |
-| `mem_cp_near` | which edge must meet the fill point for a claim to be already packed — its base going up, its end coming down |
-| `mem_cp_far` | where the fill point resumes past a barrier |
-| `mem_cp_adv` | which way the fill point advances past a claim just packed |
+| `mem_cp_near` (in `mem_cp_gap`) | which edge must meet the fill point for a claim to be already packed — its base going up, its end coming down |
+| `mem_cp_far` (in the walk's `.nogap`) | where the fill point resumes past a barrier |
+| `mem_cp_adv` (in the walk's `.stay`) | which way the fill point advances past a claim just packed |
 | `mem_cp_dest` | where a block's bytes are going: the fill point going up, a block-length below it coming down |
 | `mem_cp_gap` | the hole beside a barrier |
 | `mem_cp_tail` | the run past everything, which is the one the pass is usually enlarging |
@@ -98446,7 +98499,9 @@ by construction holds no pointer derived from any claim of its own: it is at
 the top of its own loop. `inst_park_req` raises the request and waits up to
 `INST_PARKW` (**4** ticks); `inst_park_wait` marks the worker parked and spins
 on `task_yield`; `inst_seg_parked` is what `mem_can_move` asks; and
-`inst_park_end` withdraws it. The parked bytes are a **side table**
+`inst_park_end` withdraws it. (Since kernel size pass 9 the last is one store
+of 0 to `[inst_parkreq]` written in `mem_compact`'s exit, and `inst_park_wait`
+is the parking arm inside `inst_pkg_alive`, each having had one caller.) The parked bytes are a **side table**
 (`inst_parked`), because `I_RECSZ` is 32 and full (§20.8 rule 2) —
 `inst_icons` and `wm_owner` are the precedents.
 
