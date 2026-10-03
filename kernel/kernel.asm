@@ -2623,14 +2623,25 @@ OVL_AT      equ 2624            ; ...and it is ONE value for every build now.
 ; 415 on kern_small at that pass's close), and
 ; BOOTMARK=1's MARKW sites need 127 of a knob's give (BOOTHALT=20 131,
 ; DRVDIAG=1 with it 141). BOOTDIAG=1 keeps the 96 its own loader leaves room
-; for (2,507 with MOUDIAG=1).
+; for (2,507 with MOUDIAG=1). KERNEL SIZE PASS 9 SPLIT IT, measured with
+; pass 2's decoder arguments: the knob loaders had grown past 2,480 (DISKAL=1
+; is 2,490, MOUDIAG=1 2,484, BOOTSTOP=1 2,482), so five knob builds did not
+; assemble at the pass's base. drv_boot_x's one walk question took kern_big's
+; shipped `.ovl` 2,494 -> 2,470, and the 24 bytes go back here: 128 for a
+; knob whose growth is in the LOADER (DISKAL=1's overlay is then 2,470 of
+; 2,624) and 136 for BOOTMARK=1, whose loader is the shipped one (2,478) and
+; whose MARKW sites are all overlay - 2,617, BOOTHALT=20 2,621 and DRVDIAG=1
+; with it 2,631, of 2,632. BOOTDIAG=1 stays at 96 (2,514; 2,520 with
+; MOUDIAG=1).
 %define OVL_KNOBGIVE 0
 %ifdef KERN_KNOB
 %ifndef SPLSTARS
 %ifdef BOOT_DIAG
   %define OVL_KNOBGIVE 96
+%elifdef BOOT_MARK
+  %define OVL_KNOBGIVE 136
 %else
-  %define OVL_KNOBGIVE 144
+  %define OVL_KNOBGIVE 128
 %endif
 %endif
 %endif
