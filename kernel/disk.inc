@@ -1484,6 +1484,10 @@ dsk_xfer:
                                 ; write-protected) and is NEAR because the
                                 ; batching below pushed .fail out of short
                                 ; range
+.success:                       ; ...and the success arm, HERE below that
+    clc                         ; jump, where the driver's `jnc` and .sector's
+    jmp .out                    ; `jz` reach it short: at the foot it was two
+                                ; five-byte inverted pairs (-5 net)
 
 .sector:
     test si, si
@@ -1819,9 +1823,6 @@ dsk_xfer:
     add bx, ax                  ; ...advances the destination
     jmp .sector
 
-.success:
-    clc
-    jmp .out
 .fail:
     call dsk_bpb_bank_zap       ; an I/O error is exactly the shape "this is
     stc                         ; not the disk you think it is" arrives in

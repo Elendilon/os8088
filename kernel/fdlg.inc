@@ -723,13 +723,10 @@ fdlg_home_go:
     FDX dsk_chdir_x
     jc .cur                     ; the volume itself will not mount
     mov si, fdlg_s_media
-    FDX dsk_find_name_x ; AX = its index; no I/O - the snapshot
-    jc .done                    ; no MEDIA here: this root IS the answer, and
-                                ; it is still an answer nothing drifted into
-    FDX dsk_get_dir_x ; SI -> the staged entry (SPEC.md 19)
-    cmp word [si+16], 2         ; a folder, not a FILE called MEDIA
-    jb .done
-    mov ax, [si+18]             ; its first cluster
+    call fdlg_findname          ; AX = its first cluster, CF=1 = no FOLDER of
+    jc .done                    ; that name - a file called MEDIA included.
+                                ; No I/O: the snapshot. No MEDIA here: this
+                                ; root IS the answer
     or ax, ax
     jz .done                    ; 0 is the root: not a folder to enter
     mov dl, [fdlg_idrv]
@@ -737,8 +734,10 @@ fdlg_home_go:
     jc .cur
 %ifdef KERN_BIG
     mov bx, fdlg_path           ; the ONE default that can be named: the
-    mov si, fdlg_s_media        ; dialog really did walk into MEDIA, and BX
-    FDX pth_push               ; and SI are both saved by the prologue above
+                                ; dialog really did walk into MEDIA - SI is
+                                ; still its name (fdlg_findname and the
+                                ; chdir both keep SI), and BX and SI are both
+    FDX pth_push               ; saved by the prologue above
 %endif
 .done:
     jmp fdk_si
@@ -1519,9 +1518,12 @@ fdlg_icon:
 
 ; -----------------------------------------------------------------------------
 ; fdlg_text - draw a string at a content-relative point (internal)
-; in:  CX = x, DX = y, SI = NUL string, [gfx_color] set
+; in:  CX = x, DX = y, SI = NUL string, [gfx_color] set (fdlg_textk: black)
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
+fdlg_textk:                     ; ...in BLACK, which four sites set first and
+    mov byte [gfx_color], CBLACK ; then drew (the pen STAYS black after: it is
+                                ; the store they each made, made here)
 fdlg_text:
     push cx
     push dx
@@ -1848,14 +1850,13 @@ FDBODY fdlg_paint_x
     call fdlg_orig              ; the layout cache, from SI's window
 
     ; --- header: the drive, then what kind of place this is ---
-    mov byte [gfx_color], CBLACK
     mov al, [disk_drive]
     add al, 'A'
     mov [fdlg_s_drv], al        ; the string is in .text, so it is writable -
     mov si, fdlg_s_drv          ; `fdlg_win` below is the same idiom
     mov cx, 6
     mov dx, 6
-    call fdlg_text
+    call fdlg_textk
     mov si, fdlg_s_root
     cmp word [dsk_cwd], 0
     je .place
@@ -1913,10 +1914,9 @@ FDBODY fdlg_paint_x
     mov si, fdlg_s_lfold        ; the box is naming a folder: say so, or the
 .nlabel:                        ; user is typing a folder name into a field
                                 ; labelled 'Save as:'
-    mov byte [gfx_color], CBLACK
     mov cx, 6
     mov dx, FD_NTY
-    call fdlg_text
+    call fdlg_textk
     mov ax, FD_NBX1
     mov bx, FD_NBY1
     mov cx, FD_NBX2
@@ -1982,11 +1982,10 @@ fdlg_name_body:
     push cx
     push dx
     push si
-    mov byte [gfx_color], CBLACK
     mov si, fdlg_name
     mov cx, FD_NTX
     mov dx, FD_NTY
-    call fdlg_text
+    call fdlg_textk
     cmp byte [fdlg_mode], 0
     je .out                     ; no caret in Open mode: there is nothing
                                 ; to type there (SPEC.md 38.5)
@@ -2093,11 +2092,10 @@ fdlg_draw_rows:
 
     add bp, FD_BTEXT            ; the TEXT baseline: +4 centres an 8px glyph
                                 ; in the 16px band, and both columns want it
-    mov byte [gfx_color], CBLACK
     mov si, fdlg_row
     mov cx, FD_TEXTX
     mov dx, bp
-    call fdlg_text
+    call fdlg_textk
 
     mov si, fdlg_s_folder       ; the right-hand column: a size, or the
     cmp word [fdlg_type], 2     ; word 'folder' - a column of zeroes under
@@ -2401,10 +2399,10 @@ fdlg_findname:
     push si
     FDX dsk_find_name_x        ; AX = the index; CF=1 = no such entry. THE
     jc .out                     ; SYSTEM STANDARD, and disk.inc's own header
-    FDX dsk_get_dir_x          ; names this caller. fdlg_home_go does exactly
-    cmp word [si+16], 2         ; this seventeen hundred lines above; here it
-    jb .out                     ; was a hand-rolled walk that staged the found
-    mov ax, [si+18]             ; entry a SECOND time to read its cluster
+    FDX dsk_get_dir_x          ; names this caller. fdlg_home_go asks it for
+    cmp word [si+16], 2         ; MEDIA (it spelt this out too, until size
+    jb .out                     ; pass 9); here it was a hand-rolled walk that
+    mov ax, [si+18]             ; staged the found entry a SECOND time
                                 ;
 .out:                           ; The old walk only ever matched a FOLDER and
     pop si                      ; this matches any entry, then rejects a file
