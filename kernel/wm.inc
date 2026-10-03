@@ -6221,7 +6221,15 @@ wm_dmg_gray:
     push cx
     push dx
     push si
+%ifdef KERN_BIG
+    call cur_lazyrect           ; ...or the DAMAGE's own question (SPEC.md
+                                ; 7.1.4.5): everything this pass draws outside
+                                ; the damage - a window whole, the dock, the
+                                ; bar - asks its own, so an arrow parked away
+                                ; from the repaint no longer blinks with it
+%else
     call cur_unlazy              ; ...as the unclipped fill did (see above).
+%endif
                                 ; The DAMAGE is banked by the pushes above:
                                 ; the overflow path below re-seeds from it,
                                 ; and the region build eats every register
@@ -6231,10 +6239,23 @@ wm_dmg_gray:
                                 ; which stays in wm_db_b across the build
     call wm_dmg_occl            ; every visible window, shadow included
     jc .whole                   ; overflowed: dither the lot, as before
+%ifdef OS88_SHORTCUTS
+    call wm_occl_l              ; ...and every drop shadow's L, which the
+    jc .whole                   ; window pass draws; then every touched ZONE,
+    call COLD_SEG:desk_zones_r_x    ; DRAWN into what is left and taken out
+    jc .whole                   ; of it - a cell lays its own ground, and is
+%endif                          ; drawn only where it shows (SPEC.md 11.91.6)
     cmp word [wm_clip_n], 0
     je .out                     ; wholly covered: not one pixel is revealed
     jmp short .fill
 .whole:
+%ifdef OS88_SHORTCUTS
+    call COLD_SEG:desk_dmg_zones_x  ; every touched zone owed again: desk_zones_r
+%endif                          ; may have drawn some that this dithers over.
+                                ; HERE, above the pops: it spends AX, and AX
+                                ; is the damage's x1 the bands are re-seeded
+                                ; from - called below them it cut the whole
+                                ; dither down to x 618 on a zoom's restore
     pop si                      ; ...THE BANDS, not their bounding box, and not
     pop dx                      ; the damage: re-seeding from the box would
     pop cx                      ; (the damage is the entry frame's AX..DX,
@@ -6273,7 +6294,25 @@ wm_dmg_gray:
 ; is ground that does not need dithering; one that does not overlap subtracts
 ; nothing and costs a compare.
 ; -----------------------------------------------------------------------------
+%ifdef KERN_BIG
+; wm_occl_l - the same walk subtracting every visible window's frame moved
+; (1,1), so its drop-shadow L too (SPEC.md 11.91.6): wm_dmg_gray's region for
+; the desktop's ZONES, which are drawn into it and must not go under an L the
+; window pass then draws back - a window dragged ONTO the cells repainted a
+; 1-px column of every cell it stopped on. The dither under the L was the same
+; double draw, and the window pass owes every L the damage reaches anyway
+; (11.91.4). out: CF = 1 overflowed; clobbers flags.
+wm_occl_l:
+    push di
+    mov di, wm_clip_subl
+    jmp short wm_occl_w
+%endif
 wm_dmg_occl:
+%ifdef KERN_BIG
+    push di
+    mov di, wm_clip_subf
+wm_occl_w:
+%endif
     push ax
     push bx
     push cx
@@ -6288,9 +6327,13 @@ wm_dmg_occl:
     call wm_idx2ptr             ; BX = the window (AX and CX preserved)
     test byte [bx+W_FLAGS], 2
     jz .next
-    call wm_clip_subf           ; the FRAME rect: what will be REPAINTED, not
-    jc .over                    ; what is occupied - the shadow's two corners
-    cmp word [wm_clip_n], 0     ; are in the second and in neither
+%ifdef KERN_BIG
+    call di                     ; the FRAME rect: what will be REPAINTED, not
+%else                           ; what is occupied - the shadow's two corners
+    call wm_clip_subf           ; are in the second and in neither
+%endif
+    jc .over
+    cmp word [wm_clip_n], 0
     je .done                    ; nothing left: stop walking
 .next:
     loop .scan
@@ -6306,6 +6349,9 @@ wm_dmg_occl:
     pop cx
     pop bx
     pop ax
+%ifdef KERN_BIG
+    pop di
+%endif
     ret
 
 ; wm_ttl_rect - DI = window -> AX/BX/CX/DX = its TITLE STRIP, inclusive
@@ -6412,24 +6458,20 @@ wm_clip_rect:
     pop ax
     retf
 
+%ifdef KERN_SMALL
 ; -----------------------------------------------------------------------------
-; wm_zone_r - what a damage pass really reveals of one desktop ZONE
+; wm_zone_r - is any of one desktop ZONE revealed by this damage pass?
 ; in:  AX..DX = the zone's rect, touching [wm_dmg_x1..y2] (desk.inc only ever
 ;      asks about one that does, so the intersection is never empty); the
 ;      gfx lock held
-; out: CF = 1 the region overflowed - nothing armed;
-;      CF = 0, ZF = 1 nothing of the zone is revealed - nothing armed;
-;      CF = 0, ZF = 0 kern_big: ARMED with that region, for the caller to
-;      draw the zone into and disarm; kern_small: disarmed, a question only
+; out: CF = 1 the region overflowed; CF = 0, ZF = 1 nothing of the zone is
+;      revealed; CF = 0, ZF = 0 some of it is. Nothing is left armed.
 ; clobbers: AX, BX, CX, DX, SI, flags
 ;
-; SPEC.md 11.91.6. The region is zone AND damage minus every visible window's
-; FRAME - wm_dmg_gray's own (11.91.1), so the zone and the dither agree on
-; every pixel: an OCCUPIED box would hold the two shadow corners no window
-; draws and the dither does, and a zone clipped by it would leave a dithered
-; pixel where its picture should be. It keeps the shadow L lines, which the
-; zone then draws over - inside the damage, where wm_dmg_shadowed already owes
-; every L the damage reaches. Placed here for the two short `jc`s into
+; SPEC.md 11.91.6, kern_small's half: the region is zone AND damage minus
+; every visible window's FRAME - wm_dmg_gray's own (11.91.1) - and it is a
+; question only. kern_big draws its zones into wm_dmg_gray's region instead
+; (desk.inc's desk_zones_r). Placed here for the two short `jc`s into
 ; wm_clip_clear, which writes no flag.
 ; -----------------------------------------------------------------------------
 wm_zone_r:
@@ -6440,11 +6482,28 @@ wm_zone_r:
     call wm_clip_seed
     call wm_dmg_occl            ; ...minus every frame (and an open dock)
     jc wm_clip_clear            ; overflowed: disarmed, CF still 1
-    cmp word [wm_clip_n], 0     ; ZF = 1: wholly covered (and so disarmed)
-%ifdef KERN_SMALL
-    jmp short wm_clip_clear     ; ...and on kern_small only ever a question
+    cmp word [wm_clip_n], 0     ; ZF = 1: wholly covered
+    jmp short wm_clip_clear     ; ...and only ever a question
 %else
-    ret
+; wm_clip_subl - subtract window BX's frame moved (1,1) - its frame and its
+; DROP-SHADOW L, leaving the two corners no window draws - for wm_occl_l
+; (SPEC.md 11.91.6). Clobbers flags; CF = 1 overflowed.
+wm_clip_subl:
+    push ax
+    mov ax, [bx+W_X]
+    inc ax
+    mov [wm_cl_ox1], ax
+    add ax, [bx+W_W]
+    dec ax
+    mov [wm_cl_ox2], ax
+    mov ax, [bx+W_Y]
+    inc ax
+    mov [wm_cl_oy1], ax
+    add ax, [bx+W_H]
+    dec ax
+    mov [wm_cl_oy2], ax
+    pop ax
+    jmp wm_clip_subr
 %endif
 
 ; -----------------------------------------------------------------------------

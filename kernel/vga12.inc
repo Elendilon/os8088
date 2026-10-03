@@ -5173,6 +5173,13 @@ gfx_b1b          resb 1          ; ...and pass 2's Map Mask, B alone. It rides
   %error "gfx_b1act/gfx_b1inv must stay adjacent: gfx_blit1_x clears both in one word store"
 %endif
 %endif
+%ifdef KERN_BIG
+gfx_b1hm         resb 1          ; nonzero: the TAIL byte's mask instead of the
+                                 ; one CX & 7 makes (SPEC.md 5.4.2.5) - so a
+                                 ; band under 8 px wide is ONE byte under ANY
+                                 ; mask. .offg's head column is the one
+                                 ; writer, and it sets and clears it
+%endif
 vgas_sdy         resw 1          ;   signed dy (positive = content up)
 vgas_ydst        resw 1          ;   first destination row
 vgas_step        resw 1          ;   +1 (up: top-down) / -1 (down: bottom-up)
@@ -5225,11 +5232,12 @@ section .cold                   ; gfx_blit1's body, and its far entry below it
 ; SPEC.md 5.4.2.1 is the account.
 ; =============================================================================
 gfx_blit1_x:
-    test al, 7                  ; the ONE argument refusal: an x off the byte
-    jnz .refuse                 ; grid is a caller error, not a shape to clip.
-                                ; A WIDTH off it is honoured since SPEC.md
-                                ; 5.4.2.5: the last partial byte column is
-                                ; merged under a mask, one RMW a row
+    test al, 7                  ; an x off the byte grid: on kern_big the band
+%ifdef KERN_BIG                 ; is cut at it exactly (SPEC.md 5.4.2.8, .offg
+    jnz .offg                   ; below); on kern_small a caller error, not a
+%else                           ; shape to clip. A WIDTH off it is honoured
+    jnz .refuse                 ; since SPEC.md 5.4.2.5: the last partial byte
+%endif                          ; column is merged under a mask, one RMW a row
     jcxz .refuse
     dec dx                      ; ...and rows 1..255, a band taller than
     cmp dx, 0FFh                ; wm_clip_rows' own byte answer can express
@@ -5238,6 +5246,61 @@ gfx_blit1_x:
 .refuse:                        ; the carry. HERE and not at the end, so the
     stc                         ; ladder is short jumps: 38 clocks a blit
     ret                         ; where the five-byte `jcc`s cost 77
+%ifdef KERN_BIG
+; --- AN x OFF THE BYTE GRID (SPEC.md 5.4.2.8): the band's first byte is the
+; byte column holding x, and its first x & 7 pixels are not drawn. Under a
+; region the fragment walk cuts it, every piece arriving here disarmed; with
+; none, the head byte column goes down alone - one pixel wide, which is
+; 5.4.2.5's tail byte and only it, under gfx_b1hm's exact mask - and then the
+; rest from the next byte, on the grid. Every register preserved, CF = 0.
+; (No such band reaches here under the damage cull or inside a whole-shape
+; hook, the two cases 5.4.2.7 keeps on the row answer: a piece comes back
+; disarmed, and desk.inc's caption is neither.)
+.offg:
+    jcxz .refuse
+    CLIPQF
+    je .head
+    jmp .frags
+.head:
+    push ax
+    push cx
+    push si
+    push di
+    mov di, cx                  ; DI = the width...
+    mov cx, ax
+    and cx, 7                   ; CL = x & 7
+    sub ax, cx                  ; AX = the head byte column, on the grid
+    add di, cx                  ; DI = the band's extent from it
+    mov ch, 0FFh
+    shr ch, cl                  ; CH = the pixels from x on
+    cmp di, 8
+    jae .hm
+    xchg cx, di                 ; ...and it ENDS in this byte: CL = where
+    mov ch, 0FFh
+    shr ch, cl
+    not ch                      ; CH = the pixels before that
+    xchg cx, di
+    and cx, di
+    mov di, 8
+.hm:
+    mov [gfx_b1hm], ch
+    mov cx, 1
+    call gfx_blit1_x            ; the head (preserves everything)
+    mov byte [gfx_b1hm], 0
+    sub di, 8                   ; DI = what is left past it
+    jle .hout
+    add ax, 8
+    inc si
+    mov cx, di
+    call gfx_blit1_x
+.hout:
+    pop di
+    pop si
+    pop cx
+    pop ax
+    clc
+    ret
+%endif
 .argok:
 
 %ifdef GFX_VGA                  ; SPEC.md 5.4.2.5: no VGA in this build, so no PEN
@@ -5301,9 +5364,9 @@ gfx_blit1_x:
     cmp byte [wm_dmg_cull], 0   ; under the damage cull, which draws a shape
     jne .rows                   ; whole or not at all (11.3.3), nor inside a
     cmp byte [gfx_dnest], 1     ; whole-shape hook, whose rect is a display's
-    jae .rows                   ; and not the region's virtual space - and
-    jmp .frags                  ; so CF = 1 into .frags, which is how it
-.pcq:                           ; knows a band from planes (5.4.3.6)
+    jae .rows                   ; and not the region's virtual space
+    jmp .frags
+.pcq:
     jmp .percol                 ; (two exits in short reach of the guards on
 .okq:                           ; either side, below the one unconditional
     clc                         ; jump there is: a `jcc` of two bytes, not
@@ -5451,6 +5514,11 @@ gfx_blit1_x:
     not ch                      ; every t of 1..7, and it needs neither the
                                 ; negate nor the add: CL already holds the
                                 ; tail, and only CH is read back ([bp+7])
+%ifdef KERN_BIG
+    cmp byte [gfx_b1hm], 0      ; ...or .offg's head column (SPEC.md
+    je .notail                  ; 5.4.2.8). DS is still ours
+    mov ch, [gfx_b1hm]
+%endif
 .notail:
     push bp                     ; [bp+8]  the band's step
     push cx                     ; [bp+6]  the tail mask, in its HIGH byte
@@ -5806,16 +5874,14 @@ gfx_blit1_x:
 
 %ifdef KERN_BIG
 ; --- SPEC.md 5.4.2.7: a band under a region, EVERY fragment it meets. Each
-; intersection's LEFT edge is rounded up to the byte grid - a piece's x must
-; be on it and a fragment's edge need not be - and its right edge is exact,
-; a tail mask (5.4.2.5); it is blitted with the region disarmed, since the
-; piece is inside it already. wm_clip_rows answers ONE fragment, the
-; tallest, and 11.3.4 made that answer overlap rather than containment: a
-; band took the winner's rows at its full width and drew straight over the
-; window that cut it (a Live video under a Disk window, VIDEO-PLAN 15).
-; What this can leave is at most seven columns at a fragment's LEFT edge off
-; the grid - under-drawn, which is the direction 11.3.2 says an error must
-; point. A band has no HEAD mask, so that side is a concession (5.4.2.7)
+; intersection is EXACT - its left edge off the byte grid is the head mask
+; .offg puts down (5.4.2.8), its right edge a tail mask (5.4.2.5) - and it is
+; blitted with the region disarmed, since the piece is inside it already.
+; wm_clip_rows answers ONE fragment, the tallest, and 11.3.4 made that answer
+; overlap rather than containment: a band took the winner's rows at its full
+; width and drew straight over the window that cut it (a Live video under a
+; Disk window, VIDEO-PLAN 15). The band's own x may be off the grid too: its
+; bytes count from the byte column that x is in
 .frags:
     push ax                     ; .percol's four, in its order, so the walk
     push cx                     ; leaves through its epilogue at .pcout...
@@ -5823,11 +5889,6 @@ gfx_blit1_x:
     push di
     push bx                     ; ...and the two it does not bank, above them
     push dx
-%ifdef GFX_PLANE
-    sbb di, di                  ; WHAT IS WALKED, off the carry it came in
-                                ; with: FFFFh a band (gfx_blit1_x's jae above),
-                                ; 0 planes (gfx_bpwalk's `and`) - 5.4.3.6
-%endif
     add cx, ax                  ; (x2 and y2 EXCLUSIVE, one past the band: the
     add dx, bx                  ; cut below wants min(x2s) + 1 anyway)
     mov [gfx_cl_x1], ax         ; the band's rect, in WCR order,
@@ -5843,29 +5904,16 @@ gfx_blit1_x:
 %endif
     xchg cx, [wm_clip_n]        ; DISARMED, each piece being exact already,
     push cx                     ; and CX = the fragments
-%ifdef GFX_PLANE
-    xchg ax, di                 ; CH = a piece's LEFT ROUNDING: 7 for a band,
-    and ax, 0x0700              ; which cannot mask its left edge, and 0 for
-    or cx, ax                   ; planes, which can - once a walk and not once
-%endif                          ; a fragment
     mov di, wm_clip_tab
 .fr:
     push cx
     push di
     mov si, gfx_cl_x1           ; the band's rect, and the fragment's cut to
     mov ax, [di+WCR_X1]         ; it - SIGNED, like gfx_rect_isect. AX =
-    cmp ax, [si]                ; max(x1s) up to the byte grid...
-    jge .fx1
-    mov ax, [si]
+    cmp ax, [si]                ; max(x1s), EXACT: a piece off the byte grid
+    jge .fx1                    ; is a head mask (5.4.2.8) for a band, and
+    mov ax, [si]                ; vga_prow_emit's own for planes
 .fx1:
-%ifdef GFX_PLANE
-    dec ax                      ; ...BY CH: (AX - 1 OR 7) + 1 is AX up to the
-    or al, ch                   ; grid and (AX - 1 OR 0) + 1 is AX, so planes
-    inc ax                      ; are cut exactly with no test, a byte smaller
-%else                           ; and a clock faster than the band's own
-    add ax, 7                   ; rounding
-    and al, 0F8h                ; (AX's high byte cannot change: the low one's
-%endif                          ; top five bits are all the mask clears)
     mov cx, [di+WCR_X2]         ; ...CX = min(x2s) + 1, EXACT: a right edge
     inc cx                      ; off the grid is a tail mask (5.4.2.5), the
     cmp cx, [si+4]              ; piece's x being on it. Flooring this lost
@@ -5887,9 +5935,11 @@ gfx_blit1_x:
 .fy2:
     sub dx, bx                  ; ...less y1: its rows
     jle .fnext
-    mov di, ax                  ; SI = the band's byte there: the columns left
-    sub di, [si]                ; of it in bytes - SI is still gfx_cl_x1, and
-    shr di, 1                   ; the band's x is on the grid too...
+    mov di, [si]                ; SI = the band's byte there: the columns left
+    and di, 0FFF8h              ; of it in bytes, from the byte column the
+    neg di                      ; band's x is in - SI is still gfx_cl_x1
+    add di, ax
+    shr di, 1
     shr di, 1
     shr di, 1
     push ax
@@ -5911,12 +5961,7 @@ gfx_blit1_x:
     pop di
     pop cx
     add di, WCR_SZ
-%ifdef GFX_PLANE
-    dec cl                      ; (CH is the rounding, so not `loop`)
-    jnz .fr
-%else
     loop .fr
-%endif
     pop word [wm_clip_n]
 %ifdef DOCK_OPT
     pop word [gfx_hole]
@@ -6082,8 +6127,8 @@ gbz_gfx_blit1:        call gfx_blit1_x
 ;              5.4.3.6, DI bit 14): every fragment the rect meets, EXACTLY -
 ;              each intersection drawn by gfx_blitp with the region
 ;              disarmed, a piece's left edge off the byte grid being a mask
-;              (vga_prow_emit's own). 5.4.2.7's walk with no inward trim: a
-;              band cannot mask its left edge, and planes can. gfx_blitp has
+;              (vga_prow_emit's own). 5.4.2.7's walk, which since 5.4.2.8
+;              trims a band's left edge no more than a plane's. gfx_blitp has
 ;              already PROBED the rect, region aside, so nothing refuses here
 ; in:  gfx_blitp's arguments, DI bits 14 and 15 either way; DS = KERNEL_SEG
 ; out: CF = 0. Far. CLOBBERS every register but DS: its one caller is
@@ -6092,7 +6137,7 @@ gbz_gfx_blit1:        call gfx_blit1_x
 gfx_bpwalk:
     and di, 0x3FFF              ; the plane step, which .frags banks where
     mov word [gfx_bpfn], gfx_bppiece    ; each piece reads it back - and
-    call gfx_blit1_x.frags      ; CF = 0, which tells the walk it is planes
+    call gfx_blit1_x.frags
     and word [gfx_bpfn], 0      ; (and CF = 0: drawn)
     retf
 
