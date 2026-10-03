@@ -3026,14 +3026,17 @@ osapi_table:
     OSAPI_SLOT gfx_lock           ; 0x0010
     OSAPI_SLOT gfx_unlock         ; 0x0018
     OSAPI_SLOT gfx_pixel          ; 0x0020
+apic_gfx_hline:
     OSAPI_SLOT gfx_hline          ; 0x0028
 apic_gfx_vline:
     OSAPI_SLOT gfx_vline          ; 0x0030
 apic_gfx_fill:
     OSAPI_SLOT gfx_fill           ; 0x0038
     OSAPI_SLOT gfx_frame          ; 0x0040
+apic_gfx_fill_gray:
     OSAPI_SLOT gfx_fill_gray      ; 0x0048
     OSAPI_SLOT gfx_xor_rect       ; 0x0050
+apic_gfx_xor_fill:
     OSAPI_SLOT gfx_xor_fill       ; 0x0058
     OSAPI_SLOT font_char          ; 0x0060
 apic_font_str:
@@ -3041,9 +3044,11 @@ apic_font_str:
     OSAPI_XCELL font_width_x    ; 0x006F  X
 apic_wm_create:
     OSAPI_RXCELL wm_create     ; 0x0076  X: so is the template
+apic_wm_show:
     OSAPI_RSLOT wm_show            ; 0x007C
     OSAPI_RSLOT wm_hide            ; 0x0082
     OSAPI_RSLOT wm_front           ; 0x0088
+
     OSAPI_SLOT wm_content         ; 0x008E
     OSAPI_SLOT wm_obscured        ; 0x0096
     OSAPI_SLOT task_yield         ; 0x009E
@@ -3078,6 +3083,7 @@ apic_osapi_snd_tone:
                                   ;          fixes every slot below them
     OSAPI_RSLOT wm_sizable         ; 0x00F1 - window features (SPEC.md 11.1)
     OSAPI_RSLOT wm_fullscreen      ; 0x00F7 - fullscreen (SPEC.md 11.2)
+apic_wm_grow_paint:
     OSAPI_RSLOT wm_grow_paint      ; 0x00FD - grow-box restore (SPEC.md 11.1)
     OSAPI_RNCELL dwf_dskw_write ; 0x0103 - files (SPEC.md 18.4/20.3): N,
     OSAPI_RNCELL dwf_dskw_read ; 0x0109   because ES:BX is the data buffer
@@ -3105,7 +3111,9 @@ apic_osapi_snd_tone:
                                   ;          know which segment is calling
     OSAPI_SLOT inst_pkg_alive     ; 0x0135
     OSAPI_SLOT wm_clip_set        ; 0x013D - the clip region (SPEC.md 11.3)
+apic_wm_clip_clear:
     OSAPI_SLOT wm_clip_clear      ; 0x0145
+apic_wm_clip_test:
     OSAPI_SLOT wm_clip_test       ; 0x014D
     OSAPI_ICELL 5                 ; 0x0155 - CPU tiers and memory above 1MB
     mov ax, [cs:cpu_tier]
@@ -3164,6 +3172,7 @@ apic_xm_copy:
                                   ;          free list, and taking it cost the
                                   ;          table nothing where an append
                                   ;          would have been eight bytes
+apic_wm_onmouseup:
     OSAPI_RSLOT wm_onmouseup       ; 0x0196 - BX = window, AX = a near proc in
                                   ;          YOUR segment (0 clears it): the
                                   ;          release half of a content click
@@ -3214,6 +3223,7 @@ apic_osapi_mem_avail:
                                   ;          place when the paragraphs above
                                   ;          are free, which is what stops a
                                   ;          grow needing old + new at once
+apic_wm_title_set:
     OSAPI_RSLOT wm_title_set       ; 0x01D3 - retitle a window and redraw ONLY
                                   ;          its caption (SPEC.md 11.92): BX =
                                   ;          win, AX = the new string (0 = the
@@ -3263,6 +3273,7 @@ apic_osapi_mem_avail:
                                   ;          your own window ptr; W_FLAGS bit1
                                   ;          only says VISIBLE, which a wholly
                                   ;          covered window still is
+apic_wm_snap:
     OSAPI_RSLOT wm_snap            ; 0x01F2 - BX = window, AL = 0 clear / non-0
                                   ;          set: keep this window's CONTENT
                                   ;          ORIGIN on a multiple of 8, so its
@@ -3438,6 +3449,7 @@ apic_osapi_mem_avail:
     ; (dropped) OSAPI_XCELL gfx_lstep     ; 0x0308  RETIRED (SPEC.md 5.12.7): stc/ret.
                                   ;          gfxe_wstep draws the walk's next
                                   ;          CX pixels into the package's band
+apic_gfx_pen_cf:
     OSAPI_SLOT gfx_pen_cf         ; 0x0260 - CF = 0 live / 1 disabled, and it
                                   ;          sets [gfx_color] AND [gfx_dis]
                                   ;          together (SPEC.md 47 rule 3), so
@@ -3981,6 +3993,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          about that adapter". Registers AND
                                   ;          applies, FLAGS PRESERVED
                                   ;          (SPEC.md 11.100.1)
+apic_wm_minsize:
     OSAPI_RSLOT wm_minsize         ; 0x0374 - BX = window, CX = minimum outer
                                   ;          width, DX = minimum outer height;
                                   ;          0/0 withdraws. The floor every
@@ -7101,6 +7114,20 @@ MARK_FNVEC  equ $ - mark_fvec
 ; four and the wrong one does not fault - shown to fire here by putting
 ; sched_mode_get's near `ret` back, which named all four of its far call
 ; sites and refused.
+;
+; **AND WHERE A CELL ALREADY PUBLISHES THE ROUTINE, THE CELL IS THE DOOR**
+; (size pass 9; MODULE-SELFCONTAIN-PLAN 5's apic_ rule taken the whole way).
+; Thirteen shims below are `cw_X equ apic_X`: the name stays, so not one far
+; call site changed, and it lands on the routine's own OSAPI cell, which for a
+; caller whose DS is already KERNEL_SEG IS the shim's semantics - the cell's
+; push/pop of DS and its `retf` touch no flag and no other register. Four
+; bytes each. What it costs is the cell's DS switch, ~50 cycles a call on an
+; 8088 for a SLOT cell and ~130 for a rare (RSLOT) one, and two or four bytes
+; more of stack - so it is taken only where every caller is a dialog, a
+; window being built, the Control Panel or a hibernate step, and NOT for the
+; drawing shims a repaint calls by the dozen (gfx_fill/lock/unlock/frame,
+; font_run), nor for anything a built-in WORKER calls from its 128-byte slice
+; (task_sleep, task_yield, wm_clip_set, wm_content - the Bounce task's).
 ; =============================================================================
 cw_app_launch:          call app_launch
                     retf
@@ -7159,8 +7186,7 @@ cw_gfx_disp_enter:      call gfx_disp_enter
 %endif
 cw_gfx_fill:            call gfx_fill
                     retf
-cw_gfx_fill_gray:       call gfx_fill_gray
-                    retf
+cw_gfx_fill_gray equ apic_gfx_fill_gray ; THE CELL IS THE DOOR (size pass 9)
 cw_gfx_fill_pat:        call gfx_fill_pat
                     retf
 %ifdef OS88_THEME              ; (kern_small: vga12.inc aliases it)
@@ -7192,20 +7218,17 @@ cw_blk_relit:           call blk_relit
 %endif
 cw_gfx_frame:           call gfx_frame
                     retf
-cw_gfx_hline:           call gfx_hline
-                    retf
+cw_gfx_hline equ apic_gfx_hline ; THE CELL IS THE DOOR (size pass 9)
 cw_gfx_lock:            call gfx_lock
                     retf
-cw_gfx_pen_cf:          call gfx_pen_cf
-                    retf
+cw_gfx_pen_cf equ apic_gfx_pen_cf ; THE CELL IS THE DOOR (size pass 9)
 cw_gfx_pen_live:        call gfx_pen_live
                     retf
 cw_gfx_rowbase:         call gfx_rowbase
                     retf
 cw_gfx_unlock:          call gfx_unlock
                     retf
-cw_gfx_xor_fill:        call gfx_xor_fill
-                    retf
+cw_gfx_xor_fill equ apic_gfx_xor_fill ; THE CELL IS THE DOOR (size pass 9)
 cw_icon_draw:           call icon_draw
                     retf
 cw_icon_draw_ix:        call icon_draw_ix   ; the INDEXED kind (SPEC.md 25.7),
@@ -7272,8 +7295,7 @@ cw_task_sleep:           call task_sleep     ; Bounce's 2 ticks (SPEC.md 14),
 %endif
 cw_task_yield:          call task_yield
                     retf
-cw_toast_show:          call toast_show
-                    retf
+cw_toast_show equ apic_toast_show ; THE CELL IS THE DOOR (size pass 9)
 %ifdef KERN_BIG
 cw_ui_svc_open:         call ui_svc_open    ; the service zone's double-click
                     retf                    ; (SPEC.md 26.7): desk.inc is cold
@@ -7310,27 +7332,25 @@ cw_vid_ctx_ptr:         call vid_ctx_ptr
 cw_vid_ctx_capture:     call vid_ctx_capture
                     retf
 %endif
-cw_wm_clip_clear:        call wm_clip_clear
-                     retf
+cw_wm_clip_clear equ apic_wm_clip_clear ; THE CELL IS THE DOOR (size pass 9)
 cw_wm_clip_rows:        call wm_clip_rows
                     retf
 %ifdef KERN_BIG                 ; its callers are kern_big only
 cw_wm_clip_set:         call wm_clip_set
                     retf
 %endif
-cw_wm_clip_test:        call wm_clip_test
-                    retf
-cw_wm_content:          call wm_content
-                    retf
-cw_wm_minsize:          call wm_minsize
-                    retf
+cw_wm_clip_test equ apic_wm_clip_test ; THE CELL IS THE DOOR (size pass 9)
+cw_wm_content:          call wm_content ; NOT the cell: app_ball_wipe and
+                    retf                ; app_ball_fill reach it on the Bounce
+                                        ; WORKER's 128-byte slice
+cw_wm_minsize equ apic_wm_minsize ; THE CELL IS THE DOOR (size pass 9)
 %ifdef KERN_BIG                 ; its callers are kern_big only
-cw_wm_snap:             call wm_snap    ; app_tmr_kinit asks for the snap
-                    retf                ; (SPEC.md 11.94), and Timer is
+cw_wm_snap equ apic_wm_snap ; THE CELL IS THE DOOR (size pass 9)
+                                ; app_tmr_kinit asks for the snap
+                                ; (SPEC.md 11.94), and Timer is
 %endif                                  ; kern_big's alone (SPEC.md 14.6)
 %ifdef KERN_BIG
-cw_wm_onmouseup:        call wm_onmouseup
-                    retf
+cw_wm_onmouseup equ apic_wm_onmouseup ; THE CELL IS THE DOOR (size pass 9)
 cw_wm_ondrag:           call wm_ondrag
                     retf
 cw_wm_timer:            call wm_timer       ; SPEC.md 13.10.5.4.2's PAUSE
@@ -7359,8 +7379,7 @@ cw_wm_zone_r:            call wm_zone_r      ; is any of a zone revealed?
 %endif
 cw_wm_dmg_wins:         call wm_dmg_wins
                     retf
-cw_wm_grow_paint:       call wm_grow_paint
-                    retf
+cw_wm_grow_paint equ apic_wm_grow_paint ; THE CELL IS THE DOOR (size pass 9)
 cw_wm_hit:              call wm_hit
                     retf
 cw_wm_idx2ptr:          call wm_idx2ptr
@@ -7371,16 +7390,14 @@ cw_wm_paint_dmg:         call wm_paint_dmg
                      retf
 cw_wm_pkgcall:          call wm_pkgcall
                     retf
-cw_wm_show:             call wm_show
-                    retf
+cw_wm_show equ apic_wm_show ; THE CELL IS THE DOOR (size pass 9)
 %ifdef WM_ANIM
 cw_inst_unmin:          call inst_unmin
                     retf
 %endif
 cw_xm_release_rec:      call xm_release_rec
                     retf
-cw_wm_title_set:        call wm_title_set
-                    retf
+cw_wm_title_set equ apic_wm_title_set ; THE CELL IS THE DOOR (size pass 9)
 cw_wm_win_rect:         call wm_win_rect
                     retf
 

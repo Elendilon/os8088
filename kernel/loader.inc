@@ -1211,11 +1211,13 @@ ld_start:
     ; any path that does not draw (SPEC.md 20.2/25). So there is nothing here
     ; but a flag test, and no reason for it to be a routine that sets up the
     ; ES the line above already has.
-    xor ax, ax                  ; ...decided in AX and stored ONCE: the pair of
-    test byte [es:LD_H_FLAGS], 1 ; `mov word [di+I_ICON], imm` this replaces
-    jz .noico                   ; wrote the field twice on the arm that has an
-    mov ax, I_ICO_PKG           ; icon, and AX is free here (its last reader was
-.noico:                         ; I_SIZE, four instructions up)
+%if I_ICO_PKG != 1
+  %error "loader step 9 takes I_ICON straight off header flag bit 0: I_ICO_PKG must be 1"
+%endif
+    mov al, [es:LD_H_FLAGS]     ; ...decided in AX and stored ONCE: bit 0 says
+    and ax, 1                   ; the image carries an icon, and I_ICO_PKG IS
+                                ; 1, so the bit is the field (AX is free here:
+                                ; its last reader was I_SIZE, just up)
     mov [di+I_ICON], ax
     pop es
     mov bp, inst_bind_win

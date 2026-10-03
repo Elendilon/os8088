@@ -3435,9 +3435,7 @@ mem_regrow:
     call mem_find_own           ; it must be a base, and yours
     jc .fail
     cmp ax, [ss:si+MC_PARA]
-    ja .grow
-    mov [ss:si+MC_PARA], ax        ; 1. shrink or level: the tail is free now
-    jmp short .ok
+    jbe .set                    ; 1. shrink or level: the tail is free now
 
 .grow:
     mov di, dx                  ; 2. does it fit where it stands?
@@ -3450,9 +3448,7 @@ mem_regrow:
     add cx, [ss:si+MC_PARA]        ; CX = our end = the extension's start
     call mem_runfree
     mov word [mem_skip], 0
-    jc .move
-    mov [ss:si+MC_PARA], ax        ; it does: extend, copy nothing
-    jmp short .ok
+    jnc .set                    ; it does: extend, copy nothing
 
 .move:                          ; 3. the highest block that will take it
                                 ; the constraint this block was GRANTED under
@@ -3465,9 +3461,9 @@ mem_regrow:
                                 ; care - the rule is on the HEAD, so a shrink
                                 ; and an extend upward both keep it
     call mem_hifit              ; CX = its base
-    pushf
     mov word [mem_dma], 0       ; a transient, and this window is the only
-    popf                        ; place it may be set (the whole op is IF=0)
+                                ; place it may be set (the whole op is IF=0).
+                                ; A mov writes no flag: CF is mem_hifit's
     jc .shed                    ; no run: SHED AND RETRY (.shed, past the
                                 ; `ret` below)
     push ax
@@ -3481,9 +3477,10 @@ mem_regrow:
     pop cx
     pop ax
     mov [ss:si+MC_SEG], cx         ; the record follows the bytes; MC_DMA is
-    mov [ss:si+MC_PARA], ax        ; already right - it never changed
+                                   ; already right - it never changed
     mov dx, cx                  ; ...and the caller is told where it went
-.ok:
+.set:                           ; (all three paths: the new length)
+    mov [ss:si+MC_PARA], ax
     popf
     clc
     jmp short .out
