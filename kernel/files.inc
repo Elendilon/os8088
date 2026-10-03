@@ -703,7 +703,10 @@ fm_vp_set:
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 fmv_copy_in:
-    call kentc_di
+    push ax                     ; NOT kentc_di: two of these a row, on the
+    push bx                     ; scroll-paint path, and the shared prologue
+    push dx                     ; costs ~160 clocks a call over four pushes
+    push si                     ; (kernel size pass 9 measured it)
     mov dx, [fm_vseg]
     or dx, dx
     jnz .have
@@ -719,10 +722,12 @@ fmv_copy_in:
     push es
     mov ax, ds
     mov es, ax
-    shr cx, 1                   ; (CX and DI come back off kretc_di)
+    push di
+    shr cx, 1
     xor ax, ax
     cld
     rep stosw                   ; an all-zero entry: no name, type 0
+    pop di
     pop es
     jmp short .out
 .have:
@@ -730,7 +735,11 @@ fmv_copy_in:
                                 ; is .cold, so CS is COLD_SEG (SPEC.md 2.6)
     call dsk_copy_seg_x
 .out:
-    jmp kretc_di
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    ret
 
 ; -----------------------------------------------------------------------------
 ; fmv_iofs - where the icon images start inside a cache slot
@@ -7100,7 +7109,10 @@ fm_icon_blank:
 
 ; -----------------------------------------------------------------------------
 fm_draw_icon16:
-    call kentc_di
+    push ax                     ; NOT kentc_di: once a row on the scroll-paint
+    push bx                     ; path (fmv_copy_in's reason)
+    push cx
+    push si
     call fmv_get_icon           ; SI -> staged 64-byte icon body
     call fm_icon_blank          ; ZF=1 = the 32 words OR to 0
     jz .noicon
@@ -7110,7 +7122,11 @@ fm_draw_icon16:
     mov si, ico_app16           ; the built-in app icon (library record)
     call KERNEL_SEG:cw_icon_draw
 .done:                          ; ...and fm_stage_name's tail too
-    jmp kretc_di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
 
 ; -----------------------------------------------------------------------------
 ; fm_stage_name - stage a directory entry's name, type and size
@@ -7124,7 +7140,10 @@ fm_draw_icon16:
 ; suppresses the size column for a folder.
 ; -----------------------------------------------------------------------------
 fm_stage_name:
-    call kentc_di
+    push ax                     ; once a row too, and fm_draw_icon16's pops
+    push bx
+    push cx
+    push si
     call fmv_get_dir            ; SI -> staged 32-byte entry (SPEC.md 19),
                                 ; out of this window's cache (SPEC.md 22.1)
     mov bx, fm_name
@@ -7141,7 +7160,7 @@ fm_stage_name:
     mov [fm_fsize], ax
     mov ax, [si+6]
     mov [fm_fsizeh], ax
-    jmp short fm_draw_icon16.done   ; the same kentc_di epilogue
+    jmp short fm_draw_icon16.done   ; the same four pops
 
 ; -----------------------------------------------------------------------------
 ; fm_draw_core - draw the whole content (header, buttons, rows or grid,
