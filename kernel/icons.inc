@@ -83,8 +83,7 @@ icon_draw_x:
     push cx
     push si
     push di
-    mov al, [es:si]             ; the header: words a row, then rows
-    mov ah, [es:si+1]
+    mov ax, [es:si]             ; the header: words a row (AL), then rows (AH)
     cmp al, ICO_STAGE_WW        ; ONE compare, two refusals: `ja` refused
     jne .refuse                 ; ww > 1 and `jz` refused ww = 0, so the only
                                 ; surviving value was ICO_STAGE_WW itself -
@@ -159,12 +158,12 @@ icon_draw:
     push di
     push bp
     push es
-    mov al, [si]                ; header: wwords, height
-    mov ah, 0
+    lodsw                       ; header: AL = wwords, AH = height, and SI ->
+    mov bl, ah                  ; body (mask rows first)
+    xor ah, ah
     mov [ico_ww], ax
-    mov al, [si+1]              ; AH still 0
-    mov [ico_h], ax
-    add si, 2                   ; SI -> body (mask rows first)
+    mov bh, ah
+    mov [ico_h], bx
 
 ; ico_draw_common - the tail both wrappers share, written once. Everything
 ; from here down was byte-identical in icon_draw16; the only difference
@@ -175,15 +174,15 @@ ico_draw_common:
     cmp byte [ico_bnd], 0       ; a desktop cell is COMPOSING (SPEC.md 26.9.9):
     je .scr                     ; the picture goes into its band and not onto
     call COLD_SEG:ico_band_x    ; the glass, whichever entry it came in by -
-    mov word [ico_c1], (CBLACK << 8) | CWHITE   ; a volume's indexed record,
-    jmp kret_es                 ; a shortcut's, its badge or the Wire's
-.scr:                           ; driver through OSAPI_ICON_DRAW
-%endif
+    jmp short .pen              ; a volume's indexed record, a shortcut's,
+.scr:                           ; its badge or the Wire's driver through
+%endif                          ; OSAPI_ICON_DRAW
     GFXDENTERCD                 ; whole-shape, like a glyph (SPEC.md 39.14.2)
     call ico_core
-    mov word [ico_c1], (CBLACK << 8) | CWHITE   ; SPEC.md 25.6: ONE-SHOT
     GFXDLEAVE
-    jmp kret_es
+.pen:
+    mov word [ico_c1], (CBLACK << 8) | CWHITE   ; SPEC.md 25.6: ONE-SHOT, on
+    jmp kret_es                 ; both paths (gfx_dleave never reads the pen)
 
 ; -----------------------------------------------------------------------------
 ; icon_draw16 - draw a header-less 16x16 icon body (16 mask words + 16 data
@@ -396,8 +395,10 @@ ico_core:
     call wm_clip_test
     mov cx, [ico_x]
     mov dx, [ico_y]
-    jc .none
-.noclip:
+    jnc .noclip
+.ret:                           ; a `ret` within short reach of the three
+    ret                         ; refusals above .rows_ok, where `.none` at the
+.noclip:                        ; foot was a relaxed five-byte jcc away
 
     mov ax, [ico_ww]            ; source/VRAM stride bookkeeping
     shl ax, 1
@@ -421,7 +422,7 @@ ico_core:
     jns .top_ok
     neg ax                      ; AX = rows clipped off the top
     cmp ax, bx
-    jae .none                   ; fully above the screen
+    jae .ret                    ; fully above the screen
     sub bx, ax
     mul word [ico_rb]           ; AX = bytes to skip in both tables
     add [ico_maskp], ax
@@ -506,6 +507,37 @@ ico_core:
 .none:
     ret
 
+; (ico_core_bb sits HERE, straight after ico_core, so ico_core's `jne` to it
+; is a short jump rather than a relaxed five-byte one.)
+; -----------------------------------------------------------------------------
+; ico_core_bb - the software renderer's icon body (SPEC.md 32/39.5): the white underlay
+;               ORs the shifted mask-row bits into all four planes, the
+;               black pass AND-NOTs the data-row bits out of them - color
+;               15 under the mask, 0 under the data, like the VRAM passes.
+; in:       DI = row offset, CL/CH = shift pair, ico_* vars set by ico_core
+; out:      returns to icon_draw/icon_draw16's epilogue (ico_core contract)
+; clobbers: everything but DS (the wrappers restore)
+; -----------------------------------------------------------------------------
+ico_core_bb:
+    mov ax, [ico_col0]
+    cmp ax, [vid_stride]        ; x < 0 (huge unsigned) or entirely off the
+    jae ico_core.none           ; right edge: the passes would skip every
+                                ; byte - so skip them. It is also what proves
+                                ; ico_pass_bb's byte column cannot wrap: col0
+                                ; is below the stride, the stride is 90 at
+                                ; most, and the walk adds 2*ww <= 4 to it.
+    mov al, [ico_c1]            ; SPEC.md 25.6: WHITE ors the rows in and
+    call ico_bbop_of            ; anything else ands them out - which is the
+    mov [ico_bbop], al          ; hardcoded pair's own behaviour, and gives a
+    mov si, [ico_maskp]         ; pressed control its black underlay and a
+    call ico_pass_bb            ; disabled one its stipple for free (the
+    mov al, [ico_c2]            ; CALLER dithers the data rows; a 1bpp op has
+    call ico_bbop_of            ; nowhere to put a grey)
+    mov [ico_bbop], al
+    mov si, [ico_datap]
+    jmp ico_pass_bb
+
+
 %ifdef GFX_VGA
 ; -----------------------------------------------------------------------------
 ; ico_pass - one masked pass over [ico_rows] rows of [ico_ww] words each.
@@ -581,36 +613,6 @@ ico_pass:
     pop di
     ret
 %endif                          ; ...end of the VGA icon pass
-
-; -----------------------------------------------------------------------------
-; ico_core_bb - the software renderer's icon body (SPEC.md 32/39.5): the white underlay
-;               ORs the shifted mask-row bits into all four planes, the
-;               black pass AND-NOTs the data-row bits out of them - color
-;               15 under the mask, 0 under the data, like the VRAM passes.
-; in:       DI = row offset, CL/CH = shift pair, ico_* vars set by ico_core
-; out:      returns to icon_draw/icon_draw16's epilogue (ico_core contract)
-; clobbers: everything but DS (the wrappers restore)
-; -----------------------------------------------------------------------------
-ico_core_bb:
-    mov ax, [ico_col0]
-    cmp ax, [vid_stride]        ; x < 0 (huge unsigned) or entirely off the
-    jae .none                   ; right edge: the passes would skip every
-                                ; byte - so skip them. It is also what proves
-                                ; ico_pass_bb's byte column cannot wrap: col0
-                                ; is below the stride, the stride is 90 at
-                                ; most, and the walk adds 2*ww <= 4 to it.
-    mov al, [ico_c1]            ; SPEC.md 25.6: WHITE ors the rows in and
-    call ico_bbop_of            ; anything else ands them out - which is the
-    mov [ico_bbop], al          ; hardcoded pair's own behaviour, and gives a
-    mov si, [ico_maskp]         ; pressed control its black underlay and a
-    call ico_pass_bb            ; disabled one its stipple for free (the
-    mov al, [ico_c2]            ; CALLER dithers the data rows; a 1bpp op has
-    call ico_bbop_of            ; nowhere to put a grey)
-    mov [ico_bbop], al
-    mov si, [ico_datap]
-    jmp ico_pass_bb
-.none:
-    ret
 
 ; ico_bbop_of - AL = a colour -> AL = 0 (or) for white, 1 (and-not) otherwise
 ; The 1bpp reduction is gfx_ink's (SPEC.md 39.4): only pure white lights a
