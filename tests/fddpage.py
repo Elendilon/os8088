@@ -62,6 +62,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "tools"))
+import os88build                                            # noqa: E402
 import os88flush                                            # noqa: E402
 import os88marty                                            # noqa: E402
 import os88mouse                                            # noqa: E402
@@ -194,6 +195,13 @@ def main(argv=None):
     ap.add_argument("--apps", default="build/apps360.img")
     ap.add_argument("--shot", default="build/fddpage.png")
     a = ap.parse_args(argv)
+    # The run's tree, not the shared build/ (tools/os88build.at): launch()
+    # resolves a `build/...` string itself, but break_canary's copy and
+    # `make test`'s TESTIMG/TESTAPPS do not, and the scratch images below are
+    # ABSOLUTE so launch() does not re-base them into a tree that never
+    # held them (a soak's FileNotFoundError on fddpage-autobad.img)
+    a.image = os.path.abspath(os88build.at(a.image))
+    a.apps = os.path.abspath(os88build.at(a.apps))
 
     eq = os88sym.equates()
     FDD = S("drv_cfg") + eq["CFG_FDD"]
@@ -384,7 +392,7 @@ def main(argv=None):
 
     # --- Cylinder on a 286 and up: the byte opens the gate, the canary rules
     def qemu_leg(name, ask, want):
-        qimg = os.path.join("build", "fddpage-%s.img" % name)
+        qimg = os.path.abspath(os.path.join("build", "fddpage-%s.img" % name))
         shutil.copyfile(cylimg, qimg)
         with open(qimg, "r+b") as fh:
             fh.seek(BS)
@@ -410,7 +418,7 @@ def main(argv=None):
     # Below, a broken KSIG and a broken ovl_fdd_apply read identically after
     # the boot - Cylinder writes over the loader's 0 - so the loader's half is
     # proved on a disk with no record, where nothing writes over it.
-    autobad = os.path.join("build", "fddpage-autobad.img")
+    autobad = os.path.abspath(os.path.join("build", "fddpage-autobad.img"))
     break_canary(a.image, autobad)
     with os88marty.launch(autobad, apps=a.apps, machine=a.machine) as m:
         wr = u16(m.read(S("boot_cylrun"), 2))
@@ -421,7 +429,7 @@ def main(argv=None):
                     "%d on the Auto disk, so the next leg proves nothing" % wr)
 
     # --- Cylinder over a canary that FAILED this boot -----------------------
-    badimg = os.path.join("build", "fddpage-cylbad.img")
+    badimg = os.path.abspath(os.path.join("build", "fddpage-cylbad.img"))
     break_canary(cylimg, badimg)
     with os88marty.launch(badimg, apps=a.apps, machine=a.machine) as m:
         br, bd = u16(m.read(S("boot_cylrun"), 2)), byte(m, S("dsk_cylrun"))

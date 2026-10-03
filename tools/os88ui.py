@@ -992,15 +992,23 @@ class UI:
         raise UIError("%r is not in this folder. It holds %r"
                       % (name, [r[0] for r in rows]))
 
-    def scroll(self, win=None):
-        """[FS_SCRL] - the first entry `win` (or the acting window) shows."""
+    def _fsword(self, win, off, none):
         base = self._fsblk(win) if win is not None else None
         if base is None:
             vp = self._word("fm_vp")
             if not vp:
-                return 0
+                return none
             base = (geom.KERNEL_SEG << 4) + vp
-        return _u16(self.m.read(base + geom.FS_SCRL, 2))
+        return _u16(self.m.read(base + off, 2))
+
+    def scroll(self, win=None):
+        """[FS_SCRL] - the first entry `win` (or the acting window) shows."""
+        return self._fsword(win, geom.FS_SCRL, 0)
+
+    def selection(self, win=None):
+        """[FS_SEL] - the entry selected in `win` (or the acting window),
+        0FFFFh for none."""
+        return self._fsword(win, geom.FS_SEL, 0xFFFF)
 
     def scroll_to(self, entry, limit=T_NAV, win=None):
         """Bring directory entry `entry` on screen; answer its VISIBLE row.
@@ -1016,7 +1024,17 @@ class UI:
             raise UIError("entry %d is not a row" % entry)
 
         def step(key):
-            """One arrow, then wait for [FS_SCRL] to move. Did it?
+            """One arrow, then wait for [FS_SCRL] OR [FS_SEL] to move. Did
+            either?
+
+            **WITH A SELECTION THE ARROWS MOVE IT** (SPEC.md 22.26, kern_big):
+            the view only follows once the selection leaves it. So a key that
+            moved the selection inside the view moves no scroll at all, and
+            waiting on [FS_SCRL] alone read that as THE END STOP - the up-walk
+            stopped at scroll 2 with entry 1 wanted, and `weaveone` failed
+            every time with "scrolled PAST entry 1", after its first launch
+            had left the package it opened selected. Either word moving is the
+            key having been acted on; neither moving is the end stop.
 
             THE BUDGET IS THE GUEST'S OWN CLOCK, not the host's, and that
             matters here more than almost anywhere else in this file: a
@@ -1031,11 +1049,13 @@ class UI:
             these, which used to turn one navigation into half a minute. The
             word is what the answer is computed from anyway.
             """
-            was = self.scroll(win)
+            def now():
+                return self.scroll(win), self.selection(win)
+            was = now()
             self.m.key(key)
             c0 = self.m.status()["cycles"]
             while True:
-                if self.scroll(win) != was:
+                if now() != was:
                     return True
                 spent = (self.m.status()["cycles"] - c0) / os88marty.GUEST_HZ
                 if spent >= T_STEP:
