@@ -410,7 +410,7 @@ def main(argv=None):
     # Below, a broken KSIG and a broken ovl_fdd_apply read identically after
     # the boot - Cylinder writes over the loader's 0 - so the loader's half is
     # proved on a disk with no record, where nothing writes over it.
-    autobad = os.path.join("build", "fddpage-autobad.img")
+    autobad = os.path.abspath(os.path.join("build", "fddpage-autobad.img"))
     break_canary(a.image, autobad)
     with os88marty.launch(autobad, apps=a.apps, machine=a.machine) as m:
         wr = u16(m.read(S("boot_cylrun"), 2))
@@ -421,7 +421,7 @@ def main(argv=None):
                     "%d on the Auto disk, so the next leg proves nothing" % wr)
 
     # --- Cylinder over a canary that FAILED this boot -----------------------
-    badimg = os.path.join("build", "fddpage-cylbad.img")
+    badimg = os.path.abspath(os.path.join("build", "fddpage-cylbad.img"))
     break_canary(cylimg, badimg)
     with os88marty.launch(badimg, apps=a.apps, machine=a.machine) as m:
         br, bd = u16(m.read(S("boot_cylrun"), 2)), byte(m, S("dsk_cylrun"))

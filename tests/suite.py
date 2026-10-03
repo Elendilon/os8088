@@ -2064,7 +2064,7 @@ SOAK = [
         "TITLE, read out of the package's segment rather than off the glass. "
         "MEASURED with the kernel's bit-2 exception disabled: ld_status 2, "
         "`Bad package`. Needs `make mseg`.",
-        needs=("marty",), serial=True, wants=("build/mseg360.img",)),
+        needs=("marty",), serial=True, wants=("build/mseg.img",)),
     Row("mseg360", "soak", py("tests/multiseg.py", "360"), 40.0,
         "...and the same package off a 360KB disk, where it is NOT a "
         "duplicate. A part begins on a 512-byte boundary in the FILE and "
