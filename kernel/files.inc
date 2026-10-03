@@ -2813,25 +2813,30 @@ fm_layout:
     mov di, fm_lrec             ; eight loads and stores this was are one
     mov cx, FM_LREC             ; string move. SI/DI/CX are banked, and
     rep movsb                   ; nothing below wants the block pointer
-    pop es                      ; (DF=0 per SPEC.md 1)
+                                ; (DF=0 per SPEC.md 1). ES STAYS DS to the
+                                ; end: the geometry below goes out by stosw
 
     call ct_cw_wm_content         ; AX = content left, DX = content top
-    mov [fm_cx], ax
-    mov [fm_cy], dx
+    mov di, fm_cx               ; THE GEOMETRY IS STORED IN ADDRESS ORDER,
+    stosw                       ; fm_cx through fm_nch, so every store below
+    xchg ax, dx                 ; is a stosw (the %if after the .bss block
+    stosw                       ; pins the order) - fm_cx, then fm_cy
     mov ax, [bx+W_W]
     dec ax
     dec ax
-    mov [fm_cw], ax             ; cw = W_W - 2
-    add ax, [fm_cx]
-    dec ax
-    mov [fm_rgt], ax            ; content right, absolute inclusive
+    stosw                       ; fm_cw = W_W - 2
+    add dx, ax
+    dec dx                      ; DX = fm_rgt, content right, absolute inclusive
     mov ax, [bx+W_H]
     sub ax, TITLE_H+1
-    mov [fm_ch], ax             ; ch = W_H - TITLE_H - 1
+    stosw                       ; fm_ch = W_H - TITLE_H - 1
+    xchg ax, dx
+    stosw                       ; fm_rgt
+    xchg ax, dx
     sub ax, FM_STAT_UP
-    mov [fm_staty], ax          ; status line pinned above the bottom
+    stosw                       ; fm_staty: status line pinned above the bottom
     sub ax, FM_EDGE_H
-    mov [fm_listb], ax          ; row area ends here - and FM_STAT_UP and
+    stosw                       ; fm_listb: row area ends here - and FM_STAT_UP and
                                 ; FM_EDGE_H sum to the 19 this always was, so
                                 ; fm_fit below is untouched
 
@@ -2849,7 +2854,7 @@ fm_layout:
     xor dx, dx
     div cx
 .fit:
-    mov [fm_fit], ax
+    stosw                       ; fm_fit
 
     ; cols = 1 (list) or max(1, (cw-16)/FMI_CELL_W) (icons) - the constant and
     ; not a literal, because it moved 78 -> 80 (SPEC.md 22.11.1.1) and this
@@ -2868,7 +2873,7 @@ fm_layout:
 .cols1:
     mov ax, 1
 .cols:
-    mov [fm_cols], ax
+    stosw                       ; fm_cols
 
     ; total rows = nfiles (list) or ceil(nfiles / cols) (icons)
     mov ax, [fm_lnf]
@@ -2879,7 +2884,7 @@ fm_layout:
     xor dx, dx
     div word [fm_cols]
 .tot:
-    mov [fm_total], ax
+    stosw                       ; fm_total
 
     ; list-view name budget: (cw - 96)/8 chars, clamped 0..16 (the name
     ; column must stop short of the size column, SPEC.md 22)
@@ -2911,7 +2916,8 @@ fm_layout:
     jbe .nch
     mov ax, 16
 .nch:
-    mov [fm_nch], ax
+    stosw                       ; fm_nch
+    pop es
 
     call fm_clamp_scroll        ; a shrink-resize self-heals here
 
@@ -3113,24 +3119,30 @@ fm_setdown:
 ; -----------------------------------------------------------------------------
 fm_sbset:
     push ax
-    mov ax, [fm_rgt]
-    sub ax, FM_SB_W-1
-    mov [os88ui_ksb+0], ax
-    mov ax, [fm_rgt]
-    mov [os88ui_ksb+4], ax
+    push di                     ; the record's seven words in its own order,
+    push es                     ; by stosw (kernel size pass 9): x1, y1, x2,
+    push ds                     ; y2, total, fit, scroll
+    pop es
+    mov di, os88ui_ksb
+    mov bx, [fm_rgt]            ; (BX is the output, so free until then)
+    lea ax, [bx-(FM_SB_W-1)]
+    stosw                       ; +0 x1
     mov ax, [fm_cy]
     add ax, FM_ROW_Y0
-    mov [os88ui_ksb+2], ax
-    mov ax, [fm_cy]
+    stosw                       ; +2 y1
+    xchg ax, bx
+    stosw                       ; +4 x2 = fm_rgt
+    lea ax, [bx-FM_ROW_Y0-1]    ; fm_cy - 1...
     add ax, [fm_listb]
-    dec ax
-    mov [os88ui_ksb+6], ax
+    stosw                       ; +6 y2 = ...+ fm_listb
     mov ax, [fm_total]
-    mov [os88ui_ksb+8], ax
+    stosw                       ; +8
     mov ax, [fm_fit]
-    mov [os88ui_ksb+10], ax
+    stosw                       ; +10
     mov ax, [fm_lscr]
-    mov [os88ui_ksb+12], ax
+    stosw                       ; +12
+    pop es
+    pop di
     mov bx, os88ui_ksb
 %ifdef OS88UI_SBDRAG
     call os88ui_sbfix           ; ...and while a thumb drag is live, word 6 is
@@ -3325,9 +3337,9 @@ fm_onclick_x:
     jl .sbar
     cmp cx, 15
     jg .sbar
-    mov di, [fm_vp]             ; flip the view, back to the top; the
-    xor byte [di+FS_VIEW], 1    ; selection is kept (SPEC.md 22). The mirrors
-    mov word [di+FS_SCRL], 0    ; are re-read by the repaint's own fm_layout
+    call fm_vflip               ; flip the view, back to the top; the
+                                ; selection is kept (SPEC.md 22). The mirrors
+                                ; are re-read by the repaint's own fm_layout
     jmp .redraw
 %endif
 
@@ -3544,9 +3556,9 @@ fm_onup_x:
     jmp short .paint            ; (under the gfx lock: stalls painters
                                 ;  briefly; accepted by SPEC.md 22)
 .view:
-    mov di, [fm_vp]             ; flip the view, back to the top; the
-    xor byte [di+FS_VIEW], 1    ; selection is kept (SPEC.md 22). The mirrors
-    mov word [di+FS_SCRL], 0    ; are re-read by the repaint's own fm_layout
+    call fm_vflip               ; flip the view, back to the top; the
+                                ; selection is kept (SPEC.md 22). The mirrors
+                                ; are re-read by the repaint's own fm_layout
 .paint:
     call fm_repaint             ; SI still = window ptr
 .out:
@@ -3779,8 +3791,7 @@ fm_onkey_x:
     jmp .redraw                 ; button and the Folder menu use
 
 .vtoggle:
-    xor byte [di+FS_VIEW], 1
-    mov word [di+FS_SCRL], 0
+    call fm_vflip
     jmp .redraw
 
 .updir:
@@ -4121,9 +4132,11 @@ fm_reload:
 ; in:  BX -> the path block
 ; out: nothing (all registers and flags preserved)
 ; -----------------------------------------------------------------------------
+%if PTH_LOST != 0 || PTH_BUF != 1
+  %error "pth_clear empties PTH_LOST and the buffer's first byte with ONE word store"
+%endif
 pth_clear:
-    mov byte [bx+PTH_LOST], 0
-    mov byte [bx+PTH_BUF], 0
+    mov word [bx+PTH_LOST], 0   ; nothing lost, and an empty buffer
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4870,18 +4883,19 @@ fm_fmt_home:
                                 ; ordinary shape a sibling is left in by any
                                 ; write, and fmv_bcast is about to hand it the
                                 ; new one for free
-    mov word [di+FS_CWD], 0
-    mov word [di+FS_SEL], 0xFFFF    ; indices into a listing that no longer
-    mov word [di+FS_SCRL], 0        ; describes anything
+    xor ax, ax
+    mov [di+FS_CWD], ax
+    mov [di+FS_SCRL], ax        ; indices into a listing that no longer
+    dec ax                      ; describes anything
+    mov [di+FS_SEL], ax
     mov byte [di+FS_DIRTY], FSD_CACHE
     call fm_owed                ; ...and it may be the FRONT window, where
                                 ; waiting for a focus change means waiting for
                                 ; a click that never comes (22.8, 13.13)
-    push cx
-    push si
+    push si                     ; (CX is banked and nothing here keeps it)
     mov bx, [si+I_WIN]
-    add si, I_NAME              ; the 16 bytes the caption, the dock tile and
-    mov di, si                  ; the Task Manager row all point at (29.1)
+    lea di, [si+I_NAME]         ; the 16 bytes the caption, the dock tile and
+                                ; the Task Manager row all point at (29.1)
     mov si, fm_s_root
     mov cx, 15
     call fm_ncpy
@@ -4889,7 +4903,6 @@ fm_fmt_home:
     xor ax, ax
     call KERNEL_SEG:cw_wm_title_set
     pop si
-    pop cx
 .next:
     call fmv_inext
     jnc .scan
@@ -5531,6 +5544,11 @@ fm_c_root:                      ; Nav > Root Folder
     xor si, si
     jmp fm_go
 
+fm_vflip:                       ; the View button, V and the small build's
+    mov di, [fm_vp]             ; header click: the OTHER view, back to the
+    xor byte [di+FS_VIEW], 1    ; top - fm_c_setview's tail, which is why it
+    jmp short fm_c_setview.top  ; sits here (DI = [fm_vp] on the way out)
+
 fm_c_list:                      ; context menu > as List
     xor al, al
     jmp short fm_c_setview
@@ -5539,6 +5557,7 @@ fm_c_icons:                     ; context menu > as Icons
 fm_c_setview:
     mov di, [fm_vp]
     mov [di+FS_VIEW], al
+.top:
     mov word [di+FS_SCRL], 0    ; row heights changed: the old first row is
     ret                         ; not this view's first row
 section .text                   ; DATA, so back to the kernel segment: cold code
@@ -7201,8 +7220,8 @@ fm_draw_core:
     mov si, ax                  ; never poke past the buffer to say so
     mov byte [fm_hdrbuf+si], 0
 .drawhdr:                       ; (no pen: font_run takes its colours in AX
-    mov cx, [fm_cx]             ; and leaves [gfx_color] spent either way)
-    add cx, 8                   ; A MULTIPLE OF 8 (SPEC.md 11.94.3): the pen is
+    call fm_pen8                ; and leaves [gfx_color] spent either way)
+                                ; A MULTIPLE OF 8 (SPEC.md 11.94.3): the pen is
                                 ; a fixed offset from a content origin the
                                 ; kernel now guarantees is byte-aligned, so 6
                                 ; gave 11.94's win for this string straight
@@ -7282,6 +7301,9 @@ fm_draw_core:
 
     jmp kretc_bp
 
+fm_draw_none:                   ; fm_draw_rows with no row that fits: nothing
+    ret
+
 ; -----------------------------------------------------------------------------
 ; fm_draw_rows - the row area, the selection and the scroll bar
 ; in:  fm_layout already run for the acting window; the content under this
@@ -7298,7 +7320,7 @@ fm_draw_core:
 fm_draw_rows:
     ; --- rows / grid + scroll bar (only when at least one row fits) ---
     cmp word [fm_fit], 0
-    je .norows
+    je fm_draw_none             ; (a `ret` just above: in reach of a short jump)
 
     mov ax, [fm_total]          ; shown = min(total - scroll, fit)
     sub ax, [fm_lscr]
@@ -7315,25 +7337,25 @@ fm_draw_rows:
     jne .icons
 
     ; --- list rows ---
-    xor ax, ax                  ; every visible row of them
+    mov [fm_rhi], ax            ; every visible row of them: AX is still
+    xor ax, ax                  ; [fm_shown]
     mov [fm_rlo], ax
-    mov ax, [fm_shown]
-    mov [fm_rhi], ax
     call fm_draw_lrows
-
-.lsel:
-    call fm_lsel_bar            ; the selection bar, drawn by the same proc a
-                                ; selection CHANGE uses (SPEC.md 22.2)
-    jmp .bar
+.toisel:                        ; (and the grid's own `jae`, which cannot reach)
+    jmp .isel                   ; the selection bar, drawn by the same proc a
+                                ; selection CHANGE uses (SPEC.md 22.2) - the
+                                ; grid's own tail below
 
     ; --- icon grid ---
 .icons:
-    mov word [fm_vrow], 0
+    xor ax, ax
+    mov [fm_vrow], ax
 .irow:
     mov ax, [fm_vrow]
     cmp ax, [fm_shown]
-    jae .isel
-    mov word [fm_vcol], 0
+    jae .toisel
+    xor ax, ax                  ; (.icell reloads AX)
+    mov [fm_vcol], ax
 .icell:
     mov ax, [fm_vrow]
     add ax, [fm_lscr]
@@ -7348,8 +7370,7 @@ fm_draw_rows:
     mov [fm_cellx], ax
     mov ax, FMI_CELL_H
     mul word [fm_vrow]
-    add ax, [fm_cy]
-    add ax, FM_ROW_Y0
+    call fm_rowy
     mov [fm_celly], ax
     pop ax
 
@@ -7398,8 +7419,6 @@ fm_draw_rows:
     call fm_sbset
     call os88ui_sbar
     jmp fm_more_mark           ; ...and the edge the bar is standing on
-.norows:
-    ret
 
 ; -----------------------------------------------------------------------------
 ; fm_more_mark - the row area's bottom EDGE, and whether the list runs past it
@@ -7574,15 +7593,14 @@ fm_draw_lrow:
     push di
     mov ax, FM_ROW_H            ; BP = row band top (absolute)
     mul di
-    add ax, [fm_cy]
-    add ax, FM_ROW_Y0
+    call fm_rowy
     mov bp, ax
     mov ax, di
     add ax, [fm_lscr]           ; AX = directory index
 
     push ax
-    mov cx, [fm_cx]             ; 16x16 icon at x=8, row top
-    add cx, 8                   ; 8, NOT 4, and NOT because it is a text pen:
+    call fm_pen8                ; 16x16 icon at x=8, row top
+                                ; 8, NOT 4, and NOT because it is a text pen:
                                 ; an icon is a blit and ico_pass shifts it to
                                 ; wherever it is asked for. Two other things
                                 ; pay for it. ico_pass lands each 16-pixel row
@@ -7670,8 +7688,7 @@ fm_draw_licon:
     mov dx, ax                  ; has already worked out. DX = row band top
     mov ax, di
     add ax, [fm_lscr]           ; AX = directory index
-    mov cx, [fm_cx]
-    add cx, 8                   ; the same +8 as fm_draw_lrow's, and it has to
+    call fm_pen8                ; the same +8 as fm_draw_lrow's, and it has to
                                 ; be: this is the strip pass's own re-icon, so
                                 ; a disagreement here draws the icon in a
                                 ; different place than the row painter did
@@ -7716,8 +7733,7 @@ fm_sel_bar:                     ; comes back holding it)
     jae .out                    ; fit bounds shown, so it is the same test
     mov cx, FM_ROW_H
     mul cx
-    add ax, [fm_cy]
-    add ax, FM_ROW_Y0
+    call fm_rowy
     mov bx, ax                  ; y1 = row band top
     mov dx, ax
     add dx, FM_ROW_H - 1        ; y2
@@ -7743,8 +7759,7 @@ fm_sel_bar:                     ; comes back holding it)
     pop ax
     mov cx, FMI_CELL_H
     mul cx
-    add ax, [fm_cy]
-    add ax, FM_ROW_Y0
+    call fm_rowy
     mov bx, ax                  ; y1 = cell top
     mov dx, ax
     add dx, FMI_CELL_H - 1
@@ -8453,8 +8468,7 @@ fm_stat_line:                   ; scroll bar is (it was a .text byte, written
                                 ; Folder prompt had been
 .padz:
     mov byte [bx], 0
-    mov cx, [fm_cx]
-    add cx, 8                   ; A MULTIPLE OF 8 (SPEC.md 11.94.3), the header
+    call fm_pen8                ; A MULTIPLE OF 8 (SPEC.md 11.94.3), the header
                                 ; painter's pen exactly - the status line is
                                 ; the SECOND string in this window drawn from
                                 ; fm_hdrbuf and it shares the column, so the
@@ -8472,6 +8486,16 @@ fm_stat_line:                   ; scroll bar is (it was a .text byte, written
 ; out: DI -> the stored NUL (so the next append overwrites it); SI advanced
 ; clobbers: AL (internal helper)
 ; -----------------------------------------------------------------------------
+fm_rowy:                        ; AX = a row band's offset in pixels -> its
+    add ax, [fm_cy]             ; absolute top: four painters' last two lines
+    add ax, FM_ROW_Y0
+    ret
+
+fm_pen8:                        ; CX = the content's left edge + 8: the pen
+    mov cx, [fm_cx]             ; every left-aligned run in this window starts
+    add cx, 8                   ; at - a MULTIPLE OF 8 (SPEC.md 11.94.3)
+    ret
+
 fm_brun:                        ; a BLACK-on-WHITE opaque run (SPEC.md 6.1):
     mov ax, (CWHITE << 8) | CBLACK ; CX/DX/SI as font_run takes them, AX the
     jmp ct_cw_font_run          ; colours - every run in this file is these
@@ -8817,6 +8841,9 @@ fm_fit:     resw 1              ; fm_layout: whole rows that fit
 fm_cols:    resw 1              ; fm_layout: grid columns (1 in list view)
 fm_total:   resw 1              ; fm_layout: total rows
 fm_nch:     resw 1              ; fm_layout: list-view name chars that fit
+%if fm_cy != fm_cx+2 || fm_cw != fm_cx+4 || fm_ch != fm_cx+6 || fm_rgt != fm_cx+8 || fm_staty != fm_cx+10 || fm_listb != fm_cx+12 || fm_fit != fm_cx+14 || fm_cols != fm_cx+16 || fm_total != fm_cx+18 || fm_nch != fm_cx+20
+  %error "fm_layout stores fm_cx..fm_nch with stosw: they must be consecutive words in this order"
+%endif
 
 fm_shown:   resw 1              ; draw scratch: rows drawn this paint
 fm_rlo:     resw 1              ; draw scratch: the visible rows fm_draw_lrows
