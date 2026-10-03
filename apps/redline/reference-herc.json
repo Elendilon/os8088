@@ -28,7 +28,7 @@
   "runtime_config_sha256": "9e6145a0bd3bbb6f0e8e044cd671e22f4a1cec408f42bdc08ce931ad23fd8c76",
   "runtime_machines_sha256": "9cff97877111beb0db8ca2e33832bcf98dbacbbaa0495c78655d1c9f134443d8",
   "guest_cycles_including_inventory_ui": 2135018443,
-  "workload_code_sha256": "4f5a5bda966d14cb5877b01df47e1ed68a725d677b37c3bb320b9405cd2ba007",
+  "workload_code_sha256": "2f93e37f97488111fb693f83040e8f165ba2318ade3b8362d9ca5614e8a4f805",
   "workloads": [
     {
       "label": "rl_label_alu",
