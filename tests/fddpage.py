@@ -17,16 +17,33 @@ reads what `ovl_fdd_apply` did to `dsk_vtab` and the read bound:
   * the third unit forced to 3.5 on a machine that claims two - a row it did
     not have, at D: because C: is the hard disk's, zone on, not 5.25;
   * the read bound forced to Track AGAINST a canary that found cylinder runs
-    on boot 1, so the leg cannot pass by agreeing with the machine. Track is
-    the only bound that overrides the canary (SPEC.md 31.14): there is no
-    Cylinder to force over a failed one.
+    on boot 1, so the leg cannot pass by agreeing with the machine.
+
+Then boot 2 picks the read bound's THIRD item, Cylinder, closes the panel
+again, and the disk it writes is booted twice more - the two cases Cylinder
+exists to tell apart (SPEC.md 31.14):
+
+  * on QEMU, whose CPU is a 286-and-up, so 18.93.2's gate never runs the
+    canary and Auto would leave the bound at a track. Cylinder must turn the
+    run ON: `boot_cylrun` non-zero and `[dsk_cylrun]` = 1. That is the machine
+    the setting is for, and MartyPC cannot be one;
+  * on the same 5150, from a copy whose boot sector carries a WRONG `KSIG`, so
+    the canary AFFIRMATIVELY FAILS and the loader reloads at the track bound.
+    Cylinder must NOT turn the run back on over that: `[dsk_cylrun]` = 0, the
+    record untouched. The same patch on the record-less disk reading
+    `boot_cylrun` 0 is the witness that the canary did fail - after the boot,
+    a broken patch and a broken ovl_fdd_apply look alike on the Cylinder disk.
 
 Take the `call ovl_fdd_apply` out of drv_boot_x and every boot-2 leg fails;
 put `[menu_btn]` back to 2 and the first pick fails, because the popup then
-closes the instant it opens under a held LEFT button.
+closes the instant it opens under a held LEFT button. Take the `and` with
+`b2_cylok` out of ovl_fdd_apply and the failed-canary leg fails; make
+Cylinder read as Auto again and the QEMU leg does.
 """
 import argparse
 import os
+import shutil
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -37,6 +54,8 @@ import os88marty                                            # noqa: E402
 import os88mouse                                            # noqa: E402
 import os88sym                                              # noqa: E402
 import dispcp                                               # noqa: E402
+import os88fat                                              # noqa: E402
+import os88qemu                                             # noqa: E402
 
 S = os88sym.linear
 KERNEL_SEG = 0x0060
@@ -57,6 +76,50 @@ def shot(m, path):
     os88marty.write_png(path, w, h, rows)
 
 
+def break_canary(src, dst):
+    """A copy of `src` whose boot sector expects a KSIG the kernel does not
+    carry, so 18.93.1's canary compares UNEQUAL after the first load and the
+    loader loads again at the track bound - a failed canary, on a 5150 whose
+    FDC crosses heads perfectly well. KSIG is the word at KSIG_OFF +
+    BOOT2_PAD of KERNEL.SYS (the Makefile's KSIGDEF2) and boot.asm loads it
+    with one `mov di, imm16`, so the patch is that immediate and nothing else."""
+    shutil.copyfile(src, dst)
+    eq = os88sym.equates()
+    k = bytes(os88fat.Fat12(dst).read("KERNEL.SYS"))
+    o = eq["KSIG_OFF"] + eq["BOOT2_SECS"] * 512
+    ksig = k[o] | (k[o + 1] << 8)
+    with open(dst, "r+b") as f:
+        bs = bytearray(f.read(512))
+        at = [i for i in range(510 - 2)
+              if bs[i] == 0xBF and bs[i + 1] | (bs[i + 2] << 8) == ksig]
+        if len(at) != 1:
+            sys.exit("fddpage: %d `mov di, %04X` in the boot sector, not one"
+                     % (len(at), ksig))
+        bad = ksig ^ 0x5A5A
+        bs[at[0] + 1], bs[at[0] + 2] = bad & 0xFF, bad >> 8
+        f.seek(0)
+        f.write(bs)
+
+
+def qemu_boot(img, apps):
+    """`make test` on a scratch copy of `img`, until the desktop is idle.
+    QEMU because its CPU is a 286 and up: the one machine here on which
+    18.93.2's gate leaves the canary unrun."""
+    os88qemu.kill()
+    os88qemu.own()
+    r = subprocess.run(["make", "test", "TESTIMG=" + img, "TESTAPPS=" + apps],
+                       capture_output=True, text=True)
+    if r.returncode:
+        sys.exit("fddpage: make test failed:\n" + r.stdout + r.stderr)
+    from ethernet import Qemu
+    q = Qemu()
+    entry = S("cold_entry")
+    os88qemu.acted(q, lambda: q.read(entry, 1)[0] == 0xE9 and
+                   os88qemu.ui_idle(q, S), secs=90, what="the desktop",
+                   poll=0.4)
+    return q
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--machine", default="os8088_5150_herc_gla")
@@ -72,6 +135,7 @@ def main(argv=None):
     settle = os88marty.settle
     fail = []
     written = os.path.abspath(os.path.join("build", "fddpage-written.img"))
+    cylimg = os.path.abspath(os.path.join("build", "fddpage-cyl.img"))
 
     def byte(m, addr):
         return m.read(addr, 1)[0]
@@ -111,7 +175,7 @@ def main(argv=None):
         dispcp.open_panel(m, mo, S, settle, page=rec[0])
         settle(m)
 
-        def pick(row, item):
+        def pick(m, mo, row, item):
             wx, wy = dispcp._cp_win(m, S)
             x0 = wx + 1 + CP_RX + BX1 + 20
             y0 = wy + TITLE_H + 1 + R0Y + row * ROWH + 7
@@ -131,7 +195,7 @@ def main(argv=None):
                  (4, rd, lambda: byte(m, FDR) == rd, "reads %d" % rd))
         for row, item, ok, what in steps:
             try:
-                pick(row, item)
+                pick(m, mo, row, item)
                 os88marty.until(m, lambda _: ok(), what, poll=0.05,
                                 guest=10.0)
                 print("boot 1: %-10s ok, FD = %02X %02X"
@@ -177,10 +241,79 @@ def main(argv=None):
             fail.append("the read bound was not forced to %d" % want_cyl)
         shot(m, os.path.splitext(a.shot)[0] + "-boot2.png")
 
+        # --- the read bound's third item: Cylinder -------------------------
+        f = os88flush.Flush(marty=m)
+        mo = os88mouse.Mouse(marty=m)
+        dispcp.open_panel(m, mo, S, settle, page=rec[0])
+        settle(m)
+        try:
+            pick(m, mo, 4, 2)
+            os88marty.until(m, lambda _: byte(m, FDR) == 2, "reads 2",
+                            poll=0.05, guest=10.0)
+            print("boot 2: reads 2    ok, FD = %02X %02X"
+                  % (byte(m, FDD), byte(m, FDR)))
+        except os88marty.MartyError as e:
+            fail.append("Cylinder: the pick did not reach drv_cfg (%s)" % e)
+        settle(m)
+        dispcp.close_panel(m, mo, S, settle)
+        try:
+            cfg = f.volume(0).read("SYSTEM.CFG")
+        except os88flush.FlushError:
+            cfg = b""
+        if b"FD\x01\x02\x36\x02" not in cfg:
+            fail.append("SYSTEM.CFG's 'FD' record is not 36 02 after Cylinder")
+        f.save(0, cylimg)
+
+    # --- Cylinder where the canary never ran: a 286 and up ------------------
+    qimg = os.path.join("build", "fddpage-qemu.img")
+    shutil.copyfile(cylimg, qimg)
+    q = qemu_boot(qimg, a.apps)
+    try:
+        qb = q.read(S("drv_cfg") + eq["CFG_FDR"], 1)[0]
+        qr = q.read(S("boot_cylrun"), 2)
+        qd = q.read(S("dsk_cylrun"), 1)[0]
+    finally:
+        q.quit()
+        os88qemu.kill()
+    print("qemu:   FDR %d, boot_cylrun %d, dsk_cylrun %d"
+          % (qb, u16(qr), qd))
+    if qb != 2 or not u16(qr) or qd != 1:
+        fail.append("Cylinder did not turn the run on where the canary never "
+                    "ran (QEMU): FDR %d boot_cylrun %d dsk_cylrun %d"
+                    % (qb, u16(qr), qd))
+
+    # --- the witness: the same patch on the Auto disk FAILS the canary -----
+    # Below, a broken KSIG and a broken ovl_fdd_apply read identically after
+    # the boot - Cylinder writes over the loader's 0 - so the loader's half is
+    # proved on a disk with no record, where nothing writes over it.
+    autobad = os.path.join("build", "fddpage-autobad.img")
+    break_canary(a.image, autobad)
+    with os88marty.launch(autobad, apps=a.apps, machine=a.machine) as m:
+        wr = u16(m.read(S("boot_cylrun"), 2))
+        print("boot 3: FD = %02X %02X, boot_cylrun %d (KSIG broken, Auto)"
+              % (byte(m, FDD), byte(m, FDR), wr))
+    if wr:
+        fail.append("the broken KSIG did not fail the canary: boot_cylrun is "
+                    "%d on the Auto disk, so the next leg proves nothing" % wr)
+
+    # --- Cylinder over a canary that FAILED this boot -----------------------
+    badimg = os.path.join("build", "fddpage-cylbad.img")
+    break_canary(cylimg, badimg)
+    with os88marty.launch(badimg, apps=a.apps, machine=a.machine) as m:
+        br, bd = u16(m.read(S("boot_cylrun"), 2)), byte(m, S("dsk_cylrun"))
+        print("boot 4: FD = %02X %02X, boot_cylrun %d, dsk_cylrun %d (KSIG "
+              "broken, Cylinder)" % (byte(m, FDD), byte(m, FDR), br, bd))
+        if br or bd:
+            fail.append("Cylinder turned the run on over a FAILED canary: "
+                        "boot_cylrun %d, dsk_cylrun %d" % (br, bd))
+        if byte(m, FDR) != 2:
+            fail.append("the record changed under a failed canary: FDR %d"
+                        % byte(m, FDR))
+
     for x in fail:
         print("FAIL: %s" % x)
     print("fddpage: %s" % ("FAILED" if fail else
-                           "ok - four picks, one file, one reboot"))
+                           "ok - five picks, two files, four reboots"))
     return 1 if fail else 0
 
 

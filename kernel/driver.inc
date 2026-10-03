@@ -4161,17 +4161,25 @@ ovl_cfg_load:
 ; mount re-reads (dsk_bpb_check) and the one hiber.inc carries to kern_dos:
 ; overriding the finding, rather than adding a test beside it, is what makes
 ; this free at every reader. The loader stores the RUN BOUND there, at most 36,
-; so the high byte is always 0 and the byte decides the word. ONLY TRACK
-; writes it: a failed canary's ROM returns the other head's sectors with CF=0
-; for a crossing READ (SPEC.md 18.93.1), so nothing may turn cylinder runs
-; back on over it, and 2 - once Cylinder - reads as Auto (SPEC.md 31.14).
+; so the high byte is always 0 and the byte decides the word. Track writes 0
+; and Cylinder 1 - which is the whole reason the page HAS a Cylinder: a 286
+; and up never runs the canary (SPEC.md 18.93.2's gate) and a hard-disk boot
+; has no floppy loader, so without it nothing turns the cylinder run on for
+; the great majority of those machines, whose FDC crosses a head correctly.
+; EXCEPT over a canary that FAILED this boot (b2_cylok, SPEC.md 31.14): that
+; ROM returns the other head's sectors with CF=0 for a crossing READ (18.93.1),
+; so Cylinder reads as Track for the session. The record is left alone - the
+; disk that met a bad ROM here may be carried back to the machine it was
+; chosen on, and this ROM fails the canary again at every boot.
 ; -----------------------------------------------------------------------------
 ovl_fdd_apply:
     mov dx, [drv_cfg+CFG_FDD]   ; DL = the four drives, DH = the read bound
     mov al, dh
-    dec ax                      ; 1 Track -> 0, 0 Auto -> FF
-    cmp al, 1
-    jae .drives                 ; Auto, 2 (was Cylinder) or a future byte
+    dec ax                      ; 1 Track -> 0, 2 Cylinder -> 1, 0 Auto -> FF
+    cmp al, 2
+    jae .drives                 ; Auto or a future byte: the canary's finding
+    and al, [cs:b2_cylok]       ; Cylinder over a FAILED canary -> 0, Track
+                                ; (the loader's byte, through the blob's CS)
     mov [boot_cylrun], al       ; ...for every mount after this one
     mov [dsk_cylrun], al        ; ...and the one drv_boot is standing on
 .drives:

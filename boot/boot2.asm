@@ -494,6 +494,7 @@ boot2_entry:
 .rerun:
     mov ax, [b2_spt]
     mov [b2_runmax], ax
+    dec byte [b2_cylok]         ; ONE-SHOT, so FF -> FE and no further
     mov sp, B2_STACK
     jmp .reload
 %endif
@@ -830,6 +831,17 @@ b2_lba:      dw 0
 b2_left:     dw 0
 b2_dest:     dw 0
 b2_ksig:     dw 0
+b2_cylok:    db 0xFF            ; SPEC.md 31.14: FE once a run that crossed a
+                                ; head came back WRONG and .rerun loaded again.
+                                ; boot_cylrun's 0 is "fell back" and "never
+                                ; looked" at once, and the Floppy page's
+                                ; Cylinder needs them apart. A MASK, so
+                                ; ovl_fdd_apply reads it `cs:` - the blob is
+                                ; one segment until mem_unblob - with one AND.
+                                ; Here and not in the image, because .rerun's
+                                ; second load overwrites the image's bytes;
+                                ; and a hard-disk boot calls only KZ_HD here,
+                                ; never boot2_entry, so it keeps FF
 b2_t0:       dw 0
 %ifdef BOOT_DIAG
 b2_diag:     db 0

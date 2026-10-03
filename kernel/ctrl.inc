@@ -3342,8 +3342,9 @@ cp_dock_fail: db 'Dock Module Unavailable', 0
 ; The Floppy page (SPEC.md 31.14)
 ;
 ; Five drop-downs over SYSTEM.CFG's 'FD' record: one per unit a machine can
-; claim, Auto / None / 5.25 / 3.5, and the read bound, Auto / Track - no
-; Cylinder, which would override a failed canary (SPEC.md 31.14). The page
+; claim, Auto / None / 5.25 / 3.5, and the read bound, Auto / Track /
+; Cylinder - Cylinder being how a 286 and up, which never runs the canary,
+; gets the cylinder run at all (SPEC.md 31.14). The page
 ; EDITS THE RECORD AND NOTHING ELSE - the bytes live in drv_cfg alone, nothing
 ; resident reads them, and ovl_fdd_apply applies them at the next boot, which
 ; is when the detection they override runs. So the caption says restart, and
@@ -3532,7 +3533,7 @@ cp_fdy:
     pop ax
     ret
 
-; cp_fdval - row BL's setting: AL = 0..3 for a unit, 0..1 for the reads
+; cp_fdval - row BL's setting: AL = 0..3 for a unit, 0..2 for the reads
 cp_fdval:
     mov al, [drv_cfg+CFG_FDR]
     cmp bl, 4
@@ -3546,10 +3547,10 @@ cp_fdval:
     and al, 3
     ret
 .rd:
-    cmp al, 2
+    cmp al, 3
     jb .ok
-    xor al, al                  ; 2 (once Cylinder) or a future byte: Auto,
-.ok:                            ; which is what ovl_fdd_apply does with it
+    xor al, al                  ; a future byte: Auto, which is what
+.ok:                            ; ovl_fdd_apply does with it
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3612,7 +3613,7 @@ cp_fdstg:
     jb .c
     mov si, CPF_MRO
     mov cx, CPF_MRN
-    mov bh, 2
+    mov bh, 3
 .c:
     mov al, [cs:si + cp_fdmd]
     mov [di], al
@@ -3637,8 +3638,10 @@ cp_fdm2: db '5.25', 0
 cp_fdm3: db '3.5', 0
 cp_fdmr:
     dw cp_sbuf + (cp_fdr0 - cp_fdmr), cp_sbuf + (cp_fdr1 - cp_fdmr)
+    dw cp_sbuf + (cp_fdr2 - cp_fdmr)
 cp_fdr0: db 'Auto', 0
 cp_fdr1: db 'Track', 0
+cp_fdr2: db 'Cylinder', 0
 cp_fdend:
 CPF_MDN   equ cp_fdmr - cp_fdmd
 CPF_MRO   equ cp_fdmr - cp_fdmd
