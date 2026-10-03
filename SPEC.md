@@ -62220,37 +62220,33 @@ which is read `[cs:]` per §2.8.6 — nothing can ask for a weekday while the
 image is not loaded, because the only thing that ever asks is a rung writing
 a chip.
 
-**Six routines stay resident, and the reason is written in their returns.**
-The boot overlay READS the clock and this module WRITES it, and these six are
-the port helpers both halves share:
+**The six port helpers both halves share are a COPY IN EACH IMAGE** (kernel
+size pass 9). The boot overlay READS the clock and this module WRITES it, and
+these six were resident for that alone - far-called from both address spaces,
+ending in `retf` so that §2.6.1's gate refused any near caller in `.text`:
 
-| | bytes | ends in | because |
+| | bytes | the overlay's copy | the module's copy |
 |---|---:|---|---|
-| `clk_at_get` | 9 | **`retf`** | no near caller left in `.text` |
-| `clk_at_done` | 14 | **`retf`** | " |
-| `clk_ns_stamp` | 52 | **`retf`** | " |
-| `clk_rp_get` | 11 | **`retf`** | " |
-| `clk_ns_put` | 13 | `ret` | `clk_ns_stamp` near-calls it ×4 |
-| `clk_tobcd` | 11 | `ret` | `clk_ns_stamp` near-calls it ×1 |
+| `clk_at_get` | 8 | `clk_at_get`, `.ovlw` | `clkw_at_get`, `.modc` |
+| `clk_at_done` | 13 | `clk_at_done` | `clkw_at_done` |
+| `clk_ns_stamp` | 51 | `clk_ns_stamp` | `clkw_ns_stamp` |
+| `clk_rp_get` | 10 | `clk_rp_get` | `clkw_rp_get` |
+| `clk_ns_put` | 13 | `clk_ns_put` | `clkw_ns_put` |
+| `clk_tobcd` | 11 | `clk_tobcd` | `clkw_tobcd` |
 
-**The byte column is re-measured at every size pass and has moved twice**
-(`routsize.py`, off `[map all]`). It read 13/18/64/14/16/11 when this section
-was written; kernel size pass 2 took `clk_ns_stamp` to 57, and pass 3 took the
-four port helpers onto the immediate/low-half addressing forms and
-`clk_ns_stamp`'s year clamp to a subtract-first one. **It is consulted to
-decide whether a body is worth moving, so a stale figure argues the wrong
-way** — `clk_ns_stamp` at 64 looks like twice the case it is at 52.
-
-**That table is enforced, not documented.** §2.6.1's gate refuses a near call
-to a `retf` body and a far call to a `ret` one, so the four that end in `retf`
-are *declaring* that nothing in this segment may call them — which is exactly
-the statement "I am resident only because two other address spaces need me",
-and it fails the build the moment it stops being true. The two that cannot
-say it that way are the two `clk_ns_stamp` reaches, and they keep a `cw_`
-thunk each. The `ovw_clk_*` block is gone: four of its five shims are not owed
-any more, and the fifth is no longer the *overlay's* — the module is its
-main caller for the rest of the session — so it is `cw_clk_ns_put` now, beside
-the new `cw_clk_tobcd`.
+Every one ends in a near `ret` and is near-called inside its own image, so
+the far calls (nineteen in the overlay, eighteen in the module) shrink by two
+bytes each and pay most of each copy back. **The BODIES are written once**, as
+`clock.inc`'s `CLK_*_BODY` macros, and each file writes its own LABEL in front
+of its expansion - which is what LAST-DROP-BYTES 7.7.3 found missing when it
+first priced this: a fragment `%include`d twice defines one label twice, and a
+label emitted INSIDE a macro is invisible to `tools/os88ovlchk.py`'s label map.
+Neither is true of this shape; the gate covers both copies as it covers any
+other `.ovlw` or `.modc` routine. `cw_clk_ns_put` and `cw_clk_tobcd` are gone
+with them. **Measured**: `kern_big` resident **-118** (the six bodies and the
+two `cw_` thunks), `.ovlw` **+71**, `CTRL.DRV` **+76**; `kern_small` -11,
+because `clk_tobcd` was assembled there with no caller at all - `OS88_RTC` is
+`kern_big`'s (§37.0.1) and every reader of it was inside that gate.
 
 **Measured**, `kernsize[big]`: the move is **814 bytes** of `.text` — 787 out
 of `clock.inc`, 12 more as the `ovw_` block shrinks to two `cw_` thunks, and
