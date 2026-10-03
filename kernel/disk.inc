@@ -2743,22 +2743,18 @@ osapi_fs_ent_x:
                                 ; redirected entry passes
     call dsk_put_dir            ; AX = the index, and the listing's home is
     inc word [dsk_fsn]          ; the one every volume has (SPEC.md 22.6)
+    clc                         ; (`inc` leaves CF alone, so it is said here)
+.out:
     pop di
     pop si
     pop dx
     pop cx
     pop bx
-    clc
     retf
 .no:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
     xor ax, ax
     stc
-    retf
+    jmp short .out
 
 ; -----------------------------------------------------------------------------
 ; osapi_vol_del - slot 0x01FE (X).  in AL = volume index
@@ -4088,44 +4084,40 @@ dsk_synth_x:
                                 ; sanitized (SPEC.md 19)
 
     ; --- @18: first cluster = raw FstClusLO, verbatim even when type=0 ---
-    mov ax, [es:si+DSK_R_CLUS]
+    mov ax, [es:si+DSK_R_CLUS]  ; ...and HELD in AX for the range test below
     mov [dsk_ent+18], ax
     ; --- @20: size dword - lo word at 20, hi at 22 (SPEC.md 19). It was one
-    ;     word clamped to 0xFFFF, and a 116KB module listed as 65535 ---
-    mov dx, [es:si+DSK_R_SIZE+2]    ; DX = size high word (held for below)
-    mov ax, [es:si+DSK_R_SIZE]
-    mov [dsk_ent+20], ax
-    mov [dsk_ent+22], dx
+    ;     word clamped to 0xFFFF, and a 116KB module listed as 65535. HELD in
+    ;     DX:BX and stored at .size, by every species but a walkable folder ---
+    mov dx, [es:si+DSK_R_SIZE+2]
+    mov bx, [es:si+DSK_R_SIZE]
     ; --- @16: type 2 = subdirectory, and nothing else about it is trusted:
     ;     a folder's size field is zero by spec, and its first cluster is
     ;     validated exactly like a file's because dsk_chdir will walk it
     ;     (SPEC.md 19.2). Tested first - the ext rule below must never see
     ;     a directory, or a folder literally named "X.O88" would type as a
     ;     package and reach the loader.
+    ;
+    ;     CX is the type the entry EARNS if its cluster passes, so the two
+    ;     species share one range test: a directory we cannot walk is type 0
+    ;     (listed, inert, never enterable), and a walkable one keeps the zero
+    ;     size dsk_ent_zero left - both halves, a hostile entry can carry
+    ;     either. One test where there were two, and the size stored once
+    mov cx, 2
     test byte [es:si+DSK_R_ATTR], 0x10
-    jz .notdir
-    mov ax, [es:si+DSK_R_CLUS]
-    cmp ax, 2
-    jb .typed                   ; a directory we cannot walk is type 0:
-    cmp ax, [dsk_maxclus]       ; listed, inert, never enterable
-    ja .typed
-    mov word [dsk_ent+16], 2
-    mov word [dsk_ent+20], 0    ; folders have no meaningful size - both
-    mov word [dsk_ent+22], 0    ; halves, a hostile entry can carry either
-    jmp short .typed
-.notdir:
+    jnz .clus
 
     ; --- @16: type word = 1 iff ext == "O88" AND the file is under 1MB AND
     ;     size >= 1 AND first cluster in [2, dsk_maxclus] (SPEC.md 19) -
     ;     a garbage entry can never reach the loader as type 1
     cmp byte [es:si+DSK_R_EXT], 'O'
-    jne .typed
+    jne .size
     cmp byte [es:si+DSK_R_EXT+1], '8'
-    jne .typed
+    jne .size
     cmp byte [es:si+DSK_R_EXT+2], '8'
-    jne .typed
+    jne .size
     cmp dx, PKG_FILE_HI         ; the file must be under 1MB. It was `test dx,
-    jae .typed                  ; dx` - the file had to fit 16 bits - and what
+    jae .size                   ; dx` - the file had to fit 16 bits - and what
                                 ; changed it is that APP_MAX_SIZE no longer
                                 ; bounds a FILE (SPEC.md 19.1). It bounds the
                                 ; primary segment's image+bss, which is all it
@@ -4135,20 +4127,24 @@ dsk_synth_x:
                                 ; 1 tests the high word before it trusts the
                                 ; low one (SPEC.md 21) - the two are one
                                 ; change
-    mov ax, [es:si+DSK_R_SIZE]  ; ...and not EMPTY, which is BOTH words zero.
-    or ax, dx                   ; It was `cmp word [..SIZE], 1 / jb`, right
-    jz .typed                   ; while the high word had to be 0 and wrong
+    mov di, bx                  ; ...and not EMPTY, which is BOTH words zero.
+    or di, dx                   ; It was `cmp word [..SIZE], 1 / jb`, right
+    jz .size                    ; while the high word had to be 0 and wrong
                                 ; the moment it did not: a parts package of
                                 ; exactly n x 65,536 bytes has a low word of
                                 ; 0 and was typed 0 - not a package - here,
                                 ; while ld_take's own test (`or cx,cx / jnz
                                 ; / or dx,dx / jz .bad`) launched it by name
-    mov ax, [es:si+DSK_R_CLUS]
-    cmp ax, 2
-    jb .typed
-    cmp ax, [dsk_maxclus]
-    ja .typed
-    mov word [dsk_ent+16], 1
+    dec cx                      ; CX = 1, a package - if the cluster passes
+.clus:
+    call dskw_clok              ; AX in [2, dsk_maxclus]? (diskw.inc's ten)
+    jc .size                    ; no: type 0, and its size is shown
+    mov [dsk_ent+16], cl        ; the low byte: dsk_ent_zero zeroed the high
+    dec cx                      ; a folder (2 -> 1) skips the size; a package
+    jnz .typed                  ; (1 -> 0) stores it like any file
+.size:
+    mov [dsk_ent+20], bx
+    mov [dsk_ent+22], dx
 .typed:
     pop di
     jmp kretc_dx
@@ -5109,9 +5105,8 @@ dsk_free_clus_x:
     jb .slowj
     cmp word [dsk_fatw0], 0     ; ...and the window actually sitting at 0
     jne .slowj
-    mov cx, [dsk_fatseg]
     inc byte [sch_lock]         ; **THE WINDOW IS A CACHE NOW** (SPEC.md
-    mov es, cx                  ; 18.8.4), and ES is banked for the whole walk
+    mov es, [dsk_fatseg]        ; 18.8.4), and ES is banked for the whole walk
     mov bx, 3                   ; below. While it was MEM_K_FATW nothing could
                                 ; move or shed it and the bank was safe; a
                                 ; purgeable one is shed by any ordinary claim
@@ -5122,7 +5117,11 @@ dsk_free_clus_x:
                                 ; free-space figure the file manager prints and
                                 ; FTPd answers with. dsk_xfer's own hold is the
                                 ; same lock and nests; there is no I/O in this
-                                ; loop, so the hold is arithmetic only
+                                ; loop, so the hold is arithmetic only. The
+                                ; segment is read INSIDE the hold: it was read
+                                ; one instruction before it, through CX, which
+                                ; left a tick's window for the window to move
+                                ; under a stale ES (and cost 2 bytes a site)
 .pair:
     mov ax, [es:bx]             ; b0 | b1<<8 - the even entry's 12 bits are
     mov dx, ax                  ; the bottom of it, the odd entry's low
@@ -5159,9 +5158,8 @@ dsk_free_clus_x:
     mov ax, si
     call dsk_fat_ofs_x            ; BX = offset in the window, and the sector
     jc .counted                 ; holding cluster SI is now resident
-    mov cx, [dsk_fatseg]
     inc byte [sch_lock]         ; the same bank and the same reason, one FAT
-    mov es, cx                  ; SECTOR at a time - released below before the
+    mov es, [dsk_fatseg]        ; SECTOR at a time - released below before the
     mov cx, si                  ; next dsk_fat_ofs_x, which does disk I/O and
                                 ; must not run inside this hold
     and cx, 255
@@ -5266,28 +5264,24 @@ dsk_next_clus_x:
     ja .bad
     call dsk_fat_ofs_x            ; BX = the offset INSIDE THE WINDOW, and the
     jc .bad                     ; window now holds it and the sector after
-    mov cx, [dsk_fatseg]
-    mov es, cx
-    cmp byte [dsk_fattype], 0
-    jne .fat16
+    mov es, [dsk_fatseg]        ; one load, 4 clocks and 2 bytes under the
+                                ; `mov cx, [..] / mov es, cx` it replaced
+    cmp byte [dsk_fattype], 0   ; CF = 0 out of this compare (nothing is
+    jne .fat16                  ; below 0), which is .fat16's answer as it is
     mov bx, [es:bx]             ; the straddling word - legal on 8086 at any
-    test ax, 1                  ; offset, and the window guarantees both its
+    test al, 1                  ; offset, and the window guarantees both its
     jz .even                    ; bytes are here
-    mov cl, 4                   ; odd cluster: top 12 bits
-    shr bx, cl
-    mov ax, bx
-    jmp short .done
-.even:
-    and bx, 0x0FFF              ; even cluster: bottom 12 bits
-    mov ax, bx
-    jmp short .done
-.fat16:
-    mov ax, [es:bx]
-.done:
-    clc
-    jmp short .out
+    mov cl, 4                   ; odd cluster: top 12 bits...
+    shr bx, cl                  ; ...whose top nibble is now 0, so FALLING
+.even:                          ; INTO the even arm's mask changes no bit and
+    and bx, 0x0FFF              ; clears the CF the shift left behind: even
+    xchg ax, bx                 ; cluster, bottom 12 bits. One tail for both
+    jmp short .out              ; arms, and no `clc` on any path
 .bad:
     stc
+    jmp short .out
+.fat16:
+    mov ax, [es:bx]             ; CF = 0 still, from the fattype compare
 .out:
     pop es
     pop dx
@@ -6305,7 +6299,8 @@ dsk_find_x:
 .sector:
     call dsk_dirw_get_x           ; dsk_secbuf = the next directory sector, and
     jnc .secok                  ; ES:DI stays the CALLER's buffer throughout
-    jz .jend
+.jzsel:                         ; ZF picks: the end, or an I/O error - and
+    jz .jend                    ; .fsenum's refusal comes back to ask it too
     jmp .ioerr
 .jend:                          ; a relay, .jfail1's device one routine along:
     jmp .end                    ; nothing falls into it, and .end is out of
@@ -6368,15 +6363,15 @@ dsk_find_x:
     pop di                      ; to preserve both and the cable's need not;
     pop es                      ; `pop` leaves the flags, so the answer below
     jnc .stage                  ; is still drv_fs_call's
-    or ax, ax
-    jz .jend2                   ; AX = 0 is "the driver publishes no FSV_ENUM"
-                                ; and is drv_fs_call's answer for an absent
+    or ax, ax                   ; AX = 0 is "the driver publishes no FSV_ENUM"
+    jmp short .jzsel            ; and is drv_fs_call's answer for an absent
                                 ; verb rather than the driver's - the same word
                                 ; an empty folder gives (62.9.7), so it becomes
-                                ; the end of the directory and never an error
-    jmp .ioerr                  ; ...and anything else is the driver's own
-.jend2:                         ; FERR_*, passed through
-    jmp .end
+                                ; the end of the directory and never an error;
+                                ; anything else is the driver's own FERR_*,
+                                ; passed through. The sector arm's own
+                                ; end-or-error pair asks the same ZF, so this
+                                ; joins it (2 bytes where two relays were 8)
 
 .take:
     ; dsk_synth stages the display name, the type and the cluster into the
@@ -6426,14 +6421,10 @@ dsk_find_x:
     push ax
     push dx
     push cx
-    mov si, dsk_ent             ; the name, 13 bytes with its NUL
-    mov cx, 13
-.name:
-    mov al, [si]
-    mov [es:di], al
-    inc si
-    inc di
-    loop .name
+    mov si, dsk_ent             ; the name, 13 bytes with its NUL: DS:SI ->
+    mov cx, 13                  ; ES:DI, which is exactly what a string move
+    cld                         ; is (and faster than the byte loop it was)
+    rep movsb
     pop cx
     mov [es:di], cl             ; +13 the attribute byte
     inc di
@@ -7040,14 +7031,12 @@ dsk_read_chain_x:
 .fsgo:
     call drv_fs_call
     pop bp
-    jc .fsfail
-    jmp .done2                  ; the shared tail: fpg_end, the pops, CF=0 -
-                                ; joined BELOW the chain-end store, which
-                                ; this arm has already made
-.fsfail:
-    jmp .fail1                  ; a refusal is LD_EDISK, the same verdict a
+    jc .fail1                   ; a refusal is LD_EDISK, the same verdict a
                                 ; failed sector read gets - the loader has no
                                 ; finer question to ask about a wire
+    jmp short .done2            ; the shared tail: fpg_end, the pops, CF=0 -
+                                ; joined BELOW the chain-end store, which
+                                ; this arm has already made
 %endif                          ; OS88_REDIR
 .walk:
     ; THE RUN IS KEPT IN CLUSTERS, NOT LBAs (SPEC.md 18.7.5). A run is
@@ -7088,12 +7077,13 @@ dsk_read_chain_x:
     mov ax, si
     call dsk_next_clus_x
     jc .fail2
-    cmp ax, 2                   ; the next link must itself be a valid
-    jb .fail2                   ; cluster - EOC/bad/free while sectors
-    cmp ax, [dsk_maxclus]       ; remain is corruption
-    ja .fail2
-    mov si, ax
-    jmp short .next
+    mov si, ax                  ; the next link must itself be a valid
+    jmp short .next             ; cluster - EOC/bad/free while sectors remain
+                                ; is corruption - and .next's dsk_clus2lba_x
+                                ; IS that test, [2, dsk_maxclus] to .fail2.
+                                ; It was asked here as well, inline: eleven
+                                ; bytes and ~40 clocks a cluster for a verdict
+                                ; the very next instruction group gives again
 .final:
     call .flush
     jc .fail1
@@ -7101,26 +7091,24 @@ dsk_read_chain_x:
     mov [dsk_chain_end], si     ; where a chunked caller resumes from
 .done2:                         ; ...and where the redirected read above joins,
     clc                         ; having stored its handle already
-    call ct_fpg_end                           ; preserves CF, so it sits either side of the
-                                ; clc without comment (SPEC.md 12.8)
+.fin:
+    call ct_fpg_end             ; preserves CF, so it sits either side of the
+                                ; clc without comment (SPEC.md 12.8) - and a
+                                ; failed read owes the bar back exactly as a
+                                ; successful one does
     jmp kretc_bp
 .fail1:
-    mov byte [dsk_cherr], 1     ; disk_read failed
+    mov al, 1                   ; disk_read failed
     jmp short .failc
 .fail2:
-    mov byte [dsk_cherr], 2     ; chain corrupt
+    mov al, 2                   ; chain corrupt
 .failc:
-    call ct_fpg_end                           ; a failed read owes the bar back exactly as
-    pop bp                      ; a successful one does
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    mov al, [dsk_cherr]
-    stc
-    ret
+    mov bp, sp                  ; THE CODE GOES STRAIGHT INTO THE BANKED AX:
+    mov [bp+12], al             ; kentc_bp's frame is bp di si dx cx bx ax, so
+    stc                         ; the ladder's `pop ax` is what hands it back
+    jmp short .fin              ; with AH the caller's. It used to ride across
+                                ; a hand-rolled pop run in a .bss byte
+                                ; (dsk_cherr) that nothing else ever read
 .flush:                         ; move the pending run (DI = its first
     push ax                     ; CLUSTER, CX = len) to or from ES:BX; advance
     mov ax, di                  ; BX; CF through. AX is the caller's take count
@@ -7232,15 +7220,12 @@ dsk_streq:
     cmp al, [di]
     jne .no
     or al, al
-    jz .yes
-    inc si
+    jz .out                     ; equal to the NUL - and `or` cleared CF, so
+    inc si                      ; that IS the answer, with no `clc` arm
     inc di
     jmp short .c
 .no:
     stc
-    jmp short .out
-.yes:
-    clc
 .out:
     pop di
     pop si
@@ -7252,9 +7237,10 @@ dsk_streq:
 ; in:       SI = source, DI = destination, CX = count
 ; out:      nothing (all registers preserved)
 ;
-; The .cold segment's counted copy, and the reason it is a byte loop rather
-; than `rep movsb` is at dskw_copy11: ES belongs to the caller's buffer at
-; three of the sites and must not be reloaded to move eleven bytes.
+; The .cold segment's counted copy. ES belongs to the caller's buffer at
+; three of the sites (dskw_copy11's reason), so it is BANKED around the
+; string move rather than left alone by a byte loop: the push/pop pair is
+; shorter than the loop was, and `rep movsb` is the faster move besides.
 ;
 ; It lives HERE because disk.inc is the first `.cold` %include, so every one
 ; of the thirteen sites in diskw.inc, filecp.inc, files.inc and fdlg.inc is a
@@ -7263,20 +7249,18 @@ dsk_streq:
 ; NUL-stopping bounded copy and answers a different question.
 ; -----------------------------------------------------------------------------
 dsk_ncopy:
-    push ax
     push cx
     push si
     push di
-.b:
-    mov al, [si]
-    mov [di], al
-    inc si
-    inc di
-    loop .b
+    push es
+    push ds
+    pop es
+    cld
+    rep movsb
+    pop es
     pop di
     pop si
     pop cx
-    pop ax
     ret
 
 
@@ -7880,15 +7864,19 @@ ico_add:
     add di, DSK_ICO_SIZE        ; ...and the glyph column CLEARED - STRAIGHT
     mov cx, 8                   ; PAST THE BODY, dsk_copy_seg_x having
     xor al, al                  ; preserved DI - because mem_claim does not
-.gz:                            ; clear the block and an UNRESOLVED glyph is
-    mov [es:di], al             ; all-zero by definition (SPEC.md 54.2):
-    inc di                      ; whatever the heap handed out last would
-    dec cx                      ; otherwise read as a shipped one
-    jnz .gz
+    rep stosb                   ; clear the block and an UNRESOLVED glyph is
+                                ; all-zero by definition (SPEC.md 54.2):
+                                ; whatever the heap handed out last would
+                                ; otherwise read as a shipped one. ES:DI is
+                                ; the claim and DF is clear from the `cld`
+                                ; above, so it is a string store - and the
+                                ; `xor` has cleared CF, which is the success
+                                ; answer below (`inc` leaves CF alone)
+%else
+    clc
 %endif
     pop ax
     inc byte [ico_n]
-    clc
     jmp short .fin
 .no:
     stc
@@ -9046,8 +9034,6 @@ dsk_c2hi:     resw 1            ; dsk_clus2lba_x's answer's HIGH word, and
 dsk_maxclus:  resw 1            ; CountOfClusters+1 = highest valid cluster
 dsk_chain_end: resw 1           ; dsk_read_chain: the last cluster it touched,
                                 ; so a chunked read can resume (SPEC.md 18)
-dsk_cherr:    resb 1            ; dsk_read_chain: failure code across the
-                                ; register-restore epilogue
 %ifndef KERN_SMALL
 dsk_chwr:     resb 1            ; ...and which way it is moving (SPEC.md
                                 ; 18.4.7.1). Zero is a READ, which is what

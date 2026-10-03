@@ -30169,9 +30169,10 @@ The FAT routines (all UI-task-only like the rest of the module; all in
 ### 18.1 Mount-derived variables (kernel .bss)
 
 Valid only after a successful mount — every consumer is already gated by
-`disk_nfiles` ≠ 0 (readers) or by `[dsk_mntok]` (writers, §18.4). 90 bytes
-including `dsk_cherr`, `dsk_read_chain`'s failure-code byte carried across
-its register-restore epilogue.
+`disk_nfiles` ≠ 0 (readers) or by `[dsk_mntok]` (writers, §18.4). 89 bytes.
+`dsk_read_chain`'s failure code no longer rides a byte of its own across the
+epilogue: it is written into the banked AX on the stack, so the ladder's
+`pop ax` returns it.
 
 ```nasm
 dsk_bpbh:     resb 18  ; staged BPB fields 11..28 (mount scratch, §18.2),
@@ -30185,8 +30186,6 @@ dsk_rootlba:  resw 1   ; first root-dir LBA
 dsk_rootsecs: resw 1   ; root-dir sector count (<= 32)
 dsk_datalba:  resw 1   ; FirstDataSec
 dsk_maxclus:  resw 1   ; CountOfClusters+1 = highest valid cluster number
-dsk_cherr:    resb 1   ; dsk_read_chain failure code, carried across the
-                       ; register-restore epilogue
 dsk_op:       resb 1   ; int 13h function for dsk_xfer: 02h read / 03h write
 dsk_ioerr:    resb 1   ; last int 13h status (AH) of a FAILED transfer;
                        ; 03h = write-protected media (§18.4)

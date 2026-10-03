@@ -593,10 +593,8 @@ dskw_mkbody:
     call dskw_alloc             ; AX = cluster, already marked end-of-chain
     jnc .haveclus
     inc ax                      ; 0xFFFF -> 0: the mark could not be written,
-    jz .allocio                 ; which is an I/O failure and not a full disk
-    jmp .nospace
-.allocio:
-    jmp .wfail                  ; ...and it takes the ROLLBACK path, because a
+    jz .wfail                   ; which is an I/O failure and not a full disk
+    jmp .nospace                ; - and it takes the ROLLBACK path, because a
                                 ; half-marked cluster must not survive in RAM
                                 ; to be flushed by a later unrelated write
 .haveclus:
@@ -703,55 +701,63 @@ dskw_zerobuf:
 ; -----------------------------------------------------------------------------
 dskw_dotents:
     push ax
+    push cx
+    push si
     push di
     push es
     call dskw_zerobuf
     call dskw_now               ; [dskw_date] / [dskw_time] (SPEC.md 37)
     push ss
     pop es
-    mov di, dsk_secbuf          ; '.' -> this directory
-    mov ax, [dskw_first]
-    call dskw_dotent
+    ; '.' IS BUILT ONCE AND '..' IS ITS COPY. The two links differ in two
+    ; bytes - the second dot and the cluster - so the slot is written by
+    ; string stores in field order, then moved 32 bytes along and patched.
+    ; It was a per-slot routine called twice, which also zeroed the size a
+    ; zeroed sector already holds.
+    mov di, dsk_secbuf
+    cld
+    mov al, '.'                 ; name[0]...
+    stosb
+    mov al, ' '                 ; ...name[1..10] = spaces
+    mov cx, 10
+    rep stosb
+    mov al, DSKW_DIR            ; +11 the attribute
+    stosb
+    scasw                       ; +12 the compression hint, left 0: `scasw`
+                                ; only to step DI two (it reads, never writes)
+    mov ax, [dskw_time]
+    stosw                       ; +14 create time
+    mov ax, [dskw_date]
+    stosw                       ; +16 create date
+    stosw                       ; +18 last-access date
+    scasw                       ; +20 FstClusHI, 0 - stepped over likewise
+    mov ax, [dskw_time]
+    stosw                       ; +22 last-write time
+    mov ax, [dskw_date]
+    stosw                       ; +24 last-write date; +26 the cluster below,
+                                ; +28 the size, which the sector already holds
+%if DSK_R_ATTR != 11 || DSK_R_CTIME != 14 || DSK_R_CDATE != 16 || DSK_R_ADATE != 18 || DSK_R_WTIME != 22 || DSK_R_WDATE != 24
+  %error "dskw_dotents stores the dot entry's fields IN ORDER from +11: re-derive the stosb/stosw/scasw run"
+%endif
+    push ds
+    push es
+    pop ds                      ; DS = ES = LOW_SEG for the 32-byte copy
+    mov si, dsk_secbuf
     mov di, dsk_secbuf + 32     ; '..' -> the parent
-    mov ax, [dsk_cwd]
-    call dskw_dotent
+    mov cl, 16                  ; (CX = 0 out of the `rep` above)
+    rep movsw
+    pop ds
     mov byte [es:dsk_secbuf+33], '.'   ; the second dot
+    mov ax, [dskw_first]        ; '.' -> this directory
+    mov [es:dsk_secbuf+DSK_R_CLUS], ax
+    mov ax, [dsk_cwd]           ; '..' -> the parent
+    mov [es:dsk_secbuf+32+DSK_R_CLUS], ax
     pop es
     pop di
+    pop si
+    pop cx
     pop ax
     ret
-
-; -----------------------------------------------------------------------------
-; dskw_dotent - write one '.'-style link into a zeroed slot
-; in:  ES:DI -> the 32-byte slot, AX = the cluster it points at
-; out: nothing (all registers preserved)
-; -----------------------------------------------------------------------------
-dskw_dotent:
-    push ax
-    push bx
-    push cx
-    mov bx, di
-    mov byte [es:bx], '.'
-    push bx
-    inc bx
-    mov cx, 10                  ; name[1..10] = spaces
-.pad:
-    mov byte [es:bx], ' '
-    inc bx
-    loop .pad
-    pop bx
-    mov byte [es:bx+DSK_R_ATTR], DSKW_DIR
-    mov [es:bx+DSK_R_CLUS], ax
-    mov word [es:bx+DSK_R_SIZE], 0
-    mov word [es:bx+DSK_R_SIZE+2], 0
-    mov ax, [dskw_time]
-    mov [es:bx+DSK_R_CTIME], ax
-    mov [es:bx+DSK_R_WTIME], ax
-    mov ax, [dskw_date]
-    mov [es:bx+DSK_R_CDATE], ax
-    mov [es:bx+DSK_R_WDATE], ax
-    mov [es:bx+DSK_R_ADATE], ax
-    jmp kretc_cx
 
 ; -----------------------------------------------------------------------------
 ; dskw_rmdir - remove an EMPTY subdirectory of the current directory (18.6)
@@ -999,7 +1005,7 @@ dskw_rtbody:
                                 ; DVK_FILE arm two hundred lines up. It
                                 ; re-runs the [dsk_mntok] gate, which is free
 .protj:                         ; ...and the two attribute refusals below take
-    jmp .prot                   ; this, on a path nothing falls into: NASM
+    jmp dskw_wbody.prot         ; this, on a path nothing falls into: NASM
                                 ; spelt each of them as a five-byte inverted
                                 ; pair, an 8086 having no near `jcc`, and from
                                 ; here they are two bytes each (-3)
@@ -1078,31 +1084,27 @@ dskw_rtbody:
     jc .home
     jmp short .loop
 
-.finish:
-    call dskw_rt_go_home
-    jc .ioerr
-    mov si, dskw_rt_name
-    mov di, dskw_n83
-    call dskw_copy11
-    jmp dskw_rmbody_n83         ; the target itself, from where we began - a
-                                ; tail call, both ends `.cold`
-
-.corrupt_home:
-    call dskw_rt_go_home
+.corrupt_home:                  ; a corrupt link and an I/O error are the same
+.iohome:                        ; answer, so the two pairs are one: go home,
+    call dskw_rt_go_home        ; then FERR_IO
 .corrupt:
-    jmp short .ioerr            ; the same answer, spelled once
-.iohome:
-    call dskw_rt_go_home
 .ioerr:
     jmp dskw_rdata.corrupt      ; FERR_IO, spelled once
-.prot:
-    jmp dskw_wbody.prot         ; FERR_PROT, spelled once (there)
 .home:                          ; a failure part-way down: report it from
     push ax                     ; where the caller left us, not from wherever
     call dskw_rt_go_home        ; the walk happened to stop
     pop ax
     stc
     ret
+
+.finish:                        ; BELOW the shared tail, which it only jumps
+    call dskw_rt_go_home        ; into: above it, it kept the dskw_clok's
+    jc .ioerr                   ; `jc .corrupt` five bytes past short reach
+    mov si, dskw_rt_name
+    mov di, dskw_n83
+    call dskw_copy11
+    jmp dskw_rmbody_n83         ; the target itself, from where we began - a
+                                ; tail call, both ends `.cold`
 
 ; -----------------------------------------------------------------------------
 ; dskw_rt_go_home - put the volume back where dskw_rmtree was called
@@ -1548,18 +1550,12 @@ dskw_wdata:
     jne .clus
     clc                         ; an empty file owns no clusters at all
     ret
-.full:
-    jmp dskw_mkbody.nospace
-.ioerr:
-    call dskw_ioerr             ; AX = FERR_IO / FERR_WPROT
-    stc
-    ret
 .clus:
     call dskw_alloc             ; AX = a cluster, already marked EOC
     jnc .haveclus
     inc ax                      ; 0xFFFF -> 0: an I/O failure wearing the
     jz .ioerr                   ; allocator's refusal, and 'Disk full' is the
-    jmp short .full             ; one thing it certainly is not
+    jmp dskw_mkbody.nospace     ; one thing it certainly is not
 .haveclus:
     mov [dskw_cur], ax
     mov dx, ax
@@ -1603,23 +1599,15 @@ dskw_wdata:
     jc .jioerr
     DSKW_CLBA_INC
     add word [dskw_wseg], 32    ; 512 bytes = 32 paragraphs on. The source is
-    dec cx                      ; now 1..511 bytes PAST the page edge, so the
-    jz .tail                    ; next dskw_runadd gets the whole 127 back:
-    jmp .addrun                 ; one staged sector per 64KB of source, at most
-.jioerr:                        ; FOUR arms share this one near jump, and it
-    jmp .ioerr                  ; was already here for the first: an 8086 has
-                                ; no near `jcc`, so each of the other three
-                                ; was NASM's five-byte inverted-short-plus-
-                                ; near-jmp before it was aimed here.  -9, with
-                                ; nothing added.  A media error is the coldest
-                                ; arm in the file - and it sits BELOW an
-                                ; unconditional jump now, which is the whole
-                                ; of the fix. All four arms are still 2-byte
-                                ; short jumps; what the move costs is ONE
-                                ; byte, here, because .ioerr is 141 back from
-                                ; the new spot and this `jmp` is near rather
-                                ; than short (SPEC.md 18.4.2.1 prices the
-                                ; alternatives - every one of them is worse)
+    loop .addrun                ; now 1..511 bytes PAST the page edge, so the
+    jmp short .tail             ; next dskw_runadd gets the whole 127 back:
+                                ; one staged sector per 64KB of source, at most
+.ioerr:                         ; THE ERROR ARM ITSELF, here in the middle of
+.jioerr:                        ; the routine below an unconditional jump: the
+    call dskw_ioerr             ; arms above and below both reach it short, so
+    stc                         ; the relay that used to stand here (SPEC.md
+    ret                         ; 18.4.2.1) has nothing left to relay to.
+                                ; AX = FERR_IO / FERR_WPROT
 
     ; the partial final sector: staged zero-filled, so nothing of the
     ; caller's neighbourhood past EOF ever reaches the disk. The run goes
@@ -2130,15 +2118,6 @@ dskw_rdata:
     mov word [dskw_rlen], 0     ; no data run pending
     mov ax, [dskw_seg]
     mov [dskw_wseg], ax         ; the ADVANCING destination segment
-    jmp short .clus
-.corrupt:                       ; (dskw_rbody and dskw_wabody answer here too)
-    mov ax, FERR_IO             ; any link outside [2, maxclus] while bytes
-    stc                         ; remain is corruption (SPEC.md 18)
-    ret
-.ioerr:
-    call dskw_ioerr
-    stc
-    ret
 .clus:
     mov ax, [dskw_cur]
     call dskw_clok
@@ -2166,12 +2145,17 @@ dskw_rdata:
     pop cx
     DSKW_CLBA_INC
     add word [dskw_wseg], 32    ; 512 bytes = 32 paragraphs on
-    dec cx
-    jz .tail
-    jmp .addrun
-.jioerr:                        ; ...and the read path's three, the same way -
-    jmp .ioerr                  ; below the loop's own jmp, where nothing can
-                                ; fall into it
+    loop .addrun
+    jmp short .tail
+.corrupt:                       ; (dskw_rbody and dskw_wabody answer here too)
+    mov ax, FERR_IO             ; any link outside [2, maxclus] while bytes
+    stc                         ; remain is corruption (SPEC.md 18)
+    ret
+.ioerr:                         ; ...and the error arms THEMSELVES, below the
+.jioerr:                        ; loop's own jmp where nothing falls into them
+    call dskw_ioerr             ; and every arm above and below reaches them
+    stc                         ; short: the write path's shape (dskw_wdata),
+    ret                         ; with no relay and no jump over them at entry
 
     ; the partial final sector: only its live bytes reach the caller. The run
     ; goes first - its bytes come BEFORE these, and flushing it is also what
@@ -3487,9 +3471,9 @@ dskw_wabody:
 .at:
     inc bp                      ; ...1: it starts exactly AT the allocated end
     cmp dx, [dwr_off+2]
-    jne .badarg                 ; past it, or across it: this is not the
+    jne .jbad                   ; past it, or across it: this is not the
     cmp ax, [dwr_off]           ; allocator, and the DOS box never asks
-    jne .badarg
+    jne .jbad
 .in:
 %ifdef DSKW_WSEQ
     mov ax, [dwr_end]           ; THE NEW SIZE, into the entry now: nothing
@@ -3518,9 +3502,9 @@ dskw_wabody:
     jcxz .atclus
 .skip:
     call dsk_next_clus_x
-    jc .corrupt                 ; the chain ended before the entry's size said
+    jc .jcor                    ; the chain ended before the entry's size said
     call dskw_clok              ; it would
-    jc .corrupt
+    jc .jcor
     loop .skip
 .atclus:
 %ifndef KERN_SMALL                 ; kern_small only ever arrives by the append
@@ -3532,8 +3516,15 @@ dskw_wabody:
     mov bx, [dskw_src]
     mov es, [dskw_seg]
     call dsk_write_chain_x
-    jc .ioerr
+    jc .jcor
     jmp short .size
+.jcor:                          ; TWO RELAYS, here where nothing falls in:
+    jmp dskw_rdata.corrupt      ; .corrupt and .badarg above are out of short
+.jbad:                          ; reach of this arm on kern_big, so its five
+    jmp dskw_nbody.badarg       ; refusals were five-byte inverted pairs (-9)
+%else
+.jcor equ .corrupt              ; ...and in reach on kern_small, which is
+.jbad equ .badarg               ; shorter by the INSIDE arm, so no relay there
 %endif
 
     ; --- AT END: allocate, write, flush, link, flush ----------------------
@@ -4063,9 +4054,9 @@ dskw_cmp:
 ; also makes CX genuinely preserved, where before the sites left it holding
 ; 11 - two of the seven are inside a loop whose counter that was.
 ;
-; A plain byte loop, not movsb: ES belongs to the caller's buffer here and
-; must not be reloaded just to move eleven bytes. disk.inc's dsk_ncopy is the
-; loop, and it is the same body four files each used to carry.
+; ES belongs to the caller's buffer here and is not this routine's to
+; reload; disk.inc's dsk_ncopy banks it around its string move, and it is the
+; same body four files each used to carry.
 ; -----------------------------------------------------------------------------
 dskw_copy11:
     push cx

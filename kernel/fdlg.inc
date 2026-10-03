@@ -2513,6 +2513,24 @@ FDBODY fdlg_onkey_x
 .ksign:
     add ax, [fdlg_sel]
     jmp .move                   ; NEAR: .move is at the far end of the routine
+
+    ; ENTER AND ESCAPE LIVE HERE, below the arrow arm's unconditional jump,
+    ; and not with the other exits at the foot: from there the two `je`s at
+    ; the top were five-byte inverted pairs (199 and 211 bytes away), and from
+    ; here they are short. Their own exits leave through .outj's relay; the
+    ; one that repaints is the single near jump (-5 net)
+.enter:
+    call fdlg_act               ; CF = 1: the window is gone, do not repaint
+    jmp short .outj
+.cancel:
+    cmp byte [fdlg_nmode], 0    ; Escape while naming a folder backs OUT of
+    je .close                   ; that, not out of the dialog: the user asked
+    call fdlg_unfold            ; for a folder, changed their mind, and still
+    jmp .redraw                 ; wants to save. WHOLE: the box's label goes
+                                ; back from 'Folder:' to 'Save as:'
+.close:
+    call fdlg_close
+    jmp short .outj
 .noarrow:
     cmp byte [fdlg_mode], 0
     je .outj                     ; Open mode: nothing else is typing
@@ -2593,18 +2611,6 @@ FDBODY fdlg_onkey_x
     call fdlg_pick              ; keep the name box on the selection
     jmp short .rboth
 
-.enter:
-    call fdlg_act               ; CF = 1: the window is gone, do not repaint
-    jmp short .out
-.cancel:
-    cmp byte [fdlg_nmode], 0    ; Escape while naming a folder backs OUT of
-    je .close                   ; that, not out of the dialog: the user asked
-    call fdlg_unfold            ; for a folder, changed their mind, and still
-    jmp short .redraw           ; wants to save. WHOLE: the box's label goes
-                                ; back from 'Folder:' to 'Save as:'
-.close:
-    call fdlg_close
-    jmp short .out
 .rname:                         ; the box changed and nothing else did
     call fdlg_draw_name
     jmp short .out
