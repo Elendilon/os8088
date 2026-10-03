@@ -3492,8 +3492,10 @@ dskw_wabody:
     mov bx, [dskw_src]
     mov es, [dskw_seg]
     call dsk_write_chain_x
-    jc .jcor
-    jmp short .size
+    jc .jio                     ; a media error, mapped as one: 03h is
+    jmp short .size             ; FERR_WPROT here as on every other write path
+.jio:
+    jmp dskw_ioerr
 .jcor:                          ; TWO RELAYS, here where nothing falls in:
     jmp dskw_rdata.corrupt      ; .corrupt and .badarg above are out of short
 .jbad:                          ; reach of this arm on kern_big, so its five
