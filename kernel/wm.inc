@@ -2125,7 +2125,8 @@ wm_ask_close:
     mov si, bx                  ; SI = the window: wm_pkgcall's contract
     mov bp, [bx+W_ONCL]         ; ...and BX must stay the window
     or bp, bp
-    jz .yes                     ; no negotiator: the close goes ahead
+    jz .out                     ; no negotiator: the close goes ahead (CF = 0,
+                                ; the OR's)
     cmp [wm_clask], si
     je .no                      ; its own negotiator is already on the stack
     push word [wm_clask]        ; nested, not replaced - AND ON THE STACK, the
@@ -2150,10 +2151,7 @@ wm_ask_close:
                                 ; API cell's shape)
     pop word [snd_inst]         ; the outer dispatch's stamp, back
     pop word [wm_clask]         ; ...and the outer ask's fence
-    jc .no
-.yes:
-    clc
-    jmp short .out
+    jnc .out                    ; yes - and CF = 0 is the yes
 .no:
     stc
 .out:
@@ -4402,21 +4400,17 @@ wm_front_b:
                                 ; which is what separates it from wm_show's
                                 ; AL = 1 - a window with no pixels on screen
 .titled:
-    push ax
-    call wm_top                 ; BX = the outgoing front (may be us)
-    mov bp, bx
+    call wm_top                 ; BX = the outgoing front (may be us); AX is
+    mov bp, bx                  ; preserved, so AL needs no bank
     mov bx, di
-    pop ax
     cmp bp, di
-    jne .raise
-    xor al, al                  ; already frontmost: not even the title bar
-    mov bp, di                  ; changes - but wm_raise still owes the bar
-.raise:                         ; and the dock, so it is not skipped
-    cmp bp, di
-    jne .go
-    or al, al
-    jnz .go
-    call menu_activate          ; the degenerate case: chrome only
+    jne .go                     ; another window was in front: raise us
+    call menu_activate          ; ALREADY FRONTMOST, whatever AL says: not even
+                                ; the title bar changes - the degenerate case,
+                                ; chrome only, but the bar and the dock are
+                                ; still owed, so it is not skipped. (This was
+                                ; AL forced to 0 and then tested again; a
+                                ; frontmost window only ever reached this arm.)
     call wm_lift
     call wm_fs_vis              ; ...and under a fullscreen window, not even
     jc .out                     ; that
@@ -5111,16 +5105,19 @@ wm_paint_dmg:
                                 ; vacated rect (11.91.2) stays armed too
 .fill:
     mov ax, [wm_dmg_x1]         ; the desktop dither, clipped to the damage,
-    mov bx, [wm_dmg_y1]         ; to EACH display's own chrome band and to the
-    mov cx, [wm_dmg_x2]         ; windows about to cover it. The band used to
-    mov dx, [wm_dmg_y2]         ; be worked out here, from this rect's top-left
-    call wm_dmg_gray            ; corner alone - see wm_dmg_bands
-    call COLD_SEG:desk_paint_mask_x ; the touched drive zones, whole
-%ifdef DOCK_OPT
-    mov ax, [wm_dmg_x1]         ; reached the strip? then whatever WAS covering
-    mov bx, [wm_dmg_y1]         ; it has moved - the one case that owes the
-    mov cx, [wm_dmg_x2]         ; strip a restore rather than a tile. Only the
-    mov dx, [wm_dmg_y2]         ; DAMAGED span of it, though (SPEC.md 30.3),
+                                ; to EACH display's own chrome band and to the
+                                ; windows about to cover it. The band used to
+                                ; be worked out here, from this rect's top-left
+                                ; corner alone - see wm_dmg_bands. BX..DX are
+                                ; still the rect: desk_dmg_zones_x spends AX
+                                ; alone (its header), so only AX is reloaded
+    call wm_dmg_gray            ; (preserves every register)
+    call COLD_SEG:desk_paint_mask_x ; the touched drive zones, whole (AX..DX
+%ifdef DOCK_OPT                 ; preserved: so the rect is STILL in AX..DX)
+                                ; reached the strip? then whatever WAS covering
+                                ; it has moved - the one case that owes the
+                                ; strip a restore rather than a tile. Only the
+                                ; DAMAGED span of it, though (SPEC.md 30.3),
     call dock_force_r           ; and "reached" is dock_force_r's own overlap
                                 ; test now, so a strip on a SIDE is asked in x
                                 ; (SPEC.md 30.5)
@@ -7203,8 +7200,7 @@ wm_ownseg:
     or dx, dx
     jnz .yes
     mov dx, KERNEL_SEG          ; 0 means the kernel made it (wm_seg_of's rule)
-.yes:
-    clc
+.yes:                           ; (CF = 0: the OR above, and MOV keeps it)
     jmp short .out
 .no:
     stc
@@ -9699,9 +9695,8 @@ wm_su_ck:
     jne .no                     ; withdrawn, or a window that has crossed to a
 %endif                          ; display of another depth, leaves a buffer
                                 ; that means something else at the same stride
-    mov ax, si                  ; ...and the segment, for wm_su_try
-    clc
-    jmp short .out
+    mov ax, si                  ; ...and the segment, for wm_su_try. CF = 0
+    jmp short .out              ; already: the compare that just said EQUAL
 .no:
     stc
 .out:
@@ -10474,8 +10469,9 @@ wm_su_try:
     mov byte [wm_su_bok], 1     ; the bands are on the glass again - including
 %endif                          ; when nothing was put back, which says the
                                 ; same thing (SPEC.md 11.96.11)
-    clc                         ; THE CACHE IS NOT SPENT HERE. It used to be
-    jmp short .out              ; dropped on the grounds that this window is
+                                ; (CF = 0: `jb .frag` was not taken.)
+    jmp short .out              ; THE CACHE IS NOT SPENT HERE. It used to be
+                                ; dropped on the grounds that this window is
                                 ; about to be the front one and will change
                                 ; its own pixels - true of a raise and false
                                 ; of a damage repaint, which redraws a window
@@ -11211,28 +11207,26 @@ wm_an_setw:
 ; arrives from a menu item, a drive zone, a Disk window row or a package's own
 ; wm_create, none of which reaches wm_show. The window's own middle is the
 ; honest general answer and is what a system with no icon to hand does.
-; clobbers: flags
+; clobbers: SI and DI (each two along - its one caller is done with both),
+; flags. One half-routine run twice, x then y.
 wm_an_seed:
     push ax
-    push bx
-    mov ax, [di]                ; cx = (x1 + x2) / 2
+    call .half                  ; x: cx = (x1 + x2) / 2, the seed cx -/+ 8
+    inc si
+    inc si
+    inc di
+    inc di
+    call .half                  ; ...and y, one word along in both rects
+    pop ax
+    ret
+.half:
+    mov ax, [di]
     add ax, [di+4]
     sar ax, 1
-    mov bx, ax
     sub ax, WM_AN_SEED
     mov [si], ax
-    add bx, WM_AN_SEED
-    mov [si+4], bx
-    mov ax, [di+2]              ; cy = (y1 + y2) / 2
-    add ax, [di+6]
-    sar ax, 1
-    mov bx, ax
-    sub ax, WM_AN_SEED
-    mov [si+2], ax
-    add bx, WM_AN_SEED
-    mov [si+6], bx
-    pop bx
-    pop ax
+    add ax, 2*WM_AN_SEED
+    mov [si+4], ax
     ret
 
 ; wm_an_arm - the NEXT wm_show zooms out of this rect instead of a centre
@@ -11262,8 +11256,7 @@ wm_an_open:
     call wm_an_setw             ; destination = where it is about to appear
     cmp byte [wm_an_armed], 0
     jne .armed                  ; ...source already set by wm_an_arm
-    mov di, wm_an_d
-    mov si, wm_an_s
+    mov si, wm_an_s             ; (DI is still wm_an_d: wm_an_setw keeps it)
     call wm_an_seed             ; ...or its own centre
 .armed:
     mov byte [wm_an_armed], 0
