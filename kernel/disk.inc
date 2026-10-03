@@ -1428,8 +1428,9 @@ dsk_xfer:
                                 ; 0 and 1 AND drives 0 and 1; a boot partition
                                 ; is volume 2 and drive 80h and ends that
     mov al, [bx+DV_KIND]        ; AL is free: the unit went to [dsk_unit] above
-    pop bx
-    cmp al, DVK_DRV
+    mov ch, [bx+DV_CLASS]       ; ...and the CLASS, for .drv: CX is dead here
+    pop bx                      ; (SI took the count) and this is the one
+    cmp al, DVK_DRV             ; lookup of the row the transfer makes
     je .drv
     cmp al, DVK_FILE            ; A REDIRECTED VOLUME HAS NO SECTORS AT ALL
     je .jfilevol                ; (SPEC.md 62.9). This REFUSES rather than
@@ -1447,16 +1448,13 @@ dsk_xfer:
     jmp .fail
 
 .drv:                           ; DI = LBA, SI = count, ES:BX = the buffer.
-    mov dx, es                  ; DSV_BLK takes DX:BX and not ES:BX, because
-    mov cx, si                  ; the buffer is in LOW_SEG, the FAT window or
-    mov si, di                  ; a heap claim and NEVER in the driver's
-    push bx                     ; segment or the kernel's
-    mov bl, [disk_drive]
-    call dsk_vol_row_x            ; BX = the row - and BX is also the buffer
-    mov ah, [bx+DV_UNIT]        ; offset, so bank it across the lookup
-    mov al, [bx+DV_CLASS]       ; ...and so is the CLASS, which has to be read
-    mov [drv_blkcls], al        ; HERE, while BX is still the row
-    pop bx
+    mov [drv_blkcls], ch        ; the CLASS, read with the kind above while BX
+    mov dx, es                  ; was the row - it was a second dsk_vol_row_x.
+    mov cx, si                  ; DSV_BLK takes DX:BX and not ES:BX, because
+    mov si, di                  ; the buffer is in LOW_SEG, the FAT window or
+                                ; a heap claim and NEVER in the driver's
+                                ; segment or the kernel's
+    mov ah, [dsk_unit]          ; the row's unit, stored above
     mov al, [dsk_op]
     sub al, 2                   ; the int 13h function -> 0 read / 1 write
                                 ; THE ROW SAYS WHICH CLASS (SPEC.md 18.7). This
@@ -1658,19 +1656,18 @@ dsk_xfer:
     add [dsk_dbg_sec], bp
     call dsk_dbg_class          ; ...and WHERE they went (SPEC.md 18.94.2)
 %endif
-    pop ax                      ; the head again
-
-    push ax                     ; ...and away again: AL is wanted for the
-    mov al, [dsk_cylhi]         ; shift. Cylinder bits 9:8 ride in CL bits 7:6
+    pop ax                      ; the head again...
+    mov dh, al                  ; ...into DH at once: DX's high half is 0 (the
+                                ; sector index is under 64) and only DL is
+                                ; read below, so AL is free for the shift
+    mov al, [dsk_cylhi]         ; Cylinder bits 9:8 ride in CL bits 7:6
     mov cl, 6                   ; (SPEC.md 52.10.3) - the standard CHS packing,
     shl al, cl                  ; inert on a floppy where the byte is 0. The
                                 ; count goes through CL because an 8086 has no
                                 ; `shl reg, imm` other than 1
     or al, dl                   ; ...over the sector index, still 0-based
-    mov cl, al
-    inc cl                      ; CL = sector (1-based) | cylinder high
-    pop ax
-    mov dh, al                  ; DH = head
+    inc ax                      ; (at most 0xFE before it: no carry out of AL)
+    mov cl, al                  ; CL = sector (1-based) | cylinder high
     mov dl, [dsk_unit]          ; DL = THE ROW'S int 13h drive
 
     mov bp, 3                   ; attempts left at this run length
@@ -1861,8 +1858,11 @@ dsk_xfer:
 ;
 ; Both are "bytes left before a 16-bit quantity wraps", which is its own
 ; negation - and a value that is already at the boundary negates to 0, which
-; means a WHOLE window (128 sectors) and not none. That is why each has a
-; zero test rather than a plain shift.
+; means a WHOLE window (128 sectors) and not none. So the negation is taken
+; as SEVENTEEN bits: `neg` sets CF exactly when its operand was non-zero, so
+; `cmc` makes CF the 65,536s bit of 65,536 - x, `rcr` brings it in at the top
+; of the halved value, and eight more shifts finish the /512. No zero test and
+; no branch: 4 bytes and ~19 clocks fewer a limit than the jz/128 arms were.
 ; -----------------------------------------------------------------------------
 dsk_runcap:
     push ax
@@ -1872,23 +1872,16 @@ dsk_runcap:
     mov cl, 4                   ; the carry out of this is the page number,
     shl ax, cl                  ; which is exactly what we do not want
     add ax, bx
-    neg ax                      ; bytes to the next 64KB page
-    jz .pgfull                  ; page-aligned: the whole page is ours
-    mov cl, 9
-    shr ax, cl                  ; whole sectors to the page end
-    jmp short .bx
-.pgfull:
-    mov ax, 128                 ; a full 64KB page
-.bx:
+    neg ax                      ; bytes to the next 64KB page, 17 bits wide:
+    cmc                         ; CF = 1 only when page-aligned (the whole
+    rcr ax, 1                   ; page is ours)...
+    mov cl, 8
+    shr ax, cl                  ; ...so whole sectors to the page end, 1..128
     mov dx, bx                  ; the same sum for BX alone
     neg dx
-    jz .bxfull
-    mov cl, 9
-    shr dx, cl
-    jmp short .pick
-.bxfull:
-    mov dx, 128
-.pick:
+    cmc
+    rcr dx, 1
+    shr dx, cl                  ; (CL is still 8)
     cmp dx, ax
     jae .capped
     mov ax, dx                  ; whichever bites first
@@ -2348,9 +2341,8 @@ dsk_vol_slot_x:
     shl bx, 1
     shl bx, 1
     shl bx, 1                   ; * DV_SIZE (16)
-    add bx, dsk_vtab
-    clc
-    ret
+    add bx, dsk_vtab            ; CF = 0: an address inside the table, so
+    ret                         ; the add cannot carry
 .bad:
     xor bx, bx
     stc
@@ -2828,37 +2820,34 @@ osapi_vol_mount_x:
 ; -----------------------------------------------------------------------------
 dsk_fat_ofs_x:
     push ax
-    push cx
     cmp byte [dsk_fattype], 0
     jne .fat16
     mov bx, ax                  ; FAT12: off = clus + clus>>1, and the WHOLE
     shr bx, 1                   ; offset fits - the format's 4,084-cluster
     add bx, ax                  ; ceiling puts it under 6,127
-    mov dx, bx
-    mov cl, 9
-    shr dx, cl                  ; DX = the sector, BX = the offset in it
-    and bx, 511
+    mov dl, bh                  ; DL = off >> 9, the sector (under 12)...
+    shr dl, 1
+    and bh, 1                   ; ...and BX = off & 511, the offset in it
     jmp short .win
 .fat16:
-    mov dx, ax                  ; FAT16: 256 entries a sector, so the sector
-    mov cl, 8                   ; is clus>>8 and the offset (clus & 255)*2 -
-    shr dx, cl                  ; neither of which can overflow, while their
-    mov bx, ax                  ; product does at 65,524 clusters
-    and bx, 255
-    shl bx, 1
+    mov dl, ah                  ; FAT16: 256 entries a sector, so the sector
+    mov bl, al                  ; is clus>>8 and the offset (clus & 255)*2 -
+    mov bh, 0                   ; neither of which can overflow, while their
+    shl bx, 1                   ; product does at 65,524 clusters
 .win:
+    mov dh, 0                   ; BOTH sectors fit a byte. No `shr reg, cl`
+                                ; anywhere in here any more: the byte moves
+                                ; are the shifts by 8 and 9, at 2-3 clocks
+                                ; where `mov cl, 9 / shr dx, cl` was ~48 - and
+                                ; this is dsk_next_clus_x's per-cluster path
     call dsk_fat_window         ; ensure DX and DX+1 are resident
     cmp word [dsk_fatw0], 0xFFFF
     je .bad                     ; the load failed: there is no offset to give
-    push dx
-    sub dx, [dsk_fatw0]         ; the window-relative sector: at most
-    mov cl, 9                   ; [dsk_fatwn]-1, so this shift is bounded by
-    shl dx, cl                  ; the WINDOW and never by the FAT's size
-    add bx, dx
-    pop dx
-    clc
-.out:
-    pop cx
+    mov al, dl                  ; the window-relative sector: at most
+    sub al, [dsk_fatw0]         ; [dsk_fatwn]-1 <= 8, so its low byte is all
+    shl al, 1                   ; of it, and x512 is x2 into the high byte -
+    add bh, al                  ; bounded by the WINDOW and never by the FAT's
+.out:                           ; size. CF = 0 out of the add: BX < 5,120
     pop ax
     ret
 .bad:
@@ -3321,8 +3310,8 @@ disk_mount_x:
                                 ; protecting is exactly as impossible as the
                                 ; volume it asks about, so one symbol says it
 
-    mov ax, LOW_SEG             ; **AND [dsk_dseg] MAY NOT BE LIVE ACROSS THE
-    mov es, ax                  ; CALL BELOW** (SPEC.md 66.5.10.2). This is not
+    push ss                     ; **AND [dsk_dseg] MAY NOT BE LIVE ACROSS THE
+    pop es                      ; CALL BELOW** (SPEC.md 66.5.10.2). This is not
                                 ; the redundant load Fdisk-15 removed: asc_use_x
                                 ; does bank ES, so the pair after the call is
                                 ; enough to get the harvest its sector buffer -
@@ -3594,8 +3583,8 @@ disk_mount_x:
                                 ; button read as a freeze rather than a failure
 
 .fslist:
-    mov ax, LOW_SEG             ; dsk_up_open stages
-    mov es, ax                  ; through the kernel segment, so ES only has
+    push ss                     ; dsk_up_open stages (SS IS LOW_SEG)
+    pop es                      ; through the kernel segment, so ES only has
     call dsk_up_open            ; to hold something valid until .scan_done
                                 ; reloads it from [dsk_dseg]. The parent link,
                                 ; type 3, opens the listing exactly as it does
@@ -4888,9 +4877,8 @@ dsk_fatw_slot:
     jae .bad
     xor bh, bh
     shl bx, 1
-    add bx, dsk_fatww
-    clc
-    ret
+    add bx, dsk_fatww           ; CF = 0: the sum is an address INSIDE the
+    ret                         ; table, so it cannot carry out of 16 bits
 .bad:
     stc
     ret
@@ -5356,10 +5344,11 @@ dsk_dirw_next_x:
 .step:
     add ax, [dsk_wsec]
 %ifdef OS88_BIGVOL
-    adc word [dsk_c2hi], 0      ; (SPEC.md 18.7.5)
-%endif
-    inc word [dsk_wsec]
+    adc word [dsk_c2hi], 0      ; (SPEC.md 18.7.5) - and CF = 0 out of it: an
+%else                           ; LBA's high word is a byte, so it cannot wrap
     clc
+%endif
+    inc word [dsk_wsec]         ; (`inc` leaves CF alone)
     jmp short .out
 .end:
     stc
@@ -6185,8 +6174,9 @@ osapi_dsk_cache_x:
     jne .say
     xor ax, ax                  ; A SHED LEAVES THE WIDTH STALE (mem_pg_forget
 .say:                           ; zeroes the naming word and nothing else), so
-    clc                         ; the seg is what says whether there is a cache
-    retf                        ; and the width is only meaningful under it
+    retf                        ; the seg is what says whether there is a cache
+                                ; and the width is only meaningful under it.
+                                ; CF = 0 out of the compare and out of the xor
 .bad:
     stc
     retf
@@ -6378,8 +6368,8 @@ dsk_find_x:
     ; kernel's own dsk_ent (SPEC.md 19) - the dsk_get_dir idiom, so the copy
     ; out to the caller is a plain move with no raw-field decoding here.
     push es
-    mov dx, LOW_SEG
-    mov es, dx
+    push ss                     ; ES = LOW_SEG, which SS always is (SPEC.md
+    pop es                      ; 2.1): two bytes where the immediate was five
     call dsk_synth_x              ; ES:SI = the raw entry -> dsk_ent, and it
                                 ; banks DI itself
     mov bx, si                  ; ...and the raw entry again, for the 32-bit
@@ -7898,13 +7888,15 @@ ico_body:
     jc .out                     ; staged before it went holds row numbers that
     call ico_rowoff             ; no longer exist - and ico_need has just
     add di, ICO_R_BODY          ; re-claimed an EMPTY store, where row N's
-    clc                         ; offset is 64 bytes of whatever the heap
+                                ; offset is 64 bytes of whatever the heap
 .out:                           ; handed out. CF=1 draws the generic icon,
     ret                         ; which is what every other refusal here
                                 ; already means - and the compare ALREADY
                                 ; answers it: `cmp` borrows when the row is in
                                 ; range, so one `cmc` is the arm that was a
-                                ; branch, a `stc` and a jump
+                                ; branch, a `stc` and a jump. (The add's CF
+                                ; is the success answer: a row's offset
+                                ; cannot carry out of 16 bits)
 
 section .text                   ; ...AND THE KERNEL SEGMENT FOR BOTH OF THESE
                                 ; (SPEC.md 2.6 rule 1 for the data, and

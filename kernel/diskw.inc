@@ -1290,8 +1290,7 @@ dskw_isempty:
     jmp short .out
 .none:
     jz .out                     ; the chain ended with nothing found: CF = 0
-    call dskw_ioerr             ; AX = FERR_IO / FERR_WPROT
-    stc
+    call dskw_ioerr             ; AX = FERR_IO / FERR_WPROT, CF = 1
 .out:
     pop es
     pop si
@@ -1548,8 +1547,8 @@ dskw_wdata:
     mov [dskw_wseg], ax         ; the ADVANCING source segment
     cmp word [dskw_rem], 0
     jne .clus
-    clc                         ; an empty file owns no clusters at all
-    ret
+    ret                         ; an empty file owns no clusters at all, and
+                                ; CF = 0 out of the compare with 0
 .clus:
     call dskw_alloc             ; AX = a cluster, already marked EOC
     jnc .haveclus
@@ -1604,10 +1603,11 @@ dskw_wdata:
                                 ; one staged sector per 64KB of source, at most
 .ioerr:                         ; THE ERROR ARM ITSELF, here in the middle of
 .jioerr:                        ; the routine below an unconditional jump: the
-    call dskw_ioerr             ; arms above and below both reach it short, so
-    stc                         ; the relay that used to stand here (SPEC.md
-    ret                         ; 18.4.2.1) has nothing left to relay to.
-                                ; AX = FERR_IO / FERR_WPROT
+    jmp dskw_ioerr              ; arms above and below both reach it short, so
+                                ; the relay that used to stand here (SPEC.md
+                                ; 18.4.2.1) has nothing left to relay to.
+                                ; AX = FERR_IO / FERR_WPROT, CF = 1: a tail
+                                ; call, dskw_ioerr's own `stc / ret`
 
     ; the partial final sector: staged zero-filled, so nothing of the
     ; caller's neighbourhood past EOF ever reaches the disk. The run goes
@@ -2022,9 +2022,8 @@ dskw_rbody:
 .plainlen:
     mov ax, [dskw_len]          ; bytes read = the file's size, 32-bit
     mov dx, [dskw_lenhi]
-.empty:
-    clc
-    ret
+.empty:                         ; CF = 0 on both ways in: `ja` is taken only
+    ret                         ; with CF = 0, and .empty's `jz` follows an `or`
 .czbad:
     jmp dskw_rdata.corrupt      ; the same answer, spelled once
 
@@ -2153,9 +2152,9 @@ dskw_rdata:
     ret
 .ioerr:                         ; ...and the error arms THEMSELVES, below the
 .jioerr:                        ; loop's own jmp where nothing falls into them
-    call dskw_ioerr             ; and every arm above and below reaches them
-    stc                         ; short: the write path's shape (dskw_wdata),
-    ret                         ; with no relay and no jump over them at entry
+    jmp dskw_ioerr              ; and every arm above and below reaches them
+                                ; short: the write path's shape (dskw_wdata),
+                                ; with no relay and no jump over them at entry
 
     ; the partial final sector: only its live bytes reach the caller. The run
     ; goes first - its bytes come BEFORE these, and flushing it is also what
@@ -2292,16 +2291,13 @@ dskw_runmax:
     shl ax, cl
     add ax, [dskw_src]          ; AX = the offset within the DMA page
     neg ax                      ; ...so this is the bytes left in it, with 0
-    jz .whole                   ; meaning a whole page rather than none
-    mov cl, 9
-    shr ax, cl
-    jmp short .cap
-.whole:
-    mov ax, 128
-.cap:
-    cmp ax, 127
-    jbe .out
-    mov ax, 127
+    cmc                         ; meaning a whole page rather than none:
+    rcr ax, 1                   ; dsk_runcap's 17-bit negation, CF being the
+    mov cl, 8                   ; 65,536s bit, so AX = whole sectors left in
+    shr ax, cl                  ; the page, 0..128
+    cmp al, 128                 ; ...and 128 only from a page-aligned base,
+    jb .out                     ; which the 127 bound below takes one off
+    dec ax
 .out:
     pop cx
     ret
@@ -3692,7 +3688,9 @@ dskw_commit:
     cmp byte [dskw_new], 0
     je .patch
 
-    ; a fresh entry: 32 zero bytes, the name, ARCHIVE, all three stamps
+    ; a fresh entry: 32 zero bytes, the name, the creation stamps. ARCHIVE is
+    ; .patch's, which ORs it onto every file whatever made it - so it is not
+    ; stored here as well, and neither is the access date .patch writes
     mov di, dskw_raw
     mov cx, 16
     xor ax, ax
@@ -3704,9 +3702,8 @@ dskw_commit:
     mov si, dskw_n83
     mov di, dskw_raw
     call dskw_copy11
-    mov byte [dskw_raw+DSK_R_ATTR], DSKW_ARCH
-    cmp byte [dskw_syswr], 0    ; ...or hidden + system, if the kernel is
-    je .notsys1                 ; making one of its own (SPEC.md 19.6)
+    cmp byte [dskw_syswr], 0    ; hidden + system, if the kernel is making
+    je .notsys1                 ; one of its own (SPEC.md 19.6)
     mov byte [dskw_raw+DSK_R_ATTR], DSKW_SYSAT
 .notsys1:
     cmp byte [dskw_isdir], 0     ; a folder is ATTR_DIRECTORY and
@@ -3717,7 +3714,6 @@ dskw_commit:
     mov [dskw_raw+DSK_R_CTIME], ax
     mov ax, [dskw_date]
     mov [dskw_raw+DSK_R_CDATE], ax
-    mov [dskw_raw+DSK_R_ADATE], ax
     call dskw_take_slot         ; adopt the slot dskw_find spotted
 
 .patch:
@@ -3950,8 +3946,7 @@ dskw_find:
     stc
     jmp short .out
 .ioerr:
-    call dskw_ioerr
-    stc
+    call dskw_ioerr             ; ...which sets CF itself
 .out:                           ; ...AND FIVE OTHER ROUTINES' POP RUN: the
     pop es                      ; ones that push this order jump to .out,
 .pdi:                           ; .pdi or .pdx (a `pop` writes no flag, so
@@ -4165,8 +4160,7 @@ dskw_ent_store:
     jc .ioerr
     jmp short .out              ; CF = 0 from the `jc`
 .ioerr:
-    call dskw_ioerr
-    stc
+    call dskw_ioerr             ; ...which sets CF itself
 .out:
     pop es
     pop di
@@ -4316,25 +4310,21 @@ dskw_setfat:
                                 ; output and cannot carry it
     call dsk_fat_ofs_x  ; BX = window-relative, DX = abs sector
     jc .out                     ; the window would not load: CF straight out
-    mov cx, [dsk_fatseg]
-    mov es, cx
+    mov es, [dsk_fatseg]
     cmp byte [dsk_fattype], 0
     jne .fat16
-    mov ch, al
-    and ch, 1                   ; CH = the cluster's parity
-    mov ax, [es:bx]             ; the straddling word
     and si, 0x0FFF
-    test ch, ch
-    jz .even
+    test al, 1                  ; the cluster's parity, asked BEFORE AX is
+    mov ax, [es:bx]             ; reloaded with the straddling word - `mov`
+    jz .even                    ; leaves the flags alone
     and ax, 0x000F              ; odd cluster: keep the low nibble
     mov cl, 4
     shl si, cl
-    or ax, si
-    jmp short .store
+    jmp short .or
 .even:
     and ax, 0xF000              ; even cluster: keep the high nibble
+.or:
     or ax, si
-.store:
     mov [es:bx], ax
     jmp short .dirty
 .fat16:
@@ -4405,7 +4395,8 @@ dskw_flush_x:
     push es
     mov ax, [dsk_fatd0]
     cmp ax, 0xFFFF
-    je .clean
+    je .done                    ; clean (and .done's re-store of the empty
+                                ; range is a no-op: d1 is 0 whenever d0 is)
     mov bx, [dsk_fatw0]         ; nothing resident: there is no buffer the
     cmp bx, 0xFFFF              ; dirty range could be read out of, and
     je .stale                   ; writing one anyway is what would corrupt
@@ -4439,10 +4430,10 @@ dskw_flush_x:
     pop ax
     jc .ioerr
 .done:
-    mov word [dsk_fatd0], 0xFFFF
-    mov word [dsk_fatd1], 0
-.clean:
     xor ax, ax                  ; (CF = 0 with it)
+.reset:                         ; the range is EMPTY now, whichever way out
+    mov word [dsk_fatd0], 0xFFFF
+    mov word [dsk_fatd1], 0     ; (`mov` leaves CF alone)
     jmp short .out
 .stale:
                                 ; The dirty range and the window have parted -
@@ -4453,14 +4444,11 @@ dskw_flush_x:
                                 ; bytes we cannot vouch for to both FAT copies,
                                 ; and the caller's rollback (dskw_refat) drops
                                 ; the window, which is exactly the right answer
-    mov word [dsk_fatd0], 0xFFFF
-    mov word [dsk_fatd1], 0
     mov ax, FERR_IO
     stc
-    jmp short .out
+    jmp short .reset
 .ioerr:
-    call dskw_ioerr
-    stc
+    call dskw_ioerr             ; ...which sets CF itself
 .out:
     pop es
     pop dx
@@ -4497,15 +4485,17 @@ dskw_refat:
 ; -----------------------------------------------------------------------------
 ; dskw_ioerr - map the last int 13h status to an error code
 ; in:  [dsk_ioerr] (set by the failing dsk_xfer)
-; out: AX = FERR_WPROT if the media is write-protected, else FERR_IO
-; clobbers: AX (the output)
+; out: AX = FERR_WPROT if the media is write-protected, else FERR_IO, and
+;      CF = 1 - so a caller's `call dskw_ioerr / stc / ret` is a `jmp`
+; clobbers: AX (the output), CF
 ; -----------------------------------------------------------------------------
 dskw_ioerr:
     mov ax, FERR_IO
     cmp byte [dsk_ioerr], 0x03
     jne .out
-    mov ax, FERR_WPROT
+    mov al, FERR_WPROT          ; (AH is 0 from the line above)
 .out:
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -5201,8 +5191,8 @@ dskw_fmt_probe_x:
     ; Starting at the drive's own figure rather than at 18 is what keeps a
     ; 360KB machine - the one this project is calibrated against - from
     ; paying two doomed reads it can never need.
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss                     ; ES = LOW_SEG, which SS always is
+    pop es
     xor cx, cx                  ; CX = the row walker, and the answer
 .row:
     call .try
@@ -5548,8 +5538,8 @@ dskw_fmt_low:
 
     xor bp, bp                  ; BP = the track: cylinder BP/2, head BP&1
 .track:
-    mov ax, LOW_SEG             ; the address fields go in dsk_secbuf, which
-    mov es, ax                  ; is 512-aligned (SPEC.md 2.1.1) and so
+    push ss                     ; the address fields go in dsk_secbuf, which
+    pop es                      ; is 512-aligned (SPEC.md 2.1.1) and so
     mov ax, bp                  ; cannot straddle a DMA page
     shr ax, 1                   ; AL = C, AH = 0, CF = H...
     adc ah, 0                   ; ...so AX = C | H<<8: the first half of every

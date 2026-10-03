@@ -594,11 +594,10 @@ fdlg_hidx:
     mov cl, INST_FNSZ
     mul cl                      ; AX = slot * INST_FNSZ
     mov si, inst_fname
-    add si, ax
+    add si, ax                  ; CF = 0: a row's address cannot carry
     pop cx
     pop ax
     pop di
-    clc
     ret
 .no:
     pop di
@@ -815,12 +814,11 @@ fdlg_gate:
     mov bx, [fdlg_win]
     or bx, bx
     jz .none
-    mov cx, [bx+W_FLAGS]
-    and cx, 3                   ; used AND visible
-    cmp cx, 3
-    jne .dead
+    mov cl, [bx+W_FLAGS]
+    not cl
+    test cl, 3                  ; used AND visible: both bits, inverted, 0 -
+    jnz .dead                   ; and `test` clears CF, which is the answer
     pop cx
-    clc
     ret
 .dead:
     or al, al
@@ -1987,11 +1985,10 @@ fdlg_name_body:
     mov cl, 3
     shl ax, cl
     add ax, FD_NTX
-    add ax, [fdlg_cx]
     mov bx, FD_NTY
-    add bx, [fdlg_cy]
     mov dx, FD_NTY+7
-    add dx, [fdlg_cy]
+    call fdlg_off               ; to the screen - CX rides along unread:
+                                ; gfx_vline takes no CX, and it is banked
     call KERNEL_SEG:apic_gfx_vline ; AX = x, BX = y1, DX = y2 - the CELL
                                 ; (0x0030) rather than a shim of our own
 .out:
@@ -2701,10 +2698,9 @@ fdlg_pick:
     jae .no                     ; a folder is not a file name
     mov si, fdlg_row
     call fdlg_setname           ; CF = 1 = the box is not what it was
-    jmp short .out
-.no:
-    clc                         ; nothing to pick is nothing to redraw
-.out:
+.no:                            ; nothing to pick is nothing to redraw, and
+.out:                           ; all three ways here carry CF = 0 already:
+                                ; a compare with 0, an equal compare, a `jae`
     pop si
     pop ax
     ret
@@ -3002,26 +2998,22 @@ fdlg_bhit:
     jg .none
     sub cx, FD_BY0
     js .none
-    mov ax, 1                   ; Open / Save
+    mov ax, 1                   ; 1 Open / Save, 2 Cancel, 3 Drive: one pitch,
+.next:                          ; so one step walks the column
     cmp cx, FD_BH
     jle .out
     sub cx, FD_BY1 - FD_BY0
-    js .none
-    inc ax                      ; Cancel
-    cmp cx, FD_BH
-    jle .out
-    sub cx, FD_BY2 - FD_BY1
-    js .none
-    inc ax                      ; Drive
-    cmp cx, FD_BH
-    jle .out
+    js .none                    ; the gap below the button
+    inc ax
+    cmp al, 4
+    jb .next
     cmp byte [fdlg_mode], 0
     je .none                    ; Open mode: no New Folder drawn, none clickable
-    sub cx, FD_BY3 - FD_BY2
-    js .none
-    inc ax                      ; New Folder, and it is FD_BH2 tall - two lines
-    cmp cx, FD_BH2
+    cmp cx, FD_BH2              ; New Folder, and it is FD_BH2 tall - two lines
     jle .out
+%if FD_BY2 - FD_BY1 != FD_BY1 - FD_BY0 || FD_BY3 - FD_BY2 != FD_BY1 - FD_BY0
+  %error "fdlg_bhit walks the button column at ONE pitch: FD_BY0..FD_BY3 must be evenly spaced"
+%endif
 .none:
     xor ax, ax
 .out:
@@ -3113,10 +3105,8 @@ FDBODY fdlg_onclick_x
     jl .rows
     push cx                     ; it takes the point ABSOLUTE (a package's bar
     push dx                     ; has no content origin), and this ladder is
-    mov ax, cx                  ; content-relative with x in DX and y in CX
-    mov cx, dx
+    xchg cx, dx                 ; content-relative with x in DX and y in CX
     add cx, [fdlg_cx]
-    mov dx, ax
     add dx, [fdlg_cy]
     call fdlg_sbset
     FDX os88ui_sbhit
