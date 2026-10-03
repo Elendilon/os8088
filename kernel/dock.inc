@@ -288,11 +288,9 @@ dkb_band:
 ; raise caches go because a window that did not move can have had the strip
 ; stand up or lie down behind it.
 ; -----------------------------------------------------------------------------
-dock_apply:
-    call COLD_SEG:dkf_apply
-    ret
 section .cold
-dkf_apply:
+dock_apply:                     ; (the name its callers knew: they far-call
+dkf_apply:                      ; dkf_apply, and the .text thunk is gone)
     push ax
     mov al, MOD_DOCK
     test byte [dock_cfg], DOCK_P_MASK | DOCK_F_AUTO

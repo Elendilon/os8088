@@ -2990,14 +2990,14 @@ mem_compact:
 
 
     cmp byte [mem_cp_busy], 0
-    jne .none                   ; a relocation proc that claimed would arrive
+    jne .none0                  ; a relocation proc that claimed would arrive
                                 ; here inside the walk it is being driven by,
                                 ; and the walk's own map would move under it
                                 ; (SPEC.md 66.3 rule 3 forbids it; this is what
                                 ; makes the forbidden thing bounded)
     mov cl, 6
     shl ax, cl                  ; KB -> paragraphs; 0 stays 0
-    jc .none                    ; more than a megabyte: nothing to do here
+    jc .none0                   ; more than a megabyte: nothing to do here
     mov di, ax                  ; DI = what the caller needs
     or di, di                   ; ...and the rank a drop is judged against
     jz .rank                    ; (SPEC.md 66.10.1), WHICH WITH NO PENDING
@@ -3097,6 +3097,10 @@ mem_compact:
     inc byte [mem_parked]       ; ...and it is withdrawn on EVERY path out
     jmp short .plan             ; ...then ask again, with whoever parked now
                                 ; movable
+.none0:                         ; THE PROLOGUE'S REFUSALS land here: .none is
+    jmp short .none             ; past short reach of them, and nothing falls
+                                ; into this spot (two bytes against two
+                                ; five-byte relaxed jccs)
 
     ; --- STILL not enough: pack the CEILING instead (SPEC.md 66.4) ----------
     ; The last resort, and it is asked last for the reason every tier here is:
@@ -3151,30 +3155,30 @@ mem_compact:
     not word [mem_cp_msk]       ; 0 -> 0xFFFF (no walk writes it)
     call mem_cp_run             ; ...and then the ceiling packs up
     or bx, dx                   ; DID EITHER PASS MOVE ANYTHING? mem_claim's
-.end:                           ; retry loop rests on CF = 1 when nothing did -
-    call mem_cp_end             ; a CF = 0 that moved nothing is an infinite
-    or bx, bx                   ; loop there (SPEC.md 66.4's termination);
-    jnz .out                    ; `or` leaves CF = 0
+                                ; retry loop rests on CF = 1 when nothing did -
+                                ; a CF = 0 that moved nothing is an infinite
+                                ; loop there (SPEC.md 66.4's termination)
+.end:
+    ; HAND THE MACHINE BACK. Every path that raised the lock leaves through
+    ; here - one body, so "left as it was found" cannot drift between two
+    ; (it was a routine, mem_cp_end, while it had two callers). AX is free:
+    ; kentc_di banked it.
+    xor ax, ax
+    cmp [mem_parked], al        ; release the workers, if this pass ever asked
+    je .nopark                  ; them to stand (SPEC.md 66.5)
+    mov [mem_parked], al
+    call KERNEL_SEG:inst_park_end
+.nopark:
+    mov [mem_cp_msk], ax        ; mem_avail plans through mem_cp_plan too, so
+    dec byte [sch_lock]         ; the direction goes back as it was found
+    dec byte [mem_cp_busy]
+    or bx, bx                   ; ...and the answer: `or` leaves CF = 0
+    jnz .out
 .none:                          ; .both gave the lock back itself; this is the
     stc                         ; only arm left that never took it
 .out:
     jmp kretc_di
 
-; mem_cp_end - hand the machine back (module internal). Every path that raised
-; the lock leaves through here, which is what makes "left as it was found" a
-; property of one body rather than of two that have to be kept agreeing. It
-; WRITES the flags: both callers set the caller's CF after it returns, which is
-; the one place the answer is decided.
-mem_cp_end:
-    cmp byte [mem_parked], 0    ; release the workers, if this pass ever asked
-    je .nopark                  ; them to stand (SPEC.md 66.5)
-    mov byte [mem_parked], 0
-    call KERNEL_SEG:inst_park_end
-.nopark:
-    mov word [mem_cp_msk], 0    ; mem_avail plans through mem_cp_plan too, so
-    dec byte [sch_lock]         ; the direction goes back as it was found
-    dec byte [mem_cp_busy]
-    ret
 
 %endif
 

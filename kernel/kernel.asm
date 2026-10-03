@@ -3158,7 +3158,7 @@ apic_xm_copy:
                                   ;          no stub is needed
     OSAPI_RSLOT wm_about_set       ; 0x018A - the app-name pull-down (12.2):
                                   ;          BX = win, SI = your About handler
-    OSAPI_RSLOT osapi_vol_kind     ; 0x0190 - AL = a volume index. CF=1 = there
+    OSAPI_RCSLOT osapi_vol_kind_x  ; 0x0190 - AL = a volume index. CF=1 = there
                                   ;          is no such volume; CF=0 with AL =
                                   ;          VK_REMOVABLE / VK_FIXED and AH =
                                   ;          VT_BIOS / VT_DRIVER (SPEC.md
@@ -5092,8 +5092,11 @@ ovw_mark_stamp:     call mark_stamp     ; SPEC.md 15.5's marker, reached from
                                         ; is the KERNEL's segment inside
                                         ; mark_here and the BLOB's at the call
 %endif
-ovw_desk_rowcalc:   call desk_rowcalc
-                    retf
+                                ; (ovw_desk_rowcalc, `call desk_rowcalc /
+                                ; retf`, stood here: desk.inc's overlay
+                                ; caller far-calls desk_rowcalc_x itself now,
+                                ; as kmain_o does - that body already ends in
+                                ; a far return. Size pass 9, -4 resident)
 %ifdef BOOT_PROFILE
 ovw_bprof_mark:     call bprof_mark
                     retf
@@ -6268,7 +6271,7 @@ osapi_file_goto_qm:
 ;      desktop is rows MBAR_H..CX-1), DL = 0 VGA / 1 Hercules / 2 CGA,
 ;      DH = bits per pixel, 4 or 1
 ; -----------------------------------------------------------------------------
-; osapi_vol_kind - what KIND of volume is this? (SPEC.md 18.7.2, slot 0x0190)
+; osapi_vol_kind_x - what KIND of volume is this? (SPEC.md 18.7.2, slot 0x0190)
 ; in:  AL = a volume index (0 = A:, 1 = B:, ...)
 ; out: CF=1 = no such volume; CF=0 with AL = VK_* and AH = VT_*
 ; clobbers: AX (the output), flags
@@ -6283,12 +6286,12 @@ osapi_file_goto_qm:
 ; hard disk" wants the MEDIUM, and one wanting "will this go through a driver"
 ; wants the TRANSPORT. Conflating them is the bug this section exists for.
 ; -----------------------------------------------------------------------------
-osapi_vol_kind:
-    push bx
-    mov bl, al
-    call dsk_vol_fixed          ; ...which answers BOTH, so this cell is the
-    pop bx                      ; index-to-BL and nothing else (a pop leaves
-    ret                         ; CF alone)
+;
+; COLD, and the cell names it (SPEC.md 20.3.2): a package asks this once, and
+; the body's far return replaces a resident body plus the `.text` thunk it
+; called into the cold half through (size pass 9, -6 resident). The body is
+; with the ct_ trampolines below the %includes, because `.cold`'s first byte
+; is vga12.inc's and this file's top half comes before it.
 
 osapi_video:
     mov ax, [vid_pwm1]          ; THE PRIMARY, NOT THE DESKTOP UNION (39.2.1).
@@ -7198,9 +7201,12 @@ cw_thm_set:             call thm_set
 %ifdef DOCK_OPT
 cw_dock_band:           call dock_band
                        retf
-cw_dock_apply:          call dock_apply     ; the Dock page and the settings
-cw_kretf:           retf                    ; reader (SPEC.md 30.5). DOCK.DRV's
-                                            ; dkk_* stubs return through this
+cw_kretf:           retf                    ; DOCK.DRV's dkk_* stubs return
+                                            ; through this. (cw_dock_apply
+                                            ; fell into it until size pass 9:
+                                            ; the Dock page and the settings
+                                            ; reader far-call dkf_apply now,
+                                            ; whose own return is far)
 cw_gfx_clip_query:      call gfx_clip_query ; CLIPQF: shared region query
                     retf                    ; from .cold (SPEC.md 30.6.1)
 %endif
@@ -7417,6 +7423,13 @@ cw_wm_win_rect:         call wm_win_rect
 ; this block was written; a target whose count falls to 3 or below is paying
 ; for its trampoline, and goes back to the plain far call.
 section .cold
+osapi_vol_kind_x:               ; (see osapi_vol_kind's header above)
+    push bx
+    mov bl, al
+    call dsk_vol_fixed_x        ; ...which answers BOTH, so this cell is the
+    pop bx                      ; index-to-BL and nothing else (a pop leaves
+    retf                        ; CF alone)
+
 ct_cw_gfx_fill:     call KERNEL_SEG:cw_gfx_fill
                     ret                     ; 23 / 18 sites
 ct_cw_gfx_unlock:   call KERNEL_SEG:cw_gfx_unlock
@@ -7627,8 +7640,7 @@ section .text
 ; (SPEC.md 15.3) - call and retf touch no flags.
 dsk_chdir_q:      call COLD_SEG:dkf_dsk_chdir_q
               ret
-dsk_vol_fixed:    call COLD_SEG:dkf_dsk_vol_fixed
-              ret
+
                                             ; The batch bracket, the five
                                             ; volume slots, fs_ent and
                                             ; desk_svc have NO thunk: their

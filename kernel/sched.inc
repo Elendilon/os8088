@@ -2372,9 +2372,10 @@ sch_isr:
 .wake:
     cmp byte [bx+T_STATE], 2
     jne .next
-    mov ax, dx
-    sub ax, [bx+T_WAKE]         ; wrap-safe: sign of the difference decides
-    js .next                    ; still in the future
+    cmp dx, [bx+T_WAKE]         ; wrap-safe: sign of the difference decides
+    js .next                    ; still in the future. A `cmp` and not `mov
+                                ; ax, dx / sub`: the same SF, 2 bytes and ~8
+                                ; cycles less per sleeper (size pass 9)
     mov byte [bx+T_STATE], 1
 .next:
     add bx, T_SIZE
@@ -2427,8 +2428,9 @@ sch_switch:
     mov byte [sch_hold], SCH_WD_TICKS
                                 ; the outgoing task reached the switch path,
                                 ; so its watchdog budget is full again
-    mov bl, [sch_cur]           ; park the outgoing task's SP
-    xor bh, bh
+    mov dl, [sch_cur]           ; DL = the slot, for the park AND the scan
+    mov bl, dl                  ; below: one load of [sch_cur] where there
+    xor bh, bh                  ; were two (-2 bytes, ~8 cycles; size pass 9)
     mov cl, 3                   ; T_SIZE = 8: ***CL = 3 FROM HERE TO .pick***
     shl bx, cl                  ; (see below)
     mov [bx+sch_tasks+T_SP], sp
@@ -2458,9 +2460,9 @@ sch_switch:
                                 ; that check ever used CL again; it does not,
                                 ; and size pass 6 took the reload (-2). Past
                                 ; .pick, `call sch_account` clobbers CX and
-                                ; nothing reads CL again.
-    mov dl, [sch_cur]           ; scan cur+1, cur+2, ... (cur itself last)
-    mov dh, MAX_TASKS
+                                ; nothing reads CL again. DL = [sch_cur] from
+                                ; the park, and nothing between writes DX
+    mov dh, MAX_TASKS           ; scan cur+1, cur+2, ... (cur itself last)
 .scan:
     inc dl
     cmp dl, MAX_TASKS

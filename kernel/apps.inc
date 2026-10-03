@@ -313,11 +313,8 @@ app_state_of:
 ; re-measures every string, so unequal lengths are fine.
 ; -----------------------------------------------------------------------------
 app_about_paint_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentc_di               ; KENT: push ax..di (DI rides along for the
+                                ; ladder; it is not touched)
 
                                 ; ...and no pen: app_about_center is an
                                 ; OPAQUE run now (SPEC.md 6.6.5) and nothing
@@ -347,7 +344,7 @@ app_about_paint_x:
     mov si, [si + app_about_vid]   ; wants. cbw is safe because [vid_kind] is
     call app_about_center_x        ; 0, 1 or 2 (kernel/viddet.inc)
 
-    jmp kretc_si
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; app_about_center - draw one string centered horizontally in a window

@@ -936,11 +936,7 @@ assoc_go:
 ; so the hint is only ever a place to look.
 ; -----------------------------------------------------------------------------
 assoc_try:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentc_di               ; KENT: push ax..di
     call assoc_go               ; QUIET (SPEC.md 18.9): the question here is
     jc .out                     ; whether a FILE is in this directory, and
                                 ; dskw_stat walks the directory sectors to
@@ -951,7 +947,7 @@ assoc_try:
     mov si, assoc_fnb
     call dskw_stat_x              ; ...and since 18.4.3 it costs no re-read
 .out:                           ; ...whose CF IS this routine's answer: both
-    jmp kretc_si
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; assoc_tryfold - the same, one folder down from a volume's root

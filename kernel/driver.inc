@@ -3729,7 +3729,7 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     mov ax, [drv_cfg+CFG_WANT]
     call %1 %+ _want_set
 %ifdef DOCK_OPT
-    call KERNEL_SEG:cw_dock_apply ; the map above stored [dock_cfg]; the band,
+    call COLD_SEG:dkf_apply     ; the map above stored [dock_cfg]; the band,
                                 ; the strip and the drive column are DERIVED
                                 ; from it (SPEC.md 30.5), which is not a store.
                                 ; No window exists yet, so the refit inside it
