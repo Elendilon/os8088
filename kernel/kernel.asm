@@ -5160,14 +5160,8 @@ ovw_font_run_x:     call font_run_x     ; SPEC.md 15.6's status line composes
 ; NEAR-calls, so neither can say it that way. They are `cw_` and not `ovw_`
 ; because `ovw_` names the overlay and the overlay is no longer the caller
 ; that matters: CTRL.DRV reaches these all session, the overlay for one boot.
-%ifdef OS88_RTC                 ; SPEC.md 37.0.1: CTRL.DRV's write half is
-cw_clk_ns_put:      call clk_ns_put     ; gated with the rungs it writes to
-                    retf
-%endif
-%ifdef KERN_BIG                 ; its callers are kern_big only
-cw_clk_tobcd:       call clk_tobcd
-                    retf
-%endif
+; (cw_clk_ns_put and cw_clk_tobcd went with them in kernel size pass 9: the
+; port helpers are a copy in each image now, near-called - SPEC.md 37.94.)
 ; -----------------------------------------------------------------------------
 api_copyname:
     push ax                     ; AX and CX ONLY, and both are arguments the
