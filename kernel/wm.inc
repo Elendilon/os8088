@@ -1064,23 +1064,6 @@ wm_nat_bank:
     ret
 
 ; -----------------------------------------------------------------------------
-; wm_nat_take - put the banked rect back into the record (module internal)
-; in:  BX = window ptr
-; out: nothing (all registers preserved); an empty slot leaves the record alone
-; clobbers: flags
-; -----------------------------------------------------------------------------
-wm_nat_take:
-    cmp word [bx+W_NATR+NR_W], 0
-    je wm_nat_take_wh           ; nothing banked: whatever is in the record is
-    push ax                     ; the best answer there is (and take_wh then
-    mov ax, [bx+W_NATR+NR_X]    ; agrees and does nothing)
-    mov [bx+W_X], ax
-    mov ax, [bx+W_NATR+NR_Y]
-    mov [bx+W_Y], ax
-    pop ax                      ; ...and the SIZE is wm_nat_take_wh's: it
-                                ; FOLLOWS, and nothing but comment is between
-
-; -----------------------------------------------------------------------------
 ; wm_nat_bank_xy - bank this window's POSITION and leave its size alone
 ; in:  BX = window ptr
 ; out: nothing - every register preserved, FLAGS INCLUDED
@@ -1809,9 +1792,14 @@ wm_minsize:
 ; -----------------------------------------------------------------------------
 wm_apply_size:
     pushf
-    push ax
-    call wm_nat_take            ; the rect it ASKED for, POSITION INCLUDED
-    jmp short wm_apply_pf       ; (SPEC.md 39.11.2.1)
+    push ax                     ; the rect it ASKED for, POSITION INCLUDED
+    cmp word [bx+W_NATR+NR_W], 0    ; (SPEC.md 39.11.2.1). This was wm_nat_take,
+    je wm_apply_pf              ; a routine with this as its one caller. Nothing
+    mov ax, [bx+W_NATR+NR_X]    ; banked: whatever is in the record is the best
+    mov [bx+W_X], ax            ; answer there is (and wm_nat_take_wh would
+    mov ax, [bx+W_NATR+NR_Y]    ; agree and do nothing)...
+    mov [bx+W_Y], ax
+    jmp short wm_apply_wh.one   ; ...and the SIZE is wm_nat_take_wh's
 
 ; -----------------------------------------------------------------------------
 ; wm_apply_wh - the same sequence with the ORIGIN LEFT ALONE (SPEC.md 11.100.9)
@@ -2559,25 +2547,27 @@ wm_resize_nb:                   ; ...and the entry for a caller that has
     ; where wm_damage consumes it. A package that draws its whole face every
     ; paint (cal_hist_toggle folds its history pane through here) never sees
     ; it and is repainted exactly as before.
-    push ax
-    mov word [wm_dmg_rzwin], 0
-    mov ax, [bx+W_X]
-    cmp ax, [wm_rz_ox]
+    xor ax, ax                  ; AX = the answer, DX the scratch - both
+                                ; spent from here: the pops at the foot put
+                                ; them back, and wm_rz_paint takes neither
+    mov dx, [bx+W_X]
+    cmp dx, [wm_rz_ox]
     jne .norz                   ; the origin moved: the content went with it
-    mov ax, [bx+W_Y]
-    cmp ax, [wm_rz_oy]
+    mov dx, [bx+W_Y]
+    cmp dx, [wm_rz_oy]
     jne .norz
-    mov ax, [bx+W_W]
-    cmp ax, [wm_rz_ow]
+    mov dx, [bx+W_W]
+    cmp dx, [wm_rz_ow]
     ja .norz                    ; wider: the new columns were never drawn
-    mov ax, [bx+W_H]
-    cmp ax, [wm_rz_oh]
+    mov dx, [bx+W_H]
+    cmp dx, [wm_rz_oh]
     ja .norz
-    mov [wm_dmg_rzwin], bx
+    mov ax, bx
 .norz:
-    pop ax
+    mov [wm_dmg_rzwin], ax
     call wm_rz_paint            ; ...and only what the move disturbed (11.95.1)
-    mov word [wm_dmg_rzwin], 0  ; a one-shot, exactly as ui_grow's is
+    xor ax, ax
+    mov [wm_dmg_rzwin], ax      ; a one-shot, exactly as ui_grow's is
     pop dx
     pop cx
     pop ax
@@ -3151,17 +3141,9 @@ wm_destroy:
                                 ; reason again (SPEC.md 39.11.2.1). The two
                                 ; tables share a stride, so they share the
                                 ; index SI already holds
-    call wm_zabove              ; CX = entries above us; compact them down a
-    jc .paint                   ; slot, so SI wants to be OUR entry. BX is
-    dec si                      ; still the record - nothing above writes it
-    jcxz .count
-.shift:
-    mov ah, [si+1]
-    mov [si], ah
-    inc si
-    loop .shift
-.count:
-    dec byte [wm_zn]
+    call wm_zcut                ; out of the z-order, the ones above it moved
+    jc .paint                   ; down a slot (BX is still the record - nothing
+    dec byte [wm_zn]            ; above writes it) - and one fewer
 .paint:
     pop dx                      ; the rect -> AX..DX
     pop cx
@@ -4313,16 +4295,13 @@ wm_sizable:
 wm_fullscreen:
     push ax
     push bx
+    cmp [wm_fs], bx             ; ONE test of the latch serves both verbs:
+    je .ours                    ; held by US, held by NOBODY, or held by
+    cmp word [wm_fs], 0         ; someone else - and someone else refuses
+    stc                         ; either verb (CF = 1 rides past the `jne`)
+    jne .out
     or al, al
-    jz .exit
-    mov ax, [wm_fs]
-    or ax, ax
-    jz .claim
-    cmp ax, bx
-    je .ok                      ; already ours: no-op
-    stc                         ; someone else owns the screen
-    jmp .out
-.claim:
+    jz .ok                      ; put down with nothing fullscreen: no-op
     mov [wm_fs], bx
     push di
     mov di, wm_fs_save
@@ -4355,16 +4334,13 @@ wm_fullscreen:
     call wm_raise
     pop di
     pop bp
-    jmp .ok
-.exit:
-    mov ax, [wm_fs]
-    or ax, ax
-    jz .ok                      ; nothing fullscreen: no-op
-    cmp ax, bx                  ; ...and it has to be YOURS to put down. BX is
-    je .drop                    ; the latch holder on this path, so wm_fs_drop
-    stc                         ; is handed exactly what it was handed before
-    jmp short .out
-.drop:
+    jmp short .ok
+.ours:
+    or al, al
+    jnz .ok                     ; already ours: no-op
+                                ; ...and only the holder puts it down. BX is
+                                ; the latch holder on this path, so wm_fs_drop
+                                ; is handed exactly what it was handed before
     call wm_fs_drop             ; restore geometry, clear latch
     call wm_paint_all
 .ok:
@@ -4472,21 +4448,32 @@ wm_lift:
     push ax
     push cx
     push si
-    call wm_zabove              ; CX = entries above us; shift them back one
-    jc .out                     ; slot, so SI wants to be OUR entry
-    dec si
-    jcxz .place
-.shift:
-    mov ah, [si+1]
-    mov [si], ah
-    inc si
-    loop .shift
-.place:
+    call wm_zcut
+    jc .out
     mov [si], al                ; and we land on top
 .out:
     pop si
     pop cx
     pop ax
+    ret
+
+; wm_zcut - take window BX's entry out of wm_zord, shifting every entry above
+;           it down one slot: wm_lift then puts it back on top, wm_destroy
+;           shortens the list. The two had the walk written out twice.
+; in:  BX = window ptr
+; out: CF = 1 not listed (nothing moved); CF = 0, AL = its index and SI = the
+;      top slot, now free. AH, CX, SI clobbered (and AL as said)
+wm_zcut:
+    call wm_zabove              ; CX = entries above us; shift them back one
+    jc .out                     ; slot, so SI wants to be OUR entry
+    dec si
+    jcxz .out                   ; (CF is still wm_zabove's 0: DEC, MOV, INC
+.shift:                         ; and LOOP leave it alone)
+    mov ah, [si+1]
+    mov [si], ah
+    inc si
+    loop .shift
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -8390,8 +8377,27 @@ wm_damage:
     je .noband                  ; 11.96.11), so the app owes the content INSET
     call wm_su_bget             ; by them - which is the whole point of naming
     jc .noband                  ; any. It is [wm_su_bok] and not the extents,
-    call wm_su_orect            ; because on a cache MISS the app owes the
-    inc si                      ; bands too and nothing else tells those apart
+                                ; because on a cache MISS the app owes the
+                                ; bands too and nothing else tells those apart.
+    ; The inset is wm_su_flay's CLAMPED extents, so the kept rect and the
+    ; fragments are complementary by construction rather than by two
+    ; arithmetics agreeing - and it is READ OFF wm_su_flay's table rather than
+    ; re-derived (this was wm_su_orect, with this its one caller, until size
+    ; pass 9): the left edge is one past LEFT's x2 (x1 + l), the right one short
+    ; of RIGHT's x1 (x2 - r), and the rows are the middle band LEFT and RIGHT
+    ; share (mid1 = y1 + t, mid2 = y2 - b). Possibly EMPTY, which is legal and
+    ; means the bands were the whole of it; with no bands at all that table has
+    ; mid1 = y2 + 1 and the answer is empty too, fragment 0 being the whole
+    ; content - a consistency rather than a path, wm_su_bget having said a band
+    ; was named.
+    call wm_su_flay
+    mov ax, [wm_su_ftab+20]     ; LEFT's x2 = x1 + l - 1
+    inc ax
+    mov bx, [wm_su_ftab+18]     ; LEFT's y1 = mid1
+    mov cx, [wm_su_ftab+24]     ; RIGHT's x1 = x2 - r + 1
+    dec cx
+    mov dx, [wm_su_ftab+22]     ; LEFT's y2 = mid2
+    inc si
 .noband:
 %endif
     cmp word [wm_su_son], 0
@@ -9553,34 +9559,6 @@ wm_su_bget:
     stc
     ret
 
-; wm_su_orect - the part of DI's content the APP still owes once the cached
-;               bands have come back: the content INSET by the four extents,
-;               and possibly EMPTY (x1 > x2), which is legal and means the
-;               bands were the whole of it.
-; in:  DI = window ptr
-; out: AX/BX/CX/DX; clobbers those and flags
-;
-;
-; It insets by wm_su_flay's CLAMPED extents, so the kept rect and the fragments
-; are complementary by construction rather than by two arithmetics agreeing -
-; and since size pass 9 it does not even do the arithmetic once more: the inset
-; rect IS what wm_su_flay's table already says. Its left edge is one past
-; LEFT's x2 (x1 + l), its right edge one short of RIGHT's x1 (x2 - r), and its
-; rows are the middle band LEFT and RIGHT share (mid1 = y1 + t, mid2 = y2 - b).
-; With no bands that table has mid1 = y2 + 1, so the answer is EMPTY - the
-; whole content is fragment 0, which is the same "the bands were the whole of
-; it" the clamped case already permits. wm_damage only asks when a band was
-; named, so that arm is a consistency rather than a path.
-wm_su_orect:
-    call wm_su_flay
-    mov ax, [wm_su_ftab+20]     ; LEFT's x2 = x1 + l - 1
-    inc ax
-    mov bx, [wm_su_ftab+18]     ; LEFT's y1 = mid1
-    mov cx, [wm_su_ftab+24]     ; RIGHT's x1 = x2 - r + 1
-    dec cx
-    mov dx, [wm_su_ftab+22]     ; LEFT's y2 = mid2
-    ret
-
 ; wm_su_slot - which cache belongs to a window
 ; in:  BX = window ptr
 ; out: SI = -> its wm_su_segs word, BX = its owner tag (the base plus the
@@ -9853,12 +9831,13 @@ wm_dc_take:
                                 ; where the load was three, and the two it
                                 ; saves are what lets `jc .out` above reach)
     sub ax, [ui_origx]          ; compares, so moving it by the drag's own
-    add [es:WSU_X1], ax         ; delta is the whole trick. WSU_EXT is left
-    add [es:WSU_X2], ax         ; alone because a drag does not resize, so the
-    mov ax, [di+W_Y]            ; band extents it describes are unchanged
-    sub ax, [ui_origy]
-    add [es:WSU_Y1], ax
-    add [es:WSU_Y2], ax
+    xor bx, bx                  ; delta is the whole trick. WSU_EXT is left
+    add [es:bx+WSU_X1], ax      ; alone because a drag does not resize, so the
+    add [es:bx+WSU_X2], ax      ; band extents it describes are unchanged.
+    mov ax, [di+W_Y]            ; (BX = 0 is the header's base: [es:bx+d8] is
+    sub ax, [ui_origy]          ; a byte or two shorter than [es:disp16], four
+    add [es:bx+WSU_Y1], ax      ; times over, and BX is spent - the slot tag
+    add [es:bx+WSU_Y2], ax      ; wm_su_slot left in it is not needed again)
     jmp short .out
 .drop:
     mov word [wm_dc_win], 0

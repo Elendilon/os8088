@@ -819,24 +819,18 @@ font_ch_cut:
     shr al, cl                  ; nothing, and a glyph with no ink past the
     not al                      ; seam leaves AL zero after the renderers' own
     mov ah, al                  ; shift - which their `or al, al / jz` skips
-    mov cx, bp                  ; already. k = 8 shifts the byte away and `not`
+    mov cx, 8                   ; already. k = 8 shifts the byte away and `not`
 .par:                           ; brings back FF, so no mask is no work
     mov al, [es:si]
-    and al, ah
-    mov [ss:di], al
     inc si
+    and al, ah
+    dec bp                      ; ONE loop over all eight rows: the first n
+    jns .pkeep                  ; (BP = n, 1..8, counted down to -1) keep
+    xor al, al                  ; their columns and the rest are zeroed - what
+.pkeep:                         ; two loops and a `jz` around the second did.
+    mov [ss:di], al             ; BP is spent; the ladder gives it back
     inc di
-    loop .par                   ; CX = bp, 1..8
-    mov cx, 8
-    sub cx, bp
-    jz .pdone
-    xor al, al
-.paz:
-    mov [ss:di], al
-    inc di
-    loop .paz                   ; CX = 8 - bp, and the `jz .pdone` above is
-                                ; what keeps it off zero
-.pdone:
+    loop .par
     clc                         ; POP leaves the flags alone, so the answer
     jmp kret_bp
 %endif

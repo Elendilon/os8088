@@ -20390,7 +20390,8 @@ Six things are load-bearing:
   *both* of `wm_su_try`'s success paths — including the one that restores
   nothing because nothing this pass painted reached the content, which is
   equally a statement that the band is still right.
-- **`wm_su_orect` insets by `wm_su_flay`'s already-clamped extents**, never by
+- **`wm_damage`'s owed rect insets by `wm_su_flay`'s already-clamped extents** (it was
+  `wm_su_orect` until size pass 9, and is read off `wm_su_flay`'s table), never by
   the raw ones. Two bands that together overrun the content would otherwise
   leave a borrowed subtraction reading as an enormous `x2`; this way the kept
   rect and the fragments are complementary by construction rather than by two
@@ -22415,7 +22416,7 @@ is 0, 1, 2, so the kind indexes it directly. `SI = 0` withdraws it. A `(0, 0)`
 pair means *no preference on that adapter*, so an app may say only the thing it
 has something to say about and leave the other two to its template.
 
-It registers **and applies** — `wm_nat_take`, then the preference, then
+It registers **and applies** — the banked rect put back, then the preference, then
 `wm_fit` — and is **FLAGS-preserving**, which is `wm_keeph`'s contract for
 `wm_keeph`'s reasons: by the time an entry proc can call this `wm_create` has
 already fitted the window, so the unclamped size survives only in the bank, and
@@ -22534,7 +22535,7 @@ whatever the app did with `wm_resize` between drags.
 
 **`wm_refit` applies the preference too, and that is the single-display half of
 the same rule.** §39.11.2 re-fits every window when the adapter changes under
-it, and that was `wm_nat_take` then `wm_fit`; it is now `wm_nat_take`, then the
+it, and that was the banked rect put back then `wm_fit`; it is now the banked rect, then the
 new adapter's preference, then `wm_fit`. So switching a VGA machine to its CGA
 row on the Display page gives every window its CGA size rather than the VGA one
 cut to the band — which is where most people will meet this, most machines
@@ -56545,7 +56546,7 @@ the rest"*, and `wm_draw_win` distinguishes the two restores:
 ```
 
 A band covering the **whole content** is the degenerate case: everything
-banked, nothing owed. `wm_su_orect` insets `x1` by the band's extent, which
+banked, nothing owed. `wm_damage` (its owed rect was `wm_su_orect`) insets `x1` by the band's extent, which
 takes it past `x2`, and `wm_damage` answers the **empty** rect §11.90.2
 already documents as legal — *"it may be empty (x1 > x2), meaning draw nothing
 at all"*. So the app is called, told it owes nothing, and spends its own debt.
