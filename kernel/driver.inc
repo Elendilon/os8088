@@ -4532,11 +4532,7 @@ drv_boot_x:
     xor dh, dh                  ; DH = how many, DL = how many so far
     xor cl, cl
 .count:
-    mov al, cl
-    call COLD_SEG:drvf_drv_row
-    cmp word [bx+DRVR_FILE], 0
-    je .cskip
-    cmp byte [bx+DRVR_WANT], 0
+    call .want                  ; a row with a file that is wanted?
     je .cskip
     inc dh
 .cskip:
@@ -4547,11 +4543,7 @@ drv_boot_x:
 
     xor cl, cl
 .next:
-    mov al, cl
-    call COLD_SEG:drvf_drv_row
-    cmp word [bx+DRVR_FILE], 0
-    je .skip
-    cmp byte [bx+DRVR_WANT], 0
+    call .want                  ; a row with a file that is wanted?
     je .skip
     inc dl                      ; ...and NAME it, before the sectors start
     mov al, dl
@@ -4595,11 +4587,7 @@ drv_boot_x:
     ; about a floppy it does not need.
     xor cx, cx
 .dnext:
-    mov al, cl
-    call COLD_SEG:drvf_drv_row
-    cmp word [bx+DRVR_FILE], 0
-    je .dskip
-    cmp byte [bx+DRVR_WANT], 0
+    call .want                  ; a row with a file that is wanted?
     je .dskip
     mov byte [bx+DRVR_ERR], DRVE_DISK
     mov byte [drv_nerr], 1
@@ -4614,6 +4602,14 @@ drv_boot_x:
     pop bx
     pop ax
     retf
+.want:                          ; CL = a row: ZF = 1 when it has no file or is
+    mov al, cl                  ; not wanted, else BX = it - the one question
+    call COLD_SEG:drvf_drv_row  ; all three walks above ask (CH is 0 in each)
+    cmp word [bx+DRVR_FILE], 0
+    je .wret
+    cmp byte [bx+DRVR_WANT], 0
+.wret:
+    ret
 
 ; -----------------------------------------------------------------------------
 ; drv_notice - tell the user, once the screen exists (SPEC.md 51.3)
