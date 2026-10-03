@@ -7557,28 +7557,10 @@ wm_ontimer_c:         stc       ; which of the three it is refusing
 ; window's callbacks are dispatched into `.cold` by wm_pkgcall (SPEC.md 2.6.3).
 fm_kinit:             call COLD_SEG:fm_kinit_x
                     ret
-; SPEC.md 38.1.1 - THE GUARD IS ON THIS SIDE. fdlg_reap_x opens with
-; `cmp word [fdlg_win], 0 / je`, and wm.inc calls that "one compare per pass
-; when nothing is pending" - which it is, on the far side of a segment
-; boundary. The UI ladder calls this 610 TIMES A SECOND on an idle desktop and
-; paid 87 cycles a call, 1.12% of the machine, to be told no.
-;
-; [fdlg_win] is .text, so the compare belongs here. The body keeps its own -
-; it is reached by nothing else, and a guard that only one caller enforces is
-; a guard that the next caller forgets.
-fdlg_reap:
-%ifdef FDLG_MOD
-    cmp word [mod_r_fdlg], 0    ; SPEC.md 38.0.1 - the IMAGE, not the window.
-                                ; ui.inc's copy of this guard carries the
-                                ; reasoning; both have to move together, which
-                                ; is why they are spelled the same way
-%else
-    cmp word [fdlg_win], 0
-%endif
-    je .none
-    call COLD_SEG:fdlg_reap_x
-.none:
-                    ret
+; SPEC.md 38.1.1 - THE GUARD IS ON THE CALLER'S SIDE, and the caller is
+; ui.inc's ladder, which far-calls fdlg_reap_x itself. There used to be a
+; resident `fdlg_reap` here that asked the same question a second time between
+; the ladder's compare and the body's.
 
 
 ; --- apps.inc's (SPEC.md 14): the three built-in kinds. They joined the cold

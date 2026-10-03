@@ -128,6 +128,8 @@ SETTLE = re.compile(r"^\$\s*\+\s*2$")
 # routine's `retf`.  Control flow never runs THROUGH a table, so a data
 # directive ends the walk.
 DATA = re.compile(r"^(d[bwdq]|res[bwdq]|incbin)\b", re.I)
+# `%define a b` (and its x/i spellings): an alias, not an address (see _scan)
+PPDEF = re.compile(r"^%x?i?define\b", re.I)
 # A `section` directive is a HARD BARRIER: the next byte is in a different
 # address space, so nothing falls through it.  Without this a bare label at the
 # end of one section (boot2_end, modmap_end) is walked into whatever the next
@@ -352,6 +354,13 @@ class Corpus(object):
                 m = JCC.match(text)
                 if m:
                     self._bump(self.jumped, m.group(2))
+                    continue
+                # A `%define` is a textual ALIAS and takes no address: fdlg.inc's
+                # `%define fdk_di kretc_di` makes kern_big's `jmp fdk_di` the
+                # kernel's own epilogue, and read as a mention it entered BOTH
+                # ladders at depth 0 and reported their pops.  What an alias
+                # names is still walked through its uses.
+                if PPDEF.match(text):
                     continue
                 # anything else that names a label takes its address: a vector
                 # table, a `dw handler`, a `mov ax, proc`.  Conservative on

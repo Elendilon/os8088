@@ -645,7 +645,7 @@ ui_task:
     cmp word [fdlg_win], 0      ; a file dialog cancelled by its close or
 %endif
     je .chk_close               ; minimize box is only HIDDEN by that route
-    call fdlg_reap              ; (SPEC.md 38.1) - collect it here rather
+    call COLD_SEG:fdlg_reap_x   ; (SPEC.md 38.1) - collect it here rather
                                 ; than leaving the menu bar on Locator
                                 ; until the user next clicks something.
                                 ;

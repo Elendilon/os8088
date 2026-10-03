@@ -583,6 +583,7 @@ fm_kinit_x:
                                 ; construction rather than by an app's word
                                 ; (SPEC.md 22.14). It has no worker, so the
                                 ; other disqualifier cannot arise
+    mov cx, FM_MIN_W            ; **THE FLOOR NOTHING MAY CUT THROUGH**
     cmp word [fdlg_win], 0xFFFF ; THE STANDARD FILE CHOOSER (SPEC.md 38.1):
     jne .notch                  ; fdlg_open marks the launch, and this is the
     mov [fdlg_win], bx          ; one place that sees the window AND the block
@@ -590,12 +591,8 @@ fm_kinit_x:
     mov ax, [fdlg_ttl]          ; ...and its caption is the QUESTION, 'Open'
     mov [bx + W_TITLE], ax      ; or 'Save As', where a Disk window's is its
                                 ; folder (which the dock still shows)
+    add cx, FM_CHCOLW           ; ...and its floor has the button column on
 .notch:
-    mov cx, FM_MIN_W            ; **THE FLOOR NOTHING MAY CUT THROUGH**
-    cmp di, [fdlg_blk]          ; ...plus the chooser's button column
-    jne .mw
-    add cx, FM_CHCOLW
-.mw:
     mov dx, FM_MIN_H            ; (SPEC.md 11.100.2). This window is the one
     call KERNEL_SEG:cw_wm_minsize ; the field found it on: dropped low on a
                                 ; 200-row CGA it was clamped until it showed
@@ -2838,10 +2835,9 @@ fm_layout:
     mov ax, [bx+W_W]
     dec ax
     dec ax
-    mov cx, [fm_vp]             ; the chooser's button column is to the
-    cmp cx, [fdlg_blk]          ; RIGHT of everything this lays out
-    jne .cwnch                  ; (SPEC.md 38.3); CX is free - the string
-    sub ax, FM_CHCOLW           ; move above spent it to 0
+    cmp bx, [fdlg_win]          ; the chooser's button column is to the
+    jne .cwnch                  ; RIGHT of everything this lays out
+    sub ax, FM_CHCOLW           ; (SPEC.md 38.3)
 .cwnch:
     stosw                       ; fm_cw = W_W - 2
     add dx, ax
@@ -2945,9 +2941,11 @@ fm_layout:
 %ifdef KERN_BIG
 ; -----------------------------------------------------------------------------
 ; fm_brect - one header button's rectangle (SPEC.md 22.18)
-; in:  AL = FM_BREFRESH or FM_BVIEW; fm_layout has run
-; out: CF = 1 and nothing written if that button is too narrow to be drawn;
-;      CF = 0 and os88ui_krect = its ABSOLUTE inclusive rect. AX clobbered,
+; in:  AL = FM_BREFRESH or FM_BVIEW, or a chooser column id; fm_layout has run
+; out: CF = 1 and nothing written if that button is too narrow to be drawn -
+;      or is a column id and this window is not the chooser; CF = 0 and
+;      os88ui_krect = its ABSOLUTE inclusive rect. AX clobbered, and for a
+;      column id SI = its label and DI = its OS88UI_* flags (fm_btn1's two);
 ;      every other register preserved
 ;
 ; THE single description. The painter had one arithmetic (measured back from
@@ -2965,8 +2963,10 @@ fm_brect:
     cmp al, FM_BVIEW            ; the chooser's column is placed by fdlg.inc,
     jbe .hdr                    ; for both builds alike (SPEC.md 38.3) - and
     mov ah, al                  ; through its ONE door, because on kern_small
-    mov al, FDH_RECT            ; that file is an image (SPEC.md 38.9)
-    jmp fdlg_hook
+    mov al, FDH_RECT            ; that file is an image (SPEC.md 38.9). The
+    call fdlg_hook              ; hook's CF=1 is "the chooser took it", which
+    cmc                         ; is this routine's CF=0 - so a window that
+    ret                         ; is not the chooser has no column at all
 .hdr:
     push bx
     push si
@@ -3010,12 +3010,11 @@ fm_brect:
 ; -----------------------------------------------------------------------------
 fm_bhit:
     push bx
-    mov ax, FM_BVIEW << 8 | FM_BREFRESH ; AH = the last id to try...
-    mov bx, [fm_vp]
-    cmp bx, [fdlg_blk]
-    jne .try
-    mov ah, FM_BDRIVE           ; ...which is the chooser's column's last
-.try:
+    push si                     ; a column id's fm_brect answers its label
+    push di                     ; in these two as well
+    mov ax, FM_BDRIVE << 8 | FM_BREFRESH ; AH = the last id to try: a window
+.try:                           ; that is not the chooser has no column, and
+                                ; fm_brect says so
     push ax
     call fm_brect
     pop ax
@@ -3029,6 +3028,8 @@ fm_bhit:
     jbe .try
     xor al, al
 .out:
+    pop di
+    pop si
     pop bx
     ret
 
@@ -3054,16 +3055,11 @@ fm_btn1:
     push ax                     ; fm_brect EATS AX - it is the one register it
     call fm_brect               ; documents clobbering, and the id is needed
     pop ax                      ; twice more below. (pop leaves CF alone)
-    jc .out                     ; too narrow: not drawn
+    jc .out                     ; too narrow, or no such column: not drawn
     cmp al, FM_BVIEW
-    jbe .hdr
-    push ax
-    mov ah, al
-    mov al, FDH_LABEL           ; the chooser's column: label, default,
-    call fdlg_hook              ; greying (SPEC.md 38.3) - SI and DI
-    pop ax
-    jmp short .dn
-.hdr:
+    ja .dn                      ; the chooser's column: fm_brect has put its
+                                ; label, default and greying in SI and DI
+                                ; (SPEC.md 38.3)
     mov si, fm_s_refresh
     cmp al, FM_BREFRESH
     je .lbl
@@ -4050,9 +4046,10 @@ fm_onkey_x:
                                 ; had just removed on the glass. BX is free
                                 ; here - fm_onkey_x pushed it and nothing
                                 ; below this label reads it
-    cmp word [fdlg_win], 0      ; (the chooser ITSELF draws as any Disk
-    je .nomodal                 ; window does: it is the one on top)
-    cmp [fdlg_win], si
+    mov ax, [fdlg_win]          ; (the chooser ITSELF draws as any Disk
+    or ax, ax                   ; window does: it is the one on top). AX is
+    jz .nomodal                 ; free: the key was banked, and nothing below
+    cmp ax, si                  ; reads it
     jne .out                    ; **THIS KEYSTROKE PUT A MODAL DIALOG UP**
                                 ; (SPEC.md 18.99.8/38.2), so everything it
                                 ; changed about this window is behind one now
@@ -7069,14 +7066,14 @@ fm_edit_end:
                                 ; (SPEC.md 38.5)
     mov di, fm_pool
     mov cx, FM_NSLOT
-.clr:
-    cmp word [fdlg_blk], 0      ; WHILE A CHOOSER IS UP ONLY ITS PROMPT ENDS
-    je .any                     ; (SPEC.md 38.5): the requester can be a Disk
-    cmp di, [fdlg_blk]          ; window part-way through a prompt that OWNS
-    jne .next                   ; something - Clone to an image is mode 7
-.any:                           ; with CLONE.DRV's claim behind it - and a
-                                ; click in the chooser ending that one freed
-                                ; the claim and failed the save it asked for
+    mov ax, [fdlg_blk]          ; WHILE A CHOOSER IS UP ONLY ITS PROMPT ENDS
+    or ax, ax                   ; (SPEC.md 38.5): the requester can be a Disk
+    jz .clr                     ; window part-way through a prompt that OWNS
+    xchg ax, di                 ; something - Clone to an image is mode 7
+    mov cl, 1                   ; with CLONE.DRV's claim behind it - and a
+.clr:                           ; click in the chooser ending that one freed
+                                ; the claim and failed the save it asked for.
+                                ; So the walk is the chooser's block alone
     mov al, [di+FS_EDIT]
     ; A format confirmation ending is where FORMAT.DRV goes back (SPEC.md
     ; 2.8.3). Here rather than at the four paths that end one, because this
@@ -7124,7 +7121,6 @@ fm_edit_end:
     call clo_drop
 .clrit:
     mov byte [di+FS_EDIT], 0
-.next:
     add di, FS_SIZE
     loop .clr
     mov word [fm_elen], 0       ; ...and [fm_ebuf]'s first byte: an empty
@@ -7410,10 +7406,12 @@ fm_draw_core:
     ; fm_btab - the same test the hit-tester makes, so "nothing invisible is
     ; ever clickable" is one description rather than two that agree.
 %ifdef KERN_BIG
-    mov al, FM_BREFRESH
-    call fm_btn1
-    mov al, FM_BVIEW
-    call fm_btn1
+    mov al, FM_BREFRESH         ; ...and a chooser's button column (SPEC.md
+.btns:                          ; 38.3), ids 3 to 5, which fm_btn1 draws for
+    call fm_btn1                ; the chooser alone - fm_brect answers "no
+    inc ax                      ; such button" for every other window
+    cmp al, FM_BDRIVE
+    jbe .btns
 %else
     ; kern_small draws them by hand and never presses them: the shared
     ; control is KERN_BIG's (SPEC.md 13.8), and so is os88ui.inc's body
@@ -7472,8 +7470,10 @@ fm_draw_core:
                                 ; status-ONLY change - an editor prompt armed
                                 ; or retired - can cost one line instead of a
                                 ; whole content repaint (fm_status_only below)
+%ifndef KERN_BIG
     mov al, FDH_PAINT           ; ...and a chooser's button column (SPEC.md
     call fdlg_hook              ; 38.3), right of everything above
+%endif
 
     jmp kretc_bp
 

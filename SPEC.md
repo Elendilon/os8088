@@ -62428,7 +62428,9 @@ on that build the browser was never resident, so the saving is the module's
 and the resident side paid for the hooks - 13 bytes of it are §38.3's
 release gesture and 12 are §38.5's requester fix. The API slot, the
 driver slot and the completion contract are **unchanged to the register**
-(§38.6), so not one package, driver or C program was touched.
+(§38.6), so not one package, driver or C program was touched. **§38.13 is
+the size pass on the glue that followed**: a further **−337** on `kern_big`,
+**−34** resident on `kern_small`, and `FDLG.DRV` 1,522 → **1,240**.
 
 ### 38.1 It is a Disk window in a chooser role (binding)
 
@@ -62516,26 +62518,31 @@ Disk window that is not the chooser never crosses into the glue.
 (§13), and nowhere else in the kernel:
 
 - `fdlg_grab` — called on every `EVT_MDOWN` and `EVT_RDOWN` before the
-  ladder branches. `CF=1` (swallow, with a `snd_beep`) for any press whose
-  point lies outside the chooser's window rect: the menu bar, the dock, the
-  desktop, and every other window are inert. A press **inside** the rect
-  returns `CF=0` and takes the ordinary ladder, so the chooser's title-bar
-  drag, its resize corner, its content clicks and its right-click menu all
-  work with no code of their own.
+  ladder branches. `CF=1` (swallow, with a `snd_beep`) for any press that
+  would not reach the chooser: "outside" is `wm_hit`'s answer, the topmost
+  visible window under the point, so the menu bar, the dock, the desktop and
+  every other window are inert - including one that has come up **over** the
+  chooser, which a bare rect test used to let through. A press whose window
+  IS the chooser returns `CF=0` and takes the ordinary ladder, so the
+  chooser's title-bar drag, its resize corner, its content clicks and its
+  right-click menu all work with no code of their own.
 - `fdlg_top` — called right after `wm_top` in the keyboard poll: it
   substitutes the chooser for the frontmost window.
 
-**Self-validating.** Both helpers begin at `fdlg_gate`, which ends the
-dialog — as a **cancel** — the moment the gate names a window that is no
-longer *used and visible*. A chooser closed by its close box, minimized, or
-taken down by anything else is a cancelled chooser, and no path can wedge the
-system behind a dead modal.
+**Self-validating.** Both helpers begin at `fdlg_gate`, which answers
+whether `[fdlg_win]` names a window that is still *used and visible* - and
+does nothing else. A chooser closed by its close box, minimized, or taken
+down by anything else is **no chooser** to either filter, so no path can
+wedge the system behind a dead modal.
 
 A third call site, `fdlg_reap`, sits in the UI task's deferred section and
-runs once per loop pass. It does two things: the same collection as the gate
-(latency only — the two filters above are correct without it), and **the
-posted answer** of §38.6, which is the only place a chooser is ever ended on
-purpose.
+runs once per loop pass, **after** the pass's event and **before** its
+deferred launch. It is the one place a chooser is ever ended: **the posted
+answer** of §38.6, and a chooser the gate finds gone, which it cancels -
+a posted commit that died with its window included. The gate used to do that
+cancel itself, so it had to know whether its caller held the gfx lock and
+take it when not; with the cancel in the one routine that already takes the
+lock, the gate is a test.
 
 **Several packages depend on modality and it must not be relaxed**: Telnet's
 ZMODEM receive infers a cancel from a repaint reaching its window while a
@@ -62576,10 +62583,12 @@ appears in the chooser by §22.8's broadcast.
 
 **The gesture is the Disk window's, per build.** On `kern_big` the three are
 ids 3 to 5 of the Disk window's own button set — `fm_brect` takes their rect
-from `fdlg_brect`, `fm_btn1` their label and greying from `fdlg_blabel`,
-`fm_bhit` walks five ids instead of two for the chooser, and `fm_onup_x`
-hands a fired id ≥ 3 to the chooser — so they press, track, cancel on
-slide-off and fire on release (§13.7), exactly like Refresh. On `kern_small`
+from `fdlg_brect` and, in the same answer, their label and greying from
+`fdlg_blabel` (one `FDH_RECT`), and says "no such button" for every window
+that is not the chooser; so `fm_bhit` walks five ids for every Disk window,
+`fm_draw_core`'s header loop draws all five through `fm_btn1`, and
+`fm_onup_x` hands a fired id ≥ 3 to the chooser — so they press, track,
+cancel on slide-off and fire on release (§13.7), exactly like Refresh. On `kern_small`
 the Disk window's own buttons are drawn by hand and fire on the press, and
 the chooser's do NOT copy that: the glue draws them (`FDH_PAINT`), arms and
 draws the pressed one on the press (`FDH_CLICK`) and fires on the release
@@ -62642,7 +62651,6 @@ role one block plays):
 | `fdlg_act` | the posted answer: 0 none, 1 commit, 2 cancel (§38.6) |
 | `fdlg_rqcb`, `fdlg_rqwin`, `fdlg_rqrec`, `fdlg_rqsp` | the requester: completion proc, window, record and `I_SPTR` |
 | `fdlg_name` | the name handed back, 13 bytes |
-| `fdlg_size`, `fdlg_sizeh` | the picked row's size, kept for a redirected volume (§38.6.1) |
 | `fdlg_cdrv`, `fdlg_ccwd` | where the chooser stood when it closed |
 
 **The Save form's name box is the Disk window's line editor**, as status-line
@@ -62764,17 +62772,20 @@ players while double-clicking the same file loaded it.
 
 `fdlg_sizeof` **stats the chosen name** in the folder the chooser committed
 in — after the close has put the volume back there (§38.7) — and answers
-from `dskw_raw`: 0 for a name that is not there or is a folder, the raw size
-otherwise, and the three-byte hint's unpacked size when the file is
-compressed, exactly as `cmz_sizes` reads it. One directory walk, on the OK
-path, immediately before the caller reads the whole file, and usually served
-out of §18.95's sector cache, the chooser having just listed that directory.
+from `dskw_stat`'s own outputs: 0 for a name that is not there or is a
+folder, the size `DX:CX` otherwise, and the three-byte hint's unpacked size
+when the file is compressed, exactly as `cmz_sizes` reads it. One directory
+walk, on the OK path, immediately before the caller reads the whole file, and
+usually served out of §18.95's sector cache, the chooser having just listed
+that directory.
 
-**A redirected volume (§62.9) is the exception**, for correctness and not
-speed: `dskw_stat`'s `DVK_FILE` arm asks the driver and never writes
-`dskw_raw`. There the size is the one the chooser's own listing showed for
-the picked row, kept in `fdlg_size` at the pick; nothing on a redirected
-volume is compressed.
+**A redirected volume (§62.9) takes the same path.** `dskw_stat`'s
+`DVK_FILE` arm asks the driver, which answers the size in `DX:CX` like the
+FAT arm and writes no `dskw_raw` - so only the compression hint is skipped
+there, and nothing on a redirected volume is compressed. It used to be an
+exception, answered from a copy of the picked row's size (`fdlg_size`), and
+only because the size was then read out of `dskw_raw`; that copy also
+reported the last PICKED file's size for a name typed after it.
 
 #### 38.6.2 The size is taken AFTER the teardown
 
@@ -62807,7 +62818,7 @@ stood. Nothing it reads is freed by the close.
 4. **Use.** The user browses with the Disk window's own controls. Modality
    (§38.2) holds the rest of the machine still.
 5. **Answer.** A hook posts commit or cancel (§38.6). Closing or minimizing
-   the window is a cancel, found by the gate.
+   the window is a cancel, found by `fdlg_reap` through the gate.
 6. **Reap.** On the next UI pass `fdlg_reap` takes the lock and calls
    `fdlg_close`: it records where the chooser stood (`fdlg_cdrv`/`fdlg_ccwd`,
    and the requester's home, §38.10), clears `[fdlg_win]`/`[fdlg_blk]`,
@@ -62834,13 +62845,15 @@ would have.
 |---|---|
 | `fdlg_open_x` | slot 0x0124's body (via `api_fdlg_open`), `OSAPI_DRV_DLG`'s (§51.10) and the kernel's own three callers' |
 | `fdlg_hook` | resident: `AL` = event; `CF=1` when the acting Disk window is the chooser and it took the event |
-| `fdlg_hook_x` | the glue's dispatcher, one table of `FDH_*` events |
-| `fdlg_reap` / `fdlg_reap_x` | the UI ladder's collection and the posted answer |
+| `fdlg_hook_x` | the glue's dispatcher, one table of `FDH_*` events; each `FDH_*` is its own table offset (twice the row), so the dispatch needs no shift |
+| `fdlg_reap_x` | the UI ladder's collection and the posted answer, far-called straight from `ui.inc`'s guarded step |
+| `fdlg_gate` | is `[fdlg_win]` still used and visible - a test, nothing more (§38.2) |
 | `fdlg_grab_x`, `fdlg_top_x` | modality (§38.2) |
 | `fdlg_close`, `fdlg_commit`, `fdlg_sizeof` | §38.7 steps 6 and 7 |
 | `fdlg_brect`, `fdlg_blabel` | the button column's rect and label/greying, shared by both builds |
 | `fdlg_nextvol` | §38.11 |
-| `fdlg_seed`, `fdlg_hidx`, `fdlg_home_name`, `fdlg_home_save` | §38.10 |
+| `fdlg_seed`, `fdlg_hidx`, `fdlg_home_dir`, `fdlg_home_save` | §38.10 |
+| `fdlg_tsel`, `fdlg_toebuf`, `fdlg_bank`, `fdlg_cpy` | the name: the selection staged, the box filled and banked, all through one bounded copy |
 
 | `FDH_*` event | raised by | the chooser's answer |
 |---|---|---|
@@ -62851,17 +62864,20 @@ would have.
 | `FDH_COMMIT` | `fm_edit_commit`, mode 8 | post commit, or beep on an empty box |
 | `FDH_KEY` | `fm_onkey_x`, every key (DX = the key) | Escape: post cancel |
 | `FDH_BTN` | `fm_onup_x` (`kern_big`) / `FDH_UP` (`kern_small`) | button 1: open the selection / commit the box; 2: cancel; 3: next volume |
-| `FDH_PAINT` | `fm_draw_core` | draw the column |
-| `FDH_RECT`, `FDH_LABEL` | `fm_brect`, `fm_btn1` — `kern_big` only | the column's rect; its label, default and greying |
+| `FDH_PAINT` | `fm_draw_core` — `kern_small` only | draw the column (`kern_big`'s header loop draws ids 3 to 5 itself, through `fm_btn1`) |
+| `FDH_RECT` | `fm_brect` — `kern_big` only | the column's rect, and with it its label, default and greying in SI/DI for `fm_btn1` |
 | `FDH_CLICK`, `FDH_UP` | `fm_onclick`, the chooser's `W_ONMOUSEUP` — `kern_small` only | arm and draw a button pressed; fire it on the release |
 
-**`FDH_RECT` and `FDH_LABEL` are not a convenience.** `fm_brect` and
-`fm_btn1` could near-call `fdlg_brect` and `fdlg_blabel` on `kern_big`, where
-both files are `.cold` - and `tools/os88ovlchk.py`, which reads source and
-cannot evaluate `%ifdef FDLG_MOD`, files every body in `fdlg.inc` as the
-`.modd` image on both builds and refuses the call. Going through the hook
-is the one spelling that is true on both, which is the rule `filecp.inc`'s
-`FCPX` macros already obey.
+**`FDH_RECT` is not a convenience.** `fm_brect` could near-call
+`fdlg_brect` and `fdlg_blabel` on `kern_big`, where both files are `.cold` -
+and `tools/os88ovlchk.py`, which reads source and cannot evaluate `%ifdef
+FDLG_MOD`, files every body in `fdlg.inc` as the `.modd` image on both builds
+and refuses the call. Going through the hook is the one spelling that is
+true on both, which is the rule `filecp.inc`'s `FCPX` macros already obey.
+**And the hook's CF is the column's existence**: `fm_brect` complements it,
+so the hook's "not the chooser" is `fm_brect`'s "no such button" - which is
+what lets `fm_bhit` and the header painter walk all five ids for every Disk
+window with no chooser test of their own.
 
 ### 38.10 The default is `MEDIA`; after that the location is per APPLICATION
 
@@ -62879,15 +62895,19 @@ one its file operations resolve in. A Save As does not merely aim the next
 chooser, it moves the application.
 
 **And an application whose user has not chosen anything yet opens on
-`MEDIA`.** `fdlg_seed` has three answers, in this order:
+`MEDIA`.** `fdlg_seed` has two answers, in this order:
 
 | the app | the chooser opens on |
 |---|---|
 | its user has chosen a folder (`inst_fpick`) | back there |
 | they have not | `MEDIA` in the **root of that instance's own drive** — or that root, if the volume has no `MEDIA` folder |
-| it has no row at all | where the volume globals stand |
 
-**Nothing in the first two rows reads the globals.** The row is seeded at
+There was a third, *"it has no row at all: where the volume globals stand"*,
+and nothing could reach it: `fdlg_open` refuses a requester that is not a
+live record of `inst_tab`, and every such record HAS a row. `fdlg_hidx`
+cannot miss, so it no longer answers a CF its callers test.
+
+**Neither row reads the globals.** The row is seeded at
 `inst_alloc` from wherever the app was launched, so a package launched off B:
 opens on `B:\MEDIA`, not on A:'s. `[inst_fpick]` is a question about the
 **user**, not about the data: the row always holds a real folder, and the
@@ -62951,6 +62971,67 @@ where it started: a machine with one live volume answers that volume.
 the Disk window's — its header, rows and status line are already one
 `font_run` each (§22.11.3) — and its button labels are `os88ui`'s. The old
 `fdlg_text` and its constant paper have no caller left.
+
+### 38.13 The glue's size pass
+
+The merge into a Disk window saved the BROWSER; this pass took the GLUE that
+was left. Measured at one commit against the tree before it (`kernsize
+--json`, `.text` + `.bss` + `.cold`, both trees' generated includes the
+same):
+
+| | before | after | |
+|---|---|---|---|
+| `kern_big` resident | 88,134 | 87,797 | **−337** (`.cold` −322, `.text` −11, `.bss` −4) |
+| `kern_small` resident | 60,450 | 60,416 | **−34** (`.cold` −19, `.text` −11, `.bss` −4) |
+| `FDLG.DRV` image | 1,522 | 1,240 | **−282** (still a 2KB claim) |
+
+`fdlg.inc`'s own symbols on `kern_big` went 1,419 → 1,130; the rest is the
+glue's sites in `files.inc`, `ui.inc` and `kernel.asm`. **No behaviour a
+package can see moved**: the slot, the callback and its registers are as
+§38.6 states them. What the bytes were:
+
+- **Guards nothing can fail.** `fdlg_open` fences the requester as a live
+  record of `inst_tab`, so `[fdlg_rqrec]` is never 0 afterwards and
+  `fdlg_hidx` cannot miss - which deleted §38.10's third row, every caller's
+  `jc`, `fdlg_commit`'s `or di, di` and `fdlg_close`'s `[fdlg_win]` test
+  (both its callers have already asked). And the resident `fdlg_reap` thunk
+  in `kernel.asm` asked `ui.inc`'s question a second time, so `ui.inc`
+  far-calls the body itself (§38.1.1's rule is the CALLER's side, and that is
+  the caller).
+- **The gate is a test** (§38.2). It cancelled a dead chooser itself, which
+  made it take a lock-state argument and the lock; `fdlg_reap` already takes
+  the lock and runs every pass, so the cancel moved there and the gate went
+  45 → 18 bytes. `fdlg_grab` asks `wm_hit` instead of comparing four edges.
+- **One door per question.** `FDH_RECT` answers the column's label with its
+  rect, and its CF is the column's existence (§38.9), so `FDH_LABEL` went and
+  so did `kern_big`'s `FDH_PAINT`: `fm_draw_core`'s header loop draws ids 1
+  to 5 for every Disk window and `fm_brect` says "no such button" for all but
+  the chooser. `fm_bhit` lost its chooser test the same way.
+- **The redirected-volume size copy** (§38.6.1). `dskw_stat` answers DX:CX
+  on both arms, so `fdlg_size`/`fdlg_sizeh` and their three writers went -
+  and a name typed after a pick stopped reporting the pick's size.
+- **Shared shapes.** One bounded name copy (`fdlg_cpy`) for the five that
+  were spelled out, the box's length taken from `fm_ncpy`'s CX rather than a
+  loop of its own, `kern_big`'s prologues through `kentc_di`/`kretc_di` (the
+  image keeps its own pushes and `fdk_di`), `fdlg_nextvol` walking
+  `dsk_vtab` by index rather than through a far entry per row, and
+  `FDH_*` codes that are their own table offsets.
+
+**Two tool facts it cost.** `tools/os88ovlchk.py` keeps every literal call
+target a macro body names, from every `%ifdef` arm, so `FDENT kentc_di` is
+spelled through `call %1` as `FDX` is; and `tools/stkbalance.py` read
+`%define fdk_di kretc_di` as taking both addresses and walked the two
+ladders from depth 0 - it now reads a `%define` as the alias it is, and
+`tests/unit/t_stkbalance.py` carries the shape (§38.0's note on `fdk_*`).
+
+**And one defect the soak caught, worth knowing before the next pass.**
+Relaxing `fdlg_home_dir` to spend BX and SI was right for `fdlg_home_save`
+and wrong for `fdlg_close`, which calls it BETWEEN loading the chooser's
+window and block into those two and using them - so a chooser the user had
+MOVED in was never closed, and lingered as a window holding its pool block
+and cache claim. Every `fdlg*` row passed it, because none of them navigates
+before answering; `regrowshed`, `rdpreserve` and `wimgtrip` do, and all three
+went red. `fdlg_close` banks the pair around the call.
 
 ## 39. viddet.inc — video adapters, runtime geometry, the mono renderer
 
@@ -88570,9 +88651,10 @@ bodies into `.modd`, which `tools/os88mod.py` cuts out as **`FDLG.DRV`**, and
 §38.1 made the chooser a Disk window the image is the **glue** and nothing
 else - the listing, rows, scroll bar, editor and header it once carried are
 `files.inc`'s, resident on both builds - so it shrank from **3,214 bytes in a
-4KB claim to 1,522 in a 2KB one** (`os88mod.py` prints the figure on every
-`make small`), while the resident side of this build moved **+3 bytes** (the
-hooks, the release gesture and the requester fix, §38).
+4KB claim to 1,522 in a 2KB one**, and §38.13's pass took it to **1,240**
+(`os88mod.py` prints the figure on every `make small`), while the resident
+side of this build moved **+3 bytes** (the hooks, the release gesture and
+the requester fix, §38) and then **−34**.
 
 It is §22.3.0's shape and obeys §22.3.0.1's three rules, with `filecp.inc`
 as the worked example. What is particular to it:
@@ -88609,11 +88691,14 @@ module may require the system disk only where the feature already does, and
 a Save As onto a data floppy in a one-drive machine would become a disk swap.
 
 **Two shapes the split's history taught, both still binding.** The register
-epilogue ladder (`fdk_*`) is an unconditional COPY below the section toggle,
-not an `equ` alias of `kernel.asm`'s, because `tools/stkbalance.py` reads
-source and an alias makes the kernel's own labels look addressed; and a
-ladder label nothing jumps to is walked as an ENTRY by the same tool, so the
-image keeps only `fdk_di`. And a CONTINUATION is not callable: the old
+epilogue is the IMAGE's own `fdk_di`, because a module may not `jmp
+kretc_di`; `kern_big` reaches `kretc_di` itself through `%define fdk_di
+kretc_di` (§38.13). It was once an unconditional copy on both builds,
+because `tools/stkbalance.py` read an `equ` alias as making the kernel's own
+labels look addressed - which is still true of an `equ`, and is why the
+alias is a `%define`, which that tool now reads as one. A ladder label
+nothing jumps to is walked as an ENTRY by the same tool, so the image keeps
+only `fdk_di`. And a CONTINUATION is not callable: the old
 `fdlg_hasdot` had to stay resident because `fm_dotin` popped the SI its entry
 banked - that pair is gone (the name box is `fm_editkey`'s now, §38.5), and
 `fm_dotin` folded back into `fm_hasdot` with it.
@@ -88623,8 +88708,9 @@ banked - that pair is gone (the name box is `fm_editkey`'s now, §38.5), and
 
 **What follows is the defect as it was found, against the old dialog, and
 the guard it left is still the guard.** Since §38.6 posts the answer, every
-route ends inside `fdlg_reap` itself (or `fdlg_gate` for the close and
-minimize boxes) rather than inside the image's own click handler, so the
+route ends inside `fdlg_reap` itself - the close and minimize boxes too,
+since §38.13 made the gate a test - rather than inside the image's own click
+handler, so the
 pass on which `[fdlg_win]` falls to 0 is the very pass that then reaches the
 drop - the gap the table below describes cannot open in that order any more.
 The guard stays on `mod_r_fdlg` regardless, because the question `fdlg_reap`
