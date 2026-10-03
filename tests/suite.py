@@ -2107,6 +2107,34 @@ SOAK = [
         "everything else is tested on, and a walk that ignored it would pass "
         "at 1.44MB and put every part 512 bytes low here. Needs `make msegz`.",
         needs=("marty",), serial=True, wants=("build/msegz360.img",)),
+    Row("msegw", "soak", py("tests/multiseg.py", "1440", "--wide"), 60.0,
+        "SPEC.md 20.12.11: the CARVE PASSES 64KB. MSEG's own primary with "
+        "parts 1 and 2 padded by tests/multiseg/mkwide.py, so the eager run "
+        "is 179 sectors - past the 128 op_size and the packer used to refuse "
+        "- and every per-part proof the rows above make has to come out "
+        "unchanged across 92KB of claim. The row also asserts op_secs and "
+        "op_usecs are both past 128, so a padding that shrank cannot pass it "
+        "on a carve the old bound allowed. MEASURED against the loader before "
+        "20.12.11: the same file is refused at launch, ld_status 4 (the "
+        "package refusing itself). Needs `make msegw`.",
+        needs=("marty",), serial=True, wants=("build/msegw.img",)),
+    Row("msegw360", "soak", py("tests/multiseg.py", "360", "--wide"), 60.0,
+        "...and off a 360KB disk, where the head slack is 512 and the 32-bit "
+        "op_want and op_bend have it added in; mseg360's argument for the "
+        "carve past 64KB. Needs `make msegw`.",
+        needs=("marty",), serial=True, wants=("build/msegw360.img",)),
+    Row("msegwz", "soak", py("tests/multiseg.py", "1440", "--comp", "--wide"),
+        60.0,
+        "...and with parts 0 and 2 COMPRESSED, so the carve is past 64KB at "
+        "BOTH ends - 146 sectors read, 179 unpacked - and op_unpack walks the "
+        "packed run R paragraphs up a claim bigger than a segment, R now "
+        "being cut from two sector counts. Needs `make msegw`.",
+        needs=("marty",), serial=True, wants=("build/msegwz.img",)),
+    Row("msegwz360", "soak", py("tests/multiseg.py", "360", "--comp",
+                                "--wide"), 60.0,
+        "...and that off a 360KB disk, with the head slack. Needs `make "
+        "msegw`.",
+        needs=("marty",), serial=True, wants=("build/msegwz360.img",)),
     Row("msegnomem", "soak", py("tests/msegnomem.py"), 40.0,
         "SPEC.md 20.12.3: a package that cannot fit is refused BEFORE IT "
         "READS ANYTHING, and this row measures that rather than asserting it. "
@@ -7274,6 +7302,19 @@ SOAK = [
         "one on both arms now, so neither builds anything",
         needs=("marty",), serial=True,
         wants=("build/lzmodlzb360.img",)),
+    Row("lzmod-lz4big", "soak", py("tests/lzmod.py", "--fmt", "lz4big"), 40.0,
+        "SPEC.md 20.14.5.2: an LZ4 file PAST 64KB PACKED, through the "
+        "transparent read. BEVERLY.MOD with 30,000 bytes of noise and 30,000 "
+        "of text after it - 176,085 bytes that pack to 92,508 - so the "
+        "decoder's LZ4 source slides DS at its checkpoint and the noise, one "
+        "~30KB literal run, is copied in 16KB pieces with lz_at between "
+        "them. Nothing shipped packs past 64KB in LZ4, so nothing else on a "
+        "machine runs either. The row asserts the fixture really is LZ4 and "
+        "past 64KB, and compares all 176,085 bytes in Tracker's claim. "
+        "MEASURED on the decoder before 20.14.5.2: Tracker opens holding no "
+        "module, status `trk_s_ioerr` - FERR_IO, the LZ4 refusal at entry",
+        needs=("marty",), serial=True,
+        wants=("build/lzmodbig360.img",)),
     Row("lzship", "soak", py("tests/lzship.py", "--fmt", "lz4"), 80.0,
         "THE WHOLE SHIPPED SET, COMPRESSED (`make zset ZFMT=lz4`): every "
         "shipped package, every shipped driver and every data file on both "

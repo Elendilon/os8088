@@ -41028,6 +41028,66 @@ with **instance slot 0**, which is a real owner word. Thirteen bytes, and the
 collision would be silent.
 
 
+#### 20.12.11 The carve passes 64KB
+
+**The eager carve was bounded at 128 sectors, and that bound was arithmetic
+and never memory.** `op_cap` was the read's capacity in a word of BYTES with
+the head slack added to it, and `op_bend`, `op_want`, `op_bytes` and
+`op_ubytes` were words of bytes too, so the whole run, packed or unpacked,
+had to stay under one segment. `op_size` refused 128 sectors on both ends
+and `os88pkg.py` refused them at pack time. Four consumers were bent by it,
+and each section says so in its own words: Word's part 1 is placed under
+65,024 (§68.10), Clear Skies' title bands are lazy because eager they made
+131 sectors (§88.10.4.1), the DOS box's second part is lazy because the pair
+would be refused (§96.44.4.1), and Pixelstein's levels and art are lazy for
+the same 131 (§97.9). **Those four keep their shapes until each is revisited.**
+Their reasoning was right when it was written, and the bound it cites is the
+one this section withdraws.
+
+**The fix changes the words' UNITS rather than their width, wherever it can:**
+
+| word | was | now |
+|---|---|---|
+| `op_cap` | the read's capacity in bytes | in **paragraphs** — `op_read`'s `DI` counts paragraphs, so its chunk loop needs no 32-bit counter, and `op_runkb` is `(R + cap + 63) >> 6` |
+| `op_rpara` (R) | `(op_ubytes − op_bytes + 512 + 15) >> 4` | `(op_usecs − op_secs + 1) << 5` — the same figure from the two sector counts, so `op_bytes` and `op_ubytes` are no longer needed |
+| `op_bend` | 16 bits | 32 bits, its high word `op_bendh` in **`op_bytes`'s old slot**, so no offset in the bss chain moves and `apps/cc/crt0.asm` is untouched |
+| `op_want` | 16 bits | 32 bits, its high word being the slot `op_tail` left unnamed (§20.12.7.3) |
+| the bound | 128 sectors, both ends | **`OP_SECMAX` = 1,920** (960KB), both ends — 1,920 sectors plus a 32KB cluster of slack is 65,503 paragraphs, and R plus the read is refused on a carry rather than wrapped |
+
+`op_unpack` and `op_seg` were segment arithmetic already and are unchanged.
+`op_fetch` writes `op_want`'s high word and hands `op_read` its capacity in
+paragraphs; a lazy part is one row, so its own bounds are unchanged.
+
+**ONE part is still at most 65,024 bytes** (`OP_PARTMAX` in `os88pkg.py`):
+`op_size` rounds a row up to a sector in a word and refuses the carry, which
+the packer now says at pack time instead of accepting 65,535. **An asset
+bigger than that is two adjacent rows**, and for a PLAIN one that costs
+nothing, because rows are laid back to back at `roundup512(len)` and a row of
+65,024 bytes is a whole number of sectors — the second begins where the first
+ends. A COMPRESSED asset that big pays a stream boundary per row;
+docs/plans/LARGE-LZ4-PLAN.md §4.1 prices lifting that, and the owner deferred it.
+
+**The `OP_XMS` span keeps its 128 sectors.** `op_xload` is a loop of its own
+that still climbs in a word of bytes, nothing in the tree declares `OP_XMS`,
+and nothing here needs it.
+
+**What it costs is package code**, because the standard is package code
+(§20.12.9), and it is measured on the packages that carry it: `dosload`
+2,187 → 2,193, `csload` 2,256 → 2,262, `pxstein` 2,895 → 2,900, `wdload`
+1,436 → 1,430. On a probe package declaring three rows, a plain table is
+**+14**, a table with `OP_COMP` **−6** (R from two sector counts is shorter
+than R from two byte counts), and `OP_COMP` with `OP_LAZY` **+6**.
+
+**`tests/multiseg.py --wide` is the gate** (`make msegw`): MSEG's own
+primaries, with part 1 padded with noise and part 2 with text by
+`tests/multiseg/mkwide.py`, so the carve is 179 sectors read and 179 unpacked
+— or 146 read with part 2 compressed. The parts land across **92KB** of claim
+and every per-part proof MSEG makes comes out unchanged, on both geometries,
+plain and compressed. The row also asserts that both ends really are past 128,
+so a padding that shrank cannot make it pass on a carve the old bound allowed.
+The same file under the old loader is refused at launch (`ld_status` 4, the
+package refusing itself), which is the negative control.
+
 ### 20.13 COMPRESSION — flags bits 3 and 4, and one slot
 
 **A file may be compressed and the kernel expands it on the way in.**
@@ -41164,17 +41224,28 @@ defect, as the `image + bss` carry fence one test along (§21 step 4).
 #### 20.13.3 `OSAPI_DECOMP` (0x03D3) — a plain cell, and why
 
 ```
-    DS:SI = the compressed bytes          CX = compressed bytes (under 64KB)
+    DS:SI = the compressed bytes          CX = compressed bytes
     ES:0  = the destination, DI = 0       BX:DX = the EXACT expected output, 32
     AL    = 0 LZ4 / 1 LZB                         bits
+            | 0x80: AH is the compressed length's HIGH byte, so AH:CX is 24
+            bits; without the bit AH is not read
     out:  CF=0 and ES:DI one past the last byte; CF=1 = refused, and nothing
           past the declared length was written
 ```
 
-The **output crosses 64KB and, through this cell, the input does not** —
-§20.14.5 is why. The kernel's own file read has a second door that takes
-`AH:CX`, 24 bits of input, for an LZB stream (§20.14.5.1); the cell's contract
-is unchanged, and `AH` is not an input to it.
+**Both sides cross 64KB, in both formats** (§20.14.5, §20.14.5.2). The input
+is 24 bits only when the caller says so with **`AL` bit 7**. A caller written
+before the door existed never had to say anything in `AH` and still need not,
+because without the bit the cell zeroes it as it always did. The kernel's own
+file read does not go through the cell: it enters one instruction later, at
+`lz_decomp_big`, with `AH:CX` already set (§20.14.5.1).
+
+**A bit and not a second slot**, and the bit is safe on an older kernel *by
+refusal*. A kernel that predates it reads `AL` = `0x80` or `0x81` as a format
+it does not carry and answers `CF=1` (§20.13.4), exactly as for a corrupt
+stream, so a package that sets it can never be fed a misread. A second
+`OSAPI_FCELL` would have cost 6 bytes of `.text` and a 4-byte far entry in
+`.cold`, against this bit's 6 bytes of `.cold` alone.
 
 **It is a plain `OSAPI_JSLOT` and not an X or N cell**, and the reason is that
 the decompressor **reads no kernel data at all**. Every other cell needs
@@ -41574,10 +41645,11 @@ Four refusals fall out of the shape and each is checked rather than assumed:
 - **the destination must be paragraph-aligned.** `lz_decomp_x` requires
   `DI = 0` (§20.13.3), so a buffer whose offset is not a multiple of 16 is
   `FERR_PROT`. Every caller in the tree hands over a claim's base;
-- **a packed size of 64KB or more is accepted for LZB and is `FERR_IO` for
-  LZ4** — the decoder's *source* crosses a segment for the first and not the
-  second (§20.14.5.1), so the refusal comes from the decoder rather than from
-  a size test here;
+- **a packed size of 64KB or more is accepted in both formats** — the
+  decoder's *source* crosses a segment for LZB (§20.14.5.1) and for LZ4
+  (§20.14.5.2). There is no size test here, so it took no change here when
+  LZ4 joined; it was `FERR_IO` for LZ4 until then, and that came from the
+  decoder;
 - **`R` past a megabyte is `FERR_BIG`** — not an address in this machine, and
   the one piece of the arithmetic below that could otherwise wrap;
 - **a hint claiming an expansion no larger than the file** is `FERR_IO`: a
@@ -41716,7 +41788,7 @@ bits, and an unpacked size strictly **larger** than the file. A plain file
 that happens to begin `'CZ'` is not enough.
 
 
-#### 20.14.5 The output crosses 64KB and the input does not
+#### 20.14.5 The output crosses 64KB, and the input did not at first
 
 **`BEVERLY.MOD` is why any of this exists.** 116,085 bytes, and LZ4 takes it to
 **42,169 — 36.3%**, which is 145 sectors of a floppy at ~35.6 ms each: roughly
@@ -41751,8 +41823,8 @@ the wrapped `DI` needs no arithmetic of its own. Three consequences:
 The expected output length is therefore **`BX:DX`, 32 bits**, and the frame
 counts **what is left to produce** rather than where the end is.
 
-**The input did NOT cross, and that was a decision** — kept for LZ4 and
-reversed for LZB by §20.14.5.1. `SI + CX` wrapping was refused at entry, which
+**The input did NOT cross, and that was a decision** — reversed for LZB by
+§20.14.5.1 and for LZ4 by §20.14.5.2. `SI + CX` wrapping was refused at entry, which
 kept the tail bound a plain offset in one segment, and that compare is tested
 once per symbol and is the hottest one in the routine. The reversal keeps the
 compare exactly as it is and changes what it means.
@@ -41797,15 +41869,14 @@ again (`K` wraps to 255) and runs out of declared output instead, which
 `lz_take` refuses; there is no branch of its own for that case, and needs
 none.
 
-**LZ4 is still one segment of input**, refused at entry exactly where the old
+**LZ4 stayed one segment of input here**, refused at entry where the old
 `add cx, si / jc` refused it. Its literal RUNS go through `lz_copy`, whose slow
 arm bumps `DS` by 64KB when `SI` wraps, and a bump there would leave the
 checkpoint describing a segment nobody is reading. LZB has no such run — its
-literals are single bytes and its matches read the output — and LZB is the
-format this machine writes (§20.15). `os88lz.cz_wrap` says the same thing on
-the host: an LZ4 packed form past 64KB is stored plain, and an LZB one is not.
+literals are single bytes and its matches read the output. §20.14.5.2 is how
+LZ4 got past that, and it was not by teaching the bump about the checkpoint.
 
-**The cell (§20.13.3) is unchanged** and zeroes `AH` on the way in; the file
+**The cell (§20.13.3) was unchanged** and zeroed `AH` on the way in; the file
 read enters one instruction later at `lz_decomp_big` with `AH:CX` = the
 stream's 24-bit length, and `dskw_rbody` no longer refuses a compressed file
 whose packed size is 64KB or more. **Cost: 94 bytes of `.cold`**, resident on
@@ -41821,6 +41892,82 @@ detour per 32KB (~50 cycles against the ~1.6M its bytes cost to decode). A multi
 alternative and is still refused on §20.14.5's measurement: each block
 boundary throws the history away, which cost `BEVERLY.MOD` 44% of its win,
 and a container is a read-path change too.
+##### 20.14.5.2 …and an LZ4 input crosses too, in 16KB pieces
+
+**An LZ4 stream that packs to 64KB or more used to be stored plain**, by
+`os88lz.cz_wrap` on the host and by refusal in the decoder, and `os88cz.py
+pack` told its user to *"try --lzb, or split it"*. Splitting is what this
+whole section exists to avoid (§20.14.5's 44%). docs/plans/LARGE-LZ4-PLAN.md
+is the investigation; this is the contract.
+
+**The fix is that no legitimate literal run can wrap, not a wrap that knows
+about the checkpoint.** §20.14.5.1's in-line budget is the 32KB above the
+checkpoint: nothing an arm reads between two tests may carry `SI` past
+`0xFFFF`. A literal run is the one LZ4 read that can be longer than that. So:
+
+- **A run under 16KB is untouched** and fits the budget by §20.14.5.1's own
+  argument. `SI` is under `0x8000` at the test, the token and up to 64 length
+  bytes, the run, an offset and at most 257 match-length bytes leave it under
+  `0xC144`.
+- **A run of 16KB or more is claimed whole by `lz_take` and copied 16KB at a
+  time**, with `lz_at` between pieces to slide `DS` and re-arm the checkpoint.
+  A piece starts with `SI` under `0x8102` and ends under `0xC102`, so no piece
+  can wrap and nothing read after the last one can either.
+- **It is found where only a long run can be.** The literal length is read
+  inline rather than through `call lz_len`, so a run under 15 never reaches
+  the extension loop (`lz_len.x`, shared), and the 16KB test sits after that
+  loop. The hot path pays nothing for the test. It *loses* a `call`, a `ret`
+  and a taken `jne` per sequence, and gains an untaken `je`: **−1.9%
+  instructions executed on `BEVERLY.MOD`, −2.5% on 60KB of text**, counted
+  and not timed (PERFORMANCE.md rule 4).
+- **The entry refusal is gone**, and with it LZ4's last difference from LZB at
+  the door.
+
+**A hostile stream still only READS.** Every write is still bounded by
+`lz_take` and the match-offset test. A run that slides past its own tail
+drives `K` to 255 and runs out of declared output, as LZB's does (§20.14.5.1).
+
+**The cell takes 24 bits now too** (§20.13.3, `AL` bit 7), so a PACKAGE can
+hand the decoder more than a segment of stream in either format. Until then
+only the kernel's own file read could, through `lz_decomp_big`.
+
+**What it costs: +43 bytes of `.cold` on both kernels**, measured with
+`tools/kernsize.py` — +37 for the crossing, +6 for the door. kern_big goes
+41,877 → 41,920 (the rung has 107 → 64 left) and kern_small 25,466 → 25,509
+(134 → 91 left). No rung is crossed, no slot is added, and no byte of `.text`,
+`.bss` or `.lowbss` is spent. `'CZ'` files need nothing more: `dskw_rbody`
+already enters at `lz_decomp_big` with `AH:CX` and has no size test of its own
+(§20.14.2).
+
+**On the host**, `cz_wrap`'s `CZ_SRCMAX` refusal and `os88cz.py`'s *"try
+--lzb"* go with it. `tests/unit/t_lzfmt.py` asserts that an LZ4 `'CZ'` file
+past 64KB packed is now ACCEPTED and round-trips through the KERNEL's decoder.
+
+##### 20.14.5.3 No length the decoder cannot count
+
+**Both host encoders could write a match the kernel cannot read.**
+`kernel/lz.inc` counts a length in ONE register — `lz_len`'s `CX` for LZ4,
+`.gamma`'s `AX` for LZB — and `os88lz`'s two parses handed `Chains.find` an
+uncapped `maxlen`. A run of one byte longer than 64KB therefore packed into a
+single match that wrapped the register: 65,541 zero bytes decoded, and
+**65,545 refused** (CF=1), as did 70,000 in LZB. The build's only check was
+`cz_wrap`'s round trip through the HOST decoder, which has no registers to
+wrap, so such a file would have shipped compressed and answered `FERR_IO` on
+the machine. Nothing shipped was affected: `BEVERLY.MOD` is the only file the
+build packs past 64KB, and its longest match is 9,919 bytes. The machine's own
+encoder was never affected (`CMZ_MAXM` = `0x3FF0`).
+
+**`os88lz.LZ_MAXLEN` = `0xFFFF` is the cap**, passed to `find` by both
+parses. **An LZ4 literal run past it is a refusal** (`ValueError`, so
+`cz_wrap` stores the file plain), because nothing but a match can break a
+literal run and there may be none to use. **And both host DECODERS refuse past it too**, as
+the kernel's does, so `cz_wrap`'s round trip — the build's only check —
+can no longer pass a stream the machine cannot read. It costs no kernel byte.
+`t_lzfmt`'s `lengths()` is the gate: a 70,000-byte run must round-trip, and
+a hand-built stream holding one 70,000-byte match must be refused by both
+host decoders. That second half is the negative control, and it fails with
+the cap taken out.
+
 ##### 20.14.6 The hint is a CACHE, so the read path has a MISS path now
 
 §20.14 has said since it was written that a foreign tool may drop those four
@@ -42274,11 +42421,11 @@ does not fit on one. The Video Player's `.V88` files (§98) are 1.5 to 4.7 MB,
 but nothing here knows what is inside a part: the container carries any file.
 
 **It is a CONTAINER OF ITS OWN and not a `'CZ'` file cut into pieces**, for
-three reasons, each enough on its own. A `'CZ'` file is expanded WHOLE, in
+two reasons, each enough on its own. A `'CZ'` file is expanded WHOLE, in
 place, into a claim of its unpacked size (§20.14.2), so one bigger than the
-heap can never be opened. Its hint holds 24 bits (§20.14.1). And an LZ4
-`'CZ'` stream is one segment of input (§20.13.3). A split set needs none of
-that. It is a sequence of **independent blocks of at most 32KB**, each small
+heap can never be opened. Its hint holds 24 bits (§20.14.1). (A third reason
+when it was built, that an LZ4 `'CZ'` stream was one segment of input, was
+withdrawn by §20.14.5.2.) A split set needs none of that. It is a sequence of **independent blocks of at most 32KB**, each small
 enough to expand in a fixed claim, so a set of any size is joined by
 streaming through 82KB of heap (§22.23.5).
 

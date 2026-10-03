@@ -4,6 +4,7 @@
     make lzmodtest && python3 tests/lzmod.py              # SPEC.md 20.14.5
     make lzmodtest && python3 tests/lzmod.py --dialog     # SPEC.md 38.6.1
     make lzmodtest && python3 tests/lzmod.py --nohint     # SPEC.md 20.14.6.3
+    make lzmodbigtest && python3 tests/lzmod.py --fmt lz4big # SPEC.md 20.14.5.2
 
 TWO ROUTES, AND THE SECOND ONE IS WHY THIS FILE HAS A FLAG. Until SPEC.md
 38.6.1 this row drove a double-click ONLY, which is the route that goes
@@ -131,6 +132,12 @@ def host_checks(fails):
     fmt, n = parsed
     if n != len(plain) or os88lz.cz_unwrap(blob) != plain:
         fails.append("%s does not expand to %s" % (PACKED, SRC))
+    if "lz4big" in PACKED and (fmt != os88lz.LZ4
+                               or len(blob) - os88lz.CZ_HDR <= 0xFFFF):
+        fails.append("the lz4big fixture is %s and %d bytes of stream - it "
+                     "has to be LZ4 and PAST 64KB, or this arm is the lz4 "
+                     "arm again and tests nothing of SPEC.md 20.14.5.2"
+                     % (os88lz.NAMES[fmt], len(blob) - os88lz.CZ_HDR))
     say("  packed     %d -> %d bytes (%.1f%%, %s)"
         % (len(plain), len(blob), 100.0 * len(blob) / len(plain),
            os88lz.NAMES[fmt]))
@@ -163,21 +170,27 @@ def main():
                          "the PACKED size until 38.6.1 - so this arm is the "
                          "one that fails on the defect and the double-click "
                          "arm is the one that cannot see it")
-    ap.add_argument("--fmt", default="lz4", choices=("lz4", "lzb"),
+    ap.add_argument("--fmt", default="lz4", choices=("lz4", "lzb", "lz4big"),
                     help="lzb wraps the module with the bit-oriented format "
                          "instead - the only way LZB's own crossing arm is "
                          "ever EXECUTED (SPEC.md 20.14.5). It costs ~10s of "
                          "host compression in the FIXTURE, which is why it is "
-                         "not the default")
+                         "not the default. lz4big is a module padded until "
+                         "its LZ4 form is PAST 64KB PACKED (SPEC.md "
+                         "20.14.5.2), so the decoder's LZ4 source slides and "
+                         "a ~30KB literal run is copied in 16KB pieces")
     ap.add_argument("--nohint", action="store_true",
                     help="strike BEVERLY.MOD's directory hint on a scratch "
                          "copy first, as a Windows copy does (SPEC.md "
                          "20.14.6.3)")
     a = ap.parse_args()
 
-    global PACKED, IMG
+    global PACKED, IMG, SRC
     if a.fmt == "lzb":
         PACKED, IMG = "build/lzb/BEVERLY.MOD", "build/lzmodlzb360.img"
+    if a.fmt == "lz4big":
+        PACKED, IMG = "build/lz4big/BEVERLY.MOD", "build/lzmodbig360.img"
+        SRC = os88build.at("build/lz4big/plain.mod")
     # NO KNOB ON EITHER ARM, and that is worth stating because this row used
     # to build one. The shipped kernel carries BOTH decoders (SPEC.md
     # 20.13.6), so the only thing that differs between the arms is the
