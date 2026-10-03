@@ -40628,7 +40628,8 @@ again.*
 row in this tree is a compressed stream — Clear Skies' title bands and its
 nine world blobs — and each one had grown a packer and an expander OUTSIDE the
 standard to get there (`tools/csart.py`, `tools/csworlds.py`, `csl_art`). A
-third was about to be written for `kern_dos`'s part. A standard that refuses
+third was about to be written for `kern_dos`'s part. (The bands and
+Pixelstein's art masters have since come into the standard, §88.10.4.1.) A standard that refuses
 what every one of its users does is not protecting them from anything; it is
 making each of them solve it again, differently.
 
@@ -40639,13 +40640,24 @@ segment over it. Nothing else in the row moves: `len` is the unpacked length
 as it is on every other row, which is what `op_lazykb` sizes the claim from
 and what `op_size` would refuse against.
 
-**The stream is read R paragraphs UP its own claim**, `R =
-roundup512(len) − roundup512(packed)`, and expands down to the base — which is
-`op_unpack`'s walk (§20.12.7.1) with one row in it, for the same reason and
-with the same arithmetic. Both terms are multiples of 512 and therefore of 16,
-so R is paragraphs and nothing carries past a segment. **No margin is
-reserved**: `in_place_margin` is zero for a stream with a tail (§20.13.7) and
-`os88pkg.py` asserts that on every part it writes, so R is exactly enough.
+**The stream is read R paragraphs UP its own claim**, **`R =
+roundup512(len − packed)`**, and expands down to the base — `op_unpack`'s
+walk (§20.12.7.1) with one row in it. **No margin is reserved**:
+`in_place_margin` is zero for a stream with a tail (§20.13.7) and `os88pkg.py`
+asserts that on every part it writes, so any R of at least `len − packed` is
+enough.
+
+**R is the DIFFERENCE rounded, and to a SECTOR**, and each half of that was
+learned the hard way. Rounding the two terms separately — the shape this
+paragraph first stated — comes out up to 511 bytes *short* of `len − packed`;
+it was 210 short on the DOS core and the expansion ran off the end of its own
+stream. Rounding the difference to a *paragraph* fixed that and broke the
+other rule: R is where a **disk read** lands, every disk-visible base is
+512-byte aligned, and a read starting mid-sector straddled a 64KB physical
+page the first time a fetch landed across one (Pixelstein's art masters,
+`FERR_IO`, §88.10.4.1). `op_lazykb` prices the fetch as R plus the read of the
+packed part, so `op_fetch`'s claim, `op_lazyok`'s answer and a package's own
+precheck are one figure.
 
 ###### 20.12.7.4.1 What `op_drop` leaves behind, and why it is not zero
 
@@ -41042,7 +41054,10 @@ and each section says so in its own words: Word's part 1 is placed under
 would be refused (§96.44.4.1), and Pixelstein's levels and art are lazy for
 the same 131 (§97.9). **Those four keep their shapes until each is revisited.**
 Their reasoning was right when it was written, and the bound it cites is the
-one this section withdraws.
+one this section withdraws. **Two have been revisited**: Clear Skies' bands
+and Pixelstein's art masters are `OP_COMP | OP_LAZY` rows now and their
+private packers and expanders are gone (§88.10.4.1, §97.9). Both stayed
+LAZY, because eager would make the art a reason to refuse the launch.
 
 **The fix changes the words' UNITS rather than their width, wherever it can:**
 
@@ -99649,9 +99664,11 @@ optimisation, and `tests/rehomemove.py` is the row that proves the non-trivial
 proc is what a re-homed program owes.
 
 **`apps/skies` looked like the second shape and is NOT, which its own loader
-says**: `csl_art` expands the title bands into a claim of their **own**
-(`OSAPI_MEM_CLAIM`, `CS_ART_KB`) and hands the program *that* segment — the
-carve holds only the packed stream, which is `op_drop`ped before the handoff.
+says**: the title bands are an `OP_COMP | OP_LAZY` part, and `csl_art`'s
+`op_fetch` expands them into a claim of their **own**, outside the carve, and
+hands the program *that* segment (§88.10.4.1; before that conversion it was
+`OSAPI_MEM_CLAIM` of `CS_ART_KB` and a decode, with the carve holding only a
+packed stream that was `op_drop`ped before the handoff — the same answer).
 After `mem_reown_x` the bands are a slot-owned data claim with no proc, so
 they never move, and a `cs_reloc` that added the region's delta to
 `[cs_artseg]` would have pointed the title page at 11KB of whatever the
@@ -129644,28 +129661,52 @@ loader's own header.
 `CSDIAG` and `CSPROBE` were 436 and 585 bytes **over** the ceiling; both
 assemble again with room to spare.
 
-##### 88.10.4.1 The bands are LAZY, and why that is not the shape it looks like
+##### 88.10.4.1 The bands are an `OP_COMP | OP_LAZY` part, and why LAZY
 
-The obvious table is two eager `OP_COMP` rows. **`op_size` refuses it**, and
-the number is exact: the run is bounded at **128 sectors** — one segment, which
-is `op_read`'s own arithmetic — and the program unpacks to 56,574 bytes, 111 of
-them. The bands' 10,480 make 131.
+**The bands are part 1, `OP_ASSET, OP_LAZY | OP_COMP`.** `tools/csart.py
+--raw` writes them unpacked, `os88pkg.py` packs them like any other compressed
+row (the same 4,487 bytes), and `csl_art` is `op_fetch` and `op_seg`. The
+fetch claims once, reads the packed part R paragraphs up the claim and expands
+it down onto its base (§20.12.7.4), so the bands land in a claim of their
+**own**, outside the carve. After the re-home that claim is slot-owned with no
+relocation proc and never moves, which is why the program's region proc is
+still a bare `ret` (§66.6.1.1).
 
-So the bands are `OP_LAZY`, which takes them out of the run entirely; and a
-lazy row **cannot also be `OP_COMP`**, the two wanting the same `zkb` word
-(`apps/os88parts.inc` refuses the pair). `tools/csart.py` therefore packs the
-stream itself with `--stream` and `csl_art` expands it — which is exactly what
-the image used to do with the same bytes, one owner along.
+**It was not always this shape, and both reasons for the old one are gone.**
+The obvious table was two eager `OP_COMP` rows, and `op_size` refused it: the
+run was bounded at 128 sectors, the program unpacks to 111 of them and the
+bands to 21 more. A lazy row then **could not also be `OP_COMP`** (the two
+wanted the same `zkb` word), so `csart.py --stream` packed the bands itself
+and `csl_art` fetched the stream into one claim, expanded it through
+`OSAPI_DECOMP` into a second and `op_drop`ped the first. §20.12.7.4 withdrew
+the second reason and §20.12.11 the first.
 
-`csl_art` holds **two** of `MEM_OWNER_MAX`'s eight while it decodes and gives
-one straight back: `op_drop` releases the stream's claim once the bands are
-out of it. That matters more here than it usually does, because this image is
-about to stop existing — a slot it did not release would be the kernel's to
-free at teardown and held for the whole session.
+**It stays LAZY by choice, and the choice is the refusal.** An eager row would
+fit the carve now, and it would put the bands inside the movable region, at
+the cost of a `cs_reloc`. But the carve is all or nothing: a machine with room
+for the program and not for 11KB more would be refused the launch, where
+today it **flies with the plainer title page** §88.10.2 shipped — the title
+lettered in the 8x8 face and no aeroplane, because **every refusal answers
+0**.
 
-**Every refusal answers 0**, which is the plainer title page §88.10.2 already
-shipped: the title lettered in the 8x8 face and no aeroplane. A machine too
-full for 11KB still flies.
+**What the conversion bought**: `csload.asm`'s image 2,262 → 2,190 bytes
+(it is freed at the re-home, so that is disk and transient RAM), one claim
+in place of two while the fetch runs, and **no packer or expander outside the
+standard**. The session pays nothing for it: the fetch's claim is
+`op_lazykb`'s figure, R plus the read of the packed part, and that is the same
+**11KB** the old exact-size claim was.
+
+**It found a defect in the standard on the way**, which no package had
+reached because none had ever fetched an `OP_COMP | OP_LAZY` row across a
+64KB physical page. `op_zrpara` rounded R up to a paragraph, so the read R
+paragraphs up the claim could start mid-sector, and a sector that straddles a
+page is int 13h's error 09h. Pixelstein's art masters hit it:
+`FERR_IO`, the read at `0x2ED90` running 9,216 bytes across `0x30000`. R is
+rounded up to a **sector** now, as §20.12.7.4 always said, and is still never
+less than `len − packed`. The same pass made `op_lazykb` price a compressed
+row as R plus the read. `op_fetch` used to claim `op_lazykb` of `len` plus one
+KB while `op_lazyok` answered without the KB, and neither covered R plus a
+whole cluster of read on a volume with clusters bigger than 1KB.
 
 ##### 88.10.4.2 The handoff is four bytes, and the disk comes back
 
@@ -153357,9 +153398,16 @@ byte-texture set, `OP_ASSET, OP_ZERO | OP_OPT, 30` KB (97.4; the plan's
 "part 4"); **part 4** the art stream `build/pxsart.bin`, `OP_ASSET,
 OP_LAZY` — **last, because `os88pkg.py` puts every lazy row after the
 carve** (20.12.4; the first cut had it second and was refused in words)
-— fetched by the loader's `pxl_art` (csload's `csl_art` instruction for
-instruction), expanded through `OSAPI_DECOMP` into a claim of its own
-(`PXA_KB` = 30 with the sprite masters, 8 before them) and dropped; and
+— **`OP_LAZY | OP_COMP`** since the conversion §88.10.4.1 made for Clear
+Skies' bands, and for the same two withdrawn reasons: `tools/pxsart.py
+--raw` writes the masters unpacked, `os88pkg.py` packs them (8,890 bytes),
+and the loader's `pxl_art` is `op_fetch` and `op_seg`, which expand them into
+a claim of their own: `op_lazykb`'s figure, R plus the read, which is 37 KB on
+the shipped floppies, the same `PXA_KB` the old exact-size claim was. It used to fetch a
+stream `pxsart.py` packed into one claim, expand it through `OSAPI_DECOMP`
+into a second and drop the first. **It stays LAZY because only a Textured
+launch wants it**: eager, 37KB would ride in every launch's carve and a 256KB
+machine that plays Flat would be refused instead; and
 **the SPRITE SET is a CLAIM the loader makes after that, not a part**
 (`PXS_KB` = 46; 97.6: the plan's "part 5" — a fourth `OP_OPT` part in
 the first cut of wave 3, and `OP_OPT` is all or none, so it was refusing
@@ -153370,8 +153418,8 @@ it cannot ask for itself, at the head of the program's bss, one package
 in two sources (csload's `CSH_*`): `PXH_MAGIC` 'PX', `PXH_LEV` the level
 part's segment, `PXH_GEN` the scratch part's segment or 0 when
 `op_optok` was refused, `PXH_COLD` 0 — reserved for the cold part below
-— `PXH_NLEV`, `PXH_LEVLEN`, wave 2's **`PXH_ART`** (the masters' claim
-or 0) and **`PXH_BT`** (the byte-texture part or 0) and **`PXH_GENLEN`**
+— `PXH_NLEV`, `PXH_LEVLEN`, wave 2's **`PXH_ART`** (the masters, in a
+claim of their own, or 0) and **`PXH_BT`** (the byte-texture part or 0) and **`PXH_GENLEN`**
 (the scratch part's length in bytes, `PX_GENKB` × 1024 — the fence
 `px_gen_build` emits under, 97.3), and wave 3's **`PXH_SPR`** (the sprite
 set's claim or 0; `PXH_SIZE` 20); `px_texok` is the AND of the first three
@@ -153755,7 +153803,7 @@ bounds the Δ-fill as much as the cast.
 | `tools/pxslevel.py` | `apps/pixelstein/pxlev.inc` (the directory, and since wave 4 `px_levpw`: each floor's four-letter password off its `# code: ABCD` line, refused when missing or repeated — 97.13) and `build/pxslev.bin` (the stream, the LAZY part 3 since wave 4), with every rule of 97.7 checked — the DDA sweep in both door states, the melee rule over standing and patrolling guards alike, the doors written in cell order (wave 3: `G`/`H` patrol, `PXL_PATROL` in the include) | `pxs-gen` (fast, `--no-sweep`: the cheap rules); **`pxs-level` (soak: every rule, the sweep included, and the negative control)**; `t_pxsmap` (soak: the melee invariant by name, wave 3); `make pxsgen` regenerates the includes and then builds the stream THROUGH `$(BUILD)/pxslev.bin`'s rule, which runs `--check` with the sweep — one command line, not two. `$(BUILD)/pxstein.o88`'s rule reaches it (wave 1): the stream is the package's part 1 |
 | `tools/pxssim.py` | a scene's column arrays (`--dump`) and its shadow as a PNG per byte backend (`--png --backend cga4\|herc\|modex\|cga16`; `--rung flat\|wire\|tex` the three rungs — `tex` renders through `tools/pxsart.py`'s byte-texture set with the odd-row phase and quantises the height as the cast does (97.3); `--size 48..80 --res low\|full` the View row and the Resolution axis — `--size 64 --res low` is the shipped rung, and so the DEFAULT, so that the wave-1 diff and the wave-0 evidence are one picture; **the resolution is an argument to `geometry()` and `render()`, never inferred from the column count** (48 columns is Size 48 Full or a 96-byte band, and the first cut's `bpc = 2 if cols == 32` could model one Size — the hole the compose's constant column base came through); 160/320 refused, 97.3). A sliding door's `doorpos` is subtracted from the fraction before the side's mirror in both walkers, so wave 3 inherited a walker that was already right. **Since wave 3 it renders the sprites and the weapon too** (97.6): `cast_ray` collects the cells the walkers passed (`seen`, the spotvis marks), `candidates()` is the sprite list — the transform in the package's integer arithmetic, the far-to-near insert, the cap — `draw_sprites()` the posts (or the silhouettes, or boxes when the guest's set is not built) and `draw_weapon()` the sixteen columns over rows 56..79; `render()` takes the world (a `Level` at its spawn, the sim frozen) and the weapon in hand, and `--scene c` is the sprite scene | `tests/pxssim.py` (wave 1) diffs the guest against it; `tests/pxsbench.py` casts the bench's rays through its walker |
 | `tools/pxsframe.py` | nothing — it PRINTS 97.1's frame table: the plan's §3 counts, scaled to the rung, priced on the bench's M units (copied in by hand, with the date) and solved as the fixed point `F = N / (1 − s/T)` with `s` the measured tick — every row at E1M1's tick with the caps' fps beside it — three dither arms a backend, every rung and both resolutions. Every fps in 97.1's frame paragraph is a line of its output, so a re-measurement is a constant edited here and the paragraph re-read, not re-typed | `docs/reports/PXS-FRAME-<date>.md` §2 |
-| `tools/pxsart.py` | `apps/pixelstein/pxart.inc` (the counts, the claim sizes, the four ink tables, the sprite directory and part 4's layout — never pixels), **`apps/pixelstein/pxhuda.inc` with `--hud`** (wave 4: the status bar's twenty-one one-bit masters, the one art in part 0's image — 97.4's HUD contract, 97.13 — the run loading nothing else, so the fast row pays ~0.05 s for it) and `build/pxsart.bin` (the LZ4 art stream `make` packs from the committed PNG masters, 97.4: the walls, then the sprite frames and the weapon's); `--placeholder` the procedural set (the walls and, since wave 3, a helmeted guard in five facings, six decorations, eight pickups and the weapon's nine frames), `--check` the rules and the two losable criteria (brick against stone; the guard's front against its side at twelve columns), the alpha key, the span count, `--preview DIR` every master and every sprite frame through every table at each aspect plus the twelve-column front/side pair, `--inks` the tables printed; `masters()`, `ink_tables()`, `bt_set()` and `texel()` are what `tools/pxssim.py` renders textures with, `sprites()`, `weapons()`, `spr_frame()` and `frame_runs()` its sprites. **The fifteen masters under `apps/pixelstein/art/` are COMMITTED PNGs** (CONTRIBUTING §6's binary rule taken the way `apps/apple2/rom/` took it, PLAN §12.1): `tests/unit/t_pxsgen.py` is a FAST row that regenerates `pxart.inc` from them inside every `make`, so a clone without them fails the fast tier pointing at the tool. stdlib only — the plan's `--pil` authoring arm was not needed (the masters are procedural placeholders, and the image model's arrive as PNGs on the same pipeline; `read_png` reads indexed, RGB, RGBA and grey at 8 bits, a `tRNS` chunk included, and refuses the rest in words) and its `--dither` was not built (97.4: the two phase arms were not previewed side by side) | `pxs-gen` (fast: the include); `t_pxsart` (soak: the rules); `$(BUILD)/pxsart.bin`'s recipe (`--check --stream`) |
+| `tools/pxsart.py` | `apps/pixelstein/pxart.inc` (the counts, the claim sizes, the four ink tables, the sprite directory and part 4's layout — never pixels), **`apps/pixelstein/pxhuda.inc` with `--hud`** (wave 4: the status bar's twenty-one one-bit masters, the one art in part 0's image — 97.4's HUD contract, 97.13 — the run loading nothing else, so the fast row pays ~0.05 s for it) and `build/pxsart.bin` with `--raw` (the art part `make` writes from the committed PNG masters, 97.4 — the walls, then the sprite frames and the weapon's — UNPACKED, for `os88pkg.py` to pack into the `OP_COMP | OP_LAZY` row; it was an LZ4 stream the tool packed itself until §88.10.4.1's conversion reached it); `--placeholder` the procedural set (the walls and, since wave 3, a helmeted guard in five facings, six decorations, eight pickups and the weapon's nine frames), `--check` the rules and the two losable criteria (brick against stone; the guard's front against its side at twelve columns), the alpha key, the span count, `--preview DIR` every master and every sprite frame through every table at each aspect plus the twelve-column front/side pair, `--inks` the tables printed; `masters()`, `ink_tables()`, `bt_set()` and `texel()` are what `tools/pxssim.py` renders textures with, `sprites()`, `weapons()`, `spr_frame()` and `frame_runs()` its sprites. **The fifteen masters under `apps/pixelstein/art/` are COMMITTED PNGs** (CONTRIBUTING §6's binary rule taken the way `apps/apple2/rom/` took it, PLAN §12.1): `tests/unit/t_pxsgen.py` is a FAST row that regenerates `pxart.inc` from them inside every `make`, so a clone without them fails the fast tier pointing at the tool. stdlib only — the plan's `--pil` authoring arm was not needed (the masters are procedural placeholders, and the image model's arrive as PNGs on the same pipeline; `read_png` reads indexed, RGB, RGBA and grey at 8 bits, a `tRNS` chunk included, and refuses the rest in words) and its `--dither` was not built (97.4: the two phase arms were not previewed side by side) | `pxs-gen` (fast: the include); `t_pxsart` (soak: the rules); `$(BUILD)/pxsart.bin`'s recipe (`--check --raw`) |
 | `tools/pxsgen.py` | nothing — it MODELS the generated half of part 2 for a backend, byte for byte (`image()`, `scaler()`, `codeofs()` — the 33-word table before each scaler since wave 3 — `col2tex()`, the directories, `quantise()` and `hq_table()`), and `--sizes` prints what `PX_GENKB` is sized from | `t_pxsscale` (soak, host), `pxsscale` (soak, the guest's part diffed against it), `tools/pxssim.py` (the quantised height and the texel rows) |
 | `tests/pxslib.py` | nothing — it is the GUEST READER every PIXELSTEIN emulator row imports (wave 1): `syms()` re-assembles `pxgame.asm` with `[map symbols]` for every equate (tests/cycweb.py's `pkg_syms`, never a remembered offset); `find(m)` the game's window and its part-0 segment out of `W_SEG` (`tools/os88geom.py`'s `winptr`); `handoff(m)` the `PXH_*` block — which is how a row locates the scratch part (`PXH_GEN`) and the level part, the loader's table being gone; `word()`/`byte()`/`poke()` on the program's bss; `scene(m, which)` pokes a pinned scene and `px_force` (and, since wave 3, the player's cell mark); `columns(m)` and `shadow(m)` read the arrays and the shadow claim back; **wave 3's world readers and pokes** — `sim()`, `god()`, `actor()`/`actor_poke()` (the position with its `PXC_ACTOR` mark), `door()`/`door_poke()`, `player()`, `pcell_poke()` — and a third `frame_times` mode, `"sim"`, the full repaint with the world running | `tests/pixelstein.py`, `tests/pxssim.py`, `tests/pxsact.py` |
 

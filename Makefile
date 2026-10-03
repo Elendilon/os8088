@@ -6348,14 +6348,15 @@ $(BUILD)/skies.bin: $(SKIES_SRC) $(BUILD)/cswidx.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ -I $(BUILD)/ $(CSDIAGDEF) -o $@ apps/skies/skies.asm
 	@echo "skies: $(call FILESIZE,$@) bytes"
 
-# THE TITLE BANDS ARE PART 0 (SPEC.md 88.10.3). tools/csart.py writes the
-# .inc - the offsets, which is all the image carries now - and with --raw the
-# UNPACKED bands, which os88pkg.py appends and compresses for the OP_COMP row.
-# ONE COMPRESSOR: the generator used to pack them itself and the package used
-# to unpack them itself, so the two had to agree about the format for ever.
-$(BUILD)/csart.bin: tools/csart.py tools/os88lz.py | $(BUILD)
-	python3 tools/csart.py -o apps/skies/csart.inc --stream $@
-	@echo "csart: $(call FILESIZE,$@) bytes of packed bands"
+# THE TITLE BANDS ARE PART 1 (SPEC.md 88.10.3, 88.10.4.1). tools/csart.py
+# writes the .inc - the offsets, which is all the image carries - and with
+# --raw the UNPACKED bands, which os88pkg.py appends and compresses for the
+# OP_COMP | OP_LAZY row. ONE COMPRESSOR: the generator used to pack them itself
+# and the loader used to unpack them itself, so the two had to agree about the
+# format for ever.
+$(BUILD)/csart.bin: tools/csart.py | $(BUILD)
+	python3 tools/csart.py -o apps/skies/csart.inc --raw $@
+	@echo "csart: $(call FILESIZE,$@) bytes of bands, raw"
 
 # THE PACKAGE'S IMAGE IS THE LOADER (SPEC.md 88.10.4, 20.12.10). It reads the
 # two parts, tells the program where the art went, and hands its identity over;
@@ -6368,7 +6369,7 @@ $(BUILD)/csart.bin: tools/csart.py tools/os88lz.py | $(BUILD)
 # went 37,534 -> 49,031 bytes on a 360KB disk with 8 clusters spare. The
 # loader is 1,343 bytes uncompressed and everything large is an OP_COMP part.
 $(BUILD)/csload.bin: apps/skies/csload.asm apps/skies/csicon.inc \
-                     apps/skies/csart.inc apps/os88api.inc \
+                     apps/os88api.inc \
                      apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ -o $@ apps/skies/csload.asm
 	@echo "csload: $(call FILESIZE,$@) bytes"
@@ -6461,9 +6462,11 @@ $(BUILD)/pxgame.bin: $(PXGAME_SRC) | $(BUILD)
 # 127 spare clusters when this package was planned and wave 6's art lands
 # after the disk arithmetic was checked, so the ceiling is asserted where
 # the file is made and not discovered on the 1.44MB disk. AND SO IS THE
-# READ RUN: SPEC.md 20.12.7 bounds the eager parts at 128 UNPACKED sectors
-# (op_load refuses the launch at 128, and OP_COMP does not relieve it - the
-# claim is cut from the unpacked total), the run is 116 on the shipped build
+# READ RUN: SPEC.md 20.12.11 bounds the eager parts at OP_SECMAX UNPACKED
+# sectors (op_load refuses the launch there, and OP_COMP does not relieve it
+# - the claim is cut from the unpacked total); the bound was 128 until the
+# carve passed 64KB, which is what the history below is measured against.
+# The run is 116 on the shipped build
 # (part 0 59,378 bytes, SPEC.md 97.15; 111 after wave 4) - part 0 alone, the
 # level stream having gone lazy: eager, its 20 sectors would have made it
 # 131 after wave 4 and 136 now (101 after wave 3 with it eager, 68 after wave 1, 79 after
@@ -6478,7 +6481,7 @@ $(BUILD)/pxstein.o88: $(BUILD)/pxstein.bin $(BUILD)/pxgame.bin $(BUILD)/pxsart.b
 	@test $(call FILESIZE,$@) -le $(PXSTEIN_MAXZ) || { \
 	    echo "pxstein: $@ is $(call FILESIZE,$@) bytes, over the $(PXSTEIN_MAXZ) SPEC.md 97.9 allows the disks"; \
 	    rm -f $@; exit 1; }
-	@python3 tools/os88parts.py --run $@ --max-run 128 || { rm -f $@; exit 1; }
+	@python3 tools/os88parts.py --run $@ || { rm -f $@; exit 1; }
 
 # THE COMPACTION GATE'S DISK (SPEC.md 97.9, 66.6.1.2; tests/pxsmove.py): the
 # package and tests/filler, nothing else, at 360KB - the geometry whose head
@@ -6500,14 +6503,15 @@ $(BUILD)/pxsmove360.img: $(BUILD)/pxstein.o88 $(BUILD)/filler.o88 \
 # guard's 17, six decorations, eight pickups and, since wave 6, the dog's
 # eleven: 4 facings x 2 walk, bite, die, dead) and the weapon's nine of
 # 16x32, 29,760 of the stream's 37,440 bytes (PXA_NSPR, PXA_SIZE in
-# pxart.inc) - LZ4 - tools/pxsart.py reads the committed PNGs with the
+# pxart.inc) - RAW, packed by os88pkg.py for the OP_COMP | OP_LAZY row
+# (SPEC.md 20.12.7.4) - tools/pxsart.py reads the committed PNGs with the
 # stdlib and refuses a bad one in words (--check: the sixteen colours only,
 # no key and no alpha on a wall, alpha 0 or 255 on a sprite, and the two
 # losable criteria). The include beside it (pxart.inc) is committed text held by
 # the pxs-gen fast row; the stream is built here because its bytes are the
 # masters' and nothing else
-$(BUILD)/pxsart.bin: tools/pxsart.py tools/os88lz.py tools/pxslevel.py $(PXSART) | $(BUILD)
-	python3 tools/pxsart.py --check --stream $@
+$(BUILD)/pxsart.bin: tools/pxsart.py tools/pxslevel.py $(PXSART) | $(BUILD)
+	python3 tools/pxsart.py --check --raw $@
 
 # the level STREAM the lazy level part carries (SPEC.md 97.9; lazy since
 # wave 4 - eight floors are 20 sectors the eager run had no room for): one record a

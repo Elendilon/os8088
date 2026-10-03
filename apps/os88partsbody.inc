@@ -1331,7 +1331,10 @@ op_clbget:
 ;
 ; The READ's share, slack included, exactly as op_claim computes the carve's:
 ; the read starts at the cluster at or below the part and those bytes land in
-; front of it (SPEC.md 20.12.2).
+; front of it (SPEC.md 20.12.2). For a COMPRESSED row it is R plus the read of
+; the PACKED length, which op_claim's arithmetic for the carve is too: the
+; claim op_fetch makes, the answer op_lazyok gives, and a package pricing a
+; fetch ahead of time are the one figure.
 ; -----------------------------------------------------------------------------
 op_lazykb:
     push bx
@@ -1343,8 +1346,14 @@ op_lazykb:
     mov bx, [op_clb]
     dec bx
     and bx, ax                  ; BX = the head slack: a cluster size is a
-                                ; power of two, so this is an AND
+                                ; power of two
     mov ax, [si+OP_R_LEN]
+%if OP_HAS_COMP && OP_HAS_LAZY
+    test byte [si+OP_R_FLAG], OP_COMP
+    jz .rd
+    mov ax, [si+OP_R_ZKB]       ; a COMPRESSED row reads its packed length...
+.rd:
+%endif
     add ax, bx
     jc .no
     mov dx, [op_clb]
@@ -1353,9 +1362,20 @@ op_lazykb:
     jc .no
     not dx
     and ax, dx                  ; ...rounded to whole clusters, the slot's
-    add ax, 1023                ; other precondition
+    mov cl, 4                   ; other precondition: the READ, in paragraphs
+    shr ax, cl
+%if OP_HAS_COMP && OP_HAS_LAZY
+    test byte [si+OP_R_FLAG], OP_COMP
+    jz .kb
+    mov dx, ax                  ; ...and R paragraphs UP the claim, which is
+    call op_zrpara              ; where it lands (SPEC.md 20.12.7.4). R + the
+    add ax, dx                  ; read covers the expanded part as well: R is
+    jc .no                      ; at least len - packed, so slack + len ends
+.kb:                            ; inside it
+%endif
+    add ax, 63                  ; paragraphs -> KB, rounded up
     jc .no
-    mov cl, 10
+    mov cl, 6
     shr ax, cl
     pop dx
     pop cx
@@ -1471,18 +1491,14 @@ op_fetch:
 .get:
     call op_clbget
     jc .nodisk
-    call op_lazykb              ; AX = the KB it wants, slack included
-    jc .toobig
-%if OP_HAS_COMP
-    ; A COMPRESSED ROW HOLDS slack + R + packed, and R is `len - packed`
-    ; rounded UP to a paragraph - so up to fifteen bytes more than the `len`
-    ; op_lazykb sized from. One KB covers it and is transient: the claim lives
-    ; for one expansion.
-    test byte [si+OP_R_FLAG], OP_COMP
-    jz .plainkb
-    inc ax
-.plainkb:
-%endif
+    call op_lazykb              ; AX = the KB it wants: the slack, and for a
+    jc .toobig                  ; COMPRESSED row R + the read, which is what
+                                ; it holds while it expands (op_lazykb). It
+                                ; was op_lazykb of `len` plus one KB here and
+                                ; nothing in op_lazyok, so the question and
+                                ; the fetch disagreed - and neither covered
+                                ; R plus a whole cluster of read on a volume
+                                ; whose clusters are bigger than 1KB
     mov bx, ax
     push bx
     call OSAPI_MEM_AVAIL        ; ASK, then claim - op_load's rule, for
@@ -1732,7 +1748,7 @@ op_row:
 ; -----------------------------------------------------------------------------
 ; op_zrpara - R for a compressed lazy row, in paragraphs (SPEC.md 20.12.7.4)
 ; in:  SI -> the row
-; out: AX = roundup16(len - packed), as paragraphs
+; out: AX = roundup512(len - packed), as paragraphs
 ; clobbers: AX (the output), flags. SI preserved.
 ;
 ; The stream is read R paragraphs up its own claim and expands DOWN to the
@@ -1750,14 +1766,24 @@ op_row:
 ; on the DOS core - so the expansion ran off the end of its own stream and
 ; refused with `A part will not unpack`.
 ;
-; Rounded UP to a paragraph, because op_read lands on a segment boundary.
+; **AND ROUNDED UP TO A SECTOR, not a paragraph**, because R is where a DISK
+; READ lands: every disk-visible base is 512-byte aligned (CLAUDE.md), since
+; the kernel splits a run at a 64KB physical page only on a sector boundary
+; and int 13h answers a sector that straddles one with error 09h. Rounded to a
+; paragraph it read fine wherever the destination happened not to straddle a
+; page - the DOS core, by luck - and answered FERR_IO the first time a fetch
+; landed across one: Pixelstein's art masters, 0x2ED90 + 9,216 bytes across
+; 0x30000. Rounding the DIFFERENCE up keeps the paragraph's guarantee too -
+; it is never less than `len - packed` - which rounding the two terms
+; separately did not.
 ; -----------------------------------------------------------------------------
 op_zrpara:
     push cx
     mov ax, [si+OP_R_LEN]
     sub ax, [si+OP_R_ZKB]       ; os88pkg.py refuses a part that does not get
-    add ax, 15                  ; smaller, so this cannot go negative
-    mov cl, 4
+    add ax, 511                 ; smaller, so this cannot go negative, and a
+    and ax, 0FE00h              ; part is at most OP_PARTMAX, so this cannot
+    mov cl, 4                   ; carry
     shr ax, cl
     pop cx
     ret

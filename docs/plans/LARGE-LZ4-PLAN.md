@@ -7,7 +7,8 @@
 > things:
 >
 > - **why** one stream and not split volumes (§2);
-> - the **consumers** still bent by the old limits (§3), which are follow-ups;
+> - the **consumers** that were bent by the old limits (§3) — two converted,
+>   the rest follow-ups;
 > - the **two options the owner decided not to take now** (§4.1 and §4.2),
 >   costed and explained, so whoever revisits them starts from the arithmetic;
 > - two things considered and **not recommended** (§4.3 and §4.4).
@@ -67,17 +68,42 @@ consumer reached for, and the tree has measured its cost twice:
 A split pays in ratio on exactly the data big enough to need one. Crossing the
 boundary in the decoder cost 43 bytes, paid once.
 
-## 3. Consumers still bent by the old limits — follow-ups, not done
+## 3. Consumers bent by the old limits
 
-Each of these was shaped by a wall that is now gone. **None has been changed.**
-Each section's reasoning was right when it was written, and SPEC.md §20.12.11
-names the four that cite the carve.
+Each of these was shaped by a wall that is now gone. Each section's reasoning
+was right when it was written, and SPEC.md §20.12.11 names the four that cite
+the carve.
+
+**Converted — the two art streams.** Both are `OP_COMP | OP_LAZY` rows now:
+
+| | before | after |
+|---|---|---|
+| **Clear Skies** part 1, title bands (10,480 → 4,487) | `csart.py --stream` packed them; `csl_art` fetched the stream, claimed again and decoded through `OSAPI_DECOMP` | `csart.py --raw`, `os88pkg.py` packs, `csl_art` is `op_fetch` + `op_seg`. Loader image 2,262 → 2,190 |
+| **Pixelstein** part 4, art masters (37,440 → 8,890) | `pxsart.py --stream` packed them; `pxl_art` the same as `csl_art` | the same shape; loader image 2,900 → 2,811 |
+
+**Both stayed LAZY, and this table originally said "eager".** An eager row
+fits the carve since §20.12.11, but the carve is all or nothing. An eager art
+row makes the art a reason to refuse the launch: Clear Skies would no longer
+fly with its plainer title page on a machine short of 11KB (§88.10.4.1), and a
+256KB Pixelstein machine that plays Flat would carry 37KB of masters it never
+draws. Lazy keeps every refusal survivable and still deletes both private
+expanders and both private pack paths. **The session pays nothing**: the
+fetch's claim (R plus the read) comes out at the old exact sizes, 11KB and
+37KB.
+
+**The conversion found a defect in the parts standard**, the first time any
+package fetched a compressed lazy row across a 64KB physical page.
+`op_zrpara` rounded R to a paragraph rather than a sector, so the read could
+start mid-sector and straddle a page: int 13h error 09h, `FERR_IO` on
+Pixelstein's masters. R is a whole number of sectors now, and `op_lazykb`
+prices a compressed fetch as R plus the read, so `op_fetch`, `op_lazyok` and
+a package's own precheck agree. SPEC.md §88.10.4.1 has the account.
+
+**Not converted — follow-ups:**
 
 | consumer | bent how | now possible |
 |---|---|---|
-| **Pixelstein** part 3, levels (9,831 bytes) | LAZY and stored **plain** with a hand RLE, because eager it made 131 sectors (§97.9) | an eager row, `OP_COMP` if it pays |
-| **Pixelstein** part 4, art (37,440 → 8,890) | LAZY, packed by `pxsart.py` and expanded by a private `pxl_art` | an eager `OP_COMP` row; `pxl_art` and the private pack path go |
-| **Clear Skies** part 1, title art (10,480 → 4,487) | LAZY, packed by `csart.py` and expanded by a private `csl_art` (§88.10.4.1) | the same; `csl_art` goes |
+| **Pixelstein** part 3, levels (9,831 bytes) | LAZY and stored **plain** with a hand RLE, because eager it made 131 sectors (§97.9) | an eager row, `OP_COMP` if it pays — eager is right here, every launch needs the floors |
 | **DOS box** part 2, `kern_dos` (~29KB) | LAZY because the eager pair would be refused (§96.44.4.1) | nothing: the row is never fetched anyway, so it stays lazy for its other reason |
 | **Word** part 1 | its origin is capped so the carve stays under 65,024 (§68.10) | the cap is gone; the layout can stay |
 | **Video player** resident blocks | a block packing past 61,440 (`BLK_PACKED_MAX`) is written **stored** (`os88vid.py`) | the player can pass `OSAPI_LZ_BIG`; package bytes not measured |
