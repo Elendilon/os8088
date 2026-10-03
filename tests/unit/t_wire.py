@@ -488,7 +488,11 @@ def refusals(tmp):
     def many(n):
         names = []
         for j in range(n):
-            nm = "side%02d.dat" % j
+            nm = "SIDE%02d.DAT" % j     # as the catalog names it: --pack
+                                        # upper-cases a sidecar (8.3), and
+                                        # --verify opens that name, which a
+                                        # case-sensitive host does not find
+                                        # as side00.dat
             open(os.path.join(tmp, nm), "wb").write(b"x" * (j + 1))
             names.append(nm)
         m = json.loads(json.dumps(FIXTURE))
