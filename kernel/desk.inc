@@ -1511,6 +1511,13 @@ desk_draw_zone:
     push es
     mov ah, [gfx_color]         ; read ABOVE cw_thm_desk, which writes it
     push ax
+    push word [gfx_b1ink]       ; THE PEN, banked and put to rest: desk_col and
+    mov word [gfx_b1ink], CBLACK*256 + CWHITE   ; desk_cap emit with
+                                ; gfx_blit1, and the pen lives as long as the
+                                ; LOCK HOLD (SPEC.md 5.4.2.2) - a package's
+                                ; callback that set one and then repainted,
+                                ; or a drag's hold after a package's paint,
+                                ; drew every cell in that package's colours
     mov [desk_zdrv], al
     call desk_zone_xy
     jc .done                    ; not shown: nothing to draw
@@ -1524,6 +1531,7 @@ desk_draw_zone:
     call desk_col
     call desk_cap
 .done:
+    pop word [gfx_b1ink]
     pop ax
     mov [gfx_color], ah
     pop es

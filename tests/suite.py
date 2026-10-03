@@ -8187,6 +8187,17 @@ SOAK = [
         "dragged window keeps the dither, 1,019 px on Hercules and 1,588 "
         "on VGA.",
         needs=("marty",), timeout=600),
+    Row("deskpen", "soak", py("tests/deskpen.py"), 31.0,
+        "SPEC.md 5.4.2.2.2: the gfx_blit1 pen is scoped to a CALLBACK, not "
+        "to a lock hold, which is wider than one caller - a repaint pass "
+        "calls several packages' paints in one and a drag holds it from "
+        "press to release. A pen poked into the hold as a package would "
+        "leave it: at desk_draw_zone during a zoom's restore the cells must "
+        "match a whole repaint, and at wm_pkgcall before a package's "
+        "W_ONKEY its dispatcher must see the resting pen. VGA, the one "
+        "adapter that reads the pen. Red without either bank: 1,596 px in "
+        "the two drive cells, and the poked 0100 at the dispatcher.",
+        needs=("marty",), timeout=300),
     Row("deskclipsmall", "soak", py("tests/deskclip.py", "--small"), 50.0,
         "SPEC.md 11.91.6, kern_small's half: a cell the pass reveals NONE "
         "of is not drawn and marks nobody, and an in-place cell repaint "

@@ -347,6 +347,14 @@ wm_strseg:
 ; proc.
 ; -----------------------------------------------------------------------------
 wm_pkgcall:
+%ifdef KERN_BIG
+    push word [gfx_b1ink]       ; EVERY CALLBACK STARTS WITH THE RESTING PEN
+    mov word [gfx_b1ink], CBLACK*256 + CWHITE   ; (SPEC.md 5.4.2.2.2), and
+%endif                          ; the caller's comes back after it: the pen
+                                ; lives as long as the LOCK HOLD, and a repaint
+                                ; pass calls several packages' paints inside
+                                ; one - so a terminal's last attribute turned
+                                ; the next window's default-pen text its colour
     push word [gfx_mono1]       ; WHOSE CONTENT IS ABOUT TO BE DRAWN (SPEC.md
                                 ; 11.96.17.1), banked exactly as snap_cur is
                                 ; below and for its reason: a repaint pass
@@ -418,6 +426,9 @@ wm_pkgcall:
     pop word [gfx_mono1]        ; ...and the outer window's claim is back.
                                 ; A pop writes no flags either, which the
                                 ; callback's own CF depends on
+%ifdef KERN_BIG
+    pop word [gfx_b1ink]        ; ...and the outer pen (no flags either)
+%endif
     ret
 
 ; -----------------------------------------------------------------------------

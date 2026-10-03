@@ -4283,6 +4283,33 @@ read there at all (§5.4.2.2), and neither the Map Mask nor Set/Reset exists on
 a Hercules or a CGA. `[vid_mono]` is tested before any of this, exactly as it
 was.
 
+##### 5.4.2.2.2 A lock hold is not a caller: the pen is banked per callback
+
+**"Dies with the gfx lock" was the whole lifetime rule, and a lock hold is
+wider than one caller.** `ui_task` holds the lock around a whole event, a drag
+holds it from the press to the release, and a repaint pass calls several
+packages' paints inside one hold. So a package that set a pen and returned -
+a terminal leaving its last attribute run's colours, Tracker its scope ink -
+handed that pen to everything drawn after it in the hold: another package's
+default-pen text (Word, cword, RunCPM, the C64 and every other caller that
+never sets one) and the desktop's own drive cells, which `desk_draw_zone` emits
+with `gfx_blit1` since §26.9.9. Measured on a VGA XT: a pen left in the hold
+of a zoom's restore drew **1,596 pixels** of the cells wrong.
+
+So the pen is scoped twice, both on `kern_big` where the pen exists:
+
+- **`wm_pkgcall` banks it and puts it to rest around every callback** - a
+  package's callback starts with (`CWHITE`, `CBLACK`) and its caller's pen
+  comes back when it returns. A package's own pen therefore lasts as long as
+  the callback that set it, inside the hold.
+- **`desk_draw_zone` banks it and puts it to rest around its cell** - a
+  callback that sets a pen and then makes a call that repaints damage reaches
+  the cells inside its own callback, where the first rule cannot see it.
+
+A worker's hold is its own and `gfx_unlock` still ends it there, as before.
+Each is a word push, a word store and a word pop: measured, +20 bytes of
+`.text` and +14 of `.cold`, resident, crossing no rung.
+
 #### 5.4.2.3 …and the odd row it could not emit, latent since the pen landed
 
 **The complemented emit read the band one byte early on every row after the
