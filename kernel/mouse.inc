@@ -3224,12 +3224,12 @@ kbm_ui:
     jne .p5                     ; .p5 and NOT .out: nothing to release is the
     test byte [mouse_btn], 0x01 ; commonest pass there is, and it is exactly
     jz .p5                      ; the pass a fresh keypad-5 press arrives in
-    push ax
     and byte [mouse_btn], 0xFE  ; bit 1 is the right button's own latch, and is
     mov ax, EVT_MUP             ; released by its own key (SPEC.md 12.4)
-    call kbm_post
-    pop ax
-.p5:
+    call kbm_post               ; (AX is not banked: the header's contract is
+.p5:                            ; CLOBBERS EVERYTHING, AL was already spent at
+                                ; the top, and kbm_p5spend keeps its own AX -
+                                ; size pass 9)
     call kbm_p5spend            ; LAST, and after .relax: a press spent above
                                 ; the release would be taken back by the very
                                 ; pass that made it (SPEC.md 9.6.4)
