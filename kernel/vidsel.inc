@@ -1737,9 +1737,8 @@ vid_disp_of:
 ; display" is exactly the case it exists to correct.
 ; -----------------------------------------------------------------------------
 vid_disp_find:
-    push bx
-    push cx
-    push dx
+    push cx                     ; (BX is only READ here, so it is not banked -
+    push dx                     ; size pass 9; vid_span_one leans on that too)
     push di
     xor cl, cl                  ; CL = the display being tested, and DI walks
     mov di, vid_ctx             ; the records rather than vid_ctx_ptr deriving
@@ -1774,9 +1773,8 @@ vid_disp_find:
     cmc                         ; 1 on a miss - with AL = the count on a miss,
                                 ; which the header's "clobbers AX" allows
     pop di                      ; pop touches no flag, so the CF set above
-    pop dx                      ; survives all four
+    pop dx                      ; survives all three
     pop cx
-    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1824,32 +1822,31 @@ vid_pt_clamp:
     push cx
     push dx
     push di
-    push ax
+    push si
+    xchg ax, si                 ; SI = x
+    push bx                     ; ...and y, banked
     mov al, cl
-    call vid_ctx_ptr
-    pop ax
-    mov dx, [di+VID_CTX_VX]     ; x into [vx, vx + cw - 1]
-    cmp ax, dx
-    jge .xlo
-    mov ax, dx
+    call vid_ctx_rect           ; AX..DX = display CL's rect (size pass 9: the
+    cmp si, ax                  ; clamp is gfx_rect_isect's shape against the
+    jge .xlo                    ; one routine that builds the rect, rather
+    mov si, ax                  ; than a third copy of building it)
 .xlo:
-    add dx, [di+VID_CTX_CW]
-    dec dx
-    cmp ax, dx
+    cmp si, cx                  ; x into [vx, vx + cw - 1]
     jle .xok
-    mov ax, dx
+    mov si, cx
 .xok:
-    mov dx, [di+VID_CTX_VY]
-    cmp bx, dx
+    pop ax                      ; y into [vy, vy + ch - 1]
+    cmp ax, bx
     jge .ylo
-    mov bx, dx
+    mov ax, bx
 .ylo:
-    add dx, [di+VID_CTX_CH]
-    dec dx
-    cmp bx, dx
+    cmp ax, dx
     jle .yok
-    mov bx, dx
+    mov ax, dx
 .yok:
+    xchg ax, bx                 ; BX = y
+    xchg ax, si                 ; AX = x
+    pop si
     pop di
     pop dx
     pop cx
@@ -1907,8 +1904,10 @@ vid_pt_clamp:
 ; Control Panel then OFFERS the desktop radios that SPEC.md 47 says it must
 ; grey, fsx hands out a second page that is not there, and vid_disp_init takes
 ; the extend arm into an empty socket. Restored to two exits deliberately.
-; ...AND IT PRESERVES AH, which vid_disp_init now relies on: it loads the
-; primary's kind ONCE above its own branch and both arms below read it back.
+; ...AND IT PRESERVES AX, which vid_disp_init now relies on: it loads the
+; primary's kind ONCE above its own branch and both arms below read it back,
+; and since size pass 9 it asks vid_disp_other above the branch too, so AL
+; (the other display's kind) must survive this as well.
 vid_dual_ok:
     cmp byte [vid_kind], VID_EGA    ; EGA is a single-display adapter here
     je .no                          ; (SPEC.md 39.24: the per-display context
@@ -2019,6 +2018,11 @@ vid_disp_init:
     push ax
     push di
     mov ah, [vid_kind]          ; the primary, banked across the two applies -
+    call vid_disp_other         ; (AL = the other display's adapter, which is
+                                ; NOT simply the other of two kinds - see there,
+                                ; and see what a VGA's CGA bit means. Above the
+                                ; branch since size pass 9: every arm that
+                                ; goes on wants it, and vid_dual_ok keeps AL)
     call vid_dual_ok            ; ONE load above the branch, because both arms
     jnc .paired                 ; below want it and vid_dual_ok keeps AH (it
                                 ; is three compares, a clc and an stc)
@@ -2036,13 +2040,10 @@ vid_disp_init:
     cmp byte [vid_ndisp], 1
     je .jout                    ; nothing live: unchanged, and the boot path
                                 ; ...otherwise collapse it through the arm
-    call vid_disp_other         ; that already knows how. [vid_dmode] is kept:
-    jmp short .single           ; the arrangement is impossible on THIS
+    jmp short .single           ; that already knows how. [vid_dmode] is kept:
+                                ; the arrangement is impossible on THIS
                                 ; primary, not forgotten
 .paired:
-    call vid_disp_other         ; ...and AL = the other display's adapter, which
-                                ; is NOT simply the other of two kinds - see
-                                ; there, and see what a VGA's CGA bit means
     cmp byte [vid_dmode], 0
     jne .extend
 
@@ -2112,9 +2113,8 @@ cw_vid_span_wh:                 ; ...and gfx_blit1's door, from .cold
 
 vid_span_one:
     push ax
-    push bx
-    push si
-    push di
+    push si                     ; (no BX bank: nothing below writes it, and
+    push di                     ; vid_disp_of keeps it - size pass 9)
     mov si, ax                  ; SI = x1; vid_disp_of ANSWERS in AL
     call vid_disp_of            ; AL = the display holding (x1, y1)...
     call vid_ctx_ptr            ; DI = its record
@@ -2133,8 +2133,7 @@ vid_span_one:
     clc
 .out:
     pop di                      ; pop touches no flag, so the CF set above
-    pop si                      ; survives all four
-    pop bx
+    pop si                      ; survives all three
     pop ax
     ret
 .no:                            ; BELOW the epilogue on purpose: the common

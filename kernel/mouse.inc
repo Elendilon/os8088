@@ -2421,12 +2421,13 @@ kbm_btn:
     sub ax, [kbm_btick]         ; wrap-safe, like every other tick compare here
     cmp ax, KBM_GAP
     jb .held
-    xor byte [mouse_btn], 0x01
-    mov ax, EVT_MUP
-    test byte [mouse_btn], 0x01
-    jz .post
-    mov ax, EVT_MDOWN
-.post:
+    mov al, [mouse_btn]
+    xor al, 0x01
+    mov [mouse_btn], al
+    and ax, 0x01                ; 1 = now DOWN, which IS EVT_MDOWN: the event
+    jnz .post                   ; codes are published ABI (events.inc, every
+    mov al, EVT_MUP             ; package's os88api.inc), so 1 cannot move.
+.post:                          ; AH is already 0 for the up event
     call kbm_post
 .held:
     mov ax, [ticks]
@@ -3425,11 +3426,15 @@ mou_byte:
 .drainover:
     mov byte [mou_drain], 0     ; window over: this byte is live
 .live:
+    mov ah, [bx+mou_phase]      ; the phase ONCE, into the free half of AX: the
+                                ; five compares below are register ones (4
+                                ; clocks and 3 bytes where a memory compare is
+                                ; ~19 and 5 - size pass 9, and an ISR)
     test al, 0x40               ; bit 6 set -> first byte of a packet
     jz .cont
-    cmp byte [bx+mou_phase], 0  ; ...but MID-PACKET it is a resync, and a real
+    or ah, ah                   ; ...but MID-PACKET it is a resync, and a real
     je .b0                      ; mouse never causes one. Break the run of
-    cmp byte [bx+mou_phase], 3  ; clean packets (SPEC.md 9.5) - EXCEPT out of
+    cmp ah, 3                   ; clean packets (SPEC.md 9.5) - EXCEPT out of
     je .b0                      ; phase 3, which is a complete packet whose
     mov byte [bx+mou_run], 0    ; optional fourth byte simply never came
 .b0:                            ; (SPEC.md 9.5.4)
@@ -3439,16 +3444,16 @@ mou_byte:
     ret
 
 .cont:
-    cmp byte [bx+mou_phase], 1
+    cmp ah, 1
     jne .chk2
     mov [bx+mou_b1], al         ; second byte: X low 6 bits
     mov byte [bx+mou_phase], 2
     ret
 
 .chk2:
-    cmp byte [bx+mou_phase], 2  ; anything else is a stray byte - drop it, and
+    cmp ah, 2                   ; anything else is a stray byte - drop it, and
     je .pkt                     ; break the run for the same reason: a byte
-    cmp byte [bx+mou_phase], 3  ; with bit 6 clear arriving between packets is
+    cmp ah, 3                   ; with bit 6 clear arriving between packets is
     jne .stray                  ; a thing the protocol cannot produce...
     mov byte [bx+mou_phase], 0  ; ...UNLESS it is the FOURTH byte of a wheel
     ret                         ; mouse's packet, which is exactly a bit-6-clear
@@ -5001,21 +5006,17 @@ cur_move_mono:
     ; differ, and everything below is about where the CELL is (SPEC.md 7.2.2).
     ; A shape may only change while the cursor is hidden, so both cells here
     ; are the same shape's and the row test stays an honest subtraction.
-    mov ax, [cur_celly]
-    mov [mv_oy], ax
-    mov ax, [cur_cellx]
+    push ds                     ; cur_off, cur_rows, cur_b1ok, cur_cellx and
+    pop es                      ; cur_celly -> mv_ooff..mv_oy, one block (the
+    mov si, cur_off             ; %error beside mv_ooff pins the layout). DF
+    mov di, mv_ooff             ; is clear on every path here - the ISR's own
+    mov cx, 4                   ; cld, and this file's other string reads
+    rep movsw                   ; already assume it from task code
     mov cl, 3
-    shr ax, cl
-    mov [mv_d], ax              ; the OLD byte column, banked in the word that
+    shr word [mv_d], cl         ; the OLD byte column, banked in the word that
                                 ; will hold the DELTA: cur_geom clobbers DX
                                 ; and the new column is not known until it has
                                 ; run, so the subtraction moved below it
-    mov al, [cur_rows]
-    mov [mv_orows], al
-    mov al, [cur_b1ok]
-    mov [mv_ob1ok], al
-    mov ax, [cur_off]
-    mov [mv_ooff], ax
     mov ax, [cur_sptr]          ; the buffer holding the OLD background...
     mov [mv_osave], ax
     mov bx, cur_save            ; ...and the other one takes the new, so pass 2
@@ -5194,21 +5195,21 @@ cur_mvcols:
 ; out: [mv_orp] = a pointer into the old save buffer, or 0
 ; clobbers: ax, bx, flags
 cur_mvrow:
-    push dx
     mov ax, [cur_celly]         ; the NEW cell's top row (SPEC.md 7.2.2), not
     add ax, [mv_prow]           ; the pointer's y - [mv_oy] is the OLD cell's
     sub ax, [mv_oy]             ; AX = the row's index in the OLD cell
-    mov word [mv_orp], 0
     mov bl, [mv_orows]
     xor bh, bh
     cmp ax, bx
+    mov bx, 0                   ; (a MOV: the compare's flags survive it)
     jae .out                    ; unsigned: a row above it is a huge number
     add ax, ax                  ; CUR_SPAN bytes a row
     add ax, [mv_osave]
-    mov [mv_orp], ax
+    xchg ax, bx
 .out:
-    pop dx
-    ret
+    mov [mv_orp], bx            ; ONE store of the answer, where a zero was
+    ret                         ; stored first and then overwritten - and no
+                                ; DX bank: nothing here writes DX (size pass 9)
 
 ; cur_mvbg - one byte's background: the old save buffer if this column's
 ;            answer names an offset AND the old cell reaches this row,
@@ -5984,14 +5985,21 @@ absolute gfx_u                  ; ...and cur_move_mono's working set is a
                                 ; the rect block (cur_saveu -> vga_save_vram ->
                                 ; gfx_rect_setup). Every member below is written
                                 ; at the top of each move before it is read
-mv_oy       resw 1              ; cur_move's banked OLD geometry: top row,
-mv_ooff     resw 1              ; framebuffer offset, rows, right-byte clip
-mv_orows    resb 1
-mv_ob1ok    resb 1
+mv_ooff     resw 1              ; cur_move's banked OLD geometry: framebuffer
+mv_orows    resb 1              ; offset, rows, right-byte clip, cell column
+mv_ob1ok    resb 1              ; (then the delta - see mv_d) and top row. THE
+mv_d        resw 1              ; ORDER IS cur_off..cur_celly's, word for word:
+mv_oy       resw 1              ; cur_move_mono banks all five with one rep
+                                ; movsw (size pass 9). mv_d is the old CELL x
+                                ; as copied, its byte column after the shift
+                                ; that follows, and newcol - oldcol, signed,
+                                ; once cur_geom has run: the ONE number the
+                                ; four column answers below come out of
+%if mv_orows - mv_ooff != cur_rows - cur_off || mv_ob1ok - mv_ooff != cur_b1ok - cur_off || mv_d - mv_ooff != cur_cellx - cur_off || mv_oy - mv_ooff != cur_celly - cur_off || mv_oy - mv_ooff != 6
+  %error "mv_ooff..mv_oy must mirror cur_off..cur_celly exactly: cur_move_mono banks them with one 4-word rep movsw"
+%endif
 mv_osave    resw 1              ; -> the buffer holding the old background...
 mv_nsave    resw 1              ; ...and the one taking the new
-mv_d        resw 1              ; newcol - oldcol, signed: the ONE number the
-                                ; four column answers below come out of
 mv_p1s0     resb 1              ; pass 1 skips this old column (pass 2 has it)
 mv_p1s1     resb 1
 mv_p2s0     resb 1              ; pass 2's background offset in the old save,

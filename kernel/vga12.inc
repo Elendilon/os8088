@@ -428,30 +428,51 @@ gfx_clip_query:
 ; CLIPQ chooses the path. Armed, gfx_clip_run re-enters the raw body once per
 ; visible fragment; otherwise the cursor hide is spent here.
 ; -----------------------------------------------------------------------------
-%macro GFXCLIP 1
+%macro GFXCLIP 1                ; entry %1, falling into its body %1_d
 %ifdef GFXAUDIT
+%1:
     call gfx_aud                ; make GFXAUDIT=1: is the lock even held, and
     CLIPQ                       ; is IRQ4 inside this call? The tail jump below
     jne %%aclipped              ; becomes a CALL so the body has an end to
     CURUNLAZY                   ; count from - one stack word deeper than the
-    call %1                     ; kernel that ships, which is what a diagnostic
+    call %1_d                   ; kernel that ships, which is what a diagnostic
     jmp gfx_aud_end             ; build is allowed to be
 %%aclipped:
     push di
-    mov di, %1
+    mov di, %1_d
     call gfx_clip_run
     pop di
     jmp gfx_aud_end
 %else
+%1:
     CLIPQ                       ; clipped background draw? (SPEC.md 11.3)
-    jne %%clipped
+    jne %1_cl                   ; ...to the arm GFXCLIP_ARM put ABOVE this
     CURUNLAZY                   ; UNCLIPPED: this may write any pixel on the
-    jmp %1                      ; screen, so a deferred hide is owed (7.1.4)
-%%clipped:
+%endif                          ; screen, so a deferred hide is owed (7.1.4) -
+%endmacro                       ; and FALLS INTO %1_d, the next line
+
+; GFXCLIP_ARM - the clipped arm of entry %1, placed ABOVE the entry (size pass
+; 9) so that the unclipped path - every foreground draw in the machine - falls
+; through into its body instead of jumping over this: 3 bytes an entry and the
+; 15 cycles of that jump. Within short reach of GFXCLIP's `jne`.
+; ...and GFXDISP's multi-display arm with it, for the same reason one hook
+; down: the ONE-display machine is the one that falls through, so its `jbe`
+; over this arm (16 clocks taken) became a `ja` to it (4 not taken).
+%macro GFXCLIP_ARM 1
+%ifndef GFXAUDIT
+%1_cl:
     push di
-    mov di, %1
+    mov di, %1_d
     call gfx_clip_run
     pop di
+    ret
+%endif
+%ifdef KERN_BIG
+%1_raw_dsp:                     ; ...and the nested case (an outer hook already
+    push di                     ; translated it) is gfx_disp_run's first test,
+    mov di, %1_raw              ; not a second compare in GFXDISP: written once
+    call gfx_disp_run           ; rather than four times, and paid only on an
+    pop di                      ; extended desktop
     ret
 %endif
 %endmacro
@@ -460,7 +481,8 @@ gfx_clip_query:
 ; GFXDISP - the display hook, immediately BELOW a rect entry's GFXCLIP
 ;           (SPEC.md 39.14.1)
 ;
-;   gfx_fill:        GFXCLIP gfx_fill_d       ; clip, in VIRTUAL space
+;                    GFXCLIP_ARM gfx_fill     ; the two RARE arms, above
+;                    GFXCLIP gfx_fill         ; gfx_fill: clip, VIRTUAL space
 ;   gfx_fill_d:      GFXDISP gfx_fill_raw     ; split by display, then translate
 ;   gfx_fill_raw:    ...
 ;
@@ -472,9 +494,10 @@ gfx_clip_query:
 ; everywhere else. The dual-display plan said "above"; it was written before
 ; the clip's coordinate space had been thought about.
 ;
-; ONE DISPLAY COSTS A COMPARE AND A TAKEN BRANCH, then falls straight through
-; into the body - the bargain [vid_mono] and [wm_clip_n] already make. On
-; kern_small it expands to nothing at all.
+; ONE DISPLAY COSTS A COMPARE AND AN UNTAKEN BRANCH, then falls straight
+; through into the body - the bargain [vid_mono] and [wm_clip_n] already make
+; (it was a TAKEN one over the arm until size pass 9 moved the arm above the
+; entry). On kern_small it expands to nothing at all.
 ;
 ; [gfx_dnest] is what lets this compose with 39.14.2's whole-shape hooks: a
 ; font_run that has already translated falls back to gfx_fill + font_str, and
@@ -506,15 +529,9 @@ gfx_clip_query:
 %macro GFXDISP 1
 %ifdef KERN_BIG
     cmp byte [vid_ndisp], 1
-    jbe %%one                   ; one display: the rect is already local
-    push di                     ; ...and the NESTED case (an outer hook already
-    mov di, %1                  ; translated it) is gfx_disp_run's first test,
-    call gfx_disp_run           ; not a second compare here: written once
-    pop di                      ; rather than four times, and paid only on an
-    ret                         ; extended desktop (size pass 9)
-%%one:
-%endif
-%endmacro
+    ja %1_dsp                   ; more than one display: GFXCLIP_ARM's second
+%endif                          ; arm. One display: the rect is already local,
+%endmacro                       ; and this falls into the raw body
 
 %ifdef KERN_BIG
 ; .text with real initialisers: -f bin zeroes nothing, and every drawing call
@@ -689,16 +706,12 @@ gfx_dent_out:
     ret
 
 gfx_disp_enter_cd:
-    push ax                     ; the same, with the anchor in CX/DX - and
-    push bx                     ; nested it writes back what it was handed,
-    mov ax, cx                  ; because gfx_disp_enter left AX/BX alone
-    mov bx, dx
-    call gfx_disp_enter
-    mov cx, ax
-    mov dx, bx
-    pop bx
-    pop ax
-    ret
+    xchg ax, cx                 ; the same, with the anchor in CX/DX - and
+    xchg bx, dx                 ; nested it writes back what it was handed,
+    call gfx_disp_enter         ; because gfx_disp_enter left AX/BX alone. It
+    xchg ax, cx                 ; keeps CX/DX, so the swap back restores the
+    xchg bx, dx                 ; caller's AX/BX (size pass 9: exchanges, not
+    ret                         ; four moves and a push/pop pair)
 
 ; -----------------------------------------------------------------------------
 ; gfx_denter / gfx_denter_rect / gfx_dleave - what GFXDENTER, GFXDORG and
@@ -1949,15 +1962,14 @@ gfx_blit4:
     shr di, 1
     add di, si
     mov al, [es:di]
-    test dl, 1
-    jnz .lo                     ; an even pixel is the HIGH nibble
-    mov cl, 4
-    shr al, cl
+    mov cl, 4                   ; (ABOVE the branch, so the pair shift below
+    test dl, 1                  ; finds it too - one `mov cl, 4` on both
+    jnz .lo                     ; paths where the even one paid two)
+    shr al, cl                  ; an even pixel is the HIGH nibble
 .lo:
     and al, 0Fh
     mov [gfx_blit_c], al
     mov ah, al
-    mov cl, 4
     shl ah, cl
     or ah, al
     mov [gfx_blit_pb], ah
@@ -1983,13 +1995,11 @@ gfx_blit4:
     cld
     repe scasb
     mov ax, di                  ; `mov` leaves scasb's ZF alone, and the
-    jne .mism                   ; branch has to read it before anything else
-    sub ax, [gfx_blit_s0]       ; does: every byte matched
-    jmp short .have
-.mism:
-    dec ax                      ; the mismatch sits at DI-1, so it is not
-    sub ax, [gfx_blit_s0]       ; part of the run
-.have:
+    je .have                    ; branch has to read it before anything else
+    dec ax                      ; does. A MISMATCH sits at DI-1, so it is not
+.have:                          ; part of the run; every byte matched is DI.
+    sub ax, [gfx_blit_s0]       ; One `sub` for both (size pass 9: -6 bytes,
+                                ; and each path one jump cheaper)
     add ax, ax                  ; bytes matched -> pixels
     add [gfx_blit_e], ax
 .tail:
@@ -2077,9 +2087,10 @@ gfx_blit4:
     pop si
 %endif
 .nextrow:
-    mov ax, [gfx_blit_sv]       ; next source row
-    add ax, bp
-    mov [gfx_blit_sv], ax
+    add [gfx_blit_sv], bp       ; next source row (one read-modify-write,
+                                ; where a load, an add and a store were: AX is
+                                ; not live here - .row banks it before using
+                                ; it and every run path has spent it)
     inc bx                      ; next destination row
     dec word [gfx_blit_h]
     jnz .row
@@ -3138,8 +3149,8 @@ vga_sr_dq:
 ; out:      -
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
-gfx_fill:
-    GFXCLIP gfx_fill_d
+    GFXCLIP_ARM gfx_fill
+    GFXCLIP gfx_fill
 gfx_fill_d:
     GFXDISP gfx_fill_raw
 gfx_fill_raw:
@@ -3532,8 +3543,8 @@ gfx_sp_next:
 ; every package and on every C package through os88thunk.asm. Do not re-derive
 ; it: docs/plans/LAST-DROP-BYTES.md 7.6 carries the numbers and the flip condition.
 ; -----------------------------------------------------------------------------
-gfx_fill_gray:
-    GFXCLIP gfx_fill_gray_d
+    GFXCLIP_ARM gfx_fill_gray
+    GFXCLIP gfx_fill_gray
 gfx_fill_gray_d:
     GFXDISP gfx_fill_gray_raw
 %ifndef GFX_VGA
@@ -3657,20 +3668,28 @@ gfx_fill_gray_raw:                              ; only renderer gfx_fill_gray ha
 ; pointer and always was; giving it a segment would put one on every kernel
 ; caller of a primitive that is drawn per fragment.
 ; -----------------------------------------------------------------------------
+    GFXCLIP_ARM gfx_fill_pat    ; gfx_fill_pat's clipped arm sits HERE, above
+                                ; the slot that falls into the entry, because
+                                ; nothing may sit between the two
 osapi_gfx_fill_pat:
     push ax
     push cx
     push si
     push di
-    mov di, api_pat
-    mov cx, 8
+    mov di, gfx_patbuf          ; ...straight into the STAGING buffer, which
+    mov cx, 8                   ; is what api_pat was for: gfx_pat_stage below
+                                ; then copies the eight bytes onto themselves
+                                ; (SI = DI, harmless), and api_pat's 8 bytes of
+                                ; .bss go (size pass 9). Nothing else writes
+                                ; gfx_patbuf, and the one kernel caller of
+                                ; gfx_fill_pat (files.inc) names its own
 .copy:
     mov al, [es:si]
     mov [di], al
     inc si
     inc di
     loop .copy
-    mov word [gfx_pat], api_pat
+    mov word [gfx_pat], gfx_patbuf
     pop di
     pop si
     pop cx
@@ -3680,8 +3699,7 @@ osapi_gfx_fill_pat:
                                 ; gfx_fill_pat / ret`, four bytes to reach the
                                 ; label on the next line.  NOTHING MAY BE
                                 ; INSERTED BETWEEN THESE TWO LABELS
-gfx_fill_pat:
-    GFXCLIP gfx_fill_pat_d
+    GFXCLIP gfx_fill_pat
 gfx_fill_pat_d:
     GFXDISP gfx_fill_pat_raw
 %ifndef GFX_VGA
@@ -3925,8 +3943,8 @@ gfx_xor_strips:
 ; out:      -
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
-gfx_xor_fill:
-    GFXCLIP gfx_xor_fill_d
+    GFXCLIP_ARM gfx_xor_fill
+    GFXCLIP gfx_xor_fill
 gfx_xor_fill_d:
     GFXDISP gfx_xor_fill_raw
 gfx_xor_fill_raw:
@@ -4011,10 +4029,11 @@ vga_save_vram:                              ; only renderer gfx_save has
     push bp
     call gfx_rect_setup
     jc .done
-    mov byte [vga_plane], 0
-.plane:
+    mov bl, [vga_pn]            ; BL = the planes the caller armed, BH = this
+    xor bh, bh                  ; one: a register pair where a .bss byte was
+.plane:                         ; three memory operands a plane (size pass 9)
     mov dx, VGA_GC
-    mov ah, [vga_plane]
+    mov ah, bh
     mov al, 4                   ; GC4: Read Map Select
     out dx, ax
     mov si, [gfx_roff]
@@ -4032,9 +4051,8 @@ vga_save_vram:                              ; only renderer gfx_save has
     dec dx
     jnz .row
     pop ds
-    inc byte [vga_plane]
-    mov al, [vga_pn]            ; ...as many planes as the caller armed
-    cmp [vga_plane], al
+    inc bh
+    cmp bh, bl                  ; ...as many planes as the caller armed
     jb .plane
     mov dx, VGA_GC
     mov ax, 0x0004              ; GC4 back to plane 0 (default)
@@ -4263,11 +4281,13 @@ vga_restore_vram:                              ; only renderer gfx_restore has
     add si, [gfx_sub_st]        ; the SUB-RECT restore (SPEC.md 5.8), and 0 at
                                 ; rest: DS is still KERNEL_SEG out here, so
                                 ; this one needs no override
-    mov al, [vga_pm]            ; plane mask bit, 1/2/4/8 - or 0Fh, which is
-    mov [vga_plane], al         ; ONE pass into all four (SPEC.md 11.96.17)
+    mov bl, [vga_pm]            ; plane mask bit, 1/2/4/8 - or 0Fh, which is
+                                ; ONE pass into all four (SPEC.md 11.96.17).
+                                ; In BL, which nothing below touches, and not
+                                ; in a .bss byte (size pass 9)
 .plane:
     mov dx, VGA_SEQ
-    mov ah, [vga_plane]
+    mov ah, bl
     mov al, 2                   ; SEQ2: Map Mask = this plane only
     out dx, ax
     mov di, [gfx_roff]
@@ -4292,10 +4312,8 @@ vga_restore_vram:                              ; only renderer gfx_restore has
     pop ds
     add si, [gfx_sub_ps]        ; ...and past the rows this rect does not cover
                                 ; (DS is KERNEL_SEG again by here)
-    mov al, [vga_plane]
-    add al, al                  ; next plane bit
-    mov [vga_plane], al
-    cmp al, 0x10
+    shl bl, 1                   ; next plane bit
+    cmp bl, 0x10
     jb .plane
     mov dx, VGA_SEQ
     mov ax, 0x0F02              ; SEQ2: Map Mask back to all planes
@@ -4834,9 +4852,8 @@ gfx_scroll:
     mov cl, 3
     shr ax, cl
     mov [vgas_col], ax           ; left byte column
-    pop ax                      ; AX = x2
-    inc ax
-    mov cl, 3
+    pop ax                      ; AX = x2 (and CL is still the 3 above:
+    inc ax                      ; CX went to the stack and came back in AX)
     shr ax, cl
     sub ax, [vgas_col]
     mov [vgas_nb], ax            ; bytes per row
@@ -4885,9 +4902,9 @@ gfx_scroll:
 ; in:       DX = target segment; the vgas_* geometry
 ; clobbers: AX/BX/CX/DX/SI/DI, flags (gfx_scroll banked the caller's)
 ; -----------------------------------------------------------------------------
-vgas_lincopy:
-    push ds
-    mov es, dx
+vgas_lincopy:                   ; (no DS bank: every row puts DS back to CS,
+    mov es, dx                  ; which is what it was on entry - kernel code
+                                ; runs with DS = CS - size pass 9)
 %ifdef SCROLL_ROWBASE           ; the reference form: two muls a row (SPEC 5.5.1)
     mov ax, [vgas_rows]
     mov [vgas_left], ax
@@ -4954,7 +4971,6 @@ vgas_lincopy:
     dec word [vgas_left]
     jnz .r
 %endif
-    pop ds
     ret
 %endif
 
@@ -4964,8 +4980,7 @@ vgas_lincopy:
 ; in:       the vgas_* geometry; target = [vid_rseg]
 ; clobbers: AX/BX/CX/DX/SI/DI, flags
 ; -----------------------------------------------------------------------------
-vgas_bankcopy:
-    push ds
+vgas_bankcopy:                  ; (no DS bank, for vgas_lincopy's reason)
     mov es, [vid_rseg]
     mov ax, [vgas_rows]
     mov [vgas_left], ax
@@ -5038,15 +5053,9 @@ vgas_bankcopy:
     dec word [vgas_left]
     jnz .r
 .out:
-    pop ds
     ret
 
 section .bss
-
-api_pat:     resb 8             ; osapi_gfx_fill_pat's staging slot: a
-                                ; package's eight pattern bytes, copied into
-                                ; the kernel's segment because gfx_pat_stage
-                                ; reads them through DS
 
 ; --- THE PRIMITIVE UNION (size pass 9) -------------------------------------
 ; Five working sets that are each the scratch of ONE top-level primitive -
@@ -5210,7 +5219,6 @@ gfx_bpfn:    resw 1             ; the fragment walk's piece (5.4.3.6): 0 is
                                 ; gfx_bppiece only while a planar walk runs
 %endif
 
-vga_plane       resb 1          ; save/restore plane counter / mask bit
 vga_xorm        resb 1          ; vga_solid_rect: 0 = replace, 1 = XOR. The
                                 ; ONE difference between gfx_fill_raw's VGA
                                 ; body and gfx_xor_fill_raw's, and both heads
