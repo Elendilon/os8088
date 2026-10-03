@@ -1322,8 +1322,9 @@ ui_rdown:                       ; CX = press x, DX = press y, loaded by
 ;      the window; gfx lock HELD, UI task, billed by ui_bill around it
 ; out: nothing; clobbers everything fm_docmd does, which ui_bill allows
 ;
-; fm_rcmd_x's body without its register bracket and its far return: ui_bill
-; banks what it needs on the stack, and wm_pkgcall's `.near` arm calls a
+; It replaced files.inc's fm_rcmd_x, a register bracket and a far return round
+; the same three lines: ui_bill banks what it needs on the stack, and
+; wm_pkgcall's `.near` arm calls a
 ; kernel window's handler through wm_cbd's near `call bp` - so the handler is
 ; a `.cold` offset and ends in a near `ret`, which fm_docmd's own is.
 ; -----------------------------------------------------------------------------

@@ -4532,7 +4532,7 @@ drv_boot_x:
     xor dh, dh                  ; DH = how many, DL = how many so far
     xor cl, cl
 .count:
-    call .want                  ; a row with a file that is wanted?
+    call drv_boot_want          ; a row with a file that is wanted?
     je .cskip
     inc dh
 .cskip:
@@ -4543,7 +4543,7 @@ drv_boot_x:
 
     xor cl, cl
 .next:
-    call .want                  ; a row with a file that is wanted?
+    call drv_boot_want          ; a row with a file that is wanted?
     je .skip
     inc dl                      ; ...and NAME it, before the sectors start
     mov al, dl
@@ -4587,7 +4587,7 @@ drv_boot_x:
     ; about a floppy it does not need.
     xor cx, cx
 .dnext:
-    call .want                  ; a row with a file that is wanted?
+    call drv_boot_want          ; a row with a file that is wanted?
     je .dskip
     mov byte [bx+DRVR_ERR], DRVE_DISK
     mov byte [drv_nerr], 1
@@ -4602,13 +4602,13 @@ drv_boot_x:
     pop bx
     pop ax
     retf
-.want:                          ; CL = a row: ZF = 1 when it has no file or is
+drv_boot_want:                  ; CL = a row: ZF = 1 when it has no file or is
     mov al, cl                  ; not wanted, else BX = it - the one question
-    call COLD_SEG:drvf_drv_row  ; all three walks above ask (CH is 0 in each)
-    cmp word [bx+DRVR_FILE], 0
-    je .wret
-    cmp byte [bx+DRVR_WANT], 0
-.wret:
+    call COLD_SEG:drvf_drv_row  ; all three walks above ask (CH is 0 in each).
+    cmp word [bx+DRVR_FILE], 0  ; A ROUTINE OF ITS OWN and not a local of
+    je .wret                    ; drv_boot_x: a near `ret` inside a far
+    cmp byte [bx+DRVR_WANT], 0  ; routine's extent makes os88ovlchk read its
+.wret:                          ; return kind as mixed and skip the check
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4826,13 +4826,9 @@ section .modc
 ; HERE, in the settings CORE (.modc), and not beside the page in .modu: both
 ; are called from cpc_save, and MOD_SETS loads the core ALONE for a desktop
 ; gesture's save - so the core may name nothing of the panel's (SPEC.md
-; 2.8.7). The page only sets [cs:cp_fdbsd], which the panel may: .modu names
-; .modc freely, and on a core-only load the byte is the image's 0.
+; 2.8.7). The page only sets [cp_fdbsd], a RESIDENT byte (ctrl.inc), so a
+; save that fails and is retried on a later load still owes what it owed.
 ; =============================================================================
-cp_fdbsd:  db 0                 ; the Reads row changed this session: the
-                                ; boot sector's byte is owed, and a Cylinder
-                                ; pick is tested. In the IMAGE, so every load
-                                ; of the module starts it at 0
 cp_fdno:   db 0                 ; cpc_fdtest turned Cylinder back to Auto:
                                 ; cp_flush_x says so after the save
 cp_fdn:    db 0                 ; cpc_fdtest's track count
@@ -4876,7 +4872,7 @@ cp_fdnop:  dw cp_s_fdno         ; ...through this, which cp_flush_x reads cs:
 cpc_fdret:                      ; the five early refusals' `ret`, in short
     ret                         ; reach of them (it was 230 bytes away)
 cpc_fdtest:
-    cmp byte [cs:cp_fdbsd], 0
+    cmp byte [cp_fdbsd], 0
     je cpc_fdret
     cmp byte [drv_cfg+CFG_FDR], 2
     jne cpc_fdret
@@ -4993,7 +4989,7 @@ cpc_fdtest:
 ; b2_cylok says it never looked; this one without SYSTEM.CFG's is a canary
 ; run on a 286, which is what the canary is for.
 ;
-; Owed only when the Reads row changed this session ([cs:cp_fdbsd]), so a
+; Owed only when the Reads row changed this session ([cp_fdbsd]), so a
 ; save over any other setting pays nothing for it - and written only when the
 ; byte differs, so a pick changed and changed back pays one read. A hard
 ; disk's sector 0 is boothd's and its boot never reaches the gate, and a
@@ -5001,7 +4997,7 @@ cpc_fdtest:
 ; this tree wrote: both are left alone, and that is not a failure.
 ; -----------------------------------------------------------------------------
 cpc_fdbs:
-    cmp byte [cs:cp_fdbsd], 0
+    cmp byte [cp_fdbsd], 0
     je .ret                     ; nothing owed (CF = 0: equal)
     test byte [dsk_unit], 0x80
     jnz .ret                    ; a hard disk's (CF = 0: test clears it)
@@ -5031,7 +5027,7 @@ cpc_fdbs:
     call COLD_SEG:dskf_disk_write   ; CX and BX survive: dsk_xfer is KENT
     jc .err
 .done:
-    mov byte [cs:cp_fdbsd], 0
+    mov byte [cp_fdbsd], 0
     clc
     jmp short .out
 .err:
@@ -5105,14 +5101,15 @@ drv_pkg_call_x:
     mov al, bh
     cmp al, 1
     jb .none
-    cmp al, DRVC_MAX
-    ja .none
+    cmp al, DRVC_MAX            ; DRVC_POINT IS DRVC_MAX and has no drv_svc
+    jae .none                   ; slot (drv_cls_svc_x refuses it too): its
+                                ; index would be 4, past the table's four
     dec ax                      ; AL >= 1, so AH is not touched
     cmp al, DRVC_RETIRED3       ; ...the same compaction, inline
     jb .lo
     dec ax                      ; ...and AL >= 3 here
 .lo:
-    mov ah, DSV_SIZE            ; AL <= 4: the BYTE multiply, which leaves DX
+    mov ah, DSV_SIZE            ; AL <= 3: the BYTE multiply, which leaves DX
     mul ah                      ; alone - two bytes and ~70 cycles where the
     xchg ax, di                 ; word one with DX banked round it was eight
                                 ; and ~150 (kernel size pass 9)

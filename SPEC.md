@@ -59815,8 +59815,18 @@ it, because the call was inside the `CFG_SAVE` macro and the checker skips
 macro bodies: a core-only save would have called into unclaimed heap.)
 
 **What remains is the hard-disk boot**, where nothing verifies the run at
-boot: the save's test is the one check it gets, made on the machine the user
-was at.
+all. The save's test does not reach it: the system disk it reads is the hard
+disk, and `ovl_fdd_apply` has already put the pick into `boot_cylrun`, which
+`cpc_fdtest` reads as a boot that crossed a head. So on a hard-disk boot
+Cylinder is the user's word and nothing else, as the table above says - a
+floppy read across a head on a ROM that ignores the parameter-table patch
+returns the other head's sectors there, and the pick is the user's to make
+only for a machine they know crosses heads correctly.
+
+The owed byte (`[cp_fdbsd]`) is RESIDENT, beside `[cp_wdirty]`: a save that
+fails leaves both owed, and a retry from a later load of `CTRL.DRV` tests the
+pick and writes byte 509 as the first attempt would have. And a failed save's
+own toast stands - `No Cylinder Here: Auto` replaces only `Settings Saved`.
 
 **Nothing resident reads the record.** `CFG_FDD` (two bits per unit, unit *n*
 at bits 2*n*..2*n*+1, value = the menu index) and `CFG_FDR` live in `drv_cfg`
@@ -161603,7 +161613,12 @@ blits. S / Save Report writes REDLINE.TXT in the instance's current directory;
 In Detailed, Home, End, Up, Down and PgUp/PgDn browse the report. The About handler returns
 to the provenance. The existing benchlib source is shared, including PIT latch,
 32-bit accumulation, empty-body subtraction, overflow flags, pagination and save.
-Slow bodies fall back to ticks; lab resize explicitly uses method T. All
+Slow bodies fall back to ticks; lab resize explicitly uses method T. A
+method-P row first runs ONE untimed iteration with interrupts on, and a body
+that spans two ticks or more there goes to method T without the timed P pass:
+`bl_time` holds IRQ0 off for each iteration, and on a 4.77 MHz machine the
+discarded P pass of the slow rows was ~40 s a pass with the clock losing
+every tick of it. All
 graphics use OS slots and a clipped 256x64 or 256x128 canvas inside a separate native
 Graphics Lab on VGA, Hercules and CGA. The report
 states adapter/geometry and timing method. Comparisons are per workload; graphics

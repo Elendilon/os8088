@@ -2422,9 +2422,8 @@ kbm_btn:
     sub ax, [kbm_btick]         ; wrap-safe, like every other tick compare here
     cmp ax, KBM_GAP
     jb .held
-    mov al, [mouse_btn]
-    xor al, 0x01
-    mov [mouse_btn], al
+    xor byte [mouse_btn], 0x01  ; ONE read-modify-write: mou_apply stores
+    mov al, [mouse_btn]         ; this byte from an ISR and the USB worker
     and ax, 0x01                ; 1 = now DOWN, which IS EVT_MDOWN: the event
     jnz .post                   ; codes are published ABI (events.inc, every
     mov al, EVT_MUP             ; package's os88api.inc), so 1 cannot move.

@@ -250,6 +250,9 @@ FDBODY fdlg_open_x
     xor ax, ax
     mov [fdlg_act], al          ; no answer yet
     mov [fdlg_name], al
+%ifdef KERN_SMALL
+    mov [fdlg_down], al         ; a press the last chooser never saw released
+%endif                          ; (an Escape mid-press) is not this one's
     or si, si                   ; the caller's default wins...
     jnz .setname
     call fdlg_hidx              ; ...else the name this app last committed,
@@ -259,6 +262,17 @@ FDBODY fdlg_open_x
     mov di, fdlg_name
     call fdlg_cpy
 .named:
+    mov bx, fm_pool             ; A NEW FOLDER OR RENAME PROMPT IN ANY DISK
+    mov cx, FM_NSLOT            ; WINDOW ENDS HERE: modes 1 and 2 type into
+.endp:                          ; fm_ebuf, which this chooser's box is about
+    mov al, [bx+FS_EDIT]        ; to own, and fm_edit_end spares every block
+    dec ax                      ; but the chooser's while it is up (38.5) - so
+    cmp al, 1                   ; the prompt would stay armed over the
+    ja .keepp                   ; chooser's text and its Enter rename the file
+    mov byte [bx+FS_EDIT], 0    ; to it. Modes 3-7 keep their state elsewhere
+.keepp:                         ; (a Clone's claim, a paste's buffer) and stand
+    add bx, FS_SIZE
+    loop .endp
 
     call fdlg_seed              ; AL = volume, DX = folder, SI = its name|0
     mov [fdlg_sdrv], al         ; where it OPENED, so a cancel that never
@@ -575,7 +589,8 @@ fdlg_commit:
     mov ax, [fdlg_rqcb]
     or ax, ax
     jz .out
-    push word [snd_inst]        ; the callback is the PACKAGE's code, so its
+    mov di, [fdlg_rqrec]        ; snd_disp_set's input: fdlg_home_save SPENT
+    push word [snd_inst]        ; DI. The callback is the PACKAGE's code, so its
     call KERNEL_SEG:cw_snd_disp_set ; sound stamp is the requester's (34.3)
     push es                     ; the callback owes us nothing (SPEC.md
     push bp                     ; 38.6), and ES is the one register the
@@ -760,6 +775,10 @@ fdlg_h_sel:
 fdlg_h_commit:
     call fdlg_bank
 fdlg_save:
+    mov bx, [fdlg_blk]          ; a FAILED mount is nowhere to save: the
+    cmp byte [bx+FS_MOK], 0     ; commit would fall back to the folder the
+    je fdlg_beep                ; chooser opened on (fdlg_close) and write the
+                                ; file there (BX is fdlg_hook_x's to restore)
     cmp byte [fdlg_name], 0
     jne fdlg_post_commit
 fdlg_beep:

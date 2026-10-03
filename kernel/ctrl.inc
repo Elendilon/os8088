@@ -310,6 +310,15 @@ cp_dsave:   db 0                ; the last SYSTEM.CFG write: 0 = fine, 1 =
                                 ; to be found next session; what is left of
                                 ; its old job is telling cp_flush_close_x
                                 ; whether to keep [cp_wdirty] and retry
+%ifdef OS88_DRIVERS
+cp_fdbsd:   db 0                ; the Reads row changed (SPEC.md 31.14): byte
+                                ; 509 is owed and a Cylinder pick is tested.
+                                ; RESIDENT, beside [cp_wdirty], because it is
+                                ; owed exactly as long as that is: in the
+                                ; module's image a failed save dropped it
+                                ; with the image, and the retry [cp_wdirty]
+                                ; promises wrote SYSTEM.CFG and neither
+%endif
 
 ; The selected item, as a RECORD index into cp_items - never as a position in
 ; the drawn list (SPEC.md 31.10.1). That distinction is what lets a hidden row
@@ -3447,7 +3456,7 @@ cp_fdd_click:
     cmp ah, [drv_cfg+CFG_FDR]
     je .done
     mov [drv_cfg+CFG_FDR], ah
-    mov byte [cs:cp_fdbsd], 1   ; ...and the boot sector's byte is owed too
+    mov byte [cp_fdbsd], 1   ; ...and the boot sector's byte is owed too
     jmp short .changed
 .drv:
     mov cl, bl
@@ -5084,7 +5093,9 @@ cp_flush_x:
 %ifdef OS88_DRIVERS
     cmp byte [cs:cp_fdno], 0    ; ...unless the save turned Cylinder back to
     je .said                    ; Auto (SPEC.md 31.14): that is the news, and
-    mov byte [cs:cp_fdno], 0    ; it replaces 'Settings Saved' on the bar
+    mov byte [cs:cp_fdno], 0    ; it replaces 'Settings Saved' on the bar -
+    cmp byte [cp_dsave], 0      ; but never a FAILED save's line, which is the
+    jne .said                   ; news the user has to act on
     push cs
     pop es                      ; the line is this image's: a toast copies it
     mov si, [cs:cp_fdnop]       ; a POINTER to image data, read `cs:` - the

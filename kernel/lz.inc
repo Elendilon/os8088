@@ -512,10 +512,14 @@ lz_len:
 .x:
     lodsb                       ; AH stays 0: `lodsb` loads AL alone
     add cx, ax
-    cmp al, 255
-    je .x
-.done:
+    jc .sat                     ; past a word: no encoder writes one, and an
+    cmp al, 255                 ; all-0xFF window would spin here for ever -
+    je .x                       ; `lodsb` wraps SI and never slides DS, which
+.done:                          ; the 24-bit door (bit 7) made reachable
     ret
+.sat:
+    sbb cx, cx                  ; CF=1: CX = 0xFFFF, the longest legal length,
+    ret                         ; and lz_take bounds what follows
 %endif
 
 %ifdef LZ_HAVE_LZB
@@ -574,8 +578,12 @@ lz_lzb:
 .g:
     LZ_GETBIT
     adc ax, ax
-    LZ_GETBIT
+    jc .gsat                    ; a gamma past a word: lz_len's .sat, for the
+    LZ_GETBIT                   ; same all-ones window
     jc .g
+    ret
+.gsat:
+    sbb ax, ax                  ; CF=1: AX = 0xFFFF
     ret
 %endif
 

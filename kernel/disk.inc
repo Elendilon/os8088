@@ -8355,7 +8355,7 @@ dkf_dsk_chdir_q:     call dsk_chdir_q_x
                  retf
 dkf_dsk_copy_seg:    call dsk_copy_seg_x
                  retf
-dkf_dsk_vol_fixed:   call dsk_vol_fixed_x
+dkf_dsk_vol_fixed:   call dsk_vol_fixed_x    ; kern_dos's (kerndos/kdentry.inc)
                  retf
 dkf_dsk_vol_slot:    call dsk_vol_slot_x
                  retf

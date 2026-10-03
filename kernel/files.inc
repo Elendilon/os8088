@@ -5892,29 +5892,6 @@ fm_rclick_x:
 .out:
     jmp kretfc_di
 
-; -----------------------------------------------------------------------------
-; fm_rcmd - run the command fm_rclick latched
-; in:  nothing ([fm_rcmdid], [fm_cmdwin] and [fm_vp] set by fm_rclick);
-;      gfx lock HELD, UI task, billed to the owning instance
-; out: nothing (all registers preserved)
-;
-; The billed half of the pair. It goes through fm_docmd, so a command picked
-; from the popup is byte-for-byte the command picked from the bar - same
-; body, same deferral through inst_launch_post / ui_post_cmd for the ones
-; that need the lock this handler is standing on.
-; -----------------------------------------------------------------------------
-fm_rcmd_x:
-    call kentc_di               ; KENT: push ax..di
-
-
-
-
-
-    mov bl, [fm_rcmdid]
-    xor bh, bh
-    call fm_docmd
-    jmp kretfc_di
-
 ; =============================================================================
 ; The status-line name editor (SPEC.md 22)
 ; =============================================================================
