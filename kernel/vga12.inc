@@ -2193,7 +2193,6 @@ gfx_blit4:
     mov ax, [di+VID_CTX_VX]     ; on BELOW, so a NON-ZERO VX names the axis
     or ax, ax                   ; (39.19.2) and no mode byte has to be read
     jz .cutv
-    mov [gfx_blit_sm], ax
     mov di, ax                  ; ...and in DI, where the arithmetic wants it
     pop ax
 
@@ -2203,20 +2202,19 @@ gfx_blit4:
     cmp di, cx
     jge .cutd0                  ; all of them: display 0 does
     test di, 1
-    jnz .hkdone                 ; AN ODD CUT (see above): the second half's
+    jnz .hkdonej                ; AN ODD CUT (see above): the second half's
                                 ; source would start on a LOW nibble, which no
                                 ; path below can take. 39.14.7's mechanism is
                                 ; still correct and is what happens
-    mov [gfx_blit_n1], di
     push cx
     mov cx, di                  ; --- the left half, on display 0
     mov byte [gfx_blit_fd], 1
-    call gfx_blit4
-    pop cx
-    mov di, [gfx_blit_n1]
-    sub cx, di                  ; --- and the right half, on display 1,
-    mov ax, [gfx_blit_sm]       ; whose source is n/2 BYTES along
-    shr di, 1
+    call gfx_blit4              ; ...which gives back EVERY register, DI and AX
+    pop cx                      ; included - so the cut needs no banked state:
+    sub cx, di                  ; --- the right half, on display 1, starts at
+    add ax, di                  ; x + n, which IS the seam, and its source is
+    shr di, 1                   ; n/2 BYTES along (size pass 9: this banked n
+                                ; and the seam in two words it never needed)
     add si, di
     jmp short .cutd1            ; ...which is the second half's whole story
 
@@ -2228,22 +2226,19 @@ gfx_blit4:
     ; being added to SI.
 .cutv:
     mov ax, [di+VID_CTX_VY]
-    mov [gfx_blit_sm], ax
     mov di, ax
     pop ax
     sub di, bx                  ; DI = rows of this block above the seam
     jle .cutd1
     cmp di, dx
     jge .cutd0
-    mov [gfx_blit_n1], di
     push dx
     mov dx, di                  ; --- the top half, on display 0
     mov byte [gfx_blit_fd], 1
-    call gfx_blit4
+    call gfx_blit4              ; (every register back, as above)
     pop dx
-    mov di, [gfx_blit_n1]
-    sub dx, di                  ; --- and the bottom half, on display 1,
-    mov bx, [gfx_blit_sm]       ; whose source is n STRIDES along
+    sub dx, di                  ; --- and the bottom half, on display 1, at
+    add bx, di                  ; y + n = the seam, its source n STRIDES along
     push ax
     push dx
     mov ax, di
@@ -2269,7 +2264,8 @@ gfx_blit4:
     dec dl
     call gfx_disp_enter_n
     pop dx
-    jmp .hkdone
+.hkdonej:                       ; ...and the odd cut's way back, in reach of its
+    jmp .hkdone                 ; short `jnz` where .hkdone itself is not
 %endif
 %endif
 %ifdef GFX_VGA
@@ -5147,11 +5143,6 @@ gfx_blit_hk: resb 1             ; did THIS call take the whole-shape display
 %if gfx_blit_hk - gfx_blit_fst != 1
   %error "gfx_blit_fst/gfx_blit_hk must stay adjacent, fst first: gfx_blit4 clears both with one word store"
 %endif
-gfx_blit_sm: resw 1             ; SPEC.md 39.14.7.2's CUT: the seam, and the
-gfx_blit_n1: resw 1             ; half left of it, banked across the first of
-                                ; the two calls. Both are written before they
-                                ; are read; [gfx_blit_fd] is NOT, and is in
-                                ; .text with the rest of that kind
 %endif
 %ifdef GFX_PLANE
 gfx_blit_rn: resw 1             ; SPEC.md 5.4.1.3's pricing: runs emitted in
