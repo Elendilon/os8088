@@ -947,93 +947,75 @@ dsk_bpb_slot:
 ; out: CF = 0 and dsk_bpb + [dsk_sigcur] filled with NO disk read;
 ;      CF = 1 = read the boot sector the ordinary way
 ; clobbers: flags
+;
+; dsk_bpb_bank_put - remember [disk_drive]'s validated BPB, if it is fixed
+; out: nothing; every register preserved
+; clobbers: flags - its one caller, disk_mount_x, reads none across it
+;
+; ONE BODY, the direction in DX: the two halves gate on the same question
+; (a floppy outside a batch is neither banked nor trusted, SPEC.md 18.9.3),
+; bank the same registers, ask dsk_bpb_slot the same thing and end in the same
+; `rep movsw` with SI and DI the other way round. They were two routines that
+; each spelled all of that out, and put banked the flags as well for a caller
+; that never read them.
 ; -----------------------------------------------------------------------------
+dsk_bpb_bank_put:
+    stc                         ; PUT...
+    jmp short dsk_bpb_bank
 dsk_bpb_bank_get:
+    clc                         ; ...or GET
+dsk_bpb_bank:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    sbb dx, dx                  ; DX = 0 GET, 0xFFFF PUT (`push` writes no flag)
     cmp byte [dsk_vflop], 1
     jne .ok                     ; a floppy is the one that can be swapped, so
     cmp byte [dsk_batch], 0     ; it needs the CALLER's assertion that it has
-    je .no                      ; not been (SPEC.md 18.9.3)
+    je .no                      ; not been (SPEC.md 18.9.3), either way
 .ok:
-    push ax
-    push bx
-    push cx
-    push si
-    push di
-    push es
     call dsk_bpb_slot           ; BX = the row, AX = its slot, ES:CX:DF set
-    jc .nopop
+    jc .no
+    or dx, dx
+    jnz .put
     cmp byte [bx+dsk_bpbok], 0  ; 1 permanent or 2 batch-scoped; a 2 that
-    je .nopop                   ; outlived its batch was cleared at the next
+    je .no                      ; outlived its batch was cleared at the next
                                 ; begin, so reaching one here means this batch
                                 ; took it
-    add bx, bx
-    mov si, [bx+dsk_bpbsg]      ; the signature, banked with the head
-    mov [dsk_sigcur], si
+    add bx, bx                  ; (CF = 0 out of it: the GET's answer, which
+    mov si, [bx+dsk_bpbsg]      ; nothing below writes)
+    mov [dsk_sigcur], si        ; the signature, banked with the head
     mov si, ax
-    mov di, dsk_bpbh
-    rep movsw                   ; the staged head
+    mov di, dsk_bpbh            ; the staged head
     mov byte [dsk_bpbpre], 1    ; ...so dsk_bpb_check skips rules 1-2 and the
-    clc                         ; staging, and only those
-    jmp short .pop              ; (a pop writes no flag: one run, two answers)
-.nopop:
-    stc
-.pop:
-    pop es
-    pop di
-    pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
-.no:
-    stc
-    ret
-
-; -----------------------------------------------------------------------------
-; dsk_bpb_bank_put - remember [disk_drive]'s validated BPB, if it is fixed
-; out: nothing; every register AND the flags preserved
-; -----------------------------------------------------------------------------
-dsk_bpb_bank_put:
-    pushf                       ; FIRST - the flags are part of the contract,
-                                ; and the common exit (a floppy outside a
-                                ; batch) is a compare away from clobbering
-                                ; the CF a caller may be carrying
-    cmp byte [dsk_vflop], 1
-    jne .keep                   ; a floppy is banked only inside a batch, and
-    cmp byte [dsk_batch], 0     ; only for as long as it runs (SPEC.md 18.9.3)
-    jne .keep
-    popf
-    ret
-.keep:
-    push ax
-    push bx
-    push cx
-    push si
-    push di
-    push es
-    call dsk_bpb_slot           ; BX = the row, AX = its slot, ES:CX:DF set
-    jc .done
+    jmp short .move             ; staging, and only those
+.put:
     mov di, ax
-    add bx, bx
     mov si, [dsk_sigcur]
+    add bx, bx
     mov [bx+dsk_bpbsg], si
     shr bx, 1
-    mov byte [bx+dsk_bpbok], 1  ; 1 = permanent...
-    cmp byte [dsk_vflop], 1
-    jne .fixed
-    mov byte [bx+dsk_bpbok], 2  ; ...2 = only for as long as this batch runs
-.fixed:
+    mov al, [dsk_vflop]         ; 1 = permanent (a fixed volume, vflop 0)...
+    inc ax                      ; ...2 = only for as long as this batch runs
+    mov [bx+dsk_bpbok], al      ; (a floppy, vflop 1)
     mov si, dsk_bpbh
+.move:
     rep movsw
-.done:
+    jmp short .out
+.no:
+    stc
+.out:
     pop es
     pop di
     pop si
+    pop dx
     pop cx
     pop bx
     pop ax
-    popf
-.out:
     ret
 section .text                   ; DATA, so back to the kernel segment
                                 ; (SPEC.md 2.6 rule 1)

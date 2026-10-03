@@ -271,6 +271,14 @@ FDE_TOP     equ 6
 ;           that is a near `ret` against a far frame - so the image carries its
 ;           own ladder. On kern_big they are `equ` ALIASES of kernel.asm's, so
 ;           that build pays NOTHING for this: not one byte, not one cycle.
+;   FDENT   ...and the shared PROLOGUE: `FDENT kentc_di` is `push ax..di` and
+;           `FDENT kentc_bp` that and `push bp`, through kernel.asm's helpers
+;           on kern_big (a near `.cold` call, 3 bytes against 6 or 7 pushes)
+;           and through the image's own copies of them, fdk_kentc_*, on
+;           kern_small - the epilogue ladder's reason, one end along. The
+;           argument is the kernel's name on BOTH builds because that is what
+;           tools/stkbalance.py reads through a `call %1` macro: the net push
+;           it charges the call is kentc_*'s own declared one
 ; =============================================================================
 %ifdef FDLG_MOD
   %macro FDBODY 1
@@ -287,6 +295,9 @@ xd_ %+ %1:
     call %1
     retf
   %endmacro
+  %macro FDENT 1
+    call fdk_ %+ %1
+  %endmacro
 %else
   %macro FDBODY 1
 %1:
@@ -298,6 +309,9 @@ xd_ %+ %1:
     call ct_ %+ %1
   %endmacro
   %macro FDXF 1
+  %endmacro
+  %macro FDENT 1
+    call %1
   %endmacro
 %endif
 
@@ -357,6 +371,38 @@ fdk_dx:     pop dx
             pop bx
             pop ax
             ret
+
+%ifdef FDLG_MOD
+; ...and kernel.asm's two prologue helpers, for the same reason one end along
+; (FDENT above): byte for byte kentc_di and kentc_bp. kern_big needs no copy -
+; its FDENT calls the kernel's own, which sits in the same `.cold` segment.
+fdk_kentc_di:
+    ; STKBALANCE-NET: +6 - banks AX..DI on the CALLER's stack; its epilogue pops them
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov di, sp
+    push word [ss:di+10]
+    mov [ss:di+10], ax
+    mov di, [ss:di]
+    ret
+
+fdk_kentc_bp:
+    ; STKBALANCE-NET: +7 - banks AX..BP on the CALLER's stack; its epilogue pops them
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    mov bp, sp
+    push word [bp+12]
+    mov [bp+12], ax
+    mov bp, [bp]
+    ret
+%endif
 
 
 ; -----------------------------------------------------------------------------
@@ -452,12 +498,7 @@ fdlg_vfree:
     ret
 
 FDBODY fdlg_open_x
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    FDENT kentc_di
 
     cmp word [fdlg_win], 0
     jne .ref                    ; the gate is a single word on purpose: no
@@ -779,12 +820,7 @@ fdlg_home_dir:
 ; requesting package's segment (SPEC.md 20.1) and stosb writes through it.
 ; -----------------------------------------------------------------------------
 fdlg_home_save:
-    push ax
-    push bx
-    push cx
-    push dx                     ; ...for fdk_di's sake, as fdlg_setname
-    push si
-    push di
+    FDENT kentc_di
     call fdlg_home_dir          ; the folder; the row itself comes back below
     call fdlg_hidx              ; SI -> this instance's name row
     jc .out
@@ -935,12 +971,7 @@ FDBODY fdlg_top_x
 ; menu_check reverts to Locator, which is the right answer then.
 ; -----------------------------------------------------------------------------
 fdlg_close:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    FDENT kentc_di
     mov bx, [fdlg_win]
     or bx, bx
     jz .out
@@ -975,12 +1006,7 @@ fdlg_close:
 ; to land in a freed record.
 ; -----------------------------------------------------------------------------
 fdlg_commit:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    FDENT kentc_di
     call fdlg_sizeof            ; DX:CX = what the READ will deliver (SPEC.md
                                 ; 20.14.3: the unpacked size for a compressed
                                 ; file), 0 if this listing has no such file -
@@ -1668,12 +1694,8 @@ fdlg_defbtn:
 
 ; -----------------------------------------------------------------------------
 fdlg_btn:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si                     ; SI is os88ui_btn's own and it banks it; it is
-    push di                     ; pushed so the whole epilogue is fdk_di's
+    FDENT kentc_di              ; SI is os88ui_btn's own and it banks it; it is
+                                ; banked so the whole epilogue is fdk_di's
     or ah, ah                   ; THE FLAG WORD IS FOLDED FIRST, while AX still
     jz .live                    ; holds it - the greying is the one bit that
     or al, OS88UI_DIS           ; arrives separately, and doing it here instead
@@ -1751,13 +1773,7 @@ fdlg_btn:
 ; words do not fit one 63px line.
 ; -----------------------------------------------------------------------------
 fdlg_btn2:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    FDENT kentc_bp
     mov bp, bx                  ; BP = the button top (a value, never an
                                 ; address: SS is not DS, SPEC.md 1)
     mov byte [gfx_color], CWHITE ; the pressed look (SPEC.md 13.8), drawn rather
@@ -1827,13 +1843,7 @@ fdlg_blabel:
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 FDBODY fdlg_paint_x
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    FDENT kentc_bp
 
     call fdlg_orig              ; the layout cache, from SI's window
 
@@ -2049,13 +2059,7 @@ fdlg_draw_both:
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 fdlg_draw_rows:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    FDENT kentc_bp
 
     mov ax, [disk_nfiles]       ; AX = total rows
     sub ax, [fdlg_scrl]         ; shown = min(total - scroll, FD_ROWS)
@@ -2310,12 +2314,7 @@ fdlg_act:
 ; per keystroke.
 ; -----------------------------------------------------------------------------
 fdlg_newfolder:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    FDENT kentc_di
     cmp byte [fdlg_nmode], 0
     jne .create
 
@@ -2717,12 +2716,8 @@ fdlg_pick:
 ; would draw into a dead one (SPEC.md 13.8.2's rule, with teeth here).
 ; -----------------------------------------------------------------------------
 fdlg_onup_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si                     ; SI is the window and comes back unchanged;
-    push di                     ; it is pushed for fdk_di's sake, as fdlg_btn
+    FDENT kentc_di              ; SI is the window and comes back unchanged;
+                                ; it is banked for fdk_di's sake, as fdlg_btn
     call fdlg_pt                ; CX = content y, DX = content x
 %ifdef OS88UI_SBDRAG
     FDX os88ui_sbdragging      ; SPEC.md 13.10.5: the release COMMITS, and
@@ -2798,12 +2793,7 @@ fdlg_bact:
 ; the arm has to survive this and be there for the release.
 ; -----------------------------------------------------------------------------
 fdlg_ondrag_x:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si                     ; ...as fdlg_onup_x, and for its reason
-    push di
+    FDENT kentc_di              ; ...as fdlg_onup_x, and for its reason
 %ifdef OS88UI_SBDRAG
     FDX os88ui_sbdragging      ; SPEC.md 13.10.5: a live thumb drag owns this
     jc .btn                     ; movement whole
@@ -2930,12 +2920,7 @@ fdlg_setdown:
 ; kernel's here too).
 ; -----------------------------------------------------------------------------
 fdlg_btn1:
-    push ax
-    push bx
-    push cx
-    push dx                     ; ...for fdk_di's sake, as fdlg_setname
-    push si
-    push di
+    FDENT kentc_di
     mov di, ax                  ; DI = which
     xor cx, cx                  ; CL = the extra flags
     cmp ax, [fdlg_down]
