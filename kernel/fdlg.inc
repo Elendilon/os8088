@@ -1136,7 +1136,8 @@ fdlg_setname:
     push bx
     push cx
     push dx                     ; DX is not used here: it is pushed so the
-    push si                     ; whole epilogue is fdk_si's two bytes
+    push si                     ; whole epilogue is fdk_di's two bytes
+    push di
     xor bx, bx
     xor cx, cx                  ; CX counts what came out different
 .copy:
@@ -1145,36 +1146,34 @@ fdlg_setname:
     jz .done
     cmp bx, FD_NAMEMAX
     jae .done
-    cmp al, [bx+fdlg_name]
-    je .same
-    inc cx
-.same:
-    mov [bx+fdlg_name], al
+    lea di, [bx+fdlg_name]
+    call .put
     inc bx
     inc si
     jmp short .copy
 .done:
-    cmp byte [bx+fdlg_name], 0  ; the terminator: a SHORTER name differs here
-    je .tsame                   ; and nowhere above
-    inc cx
-.tsame:
-    mov byte [bx+fdlg_name], 0
-    cmp [fdlg_nlen], bl
-    je .lsame
-    inc cx
-.lsame:
-    mov [fdlg_nlen], bl
-    cmp [fdlg_ncur], bl         ; a name arriving whole puts the caret after
-    je .csame                   ; it, which is where typing continues - and
-    inc cx                      ; moving the caret alone is a redraw
-.csame:
-    mov [fdlg_ncur], bl
+    lea di, [bx+fdlg_name]      ; the terminator (AL = 0 here): a SHORTER name
+    call .put                   ; differs there and nowhere above
+    mov al, bl
+    mov di, fdlg_nlen
+    call .put
+    inc di                      ; fdlg_ncur, the byte after (the %error at the
+    call .put                   ; .bss): a name arriving whole puts the caret
+                                ; after it, which is where typing continues -
+                                ; and moving the caret alone is a redraw
     neg cx                      ; CF = 1 for EVERY non-zero CX and clear for
                                 ; zero, which is this routine's whole answer in
                                 ; one instruction - and CX is banked, so what
                                 ; it negates is dead. `or cx, cx / jz / stc /
                                 ; jmp / clc` was the same fact in eight bytes
-    jmp fdk_si
+    jmp fdk_di
+.put:                           ; [DI] := AL, counting it in CX if it differs:
+    cmp [di], al                ; the one compare-and-store all four stores
+    je .same                    ; above are (-9)
+    inc cx
+.same:
+    mov [di], al
+    ret
 
 ; -----------------------------------------------------------------------------
 ; THE DISPLAY ROW COUNT IS [disk_nfiles] (SPEC.md 38.4), read in place.
@@ -1778,12 +1777,15 @@ fdlg_btn2:
     FDENT kentc_bp
     mov bp, bx                  ; BP = the button top (a value, never an
                                 ; address: SS is not DS, SPEC.md 1)
-    mov byte [gfx_color], CWHITE ; the pressed look (SPEC.md 13.8), drawn rather
-    test al, OS88UI_DOWN        ; than XOR-ed: interior black, both labels
+    test al, OS88UI_DOWN        ; the pressed look (SPEC.md 13.8), drawn rather
+    mov al, CWHITE              ; than XOR-ed: interior black, both labels
     jz .bed                     ; white, same frame. It is written out here
-    mov byte [gfx_color], CBLACK ; and not taken from os88ui_btn because this
+    mov al, CBLACK              ; and not taken from os88ui_btn because this
 .bed:                           ; is a TWO-LINE button and that routine centres
-    push ax                     ; ONE label in both axes - but the FILL itself
+    mov [gfx_color], al         ; ONE label in both axes. The bed IS the
+    mov [fdlg_paper], al        ; captions' paper, set now - nothing before
+                                ; fdlg_blabel reads it - so the ink below is
+                                ; read back from it. But the FILL itself
     mov ax, FD_BX1              ; is unconditional, exactly as OS88UI_FILL is
     mov bx, bp                  ; on both of fdlg_setdown's edges: the ground
     mov cx, FD_BX2              ; under the one coming back UP is a pressed
@@ -1801,12 +1803,9 @@ fdlg_btn2:
     inc dx
     mov byte [gfx_color], CBLACK
     FDK cw_gfx_frame
-    pop ax
-    test al, OS88UI_DOWN        ; ...and the two captions in white over it
-    jz .ink
-    mov byte [gfx_color], CWHITE
-    mov byte [fdlg_paper], CBLACK   ; ...on the ground this branch just filled
-.ink:
+    mov al, [fdlg_paper]        ; ...and the two captions in the OTHER colour
+    xor al, CWHITE ^ CBLACK     ; over the bed: white on a pressed one, black
+    mov [gfx_color], al         ; on an up one (-8)
     mov dx, bp
     add dx, FD_BT1
     call fdlg_blabel            ; SI = the upper label
@@ -2313,11 +2312,11 @@ fdlg_act:
 ; -----------------------------------------------------------------------------
 fdlg_newfolder:
     FDENT kentc_di
-    cmp byte [fdlg_nmode], 0
+    mov si, fdlg_name           ; ONCE for all three users below: fdlg_ncopy
+    cmp byte [fdlg_nmode], 0    ; and dskw_mkdir_x keep it (-6)
     jne .create
 
     ; --- first click: park the file name and empty the box ------------------
-    mov si, fdlg_name
     mov di, fdlg_nsave
     call fdlg_ncopy
     mov al, [fdlg_nlen]
@@ -2330,10 +2329,9 @@ fdlg_newfolder:
 .create:
     cmp byte [fdlg_nlen], 0
     je .beep                    ; an empty name is not a folder name
-    mov si, fdlg_name
     FDX dskw_mkdir_x           ; CF=1 with AX = FERR_*; on success it has
     jc .beep                    ; already remounted (SPEC.md 18.5), so the
-    mov si, fdlg_name           ; listing below is the fresh one
+                                ; listing below is the fresh one
     call fdlg_findname          ; AX = its first cluster, CF=1 = not found
     jc .restore
     mov dl, [disk_drive]
@@ -2546,10 +2544,8 @@ FDBODY fdlg_onkey_x
     cmp al, 32
     jb .outj
 
-    mov bl, [fdlg_nlen]
-    xor bh, bh
-    cmp bl, FD_NAMEMAX
-    jae .outj
+    cmp byte [fdlg_nlen], FD_NAMEMAX
+    jae .outj                    ; full (fdlg_nins reads the length itself)
     cmp al, '.'
     jne .plain
     cmp byte [fdlg_ncur], 0
@@ -2571,17 +2567,15 @@ FDBODY fdlg_onkey_x
                                 ; plus near-jmp, five bytes
 
 .bksp:                          ; BACKSPACE IS LEFT THEN DELETE, so it walks
-    cmp byte [fdlg_ncur], 0     ; the caret back and FALLS INTO the forward
-    je .out                     ; delete rather than carrying a second copy
-    dec byte [fdlg_ncur]        ; of it. Nothing to the left of the caret is
-.kdel:                          ; the one case that leaves early
+.kleft:                         ; the caret back and FALLS INTO the forward
+    cmp byte [fdlg_ncur], 0     ; delete rather than carrying a second copy
+    je .out                     ; of it. Nothing to the left of the caret is
+    dec byte [fdlg_ncur]        ; the one case that leaves early. LEFT is the
+    cmp al, 8                   ; same walk and stops there: it arrives with
+    jne .rname                  ; AL = 0 (an extended key), Backspace with 8
+.kdel:
     call fdlg_ndel              ; forward delete: the caret stays put
     jmp .rname
-.kleft:
-    cmp byte [fdlg_ncur], 0
-    je .out
-    dec byte [fdlg_ncur]
-    jmp short .rname
 .kright:
     mov al, [fdlg_ncur]
     cmp al, [fdlg_nlen]
@@ -2634,16 +2628,13 @@ fdlg_nins:
     sub cl, [fdlg_ncur]
     xor ch, ch                  ; CX = the characters right of the caret
     inc bx                      ; ...and the terminator moves with them
+    inc cx
 .mv:
     mov al, [bx+fdlg_name-1]
     mov [bx+fdlg_name], al
     dec bx
-    jcxz .place
-    dec cx
-    jmp short .mv
-.place:
-    mov bl, [fdlg_ncur]
-    xor bh, bh
+    loop .mv                    ; nlen-ncur+1 moves from nlen+1 down, so BX
+                                ; ends AT the caret: no reload
     mov [bx+fdlg_name], dl
     inc byte [fdlg_nlen]
     inc byte [fdlg_ncur]
@@ -3278,6 +3269,9 @@ fdlg_nlen:  resb 1              ; its length, 0..12
                                 ; of either name knows, and tests/fdlggrey.py
                                 ; asks os88sym for each one by name
 fdlg_ncur:  resb 1              ; ...the CARET, 0..[fdlg_nlen]: the
+%if fdlg_ncur - fdlg_nlen != 1
+  %error "fdlg_nclear zeroes fdlg_nlen and fdlg_ncur as one word and fdlg_setname reaches the caret with `inc di`: keep fdlg_ncur the byte after fdlg_nlen"
+%endif
                                 ; character it sits in front of. Typing,
                                 ; backspace and delete all act here, which is
                                 ; what makes the box an editor rather than an
