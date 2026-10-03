@@ -1474,9 +1474,10 @@ dsk_xfer:
                                 ; batching below pushed .fail out of short
                                 ; range
 .success:                       ; ...and the success arm, HERE below that
-    clc                         ; jump, where the driver's `jnc` and .sector's
-    jmp .out                    ; `jz` reach it short: at the foot it was two
-                                ; five-byte inverted pairs (-5 net)
+    cmp word [dsk_bnc_si], 0    ; jump, where the driver's `jnc` and .sector's
+    jne .unbounce               ; `jz` reach it short: at the foot it was two
+    clc                         ; five-byte inverted pairs (-5 net). A bounced
+    jmp .out                    ; sector arrives here too, its pass done
 
 .sector:
     test si, si
@@ -1632,6 +1633,8 @@ dsk_xfer:
 .runtrk:
     mov bp, ax
     call dsk_runcap             ; BP = min(BP, what the BUFFER allows)
+    or bp, bp
+    jz .bounce                  ; ...which is NOTHING: see .bounce
 %ifdef FLOPPY_ONE
     mov bp, 1                   ; FLOPPY1=1: one sector a call, the pre-18.91
                                 ; transfer, for A/B-ing this on real iron
@@ -1812,7 +1815,75 @@ dsk_xfer:
     add bx, ax                  ; ...advances the destination
     jmp .sector
 
+    ; --- ONE SECTOR THE 8237 CANNOT CARRY, through dsk_secbuf (18.91.4) ---
+    ; dsk_runcap answered 0: the caller's buffer is not 512-aligned and the
+    ; sector at ES:BX runs across a 64KB physical page, which int 13h answers
+    ; with 09h. SPEC.md 18.4.1 lets a caller hand the file layer a buffer at
+    ; any offset, and dskw_runadd stages this case for an append and a read
+    ; (18.4.2.1) - but WRITE_AT's inside arm and every dsk_read_chain caller
+    ; reach the transfer with the caller's ES:BX, so it is staged HERE, once,
+    ; for everyone. The sector re-enters .sector as a one-sector transfer of
+    ; the scratch (512-aligned, so it cannot straddle) and .success puts the
+    ; caller's buffer back. NOT a recursive dsk_xfer: its head calls
+    ; fpg_busy, which may draw, and a draw inside this sch_lock can wait on a
+    ; gfx lock another task holds. dsk_secbuf is free: no caller of a
+    ; transfer on a buffer of its own holds a live sector there across it.
+.bounce:
+    pop ax                      ; the head pushed for DH: .sector recomputes it
+    mov [dsk_bnc_es], es
+    mov [dsk_bnc_bx], bx
+    mov [dsk_bnc_si], si        ; >= 1 here, so non-zero IS "bouncing"
+    mov al, 0x03
+    call .bcp                   ; a write's sector into the scratch
+    push ss
+    pop es                      ; ES:BX = LOW_SEG:dsk_secbuf, the sector's
+    mov bx, dsk_secbuf          ; new home for one pass
+    mov si, 1                   ; this one sector, then .success
+    jmp .sector
+.unbounce:
+    mov al, 0x02
+    call .bcp                   ; a read's sector out to the caller
+    mov es, [dsk_bnc_es]
+    mov bx, [dsk_bnc_bx]
+    xor si, si
+    xchg si, [dsk_bnc_si]       ; the count back, and the flag down
+    add bx, 512                 ; DI was advanced by the bounced pass, and the
+    dec si                      ; notch counted it: only the caller's own
+    jmp .sector                 ; cursor and count are left to move
+.bcp:                           ; AL = the op that copies at this end
+    cmp [dsk_op], al
+    jne .bret
+    push ds
+    push si
+    push di
+    push ss
+    pop es
+    mov di, dsk_secbuf          ; ES:DI = the scratch...
+    mov si, [dsk_bnc_bx]
+    mov ds, [dsk_bnc_es]        ; ...DS:SI = the caller's sector (no kernel
+    cmp al, 0x02                ; variable is read until the pop)
+    jne .bgo
+    push ds                     ; a read goes the other way
+    push es
+    pop ds
+    pop es
+    xchg si, di
+.bgo:
+    mov cx, 256
+    cld
+    rep movsw
+    pop di
+    pop si
+    pop ds
+.bret:
+    ret
+
 .fail:
+    cmp word [dsk_bnc_si], 0    ; a bounced sector that failed: the caller's
+    je .fnb                     ; ES goes back (the frame restores the rest)
+    mov word [dsk_bnc_si], 0
+    mov es, [dsk_bnc_es]
+.fnb:
     call dsk_bpb_bank_zap       ; an I/O error is exactly the shape "this is
     stc                         ; not the disk you think it is" arrives in
 .out:
@@ -1829,7 +1900,8 @@ dsk_xfer:
 ; -----------------------------------------------------------------------------
 ; dsk_runcap - cap a transfer run to what the BUFFER allows (SPEC.md 18.91)
 ; in:  BP = the run the track and the caller allow, ES:BX = the buffer
-; out: BP = that, capped by the 64KB DMA page and by BX's own 16 bits; never 0
+; out: BP = that, capped by the 64KB DMA page and by BX's own 16 bits; 0 =
+;      not even one sector fits the page (an unaligned base at its edge)
 ; clobbers: nothing but BP (the output) and flags
 ;
 ; Two limits, and the first is the one this optimisation INTRODUCES: a single
@@ -1868,14 +1940,10 @@ dsk_runcap:
     jae .capped
     mov ax, dx                  ; whichever bites first
 .capped:
-    or ax, ax
-    jnz .cmp
-    mov ax, 1                   ; only reachable from a base that is not
-                                ; 512-aligned, which SPEC.md 2.4 forbids -
-                                ; and one sector is what that buffer got
-                                ; before this optimisation existed
-.cmp:
-    cmp ax, bp
+    cmp ax, bp                  ; 0 only from a base that is NOT 512-aligned
+                                ; with under a sector to the page end: BP = 0
+                                ; then, and dsk_xfer bounces that one sector
+                                ; through dsk_secbuf (SPEC.md 18.91.4)
     jae .out                    ; the track was the tighter bound
     mov bp, ax
 .out:
@@ -9060,6 +9128,13 @@ dsk_run:      resw 1            ; sectors in the int 13h call being issued
                                 ; nothing can be inside it twice
 dsk_ioerr:    resb 1            ; status (AH) of the last FAILED transfer;
                                 ; 03h = write-protected media (SPEC.md 18.4)
+dsk_bnc_si:   resw 1            ; non-zero = .sector is moving ONE sector
+                                ; through dsk_secbuf for a caller buffer that
+                                ; straddles a 64KB page (SPEC.md 18.91.4), and
+                                ; it is the caller's count, put back with...
+dsk_bnc_es:   resw 1            ; ...its ES:BX when that pass is done. Module
+dsk_bnc_bx:   resw 1            ; scratch on dsk_op's terms: sch_lock is held
+                                ; across the whole transfer
 ; --- the transfer's volume, banked once per dsk_xfer (SPEC.md 52.10.3) -------
 ; Module scratch on dsk_op's terms exactly: sch_lock is held across the whole
 ; transfer, so nothing can be inside dsk_xfer twice and one copy of each is

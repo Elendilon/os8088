@@ -32496,6 +32496,36 @@ two paths.** A bound proved safe on one is a hypothesis about the other, and
 `tests/diskclone.py` is where that hypothesis gets tested, because a clone is
 the only thing that writes like a boot reads.
 
+#### 18.91.4 …and ONE sector across a 64KB page goes through `dsk_secbuf`
+
+`dsk_runcap` caps a run at the 64KB physical page, and a base that is
+512-aligned can never put one sector across one. §18.4.1 lets a caller hand
+the file layer a buffer at **any** offset, though, and an unaligned buffer
+whose page end is under a sector away has no legal transfer at all: int 13h
+answers it with **09h**, and `FERR_IO` reaches the user as `Disk error`.
+
+`dskw_runadd` stages that case for an append and a whole-file read
+(§18.4.2.1), but two paths reach `dsk_xfer` with the caller's own ES:BX:
+`OSAPI_FILE_WRITE_AT`'s INSIDE arm (§18.4.7) through `dsk_write_chain_x`, and
+every `dsk_read_chain_x` caller. Until this `dsk_runcap` answered **1** there
+("only reachable from a base SPEC.md 2.4 forbids") and the transfer failed.
+It was found when kernel size pass 9 moved the heap floor 512 bytes down and
+a streamed Compress (§22.22.5) - whose header is rewritten at `(ES-1):8` at
+the end - put that sector at `2FE0:0008`: `tests/lzbig.py`'s BIG3 and BIG4
+went red on the identical code that passed with the floor one rung higher.
+
+So `dsk_runcap` answers **0**, and `dsk_xfer` banks the caller's ES, BX and
+count in `dsk_bnc_*` (the count, never 0 there, doubling as the flag), copies the sector into `dsk_secbuf` for a write, and
+sends **that one sector** round `.sector` again with ES:BX on the scratch -
+which is 512-aligned and cannot straddle. `.success` then puts the caller's
+buffer back, copies the sector out for a read, and carries on with the rest
+of the run; `.fail` puts the caller's ES back. It is staged in the LOOP and
+not by calling `dsk_xfer` again, because the routine's head calls `fpg_busy`,
+which may draw, and a draw inside `[sch_lock]` can wait on a gfx lock another
+task holds. At most one sector per 64KB of caller buffer is staged, and a
+512-aligned base (every buffer of the kernel's own making, `clo_size`'s and
+`cmz`'s rounded ones) never reaches it.
+
 ### 18.92 The diskette parameter table is OURS, and EOT is why
 
 **int 1Eh is not an interrupt.** It is a far pointer to an 11-byte table the
