@@ -4016,8 +4016,9 @@ cur_vis:
 cur_put_1:
     cmp byte [vid_mono], 0
     jne cur_put_mono
-    call cur_saveu
-    jmp cur_draw
+    call cur_geom               ; the NEW cell's geometry FIRST: cur_saveu's
+    call cur_saveu              ; cur_rect reads it out of [cur_cellx/y], and
+    jmp cur_draw                ; cur_draw out of [cur_off] (size pass 9)
 
 ; -----------------------------------------------------------------------------
 ; cur_put_mono - save the cell under the cursor and draw the arrow into it, in
@@ -4184,22 +4185,15 @@ cur_saveu:
 ; the same 8x12 - there is no larger cell left to walk by accident.
 ; out: AX/BX/CX/DX = x1/y1/x2/y2
 cur_rect:
-    mov ax, [cur_drawn_x]
-    mov bx, [cur_drawn_y]
-%ifdef KERN_BIG
-    sub ax, [vid_ox]            ; ...into the ACTIVE display's own coordinates
-    sub bx, [vid_oy]            ; (SPEC.md 39.15.1). Unconditional rather than
-%endif                          ; gated on [vid_ndisp]: display 0 is always at
-                                ; the virtual origin, so on a one-card machine
-                                ; this subtracts zero
-    sub ax, [cur_hx]            ; ...and off the HOT SPOT, clamped at the
-    jns .xok                    ; display origin rather than clipped there
-    xor ax, ax                  ; (SPEC.md 7.2.2)
-.xok:
-    sub bx, [cur_hy]
-    jns .yok
-    xor bx, bx
-.yok:
+    mov ax, [cur_cellx]         ; the CELL as cur_geom banked it: the drawn
+    mov bx, [cur_celly]         ; point in the ACTIVE display's coordinates
+                                ; (SPEC.md 39.15.1), off the HOT SPOT and
+                                ; clamped at the display origin (7.2.2). Every
+                                ; planar draw runs cur_geom first now (cur_put_1,
+                                ; cur_move_1), so for a restore this is the cell
+                                ; that was DRAWN - with the hot spot it was drawn
+                                ; with - and for a save the one about to be.
+                                ; Size pass 9: it re-derived both, twice a move
     mov cx, ax
     add cx, CUR_GW-1
     mov dx, bx
@@ -4221,11 +4215,12 @@ cur_rect:
 cur_geom:
     mov ax, [cur_drawn_y]       ; DI = rowbase(y) + x/8
 %ifdef KERN_BIG
-    sub ax, [vid_oy]            ; cur_rect's subtraction, and for cur_rect's
-%endif                          ; reason: these two are the ONLY places a
-                                ; position becomes an ADDRESS (SPEC.md 39.15.1)
-    sub ax, [cur_hy]            ; ...and cur_rect's hot spot, clamped the same
-    jns .yok                    ; way, or a centred shape near the top edge
+    sub ax, [vid_oy]            ; into the ACTIVE display's coordinates: this
+%endif                          ; is the ONLY place a position becomes an
+                                ; ADDRESS (SPEC.md 39.15.1) - cur_rect reads
+                                ; the banked cell below rather than re-deriving
+    sub ax, [cur_hy]            ; ...and off the hot spot, clamped at the
+    jns .yok                    ; origin, or a centred shape near the top edge
     xor ax, ax                  ; addresses the row above the framebuffer
 .yok:
     mov [cur_celly], ax         ; BANKED: the bottom clip below and
@@ -4992,7 +4987,8 @@ cur_move_1:
     mov [cur_drawn_x], ax
     mov [cur_drawn_y], bx
     CURLOG 'M'                  ; ...to HERE
-    call cur_saveu
+    call cur_geom               ; ...and the new cell's geometry, which the
+    call cur_saveu              ; save and the draw both read (see cur_put_1)
     jmp cur_draw
 
 cur_move_mono:
@@ -5239,7 +5235,9 @@ cur_mvbg:
 ; clobbers: ax, bx, cx, dx, si, di, bp, es
 ; -----------------------------------------------------------------------------
 cur_draw:
-    call cur_geom               ; DI = the top-left byte, CL = shift, and
+    mov di, [cur_off]           ; DI = the top-left byte, CL = shift - cur_geom
+    mov cl, [cur_cellx]         ; ran before the save (cur_put_1, cur_move_1),
+    and cl, 7                   ; which spent both registers - and
     mov ch, [cur_rows]          ; [cur_rows]/[cur_b1ok] = how much is on screen
     or ch, ch
     jz .done                    ; wholly off the bottom

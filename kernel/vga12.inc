@@ -438,10 +438,8 @@ gfx_clip_query:
     call %1_d                   ; kernel that ships, which is what a diagnostic
     jmp gfx_aud_end             ; build is allowed to be
 %%aclipped:
-    push di
-    mov di, %1_d
+    mov word [gfx_cl_fn], %1_d
     call gfx_clip_run
-    pop di
     jmp gfx_aud_end
 %else
 %1:
@@ -461,19 +459,16 @@ gfx_clip_query:
 %macro GFXCLIP_ARM 1
 %ifndef GFXAUDIT
 %1_cl:
-    push di
-    mov di, %1_d
-    call gfx_clip_run
-    pop di
-    ret
-%endif
+    mov word [gfx_cl_fn], %1_d  ; the body, named where gfx_clip_run reads it,
+    jmp gfx_clip_run            ; and a TAIL jump: no DI to bank around a call,
+%endif                          ; no store of it inside (size pass 9: ~50
+                                ; clocks off every clipped rect primitive)
 %ifdef KERN_BIG
 %1_raw_dsp:                     ; ...and the nested case (an outer hook already
-    push di                     ; translated it) is gfx_disp_run's first test,
-    mov di, %1_raw              ; not a second compare in GFXDISP: written once
-    call gfx_disp_run           ; rather than four times, and paid only on an
-    pop di                      ; extended desktop
-    ret
+    mov word [gfx_dfn], %1_raw  ; translated it) is gfx_disp_run's first test,
+    jmp gfx_disp_run            ; not a second compare in GFXDISP: written once
+                                ; rather than four times, and paid only on an
+                                ; extended desktop. A tail jump, as above
 %endif
 %endmacro
 
@@ -557,16 +552,17 @@ gfx_blit_fd db 0                ; SPEC.md 39.14.7.2: 0 = gfx_blit4 resolves its
 gfx_dr      times 4 dw 0        ; gfx_disp_run's banked virtual rect
 gfx_dfn     dw 0                ; ...and the raw body it is re-entering
 %if gfx_dfn - gfx_dr != 8
-  %error "gfx_dfn must follow gfx_dr's four words: gfx_disp_run banks both off one SI and calls [si+8]"
+  %error "gfx_dfn must follow gfx_dr's four words: gfx_disp_run banks the rect off SI and calls the body as [si+8]"
 %endif
 
 ; -----------------------------------------------------------------------------
 ; gfx_disp_run - internal: run a rect primitive once per DISPLAY it touches
 ; in:       AX = x1, BX = y1, CX = x2, DX = y2 in VIRTUAL coordinates,
-;           DI = near ptr to the raw body (the entry below that primitive's
-;           GFXDISP); more than one display exists. If a whole-shape hook IS
+;           [gfx_dfn] = near ptr to the raw body (the entry below that
+;           primitive's GFXDISP); more than one display exists. Entered by a
+;           TAIL JUMP from GFXCLIP_ARM's second arm. If a whole-shape hook IS
 ;           nested ([gfx_dnest] != 0, so the rect is already local) the body
-;           is entered ONCE, straight, by a tail jump through DI
+;           is entered ONCE, straight, by a tail jump through [gfx_dfn]
 ; out:      -
 ; clobbers: flags
 ;
@@ -599,9 +595,8 @@ gfx_disp_run:
     mov si, gfx_dr              ; SI = the banked rect for the whole walk: the
     mov [si], ax                ; clamps read it [si+n], three bytes a compare
     mov [si+2], bx              ; where a direct address is four, and
-    mov [si+4], cx              ; gfx_dfn is [si+8] (the guard beside them)
+    mov [si+4], cx              ; gfx_dfn (the arm stored it) is [si+8]
     mov [si+6], dx
-    mov [si+8], di
     xor bp, bp                  ; BP = the display index - a register and not
 .disp:                          ; [si] as it was, now that SI is the rect. The
     mov ax, bp                  ; raw bodies and vid_ctx_act keep both
@@ -644,8 +639,8 @@ gfx_disp_run:
     pop bp
     jmp kret_di                 ; the ladder: an extended desktop's +15 cycles
 .nest:
-    jmp di                      ; nested: one straight entry, whose own `ret`
-                                ; lands on GFXDISP's `pop di / ret`
+    jmp word [gfx_dfn]          ; nested: one straight entry, whose own `ret`
+                                ; is the primitive's (GFXCLIP_ARM tail-jumped)
 
 ; -----------------------------------------------------------------------------
 ; gfx_disp_enter / gfx_disp_leave - the WHOLE-SHAPE hook (SPEC.md 39.14.2)
@@ -909,8 +904,10 @@ gfx_rect_isectcf:
 
 ; -----------------------------------------------------------------------------
 ; gfx_clip_run - internal: run a rect primitive once per visible fragment
-; in:       AX = x1, BX = y1, CX = x2, DX = y2, DI = near ptr to the raw body
-;           (the entry just below that primitive's GFXCLIP); clip is armed
+; in:       AX = x1, BX = y1, CX = x2, DX = y2, [gfx_cl_fn] = near ptr to the
+;           raw body (the entry just below that primitive's GFXCLIP); clip is
+;           armed. Entered by a TAIL JUMP from GFXCLIP_ARM, so its `ret` is the
+;           primitive's
 ; out:      -
 ; clobbers: flags
 ;
@@ -939,7 +936,6 @@ gfx_clip_run:
     mov [gfx_cl_y1], bx
     mov [gfx_cl_x2], cx
     mov [gfx_cl_y2], dx
-    mov [gfx_cl_fn], di
     mov si, wm_clip_tab
     mov di, [wm_clip_n]
 .frag:
@@ -5078,7 +5074,7 @@ vgas_bankcopy:                  ; (no DS bank, for vgas_lincopy's reason)
     dec word [vgas_left]        ; and CS-relative reads, so it is safe
     jnz .rup                    ; whatever DS was left at
     pop bp
-    jmp short .out
+    ret                         ; (.out is a bare `ret` since size pass 9)
 %endif
 .gen:                           ; the general form: one rowbase per END per row
 .r:
