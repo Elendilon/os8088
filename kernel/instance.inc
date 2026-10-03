@@ -202,11 +202,13 @@ inst_kinds:                     ; indexed by KIND_* * 16; caps are binding
 %endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
     dw fm_tpl,         0,               fm_pool,       FS_SIZE,  fm_kinit,     fm_ttl
     dw inst_ico_disk
-    db VIEW_SLOTS, WF_SIZABLE   ; Disk: FOUR windows, each with its own
-                                ; FS_SIZE-byte state block and its own claimed
-                                ; listing cache; resizable (SPEC.md 22/22.1).
-                                ; The cap, VIEW_SLOTS and fm_pool's size are
-                                ; one number wearing three hats.
+    db VIEW_SLOTS+1, WF_SIZABLE ; Disk: FOUR of the user's windows, each with
+                                ; its own FS_SIZE-byte state block and its own
+                                ; claimed listing cache; resizable (SPEC.md
+                                ; 22/22.1) - PLUS ONE, the Standard File
+                                ; chooser's (SPEC.md 38.1), which fm_count
+                                ; does not count. The cap and fm_pool's size
+                                ; are one number (files.inc's FM_NSLOT)
     dw cp_tpl,         0,               0,             0,   cp_kinit,         cp_sname
     dw inst_ico_ctrl
     db 1, 0                     ; Control Panel: stateless task-less singleton
@@ -1494,6 +1496,11 @@ inst_charge:
     pop ax
     ret
 
+; inst_lkhd - 1 while fdlg_open launches the chooser: app_launch's caller
+; holds the gfx lock already (SPEC.md 38.6). In .text with an initialiser,
+; because .bss is not zeroed at boot and app_launch reads it on every launch.
+inst_lkhd:  db 0
+
 ; -----------------------------------------------------------------------------
 ; app_launch - launch (or front) a built-in app kind (SPEC.md 29.4)
 ; in:  AL = kind (0..6); UI task only, gfx lock NOT held (takes its own)
@@ -1681,10 +1688,15 @@ app_launch:
     mov [ds:bp+I_TASK], al
 
 .show:
-    call gfx_lock
     mov bx, [ds:bp+I_WIN]
+    cmp byte [inst_lkhd], 0     ; the Standard File chooser is launched by a
+    jne .held                   ; caller that HOLDS the lock (SPEC.md 38.6),
+    call gfx_lock               ; and the lock is not recursive. Only .show
+    call wm_show                ; asks: .rollback is a task-spawn failure and
+    call gfx_unlock             ; a Disk window has no task
+    jmp short .ok
+.held:
     call wm_show
-    call gfx_unlock
 .ok:
     clc
     jmp .out

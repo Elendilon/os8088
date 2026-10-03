@@ -7087,6 +7087,8 @@ MARK_FNVEC  equ $ - mark_fvec
 ; =============================================================================
 cw_app_launch:          call app_launch
                     retf
+cw_app_close_win:       call app_close_win  ; the Standard File chooser's
+                    retf                ; close (SPEC.md 38.7)
 cw_clk_snapshot:        call clk_snapshot
                     retf
 

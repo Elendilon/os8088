@@ -2033,8 +2033,9 @@ MEM_P_WSAVE_N equ 16            ; 0x10..0x1F, the window's slot added (11.96.3)
 MEM_P_FATW  equ MEM_PG_MED<<8 | 0x20    ; one volume's FAT window - a RANGE,
 MEM_P_FATW_N equ 8              ; 0x20..0x27, the VOLUME added (SPEC.md 18.8.4)
 MEM_P_VIEW  equ MEM_PG_LOW<<8 | 0x10    ; a Disk window's listing cache - a
-MEM_P_VIEW_N equ 4              ; RANGE, 0x10..0x13 with the window's fm_pool
-                                ; slot added (SPEC.md 50.6.5). Low bytes are
+MEM_P_VIEW_N equ 5              ; RANGE, 0x10..0x14 with the window's fm_pool
+                                ; slot added (SPEC.md 50.6.5) - the fifth is
+                                ; the Standard File chooser's (SPEC.md 38.1). Low bytes are
                                 ; per-RANK, so this 0x10 does not collide with
                                 ; MEM_P_WSAVE's at TRIV.
                                 ;

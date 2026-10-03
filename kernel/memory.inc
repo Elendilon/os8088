@@ -326,9 +326,11 @@ MEM_P_FATW_N equ 8              ; 18.8.4): MED, and it was LOW for one commit
                                 ; a name ending _N is a length, not a tag
 %ifdef KERN_SMALL
 MEM_P_VIEW  equ MEM_PG_LOW<<8 | 0x10    ; a Disk window's listing cache (SPEC.md
-MEM_P_VIEW_N equ 4              ; 22.1), kern_small only. A LITERAL and not
-%if MEM_P_VIEW_N != VIEW_SLOTS  ; VIEW_SLOTS, because apps/os88api.inc mirrors
-%error "MEM_P_VIEW_N has drifted from VIEW_SLOTS"
+MEM_P_VIEW_N equ 5              ; 22.1), kern_small only - the user's four
+                                ; and the Standard File chooser's (38.1). A
+                                ; LITERAL and not
+%if MEM_P_VIEW_N != VIEW_SLOTS+1 ; VIEW_SLOTS+1, because apps/os88api.inc mirrors
+%error "MEM_P_VIEW_N has drifted from VIEW_SLOTS+1"
 %endif                          ; it and t_mirror compares the two files as
                                 ; TEXT - MEM_P_FATW_N's shape exactly, which is
                                 ; 8 here and DVOL_MAX asserted beside it. LOW -

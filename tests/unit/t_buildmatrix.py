@@ -401,6 +401,9 @@ KNOBS = [
     # NOPLANE's sentence exactly: an A/B that stopped assembling is found at
     # the moment somebody reaches for it to tell a real fix from a null run.
     ("noseamcut",   ["NOSEAMCUT=1"]),
+    # NOFDMEDIA= takes SPEC.md 38.10's MEDIA default out of the Standard File
+    # chooser - kept assembling so the bytes stay one flag away.
+    ("nofdmedia",   ["NOFDMEDIA=1"]),
     # COMPRESS= picks which decompressors the kernel carries
     # (docs/plans/O88-COMPRESSION-PLAN.md 12.7, SPEC.md 20.13.6). `both` SHIPS now,
     # so the rows here are the two SINGLE-format arms, and neither is the same

@@ -2473,8 +2473,10 @@ dskw_nbody:
 ; harvested for free. It cannot repaint the Disk window (the caller may
 ; hold the gfx lock) - SPEC.md 22 covers what the user sees.
 ;
-; WHEN that rebuild happens is fmv_gneed's question, and the answer is
-; usually "not now" (SPEC.md 18.4 rule 3). The invariant above is about what
+; WHEN that rebuild happens is never "now" any more (SPEC.md 38.2: the
+; Standard File dialog was the one thing ON SCREEN drawn from the global
+; listing, and it is a Disk window now, painting from its own cache) - it is
+; always the debt (SPEC.md 18.4 rule 3). The invariant above is about what
 ; the snapshot IS, never about how soon: a mount snapshot or nothing at all,
 ; and the empty-listing-plus-debt this leaves is the second of those - the
 ; identical state a quiet mount publishes (18.9), paid by dsk_relist. What
@@ -2506,11 +2508,6 @@ dskw_sync_x:
                                 ; the single remount at its end has left
     cmp byte [dskw_batch], 0    ; a tree copy remounts ONCE, when it ends -
     jne .defer                  ; not after every one of its files (22.3)
-    call fmv_gneed              ; is anything ON SCREEN drawn from the global
-    jc dskw_remount_x           ; listing? then rebuild it now, as we always
-                                ; did - the Standard File dialog's New Folder
-                                ; is that case, and it is a write made while
-                                ; the dialog is up
     mov word [disk_nfiles], 0   ; ...otherwise publish the EMPTY listing and
     mov byte [dsk_lstale], 1    ; the debt, exactly the state a quiet mount
                                 ; leaves (18.9): a wrong listing is worse than

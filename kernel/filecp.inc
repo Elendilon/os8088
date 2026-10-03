@@ -303,12 +303,11 @@ fcp_ncopy   equ dsk_ncopy
 ; is an UNCONDITIONAL remount whenever a quiet switch left [dsk_lstale] set -
 ; real disk I/O, the scan, the sort and an icon read per file - whose only
 ; product is the GLOBAL listing, which no Disk window is drawn from
-; (fmv_gneed's own account: a Disk window paints from its VIEW cache, fmv_mark
+; (SPEC.md 22.8's account: a Disk window paints from its VIEW cache, fmv_mark
 ; has just marked it, and fm_paste_res's fmv_reload_all is the coherence pass
 ; every paste already pays). dskw_sync_x settles the same debt honestly: it
-; marks every window showing this folder, rebuilds the snapshot only when
-; something ON SCREEN is drawn from it (the Standard File dialog), and
-; otherwise publishes the empty-listing-plus-debt that dsk_relist collects on
+; marks every window showing this folder and publishes the
+; empty-listing-plus-debt that dsk_relist collects on
 ; the next read. So the file manager sees exactly what it always saw, and a
 ; PACKAGE calling the door (SPEC.md 22.24) - which has no Disk window at all -
 ; no longer buys a remount per call for a listing nothing reads.

@@ -192,6 +192,12 @@ FM_BTN_W    equ 63              ; both are 63 x 14, at content y 2..15
 FM_BTN_H    equ 14
 FM_BREFRESH equ 1               ; ...and their ids, which are also [fm_dbtn]'s
 FM_BVIEW    equ 2
+FM_BGO      equ 3               ; ...and the CHOOSER's column (SPEC.md 38.3):
+FM_BCANCEL  equ 4               ; Open|Save, Cancel, Drive. Only a chooser has
+FM_BDRIVE   equ 5               ; them; fm_brect hands their rect to fdlg.inc
+FM_CHCOLW   equ 72              ; ...whose column is this wide, taken off the
+                                ; content width by fm_layout for that block
+FM_ESAVE    equ 8               ; FS_EDIT: the Save chooser's name box (38.5)
 FMI_CELL_W  equ 80              ; icon-view cell - 80 and not 78 so that every
                                 ; column starts on a byte (SPEC.md 22.11.1.1):
                                 ; the content origin is a multiple of 8
@@ -362,7 +368,12 @@ FS_SIZE     equ FS_USEDH+2      ; = the Disk kind's KD_SSIZE
 FS_SIZE     equ 24              ; = the Disk kind's KD_SSIZE
 %endif
 
-FM_MAXWIN   equ VIEW_SLOTS      ; = KD_CAP: one cache slot per window
+FM_MAXWIN   equ VIEW_SLOTS      ; the USER's Disk windows: fm_count's cap
+FM_NSLOT    equ FM_MAXWIN + 1   ; ...and the pool's blocks = the kind's
+                                ; KD_CAP: the fifth is the Standard File
+                                ; chooser's whenever one is up, which fm_count
+                                ; does not count - so a dialog is never refused
+                                ; for want of a Disk window (SPEC.md 38.1)
 FV_ICONS    equ DSK_NENT*DSK_DE_STRIDE  ; icon images start here inside a
                                 ; FLOPPY-sized slot; a driver-backed volume's
                                 ; is [dsk_ioff], and fmv_iofs answers both
@@ -427,7 +438,7 @@ files_init_x:
     pop es
     xor ax, ax                  ; every block reads as a window that never
     mov di, fm_pool             ; existed until fm_kinit fills one.
-    mov cx, FM_MAXWIN * FS_SIZE ; **AX AND NOT AL**, which is the same two
+    mov cx, FM_NSLOT * FS_SIZE  ; **AX AND NOT AL**, which is the same two
     cld                         ; bytes: `stosb` does not touch the
     rep stosb                   ; accumulator, so it arrives at the eleven
                                 ; stores below still zero and they are 37
@@ -570,7 +581,19 @@ fm_kinit_x:
                                 ; construction rather than by an app's word
                                 ; (SPEC.md 22.14). It has no worker, so the
                                 ; other disqualifier cannot arise
+    cmp word [fdlg_win], 0xFFFF ; THE STANDARD FILE CHOOSER (SPEC.md 38.1):
+    jne .notch                  ; fdlg_open marks the launch, and this is the
+    mov [fdlg_win], bx          ; one place that sees the window AND the block
+    mov [fdlg_blk], di          ; before app_launch's wm_show paints them
+    mov ax, [fdlg_ttl]          ; ...and its caption is the QUESTION, 'Open'
+    mov [bx + W_TITLE], ax      ; or 'Save As', where a Disk window's is its
+                                ; folder (which the dock still shows)
+.notch:
     mov cx, FM_MIN_W            ; **THE FLOOR NOTHING MAY CUT THROUGH**
+    cmp di, [fdlg_blk]          ; ...plus the chooser's button column
+    jne .mw
+    add cx, FM_CHCOLW
+.mw:
     mov dx, FM_MIN_H            ; (SPEC.md 11.100.2). This window is the one
     call KERNEL_SEG:cw_wm_minsize ; the field found it on: dropped low on a
                                 ; 200-row CGA it was clamped until it showed
@@ -673,7 +696,7 @@ fm_vp_set:
     mov di, [di+I_SPTR]         ; the kind's KD_POOL block...
     cmp di, fm_pool             ; ...which for a file-manager window is one
     jb .none                    ; of ours. Bounded rather than trusted: every
-    cmp di, fm_pool + FM_MAXWIN*FS_SIZE     ; write below goes through it.
+    cmp di, fm_pool + FM_NSLOT*FS_SIZE     ; write below goes through it.
     jb .have
 .none:
     mov di, fm_pool             ; cannot happen - app_launch binds the window
@@ -1778,42 +1801,6 @@ fmv_mark:
     pop ax
     ret
 
-; -----------------------------------------------------------------------------
-; fmv_gneed - does anything ON SCREEN need the GLOBAL listing right now?
-; in:  nothing
-; out: CF = 1 = rebuild it before returning to the event loop; CF = 0 = record
-;      the debt instead and let whoever reads it next pay
-; clobbers: flags
-;
-; The other half of SPEC.md 18.4 rule 3, which used to have no other half: a
-; successful write ALWAYS remounted, so a background write to a folder nobody
-; was looking at cost a floppy's worth of sectors to rebuild a listing no
-; pixel on screen was drawn from. That is the Control Panel's whole cost -
-; SYSTEM.CFG lands on the system disk (51.5.1) while the user is on B: - and
-; a package saving a file is the same shape.
-;
-; The answer is short because only ONE thing reads disk_dir / disk_nfiles
-; while it is on screen: the Standard File dialog, which is modal and
-; deliberately keeps no cache of its own (38.2). Its New Folder button is a
-; WRITE made while it is up (fdlg_newfolder -> dskw_mkdir), so this is not a
-; theoretical case - it is the one that must not be deferred, or the folder
-; the user just made would not appear until something else re-listed.
-;
-; A Disk window is NOT on this list, and that is 22.1/22.8 rather than an
-; omission: it paints from its own VIEW CACHE, it has just been marked
-; FS_DIRTY by fmv_mark, and fm_focus rebuilds cache and pixels TOGETHER when
-; it comes to the front. Remounting here would not refresh one - it would
-; only make the mount fm_focus is about to skip happen earlier, for a window
-; that may never be looked at again.
-; -----------------------------------------------------------------------------
-fmv_gneed:
-    cmp word [fdlg_win], 0
-    je .no
-    stc
-    ret
-.no:
-    clc
-    ret
 
 ; -----------------------------------------------------------------------------
 ; fm_focus - spend a Disk window's refresh debt as it comes to the front
@@ -2212,6 +2199,7 @@ FM_NERR       equ 11            ; FERR_OK .. FERR_BIG
 ; overflows the default width by a few and clips the tail of 'Esc=no'; that
 ; is the right thing to lose, and widening the window shows it whole.
 fm_s_newfld:  db 'New folder: ', 0
+fm_s_saveas:  db 'Save as: ', 0   ; the Save chooser's box (SPEC.md 38.5)
 fm_s_renam:   db 'Rename ', 0
 fm_s_rento:   db ' to: ', 0
 fm_s_reppr:   db 'Replace ', 0     ; the overwrite question (SPEC.md 22.3),
@@ -2626,6 +2614,10 @@ fm_count:
     add si, I_RECSZ
     dec dx
     jnz .scan
+    cmp word [fdlg_blk], 0      ; ...less the Standard File chooser, which
+    je .nch                     ; has the fifth block to itself (SPEC.md
+    dec cx                      ; 38.1) and is not one of the USER's four
+.nch:
     pop si
     pop dx
     ret
@@ -2896,6 +2888,9 @@ fm_layout:
     push di
 
     call fm_vp_set              ; BX = window ptr -> [fm_vp]/[fm_vseg]
+    mov al, FDH_ARM             ; a Save chooser idle between prompts is
+    call fdlg_hook              ; typing its name again (SPEC.md 38.5) -
+                                ; BEFORE FS_EDIT is cached just below
     mov al, [di+FS_VIEW]
     mov [fm_lview], al
     mov al, [di+FS_MOK]
@@ -2919,6 +2914,10 @@ fm_layout:
     mov ax, [bx+W_W]
     dec ax
     dec ax
+    cmp di, [fdlg_blk]          ; the chooser's button column is to the
+    jne .cwnch                  ; RIGHT of everything this lays out
+    sub ax, FM_CHCOLW           ; (SPEC.md 38.3)
+.cwnch:
     mov [fm_cw], ax             ; cw = W_W - 2
     add ax, [fm_cx]
     dec ax
@@ -3039,6 +3038,12 @@ fm_layout:
 ; the gfx lock, and nothing in a dispatch path re-enters.
 ; -----------------------------------------------------------------------------
 fm_brect:
+    cmp al, FM_BVIEW            ; the chooser's column is placed by fdlg.inc,
+    jbe .hdr                    ; for both builds alike (SPEC.md 38.3) - and
+    mov ah, al                  ; through its ONE door, because on kern_small
+    mov al, FDH_RECT            ; that file is an image (SPEC.md 38.9)
+    jmp fdlg_hook
+.hdr:
     push bx
     push si
     dec al
@@ -3081,7 +3086,11 @@ fm_brect:
 ; -----------------------------------------------------------------------------
 fm_bhit:
     push bx
-    mov al, FM_BREFRESH
+    mov ax, FM_BVIEW << 8 | FM_BREFRESH ; AH = the last id to try...
+    mov bx, [fm_vp]
+    cmp bx, [fdlg_blk]
+    jne .try
+    mov ah, FM_BDRIVE           ; ...which is the chooser's column's last
 .try:
     push ax
     call fm_brect
@@ -3092,7 +3101,7 @@ fm_bhit:
     jnc .out                    ; both .cold, one segment (SPEC.md 2.6)
 .next:
     inc al
-    cmp al, FM_BVIEW
+    cmp al, ah
     jbe .try
     xor al, al
 .out:
@@ -3122,6 +3131,15 @@ fm_btn1:
     call fm_brect               ; documents clobbering, and the id is needed
     pop ax                      ; twice more below. (pop leaves CF alone)
     jc .out                     ; too narrow: not drawn
+    cmp al, FM_BVIEW
+    jbe .hdr
+    push ax
+    mov ah, al
+    mov al, FDH_LABEL           ; the chooser's column: label, default,
+    call fdlg_hook              ; greying (SPEC.md 38.3) - SI and DI
+    pop ax
+    jmp short .dn
+.hdr:
     mov si, fm_s_refresh
     cmp al, FM_BREFRESH
     je .lbl
@@ -3133,6 +3151,7 @@ fm_btn1:
     mov di, OS88UI_FILL         ; the ground behind it is the content's white
                                 ; on a full paint and a PRESSED button on a
                                 ; release, and only the fill covers both
+.dn:
     call fm_isdown              ; ZF = 1: this is the one being held
     jne .draw
     or di, OS88UI_DOWN
@@ -3398,6 +3417,11 @@ fm_onclick_x:
                                 ; because this press may also have retired an
                                 ; editor prompt
 %else
+    mov al, FDH_CLICK           ; a chooser's column first (SPEC.md 38.3) -
+    call fdlg_hook              ; pressed-fired, as this build's own two are
+    jnc .nochcol
+    jmp .quiet
+.nochcol:
     ; --- Refresh button (drawn iff cw >= 76) ---
     mov ax, [fm_cw]
     cmp ax, 76
@@ -3565,6 +3589,9 @@ fm_onclick_x:
     call fm_sel_bar             ; off...
     xchg ax, dx
     call fm_sel_bar             ; ...and on
+    mov al, FDH_SEL             ; a chooser reads the new selection: a Save
+    call fdlg_hook              ; box takes a file's name, an Open button
+                                ; its greying (SPEC.md 38.4, 38.8)
     cmp byte [fm_statowed], 0   ; the bands drew no text, so a line that
     je .out                     ; changed is still owed (22.9)
     call fm_status_only
@@ -3645,6 +3672,17 @@ fm_onup_x:
     call fm_setdown             ; all - nothing fires
     jmp short .out
 .fire:
+    cmp al, FM_BVIEW            ; a chooser's column (SPEC.md 38.3): let the
+    jbe .hdr                    ; button up - its answer repaints nothing of
+    push ax                     ; its own, and a refusal must not leave it
+    xor al, al                  ; drawn pressed - and hand the id over
+    call fm_setdown
+    pop ax
+    mov ah, al
+    mov al, FDH_BTN
+    call fdlg_hook
+    jmp short .out
+.hdr:
     mov byte [fm_dbtn], 0       ; NOT fm_setdown: the repaint below draws the
                                 ; whole window, this button upright with it,
                                 ; and drawing it upright here first is
@@ -3810,6 +3848,11 @@ fm_onkey_x:
     mov bx, si                  ; publish the window this key belongs to
     call fm_vp_set
 
+    mov dx, ax                  ; a Standard File chooser's keys first:
+    mov al, FDH_KEY             ; Escape cancels and the arrows SELECT
+    call fdlg_hook              ; (SPEC.md 38.4). DX is scratch here and
+    mov ax, dx                  ; banked by the entry
+    jc .out
     cmp byte [di+FS_EDIT], 0
     jne .editing                ; naming: nothing below is reachable - and the
                                 ; prompt already owns the line, so there is no
@@ -4011,7 +4054,9 @@ fm_onkey_x:
                                 ; had just removed on the glass. BX is free
                                 ; here - fm_onkey_x pushed it and nothing
                                 ; below this label reads it
-    cmp word [fdlg_win], 0
+    cmp word [fdlg_win], 0      ; (the chooser ITSELF draws as any Disk
+    je .nomodal                 ; window does: it is the one on top)
+    cmp [fdlg_win], si
     jne .out                    ; **THIS KEYSTROKE PUT A MODAL DIALOG UP**
                                 ; (SPEC.md 18.99.8/38.2), so everything it
                                 ; changed about this window is behind one now
@@ -4027,6 +4072,7 @@ fm_onkey_x:
                                 ; it cannot fire wrongly: a dialog that was
                                 ; already up would have taken this key
                                 ; (fdlg_top)
+.nomodal:
     or bx, bx
     jnz .redraw                 ; it changed the listing or the mode
     call fm_status_only         ; ...otherwise the name being typed lives on
@@ -4099,6 +4145,11 @@ fm_open_sel:
     mov bx, [si+18]             ; its first cluster, banked before the mount
     cmp word [si+16], 2         ; 2 = a folder, 3 = the parent link (19.5):
     jae .folder                 ; both of them navigate, neither is loadable
+    push ax                     ; a FILE in the Standard File chooser is its
+    mov al, FDH_PICK            ; answer, or its Save box's name - never a
+    call fdlg_hook              ; launch (SPEC.md 38.4)
+    pop ax
+    jc .quiet
 %ifdef OS88_ASSOC
     cmp word [si+16], 0         ; a DATA file with an association opens in
     jne .package                ; its program instead of reaching the loader
@@ -5625,6 +5676,8 @@ fm_c_opennew:                   ; Nav > Open in New Window - the selection
     mov si, fm_name
     mov al, [di+FS_DRV]
 fm_newwin:
+    cmp word [fdlg_blk], 0      ; from inside a chooser it would land over
+    jne fm_nw_full              ; a modal window nobody can then reach
     call fm_count               ; CX = windows already open
     cmp cx, FM_MAXWIN
     jae fm_nw_full
@@ -6252,16 +6305,10 @@ fm_samename:
 ; out: CF=1 if it does; all registers preserved
 ; -----------------------------------------------------------------------------
 fm_hasdot:
-    push si                     ; BANKED BY THE ENTRY, not by the body: both
-    mov si, fm_ebuf             ; callers here and fdlg_onkey_x take no
-                                ; argument and promise SI back, and the load
-                                ; below would clobber it before any push
-                                ; inside could protect it
-
-; fm_dotin - the body, shared with fdlg_hasdot. in: SI -> a NUL string, SI
-; already on the stack; out: CF=1 = it holds a '.'. lodsb wants DF=0 (SPEC.md 1)
-fm_dotin:
-    push ax
+    push si                     ; lodsb wants DF=0 (SPEC.md 1). It had a
+    mov si, fm_ebuf             ; second entry, fm_dotin, for the Standard
+    push ax                     ; File dialog's own name box - which is this
+                                ; editor now (SPEC.md 38.5)
 .s:
     lodsb
     or al, al
@@ -6305,6 +6352,8 @@ fm_edit_commit:
     push di
     mov di, [fm_vp]
     mov al, [di+FS_EDIT]
+    cmp al, FM_ESAVE            ; the Save chooser's box: its own answer,
+    je .save                    ; empty included (SPEC.md 38.5)
     cmp al, 5
     je .fmt
     cmp al, 3
@@ -6419,6 +6468,10 @@ fm_edit_commit:
                                 ; fm_sayerr banks BX/CX, because this routine
                                 ; promises to preserve every register and
                                 ; saves only AX, SI and DI
+    jmp short .done
+.save:
+    mov al, FDH_COMMIT          ; posted, not acted on: the chooser is the
+    call fdlg_hook              ; window this key is about to draw (38.6)
 .done:
     call fm_edit_end
     pop di
@@ -7133,10 +7186,14 @@ fm_extkeep:
 ; from the one that armed it.
 ; -----------------------------------------------------------------------------
 fm_edit_end:
+    push ax                     ; a Save chooser's name outlives the prompt
+    mov al, FDH_BANK            ; that ends here - fm_ebuf is everybody's
+    call fdlg_hook              ; (SPEC.md 38.5)
+    pop ax
     push cx
     push di
     mov di, fm_pool
-    mov cx, FM_MAXWIN
+    mov cx, FM_NSLOT
 .clr:
     ; A format confirmation ending is where FORMAT.DRV goes back (SPEC.md
     ; 2.8.3). Here rather than at the four paths that end one, because this
@@ -7551,6 +7608,8 @@ fm_draw_core:
                                 ; status-ONLY change - an editor prompt armed
                                 ; or retired - can cost one line instead of a
                                 ; whole content repaint (fm_status_only below)
+    mov al, FDH_PAINT           ; ...and a chooser's button column (SPEC.md
+    call fdlg_hook              ; 38.3), right of everything above
 
     jmp kretc_bp
 
@@ -8531,6 +8590,9 @@ fm_draw_status:
                                 ; which the IMAGE composes: the ladder is
                                 ; code and the strings are data, so this is
                                 ; the half that can leave
+    mov si, fm_s_saveas
+    cmp al, FM_ESAVE
+    je .fs_st_prompt
     mov si, fm_s_newfld
     cmp al, 1
     je .fs_st_prompt
@@ -8947,14 +9009,14 @@ fmv_ux2:    resw 1              ; spent as ONE wm_paint_dmg so that no window
 fmv_uy2:    resw 1              ; is painted twice
 fmv_uany:   resb 1              ; 0 = nothing folded in yet
 %ifdef KERN_BIG
-fm_pool:    resb 4*61           ; FM_MAXWIN x FS_SIZE (4 x 61; a literal per
- %if FM_MAXWIN*FS_SIZE != 4*61  ; the no-forward-ref-in-bss rule - so the equs
-  %error "files: fm_pool's literal has drifted from FM_MAXWIN x FS_SIZE"
+fm_pool:    resb 5*61           ; FM_NSLOT x FS_SIZE (5 x 61; a literal per
+ %if FM_NSLOT*FS_SIZE != 5*61   ; the no-forward-ref-in-bss rule - so the equs
+  %error "files: fm_pool's literal has drifted from FM_NSLOT x FS_SIZE"
  %endif                         ; check it, or growing the block silently
 %else                           ; overruns the pool into the words below it
-fm_pool:    resb 4*24
- %if FM_MAXWIN*FS_SIZE != 4*24
-  %error "files: fm_pool's literal has drifted from FM_MAXWIN x FS_SIZE"
+fm_pool:    resb 5*24
+ %if FM_NSLOT*FS_SIZE != 5*24
+  %error "files: fm_pool's literal has drifted from FM_NSLOT x FS_SIZE"
  %endif
 %endif
 

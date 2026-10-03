@@ -7458,6 +7458,31 @@ SOAK = [
         "RELEASE.",
         needs=("marty",), serial=True,
         wants=("build/muptest.img",)),
+    Row("fdlgchoose", "soak", py("tests/fdlgchoose.py"), 40.0,
+        "SPEC.md 38: the Standard File chooser end to end, through Note "
+        "Pad's own File > Open and Save As - a first Open on MEDIA (38.10) "
+        "captioned Open with the default button greyed until a row is "
+        "selected, the arrows SELECTING where a Disk window's scroll "
+        "(38.4), Save As holding the document and committing a typed name "
+        "that is then in the folder, Escape / the Cancel button / the close "
+        "box each cancelling, Drive leaving the floppy (38.11), and the "
+        "chooser still opening with four of the user's Disk windows up - "
+        "the fifth pool block is its own (38.1). Every step confirmed off "
+        "[fdlg_win], the chooser's own block and fm_ebuf. VERIFIED TO FAIL "
+        "on `make NOFDMEDIA=1`, whose first Open lands on B:\\APPS.",
+        needs=("marty",), serial=True),
+    Row("fdlgchsmall", "soak",
+        ["env", "OS88_DEFINES=KERN_SMALL", "OS88_BUILD=build/smallk",
+         "OS88_SYSIMG=build/small360.img", "OS88_NP=A:/APPS/NOTEPAD.O88"]
+        + py("tests/fdlgchoose.py"), 40.0,
+        "...and the same drive on kern_small, where the glue is FDLG.DRV "
+        "(SPEC.md 38.0): every hook crosses into the image through "
+        "fdlg_hook's far call, and the button column is drawn and fired by "
+        "the image itself on its own W_ONMOUSEUP (38.3) because this "
+        "build's Disk window has none. The small system disk carries the "
+        "apps, so Note Pad is opened off A:.",
+        needs=("marty",), serial=True,
+        wants=("build/small360.img",)),
     Row("fmthumb", "soak", py("tests/fmthumb.py"), 30.0,
         "SPEC.md 13.10.5: the Disk window's scroll-bar THUMB is dragged, and"
         "x is never read.",
