@@ -3918,18 +3918,11 @@ mem_sum_kb:
 ; also mem_sum_kb's first caller - the wrapper it used to reach it through
 ; had been written for this and never wired up, which is why the duplicate
 ; walk survived being noticed.
+;
+; INLINE in osapi_sys_kb_x since size pass 9 - that is its one caller, and
+; the call and the ret were four bytes of nothing. The block there is marked
+; with this name, so what the SPEC.md citations call it still finds it.
 ; -----------------------------------------------------------------------------
-mem_total_kb:
-    push cx
-    xor ax, ax
-    xor bx, bx                  ; BX = 0: every owner (and BX is an OUTPUT
-    call mem_sum_kb             ; here, written two instructions below)
-    mov bx, [mem_top]
-    sub bx, [mem_base]
-    mov cl, 6
-    shr bx, cl
-    pop cx
-    ret
 
 ; =============================================================================
 ; The API slot targets (SPEC.md 20.3/50.3).
@@ -4267,11 +4260,16 @@ mem_own:
                                      ; it has no instance, so the test above
                                      ; can never say yes about it
     push dx                          ; ...or by a SEGMENT that is itself a
-    mov dx, bx                       ; driver image: SPEC.md 52.11.7's second
-    call mem_own_drv                 ; image, one level and no further. DX is
-    pop dx                           ; banked because osapi_mem_free passes the
-    jc .no                           ; segment to free in it, and `pop` leaves
-                                     ; the flags alone
+    push si                          ; driver image: SPEC.md 52.11.7's second
+    mov dx, bx                       ; image, one level and no further (this
+    mov bx, MEM_K_DRV                ; was mem_own_drv - its header below -
+    call mem_find_own                ; inline since size pass 9: "the claim
+    pop si                           ; based at DX and owned by MEM_K_DRV").
+    pop dx                           ; DX is banked because osapi_mem_free
+    jc .no                           ; passes the segment to free in it, SI
+                                     ; because mem_find_own walks it, and BX
+                                     ; is this routine's output either way
+                                     ; (`pop` leaves the flags alone)
 .yes:
     mov bx, es                       ; the OWNER WORD is that same segment -
     clc                              ; the walk above spent BX on the answer
@@ -4311,7 +4309,7 @@ mem_owner_of_x:
     ret
 
 ; -----------------------------------------------------------------------------
-; mem_own_drv - is DX the segment of a DRIVER's image? (module internal)
+; mem_own_drv - is DX the segment of a DRIVER's image? (INLINE in mem_own)
 ; in:  DX = a candidate segment
 ; out: CF = 0 yes, CF = 1 no
 ; clobbers: flags
@@ -4333,14 +4331,6 @@ mem_owner_of_x:
 ; [MC_OWN], INST_MAX / jb .yes` failed), so DX can never be 0 - what the test
 ; refuses is a FREE record whose stale MC_OWN would otherwise have been read.
 ; -----------------------------------------------------------------------------
-mem_own_drv:
-    push bx                     ; BX and SI are mem_own's - it is mid-walk
-    push si                     ; with the record in SI when it asks
-    mov bx, MEM_K_DRV
-    call mem_find_own           ; ...which is exactly "the claim based at DX
-    pop si                      ; and owned by BX", one owner word fixed
-    pop bx
-    ret
 
 ; =============================================================================
 ; osapi_claim_snapshot - API slot 0x0216: the whole claim table into the caller's
@@ -4482,7 +4472,16 @@ osapi_sys_kb_x:
     mov ax, KBUF_KB             ; SK_BUF LAST, because it is the highest of
     stosw                       ; the four - it is FAT + stacks together,
     pop di                      ; and reads like a header
-    call mem_total_kb           ; AX = claimed KB, BX = heap size KB (DI kept)
+    push cx                     ; --- mem_total_kb, inline (its header is
+                                ; above): AX = claimed KB, BX = heap size KB
+    xor ax, ax
+    xor bx, bx                  ; BX = 0: every owner (and BX is an OUTPUT
+    call mem_sum_kb             ; here, written two instructions below)
+    mov bx, [mem_top]
+    sub bx, [mem_base]
+    mov cl, 6
+    shr bx, cl
+    pop cx
     mov [es:di+SK_CLAIM], ax
     mov [es:di+SK_HEAP], bx
     xor ax, ax

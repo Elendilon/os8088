@@ -1818,8 +1818,56 @@ asc_use_x:
                                 ; ever see it again. BX is still MEM_K_ASC,
                                 ; mem_claim preserving it, and AX is spent -
                                 ; asc_root_find answers in it
-    call asc_root_find          ; CF=0, AX = first cluster, DX = sectors
-    jc .out
+    ; --- ASSOC.DAT in the volume's ROOT: AX = its first cluster and DX =
+    ; its size in sectors, or .out. This was asc_root_find (its notes are
+    ; below), whose one caller this is - inline since size pass 9, and
+    ; without its five-register frame: everything it walked with is this
+    ; routine's scratch, banked by the KENT and by the `push es` above.
+    push ss                     ; ES = LOW_SEG: dsk_secbuf is .lowbss (SPEC.md
+    pop es                      ; 2.1), which is exactly what SS names
+    xor ax, ax                  ; 0 = the root
+    call dsk_dirw_start_x
+.rfsec:
+    call dsk_dirw_get_x         ; either failure is "no cache here" (19.2.1)
+    jc .rfno
+    mov di, dsk_secbuf
+    mov cx, 512/32
+.rfent:
+    mov al, [es:di]
+    or al, al
+    jz .rfno                    ; 0x00 ends the directory entirely
+    cmp al, 0xE5
+    je .rfnext
+    push cx
+    push di
+    mov si, asc_s_name
+    mov cx, 11
+    cld
+    repe cmpsb                  ; the dskw_cmp idiom; pop leaves ZF alone
+    pop di
+    pop cx
+    jne .rfnext
+    mov ax, [es:di+26]          ; FstClusLO
+    cmp word [es:di+30], 0      ; size HIGH word: without this a 66,048-byte
+    jne .out                    ; ASSOC.DAT presents as one sector and the
+                                ; fit test below is answered about a file
+                                ; sixty-four kilobytes smaller than the one on
+                                ; the disk. A cache this big is a hostile file
+                                ; either way, so it is refused rather than
+                                ; truncated
+    mov dx, [es:di+28]          ; size low word -> sectors
+    add dx, 511
+    mov cl, 9
+    shr dx, cl
+    or dx, dx
+    jnz .rffound
+.rfno:                          ; (a trampoline too: .out is out of short
+    jmp short .out              ; reach of the two refusals above)
+.rfnext:
+    add di, 32
+    loop .rfent
+    jmp short .rfsec
+.rffound:
     cmp dx, ASC_KB*2            ; ...and it must FIT (SPEC.md 54.7.1). Every
     ja .out                     ; byte off a disk is hostile (SPEC.md 18.2)
                                 ; and dsk_read_chain reads the whole file into
@@ -2083,7 +2131,7 @@ asc_drop:
     ret
 
 ; -----------------------------------------------------------------------------
-; asc_root_find - ASSOC.DAT in the volume's ROOT (module-internal)
+; asc_root_find - ASSOC.DAT in the volume's ROOT (INLINE in asc_use_x)
 ; out: CF=0 with AX = its first cluster and DX = its size in sectors;
 ;      CF=1 = absent or unreadable
 ; clobbers: AX, DX (outputs), CF
@@ -2092,64 +2140,7 @@ asc_drop:
 ; resolves in the CURRENT directory - and a mount may be landing in a
 ; subdirectory, which is exactly when this runs.
 ; -----------------------------------------------------------------------------
-asc_root_find:
-    push bx
-    push cx
-    push si
-    push di
-    push es
-    push ss                     ; ES = LOW_SEG: dsk_secbuf is .lowbss (SPEC.md
-    pop es                      ; 2.1), which is exactly what SS names
-    xor ax, ax                  ; 0 = the root
-    call dsk_dirw_start_x
-.sector:
-    call dsk_dirw_get_x           ; either failure is "no cache here" (19.2.1)
-    jc .no
-    mov di, dsk_secbuf
-    mov cx, 512/32
-.entry:
-    mov al, [es:di]
-    or al, al
-    jz .no                      ; 0x00 ends the directory entirely
-    cmp al, 0xE5
-    je .next
-    push cx
-    push di
-    mov si, asc_s_name
-    mov cx, 11
-    cld
-    repe cmpsb                  ; the dskw_cmp idiom; pop leaves ZF alone
-    pop di
-    pop cx
-    jne .next
-    mov ax, [es:di+26]          ; FstClusLO
-    cmp word [es:di+30], 0      ; size HIGH word: without this a 66,048-byte
-    jne .no                     ; ASSOC.DAT presents as one sector and the
-                                ; caller's fit test is answered about a file
-                                ; sixty-four kilobytes smaller than the one on
-                                ; the disk. A cache this big is a hostile file
-                                ; either way, so it is refused rather than
-                                ; truncated
-    mov dx, [es:di+28]          ; size low word -> sectors
-    add dx, 511
-    mov cl, 9
-    shr dx, cl
-    or dx, dx
-    jz .no
-    jmp short .out
-.next:
-    add di, 32
-    loop .entry
-    jmp short .sector
-.no:
-    stc
-.out:
-    pop es
-    pop di
-    pop si
-    pop cx
-    pop bx
-    ret
+; (the code is inline in asc_use_x above, size pass 9)
 
 ; -----------------------------------------------------------------------------
 ; asc_merge_ext - take the cached association rows (SPEC.md 54.7)
@@ -2257,36 +2248,14 @@ asc_gly_pair:
     add si, ASC_ROWGLY - ASC_ROWICO
     call assoc_glyph_take
     jnc .out
-    sub si, ASC_ROWGLY - ASC_ROWICO
-    call asc_body_glyph         ; ...reduced instead (SPEC.md 54.7.3)
-.out:
-    pop di
-    pop si
-    pop cx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; asc_body_glyph - reduce a 64-byte icon BODY into a slot's glyph
-; in:  ES:SI -> the body, BL = the slot, BH = 0
-; out: nothing (all registers preserved)
-;
-; Split out of the cache-row walker so a STORE HIT can reach it. Since SPEC.md
-; 54.7.4 the cache's claim is gone by the time a listing asks, and what a hit
-; has is the body in SPEC.md 25.9's store - which carries no glyph column, so
-; the reduce is the whole of what is there. Nothing is lost for a volume that
-; HAS an ASSOC.DAT: asc_seed spends every row's shipped glyph while the claim
-; is still up, and it covers the whole VOLUME rather than the folder being
-; listed. One body of code either way, so a seeded glyph and a hit's cannot
-; disagree about what the ICONLESS sentinel is.
-; -----------------------------------------------------------------------------
-asc_body_glyph:
-    push ax
-    push cx
-    push si
-    push di
-    call assoc_glyph_di         ; DI -> the slot's glyph
-    add si, 32                  ; the DATA plane
+    ; ...REDUCED INSTEAD (SPEC.md 54.7.3), out of the body's DATA plane. This
+    ; was asc_body_glyph, split out so a store hit could reach it; the store
+    ; hit comes through this walker now (asc_take), so it had one caller and
+    ; is inline (size pass 9). A STORE row carries no glyph column, so for it
+    ; the reduce is the whole of what is there - and one body of code either
+    ; way is what stops a seeded glyph and a hit's disagreeing about what the
+    ; ICONLESS sentinel is.
+    sub si, ASC_ROWGLY - ASC_ROWICO - 32    ; -> body + 32, the DATA plane
     mov cx, 16
     call asc_inkck              ; an all-zero body is the ICONLESS sentinel:
     jz .out                     ; leave the glyph alone rather than blanking

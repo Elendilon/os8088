@@ -7262,8 +7262,11 @@ cw_inst_ptr:            call inst_ptr
                     retf
 %endif
 %ifdef KERN_BIG                 ; its callers are kern_big only
-cw_inst_task_die:       call inst_task_die
-                    retf
+cw_inst_task_die equ inst_task_die  ; NEVER RETURNS (it ends in task_exit's
+                                ; jmp sch_switch), so the shim's `retf` was
+                                ; unreachable and the far call may land on the
+                                ; body: the frame it leaves dies with the
+                                ; task's stack either way (size pass 9)
 %endif
 cw_mem_disp:            call bp
                     retf
@@ -7290,8 +7293,7 @@ cw_snd_beep:            call snd_beep
 cw_snd_disp_set:        call snd_disp_set
                     retf
 %ifdef KERN_BIG                 ; its callers are kern_big only
-cw_task_exit:            call task_exit
-                     retf
+cw_task_exit equ task_exit      ; NEVER RETURNS - cw_inst_task_die's reason
 %endif
 cw_task_spawn:           call task_spawn
                      retf

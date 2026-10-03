@@ -474,10 +474,15 @@ app_tmr_paint_x:
                                 ; showing is gone and the incremental redraw
                                 ; below must letter all eight of them
     call app_tmr_digits         ; digits FIRST: a button may leave the pen
-    call app_tmr_btns           ; disabled, and app_tmr_render's own
+                                ; disabled, and app_tmr_render's own
                                 ; gfx_pen_live is what makes the order not
                                 ; matter
-
+    mov al, APP_TMR_START       ; ...then all three buttons (this was
+.btn:                           ; app_tmr_btns, with this one caller - inline
+    call app_tmr_btn            ; since size pass 9; AX is banked by the KENT)
+    inc ax
+    cmp al, APP_TMR_NB
+    jb .btn
 .done:
     jmp app_tmr_edge_out
 
@@ -714,22 +719,6 @@ app_tmr_bok:
     pop ax                      ; pop touches no flag, which is what preserves
     ret                         ; AX *and* the answer
 
-; -----------------------------------------------------------------------------
-; app_tmr_btns - draw all three buttons
-; in:  BX = window ptr, DI = time state ptr (gfx lock held)
-; out: nothing
-; clobbers: flags (internal helper)
-; -----------------------------------------------------------------------------
-app_tmr_btns:
-    push ax
-    mov al, APP_TMR_START
-.next:
-    call app_tmr_btn
-    inc al
-    cmp al, APP_TMR_NB
-    jb .next
-    pop ax
-    ret
 
 ; -----------------------------------------------------------------------------
 ; app_tmr_btn - draw ONE button: erase, frame, centred label, all in the pen
@@ -761,7 +750,17 @@ app_tmr_btn:
                                 ; VALUE rather than an address (SS is not DS,
                                 ; SPEC.md 1 rule 3) - AX, BX, CX and DX are
                                 ; all about to be rect corners
-    call app_tmr_brect          ; AX,BX,CX,DX = its inclusive screen rect
+    mov cl, APP_TMR_BW + APP_TMR_BGAP ; --- its inclusive screen rect in
+    mul cl                      ; AX,BX,CX,DX (this was app_tmr_brect, and
+    mov cx, ax                  ; this its one caller - inline since size pass
+    call ct_cw_wm_content       ; 9). AX = index * pitch (both fit a byte);
+    add cx, ax                  ; then AX = content left, DX = content top
+    add cx, APP_TMR_BX          ; CX = the button's x, DX = its y
+    add dx, APP_TMR_BY
+    mov ax, cx
+    mov bx, dx
+    add cx, APP_TMR_BW - 1
+    add dx, APP_TMR_BH - 1
     call ct_cw_wm_clip_test
     jc .out
     call ui_krect4              ; the rect, staged whole - fdlg.inc's, `.cold`
@@ -798,25 +797,7 @@ app_tmr_btn:
 .out:
     jmp kretc_bp
 
-; -----------------------------------------------------------------------------
-; app_tmr_brect - one button's inclusive screen rect
-; in:  AL = button index, BX = window ptr
-; out: AX = x1, BX = y1, CX = x2, DX = y2
-; clobbers: AX, BX, CX, DX (internal helper)
-; -----------------------------------------------------------------------------
-app_tmr_brect:
-    mov cl, APP_TMR_BW + APP_TMR_BGAP
-    mul cl                      ; AX = index * pitch (both fit a byte)
-    mov cx, ax
-    call ct_cw_wm_content                     ; AX = content left, DX = content top
-    add cx, ax
-    add cx, APP_TMR_BX          ; CX = the button's x, DX = its y
-    add dx, APP_TMR_BY
-    mov ax, cx
-    mov bx, dx
-    add cx, APP_TMR_BW - 1
-    add dx, APP_TMR_BH - 1
-    ret
+
 
 ; -----------------------------------------------------------------------------
 ; app_tmr_hit - which button is under a click? (SPEC.md 14)
@@ -824,7 +805,7 @@ app_tmr_brect:
 ; out: AL = button index, CF = 0; CF = 1 = no button (AL undefined)
 ; clobbers: AX, flags (internal helper)
 ;
-; Derived from the same constants app_tmr_brect draws from, so the hit-test
+; Derived from the same constants app_tmr_btn's rect draws from, so the hit-test
 ; and the pixels cannot part company - the fm_hit argument (SPEC.md 22.2).
 ; -----------------------------------------------------------------------------
 app_tmr_hit:
@@ -880,18 +861,95 @@ app_tmr_hit:
 ; 14).
 ; -----------------------------------------------------------------------------
 app_tmr_digits:
-    push ax
-    push cx
-    push dx
+    call kentc_di               ; KENT: push ax..di. (app_tmr_render and
+                                ; app_tmr_span below were this routine's one
+                                ; callee each and are inline since size pass
+                                ; 9 - one frame where there were three; their
+                                ; notes are below)
     call ct_cw_wm_content                     ; AX = content left, DX = content top
     mov cx, ax
     add cx, APP_TMR_DX          ; CX = string x, DX = string y
     add dx, APP_TMR_DY
-    call app_tmr_render
-    pop dx
-    pop cx
-    pop ax
-    ret
+    ; --- app_tmr_render: format "HH:MM:SS", draw the cells that CHANGED ---
+    mov si, di                  ; one walk over the three ADJACENT fields,
+    mov bx, app_tmr_str         ; writing "HH:MM:SS:" ...
+.fmt:
+    mov al, [ss:si]             ; the source is SS-relative; the destination is
+    call KERNEL_SEG:cw_clk_put2 ; .bss, and clk_put2 writes [bx] through DS,
+                                ; which is KERNEL_SEG in .cold too. SPEC.md
+                                ; 37's own two-digit pair rather than a second
+                                ; copy of it - the `aam / add ax,0x3030 /
+                                ; leading zero for free` idiom and its COMMENT
+                                ; were written out identically in both files.
+                                ; BX comes back advanced by 2, which is what
+                                ; makes the loop bound below work unchanged
+    mov byte [bx], ':'
+    inc bx
+    inc si
+    cmp bx, app_tmr_str + 9
+    jb .fmt
+    mov byte [app_tmr_str+8], 0 ; ...and the third colon IS the NUL cell
+
+    mov ax, cx                  ; the whole line's inclusive rect: AX = x1,
+    mov bx, dx                  ; BX = y1, CX = x2, DX = y2
+    add cx, APP_TMR_DW - 1
+    add dx, 7
+    call ct_cw_wm_clip_test                   ; preserves all four (and answers "free" when
+    mov cx, ax                  ; nothing is armed, which is every W_PAINT and
+    mov dx, bx                  ; every click)
+    jc .whole
+
+    ; --- app_tmr_span: which cells differ, and TMR_SHOWN adopts the new
+    ; line (CX is the run's x and is banked across it; BX is free)
+    push cx
+    mov ch, 0xFF                ; no cell has differed yet
+    xor bx, bx
+.cell:
+    mov al, [app_tmr_str+bx]
+    cmp al, [ss:bx+di+TMR_SHOWN]
+    je .next
+    mov [ss:bx+di+TMR_SHOWN], al
+    cmp ch, 0xFF
+    jne .last
+    mov ch, bl
+.last:
+    mov cl, bl                  ; kept overwritten: the last one to get here
+.next:                          ; is the far end of the span
+    inc bx
+    cmp bx, 8
+    jb .cell
+    cmp ch, 0xFF                ; CF = 0 exactly when CH is still 0xFF...
+    cmc                         ; ...so CF = 1 exactly when nothing differed:
+    mov ax, cx                  ; it already showed it. AH = the first
+    pop cx                      ; differing cell, AL = the last (mov and pop
+    jc .out                     ; touch no flag)
+    mov bl, al                  ; AL = the LAST cell that changed
+    xor bh, bh
+    mov byte [app_tmr_str+1+bx], 0  ; terminate after the last changed cell.
+                                    ; The scratch is rebuilt on every call, so
+                                    ; nothing has to put the byte back
+    mov bl, ah                  ; AH = the FIRST
+    mov si, bx
+    add si, app_tmr_str         ; SI = the run...
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1                   ; ...and its x, cell * 8 (8086: no shl by an
+    add cx, bx                  ; immediate other than 1 - SPEC.md 1 rule 2)
+    jmp short .draw
+.whole:
+    call app_tmr_forget         ; some of these cells are about to be refused,
+    mov si, app_tmr_str         ; so nothing may be remembered about any of them
+.draw:
+    call KERNEL_SEG:cw_gfx_pen_live           ; a button drawn just before may have left
+                                ; [gfx_dis] set, which is both a checkerboard
+                                ; glyph and font_run's slow path (SPEC.md 47
+                                ; rule 1) - and font_run takes its colours in
+                                ; AL/AH, so this is here for the FLAG
+    mov ax, (CWHITE << 8) | CBLACK  ; AL = ink, AH = ground - the form
+                                    ; app_about_center_x uses, one byte shorter
+    call ct_cw_font_run
+.out:
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; app_tmr_render - format an instance's time as "HH:MM:SS" and put the cells
@@ -900,7 +958,7 @@ app_tmr_digits:
 ; out: nothing
 ; clobbers: AX, CX, DX, flags. THOSE THREE BELONG TO app_tmr_digits, which is
 ;           its only caller and banks all three at its own entry; BX and DI are
-;           saved here because app_tmr_paint_x calls app_tmr_btns straight
+;           saved here because app_tmr_paint_x draws the buttons straight
 ;           after and needs the window and the state. SI is preserved because
 ;           every caller holds the window in it (a W_* edge's SI).
 ;
@@ -936,71 +994,7 @@ app_tmr_digits:
 ; everything again: SPEC.md 28.2's rule, that a run which took that path was
 ; by definition not drawn whole.
 ; -----------------------------------------------------------------------------
-app_tmr_render:
-    push bx
-    push si
-    push di
-
-    mov si, di                  ; one walk over the three ADJACENT fields,
-    mov bx, app_tmr_str         ; writing "HH:MM:SS:" ...
-.fmt:
-    mov al, [ss:si]             ; the source is SS-relative; the destination is
-    call KERNEL_SEG:cw_clk_put2 ; .bss, and clk_put2 writes [bx] through DS,
-                                ; which is KERNEL_SEG in .cold too. SPEC.md
-                                ; 37's own two-digit pair rather than a second
-                                ; copy of it - the `aam / add ax,0x3030 /
-                                ; leading zero for free` idiom and its COMMENT
-                                ; were written out identically in both files.
-                                ; BX comes back advanced by 2, which is what
-                                ; makes the loop bound below work unchanged
-    mov byte [bx], ':'
-    inc bx
-    inc si
-    cmp bx, app_tmr_str + 9
-    jb .fmt
-    mov byte [app_tmr_str+8], 0 ; ...and the third colon IS the NUL cell
-
-    mov ax, cx                  ; the whole line's inclusive rect: AX = x1,
-    mov bx, dx                  ; BX = y1, CX = x2, DX = y2
-    add cx, APP_TMR_DW - 1
-    add dx, 7
-    call ct_cw_wm_clip_test                   ; preserves all four (and answers "free" when
-    mov cx, ax                  ; nothing is armed, which is every W_PAINT and
-    mov dx, bx                  ; every click)
-    jc .whole
-
-    call app_tmr_span           ; the differing cells, and TMR_SHOWN adopts
-    jc .out                     ; the new line; CF = 1 = it already showed it
-    mov bl, al                  ; AL = the LAST cell that changed
-    xor bh, bh
-    mov byte [app_tmr_str+1+bx], 0  ; terminate after the last changed cell.
-                                    ; The scratch is rebuilt on every call, so
-                                    ; nothing has to put the byte back
-    mov bl, ah                  ; AH = the FIRST
-    mov si, bx
-    add si, app_tmr_str         ; SI = the run...
-    shl bx, 1
-    shl bx, 1
-    shl bx, 1                   ; ...and its x, cell * 8 (8086: no shl by an
-    add cx, bx                  ; immediate other than 1 - SPEC.md 1 rule 2)
-    jmp short .draw
-.whole:
-    call app_tmr_forget         ; some of these cells are about to be refused,
-    mov si, app_tmr_str         ; so nothing may be remembered about any of them
-.draw:
-    call KERNEL_SEG:cw_gfx_pen_live           ; a button drawn just before may have left
-                                ; [gfx_dis] set, which is both a checkerboard
-                                ; glyph and font_run's slow path (SPEC.md 47
-                                ; rule 1) - and font_run takes its colours in
-                                ; AL/AH, so this is here for the FLAG
-    mov ax, (CWHITE << 8) | CBLACK  ; AL = ink, AH = ground - the form
-                                    ; app_about_center_x uses, one byte shorter
-    call ct_cw_font_run
-.out:
-    pop di
-    pop si
-    pop bx
-    ret
+; (the code is inline in app_tmr_digits above, size pass 9)
 
 ; -----------------------------------------------------------------------------
 ; app_tmr_span - which cells differ from what this window is showing, and
@@ -1017,31 +1011,7 @@ app_tmr_render:
 ; here having established that the whole line is drawable. A cut line does not
 ; come through here at all - it goes to app_tmr_forget instead.
 ; -----------------------------------------------------------------------------
-app_tmr_span:
-    push bx
-    push cx
-    mov ch, 0xFF                ; no cell has differed yet
-    xor bx, bx
-.cell:
-    mov al, [app_tmr_str+bx]
-    cmp al, [ss:bx+di+TMR_SHOWN]
-    je .next
-    mov [ss:bx+di+TMR_SHOWN], al
-    cmp ch, 0xFF
-    jne .last
-    mov ch, bl
-.last:
-    mov cl, bl                  ; kept overwritten: the last one to get here
-.next:                          ; is the far end of the span
-    inc bx
-    cmp bx, 8
-    jb .cell
-    cmp ch, 0xFF                ; CF = 0 exactly when CH is still 0xFF...
-    cmc                         ; ...so CF = 1 exactly when nothing differed
-    mov ax, cx                  ; neither mov nor pop touches a flag, which is
-    pop cx                      ; what lets both answers share the epilogue
-    pop bx
-    ret
+; (the code is inline in app_tmr_digits above, size pass 9)
 
 ; -----------------------------------------------------------------------------
 ; app_tmr_forget - this window is no longer showing anything we know about
