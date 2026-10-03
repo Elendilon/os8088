@@ -4159,8 +4159,10 @@ gfx_1bpp_on:
     mov word [vga_pn], 0x0F01
     ret
 gfx_1bpp_off:
-    mov word [vga_pn], 0x0104
+    mov word [vga_pn], VGA_PN_FOUR
     ret
+VGA_PN_FOUR equ 0x0104          ; [vga_pn] = 4 planes, [vga_pm] = Map Mask 1 -
+                                ; also stored inline by mouse.inc's cur_rect
 
 gfx_sub_st  dw 0                ; buffer offset of the sub-rect's first byte
 gfx_sub_rs  dw 0                ; ...bytes to step the BUFFER past each row

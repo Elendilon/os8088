@@ -4104,7 +4104,8 @@ cur_get_1:
 cur_restoreu:
     push es
     push word [vga_pn]          ; **AND THE POINTER IS ALWAYS FOUR PLANES**
-    call gfx_1bpp_off           ; (SPEC.md 11.96.17, 32). vga_pn/vga_pm's own
+    call cur_rect               ; (SPEC.md 11.96.17, 32 - cur_rect disarms the
+                                ; one-plane arm, see there). vga_pn/vga_pm's own
                                 ; header says an arm "cannot leak onto the
                                 ; pointer, which reaches vga_restore_vram
                                 ; DIRECTLY out of IRQ4, below the two routines
@@ -4119,10 +4120,6 @@ cur_restoreu:
                                 ; black or white. Two words, at the one point
                                 ; both cursor paths pass through; the mono
                                 ; branch is inside vga_restore_vram, below this
-    call cur_rect
-    push ds
-    pop es
-    mov si, cur_save
     call vga_restore_vram
     pop word [vga_pn]           ; ...and the caller's arm is its own again
     pop es
@@ -4172,12 +4169,8 @@ cur_get_mono:
 cur_saveu:
     push es
     push word [vga_pn]          ; four planes, cur_restoreu's reason exactly -
-    call gfx_1bpp_off           ; and it has to be BOTH halves or the save and
+    call cur_rect               ; and it has to be BOTH halves or the save and
                                 ; the restore disagree about the buffer
-    call cur_rect
-    push ds
-    pop es                      ; buffer lives in kernel .bss
-    mov di, cur_save
     call vga_save_vram
     pop word [vga_pn]
     pop es
@@ -4187,8 +4180,17 @@ cur_saveu:
 ; because a save and a restore that disagree about it by a byte smear the
 ; cursor across the screen. CUR_GW/CUR_GH bound it, and the tables are cut to
 ; the same 8x12 - there is no larger cell left to walk by accident.
-; out: AX/BX/CX/DX = x1/y1/x2/y2
+; out: AX/BX/CX/DX = x1/y1/x2/y2, ES = DS, SI = DI = cur_save, and the
+;      one-plane arm DOWN ([vga_pn] = 4 planes) - EVERYTHING the save and the
+;      restore set up besides banking ES and the arm, in the one routine both
+;      already call (size pass 9: gfx_1bpp_off's call and the buffer setup were
+;      written twice, once each side)
 cur_rect:
+    mov word [vga_pn], VGA_PN_FOUR  ; gfx_1bpp_off, inline (vga12.inc)
+    push ds                     ; the buffer lives in kernel .bss
+    pop es
+    mov si, cur_save            ; the restore's source...
+    mov di, si                  ; ...and the save's destination
     mov ax, [cur_cellx]         ; the CELL as cur_geom banked it: the drawn
     mov bx, [cur_celly]         ; point in the ACTIVE display's coordinates
                                 ; (SPEC.md 39.15.1), off the HOT SPOT and
@@ -4951,18 +4953,14 @@ cur_move_multi:
     jmp short .out
 
 .jump:                          ; --- erase whole, then draw whole ----------
-    push ax
-    push bx
-    push cx
+    mov [cur_drawn_x], ax       ; the new position FIRST: cur_get_1 reads the
+    mov [cur_drawn_y], bx       ; OLD cell out of cur_geom's bank, not these
+    push cx                     ; (size pass 9: AX/BX need no banking)
     mov al, dh
     call vid_ctx_act
     call cur_get_1              ; the arrow leaves the display it was on...
     pop cx
-    pop bx
-    pop ax
     mov [cur_disp], cl
-    mov [cur_drawn_x], ax
-    mov [cur_drawn_y], bx
     mov al, cl
     call vid_ctx_act
     call cur_put_1              ; ...and arrives on the one it crossed onto
@@ -4983,13 +4981,13 @@ cur_move_1:
     CURLOG 'm'                  ; ...from HERE (cur_drawn is still the old one)
     cmp byte [vid_mono], 0
     jne cur_move_mono
-    push ax                     ; planar: the save is four planes through Read
-    push bx                     ; Map Select and cannot take a background from
-    call cur_restoreu           ; a buffer, so it stays erase-then-draw
-    pop bx
-    pop ax
-    mov [cur_drawn_x], ax
-    mov [cur_drawn_y], bx
+    mov [cur_drawn_x], ax       ; planar: the save is four planes through Read
+    mov [cur_drawn_y], bx       ; Map Select and cannot take a background from
+    call cur_restoreu           ; a buffer, so it stays erase-then-draw. The
+                                ; NEW position is stored first: the restore
+                                ; reads the OLD cell out of cur_geom's bank
+                                ; ([cur_cellx/y]), not out of these, so AX/BX
+                                ; need no banking across it (size pass 9)
     CURLOG 'M'                  ; ...to HERE
     call cur_geom               ; ...and the new cell's geometry, which the
     call cur_saveu              ; save and the draw both read (see cur_put_1)
