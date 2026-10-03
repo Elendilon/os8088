@@ -6225,6 +6225,13 @@ wm_dmg_gray:
     je .out                     ; wholly covered: not one pixel is revealed
     jmp short .fill
 .whole:
+    mov word [wm_dmg_stwin], 0  ; the lot is dithered, WINDOWS INCLUDED, so
+                                ; 11.91.2's vacated-rect exemption no longer
+                                ; holds: every window the damage reaches is
+                                ; owed. The drop-shadow Ls and the zones made
+                                ; an ordinary drag overflow the region, and a
+                                ; window clear of where the dragged one WAS
+                                ; kept the dither laid over it
 %ifdef OS88_SHORTCUTS
     call COLD_SEG:desk_dmg_zones_x  ; every touched zone owed again: desk_zones_r
 %endif                          ; may have drawn some that this dithers over.

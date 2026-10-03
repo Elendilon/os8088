@@ -5119,7 +5119,9 @@ section .bss
 ;   RECT primitives (gfx_blit4's runs and gfx_points' slow path are gfx_fill),
 ;   whose scratch is gfx_cl_*, gfx_dr and the rect block - none of it here;
 ; * the one thing that draws WITHOUT the lock is the mouse ISR, and the cursor
-;   touches none of this (its scratch is mv_*, the rect block and vga_plane);
+;   draws only when no primitive is mid-flight: the lock free, or held by the
+;   task that is parked inside int 13h. Its own members (mv_*, cur_move_mono's)
+;   ARE in the union for exactly that reason - mouse.inc at `absolute gfx_u`;
 ; * every member is WRITTEN BY ITS OWN PRIMITIVE BEFORE IT IS READ, on every
 ;   path - which is what a union needs and .bss's zero never gave anything
 ;   here. The members that DO lean on a value surviving between calls are kept

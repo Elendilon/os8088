@@ -14522,7 +14522,7 @@ decode and nowhere else:
 **`mou_apply` is that shared back end**, and it is the point of the change
 rather than a side effect of it. From the moment a report is a signed dx, a
 signed dy and two button bits, **nothing about it is protocol-specific**: the
-staging through `[mou_nx]`, `mou_clamp`'s 2-D answer (§39.15.4), the
+new position staged in AX/BX, `mou_clamp`'s 2-D answer (§39.15.4), the
 `EVT_MDOWN`/`EVT_MUP`/`EVT_RDOWN` rules — including the binding fall-through
 of §9, where a packet reporting both buttons changed queues the left event
 only — `[blk_act]` (§64.1), `[cur_mvt]` (§7.1.4.3) and §7's draw-or-defer
