@@ -528,8 +528,21 @@ class UI:
         self._grab(w, gx, gy)
         self.mo.to(gx + (x - w.x), gy + (y - w.y), l=True)
         self.mo._edge(False)
+        # ARRIVED *AND THE DRAG IS OVER*, which is two facts and not one.
+        # ui_drag stores the drop and then, still under the gfx lock, has
+        # wm_dc_take (SPEC.md 11.96.12) put the record BACK at the old place
+        # for the length of the pixel save and restore it after. A poll that
+        # saw the new place and returned let the `_refresh` below land inside
+        # that save and answer the window's PRE-drag origin, with nothing
+        # raised: `uilayer` reported "drag +20+12 from (175, 38) -> (175,
+        # 38)" and `deskzoom` double-clicked a title bar that had moved, in
+        # the same soak. ui_drag leaves through gfx_unlock, so the lock being
+        # free with the record at the drop is the drag having finished.
+        lockf = self._S("gfx_lock_flag")
         try:
-            self._wait(lambda: self._rect(w.i)[:2] == want,
+            self._wait(lambda: (self._rect(w.i)[:2] == want
+                                and self.m.read(lockf, 1)[0] == 0
+                                and self._rect(w.i)[:2] == want),
                        "window %r to arrive at (%d,%d)"
                        % ((w.title,) + want), limit)
         except UIError:

@@ -41,15 +41,31 @@ def run(machine):
                      machine=machine) as ui:
         ui.open_drive("A")
         w = ui.open_drive("B")
+        # move_window waits for the drag to FINISH and not just for the record
+        # to read the drop: wm_dc_take puts the record back at the old place
+        # for the length of its pixel save (SPEC.md 11.96.12), and a soak once
+        # read it there - the zoom's double-click then landed in the OTHER
+        # window's listing and opened APPS in it
         w = ui.move_window(w, 300, 120)
         was = (w.x, w.y, w.w, w.h)
-        ui.mo.dblclick(w.x + 40, w.y + 5)
-        ui.settle()
-        w = ui._refresh(w)
+
+        def toggled(frm):
+            """double-click the title bar and WAIT for the record to change,
+            on the guest's clock - a settle proves the screen still, not that
+            the gesture was acted on"""
+            ui.mo.dblclick(frm.x + 40, frm.y + 5)
+            try:
+                ui._wait(lambda: ui._rect(frm.i) != (frm.x, frm.y, frm.w,
+                                                      frm.h),
+                         "the title-bar double-click to zoom or restore %r"
+                         % (frm.title,), 15.0)
+            except os88ui.UIError as e:
+                print("   %s" % e)
+            ui.settle()
+            return ui._refresh(frm)
+        w = toggled(w)
         zoomed = (w.x, w.y, w.w, w.h)
-        ui.mo.dblclick(w.x + 40, w.y + 5)
-        ui.settle()
-        w = ui._refresh(w)
+        w = toggled(w)
         back = (w.x, w.y, w.w, w.h)
         print("  %s -> zoomed %s -> restored %s" % (was, zoomed, back))
         bad = 0
