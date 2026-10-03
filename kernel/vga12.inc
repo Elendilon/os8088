@@ -2444,9 +2444,8 @@ vga_p4build:
     shl si, 1
     mov [ss:si + vga_p4tab], dx ; .lowbss: a UNION with the pair tables
                                 ; (SPEC.md 39.22.1), reached through SS
-    inc bx
-    cmp bx, 256
-    jb .byte
+    inc bl                      ; 256 entries: BL wraps to 0 after 255,
+    jnz .byte                   ; and BH stays the 0 the head set
     mov word [gfx_pairbuilt], 0x0100 ; vga_p4built = 1, and gfx_pairbuilt =
                                 ; 0: its tables are what this just overwrote
                                 ; (the pair is adjacent, the %error above)

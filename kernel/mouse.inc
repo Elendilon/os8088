@@ -1169,13 +1169,16 @@ mou_claim:
 ; is indistinguishable, to a counter that never decays, from a mouse being
 ; moved.
 ; ins:  none
-; outs: none (all registers preserved)
+; outs: none (all registers preserved; the flags are not)
 ; -----------------------------------------------------------------------------
 mou_newround:
-    mov word [mou_phase], 0
-    mov word [mou_phase+2], 0
-    mov word [mou_run], 0
-    mov word [mou_run+2], 0
+    push ax                     ; four ACCUMULATOR stores, three bytes apiece,
+    xor ax, ax                  ; where four immediate ones were six (size
+    mov [mou_phase], ax         ; pass 9). The flags are not preserved, and no
+    mov [mou_phase+2], ax       ; caller reads them across this
+    mov [mou_run], ax
+    mov [mou_run+2], ax
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2466,10 +2469,10 @@ kbm_move:
     add ax, [mouse_x]
     push ax                     ; banked on OUR stack until y is ready, for
                                 ; mou_clamp's 2-D reason (SPEC.md 39.15.4).
-                                ; NOT in [mou_nx]: that word is the IRQ4
-                                ; ISR's staging area, and a serial byte
-                                ; landing between our store and read-back
-                                ; paired the ISR's x with our y
+                                ; NOT in a shared word: when the ISR staged
+                                ; its x in one ([mou_nx], gone since size
+                                ; pass 9), a serial byte landing between our
+                                ; store and read-back paired its x with our y
     mov al, [bx+2]              ; dy, the same way
     imul dl
     add ax, [mouse_y]
@@ -3620,8 +3623,8 @@ mou_apply_abs:
 ; mou_apply - one decoded report, whatever hardware carried it (SPEC.md 9.9.3)
 ;
 ; From the moment a packet is a signed dx, a signed dy and two button bits,
-; NOTHING about it is protocol-specific - so both mice end here: the staging
-; through mou_nx, mou_clamp's 2-D answer (SPEC.md 39.15.4), the event rules
+; NOTHING about it is protocol-specific - so both mice end here: the staged
+; candidate, mou_clamp's 2-D answer (SPEC.md 39.15.4), the event rules
 ; including the binding fall-through that makes a both-buttons packet queue the
 ; LEFT event only (SPEC.md 9), [blk_act] (SPEC.md 64.1), [cur_mvt] (SPEC.md
 ; 7.1.4.3) and SPEC.md 7's draw-or-defer decision.
@@ -3643,14 +3646,13 @@ mou_apply:
                                 ; awake all night. One store, no register - the
                                 ; UI task spends it, so nothing in an ISR
                                 ; touches a video port or reads a clock
-    add ax, [mouse_x]
-    mov [mou_nx], ax            ; STAGED, not stored: the clamp is 2-D on a
-                                ; machine with two displays (SPEC.md 39.15.4)
-                                ; and cannot answer about x until y is known
-    mov ax, bx
-    add ax, [mouse_y]
-    mov bx, ax
-    mov ax, [mou_nx]
+    add ax, [mouse_x]           ; STAGED, not stored: the clamp is 2-D on a
+    add bx, [mouse_y]           ; machine with two displays (SPEC.md 39.15.4)
+                                ; and cannot answer about x until y is known -
+                                ; and the candidates stay in the two registers
+                                ; they arrived in. (They went through a [mou_nx]
+                                ; word until size pass 9, because y was summed
+                                ; in AX: 12 bytes and an ISR store/load pair)
     call mou_clamp              ; ...and CX is untouched by it, which the
     mov [mouse_x], ax           ; button decode below relies on
     mov [mouse_y], bx
@@ -4641,13 +4643,10 @@ cur_shape_set:
     add bx, bx                  ; two bytes a shape
     mov ax, [bx + cur_shtab]
     mov [cur_tabp], ax
-    mov al, [bx + cur_shhot]
-    xor ah, ah
-    mov [cur_hx], ax
-    mov al, [bx + cur_shhot + 1]
-    xor ah, ah
-    mov [cur_hy], ax
-    pop bx
+    mov ax, [bx + cur_shhot]    ; AL = hot x, AH = hot y - and each goes into
+    mov [cur_hx], al            ; the LOW byte of its word: the high bytes are
+    mov [cur_hy], ah            ; 0 from the initialisers below and nothing
+    pop bx                      ; else ever writes either word
     pop ax
 .out:
     ret
@@ -5596,8 +5595,6 @@ cur_inxfer   db 0                ; **THE CPU IS INSIDE AN int 13h** (SPEC.md
                                 ; ours could run, so a garbage byte here would
                                 ; let IRQ4 draw during the splash
 %endif
-mou_nx      dw 0                ; the candidate x, staged across the y decode
-                                ; because mou_clamp is 2-D (SPEC.md 39.15.4)
 cur_dirty   db 0                ; set when the ISR could not move the cursor
 cur_drawn_x dw 0                ; where the cursor pixels actually are, in
 cur_drawn_y dw 0                ; VIRTUAL coordinates (SPEC.md 39.15) - the
