@@ -275,7 +275,8 @@ cp_sname:   db 'Control', 0     ; KD_NAME: fits the memory view's 7-char
 ; Deferred-repaint flag, drained by ui_task step 3 (SPEC.md 13/31.2). Inline
 ; .text data, not .bss, so it is initialised on disk and needs no cp_init -
 ; the osapi_seed trick from kernel.asm.
-cp_dirty:   db 0                ; 1 = the mode changed, repaint everything
+cp_dirty:   db 0                ; 1 = the mode changed, repaint everything -
+                                ; 0 or 1 ONLY: ui_task tests it with `shr`
 cp_wdirty:  db 0                ; 1 = a setting changed and SYSTEM.CFG is owed
                                 ; a write. Deferred to the panel's teardown
                                 ; (cp_flush_close) rather than taken on the

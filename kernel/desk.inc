@@ -2180,7 +2180,8 @@ desk_ready   resb 1             ; 0 until kmain has everything in: no reflow
 desk_ncell   resb 1             ; cells on this screen, <= DSL_SLOT
 %endif
 desk_zdirty  resb 1             ; 1 = [desk_cdirty] holds cells that owe a
-                                ; repaint (SPEC.md 26.9), posted
+                                ; repaint (SPEC.md 26.9), posted - 0 or 1
+                                ; ONLY: ui_task tests it with `shr`
 desk_cdirty  resb (DSL_SLOT + 1) / 8    ; ...one bit a cell
 desk_zslot   resb DESK_NZ       ; THE TABLE: one byte a zone (SPEC.md 26.9).
                                 ; desk_init fills it with 0xFF, "nothing"

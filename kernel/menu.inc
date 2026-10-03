@@ -580,15 +580,18 @@ menu_relayout:
     mov [menu_namep], si
 
     ; --- cell 0: the System menu, fixed in every application ---------------
-    mov di, menu_bar
-    mov word [ss:di + MB_TITLE], 0 ; 0 = draw the logo glyph
-    mov word [ss:di + MB_ITEMS], menu_items_logo
-    mov word [ss:di + MB_NITEM], MENU_LOGO_N
-    mov word [ss:di + MB_XL], 0
-    mov word [ss:di + MB_XR], MENU_SYS_XR
-    mov word [ss:di + MB_SEG], 0   ; the System menu is the kernel's, always
+    push es                     ; ES:SI is the name, wanted below
+    push si
+    push ss                     ; menu_bar is .lowbss, so SS - and the six
+    pop es                      ; words are menu_cell0's, a fixed record in
+    mov si, menu_cell0          ; .text: one rep movsw where six immediate
+    mov di, menu_bar            ; stores through an SS override were 41
+    mov cx, MB_ENTSZ / 2        ; bytes with the `add di` after them; DI
+    cld                         ; ends one entry on, which is the add
+    rep movsw                   ; (kernel size pass 9)
+    pop si
+    pop es
     mov word [menu_nbar], 1
-    add di, MB_ENTSZ
 
     ; --- the app's own menus, left to right after the name label -----------
     call font_width_x           ; SI = the name at ES:SI; AX = its width
@@ -1727,19 +1730,9 @@ menu_track:
     call menu_widest            ; AX = widest item text, px (BX/CX in)
     add ax, 16
     mov bx, [ss:si + MB_XL]        ; the pull-down hangs off the title's left
-    mov [menu_x1], bx
-    add bx, ax
-    dec bx
-    mov [menu_x2], bx           ; x2 = x1 + width - 1
-    mov word [menu_y1], MBAR_H  ; it always hangs from the bar
-    mov ax, [menu_cnt]
-    mov cl, 4
-    shl ax, cl                  ; count * 16
-    add ax, MBAR_H + 1          ; + top frame row; bottom frame is y2 itself
-    mov [menu_y2], ax
-    mov byte [menu_btn], 1      ; the LEFT button keeps a bar menu open
-
-    call menu_drop              ; AX = item index, or 0xFFFF
+    mov dx, MBAR_H              ; it always hangs from the bar
+    mov cl, 1                   ; the LEFT button keeps a bar menu open
+    call menu_pull              ; AX = item index, or 0xFFFF
     call menu_title_xor         ; un-highlight the title (self-inverting)
     cmp ax, 0xFFFF
     je .out
@@ -1807,34 +1800,27 @@ menu_popup:
     jns .x_lo                   ; than the screen cannot happen, but the
     xor bx, bx                  ; floor costs 4 bytes and removes the doubt)
 .x_lo:
-    mov [menu_x1], bx
-    add bx, ax
-    dec bx
-    mov [menu_x2], bx
 
     ; --- height, and the upward shift off the bottom edge --------------------
+    mov si, ax                  ; the width, across the height's arithmetic
     mov ax, [menu_cnt]
     mov cl, 4
     shl ax, cl                  ; count * 16 ...
     inc ax                      ; ... + the top and bottom frame rows
     inc ax
-    mov bx, dx                  ; BX = candidate y1 (DX = anchor y)
-    mov cx, [vid_ph]
+    mov cx, [vid_ph]            ; DX = candidate y1 (the anchor y)
     sub cx, ax                  ; CX = lowest y1 that still fits
-    cmp bx, cx
+    cmp dx, cx
     jle .y_hi
-    mov bx, cx
+    mov dx, cx
 .y_hi:
-    cmp bx, MBAR_H              ; never over the menu bar: it is the one
+    cmp dx, MBAR_H              ; never over the menu bar: it is the one
     jge .y_lo                   ; surface no window may cover either
-    mov bx, MBAR_H
+    mov dx, MBAR_H
 .y_lo:
-    mov [menu_y1], bx
-    add bx, ax
-    dec bx
-    mov [menu_y2], bx
+    xchg ax, si                 ; AX = the width again
 
-    mov byte [menu_btn], 3      ; EITHER button keeps a popup open. It was
+    mov cl, 3                   ; EITHER button keeps a popup open. It was
                                 ; 2, the right, when every popup was a
                                 ; right-click's; the Floppy page's drop-downs
                                 ; (SPEC.md 31.14) open on a LEFT press held
@@ -1842,7 +1828,7 @@ menu_popup:
                                 ; both for the same five bytes. A right-click
                                 ; menu is unchanged unless the left is ALSO
                                 ; held, when it stays up until both are let go
-    call menu_drop              ; AX = item index, or 0xFFFF
+    call menu_pull              ; AX = item index, or 0xFFFF
     cmp ax, 0xFFFF
     je .none
     clc
@@ -1851,12 +1837,8 @@ menu_popup:
     mov ax, 0xFFFF
     stc
 .out:
-    pop di                      ; pop does not touch the flags
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp short menu_track.out    ; pop does not touch the flags, and the five
+                                ; pops are menu_track's, in its order
 
 ; -----------------------------------------------------------------------------
 ; menu_drop - the tracker both menus share (SPEC.md 12.4): save the pixels
@@ -1969,7 +1951,36 @@ menu_reloc:
     ret
 %endif                          ; OS88_COMPACT
 
+; -----------------------------------------------------------------------------
+; menu_pull - lay out the dropped rect and run menu_drop over it
+; in:  BX = x1, AX = width, DX = y1, CL = the [menu_btn] mask; [menu_cnt] set
+; out: menu_drop's: AX = item index, or 0xFFFF
+; clobbers: BX, CX (both callers have them banked)
+;
+; menu_track's and menu_popup's last eleven lines were one sum written twice:
+; x2 = x1 + width - 1, y2 = y1 + count * 16 + 1 (the frame's top row; the
+; bottom one is y2 itself), the button, and the call. FALLS INTO menu_drop
+; (the %if under its body), so the call is the caller's.
+; -----------------------------------------------------------------------------
+menu_pull:
+    mov [menu_btn], cl
+    mov [menu_x1], bx
+    add bx, ax
+    dec bx
+    mov [menu_x2], bx
+    mov [menu_y1], dx
+    mov ax, [menu_cnt]
+    mov cl, 4
+    shl ax, cl                  ; count * 16
+    inc ax                      ; + the top frame row
+    add ax, dx
+    mov [menu_y2], ax
+.fall:
+
 menu_drop:
+%if menu_drop - menu_pull.fall != 0
+  %error "menu_pull falls into menu_drop: nothing may sit between them"
+%endif
     push bx
     push cx
     push dx
@@ -2656,6 +2667,16 @@ menu_s_appclose db 'Close', 0
 ; exactly why Restart lives here now: it is the one command every app should
 ; be able to reach, and it used to be reachable only from Locator's own bar
 ; and from a Disk window's (SPEC.md 12.3.1).
+menu_cell0:                     ; cell 0, copied whole by menu_relayout -
+    dw 0                        ; MB_TITLE: 0 = draw the logo glyph
+    dw menu_items_logo          ; MB_ITEMS
+    dw MENU_LOGO_N              ; MB_NITEM
+    dw 0                        ; MB_XL
+    dw MENU_SYS_XR              ; MB_XR
+    dw 0                        ; MB_SEG: the System menu is the kernel's
+%if ($ - menu_cell0) != MB_ENTSZ || MB_TITLE != 0 || MB_ITEMS != 2 || MB_NITEM != 4 || MB_XL != 6 || MB_XR != 8 || MB_SEG != 10
+  %error "menu_cell0 is one MB_* record in field order: menu_relayout copies it with rep movsw"
+%endif
 menu_items_logo:
     dw menu_s_about
     dw menu_s_ctrl
