@@ -1421,9 +1421,9 @@ fcp_file1:
     call fcp_xfer
     jc .err
     mov byte [fcp_pend], 0
-.ok:
-    clc
-    jmp short .out
+.ok:                            ; CF = 0 on both arrivals: the `jc` above
+    jmp short .out              ; not taken, and the `cmp [fcp_all], 0` (a
+                                ; compare against 0 never borrows)
 .clash:
     mov ax, FERR_EXIST
 .err:
@@ -1446,9 +1446,8 @@ fcp_file2:
     call fcp_xfer               ; and fcp_xfer banks all five itself - so the
     jc .out                     ; contract above is honoured directly rather
 .skip:                          ; than by saving registers nothing touches
-    mov byte [fcp_pend], 0
-    clc
-.out:
+    mov byte [fcp_pend], 0      ; (CF = 0 both ways: the `jc` not taken, or
+.out:                           ; the `cmp [fcp_ovw], 0` EQUAL)
     ret
 
 ; -----------------------------------------------------------------------------

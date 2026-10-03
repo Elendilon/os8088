@@ -661,6 +661,8 @@ fm_kinit_x:
 ; skips this reads the PREVIOUS window's directory: wrong names, wrong icons,
 ; and a double-click that opens the wrong file.
 ; -----------------------------------------------------------------------------
+fm_svp_set:                     ; ...with the window in SI (BX comes back
+    mov bx, si                  ; holding it, as the callers had it)
 fm_vp_set:
     push bx
     call ct_cw_inst_win_owner         ; DI = record, or 0; BX preserved
@@ -779,6 +781,11 @@ fmv_viofs:
 ; every consumer in this module keeps the plain "SI ->" pointer it had back
 ; when the listing was a single global.
 ; -----------------------------------------------------------------------------
+fmv_gdtype:                     ; ...and compare its TYPE word with 2, the
+    call fmv_get_dir            ; folder test four callers made: CF = 1 a
+    cmp word [si+16], 2         ; file, ZF = 1 a folder, neither '..' (19.5)
+    ret
+
 fmv_get_dir:
     push ax
     push cx
@@ -948,8 +955,7 @@ fmv_inext:
     jne fmv_inext
     cmp byte [si+I_KIND], KIND_FILES
     jne fmv_inext
-    clc
-    ret
+    ret                         ; CF = 0: the `cmp` was EQUAL
 .eot:
     stc
     ret
@@ -1029,10 +1035,9 @@ fmv_winof:
     pop si
     stc
     ret
-.found:
-    mov bx, [si+I_WIN]
+.found:                         ; (CF = 0: the `cmp` was EQUAL, and mov
+    mov bx, [si+I_WIN]          ; and pop keep it)
     pop si
-    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1788,12 +1793,8 @@ fmv_mark:
 ; that may never be looked at again.
 ; -----------------------------------------------------------------------------
 fmv_gneed:
-    cmp word [fdlg_win], 0
-    je .no
-    stc
-    ret
-.no:
-    clc
+    cmp word [fdlg_win], 1      ; CF = 1 exactly when it is 0 (unsigned
+    cmc                         ; below 1), so the flip is the answer
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2515,8 +2516,7 @@ fm_find_view:
     cmp dx, [di+FS_CWD]
     jne .next
     mov di, si                  ; the record, not the block: the caller wants
-    clc                         ; I_WIN and I_FLAGS
-    jmp short .out
+    jmp short .out              ; I_WIN and I_FLAGS (CF = 0: EQUAL)
 .next:
     call fmv_inext
     jnc .scan
@@ -2580,14 +2580,11 @@ fm_front_win:
     test byte [bx+W_FLAGS], 2   ; visible?
     jz .cont
     cmp word [bx+W_MENUS], fm_menus
-    je .found
+    je .out                     ; CF = 0: the `cmp` was EQUAL
 .cont:
     loop .next
 .none:
     stc
-    jmp short .out
-.found:
-    clc
 .out:
     pop si
     pop cx
@@ -2802,6 +2799,8 @@ files_refresh_x:
 ; read-only snapshots refreshed here; fm_lscr is the one that is written,
 ; and fm_clamp_scroll is the one place it is written BACK.
 ; -----------------------------------------------------------------------------
+fm_slayout:                     ; ...with the window in SI, the callback's
+    mov bx, si                  ; own register - five callers' first line
 fm_layout:
     call kentc_di
 
@@ -3172,16 +3171,18 @@ fm_clamp_scroll:
     jns .max
     xor ax, ax
 .max:
-    cmp [fm_lscr], ax
+    mov di, [fm_lscr]           ; worked in DI, stored once (signed: a
+    cmp di, ax                  ; scroll that went negative is pulled up)
     jle .low
-    mov [fm_lscr], ax
+    mov di, ax
 .low:
-    cmp word [fm_lscr], 0
-    jge .done
-    mov word [fm_lscr], 0
+    or di, di
+    jns .done
+    xor di, di
 .done:
+    mov [fm_lscr], di
+    xchg ax, di
     mov di, [fm_vp]
-    mov ax, [fm_lscr]
     mov [di+FS_SCRL], ax
     pop di
     pop ax
@@ -3250,14 +3251,13 @@ fm_onclick_x:
     ; proves the state is stale.
     call os88ui_sbdragging
     jc .nostale
-    mov bx, si
-    call fm_layout              ; preserves every register, CX/DX included
+    call fm_slayout             ; preserves every register, CX/DX included
     call fm_sbset
     call os88ui_sbdrop          ; ...which takes the overlay off with it
 .nostale:
 %endif
-    mov bx, si                  ; publish the clicked window BEFORE anything
-    call fm_vp_set              ; reads or writes per-window state
+    call fm_svp_set             ; publish the clicked window BEFORE anything
+                                ; reads or writes per-window state
 
                                 ; was an editor line up in THIS window? ending
     mov al, [di+FS_EDIT]        ; one rewrites the status line, and that is the
@@ -3535,8 +3535,7 @@ fm_onup_x:
     or ax, ax
     jz .out
     push ax
-    mov bx, si
-    call fm_layout              ; ...which publishes [fm_vp] as well
+    call fm_slayout             ; ...which publishes [fm_vp] as well
     pop bx                      ; BL = the button the press armed
     call fm_bhit                ; is the pointer STILL on it?
     cmp al, bl
@@ -3610,8 +3609,7 @@ fm_ondrag_x:
     or ax, ax
     jz .out
     push ax
-    mov bx, si
-    call fm_layout
+    call fm_slayout
     pop bx
     call fm_bhit                ; AL = what the pointer is over now
     cmp al, bl
@@ -3654,13 +3652,11 @@ fm_hit:
     jae .none                   ; below the row area
     cmp byte [fm_lview], 0
     je .listidx
-    push ax                     ; icon view: column from x
-    mov ax, di
-    mov cx, FMI_CELL_W
+    xchg ax, di                 ; icon view: column from x (AX = x, DI the
+    mov cx, FMI_CELL_W          ; row, for the divide)
     xor dx, dx
     div cx
-    mov di, ax                  ; DI = column
-    pop ax
+    xchg ax, di                 ; DI = column, AX = the row again
     cmp di, [fm_cols]
     jae .none                   ; right of the last column
     add ax, [fm_lscr]
@@ -3670,9 +3666,8 @@ fm_hit:
 .listidx:
     add ax, [fm_lscr]           ; AX = directory index
 .chk:
-    cmp ax, [fm_lnf]
-    jae .none                   ; past THIS window's listing
-    clc
+    cmp ax, [fm_lnf]            ; past THIS window's listing: CF = 1 from
+    cmc                         ; the `cmp` means INSIDE it, so flip it
     ret
 .none:
     stc
@@ -3704,8 +3699,7 @@ fm_hit:
 fm_onkey_x:
     call kentc_di
 
-    mov bx, si                  ; publish the window this key belongs to
-    call fm_vp_set
+    call fm_svp_set             ; publish the window this key belongs to
 
     cmp byte [di+FS_EDIT], 0
     jne .editing                ; naming: nothing below is reachable - and the
@@ -3761,8 +3755,8 @@ fm_onkey_x:
     sub dl, 0x48
     test dl, 0xF6
     jnz .outj
-    mov bx, si                  ; the scroll keys clamp against the live
-    call fm_layout              ; layout (fm_fit/fm_total); fm_scroll_by
+    call fm_slayout             ; the scroll keys clamp against the live
+                                ; layout (fm_fit/fm_total); fm_scroll_by
     mov ax, 1                   ; commits the mirror and draws what moved
     test dl, 1                  ; ...a page, or one row
     jz .scr_one
@@ -4576,8 +4570,7 @@ fm_oncmd_x:
 
 
     mov [fm_cmdwin], si
-    mov bx, si
-    call fm_vp_set              ; the command acts on THIS window (SPEC 22.1)
+    call fm_svp_set             ; the command acts on THIS window (SPEC 22.1)
     mov bl, ah
     xor bh, bh
     cmp bx, FM_NMENUS
@@ -5305,8 +5298,8 @@ fm_img_done_x:
 
 
 
-    mov bx, si                  ; SI = the REQUESTER window, fdlg_commit's
-    call fm_vp_set              ; contract (SPEC.md 38.6) - and [fm_vp] is
+    call fm_svp_set             ; SI = the REQUESTER window, fdlg_commit's
+                                ; contract (SPEC.md 38.6) - and [fm_vp] is
                                 ; re-aimed at ITS view FIRST, because the
                                 ; dialog's teardown repaints whatever sat
                                 ; under it BEFORE this callback runs, and any
@@ -5428,8 +5421,7 @@ fm_selfold:
     call fm_sel_ok              ; 0xFFFF (no selection) also fails this
     cmc                         ; ...and CF = 1 is this routine's refusal
     jc .out
-    call fmv_get_dir            ; SI -> the staged entry (SPEC.md 19)
-    cmp word [si+16], 2
+    call fmv_gdtype             ; SI -> the staged entry (SPEC.md 19)
     jb .out                     ; CF = 1: not a folder
     mov bx, [si+18]             ; CF = 0 from the compare, which `mov` keeps
     mov al, [di+FS_DRV]
@@ -5448,8 +5440,7 @@ fm_c_newwin:                    ; Nav > New Window - a second view of here
 fm_c_opennew:                   ; Nav > Open in New Window - the selection
     call fm_sel_ok
     jnc fm_nw_none              ; 0xFFFF (no selection) also fails this
-    call fmv_get_dir            ; SI -> the staged entry
-    cmp word [si+16], 2
+    call fmv_gdtype             ; SI -> the staged entry
     jne fm_nw_none              ; only a folder has somewhere to open INTO
     mov dx, [si+18]             ; its first cluster
     call fm_stage_name          ; AX is still the index
@@ -5674,8 +5665,7 @@ fm_rclick_x:
 
 
     mov [fm_cmdwin], si         ; fm_rcmd acts on this window; fm_docmd's
-    mov bx, si                  ; repaint needs it too
-    call fm_vp_set
+    call fm_svp_set             ; repaint needs it too
 
                                 ; was an editor line up in THIS window? Bank
     mov al, [di+FS_EDIT]        ; it BEFORE ending one, exactly as fm_onclick
@@ -5700,12 +5690,16 @@ fm_rclick_x:
 
     mov [di+FS_SEL], ax         ; the row under the pointer, selected
     mov di, fm_ctx_file
-    call fmv_get_dir            ; SI -> the staged entry (SPEC.md 19)
-    cmp word [si+16], 2
+    call fmv_gdtype             ; SI -> the staged entry (SPEC.md 19)
     jb .have
     mov di, fm_ctx_fold         ; a folder has somewhere to open INTO...
     je .have
     mov di, fm_ctx_up           ; ...and the parent link has only that
+    jmp short .have             ; (SPEC.md 19.5: this fell into .empty from
+                                ; 52d31a2 on, which stored the 0xFFFF meant
+                                ; for FS_SEL over fm_ctx_up's own first word
+                                ; and then showed '..' the background menu -
+                                ; found in kernel size pass 9)
 .empty:
     mov word [di+FS_SEL], 0xFFFF
     mov di, fm_ctx_dir
@@ -6518,8 +6512,7 @@ fm_dgdrop:
     call fm_hit                 ; AX = directory index, CF=1 = not a row
     jc .have
     push bx
-    call fmv_get_dir            ; SI -> the staged entry (SPEC.md 19)
-    cmp word [si+16], 2
+    call fmv_gdtype             ; SI -> the staged entry (SPEC.md 19)
     pop bx
     jb .have                    ; a file: into the window's folder
     mov bx, [si+18]             ; a folder (or '..'): into THAT one
@@ -7364,14 +7357,9 @@ fm_draw_rows:
     cmp ax, [fm_lnf]
     jae .isel                   ; past the last entry: grid done
     push ax
-    mov ax, FMI_CELL_W
-    mul word [fm_vcol]
-    add ax, [fm_cx]
-    mov [fm_cellx], ax
-    mov ax, FMI_CELL_H
-    mul word [fm_vrow]
-    call fm_rowy
-    mov [fm_celly], ax
+    mov ax, [fm_vrow]
+    mov cx, [fm_vcol]
+    call fm_cellxy              ; [fm_cellx]/[fm_celly] for this cell
     pop ax
 
     push ax
@@ -7751,15 +7739,7 @@ fm_sel_bar:                     ; comes back holding it)
     js .out
     cmp ax, [fm_fit]
     jae .out
-    push ax
-    mov ax, FMI_CELL_W
-    mul cx
-    add ax, [fm_cx]
-    mov [fm_cellx], ax
-    pop ax
-    mov cx, FMI_CELL_H
-    mul cx
-    call fm_rowy
+    call fm_cellxy              ; the painter's own cell arithmetic
     mov bx, ax                  ; y1 = cell top
     mov dx, ax
     add dx, FMI_CELL_H - 1
@@ -7814,8 +7794,7 @@ fm_status_only:
 
 
 
-    mov bx, si
-    call fm_layout              ; fm_cx/fm_cy/fm_cw/fm_rgt/fm_staty, and the
+    call fm_slayout             ; fm_cx/fm_cy/fm_cw/fm_rgt/fm_staty, and the
                                 ; fm_l* snapshot fm_draw_status reads
 
     ; A TWO-LINE PROMPT IS NOT A STATUS-LINE CHANGE (SPEC.md 22.20.1). Its
@@ -8486,6 +8465,19 @@ fm_stat_line:                   ; scroll bar is (it was a .text byte, written
 ; out: DI -> the stored NUL (so the next append overwrites it); SI advanced
 ; clobbers: AL (internal helper)
 ; -----------------------------------------------------------------------------
+fm_cellxy:                      ; AX = a VISIBLE grid row, CX = its column ->
+    push ax                     ; [fm_cellx] and [fm_celly] = the cell's
+    mov ax, FMI_CELL_W          ; absolute top-left, AX = [fm_celly] too;
+    mul cx                      ; clobbers DX. The grid painter and the
+    add ax, [fm_cx]             ; selection cell, one copy
+    mov [fm_cellx], ax
+    pop ax
+    mov dx, FMI_CELL_H
+    mul dx
+    call fm_rowy
+    mov [fm_celly], ax
+    ret
+
 fm_rowy:                        ; AX = a row band's offset in pixels -> its
     add ax, [fm_cy]             ; absolute top: four painters' last two lines
     add ax, FM_ROW_Y0

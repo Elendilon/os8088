@@ -43815,14 +43815,16 @@ performance input, not a precondition.
 | `fm_focus` | in BX = the window gaining the focus (0 = none), AL = 0 the caller draws it / 1 draw it here; **gfx lock held, UI task**. On a file-manager window owing a refresh: re-list (`fmv_take` where the globals allow, else `fmv_load`), clear `FS_DIRTY`, and either repaint or answer **CF = 1** so the caller draws it whole (§22.8). CF = 0 = nothing owed. Preserves all registers. |
 
 **`fm_layout` is the sole authority on `[fm_vseg]`** (and `[fm_vp]`): it
-calls `fm_vp_set` at its head, then mirrors **eight** fields — `FS_VIEW`,
-`FS_MOK`, `FS_DRV`, `FS_EDIT`, `FS_FERR`, `FS_N`, `FS_SCRL`, `FS_SEL` —
-into `fm_lview` / `fm_lmok` / `fm_ldrv` / `fm_ledit` / `fm_lferr` /
-`fm_lnf` / `fm_lscr` / `fm_lsel` for the painter, which uses every register
-including BP and has none free to thread a pointer through. (`fm_lpad`
-exists only to keep the words after it even-aligned.) **The mirror list is
-part of this contract**: a new per-window field that the painter reads and
-that is not mirrored here reads the previous window's value. `fm_clamp_scroll` is the **one** write-back (every scroll
+calls `fm_vp_set` at its head, then mirrors the state block's first
+`FM_LREC` bytes — `FS_SEL`, `FS_SCRL`, `FS_N`, `FS_DRV`, `FS_MOK`,
+`FS_VIEW`, `FS_EDIT` and `FS_2UP` among them — with one `rep movsb` into
+`fm_lrec`, whose `fm_lsel` / `fm_lscr` / `fm_lnf` / `fm_ldrv` / `fm_lmok` /
+`fm_lview` / `fm_ledit` / `fm_l2up` are offsets into that copy (kernel size
+pass 9), for the painter, which uses every register including BP and has
+none free to thread a pointer through. **The mirror is part of this
+contract**: a new per-window field that the painter reads has to sit inside
+the first `FM_LREC` bytes (an `%if` beside `fm_lrec` holds the ones there
+now), or it reads the previous window's value. `fm_clamp_scroll` is the **one** write-back (every scroll
 path already funnels through it). Any painter or hit-tester that reads a
 cache without calling `fm_layout` (or `fm_vp_set`) first reads the *previous*
 window's directory: wrong names, wrong icons, and a double-click that opens
