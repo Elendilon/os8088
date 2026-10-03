@@ -59540,10 +59540,40 @@ SAFE, so the two writes need no order: a failed sector write leaves the
 `SYSTEM.CFG` save standing and `[cp_wdirty]` owed, and the next close tries
 both again.
 
-**What remains is the hard-disk boot**, where nothing verifies the run: the
-choice is the user's, made on the machine they were at. And a 286 with the
-failing ROM whose user picks Cylinder anyway pays one reload on every boot
-until it is set back — correct, and slow.
+**A pick the machine has not already proved is TESTED, at the save.** When the
+Reads row changed this session, says Cylinder, and this boot did NOT cross a
+head (`boot_cylrun` 0: a 286 and up that the gate kept off the canary, or a
+machine whose canary failed), `cpc_fdtest` asks the question `dsk_xfer` would
+put, the way it would put it: cylinder 1 of the system disk as ONE cylinder
+run — `[dsk_cylrun]` raised for that call alone — and then each of its two
+tracks track-bounded, compared word for word. Cylinder 1 is `KERNEL.SYS` on
+every geometry this tree builds (the loader reads the kernel from the start of
+the data area), so the sectors are never blank, and `[dsk_rah_busy]` keeps
+§18.95's cache out of it, or the second read would be served the first one's
+bytes. On a mismatch Reads goes back to **Auto** before `SYSTEM.CFG` is
+composed, byte 509 is written 0, and the bar says `No Cylinder Here: Auto` in
+place of `Settings Saved`. An XT that passed its canary is never asked; a read
+that fails, or a heap that cannot spare the buffer, answers nothing and the
+pick stands — the loader's canary still decides at every boot.
+
+The run must not be split at a 64KB DMA page — `dsk_runcap` would shorten it,
+and a run cut at the head proves nothing — and a module has no door to
+`mem_claim_dma`. So the claim is FOUR tracks (18KB on 360K and 720K, 30KB on
+1.2M, 36KB on 1.44M, freed before the save goes on) and the cylinder is placed
+by hand: at the base if it fits before the next page, else ON the page, with
+the track buffer whichever side has room.
+
+**It is the settings CORE's, not the panel's.** `cpc_fdtest` and `cpc_fdbs`
+are called from `cpc_save`, and `MOD_SETS` loads `CTRL.DRV`'s `.modc` ALONE for
+a desktop gesture's save (§2.8.7) — so they live in `.modc` beside the writer,
+and the page in `.modu` only sets their owed byte, which the panel may name.
+(The first cut of `cpc_fdbs` sat in `.modu` and `tools/os88ovlchk.py` passed
+it, because the call was inside the `CFG_SAVE` macro and the checker skips
+macro bodies: a core-only save would have called into unclaimed heap.)
+
+**What remains is the hard-disk boot**, where nothing verifies the run at
+boot: the save's test is the one check it gets, made on the machine the user
+was at.
 
 **Nothing resident reads the record.** `CFG_FDD` (two bits per unit, unit *n*
 at bits 2*n*..2*n*+1, value = the menu index) and `CFG_FDR` live in `drv_cfg`
@@ -59631,9 +59661,17 @@ could override a failed canary; it came back as the boot sector's byte 509,
 | boot sector | +0 | byte 509 was padding |
 | `.boot2` | +11 | `b2_cylok` (1), its `dec` on entry and `inc` on the canary's pass (4 + 4), and the gate's `sub` / `or al, [ss:...]` (+5 over `cmp` / `je`); three `xor ah, ah` that follow an AL ≤ 15 became `cbw` (−3). A knob build's `.boot2` is the shipped loader's against `OVL_BASE` = 2,480, and it is **2,478**: the next loader byte on a knob arm takes `OVL_KNOBGIVE` down or `BOOT2_SECS` up |
 | `.ovl` | +5 | `ovl_fdd_apply`'s `and al, [cs:b2_cylok]`. **2 bytes of the blob are left** |
-| `CTRL.DRV` | +123 image | the menu's third item and its pointer (11), `cp_fdbs` and the byte that says it is owed (112) |
+| `CTRL.DRV` | +427 image | the menu's third item and its pointer (11); `cpc_fdbs` and the byte that says it is owed; `cpc_fdtest`, its toast line and pointer, and `cp_flush_x`'s arm that says it. All of it in the settings core's `.modc`, so a desktop gesture's core-only load carries it too |
 
-`tests/fddpage.py` picks Cylinder by the same gesture, reads byte 509 back off
+`tests/fddpage.py` picks Cylinder by the same gesture on a boot that did not
+cross a head (Track was forced on it) and counts the save's cylinder runs at
+the `int 13h` gate — exactly one, the test's; then picks Track and Cylinder
+again and, at the next `int 13h` after that run, rewrites the run's buffer to
+what an EOT-short ROM returns (head 1's sectors from slot `spt - 1` on — MartyPC's
+FDC carries a multi-track read on correctly whatever `int 1Eh`'s EOT says, so
+repointing the table changes nothing here): the save must come back as Auto,
+byte 509 0, the record `36 00` and the toast said. Without `cpc_fdtest`'s call
+the run count is 0 and the refusal never happens. It reads byte 509 back off
 the saved disk, and boots it four more ways: on QEMU, whose CPU is a 286 and
 up, with the byte (the run must come ON, through the canary) and with it
 cleared (it must stay OFF: `SYSTEM.CFG` alone forces nothing on a floppy); on

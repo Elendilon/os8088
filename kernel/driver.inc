@@ -4040,6 +4040,8 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     call COLD_SEG:dwf_dskw_stat ; the disk in A: is not guaranteed to be ours
     jc %%notsys
 
+    call %1 %+ _fdtest          ; a Cylinder the machine cannot do goes back
+                                ; to Auto BEFORE the file is composed (31.14)
     call %1 %+ _pack            ; rebuild the whole file: a settings file is
     call %1 %+ _ser             ; small and a partial one is a bug waiting for
                                 ; the next format change. CX = its length
@@ -4061,7 +4063,7 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     call sc_m_serx              ; ...and that claim back; CF and AX survive
 %endif
     jc %%out
-    call cp_fdbs                ; ...and the boot sector's Cylinder byte, while
+    call %1 %+ _fdbs            ; ...and the boot sector's Cylinder byte, while
                                 ; this is the mounted, verified system disk
                                 ; (SPEC.md 31.14). CF and AX are its verdict
     jmp short %%out
@@ -4842,6 +4844,228 @@ cpc_buf:    resb CFG_FBUF       ; module's own BSS (docs/plans/MODULE-
                                 ; no zeroing, and it costs the image nothing
                                 ; (kernel size pass 8). ES = CS reaches it
 section .modc
+
+; =============================================================================
+; The Floppy page's Cylinder, at the save (SPEC.md 31.14)
+;
+; HERE, in the settings CORE (.modc), and not beside the page in .modu: both
+; are called from cpc_save, and MOD_SETS loads the core ALONE for a desktop
+; gesture's save - so the core may name nothing of the panel's (SPEC.md
+; 2.8.7). The page only sets [cs:cp_fdbsd], which the panel may: .modu names
+; .modc freely, and on a core-only load the byte is the image's 0.
+; =============================================================================
+cp_fdbsd:  db 0                 ; the Reads row changed this session: the
+                                ; boot sector's byte is owed, and a Cylinder
+                                ; pick is tested. In the IMAGE, so every load
+                                ; of the module starts it at 0
+cp_fdno:   db 0                 ; cpc_fdtest turned Cylinder back to Auto:
+                                ; cp_flush_x says so after the save
+cp_fdn:    db 0                 ; cpc_fdtest's track count
+cp_s_fdno: db 'No Cylinder Here: Auto', 0   ; ...and what it says. A toast
+                                ; copies its line (SPEC.md 59), so it may be
+                                ; read out of this image through ES = CS
+cp_fdnop:  dw cp_s_fdno         ; ...through this, which cp_flush_x reads cs:
+
+; -----------------------------------------------------------------------------
+; cpc_fdtest - can THIS machine read across a head? Asked once, at the save
+;              that follows a Cylinder pick (SPEC.md 31.14)
+; in:  the BOOT VOLUME mounted and verified as the system disk (cpc_save)
+; out: nothing; a machine that cannot has [drv_cfg+CFG_FDR] = 0 (Auto) and
+;      [cs:cp_fdno] = 1. All registers preserved
+;
+; Asked only when the answer is not already known: the Reads row changed this
+; session, it says Cylinder, and this boot did NOT cross a head already
+; (boot_cylrun 0 - a 286 and up, which the gate kept off the canary, or a
+; machine whose canary failed). An XT that passed is never asked again.
+;
+; The question is the one dsk_xfer would put, put the way it would put it:
+; cylinder 1 of the system disk as ONE cylinder run - [dsk_cylrun] raised for
+; this call alone - and then each of its two tracks track-bounded, compared
+; word for word. Cylinder 1 is KERNEL.SYS on every geometry this tree builds
+; (the loader reads the kernel from the start of the data area), so the
+; sectors are never blank and a head's worth of them cannot match the other
+; head's by accident. [dsk_rah_busy] keeps SPEC.md 18.95's cache out of it, or
+; the second read would be served the first one's bytes.
+;
+; The run must not be split at a 64KB DMA page - dsk_runcap would shorten it,
+; and a run cut at the head proves nothing - and a module has no door to
+; mem_claim_dma. So the claim is FOUR tracks and the cylinder (two) is placed
+; by hand: at the base if it fits before the next page, else ON the page, with
+; the track buffer whichever side has room. R paragraphs to the page and T a
+; track: R >= 2T fits at once; T <= R < 2T leaves a track below; R < T ends
+; the cylinder at R + 2T < 3T, with the track after it, inside 4T.
+;
+; A read that FAILS answers nothing and the pick stands - the loader's canary
+; still decides at every boot. So does a heap that cannot spare 18..36KB.
+; -----------------------------------------------------------------------------
+cpc_fdtest:
+    cmp byte [cs:cp_fdbsd], 0
+    je .ret
+    cmp byte [drv_cfg+CFG_FDR], 2
+    jne .ret
+    cmp word [boot_cylrun], 0
+    jne .ret                    ; this boot crossed a head: it can
+    test byte [dsk_unit], 0x80
+    jnz .ret                    ; a hard disk: nothing here to ask
+    cmp word [disk_heads], 2
+    jne .ret
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    mov ax, [disk_spt]
+    shl ax, 1                   ; 2*spt KB = four tracks
+    mov bx, MEM_K_MOD           ; the panel module's, and gone before it is
+    call COLD_SEG:mmf_mem_claim ; DX = the claim
+    jc .out
+    mov si, dx                  ; SI = the claim, for the free
+    mov bp, [disk_spt]
+    mov cl, 5
+    shl bp, cl                  ; BP = T, a track in paragraphs
+    mov cx, dx
+    and cx, 0x0FFF
+    neg cx
+    add cx, 0x1000              ; CX = R, paragraphs to the next 64KB page
+    mov di, dx                  ; DI = the cylinder's segment
+    mov bx, bp
+    shl bx, 1                   ; BX = 2T
+    cmp cx, bx
+    jae .after                  ; it fits before the page
+    add di, cx                  ; ...else it starts ON the page
+    cmp cx, bp
+    jb .after                   ; no track's room below it
+    jmp short .read             ; DX = the claim's base: the track goes there
+.after:
+    mov dx, di
+    add dx, bx                  ; the track buffer after the cylinder
+.read:
+    inc byte [dsk_rah_busy]
+    mov es, di
+    xor bx, bx
+    mov ax, [disk_spt]
+    shl ax, 1                   ; AX = cylinder 1's LBA (two heads)...
+    mov cx, ax                  ; ...and CX = its sectors
+    mov byte [dsk_cylrun], 1    ; ONE cylinder run, the way dsk_xfer would
+    call COLD_SEG:dskf_disk_read
+    mov byte [dsk_cylrun], 0    ; (boot_cylrun is 0, so this IS its value)
+    jc .done                    ; no answer: the pick stands
+    mov es, dx                  ; ES:0 = the track buffer
+    mov cx, [disk_spt]
+    mov byte [cs:cp_fdn], 2
+.trk:
+    call COLD_SEG:dskf_disk_read    ; LBA AX, one track, track-bounded
+    jc .done
+    push cx
+    push si
+    push di
+    push ds
+    mov ds, di                  ; DS:0 = this track's half of the cylinder run
+    xor si, si
+    xor di, di
+    mov ch, cl
+    xor cl, cl                  ; CX = spt*256 words
+    cld
+    repe cmpsw
+    pop ds
+    pop di
+    pop si
+    pop cx
+    jne .no
+    add ax, cx                  ; the next track's LBA
+    add di, bp                  ; ...and the cylinder run's next half
+    dec byte [cs:cp_fdn]
+    jnz .trk
+    jmp short .done
+.no:
+    mov byte [drv_cfg+CFG_FDR], 0   ; Auto - and cpc_fdbs then writes byte 509
+    mov byte [cs:cp_fdno], 1        ; as 0, which is what Auto means there
+.done:
+    dec byte [dsk_rah_busy]
+    mov dx, si
+    mov bx, MEM_K_MOD
+    call COLD_SEG:mmf_mem_free
+.out:
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.ret:
+    ret
+
+; -----------------------------------------------------------------------------
+; cpc_fdbs - the boot sector's Cylinder byte, made to match the setting
+; in:  the BOOT VOLUME mounted and verified as the system disk - cpc_save's
+;      own state, which is the only place this is called from
+; out: CF = 0 written or nothing owed; CF = 1 and AX = FERR_IO
+; clobbers: AX
+;
+; Cylinder is two bytes in two places because two programs read it. SYSTEM.CFG
+; is the kernel's - ovl_fdd_apply, for a hard-disk boot - and the boot sector's
+; BS_CYLASK is the LOADER's, which has no file system and reads it `ss:` at
+; the 286 gate: set, a 286 takes the cylinder bound and the canary decides,
+; exactly as on an 8088. Either byte alone is SAFE: SYSTEM.CFG's Cylinder
+; without this one leaves a 286's floppy boot at the track bound, because
+; b2_cylok says it never looked; this one without SYSTEM.CFG's is a canary
+; run on a 286, which is what the canary is for.
+;
+; Owed only when the Reads row changed this session ([cs:cp_fdbsd]), so a
+; save over any other setting pays nothing for it - and written only when the
+; byte differs, so a pick changed and changed back pays one read. A hard
+; disk's sector 0 is boothd's and its boot never reaches the gate, and a
+; sector whose byte is neither 0 nor 1, or that does not end 55AA, is not one
+; this tree wrote: both are left alone, and that is not a failure.
+; -----------------------------------------------------------------------------
+cpc_fdbs:
+    cmp byte [cs:cp_fdbsd], 0
+    je .ret                     ; nothing owed (CF = 0: equal)
+    test byte [dsk_unit], 0x80
+    jnz .ret                    ; a hard disk's (CF = 0: test clears it)
+    push bx
+    push cx
+    push es
+    push ss
+    pop es                      ; ES = LOW_SEG: dsk_secbuf is .lowbss
+    mov bx, dsk_secbuf
+    mov cx, 1
+    xor ax, ax                  ; LBA 0
+    call COLD_SEG:dskf_disk_read
+    jc .err
+    cmp word [es:bx+510], 0xAA55
+    jne .done
+    cmp byte [es:bx+BS_CYLASK], 1
+    ja .done
+    xor ax, ax                  ; AL = 1 for Cylinder, 0 for the rest
+    cmp byte [drv_cfg+CFG_FDR], 2
+    jne .v
+    inc ax
+.v:
+    cmp [es:bx+BS_CYLASK], al
+    je .done
+    mov [es:bx+BS_CYLASK], al
+    xor ax, ax
+    call COLD_SEG:dskf_disk_write   ; CX and BX survive: dsk_xfer is KENT
+    jc .err
+.done:
+    mov byte [cs:cp_fdbsd], 0
+    clc
+    jmp short .out
+.err:
+    mov ax, FERR_IO             ; [cp_wdirty] stays set and so does this, so
+    stc                         ; the next close tries both again
+.out:
+    pop es
+    pop cx
+    pop bx
+.ret:
+    ret
 
 ; -----------------------------------------------------------------------------
 ; cp_cfg_save - what cp_flush_x calls (SPEC.md 51.5)

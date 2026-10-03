@@ -34,6 +34,11 @@ exists to tell apart (SPEC.md 31.14):
     run must stay OFF: b2_cylok says this floppy boot never looked, and
     Cylinder is never forced blind on a floppy. Which is also what proves the
     leg above came through the CANARY rather than through ovl_fdd_apply;
+  * that Cylinder pick is TESTED at the save (cpc_fdtest), because this boot
+    did not cross a head - the close makes exactly one cylinder run; and the
+    same pick saved again with that run meeting a ROM whose EOT is a sector
+    short (its buffer rewritten to what such a ROM returns) comes back as AUTO: the
+    record, byte 509 and the toast 'No Cylinder Here: Auto' all say so;
   * on the same 5150, from a copy whose boot sector carries a WRONG `KSIG`, so
     the canary AFFIRMATIVELY FAILS and the loader reloads at the track bound.
     Cylinder must NOT turn the run back on over that: `[dsk_cylrun]` = 0, the
@@ -82,6 +87,60 @@ def u16(b):
 def shot(m, path):
     w, h, rows = m.vram(None)
     os88marty.write_png(path, w, h, rows)
+
+
+def byte(m, addr):
+    return m.read(addr, 1)[0]
+
+
+def close_watching(m, mo, settle, spt, inject):
+    """Close the panel - the SYSTEM.CFG save - stopping at every int 13h, and
+    answer how many CYLINDER runs it made: AH=02 for 2*spt sectors from
+    cylinder 1, head 0, sector 1, which is cpc_fdtest's one question and
+    nothing else's.
+
+    With `inject`, that ONE run is made to return what the BIOS the canary was
+    written for returns (SPEC.md 18.93.1): a ROM whose EOT is a sector short
+    flips head at sector spt - 1, so from that slot on the buffer holds head
+    1's sectors, with CF = 0 and the full count. It is written over the run's
+    buffer at the NEXT int 13h - the first of the test's track reads, before
+    anything has compared it - so every other read of the save is untouched.
+    Repointing int 1Eh at such a table was tried first and changes nothing
+    here: MartyPC's FDC carries a multi-track read on at the right sector
+    whatever EOT says, so the ROM's failure has to be written in by hand."""
+    runs, pending = 0, None
+    wx, wy = dispcp._cp_win(m, S)
+    mo.click(wx + 10, wy + TITLE_H // 2, settle=0)
+    # Armed AFTER the click: the save's first read is behind the window's
+    # teardown and repaint, and dispcp.close_panel's own waits refuse a
+    # machine stopped at a breakpoint - so the close is driven here instead.
+    m.breakpoints([{"type": "int", "addr": 0x13}])
+    deadline = 600
+    while deadline:
+        if not m.wait_stop(0.5):
+            if dispcp._cp_win(m, S) is None and not byte(m, S("cp_wdirty")):
+                break
+            deadline -= 1
+            continue
+        if pending is not None:
+            good = m.read(pending, 2 * spt * 512)
+            k = (spt - 1) * 512             # the slot the early flip lands in
+            bad = good[:k] + good[spt * 512:] + good[-512:]
+            m.write(pending, bad)
+            pending = None
+        r = m.regs()
+        if (r["ax"] >> 8 == 0x02 and r["ax"] & 0xFF == 2 * spt
+                and r["cx"] == 0x0101 and r["dx"] >> 8 == 0):
+            runs += 1
+            if inject:
+                pending = (r["es"] << 4) + r["bx"]
+        m.run()
+    m.breakpoints([])
+    m.run()
+    if not deadline:
+        raise SystemExit("fddpage: the panel never finished closing")
+    settle(m)
+    return runs
 
 
 def break_canary(src, dst):
@@ -144,6 +203,8 @@ def main(argv=None):
     fail = []
     written = os.path.abspath(os.path.join("build", "fddpage-written.img"))
     cylimg = os.path.abspath(os.path.join("build", "fddpage-cyl.img"))
+    noimg = os.path.abspath(os.path.join("build", "fddpage-cylno.img"))
+    spt = 9                     # build/os8088-360.img, the default --image
 
     def byte(m, addr):
         return m.read(addr, 1)[0]
@@ -263,7 +324,11 @@ def main(argv=None):
         except os88marty.MartyError as e:
             fail.append("Cylinder: the pick did not reach drv_cfg (%s)" % e)
         settle(m)
-        dispcp.close_panel(m, mo, S, settle)
+        runs = close_watching(m, mo, settle, spt, inject=False)
+        print("boot 2: the close's cylinder runs: %d (the pick's test)" % runs)
+        if runs != 1:
+            fail.append("the Cylinder pick on a boot that did not cross a "
+                        "head made %d cylinder runs, not the test's 1" % runs)
         try:
             cfg = f.volume(0).read("SYSTEM.CFG")
         except os88flush.FlushError:
@@ -272,8 +337,43 @@ def main(argv=None):
             fail.append("SYSTEM.CFG's 'FD' record is not 36 02 after Cylinder")
         f.save(0, cylimg)
 
+        # --- ...and the same pick on a BIOS that cannot cross a head -------
+        # Track then Cylinder, so the row changed in THIS session and the
+        # pick is tested again; the close's cylinder run is then made to see
+        # what the failing ROM does (close_watching).
+        dispcp.open_panel(m, mo, S, settle, page=rec[0])
+        settle(m)
+        try:
+            pick(m, mo, 4, 1)
+            os88marty.until(m, lambda _: byte(m, FDR) == 1, "reads 1",
+                            poll=0.05, guest=10.0)
+            pick(m, mo, 4, 2)
+            os88marty.until(m, lambda _: byte(m, FDR) == 2, "reads 2",
+                            poll=0.05, guest=10.0)
+        except os88marty.MartyError as e:
+            fail.append("Track then Cylinder did not reach drv_cfg (%s)" % e)
+        settle(m)
+        runs = close_watching(m, mo, settle, spt, inject=True)
+        toast = m.read(S("toast_buf"), 32).split(b"\0")[0]
+        print("boot 2: an early flip injected into %d cylinder run(s): FDR %d, "
+              "toast %r" % (runs, byte(m, FDR), toast))
+        try:
+            cfg = f.volume(0).read("SYSTEM.CFG")
+        except os88flush.FlushError:
+            cfg = b""
+        if runs != 1 or byte(m, FDR) != 0:
+            fail.append("a Cylinder whose test read the wrong head was not "
+                        "set back to Auto: %d run(s), FDR %d"
+                        % (runs, byte(m, FDR)))
+        if b"FD\x01\x02\x36\x00" not in cfg:
+            fail.append("SYSTEM.CFG's 'FD' record is not 36 00 after the "
+                        "refused Cylinder")
+        if toast != b"No Cylinder Here: Auto":
+            fail.append("the refusal was not said: the toast is %r" % toast)
+        f.save(0, noimg)
+
     BS = eq["BS_CYLASK"]
-    for img, want in ((written, 0), (cylimg, 1)):
+    for img, want in ((written, 0), (cylimg, 1), (noimg, 0)):
         with open(img, "rb") as fh:
             got = fh.read(512)[BS]
         print("disk:   %s boot sector byte %d = %d"
