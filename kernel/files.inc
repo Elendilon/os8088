@@ -4670,7 +4670,7 @@ fm_c_open:                      ; File > Open - the selection, if any
     call fm_open_sel
     jc .out                     ; a folder re-listed us and owes the whole
 .none:                          ; window; a package or a DOCUMENT opened
-    mov byte [fm_cmdchg], FMD_NONE  ; somebody else's and changed NOTHING on
+    jmp fm_nw_none              ; somebody else's and changed NOTHING on
 .out:                           ; this one - fm_open_sel's own answer, which
     ret                         ; is the same one fm_onclick reads on a
                                 ; double-click (SPEC.md 22.13.2). It was the
@@ -4706,8 +4706,7 @@ fm_arm_sel:
     jmp fm_edit_arm
 .none:
     pop ax                      ; nothing selected: a no-op, like File > Open
-    mov byte [fm_cmdchg], FMD_NONE  ; - and a no-op draws nothing (22.13)
-    ret
+    jmp fm_nw_none              ; - and a no-op draws nothing (22.13)
 
 ; -----------------------------------------------------------------------------
 ; fm_fmt_ok - may the window whose block is in DI be formatted? (SPEC.md 22.12)
@@ -5075,8 +5074,7 @@ fm_c_uncto:                     ; ...three times on kern_big (SPEC.md 22.23.6)
 .say:
     call fm_sayerr
 .none:
-    mov byte [fm_cmdchg], FMD_NONE  ; nothing moved, so nothing to draw
-    ret
+    jmp fm_nw_none              ; nothing moved, so nothing to draw
 .done:
     call fmv_bcast              ; every window showing this folder re-lists
     mov byte [fm_cmdchg], FMD_ALL
@@ -5269,7 +5267,7 @@ fm_c_wimg:
     xor si, si                  ; no default name: SPEC.md 38.10's remembered
     xor al, al                  ; one is the better answer here
     call fdlg_open_x            ; near - fdlg.inc is `.cold` too
-    mov byte [fm_cmdchg], FMD_NONE  ; ...and NOT ONE PIXEL of this window is
+    jmp fm_nw_none              ; ...and NOT ONE PIXEL of this window is
                                 ; owed: what changed is a modal dialog that
                                 ; drew itself, and a repaint would land on top
                                 ; of it (SPEC.md 22.13). NOTHING IS BANKED: a
@@ -7249,7 +7247,9 @@ fm_draw_core:
     sub cx, 5                   ; abs x2 = rgt - 5
     mov dx, [fm_cy]
     add dx, 15
-    call ct_cw_gfx_frame                      ; color still CBLACK from the header
+    mov byte [gfx_color], CBLACK ; the frame's pen, set HERE: the header's
+    call ct_cw_gfx_frame        ; font_run spent it (and an empty truncated
+                                ; header run leaves it whatever it was)
     mov cx, ax
     add cx, 3                   ; 56px label centered in the 63px rect
     mov dx, [fm_cy]
