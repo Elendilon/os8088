@@ -158,12 +158,12 @@ icon_draw:
     push di
     push bp
     push es
-    mov al, [si]                ; header: wwords, height
-    mov ah, 0
+    lodsw                       ; header: AL = wwords, AH = height, and SI ->
+    mov bl, ah                  ; body (mask rows first)
+    xor ah, ah
     mov [ico_ww], ax
-    mov al, [si+1]              ; AH still 0
-    mov [ico_h], ax
-    add si, 2                   ; SI -> body (mask rows first)
+    mov bh, ah
+    mov [ico_h], bx
 
 ; ico_draw_common - the tail both wrappers share, written once. Everything
 ; from here down was byte-identical in icon_draw16; the only difference

@@ -2242,15 +2242,13 @@ font_run_scell:
                                 ; pixel and font_char masks the columns
     push ax                     ; bank the cell's own origin - the fill wants
     push bx                     ; the band, font_char wants the cell
-    push cx
-    mov ch, 0
-    mov cl, [wm_clip_r0]
-    add bx, cx                  ; BX = the band's first row...
-    mov cl, [wm_clip_rn]
-    mov dx, bx
-    add dx, cx
+    mov dx, [wm_clip_r0]        ; DL = r0, DH = rn: ONE load, the pair being
+    add bl, dl                  ; adjacent (wm.inc's %if says so)
+    adc bh, 0                   ; BX = the band's first row...
+    mov dl, dh
+    mov dh, 0
+    add dx, bx
     dec dx                      ; ...and DX its last
-    pop cx
     call gfx_fill               ; the BAND, not the cell: the erase has to
                                 ; cover what the glyph is about to letter and
                                 ; nothing else, or the two disagree again
