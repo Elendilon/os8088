@@ -1587,15 +1587,15 @@ mou_p2wr:
 .w:
     in  al, MOU_P2CMD
     test al, 0x02               ; IBF: the controller has not taken the last
-    jz .ok                      ; byte yet
+    jz .out                     ; byte yet. (`test` CLEARS CF, so the ready
+                                ; exit is already the CF = 0 answer - size
+                                ; pass 9; vid_dual_ok's header is the warning
+                                ; about the same fact read the other way)
     mov cx, [ticks]
     sub cx, dx                  ; wrap-safe: elapsed since the wait began
     cmp cx, MOU_P2TMO
     jb .w
-    stc
-    jmp short .out
-.ok:
-    clc
+    stc                         ; timed out
 .out:
     pop dx                      ; a pop does not touch the flags, so CF is the
     pop cx                      ; answer all the way out

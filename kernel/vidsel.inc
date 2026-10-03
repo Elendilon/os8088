@@ -2128,10 +2128,9 @@ vid_span_one:
     jae .no                     ; x2 past this display's right edge
     mov ax, [di+VID_CTX_VY]
     add ax, [di+VID_CTX_CH]
-    cmp dx, ax
-    jae .no                     ; ...or y2 past its bottom
-    clc
-.out:
+    cmp ax, dx                  ; ...or y2 past its bottom - compared THIS way
+    jbe .no                     ; round so that falling through IS CF = 0
+.out:                           ; (y2 < bottom), with no `clc` (size pass 9)
     pop di                      ; pop touches no flag, so the CF set above
     pop si                      ; survives all three
     pop ax

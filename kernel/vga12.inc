@@ -1390,12 +1390,13 @@ gfx_points:
     ; loop is longer than one reaches; the way back out is a near jmp, which
     ; has no such limit. gfx_ls_box's own comment is this trap one file up.
 .slow:
-    mov [gfx_pt_cseg], es
     mov bp, si
     mov si, cx                  ; the count moves out of CX: gfx_pixel takes
-.sp:                            ; its x THERE, which is gfx_lstep_slow's idiom
-    mov es, [gfx_pt_cseg]
-    mov cx, [es:bp]
+.sp:                            ; its x THERE, which is gfx_lstep_slow's idiom.
+    mov cx, [es:bp]             ; ES stays the ARRAY's throughout: gfx_pixel
+                                ; is a public primitive and keeps it, so it is
+                                ; neither banked nor reloaded a point (size
+                                ; pass 9)
     mov dx, [es:bp+2]
     add bp, 4
     call gfx_pixel
@@ -1437,22 +1438,22 @@ gfx_points:
     ; the machine that has 128KB than 92 cycles are.
     GFXPT_LOOP 0
 %else
-    ; THE CLASS IS DISPATCHED ONCE A CALL. `je .ink` assembles to five bytes
-    ; rather than two: two whole loop expansions stand between here and it,
-    ; well past rel8, so nasm turns it into the jump-around-a-near-jmp an 8086
-    ; needs (`75 03 / E9 xx xx`). `jz .paper` has been short since size pass 9
-    ; shared the loops' miss arm (gfx_pt_miss) and one expansion came in reach.
+    ; THE CLASS IS DISPATCHED ONCE A CALL. It used to open with `je .ink` over
+    ; two whole loop expansions, which nasm assembles to five bytes (`75 03 /
+    ; E9 xx xx`, the jump-around-a-near-jmp an 8086 needs past rel8). Since
+    ; size pass 9 shared the loops' miss arm (gfx_pt_miss) each expansion is
+    ; short enough that, with the ink loop FIRST, every conditional reaches.
     cmp al, 0xFF
-    je .ink
-    or al, al
-    jz .paper
+    jne .notink                 ; INK FIRST (size pass 9): every branch here is
+    GFXPT_LOOP 1                ; now short but one, and the classes pay 4 (ink,
+    jmp .done                   ; 15 less than it did), 20 (dither, the same)
+.notink:                        ; and 32 (paper, the same) clocks to reach their
+    or al, al                   ; loop. The one NEAR jump is this `jmp .done`
+    jz .paper                   ; above, over two expansions
     GFXPT_LOOP 3
-    jmp .done                   ; NEAR: two whole loop expansions stand between
-.paper:                         ; here and `.done`, which is well past rel8
-    GFXPT_LOOP 2
     jmp .done
-.ink:
-    GFXPT_LOOP 1
+.paper:
+    GFXPT_LOOP 2
 %endif
 .done:
     mov ax, cs                  ; DS back, by reload rather than by pop: kernel
