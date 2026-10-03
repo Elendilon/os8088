@@ -267,9 +267,7 @@ ld_hdr_ok:
     je .yes                                  ; kernel's first call in jumps
 .no:                                         ; into the image's data
     stc
-    ret
-.yes:
-    clc
+.yes:                                        ; (equal is CF = 0, the answer)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1864,11 +1862,8 @@ osapi_pkg_rehome_x:
     jz .no                      ; and can never be a part's base
     mov [ld_rehome], dx
     mov [ld_rehsz], ax
-    pop bx
-    retf
-.no:
-    pop bx                      ; `pop` writes no flag, so the refusal survives
-    stc
+    CLC_OR_STC .no              ; CF = 0 recorded, or (.no) CF = 1 refused
+    pop bx                      ; `pop` writes no flag, so the answer survives
     retf
 %else
 ; No re-homing loader ships on kern_small: the only two callers of the slot -

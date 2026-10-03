@@ -276,11 +276,8 @@ assoc_ext_of:
     mov di, assoc_extb          ; a short extension pads itself, so a two-
     mov cx, 3                   ; letter 'MD' matches a declared 'MD '. The
     call assoc_padcpy           ; copy may stop at a dot too, and there is
-    clc                         ; none: this is past the LAST one
-    jmp short .out
-.none:
-    stc
-.out:
+                                ; none: this is past the LAST one
+    CLC_OR_STC .none            ; CF = 0 staged, or (.none) CF = 1
     pop si
     pop dx
     pop cx
@@ -909,16 +906,15 @@ assoc_go:
     mov ch, 1
     shl ch, cl                  ; CH = this volume's bit
     test [assoc_dead], ch
-    stc                         ; (stc leaves the ZF test just made)
-    jnz .out
+    jnz .stc
     mov bx, ax
     mov al, dl                  ; fcp_goto takes AL = volume, BX = cluster
     call fcp_goto
     jnc .out
     cmp ax, FERR_NODISK
-    stc
-    jne .out
+    jne .stc
     or [assoc_dead], ch
+.stc:
     stc
 .out:
     pop cx
@@ -1678,9 +1674,7 @@ assoc_app_new:
 ; met.  That is the one distinction this entry point must not erase.
 assoc_app_get:
     call assoc_app_of
-    jnc .out
-    jmp assoc_app_new
-.out:
+    jc assoc_app_new            ; (a tail jump: its CF is the answer)
     ret
 
 ; assoc_self_glyph - reduce the CALLING package's own embedded icon into an

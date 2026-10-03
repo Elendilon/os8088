@@ -4129,8 +4129,7 @@ osapi_mem_compact_x:
     cmp word [mem_cpq], 0
     jne .no                     ; one is already standing
     mov [mem_cpq], bx
-    mov [mem_cpq_lvl], al
-    clc
+    mov [mem_cpq_lvl], al       ; (CF = 0 still: the cmp found it free)
     retf
 .no:
     stc

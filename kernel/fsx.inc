@@ -842,11 +842,7 @@ fsx_wait:
     call fsx_insync
     jnc .pb
 .ok:
-    clc
-    jmp short .out
-.fail:
-    stc
-.out:
+    CLC_OR_STC .fail            ; CF = 0 waited, or (.fail) CF = 1 refused
     pop dx
     pop bx
     pop ax
