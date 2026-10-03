@@ -4877,17 +4877,19 @@ cp_fdnop:  dw cp_s_fdno         ; ...through this, which cp_flush_x reads cs:
 ; A read that FAILS answers nothing and the pick stands - the loader's canary
 ; still decides at every boot. So does a heap that cannot spare 18..36KB.
 ; -----------------------------------------------------------------------------
+cpc_fdret:                      ; the five early refusals' `ret`, in short
+    ret                         ; reach of them (it was 230 bytes away)
 cpc_fdtest:
     cmp byte [cs:cp_fdbsd], 0
-    je .ret
+    je cpc_fdret
     cmp byte [drv_cfg+CFG_FDR], 2
-    jne .ret
+    jne cpc_fdret
     cmp word [boot_cylrun], 0
-    jne .ret                    ; this boot crossed a head: it can
+    jne cpc_fdret                    ; this boot crossed a head: it can
     test byte [dsk_unit], 0x80
-    jnz .ret                    ; a hard disk: nothing here to ask
+    jnz cpc_fdret                    ; a hard disk: nothing here to ask
     cmp word [disk_heads], 2
-    jne .ret
+    jne cpc_fdret
     push ax
     push bx
     push cx
