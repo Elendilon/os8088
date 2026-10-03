@@ -2000,7 +2000,7 @@ MEM_K_HIB   equ 0xFF0C          ; the resume's extent list (SPEC.md 87.5)
 ; SPEC.md 25.9 made it the purgeable MEM_P_ICO. It is a TOMBSTONE - nothing
 ; claims it - and it is kept unreusable for the reason above, so the dialog's
 ; listing below is 0xFF0F.
-MEM_K_FDLG  equ 0xFF0F          ; the Standard File dialog's listing (SPEC.md 38.2)
+MEM_K_FDLG  equ 0xFF0F          ; RESERVED: the old dialog's listing; no claim carries it since SPEC.md 38.1
 MEM_K_FONT  equ 0xFF10          ; the 8x8 glyph table copied out of an option ROM (SPEC.md 6.0.1)
 MEM_K_SC    equ 0xFF11          ; the desktop shortcuts' table (SPEC.md 26.8)
 

@@ -210,8 +210,13 @@ MEM_K_CMPR equ 0xFF0D           ; the Compress verb's working block (SPEC.md
                                 ; 0xFF0B is skipped (it was MEM_K_OVL and is
                                 ; retired above) and so is 0xFF0C, which is
                                 ; MEM_K_HIB's
-MEM_K_FDLG equ 0xFF0F           ; the Standard File dialog's LISTING (SPEC.md
-                                ; 38.2, docs/plans/LISTING-HOME-PLAN.md 13):
+MEM_K_FDLG equ 0xFF0F           ; RESERVED, AND NOTHING CLAIMS UNDER IT: the
+                                ; chooser's listing is its Disk window's own
+                                ; VIEW claim since SPEC.md 38.1, billed to its
+                                ; record. Kept because the tag is published
+                                ; (os88api.inc, the Task Manager's names).
+                                ; What it WAS - the Standard File dialog's
+                                ; LISTING (docs/plans/LISTING-HOME-PLAN.md 13):
                                 ; claimed at fdlg_open, handed to dsk_dest_x
                                 ; so every mount the dialog makes writes
                                 ; straight into it, and freed at fdlg_close.

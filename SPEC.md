@@ -43214,7 +43214,8 @@ remounts **only** if the acting window's `(drive, cwd)` differs from
 window you last navigated, a compare and a `ret`.
 
 **Per-window state** is an `FS_SIZE`-byte `KD_POOL` block (`fm_pool`,
-4 × `FS_SIZE`, §29.3) — 57 bytes under `KERN_BIG`, 24 under `KERN_SMALL`,
+5 × `FS_SIZE` - the user's four and the Standard File chooser's, §38.1 -
+§29.3) — 57 bytes under `KERN_BIG`, 24 under `KERN_SMALL`,
 which is why the Disk row's `KD_SSIZE` is the symbol and never a literal —
 allocated and cascaded by `app_launch` and handed to `fm_kinit` in DI:
 
@@ -43228,7 +43229,7 @@ allocated and cascaded by `app_launch` and handed to `fm_kinit` in DI:
 | 10 | `FS_DRV` b | the drive it is showing, 0 = A:, 1 = B: |
 | 11 | `FS_MOK` b | 1 = that listing came from a fully successful mount |
 | 12 | `FS_VIEW` b | 0 = list view, 1 = icon view |
-| 13 | `FS_EDIT` b | status-line editor: 0 = off, 1 = new folder, 2 = rename, 3 = delete confirm |
+| 13 | `FS_EDIT` b | status-line editor: 0 = off, 1 = new folder, 2 = rename, 3 = delete confirm, 4-7 the two-line prompts, 8 = a Save chooser's name box (§38.5) |
 | 14 | `FS_FERR` b | `FERR_*` of the last file operation **in this window**, 0 = none |
 | 16 | `FS_VSEG` w | this window's listing-cache claim (§50.2), 0 = none |
 | 18 | `FS_VKB` b | how many KB that claim actually is (§22.6) |
@@ -62387,10 +62388,11 @@ hook sites in §38.9 and nowhere else:
 | open a FILE (double-click, Enter, Open, File ▸ Open) | launch it / open its program (§54) | Open form: **choose it**; Save form: put its name in the box |
 | single-click a FILE | select it | ...and, in the Save form, put its name in the box |
 | Escape | nothing | cancel |
+| the arrows, PgUp/PgDn, Home, End | scroll | **move the selection** (§38.4) |
 | content width | the window's | the window's less `FD_COLW`, the button column (§38.3) |
 | status line at rest | Size / Free | Save form: the name box, `Save as:` (edit mode 8, §38.5) |
 | Open in New Window | opens one | refused with a beep: it would land over a modal chooser |
-| counted by `fm_count` / found by `fm_front_win` | yes | **no** |
+| counted by `fm_count` | yes | **no** |
 
 Everything else — the listing, icons and list view, folder dive and `..`,
 Backspace, the A/B keys, Refresh, the scroll bar, the right-click menu with
@@ -62499,7 +62501,17 @@ from `fdlg_brect`, `fm_btn1` their label and greying from `fdlg_blabel`,
 hands a fired id ≥ 3 to the chooser — so they press, track, cancel on
 slide-off and fire on release (§13.7), exactly like Refresh. On `kern_small`
 the Disk window's own buttons are drawn by hand and fire on the press, and
-the chooser's do the same, drawn by the glue (`FDH_PAINT`, `FDH_CLICK`).
+the chooser's do NOT copy that: the glue draws them (`FDH_PAINT`), arms and
+draws the pressed one on the press (`FDH_CLICK`) and fires on the release
+(`FDH_UP`), through a `W_ONMOUSEUP` it stores on the chooser's window itself
+- this build's Disk window has none of its own, and the window manager
+dispatches the release on both builds. One byte, `[fdlg_down]`, is both the
+arm and the pressed look, because `kern_small` carries no `os88ui_armw`.
+**It costs 13 resident bytes on `kern_small`** - `fdlg_onup`, the 9-byte
+release thunk, and one far entry into `fm_layout` - which the module's other
+savings pay for many times over (§38.0); the slide-off cancel is honoured at
+the release and the look does not track the pointer in between, there being
+no `W_ONDRAG` on that build to track it with.
 
 ### 38.4 The listing and navigation
 
@@ -62513,6 +62525,15 @@ answers to *open a file*:
 - **Save form** — the file's name goes into the name box and nothing else
   happens; the user still presses *Save* or Enter. A **single** click on a
   file does the same, which is what clicking a file means in a Save box.
+
+**The arrows SELECT in a chooser**, where a Disk window's scroll it: up and
+down a row (a grid row in the icon view), PgUp/PgDn a page, Home and End the
+ends, with the view following the selection. The dialog always worked that
+way and a chooser is driven from the keyboard - *L, Down, Down, Enter* is how
+Tracker's own test loads a module - so it is the one Disk window behaviour
+the chooser overrides rather than inherits (`FDH_KEY`). A move that stays in
+view costs §22.2's two XOR bands; one that scrolls repaints the window. Only
+an EXTENDED key moves anything: the keypad's digits share these scan codes.
 
 **No overwrite question is asked**, by the chooser or by any caller: picking
 an existing file in the Save form only fills the box, and the caller writes
@@ -62736,9 +62757,19 @@ would have.
 | `FDH_PICK` | `fm_open_sel`, a file | Open: stage and post commit; Save: fill the box |
 | `FDH_SEL` | `fm_onclick`'s new selection | Save: a file fills the box; Open: re-grey button 1 |
 | `FDH_COMMIT` | `fm_edit_commit`, mode 8 | post commit, or beep on an empty box |
-| `FDH_ESC` | `fm_onkey_x`, Escape | post cancel |
-| `FDH_BTN` | `fm_onup_x` (`kern_big`) / `FDH_CLICK` (`kern_small`) | button 1: open the selection / commit the box; 2: cancel; 3: next volume |
-| `FDH_PAINT`, `FDH_CLICK` | `fm_draw_core`, `fm_onclick` — `kern_small` only | draw the column; fire a pressed button |
+| `FDH_KEY` | `fm_onkey_x`, every key (DX = the key) | Escape: post cancel; an arrow, PgUp/PgDn, Home, End: move the selection (§38.4) |
+| `FDH_BTN` | `fm_onup_x` (`kern_big`) / `FDH_UP` (`kern_small`) | button 1: open the selection / commit the box; 2: cancel; 3: next volume |
+| `FDH_PAINT` | `fm_draw_core` | draw the column |
+| `FDH_RECT`, `FDH_LABEL` | `fm_brect`, `fm_btn1` — `kern_big` only | the column's rect; its label, default and greying |
+| `FDH_CLICK`, `FDH_UP` | `fm_onclick`, the chooser's `W_ONMOUSEUP` — `kern_small` only | arm and draw a button pressed; fire it on the release |
+
+**`FDH_RECT` and `FDH_LABEL` are not a convenience.** `fm_brect` and
+`fm_btn1` could near-call `fdlg_brect` and `fdlg_blabel` on `kern_big`, where
+both files are `.cold` - and `tools/os88ovlchk.py`, which reads source and
+cannot evaluate `%ifdef FDLG_MOD`, files every body in `fdlg.inc` as the
+`.modd` image on both builds and refuses the call. Going through the hook
+is the one spelling that is true on both, which is the rule `filecp.inc`'s
+`FCPX` macros already obey.
 
 ### 38.10 The default is `MEDIA`; after that the location is per APPLICATION
 
@@ -88440,100 +88471,72 @@ deletes is bigger than the predicate.
 
 ### 38.0 ON `kern_small` THIS IS AN ON-DEMAND MODULE (§2.8)
 
-`kern_big` keeps every body in §38 resident in `.cold`, unchanged to the
-byte, and pays **29 bytes** for the whole arrangement — `.bss` +12 and
-`.cold` +17, both explained below, and not one byte of `.text`. `kern_small`
-emits the same bodies into `.modd`, which `tools/os88mod.py` cuts out as
-**`FDLG.DRV`** (3,243 bytes, 7 entries, 7 sectors); `fdlg_open` reads it into
-a heap claim and `fdlg_reap` gives it back. `KERN_SIZE` 90,624 → 88,064, and
-the cold rung UNCROSSES: 2,560 bytes back on every machine that boots this
-kernel.
+`kern_big` keeps the glue resident in `.cold`; `kern_small` emits the same
+bodies into `.modd`, which `tools/os88mod.py` cuts out as **`FDLG.DRV`**, and
+`fdlg_open` reads it into a heap claim that `fdlg_reap` gives back. Since
+§38.1 made the chooser a Disk window the image is the **glue** and nothing
+else - the listing, rows, scroll bar, editor and header it once carried are
+`files.inc`'s, resident on both builds - so it shrank from **3,214 bytes in a
+4KB claim to ~1,500 in a 2KB one** (`os88mod.py` prints the figure on every
+`make small`), and the dialog's whole resident cost on this build went
+**down by 34 bytes** while it did.
 
-It is §22.3.0's shape a second time and obeys §22.3.0.1's three rules, with
-`filecp.inc` as the worked example. What is new here is in the four
-paragraphs below; everything else is that section.
+It is §22.3.0's shape and obeys §22.3.0.1's three rules, with `filecp.inc`
+as the worked example. What is particular to it:
 
-**SEVEN entries, not nine.** `fdlg_open`, `fdlg_paint`, `fdlg_onkey`,
-`fdlg_onclick`, `fdlg_reap`, `fdlg_grab`, `fdlg_top`. `fdlg_onup` and
-`fdlg_ondrag` are §13.10.5's scrollbar thumb drag, already `kern_big`'s
-alone, so this build has no bodies to publish. `MOD_NENT` goes 6 → 7 **for
-both kernels**, which is where `kern_big`'s 12 `.bss` bytes come from
-(`mod_fp` is `MOD_MAX * MOD_NENT * 4`). It is not per-build because
-`tools/os88mod.py` scrapes the first `^MOD_NENT equ <int>` out of `mod.inc`
-and cannot evaluate an `%ifdef`: given two, it read 7 on both arms and
-refused `CTRL.DRV`'s first entry as out of range. One value for both builds
-is the honest reading of a constant that a host tool and the kernel must
-agree on.
+**FIVE entries**: `fdlg_open`, `fdlg_hook`, `fdlg_reap`, `fdlg_grab`,
+`fdlg_top`. The old dialog's `fdlg_paint`, `fdlg_onkey` and `fdlg_onclick`
+are gone with its window: the chooser's callbacks are the Disk window's, and
+everything it does differently arrives through `fdlg_hook` (§38.9). Open and
+the hook return near and are wrapped in `call/retf`; reap, grab and top end
+in their own `retf`.
 
-**The entries return BOTH ways, and the header is what reconciles it.** An
-entry is reached by `call far`, so it has to end in `retf`. Five of these
-bodies already do — `fdlg_onkey` and `fdlg_onclick` leave through
-`kretfc_dx`, and reap, grab and top through their own `retf` — so the header
-points those five at **themselves**. `fdlg_open` and `fdlg_paint` return
-near, so the header points them at a two-instruction `call/retf` wrapper.
-This is the first module in the tree with a mixed exit convention, and
-wrapping the two is cheaper than changing five contracts the resident kernel
-also calls.
+**`fdlg_open` is the only entry that loads, and `[fdlg_win]` is why the
+others need not.** That word is `.text`, resident, and non-zero exactly while
+a chooser is up - which only `fdlg_open` makes true - so the image is in RAM
+whenever any other entry has work. `fdlg_hook` asks `[fdlg_blk]` instead,
+which is set and cleared with it: the acting Disk window's block against the
+chooser's, compared on the resident side (§38.1.1), so a Disk window that is
+not the chooser never far-calls an image that may not be there.
 
-**`fdlg_open` is the only entry that loads, and `[fdlg_win]` is why the other
-six need not.** That word is `.text`, resident on both builds (§38.5's
-banner), and it is non-zero exactly while a dialog is up — which only
-`fdlg_open` makes true. So the image is in RAM whenever any of the other six
-has work, and each resident stub answers a zero `[fdlg_win]` with the same
-answer its body's own `.none` path would have given. That matters for cost
-rather than for correctness: `fdlg_reap` runs once per UI pass and
-`fdlg_grab` on every mouse press, and a `mod_need` on either would put a
-table walk on the machine's hottest loop. **The drop is `fdlg_reap`**, at the
-moment the dialog stops existing — but the GUARD in front of it may not be
-`[fdlg_win]`, and §38.0.1 is why.
-
-**Thirteen of `kern_big`'s seventeen `.cold` bytes are the shared register
-epilogues, and they are a copy rather than an alias on the gates' account.**
-§22.3.0.1's rule 3 is why the image needs its own `fdk_*` ladder; what is new
-here is that writing `fdk_bp equ kretc_bp` on the `kern_big` arm — which
-would have cost that build nothing — makes `kernel.asm`'s own `kretc_*`
-look **addressed** to `tools/stkbalance.py`, which reads source and evaluates
-no `%ifdef`. It then walks all five as routines entered at depth 0 and
-reports each at its own negative depth, ten findings for a change that
-altered no instruction. So the ladder is an unconditional copy below the
-section toggle, exactly as `filecp.inc`'s is, and the duplication is the
-price of a gate that can still read the file.
-
-**`fdlg_hasdot` is resident, and it is the one body here that could not
-become a far call at all.** `files.inc`'s `fm_dotin` is a **continuation**,
-not a routine: `fm_hasdot` falls into it having banked SI, and `fm_dotin`'s
-own `pop si` takes that bank, so its near `ret` goes to *that entry's*
-caller. A `jmp` is the only legal way in. Rewriting the tail jump as
-`call fm_dotin / ret` — which is what rule 3 asks for at every *other* site —
-makes the `pop si` eat the return address, on `kern_big` as much as on
-`kern_small`. `stkbalance` caught it as `fdlg_hasdot: ret at depth +1`. So
-`fdlg_hasdot` moves to the resident side whole, keeps the `jmp` it has always
-had, and the image reaches it through an ordinary far entry whose body ends
-in a near `ret`. **Rule 3 assumes the target of a tail jump is callable, and
-a continuation is not** — that is the one place the discipline in §22.3.0.1
-needs a reader's judgement rather than a mechanical rewrite.
-
-**What stays resident, and why it is not a judgement call.** `os88ui.inc` and
-`ui_krect4` are near-called by `apps.inc`, so they cannot be inside an image
-that is far-called and often absent; the `%include` was in the middle of what
-is now `.modd` and `tools/os88ovlchk.py` is the only thing that noticed.
-`files.inc`'s `pth_*` path stack is `kern_big`'s alone, so the four far
-entries naming it are gated with the call sites rather than left to reference
-symbols this build does not have. And the far-entry prefix here is **`xd_`**
-where `filecp.inc`'s is `xf_`: both blocks sit in `.cold`, which is one
-segment, and both wrap `dsk_ncopy` — one prefix would be one label defined
-twice.
+**What stays resident**: `fdlg_hook`, the four entry thunks, `fdlg_onup`
+(the chooser's `W_ONMOUSEUP`, §38.3), the `xd_` far entries the image calls
+out through, `fdlg_win`/`fdlg_blk` and the strings. `os88ui.inc` and
+`ui_krect4` stay resident for the reason they always did: `apps.inc`,
+`ctrl.inc` and `files.inc` call them too.
 
 **Refusal.** `fdlg_open` answers CF=1, which is already its published answer
-for "one is already up, or the window table is full", and every caller
-treats it as *the command does nothing*. So on `kern_small` a Save As with
-the system disk out of the drive opens no dialog, where on `kern_big` it
-always opens one. That is a real behaviour difference and it is stated here
-rather than left to be discovered: it is the same trade §22.3.0 took for
-Paste, and the same one `mod_need` imposes on every feature that becomes a
-module.
+for "one is already up", and every caller treats it as *the command does
+nothing*. So on `kern_small` a Save As with the system disk out of the drive
+opens no chooser, where on `kern_big` it always opens one. That is the same
+trade §22.3.0 took for Paste, and the one `mod_need` imposes on every feature
+that becomes a module. **On `kern_big` the glue is NOT a module, on purpose**:
+`mod.inc`'s own test (docs/plans/completed/ONDEMAND-PLAN.md §1) is that a
+module may require the system disk only where the feature already does, and
+a Save As onto a data floppy in a one-drive machine would become a disk swap.
+
+**Two shapes the split's history taught, both still binding.** The register
+epilogue ladder (`fdk_*`) is an unconditional COPY below the section toggle,
+not an `equ` alias of `kernel.asm`'s, because `tools/stkbalance.py` reads
+source and an alias makes the kernel's own labels look addressed; and a
+ladder label nothing jumps to is walked as an ENTRY by the same tool, so the
+image keeps only `fdk_di`. And a CONTINUATION is not callable: the old
+`fdlg_hasdot` had to stay resident because `fm_dotin` popped the SI its entry
+banked - that pair is gone (the name box is `fm_editkey`'s now, §38.5), and
+`fm_dotin` folded back into `fm_hasdot` with it.
+
 
 #### 38.0.1 The drop is guarded on the IMAGE, not on the window
+
+**What follows is the defect as it was found, against the old dialog, and
+the guard it left is still the guard.** Since §38.6 posts the answer, every
+route ends inside `fdlg_reap` itself (or `fdlg_gate` for the close and
+minimize boxes) rather than inside the image's own click handler, so the
+pass on which `[fdlg_win]` falls to 0 is the very pass that then reaches the
+drop - the gap the table below describes cannot open in that order any more.
+The guard stays on `mod_r_fdlg` regardless, because the question `fdlg_reap`
+asks is still "is the image held" and a guard that is right only because of
+a call order is the one the next change breaks.
 
 `[fdlg_win]` answers "is a dialog up". The question `fdlg_reap` has to ask is
 **"is the image held"**, and for one pass in the life of every dialog those
