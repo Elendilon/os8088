@@ -763,10 +763,26 @@ assoc_ext_take:
     mov si, assoc_extb
     cmp byte [si], ' '          ; a blank extension names nothing
     jbe .no
-    call assoc_point
-.no:
-    pop si
-    ret
+.point:                         ; ASSOC_POINT, inlined (size pass 9 - this was
+                                ; its one caller; its header below says why
+                                ; each arm is what it is)
+    call assoc_find             ; already claimed?  BX = that row
+    jc .fresh
+    test byte [bx+3], ASSOC_STICKY
+    jnz .no
+    cmp [bx+3], dl              ; ...and already this program's: nothing any
+    je .no                      ; window drew is wrong
+    jmp short .set
+.fresh:
+    call assoc_ext_new
+    jc .no
+.set:
+    mov [bx+3], dl              ; ...pointed here, sticky bit CLEAR
+    mov ax, [dsk_dseg]          ; ...and every Disk window re-resolves its
+    call fmv_icostale_but       ; document icons on its next focus BUT the
+.no:                            ; one this mount is filling, whose pass 4b
+    pop si                      ; is still to run (it clobbers SI, and the pop
+    ret                         ; is what puts it back)
 
 section .bss
 assoc_hflags: resb 1            ; the header flags of the package the harvest
@@ -847,28 +863,11 @@ assoc_post_x:
 ; already banked - for a name that had two builders: this and the 'Needs'
 ; toast, which since kernel size pass 5 is printed straight out of assoc_fnb
 ; (assoc_pnbuf is the six bytes in front of it).
+;
+; INLINED at the head of assoc_locate, its one caller, since size pass 9 -
+; which already derives BX = the slot, so the stem pointer is built in SI and
+; BX survives the copy instead of being re-derived after it.
 ; -----------------------------------------------------------------------------
-assoc_fname:
-    mov bl, al
-    xor bh, bh
-    mov cl, 3
-    shl bx, cl
-    lea si, [assoc_stem+bx]
-    mov di, assoc_fnb
-    mov cx, 8
-.l:
-    mov ah, [si]
-    cmp ah, ' '
-    je .o
-    mov [di], ah
-    inc si
-    inc di
-    loop .l
-.o:
-    mov word [di], '.O'
-    mov word [di+2], '88'
-    mov byte [di+4], 0
-    ret
 
 ; -----------------------------------------------------------------------------
 ; assoc_go - stand at (DL, AX) to look a name up (SPEC.md 54.4.2.1)
@@ -1152,9 +1151,26 @@ assoc_locate:
     push dx
     push si
     push di
-    call assoc_fname            ; assoc_fnb = '<STEM>.O88'
-    mov bl, al
-    xor bh, bh
+    mov bl, al                  ; assoc_fname, inlined: assoc_fnb =
+    xor bh, bh                  ; '<STEM>.O88', the stem space-padded to 8 so
+    mov si, bx                  ; the copy stops at the first space
+    mov cl, 3
+    shl si, cl
+    add si, assoc_stem
+    mov di, assoc_fnb
+    mov cx, 8
+.fnl:
+    mov ah, [si]
+    cmp ah, ' '
+    je .fno
+    mov [di], ah
+    inc si
+    inc di
+    loop .fnl
+.fno:
+    mov word [di], '.O'
+    mov word [di+2], '88'
+    mov byte [di+4], 0
     mov di, bx                  ; DI = the slot, wanted after the shifts
 
     ; --- rung 1: the hint, if this program has ever been seen -------------
@@ -1295,9 +1311,20 @@ assoc_run_x:
                                 ; and the poster's own window was never
                                 ; written on by this load at all (SPEC.md
                                 ; 22.17), so nothing here is owed a repaint
-    call assoc_handover         ; ...and the DOCUMENT is a second phase, now
-    jmp short .out              ; that there is something to look at while it
-                                ; loads (SPEC.md 54.10)
+.handover:                      ; ...and the DOCUMENT is a second phase, now
+                                ; that there is something to look at while it
+                                ; loads (SPEC.md 54.10) - ASSOC_HANDOVER,
+                                ; written at its one call site (size pass 9)
+    mov di, [ld_rec]            ; the record .reg published, and I_WIN is the
+    or di, di                   ; window the entry proc answered with
+    jz .out
+    mov si, [di+I_WIN]
+    or si, si
+    jz .out
+    mov bp, wm_wake_call        ; assoc_run's second phase (SPEC.md 54.10): the
+    call ct_cw_mem_disp         ; launched window is on the glass, so the
+    jmp short .out              ; package may now spend the document it was
+                                ; handed
 
 .noassoc:
     push ax                     ; the word .out pops
@@ -1363,19 +1390,7 @@ assoc_run_x:
 ; where the whole of what the ring buys, ordering against the mouse, is
 ; already settled by standing at this instruction.
 ; -----------------------------------------------------------------------------
-assoc_handover:
-    mov di, [ld_rec]            ; the record .reg published, and I_WIN is the
-    or di, di                   ; window the entry proc answered with
-    jz .out
-    mov si, [di+I_WIN]
-    or si, si
-    jz .out
-    mov bp, wm_wake_call        ; assoc_run's second phase (SPEC.md 54.10): the
-    call ct_cw_mem_disp         ; launched window is on the glass, so the
-                                ; package may now spend the document it was
-                                ; handed
-.out:
-    ret
+; (THE CODE IS assoc_run_x's .handover since size pass 9, its one caller.)
 
 ; assoc_back - put the user's volume back where the document is. A failed
 ; remount leaves that volume mount-failed at its root with the write gate
@@ -1526,7 +1541,19 @@ osapi_assoc_set_x:
     or byte [bx+3], ASSOC_STICKY
     cmp al, dl                  ; ZF = the same program again - declared,
     pushf                       ; cached or claimed before - which is no news
-    call assoc_self_glyph       ; DL = slot; take the caller's own icon
+                                ; ASSOC_SELF_GLYPH, inlined (its one caller;
+                                ; size pass 9): DL = slot, take the caller's
+                                ; own icon. BX, SI and DI are kentc_di's to
+                                ; restore, so the body banks nothing
+    cmp word [es:0], 0x384F     ; 'O','8' - a package header, not a stray
+    jne .sgno
+    test byte [es:3], 1         ; the embedded-icon flag (SPEC.md 20.2)
+    jz .sgno
+    mov bl, dl
+    call assoc_glyph_di
+    xor si, si                  ; the image's header, at 0 of its own segment
+    call assoc_img_glyph        ; shipped or reduced (SPEC.md 54.3.2)
+.sgno:
     popf                        ; ...and if the answer CHANGED, every Disk
     je .same                    ; window's document icons are stale (SPEC.md
     call fmv_icostale           ; 54.3.3) - assoc_point's rule, which this
@@ -1537,7 +1564,8 @@ osapi_assoc_set_x:
     jmp kretfc_di
 
 ; -----------------------------------------------------------------------------
-; assoc_point - point one extension at one app slot (SPEC.md 54.6's rule)
+; assoc_point - point one extension at one app slot (SPEC.md 54.6's rule) -
+; now the local label assoc_ext_take.point, written once at its one caller
 ; in:  SI -> 3 ext bytes, DL = the app slot
 ; out: nothing (BX = the row, and AX and CF are assoc_find's or
 ;      assoc_ext_new's - no caller reads either)
@@ -1567,24 +1595,7 @@ osapi_assoc_set_x:
 ; pixels. Outside a mount `[dsk_dseg]` is 0, which only leaves out a window
 ; with no store, and such a window draws no icons at all.
 ; -----------------------------------------------------------------------------
-assoc_point:
-    call assoc_find             ; already claimed?  BX = that row
-    jc .fresh
-    test byte [bx+3], ASSOC_STICKY
-    jnz .out
-    cmp [bx+3], dl              ; ...and already this program's: nothing any
-    je .out                     ; window drew is wrong
-    jmp short .set
-.fresh:
-    call assoc_ext_new
-    jc .out
-.set:
-    mov [bx+3], dl              ; ...pointed here, sticky bit CLEAR
-    mov ax, [dsk_dseg]          ; ...and every Disk window re-resolves its
-    jmp fmv_icostale_but        ; document icons on its next focus BUT the
-.out:                           ; one this mount is filling, whose pass 4b
-    ret                         ; is still to run (a TAIL call: its ret is
-                                ; ours)
+; THE CODE IS assoc_ext_take's .point (size pass 9), its one caller.
 
 ; assoc_ext_new - claim a free extension row. in: SI -> 3 ext bytes;
 ; out: CF=0 and BX = the row with the extension written in; CF=1 = full
@@ -1677,23 +1688,7 @@ assoc_app_get:
 ; app slot. in: DL = the slot, ES = the caller's segment (the X stub put it
 ; there). Does nothing if the caller ships no icon - the document then draws
 ; the bare page, which is honest.
-assoc_self_glyph:
-    push bx
-    push si
-    push di
-    cmp word [es:0], 0x384F     ; 'O','8' - a package header, not a stray
-    jne .out
-    test byte [es:3], 1         ; the embedded-icon flag (SPEC.md 20.2)
-    jz .out
-    mov bl, dl
-    call assoc_glyph_di
-    xor si, si                  ; the image's header, at 0 of its own segment
-    call assoc_img_glyph        ; shipped or reduced (SPEC.md 54.3.2)
-.out:
-    pop di
-    pop si
-    pop bx
-    ret
+; (Written at its one call site, osapi_assoc_set, since size pass 9.)
 
 ; asc_use_out - asc_use_x's two refusals share this one near jump: -3.  A global
 ; rather than a `.local` for the reason its placement forces - it sits after the
@@ -1944,8 +1939,17 @@ asc_use_x:
                                 ; volume SWITCH, not per mount - the compare
                                 ; at the top is the gate - so the reduce is
                                 ; paid where a floppy is already turning
-.out:
-    call asc_drop               ; THE CLAIM IS A FILE BUFFER (SPEC.md 54.7.4)
+.out:                           ; THE CLAIM IS A FILE BUFFER (SPEC.md 54.7.4):
+    mov dx, [asc_seg]           ; give it back - ASC_DROP, inlined (its one
+    or dx, dx                   ; caller, size pass 9; AX, BX and DX are
+    jz .dropped                 ; kentc_di's to restore). Idempotent, and it
+    xor ax, ax                  ; has to be: the refused claim, the bad magic,
+    mov [asc_seg], ax           ; an unknown version, the short file and the
+    mov [asc_n], ax             ; "already this volume" compare all arrive
+    mov [asc_ne], ax            ; here as well as a clean load. The segment
+    mov bx, MEM_K_ASC           ; word goes FIRST, asc_reloc's header being
+    call mem_free_x             ; why, and the counts with it
+.dropped:
     pop es
     jmp kretc_di
 
@@ -2100,35 +2104,8 @@ asc_row_take:
     jmp kretc_di
 
 ; -----------------------------------------------------------------------------
-; asc_drop - give the file buffer back (module-internal)
-; out: nothing (all registers preserved)
-;
-; Idempotent, and it has to be: .out is reached by the refused claim, the bad
-; magic, the version it does not understand, the short file and the "already
-; this volume" compare as well as by a clean load.
-; -----------------------------------------------------------------------------
-asc_drop:
-    push ax
-    push bx
-    push dx
-    mov dx, [asc_seg]
-    or dx, dx
-    jz .out
-    xor ax, ax
-    mov [asc_seg], ax           ; FIRST, and asc_reloc's own header is why: a
-    mov [asc_n], ax             ; segment word naming a block that is gone is
-    mov [asc_ne], ax            ; not a missing answer, it is a live wrong one.
-                                ; The counts go with it - nothing reads them
-                                ; past this point, and leaving a row count
-                                ; beside a null segment is a trap for whoever
-                                ; adds the next reader
-    mov bx, MEM_K_ASC
-    call mem_free_x
-.out:
-    pop dx
-    pop bx
-    pop ax
-    ret
+; asc_drop - give the file buffer back: written at asc_use_x's .out, its one
+; caller, since size pass 9.
 
 ; -----------------------------------------------------------------------------
 ; asc_root_find - ASSOC.DAT in the volume's ROOT (INLINE in asc_use_x)

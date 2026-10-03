@@ -684,10 +684,8 @@ inst_park_req:                  ; FAR-ENTERED (SPEC.md 2.6.1): no near caller
     retf
 %endif
 
-; inst_park_end - withdraw the request; every parked worker resumes
-inst_park_end:
-    mov byte [inst_parkreq], 0
-    retf
+; (inst_park_end - withdraw the request - is one store, and its one caller,
+; mem_compact's .end, makes it itself since size pass 9.)
 
 ; inst_wk_parked - ZF = 0 when record DI's worker (its I_TASK, which the caller
 ; has seen is not 0xFF) has parked; preserves every register. One copy of the
@@ -1729,15 +1727,22 @@ inst_minimize:
                                 ; an fsx bracket owns the screen drew an XOR
                                 ; outline over somebody's borrowed surface,
                                 ; which is the hazard 11.99 names
-    call inst_an_tile           ; SPEC.md 11.99: the window flies to its tile -
-                                ; BEFORE wm_hide, while it is still on the glass
+    push ax                     ; SPEC.md 11.99: the window flies to its tile -
+    push bx                     ; BEFORE wm_hide, while it is still on the
+    push cx                     ; glass. wm_an_d = this record's dock tile:
+    push dx                     ; inst_an_tile, written at its one call site
+    call inst_tile_rect         ; (size pass 9)
+    call rect_put               ; <- AX..DX, four adjacent words
+    dw wm_an_d
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     push si
-    push di
     mov si, bx
-    mov di, wm_an_s
-    call wm_an_setw
-    call wm_anim
-    pop di
+    mov di, wm_an_s             ; DI is the routine's own to spend from here:
+    call wm_an_setw             ; wm_hide reads BX alone and the `pop di` at
+    call wm_anim                ; the foot puts the record back
     pop si
 %endif
 .hide:
@@ -1771,15 +1776,7 @@ inst_tile_rect:
     jmp dock_tile_rect          ; near - dock.inc is .text (SPEC.md 30)
 %endif
 
-inst_an_tile:
-    push ax
-    push bx
-    push cx
-    push dx
-    call inst_tile_rect
-    call rect_put               ; <- AX..DX, four adjacent words
-    dw wm_an_d
-    jmp kret_dx
+; (inst_minimize's anim arm carries this body since size pass 9.)
 
 ; -----------------------------------------------------------------------------
 ; inst_unmin - clear the minimized bit AND say where the window is coming from

@@ -561,7 +561,8 @@ hbf_onup:                       ; a release can only follow a press this
     pop ax
     jc .gone
     call far [HBFP + HBE_ONUP*4]
-    call hbf_dropck
+    jmp short hbf_dropck        ; a tail call: its ret is ours (.gone
+                                ; stays, for the refusal above)
 .gone:
     ret
 
@@ -569,7 +570,8 @@ hbf_onkey:
     call hbf_need
     jc .gone
     call far [HBFP + HBE_ONKEY*4]
-    call hbf_dropck
+    jmp short hbf_dropck        ; a tail call: its ret is ours (.gone
+                                ; stays, for the refusal above)
 .gone:
     ret
 

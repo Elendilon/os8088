@@ -97767,12 +97767,15 @@ the cheaper mechanism.
 #### 66.0.2 What is compiled out, and what stays
 
 Out: `mem_can_move` and the five predicates only it asks (`mem_is_region`,
-`mem_frameless`, `mem_busy_seg`, `mem_in_nest`, `mem_in_xfer`), the seventeen
-`mem_cp_*` routines, `mem_reloc_call`, `mem_rr_walk` / `mem_region_reloc` /
+`mem_frameless` - a predicate written inline in `mem_can_move` at the local
+label `.frameless` since kernel size pass 9, its one caller - `mem_busy_seg`,
+`mem_in_nest`, `mem_in_xfer`), the `mem_cp_*` routines (seventeen when this
+was written; size pass 9 inlined six single-call ones into the walk), `mem_reloc_call`, `mem_rr_walk` / `mem_region_reloc` /
 `mem_rr_tab`, `mem_compact`, `OSAPI_MEM_MOVABLE`'s body, the four kernel
 relocation procs (`menu_reloc`, `clip_reloc`, and `fm_reloc` / `fmv_movable`
 which §50.6.5 had already taken), the **worker park** (§66.5) entire —
-thirteen routines in `instance.inc`, `gfx_lock`'s two hooks and
+thirteen routines in `instance.inc` (fewer since size pass 9 folded
+single-caller ones into their callers), `gfx_lock`'s two hooks and
 `sch_wk_restart` — and `[mem_pinseg]`, whose only reader was `mem_in_xfer`, so
 its writes in `disk.inc`, `clip.inc` and `hiber.inc` go with it.
 
@@ -98079,15 +98082,18 @@ walk that diverged would report room that never arrives: keeping two bodies in
 step is a thing somebody has to remember, and one body with the moves behind a
 flag is a thing nobody can get wrong. The two DIRECTIONS disagree about
 **eight** decisions and about nothing else, and each is a routine that walk
-calls:
+calls - or, for three of them, a masked three-instruction sequence written once
+at its only call site (kernel size pass 9 inlined `mem_cp_near` into
+`mem_cp_gap` and `mem_cp_far`/`mem_cp_adv` into the walk; there is still one
+copy of each, which is the property this paragraph is about):
 
 | routine | what it answers |
 |---|---|
 | `mem_cp_fill0` | where the fill point and its search key start |
 | `mem_cp_step` | which way the key steps past a claim's original base |
-| `mem_cp_near` | which edge must meet the fill point for a claim to be already packed — its base going up, its end coming down |
-| `mem_cp_far` | where the fill point resumes past a barrier |
-| `mem_cp_adv` | which way the fill point advances past a claim just packed |
+| `mem_cp_near` (in `mem_cp_gap`) | which edge must meet the fill point for a claim to be already packed — its base going up, its end coming down |
+| `mem_cp_far` (in the walk's `.nogap`) | where the fill point resumes past a barrier |
+| `mem_cp_adv` (in the walk's `.stay`) | which way the fill point advances past a claim just packed |
 | `mem_cp_dest` | where a block's bytes are going: the fill point going up, a block-length below it coming down |
 | `mem_cp_gap` | the hole beside a barrier |
 | `mem_cp_tail` | the run past everything, which is the one the pass is usually enlarging |
@@ -98658,7 +98664,9 @@ by construction holds no pointer derived from any claim of its own: it is at
 the top of its own loop. `inst_park_req` raises the request and waits up to
 `INST_PARKW` (**4** ticks); `inst_park_wait` marks the worker parked and spins
 on `task_yield`; `inst_seg_parked` is what `mem_can_move` asks; and
-`inst_park_end` withdraws it. The parked bytes are a **side table**
+`inst_park_end` withdraws it. (Since kernel size pass 9 the last is one store
+of 0 to `[inst_parkreq]` written in `mem_compact`'s exit, and `inst_park_wait`
+is the parking arm inside `inst_pkg_alive`, each having had one caller.) The parked bytes are a **side table**
 (`inst_parked`), because `I_RECSZ` is 32 and full (§20.8 rule 2) —
 `inst_icons` and `wm_owner` are the precedents.
 

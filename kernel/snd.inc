@@ -439,7 +439,9 @@ snd_tick:
     mov al, [snd_texp_gen]      ; expiry generation-guarded (SPEC.md 34.3)
     cmp al, [snd_town_gen]
     jne .done
-    call snd_town_off           ; IF is already 0: the tick IS the window.
+    jmp short snd_town_off      ; (a TAIL call since size pass 9: 2 bytes and
+                                ; one ret fewer on the expiry tick, its ret
+                                ; being ours) IF is already 0: the tick IS the window.
                                 ; No push bx/si: snd_town_off banks both in
                                 ; its own frame, on its one exit
 .done:
