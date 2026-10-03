@@ -7380,18 +7380,22 @@ SOAK = [
         "back when the view moves.",
         needs=("marty",), serial=True),
     Row("fdlggrey", "soak", py("tests/fdlggrey.py"), 60.0,
-        "The file dialog's default button: REDRAWN IN PLACE must equal"
-        "FRESHLY PAINTED.",
-        needs=("marty",), serial=True,
-        wants=("build/muptest.img",)),
+        "SPEC.md 38.3/38.8: the chooser's default button (Open form, greyed "
+        "with nothing selected). Each state is reached by a PARTIAL redraw - "
+        "a row click, a click on empty list, Down (FDH_SEL -> fdlg_drawbtn) - "
+        "and must be pixel-identical to the same state after a FULL repaint "
+        "(V twice; a move would replay, not repaint, SPEC.md 11.96.12). "
+        "Greyed must carry less ink than live. Red when the state moves "
+        "without the button being redrawn (171 px).",
+        needs=("marty",), serial=True),
     Row("fdlgsmall", "soak",
         ["env", "OS88_DEFINES=KERN_SMALL", "OS88_BUILD=build/smallk",
          "OS88_SYSIMG=build/small360.img"] + py("tests/fdlggrey.py"), 300.0,
-        "...and the SAME drive against kern_small, where the WHOLE dialog is "
-        "an on-demand module (SPEC.md 38.0, docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md "
-        "9.2.6) rather than resident code. It is `fcpsmall`'s argument one "
-        "feature along and a bigger engine: seven entries with two exit "
-        "conventions, every call out of the image a far one through an `xd_` "
+        "...and the SAME drive against kern_small, where the chooser's glue "
+        "is the on-demand module FDLG.DRV (SPEC.md 38.0) rather than resident "
+        "code. It is `fcpsmall`'s argument one feature along: five entries "
+        "with two exit conventions, the button column drawn by the image "
+        "itself, every call out of the image a far one through an `xd_` "
         "entry, the register epilogues copied inside the image, and mod_need "
         "reading it off the disk on fdlg_open with mod_drop giving it back in "
         "fdlg_reap. NONE of that is exercised by the row above, which runs "
@@ -7404,14 +7408,16 @@ SOAK = [
         # A `wants=` that names a different artefact from the command is a row
         # that cannot run anywhere but a checkout where somebody has already
         # typed `make small` by hand (docs/WRITING-TESTS.md 4).
-        wants=("build/muptest.img", "build/small360.img",
-               "build/small.img", "build/smallapps.img")),
+        wants=("build/small360.img",)),
     Row("fdlgdrop", "soak", py("tests/fdlgdrop.py"), 80.0,
         "...and the module comes BACK on every route a dialog ends by "
         "(SPEC.md 38.0.1). The row above drives the dialog and never asks "
-        "what happened to its image; three of the four dismissals - Open, "
-        "Cancel, Escape - clear [fdlg_win] from inside the image's own "
-        "W_ONCLICK, and mod_drop sat behind three separate compares of that "
+        "what happened to its image. Today the commit and the two cancels "
+        "POST from inside the chooser's own callbacks (SPEC.md 38.6) and the "
+        "close box is found by fdlg_gate - two roads to fdlg_reap's mod_drop. "
+        "When this row was written three of the four dismissals cleared "
+        "[fdlg_win] from inside the image's own W_ONCLICK, and mod_drop sat "
+        "behind three separate compares of that "
         "same word, so the pass that should have collected the claim was "
         "turned away by the very store it was meant to notice. A 16KB claim "
         "held for the rest of the session on the machine with 128KB in it, "
@@ -7428,8 +7434,12 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/muptest.img", "build/small360.img")),
     Row("fdlgup", "soak", py("tests/fdlgup.py"), 60.0,
-        "SPEC.md 13.8.3: the Standard File dialog's buttons fire on the"
-        "RELEASE.",
+        "SPEC.md 13.8.3/38.3: the chooser's column buttons are ids 3..5 of "
+        "the Disk window's own button set and fire on RELEASE: a press draws "
+        "Cancel down ([fm_dbtn]), sliding off lets it up, a slide-off release "
+        "or a release on Drive fires nothing (chooser up, FS_DRV unmoved), "
+        "Drive held does not fire and its release does, and press+release on "
+        "Cancel closes.",
         needs=("marty",), serial=True,
         wants=("build/muptest.img",)),
     Row("fdlgchoose", "soak", py("tests/fdlgchoose.py"), 40.0,
@@ -10670,9 +10680,14 @@ SOAK = [
         "38.6.2 every image was 'Not a disk image' (5 of 10 checks, 691 "
         "sectors untouched), and before 18.99.7's carry fix the failed "
         "write said NOTHING (1 of 17). Between them, Clone Disk... with "
-        "the IMAGE as its target: the Save As box CLONE.DRV opens itself "
-        "since size pass 8 (fdf_fdlg_open, fm_img_done_x as the proc) must "
-        "be up on DISK.IMG with the pick prompt armed under it, and its "
+        "the IMAGE as its target: the Save As CHOOSER CLONE.DRV opens itself "
+        "(fdf_fdlg_open, fm_img_done_x as the proc) must be up on DISK.IMG - "
+        "fdlg_name and the mode-8 box both - with the requester Disk "
+        "window's pick prompt (mode 7) STILL ARMED under it while the "
+        "chooser's Drive button walks it to B: (SPEC.md 38.5: a click in a "
+        "chooser ends only the chooser's own prompt - it ended the clone's "
+        "and freed its claim when this row first ran against the chooser), "
+        "and its "
         "commit must reach clo_saved on the clone's claim - the name in "
         "clo_fnbuf, refused 'Disk full' by clo_froom (B: has 706 of the 720 "
         "sectors). VERIFIED RED with clo_saved's clo_fnget taken out (the "
@@ -10810,7 +10825,7 @@ SOAK = [
         "SPEC.md 13.10: the shared scroll bar, and the two kernel bars are"
         "one now.",
         needs=("marty",), serial=True,
-        wants=("build/muptest.img",)),
+        wants=()),
     Row("sizesnap", "soak", py("tests/sizesnap.py"), 20.0,
         "the SIZE snap aligns a content width WITHOUT shrinking the zoom "
         "(SPEC.md 11.94.5) - a maximized window must stay x=0, w=[vid_pw]",

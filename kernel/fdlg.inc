@@ -832,10 +832,10 @@ fdlg_beep:
 
 ; FDH_KEY - DX = the key, DL the ASCII and DH the scan (fm_onkey_x's AL/AH).
 ; Escape cancels, unless some OTHER prompt is open in the chooser (a Rename, a
-; New Folder), whose own Escape it is. The arrows, PgUp/PgDn, Home and End
-; MOVE THE SELECTION, which a Disk window's arrows do not - they scroll it -
-; and which the dialog's always did: a chooser is keyboard-driven, L, Down,
-; Down, Enter (SPEC.md 38.4). Anything else is the Disk window's. CF=1 taken.
+; New Folder), whose own Escape it is. The arrows and PgUp/PgDn MOVE THE
+; SELECTION, which a Disk window's arrows do not - they scroll it - and which
+; the dialog's always did: a chooser is keyboard-driven, L, Down, Down, Enter
+; (SPEC.md 38.4). Anything else is the Disk window's. CF=1 taken.
 fdlg_h_key:
     mov bx, [fdlg_blk]
     mov al, [bx+FS_EDIT]
@@ -851,73 +851,54 @@ fdlg_h_key:
     push si                     ; the keypad's digits share these scan codes
     push di
     push cx
+    mov di, dx                  ; the key, past the multiply below
     mov si, [fdlg_win]
     push bx
     mov bx, si
     FDX fm_layout               ; fm_fit, fm_cols, fm_lview for this window
     pop bx
-    mov cx, 1                   ; CX = one "row" in entries: a grid row in
-    cmp byte [fm_lview], 0      ; the icon view, one entry in the list
+    mov cx, 1                   ; CX = a ROW in entries: a grid row in the
+    cmp byte [fm_lview], 0      ; icon view, one entry in the list
     je .unit
     mov cx, [fm_cols]
 .unit:
-    mov ax, [bx+FS_SEL]         ; none selected moves to the first
-    cmp ax, [bx+FS_N]
-    jb .have
-    xor ax, ax
-    cmp dh, 0x4F
-    je .end
-    jmp short .clamp
-.have:
-    cmp dh, 0x47
-    je .home
-    cmp dh, 0x4F
-    je .end
-    cmp dh, 0x48
-    je .up
-    cmp dh, 0x50
-    je .down
-    push ax
     mov ax, [fm_fit]
-    mul cx                      ; a page, in entries
-    mov cx, ax
-    pop ax
-    cmp dh, 0x49
-    je .up
+    mul cx                      ; AX = a PAGE in entries
+    mov dx, di
     cmp dh, 0x51
+    je .pos
+    cmp dh, 0x49
+    je .neg
+    mov ax, cx
+    cmp dh, 0x50
+    je .pos
+    cmp dh, 0x48
     jne .not
-.down:
-    add ax, cx
-    jmp short .clamp
-.up:
-    sub ax, cx
-    jmp short .clamp
-.home:
-    xor ax, ax
-    jmp short .clamp
-.end:
-    mov ax, 0x7FFF
-.clamp:
-    or ax, ax
+.neg:
+    neg ax
+.pos:
+    mov dx, [bx+FS_SEL]
+    cmp dx, [bx+FS_N]
+    jb .from
+    xor ax, ax                  ; nothing selected: the first row, either way
+    xor dx, dx
+.from:
+    add ax, dx
     jns .lo
     xor ax, ax
 .lo:
-    mov cx, [bx+FS_N]
-    jcxz .not                   ; an empty folder: nothing to select
-    cmp ax, cx
+    mov dx, [bx+FS_N]
+    or dx, dx
+    jz .not                     ; an empty folder: nothing to select
+    cmp ax, dx
     jb .in
-    mov ax, cx
+    mov ax, dx
     dec ax
 .in:
     ; --- visible, or the view follows it ---
     push ax
     xor dx, dx
-    mov cx, 1
-    cmp byte [fm_lview], 0
-    je .div
-    mov cx, [fm_cols]
-.div:
-    div cx                      ; AX = its row
+    div cx                      ; AX = its row (CX is still a row's entries)
     mov cx, [bx+FS_SCRL]
     cmp ax, cx
     jb .follow                  ; above the view
@@ -947,16 +928,14 @@ fdlg_h_key:
     je .done                    ; and the box's line is redrawn, because
     FDX fm_status_only          ; nothing else will
 .done:
-    pop cx
-    pop di
-    pop si
     stc
-    ret
+    jmp short .out
 .not:
+    clc
+.out:
     pop cx
     pop di
     pop si
-    clc
     ret
 
 fdlg_post_cancel:

@@ -7195,6 +7195,13 @@ fm_edit_end:
     mov di, fm_pool
     mov cx, FM_NSLOT
 .clr:
+    cmp word [fdlg_blk], 0      ; WHILE A CHOOSER IS UP ONLY ITS PROMPT ENDS
+    je .any                     ; (SPEC.md 38.5): the requester can be a Disk
+    cmp di, [fdlg_blk]          ; window part-way through a prompt that OWNS
+    jne .next                   ; something - Clone to an image is mode 7
+.any:                           ; with CLONE.DRV's claim behind it - and a
+                                ; click in the chooser ending that one freed
+                                ; the claim and failed the save it asked for
     ; A format confirmation ending is where FORMAT.DRV goes back (SPEC.md
     ; 2.8.3). Here rather than at the four paths that end one, because this
     ; is what all four go through - and it is the moment nothing of the image
@@ -7245,6 +7252,7 @@ fm_edit_end:
     pop ax
 .clrit:
     mov byte [di+FS_EDIT], 0
+.next:
     add di, FS_SIZE
     loop .clr
     mov byte [fm_elen], 0
