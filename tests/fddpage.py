@@ -23,10 +23,17 @@ Then boot 2 picks the read bound's THIRD item, Cylinder, closes the panel
 again, and the disk it writes is booted twice more - the two cases Cylinder
 exists to tell apart (SPEC.md 31.14):
 
-  * on QEMU, whose CPU is a 286-and-up, so 18.93.2's gate never runs the
-    canary and Auto would leave the bound at a track. Cylinder must turn the
-    run ON: `boot_cylrun` non-zero and `[dsk_cylrun]` = 1. That is the machine
-    the setting is for, and MartyPC cannot be one;
+  * the close writes the boot sector's BS_CYLASK byte (509) to 1, read back
+    off the saved image on the host - the loader's half of the setting;
+  * on QEMU, whose CPU is a 286-and-up, so 18.93.2's gate keeps the canary
+    off it unless that byte asks. Cylinder must turn the run ON: `boot_cylrun`
+    non-zero and `[dsk_cylrun]` = 1. That is the machine the setting is for,
+    and MartyPC cannot be one;
+  * on QEMU again with byte 509 CLEARED - SYSTEM.CFG's Cylinder alone, the
+    state of a disk whose boot sector write failed or predates the byte. The
+    run must stay OFF: b2_cylok says this floppy boot never looked, and
+    Cylinder is never forced blind on a floppy. Which is also what proves the
+    leg above came through the CANARY rather than through ovl_fdd_apply;
   * on the same 5150, from a copy whose boot sector carries a WRONG `KSIG`, so
     the canary AFFIRMATIVELY FAILS and the loader reloads at the track bound.
     Cylinder must NOT turn the run back on over that: `[dsk_cylrun]` = 0, the
@@ -37,8 +44,9 @@ exists to tell apart (SPEC.md 31.14):
 Take the `call ovl_fdd_apply` out of drv_boot_x and every boot-2 leg fails;
 put `[menu_btn]` back to 2 and the first pick fails, because the popup then
 closes the instant it opens under a held LEFT button. Take the `and` with
-`b2_cylok` out of ovl_fdd_apply and the failed-canary leg fails; make
-Cylinder read as Auto again and the QEMU leg does.
+`b2_cylok` out of ovl_fdd_apply and the failed-canary and cleared-byte legs
+fail; take the `ss:` byte out of the loader's gate and the QEMU leg does;
+take cp_fdbs's call out of the save and the byte-509 check does.
 """
 import argparse
 import os
@@ -264,23 +272,39 @@ def main(argv=None):
             fail.append("SYSTEM.CFG's 'FD' record is not 36 02 after Cylinder")
         f.save(0, cylimg)
 
-    # --- Cylinder where the canary never ran: a 286 and up ------------------
-    qimg = os.path.join("build", "fddpage-qemu.img")
-    shutil.copyfile(cylimg, qimg)
-    q = qemu_boot(qimg, a.apps)
-    try:
-        qb = q.read(S("drv_cfg") + eq["CFG_FDR"], 1)[0]
-        qr = q.read(S("boot_cylrun"), 2)
-        qd = q.read(S("dsk_cylrun"), 1)[0]
-    finally:
-        q.quit()
-        os88qemu.kill()
-    print("qemu:   FDR %d, boot_cylrun %d, dsk_cylrun %d"
-          % (qb, u16(qr), qd))
-    if qb != 2 or not u16(qr) or qd != 1:
-        fail.append("Cylinder did not turn the run on where the canary never "
-                    "ran (QEMU): FDR %d boot_cylrun %d dsk_cylrun %d"
-                    % (qb, u16(qr), qd))
+    BS = eq["BS_CYLASK"]
+    for img, want in ((written, 0), (cylimg, 1)):
+        with open(img, "rb") as fh:
+            got = fh.read(512)[BS]
+        print("disk:   %s boot sector byte %d = %d"
+              % (os.path.basename(img), BS, got))
+        if got != want:
+            fail.append("%s's boot sector byte %d is %d, not %d"
+                        % (os.path.basename(img), BS, got, want))
+
+    # --- Cylinder on a 286 and up: the byte opens the gate, the canary rules
+    def qemu_leg(name, ask, want):
+        qimg = os.path.join("build", "fddpage-%s.img" % name)
+        shutil.copyfile(cylimg, qimg)
+        with open(qimg, "r+b") as fh:
+            fh.seek(BS)
+            fh.write(bytes([ask]))
+        q = qemu_boot(qimg, a.apps)
+        try:
+            qb = q.read(S("drv_cfg") + eq["CFG_FDR"], 1)[0]
+            qr = u16(q.read(S("boot_cylrun"), 2))
+            qd = q.read(S("dsk_cylrun"), 1)[0]
+        finally:
+            q.quit()
+            os88qemu.kill()
+        print("qemu:   byte %d = %d: FDR %d, boot_cylrun %d, dsk_cylrun %d"
+              % (BS, ask, qb, qr, qd))
+        if qb != 2 or bool(qr) != bool(want) or qd != want:
+            fail.append("QEMU, Cylinder, byte %d = %d: wanted the run %s, got "
+                        "boot_cylrun %d dsk_cylrun %d"
+                        % (BS, ask, "ON" if want else "OFF", qr, qd))
+    qemu_leg("qemu", 1, 1)
+    qemu_leg("qemunoask", 0, 0)
 
     # --- the witness: the same patch on the Auto disk FAILS the canary -----
     # Below, a broken KSIG and a broken ovl_fdd_apply read identically after
@@ -313,7 +337,7 @@ def main(argv=None):
     for x in fail:
         print("FAIL: %s" % x)
     print("fddpage: %s" % ("FAILED" if fail else
-                           "ok - five picks, two files, four reboots"))
+                           "ok - five picks, two files, five reboots"))
     return 1 if fail else 0
 
 

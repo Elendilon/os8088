@@ -4060,6 +4060,10 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
 %ifdef OS88_SHORTCUTS
     call sc_m_serx              ; ...and that claim back; CF and AX survive
 %endif
+    jc %%out
+    call cp_fdbs                ; ...and the boot sector's Cylinder byte, while
+                                ; this is the mounted, verified system disk
+                                ; (SPEC.md 31.14). CF and AX are its verdict
     jmp short %%out
 %ifdef OS88_SHORTCUTS
 %%nomem:                        ; no room to compose them: a write WITHOUT the

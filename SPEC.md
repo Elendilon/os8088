@@ -33746,6 +33746,11 @@ pushes it as it was before. Eleven bytes, no flags trick and no table. An 8086
 gets the cylinder bound; a 286 and up keeps the track bound and never pays for
 the discovery.
 
+**The Floppy page can call the bet off for one machine** (§31.14): its
+Cylinder sets byte 509 of the boot sector, and the gate reads it `ss:` out of
+stage 1's relocated copy, so a 286 that is asked takes the cylinder bound and
+the canary below decides for it.
+
 **This is a bet about a population, not a fact about the machine** — which is
 exactly why the canary still runs and can still lower the bound underneath it.
 The gate decides who pays; the canary decides who is right. An XT-class clone
@@ -59468,7 +59473,7 @@ record, and `kern_small` reads no settings file (§51.0).
 | a unit, **5.25** / **3.5** | a zone, with that picture before the first read and after it: `DVF_GUESS` is cleared, so `desk_learn_x` does not take it back. A unit with no row — unclaimed, or retired by §18.97's probe — is given one on `dsk_flop_add_x`'s rules |
 | reads, **Auto** | the boot sector's canary decides (§18.93.1) |
 | reads, **Track** | track runs, whatever the canary found |
-| reads, **Cylinder** | cylinder runs where the canary **never ran** — a 286 and up, which §18.93.2's gate keeps off it, and a hard-disk boot, which has no floppy loader — or ran and passed. Over a canary that **failed this boot**, track runs: see below |
+| reads, **Cylinder** | a floppy boot on a 286 and up runs the canary too (§18.93.2's gate is opened by the boot sector's byte 509), so cylinder runs wherever it PASSES and track runs wherever it fails; a hard-disk boot, which has no floppy loader, takes cylinder runs on the user's word: see below |
 
 **It takes effect at the next restart, and the caption says so.** The
 detection it overrides runs once, in `desk_init`, at MARK 20 — before
@@ -59495,24 +59500,50 @@ run entirely, and a hard-disk boot never runs the floppy loader at all — so
 without a Cylinder there is no way to turn the run on for any of them. The
 user who knows the machine crosses heads correctly says so here.
 
-**And it never wins over a canary that FAILED.** On the ROM class whose canary
-fails, a READ that crosses a head is not refused — it returns the other head's
-sectors with CF = 0 and the full count (§18.93.1), silently, and §18.91.3's
-fail-and-shorten is the WRITE path's. So the loader now tells "fell back" from
-"never looked", which `boot_cylrun`'s zero is both of: **`b2_cylok`**, a byte of
-stage 2's own, is `FF` in the image and `.rerun` — the one way into the second
-load, from a canary that compared unequal or a crossing run whose retries ran
-out — takes it to `FE`. It lives in the BLOB and not in the kernel image
-because the second load overwrites the image's bytes; the blob is one segment
-until `mem_unblob`, so `ovl_fdd_apply`, which runs in it, reads it `cs:` as a
-MASK — Cylinder's 1 AND `FE` is Track's 0 — in one instruction. A hard-disk
-boot never enters stage 2's entry (`boothd.asm` calls `KZ_HD` alone), so it
-keeps `FF`. **The record is left alone**: the page still reads Cylinder, and
-the disk that met a bad ROM here may be carried back to the machine it was
-chosen on — where it is right again — while this ROM fails the canary at every
-boot it is put in. What the mask cannot see is a disk set to Cylinder and
-carried to a 286 with the failing ROM: that machine never runs the canary, so
-nothing fails, and the choice is the user's, made on the machine they were at.
+**On a floppy boot Cylinder never forces anything: it opens the gate and the
+canary rules.** On the ROM class whose canary fails, a READ that crosses a head
+is not refused — it returns the other head's sectors with CF = 0 and the full
+count (§18.93.1), silently. (Writes are never cylinder runs, §18.91.3, but a
+directory or FAT sector read wrong and then rewritten puts the wrong bytes on
+the disk.) So the setting is TWO bytes, one per reader:
+
+- **`BS_CYLASK`, byte 509 of the boot sector**, is the LOADER's. Stage 2 runs
+  on stage 1's stack, so stage 1's relocated copy of the sector is still at
+  `SS:7C00`, and the 286 gate reads it with one `ss:` operand: `push sp / pop
+  ax / sub ax, sp` is 0 on a 286 and up, `or al, [ss:7C00+509]` adds the ask,
+  and anything non-zero takes the cylinder bound. **The canary then decides
+  exactly as it does on an 8088** — a ROM that cannot cross a head pays one
+  reload and the session runs at the track bound. Byte 509 is the padding in
+  front of `55AA`, so every boot sector this tree ever wrote has a 0 there.
+- **`CFG_FDR` = 2 in `SYSTEM.CFG`** is the KERNEL's, and it matters only where
+  no loader looked: a hard-disk boot, whose `boothd.asm` calls `KZ_HD` and
+  never enters stage 2.
+
+`b2_cylok` joins them, a byte of stage 2's own: `FF` in the image, taken to
+`FE` on stage 2's entry, and back to `FF` only by the canary's PASS. It lives
+in the BLOB because the reload overwrites the kernel image, and the blob is
+one segment until `mem_unblob`, so `ovl_fdd_apply` — which runs in it — reads
+it `cs:` as a MASK: Cylinder's 1 AND it, one instruction. So Cylinder comes
+out 1 on a floppy boot whose canary passed (the finding was already non-zero)
+and on a hard-disk boot (`FF`, never touched), and 0 on a fallback AND on a
+286 that never looked — `SYSTEM.CFG` saying Cylinder over a boot sector that
+does not ask, after a failed sector write or on a disk set before the byte
+existed. **Nothing is forced blind on a floppy.**
+
+The page writes byte 509 inside the `SYSTEM.CFG` save (`cp_fdbs`, called from
+`cpc_save` while the boot volume is mounted and verified as the system disk),
+only when the Reads row changed this session and only when the byte differs:
+one read and one write of sector 0, once. A hard disk's sector 0 is
+`boothd`'s, and a sector that does not end `55AA` or whose byte is neither 0
+nor 1 is not one this tree wrote; both are left alone. Either byte alone is
+SAFE, so the two writes need no order: a failed sector write leaves the
+`SYSTEM.CFG` save standing and `[cp_wdirty]` owed, and the next close tries
+both again.
+
+**What remains is the hard-disk boot**, where nothing verifies the run: the
+choice is the user's, made on the machine they were at. And a 286 with the
+failing ROM whose user picks Cylinder anyway pays one reload on every boot
+until it is set back — correct, and slow.
 
 **Nothing resident reads the record.** `CFG_FDD` (two bits per unit, unit *n*
 at bits 2*n*..2*n*+1, value = the menu index) and `CFG_FDR` live in `drv_cfg`
@@ -59588,27 +59619,30 @@ every boot-2 leg fails while the record still round-trips; with `[menu_btn]`
 back at 2 no pick reaches `drv_cfg` at all, because the popup closes the
 instant it opens under a held left button.
 
-#### 31.14.3 Cylinder, back — what the second finding cost
+#### 31.14.3 Cylinder, back — what it cost
 
-The read bound shipped with three items and lost Cylinder for the reason the
-paragraph on failed canaries answers; it came back with `b2_cylok`. Against the
-tree immediately before it, `kern_big`:
+The read bound shipped with three items and lost Cylinder because forcing it
+could override a failed canary; it came back as the boot sector's byte 509,
+`b2_cylok` and `cp_fdbs`. Against the tree immediately before it, `kern_big`:
 
 | | bytes | what they are |
 |---|---:|---|
 | resident | **+0** | nothing outside the blob and `CTRL.DRV` changed |
-| `.boot2` | +5 | `b2_cylok` (1) and `.rerun`'s `dec byte` (4). A knob build's `.boot2` is the shipped loader's against `OVL_BASE` = 2,480, and this leaves it **8** |
-| `.ovl` | +5 | `ovl_fdd_apply`'s `and al, [cs:b2_cylok]`; the compare against 2 is the same size as the one against 1 it replaced. **2 bytes of the blob are left**, so the next boot-overlay body raises `BOOT2_SECS` (§2.9.6) |
-| `CTRL.DRV` | +11 image | the menu's third item and its pointer; the Reads menu stages 26 bytes into `cp_sbuf`'s 28 |
+| boot sector | +0 | byte 509 was padding |
+| `.boot2` | +11 | `b2_cylok` (1), its `dec` on entry and `inc` on the canary's pass (4 + 4), and the gate's `sub` / `or al, [ss:...]` (+5 over `cmp` / `je`); three `xor ah, ah` that follow an AL ≤ 15 became `cbw` (−3). A knob build's `.boot2` is the shipped loader's against `OVL_BASE` = 2,480, and it is **2,478**: the next loader byte on a knob arm takes `OVL_KNOBGIVE` down or `BOOT2_SECS` up |
+| `.ovl` | +5 | `ovl_fdd_apply`'s `and al, [cs:b2_cylok]`. **2 bytes of the blob are left** |
+| `CTRL.DRV` | +123 image | the menu's third item and its pointer (11), `cp_fdbs` and the byte that says it is owed (112) |
 
-`tests/fddpage.py` picks Cylinder by the same gesture and boots the disk it
-writes twice more: on QEMU, whose CPU the gate keeps off the canary, the run
-must come ON; on the 5150 with the boot sector's `KSIG` immediate patched so
-the canary FAILS, it must stay off — and the same patch on the record-less disk
-reading `boot_cylrun` 0 is the witness that it did fail, because after the boot
-a broken patch and a broken `ovl_fdd_apply` look alike on the Cylinder disk.
-Without the `and` the failed-canary leg reads `dsk_cylrun` 1; with Cylinder
-read as Auto again the QEMU leg reads 0.
+`tests/fddpage.py` picks Cylinder by the same gesture, reads byte 509 back off
+the saved disk, and boots it four more ways: on QEMU, whose CPU is a 286 and
+up, with the byte (the run must come ON, through the canary) and with it
+cleared (it must stay OFF: `SYSTEM.CFG` alone forces nothing on a floppy); on
+the 5150 with the boot sector's `KSIG` immediate patched so the canary FAILS
+(it must stay off) — and the same patch on the record-less disk reading
+`boot_cylrun` 0 is the witness that it did fail. Red each way: without the
+`ss:` byte in the gate the QEMU leg reads 0; without `cp_fdbs`'s call byte 509
+reads 0; without the entry's `dec` the cleared-byte and failed-canary legs
+turn the run on.
 
 ### 32.1 What the renderer does
 

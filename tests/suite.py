@@ -6814,17 +6814,19 @@ SOAK = [
         "size pass 8 - must letter. Red with the staging copy skipped."
         "Measured 20s",
         needs=("marty",), serial=True),
-    Row("fddpage", "soak", py("tests/fddpage.py"), 90.0,
+    Row("fddpage", "soak", py("tests/fddpage.py"), 120.0,
         "SPEC.md 31.14: does the Control Panel's Floppy page override the "
         "drive detection? Four drop-down picks by a real left-press gesture "
         "(menu_popup, 12.4), the panel's close writes 'FD', and a second boot "
         "of the written disk reads what ovl_fdd_apply made of dsk_vtab and the "
         "read bound - A: forced 5.25 with no guess, B: hidden with its row "
         "kept, a third unit given a row at D:, the canary's finding reversed. "
-        "Then a fifth pick, Cylinder, and its disk booted where the canary "
-        "never runs (QEMU, a 286 and up: the run must come ON) and on the 5150 "
-        "with KSIG broken so the canary FAILS (it must stay off), witnessed by "
-        "the same patch on the Auto disk reading boot_cylrun 0",
+        "Then a fifth pick, Cylinder: the close writes boot sector byte 509, "
+        "and the disk boots on QEMU (a 286 and up) with the byte - the gate "
+        "opens and the canary turns the run ON - and without it, where "
+        "SYSTEM.CFG alone must force nothing; and on the 5150 with KSIG "
+        "broken so the canary FAILS (it must stay off), witnessed by the same "
+        "patch on the Auto disk reading boot_cylrun 0",
         needs=("marty", "qemu"), serial=True, builds=True),
     Row("dispreboot", "soak", py("tests/dispreboot.py"), 100.0,
         "WHO WRITES ui_rebootq? (docs/plans/completed/DUAL-DISPLAY-VGA.md 8(11))",

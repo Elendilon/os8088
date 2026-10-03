@@ -3450,6 +3450,7 @@ cp_fdd_click:
     cmp ah, [drv_cfg+CFG_FDR]
     je .done
     mov [drv_cfg+CFG_FDR], ah
+    mov byte [cs:cp_fdbsd], 1   ; ...and the boot sector's byte is owed too
     jmp short .changed
 .drv:
     mov cl, bl
@@ -3649,6 +3650,78 @@ CPF_MRN   equ cp_fdend - cp_fdmr
 %if CPF_MDN > CP_SBUF || CPF_MRN > CP_SBUF
 %error "ctrl: a Floppy page menu does not fit cp_sbuf (SPEC.md 31.14)"
 %endif
+
+; -----------------------------------------------------------------------------
+; cp_fdbs - the boot sector's Cylinder byte, made to match the setting
+;           (SPEC.md 31.14)
+; in:  the BOOT VOLUME mounted and verified as the system disk - cpc_save's
+;      own state, which is the only place this is called from
+; out: CF = 0 written or nothing owed; CF = 1 and AX = FERR_IO
+; clobbers: AX
+;
+; Cylinder is two bytes in two places because two programs read it. SYSTEM.CFG
+; is the kernel's - ovl_fdd_apply, for a hard-disk boot - and the boot sector's
+; BS_CYLASK is the LOADER's, which has no file system and reads it `ss:` at
+; the 286 gate: set, a 286 takes the cylinder bound and the canary decides,
+; exactly as on an 8088. Either byte alone is SAFE: SYSTEM.CFG's Cylinder
+; without this one leaves a 286's floppy boot at the track bound, because
+; b2_cylok says it never looked; this one without SYSTEM.CFG's is a canary
+; run on a 286, which is what the canary is for.
+;
+; Owed only when the Reads row changed this session ([cs:cp_fdbsd]), so a
+; panel closed over any other setting pays nothing for it - and written only
+; when the byte differs, so a pick changed and changed back pays one read. A
+; hard disk's sector 0 is boothd's and its boot never reaches the gate, and a
+; sector whose byte is neither 0 nor 1, or that does not end 55AA, is not one
+; this tree wrote: both are left alone, and that is not a failure.
+; -----------------------------------------------------------------------------
+cp_fdbs:
+    cmp byte [cs:cp_fdbsd], 0
+    je .ret                     ; nothing owed (CF = 0: equal)
+    test byte [dsk_unit], 0x80
+    jnz .ret                    ; a hard disk's (CF = 0: test clears it)
+    push bx
+    push cx
+    push es
+    push ss
+    pop es                      ; ES = LOW_SEG: dsk_secbuf is .lowbss
+    mov bx, dsk_secbuf
+    mov cx, 1
+    xor ax, ax                  ; LBA 0
+    call COLD_SEG:dskf_disk_read
+    jc .err
+    cmp word [es:bx+510], 0xAA55
+    jne .done
+    cmp byte [es:bx+BS_CYLASK], 1
+    ja .done
+    xor ax, ax                  ; AL = 1 for Cylinder, 0 for the rest
+    cmp byte [drv_cfg+CFG_FDR], 2
+    jne .v
+    inc ax
+.v:
+    cmp [es:bx+BS_CYLASK], al
+    je .done
+    mov [es:bx+BS_CYLASK], al
+    xor ax, ax
+    call COLD_SEG:dskf_disk_write   ; CX and BX survive: dsk_xfer is KENT
+    jc .err
+.done:
+    mov byte [cs:cp_fdbsd], 0
+    clc
+    jmp short .out
+.err:
+    mov ax, FERR_IO             ; [cp_wdirty] stays set and so does this, so
+    stc                         ; the next close tries both again
+.out:
+    pop es
+    pop cx
+    pop bx
+.ret:
+    ret
+
+cp_fdbsd:  db 0                 ; the Reads row changed this session: the
+                                ; boot sector's byte is owed. In the IMAGE, so
+                                ; every load of the panel starts it at 0
 
 CPS cp_s_fdrv,  'Drive A:'
 CPF_LTR   equ 6                 ; ...where the letter sits in it
