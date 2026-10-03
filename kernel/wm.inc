@@ -3721,13 +3721,14 @@ wm_hide_b:
                                 ; stood here spelled out a second time. It is
                                 ; that window's DISPLAY, not the machine's
                                 ; screen (SPEC.md 39.17.1), either way
-    push bx                     ; ...and the rect is banked in ONE register,
-    mov bx, si                  ; not four words of .bss: wm_fs_drop preserves
-    call wm_fs_drop             ; everything and the `and` below is the only
-                                ; other instruction here, so BX is the whole
+    xchg bx, si                 ; ...and the rect is banked in ONE register,
+    call wm_fs_drop             ; not four words of .bss: wm_fs_drop preserves
+                                ; everything and the `and` below is the only
+                                ; other instruction here, so swapping BX (y1)
+                                ; with SI (the window) and back is the whole
                                 ; of what needs saving (SPEC.md 11.2)
     and word [bx+W_FLAGS], 0xFFFD
-    pop bx
+    xchg bx, si
     call wm_paint_dmg
     jmp kret_si
 
@@ -10872,27 +10873,26 @@ wm_su_precover:
     mov cl, [wm_zn]
     xor ch, ch
     jcxz .out
-.scan:
-    mov al, [si]
-    inc si
-    push cx
-    push si
+.scan:                          ; (CX and SI are the walk's, and no call in
+    mov al, [si]                ; it touches either: wm_idx2ptr, wm_win_over,
+    inc si                      ; wm_obscured, wm_su_ck and wm_su_take each
+                                ; preserve both - so they are not banked)
     call wm_idx2ptr             ; BX = the record this z-order slot names
     cmp bx, di
     je .next                    ; ourselves: we are what is doing the covering
     cmp bx, bp
     je .next                    ; wm_raise's own, above
-    test byte [bx+W_FLAGS], 2
-    jz .next                    ; hidden: no pixels on the glass to bank
-    test byte [bx+W_FLAGS], WF_SAVEU
-    jz .next                    ; made no promise - wm_su_take would refuse,
-                                ; and asking here keeps the walk cheap on a
+    mov al, [bx+W_FLAGS]        ; VISIBLE and SAVEU, one compare: hidden has
+    and al, WF_SAVEU | 2        ; no pixels on the glass to bank, and no
+    cmp al, WF_SAVEU | 2        ; promise means wm_su_take would refuse -
+    jne .next                   ; and asking here keeps the walk cheap on a
                                 ; desktop full of windows that cannot use one
     push di                     ; ...AGAINST THE RECT WE ARE ABOUT TO HAVE,
-    cmp word [wm_su_pcrp], 0    ; which for a RESIZE is not the one in our
-    je .ownr                    ; record any more (SPEC.md 11.96.16.2). A
-    mov di, [wm_su_pcrp]        ; window appearing has no such distinction and
-.ownr:                          ; leaves this 0
+    mov ax, [wm_su_pcrp]        ; which for a RESIZE is not the one in our
+    or ax, ax                   ; record any more (SPEC.md 11.96.16.2). A
+    jz .ownr                    ; window appearing has no such distinction and
+    xchg ax, di                 ; leaves this 0
+.ownr:
     call wm_win_over            ; DI = us: do we land on it at all? A window
     pop di                      ; we do not touch keeps whatever it has and
     jc .next                    ; owes us no blit
@@ -10907,8 +10907,6 @@ wm_su_precover:
 .have:
     pop di
 .next:
-    pop si
-    pop cx
     loop .scan
 .out:
     pop bp

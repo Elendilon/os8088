@@ -388,15 +388,15 @@ section .text
 ; display and no machine with one card ever arrives at either.
 ; -----------------------------------------------------------------------------
 font_ch_hi:                     ; AL is past FONT_LAST - normally nothing to
-    cmp al, FONT_SEAM_A         ; draw, and still nothing unless the cut is the
-    jb font_ch_drop             ; caller. The counter is what keeps the two
-    cmp al, FONT_SEAM_B         ; codes PRIVATE, so OSAPI_FONT_CHAR with 128
-    ja font_ch_drop             ; draws what it has always drawn
-    cmp byte [font_ch_on], 0
-    je font_ch_drop
+    cmp byte [font_ch_on], 0    ; draw, and still nothing unless the cut is the
+    je font_ch_drop             ; caller. The counter is what keeps the two
+                                ; codes PRIVATE, so OSAPI_FONT_CHAR with 128
+                                ; draws what it has always drawn
     cmp al, FONT_SEAM_A         ; the part that IS here, masked in both axes -
     je font_char.edgeok         ; so the edge tests have nothing left to say
-    jmp font_char.chok          ; and are stepped over; the spill is tested
+    cmp al, FONT_SEAM_B         ; and are stepped over; the spill is tested
+    je font_char.chok
+    jmp short font_ch_drop      ; any other code past FONT_LAST: nothing
 
 font_ch_spill:                  ; the cell runs off this display's edge
     call font_ch_cut
