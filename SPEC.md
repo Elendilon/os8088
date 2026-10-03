@@ -20252,7 +20252,8 @@ fragment of it"*:
 
 - **`wm_su_flay` lays the fragments out ONCE** into `wm_su_ftab`, from the
   content rect and the four extents clamped left-then-right and top-then-bottom
-  into what the one before left. `wm_su_take`, `wm_su_kb` and `wm_su_try` then
+  into what the one before left. `wm_su_take` (its sizing through `wm_su_scrset`,
+  which was `wm_su_kb` until size pass 9 folded it in) and `wm_su_try` then
   walk that table in index order, so the claim's size, the offsets written into
   it and the offsets read back out cannot disagree.
 - **With no extents at all, fragment 0 is the WHOLE content and 1..3 are
