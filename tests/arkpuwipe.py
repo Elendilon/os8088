@@ -42,9 +42,13 @@ comparing two builds:
 
   aligned    the capsule's absolute x on the byte grid - the blit TAKES it,
              the band owns the erase, and the wipe must stay out of the way
-  unaligned  the same capsule one pixel over: `gfx_blit1_x` refuses any x with
-             `test ax, 7` non-zero, which is TRIGGER B - the shipped kernel
-             once the window's content origin stops being 8-aligned
+  unaligned  the same capsule one pixel over: `gfx_blit1_x` refused any x with
+             `test al, 7` non-zero, which is TRIGGER B - the shipped kernel
+             once the window's content origin stopped being 8-aligned. Since
+             SPEC.md 5.4.2.8 kern_big DRAWS such a band instead, so the row
+             puts the refusal back in the running kernel (`refuse_offgrid`) -
+             without it this column takes the blit and the forced one below
+             measures nothing
   forced     the same unaligned drop with `.slow`'s clear of `[ark_puband]`
              patched to a SET in the running image, so both draw paths raise it
              and nothing lowers it - which is exactly what reading `[ark_spok]`
@@ -209,6 +213,34 @@ def old_flag(m, p, image, on):
     m.write(p.seg * 16 + at + 4, b"\x01" if on else b"\x00")
 
 
+def refuse_offgrid(m, S):
+    """Put TRIGGER B back in the running kernel: an x off the byte grid is
+    REFUSED again.
+
+    SPEC.md 5.4.2.8 retired it on kern_big - `gfx_blit1_x`'s `test al, 7`
+    now branches to `.offg`, which cuts the band at x exactly - so the
+    unaligned capsule is TAKEN, `puband` reads 1 in every column and the
+    forced column has no `.slow` path left to break. The row then went red on
+    "the forced column measured NOTHING", which was true and was about the
+    kernel having moved rather than the package. A refusal can still happen
+    (kern_small refuses every off-grid x, trigger A), so the package's
+    handling of one still wants gating - and the faithful reproduction is the
+    kernel as it was: that one `jnz .offg` retargeted at `.refuse`, the
+    branch the `%else` arm still assembles.
+    """
+    at = S("gfx_blit1_x")
+    code = m.read(at, 4)
+    if code[:3] != b"\xA8\x07\x75":
+        raise RuntimeError("gfx_blit1_x does not open `test al, 7 / jnz`: %s"
+                           % code.hex())
+    want = S("gfx_blit1_x.offg") - (at + 4)
+    if code[3] != want:
+        raise RuntimeError("gfx_blit1_x's jnz is not to .offg (%d, not %d)"
+                           % (code[3], want))
+    rel = S("gfx_blit1_x.refuse") - (at + 4)
+    m.write(at + 3, bytes([rel & 0xFF]))
+
+
 def run(m, p, frames, steps, stop):
     """Let the capsule fall, and never as far as the paddle."""
     for _ in range(steps):
@@ -342,6 +374,8 @@ def main():
             raise RuntimeError("the ARKANOID.O88 running here is not %s - "
                                "run make" % a.src)
         card = 0
+        if not a.small:
+            refuse_offgrid(m, S)
         ox = p.rw("ark_ox")
         fall = p.rw("ark_pufall")
         freeze(m, p)

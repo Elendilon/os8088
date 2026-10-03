@@ -62,6 +62,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "tools"))
+import os88build                                            # noqa: E402
 import os88flush                                            # noqa: E402
 import os88marty                                            # noqa: E402
 import os88mouse                                            # noqa: E402
@@ -194,6 +195,13 @@ def main(argv=None):
     ap.add_argument("--apps", default="build/apps360.img")
     ap.add_argument("--shot", default="build/fddpage.png")
     a = ap.parse_args(argv)
+    # The run's tree, not the shared build/ (tools/os88build.at): launch()
+    # resolves a `build/...` string itself, but break_canary's copy and
+    # `make test`'s TESTIMG/TESTAPPS do not, and the scratch images below are
+    # ABSOLUTE so launch() does not re-base them into a tree that never
+    # held them (a soak's FileNotFoundError on fddpage-autobad.img)
+    a.image = os.path.abspath(os88build.at(a.image))
+    a.apps = os.path.abspath(os88build.at(a.apps))
 
     eq = os88sym.equates()
     FDD = S("drv_cfg") + eq["CFG_FDD"]
@@ -384,7 +392,7 @@ def main(argv=None):
 
     # --- Cylinder on a 286 and up: the byte opens the gate, the canary rules
     def qemu_leg(name, ask, want):
-        qimg = os.path.join("build", "fddpage-%s.img" % name)
+        qimg = os.path.abspath(os.path.join("build", "fddpage-%s.img" % name))
         shutil.copyfile(cylimg, qimg)
         with open(qimg, "r+b") as fh:
             fh.seek(BS)

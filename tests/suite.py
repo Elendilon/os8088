@@ -2493,8 +2493,9 @@ SOAK = [
         "Does a capsule the blit REFUSED leave a streak behind it? (SPEC.md "
         "44.10.6.2). VGA on purpose - on CGA ARK_PUFALL floors to 1 and the "
         "one vacated row is the capsule's BLACK top edge on a BLACK playfield, "
-        "so the broken build scores zero. `--small --img build/small360.img` "
-        "is trigger A, and wants `make small` first.",
+        "so the broken build scores zero. kern_big has DRAWN an off-grid x "
+        "since SPEC.md 5.4.2.8, so the row re-arms trigger B by retargeting "
+        "gfx_blit1_x's `jnz .offg` at `.refuse` in the running kernel.",
         needs=("marty",), serial=True),
     Row("gfxewalk", "soak", py("tests/gfxewalk.py"), 90.0,
         "SPEC.md 5.12.5: Cyclone's warp and Missile's trails step the"
