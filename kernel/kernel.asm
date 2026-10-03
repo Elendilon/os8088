@@ -7328,8 +7328,6 @@ cw_vid_disp_init:       call vid_disp_init
 ; bodies do not exist in the small build.
 cw_vid_dual_ok:         call vid_dual_ok
                     retf
-cw_vid_span_one:        call vid_span_one
-                    retf
 ; ...and these two are the BOOT OVERLAY's, not cold code's: vid_ctx_init went
 ; into `.ovl` (docs/plans/LAST-DROP-BYTES.md row 13) and calls both. They are `cw_`
 ; rather than `ovw_` for the reason the clock's pair is - `ovw_` names the
