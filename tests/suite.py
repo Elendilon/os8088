@@ -7219,7 +7219,7 @@ SOAK = [
         "set's SET.002 on the second disk and the row goes red. 90s "
         "measured",
         needs=("marty",), wants=("build/os8088.img",)),
-    Row("czdos", "soak", py("tests/czdos.py"), 10.0,
+    Row("czdos", "soak", py("tests/czdos.py"), 11.0,
         "SPEC.md 20.17.4: OS88CZ.COM under a real DOS (DOSBox, headless, "
         "one session running every leg from a batch file). What DOS splits, "
         "os88cz.py must join - text, text-and-noise and a /S store - and "
@@ -7227,7 +7227,8 @@ SOAK = [
         "property a host decoder cannot see and the machine depends on "
         "(20.13.7). What os88cz.py splits - LZ4, LZB, mixed, several parts "
         "- DOS must join byte for byte, and U must expand a 'CZ' file in "
-        "each format. A damaged stored byte, a part from another set and a "
+        "each format, at 40KB and with a stream past 64KB (20.14.5.2: the "
+        "old decoder refused the LZ4 one). A damaged stored byte, a part from another set and a "
         "missing part answered with Esc through redirected stdin must each "
         "refuse and leave nothing behind. `--break` hands J the damaged "
         "set as a good one and goes red",
