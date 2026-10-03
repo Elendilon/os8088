@@ -485,10 +485,9 @@ fdlg_vfree:
     xor dx, dx                  ; the destination goes back FIRST, so no path
     xor bx, bx                  ; out of here leaves a `.bss` word naming a
     FDX dsk_dest_x              ; block that is about to be freed
-    mov dx, [fdlg_vseg]
-    or dx, dx
-    jz .out
-    mov word [fdlg_vseg], 0
+    xchg dx, [fdlg_vseg]        ; DX = the block and the word 0, in one: DX
+    or dx, dx                   ; is still dsk_dest_x's 0 (it keeps every
+    jz .out                     ; register), so 0 is what goes in (-6)
     mov bx, MEM_K_FDLG
     FDX mem_free_x
 .out:
@@ -971,10 +970,10 @@ FDBODY fdlg_top_x
 ; -----------------------------------------------------------------------------
 fdlg_close:
     FDENT kentc_di
-    mov bx, [fdlg_win]
+    xor bx, bx                  ; read the gate and drop it in one `xchg`,
+    xchg bx, [fdlg_win]         ; FIRST: wm_destroy repaints,
     or bx, bx
     jz .out
-    mov word [fdlg_win], 0      ; drop the gate FIRST: wm_destroy repaints,
     call KERNEL_SEG:apic_wm_destroy ; and nothing may observe a gate pointing at
                                 ; a freed record
     call fdlg_vfree             ; ...and the listing store goes with the
@@ -1455,17 +1454,18 @@ fdlg_setsel:
 fdlg_clamp:
     push ax                     ; NOT CX: the count below is read into AX,
                                 ; and nothing else here names CX
-    cmp word [fdlg_scrl], 0x8000    ; a decrement below zero wrapped: the
-    jb .top                         ; floor is tested FIRST, or the wrapped
-    mov word [fdlg_scrl], 0         ; value would clamp to the ceiling and
-.top:                               ; the up-arrow would jump to the end
     mov ax, [disk_nfiles]       ; AX = total rows
     sub ax, FD_ROWS
     jg .cap
     xor ax, ax
 .cap:
     cmp [fdlg_scrl], ax
-    jbe .out
+    jbe .out                    ; 0..AX unsigned: in range
+    jg .set                     ; past the ceiling, SIGNED: clamp to it...
+    xor ax, ax                  ; ...but a decrement below zero WRAPPED, and
+.set:                           ; reads above AX unsigned too: that one is
+                                ; the floor, or the up-arrow would jump to
+                                ; the end. One compare, both answers (-10)
     mov [fdlg_scrl], ax
 .out:
     pop ax

@@ -847,16 +847,16 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 
 dsk_batch_begin_x:
     push ax
-    cmp byte [dsk_batch], 0
-    jne .nest                   ; nested: the outer batch's banks stand
+    mov al, [dsk_batch]         ; read ONCE: flopzap keeps every register
+    test al, al
+    jnz .nest                   ; nested: the outer batch's banks stand
     call dsk_bpb_flopzap        ; a NEW batch is a new assertion, and the last
                                 ; one's evidence expired when the UI unlocked
 .nest:
-    mov al, [dsk_batch]
-    cmp al, 0xFF
-    je .out                     ; saturate rather than wrap into 0, which would
-    inc byte [dsk_batch]        ; read as "no batch" and be the safe answer for
-.out:                           ; the wrong reason
+    inc al                      ; saturate rather than wrap into 0, which would
+    jz .out                     ; read as "no batch" and be the safe answer for
+    mov [dsk_batch], al         ; the wrong reason: 0xFF + 1 is the one value
+.out:                           ; that sets ZF, and it is not stored (-3)
     pop ax
     ret
 
@@ -965,12 +965,7 @@ dsk_bpb_bank_put:
 dsk_bpb_bank_get:
     clc                         ; ...or GET
 dsk_bpb_bank:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di (no flag moves)
     push es
     sbb dx, dx                  ; DX = 0 GET, 0xFFFF PUT (`push` writes no flag)
     cmp byte [dsk_vflop], 1
@@ -1009,14 +1004,8 @@ dsk_bpb_bank:
 .no:
     stc
 .out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    pop es                      ; ES alone: kretc_es's rung would pop a BP
+    jmp kretc_di                ; that kentc_di never banked
 section .text                   ; DATA, so back to the kernel segment
                                 ; (SPEC.md 2.6 rule 1)
 
@@ -3024,29 +3013,30 @@ disk_mount_x:
     ; ends at `pop bx`, and every path through it - the row lookup, the floppy
     ; test, the boot partition's geometry - has already spent AX for its own
     ; reasons. The stores are ordered by what AX has to hold; each keeps the
-    ; comment that says why it is set.
+    ; comment that says why it is set. No FAT window state survives a mount:
+    ; its three words are dskw_refat's, called below rather than spelled again.
     xor ax, ax
     mov [disk_nfiles], ax       ; stays 0 unless the mount fully succeeds
     mov [dsk_mntok], al         ; the write gate (SPEC.md 18.4) closes for
                                 ; the whole mount: a torn mount leaves it
                                 ; closed, so nothing can write a volume
                                 ; whose layout was never fully validated
-    mov [dsk_fatd1], ax         ; no window state survives a mount, and the
     mov [ld_pending], al        ; a queued click indexes the OLD directory;
                                 ; never let it run against the new one
+    cmp [dsk_keepcwd], al       ; a remount always lands at the root, and
+    jne .cwd_kept               ; dskw_* resolve there until dsk_chdir
+    mov [dsk_cwd], ax           ; moves - EXCEPT when dsk_chdir is the
+.cwd_kept:                      ; caller, which is how navigation reuses
+                                ; this whole validated pipeline (19.2).
+                                ; Asked while AX is still 0: -4 bytes
     inc ax
     mov [dsk_fatwn], ax         ; window itself is invalid until rule 10 has
     inc ax                      ; sized it (SPEC.md 18.8)
     mov [dsk_rover], ax         ; ...and 2 is the allocator hint's first
                                 ; cluster
-    mov ax, 0xFFFF              ; the FAT dirty range and the window's base,
-    mov [dsk_fatd0], ax         ; both of which mean "nothing"
-    mov [dsk_fatw0], ax
-    cmp byte [dsk_keepcwd], 0   ; a remount always lands at the root, and
-    jne .cwd_kept               ; dskw_* resolve there until dsk_chdir
-    mov word [dsk_cwd], 0       ; moves - EXCEPT when dsk_chdir is the
-.cwd_kept:                      ; caller, which is how navigation reuses
-                                ; this whole validated pipeline (19.2)
+    call dskw_refat             ; the FAT dirty range and the window's base,
+                                ; both of which mean "nothing" - diskw.inc's
+                                ; rollback stores exactly these three words
 
 %ifdef OS88_REDIR                   ; ...and kern_small CANNOT HAVE ONE EITHER
                                     ; (SPEC.md 62.9.2.3), for a reason one
@@ -3140,15 +3130,16 @@ disk_mount_x:
     ; not, and it self-corrects the window too - fmv_load (SPEC.md 22.1)
     ; already records what really happened rather than what it asked for,
     ; so the view's FS_CWD follows us here instead of dangling.
-    cmp word [dsk_cwd], 0
-    je .cwd_ok                  ; the root is not a cluster and cannot go
     mov ax, [dsk_cwd]
+    test ax, ax
+    jz .cwd_ok                  ; the root is not a cluster and cannot go
     call dsk_next_clus_x          ; CF = outside [2, dsk_maxclus]
     jc .cwd_lost
     test ax, ax                 ; 0 = free: the directory was removed
     jnz .cwd_ok
 .cwd_lost:
-    mov word [dsk_cwd], 0
+    xor ax, ax
+    mov [dsk_cwd], ax
 .cwd_ok:
 
     ; --- 2b. a QUIET mount stops here (SPEC.md 18.9) -------------------------
@@ -3174,12 +3165,9 @@ disk_mount_x:
                                 ; a driver registering a volume, inst_vol_enter
                                 ; on every package file call - did not want one
 .quiet:                         ; ...and .fsmount's copy of this arrives here
-    xor ax, ax                  ; three stores through the accumulator, which
-    mov [disk_nfiles], ax       ; kretc_es restores: 12 bytes against 16
-    inc ax
-    mov [dsk_lstale], al
-    mov [dsk_mntok], al         ; the volume IS validated - writes are legal
-    jmp .out                    ; (CF = 0: the `xor`'s, which inc/mov keep)
+    xor bp, bp                  ; no entries, and the listing is STALE: the
+    mov al, 1                   ; same three stores .done makes, so it is
+    jmp .publish                ; .done's tail (BP and AL are kretc_es's)
 .listing:
 
     ; --- 3. root-dir scan -> synthesized directory (SPEC.md 19) ---
@@ -3525,10 +3513,12 @@ disk_mount_x:
     call dsk_docpass            ; --- 4b. document icons (SPEC.md 54.3) ------
 %endif                          ; kern_small composes none (SPEC.md 54.0)
 .done:
+    mov al, 0                   ; ...the listing is this volume's again...
+.publish:
     mov [disk_nfiles], bp       ; publish the count last
-    mov byte [dsk_lstale], 0    ; ...the listing is this volume's again...
-    mov byte [dsk_mntok], 1     ; ...and only now open the write gate
-    clc
+    mov [dsk_lstale], al
+    mov byte [dsk_mntok], 1     ; the volume IS validated: only now open the
+    clc                         ; write gate
     jmp .out
     ; --- A REDIRECTED VOLUME: ASK THE DRIVER, READ NO DISK (SPEC.md 62.9) ---
     ; Everything the FAT path does between .cwd_kept and the listing is about
@@ -3645,8 +3635,8 @@ dsk_bpb_check:
     ; bank that has been corrupted in RAM must not be trusted further than a
     ; sector off the disk. READ-AND-CLEAR: the flag is for exactly one call,
     ; and a leaked 1 would skip rule 1 on a sector that never passed it.
-    mov al, [dsk_bpbpre]
-    mov byte [dsk_bpbpre], 0
+    xor ax, ax
+    xchg al, [dsk_bpbpre]       ; read AND clear in one (-2)
     or al, al
     jnz .staged
 
@@ -3712,19 +3702,17 @@ dsk_bpb_check:
     jb .jfail1
     ; rule 6: FAT copies in {1, 2}
     mov al, [dsk_bpb+DSK_B_NFATS]
+    dec ax                      ; {1, 2} as "value-1 <= 1": 0 wraps to 0xFF
     cmp al, 1
-    je .r7
-    cmp al, 2
-    jne .jfail1
-.r7:
+    ja .jfail1
     ; rule 7: root entries >= 1, <= 512, and a whole-sector count
     ; ((RootEntCnt*32) mod 512 == 0 <=> RootEntCnt mod 16 == 0)
     mov ax, [dsk_bpb+DSK_B_ROOTN]
-    test ax, ax
-    jz .jfail1
-    cmp ax, 512
-    ja .jfail1
-    test ax, 15
+    dec ax                      ; 1..512 as "value-1 <= 511" - 0 wraps to
+    cmp ax, 511                 ; 0xFFFF and fails - and then back for the
+    ja .jfail1                  ; whole-sector test, which needs only the low
+    inc ax                      ; nibble and so only AL
+    test al, 15
     jnz .jfail1
     ; rule 8, "the sector count is not 0", is RULE 14's now (SPEC.md 18.2):
     ; FirstDataSec is at least 3, so a count of 0 borrows there, and nothing
@@ -3746,8 +3734,8 @@ dsk_bpb_check:
     mov ax, [dsk_bpb+DSK_B_FATSZ]
     test ax, ax
     jz .jfail1
-    cmp bh, 1
-    jne .r11
+    test bh, bh                 ; [dsk_vflop] is 0 or 1 - its only two stores
+    jz .r11                     ; in disk_mount_x - so a test is the compare
     cmp ax, DSK_FAT_SECS
     ja .jfail1
 .r11:
@@ -3757,8 +3745,8 @@ dsk_bpb_check:
     ; A driver-backed volume never reaches that divisor - its driver owns the
     ; addressing - so the bound is only that the product cannot overflow.
     mov ax, [dsk_bpb+DSK_B_SPT]
-    cmp bh, 1
-    jne .r11d
+    test bh, bh
+    jz .r11d
     or ah, ah                   ; {8,9,15,18,21,36} walked as DELTAS in AL,
     jnz .jfail1                 ; where `sub al, imm8` is the two-byte
     sub al, 8                   ; accumulator form and `cmp ax, imm8` was
@@ -3782,9 +3770,9 @@ dsk_bpb_check:
     mov ax, [dsk_bpb+DSK_B_HEADS]
     dec ax                      ; both arms are "value-1 <= N": a floppy has
     mov cx, 254                 ; one head or two, a driver-backed volume
-    cmp bh, 1     ; 1..255, the CHS head field being eight bits.
-    jne .r12d                   ; 0 wraps to 0xFFFF and fails, which is the
-    mov cx, 1                   ; case the rule exists for. AX is dead past
+    test bh, bh                 ; 1..255, the CHS head field being eight bits.
+    jz .r12d                    ; 0 wraps to 0xFFFF and fails, which is the
+    mov cl, 1                   ; case the rule exists for. AX is dead past
 .r12d:                          ; here and CX is rule 13's own to write
     cmp ax, cx
     ja .jfail1
@@ -3795,8 +3783,8 @@ dsk_bpb_check:
     ; the volume, and the question stops being "is this geometry plausible"
     ; and becomes the sharper "does this volume claim to be bigger than the
     ; partition it lives in" (SPEC.md 18.7).
-    cmp bh, 1
-    jne .r13d
+    test bh, bh
+    jz .r13d
     mov ax, [dsk_bpb+DSK_B_SPT]
     mul word [dsk_bpb+DSK_B_HEADS]  ; AX = spt*heads (<= 72), DX = 0
     mov cx, 80
@@ -3881,11 +3869,10 @@ dsk_bpb_check:
     cmp ax, 65525
     jae .fail
     ; FAT type from the cluster count ALONE (SPEC.md 19): < 4085 = FAT12
-    mov byte [dsk_fattype], 0
     cmp ax, 4085
-    jb .typed
-    mov byte [dsk_fattype], 1
-.typed:
+    sbb dl, dl                  ; 0xFF below 4085, 0 at or above it...
+    inc dx                      ; ...so DL = 0 FAT12, 1 FAT16, and DL is
+    mov [dsk_fattype], dl       ; rule 16's test below (DX is dead here)
     inc ax
     mov [dsk_maxclus], ax       ; CountOfClusters+1 = highest valid cluster
     ; rule 16: the FAT must cover its own cluster count, or dsk_next_clus
@@ -3897,8 +3884,8 @@ dsk_bpb_check:
     ; bits. Neither product is needed - the comparison is a sector count
     ; against a sector count, and every term of it fits.
     inc ax                      ; AX = entries (<= 65,526: no wrap)
-    cmp byte [dsk_fattype], 0
-    jne .cap16
+    test dl, dl
+    jnz .cap16
     mov dx, ax                  ; FAT12: ceil(entries*1.5) bytes
     inc dx                      ; = entries + ceil(entries/2), and entries
     shr dx, 1                   ; is <= 4,086 here so the bytes fit
@@ -3906,12 +3893,11 @@ dsk_bpb_check:
     call dsk_bytes_secs_x       ; ...as whole sectors. DX comes back a copy of
     jmp short .capcmp           ; AX and .capcmp reads AX alone
 .cap16:
-    mov dx, ax                  ; FAT16: 256 entries a sector, so the count
-    mov cl, 8                   ; is entries>>8 rounded up - written as a
-    shr ax, cl                  ; test rather than a +255, which wraps
-    and dx, 255
-    jz .capcmp
-    inc ax
+    test al, al                 ; FAT16: 256 entries a sector, so the count
+    mov al, ah                  ; is entries>>8 rounded up - written as a
+    mov ah, 0                   ; test rather than a +255, which wraps. The
+    jz .capcmp                  ; byte move IS the shift, and mov writes no
+    inc ax                      ; flag, so the test still stands
 .capcmp:
     cmp ax, [dsk_fatsz]
     ja .fail
@@ -3943,11 +3929,11 @@ dsk_bpb_check:
     ; any other - a 286 booting 1.44MB publishes 18 (a TRACK there), and
     ; mounting a 360KB disk or a 17-sector hard disk made 18 > spt true and
     ; turned the crossing back ON, on the one BIOS class that cannot do it.
-    mov byte [dsk_cylrun], 0
-    cmp word [boot_cylrun], 0   ; the loader writes that word on ONE path: the
-    je .nocyl                   ; one where a run crossed a head and the canary
-    mov byte [dsk_cylrun], 1    ; came back right. Zero is the kernel image's
-.nocyl:                         ; own value, so "it fell back", "it never had
+    cmp word [boot_cylrun], 1   ; the loader writes that word on ONE path: the
+    sbb al, al                  ; one where a run crossed a head and the canary
+    inc ax                      ; came back right: AL = 0 if it is 0, else 1.
+    mov [dsk_cylrun], al        ; Zero is the kernel image's
+                                ; own value, so "it fell back", "it never had
                                 ; cause to look" and "this image predates the
                                 ; canary" are one answer and it is the cautious
                                 ; one.
@@ -4844,18 +4830,25 @@ dsk_fatw_demote:
     mov bl, al
     call dsk_fatw_slot
     jc .out
-    mov ax, [bx+DVOL_MAX*2]     ; the claim that is going...
-    mov word [bx+DVOL_MAX*2], 0 ; ...and mem_pg_forget's own store, done here
+    xor ax, ax                  ; the claim that is going, read and zeroed
+    xchg ax, [bx+DVOL_MAX*2]    ; in one - mem_pg_forget's own store, done here
     mov word [bx], 0xFFFF       ; because it does not make the other two
     cmp ax, [dsk_fatseg]
     jne .out                    ; BANKED: no other word ever named it
     call dsk_fatw_evict         ; LIVE: take the pin off whoever holds it -
     mov word [bx+DVOL_MAX*2], FAT_SEG   ; which is never this volume, its
-    mov word [dsk_fatseg], FAT_SEG      ; record having just been cleared -
-    mov word [dsk_fatw0], 0xFFFF        ; and move in
-.out:
+    call dsk_fatw_home                  ; record having just been cleared -
+.out:                                   ; and move in
     pop bx
     pop ax
+    ret
+
+; dsk_fatw_home - the PIN is the live window again, with nothing resident in
+; it: the two stores dsk_fatw_demote and dsk_fatw_drop both end on. Word
+; stores and nothing else, so it is legal inside mem_shed_one's cli.
+dsk_fatw_home:
+    mov word [dsk_fatseg], FAT_SEG
+    mov word [dsk_fatw0], 0xFFFF
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4960,14 +4953,13 @@ dsk_fatw_drop:
     jc .out
     mov word [bx], 0xFFFF
     add bx, DVOL_MAX*2
-    mov dx, [bx]
+    xor dx, dx                  ; the claim, read and zeroed in one `xchg`
+    xchg dx, [bx]               ; (a 0 written over a 0 changes nothing)
     or dx, dx
     jz .out
-    mov word [bx], 0
     cmp dx, [dsk_fatseg]        ; if the window in use was THIS one, the next
     jne .free                   ; mount must not read a freed segment
-    mov word [dsk_fatseg], FAT_SEG
-    mov word [dsk_fatw0], 0xFFFF
+    call dsk_fatw_home
 .free:
     cmp dx, FAT_SEG             ; THE PIN IS NOT A CLAIM (SPEC.md 18.8.3) and
     je .out                     ; there is no record to free. mem_free happens
@@ -7990,6 +7982,7 @@ ico_key_doc:
     push ax
     push bx
     push cx
+    push dx                     ; banked only for kretc_di's rung (-2)
     push si
     push di
     mov byte [ico_keyb], 0xFF
@@ -8033,12 +8026,7 @@ ico_key_doc:
                                 ; the ES = SS reason above. AND THERE IS NO
                                 ; TAIL on a 10-byte key: 0xFF, the slot and
                                 ; eight glyph bytes ARE the whole of it
-    pop di
-    pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 %endif                          ; OS88_ASSOC
 
 %ifdef OS88_ASSOC               ; its only caller is asc_row_take, and kern_small

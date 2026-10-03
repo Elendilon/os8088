@@ -1743,8 +1743,8 @@ dskw_flushrun:
     call disk_read_x
 .did:
     jc .pop                     ; CF = 1 is the answer, as it arrives
-    mov ax, [dskw_rlen]
-    mov word [dskw_rlen], 0
+    xor ax, ax
+    xchg ax, [dskw_rlen]        ; read the run and clear it in one (-3)
     mov cl, 5
     shl ax, cl                  ; sectors -> paragraphs, 32 each
     add [dskw_wseg], ax
@@ -4407,8 +4407,7 @@ dskw_flush_x:
 .done:
     xor ax, ax                  ; (CF = 0 with it)
 .reset:                         ; the range is EMPTY now, whichever way out
-    mov word [dsk_fatd0], 0xFFFF
-    mov word [dsk_fatd1], 0     ; (`mov` leaves CF alone)
+    call dskw_fatclean          ; (it leaves CF alone)
     jmp short .out
 .stale:
                                 ; The dirty range and the window have parted -
@@ -4453,9 +4452,10 @@ dskw_flush_x:
 ; -----------------------------------------------------------------------------
 dskw_refat:
     mov word [dsk_fatw0], 0xFFFF
-    mov word [dsk_fatd0], 0xFFFF
-    mov word [dsk_fatd1], 0
-    ret
+dskw_fatclean:                  ; ...the dirty range EMPTY, which is the half
+    mov word [dsk_fatd0], 0xFFFF ; dskw_flush_x ends every way out with and
+    mov word [dsk_fatd1], 0     ; disk_mount_x starts with: `mov` only, so
+    ret                         ; every flag (CF above all) comes back as sent
 
 ; -----------------------------------------------------------------------------
 ; dskw_ioerr - map the last int 13h status to an error code
@@ -4594,7 +4594,8 @@ dskw_name83:
     push ax
     push bx
     push cx
-    push si
+    push dx                     ; DX banked only so the exit is kretc_di's
+    push si                     ; rung: one byte here against six of pops
     push di
     cld
     mov cx, 11                  ; the field starts as eleven spaces
@@ -4608,21 +4609,17 @@ dskw_name83:
 .stem:
     lodsb
     test al, al
-    jz .stem_end
+    jz .ext_end                 ; ...whose test - an empty name - is .ext_end's
     cmp al, '.'
     je .dot
     call dskw_char_x            ; upcase + legality
     jc .bad
     cmp cx, 8
     jae .bad                    ; a ninth stem character
-    mov bx, di
-    add bx, cx
-    mov [bx], al
+    mov bx, cx                  ; [bx+di]: the count IS the column
+    mov [bx+di], al
     inc cx
     jmp short .stem
-.stem_end:
-    jcxz .bad                   ; an empty name
-    jmp short .ok
 .dot:
     jcxz .bad                   ; ".TXT" has no stem
     xor cx, cx
@@ -4634,25 +4631,18 @@ dskw_name83:
     jc .bad                     ; a second '.' lands here too
     cmp cx, 3
     jae .bad
-    mov bx, di
-    add bx, cx
-    mov [bx+8], al
+    mov bx, cx
+    mov [bx+di+8], al
     inc cx
     jmp short .ext
 .ext_end:
-    jcxz .bad                   ; a trailing dot with no extension
-.ok:
-    clc
+    jcxz .bad                   ; a trailing dot with no extension (or, from
+    clc                         ; .stem, no name at all)
     jmp short .out
 .bad:
     stc
 .out:
-    pop di
-    pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; dskw_char - one short-name character: upper-case it, or reject it
