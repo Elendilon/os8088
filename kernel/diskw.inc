@@ -1586,15 +1586,10 @@ dskw_wdata:
                                 ; it" - landed on the media-error arm and .stg
                                 ; had no way in at all, from 2e8e292 onwards
 .stg:                           ; one sector the 8237 cannot carry, alone,
-    mov es, [dskw_wseg]         ; through the scratch - which is 512-aligned
-    mov si, [dskw_src]          ; and therefore never straddles. No run can be
-    push cx                     ; pending here: dskw_runmax answered 0, and it
-    mov cx, 512                 ; is only asked with [dskw_rlen] = 0
-    call dskw_stage             ; ES:SI -> LOW_SEG:dsk_secbuf, all 512 of it
-    push ss
-    pop es
-    DSK_WR1D dskw_clba
-    pop cx
+    push cx                     ; through the scratch - which is 512-aligned
+    mov cx, 512                 ; and therefore never straddles. No run can be
+    call dskw_wone              ; pending here: dskw_runmax answered 0, and it
+    pop cx                      ; is only asked with [dskw_rlen] = 0
     jc .jioerr
     DSKW_CLBA_INC
     add word [dskw_wseg], 32    ; 512 bytes = 32 paragraphs on. The source is
@@ -1618,14 +1613,9 @@ dskw_wdata:
     jnz .advance
     call dskw_flushrun
     jc .jioerr
-    mov es, [dskw_wseg]
-    mov si, [dskw_src]
     mov cx, [dskw_tail]
-    call dskw_stage             ; ES:SI -> LOW_SEG:dsk_secbuf, rest zeroed
-    push ss
-    pop es
-    DSK_WR1D dskw_clba          ; the sector the whole-sector walk stopped at
-    jc .jioerr
+    call dskw_wone              ; the sector the whole-sector walk stopped at,
+    jc .jioerr                  ; the live bytes and the rest zeroed
 .advance:
     mov ax, [dskw_take]
     sub [dskw_rem], ax
@@ -2130,18 +2120,11 @@ dskw_rdata:
                                 ; THAT FALLS THROUGH TO .stg, exactly as the
                                 ; write path's does (SPEC.md 18.4.2.1)
 .stg:                           ; one sector the 8237 cannot carry, alone,
-    push ss                     ; through the scratch - which is 512-aligned
-    pop es                      ; and therefore never straddles. No run can be
-    push cx                     ; pending here: dskw_runmax answered 0, and it
-    DSK_RD1D dskw_clba          ; is only asked with [dskw_rlen] = 0
-    pop cx
-    jc .jioerr
-    mov es, [dskw_wseg]
-    mov di, [dskw_src]
-    push cx
-    mov cx, 512
-    call dskw_fetch             ; ...and up to the caller, all 512 of it
-    pop cx
+    push cx                     ; through the scratch - which is 512-aligned
+    mov cx, 512                 ; and therefore never straddles. No run can be
+    call dskw_rone              ; pending here: dskw_runmax answered 0, and it
+    pop cx                      ; is only asked with [dskw_rlen] = 0 - and all
+    jc .jioerr                  ; 512 of it goes up to the caller
     DSKW_CLBA_INC
     add word [dskw_wseg], 32    ; 512 bytes = 32 paragraphs on
     loop .addrun
@@ -2164,15 +2147,9 @@ dskw_rdata:
     jnz .advance
     call dskw_flushrun
     jc .ioerr
-    push ss
-    pop es
-    DSK_RD1D dskw_clba          ; the sector the whole-sector walk stopped at,
-                                ; the last sector, whole, into the scratch
-    jc .jioerr
-    mov es, [dskw_wseg]
-    mov di, [dskw_src]
-    mov cx, [dskw_tail]
-    call dskw_fetch             ; ...and only its live bytes to the caller
+    mov cx, [dskw_tail]         ; the sector the whole-sector walk stopped at,
+    call dskw_rone              ; whole, into the scratch - and only its live
+    jc .jioerr                  ; bytes to the caller
 .advance:
     mov ax, [dskw_take]
     sub [dskw_rem], ax
@@ -4499,27 +4476,34 @@ dskw_ioerr:
     ret
 
 ; -----------------------------------------------------------------------------
-; dskw_stage - stage a partial final sector, zero-filled, into dsk_secbuf
-; in:  ES:SI = the caller's remaining bytes, CX = their count (1..512)
-; out: nothing (all registers preserved)
+; dskw_wone / dskw_rone - ONE sector through dsk_secbuf, at [dskw_clba]
+; in:  CX = the live bytes (1..512), at [dskw_wseg]:[dskw_src]
+; out: CF = 1 an I/O error (dskw_ioerr maps it); CX and SI preserved
+; clobbers: AX, BX, DI, ES, flags
 ;
-; DS becomes the caller's buffer segment for the move, so NO kernel
-; variable is readable in the body - the dsk_copy_in discipline (SPEC.md
-; 18). The zero fill is what keeps whatever sits past the caller's buffer
-; off the disk.
+; The staged-sector arm of dskw_wdata and dskw_rdata, and each one's partial
+; final sector: four sites that each loaded the caller's segment and offset,
+; called a copier, set ES back and spelt the one-sector transfer. They were a
+; stager and a fetcher that took ES:SI from the caller; they are the whole
+; step now, which is what all four sites were writing out around them.
+;
+; dskw_wone stages the bytes ZERO-FILLED - so whatever sits past the caller's
+; buffer never reaches the disk - and writes the scratch. DS is the caller's
+; buffer segment for the move, so NO kernel variable is readable between the
+; `mov ds` and the `pop ds`: the dsk_copy_in discipline (SPEC.md 18).
+; dskw_rone reads the scratch and copies only the live bytes up, so no
+; memory past EOF reaches the caller - and there is nothing to zero, the
+; buffer being the caller's.
 ; -----------------------------------------------------------------------------
-dskw_stage:
-    push ax
+dskw_wone:
     push cx
     push dx
     push si
-    push di
     push ds
-    push es
     mov dx, 512
     sub dx, cx                  ; DX = bytes to zero after the copy
-    push es
-    pop ds                      ; DS:SI = the caller's bytes
+    mov si, [dskw_src]          ; (read through the KERNEL's DS, before...)
+    mov ds, [dskw_wseg]         ; ...DS:SI = the caller's bytes
     push ss
     pop es
     mov di, dsk_secbuf
@@ -4528,25 +4512,24 @@ dskw_stage:
     mov cx, dx
     xor al, al
     rep stosb
-    pop es
     pop ds
-    pop di
+    DSK_WR1D dskw_clba          ; ES = LOW_SEG already: the scratch goes out
     pop si
     pop dx
     pop cx
-    pop ax
     ret
 
-; -----------------------------------------------------------------------------
-; dskw_fetch - copy a file's live tail bytes out of dsk_secbuf
-; in:  ES:DI = the caller's destination, CX = byte count (1..512)
-; out: nothing (all registers preserved)
-; -----------------------------------------------------------------------------
-dskw_fetch:
-    push ax
+dskw_rone:
+    push ss
+    pop es
     push cx
+    DSK_RD1D dskw_clba          ; the sector, whole, into the scratch
+    pop cx
+    jc .out
     push si
-    push di
+    push cx
+    mov es, [dskw_wseg]         ; ES:DI = the caller's destination
+    mov di, [dskw_src]
     push ds
     push ss
     pop ds
@@ -4554,10 +4537,9 @@ dskw_fetch:
     cld
     rep movsb                   ; DS:SI -> ES:DI
     pop ds
-    pop di
-    pop si
     pop cx
-    pop ax
+    pop si                      ; CF = 0 from the `jc`, which nothing since
+.out:                           ; has touched
     ret
 
 ; -----------------------------------------------------------------------------

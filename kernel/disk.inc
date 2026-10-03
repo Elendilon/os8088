@@ -280,6 +280,9 @@ DVK_FILE     equ 2               ; a REDIRECTED volume (SPEC.md 62.9): its
                                  ; rather than falling back, because a caller
                                  ; that reaches it is a bug
 DVK_FREE     equ 0xFF
+%if DVK_DRV != 1 || DVK_FILE != 2 || DVK_BIOS != 0
+  %error "dsk_vol_del and dsk_vol_drop_drv_x test the two DRIVER kinds as one range, DVK_DRV..DVK_FILE = 1..2, below which BIOS (0) wraps"
+%endif
 
 ; How much of a package a HEADER PEEK has to bring back (SPEC.md 62.9.2.2).
 ; It is not a sector and must not become one: it is every byte the harvest
@@ -1572,8 +1575,12 @@ dsk_xfer:
                                 ; geometries end at cylinder 79 or below - and
                                 ; CHS's own 1024 on a hard disk
     mov ch, al                  ; CH = cyl low 8 bits
-    mov [dsk_cylhi], ah         ; ...and bits 9:8, which ride in CL below on a
-                                ; hard disk and are always 0 on a floppy
+    mov cl, ah                  ; ...and bits 9:8, which ride in CL bits 7:6
+                                ; below on a hard disk and are always 0 on a
+                                ; floppy - held in CL itself until then, which
+                                ; nothing between here and there spends
+                                ; (dsk_runcap banks CX), where it was a .bss
+                                ; byte stored here and loaded there
     mov ax, dx
     xor dx, dx
     div word [disk_spt]         ; AX = head, DX = sector-1
@@ -1660,7 +1667,7 @@ dsk_xfer:
     mov dh, al                  ; ...into DH at once: DX's high half is 0 (the
                                 ; sector index is under 64) and only DL is
                                 ; read below, so AL is free for the shift
-    mov al, [dsk_cylhi]         ; Cylinder bits 9:8 ride in CL bits 7:6
+    mov al, cl                  ; Cylinder bits 9:8 ride in CL bits 7:6
     mov cl, 6                   ; (SPEC.md 52.10.3) - the standard CHS packing,
     shl al, cl                  ; inert on a floppy where the byte is 0. The
                                 ; count goes through CL because an 8086 has no
@@ -2550,11 +2557,12 @@ dsk_vol_del:
     call dsk_vol_row_x
     jc .out
     mov ah, [bx+DV_KIND]        ; EITHER kind of driver row: DVK_DRV serves
-    cmp ah, DVK_DRV             ; sectors, DVK_FILE serves FILES (SPEC.md
-    je .mine                    ; 62.9), and both were added by a driver and
-    cmp ah, DVK_FILE            ; are that driver's to take away. A BIOS
-    jne .out                    ; floppy is not, and neither is a free row
-.mine:
+    dec ah                      ; sectors, DVK_FILE serves FILES (SPEC.md
+    cmp ah, DVK_FILE - DVK_DRV  ; 62.9), and both were added by a driver and
+    ja .out                     ; are that driver's to take away. A BIOS
+                                ; floppy is not (0 - 1 wraps high), and
+                                ; neither is a free row (0xFF - 1). One
+                                ; unsigned range test for the two kinds
     mov byte [bx+DV_KIND], DVK_FREE
     mov byte [bx+DV_FLAGS], 0
     mov byte [bx+DV_LBL], 0
@@ -2594,11 +2602,10 @@ dsk_vol_drop_drv_x:
     call dsk_vol_slot_x           ; BX = the row; AX is untouched by it
     jc .skip
     mov ah, [bx+DV_KIND]        ; either kind of driver row (dsk_vol_del's
-    cmp ah, DVK_DRV             ; reasoning, and the same two compares): a
-    je .drvrow                  ; DRVC_FILE driver detaching has to take its
-    cmp ah, DVK_FILE            ; REDIRECTED volume with it, or the desktop
-    jne .skip                   ; keeps a zone whose transport has been freed
-.drvrow:
+    dec ah                      ; reasoning, and the same range test): a
+    cmp ah, DVK_FILE - DVK_DRV  ; DRVC_FILE driver detaching has to take its
+    ja .skip                    ; REDIRECTED volume with it, or the desktop
+                                ; keeps a zone whose transport has been freed
     cmp [bx+DV_CLASS], cl       ; ...and is it THIS driver's?
     jne .skip
     call dsk_vol_del            ; takes AL, which is still the index
@@ -6236,7 +6243,8 @@ dsk_dirw_get_x:
 ;      AL = 1 if the caller may see hidden and system entries
 ; out: CF=0 and the buffer filled, CX = the ordinal to ask for next;
 ;      CF=1 and AX = FERR_NOENT at the end of the directory, or FERR_* on a
-;      read that failed
+;      read that failed (CX is the next ordinal on that path too - nothing
+;      reads it there, and it costs nothing to answer)
 ; clobbers: AX, CX (the outputs), flags. ES:DI comes back UNCHANGED, which is
 ;      what makes SPEC.md 19.7.1's loop - set the buffer once, iterate on CX -
 ;      correct rather than a walk through the caller's segment
@@ -6277,9 +6285,16 @@ dsk_find_x:
                                 ; in-tree caller reloads DI and so is unharmed;
                                 ; this slot's contract freezes at merge, and no
                                 ; caller can depend on RECEIVING DI+14
-    mov [dsk_fdhid], al
-    mov [dsk_fdord], cx
-    mov bp, cx                  ; BP counts the ordinals still to skip
+    mov dl, al                  ; DL = may this caller see hidden and system
+                                ; entries (SPEC.md 19.6.1's fence) - DX is
+                                ; banked and nothing in the sector walk
+                                ; touches it, so the flag needs no .bss byte
+    mov bp, cx                  ; BP counts the ordinals still to skip...
+    inc cx                      ; ...and the NEXT ordinal, the answer, is
+    push cx                     ; banked on the stack for .out to pop - it
+                                ; was a .bss word stored here and reloaded at
+                                ; the success tail (and a failure now answers
+                                ; it too, where CX was whatever the walk left)
     mov ax, [dsk_cwd]
     cmp byte [dsk_vkind], DVK_FILE
     je .fsenum                  ; A REDIRECTED VOLUME (SPEC.md 62.9.17): no
@@ -6318,7 +6333,7 @@ dsk_find_x:
                                 ; label bit, so it needs no test of its own
     test ah, 0x06
     jz .live                    ; neither hidden nor system: everybody sees it
-    cmp byte [dsk_fdhid], 1
+    cmp dl, 1
     jne .skip                   ; ...and only a driver sees the rest
 .live:
     or bp, bp
@@ -6429,9 +6444,7 @@ dsk_find_x:
     pop ax
     mov [es:di+4], ax           ; +18 the size, all 32 bits of it
     mov [es:di+6], dx
-    mov cx, [dsk_fdord]
-    inc cx                      ; the ordinal to ask for next
-    clc
+    clc                         ; (CX, the ordinal to ask for next, is .out's)
     jmp short .out
 .ioerr:
     mov ax, FERR_IO
@@ -6441,6 +6454,7 @@ dsk_find_x:
 .fail:
     stc
 .out:
+    pop cx                      ; the next ordinal, banked at entry
     pop di
     pop bp
     pop si
@@ -9076,12 +9090,8 @@ dsk_fdraw:    resb 1            ; dsk_find: report the ON-DISK size rather
                                 ; api_file_find_raw's whole difference, and a
                                 ; byte rather than a register because both
                                 ; cells reach the body through one fence
-dsk_fdhid:    resb 1            ; dsk_find: may this caller see hidden and
-                                ; system entries? (SPEC.md 19.6.1's fence)
-dsk_fdord:    resw 1            ; ...and the ordinal it was asked for
 dsk_unit:     resb 1            ; the row's int 13h drive - 0/1 for A:/B:, 80h
                                 ; for a boot partition. NOT the volume index
-dsk_cylhi:    resb 1            ; cylinder bits 9:8, for CL bits 7:6
 dsk_cylmax:   resw 1            ; 80 on a floppy, 1024 on a hard disk
 dsk_base:     resd 1            ; the partition base added to every LBA; 0
                                 ; everywhere except a boot partition
