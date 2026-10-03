@@ -4373,6 +4373,16 @@ cur_lazyck:
     push si
     mov si, [wm_clipwin]
     call wm_win_rect            ; AX/BX/CX/DX = the frame, drop shadow included
+%ifdef KERN_BIG
+    jmp short cur_lazyrect.test ; ...and THE FRAME IS A RECTANGLE, so the test
+                                ; is cur_lazyrect's, entered past its own
+                                ; pushes: the frame above is the same five
+                                ; words, so its pops and its tail to
+                                ; cur_unlazy are this routine's too. One body
+                                ; for two questions (size pass 9: +15 cycles
+                                ; here for the jump, -27 there for the DI it
+                                ; no longer banks)
+%else
     mov si, [cur_drawn_x]       ; separated on x?  cell is [x, x+CUR_GW-1]
     sub si, [cur_hx]
     cmp si, cx
@@ -4399,6 +4409,7 @@ cur_lazyck:
     pop cx
     pop bx
     pop ax
+%endif
 %else
     cmp word [wm_clip_n], 0
     je cur_unlazy               ; NOTHING ARMED BOUNDS NOTHING, so the hide is
@@ -4499,12 +4510,12 @@ cur_lazyck:
 cur_lazyrect:
     cmp byte [cur_lazy], 0
     je .out
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    push ax                     ; AX..DX are only READ here: they are banked so
+    push bx                     ; that this frame is cur_lazyck's, which joins
+    push cx                     ; at .test with the window's frame in AX..DX
+    push dx                     ; and owes them back. SI alone is the scratch
+    push si                     ; (DI was a second one until size pass 9)
+.test:
     mov si, [cur_drawn_x]
     sub si, [cur_hx]            ; SI = the cell's x1
     cmp cx, si                  ; SIGNED throughout: gfx_blit1 takes a signed
@@ -4512,25 +4523,23 @@ cur_lazyrect:
     add si, CUR_GW-1            ; negative at the screen's top left
     cmp ax, si
     jg .clear
-    mov di, [cur_drawn_y]
-    sub di, [cur_hy]
-    cmp dx, di
+    mov si, [cur_drawn_y]
+    sub si, [cur_hy]
+    cmp dx, si
     jl .clear
-    add di, CUR_GH-1
-    cmp bx, di
+    add si, CUR_GH-1
+    cmp bx, si
     jg .clear
-    pop di                      ; they overlap: the hide is owed after all
-    pop si
+    pop si                      ; they overlap: the hide is owed after all
     pop dx
     pop cx
     pop bx
     pop ax
     jmp cur_unlazy
 .clear:
-    pop di                      ; the band cannot reach the arrow, so it stays
-    pop si                      ; on the glass - and gfx_unlock then owes no
-    pop dx                      ; show either
-    pop cx
+    pop si                      ; the band cannot reach the arrow, so it stays
+    pop dx                      ; on the glass - and gfx_unlock then owes no
+    pop cx                      ; show either
     pop bx
     pop ax
 .out:
@@ -5894,9 +5903,28 @@ mdg_n2      dw 0                ; and at 12%. n1-n0 IS mouse_init and n2-n1 is
 section .bss
 cur_save    resb CUR_SAVE_SZ    ; save-under: CUR_SPAN bytes x CUR_GH rows,
                                 ; x four planes on VGA
+%ifndef GFX_VGA
 cur_savex   resb CUR_SPAN * CUR_GH  ; ...and its twin. A MOVE reads one while
                                 ; it fills the other (SPEC.md 7.1.2); 24 bytes,
                                 ; and the pointer swap means nothing is copied
+%else
+cur_savex   equ cur_save + CUR_SPAN * CUR_GH    ; ...and on a build WITH a VGA
+                                ; renderer the twin is the SECOND plane's
+                                ; quarter of cur_save itself. Only the 1bpp
+                                ; path ever names cur_savex (cur_move_mono's
+                                ; flip), and a 1bpp save is one plane - 24 of
+                                ; the 96 bytes - so the other 72 lie idle on
+                                ; every mono display. The planar path uses all
+                                ; 96 only while the arrow is ON a planar
+                                ; display, and the two never overlap in time:
+                                ; cur_move_multi takes the arrow off the old
+                                ; display (restoring from its save) before it
+                                ; draws it on the new one (saving into its
+                                ; own). Size pass 9: 24 bytes of .bss
+%if CUR_SAVE_SZ < 2 * CUR_SPAN * CUR_GH
+  %error "cur_savex is carved out of cur_save on a VGA build - cur_save must hold two 1bpp saves"
+%endif
+%endif
 %ifdef GFXAUDIT
 CURLOG_N    equ 64              ; a WRAPPING ring of cursor events, for the
 CURLOG_SZ   equ 6               ; sessions where the question is "which draw
@@ -5948,6 +5976,17 @@ cur_celly   resw 1              ; hot-spot-relative (SPEC.md 7.2.2). Banked
                                 ; two derivations of a save-under's geometry
                                 ; are two chances to disagree by a byte
 
+absolute gfx_u                  ; ...and cur_move_mono's working set is a
+                                ; member of vga12.inc's PRIMITIVE UNION (size
+                                ; pass 9). cur_move runs from the mouse ISR and
+                                ; kbm_paint only with the gfx lock FREE, and
+                                ; from gfx_unlock's cur_lazyend after every
+                                ; primitive of the hold has returned - so it is
+                                ; never inside one of the union's five, which is
+                                ; the invariant the cursor ALREADY leans on for
+                                ; the rect block (cur_saveu -> vga_save_vram ->
+                                ; gfx_rect_setup). Every member below is written
+                                ; at the top of each move before it is read
 mv_oy       resw 1              ; cur_move's banked OLD geometry: top row,
 mv_ooff     resw 1              ; framebuffer offset, rows, right-byte clip
 mv_orows    resb 1
@@ -5962,4 +6001,8 @@ mv_p2s0     resb 1              ; pass 2's background offset in the old save,
 mv_p2s1     resb 1              ; or 0FFh for "read the screen"
 mv_prow     resw 1              ; the new cell's row, as pass 2 walks it
 mv_orp      resw 1              ; -> that row in the old save, or 0
+gfx_u_mv:
+%if gfx_u_mv - gfx_u > gfx_u_end - gfx_u
+  %error "cur_move_mono's working set no longer fits the primitive union - raise GFX_U_FLOOR in vga12.inc"
+%endif
 section .text

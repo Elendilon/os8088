@@ -2095,6 +2095,21 @@ vid_disp_init:
 ; the whole of it: displays do not overlap (SPEC.md 39.19.2 places them edge
 ; to edge), so a rect inside one of them is inside the one holding its origin.
 ; -----------------------------------------------------------------------------
+vid_span_wh:                    ; ...and the same question of a WIDTH and a
+    push cx                     ; HEIGHT (AX/BX = x/y, CX/DX = w/h, all three
+    push dx                     ; blitters' own convention), which they each
+    add cx, ax                  ; converted inline before size pass 9. Keeps
+    dec cx                      ; CX and DX
+    add dx, bx
+    dec dx
+    call vid_span_one
+    pop dx
+    pop cx
+    ret
+cw_vid_span_wh:                 ; ...and gfx_blit1's door, from .cold
+    call vid_span_wh
+    retf
+
 vid_span_one:
     push ax
     push bx

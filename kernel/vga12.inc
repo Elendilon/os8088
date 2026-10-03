@@ -507,13 +507,11 @@ gfx_clip_query:
 %ifdef KERN_BIG
     cmp byte [vid_ndisp], 1
     jbe %%one                   ; one display: the rect is already local
-    cmp byte [gfx_dnest], 0
-    jne %%one                   ; ...or an outer hook already translated it
-    push di
-    mov di, %1
-    call gfx_disp_run
-    pop di
-    ret
+    push di                     ; ...and the NESTED case (an outer hook already
+    mov di, %1                  ; translated it) is gfx_disp_run's first test,
+    call gfx_disp_run           ; not a second compare here: written once
+    pop di                      ; rather than four times, and paid only on an
+    ret                         ; extended desktop (size pass 9)
 %%one:
 %endif
 %endmacro
@@ -541,12 +539,17 @@ gfx_blit_fd db 0                ; SPEC.md 39.14.7.2: 0 = gfx_blit4 resolves its
 %endif
 gfx_dr      times 4 dw 0        ; gfx_disp_run's banked virtual rect
 gfx_dfn     dw 0                ; ...and the raw body it is re-entering
+%if gfx_dfn - gfx_dr != 8
+  %error "gfx_dfn must follow gfx_dr's four words: gfx_disp_run banks both off one SI and calls [si+8]"
+%endif
 
 ; -----------------------------------------------------------------------------
 ; gfx_disp_run - internal: run a rect primitive once per DISPLAY it touches
 ; in:       AX = x1, BX = y1, CX = x2, DX = y2 in VIRTUAL coordinates,
 ;           DI = near ptr to the raw body (the entry below that primitive's
-;           GFXDISP); more than one display exists and no hook is nested
+;           GFXDISP); more than one display exists. If a whole-shape hook IS
+;           nested ([gfx_dnest] != 0, so the rect is already local) the body
+;           is entered ONCE, straight, by a tail jump through DI
 ; out:      -
 ; clobbers: flags
 ;
@@ -567,76 +570,65 @@ gfx_dfn     dw 0                ; ...and the raw body it is re-entering
 ; otherwise erase the arrow through whatever display happened to be live.
 ; -----------------------------------------------------------------------------
 gfx_disp_run:
+    cmp byte [gfx_dnest], 0
+    jne .nest                   ; GFXDISP's second test, moved here
     push ax
     push bx
     push cx
     push dx
     push si
     push di
-    mov [gfx_dr+0], ax
-    mov [gfx_dr+2], bx
-    mov [gfx_dr+4], cx
-    mov [gfx_dr+6], dx
-    mov [gfx_dfn], di
-    xor si, si                  ; SI = the display being drawn
-.disp:
-    mov ax, si
-    call vid_ctx_ptr            ; DI = its record; AX preserved
-    mov ax, [di+VID_CTX_VX]     ; x1 = max(rect's, this display's)
-    cmp ax, [gfx_dr+0]
+    push bp
+    mov si, gfx_dr              ; SI = the banked rect for the whole walk: the
+    mov [si], ax                ; clamps read it [si+n], three bytes a compare
+    mov [si+2], bx              ; where a direct address is four, and
+    mov [si+4], cx              ; gfx_dfn is [si+8] (the guard beside them)
+    mov [si+6], dx
+    mov [si+8], di
+    xor bp, bp                  ; BP = the display index - a register and not
+.disp:                          ; [si] as it was, now that SI is the rect. The
+    mov ax, bp                  ; raw bodies and vid_ctx_act keep both
+    call vid_ctx_rect           ; AX..DX = this display's virtual rect, DI = ctx
+    cmp ax, [si]
     jge .x1
-    mov ax, [gfx_dr+0]
+    mov ax, [si]                ; x1 = max
 .x1:
-    mov cx, [di+VID_CTX_VX]     ; x2 = min(rect's, its last column)
-    add cx, [di+VID_CTX_CW]
-    dec cx
-    cmp cx, [gfx_dr+4]
+    cmp cx, [si+4]
     jle .x2
-    mov cx, [gfx_dr+4]
+    mov cx, [si+4]              ; x2 = min
 .x2:
     cmp ax, cx
-    jg .next                    ; no columns here - and if no display claims
-                                ; the fragment, nobody draws it (39.2.1)
-    mov bx, [di+VID_CTX_VY]
-    cmp bx, [gfx_dr+2]
+    jg .next                    ; nothing of the rect on this display
+    cmp bx, [si+2]
     jge .y1
-    mov bx, [gfx_dr+2]
+    mov bx, [si+2]
 .y1:
-    mov dx, [di+VID_CTX_VY]
-    add dx, [di+VID_CTX_CH]
-    dec dx
-    cmp dx, [gfx_dr+6]
+    cmp dx, [si+6]
     jle .y2
-    mov dx, [gfx_dr+6]
+    mov dx, [si+6]
 .y2:
     cmp bx, dx
     jg .next
-    push si                     ; ...into the display's own coordinates, while
-    mov si, [di+VID_CTX_VX]     ; the record is still in hand: vid_ctx_act is
-    sub ax, si                  ; about to move the live words under us
-    sub cx, si
-    mov si, [di+VID_CTX_VY]
-    sub bx, si
-    sub dx, si
-    pop si
-    push ax                     ; AL is the display's, x1 is the rect's
-    mov ax, si
+    sub ax, [di+VID_CTX_VX]     ; ...and into the display's own coordinates
+    sub cx, [di+VID_CTX_VX]
+    sub bx, [di+VID_CTX_VY]
+    sub dx, [di+VID_CTX_VY]
+    push ax                     ; activate it (vid_ctx_act keeps DI, SI, BP)
+    mov ax, bp
     call vid_ctx_act
     pop ax
-    call word [gfx_dfn]         ; the body - it preserves every register
+    call word [si+8]            ; [gfx_dfn]: the raw body keeps every register
 .next:
-    inc si
+    inc bp
     mov al, [vid_ndisp]
     mov ah, 0
-    cmp si, ax
-    jb .disp                    ; ...and the LAST display drawn on stays
-    pop di                      ; current; gfx_unlock is what puts 0 back
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    cmp bp, ax
+    jb .disp
+    pop bp
+    jmp kret_di                 ; the ladder: an extended desktop's +15 cycles
+.nest:
+    jmp di                      ; nested: one straight entry, whose own `ret`
+                                ; lands on GFXDISP's `pop di / ret`
 
 ; -----------------------------------------------------------------------------
 ; gfx_disp_enter / gfx_disp_leave - the WHOLE-SHAPE hook (SPEC.md 39.14.2)
@@ -1084,18 +1076,14 @@ gfx_lstepv:
 ; --- so that a VIRTUAL y indexes it. Lock-held scratch, resolved per pass.
 %define gfx_ls_d1   vid_ox          ; ...and these two are the origin ITSELF, so
 %define gfx_ls_d3   vid_oy          ; they are named rather than copied
-section .bss
-gfx_ls_d2   resw 1
-gfx_ls_d4   resw 1
-gfx_pt_rmax resw 1              ; [vid_rowmax] + oy
-gfx_pt_rtab resw 1              ; vid_rowtab - 2*oy
-gfx_pt_kx   resw 1              ; ox >> 3, exact: an origin is a multiple of 8
-; ONE BYTE, not three. PT_OOB is set by gfx_ls_box, PT_2ND by the tail below,
-; and "did THIS call hook?" is not stored at all - [gfx_dnest] answers it,
-; because the gate refuses to hook unless it found that byte zero, so a
-; non-zero one at the tail is this call's own and nobody else's.
-gfx_pt_f    resb 1
-section .text
+; gfx_ls_d2, gfx_ls_d4, gfx_pt_rmax ([vid_rowmax] + oy), gfx_pt_rtab
+; (vid_rowtab - 2*oy), gfx_pt_kx (ox >> 3, exact: an origin is a multiple of 8)
+; and gfx_pt_f are members of THE PRIMITIVE UNION at the foot of this file
+; (size pass 9) - gfx_pt_resolve rewrites all five at every call's .pass.
+; gfx_pt_f is ONE BYTE, not three. PT_OOB is set by gfx_ls_box, PT_2ND by the
+; tail below, and "did THIS call hook?" is not stored at all - [gfx_dnest]
+; answers it, because the gate refuses to hook unless it found that byte zero,
+; so a non-zero one at the tail is this call's own and nobody else's.
 PT_OOB      equ 1               ; a point some OTHER display holds was seen
 PT_2ND      equ 2               ; ...and the second pass has been spent
 %macro GFXPT_RTAB 0
@@ -1749,9 +1737,23 @@ gfx_blit4:
     push si
     push di
     push bp
+%ifdef KERN_BIG
+    mov word [gfx_blit_fst], 0  ; BEFORE the two guards below, or a call that
+                                ; draws nothing inherits the last one's answer
+                                ; and .out resets a VGA that was never armed -
+                                ; AND gfx_blit_hk with it, one word, for the
+                                ; same reason: .done reads it too, and it was
+                                ; cleared only past the guards, so an empty
+                                ; blit on an extended desktop could inherit a
+                                ; hooked one's YES and bring down a nest it
+                                ; never put up (found in size pass 9, which
+                                ; made the byte a union member and so made the
+                                ; stale value ANY primitive's)
+%else
     mov byte [gfx_blit_fst], 0  ; BEFORE the two guards below, or a call that
                                 ; draws nothing inherits the last one's answer
                                 ; and .out resets a VGA that was never armed
+%endif
 %ifdef GFX_PLANE
     mov byte [gfx_blit_pok], 0  ; ...and the same for SPEC.md 5.4.1.3's, which
                                 ; is armed ONLY down the .vga branch and read
@@ -1786,8 +1788,7 @@ gfx_blit4:
     ; about: it goes to .cut, which cuts the block at the seam and runs this
     ; routine once per half. Only a cut the seam REFUSES - an odd number of
     ; pixels left of it - falls through to the path that was already there.
-    mov byte [gfx_blit_hk], 0
-    cmp byte [vid_ndisp], 1
+    cmp byte [vid_ndisp], 1     ; ([gfx_blit_hk] was cleared at the top)
     jbe .hkdone                 ; one display: nothing to decide, and this is
                                 ; every machine that was already fast
     cmp byte [gfx_dnest], 0
@@ -1797,15 +1798,7 @@ gfx_blit4:
     cmp byte [gfx_blit_fd], 0   ; SPEC.md 39.14.7.2: this call is one HALF of a
     jne .hkforce                ; cut, and its display is NAMED
 %endif
-    push cx
-    push dx
-    add cx, ax                  ; vid_span_one takes an INCLUSIVE rect and
-    dec cx                      ; this routine takes a width and a height
-    add dx, bx
-    dec dx
-    call vid_span_one
-    pop dx
-    pop cx
+    call vid_span_wh            ; this routine takes a width and a height
 %ifdef NOBLITCUT
     jc .hkdone                  ; STRADDLING: leave the destination virtual
                                 ; and let each run split itself, which is
@@ -2761,15 +2754,7 @@ gfx_blitp:
     jbe .hkdone                 ; one display: every machine that was already
     cmp byte [gfx_dnest], 0     ; right
     jne .no                     ; nested: an outer hook owns the translation
-    push cx
-    push dx
-    add cx, ax
-    dec cx
-    add dx, bx
-    dec dx
-    call vid_span_one           ; SPEC.md 39.14.7.1, gfx_blit4's own gate
-    pop dx
-    pop cx
+    call vid_span_wh            ; SPEC.md 39.14.7.1, gfx_blit4's own gate
     jc .no                      ; STRADDLING: a plane byte carries no x, so
                                 ; there is nothing here to split
     mov byte [gfx_bp_hk], 1
@@ -5064,6 +5049,32 @@ api_pat:     resb 8             ; osapi_gfx_fill_pat's staging slot: a
                                 ; the kernel's segment because gfx_pat_stage
                                 ; reads them through DS
 
+; --- THE PRIMITIVE UNION (size pass 9) -------------------------------------
+; Five working sets that are each the scratch of ONE top-level primitive -
+; gfx_blit4, gfx_points, gfx_scroll, gfx_spans and gfx_blit1's pen - laid over
+; the same bytes, and a sixth, cur_move_mono's, in mouse.inc (see there). THE LIFETIMES CANNOT MEET, and that is a property of the call
+; graph rather than a hope, the same argument gfx_blit1's fragment walk makes
+; for borrowing gfx_cl_* below:
+;
+; * every one of them runs under the gfx lock (SPEC.md 1 rule 6), so two tasks
+;   are never in two of them at once;
+; * none of the five reaches another. What they call is gfx_rowbase and its
+;   row steppers, cur_unlazy/cur_lazyrect, the display hooks, wm_clip_t1 /
+;   wm_clip_test / wm_clip_rows, gfx_blitp through the planar walk, and the
+;   RECT primitives (gfx_blit4's runs and gfx_points' slow path are gfx_fill),
+;   whose scratch is gfx_cl_*, gfx_dr and the rect block - none of it here;
+; * the one thing that draws WITHOUT the lock is the mouse ISR, and the cursor
+;   touches none of this (its scratch is mv_*, the rect block and vga_plane);
+; * every member is WRITTEN BY ITS OWN PRIMITIVE BEFORE IT IS READ, on every
+;   path - which is what a union needs and .bss's zero never gave anything
+;   here. The members that DO lean on a value surviving between calls are kept
+;   OUT: gfx_bpfn (zero except inside a planar walk), gfx_b1hm (zero except
+;   inside .offg's head column) and gfx_bp_hk (set by gfx_blitp around a walk
+;   that re-enters gfx_blitp).
+;
+; gfx_blit4's set is the largest on both kernels, so it is laid down for real
+; and the other four are overlaid on it with `absolute`, each guarded to fit.
+gfx_u:
 gfx_blit_x:  resw 1             ; gfx_blit4's row cursor (SPEC.md 5.4):
 gfx_blit_w:  resw 1             ; destination left, width, rows left and the
 gfx_blit_h:  resw 1             ; current source row's base. Lock-held
@@ -5080,6 +5091,9 @@ gfx_blit_hk: resb 1             ; did THIS call take the whole-shape display
                                 ; hook? (SPEC.md 39.14.7.1) - .out must not
                                 ; bring a nest down that it never put up, and
                                 ; the two early guards can reach it
+%if gfx_blit_hk - gfx_blit_fst != 1
+  %error "gfx_blit_fst/gfx_blit_hk must stay adjacent, fst first: gfx_blit4 clears both with one word store"
+%endif
 gfx_blit_sm: resw 1             ; SPEC.md 39.14.7.2's CUT: the seam, and the
 gfx_blit_n1: resw 1             ; half left of it, banked across the first of
                                 ; the two calls. Both are written before they
@@ -5091,46 +5105,15 @@ gfx_blit_rn: resw 1             ; SPEC.md 5.4.1.3's pricing: runs emitted in
 gfx_blit_thr:resw 1             ; this row, and the count that ends the run
 gfx_blit_pok:resb 1             ; path - which is also the first run's minimum
                                 ; length. 0 = this call cannot go planar at all
-gfx_bp_hk:   resb 1             ; ...and did THIS gfx_blitp take the whole-shape
-                                ; display hook? (SPEC.md 5.4.3) - the exit must
-                                ; not bring a nest down that it never put up,
-                                ; and every refusal above reaches that exit
-gfx_bpfn:    resw 1             ; the fragment walk's piece (5.4.3.6): 0 is
-                                ; gfx_blit1_x (.cold's first byte, asserted),
-                                ; gfx_bppiece only while a planar walk runs
 %endif
+gfx_u_blt:
+GFX_U_FLOOR equ 20              ; ...and never smaller than cur_move_mono's set
+%if gfx_u_blt - gfx_u < GFX_U_FLOOR ; (mouse.inc, the sixth member and the one
+    resb GFX_U_FLOOR - (gfx_u_blt - gfx_u) ; in another file), which is the
+%endif                          ; larger on kern_small by one byte
+gfx_u_end:
 
-vga_plane       resb 1          ; save/restore plane counter / mask bit
-vga_xorm        resb 1          ; vga_solid_rect: 0 = replace, 1 = XOR. The
-                                ; ONE difference between gfx_fill_raw's VGA
-                                ; body and gfx_xor_fill_raw's, and both heads
-                                ; write it before the body reads it, so .bss's
-                                ; guaranteed zero is not being relied on
-%ifdef KERN_BIG
-gfx_sp_seg      resw 1          ; SPEC.md 5.10 - gfx_spans' walk: the CALLER's
-gfx_sp_si       resw 1          ; segment and cursor into the span list, the
-gfx_sp_n        resw 1          ; rows left, and the row the next one names.
-gfx_sp_row      resw 1          ; It is memory and not registers because
-gfx_sp_y        resw 1          ; the row writers keep nothing across a call
-gfx_sp_fb       resw 1          ; ...and the framebuffer ES is put back to
-%endif
-gfx_cl_x1       resw 1          ; gfx_clip_run: the primitive's own rect,
-gfx_cl_y1       resw 1          ; held while the raw body runs per fragment
-gfx_cl_x2       resw 1
-gfx_cl_y2       resw 1
-gfx_cl_fn       resw 1          ; ...and the raw body's near pointer
-; gfx_blit1_x's fragment walk (SPEC.md 5.4.2.7) borrows all five: the band's
-; own rect in the same WCR order - but with x2 and y2 EXCLUSIVE, one past it -
-; addressed off one pointer as gfx_rect_isect addresses its block, and its
-; first byte in gfx_cl_fn. The LIFETIMES CANNOT MEET. The walk
-; runs each piece with the region disarmed (wm_clip_n = 0, and on kern_big
-; the dock hole with it), so nothing under it can reach gfx_clip_run; and
-; gfx_clip_run's bodies are the rect primitives' raw ones, none of which blits
-; a band. Five words of .bss that were gfx_bfx/bfy/bfx2/bfy2/bfsi
-%if gfx_cl_fn - gfx_cl_x1 != 8
-  %error "gfx_cl_x1..y2 must stay WCR-ordered with gfx_cl_fn next: gfx_blit1_x's fragment walk reads the band's first byte at [gfx_cl_x1+8]"
-%endif
-
+absolute gfx_u                  ; gfx_points (SPEC.md 5.6.9)
 gfx_ln_ink      resb 1          ; gfx_ls_ink's answer: gfx_ink's 00 / FF / 01.
                                 ; ALL that is left of gfx_line's working set
                                 ; (SPEC.md 5.12.7) - gfx_points is the one
@@ -5147,12 +5130,51 @@ gfx_pt_cseg     resw 1          ; SPEC.md 5.6.9: gfx_points' array segment.
                                 ; ES is the framebuffer inside its loop, so
                                 ; the caller's cannot stay there
 
+%ifdef KERN_BIG
+gfx_ls_d2   resw 1              ; the box's right and bottom edges in VIRTUAL
+gfx_ls_d4   resw 1              ; space (gfx_ls_d1/d3 are vid_ox/vid_oy), and
+gfx_pt_rmax resw 1              ; gfx_pt_resolve's rebased row table: all five
+gfx_pt_rtab resw 1              ; recomputed at every call's .pass, so a union
+gfx_pt_kx   resw 1              ; member like the rest
+gfx_pt_f    resb 1
+%endif
+gfx_u_pts:
+%if gfx_u_pts - gfx_u > gfx_u_end - gfx_u
+  %error "gfx_points' working set no longer fits the primitive union - gfx_blit4's is laid down for real and must stay the largest"
+%endif
+
+absolute gfx_u                  ; gfx_scroll (SPEC.md 5.5)
 vgas_col         resw 1          ; gfx_scroll (SPEC.md 5.5): left byte column
 vgas_nb          resw 1          ;   bytes per row
+vgas_sdy         resw 1          ;   signed dy (positive = content up)
+vgas_ydst        resw 1          ;   first destination row
+vgas_step        resw 1          ;   +1 (up: top-down) / -1 (down: bottom-up)
+vgas_rows        resw 1          ;   rows to copy = height - |dy|
+vgas_left        resw 1          ;   per-pass row countdown
+gfx_u_scr:
+%if gfx_u_scr - gfx_u > gfx_u_end - gfx_u
+  %error "gfx_scroll's working set no longer fits the primitive union"
+%endif
+
+%ifdef KERN_BIG
+absolute gfx_u                  ; gfx_spans (SPEC.md 5.10)
+gfx_sp_seg      resw 1          ; SPEC.md 5.10 - gfx_spans' walk: the CALLER's
+gfx_sp_si       resw 1          ; segment and cursor into the span list, the
+gfx_sp_n        resw 1          ; rows left, and the row the next one names.
+gfx_sp_row      resw 1          ; It is memory and not registers because
+gfx_sp_y        resw 1          ; the row writers keep nothing across a call
+gfx_sp_fb       resw 1          ; ...and the framebuffer ES is put back to
+gfx_u_spn:
+%if gfx_u_spn - gfx_u > gfx_u_end - gfx_u
+  %error "gfx_spans' working set no longer fits the primitive union"
+%endif
+%endif
+
 ; --- gfx_blit1's PEN, resolved once a band (SPEC.md 5.4.2.2) ----------------
 ; KERNEL_SEG's .bss, not COLD_SEG's: gfx_blit1_x reads all four while DS is
 ; still ours, above the point the emit spends it on the caller's band.
 %ifdef KERN_BIG                 ; gfx_blit1_x is the only reader, and it is
+absolute gfx_u
                                 ; kern_big's (SPEC.md 5.4.2.5)
 gfx_b1act        resb 1          ; 1 = the pen is not the default, so the two
                                  ;     GC writes below are owed - and owed
@@ -5172,7 +5194,46 @@ gfx_b1b          resb 1          ; ...and pass 2's Map Mask, B alone. It rides
 %if gfx_b1inv - gfx_b1act != 1
   %error "gfx_b1act/gfx_b1inv must stay adjacent: gfx_blit1_x clears both in one word store"
 %endif
+gfx_u_pen:
+%if gfx_u_pen - gfx_u > gfx_u_end - gfx_u
+  %error "gfx_blit1's pen no longer fits the primitive union"
 %endif
+%endif
+
+section .bss                    ; ...and back to plain .bss for the rest
+%ifdef GFX_PLANE
+gfx_bp_hk:   resb 1             ; ...and did THIS gfx_blitp take the whole-shape
+                                ; display hook? (SPEC.md 5.4.3) - the exit must
+                                ; not bring a nest down that it never put up,
+                                ; and every refusal above reaches that exit
+gfx_bpfn:    resw 1             ; the fragment walk's piece (5.4.3.6): 0 is
+                                ; gfx_blit1_x (.cold's first byte, asserted),
+                                ; gfx_bppiece only while a planar walk runs
+%endif
+
+vga_plane       resb 1          ; save/restore plane counter / mask bit
+vga_xorm        resb 1          ; vga_solid_rect: 0 = replace, 1 = XOR. The
+                                ; ONE difference between gfx_fill_raw's VGA
+                                ; body and gfx_xor_fill_raw's, and both heads
+                                ; write it before the body reads it, so .bss's
+                                ; guaranteed zero is not being relied on
+gfx_cl_x1       resw 1          ; gfx_clip_run: the primitive's own rect,
+gfx_cl_y1       resw 1          ; held while the raw body runs per fragment
+gfx_cl_x2       resw 1
+gfx_cl_y2       resw 1
+gfx_cl_fn       resw 1          ; ...and the raw body's near pointer
+; gfx_blit1_x's fragment walk (SPEC.md 5.4.2.7) borrows all five: the band's
+; own rect in the same WCR order - but with x2 and y2 EXCLUSIVE, one past it -
+; addressed off one pointer as gfx_rect_isect addresses its block, and its
+; first byte in gfx_cl_fn. The LIFETIMES CANNOT MEET. The walk
+; runs each piece with the region disarmed (wm_clip_n = 0, and on kern_big
+; the dock hole with it), so nothing under it can reach gfx_clip_run; and
+; gfx_clip_run's bodies are the rect primitives' raw ones, none of which blits
+; a band. Five words of .bss that were gfx_bfx/bfy/bfx2/bfy2/bfsi
+%if gfx_cl_fn - gfx_cl_x1 != 8
+  %error "gfx_cl_x1..y2 must stay WCR-ordered with gfx_cl_fn next: gfx_blit1_x's fragment walk reads the band's first byte at [gfx_cl_x1+8]"
+%endif
+
 %ifdef KERN_BIG
 gfx_b1hm         resb 1          ; nonzero: the TAIL byte's mask instead of the
                                  ; one CX & 7 makes (SPEC.md 5.4.2.5) - so a
@@ -5180,11 +5241,6 @@ gfx_b1hm         resb 1          ; nonzero: the TAIL byte's mask instead of the
                                  ; mask. .offg's head column is the one
                                  ; writer, and it sets and clears it
 %endif
-vgas_sdy         resw 1          ;   signed dy (positive = content up)
-vgas_ydst        resw 1          ;   first destination row
-vgas_step        resw 1          ;   +1 (up: top-down) / -1 (down: bottom-up)
-vgas_rows        resw 1          ;   rows to copy = height - |dy|
-vgas_left        resw 1          ;   per-pass row countdown
 
 ; -----------------------------------------------------------------------------
 section .cold                   ; gfx_blit1's body, and its far entry below it
@@ -5342,15 +5398,7 @@ gfx_blit1_x:
     jbe .spanok
     cmp byte [gfx_dnest], 0
     jne .spanok                 ; an outer whole-shape hook already chose one
-    push cx
-    push dx
-    add cx, ax
-    dec cx                      ; CX = x2, DX = y2, both still VIRTUAL
-    add dx, bx
-    dec dx
-    call KERNEL_SEG:cw_vid_span_one
-    pop dx
-    pop cx
+    call KERNEL_SEG:cw_vid_span_wh  ; the band's rect, still VIRTUAL
     jc .pcq                     ; it crosses a seam: per band column, each
 %endif
 .spanok:                        ; resolving its own display (SPEC.md 39.14.6)
