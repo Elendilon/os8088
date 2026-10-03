@@ -661,6 +661,12 @@ fm_kinit_x:
 ; skips this reads the PREVIOUS window's directory: wrong names, wrong icons,
 ; and a double-click that opens the wrong file.
 ; -----------------------------------------------------------------------------
+fm_click_in:                    ; a press's opening, left or right: publish SI's
+    call fm_svp_set             ; window, bank [fm_wased] = its FS_EDIT, and
+    mov al, [di+FS_EDIT]        ; end any editor (AL = the banked byte). The
+    mov [fm_wased], al          ; two callbacks spelled it out twice
+    jmp fm_edit_end
+
 fm_svp_set:                     ; ...with the window in SI (BX comes back
     mov bx, si                  ; holding it, as the callers had it)
 fm_vp_set:
@@ -851,22 +857,16 @@ fmv_ld_ent:
 ; that HAD a claim (docs/plans/LISTING-HOME-PLAN.md 13.5 commit 1).
 ; -----------------------------------------------------------------------------
 fmv_dient:
+    push word [fm_vp]           ; the acting view, banked...
+    push word [fm_vseg]
     push bx
-    push dx
-    mov bx, [fm_vp]             ; the acting view, banked...
-    mov dx, [fm_vseg]
-    push bx
-    push dx
     mov [fm_vp], di             ; ...borrowed...
     mov bx, [di+FS_VSEG]
     mov [fm_vseg], bx
     call fmv_get_dir            ; SI -> dsk_ent
-    pop dx                      ; ...and put back. A pop does not touch CF,
-    pop bx                      ; and neither does a mov, so the clc below is
-    mov [fm_vseg], dx           ; the only thing that writes it
-    mov [fm_vp], bx
-    pop dx
-    pop bx
+    pop bx                      ; ...and put back. A pop does not touch CF,
+    pop word [fm_vseg]          ; so the clc below is the only thing that
+    pop word [fm_vp]            ; writes it
     clc
     ret
 
@@ -3256,15 +3256,16 @@ fm_onclick_x:
     call os88ui_sbdrop          ; ...which takes the overlay off with it
 .nostale:
 %endif
-    call fm_svp_set             ; publish the clicked window BEFORE anything
-                                ; reads or writes per-window state
-
-                                ; was an editor line up in THIS window? ending
-    mov al, [di+FS_EDIT]        ; one rewrites the status line, and that is the
-    mov [fm_wased], al          ; only thing besides the two selection bands a
-                                ; row click can change (SPEC.md 22.2)
-    call fm_edit_end            ; clicking away abandons a half-typed name
-    mov al, [fm_wased]          ; an ended editor line rewrites the status
+    call fm_click_in            ; publish the clicked window BEFORE anything
+                                ; reads or writes per-window state; bank
+                                ; whether an editor line was up in THIS
+                                ; window - ending one rewrites the status
+                                ; line, and that is the only thing besides
+                                ; the two selection bands a row click can
+                                ; change (SPEC.md 22.2) - and end it:
+                                ; clicking away abandons a half-typed name
+                                ; (AL = [fm_wased] on the way back)
+                                ; an ended editor line rewrites the status
     mov [fm_statowed], al       ; LINE and changes nothing else on this
                                 ; window. It used to be ONE question with TWO
                                 ; causes, the other being a retired verdict,
@@ -5665,16 +5666,15 @@ fm_rclick_x:
 
 
     mov [fm_cmdwin], si         ; fm_rcmd acts on this window; fm_docmd's
-    call fm_svp_set             ; repaint needs it too
-
-                                ; was an editor line up in THIS window? Bank
-    mov al, [di+FS_EDIT]        ; it BEFORE ending one, exactly as fm_onclick
-    mov [fm_wased], al          ; does - the two selection bands below cannot
-                                ; put a rewritten status line back, and this
-                                ; flag is per-CLICK, so a stale one from the
-                                ; last left-click is not an answer
-    call fm_edit_end            ; a right-click abandons a half-typed name
-                                ; exactly as a left one does (SPEC.md 22)
+    call fm_click_in            ; repaint needs it too. Was an editor line
+                                ; up in THIS window? Banked BEFORE ending one,
+                                ; exactly as fm_onclick does - the two
+                                ; selection bands below cannot put a
+                                ; rewritten status line back, and the flag is
+                                ; per-CLICK, so a stale one from the last
+                                ; left-click is not an answer. A right-click
+                                ; abandons a half-typed name exactly as a left
+                                ; one does (SPEC.md 22)
 
     push cx                     ; the popup anchors on the ABSOLUTE press
     push dx                     ; point; everything between here and the pop
@@ -7475,9 +7475,7 @@ fm_draw_rows:
 ; -----------------------------------------------------------------------------
 fm_more_mark:
     call kentc_di
-    mov ax, [fm_cx]
-    mov cx, [fm_rgt]
-    cmp ax, cx
+    call fm_cxrgt
     jg .out                     ; degenerate content: nothing to draw into
 
     mov bx, [fm_cy]
@@ -7725,8 +7723,7 @@ fm_sel_bar:                     ; comes back holding it)
     mov bx, ax                  ; y1 = row band top
     mov dx, ax
     add dx, FM_ROW_H - 1        ; y2
-    mov ax, [fm_cx]
-    mov cx, [fm_rgt]
+    call fm_cxrgt
     sub cx, 15
     call ct_cw_gfx_xor_fill
     jmp short .out
@@ -7812,9 +7809,7 @@ fm_status_only:
     call fm_2line
     jc .refuse                  ; ...or one is about to be
 
-    mov ax, [fm_cx]
-    mov cx, [fm_rgt]
-    cmp ax, cx
+    call fm_cxrgt
     jg .refuse                  ; degenerate content: nothing to draw into
 
     call fm_draw_status
@@ -8131,8 +8126,7 @@ fm_scrollpaint:
     add ax, [fm_by1]
     dec ax
     mov dx, ax                  ; y2 = the last one's bottom
-    mov ax, [fm_cx]
-    mov cx, [fm_rgt]
+    call fm_cxrgt
     sub cx, FM_SB_W             ; the column left of the bar
     call fm_wfill
     call fm_draw_lrows
@@ -8476,6 +8470,12 @@ fm_cellxy:                      ; AX = a VISIBLE grid row, CX = its column ->
     mul dx
     call fm_rowy
     mov [fm_celly], ax
+    ret
+
+fm_cxrgt:                       ; AX = the content's left, CX = its right, and
+    mov ax, [fm_cx]             ; the flags of `cmp ax, cx` - a degenerate
+    mov cx, [fm_rgt]            ; content is `jg` (four callers' opening)
+    cmp ax, cx
     ret
 
 fm_rowy:                        ; AX = a row band's offset in pixels -> its
