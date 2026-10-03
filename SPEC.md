@@ -56971,7 +56971,7 @@ init-less:
 | `inst_charge` | in DI = record (non-zero), DX:AX = a `task_cycles` stamp (§8.1): `task_debit`, then add the returned cycles to I_CYC. Preserves all registers. Called only by the W_PAINT / W_ONKEY / W_ONCLICK dispatch sites (§11/§13), which hold the gfx lock — and a task-owned instance destroys its window, clearing `wm_owner`, under that same lock before its record is freed (29.2), so the record named by wm_owner stays live for the whole charged stretch. |
 | `inst_find_kind` | in AL = kind byte (exact match incl. bit 7); out CF=0 + DI = first record with I_STATE=1 of that kind, CF=1 none. |
 | `inst_alloc` | out CF=0 + DI = a free record **wholly zeroed** — all `I_RECSZ` bytes, so I_NAME, I_WIN and I_TASK go with I_FLAGS/I_SPTR/I_SIZE/I_ICON/I_CYC; CF=1 table full. I_TASK therefore momentarily reads 0 rather than the last tenant's slot, which nothing can see: I_STATE is 0 across the whole gap and every walker skips a free row, and both callers write I_TASK = 0xFF before the record publishes. DF is left clear. Does NOT publish. UI task only. |
-| `inst_set_name` | in DI = record, SI = name source (NUL-terminated or NUL-padded; at most 15 chars taken). Zero-fills all 16 I_NAME bytes first. Safe on a package header's 16-byte name field. |
+| `inst_set_name_x` | in DI = record, **ES:SI** = name source (NUL-terminated or NUL-padded; at most 15 chars taken). Byte I_NAME+15 is always 0 and the tail after a short name is NUL-padded by the same 15-step loop. Safe on a package header's 16-byte name field. The DS-relative `inst_set_name` was a thunk with one caller and is gone (kernel size pass 9): `app_launch` sets ES = DS and calls this. |
 | `inst_bind_win` | in DI = record, BX = window ptr: I_WIN ← BX, `wm_owner[window index]` ← record index. |
 | `app_launch` | in AL = kind (built-in). UI task only, no lock held; takes its own locks. out CF=1 failed (instance/window/task table full — silent no-op for the caller), CF=0 done. Order: cap check (at cap → gfx_lock, clear the live instance's minimized bit, wm_show it, gfx_unlock — i.e. "launch" of a full singleton fronts it; only-dying-instances → CF=1, retry after a task period) → inst_alloc → pool-slot pick (first candidate `pool + s·stride` not held by a same-kind record with I_STATE != 0) → template copied to scratch with x/y cascaded +16·s → wm_create (CF → fail; record was never published), then OR the kind's `KD_WFLAG` byte into the new window's W_FLAGS (§29.3/§11.1) → fill record (I_KIND, I_TASK=0xFF, I_ICON, name) + inst_bind_win → KD_INIT → **publish I_STATE ← 1** → if KD_TASK: task_spawn (AX = entry, DX = instance index), I_TASK ← returned slot; spawn CF → rollback (I_STATE ← 0, then locked wm_destroy) → gfx_lock, wm_show, gfx_unlock. |
 | `app_close_win` | in BX = window ptr; **caller holds the gfx lock**; UI task only. Unowned window → wm_hide (fallback). I_STATE = 2 already → wm_hide (idempotent). Task-less (I_TASK = 0xFF) → I_STATE ← 2, wm_destroy (clears wm_owner, repaints), I_WIN ← 0, I_STATE ← 0 — for a package instance that final store frees the region (rule 29.2.7). Task-owned → I_STATE ← 2 (the die flag), wm_hide (instant feedback); the task tears down at its next wake — and for a package instance that took a §20.6 worker, `task_exit`'s release-byte store is what frees the region. A package instance reaches this second branch exactly when it owns a worker. |
@@ -97770,12 +97770,15 @@ the cheaper mechanism.
 #### 66.0.2 What is compiled out, and what stays
 
 Out: `mem_can_move` and the five predicates only it asks (`mem_is_region`,
-`mem_frameless`, `mem_busy_seg`, `mem_in_nest`, `mem_in_xfer`), the seventeen
-`mem_cp_*` routines, `mem_reloc_call`, `mem_rr_walk` / `mem_region_reloc` /
+`mem_frameless` - a predicate written inline in `mem_can_move` at the local
+label `.frameless` since kernel size pass 9, its one caller - `mem_busy_seg`,
+`mem_in_nest`, `mem_in_xfer`), the `mem_cp_*` routines (seventeen when this
+was written; size pass 9 inlined six single-call ones into the walk), `mem_reloc_call`, `mem_rr_walk` / `mem_region_reloc` /
 `mem_rr_tab`, `mem_compact`, `OSAPI_MEM_MOVABLE`'s body, the four kernel
 relocation procs (`menu_reloc`, `clip_reloc`, and `fm_reloc` / `fmv_movable`
 which §50.6.5 had already taken), the **worker park** (§66.5) entire —
-thirteen routines in `instance.inc`, `gfx_lock`'s two hooks and
+thirteen routines in `instance.inc` (fewer since size pass 9 folded
+single-caller ones into their callers), `gfx_lock`'s two hooks and
 `sch_wk_restart` — and `[mem_pinseg]`, whose only reader was `mem_in_xfer`, so
 its writes in `disk.inc`, `clip.inc` and `hiber.inc` go with it.
 
@@ -98055,7 +98058,8 @@ into the hole above it. The ceiling packs against the ceiling exactly as the
 floor packs against the floor.
 
 **`MC_DMA` bit 15 — a claim goes back through the door it came in by.** It is
-stamped at `mem_claim_1`'s publish site from `[mem_dir]`, alongside the
+stamped at `mem_claim_1`'s publish site from the door's direction (BP there;
+it was the `[mem_dir]` word until size pass 9), alongside the
 page-safe head that shares the word. `mem_cp_mine` is the filter: a claim whose
 door disagrees with the pass in flight is a **barrier** in that pass, exactly
 as a pinned one is, so the two passes never contend for a block and neither can
@@ -98081,15 +98085,18 @@ walk that diverged would report room that never arrives: keeping two bodies in
 step is a thing somebody has to remember, and one body with the moves behind a
 flag is a thing nobody can get wrong. The two DIRECTIONS disagree about
 **eight** decisions and about nothing else, and each is a routine that walk
-calls:
+calls - or, for three of them, a masked three-instruction sequence written once
+at its only call site (kernel size pass 9 inlined `mem_cp_near` into
+`mem_cp_gap` and `mem_cp_far`/`mem_cp_adv` into the walk; there is still one
+copy of each, which is the property this paragraph is about):
 
 | routine | what it answers |
 |---|---|
 | `mem_cp_fill0` | where the fill point and its search key start |
 | `mem_cp_step` | which way the key steps past a claim's original base |
-| `mem_cp_near` | which edge must meet the fill point for a claim to be already packed — its base going up, its end coming down |
-| `mem_cp_far` | where the fill point resumes past a barrier |
-| `mem_cp_adv` | which way the fill point advances past a claim just packed |
+| `mem_cp_near` (in `mem_cp_gap`) | which edge must meet the fill point for a claim to be already packed — its base going up, its end coming down |
+| `mem_cp_far` (in the walk's `.nogap`) | where the fill point resumes past a barrier |
+| `mem_cp_adv` (in the walk's `.stay`) | which way the fill point advances past a claim just packed |
 | `mem_cp_dest` | where a block's bytes are going: the fill point going up, a block-length below it coming down |
 | `mem_cp_gap` | the hole beside a barrier |
 | `mem_cp_tail` | the run past everything, which is the one the pass is usually enlarging |
@@ -98660,7 +98667,9 @@ by construction holds no pointer derived from any claim of its own: it is at
 the top of its own loop. `inst_park_req` raises the request and waits up to
 `INST_PARKW` (**4** ticks); `inst_park_wait` marks the worker parked and spins
 on `task_yield`; `inst_seg_parked` is what `mem_can_move` asks; and
-`inst_park_end` withdraws it. The parked bytes are a **side table**
+`inst_park_end` withdraws it. (Since kernel size pass 9 the last is one store
+of 0 to `[inst_parkreq]` written in `mem_compact`'s exit, and `inst_park_wait`
+is the parking arm inside `inst_pkg_alive`, each having had one caller.) The parked bytes are a **side table**
 (`inst_parked`), because `I_RECSZ` is 32 and full (§20.8 rule 2) —
 `inst_icons` and `wm_owner` are the precedents.
 

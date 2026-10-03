@@ -422,7 +422,7 @@ desk_init:
     cmp cl, DVOL_MAX
     jb .kloop
 
-    call KERNEL_SEG:ovw_desk_rowcalc  ; FAR: overlay -> resident. The row
+    call COLD_SEG:desk_rowcalc_x    ; FAR: overlay -> resident. The row
                                 ; count is geometry, and geometry can change
                                 ; after boot now (SPEC.md 39.11.2), so the
                                 ; arithmetic lives in .text where vid_switch

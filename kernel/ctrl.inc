@@ -3310,7 +3310,7 @@ cp_dock_click:
     je .done                    ; already the setting: change nothing
     mov ah, [dock_cfg]
     mov [dock_cfg], al
-    call KERNEL_SEG:cw_dock_apply
+    call COLD_SEG:dkf_apply
     jnc .changed
     mov [dock_cfg], ah          ; failed enable: keep the working preference
     push cx
