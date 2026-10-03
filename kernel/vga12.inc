@@ -1346,8 +1346,13 @@ gfx_points:
     cmp byte [vid_mono], 0      ; planar adapter - which is gfx_pixel's work
                                 ; either way - and a second display, which
     je .slow                    ; SPEC.md 5.6.9.5 answers by RUNNING rather
-    cmp byte [vid_planes], 1    ; than by measuring. Neither test survives
-    jne .slow                   ; kern_small's assembly, so that build gets
+                                ; than by measuring. Neither test survives
+                                ; kern_small's assembly, so that build gets
+                                ; (ONE byte asks "1bpp?": vid_depth_set is the
+                                ; only writer of the vid_mono/vid_planes pair
+                                ; and stores 0101h or 0400h, so mono IS one
+                                ; plane - the planes test that followed this
+                                ; went in size pass 9)
     cmp byte [vid_ndisp], 1     ; the fast arm alone and `.slow` is a branch
     jbe .pass                   ; nothing can take (5.6.4.5's shape one
     cmp byte [gfx_dnest], 0     ; routine along)
@@ -1372,10 +1377,8 @@ gfx_points:
     ; loop into segment 0: the IVT, the BIOS data area and this kernel's own
     ; .text from 0x0600. vga_xor_rect_vram's banner is the same defect in
     ; sw_col, with the same ending - "the machine rebooted or froze".
-    cmp byte [vid_mono], 0
-    je .unhook
-    cmp byte [vid_planes], 1
-    je .pass
+    cmp byte [vid_mono], 0      ; (1bpp IS one plane - see the gate above)
+    jne .pass
 .unhook:
     call gfx_dleave             ; give the hook back and draw it a point at a
                                 ; time - gfx_pixel resolves each point's own
@@ -4863,9 +4866,9 @@ gfx_scroll:
                                 ; left - and the two edge tests below then
                                 ; REFUSE a rect that reaches past that display,
                                 ; which is 39.14.2's straddle rule for free
-    test ax, 7                  ; byte-column granularity on every adapter
-    jnz .no
-    mov di, cx
+    test al, 7                  ; byte-column granularity on every adapter
+    jnz .no                     ; (the LOW byte is all the test reads, and the
+    mov di, cx                  ; 8-bit form is a byte shorter - size pass 9)
     inc di
     test di, 7
     jnz .no
