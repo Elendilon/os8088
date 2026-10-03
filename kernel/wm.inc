@@ -8533,7 +8533,9 @@ wm_su_segs: times MAX_WIN dw 0  ; the banked content, one word per window
                                 ; after wm_su_y2: see the %if there)
 wm_su_kany: db 0                ; ...and whether any of them is non-zero
 wm_su_ftab: times 16 dw 0       ; the four fragment rects, x1/y1/x2/y2 each;
-                                ; an empty one has x1 > x2 (SPEC.md 11.96.11.1)
+                                ; an empty one has x1 > x2 or y1 > y2
+                                ; (SPEC.md 11.96.11.1, and wm_su_flay's
+                                ; table says which)
 wm_su_fn: dw 0                  ; ...which one the loop in hand is on
 wm_su_fsz: dw 0                 ; ...and how many buffer bytes it occupies
 wm_su_scrb: dw 0                ; where the fragments end and 11.96.2's edge
@@ -8932,85 +8934,32 @@ wm_cov_rect:
 ; -----------------------------------------------------------------------------
 ; wm_cov_add - fold (window BX's frame INTERSECT wm_cov_c1..c4) into the box
 ; in:  BX = an occluder above us, visible; wm_cov_c1..c4 = our content rect
-; out: nothing; AX/CX/SI/DI preserved (the walk above holds all four)
+; out: nothing; every register preserved (the walk above holds AX, CX and SI)
 ;
-; The overlap is settled FIRST, by four compares, and only then is each edge
-; clamped and folded - which is what lets the four axes be done one at a time
-; with two registers instead of holding a whole intersection rect.
+; It is three shared calls, and since size pass 9 nothing of its own: the frame
+; is wm_win_rect's - x + w and y + h, drop shadow included, one less on a
+; fullscreen window, which has no shadow (SPEC.md 11.2), the same two edges
+; wm_obscured tests - gfx_rect_isectcf clips it to our content and says whether
+; anything is left, and wm_runion folds what is left into the box. "Do the two
+; overlap" and "is their intersection non-empty" are the same question for two
+; non-empty rects, which is what the four compares this replaced asked first;
+; it was 145 bytes of open-coded clamp and fold, and its two edge helpers.
 ; -----------------------------------------------------------------------------
 wm_cov_add:
     push ax
+    push bx
+    push cx
     push dx
-    mov ax, [bx+W_X]
-    cmp ax, [wm_cov_c3]
-    jg .out                     ; entirely to our right
-    mov ax, [bx+W_Y]
-    cmp ax, [wm_cov_c4]
-    jg .out                     ; entirely below us
-    call wm_cov_ox2             ; AX = its right edge, drop shadow included
-    cmp ax, [wm_cov_c1]
-    jl .out                     ; entirely to our left
-    mov dx, ax                  ; ...banked: the y test clobbers AX
-    call wm_cov_oy2
-    cmp ax, [wm_cov_c2]
-    jl .out                     ; entirely above us
-    cmp ax, [wm_cov_c4]         ; --- y2 = min(its bottom, our bottom)
-    jle .y2
-    mov ax, [wm_cov_c4]
-.y2:
-    cmp ax, [wm_cov_y2]
-    jle .x2
-    mov [wm_cov_y2], ax
-.x2:
-    cmp dx, [wm_cov_c3]         ; --- x2 = min(its right, our right)
-    jle .x2f
-    mov dx, [wm_cov_c3]
-.x2f:
-    cmp dx, [wm_cov_x2]
-    jle .y1
-    mov [wm_cov_x2], dx
-.y1:
-    mov ax, [bx+W_Y]            ; --- y1 = max(its top, our top)
-    cmp ax, [wm_cov_c2]
-    jge .y1f
-    mov ax, [wm_cov_c2]
-.y1f:
-    cmp ax, [wm_cov_y1]
-    jge .x1
-    mov [wm_cov_y1], ax
-.x1:
-    mov ax, [bx+W_X]            ; --- x1 = max(its left, our left)
-    cmp ax, [wm_cov_c1]
-    jge .x1f
-    mov ax, [wm_cov_c1]
-.x1f:
-    cmp ax, [wm_cov_x1]
-    jge .out
-    mov [wm_cov_x1], ax
-.out:
-    pop dx
-    pop ax
-    ret
-
-; wm_cov_ox2 / wm_cov_oy2 - window BX's right and bottom edges in AX, drop
-; shadow included: x+w and y+h, one less on a fullscreen window, which has no
-; shadow (SPEC.md 11.2). wm_obscured tests the same two edges the same way.
-wm_cov_ox2:                     ; W_X/W_W and W_Y/W_H are +0 and +2 apart, so
-    push si                     ; the two differ by an index (SI is live in
-    xor si, si                  ; wm_cov_add's walk, hence the bank)
-    jmp short wm_cov_o2
-wm_cov_oy2:
     push si
-    mov si, 2
-wm_cov_o2:
-    mov ax, [bx+si+W_X]
-    add ax, [bx+si+W_W]
-    test byte [bx+W_FLAGS], WF_FULL
-    jz .out
-    dec ax
+    mov si, bx
+    call wm_win_rect            ; AX..DX = its frame, shadow included
+    mov si, wm_cov_c1
+    call gfx_rect_isectcf       ; ...cut to our content, CF = 1 = nothing left
+    jc .out
+    mov si, wm_cov_x1
+    call wm_runion              ; ...and grown into the box
 .out:
-    pop si
-    ret
+    jmp kret_si
 
 ; -----------------------------------------------------------------------------
 ; wm_su_sub - the next window drawn owes only this rect (SPEC.md 11.96.6)
@@ -9278,7 +9227,7 @@ wm_su_rect:
 ; in:  DI = window ptr
 ; out: wm_su_x1..y2 = its CONTENT rect, wm_su_kex[0..3] = the extents clamped
 ;      to fit it, wm_su_kany = are there any, wm_su_ftab = the four fragments
-;      (an empty one has x1 > x2). Every register preserved.
+;      (an empty one has x1 > x2 or y1 > y2). Every register preserved.
 ;
 ; The clamp is left-then-right and top-then-bottom, each into what the one
 ; before it left, so two bands that together overrun the content cannot make a
@@ -9355,207 +9304,149 @@ wm_su_1bpp:
     ret
 %endif
 
+; WSU_CLAMP2 - store the two band bytes at DS:SI at ES:DI, the first clamped to
+; BX and the second to what the first left of it. SI += 2, DI += 2; AX and BX
+; clobbered. A macro and not a routine: wm_su_flay runs on every window paint
+; and a call per pair would hand back the cycles the branch-free fragment
+; table below pays for.
+%macro WSU_CLAMP2 0
+    lodsb
+    mov ah, 0
+    cmp ax, bx
+    jbe %%a
+    mov ax, bx
+%%a:
+    stosb
+    sub bx, ax
+    lodsb
+    mov ah, 0
+    cmp ax, bx
+    jbe %%b
+    mov ax, bx
+%%b:
+    stosb
+%endmacro
+
 wm_su_flay:
     push ax
     push bx
     push cx
     push dx
     push si
+    push di
+    push bp
     call wm_su_rect
     mov [wm_su_x1], ax
     mov [wm_su_y1], bx
     mov [wm_su_x2], cx
     mov [wm_su_y2], dx
-
+    sub dx, bx
+    inc dx                      ; DX = the content's height...
+    sub cx, ax
+    inc cx                      ; ...and CX its width
 %ifdef KERN_BIG
     push cx                     ; ...and HOW DEEP the display holding it is,
-    push dx                     ; before anything sizes a buffer from it. Here
-    call vid_disp_planes        ; because this is the one routine both the take
-    mov [WM_SU_PW], cx          ; and the check reach the content rect through
-    pop dx                      ; (AX/BX are still its top-left)
-    pop cx
-%endif                          ; kern_small: WM_SU_PW IS [vid_planes_w] and
-                                ; there is nothing to establish
-
+    call vid_disp_planes        ; before anything sizes a buffer from it. Here
+    mov [WM_SU_PW], cx          ; because this is the one routine both the take
+    pop bx                      ; and the check reach the content rect through
+%else                           ; (AX/BX are still its top-left; it clobbers CX
+    mov bx, cx                  ; alone). kern_small: WM_SU_PW IS
+%endif                          ; [vid_planes_w] and there is nothing to
+                                ; establish. BX = the width either way
     lea si, [di+W_SUEXT]
-    mov ax, cx
-    sub ax, [wm_su_x1]
-    inc ax                      ; AX = the content's width...
-    mov bx, ax
-    mov al, [si]
-    xor ah, ah
-    cmp ax, bx
-    jbe .l
-    mov ax, bx
-.l:
-    mov [wm_su_kex+0], al
-    sub bx, ax                  ; ...and what the left band left of it
-    mov al, [si+1]
-    xor ah, ah
-    cmp ax, bx
-    jbe .r
-    mov ax, bx
-.r:
-    mov [wm_su_kex+1], al
-    mov ax, dx
-    sub ax, [wm_su_y1]
-    inc ax                      ; AX = the height, same again
-    mov bx, ax
-    mov al, [si+2]
-    xor ah, ah
-    cmp ax, bx
-    jbe .t
-    mov ax, bx
-.t:
-    mov [wm_su_kex+2], al
-    sub bx, ax
-    mov al, [si+3]
-    xor ah, ah
-    cmp ax, bx
-    jbe .b
-    mov ax, bx
-.b:
-    mov [wm_su_kex+3], al
-    mov al, [wm_su_kex+0]
-    or al, [wm_su_kex+1]
-    or al, [wm_su_kex+2]
-    or al, [wm_su_kex+3]
+%ifdef KERN_BIG
+    mov bp, di                  ; (the window, for wm_su_1bpp's W_FLAGS)
+%endif
+    push es
+    push ds
+    pop es                      ; ES = DS for the STOSBs here and the STOSWs
+    mov di, wm_su_kex           ; below; the ladder gives the caller's DI back
+    WSU_CLAMP2                  ; left, then right into what the left left
+    mov bx, dx
+    WSU_CLAMP2                  ; top, then bottom, the same again
+    mov ax, [wm_su_kex]
+    or ax, [wm_su_kex+2]
+    or al, ah                   ; AL = any of the four
     mov [wm_su_kany], al
 %ifdef KERN_BIG
+    mov di, bp
     call wm_su_1bpp             ; ...OR ONE PLANE (SPEC.md 11.96.17), and HERE
     jc .deep                    ; rather than beside vid_disp_planes because
     mov word [WM_SU_PW], 1      ; the answer needs [wm_su_kany], which the
-.deep:                          ; clamping above has only just settled
-    mov al, [wm_su_kany]        ; (...and the branch below wants its flags)
-    or al, al
-%endif
-    jnz .frags
-    mov ax, [wm_su_x1]          ; no bands: fragment 0 is the whole content
-    mov [wm_su_ftab+0], ax
-    mov ax, [wm_su_y1]
-    mov [wm_su_ftab+2], ax
-    mov ax, [wm_su_x2]
-    mov [wm_su_ftab+4], ax
-    mov ax, [wm_su_y2]
-    mov [wm_su_ftab+6], ax
-    mov si, 1
-    call wm_su_fnil
-    mov si, 2
-    call wm_su_fnil
-    mov si, 3
-    call wm_su_fnil
-    jmp .out
-.frags:
-    ; --- 0 TOP: (x1, y1, x2, y1 + t - 1), full width -----------------------
-    mov al, [wm_su_kex+2]
-    xor ah, ah
-    or ax, ax
-    jz .notop
-    add ax, [wm_su_y1]
-    dec ax
-    mov [wm_su_ftab+6], ax
-    mov ax, [wm_su_x1]
-    mov [wm_su_ftab+0], ax
-    mov ax, [wm_su_y1]
-    mov [wm_su_ftab+2], ax
-    mov ax, [wm_su_x2]
-    mov [wm_su_ftab+4], ax
-    jmp short .bot
-.notop:
-    xor si, si
-    call wm_su_fnil
-.bot:
-    ; --- 1 BOTTOM: (x1, y2 - b + 1, x2, y2), full width --------------------
-    mov al, [wm_su_kex+3]
-    xor ah, ah
-    or ax, ax
-    jz .nobot
+.deep:                          ; clamping above has only just settled.
+%endif                          ; wm_su_1bpp preserves AL: the flags below
+    or al, al                   ; are the bands' (ZF = there are none)
+    ; --- the four fragments, laid out WITHOUT A BRANCH PER FRAGMENT --------
+    ; With l, r, t, b the clamped extents and mid1 = y1 + t, mid2 = y2 - b:
+    ;   0 TOP    (x1,          y1,       x2,          mid1 - 1)
+    ;   1 BOTTOM (x1,          mid2 + 1, x2,          y2)
+    ;   2 LEFT   (x1,          mid1,     x1 + l - 1,  mid2)
+    ;   3 RIGHT  (x2 - r + 1,  mid1,     x2,          mid2)
+    ; and a band of width zero comes out EMPTY on its own - TOP with t = 0 has
+    ; y2 = y1 - 1, LEFT with l = 0 has x2 = x1 - 1, and LEFT and RIGHT both have
+    ; mid1 > mid2 when the strips meet - which is all wm_su_frag ever asks
+    ; (x1 > x2 OR y1 > y2, signed). That is what retired wm_su_fnil and its
+    ; seven calls. NO BANDS is the same table with mid1 = y2 + 1: TOP is then the
+    ; whole content and the other three are empty, which is SPEC.md 11.96.11.1's
+    ; "fragment 0 is the WHOLE content and 1..3 are empty" to the coordinate,
+    ; and b = 0 there, so mid2 = y2 needs nothing.
+    mov si, [wm_su_x1]
+    mov cx, [wm_su_x2]
     mov bx, [wm_su_y2]
-    sub bx, ax
-    inc bx
-    mov [wm_su_ftab+10], bx
-    mov ax, [wm_su_x1]
-    mov [wm_su_ftab+8], ax
-    mov ax, [wm_su_x2]
-    mov [wm_su_ftab+12], ax
-    mov ax, [wm_su_y2]
-    mov [wm_su_ftab+14], ax
-    jmp short .mid
-.nobot:
-    mov si, 1
-    call wm_su_fnil
-.mid:
-    ; --- the rows LEFT and RIGHT share: y1 + t .. y2 - b -------------------
-    mov al, [wm_su_kex+2]
-    xor ah, ah
-    add ax, [wm_su_y1]
-    mov bx, ax                  ; BX = the middle band's first row
+    mov bp, bx                  ; BP = mid2 if there is no bottom band
+    jz .whole                   ; ...and BX + 1 = mid1 if there are no bands
     mov al, [wm_su_kex+3]
     xor ah, ah
-    mov cx, [wm_su_y2]
-    sub cx, ax                  ; CX = ...and its last
-    cmp bx, cx
-    jle .side
-    mov si, 2                   ; nothing between the strips: no sides
-    call wm_su_fnil
-    mov si, 3
-    call wm_su_fnil
-    jmp short .out
-.side:
-    ; --- 2 LEFT: (x1, mid1, x1 + l - 1, mid2) ------------------------------
+    sub bp, ax                  ; BP = mid2 = y2 - b
+    mov al, [wm_su_kex+2]
+    xor ah, ah
+    mov bx, [wm_su_y1]
+    add bx, ax
+    dec bx                      ; BX + 1 = mid1 = y1 + t
+.whole:
+    inc bx                      ; BX = mid1
+    mov di, wm_su_ftab
+    mov ax, si                  ; 0 TOP
+    stosw
+    mov ax, [wm_su_y1]
+    stosw
+    mov ax, cx
+    stosw
+    lea ax, [bx-1]
+    stosw
+    mov ax, si                  ; 1 BOTTOM
+    stosw
+    lea ax, [bp+1]
+    stosw
+    mov ax, cx
+    stosw
+    mov ax, [wm_su_y2]
+    stosw
+    mov ax, si                  ; 2 LEFT
+    stosw
+    mov ax, bx
+    stosw
     mov al, [wm_su_kex+0]
     xor ah, ah
-    or ax, ax
-    jz .noleft
-    add ax, [wm_su_x1]
+    add ax, si
     dec ax
-    mov [wm_su_ftab+20], ax
-    mov ax, [wm_su_x1]
-    mov [wm_su_ftab+16], ax
-    mov [wm_su_ftab+18], bx
-    mov [wm_su_ftab+22], cx
-    jmp short .right
-.noleft:
-    mov si, 2
-    call wm_su_fnil
-.right:
-    ; --- 3 RIGHT: (x2 - r + 1, mid1, x2, mid2) -----------------------------
-    mov al, [wm_su_kex+1]
+    stosw
+    mov ax, bp
+    stosw
+    mov al, [wm_su_kex+1]       ; 3 RIGHT
     xor ah, ah
-    or ax, ax
-    jz .noright
-    mov dx, [wm_su_x2]
-    sub dx, ax
-    inc dx
-    mov [wm_su_ftab+24], dx
-    mov [wm_su_ftab+26], bx
-    mov ax, [wm_su_x2]
-    mov [wm_su_ftab+28], ax
-    mov [wm_su_ftab+30], cx
-    jmp short .out
-.noright:
-    mov si, 3
-    call wm_su_fnil
-.out:
-    jmp kret_si
-
-; wm_su_fnil - mark fragment SI empty (x1 > x2, which every reader already
-;              treats as nothing to do). Preserves every register.
-wm_su_fnil:
-    push ax
-    push si
-    add si, si
-    add si, si
-    add si, si
-    mov ax, 1
-    mov [si+wm_su_ftab+0], ax
-    xor ax, ax
-    mov [si+wm_su_ftab+2], ax
-    mov [si+wm_su_ftab+4], ax
-    mov [si+wm_su_ftab+6], ax
-    pop si
-    pop ax
-    ret
+    neg ax
+    add ax, cx
+    inc ax
+    stosw
+    mov ax, bx
+    stosw
+    mov ax, cx
+    stosw
+    mov ax, bp
+    stosw
+    pop es
+    jmp kret_bp
 
 ; wm_su_frag - fragment [wm_su_fn] (0..3) of the laid-out region
 ; in:  [wm_su_fn] = 0..3, in memory rather than a register because every loop
@@ -9704,29 +9595,25 @@ wm_su_bget:
 ; in:  DI = window ptr
 ; out: AX/BX/CX/DX; clobbers those and flags
 ;
+;
 ; It insets by wm_su_flay's CLAMPED extents, so the kept rect and the fragments
-; are complementary by construction rather than by two arithmetics agreeing.
+; are complementary by construction rather than by two arithmetics agreeing -
+; and since size pass 9 it does not even do the arithmetic once more: the inset
+; rect IS what wm_su_flay's table already says. Its left edge is one past
+; LEFT's x2 (x1 + l), its right edge one short of RIGHT's x1 (x2 - r), and its
+; rows are the middle band LEFT and RIGHT share (mid1 = y1 + t, mid2 = y2 - b).
+; With no bands that table has mid1 = y2 + 1, so the answer is EMPTY - the
+; whole content is fragment 0, which is the same "the bands were the whole of
+; it" the clamped case already permits. wm_damage only asks when a band was
+; named, so that arm is a consistency rather than a path.
 wm_su_orect:
-    push si                     ; the four results are INDEPENDENT, so each
-    call wm_su_flay             ; extent applies to its own register and only
-    mov bx, [wm_su_y1]          ; x1 needs a bank - which SI, already pushed,
-    mov cx, [wm_su_x2]          ; is. BP used to hold every one of them in
-    mov dx, [wm_su_y2]          ; turn, which is also the one place in this
-    mov si, [wm_su_x1]          ; file that needed the "BP as a plain scratch
-    mov al, [wm_su_kex+0]       ; register is legal" note
-    xor ah, ah
-    add si, ax
-    mov al, [wm_su_kex+1]
-    xor ah, ah
-    sub cx, ax
-    mov al, [wm_su_kex+2]
-    xor ah, ah
-    add bx, ax
-    mov al, [wm_su_kex+3]
-    xor ah, ah
-    sub dx, ax
-    mov ax, si
-    pop si
+    call wm_su_flay
+    mov ax, [wm_su_ftab+20]     ; LEFT's x2 = x1 + l - 1
+    inc ax
+    mov bx, [wm_su_ftab+18]     ; LEFT's y1 = mid1
+    mov cx, [wm_su_ftab+24]     ; RIGHT's x1 = x2 - r + 1
+    dec cx
+    mov dx, [wm_su_ftab+22]     ; LEFT's y2 = mid2
     ret
 
 ; wm_su_slot - which cache belongs to a window
