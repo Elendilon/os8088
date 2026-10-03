@@ -3492,7 +3492,9 @@ dskw_wabody:
     jc .jio                     ; a media error, mapped as one: 03h is
     jmp short .size             ; FERR_WPROT here as on every other write path
 .jio:
-    jmp dskw_ioerr
+    cmp al, 1                   ; AL = 2 is the CHAIN ending before the size
+    jne .jcor                   ; said: corruption, not [dsk_ioerr]'s last
+    jmp dskw_ioerr              ; (and possibly stale) transfer status
 .jcor:                          ; TWO RELAYS, here where nothing falls in:
     jmp dskw_rdata.corrupt      ; .corrupt and .badarg above are out of short
 .jbad:                          ; reach of this arm on kern_big, so its five
@@ -3559,7 +3561,7 @@ dskw_wabody:
     xchg bx, ax
 .link:
     call dskw_setfat            ; THE link: last -> first. setfat refuses an
-    jc .out2                    ; empty file's 0 with CF = 0: no link
+    jc .lnkio                   ; empty file's 0 with CF = 0: no link
     call dskw_flush_x
     jc .out2
 
@@ -3617,6 +3619,8 @@ dskw_wabody:
     stc
 .out2:
     ret
+.lnkio:                         ; setfat's CF = 1 is a FAT window that would
+    jmp dskw_ioerr              ; not load, with AX still a CLUSTER: map it
 %ifdef DSKW_WSEQ
     ; --- HELD: an unreachable chain grows; dws_commit links it -------------
 .held:
@@ -3632,7 +3636,7 @@ dskw_wabody:
 .hmore:
     mov dx, [dskw_first]        ; the held tail -> the new sub-chain: both
     call dskw_setfat            ; unreachable, so any flush of it is harmless
-    jc .out2                    ; (and no sync: nothing the disk shows moved)
+    jc .lnkio                   ; (and no sync: nothing the disk shows moved)
     mov ax, [dws_hfirst]        ; ...and the record goes on naming the HELD
     mov [dskw_first], ax        ; chain's head, not this call's
 

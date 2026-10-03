@@ -32516,8 +32516,13 @@ went red on the identical code that passed with the floor one rung higher.
 
 So `dsk_runcap` answers **0**, and `dsk_xfer` banks the caller's ES, BX and
 count in `dsk_bnc_*` (the count, never 0 there, doubling as the flag), copies the sector into `dsk_secbuf` for a write, and
-sends **that one sector** round `.sector` again with ES:BX on the scratch -
-which is 512-aligned and cannot straddle. `.success` then puts the caller's
+sends **that one sector** round the transfer again with ES:BX on the scratch -
+which is 512-aligned and cannot straddle. It re-enters at `.nocache` and NOT at
+`.sector`, past §18.95's gate: the cache missed that very LBA one pass earlier,
+and at a count of 1 its gate would FILL, which re-enters `dsk_xfer` with the
+bounce flag up - and the inner `.success` would then unbounce the OUTER
+transfer, copying a stale scratch out and reading the rest of the run from the
+wrong LBA under `CF = 0`. `.success` then puts the caller's
 buffer back, copies the sector out for a read, and carries on with the rest
 of the run; `.fail` puts the caller's ES back. It is staged in the LOOP and
 not by calling `dsk_xfer` again, because the routine's head calls `fpg_busy`,

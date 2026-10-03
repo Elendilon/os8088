@@ -3813,9 +3813,7 @@ fm_onkey_x:
     ; leaves a bit outside {1,8} set (checked over all 256). DL is free here:
     ; the .mount path's `mov dl,` are earlier branches that never fall through,
     ; fm_onkey_x pushes DX, and fm_layout preserves DX and AX
-%ifdef KERN_BIG
 .keys:
-%endif
     mov dl, ah
     sub dl, 0x48
     test dl, 0xF6
@@ -4013,13 +4011,11 @@ fm_onkey_x:
     ; The editor's keys, AFTER the exit (size pass 8): the command keys'
     ; bodies above are then a short je from the ladder
 .editing:
-%ifdef KERN_BIG
     cmp byte [di+FS_EDIT], FM_ESAVE
     jne .notbox                 ; a Save chooser's box takes the characters
-    or al, al                   ; and leaves the arrows to the selection
-    jz .keys
+    or al, al                   ; and leaves the arrows to the selection - or,
+    jz .keys                    ; on kern_small, to the scroll (SPEC.md 38.4)
 .notbox:
-%endif
     or al, al
     jnz .edkey                  ; a bare scan code is swallowed and nothing
     cmp ax, 0x5300              ; moves - with ONE exception, because the key

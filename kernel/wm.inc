@@ -4332,6 +4332,8 @@ wm_fullscreen:
     pop bp
     jmp short .ok
 .ours:
+    or bx, bx                   ; [wm_fs] = 0 = BX is NOBODY's latch, not
+    jz .ok                      ; ours: exit with no owner stays a no-op
     or al, al
     jnz .ok                     ; already ours: no-op
                                 ; ...and only the holder puts it down. BX is

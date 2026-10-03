@@ -1015,6 +1015,22 @@ class UI:
         if entry < 0:
             raise UIError("entry %d is not a row" % entry)
 
+        # ON kern_big A SELECTION TAKES THE ARROWS (SPEC.md 22.26): the key
+        # moves [FS_SEL] and [FS_SCRL] only follows once it leaves the view,
+        # so a step that moved the SELECTION is progress too - read as the end
+        # stop, it returned a row below the window (a launched package leaves
+        # its row selected, so the second open() in a window hit it). Walking
+        # the selection keeps the follow honest: Up to the top puts both at 0,
+        # and Down stops the moment the view's first row reaches `entry`.
+        def sel():
+            base = self._fsblk(win) if win is not None else None
+            if base is None:
+                vp = self._word("fm_vp")
+                if not vp:
+                    return 0
+                base = (geom.KERNEL_SEG << 4) + vp
+            return _u16(self.m.read(base + geom.FS_SEL, 2))
+
         def step(key):
             """One arrow, then wait for [FS_SCRL] to move. Did it?
 
@@ -1031,25 +1047,25 @@ class UI:
             these, which used to turn one navigation into half a minute. The
             word is what the answer is computed from anyway.
             """
-            was = self.scroll(win)
+            was = (self.scroll(win), sel())
             self.m.key(key)
             c0 = self.m.status()["cycles"]
             while True:
-                if self.scroll(win) != was:
+                if (self.scroll(win), sel()) != was:
                     return True
                 spent = (self.m.status()["cycles"] - c0) / os88marty.GUEST_HZ
                 if spent >= T_STEP:
                     return False
                 time.sleep(POLL)
 
-        for _ in range(40):                 # to the top first, so the walk
+        for _ in range(200):                # to the top first, so the walk
             if self.scroll(win) == 0:       # below is one-directional and
                 break                       # cannot oscillate
             if not step("ArrowUp"):
                 break
         else:
             raise UIError("the list would not scroll to the top")
-        for _ in range(40):
+        for _ in range(200):                # a selection walks a row a key
             if self.scroll(win) >= entry:
                 break
             if not step("ArrowDown"):       # the END STOP: it clamped, so

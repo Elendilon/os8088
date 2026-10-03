@@ -1839,7 +1839,11 @@ dsk_xfer:
     pop es                      ; ES:BX = LOW_SEG:dsk_secbuf, the sector's
     mov bx, dsk_secbuf          ; new home for one pass
     mov si, 1                   ; this one sector, then .success
-    jmp .sector
+    jmp .nocache                ; NOT .sector: the cache missed this very LBA
+                                ; one pass ago, and at SI = 1 its gate would
+                                ; now FILL - re-entering dsk_xfer with
+                                ; [dsk_bnc_si] set, whose .success would then
+                                ; unbounce THIS transfer against its own state
 .unbounce:
     mov al, 0x02
     call .bcp                   ; a read's sector out to the caller
