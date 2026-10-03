@@ -30169,9 +30169,10 @@ The FAT routines (all UI-task-only like the rest of the module; all in
 ### 18.1 Mount-derived variables (kernel .bss)
 
 Valid only after a successful mount — every consumer is already gated by
-`disk_nfiles` ≠ 0 (readers) or by `[dsk_mntok]` (writers, §18.4). 90 bytes
-including `dsk_cherr`, `dsk_read_chain`'s failure-code byte carried across
-its register-restore epilogue.
+`disk_nfiles` ≠ 0 (readers) or by `[dsk_mntok]` (writers, §18.4). 89 bytes.
+`dsk_read_chain`'s failure code no longer rides a byte of its own across the
+epilogue: it is written into the banked AX on the stack, so the ladder's
+`pop ax` returns it.
 
 ```nasm
 dsk_bpbh:     resb 18  ; staged BPB fields 11..28 (mount scratch, §18.2),
@@ -30185,8 +30186,6 @@ dsk_rootlba:  resw 1   ; first root-dir LBA
 dsk_rootsecs: resw 1   ; root-dir sector count (<= 32)
 dsk_datalba:  resw 1   ; FirstDataSec
 dsk_maxclus:  resw 1   ; CountOfClusters+1 = highest valid cluster number
-dsk_cherr:    resb 1   ; dsk_read_chain failure code, carried across the
-                       ; register-restore epilogue
 dsk_op:       resb 1   ; int 13h function for dsk_xfer: 02h read / 03h write
 dsk_ioerr:    resb 1   ; last int 13h status (AH) of a FAILED transfer;
                        ; 03h = write-protected media (§18.4)
@@ -36667,7 +36666,9 @@ all-zero slot, and viewers fall back to the built-in `ico_app16` (§25).
 **Type 2 and type 3 are the one exception**: a folder has nothing on disk to
 harvest an icon *from*, so `dsk_folder_ico` — a hand-authored 16×16 body in
 `disk.inc`'s `.text`, the only icon in the kernel besides the menu-bar logo
-that is drawn by hand — is copied into the slot instead. Doing it at
+that is drawn by hand — is copied into the slot instead. (It is held as
+eleven runs of identical rows, 34 bytes, and `dsk_ico_stage` expands them
+with a `rep stosw` each: kernel size pass 9.) Doing it at
 harvest time rather than at draw time means every viewer keeps the one rule
 it already had: read `disk_icons` entry i, fall back to `ico_app16` if it
 is all zero.
@@ -48882,7 +48883,7 @@ cap. That is the whole reason this section is `kern_small`'s.
 
 **One more thing that is not duplicated, because the wording invites the
 error:** there is exactly ONE folder icon in this kernel. `dsk_folder_ico` is
-a single hand-authored 64-byte body (§19.2) and `icons.inc` holds no duplicate
+a single hand-authored 64-byte body (§19.2, held as runs) and `icons.inc` holds no duplicate
 assets at all — §25.7 deduped the four drive icons already. The twelve copies
 were in the harvest BUFFER at run time, made by `dsk_put_icon_k_x` copying
 those same 64 bytes per folder. No duplicated bytes ship in the image.
