@@ -2614,10 +2614,11 @@ fm_count:
     add si, I_RECSZ
     dec dx
     jnz .scan
-    cmp word [fdlg_blk], 0      ; ...less the Standard File chooser, which
-    je .nch                     ; has the fifth block to itself (SPEC.md
-    dec cx                      ; 38.1) and is not one of the USER's four
-.nch:
+                                ; (the Standard File chooser is counted too,
+                                ; and need not be excused: while it is up
+                                ; it is MODAL, so the only route here is its
+                                ; own Open in New Window - which fm_newwin
+                                ; refuses first. SPEC.md 38.1)
     pop si
     pop dx
     ret

@@ -62346,7 +62346,15 @@ resident. The Open/Save split inside it was never the cost (the Save-only
 half was ~540 bytes and the mode tests ~70); the cost was the browser. The
 chooser now **is** a Disk window, and what `fdlg.inc` adds is the part that
 is genuinely the dialog's: who asked, modality, the two forms' commit rules,
-the button column, the remembered folder and the callback. The API slot, the
+the button column, the remembered folder and the callback.
+
+**What it bought, measured against the tree before it** (`kernsize --json`,
+`.text` + `.bss` + `.cold`): **`kern_big` −1,744 resident bytes** (93,357 →
+91,613), and the cold rung uncrossed with it. **`kern_small` +7** (62,806 →
+62,813), while `FDLG.DRV` went 3,214 → 1,716 bytes and its claim 4KB → 2KB:
+on that build the browser was never resident, so the saving is the module's
+and the resident side paid for the hooks - of the +7, 13 bytes are §38.3's
+release gesture and 12 are §38.5's requester fix. The API slot, the
 driver slot and the completion contract are **unchanged to the register**
 (§38.6), so not one package, driver or C program was touched.
 
@@ -62363,9 +62371,11 @@ what the chooser costs while it is up.
 **The fifth slot (binding).** The Disk kind's `KD_CAP` is `VIEW_SLOTS + 1`
 and `fm_pool` carries `FM_NSLOT = FM_MAXWIN + 1` blocks, but every route that
 makes a Disk window for the USER (`fm_choose`, `fm_newwin`) counts against
-`FM_MAXWIN` through `fm_count`, **which does not count the chooser**. So the
-user can hold four Disk windows and the fifth pool block is the chooser's
-whenever one is up: **a dialog is never refused for want of a Disk window.**
+`FM_MAXWIN` through `fm_count`. So the user can hold four Disk windows and
+the fifth pool block is the chooser's whenever one is up: **a dialog is never
+refused for want of a Disk window.** `fm_count` counts the chooser too and
+need not excuse it: while one is up it is modal, so the only route to a new
+user window is its own *Open in New Window*, which `fm_newwin` refuses first.
 It costs one `FS_SIZE` block of `.bss` (61 bytes on `kern_big`, 24 on
 `kern_small`) and, on `kern_small`, one more purge tag in `MEM_P_VIEW`'s
 reserved `0x10..0x1F` range. What can still refuse is what always could: a
@@ -62392,7 +62402,6 @@ hook sites in §38.9 and nowhere else:
 | content width | the window's | the window's less `FD_COLW`, the button column (§38.3) |
 | status line at rest | Size / Free | Save form: the name box, `Save as:` (edit mode 8, §38.5) |
 | Open in New Window | opens one | refused with a beep: it would land over a modal chooser |
-| counted by `fm_count` | yes | **no** |
 
 Everything else — the listing, icons and list view, folder dive and `..`,
 Backspace, the A/B keys, Refresh, the scroll bar, the right-click menu with
@@ -62584,6 +62593,18 @@ editor built for prompts that end:
 
 So `fdlg_name` is always the truth between keystrokes, and `fm_ebuf` is the
 truth while one is being typed.
+
+**While a chooser is up, `fm_edit_end` ends only the chooser's own prompt.**
+Its rule for every other Disk window - *a click anywhere ends every prompt,
+because the buffer is shared* - was right while a click in one Disk window
+meant the user had left the other, and is wrong for the one Disk window that
+is a question asked ON BEHALF of another: Clone to an image opens the Save
+chooser from inside its own prompt (mode 7, holding `CLONE.DRV`'s claim), and
+the first click in the chooser - Drive, to reach B: - ended the clone, freed
+the claim, and the save then failed *Not compressed*. `tests/wimgtrip.py`
+found it. Nothing else is exposed by the exception: the requester's prompts
+that can be up under a chooser (4 to 7) keep their text in `fm_onam` and
+their own claims, not in `fm_ebuf`.
 
 ### 38.6 The API slot 0x0124 and the completion callback
 
@@ -88477,9 +88498,9 @@ bodies into `.modd`, which `tools/os88mod.py` cuts out as **`FDLG.DRV`**, and
 §38.1 made the chooser a Disk window the image is the **glue** and nothing
 else - the listing, rows, scroll bar, editor and header it once carried are
 `files.inc`'s, resident on both builds - so it shrank from **3,214 bytes in a
-4KB claim to ~1,500 in a 2KB one** (`os88mod.py` prints the figure on every
-`make small`), and the dialog's whole resident cost on this build went
-**down by 34 bytes** while it did.
+4KB claim to 1,716 in a 2KB one** (`os88mod.py` prints the figure on every
+`make small`), while the resident side of this build moved **+7 bytes** (the
+hooks, the release gesture and the requester fix, §38).
 
 It is §22.3.0's shape and obeys §22.3.0.1's three rules, with `filecp.inc`
 as the worked example. What is particular to it:
