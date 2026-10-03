@@ -3904,12 +3904,20 @@ fm_onkey_x:
     ; leaves a bit outside {1,8} set (checked over all 256). DL is free here:
     ; the .mount path's `mov dl,` are earlier branches that never fall through,
     ; fm_onkey_x pushes DX, and fm_layout preserves DX and AX
+%ifdef KERN_BIG
+.keys:
+%endif
     mov dl, ah
     sub dl, 0x48
     test dl, 0xF6
     jnz .outj
     mov bx, si                  ; the scroll keys clamp against the live
     call fm_layout              ; layout (fm_fit/fm_total); fm_scroll_by
+%ifdef KERN_BIG
+    mov ax, [fm_lsel]           ; WITH A SELECTION THE KEYS MOVE IT, and the
+    cmp ax, [fm_lnf]            ; view follows (SPEC.md 22.26); with none
+    jb .selmove                 ; they scroll, as they always did
+%endif
     mov ax, 1                   ; commits the mirror and draws what moved
     test dl, 1                  ; ...a page, or one row
     jz .scr_one
@@ -3918,7 +3926,7 @@ fm_onkey_x:
     test dl, 8                  ; ...downward, or up
     jnz .scr_move
     neg ax
-    jmp short .scr_move
+    jmp .scr_move               ; NEAR: the selection's test above pushed it
 
 .outj:                          ; a trampoline, on a path nothing falls into:
     jmp .out                    ; `.out` is 160 bytes past the four tests above
@@ -3947,6 +3955,79 @@ fm_onkey_x:
     call fm_c_up                ; still needs as the window pointer
     pop si
     jmp .redraw
+
+%ifdef KERN_BIG
+    ; --- the arrows and PgUp/PgDn MOVE A SELECTION (SPEC.md 22.26) -------
+    ; AX = the selection, DL = the scroll keys' bits (1 a page, 8 downward),
+    ; DI = the block, SI = the window, the layout current. A ROW is one entry
+    ; in the list and a grid row of fm_cols in the icon view, so Up and Down
+    ; mean the same thing on the screen in both.
+.selmove:
+    push cx
+    mov bl, dl
+    mov cx, 1
+    cmp byte [fm_lview], 0
+    je .srow
+    mov cx, [fm_cols]
+.srow:
+    push ax                     ; the old selection
+    mov ax, cx
+    test bl, 1
+    jz .sone
+    mul word [fm_fit]           ; ...or a page of rows
+.sone:
+    test bl, 8
+    jnz .sdown
+    neg ax
+.sdown:
+    pop dx
+    add ax, dx
+    jns .slo
+    xor ax, ax
+.slo:
+    cmp ax, [fm_lnf]
+    jb .sin
+    mov ax, [fm_lnf]
+    dec ax
+.sin:
+    cmp ax, dx
+    je .sdone                   ; at an end: nothing moves, nothing drawn
+    xchg ax, dx
+    call fm_sel_bar             ; the old band off (22.2) - and nothing for
+    mov word [fm_lsel], 0xFFFF  ; a scroll below to carry: fm_scrollpaint
+    mov [di+FS_SEL], dx         ; lifts and relays [fm_lsel]
+    mov al, FDH_SEL             ; a chooser's answer to a new selection:
+    call fdlg_hook              ; a Save box takes a file's name, an Open
+    mov ax, dx                  ; button its greying (SPEC.md 38.4)
+    xor dx, dx
+    div cx                      ; AX = its row
+    sub ax, [fm_lscr]
+    jl .sfol                    ; above the view: up by that many
+    inc ax
+    sub ax, [fm_fit]
+    jg .sfol                    ; below it: down until it is the last
+    xor ax, ax
+.sfol:
+    or ax, ax
+    jz .sbar
+    call fm_scroll_by           ; the blit tier where it can (22.11)
+    jnc .sbar
+    pop cx
+    jmp .redraw                 ; a clip region: the whole window
+.sbar:
+    mov ax, [di+FS_SEL]
+    mov [fm_lsel], ax
+    call fm_sel_bar             ; ...and the new band on
+    cmp byte [di+FS_EDIT], FM_ESAVE
+    jne .sdone                  ; a Save box that took a name redraws its
+    call fm_status_only         ; line, nothing else
+    jnc .sdone
+    pop cx
+    jmp .redraw
+.sdone:
+    pop cx
+    jmp .out
+%endif
 
 .newfld:
     mov al, 1                   ; DI is still this window's block
@@ -4029,6 +4110,13 @@ fm_onkey_x:
     ; The editor's keys, AFTER the exit (size pass 8): the command keys'
     ; bodies above are then a short je from the ladder
 .editing:
+%ifdef KERN_BIG
+    cmp byte [di+FS_EDIT], FM_ESAVE
+    jne .notbox                 ; a Save chooser's box takes the characters
+    or al, al                   ; and leaves the arrows to the selection
+    jz .keys
+.notbox:
+%endif
     or al, al
     jnz .edkey                  ; a bare scan code is swallowed and nothing
     cmp ax, 0x5300              ; moves - with ONE exception, because the key

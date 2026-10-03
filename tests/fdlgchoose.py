@@ -7,7 +7,9 @@ File > Open and File > Save As, and confirms every step off guest state:
 
   1. a first Open lands on MEDIA (38.10), captioned 'Open', with the button
      column's Open GREYED until a row is selected (38.3, SPEC.md 47);
-  2. the arrows SELECT (38.4) - a Disk window's scroll - and Enter answers;
+  2. a click selects and Enter answers; with nothing selected Down scrolls,
+     and on kern_big Up and Down then MOVE the selection - SPEC.md 22.26's,
+     the Disk window's own, which the chooser inherits (38.4);
   3. Save As puts the app's document in the box, Down fills it from a row,
      a typed name commits, and the file is in the folder afterwards;
   4. Escape, the Cancel button and the close box each cancel, and the next
@@ -86,22 +88,26 @@ with os88ui.boot(SYS, apps=APPS) as ui:
     check("lands on MEDIA (38.10)", "GUIDE.TEX" in rows, "(%r)" % rows)
     grey = ink(ui, w, ui.CH_OPEN)
 
-    # --- 2: the arrows select, Enter answers ----------------------------------
+    # --- 2: a click selects, Enter answers; the arrows only scroll ----------
     m.key("ArrowDown")
     ui.settle()
-    check("Down selects the first row", fs_sel(ui) == 0, "(%d)" % fs_sel(ui))
+    check("Down with nothing selected scrolls (22.26)", fs_sel(ui) == 0xFFFF,
+          "(FS_SEL %04X)" % fs_sel(ui))
+    want = ui.chooser_select("GUIDE.TEX", w)
+    ui.settle()
     live = ink(ui, w, ui.CH_OPEN)
     check("Open goes live on a selection (47)", live > grey,
           "(ink %d -> %d)" % (grey, live))
-    m.key("ArrowDown")
-    m.key("ArrowDown")
-    m.key("ArrowUp")
-    ui.settle()
-    want = rows.index("GUIDE.TEX")
-    while fs_sel(ui) < want:
+    check("a click selects the row", fs_sel(ui) == want, "(%d)" % fs_sel(ui))
+    if "KERN_SMALL" not in os.environ.get("OS88_DEFINES", ""):
+        m.key("ArrowUp")
+        ui.settle()
+        check("Up moves the selection (22.26)", fs_sel(ui) == want - 1,
+              "(%d)" % fs_sel(ui))
         m.key("ArrowDown")
         ui.settle()
-    check("the arrows walk the rows", fs_sel(ui) == want, "(%d)" % fs_sel(ui))
+        check("...and Down brings it back", fs_sel(ui) == want,
+              "(%d)" % fs_sel(ui))
     m.key("Enter")
     ui.chooser_gone()
     check("Enter on a file answers the Open", True)

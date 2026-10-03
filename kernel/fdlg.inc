@@ -832,10 +832,13 @@ fdlg_beep:
 
 ; FDH_KEY - DX = the key, DL the ASCII and DH the scan (fm_onkey_x's AL/AH).
 ; Escape cancels, unless some OTHER prompt is open in the chooser (a Rename, a
-; New Folder), whose own Escape it is. The arrows and PgUp/PgDn MOVE THE
-; SELECTION, which a Disk window's arrows do not - they scroll it - and which
-; the dialog's always did: a chooser is keyboard-driven, L, Down, Down, Enter
-; (SPEC.md 38.4). Anything else is the Disk window's. CF=1 taken.
+; New Folder), whose own Escape it is. Anything else is the Disk window's -
+; the arrows SCROLL, as they do in every Disk window. CF=1 taken.
+;
+; On kern_big the arrows MOVE A SELECTION in every Disk window, this one
+; included (SPEC.md 22.26): that is files.inc's, and arrives here only as
+; FDH_SEL. kern_small's scroll, because its Disk window is resident and the
+; bytes are not worth it there (SPEC.md 38.4).
 fdlg_h_key:
     mov bx, [fdlg_blk]
     mov al, [bx+FS_EDIT]
@@ -845,98 +848,7 @@ fdlg_h_key:
     jne fdlg_h_no               ; another prompt owns the keyboard
 .mine:
     cmp dl, 27
-    je fdlg_post_cancel
-    or dl, dl
-    jnz fdlg_h_no               ; only an EXTENDED key moves the selection -
-    push si                     ; the keypad's digits share these scan codes
-    push di
-    push cx
-    mov di, dx                  ; the key, past the multiply below
-    mov si, [fdlg_win]
-    push bx
-    mov bx, si
-    FDX fm_layout               ; fm_fit, fm_cols, fm_lview for this window
-    pop bx
-    mov cx, 1                   ; CX = a ROW in entries: a grid row in the
-    cmp byte [fm_lview], 0      ; icon view, one entry in the list
-    je .unit
-    mov cx, [fm_cols]
-.unit:
-    mov ax, [fm_fit]
-    mul cx                      ; AX = a PAGE in entries
-    mov dx, di
-    cmp dh, 0x51
-    je .pos
-    cmp dh, 0x49
-    je .neg
-    mov ax, cx
-    cmp dh, 0x50
-    je .pos
-    cmp dh, 0x48
-    jne .not
-.neg:
-    neg ax
-.pos:
-    mov dx, [bx+FS_SEL]
-    cmp dx, [bx+FS_N]
-    jb .from
-    xor ax, ax                  ; nothing selected: the first row, either way
-    xor dx, dx
-.from:
-    add ax, dx
-    jns .lo
-    xor ax, ax
-.lo:
-    mov dx, [bx+FS_N]
-    or dx, dx
-    jz .not                     ; an empty folder: nothing to select
-    cmp ax, dx
-    jb .in
-    mov ax, dx
-    dec ax
-.in:
-    ; --- visible, or the view follows it ---
-    push ax
-    xor dx, dx
-    div cx                      ; AX = its row (CX is still a row's entries)
-    mov cx, [bx+FS_SCRL]
-    cmp ax, cx
-    jb .follow                  ; above the view
-    add cx, [fm_fit]
-    cmp ax, cx
-    jb .inview
-    sub ax, [fm_fit]            ; below it: the last visible row
-    inc ax
-.follow:
-    mov [bx+FS_SCRL], ax
-    pop ax
-    mov [bx+FS_SEL], ax
-    FDX fm_repaint              ; the view moved: one repaint
-    jmp short .sel
-.inview:
-    pop ax                      ; SPEC.md 22.2's two bands and nothing else,
-    mov dx, [fm_lsel]           ; .newsel's own sequence
-    mov [bx+FS_SEL], ax
-    mov [fm_lsel], ax
-    xchg ax, dx
-    FDX fm_sel_bar              ; off...
-    xchg ax, dx
-    FDX fm_sel_bar              ; ...and on
-.sel:
-    call fdlg_h_sel             ; a Save box takes a file's name, an Open
-    cmp byte [fdlg_mode], 0     ; button its greying (FDH_SEL's answer) -
-    je .done                    ; and the box's line is redrawn, because
-    FDX fm_status_only          ; nothing else will
-.done:
-    stc
-    jmp short .out
-.not:
-    clc
-.out:
-    pop cx
-    pop di
-    pop si
-    ret
+    jne fdlg_h_no               ; ...and Escape falls into the cancel below
 
 fdlg_post_cancel:
     mov al, FDA_CANCEL
@@ -1340,7 +1252,6 @@ fdlg_onup:
     FDXF fm_mount
     FDXF fm_open_sel
     FDXF fm_layout
-    FDXF fm_sel_bar
     FDXF dsk_chdir_x
     FDXF dsk_vol_slot_x
     FDXF os88ui_kbtn            ; the column's buttons, drawn by the image

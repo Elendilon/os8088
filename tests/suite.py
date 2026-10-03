@@ -7442,6 +7442,16 @@ SOAK = [
         "Cancel closes.",
         needs=("marty",), serial=True,
         wants=("build/muptest.img",)),
+    Row("fmarrows", "soak", py("tests/fmarrows.py"), 20.0,
+        "SPEC.md 22.26: in a Disk window the arrows move a SELECTION on "
+        "kern_big - with nothing selected Down still scrolls; a click on row "
+        "0 then Down past the view moves FS_SEL and FS_SCRL follows to make "
+        "it the last visible row; PgUp moves a page and Up stops at the top. "
+        "After each walk exactly ONE row band is inverted on the glass and it "
+        "is the selected row's, which is what catches a band left behind by "
+        "the follow-scroll. VERIFIED RED with the old band's fm_sel_bar taken "
+        "out of .selmove (five inverted rows).",
+        needs=("marty",), serial=True),
     Row("fdlgchoose", "soak", py("tests/fdlgchoose.py"), 40.0,
         "SPEC.md 38: the Standard File chooser end to end, through Note "
         "Pad's own File > Open and Save As - a first Open on MEDIA (38.10) "

@@ -47219,6 +47219,35 @@ The loop's fix is in `CLONE.DRV`'s image and moves no resident byte. The two
 progress-layer fixes are 39 resident bytes on each kernel: 14 of `.text`
 (§7.5.3.2) and 25 of `.cold` (§12.8.3.2). They cross no rung.
 
+### 22.26 The arrows move a SELECTION, and scroll only without one (`kern_big`)
+
+In a Disk window with a row selected, Up and Down move the selection one row
+- an entry in the list, a grid row of `fm_cols` in the icon view, so the key
+means the same thing on the screen in both - and PgUp/PgDn a page of rows;
+the view FOLLOWS, by `fm_scroll_by`'s own tiers (§22.11), so a move that
+stays in view costs §22.2's two XOR bands and one that leaves it costs a
+blit and a strip. **With nothing selected they scroll, exactly as they
+always did**, so a window that has only been looked at behaves as before and
+the first click is what turns the keys into a cursor. Enter then opens the
+selection, as it always has, so *click, Down, Down, Enter* is a whole open.
+
+It is `kern_big`'s alone. It began as the Standard File chooser's (§38.4) -
+the old dialog's arrows moved its selection and a chooser is driven from the
+keyboard - and putting it in the Disk window instead made every window have
+it at about the chooser-only price on `kern_big`, where both files are
+resident `.cold`. On `kern_small` the Disk window is resident and the
+chooser's glue is an on-demand image, so the same code would be ~140
+resident bytes moved out of an image: there the arrows scroll, in every Disk
+window and in the chooser.
+
+The mechanism carries one detail worth not re-deriving: `fm_scrollpaint`
+lifts `[fm_lsel]`'s band before it blits and relays it after, so the move
+takes the OLD band off itself, parks `[fm_lsel]` at 0FFFFh across the scroll
+- nothing for the blit to carry, nothing for a rows-only repaint to draw -
+and puts the NEW band on once the view has settled. A chooser hears the new
+selection through `FDH_SEL` (§38.9), and a Save chooser's box, which owns the
+characters, leaves the arrows to this.
+
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)
 
 Not kernel code: a .o88 package built with os88api.inc, org 0 (§20.1), all
@@ -62349,11 +62378,12 @@ is genuinely the dialog's: who asked, modality, the two forms' commit rules,
 the button column, the remembered folder and the callback.
 
 **What it bought, measured against the tree before it** (`kernsize --json`,
-`.text` + `.bss` + `.cold`): **`kern_big` −1,744 resident bytes** (93,357 →
-91,613), and the cold rung uncrossed with it. **`kern_small` +7** (62,806 →
-62,813), while `FDLG.DRV` went 3,214 → 1,716 bytes and its claim 4KB → 2KB:
+`.text` + `.bss` + `.cold`): **`kern_big` −1,750 resident bytes** (93,357 →
+91,607, of which 181 bought every Disk window §22.26's arrow selection), and
+the cold rung uncrossed with it. **`kern_small` +3** (62,806 →
+62,809), while `FDLG.DRV` went 3,214 → 1,522 bytes and its claim 4KB → 2KB:
 on that build the browser was never resident, so the saving is the module's
-and the resident side paid for the hooks - of the +7, 13 bytes are §38.3's
+and the resident side paid for the hooks - 13 bytes of it are §38.3's
 release gesture and 12 are §38.5's requester fix. The API slot, the
 driver slot and the completion contract are **unchanged to the register**
 (§38.6), so not one package, driver or C program was touched.
@@ -62398,7 +62428,6 @@ hook sites in §38.9 and nowhere else:
 | open a FILE (double-click, Enter, Open, File ▸ Open) | launch it / open its program (§54) | Open form: **choose it**; Save form: put its name in the box |
 | single-click a FILE | select it | ...and, in the Save form, put its name in the box |
 | Escape | nothing | cancel |
-| the arrows, PgUp/PgDn, Home, End | scroll | **move the selection** (§38.4) |
 | content width | the window's | the window's less `FD_COLW`, the button column (§38.3) |
 | status line at rest | Size / Free | Save form: the name box, `Save as:` (edit mode 8, §38.5) |
 | Open in New Window | opens one | refused with a beep: it would land over a modal chooser |
@@ -62535,14 +62564,14 @@ answers to *open a file*:
   happens; the user still presses *Save* or Enter. A **single** click on a
   file does the same, which is what clicking a file means in a Save box.
 
-**The arrows SELECT in a chooser**, where a Disk window's scroll it: up and
-down a row (a grid row in the icon view), PgUp/PgDn a page, Home and End the
-ends, with the view following the selection. The dialog always worked that
-way and a chooser is driven from the keyboard - *L, Down, Down, Enter* is how
-Tracker's own test loads a module - so it is the one Disk window behaviour
-the chooser overrides rather than inherits (`FDH_KEY`). A move that stays in
-view costs §22.2's two XOR bands; one that scrolls repaints the window. Only
-an EXTENDED key moves anything: the keypad's digits share these scan codes.
+**The arrows are the Disk window's**, so they are whatever §22.26 makes them
+on the build: on `kern_big` they move a selection (and scroll with none), on
+`kern_small` they scroll. That is where the old dialog's keyboard selection
+went - it was built for the chooser first, measured at 187 resident bytes on
+`kern_big`, and moved into the Disk window for 181 so that every window has
+it; on `kern_small` either shape costs bytes the mouse already makes
+unnecessary. Tests select a row with a click (`os88ui.chooser_select`), which
+works on both.
 
 **No overwrite question is asked**, by the chooser or by any caller: picking
 an existing file in the Save form only fills the box, and the caller writes
@@ -62776,9 +62805,9 @@ would have.
 | `FDH_ARM` | `fm_layout` | Save form: re-arm mode 8 from `fdlg_name` (§38.5) |
 | `FDH_BANK` | `fm_edit_end` | Save form: bank a mode-8 buffer into `fdlg_name` |
 | `FDH_PICK` | `fm_open_sel`, a file | Open: stage and post commit; Save: fill the box |
-| `FDH_SEL` | `fm_onclick`'s new selection | Save: a file fills the box; Open: re-grey button 1 |
+| `FDH_SEL` | `fm_onclick`'s new selection, and §22.26's arrows on `kern_big` | Save: a file fills the box; Open: re-grey button 1 |
 | `FDH_COMMIT` | `fm_edit_commit`, mode 8 | post commit, or beep on an empty box |
-| `FDH_KEY` | `fm_onkey_x`, every key (DX = the key) | Escape: post cancel; an arrow, PgUp/PgDn, Home, End: move the selection (§38.4) |
+| `FDH_KEY` | `fm_onkey_x`, every key (DX = the key) | Escape: post cancel |
 | `FDH_BTN` | `fm_onup_x` (`kern_big`) / `FDH_UP` (`kern_small`) | button 1: open the selection / commit the box; 2: cancel; 3: next volume |
 | `FDH_PAINT` | `fm_draw_core` | draw the column |
 | `FDH_RECT`, `FDH_LABEL` | `fm_brect`, `fm_btn1` — `kern_big` only | the column's rect; its label, default and greying |
@@ -88498,8 +88527,8 @@ bodies into `.modd`, which `tools/os88mod.py` cuts out as **`FDLG.DRV`**, and
 §38.1 made the chooser a Disk window the image is the **glue** and nothing
 else - the listing, rows, scroll bar, editor and header it once carried are
 `files.inc`'s, resident on both builds - so it shrank from **3,214 bytes in a
-4KB claim to 1,716 in a 2KB one** (`os88mod.py` prints the figure on every
-`make small`), while the resident side of this build moved **+7 bytes** (the
+4KB claim to 1,522 in a 2KB one** (`os88mod.py` prints the figure on every
+`make small`), while the resident side of this build moved **+3 bytes** (the
 hooks, the release gesture and the requester fix, §38).
 
 It is §22.3.0's shape and obeys §22.3.0.1's three rules, with `filecp.inc`

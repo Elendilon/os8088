@@ -256,16 +256,7 @@ def main():
         if MOD not in rows:
             print("FAIL: %s is not listed - %r" % (MOD, rows))
             return 1
-        fs_sel = (M.KERNEL_SEG << 4) + u16(m.read(S("fdlg_blk"), 2)) \
-            + os88geom.FS_SEL
-        for _ in range(rows.index(MOD) + 1):
-            m.key("ArrowDown")
-            M.pace(m, 0.2)
-        got = u16(m.read(fs_sel, 2))
-        if got != rows.index(MOD):
-            print("FAIL: chooser selected row %d, wanted %d"
-                  % (got, rows.index(MOD)))
-            return 1
+        ui.chooser_select(MOD, dlg)     # a click selects (SPEC.md 38.4)
         m.key("Enter")
 
         seen = {"posted": False, "said": False}

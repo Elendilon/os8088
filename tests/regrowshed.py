@@ -198,14 +198,6 @@ with os88ui.boot(_T.img("small360.img"), machine=MACHINE, limit=180) as ui:
         return dict((k, u16(m.readseg(p, NP[k], 2)))
                     for k in ("np_len", "np_cap", "np_capkb", "np_dseg"))
 
-    def chooser_sel():
-        """The chooser's selection: its pool block's FS_SEL (SPEC.md 38.1 -
-        the chooser IS a Disk window, and [fdlg_blk] names its block as a
-        KERNEL_SEG offset, on kern_small as on kern_big: the block is
-        fm_pool's, resident, and only the glue is FDLG.DRV)."""
-        blk = u16(m.read(S("fdlg_blk"), 2))
-        return u16(m.read((M.KERNEL_SEG << 4) + blk + os88geom.FS_SEL, 2))
-
     def open_file(win, path, tag):
         """File > Open in `win`, then walk to `path` and pick it.
 
@@ -232,17 +224,6 @@ with os88ui.boot(_T.img("small360.img"), machine=MACHINE, limit=180) as ui:
         def rows():
             return [r[0] for r in ui.listing(ch)]
 
-        def down(n=1):
-            for _ in range(n):          # each key waited for by the
-                was = chooser_sel()     # selection it moves
-                m.key("ArrowDown")
-                try:
-                    M.until(m, lambda _m: chooser_sel() != was,
-                            "ArrowDown to move the selection", poll=0.05,
-                            guest=10.0)
-                except M.MartyError:
-                    pass                # ...and pick's own check names it
-
         def dive():
             """Enter on the selected FOLDER, waited for by the listing it
             replaces - a dive re-lists the chooser in place."""
@@ -259,13 +240,8 @@ with os88ui.boot(_T.img("small360.img"), machine=MACHINE, limit=180) as ui:
             rs = rows()
             if name not in rs:
                 sys.exit("%s: %s is not listed here - %r" % (tag, name, rs))
-            idx = rs.index(name)
-            down(idx + 1)               # the selection starts at "none", so
-                                        # the first key lands on row 0
-            got = chooser_sel()
-            if got != idx:
-                sys.exit("%s: the chooser selected row %d, wanted %d (%s)"
-                         % (tag, got, idx, name))
+            ui.chooser_select(name, ch) # a click; the arrows scroll a
+                                        # chooser (SPEC.md 38.4)
             if not last:
                 dive()
                 return
@@ -274,7 +250,7 @@ with os88ui.boot(_T.img("small360.img"), machine=MACHINE, limit=180) as ui:
             M.settle(m, limit=180)      # ...and np_load runs after the reap
 
         while rows()[:1] == [".."]:     # up to the volume root
-            down()
+            ui.chooser_select("..", ch)
             dive()
         parts = path.split("/")
         for k, part in enumerate(parts):

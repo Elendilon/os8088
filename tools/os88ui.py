@@ -1295,6 +1295,24 @@ class UI:
         x, y = self.chooser_button_xy(k, win)
         self.mo.click(x, y, settle=0)
 
+    def chooser_select(self, name, win=None, limit=T_NAV):
+        """SELECT `name` in the chooser without answering - one click on its
+        row, scrolled into view first - and confirm the chooser's own FS_SEL
+        says so. What a caller that wants Enter (or a button) to answer uses:
+        the arrows SCROLL a chooser as they do every Disk window (SPEC.md
+        38.4), so they cannot be walked to a row."""
+        w = win if win is not None else self.chooser()
+        idx, _ty = self.entry(name, w)
+        row = self.scroll_to(idx, win=w)
+        x, y = self.row_xy(w, row)
+        self.mo.click(x, y, settle=0)
+        at = (geom.KERNEL_SEG << 4) + self._word("fdlg_blk") + geom.FS_SEL
+        self._wait(lambda: _u16(self.m.read(at, 2)) == idx,
+                   "the chooser to select %r (row %d)" % (name, idx), limit,
+                   snapshot=lambda: "FS_SEL = %d"
+                   % _u16(self.m.read(at, 2)))
+        return idx
+
     def chooser_open(self, spec, limit=None):
         """Answer an OPEN chooser with `spec` - 'NAME.EXT', or a path of
         folders below where it opened ('SUB/NAME.EXT', '../X'), each step an

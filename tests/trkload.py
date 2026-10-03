@@ -61,24 +61,14 @@ def main():
         with os88marty.bp_trace(m, a0, a1, on_hit=hit) as tr:
             m.key("KeyL")
             # The chooser is a Disk window in a chooser role (SPEC.md 38.1):
-            # its rows are its OWN listing, and the arrows move its pool
-            # block's FS_SEL (38.4), checked before Enter answers with it
+            # its rows are its OWN listing, and a click selects (its arrows
+            # scroll, 38.4) - FS_SEL is confirmed before Enter answers with it
             ch = ui.chooser(limit=120)
             rows = [r[0] for r in ui.listing(ch)]
             if "BEVERLY.MOD" not in rows:
                 print("   FAIL: the chooser lists %r" % rows)
                 return 1
-            want = rows.index("BEVERLY.MOD")
-            for _ in range(want + 1):
-                m.key("ArrowDown")
-                os88marty.pace(m, 0.2)
-            sel = (geom.KERNEL_SEG << 4) + ui._word("fdlg_blk") + geom.FS_SEL
-            got = m.read(sel, 2)
-            got = got[0] | got[1] << 8
-            if got != want:
-                print("   FAIL: the chooser selected row %d, wanted %d"
-                      % (got, want))
-                return 1
+            ui.chooser_select("BEVERLY.MOD", ch)
             m.key("Enter")
             tr.until(lambda: a1 in cyc, "tsp_natural to finish", limit=300.0)
     finally:

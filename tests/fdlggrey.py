@@ -21,7 +21,6 @@ them):
 
   greyed -> live      a click on a row          (fm_onclick's FDH_SEL)
   live   -> greyed    a click on empty list     (fm_onclick's .clear)
-  greyed -> live      Down                      (fdlg_h_key's own path)
 
 The negative control is free: the live and greyed pictures must DIFFER, so a
 button region that read nothing (a wrong rect, a button drawn elsewhere)
@@ -149,12 +148,6 @@ with os88ui.boot(SYS, apps=APPS, machine=MACHINE) as ui:
     same("GREYED (click): redrawn == freshly painted", grey_redrawn,
          grey_fresh)
     same("GREYED is the picture the chooser OPENED with", grey_fresh, grey0)
-
-    # --- greyed -> live, by the keyboard ------------------------------------
-    m.key("ArrowDown")
-    until(ui, lambda: fs(ui, geom.FS_SEL) == 0, "Down to select row 0")
-    ui.settle()
-    same("LIVE (Down): redrawn == freshly painted", btn(ui, w), live_fresh)
 
     ui.chooser_cancel("escape")
 
