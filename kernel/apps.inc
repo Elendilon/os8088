@@ -258,11 +258,17 @@ app_tmr_kinit_x:
     retf
 
 ; ---- app_bounce_kinit - fresh Bounce: ball at (4,4), velocity (3,2) ----------
-app_bounce_kinit_x:
-    mov word [ss:di+BAL_X], 4
-    mov word [ss:di+BAL_Y], 4
-    mov word [ss:di+BAL_VX], APP_BAL_VX0
-    mov word [ss:di+BAL_VY], APP_BAL_VY0
+%if APP_BAL_VX0 != 3 || APP_BAL_VY0 != 2
+  %error "app_bounce_kinit_x counts DOWN from the start position 4 to VX0 and then VY0"
+%endif
+app_bounce_kinit_x:             ; AX is free here: app_launch called through
+    mov ax, 4                   ; it and reloads it after
+    mov [ss:di+BAL_X], ax
+    mov [ss:di+BAL_Y], ax
+    dec ax
+    mov [ss:di+BAL_VX], ax      ; APP_BAL_VX0
+    dec ax
+    mov [ss:di+BAL_VY], ax      ; APP_BAL_VY0
     retf
 %endif                          ; KERN_BIG - no Timer, no Bounce (SPEC.md 14.6)
 
@@ -673,16 +679,15 @@ app_tmr_act:
 
 .start:
     call app_tmr_stamp          ; the stopped interval is discarded here as
-    mov al, 1                   ; well as in app_tmr_tick: up to 9 ticks of it
-    jmp short .run              ; can be sitting unsampled at a click
+                                ; well as in app_tmr_tick: up to 9 ticks of it
+                                ; can be sitting unsampled at a click
 .stop:
-    xor al, al
-.run:
-    mov [ss:di+TMR_RUN], al     ; AL is reloaded at .pens immediately below
-.pens:
+    xor al, 1                   ; Start (0) runs it, Stop (1) stops it - the
+    mov [ss:di+TMR_RUN], al     ; 0/1 app_tmr_bok asserts. AL is reloaded at
+.pens:                          ; .pens immediately below
     mov al, APP_TMR_START       ; Start and Stop just traded pens; Reset did
     call app_tmr_btn            ; not move, and the digits did not either
-    mov al, APP_TMR_STOP
+    inc ax                      ; APP_TMR_STOP (app_tmr_btn ignores AH)
     call app_tmr_btn
 .done:
     jmp kretc_di
@@ -706,15 +711,11 @@ app_tmr_act:
 %endif
 app_tmr_bok:
     push ax
-    xor al, [ss:di+TMR_RUN]
-    cmp al, 1
+    xor al, [ss:di+TMR_RUN]     ; 1 exactly for the greyed button...
+    dec al                      ; ...which is 0 here...
+    cmp al, 1                   ; ...and the only value below 1: CF = greyed
     pop ax                      ; pop touches no flag, which is what preserves
-    je .no                      ; AX *and* the answer
-    clc
-    ret
-.no:
-    stc
-    ret
+    ret                         ; AX *and* the answer
 
 ; -----------------------------------------------------------------------------
 ; app_tmr_btns - draw all three buttons
@@ -1038,14 +1039,11 @@ app_tmr_span:
     inc bx
     cmp bx, 8
     jb .cell
-    cmp ch, 0xFF
+    cmp ch, 0xFF                ; CF = 0 exactly when CH is still 0xFF...
+    cmc                         ; ...so CF = 1 exactly when nothing differed
     mov ax, cx                  ; neither mov nor pop touches a flag, which is
     pop cx                      ; what lets both answers share the epilogue
     pop bx
-    stc
-    je .out
-    clc
-.out:
     ret
 
 ; -----------------------------------------------------------------------------

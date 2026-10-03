@@ -406,13 +406,11 @@ section .text
 inst_next:
     add di, I_RECSZ
     cmp di, inst_tab + INST_MAX * I_RECSZ
-    jae .end
-    cmp byte [di+I_STATE], 0
+    cmc                         ; CF = 1 once DI is past the last record
+    jc .end
+    cmp byte [di+I_STATE], 0    ; CF = 0: no unsigned byte is below 0
     je inst_next                ; a free row: keep going, no body runs
-    clc
-    ret
 .end:
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -443,8 +441,7 @@ inst_of_seg:
     test byte [di+I_KIND], KIND_PKG
     jz .scan
     cmp [di+I_SPTR], bx
-    jne .scan
-    clc
+    jne .scan                   ; ...and equal is CF = 0, the answer
 .out:
     ret
 %endif
@@ -592,12 +589,8 @@ inst_park_me:
     mov bl, [sch_cur]           ; ...and the MARK is the running task's
     xor bh, bh
     add bx, sch_parked
+    CLC_OR_STC .no              ; CF = 0 BX = the mark, or (.no) CF = 1
     pop ax
-    clc
-    ret
-.no:
-    pop ax
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -727,23 +720,28 @@ inst_park_all:
     mov di, inst_tab - I_RECSZ
 .scan:
     call inst_next
-    jnc .row
-    clc                         ; off the end: every one of them is parked
-    jmp short .out
-.row:
+    cmc                         ; off the end: CF = 0, every one is parked
+    jnc .out
     test byte [di+I_KIND], KIND_PKG
     jz .scan
     cmp byte [di+I_TASK], 0xFF
     je .scan                    ; no worker: nothing to wait for
+    call inst_wk_parked
+    jne .scan
+    stc
+.out:
+    pop di
+    ret
+
+; inst_wk_parked - ZF = 0 when record DI's worker (its I_TASK, which the caller
+; has seen is not 0xFF) has parked; preserves every register. One copy of the
+; sch_parked lookup the two walks either side of it both made.
+inst_wk_parked:
     push bx
     mov bl, [di+I_TASK]         ; the worker's OWN task slot
     xor bh, bh
     cmp byte [bx+sch_parked], 0
     pop bx
-    jne .scan
-    stc
-.out:
-    pop di
     ret
 
 ; -----------------------------------------------------------------------------
@@ -767,11 +765,7 @@ inst_seg_parked:
     jc .drv
     cmp byte [di+I_TASK], 0xFF
     je .free                    ; no worker at all
-    push bx
-    mov bl, [di+I_TASK]
-    xor bh, bh
-    cmp byte [bx+sch_parked], 0
-    pop bx
+    call inst_wk_parked
     jne .free                   ; parked: it is standing at the top of its own
                                 ; loop and holds nothing derived
     cmp byte [mem_cp_pl], 0     ; ...OR mem_avail IS PLANNING (SPEC.md 66.4.3.5):
@@ -794,25 +788,23 @@ inst_seg_parked:
     sub ax, INST_PARKW          ; SPEC.md 45.15: by the SIGN of the difference
     js .plok                    ; due before the park's deadline (or stale)
     cmp byte [bx+sch_tasks+T_STATE], 2
-    jne .plok                   ; not asleep: it reaches ALIVE inside the park
-    pop bx                      ; ASLEEP PAST INST_PARKW (ArtfulType's caret
-    pop ax                      ; worker sleeps 9): inst_park_req wakes nobody,
-    jmp short .busy             ; so the claim will find it where it is now
-.plok:
-    pop bx
+    je .plbusy                  ; ASLEEP PAST INST_PARKW (ArtfulType's caret
+                                ; worker sleeps 9): inst_park_req wakes nobody,
+                                ; so the claim will find it where it is now
+.plok:                          ; ...not asleep: it reaches ALIVE in the park
+    CLC_OR_STC .plbusy          ; CF = 0 free, or (.plbusy) CF = 1 busy
+    pop bx                      ; (pops write no flag)
     pop ax
-    jmp short .free
+    jmp short .cf
 .drv:
     call inst_svc_parked        ; no instance owns it, so it is a DRIVER image
-    jnc .free                   ; (SPEC.md 51.3) - and a driver's workers are
-                                ; the TF_SERVICE tasks (SPEC.md 66.5.5)
-.busy:
-    pop di
-    stc
-    retf
+    jmp short .cf               ; (SPEC.md 51.3) - and a driver's workers are
+                                ; the TF_SERVICE tasks (SPEC.md 66.5.5): its
+                                ; CF is the answer
 .free:
+    CLC_OR_STC .busy            ; CF = 0 free, or (.busy) CF = 1
+.cf:
     pop di
-    clc
     retf
 ; -----------------------------------------------------------------------------
 ; inst_svc_parked - has every DRIVER worker parked? (SPEC.md 66.5.5)
@@ -847,13 +839,9 @@ inst_svc_parked:
     add bx, T_SIZE
     cmp cl, MAX_TASKS
     jb .scan
+    CLC_OR_STC .busy            ; CF = 0 all parked, or (.busy) CF = 1
     pop cx
     pop bx
-    ret
-.busy:
-    pop cx
-    pop bx
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -997,12 +985,8 @@ inst_of_win:
     mov al, [wm_owner+si]       ; owning instance index, 0xFF = none
     cmp al, 0xFF
     je .none
-    call inst_ptr               ; DI = record
-    clc
-    jmp .out
-.none:
-    stc
-.out:
+    call inst_ptr               ; DI = record (and CF = 0 off its `add`)
+    CLC_OR_STC .none            ; CF = 0 owned, or (.none) CF = 1
     pop si
     pop ax
     ret
@@ -1412,10 +1396,8 @@ inst_icon_ptr:
     mov cx, DSK_ICO_SIZE        ; dock_draw_tile, which wm_destroy reaches
     mov ax, cs                  ; from inst_task_die ON THE WORKER, while
     call COLD_SEG:dkf_dsk_copy_seg  ; task 0 may be inside disk_mount_x's
-    mov si, inst_icobuf         ; icon pass (osapi_file_goto takes no lock) -
-.have:                          ; so it cannot be dsk_ico's fifth tenant
-    clc
-    jmp short .out
+    jmp short .have             ; icon pass (osapi_file_goto takes no lock) -
+                                ; so it cannot be dsk_ico's fifth tenant
 .runs:                          ; SI -> (count-1) << 6 | pool index, bytes,
     push bx                     ; until 32 rows are down (inst_ico_pool)
     mov di, inst_icobuf
@@ -1439,11 +1421,9 @@ inst_icon_ptr:
     cmp di, inst_icobuf + DSK_ICO_SIZE
     jb .run
     pop bx
-    mov si, inst_icobuf
-    jmp short .have
-.none:
-    stc
-.out:
+.have:
+    mov si, inst_icobuf         ; both arms leave the icon there
+    CLC_OR_STC .none            ; CF = 0 SI = the icon, or (.none) CF = 1
     pop di
     pop dx
     pop cx
@@ -1575,31 +1555,23 @@ app_launch:
     mov bp, di                  ; BP = our record for the duration
 
     ; --- state-pool slot pick (SPEC.md 29.4) ---------------------------------
-    mov word [inst_slot], 0
-    cmp word [si+KD_POOL], 0
-    je .tpl                     ; stateless: I_SPTR stays 0
+    xor dx, dx                  ; DX = the slot, which is also the cascade step
+    mov ax, [si+KD_POOL]        ; AX = the candidate state ptr, stepped by the
+    or ax, ax                   ; stride rather than multiplied out per slot
+    jz .tpl                     ; stateless: I_SPTR stays 0
+    mov bl, [inst_knd]
 .pslot:
-    mov ax, [si+KD_SSIZE]
-    mul word [inst_slot]        ; AX = slot * stride (pools are small)
-    add ax, [si+KD_POOL]        ; AX = candidate state ptr
     mov di, inst_tab - I_RECSZ  ; held by any same-kind record in use?
 .pscan:
     call inst_next
     jc .pfree
-    mov bl, [inst_knd]
     cmp bl, [di+I_KIND]
     jne .pscan
     cmp ax, [di+I_SPTR]
     jne .pscan
-    jmp short .ptaken
-.pfree:
-    mov [ds:bp+I_SPTR], ax      ; free candidate found
-    jmp .tpl
-.ptaken:
-    inc word [inst_slot]
-    mov cl, [si+KD_CAP]
-    xor ch, ch
-    cmp [inst_slot], cx
+    add ax, [si+KD_SSIZE]       ; taken: the next slot
+    inc dx
+    cmp dl, [si+KD_CAP]
     jb .pslot
 .failj:                         ; ...AND THE REFUSAL TRAMPOLINE, at no cost at
     jmp .fail                   ; all: this `jmp` was already here, and `.fail`
@@ -1612,6 +1584,8 @@ app_launch:
                                 ; arms are at cap with nothing live, the heap
                                 ; refusing, and the window table full
 
+.pfree:
+    mov [ds:bp+I_SPTR], ax      ; free candidate found
 .tpl:
     ; --- window from the template, cascaded per pool slot --------------------
     push si
@@ -1621,13 +1595,11 @@ app_launch:
     pop es
     mov cx, 8
     rep movsw                   ; 16-byte template copy
-    pop si
-    mov ax, [inst_slot]         ; cascade: (+16,+16) per pool slot so
+    xchg ax, dx                 ; cascade: (+16,+16) per pool slot so
     mov cl, 4                   ; instances don't stack exactly
     shl ax, cl
     add [inst_tplbuf], ax       ; x
     add [inst_tplbuf+2], ax     ; y
-    push si
     mov si, inst_tplbuf
     call wm_create              ; BX = window (hidden), CF = table full
     pop si
@@ -1907,10 +1879,7 @@ inst_unmin:
                                 ; caller makes next reaches wm_an_open, which
                                 ; writes wm_an_d itself (wm_an_setw) before
                                 ; wm_anim ever reads it
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    jmp kret_dx
 .out:
     ret
 %endif
@@ -2025,10 +1994,7 @@ inst_wchk:
     div cl                      ; AH = offset mod WIN_SIZE
     test ah, ah
     jnz .bad                    ; not record-aligned
-    jmp short .out
-.bad:
-    stc
-.out:
+    CLC_OR_STC .bad             ; CF = 0 a window, or (.bad) CF = 1
     pop cx                      ; POP touches no flags: CF survives
     pop ax
     ret
@@ -2136,23 +2102,19 @@ inst_pkg_spawn:
     mov bl, [es:LD_H_CLASS]     ; built before this - and 0 is "no opinion",
     pop es                      ; which gets the largest class, so nothing has
     xor bh, bh                  ; to be rebuilt to keep working
+    xor cx, cx                  ; task_spawn's own spelling of "no opinion"
     cmp bx, SCH_NCLASS          ; AN INDEX OUT OF RANGE IS NOT A REFUSAL: a
-    jae .defcls                 ; package with a byte we do not understand gets
+    jae .havecls                ; package with a byte we do not understand gets
     shl bx, 1                   ; the largest class and launches, where a
     mov cx, [bx+sch_clsbytes]   ; refused launch would be a hostile-input
-    jmp short .havecls          ; failure over a field nobody validated
-.defcls:
-    xor cx, cx                  ; task_spawn's own spelling of "no opinion"
-.havecls:
+.havecls:                       ; failure over a field nobody validated
     pop bx                      ; the segment back
     call task_spawn             ; in AX = entry, BX = seg, CX = stack, DX = arg
     pop cx                      ; the banked AX...
     mov ah, ch                  ; ...and the caller's AH out of its high half
     jc .out                     ; task table full: nothing was created
     mov [di+I_TASK], al         ; the record now owns the worker
-    jmp short .out
-.fail:
-    stc
+    CLC_OR_STC .fail            ; CF = 0 spawned, or (.fail) CF = 1
 .out:
     pop di
     pop dx
@@ -2324,17 +2286,19 @@ osapi_sys_snapshot_x:
                                 ; the end hands the CALLER its own DF back -
                                 ; packages do use std (apps/word, apps/sheet,
                                 ; apps/notepad and a dozen more)
+%if SS_TICKS != 0 || SS_CUR != 2 || SS_COOP != 3 || SS_NTASK != 4 || \
+    SS_NINST != 5 || SS_TSTATE != 6
+  %error "osapi_sys_snapshot stores the header as three stosw and lands on SS_TSTATE"
+%endif
     mov ax, [ticks]
-    mov [es:di+SS_TICKS], ax
+    stosw                       ; SS_TICKS
     mov al, [sch_cur]
-    mov [es:di+SS_CUR], al
-    mov al, [sch_coop]
-    mov [es:di+SS_COOP], al
-    mov byte [es:di+SS_NTASK], MAX_TASKS
-    mov byte [es:di+SS_NINST], INST_MAX
+    mov ah, [sch_coop]
+    stosw                       ; SS_CUR, SS_COOP
+    mov ax, (INST_MAX << 8) | MAX_TASKS
+    stosw                       ; SS_NTASK, SS_NINST - and DI is at SS_TSTATE
 
     mov si, sch_tasks + T_STATE ; T_STATE per slot
-    add di, SS_TSTATE
     mov cx, MAX_TASKS
 .ssnap:
     movsb                       ; DS:SI -> ES:DI, both advanced by one...
@@ -2344,15 +2308,16 @@ osapi_sys_snapshot_x:
     cmp bl, 0xFF                ; its own (SPEC.md 28.7): it is READY like any
     je .noidle                  ; other ready task and reading it as one makes
     xor bh, bh                  ; the process page charge 97% of the machine
-    mov di, bp                  ; to a row it cannot explain. A fourth value
-    add di, SS_TSTATE           ; costs no byte of the snapshot, which a slot
-    add di, bx                  ; index in the header would have - and every
-    mov byte [es:di], 3         ; field after it moving is an ABI break for
-.noidle:                        ; something the Task Manager alone reads
+                                ; to a row it cannot explain. A fourth value
+                                ; costs no byte of the snapshot, which a slot
+                                ; index in the header would have - and every
+                                ; field after it moving is an ABI break for
+                                ; something the Task Manager alone reads. DI
+    mov byte [es:bx+di-MAX_TASKS], 3   ; is one past the last state copied
+.noidle:
 
     mov si, sch_cycles          ; ...and the cycle counters, MAX_TASKS dwords
-    mov di, bp
-    add di, SS_TCYC
+    lea di, [bp+SS_TCYC]
     mov cx, MAX_TASKS * 2       ; ...WORDS: MAX_TASKS dwords, contiguous
     rep movsw
 
@@ -2369,8 +2334,7 @@ osapi_sys_snapshot_x:
     ; the buffer against - so a kern_small snapshot fills six records and says
     ; six, exactly as the per-record loop did.
     mov si, inst_tab
-    mov di, bp
-    add di, SS_INST
+    lea di, [bp+SS_INST]
     mov cx, INST_MAX * I_RECSZ / 2
     rep movsw
     popf
@@ -2379,8 +2343,7 @@ osapi_sys_snapshot_x:
     ; A package's claims are stamped with the segment it runs in and a
     ; built-in's with its slot (SPEC.md 50.2), so which owner word to ask for
     ; depends on the record we just copied.
-    mov di, bp
-    add di, SS_INST
+    lea di, [bp+SS_INST]
     xor si, si                  ; SI = slot
 .claim:
     xor ax, ax
@@ -2494,7 +2457,8 @@ sch_parked:   resb MAX_TASKS    ; ...and which TASKS have. PER TASK and not per
 
 inst_launch: resw 1             ; deferred launch: 0 = none, else kind + 1
 inst_knd:    resb 1             ; app_launch scratch: kind being launched
-inst_slot:   resw 1             ; app_launch scratch: state-pool slot
+                                ; (the state-pool slot was a word here, and is
+                                ; DX across the pick since size pass 9)
 inst_tplbuf: resb 16            ; app_launch scratch: cascaded template copy
                                 ; (inst_icon_ptr's staging slot was 64 bytes
                                 ; HERE and is now dsk_ico itself - the
