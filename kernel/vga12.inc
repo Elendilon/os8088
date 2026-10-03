@@ -5152,10 +5152,14 @@ gfx_blit_pok:resb 1             ; path - which is also the first run's minimum
                                 ; length. 0 = this call cannot go planar at all
 %endif
 gfx_u_blt:
-GFX_U_FLOOR equ 20              ; ...and never smaller than cur_move_mono's set
-%if gfx_u_blt - gfx_u < GFX_U_FLOOR ; (mouse.inc, the sixth member and the one
-    resb GFX_U_FLOOR - (gfx_u_blt - gfx_u) ; in another file), which is the
-%endif                          ; larger on kern_small by one byte
+%ifdef KERN_BIG                 ; ...and never smaller than the largest of the
+GFX_U_FLOOR equ 22              ; OTHER sets, which is laid down below it and
+%else                           ; cannot size this block: gfx_points' 22 bytes
+GFX_U_FLOOR equ 20              ; on kern_big, cur_move_mono's 20 (mouse.inc)
+%endif                          ; on kern_small. It binds only on a knob build
+%if gfx_u_blt - gfx_u < GFX_U_FLOOR ; that thins gfx_blit4's set - NOPLANE=1
+    resb GFX_U_FLOOR - (gfx_u_blt - gfx_u) ; drops its five planar bytes - and
+%endif                          ; on kern_small; every overlay is still guarded
 gfx_u_end:
 
 absolute gfx_u                  ; gfx_points (SPEC.md 5.6.9)

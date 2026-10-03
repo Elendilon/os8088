@@ -324,7 +324,8 @@ MOU_L3      equ 0x08            ; ...and IRQ3's. Named because the ISR entries
 mou_bases   dw 0x3F8, 0x2F8     ; UART base per port; 0 = nothing answered
 mou_ivecs   dw 0x30, 0x2C       ; ...its IVT offset: int 0x0C, int 0x0B
 mou_masks   dw MOU_L4, MOU_L3   ; ...the line its base says it drives, which is
-                                ; what to HOOK and never what to retire
+                                ; what to HOOK and never what to retire. READ
+                                ; AS BYTES ONLY: mou_b1 lives in the high bytes
 mou_isrs    dw mou_isr, mou_isr3    ; ...and the stub that vector points at
 
 
@@ -5631,7 +5632,12 @@ mou_b0      equ mou_phase + 1   ; packet byte 0: 1 LB RB Y7 Y6 X7 X6. These
                                 ; mou_phase's (size pass 9). mou_newround's
                                 ; zeroing of mou_phase clears it too, which is
                                 ; harmless - b0 means nothing below phase 1
-mou_b1      db 0,0,0,0          ; packet byte 1: X low 6 bits
+mou_b1      equ mou_masks + 1   ; packet byte 1: X low 6 bits - in the HIGH
+                                ; bytes of mou_masks' words, which every
+                                ; reader takes as a BYTE (`mov cl, [bx +
+                                ; mou_masks]`) and so never sees: the same
+                                ; word-row trick as mou_b0, one table along
+                                ; (size pass 9)
 mou_evrec   times 8 db 0        ; scratch event record for evq_push (ISR only).
                                 ; ABOVE the published block on purpose - it is
                                 ; scratch, not state, and it used to sit in
