@@ -98052,7 +98052,8 @@ into the hole above it. The ceiling packs against the ceiling exactly as the
 floor packs against the floor.
 
 **`MC_DMA` bit 15 — a claim goes back through the door it came in by.** It is
-stamped at `mem_claim_1`'s publish site from `[mem_dir]`, alongside the
+stamped at `mem_claim_1`'s publish site from the door's direction (BP there;
+it was the `[mem_dir]` word until size pass 9), alongside the
 page-safe head that shares the word. `mem_cp_mine` is the filter: a claim whose
 door disagrees with the pass in flight is a **barrier** in that pass, exactly
 as a pinned one is, so the two passes never contend for a block and neither can

@@ -3005,6 +3005,23 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
     %pop
 %endmacro
 
+; ---- CLC_OR_STC .label: THE CF-RETURN TAIL IN TWO BYTES (size pass 9) -------
+; The tree's commonest exit is
+;       clc / jmp short .out / .no: stc / .out:      4 bytes, 2 + 15 cycles
+; and this is the same exit as
+;       CLC_OR_STC .no / .out:                       2 bytes, 4 cycles
+; It emits `db 0xA8` and then `.no: stc`: falling in executes `test al, 0xF9`
+; (A8 F9 - the stc is its immediate), which CLEARS CF and touches no
+; register, while a jump to .no executes the `stc`. One macro rather than a
+; bare `db` so the swallowed byte is always the stc it was written for.
+; THE ONE DIFFERENCE FROM `clc`: `test` also writes ZF, SF, PF and OF, where
+; `clc` writes CF alone - so this goes only where the routine answers in CF
+; and nothing reads another flag at the return (each site was checked).
+%macro CLC_OR_STC 1
+    db 0xA8                     ; test al, imm8 - the imm8 is the stc below
+%1: stc
+%endmacro
+
 osapi_table:
     OSAPI_SLOT gfx_lock           ; 0x0010
     OSAPI_SLOT gfx_unlock         ; 0x0018
