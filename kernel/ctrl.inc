@@ -986,18 +986,17 @@ cp_tick_due_x:
     push ax
     push bx
     push di
-    cmp byte [cp_sel], CP_ITIME
-    jne .no
+    mov al, [cp_sel]
+    xor al, CP_ITIME            ; ...and `xor` leaves CF = 0, so every "no"
+    jnz .out                    ; below can go straight to .out
     mov al, KIND_CTRL
     call KERNEL_SEG:cw_inst_find_kind         ; CF = 1: no live Control Panel
-    jc .no
+    cmc
+    jnc .out
     mov bx, [di+I_WIN]
-    test byte [bx+W_FLAGS], 2   ; visible?
-    jz .no
+    test byte [bx+W_FLAGS], 2   ; visible? (`test` clears CF too)
+    jz .out
     stc
-    jmp .out
-.no:
-    clc
 .out:
     pop di
     pop bx

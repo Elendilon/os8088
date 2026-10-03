@@ -227,20 +227,26 @@ section .ovlw                  ; boot overlay (SPEC.md 2.5)
 ; -----------------------------------------------------------------------------
 clk_init:
     push ax
-    mov byte [clk_rtc], 0
-    mov byte [clk_dirty], 0
-    mov byte [clk_h12], 0       ; display settings, boot defaults (SPEC.md
-    mov byte [clk_secs], 0      ; 37): 24-hour, no seconds in the menu bar
-    mov byte [clk_barq], 0
+    push cx
+    push di
+    push es
+    push ds
+    pop es
+    xor ax, ax                  ; clk_sec .. clk_acc are ONE run of .bss (the
+    mov di, clk_sec             ; %if under it), and every byte of it but the
+    mov cx, (clk_acc + 2 - clk_sec) / 2 ; date and clk_last starts at 0: the
+    cld                         ; time, [clk_rtc], [clk_dirty], the display
+    rep stosw                   ; settings (24-hour, no seconds - SPEC.md 37),
+                                ; [clk_barq] and [clk_acc]. Eleven immediate
+                                ; stores were 68 bytes of the boot overlay
+                                ; (kernel size pass 9)
+    pop es
+    pop di
+    pop cx
     mov word [clk_year], CLK_DEF_Y
-    mov byte [clk_mon], CLK_DEF_M
-    mov byte [clk_day], CLK_DEF_D
-    mov byte [clk_hour], 0
-    mov byte [clk_min], 0
-    mov byte [clk_sec], 0
+    mov word [clk_day], (CLK_DEF_M << 8) | CLK_DEF_D    ; day, then month
     mov ax, [ticks]
     mov [clk_last], ax
-    mov word [clk_acc], 0
     call clk_probe              ; CF = 1: no usable RTC, keep the fallback
     jc .out
     mov byte [clk_rtc], 1
@@ -2215,6 +2221,9 @@ clk_barq:   resb 1              ; sticky: the bar's text is stale (an edit or a
                                 ; words below even-aligned" - see clk_year)
 clk_last:   resw 1              ; last [ticks] sample
 clk_acc:    resw 1              ; tenth-of-tick remainder
+%if clk_mon - clk_day != 1 || (clk_acc + 2 - clk_sec) & 1 || clk_rtc < clk_sec || clk_rtc > clk_acc || clk_dirty < clk_sec || clk_dirty > clk_acc || clk_year < clk_sec || clk_year > clk_acc || clk_h12 < clk_sec || clk_h12 > clk_acc || clk_secs < clk_sec || clk_secs > clk_acc || clk_barq < clk_sec || clk_barq > clk_acc || clk_last < clk_sec
+  %error "clock: clk_init zeroes clk_sec..clk_acc as one even run of words and stores day+month as one word"
+%endif
 
 clk_sn_sec:  resb 1             ; clk_snapshot's copy - the ONLY thing the
 clk_sn_min:  resb 1             ; formatters read. Same order and adjacency

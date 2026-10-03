@@ -1310,9 +1310,7 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 section .ovlw                  ; THE BOOT OVERLAY (SPEC.md 2.5.2,
                                 ; docs/plans/LAST-DROP-BYTES.md row 8): kmain seeds
                                 ; the driver table once and nothing re-seeds it
-                                ; - drv_unload clears ONE row. drv_svc_clear_all
-                                ; goes with it, being this body's only callee
-                                ; that is not shared and having no other caller
+                                ; - drv_unload clears ONE row
 drv_init_x:
     push ax
     push bx
@@ -1326,11 +1324,18 @@ drv_init_x:
     mov di, drv_cfg + CFG_DBLOB
     mov cx, DRV_BLOB_SZ
     xor ax, ax                  ; the WHOLE register, at the same two bytes:
-    cld                         ; the zero is wanted below as well, and
-    rep stosb                   ; drv_svc_clear_all preserves AX
+    cld                         ; the zero is wanted below as well
+    rep stosb
+    mov di, drv_owner           ; ...and every class's services FORGOTTEN:
+    mov cx, drv_svc_end - drv_owner ; drv_owner and the drv_svc copies are
+    rep stosb                   ; one run of .bss (the %if beside them), and
+                                ; drv_fptr's segment halves ship as 0 in
+                                ; .text. This was drv_svc_clear_all, a loop
+                                ; of five far calls to drv_svc_clear through
+                                ; a thunk that existed for it alone (kernel
+                                ; size pass 9: -4 resident, -12 .ovlw)
     pop es
     pop di
-    call drv_svc_clear_all
     xor cx, cx                  ; nothing is loaded on a cold boot, and .bss
     mov bx, drv_tab             ; is not what these live in - clear the three
 .next:                          ; per-load words the table ships non-zero.
@@ -1361,16 +1366,13 @@ drv_init_x:
 ; -----------------------------------------------------------------------------
 section .cold                   ; ...and back to resident cold code
 drv_cls_fp_x:
-    push ax
     call drv_cls_idx            ; DI = class-1, CF set if bad - and DI is
     jc .out                     ; ALREADY 0 on that path, and CF already 1
     shl di, 1
     shl di, 1                   ; * DRV_FPSZ
-    add di, drv_fptr
-    clc
-.out:
-    pop ax
-    ret
+    add di, drv_fptr            ; ...whose CF = 0 is the answer: no carry out
+.out:                           ; of a .text offset. NO AX BANK - drv_cls_idx
+    ret                         ; does not touch AX (kernel size pass 9)
 
 drv_cls_svc_x:
     push ax
@@ -1446,9 +1448,7 @@ drv_pub_seg:
     push di
     mov al, 1
 .scan:
-    push ax
-    call drv_cls_fp_x
-    pop ax
+    call drv_cls_fp_x           ; (AX survives it)
     jc .next
     mov cx, [di+2]
     or cx, cx
@@ -2238,12 +2238,9 @@ osapi_drv_cfg_x:
     add di, drv_cfg             ; DI = the blob, resolved BEFORE either branch
     or al, al                   ; spends a segment register
     jnz .set
-    mov ax, si                  ; get: the store -> the caller's buffer. DS is
-    mov si, di                  ; the kernel and ES the caller already, so this
-    mov di, ax                  ; is one rep movsb with no override
-    rep movsb
-    pop cx
-    jmp short .ok
+    xchg si, di                 ; get: the store -> the caller's buffer. DS is
+    rep movsb                   ; the kernel and ES the caller already, so this
+    jmp short .copied           ; is one rep movsb with no override
 .set:                           ; ...and a set is the SAME copy with the two
     push ds                     ; segments swapped, rather than a second loop
     push es
@@ -2253,11 +2250,12 @@ osapi_drv_cfg_x:
     rep movsb
     pop es
     pop ds
-    pop cx
     mov byte [cp_wdirty], 1     ; the file is OWED a write, and the panel's
                                 ; teardown is the only thing that pays it -
                                 ; there is no reachable flush from here now
                                 ; (SPEC.md 31.8)
+.copied:
+    pop cx
 .ok:
     clc
 .out:
@@ -2580,22 +2578,6 @@ drv_svc_clear:
     pop ax
     ret
 
-; -----------------------------------------------------------------------------
-; drv_svc_clear_all - forget every class's services (module internal)
-; in:  nothing
-; out: nothing (all registers preserved)
-; -----------------------------------------------------------------------------
-section .ovlw                  ; ...and its one callee, row 8's other half
-drv_svc_clear_all:
-    push ax
-    mov al, 1
-.next:
-    call COLD_SEG:drvf_drv_svc_clear
-    inc al
-    cmp al, DRVC_MAX
-    jbe .next
-    pop ax
-    ret
 
 ; --- the volume plumbing moved to drvvol.inc (SPEC.md 51.0) -----------------
 ; drv_mounted, drv_vol_bank/_back and drv_find are NOT driver code: mod.inc
@@ -3390,7 +3372,8 @@ drv_release:
 ;      by the slot's X stub
 ; out: spawn: CF = 0 and AL = the task slot; CF = 1 refused.
 ;      exit:  NEVER RETURNS.
-; clobbers: AX (an output), flags
+; clobbers: AX (an output), CX (the spawn's stack size, which it always
+;           was), flags
 ;
 ; A driver cannot use OSAPI_TASK_SPAWN, and the reason is the thing that makes
 ; that call safe: inst_pkg_spawn's fence is a chain of five tests all keyed on
@@ -3460,9 +3443,10 @@ drv_task_x:
     push bx                     ; until our popf)
     mov bl, al                  ; AL = the slot: a driver's worker is service
     xor bh, bh                  ; plumbing and survives the fsx freeze
-    shl bx, 1                   ; (SPEC.md 53.2) - stamped inside the same
-    shl bx, 1                   ; IF=0 window, so no tick can scan the record
-    shl bx, 1                   ; before the bit is on
+    mov cl, 3                   ; (SPEC.md 53.2) - stamped inside the same
+    shl bx, cl                  ; IF=0 window, so no tick can scan the record
+                                ; before the bit is on. CX is SCH_DRV_STK's
+                                ; already, so CL is free for the shift
     or byte [bx+sch_tasks+T_FLAGS], TF_SERVICE
     pop bx
     popf
@@ -4730,6 +4714,10 @@ drv_owner:  resw DRVC_MAX       ; per class: the row whose services are
 drv_svc:    resb DSV_SIZE*(DRVC_MAX-2) ; ...and a copy of each one's table, so
                                 ; every `[drv_svc+DSV_*]` in snd.inc still
                                 ; names the SOUND driver's and did not change
+drv_svc_end:
+%if drv_svc - drv_owner != DRVC_MAX * 2
+  %error "driver: drv_init zeroes drv_owner..drv_svc_end as one run"
+%endif
 drv_cfg:    resb CFG_NB         ; the live settings, staged (layout above).
                                 ; THE ONE PIECE OF THE SETTINGS THAT IS STILL
                                 ; RESIDENT (SPEC.md 51.5.3): osapi_drv_cfg
@@ -4769,8 +4757,6 @@ drvf_drv_row:            call drv_row_x
 drvf_drv_load_at:        call drv_load_at
                     retf
 %endif
-drvf_drv_svc_clear:      call drv_svc_clear
-                    retf
 drvf_drv_call:           call drv_call
                     retf
 drvf_drv_release:        call drv_release
@@ -5382,7 +5368,7 @@ section .text
 ; whether a driver has offered it a tone proc. ONE class' worth, and in
 ; `.text` with real zero bytes rather than `.bss`: nothing zeroes .bss on this
 ; assembler (SPEC.md 8), and the live build gets its zeros from
-; drv_svc_clear_all, which is inside the gate. So the answer is "no proc",
+; drv_init_x, which is inside the gate. So the answer is "no proc",
 ; permanently and without an initialiser - which is what it would be.
 drv_svc:      times DSV_SIZE db 0
 drv_blkcls:   db 0              ; disk.inc writes it per volume and only

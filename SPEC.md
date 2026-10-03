@@ -23004,7 +23004,10 @@ accessory like Timer or Bounce.
 is unavailable: `menu_drop` draws the rest of it in `CDGRAY` and skips the
 marker, `menu_widest` does not measure the marker, and `menu_hover` refuses
 to land on the cell — so it cannot be highlighted and cannot be selected, and
-the whole feature is those three places. It is a **string prefix**, not a
+the whole feature is those three places. (`menu_hover` asks `menu_item_dis`,
+which tests the first byte BELOW 2 in one compare, so an EMPTY item string is
+refused the same way: a blank row nothing could mean picking. Kernel size
+pass 9.) It is a **string prefix**, not a
 flags array, because an application that wants an item disabled already had
 to point `AMENU_ITEMS` at a different string to relabel it ("Save Gif" vs
 "Save Gif (NoRam)"); one byte in front of that string costs no structure
@@ -40151,6 +40154,10 @@ driver both publishing the cell. So the dispatch ends in five fixed sites,
 `call far [cs:drv_fptr]` … `[cs:drv_fptr5]`, which is what `drv_svc_call` and
 `drv_fs_call` already do with the same pairs. Cost: `.text` +38, no rung
 crossed on either kernel.
+(Kernel size pass 9 took the same frame further: `drv_call`, `drv_fs_call`
+and `drv_cp_call` are one body now, `drv_stamped`, which takes the driver's
+segment ON THE STACK - per task, so re-entrant for this paragraph's reason -
+and enters through `drv_pkg_disp`'s synthesised far frame.)
 
 #### 20.11.1 Verb 0 is IDENTIFY, and it is not a formality
 
@@ -61787,7 +61794,7 @@ is the only thing that jumps by 12.
 | `clk_probe` | Boot, from `clk_init`. Walks the §37.90 ladder, seeds the fields from whatever answers and publishes `[clk_tier]`. Out: CF = 1 = no clock, nothing written. Preserves all registers. |
 | `clk_rtc_write` | **In `CTRL.DRV`, not in the kernel (§37.94).** Pushes the live time back to the hardware RTC if `[clk_rtc]`, through the rung `[clk_tier]` names; no-op otherwise. Called by `cp_flush_close_x` and nothing else. Preserves all registers. |
 | `clk_dow` | **In `CTRL.DRV` (§37.94)** — the three rungs that write are its only callers. The day of the week for the live date, Sakamoto's method. Out: AL = 0..6, 0 = Sunday. Preserves everything else. Both XT chips have a weekday counter they do not derive themselves. |
-| `clk_bcd` / `clk_tobcd` | BCD ↔ binary byte helpers; `clk_bcd` returns CF = 1 on a non-decimal nibble. `clk_tobcd` clobbers AH. `clk_bcd` is boot-overlay only; `clk_tobcd` is one of §37.94's six resident survivors and is far-called from the module as `cw_clk_tobcd`. |
+| `clk_bcd` / `clk_tobcd` | BCD ↔ binary byte helpers; `clk_bcd` returns CF = 1 on a non-decimal nibble. `clk_tobcd` clobbers AH. `clk_bcd` is boot-overlay only; `clk_tobcd` is one of §37.94's six port helpers, a copy in each image (`clk_tobcd` in the overlay, `clkw_tobcd` in `CTRL.DRV`) and resident in neither. |
 
 **Month names** are a 12×3 ASCII table (`'Jan'`…`'Dec'`), indexed by
 month−1 ×3 — the same data serves `clk_fmt` and `clk_fld_str`.
@@ -64184,8 +64191,9 @@ calls it, so the boot path is untouched.
 
 **`desk_rowcalc` moved out of `desk_init` for this.** `desk_init` is boot
 overlay code (§2.5) and is dead FAT by the time the Control Panel can change
-the adapter under it, so the arithmetic is resident and the overlay
-far-calls it through `ovw_desk_rowcalc` like any other overlay→text step.
+the adapter under it, so the arithmetic is resident - `desk_rowcalc_x`, in
+`.cold` and ending in a `retf` - and the overlay far-calls that body by name
+(the `ovw_desk_rowcalc` shim it bounced through went in kernel size pass 9).
 
 #### 39.11.2.1 …and back again — the natural bank
 
@@ -83462,7 +83470,7 @@ one of them rather than a reader:
 3. **`drv_svc` is `.text` with real zero bytes, not `.bss`.** `snd.inc` reads
    `[drv_svc+DSV_TONE]` directly to ask whether a driver offered it a tone
    proc, and nothing zeroes `.bss` on this assembler (§8) — the live build
-   gets its zeros from `drv_svc_clear_all`, which is inside the gate.
+   gets its zeros from `drv_init_x`, which is inside the gate.
 
 The Control Panel's Drivers page is **stubbed rather than gated**, and the
 row is taken out of `cp_items` so nothing can select it. `CTRL.DRV` is an
@@ -91667,8 +91675,11 @@ there after the panel's own window has been destroyed.
 is a thing the user asked for and then waited seconds of floppy for, so
 silence is the wrong report. It fires only when `[cp_wdirty]` was set, which
 is what `cp_flush_close_x` already gates on — closing a panel nobody changed
-says nothing. The table is indexed by `[cp_dsave] + 1` so that slot 0 keeps
-`toast_say`'s "nothing to say".
+says nothing. **Two of the three lines are `CTRL.DRV`'s own** (kernel size
+pass 9): `cp_flush_x` is the only thing that ever says any of them, so 0 and 2
+are read through CS out of the image beside it - a toast COPIES its line, so
+the module drop that follows costs nothing - and only slot 1 is resident,
+because the mount stamps its drive letter (§52.10.3).
 
 **Outcome, cause — and one string per cause.** A message that says only that
 something failed sends the reader looking, and the two causes here want

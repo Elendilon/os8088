@@ -2170,7 +2170,7 @@ ui_loc_gate:
     call wm_top                 ; BX = frontmost visible, 0 = nothing to close
     or bx, bx
     jnz .set
-    mov ax, menu_s_closex       ; ...or its MENU_DIS twin
+    dec ax                      ; ...or its MENU_DIS twin, the byte before it
 .set:
     mov [menu_items_file], ax   ; Close Window is item 0 now: Locator's File
                                 ; menu is that item and nothing else, the

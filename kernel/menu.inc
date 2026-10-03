@@ -529,13 +529,10 @@ menu_relayout:
     mov bx, [menu_win]
     or bx, bx
     jnz .app
-    mov word [menu_seg], 0      ; no window owns the bar: Locator does, and
-    push cs                     ; its set is kernel data
-    pop es
-    mov si, menu_loc_set
-    mov [menu_set], si
-    mov si, [es:si + AM_NAME]
-    jmp .name_done
+    mov si, menu_loc_set        ; no window owns the bar: Locator does, and
+    mov [menu_set], si          ; its set is kernel data - so its name is
+    mov si, [cs:si + AM_NAME]   ; read through CS and .kseg below makes the
+    jmp short .kseg             ; label's segment ours (it is never 0)
 
 .app:
     push di                     ; the owner's segment, once, for every read
@@ -560,12 +557,8 @@ menu_relayout:
     call inst_win_owner         ; DI = owning instance record, 0 = unowned
     or di, di
     jz .from_title
-    mov si, di
-    add si, I_NAME              ; the 16-byte inline name field - KERNEL data,
-    mov word [menu_seg], 0      ; so the label's segment is ours after all
-    push cs
-    pop es
-    jmp .name_done
+    lea si, [di + I_NAME]       ; the 16-byte inline name field - KERNEL data,
+    jmp short .kseg             ; so the label's segment is ours after all
 .from_title:
     mov si, [bx + W_TITLE]
 
@@ -573,8 +566,9 @@ menu_relayout:
     or si, si                   ; a nameless window still gets a label
     jnz .have_name
     mov si, menu_loc_name
-    mov word [menu_seg], 0
-    push cs
+.kseg:                          ; ...the ONE place the three kernel-data
+    mov word [menu_seg], 0      ; names set the segment (kernel size pass 9:
+    push cs                     ; it was written out three times)
     pop es
 .have_name:
     mov [menu_namep], si
@@ -785,7 +779,7 @@ menu_ab_cat:
 ; -----------------------------------------------------------------------------
 ; menu_es - point ES at the segment the active menu set's data lives in
 ; in:  nothing ([menu_seg] is the answer, 0 = the kernel's own)
-; out: ES; nothing else (flags untouched)
+; out: ES; nothing else (flags clobbered)
 ;
 ; Every string and every word of an app menu set is an offset in the OWNING
 ; package's segment (SPEC.md 12.2/20.1). One window owns the bar at a time,
@@ -793,27 +787,27 @@ menu_ab_cat:
 ; menu_bar, and there does not need to be.
 ; -----------------------------------------------------------------------------
 menu_es:
-    push cs
-    pop es
-    cmp word [menu_seg], 0
-    je .out
-    mov es, [menu_seg]
-.out:
+    push ax
+    mov ax, [menu_seg]
+.seg:                           ; ...menu_des joins here with its own word
+    or ax, ax
+    jnz .set
+    mov ax, cs                  ; 0 = the kernel's own (.text: CS is it)
+.set:
+    mov es, ax
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
 ; menu_des - point ES at the segment the DROPPED menu's items live in
 ; in:  nothing ([menu_dseg], set by menu_track from the cell / menu_popup)
-; out: ES; nothing else (flags untouched)
+; out: ES; nothing else (flags clobbered)
 ; -----------------------------------------------------------------------------
 menu_des:
-    push cs
-    pop es
-    cmp word [menu_dseg], 0
-    je .out
-    mov es, [menu_dseg]
-.out:
-    ret
+    push ax
+    mov ax, [menu_dseg]
+    jmp short menu_es.seg       ; one body for the two words (kernel size
+                                ; pass 9, -8)
 
 ; -----------------------------------------------------------------------------
 ; menu_draw_bar - bring the menu bar up to date: the white field, the black
@@ -2389,7 +2383,7 @@ menu_hover:
 ; -----------------------------------------------------------------------------
 ; menu_item_dis - is item AX of the dropped menu disabled? (SPEC.md 12.2)
 ; in:  AX = item index (< [menu_cnt])
-; out: CF = 1 if its string starts with MENU_DIS
+; out: CF = 1 if its string starts with MENU_DIS (or is empty)
 ; clobbers: nothing else (flags)
 ; -----------------------------------------------------------------------------
 menu_item_dis:
@@ -2401,13 +2395,15 @@ menu_item_dis:
     add bx, [menu_iptr]
     call menu_des               ; ES = the dropped cell's segment
     mov si, [es:bx]
-    cmp byte [es:si], MENU_DIS
-    jne .no
-    stc
-    jmp short .out
-.no:
-    clc
-.out:
+    cmp byte [es:si], MENU_DIS + 1  ; CF = 1 for a first byte BELOW 2: the
+                                ; MENU_DIS mark, or an EMPTY item, which is a
+                                ; blank row nothing could mean picking - so it
+                                ; is skipped as a greyed one is, and the
+                                ; stc/clc ladder this was goes (kernel size
+                                ; pass 9; it is hover's, per pointer move)
+%if MENU_DIS != 1
+  %error "menu_item_dis tests MENU_DIS by `cmp ..., MENU_DIS + 1`: it must be 1, the smallest non-NUL byte"
+%endif
     pop es
     pop si
     pop bx
@@ -2631,6 +2627,9 @@ menu_s_bounce   equ app_ttl_bounce
 menu_s_disk     equ fm_s_root           ; the Disk window's title at the root
 menu_s_closex   db MENU_DIS     ; ...with nothing to close; ui_loc_gate points
 menu_s_close    db 'Close Window', 0    ; the item at one or the other before
+%if menu_s_close - menu_s_closex != 1
+  %error "ui_loc_gate reaches menu_s_closex as menu_s_close - 1 (a `dec ax`)"
+%endif
                                 ; the menu can drop (SPEC.md 47). Two labels
                                 ; over one `db`, fm_s_clonex's idiom: a
                                 ; disabled item is MENU_DIS then the string,

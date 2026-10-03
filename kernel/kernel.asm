@@ -5062,8 +5062,8 @@ ovw_mark_stamp:     call mark_stamp     ; SPEC.md 15.5's marker, reached from
                                         ; is the KERNEL's segment inside
                                         ; mark_here and the BLOB's at the call
 %endif
-ovw_desk_rowcalc:   call desk_rowcalc
-                    retf
+; (ovw_desk_rowcalc went in kernel size pass 9: desk_init far-calls
+; desk_rowcalc_x, which already ends in a retf.)
 %ifdef BOOT_PROFILE
 ovw_bprof_mark:     call bprof_mark
                     retf
