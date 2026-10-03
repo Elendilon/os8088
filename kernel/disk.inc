@@ -1121,39 +1121,42 @@ dsk_lstale:  db 0                ; 1 = the global listing is not this volume's
 ;   .##############.      body
 ;   .#............#.
 ;   .##############.
+;
+; HELD AS RUNS - (count, word) pairs, a zero count ending them - because the
+; body is eleven runs of identical rows and dsk_ico_stage writes it into
+; dsk_ico with a `rep stosw` a run: 34 bytes of table where the rows were 64,
+; and the decoder is smaller than the copy's setup it replaced.
 dsk_folder_ico:
-    dw 0x0000                    ; 16 mask rows (white underlay: the body,
-    dw 0x3E00                    ; filled, so the icon reads on the dither)
-    dw 0x7F00
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x0000
-    dw 0x0000
-    dw 0x0000                    ; 16 data rows (black pixels)
+    db 1                         ; 16 mask rows (white underlay: the body,
+    dw 0x0000                    ; filled, so the icon reads on the dither)
+    db 1
     dw 0x3E00
+    db 1
+    dw 0x7F00
+    db 11
+    dw 0x7FFE
+    db 3                         ; mask rows 14-15 and data row 0 - one run
+    dw 0x0000
+    db 1                         ; 16 data rows (black pixels)
+    dw 0x3E00
+    db 1
     dw 0x4100
+    db 1
     dw 0x7FFE
+    db 9
     dw 0x4002
-    dw 0x4002
-    dw 0x4002
-    dw 0x4002
-    dw 0x4002
-    dw 0x4002
-    dw 0x4002
-    dw 0x4002
-    dw 0x4002
+    db 1
     dw 0x7FFE
+    db 2
     dw 0x0000
+    db 0
+%if 1+1+1+11+3+1+1+1+9+1+2 != DSK_ICO_SIZE / 2
+  %error "dsk_folder_ico's runs must cover exactly DSK_ICO_SIZE / 2 rows"
+%endif
+dsk_ico_blank:                   ; ...and "no icon", as the same runs: every
+    db DSK_ICO_SIZE / 2          ; row of the slot zero
     dw 0x0000
+    db 0
 section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
                                 ; segment of its own. DS is still KERNEL_SEG,
                                 ; so the DATA stays in .text at every toggle
@@ -8219,23 +8222,29 @@ dsk_ico_stage:
     jmp short .copy
 .built:
     ja .none                    ; 0xFF: SPEC.md 25's generic icon
-    mov si, dsk_folder_ico      ; every folder shares the one built-in body
-    mov dx, KERNEL_SEG          ; ...the kernel segment, named (SPEC.md 2.6
-.copy:                          ; rule 2: CS is COLD_SEG here)
+    mov si, dsk_folder_ico      ; every folder shares the one built-in body,
+    jmp short .runs             ; and it is RUNS (see dsk_folder_ico)
+.copy:
     mov di, dsk_ico
     mov cx, DSK_ICO_SIZE
     mov ax, KERNEL_SEG
     call dsk_copy_seg_x
     jmp short .out
 .none:                          ; SPEC.md 25.8: no body, so hand back the
-    mov di, dsk_ico             ; all-zero every caller already reads as "no
-    mov cx, DSK_ICO_SIZE/2      ; icon". THROUGH DS and not a `rep stosw`:
-    xor ax, ax                  ; dsk_ico is `.bss` and so KERNEL_SEG, which
-.bz:                            ; DS already is (SPEC.md 1), and setting ES
-    mov [di], ax                ; here would cost more than the loop
-    inc di
-    inc di
-    loop .bz
+    mov si, dsk_ico_blank       ; all-zero every caller already reads as "no
+.runs:                          ; icon" - one run of every row, through the
+    push ds                     ; folder's own decoder: each run is a count
+    pop es                      ; and a row, stored count times. ES is banked
+    mov di, dsk_ico             ; above, and dsk_ico is `.bss`, so DS is its
+    cld                         ; segment as well
+.run:
+    lodsb
+    cbw
+    xchg ax, cx                 ; CX = the run (a zero one ends the body)
+    jcxz .out
+    lodsw
+    rep stosw
+    jmp short .run
 .out:
     pop es
     pop di

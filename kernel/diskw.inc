@@ -844,14 +844,14 @@ dskw_rmbody_n83:                ; the same pipeline with dskw_n83 already
 ;      committed, but lost clusters, and the user should know. The caches
 ;      become a mount snapshot again either way (dskw_sync_x)
 ;
-; dskw_rmbody, dskw_wbody and dskw_dbody each spelt this out. rmbody's chain
-; was bounded before its commit, so the dskw_clok here is a second asking of
-; a question it has answered - on a path that has just written a sector.
+; dskw_rmbody, dskw_wbody and dskw_dbody each spelt this out. A garbage old
+; link (0 included) leaves the FAT alone, and dskw_free_chain is what says so:
+; its first dsk_next_clus_x refuses a cluster outside [2, dsk_maxclus] and the
+; walk ends having changed nothing. The dskw_clok that stood here asked it
+; first, a second asking of a question with one answer.
 ; -----------------------------------------------------------------------------
 dskw_relold:
     mov ax, [dskw_oldclus]
-    call dskw_clok              ; a garbage old link: leave the FAT alone
-    jc .flush
     call dskw_free_chain
 .flush:                         ; ...but FLUSH EITHER WAY: a commit point
     call dskw_flush_x           ; leaves the window CLEAN (dsk_fatw_park
@@ -2109,10 +2109,11 @@ dskw_rdata:
     mov [dskw_wseg], ax         ; the ADVANCING destination segment
 .clus:
     mov ax, [dskw_cur]
-    call dskw_clok
-    jc .corrupt
-    call dskw_take1             ; CX = whole sectors, [dskw_clba] the cursor
-    jc .corrupt
+    call dskw_take1             ; CX = whole sectors, [dskw_clba] the cursor -
+    jc .corrupt                 ; and CF=1 for a cluster outside [2,
+                                ; dsk_maxclus], dsk_clus2lba_x being the first
+                                ; thing it asks: a dskw_clok here as well was
+                                ; the same test twice a cluster
 .addrun:
     call dskw_runadd            ; the whole sectors of this take, appended to
     jc .ioerr                   ; the pending run (SPEC.md 18.4.2). CX comes
@@ -2711,9 +2712,11 @@ dskw_read_at_x:
 .skip:
     call dsk_next_clus_x    ; AX = the next cluster; CF=1 = the
     jc .corrupt                 ; chain ended before the size said it would
-    call dskw_clok
-    jc .corrupt
-    loop .skip
+    loop .skip                  ; ...and a link outside [2, dsk_maxclus] is
+                                ; refused by whatever reads it next: the next
+                                ; pass's dsk_next_clus_x, or dsk_read_chain_x's
+                                ; own range test (FERR_IO either way). It was
+                                ; asked here as well, a dskw_clok a cluster
 .atclus:
     push ax                     ; THE CLUSTER IS NEVER STORED. It was banked
                                 ; in [dwr_clus], which on kern_big IS the
@@ -4169,12 +4172,11 @@ dskw_alloc:
     dec cx                      ; candidates: clusters 2..maxclus
     mov ax, [dsk_rover]
 .try:
-    cmp ax, 2                   ; wrap the rover into range
-    jae .inrange
-    mov ax, 2
-.inrange:
-    cmp ax, [dsk_maxclus]
-    jbe .check
+    cmp ax, [dsk_maxclus]       ; wrap the rover into range: past the last
+    ja .wrap                    ; cluster or below the first, both are 2
+    cmp ax, 2
+    jae .check
+.wrap:
     mov ax, 2
 .check:
     push ax
@@ -4196,14 +4198,14 @@ dskw_alloc:
                                 ; allocated hands the same one out again on the
                                 ; next call, which is the cross-link the commit
                                 ; order exists to make impossible
-    mov bx, ax
-    inc bx
-    mov [dsk_rover], bx         ; next search starts past it (CF = 0: the
-    jmp short .out              ; `jc` above, and inc/mov keep it)
-.iofail:
-    mov ax, 0xFFFF              ; ...and say WHICH failure it was
-    stc
+    inc ax
+    mov [dsk_rover], ax         ; next search starts past it (CF = 0: the
+    dec ax                      ; `jc` above, and inc/mov/dec keep it)
     jmp short .out
+.iofail:
+    sbb ax, ax                  ; ...and say WHICH failure it was: 0xFFFF,
+    jmp short .out              ; out of the CF the `jc` arrived with, and
+                                ; CF = 1 still (the borrow)
 .nospace:
     xor ax, ax
     stc
@@ -4228,17 +4230,13 @@ dskw_free_chain:
     mov si, ax
 .loop:
     mov ax, si
-    call dskw_clok
-    jc .done
-    call dsk_next_clus_x ; AX = the link, before we erase it
-    jc .done
-    mov dx, ax
-    mov ax, si
-    push dx
+    call dsk_next_clus_x        ; AX = the link, before we erase it - and CF=1
+    jc .done                    ; for a cluster outside [2, dsk_maxclus], which
+                                ; is dskw_clok's own test: it was asked here
+                                ; first as well, the same answer twice
+    xchg ax, si                 ; SI = the link, AX = this cluster
     xor dx, dx
-    call dskw_setfat            ; free this one
-    pop dx
-    mov si, dx
+    call dskw_setfat            ; free this one (it preserves AX..SI)
     loop .loop
 .done:
     pop si
