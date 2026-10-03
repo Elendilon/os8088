@@ -4833,12 +4833,9 @@ cur_shape_pass:
     push bx
     push cx
     push dx
-    mov ax, [mouse_x]
-    mov bx, [mouse_y]
-.look:
     mov byte [cur_shchk], 0
-    mov cx, ax
-    mov dx, bx
+    mov cx, [mouse_x]           ; straight into wm_hit's own registers (they
+    mov dx, [mouse_y]           ; went through AX/BX until size pass 9)
     call wm_hit                 ; BX = the topmost visible window over the
                                 ; point (0 = none), AL = which part of it
     mov ah, CUR_ARROWSH
@@ -5626,7 +5623,13 @@ mou_phase   db 0,0,0,0          ; packet state: 0 idle, 1 got b0, 2 got b1,
                                 ; optional FOURTH byte may follow (SPEC.md
                                 ; 9.5.4). 3 behaves as 0 for every other
                                 ; purpose - mou_newround still zeroes it
-mou_b0      db 0,0,0,0          ; packet byte 0: 1 LB RB Y7 Y6 X7 X6
+mou_b0      equ mou_phase + 1   ; packet byte 0: 1 LB RB Y7 Y6 X7 X6. These
+                                ; arrays are indexed by the port's WORD row
+                                ; (BX = 0 or 2), so a byte array uses bytes 0
+                                ; and 2 and leaves 1 and 3 idle: b0 lives in
+                                ; mou_phase's (size pass 9). mou_newround's
+                                ; zeroing of mou_phase clears it too, which is
+                                ; harmless - b0 means nothing below phase 1
 mou_b1      db 0,0,0,0          ; packet byte 1: X low 6 bits
 mou_evrec   times 8 db 0        ; scratch event record for evq_push (ISR only).
                                 ; ABOVE the published block on purpose - it is

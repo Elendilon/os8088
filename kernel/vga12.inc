@@ -1206,6 +1206,13 @@ gfx_ls_zero dw 0                ; .text with a real initialiser: -f bin zeroes
     call gfx_pt_row             ; a row past the table's end (SPEC.md 39.3.1)
     jmp %%row
 %%miss:
+%ifdef KERN_BIG
+    call gfx_pt_miss            ; THE THREE LOOPS SHARE IT (size pass 9): CF = 0
+    jnc %%have                  ; and the box holds the point, or CF = 1 and it
+                                ; is skipped. A miss is a clip-list walk, once a
+                                ; call - and since .pass resolves the FIRST
+                                ; point's box itself, not even that
+%else
     mov ax, cs                  ; gfx_ls_box reads the clip table through DS,
     mov ds, ax                  ; so put the kernel's back - by RELOAD, and
     call gfx_ls_box             ; through no wrapper, because a wrapper is two
@@ -1222,6 +1229,7 @@ gfx_ls_zero dw 0                ; .text with a real initialiser: -f bin zeroes
     jl %%skip
     cmp dx, [cs:gfx_ls_by2]
     jle %%have
+%endif
 %%skip:
     dec cx                      ; not `loop`: the reach from out here is not
     jz %%done                   ; rel8's to give, and this path is taken once
@@ -1230,6 +1238,40 @@ gfx_ls_zero dw 0                ; .text with a real initialiser: -f bin zeroes
 %endmacro
 
 %ifdef KERN_BIG
+; -----------------------------------------------------------------------------
+; gfx_pt_miss - GFXPT_LOOP's miss arm, ONE copy for kern_big's three loops
+; (size pass 9: 69 bytes). Re-resolve the box for the point (SI, DX) and say
+; whether it holds it.
+; in:  SI = x, DX = y (virtual), DS = the caller's array segment
+; out: CF = 0 inside the box, CF = 1 outside (the point is skipped); BX = the
+;      row table again; DS = the array's again; AX spent
+;
+; gfx_ls_box reads the clip table through DS, so the kernel's goes back - by
+; RELOAD - and it spends BX on the clip table's cursor, so the base comes back
+; here. An EMPTY box comes back if no rect holds the point, which skips it and
+; leaves the next one to re-resolve. ONE stack word deeper than the inline arm
+; it replaces, at a point the slice-class gate (t_stkclass) still walks.
+; -----------------------------------------------------------------------------
+gfx_pt_miss:
+    mov ax, cs
+    mov ds, ax
+    call gfx_ls_box
+    mov ds, [gfx_pt_cseg]
+    GFXPT_RTAB
+    cmp si, [cs:gfx_ls_bx1]
+    jl .out
+    cmp si, [cs:gfx_ls_bx2]
+    jg .out
+    cmp dx, [cs:gfx_ls_by1]
+    jl .out
+    cmp dx, [cs:gfx_ls_by2]
+    jg .out
+    clc
+    ret
+.out:
+    stc
+    ret
+
 ; -----------------------------------------------------------------------------
 ; gfx_pt_resolve - SPEC.md 5.6.9.5: the ACTIVE display, in the space the loop
 ; asks its questions in. Once a PASS, never per point. Preserves everything.
@@ -1374,11 +1416,17 @@ gfx_points:
 %endif
     ; --- EVERYTHING THE LOOP NEEDS, resolved once, while DS is still ours ---
     call gfx_ls_ink             ; [gfx_ln_ink] = 00 paper / FF ink / 01 dither
-    mov word [gfx_ls_bx1], 1    ; SPEC.md 5.6.9.1: an EMPTY box, so the first
-    mov word [gfx_ls_bx2], 0    ; point cannot match whatever the last caller
-                                ; left here and must re-resolve
+    mov bp, si                  ; SPEC.md 5.6.9.1: the box is RESOLVED for the
+    mov dx, [es:bp+2]           ; FIRST point here, while DS is still ours, so
+    mov si, [es:bp]             ; it cannot match whatever the last caller left
+    call gfx_ls_box             ; - and the first point is an ordinary hit
+                                ; rather than a guaranteed trip down the miss
+                                ; arm (size pass 9: it was an EMPTY box stored
+                                ; here, which forced that trip on every call).
+                                ; gfx_ls_box keeps AX, CX and DI and spends BX,
+                                ; which GFXPT_RTAB below reloads
     mov al, [gfx_ln_ink]        ; ...the class, banked in a register across the
-    mov bp, si                  ; two segment loads below
+                                ; two segment loads below
     mov [gfx_pt_cseg], es       ; ...and the array's segment, which the miss
     mov dx, es                  ; path reloads DS from
     mov bx, [vid_rseg]          ; BX = the framebuffer's
@@ -1393,10 +1441,11 @@ gfx_points:
     ; the machine that has 128KB than 92 cycles are.
     GFXPT_LOOP 0
 %else
-    ; THE CLASS IS DISPATCHED ONCE A CALL, and both of these assemble to five
-    ; bytes rather than two: a whole loop expansion stands between here and
-    ; either target, which is well past rel8, so nasm turns each into the
-    ; jump-around-a-near-jmp an 8086 needs (`75 03 / E9 xx xx`).
+    ; THE CLASS IS DISPATCHED ONCE A CALL. `je .ink` assembles to five bytes
+    ; rather than two: two whole loop expansions stand between here and it,
+    ; well past rel8, so nasm turns it into the jump-around-a-near-jmp an 8086
+    ; needs (`75 03 / E9 xx xx`). `jz .paper` has been short since size pass 9
+    ; shared the loops' miss arm (gfx_pt_miss) and one expansion came in reach.
     cmp al, 0xFF
     je .ink
     or al, al

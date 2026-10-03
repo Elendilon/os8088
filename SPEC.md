@@ -5749,10 +5749,14 @@ walk does.
 ##### 5.6.9.1 The box is invalidated on entry, and that is not a nicety
 
 `gfx_ls_bx1..by2` is whatever the last caller left in it, and the region may
-have been re-armed since. The loop therefore stores an EMPTY box before the
-first point, so the first one always takes the `.miss` arm and re-resolves.
-Without it a call whose first point happens to fall inside a stale rect draws
-through a clip nobody set — which is invisible until two windows overlap.
+have been re-armed since. The loop therefore RESOLVES the box for the first
+point before the loop starts (a direct `gfx_ls_box` while DS is still the
+kernel's), so the first point is tested against a box this call built. Without
+it a call whose first point happens to fall inside a stale rect draws through a
+clip nobody set — which is invisible until two windows overlap. (Until size
+pass 9 it stored an EMPTY box instead, which sent the first point of every call
+down the `.miss` arm; on `kern_big` that arm is now one routine,
+`gfx_pt_miss`, shared by the three ink loops of 5.6.9.3.)
 
 The exposure is one-sided, and worth stating because it says what a gate for
 this has to arrange: the `.miss` arm re-resolves a box that is too SMALL, so
