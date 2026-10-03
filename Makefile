@@ -4655,6 +4655,32 @@ $(BUILD)/lzmodlzb360.img: $(BUILD)/tracker.o88 $(BUILD)/lzb/BEVERLY.MOD \
 .PHONY: lzmodlzbtest
 lzmodlzbtest: $(BUILD)/lzmodlzb360.img
 
+# ...and a module whose LZ4 form is PAST 64KB PACKED (SPEC.md 20.14.5.2):
+# BEVERLY.MOD with 30,000 bytes of noise and then 30,000 of text after it -
+# 176,085 bytes that pack to ~92KB with a short raw tail. Before 20.14.5.2
+# cz_wrap stored this PLAIN, and the decoder refused an LZ4 source past one
+# segment. The noise is one literal run of ~30KB, so the read also takes the
+# 16KB-piece path, which nothing shipped exercises. Tracker ignores the bytes
+# past its last sample; tests/lzmod.py --fmt lz4big compares all of them.
+# Padded with tests/multiseg/mkwide.py, MSEGW's generator, so both fixtures
+# are one deterministic LCG.
+$(BUILD)/lz4big/plain.mod: apps/tracker/beverly.mod tests/multiseg/mkwide.py
+	@mkdir -p $(BUILD)/lz4big
+	python3 tests/multiseg/mkwide.py noise 30000 $< $@.tmp
+	python3 tests/multiseg/mkwide.py text 30000 $@.tmp $@
+	@rm -f $@.tmp
+
+$(BUILD)/lz4big/BEVERLY.MOD: $(BUILD)/lz4big/plain.mod tools/os88lz.py
+	python3 tools/os88lz.py --wrap $@ $<
+
+$(BUILD)/lzmodbig360.img: $(BUILD)/tracker.o88 $(BUILD)/lz4big/BEVERLY.MOD \
+                          tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/tracker.o88 \
+	    $(BUILD)/lz4big/BEVERLY.MOD
+
+.PHONY: lzmodbigtest
+lzmodbigtest: $(BUILD)/lzmodbig360.img
+
 $(BUILD)/fmtest.bin: tests/fmtest/fmtest.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/fmtest/fmtest.asm
 	@echo "fmtest: $(call FILESIZE,$@) bytes"
@@ -7515,6 +7541,56 @@ $(BUILD)/msegz360.img: $(BUILD)/msegzd/MSEG.O88 $(BUILD)/msegbig.o88 \
 
 .PHONY: msegz
 msegz: $(BUILD)/msegz.img $(BUILD)/msegz360.img
+
+# --- MSEGW: the same package with a carve PAST 64KB (SPEC.md 20.12.11) ------
+# Parts 1 and 2 padded by tests/multiseg/mkwide.py: part 1 (plain) with noise,
+# part 2 with text, so the carve is past 64KB at both ends - packed, which is
+# what op_read moves, and unpacked, which op_claim cuts and op_unpack walks.
+# The primaries are mseg.bin and msegz.bin UNCHANGED, so tests/multiseg.py
+# reads them through the same maps; only where each later part lands moves.
+# Both images name the file MSEG.O88, msegz's way, because the row opens it by
+# name. Before 20.12.11 the packer refused both, at 128 sectors.
+$(BUILD)/msegwp1.bin: $(BUILD)/msegp1.bin tests/multiseg/mkwide.py
+	python3 tests/multiseg/mkwide.py noise 45000 $< $@
+
+$(BUILD)/msegwp2.bin: $(BUILD)/msegp2.bin tests/multiseg/mkwide.py
+	python3 tests/multiseg/mkwide.py text 40000 $< $@
+
+MSEGW_PARTS = $(BUILD)/msegp0.bin $(BUILD)/msegwp1.bin $(BUILD)/msegwp2.bin \
+              $(BUILD)/msegp3.bin $(BUILD)/msegp4.bin
+
+$(BUILD)/msegwd/MSEG.O88: $(BUILD)/mseg.bin $(MSEGW_PARTS) tools/os88pkg.py \
+                          apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc
+	@mkdir -p $(BUILD)/msegwd
+	python3 tools/os88pkg.py $(BUILD)/mseg.bin -o $@ \
+		$(foreach p,$(MSEGW_PARTS),--part $(p))
+
+$(BUILD)/msegwzd/MSEG.O88: $(BUILD)/msegz.bin $(MSEGW_PARTS) tools/os88pkg.py \
+                           tools/os88lz.py apps/os88parts.inc \
+                           apps/os88partsbody.inc apps/os88rseq.inc
+	@mkdir -p $(BUILD)/msegwzd
+	python3 tools/os88pkg.py $(BUILD)/msegz.bin -o $@ \
+		--part-compress lz4 $(foreach p,$(MSEGW_PARTS),--part $(p))
+
+$(BUILD)/msegw.img: $(BUILD)/msegwd/MSEG.O88 tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 1440 $<
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/msegw360.img: $(BUILD)/msegwd/MSEG.O88 tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 360 $<
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/msegwz.img: $(BUILD)/msegwzd/MSEG.O88 tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 1440 $<
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/msegwz360.img: $(BUILD)/msegwzd/MSEG.O88 tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 360 $<
+	@python3 tools/os88disk.py --verify $@
+
+.PHONY: msegw
+msegw: $(BUILD)/msegw.img $(BUILD)/msegw360.img $(BUILD)/msegwz.img \
+       $(BUILD)/msegwz360.img
 
 # --- CWORD and its document floppy (SPEC.md 73.12) ---------------------------
 # The C toolchain's demonstrator: a word processor whose UI, layout, redraw

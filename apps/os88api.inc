@@ -649,6 +649,7 @@ SPK_E_BUSY       equ 3           ; open already, or a clip plays
 ; implementation both this and the kernel copy.
 OSAPI_LZ_LZ4 equ 0
 OSAPI_LZ_LZB equ 1
+OSAPI_LZ_BIG equ 0x80            ; ...OR'd in: AH:CX is the length (20.13.3)
 %define OSAPI_DECOMP        KERNEL_SEG:0x03D3   ; DS:SI = the compressed bytes,
                                  ; T word first (SPEC.md 20.13.7: every stream
                                  ; ends in T raw bytes, and needs NO in-place
@@ -662,17 +663,18 @@ OSAPI_LZ_LZB equ 1
                                  ; claim's base), CX = compressed bytes,
                                  ; BX:DX = the EXACT expected output length,
                                  ; 32 bits, AL = OSAPI_LZ_*.
+                                 ; **AL | OSAPI_LZ_BIG** says AH is the
+                                 ; compressed length's HIGH byte, so AH:CX is
+                                 ; 24 bits; without it AH is not read.
                                  ; out CF=0 and ES:DI one past the last byte;
                                  ; CF=1 = refused, and nothing past the
                                  ; declared length was written.
-                                 ; **THE OUTPUT CROSSES 64KB AND THE INPUT
-                                 ; DOES NOT** (SPEC.md 20.14.5): the output has
-                                 ; to, because a 116KB MOD is the biggest win
-                                 ; compression has in this system, and the
-                                 ; input need not, because a stream over 64KB
-                                 ; is a file that compressed badly and is
-                                 ; better stored plain. CX >= 64KB, or SI + CX
-                                 ; wrapping, is refused.
+                                 ; **BOTH SIDES CROSS 64KB, IN BOTH FORMATS**
+                                 ; (SPEC.md 20.14.5, 20.14.5.2): DS:SI may
+                                 ; run past one segment, and the decoder
+                                 ; slides DS itself. A kernel older than the
+                                 ; bit REFUSES it as an unknown format, so
+                                 ; setting it is never a misread.
                                  ; clobbers AX BX CX DX SI DI; DS and ES come
                                  ; back YOURS - which is why this is a plain
                                  ; cell and not an X one: the decompressor
