@@ -646,6 +646,18 @@ fm_kinit_x:
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
+; fm_click_in - a press's opening, left or right (fm_onclick, fm_rclick)
+; in:  SI = the window
+; out: fm_vp_set's (BX = SI, DI = its block); [fm_wased] and AL = the FS_EDIT
+;      it had, and any editor ended. The two callbacks spelled it out twice
+; -----------------------------------------------------------------------------
+fm_click_in:
+    call fm_svp_set
+    mov al, [di+FS_EDIT]
+    mov [fm_wased], al
+    jmp fm_edit_end
+
+; -----------------------------------------------------------------------------
 ; fm_vp_set - publish the acting window's view
 ; in:  BX = window ptr
 ; out: DI = [fm_vp] = its state block (every other register preserved),
@@ -661,12 +673,6 @@ fm_kinit_x:
 ; skips this reads the PREVIOUS window's directory: wrong names, wrong icons,
 ; and a double-click that opens the wrong file.
 ; -----------------------------------------------------------------------------
-fm_click_in:                    ; a press's opening, left or right: publish SI's
-    call fm_svp_set             ; window, bank [fm_wased] = its FS_EDIT, and
-    mov al, [di+FS_EDIT]        ; end any editor (AL = the banked byte). The
-    mov [fm_wased], al          ; two callbacks spelled it out twice
-    jmp fm_edit_end
-
 fm_svp_set:                     ; ...with the window in SI (BX comes back
     mov bx, si                  ; holding it, as the callers had it)
 fm_vp_set:
@@ -6872,21 +6878,17 @@ fm_extkeep:
     xor bh, bh
     cmp bl, 12
     jae .out                    ; no room for the '.', let alone what follows
-    mov di, fm_ebuf
-    add di, bx
-    mov byte [di], '.'
+    lea di, [bx+fm_ebuf]
+    mov al, '.'                 ; the dot is the loop's first store
+.cp:
+    mov [di], al
     inc di
     inc bl
-.cp:
     lodsb
     or al, al
     jz .term
     cmp bl, 12
-    jae .term
-    mov [di], al
-    inc di
-    inc bl
-    jmp short .cp
+    jb .cp
 .term:
     mov byte [di], 0
     mov [fm_elen], bl
@@ -8454,10 +8456,9 @@ fm_stat_line:                   ; scroll bar is (it was a .text byte, written
     jmp kretc_di
 
 ; -----------------------------------------------------------------------------
-; fm_scat - append a NUL string to a buffer
-; in:  SI = NUL source, DI = destination
-; out: DI -> the stored NUL (so the next append overwrites it); SI advanced
-; clobbers: AL (internal helper)
+; The painters' small shared openings (kernel size pass 9): each is a run of
+; two to four instructions that several callers spelled out, so each is one
+; `call` there. Their contracts are on their first lines.
 ; -----------------------------------------------------------------------------
 fm_cellxy:                      ; AX = a VISIBLE grid row, CX = its column ->
     push ax                     ; [fm_cellx] and [fm_celly] = the cell's
@@ -8497,17 +8498,22 @@ fm_vpdrv:                       ; DI = the acting window's block, AL = its
     mov al, [di+FS_DRV]
     ret
 
+; -----------------------------------------------------------------------------
+; fm_scat - append a NUL string to a buffer
+; in:  SI = NUL source, DI = destination
+; out: DI -> the stored NUL (so the next append overwrites it); SI advanced
+; clobbers: AL (internal helper)
+; -----------------------------------------------------------------------------
 fm_scat_onam:                   ; ...and then fm_onam after it: the
     call fm_scat                ; "Verb NAME" every editor prompt opens with
     mov si, fm_onam
 fm_scat:
     lodsb
     mov [di], al
-    test al, al
-    jz .done
     inc di
-    jmp fm_scat
-.done:
+    test al, al
+    jnz fm_scat                 ; one taken branch a byte where it was a
+    dec di                      ; jz and a jmp - and DI back ON the NUL
     ret
 
 %ifndef OS88_BIGVOL
