@@ -1537,9 +1537,14 @@ ui_drag:
     or di, di                   ; a click that only raised the window (above)
     jz .done                    ; leaves the screen already correct
 
-%ifdef KERN_BIG
-    mov bx, [ui_dragwin]        ; THE SIZE THIS WINDOW WANTS, BEFORE ANY OF THE
-    EXTCALL EXT_LAND            ; CLAMPS BELOW SEE IT (SPEC.md 11.100.3/11.100.4)
+%ifdef KERN_BIG                 ; BX IS [ui_dragwin] FROM .x_low_ok TO THE BANK
+                                ; BELOW: wm_snap_ax, EXT_YLOW's arm,
+                                ; ui_drag_dead, wm_dock_snap, EXT_LAND's
+                                ; (ui_drag_size), ui_drag_phase and wm_dc_take
+                                ; all preserve it, so the four reloads it had
+                                ; went (kernel size pass 9)
+    EXTCALL EXT_LAND            ; THE SIZE THIS WINDOW WANTS, BEFORE ANY OF THE
+                                ; CLAMPS BELOW SEE IT (SPEC.md 11.100.3/11.100.4)
     cmc                         ; EXTD.DRV answers CF = 1 NOT moved, so
                                 ; mod_gone - no image, one display - reads as
                                 ; "not moved" here (SPEC.md 39.19.6)
@@ -1563,7 +1568,6 @@ ui_drag:
                                 ; 11.96.12). wm_su_ck would refuse the buffer
                                 ; anyway; this saves taking it
 %endif
-    mov bx, [ui_dragwin]
     call ui_drag_phase          ; ...onto a multiple of 8 FIRST (SPEC.md
                                 ; 11.96.13): the cache can only replay the
                                 ; pixels at a dx whose low three bits are 0,
@@ -1573,8 +1577,8 @@ ui_drag:
                                 ; paid, in up to 7px of HORIZONTAL drop
                                 ; precision - and in x alone: dy is deliberately
                                 ; not snapped (SPEC.md 11.96.13.1)
-    mov bx, [ui_dragwin]        ; THE DRAG CACHE (SPEC.md 11.96.12): bank the
-    call wm_dc_take             ; content while it is still on the glass at the
+    call wm_dc_take             ; THE DRAG CACHE (SPEC.md 11.96.12): bank the
+                                ; content while it is still on the glass at the
                                 ; old place, so wm_draw_win below replays it at
                                 ; the new one instead of ordering a W_PAINT.
                                 ; HERE and not after the move: two lines down
@@ -1586,7 +1590,7 @@ ui_drag:
     popf
 %endif
 
-    mov bx, [ui_dragwin]        ; A DRAG IS ALLOWED TO CROSS THE SEAM (SPEC.md
+                                ; A DRAG IS ALLOWED TO CROSS THE SEAM (SPEC.md
 %ifdef KERN_BIG                 ; 39.16.1) and ui_drag_size above is what it
     call wm_nat_bank_xy         ; costs when it does - ONE call now, where this
 %else                           ; site used to run a second clamp of its own
@@ -1615,12 +1619,13 @@ ui_drag:
                                 ; assembled perfectly with the bank in the wrong
                                 ; place, which is what a merge is for catching
 
+    mov si, bx                  ; SI = the window: BX still is, here
 %ifndef REDRAWFULL
     mov ax, [ui_origx]          ; ...AND WHAT THE DROP IS ABOUT TO LAND ON
     mov bx, [ui_origy]          ; (SPEC.md 11.96.16.2): banked here, judged
     mov cx, [ui_dragw]          ; against the glass, which still shows this
     mov dx, [ui_dragh]          ; window where it was. wm_rz_paint is the
-    mov si, [ui_dragwin]        ; funnel for every GEOMETRY change and a drag
+                                ; funnel for every GEOMETRY change and a drag
     call wm_dg_precover         ; is not one of them
 %endif
 
@@ -1635,7 +1640,10 @@ ui_drag:
     mov bx, [ui_origy]
     mov dx, bx
     add dx, [ui_dragh]
-    mov si, [ui_dragwin]
+    mov si, [ui_dragwin]        ; ...AGAIN: wm_dg_precover's banner says it
+                                ; preserves every register, and its
+                                ; wm_rz_precover spends SI (tests/dockmark.py
+                                ; went red on a straddle without this reload)
     call wm_dmg_vacate          ; WHERE IT WAS is the whole of what can have
                                 ; gone stale (SPEC.md 11.91.2) - recorded
                                 ; BEFORE the union below grows AX..DX past it.

@@ -793,8 +793,8 @@ desk_reflow:
 %else
 desk_reflow:
     cmp byte [desk_ready], 0
-    je .ret
-    call kentc_di
+    je desk_free.ret            ; a `ret` in short reach (desk_free's own) -
+    call kentc_di               ; this one's was five bytes off the far end
     xor di, di                  ; --- 1: let go -----------------------------
 .a:
     mov al, [di+desk_zslot]
@@ -885,8 +885,6 @@ desk_reflow:
     cmp di, DESK_NZ
     jb .c
     jmp kretc_di
-.ret:
-    ret
 
 %endif
 
@@ -1363,15 +1361,22 @@ desk_unsel_x:
     push ax
     mov al, 0xFF
     xchg al, [desk_sel]
-    cmp al, 0xFF
-    je .o                       ; nothing was selected
 %ifdef OS88_SHORTCUTS
     mov word [menu_items_file+2], sc_s_remx ; ...so Remove Shortcut greys,
-%endif                          ; desk_select's other half
+                                ; desk_select's other half - and harmlessly
+                                ; again when nothing was selected, which
+                                ; already left it there
+    call desk_select.one        ; 0xFF = nothing was selected; else its cell
+                                ; (if shown) owes a repaint - .one's body, a
+                                ; copy of which stood here (kernel size pass 9)
+%else
+    cmp al, 0xFF
+    je .o                       ; nothing was selected
     call desk_zs                ; AL = its cell; CF = 1 not shown
     jc .o
     call desk_cmark
 .o:
+%endif
     pop ax
     popf
     retf

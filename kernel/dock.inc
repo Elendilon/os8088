@@ -511,8 +511,12 @@ db_paint:
                                 ; which is a slow death nothing in the tree
                                 ; would report. See the matching `pop ax`.
     mov byte [dock_drew], 0
-    mov word [dock_px1], 07FFFh ; ...and nothing of the strip is painted YET
-    mov word [dock_px2], 08000h ; (SPEC.md 30.3.3): [dock_px1]/[dock_px2] are
+    mov ax, 07FFFh              ; ...and nothing of the strip is painted YET
+    mov cx, 08000h              ; (SPEC.md 30.3.3): [dock_px1]/[dock_px2] are
+    mov [dock_px1], ax          ; (the same two registers carry the sentinel
+    mov [dock_px2], cx          ; into `.full`'s exchange: wm_top and
+                                ; inst_win_owner preserve both - kernel size
+                                ; pass 9, five bytes and two immediates fewer)
                                 ; this pass's answer, not the last one's, and
                                 ; EMPTY is the inverted bounding box 07FFFh..
                                 ; 08000h so that db_px_hit's signed compares
@@ -553,8 +557,7 @@ db_paint:
                                 ; the window as well, and this does not depend
                                 ; on believing it. `pushf`/`popf`, never
                                 ; `cli`/`sti` - the caller's IF is its own.
-    mov ax, 07FFFh
-    mov cx, 08000h
+                                ; AX:CX = 07FFFh:08000h still, from above
     pushf
     cli
     xchg ax, [dock_dx1]

@@ -1374,7 +1374,6 @@ drv_cls_fp_x:
 
 drv_cls_svc_x:
     push ax
-    push cx
     call drv_cls_idx            ; ...same: CF = 1 on a refusal, and `pop`
     jc .out                     ; writes no flag
     cmp al, DRVC_POINT          ; ...and the class with no copy: CF = 1 below
@@ -1384,15 +1383,12 @@ drv_cls_svc_x:
     jbe .lo                     ; COMPACTED past it (drv_fptr/drv_owner are
     dec di                      ; not - a class number is shipped ABI)
 .lo:
-    mov ax, DSV_SIZE
-    push dx
-    mul di                      ; DSV_SIZE is not a power of two
-    pop dx
-    mov di, ax
-    add di, drv_svc
-    clc
+    mov ax, di                  ; DSV_SIZE is not a power of two, and DI <= 4:
+    mov ah, DSV_SIZE            ; the BYTE multiply, so DX needs no bank
+    mul ah
+    add ax, drv_svc             ; ...whose CF = 0 is the answer (no carry out
+    xchg ax, di                 ; of a .bss offset), and xchg writes no flag
 .out:
-    pop cx
     pop ax
     ret
 
@@ -1804,24 +1800,53 @@ drv_call:
                                 ; not yet, which is why this reads through DS
                                 ; and the body below reads through ES.
 .go:
-    push word [snd_inst]        ; ...while DS still names the kernel
+    push word [bx+DRVR_SEG]     ; ...read while DS still names the kernel
+    call drv_stamped            ; the far call, stamp off, segment popped
+    ret
+
+; -----------------------------------------------------------------------------
+; drv_stamped - the far call into a driver, with the stamp off for its length
+; in:  the DRIVER'S SEGMENT pushed by the caller just before the call; BP =
+;      the near proc in it; DS = KERNEL_SEG; every other register is the
+;      proc's own arguments
+; out: whatever the proc returns, CF included; the segment word is gone
+;      (`ret 2`); DS and ES the caller's
+;
+; drv_call, drv_fs_call and drv_cp_call were three copies of this body that
+; differed only in where they read the segment - a row, a fixed pair, a
+; pointer in SI - and none of them could take it in a register, because every
+; general register is an argument to some driver ABI (drv_svc_call's banner
+; has the history). So the SEGMENT comes on the stack, which is per task and
+; so re-entrant where a staged word is not, and it is read through BP banked
+; for three instructions. The far target is drv_pkg_disp's synthesised frame:
+; every row's offset half is PKG_DISP and DS already holds the segment half,
+; so nothing names a far pointer at all (kernel size pass 9).
+;
+; The stamp is pushed FIRST and popped LAST for drv_call's reason above:
+; `pop word [mem]` goes through DS, and DS is the driver's until `pop ds`
+; (SPEC.md 51.2.4). ES = KERNEL_SEG is taken from DS and NOT from CS: this
+; module is .cold, and CS is COLD_SEG there (SPEC.md 2.6 rule 2). Pop, mov
+; and `ret 2` write no flag, so the driver's CF is the answer.
+; -----------------------------------------------------------------------------
+drv_stamped:
+    ; STKBALANCE-NET: -1 - `ret 2` takes the segment word its caller pushed
+    push word [snd_inst]
     push ds
     push es
     call drv_nostamp            ; ...and it preserves DS, which the next two
-    push ds                     ; lines depend on: ES = KERNEL_SEG is taken
-                                ; from DS and NOT from CS, because this module
-                                ; is .cold now and CS is COLD_SEG there
-                                ; (SPEC.md 2.6 rule 2)
+    push ds                     ; lines depend on
     pop es
-    mov ds, [es:bx+DRVR_SEG]
+    push bp
+    mov bp, sp                  ; [bp] BP, +2 ES, +4 DS, +6 the stamp,
+    mov ds, [bp+10]             ; +8 the return, +10 THE SEGMENT (SS-relative,
+    pop bp                      ; which is where it is); BP the proc again
     call wm_nest_pushd          ; SPEC.md 66.6.3
-    call far [es:bx+DRVR_DISP]
+    call KERNEL_SEG:drv_pkg_disp    ; -> DS:PKG_DISP, back here
     pop es
-    pop ds                      ; DS names the kernel again...
-    call wm_nest_pop            ; ...which is what the pop reads, so it needs
-    pop word [snd_inst]         ; no segment of its own; and the stamp lands
-                                ; in the kernel
-    ret
+    pop ds                      ; DS names the kernel again, which is what
+    call wm_nest_pop            ; the pop reads, so it needs no segment of
+    pop word [snd_inst]         ; its own; and the stamp lands in the kernel
+    ret 2
 
 ; -----------------------------------------------------------------------------
 ; drv_svc_call - dispatch one of the published service procs
@@ -2011,7 +2036,7 @@ drv_fs_call:
     mov bp, [es:di]             ; BP = the near proc, in the driver's segment
     pop di
     pop es
-    push word [snd_inst]        ; **THE DRIVER IS ASKING, NOT THE APP THAT
+                                ; **THE DRIVER IS ASKING, NOT THE APP THAT
                                 ; HAPPENED TO BE DISPATCHING** (SPEC.md
                                 ; 51.2.3). drv_call and drv_cp_call both
                                 ; cleared the stamp and this did not, which was
@@ -2029,23 +2054,9 @@ drv_fs_call:
                                 ; FIRST in and LAST out, for drv_call's reason:
                                 ; the restore addresses DS and DS is the
                                 ; driver's until `pop ds` (SPEC.md 51.2.4)
-    push ds
-    push es
-    call drv_nostamp            ; ...and it preserves DS, which the next two
-    push ds                     ; lines depend on
-    pop es                      ; ES = KERNEL_SEG: what the driver reads the
-                                ; things it was handed through. From DS and
-                                ; NOT from CS - driver.inc is .cold, so CS is
-                                ; COLD_SEG here (SPEC.md 2.6 rule 1), and the
-                                ; push has to come before DS is spent below
-    mov ds, [es:drv_fseg5]
-    call wm_nest_pushd          ; SPEC.md 66.6.3
-    call far [es:drv_fptr5]     ; drv_fptr5/drv_fseg5 are adjacent and in that
-    pop es                      ; order, so they ARE the far pointer - no
-    pop ds                      ; staging like drv_blk_call's is needed
-    call wm_nest_pop            ; ...and DS names the kernel again, which is
-    pop word [snd_inst]         ; the segment the pop reads. Neither touches a
-    ret                         ; flag, so the driver's CF still comes back out
+    push word [drv_fseg5]       ; ...and drv_stamped takes it off, around a
+    call drv_stamped            ; far call to the DRVC_FILE driver's segment
+    ret
 
 ; -----------------------------------------------------------------------------
 ; drv_fs_has - does the DRVC_FILE driver publish this verb? (SPEC.md 62.9.1)
@@ -2108,38 +2119,20 @@ drv_fs_has:
 ; the PANEL was launched in.
 ; -----------------------------------------------------------------------------
 drv_cp_call_x:
-    push si
     push di                     ; DI is the PAGE's argument (the pane left)
     or bp, bp                   ; and drv_cls_fp answers in it, so it has to
     jz .out                     ; come back before the call
     call drv_cls_fp_x
     jc .out
-    cmp word [di+2], 0
-    je .out
-    mov si, di                  ; SI = the far pointer
-    pop di
+    mov ax, [di+2]              ; AX = the segment: the page ABI leaves AX
+    or ax, ax                   ; alone (the banner above), so it is the one
+    jz .out                     ; register free to carry it - SI was, at two
+    pop di                      ; more bytes of push and pop
     push di                     ; ...and DI is the pane left again
-    push word [snd_inst]        ; FIRST in and LAST out, for drv_call's
-                                ; reason: the restore addresses DS and DS is
-                                ; the driver's until `pop ds` (SPEC.md 51.2.4)
-    push ds
-    push es
-    call drv_nostamp            ; ...and it preserves DS, which the next two
-    push ds                     ; lines depend on: ES = KERNEL_SEG is taken
-                                ; from DS and NOT from CS, because this module
-                                ; is .cold now and CS is COLD_SEG there
-                                ; (SPEC.md 2.6 rule 2)
-    pop es
-    mov ds, [es:si+2]
-    call wm_nest_pushd          ; SPEC.md 66.6.3
-    call far [es:si]
-    pop es
-    pop ds                      ; ...and DS names the kernel again, which is
-    call wm_nest_pop            ; the segment the pop reads
-    pop word [snd_inst]
+    push ax
+    call drv_stamped            ; stamp off, far call, segment popped
 .out:
     pop di
-    pop si
     ret
 
 ; -----------------------------------------------------------------------------
@@ -5130,31 +5123,26 @@ drv_pkg_call_x:
     jb .none
     cmp al, DRVC_MAX
     ja .none
-    dec al
+    dec ax                      ; AL >= 1, so AH is not touched
     cmp al, DRVC_RETIRED3       ; ...the same compaction, inline
     jb .lo
-    dec al
+    dec ax                      ; ...and AL >= 3 here
 .lo:
-    xor ah, ah
-    push dx
-    mov di, ax
-    mov ax, DSV_SIZE
-    mul di                      ; AX = (class-1) * DSV_SIZE
-    pop dx
-    mov di, ax
-    add di, drv_svc
-    mov bp, [di+DSV_PKGCALL]    ; BP = the driver's near proc...
+    mov ah, DSV_SIZE            ; AL <= 4: the BYTE multiply, which leaves DX
+    mul ah                      ; alone - two bytes and ~70 cycles where the
+    xchg ax, di                 ; word one with DX banked round it was eight
+                                ; and ~150 (kernel size pass 9)
+    mov bp, [di+drv_svc+DSV_PKGCALL]    ; BP = the driver's near proc...
     or bp, bp
     jz .none                    ; ...and 0 is THE FENCE: not published, so not
                                 ; reachable. HDD.DRV lands here
     mov al, bh
-    dec al
-    xor ah, ah
-    mov di, ax
-    shl di, 1
-    shl di, 1
-    add di, drv_fptr            ; DI = &drv_fptr for the class...
-    mov ax, [cs:di+2]
+    cbw                         ; BH is 1..DRVC_MAX here, so AH = 0
+    dec ax
+    shl ax, 1
+    shl ax, 1
+    xchg ax, di                 ; DI = (class-1) * 4: drv_fptr's row...
+    mov ax, [cs:di+drv_fptr+2]
     or ax, ax
     jz .none                    ; nothing attached, or attached and not yet
                                 ; published (SPEC.md 51.2.1)
