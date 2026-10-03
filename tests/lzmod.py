@@ -81,8 +81,6 @@ import os88ui                                          # noqa: E402
 from os88fixture import need                           # noqa: E402
 from trackmove import pkg_syms                         # noqa: E402
 
-FD_ROW0, FD_ROWH, FD_TEXTX = 22, 16, 28     # the dialog's list geometry,
-                                            # tests/editmove.py's figures
 SRC = "apps/tracker/beverly.mod"
 PACKED = "build/lzf/BEVERLY.MOD"
 IMG = "build/lzmod360.img"
@@ -291,37 +289,29 @@ def run(a, apps, plain, P, fails):
             # or arrives while a panel is still up, does nothing and says
             # nothing - which is an hour of looking at a test that reports
             # "the file dialog never opened" about a kernel that is fine.
-            ui = os88ui.UI(m, mo)
+            ui = os88ui.UI(m, mouse=mo, sym=S)
+            ui.settle()                 # a menu picked while the app is
+                                        # still coming up is lost
             ui.menu_pick("File", "Open...")
-
-            def opened():
-                return [w for w in os88geom.windows(m, S)
-                        if w.visible and w.title.startswith("Open")]
-            try:                        # FDLG.DRV is a module on kern_small:
-                os88marty.until(m, lambda _: opened(),      # its read, then
-                                "the file dialog", poll=0.1,  # its window
-                                guest=3.0)
-                os88marty.settle(m)
-            except os88marty.MartyError:
-                pass                    # ...said just below
-            dlg = opened()
-            if not dlg:
+            # THE CHOOSER IS A DISK WINDOW (SPEC.md 38.1), so the row is named
+            # and not clicked at a remembered offset: `chooser` waits for
+            # [fdlg_win] and the window to be up and painted (FDLG.DRV is a
+            # module on kern_small - its read, then its window), and
+            # `chooser_open` resolves BEVERLY.MOD out of the chooser's own
+            # listing, opens it and waits for the chooser to come down. It
+            # opens on B:'s ROOT: Tracker has chosen nothing yet and this disk
+            # has no MEDIA folder (SPEC.md 38.10).
+            try:
+                w = ui.chooser()
+            except os88ui.UIError as e:
                 fails.append("the file dialog never opened: File > Open ran "
-                             "and fdlg_win is %04X"
-                             % int.from_bytes(m.read(S("fdlg_win"), 2),
-                                              "little"))
+                             "and fdlg_win is %04X (%s)"
+                             % (int.from_bytes(m.read(S("fdlg_win"), 2),
+                                               "little"), e))
                 return report(fails)
-            # THE CONTENT ORIGIN and not the frame's: FD_* below are offsets
-            # inside the dialog's content, which is where tests/editmove.py
-            # takes them from. Using the frame origin puts the click one
-            # border and one title bar too high, which lands on the row above
-            # row 0 - and there is no row above row 0, so nothing happens and
-            # the module never loads.
-            fx, fy = dlg[-1].content[:2]
-            # row 0 is BEVERLY.MOD: the listing sorts by name (SPEC.md 19.4)
-            # and this disk's root holds BEVERLY.MOD and TRACKER.O88
-            say("  dialog     content at %d,%d" % (fx, fy))
-            mo.dblclick(fx + FD_TEXTX + 20, fy + FD_ROW0 + FD_ROWH // 2)
+            say("  dialog     %r, listing %r"
+                % (w.title, [r[0] for r in ui.listing(w)]))
+            ui.chooser_open("BEVERLY.MOD")
             say("  route      File > Open (fdlg_sizeof's answer)")
         else:
             # The ASSOCIATION opens Tracker and loads the module in one action

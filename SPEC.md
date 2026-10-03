@@ -5749,10 +5749,14 @@ walk does.
 ##### 5.6.9.1 The box is invalidated on entry, and that is not a nicety
 
 `gfx_ls_bx1..by2` is whatever the last caller left in it, and the region may
-have been re-armed since. The loop therefore stores an EMPTY box before the
-first point, so the first one always takes the `.miss` arm and re-resolves.
-Without it a call whose first point happens to fall inside a stale rect draws
-through a clip nobody set — which is invisible until two windows overlap.
+have been re-armed since. The loop therefore RESOLVES the box for the first
+point before the loop starts (a direct `gfx_ls_box` while DS is still the
+kernel's), so the first point is tested against a box this call built. Without
+it a call whose first point happens to fall inside a stale rect draws through a
+clip nobody set — which is invisible until two windows overlap. (Until size
+pass 9 it stored an EMPTY box instead, which sent the first point of every call
+down the `.miss` arm; on `kern_big` that arm is now one routine,
+`gfx_pt_miss`, shared by the three ink loops of 5.6.9.3.)
 
 The exposure is one-sided, and worth stating because it says what a gate for
 this has to arrange: the `.miss` arm re-resolves a box that is too SMALL, so
@@ -20252,7 +20256,8 @@ fragment of it"*:
 
 - **`wm_su_flay` lays the fragments out ONCE** into `wm_su_ftab`, from the
   content rect and the four extents clamped left-then-right and top-then-bottom
-  into what the one before left. `wm_su_take`, `wm_su_kb` and `wm_su_try` then
+  into what the one before left. `wm_su_take` (its sizing through `wm_su_scrset`,
+  which was `wm_su_kb` until size pass 9 folded it in) and `wm_su_try` then
   walk that table in index order, so the claim's size, the offsets written into
   it and the offsets read back out cannot disagree.
 - **With no extents at all, fragment 0 is the WHOLE content and 1..3 are
@@ -20389,7 +20394,8 @@ Six things are load-bearing:
   *both* of `wm_su_try`'s success paths — including the one that restores
   nothing because nothing this pass painted reached the content, which is
   equally a statement that the band is still right.
-- **`wm_su_orect` insets by `wm_su_flay`'s already-clamped extents**, never by
+- **`wm_damage`'s owed rect insets by `wm_su_flay`'s already-clamped extents** (it was
+  `wm_su_orect` until size pass 9, and is read off `wm_su_flay`'s table), never by
   the raw ones. Two bands that together overrun the content would otherwise
   leave a borrowed subtraction reading as an enormous `x2`; this way the kept
   rect and the fragments are complementary by construction rather than by two
@@ -22414,7 +22420,7 @@ is 0, 1, 2, so the kind indexes it directly. `SI = 0` withdraws it. A `(0, 0)`
 pair means *no preference on that adapter*, so an app may say only the thing it
 has something to say about and leave the other two to its template.
 
-It registers **and applies** — `wm_nat_take`, then the preference, then
+It registers **and applies** — the banked rect put back, then the preference, then
 `wm_fit` — and is **FLAGS-preserving**, which is `wm_keeph`'s contract for
 `wm_keeph`'s reasons: by the time an entry proc can call this `wm_create` has
 already fitted the window, so the unclamped size survives only in the bank, and
@@ -22533,7 +22539,7 @@ whatever the app did with `wm_resize` between drags.
 
 **`wm_refit` applies the preference too, and that is the single-display half of
 the same rule.** §39.11.2 re-fits every window when the adapter changes under
-it, and that was `wm_nat_take` then `wm_fit`; it is now `wm_nat_take`, then the
+it, and that was the banked rect put back then `wm_fit`; it is now the banked rect, then the
 new adapter's preference, then `wm_fit`. So switching a VGA machine to its CGA
 row on the Display page gives every window its CGA size rather than the VGA one
 cut to the band — which is where most people will meet this, most machines
@@ -23004,7 +23010,10 @@ accessory like Timer or Bounce.
 is unavailable: `menu_drop` draws the rest of it in `CDGRAY` and skips the
 marker, `menu_widest` does not measure the marker, and `menu_hover` refuses
 to land on the cell — so it cannot be highlighted and cannot be selected, and
-the whole feature is those three places. It is a **string prefix**, not a
+the whole feature is those three places. (`menu_hover` asks `menu_item_dis`,
+which tests the first byte BELOW 2 in one compare, so an EMPTY item string is
+refused the same way: a blank row nothing could mean picking. Kernel size
+pass 9.) It is a **string prefix**, not a
 flags array, because an application that wants an item disabled already had
 to point `AMENU_ITEMS` at a different string to relabel it ("Save Gif" vs
 "Save Gif (NoRam)"); one byte in front of that string costs no structure
@@ -30169,9 +30178,10 @@ The FAT routines (all UI-task-only like the rest of the module; all in
 ### 18.1 Mount-derived variables (kernel .bss)
 
 Valid only after a successful mount — every consumer is already gated by
-`disk_nfiles` ≠ 0 (readers) or by `[dsk_mntok]` (writers, §18.4). 90 bytes
-including `dsk_cherr`, `dsk_read_chain`'s failure-code byte carried across
-its register-restore epilogue.
+`disk_nfiles` ≠ 0 (readers) or by `[dsk_mntok]` (writers, §18.4). 89 bytes.
+`dsk_read_chain`'s failure code no longer rides a byte of its own across the
+epilogue: it is written into the banked AX on the stack, so the ladder's
+`pop ax` returns it.
 
 ```nasm
 dsk_bpbh:     resb 18  ; staged BPB fields 11..28 (mount scratch, §18.2),
@@ -30185,8 +30195,6 @@ dsk_rootlba:  resw 1   ; first root-dir LBA
 dsk_rootsecs: resw 1   ; root-dir sector count (<= 32)
 dsk_datalba:  resw 1   ; FirstDataSec
 dsk_maxclus:  resw 1   ; CountOfClusters+1 = highest valid cluster number
-dsk_cherr:    resb 1   ; dsk_read_chain failure code, carried across the
-                       ; register-restore epilogue
 dsk_op:       resb 1   ; int 13h function for dsk_xfer: 02h read / 03h write
 dsk_ioerr:    resb 1   ; last int 13h status (AH) of a FAILED transfer;
                        ; 03h = write-protected media (§18.4)
@@ -32487,6 +32495,36 @@ is thorough and is entirely READ-side — `KERNEL.SYS` out of guest RAM and
 two paths.** A bound proved safe on one is a hypothesis about the other, and
 `tests/diskclone.py` is where that hypothesis gets tested, because a clone is
 the only thing that writes like a boot reads.
+
+#### 18.91.4 …and ONE sector across a 64KB page goes through `dsk_secbuf`
+
+`dsk_runcap` caps a run at the 64KB physical page, and a base that is
+512-aligned can never put one sector across one. §18.4.1 lets a caller hand
+the file layer a buffer at **any** offset, though, and an unaligned buffer
+whose page end is under a sector away has no legal transfer at all: int 13h
+answers it with **09h**, and `FERR_IO` reaches the user as `Disk error`.
+
+`dskw_runadd` stages that case for an append and a whole-file read
+(§18.4.2.1), but two paths reach `dsk_xfer` with the caller's own ES:BX:
+`OSAPI_FILE_WRITE_AT`'s INSIDE arm (§18.4.7) through `dsk_write_chain_x`, and
+every `dsk_read_chain_x` caller. Until this `dsk_runcap` answered **1** there
+("only reachable from a base SPEC.md 2.4 forbids") and the transfer failed.
+It was found when kernel size pass 9 moved the heap floor 512 bytes down and
+a streamed Compress (§22.22.5) - whose header is rewritten at `(ES-1):8` at
+the end - put that sector at `2FE0:0008`: `tests/lzbig.py`'s BIG3 and BIG4
+went red on the identical code that passed with the floor one rung higher.
+
+So `dsk_runcap` answers **0**, and `dsk_xfer` banks the caller's ES, BX and
+count in `dsk_bnc_*` (the count, never 0 there, doubling as the flag), copies the sector into `dsk_secbuf` for a write, and
+sends **that one sector** round `.sector` again with ES:BX on the scratch -
+which is 512-aligned and cannot straddle. `.success` then puts the caller's
+buffer back, copies the sector out for a read, and carries on with the rest
+of the run; `.fail` puts the caller's ES back. It is staged in the LOOP and
+not by calling `dsk_xfer` again, because the routine's head calls `fpg_busy`,
+which may draw, and a draw inside `[sch_lock]` can wait on a gfx lock another
+task holds. At most one sector per 64KB of caller buffer is staged, and a
+512-aligned base (every buffer of the kernel's own making, `clo_size`'s and
+`cmz`'s rounded ones) never reaches it.
 
 ### 18.92 The diskette parameter table is OURS, and EOT is why
 
@@ -36667,7 +36705,9 @@ all-zero slot, and viewers fall back to the built-in `ico_app16` (§25).
 **Type 2 and type 3 are the one exception**: a folder has nothing on disk to
 harvest an icon *from*, so `dsk_folder_ico` — a hand-authored 16×16 body in
 `disk.inc`'s `.text`, the only icon in the kernel besides the menu-bar logo
-that is drawn by hand — is copied into the slot instead. Doing it at
+that is drawn by hand — is copied into the slot instead. (It is held as
+eleven runs of identical rows, 34 bytes, and `dsk_ico_stage` expands them
+with a `rep stosw` each: kernel size pass 9.) Doing it at
 harvest time rather than at draw time means every viewer keeps the one rule
 it already had: read `disk_icons` entry i, fall back to `ico_app16` if it
 is all zero.
@@ -40151,6 +40191,10 @@ driver both publishing the cell. So the dispatch ends in five fixed sites,
 `call far [cs:drv_fptr]` … `[cs:drv_fptr5]`, which is what `drv_svc_call` and
 `drv_fs_call` already do with the same pairs. Cost: `.text` +38, no rung
 crossed on either kernel.
+(Kernel size pass 9 took the same frame further: `drv_call`, `drv_fs_call`
+and `drv_cp_call` are one body now, `drv_stamped`, which takes the driver's
+segment ON THE STACK - per task, so re-entrant for this paragraph's reason -
+and enters through `drv_pkg_disp`'s synthesised far frame.)
 
 #### 20.11.1 Verb 0 is IDENTIFY, and it is not a formality
 
@@ -43229,7 +43273,8 @@ remounts **only** if the acting window's `(drive, cwd)` differs from
 window you last navigated, a compare and a `ret`.
 
 **Per-window state** is an `FS_SIZE`-byte `KD_POOL` block (`fm_pool`,
-4 × `FS_SIZE`, §29.3) — 57 bytes under `KERN_BIG`, 24 under `KERN_SMALL`,
+5 × `FS_SIZE` - the user's four and the Standard File chooser's, §38.1 -
+§29.3) — 57 bytes under `KERN_BIG`, 24 under `KERN_SMALL`,
 which is why the Disk row's `KD_SSIZE` is the symbol and never a literal —
 allocated and cascaded by `app_launch` and handed to `fm_kinit` in DI:
 
@@ -43243,7 +43288,7 @@ allocated and cascaded by `app_launch` and handed to `fm_kinit` in DI:
 | 10 | `FS_DRV` b | the drive it is showing, 0 = A:, 1 = B: |
 | 11 | `FS_MOK` b | 1 = that listing came from a fully successful mount |
 | 12 | `FS_VIEW` b | 0 = list view, 1 = icon view |
-| 13 | `FS_EDIT` b | status-line editor: 0 = off, 1 = new folder, 2 = rename, 3 = delete confirm |
+| 13 | `FS_EDIT` b | status-line editor: 0 = off, 1 = new folder, 2 = rename, 3 = delete confirm, 4-7 the two-line prompts, 8 = a Save chooser's name box (§38.5) |
 | 14 | `FS_FERR` b | `FERR_*` of the last file operation **in this window**, 0 = none |
 | 16 | `FS_VSEG` w | this window's listing-cache claim (§50.2), 0 = none |
 | 18 | `FS_VKB` b | how many KB that claim actually is (§22.6) |
@@ -43830,14 +43875,16 @@ performance input, not a precondition.
 | `fm_focus` | in BX = the window gaining the focus (0 = none), AL = 0 the caller draws it / 1 draw it here; **gfx lock held, UI task**. On a file-manager window owing a refresh: re-list (`fmv_take` where the globals allow, else `fmv_load`), clear `FS_DIRTY`, and either repaint or answer **CF = 1** so the caller draws it whole (§22.8). CF = 0 = nothing owed. Preserves all registers. |
 
 **`fm_layout` is the sole authority on `[fm_vseg]`** (and `[fm_vp]`): it
-calls `fm_vp_set` at its head, then mirrors **eight** fields — `FS_VIEW`,
-`FS_MOK`, `FS_DRV`, `FS_EDIT`, `FS_FERR`, `FS_N`, `FS_SCRL`, `FS_SEL` —
-into `fm_lview` / `fm_lmok` / `fm_ldrv` / `fm_ledit` / `fm_lferr` /
-`fm_lnf` / `fm_lscr` / `fm_lsel` for the painter, which uses every register
-including BP and has none free to thread a pointer through. (`fm_lpad`
-exists only to keep the words after it even-aligned.) **The mirror list is
-part of this contract**: a new per-window field that the painter reads and
-that is not mirrored here reads the previous window's value. `fm_clamp_scroll` is the **one** write-back (every scroll
+calls `fm_vp_set` at its head, then mirrors the state block's first
+`FM_LREC` bytes — `FS_SEL`, `FS_SCRL`, `FS_N`, `FS_DRV`, `FS_MOK`,
+`FS_VIEW`, `FS_EDIT` and `FS_2UP` among them — with one `rep movsb` into
+`fm_lrec`, whose `fm_lsel` / `fm_lscr` / `fm_lnf` / `fm_ldrv` / `fm_lmok` /
+`fm_lview` / `fm_ledit` / `fm_l2up` are offsets into that copy (kernel size
+pass 9), for the painter, which uses every register including BP and has
+none free to thread a pointer through. **The mirror is part of this
+contract**: a new per-window field that the painter reads has to sit inside
+the first `FM_LREC` bytes (an `%if` beside `fm_lrec` holds the ones there
+now), or it reads the previous window's value. `fm_clamp_scroll` is the **one** write-back (every scroll
 path already funnels through it). Any painter or hit-tester that reads a
 cache without calling `fm_layout` (or `fm_vp_set`) first reads the *previous*
 window's directory: wrong names, wrong icons, and a double-click that opens
@@ -47233,6 +47280,35 @@ The loop's fix is in `CLONE.DRV`'s image and moves no resident byte. The two
 progress-layer fixes are 39 resident bytes on each kernel: 14 of `.text`
 (§7.5.3.2) and 25 of `.cold` (§12.8.3.2). They cross no rung.
 
+### 22.26 The arrows move a SELECTION, and scroll only without one (`kern_big`)
+
+In a Disk window with a row selected, Up and Down move the selection one row
+- an entry in the list, a grid row of `fm_cols` in the icon view, so the key
+means the same thing on the screen in both - and PgUp/PgDn a page of rows;
+the view FOLLOWS, by `fm_scroll_by`'s own tiers (§22.11), so a move that
+stays in view costs §22.2's two XOR bands and one that leaves it costs a
+blit and a strip. **With nothing selected they scroll, exactly as they
+always did**, so a window that has only been looked at behaves as before and
+the first click is what turns the keys into a cursor. Enter then opens the
+selection, as it always has, so *click, Down, Down, Enter* is a whole open.
+
+It is `kern_big`'s alone. It began as the Standard File chooser's (§38.4) -
+the old dialog's arrows moved its selection and a chooser is driven from the
+keyboard - and putting it in the Disk window instead made every window have
+it at about the chooser-only price on `kern_big`, where both files are
+resident `.cold`. On `kern_small` the Disk window is resident and the
+chooser's glue is an on-demand image, so the same code would be ~140
+resident bytes moved out of an image: there the arrows scroll, in every Disk
+window and in the chooser.
+
+The mechanism carries one detail worth not re-deriving: `fm_scrollpaint`
+lifts `[fm_lsel]`'s band before it blits and relays it after, so the move
+takes the OLD band off itself, parks `[fm_lsel]` at 0FFFFh across the scroll
+- nothing for the blit to carry, nothing for a rows-only repaint to draw -
+and puts the NEW band on once the view has settled. A chooser hears the new
+selection through `FDH_SEL` (§38.9), and a Save chooser's box, which owns the
+characters, leaves the arrows to this.
+
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)
 
 Not kernel code: a .o88 package built with os88api.inc, org 0 (§20.1), all
@@ -48897,7 +48973,7 @@ cap. That is the whole reason this section is `kern_small`'s.
 
 **One more thing that is not duplicated, because the wording invites the
 error:** there is exactly ONE folder icon in this kernel. `dsk_folder_ico` is
-a single hand-authored 64-byte body (§19.2) and `icons.inc` holds no duplicate
+a single hand-authored 64-byte body (§19.2, held as runs) and `icons.inc` holds no duplicate
 assets at all — §25.7 deduped the four drive icons already. The twelve copies
 were in the harvest BUFFER at run time, made by `dsk_put_icon_k_x` copying
 those same 64 bytes per folder. No duplicated bytes ship in the image.
@@ -56559,7 +56635,7 @@ the rest"*, and `wm_draw_win` distinguishes the two restores:
 ```
 
 A band covering the **whole content** is the degenerate case: everything
-banked, nothing owed. `wm_su_orect` insets `x1` by the band's extent, which
+banked, nothing owed. `wm_damage` (its owed rect was `wm_su_orect`) insets `x1` by the band's extent, which
 takes it past `x2`, and `wm_damage` answers the **empty** rect §11.90.2
 already documents as legal — *"it may be empty (x1 > x2), meaning draw nothing
 at all"*. So the app is called, told it owes nothing, and spends its own debt.
@@ -56983,7 +57059,7 @@ init-less:
 | `inst_charge` | in DI = record (non-zero), DX:AX = a `task_cycles` stamp (§8.1): `task_debit`, then add the returned cycles to I_CYC. Preserves all registers. Called only by the W_PAINT / W_ONKEY / W_ONCLICK dispatch sites (§11/§13), which hold the gfx lock — and a task-owned instance destroys its window, clearing `wm_owner`, under that same lock before its record is freed (29.2), so the record named by wm_owner stays live for the whole charged stretch. |
 | `inst_find_kind` | in AL = kind byte (exact match incl. bit 7); out CF=0 + DI = first record with I_STATE=1 of that kind, CF=1 none. |
 | `inst_alloc` | out CF=0 + DI = a free record **wholly zeroed** — all `I_RECSZ` bytes, so I_NAME, I_WIN and I_TASK go with I_FLAGS/I_SPTR/I_SIZE/I_ICON/I_CYC; CF=1 table full. I_TASK therefore momentarily reads 0 rather than the last tenant's slot, which nothing can see: I_STATE is 0 across the whole gap and every walker skips a free row, and both callers write I_TASK = 0xFF before the record publishes. DF is left clear. Does NOT publish. UI task only. |
-| `inst_set_name` | in DI = record, SI = name source (NUL-terminated or NUL-padded; at most 15 chars taken). Zero-fills all 16 I_NAME bytes first. Safe on a package header's 16-byte name field. |
+| `inst_set_name_x` | in DI = record, **ES:SI** = name source (NUL-terminated or NUL-padded; at most 15 chars taken). Byte I_NAME+15 is always 0 and the tail after a short name is NUL-padded by the same 15-step loop. Safe on a package header's 16-byte name field. The DS-relative `inst_set_name` was a thunk with one caller and is gone (kernel size pass 9): `app_launch` sets ES = DS and calls this. |
 | `inst_bind_win` | in DI = record, BX = window ptr: I_WIN ← BX, `wm_owner[window index]` ← record index. |
 | `app_launch` | in AL = kind (built-in). UI task only, no lock held; takes its own locks. out CF=1 failed (instance/window/task table full — silent no-op for the caller), CF=0 done. Order: cap check (at cap → gfx_lock, clear the live instance's minimized bit, wm_show it, gfx_unlock — i.e. "launch" of a full singleton fronts it; only-dying-instances → CF=1, retry after a task period) → inst_alloc → pool-slot pick (first candidate `pool + s·stride` not held by a same-kind record with I_STATE != 0) → template copied to scratch with x/y cascaded +16·s → wm_create (CF → fail; record was never published), then OR the kind's `KD_WFLAG` byte into the new window's W_FLAGS (§29.3/§11.1) → fill record (I_KIND, I_TASK=0xFF, I_ICON, name) + inst_bind_win → KD_INIT → **publish I_STATE ← 1** → if KD_TASK: task_spawn (AX = entry, DX = instance index), I_TASK ← returned slot; spawn CF → rollback (I_STATE ← 0, then locked wm_destroy) → gfx_lock, wm_show, gfx_unlock. |
 | `app_close_win` | in BX = window ptr; **caller holds the gfx lock**; UI task only. Unowned window → wm_hide (fallback). I_STATE = 2 already → wm_hide (idempotent). Task-less (I_TASK = 0xFF) → I_STATE ← 2, wm_destroy (clears wm_owner, repaints), I_WIN ← 0, I_STATE ← 0 — for a package instance that final store frees the region (rule 29.2.7). Task-owned → I_STATE ← 2 (the die flag), wm_hide (instant feedback); the task tears down at its next wake — and for a package instance that took a §20.6 worker, `task_exit`'s release-byte store is what frees the region. A package instance reaches this second branch exactly when it owns a worker. |
@@ -61802,7 +61878,7 @@ is the only thing that jumps by 12.
 | `clk_probe` | Boot, from `clk_init`. Walks the §37.90 ladder, seeds the fields from whatever answers and publishes `[clk_tier]`. Out: CF = 1 = no clock, nothing written. Preserves all registers. |
 | `clk_rtc_write` | **In `CTRL.DRV`, not in the kernel (§37.94).** Pushes the live time back to the hardware RTC if `[clk_rtc]`, through the rung `[clk_tier]` names; no-op otherwise. Called by `cp_flush_close_x` and nothing else. Preserves all registers. |
 | `clk_dow` | **In `CTRL.DRV` (§37.94)** — the three rungs that write are its only callers. The day of the week for the live date, Sakamoto's method. Out: AL = 0..6, 0 = Sunday. Preserves everything else. Both XT chips have a weekday counter they do not derive themselves. |
-| `clk_bcd` / `clk_tobcd` | BCD ↔ binary byte helpers; `clk_bcd` returns CF = 1 on a non-decimal nibble. `clk_tobcd` clobbers AH. `clk_bcd` is boot-overlay only; `clk_tobcd` is one of §37.94's six resident survivors and is far-called from the module as `cw_clk_tobcd`. |
+| `clk_bcd` / `clk_tobcd` | BCD ↔ binary byte helpers; `clk_bcd` returns CF = 1 on a non-decimal nibble. `clk_tobcd` clobbers AH. `clk_bcd` is boot-overlay only; `clk_tobcd` is one of §37.94's six port helpers, a copy in each image (`clk_tobcd` in the overlay, `clkw_tobcd` in `CTRL.DRV`) and resident in neither. |
 
 **Month names** are a 12×3 ASCII table (`'Jan'`…`'Dec'`), indexed by
 month−1 ×3 — the same data serves `clk_fmt` and `clk_fld_str`.
@@ -62235,37 +62311,33 @@ which is read `[cs:]` per §2.8.6 — nothing can ask for a weekday while the
 image is not loaded, because the only thing that ever asks is a rung writing
 a chip.
 
-**Six routines stay resident, and the reason is written in their returns.**
-The boot overlay READS the clock and this module WRITES it, and these six are
-the port helpers both halves share:
+**The six port helpers both halves share are a COPY IN EACH IMAGE** (kernel
+size pass 9). The boot overlay READS the clock and this module WRITES it, and
+these six were resident for that alone - far-called from both address spaces,
+ending in `retf` so that §2.6.1's gate refused any near caller in `.text`:
 
-| | bytes | ends in | because |
+| | bytes | the overlay's copy | the module's copy |
 |---|---:|---|---|
-| `clk_at_get` | 9 | **`retf`** | no near caller left in `.text` |
-| `clk_at_done` | 14 | **`retf`** | " |
-| `clk_ns_stamp` | 52 | **`retf`** | " |
-| `clk_rp_get` | 11 | **`retf`** | " |
-| `clk_ns_put` | 13 | `ret` | `clk_ns_stamp` near-calls it ×4 |
-| `clk_tobcd` | 11 | `ret` | `clk_ns_stamp` near-calls it ×1 |
+| `clk_at_get` | 8 | `clk_at_get`, `.ovlw` | `clkw_at_get`, `.modc` |
+| `clk_at_done` | 13 | `clk_at_done` | `clkw_at_done` |
+| `clk_ns_stamp` | 51 | `clk_ns_stamp` | `clkw_ns_stamp` |
+| `clk_rp_get` | 10 | `clk_rp_get` | `clkw_rp_get` |
+| `clk_ns_put` | 13 | `clk_ns_put` | `clkw_ns_put` |
+| `clk_tobcd` | 11 | `clk_tobcd` | `clkw_tobcd` |
 
-**The byte column is re-measured at every size pass and has moved twice**
-(`routsize.py`, off `[map all]`). It read 13/18/64/14/16/11 when this section
-was written; kernel size pass 2 took `clk_ns_stamp` to 57, and pass 3 took the
-four port helpers onto the immediate/low-half addressing forms and
-`clk_ns_stamp`'s year clamp to a subtract-first one. **It is consulted to
-decide whether a body is worth moving, so a stale figure argues the wrong
-way** — `clk_ns_stamp` at 64 looks like twice the case it is at 52.
-
-**That table is enforced, not documented.** §2.6.1's gate refuses a near call
-to a `retf` body and a far call to a `ret` one, so the four that end in `retf`
-are *declaring* that nothing in this segment may call them — which is exactly
-the statement "I am resident only because two other address spaces need me",
-and it fails the build the moment it stops being true. The two that cannot
-say it that way are the two `clk_ns_stamp` reaches, and they keep a `cw_`
-thunk each. The `ovw_clk_*` block is gone: four of its five shims are not owed
-any more, and the fifth is no longer the *overlay's* — the module is its
-main caller for the rest of the session — so it is `cw_clk_ns_put` now, beside
-the new `cw_clk_tobcd`.
+Every one ends in a near `ret` and is near-called inside its own image, so
+the far calls (nineteen in the overlay, eighteen in the module) shrink by two
+bytes each and pay most of each copy back. **The BODIES are written once**, as
+`clock.inc`'s `CLK_*_BODY` macros, and each file writes its own LABEL in front
+of its expansion - which is what LAST-DROP-BYTES 7.7.3 found missing when it
+first priced this: a fragment `%include`d twice defines one label twice, and a
+label emitted INSIDE a macro is invisible to `tools/os88ovlchk.py`'s label map.
+Neither is true of this shape; the gate covers both copies as it covers any
+other `.ovlw` or `.modc` routine. `cw_clk_ns_put` and `cw_clk_tobcd` are gone
+with them. **Measured**: `kern_big` resident **-118** (the six bodies and the
+two `cw_` thunks), `.ovlw` **+71**, `CTRL.DRV` **+76**; `kern_small` -11,
+because `clk_tobcd` was assembled there with no caller at all - `OS88_RTC` is
+`kern_big`'s (§37.0.1) and every reader of it was inside that gate.
 
 **Measured**, `kernsize[big]`: the move is **814 bytes** of `.text` — 787 out
 of `clock.inc`, 12 more as the `ovw_` block shrinks to two `cw_` thunks, and
@@ -62336,49 +62408,93 @@ column is a row nobody can read.
 
 ## 38. fdlg.inc — the Standard File dialog
 
-The kernel's file chooser: **one** window that lists a directory and hands
-a chosen 8.3 name back to whichever application asked for it, in an **Open**
-form and a **Save** form. Label prefix `fdlg_`.
+The kernel's file chooser: a **Disk window (§22) put into a chooser role** for
+one application, in an **Open** form and a **Save** form, that hands a chosen
+8.3 name back to whichever application asked for it. `fdlg.inc` is no longer a
+second file browser; it is the glue that turns the first one into a question.
+Label prefix `fdlg_`.
 
 It exists because §18.4 gave packages five file slots and no way to name a
 file: Note Pad's save and load keys wrote a hard-coded `NOTES.TXT` (§27.1)
-not because
-one note is enough but because there was nothing to ask a filename with,
-and the Disk window (§22) can launch a package but cannot return a name to
-a caller. This is the missing half of the file API, and the kernel owns it
-for the same reason the kernel owns the menu bar: it is the one piece of UI
-every application needs to look identical.
+not because one note is enough but because there was nothing to ask a
+filename with, and the Disk window could launch a package but could not return
+a name to a caller. This is the missing half of the file API, and the kernel
+owns it for the same reason the kernel owns the menu bar: it is the one piece
+of UI every application needs to look identical.
 
-### 38.1 It is not an application (binding)
+**What it was, and why it is not that any more.** Until this section was
+rewritten the dialog was its own window with its own listing, row painter,
+selection bar, scroll bar wiring, name editor, New Folder button, drive
+cycling and path stack — **3,622 resident bytes on `kern_big`** (3,394 of
+`.cold`, 96 of `.text`, 132 of `.bss`) and a 3,214-byte `FDLG.DRV` on
+`kern_small`, every one of them a second copy of something §22 already had
+resident. The Open/Save split inside it was never the cost (the Save-only
+half was ~540 bytes and the mode tests ~70); the cost was the browser. The
+chooser now **is** a Disk window, and what `fdlg.inc` adds is the part that
+is genuinely the dialog's: who asked, modality, the two forms' commit rules,
+the button column, the remembered folder and the callback.
 
-The dialog is **not an instance** — no `KIND_*`, no `inst_tab` record, no
-kind-descriptor row, no dock tile, no Task Manager row. It is a bare window
-created with `wm_create` and destroyed with `wm_destroy`, owned by
-`fdlg.inc` and by nothing else, and `wm_owner` never names it.
+**What it bought, measured against the tree before it** (`kernsize --json`,
+`.text` + `.bss` + `.cold`): **`kern_big` −1,750 resident bytes** (93,357 →
+91,607, of which 181 bought every Disk window §22.26's arrow selection), and
+the cold rung uncrossed with it. **`kern_small` +3** (62,806 →
+62,809), while `FDLG.DRV` went 3,214 → 1,522 bytes and its claim 4KB → 2KB:
+on that build the browser was never resident, so the saving is the module's
+and the resident side paid for the hooks - 13 bytes of it are §38.3's
+release gesture and 12 are §38.5's requester fix. The API slot, the
+driver slot and the completion contract are **unchanged to the register**
+(§38.6), so not one package, driver or C program was touched. **§38.13 is
+the size pass on the glue that followed**: a further **−337** on `kern_big`,
+**−34** resident on `kern_small`, and `FDLG.DRV` 1,522 → **1,240**.
 
-That is a deliberate reading of §29, not a shortcut around it. The instance
-table answers "what is running", and a modal dialog is not something that
-runs: it is a question the kernel asks on the front application's behalf and
-then forgets, the same species as a `menu_track` pull-down. Making it an
-instance would put a "Files" tile in the dock that cannot usefully be
-clicked, a row in the Task Manager for a thing with no CPU, a minimize box
-with nowhere to minimize *to*, and one more consumer of `INST_MAX` at the
-exact moment the user is trying to save their work.
+### 38.1 It is a Disk window in a chooser role (binding)
 
-Three consequences follow, all wanted:
+The chooser is an ordinary `KIND_FILES` instance launched through
+`app_launch` (§29.4) — so it has a dock tile, a Task Manager row and a record,
+and **its listing cache is its own `VIEW_KB` claim billed to that record**.
+That reverses this section's old ruling (*"not an instance"*), on purpose:
+the old dialog also claimed `VIEW_KB` for its listing (`MEM_K_FDLG`), and it
+was invisible to the Task Manager while it held it. An honest reporter shows
+what the chooser costs while it is up.
 
-- **No callback billing.** `inst_win_owner` returns 0 for an unowned
-  window, so the §11 dispatch sites skip `inst_charge` and the dialog's
-  paint/key/click time stays on the UI task — unbilled, exactly like
-  `menu_track` and `fm_rclick` (§12.4). Time the user spends deciding is
-  nobody's CPU cost.
-- **The close box is Cancel, for free.** `app_close_win` on an unowned
-  window degrades to a plain `wm_hide` (§29.4), and §38.2's gate check turns
-  a hidden dialog into a cancelled one on the next input. No close-path code
-  exists in this module at all.
-- **So is the minimize box**, by the same route and with the same result.
-  A modal dialog that could be minimized would strand the machine behind an
-  invisible modal; instead it simply cancels.
+**The fifth slot (binding).** The Disk kind's `KD_CAP` is `VIEW_SLOTS + 1`
+and `fm_pool` carries `FM_NSLOT = FM_MAXWIN + 1` blocks, but every route that
+makes a Disk window for the USER (`fm_choose`, `fm_newwin`) counts against
+`FM_MAXWIN` through `fm_count`. So the user can hold four Disk windows and
+the fifth pool block is the chooser's whenever one is up: **a dialog is never
+refused for want of a Disk window.** `fm_count` counts the chooser too and
+need not excuse it: while one is up it is modal, so the only route to a new
+user window is its own *Open in New Window*, which `fm_newwin` refuses first.
+It costs one `FS_SIZE` block of `.bss` (61 bytes on `kern_big`, 24 on
+`kern_small`) and, on `kern_small`, one more purge tag in `MEM_P_VIEW`'s
+reserved `0x10..0x1F` range. What can still refuse is what always could: a
+dialog already up, a requester that is not a live owned window, and a full
+instance or window table.
+
+**Identity.** `[fdlg_win]` is the chooser's window and `[fdlg_blk]` its pool
+block. `fdlg_open` sets `[fdlg_win]` to `0FFFFh` immediately before it
+launches, and `fm_kinit` **adopts** the window being built when it sees that
+mark — so the chooser is known before `app_launch`'s `wm_show` paints it, and
+nothing else ever launches with the mark set. A Disk window asks whether it is
+the chooser by comparing its block with `[fdlg_blk]`; `fdlg_hook` (§38.9) is
+that compare plus a call.
+
+**What a chooser Disk window does differently**, all of it at one of the
+hook sites in §38.9 and nowhere else:
+
+| | an ordinary Disk window | the chooser |
+|---|---|---|
+| open a FILE (double-click, Enter, Open, File ▸ Open) | launch it / open its program (§54) | Open form: **choose it**; Save form: put its name in the box |
+| single-click a FILE | select it | ...and, in the Save form, put its name in the box |
+| Escape | nothing | cancel |
+| content width | the window's | the window's less `FD_COLW`, the button column (§38.3) |
+| status line at rest | Size / Free | Save form: the name box, `Save as:` (edit mode 8, §38.5) |
+| Open in New Window | opens one | refused with a beep: it would land over a modal chooser |
+
+Everything else — the listing, icons and list view, folder dive and `..`,
+Backspace, the A/B keys, Refresh, the scroll bar, the right-click menu with
+New Folder, Rename, Delete, Cut, Copy and Paste — is the Disk window's own,
+and costs this section nothing.
 
 ### 38.1.1 `fdlg_reap`'s guard is on the resident side
 
@@ -62406,258 +62522,183 @@ do expensive work must live on the caller's side of any boundary the call
 crosses** — a segment, a lock, a call frame, a disk. §39.3.2 is the same defect
 on the drawing path at nineteen sites, and §7.2.1.1 is it one frame deep.
 
+The same is true of `fdlg_hook` (§38.9): every Disk window reaches it from
+`fm_layout`, so the "am I the chooser" compare is on the resident side and a
+Disk window that is not the chooser never crosses into the glue.
+
 ### 38.2 Modality — the whole design rests on it (binding)
 
-`[fdlg_win]` non-zero means a dialog is on screen and the system is
+`[fdlg_win]` non-zero means a chooser is on screen and the system is
 **input-modal to it**. Enforced at exactly two points in the UI ladder
 (§13), and nowhere else in the kernel:
 
 - `fdlg_grab` — called on every `EVT_MDOWN` and `EVT_RDOWN` before the
-  ladder branches. `CF=1` (swallow, with a `snd_beep`) for any press whose
-  point lies outside the dialog's window rect: the menu bar, the dock, the
-  desktop, and every other window are inert. A press **inside** the rect
-  returns `CF=0` and takes the ordinary ladder, so the dialog's title-bar
-  drag and content clicks work with no code of their own.
+  ladder branches. `CF=1` (swallow, with a `snd_beep`) for any press that
+  would not reach the chooser: "outside" is `wm_hit`'s answer, the topmost
+  visible window under the point, so the menu bar, the dock, the desktop and
+  every other window are inert - including one that has come up **over** the
+  chooser, which a bare rect test used to let through. A press whose window
+  IS the chooser returns `CF=0` and takes the ordinary ladder, so the
+  chooser's title-bar drag, its resize corner, its content clicks and its
+  right-click menu all work with no code of their own.
 - `fdlg_top` — called right after `wm_top` in the keyboard poll: it
-  substitutes the dialog for the frontmost window. Belt to `wm_hit`'s
-  braces (nothing can be raised above a dialog while `fdlg_grab` is
-  swallowing clicks), and it costs ten bytes to stop a keystroke from ever
-  reaching the window behind.
+  substitutes the chooser for the frontmost window.
 
-**Self-validating (this is what makes §38.1 safe).** Both helpers begin at
-`fdlg_gate`, which clears `[fdlg_win]` — and destroys the window — the
-moment the gate names a record that is no longer *used and visible*. The
-`menu_check` discipline of §12.3, with teeth: a dialog hidden by any route
-whatsoever is a **cancelled** dialog, and no path can wedge the system
-behind a dead modal.
+**Self-validating.** Both helpers begin at `fdlg_gate`, which answers
+whether `[fdlg_win]` names a window that is still *used and visible* - and
+does nothing else. A chooser closed by its close box, minimized, or taken
+down by anything else is **no chooser** to either filter, so no path can
+wedge the system behind a dead modal.
 
 A third call site, `fdlg_reap`, sits in the UI task's deferred section and
-runs the same collection **once per loop pass**. It is not part of
-modality — the two filters above are already correct without it — it is
-about latency: the close box and the minimize box only *hide* the window,
-and until the gate is collected `[menu_win]` still names a window nobody can
-see, so §12.3 reverts the bar to Locator and leaves it there until the user
-happens to click something. Reaping on the idle path makes the cancel, the
-bar and the released gate all land on the same tick. It costs three
-instructions when no dialog is up.
+runs once per loop pass, **after** the pass's event and **before** its
+deferred launch. It is the one place a chooser is ever ended: **the posted
+answer** of §38.6, and a chooser the gate finds gone, which it cancels -
+a posted commit that died with its window included. The gate used to do that
+cancel itself, so it had to know whether its caller held the gfx lock and
+take it when not; with the cancel in the one routine that already takes the
+lock, the gate is a test.
 
-**The payoff is §38.4.** Because nothing else is clickable, no other window
-can navigate the volume while a dialog is up, so the dialog needs **no
-listing cache of its own**: it reads the global mount snapshot directly.
-That is the exact opposite of the Disk window's rule (§22.1) and it holds
-for exactly this reason — remove modality and the dialog needs a fifth
-`VIEW_SEG` slot, which does not exist.
+**Several packages depend on modality and it must not be relaxed**: Telnet's
+ZMODEM receive infers a cancel from a repaint reaching its window while a
+dialog is pending, Artful assumes its editor cannot leave fullscreen with one
+up, the RAM disk driver skips a repaint because the dialog is modal, Paint
+fences the dialog out of an fsx bracket, and the Disk window's own image
+commands (§18.99.8) assume only one dialog can exist.
 
-### 38.3 Layout — fixed size, so constants and not a `fm_layout`
+**What modality no longer buys.** It used to be why the dialog kept no
+listing of its own and read the global mount snapshot instead — and so why
+`dskw` had to remount that snapshot after every write made while a dialog
+was up (`fmv_gneed`, gone). The chooser paints from its own `VIEW` cache like
+every Disk window, and a write made inside it reaches that cache by §22.8's
+`fmv_bcast` like any other. Nothing on screen reads the global listing any
+more.
 
-`WF_SIZABLE` is deliberately **not** set: a dialog is a question, not a
-workspace, and a fixed frame turns §22's whole live-layout apparatus into
-eleven `equ`s. Window 300×170 at (90, 60); content 298×151 after the border
-and `TITLE_H` — the authored frame, which `wm_fit` clamps onto the live
-screen (§39.7), so on a 200-row adapter the record is shorter than these
-constants and the bottom of the layout is cut. All values below are
-content-relative:
+### 38.3 Layout — the Disk window's, plus a button column
 
-```
-(6,6)     header: 'A:'/'B:' + two spaces + the folder's caption
-(6,20)    list frame .. (213,120)   file list, 14px scroll bar inside its
-                                    right edge (x 200..213), 6 rows of 16px
-                                    starting at y 22, names at x 10,
-                                    right-aligned size (or 'folder') ending
-                                    at x 196
-(224,20)  [ Open ] / [ Save ]       62x14 buttons, the right column;
-(224,40)  [ Cancel ]                Open/Save carries a second frame 2px
-(224,60)  [ Drive ]                 out — the default-button convention
-(6,126)   'Save as:' + name box (72,124)..(213,140), text at x 76, caret
-          after it; in Open mode the same box shows the selected name
-          without a caret
-```
+The chooser is laid out by `fm_layout` (§22) and is resizable like any Disk
+window. The one difference is that `fm_layout` takes **`FD_COLW` off the
+content width** for the chooser's block, so the header, the list, the scroll
+bar and the status line all lay out — unchanged — in a narrower window, and
+the strip to their right is the button column. The minimum size grows by the
+same amount.
 
-The selected row is an XOR bar across the list interior, exactly as §22
-draws its own (`gfx_xor_fill` under the held lock) — and, for the same
-reason, **moving the selection costs two of those bars and nothing else**.
-`fdlg_sel_bar` is §22.2's `fm_sel_bar` in this module's geometry: same
-range-checking, same factored-out-of-the-painter argument, same XOR-is-its-
-own-inverse trick. A row click used to run `fdlg_draw_both` — refill the
-list interior, re-letter six rows and their sizes, redraw the scroll bar
-frame, both rules, both arrows, the track and the thumb — to move one strip.
+Three buttons, top to bottom, each the Disk window's own 63×14 at
+`x = fm_rgt + 5`, `y = content top + 2 + 20·i`:
 
-The dialog needs one thing the Disk window does not: **the name box follows
-the selection** (`fdlg_pick`), so "did the selection move" is the wrong
-question and "did the box move" is the right one. Only the setter can answer
-it, so `fdlg_setname` returns **CF = 1 when the stored text, length or caret
-is not what it was** and `fdlg_pick` passes that through. What falls out:
+| | Open form | Save form |
+|---|---|---|
+| 1 (default) | **Open** — greyed with nothing selected | **Save** |
+| 2 | Cancel | Cancel |
+| 3 | Drive (§38.11) | Drive |
 
-- a **different** row → two bands, plus the name box only if it actually
-  took a new name (landing on a *folder* row leaves the box alone, and now
-  leaves its pixels alone too);
-- the row **already selected** → the click re-arms the double-click window
-  and draws **nothing**, unless something was typed into the box since, in
-  which case the box alone is redrawn and the list still is not. That last
-  case is what keeps behaviour identical: clicking the selected row still
-  puts the file's name back over what you typed.
+**There is no New Folder button**: the right-click menu's *New Folder* (and
+`N` in the Open form) is the Disk window's own, and the folder it makes
+appears in the chooser by §22.8's broadcast.
 
-The fallback is `fdlg_setsel` scrolling the selection into view, which moves
-every row: `[fdlg_scrl]` is compared across the call and a change sends the
-click back to `fdlg_draw_both`. A **click** can never trigger it — the hit
-test is bounded by what is drawn — but the keyboard shares `fdlg_setsel`,
-and comparing one word is cheaper than proving that.
-
-`fdlg_sel_bar` reads `[disk_nfiles]` for the total instead of reading
-`[fdlg_shown]`, which is painter scratch and means nothing on a click.
-
-**The button column** carries Open/Save, Cancel, Drive and — in **save mode
-only** — a **two-line New / Folder** button (`FD_BH2`, drawn by `fdlg_btn2`),
-which makes a folder here named by whatever is in the name box and then
-navigates into it (`fdlg_newfolder`). Two lines because 63px of button holds
-seven glyphs, and "New" on its own under Save/Cancel/Drive reads as new
-*what*. The dialog could enter
-folders and leave them and had no way to make one, so saving into a new
-folder meant cancelling, opening a Disk window, pressing `n`, and starting
-again. The name box is already a line editor with the FAT character set
-enforced per keystroke, so the whole feature is: take what is in it,
-`dskw_mkdir`, find it in the listing the mkdir's remount just rebuilt, and
-dive. A refusal — empty name, bad name, full or write-protected disk —
-beeps, the same answer every other refusal in this dialog gives. It is
-absent in open mode because opening a file has no use for it.
-
-**Selecting a folder and pressing Enter navigates into it in BOTH modes.**
-`fdlg_act` used to test the selection's type only in open mode, so in save
-mode the same keystroke committed a save under whatever name the box still
-held.
+**The gesture is the Disk window's, per build.** On `kern_big` the three are
+ids 3 to 5 of the Disk window's own button set — `fm_brect` takes their rect
+from `fdlg_brect` and, in the same answer, their label and greying from
+`fdlg_blabel` (one `FDH_RECT`), and says "no such button" for every window
+that is not the chooser; so `fm_bhit` walks five ids for every Disk window,
+`fm_draw_core`'s header loop draws all five through `fm_btn1`, and
+`fm_onup_x` hands a fired id ≥ 3 to the chooser — so they press, track,
+cancel on slide-off and fire on release (§13.7), exactly like Refresh. On `kern_small`
+the Disk window's own buttons are drawn by hand and fire on the press, and
+the chooser's do NOT copy that: the glue draws them (`FDH_PAINT`), arms and
+draws the pressed one on the press (`FDH_CLICK`) and fires on the release
+(`FDH_UP`), through a `W_ONMOUSEUP` it stores on the chooser's window itself
+- this build's Disk window has none of its own, and the window manager
+dispatches the release on both builds. One byte, `[fdlg_down]`, is both the
+arm and the pressed look, because `kern_small` carries no `os88ui_armw`.
+**It costs 13 resident bytes on `kern_small`** - `fdlg_onup`, the 9-byte
+release thunk, and one far entry into `fm_layout` - which the module's other
+savings pay for many times over (§38.0); the slide-off cancel is honoured at
+the release and the look does not track the pointer in between, there being
+no `W_ONDRAG` on that build to track it with.
 
 ### 38.4 The listing and navigation
 
-The dialog lists **the mounted volume's current directory** — `disk_dir` /
-`disk_nfiles`, the §19 mount snapshot, read one staged entry at a time
-through `dsk_get_dir`. It never touches `VIEW_SEG` and never copies the
-listing anywhere (§38.2).
+All of it is the Disk window's (§22): double-click, Enter or *Open* on a
+folder dives into it, Backspace and `..` go up, `A` and `B` mount a floppy,
+Refresh re-reads, and the list/icons toggle works. The chooser adds two
+answers to *open a file*:
 
-**A display row IS a directory index**, and the row count is just
-`[disk_nfiles]`, read in place (`fdlg_rows` was that one load, and went in
-kernel size pass 8). It used not to be: this module synthesized its own `..` row
-and carried the resulting +1 offset through every row ↔ index conversion in
-it. The mount puts the parent link in the listing now (§19.5), as a type-3
-entry carrying the parent's first cluster, so the dialog, the Disk window
-and every view cache get the same row from the same place — and the offset,
-and the one routine that existed to decide it, are gone. The on-disk `.` and
-`..` entries are still filtered out by §19's species rules; the row the user
-sees is the synthesized one.
+- **Open form** — the file is the answer: its name and size are staged and
+  the commit is posted (§38.6).
+- **Save form** — the file's name goes into the name box and nothing else
+  happens; the user still presses *Save* or Enter. A **single** click on a
+  file does the same, which is what clicking a file means in a Save box.
 
-**Acting on a row** (double-click, or Enter, or the Open/Save button):
+**The arrows are the Disk window's**, so they are whatever §22.26 makes them
+on the build: on `kern_big` they move a selection (and scroll with none), on
+`kern_small` they scroll. That is where the old dialog's keyboard selection
+went - it was built for the chooser first, measured at 187 resident bytes on
+`kern_big`, and moved into the Disk window for 181 so that every window has
+it; on `kern_small` either shape costs bytes the mouse already makes
+unnecessary. Tests select a row with a click (`os88ui.chooser_select`), which
+works on both.
 
-- type 2 (subdirectory) or type 3 (the `..` link) → `dsk_chdir` into the
-  entry's first cluster. `..` needs no special case and no second walk of
-  the directory off the disk: the mount already put the parent's cluster
-  there.
-- type 0/1 (a file) → **Open**: that is the answer, commit it. **Save**:
-  copy the name into the edit field, do not commit — replacing a file is a
-  thing the user must still press Save for.
-
-Navigation runs `disk_mount` under the held lock, like §22's Refresh, and
-resets selection and scroll. A mount that fails leaves the row area empty
-and the header saying `no disk`; there is no error line, because every
-failure reachable here is that one and the empty list already says it.
-
-**Choosing sets the current directory (binding).** The dialog navigates
-with `dsk_chdir`, so by the time the callback runs, `[disk_drive]` and
-`[dsk_cwd]` **are** the folder the user chose in — and that is where §19.2
-resolves the file slots. A chooser that returned a bare name without moving
-the volume would be handing the caller a name it could not open. The Disk
-windows are unaffected: they re-sync from their own caches before every
-action (§22.1), which is what that machinery is for.
-
-**The name box is a line editor, not an append-only field.** `[fdlg_ncur]`
-is the caret — the character index it sits in front of, 0..`[fdlg_nlen]`.
-Left/Right/Home/End move it, Delete removes what is in front of it, backspace
-what is behind, typing inserts at it (`fdlg_nins`/`fdlg_ndel`), and a click in
-the box positions it by the same half-cell rule the Disk window's rows use.
-The five movement keys are gated on **AL = 0** first: the numeric keypad sends
-`4 6 7 1 .` with the scan codes of Left, Right, Home, End and Delete, so
-without the gate NumLock would turn typing a digit into moving the caret.
-
-The name-box hit test is the **first** thing a click that missed the button
-column sees, and that placement is load-bearing: the button column jumps to
-that label when it misses, so a test reached only by falling out of the column
-would never see a click on the left half of the dialog.
+**No overwrite question is asked**, by the chooser or by any caller: picking
+an existing file in the Save form only fills the box, and the caller writes
+over it. That is what the dialog has always done.
 
 #### 38.4.1 The scroll bar's four verdicts are ONE addition
 
-`os88ui_sbhit` answers `OS88UI_SBUP`, `SBDOWN`, `SBPGUP`, `SBPGDN` = **1, 2,
-3, 4**, and those are consecutive by construction (`apps/os88ui.inc`). What
-each of them does to `[fdlg_scrl]` is therefore a signed byte in a four-entry
-table — `fdlg_sbdel`, indexed by `answer − OS88UI_SBUP` — so the ladder of
-four `cmp`/`je` pairs with a one-line arm behind each is an index, a `cbw`
-and an `add`. `fdlg_clamp` catches either end, exactly as it did for the
-four arms.
-
-Two facts make ONE unsigned compare the whole bounds check: `SBNONE` (0)
-wraps to `0FFh` under the subtract and `SBTHUMB` (5) lands on 4, so
-`cmp al, 4 / jae` rejects both. A thumb press still falls out of the ladder
-unchanged and reaches `.out`, which is what it has always done here — the
-drag was already grabbed above (§13.10.5).
-
-**The table is `.text`, not `.cold`**, with the rest of this module's data and
-for its reason (§2.8.6): everything below the section toggle is addressed
-through CS and this is read through DS. That costs `kern_small` **4 resident
-bytes** to take 24 off `FDLG.DRV`'s image. A `[cs:]` read would have moved
-those four into the image on both builds at +1 a site, and it is refused:
-this file's "every byte of data above the single toggle" is the invariant
-that makes a `db` added below it a silent wrong-segment read, and it is worth
-more than four bytes.
-
-`files.inc` carries the same four-arm ladder for the Disk window and is **not**
-converted: its arms are not one addition each — §22.11's `fm_scroll_by` has
-an incremental tier the dialog has no equivalent of — so the shape does not
-transfer.
+**Retired with the dialog's own list.** The chooser's scroll bar is the Disk
+window's (§13.10, §22), whose arrow, page and thumb verdicts are already
+`fm_scroll_by`'s one signed step. What this section described —
+`fdlg_sbdel`, a four-byte table of signed deltas indexed by the verdict — has
+no list left to scroll.
 
 ### 38.5 State (`.bss`, singleton)
 
-```nasm
-fdlg_win   resw 1   ; the live dialog window, 0 = none — ALSO the modal gate
-fdlg_mode  resb 1   ; 0 = Open, 1 = Save
-fdlg_rqwin resw 1   ; requester: window ptr...
-fdlg_rqcb  resw 1   ; ...near completion proc...
-fdlg_rqrec resw 1   ; ...instance record...
-fdlg_rqsp  resw 1   ; ...and its I_SPTR, the staleness triple (§38.6)
-fdlg_sel   resw 1   ; selected DISPLAY row, 0FFFFh = none
-fdlg_scrl  resw 1   ; first visible row
-fdlg_clkt  resw 1   ; birth tick of the last click (double-click window)
-fdlg_name  resb 16  ; the name: default in, chosen out, edited in Save mode
-fdlg_nlen  resb 1   ; its length, 0..12          -- ADJACENT, and BINDING
-fdlg_ncur  resb 1   ; the caret, 0..[fdlg_nlen]  -- see below
-fdlg_row   resb 18  ; one row's name, staged out of dsk_ent
-fdlg_num   resb 11  ; the size column (fm_ultoa: 10 digits + NUL)
-```
+One chooser at a time, so its state is a singleton beside the Disk window's
+pool rather than a field in its block (§22's comment on `FS_SIZE` is why: the
+record's spare bytes are spent, and a field there costs `FM_NSLOT` bytes for a
+role one block plays):
 
-(An extract: the block also carries the layout cache, the staged row's type
-and size, the folder-naming shadow and, on `kern_big`, `fdlg_path`. The file
-is the list.)
+| | |
+|---|---|
+| `fdlg_win` (`.text`) | the chooser's window; 0 none; `0FFFFh` while launching |
+| `fdlg_blk` | its pool block, 0 when none |
+| `fdlg_mode` | 0 Open, 1 Save |
+| `fdlg_act` | the posted answer: 0 none, 1 commit, 2 cancel (§38.6) |
+| `fdlg_rqcb`, `fdlg_rqwin`, `fdlg_rqrec`, `fdlg_rqsp` | the requester: completion proc, window, record and `I_SPTR` |
+| `fdlg_name` | the name handed back, 13 bytes |
+| `fdlg_cdrv`, `fdlg_ccwd` | where the chooser stood when it closed |
 
-**`fdlg_nlen` and `fdlg_ncur` are adjacent, and that is binding.** Emptying
-the name box zeroes the length and the caret together, so `fdlg_nclear` writes
-them in one `mov [fdlg_nlen], ax`; separating them makes that store scribble
-on whatever moved in between, with no diagnostic. It is a `.bss` ORDER and
-nothing more — no reader of either name knows, and `tests/fdlggrey.py` asks
-`os88sym` for each one by name — but the store is silent about it, so the
-order is written down here as well as beside the two `resb`.
+**The Save form's name box is the Disk window's line editor**, as status-line
+edit mode **8** (`Save as:`, §22). Typing, Backspace and the 8.3 filter are
+`fm_editkey`'s, so the box accepts exactly the bytes `dskw_name83` will store
+and nothing else (§22). Two things make a mode that has to *last* safe in an
+editor built for prompts that end:
 
-`fdlg_nclear` is the one writer of the empty box: it takes the box's new
-PURPOSE in AL (0 a file name, 1 a new folder's, §38.3) and is what
-`fdlg_open` and `fdlg_newfolder` share, those being the two moments the box
-is emptied and the only thing that differs between them.
+- **`fm_ebuf` is shared** by every edit (§22), so a Rename or New Folder made
+  inside a Save chooser would otherwise eat the name being typed.
+  `fm_edit_end` therefore **banks** a mode-8 buffer into `fdlg_name`
+  (`FDH_BANK`) before it clears it.
+- **Mode 8 is re-armed lazily**: `fm_layout` runs before every paint, click
+  and key, and for a Save chooser whose edit mode is 0 it sets mode 8 again
+  and copies `fdlg_name` back into the buffer (`FDH_ARM`). So the box comes
+  back after any other prompt ends, and after the click that ended it —
+  which is why `fm_onclick`'s *a click ends an edit* (§22) needs no
+  exception.
 
-`fdlg_name` is the one buffer the caller's default arrives in and the
-chosen name leaves in; it is valid to the callback for the duration of the
-call and no longer.
+So `fdlg_name` is always the truth between keystrokes, and `fm_ebuf` is the
+truth while one is being typed.
 
-**Name editing** (Save mode only) reuses §22's rules verbatim so that what
-the box shows is exactly what will be stored: every character goes through
-`dskw_char` (upper-cases, rejects anything outside the FAT set), a `.` is
-allowed once and never first, and the budget is 12 — 8 + `.` + 3. Enter is
-Save, Esc is Cancel. In **Open** mode the keyboard drives the list instead
-(Up/Down/PgUp/PgDn, Enter, Esc); there is no field to type in, which is
-what the Standard File dialog this is modelled on did too.
+**While a chooser is up, `fm_edit_end` ends only the chooser's own prompt.**
+Its rule for every other Disk window - *a click anywhere ends every prompt,
+because the buffer is shared* - was right while a click in one Disk window
+meant the user had left the other, and is wrong for the one Disk window that
+is a question asked ON BEHALF of another: Clone to an image opens the Save
+chooser from inside its own prompt (mode 7, holding `CLONE.DRV`'s claim), and
+the first click in the chooser - Drive, to reach B: - ended the clone, freed
+the claim, and the save then failed *Not compressed*. `tests/wimgtrip.py`
+found it. Nothing else is exposed by the exception: the requester's prompts
+that can be up under a chooser (4 to 7) keep their text in `fm_onam` and
+their own claims, not in `fm_ebuf`.
 
 ### 38.6 The API slot 0x0124 and the completion callback
 
@@ -62669,82 +62710,69 @@ worker-task pair); `apps/os88api.inc` mirrors the equ (§20.5).
 0x0150 fdlg_open   in AL = 0 Open / 1 Save, BX = requester window ptr,
                    DI = completion proc (near, in the caller's image),
                    SI = default name (NUL, <= 12) or 0 for none.
-                   out CF=0 accepted — the dialog is ON SCREEN when this
+                   out CF=0 accepted — the chooser is ON SCREEN when this
                    returns; CF=1 refused (one is already up, BX is not a
-                   live owned window, or the window table is full).
+                   live owned window, or the instance or window table is
+                   full).
                    Preserves every register.
 ```
 
 **The caller must hold the gfx lock** — which every legal caller does,
 because the only legal callers are a window callback and an `AM_ONCMD`
-handler (§12.2), the §20.3 UI-task rule. That is what lets `fdlg_open`
-`wm_create` + `wm_show` **inline** and put the dialog on screen before it
-returns: no `inst_launch_post`, no deferral, no next-UI-pass delay. The
-handler that called it simply finishes and unlocks with the dialog already
-drawn.
+handler (§12.2), the §20.3 UI-task rule. **And the chooser is still on
+screen when the call returns**, although it is launched through `app_launch`,
+which takes the lock itself: `fdlg_open` sets `[inst_lkhd]` around the call,
+and `app_launch` then shows the window under the caller's hold instead of
+taking one it would deadlock on (the gfx lock is not recursive, §7.3). No
+deferral, no next-UI-pass delay, and the requester's handler simply finishes
+with the chooser already drawn.
 
 **The completion callback (binding).** Near-called on the UI task with the
-gfx lock **held**, *after* the dialog window has been destroyed:
+gfx lock **held**, *after* the chooser has been closed:
 
 ```
 in   AL = mode (0 Open, 1 Save)
      SI = the requester window ptr it registered
      DI = the chosen name, NUL-terminated, <= 12 chars (fdlg_name)
-     DX:CX = that file's SIZE IN BYTES, or 0 when this listing has no such
+     DX:CX = that file's SIZE IN BYTES, or 0 when the folder has no such
              file (a name typed for a Save, a folder, anything not found)
 out  nothing; no register need be preserved
 ```
 
 **The size is there so an app can refuse before touching the disk, and that
 is not a micro-optimisation.** Every loader in this tree used to read the
-whole file and *then* judge it: Tracker's `mp_load` says "Not a MOD" after
-116KB has come off the floppy, and Paint's decoder checks for `BM`/`GI`
-after the read, its own comment admitting "nothing knows the size until the
-read reports it, so the claim was for the largest run the heap had". On the
-target machine that is **ten seconds of motor to be told no**, and a failing
-load is indistinguishable from a working one until it ends. It also made the
-app claim the largest free run blindly, which on a fragmented heap is both
-wasteful and the wrong number.
-
-`fdlg_sizeof` answers it from the **mount snapshot already in RAM** — the
-listing the dialog is displaying, whose right-hand column is this very
-figure — so it costs no I/O at all. With it, an app's completion proc can
-do all of its refusing for free, in this order: wrong extension → refuse;
-size past what it can hold → refuse; size past `OSAPI_MEM_AVAIL`'s
-**largest run** → refuse, naming the shortfall. Only then claim — **exactly
-the size, not the largest run** — and read. `apps/tracker` is the reference
-consumer, and its three early refusals stop nothing and free nothing, so a
-mis-picked file does not interrupt what is already playing.
-
-**That last clause is load-bearing and it depends entirely on the figure being
-right** (§45.3.1.1): past the refusals the player frees the playing module to
-make room for the new claim, so the gate is the *whole* guarantee that a
-refused load leaves the machine as it found it. When `DX:CX` was the packed
-size a compressed module walked straight through the gate and destroyed what
-was playing to then fail its own read. The answer is a correct figure and
-**not** a reordering — holding both blobs doubles the peak on the 640KB
-machine this project is calibrated for, which is what makes a large module
-unloadable rather than merely slow.
-
-Adding `DX:CX` is **backward compatible**: it is an extra *input*, and a
-callback written against the older contract simply ignores two registers it
-was already free to clobber.
+whole file and *then* judge it: Tracker's `mp_load` said "Not a MOD" after
+116KB had come off the floppy. On the target machine that is **ten seconds
+of motor to be told no**. With the size, a completion proc can do all of its
+refusing first, in this order: wrong extension → refuse; size past what it
+can hold → refuse; size past `OSAPI_MEM_AVAIL`'s **largest run** → refuse,
+naming the shortfall. Only then claim — **exactly the size, not the largest
+run** — and read. `apps/tracker` is the reference consumer, and its early
+refusals stop nothing and free nothing, so a mis-picked file does not
+interrupt what is already playing. **That last clause depends entirely on
+the figure being right** (§45.3.1.1), which is §38.6.1.
 
 Same rules as `AM_ONCMD` (§12.2): it may draw, it may call the file slots,
-it must **not** take the lock, and it **must repaint itself** — the kernel
-does not repaint after it returns. That is precisely why the order is
-**teardown, then callback** and never the reverse: `wm_destroy`'s repaint
-has already restored everything the dialog covered, so the callback paints
-onto a clean window instead of over a dialog that is still on screen.
+it must **not** take the lock, and it **must repaint itself**. The order is
+**teardown, then callback**: the chooser's close has already restored
+everything it covered, so the callback paints onto a clean window. It is
+legal for a callback to open another chooser; the gate is clear by then.
 
-It is legal for a callback to open another dialog; the gate is clear by
-then and the whole sequence is one lock hold deeper, which nothing in this
-module minds.
+**The answer is POSTED, and the post is binding.** Every way to answer — a
+file opened in the Open form, Enter in the name box, the *Open*/*Save* and
+*Cancel* buttons, Escape — arrives inside one of the chooser's **own**
+callbacks, and the Disk window's code that called the hook goes on to draw
+that same window when the hook returns. Closing the chooser there would hand
+it a destroyed window to draw. So the hook only records the answer in
+`[fdlg_act]` and wakes the UI task, and `fdlg_reap`, on the next pass and
+with the lock free, takes the lock and does the work: close, restore the
+folder, size, remember, call back. A keystroke typed between the post and the
+reap still lands on the chooser and changes nothing.
 
 **Staleness (binding).** The request records the requester's instance
 record, its `I_WIN` and its `I_SPTR`. The callback is skipped, silently, if
 any of the three no longer matches a live (`I_STATE` = 1) record: a package
-whose window was closed while the dialog was up has had its region freed
+whose window was closed while the chooser was up has had its region freed
 (§29.2 rule 7), and its near pointer no longer means anything. Checking the
 window pointer alone would not do — window slots are reused.
 
@@ -62753,360 +62781,272 @@ window pointer alone would not do — window slots are reused.
 `DX:CX` is the figure `OSAPI_FILE_READ` is about to hand over, so for a
 **compressed** file (§20.14) it is the **unpacked** size — the same answer
 `OSAPI_FILE_FIND` +18 gives, and for the same reason: the callback funds a
-claim with it.
+claim with it. It was once the on-disk size and that was a bug: `BEVERLY.MOD`
+(116,085 bytes, 42,174 lz4-packed) produced *"File too big"* in both MOD
+players while double-clicking the same file loaded it.
 
-**It was the on-disk size and that was a bug.** `fdlg_sizeof` answered out of
-the mount's staged listing entry, whose +20 is deliberately raw (§19.1), so
-every compressed file was reported at a fraction of its real length and the
-reference consumer above did exactly what this section tells it to: claimed
-that fraction, then failed its own read. `BEVERLY.MOD` — 116,085 bytes,
-42,174 lz4-packed, and the default build packs every data file — produced
-**"File too big"** in both MOD players on a machine with 500KB free, while
-**double-clicking the same file loaded it**, the association route going
-through `OSAPI_FILE_FIND` instead. §20.14.3's table now carries a row for this
-surface; it did not, which is why nothing pointed the two implementations at
-each other.
+`fdlg_sizeof` **stats the chosen name** in the folder the chooser committed
+in — after the close has put the volume back there (§38.7) — and answers
+from `dskw_stat`'s own outputs: 0 for a name that is not there or is a
+folder, the size `DX:CX` otherwise, and the three-byte hint's unpacked size
+when the file is compressed, exactly as `cmz_sizes` reads it. One directory
+walk, on the OK path, immediately before the caller reads the whole file, and
+usually served out of §18.95's sector cache, the chooser having just listed
+that directory.
 
-**What it costs.** This routine was written to answer out of RAM with no
-floppy I/O at all, so that an app could refuse a load without the motor ever
-spinning up, and the hint is not in the listing — §19.1's record is meaningful
-to offset 23 and `kernel/dskwin.inc` took the dead bytes off that stride
-because `.lowbss` is the tightest rung in the kernel. So the routine now
-**stats the name** when the listing says it is really a file, and reads the
-three-byte hint out of `dskw_raw` exactly as `cmz_sizes` does. One directory
-walk, once, on the OK path, immediately before the caller reads the whole
-file — and usually served out of §18.95's sector cache, the listing on screen
-having just walked the same directory. A name that is **not found**, a
-**folder**, a **typed Save name** and a **redirected volume** (§62.9) all still
-cost nothing: they leave by the listing half, before the stat. The redirected
-guard is correctness and not speed — `dskw_stat`'s `DVK_FILE` arm asks the
-driver and never writes `dskw_raw`.
+**A redirected volume (§62.9) takes the same path.** `dskw_stat`'s
+`DVK_FILE` arm asks the driver, which answers the size in `DX:CX` like the
+FAT arm and writes no `dskw_raw` - so only the compression hint is skipped
+there, and nothing on a redirected volume is compressed. It used to be an
+exception, answered from a copy of the picked row's size (`fdlg_size`), and
+only because the size was then read out of `dskw_raw`; that copy also
+reported the last PICKED file's size for a name typed after it.
 
-**42 bytes of `.cold`**, no rung crossed, `KERN_CODE_MAX` untouched; on
-`kern_small` the module is `FDLG.DRV` and it costs nothing resident.
+#### 38.6.2 The size is taken AFTER the teardown
 
-#### 38.6.2 The size is taken BEFORE the teardown
+It used to be binding that the size was taken *before* the close, because the
+old dialog's listing was a transient claim that the close freed while
+`[disk_nfiles]` still counted its rows — a lookup after it walked segment 0,
+and from the day that listing became transient until the order was fixed
+**every Open reported a size of 0** and Write Img (§18.99.8) refused every
+image as *"Not a disk image"*.
 
-`fdlg_commit` asks `fdlg_sizeof` for `DX:CX` **before** `fdlg_close`, and the
-order is binding. The close frees the dialog's own listing store
-(`fdlg_vfree`: the listing is transient, which is why it costs no resident
-byte) and aims `[dsk_dseg]` at 0 — while `[disk_nfiles]` still counts the
-entries the dialog was showing. A lookup after the close therefore walks the
-right number of rows out of **segment 0**, compares the chosen name against
-the interrupt vector table, finds nothing, and answers the not-found `0:0`.
-
-**It did exactly that from the day the listing became transient until this
-section was written**: every Open reported a size of 0. Most consumers treat
-0 as "no size" and fall back to asking for the largest run, so they degraded
-quietly; **Write Img** (§18.99.8) sizes the geometry off this figure alone,
-so it refused every image — a 368,640-byte image of a 360KB floppy, picked
-off a 720KB disk or a hard disk alike — as **"Not a disk image"**, on real
-hardware and in every emulator. It is reported off the 5150.
-
-Nothing between the two points touches `CX` or `DX`: `fdlg_close`,
-`fdlg_home_save` and `snd_disp_set` preserve both, and the staleness triple
-spends `AX` and `DI`. The callback pointer is carried in `AX` for that reason.
-The cost is that the one directory walk of §38.6.1 now happens on a commit
-whose callback the staleness triple then skips — a commit from an app whose
-window has since closed, which is rare and pays one cached walk.
+The rule is now the opposite and for a better reason: `fdlg_sizeof` reads the
+**directory**, not a listing, so it must run where the callback will run —
+after the close, with the volume and folder put back where the chooser
+stood. Nothing it reads is freed by the close.
 
 ### 38.7 Lifecycle
 
 1. **Ask.** The application calls slot 0x0124 from a menu command or a key
-   handler, under the lock it already holds. `fdlg_open` refuses if
-   `[fdlg_win]` ≠ 0, else records the request, seeds `fdlg_name` from SI,
-   re-mounts the current directory, creates the window and `wm_show`s it.
-2. **Interact.** Ordinary `W_PAINT`/`W_ONKEY`/`W_ONCLICK` under the lock,
-   with §38.2 keeping every other click and key away from them.
-3. **Commit.** The Open/Save button, Enter, or a double-click on a file
-   runs `fdlg_commit` — still inside the dialog's own callback, still under
-   that callback's lock: `fdlg_close` (destroy the window, drop the gate,
-   hand the menu bar back to the requester with `menu_activate` +
-   `menu_draw_bar` — `wm_front` gave it to the dialog on the way in, and
-   the dialog has no menus), then the staleness check, then the callback.
-
-   Destroying the window from inside its own `W_ONCLICK` is safe and is the
-   point: the §11/§13 dispatch sites read `W_ONCLICK`/`W_ONKEY` *before* the
-   call and touch nothing but the saved owner word and the lock afterwards
-   — and that owner word is 0 for this window (§38.1), so there is not even
-   an `inst_charge` to land in a freed record.
-4. **Cancel** — the Cancel button, Esc, the close box, or the minimize box
-   — is step 3 without the callback: the first two call `fdlg_close`
-   directly, the last two go through `wm_hide` and are collected by
-   `fdlg_check` at the next input (§38.2).
+   handler (lock held). `fdlg_open` refuses if a chooser is up or the
+   requester is not a live owned window, records the request, and — Save
+   form — seeds `fdlg_name` with the caller's default, else the instance's
+   remembered name (§38.10), else nothing.
+2. **Seed.** It works out where to open (§38.10) and parks it with
+   `fm_seed` — the same parking a desktop drive icon uses.
+3. **Launch.** `[fdlg_win] = 0FFFFh`, `[inst_lkhd] = 1`,
+   `app_launch(KIND_FILES)`. `fm_kinit` adopts the window, lists the seeded
+   folder into the chooser's own cache, and arms mode 8 for the Save form;
+   `app_launch` shows it under the caller's lock. A launch that fails puts
+   `[fdlg_win]` back to 0 and refuses.
+4. **Use.** The user browses with the Disk window's own controls. Modality
+   (§38.2) holds the rest of the machine still.
+5. **Answer.** A hook posts commit or cancel (§38.6). Closing or minimizing
+   the window is a cancel, found by `fdlg_reap` through the gate.
+6. **Reap.** On the next UI pass `fdlg_reap` takes the lock and calls
+   `fdlg_close`: it records where the chooser stood (`fdlg_cdrv`/`fdlg_ccwd`,
+   and the requester's home, §38.10), clears `[fdlg_win]`/`[fdlg_blk]`,
+   closes the instance with `app_close_win` (whose teardown frees the
+   chooser's cache claim) unless something already did, and gives the menu
+   bar back to the requester.
+7. **Commit only.** If the global volume and folder are not where the
+   chooser stood, `dsk_chdir` puts them back — the callback's contract is
+   that the file's volume is mounted and its folder is current. Then the
+   staleness triple, the remembered name, the size, and the callback.
 
 ### 38.8 Partial redraws — what a keystroke actually changes
 
-Typing a character into the name box used to repaint the whole content: the
-header, both frames, six listing rows, the scroll bar, four buttons, the
-label, the box and the caret — about 120 glyphs and a 298×151 white fill, to
-move one letter.
-
-The dialog **does not resize**, so unlike a text window it never has to work
-out *which* pixels moved — every key and every click knows what it touched.
-The content is three parts, and the two that can change on their own are a
-**body** (draws) plus a **wrapper** (erases its own rectangle first, and only
-its own):
-
-| routine | erases | draws |
-|---------|--------|-------|
-| `fdlg_draw_name` → `fdlg_name_body` | inside the name box's frame | the name, and the caret in Save mode |
-| `fdlg_draw_list` → `fdlg_list_body` | inside the list frame | `fdlg_clamp` + `fdlg_draw_rows` + `fdlg_draw_sbar` |
-| `fdlg_draw_both` | both | both — a selection move changes the listing *and* takes the new name (`fdlg_pick`) |
-
-**The default button is the fourth thing a keystroke can change**, and it is
-redrawn on an *edge* rather than per key. `fdlg_actok` is the one predicate
-behind the button's pen, the click on it and the Enter key (§46 rule 4) — a
-chosen row always acts, and with no row chosen an empty name box is not an
-answer — so typing the first character or deleting the last one flips it, and
-`fdlg_draw_name` compares the answer against `[fdlg_actl]` and calls
-`fdlg_defbtn` only when it moved. Every caret move comes down the same path,
-and a frame plus a label per keypress is real money on the machines this runs
-on.
-
-`fdlg_btn` takes the disabled state as a **flag** (`AH`) and hands it to
-`os88ui_btn` (§20.5.1), which takes the pen through `gfx_pen_cf` once — so the
-colour and `[gfx_dis]` are set together and the frame greys with the label
-(§47 rule 1/2). It used to force `CBLACK`, which is fine for three of the four
-buttons and wrong for the one that can be disabled; then it took the
-**caller's** pen, which fixed that and left the colour and the flag as the
-caller's to get right. The flag is the third and last shape: one predicate,
-one call, and the pen comes back live by itself.
-
-`fdlg_paint` calls the **bodies**, because `wm_paint_all` already handed it a
-white content; everything else calls the wrappers. Neither erase touches its
-frame: the frames are chrome and never move.
-
-Measured on the APPS folder, 8 characters typed into an empty name box,
-counting calls inside the kernel: `font_char` **972 → 36**, scanlines filled
-**7,600 → 184**.
-
-Routing, and the rule for adding to it:
-
-- name only — every printable character, backspace, Del, the four caret keys,
-  and a click inside the box
-- list only — the scroll bar's arrows and its two paging halves (a click *on*
-  the thumb, or on an inert track, now draws nothing at all)
-- both — Up/Down/PgUp/PgDn and a click on a row
-- **whole** (`fdlg_repaint`) — the third part changed: the header's drive
-  letter or `Disk`/`Folder` word, or the box's `Save as:`/`Folder:` label.
-  That is `fdlg_go` (the Drive button, and diving into a folder),
-  `fdlg_newfolder` and `fdlg_unfold`. **If a new action can change any of
-  those three strings, it is a full repaint.**
-
-One consequence to keep: `fdlg_onkey` now caches the content origin itself,
-because it used to get `[fdlg_cx]`/`[fdlg_cy]` for free from `fdlg_paint` and
-no longer always reaches it.
+All of it is the Disk window's (§22.2, §22.13): a selection change XORs two
+bands, a typed character in the name box redraws the status line only, a
+scroll blits. The chooser adds one partial redraw: in the Open form a
+selection change redraws button 1, whose greying is the selection
+(`FDH_SEL`). Nothing else the chooser does repaints more than the Disk window
+would have.
 
 ### 38.9 Symbols
 
-| symbol | contract |
-|--------|-----------|
-| `fdlg_open` | API slot 0x0124, above. The only entry point applications have. Caller holds the gfx lock. |
-| `fdlg_gate` | Internal. Drops the gate (and destroys the window) if `[fdlg_win]` is not used-and-visible. In: AL = 1 if the caller holds the gfx lock, 0 if not — it needs the lock to destroy and takes its own when it must. Out: CF=0 and BX = the dialog if one is live, CF=1 if none. |
-| `fdlg_reap` | UI task, no lock held. `fdlg_gate` for its side effect alone, once per loop pass. Preserves all registers. |
-| `fdlg_grab` | In: CX/DX = press point. Out: CF=1 = swallow (beeped). Preserves all registers. Called with no lock held. |
-| `fdlg_top` | In: BX = `wm_top`'s answer. Out: BX = the dialog window if one is live. Preserves everything else. Called with the lock held by the key path, so it uses the non-destroying half of the check. |
-| `fdlg_close` | Destroy the window, drop the gate, return the bar to the requester. Caller holds the lock. Preserves all registers. |
-| `fdlg_commit` | `fdlg_close`, staleness check, then the callback. Caller holds the lock. |
-| `fdlg_paint` / `fdlg_onkey` / `fdlg_onclick` | The window procs; all three assume the held lock and never take it. |
-| `fdlg_draw_name` / `fdlg_draw_list` / `fdlg_draw_both` | §38.8. Erase one rectangle and redraw it. All assume the held lock and a valid `[fdlg_cx]`/`[fdlg_cy]`; all preserve every register. |
-| `fdlg_name_body` / `fdlg_list_body` | The same drawing without the erase, for `fdlg_paint`, which is handed a white content. |
-| `fdlg_stage` | In: AX = display row, which IS a directory index (§19.5 put the `..` row in the listing, so this module no longer synthesizes one or carries an offset). Out: `fdlg_row` = its name, `fdlg_type` / `fdlg_size`+`fdlg_sizeh` its §19 type word and size dword. |
-| `fdlg_go` | In: AX = first cluster. `dsk_chdir` + reset selection and scroll. |
-| `fdlg_hidx` | Internal. Out: CF=0 with BX = this instance's file-home slot **and SI → that slot's `inst_fname` row**; CF=1 = no live requester. The SI half is why `fdlg_home_name` and `fdlg_home_save` are nine and twenty-six bytes: `slot * INST_FNSZ` is a `mul` (13 is not a shift) and it was written at both. The two index-only callers bank SI already. |
-| `fdlg_orig` | Internal. In: SI = the dialog's window. Out: AX/DX = the content origin, `[fdlg_cx]`/`[fdlg_cy]` set, everything else preserved. The painter, the keyboard and `fdlg_pt` all need the cache before they can place anything, and `wm_content` takes the window in BX where this module carries it in SI. A consequence worth having: `fdlg_pt` no longer clobbers BX. |
-| `fdlg_nclear` | Internal. In: AL = the box's new purpose (0 file, 1 folder). Empties the name box; out AX = 0. §38.5. |
-| `fdlg_nosel` | Internal. Nothing selected, listing at the top; out AX = 0, which `fdlg_open` uses for the third word (`[fdlg_clkt]`) and `fdlg_go` deliberately does not — a navigation must not reset the double-click window. |
-| `fdlg_wfill` | Internal. In: AX..DX = a content-relative rect. White pen, `fdlg_off`, fill — the three steps the two partial redraws of §38.8 share. Not a general helper: every other fill in this module is a colour its caller chose. |
+| symbol | what |
+|---|---|
+| `fdlg_open_x` | slot 0x0124's body (via `api_fdlg_open`), `OSAPI_DRV_DLG`'s (§51.10) and the kernel's own three callers' |
+| `fdlg_hook` | resident: `AL` = event; `CF=1` when the acting Disk window is the chooser and it took the event |
+| `fdlg_hook_x` | the glue's dispatcher, one table of `FDH_*` events; each `FDH_*` is its own table offset (twice the row), so the dispatch needs no shift |
+| `fdlg_reap_x` | the UI ladder's collection and the posted answer, far-called straight from `ui.inc`'s guarded step |
+| `fdlg_gate` | is `[fdlg_win]` still used and visible - a test, nothing more (§38.2) |
+| `fdlg_grab_x`, `fdlg_top_x` | modality (§38.2) |
+| `fdlg_close`, `fdlg_commit`, `fdlg_sizeof` | §38.7 steps 6 and 7 |
+| `fdlg_brect`, `fdlg_blabel` | the button column's rect and label/greying, shared by both builds |
+| `fdlg_nextvol` | §38.11 |
+| `fdlg_seed`, `fdlg_hidx`, `fdlg_home_dir`, `fdlg_home_save` | §38.10 |
+| `fdlg_tsel`, `fdlg_toebuf`, `fdlg_bank`, `fdlg_cpy` | the name: the selection staged, the box filled and banked, all through one bounded copy |
 
-**What this deliberately does not do.** No filtering by extension (an Open
-dialog that hid `.TXT` from Note Pad would be a lie about what is on the
-disk), no icon view (the Disk window is where you browse; this is where you
-choose), no multiple selection, and no second dialog on top of the first —
-the gate is a single word for the same reason `[menu_win]` is. It *does*
-have a New Folder button, and that button is load-bearing well outside this
-module: it is the one write in the system made while something on screen is
-drawing from the global listing, which is the case §18.4's deferral must
-never take.
+| `FDH_*` event | raised by | the chooser's answer |
+|---|---|---|
+| `FDH_ARM` | `fm_layout` | Save form: re-arm mode 8 from `fdlg_name` (§38.5) |
+| `FDH_BANK` | `fm_edit_end` | Save form: bank a mode-8 buffer into `fdlg_name` |
+| `FDH_PICK` | `fm_open_sel`, a file | Open: stage and post commit; Save: fill the box |
+| `FDH_SEL` | `fm_onclick`'s new selection, and §22.26's arrows on `kern_big` | Save: a file fills the box; Open: re-grey button 1 |
+| `FDH_COMMIT` | `fm_edit_commit`, mode 8 | post commit, or beep on an empty box |
+| `FDH_KEY` | `fm_onkey_x`, every key (DX = the key) | Escape: post cancel |
+| `FDH_BTN` | `fm_onup_x` (`kern_big`) / `FDH_UP` (`kern_small`) | button 1: open the selection / commit the box; 2: cancel; 3: next volume |
+| `FDH_PAINT` | `fm_draw_core` — `kern_small` only | draw the column (`kern_big`'s header loop draws ids 3 to 5 itself, through `fm_btn1`) |
+| `FDH_RECT` | `fm_brect` — `kern_big` only | the column's rect, and with it its label, default and greying in SI/DI for `fm_btn1` |
+| `FDH_CLICK`, `FDH_UP` | `fm_onclick`, the chooser's `W_ONMOUSEUP` — `kern_small` only | arm and draw a button pressed; fire it on the release |
+
+**`FDH_RECT` is not a convenience.** `fm_brect` could near-call
+`fdlg_brect` and `fdlg_blabel` on `kern_big`, where both files are `.cold` -
+and `tools/os88ovlchk.py`, which reads source and cannot evaluate `%ifdef
+FDLG_MOD`, files every body in `fdlg.inc` as the `.modd` image on both builds
+and refuses the call. Going through the hook is the one spelling that is
+true on both, which is the rule `filecp.inc`'s `FCPX` macros already obey.
+**And the hook's CF is the column's existence**: `fm_brect` complements it,
+so the hook's "not the chooser" is `fm_brect`'s "no such button" - which is
+what lets `fm_bhit` and the header painter walk all five ids for every Disk
+window with no chooser test of their own.
 
 ### 38.10 The default is `MEDIA`; after that the location is per APPLICATION
 
 `fdlg_open` used to end its setup with an unconditional "re-list where the
 volume already is" — `[disk_drive]` and `[dsk_cwd]`, the globals. Those are
 **one** pair for the whole machine, so anything that moved them moved every
-application's idea of where its documents live. A Control Panel close writes
-`SYSTEM.CFG` to the system disk (§51.5.1); a package writing a file leaves
-the volume wherever it wrote; a Disk window coming to the front re-lists into
-*its* folder (§22.8). After any of those, the next Save As in an unrelated
-app opened somewhere the user had never taken it.
+application's idea of where its documents live. After a Control Panel close,
+a package writing a file or a Disk window coming to the front, the next Save
+As in an unrelated app opened somewhere the user had never taken it.
 
 So each instance carries its own. `inst_fdrv` / `inst_fcwd` / `inst_fpick` /
 `inst_fname` are a side table in `instance.inc`, one row per record — and
 the first two are **the instance's actual current directory** (§19.2.1), the
-one its file operations resolve in, not a memory the dialog keeps on the
-side. This section is about which folder the *chooser* opens on; §19.2.1 is
-about where the app's names resolve. They are the same two words on purpose:
-a Save As does not merely aim the next dialog, it moves the application.
+one its file operations resolve in. A Save As does not merely aim the next
+chooser, it moves the application.
 
 **And an application whose user has not chosen anything yet opens on
-`MEDIA`.** `fdlg_home_go` has three answers, in this order:
+`MEDIA`.** `fdlg_seed` has two answers, in this order:
 
-| the app | opens on |
+| the app | the chooser opens on |
 |---|---|
 | its user has chosen a folder (`inst_fpick`) | back there |
 | they have not | `MEDIA` in the **root of that instance's own drive** — or that root, if the volume has no `MEDIA` folder |
-| ...and the volume will not mount | the banked pair, which is the recovery |
 
-**Nothing in the first two rows reads the globals at all.** The drive comes
-out of the instance's row and so does the folder, so a Disk window taken to
-C:, a package loading a module, `assoc_back` coming home from a document
-open (§54.9), a driver going to A: for `SYSTEM.CFG` (§51.5.1) — none of them
-can decide where this application's Open lands. The row is seeded at
-`inst_alloc` from wherever the app was launched, so even an app that has
-never opened a dialog has a drive of its own to resolve `MEDIA` on: a
-package launched off B: opens on `B:\MEDIA`, not on A:'s.
+There was a third, *"it has no row at all: where the volume globals stand"*,
+and nothing could reach it: `fdlg_open` refuses a requester that is not a
+live record of `inst_tab`, and every such record HAS a row. `fdlg_hidx`
+cannot miss, so it no longer answers a CF its callers test.
 
-`[inst_fpick]` is a question about the **user**, not about the data: the row
-always holds a real folder, and the flag asks whether the person ever chose
-it. Until they have, the default wins — so a second Note Pad launched from
-`B:\APPS` opens its dialog on `B:\MEDIA` while its *file operations* resolve
-in `B:\APPS`, which is exactly what each of those two things should mean.
+**Neither row reads the globals.** The row is seeded at
+`inst_alloc` from wherever the app was launched, so a package launched off B:
+opens on `B:\MEDIA`, not on A:'s. `[inst_fpick]` is a question about the
+**user**, not about the data: the row always holds a real folder, and the
+flag asks whether the person ever chose it.
 
-The shipped disks both carry the folder, and the system disk carries it
-**empty** (§28.3): a boot floppy has no media on it, and the folder still
-has to exist for the dialog to land in. A volume without one is not an
-error — the dialog opens at that volume's root, which is still an answer
-nothing drifted into.
+**The `MEDIA` arm is a knob.** `make NOFDMEDIA=1` assembles the second row
+out and an app that has not chosen opens where it was launched from instead —
+the first row's code with the launch folder in it. It is the one part of
+this section that is a nicety rather than a contract, so it is the part
+whose bytes are easy to take back. The shipped disks carry `MEDIA` (§28.3);
+it costs **two mounts instead of one** on the first open of each app, charged
+only until the user first chooses somewhere.
 
-It costs **two mounts instead of one** when `MEDIA` is there and one when it
-is not: the folder has to be listed before its first cluster is known, the
-same arithmetic §28.3 pays. That is charged only to the opens *before* the
-user has chosen anywhere; from the first navigation onward the first row of
-the table is taken and this never runs again for that instance.
+Five things about it:
 
-Seven things about it:
+- **A side table, not four more record fields.** `I_RECSZ` is 32 and full,
+  and index<<5 is what makes a record cheap to reach everywhere.
+  `inst_fhome_idx` owns the indexing.
+- **SEEDED in `inst_alloc`, for `I_CYC`'s reason**: a reused record must not
+  inherit a dead instance's folder.
+- **The FOLDER is recorded when the chooser CLOSES, by any route**, from its
+  block's `FS_DRV`/`FS_CWD` — and only when `FS_MOK` says the listing came
+  from a good mount, because a failed mount lands at the root of the drive it
+  tried, which is not a folder to bring an app back to. That is the same
+  observable rule as before, *where the user left it*, without a hook in
+  every navigation: a user who goes into a folder, comes back out and cancels
+  has chosen the folder they came back out to. **Arriving at a default is not
+  a choice** and is not recorded: the seed never sets `inst_fpick`, and a
+  chooser closed without the user moving records the same folder it opened
+  on.
+- **The NAME is recorded on a COMMIT and nowhere else** (`fdlg_home_save`). A
+  cancelled chooser is not a statement about which document an app is on.
+- **The caller's default name still wins**, and **`SI = 0` survives the
+  stub**: `api_fdlg_open` stages only a real name and passes a zero through
+  untouched, because `OSAPI_NSTUB`'s unconditional staging once turned "no
+  default" into the caller's own package header and made the remembered-name
+  branch unreachable from every package.
 
-- **A side table, not four more record fields.** `I_RECSZ` is 32, it is
-  full (`I_CYC`'s dword ends it), and index<<5 is what makes a record cheap
-  to reach everywhere else in the kernel — widening it to carry 17 more bytes
-  would put a multiply in every walk. `inst_fhome_idx` owns the indexing so
-  `instance.inc` and `fdlg.inc` cannot come to disagree about which row
-  belongs to which record.
-- **SEEDED in `inst_alloc`, for `I_CYC`'s reason.** A reused record must not
-  inherit a dead instance's folder, or the first Save from a freshly launched
-  app would open somewhere only its predecessor had been. It seeds rather
-  than blanks — the new instance starts standing where it was launched from
-  (§19.2.1) — so there is no "no folder" sentinel any more and `inst_fdrv`
-  always holds a real volume. `[inst_fpick]` is the separate byte that says
-  whether the user has *chosen* it, and only this section's default reads it.
-- **The FOLDER is written by the user NAVIGATING, and by nothing else.** All
-  three ways to move inside the dialog — the folder dive, the drive button
-  and diving into a folder just created — go through `fdlg_go`, and that is
-  where `fdlg_home_dir` records where the mount landed. Nothing else can
-  reach it: `fdlg_home_go` calls `dsk_chdir` itself, deliberately, precisely
-  so that *arriving at a default* does not read as a choice. One store, at
-  the one place a user changes directories, covering every user navigation
-  and nothing else — which is the whole distinction the feature rests on.
-  A **failed** mount is not recorded: it lands at the root of the drive it
-  tried with the write gate shut, which is not a folder to bring an app back
-  to.
-- **Backing out is a navigation too**, and cancelling does not undo one. A
-  user who goes into a folder, looks, comes back out and cancels has chosen
-  the folder they came back out to — that is where the dialog opens next
-  time, because that is where they left it. This is a change: it used to be
-  written on a commit and nowhere else, on the reasoning that a cancelled
-  dialog is not a statement. It is a statement about the *location*, which
-  the user moved on purpose; it is not one about the NAME, which is the half
-  that still waits for a commit.
-- **The NAME is still written on a COMMIT and nowhere else** (`fdlg_home_save`,
-  which calls `fdlg_home_dir` for the folder and then copies the name). A
-  cancelled dialog is not a statement about which document an app is on. The
-  store sits after `fdlg_commit`'s staleness triple, so a dead record is
-  never written to.
-- **The caller's default name still wins.** `fdlg_open`'s `SI` is the
-  document the app is actually on; the remembered name is what fills the box
-  when `SI` is 0, which is the case that used to give an empty box.
-- **...and `SI = 0` has to SURVIVE THE STUB, which for a while it did not.**
-  Slot 0x0124 was an `OSAPI_NSTUB`, and that macro stages the caller's
-  `DS:SI` into `api_name` **unconditionally** — right for the six file cells
-  it also serves, where a name is an argument the operation cannot run
-  without, and wrong here, where the published contract is *"a name, or 0"*.
-  A staged 0 arrives as `api_name`, a kernel address and so never zero,
-  holding whatever `api_copyname` found at the caller's offset 0 — which for
-  a package is its own 32-byte header (§20.2). So an app asking for **no**
-  default got `O8` and the version bytes in the box, the Open button went
-  **live on a name no volume has**, and the branch above this one was
-  unreachable from any package: nothing could take it, because nothing could
-  leave `SI` zero. Four of the six packages that use the dialog ask for no
-  default — Tracker, Frotz twice, and ModPlug twice (Open, and PlayList ▸
-  Add…) — so it was all of them, and the feature above had never once run
-  outside the kernel. `api_fdlg_open` is its own stub now: it tests `SI`,
-  stages only a real name, and passes the zero through untouched. The shape
-  to recognise is that **a shared stub encodes a contract, and this cell's
-  differed from the other six in the one place the macro had no opinion** —
-  the `V` flag had already been reasoned about for it and the optional
-  argument had not.
-- **The banked fallback is taken FIRST**, because a remembered folder can
-  have gone away — the disk was swapped, or the directory deleted — and
-  `dsk_chdir`'s failure path leaves `[dsk_cwd]` at 0 on the drive it tried.
-  Re-reading the globals after a failed attempt would therefore not recover
-  where the user is; `fdlg_home_go` banks the pair before it tries.
-
-A file operation resolves in the same two words (§19.2.1), which is what
-makes the whole thing hold together rather than being a display nicety: the
-folder the dialog commits to **is** the folder the app's later writes land
-in, without the app storing anything or calling anything. Names are still
-bare 8.3 names with no path in them (§19.2); what changed is whose current
-directory they resolve against.
+A remembered folder that has gone away — the disk swapped, the directory
+deleted — opens the chooser on the Disk window's own *no disk* state rather
+than silently somewhere else; *Drive*, `A` and `B` are right there.
 
 ### 38.11 The Drive button cycles every volume, not two floppies
 
-`fdlg_nextvol` walks `dsk_vtab` from `[disk_drive]` upward, wrapping, and
-stops at the first row whose `DV_KIND` is not `DVK_FREE`. It was `xor dl, 1`
-— *"the other drive"* — which was the whole truth while A: and B: were the
-whole machine and has been wrong since §52 made `[disk_drive]` a **volume
-index** with one row per partition.
+`fdlg_nextvol` walks `dsk_vtab` from the chooser's **own** `FS_DRV` upward,
+wrapping, and stops at the first row whose `DV_KIND` is not `DVK_FREE`;
+`fm_mount` then lists that volume's root into the chooser. It was once
+`xor dl, 1` — *"the other drive"* — and **no application could Open or Save
+on a hard disk at all**: the button cycled C: right past, between 0 and 1.
 
-The consequence was larger than the button: the dialog has **no other way to
-change volume** — the list shows one directory and the Drive button is the
-only control that leaves it — so **no application could Open or Save on a
-hard disk at all.** Every `fdlg` in the system cycled C: right past, between
-0 and 1, on a machine with four partitions mounted and four icons on the
-desktop saying so.
-
-It reads `dsk_vtab` **directly**, with no `cw_` shim, and that is worth
-stating because `fdlg.inc` is cold (§2.6): cold code keeps `DS =
-KERNEL_SEG`, so kernel *data* is already in reach and only *calls* have to
-cross. The fix therefore costs `.text` nothing at all — which is the whole
-of why it is a data read rather than a call to `dsk_vol_row`.
+The Disk window's own `A`/`B` keys reach only the two floppies, which is why
+the button is the chooser's: an app's file may be on any volume, and the
+chooser is the only window an application gets.
 
 The loop is bounded at `DVOL_MAX` candidates, so the last one it tries is
-where it started: a machine with one live volume answers that volume instead
-of running off the end. A: and B: are permanent `DVK_BIOS` rows and can
-never be freed (`dsk_vol_del` refuses a row that is not `DVK_DRV`), so that
-fallback is unreachable in practice and is kept because it is cheaper than
-depending on the fact.
+where it started: a machine with one live volume answers that volume.
 
 ### 38.12 The dialog's text is one opaque run, decided in one place
 
-Every string the Standard File dialog draws goes through `fdlg_text` — the
-header, both column headings, every list row's name and its size or `folder`,
-the name box's contents, both button labels. It was one `font_str`, so it was
-§6.6's pair everywhere at once: the pane is white-filled and then lettered.
+**Retired with the dialog's own painter.** Every string the chooser draws is
+the Disk window's — its header, rows and status line are already one
+`font_run` each (§22.11.3) — and its button labels are `os88ui`'s. The old
+`fdlg_text` and its constant paper have no caller left.
 
-It is one `font_run`, and **the ink is read back from `[gfx_color]` rather than
-passed in**, which is why the seven call sites did not change — the same shape
-`cp_run` takes for the Control Panel (§31.11). A kernel routine can do that; a
-package cannot (§68.14).
+### 38.13 The glue's size pass
 
-**The paper is a constant, and the SELECTION is what makes that safe.** A
-selected row is not white-on-black: §38.3's `fdlg_sel_bar` XORs the band *after*
-the rows are lettered, so every string this dialog draws is black on the pane's
-white when it is drawn. The same holds for `os88ui_apaint`'s alert message,
-which is centred on a content the window manager has just filled.
+The merge into a Disk window saved the BROWSER; this pass took the GLUE that
+was left. Measured at one commit against the tree before it (`kernsize
+--json`, `.text` + `.bss` + `.cold`, both trees' generated includes the
+same):
 
-The row band is 16 px and the glyph 8, so the pane fill stays — §22.11.3.
+| | before | after | |
+|---|---|---|---|
+| `kern_big` resident | 88,134 | 87,797 | **−337** (`.cold` −322, `.text` −11, `.bss` −4) |
+| `kern_small` resident | 60,450 | 60,416 | **−34** (`.cold` −19, `.text` −11, `.bss` −4) |
+| `FDLG.DRV` image | 1,522 | 1,240 | **−282** (still a 2KB claim) |
+
+`fdlg.inc`'s own symbols on `kern_big` went 1,419 → 1,130; the rest is the
+glue's sites in `files.inc`, `ui.inc` and `kernel.asm`. **No behaviour a
+package can see moved**: the slot, the callback and its registers are as
+§38.6 states them. What the bytes were:
+
+- **Guards nothing can fail.** `fdlg_open` fences the requester as a live
+  record of `inst_tab`, so `[fdlg_rqrec]` is never 0 afterwards and
+  `fdlg_hidx` cannot miss - which deleted §38.10's third row, every caller's
+  `jc`, `fdlg_commit`'s `or di, di` and `fdlg_close`'s `[fdlg_win]` test
+  (both its callers have already asked). And the resident `fdlg_reap` thunk
+  in `kernel.asm` asked `ui.inc`'s question a second time, so `ui.inc`
+  far-calls the body itself (§38.1.1's rule is the CALLER's side, and that is
+  the caller).
+- **The gate is a test** (§38.2). It cancelled a dead chooser itself, which
+  made it take a lock-state argument and the lock; `fdlg_reap` already takes
+  the lock and runs every pass, so the cancel moved there and the gate went
+  45 → 18 bytes. `fdlg_grab` asks `wm_hit` instead of comparing four edges.
+- **One door per question.** `FDH_RECT` answers the column's label with its
+  rect, and its CF is the column's existence (§38.9), so `FDH_LABEL` went and
+  so did `kern_big`'s `FDH_PAINT`: `fm_draw_core`'s header loop draws ids 1
+  to 5 for every Disk window and `fm_brect` says "no such button" for all but
+  the chooser. `fm_bhit` lost its chooser test the same way.
+- **The redirected-volume size copy** (§38.6.1). `dskw_stat` answers DX:CX
+  on both arms, so `fdlg_size`/`fdlg_sizeh` and their three writers went -
+  and a name typed after a pick stopped reporting the pick's size.
+- **Shared shapes.** One bounded name copy (`fdlg_cpy`) for the five that
+  were spelled out, the box's length taken from `fm_ncpy`'s CX rather than a
+  loop of its own, `kern_big`'s prologues through `kentc_di`/`kretc_di` (the
+  image keeps its own pushes and `fdk_di`), `fdlg_nextvol` walking
+  `dsk_vtab` by index rather than through a far entry per row, and
+  `FDH_*` codes that are their own table offsets.
+
+**Two tool facts it cost.** `tools/os88ovlchk.py` keeps every literal call
+target a macro body names, from every `%ifdef` arm, so `FDENT kentc_di` is
+spelled through `call %1` as `FDX` is; and `tools/stkbalance.py` read
+`%define fdk_di kretc_di` as taking both addresses and walked the two
+ladders from depth 0 - it now reads a `%define` as the alias it is, and
+`tests/unit/t_stkbalance.py` carries the shape (§38.0's note on `fdk_*`).
+
+**And one defect the soak caught, worth knowing before the next pass.**
+Relaxing `fdlg_home_dir` to spend BX and SI was right for `fdlg_home_save`
+and wrong for `fdlg_close`, which calls it BETWEEN loading the chooser's
+window and block into those two and using them - so a chooser the user had
+MOVED in was never closed, and lingered as a window holding its pool block
+and cache claim. Every `fdlg*` row passed it, because none of them navigates
+before answering; `regrowshed`, `rdpreserve` and `wimgtrip` do, and all three
+went red. `fdlg_close` banks the pair around the call.
 
 ## 39. viddet.inc — video adapters, runtime geometry, the mono renderer
 
@@ -64203,8 +64143,9 @@ calls it, so the boot path is untouched.
 
 **`desk_rowcalc` moved out of `desk_init` for this.** `desk_init` is boot
 overlay code (§2.5) and is dead FAT by the time the Control Panel can change
-the adapter under it, so the arithmetic is resident and the overlay
-far-calls it through `ovw_desk_rowcalc` like any other overlay→text step.
+the adapter under it, so the arithmetic is resident - `desk_rowcalc_x`, in
+`.cold` and ending in a `retf` - and the overlay far-calls that body by name
+(the `ovw_desk_rowcalc` shim it bounced through went in kernel size pass 9).
 
 #### 39.11.2.1 …and back again — the natural bank
 
@@ -83481,7 +83422,7 @@ one of them rather than a reader:
 3. **`drv_svc` is `.text` with real zero bytes, not `.bss`.** `snd.inc` reads
    `[drv_svc+DSV_TONE]` directly to ask whether a driver offered it a tone
    proc, and nothing zeroes `.bss` on this assembler (§8) — the live build
-   gets its zeros from `drv_svc_clear_all`, which is inside the gate.
+   gets its zeros from `drv_init_x`, which is inside the gate.
 
 The Control Panel's Drivers page is **stubbed rather than gated**, and the
 row is taken out of `cp_items` so nothing can select it. `CTRL.DRV` is an
@@ -88719,100 +88660,77 @@ deletes is bigger than the predicate.
 
 ### 38.0 ON `kern_small` THIS IS AN ON-DEMAND MODULE (§2.8)
 
-`kern_big` keeps every body in §38 resident in `.cold`, unchanged to the
-byte, and pays **29 bytes** for the whole arrangement — `.bss` +12 and
-`.cold` +17, both explained below, and not one byte of `.text`. `kern_small`
-emits the same bodies into `.modd`, which `tools/os88mod.py` cuts out as
-**`FDLG.DRV`** (3,243 bytes, 7 entries, 7 sectors); `fdlg_open` reads it into
-a heap claim and `fdlg_reap` gives it back. `KERN_SIZE` 90,624 → 88,064, and
-the cold rung UNCROSSES: 2,560 bytes back on every machine that boots this
-kernel.
+`kern_big` keeps the glue resident in `.cold`; `kern_small` emits the same
+bodies into `.modd`, which `tools/os88mod.py` cuts out as **`FDLG.DRV`**, and
+`fdlg_open` reads it into a heap claim that `fdlg_reap` gives back. Since
+§38.1 made the chooser a Disk window the image is the **glue** and nothing
+else - the listing, rows, scroll bar, editor and header it once carried are
+`files.inc`'s, resident on both builds - so it shrank from **3,214 bytes in a
+4KB claim to 1,522 in a 2KB one**, and §38.13's pass took it to **1,240**
+(`os88mod.py` prints the figure on every `make small`), while the resident
+side of this build moved **+3 bytes** (the hooks, the release gesture and
+the requester fix, §38) and then **−34**.
 
-It is §22.3.0's shape a second time and obeys §22.3.0.1's three rules, with
-`filecp.inc` as the worked example. What is new here is in the four
-paragraphs below; everything else is that section.
+It is §22.3.0's shape and obeys §22.3.0.1's three rules, with `filecp.inc`
+as the worked example. What is particular to it:
 
-**SEVEN entries, not nine.** `fdlg_open`, `fdlg_paint`, `fdlg_onkey`,
-`fdlg_onclick`, `fdlg_reap`, `fdlg_grab`, `fdlg_top`. `fdlg_onup` and
-`fdlg_ondrag` are §13.10.5's scrollbar thumb drag, already `kern_big`'s
-alone, so this build has no bodies to publish. `MOD_NENT` goes 6 → 7 **for
-both kernels**, which is where `kern_big`'s 12 `.bss` bytes come from
-(`mod_fp` is `MOD_MAX * MOD_NENT * 4`). It is not per-build because
-`tools/os88mod.py` scrapes the first `^MOD_NENT equ <int>` out of `mod.inc`
-and cannot evaluate an `%ifdef`: given two, it read 7 on both arms and
-refused `CTRL.DRV`'s first entry as out of range. One value for both builds
-is the honest reading of a constant that a host tool and the kernel must
-agree on.
+**FIVE entries**: `fdlg_open`, `fdlg_hook`, `fdlg_reap`, `fdlg_grab`,
+`fdlg_top`. The old dialog's `fdlg_paint`, `fdlg_onkey` and `fdlg_onclick`
+are gone with its window: the chooser's callbacks are the Disk window's, and
+everything it does differently arrives through `fdlg_hook` (§38.9). Open and
+the hook return near and are wrapped in `call/retf`; reap, grab and top end
+in their own `retf`.
 
-**The entries return BOTH ways, and the header is what reconciles it.** An
-entry is reached by `call far`, so it has to end in `retf`. Five of these
-bodies already do — `fdlg_onkey` and `fdlg_onclick` leave through
-`kretfc_dx`, and reap, grab and top through their own `retf` — so the header
-points those five at **themselves**. `fdlg_open` and `fdlg_paint` return
-near, so the header points them at a two-instruction `call/retf` wrapper.
-This is the first module in the tree with a mixed exit convention, and
-wrapping the two is cheaper than changing five contracts the resident kernel
-also calls.
+**`fdlg_open` is the only entry that loads, and `[fdlg_win]` is why the
+others need not.** That word is `.text`, resident, and non-zero exactly while
+a chooser is up - which only `fdlg_open` makes true - so the image is in RAM
+whenever any other entry has work. `fdlg_hook` asks `[fdlg_blk]` instead,
+which is set and cleared with it: the acting Disk window's block against the
+chooser's, compared on the resident side (§38.1.1), so a Disk window that is
+not the chooser never far-calls an image that may not be there.
 
-**`fdlg_open` is the only entry that loads, and `[fdlg_win]` is why the other
-six need not.** That word is `.text`, resident on both builds (§38.5's
-banner), and it is non-zero exactly while a dialog is up — which only
-`fdlg_open` makes true. So the image is in RAM whenever any of the other six
-has work, and each resident stub answers a zero `[fdlg_win]` with the same
-answer its body's own `.none` path would have given. That matters for cost
-rather than for correctness: `fdlg_reap` runs once per UI pass and
-`fdlg_grab` on every mouse press, and a `mod_need` on either would put a
-table walk on the machine's hottest loop. **The drop is `fdlg_reap`**, at the
-moment the dialog stops existing — but the GUARD in front of it may not be
-`[fdlg_win]`, and §38.0.1 is why.
-
-**Thirteen of `kern_big`'s seventeen `.cold` bytes are the shared register
-epilogues, and they are a copy rather than an alias on the gates' account.**
-§22.3.0.1's rule 3 is why the image needs its own `fdk_*` ladder; what is new
-here is that writing `fdk_bp equ kretc_bp` on the `kern_big` arm — which
-would have cost that build nothing — makes `kernel.asm`'s own `kretc_*`
-look **addressed** to `tools/stkbalance.py`, which reads source and evaluates
-no `%ifdef`. It then walks all five as routines entered at depth 0 and
-reports each at its own negative depth, ten findings for a change that
-altered no instruction. So the ladder is an unconditional copy below the
-section toggle, exactly as `filecp.inc`'s is, and the duplication is the
-price of a gate that can still read the file.
-
-**`fdlg_hasdot` is resident, and it is the one body here that could not
-become a far call at all.** `files.inc`'s `fm_dotin` is a **continuation**,
-not a routine: `fm_hasdot` falls into it having banked SI, and `fm_dotin`'s
-own `pop si` takes that bank, so its near `ret` goes to *that entry's*
-caller. A `jmp` is the only legal way in. Rewriting the tail jump as
-`call fm_dotin / ret` — which is what rule 3 asks for at every *other* site —
-makes the `pop si` eat the return address, on `kern_big` as much as on
-`kern_small`. `stkbalance` caught it as `fdlg_hasdot: ret at depth +1`. So
-`fdlg_hasdot` moves to the resident side whole, keeps the `jmp` it has always
-had, and the image reaches it through an ordinary far entry whose body ends
-in a near `ret`. **Rule 3 assumes the target of a tail jump is callable, and
-a continuation is not** — that is the one place the discipline in §22.3.0.1
-needs a reader's judgement rather than a mechanical rewrite.
-
-**What stays resident, and why it is not a judgement call.** `os88ui.inc` and
-`ui_krect4` are near-called by `apps.inc`, so they cannot be inside an image
-that is far-called and often absent; the `%include` was in the middle of what
-is now `.modd` and `tools/os88ovlchk.py` is the only thing that noticed.
-`files.inc`'s `pth_*` path stack is `kern_big`'s alone, so the four far
-entries naming it are gated with the call sites rather than left to reference
-symbols this build does not have. And the far-entry prefix here is **`xd_`**
-where `filecp.inc`'s is `xf_`: both blocks sit in `.cold`, which is one
-segment, and both wrap `dsk_ncopy` — one prefix would be one label defined
-twice.
+**What stays resident**: `fdlg_hook`, the four entry thunks, `fdlg_onup`
+(the chooser's `W_ONMOUSEUP`, §38.3), the `xd_` far entries the image calls
+out through, `fdlg_win`/`fdlg_blk` and the strings. `os88ui.inc` and
+`ui_krect4` stay resident for the reason they always did: `apps.inc`,
+`ctrl.inc` and `files.inc` call them too.
 
 **Refusal.** `fdlg_open` answers CF=1, which is already its published answer
-for "one is already up, or the window table is full", and every caller
-treats it as *the command does nothing*. So on `kern_small` a Save As with
-the system disk out of the drive opens no dialog, where on `kern_big` it
-always opens one. That is a real behaviour difference and it is stated here
-rather than left to be discovered: it is the same trade §22.3.0 took for
-Paste, and the same one `mod_need` imposes on every feature that becomes a
-module.
+for "one is already up", and every caller treats it as *the command does
+nothing*. So on `kern_small` a Save As with the system disk out of the drive
+opens no chooser, where on `kern_big` it always opens one. That is the same
+trade §22.3.0 took for Paste, and the one `mod_need` imposes on every feature
+that becomes a module. **On `kern_big` the glue is NOT a module, on purpose**:
+`mod.inc`'s own test (docs/plans/completed/ONDEMAND-PLAN.md §1) is that a
+module may require the system disk only where the feature already does, and
+a Save As onto a data floppy in a one-drive machine would become a disk swap.
+
+**Two shapes the split's history taught, both still binding.** The register
+epilogue is the IMAGE's own `fdk_di`, because a module may not `jmp
+kretc_di`; `kern_big` reaches `kretc_di` itself through `%define fdk_di
+kretc_di` (§38.13). It was once an unconditional copy on both builds,
+because `tools/stkbalance.py` read an `equ` alias as making the kernel's own
+labels look addressed - which is still true of an `equ`, and is why the
+alias is a `%define`, which that tool now reads as one. A ladder label
+nothing jumps to is walked as an ENTRY by the same tool, so the image keeps
+only `fdk_di`. And a CONTINUATION is not callable: the old
+`fdlg_hasdot` had to stay resident because `fm_dotin` popped the SI its entry
+banked - that pair is gone (the name box is `fm_editkey`'s now, §38.5), and
+`fm_dotin` folded back into `fm_hasdot` with it.
+
 
 #### 38.0.1 The drop is guarded on the IMAGE, not on the window
+
+**What follows is the defect as it was found, against the old dialog, and
+the guard it left is still the guard.** Since §38.6 posts the answer, every
+route ends inside `fdlg_reap` itself - the close and minimize boxes too,
+since §38.13 made the gate a test - rather than inside the image's own click
+handler, so the
+pass on which `[fdlg_win]` falls to 0 is the very pass that then reaches the
+drop - the gap the table below describes cannot open in that order any more.
+The guard stays on `mod_r_fdlg` regardless, because the question `fdlg_reap`
+asks is still "is the image held" and a guard that is right only because of
+a call order is the one the next change breaks.
 
 `[fdlg_win]` answers "is a dialog up". The question `fdlg_reap` has to ask is
 **"is the image held"**, and for one pass in the life of every dialog those
@@ -91686,8 +91604,11 @@ there after the panel's own window has been destroyed.
 is a thing the user asked for and then waited seconds of floppy for, so
 silence is the wrong report. It fires only when `[cp_wdirty]` was set, which
 is what `cp_flush_close_x` already gates on — closing a panel nobody changed
-says nothing. The table is indexed by `[cp_dsave] + 1` so that slot 0 keeps
-`toast_say`'s "nothing to say".
+says nothing. **Two of the three lines are `CTRL.DRV`'s own** (kernel size
+pass 9): `cp_flush_x` is the only thing that ever says any of them, so 0 and 2
+are read through CS out of the image beside it - a toast COPIES its line, so
+the module drop that follows costs nothing - and only slot 1 is resident,
+because the mount stamps its drive letter (§52.10.3).
 
 **Outcome, cause — and one string per cause.** A message that says only that
 something failed sends the reader looking, and the two causes here want
@@ -97782,12 +97703,15 @@ the cheaper mechanism.
 #### 66.0.2 What is compiled out, and what stays
 
 Out: `mem_can_move` and the five predicates only it asks (`mem_is_region`,
-`mem_frameless`, `mem_busy_seg`, `mem_in_nest`, `mem_in_xfer`), the seventeen
-`mem_cp_*` routines, `mem_reloc_call`, `mem_rr_walk` / `mem_region_reloc` /
+`mem_frameless` - a predicate written inline in `mem_can_move` at the local
+label `.frameless` since kernel size pass 9, its one caller - `mem_busy_seg`,
+`mem_in_nest`, `mem_in_xfer`), the `mem_cp_*` routines (seventeen when this
+was written; size pass 9 inlined six single-call ones into the walk), `mem_reloc_call`, `mem_rr_walk` / `mem_region_reloc` /
 `mem_rr_tab`, `mem_compact`, `OSAPI_MEM_MOVABLE`'s body, the four kernel
 relocation procs (`menu_reloc`, `clip_reloc`, and `fm_reloc` / `fmv_movable`
 which §50.6.5 had already taken), the **worker park** (§66.5) entire —
-thirteen routines in `instance.inc`, `gfx_lock`'s two hooks and
+thirteen routines in `instance.inc` (fewer since size pass 9 folded
+single-caller ones into their callers), `gfx_lock`'s two hooks and
 `sch_wk_restart` — and `[mem_pinseg]`, whose only reader was `mem_in_xfer`, so
 its writes in `disk.inc`, `clip.inc` and `hiber.inc` go with it.
 
@@ -98067,7 +97991,8 @@ into the hole above it. The ceiling packs against the ceiling exactly as the
 floor packs against the floor.
 
 **`MC_DMA` bit 15 — a claim goes back through the door it came in by.** It is
-stamped at `mem_claim_1`'s publish site from `[mem_dir]`, alongside the
+stamped at `mem_claim_1`'s publish site from the door's direction (BP there;
+it was the `[mem_dir]` word until size pass 9), alongside the
 page-safe head that shares the word. `mem_cp_mine` is the filter: a claim whose
 door disagrees with the pass in flight is a **barrier** in that pass, exactly
 as a pinned one is, so the two passes never contend for a block and neither can
@@ -98093,15 +98018,18 @@ walk that diverged would report room that never arrives: keeping two bodies in
 step is a thing somebody has to remember, and one body with the moves behind a
 flag is a thing nobody can get wrong. The two DIRECTIONS disagree about
 **eight** decisions and about nothing else, and each is a routine that walk
-calls:
+calls - or, for three of them, a masked three-instruction sequence written once
+at its only call site (kernel size pass 9 inlined `mem_cp_near` into
+`mem_cp_gap` and `mem_cp_far`/`mem_cp_adv` into the walk; there is still one
+copy of each, which is the property this paragraph is about):
 
 | routine | what it answers |
 |---|---|
 | `mem_cp_fill0` | where the fill point and its search key start |
 | `mem_cp_step` | which way the key steps past a claim's original base |
-| `mem_cp_near` | which edge must meet the fill point for a claim to be already packed — its base going up, its end coming down |
-| `mem_cp_far` | where the fill point resumes past a barrier |
-| `mem_cp_adv` | which way the fill point advances past a claim just packed |
+| `mem_cp_near` (in `mem_cp_gap`) | which edge must meet the fill point for a claim to be already packed — its base going up, its end coming down |
+| `mem_cp_far` (in the walk's `.nogap`) | where the fill point resumes past a barrier |
+| `mem_cp_adv` (in the walk's `.stay`) | which way the fill point advances past a claim just packed |
 | `mem_cp_dest` | where a block's bytes are going: the fill point going up, a block-length below it coming down |
 | `mem_cp_gap` | the hole beside a barrier |
 | `mem_cp_tail` | the run past everything, which is the one the pass is usually enlarging |
@@ -98672,7 +98600,9 @@ by construction holds no pointer derived from any claim of its own: it is at
 the top of its own loop. `inst_park_req` raises the request and waits up to
 `INST_PARKW` (**4** ticks); `inst_park_wait` marks the worker parked and spins
 on `task_yield`; `inst_seg_parked` is what `mem_can_move` asks; and
-`inst_park_end` withdraws it. The parked bytes are a **side table**
+`inst_park_end` withdraws it. (Since kernel size pass 9 the last is one store
+of 0 to `[inst_parkreq]` written in `mem_compact`'s exit, and `inst_park_wait`
+is the parking arm inside `inst_pkg_alive`, each having had one caller.) The parked bytes are a **side table**
 (`inst_parked`), because `I_RECSZ` is 32 and full (§20.8 rule 2) —
 `inst_icons` and `wm_owner` are the precedents.
 

@@ -1235,6 +1235,124 @@ class UI:
         return w
 
     # =========================================================================
+    # the Standard File chooser (SPEC.md 38)
+    # =========================================================================
+    # The chooser IS a Disk window (SPEC.md 38.1), so its rows are `open`'s and
+    # `listing`'s with `win=` - what is its own is [fdlg_win], the button
+    # column to the right of the content (38.3) and the Save form's name box,
+    # which is the status-line editor in mode 8 (38.5). Every verb below
+    # confirms through [fdlg_win]: up means a non-zero that is not the 0FFFFh
+    # launch mark, down means 0 - and the ANSWER IS POSTED (38.6), so "down"
+    # is reached one UI pass after the click or key that answered.
+    CH_OPEN, CH_CANCEL, CH_DRIVE = 0, 1, 2
+
+    def chooser(self, limit=T_WINDOW):
+        """Wait for a chooser to be up and return its window."""
+        # [fdlg_win] is published by fm_kinit, BEFORE app_launch lists the
+        # folder and shows the window - a gap the guest's own UI task cannot
+        # see (the launch is synchronous on it) and a harness polling memory
+        # can. So up means the word AND that window visible.
+        box = {}
+
+        def up():
+            ptr = self._word("fdlg_win")
+            if ptr in (0, 0xFFFF):
+                return False
+            i = (ptr - self._S("wm_wins") + (geom.KERNEL_SEG << 4)) \
+                // geom.WIN_SIZE
+            for o in self.windows():
+                if o.i == i and o.visible:
+                    box["w"] = o
+                    return True
+            return False
+        self._wait(up, "the Standard File chooser", limit,
+                   snapshot=self.titles)
+        # ...and VISIBLE IS NOT PAINTED: wm_show sets the flag and then
+        # paints, and the paint's own fm_layout is what arms the Save form's
+        # box and draws the button column (SPEC.md 38.3, 38.5)
+        self.settle()
+        return box["w"]
+
+    def chooser_gone(self, limit=T_NAV):
+        """Wait for the chooser to come down (a commit or a cancel)."""
+        self._wait(lambda: self._word("fdlg_win") == 0,
+                   "the Standard File chooser to close", limit,
+                   snapshot=self.titles)
+
+    def chooser_button_xy(self, k, win=None):
+        """The centre of column button k: CH_OPEN (Open/Save), CH_CANCEL,
+        CH_DRIVE (SPEC.md 38.3) - fm_rgt + 5, 20px apart, off the window."""
+        w = win if win is not None else self.chooser()
+        cx = w.x + 1
+        cy = w.y + geom.TITLE_H + 1
+        rgt = cx + (w.w - 2 - geom.FM_CHCOLW) - 1
+        return (rgt + 5 + geom.FM_BTN_W // 2,
+                cy + 2 + 20 * k + geom.FM_BTN_H // 2)
+
+    def chooser_button(self, k, win=None):
+        """Click column button k. Nothing is confirmed: Open with a folder
+        selected navigates, Drive re-lists, the rest answer - say which."""
+        x, y = self.chooser_button_xy(k, win)
+        self.mo.click(x, y, settle=0)
+
+    def chooser_select(self, name, win=None, limit=T_NAV):
+        """SELECT `name` in the chooser without answering - one click on its
+        row, scrolled into view first - and confirm the chooser's own FS_SEL
+        says so. What a caller that wants Enter (or a button) to answer uses:
+        the arrows SCROLL a chooser as they do every Disk window (SPEC.md
+        38.4), so they cannot be walked to a row."""
+        w = win if win is not None else self.chooser()
+        idx, _ty = self.entry(name, w)
+        row = self.scroll_to(idx, win=w)
+        x, y = self.row_xy(w, row)
+        self.mo.click(x, y, settle=0)
+        at = (geom.KERNEL_SEG << 4) + self._word("fdlg_blk") + geom.FS_SEL
+        self._wait(lambda: _u16(self.m.read(at, 2)) == idx,
+                   "the chooser to select %r (row %d)" % (name, idx), limit,
+                   snapshot=lambda: "FS_SEL = %d"
+                   % _u16(self.m.read(at, 2)))
+        return idx
+
+    def chooser_open(self, spec, limit=None):
+        """Answer an OPEN chooser with `spec` - 'NAME.EXT', or a path of
+        folders below where it opened ('SUB/NAME.EXT', '../X'), each step an
+        `open` - and wait for it to close."""
+        w = self.chooser()
+        parts = [p for p in spec.replace("\\", "/").split("/") if p]
+        for p in parts[:-1]:
+            self.open(p, expect="nav", win=w, limit=limit)
+        self.open(parts[-1], expect=None, win=w)
+        self.chooser_gone(limit if limit is not None else T_NAV)
+        self._say("chooser open %s" % spec)
+
+    def chooser_save(self, name, folders=(), limit=None):
+        """Answer a SAVE chooser: walk `folders`, clear the name box, type
+        `name` and press Enter - and wait for it to close."""
+        w = self.chooser()
+        for p in folders:
+            self.open(p, expect="nav", win=w, limit=limit)
+        for _ in range(13):             # FD_NAMEMAX + 1: the box is empty
+            self.m.key("Backspace")
+        self.m.type_text(name)
+        self.m.key("Enter")
+        self.chooser_gone(limit if limit is not None else T_NAV)
+        self._say("chooser save %s" % name)
+
+    def chooser_cancel(self, how="escape", limit=None):
+        """Cancel the chooser by 'escape', 'button' or 'close' (the box)."""
+        w = self.chooser()
+        if how == "escape":
+            self.m.key("Escape")
+        elif how == "button":
+            self.chooser_button(self.CH_CANCEL, w)
+        elif how == "close":
+            self.close(w)
+        else:
+            raise UIError("how=%r is not escape/button/close" % (how,))
+        self.chooser_gone(limit if limit is not None else T_NAV)
+        self._say("chooser cancel (%s)" % how)
+
+    # =========================================================================
     # the toast strip (SPEC.md 59)
     # =========================================================================
     def toast(self):
