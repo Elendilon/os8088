@@ -60,14 +60,17 @@ Eight findings carry the plan.
      *below* the heap. At a ROM segment such as F600, every blob segment
      compares below it, so the overlay and the splash would never be called.
    - The fix is `je` against the sentinel. It costs 0 bytes (§3.3).
-4. **Detecting the ROM at runtime is cheap in resident bytes.**
-   - It costs an estimated **30–50 resident bytes**, not kilobytes. The probe
-     and the patcher are transient: the probe sits in stage 2's slack and the
-     patch table travels in the ROM itself.
-   - What it really costs is engineering in three boot loaders, plus a ladder
-     reorder (§3.4).
-   - The ROM-required build is therefore not needed to save cost. Its case is
-     simplicity, and giving 35 clusters of the system disk back (§3.5).
+4. **Detecting the ROM at runtime costs about 16–23 resident bytes**, all of
+   it `.cold` (§3.4.1). That is paid only by machines WITHOUT the ROM: on a ROM
+   machine those bytes are themselves in ROM.
+   - The re-pointing costs no RAM: the patch lists and the patcher ride in the
+     ROM's tail, accepted only under a matching key.
+   - `.vgabuf` costs one patched word and one conditional in `mem_floor_ax`
+     (§3.4.2).
+   - Stage 2 spends about 50–70 transient bytes of its 146 spare.
+   - **So the detecting kernel is the plan, and the ROM-required build is not
+     needed** (§3.5): any disk boots with or without the ROM, and a
+     mismatched ROM is ignored with a sentence.
 5. **A ROM is welded to the kernel's LAYOUT, not to the commit count.**
    - `.cold` carries no build number. Two assemblies that differ only in
      `BUILD_NUM` have byte-identical `.cold` (only `.text` and the module
@@ -307,11 +310,38 @@ What the image builder emits for it:
   socket. This is the unit One ROM's tooling takes per chip.
 - **The 40KB whole:** for MartyPC's `"custom"` ROM row at 0xF4000.
 
-Two things to check on the boards themselves:
-- **Board revision.** The docs say one revision (`fire-24-a`) cannot build a
-  2364 multi-ROM set, because its select GPIOs are not contiguous.
-- **Access time.** One ROM's figure against the 5150's 250 ns ROM spec, at
-  4.77 MHz.
+**Access time is answered for one socket.** The owner's 5150 already runs
+GLaBIOS off a One ROM in U33:
+- That is every instruction fetch of POST, `int 13h` and `int 10h`, served at
+  the 5150's bus timing.
+- So a One ROM answering a single 2364 socket is fast enough on this machine,
+  measured where it matters.
+
+**A multi-ROM set is not answered yet.** Two things are still unknown:
+- **The board revision.** The docs say `fire-24-a` cannot build a 2364
+  multi-ROM set, because its select GPIOs are not contiguous.
+- **The flying-lead path.** It is unknown whether answering a chip select
+  that arrives on X1 or X2 is as fast as the native one. The docs raise no
+  timing caveat, but say nothing to rule one out either.
+
+**W1's first deliverable is the test for both, with no os8088 code in it:** a
+socket-check ROM.
+- It is a 40KB option-ROM image laid out exactly as section 1.3 lays out the
+  real one.
+- Each 8KB socket carries a known pattern and its own sum.
+- The init checks every socket and prints `U28 ok … U32 ok` on the POST
+  screen.
+- A board that drops a byte on a flying-lead socket names that socket.
+- Flash it, power on, and read the line.
+
+**This machine's BIOS is GLaBIOS, which is the friendlier of the two.**
+- Section 1.3's layout is checked against its source, and the container's
+  MartyPC twins run it too. The iron and the emulator therefore take the same
+  POST path, which is not true of the 10/27/82 arm.
+- If the board in U33 is one of the pair, its X1/X2 pins still serve two more
+  sockets. Two boards then cover U28–U33.
+- But then re-flashing os8088 re-flashes the board that holds the BIOS. A bad
+  flash is recovered over USB, so this is inconvenient rather than dangerous.
 
 ---
 
@@ -416,110 +446,189 @@ whatever else is decided: it is a latent assumption, and nothing documents it.
 
 ### 3.4 Option A — one disk kernel that DETECTS the ROM
 
-**Orientation: bake the RAM segment, and carry the patch in the ROM.**
-- `KERNEL.SYS` is assembled exactly as today. A machine with no ROM pays the
-  probe and nothing else.
-- The ROM image is `.cold` (segment-independent per §3.2) followed by a TAIL:
-  - the header and the image hash;
-  - the patcher, about 40 bytes;
-  - the fixup table for the `.text`, `.ovl`, `.ovlw` and `.boot2` it was cut
-    against (126 words on `kern_big`, 71 on `kern_small`).
-- The ROM brings the code that adapts the kernel to it. It can, because a
-  matching hash means it was cut against exactly this `.text`.
+**This is the option the owner wants**, on one condition: that it costs few
+resident bytes. What it buys is that **nobody has to know which disk they
+made**:
+- any system disk boots with the ROM, and uses it;
+- any system disk boots without it, as today;
+- a ROM from a different build is IGNORED with a sentence, never trusted.
 
-**The probe** goes in stage 2, `.boot2`:
-- It must run before the kernel is expanded, because what it decides is
-  whether `.cold`'s blocks are expanded at all.
-- `.boot2` is 2,478 bytes against `OVL_AT` = 2,624 on both kernels, so there
-  are **146 bytes of slack**.
-- It scans a short list of candidate segments: F600, F400, then D000–EF80 in
-  2KB steps. For each it checks the signature, compares the 8-byte hash
-  `KERNEL.SYS` was built with, and sets `[rom_cold]`.
-- Estimate: 40–60 bytes, transient.
-- Integrity is a 16-bit sum over the image, ~0.7M cycles = **~145 ms**
-  (ESTIMATE). That is against the ~2 s the ROM saves, so it is worth paying.
+What follows is costed against that condition, item by item. The two places
+it could have been expensive were the re-pointing and `.vgabuf`, and neither
+is.
 
-**The ladder has to move.**
-- `.cold` sits between the image and the FAT window, so on a ROM machine its
-  RAM would be a hole in the middle of the kernel.
-- The fix is to put it at the top:
+#### 3.4.1 The resident bill
 
-  ```
-  today:      [image][COLD][FAT][LOW][VGABUF] heap
-  Option A:   [image][FAT][LOW][COLD][VGABUF] heap
-  ```
+These are the bytes a machine WITHOUT the ROM pays for the ability. A machine
+WITH it pays them in ROM, and gets the whole `.cold` rung back.
 
-  - With no ROM, behaviour is byte-for-byte today's.
-  - `.vgabuf` stays topmost, so a mono machine still drops the heap floor
-    under it (SPEC.md 39.22).
-- With the ROM:
-  - `mem_floor_ax` seeds the floor at `COLD_RAM` instead.
-  - On a mono machine, that also covers the unused `.vgabuf` above it.
-  - On VGA, the planar decoder's buffers move down to `COLD_RAM` and the floor
-    sits one rung above them. `VGABUF_SEG` is named by ONE instruction
-    (`vga12.inc:2568`), so that is one more fixup.
-- Cost: about 9 bytes in `mem_floor_ax` and one byte of `.bss`.
+| item | where | bytes | how |
+|---|---|---:|---|
+| re-pointing `.text`, `.ovl`, `.ovlw` and `.boot2` at the ROM (126 sites on `kern_big`, 71 on `kern_small`) | stage 2 and the ROM | **0 resident** | the patch table and the patcher live in the ROM's tail (3.4.3) |
+| re-pointing a module loaded later (121 / 139 sites) | `mod_need`, `.cold` | **+15–20** | "the ROM is in, so apply this module's list" (3.4.4) |
+| the heap floor, including `.vgabuf` | `mem_floor_ax`, `.cold` | **+9–11** | one more conditional subtract (3.4.2) |
+| §3.3's sentinels | everywhere | **0** | `jbe` → `je` |
+| §3.2's eight self-calls | `.cold` | **−8** | `push cs / call near` |
+| "is the ROM in?" | — | **0** | `cmp word [api_coldseg], COLD_RAM`, a word that exists already |
+| hibernate, and the DOS box's live resume | `HIBER.DRV`, staged stub | **0 resident** | the image records the key; a resume against a different ROM, or none, refuses (3.4.5) |
+| "ROM build N ignored" | the boot overlay | **0 resident** | the splash says it once |
+| **total, per kernel** | | **~+16 to +23 bytes of `.cold`, 0 of `.text`, 0 of `.bss`** | ESTIMATE: no line of it is built |
 
-**The file layout follows the ladder:**
-- The file becomes `[blob][.text][bss gap][.ovlw at FAT][LOW gap][.cold]
-  [modules]`.
-- The gaps are zeros, which LZ4 packs to nothing. The `.bss` gap is already
-  shipped this way (`COLD_START`).
-- `.cold` becomes its own block run with its own destination. Today
-  `os88kz.py` lays block *i* at `head + i × BLK`, and the change is one base
-  switch.
-- A ROM machine then reads `KZ_SECS` minus `.cold`'s sectors, and expands
-  nothing for it.
+**The transient bill is in stage 2's `.boot2`:** about 50–70 bytes of its 146
+spare. That covers the probe, a far call into the ROM's patcher, and the rule
+that stops reading at `.cold` (3.4.3). It costs nothing once the kernel is up.
 
-**What the boot saves** (ESTIMATE, from 2.9.13's field figures of ~27.2 ms a
-sector and 39.9 cycles an output byte):
+#### 3.4.2 `.vgabuf`: one rung moves, and nothing else changes
 
-| kernel | sectors not read | time not spent |
-|---|---:|---:|
-| `kern_big` | ~69 | ~1.9 s + ~0.3 s of decode |
-| `kern_small` | ~45 | ~1.2 s + ~0.2 s |
+`.cold` sits between the image and the FAT window today. On a ROM machine
+that would leave its RAM as a hole in the middle of the kernel, so the ladder
+moves it to just under `.vgabuf`:
 
-**Three loaders have to learn it:**
-- stage 2 off a floppy;
-- `boot/boothd.asm` (the hard disk, 2.9.13.5);
-- the `NOKZIP=1` raw path, which can simply read the gaps since it is a
-  diagnostic knob.
+```
+today:      [image][COLD][FAT][LOW][VGABUF] heap
+Option A:   [image][FAT][LOW][COLD][VGABUF] heap
+```
 
-**Modules:**
-- They far-call `.cold` 121/139 times.
-- `os88mod.py` emits each module's site list into its file, about 2 bytes a
-  site.
-- `mod_need` adds `[cold_seg] − COLD_SEG` to each one when it is non-zero.
-  Estimate: 20 bytes of `.cold` plus 2 bytes of `.bss`.
+**A machine without the ROM sees no difference.**
+- It has the same rungs and the same total.
+- `.vgabuf` is still topmost, so a mono machine still drops the floor under it
+  (SPEC.md 39.22).
 
-**Hibernate:**
-- The image excludes ROM by construction, because it saves conventional RAM
-  (SPEC.md 87).
-- Its header gains the `.cold` hash, and a resume on a different ROM, or none,
-  refuses.
-- That code is in `HIBER.DRV`, which is not resident.
+The heap floor on every machine is then one expression:
 
-**The resident bill:**
+```
+floor = HEAP_SEG - (mono ? VGABUF_PARA : 0) - (ROM ? COLD_PARA : 0)
+```
 
-| item | bytes |
-|---|---:|
-| the floor conditional | ~9 |
-| the module delta | ~20 |
-| `[rom_cold]` / `[cold_seg]` | ~3 |
-| the sentinel fix | 0 |
-| the eight `push cs` calls | −8 |
-| **total, per kernel** | **~25–45 (ESTIMATE)** |
+| machine | floor |
+|---|---|
+| no ROM, VGA | `HEAP_SEG`, as today |
+| no ROM, mono | under `.vgabuf`, as today |
+| ROM, mono | `COLD_RAM`: the cold rung AND the idle `.vgabuf` above it, contiguous |
+| ROM, VGA | `COLD_RAM + VGABUF_PARA`: the planar decoder's buffers MOVE DOWN into the bottom of the dead cold rung |
 
-**This is the finding that answers "if the earlier option is too expensive":
-it is not.**
-- It is a few dozen resident bytes, paid by every machine whether it has a
-  ROM or not.
-- The real price is the loader work, and it is shared by the 360KB, 720KB,
-  1.44MB and 1.2MB geometries, by the hard-disk loader, and by §18.93.1's
-  boot canary. The canary's `KSIG_OFF` band rests on the file layout this
-  changes, so it has to be re-derived.
+The last row is the `.vgabuf` "trouble", and it is one patched word:
+- `VGABUF_SEG` reaches running code through ONE instruction, the
+  `mov ax, VGABUF_SEG` at `vga12.inc:2568`.
+- That is a one-entry list in the patch table, with its own delta of
+  `COLD_RAM - VGABUF_SEG`.
+- `mem_floor_ax` has two callers, both at boot: `mem_init` and `mem_unblob`.
+  Its one new test reads `[api_coldseg]`, which the patch has already set.
+- On `kern_small` `VGABUF_PARA` is 0, so the whole row folds away.
+
+#### 3.4.3 Re-pointing: what is baked, what is patched, and the key
+
+**What is baked:**
+- `KERNEL.SYS` is assembled exactly as today, against the RAM segment.
+- A machine with no ROM therefore runs the kernel `make` assembled, byte for
+  byte. Nothing is patched, and no patcher runs on it.
+
+**When the ROM is in, it brings everything needed to adapt the kernel to
+itself.** Its tail carries:
+- the KEY;
+- the patch lists: `.text` and `.ovlw` relative to their own segments, `.ovl`
+  and `.boot2` relative to the blob's, and the `.vgabuf` word;
+- one per-module list for each on-demand module;
+- a small patcher, about 35 bytes, that applies them.
+
+**The ROM can carry kernel-specific data because of the KEY:**
+- Stage 2 calls the patcher only when the ROM's key equals the key
+  `KERNEL.SYS` was built with, which is 8 bytes in `.boot2`.
+- The two are therefore from the same build, the lists are this kernel's
+  lists, and no version of the format has to be supported other than the one
+  the pair was cut with.
+
+**The key covers `.text` AND `.cold`, not `.cold` alone:**
+- It is a hash of both, with the build number's bytes and the fixup sites
+  masked out.
+- Byte-identical `.cold` does prove `.cold`'s ADDRESSES still agree with
+  `.text`. It does not prove the routines behind them kept their CONTRACTS. A
+  `.text` routine that started clobbering BX without moving would pass a
+  `.cold`-only key and corrupt a machine.
+- The report's section 5 history says what the conservative key costs: in
+  practice kernel work moves both anyway.
+- A mismatch is never a failure. It is a ROM that sits unused until it is
+  re-flashed.
+
+**The order in stage 2 (and in the blob's `KZ_HD`, which the hard-disk VBR
+already far-calls):**
+1. Read and expand everything up to `.cold`. `.cold` becomes the LAST block
+   run of `KERNEL.SYS`, with its own destination base: today `os88kz.py` lays
+   block *i* at `head + i × BLK`, and this adds one base switch.
+2. Probe. Look at F400:0 for `55AA` and the `'OS88'` signature, then compare
+   the key. An ISA board's segment is one more two-byte list entry; §3.2's
+   W0 makes `.cold` position-independent, so it may sit anywhere.
+3. **ROM present:** far-call the ROM's patcher with the delta, and do not read
+   or expand `.cold`. That saves about 69 sectors on a floppy `kern_big` boot
+   (§3.4.6).
+4. **Absent or different:** read and expand `.cold` into its rung, as today.
+
+The floppy loader reads `.cold` only in step 4. The hard-disk VBR keeps
+reading the whole file, because it is cheap there and the VBR is full. It only
+skips the expansion.
+
+**Integrity:**
+- The BIOS has already checksummed the 32KB option-ROM part at POST, on both
+  10/27/82 and GLaBIOS.
+- The probe sums the last 8KB itself: about 30 ms at 4.77 MHz (ESTIMATE),
+  since GLaBIOS does not check that module.
+
+#### 3.4.4 Modules
+
+An on-demand module far-calls `.cold`: 121 sites on `kern_big`, 139 on
+`kern_small`.
+- A module read off disk on a ROM machine still names the RAM segment, so it
+  is patched at load.
+- `mod_need` compares `[api_coldseg]` with `COLD_RAM`, and if they differ it
+  far-calls the ROM's patcher with that module's list.
+- That costs about 15–20 bytes of `.cold`. On a ROM machine they are ROM
+  bytes, so the only RAM cost is on a machine without one.
+- The alternative is to reach `.cold` through `api_far`'s trampoline from
+  modules. That moves the cost into module images, which are not resident,
+  but adds cycles to every call. It is not worth it for 20 bytes.
+
+#### 3.4.5 What the ROM changes for hibernate
+
+- A hibernate image is conventional RAM (SPEC.md 87), so it never contains
+  the ROM.
+- It does contain a `.text` that was patched to it, so the header records the
+  key in force.
+- A resume against a different ROM, or none, refuses.
+- That code is in `HIBER.DRV` and the staged resume stub, and none of it is
+  resident.
+
+#### 3.4.6 What the boot saves
+
+These are estimates, from SPEC.md 2.9.13's field figures (~27.2 ms a sector,
+39.9 cycles an output byte):
+
+| kernel | sectors not read | read time saved | decode saved |
+|---|---:|---:|---:|
+| `kern_big` | ~69 | ~1.9 s | ~0.3 s |
+| `kern_small` | ~45 | ~1.2 s | ~0.2 s |
+
+Against that, the probe's 30 ms sum. `BOOTPROF=1` on the 5150, with and
+without the ROM, is the measurement.
+
+#### 3.4.7 What it touches that could bite
+
+- **The ladder reorder moves `FAT_SEG`, `LOW_SEG` and `OVLW_START` for
+  everyone.** Rule 5 of the build already re-derives them. Two things on top
+  of that:
+  - `tools/os88geom.py` and anything else that mirrors the layout has to
+    follow.
+  - §18.93.1's boot canary (`KSIG_OFF`) rests on where the `.text` sectors
+    fall. `.text` does not move in the file, but the band must be re-proved
+    with `tests/unit/t_canary.py`, because a canary nobody re-proved is how
+    the 1.2MB geometry once made it inert.
+- **The `NOKZIP=1` raw loader** reads contiguously. It is a diagnostic knob, so
+  it can keep reading `.cold` into its rung and never skip.
 
 ### 3.5 Option B — `CROM=1`, a ROM-required kernel
+
+**NOT THE PLAN since §3.4.1 costed Option A at ~20 resident bytes.** The
+owner's condition for detection was that it be cheap, and it is. This section
+stays as the fallback, and as the record of what was weighed.
 
 - `COLD_SEG equ ROMSEG` (a constant chosen at build), and `COLD_PARA` leaves
   the ladder.
@@ -807,11 +916,11 @@ The order follows from them.
 | wave | what | bytes | why here |
 |---|---|---|---|
 | **W0** | Section 3.3's nine `jbe` → `je`. Section 3.2's eight `push cs` calls and the two stores, so `.cold` names no segment of its own. `os88romfix.py`'s "inside `.cold` = 0" as a fast row | −8 resident | Correct on today's machines, removes a latent ordering assumption, and every later wave stands on it |
-| **W1** | `make rom`: section 1.3's option-ROM image (header, 32KB length byte, init, stub, two balance bytes, the GLaBIOS `55AA` check). It emits `U28.BIN`–`U32.BIN` and the 40KB whole. Plus a MartyPC `"custom"` ROM row at 0xF4000 | 0 resident | The harness every later wave is tested on. First milestone: the init's POST line, and the stub catching a boot with no disk, on GLaBIOS in the container and on the 5150 |
-| **W2** | **`CROM=1` on `kern_small`** | resident −24,576 | The biggest relative gain (+38% heap at 128KB) and the smallest change (no reorder, no fixups). The floor machine already has its gate (`tests/small128.py`) |
-| **W3** | **`CROM=1` on `kern_big`**, with section 3.6's guard and `kernsize`'s `rom` line | resident −38,400 | It fits today. The guard is what keeps it true |
-| W4 | `kern_small`'s three modules in place, plus the Task Manager image (section 3.7): module stamp by `.cold` hash, `FILECP`'s stack to `.bss`, `mod_need`'s ROM arm | +36 `.bss`, +30–60 `.cold` (itself in ROM) | Save As with the system disk out, on a one-drive machine |
-| W5 | Option A, the kernel that DETECTS the ROM (section 3.4) | ~25–45 resident | Worth it only if one disk set has to serve machines with and without the ROM. With a ROM set cut per release, `CROM=1`'s matched pair may be enough, and that is the owner's call once W2 and W3 are on the iron |
+| **W1** | First section 1.7's socket-check ROM, which proves the two boards before any kernel code is involved. Then `make rom`: section 1.3's option-ROM image (header, 32KB length byte, init, stub, two balance bytes, the GLaBIOS `55AA` check). It emits `U28.BIN`–`U32.BIN` and the 40KB whole. Plus a MartyPC `"custom"` ROM row at 0xF4000 | 0 resident | The harness every later wave is tested on. First milestone: the init's POST line, and the stub catching a boot with no disk, on GLaBIOS in the container and on the 5150 |
+| **W2** | **Option A on `kern_small`** (section 3.4): the ladder reorder, `.cold` as the last block run, the probe and the far call in `.boot2`, the patcher and lists in the ROM tail, `mem_floor_ax`'s ROM arm, the `mod_need` hook, and the key in the hibernate header | **+16–23 `.cold`** without the ROM; **−24,576** with it | The biggest relative gain (+38% heap at 128KB) on the kernel with the most room in the window. The floor machine already has its gate (`tests/small128.py`), and every row in the suite is a with-and-without A/B for free |
+| **W3** | **Option A on `kern_big`**, plus section 3.6's guard and `kernsize`'s `rom` line | **+16–23** without; **−38,400** with | The same code with a tighter window. The guard is what keeps it fitting |
+| W4 | `kern_small`'s three modules in place, plus the Task Manager image (section 3.7): module stamp by the key, `FILECP`'s stack to `.bss`, `mod_need`'s ROM arm | +36 `.bss`, +30–60 `.cold` (itself in ROM) | Save As with the system disk out, on a one-drive machine |
+| W5 | `CROM=1` (section 3.5), only if Option A meets something on the iron that a matched pair would not | — | Kept as the fallback, not the plan |
 | W6 | `kern_big`'s form 2, if a second ROM window ever appears | ~50–100 `.cold` | |
 
 ## 6. Open, unverified, and what would settle each
