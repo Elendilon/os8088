@@ -26,8 +26,8 @@ section figure below in about nine seconds on any built tree.
 | `.cold` (kernel code with its own CS, SPEC.md 2.6) | **37,998** bytes, rung 38,400 | **24,383**, rung 24,576 |
 | `KERN_SIZE` today → with `.cold` in ROM | 99,328 → **60,928** | 65,536 → **40,960** |
 | heap on a 128KB machine (arithmetic) | — (boots on 196KB today) | 62.5 KB → **86.5 KB** (+38%) |
-| fits the four BASIC sockets (32,752 usable, §1.3) | **no**, 5,246 over | **yes**, 8,369 spare |
-| fits all five spare sockets (40,960) | yes, with a layout catch (§3.6) | yes |
+| fits the four BASIC sockets alone (32,768) | **no**, 5,230 over | **yes**, 8,385 spare |
+| fits U28–U32 as one option ROM (~40,780 for `.cold`, §1.3) | **yes today**, ~2,780 spare, but over on 8 of the 21 days with an integration commit since 1 September (§3.6) | **yes**, ~16,400 spare: room for its three daily modules and the Task Manager too (§3.7) |
 | far-pointer fixups if `.cold` changes segment | **257**, all clean | **212**, all clean |
 | fixups inside `.cold` itself | 10 (8 far calls) | 2 |
 | packed sectors a ROM machine need not read at boot | ~69 | ~45 |
@@ -88,13 +88,15 @@ Eight findings carry the plan.
      contract, so they can execute in place and save their whole claim. They
      carry form 1's weld instead.
 7. **The 5150 has SIX 8KB sockets, not four, and five of them are spare
-   (§1).**
+   (section 1).**
    - U28 at F4000 is empty. U29–U32 at F6000–FDFFF hold Cassette BASIC. U33
      holds the BIOS.
-   - Replacing BASIC is allowed: the BIOS's BASIC checksum is non-fatal on
-     every 5150 revision.
-   - But `int 18h`, the "no boot disk" path, jumps to F600:0000. Whatever is
-     burned there MUST begin with a safe stub.
+   - Laid out as ONE option ROM that declares 32KB (section 1.3), the 40KB
+     window needs no stub at F600:0000. Its init re-points `int 18h` at an
+     "insert a system disk and press any key" stub, and two balance bytes
+     keep POST quiet.
+   - That holds on 10/27/82 and GLaBIOS. The 1981 BIOSes scan no option ROMs
+     and are left out.
 8. **`kern_big` built for a ROM is smaller resident than `kern_small` is
    today** (60,928 against 65,536).
    - On a machine with the ROM, the second kernel's reason to exist may go
@@ -152,41 +154,80 @@ two short.**
     chip.
 - **The XT's motherboard is a worse host than the 5150's.**
 
-### 1.3 The layout the motherboard window forces
+### 1.3 The 40KB window, laid out as ONE option ROM
 
-`int 18h` is the deciding fact. A 5150 with no floppy in the drive retries
-four times and then executes F600:0000. If `.cold` were laid flat from F400:0,
-that address is the middle of whatever proc landed at offset 0x2000. The
-machine would run it with whatever is in DS. That is not a hang to shrug off:
-it is arbitrary kernel code, and the file system's code is most of `.cold`.
+`int 18h` is the deciding fact.
+- A 5150 with no floppy in the drive retries four times and then executes
+  F600:0000.
+- If `.cold` were laid flat from F400:0, that address is the middle of
+  whatever proc landed at offset 0x2000, run with whatever is in DS.
+- That is not a hang to shrug off. It is arbitrary kernel code, and the file
+  system is most of `.cold`.
 
-So the window is two pieces and not one:
+The first draft of this section answered that with a stub at F6000 and
+`.cold` cut around it. The BIOS listing has a better answer, which needs
+nothing cut and nothing planted inside `.cold`: **make the whole window a
+real option ROM.** Five facts out of `PCBIOSV3.ASM` (10/27/82) and GLaBIOS's
+source carry it:
+
+1. **The order is right.** On 10/27/82 POST points `int 18h` at F600:0000
+   during vector setup (line 610). The option-ROM scan of C8000–F5FFF runs
+   long after (line 1098). GLaBIOS is the same: vectors at its step 18, the
+   scan at step 28. So an init routine at F400:0003 runs AFTER the vector is
+   set, and can point `int 18h` at our own stub. **The stub can live
+   anywhere in the tail.** Nothing has to be at F600:0000 at all.
+2. **The length byte decides where the BASIC check starts, and 40KB is the
+   wrong answer.**
+   - After a ROM is found, 10/27/82 advances the scan pointer by the declared
+     length. `BASE_ROM_CHK` then checksums 8KB modules from THAT pointer,
+     adding 0x200 paragraphs until it reaches FE00.
+   - It is a do-while: it checks BEFORE it compares.
+   - Declaring 40KB (`0x50`) leaves the pointer at FE00. The loop then checks
+     the BIOS, wraps to segment 0000 and checksums **every 8KB of RAM in the
+     machine**. Below C800, `ROM_ERR` answers a bad sum with a beep, so that
+     is about 120 beeps per power-on.
+   - **Declare 32KB (`0x40`).** The pointer lands on FC00. The loop checks the
+     one module FC000–FDFFF and stops.
+3. **So two bytes balance the whole window.** One goes in the header
+   paragraph, so that F4000–FBFFF sums to zero for the option-ROM check. One
+   goes in the tail, so that FC000–FDFFF sums to zero for the BASIC check.
+   No `ROMPAD` slots, no per-chip sums, no `os88ovlchk.py` exception.
+4. **GLaBIOS will not mistake it for BASIC.**
+   - It aims `int 18h` at F600 only if four 8KB modules from F6000 EACH
+     checksum and have distinct first words. Ours do not, by construction.
+   - Its own `int 18h` prints a boot-failure line and waits for a key. Our
+     init replaces that anyway, with the same behaviour and our own words.
+   - It scans on to FE000 in 2KB steps after a ROM. So FC000, FC800, FD000 and
+     FD800 must not start with `55AA`: a 1-in-65,536 chance each, which the
+     image builder checks and refuses.
+5. **Only the two 1981 BIOSes (04/24/81, 10/19/81) are left out.**
+   - They scan no option ROMs, so the init never runs and `int 18h` still
+     lands mid-`.cold` on a failed boot.
+   - Supporting them would need the first draft's island: `.cold` split into
+     an 8KB low part and a high part, with a three-byte `jmp` at F6000.
+   - The owner's 5150 is 10/27/82, and the container's MartyPC twins run
+     GLaBIOS, so this is left as a stated limitation rather than built.
+
+The image:
 
 ```
-F6000  header + int 18h stub         16-64 bytes  (prints "os8088 ROM build N -
-                                                   insert a system disk", int 19h)
-F6010  .cold, segment F601           up to 32,752 bytes   (U29-U32)
-F4000  a second segment, F400        up to 8,192 bytes    (U28, optional)
+F4000  55 AA 40  jmp init  <balance>  'OS88'  ...      16 bytes, one paragraph
+F4010  .cold, segment F401 (vstart 0)                 kern_big 37,998 / small 24,383
+  ...  (kern_small: the XIP modules and the Task Manager image, section 3.7)
+FDxxx  tail, ending at FDFFF:
+         identity  - signature, format, build, the .cold hash, lengths
+         init      - point int 18h at the stub; print "os8088 ROM build N"
+                     on the POST screen, which says which image the jumpers
+                     picked; retf
+         stub      - int 10h teletype "os8088 ROM build N - insert a system
+                     disk and press any key", int 16h, int 19h
+         <balance> - FC000-FDFFF sums to zero
 ```
 
-Two more things the image builder owns:
-
-- **The per-chip BASIC checksum.**
-  - The code spans the chip boundaries, so no chip has a free byte unless one
-    is planted.
-  - The answer is a one-byte `ROMPAD` slot, legal in `.cold` only after an
-    unconditional transfer, placed at the start of every cold file.
-  - No file is over 7,798 bytes, so every 8KB window contains at least one
-    slot. That is about 20 bytes of `.cold`.
-  - The builder sets each chip's slot so the chip sums to zero, and POST then
-    stays quiet.
-  - `os88ovlchk.py`'s no-data rule learns the one macro. The fallback is to
-    accept a non-fatal `F600 ROM` line at every power-on.
-- **U28 on the 10/27/82 BIOS.**
-  - The scan reads F4000, F4800, F5000 and F5800 for `55AA`.
-  - A code byte pair there is a 1-in-65,536 chance per boundary. It would turn
-    into a `F400 ROM` error, or a far call to F400:0003.
-  - The builder refuses such an image and re-cuts it with a shifted pad.
+The tail is about 100–160 bytes (ESTIMATE). That leaves **~40,780 bytes for
+`.cold`**, and about 2,800 bytes spare on `kern_big` today (§3.6).
+`int 19h` re-runs the BIOS's bootstrap. On 10/27/82 that is four tries and
+then `int 18h` again, which is our stub: the loop the request described.
 
 ### 1.4 The alternative: an ISA ROM board
 
@@ -241,6 +282,36 @@ The cost is on an AT-class machine:
   section belonging to the `ibmpc` machine.** Under `machine = ibmpc82` it is
   ignored, so that VM runs the default 10/27/82 BIOS with BASIC enabled. That
   is unrelated to this plan and was found on the way.
+
+### 1.7 The owner's rig: two One ROMs across U28–U32
+
+The owner tests with a pair of One ROMs (piers.rocks), each wired into
+several motherboard sockets. From its documentation:
+
+- **A multi-ROM set serves 2 or 3 images at once.**
+  - One socket holds the board.
+  - The other sockets' chip-select lines reach its X1 and X2 pins by flying
+    lead, and those sockets stay empty.
+  - A pair therefore covers five sockets, for example U28+U29+U30 and
+    U31+U32.
+- **Up to 16 images can be stored**, chosen by the `1/2/4/8` jumpers and read
+  at power-on.
+  - That is a real answer to "both kernels": both can be flashed and one
+    picked by jumper. Section 3.6 has the detail.
+  - The init's POST line (section 1.3) says which image came up.
+- **Images load over USB.** The ROM set is rebuilt per release and on demand
+  during development, which matches the owner's stated workflow.
+
+What the image builder emits for it:
+- **Five 8KB files:** `U28.BIN` (F4000) through `U32.BIN` (FC000), one per
+  socket. This is the unit One ROM's tooling takes per chip.
+- **The 40KB whole:** for MartyPC's `"custom"` ROM row at 0xF4000.
+
+Two things to check on the boards themselves:
+- **Board revision.** The docs say one revision (`fire-24-a`) cannot build a
+  2364 multi-ROM set, because its select GPIOs are not contiguous.
+- **Access time.** One ROM's figure against the 5150's 250 ns ROM spec, at
+  4.77 MHz.
 
 ---
 
@@ -487,64 +558,88 @@ boot-time claims (`dirw`, the read-ahead) that no assembler sees.
 machine, is the measurement. Until it is taken, this is a sentence about
 arithmetic.
 
-### 3.6 `kern_big` does not fit 32KB
+### 3.6 `kern_big` in the 40KB window: it fits today, and the margin is the risk
 
-`.cold` is 37,998 bytes against the BASIC window's 32,752. There are three
-ways out.
+`.cold` is 37,998 bytes against about **40,780** usable (§1.3), so there are
+~2,780 bytes spare (7%). It goes in as one segment, F401, with no split,
+no stub inside it and no far calls added.
 
-**(a) Use U28 as well, as a second segment.**
-- 40KB in one flat segment is ruled out by §1.3's stub.
-- So U28 becomes segment F400 holding a second cold set.
-- Calls between the two sets go far. This is the same cut as (b), at an
-  8,192-byte limit instead of 32,752.
+**The margin is what to watch, because `.cold` has been bigger than the window
+recently.** The daily maximum of `kern_big`'s `.cold` on `elendilon`, from the
+report's history:
 
-**(b) Split `.cold` into `.crom` and a RAM `.cold`.** This is the shape the
-request suggested. The call graph is measured (the report has every edge):
-- The FILE SYSTEM cluster is one dense component, with `files.inc` making 79
-  calls into `kernel.asm`'s shims and `diskw.inc` making 40 into `disk.inc`.
-- The natural ROM half is everything except the leaves below:
-  - `files`, `disk`, `diskw`, `memory`, `fdlg`, `assoc`, `desk`, `driver`,
-    `filecp`, `mod`, `drvvol`;
-  - **32,465 bytes**.
-- The RAM half is the leaves:
-  - `apps`, `vga12`, `loader`, `lz`, `hiber`, `desksc`, `blank`, `ctrl`,
-    `menu`, `wm`, `instance`, `dock`, `extmod`, `clone`, `ui`;
-  - **5,533 bytes**.
-- **163 jump and call sites cross the cut.**
-  - 55 of them go through `kernel.asm`'s `cw_*` shims. These are a few bytes
-    each and can be duplicated in both halves.
-  - The remaining ~108 become far calls with a far entry per target:
-    estimated **300–500 bytes**, split across both halves.
-- That leaves the ROM half with almost no growth room. The cut should
-  therefore sit nearer 30KB: move `assoc.inc` (1,941 bytes) to RAM too, and
-  leave ~2.7KB of headroom.
-- RAM saved: **~32KB, not 38**.
-
-**(c) An ISA ROM board** (§1.4).
-- All of `.cold` goes in one segment.
-- There is no split, no stub and no checksum dance.
-
-**Recommendation for `kern_big`: (c).**
-- Take (b) only if the motherboard sockets are a requirement in their own
-  right, a period-correct machine with nothing in its slots.
-- If so, measure (b)'s cut before building it, by putting the edge count
-  from the report into `os88ovlchk.py`'s call-graph pass.
-
-### 3.7 `kern_small` fits with 8,369 bytes to spare
-
-`kern_small`'s 24,383 bytes go into the BASIC window. The spare is almost
-exactly the three modules every `kern_small` session reaches:
-
-| module | image |
+| | bytes |
 |---|---:|
-| `FDLG.DRV` | 1,240 |
-| `FILECP.DRV` | 2,269 (+36 of stack tail) |
-| `CTRL.DRV` | 4,441 |
-| **total** | **7,950** |
+| 2026-09-01 | 40,807 |
+| 2026-09-03 | 41,168 |
+| 2026-09-08 | 38,974 |
+| 2026-09-21 | 40,962 |
+| 2026-09-28 | 40,847 |
+| 2026-09-30 | 40,958 |
+| 2026-10-02 | **41,878** |
+| 2026-10-03 | 38,446 (kernel size pass) |
+| 2026-10-04 | 37,998 (system-side size pass 1) |
 
-That leaves 419 bytes. Executing in place (§4.1), they cost no heap at all. On
-a 128KB machine that is ~6 KB more of the arena while the Control Panel or a
-Save dialog is open.
+It would not have fitted on **8 of the 21 days** with an integration commit
+since 1 September. It fits now because of the last two days' size passes. The
+file system is most of `.cold`, and file-system features are where kernel
+growth has been landing. So the plan needs a guard and a pressure valve:
+
+- **The guard.**
+  - The ROM build asserts that `COLD_SIZE` fits the window at assembly time,
+    in `kernel.asm`'s guard style.
+  - `kernsize` gains a `rom` line, "`.cold` N of 40,780", so the margin is
+    printed on every build the way the rungs are.
+  - Per CLAUDE.md's rule, a crossing is a conversation, not a build fix.
+- **The pressure valve is the split** that the first draft of this section
+  recommended for 32KB:
+  - The leaves move out to a RAM `.cold`: `apps`, `vga12`, `loader`, `lz`,
+    `hiber`, `desksc`, `blank`, `ctrl`, `menu`, `wm`, `instance`, `dock`,
+    `extmod`, `clone`, `ui`. That is 5,533 bytes.
+  - The report measures **163 crossing sites**. 55 of them go through
+    `kernel.asm`'s `cw_*` shims, which can be duplicated. The other ~108 need
+    far entries, estimated at 300–500 bytes.
+  - It is not needed today. It is what to reach for the day the guard fires.
+    Moving one leaf at a time is the same mechanism at a smaller cost: the
+    first leaf out buys its own size of headroom.
+
+**Both kernels' `.cold` at once does not fit:** 37,998 + 24,383 = 62,381
+against 40,960. **Both kernels on the same rig does**, through One ROM's image
+select (§1.7):
+- Flash a `kern_big` set and a `kern_small` set, and pick one with the jumpers
+  at power-on.
+- A ROM-required kernel checks the `.cold` hash before it hands over (§3.5).
+  The wrong jumper is therefore a sentence on the glass naming both builds,
+  not a crash.
+- To check: whether One ROM's image select switches a whole MULTI-ROM set or
+  only a single-socket image. The docs describe each feature but not the two
+  combined. If it is single-socket only, the second kernel is a re-flash
+  rather than a jumper.
+
+### 3.7 `kern_small` in the 40KB window: both forms, with room left
+
+`.cold` takes 24,383 bytes. The rest of the window holds form 2 for this
+kernel:
+
+| item | bytes | how it runs |
+|---|---:|---|
+| `.cold` | 24,383 | in place, segment F401 |
+| `FDLG.DRV` | 1,240 | in place (section 4.1) |
+| `FILECP.DRV` | 2,269 | in place, once its 36-byte stack moves to `.bss` |
+| `CTRL.DRV` | 4,441 | in place |
+| Task Manager (small) | 4,980 | COPIED, through `OSAPI_PKG_START`'s image arm, stored unpacked |
+| paragraph alignment, the XIP directory, the tail | ~250 | |
+| **total** | **~37,560 of 40,944** | **~3.4 KB spare** |
+
+What `kern_small` gets from this:
+- **24.5 KB of resident heap back.** On a 128KB machine that is about 62.5 to
+  86.5 KB, +38%.
+- **The three modules every session reaches cost no heap and no disk read.**
+  A Save As onto a data floppy in the only drive works for the first time
+  (section 4.4).
+- **The Task Manager opens without the system disk.**
+
+Calc (5,312) fits **instead of** the Task Manager, but not beside it.
 
 ### 3.8 The weld
 
@@ -683,55 +778,51 @@ There are two shapes, and they suit different loaders.
 
 ### 4.5 Recommended sets
 
-**`kern_big`, form 2 alone:**
-- Task Manager + `CTRL.DRV` + `SOUND.DRV` + `HDD.DRV`.
-- 29,747 bytes unpacked, 27,250 packed. That fits the BASIC window, or a 32KB
-  board.
-- `HDDTOOL.DRV` (17KB) does not fit beside them and is not needed to USE a
-  disk.
-- **On the motherboard, form 2 competes with form 1 for the same 40KB.**
-  Doing both means a board.
+**`kern_small`:** both forms, in the one window. Section 3.7 lists it:
+`.cold`, the three daily modules executing in place, and the Task Manager as
+the "another app". About 3.4 KB is left.
 
-**`kern_small`:**
-- Form 1 plus the three XIP modules fill the BASIC window (§3.7).
-- U28's 8KB then holds the Task Manager (4,314 packed, 4,980 unpacked) as the
-  "another app". Calc as well does not fit once a ROM volume's overhead is
-  paid.
-- If only one form is taken on `kern_small`, it should be **form 1**: 24.5KB
-  of resident heap back on a 128KB machine is the largest single gain in this
-  document.
+**`kern_big`:** form 1 alone.
+- `.cold` takes the window (section 3.6).
+- Form 2's set needs a second home: the Task Manager, `CTRL.DRV`, `SOUND.DRV`
+  and `HDD.DRV`, 29,747 bytes unpacked and 27,250 packed.
+- The options:
+  - an ISA board (section 1.4), whose window C8000–EFFFF does not touch U28–U32;
+  - give up form 1 for it, which is the wrong trade, because form 2 saves no
+    RAM on this kernel.
+- `HDDTOOL.DRV` (17KB) is not needed to USE a disk and is not in the set
+  either way.
 
 ---
 
 ## 5. Recommendation and order of work
 
-| wave | what | bytes | why first |
-|---|---|---|---|
-| **W0** | §3.3's nine `jbe` → `je`; §3.2's eight `push cs` calls and the two stores, so `.cold` names no segment of its own; `os88romfix.py`'s "inside `.cold` = 0" as a fast row | −8 resident | Correct on today's machines, removes a latent ordering assumption, and every later wave needs it |
-| **W1** | MartyPC `"custom"` ROM row; `make rom` (header, int 18h stub, per-chip `ROMPAD` sums, U28 `55AA` check); a ROM-only boot that finds the image and prints its build | 0 | The harness every later wave is tested on; `tests/` gets a row that boots with and without the ROM |
-| **W2** | **`CROM=1` on `kern_small`** | resident −24,576 | The biggest relative gain (+38% heap at 128KB), the smallest change (no reorder, no fixups), and the floor machine already has its gate (`tests/small128.py`) |
-| W3 | `kern_small`'s three modules XIP (stamp by hash, `FILECP` stack to `.bss`, `mod_need` ROM arm) | +36 `.bss`, +30–60 `.cold` | Fixes Save As with no system disk in a one-drive machine |
-| W4 | Option A: ladder reorder, `.cold` as its own block run, probe in `.boot2`, patcher in the ROM tail, module delta, hibernate hash | ~25–45 resident | The one-disk-kernel the request asked for; only worth it once W2 has shown the ROM on iron |
-| W5 | `kern_big`: on an ISA board, Option A or `CROM=1` as built; on the motherboard, §3.6(b)'s split, cut measured first | — | |
-| W6 | Form 2's ROM volume for packages and drivers on `kern_big` | ~50–100 `.cold` | The set that survives kernel rebuilds |
+The owner's answers settle what section 5 used to ask:
+- **The hardware:** two One ROMs across U28–U32, re-flashed over USB.
+- **BASIC:** losing it is expected.
+- **The cadence:** a ROM set per release, and on demand during development.
 
-**What the owner decides, because no measurement can:**
-1. **Motherboard EPROMs with adapters, or an ISA flash board.**
-   - Only the board takes all of `kern_big`'s `.cold`, or both forms at once.
-   - Only the board re-flashes in place, which is what makes §3.8's weld
-     cheap.
-2. **Whether losing Cassette BASIC is acceptable.** PC-DOS's
-   `BASIC.COM`/`BASICA.COM` stop working on that machine.
-3. **Whether a ROM matched per release is acceptable**, given §3.8's history
-   numbers.
+The order follows from them.
+
+| wave | what | bytes | why here |
+|---|---|---|---|
+| **W0** | Section 3.3's nine `jbe` → `je`. Section 3.2's eight `push cs` calls and the two stores, so `.cold` names no segment of its own. `os88romfix.py`'s "inside `.cold` = 0" as a fast row | −8 resident | Correct on today's machines, removes a latent ordering assumption, and every later wave stands on it |
+| **W1** | `make rom`: section 1.3's option-ROM image (header, 32KB length byte, init, stub, two balance bytes, the GLaBIOS `55AA` check). It emits `U28.BIN`–`U32.BIN` and the 40KB whole. Plus a MartyPC `"custom"` ROM row at 0xF4000 | 0 resident | The harness every later wave is tested on. First milestone: the init's POST line, and the stub catching a boot with no disk, on GLaBIOS in the container and on the 5150 |
+| **W2** | **`CROM=1` on `kern_small`** | resident −24,576 | The biggest relative gain (+38% heap at 128KB) and the smallest change (no reorder, no fixups). The floor machine already has its gate (`tests/small128.py`) |
+| **W3** | **`CROM=1` on `kern_big`**, with section 3.6's guard and `kernsize`'s `rom` line | resident −38,400 | It fits today. The guard is what keeps it true |
+| W4 | `kern_small`'s three modules in place, plus the Task Manager image (section 3.7): module stamp by `.cold` hash, `FILECP`'s stack to `.bss`, `mod_need`'s ROM arm | +36 `.bss`, +30–60 `.cold` (itself in ROM) | Save As with the system disk out, on a one-drive machine |
+| W5 | Option A, the kernel that DETECTS the ROM (section 3.4) | ~25–45 resident | Worth it only if one disk set has to serve machines with and without the ROM. With a ROM set cut per release, `CROM=1`'s matched pair may be enough, and that is the owner's call once W2 and W3 are on the iron |
+| W6 | `kern_big`'s form 2, if a second ROM window ever appears | ~50–100 `.cold` | |
 
 ## 6. Open, unverified, and what would settle each
 
 | question | settles it |
 |---|---|
 | Do the 16–64KB and 64–256KB 5150 boards wire U28–U32 identically? | a board photo or the schematic for each |
-| GLaBIOS's scan range, and what its `int 18h` does with no BASIC | its source (the 5150 profiles here run it) |
+| ~~GLaBIOS's scan range, and what its `int 18h` does with no BASIC~~ | ANSWERED from its source (section 1.3): it scans to FE000, and aims `int 18h` at F600 only for four valid BASIC modules |
+| Does the 10/27/82 BIOS behave as section 1.3 reads its listing, with a 32KB header at F4000? Is there one module check at FC000, no wrap, and is our init called? | W1's image on the 5150. MartyPC's `ibm5150_82_v4` set, where the ROM is available, is the cheaper first look |
+| One ROM: can the board revision serve a 2364 multi-ROM set (not `fire-24-a`)? Does image select switch a whole multi-ROM set? Does the access time meet the 5150's 250 ns? | the boards in hand and One ROM's docs |
 | The boot saving (§3.4's table) | a `BOOTPROF=1` boot on the 5150 with and without the ROM |
 | `CROM=1` `kern_big` on 128KB (§3.5.1) | `tests/small128.py`'s shape on that kernel |
-| §3.6(b)'s real far-call cost | build the split; `kernsize` reads it |
+| Section 3.6's pressure valve, the split: its real far-call cost | build it when the guard first fires; `kernsize` reads it |
 | The 1986 XT BIOS's 64KB checksum with a foreign U19 | the listing; MartyPC has the ROM |
