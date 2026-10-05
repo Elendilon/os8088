@@ -2633,7 +2633,7 @@ $(KMODS) $(BIGMODS): $(BUILD)/kernel.bin ;
 # it (SPEC.md 2.9.5).
 BOOTHEAP_DEFS = import sys, subprocess, json; \
                 k = json.loads(subprocess.check_output(['python3','tools/kernsize.py','--json','--build','$(BUILD)','--ico','$(ICODIR)'] + sys.argv[1:])); \
-                print('-DHEAP_PARA=%d' % k['kend'])
+                print('-DHEAP_PARA=%d' % k.get('blobseg', k['kend']))
 
 $(BUILD)/boot.bin: boot/boot.asm kernel/kernel.asm $(KERNFILE) Makefile | $(BUILD)
 	@H=$$(OS88_DEFINES="$(patsubst -D%,%,$(SYMDEF))" OS88_BUILD="$(BUILD)" OS88_ICODIR="$(ICODIR)" \
@@ -2847,6 +2847,16 @@ BD_IMGS := $(BUILD)/bootdiag360.img $(BUILD)/bootdiag720.img \
 .PHONY: socketrom
 socketrom: $(BUILDINC)
 	python3 tools/os88rom.py socket --out $(BUILD)/rom
+
+# rom: kern_small's `.cold`, cut from $(SMALLDIR) - the ROM `make small`'s disks
+# FIND at boot (ROM-PLAN 3.4, wave 2). Those disks boot the same without it;
+# with it, `.cold` runs from F401 and the heap floor falls by the cold rung
+# (24.5KB, 62.5 -> 86.5KB free on a 128KB machine - tests/romsmall.py, which
+# also proves a ROM one byte away from the kernel is refused). A ROM is cut
+# against ONE kernel: build it from the tree whose disks it will meet.
+.PHONY: rom
+rom: $(BUILD)/small360.img
+	python3 tools/os88rom.py kernel --build $(SMALLDIR) --small --out $(BUILD)/rom
 
 .PHONY: bootdiag
 # NOMOUPRIV=1 puts BOTH mouse ISRs back on the interrupted TASK's stack, which
@@ -3783,7 +3793,7 @@ BOOTHD_DEFS = import sys, subprocess, json; sys.path.insert(0, 'tools'); \
               import os88sym; \
               k = json.loads(subprocess.check_output(['python3','tools/kernsize.py','--json','--build','$(BUILD)','--ico','$(ICODIR)'] + sys.argv[1:])); \
               S = os88sym.syms(); \
-              print('-DBLOB_SEG=%d -DSPL_FSEG=%d' % (k['kseg'] + k['ksize'] // 16, S['spl_fseg']) \
+              print('-DBLOB_SEG=%d -DSPL_FSEG=%d' % (k.get('blobseg', k['kseg'] + k['ksize'] // 16), S['spl_fseg']) \
                     + (' -DKZ_HD=%d' % S['kz_hd'] if 'kz_hd' in S else ''))
 
 # BLOB_SEG follows the SHIPPED kernel's ladder. A kern_small installed to a

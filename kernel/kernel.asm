@@ -445,6 +445,28 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %define FDLG_MOD 1
 %endif
 
+; ROM_COLD - the kernel that FINDS its `.cold` in ROM and uses it
+; (docs/plans/ROM-PLAN.md 3.4, wave 2). An IBM 5150's five spare sockets,
+; U28-U32, hold `.cold` at F401; a kernel built with this boots the same off
+; any disk with or without that ROM, and a ROM cut from a different build is
+; ignored. What it changes, all of it under this one symbol:
+;   - the ladder: `.cold`'s RAM rung moves from under FAT_SEG to just under
+;     `.vgabuf`, so on a ROM machine the rung is the bottom of the heap rather
+;     than a hole in the middle of the kernel (3.4.2);
+;   - the file: `.cold` is the last thing in KERNEL.SYS before the modules;
+;   - stage 2 asks F400 for the ROM after the expand, and the ROM itself
+;     checks it is this kernel's and re-points every far reference (3.4.3);
+;   - mem_floor_ax drops the floor by the cold rung when `.cold` is in ROM,
+;     and mod_need has the ROM re-point a module it loads (3.4.4).
+; kern_small first: it fits the window with room for its modules (3.7).
+%ifdef KERN_SMALL
+  %define ROM_COLD 1
+%endif
+ROM_SEG     equ 0xF400          ; U28's base: the window's header paragraph
+ROM_COLDSEG equ ROM_SEG + 1     ; ...and `.cold` one paragraph above it
+ROM_FMT     equ 1               ; the header's +10, as tools/os88rom.py writes
+ROM_KIND_KERNEL equ 2           ; ...and its +11: boot/osrom.asm's kinds
+
 ; MOU_IN_BLOB - WHICH HALF of the boot overlay mouse_init's serial probe is
 ; assembled into (SPEC.md 2.5.3.2, 2.5.3.3): its three blocks in mouse.inc and
 ; OVBCALL's arm for it below both read this ONE symbol, so the section a body
@@ -2342,7 +2364,25 @@ VIEW_KB     equ 2               ; each cache: 1,536 bytes of entries and 64 of
 ; proves it. It used to hold by luck: every base in the map was a round
 ; constant like 0x0300 or 0x2A00, and nothing said why that mattered.
 KIMG_PARA   equ ((KTEXT_SIZE + KBSS_SIZE + 511) / 512) * 32   ; image + scratch
-COLD_SEG    equ KERNEL_SEG + KIMG_PARA   ; cold code (SPEC.md 2.6): resident
+%ifdef ROM_COLD
+COLD_RAM    equ LOW_SEG + LOW_PARA      ; ROM_COLD: the cold rung sits UNDER
+                                ; `.vgabuf`, so a machine whose `.cold` is in
+                                ; ROM drops the heap floor straight onto it
+                                ; (docs/plans/ROM-PLAN.md 3.4.2). The file
+                                ; follows: `.cold` is read after the zero gap
+                                ; the FAT window and `.lowbss` leave, which
+                                ; LZ4 packs to nothing
+%else
+COLD_RAM    equ KERNEL_SEG + KIMG_PARA
+%endif
+COLD_SEG    equ COLD_RAM
+                                ; ^ the segment `.cold` EXECUTES in, baked as
+                                ; its RAM rung. A ROM_COLD kernel that finds
+                                ; its `.cold` in ROM has every far reference
+                                ; to it re-pointed by that ROM at boot
+                                ; (ROM-PLAN 3.4.3), and [api_coldseg] is then
+                                ; the one place that says which it is.
+                                ; Below: cold code (SPEC.md 2.6): resident
                                 ; for the whole session, but in a segment of
                                 ; its own, so none of it counts against the
                                 ; kernel's 64KB window. Same contract as the
@@ -2354,7 +2394,11 @@ COLD_SEG    equ KERNEL_SEG + KIMG_PARA   ; cold code (SPEC.md 2.6): resident
                                 ; over .lowbss, which is nobits and not in the
                                 ; file at all
 COLD_PARA   equ ((COLD_SIZE + 511) / 512) * 32
-FAT_SEG     equ COLD_SEG + COLD_PARA   ; mount-time FAT snapshot
+%ifdef ROM_COLD
+FAT_SEG     equ KERNEL_SEG + KIMG_PARA ; mount-time FAT snapshot
+%else
+FAT_SEG     equ COLD_RAM + COLD_PARA   ; mount-time FAT snapshot
+%endif
                                 ; (SPEC.md 2.1/18), reached via ES ONLY,
                                 ; never DS; dsk_next_clus is the one reader
 LOW_SEG     equ FAT_SEG + FAT_PARA    ; .lowbss (task stacks + disk buffers)
@@ -2371,7 +2415,11 @@ STK0_BOT    equ KLOW_SIZE       ; ...and the floor it grows down ONTO, which is
                                 ; overrun reaches sch_stkdie rather than
                                 ; going quiet; guard 3 proves the two cannot
                                 ; meet
+%ifdef ROM_COLD
+VGABUF_SEG  equ COLD_RAM + COLD_PARA ; THE PLANAR DECODER'S BUFFERS (SPEC.md
+%else
 VGABUF_SEG  equ LOW_SEG + LOW_PARA   ; THE PLANAR DECODER'S BUFFERS (SPEC.md
+%endif
                                 ; 5.4.1.3), and a rung of their own because
                                 ; they are the one part of the kernel a
                                 ; machine with no VGA has no use for
@@ -2424,6 +2472,26 @@ HEAP_SEG    equ KERN_END        ; the claim heap (SPEC.md 50) starts where
                                 ; claims share it from opposite ends
                                 ; (SPEC.md 50.3); nothing up here has a fixed
                                 ; address any more
+
+; BLOB_SEG_AT - where the boot sectors read stage 2's blob, and so where it runs
+; for the whole boot (SPEC.md 2.9.5). The heap floor, PLUS a lift on a ROM_COLD
+; kernel (docs/plans/ROM-PLAN.md 3.4): the packed kernel's tail is read in
+; whole sectors from a sector-aligned R, so the read ends up to KZ_MARGIN + 1,022
+; bytes past the image - and ROM_COLD makes `.cold`, which IS in the file, the
+; top rung, where `.lowbss` (which is not) used to sit between the image's end
+; and the blob and soak that overshoot up. Measured on the first build: 512
+; bytes into stage 2, which ran its own expanded tail and died at 0000:0068.
+; THREE SECTORS, so the blob stays 512-aligned (it is a read target). Nothing
+; is lost: mem_init raises [mem_base] over the blob wherever [spl_fseg] says it
+; is, and mem_unblob drops the floor back under it, lift and all. The guard
+; below `kz_all` proves the read clears it on every build.
+%ifdef ROM_COLD
+BLOB_LIFT   equ 96
+%else
+BLOB_LIFT   equ 0
+%endif
+BLOB_SEG_AT equ HEAP_SEG + BLOB_LIFT
+
 
 ; --- CPU tiers and memory above 1MB (SPEC.md 41) -----------------------------
 ; None of this exists on tier 0, which is the target machine: an 8088 has no
@@ -4751,6 +4819,14 @@ api_far:
     push bp
     retf
 api_coldseg: dw COLD_SEG
+%ifdef ROM_COLD
+; THE ROM'S MODULE DOOR (docs/plans/ROM-PLAN.md 3.4.4), written by the ROM
+; itself when it adopts this kernel at boot and read only by mod_need, which
+; reaches it only once [api_coldseg] says `.cold` is in ROM - so its zero seed
+; is never called. `.text` and not `.bss` for api_name's reason: it is
+; written before anything could clear `.bss`, by code that is not ours.
+rom_mfp:    dw 0, 0
+%endif
 
 ; N: the name at the caller's DS:SI is staged into kernel scratch first,
 ; because ES:BX belongs to the caller's data buffer and cannot carry it.
@@ -5592,7 +5668,70 @@ splg_%1:
 ; same numbers spelled for a blob caller.
 ; =============================================================================
 section .ovl
+%ifdef ROM_COLD
+; -----------------------------------------------------------------------------
+; rom_adopt - hand the kernel to the ROM's own adapter, if there is a ROM
+; (docs/plans/ROM-PLAN.md 3.4.3, SPEC.md 2.10.4)
+; in:  CS = the blob, the kernel expanded and NOTHING of `.cold` run yet -
+;      which is kmain_o's first instruction on both loaders, the floppy's
+;      stage 2 and the hard disk's kz_hd
+; out: nothing; preserves every register and the flags
+;
+; In the BOOT OVERLAY, not in `.boot2` where it was first written: stage 2's
+; share of the blob is the loader's, and a knob build gives 96-136 bytes of it
+; to the overlay - four kern_small knob kernels stopped assembling. The
+; overlay has room, it is transient, and it runs before any far call into
+; `.cold` all the same.
+;
+; This is only the doorbell: an os8088 kernel ROM at F4000 in this header
+; format. Everything that decides whether it is THIS kernel's - `.cold` byte
+; for byte, a hash over `.text`'s code, every far reference checked before any
+; is changed - is in the ROM, beside the lists only it carries. A ROM that
+; says no, or one cut from another build, leaves the kernel as it was
+; expanded: a wrong ROM is no ROM.
+; -----------------------------------------------------------------------------
+rom_adopt:
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push ds
+    push es
+    mov ax, ROM_SEG
+    mov ds, ax
+    cmp word [6], 'OS'          ; an os8088 ROM at F4000 (the BIOS has
+    jne .no                     ; already proved it is an option ROM: 55 AA
+    cmp word [8], '88'          ; and a checksum)...
+    jne .no
+    cmp word [10], ROM_FMT | (ROM_KIND_KERNEL << 8)
+    jne .no                     ; ...in this format, carrying a kernel
+    mov bx, [12]                ; the identity block
+    mov ax, cs                  ; AX = the blob, for `.ovl`'s list
+    call far [bx+24]            ; CF = 1: not ours, and nothing was touched
+.no:
+    pop es
+    pop ds
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+%endif
+
 kmain_o:
+%ifdef ROM_COLD
+    call rom_adopt              ; FIRST: nothing of `.cold` has run yet (ROM-PLAN
+                                ; 3.4.3) - and it preserves every register, DL
+                                ; and BX:CX's handoff below included
+%endif
     OVWCALL  dsk_boot_from_x    ; WHICH VOLUME DID WE COME OFF? (SPEC.md
                                 ; 52.10.3) DL and BX:CX are the boot sector's
                                 ; handoff and nothing above touches them - the
@@ -8057,7 +8196,11 @@ KBSS_SIZE equ kernel_bss_end - $$
 ; `.ovl` used to follow it at the next rung, which is what put the overlay in
 ; the FAT window. It is at OVL_AT now, inside the blob (SPEC.md 2.9.6), so it
 ; is not on this ladder at all and the image ends where `.cold` does.
+%ifdef ROM_COLD
+COLD_START equ BOOT2_PAD + (COLD_RAM - KERNEL_SEG) * 16 ; after the gap
+%else
 COLD_START equ BOOT2_PAD + ((KTEXT_SIZE + KBSS_SIZE + 511) / 512) * 512
+%endif
 
 section .boot2
 %include "../boot/boot2.asm"    ; STAGE 2 (SPEC.md 2.9), here at the FOOT of
@@ -8135,7 +8278,11 @@ OVL_SIZE equ ovl_end - $$       ; `$$` is the SECTION's base, which is OVL_BASE
 ; tools/os88mod.py proves that rather than trusting it.
 ; The image ends where `.ovlw` does, not where `.cold` does: the window half of
 ; the boot overlay is the last thing stage 2 reads (SPEC.md 2.5.3).
+%ifdef ROM_COLD
+MODC_START   equ COLD_START + COLD_SIZE ; `.cold` is the file's last section
+%else
 MODC_START   equ OVLW_START + OVLW_SIZE
+%endif
 MODF_START   equ MODC_START + MODC_SIZE
 MODL_START   equ MODF_START + MODF_SIZE
 %ifdef KERN_BIG
@@ -8480,12 +8627,17 @@ SK_VGAB_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - VGABUF_PARA * 16)
   %assign KS_CODEM  KERN_CODE_MAX
   %assign KS_END    KERN_END
   %assign KS_KSEG   KERNEL_SEG
+  %assign KS_COLDS  COLD_RAM     ; the four bases themselves, so the report
+  %assign KS_FATS   FAT_SEG      ; prints the ladder the kernel HAS rather
+  %assign KS_LOWS   LOW_SEG      ; than re-deriving one order of it in
+  %assign KS_VGAS   VGABUF_SEG   ; Python (ROM_COLD reorders it)
+  %assign KS_BLOB   BLOB_SEG_AT  ; where the boot sectors put the blob
   %assign KS_MINRAM MIN_RAM_KB   ; ...and guard 5's ceiling, because a report
   %assign KS_BOOTMX MIN_RAM_KB*1024 - BOOT_SECT - BOOT_STACK - KERNEL_SEG*16 - BOOT2_PAD
                                  ; that names one guard teaches everybody to
                                  ; steer by it, and for a while the one it
                                  ; named was the looser of the two
-  %warning ks: text=KS_TEXT bss=KS_BSS cold=KS_COLD lowbss=KS_LOW vgabuf=KS_VGAB ovl=KS_OVL ovlw=KS_OVLW boot2=KS_BOOT2 stk0=KS_STK0 imgpara=KS_IMGP coldpara=KS_COLDP fatpara=KS_FATP lowpara=KS_LOWP vgabufpara=KS_VGABP ksize=KS_SIZE budget=KS_BUDGET codemax=KS_CODEM kend=KS_END kseg=KS_KSEG minramkb=KS_MINRAM bootmax=KS_BOOTMX
+  %warning ks: text=KS_TEXT bss=KS_BSS cold=KS_COLD lowbss=KS_LOW vgabuf=KS_VGAB ovl=KS_OVL ovlw=KS_OVLW boot2=KS_BOOT2 stk0=KS_STK0 imgpara=KS_IMGP coldpara=KS_COLDP fatpara=KS_FATP lowpara=KS_LOWP vgabufpara=KS_VGABP ksize=KS_SIZE budget=KS_BUDGET codemax=KS_CODEM kend=KS_END kseg=KS_KSEG colds=KS_COLDS fats=KS_FATS lows=KS_LOWS vgas=KS_VGAS blobseg=KS_BLOB minramkb=KS_MINRAM bootmax=KS_BOOTMX
 %endif
 
 ; 1. KERN_BUDGET - the FOOTPRINT. The whole kernel - image, scratch, FAT

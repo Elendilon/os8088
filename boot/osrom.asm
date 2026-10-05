@@ -4,7 +4,7 @@
 ; The ROM window is the five spare 8KB sockets of an IBM 5150, U28-U32, which
 ; decode F4000-FDFFF. tools/os88rom.py lays the window out as ONE option ROM:
 ;
-;   F4000  55 AA 40  jmp near rom_init  'OS88'  fmt  bal1  id  kind     16 bytes
+;   F4000  55 AA 40  jmp near rom_init  'OS88'  fmt  kind  id  bal1     16 bytes
 ;   F4010  the payload: the kernel's `.cold` (segment F401), or the
 ;          socket-check pattern
 ;     ...  0xFF fill
@@ -50,6 +50,9 @@ ROM_KIND_KERNEL equ 2           ; os8088's `.cold` and what adapts a kernel
 %endif
 
 ROM_SIZE        equ 40960       ; F4000-FDFFF
+ROM_SEG         equ 0xF400      ; U28's base, the header's paragraph...
+ROM_COLDSEG     equ ROM_SEG + 1 ; ...and the segment `.cold` runs at in ROM,
+                                ; kernel/kernel.asm's equate of the same name
 SOCK_SIZE       equ 8192        ; one socket, U28 = 0 ... U32 = 4
 SOCK_N          equ 5
 
@@ -229,12 +232,207 @@ rom_sock_check:
     ret
 %endif
 
-; --- rom_patch - the kernel's adapter (ROM-PLAN 3.4.3) ------------------------
-; Filled in by W2. A socket ROM carries a refusing stub so the identity block's
-; pointer is never a wild one.
+%if ROM_KIND == ROM_KIND_KERNEL
+; =============================================================================
+; THE KERNEL'S ADAPTER (docs/plans/ROM-PLAN.md 3.4.3)
+;
+; A ROM_COLD kernel is assembled against its own RAM rung - every far
+; reference to `.cold` names COLD_RAM - and is expanded whole by stage 2,
+; `.cold` included. Then stage 2 rings rom_patch. This ROM was cut from ONE
+; build and carries, in the tables tools/os88rom.py generated (ROMTAB), every
+; place that build names `.cold`'s segment; it decides whether the kernel in
+; RAM IS that build, and only then re-points those words at its own `.cold`.
+;
+; "Is that build" is three tests, every one before a byte is written:
+;   1. this ROM's `.cold` and the one just expanded are the same bytes - the
+;      strongest test there is, and free in a kernel that expands it anyway;
+;   2. a hash over `.text`, the build number's words left out, so a ROM cut
+;      before a commit that touched nothing else survives it - while a `.text`
+;      routine that changed its contract without moving does not;
+;   3. every word on the lists still says COLD_RAM.
+; A NO from any of them is CF = 1 and an untouched kernel: a wrong ROM is no
+; ROM. tools/os88rom.py is the other half and its --selfcheck is the gate.
+;
+; THE TABLES (ROMTAB, generated):
+;   RT_KSEG RT_FATSEG RT_COLDRAM  the kernel's segments, as built
+;   RT_COLDLEN                    `.cold`'s length; ours is at CS:0x10
+;   RT_HASH                       the `.text` hash; rt_spans its word spans
+;   rt_text / rt_ovlw / rt_ovl    the far references, by the segment each is
+;                                 an offset into (`.ovl`'s is the blob's, which
+;                                 the caller hands over in AX)
+;   rt_mods                       per module: its list and its count
+;   RT_MFP                        rom_mfp's offset in the kernel's `.text`
+; =============================================================================
+%include ROMTAB
+
+; --- rom_patch - adopt the kernel expanded at RT_KSEG, or say no -------------
+; in:  AX = the blob's segment (stage 2's CS); far-called from stage 2's
+;      rom_adopt, after the expand and before a byte of the kernel has run
+; out: CF = 0 adopted: every listed word names ROM_COLDSEG and the kernel's
+;      rom_mfp names rom_modfix. CF = 1: nothing anywhere was written
+; clobbers: everything but SS:SP (the caller is stage 2's kz_all, which
+;      clobbers everything itself); leaves the direction flag clear
+rom_patch:
+    cld
+    mov bp, ax                  ; BP = the blob, for rt_ovl
+    ; --- 1. `.cold`, byte for byte -------------------------------------------
+    push cs
+    pop ds
+    mov si, 0x10                ; ours: the paragraph after the header
+    mov ax, RT_COLDRAM
+    mov es, ax
+    xor di, di
+    mov cx, RT_COLDLEN / 2
+    repe cmpsw
+    jne .no
+%if RT_COLDLEN & 1
+    cmpsb
+    jne .no
+%endif
+    ; --- 2. `.text`, hashed over its spans -----------------------------------
+    mov ax, RT_KSEG
+    mov ds, ax
+    xor dx, dx
+    mov bx, rt_spans
+.span:
+    cmp bx, rt_spans_end
+    jae .hashed
+    mov si, [cs:bx]             ; start, even
+    mov cx, [cs:bx+2]           ; words
+    add bx, 4
+    jcxz .span
+.word:
+    lodsw
+    rol dx, 1
+    xor dx, ax
+    loop .word
+    jmp short .span
+.hashed:
+    cmp dx, RT_HASH
+    jne .no
+    ; --- 3. every listed word names COLD_RAM - and only then, 4. patch ------
+    xor bl, bl                  ; BL = 0: look
+    call rp_walk
+    jc .no
+    mov bl, 1                   ; BL = 1: write
+    call rp_walk
+    mov ax, RT_KSEG             ; ...and the door mod_need far-calls
+    mov es, ax
+    mov word [es:RT_MFP], rom_modfix
+    mov [es:RT_MFP+2], cs
+    clc
+    retf
+.no:
+    stc
+    retf
+
+; rp_walk - the three lists, looked at (BL = 0, CF = 1 at the first word that
+; is not COLD_RAM) or written (BL = 1). BP = the blob.
+rp_walk:
+    mov ax, RT_KSEG
+    mov si, rt_text
+    mov cx, RT_NTEXT
+    call rp_list
+    jc .out
+    mov ax, RT_FATSEG
+    mov si, rt_ovlw
+    mov cx, RT_NOVLW
+    call rp_list
+    jc .out
+    mov ax, bp
+    mov si, rt_ovl
+    mov cx, RT_NOVL
+    call rp_list
+.out:
+    ret
+
+; rp_list - AX = the segment, CS:SI = CX offsets, BL = look/write; CF = 1 at
+; the first word that does not say COLD_RAM (look only). DX = no limit.
+rp_list:
+    mov es, ax
+    mov dx, 0xFFFF
+; ...and the module door's way in, with DX = the bytes it read: a word at or
+; past DX is not in this claim (the settings core reads a PART, SPEC.md 2.8.7)
+rp_list_lim:
+    jcxz .ok
+.next:
+    mov di, [cs:si]
+    add si, 2
+    mov ax, di
+    inc ax                      ; the word's second byte
+    cmp ax, dx
+    jae .skip
+    or bl, bl
+    jnz .write
+    cmp word [es:di], RT_COLDRAM
+    jne .bad
+    jmp short .skip
+.write:
+    mov word [es:di], ROM_COLDSEG
+.skip:
+    loop .next
+.ok:
+    clc
+    ret
+.bad:
+    stc
+    ret
+
+; --- rom_modfix - re-point a module mod_need just read (ROM-PLAN 3.4.4) -----
+; in:  BX = its row in the kernel's mod_tab (the id is derived here: mod_need
+;      has no register left holding it), ES = its claim, CX = the bytes read
+; out: CF = 0 every listed word re-pointed; CF = 1 not this ROM's module (a
+;      listed word does not say COLD_RAM, or the id is past the table) and
+;      nothing written - mod_need then refuses the module
+; preserves: every register but the flags (mod_need lives on DI, BX and BP)
+rom_modfix:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    cld
+    sub bx, RT_MODTAB           ; the row's offset into mod_tab...
+    jb .no
+    test bl, RT_MODRSZ - 1      ; ...on a row boundary...
+    jnz .no
+    cmp bx, RT_NMODS * RT_MODRSZ
+    jae .no                     ; ...and inside the table
+    mov dx, cx                  ; DX = the limit for rp_list_lim
+%if RT_MODRSZ != 4
+  %error "rt_mods is indexed by id*4 and mod_tab's stride is not 4"
+%endif
+    mov si, [cs:rt_mods+bx]     ; the list...
+    mov cx, [cs:rt_mods+bx+2]   ; ...and its count
+    push si
+    push cx
+    xor bl, bl
+    call rp_list_lim
+    pop cx
+    pop si
+    jc .no
+    mov bl, 1
+    call rp_list_lim
+    clc
+    jmp short .out
+.no:
+    stc
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    retf
+%else
+; A socket ROM carries a refusing stub so the identity block's pointer is never
+; a wild one.
 rom_patch:
     stc
     retf
+%endif
 
 ; --- the strings ---------------------------------------------------------------
 %if ROM_KIND == ROM_KIND_SOCK

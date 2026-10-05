@@ -618,6 +618,21 @@ mem_floor_ax:
     sub ax, VGABUF_PARA
 .out:
 %endif
+%ifdef ROM_COLD
+    ; `.cold` FOUND IN ROM (docs/plans/ROM-PLAN.md 3.4.2): its RAM rung, the
+    ; top one under `.vgabuf`, holds a copy nothing calls any more, so the
+    ; heap starts on it. [api_coldseg] is the one word that says where `.cold`
+    ; runs - the ROM re-pointed it at boot along with every far reference -
+    ; and COLD_RAM is the rung, a ladder constant, so this asks nothing a
+    ; machine without the ROM would answer differently from today.
+%if VGABUF_PARA
+  %error "ROM_COLD with a .vgabuf rung needs the planar buffers moved down into the dead cold rung first (ROM-PLAN 3.4.2) - wave 3"
+%endif
+    cmp word [api_coldseg], COLD_RAM
+    je .ram
+    sub ax, COLD_PARA
+.ram:
+%endif
     ret
 
 ; -----------------------------------------------------------------------------

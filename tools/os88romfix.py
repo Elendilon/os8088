@@ -46,8 +46,10 @@ import os88lz  # noqa: E402
 # word cannot be confused with a moved byte.
 SEG_A, SEG_B = 0xF601, 0xF702
 
-LADDER_COLD = "COLD_SEG    equ KERNEL_SEG + KIMG_PARA"
-LADDER_FAT = "FAT_SEG     equ COLD_SEG + COLD_PARA"
+# kernel.asm states the code segment as ONE line, apart from the rung it sits
+# in (COLD_RAM), since ROM wave 2 - so moving the code and leaving the ladder
+# alone is a one-line swap
+LADDER_COLD = "COLD_SEG    equ COLD_RAM\n"
 
 # The same flags the Makefile hands the shipped kernel, minus the KZ_* values
 # os88kz.py supplies on the second pass - they move no `.text`/`.cold` byte.
@@ -61,14 +63,12 @@ def fail(msg):
 
 def decouple(src):
     """The ladder keeps its RAM rung (COLD_RAM); only the CODE segment moves."""
-    if LADDER_COLD not in src or LADDER_FAT not in src:
+    if LADDER_COLD not in src:
         fail("kernel.asm's ladder no longer reads the way this tool expects - "
-             "look for COLD_SEG and FAT_SEG's equates and update LADDER_*")
-    src = src.replace(LADDER_COLD,
-                      "COLD_RAM equ KERNEL_SEG + KIMG_PARA\n"
-                      "%ifdef COLD_CS\nCOLD_SEG equ COLD_CS\n"
-                      "%else\nCOLD_SEG equ COLD_RAM\n%endif\n", 1)
-    return src.replace(LADDER_FAT, "FAT_SEG     equ COLD_RAM + COLD_PARA", 1)
+             "look for COLD_SEG's equate and update LADDER_COLD")
+    return src.replace(LADDER_COLD,
+                       "%ifdef COLD_CS\nCOLD_SEG equ COLD_CS\n"
+                       "%else\nCOLD_SEG equ COLD_RAM\n%endif\n", 1)
 
 
 def assemble(tmp, variant, seg, mapkind):

@@ -303,6 +303,18 @@ FAST = [
         "which no package can reach - it belongs beside a boot or geometry "
         "change",
         needs=("nasm",)),
+    Row("romsmall", "soak", py("tests/romsmall.py"), 45.0,
+        "docs/plans/ROM-PLAN.md 3.4, wave 2: `make small`'s disks boot the same "
+        "with or without the ROM. A: the ROM cut from build/smallk is ADOPTED "
+        "- [api_coldseg] F401, the heap floor down by the cold rung, and "
+        "CTRL.DRV, a module loaded after boot, has every far reference "
+        "re-pointed by the ROM (read, not inferred: the dead RAM copy of "
+        ".cold could otherwise answer by accident). B: no ROM, nothing "
+        "changes. C, the negative control: a ROM one byte of .cold away is "
+        "refused and is no ROM. D: the 128KB floor machine, 86.5KB of heap "
+        "against 62.5. SOAK: the subject is a 5150's ROM sockets",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/small360.img",)),
     Row("romsock", "soak", py("tests/romsock.py"), 5.0,
         "docs/plans/ROM-PLAN.md 1.3 and 1.7: the socket-check ROM in U28-U32 "
         "on a GLaBIOS 5150 with no disk. The BIOS must find the window as an "

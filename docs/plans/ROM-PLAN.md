@@ -1,9 +1,52 @@
 # Part of the system in ROM — what a 5150's sockets can hold, and what that buys
 
-**INVESTIGATION. NOTHING IS BUILT.** It was asked for on branch `rom-plan`, cut
-from `elendilon` at `351461a` (build 358). The original Macintosh kept part of
-its system in a 64KB ROM. The question is whether os8088 can do the same with
-the ROM sockets an IBM PC already has, in two forms:
+> **WAVES 0, 1 AND 2 ARE BUILT, on kern_small. SPEC.md 2.10 is the contract.**
+> The rest of this file is the investigation they came from, kept as written.
+>
+> * **W0:** `.cold` names no segment of its own (`COLDCALL`/`COLDSEG_TO`), and
+>   the blob sentinel is 0. Soak row `coldpic`.
+> * **W1:** `make socketrom`, the per-socket files, MartyPC's per-instance
+>   ROM (`os88marty.launch(rom=)`), and `tests/romsock.py`.
+> * **W2:** `ROM_COLD` on kern_small, plus `make rom`. Measured under
+>   MartyPC's GLaBIOS 5150 (`tests/romsmall.py`):
+>   * the ROM is adopted;
+>   * `.cold` runs from F401;
+>   * the floor falls 24.5KB, which is **86.5KB of heap on a 128KB machine
+>     against 62.5**;
+>   * modules are re-pointed on load;
+>   * a ROM one byte away is refused.
+>
+>   It costs **+28 resident bytes** (`.text` +2, `.cold` +26). kern_big
+>   assembles byte-identical.
+>
+> **What was built differs from section 3.4 in five places**, each found by
+> building it:
+> 1. **There is no key in the kernel.** A post-assembly key would break
+>    `os88sym`'s re-assembly check, which every emulator row rests on. The
+>    ROM verifies the kernel itself instead, more strongly:
+>    * `.cold` byte for byte against the copy just expanded;
+>    * a hash over `.text`'s CODE, skipping its data, which the boot writes
+>      before the ROM is asked (41 bytes on the first build: the boot timer,
+>      `[spl_fseg]`, every `vid_*`);
+>    * every site checked before any is written.
+> 2. **`.cold` is still read and expanded on a ROM machine.** Test 1 needs
+>    it, so section 3.4.6's boot saving is the open follow-on.
+> 3. **The blob is lifted three sectors** (`BLOB_LIFT`). With `.cold` on top,
+>    the packed tail's sector-rounded read reached stage 2 itself, which died
+>    at 0000:0068. There is a guard for it now, on every build.
+> 4. **`mod_need` hands the ROM the module's ROW, not its id.** `mod_check`
+>    clobbers DI, and the first ROM was handed 8C58 as a module number.
+> 5. **The doorbell is the boot overlay's, not stage 2's.** `kmain_o`'s first
+>    instruction calls it. In `.boot2` it cost four kern_small knob kernels
+>    their build, because a knob gives the loader's slack to the overlay.
+>
+> The testbed is 5150 #2 (docs/FIELD-MACHINES.md): GLaBIOS on a One ROM, and
+> two more One ROMs across U28–U32.
+
+It was asked for on branch `rom-plan`, cut from `elendilon` at `351461a`
+(build 358). The original Macintosh kept part of its system in a 64KB ROM. The
+question is whether os8088 can do the same with the ROM sockets an IBM PC
+already has, in two forms:
 
 1. **The kernel.** Put ~32KB of kernel code in ROM so it stops costing resident
    RAM. Look at two shapes: a normal disk kernel that DETECTS the ROM and does

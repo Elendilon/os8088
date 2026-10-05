@@ -612,13 +612,21 @@ def report(cur, base, variant="big", out=sys.stdout):
     # the heap's start is the figure every RAM number in this project falls
     # out of (docs/KERNEL-MEMORY.md, "heap KB = int 12h - this").
     ks = cur["kseg"]
-    cold = ks + cur["imgpara"]
-    fat = cold + cur["coldpara"]
-    low = fat + cur["fatpara"]
-    vgabuf = low + cur["lowpara"]
-    p(f"{tag} ladder     KERNEL {ks:#06x}  COLD {cold:#06x}"
-      f"  FAT {fat:#06x}  LOW {low:#06x}  VGABUF {vgabuf:#06x}"
-      f"  HEAP {cur['kend']:#06x}"
+    # the bases as the kernel computed them, in ADDRESS order - ROM_COLD puts
+    # COLD under VGABUF rather than under FAT (docs/plans/ROM-PLAN.md 3.4.2);
+    # a kernel older than the four `%assign`s falls back to the old order
+    if "colds" in cur:
+        rungs = sorted((cur[k], n) for k, n in (("colds", "COLD"),
+                       ("fats", "FAT"), ("lows", "LOW"), ("vgas", "VGABUF")))
+    else:
+        cold = ks + cur["imgpara"]
+        fat = cold + cur["coldpara"]
+        low = fat + cur["fatpara"]
+        rungs = [(cold, "COLD"), (fat, "FAT"), (low, "LOW"),
+                 (low + cur["lowpara"], "VGABUF")]
+    p(f"{tag} ladder     KERNEL {ks:#06x}  "
+      + "  ".join(f"{n} {v:#06x}" for v, n in rungs)
+      + f"  HEAP {cur['kend']:#06x}"
       f" = {cur['kend'] * 16 / 1024:.1f} KB   (heap KB = int 12h"
       f" - {cur['kend'] * 16 / 1024:.1f})")
 

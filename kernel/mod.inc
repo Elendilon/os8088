@@ -418,6 +418,24 @@ mod_need:
 
     call mod_check
     jc .freefail
+%ifdef ROM_COLD
+    ; A MODULE ON A ROM MACHINE (docs/plans/ROM-PLAN.md 3.4.4) far-calls
+    ; `.cold` at COLD_RAM, the segment it was assembled against, and `.cold`
+    ; runs at the ROM's. The ROM carries each module's list of those words and
+    ; re-points them; it checks every one names COLD_RAM first, so a module
+    ; it was not cut against is refused here rather than run. BX is the ROW -
+    ; NOT DI's id, which mod_check has just clobbered (it is documented to,
+    ; and the first kernel ROM was handed 8C58 as a module number) - and the
+    ; ROM knows mod_tab, so it derives the id itself. BP is the bytes the read
+    ; brought in (the settings core reads a PART).
+    cmp word [api_coldseg], COLD_RAM
+    je .ramcold
+    mov es, [bx+MODR_SEG]
+    mov cx, bp
+    call far [rom_mfp]
+    jc .freefail
+.ramcold:
+%endif
 
 %ifdef MOD_BSS
     ; --- the claim's TAIL is the module's own bss, and it starts zeroed -----
