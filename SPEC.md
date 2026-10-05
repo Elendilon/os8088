@@ -2212,8 +2212,11 @@ Three consequences of the move, and they are the boot overlay's word for word
 - **`spl_step`, `spl_finish` and `spl_reset` are far**, through `spl_fp` /
   `spl_fseg` and the `SPLCALL` macro — `OVLCALL`'s shape exactly, and for the
   same reason: stage 1 chose where `.boot2` landed, so its segment is not a
-  constant. The pair is seeded `COLD_SEG:mod_gone`, so a call made before stage
-  2 has published itself refuses (§2.8.1) rather than jumping through a zero.
+  constant. The pair's segment is seeded **0**, which every call through it
+  tests first (§2.9.5.1), so a call made before stage 2 has published itself
+  is skipped rather than made. It was seeded `COLD_SEG:mod_gone` and tested
+  with `jbe`, which was right only while `.cold` sat below every heap segment
+  (docs/plans/ROM-PLAN.md 3.3).
 
 **`mem_init` stops the heap below it.** The blob is live until `spl_finish`,
 which is after `drv_boot`, and the first `mem_claim_hi` in the machine —
@@ -2328,10 +2331,12 @@ Field-reported as a run of blocks ending at 31 on a machine frozen past it.
 
 ##### 2.9.5.2 …and the guard costs 20 bytes a site, so `.text` shares one
 
-`SPLCALL`/`OVLCALL` expand to **20 bytes**, measured, not counted by eye:
+`SPLCALL`/`OVLCALL` expanded to **20 bytes**, measured, not counted by eye:
 `pushf` 1, `cmp word [spl_fseg], COLD_SEG` 6, `jbe` 2, `mov word [spl_fp],
-imm16` 6, `call far [spl_fp]` 4, `popf` 1. There are **19 sites**, so §2.9.5.1's fix
-costs **361 bytes** of a kernel whose whole reason for existing this branch was
+imm16` 6, `call far [spl_fp]` 4, `popf` 1. (They are 19 now: the sentinel is 0,
+and `cmp word [spl_fseg], 0` takes an 8-bit immediate - docs/plans/ROM-PLAN.md
+3.3.) There were **19 sites**, so §2.9.5.1's fix
+cost **361 bytes** of a kernel whose whole reason for existing this branch was
 to give 1,024 back.
 
 **The macro is that expensive because it is that portable.** It contains no
@@ -2420,9 +2425,10 @@ time `kmain` runs, both are up. **On a loader that does not tick — and a
 is zero for ever, and every `SPLCALL`/`SPLGATE` in the kernel is silently
 skipped, `.ovl` included** (§2.9.9).
 
-So the guard asks `[spl_fseg]`, against `COLD_SEG` — the image's own default for
+So the guard asks `[spl_fseg]`, against **0** — the image's own default for
 that word, and `mem_init`'s existing test for it, so this is not a new sentinel.
-`kmain` puts `COLD_SEG` back one line after `SPLGATE splf_finish`, which is what
+(It was `COLD_SEG` with `jbe`; ROM-PLAN 3.3 is why it is zero with `je`.)
+`kmain` puts 0 back one line after `SPLGATE splf_finish`, which is what
 retires the blob now; `spl_finish` still clears `[spl_live]`, because handing
 the screen back is the other fact and still has its own users in `viddet.inc`,
 `vidsel.inc` and `fprog.inc`.

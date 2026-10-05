@@ -1217,8 +1217,10 @@ def main():
     TOPL = re.compile(r'^([A-Za-z_]\w*):')
     FARC = re.compile(r'\bcall\s+(?:far\s+)?\w+\s*:\s*([A-Za-z_]\w*)')
     NRC  = re.compile(r'\bcall\s+(?:near\s+)?([A-Za-z_]\w*)\s*$')
-    # BLOBCALL is `push cs` + a near call: a FAR frame, so its target owns a retf
-    BLOBF = re.compile(r'\bBLOBCALL\s+([A-Za-z_]\w*)')
+    # BLOBCALL is `push cs` + a near call: a FAR frame, so its target owns a
+    # retf - and COLDCALL is the same two instructions inside `.cold`
+    # (kernel.asm, docs/plans/ROM-PLAN.md 3.2), judged the same way
+    BLOBF = re.compile(r'\b(?:BLOBCALL|COLDCALL)\s+([A-Za-z_]\w*)')
     #
     # A LABEL IS COLLECTED AS A LIST OF EXTENTS, NOT AS ONE.  `%ifdef
     # KERN_BIG` / `%else` is the ordinary shape for a routine whose small-

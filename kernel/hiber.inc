@@ -504,7 +504,7 @@ hb_ok_x:
     push bx
     push cx                     ; ...and these two, for the reason above
     push dx
-    call COLD_SEG:hb_pick_x     ; the volume a hibernate would go to
+    COLDCALL hb_pick_x          ; the volume a hibernate would go to
     mov bx, menu_s_hibernh      ; ...none: '(no disk)'. A `mov` writes no
     jc .set                     ; flag, so the string can be chosen first
     call KERNEL_SEG:HB_API_XCAPS    ; BL = free block-table entries; on a

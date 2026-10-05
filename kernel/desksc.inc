@@ -167,7 +167,7 @@ sc_open:
     mov si, sc_nul              ; ...and NO name: its extension picks the
 .run:                           ; program, which is the double-click
     xor cx, cx
-    call COLD_SEG:ldf_ld_pkg_start
+    COLDCALL ldf_ld_pkg_start
     jnc .back
     call ld_say_status          ; the Disk window's verdicts (SPEC.md 22.9)
 .back:

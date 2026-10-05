@@ -1799,7 +1799,7 @@ fcp_xfer:
     call fcp_wprep
 %ifdef KERN_BIG
     mov al, WSQF_HELD           ; ONE HELD STREAM per file (SPEC.md 22.5.3):
-    call COLD_SEG:dwf_dskw_write_seq    ; no lookup and no walk a chunk, and
+    COLDCALL dwf_dskw_write_seq ; no lookup and no walk a chunk, and
                                 ; no FAT or directory write until the close
                                 ; below - a partial copy is deleted anyway,
                                 ; so HELD's one loss is nothing
@@ -1818,7 +1818,7 @@ fcp_xfer:
 .fin:
 %ifdef KERN_BIG
     xor cx, cx                  ; THE CLOSE: the stream's link, FAT and size.
-    call COLD_SEG:dwf_dskw_write_seq    ; Nothing held (one chunk, a
+    COLDCALL dwf_dskw_write_seq ; Nothing held (one chunk, a
     jc .err                     ; redirected copy) answers AX = 0 at once; a
 %endif                          ; failure is the disk's, and the partial copy
                                 ; goes with it

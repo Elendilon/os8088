@@ -1700,7 +1700,7 @@ ld_pkg_byname:
                                 ; caller stands, and the caller is the one who
                                 ; told us the document's own dir and volume
                                 ; anyway (both are banked above)
-    call COLD_SEG:assoc_run_x   ; **CALLED, NOT POSTED**: this slot already
+    COLDCALL assoc_run_x        ; **CALLED, NOT POSTED**: this slot already
                                 ; requires the UI task with the gfx lock FREE
                                 ; (21.5), which is the context assoc_run
                                 ; wants - so there is nothing to defer to.

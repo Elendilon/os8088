@@ -303,6 +303,16 @@ FAST = [
         "which no package can reach - it belongs beside a boot or geometry "
         "change",
         needs=("nasm",)),
+    Row("coldpic", "soak", py("tools/os88romfix.py", "--check"), 9.0,
+        "docs/plans/ROM-PLAN.md 3.2: `.cold` must not NAME its own segment - "
+        "no `call COLD_SEG:`, no `dw COLD_SEG`, no compare against it - so "
+        "that one image runs wherever it is found, in RAM or in a 5150's ROM "
+        "sockets. The kernel is assembled twice with .cold's code segment at "
+        "two values and every word that moves is a fixup; one INSIDE .cold "
+        "is a ROM that runs the wrong code. COLDCALL/COLDSEG_TO refuse to "
+        "assemble outside .cold, which is the other half. SOAK: a kernel "
+        "internal no package can reach",
+        needs=("nasm",)),
     Row("bootfloor", "soak", py("tests/unit/t_bootfloor.py"), 3.5,
         "stage 1's RAM floor against the kernel's own ladder (SPEC.md 2.7.1) "
         "- HEAP_PARA is INJECTED, so the two can disagree, and guard 5c used "

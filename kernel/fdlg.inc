@@ -375,7 +375,11 @@ fdlg_seed:
     jc .root                    ; listing store lists nothing, so MEDIA
     cmp byte [dsk_vkind], DVK_FILE ; is looked up BY NAME in the directory
     je .root                    ; (dskw_stat), not in a listing (SPEC.md
+%ifdef FDLG_MOD
     call COLD_SEG:dwf_dskw_stat ; 38.10). A redirected volume's stat writes
+%else
+    COLDCALL dwf_dskw_stat      ; (`.cold` on kern_big: ROM-PLAN 3.2)
+%endif
     jc .root                    ; nothing, so it is the root there. SI is
     test al, 0x10               ; kept; AL = the attribute, BX = the cluster
     jnz .got                    ; a FILE called MEDIA is not the folder
@@ -597,7 +601,11 @@ FDBODY fdlg_reap_x
     ; 20.14.6.2.1's line for where a sniff belongs. ES is banked round it
     ; (a sniff spends it, and this routine gives every register back).
     mov si, fdlg_name
+%ifdef FDLG_MOD
     call COLD_SEG:dwf_dskw_stat ; CF=0: AL = attribute, DX:CX = the size
+%else
+    COLDCALL dwf_dskw_stat      ; CF=0: AL = attribute, DX:CX = the size
+%endif
     jc .zero                    ; no such name in this folder
     test al, 0x10
     jnz .zero                   ; a folder has no size to report

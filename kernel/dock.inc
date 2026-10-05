@@ -211,8 +211,8 @@ DK_NENT       equ 2             ; DOCK.DRV's mod_fp entries: hook, unhook
                                 ; so calling one with nothing mounted refuses
 
 dkb_geom:
-    cmp word [spl_fseg], COLD_SEG
-    jbe .panel
+    cmp word [spl_fseg], 0
+    je .panel
     OVLGATE1 ovl_dock_geom
     ret
 .panel:

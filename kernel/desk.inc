@@ -1322,7 +1322,7 @@ desk_select:
     xchg al, ah
     call .one                   ; ...and the new one gains it
 %ifdef OS88_SHORTCUTS
-    call COLD_SEG:desk_zones_paint_x
+    COLDCALL desk_zones_paint_x
 %endif
     call ct_cw_gfx_unlock
     clc

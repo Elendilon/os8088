@@ -574,7 +574,7 @@ mod_disarm:
     call mod_fpr                ; DI = the block, CX = its count
 .slot:
     mov word [di], mod_gone
-    mov word [di+2], COLD_SEG
+    COLDSEG_TO word [di+2]      ; mod_gone is .cold's own (ROM-PLAN 3.2)
     add di, 4
     loop .slot
     ret

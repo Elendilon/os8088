@@ -508,8 +508,8 @@ mem_init_x:
     ; A blob ABOVE the floor is not tested for: stage 2 puts itself exactly on
     ; HEAP_SEG and the floor is HEAP_SEG or one VGABUF rung below it, so the
     ; raise is never a lowering. What IS tested is the seed.
-    cmp word [spl_fseg], COLD_SEG
-    jbe .nospl
+    cmp word [spl_fseg], 0
+    je .nospl
     mov ax, [spl_fseg]
     add ax, BOOT2_PAD / 16      ; ...the paragraph past the blob's last byte
 .nospl:

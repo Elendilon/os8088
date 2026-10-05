@@ -5232,12 +5232,18 @@ api_name2:  times 13 db 0       ; slots are reachable before anything clears
 ; for the pointer instead of four per site. It is .text and not .bss for the
 ; reason api_name is: `-f bin` zeroes nothing.
 ;
-; COLD_SEG:mod_gone is the seed rather than zero, which is SPEC.md 2.8.1's rule
-; that an unreached slot REFUSES (`stc` / `retf`) instead of naming the
-; divide-by-zero vector - and it is what makes a kernel started some other way
-; survive a spl_step.
+; ZERO IS "NO BLOB", and it is the seed and the retirement value both. Every
+; far call through this pair is behind that test - SPLCALL, OVLCALL(C),
+; spl_gate and sch_isr's copy - and BLOBCALL is the only call that skips it,
+; from inside the blob, where the blob is aboard by construction. That guard is
+; what makes a kernel started some other way survive a spl_step; the pointer's
+; seed never was. It used to be COLD_SEG:mod_gone, tested with `jbe` - which
+; was right only because `.cold` sits BELOW every heap segment, and is wrong
+; the moment `.cold` is found in ROM above it (docs/plans/ROM-PLAN.md 3.3).
+; Zero names no segment at all, so the test is the same in `.text`, `.ovl` and
+; `.cold`, and `cmp word [m], 0` is a byte shorter than an imm16 compare.
 spl_fp:     dw mod_gone
-spl_fseg:   dw COLD_SEG
+spl_fseg:   dw 0
 
 ; ...AND AN INTERRUPT MAY NOT BORROW THAT WORD (SPEC.md 15.3.8.3). SPLCALL
 ; stages its target in [spl_fp] and does the `call far` two instructions later,
@@ -5251,7 +5257,7 @@ spl_fseg:   dw COLD_SEG
 ; than mirroring it: [spl_fseg] is written once when stage 2 publishes the blob
 ; and once when kmain gives it back, and the copy is two instructions.
 spl_ifp:    dw mod_gone
-spl_ifseg:  dw COLD_SEG
+spl_ifseg:  dw 0
 
 api_sysfp:  dw dwf_dskw_write_sys  ; which verb the shared fenced cell runs:
             dw COLD_SEG         ; dskw_write_sys or dskw_append_sys, as the
@@ -5386,8 +5392,8 @@ api_sysfp:  dw dwf_dskw_write_sys  ; which verb the shared fenced cell runs:
 ; when it goes wrong.
 %macro SPLCALL 1
     pushf
-    cmp word [spl_fseg], COLD_SEG
-    jbe %%dead
+    cmp word [spl_fseg], 0
+    je %%dead
     mov word [spl_fp], %1
     call far [spl_fp]
 %%dead:
@@ -5396,8 +5402,8 @@ api_sysfp:  dw dwf_dskw_write_sys  ; which verb the shared fenced cell runs:
 
 %macro OVLCALL 1
     pushf
-    cmp word [spl_fseg], COLD_SEG
-    jbe %%dead
+    cmp word [spl_fseg], 0
+    je %%dead
     mov word [spl_fp], %1
     call far [spl_fp]
 %%dead:
@@ -5415,8 +5421,8 @@ api_sysfp:  dw dwf_dskw_write_sys  ; which verb the shared fenced cell runs:
 ; `SPLCALL splf_step`, inside a run loop with its own CF in flight. **This form
 ; must never go there.**
 %macro OVLCALLC 1
-    cmp word [spl_fseg], COLD_SEG
-    jbe %%dead
+    cmp word [spl_fseg], 0
+    je %%dead
     mov word [spl_fp], %1
     call far [spl_fp]
     jmp short %%done
@@ -5509,6 +5515,32 @@ api_sysfp:  dw dwf_dskw_write_sys  ; which verb the shared fenced cell runs:
 %macro BLOBCALL 1
     push cs
     call %1
+%endmacro
+
+; COLDCALL / COLDSEG_TO - `.cold` reaching its OWN segment without NAMING it
+; (docs/plans/ROM-PLAN.md 3.2). A far entry in `.cold` called from `.cold` is
+; BLOBCALL's shape - `push cs` + a near call builds the far frame its `retf`
+; wants - and a far pointer back into `.cold` takes the segment from CS. Either
+; spelling of `COLD_SEG` would be a fixup INSIDE `.cold`, and `.cold` with none
+; is one image that runs at whatever segment it is found at - in RAM or in ROM.
+; It is also a byte shorter a call and two a store.
+;
+; The one place `.cold` may take a segment from CS, and only through these two:
+; tools/os88ovlchk.py's rule 2 still refuses a bare `push cs` or `mov x, cs`
+; there, and the macros refuse to assemble anywhere but `.cold` - which the
+; preprocessor knows exactly, %ifdef arms included, where a source scan cannot.
+%macro COLDCALL 1
+%ifnidn __?SECT?__, [section .cold]
+  %error "COLDCALL outside .cold - CS is not COLD_SEG here; use call COLD_SEG:"
+%endif
+    push cs
+    call %1
+%endmacro
+%macro COLDSEG_TO 1
+%ifnidn __?SECT?__, [section .cold]
+  %error "COLDSEG_TO outside .cold - CS is not COLD_SEG here"
+%endif
+    mov %1, cs
 %endmacro
 %macro MARKW 1
 %ifdef BOOT_MARK
@@ -5979,10 +6011,10 @@ kmain:
     ; 2.9.5.3). Pointing `spl_fp` at a resident `retf` was tried and lasted
     ; exactly until the next SPLCALL, which writes the OFFSET half alone
     ; (2.9.5.1); the guard then asked [spl_live], which is a different fact
-    ; and cost a hard-disk boot its whole boot overlay (2.9.9). COLD_SEG is
-    ; the image's own default for this word - mod_gone - so putting it back is
-    ; putting it back, not inventing a sentinel.
-    mov word [spl_fseg], COLD_SEG
+    ; and cost a hard-disk boot its whole boot overlay (2.9.9). 0 is the
+    ; image's own default for this word (spl_fp's comment), so putting it back
+    ; is putting it back, not inventing a sentinel.
+    mov word [spl_fseg], 0
     call COLD_SEG:mem_unblob_x
     MARK 32
     BPMARK 8                    ; ...the store above 1MB, the palette, the bar
@@ -6738,8 +6770,8 @@ MOD_NSLOT equ (mod_fp_end - mod_fp) / 4
 ; SPLCALL form and the 8-byte landing pad had nothing left to land.
 spl_gate:
     pushf
-    cmp word [spl_fseg], COLD_SEG
-    jbe .dead
+    cmp word [spl_fseg], 0
+    je .dead
     call far [spl_fp]
 .dead:
     popf

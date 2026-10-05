@@ -24,6 +24,8 @@ build/). Usage:
 
     python3 tools/os88romfix.py            # both kernels
     python3 tools/os88romfix.py --json
+    python3 tools/os88romfix.py --check    # the gate: exit 1 if any fixup
+                                           # lands INSIDE .cold (ROM-PLAN 3.2)
 """
 
 import argparse
@@ -172,6 +174,9 @@ def measure(tmp, variant):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--check", action="store_true",
+                    help="exit 1 if any fixup is inside .cold: one .cold image "
+                         "has to run at whatever segment it is found at")
     args = ap.parse_args()
     if not os.path.exists(os.path.join(ROOT, "build", "buildnum.inc")):
         fail("build/ has no generated includes - run `make` first")
@@ -188,6 +193,20 @@ def main():
             res[v.lower()] = measure(tmp, v)
     if args.json:
         print(json.dumps(res, indent=2))
+        return
+    if args.check:
+        bad = [(v, x) for v, r in res.items() for x in r["inside_cold"]]
+        for v, x in bad:
+            print(f"os88romfix[{v}]: .cold names its own segment at "
+                  f"{x['at']} ({x['kind']}) - use COLDCALL / COLDSEG_TO "
+                  f"(kernel.asm), or keep `call COLD_SEG:` only where the "
+                  f"line is not .cold on this kernel", file=sys.stderr)
+        if bad:
+            sys.exit(f"os88romfix: {len(bad)} fixup(s) inside .cold - "
+                     "docs/plans/ROM-PLAN.md 3.2")
+        print("os88romfix: .cold names no segment of its own on either "
+              "kernel (%s)" % ", ".join(f"{v} {r['fixups']} fixups outside"
+                                        for v, r in res.items()))
         return
     for v, r in res.items():
         secs = "  ".join(f"{k} {n}" for k, n in

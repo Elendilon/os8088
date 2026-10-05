@@ -2301,8 +2301,8 @@ sch_isr:
 %if spl_quiet - spl_busy != 1
   %error "sch_isr tests [spl_busy] and [spl_quiet] as one word: viddet.inc must keep spl_quiet directly after spl_busy"
 %endif
-    cmp word [spl_fseg], COLD_SEG   ; the blob has been given back (2.9.5)
-    jbe .nospl
+    cmp word [spl_fseg], 0   ; the blob has been given back (2.9.5)
+    je .nospl
     inc byte [spl_busy]
     mov word [spl_ifp], splf_anim
     mov ax, [spl_fseg]
