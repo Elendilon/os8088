@@ -196,6 +196,12 @@ line:
   the line rather than carrying the number, which is exactly what the two
   figures in this bullet failed at: they read 111.5 and 80.5 for a while
   after the kernel had come down under both).
+  The heap figure is for a machine WITHOUT the ROM; with it, the cold rung
+  is heap too (SPEC.md 2.10).
+- **`rom`** — `.cold` against the 40,944 bytes the 5150's U28–U32 window
+  holds before `boot/osrom.asm`'s tail (SPEC.md 2.10, ROM-PLAN 3.6). A report
+  and not a gate: a `.cold` past it means no ROM can be cut, and the disks
+  boot the same. `make rom` prints the exact spare once the tail is in.
 - **`*** ... CROSSED`** (or `UNCROSSED`) — the BILLING EVENT: the machine's
   RAM moved.
 

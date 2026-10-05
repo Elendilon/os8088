@@ -181,6 +181,22 @@ KFLAGS = ["-DKZIP", "-DKZ_SECS=0", "-DKZ_RPARA=0", "-DKZ_NBLK=1",
           "-DKZ_HEADSEC=9"]          # the Makefile's first-pass kernel-full
 
 
+def kflags(build):
+    """The defines the build's kernel-full.bin was LAST assembled with. A
+    packed kernel's is the Makefile's PASS 2 (SPEC.md 2.9.13), which overwrites
+    kernel-full.bin with the packed file's numbers - and those reach more than
+    `.boot2`: `.ovl` names stage-2 labels through CS (driver.inc's
+    `and al, [cs:b2_cylok]`), and `.boot2` grows with them. kernel.kz.json is
+    what pass 2 wrote, and os88kz.py --defines is the line it was given."""
+    js = os.path.join(build, "kernel.kz.json")
+    if not os.path.exists(js):
+        return KFLAGS
+    import json
+    n = json.load(open(js))
+    return ["-DKZIP", f"-DKZ_SECS={n['ksecs']}", f"-DKZ_RPARA={n['rpara']}",
+            f"-DKZ_HEADSEC={n['headsecs']}", f"-DKZ_NBLK={n['nblk']}"]
+
+
 def _sections(maptext):
     out = {}
     for m in re.finditer(r"^\s*([0-9A-F]+)\s+([0-9A-F]+)\s+([0-9A-F]+)\s+"
@@ -217,7 +233,7 @@ def _assemble(tmp, build, variant, defs=(), inc_first=None, mapkind=None):
         incs += ["-I", inc_first + "/"]
     incs += ["-I", build + "/"]
     cmd = ["nasm", "-f", "bin", "-w+error", *incs, f"-D{variant}",
-           *KFLAGS, *defs, "-o", out, src]
+           *kflags(build), *defs, "-o", out, src]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode:
         fail("nasm refused the kernel:\n" + r.stderr[-2000:])
@@ -263,13 +279,20 @@ def _data_labels():
             if m and not code[0].isspace():
                 rest = (m.group(2) or "").strip()
                 if not rest:
-                    pending = m.group(1)
+                    if pending:         # a label that EMITS NOTHING (mod.inc's
+                        names.add(pending)  # mod_tab_end, a pure marker) is
+                    pending = m.group(1)    # not code either - left in, it
+                    continue                # takes the next data's span
+                if pending and re.match(r"equ\b", rest):
+                    names.add(pending)
+                    pending = None
                     continue
                 if DATA_DIR.match(" " + rest):
                     names.add(m.group(1))
                 pending = None
                 continue
-            if pending and DATA_DIR.match(code):
+            if pending and (DATA_DIR.match(code) or
+                            re.match(r"\s*section\b", code)):
                 names.add(pending)
             pending = None
     return names
@@ -286,6 +309,18 @@ def _symbol_any(maptext, name):
         except ValueError:
             pass
     fail(f"{name} is in neither .text nor .bss")
+
+
+VGAB_LINE = "VGABUF_SEG  equ VGABUF_RAM\n"
+
+
+def decouple_vgab(src):
+    """os88romfix.decouple's shape for the planar decoder's segment."""
+    if VGAB_LINE not in src:
+        fail("kernel.asm's ladder no longer reads `VGABUF_SEG  equ VGABUF_RAM`"
+             " - update VGAB_LINE")
+    return src.replace(VGAB_LINE, "%ifdef VGAB_CS\nVGABUF_SEG equ VGAB_CS\n"
+                       "%else\nVGABUF_SEG equ VGABUF_RAM\n%endif\n", 1)
 
 
 def kernel_tables(build, variant):
@@ -305,10 +340,12 @@ def kernel_tables(build, variant):
         with open(kp) as f:
             src = f.read()
         with open(kp, "w") as f:
-            f.write(os88romfix.decouple(src))
+            f.write(decouple_vgab(os88romfix.decouple(src)))
         a, amap = _assemble(tmp, build, variant, mapkind="all")
         f1, _ = _assemble(tmp, build, variant, (f"-DCOLD_CS=0x{FIX_A:04X}",))
         f2, _ = _assemble(tmp, build, variant, (f"-DCOLD_CS=0x{FIX_B:04X}",))
+        v1, _ = _assemble(tmp, build, variant, (f"-DVGAB_CS=0x{FIX_A:04X}",))
+        v2, _ = _assemble(tmp, build, variant, (f"-DVGAB_CS=0x{FIX_B:04X}",))
         bn = os.path.join(tmp, "bn")
         os.makedirs(bn)
         with open(os.path.join(bn, "buildnum.inc"), "w") as f:
@@ -383,6 +420,35 @@ def kernel_tables(build, variant):
                      f"can reach")
         i += 2
 
+    # THE PLANAR DECODER'S BUFFERS (kern_big; ROM-PLAN 3.4.2): the words in
+    # `.text` that name the `.vgabuf` rung, which the ROM moves to the bottom
+    # of the dead cold rung so the heap floor falls past both. The same
+    # two-assembly diff, one equate along; there is one site today
+    # (vga12.inc's `mov ax, VGABUF_SEG`), and a NOPLANE kernel has none
+    vseen = set()
+    vgabram = coldram + (cen - cst + 511) // 512 * 32
+    lists["vgab"] = []
+    if len(v1) != len(a) or len(v2) != len(a):
+        fail("moving `.vgabuf`'s segment changed the kernel's size")
+    for i in range(len(v1) - 1):
+        if v1[i] == v2[i]:
+            continue
+        if i and v1[i - 1] != v2[i - 1] and (i - 1) in vseen:
+            continue
+        w1 = v1[i] | v1[i + 1] << 8
+        w2 = v2[i] | v2[i + 1] << 8
+        if (w2 - w1) & 0xFFFF != FIX_B - FIX_A or w1 != FIX_A:
+            fail(f"file offset {i:#x} moves with `.vgabuf`'s segment but is "
+                 f"not a plain word naming it")
+        if a[i] | a[i + 1] << 8 != vgabram:
+            fail(f"file offset {i:#x} is a `.vgabuf` site but the plain kernel "
+                 f"does not hold VGABUF_RAM ({vgabram:#06x}) there")
+        if not tst <= i < ten:
+            fail(f"a `.vgabuf` site at file offset {i:#x} is outside `.text` - "
+                 f"the ROM moves only `.text`'s")
+        lists["vgab"].append(i - tst)
+        vseen.add(i)
+
     # the build number's words, out of the hash
     skip = set()
     for i in range(tst, ten):
@@ -396,6 +462,36 @@ def kernel_tables(build, variant):
     # directive is left out to the next label. One this misses makes the hash
     # disagree and the ROM REFUSE, which is the safe way round, and
     # tests/romsmall.py's leg A is what would show it.
+    # THE ROWS, which are not the images: kern_big's settings core
+    # (MOD_SETS, SPEC.md 2.8.7) is a row over CTRL.DRV's image. The ROM is
+    # asked per ROW (mod_need hands it BX = the row), so every table it
+    # indexes by row has one entry per row - mod_tab to mod_tab_end - and a
+    # row's image is the one whose file name it points at. The first W3 ROM
+    # sized its tables by image, and refused the settings core outright.
+    modtab = _symbol_any(amap, "mod_tab")
+    nrows = (_symbol_any(amap, "mod_tab_end") - modtab) // 4
+    text_b = a[tst:ten]
+    def cstr(off):
+        e = text_b.index(0, off)
+        return text_b[off:e].decode("ascii")
+    fileof = [text_b[modtab + 4 * r + 2] | text_b[modtab + 4 * r + 3] << 8
+              for r in range(nrows)]
+    if nrows < len(rows):
+        fail(f"mod_tab has {nrows} rows and the kernel cuts {len(rows)} "
+             f"images - a row per image is the least there can be")
+    rowimg = []
+    for r in range(nrows):
+        if r < len(rows):
+            rowimg.append(r)
+            continue
+        same = [j for j in range(len(rows)) if fileof[j] == fileof[r]]
+        if len(same) != 1:
+            fail(f"mod_tab row {r} names {cstr(fileof[r])!r}, which is no "
+                 f"one image's file")
+        rowimg.append(same[0])
+    names = [cstr(fileof[j]) for j in range(len(rows))]
+    images = [bytes(a[st:st + sz]) for st, sz, _ne in rows]
+
     tsyms = _section_symbols(amap, ".text")
     data = _data_labels()
     addrs = [v for v, _ in tsyms]
@@ -417,9 +513,11 @@ def kernel_tables(build, variant):
     text = a[tst:ten]
     h = text_hash(text, spans)
     return {"coldram": coldram, "fatseg": fatseg, "kseg": kseg,
+            "vgabram": vgabram,
             "cold": a[cst:cen], "hash": h, "spans": spans, "lists": lists,
             "nmods": len(rows), "mfp": _symbol(amap, ".text", "rom_mfp"),
-            "modtab": _symbol_any(amap, "mod_tab"),
+            "modtab": modtab, "rowimg": rowimg, "names": names,
+            "images": images,
             "text": text, "skipwords": sorted(skip)}
 
 
@@ -434,7 +532,11 @@ def text_hash(text, spans):
     return h
 
 
-def write_romtab(t, path):
+def write_romtab(t, path, held=None, pkg=None):
+    """`held` = {image index: offset in the window}; `pkg` = (8.3 name,
+    offset, bytes) or None. Neither changes the tail's LENGTH except a pkg
+    of None, which takes rom_pkg's body out (shorter, never longer)."""
+    held = held or {}
     L = t["lists"]
     out = [f"; generated by tools/os88rom.py - ROM-PLAN 3.4.3. Do not edit.",
            f"RT_KSEG     equ 0x{t['kseg']:04X}",
@@ -448,7 +550,11 @@ def write_romtab(t, path):
            f"RT_NTEXT    equ {len(L['text'])}",
            f"RT_NOVLW    equ {len(L['ovlw'])}",
            f"RT_NOVL     equ {len(L['ovl'])}",
-           f"RT_NMODS    equ {t['nmods']}"]
+           f"RT_VGABRAM  equ 0x{t['vgabram']:04X}",
+           f"RT_NVGAB    equ {len(L['vgab'])}",
+           f"RT_NMODS    equ {len(t['rowimg'])}",
+           f"RT_PKGOFF   equ 0x{pkg[1] if pkg else 0:04X}",
+           f"RT_PKGLEN   equ {pkg[2] if pkg else 0}"]
 
     def words(label, ws):
         out.append(f"{label}:")
@@ -462,27 +568,88 @@ def write_romtab(t, path):
     words("rt_text", L["text"])
     words("rt_ovlw", L["ovlw"])
     words("rt_ovl", L["ovl"])
-    out.append("rt_mods:")
-    for n in range(t["nmods"]):
+    words("rt_vgab", L["vgab"])
+    out.append("rt_mods:")                  # per ROW (see kernel_tables)
+    for n in t["rowimg"]:
         out.append(f"    dw rt_mod{n}, {len(L['mods'].get(n, []))}")
     for n in range(t["nmods"]):
         words(f"rt_mod{n}", L["mods"].get(n, []))
+    out.append("rt_img:")                   # ...and the image each row has
+    for n in t["rowimg"]:
+        if n in held:
+            out.append(f"    dw 0x{held[n]:04X}, {len(t['images'][n])}")
+        else:
+            out.append("    dw 0, 0")
+    out.append("rt_pkgname:")
+    out.append(f"    db '{pkg[0] if pkg else ''}', 0")
     with open(path, "w") as f:
         f.write("\n".join(out) + "\n")
 
 
-def build_kernel(build, variant):
+# WHAT ELSE RIDES IN THE WINDOW (ROM-PLAN 4.3, SPEC.md 2.10.5), in the order
+# it is worth having. The first two are why the rest is worth doing at all: on
+# kern_small they are the Standard File dialog and Cut/Copy/Paste, which are
+# read off the system disk and so refuse a Save As onto a data floppy in a
+# one-drive machine. Whatever fits after `.cold` and the tail goes in, greedily
+# in this order, and whatever does not is read off the disk as it always was -
+# so a `.cold` that grows takes a module out of the ROM rather than failing it.
+PRIORITY = ("FDLG.DRV", "FILECP.DRV", "CTRL.DRV", "*PKG*", "FORMAT.DRV",
+            "CLONE.DRV", "EXTD.DRV", "DOCK.DRV", "HIBER.DRV")
+
+
+def pkg_image(path):
+    """A package for ROMF_PKG: the IMAGE the loader runs (unpacked), never a
+    package with parts - OSAPI_PKG_START's image arm refuses those."""
+    sys.path.insert(0, HERE)
+    import os88pkg
+    img = os88pkg.image_unwrap(open(path, "rb").read())
+    if img[3] & 4:
+        fail(f"{path} has parts (SPEC.md 20.12) and the image arm a ROM "
+             f"launches through refuses them")
+    name = os.path.basename(path).upper()
+    if len(name) > 12 or not re.fullmatch(r"[A-Z0-9_]{1,8}\.O88", name):
+        fail(f"{name} is not an 8.3 package name")
+    return name, img
+
+
+def build_kernel(build, variant, pkg=None):
     t = kernel_tables(build, variant)
+    cold = t["cold"]
+    p = pkg_image(pkg) if pkg else None
+    extra_of = lambda tab: (f'-DROMTAB="{tab}"',)
     with tempfile.TemporaryDirectory(prefix="os88rom-t-") as tmp:
         tab = os.path.join(tmp, "romtab.inc")
-        write_romtab(t, tab)
-        cold = t["cold"]
+        # the tail's length does not depend on WHICH images are held (every
+        # row has its entry either way), so measure it once at its largest
+        write_romtab(t, tab, {n: 1 for n in range(t["nmods"])},
+                     (p[0], 1, len(p[1])) if p else None)
+        tail0 = assemble_tail(KIND_KERNEL, 0, extra_of(tab),
+                              build_str(build))
+        room = ROM_SIZE - 1 - len(tail0) - HDR_SIZE - len(cold)
+        byname = {nm: n for n, nm in enumerate(t["names"])}
+        held, payload, pk = {}, bytearray(cold), None
+        for what in PRIORITY:
+            if what == "*PKG*":
+                if p and len(p[1]) <= room:
+                    pk = (p[0], HDR_SIZE + len(payload), len(p[1]))
+                    payload += p[1]
+                    room -= len(p[1])
+                continue
+            n = byname.get(what)
+            if n is None or len(t["images"][n]) > room:
+                continue
+            held[n] = HDR_SIZE + len(payload)
+            payload += t["images"][n]
+            room -= len(t["images"][n])
+        write_romtab(t, tab, held, pk)
 
         def fill(img, a, b):
-            img[a:a + len(cold)] = cold
-        img, tail_at = layout(KIND_KERNEL, len(cold), fill,
-                              extra=(f'-DROMTAB="{tab}"',),
-                              bstr=build_str(build))
+            img[a:a + len(payload)] = payload
+        img, tail_at = layout(KIND_KERNEL, len(payload), fill,
+                              extra=extra_of(tab), bstr=build_str(build))
+    t["held"] = held
+    t["pkg"] = pk
+    t["pkgwant"] = p[0] if p else None
     return balance(img), t
 
 
@@ -502,9 +669,14 @@ def model_adopt(img, kernel, blob, t):
              + [(blob, o) for o in t["lists"]["ovl"]])
     if any(b[o] | b[o + 1] << 8 != t["coldram"] for b, o in sites):
         return False
+    if any(kernel[o] | kernel[o + 1] << 8 != t["vgabram"]
+           for o in t["lists"]["vgab"]):
+        return False
     rcs = (ROM_BASE >> 4) + 1
     for b, o in sites:
         b[o:o + 2] = rcs.to_bytes(2, "little")
+    for o in t["lists"]["vgab"]:
+        kernel[o:o + 2] = t["coldram"].to_bytes(2, "little")
     return True
 
 
@@ -536,6 +708,19 @@ def verify_model(build, img, t):
     k3[off + 100] ^= 0x01
     if model_adopt(img, k3, bytearray(blob), t):
         probs.append("the model adopts a kernel whose .cold differs")
+    # A HELD MODULE IS THE DISK'S, BYTE FOR BYTE: what ROMF_COPY hands
+    # mod_need must be what dskw_read_x would have, or a ROM machine runs a
+    # different Control Panel from the one on the floppy
+    sys.path.insert(0, HERE)
+    import os88drv
+    for n, at in t["held"].items():
+        f = os.path.join(build, t["names"][n].lower())
+        if not os.path.exists(f):
+            probs.append(f"no {f} to compare the ROM's {t['names'][n]} with")
+            continue
+        disk = os88drv.image_unwrap(open(f, "rb").read())
+        if bytes(img[at:at + len(t["images"][n])]) != disk:
+            probs.append(f"the ROM's {t['names'][n]} is not {f}'s image")
     return probs
 
 
@@ -597,6 +782,9 @@ def main():
                     "kernel-full.bin and generated includes")
     ap.add_argument("--small", action="store_true",
                     help="the tree holds kern_small (default kern_big)")
+    ap.add_argument("--pkg", help="a package (.o88) for the ROM to carry, "
+                    "launched through OSAPI_PKG_START's image arm - kern_small "
+                    "alone has that arm (ROM_PKG, SPEC.md 2.10.5)")
     ap.add_argument("--name", help="output name (default osrom-<variant>)")
     ap.add_argument("--out", default=os.path.join(ROOT, "build", "rom"))
     ap.add_argument("--selfcheck", action="store_true")
@@ -617,7 +805,9 @@ def main():
         if not a.build:
             ap.error("kernel needs --build <tree>")
         variant = "KERN_SMALL" if a.small else "KERN_BIG"
-        img, t = build_kernel(os.path.abspath(a.build), variant)
+        if a.pkg and not a.small:
+            ap.error("--pkg is kern_small's: kern_big has no ROM_PKG arm")
+        img, t = build_kernel(os.path.abspath(a.build), variant, a.pkg)
         probs = check(img) + verify_model(os.path.abspath(a.build), img, t)
         if probs:
             fail("; ".join(probs))
@@ -628,10 +818,18 @@ def main():
         print(f"os88rom: {os.path.relpath(path, ROOT)} and its five sockets - "
               f"{variant}'s .cold ({len(t['cold']):,} bytes) at F401, build "
               f"{build_str(a.build)}; {len(L['text'])}+{len(L['ovlw'])}+"
-              f"{len(L['ovl'])} kernel sites, "
+              f"{len(L['ovl'])} kernel sites + {len(L['vgab'])} `.vgabuf`, "
               f"{sum(len(v) for v in L['mods'].values())} in "
-              f"{t['nmods']} modules; {tail_at - HDR_SIZE - len(t['cold']):,} "
-              f"bytes of the window spare")
+              f"{t['nmods']} modules")
+        held = [t["names"][n] for n in sorted(t["held"], key=t["held"].get)]
+        if t["pkg"]:
+            held.append(t["pkg"][0])
+        used = HDR_SIZE + len(t["cold"]) + sum(
+            len(t["images"][n]) for n in t["held"]) + (
+            t["pkg"][2] if t["pkg"] else 0)
+        print(f"os88rom: it also holds {', '.join(held) or 'nothing else'}"
+              f"{'' if not t['pkgwant'] or t['pkg'] else ' - and NOT ' + t['pkgwant'] + ', which did not fit'}"
+              f"; {tail_at - used:,} bytes of the window spare")
         return
     ap.error("say which ROM to build")
 

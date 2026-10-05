@@ -2848,15 +2848,30 @@ BD_IMGS := $(BUILD)/bootdiag360.img $(BUILD)/bootdiag720.img \
 socketrom: $(BUILDINC)
 	python3 tools/os88rom.py socket --out $(BUILD)/rom
 
-# rom: kern_small's `.cold`, cut from $(SMALLDIR) - the ROM `make small`'s disks
-# FIND at boot (ROM-PLAN 3.4, wave 2). Those disks boot the same without it;
-# with it, `.cold` runs from F401 and the heap floor falls by the cold rung
-# (24.5KB, 62.5 -> 86.5KB free on a 128KB machine - tests/romsmall.py, which
-# also proves a ROM one byte away from the kernel is refused). A ROM is cut
-# against ONE kernel: build it from the tree whose disks it will meet.
-.PHONY: rom
-rom: $(BUILD)/small360.img
-	python3 tools/os88rom.py kernel --build $(SMALLDIR) --small --out $(BUILD)/rom
+# rom: the KERNEL ROMs (ROM-PLAN 3.4) - one per kernel, because a ROM is cut
+# against ONE kernel and refuses every other (the ROM itself checks `.cold`
+# byte for byte and a hash over `.text`'s code before it touches anything).
+# Every shipped disk FINDS its ROM at boot and boots the same without it;
+# with it, `.cold` runs from F401 and the heap floor falls by the cold rung.
+#   osrom-big   - kern_big's, for `all`'s disks (wave 3): 37.5KB more heap on
+#                 every adapter, VGA's decoder buffers moved under the floor
+#                 (tests/rombig.py)
+#   osrom-small - kern_small's, for `make small`'s (wave 2): 24.5KB, 62.5 ->
+#                 86.5KB free on a 128KB machine (tests/romsmall.py) - and
+#                 (wave 4) the Standard File dialog, Cut/Copy/Paste, the
+#                 Control Panel, the formatter and the small Task Manager, so
+#                 none of them needs the system disk in a drive
+# Whatever room is left after `.cold` holds modules, in tools/os88rom.py's
+# PRIORITY order (SPEC.md 2.10.5); the tool prints what went in.
+# rom-big / rom-small build one. Build them from the tree whose disks they
+# will meet - a ROM from yesterday's tree is a ROM for yesterday's disks.
+.PHONY: rom rom-big rom-small
+rom: rom-big rom-small
+
+rom-big: $(BUILD)/os8088-360.img
+	python3 tools/os88rom.py kernel --build $(BUILD) --out $(BUILD)/rom
+
+# (rom-small is defined below SMALLAPPDIR, which its prerequisite names)
 
 .PHONY: bootdiag
 # NOMOUPRIV=1 puts BOTH mouse ISRs back on the interrupted TASK's stack, which
@@ -10929,6 +10944,13 @@ FIELDKNOBS := DISKCNT=1
 # design is written to avoid.
 SMALLDIR := $(BUILD)/smallk
 SMALLAPPDIR := $(BUILD)/smallapp
+
+# `make rom`'s kern_small half (see `rom:` above), HERE because a
+# prerequisite is expanded where the rule is read and this one names the
+# small Task Manager the ROM carries (SPEC.md 2.10.5)
+rom-small: $(BUILD)/small360.img $(SMALLAPPDIR)/taskmgr.o88
+	python3 tools/os88rom.py kernel --build $(SMALLDIR) --small \
+	        --pkg $(SMALLAPPDIR)/taskmgr.o88 --out $(BUILD)/rom
                                     # ...and where the small BUILDS of the
                                     # packages go. Beside $(SMALLDIR) because
                                     # both name a directory the small product

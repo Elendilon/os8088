@@ -2514,9 +2514,30 @@ ui_sys_open:
     mov bp, inst_restore        ; un-minimize and show - the app_launch cap
     call ui_lcall               ; path's rule, and now literally its code (BP
                                 ; is on the stack above and comes back at .out)
-    jmp short .out
-
+    jmp .out                    ; (short wherever it reaches: ROM_PKG's arm
+                                ; below is what can push it past 127)
 .load:
+%ifdef ROM_PKG
+    ; THE ROM'S COPY FIRST (docs/plans/ROM-PLAN.md 4.3, SPEC.md 2.10.5): a
+    ; kern_small ROM carries the Task Manager's image, and OSAPI_PKG_START's
+    ; image arm launches a package from a far pointer by COPYING it - the
+    ; same checks, claim and entry call as the disk, with a `rep movsb` where
+    ; the read was. So the menu item works with the system disk out of the
+    ; only drive. Any refusal falls through to the disk, which says why.
+    cmp word [api_coldseg], COLD_RAM
+    je .disk
+    mov bx, [ui_desc]
+    mov si, [bx+UO_FILE]        ; the 8.3 name - the ROM's key, and the name
+    mov al, ROMF_PKG            ; the package is told it was launched as
+    call far [rom_mfp]          ; CF = 0: ES:DI = the image, DX:CX its length
+    jc .disk
+    call COLD_SEG:ldf_ld_pkg_start
+    push ds
+    pop es                      ; (ldf_ld_pkg_start's own note: nothing below
+    jc .disk                    ; may inherit the ES a failure leaves)
+    jmp .out
+.disk:
+%endif
     call osapi_file_here        ; bank where the user was: DX = the directory
     mov [ui_tm_cwd], dx         ; cluster, BL = the drive. Two module words
     mov [ui_tm_drv], bl         ; rather than the stack, because this is

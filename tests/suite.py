@@ -315,6 +315,29 @@ FAST = [
         "against 62.5. SOAK: the subject is a 5150's ROM sockets",
         needs=("marty", "nasm"), serial=True,
         wants=("build/small360.img",)),
+    Row("rombig", "soak", py("tests/rombig.py"), 90.0,
+        "docs/plans/ROM-PLAN.md 3.4, wave 3: the SHIPPED kernel, kern_big, "
+        "with and without the ROM. A-C on a CGA 5150 as romsmall's A-C "
+        "(adopted to F401, floor onto COLD_RAM, CTRL.DRV re-pointed; no ROM; "
+        "a ROM one .cold byte away refused). D-E on the VGA XT, where the "
+        "planar decoder's .vgabuf rung sits ABOVE the cold rung: the ROM "
+        "moves its one segment word to the dead rung's bottom, Paint "
+        "repaints a dithered picture off the byte grid so the decoder runs, "
+        "every row it decodes is on COLD_RAM with the ROM and VGABUF_RAM "
+        "without, and the two screens are identical to the pixel. SOAK: the "
+        "subject is a 5150's ROM sockets",
+        needs=("marty", "nasm"), serial=True),
+    Row("romnodisk", "soak", py("tests/romnodisk.py"), 45.0,
+        "docs/plans/ROM-PLAN.md wave 4, SPEC.md 2.10.5: with kern_small's "
+        "ROM in, the system disk can be OUT. On the 128KB machine, A: is "
+        "swapped for a data floppy after boot, and a Save As chooser "
+        "(FDLG.DRV), the Control Panel (CTRL.DRV) and the Task Manager "
+        "(SYSTEM/TASKMGR.O88) all open - out of the ROM. The control is the "
+        "same session with no ROM, where all three refuse. SOAK: the "
+        "subject is a 5150's ROM sockets",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/small360.img", "build/muptest.img",
+               "build/smallapp/taskmgr.o88")),
     Row("romsock", "soak", py("tests/romsock.py"), 5.0,
         "docs/plans/ROM-PLAN.md 1.3 and 1.7: the socket-check ROM in U28-U32 "
         "on a GLaBIOS 5150 with no disk. The BIOS must find the window as an "

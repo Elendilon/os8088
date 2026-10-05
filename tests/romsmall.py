@@ -50,8 +50,9 @@ SYS = os.path.join(ROOT, "build", "small360.img")
 APPS = os.path.join(ROOT, "build", "apps360.img")
 M640 = "os8088_5150_cga_gla"
 M128 = "os8088_5150_cga_128k"
-MOD_CTRL = 0
-MODR_SIZE = 4
+
+
+EQ = os88sym.equates(DEFS)   # MOD_CTRL, MODR_SIZE: mod.inc's
 
 
 def S(n):
@@ -77,7 +78,8 @@ def boot(rom, machine=M640, panel=True, sites=None):
             mo = os88mouse.Mouse(marty=m)
             dispcp.open_panel(m, mo, S, os88marty.settle, page=None)
             out["panel"] = dispcp._cp_win(m, S) is not None
-            seg = u16(m.read(S("mod_tab") + MOD_CTRL * MODR_SIZE, 2))
+            seg = u16(m.read(S("mod_tab")
+                         + EQ["MOD_CTRL"] * EQ["MODR_SIZE"], 2))
             out["ctrlseg"] = seg
             if seg and sites:
                 out["ctrlsites"] = [u16(m.readseg(seg, o, 2)) for o in sites]
@@ -98,11 +100,13 @@ def main():
         subprocess.run([sys.executable, os.path.join(ROOT, "tools",
                         "os88rom.py"), "kernel", "--build",
                         os.path.join(ROOT, "build", "smallk"), "--small",
+                        "--pkg", os.path.join(ROOT, "build", "smallapp",
+                                              "taskmgr.o88"),
                         "--out", tmp], check=True)
         good = os.path.join(tmp, "osrom-small.bin")
         _img, t = os88rom.build_kernel(os.path.join(ROOT, "build", "smallk"),
                                        "KERN_SMALL")
-        sites = t["lists"]["mods"].get(MOD_CTRL, [])
+        sites = t["lists"]["mods"].get(EQ["MOD_CTRL"], [])
 
         img = bytearray(open(good, "rb").read())
         img[os88rom.HDR_SIZE + 0x1000] ^= 0x01      # one byte of `.cold`
@@ -127,7 +131,7 @@ def main():
              "F401" % (a.get("ctrlseg", 0), len(cs)))
 
         print("B: no ROM, 640KB")
-        b = boot(None)
+        b = boot(False)         # False: $OS88_ROM must not reach it
         want(b["cs"] == cold_ram, "[api_coldseg] = %04X (COLD_RAM)" % b["cs"])
         want(b["base"] == heap, "[mem_base] = %04X (HEAP_SEG)" % b["base"])
         want(b.get("panel"), "the Control Panel opened")

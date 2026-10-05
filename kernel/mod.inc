@@ -222,6 +222,9 @@ mod_r_dock:
 %ifdef OS88_SHORTCUTS
     dw 0, mod_f_ctrl            ; MOD_SETS: the SAME file, cut short (2.8.7)
 %endif
+mod_tab_end:                    ; (a label and no byte: tools/os88rom.py
+                                ; counts the ROWS by it, MOD_SETS included,
+                                ; because the ROM answers per row)
 
 ; mod_fpt - each module's slot block by id, and one word more: where the LAST
 ; block ends. Emitted by kernel.asm's MODFP macro beside the blocks themselves
@@ -368,12 +371,29 @@ mod_need:
 
     call drv_vol_bank                      ; this goes to the system volume to find the
                                 ; file, and the user may have been anywhere
+%ifdef ROM_COLD
+    ; THE ROM FIRST (docs/plans/ROM-PLAN.md 4.3, SPEC.md 2.10.5): a ROM that
+    ; adopted this kernel may carry the image too, cut from the same build, so
+    ; the load is a copy out of F4000-FDFFF and needs no system disk at all -
+    ; which on a one-drive machine is the difference between a Save As onto a
+    ; data floppy and a refusal. SI = 0 is the mark that the bytes come from
+    ; there: the disk arm overwrites it with the file's name, and nothing
+    ; between here and the read below writes SI.
+    xor si, si
+    cmp word [api_coldseg], COLD_RAM
+    je .disk
+    mov al, ROMF_SIZE
+    call far [rom_mfp]          ; CF = 0: AX = the image's bytes in the ROM
+    jnc .sized
+.disk:
+%endif
     call drv_mounted           
     jc .fail
 
     mov si, [bx+MODR_FILE]
     call drv_find                             ; AX = the file's size, refused over 64KB
     jc .fail
+.sized:
     cmp ax, MOD_H_ENT + 2       ; a header with at least one entry
     jb .fail
     mov bp, ax                  ; THE FILE'S BYTE SIZE, in the register this
@@ -404,10 +424,18 @@ mod_need:
     push bx
     mov es, dx                  ; ...and NO second `mov si, [bx+MODR_FILE]`:
     mov cx, bp                  ; SI is still the one loaded for drv_find, and
-    xor bx, bx                  ; mem_claim_x banks SI/DI around everything
-                                ; including the compaction (memory.inc:520)
+%ifdef ROM_COLD                 ; mem_claim_x banks SI/DI around everything
+    or si, si                   ; including the compaction (memory.inc:520)
+    jnz .rdisk
+    mov al, ROMF_COPY           ; ...or 0, and the ROM has the bytes: the
+    call far [rom_mfp]          ; first CX of the image to ES:0, and the
+    jmp short .rdone            ; read's own answer, AX = CX and DX = 0
+.rdisk:
+%endif
+    xor bx, bx
     xor dx, dx                  ; DX:CX = the capacity, DX:AX the answer
     call dskw_read_x                         ; the whole file, by name, on the system disk
+.rdone:
 %ifdef OS88_SHORTCUTS
     mov byte [dskw_trunc], 0    ; ...ONE read's worth, and spent whatever it
 %endif                          ; answered
@@ -432,7 +460,8 @@ mod_need:
     je .ramcold
     mov es, [bx+MODR_SEG]
     mov cx, bp
-    call far [rom_mfp]
+    mov al, ROMF_FIX            ; ...whichever source the bytes came from: the
+    call far [rom_mfp]          ; ROM keeps its copies as the build cut them
     jc .freefail
 .ramcold:
 %endif

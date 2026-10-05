@@ -1863,6 +1863,22 @@ hbm_ptrfix_set:
     mov [cs:hbm_ptrfix + HBP_MEMTOP], ax
     mov al, [vid_kind]
     mov [cs:hbm_ptrfix + HBP_VID], al
+%ifdef ROM_COLD
+    ; ...and WHERE `.cold` RUNS, in the pad byte the head always compared as
+    ; 0 (docs/plans/ROM-PLAN.md 3.4.5). An image hibernated with `.cold` in
+    ; ROM has every far reference pointing into it and its cold rung is heap;
+    ; resumed on a machine without that ROM it would run into nothing. One
+    ; hibernated WITHOUT it resumes fine either way - but a byte that only
+    ; says "in ROM" cannot tell the two apart, so both directions refuse.
+    ; Same build is already the head's BUILD_NUM; a ROM this boot adopted is
+    ; one that proved itself this kernel's.
+    xor al, al
+    cmp word [api_coldseg], COLD_RAM
+    je .ram
+    inc ax
+.ram:
+    mov [cs:hbm_ptrfix + HBP_VID + 1], al
+%endif
     ret
 
 ; hbm_imgsize - out: DX:AX = [mem_top] * 16, the bytes an image must have

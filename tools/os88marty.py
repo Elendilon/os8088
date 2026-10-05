@@ -3532,6 +3532,18 @@ def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
     reap()
     _warn_oversubscribed(1)
 
+    # $OS88_ROM puts a ROM in U28-U32 for EVERY launch that did not name one
+    # (docs/plans/ROM-PLAN.md 5, SPEC.md 2.10): any row then runs as the
+    # with-ROM arm of an A/B it never had to be written for. A ROM is cut
+    # against one kernel and refuses every other, so a row booting the other
+    # kernel simply runs without one - it is the operator's to point the
+    # right ROM at the right rows. `rom=False` opts a row OUT (a row whose
+    # no-ROM arm is the point: tests/romnodisk.py's control).
+    if rom is None and os.environ.get("OS88_ROM"):
+        rom = os.environ["OS88_ROM"]
+    if rom is False:
+        rom = None
+
     if label is None:
         label = os.path.basename(getattr(sys.modules.get("__main__"),
                                          "__file__", "") or "os88marty")

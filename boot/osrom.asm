@@ -53,6 +53,10 @@ ROM_SIZE        equ 40960       ; F4000-FDFFF
 ROM_SEG         equ 0xF400      ; U28's base, the header's paragraph...
 ROM_COLDSEG     equ ROM_SEG + 1 ; ...and the segment `.cold` runs at in ROM,
                                 ; kernel/kernel.asm's equate of the same name
+ROMF_SIZE       equ 0           ; rom_modfix's functions: kernel/kernel.asm's
+ROMF_COPY       equ 1           ; equates of the same names, which the kernel
+ROMF_FIX        equ 2           ; loads into AL
+ROMF_PKG        equ 3
 SOCK_SIZE       equ 8192        ; one socket, U28 = 0 ... U32 = 4
 SOCK_N          equ 5
 
@@ -238,7 +242,8 @@ rom_sock_check:
 ;
 ; A ROM_COLD kernel is assembled against its own RAM rung - every far
 ; reference to `.cold` names COLD_RAM - and is expanded whole by stage 2,
-; `.cold` included. Then stage 2 rings rom_patch. This ROM was cut from ONE
+; `.cold` included. Then the boot overlay's first instruction rings rom_patch.
+; This ROM was cut from ONE
 ; build and carries, in the tables tools/os88rom.py generated (ROMTAB), every
 ; place that build names `.cold`'s segment; it decides whether the kernel in
 ; RAM IS that build, and only then re-points those words at its own `.cold`.
@@ -260,19 +265,35 @@ rom_sock_check:
 ;   rt_text / rt_ovlw / rt_ovl    the far references, by the segment each is
 ;                                 an offset into (`.ovl`'s is the blob's, which
 ;                                 the caller hands over in AX)
-;   rt_mods                       per module: its list and its count
+;   rt_vgab, RT_VGABRAM           kern_big's `.vgabuf` words, and the rung
+;                                 they name, moved down to RT_COLDRAM
+;   rt_mods                       per mod_tab ROW: its list and its count (the
+;                                 settings core's row shares CTRL.DRV's)
+;   rt_img                        per ROW: the image this ROM holds (its offset
+;                                 in the window and its bytes), 0 = none
+;   RT_PKGOFF RT_PKGLEN           the one package it may hold, and its name,
+;   rt_pkgname                    which ROMF_PKG matches (SPEC.md 2.10.5)
 ;   RT_MFP                        rom_mfp's offset in the kernel's `.text`
 ; =============================================================================
 %include ROMTAB
 
 ; --- rom_patch - adopt the kernel expanded at RT_KSEG, or say no -------------
-; in:  AX = the blob's segment (stage 2's CS); far-called from stage 2's
-;      rom_adopt, after the expand and before a byte of the kernel has run
+; in:  AX = the blob's segment; far-called from the boot overlay's
+;      rom_adopt, kmain_o's first instruction, before a byte of `.cold` has run
 ; out: CF = 0 adopted: every listed word names ROM_COLDSEG and the kernel's
 ;      rom_mfp names rom_modfix. CF = 1: nothing anywhere was written
-; clobbers: everything but SS:SP (the caller is stage 2's kz_all, which
-;      clobbers everything itself); leaves the direction flag clear
+; preserves: every register (the doorbell saves only what it touches); leaves
+;      the direction flag clear
 rom_patch:
+    push ax                     ; EVERY REGISTER KEPT, here and not in the
+    push bx                     ; kernel's doorbell: these bytes are ROM and
+    push cx                     ; cost nobody RAM, the doorbell's are the
+    push dx                     ; boot overlay's and it had 27 to spare
+    push si
+    push di
+    push bp
+    push ds
+    push es
     cld
     mov bp, ax                  ; BP = the blob, for rt_ovl
     ; --- 1. `.cold`, byte for byte -------------------------------------------
@@ -310,7 +331,7 @@ rom_patch:
 .hashed:
     cmp dx, RT_HASH
     jne .no
-    ; --- 3. every listed word names COLD_RAM - and only then, 4. patch ------
+    ; --- 3. every listed word names what it should - and only then, 4. ------
     xor bl, bl                  ; BL = 0: look
     call rp_walk
     jc .no
@@ -321,12 +342,22 @@ rom_patch:
     mov word [es:RT_MFP], rom_modfix
     mov [es:RT_MFP+2], cs
     clc
-    retf
+    jmp short .out
 .no:
     stc
+.out:
+    pop es
+    pop ds
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     retf
 
-; rp_walk - the three lists, looked at (BL = 0, CF = 1 at the first word that
+; rp_walk - the four lists, looked at (BL = 0, CF = 1 at the first word that
 ; is not COLD_RAM) or written (BL = 1). BP = the blob.
 rp_walk:
     mov ax, RT_KSEG
@@ -343,7 +374,33 @@ rp_walk:
     mov si, rt_ovl
     mov cx, RT_NOVL
     call rp_list
+    jc .out
+    ; ...and the planar decoder's buffers (kern_big): RT_NVGAB words in
+    ; `.text` that name the `.vgabuf` rung move to the BOTTOM of the dead cold
+    ; rung, which is where mem_floor_ax leaves them (ROM-PLAN 3.4.2)
+    mov ax, RT_KSEG
+    mov es, ax
+    mov si, rt_vgab
+    mov cx, RT_NVGAB
+    jcxz .vok
+.vnext:
+    mov di, [cs:si]
+    add si, 2
+    or bl, bl
+    jnz .vwrite
+    cmp word [es:di], RT_VGABRAM
+    jne .vbad
+    loop .vnext
+    jmp short .vok
+.vwrite:
+    mov word [es:di], RT_COLDRAM
+    loop .vnext
+.vok:
+    clc
 .out:
+    ret
+.vbad:
+    stc
     ret
 
 ; rp_list - AX = the segment, CS:SI = CX offsets, BL = look/write; CF = 1 at
@@ -378,14 +435,26 @@ rp_list_lim:
     stc
     ret
 
-; --- rom_modfix - re-point a module mod_need just read (ROM-PLAN 3.4.4) -----
-; in:  BX = its row in the kernel's mod_tab (the id is derived here: mod_need
-;      has no register left holding it), ES = its claim, CX = the bytes read
-; out: CF = 0 every listed word re-pointed; CF = 1 not this ROM's module (a
-;      listed word does not say COLD_RAM, or the id is past the table) and
-;      nothing written - mod_need then refuses the module
-; preserves: every register but the flags (mod_need lives on DI, BX and BP)
+; --- rom_modfix - the door mod_need and the Task Manager item call ----------
+; (ROM-PLAN 3.4.4, 4.3; SPEC.md 2.10.4, 2.10.5). AL picks, kernel.asm's ROMF_*:
+;   0 SIZE  BX = a mod_tab ROW -> CF = 0, AX = the bytes of that row's image
+;           this ROM holds; CF = 1 it holds none (the disk is asked instead)
+;   1 COPY  BX = a row, ES = its claim, CX = bytes -> the image's first CX
+;           bytes to ES:0, AX = CX, DX = 0, CF = 0 (dskw_read_x's answer)
+;   2 FIX   BX = a row, ES = its claim, CX = the bytes it holds -> every
+;           listed far reference to `.cold` re-pointed at F401; CF = 1 = not
+;           this ROM's module (a word does not say COLD_RAM) and nothing
+;           written - mod_need then refuses it. The ROM's own copies are kept
+;           AS THE BUILD CUT THEM, so a copied module is fixed like a read one
+;   3 PKG   DS:SI = a package's 8.3 name (the kernel's) -> CF = 0, ES:DI =
+;           its image in this ROM, DX:CX = its length; CF = 1 none by that name
+; preserves: every register but the outputs named and the flags. A ROW and
+; not an id because mod_need has no register left holding the id - and the
+; settings core (MOD_SETS) is a row of its own over CTRL.DRV's image, which
+; the tool's tables already resolve, so nothing here knows it exists.
 rom_modfix:
+    cmp al, ROMF_PKG
+    je rom_pkg
     push ax
     push bx
     push cx
@@ -399,10 +468,44 @@ rom_modfix:
     jnz .no
     cmp bx, RT_NMODS * RT_MODRSZ
     jae .no                     ; ...and inside the table
-    mov dx, cx                  ; DX = the limit for rp_list_lim
 %if RT_MODRSZ != 4
-  %error "rt_mods is indexed by id*4 and mod_tab's stride is not 4"
+  %error "rt_mods and rt_img are indexed by row*4 and mod_tab's stride is not 4"
 %endif
+    cmp al, ROMF_FIX
+    je .fix
+    mov si, [cs:rt_img+bx]      ; the image's offset in this ROM, 0 = none
+    or si, si
+    jz .no
+    cmp al, ROMF_COPY
+    je .copy
+    mov ax, [cs:rt_img+bx+2]    ; SIZE: the bytes, out in AX - so the
+    pop di                      ; epilogue below is not the way out
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    add sp, 2                   ; ...the caller's AX is the answer's
+    clc
+    retf
+.copy:
+    push ds
+    push cs
+    pop ds
+    xor di, di
+    rep movsb                   ; CX = the bytes asked for (mod_need's BP)
+    pop ds
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    add sp, 2
+    mov ax, cx                  ; the read's answer: all of it, DX:AX
+    xor dx, dx
+    clc
+    retf
+.fix:
+    mov dx, cx                  ; DX = the limit for rp_list_lim
     mov si, [cs:rt_mods+bx]     ; the list...
     mov cx, [cs:rt_mods+bx+2]   ; ...and its count
     push si
@@ -425,6 +528,38 @@ rom_modfix:
     pop cx
     pop bx
     pop ax
+    retf
+
+; rom_pkg - ROMF_PKG: the one package this ROM may carry, by name
+rom_pkg:
+%if RT_PKGLEN
+    push ax
+    push si
+    push di
+    mov di, rt_pkgname
+.cmp:
+    lodsb
+    cmp al, [cs:di]
+    jne .no
+    inc di
+    or al, al
+    jnz .cmp
+    pop di
+    pop si
+    pop ax
+    push cs
+    pop es
+    mov di, RT_PKGOFF            ; the image, in the payload ahead of this tail
+    mov cx, RT_PKGLEN
+    xor dx, dx
+    clc
+    retf
+.no:
+    pop di
+    pop si
+    pop ax
+%endif
+    stc
     retf
 %else
 ; A socket ROM carries a refusing stub so the identity block's pointer is never

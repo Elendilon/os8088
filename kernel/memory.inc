@@ -625,9 +625,11 @@ mem_floor_ax:
     ; runs - the ROM re-pointed it at boot along with every far reference -
     ; and COLD_RAM is the rung, a ladder constant, so this asks nothing a
     ; machine without the ROM would answer differently from today.
-%if VGABUF_PARA
-  %error "ROM_COLD with a .vgabuf rung needs the planar buffers moved down into the dead cold rung first (ROM-PLAN 3.4.2) - wave 3"
-%endif
+    ; On a VGA machine the ROM has also moved the decoder's buffers to the
+    ; BOTTOM of that rung (VGABUF_SEG's one site), so the floor that frees the
+    ; rung is COLD_RAM + VGABUF_PARA - which is HEAP_SEG - COLD_PARA, the
+    ; same subtraction. On mono the `.vgabuf` arm above has already taken
+    ; VGABUF_PARA too, and the floor lands on COLD_RAM itself.
     cmp word [api_coldseg], COLD_RAM
     je .ram
     sub ax, COLD_PARA
@@ -4537,6 +4539,13 @@ osapi_sys_kb_x:
     sub ax, SK_VGAB_KB
     sub bx, SK_VGAB_KB
 .kern:
+%endif
+%ifdef ROM_COLD
+    cmp word [api_coldseg], COLD_RAM    ; ...and the cold rung, when the ROM
+    je .kram                            ; runs `.cold` (ROM-PLAN 3.4.2)
+    sub ax, SK_COLD_KB
+    sub bx, SK_COLD_KB
+.kram:
 %endif
 %if SK_KERN != 0 || SK_IMG != 2 || SK_FAT != 4 || SK_STK != 6 || SK_STK0 != 8 || SK_BUF != 10 || SK_HEAP != 12 || SK_CLAIM != 14 || SK_KCLAIM != 16 || SK_XMS != 18
 %error "osapi_sys_kb stores the ten words in order with one walking pointer; they are no longer consecutive from 0"

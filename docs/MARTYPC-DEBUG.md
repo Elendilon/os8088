@@ -481,6 +481,15 @@ machine that booted fine. Pass `launch(..., card=1)`; a caller running
 `settle` itself passes `gate=desktop_up, card=<idx>`. `advance(frames=…)`
 takes it too, and there it decides which card's 50 Hz or 60 Hz is counted.
 
+**A ROM in the 5150's spare sockets**, U28-U32 at F4000 (SPEC.md 2.10):
+`launch(..., rom="build/rom/osrom-big.bin")` stages it in that instance's own
+config tree, so no other instance sees it. **`$OS88_ROM` does the same for
+every launch that names none**, which makes any emulator row the with-ROM arm
+of an A/B: `OS88_ROM=build/rom/osrom-big.bin python3 tests/desksc.py`. A ROM
+is cut against one kernel and refuses every other, so point the big ROM at
+kern_big rows and the small one at kern_small's. A row whose no-ROM arm IS
+the point passes `rom=False`, which `$OS88_ROM` cannot reach.
+
 Boot times are a property of the HOST (measured here: CGA 4.6 s, Hercules
 4.7 s, VGA 7.1 s; three to four times that on a slower container), which is
 exactly what `settle` exists so that nothing has to hard-code.

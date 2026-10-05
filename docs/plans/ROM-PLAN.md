@@ -1,6 +1,8 @@
 # Part of the system in ROM — what a 5150's sockets can hold, and what that buys
 
-> **WAVES 0, 1 AND 2 ARE BUILT, on kern_small. SPEC.md 2.10 is the contract.**
+> **WAVES 0 TO 4 ARE BUILT - kern_small and kern_big both find their ROM,
+> and kern_small's carries its daily modules and the Task Manager. SPEC.md
+> 2.10 is the contract.**
 > The rest of this file is the investigation they came from, kept as written.
 >
 > * **W0:** `.cold` names no segment of its own (`COLDCALL`/`COLDSEG_TO`), and
@@ -19,8 +21,35 @@
 >   It costs **+28 resident bytes** (`.text` +2, `.cold` +26). kern_big
 >   assembles byte-identical.
 >
-> **What was built differs from section 3.4 in five places**, each found by
-> building it:
+> * **W3:** `ROM_COLD` on every kernel; `make rom` cuts both ROMs
+>   (`rom-big`, `rom-small`). Measured on a CGA 5150 and on the VGA XT, both
+>   GLaBIOS (`tests/rombig.py`):
+>   * the floor falls **37.5KB** on both adapters: 1880 -> 0F20 on CGA, and
+>     18A0 -> 0F40 on VGA, where the planar decoder's buffers move down into
+>     the bottom of the dead cold rung;
+>   * the decoder, driven by a dithered Paint canvas off the byte grid,
+>     decodes all 182 rows on 0F20 with the ROM, on 1880 without, and draws
+>     the same screen to the byte;
+>   * a ROM one byte away is refused.
+>
+>   It costs **+47 resident bytes** on kern_big (`.text` +4, `.cold` +43),
+>   against `NO_ROM_COLD`, which assembles byte-identical to the tree before
+>   it. The window has **1,632 bytes** to spare (3.6's ~2KB, measured).
+>
+> * **W4:** whatever room `.cold` and the tail leave holds module images,
+>   greedily in `tools/os88rom.py`'s `PRIORITY` order, and on kern_small one
+>   package. At build 364 kern_small's ROM holds FDLG, FILECP, CTRL, the small
+>   Task Manager and FORMAT (642 bytes spare); kern_big's holds FORMAT (323).
+>   Measured on the 128KB machine with the system disk swapped out of A:
+>   (`tests/romnodisk.py`): a Save As chooser, the Control Panel and the Task
+>   Manager all open from the ROM, and all three refuse without it. +34
+>   resident bytes of `.text` on kern_small (`ROM_PKG`, the Task Manager's
+>   arm) and +35 of `.cold` on both (the module arm, in ROM when the ROM is
+>   in). `$OS88_ROM` makes any emulator row a
+>   with-ROM run (docs/MARTYPC-DEBUG.md).
+>
+> **What was built differs from section 3.4 and section 4 in eight places**,
+> each found by building it:
 > 1. **There is no key in the kernel.** A post-assembly key would break
 >    `os88sym`'s re-assembly check, which every emulator row rests on. The
 >    ROM verifies the kernel itself instead, more strongly:
@@ -30,15 +59,34 @@
 >      `[spl_fseg]`, every `vid_*`);
 >    * every site checked before any is written.
 > 2. **`.cold` is still read and expanded on a ROM machine.** Test 1 needs
->    it, so section 3.4.6's boot saving is the open follow-on.
+>    it, so section 3.4.6's boot saving is the open follow-on - assessed
+>    there: the identity is solvable, and `.boot2` has no room for it.
 > 3. **The blob is lifted three sectors** (`BLOB_LIFT`). With `.cold` on top,
 >    the packed tail's sector-rounded read reached stage 2 itself, which died
 >    at 0000:0068. There is a guard for it now, on every build.
 > 4. **`mod_need` hands the ROM the module's ROW, not its id.** `mod_check`
 >    clobbers DI, and the first ROM was handed 8C58 as a module number.
-> 5. **The doorbell is the boot overlay's, not stage 2's.** `kmain_o`'s first
->    instruction calls it. In `.boot2` it cost four kern_small knob kernels
->    their build, because a knob gives the loader's slack to the overlay.
+> 5. **The doorbell is the boot overlay's WINDOW half, not stage 2's.**
+>    `kmain_o`'s first instruction far-calls it in `.ovlw`. In `.boot2` it
+>    cost four kern_small knob kernels their build, because a knob gives the
+>    loader's slack to the overlay; in `.ovl` it did not fit kern_big, which
+>    had 27 bytes to spare. `rom_patch` keeps every register itself so the
+>    doorbell stays at 46 bytes.
+> 6. **The ROM tool assembles with PASS 2's defines.** `.ovl` names a
+>    stage-2 label through CS (`and al, [cs:b2_cylok]`), so on kern_big the
+>    first-pass placeholders moved one byte of `.ovl` and the tool refused
+>    the kernel. It reads `kernel.kz.json` now.
+> 7. **Modules are COPIED out of the ROM, not run in place** (section 4.1
+>    said in place). kern_small's modules keep their `.bss` in the claim's
+>    tail and write it through CS since MODULE-SELFCONTAIN-PLAN, so an image
+>    in ROM could not run there. The copy still buys what section 4.4 wanted
+>    - no disk read and no system disk - and costs a claim, as a disk load
+>    does. `FILECP`'s stack never had to move.
+> 8. **The ROM's tables are per mod_tab ROW, not per image.** W3 cut them
+>    per image, and kern_big's settings core (`MOD_SETS`, SPEC.md 2.8.7) is
+>    a row over CTRL.DRV's image - so the first big ROM refused a desktop
+>    shortcut gesture's load. Found by reading, fixed in W4, and covered by
+>    running `tests/desksc.py` under `OS88_ROM`.
 >
 > The testbed is 5150 #2 (docs/FIELD-MACHINES.md): GLaBIOS on a One ROM, and
 > two more One ROMs across U28–U32.
@@ -653,6 +701,29 @@ These are estimates, from SPEC.md 2.9.13's field figures (~27.2 ms a sector,
 Against that, the probe's 30 ms sum. `BOOTPROF=1` on the 5150, with and
 without the ROM, is the measurement.
 
+**W2b, ASSESSED AND NOT BUILT (2026-10-05).** The saving above stands as an
+estimate, and the two things it needs have different answers:
+
+1. **The identity is solvable without the RAM copy.** Today the ROM's first
+   test compares its `.cold` with the one just expanded, which is exactly the
+   read W2b wants to skip. The replacement is a `.cold` checksum the KERNEL
+   carries in `.text`, made the way `buildnum.inc` is: a generated include in
+   the build directory, written between two assemblies. It converges in one
+   step because the word is the same SIZE whatever its value, so `.cold`'s
+   bytes do not move between the passes - and `os88sym` re-assembles with the
+   build directory on its include path already, so it stays exact. The
+   Makefile's second pass (SPEC.md 2.9.13) is where it would go.
+2. **The loader has no room, and that is what stops it.** Skipping the read
+   is stage 2's decision, made before the tail is read: probe F400, compare
+   the ROM's checksum with the kernel's (in an EARLIER block, so after the
+   first block decodes), and stop reading at a block boundary os88kz.py would
+   have to force at `.cold`'s start. Stage 2's `.boot2` is the tightest
+   section in the tree - W2's doorbell, about 60 bytes, broke four kern_small
+   knob builds there and had to leave (deviation 5) - and this is more code
+   than the doorbell, on both loaders (`boot2.asm` and `boothd.asm`'s blob
+   entry). So it waits on room in `.boot2`, which is a size pass on the
+   loader rather than a ROM change.
+
 #### 3.4.7 What it touches that could bite
 
 - **The ladder reorder moves `FAT_SEG`, `LOW_SEG` and `OVLW_START` for
@@ -960,9 +1031,9 @@ The order follows from them.
 |---|---|---|---|
 | **W0** | Section 3.3's nine `jbe` → `je`. Section 3.2's eight `push cs` calls and the two stores, so `.cold` names no segment of its own. `os88romfix.py`'s "inside `.cold` = 0" as a fast row | −8 resident | Correct on today's machines, removes a latent ordering assumption, and every later wave stands on it |
 | **W1** | First section 1.7's socket-check ROM, which proves the two boards before any kernel code is involved. Then `make rom`: section 1.3's option-ROM image (header, 32KB length byte, init, stub, two balance bytes, the GLaBIOS `55AA` check). It emits `U28.BIN`–`U32.BIN` and the 40KB whole. Plus a MartyPC `"custom"` ROM row at 0xF4000 | 0 resident | The harness every later wave is tested on. First milestone: the init's POST line, and the stub catching a boot with no disk, on GLaBIOS in the container and on the 5150 |
-| **W2** | **Option A on `kern_small`** (section 3.4): the ladder reorder, `.cold` as the last block run, the probe and the far call in `.boot2`, the patcher and lists in the ROM tail, `mem_floor_ax`'s ROM arm, the `mod_need` hook, and the key in the hibernate header | **+16–23 `.cold`** without the ROM; **−24,576** with it | The biggest relative gain (+38% heap at 128KB) on the kernel with the most room in the window. The floor machine already has its gate (`tests/small128.py`), and every row in the suite is a with-and-without A/B for free |
-| **W3** | **Option A on `kern_big`**, plus section 3.6's guard and `kernsize`'s `rom` line | **+16–23** without; **−38,400** with | The same code with a tighter window. The guard is what keeps it fitting |
-| W4 | `kern_small`'s three modules in place, plus the Task Manager image (section 3.7): module stamp by the key, `FILECP`'s stack to `.bss`, `mod_need`'s ROM arm | +36 `.bss`, +30–60 `.cold` (itself in ROM) | Save As with the system disk out, on a one-drive machine |
+| **W2** | **BUILT:** Option A on `kern_small` (section 3.4): the ladder reorder, `.cold` as the last block run, the probe and the far call in `.boot2`, the patcher and lists in the ROM tail, `mem_floor_ax`'s ROM arm, the `mod_need` hook, and the key in the hibernate header | **+16–23 `.cold`** without the ROM; **−24,576** with it | The biggest relative gain (+38% heap at 128KB) on the kernel with the most room in the window. The floor machine already has its gate (`tests/small128.py`), and every row in the suite is a with-and-without A/B for free |
+| **W3** | **BUILT:** Option A on `kern_big`, plus `kernsize`'s `rom` line (a report: `tools/os88rom.py` is the guard) | **+47** without; **−38,400** with | The same code with a tighter window |
+| **W4** | **BUILT, as copies:** `kern_small`'s modules and the Task Manager image (section 3.7), `mod_need`'s ROM arm, `ui_sys_open`'s | **+34 `.text`** on kern_small, **+35 `.cold`** on both (itself in ROM) | Save As with the system disk out, on a one-drive machine - measured, `tests/romnodisk.py` |
 | W5 | `CROM=1` (section 3.5), only if Option A meets something on the iron that a matched pair would not | — | Kept as the fallback, not the plan |
 | W6 | `kern_big`'s form 2, if a second ROM window ever appears | ~50–100 `.cold` | |
 

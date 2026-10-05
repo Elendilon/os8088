@@ -3274,19 +3274,22 @@ just wrote, which is the packed one.
 VBR over a FAT16 partition, so the CD and the stick boot a packed kernel by
 the same five bytes.
 
-### 2.10 The ROM — `.cold` in a 5150's spare sockets (kern_small)
+### 2.10 The ROM — `.cold` in a 5150's spare sockets
 
-**The contract for docs/plans/ROM-PLAN.md waves 0–2.** An IBM 5150 has six
+**The contract for docs/plans/ROM-PLAN.md waves 0–3.** An IBM 5150 has six
 8KB ROM sockets. U33 is the BIOS; U28–U32 decode F4000–FDFFF and hold Cassette
 BASIC (U29–U32) or nothing (U28). `make rom` cuts a 40KB image for those five
-sockets from `make small`'s kernel, and that kernel **finds it at boot and runs
-its `.cold` from it**. The same disks boot unchanged on a machine without it.
-`tests/romsmall.py` is the gate:
-- with the ROM, `[api_coldseg]` is F401 and the heap floor falls 24.5KB;
+sockets per kernel - `osrom-big` from `all`'s, `osrom-small` from `make
+small`'s - and each kernel **finds its own at boot and runs its `.cold` from
+it**. The same disks boot unchanged on a machine without it. Two rows gate it,
+`tests/rombig.py` and `tests/romsmall.py`, each with three legs:
+- with the ROM, `[api_coldseg]` is F401 and the heap floor falls by the cold
+  rung - **37.5KB on kern_big, 24.5KB on kern_small**;
 - with no ROM, nothing changes;
 - with a ROM one byte away from the kernel, nothing changes.
 
-On the 128KB floor machine that is **86.5KB of free heap against 62.5**.
+On kern_small's 128KB floor machine that is **86.5KB of free heap against
+62.5**.
 
 #### 2.10.1 The window is ONE option ROM
 
@@ -3330,14 +3333,24 @@ runs there. They are not supported for a kernel ROM.
 
 #### 2.10.3 `ROM_COLD`: the ladder and the file
 
-kern_small defines `ROM_COLD` (kernel.asm), and that changes three things.
+Every kernel defines `ROM_COLD` (kernel.asm) - kern_small since wave 2,
+kern_big and kern_emu since wave 3 - and that changes three things.
+`NO_ROM_COLD` builds the layout before it: the A/B, assembling kern_big
+byte-identical to the tree before wave 3.
 
 **The ladder** becomes `[image][FAT][LOW][COLD][VGABUF] heap`:
 - the cold rung sits on top, so on a ROM machine it is the bottom of the heap
   rather than a hole in the kernel;
 - `KERN_SIZE` and every rung's size are unchanged;
 - `COLD_RAM` is the rung, and `COLD_SEG` (the segment `.cold` executes in) is
-  baked as `COLD_RAM`.
+  baked as `COLD_RAM`;
+- `.vgabuf` (kern_big's planar decoder buffers, §5.4.1.3) stays the TOP rung,
+  above the cold one. Its one segment load (vga12.inc, `mov ax, VGABUF_SEG`)
+  is baked as `VGABUF_RAM`, and a ROM that adopts the kernel re-points it at
+  `COLD_RAM` - the bottom of the dead cold rung - so the floor that frees the
+  cold rung is `HEAP_SEG - COLD_PARA` on VGA too, and the buffers stay under
+  it. On mono the `.vgabuf` arm has already taken its rung and the floor
+  lands on `COLD_RAM` itself.
 
 **The file:** `.cold` is the last section of `KERNEL.SYS` before the modules,
 after the zero gap the FAT window and `.lowbss` leave. LZ4 packs that gap to
@@ -3353,23 +3366,35 @@ paragraphs (`BLOB_LIFT`):
 #### 2.10.4 Adoption: the ROM decides, the kernel only rings
 
 **The kernel's part is three pieces:**
-- **The boot overlay's doorbell.** `kmain_o`'s first instruction calls
-  `rom_adopt` (`.ovl`), which both loaders reach before anything of `.cold`
-  has run. It checks for an os8088 kernel ROM at F400 (format 1, kind 2,
-  tested as one word), then far-calls `rom_patch` with AX = the blob's
-  segment, preserving every register. It was written into stage 2's `.boot2`
-  first, but a knob build gives 96-136 bytes of the loader's share to the
-  overlay, and four kern_small knob kernels stopped assembling. In `.ovl` it
-  is 62 transient bytes.
+- **The boot overlay's doorbell.** `kmain_o`'s first instruction is
+  `OVWCALL rom_adopt`, which both loaders reach before anything of `.cold`
+  has run or anything has mounted. It checks for an os8088 kernel ROM at F400
+  (format 1, kind 2, tested as one word), then far-calls `rom_patch` with
+  AX = the blob's segment out of `[spl_fseg]`. It is in the window half of
+  the overlay (`.ovlw`), and that was its third home: in stage 2's `.boot2` a
+  knob build's 96-136-byte loader share stopped four kern_small knob kernels
+  assembling, and in `.ovl` kern_big had 27 bytes to spare. `rom_patch`
+  preserves every register itself, so the doorbell saves only what it uses:
+  46 transient bytes of `.ovlw`, and 5 of `.ovl` for the call.
 - **The heap floor.** `mem_floor_ax` drops it by `COLD_PARA` when
   `[api_coldseg]` is not `COLD_RAM`.
 - **Modules.** After `mod_check`, `mod_need` far-calls `[rom_mfp]` with
   BX = the module's row, ES = its claim and CX = the bytes read. CF is a
   refusal.
 
-That is **+28 resident bytes** on kern_small (`.text` +2, `.cold` +26)
-against the tree before wave 0. On a ROM machine the `.cold` part of it is in
-ROM.
+- **Hibernate.** The pointer file's pad byte (`HBP_VID` + 1, §87.3) says
+  whether `.cold` ran from ROM. `hbm_ask` compares the head's first twelve
+  bytes and that byte is one of them, so an image taken with the ROM and a
+  boot without it refuse each other, in both directions. +15 bytes of
+  `HIBER.DRV`, an on-demand module.
+
+That is **+47 resident bytes** on kern_big (`.text` +4, `.cold` +43,
+measured against `NO_ROM_COLD`) and **+28** on kern_small (`.text` +2,
+`.cold` +26, against the tree before wave 0). §2.10.5's module arm adds
+`.cold` +35 on both and `ROM_PKG` `.text` +34 on kern_small, for totals of
+**+82 on kern_big** (`.text` +4, `.cold` +78) and **+111 on kern_small**
+(`.text` +36, `.cold` +75), all measured at build 364. On a ROM machine the
+`.cold` part of it is in ROM.
 
 **The ROM's part is `rom_patch`.** It writes nothing until all three of these
 tests pass:
@@ -3377,28 +3402,86 @@ tests pass:
 2. a hash over `.text`'s CODE matches. It skips the build number's words and
    every data label, because the boot writes `.text` data (the boot timer,
    `[spl_fseg]`, the splash's `vid_*`) before the ROM is asked;
-3. every word on its lists still says `COLD_RAM`.
+3. every word on its lists still says `COLD_RAM` - and the `.vgabuf` list's
+   still says `VGABUF_RAM`.
 
-Then it re-points every listed word at F401 and writes `rom_mfp`. A NO is
+Then it re-points every listed word at F401, the `.vgabuf` words at
+`COLD_RAM`, and writes `rom_mfp`. A NO is
 CF = 1 and an untouched kernel, so a wrong ROM is no ROM.
 `tools/os88rom.py kernel` derives the lists by assembling the kernel with
-`.cold`'s segment moved. It refuses unless that assembly is the build's own
-`kernel-full.bin`, and runs a Python model of `rom_patch` before it writes
+`.cold`'s segment moved, and again with `.vgabuf`'s. It assembles with the
+defines the build's `kernel-full.bin` was LAST made with - a packed kernel's
+are pass 2's (§2.9.13), out of `kernel.kz.json`, because `.ovl` names a
+stage-2 label through CS and `.boot2` moves with the packed file's numbers -
+and refuses unless that assembly is the build's own `kernel-full.bin`, and runs a Python model of `rom_patch` before it writes
 the image:
 - the model must adopt the kernel the ROM was cut from;
 - it must refuse that kernel with one code byte of `.text` changed;
 - it must refuse it with one byte of `.cold` changed.
 
-#### 2.10.5 What is not built
+#### 2.10.5 Modules and a package from the window
 
-- **The kern_big arm (ROM-PLAN wave 3).** Its `.cold` fits the window by
-  ~2.8KB today, and it needs `.vgabuf` moved down into the dead cold rung;
-  `mem_floor_ax` refuses to assemble `ROM_COLD` with a `.vgabuf` rung until
-  then.
+Whatever room `.cold` and the tail leave, `tools/os88rom.py` fills with
+on-demand module images and, on kern_small, one package, so they load with no
+system disk in any drive. On a one-drive 128KB machine that is the difference
+between a Save As onto a data floppy and a refusal: `FDLG.DRV` and
+`FILECP.DRV` are read off the system disk (§38.0, §22.3.0), and nothing else
+in the dialog needs it.
+
+**The order is the tool's `PRIORITY`**: `FDLG.DRV`, `FILECP.DRV`, `CTRL.DRV`,
+the package, `FORMAT.DRV`, `CLONE.DRV`, `EXTD.DRV`, `DOCK.DRV`, `HIBER.DRV`.
+Each goes in if it fits, greedily, and one that does not is read off the disk
+as before - so a `.cold` that grows takes a module out of the ROM rather than
+failing the ROM. At build 364 kern_small's ROM holds FDLG, FILECP, CTRL,
+the small Task Manager and FORMAT with 642 bytes to spare; kern_big's holds
+`FORMAT.DRV` alone, with 323. `make rom` prints what went in.
+
+**Modules are COPIED, never run in place.** kern_small's modules keep their
+`.bss` in the claim's tail and write it through CS (MODULE-SELFCONTAIN-PLAN
+3.3), so an image in ROM could not run there. `mod_need` asks the ROM first,
+through `[rom_mfp]` with AL = a `ROMF_*` function and BX = the module's
+`mod_tab` ROW:
+- `ROMF_SIZE` - the bytes of the image the ROM holds for that row, CF = 1 for
+  none. The disk arm is then exactly what it was;
+- after the claim, `ROMF_COPY` in place of `dskw_read_x`, answering as the
+  read does (AX = CX, DX = 0);
+- then `mod_check` and `ROMF_FIX` as for a module read off the disk. The
+  ROM keeps its copies as the build cut them, naming `COLD_RAM`, so one path
+  re-points both.
+
+The ROM's tables are per ROW and not per image, because kern_big's settings
+core (`MOD_SETS`, §2.8.7) is a row over CTRL.DRV's image; the tool counts the
+rows by `mod_tab_end`. Before wave 4 they were per image, which refused the
+settings core on a ROM machine.
+
+**A held image is the disk's, byte for byte**: the tool compares each one with
+the unwrapped `.drv` in the build directory before it writes the ROM.
+
+**The package is the Task Manager, through `OSAPI_PKG_START`'s image arm**
+(§21.5). `ROM_PKG` (kern_small's, with `ROM_COLD`) gives `ui_sys_open` an arm
+ahead of the disk: `ROMF_PKG` with DS:SI = the descriptor's 8.3 name answers
+ES:DI = the image in the ROM and DX:CX its length, and `ldf_ld_pkg_start`
+copies it into a region with the same checks a disk load makes. Any refusal
+falls through to the disk path, which says why. The image is stored
+unpacked, and a package with parts is refused by the tool (the image arm has
+no file to read them from). +34 resident bytes of `.text`, kern_small only;
+the module arm is +35 of `.cold` on both kernels.
+
+#### 2.10.6 What is not built
+
+- **A margin on kern_big.** Its `.cold` fits the window with 1,632 bytes to
+  spare at build 364 (ROM-PLAN 3.6). `tools/os88rom.py` refuses an image that
+  does not fit, and the day it refuses is a discussion rather than a build
+  fix.
 - **Skipping `.cold`'s read and expand on a ROM machine (ROM-PLAN 3.4.6).**
-  The ROM's first test needs the RAM copy, so it is expanded today.
-- **Executing kern_small's modules in place (ROM-PLAN 3.7).** Today they are
-  re-pointed copies.
+  The ROM's first test needs the RAM copy, so it is expanded today. A
+  checksum the kernel carries would replace that test; stage 2's `.boot2`
+  has no room for the decision, which is what holds it.
+- **Executing modules in place.** §2.10.5 copies them, because a module's
+  `.bss` is the claim's tail and it writes it through CS.
+- **Drivers and other packages in ROM** (ROM-PLAN 4.1, 4.5). A package or a
+  driver is CS = DS and copies only, so it saves no RAM, and kern_big's
+  window has no room for one anyway.
 
 ## 3. Global constants (defined once in kernel.asm, used everywhere)
 

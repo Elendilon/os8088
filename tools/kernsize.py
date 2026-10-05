@@ -485,6 +485,10 @@ def rung_accrued(size, used):
     return 0 if size <= 0 else 512 - (size - used)
 
 
+ROM_WINDOW = 40960              # U28-U32, F4000-FDFFF (ROM-PLAN 1.3)
+ROM_HEADER = 16                 # ...less tools/os88rom.py's header paragraph
+
+
 def kb(n):
     return f"{n:,}"
 
@@ -629,6 +633,18 @@ def report(cur, base, variant="big", out=sys.stdout):
       + f"  HEAP {cur['kend']:#06x}"
       f" = {cur['kend'] * 16 / 1024:.1f} KB   (heap KB = int 12h"
       f" - {cur['kend'] * 16 / 1024:.1f})")
+
+    # THE ROM WINDOW (docs/plans/ROM-PLAN.md 3.6): every kernel finds a ROM
+    # in a 5150's U28-U32 and runs `.cold` from it, and `.cold` has been
+    # bigger than the window on 8 of 21 days. A REPORT, like everything
+    # here - a `.cold` that outgrows it means no ROM can be cut, and the disks
+    # still boot. 40,960 less the 16-byte header; boot/osrom.asm's tail
+    # (~1.2-1.3KB, two bytes a fixup) comes off what is left, and `make rom`
+    # prints that exact spare.
+    win = ROM_WINDOW - ROM_HEADER
+    p(f"{tag} rom        .cold {kb(cur['cold'])} of the {kb(win)} the 40KB"
+      f" window holds before its tail -> {kb(win - cur['cold'])} for the"
+      f" tail and spare (`make rom` says exactly)")
 
     if base is None:
         p(tag + " no baseline for this variant in docs/KERNEL-MEMORY.md"

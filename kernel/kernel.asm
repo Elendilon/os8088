@@ -458,14 +458,30 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ;     checks it is this kernel's and re-points every far reference (3.4.3);
 ;   - mem_floor_ax drops the floor by the cold rung when `.cold` is in ROM,
 ;     and mod_need has the ROM re-point a module it loads (3.4.4).
-; kern_small first: it fits the window with room for its modules (3.7).
-%ifdef KERN_SMALL
+; Every kernel since wave 3: kern_small's `.cold` fits the window with room
+; for its modules (3.7), kern_big's with ~2KB (3.6). NO_ROM_COLD builds the
+; layout before it - the A/B, and nothing else.
+%ifndef NO_ROM_COLD
   %define ROM_COLD 1
+%endif
+%ifdef KERN_SMALL               ; ...and a PACKAGE in it, kern_small's alone:
+  %ifdef ROM_COLD               ; its window has the room (ROM-PLAN 3.7) and
+    %ifndef NO_ROM_PKG          ; kern_big's has ~1.6KB (SPEC.md 2.10.5).
+      %define ROM_PKG 1         ; NO_ROM_PKG is its A/B, NO_ROM_COLD's shape
+    %endif
+  %endif
 %endif
 ROM_SEG     equ 0xF400          ; U28's base: the window's header paragraph
 ROM_COLDSEG equ ROM_SEG + 1     ; ...and `.cold` one paragraph above it
 ROM_FMT     equ 1               ; the header's +10, as tools/os88rom.py writes
 ROM_KIND_KERNEL equ 2           ; ...and its +11: boot/osrom.asm's kinds
+; ...and what AL asks [rom_mfp], the ROM's one door after adoption
+; (SPEC.md 2.10.4, 2.10.5). BX = a mod_tab ROW for the first three
+ROMF_SIZE   equ 0               ; out CF=0 AX = the image's bytes, if it has it
+ROMF_COPY   equ 1               ; ES:0 <- its first CX bytes; AX = CX, DX = 0
+ROMF_FIX    equ 2               ; re-point the module at ES (CX bytes long)
+ROMF_PKG    equ 3               ; DS:SI = a package's 8.3 name -> CF=0 and
+                                ; ES:DI = its image, DX:CX = its length
 
 ; MOU_IN_BLOB - WHICH HALF of the boot overlay mouse_init's serial probe is
 ; assembled into (SPEC.md 2.5.3.2, 2.5.3.3): its three blocks in mouse.inc and
@@ -2416,11 +2432,20 @@ STK0_BOT    equ KLOW_SIZE       ; ...and the floor it grows down ONTO, which is
                                 ; going quiet; guard 3 proves the two cannot
                                 ; meet
 %ifdef ROM_COLD
-VGABUF_SEG  equ COLD_RAM + COLD_PARA ; THE PLANAR DECODER'S BUFFERS (SPEC.md
+VGABUF_RAM  equ COLD_RAM + COLD_PARA ; THE PLANAR DECODER'S BUFFERS
 %else
-VGABUF_SEG  equ LOW_SEG + LOW_PARA   ; THE PLANAR DECODER'S BUFFERS (SPEC.md
+VGABUF_RAM  equ LOW_SEG + LOW_PARA   ; THE PLANAR DECODER'S BUFFERS
 %endif
-                                ; 5.4.1.3), and a rung of their own because
+VGABUF_SEG  equ VGABUF_RAM
+                                ; ^ the RUNG and, as baked, the segment the
+                                ; decoder loads (vga12.inc, one instruction).
+                                ; A machine whose `.cold` the ROM adopted has
+                                ; that one word re-pointed at COLD_RAM - the
+                                ; bottom of the dead cold rung - so the heap
+                                ; floor falls past both rungs and the buffers
+                                ; stay below it (docs/plans/ROM-PLAN.md 3.4.2).
+                                ; Below, the rung: SPEC.md 5.4.1.3's
+                                ; buffers, in a rung of their own because
                                 ; they are the one part of the kernel a
                                 ; machine with no VGA has no use for
                                 ; (SPEC.md 39.22).
@@ -2462,7 +2487,7 @@ VGABUF_PARA equ 0               ; NO PLANAR DECODER, NO RUNG. GFX_PLANE is
                                 ; of 32, so guard 2d still passes and
                                 ; mem_init's conditional folds to nothing.
 %endif
-KERN_END    equ VGABUF_SEG + VGABUF_PARA   ; ...and there the kernel stops
+KERN_END    equ VGABUF_RAM + VGABUF_PARA   ; ...and there the kernel stops
 KERN_SIZE   equ (KERN_END - KERNEL_SEG) * 16   ; what KERN_BUDGET measures
 
 HEAP_SEG    equ KERN_END        ; the claim heap (SPEC.md 50) starts where
@@ -5669,19 +5694,20 @@ splg_%1:
 ; =============================================================================
 section .ovl
 %ifdef ROM_COLD
+section .ovlw
 ; -----------------------------------------------------------------------------
 ; rom_adopt - hand the kernel to the ROM's own adapter, if there is a ROM
 ; (docs/plans/ROM-PLAN.md 3.4.3, SPEC.md 2.10.4)
-; in:  CS = the blob, the kernel expanded and NOTHING of `.cold` run yet -
-;      which is kmain_o's first instruction on both loaders, the floppy's
-;      stage 2 and the hard disk's kz_hd
-; out: nothing; preserves every register and the flags
+; in:  DS = KERNEL_SEG, [spl_fseg] = the blob (stage 2 published it), the
+;      kernel expanded and NOTHING of `.cold` run yet - which is kmain_o's
+;      first instruction on both loaders
+; out: nothing; preserves every register (the ROM's rom_patch keeps the rest)
 ;
-; In the BOOT OVERLAY, not in `.boot2` where it was first written: stage 2's
-; share of the blob is the loader's, and a knob build gives 96-136 bytes of it
-; to the overlay - four kern_small knob kernels stopped assembling. The
-; overlay has room, it is transient, and it runs before any far call into
-; `.cold` all the same.
+; IN THE WINDOW HALF OF THE OVERLAY, and that was the third home tried. In
+; stage 2's `.boot2` it cost four kern_small knob builds their loader share;
+; in `.ovl` it did not fit kern_big at all (27 bytes spare). `.ovlw` has room
+; on both, is dead by the first mount - this runs before anything mounts -
+; and is reached by a far call whose segment is a constant (OVWCALL).
 ;
 ; This is only the doorbell: an os8088 kernel ROM at F4000 in this header
 ; format. Everything that decides whether it is THIS kernel's - `.cold` byte
@@ -5691,18 +5717,12 @@ section .ovl
 ; expanded: a wrong ROM is no ROM.
 ; -----------------------------------------------------------------------------
 rom_adopt:
-    pushf
+    push ds
     push ax
     push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    push ds
-    push es
-    mov ax, ROM_SEG
-    mov ds, ax
+    mov ax, [spl_fseg]          ; AX = the blob, for `.ovl`'s list
+    mov bx, ROM_SEG
+    mov ds, bx
     cmp word [6], 'OS'          ; an os8088 ROM at F4000 (the BIOS has
     jne .no                     ; already proved it is an option ROM: 55 AA
     cmp word [8], '88'          ; and a checksum)...
@@ -5710,25 +5730,18 @@ rom_adopt:
     cmp word [10], ROM_FMT | (ROM_KIND_KERNEL << 8)
     jne .no                     ; ...in this format, carrying a kernel
     mov bx, [12]                ; the identity block
-    mov ax, cs                  ; AX = the blob, for `.ovl`'s list
     call far [bx+24]            ; CF = 1: not ours, and nothing was touched
 .no:
-    pop es
-    pop ds
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
     pop bx
     pop ax
-    popf
-    ret
+    pop ds
+    retf
+section .ovl
 %endif
 
 kmain_o:
 %ifdef ROM_COLD
-    call rom_adopt              ; FIRST: nothing of `.cold` has run yet (ROM-PLAN
+    OVWCALL  rom_adopt          ; FIRST: nothing of `.cold` has run yet (ROM-PLAN
                                 ; 3.4.3) - and it preserves every register, DL
                                 ; and BX:CX's handoff below included
 %endif
@@ -8590,6 +8603,11 @@ KBUF_KB    equ SK_R(SK_CUM3)
 ; make the column stop totalling on mono alone. It comes off the LAST boundary
 ; because that is the one the rung is inside - it is part of SKB_IMG.
 SK_VGAB_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - VGABUF_PARA * 16)
+; ...and what a machine whose `.cold` the ROM adopted gives back: the cold
+; rung, from the same boundary for the same reason (docs/plans/ROM-PLAN.md
+; 3.4.2). On VGA the decoder's buffers move into it, so the `.vgabuf` rung is
+; what stays reserved - the two subtractions are independent.
+SK_COLD_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - COLD_PARA * 16)
 
 ; --- the size report, for tools/kernsize.py (docs/KERNEL-MEMORY.md) ----------
 ; Every figure in the ladder, published in one line, so that measuring the
@@ -8630,7 +8648,7 @@ SK_VGAB_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - VGABUF_PARA * 16)
   %assign KS_COLDS  COLD_RAM     ; the four bases themselves, so the report
   %assign KS_FATS   FAT_SEG      ; prints the ladder the kernel HAS rather
   %assign KS_LOWS   LOW_SEG      ; than re-deriving one order of it in
-  %assign KS_VGAS   VGABUF_SEG   ; Python (ROM_COLD reorders it)
+  %assign KS_VGAS   VGABUF_RAM   ; Python (ROM_COLD reorders it)
   %assign KS_BLOB   BLOB_SEG_AT  ; where the boot sectors put the blob
   %assign KS_MINRAM MIN_RAM_KB   ; ...and guard 5's ceiling, because a report
   %assign KS_BOOTMX MIN_RAM_KB*1024 - BOOT_SECT - BOOT_STACK - KERNEL_SEG*16 - BOOT2_PAD
