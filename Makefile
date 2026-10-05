@@ -2834,6 +2834,20 @@ BD_IMGS := $(BUILD)/bootdiag360.img $(BUILD)/bootdiag720.img \
            $(BUILD)/bootdiag144.img $(BUILD)/bootdiagx360.img \
            $(BUILD)/bootdiagx720.img $(BUILD)/bootdiagx144.img
 
+# THE ROM (docs/plans/ROM-PLAN.md) - os8088 in an IBM 5150's five spare ROM
+# sockets, U28-U32, F4000-FDFFF, laid out as ONE option ROM (ROM-PLAN 1.3).
+# ON DEMAND, never in `all`: nothing ships in a ROM yet, and a ROM is cut per
+# release (and per experiment), not per build. Each target writes the 40KB
+# window and one 8KB file per socket into $(BUILD)/rom/.
+#
+# socketrom: no os8088 at all - a pattern and an init that prints `U28 ok ...
+# U32 ok` at POST. Flash it first, on any new board or wiring: it proves the
+# window before a kernel is asked to run out of it. tests/romsock.py is its
+# gate, and its negative control is a ROM with one byte of U30 wrong.
+.PHONY: socketrom
+socketrom: $(BUILDINC)
+	python3 tools/os88rom.py socket --out $(BUILD)/rom
+
 .PHONY: bootdiag
 # NOMOUPRIV=1 puts BOTH mouse ISRs back on the interrupted TASK's stack, which
 # is what shipped before SPEC.md 9.10. The default runs the whole ISR on one

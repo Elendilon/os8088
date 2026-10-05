@@ -303,6 +303,25 @@ FAST = [
         "which no package can reach - it belongs beside a boot or geometry "
         "change",
         needs=("nasm",)),
+    Row("romsock", "soak", py("tests/romsock.py"), 5.0,
+        "docs/plans/ROM-PLAN.md 1.3 and 1.7: the socket-check ROM in U28-U32 "
+        "on a GLaBIOS 5150 with no disk. The BIOS must find the window as an "
+        "option ROM (55 AA, a 32KB declaration, both balance bytes), call its "
+        "init, and every socket must read ok; with nothing to boot, int 18h "
+        "must land in the ROM's own stub and not at F600:0000, which is the "
+        "middle of .cold in a kernel ROM. Negative control: one byte of U30 "
+        "wrong must read U30 BAD. SOAK: no package can reach it",
+        needs=("marty", "nasm"), serial=True),
+    Row("romtool", "fast", py("tools/os88rom.py", "--selfcheck"), 0.3,
+        "docs/plans/ROM-PLAN.md 1.3: the ROM image builder re-derives its own "
+        "invariants - 55 AA and a 32KB declaration (40KB would send the "
+        "10/27/82 BIOS's BASIC check round all of RAM), both regions summing "
+        "to zero, the init jmp and identity pointer landing where the tail "
+        "put them, and the socket pattern matching what the ROM's own check "
+        "recomputes. Host-only, no emulator. FAST because boot/osrom.asm is "
+        "assembled here and nowhere in `all`, so this is what keeps it "
+        "assembling",
+        needs=("nasm",)),
     Row("coldpic", "soak", py("tools/os88romfix.py", "--check"), 9.0,
         "docs/plans/ROM-PLAN.md 3.2: `.cold` must not NAME its own segment - "
         "no `call COLD_SEG:`, no `dw COLD_SEG`, no compare against it - so "

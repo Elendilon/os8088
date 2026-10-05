@@ -82,6 +82,7 @@ import argparse
 import errno
 import json
 import os
+import shutil
 import re
 import socket
 import sys
@@ -2079,6 +2080,48 @@ def _private_run_dir(base, tag):
     return inst
 
 
+
+ROM_AT = 0xF4000                # docs/plans/ROM-PLAN.md 1.3: U28-U32
+
+
+def _stage_rom(inst, base, rom):
+    """Give ONE instance a ROM in the 5150's spare sockets (ROM-PLAN 1.3).
+
+    MartyPC adds an optional "custom" ROM feature to every machine type and
+    loads it when martypc.toml's `custom_roms` is on - which the shared tree's
+    is. So a romset providing "custom" in the SHARED configs would land on
+    every test machine; it goes in this instance's instead. `configs/` and
+    `media/roms/` stop being symlinks here and become real directories of
+    symlinks, plus one rom definition and one ROM file - the rest of the tree
+    is still shared and still read-only. Matched by FILENAME, which MartyPC's
+    manifest allows, so a ROM rebuilt per run needs no md5 written down.
+    """
+    if not os.path.isfile(rom):
+        raise MartyError("no ROM image at %s - `python3 tools/os88rom.py`" % rom)
+
+    def unshare(rel):
+        dst = os.path.join(inst, rel)
+        src = os.path.join(base, rel)
+        if os.path.islink(dst):
+            os.remove(dst)
+        os.makedirs(dst, exist_ok=True)
+        for name in sorted(os.listdir(src)) if os.path.isdir(src) else []:
+            if not os.path.lexists(os.path.join(dst, name)):
+                os.symlink(os.path.join(src, name), os.path.join(dst, name))
+        return dst
+
+    unshare("configs")
+    os.remove(os.path.join(inst, "configs", "rom_definitions"))
+    defs = unshare(os.path.join("configs", "rom_definitions"))
+    roms = unshare(os.path.join("media", "roms"))
+    name = "os8088_user_rom.bin"
+    shutil.copyfile(rom, os.path.join(roms, name))
+    with open(os.path.join(defs, "os8088_user_rom.toml"), "w") as f:
+        f.write('[[romset]]\nalias = "os8088_user_rom"\npriority = 100\n'
+                'provides = ["custom"]\nrom = [\n'
+                '    { filename = "%s", addr = 0x%05X, size = %d },\n]\n'
+                % (name, ROM_AT, os.path.getsize(rom)))
+
 MBAR_H = 20                     # SPEC.md 12: the same on every adapter
 
 
@@ -3423,7 +3466,7 @@ def scratch_disk(path, *files, **kw):
 
 def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
            run_dir=None, boot=True, timeout=DEFAULT_TIMEOUT, extra=(),
-           card=None, label=None, detach=False):
+           card=None, label=None, detach=False, rom=None):
     """Start a FRESH martypc_headless on `image` and return a booted Marty.
 
     `image` and `apps` are paths to floppy images (fd:0 and fd:1). `boot` is
@@ -3507,7 +3550,13 @@ def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
     if run_dir is None:
         run_dir = _private_run_dir(base, tag)   # ...which is also the run tree
         private = True
+        if rom is not None:
+            _stage_rom(run_dir, base, _build.at(rom))
     else:
+        if rom is not None:
+            raise MartyError("rom= needs a private run tree: it rewrites "
+                             "that tree's configs/ and media/roms/, and a "
+                             "caller-staged run_dir is shared")
         # A caller staging its own tree keeps its own isolation. Nothing here
         # can give it any: two runs in one directory share one media/floppies.
         # It is still REGISTERED, because `instances` and `reap` are about
