@@ -2195,6 +2195,23 @@ through `spl_gate`, which is at the far end of `.text`, so the **path** is not
 aboard even where the destination is. §2.5.2's register refuses `vid_detect` and
 `vid_init` on that, and without this line nothing in the tree would have said so.
 
+**The guard covers what the first tick RUNS, not what it WRITES, and the
+second half is its own rule.** Under a packed kernel (§2.9.13) everything past
+the head lies IN PLACE under its final address as an LZ4 stream until stage 2
+expands it, so a store the first tick makes past the head lands on a packed
+byte whenever that sector has already been read - and the expansion turns that
+byte into wrong code somewhere else. `vid_apply` homed the pointer and set
+`cur_shchk` and `[ui_post]` on every call, all three past the head; on the
+1.44MB kern_small of ROM-PLAN wave 4, `ui_post = 1` became an `01` in
+`menu_track`'s first compare and every bar menu's pick was lost, while the
+360KB disk of the same build, whose read order differs, was fine. So
+`vid_apply` skips those stores on the one call that has `[spl_live]` up and
+`[spl_fseg]` still 0 - both words in the head - and `vid_init` makes them once
+the kernel is whole. **A first-tick store belongs in the head or in the blob
+(`[cs:]`), never past it**, and a corrupted kernel from one is a timing race
+between the tick and the read, which is why it is refused rather than
+ordered.
+
 Three consequences of the move, and they are the boot overlay's word for word
 (§2.5) one section along:
 

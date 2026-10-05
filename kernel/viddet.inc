@@ -850,6 +850,24 @@ vid_apply:
     loop .rowtab                ; arithmetic above. DI and flags, nothing else
     mov word [vid_rowmax], VID_ROWTAB   ; ...and only now may anything read it
 .norowtab:
+    ; NOT FROM THE SPLASH'S FIRST TICK. Everything below writes PAST the plain
+    ; head (mouse.inc's pair, cur_shchk, ui_post's .bss), and on that call the
+    ; rest of the kernel is still coming off the floppy as an LZ4 stream lying
+    ; IN PLACE under where `.text` and `.bss` will be (SPEC.md 2.9.13) - so a
+    ; store there lands on a packed byte if its sector has already been read,
+    ; and the expansion turns that one byte into wrong CODE. It did: on the
+    ; 1.44MB kern_small, `ui_post = 1` became an 01 in menu_track's first
+    ; compare, and every bar menu's pick was lost. Whether a store is harmful
+    ; is a race between the first tick and the read, so it is refused rather
+    ; than timed. The call to skip is the one with [spl_live] up and
+    ; [spl_fseg] still 0 (stage 2 publishes it after the load) - both words
+    ; are in the head - and nothing is lost: kmain's vid_init runs this again
+    ; once the kernel is whole, and makes every store below then.
+    cmp byte [spl_live], 0
+    je .home
+    cmp word [spl_fseg], 0
+    je .homed
+.home:
     mov di, mouse_x             ; --- home the cursor; see the header.
     mov ax, [vid_w]             ; mouse_x and mouse_y are an adjacent pair
     shr ax, 1                   ; (mouse.inc pins it with an %if), so the two
@@ -876,7 +894,7 @@ vid_apply:
                                 ; off the floppy, which is what the header
                                 ; above says about cur_unlazy
 %endif
-
+.homed:
     pop es                      ; ...and the other seven are vid_pop8's own run
     jmp vid_pop7                ; one label in - this routine has no BP in its
                                 ; frame. See vid_pop8's header
