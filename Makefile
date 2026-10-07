@@ -209,6 +209,7 @@ VM386PS2 := $(CURDIR)/vm/386-ps2
 VMXTSND := $(CURDIR)/vm/xt-sound
 VMXTSND144 := $(CURDIR)/vm/xt-sound-1.44
 VMXTMIDI := $(CURDIR)/vm/xt-midirack
+VMXTCOVOX := $(CURDIR)/vm/xt-covox
 VMXTWIRE := $(CURDIR)/vm/xt-wire
 VM286SND := $(CURDIR)/vm/286-sound
 VM286VID := $(CURDIR)/vm/286-video
@@ -2043,7 +2044,7 @@ KERNEL_SRC := kernel/kernel.asm
 KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
 
 .PHONY: stkdiag small emu kernsplit all run run-640 run-720 run-120 debug test test-snd xt xt-640 pc5150 xt-mfm xt-cga \
-        xt-hercules xt-ega xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 xt-midirack 386-midirack xt-wire \
+        xt-hercules xt-ega xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 xt-midirack 386-midirack xt-covox xt-wire \
         286-525-z 286-525-word 286-525-cword 286-525-runcpm 286-525-c64 \
         286-525-weave 286-525-loom 286-525-all \
         286-sound 286-video 386-sound 486 pentium \
@@ -3473,7 +3474,7 @@ $(BUILD)/fontview.o88: $(BUILD)/fontview.bin tools/os88pkg.py $(PKGZSTAMP)
 # like. The disk would have come out identical to the one that did not work.
 SNDSTAMP := $(BUILD)/.sound-$(if $(PICOMEM),pm$(PICOMEM),def)$(if $(PM_BASE),-b$(PM_BASE))$(if $(PM_SB_PORT),-s$(PM_SB_PORT))
 
-$(BUILD)/sound.bin: drivers/sound/sound.asm drivers/sound/sb.inc drivers/sound/mpu.inc \
+$(BUILD)/sound.bin: drivers/sound/sound.asm drivers/sound/sb.inc drivers/sound/mpu.inc drivers/sound/covox.inc \
                     drivers/sound/picomem.inc drivers/sound/sndpkg.inc \
                     drivers/os88drv.inc apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error $(SNDDEF) -I drivers/sound/ -I drivers/ -I apps/ \
@@ -4375,6 +4376,42 @@ $(BUILD)/midisys720.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) 
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
 		$(BUILD)/midicfg/system.cfg $(APPDATAFOLDER)
+
+# COVOXTEST - the Covox gate's system disks (SPEC.md 34.14): midisys720's
+# shape with one more record. A Covox is undetectable, so it is ANNOUNCED - by
+# the Sound page's fourth tier - and the kernel's boot sniff looks for an OPL2
+# only, so on a machine with no card SOUND.DRV is ticked by hand. This
+# SYSTEM.CFG is both acts already made: 'DW' bit 0 asks for SOUND.DRV, and
+# 'SR' = SND_RT_LPT + n names the Covox on LPTn+1, so the driver attaches on
+# the parallel port alone and publishes SND_CAP_LPTDAC before the first paint,
+# and tests/covox.py reads what a package plays instead of driving the Control
+# Panel. **THE PORT DIFFERS BY MACHINE, AND THAT IS THE POINT**: 720KB is
+# MartyPC's os8088_5150_herc_covox_720_gla, whose HERCULES carries its own
+# printer port at 3BCh - LPT1 - so the Covox at 378h is LPT2 ('SR' = 5);
+# 360KB is vm/xt-covox, the 86Box XT with 86Box's own `lpt_dac` on LPT1 ('SR'
+# = 4) - a machine to LISTEN to.
+$(BUILD)/covoxcfg%/system.cfg: | $(BUILD)
+	@mkdir -p $(BUILD)/covoxcfg$*
+	python3 -c "import sys; sys.stdout.buffer.write(b'O88CFG\0\0' + \
+	  (3).to_bytes(2,'little') + b'DW' + bytes([1,2]) + \
+	  (1 << 0).to_bytes(2,'little') + b'SR' + bytes([1,1,3 + $*]) + b'\0\0')" > $@
+
+$(BUILD)/covoxsys720.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(BUILD)/covoxcfg2/system.cfg tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 720 \
+		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
+		$(BUILD)/covoxcfg2/system.cfg $(APPDATAFOLDER)
+
+$(BUILD)/covoxsys360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/covoxcfg1/system.cfg tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 \
+		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
+		$(BUILD)/covoxcfg1/system.cfg $(APPDATAFOLDER)
+
+.PHONY: covoxtest
+covoxtest: $(BUILD)/covoxsys720.img $(BUILD)/covoxsys360.img
+	@echo "covoxtest: build/covoxsys720.img - SOUND.DRV wanted, the Covox tier"
+	@echo "           set. Run it with: python3 tests/covox.py --arm <arm>"
 
 # MRWTTEST - the WAVETABLE gate's apps disk (SPEC.md 105.8.6): MIDIRACK.O88
 # with tools/os88midbank.py's SYNTHETIC bank beside it - computed waveforms,
@@ -13811,6 +13848,18 @@ xt-multimon: $(IMG360) $(APPSIMG360)
 xt-sound: $(IMG360) $(APPSIMG360)
 	@$(UNPROTECT) $(VMXTSND)/86box.cfg
 	$(BOX) -P $(VMXTSND) -N
+
+# THE COVOX MACHINE (SPEC.md 34.14): xt-sound's XT with NO card and 86Box's
+# own `lpt_dac` - the LPT DAC / Covox Speech Thing - on LPT1 at 378h, booting
+# `make covoxtest`'s 360KB disk, whose SYSTEM.CFG asks for SOUND.DRV and sets
+# the sound tier to a Covox on LPT1. B: is `make midirackdisk`'s 360KB disk, so
+# MIDIRack's Covox synth is one click away; the apps disk is in B:'s history
+# for Tracker (BEVERLY.MOD rides media360.img), Audio and the Video Player.
+# A machine to LISTEN to: the gates are MartyPC's (tests/covox.py and each
+# package's --covox leg), whose own Covox is patches/10-covox-lpt-dac.patch.
+xt-covox: $(BUILD)/covoxsys360.img $(BUILD)/midirack360.img $(APPSIMG360)
+	@$(UNPROTECT) $(VMXTCOVOX)/86box.cfg
+	$(BOX) -P $(VMXTCOVOX) -N
 
 # Keep the period-correct 360KB system disk in A:, but expose every application
 # through the 1.44MB everything set: disk 1, $(ALLAPPSIMG), is in B: and the
