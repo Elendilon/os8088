@@ -522,13 +522,16 @@ vo_bparts:
     pop ax
     ret
 
-; vo_page - BL = a page index -> [vo_pgo] its offset (Mode X's second page
-; at VP_PAGE; nothing else has one)
+; vo_page - BL = a page index -> [vo_pgo] its offset (the second page at
+; [vp_page]: Mode X's VP_PAGE, or a screen's rows x 80, 98.3.8.2)
 vo_page:
     mov word [vo_pgo], 0
     or bl, bl
     jz .ret
-    mov word [vo_pgo], VP_PAGE
+    push ax
+    mov ax, [vp_page]
+    mov [vo_pgo], ax
+    pop ax
 .ret:
     ret
 
