@@ -3812,6 +3812,16 @@ SOAK = [
         "check 4's repaint differs over 24 rows of the grid",
         needs=("marty",), serial=True,
         wants=("build/sheetmove360.img",)),
+    Row("sheetbtn", "soak", py("tests/sheetbtn.py"), 30.0,
+        "A stale button record must not answer a REUSED window slot "
+        "(SPEC.md 20.5.1.3.3). Sheet's Goto, then its Format dialog, then "
+        "Goto again, all on one slot through Sheet's own in-window bar: the "
+        "first record os88ui_btnclick finds for that window must be Goto's "
+        "and its Cancel must close it. VERIFIED TO FAIL on the link-once "
+        "os88ui.inc that did not clear the older record: Format's record "
+        "answers first and the Goto dialog stays open",
+        needs=("marty",),
+        wants=("build/office360.img",)),
     Row("doscom", "soak", py("tests/doscom.py"), 30.0,
         "THE DOS WAVE-1 GATE (SPEC.md 96): double-click a .COM in a Disk "
         "window and assert a real DOS program RAN - its own output on the "
