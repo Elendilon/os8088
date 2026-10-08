@@ -61070,14 +61070,19 @@ entered, which read 0 before the fix.
 ### 34.3 Router — ownership, priority, generations
 
 - **Tone tier**: one logical channel, single owner. Owner record =
-  {instance byte, priority byte, generation byte, expiry ticks}. Steal
+  {instance byte, priority byte, expiry ticks}, beside one generation
+  counter that every grant and release bumps. Steal
   policy: a new request with priority ≥ the current owner's takes the
   channel (kernel UI beeps use priority 0C0h; the package default is
   040h); lower priority is refused CF=1. Tone-off (AX = 0) obeys the same
   compare, so background audio cannot silence an alert. Duration-limited
   tones (CX ≠ 0) self-expire via `snd_tick` — no task needed — and the
-  expiry is **generation-guarded**: the tick silences only if the owner
-  generation still matches the one stamped at grant. The sink is the
+  expiry is always the current owner's: a grant writes the record and its
+  expiry in one window (below), so the tick never needs to ask whose expiry
+  it is counting. Kernel size pass 10 took out the generation compare that
+  used to ask: its two bytes were stamped together, from one register, and
+  were equal on every tick that ever read them. The generation itself is
+  still the grant's answer (AL), bumped by every grant and release. The sink is the
   speaker; there is no other, so a grant can never fail to resolve one.
 - **Grant atomicity (binding)**: every grant, steal and release updates
   its owner record (generation, priority, expiry) *and* its ports inside a
@@ -61085,8 +61090,7 @@ entered, which read 0 before the fix.
   between any two task-context instructions; without this rule a tick
   landing between the generation stamp and the expiry store sees
   new-generation-with-stale-expiry and can silence a just-granted tone.
-  The generation guard is only sound because task-side writers are atomic
-  w.r.t. the tick. The same rule covers the PWM steal path: `snd_ch2mode`,
+  That atomicity is what makes the expiry the owner's without a guard. The same rule covers the PWM steal path: `snd_ch2mode`,
   the generation stamp and the silencing are one unit.
 - **Grant stamping is task-qualified (binding)**. Every grant records the
   instance that asked for it, and `snd_req_inst` is the single routine
@@ -62487,7 +62491,8 @@ driver has its DAC up, so it never claims one that is not sounding, which is
 `cp_snd_row`'s rule for the rows.
 
 **Siblings of `SND_RT_FM`, not rungs above `SND_RT_SB`**, so every test of
-them is `>= SND_RT_LPT`, made before any `>= SND_RT_SB`. A Covox tier keeps the AdLib (tones, `SND_FM_CLAIM`, MIDIRack's FM)
+them is `>= SND_RT_LPT`, made before any `>= SND_RT_SB` - or the
+Sound Blaster's own test is `== SND_RT_SB`, which is SOUND.DRV's `snd_tier`. A Covox tier keeps the AdLib (tones, `SND_FM_CLAIM`, MIDIRack's FM)
 and turns the Sound Blaster's DSP tier OFF - because a package that sees
 `SND_CAP_PCM_BG` streams to the card, and the user who picked the Covox
 asked for the other path. An AdLib and a Covox side by side was the period's
@@ -62506,7 +62511,7 @@ The two halves of the announcement are the two cells §34.8 already has:
 - **`DSV_TIERS` bits `SND_RT_LPT + n`** are set at attach, one for each of
   LPT1..LPT3 that answered, card or no card. They say which CHOICES are live,
   which is all a probe can say.
-- **`SND_CAP_LPTDAC` (0100h)** is set by `cvx_tier`, inside `DRVV_TIER`,
+- **`SND_CAP_LPTDAC` (0100h)** is set by `snd_tier`'s Covox tail, inside `DRVV_TIER`,
   only while the tier IS a Covox's and its port answered - so a package
   plays the DAC only when somebody said one is there. Every other tier
   withdraws it. A Covox tier on a machine whose port has gone is the AdLib
