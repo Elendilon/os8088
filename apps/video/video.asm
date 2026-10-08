@@ -11158,9 +11158,12 @@ vp_afill:
     sub si, [vp_abytes]
     jmp short .sput
 .sil:
-    xor dx, dx
+    xor dx, dx                      ; (a frame of the RING's: twice the
+    mov cx, [vp_rbytes]             ; file's when the player decodes, as
+    jmp short .sp2                  ; vp_aput's silence is not, 98.3.17.1)
 .sput:
     mov cx, [vp_abytes]
+.sp2:
     call vp_aput
     mov ax, [vp_wL]
     inc ax
