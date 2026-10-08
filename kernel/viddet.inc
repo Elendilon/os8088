@@ -893,20 +893,24 @@ vid_apply:
 ; Factored out of vid_setmode when vid_mono_text needed the identical loop with
 ; a different table (SPEC.md 39.20). Two tables and one loop rather than two of
 ; each, for gfxbench's reason: the second copy is the one that does not get the
-; fix. It leaves DX = 0x3B4, which neither caller relies on.
+; fix. It leaves DX = 0x3B4 - AND vid_setmode's Hercules arm RELIES on DH = 3
+; there since size pass 10: its two 3B8h writes after this call move DL alone.
+;
+; ONE WORD OUT PER REGISTER (size pass 10, 20 bytes -> 15): `out dx, ax` is AL
+; to 3B4h and then AH to 3B5h - two byte cycles on the 8088's bus, and the AT
+; bus splits a word to an 8-bit card the same way, low byte first - so the
+; card sees exactly the index-then-data pair the byte loop wrote, and the loop
+; no longer walks DX up and down.
 ; -----------------------------------------------------------------------------
 vid_6845_prog:
     mov dx, 0x3B4
-    xor ah, ah                  ; AH = CRTC register index
+    xor al, al                  ; AL = CRTC register index
 .crtc:
-    mov al, ah
-    out dx, al                  ; index port
-    inc dx
-    lodsb
-    out dx, al                  ; data port
-    dec dx
-    inc ah
-    cmp ah, 12
+    mov ah, [si]                ; AH = its value
+    inc si
+    out dx, ax                  ; index to 3B4h, then data to 3B5h
+    inc ax                      ; the next index: AL < 12, so no carry into AH
+    cmp al, 12
     jb .crtc
     ret
 

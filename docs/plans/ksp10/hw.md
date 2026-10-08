@@ -38,6 +38,15 @@ Batch 1 total: kern_big .text -50, .cold -10 (sum -60); kern_small .text -35.
 Running total at batch 2: **kern_big .text -54, .cold -10 (sum -64); kern_small .text -37;
 kern_emu .text -60, .cold -16 (sum -76)**.
 
+### Batch 3
+
+| where | what | big | small |
+|---|---|---:|---:|
+| vid_6845_prog | one `out dx, ax` per CRTC register (index AL, value AH): 20 bytes -> 15. Two byte cycles, low first, on the 8088's bus and on an AT's 8-bit slot alike - the card sees the same index/data pairs | -5 | -5 |
+
+Running total at batch 3: **kern_big .text -59, .cold -10 (sum -69); kern_small .text -42
+(sum -42)**; kern_emu as batch 2 plus -5.
+
 docs/INDEX.md is regenerated in this branch only because this notes file is tracked
 (os88index lists every docs/plans/*.md); the coordinator regenerates it at the merge.
 
@@ -48,9 +57,8 @@ docs/INDEX.md is regenerated in this branch only because this notes file is trac
 * **vid_pop8 -> kret_es** (~6): refused by its own header - vid_setmode/vid_text run
   from the splash before the ladder at the end of `.text` is resident.
   **vid_mono_text -> kret_es** (-2) is refused for the same reason: vid_text calls it.
-* **vid_6845_prog as word OUTs** (-2): `out dx, ax` to 3B4h is two byte cycles on
-  the 8088 bus, so it is probably equivalent, but it changes the bus pattern to a
-  real MDA/Hercules 6845 for two bytes. Not worth the question.
+* (vid_6845_prog as word OUTs was refused at -2 in batch 1 and TAKEN in batch 3
+  at -5, once the loop was rewritten around it - see batch 3.)
 * **vid_apply: fold the m1/m8 copy into the axis loop** (-2 at best, +1 once the
   second copy's DI has to be reloaded): wm8 has no y twin (writing one is vid_pw).
 * **vid_disp_init's .jout trampoline**: every reordering measured is the same 26 bytes.
@@ -84,3 +92,8 @@ docs/INDEX.md is regenerated in this branch only because this notes file is trac
   `kretc_*` instead of `kretfc_*`) is ~-24 +7 = **~-17 kern_big**, ~+1 kern_small
   (fm_kinit only). The blocker is `cp_kinit` (ctrl.inc), which is a `.text` body:
   it would need moving to `.cold` or a cold thunk of its own. ESTIMATE, not built.
+* **`cw_mem_disp` (kernel.asm) IS `spw_near` (viddet.inc)**: both are `call bp /
+  retf` in `.text`. `cw_mem_disp equ spw_near` and the three bytes go, both kernels
+  (-3 / -3). spw_near must stay where it is (inside SPL_RESIDENT, the splash calls
+  it); cw_mem_disp's callers only need KERNEL_SEG:a `call bp/retf`. Check
+  os88ovlchk / tests/ovlrefs.txt for either name before taking it.
