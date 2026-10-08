@@ -107,6 +107,11 @@ rp_init:
     rep stosb
     pop di
     mov [rp_rsvc], bx
+    mov word [rp_rdisp], PKG_DISP ; the offset is static, but WRITTEN: the
+                                ; zero run behind it reaches its high byte
+                                ; whenever RP_BSS_SZ + 3 is a multiple of 16,
+                                ; os88drv.py strips the file there, and the
+                                ; claim it is read into is not zeroed
     mov [rp_rdisp+2], dx        ; ...which is also the segment rp_svc loads
 
 ; rp_v_busy - RDT_BUSY: is anything of ours still on screen? (CF = 1 = yes)
