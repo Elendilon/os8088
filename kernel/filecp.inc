@@ -1331,21 +1331,6 @@ fcp_file1:
     ret
 
 ; -----------------------------------------------------------------------------
-; fcp_file2 - the answered half of fcp_file1: the transfer, no question
-; out: as fcp_file1, and [fcp_pend] = 0 on EVERY path - a transfer that
-;      fails must not leave the question owed, or the next folder paste would
-;      find it at .walk and answer it with this operation's stale names
-; clobbers: as fcp_file1
-; -----------------------------------------------------------------------------
-fcp_file2:
-    mov byte [fcp_pend], 0
-    cmp byte [fcp_ovw], 0       ; answered 'no': leave the target alone
-    je .out                     ; (CF = 0: the compare was EQUAL)
-    jmp fcp_xfer                ; ...whose CF and AX are this routine's
-.out:
-    ret
-
-; -----------------------------------------------------------------------------
 ; fcp_fnames - publish the pending file's source and destination
 ; out: fcp_fname = its name, [fcp_fsclus] the source directory and
 ;      [fcp_fdclus] the destination - on the OPERATION's two drives, [fcp_drv]
@@ -1596,6 +1581,24 @@ fcp_undo:
     pop ax
 .out:
     ret
+
+; -----------------------------------------------------------------------------
+; fcp_file2 - the answered half of fcp_file1: the transfer, no question
+; out: as fcp_file1, and [fcp_pend] = 0 on EVERY path - a transfer that
+;      fails must not leave the question owed, or the next folder paste would
+;      find it at .walk and answer it with this operation's stale names
+; clobbers: as fcp_file1
+;
+; It sits between fcp_undo and fcp_xfer so that both of its exits are where it
+; already is: 'no' is fcp_undo's `ret`, one short jump back, and 'yes' FALLS
+; INTO the transfer (size pass 10: a `jmp fcp_xfer` and a `ret` of its own).
+; -----------------------------------------------------------------------------
+fcp_file2:
+    mov byte [fcp_pend], 0
+    cmp byte [fcp_ovw], 0       ; answered 'no': leave the target alone
+    je fcp_undo.out             ; (CF = 0: the compare was EQUAL)
+                                ; ...and 'yes' is the transfer below, whose
+                                ; CF and AX are this routine's
 
 ; -----------------------------------------------------------------------------
 ; fcp_xfer - move one file's bytes, source directory to destination
