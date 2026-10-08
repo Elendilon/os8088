@@ -174,9 +174,11 @@ V88_KLEADS  equ 468                 ; lead at this dword + i x A x abytes,
                                     ; not its entry's tail
 VP_KLRING   equ 96                  ; a key's read and its lead's, KB: what the
                                     ; least ring holds, two slots and a mirror
+V88F_SCREEN equ 1024                ; A SCREEN OF ITS OWN (98.1.3.2.1): its
+                                    ; rendition's R_SCREEN is not 0
 V88F_KNOWN  equ V88F_RESIDENT | V88F_LOOPREC | V88F_REPEAT | V88F_LIVE \
                 | V88F_RUNS | V88F_SPKPWM | V88F_SPKMUL | V88F_AHEAD \
-                | V88F_BIGSP | V88F_KLEADS
+                | V88F_BIGSP | V88F_KLEADS | V88F_SCREEN
 R_TARGET    equ 53                  ; LIVE: the screen a rendition was drawn
                                     ; for - 1 CGA, 2 Hercules, 3 VGA/EGA
 V88_AUDBLK  equ 176                 ; RESIDENT: the audio block's offset,
@@ -1177,6 +1179,8 @@ vp_parse:
     mov ah, [es:di+R_SCREEN]        ; VGA4 file's alone, and never one a
     or ah, ah                       ; resident or a Live file plays on
     jz .scr0
+    test word [es:V88_FLAGS], V88F_SCREEN ; (announced, so a player before
+    jz .bad                         ; this one refuses it at open)
     cmp al, PF_VGA4
     jne .bad
     cmp ah, VP_NSCR

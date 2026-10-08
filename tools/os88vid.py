@@ -720,8 +720,12 @@ H_KLEADS = 468                  # AHEAD, key i's lead is A x abytes at the
                                 # tail - so a key's read is its picture's
 KLEADS_APART = True             # ...what write() does: False writes the
                                 # inline kind, every file before it (a test's)
+F_SCREEN = 1024                 # A SCREEN OF ITS OWN (98.1.3.2.1): the
+                                # rendition's byte 38 is not 0 - so a player
+                                # from before refuses it rather than playing
+                                # it in 12h at the wrong size and colours
 F_KNOWN = F_RESIDENT | F_LOOPREC | F_REPEAT | F_LIVE | F_RUNS | F_SPKPWM \
-    | F_SPKMUL | F_AHEAD | F_BIGSP | F_KLEADS
+    | F_SPKMUL | F_AHEAD | F_BIGSP | F_KLEADS | F_SCREEN
 
 # THE OPTIONS A FILE WAS MADE WITH (98.1.1.4): the header's bytes 26-31
 # point at a block the ENCODER wrote - every option it used, deflated - so
@@ -2059,6 +2063,7 @@ class Writer:
             | (F_LIVE | F_RUNS if self.live is not None else 0) \
             | (F_AHEAD if A else 0) \
             | (F_KLEADS if klead_at else 0) \
+            | (F_SCREEN if self.screen else 0) \
             | (F_BIGSP if max(secs) > SP_MAX or (self.flip and max(
                 len(r) for r in self.recs + [seam]) > PREV_MAX) else 0)
         struct.pack_into("<HHIHHBBH", hdr, 4, 1, flags, len(self.recs),
@@ -2555,6 +2560,7 @@ class Reader:
         pal, rs, fl, scr = struct.unpack_from("<IBBB", d, self.slot + 32)
         self.rowscale = rs or 1
         if scr not in SCREENS or (scr and (
+                not flags & F_SCREEN or
                 self.pixfmt != PF_VGA4 or self.resident or self.live or
                 self.g.w > SCREENS[scr][1] or h > SCREENS[scr][2])):
             raise V88Error("a screen byte of %d (98.1.3.2.1)" % scr)

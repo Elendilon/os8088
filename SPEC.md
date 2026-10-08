@@ -156801,7 +156801,7 @@ stream behind them is read sequentially.
 |---|---|---|
 | 0 | 4 | `'V88'`, 1Ah |
 | 4 | 2 | version, **1** |
-| 6 | 2 | flags: 1 RESIDENT (98.1.7), 2 LOOPREC and 4 REPEAT (98.1.1.2), 8 LIVE (98.3.10; resident, or a one-bit or VGA4 stream played Live from XMS, 98.3.18.1), 16 RUNS (98.1.3.4), 32 SPKPWM (98.1.1.3), 64 SPKMUL (98.1.1.3.1), 128 AHEAD (98.1.8), 256 BIGSP (98.1.4.1), 512 KLEADS (98.1.8.1). A reader refuses any bit it does not know |
+| 6 | 2 | flags: 1 RESIDENT (98.1.7), 2 LOOPREC and 4 REPEAT (98.1.1.2), 8 LIVE (98.3.10; resident, or a one-bit or VGA4 stream played Live from XMS, 98.3.18.1), 16 RUNS (98.1.3.4), 32 SPKPWM (98.1.1.3), 64 SPKMUL (98.1.1.3.1), 128 AHEAD (98.1.8), 256 BIGSP (98.1.4.1), 512 KLEADS (98.1.8.1), 1024 SCREEN (98.1.3.2.1). A reader refuses any bit it does not know |
 | 8 | 4 | frames, ≥ 1 |
 | 12 | 2 | rate: the audio sample rate in Hz; for a silent file, the nominal rate the frame rate derives from |
 | 14 | 2 | samples per frame, ≥ 1. **fps = rate / samples per frame**, XDC's rule |
@@ -157274,6 +157274,12 @@ fewer bits. Mode 12h has one page - 38,400 bytes a plane of a plane's
 - A reader refuses a screen byte past 4, one on a format but VGA4, a canvas
   past the screen's rows or (320-wide) 40 bytes, and a VGA4 palette on
   screen 0.
+- **It is ANNOUNCED** (header flag 1024 `SCREEN`, 98.1): a non-zero byte 38
+  without the flag is refused. Byte 38 and the VGA4 palette were 0 in every
+  file before, and a player from before reads neither - an unflipped screen
+  file would open on it and play in 12h, a 320 x 200 picture boxed in 640 x
+  480 in the EGA's colours. The flag is a bit it does not know, so it
+  refuses the file at open instead, as it does AHEAD, BIGSP and KLEADS.
 
 #### 98.1.3.3 CGA in colour: CGA4 and C160
 
