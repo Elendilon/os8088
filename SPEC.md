@@ -13463,7 +13463,7 @@ a second — and it now also raises the window under the pointer on the way in.
 first version got it wrong in a way that could never have worked. It is a
 shift *state*, not a keystroke: int 09h swallows it to toggle `KB_FLAG`, and
 int 16h never reports a key for it, so testing for scancode 46h waits for a
-byte that never arrives. `kbm_slock` tests bit 4 of **`0040:0017`** instead.
+byte that never arrives. `kbm_shf` reads bit 4 of **`0040:0017`** instead.
 The upside of being wrong there is that a level needs no state of its own, and
 on a keyboard with the lamp the machine says which mode it is in.
 
@@ -13683,7 +13683,7 @@ differing framebuffer bytes** of 128,000 across four captures. Cost:
 
 **The first version of the peek shipped a wrong segment and the trace is why
 it took minutes rather than a day.** It loaded `ES = 0` before testing
-`[es:0x17]` — the vector-install idiom four lines above, not `kbm_slock`'s —
+`[es:0x17]` — the vector-install idiom four lines above, not `kbm_shf`'s —
 so it read linear `0x17`, the middle of the IVT, which has bits in `0x30` set:
 the NumLock/ScrollLock gate therefore refused *every* press and the key stayed
 exactly as dead as before, with the port read working perfectly. **A gate that
@@ -107568,7 +107568,7 @@ say.
 for pointer movement and Ins, Del and Space for the buttons, whenever
 `[mou_ptr]` is 0 — *"these are the keys this takes, and an application does not
 see them"*. **ScrollLock is the escape hatch and it is the only one**
-(`kbm_slock`, bit 4 of `0040:0017`): with it on, the arrows are the
+(`kbm_shf`, bit 4 of `0040:0017`): with it on, the arrows are the
 application's again. A board is unusable without them, so the About panel says
 so and docs/TELNET-PLAN.md records that a per-window opt-out was judged and is
 not in this work.

@@ -47,6 +47,31 @@ menu.inc (.text -68, .cold -11):
 * `menu_kbnav` (.cold): the "inside the menu?" x test asked once, DX carrying
   the placement x. -11
 
+### Batch 2 - icons.inc, toast.inc, mouse.inc's keyboard mouse
+
+kern_big `.text -53` (running sum -200); kern_small `.text -53` (running -195).
+
+icons.inc (-34):
+* `ico_core`: `[ico_rb]` computed before the clip test, which wants it x 8 -
+  `xchg ax, cx` and three shifts where it was a load and four; and a
+  redundant `mov ax, [ico_rb]` reload. -7
+* `ico_core_bb`: `ico_bbop_of` + store + call became `ico_bbpass`, one entry
+  that computes [ico_bbop] (`cmp/sbb`, 0 / 0FFh) and falls into
+  `ico_pass_bb`. -15
+* `ico_pass_bb`: `mov bp / or bp, bp` for `cmp word / je / mov bp`. -3
+* `icon_draw16`: joins `icon_draw` at a new `.hdr` with its fixed header in
+  AX instead of two immediate word stores. -9
+* `icon_draw_ix`: `cbw`. -1
+
+toast.inc (-5): `toast_pass` reads on/want as one word, and takes-and-clears
+`[toast_dirty]` with one `xchg` (which also closes a lost-set window).
+
+mouse.inc keyboard mouse (-14):
+* `kbm_shf` (AL = KB_FLAG) replaces `kbm_slock` and the ISR's own ES bank:
+  three readers of 0040:0017, one body; `kbm_ui` takes bit 4 as its level.
+  SPEC.md's three `kbm_slock` mentions renamed. -11
+* `kbm_poll0` / `kbm_ui`: tail jumps into kbd_ovspend / kbm_p5spend. -3
+
 ## REFUSED
 
 * `cur_lazyrect` / `cur_lazyck`: the hit arm could `call cur_unlazy` before the
@@ -64,7 +89,21 @@ menu.inc (.text -68, .cold -11):
 * `clip_put`'s `.toobig` ladder: every rearrangement is the same 5 bytes.
 * `MOU_DECODE_MS`'s button decode (18 bytes): every rcl/sbb/swap spelling
   found was 17-18 bytes and slower.
+* `ico_pass_bb`'s three `or al, al / jz / cmp dl, dh / jae` guards folded
+  into `ico_bbop_byte` (-16): REFUSED, it would pay a call+ret for every
+  EMPTY byte of every 1bpp icon - a renderer inner loop.
+* icons.inc's 25 bytes of per-draw state (`ico_ww`..`ico_bbop`) into the
+  primitive union `gfx_u` (~-20 net): not taken - `gfx_u` is 22 bytes (it
+  would have to grow, vga12.inc's), and `fnt_unlazy` -> cursor_hide and the
+  desk band path both reach other `gfx_u` users from inside an icon draw.
+* osapi_mouse's ivec index as shifts of `[mou_line]` (-1): obscure for a byte.
+* `menu_furniture`'s `[menu_bovr]` clear moved to the end to share AX = 0
+  (-2): a `menu_force` from a pre-empting task during the draw would be lost.
 
 ## CROSS-FILE
 
-(none yet)
+* `apps/telnet/telnet.asm:1874` - a comment names `kbm_slock`, which is
+  `kbm_shf` now (comment only, no bytes).
+* `docs/INDEX.md` is regenerated in this branch because this notes file is
+  a new `docs/plans/` entry; every agent's branch will carry the same one-line
+  change - take any of them, or regenerate after deleting `docs/plans/ksp10/`.

@@ -576,10 +576,11 @@ toast_place:
 ; -----------------------------------------------------------------------------
 toast_pass:
     push ax
-    cmp byte [toast_want], 0
-    jne .up
-    cmp byte [toast_on], 0
-    je .chk
+    mov ax, [toast_on]          ; AL = on, AH = want - the adjacent pair the
+    or ah, ah                   ; %if beside them pins, read in ONE load where
+    jnz .up                     ; it was two compares against memory (kernel
+    or al, al                   ; size pass 10: 3 bytes)
+    jz .chk
     mov ax, [ticks]
     sub ax, [toast_die]
     js .chk                     ; MODULAR arithmetic between two free-running
@@ -591,9 +592,10 @@ toast_pass:
 .chk:                           ; ...and FALLS INTO the test, where it used to
                                 ; step over `.up` with a `jmp short`. `.up` is
                                 ; at the foot of the routine now
-    cmp byte [toast_dirty], 0
-    je .out
-    mov byte [toast_dirty], 0
+    mov al, 0                   ; take-and-clear in ONE exchange, where it
+    xchg al, [toast_dirty]      ; was a compare and a separate store - and a
+    or al, al                   ; set landing between those two (toast_kill
+    jz .out                     ; from a pre-empting task) is no longer lost
 .draw:
     mov byte [menu_bdirty], 1   ; the DOWN edges' half of toast_arm's flag
                                 ; (SPEC.md 59.9) - an expiry above, and

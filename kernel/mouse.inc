@@ -2267,7 +2267,7 @@ mou_p2_byte:
 ; could not have been launched. ScrollLock is one escape hatch: while it is on
 ; nothing here intercepts anything, so Arkanoid can be played and Note Pad's
 ; caret moved on a machine with no mouse. It is READ, not watched for - see
-; kbm_slock - and it is the ONLY one, which SPEC.md 9.6.2 records the reason
+; kbm_shf - and it is the ONLY one, which SPEC.md 9.6.2 records the reason
 ; for: the way back to typing can never be a key you would want to type, and a
 ; '.' latch lasted a day for exactly that reason. ScrollLock costs no
 ; keystroke at all, and on a keyboard with the lamp it shows its own state.
@@ -2327,8 +2327,11 @@ KBM_NDIR    equ 8
 kbm_key:
     cmp byte [mou_ptr], 0
     jne kbm_pass                ; a real mouse has spoken: never intercept
-    call kbm_slock              ; ...or ScrollLock is on and the user has asked
-    jnz kbm_pass                ; for the keys back
+    push ax
+    call kbm_shf                ; ...or ScrollLock is on and the user has asked
+    test al, 0x10               ; for the keys back (KB_FLAG bit 4 - see
+    pop ax                      ; kbm_shf; `pop` leaves the flags alone)
+    jnz kbm_pass
     cmp al, ' '                 ; Space: the button, for a hand already on the
     je kbm_btn                  ; arrows. Tested above the ASCII gate because it
                                 ; carries a byte - and it is the one printable
@@ -2367,24 +2370,28 @@ kbm_pass:
     clc
     ret
 
-; kbm_slock - ZF = 0 when ScrollLock is on
+; kbm_shf - AL = KB_FLAG, the BIOS's shift state (0040:0017)
 ;
-; It is read as a LEVEL out of the BIOS data area and not watched for as a
-; keystroke, because it is not one: ScrollLock is a shift STATE, int 09h
-; swallows it to toggle KB_FLAG, and int 16h never reports a key for it. The
-; first version tested for scancode 46h and could not have worked - the byte
-; never arrives. The upside of being wrong there is that a level needs no
-; state of its own, and on a keyboard with the lamp the machine says which
-; mode it is in.
-; out: ZF (all registers preserved)
-kbm_slock:
-    push ax
-    push es
+; ScrollLock (bit 4) is read as a LEVEL out of the BIOS data area and not
+; watched for as a keystroke, because it is not one: ScrollLock is a shift
+; STATE, int 09h swallows it to toggle KB_FLAG, and int 16h never reports a
+; key for it. The first version tested for scancode 46h and could not have
+; worked - the byte never arrives. The upside of being wrong there is that a
+; level needs no state of its own, and on a keyboard with the lamp the machine
+; says which mode it is in. NumLock (bit 5) is kbm_isr's half of the same
+; byte.
+;
+; ONE READER FOR THREE SITES (kernel size pass 10: 11 bytes): kbm_key's
+; ScrollLock test, kbm_ui's ScrollLock level and kbm_isr's keypad-5 test each
+; banked a segment register to reach this byte. kbm_ui takes the bit itself
+; as its level (0 or 10h - [kbm_slast] is only ever compared with it).
+; out: AL = KB_FLAG; AH = 0; every other register preserved, flags clobbered
+kbm_shf:
+    push ds
     xor ax, ax                  ; segment 0, LINEAR offset: 0040:0017 is
-    mov es, ax                  ; 0000:0417 (a byte shorter than mov ax, 40h)
-    test byte [es:0x417], 0x10  ; KB_FLAG bit 4 = Scroll Lock active
-    pop es                      ; pop does not disturb flags
-    pop ax
+    mov ds, ax                  ; 0000:0417 (a byte shorter than mov ax, 40h).
+    mov al, [0x417]             ; NOT 0x17 with segment 0: that reads the
+    pop ds                      ; middle of the vector table
     ret
 
 ; --- the button: press = down, press again = up ------------------------------
@@ -2762,18 +2769,13 @@ kbm_isr:
     jne .chain                  ; a real mouse has spoken: never intercept
     cmp al, KBM_5SCAN
     jne .chain
-    push es
-    xor ax, ax                  ; the BIOS data area through segment 0 and its
-    mov es, ax                  ; LINEAR offset 0x417 = 0040:0017. NOT 0x17 with
-                                ; ES 0: that reads the middle of the vector
-                                ; table, which has bits in 0x30 set, so the
-                                ; test below always chained and this key stayed
-                                ; dead - the defect the 0x40 segment fixed, and
-                                ; why the offset here is 0x417 (size pass 9:
-                                ; xor is a byte shorter than mov ax, 40h)
-    test byte [es:0x417], 0x30  ; KB_FLAG: NumLock (20h) - int 16h will deliver
-    pop es                      ; it and kbm_key claims it - or ScrollLock
-    jnz .chain                  ; (10h), the hatch. pop leaves the flags alone
+    call kbm_shf                ; the BIOS data area's KB_FLAG (AX is the
+                                ; ISR's: it is banked at the gate and the
+                                ; chain reloads it). 4 bytes deep against
+                                ; kbd_track's 10 above, so no deeper
+    test al, 0x30               ; KB_FLAG: NumLock (20h) - int 16h will deliver
+    jnz .chain                  ; it and kbm_key claims it - or ScrollLock
+                                ; (10h), the hatch
     mov byte [kbm_p5], 1        ; ...otherwise it is a press, spent in task
                                 ; context by kbm_p5spend
 .chain:
@@ -3179,11 +3181,11 @@ kbm_poll0:
                                 ; BIOS that delivers keypad 5 the call above
                                 ; has already claimed it and cleared the flag
                                 ; (SPEC.md 9.6.4), and this finds nothing
-    call kbd_ovspend            ; ...and a modal loop is exactly where the
-                                ; buffer overruns unheard otherwise: ui_task's
-                                ; ladder is not running (SPEC.md 9.8)
-    pop ax
-    ret
+    pop ax                      ; ...and a modal loop is exactly where the
+    jmp kbd_ovspend             ; buffer overruns unheard otherwise: ui_task's
+                                ; ladder is not running (SPEC.md 9.8). A TAIL
+                                ; JUMP: kbd_ovspend keeps every register and
+                                ; ends in the ret this needs (size pass 10)
 
 ; -----------------------------------------------------------------------------
 ; kbm_ui - the end of a ui_task pass: the ScrollLock edge, then the click latch
@@ -3192,7 +3194,7 @@ kbm_poll0:
 ; both of which have to happen HERE rather than where the key was seen:
 ;
 ;   the raise   ScrollLock is a LEVEL and there is no keystroke to hang this
-;               off (see kbm_slock), so the edge is found by remembering it.
+;               off (see kbm_shf), so the edge is found by remembering it.
 ;               And wm_front takes the gfx lock, which kbm_poll's callers
 ;               hold - so even a keystroke could not have done it in place.
 ;   the release kbm_btn latches the button so that menu_track, ui_drag,
@@ -3216,11 +3218,9 @@ kbm_poll0:
 kbm_ui:
     cmp byte [mou_ptr], 0
     jne .out                    ; a machine with a mouse pays this compare
-    xor al, al                  ; AL = the ScrollLock level, 0 or 1. kbm_slock
-    call kbm_slock              ; preserves AX and answers in ZF, and the pops
-    jz .lvl                     ; inside it do not disturb it
-    inc al
-.lvl:
+    call kbm_shf                ; AL = the ScrollLock level, 0 or 10h: the bit
+    and al, 0x10                ; itself, which is all [kbm_slast] is compared
+                                ; with (AX is this routine's to spend)
     cmp al, [kbm_slast]
     je .relax                   ; unchanged, which is nearly every pass
     mov [kbm_slast], al         ; banked whichever way it went, so the next
@@ -3247,9 +3247,10 @@ kbm_ui:
 .p5:                            ; CLOBBERS EVERYTHING, AL was already spent at
                                 ; the top, and kbm_p5spend keeps its own AX -
                                 ; size pass 9)
-    call kbm_p5spend            ; LAST, and after .relax: a press spent above
+    jmp kbm_p5spend             ; LAST, and after .relax: a press spent above
                                 ; the release would be taken back by the very
-                                ; pass that made it (SPEC.md 9.6.4)
+                                ; pass that made it (SPEC.md 9.6.4). A tail
+                                ; jump, for kbm_poll0's reason
 .out:
     ret
 
