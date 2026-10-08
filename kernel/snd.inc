@@ -308,24 +308,22 @@ snd_tone_req:
     call snd_tone_out           ; the tier's sink: a loaded driver's, else
     pop dx                      ; the speaker's. CF = bad frequency
     jc .refuse                  ; nothing changed: the old owner still sounds
-    inc byte [snd_gen]          ; stamp the owner record - same IF=0 window
-    mov al, [snd_gen]           ; as the port writes (SPEC.md 34.3)
-    mov [snd_town_gen], al
-    mov [snd_texp_gen], al
-    mov [snd_town_pri], dx      ; DL the priority, DH the instance: one
-                                ; word (adjacent - the %if under the .bss)
+    mov [snd_town_pri], dx      ; stamp the owner record - same IF=0 window
+                                ; as the port writes (SPEC.md 34.3). DL the
+                                ; priority, DH the instance: one word
+                                ; (adjacent - the %if under the .bss)
     mov [snd_town_exp], cx
     mov byte [snd_town_act], 1
     mov byte [snd_ch2mode], 1
-.granted:
+.granted:                       ; ...and a release updates the record too
+    inc byte [snd_gen]          ; (34.3): the generation, which is AL, the
+    mov al, [snd_gen]           ; answer to both
     popf
     clc
     jmp short .out
 
 .off:                           ; --- tone off: release the channel ----------
     call snd_town_off
-    inc byte [snd_gen]          ; a release updates the record too (34.3)
-    mov al, [snd_gen]
     jmp short .granted          ; same window close, same CF=0 answer, same
                                 ; AL = the generation
 
@@ -423,10 +421,14 @@ snd_beep:
 ; snd_live gate (SPEC.md 34.7, binding): until snd_init publishes, every
 ; .bss byte below is garbage and this routine reads none of it.
 ;
-; Duty: count a duration-limited tone down and, at zero WITH the grant's
-; generation still current, silence it on the sink it is sounding on. The
-; generation guard means a tick can never silence a tone granted after the
-; one whose expiry it is retiring (SPEC.md 34.3).
+; Duty: count a duration-limited tone down and, at zero, silence it on the
+; sink it is sounding on. A tick can never silence a tone granted after the
+; one whose expiry it is retiring, because a grant writes the owner record
+; and the expiry in ONE IF=0 window (SPEC.md 34.3) - so the expiry counting
+; down is always the current owner's. That is also why there is no
+; generation compare here any more: the two bytes it compared were written
+; together, in that window, from the same register, and so were equal on
+; every tick that ever read them (kernel size pass 10).
 ; -----------------------------------------------------------------------------
 snd_tick:
     cmp byte [snd_live], 0      ; the boot gate - nothing else is readable
@@ -450,13 +452,8 @@ snd_tick:
     cmp word [snd_town_exp], 0
     je .done
     dec word [snd_town_exp]
-    jnz .done
-    mov al, [snd_texp_gen]      ; expiry generation-guarded (SPEC.md 34.3)
-    cmp al, [snd_town_gen]
-    jne .done
-    jmp short snd_town_off      ; (a TAIL call since size pass 9: 2 bytes and
-                                ; one ret fewer on the expiry tick, its ret
-                                ; being ours) IF is already 0: the tick IS the window.
+    jz snd_town_off             ; (a TAIL call since size pass 9: its ret is
+                                ; ours) IF is already 0: the tick IS the window.
                                 ; No push bx/si: snd_town_off banks both in
                                 ; its own frame, on its one exit
 .done:
@@ -598,8 +595,6 @@ snd_init:
     mov byte [snd_town_act], 0
     mov byte [snd_town_inst], 0xFF
     mov byte [snd_town_pri], 0
-    mov byte [snd_town_gen], 0
-    mov byte [snd_texp_gen], 0
     mov word [snd_town_exp], 0
 
     mov byte [snd_pcm_busy], 0  ; the PWM clip's grant (SPEC.md 34.4)
@@ -1135,8 +1130,6 @@ snd_town_pri:  resb 1           ;   owner priority
 snd_town_inst: resb 1           ;   owning instance slot (0xFF = kernel) -
                                 ;   DIRECTLY after the priority: a grant
                                 ;   stores the pair from DX as one word
-snd_town_gen:  resb 1           ;   generation stamped at grant
-snd_texp_gen:  resb 1           ;   generation the pending expiry belongs to
 snd_town_exp:  resw 1           ;   remaining ticks, 0 = no self-expiry
 snd_inst:      resw 1           ; low byte: instance slot being dispatched
                                 ; (0xFF = none). HIGH byte: the task that

@@ -73,6 +73,24 @@ kern_big `.text -4 .cold -8 (sum -12)`; kern_small `.text -4 .cold -6
   in `kretc_cx`), so the push/pop round it went; one shared `stc / ret`: -3
   big, -1 small.
 
+### Batch 3 - the tone expiry's generation compare was a tautology
+
+kern_big `.text -24 .bss -2 .ovlw -10`; kern_small `.text -24 .bss -2
+.ovl -10`.
+
+`snd_tick` compared `[snd_texp_gen]` with `[snd_town_gen]` before silencing an
+expired tone. The two bytes were written in exactly one place
+(`snd_tone_req`'s grant, from AL, in one IF=0 window) and zeroed together in
+`snd_init` - so they were equal on every tick that ever read them, and the
+compare could never refuse. Both bytes, both stores, both inits and the
+compare are gone. `snd_tick`: on the expiry tick `dec / jnz / mov / cmp /
+jne / jmp` became `dec / jz` (the tail call); on every other tick the path is
+unchanged (`cmp / je` or `cmp / je / dec / jnz`, one instruction fewer
+there: `jz` not taken then `ret`, against `jnz` taken to `ret` - the same
+count). `snd_tone_req`'s two paths now share `inc [snd_gen] / mov al` at
+`.granted` (inside the same window). SPEC.md 34.3 updated: the owner's
+atomic grant is what makes the expiry its own.
+
 ### BUG FIXED (its own paragraph in the commit)
 
 `snd_entry`'s DRVV_READY jumped to `.nosb` - written when that label was the
