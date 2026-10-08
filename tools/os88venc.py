@@ -81,6 +81,16 @@ except ImportError:                                           # pragma: no cover
 CYC_US_286 = dict(frame=28.07, seg=9.06, abs=0.392,
                   p=(2.090, 2.839, 4.120, 4.870, 5.887, 6.904),
                   slice=(2.453, 0.914), run=(3.047, 0.900), sub=1.5)
+# ...and the owner's REAL 286, measured 2026-10-08 (docs/reports/VIDBENCH-
+# PVGA286-2026-10-08.md): an AMD 286 at 16 MHz with a Paradise PVGA1A on
+# the board. Fitted the same way, to the same synthetic frames (the frame's
+# own cost held at the empty frame's), every row back within 0.6%. Its RAM has wait
+# states 86Box's mr286 has not (`rep movsw` to RAM 2.64 ms an 8,000 bytes
+# against 1.05), so it decodes 12-29% slower frame for frame - a slice
+# byte 1.23 us against 0.91, a run byte 1.06 against 0.90
+CYC_US_286PVGA = dict(frame=25.35, seg=10.274, abs=0.555,
+                      p=(2.370, 3.480, 4.866, 6.150, 7.481, 8.813),
+                      slice=(1.595, 1.227), run=(2.470, 1.065), sub=1.5)
 CYC_US_486 = dict(frame=2.51, seg=2.392, abs=0.109,
                   p=(0.552, 0.957, 1.396, 1.827, 2.259, 2.692),
                   slice=(0.474, 0.407), run=(0.618, 0.390), sub=1.5)
@@ -170,6 +180,23 @@ PROFILES = {
                          "5150's CGA; its IDE disk 685 KB/s with half the "
                          "period decoding (86Box's mr286, the owner's "
                          "bench). An ST11R there: --disk 250000"),
+    # THE OWNER'S REAL 286 (2026-10-08): the decode above, its latch row
+    # (17.06 ms an 8,000 bytes), and its disk - a nearly full, fragmented
+    # 2.5-inch IDE drive - at 0.9 x VIDDISK's 50% row (486.3 KB/s), its
+    # other rows the curve. Not CPU-bound like the mr286's: the drive reads
+    # on while the CPU is busy, so the curve holds up to 25% and falls past
+    # it. The shares are the mr286's - a profile with `cyc_us` prices in
+    # microseconds, so `speed` is only the unit they are written in
+    "286-pvga": dict(disk=448000, avg=2.25, peak=3.75, owe=1.6, speed=4.5,
+                     ring=8, lcopy_us=2.133, cyc_us=CYC_US_286PVGA,
+                     disk_at=((0.0, 729.5 / 486.3), (0.25, 684.7 / 486.3),
+                              (0.5, 1.0), (0.75, 294.3 / 486.3), (1.0, 0.0)),
+                     rate=22050, audio="pcm8", spk_us=(11.5, 6.5),
+                     what="the owner's real 16 MHz AMD 286 with a PVGA1A on "
+                          "the board: decodes 12-29% slower than 86Box's "
+                          "mr286 (its RAM has wait states); its laptop IDE "
+                          "disk 486 KB/s with half the period decoding "
+                          "(measured: VIDBENCH and VIDDISK on the machine)"),
     # VIDDISK's ceiling at its 50% row, 2,192 KB/s, x 0.9 - the 5150's
     # rule - and its other rows as the curve: an IDE disk the CPU copies.
     # Track-bound, like 286-vga's, and for the same reason left as it is

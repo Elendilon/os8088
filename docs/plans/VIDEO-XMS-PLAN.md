@@ -187,6 +187,14 @@ ring alone (the disk's ~0.9 ms of CPU a KB lands in the bursts) and plays
 cleanly with a 2-3 MB bank off a disk needing 420-485 KB/s - the report has
 the table, and its caveat: the decode is still priced at 86Box's mr286.
 
+**And the caveat bit** (docs/reports/VIDBENCH-PVGA286-2026-10-08.md, the
+same day): VIDBENCH on that machine - a 16 MHz AMD 286, a PVGA1A on the
+board - decodes 12-29% slower than the mr286, and with its own table
+(profile `286-pvga`) the lossless clip is CPU-bound in every cell: a bank
+takes its stalls from 1.1-2.2 s to 0.2-0.6 s and cannot take them to 0. On
+that machine the bank is the second half of the answer; the first is an
+encode budgeted for `286-pvga`.
+
 ### 3.3 The encoder: what a bank lets a period-rate encode keep
 
 `os88vidbuf.py --deficit R ...` takes the lossless file's own super-packets

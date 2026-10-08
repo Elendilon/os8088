@@ -158275,6 +158275,7 @@ without them (`ffmpeg` capability).
 | `floppy` | 15,000 | 50% / 85% | PCM8 5,512 | predicted |
 | `286` | 150,000 | 150% / 250% of an 8088's | PCM8 22,050 | predicted |
 | `286-vga` | 616,000 | 225% / 375% of an 8088's | PCM8 22,050 | the owner's 86Box 286 (98.2.3, 98.2.3.2, 98.2.3.4) |
+| `286-pvga` | 448,000 | 225% / 375% of an 8088's, priced by its own table | PCM8 22,050 | the owner's REAL 16 MHz AMD 286 with a PVGA1A on the board: decodes 12-29% slower than the mr286 (docs/reports/VIDBENCH-PVGA286-2026-10-08.md) |
 | `486` | 1,950,000 | 650% / 1,000% of an 8088's | PCM8 22,050 | the owner's 86Box 486DX2/66, ISA VGA and IDE (98.2.3.2, 98.2.3.6) |
 | `lossless` | none | none | PCM8 22,050 | every change |
 
