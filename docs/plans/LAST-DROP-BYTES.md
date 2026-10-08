@@ -1104,6 +1104,13 @@ reached at all — for −142 bytes on kern_big. The other two are held here:
 | **S2, the damage repaint** | `wm_dmg_bands` ×3, `wm_paint_dmg` ×3, `wm_dmg_gray` (the two that run) | ~80 | +1,088 cycles (0.23 ms) per damage repaint: **0.16% of a window close**, 0.02% of a drag drop |
 | **S3, the save-under cache** | `wm_su_owed`, `wm_su_sub`, `wm_su_vset`, `wm_su_srect` (the hot one), `wm_su_flay`, `wm_su_try` ×2 | ~70 | ~0.37% of a close and ~0.2% of a raise; `wm_su_flay` alone is **0.13%** of a close (5 puts, 70-78 runs a session) |
 
+**Kernel size pass 10 BUILT both sets and backed them out** (its record,
+docs/plans/completed/HANDOFF-KERNEL-SIZE-P11.md §5): fourteen sites, **-138
+bytes on both kernels** measured on that tree, in commit `146f7878` of
+`kernel-size-p10`'s history, should the owner release them. It held a
+`kent_bp` prologue at the seven save-under routines back for the same reason
+(25 bytes for ~1,100 cycles a cached restore).
+
 S3 is the worst trade in the set — the save-under cache exists to make raise
 and close cheap — and prefers GET sites if any are ever taken (a put is 1.75x
 a get). **Never convert `gfx_clip_run`** (`vga12.inc`): the same shape, once
