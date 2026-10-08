@@ -710,10 +710,10 @@ inst_wk_parked:
 ; module's (SPEC.md 29). A segment that matches no instance answers CF = 1:
 ; a driver's image matches none, and "I cannot tell" has to mean "it is busy".
 ;
-; Like inst_park_req's walk above, it keeps "clobbers: flags" by writing no AX
-; outside the [mem_cp_pl] arm, which banks its own - and its exhaust path,
-; inst_svc_parked's walk (inline in .drv since size pass 9), writes none
-; either: it banks the BX and SI it walks with.
+; Like inst_park_req's walk above, it keeps "clobbers: flags" by writing only
+; DI and BX, both banked: the [mem_cp_pl] arm's arithmetic and its exhaust
+; path, inst_svc_parked's walk (inline in .drv since size pass 9), both work
+; in the DI the entry pushes once inst_of_seg has answered.
 ; -----------------------------------------------------------------------------
 inst_seg_parked:
     push di
@@ -732,26 +732,23 @@ inst_seg_parked:
                                 ; standing. Never true inside mem_compact's
                                 ; own plan, whose answer is followed by moves. A
                                 ; driver's task is not asked about here
-    push ax
-    push bx
-    mov bl, [di+I_TASK]
+    push bx                     ; ...and NOT AX: DI is spent once the slot is
+    mov bl, [di+I_TASK]         ; read, so the arithmetic below takes it
     xor bh, bh
     shl bx, 1
     shl bx, 1
     shl bx, 1                   ; T_SIZE = 8: BX = the worker's task record
-    mov ax, [bx+sch_tasks+T_WAKE]
-    sub ax, [ticks]
-    sub ax, INST_PARKW          ; SPEC.md 45.15: by the SIGN of the difference
-    js .plok                    ; due before the park's deadline (or stale)
+    mov di, [bx+sch_tasks+T_WAKE]
+    sub di, [ticks]
+    sub di, INST_PARKW          ; SPEC.md 45.15: by the SIGN of the difference
+    js .svcok                   ; due before the park's deadline (or stale)
     cmp byte [bx+sch_tasks+T_STATE], 2
-    je .plbusy                  ; ASLEEP PAST INST_PARKW (ArtfulType's caret
+    je .svcbusy                 ; ASLEEP PAST INST_PARKW (ArtfulType's caret
                                 ; worker sleeps 9): inst_park_req wakes nobody,
                                 ; so the claim will find it where it is now
-.plok:                          ; ...not asleep: it reaches ALIVE in the park
-    CLC_OR_STC .plbusy          ; CF = 0 free, or (.plbusy) CF = 1 busy
-    pop bx                      ; (pops write no flag)
-    pop ax
-    jmp short .cf
+    jmp short .svcok            ; ...not asleep: it reaches ALIVE in the park.
+                                ; Both answers are .drv's own tail below, which
+                                ; pops the same BX (size pass 10)
 .free:
     CLC_OR_STC .busy            ; CF = 0 free, or (.busy) CF = 1
     jmp short .cf
@@ -761,25 +758,25 @@ inst_seg_parked:
     ; one of them parked? (This was inst_svc_parked, whose header is below; it
     ; had this one caller and is inline since size pass 9, walking the record
     ; and the sch_parked byte side by side instead of re-deriving one from a
-    ; slot count.)
+    ; slot count. The byte walks in DI, which inst_of_seg's refusal left as
+    ; nothing and the `pop di` below puts back.)
     push bx
-    push si
     mov bx, sch_tasks
-    mov si, sch_parked
+    mov di, sch_parked
 .svc:
     cmp byte [bx+T_STATE], 0
     je .svcnext                 ; a free slot
     test byte [bx+T_FLAGS], TF_SERVICE
     jz .svcnext
-    cmp byte [si], 0
+    cmp byte [di], 0
     je .svcbusy                 ; a driver worker still running
 .svcnext:
-    inc si
+    inc di
     add bx, T_SIZE
     cmp bx, sch_tasks + MAX_TASKS * T_SIZE
     jb .svc
+.svcok:
     CLC_OR_STC .svcbusy         ; CF = 0 all parked, or (.svcbusy) CF = 1
-    pop si
     pop bx
 .cf:
     pop di
@@ -1548,13 +1545,18 @@ app_launch:
     pop si
     jc .failj                   ; record was never published: still free
     mov al, [si+KD_WFLAG]       ; the kind's feature bits (WF_SIZABLE) join
-    mov ah, 0                   ; W_FLAGS right after create (SPEC.md 29.3)
-    or [bx+W_FLAGS], ax
+    or [bx+W_FLAGS], al         ; W_FLAGS right after create (SPEC.md 29.3) -
+                                ; the LOW byte, which is all a byte field can
+                                ; reach (an `or` of AX with AH = 0, until size
+                                ; pass 10)
 
     ; --- fill + bind + init --------------------------------------------------
+%if I_TASK != I_KIND + 1
+  %error "app_launch writes I_KIND and I_TASK as one word"
+%endif
     mov al, [inst_knd]
-    mov [ds:bp+I_KIND], al
-    mov byte [ds:bp+I_TASK], 0xFF
+    mov ah, 0xFF                ; ...and I_TASK = none, beside it in one store
+    mov [ds:bp+I_KIND], ax
     mov ax, [si+KD_ICON]
     mov [ds:bp+I_ICON], ax
     push si
@@ -1695,11 +1697,12 @@ app_close_win:
                                 ; call, and nothing up there is ever code
                                 ; (SPEC.md 20.8 rule 1) or even addressable in
                                 ; real mode
-    call wm_destroy             ; frees the wm slot + wm_owner, repaints -
-    mov word [di+I_WIN], 0      ; and the windows go BEFORE the claims: the
-    call inst_sweep_seg         ; repaint inside a destroy far-calls every
-                                ; survivor, and a survivor whose procs live
-                                ; in a freed region is a wild call
+    call inst_unwin             ; the window (BX, which owns DI) and then the
+                                ; region's others - and the windows go BEFORE
+                                ; the claims: the repaint inside a destroy
+                                ; far-calls every survivor, and a survivor
+                                ; whose procs live in a freed region is a wild
+                                ; call
     call mem_free_rec           ; ...then every heap claim (SPEC.md 50.4)
     mov byte [di+I_STATE], 0    ; record (and any package region) free
     jmp .out
@@ -1869,6 +1872,17 @@ inst_restore:
 ; what tells a package's record from a built-in's, whose I_SPTR is a state
 ; pointer. Three teardowns swept it by hand.
 ; -----------------------------------------------------------------------------
+; inst_unwin - the same, AFTER destroying the record's own window BX (and
+;              clearing I_WIN) when BX is not 0. The two teardowns both wrote
+;              the destroy, the clear and the sweep out in that order until
+;              size pass 10. BX is the caller's I_WIN; a worker's record may
+;              have none (inst_task_die's banner says why 0 must not reach
+;              wm_destroy), and app_close_win's is never 0.
+inst_unwin:
+    or bx, bx
+    jz inst_sweep_seg
+    call wm_destroy             ; frees the wm slot + wm_owner, repaints
+    mov word [di+I_WIN], 0
 inst_sweep_seg:
     cmp word [di+I_SIZE], 0
     je .out
@@ -1886,19 +1900,17 @@ inst_task_die:
                                 ; (SPEC.md 29.4/34.3/41.5)
     call toast_owner_gone       ; ...and its message (SPEC.md 59)
     call gfx_lock
-    mov bx, [di+I_WIN]
-    or bx, bx                   ; A WORKER'S RECORD MAY HAVE NO BOUND WINDOW
-    jz .nowin                   ; (inst_pkg_alive's own leg, which used to be a
+    mov bx, [di+I_WIN]          ; A WORKER'S RECORD MAY HAVE NO BOUND WINDOW
+    call inst_unwin             ; (inst_pkg_alive's own leg, which used to be a
                                 ; second copy of this routine): wm_destroy with
                                 ; BX = 0 would zero the cold-entry jmp at
-                                ; 0800:0000
-    call wm_destroy             ; frees the wm slot + wm_owner, repaints -
-    mov word [di+I_WIN], 0      ; and BEFORE mem_free_rec: the repaint
-.nowin:                         ; far-calls every surviving window, so none
-    call inst_sweep_seg         ; whose procs live in the dying region may
-                                ; outlive it - and THAT sweep runs either way,
-                                ; because a package can have made windows it
-                                ; never bound to the record (SPEC.md 20.2)
+                                ; 0800:0000, so inst_unwin skips it for 0.
+                                ; BEFORE mem_free_rec: the repaint far-calls
+                                ; every surviving window, so none whose procs
+                                ; live in the dying region may outlive it -
+                                ; and THE SWEEP runs either way, because a
+                                ; package can have made windows it never bound
+                                ; to the record (SPEC.md 20.2)
     call gfx_unlock
     call mem_free_rec           ; every heap claim, region included (50.4)
     mov bx, di                  ; I_STATE is offset 0: the release byte
@@ -1918,11 +1930,17 @@ inst_task_die:
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
-; inst_wchk - is BX a plausible window record pointer? (module-internal)
+; inst_wchk - is BX a plausible window record pointer, owned by a LIVE
+;             instance? (module-internal)
 ;
 ; in:  BX = a window ptr that came from a PACKAGE (never trusted)
-; out: CF = 0 BX is inside wm_wins and record-aligned; CF = 1 it is not
-; clobbers: nothing else (flags)
+; out: CF = 0 BX is inside wm_wins and record-aligned, and DI = the record of
+;      the instance that owns it, which is live (I_STATE 1); CF = 1 it is not
+;      a window, or nobody owns it, or its owner is dying. DI undefined then
+; clobbers: DI (an output), flags
+;
+; ...and the owner half is inst_of_win plus the live test, which BOTH callers
+; wrote out after the bound until size pass 10 (11 bytes each).
 ;
 ; The two routines below are the first API slots that hand a package-supplied
 ; pointer to inst_of_win, and inst_of_win is not defensive: wm_ptr2idx's
@@ -1943,7 +1961,11 @@ inst_wchk:
     div cl                      ; AH = offset mod WIN_SIZE
     test ah, ah
     jnz .bad                    ; not record-aligned
-    CLC_OR_STC .bad             ; CF = 0 a window, or (.bad) CF = 1
+    call inst_of_win            ; DI = the record owning BX; CF = unowned
+    jc .bad
+    cmp byte [di+I_STATE], 1    ; live only - a dying instance owns nothing
+    jne .bad                    ; (2 = close requested, 0 = already gone)
+    CLC_OR_STC .bad             ; CF = 0 a live window, or (.bad) CF = 1
     pop cx                      ; POP touches no flags: CF survives
     pop ax
     ret
@@ -1965,12 +1987,8 @@ inst_wchk:
 ; worker per instance is its rule, not the fence's.
 ; -----------------------------------------------------------------------------
 inst_pkg_fence:
-    call inst_wchk              ; a package pointer: bound it before any deref
-    jc .fail
-    call inst_of_win            ; DI = the record owning BX; CF = unowned
-    jc .fail
-    cmp byte [di+I_STATE], 1    ; live only - a dying instance owns nothing
-    jne .fail
+    call inst_wchk              ; a package pointer: bound it before any deref,
+    jc .fail                    ; and DI = its live owner's record
     test byte [di+I_KIND], KIND_PKG ; a package instance...
     jz .fail
     mov dx, es                  ; ...whose SEGMENT is the one calling us: ES
@@ -2107,12 +2125,8 @@ inst_pkg_spawn:
 inst_pkg_alive:
     pushf                       ; the contract includes the flags: this call
     push di                     ; sits inside the worker's inner loop
-    call inst_wchk
-    jc .die
-    call inst_of_win            ; DI = the record owning BX; CF = unowned
-    jc .die
-    cmp byte [di+I_STATE], 1    ; 2 = close requested, 0 = already gone
-    jne .die
+    call inst_wchk              ; DI = the LIVE record owning BX, or CF = 1:
+    jc .die                     ; not a window, unowned, or close requested
 .live:
 %ifdef OS88_COMPACT
 %ifndef NOPARK

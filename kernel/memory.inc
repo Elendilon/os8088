@@ -1274,8 +1274,8 @@ mem_hifit:
     push dx
     push di
     push si
-    mov word [mem_skip], 0      ; a destination may overlap nothing at all
     xor si, si                  ; SI = best base so far, 0 = none
+    mov [mem_skip], si          ; ...and a destination may overlap nothing at all
     mov bx, mem_tab
     mov cx, [mem_base]          ; the first candidate is the heap's floor
 .cand:
@@ -1415,7 +1415,8 @@ mem_bpara:
     jz .go
     mov si, cx                  ; ...or the LAST word, which is where a chunk
     shl si, 1                   ; whose destination overlaps its own source has
-    sub si, 2                   ; to start
+    dec si                      ; to start (the flags are nobody's: two decs
+    dec si                      ; are a byte under `sub si, 2`)
 .go:
     mov di, si
     rep movsw
@@ -2367,10 +2368,12 @@ mem_cp_dest:
     pop ax
     ret
 
-; mem_cp_gap / mem_cp_tail leave the SUBTRACTION's flags live, and both callers
-; read them with `jbe`: zero says the claim is already packed against the fill
-; point, and a borrow says the walk has gone wrong and the answer must not be
-; taken as a run.
+; mem_cp_gap / mem_cp_tail measure a run and KEEP THE LONGEST: CX = the
+; larger of CX and the run, where a run of zero (the claim already packed
+; against the fill point) or a borrow (the walk has gone wrong, and the answer
+; must not be taken as a run) leaves CX alone. AX is clobbered. Their only
+; caller is mem_cp_walk, and the keep was written out after each of its two
+; calls until size pass 10 put it here, once.
 mem_cp_gap:                     ; AX = the hole between the fill point and SI
     mov ax, [ss:si+MC_PARA]     ; ...measured from the edge that must MEET the
     and ax, [mem_cp_msk]        ; fill point for the claim to be already
@@ -2384,21 +2387,26 @@ mem_cp_tail:                    ; AX = the run from the fill point to the end
     mov ax, [mem_base]
 
 ; mem_cp_sub - AX = the distance from the fill point in BX to AX, measured the
-; way this pass walks, and it leaves the SUBTRACTION's flags live because both
-; callers read them with `jbe`: zero says the claim is already packed against
-; the fill point, and a borrow says the walk has gone wrong and the answer must
-; not be taken as a run. Two callers, one direction test - the gap beside a
-; barrier and the run past the last claim are the same measurement.
+; way this pass walks, and then the keep above off the SUBTRACTION's flags:
+; `jbe` is zero or a borrow, and either is no run. Two callers, one direction
+; test - the gap beside a barrier and the run past the last claim are the same
+; measurement.
 mem_cp_sub:
     cmp byte [mem_cp_msk], 0
     jne .down
     sub ax, bx
-    ret
+    jmp short .keep
 .down:
     push bx                     ; POP WRITES NO FLAGS, which is what lets the
     xchg ax, bx                 ; fill point come back after the subtraction
-    sub ax, bx                  ; that the caller is about to branch on
+    sub ax, bx                  ; that the keep is about to branch on
     pop bx
+.keep:
+    jbe .r                      ; no run at all
+    cmp ax, cx
+    jbe .r
+    mov cx, ax                  ; a longer one
+.r:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2444,7 +2452,7 @@ mem_cp_walk:
                                 ; through here (SPEC.md 66.10.3)
     xor dx, dx                  ; movers
     xor cx, cx                  ; largest run
-    mov byte [mem_wpin], 0      ; ...and "a worker is what stopped me", which
+    mov [mem_wpin], cl          ; ...and "a worker is what stopped me", which
                                 ; mem_busy_seg raises (SPEC.md 66.5)
     call mem_cp_fill0           ; BX = the fill point - the first paragraph
                                 ; nothing has been packed into yet - and the
@@ -2516,22 +2524,17 @@ mem_cp_walk:
     jmp short .loop
 .barrier:
     call mem_cp_gap             ; the gap beside a pinned claim is a hole that
-    jbe .nogap                  ; compaction cannot close - it is a barrier,
-    cmp ax, cx                  ; and claims past it still pack against it
-    jbe .nogap
-    mov cx, ax
-.nogap:
-    mov bx, [mem_cp_msk]        ; the fill point resumes past it: its end
-    not bx                      ; going up, its base coming down - the length
-    and bx, [ss:si+MC_PARA]     ; masked by the complement (straight into BX:
-    add bx, [ss:si+MC_SEG]      ; AX was only ever the carrier)
-    jmp short .loop
+                                ; compaction cannot close - it is a barrier,
+                                ; and claims past it still pack against it
+    mov di, [ss:si+MC_SEG]      ; the fill point resumes past it: its end
+    jmp short .stay             ; going up, its base coming down - which is
+                                ; .stay's sum with the claim's OWN base in DI
+                                ; for the destination (DI is dead outside
+                                ; .stay: mem_cp_dest writes it before every
+                                ; other read)
 .tail:
     call mem_cp_tail            ; ...and the run past everything, which is the
-    jbe .done                   ; one compaction is usually enlarging
-    cmp ax, cx
-    jbe .done
-    mov cx, ax
+                                ; one compaction is usually enlarging
 .done:
     pop di
     pop si
@@ -3355,6 +3358,39 @@ mem_find_own:
 .out:
     ret
 
+; -----------------------------------------------------------------------------
+; mem_free - release a block (SPEC.md 50.3)
+;
+; in:       DX = the base segment mem_claim returned, BX = the owner word it
+;           was claimed with
+; out:      CF = 0 released; CF = 1 no such claim, or not this owner's
+; clobbers: nothing else (flags)
+;
+; The owner test is what stops a package freeing the kernel's own claims,
+; or another instance's canvas, with one wrong word.
+; -----------------------------------------------------------------------------
+mem_free_x:
+    push si
+    pushf
+    cli
+%ifdef OS88_COMPACT
+    cmp byte [mem_cp_busy], 0   ; a relocation proc may not free (SPEC.md 66.3
+    jne .busy                   ; rule 3): the walk is standing on the record
+%endif                          ; ...and kern_small has no walk to be inside
+    call mem_find_own
+    jc .busy
+    mov word [ss:si+MC_SEG], 0     ; the record IS the allocator (SPEC.md 50.3)
+.ok:                            ; ...and mem_movable_x's two exits, below, are
+    popf                        ; these: the same fence under the same IF = 0
+    clc                         ; window, writing a different word
+    jmp short .out
+.busy:
+    popf
+    stc
+.out:
+    pop si
+    ret
+
 mem_movable_x:
 %ifndef OS88_COMPACT
     stc                         ; NOTHING MOVES ON THIS KERNEL (SPEC.md 66.0),
@@ -3369,17 +3405,9 @@ mem_movable_x:
     pushf
     cli
     call mem_find_own           ; the mem_free fence: yours, or not at all
-    jc .no
-    mov [ss:si+MC_RLOC], ax
-    popf
-    clc
-    jmp short .out
-.no:
-    popf
-    stc
-.out:
-    pop si
-    ret
+    jc mem_free_x.busy          ; ...and mem_free's own two exits, directly
+    mov [ss:si+MC_RLOC], ax     ; above: the same pushf/si frame
+    jmp short mem_free_x.ok
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -3536,37 +3564,6 @@ mem_regrow:
     jnc .grow
     jmp short .fail
 
-; -----------------------------------------------------------------------------
-; mem_free - release a block (SPEC.md 50.3)
-;
-; in:       DX = the base segment mem_claim returned, BX = the owner word it
-;           was claimed with
-; out:      CF = 0 released; CF = 1 no such claim, or not this owner's
-; clobbers: nothing else (flags)
-;
-; The owner test is what stops a package freeing the kernel's own claims,
-; or another instance's canvas, with one wrong word.
-; -----------------------------------------------------------------------------
-mem_free_x:
-    push si
-    pushf
-    cli
-%ifdef OS88_COMPACT
-    cmp byte [mem_cp_busy], 0   ; a relocation proc may not free (SPEC.md 66.3
-    jne .busy                   ; rule 3): the walk is standing on the record
-%endif                          ; ...and kern_small has no walk to be inside
-    call mem_find_own
-    jc .busy
-    mov word [ss:si+MC_SEG], 0     ; the record IS the allocator (SPEC.md 50.3)
-    popf
-    clc
-    jmp short .out
-.busy:
-    popf
-    stc
-.out:
-    pop si
-    ret
 
 ; -----------------------------------------------------------------------------
 ; mem_free_owner - release every claim an owner holds (SPEC.md 50.4)
@@ -3639,7 +3636,7 @@ mem_reown_x:
     mov si, MEM_FIRST
 .scan:
     call mem_next
-    jc .done
+    jc mem_free_owner_x.done    ; its exit too: the same pushf/si frame
     cmp [ss:si+MC_OWN], bx
     jne .scan
     mov [ss:si+MC_OWN], dx
@@ -3652,10 +3649,6 @@ mem_reown_x:
 .whole:
     pop ax
     jmp short .scan
-.done:
-    popf
-    pop si
-    ret
 
 ; -----------------------------------------------------------------------------
 ; mem_free_rec - mem_free_owner for an instance record pointer
@@ -3830,23 +3823,19 @@ mem_avail_lvl_x:                  ; as free, because mem_claim sheds them all.
 ; resident bytes for a segment crossing to the segment it was already in.
 ; -----------------------------------------------------------------------------
 mem_owned_kb:
-    push cx
-    push si
-    xor ax, ax
+    push cx                     ; mem_sum_kb's frame, so its tail below is this
+    push dx                     ; routine's too: DX the paragraphs, AX the
+    push si                     ; total they are added to - 0, and `cwd` off
+    xor ax, ax                  ; that 0 is the byte-short zero of DX
+    cwd
     mov si, MEM_FIRST
 .scan:
     call mem_next
-    jc .done
+    jc mem_sum_kb.done
     cmp [ss:si+MC_OWN], bx
     jne .scan
-    add ax, [ss:si+MC_PARA]
+    add dx, [ss:si+MC_PARA]
     jmp short .scan
-.done:
-    mov cl, 6
-    shr ax, cl
-    pop si
-    pop cx
-    ret
 
 ; -----------------------------------------------------------------------------
 ; mem_sum_kb - the Task Manager's two heap terms
@@ -4299,22 +4288,16 @@ mem_own:
 ; THAT. This is the step; each fence decides for itself what a valid answer is.
 ; -----------------------------------------------------------------------------
 mem_owner_of_x:
-    push cx
     push si
-    mov si, mem_tab
-    mov cx, MEM_MAX
+    mov si, MEM_FIRST
 .scan:
-    cmp [ss:si+MC_SEG], bx
-    je .hit
-    add si, MC_SIZE
-    loop .scan
-    stc
-    jmp short .out
-.hit:                           ; `je` arrives with CF = 0, and `mov` keeps it
-    mov bx, [ss:si+MC_OWN]
-.out:
-    pop si
-    pop cx
+    call mem_next               ; the walk every other reader of the map takes,
+    jc .out                     ; and it SKIPS FREE RECORDS - so a BX of 0 is
+    cmp [ss:si+MC_SEG], bx      ; "no claim starts there", as the header says,
+    jne .scan                   ; where the counted loop this was matched the
+    mov bx, [ss:si+MC_OWN]      ; first free record and answered its stale
+.out:                           ; owner (size pass 10). `jne` falls out with
+    pop si                      ; CF = 0 and `mov` keeps it
     ret
 
 ; -----------------------------------------------------------------------------

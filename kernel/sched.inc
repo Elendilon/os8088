@@ -2734,12 +2734,11 @@ sch_dphex2:
     call .nib
     pop ax
 .nib:
-    and al, 0x0F
-    add al, '0'
-    cmp al, '9'
-    jbe .put
-    add al, 'A' - '0' - 10
-.put:
+    and al, 0x0F                ; the nibble to its ASCII digit in four
+    add al, 0x90                ; instructions and no branch: 0..9 -> '0'..'9',
+    daa                         ; A..F -> 'A'..'F' (the 8086's own decimal
+    adc al, 0x40                ; adjust; two bytes under the compare and the
+    daa                         ; add it was until size pass 10)
     mov [sch_dphc], al          ; one digit as a one-character STRING, so the
     mov si, sch_dphc            ; hex path and the text path are the same two
     jmp short sch_dpstr         ; lines of drawing code and not two copies

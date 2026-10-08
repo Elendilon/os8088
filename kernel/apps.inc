@@ -1083,8 +1083,7 @@ app_bounce_task_x:
     mov cx, [ss:si+BAL_X]       ; bank where the square is ON THE GLASS
     mov dx, [ss:si+BAL_Y]
     call app_ball_step
-    mov byte [gfx_color], CBLACK
-    call app_ball_fill          ; the NEW square FIRST (SPEC.md 14.5)...
+    call app_ball_fill          ; the NEW square FIRST (SPEC.md 14.5), black...
     mov byte [gfx_color], CWHITE
     call app_ball_wipe          ; ...then the part of the old one it does not
     jmp short .skip             ; cover. Erase-then-draw wrote every pixel the
@@ -1235,13 +1234,13 @@ app_ball_step:
     add ax, [ss:bx+si+4]        ; ...and the velocity is +4 from it
     jns .high
     xor ax, ax                  ; hit the low wall
-    neg word [ss:bx+si+4]
-    jmp short .done
+    jmp short .wall
 .high:
     cmp ax, dx
     jle .done
     mov ax, dx                  ; hit the high wall
-    neg word [ss:bx+si+4]
+.wall:                          ; ...and either wall turns it round, in one
+    neg word [ss:bx+si+4]       ; copy of the store (size pass 10)
 .done:
     mov [ss:bx+si], ax
     ret
@@ -1258,8 +1257,7 @@ app_bounce_paint_x:
 
     call app_state_of           ; BX = window, DI = ball state
     jc .done
-    mov byte [gfx_color], CBLACK
-    call app_ball_fill
+    call app_ball_fill          ; (black: the fill sets it)
 
 .done:
     pop di
@@ -1268,8 +1266,10 @@ app_bounce_paint_x:
 
 ; -----------------------------------------------------------------------------
 ; app_ball_fill - fill the 8x8 square at an instance's ball position
-; in:  BX = window ptr, DI = ball state ptr; color from [gfx_color]
-; out: nothing
+; in:  BX = window ptr, DI = ball state ptr
+; out: nothing - and [gfx_color] = CBLACK, which it SETS: both callers drew
+;      the square black and wrote the store out ahead of the call until size
+;      pass 10
 ; clobbers: nothing (flags only; internal helper)
 ; -----------------------------------------------------------------------------
 app_ball_fill:
@@ -1277,6 +1277,7 @@ app_ball_fill:
     push bx
     push cx
     push dx
+    mov byte [gfx_color], CBLACK
 
     call ct_cw_wm_content                     ; AX = content left, DX = content top
     add ax, [ss:di+BAL_X]          ; AX = x1

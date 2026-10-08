@@ -4753,10 +4753,7 @@ api_rn:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the target
     push si
     push di
     push es
-    push cs
-    pop es                      ; ES = KERNEL for the copy destination
-    mov di, api_name
-    call api_copyname           ; caller DS:SI -> ES:DI, at most 13 bytes
+    call api_cpname             ; caller DS:SI -> KERNEL:api_name, <= 13 bytes
     pop es                      ; the caller's ES back: it is the buffer
     pop di                      ; and its DI, which the callee may need
     push cs
@@ -4794,12 +4791,9 @@ api_fdlg_open:
     push si
     push di
     push es
-    push cs
-    pop es                      ; ES = KERNEL for the copy destination
-    mov di, api_name
     or si, si
     jz .nodef                   ; "no default": the ZERO is the argument, so it
-    call api_copyname           ; must reach fdlg_open unstaged and unchanged
+    call api_cpname             ; must reach fdlg_open unstaged and unchanged
     mov si, api_name            ; a kernel offset, so it survives the DS switch
     jmp short .go
 .nodef:
@@ -5025,10 +5019,7 @@ api_file_sysc:
                                 ; touches DS; this one has to put it back
     pop bx
     jc .refuse
-    push cs
-    pop es                      ; ES = KERNEL for the copy destination
-    mov di, api_name
-    call api_copyname           ; caller DS:SI -> ES:DI, at most 13 bytes
+    call api_cpname             ; caller DS:SI -> KERNEL:api_name, <= 13 bytes
     pop es                      ; the caller's ES back: it is the buffer
     pop di
     push cs
@@ -5062,11 +5053,9 @@ api_file_rename:
     push si
     push di
     push es
-    push cs
-    pop es                      ; ES = KERNEL
     push di                     ; bank the new-name pointer across the first
-    mov di, api_name            ; copy, which needs DI itself
-    call api_copyname           ; old name
+    call api_cpname             ; copy, which needs DI itself - the old name,
+                                ; and ES = KERNEL for the second from here
     pop si                      ; SI = the caller's DI = the new name
     mov di, api_name2
     call api_copyname           ; new name
@@ -5184,6 +5173,10 @@ ovw_font_run_x:     call font_run_x     ; SPEC.md 15.6's status line composes
 ; (cw_clk_ns_put and cw_clk_tobcd went with them in kernel size pass 9: the
 ; port helpers are a copy in each image now, near-called - SPEC.md 37.94.)
 ; -----------------------------------------------------------------------------
+api_cpname:                     ; ...the same into KERNEL:api_name, which is
+    push cs                     ; what four of the five callers want, and the
+    pop es                      ; three instructions they each wrote out ahead
+    mov di, api_name            ; of it (ES = KERNEL on the way out)
 api_copyname:
     push ax                     ; AX and CX ONLY, and both are arguments the
     push cx                     ; caller is still carrying: AX is DX:AX's low
