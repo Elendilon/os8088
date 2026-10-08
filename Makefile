@@ -10491,6 +10491,30 @@ vid486: $(VIDENC_BASE) $(BUILD)/videodiag.o88 $(BUILD)/vidbench.o88 \
 	python3 tools/os88disk.py --verify $(BUILD)/vid486out.img
 	@ls -l $(BUILD)/VID486.VHD $(BUILD)/vid486out.img
 
+# THE 286 BENCH FLOPPY: vid486's bench half on a floppy, for a real 286 whose
+# hard disk has no room for a 31 MB image - VIDBENCH with the SAME synthetic
+# frames the 86Box 286 and 486 profiles were fitted from (synthxdv), so a real
+# machine's reading sets beside theirs; VIDDISK (X, E, R, W), VIDSND and the
+# VPDIAG player besides. 360 KB for a 5.25" drive and 720 KB for a 3.5" one.
+.PHONY: vid286
+vid286: $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 $(BUILD)/vidsnd.o88 \
+	$(BUILD)/videodiag.o88 tools/os88vid.py tools/os88disk.py \
+	tests/vidbench/FIELD286.TXT
+	rm -rf $(BUILD)/vid286 && mkdir -p $(BUILD)/vid286
+	python3 tools/os88vid.py synthxdv $(BUILD)/vid286/SYNTH.XDV >/dev/null
+	python3 tools/os88vid.py benchdat --synth $(BUILD)/vid286/VIDBENCH.DAT \
+	    $(BUILD)/vid286/SYNTH.XDV >/dev/null
+	cp tests/vidbench/FIELD286.TXT $(BUILD)/vid286/README.TXT
+	cp $(BUILD)/videodiag.o88 $(BUILD)/vid286/VIDEOD.O88
+	for k in 360 720; do \
+	    python3 tools/os88disk.py -o $(BUILD)/vid286-$$k.img --size $$k \
+	        $(BUILD)/vid286/README.TXT $(BUILD)/vidbench.o88 \
+	        $(BUILD)/vid286/VIDBENCH.DAT $(BUILD)/viddisk.o88 \
+	        $(BUILD)/vidsnd.o88 $(BUILD)/vid286/VIDEOD.O88 || exit 1; \
+	    python3 tools/os88disk.py --verify $(BUILD)/vid286-$$k.img || exit 1; \
+	done
+	@ls -l $(BUILD)/vid286-360.img $(BUILD)/vid286-720.img
+
 # THE DEMO VIDEO DISKS (SPEC.md 98.5): a whole os8088 install on a hard disk
 # with the demo videos in MEDIA/ beside a 00-VIDS.TXT that describes them -
 # what to put in a machine to show the player off. The videos are COMMITTED,
