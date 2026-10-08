@@ -759,14 +759,10 @@ ld_take:
                                 ; one, and .peek writes BX on every arm
                                 ; before anything reads it
     ret
-.bad:
-    mov al, LD_EBAD
-    stc
-    ret
-.big:
-    mov al, LD_EBIG
-    stc
-    ret
+.bad:                           ; ld_hdr_size's two refusals ARE these, and
+    jmp ld_hdr_size.bad         ; a near jmp to them is two bytes under a
+.big:                           ; second copy of each (size pass 10); they
+    jmp ld_hdr_size.toobig      ; are out of short reach of the jcc's here
 
 ld_run_body_x:
     ; --- 1. validate the directory entry --------------------------------------
@@ -1263,6 +1259,52 @@ ld_start:
     mov al, LD_OK
     ret
 
+.abort:                         ; HERE, between step 9 and the re-home, and
+                                ; not below the re-home: step 8's `jc .abort`
+                                ; reaches it short from here, where below the
+                                ; arm it was the five-byte inverted jcc (size
+                                ; pass 10), and the arm's own five refusals
+                                ; reach it short backwards just the same
+    ; SPEC.md 20.2: an aborting entry may have created windows before it
+    ; declared itself broken - the one it returns in BX, and any others.
+    ; Destroy them ALL by the W_SEG creator stamp (wm_destroy_seg) rather
+    ; than by trusting BX: a package that just declared itself broken gets
+    ; nothing believed, and the sweep only ever touches records wm_create
+    ; stamped itself. BEFORE ld_unreserve, so no window outlives the region
+    ; its procs live in - a survivor's repaint would far-call a freed claim.
+    ; The reserved instance record was never published, so it needs nothing.
+    call .sweep
+    ; ...but NOT its toast (SPEC.md 20.12.4). A refusal the entry proc SAID -
+    ; os88parts.inc's four, a C package's - carries the reserved slot as its
+    ; raiser, because step 8's stamp is in force for the whole of the call
+    ; (SPEC.md 19.2.1). Step 10 would toast `Load failed` over it and the
+    ; reason would never reach the glass. So when the toast that is up is
+    ; this instance's, re-home it to the kernel - the slot is about to be
+    ; somebody else's, and their close must not take it down - and tell
+    ; ld_say_status to record the verdict without saying it. A toast raised
+    ; by anybody else during the launch is not ours and is overwritten as
+    ; before.
+    mov di, [ld_rec]            ; BL = the reserved slot's index. ld_slot is
+    call ld_slot                ; that arithmetic, near and `.cold` like this
+                                ; - inst_idx is the same body in `.text` and a
+                                ; shim to it would cost 5 of those; a third
+                                ; inline copy costs 3 bytes more than the call
+                                ; and drifts. BX is dead here (the entry's
+                                ; window, on a launch that is being abandoned)
+                                ; and ld_unreserve banks it anyway; AX and CX
+                                ; survive, ld_slot banking CX itself
+    cmp bl, [toast_inst]
+    jne .unsaid
+    cmp word [toast_on], 0      ; toast_kill's own test: on OR staged
+    je .unsaid
+    mov byte [toast_inst], 0xFF
+    mov byte [ld_said], 1
+.unsaid:
+    call ld_unreserve           ; the region, and anything the entry proc
+                                ; claimed before it declared itself broken
+    mov al, LD_EABORT
+    ret
+
 .rehome:
     ; --- 8a. THE RE-HOME: the loader hands its identity to a PART ------------
     ; SPEC.md 20.12.10. The entry proc that just returned is a LOADER: it read
@@ -1413,47 +1455,6 @@ ld_start:
     push ds
     pop es                      ; ES = KERNEL_SEG for that far call: the entry
     jmp .call8                  ; proc's contract does not promise it back
-
-.abort:
-    ; SPEC.md 20.2: an aborting entry may have created windows before it
-    ; declared itself broken - the one it returns in BX, and any others.
-    ; Destroy them ALL by the W_SEG creator stamp (wm_destroy_seg) rather
-    ; than by trusting BX: a package that just declared itself broken gets
-    ; nothing believed, and the sweep only ever touches records wm_create
-    ; stamped itself. BEFORE ld_unreserve, so no window outlives the region
-    ; its procs live in - a survivor's repaint would far-call a freed claim.
-    ; The reserved instance record was never published, so it needs nothing.
-    call .sweep
-    ; ...but NOT its toast (SPEC.md 20.12.4). A refusal the entry proc SAID -
-    ; os88parts.inc's four, a C package's - carries the reserved slot as its
-    ; raiser, because step 8's stamp is in force for the whole of the call
-    ; (SPEC.md 19.2.1). Step 10 would toast `Load failed` over it and the
-    ; reason would never reach the glass. So when the toast that is up is
-    ; this instance's, re-home it to the kernel - the slot is about to be
-    ; somebody else's, and their close must not take it down - and tell
-    ; ld_say_status to record the verdict without saying it. A toast raised
-    ; by anybody else during the launch is not ours and is overwritten as
-    ; before.
-    mov di, [ld_rec]            ; BL = the reserved slot's index. ld_slot is
-    call ld_slot                ; that arithmetic, near and `.cold` like this
-                                ; - inst_idx is the same body in `.text` and a
-                                ; shim to it would cost 5 of those; a third
-                                ; inline copy costs 3 bytes more than the call
-                                ; and drifts. BX is dead here (the entry's
-                                ; window, on a launch that is being abandoned)
-                                ; and ld_unreserve banks it anyway; AX and CX
-                                ; survive, ld_slot banking CX itself
-    cmp bl, [toast_inst]
-    jne .unsaid
-    cmp word [toast_on], 0      ; toast_kill's own test: on OR staged
-    je .unsaid
-    mov byte [toast_inst], 0xFF
-    mov byte [ld_said], 1
-.unsaid:
-    call ld_unreserve           ; the region, and anything the entry proc
-                                ; claimed before it declared itself broken
-    mov al, LD_EABORT
-    ret
 
 .sweep:
     ; Every window whose W_SEG is the region being launched, destroyed - the
