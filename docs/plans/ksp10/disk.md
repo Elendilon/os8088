@@ -65,6 +65,18 @@ equal. And the DMA bounce: WRITE_AT's inside arm and READ_AT (cache stood
 aside) through a buffer 0xF0 short of a 64KB page, `.bounce`/`.unbounce`
 each firing once, the bytes right in the guest and on the flushed floppy.
 
+### Batch 5 - banks nobody needed, two masks for two divides (kern_big .cold -46, kern_small .cold -46)
+
+| item | bytes | note |
+|---|---:|---|
+| `dsk_ent_ofs` | -12 | both callers bank AX/CX/DX already and loaded CX = `DSK_DE_STRIDE` right after it: it clobbers them now and hands CX back as the stride. `dsk_get_dir_x` (the Disk window's per-entry read) gets faster |
+| `dskw_rawn83` / `dskw_rtn83` | -13 | entry points falling into `dskw_copy11` for `dskw_rmtree`'s four `mov si / mov di, dskw_n83 / call` triples (inside `%ifndef KD_BUILD`) |
+| `dskw_size32` | -7 | its three callers load or recompute AX/CX/DX before reading them |
+| `dskw_read_at_x` cluster checks | -6 | `[dwr_clb]` is a power of two, so two `div`s for remainders became two `test`s with `clb - 1` (~300 cycles a call faster) |
+| `dskw_norm` | -4 | five callers, none holding AX or CX across it; no FSV_* verb a redirected body calls next takes either (SPEC.md 62.9.1) |
+| `dskw_last_p` | -2 | neither caller keeps AX; twice a cluster, 25 cycles faster each |
+| `dskw_cmp` | -2 | `dskw_find`'s entry loop holds nothing in DI; once an entry faster |
+
 ## REFUSED
 
 (appended as decided)

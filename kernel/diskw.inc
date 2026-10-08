@@ -1016,9 +1016,7 @@ dskw_rtbody:
     jnc .named
     jmp dskw_nbody.badarg       ; FERR_NAME, spelled once
 .named:
-    mov si, dskw_rt_name        ; dskw_find matches through dskw_n83
-    mov di, dskw_n83
-    call dskw_copy11
+    call dskw_rtn83             ; dskw_find matches through dskw_n83
     call dskw_find
     jc .fsok                    ; AX = FERR_NOENT / FERR_IO already - and
                                 ; .fsok is a bare `ret` a hop back (this
@@ -1094,9 +1092,7 @@ dskw_rtbody:
 .finish:                        ; BELOW the shared tail, which it only jumps
     call dskw_rt_go_home        ; into: above it, it kept the dskw_clok's
     jc .ioerr                   ; `jc .corrupt` five bytes past short reach
-    mov si, dskw_rt_name
-    mov di, dskw_n83
-    call dskw_copy11
+    call dskw_rtn83
     jmp dskw_rmbody_n83         ; the target itself, from where we began - a
                                 ; tail call, both ends `.cold`
 
@@ -1183,9 +1179,7 @@ dskw_rt_scan:
                                 ; rewrite the slot without a name lookup
                                 ; (dskw_find refuses to match an LFN entry at
                                 ; all, by design)
-    mov si, dskw_raw
-    mov di, dskw_n83
-    call dskw_copy11
+    call dskw_rawn83
     mov al, [dskw_raw+DSK_R_ATTR]
     mov [dskw_rt_attr], al
     mov ax, [dskw_raw+DSK_R_CLUS]
@@ -1223,9 +1217,7 @@ dskw_rt_byclus:
     mov di, dskw_raw            ; 32, not 11: dsk_copy_in copies WORDS
     mov cx, 32
     call dsk_copy_in_x
-    mov si, dskw_raw
-    mov di, dskw_n83
-    call dskw_copy11
+    call dskw_rawn83
     clc
 .out:
     pop di
@@ -1760,11 +1752,13 @@ dskw_take1:
 ; -----------------------------------------------------------------------------
 ; dskw_last_p - is the current take the file's last, with a partial sector?
 ; in:  [dskw_take], [dskw_rem], [dskw_tail]
-; out: ZF=1 if this take ends the file AND the last sector is partial
-; clobbers: flags
+; out: ZF=1 if this take ends the file AND the last sector is partial; CF=0
+; clobbers: AX, flags. Both callers (dskw_take1, whose AX nothing reads, and
+;           dskw_xclus.tail, which reloads it) had nothing in AX to keep, so
+;           the bank went: -2, and 25 cycles off each of its two calls a
+;           cluster (size pass 10)
 ; -----------------------------------------------------------------------------
 dskw_last_p:
-    push ax
     mov ax, [dskw_take]
     cmp ax, [dskw_rem]
     jne .no                     ; more clusters follow: every sector is full
@@ -1773,9 +1767,8 @@ dskw_last_p:
     cmp ax, ax                  ; ZF=1
     jmp short .out
 .no:
-    or ax, 1                    ; ZF=0 (AX is a copy; the caller's is safe)
+    or ax, 1                    ; ZF=0
 .out:
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2205,7 +2198,12 @@ dskw_fpgb:
 ; -----------------------------------------------------------------------------
 ; dskw_norm - reduce [dskw_seg]:[dskw_src] to the same address with an offset
 ;             of 0..15 (module-internal)
-; out: nothing (all registers preserved)
+; out: nothing
+; clobbers: AX, CX, flags. All five callers hold nothing in either - the next
+;           thing each does loads or recomputes both, and no FSV_* verb a
+;           redirected body goes on to call takes AX or CX in (SPEC.md
+;           62.9.1) - so the bank that was here guarded nothing (size pass
+;           10, -4)
 ;
 ; This is the whole of SPEC.md 18.4.1's unification. Both transfer loops hold
 ; the offset and walk the SEGMENT, which works for any offset below 16
@@ -2214,15 +2212,11 @@ dskw_fpgb:
 ; segment and a heap claim of any size alike.
 ; -----------------------------------------------------------------------------
 dskw_norm:
-    push ax
-    push cx
     mov ax, [dskw_src]
     mov cl, 4
     shr ax, cl                  ; whole paragraphs of the offset...
     add [dskw_seg], ax          ; ...move into the segment
     and word [dskw_src], 15
-    pop cx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2284,12 +2278,11 @@ dskw_runmax:
 ;      final sector (0 = none); CF=1 when the sector count would not fit 16
 ;      bits (>= 32MB), in which case [dskw_rem] is left alone and every
 ;      caller refuses the job outright
-; clobbers: flags
+; clobbers: AX, CX, DX, flags. Its three callers (dskw_wbody, dskw_rbody,
+;           dskw_wabody) each load or recompute all three before reading
+;           them, so the bank that was here guarded nothing (size pass 10, -7)
 ; -----------------------------------------------------------------------------
 dskw_size32:
-    push ax
-    push cx
-    push dx
     mov ax, [dskw_len]
     mov dx, [dskw_lenhi]
     mov cx, ax
@@ -2309,14 +2302,10 @@ dskw_size32:
     or dx, dx                   ; (`or` clears CF: the answer below)
     jnz .over
     mov [dskw_rem], ax
-.out:
-    pop dx                      ; (pops do not touch flags)
-    pop cx
-    pop ax
     ret
 .over:
     stc
-    jmp short .out
+    ret
 
 ; -----------------------------------------------------------------------------
 ; dskw_dbody - the delete pipeline (module-internal)
@@ -2636,18 +2625,14 @@ dskw_read_at_x:
     cmp ax, cx
     jae .eof
 .inrange:
-    mov cx, [dwr_clb]
-    mov ax, [dwr_off]           ; the offset must land on a cluster boundary
-    xor dx, dx
-    div cx
-    or dx, dx
-    jnz .badarg
-    mov ax, [dwr_cap]           ; ...and so must the capacity, or a chunk
-    xor dx, dx                  ; would not end where the next one starts
-    div cx
-    or dx, dx
-    jnz .badarg
-    test ax, ax
+    mov cx, [dwr_clb]           ; a POWER OF TWO (mount rule 2: spc is), so
+    dec cx                      ; each remainder below is a mask - dskw_wabody's
+    test [dwr_off], cx          ; test - where it was two `div`s (-6, and
+    jnz .badarg                 ; ~300 cycles a call). The offset must land on
+    test [dwr_cap], cx          ; a cluster boundary, and so must the capacity,
+    jnz .badarg                 ; or a chunk would not end where the next one
+    mov ax, [dwr_cap]           ; starts. (Only the offset's LOW word can carry
+    test ax, ax                 ; a remainder: the mask is under 65,536.)
     jz .badarg                  ; a capacity under one cluster reads nothing
 
     mov ax, [dwr_sz]            ; take = min(size - offset, capacity)
@@ -4009,18 +3994,18 @@ dskw_here:
 ; dskw_cmp - compare a raw entry's name field against dskw_n83
 ; in:  ES:SI -> a raw 32-byte directory entry (ES = LOW_SEG)
 ; out: ZF=1 if the 11 name bytes are identical
-; clobbers: flags
+; clobbers: DI, flags. Its one caller, dskw_find's entry loop, holds nothing
+;           in DI (dskw_hit and dskw_mark_free set it), so the bank went:
+;           -2, and once an ENTRY faster (size pass 10)
 ; -----------------------------------------------------------------------------
 dskw_cmp:
     push cx
     push si
-    push di
     mov di, si                  ; the raw name is the ES-side operand
     mov si, dskw_n83
     mov cx, 11
     cld
     repe cmpsb
-    pop di
     pop si
     pop cx
     ret
@@ -4039,6 +4024,19 @@ dskw_cmp:
 ; reload; disk.inc's dsk_ncopy banks it around its string move, and it is the
 ; same body four files each used to carry.
 ; -----------------------------------------------------------------------------
+; dskw_rawn83 / dskw_rtn83 - dskw_copy11 INTO dskw_n83, from dskw_raw or from
+; dskw_rt_name: dskw_rmtree's four `mov si / mov di / call` triples
+; (size pass 10, -13). SI and DI come back as those sites left them
+; -----------------------------------------------------------------------------
+%ifndef KD_BUILD
+dskw_rawn83:
+    mov si, dskw_raw
+    jmp short dskw_n83go
+dskw_rtn83:
+    mov si, dskw_rt_name
+dskw_n83go:
+    mov di, dskw_n83
+%endif                          ; ...and falls into dskw_copy11
 dskw_copy11:
     push cx
     mov cx, 11

@@ -7564,11 +7564,11 @@ dsk_get_dir_x:
     push cx
     push dx
     push di
-    call dsk_ent_ofs            ; SI = the entry's offset in [dsk_dseg]
-    mov di, dsk_ent
-    mov cx, DSK_DE_STRIDE       ; what the LISTING holds; dsk_ent is wider and
-    mov dx, [dsk_dseg]          ; its 24..31 are left as they were, which no
-                                ; reader of a staged entry looks at
+    call dsk_ent_ofs            ; SI = the entry's offset in [dsk_dseg], and
+    mov di, dsk_ent             ; CX = DSK_DE_STRIDE: what the LISTING holds;
+    mov dx, [dsk_dseg]          ; dsk_ent is wider and its 24..31 are left as
+                                ; they were, which no reader of a staged
+                                ; entry looks at
     mov ax, KERNEL_SEG          ; ...the kernel segment, named (SPEC.md 2.6
                                 ; rule 2: CS is COLD_SEG here)
     call dsk_copy_seg_x
@@ -7582,24 +7582,20 @@ dsk_get_dir_x:
 ; -----------------------------------------------------------------------------
 ; dsk_ent_ofs - one listing slot's offset (module internal)
 ; in:       AX = entry index
-; out:      SI = its offset inside [dsk_dseg]
-; clobbers: SI (the output), flags
+; out:      SI = its offset inside [dsk_dseg], CX = DSK_DE_STRIDE
+; clobbers: AX, DX, SI and CX (the outputs), flags. Both callers bank all
+;           three and wanted CX = DSK_DE_STRIDE next: the bank and the reload
+;           were here twice over (size pass 10, -12)
 ;
 ; A multiply and not a shift: DSK_DE_STRIDE is 24 and no longer a power of
 ; two. Writing it as one operation is what stops the two halves of the pair
 ; from disagreeing when the cap changes.
 ; -----------------------------------------------------------------------------
 dsk_ent_ofs:
-    push ax
-    push cx
-    push dx
     mov cx, DSK_DE_STRIDE
     mul cx
     add ax, [dsk_doff]
     mov si, ax
-    pop dx
-    pop cx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -7609,11 +7605,10 @@ dsk_ent_ofs:
 ; -----------------------------------------------------------------------------
 dsk_put_dir:
     call kentc_di               ; KENT: push ax..di (BX for the rung)
-    call dsk_ent_ofs
-    mov di, si
-    mov si, dsk_ent
-    mov cx, DSK_DE_STRIDE       ; the meaningful prefix; 19.1's 24..31 are
-    mov ax, [dsk_dseg]          ; zero and the listing has no room for them
+    call dsk_ent_ofs            ; CX = DSK_DE_STRIDE: the meaningful prefix;
+    mov di, si                  ; 19.1's 24..31 are zero and the listing has
+    mov si, dsk_ent             ; no room for them
+    mov ax, [dsk_dseg]
     mov dx, KERNEL_SEG          ; ...the kernel segment, named (SPEC.md 2.6
                                 ; rule 2: CS is COLD_SEG here)
     call dsk_copy_seg_x
