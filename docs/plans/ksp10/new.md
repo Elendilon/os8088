@@ -5,7 +5,7 @@ Base `833f13e4`. `kernsize` deltas against the blessed baseline.
 | | kern_big | kern_small |
 |---|---:|---:|
 | resident (all `.cold`) | **-107** | **-10** |
-| FDLG.DRV image (kern_small, not resident) | - | 1,256 -> **1,247** (-9) |
+| FDLG.DRV image (kern_small, not resident) | - | 1,256 -> **1,246** (-10) |
 
 ## #230's review fixes - what came back
 
@@ -58,6 +58,22 @@ Base `833f13e4`. `kernsize` deltas against the blessed baseline.
    `div bx`; desk_zones_r banks SI instead of reloading it.
 5. **kern_big -5, FDLG.DRV -3** (8f068f61): desk_reflow's two 0xFF stores
    are one each pass; `fdlg_live` (the live-record test, twice).
+6. **kern_big -1, FDLG.DRV -1** (6736d487): the gate's both-bits test is
+   `inc ax / and al, 3` ((flags + 1) & 3 = 0 iff both set); the gate
+   clobbers AX, so fdlg_reap holds the answer in DL.
+
+## RUN
+
+* `make`, `make small`, `make emu` (kern_emu .cold -108, assembles), the
+  fast tier 61/61 after every batch.
+* `stkbalance` over kernel.asm + desk.inc + fdlg.inc, base vs tip: no path in
+  either file in either report (10 = 10, all kernel.asm's own ladder).
+* Soak, one at a time: `deskzoom` (desk_zones_r's refusal), `deskflash`,
+  `fdlgchoose` (resident chooser end to end), `fdlgchsmall` (FDLG.DRV) -
+  4/4 green.
+* No row exercises the answered-chooser KEY fix; `fdlgchoose`'s drain test
+  is a press. A row typing Backspace after a double-click commit in the same
+  drain would be its gate.
 
 ## REFUSED
 
