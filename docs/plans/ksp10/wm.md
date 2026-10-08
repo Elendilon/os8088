@@ -31,3 +31,45 @@ kern_big `.text` -82, kern_small `.text` -66.
   byte it read per window are gone (DI is the choice). wm_zabove leaves CX = 0
   on CF = 1, so "nothing above" needs no test. -46 big, ~-40 small. Faster per
   window too: `call di` replaces a `cmp byte [mem],0` + branch + jmp.
+
+### Batch 2 - rect_get/rect_put at fourteen sites, the title bar, small ones
+kern_big `.text` -207 (cumulative -289), kern_small `.text` -203
+(cumulative -269).
+
+* **rect_get / rect_put** (already in wm.inc, 5 bytes a site against 12 for
+  four `mov`s): wm_dmg_bands' store and load (both arms), wm_paint_dmg,
+  wm_dmg_gray's `.fill`, wm_su_owed (between gfx_rect_hit and its `jnc`:
+  neither helper writes a flag), wm_su_sub, wm_su_vset, wm_su_srect,
+  wm_su_flay, and wm_su_try's load and per-fragment store - and wm_su_try's
+  two four-word COPIES (sx -> bx before the walk, bx -> sx at `.out`, 24
+  bytes each) as a get+put pair, 10. -7 a site, -14 a copy. Each costs
+  ~140 cycles (~30 us) over the four movs; none is in a per-pixel loop, the
+  heaviest (wm_su_srect, wm_su_try's `.frag`) run per fragment/piece of a
+  restore, i.e. a few times per window. RECT4 asserts added for the three
+  newly addressed blocks.
+* **wm_draw_title**: four `mov dx, [di+W_Y]` / `add dx, n` pairs become
+  `lea dx, [bx+k]` off the BX the same block just loaded (gfx_fill, the pens
+  and thm_tink preserve BX). -12. Same primitive calls, fewer instructions.
+* **wm_su_flay's WSU_CLAMP2** macro (two copies, 22 bytes each) is a local
+  `.clamp2`. -15. Costs two call/ret pairs (~70 cycles) per wm_su_flay, i.e.
+  per window cache op; the macro's comment argued against exactly this, on
+  speed. A fiftieth of one gfx primitive call - taken.
+* small: wm_min_floor (CX needs no bank; the cap reloaded straight into AX)
+  -4; wm_resize_nb's push/pop CX DX round wm_min_floor whose values were
+  overwritten next line -4; wm_rz_swap lea + lodsw -4; wm_dmg_stale `x2 <=
+  x+w-1` as `x2 < x+w`, and AX needs no bank there -6; wm_su_srect's second
+  `cmp [wm_su_son]` (`.named` is only reached with it set) -7; wm_su_bget's
+  `or al, al` after a `pop` (ZF already set) -2; wm_damage's four
+  pop/pop/ret exits one tail -5; wm_su_drop_all walks records not indices
+  -4; wm_an_lerp addresses wm_an_c as [si+16] (asserted) -6; wm_su_piece,
+  wm_clip_split -1 each.
+
+## REFUSED
+
+* **wm_rz_swap with `scasw`** (one more byte) and **wm_an_lerp with
+  `cmpsw`**: both read ES:DI, and ES belongs to nobody - a stray read of
+  A000 loads the VGA latches.
+* **A shared `wm_flagw` for the on/off flag setters** (wm_ownbg,
+  wm_sizable...): needs a mask register or an inline-word helper that
+  discards its own return address under a pushf; the saving was ~10 bytes for
+  a helper nobody could read.
