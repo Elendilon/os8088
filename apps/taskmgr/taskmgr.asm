@@ -467,8 +467,9 @@ TM_ROWC     equ TM_NAMEF + TM_STC + 1 + TM_CPUC + TM_MEMC
   %error "taskmgr: a memory row now runs past the right edge of its band"
 %endif
 
-TMM_ROWS    equ INST_MAX + 6    ; System, its three buffer rows, the two
-                                ; headings, every instance - 18 x TM_ROW_H
+TMM_ROWS    equ INST_MAX + 7    ; low memory, System, its three buffer rows,
+                                ; the two headings, every instance - 19 x
+                                ; TM_ROW_H
                                 ; from TMM_ROW_Y, which is what decides both
                                 ; the template's height and that free slots
                                 ; are not drawn at all. tm_mrow_open clamps
@@ -477,7 +478,10 @@ TMM_ROWS    equ INST_MAX + 6    ; System, its three buffer rows, the two
                                 ; It was INST_MAX + 7 while `Disk bufs` was a
                                 ; row (SPEC.md 20.9), and the window is a row
                                 ; shorter for losing it rather than a row
-                                ; emptier - TM_PREF_H is cut from this
+                                ; emptier - TM_PREF_H is cut from this. The
+                                ; `IVT+BDA` row took that row back (SPEC.md
+                                ; 28): 1.5K of every machine that no other
+                                ; figure in this window could account for
 
 ; --- THE TWO FRAMES THIS WINDOW WANTS (SPEC.md 11.100.1) ---------------------
 ; tm_layout has always worked out the frame its column count needs; these are
@@ -1262,6 +1266,22 @@ tm_s_dash4: db '   -', 0        ; one empty KB column
 tm_s_dash5: db '    -', 0       ; ...and one with tm_kcol's leading space
 tm_s_sys0:  db '0600', 0        ; where the kernel starts: KERNEL_SEG, the
                                 ; first paragraph above the BIOS data area
+
+; The row ABOVE System: everything below KERNEL_SEG, which is the one span of
+; conventional memory that is neither the kernel nor the heap and was in no
+; figure on this page (SPEC.md 28). The interrupt vector table (1K at 0000),
+; the BIOS data area (256 bytes at 0400) and the page at 0500 - the BIOS/DOS
+; communication area, where boot/boot.asm also puts the diskette parameter
+; table int 1Eh points at (DPT_AT, 0580). It is the SAME 1,536 bytes on every
+; machine and every build: KERNEL_SEG is an SDK constant, not a ladder rung,
+; so the whole row is one literal and draws for three string copies. The size
+; is printed as 1.5K because that is what it is - tm_kcol's whole kilobytes
+; would read 1K or 2K and either is the very rounding this row exists to
+; stop hiding. ' 1.5K' is tm_kcol's five columns, leading space included.
+%if KERNEL_SEG * 16 != 1536
+  %error "taskmgr: the low-memory row is a 1.5K literal and KERNEL_SEG moved"
+%endif
+tm_s_low:   db 'IVT+BDA  0000  1.5K', 0
 
 ; The kernel's own buffers, one row each under System (SPEC.md 28). Every
 ; figure beside them is a compile-time constant (TM_K*_KB above), so drawing
@@ -3162,16 +3182,20 @@ tm_map_ram:
     call tm_map_rect
     call OSAPI_GFX_FILL
 
-    xor ax, ax                  ; [0, kernel end): the BIOS data area and the
+    xor ax, ax                  ; [0, kernel end): low memory and the
     mov dx, [tm_kb+SK_KERN]     ; kernel entire - image, scratch, buffers and
-    dec dx                      ; stacks (SPEC.md 2). 50% gray: reserved, and
-    call tm_band                ; not available to anything else
-    call OSAPI_GFX_FILL_GRAY
+                                ; stacks (SPEC.md 2). 50% gray: reserved, and
+    call tm_band                ; not available to anything else. The kernel
+    call OSAPI_GFX_FILL_GRAY    ; starts 1.5K up (the IVT+BDA row), so the
+                                ; inclusive end is SK_KERN and not SK_KERN - 1:
+                                ; the span's KB count less one, plus the whole
+                                ; KB under KERNEL_SEG. SK_KERN rounds UP, so
+                                ; this end never paints a free KB as kernel
 
     mov ax, [tm_kb+SK_KERN]           ; ...and its BUFFERS, over the top of
     sub ax, [tm_kb+SK_BUF]            ; that, in a texture of their own: the
-    mov dx, [tm_kb+SK_KERN]           ; FAT snapshot, the disk caches and
-    dec dx                            ; every task stack are the part of the
+    inc ax                            ; FAT snapshot, the disk caches and
+    mov dx, [tm_kb+SK_KERN]           ; every task stack are the part of the
     call tm_band                      ; kernel that is scratch rather than
     mov si, tm_pat_buf                ; program, and the part these figures
     TM_FILL_PAT                       ; are steered by (docs/KERNEL-MEMORY.md)
@@ -3345,7 +3369,22 @@ tm_rows_mem:
     mov word [tm_mrow], 0       ; (SI is free until the instance loops, and
                                 ; tm_copy keeps it anyway)
 
-    ; --- row 0: the kernel's fixed reservation --------------------------------
+    ; --- row 0: low memory, below the kernel ----------------------------------
+    ; Not the kernel's and not the heap's, so without it System + HEAP came to
+    ; 1.5K short of the RAM total and a reader asked where it went. NO square:
+    ; the map draws it in the same gray as the kernel band it sits under, and
+    ; at 4K a pixel on a 640K machine it is not a band of its own anyway. A
+    ; dash in HEAP, as the buffer rows have - it is not a claim.
+    call tm_mrow_open
+    mov si, tm_s_low
+    call tm_copy
+    mov byte [di], ' '          ; the HEAP column's own gap (tm_s_mhdr)
+    inc di
+    mov si, tm_s_dash5
+    call tm_copy
+    call tm_mrow_close
+
+    ; --- row 1: the kernel's fixed reservation --------------------------------
     call tm_mrow_open
     mov si, tm_s_sys
     call tm_copy7
