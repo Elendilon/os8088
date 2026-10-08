@@ -57,6 +57,26 @@ blessed baseline at 833f13e4 (big / small).
 * docs/INDEX.md regenerated: os88index lists this notes file under plans,
   and `make` fails docindex until it does.
 
+### batch 3 (big -61, small -53; running total big -187, small -136)
+
+* instance.inc: inst_vol_enter banks only AX, DX and the flags - inst_where
+  keeps BX, and dsk_chdir_q clobbers the flags alone (disk_mount_x banks the
+  rest itself): -10, both. It sits under EVERY file API call, so this is ten
+  fewer push/pops on each one as well.
+* memory.inc: unused banks - mem_avail_lvl_x's DX and DI (and SI on big),
+  mem_hifit's DX, mem_regrow's BX (its ladder exit becomes plain pops),
+  osapi_sys_snapshot_x's DX (-11 big / -9 small).
+* memory.inc: mem_reloc_call's `cmp ah, MEM_LVL_TOP / jbe` was always true
+  (the top is 0xFF): one compare, with an %error guarding the constant
+  (-5, big).
+* memory.inc: osapi_sys_kb_x stores all ten SK_ words in order through one
+  stosw pointer, the heap figure before the claim sums (-24, both).
+* memory.inc: mem_claim_1's head bound compares SI, not [mem_dma] (-2), and
+  publishes the five record words through ES:DI with stosw (-6), both.
+* instance.inc: the snapshot's idle-slot test as `inc bl / jz` (-1);
+  inst_find_kind's `clc` after a falling-out-equal `jne` (-1). apps.inc:
+  app_tmr_track's likewise (-1, big).
+
 ## REFUSED
 
 * ct_cw_gfx_pen_cf / ct_cw_gfx_hline look dead from kernel/ (0 sites) but
@@ -74,6 +94,11 @@ blessed baseline at 833f13e4 (big / small).
 * api_rxc/api_rsc/api_rn `call KERNEL_SEG:api_far` -> `push cs / call
   api_far` (-3): os88ovlchk judges api_far by its retf and refuses a near
   call to it; BLOBCALL (which it does understand) means an `.ovl` target.
+
+* mem_pg_forget's BX bank (-2): ico_demote's header says it relies on
+  mem_pg_forget having "banked the lot"; not proved for fmv_icostale.
+* inst_icon_ptr's run expansion as `rep stosw` (-4) costs the ES = DS
+  bracket it needs (+4).
 
 ## CROSS-FILE
 

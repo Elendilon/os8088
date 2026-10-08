@@ -568,10 +568,9 @@ app_tmr_track:
     inc al                      ; 1-based, to compare against the arm
     xor ah, ah
     cmp ax, bp
-    jne .off
-    dec al                      ; ...and back to 0-based for the caller
-    pop bp
-    clc
+    jne .off                    ; (falling out is EQUAL: CF = 0, and neither
+    dec al                      ; `dec` nor `pop` writes it) ...and back to
+    pop bp                      ; 0-based for the caller
     ret
 .off:
     xor al, al                  ; a different button, or none: CANCELLED

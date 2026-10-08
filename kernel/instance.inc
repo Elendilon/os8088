@@ -955,8 +955,7 @@ inst_find_kind:
     cmp byte [di+I_STATE], 1
     jne .scan
     cmp [di+I_KIND], al
-    jne .scan
-    clc
+    jne .scan                   ; ...and falling out of it is EQUAL, CF = 0
 .out:
     ret
 
@@ -1107,14 +1106,12 @@ inst_caller:
 ; caller would have been told anyway.
 ; -----------------------------------------------------------------------------
 inst_vol_enter:
-    pushf
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push es
+    pushf                       ; ...and only AX, DX and the flags need the
+    push ax                     ; bank: inst_where spends AX and DX (it keeps
+    push dx                     ; BX), and dsk_chdir_q clobbers the flags and
+                                ; nothing else - disk_mount_x banks the rest
+                                ; itself. Five more pairs stood here until
+                                ; size pass 10
     call inst_where             ; DL:AX = where the instance behind this call
                                 ; is standing - dsk_chdir's arguments, loaded
                                 ; before the compare because they ARE the
@@ -1128,12 +1125,7 @@ inst_vol_enter:
 .go:                            ; and the remount is the whole cost
     call dsk_chdir_q
 .out:
-    pop es
-    pop di
-    pop si
     pop dx
-    pop cx
-    pop bx
     pop ax
     popf
     ret
@@ -2275,9 +2267,8 @@ section .cold                   ; COLD (SPEC.md 2.6, 29.9.1): 236 bytes of the
                                 ; to COLD_SEG and a four-byte trampoline in
                                 ; memory.inc to receive it
 osapi_sys_snapshot_x:
-    push cx
-    push dx
-    push si
+    push cx                     ; (no DX: nothing below writes it - not even
+    push si                     ; mem_owned_kb, which banks its own)
     push di
     push bp
 
@@ -2309,15 +2300,18 @@ osapi_sys_snapshot_x:
     add si, T_SIZE - 1          ; ...so the gather's stride is one less here
     loop .ssnap
     mov bl, [sch_idleslot]      ; ...and the IDLE TASK is named by a state of
-    cmp bl, 0xFF                ; its own (SPEC.md 28.7): it is READY like any
-    je .noidle                  ; other ready task and reading it as one makes
+    inc bl                      ; its own (SPEC.md 28.7): it is READY like any
+    jz .noidle                  ; other ready task and reading it as one makes
     xor bh, bh                  ; the process page charge 97% of the machine
                                 ; to a row it cannot explain. A fourth value
                                 ; costs no byte of the snapshot, which a slot
                                 ; index in the header would have - and every
                                 ; field after it moving is an ABI break for
                                 ; something the Task Manager alone reads. DI
-    mov byte [es:bx+di-MAX_TASKS], 3   ; is one past the last state copied
+    mov byte [es:bx+di-MAX_TASKS-1], 3 ; is one past the last state copied,
+                                ; and BX the slot PLUS ONE: 0xFF (none) is
+                                ; tested as `inc` reaching 0, a byte under
+                                ; the compare
 .noidle:
 
     mov si, sch_cycles          ; ...and the cycle counters, MAX_TASKS dwords
@@ -2371,7 +2365,6 @@ osapi_sys_snapshot_x:
     pop bp
     pop di
     pop si
-    pop dx
     pop cx
     retf                        ; FAR: the `.text` thunk is the only entry and
                                 ; far-calls (SPEC.md 2.6.1 - the body owns the

@@ -814,8 +814,10 @@ mem_claim_1:
     mov cl, 6
     shl ax, cl                  ; AX = paragraphs wanted
     jc .fail0                   ; > 1MB asked for
-    cmp word [mem_dma], 0x1000  ; ...and a head bigger than a 64KB page can
-    ja .fail0                   ; never sit inside one
+    cmp si, 0x1000              ; ...and a head bigger than a 64KB page can
+    ja .fail0                   ; never sit inside one (SI is still the head
+                                ; [mem_dma] was stored from: a register
+                                ; compare, two bytes under the memory one)
 
     mov di, mem_tab + MEM_MAX*MC_SIZE   ; this owner's share first
     mov cx, MEM_MAX             ; (MEM_OWNER_MAX): the table is a shared
@@ -912,23 +914,33 @@ mem_claim_1:
     jmp short .scan
 
 .publish:
-    mov [ss:di+MC_SEG], dx         ; publish the claim
-    mov [ss:di+MC_PARA], ax
-    mov [ss:di+MC_OWN], bx
-    mov word [ss:di+MC_RLOC], 0    ; PINNED until the holder says otherwise
-                                ; (SPEC.md 66.2). A record is REUSED - freeing
-                                ; is one store to MC_SEG - so a stale handle
-                                ; here would let the compactor move a new
-                                ; tenant's block and then call the PREVIOUS
-                                ; tenant's proc to tell it about it
-    mov si, [mem_dma]           ; ...and the page constraint it was granted
-    or si, bp                   ; under, with WHICH DOOR it came in through in
-                                ; the top bit of the same word - the two being
+%if MC_SEG != 0 || MC_PARA != 2 || MC_OWN != 4 || MC_DMA != 6 || MC_RLOC != 8 || MC_SIZE != 10
+  %error "mem_claim_1 publishes the record as five words in order through ES:DI"
+%endif
+    push es                     ; publish the claim: the five words IN ORDER
+    push ss                     ; through ES:DI = the record (LOW_SEG), six
+    pop es                      ; bytes under five displaced SS stores (size
+    cld                         ; pass 10). AX, DX and BX come back as they
+    xchg ax, dx                 ; went in: DX is the base this answers, and
+    stosw                       ; AX is popped below anyway
+    xchg ax, dx                 ; MC_SEG = the base...
+    stosw                       ; MC_PARA = the length...
+    xchg ax, bx
+    stosw                       ; MC_OWN = the owner...
+    xchg ax, bx
+    mov ax, [mem_dma]           ; MC_DMA = the page constraint it was granted
+    or ax, bp                   ; under, with WHICH DOOR it came in through in
+    stosw                       ; the top bit of the same word - the two being
                                 ; the whole of where a later move may put it
                                 ; (SPEC.md 50.3.2). BP IS that bit: 0 or
-                                ; MC_DMA_HI, and a head is <= 0x1000. SI is
-                                ; the caller's again at the pop below
-    mov [ss:di+MC_DMA], si
+                                ; MC_DMA_HI, and a head is <= 0x1000
+    xor ax, ax                  ; ...and MC_RLOC = 0: PINNED until the holder
+    stosw                       ; says otherwise (SPEC.md 66.2). A record is
+    pop es                      ; REUSED - freeing is one store to MC_SEG - so
+                                ; a stale handle here would let the compactor
+                                ; move a new tenant's block and then call the
+                                ; PREVIOUS tenant's proc to tell it about it.
+                                ; DI walked: it is popped at .out
     popf
     clc
     jmp short .out
@@ -1270,9 +1282,8 @@ mem_runfree:
 
 mem_hifit:
     push ax
-    push bx
-    push dx
-    push di
+    push bx                     ; (no DX: nothing here writes it, mem_runfree
+    push di                     ; included - banked until size pass 10)
     push si
     xor si, si                  ; SI = best base so far, 0 = none
     mov [mem_skip], si          ; ...and a destination may overlap nothing at all
@@ -1310,7 +1321,6 @@ mem_hifit:
 .out:
     pop si
     pop di
-    pop dx
     pop bx
     pop ax
     ret
@@ -2913,13 +2923,15 @@ mem_reloc_call:
 
     mov bp, [ss:si+MC_RLOC]     ; BP = the proc, PKG_DISP's own contract
     mov ax, [ss:si+MC_OWN]
-    cmp ah, MEM_PG_MIN
-    jb .notk
-    cmp ah, MEM_LVL_TOP
-    jbe .kernel                 ; 0xFExx and 0xFFxx alike: a kernel tag. A
-                                ; SEGMENT can never collide with this range -
-                                ; conventional memory ends at 0xA000
-.notk:
+%if MEM_LVL_TOP != 0xFF
+  %error "mem_reloc_call's one compare takes MEM_PG_MIN..MEM_LVL_TOP as 'AH at or above MEM_PG_MIN': the top must be 0xFF"
+%endif
+    cmp ah, MEM_PG_MIN          ; MEM_PG_MIN..MEM_LVL_TOP, and the top IS 0xFF,
+    jae .kernel                 ; so one compare (its upper bound was a second,
+                                ; always true, until size pass 10). 0xFBxx up
+                                ; to 0xFFxx alike: a kernel tag. A SEGMENT can
+                                ; never collide with this range - conventional
+                                ; memory ends at 0xA000
     cmp ax, INST_MAX
     jae .pkg                    ; a package's or a driver's own SEGMENT
     push bx                     ; an instance slot, and it is TWO things
@@ -3456,11 +3468,10 @@ mem_movable_x:
 ; leaves a hole behind it, and fragmentation not created needs no repairing.
 ; -----------------------------------------------------------------------------
 mem_regrow:
-    push ax
-    push bx
-    push cx
-    push si
-    push di
+    push ax                     ; (no BX: nothing here writes it - every
+    push cx                     ; callee banks its own - which is a byte under
+    push si                     ; the kretc_cx ladder it left through until
+    push di                     ; size pass 10)
     pushf
     cli
 %ifdef OS88_COMPACT
@@ -3531,7 +3542,9 @@ mem_regrow:
 .out:
     pop di
     pop si
-    jmp kretc_cx
+    pop cx
+    pop ax
+    ret
 
     ; SHED AND RETRY, which mem_claim has had all along and this routine had
     ; not (SPEC.md 50.6.2.1). A purgeable block is memory the kernel holds on
@@ -3724,10 +3737,10 @@ mem_avail_x:
 mem_avail_lvl_x:                  ; as free, because mem_claim sheds them all.
                                 ; AL = the caller's own level otherwise, and
                                 ; only caches BELOW it count (SPEC.md 50.6.4)
-    push cx
-    push dx
-    push si
-    push di
+    push cx                     ; ...and only CX and (for the walk below) SI:
+%ifndef OS88_COMPACT            ; mem_cp_both and mem_bigrun bank everything
+    push si                     ; they spend, and nothing here writes DX or DI
+%endif                          ; (both were banked until size pass 10)
     pushf
     cli
 %ifdef OS88_COMPACT
@@ -3794,9 +3807,9 @@ mem_avail_lvl_x:                  ; as free, because mem_claim sheds them all.
     shr ax, cl                  ; the answer must always fit
     shr bx, cl
 .out:
-    pop di
+%ifndef OS88_COMPACT
     pop si
-    pop dx
+%endif
     pop cx
     ret
 %ifdef OS88_COMPACT
@@ -4422,6 +4435,7 @@ mmf_osapi_claim_snapshot:       ; (the cell's far entry, as mmf_osapi_mem_claim)
 osapi_sys_kb_x:
     push ax
     push bx
+    push cx
     push di
     mov ax, KERN_KB
     mov bx, SK_IMG_KB           ; ...and on a machine with NO VGA the kernel is
@@ -4447,40 +4461,34 @@ osapi_sys_kb_x:
     sub bx, SK_VGAB_KB
 .kern:
 %endif
-    mov [es:di+SK_KERN], ax
-    mov [es:di+SK_IMG],  bx
-%if SK_FAT != 4 || SK_STK != 6 || SK_STK0 != 8 || SK_BUF != 10
-%error "osapi_sys_kb stores four CONSECUTIVE words; these are not consecutive"
+%if SK_KERN != 0 || SK_IMG != 2 || SK_FAT != 4 || SK_STK != 6 || SK_STK0 != 8 || SK_BUF != 10 || SK_HEAP != 12 || SK_CLAIM != 14 || SK_KCLAIM != 16 || SK_XMS != 18
+%error "osapi_sys_kb stores the ten words in order with one walking pointer; they are no longer consecutive from 0"
 %endif
-    push di                     ; four build constants into four adjacent
-    add di, SK_FAT              ; words: one walking pointer beats four
-    cld                         ; displaced immediate stores. AX is free -
-    mov ax, SK_FAT_KB           ; SK_KERN and SK_IMG are already written
+    cld                         ; ALL TEN WORDS IN ORDER, through one walking
+    stosw                       ; pointer (size pass 10: it was four of them,
+    xchg ax, bx                 ; and six displaced stores either side).
+    stosw                       ; SK_KERN, SK_IMG
+    mov ax, SK_FAT_KB
     stosw
     mov ax, SK_STK_KB
     stosw
     mov ax, SK_STK0_KB
     stosw
-    mov ax, KBUF_KB             ; SK_BUF LAST, because it is the highest of
-    stosw                       ; the four - it is FAT + stacks together,
-    pop di                      ; and reads like a header
-    push cx                     ; --- mem_total_kb, inline (its header is
-                                ; above): AX = claimed KB, BX = heap size KB
-    xor ax, ax
-    xor bx, bx                  ; BX = 0: every owner (and BX is an OUTPUT
-    call mem_sum_kb             ; here, written two instructions below)
-    mov bx, [mem_top]
-    sub bx, [mem_base]
+    mov ax, KBUF_KB             ; SK_BUF, FAT + stacks together
+    stosw
+    mov ax, [mem_top]           ; SK_HEAP - mem_total_kb's other half, inline
+    sub ax, [mem_base]
     mov cl, 6
-    shr bx, cl
-    pop cx
-    mov [es:di+SK_CLAIM], ax
-    mov [es:di+SK_HEAP], bx
+    shr ax, cl
+    stosw
     xor ax, ax
-    mov bx, 1                   ; BX = 1: kernel tags (0xFF00 and up) only.
-                                ; SK_HEAP has already been stored from BX
-    call mem_sum_kb             ; AX += the kernel's own tagged claims (DI kept)
-    mov [es:di+SK_KCLAIM], ax
+    xor bx, bx                  ; BX = 0: every owner
+    call mem_sum_kb             ; ...which preserves BX and DI
+    stosw                       ; SK_CLAIM
+    xor ax, ax
+    inc bx                      ; BX = 1: kernel tags (0xFF00 and up) only
+    call mem_sum_kb             ; AX = the kernel's own tagged claims
+    stosw                       ; SK_KCLAIM
 %ifdef KERN_BIG
     mov ax, [xm_kb]             ; the pool above 1MB, 0 on tier 0 (SPEC.md 41)
 %else
@@ -4490,8 +4498,9 @@ osapi_sys_kb_x:
                                 ; reads 'XMS 0/0K' - the same words on the
                                 ; same build for the same reason
 %endif
-    mov [es:di+SK_XMS], ax
+    stosw                       ; SK_XMS
     pop di
+    pop cx
     pop bx
     pop ax
     retf
