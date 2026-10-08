@@ -189,8 +189,13 @@ KNOBS = [
     ("bootprof",    ["BOOTPROF=1"]),
     ("mouidslow",   ["MOUIDSLOW=1"]),
     ("trackrun",    ["TRACKRUN=1"], "boot360.bin"),
-    ("nohdcyl",     ["NOHDCYL=1"]),
-    ("hdcylprobe",  ["HDCYLPROBE=1"]),
+    # NOHDCYL= and HDCYLPROBE= reach HDD.DRV as well as the kernel (DRVDEF
+    # and VIDDEF both), and the driver's arms (hdd.asm, mount.inc) are the
+    # ones nothing else assembles - so the target is hdd.bin, which hangs
+    # off KERNEL.SYS through hddtool.bin and boothd.bin and so builds the
+    # knob's kernel on the way
+    ("nohdcyl",     ["NOHDCYL=1"], "hdd.bin"),
+    ("hdcylprobe",  ["HDCYLPROBE=1"], "hdd.bin"),
     # SPEC.md 18.93.1/18.93.2's instruments. BOOTMARK= puts a MARK expansion
     # into ~60 places in kmain that expand to NOTHING in every other build, so
     # nothing else assembles them; BOOTHALT= is the arm inside that macro;
