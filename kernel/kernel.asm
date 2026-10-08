@@ -8108,6 +8108,17 @@ MODL_SIZE equ modl_end - $$
 
 %ifdef KERN_BIG
 section .modh
+%ifdef DOSR_MARK
+; DOSRMARK=1's trace (kernel/hbmark.inc, staged through hbstub.inc) is ~290
+; bytes of the IMAGE, and the bss below has to fit the KB rounding of the
+; claim the image sizes (MODULE-SELFCONTAIN-PLAN 3.2): the shipped image
+; leaves it 63 bytes of slack, so the knob overran it by 227 and the kernel
+; refused to assemble. The knob pads its own image to ONE byte past a KB
+; boundary instead, which leaves 1,023 bytes of rounding whatever either
+; side grows to - a disk-only cost, and only on a build that ships nowhere.
+    align 1024, db 0
+    db 0
+%endif
 modh_end:
 MODH_SIZE equ modh_end - $$
 section .modhb
