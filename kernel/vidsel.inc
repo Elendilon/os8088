@@ -2193,12 +2193,9 @@ vid_disp_relayout:
 ; corner.
 ; -----------------------------------------------------------------------------
 vid_desk_union:
-    push ax
-    push bx                     ; BX is not spent: it is banked so the exit is
-    push cx                     ; kret_di's ladder (SPEC.md 15.1.2), -2
-    push dx
-    push si
-    push di
+    call kent_di                ; = push ax/bx/cx/dx/si/di. BX is not spent:
+                                ; it is banked so the exit is kret_di's
+                                ; ladder (SPEC.md 15.1.2)
     xor cx, cx                  ; CX/DX = the far corner, exclusive
     xor dx, dx
     xor si, si

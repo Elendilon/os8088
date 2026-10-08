@@ -518,12 +518,8 @@ menu_check:
 ; -----------------------------------------------------------------------------
 menu_relayout:
     mov byte [menu_bdirty], 1   ; the cells, the name, or both, are about to
-    push ax                     ; be different: the bar owes a full redraw
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kent_di                ; be different: the bar owes a full redraw
+                                ; (kent_di = push ax/bx/cx/dx/si/di)
     push es
 
     mov bx, [menu_win]
@@ -848,12 +844,7 @@ menu_des:
 ; step calls direct - nothing to do with the Timer app (SPEC.md 14).
 ; -----------------------------------------------------------------------------
 menu_draw_bar:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kent_di                ; = push ax/bx/cx/dx/si/di
 
     call wm_fs_vis              ; a visible fullscreen window is OVER the bar
     jnc .live                   ; (SPEC.md 11.2), so there is nothing here to
@@ -978,12 +969,7 @@ menu_furniture:
 ; its head, and there is no fill anywhere in this path.
 ; -----------------------------------------------------------------------------
 menu_bar_text:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kent_di                ; = push ax/bx/cx/dx/si/di
     push es
 
     mov ax, [vid_clk_hx]        ; the live segment, in whole cells - both
@@ -1164,12 +1150,7 @@ menu_bar_text:
 menu_binv:  db 0                ; SPEC.md 76.3: menu_bar_text says whether the
                                 ; piece it is handing over is the inverted one
 menu_bemit:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kent_di                ; = push ax/bx/cx/dx/si/di
 
     mov di, ax                  ; the colours, out of the way of the x
     mov si, dx                  ; arithmetic below
@@ -1509,12 +1490,7 @@ menu_tbar_k:
     ret
 
 menu_draw_clock:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kent_di                ; = push ax/bx/cx/dx/si/di
     push es
 
     call menu_clkcells          ; --- the field, in whole cells, clamped
@@ -2571,12 +2547,7 @@ menu_widest:
 ; clobbers: nothing (flags only)
 ; -----------------------------------------------------------------------------
 menu_logo_glyph:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kent_di                ; = push ax/bx/cx/dx/si/di
     mov si, menu_logo_bmp
     mov di, cx                  ; DI = left x
     mov dx, MENU_LOGO_Y + 1     ; rows 0 and 10 are blank and are not stored

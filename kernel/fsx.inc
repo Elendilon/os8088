@@ -149,12 +149,7 @@ fsx_capstab:                    ; indexed by VID_* (VGA 0, HERC 1, CGA 2, EGA 3)
 ; near proc with a near ret, exactly a W_ONKEY's environment.
 ; -----------------------------------------------------------------------------
 fsx_run:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kent_di                ; = push ax/bx/cx/dx/si/di
     jmp short .tests            ; THE REFUSAL TRAMPOLINE. Nine `j.. .fail`
 .fail:                          ; below were out of short reach and assembled
     stc                         ; as the 5-byte inverted-jump-plus-near-jmp
@@ -466,12 +461,7 @@ fsx_run:
 ;           bit). Every register preserved.
 ; -----------------------------------------------------------------------------
 fsx_mode:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kent_di                ; = push ax/bx/cx/dx/si/di
     jmp short .tests            ; the refusal trampoline, fsx_run's - and for
 .fail:                          ; the same reason: `.fail` is a NASM local and
     stc                         ; must stay inside the routine that owns it
@@ -703,13 +693,9 @@ fsx_surf:
 ; in: AL = BIOS mode number
 ; -----------------------------------------------------------------------------
 fsx_setbios:
-    push ax                     ; banked only so the exit is kret_es's:
-    push bx                     ; AX comes back too, which nobody reads
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp, banked only so
+                                ; the exit is kret_es's: AX comes back too,
+                                ; which nobody reads
     push es
     call vid_cga_equip          ; THE THIRD SITE OF SPEC.md 39.19.4's defect,
                                 ; and the same fix: this routine is reached

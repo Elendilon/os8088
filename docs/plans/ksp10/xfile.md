@@ -58,3 +58,25 @@ first change here.
    only if not slower, and LAST-DROP-BYTES 7.10 holds the save-under cache
    for the owner. A shape that keeps one call costs more bytes than it saves
    (a mask word built from `[son] | [von]` is 44 bytes against 43).
+6. **The `.text` prologue ladder: `kent_bp` and `kent_di`** (shell and wm
+   agents' cross-file). wm.inc's `wm_kent_bp` moved to kernel.asm beside
+   `kret_*` as `kent_bp` (its nine wm.inc sites renamed, 0 bytes), and
+   `kent_di` (19 bytes, `.cold`'s kentc_di in `.text`) joined it. Converted,
+   every one entered per operation, window, menu paint or icon:
+   * `kent_bp` (-4 each): clip_put, fsx_setbios, app_launch, ui_sys_open,
+     icon_draw, icon_draw16, icon_draw_ix.
+   * `kent_di` (-3 each): db_paint, fsx_run, fsx_mode, menu_relayout,
+     menu_draw_bar, menu_bar_text, menu_bemit, menu_draw_clock,
+     menu_logo_glyph, toast_show, wm_destroy, vid_desk_union.
+   kern_big .text **-46**, kern_small .text **-42**. Every prologue's stack
+   image is the pushes' to the word, so no epilogue changed; ~95 cycles
+   (~20 us) a call where converted. stkbalance: 0 unbalanced, 14 declared
+   banking routines (13 at the base, + kent_di).
+   **Left alone, by rule**: everything in vga12/softgfx/font (primitives,
+   glyphs, spans), mouse.inc's cur_lazy* (the cursor), sch_isr / task_yield,
+   wm_clip_rows (per glyph cell), the save-under cache's wm_su_* (LAST-DROP
+   7.10), wm_draw_win (the damage repaint), the knob-only kbddiag / moudiag /
+   stkdiag / bootmark / KFZTRACE / vmmouse painters (no shipped byte), and
+   **anything viddet.inc's splash door reaches** - vid_apply, vid_setmode,
+   vid_text: the helpers sit at the END of `.text`, and stage 2's loading
+   screen calls those while the image is still arriving (SPL_RESIDENT).

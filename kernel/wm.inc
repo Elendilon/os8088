@@ -1887,7 +1887,7 @@ wm_apply_out:                   ; NOT a local label: wm_apply_pf sits between
 ; -----------------------------------------------------------------------------
 wm_sz_notify:
     pushf
-    call wm_kent_bp             ; = push ax/bx/cx/dx/si/di/bp
+    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
     mov bp, [bx+W_ONSZ]
     or bp, bp
     jz .out                     ; never asked to be told: one word, and this is
@@ -2119,7 +2119,7 @@ wm_onclose:
 ; to survive it.
 ; -----------------------------------------------------------------------------
 wm_ask_close:
-    call wm_kent_bp             ; = push ax/bx/cx/dx/si/di/bp
+    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
     mov si, bx                  ; SI = the window: wm_pkgcall's contract
     mov bp, [bx+W_ONCL]         ; ...and BX must stay the window
     or bp, bp
@@ -3049,12 +3049,7 @@ wm_zoom:
 ; reusable by wm_create.
 ; -----------------------------------------------------------------------------
 wm_destroy:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kent_di                ; = push ax/bx/cx/dx/si/di
     call wm_su_drop             ; the slot is about to be reusable, and a new
                                 ; window in it would inherit this cache
     mov si, bx                  ; the rect it is vacating, banked before the
@@ -3597,7 +3592,7 @@ wm_raise:
 ; -----------------------------------------------------------------------------
 %ifdef DOCK_OPT
 wm_dock_clear:
-    call wm_kent_bp             ; = push ax/bx/cx/dx/si/di/bp
+    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
     mov si, wm_zord
     mov cl, [wm_zn]
     xor ch, ch                  ; CF = 0: an empty z-order is clear
@@ -5051,7 +5046,7 @@ wm_paint_dmg:
                                 ; of those pays a repaint through here, which
                                 ; is why this is the second store and not the
                                 ; fifth
-    call wm_kent_bp             ; = push ax/bx/cx/dx/si/di/bp
+    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
 
     mov word [wm_dmg_fs], 0     ; ...and wm_dmg_dk beside it, ONE store (the
                                 ; %if at wm_dmg_j). A visible fullscreen window
@@ -5195,7 +5190,7 @@ wm_paint_dmg:
 ; -----------------------------------------------------------------------------
 wm_dmg_wins:
     KFZ 22                      ; the damage pass over the windows
-    call wm_kent_bp             ; = push ax/bx/cx/dx/si/di/bp
+    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
     ; --- mark: overlaps the damage, or overlaps something already marked ---
     ; Bottom to top, so "already marked" means "marked and below us" and one
     ; pass reaches the whole transitive closure. Nothing here may keep a loop
@@ -5440,7 +5435,7 @@ wm_dock_under:
 ; -----------------------------------------------------------------------------
 wm_paint_all:
     KFZ 23                      ; a WHOLE desktop repaint
-    call wm_kent_bp             ; = push ax/bx/cx/dx/si/di/bp
+    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
     call wm_fs_vis              ; a visible fullscreen window covers the
     jc .fswins                  ; desktop, dock and menu bar - painting
                                 ; them under it is pure waste (SPEC.md 11.2)
@@ -6991,36 +6986,6 @@ wm_clip_rows:
     jmp kret_bp
 
 ; -----------------------------------------------------------------------------
-; wm_kent_bp - `call wm_kent_bp` IS `push ax / bx / cx / dx / si / di / bp`
-;
-; kentc_bp's twin for `.text` (kernel.asm keeps that one in `.cold`, where a
-; `.text` caller cannot reach it near). The words land exactly where the seven
-; pushes would put them, so the routine's own epilogue - its pops or a `kret_*`
-; rung - ends it unchanged. Stack only, so re-entrant; no flag moves. The return
-; address is moved out from under the banked registers by pushing a copy and
-; storing AX over the original: every write is at or above SP, so an interrupt
-; can land anywhere in here. It peaks one word above the seven pushes, which is
-; where the routine's own next `call` puts its return address anyway.
-;
-; 3 bytes a site against 7, for ~95 cycles (~20 us) a call - so it is for
-; routines entered per OPERATION or per window, never per glyph, run or pixel:
-; wm_clip_rows, entered per glyph cell under a clip, keeps its pushes.
-; -----------------------------------------------------------------------------
-wm_kent_bp:
-    ; STKBALANCE-NET: +7 - banks AX..BP on the CALLER's stack; its epilogue pops them
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp                     ; [bp][di][si][dx][cx][bx][ret]
-    mov bp, sp
-    push word [bp+12]           ; [ret][bp]...[bx][ret]
-    mov [bp+12], ax             ; ...[bx][ax]
-    mov bp, [bp]                ; BP back
-    ret
-
-; -----------------------------------------------------------------------------
 ; rect_get / rect_put - AX,BX,CX,DX from / to four ADJACENT words, the words
 ;                       named by a `dw` that follows the call (size pass 4)
 ; in:  `call rect_get` / `dw rect` - out AX = [rect], BX = +2, CX = +4, DX = +6
@@ -8019,7 +7984,7 @@ section .text
 ; screen.
 ; -----------------------------------------------------------------------------
 wm_title_set:
-    call wm_kent_bp             ; = push ax/bx/cx/dx/si/di/bp
+    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
     or ax, ax
     jz .keep
     mov [bx+W_TITLE], ax
@@ -8867,7 +8832,7 @@ wm_chrome_clip:
 ; shadow, for wm_obscured's reason.
 ; -----------------------------------------------------------------------------
 wm_cov_rect:
-    call wm_kent_bp             ; = push ax/bx/cx/dx/si/di/bp
+    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
     mov di, bx                  ; DI = us, for the walk and for wm_su_rect
     call wm_su_rect             ; AX/BX/CX/DX = our content rect
     test byte [di+W_FLAGS], WF_FULL
@@ -11061,7 +11026,7 @@ wm_an_ok:
 ; out: nothing; every register preserved, and the screen exactly as found -
 ;      every outline drawn is XORed off again before this returns
 wm_anim:
-    call wm_kent_bp             ; = push ax/bx/cx/dx/si/di/bp
+    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
     mov word [wm_an_i], 1
 .frame:
     call wm_an_deadline         ; ...sampled BEFORE the draw, so the drawing is

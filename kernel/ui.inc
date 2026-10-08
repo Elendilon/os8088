@@ -2491,13 +2491,12 @@ ui_tm_open:
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 ui_sys_open:
-    push ax
-    push bx
-    push cx                     ; CX/BP/ES too: ld_run_body is documented as
-    push dx                     ; "loader_run saves regs", and loader_run
-    push si                     ; pushes exactly these three around it - its
-    push di                     ; failure exits return with ES = LOW_SEG or a
-    push bp                     ; just-freed region segment
+    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp. CX/BP/ES too:
+                                ; ld_run_body is documented as "loader_run
+                                ; saves regs", and loader_run pushes exactly
+                                ; these three around it - its failure exits
+                                ; return with ES = LOW_SEG or a just-freed
+                                ; region segment
     push es
 
     call ui_sys_find            ; already running? front it and stop

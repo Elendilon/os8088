@@ -88,13 +88,7 @@ CLIP_MAXKB equ 32               ; the ceiling, KB. Not arbitrary: the largest
 ; an X stub would have reached the package's image and nothing else.
 ; -----------------------------------------------------------------------------
 clip_put:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
     push ds
     push es
     mov bp, es                  ; bank the caller's segment: the copy runs
