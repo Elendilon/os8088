@@ -100648,6 +100648,14 @@ hand, which is three bytes and no new mechanism. `fmv_movable` stays as it is
 for `fmv_fit`'s call, where `[fm_vinst]` *is* this window because the re-claim
 happens on the acting one.
 
+**Kernel size pass 10 took the other half of that sentence**: `fm_kinit_x`
+now calls `fm_vp_set` *before* the claim, so `[fm_vinst]` names the record it
+was handed by then, and claims through `fmv_fit` itself - the claim, the
+declaration and the `fm_vseg` mirror were already that routine's. The owner is
+right by construction rather than by a second copy of the claim, and the
+inline claim with its `mem_movable` call is gone (kern_big -29 bytes,
+kern_small -19, `.cold`).
+
 **What it cost, measured** (`os8088_xt_hdd`, 640KB, and the sequence is the
 point — two Disk windows opened *before* the drive is mounted, which is what a
 machine that has been used looks like):

@@ -123,6 +123,23 @@ line, photographed off MartyPC; both Disk windows' VIEW caches are owned by
 their own instance slot with MC_RLOC = fm_reloc (fm_kinit's move to
 fmv_fit).
 
+### Close
+
+kernsize at the tip (against the blessed base 833f13e4):
+
+    kernsize[big]:   text 44,325 +17  bss 5,133 +0  cold 37,604 -317  lowbss +0  vgabuf +0  (sum -300)
+    kernsize[small]: text 32,921 +17  bss 3,100 -4  cold 23,718 -232  lowbss +0  vgabuf +0  (sum -219)
+    kernsize[emu]:   text +17  cold -317  (sum -300)
+
+kern_big's cold section uncrossed a rung (75 -> 74 steps) on this branch
+alone; that is the merge's business, not a design input. Per file on
+kern_big: files.inc -296 (text +17, cold -313), filecp.inc -4, fprog.inc 0.
+kern_small: files.inc -219 resident; FILECP.DRV (module) changed by
+fcp_file2's move only. stkbalance over kernel/*.inc: identical report at the
+base and the tip. `make`, `make small`, `make emu` all build; fast tier 61/61.
+SPEC.md 66.5.6.2 gained a paragraph saying where fm_kinit's movable
+declaration lives now.
+
 ## REFUSED
 
 * `fm_btn1`'s `[fdlg_gdis]` store (unpassed hunk): `test di,OS88UI_DEF` is
