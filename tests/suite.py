@@ -7859,6 +7859,15 @@ SOAK = [
         "kernel case instead of quietly asserting the shipped numbers "
         "against another tree.",
         needs=("marty",), serial=True),
+    Row("smalllaunch", "soak", py("tests/smalllaunch.py"), 150.0,
+        "SPEC.md 24.5.6: every package on kern_small's system disk OPENS on "
+        "the 128KB machine - the list read off the built disk, so a package "
+        "that joins it is covered the day it does. Nothing launched them "
+        "all, and the Calculator had not opened on kern_small at all: its "
+        "entry carried wm_create's CF through calls it assumed preserve "
+        "FLAGS, and OSAPI_WM_ONDRAG/_ONTIMER answer CF = 1 there by design "
+        "(13.8.2, 13.9), so every launch came back LD_EABORT, 'Load failed'",
+        needs=("marty", "nasm"), serial=True),
     Row("regrowshed", "soak", py("tests/regrowshed.py"), 70.0,
         "SPEC.md 50.6.2.1 and 27.6.1: a GROW is not refused over a cache, "
         "and 'Too big' is not said about memory. Reported from the field as "

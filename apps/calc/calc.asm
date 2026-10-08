@@ -324,6 +324,14 @@ cal_entry:
                                     ; change while we are not drawing (SPEC.md
                                     ; 11.96.1): no worker, no clock, nothing
                                     ; here moves but on a click or a key
+    clc                             ; THE ANSWER IS STATED, not carried: the
+                                    ; CF wm_create gave does NOT survive the
+                                    ; calls above on kern_small, where
+                                    ; OSAPI_WM_ONDRAG and _ONTIMER refuse with
+                                    ; CF = 1 (SPEC.md 13.8.2/13.9) - so the
+                                    ; refusal of a feature we do without came
+                                    ; back here as LD_EABORT, and the small
+                                    ; build of Calculator never opened at all
 .out:
     pop si
     pop ax
@@ -792,13 +800,23 @@ cal_flash:
     call cal_keyrect                ; AX = index + 1, 0 = not on the pad
     or ax, ax
     jz .out
-    call cal_setdown                ; ...through the ONE writer, as every mouse
-    mov bx, si                      ; edge does (SPEC.md 65.8)
+    push ax
+    push bx
+    mov bx, si
     mov ax, CAL_FLASH
-    call OSAPI_WM_TIMER             ; ...and a REPEAT re-arms this rather than
-.out:                               ; stacking, the timer being one-shot and
-    pop si                          ; per-window: a held key stays lit and goes
-    pop bx                          ; up CAL_FLASH ticks after the last repeat
+    call OSAPI_WM_TIMER             ; a REPEAT re-arms this rather than
+    pop bx                          ; stacking, the timer being one-shot and
+    pop ax                          ; per-window: a held key stays lit and goes
+    jc .out                         ; up CAL_FLASH ticks after the last repeat.
+                                    ; ARMED FIRST, because kern_small has no
+                                    ; timer (CF = 1, SPEC.md 13.9): a key put
+                                    ; down with nothing to bring it back up
+                                    ; would stay drawn pressed, so there the
+                                    ; keyboard flashes nothing
+    call cal_setdown                ; ...through the ONE writer, as every mouse
+.out:                               ; edge does (SPEC.md 65.8)
+    pop si
+    pop bx
     pop ax
     ret
 
