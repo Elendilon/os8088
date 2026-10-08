@@ -105,6 +105,16 @@ cumulative (-20).
 * **wm_zoom's `.go`** banked SI round a `lea si` only to copy it to DI: `lea
   di` straight. -4.
 
+### Batch 6 - shared epilogues
+kern_big `.text` -242 cumulative (this batch -16), kern_small `.text` -218
+cumulative (-16).
+
+* Six routines whose pop run and `ret` are identical to another's jump to
+  it: wm_show_b -> wm_front_b.go (its raise as well, AL = 1, same four words
+  banked; -5), wm_obscured -> wm_fit.out, wm_pref_take -> wm_create.out,
+  wm_covered -> wm_zoom.out, wm_top -> wm_lift.out, wm_resize_nb ->
+  wm_dock_snap.out. A `jmp` writes no flag, so every CF answer rides through.
+
 ## REFUSED
 
 * **rect_get / rect_put at the damage-repaint and save-under sites - 138

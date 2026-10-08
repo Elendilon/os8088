@@ -1622,12 +1622,7 @@ wm_pref_take:
     mov [bx+W_W], ax
     mov [bx+W_H], cx
 .out:
-    pop es
-    pop di
-    pop si
-    pop cx
-    pop ax
-    ret
+    jmp wm_create.out           ; the same pops, in the same order
 .no:
     stc
     jmp short .out
@@ -2567,10 +2562,7 @@ wm_resize_nb:                   ; ...and the entry for a caller that has
     call wm_rz_paint            ; ...and only what the move disturbed (11.95.1)
     xor ax, ax
     mov [wm_dmg_rzwin], ax      ; a one-shot, exactly as ui_grow's is
-    pop dx
-    pop cx
-    pop ax
-    ret
+    jmp wm_dock_snap.out        ; the same pops, in the same order
 
 ; -----------------------------------------------------------------------------
 ; wm_rz_swap - exchange BX's rect with the one wm_rz_bank put aside
@@ -3365,12 +3357,9 @@ wm_show_b:
 %endif
 .raise:
     mov al, 1                   ; a newly visible window has no pixels on
-    call wm_raise               ; screen: it is drawn WHOLE
-    pop di
-    pop bp
-    pop bx
-    pop ax
-    ret
+    jmp wm_front_b.go           ; screen: it is drawn WHOLE. wm_front_b banks
+                                ; AX, BX, BP and DI in this order too, so its
+                                ; raise and its epilogue are ours
 
 ; -----------------------------------------------------------------------------
 ; wm_fs_vis - is a VISIBLE fullscreen window covering the screen?
@@ -4401,8 +4390,8 @@ wm_front_b:
     call menu_draw_bar
     call wm_dock_under
     jmp short .out
-.go:
-    call wm_raise
+.go:                            ; (wm_show_b arrives here too, AL = 1, with
+    call wm_raise               ; the same four words banked)
 .out:
     pop di
     pop bp
@@ -4564,10 +4553,7 @@ wm_top:
 .none:
     xor bx, bx
 .done:
-    pop si
-    pop cx
-    pop ax
-    ret
+    jmp wm_lift.out             ; the same pops, in the same order
 
 ; -----------------------------------------------------------------------------
 ; wm_hit - find the topmost visible window containing a point
@@ -5756,12 +5742,7 @@ wm_obscured:
     clc
 .out:
 %endif
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    ret
+    jmp wm_fit.out              ; the same pops, in the same order
 .gone:                          ; above the pushes, so nothing to unwind
     stc
     ret
@@ -6054,11 +6035,7 @@ wm_covered:
     call wm_clip_clear
     clc
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    ret
+    jmp wm_zoom.out             ; the same pops, in the same order
 
 ; -----------------------------------------------------------------------------
 ; wm_clip_seed - internal: arm the list with one rect and nothing subtracted
