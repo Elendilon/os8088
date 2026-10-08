@@ -73,6 +73,22 @@ ones back out).
   the deepest in the machine), and **the save-under routines** (see REFUSED).
   stkbalance over kernel/kernel.asm kernel/*.inc: 0 unbalanced, base and tip.
 
+### Batch 4 - three shared walk/raise/box idioms
+kern_big `.text` -206 cumulative (this batch -40), kern_small `.text` -182
+cumulative (-42).
+
+* **wm_znext** (`lodsb / call wm_idx2ptr / test byte [bx+W_FLAGS], 2`):
+  wm_paint_all, the occlusion walk, wm_cov_rect and kern_small's
+  wm_dock_clear spelled it out; kern_big's wm_dock_clear walked DI instead
+  and now walks SI through it too. `mov al, [si] / inc si` -> `lodsb` at the
+  other two walks (wm_obscured, wm_su_precover). Faster where it is inline
+  (lodsb), one call/ret where it is shared.
+* **wm_top_dbp / wm_top_bpd** (`mov di, bx / call wm_top / mov bp, bx /
+  mov bx, di`): wm_show_b, wm_fullscreen, wm_front_b, wm_title_set. -10.
+* **wm_grow_paint's** fill-and-frame pair is a local `.box` (twice), and
+  three `mov dx, bx / add dx, n` are `lea dx, [bx+n]` (with wm_grow_rect).
+  Same primitive calls. -12.
+
 ## REFUSED
 
 * **rect_get / rect_put at the damage-repaint and save-under sites - 138
@@ -106,4 +122,11 @@ ones back out).
   and ~12 calls a cached restore is ~1,100 cycles (~0.24 ms) a raise, which is
   the size of the S3 cost 7.10 holds. Built and measured (in 1db2fbb7), then
   backed out.
+* **wm_clip_subl folded into wm_clip_subg - ~10 bytes kern_big.** subl is
+  "subg with s = 0, then x1 and y1 one more", or "with an origin offset o";
+  every spelling needs either a second register on the shared hot path
+  (push/pop CX, `add ax, cx` twice, per window per clip build) or the stores
+  made a callable body (call/ret on the shared path, +6 bytes there), and
+  kern_small, which has no subl, would pay that unless both arms are
+  %ifdef'd. Not worth the two arms for ten bytes.
 

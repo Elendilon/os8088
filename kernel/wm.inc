@@ -3333,10 +3333,10 @@ wm_show_b:
     push bx
     push bp
     push di
-    mov di, bx                  ; DI = the window being shown
-    call wm_top                 ; BX = the OUTGOING front window (0 if none).
-    mov bp, bx                  ; BEFORE the visible bit goes on: wm_create
-    mov bx, di                  ; already appended us to wm_zord, so once we
+    call wm_top_dbp             ; DI = the window being shown, BP = the
+                                ; OUTGOING front window (0 if none), taken
+                                ; BEFORE the visible bit goes on: wm_create
+                                ; already appended us to wm_zord, so once we
     test byte [bx+W_FLAGS], 2   ; are visible wm_top answers with US
     jnz .onglass                ; ...and for the same reason this is the last
     call wm_su_precover         ; moment the windows we are about to land on
@@ -3612,21 +3612,20 @@ wm_raise:
 %ifdef DOCK_OPT
 wm_dock_clear:
     call wm_kent_bp             ; = push ax/bx/cx/dx/si/di/bp
-    mov di, wm_zord
+    mov si, wm_zord
     mov cl, [wm_zn]
     xor ch, ch                  ; CF = 0: an empty z-order is clear
     jcxz .out
 .scan:
-    mov al, [di]
-    inc di
-    call wm_idx2ptr
-    mov si, bx
-    test byte [si+W_FLAGS], 2   ; CF = 0 for a hidden one
+    call wm_znext               ; CF = 0 for a hidden one (`test`)
     jz .next
     push cx
+    push si                     ; (the walk's cursor: wm_win_rect wants SI)
+    mov si, bx
     call wm_win_rect            ; a rect overlap against the LIVE strip, on
     call dock_live_hit          ; whichever edge (SPEC.md 30.5), frame and
-    pop cx                      ; drop shadow included
+    pop si                      ; drop shadow included
+    pop cx
 .next:
     jc .out
     loop .scan
@@ -3643,10 +3642,7 @@ wm_dock_clear:
     xor ch, ch
     jcxz .clear
 .scan:
-    mov al, [si]
-    inc si
-    call wm_idx2ptr
-    test byte [bx+W_FLAGS], 2
+    call wm_znext
     jz .next
     mov ax, [bx+W_Y]
     add ax, [bx+W_H]            ; the drop shadow's own row, y+h
@@ -4317,10 +4313,7 @@ wm_fullscreen:
                                 ; it, which is why wm_front never had to know.
     push bp
     push di
-    mov di, bx
-    call wm_top                 ; BX = the outgoing front (may be us)
-    mov bp, bx
-    mov bx, di
+    call wm_top_dbp             ; BP = the outgoing front (may be us)
     mov al, 1                   ; a new frame has no pixels on screen
     call wm_raise
     pop di
@@ -4395,9 +4388,8 @@ wm_front_b:
                                 ; which is what separates it from wm_show's
                                 ; AL = 1 - a window with no pixels on screen
 .titled:
-    call wm_top                 ; BX = the outgoing front (may be us); AX is
-    mov bp, bx                  ; preserved, so AL needs no bank
-    mov bx, di
+    call wm_top_bpd             ; BP = the outgoing front (may be us); AX is
+                                ; preserved, so AL needs no bank
     cmp bp, di
     jne .go                     ; another window was in front: raise us
     call menu_activate          ; ALREADY FRONTMOST, whatever AL says: not even
@@ -4534,6 +4526,21 @@ wm_cursor:
 .out:
     pop ax
     popf
+    ret
+
+; -----------------------------------------------------------------------------
+; wm_top_dbp - BX = a window -> DI = it, BP = the frontmost visible window
+;              (0 if none), BX = it again. wm_top_bpd: the same, DI already it.
+; AX, CX and SI preserved (wm_top's), flags spent. wm_show_b, wm_fullscreen,
+; wm_front_b and wm_title_set each spelled it out before a raise or a title
+; (size pass 10).
+; -----------------------------------------------------------------------------
+wm_top_dbp:
+    mov di, bx
+wm_top_bpd:
+    call wm_top
+    mov bp, bx
+    mov bx, di
     ret
 
 ; -----------------------------------------------------------------------------
@@ -5524,10 +5531,7 @@ wm_paint_all:
 .win:
     cmp si, di
     je .done
-    mov al, [si]
-    inc si
-    call wm_idx2ptr
-    test byte [bx+W_FLAGS], 2
+    call wm_znext
     jz .win
     call wm_covered             ; a window nothing shows of writes no pixel
     jc .win                     ; that a window above it does not overwrite
@@ -5735,8 +5739,7 @@ wm_obscured:
 .scan:
     jcxz .clear
     dec cx
-    mov al, [si]
-    inc si
+    lodsb
     push bx
     call wm_idx2ptr
     mov di, bx                  ; DI = window above
@@ -6299,10 +6302,7 @@ wm_occl_w:                      ; what is occupied - the shadow's two corners
 wm_occl_go:                     ; SI -> the first entry, CX = how many
     jcxz .done
 .scan:
-    mov al, [si]
-    inc si
-    call wm_idx2ptr             ; BX = the window (AX and CX preserved)
-    test byte [bx+W_FLAGS], 2
+    call wm_znext               ; BX = the window (AX and CX preserved)
     jz .next
     call di                     ; the entry's subtract (BX = that window)
     jc .over
@@ -7160,6 +7160,21 @@ wm_zabove:
     inc si                      ; the first entry ABOVE us...
     dec cx                      ; ...and how many that is
     clc
+    ret
+
+; -----------------------------------------------------------------------------
+; wm_znext - the next wm_zord entry of a walk, and is that window on the glass?
+; in:  SI -> the entry
+; out: BX = its record, AL = its index, SI += 1; ZF = 1 = NOT visible
+;      (flags are `test`'s); everything else preserved
+;
+; Four z-order walks spelled these three instructions out - wm_dock_clear
+; (both arms), wm_paint_all, the occlusion walk and wm_cov_rect (size pass 10).
+; -----------------------------------------------------------------------------
+wm_znext:
+    lodsb
+    call wm_idx2ptr
+    test byte [bx+W_FLAGS], 2
     ret
 
 ; -----------------------------------------------------------------------------
@@ -8085,9 +8100,9 @@ wm_title_set:
     call wm_clip_test
     jc .dmg
     call wm_clip_clear          ; nothing is over it: the clip has no work to
-    call wm_top                 ; do, and wm_draw_title stays inside the strip
-    mov bp, bx                  ; BP = the frontmost visible window (or 0):
-    mov bx, di                  ; the pinstripes and the two boxes are its
+    call wm_top_bpd             ; do, and wm_draw_title stays inside the strip.
+                                ; BP = the frontmost visible window (or 0):
+                                ; the pinstripes and the two boxes are its
     call wm_draw_title          ; alone (SPEC.md 11.90)
     jmp short .out
 .clear:
@@ -8909,10 +8924,7 @@ wm_cov_rect:
 .scan:
     jcxz .out
     dec cx
-    mov al, [si]
-    inc si
-    call wm_idx2ptr             ; BX = the window above (AX and CX preserved)
-    test byte [bx+W_FLAGS], 2
+    call wm_znext               ; BX = the window above (AX and CX preserved)
     jz .scan
     ; --- fold (its frame INTERSECT wm_cov_c1..c4) into the box. It was
     ; wm_cov_add, 123 bytes of open-coded overlap test, clamp and fold and two
@@ -10868,8 +10880,8 @@ wm_su_precover:
     xor ch, ch
     jcxz .out
 .scan:                          ; (CX and SI are the walk's, and no call in
-    mov al, [si]                ; it touches either: wm_idx2ptr, wm_win_over,
-    inc si                      ; wm_obscured, wm_su_ck and wm_su_take each
+    lodsb                       ; it touches either: wm_idx2ptr, wm_win_over,
+                                ; wm_obscured, wm_su_ck and wm_su_take each
                                 ; preserve both - so they are not banked)
     call wm_idx2ptr             ; BX = the record this z-order slot names
     cmp bx, di
@@ -10925,8 +10937,7 @@ wm_grow_rect:
     sub bx, 14
     mov cx, ax
     add cx, 12
-    mov dx, bx
-    add dx, 12
+    lea dx, [bx+12]
     ret
 
 ; -----------------------------------------------------------------------------
@@ -10988,16 +10999,12 @@ wm_grow_paint:
     cmp al, WF_SIZABLE
     jne .out
     call wm_grow_rect           ; 13x13 white square, black frame
-    call thm_bg                
-    call gfx_fill
-    call thm_ink                
-    call gfx_frame
+    call .box
     add ax, 4                   ; the big square of the glyph: 8x8 frame
     add bx, 4                   ; at inset (+4,+4)..(+11,+11)
     mov cx, ax
     add cx, 7
-    mov dx, bx
-    add dx, 7
+    lea dx, [bx+7]
     call gfx_frame
     dec ax                      ; the small square: 7x7 at inset (+2,+2)..
     dec ax
@@ -11005,15 +11012,16 @@ wm_grow_paint:
     dec bx
     mov cx, ax                  ; big one's top-left), black-framed
     add cx, 6
-    mov dx, bx
-    add dx, 6
-    call thm_bg                
-    call gfx_fill
-    call thm_ink                
-    call gfx_frame
+    lea dx, [bx+6]
+    call .box
 .out:
     pop di
     jmp kret_dx
+.box:                           ; AX..DX filled white and framed black - the
+    call thm_bg                 ; outer square and the small one alike (the
+    call gfx_fill               ; pens and both primitives preserve AX..DX)
+    call thm_ink
+    jmp gfx_frame
 
 
 %ifdef WM_ANIM
