@@ -448,8 +448,8 @@ fdlg_home_dir:
 ; unanswered? (SPEC.md 38.2)
 ; out: CF=0 with BX = the chooser; CF=1 when there is none (ZF=1), or the one
 ;      there was has gone or ANSWERED (ZF=0: close box, minimize, anything,
-;      or a posted [fdlg_act]). AL clobbered - all three callers bank AX -
-;      and nothing else is touched.
+;      or a posted [fdlg_act]). AX clobbered - all three callers bank it
+;      (fdlg_reap holds the answer in DL) - and nothing else is touched.
 ;
 ; It ANSWERS and does nothing else: fdlg_reap - the same UI pass, because the
 ; wm_hide or wm_destroy that took the window posted [ui_post] through
@@ -467,7 +467,7 @@ fdlg_gate:
     stc
     jz .ret                     ; no chooser at all: CF=1 and the `or`'s ZF=1
     mov al, [bx+W_FLAGS]
-    not al
+    inc ax                      ; (AH too, if AL was FFh: AX is clobbered)
     and al, 3                   ; 0 exactly when both bits are set...
     or al, [fdlg_act]           ; ...and nothing is posted: then CF=0, and
     neg al                      ; CF=1 with ZF=0 for anything else
@@ -492,15 +492,15 @@ FDBODY fdlg_reap_x
     FDENT kentc_di
     cmp word [fdlg_win], 0
     je .done
-    mov ah, 0
-    xchg ah, [fdlg_act]         ; the posted answer, taken - FIRST, so that
+    mov dl, 0
+    xchg dl, [fdlg_act]         ; the posted answer, taken - FIRST, so that
     call fdlg_gate              ; CF=1 here is "it has gone", which is a
-    jnc .alive                  ; cancel (the gate clobbers AL)
-    mov ah, FDA_CANCEL
+    jnc .alive                  ; cancel (the gate clobbers AX)
+    mov dl, FDA_CANCEL
 .alive:
-    or ah, ah
+    or dl, dl
     jz .done                    ; (BX = [fdlg_win] from the gate either way)
-    push ax
+    push dx
     FDK cw_gfx_lock
 
     ; --- THE CLOSE (SPEC.md 38.7 step 6) -------------------------------------
@@ -542,11 +542,11 @@ FDBODY fdlg_reap_x
     mov bx, [fdlg_rqwin]
     call KERNEL_SEG:cw_menu_activate ; the bar goes back to the requester
     call KERNEL_SEG:cw_menu_draw_bar
-    pop ax
+    pop dx
 %if FDA_COMMIT != 1
   %error "fdlg_reap tests the posted answer for FDA_COMMIT with dec"
 %endif
-    dec ah
+    dec dl
     jz .commit
 .unlk:
     FDK cw_gfx_unlock
