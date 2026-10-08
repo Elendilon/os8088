@@ -34,6 +34,16 @@ MRB_LEADMIN equ 4096                ; samples kept queued: half a second, and
 MRB_LEADMAX equ MRB_RL - 2048       ; never under 4096 nor past the ring
 MRB_HALF    equ 2048                ; a grant ring's unit (mrb_half1)
 MRK_RL      equ 4096                ; the speaker's ring (code 0)
+MRK_PNMIN   equ 183                 ; a polled Covox's shortest sample, in
+                                    ; PIT counts: 6,520 Hz - what the synth and
+                                    ; the polled writes hold together on a
+                                    ; 4.77 MHz 8088, BATTLE1's drums and all
+                                    ; (99.8% of the rate, never under 588
+                                    ; queued; 7,018 Hz played 95.6%, 8,007
+                                    ; 81% - SPEC.md 34.14.3)
+MRK_PRATE   equ 6520                ; ...and the rate it plays
+MRK_LRATE   equ 6214                ; A COVOX's Automatic on an XT, by its
+                                    ; ISR: the window live, the ring full
 MRW_URATE   equ 18643               ; FM / tone units a second: PIT / 64
 MRW_TAIL    equ 18                  ; ticks a finished song rings on (~1 s)
 
@@ -49,6 +59,12 @@ MRW_TAIL    equ 18                  ; ticks a finished song rings on (~1 s)
     MRW mrk_hk                      ; rate periods (the hook)
     MRW mrk_drawt
     MRBUF mrk_map, 256              ; the PWM table, for the synth's
+    MRB mrk_pol                     ; the session is a POLLED Covox's
+                                    ; (SPEC.md 34.14.3): os88spk_pgo's, with
+                                    ; its ring in mrk_pring, not mrk_seg's
+    MRB mrk_nopoll                  ; this machine refused a polled play:
+                                    ; the next one takes the ISR
+    MRBUF mrk_pring, OS88SPK_PRL    ; the polled ring, in our own segment
     MRW mr_pblo                     ; FM/tone: the PIT the song started at
     MRW mr_pbhi
     MRW mr_pplo                     ; ...and the PIT a pause stood at
@@ -1025,8 +1041,9 @@ mrb_close:
 ; mrb_rate_for / mrk_rate_for - AX = the rate a synth play asks for: the one
 ; Settings chose ([mr_rate], an index into mr_rates), else the CPU's own -
 ; the card 8,000 on an 8088, 16,000 on a 286, 22,050 past it; the speaker
-; 5,512 on an 8088 (its pulses are half the machine, SPEC.md 105.7.1) and
-; 16,000 past it. The speaker clamps what it is given (mrk_start)
+; 5,512 on an 8088 (its pulses are half the machine, SPEC.md 105.7.1), a
+; Covox 6,214 there (34.14.3), and 16,000 past it. The speaker clamps what
+; it is given (mrk_start)
 ; -----------------------------------------------------------------------------
 mr_rates:   dw 0, 8000, 11025, 16000, 22050, 32000, 44100
 MR_NRATE    equ 7
@@ -1044,14 +1061,20 @@ mrb_rate_for:
 .r:
     ret
 
-mrk_rate_for:
+mrk_rate_for:                       ; (AL = the output, MRO_*)
+    push bx
+    mov bl, al
     call mr_rate_user
     jnc .r
-    mov ax, 5512
-    cmp byte [mr_cpu], CPU_8086
-    je .r
     mov ax, 16000
-.r:
+    cmp byte [mr_cpu], CPU_8086
+    jne .r
+    mov ax, 5512
+    cmp bl, MRO_LPT                 ; A COVOX ON AN XT: its ISR holds 6,214
+    jne .r                          ; with BATTLE1's drums, the ring never
+    mov ax, MRK_LRATE               ; under 3,000 of 4,096 (SPEC.md 34.14.3),
+.r:                                 ; where 5,512 was the speaker's figure
+    pop bx
     ret
 
 ; mrk_real - AX = a rate asked of the speaker -> AX = the rate it plays.
@@ -1186,6 +1209,7 @@ mrk_start:
     push si
     push di
     push es
+    mov byte [mrk_pol], 0
     xor dx, dx                      ; DX = the Covox's port, or 0 the speaker
     cmp byte [mr_out], MRO_LPT
     jne .dac
@@ -1196,6 +1220,27 @@ mrk_start:
 .dac:
     call os88spk_lpt                ; BEFORE init, which tables for it - and
                                     ; every time, since the port is kept
+    mov al, [mr_out]
+    call mrk_canpoll
+    jc .isr
+    call mrk_patch                  ; the synth's in-line writes' port
+    call mrk_prate                  ; A POLLED COVOX (SPEC.md 34.14.3): the
+    mov [mrk_rate], ax              ; rate a poll can keep, four voices, the
+    mov [mrq_urate], ax             ; synth's unsigned bytes straight into
+    mov byte [mrk_pol], 1           ; the ring in our own segment - no claim,
+    mov cl, 4                       ; no table, no ISR
+    xor si, si
+    call mry_open
+    call mro_rewind
+    xor ax, ax
+    mov [os88spk_ptot], ax
+    mov [os88spk_pcons], ax
+    mov byte [mrk_on], 1
+    mov byte [mr_seqon], 1
+    call mrk_bracket
+    clc
+    jmp .out
+.isr:
     cmp word [mrk_seg], 0
     jne .have
     mov ax, (MRK_RL + 272 + 1023) / 1024
@@ -1204,6 +1249,7 @@ mrk_start:
     jc .no
     mov [mrk_seg], dx
 .have:
+    mov al, [mr_out]
     call mrk_rate_for               ; AX = the rate asked for
     mov cl, 4                       ; four voices on an 8088, six past it
     cmp byte [mr_cpu], CPU_8086
@@ -1293,6 +1339,9 @@ mrk_bracket:
     cmp byte [mr_out], MRO_LPT      ; (a Covox play names itself)
     jne .m1
     mov word [mr_msg], mr_s_lptplay
+    cmp byte [mrk_pol], 0           ; ...and a POLLED one says so: its
+    je .m1                          ; window stands still while it plays
+    mov word [mr_msg], mr_s_lptpoll
 .m1:
     mov byte [mr_state], MR_ST_PLAY
     call mru_update
@@ -1352,6 +1401,8 @@ mrk_bracket:
 ; mrk_main - THE BRACKET'S BODY. DS = CS, SI = our window
 ; -----------------------------------------------------------------------------
 mrk_main:
+    cmp byte [mrk_pol], 0
+    jne mrk_pmain
     mov byte [mrk_btn], 0xFF        ; a button already down is not a click
 .pre:
     call mrk_fill                   ; the ring FULL before the door opens
@@ -1385,6 +1436,137 @@ mrk_main:
     call os88spk_stop               ; CONS exact, for a resume
     ret
 
+; -----------------------------------------------------------------------------
+; mrk_pmain - THE POLLED COVOX'S BODY (SPEC.md 34.14.3, 105.8.7): mrk_main
+; with no ISR. The synth polls inside every loop longer than a sample
+; ([mry_pol]); this loop polls around the kernel call it makes, waits for
+; room by polling (never FSX_WAIT, whose tick is owed), and draws NOTHING -
+; a kernel draw cannot poll, so the window stands still while it plays and
+; the status line says so
+; -----------------------------------------------------------------------------
+mrk_pmain:
+    mov byte [mrk_btn], 0xFF
+    mov byte [mry_pol], 0           ; (the fill before the door has no edge
+.pre:                               ; to poll for)
+    call mrk_fill
+    jnc .pre
+    mov dx, [mrk_rate]
+    call os88spk_pgo
+    jnc .go
+    mov byte [mrk_nopoll], 1        ; NOT HERE - no PC 8255, or the door
+    mov byte [mrk_on], 0            ; refused: said, and the next Play takes
+    mov word [mr_msg], mr_s_lptnopoll   ; the interrupt's road
+    mov byte [mrk_exit], MRX_ERR
+    ret
+.go:
+    mov byte [mry_pol], 1
+.loop:
+    call mrk_fill                   ; CF = 0: a span was made
+    pushf
+    call os88spk_ppoll
+    call mrk_input                  ; AL = MRX_* to leave, 0 to stay
+    call os88spk_ppoll
+    or al, al
+    jnz .leave
+    call mrk_isover
+    or al, al
+    jnz .leave
+    popf
+    jnc .loop
+    mov ax, OS88SPK_PRL - MRY_SPAN  ; full: room for a span, polling
+    call os88spk_pspin
+    jmp short .loop
+.leave:
+    popf
+    mov [mrk_exit], al
+    mov byte [mry_pol], 0
+    call os88spk_pstop              ; CONS exact, the ticks paid
+    ret
+
+; mrk_patch - [mr_lptport] into every port immediate of the synth's in-line
+; writes (mry_sites); os88spk_pgo writes the library's own
+mrk_patch:
+    push ax
+    push bx
+    push cx
+    push si
+    mov ax, [mr_lptport]
+    mov si, mry_sites
+    mov cx, MRY_NSITE
+.s:
+    mov bx, [si]
+    mov [bx], ax
+    add si, 2
+    loop .s
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; mrk_canpoll - AL = the output: CF = 0 a play on it would be a POLLED
+; Covox's (SPEC.md 34.14.3) - the Covox, on a PC or XT (an AT is fast enough
+; for the ISR), on a machine that has not refused one, and ASKED FOR: a rate
+; chosen in Settings. Automatic is the ISR's 6,214 Hz with the window live;
+; a chosen rate is the most the XT can do, 6,520 Hz with the window still
+mrk_canpoll:
+    cmp al, MRO_LPT
+    jne .no
+    cmp byte [mr_cpu], CPU_8086
+    jne .no
+    cmp byte [mrk_nopoll], 0
+    jne .no
+    push ax
+    call mr_rate_user
+    pop ax
+    jc .no
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; mrk_prate - AX = the polled Covox's rate: Settings' choice held to
+; MRK_PNMIN..255 counts - every choice the list has is past it, so the play
+; is 6,520 Hz, the most a 4.77 MHz 8088 holds with the synth beside the
+; writes (SPEC.md 34.14.3); the status line says the rate it plays
+mrk_prate:
+    push bx
+    push dx
+    call mr_rate_user
+    jnc .r
+    mov ax, MRK_PRATE
+.r:
+    mov bx, ax
+    mov dx, 0x0012
+    mov ax, 0x34DE
+    div bx
+    cmp ax, MRK_PNMIN
+    jae .lo
+    mov ax, MRK_PNMIN
+.lo:
+    cmp ax, 255
+    jbe .hi
+    mov ax, 255
+.hi:
+    mov bx, ax
+    mov dx, 0x0012
+    mov ax, 0x34DE
+    div bx
+    pop dx
+    pop bx
+    ret
+
+; mrk_rate_show - AL = an output: AX = the rate a speaker or Covox Play on it
+; would play now (the UI's description line)
+mrk_rate_show:
+    call mrk_canpoll
+    jc .isr
+    jmp mrk_prate
+.isr:
+    call mrk_rate_for
+    jmp mrk_real
+
 ; mrk_fill - one span into the ring if it has room; CF = 1 it had none, or
 ; the song is over and its tail rung out
 mrk_fill:
@@ -1392,10 +1574,12 @@ mrk_fill:
     push cx
     push di
     push es
-    mov es, [mrk_seg]
-    mov ax, [es:MRK_RL+SND_EXT_TOTAL]
-    sub ax, [es:MRK_RL+SND_EXT_CONS]
+    call mrk_queued                 ; AX = TOTAL - CONS, ES = the ring's
     mov cx, MRK_RL
+    cmp byte [mrk_pol], 0
+    je .rl
+    mov cx, OS88SPK_PRL
+.rl:
     sub cx, ax
     cmp cx, MRY_SPAN
     jb .full
@@ -1412,6 +1596,8 @@ mrk_fill:
     cmp word [mr_tailt], 160        ; ~1.3 s at 16 kHz, ~2.5 s at 8: done
     ja .full
 .make:
+    cmp byte [mrk_pol], 0
+    jne .pmake
     mov di, [es:MRK_RL+SND_EXT_TOTAL]
     and di, MRK_RL - 1
     mov cx, MRK_RL
@@ -1419,6 +1605,15 @@ mrk_fill:
     call mry_span
     call mrk_xlat                   ; (nothing: the synth's table is the PWM)
     add word [es:MRK_RL+SND_EXT_TOTAL], MRY_SPAN
+    clc
+    jmp short .out
+.pmake:                             ; THE POLLED RING, in our own segment:
+    mov di, [os88spk_ptot]          ; whole spans (asserted below), so a
+    and di, OS88SPK_PRL - 1         ; span never meets its end - mry_span
+    add di, mrk_pring               ; would wrap to offset 0, not to it
+    mov cx, MRY_SPAN
+    call mry_span
+    add word [os88spk_ptot], MRY_SPAN
     clc
     jmp short .out
 .full:
@@ -1433,6 +1628,26 @@ mrk_fill:
 mrk_xlat:
     ret
 
+%if OS88SPK_PRL % MRY_SPAN
+%error "the polled ring is whole spans: mry_span wraps to offset 0, not to it"
+%endif
+
+; mrk_queued - AX = samples made and not yet played, ES = the external ring's
+; segment (a polled session's queue is os88spk's, in our own image)
+mrk_queued:
+    cmp byte [mrk_pol], 0
+    jne .p
+    mov es, [mrk_seg]
+    mov ax, [es:MRK_RL+SND_EXT_TOTAL]
+    sub ax, [es:MRK_RL+SND_EXT_CONS]
+    ret
+.p:
+    push ds
+    pop es
+    mov ax, [os88spk_ptot]
+    sub ax, [os88spk_pcons]
+    ret
+
 ; mrk_isover - AL = MRX_END once the tail has rung out and the ring played
 mrk_isover:
     xor al, al
@@ -1441,13 +1656,12 @@ mrk_isover:
     cmp word [mr_tailt], 160
     jbe .out
     push es
-    push bx
-    mov es, [mrk_seg]
-    mov bx, [es:MRK_RL+SND_EXT_TOTAL]
-    cmp bx, [es:MRK_RL+SND_EXT_CONS]
-    pop bx
+    push ax
+    call mrk_queued
+    or ax, ax
+    pop ax
     pop es
-    jne .out
+    jnz .out
     mov al, MRX_END
 .out:
     ret
@@ -1634,10 +1848,10 @@ mr_elapsed:
     pop dx
     jmp short .lead
 .spk:
-    mov es, [mrk_seg]
-    mov bx, MRK_RL
-    mov cx, [es:bx+SND_EXT_TOTAL]   ; samples made, less those still queued
-    sub cx, [es:bx+SND_EXT_CONS]
+    push ax
+    call mrk_queued                 ; samples made, less those still queued
+    mov cx, ax
+    pop ax
 .lead:
     mov ax, [mry_slo]
     mov dx, [mry_shi]
