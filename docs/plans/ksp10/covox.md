@@ -112,6 +112,29 @@ command sent again with [mpu_base]/[mpu_own] cleared and re-found, and the
 three LPT latches written again. READY now jumps to `.ready`, past the
 probes, which is what its comment always said. 0 bytes.
 
+### Totals at the tip
+
+* kern_big: `text 44,277 -31  bss 5,131 -2  cold 37,913 -8  ovlw 5,001 -10
+  (sum -51)` - resident -41. snd.inc 831 -> 800 code, 37 -> 35 bss;
+  ctrl.inc 360 -> 352 code.
+* kern_small: `text 32,873 -31  bss 3,102 -2  cold 23,944 -6  ovl 2,076 -10
+  (sum -49)` - resident -39.
+* CTRL.DRV: kern_big 11,450 -> 11,301 (-149); kern_small image 4,621 ->
+  4,490 (-131).
+* SOUND.DRV: sound.bin 6,721 -> 6,637 (-84); image 6,529 -> 6,445; no bss
+  (a driver's state rides in its image).
+
+What the Covox costs now, by listing: SOUND.DRV ~164 bytes against the 259
+#229 added (-95, 37% - covox.inc itself 210 -> 132 including the shared
+snd_upnm and the cvx_ports[-1] word); CTRL.DRV ~150 against 292 (~48%; the
+rest of the -149 is the general Sound/Display page items above). Half of
+SOUND.DRV's was not reached without dropping something - see REFUSED.
+
+Tests: fast tier 61/61 after every batch; `make small`, `make emu` assemble;
+tests/covox.py --arm drv/auto/nolpt/cp all PASS on MartyPC at the tip (cp's
+five screenshots byte-identical to the base's); `soak -k sndplay` ok;
+stkbalance over the four files: 0 unbalanced, base and tip.
+
 ## REFUSED
 
 * SOUND.DRV: dropping the Covox's DSV_NAME ('Covox' + the store, ~11 bytes):
@@ -121,6 +144,23 @@ probes, which is what its comment always said. 0 bytes.
   change which port is the DAC.
 * SOUND.DRV: the `jmp short $+2` I/O delays in the latch test (8 bytes): a
   timing change on fast ISA machines.
+* SOUND.DRV: restoring the LPT control register before the data latch would
+  end the probe on the base for free (-2); it reorders port writes that
+  lp_latch makes data-then-control.
+* SOUND.DRV `sbl_isr` (sb.inc, not Covox): `je .spur` and `jne .input` are
+  relaxed 5-byte jccs, and the hot path pays for them (+12 cycles each per
+  block IRQ: the skip is taken). Moving `.spur` and `.input` up behind the
+  output path makes both short but pushes `jne .direct` one byte out of
+  range: -1 byte net, a reshuffle of an ISR for it. Worth doing with the
+  speed as the reason, by whoever next touches sb.inc.
+* snd.inc `snd_evtmp` (8 bss, kern_big) overlaid on `snd_patch`: a worker
+  pre-empted between osapi_snd_fm_x's staging and the driver's read would
+  have its patch overwritten by a clip's abort drain.
+* snd.inc `snd_str_busy`'s `jnc / xor ax, ax` (4): drv_svc_call's refusal
+  already answers AX = 0, but a DRIVER answering CF = 1 with AX != 0 would
+  then read as busy.
+* ctrl.inc `cpf_cp_onup`/`cpf_cp_ondrag` sharing a mod_live helper: 0 on
+  kern_big, +4 on kern_small.
 
 ## CROSS-FILE
 
