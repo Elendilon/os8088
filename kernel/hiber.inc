@@ -505,21 +505,14 @@ hb_ok_x:
     push cx                     ; ...and these two, for the reason above
     push dx
     call COLD_SEG:hb_pick_x     ; the volume a hibernate would go to
-    mov al, 1
-    jc .no
+    mov bx, menu_s_hibernh      ; ...none: '(no disk)'. A `mov` writes no
+    jc .set                     ; flag, so the string can be chosen first
     call KERNEL_SEG:HB_API_XCAPS    ; BL = free block-table entries; on a
     cmp bl, XM_MAX_BLKS         ; machine with no store, all of them
-    jb .xms
     mov bx, menu_s_hiber        ; ...and the STRING, because ui_loc_gate is
-    jmp short .set              ; the only reader this answer has ever had
-.xms:
-    mov al, 2
-.no:
-    mov bx, menu_s_hibernh      ; BX for the string, because AL IS the reason
-    cmp al, 1                   ; and a `mov ax` here read '(XMS)' on a
-    je .set                     ; floppy-only machine
-    mov bx, menu_s_hiberxm
-.set:
+    jae .set                    ; the only reader this answer has ever had
+    mov bx, menu_s_hiberxm      ; (size pass 10: the reason no longer goes
+.set:                           ; through AL and back, -10)
     mov [menu_items_logo + 8], bx   ; item 4 of the System menu
     pop dx
     pop cx

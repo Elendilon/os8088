@@ -624,18 +624,26 @@ vid_apply:
     ; loaded vid_cw/vid_ch straight out of the adapter's row; a desktop that
     ; spans two cards computes vid_w/vid_h from the union instead, and only
     ; these six stores change.
-    mov ax, [vid_cw]
-    mov [vid_w], ax
+    ;
+    ; ONE LOOP FOR THE TWO AXES (size pass 10, -9): x then y, because every
+    ; run here is "x word, y word" - cw/ch, w/h, cwm1/chm1, cwm8/chm8 - so a
+    ; lodsw down the source and a stosw down the m1 run move both pointers
+    ; by the one stride the other two stores share. CX is 0 after the
+    ; rep above, ES = DS and DF is clear from it.
+%if vid_ch - vid_cw != 2 || vid_h - vid_w != 2
+  %error "vid_apply's axis loop walks cw/ch and w/h as x-then-y word pairs"
+%endif
+    mov si, vid_cw
+    mov di, vid_cwm1
+    mov cl, 2
+.axis:
+    lodsw                       ; [vid_cw], then [vid_ch]
+    mov [di + vid_w - vid_cwm1], ax ; [vid_w] / [vid_h]
     dec ax
-    mov [vid_cwm1], ax
+    stosw                       ; [vid_cwm1] / [vid_chm1]
     sub ax, 7
-    mov [vid_cwm8], ax
-    mov ax, [vid_ch]
-    mov [vid_h], ax
-    dec ax
-    mov [vid_chm1], ax
-    sub ax, 7
-    mov [vid_chm8], ax
+    mov [di + vid_cwm8 - vid_cwm1 - 2], ax ; [vid_cwm8] / [vid_chm8]
+    loop .axis
 
     ; --- the DESKTOP's derived words, and they are the DISPLAY's own. This
     ; is a COPY for the same reason the chrome block below is: the display
@@ -1116,7 +1124,7 @@ vid_setmode:
     mov dx, VGA_SEQ
     mov ax, 0x0F02              ; SEQ2 Map Mask: all four planes
     out dx, ax
-    mov dx, VGA_GC
+    mov dl, VGA_GC & 0xFF       ; 3CEh after 3C4h: DH is 3 already
     mov ax, 0x0001              ; GC1  Enable Set/Reset: none, so the CPU byte
     out dx, ax                  ;      is the data
     mov ax, 0x0003              ; GC3  Data Rotate/Function: replace, no rotate
@@ -1142,7 +1150,7 @@ vid_setmode:
                                 ; (max offset 7E96h), so enabling the second
                                 ; decode buys nothing and puts two cards on
                                 ; the bus for the same addresses.
-    mov dx, 0x3B8               ; graphics + page 0, video DISABLED (bit 3
+    mov dl, 0xB8                ; graphics + page 0, video DISABLED (bit 3
     mov al, 0x02                ; clear). From here to the last write of this
     out dx, al                  ; routine the tube is dark - see the header.
     mov si, vid_6845
@@ -1150,8 +1158,11 @@ vid_setmode:
     mov ax, [vid_seg]           ; 32KB clear - nobody else will do it, and it
     mov cx, 0x4000              ; happens BEHIND the blank, so the powered-up
     call vid_wipe               ; contents of the card's DRAM are never shown
-    mov dx, 0x3B8               ; graphics, page 0, video ON - last, onto a
-    mov al, 0x0A                ; framebuffer that is already black
+    mov dl, 0xB8                ; graphics, page 0, video ON - last, onto a
+    mov al, 0x0A                ; framebuffer that is already black. DL
+                                ; alone, here and above: every port this
+                                ; arm touches is 3Bxh, vid_6845_prog leaves
+                                ; DX at 3B4h and vid_wipe moves no DX
     out dx, al
 .done:
     dec byte [spl_busy]         ; ...and the card describes itself again
@@ -1352,7 +1363,7 @@ vid_text:
     xor al, al                  ; blank before anything else moves, for the
     mov dx, 0x3B8               ; same reason vid_setmode does: the BIOS mode
     out dx, al                  ; 7 set below reprograms the 6845 with video
-    mov dx, 0x3BF               ; live otherwise. Then lock graphics back out
+    mov dl, 0xBF                ; live otherwise. Then lock graphics back out
     out dx, al                  ; (AL is still 0) and let mode 7 re-enable.
     call vid_mono_text          ; ...unless int 10h would land on a VGA, in
     jc .out                     ; which case that call has just done it here

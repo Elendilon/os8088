@@ -1360,12 +1360,12 @@ vid_ac_pal:
     cli
     mov dx, 0x3DA               ; Input Status 1: latch to INDEX...
     in al, dx
-    mov dx, 0x3C0
+    mov dl, 0xC0                ; (3C0h: DH is 3 from the move above)
     mov al, 0x32                ; ...AC 12h, Color Plane Enable, WITH BIT 5
     out dx, al
     mov al, ah
     out dx, al                  ; 0 = every pixel reads as attribute 0
-    mov dx, 0x3DA               ; leave the latch where every reader assumes
+    mov dl, 0xDA                ; leave the latch where every reader assumes
     in al, dx                   ; it, INDEX, and not mid-pair
     popf
     pop dx
@@ -1803,10 +1803,10 @@ vid_disp_planes:
     push di
     call vid_disp_of            ; AL = the display holding it...
     call vid_kind_of            ; ...and AL = that display's adapter
-    mov cx, 4
-    cmp al, VID_VGA
-    je .out
     mov cx, 1
+    cmp al, VID_VGA
+    jne .out
+    mov cl, 4
 .out:
     pop di
     pop ax
@@ -2128,9 +2128,12 @@ vid_span_one:
     jae .no                     ; x2 past this display's right edge
     mov ax, [di+VID_CTX_VY]
     add ax, [di+VID_CTX_CH]
-    cmp ax, dx                  ; ...or y2 past its bottom - compared THIS way
-    jbe .no                     ; round so that falling through IS CF = 0
-.out:                           ; (y2 < bottom), with no `clc` (size pass 9)
+    cmp dx, ax                  ; ...or y2 past its bottom: CF = 1 is y2 <
+    cmc                         ; bottom, the FIT, so one cmc is the answer and
+.out:                           ; the fit falls through with no `clc` (size
+                                ; pass 9) and no branch (size pass 10: a
+                                ; not-taken `jbe` was 2 bytes and 4 clocks,
+                                ; `cmc` is 1 and 2)
     pop di                      ; pop touches no flag, so the CF set above
     pop si                      ; survives all three
     pop ax
