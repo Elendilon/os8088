@@ -2497,6 +2497,7 @@ fm_choose:
     call fm_vp_set
     call fmv_load               ; AL = drive, DX = cwd, DI = block
 %ifdef KERN_BIG
+    push bx                     ; THE WINDOW, which `mov si, bx` below needs:
     lea bx, [di+FS_PATH]        ; this window is being MOVED to a folder it
                                 ; did not walk to, so its path starts here -
     call pth_clear              ; a fragment, exactly as fm_kinit's seed is
@@ -2506,7 +2507,8 @@ fm_choose:
     jz .nopath
     call pth_push
 .nopath:
-%endif
+    pop bx                      ; (the repaint was handed the PATH buffer as a
+%endif                          ; window from ea48c34 until this bank)
     call fm_settitle            ; SI = the name, still untouched
     mov si, bx
     call fm_repaint
