@@ -4991,16 +4991,18 @@ api_file_path:
 ; api_file_append_sys - slot 0x02C2 - is the SAME cell with a different tail,
 ; and it shares this body rather than copying it because the fence is the
 ; whole of the interesting part and two copies of a fence is one that can be
-; got wrong. [api_sysap] picks which dskw_ entry point runs; it is written
-; through CS because DS is still the CALLER's here, and it is set on both
-; paths rather than only the append one - a byte left set by an append would
-; silently turn the next driver's write into an append.
+; got wrong. [api_sysfp] IS which dskw_ entry point runs - the offset half
+; of a COLD_SEG far pointer, so the tail is one `call far` and not a
+; compare between two (size pass 10: it was a byte flag, [api_sysap]); it is
+; written through CS because DS is still the CALLER's here, and it is set on
+; both paths rather than only the append one - a word left set by an append
+; would silently turn the next driver's write into an append.
 ; -----------------------------------------------------------------------------
 api_file_append_sys:
-    mov byte [cs:api_sysap], 1
-    jmp short api_file_sysc
+    mov word [cs:api_sysfp], dwf_dskw_append_sys    ; ...the same fence, the
+    jmp short api_file_sysc                         ; other verb (18.4.4)
 api_file_write_sys:
-    mov byte [cs:api_sysap], 0
+    mov word [cs:api_sysfp], dwf_dskw_write_sys
 api_file_sysc:
     push ds
     push si
@@ -5028,13 +5030,7 @@ api_file_sysc:
                                 ; the volume it is building and must not have
                                 ; its own instance's folder put underneath it
     mov si, api_name
-    cmp byte [api_sysap], 0
-    jne .append
-    call COLD_SEG:dwf_dskw_write_sys
-    jmp short .done
-.append:
-    call COLD_SEG:dwf_dskw_append_sys ; ...the same fence, the other verb (18.4.4)
-.done:
+    call far [api_sysfp]        ; COLD_SEG:the verb the entry chose
     pop si
     pop ds
     retf
@@ -5236,11 +5232,11 @@ spl_fseg:   dw COLD_SEG
 spl_ifp:    dw mod_gone
 spl_ifseg:  dw COLD_SEG
 
-api_sysap:  db 0                ; which verb the shared fenced cell runs:
-                                ; 0 = dskw_write_sys, 1 = dskw_append_sys.
-                                ; .text for api_name's reason, and written
-                                ; through CS because the stub still has the
-                                ; caller's DS when it lands
+api_sysfp:  dw dwf_dskw_write_sys  ; which verb the shared fenced cell runs:
+            dw COLD_SEG         ; dskw_write_sys or dskw_append_sys, as the
+                                ; far pointer it calls. .text for api_name's
+                                ; reason, and written through CS because the
+                                ; stub still has the caller's DS when it lands
 
 ; =============================================================================
 ; Boot (SPEC.md 15)

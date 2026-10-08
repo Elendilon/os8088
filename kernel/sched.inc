@@ -1055,76 +1055,10 @@ sch_frame:
     stosw                       ; FLAGS: IF=1, reserved bit 1 set
     ret
 
-%ifdef OS88_COMPACT
-; -----------------------------------------------------------------------------
-; sch_wk_restart - throw a worker's stack away and re-enter it (SPEC.md 66.6.2)
-; in:  AL = the task slot, BX = the segment to run it in, CX = the entry offset
-; out: nothing (all registers and the flags preserved)
-;
-; task_spawn's tail, run again on a slot that ALREADY EXISTS. It is the one way
-; past SPEC.md 66.6.1's limit: a worker's stack carries its own package's
-; segment from before its first instruction and at depths nothing can find
-; (docs/plans/HEAP-UNPIN-PLAN.md 4.1), so the answer is not to find them - it
-; is to arrange for the stack not to matter, which only the package can
-; authorise (OSAPI_TASK_RESTARTABLE).
-;
-; A REBUILD IN PLACE AND NOT A KILL AND RESPAWN, for two reasons that both
-; matter. A respawn can FAIL - first fit over a busy table - and the kernel
-; would then have destroyed a worker it could not promise to return; and
-; task_exit releases the INSTANCE record with the task, which is a package
-; being closed rather than a worker being restarted.
-;
-; WHAT IT DOES NOT REDO. The slice keeps its 0xCC fill and its SCH_MAGIC
-; canary: both are properties of a slice that has already been cut, and the
-; high-water mark tools/stkwater.py reads is MORE useful across a restart, not
-; less - it is still the deepest this worker has ever been.
-;
-; **IT MUST CLEAR [sch_parked].** The worker is standing in inst_park_hold or
-; in gfx_lock's .block arm, and BOTH clear that byte on the way out - which is
-; a way out this routine has just deleted. Left set, inst_seg_parked answers
-; "parked" for ever and the next compaction moves the claims of a worker that
-; is running. (gfx_lock's [gfx_lock_want] is left set and that one is
-; harmless: SPEC.md 7.3 makes it a fairness hint the next contended acquire
-; spends.)
-; -----------------------------------------------------------------------------
-sch_wk_restart:
-    push ax                     ; kret_es's order, and the flags INSIDE it:
-    push bx                     ; the pops need no IF = 0, so the window ends
-    push cx                     ; before them and the ladder is the exit
-    push dx
-    push si
-    push di
-    push bp
-    push es
-    pushf
-    cli                         ; the frame below is what sch_switch resumes
-                                ; from, so it is built whole or not at all
-    xor ah, ah                  ; AX = the slot
-    mov si, ax
-    mov byte [si+sch_parked], 0 ; ...and it is NOT parked any more: see above
-    shl si, 1                   ; SI = slot*2, the index BOTH slice tables take
-    mov di, [si+sch_stkbase]
-    add di, [si+sch_stksize]    ; base + size = the slice TOP...
-    sub di, SCH_FRAME           ; ...and the frame is carved from it, exactly
-    shl si, 1                   ; as task_spawn carves it. T_SIZE = 8, so the
-    shl si, 1                   ; record index is two more open shifts
-                                ; (sch_currec's idiom)
-    mov [si+sch_tasks+T_SP], di
-    mov dl, [si+sch_tasks+T_INST]   ; DX = THE INSTANCE INDEX and not the task
-    xor dh, dh                      ; slot: it is task_spawn's spawn argument
-                                    ; and the worker's documented `in:`, and
-                                    ; the two are different numbers
-    mov bp, bx                  ; the segment and the entry into the shared
-    mov si, cx                  ; builder's registers
-    push ss
-    pop es                      ; ES = LOW_SEG: the frame lives there and DS
-    cld                         ; cannot reach it
-    call sch_frame              ; ...and the same twelve words task_spawn
-    popf                        ; writes, from the same body
-    jmp kret_es
-%endif                          ; OS88_COMPACT - SPEC.md 66.6.2's restart is
-                                ; the compactor's only way past a worker's own
-                                ; stack, and kern_small has no compactor
+; (sch_wk_restart - SPEC.md 66.6.2's "throw a worker's stack away and re-enter
+; it" - stood here. It had one caller, memory.inc's mem_region_reloc, and is
+; written inline there since size pass 10, with its notes: the call and the
+; register bank its caller already held were twelve bytes of kern_big.)
 
 
 ; -----------------------------------------------------------------------------

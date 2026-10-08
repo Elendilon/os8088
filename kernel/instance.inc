@@ -1741,7 +1741,7 @@ inst_minimize:
     or byte [di+I_FLAGS], IF_MIN
 %ifdef WM_ANIM
     and byte [di+I_FLAGS], 0xFD
-    test word [bx+W_FLAGS], WF_FULL   ; SPEC.md 11.99.5: going down from
+    test byte [bx+W_FLAGS], WF_FULL   ; SPEC.md 11.99.5: going down from
     jz .nofs                          ; fullscreen, so the way back does not
     or byte [di+I_FLAGS], IF_FSMIN    ; zoom. Read off the WINDOW and not off
 .nofs:                                ; [wm_fs] - the fact wanted is about THIS

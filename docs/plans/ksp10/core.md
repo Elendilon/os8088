@@ -77,6 +77,24 @@ blessed baseline at 833f13e4 (big / small).
   inst_find_kind's `clc` after a falling-out-equal `jne` (-1). apps.inc:
   app_tmr_track's likewise (-1, big).
 
+### batch 4 (big -50, small -10; running total big -237, small -146)
+
+* kernel.asm: api_file_sysc's verb is a COLD_SEG far pointer the two
+  entries write ([api_sysfp]) and one `call far` - not a byte flag, a
+  compare and two far calls (-10, both).
+* instance.inc: `test byte [bx+W_FLAGS], WF_FULL` (WF_FULL is 8) (-1, big).
+* sched.inc -> memory.inc: sch_wk_restart written inline in
+  mem_region_reloc, its one caller, sharing that routine's bank (-12, big).
+* memory.inc: mem_busy_seg inline in mem_can_move's `.busy` (-5, big);
+  mem_cp_both's walk inline in mem_avail_lvl_x, `.run` after its `ret`
+  (-6, big); mem_cp_move inline in mem_cp_walk (BX is dead there: `.stay`
+  rebuilds it) (-6 after a jmp went near); mem_cp_dest keeps its call but
+  not the AX bank (AX is the walk's scratch, banked at its entry - and so is
+  mem_cp_mine's inline bank) and stages `mov di, cx` ahead of its direction
+  test (-6); the walk's `.tail` sits mid-routine so the loop head's `jc
+  .tail` is short, and `.count2` reaches `.loop` through `.stay`'s jmp (-4).
+  All kern_big (OS88_COMPACT).
+
 ## REFUSED
 
 * ct_cw_gfx_pen_cf / ct_cw_gfx_hline look dead from kernel/ (0 sites) but
@@ -100,8 +118,19 @@ blessed baseline at 833f13e4 (big / small).
 * inst_icon_ptr's run expansion as `rep stosw` (-4) costs the ES = DS
   bracket it needs (+4).
 
+* mem_cp_dest INLINE in mem_cp_walk: built and measured, -3 not -6 - the
+  walk grows past three short jcc's (.tail, .pinned twice) and they go to
+  the five-byte form. Kept as a call (with the AX bank gone, -2 of it).
+* task_debit inline in inst_charge (-6): SPEC.md 8.1 publishes task_debit
+  as one of a public pair with task_cycles; not worth the contract churn.
+* inlining ld_res_name into ld_run_name_x: 0 bytes - it already FALLS
+  THROUGH into ld_take, which is the same saving.
+
 ## CROSS-FILE
 
+* `test word [..], C` with C a high-byte constant is `test byte [..+1],
+  C>>8`, a byte less: wm.inc:9938 (WF_STALE 0x8000), wm.inc:11129
+  (WF_NOANIM 0x4000) are resident; ctrl.inc x3 (SND_CAP_LPTDAC) is CTRL.DRV.
 * files.inc's two `call ct_cw_gfx_frame` (files.inc:7436, 7456) are the
   trampoline's only kern_big callers besides os88ui.inc's: recount with
   apps/os88ui.inc before retiring ct_cw_gfx_frame (2N-6 rule).
