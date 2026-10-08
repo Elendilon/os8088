@@ -156,3 +156,37 @@ cumulative (-16).
   kern_small, which has no subl, would pay that unless both arms are
   %ifdef'd. Not worth the two arms for ten bytes.
 
+
+## CROSS-FILE (for the coordinator)
+
+* **wm_kent_bp is a kernel-wide `.text` helper now** (it lives in wm.inc).
+  27 seven-push `push ax..bp` prologues sit in `.text` outside wm.inc - vga12
+  7, icons 3, font 2, softgfx 2, viddet 2, and one each in clip, fsx,
+  instance, kbddiag, moudiag, mouse, sched, stkdiag, ui, vmmouse and
+  kernel.asm. Each is -4 bytes as `call wm_kent_bp`, at ~95 cycles a call, so
+  only the ones entered per operation qualify: NOT vga12/softgfx/font/mouse/
+  sched's (primitives, glyphs, ISRs, the switch), and check viddet/stkdiag/
+  kbddiag/moudiag are not `.ovl`-bound or knob-only first. Plausibly instance,
+  ui, fsx, clip, icons: ~-20 if all five hold up. A rename to a neutral
+  prefix (it is not WM-specific) would be the coordinator's call.
+* **tests/deskwhole.py**'s docstring says "`.whole`'s re-seed (`call
+  wm_dmg_bands` after its pops)": it is `call wm_dmg_rebands` now, with no
+  pops - the break-it-on-purpose line still describes the right instruction
+  to take out, under its new name. Comment only.
+* **docs/INDEX.md** is regenerated in this branch for
+  docs/plans/ksp10/wm.md; every agent's branch will conflict there - take
+  any side and re-run `tools/os88index.py`.
+* **SPEC.md** (the dock span paragraph near "Empty is `0x7FFF`..`0x8000`")
+  edited: it cited wm_dmg_bands' empty-box idiom, which is wm_rect_empty's
+  `7FFFh..-1` now. dock.inc's own span keeps 8000h and needs nothing.
+
+## WHAT WAS RUN
+
+* `make` and `make small` after every batch, `make emu` at the tip
+  (kernsize[emu] text -242, assembles); the fast tier after every batch,
+  61/61 at the tip.
+* `tools/stkbalance.py kernel/kernel.asm kernel/*.inc`: 0 unbalanced at the
+  base (`833f13e4`) and at every batch from 3 on.
+* Soak, one at a time: `deskwhole` after batch 2 (exercises the re-seed both
+  ways - `.frames` and `.whole`) and again at the tip; `wmchrome` after batch
+  4; `zonedmg` at the tip. All green.
