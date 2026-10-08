@@ -587,11 +587,13 @@ clo_geom:
     ; **AH=08h SPENDS ES**, and ES is the job block here - so it is banked
     ; over the call along with BP, which some BIOSes also spend.
     mov di, 40                  ; DI = cylinders, and the answer for a ROM
-    mov cx, 2                   ; CX = heads, that will not say
-    call clo_ask08              ; AX = the 10-bit cylinder count (1..1,024),
-    jc .havedrv                 ; BH = the ANSWER's DH
-    mov di, ax
-    mov cx, 2                   ; (clo_ask08 answers the ROM's CX: reload)
+    call clo_ask08              ; that will not say (clo_ask08 keeps DI)...
+    mov cx, 2                   ; ...and CX = heads, AFTER the call and not
+    jc .havedrv                 ; before it: on a refusal CX is whatever the
+                                ; ROM left there, and a ROM that zeroes it
+                                ; made CL_HDS 0. `mov` keeps the call's CF.
+                                ; AX = the 10-bit cylinder count (1..1,024),
+    mov di, ax                  ; BH = the ANSWER's DH
     or bh, bh                   ; heads = DH + 1, held to two: a floppy is
     jnz .havedrv                ; one head or two, and a ROM answering more
     dec cx                      ; is answering about something else
