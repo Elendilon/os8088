@@ -6959,7 +6959,8 @@ vp_spos:
     mov word [vp_lpar], 0           ; (a lead's paragraphs past the ring)
     mov word [vp_lsrc], 0xFFFF      ; no lead read (98.1.8), none staged,
     mov [vp_alst], ax               ; and the audio cursor before the ring
-    mov [va_pc], ax                 ; (vp_lfloor reads it from the first fill)
+    mov [va_pc], ax                 ; (vp_lfloor reads it from the first fill,
+    mov [vp_afr], ax                ; and its frame until vp_sopen sets it)
     mov ax, [vp_sp0]
     mov [vp_ssp], ax
     mov ax, [vp_sp0+2]
@@ -9641,13 +9642,25 @@ vp_upaus:
 ; vp_lfloor - BX = the lowest chunk a cursor still reads: the hook's, or with
 ; SOUND AHEAD the audio cursor's when that is lower - its record may sit up to
 ; A - 1 behind the picture's (98.1.8), where without it the picture never
-; overtakes the audio cursor (98.3.1) and the hook's chunk is the answer
+; overtakes the audio cursor (98.3.1) and the hook's chunk is the answer.
+; An audio cursor that has queued the LAST frame's sound reads nothing more
+; (vp_afill pads from there) and is parked A records short of the end, so
+; it no longer counts - or the picture's last A records, wider than the
+; ring on a small K or a heavy ending, would never be read
 vp_lfloor:
     mov bx, [vp_pc]
     cmp byte [vp_ahead], 0
     je .r
     cmp byte [vp_snd], 0
     je .r
+    cmp byte [vp_rep], 0            ; (repeating, it reads on: 98.3.9)
+    jne .lo
+    push ax
+    mov ax, [vp_afr]
+    cmp ax, [vp_frames]
+    pop ax
+    jae .r
+.lo:
     cmp bx, [va_pc]
     jbe .r
     mov bx, [va_pc]
