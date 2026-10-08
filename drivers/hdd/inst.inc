@@ -1520,9 +1520,17 @@ hd_bn_rowtext:
 ; partitions: a disk repartitioned by a modern tool leaves ~1,985 sectors at
 ; the front, and a size column reading '0M' looks like a broken tool rather
 ; than a small volume.
+;
+; NOT os88_ent: that banks DI as well and the ladder would put it back, and
+; the ADVANCED DI is this routine's output - hd_iw_rowtext pads from it to
+; the State column, so a restored DI blanked every size it had just written.
 ; -----------------------------------------------------------------------------
 hd_iw_size:
-    call os88_ent
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
     or dx, dx
     jnz .mb
     cmp ax, 2048
@@ -1553,7 +1561,7 @@ hd_iw_size:
     call hd_utoa
 .unit:
     call hd_scat
-    jmp os88_r_bp
+    jmp os88_r_si               ; ax..si: DI goes back ADVANCED
 
 ; -----------------------------------------------------------------------------
 ; hd_iw_click - W_ONCLICK.  in: BX = window, CX = x, DX = y, content-relative
