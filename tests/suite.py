@@ -145,7 +145,13 @@ class Row:
         self.name, self.tier, self.cmd = name, tier, cmd
         self.secs, self.why = secs, why
         self.needs = tuple(needs)
-        self.serial = serial
+        # SERIAL IS DERIVED from needing MartyPC as well as stated: an
+        # emulator row is an emulator row whether or not its entry remembered
+        # to say so, and 116 of them had not - so they ran in the HOST lane,
+        # four wide beside the host-side rows and outside --marty-jobs, which
+        # docs/WRITING-TESTS.md 3 names as the thing forgetting the flag does.
+        # One rule here rather than 116 edits that the next row forgets again.
+        self.serial = serial or "marty" in self.needs
         # BUILDS: this row shells out to `make`, so it writes build/ and
         # cannot share the tree with anything - not with another builder, and
         # not with a row reading what it is halfway through rewriting. It is
@@ -345,7 +351,7 @@ FAST = [
         "failures, and the reason took a screenshot to see. The gate reads "
         "the DRIVERS' OWN SOURCE for the names they load, so a third overlay "
         "is covered the day it is written"),
-    Row("lzfmt", "soak", py("tests/unit/t_lzfmt.py"), 4.0,
+    Row("lzfmt", "soak", py("tests/unit/t_lzfmt.py"), 17.6,
         "docs/plans/O88-COMPRESSION-PLAN.md wave 0: both compression formats "
         "round-trip. tools/os88lz.py is the REFERENCE and the kernel's "
         "decoders are the copy, so this is what makes that claim mean "
@@ -362,7 +368,7 @@ FAST = [
         "can reach, nobody edits it build to build, and lzfmt-all beside it "
         "is already soak",
         needs=()),
-    Row("lzfmt-all", "soak", ["python3", "tools/os88lz.py", "--selfcheck"], 12.0,
+    Row("lzfmt-all", "soak", ["python3", "tools/os88lz.py", "--selfcheck"], 55.0,
         "the same round trip over every binary the tree builds - packages, "
         "drivers and the kernel. SOAK and not fast: the fixed corpus above is "
         "what catches a format bug, this is what catches a bug that only some "
@@ -1159,7 +1165,7 @@ FAST = [
         "PIXELS: a garbage rect whites the SCREEN, and a page that drew "
         "nothing has an empty pane",
         needs=("marty",)),
-    Row("btnrules", "fast", py("tests/unit/t_btnrules.py"), 0.3,
+    Row("btnrules", "fast", py("tests/unit/t_btnrules.py"), 3.2,
         "SPEC.md 20.5.1.3's ratchet: os88ui_btn IS the button and carries the "
         "13.7 gesture, where os88ui_btnraw is the bare painter a caller has to "
         "drive by hand - and twenty-five call sites drove it by firing on the "
@@ -1203,7 +1209,7 @@ FAST = [
         "SOAK and not fast: the volume boot record's segments are "
         "kernel-internal",
         ),
-    Row("checkdocs", "fast", py("tools/checkdocs.py"), 1.6,
+    Row("checkdocs", "fast", py("tools/checkdocs.py"), 5.9,
         "stale SPEC.md citations and slot numbers in prose (already in `make`; "
         "here too so the suite is a complete statement)"),
     Row("docindex", "fast", py("tools/os88index.py", "--check"), 0.2,
@@ -1314,7 +1320,7 @@ FAST = [
         "is left and is counted in the tool's own summary line: loop back-edge "
         "conflicts are suppressed, because the count lives in a register"),
 
-    Row("stkapps", "fast", py("tests/unit/t_stkapps.py"), 2.1,
+    Row("stkapps", "fast", py("tests/unit/t_stkapps.py"), 7.6,
         "every `ret` in EVERY SHIPPED PACKAGE AND DRIVER is reached at the "
         "depth it started at. `ch_legend` pushed SI and never popped it, so its `ret` "
         "jumped to the saved register: a black canvas and a wedged app, with "
@@ -2629,7 +2635,7 @@ SOAK = [
         "1942 desktop splash: native color/contour pixels, XT paint timing, "
         "player selection, help, dragging, direct launch and resume on three adapters",
         needs=("marty", "nasm", "pil"), wants=("build/1942-360.img", "build/1942.SFX", "build/os8088-360.img")),
-    Row("1942sound", "soak", py("tests/n1942sound.py"), 65.2,
+    Row("1942sound", "soak", py("tests/n1942sound.py"), 905.0,
         "XT speaker, AdLib-only and Sound Blaster FM/PCM: overlapping music/effects, "
         "all cartridge cues, rests/loops, pause/mute/resume, route preference, "
         "claim refusal, DMA sample bytes/priority, missing-bank fallback, exit/error cleanup, WAV output and guest cycle costs",
@@ -2708,7 +2714,7 @@ SOAK = [
         "closing back to the desktop's own heap; the Hercules plays since wave 6 "
         "(its loading screen is read from B000, 16 game pixels in from the left)",
         needs=("marty", "nasm"), wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeega", "soak", py("tests/excitebike_front.py", "--arm", "ega"), 30.0,
+    Row("excitebikeega", "soak", py("tests/excitebike_front.py", "--arm", "ega"), 120.0,
         "EXCITEBIKE on an EGA desktop (SPEC.md 39.24, 102.6): a private VIDEO=ega "
         "tree, so the kernel believes it is an EGA - OSAPI_FSX_CAPS answers "
         "VID_EGA and the game refuses with its sentence rather than entering "
@@ -3018,7 +3024,7 @@ SOAK = [
         "service cost and a captured peak. Measured 60s CPU, 4.5 min wall",
         needs=("marty", "pil"), serial=True,
         wants=("build/drmario360.img", "build/os8088-360.img")),
-    Row("gorillas", "soak", py("tests/gorillas.py"), 100.0,
+    Row("gorillas", "soak", py("tests/gorillas.py"), 370.0,
         "Native Gorillas (SPEC.md 99), measured 97.3s on three adapters: "
         "keyboard angle/velocity editing, persistent terrain damage, pause, "
         "five self-hit rounds to a total-points match, actual fullscreen "
@@ -3208,7 +3214,7 @@ SOAK = [
         "read by guest MOVSB, not the debugger's plane-zero-only peek",
         needs=("marty", "nasm"), serial=True,
         wants=("build/gorillas.o88", "build/os8088-360.img")),
-    Row("gorillasfront", "soak", py("tests/gorillasfront.py"), 90.0,
+    Row("gorillasfront", "soak", py("tests/gorillasfront.py"), 305.0,
         "Gorillas frontend (SPEC.md 99): setup validation, player names, "
         "gravity, music, dance, solo play and fullscreen transitions on all "
         "three adapters; 88s measured",
@@ -3474,7 +3480,7 @@ SOAK = [
         "MEM_P_FATW's MED, and the LIVE window must come back as the pin "
         "with [dsk_fatw0] invalidated, not a pointer into freed memory",
         needs=("marty", "nasm"), serial=True, timeout=900),
-    Row("vgadirty", "soak", py("tests/vgadirty.py"), 30.0,
+    Row("vgadirty", "soak", py("tests/vgadirty.py"), 80.0,
         "Does vid_setmode leave the VGA framebuffer black whatever the ROM "
         "did? (SPEC.md 39.23) Builds a VGADIRTY=1 kernel, which fills A0000 "
         "in the one window a machine cannot - after the ROM's mode set and "
@@ -3985,7 +3991,7 @@ SOAK = [
         "the handler ships on.",
         needs=("marty",), serial=True,
         wants=("build/dosfile360.img",)),
-    Row("dosdbg", "soak", py("tools/os88dosdbg.py", "--selfcheck"), 0.3,
+    Row("dosdbg", "soak", py("tools/os88dosdbg.py", "--selfcheck"), 4.7,
         "THE DOS DEBUGGING TOOLKIT'S OWN SELF-CHECK (docs/DOS-DEBUGGING.md). "
         "It is here rather than in `fast` because it is about one subject "
         "nobody else touches, and because the tool ALSO checks itself on every "
@@ -7810,7 +7816,7 @@ SOAK = [
         "open, because a move shuts that window. VERIFIED RED with .selmove's "
         "FS_CLKT store taken out (the Audio Player launched on one click).",
         needs=("marty",), serial=True),
-    Row("fdlgchoose", "soak", py("tests/fdlgchoose.py"), 40.0,
+    Row("fdlgchoose", "soak", py("tests/fdlgchoose.py"), 120.0,
         "SPEC.md 38: the Standard File chooser end to end, through Note "
         "Pad's own File > Open and Save As - a first Open on MEDIA (38.10) "
         "captioned Open with the default button greyed until a row is "
@@ -7831,7 +7837,7 @@ SOAK = [
     Row("fdlgchsmall", "soak",
         ["env", "OS88_DEFINES=KERN_SMALL", "OS88_BUILD=build/smallk",
          "OS88_SYSIMG=build/small360.img", "OS88_NP=A:/APPS/NOTEPAD.O88"]
-        + py("tests/fdlgchoose.py"), 40.0,
+        + py("tests/fdlgchoose.py"), 105.0,
         "...and the same drive on kern_small, where the glue is FDLG.DRV "
         "(SPEC.md 38.0): every hook crosses into the image through "
         "fdlg_hook's far call, and the button column is drawn and fired by "
@@ -8172,7 +8178,7 @@ SOAK = [
         "it; AV_WAKE ends the pass for real, and the second pass's frame 0 "
         "is gif_restart's. Without Unicorn it SKIPS and says so",
         needs=("nasm",), wants=("build/pixel.o88",)),
-    Row("pxdecode", "soak", py("tests/pxdecode.py"), 420.0,
+    Row("pxdecode", "soak", py("tests/pxdecode.py"), 1670.0,
         "SPEC.md 106.13: every fixture tools/pixcorpus.py makes, decoded by "
         "PIXEL.O88 itself through File > Revert, against tools/pixelsim.py "
         "BYTE FOR BYTE - the master and the palette of each good one (BMP "
@@ -8686,7 +8692,7 @@ SOAK = [
         # guest's own [ticks].
         needs=("qemu", "nasm"), serial=True, timeout=900,
         wants=("build/os8088.img", "build/apps.img")),
-    Row("tmsmall", "soak", py("tests/tmsmall.py"), 30.0,
+    Row("tmsmall", "soak", py("tests/tmsmall.py"), 100.0,
         "SPEC.md 28.12: the APP_SMALL Task Manager gates out two of its three "
         "PAGES, which is 39.9% of one heap claim and the largest saving of "
         "any package in the tree - and the two that go share their row "
@@ -8705,7 +8711,7 @@ SOAK = [
         "SPIN COUNT. This compares three readings computed three ways: the "
         "kernel's sch_cycles, the page's tm_load, and the page's tm_pct.",
         needs=("marty",), serial=True, timeout=900),
-    Row("desksc", "soak", py("tests/desksc.py"), 60.0,
+    Row("desksc", "soak", py("tests/desksc.py"), 200.0,
         "SPEC.md 26.8: DESKTOP SHORTCUTS, every route on one boot. A drag out "
         "of a Disk window makes one (whole path, header-name caption, the "
         "badge, the nearest free cell, the drag's Cut DISARMED); SYSTEM.CFG "
@@ -8738,7 +8744,7 @@ SOAK = [
         "it shows and the window is not touched at all - deskclip is that "
         "half's gate.",
         needs=("marty",), timeout=600),
-    Row("deskclip", "soak", py("tests/deskclip.py"), 100.0,
+    Row("deskclip", "soak", py("tests/deskclip.py"), 350.0,
         "SPEC.md 11.91.6: on kern_big a desktop cell is drawn only where the "
         "damage pass reveals it - into wm_dmg_gray's own region, the damage "
         "minus every window's frame and shadow L, its pictures gfx_blit1 "
@@ -8860,7 +8866,7 @@ SOAK = [
         "books are checked beside it against MartyPC's own cycle counter, "
         "which is an authority outside the kernel's arithmetic.",
         needs=("marty",), serial=True, timeout=600),
-    Row("heapdrv", "soak", py("tests/heapdrv.py"), 20.0,
+    Row("heapdrv", "soak", py("tests/heapdrv.py"), 60.0,
         "SPEC.md 28.4.6: a DRIVER's own claims are on the heap page. "
         "SOUND.DRV's image was on it - MEM_K_DRV is a kernel tag, so DrvImg "
         "files under System - and the claims the driver takes for itself "
@@ -11117,7 +11123,7 @@ SOAK = [
         "sum) it FAILS with 'This .V88 is damaged'",
         needs=("marty", "nasm", "mtools"), serial=True,
         wants=("build/video.o88",)),
-    Row("vencgui", "soak", py("tests/vencguitest.py"), 40.0,
+    Row("vencgui", "soak", py("tests/vencguitest.py"), 90.0,
         "SPEC.md 98.2.8: the encoder's WINDOW without a window "
         "(tools/os88vencgui.py): every os88venc option on a tab with a "
         "tooltip, the untouched form parsing to the parser's own defaults, "
