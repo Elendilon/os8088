@@ -77,6 +77,14 @@ each firing once, the bytes right in the guest and on the flushed floppy.
 | `dskw_last_p` | -2 | neither caller keeps AX; twice a cluster, 25 cycles faster each |
 | `dskw_cmp` | -2 | `dskw_find`'s entry loop holds nothing in DI; once an entry faster |
 
+### Batch 6 - one FSV_STAT for the two read bodies (kern_big .cold -10)
+
+`dskw_fsstat`: `FSV_STAT`, then the 0x18 attribute refusal (FERR_PROT),
+which `dskw_rbody`'s redirected arm and `dskw_read_at_x`'s each spelled out.
+BP is free in both (dskw_read_x banks it for the body; read_at banks it at
+entry). `soak -k rdcz` (a hint-less compressed file read off the RAM disk,
+which IS the redirected `dskw_rbody` arm) green.
+
 ## REFUSED
 
 (appended as decided)

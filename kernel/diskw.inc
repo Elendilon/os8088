@@ -1389,6 +1389,27 @@ dskw_fsop:
 .out:
     ret
 
+; -----------------------------------------------------------------------------
+; dskw_fsstat - FSV_STAT for a body that is about to READ: a name to a handle,
+;               refusing what is not a file (SPEC.md 62.9.1)
+; in:  SI -> the NUL 8.3 name, in KERNEL_SEG
+; out: CF=0, AX = the handle, DX:CX = the size, BL = the attribute byte; or
+;      CF=1 with AX = the driver's FERR_*, or FERR_PROT for a folder or a
+;      volume label (BL & 18h) - the 0x18 test every FAT read path makes
+; clobbers: BP and the outputs. dskw_rbody and dskw_read_at_x each spelled
+;           this out (size pass 10, -10)
+; -----------------------------------------------------------------------------
+dskw_fsstat:
+    mov bp, FSV_STAT
+    call drv_fs_call
+    jc .out
+    test bl, 0x18               ; (CF = 0 from the `jc`, and `test` keeps it)
+    jz .out
+    mov ax, FERR_PROT
+    stc
+.out:
+    ret
+
 dskw_wbody:
     call dskw_mounted           ; returns only when there is a volume
 %ifdef OS88_REDIR               ; SPEC.md 62.9.2.3: the write's
@@ -1967,13 +1988,10 @@ dskw_rbody:
                                 ; exactly as it does for a chain walk - the
                                 ; driver is handed a normalised (seg, offset)
                                 ; and cannot be made to carry past 64KB
-    push bp
-    mov bp, FSV_STAT
-    call drv_fs_call              ; SI = the name -> AX = the handle,
-    pop bp                      ; DX:CX = size, BL = attributes
-    jc .fsfail
-    test bl, 0x18
-    jnz .fsprot                 ; a folder or a volume label, as .isfile says
+    call dskw_fsstat            ; SI = the name -> AX = the handle, DX:CX =
+    jc .fsfail                  ; size; a folder or a volume label refused
+                                ; FERR_PROT, as .isfile says. BP is this
+                                ; body's to clobber (dskw_read_x banks it)
     ; **AND THEN IT JOINS THE ONE FLOW** (SPEC.md 20.14.6). What stood here
     ; was this arm's own copy of the capacity test, its own FERR_BIG and its
     ; own fpg_begin - and none of that is about the TRANSPORT. Writing the
@@ -1998,11 +2016,8 @@ dskw_rbody:
     jmp .isfile                         ; to trust: the file's own header is
                                         ; the only thing that can say, and
                                         ; dskw_czknow asks it
-.fsprot:
-    mov ax, FERR_PROT
 .fsfail:
-    stc
-    ret
+    ret                         ; CF = 1 and AX = FERR_* from dskw_fsstat
 %ifdef OS88_REDIR
 .fsdata:                        ; the widget's scale is BYTES (SPEC.md 12.8.1)
                                 ; and fpg_begin above was handed them: a
@@ -2724,11 +2739,9 @@ dskw_read_at_x:
     ; a cluster chain that does not exist. The branch is here rather than
     ; after the stat because everything between them is FAT arithmetic.
 .fsat:
-    mov bp, FSV_STAT
-    call drv_fs_call              ; SI = the name -> AX = the handle,
-    jc .fsbad                   ; DX:CX = size, BL = attributes
-    test bl, 0x18
-    jnz .fsprot                 ; a folder is not readable, as everywhere else
+    call dskw_fsstat            ; SI = the name -> AX = the handle, DX:CX =
+    jc .out                     ; size; a folder is refused FERR_PROT, as
+                                ; everywhere else
     mov bx, [dwr_buf]           ; AX is still the handle
     mov dx, es                  ; DX:BX = the buffer, ES being the caller's
     mov cx, [dwr_cap]           ; and DX not carrying it into the driver
@@ -2737,11 +2750,6 @@ dskw_read_at_x:
     mov bp, FSV_READAT
     call drv_fs_call              ; -> DX:AX = the bytes delivered
     jmp short .out              ; CF and DX:AX are already the answer
-.fsprot:
-    mov ax, FERR_PROT
-.fsbad:
-    stc
-    jmp short .out
 
 ;
 ; -----------------------------------------------------------------------------
