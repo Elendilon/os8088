@@ -66,6 +66,29 @@ clock.inc (.text -1, both): the AM/PM 'M' rides in AH of one word store.
 
 desksc.inc (.bss -1, big only): `sc_vol` was a dead byte - named nowhere.
 
+### batch 3 - ui.inc again (big .text -58, small .text -57)
+
+* `ui_drag`: the "did it move" flag is `xchg ax,[bx+W_X] / xor ax,[bx+W_X]
+  / xchg di, ax`, and `or di, ax` for y - old XOR new instead of a
+  compare/branch/inc per axis (-5). Coordinates stay under 0x8000, so the
+  later `inc di` cannot wrap.
+* `ui_grow_clamp`: ui_grow's width and height release clamps were one body
+  twice; it is indexed by DI = 0/2 over three asserted word pairs
+  (ui_dragw/h, vid_w/h, W_X/Y) and DL = DI selects wm_min_axd's axis (-18).
+* `ui_trk_ax`: the `orig + (mouse - start)` sum both tracker steps spelled
+  out on both axes, indexed by BX = 0/2 (-10). Per drag pass (per tick).
+* `.mup`: one gfx_lock and one liveness test for the chrome and the package
+  release (-4).
+* the region dispatch after wm_hit is one `cmp al, 1` three ways (`je`
+  title, `ja` the boxes, fall-through content) with `cmp al, 4` at the
+  boxes (-6). wm_hit answers 0..4 only.
+* `ui_activate`: menu_activate + "redraw the bar if the owner changed",
+  written at both presses, FALLS INTO ui_lcall (asserted) (-7).
+* the chrome arm stores `[ui_post]`/`[ui_armr]` as one word, AH = AL = the
+  region, which is non-zero (-2).
+* step 0's `[ui_rebootq]` is read-and-cleared with xchg (-5).
+* `ui_timer_pass`: `cmp word [si+W_TIMER], 0` (-1).
+
 ## REFUSED
 
 * `drv_cp_count_x` falling into `drvf_drv_cp_class` (-4): it leaves the
@@ -80,6 +103,13 @@ desksc.inc (.bss -1, big only): `sc_vol` was a dead byte - named nowhere.
 * A `db 0x3D` skip-byte ladder for drv_load's four error codes (-3): no
   precedent in the tree, and stkbalance/ovlchk read instructions.
 * `str_len` restructured: no saving once counted (both 14).
+* `ui_timer_pass`'s `push si`/`pop si` round ui_bill (-2): ui_bill keeps
+  SI only as far as the HANDLER does, and W_ONTIMER is not a callback SPEC.md
+  binds to keep SI (W_ONCLICK and W_PAINT are; AM_ONCMD explicitly may
+  clobber it). Left.
+* `ui_track` taking the step in BP instead of SI to drop its `push si`/
+  `pop si` (-2): every callee in the loop is documented to keep SI and not
+  all to keep BP. Left.
 * `ui_tdbl` reuse of AX across the two `.first` arrivals: 0 bytes.
 * `db_xor_ring`/`db_xor_body` merged on a CF selector: +2.
 
