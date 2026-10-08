@@ -520,9 +520,8 @@ desk_rowcalc_x:
     neg ax                      ; AX = [desk_zh1] still, from .set
     add ax, [vid_dock_y0]
     sub ax, DESK_ZY0 + 1        ; AX = room below the first row
-    xor dx, dx
-    mov cx, bx                  ; BX still holds the pitch - nothing between
-    div cx                      ; .set and here writes it
+    xor dx, dx                  ; BX still holds the pitch - nothing between
+    div bx                      ; .set and here writes it
     inc ax                      ; ...and the first row itself
     mov [desk_rows], ax
 
@@ -660,8 +659,8 @@ desk_owner:
     stc
     jmp short .out
 .hit:
-    sub bx, desk_zslot          ; never borrows: CF stays 0
-    mov ah, bl
+    mov ah, DESK_NZ             ; the zone is how far along the count is:
+    sub ah, cl                  ; CL <= DESK_NZ, so CF stays 0
 .out:
     pop cx
     pop bx
@@ -947,18 +946,18 @@ desk_cell_xy:
     push bx
     push cx
     xor ah, ah
-    xor dx, dx
+    cwd                         ; (AX < 8000h: DX = 0)
     div word [desk_rows]        ; AX = column, DX = row within it
     mov cx, dx
     mov bx, DESK_PX
     mul bx                      ; AX = column * pitch (DX = 0)
     mov bx, [vid_desk_zx]
     sub bx, ax                  ; columns run LEFTWARDS from the right edge
-    mov ax, cx
+    xchg ax, cx                 ; (CX and BX are popped below)
     mul word [desk_zstep]
     add ax, DESK_ZY0
-    mov dx, ax
-    mov ax, bx
+    xchg ax, dx
+    xchg ax, bx
     pop cx
     pop bx
     ret
@@ -1065,9 +1064,8 @@ desk_caprect:
     pop ax
     call desk_zone_xy           ; AX = cell left, DX = cell top
     add ax, cx                  ; AX = the pen
-    lea cx, [bx-1]
-    add cx, ax
-    add cx, DESK_ZOVER          ; x2
+    lea cx, [bx+DESK_ZOVER-1]
+    add cx, ax                  ; x2
     sub ax, DESK_ZOVER          ; x1
     add dx, [desk_zh1]          ; y2 is the cell's bottom...
     mov bx, dx
@@ -1137,18 +1135,14 @@ desk_pm_body:
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 desk_zone_whole:
+    call desk_draw_zone         ; (the box is read by the window pass, after)
+    push ax
     push bx
     push cx
     push dx
-    push ax
     call desk_zone_rect
     call KERNEL_SEG:cw_wm_dmg_zadd
-    pop ax
-    call desk_draw_zone
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp kretc_dx
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -1534,9 +1528,7 @@ desk_draw_zone:
     pop word [gfx_b1ink]
     pop ax
     mov [gfx_color], ah
-    pop es
-    pop bp
-    jmp kretc_di
+    jmp kretc_es                ; ES, BP and DI, then the rest
 
 ; desk_colr - zone [desk_zdrv]'s PICTURE COLUMN: AX..CX its 32 columns, on the
 ; byte grid (DESKPIC), BX..DX the picture box and the gap under it - every row
@@ -1930,8 +1922,9 @@ desk_zones_r_x:
     mov bx, wm_clip_tab         ; = how many fragments the zone overlaps.
 .f:                             ; wm_clip_split puts a piece for each side
     push bx                     ; an overlapped fragment reaches past it,
-    mov bp, 0xFF                ; where the fragment was. X, then Y: BX and
-.ax:                            ; SI each two bytes on
+    push si                     ; where the fragment was. X, then Y: BX and
+    mov bp, 0xFF                ; SI each two bytes on
+.ax:
     mov ax, [bx+WCR_X2]         ; (o.x1 .. o.y2 = [si] .. [si+6])
     cmp ax, [si]
     jl .fk
@@ -1955,8 +1948,8 @@ desk_zones_r_x:
     cmp bp, 0x100               ; overlapped: DH + 1, and DL + the pieces
     adc dx, bp                  ; less the one it replaces - but + 0 for
 .fk:                            ; none: it shrinks, maybe not before the
-    pop bx                      ; others grow it, and a bound counts only
-    mov si, wm_cl_ox1           ; growth
+    pop si                      ; others grow it, and a bound counts only
+    pop bx                      ; growth
     add bx, WCR_SZ
     loop .f
     pop ax
@@ -1980,6 +1973,7 @@ desk_draw_zone:
     push cx
     push dx
     push si
+    push di                     ; for kretc_es's shape: nothing here spends it
     push bp
     push es
     mov ah, [gfx_color]         ; read ABOVE cw_thm_desk, which under
@@ -2026,9 +2020,7 @@ desk_draw_zone:
 .done:
     pop ax
     mov [gfx_color], ah
-    pop es
-    pop bp
-    jmp kretc_si
+    jmp kretc_es                ; ES, BP, DI (banked for this) and the rest
 %endif
 
 ; -----------------------------------------------------------------------------
