@@ -3399,7 +3399,8 @@ disk_mount_x:
     ; listing buffer still holds the PREVIOUS volume's entries and a stale
     ; count is the one thing that could make a reader believe they are this
     ; volume's. An empty listing is a state the whole kernel already handles;
-    ; a wrong one is not. [dsk_lstale] is the debt, and dsk_relist pays it.
+    ; a wrong one is not. [dsk_lstale] is the debt (dsk_relist paid it; it is
+    ; gone, and a loud mount is what clears the flag now).
     cmp byte [dsk_quiet], 0
     jne .quiet
     cmp word [dsk_dseg], 0      ; ...AND A MOUNT WITH NOWHERE TO PUT A LISTING

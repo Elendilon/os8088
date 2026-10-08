@@ -551,15 +551,15 @@ section .text                   ; vid_pop8`, the shared epilogue, which is
 ; only writer (tests/unit/t_invariants.py checks that from the host) and sets
 ; all three on both arms, because SPEC.md 39.26 flattened sw_rect_pl,
 ; sw_fill_pat, ico_pass_bb and font_char_bb on mono and planes AGREEING. Their
-; layout is pinned as well as their writer: menu_save_kb's header already
-; records what a word read of [vid_planes] picks up when [vid_planes_w] is the
+; layout is pinned as well as their writer: menu_drop's save-under sizing
+; block (menu_save_kb's header, before it was inlined there) records what a word read of [vid_planes] picks up when [vid_planes_w] is the
 ; byte after it - 0x0404, a thousand planes, and a save-under claim bigger
 ; than the fixed one it replaced.
 %if (vid_planes - vid_mono) != 1
   %error "[vid_mono] and [vid_planes] must stay adjacent, mono first: they are set together by vid_depth_set and read as one fact by the four bodies SPEC.md 39.26 flattened"
 %endif
 %if (vid_planes_w - vid_planes) != 1
-  %error "[vid_planes_w] must follow [vid_planes]: menu_save_kb documents the 0x0404 a word read of the byte picks up, and that sentence is only true while the _w twin is the byte after it"
+  %error "[vid_planes_w] must follow [vid_planes]: menu_drop documents the 0x0404 a word read of the byte picks up, and that sentence is only true while the _w twin is the byte after it"
 %endif
 vid_depth_set:
     push ax                     ; the header says "clobbers: flags", and AL is

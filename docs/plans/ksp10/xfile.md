@@ -39,3 +39,22 @@ first change here.
    * CTRL.DRV (module, not resident): driver.inc's track-buffer `and cx,
      0x0FFF / neg cx` -> `and ch, 0Fh`, -1 module byte.
    kern_big .cold -8, kern_small .cold -8 (resident), CTRL.DRV -1.
+5. **Comment and prose fixes, no bytes**: viddet.inc's two `menu_save_kb`
+   references (it is a block inside `menu_drop` now); telnet.asm's
+   `kbm_slock` (Scroll Lock through `kbm_shf`); tests/deskwhole.py's
+   break-it line (`call wm_dmg_rebands`, no pops); disk.inc's `dsk_relist`
+   comment; and SPEC.md's present-tense prose for `dsk_relist`,
+   `dskw_remount` and `dsk_find_name` (18.9, 18.4's deferral, 51's
+   `drv_find`, 28.3's chip menu, 87's `api_name`). The paragraphs that
+   NARRATE their history (28.3.1, 54.9, 96.47/96.49.7) are left as they are.
+
+## REFUSED
+
+* **wm_su_srect's `.isect` through `gfx_rect_isectcf`** (gfx agent's): the
+   best shape (`mov si, sx1 / cmp von / je .one / call isect / .vis: mov si,
+   vx1 / .one: call isectcf / jc .none`) is **-6 .text**, but every call pays
+   one more near call/ret (isectcf is `call gfx_rect_isect` + the compares),
+   ~35-40 clocks a fragment of the save-under cache. The brief said take it
+   only if not slower, and LAST-DROP-BYTES 7.10 holds the save-under cache
+   for the owner. A shape that keeps one call costs more bytes than it saves
+   (a mask word built from `[son] | [von]` is 44 bytes against 43).
