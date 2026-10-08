@@ -1546,9 +1546,12 @@ dskw_wdata:
     mov ax, [dskw_seg]
     mov [dskw_wseg], ax         ; the ADVANCING source segment
     cmp word [dskw_rem], 0
-    jne .clus
+    jne .go
     ret                         ; an empty file owns no clusters at all, and
                                 ; CF = 0 out of the compare with 0
+.go:
+    mov bp, .clus               ; dskw_xclus's continuation: where it goes
+                                ; for the next cluster (see dskw_rdata)
 .clus:
     call dskw_alloc             ; AX = a cluster, already marked EOC
     jnc .haveclus
@@ -1570,61 +1573,10 @@ dskw_wdata:
 .lba:
     mov ax, [dskw_cur]
     mov [dskw_prev], ax
-    call dskw_take1             ; whole sectors of this take, APPENDED TO THE
-    jc .ioerr                   ; PENDING RUN rather than written here - see
-                                ; the header. CX is the count, [dskw_clba]
-                                ; the cursor. (The carry is unreachable:
-                                ; dskw_alloc bounds the cluster)
-.addrun:
-    call dskw_runadd            ; the whole sectors of this take, appended to
-    jc .ioerr                   ; the pending run (SPEC.md 18.4.2). CX comes
-    jcxz .tail                  ; back non-zero when the run cap said 0, and
-                                ; THAT FALLS THROUGH TO .stg (SPEC.md
-                                ; 18.4.2.1). It did not until this: .jioerr
-                                ; sat here, so dskw_runadd's third answer -
-                                ; "not one sector fits this DMA page, stage
-                                ; it" - landed on the media-error arm and .stg
-                                ; had no way in at all, from 2e8e292 onwards
-.stg:                           ; one sector the 8237 cannot carry, alone,
-    push cx                     ; through the scratch - which is 512-aligned
-    mov cx, 512                 ; and therefore never straddles. No run can be
-    call dskw_wone              ; pending here: dskw_runmax answered 0, and it
-    pop cx                      ; is only asked with [dskw_rlen] = 0
-    jc .jioerr
-    DSKW_CLBA_INC
-    add word [dskw_wseg], 32    ; 512 bytes = 32 paragraphs on. The source is
-    loop .addrun                ; now 1..511 bytes PAST the page edge, so the
-    jmp short .tail             ; next dskw_runadd gets the whole 127 back:
-                                ; one staged sector per 64KB of source, at most
-.ioerr:                         ; THE ERROR ARM ITSELF, here in the middle of
-.jioerr:                        ; the routine below an unconditional jump: the
-    jmp dskw_ioerr              ; arms above and below both reach it short, so
-                                ; the relay that used to stand here (SPEC.md
-                                ; 18.4.2.1) has nothing left to relay to.
-                                ; AX = FERR_IO / FERR_WPROT, CF = 1: a tail
-                                ; call, dskw_ioerr's own `stc / ret`
-
-    ; the partial final sector: staged zero-filled, so nothing of the
-    ; caller's neighbourhood past EOF ever reaches the disk. The run goes
-    ; first - its bytes come BEFORE these, and flushing it is also what
-    ; advances [dskw_wseg] to where the tail's source actually is.
-.tail:
-    call dskw_last_p
-    jnz .advance
-    call dskw_flushrun
-    jc .jioerr
-    mov cx, [dskw_tail]
-    call dskw_wone              ; the sector the whole-sector walk stopped at,
-    jc .jioerr                  ; the live bytes and the rest zeroed
-.advance:
-    mov ax, [dskw_take]
-    sub [dskw_rem], ax
-    jz .done
-    jmp .clus                   ; (near: the loop body outruns a short jump)
-.done:
-    call dskw_flushrun            ; the last run of the file
-    jc .jioerr
-    ret                         ; CF = 0 from the `jc`
+    jmp dskw_xclus              ; the take, the run and the tail: dskw_rdata's
+                                ; own body, which is this one's
+.ioerr:
+    jmp dskw_ioerr              ; AX = FERR_IO / FERR_WPROT, CF = 1
 
 ; -----------------------------------------------------------------------------
 ; dskw_runadd - append CX whole sectors at [dskw_clba] to the pending run
@@ -2093,9 +2045,10 @@ dskw_rbody:
 ; in:  [dskw_cur] = first cluster, [dskw_rem]/[dskw_tail] sized by the
 ;      caller, [dskw_seg]:[dskw_src] = the destination, normalised
 ; out: CF=0, or CF=1 with AX = FERR_*
-; clobbers: AX (the output), BX, CX, DI, ES, CF
+; clobbers: AX (the output), BX, CX, DI, ES, BP (dskw_xclus's continuation),
+;           CF
 ;
-; dskw_wdata's twin, and coalescing the same way (SPEC.md 18.4.2): whole
+; dskw_wdata's twin, and since size pass 10 its BODY too (dskw_xclus), and coalescing the same way (SPEC.md 18.4.2): whole
 ; sectors are APPENDED TO A PENDING RUN rather than read here, and the run is
 ; spent by dskw_rflush when the LBA stops being contiguous, when its DMA page
 ; is full, or at the end. A run crosses CLUSTER boundaries, which is the whole
@@ -2109,63 +2062,98 @@ dskw_rdata:
     mov word [dskw_rlen], 0     ; no data run pending
     mov ax, [dskw_seg]
     mov [dskw_wseg], ax         ; the ADVANCING destination segment
-.clus:
+    mov bp, .next               ; dskw_xclus's continuation (below)
     mov ax, [dskw_cur]
-    call dskw_take1             ; CX = whole sectors, [dskw_clba] the cursor -
-    jc .corrupt                 ; and CF=1 for a cluster outside [2,
-                                ; dsk_maxclus], dsk_clus2lba_x being the first
-                                ; thing it asks: a dskw_clok here as well was
-                                ; the same test twice a cluster
-.addrun:
-    call dskw_runadd            ; the whole sectors of this take, appended to
-    jc .ioerr                   ; the pending run (SPEC.md 18.4.2). CX comes
-    jcxz .tail                  ; back non-zero when the run cap said 0, and
-                                ; THAT FALLS THROUGH TO .stg, exactly as the
-                                ; write path's does (SPEC.md 18.4.2.1)
-.stg:                           ; one sector the 8237 cannot carry, alone,
-    push cx                     ; through the scratch - which is 512-aligned
-    mov cx, 512                 ; and therefore never straddles. No run can be
-    call dskw_rone              ; pending here: dskw_runmax answered 0, and it
-    pop cx                      ; is only asked with [dskw_rlen] = 0 - and all
-    jc .jioerr                  ; 512 of it goes up to the caller
-    DSKW_CLBA_INC
-    add word [dskw_wseg], 32    ; 512 bytes = 32 paragraphs on
-    loop .addrun
-    jmp short .tail
+    jmp short dskw_xclus
 .corrupt:                       ; (dskw_rbody and dskw_wabody answer here too)
     mov ax, FERR_IO             ; any link outside [2, maxclus] while bytes
     stc                         ; remain is corruption (SPEC.md 18)
     ret
-.ioerr:                         ; ...and the error arms THEMSELVES, below the
-.jioerr:                        ; loop's own jmp where nothing falls into them
-    jmp dskw_ioerr              ; and every arm above and below reaches them
-                                ; short: the write path's shape (dskw_wdata),
-                                ; with no relay and no jump over them at entry
+.next:
+    mov ax, [dskw_cur]          ; follow the chain
+    call dsk_next_clus_x
+    jc .corrupt
+    mov [dskw_cur], ax          ; ...and FALL INTO the shared body: the read
+                                ; path pays no jump at all to get there
 
-    ; the partial final sector: only its live bytes reach the caller. The run
+; -----------------------------------------------------------------------------
+; dskw_xclus - ONE CLUSTER's take, for dskw_wdata and dskw_rdata both
+; in:  AX = the cluster, BP = where to go for the next one, [dskw_fop] = the
+;      direction; the rest of the two callers' state as they set it up
+; out: (it is jumped to and RETURNS for its caller) CF=0 when [dskw_rem]
+;      reaches 0 with the last run spent, or CF=1 with AX = FERR_*
+;
+; The two routines' bodies were the same 29 instructions, differing only in
+; dskw_wone against dskw_rone - which [dskw_fop] already names, so dskw_one
+; asks it (once per STAGED sector, a disk transfer each) - and in what the
+; loop does for its next cluster, which is the continuation in BP. `jmp bp`
+; is 11 cycles where the read path's `jmp .clus` + `mov ax, [dskw_cur]` was
+; 29, so the per-cluster chain walk got 18 cycles FASTER on a read; a write
+; pays one near jmp (15) more a cluster, against dskw_alloc's FAT scan.
+; BP is free for it: every module-internal body clobbers BP (dskw_wrp and
+; dskw_read_x bank it), and nothing this loop calls touches it.
+;
+; take1's refusal keeps each caller's answer: FERR_IO on a read (a cluster
+; outside [2, maxclus] is corruption) and dskw_ioerr's mapping on a write,
+; exactly as the two copies answered.
+; -----------------------------------------------------------------------------
+dskw_xclus:
+    call dskw_take1             ; CX = whole sectors, [dskw_clba] the cursor -
+    jc .t1fail                  ; and CF=1 for a cluster outside [2,
+                                ; dsk_maxclus], dsk_clus2lba_x being the first
+                                ; thing it asks
+.addrun:
+    call dskw_runadd            ; the whole sectors of this take, appended to
+    jc .ioerr                   ; the pending run (SPEC.md 18.4.2). CX comes
+    jcxz .tail                  ; back non-zero when the run cap said 0, and
+                                ; THAT FALLS THROUGH TO .stg (SPEC.md
+                                ; 18.4.2.1)
+.stg:                           ; one sector the 8237 cannot carry, alone,
+    push cx                     ; through the scratch - which is 512-aligned
+    mov cx, 512                 ; and therefore never straddles. No run can be
+    call dskw_one               ; pending here: dskw_runmax answered 0, and it
+    pop cx                      ; is only asked with [dskw_rlen] = 0
+    jc .ioerr
+    DSKW_CLBA_INC
+    add word [dskw_wseg], 32    ; 512 bytes = 32 paragraphs on. The buffer is
+    loop .addrun                ; now 1..511 bytes PAST the page edge, so the
+    jmp short .tail             ; next dskw_runadd gets the whole 127 back:
+                                ; one staged sector per 64KB, at most
+.t1fail:
+    cmp byte [dskw_fop], 0
+    je dskw_rdata.corrupt       ; a read's answer...
+.ioerr:                         ; ...and a write's, and every arm's here: AX =
+    jmp dskw_ioerr              ; FERR_IO / FERR_WPROT, CF = 1
+
+    ; the partial final sector. A write stages it zero-filled, so nothing of
+    ; the caller's neighbourhood past EOF reaches the disk; a read copies only
+    ; its live bytes up, so no memory past EOF reaches the caller. The run
     ; goes first - its bytes come BEFORE these, and flushing it is also what
-    ; advances [dskw_wseg] to where the tail's destination actually is.
+    ; advances [dskw_wseg] to where the tail actually is.
 .tail:
     call dskw_last_p
     jnz .advance
     call dskw_flushrun
     jc .ioerr
-    mov cx, [dskw_tail]         ; the sector the whole-sector walk stopped at,
-    call dskw_rone              ; whole, into the scratch - and only its live
-    jc .jioerr                  ; bytes to the caller
+    mov cx, [dskw_tail]
+    call dskw_one               ; the sector the whole-sector walk stopped at
+    jc .ioerr
 .advance:
     mov ax, [dskw_take]
     sub [dskw_rem], ax
-    jz .rdone
-    mov ax, [dskw_cur]          ; follow the chain
-    call dsk_next_clus_x
-    jc .corrupt
-    mov [dskw_cur], ax
-    jmp .clus                   ; (near: the loop body outruns a short jump)
-.rdone:
+    jz .done
+    jmp bp                      ; the caller's next cluster
+.done:
     call dskw_flushrun            ; the last run of the file
-    jc .jioerr
+    jc .ioerr
     ret                         ; CF = 0 from the `jc`
+
+; tests/dskwstage.py breakpoints each pipeline's staging arm BY NAME, and the
+; two arms are one now: the names stay, on the one address. A write call
+; reaches it only for a write and a read call only for a read, so a count per
+; call still says which pipeline staged
+dskw_wdata.stg equ dskw_xclus.stg
+dskw_rdata.stg equ dskw_xclus.stg
 
 ; -----------------------------------------------------------------------------
 ; dskw_czexp - expand the compressed file dskw_rdata just delivered
@@ -4500,6 +4488,9 @@ dskw_ioerr:
 ; memory past EOF reaches the caller - and there is nothing to zero, the
 ; buffer being the caller's.
 ; -----------------------------------------------------------------------------
+dskw_one:                       ; ...whichever [dskw_fop] says (dskw_xclus)
+    cmp byte [dskw_fop], 0
+    je dskw_rone
 dskw_wone:
     push cx
     push dx
