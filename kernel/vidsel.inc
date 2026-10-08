@@ -506,7 +506,9 @@ vid_mono_text:
     mov cx, 2000
     cld
     rep stosw
-    mov dx, 0x3B8               ; high-res text, video ON, blink on - IBM's own
+    mov dl, 0xB8                ; high-res text, video ON, blink on - IBM's own
+                                ; (3B8h: vid_6845_prog leaves DX at 3B4h, and
+                                ; rep stosw moves no DX)
     mov al, 0x29                ; mode 7 value, and the last write for the same
     out dx, al                  ; reason vid_setmode's is (39.6): onto a page
     pop es                      ; that is already blank

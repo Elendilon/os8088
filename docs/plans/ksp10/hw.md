@@ -47,6 +47,16 @@ kern_emu .text -60, .cold -16 (sum -76)**.
 Running total at batch 3: **kern_big .text -59, .cold -10 (sum -69); kern_small .text -42
 (sum -42)**; kern_emu as batch 2 plus -5.
 
+### Batch 4
+
+| where | what | big | small |
+|---|---|---:|---:|
+| vid_mono_text | 3B8h after vid_6845_prog is `mov dl` | -1 | 0 |
+| fsx_wait .vsync | 3BAh after 3DAh is `mov dl` | -1 | -1 |
+
+Running total at batch 4: **kern_big .text -61, .cold -10 (sum -71); kern_small .text -43
+(sum -43)**.
+
 docs/INDEX.md is regenerated in this branch only because this notes file is tracked
 (os88index lists every docs/plans/*.md); the coordinator regenerates it at the merge.
 

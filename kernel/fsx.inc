@@ -831,7 +831,8 @@ fsx_wait:
     mov dx, 0x3DA               ; the port by the CURRENT mode: on a Hercules
     cmp byte [vid_kind], VID_HERC ; machine every settable mode is the 3BAh
     jne .pa                     ; family, on VGA/CGA every one is 3DAh - so
-    mov dx, 0x3BA               ; the adapter kind IS the mode's family
+    mov dl, 0xBA                ; the adapter kind IS the mode's family (DH
+                                ; is 3 from the move above)
 .pa:
     mov bx, [ticks]             ; phase A: wait until OUT of retrace, so a
 .paw:                           ; call landing mid-retrace syncs to the NEXT
