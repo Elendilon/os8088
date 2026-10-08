@@ -721,6 +721,9 @@ wm_fs_setrect:
 ;           display, and nothing is armed
 ; clobbers: flags, SI, DI and the four outputs
 ;
+; wm_dmg_rebands is the same build again from the damage the last call banked
+; in wm_db_r, and takes no input at all.
+;
 ; MBAR_H .. [vid_dock_y0]-1 was the answer while there was one display, and it
 ; is still the answer ON display 0 - the menu bar and the dock are the
 ; PRIMARY's and no other card carries either. On any other display the whole
@@ -753,12 +756,15 @@ wm_dmg_bands:
     mov [wm_db_r+2], bx
     mov [wm_db_r+4], cx
     mov [wm_db_r+6], dx
-    mov ax, 0x7FFF                      ; the bounding box, empty. AX is dead
-    mov [wm_db_b+0], ax                 ; here - it was stored four lines up
-    mov [wm_db_b+2], ax                 ; and is reloaded inside .disp
-    not ax
-    mov [wm_db_b+4], ax
-    mov [wm_db_b+6], ax
+wm_dmg_rebands:                         ; ...the SAME damage again: nothing
+                                        ; below reads AX..DX before .disp
+                                        ; reloads them, and wm_db_r is written
+                                        ; by nothing else, so a second build
+                                        ; from it needs no registers at all
+                                        ; (wm_dmg_gray's two re-seeds)
+    mov si, wm_db_b                     ; the bounding box, EMPTY. AX is dead
+    call wm_rect_empty                  ; here - it was stored above and is
+                                        ; reloaded inside .disp
     xor si, si                          ; SI = the display being asked...
     mov [wm_clip_n], si                 ; ...and the list, disarmed with it
 .disp:
@@ -903,12 +909,15 @@ wm_dmg_bands:
     mov [wm_db_r+2], bx
     mov [wm_db_r+4], cx
     mov [wm_db_r+6], dx
-    mov ax, 0x7FFF                      ; the bounding box, empty. AX is dead
-    mov [wm_db_b+0], ax                 ; here - it was stored four lines up
-    mov [wm_db_b+2], ax                 ; and is reloaded inside .disp
-    not ax
-    mov [wm_db_b+4], ax
-    mov [wm_db_b+6], ax
+wm_dmg_rebands:                         ; ...the SAME damage again: nothing
+                                        ; below reads AX..DX before .disp
+                                        ; reloads them, and wm_db_r is written
+                                        ; by nothing else, so a second build
+                                        ; from it needs no registers at all
+                                        ; (wm_dmg_gray's two re-seeds)
+    mov si, wm_db_b                     ; the bounding box, EMPTY. AX is dead
+    call wm_rect_empty                  ; here - it was stored above and is
+                                        ; reloaded inside .disp
     xor si, si                          ; SI = the display being asked...
     mov [wm_clip_n], si                 ; ...and the list, disarmed with it
 .disp:
@@ -4912,6 +4921,27 @@ wm_runion:
 .d:
     ret
 
+; wm_rect_empty - the block at DS:SI made the EMPTY box wm_runion grows from
+; in:  SI = a four-word block in x1,y1,x2,y2 order
+; out: x1 = y1 = 7FFFh, x2 = y2 = -1 (x1 > x2: empty, and gfx_rect_hit never
+;      hits it). AX = 7FFFh and flags spent; every other register preserved
+;
+; Three boxes are seeded this way - wm_dmg_bands' bounding box, the zones' box
+; at wm_dmg_wins' .wdone and wm_cov_rect's covered box - and each spelled the
+; six stores out. The far corner is -1 for all three (it was 8000h for the
+; first two): every rect folded into either of those is on the glass, so its
+; x2/y2 is >= 0 and beats either sentinel, and an unfolded box is refused by
+; its x1 alone. wm_cov_rect's is handed to a package as wm_damage's answer,
+; where -1 is the value it always had.
+wm_rect_empty:
+    mov ax, -1
+    mov [si+4], ax
+    mov [si+6], ax
+    shr ax, 1
+    mov [si], ax
+    mov [si+2], ax
+    ret
+
 ; -----------------------------------------------------------------------------
 ; wm_rgrow - AX/BX/CX/DX grown to cover the rect at DS:SI as well
 ; in:  AX = x1, BX = y1, CX = x2, DX = y2 (inclusive); SI = a four-word block
@@ -5387,12 +5417,11 @@ wm_dmg_wins:
     inc si
     jmp .dwin
 .wdone:
-    mov ax, 7FFFh               ; the zones' box is a one-shot too: EMPTY for
-    mov [wm_dmg_zb], ax         ; the next caller, which may draw no zone at
-    mov [wm_dmg_zb+2], ax       ; all (wm_dock_under, fmv_store). AX is the
-    inc ax                      ; entry frame's, and kret_bp puts it back
-    mov [wm_dmg_zb+4], ax
-    mov [wm_dmg_zb+6], ax
+    mov si, wm_dmg_zb           ; the zones' box is a one-shot too: EMPTY for
+    call wm_rect_empty          ; the next caller, which may draw no zone at
+                                ; all (wm_dock_under, fmv_store). AX and SI
+                                ; are the entry frame's, and kret_bp puts them
+                                ; back
     xor ax, ax
     mov [wm_dmg_dk], al         ; consumed: a one-shot argument must not be
     mov [wm_dmg_stwin], ax      ; left set for a caller that draws no strip -
@@ -5824,7 +5853,7 @@ wm_dmg_shad dw 0                ; bit n = window n owes its DROP SHADOW and
                                 ; nothing else (SPEC.md 11.91.4). Never both:
                                 ; a window in wm_dmg_mask is redrawn whole and
                                 ; the shadow comes with it
-wm_dmg_zb   dw 7FFFh, 7FFFh, 8000h, 8000h ; the box of every desktop zone
+wm_dmg_zb   dw 7FFFh, 7FFFh, -1, -1     ; the box of every desktop zone
                                 ; this pass draws WHOLE (SPEC.md 11.91), a
                                 ; one-shot wm_dmg_wins empties. EMPTY is
                                 ; x1 > x2 signed: no rect hits it and the
@@ -5880,10 +5909,6 @@ wm_clip_n   dw 0                ; rects in wm_clip_tab; 0 = disarmed.
                                 ; Initialized data, NOT .bss: every gfx_fill
                                 ; reads it, including the machine's first,
                                 ; and -f bin zeroes nothing.
-wm_clip_ofr db 0                ; wm_clip_occl subtracts by the FRAME rect and
-                                ; not the occupied one (SPEC.md 11.96.15).
-                                ; Written by both entry points before either
-                                ; reads it, so its value here is documentation
 wm_dmg_cullq db 0               ; SPEC.md 11.3.3: wm_dmg_wins ASKS for the cull
 wm_dmg_cull db 0                ; ...and wm_draw_win turns it on around W_PAINT
                                 ; alone, which is what keeps wm_su_try's own
@@ -6048,73 +6073,6 @@ wm_clip_set:
                                 ; A tail jump: its `mov` and `ret` leave CF
 
 ; -----------------------------------------------------------------------------
-; wm_clip_occl - subtract every visible window ABOVE BX from the armed list
-; in:  BX = window ptr; the list holds at least one rect
-; out: CF = 1 the list overflowed - nothing about it is valid. CF = 0 and
-;      [wm_clip_n] = 0 means the seed rect is entirely covered.
-; clobbers: flags
-;
-; The walk both callers need, and the reason they can disagree about what an
-; empty list MEANS: wm_clip_set reads it as "invisible, skip the frame" and
-; wm_covered as "covered, skip the redraw" - opposite readings of the same
-; fact, and opposite degradations on overflow (skip vs. draw anyway).
-; -----------------------------------------------------------------------------
-; wm_clip_occlf - the same walk, subtracting each window above by the rect
-; wm_draw_win REPAINTS (wm_clip_subf's frame) rather than the box it occupies.
-;
-; SPEC.md 11.96.15. Which of the two is right is decided by what the caller
-; does with the answer, and the tree already knows it at wm_clip_subf: the
-; drop shadow is an L starting at (+1,+1), so the occupied box holds two
-; corners - (x+w, y) and (x, y+h) - that nothing ever paints.
-;
-; For OCCLUSION - "may I draw here?" - claiming them is conservative and free:
-; it says covered about a pixel that is not, and a clipped primitive declines
-; to draw one nobody needed. For a RESTORE it is the other direction and it
-; LOSES A PIXEL: the one declined is one no window above will write, so the
-; damage under it is never repaired and the artifact is permanent. 11.91.1
-; found exactly this at the dither, one pixel at a time, and this is the same
-; asymmetry in the second place the tree subtracts a window in order NOT to
-; draw something.
-; -----------------------------------------------------------------------------
-wm_clip_occlf:
-    mov byte [wm_clip_ofr], 1
-    jmp short wm_clip_occl_r
-wm_clip_occl:
-    mov byte [wm_clip_ofr], 0
-wm_clip_occl_r:
-    push ax
-    push bx
-    push cx
-    push si
-    call wm_zabove              ; SI -> the first entry above us, CX = how many
-    jc .done
-.scan:
-    jcxz .done
-    dec cx
-    mov al, [si]
-    inc si
-    call wm_idx2ptr             ; BX = window above (AX and CX preserved)
-    test byte [bx+W_FLAGS], 2
-    jz .scan
-    call wm_clip_subx           ; ...by frame or by occupied rect, per entry
-    jc .over
-    cmp word [wm_clip_n], 0
-    jne .scan
-.done:
-%ifdef DOCK_OPT
-    call dock_hole_sub          ; ...and the OPEN dock, which is over all of
-                                ; them (SPEC.md 30.6.1). CF: its overflow
-%else
-    clc
-%endif
-.over:                          ; (`jc` arrives with CF = 1)
-    pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; wm_covered - is EVERY pixel of this window hidden by windows above it?
 ; in:  BX = window ptr (visible); caller HOLDS the gfx lock
 ; out: CF = 1 = wholly covered: drawing it would change no pixel on screen.
@@ -6217,9 +6175,10 @@ wm_dmg_gray:
 %else
     call cur_unlazy              ; ...as the unclipped fill did (see above).
 %endif
-                                ; The DAMAGE is banked by the pushes above:
-                                ; the overflow path below re-seeds from it,
-                                ; and the region build eats every register
+                                ; The DAMAGE is banked by wm_dmg_bands in
+                                ; wm_db_r: the overflow paths below re-seed
+                                ; from it, and the region build eats every
+                                ; register
     call wm_dmg_bands           ; the seeds are each display's own band inside
     jc .out                     ; that rect (SPEC.md 39.16.2.1), and AX..DX
                                 ; their bounding box - which the fill wants and
@@ -6245,17 +6204,13 @@ wm_dmg_gray:
     jmp short .fill
 %ifdef OS88_SHORTCUTS
 .frames:                        ; the Ls overflowed it: the FRAMES alone, the
-    pop si                      ; region before SPEC.md 26.9.9, rebuilt from the
-    pop dx                      ; damage (see .whole's pops). No zone is drawn
-    pop cx                      ; yet, so desk_paint_mask draws each whole
-    pop bx                      ; over it, and the dither goes under no window
-    pop ax                      ; - 11.91.2's exemption still holds, where
-    push ax                     ; `.whole` repainted every window in the
-    push bx                     ; damage on top of a dither laid under it
-    push cx
-    push dx
-    push si
-    call wm_dmg_bands
+    call wm_dmg_rebands         ; region before SPEC.md 26.9.9, rebuilt from the
+                                ; damage (see .whole's). No zone is drawn
+                                ; yet, so desk_paint_mask draws each whole
+                                ; over it, and the dither goes under no window
+                                ; - 11.91.2's exemption still holds, where
+                                ; `.whole` repainted every window in the
+                                ; damage on top of a dither laid under it
     call wm_dmg_occl
     jnc .cmpn
 %endif
@@ -6277,25 +6232,19 @@ wm_dmg_gray:
                                 ; the mask changed, so it rebuilds the same
                                 ; one - kept for an overflow AFTER the zones
                                 ; (SPEC.md 26.9.9), which nothing would see.
-                                ; HERE, above the pops: it spends AX, and AX
-                                ; is the damage's x1 the bands are re-seeded
-                                ; from - called below them it cut the whole
-                                ; dither down to x 618 on a zoom's restore
-    pop si                      ; ...THE BANDS, not their bounding box, and not
-    pop dx                      ; the damage: re-seeding from the box would
-    pop cx                      ; (the damage is the entry frame's AX..DX,
-    pop bx                      ; taken off it and put straight back for
-    pop ax                      ; kret_si)
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+                                ; It spends AX, which once mattered: the
+                                ; re-seed was off the entry frame's AX..DX and
+                                ; a call below it cut the whole dither down to
+                                ; x 618 on a zoom's restore. It reads no
+                                ; register now
+    call wm_dmg_rebands         ; ...THE BANDS, not their bounding box, and not
+                                ; the damage: re-seeding from the box would
                                 ; dither columns of display 0 that the damage
                                 ; never covered, because the box spans the seam
-    call wm_dmg_bands           ; and each display then clamps it back to its
+                                ; and each display then clamps it back to its
                                 ; own full width. It is idempotent from the
-                                ; DAMAGE and is not from the box
+                                ; DAMAGE (wm_db_r, banked by the first build)
+                                ; and is not from the box
 .fill:
     mov ax, [wm_db_b + 0]       ; the bounding box of the seeds; the armed
     mov bx, [wm_db_b + 2]       ; region confines the fill inside it and
@@ -6305,6 +6254,59 @@ wm_dmg_gray:
 .out:
     call wm_clip_clear          ; ours for one call and no longer
     jmp kret_si
+
+; -----------------------------------------------------------------------------
+; wm_clip_occl - subtract every visible window ABOVE BX from the armed list
+; in:  BX = window ptr; the list holds at least one rect
+; out: CF = 1 the list overflowed - nothing about it is valid. CF = 0 and
+;      [wm_clip_n] = 0 means the seed rect is entirely covered.
+; clobbers: flags
+;
+; The walk both callers need, and the reason they can disagree about what an
+; empty list MEANS: wm_clip_set reads it as "invisible, skip the frame" and
+; wm_covered as "covered, skip the redraw" - opposite readings of the same
+; fact, and opposite degradations on overflow (skip vs. draw anyway).
+; -----------------------------------------------------------------------------
+; wm_clip_occlf - the same walk, subtracting each window above by the rect
+; wm_draw_win REPAINTS (wm_clip_subf's frame) rather than the box it occupies.
+;
+; SPEC.md 11.96.15. Which of the two is right is decided by what the caller
+; does with the answer, and the tree already knows it at wm_clip_subf: the
+; drop shadow is an L starting at (+1,+1), so the occupied box holds two
+; corners - (x+w, y) and (x, y+h) - that nothing ever paints.
+;
+; For OCCLUSION - "may I draw here?" - claiming them is conservative and free:
+; it says covered about a pixel that is not, and a clipped primitive declines
+; to draw one nobody needed. For a RESTORE it is the other direction and it
+; LOSES A PIXEL: the one declined is one no window above will write, so the
+; damage under it is never repaired and the artifact is permanent. 11.91.1
+; found exactly this at the dither, one pixel at a time, and this is the same
+; asymmetry in the second place the tree subtracts a window in order NOT to
+; draw something.
+; -----------------------------------------------------------------------------
+; ONE WALK FOR ALL FOUR (size pass 10). wm_clip_occl's loop and wm_dmg_occl's
+; were the same loop - each visible window in z order handed to a subtract,
+; stopping on an overflow or an emptied list, then the open dock - and differed
+; only in where the walk STARTS (above BX, or the bottom) and WHICH subtract
+; runs, which the occlf/occl pair chose with a flag byte read per window. So
+; every entry names its subtract in DI and its start in SI/CX, and they share
+; the body from wm_occl_go. wm_zabove leaves CX = 0 when it answers CF = 1,
+; so its "nothing above" needs no test of its own: the walk is empty.
+; -----------------------------------------------------------------------------
+wm_clip_occlf:
+    push di
+    mov di, wm_clip_subf        ; by the frame wm_draw_win repaints
+    jmp short wm_clip_occw
+wm_clip_occl:
+    push di
+    mov di, wm_clip_sub         ; by the box it occupies, shadow included
+wm_clip_occw:
+    push ax
+    push bx
+    push cx
+    push si
+    call wm_zabove              ; SI -> the first entry above us, CX = how many
+    jmp short wm_occl_go
 
 ; -----------------------------------------------------------------------------
 ; wm_dmg_occl - subtract EVERY visible window from the armed list
@@ -6333,18 +6335,17 @@ wm_occl_l:
     jmp short wm_occl_w
 %endif
 wm_dmg_occl:
-%ifdef KERN_BIG
     push di
-    mov di, wm_clip_subf
-wm_occl_w:
-%endif
-    push ax
+    mov di, wm_clip_subf        ; the FRAME rect: what will be REPAINTED, not
+wm_occl_w:                      ; what is occupied - the shadow's two corners
+    push ax                     ; are in the second and in neither
     push bx
     push cx
     push si
     mov ch, 0
     mov cl, [wm_zn]
     mov si, wm_zord
+wm_occl_go:                     ; SI -> the first entry, CX = how many
     jcxz .done
 .scan:
     mov al, [si]
@@ -6352,11 +6353,7 @@ wm_occl_w:
     call wm_idx2ptr             ; BX = the window (AX and CX preserved)
     test byte [bx+W_FLAGS], 2
     jz .next
-%ifdef KERN_BIG
-    call di                     ; the FRAME rect: what will be REPAINTED, not
-%else                           ; what is occupied - the shadow's two corners
-    call wm_clip_subf           ; are in the second and in neither
-%endif
+    call di                     ; the entry's subtract (BX = that window)
     jc .over
     cmp word [wm_clip_n], 0
     je .done                    ; nothing left: stop walking
@@ -6364,8 +6361,9 @@ wm_occl_w:
     loop .scan
 .done:
 %ifdef DOCK_OPT
-    call dock_hole_sub          ; ...and the open dock: no dither under it
-                                ; (SPEC.md 30.6.1). CF: its overflow
+    call dock_hole_sub          ; ...and the OPEN dock, which is over all of
+                                ; them (SPEC.md 30.6.1): no dither under it
+                                ; and no draw. CF: its overflow
 %else
     clc
 %endif
@@ -6374,9 +6372,7 @@ wm_occl_w:
     pop cx
     pop bx
     pop ax
-%ifdef KERN_BIG
     pop di
-%endif
     ret
 
 ; wm_ttl_rect - DI = window -> AX/BX/CX/DX = its TITLE STRIP, inclusive
@@ -6579,15 +6575,6 @@ wm_clip_clear:
 ;
 ; So the dither subtracts the frame only, and the shadow's L is dithered and
 ; then drawn over: a 1px double-draw down two edges, against a stale pixel.
-; -----------------------------------------------------------------------------
-; wm_clip_subx - whichever of the two wm_clip_occl's entry point asked for.
-; One place decides, so the walk above cannot hold an opinion of its own.
-; -----------------------------------------------------------------------------
-wm_clip_subx:
-    cmp byte [wm_clip_ofr], 0
-    jne wm_clip_subf
-    jmp short wm_clip_sub
-
 wm_clip_subf:                   ; the two differ by ONE, on each far edge:
     push ax                     ; the FRAME's rect is inclusive and the
     push dx                     ; OCCUPIED one carries the drop shadow
@@ -7170,7 +7157,7 @@ wm_ptr2idx:
 ;      happen for a used window and every caller treats as "nothing above".
 ; clobbers: AX, CX, SI - and nothing else
 ;
-; FIVE routines wrote this walk out: wm_obscured, wm_clip_occl_r, wm_cov_rect,
+; FIVE routines wrote this walk out: wm_obscured, wm_clip_occl, wm_cov_rect,
 ; wm_lift and wm_destroy. The first three want exactly what it returns; the
 ; other two want the entry ITSELF and take a `dec si`. It also gets the bound
 ; wm_ptr2idx applies and the open-coded copies did not (SPEC.md 11.96.11.4).
@@ -8950,12 +8937,12 @@ wm_cov_rect:
 .rect:
     call rect_put               ; <- AX..DX, four adjacent words
     dw wm_cov_c1
-    mov ax, 0x7FFF              ; seeded EMPTY, and left that way by a window
-    mov [wm_cov_x1], ax         ; nothing overlaps - which wm_su_srect reads as
-    mov [wm_cov_y1], ax         ; "no pixel needs writing" and wm_damage as
-    mov ax, -1                  ; "draw nothing", both correct. AX is dead: it
-    mov [wm_cov_x2], ax         ; was stored into wm_cov_c1 four lines up
-    mov [wm_cov_y2], ax
+    mov si, wm_cov_x1           ; seeded EMPTY, and left that way by a window
+    call wm_rect_empty          ; nothing overlaps - which wm_su_srect reads as
+                                ; "no pixel needs writing" and wm_damage as
+                                ; "draw nothing", both correct. AX is dead: it
+                                ; was stored into wm_cov_c1 above; SI is loaded
+                                ; by wm_zabove below
     mov bx, di                  ; the walk takes the window in BX, and BX is
     call wm_zabove              ; scratch here - .scan reloads it per entry
     jc .out
