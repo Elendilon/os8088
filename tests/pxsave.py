@@ -483,13 +483,20 @@ def full_leg(machine):
     syms, image = pkg_syms()
     big = machine.endswith("_144")
     cap = 1440 * 1024 - 33 * 512 if big else 354 * 1024
-    ins = ["build/pixel.o88", "build/PIXEL.GFX", "apps/pixel/samples/CITY.PCX"]
+    import os88build
+    import pxtmp
+    # SIZED AND WRITTEN IN THE RUN'S TREE (tests/pxtmp.py): the inputs are
+    # measured where scratch_disk will read them, and the filler is this
+    # process's own - a plain "build/pxfill.bin" was written into the
+    # checkout and then looked for in the frozen tree, which had none.
+    ins = [os88build.at(f) for f in
+           ("build/pixel.o88", "build/PIXEL.GFX")] + \
+        ["apps/pixel/samples/CITY.PCX"]
     used = sum((os.path.getsize(f) + 1023) // 1024 for f in ins) * 1024
-    fill = "build/pxfill.bin"
+    fill = os.path.join(pxtmp.private("pxfill", folder=True), "PXFILL.BIN")
     n = max(cap - used - 20 * 1024 - (512 if big else 1024) * 4, 0)
-    if not os.path.exists(fill) or os.path.getsize(fill) != n:
-        open(fill, "wb").write(bytes(n))
-    DISK = M.scratch_disk("build/pxfull.img", *(ins + [fill]),
+    open(fill, "wb").write(bytes(n))
+    DISK = M.scratch_disk(pxtmp.private("pxfull.img"), *(ins + [fill]),
                           size=1440 if big else 360)
     sysdisk = "build/os8088.img" if big else "build/os8088-360.img"
     print("== a save that does not fit (SPEC.md 106.24) ==")

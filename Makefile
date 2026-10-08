@@ -12571,10 +12571,10 @@ $(APPSIMG720): $(APPS720) $(LOGOVID) tools/os88disk.py
 $(APPSIMG360): $(APPS360) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(APPSARGS360)
 
-# The MEDIA DISK (SPEC.md 24.4), 360KB only. It carries no package at all, so
-# there is nothing here to double-click and nothing for os88disk.py to
-# validate as one: it is data, on a disk whose whole job is to be swapped into
-# B: when the module is what you came for.
+# The MEDIA DISK (SPEC.md 24.4), 360KB only: data, on a disk whose whole job is
+# to be swapped into B: when the module is what you came for - and, since
+# SPEC.md 105.10, MIDIRack with its pictures and songs, the one package whose
+# subject the disk already is.
 #
 # AND THERE IS NO 1.2MB ONE, WHICH IS NOT AN OMISSION. This disk exists
 # because BEVERLY.MOD is 114 of a 360KB volume's 354 clusters and the apps

@@ -73,6 +73,9 @@ UNREGISTERED = {
     "pxsyms.py": "PiXEL's guest reader (SPEC.md 106.13) - the package's "
                  "symbols out of nasm's map and its instance by its image - "
                  "imported by pxdecode, pxopen and pxpaint, not a test",
+    "pxtmp.py": "a row's own scratch path, in the run's tree and keyed to "
+                "the process (WRITING-TESTS 5.4/5.5) - imported by pxdecode, "
+                "pxparts, pxdraw, pxfolder and pxsave, not a test",
     "pxpartemu.py": "PiXEL's linked parts run on the host under Unicorn "
                     "(SPEC.md 106.24) - imported by pxedit and pxsave for "
                     "their host legs, not a test",
