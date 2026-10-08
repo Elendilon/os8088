@@ -2308,7 +2308,7 @@ dskw_size32:
     mov ax, [dskw_len]
     mov dx, [dskw_lenhi]
     mov cx, ax
-    and cx, 511                 ; bytes in a partial final sector
+    and ch, 1                   ; bytes in a partial final sector (CX & 511)
     mov [dskw_tail], cx
     push cx                     ; the tail, banked across the shift, so the
     mov cx, 9                   ; test below is a jcxz and not a re-read

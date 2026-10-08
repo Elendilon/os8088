@@ -864,7 +864,7 @@ mem_claim_1:
     cmp word [mem_dma], 0       ; the 64KB DMA-page test, when one was asked
     je .fit                     ; for (CX is dead here - .fit rebuilds it)
     mov cx, dx
-    and cx, 0x0FFF              ; paragraphs into this 64KB physical page
+    and ch, 0x0F                ; paragraphs into this 64KB physical page
     add cx, [mem_dma]
     cmp cx, 0x1000              ; the head has to END inside the same page
     jbe .fit

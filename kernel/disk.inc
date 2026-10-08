@@ -5340,9 +5340,9 @@ dsk_free_clus_x:
     mov es, [dsk_fatseg]        ; SECTOR at a time - released below before the
     mov cx, si                  ; next dsk_fat_ofs_x, which does disk I/O and
                                 ; must not run inside this hold
-    and cx, 255
-    sub cx, 256
-    neg cx
+    not cx                      ; CX = 256 - (SI & 255), 1..256: the low byte
+    mov ch, 0                   ; is 255 - it, the INC carries 255 to 256 (5
+    inc cx                      ; bytes where and/sub/neg were 10, size pass 10)
     mov ax, [dsk_maxclus]       ; ...but never past the last cluster
     sub ax, si
     inc ax
@@ -5452,7 +5452,7 @@ dsk_next_clus_x:
     mov cl, 4                   ; odd cluster: top 12 bits...
     shr bx, cl                  ; ...whose top nibble is now 0, so FALLING
 .even:                          ; INTO the even arm's mask changes no bit and
-    and bx, 0x0FFF              ; clears the CF the shift left behind: even
+    and bh, 0x0F                ; clears the CF the shift left behind: even
     xchg ax, bx                 ; cluster, bottom 12 bits. One tail for both
     jmp short .out              ; arms, and no `clc` on any path
 .bad:

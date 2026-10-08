@@ -18,3 +18,24 @@ first change here.
    only caller. kern_big .cold -4; kern_small .cold **-16** - the Timer
    button is not on kern_small, so the routine was dead code there. SPEC.md
    38's "what stays resident" sentence no longer names it.
+4. **The word-immediate sweep (core agent's `test word` item)** - a listing
+   scan of every `81 /1,/4,/6` and `F7 /0` with an immediate whose other
+   byte is 00 (or FF for `and`):
+   * **The wm.inc `test word [..+W_FLAGS], WF_STALE / WF_NOANIM` sites are
+     REFUSED: they save NOTHING.** `W_FLAGS` is 0, so `[di]`/`[bx]` have no
+     displacement and `test byte [di+1], 80h` grows one exactly where the
+     immediate shrinks one (4 bytes either way). The same holds for the four
+     `or`/`and word [bx+W_FLAGS]` sites beside them.
+   * Taken, the register forms: memory.inc `and cx, 0x0FFF` -> `and ch, 0Fh`
+     (flags dead), disk.inc dsk_next_clus_x `and bx, 0x0FFF` -> `and bh, 0Fh`
+     (CF still cleared, every caller re-tests AX for ZF; faster too, a 3-byte
+     instruction against a 4), diskw.inc dskw_size32 `and cx, 511` ->
+     `and ch, 1`: -1 each, .cold.
+   * disk.inc's free-cluster count, `and cx, 255 / sub cx, 256 / neg cx`
+     (10 bytes) -> `not cx / mov ch, 0 / inc cx` (5): 256 - (SI & 255), the
+     flags overwritten by the `sub ax, si` that follows. -5 .cold.
+   * REFUSED: disk.inc:5306 `and dx, 0x0FFF / jnz` - the ZF is the whole
+     word's.
+   * CTRL.DRV (module, not resident): driver.inc's track-buffer `and cx,
+     0x0FFF / neg cx` -> `and ch, 0Fh`, -1 module byte.
+   kern_big .cold -8, kern_small .cold -8 (resident), CTRL.DRV -1.

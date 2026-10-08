@@ -4892,7 +4892,7 @@ cpc_fdtest:
     mov cl, 5
     shl bp, cl                  ; BP = T, a track in paragraphs
     mov cx, dx
-    and cx, 0x0FFF
+    and ch, 0x0F
     neg cx
     add cx, 0x1000              ; CX = R, paragraphs to the next 64KB page
     mov di, dx                  ; DI = the cylinder's segment
