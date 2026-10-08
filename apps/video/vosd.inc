@@ -147,7 +147,10 @@ vo_setup:
     jmp short .pl
 .p1:
     cmp byte [vp_fsmode], FSXM_VGA12
+    je .p12
+    cmp byte [vp_fsmode], FSXM_VGA0D    ; (0Dh: a VGA4 screen of its own)
     jne .pl
+.p12:
     mov ch, 1                       ; mode 12h: the planes are the ports'
     cmp byte [vp_planar], 2
     jne .pl
@@ -1320,7 +1323,7 @@ vo_mtab:
     db VOM_2, 2, 2                  ; FSXM_CGA320
     db VOM_1, 1, 1                  ; FSXM_CGA640
     db VOM_1, 1, 1                  ; FSXM_HERC
-    db 0, 0, 0                      ; FSXM_VGA0D
+    db VOM_1, 1, 1                  ; FSXM_VGA0D: a VGA4 screen of its own
     db VOM_8, 8, 8                  ; FSXM_VGA13
     db VOM_1, 1, 1                  ; FSXM_VGA12
     db VOM_X, 2, 2                  ; FSXM_MODEX

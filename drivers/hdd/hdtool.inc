@@ -55,9 +55,11 @@
 ; limit rather than a bug until the slot existed.
 ; =============================================================================
 
-hd_tseg:     dw 0               ; the tool's segment, 0 = not loaded. Also the
-                                ; arm for hd_svc's ES and for hd_tool_call
-hd_tfar:     dw 0, 0            ; ...as a far pointer to its dispatcher
+hd_tfar:     dw PKG_DISP        ; the tool's dispatcher as a far pointer,
+hd_tseg:     dw 0               ; ...whose segment IS the tool's: 0 = not
+                                ; loaded. Also the arm for hd_svc's ES and for
+                                ; hd_tool_call. One word doing both jobs, so
+                                ; the pointer can never name another image
 hd_tent:     dw 0               ; ...and its entry offset, out of the image's
                                 ; own header at +6. The dispatcher is `call bp`,
                                 ; so BP is an ADDRESS and never the verb
@@ -68,38 +70,9 @@ hd_tcsav:    dw 0
 hd_tname:    db 'HDDTOOL.DRV', 0
 
 ; -----------------------------------------------------------------------------
-; hd_tool_home - bank the system volume, once (SPEC.md 52.11)
-; in:  nothing; called from hd_ready and from nowhere else
-; out: nothing (all registers preserved)
-;
-; hd_ready runs inside drv_load's volume bracket, so what OSAPI_FILE_HERE
-; answers here is the volume HDD.DRV was itself read from - which is where
-; HDDTOOL.DRV is too, on a floppy machine and an installed one alike.
-;
-; **AND THAT SENTENCE NEEDED A KERNEL FIX TO BE TRUE** (SPEC.md 51.2.3), which
-; is worth leaving here because nothing about this routine looks wrong.
-; OSAPI_FILE_HERE answers for the CALLING INSTANCE (SPEC.md 19.2.1), and a
-; driver is not one - but inst_caller reports whichever callback is being
-; dispatched, and ticking our row on the Drivers page is a CONTROL PANEL
-; click. So this banked wherever the PANEL had been launched: a user who
-; opened a Disk window on B: and then opened the panel gave us (B:, root) as
-; "the system volume", and Format and Install then went to B: for the tool,
-; did not find it, and said "Need the system disk" with it sitting in A:.
-; drv_call clears the stamp now, so this reads the machine, which is what it
-; always meant to read.
-; -----------------------------------------------------------------------------
-hd_tool_home:
-    push ax
-    push bx
-    push dx
-    call OSAPI_FILE_HERE        ; DX = the directory, BL = its drive
-    mov [hd_tcwd], dx
-    mov [hd_tvol], bl
-    pop dx
-    pop bx
-    pop ax
-    ret
-
+; hd_tool_home WAS HERE: banking the system volume is DRVV_READY's first
+; act, and hd_ready runs once, in hd_mbr's bytes (SPEC.md 52.13.6). Its
+; comment went with it - including SPEC.md 51.2.3's kernel fix.
 ; -----------------------------------------------------------------------------
 ; hd_tool_need - the tool, in memory (module internal)
 ; in:  nothing
@@ -132,13 +105,12 @@ hd_tool_home:
 ; 20.13.3.1) and OSAPI_FILE_READ is the transparent read (20.14.3): what lands
 ; in the claim is the IMAGE, expanded in place, and DX:AX is its size. That is
 ; why the claim is cut from hddtool.bin and not from the file, and why
-; hd_tool_check runs against real bytes rather than a stream - the header
+; the header check runs against real bytes rather than a stream - the header
 ; would cross a stream verbatim and pass every test it makes.
 ; -----------------------------------------------------------------------------
 hd_tool_need:
-    cmp word [hd_tseg], 0
-    je .load
-    clc
+    cmp word [hd_tseg], 1       ; CF = 0 = it is in already
+    jc .load
     ret
 .load:
     push ax
@@ -181,13 +153,26 @@ hd_tool_need:
     jnz .freefail               ; a tool over 64KB is not one of ours
     cmp ax, 32
     jb .freefail
-    call hd_tool_check
-    jc .freefail
+    ; --- is what arrived a tool image? --------------------------------------
+    ; drv_check's tests, against the bytes that actually came off the disk
+    ; rather than against what the directory said. The last one is this
+    ; file's own: a tool built against a different hddabi.inc is refused
+    ; rather than called, because every verb number in it would mean
+    ; something else.
+    cmp word [es:0], 0x384F     ; 'O8'
+    jne .freefail
+    cmp byte [es:2], DRV_VER    ; a driver-shaped image, so the application
+    jne .freefail               ; loader refuses it too (SPEC.md 51.1)
+    cmp word [es:4], 0          ; link base: org 0, like every package
+    jne .freefail
+    cmp word [es:PKG_DISP], 0xD5FF  ; the dispatcher we are about to far-call:
+    jne .freefail                   ; `call bp`...
+    cmp byte [es:PKG_DISP+2], 0xCB  ; ...`retf`
+    jne .freefail
+    cmp byte [es:10], HD_ABI_VER    ; the header's spare word, which the
+    jne .freefail                   ; overlay macro puts the ABI version in
 
-    mov ax, [hd_tseg]           ; the dispatcher, as a far pointer
-    mov word [hd_tfar], PKG_DISP
-    mov [hd_tfar+2], ax
-    mov ax, [es:6]              ; ...and the entry the dispatcher will call
+    mov ax, [es:6]              ; the entry the dispatcher will call
     mov [hd_tent], ax
 
     push cs                     ; HDT_INIT: WHO WE ARE - our own segment, not
@@ -240,41 +225,6 @@ hd_tool_back:
     pop dx
     pop bx
     popf
-    ret
-
-; -----------------------------------------------------------------------------
-; hd_tool_check - is what arrived a tool image? (module internal)
-; in:  ES = the claim
-; out: CF = 0 yes
-; clobbers: flags
-;
-; drv_check's tests, against the bytes that actually came off the disk rather
-; than against what the directory said. The last one is this file's own: a
-; tool built against a different hddabi.inc is refused rather than called,
-; because every verb number in it would mean something else.
-; -----------------------------------------------------------------------------
-hd_tool_check:
-    push ax
-    cmp word [es:0], 0x384F     ; 'O8'
-    jne .no
-    cmp byte [es:2], DRV_VER    ; a driver-shaped image, so the application
-    jne .no                     ; loader refuses it too (SPEC.md 51.1)
-    cmp word [es:4], 0          ; link base: org 0, like every package
-    jne .no
-    cmp byte [es:PKG_DISP], 0xFF    ; the dispatcher we are about to far-call
-    jne .no
-    cmp byte [es:PKG_DISP+1], 0xD5
-    jne .no
-    cmp byte [es:PKG_DISP+2], 0xCB
-    jne .no
-    cmp byte [es:10], HD_ABI_VER    ; the header's spare word, which the
-    jne .no                         ; overlay macro puts the ABI version in
-    pop ax
-    clc
-    ret
-.no:
-    pop ax
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -423,21 +373,18 @@ hd_cp_paint:
 hd_cp_click:
     push ax
     mov al, HDT_CLICK
-    call hd_cp_thunk
-    pop ax
-    ret
+    jmp short hd_cp_fwd
 
 hd_cp_up:
     push ax
     mov al, HDT_UP
-    call hd_cp_thunk
-    pop ax
-    ret
+    jmp short hd_cp_fwd
 
 hd_cp_drag:
     push ax
     mov al, HDT_DRAG
-    call hd_cp_thunk
+hd_cp_fwd:                      ; the three above, which forward and nothing
+    call hd_cp_thunk            ; else
     pop ax
     ret
 
@@ -628,21 +575,15 @@ hd_svc_raw:
 ; to act, because the Control Panel stays clickable underneath its window and
 ; the user can retype a geometry there.
 hd_svc_sync:
-    push si
-    push di
-    push cx
     mov di, si                  ; the tool hands us the destination
     mov si, hd_devs
     mov cx, HD_MAXDEV * HDD_SIZE
     cld
-    rep movsb                   ; DS:SI = ours -> ES:DI = the tool's
-    pop cx
-    pop di
-    pop si
+    rep movsb                   ; DS:SI = ours -> ES:DI = the tool's - and
+                                ; hd_svc_out puts back all three
     mov al, [hd_ndev]           ; ...and the two counts in AX, not after the
     mov ah, [hd_sel]            ; copy: see HSV_SYNC in hddabi.inc
-    clc
-    jmp hd_svc_out
+    jmp hd_svc_ok
 
 ; --- HSV_STATE: the three bytes the PAGE reads and this image owns ----------
 ; A VERB OF ITS OWN and not two more registers out of HSV_SYNC, because
@@ -655,8 +596,6 @@ hd_svc_state:
     mov al, [hd_msgc]
     mov [es:si+HRQ_RES], al     ; the caption the resident last set: a mount,
                                 ; a config load, or a tool that would not open
-    push cx
-    push di
     xor ah, ah                  ; ...and which devices have a volume up, as a
     mov cx, HD_MAXVOL           ; MASK. The page asked hd_vols exactly one
     mov di, hd_vols             ; question and a byte answers it, so the table
@@ -673,10 +612,7 @@ hd_svc_state:
     add di, HDV_SIZE
     loop .mnt
     mov [es:si+HRQ_VOL], ah
-    pop di
-    pop cx
-    clc
-    jmp hd_svc_out
+    jmp hd_svc_ok
 
 ; --- HSV_MOUNT / HSV_UNMOUNT -------------------------------------------------
 ; The volume table is OURS and stays ours: the tool names a partition and we
@@ -706,45 +642,38 @@ hd_svc_mount:
     pop ax
     mov [hd_sel], ah            ; (mov leaves CF: hd_mount_one's verdict)
     jc hd_svc_out
-    mov al, [es:si+HRQ_DEV]     ; which kernel volume did it become? The row
-    mov ah, [es:si+HRQ_SLOT]    ; hd_mount_one filled says, and finding it here
-    call hd_vol_of              ; is what spares the tool a sight of hd_vols
+    mov ax, [es:si+HRQ_DEV]     ; AL = HRQ_DEV, AH = HRQ_SLOT: which kernel
+    call hd_vol_of              ; volume did it become? The row hd_mount_one
+                                ; filled says, and finding it here is what
+                                ; spares the tool a sight of hd_vols
     mov [es:si+HRQ_RES], al
     jmp hd_svc_out
 
 hd_svc_unmount:
-    mov al, [es:si+HRQ_DEV]
-    mov ah, [es:si+HRQ_SLOT]
+    mov ax, [es:si+HRQ_DEV]     ; AL = HRQ_DEV, AH = HRQ_SLOT
     call hd_unmount_part
     mov [es:si+HRQ_RES], al     ; did anything go...
     mov [es:si+HRQ_VOL], ah     ; ...and WHICH volume, for SPEC.md 52.10.8
-    clc
-    jmp hd_svc_out
+    jmp short hd_svc_ok
 
 ; --- HSV_VOLOF: which volume is on one partition, and nothing else ----------
 hd_svc_volof:
-    mov al, [es:si+HRQ_DEV]
-    mov ah, [es:si+HRQ_SLOT]
+    mov ax, [es:si+HRQ_DEV]     ; AL = HRQ_DEV, AH = HRQ_SLOT
     call hd_vol_of
     mov [es:si+HRQ_RES], al
-    clc
-    jmp hd_svc_out
+    jmp short hd_svc_ok
 
 hd_svc_cfgmark:
     call hd_cfg_mark
-    clc
-    jmp hd_svc_out
+    jmp short hd_svc_ok
 
 hd_svc_msg:
     cmp ah, HDM_N               ; ANY code now, and RANGE-CHECKED: it arrives
-    jae .bad                    ; from the other image, so it is input
+    jb .ok                      ; from the other image, so it is input
+    mov ah, HDM_PICK
+.ok:
     mov [hd_msgc], ah
-    clc
-    jmp hd_svc_out
-.bad:
-    mov byte [hd_msgc], HDM_PICK
-    clc
-    jmp hd_svc_out
+    jmp short hd_svc_ok
 
 ; --- HSV_PAGE / HSV_SEL / HSV_GEOM / HSV_MOUNTDEV / HSV_UNMOUNTDEV ----------
 ; The page's own writes, every one of them a thing this image owns: the
@@ -754,20 +683,15 @@ hd_svc_msg:
 ; the pane and redraws it through OSAPI itself, so there is nothing to ask.)
 hd_svc_sel:
     mov al, [es:si+HRQ_DEV]
-    cmp al, [hd_ndev]           ; RANGE-CHECKED for hd_dev_row_ck's reason:
-    jae .bad                    ; the index crosses an image boundary
+    call hd_dev_row_ck          ; RANGE-CHECKED: the index crosses an image
+    jc hd_svc_out               ; boundary
     mov [hd_sel], al
-    clc
-    jmp hd_svc_out
-.bad:
-    stc
-    jmp hd_svc_out
+    jmp short hd_svc_ok
 
 hd_svc_geom:
     mov al, [es:si+HRQ_DEV]
     call hd_dev_row_ck          ; DI = the row, CF = 1 = no such device
     jc hd_svc_out
-    push ax
     mov ax, [es:si+HRQ_CYL]
     mov [di+HDD_CYL], ax
     mov ax, [es:si+HRQ_HEADS]
@@ -776,33 +700,25 @@ hd_svc_geom:
     mov [di+HDD_SPT], ax
     mov al, [es:si+HRQ_FLAGS]
     mov [di+HDD_FLAGS], al
-    pop ax
     call hd_geom_push           ; ...and the DRIVE is told, or it keeps
-    clc                         ; translating with what the probe left
-    jmp hd_svc_out
+    jmp short hd_svc_ok         ; translating with what the probe left
 
 hd_svc_mountdev:
     mov al, [es:si+HRQ_DEV]
-    cmp al, [hd_ndev]
-    jae .bad
+    call hd_dev_row_ck
+    jc hd_svc_out
     mov [hd_sel], al            ; hd_mount reads the highlight, and the page
     call hd_mount               ; has just told us what it is
-    clc
-    jmp hd_svc_out
-.bad:
-    stc
-    jmp hd_svc_out
+    jmp short hd_svc_ok
 
 hd_svc_unmountdev:
     mov al, [es:si+HRQ_DEV]
-    cmp al, [hd_ndev]
-    jae .bad
+    call hd_dev_row_ck
+    jc hd_svc_out
     mov [hd_sel], al
     call hd_unmount
+hd_svc_ok:
     clc
-    jmp hd_svc_out
-.bad:
-    stc
 hd_svc_out:
     pop es
     pop di
