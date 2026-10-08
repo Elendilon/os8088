@@ -102,6 +102,27 @@ FS_VIEW, A/B mount 0/1, N arms mode 1 and Esc ends it, R re-lists.
 
 Batch 3: big -39, small -35. Running: **big -279, small -198**.
 
+### Batch 4
+
+* fm_bar_gate_x: Clone's and Write Img's strings step off Format's greying
+  (`sub ax, fm_s_format` is 0 or -1, each greyed twin being the MENU_DIS byte
+  before its string; `%error` pins all three). -8 both.
+* fm_settitle reads [fm_vp] through BX (banked) instead of a push/pop di
+  round the test. -2 both.
+* `fm_cells` (`jg / xor / shr 3 / clamp FM_HDRMAX-1`) for the header's, the
+  status line's and fm_layout's name-column budgets; the header now pokes its
+  NUL at FM_HDRMAX-1 too, which is the staged string's NUL or past it. -11
+  both.
+
+Batch 4: big -21, small -21. Running: **big -300, small -219**.
+
+Soak rows (one at a time, after batch 3): fmarrows, fmcommit, fcpcopy,
+shedrelist - all ok. Scratch checks after batch 4: the header, the
+New Folder prompt with typing and Backspace, and the icon view's status
+line, photographed off MartyPC; both Disk windows' VIEW caches are owned by
+their own instance slot with MC_RLOC = fm_reloc (fm_kinit's move to
+fmv_fit).
+
 ## REFUSED
 
 * `fm_btn1`'s `[fdlg_gdis]` store (unpassed hunk): `test di,OS88UI_DEF` is

@@ -2624,16 +2624,16 @@ fm_bar_gate_x:
     mov ax, fm_s_format
 .set:
     mov [fm_items_file + FM_IFMT*2], ax
-    mov ax, fm_s_clonex
-    mov di, fm_s_wimgx
-    cmp word [fm_items_file + FM_IFMT*2], fm_s_format
-    jne .setclone
-    mov ax, fm_s_clone
-    mov di, fm_s_wimg
-.setclone:
-    mov [fm_items_file + FM_ICLONE*2], ax
+    sub ax, fm_s_format         ; 0 live, -1 greyed: each greyed twin is the
+    mov di, ax                  ; MENU_DIS byte before its string, so Clone
+    add ax, fm_s_clone          ; and Write Img take the same step off their
+    mov [fm_items_file + FM_ICLONE*2], ax ; own live strings
+    add di, fm_s_wimg
     mov [fm_items_file + FM_IWIMG*2], di
     jmp kretfc_di
+%if fm_s_formatx + 1 != fm_s_format || fm_s_clonex + 1 != fm_s_clone || fm_s_wimgx + 1 != fm_s_wimg
+  %error "fm_bar_gate_x steps Clone and Write Img off Format's greying: each twin is the byte before"
+%endif
 
 ; -----------------------------------------------------------------------------
 ; fm_ncpy - copy a NUL string into a bounded field, always NUL-terminated
@@ -2887,12 +2887,8 @@ fm_layout:
                                 ; window narrower than 184px of content, where
                                 ; an 8.3 name is already being truncated
 %endif
-    jg .nchpos
-    xor ax, ax                  ; ...which shifts to 0 as well
-.nchpos:
-    mov cl, 3
-    shr ax, cl
-    cmp ax, 16
+    call fm_cells               ; whole cells, 0 for none (its clamp at
+    cmp ax, 16                  ; FM_HDRMAX-1 is above this one)
     jbe .nch
     mov ax, 16
 .nch:
@@ -4433,10 +4429,8 @@ fm_settitle:
     mov [fm_tdirty], ax         ; no move changes: its strip is never owed
 .cap:                           ; (SPEC.md 38.8), only the dock's 16 bytes
     add di, I_NAME              ; DI -> the 16 bytes the caption points at
-    push di
-    mov di, [fm_vp]
-    cmp word [di+FS_CWD], 0
-    pop di                      ; pop leaves the flags alone
+    mov bx, [fm_vp]             ; (BX is banked)
+    cmp word [bx+FS_CWD], 0
     jne .named
     mov si, fm_s_root
     jmp short .copy
@@ -7270,16 +7264,10 @@ fm_draw_core:
     sub ax, 68
 .hdrcut:
     sub ax, 16                  ; text starts at x=8, so ending 8px short
-    jg .hdrpos                  ; of the button means chars <= (b-16)/8
-    xor ax, ax
-.hdrpos:
-    mov cl, 3
-    shr ax, cl                  ; AX = chars that fit
-    cmp ax, FM_HDRMAX-1
-    jae .drawhdr                ; a wide window fits the whole staged string;
-    mov si, ax                  ; never poke past the buffer to say so
-    mov byte [fm_hdrbuf+si], 0
-.drawhdr:                       ; (no pen: font_run takes its colours in AX
+    call fm_cells               ; of the button means chars <= (b-16)/8, and
+    mov si, ax                  ; never past the buffer: at FM_HDRMAX-1 the
+    mov byte [fm_hdrbuf+si], 0  ; byte is the staged string's NUL or after it
+                       ; (no pen: font_run takes its colours in AX
     call fm_pen8                ; and leaves [gfx_color] spent either way)
                                 ; A MULTIPLE OF 8 (SPEC.md 11.94.3): the pen is
                                 ; a fixed offset from a content origin the
@@ -8478,16 +8466,8 @@ fm_stat_line:                   ; scroll bar is (it was a .text byte, written
                                 ; this is what keeps the same 6px of daylight
                                 ; at the content's right edge
     sub ax, bx
-    jg .pos
-    xor ax, ax
-.pos:
-    mov cl, 3
-    shr ax, cl                  ; AX = characters that fit
-    cmp ax, FM_HDRMAX-1
-    jb .pad
-    mov ax, FM_HDRMAX-1         ; ...and never more of fm_hdrbuf than there is
-.pad:
-    or ax, ax
+    call fm_cells               ; AX = characters that fit - and never more
+    or ax, ax                   ; of fm_hdrbuf than there is
     jz .out                     ; a window too narrow to hold one cell
     mov bx, fm_hdrbuf           ; PAD TO EXACTLY THAT WIDTH, spaces from the
     mov cx, ax                  ; string's NUL onward: an opaque space paints
@@ -8567,6 +8547,18 @@ fm_tiles:                       ; AX = [fm_cx] rounded UP to a byte column,
     and cx, 0xFFF8
     dec cx
     cmp ax, cx
+    ret
+
+fm_cells:                       ; AX = a pixel width with the FLAGS of the
+    jg .pos                     ; `sub` that made it -> AX = the whole 8px
+    xor ax, ax                  ; cells in it: 0 for none, at most
+.pos:                           ; FM_HDRMAX-1 (what fm_hdrbuf can hold). CL
+    mov cl, 3                   ; clobbered. The header's, the status line's
+    shr ax, cl                  ; and the list's name column's budgets
+    cmp ax, FM_HDRMAX-1
+    jb .r
+    mov ax, FM_HDRMAX-1
+.r:
     ret
 
 fm_rowy:                        ; AX = a row band's offset in pixels -> its
