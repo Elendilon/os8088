@@ -8068,6 +8068,18 @@ section .modc
 mods_end:
 MODS_SIZE equ mods_end - $$     ; the settings core: CTRL.DRV's first bytes
 section .modu
+%ifdef ANIMOFF
+; ANIMOFF=1 takes the zoom outline's callers out of the panel, and kernel size
+; pass 10 had already taken CTRL.DRV to 11,301 bytes: the knob's image came to
+; 11,177, so its claim rounded to 11KB and the 131 bytes of .modcb below did
+; not fit it (the MODC_BSS assertion). DOSRMARK=1's answer for HIBER.DRV (the
+; .modh block above): pad the knob's image to ONE byte past a KB boundary, so
+; the rounding leaves 1,023 bytes whatever either side grows to - a disk-only
+; cost, on a build that ships nowhere. `.modu` does not start KB-aligned, so
+; the pad is counted from the IMAGE's start (MODS_SIZE in), not `align`'s
+    times 1024 - ((MODS_SIZE + ($ - $$)) % 1024) db 0
+    db 0
+%endif
 modc_end:
 MODU_SIZE equ modc_end - $$     ; ...the panel behind it...
 MODC_SIZE equ MODS_SIZE + MODU_SIZE ; ...and the WHOLE image: align=1 on both
