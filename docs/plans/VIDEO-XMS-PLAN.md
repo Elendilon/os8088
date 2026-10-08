@@ -1,6 +1,10 @@
 # A stream's read-ahead in XMS — what it buys, what it costs a 286
 
 **Status: INVESTIGATION. Nothing in the player or the encoder is built.**
+The owner's answers to section 8 are in it (2026-10-08), and **section 10
+is EXPANDED MEMORY** - what LIM EMS would cost the kernel, measured on
+MartyPC's Lo-tech board, and why it is the better store for an 8088 and a
+286 than XMS is.
 What exists is the instrument that produced every number below
 (`tools/os88vidbuf.py`) and the field row that measures the one number it
 cannot compute (VIDDISK's `X`, `tests/vidbench/viddisk.asm`). Section 9 is
@@ -266,14 +270,21 @@ ms/KB against 0.76), which is why the 286 still gains.
 A play that has a bank fills it before the first frame - the request's
 "buffer the full ram at the start of play". The full screen says
 **`Buffering 1,234 of 8,192 KB`** (98.3.13's box), updated a chunk at a
-time; **Space starts the play at once** with what is in; Esc cancels. How
-much is filled:
-- the header's ask (section 5), if it has one: a file encoded for an 8 MB
-  bank and a full prefill is short exactly where it was banked, and the
-  player says `Low memory` (98.3) if its bank is smaller;
-- otherwise the whole bank, or 10 s, whichever comes first - an unbudgeted
-  file gains from a bank's smoothing (section 3.2) without asking anybody to
-  wait a minute.
+time, with **the time left estimated from the rate the fill is actually
+reading at** - `Buffering 1,234 of 8,192 KB, ~24 s` - so a slow disk says
+so; **Space starts the play at once** with what is in; Esc cancels.
+
+**How much is the ENCODER's decision, and the player has no cap of its
+own** (the owner, 2026-10-08): the encode says it in seconds of its own
+byte rate, or UNLIMITED - everything the machine's bank holds. **The
+default is 10 s at the encode's rate.** So:
+- a file that asks (section 5) is filled to its ask, or to the whole bank if
+  it asks for unlimited; a bank smaller than the ask plays anyway and says
+  `Low memory` (98.3), the file being short exactly where it was banked;
+- a file that asks nothing - every file made before this - is filled for 10 s
+  at its own mean rate (its stream's bytes over its length, two dwords the
+  player already has), so an unbudgeted file gains from a bank's smoothing
+  (section 3.2) without anybody waiting a minute for it.
 
 In the window (98.3.7) the same loop runs and the box says it.
 
@@ -334,12 +345,17 @@ loop and line, the calibration, the flush on seek and lap - ESTIMATED at
   98.2.1.3), the way `--memory` sizes the ring; **`--prefill S`** starts it
   that many seconds of disk fuller, up to its depth, where it starts half
   full today ("the player fills its ring before the first frame").
-- **The header says so.** A flag (1024, XBANK) and two words in the header's
-  zero tail at 472 (98.1.1): the bank's KB and the prefill's. A player
-  that knows the flag prefills that much and says `Low memory` with less; an
-  older player REFUSES it at open, as it refuses every flag it does not
-  know - which is the convention (98.1.4.1's BIGSP), and is right here too:
-  a file banked for 8 MB on a player with none stalls from its first burst.
+- **The header says so, with NO FLAG** (the owner, 2026-10-08: the disk may
+  well keep up with the encode, and older players are not a concern). Two
+  words in the header's zero tail at 472 (98.1.1): the bank the encode
+  assumes, in KB, and the prefill, in tenths of a second at the encode's
+  rate - FFFFh for unlimited, 0 for "say nothing" (the 10 s default). **An
+  older player plays the file**, because no player reads that tail - it
+  reads named fields (`V88_LEAD0` at 464, `V88_KLEADS` at 468) and nothing
+  past them - and stalls where it is short. The host `Reader` DOES check the
+  tail (`any(d[tail0:SECTOR])` names it "a loop block with no LOOPREC
+  flag"), so it learns the two words in the same change; a host tool older
+  than the file is the only thing that refuses it.
 - **A profile for a bank is a VIDDISK `X` reading.** `disk_at` is already
   the disk's rate under load (98.2.1.3); a bank's refill is the `READ_SEQ +
   copy up` row, so a `286-vga-xms` profile is that row in place of the
@@ -367,29 +383,26 @@ bytes. That is the measurement to take before section 5 is built.
 
 ## 7. Considered and not proposed
 
-- **EMS instead of XMS.** LIM EMS maps 16 KB pages into a frame below 1 MB
-  with a few OUTs, so the ring could BE expanded memory and nothing would
-  be copied at all - the period answer, and the one an 8088 with an Above
-  Board or a Lo-tech EMS card could use too. os8088 has no EMS support of
-  any kind (no driver, no slot, no emulator profile here carries a card),
-  so it is a project of its own; worth knowing it exists if section 3.2.1's
-  reading comes back at 1 ms/KB.
+- **EMS instead of XMS** - section 10. It was listed here as not proposed;
+  the owner asked for it to be costed, and it came out the better store.
 - **LOADALL for the 286 copy** (HIMEM.SYS's trick: no reset). Undocumented,
   286-only, and the kernel's transport, not the player's (SPEC.md 41.9).
 - **Keeping what has been played**, as the hold does: a bank that kept its
   past would serve seeks back, but it is the same bytes spent on the
   direction the play does not go.
 
-## 8. Open questions for the owner
+## 8. The owner's answers (2026-10-08)
 
-1. **VIDDISK `X` on the 286 and the 486** - the whole of section 3.2's 286
-   column, and the bank's piece size.
-2. **The prefill**: a fixed cap (10 s?), the header's ask only, or both as
-   section 4.3 has it.
-3. **The format**: refuse on an older player (the convention), or put the
-   two words in the zero tail with no flag so an older player plays a
-   banked file and stalls in its bursts.
-4. **The original video**, for section 6's real encodes.
+1. **VIDDISK `X` on the 286 and the 486**: being run, together with the
+   machines' own disk rates - which are slow even for period drives in the
+   machines being tested, so the readings are the floor this plan is for.
+2. **The prefill**: no cap in the player; the encoder sets it, in seconds at
+   the encode's rate or unlimited, default 10 s, and the player estimates and
+   shows the time left as it fills (section 4.3).
+3. **The format**: no flag; an older player plays the file (section 5).
+4. **The original video**: coming, for section 6's real encodes.
+5. **EMS**: wanted - "investigate what EMS would cost us to implement in the
+   kernel". Section 10.
 
 ## 9. Waves
 
@@ -406,3 +419,189 @@ bytes. That is the measurement to take before section 5 is built.
    `Low memory`; `tools/os88vidbuf.py --deficit` checked against a real
    encode's cuts.
 4. **The window play, seeks inside the bank, a pause's banking.**
+
+## 10. EXPANDED MEMORY: what LIM EMS would cost the kernel
+
+**The short answer: about 100 resident bytes on `kern_big` and none on
+`kern_small`, for a user-ticked `EMS.DRV` that packages reach through
+`OSAPI_DRV_CALL` - and for the video bank it is the better store on BOTH
+of this project's slow machines**, because EMS is MAPPED where XMS is
+copied, and the one thing an 8088 cannot afford is copying.
+
+### 10.1 Why it is worth having
+
+- **It reaches the 8088.** XMS needs a 286. A LIM EMS board sits in an
+  8-bit slot of a 5150 - the Intel AboveBoard, AST RAMpage, BocaRAM and
+  today's Lo-tech 2 MB board - and **the owner's 5150 #2 has one already**:
+  its PicoMEM provides EMS through the Lo-tech driver (docs/FIELD-MACHINES.md;
+  the PicoMEM project says its EMS uses LTEMM, so it most likely answers at
+  the Lo-tech defaults, 260h and frame E000h - unconfirmed).
+- **It is reached by OUT, not by a mode switch.** A board has four page
+  registers; writing one maps a 16 KB page of the board into one quarter of
+  a 64 KB frame below 1 MB. No `int 15h`, no reset, no interrupts masked,
+  and the CPU then reads and writes the page as ordinary memory.
+- **It is testable here.** The pinned MartyPC (0.4.2) models the Lo-tech
+  2 MB board (`crates/marty_core/src/devices/lotech_ems.rs`), so an EMS
+  path runs cycle-exact on an 8088 - unlike XMS, which is QEMU's alone. 86Box
+  models seven boards (`src/device/isamem.c`: Lo-tech, Intel AboveBoard,
+  AST RAMpage/XT, Everex EV-159, BocaRAM XT and AT, Micro Mainframe
+  EMS-5150, AST MegaPlus II), so the period ones can be looked at too.
+
+### 10.2 Measured: VIDDISK `E` on MartyPC's 8088 with a Lo-tech board
+
+A new profile, `os8088_5150_herc_hdd_sb_ems_gla` - `herc_hdd_sb_gla` with
+`[machine.ems]` at the board's defaults and nothing else changed - and a new
+VIDDISK key, `E`, which probes the board (an option ROM anywhere in the
+frame is refused with no port written; then pages 0 and 1 are mapped and
+written, page 0 mapped into both quarters, and a write through one must be
+seen through the other), sizes it by a signature per page written from the
+top down (a smaller board aliases), and times what a bank would do:
+
+| row | 4.77 MHz 8088 |
+|---|---|
+| board found | **128 pages = 2 MB** |
+| map the whole frame (four OUTs, a call and a loop) | **143 us** |
+| 16 KB `rep movsw`, frame -> RAM | **45.0 ms = 2.75 ms/KB** |
+| 16 KB, RAM -> frame | 45.0 ms |
+| 16 KB, RAM -> RAM (the baseline) | 45.0 ms |
+| 32 KB `READ_SEQ` for 5 s into RAM (XT-IDE) | 151.9 KB/s |
+| **32 KB `READ_SEQ` for 5 s STRAIGHT INTO THE FRAME** | **151.9 KB/s**, and the last chunk read back through the frame is STREAM.DAT's bytes |
+
+Verified both ways: on the same machine with no board, `E` says `no paging
+board at 260h / E000h` and times nothing; with the read aimed at the buffer
+instead of the frame, the frame check says `BAD`. MartyPC prices the board's
+memory as RAM (no wait states); a real Lo-tech board on a 5150 is on the
+same 8-bit bus as the system RAM and should be no slower, while **a PicoMEM
+adds wait states** to its EMS (its own documentation), so its copy rows will
+read slower - which is what running `E` on 5150 #2 will say.
+
+### 10.3 What it means for the bank
+
+- **Filling is free.** A disk read lands in the frame at the disk's own
+  speed: the bounce buffer and the copy UP of section 4.2 are gone, on any
+  CPU. That alone halves the bank's copy traffic against XMS.
+- **Draining by copy is NOT affordable on an 8088.** 2.75 ms a KB, and a
+  bank in use passes almost every byte (section 4.2): at the ST-225's
+  119 KB/s that is **33% of a 5150**, beside a decode budgeted at 50%. So on
+  an 8088 the bank must be **decoded where it lies** - map, don't copy:
+  - the ring BECOMES the bank: chunks live in EMS pages, and the hook
+    decodes from the frame;
+  - a super-packet of up to 32 KB starting anywhere touches at most THREE
+    16 KB pages, so three quarters are the DECODE WINDOW, remapped as the
+    hook enters each super-packet - three OUTs, ~0.25% of the machine at 25
+    a second - and contiguous, which is what the ring's mirror exists to
+    make (98.3) and here costs nothing;
+  - the fourth quarter is the READER's: 16 KB `READ_SEQ` calls into it, a
+    page at a time, its register its own, so the hook and the reader never
+    write the same register. What the smaller call costs, VIDDISK `R` on the
+    same machine: 32 KB in 212.8 ms and 16 KB in 116.7 - **10% more a byte**
+    on a CPU-copied disk, the call's fixed part spread over half the bytes;
+  - the conventional ring - up to 15 x 32 KB on a 640 KB machine - is no
+    longer needed for the stream at all.
+  The hard parts, stated: the SOUND's audio cursor reads records ahead of
+  the picture (98.3.1, 98.1.8), possibly in the next super-packet, which the
+  three-quarter window does not hold; a BIGSP super-packet (98.1.4.1, up to
+  63.5 KB) needs five pages and does not fit at all - it is a 486 file, and a
+  486 has XMS in unreal mode at 0.05 ms/KB; and the hook is an ISR, which may
+  call nothing, so it does its own OUTs from a recipe the driver hands over
+  (10.5). On a 286 the in-place design is not required - a copy down out of
+  an 8-bit card is ESTIMATED at ~1 us a byte, one copy where XMS needs two,
+  with interrupts ON - so wave E2 can be the hybrid (section 4's policy, the
+  fill free and the drain a `rep movsw`) and the in-place decode wave E3.
+
+### 10.4 The boards: two register families
+
+From MartyPC's and 86Box's models and Lo-tech's own documentation:
+
+| family | boards | registers | a page's value |
+|---|---|---|---|
+| CONSECUTIVE | Lo-tech 2 MB (and so PicoMEM, MartyPC) | base .. base+3, base 260h/264h/268h/26Ch (the board offers 040h/060h/240h/260h by jumper), frame C000h/D000h/E000h | the page, 0..127; **write-only** |
+| SPACED | Intel AboveBoard, BocaRAM, AST RAMpage/XT, Everex EV-159, EMS-5150 | quarter *q* at base + *q* x 4000h (base 258h, 268h, 2A8h, 2B8h...), frame set by the board's own switch or registers | 80h + the page (bit 7 enables); readable on most |
+
+Two backends of a few dozen bytes each. **Chipset EMS** on 286 boards (the
+NEAT, SCAT and Headland sets map system RAM into a frame through their own
+index registers) is one backend per chipset and is not proposed until a
+machine in the field has one. **A 386 has no EMS hardware** - EMM386 makes
+it out of paging in V86 mode, which a real-mode kernel cannot offer, and does
+not need to: its XMS is the fast unreal-mode copy.
+
+### 10.5 Where it lives, and what the kernel pays
+
+**Recommended: `EMS.DRV`, a driver the user ticks, with a class of its own.**
+
+- **A tick and not a sniff.** XMEM.DRV's boot sniff is EXACT (`int 15h
+  AH=88h`, SPEC.md 41.12.1), so it is an overlay nobody ticks. EMS has no
+  such question: a Lo-tech board has no ID register and write-only page
+  registers, and asking means WRITING PORTS on a machine that may have
+  something else at 260h. So the user says the board is there - on the
+  Drivers page, with the port and frame on the driver's own page (DSV_CPNAME,
+  which is driver code, not kernel code) - and the probe VERIFIES it, the
+  `E` row's probe being the worked example.
+- **Packages reach it through `OSAPI_DRV_CALL`** (`DSV_PKGCALL`, SPEC.md
+  20.11), as they reach ETHER.DRV's sockets, so it needs **no new API
+  cell**. The verbs: CAPS (pages free and total, the frame segment); ALLOC
+  (pages -> a handle, stamped with the calling instance) and FREE; MAP (a
+  quarter, a handle, a logical page); FRAME (claim quarters EXCLUSIVELY -
+  the frame is one machine-wide window, and two owners of a quarter would
+  corrupt each other - and get back the RECIPE an ISR needs to remap a
+  quarter itself: the register's port and the value to add to a page, which
+  hides the two families from the package).
+- **The kernel's bill**, from the CH375 USB mouse's MEASURED one (SPEC.md
+  9.12.5: a row, its two strings and its tick, 45 bytes of `.text`; a new
+  class's publication slot, 38 of `.bss`; `drv_cfgbit`, 1 of `.ovl`), plus
+  one thing that class does not need: **`DSV_RELINST` delivered to the new
+  class** - today the teardown calls only the SOUND class's
+  (`snd_release_inst`), and ETHER.DRV publishes 0 there - so a handle left
+  by a package that died would stay allocated until the driver unloads.
+  That is ~10-15 bytes of `.text`, ESTIMATED. **~95-100 resident bytes in
+  all, every one of them ESTIMATED by analogy until the row is built, and
+  `kern_small` pays nothing because it has no driver layer** (SPEC.md 51.0).
+- **The driver itself**: probe, two backends, a page bitmap (16 bytes for
+  128 pages, 32 for 256), the handle table, the verbs and its page -
+  ESTIMATED 1.2-1.8 KB of image on the system disk, read only on a machine
+  that ticked it.
+
+**Two alternatives, priced the same way:**
+- **An app-side library** (`apps/os88ems.inc`, `os88gfx.inc`'s shape,
+  SPEC.md 5.12): ZERO kernel bytes and reachable from `kern_small`, but no
+  allocator, no teardown and no sharing - two packages using it at once
+  corrupt each other, and nothing frees a page when one dies. Good enough
+  for the Video Player alone, which plays in an exclusive bracket; wrong as
+  the machine's EMS.
+- **Resident, as xmem.inc was before SPEC.md 41.12**: REFUSED for 41.12's
+  own reason - every machine without a board would carry it for ever.
+
+### 10.6 What else could use it, later
+
+Each is a decision of its own, and none is in this plan's waves:
+- **The DOS box's `int 67h`.** docs/plans/DOS-EXEC-PLAN.md 2.4 says EMS
+  "should be refused rather than faked" - with a real board it is not faked:
+  LIM 3.2's functions (40h-4Eh) over the driver's verbs would give a DOS
+  program real expanded memory on an 8088, which is where most DOS software
+  that wanted more than 640 KB looked for it.
+- **The kernel's purgeable caches** (the directory read-ahead, the raise
+  cache): mapped rather than copied, they would stop competing with packages
+  for the heap.
+- **Large documents** in Paint, Sheet and Word.
+
+### 10.7 Not known yet
+
+- **The PicoMEM's family, port, frame and wait states**: VIDDISK `E` on
+  5150 #2 says all four (the probe refuses at once if it is not a Lo-tech-
+  style board at 260h / E000h, which is itself the answer).
+- **A real 286's 8-bit card copy**: VIDDISK `E` on a 286 with a board (86Box's
+  Lo-tech board in the `286` profile is the emulated twin).
+
+### 10.8 Waves
+
+- **E0** (done): the MartyPC profile and VIDDISK `E`.
+- **E1**: `EMS.DRV` - the class, the row, the probe and both families, the
+  verbs, `DSV_RELINST` for the class; a gate on MartyPC's board (allocate,
+  map, a package's teardown frees its pages) and on 86Box's AboveBoard by
+  eye.
+- **E2**: the video bank on EMS, the hybrid - section 4's policy with a free
+  fill and a copied drain: the 286's design, and on an 8088 a measurement of
+  what the copy costs a real play.
+- **E3**: the in-place decode - the hook reading from the frame, the
+  three-quarter window, the reader's quarter, the sound cursor's answer: the
+  8088's design.
