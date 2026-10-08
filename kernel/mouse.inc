@@ -2555,11 +2555,11 @@ kbm_paint:
     push bx
     pushf
     cli
-    cmp byte [gfx_lock_flag], 0
-    jne .dirty
-    mov al, [cur_level]
-    or  al, al
-    js .dirty
+    mov al, 1                   ; [cur_dirty]'s answer unless the draw below
+    cmp byte [gfx_lock_flag], 0 ; happens: ONE store at the foot where each
+    jne .set                    ; arm carried its own immediate one (kernel
+    cmp byte [cur_level], 0     ; size pass 10: 5 bytes)
+    jl .set
     push si
     push di
     push bp
@@ -2571,11 +2571,9 @@ kbm_paint:
     pop bp
     pop di
     pop si
-    mov byte [cur_dirty], 0
-    jmp short .out
-.dirty:
-    mov byte [cur_dirty], 1
-.out:
+    mov al, 0
+.set:
+    mov [cur_dirty], al
     popf
     pop bx
     pop ax

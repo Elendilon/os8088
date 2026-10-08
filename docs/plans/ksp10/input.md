@@ -94,6 +94,18 @@ kern_big `.text -65` (running sum -265); kern_small `.text -70` (running -265).
 * `evq_drain` is `evq_mup` until the ring is empty (an MUP record is a no-op
   to `wm_wake_eaten`). -5
 
+### Batch 4 - a shared buffer, two single stores
+
+kern_big `.text -11 .bss -25` (running sum -301); kern_small `.text -6
+.bss -25` (running -296).
+
+* `menu_tbuf equ menu_clkbuf`: menu_trunc's staging buffer is carved out of
+  the clock's field. Both are transient - the clock recomposes its whole
+  field every call (`[menu_ckck]` is what persists) and the truncated item
+  lives four instructions, on task 0 with the gfx lock held. .bss -25.
+* `kbm_paint`: `[cur_dirty]` answered in AL and stored once. -5
+* `menu_relayout`: `[menu_nbar]` = 1 from the CX the rep left at 0. -1
+
 ## REFUSED
 
 * `cur_lazyrect` / `cur_lazyck`: the hit arm could `call cur_unlazy` before the
@@ -123,6 +135,12 @@ kern_big `.text -65` (running sum -265); kern_small `.text -70` (running -265).
   advances as a helper (-7): REFUSED, `evq_push` is on the mouse ISR's path
   on the 128-byte private stack and this would make that path 2 bytes
   deeper; on the 1bpp adapters the event path is near the ISR's deepest.
+* `cur_saveu`/`cur_restoreu` as one body with the VGA routine in BP (-10):
+  REFUSED, it is the VGA cursor's save/restore, run on every pointer move,
+  and a `mov bp` plus a `jmp` is a slower hot path for 10 bytes.
+* `mou_apply`'s `[cur_dirty]` stores as one (-1): the shape that avoids a
+  jump on the draw path is one byte, and the other spelling adds a jump to
+  the ISR.
 * `menu_track`'s `[menu_cell]` counted from DI at the find (-1): no.
 * `menu_furniture`'s `[menu_bovr]` clear moved to the end to share AX = 0
   (-2): a `menu_force` from a pre-empting task during the draw would be lost.

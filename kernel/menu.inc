@@ -589,7 +589,8 @@ menu_relayout:
     rep movsw                   ; (kernel size pass 9)
     pop si
     pop es
-    mov word [menu_nbar], 1
+    inc cx                      ; the rep left CX = 0, so this is 1 - the
+    mov [menu_nbar], cx         ; logo cell - a byte under the immediate
 
     ; --- the app's own menus, left to right after the name label -----------
     call font_width_x           ; SI = the name at ES:SI; AX = its width
@@ -2832,7 +2833,22 @@ menu_clkbuf: resb MENU_CLKC     ; ...and its field, space-padded so the erase
                                 ; and the lettering are one pass
 menu_sseg:  resw 1              ; the save-under claim's segment, 0 = none
                                 ; (menu_drop then repaints instead)
-menu_tbuf:  resb MENU_MAXCH + 1 ; menu_trunc's staging buffer
+menu_tbuf   equ menu_clkbuf     ; menu_trunc's staging buffer IS the clock's
+                                ; field (kernel size pass 10: 25 bytes of .bss
+                                ; on both kernels). It is safe because both
+                                ; are TRANSIENT: menu_draw_clock composes the
+                                ; whole field from scratch on every call and
+                                ; reads back nothing it did not just write -
+                                ; the check word [menu_ckck] is what persists -
+                                ; and menu_tbuf lives from menu_trunc to the
+                                ; font_run_x a few instructions later in
+                                ; menu_drop's item loop, on the UI task with
+                                ; the gfx lock held and no yield between, so
+                                ; no clock draw can land inside it (toast_now
+                                ; draws only on task 0, and task 0 is here)
+%if MENU_MAXCH + 1 > MENU_CLKC
+  %error "menu_tbuf is carved out of menu_clkbuf and no longer fits it"
+%endif
 menu_abcell: resw 1             ; bar index of the app-NAME cell, 0 = none -
                                 ; cell 0 is the System menu, so 0 is free to
                                 ; mean "Locator owns the bar" (SPEC.md 12.7)
