@@ -6090,13 +6090,14 @@ fm_editkey:
     jc .swapno                  ; (both arms load AL afresh)
     mov byte [fm_fmtstep], 1    ; FORMATTER AND CLONER ALIKE: re-arm the same
     mov al, 6                   ; mode at step 1, only the line changes. The
-    jmp .swaparm                ; cloner asks for its OWN disks itself, so it
+    call fm_edit_arm            ; cloner asks for its OWN disks itself, so it
                                 ; has no second step - and it wants step 1 for
                                 ; the formatter's reason anyway, the disk in
                                 ; the drive being the SYSTEM disk now
                                 ; (SPEC.md 22.21.4). These were two arms of a
                                 ; `cmp byte [fm_swapwho], 0` whose sides were
                                 ; identical to the byte
+    jmp .out
 .swapno:                        ; it still could not be read: say which disk
     mov al, 1                   ; and leave the window as it was (SPEC.md 59).
     mov bx, fm_swaptab          ; BX/CX are banked
@@ -6112,15 +6113,12 @@ fm_editkey:
 .swapgoc:
     call fm_clone_go
     jmp .out
-.swaparm:
-    call fm_edit_arm
-    jmp .out
 
 .text:
+    mov bl, [fm_elen]           ; BX = the length, for every arm below
+    xor bh, bh
     cmp al, 8
     je .back
-    mov bl, [fm_elen]
-    xor bh, bh
     cmp bl, 12
     jae .nochg                  ; 8 + '.' + 3 is the whole 8.3 budget
     cmp al, '.'
@@ -6128,8 +6126,7 @@ fm_editkey:
     or bl, bl
     jz .nochg                   ; a short name may not start with the dot
     call fm_hasdot
-    jc .nochg                   ; ...and may not carry a second one
-    jmp short .store
+    jnc .store                  ; ...and may not carry a second one
 .nochg:                         ; A REFUSED CHARACTER MOVED NOTHING, so it owes
     jmp .lineonly               ; what an accepted one owes and no more - the
                                 ; prompt already says what it says. These four
@@ -6144,15 +6141,10 @@ fm_editkey:
     jc .nochg
 .store:
     mov [fm_ebuf+bx], al
-    inc bx
-    mov byte [fm_ebuf+bx], 0
-    mov [fm_elen], bl
-    jmp .lineonly               ; NEAR: the swap prompt (SPEC.md 2.8.5) sits
-                                ; between here and .lineonly now
+    inc bx                      ; the new length, and the NUL goes after it
+    jmp short .term
 
 .back:
-    mov bl, [fm_elen]
-    xor bh, bh
     or bl, bl
     jz .nochg                   ; ...and a BACKSPACE THAT REMOVED NOTHING owes
                                 ; the same as a refused character: the prompt
@@ -6161,13 +6153,15 @@ fm_editkey:
                                 ; window" - so holding Backspace on an empty
                                 ; Rename or New Folder box repainted the
                                 ; listing at every typematic repeat
-    dec bl                      ; `dec bl` IS `dec bx` here (BH is 0), so BX
-    mov [fm_elen], bl           ; is the NEW length and the terminator lands
-    mov byte [fm_ebuf+bx], 0    ; on the character just dropped - the -1 that
-    jmp .lineonly               ; used to be here punched a NUL one byte
-                                ; EARLIER, so the name displayed short and
-                                ; every character typed after a backspace
-                                ; landed behind that NUL and never appeared
+    dec bx                      ; BH is 0 and BL is not, so BX is the NEW
+.term:                          ; length and the terminator lands on the
+    mov [fm_elen], bl           ; character just dropped - the -1 that used
+    mov byte [fm_ebuf+bx], 0    ; to be here punched a NUL one byte EARLIER,
+    jmp .lineonly               ; so the name displayed short and every
+                                ; character typed after a backspace landed
+                                ; behind that NUL and never appeared. NEAR:
+                                ; the swap prompt (SPEC.md 2.8.5) sits
+                                ; between here and .lineonly
 
 fm_samename:
     mov si, fm_ebuf             ; ...which is dsk_streq with its two operands
@@ -7441,9 +7435,8 @@ fm_draw_rows:
     mov ax, [fm_vrow]
     mov cx, [fm_vcol]
     call fm_cellxy              ; [fm_cellx]/[fm_celly] for this cell
-    pop ax
+    pop ax                      ; the index, which fm_draw_icon16 banks
 
-    push ax
     mov cx, [fm_cellx]          ; icon centered at cell +(32, 3)
     add cx, 32                  ; 32 is BOTH aligned and the exact centre of an
                                 ; 80-wide cell, (80-16)/2. At FMI_CELL_W 78 the
@@ -7454,7 +7447,6 @@ fm_draw_rows:
     mov dx, [fm_celly]
     add dx, 3
     call fm_draw_icon16
-    pop ax
     call fm_stage_name
     mov byte [fm_name+9], 0     ; grid names: 9 chars max (SPEC.md 22)
     mov si, fm_name
@@ -7656,9 +7648,8 @@ fm_draw_lrow:
     call fm_rowy
     mov bp, ax
     mov ax, di
-    add ax, [fm_lscr]           ; AX = directory index
-
-    push ax
+    add ax, [fm_lscr]           ; AX = directory index, which neither call
+                                ; below disturbs (fm_draw_icon16 banks it)
     call fm_pen8                ; 16x16 icon at x=8, row top
                                 ; 8, NOT 4, and NOT because it is a text pen:
                                 ; an icon is a blit and ico_pass shifts it to
@@ -7676,7 +7667,6 @@ fm_draw_lrow:
                                 ; is the gap to the name at +24 closing to 16
     mov dx, bp
     call fm_draw_icon16
-    pop ax
     call fm_stage_name          ; fm_name + [fm_fsize]
 
     ; --- the name, an OPAQUE run (SPEC.md 22.11.3) -----------------------
@@ -7742,9 +7732,8 @@ fm_draw_lrow:
 ; three-column stripe.
 ; -----------------------------------------------------------------------------
 fm_draw_licon:
-    mov ax, FM_ROW_H
-    mul di                      ; (DX is clobbered here and set below)
-    add ax, [fm_by1]            ; = fm_cy + FM_ROW_Y0, which fm_scrollpaint
+    mov ax, di
+    call fm_row16               ; + fm_cy + FM_ROW_Y0, which fm_scrollpaint
     mov dx, ax                  ; has already worked out. DX = row band top
     mov ax, di
     add ax, [fm_lscr]           ; AX = directory index
@@ -8094,10 +8083,8 @@ fm_scrollpaint:
     add ax, FM_ROW_Y0
     mov [fm_by1], ax
     mov ax, [fm_fit]            ; whole rows only: a content height with a
-    mov cl, 4                   ; remainder leaves a sliver below the last
-    shl ax, cl                  ; row that no row painter would ever erase
-    add ax, [fm_by1]
-    dec ax
+    call fm_row16               ; remainder leaves a sliver below the last
+    dec ax                      ; row that no row painter would ever erase
     mov [fm_by2], ax
 
     call fm_cxrgt               ; the whole band, tested against an armed
@@ -8138,7 +8125,8 @@ fm_scrollpaint:
     mov [fm_rlo], bx
     jmp short .stripck
 .refj:                          ; ...and the two refusals above take it
-    jmp .refuse                 ; rather than a five-byte inverted pair: -3
+    stc                         ; rather than a five-byte inverted pair - the
+    ret                         ; refusal ITSELF, where a jump to it was
 .expup:
     mov word [fm_rlo], 0        ; scrolled UP: the first |d| are
     neg ax
@@ -8179,14 +8167,11 @@ fm_scrollpaint:
 
     ; --- and the rows it exposed, and only those ---
 .expfill:
-    mov cl, 4
     mov ax, [fm_rlo]
-    shl ax, cl
-    add ax, [fm_by1]
+    call fm_row16
     mov bx, ax                  ; y1 = the first exposed row's top
     mov ax, [fm_rhi]
-    shl ax, cl
-    add ax, [fm_by1]
+    call fm_row16
     dec ax
     mov dx, ax                  ; y2 = the last one's bottom
     call fm_cxrgt
@@ -8206,8 +8191,17 @@ fm_scrollpaint:
                                 ; row it now sits in
     clc
     ret
-.refuse:
-    stc
+
+; fm_row16 - AX = a list row -> its band's top, off [fm_by1] (fm_scrollpaint
+; sets it); CL clobbered. Four of fm_scrollpaint's row edges and its strip's
+; re-icon (FM_ROW_H is 16)
+%if FM_ROW_H != 16
+  %error "fm_row16 multiplies by FM_ROW_H with a shift of 4"
+%endif
+fm_row16:
+    mov cl, 4
+    shl ax, cl
+    add ax, [fm_by1]
     ret
 
 ; -----------------------------------------------------------------------------

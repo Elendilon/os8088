@@ -86,6 +86,22 @@ Checked on MartyPC (scratch script, not a row): B:/SYSTEM/APPDATA titles
 SYSTEM then APPDATA, Backspace -> SYSTEM, Backspace -> Disk; V toggles
 FS_VIEW, A/B mount 0/1, N arms mode 1 and Esc ends it, R re-lists.
 
+### Batch 3
+
+* fm_draw_lrow and the icon grid: the `push ax / pop ax` round
+  fm_draw_icon16 were dead (it banks AX itself). -4 both.
+* `fm_row16` (`shl 4 / add [fm_by1]`) for fm_scrollpaint's three row edges
+  and fm_draw_licon's band top; fm_scrollpaint's `.refj` trampoline IS the
+  refusal now (`stc / ret` where a `jmp .refuse` was). -10 both.
+* fm_editkey's typing arm: the length is loaded once for every arm, the dot
+  test answers `jnc .store`, and the store and the backspace share one
+  terminate-and-record tail. -19 both. `.swaparm`'s call is inline. -2.
+* filecp: fcp_file2 sits between fcp_undo and fcp_xfer, so 'no' is
+  fcp_undo's `ret` and 'yes' falls into the transfer. -4 big (kern_small:
+  FILECP.DRV only, not resident).
+
+Batch 3: big -39, small -35. Running: **big -279, small -198**.
+
 ## REFUSED
 
 * `fm_btn1`'s `[fdlg_gdis]` store (unpassed hunk): `test di,OS88UI_DEF` is
@@ -99,6 +115,22 @@ FS_VIEW, A/B mount 0/1, N arms mode 1 and Esc ends it, R re-lists.
 * fm_onkey_x: routing A/B/R/Backspace through fm_docmd - identical repaint,
   but N (FMC_MKDIR) would then draw FMD_LINE where the key draws the whole
   window: a behaviour change, and A/B/R alone do not pay.
+
+* fm_onkey_x: moving the kern_big `.selmove` block past `.editing` turns
+  three near jumps short and deletes `.outj`, but `jb .selmove` and two
+  `jc .redraw` then fall out of range: -2 at best, for a block move.
+* fm_editkey: putting `.text` after the dispatcher drops a `jmp .text` but
+  pushes six `je`s out of short range (pass 8 placed it on purpose).
+* fm_edit_end's mode ladder as a `cbw / dec ax` count-down: -1.
+* kern_small fm_onclick_x's two inline button hit tests as one helper: -4,
+  kern_small only.
+* fcp_scan's `.fsdone`/`.fsio` trampolines: every reshuffle costs what it
+  saves (the FSV_ENUM arm sits between the two exits on purpose).
+* fprog: computing fpg_begin's units before fpg_arm (push ax instead of
+  cx/dx) needs the zero test again after the arm: 0.
+* fm_clone_res's `pop bx/pop ax/push ax/push bx` re-bank: what replaces it
+  would rely on fm_cloline/clo_call preserving a register, which its contract
+  does not promise. -2 at most.
 
 ## CROSS-FILE (for the coordinator)
 
