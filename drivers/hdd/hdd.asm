@@ -545,6 +545,11 @@ hd_bios_run:
     test byte [di+HDD_FLAGS], HDF_CYLOK ; HDCYLPROBE=1: only when hd_cylprobe
     jz .trk                     ; saw the ROM carry one call across a head
 %endif
+    test byte [di+HDD_FLAGS], 2 ; ...never on a geometry that is not the
+    jnz .trk                    ; ROM's (typed, or a saved record): the ROM
+                                ; walks heads in ITS geometry, so a run counted
+                                ; in ours reads the wrong sectors with CF = 0.
+                                ; The track was self-consistent and stays
     cmp byte [hd_bop], 0        ; A READ runs to the CYLINDER's end (SPEC.md
     jne .trk                    ; 18.91.5) - (heads - head) x spt, less the
     mov ax, [di+HDD_HEADS]      ; sectors behind [hd_sec], which is 1-based.

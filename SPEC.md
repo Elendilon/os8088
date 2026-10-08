@@ -32799,7 +32799,12 @@ would save most of three of them, ~+30% of the stream (ESTIMATED).
 in the kernel (its boot partition, `dsk_xfer`) and in `HDD.DRV`'s rung 0
 (`hd_bios_run`), whatever `[dsk_cylrun]` says (that byte is the floppy
 canary's); writes keep the track (§18.91.3's reason, untested on a hard
-disk). It is taken UNASKED, at the owner's word, to go wide and see: every
+disk). `HDD.DRV` keeps the track on any drive whose `HDD_FLAGS` bit 1
+says the geometry is not the ROM's (typed with the editor, or a saved
+record restored): `HDK_BIOS` hands the ROM CHS in OUR geometry and the ROM
+walks heads in ITS own, so a run counted to our cylinder's end reads the
+wrong sectors with CF = 0, where a track-bound one stays self-consistent.
+It is taken UNASKED, at the owner's word, to go wide and see: every
 ROM measured carries it (below), and the per-disk check that would ask
 first - `HDCYLPROBE=1` - does not fit the shipped boot overlay yet. What
 the three arms are:
