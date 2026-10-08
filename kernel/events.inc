@@ -39,6 +39,10 @@ EVT_WAKE    equ 4               ; a=window ptr, b/c unused. A PACKAGE'S OWN
                                 ; window at a time, so a package that kicks
                                 ; from every callback cannot fill the ring.
 
+%if EVT_MDOWN != 1 || EVT_MUP != 2
+  %error "events.inc: two decoders in mouse.inc (mou_apply, kbm_btn) build the left-button event as `and ax, 1` - 1 IS EVT_MDOWN - and load EVT_MUP only on a 0. Renumber either and both queue the wrong event, silently"
+%endif
+
 EVQ_RECSIZE equ 8               ; bytes per record
 EVQ_CAP     equ 16              ; records in the ring
 EVQ_MASK    equ (EVQ_RECSIZE * EVQ_CAP) - 1     ; byte-offset wrap mask (0x7F)

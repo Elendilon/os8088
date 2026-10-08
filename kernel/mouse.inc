@@ -412,18 +412,21 @@ MOU_PSTK    equ 128             ; 2.4x the 54 the chain measures on the deepest
 ; outs: none (all registers preserved)
 ; -----------------------------------------------------------------------------
 mou_pout:
-    push cx
     push dx
     mov dx, [bx+mou_bases]
     or  dx, dx
     jz .out
-    mov cl, ah
-    xor ch, ch
-    add dx, cx
+    add dl, ah                  ; A BYTE ADD, and it cannot carry: both bases
+                                ; are 8-aligned (0x3F8, 0x2F8 - mou_bases is
+                                ; the only place either is named, and the
+                                ; probe only ever ZEROES a row) and a UART has
+                                ; eight registers, so AH is 0..7 and DL's F8
+                                ; tops out at FF. It was `mov cl, ah / xor
+                                ; ch, ch / add dx, cx` and a CX bank, 6 bytes
+                                ; more (kernel size pass 10)
     out dx, al
 .out:
     pop dx
-    pop cx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2207,23 +2210,25 @@ mou_p2_byte:
 %ifdef MOU_DIAG
     inc word [mou_p2pkt]        ; a WHOLE packet, past sync and past overflow
 %endif
+    mov al, bl                  ; --- dy, AND POSITIVE IS UP ON THIS WIRE -----
+    xor ah, ah                  ; FIRST, so that dx lands in AX and needs no
+    test dh, 0x20               ; bank: the old order built dx first and parked
+    jz .yp                      ; it in SI across this half (`mov si, ax` /
+    dec ah                      ; `mov ax, si`), and `xchg` is a byte shorter
+.yp:                            ; than `mov bx, ax` - 5 bytes and 5 clocks
+    neg ax                      ; (kernel size pass 10). ...so the screen's dy
+    xchg ax, bx                 ; is its negation, and this one line is the
+                                ; whole difference. Getting it wrong looks
+                                ; exactly like a working mouse. AX takes BL's
+                                ; old value and is overwritten at once
+
     mov al, [mou_p2b1]          ; --- dx: 8 bits, sign in byte 0's bit 4 ------
     xor ah, ah
     test dh, 0x10
     jz .xp
     dec ah                      ; AH = 0FFh. Sign-extended BY HAND: an 8086 has
 .xp:                            ; no movsx, and cbw would take the magnitude's
-    mov si, ax                  ; own top bit for the sign
-
-    mov al, bl                  ; --- dy, AND POSITIVE IS UP ON THIS WIRE -----
-    xor ah, ah
-    test dh, 0x20
-    jz .yp
-    dec ah
-.yp:
-    neg ax                      ; ...so the screen's dy is its negation, and
-    mov bx, ax                  ; this one line is the whole difference. Getting
-                                ; it wrong looks exactly like a working mouse
+                                ; own top bit for the sign
 
     mov cl, dh
     and cl, 0x03                ; bit 0 = left, bit 1 = right: already
@@ -2231,7 +2236,6 @@ mou_p2_byte:
                                 ; needs no translation. The middle button (bit
                                 ; 2) is read and dropped - SPEC.md 10's event
                                 ; set has no record for it
-    mov ax, si
     jmp mou_apply
 .out:
     ret
@@ -3461,21 +3465,25 @@ mou_byte:
     ret
 
 .cont:
-    cmp ah, 1
-    jne .chk2
+    dec ah                      ; phase 1? THE PHASE IS COUNTED DOWN in AH,
+    jnz .chk2                   ; which nothing below reads as the phase again
+                                ; (the decode takes DH/DL/BL): `dec ah` is 2
+                                ; bytes and 3 clocks against `cmp ah, n`'s 3
+                                ; and 4, three times (kernel size pass 10)
     mov [bx+mou_b1], al         ; second byte: X low 6 bits
     mov byte [bx+mou_phase], 2
     ret
 
 .chk2:
-    cmp ah, 2                   ; anything else is a stray byte - drop it, and
-    je .pkt                     ; break the run for the same reason: a byte
-    cmp ah, 3                   ; with bit 6 clear arriving between packets is
-    jne .stray                  ; a thing the protocol cannot produce...
-    mov byte [bx+mou_phase], 0  ; ...UNLESS it is the FOURTH byte of a wheel
+    dec ah                      ; phase 2? anything else is a stray byte - drop
+    jz .pkt                     ; it, and break the run for the same reason: a
+    dec ah                      ; byte with bit 6 clear arriving between packets
+    jnz .stray                  ; is a thing the protocol cannot produce...
+    mov [bx+mou_phase], ah      ; ...UNLESS it is the FOURTH byte of a wheel
     ret                         ; mouse's packet, which is exactly a bit-6-clear
                                 ; byte in exactly this position (SPEC.md 9.5.4).
-                                ; Consumed, and the run is NOT broken - that
+                                ; AH IS 0 here, so the store is phase 0 a byte
+                                ; shorter than the immediate. Consumed, and the run is NOT broken - that
                                 ; break is what made a wheel mouse unable to
                                 ; win the contest at all (docs/FIELD-NOTES.md 44)
 .stray:
@@ -3489,7 +3497,7 @@ mou_byte:
                                 ; port is settled and the hot-plug poller
                                 ; stands down for the session
     cmp byte [mou_seen], 0      ; still unsettled? then this packet COUNTS and
-    je .bout                     ; does nothing else. A device on its way to
+    je .jbout                    ; does nothing else. A device on its way to
                                 ; losing the contest must not move the cursor
                                 ; or queue a click while it loses - a modem's
                                 ; 'no carrier' is lowercase, and bit 5 of a
@@ -3510,8 +3518,6 @@ mou_byte:
     ; and a return address here lands on the stack SPEC.md 9.10 keeps shallow.
     MOU_DECODE_MS               ; DH/DL/BL -> AX = dx, BX = dy, CL = buttons
     jmp mou_apply               ; ...which ends in the ret this needs
-.bout:
-    ret
 
 ; -----------------------------------------------------------------------------
 ; osapi_mouse_feed - slot 0x0449: one relative report from a DRIVER (SPEC.md
@@ -3709,11 +3715,11 @@ mou_apply:
     test bh, 0x01               ; left button changed?
     jz .rbtn
 
-    mov ax, EVT_MUP             ; queue EVT_MDOWN / EVT_MUP, a=x b=y (SPEC 10)
-    test bl, 0x01
-    jz .fill
-    mov ax, EVT_MDOWN
-    jmp short .fill
+    mov al, bl                  ; queue EVT_MDOWN / EVT_MUP, a=x b=y (SPEC 10)
+    and ax, 0x01                ; 1 = now DOWN, which IS EVT_MDOWN - kbm_btn's
+    jnz .fill                   ; own shape, and the numbering events.inc pins
+    mov al, EVT_MUP             ; ...and AH is 0 from the AND (kernel size pass
+    jmp short .fill             ; 10: 2 bytes, and one immediate load fewer)
 
     ; The right button is tested on the LEFT test's fall-through, and that
     ; ordering is binding (SPEC.md 9): a packet reporting both buttons
@@ -3723,11 +3729,10 @@ mou_apply:
     ; mouse_btn bit 1 (SPEC.md 12.4), so an EVT_RUP would be a record
     ; nobody ever pops.
 .rbtn:
-    test bh, 0x02               ; right button changed?
-    jz .move
-    test bl, 0x02
-    jz .move                    ; a right RELEASE queues nothing
-    mov ax, EVT_RDOWN
+    and bh, bl                  ; right button changed AND now down - a right
+    test bh, 0x02               ; RELEASE queues nothing. One AND is both tests
+    jz .move                    ; (kernel size pass 10: 3 bytes): BH is spent
+    mov ax, EVT_RDOWN           ; here, its left bit already having been read
 
 .fill:
     mov si, mou_evrec           ; c = birth time: double-click detection must
@@ -4270,11 +4275,12 @@ cur_geom:
     ; bytes however far it is shifted (CUR_SPAN).
     mov dx, [vid_stride]
     sub dx, ax                  ; DX = bytes available in this row (>= 1)
-    mov byte [cur_b1ok], 0
-    cmp dx, 2
-    jb .cols_done
-    mov byte [cur_b1ok], 1
-.cols_done:
+    cmp dx, 2                   ; CF = 1: one byte left, no DI+1 write
+    sbb al, al                  ; 0FFh / 0
+    inc al                      ; 0 / 1, and AX is reloaded on the next line -
+    mov [cur_b1ok], al          ; no branch and one store where there were two
+                                ; (kernel size pass 10: 5 bytes, and ~12 clocks
+                                ; off every cursor draw)
     mov ax, [vid_ch]            ; UNSIGNED - vid_apply homes the cursor into
     sub ax, [cur_celly]         ; the new screen precisely so this cannot
                                 ; borrow. rows on screen at this y (>= 1).
@@ -4657,9 +4663,11 @@ cur_shape_set:
     push bx
     call cur_unlazy
     mov [cur_shape], al
-    mov bl, al                  ; BX = shape * 2, which indexes BOTH tables -
-    xor bh, bh                  ; cur_shtab is a word a shape and cur_shhot is
-    add bx, bx                  ; two bytes a shape
+    cbw                         ; BX = shape * 2, which indexes BOTH tables -
+    add ax, ax                  ; cur_shtab is a word a shape and cur_shhot is
+    xchg ax, bx                 ; two bytes a shape. AL < CUR_NSHAPE (the jae
+                                ; above), so `cbw` is a zero extension, and AX
+                                ; is reloaded at once (kernel size pass 10: 2)
     mov ax, [bx + cur_shtab]
     mov [cur_tabp], ax
     mov ax, [bx + cur_shhot]    ; AL = hot x, AH = hot y - and each goes into
@@ -5057,21 +5065,21 @@ cur_move_mono:
     mov di, [mv_ooff]
     mov si, [mv_osave]
     mov bx, [mv_oy]
+    mov dl, [cur_rows]          ; the NEW cell's height, loop-invariant, so it
+    xor dh, dh                  ; is widened once here rather than per row
 .p1row:
     mov ax, bx                  ; is this row one pass 2 will draw into?
     sub ax, [cur_celly]         ; the NEW cell's top row, which cur_geom has
                                 ; just published - not the pointer's y
-    mov dl, [cur_rows]
-    xor dh, dh
-    cmp ax, dx
-    mov dl, 0                   ; DL = 1 = "pass 2 covers this row"
-    jae .p1w                    ; unsigned: a row above the new cell is huge
-    mov dl, 1
-.p1w:
+    cmp ax, dx                  ; unsigned: a row above the new cell is huge
     lodsw                       ; AL/AH = the two saved bytes; the stride is
-                                ; CUR_SPAN whatever the clip said
-    or dl, dl
-    jnz .p1s0                   ; row covered: consult the column answers
+                                ; CUR_SPAN whatever the clip said. LODSW
+                                ; WRITES NO FLAG, so the compare's answer is
+                                ; branched on straight through it - where DL
+                                ; used to carry it as a 0/1 byte and `or dl,
+                                ; dl` re-asked (kernel size pass 10: 8 bytes,
+                                ; and ~20 clocks a row of every 1bpp move)
+    jb .p1s0                    ; row covered: consult the column answers
     mov [es:di], al
     cmp byte [mv_ob1ok], 0
     je .p1next
@@ -5162,41 +5170,38 @@ cur_move_mono:
 ;            or 0FFh, meaning "read the screen".
 ; clobbers: ax, bx, flags
 cur_mvcols:
-    xor bx, bx                  ; --- pass 2, column 0 and 1 -----------------
-.p2:
-    mov ax, [mv_d]
-    add ax, bx                  ; AX = d + j
-    mov byte [bx + mv_p2s0], 0xFF
-    or ax, ax
-    jz .p2take                  ; offset 0: always saved
-    cmp ax, 1
-    jne .p2next
+    mov bx, 1                   ; ONE LOOP, j = 1 then 0: the four answers are
+.col:                           ; independent, so the two passes' columns share
+                                ; a counter, and each answer is computed into
+                                ; AL and stored once where it was stored a
+                                ; default and then overwritten (kernel size
+                                ; pass 10: 24 bytes, and fewer instructions on
+                                ; every 1bpp move)
+    mov ax, [mv_d]              ; --- pass 2, new column j ---------------------
+    add ax, bx                  ; AX = d + j - UNSIGNED below, so a negative
+    cmp ax, 1                   ; offset is just "not 0 or 1"
+    jb .p2set                   ; offset 0: always saved (AL = 0)
+    ja .p2ff
     cmp byte [mv_ob1ok], 0      ; offset 1 only exists if the OLD clip kept it
-    je .p2next
-.p2take:
+    jne .p2set                  ; (AL = 1)
+.p2ff:
+    mov al, 0xFF                ; "read the screen"
+.p2set:
     mov [bx + mv_p2s0], al
-.p2next:
-    inc bx
-    cmp bx, 2
-    jb .p2
-    xor bx, bx                  ; --- pass 1, column 0 and 1 -----------------
-.p1:
-    mov ax, bx
+    mov ax, bx                  ; --- pass 1, old column j ---------------------
     sub ax, [mv_d]              ; AX = j - d
-    mov byte [bx + mv_p1s0], 0
-    or ax, ax
-    jz .p1skip                  ; new column 0: pass 2 always writes it
     cmp ax, 1
-    jne .p1next
-    cmp byte [cur_b1ok], 0      ; new column 1 only if the NEW clip kept it
-    je .p1next
-.p1skip:
-    mov byte [bx + mv_p1s0], 1
-.p1next:
-    inc bx
-    cmp bx, 2
-    jb .p1
-    mov word [mv_prow], 0
+    mov al, 1                   ; (MOV writes no flag)
+    jb .p1set                   ; new column 0: pass 2 always writes it
+    mov al, [cur_b1ok]          ; new column 1 only if the NEW clip kept it -
+    je .p1set                   ; and [cur_b1ok] IS that 0/1 answer
+    mov al, 0
+.p1set:
+    mov [bx + mv_p1s0], al
+    dec bx
+    jns .col
+    inc bx                      ; BX = 0, and [mv_prow] starts there
+    mov [mv_prow], bx
     ret
 
 ; cur_mvrow - does the OLD cell reach the new cell's row [mv_prow]?

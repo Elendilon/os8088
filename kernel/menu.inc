@@ -535,10 +535,14 @@ menu_relayout:
     jmp short .kseg             ; label's segment ours (it is never 0)
 
 .app:
-    push di                     ; the owner's segment, once, for every read
-    mov di, bx                  ; of the set below AND for menu_draw_bar,
-    call wm_strseg              ; menu_drop and menu_widest afterwards
-    pop di                      ; (SPEC.md 12.2/20.1)
+    mov di, bx                  ; the owner's segment, once, for every read
+    call wm_strseg              ; of the set below AND for menu_draw_bar,
+                                ; menu_drop and menu_widest afterwards
+                                ; (SPEC.md 12.2/20.1). NO DI BANK: nothing
+                                ; reads DI again before inst_win_owner WRITES
+                                ; it or the copy below loads menu_bar into it,
+                                ; and the entry value is the frame's to put
+                                ; back at kret_di (kernel size pass 10: 2)
     mov ax, es
     mov cx, cs
     cmp ax, cx
@@ -693,7 +697,8 @@ menu_ab_cell:
     push si
     push di
     push es
-    mov word [menu_abcell], 0
+    xor ax, ax                  ; AX is wm_about_get's to fill below
+    mov [menu_abcell], ax
     mov bx, [menu_win]
     or bx, bx
     jz .out                     ; Locator: see above
@@ -712,14 +717,18 @@ menu_ab_cell:
 
     mov bx, [menu_win]          ; --- the items: About if it is offered, then
     call wm_about_get           ; Close, which every application gets (12.7)
-    mov cx, 1                   ; CX = item count, BX = Close's index
-    xor bx, bx
+    xor bx, bx                  ; BX = Close's index
     or ax, ax
     jz .noab
     mov word [menu_abitems], menu_abstr
-    mov bx, 1
-    mov cx, MENU_ABMAX
+    inc bx
 .noab:
+    mov cx, bx                  ; CX = item count = Close's index + 1, which
+    inc cx                      ; is MENU_ABMAX when About is offered (kernel
+                                ; size pass 10: 5 bytes over two immediates)
+%if MENU_ABMAX != 2
+  %error "menu_ab_cell counts its items as Close's index + 1: About and Close are the only two"
+%endif
     mov [menu_abclose], bl
     add bx, bx                  ; ...to a word offset
     mov word [menu_abitems + bx], menu_s_appclose
@@ -763,11 +772,10 @@ menu_ab_cat:
     push si
     mov cx, MENU_MAXCH
 .next:
-    mov al, [es:si]
-    or al, al
-    jz .done
+    es lodsb                    ; (no REP, so the override survives an
+    or al, al                   ; interrupt; SI is banked, so the one-past on
+    jz .done                    ; the NUL is not seen - kernel size pass 10)
     mov [di], al
-    inc si
     inc di
     loop .next
 .done:
@@ -925,15 +933,14 @@ menu_furniture:
     mov cx, MENU_SYS_TX         ; the logo: cell 0's title is 0 because it is
     call menu_logo_glyph        ; a bitmap, and this is where it lives now
 
-    mov di, menu_bcell          ; ...and the fill took every glyph with it,
-    mov cx, MENU_BCMAX          ; so nothing that was drawn is still drawn
-    xor al, al
-.z:
-    mov [di], al
-    inc di
-    loop .z
-    mov word [menu_ckck], 0
-    mov byte [menu_bdirty], 1
+    xor ax, ax                  ; ...and the fill took every glyph with it,
+    mov cx, 0x7FFF              ; so nothing that was drawn is still drawn:
+    call menu_inval             ; menu_inval over x = 0..7FFFh IS that - it
+                                ; clamps to all MENU_BCMAX cells and raises
+                                ; [menu_bdirty] itself, where this carried the
+                                ; loop and the store a second time (kernel size
+                                ; pass 10: 13 bytes). It preserves AX = 0
+    mov [menu_ckck], ax
 
     pop di
     jmp kret_dx
@@ -1015,13 +1022,15 @@ menu_bar_text:
                                 ; count here would be an unsigned bound
                                 ; everywhere below
 
-    mov word [menu_bfirst], 0FFFFh
-    mov word [menu_blast], 0    ; SEEDED now that it is a maximum (menu_bput).
+    xor di, di                  ; DI = cell index, 0 = x MENU_TXT_X0
+    mov [menu_blast], di        ; SEEDED now that it is a maximum (menu_bput).
                                 ; It needed none while it was assigned beside
                                 ; [menu_bfirst] on every difference; 0 is
                                 ; below every cell and is read only when
                                 ; [menu_bfirst] says something differed at all
-    xor di, di                  ; DI = cell index, 0 = x MENU_TXT_X0
+    lea ax, [di-1]              ; ...and [menu_bfirst] = 0FFFFh, both out of
+    mov [menu_bfirst], ax       ; the zero DI already holds (kernel size pass
+                                ; 10: 2 bytes; AX is dead until .bare reloads)
 
     mov bx, [menu_abcell]       ; --- the application's name ----------------
     or bx, bx                   ; a CELL when the application declared an
@@ -1156,9 +1165,8 @@ menu_bemit:
 
     mov di, ax                  ; the colours, out of the way of the x
     mov si, dx                  ; arithmetic below
-    inc si
-    mov al, [menu_bcell+si]
-    mov byte [menu_bcell+si], 0
+    mov al, [menu_bcell+1+si]   ; (the +1 in the displacement, not an `inc`:
+    mov byte [menu_bcell+1+si], 0   ; SI is reloaded below either way)
     push ax                     ; AL = the banked byte
     push bx
     push dx
@@ -1190,8 +1198,8 @@ menu_bemit:
     cmp byte [menu_binv], 0     ; the STRIP: take its first cell's left 4px
     je .nogap                   ; back to the ground, so the gap home pads
     mov ax, cx                  ; as the clock home does (SPEC.md 59.8.1).
-    mov cx, ax                  ; Drawn and then half-erased rather than
-    add cx, 3                   ; composed as two halves, because menu_bcell
+    add cx, 3                   ; Drawn and then half-erased rather than
+                                ; composed as two halves, because menu_bcell
     push bx                     ; is a record of CELLS and half a cell is not
     call thm_bg                
     mov bx, MENU_TEXT_Y
@@ -1212,8 +1220,7 @@ menu_bemit:
 .rb:
     pop ax
     mov si, dx
-    inc si
-    mov [menu_bcell+si], al
+    mov [menu_bcell+1+si], al
 
     jmp kret_di
 
@@ -1325,10 +1332,9 @@ menu_bstr:
     push ax
     push si
 .n:
-    mov al, [es:si]
-    or al, al
+    es lodsb                    ; SI is banked, so the step past the NUL is
+    or al, al                   ; never seen (kernel size pass 10: 2 bytes)
     jz .d
-    inc si
     call menu_bput
     cmp di, [menu_bn]
     jb .n
@@ -1528,13 +1534,11 @@ menu_draw_clock:
     push cx
     mov cx, ax
     mov al, ' '
-    jcxz .txt
-    rep stosb
-.txt:
-    pop cx
-    jcxz .nul
-    rep movsb                   ; DS:SI -> ES:DI, the live string
-.nul:
+    rep stosb                   ; NO jcxz round either copy: a REP with CX = 0
+    pop cx                      ; moves nothing and leaves DI where it was,
+    rep movsb                   ; which is all the guards bought (kernel size
+                                ; pass 10: 4 bytes). DS:SI -> ES:DI, the live
+                                ; string
     mov byte [es:di], 0         ; DI = the field's end: pad + text is exactly
                                 ; the field by construction
 
@@ -1565,9 +1569,8 @@ menu_draw_clock:
     mov al, ' '
     stosb                       ; cell 0 is the GAP, and it is a SPACE so the
     dec cx                      ; ordinary clock run paints it white for free
-    jcxz .trail
     rep movsb                   ; ...and the message from cell 1, on the grid
-.trail:
+                                ; (CX >= 1 here anyway: the `jb` above)
 
 .hash:
     xor ax, ax                  ; --- one check word over the composed FIELD,
@@ -1591,8 +1594,10 @@ menu_draw_clock:
     mov [menu_ckstrip], dh
 
     mov al, dh                  ; the strip's width, out of DH before DX is
-    xor ah, ah                  ; loaded: MENU_TEXT_Y fits in DL and so zeroes
-    mov di, ax                  ; DH, which would read as "no toast" every time
+    cbw                         ; loaded: MENU_TEXT_Y fits in DL and so zeroes
+    xchg ax, di                 ; DH, which would read as "no toast" every time.
+                                ; DH <= the field's 25 cells, so `cbw` is a zero
+                                ; extension; AX is reloaded on both paths below
     mov dx, MENU_TEXT_Y
     mov cx, [vid_clk_hx]
     mov si, menu_clkbuf
@@ -1616,8 +1621,7 @@ menu_draw_clock:
     mov ax, cx                  ; --- the 4px black lead. No glyph can do this:
     add ax, 4                   ; the table is 95 glyphs, ASCII 32..126 (6.2),
     push cx                     ; so CP437's half-block is not available
-    mov cx, ax
-    add cx, 3
+    add cx, 4 + 3               ; (x2 off CX itself, not through AX: 2 bytes)
     call menu_tbar_k
     pop cx
 
@@ -1983,7 +1987,8 @@ menu_drop:
     push es
 
     ; --- claim the save-under for as long as this menu is down ----------------
-    mov word [menu_sseg], 0
+    xor ax, ax                  ; AX is dead on entry (menu_pull's last use is
+    mov [menu_sseg], ax         ; [menu_y2]) and menu_save_kb fills it next
     call menu_save_kb           ; AX = what THIS menu's rect needs, not the
                                 ; worst case any menu could
     mov bx, MEM_P_MSAVE         ; TRIVIAL-purgeable (SPEC.md 12.4.2)
@@ -2169,13 +2174,13 @@ menu_drop:
                                 ; is still correct on screen (SPEC.md 11.91)
     call wm_paint_dmg
 .sel:
-    mov dx, [menu_sseg]         ; the menu is off the screen: hand the buffer
-    or dx, dx                   ; back rather than hold 20KB until the next
-    jz .nofree                  ; one (SPEC.md 12.4/50.2)
-    mov bx, MEM_P_MSAVE
-    call mem_free
-    mov word [menu_sseg], 0
-.nofree:
+    xor dx, dx                  ; the menu is off the screen: hand the buffer
+    xchg dx, [menu_sseg]        ; back rather than hold 20KB until the next
+    or dx, dx                   ; one (SPEC.md 12.4/50.2). Taken and zeroed in
+    jz .nofree                  ; ONE exchange rather than read, freed and then
+    mov bx, MEM_P_MSAVE         ; stored 0 (kernel size pass 10: 4 bytes) -
+    call mem_free               ; nothing between reads [menu_sseg], and a
+.nofree:                        ; menu_reloc then finds no match, which is right
     mov byte [menu_bdirty], 1   ; put back only the flag .repaint cleared -
                                 ; NOT menu_force, which now means "our pixels
                                 ; were destroyed" and would redraw the logo
@@ -2255,12 +2260,17 @@ menu_kbnav:
                                 ; below walks in
 
     ; --- which row is the pointer on? -1 above the menu, [menu_cnt] below ----
-    mov ax, [mouse_x]           ; the same x test menu_hover makes, so the two
-    cmp ax, [menu_x1]           ; can never disagree about what "in the menu"
-    jb .beside                  ; means
-    cmp ax, [menu_x2]
-    jbe .inx
+    mov dx, [mouse_x]           ; the same x test menu_hover makes, so the two
+    cmp dx, [menu_x1]           ; can never disagree about what "in the menu"
+    jb .beside                  ; means - and ASKED ONCE: DX carries the x the
+    cmp dx, [menu_x2]           ; pointer will be placed at down to .place,
+    jbe .inx                    ; where the same test was made a second time
+                                ; (kernel size pass 10: 11 bytes). Nothing
+                                ; between writes DX - cw_menu_item_dis banks
+                                ; what it uses, and DX is this frame's
 .beside:                        ; the pointer is off to one side: come back in
+    mov dx, [menu_x1]           ; ...at the x where the item text starts, and
+    add dx, 8
     mov di, -1                  ; at the end this key is heading AWAY from, so
     or si, si                   ; Down enters at the first item and Up at the
     jns .step                   ; last
@@ -2307,15 +2317,10 @@ menu_kbnav:
     add ax, [menu_y1]           ; the two off-the-end rows fall out of the one
     add ax, 1 + MENU_ITEM_H / 2 ; formula instead of needing cases of their own
     mov bx, ax                  ; BX = y, the cell's middle row
-    mov ax, [mouse_x]           ; x is left alone while it is inside the menu,
-    cmp ax, [menu_x1]           ; so a pointer the user has put in a column
-    jb .xsnap                   ; stays in it
-    cmp ax, [menu_x2]
-    jbe .xok
-.xsnap:
-    mov ax, [menu_x1]
-    add ax, 8                   ; ...and otherwise where the item text starts
-.xok:
+    mov ax, dx                  ; x is left alone while it is inside the menu,
+                                ; so a pointer the user has put in a column
+                                ; stays in it - and otherwise it is where the
+                                ; item text starts (.beside)
     call KERNEL_SEG:cw_mou_clamp              ; the clamp the ISR itself uses, so the
     mov [mouse_x], ax           ; two-display seam is honoured by construction
     mov [mouse_y], bx           ; rather than by a rectangle known here
@@ -2472,32 +2477,31 @@ menu_trunc:
     push ax
     push cx
     push di
-    mov cx, MENU_MAXCH
-    mov di, si                  ; does it already fit?
-.len:
-    cmp byte [es:di], 0
-    je .fits
-    inc di
-    loop .len
-    cmp byte [es:di], 0         ; exactly MENU_MAXCH characters also fits
-    je .fits
-    mov cx, MENU_MAXCH          ; no: copy the prefix into our own buffer.
-    mov di, menu_tbuf           ; The source is ES:SI (the owner's) and the
-.copy:                          ; destination is kernel .bss, so the store
-    mov al, [es:si]             ; goes through CS - which IS KERNEL_SEG here,
-    inc si                      ; the gfx_nextrow idiom of SPEC.md 39.3
-    mov [cs:di], al
-    inc di
-    loop .copy
-    mov byte [cs:di], 0
-    mov si, menu_tbuf
-    push cs
-    pop es                      ; the copy is ours: so is the segment now
+    mov di, si                  ; does it already fit? - a NUL somewhere in
+    mov cx, MENU_MAXCH + 1      ; the first MENU_MAXCH+1 bytes, exactly
+    xor al, al                  ; MENU_MAXCH characters fitting too. ONE
+    repne scasb                 ; `repne scasb` (ES:DI, no override, so the
+    je .fits                    ; restart hazard does not arise) is the scan
+                                ; the byte loop and its tail compare were
+    push ds                     ; no: copy the prefix into our own buffer.
+    push es                     ; The source is ES:SI (the owner's) and the
+    pop ds                      ; destination kernel .bss, so the copy runs
+    push cs                     ; with the segments SWAPPED for one `rep
+    pop es                      ; movsb` - no override on it, for the same
+    mov di, menu_tbuf           ; reason - and ES is left KERNEL_SEG, which
+    mov cl, MENU_MAXCH          ; is the answer anyway. CX ran out to 0 above
+    rep movsb
+    pop ds
+    mov [di], al                ; AL is still the scan's 0; DS is ours again
+    mov si, menu_tbuf           ; (kernel size pass 10: 15 bytes)
 .fits:
     pop di
     pop cx
     pop ax
     ret
+%if MENU_MAXCH > 0xFF
+  %error "menu_trunc loads MENU_MAXCH into CL alone"
+%endif
 
 ; -----------------------------------------------------------------------------
 ; menu_widest - widest item text in a menu, in pixels
@@ -2561,20 +2565,22 @@ menu_logo_glyph:
     push di
     mov si, menu_logo_bmp
     mov di, cx                  ; DI = left x
-    mov dx, MENU_LOGO_Y
-    mov bh, 11                  ; rows
+    mov dx, MENU_LOGO_Y + 1     ; rows 0 and 10 are blank and are not stored
+    mov bh, 9                   ; rows
 .row:
     lodsw                       ; bit 15 = leftmost pixel of the row
     mov cx, di
-    mov bl, 11                  ; columns
 .col:
     shl ax, 1
     jnc .skip
     call gfx_pixel              ; CX = x, DX = y
 .skip:
     inc cx
-    dec bl
-    jnz .col
+    or ax, ax                   ; a row ends at its last LIT pixel: the bits
+    jnz .col                    ; past column 10 are 0, so no column count is
+                                ; needed (kernel size pass 10: 6 bytes with
+                                ; the two blank rows, and the empty right-hand
+                                ; columns stop being walked)
     inc dx
     dec bh
     jnz .row
@@ -2587,8 +2593,7 @@ menu_logo_glyph:
 ; 11x11 DIP-chip silhouette - the os8088 logo: a 7px-wide package body with
 ; a notch at the top and four pins down each side. One word per row,
 ; bit 15 = x offset 0.
-menu_logo_bmp:
-    dw 0x0000                   ; ...........
+menu_logo_bmp:                  ; (row 0, ..........., is not stored)
     dw 0x3B80                   ; ..###.###..   body top, orientation notch
     dw 0xFFE0                   ; ###########   pins
     dw 0x3F80                   ; ..#######..
@@ -2598,7 +2603,7 @@ menu_logo_bmp:
     dw 0x3F80                   ; ..#######..
     dw 0xFFE0                   ; ###########   pins
     dw 0x3F80                   ; ..#######..   body bottom
-    dw 0x0000                   ; ...........
+                                ; (nor row 10, ...........)
 
 menu_loc_name   db 'Locator', 0 ; the kernel's own application (SPEC 12.3)
                                 ; SEVEN of the items below are the SAME BYTES
