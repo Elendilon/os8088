@@ -6,6 +6,30 @@ kernel/splash.inc, kernel/spinner.inc. Branch `ksp10-gfx`, cut at `833f13e4`.
 #230's review fix `3b503fd` (gfx_blit1's refusal ladder) is in the base and was
 read; nothing below changes its order of refusals.
 
+## TOTAL (at the branch tip)
+
+    kernsize[big]:   text 44,103 -205  bss +0  cold +0  lowbss +0  vgabuf +0   (sum -205)
+    kernsize[small]: text 32,841 -63   bss +0  cold +0  lowbss +0              (sum -63)
+
+Per file (kern_big `.text`): vga12.inc 5,391 -> 5,224 (-167), font.inc 2,262 ->
+2,224 (-38), softgfx.inc 0. kern_emu (`make emu`) builds. Knob arms assemble on
+both kernels: SCROLL_ROWBASE, NOPLANE, BAND, GFXAUDIT, NOBLITCUT, NOSEAMCUT,
+NOUNAL, NOSPLIT, NOCOLFAST, SNAPAUDIT, THEMEDARK, FONTSLOW. stkbalance over
+kernel/*.inc: identical report at base and tip (0 unbalanced).
+
+Soak rows run, one at a time on MartyPC, all green: gfxpoints (twice), dispblit,
+wdenter, tmrepair, ptsext.
+
+## OBSERVATION (not changed - behaviour)
+
+On a VGA build, gfx_xor_fill_raw falls into vga_xor_fill_vram, which calls
+cur_unlazy - so a CLIPPED XOR fill (gfx_clip_run re-entering the raw body per
+fragment) spends the deferred hide on VGA, where the 1bpp arm (`jne
+sw_xor_fill`, before the call) does not. Harmless (an extra hide), but it is
+the one rect body whose clipped path hides the arrow, and moving the hide to
+the VRAM-only entry would be ~-4 bytes and a call off every VGA XOR fill. Left
+for whoever owns the lazy-hide contract (SPEC.md 7.1.4) to judge.
+
 ## TAKEN
 
 ### Batch 1 — kern_big .text -100, kern_small .text -28
