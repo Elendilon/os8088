@@ -85,6 +85,14 @@ BP is free in both (dskw_read_x banks it for the body; read_at banks it at
 entry). `soak -k rdcz` (a hint-less compressed file read off the RAM disk,
 which IS the redirected `dskw_rbody` arm) green.
 
+### Batch 7 - three far entries without a thunk (kern_big .cold -14, kern_small .cold -10)
+
+`dwf_dskw_vstat` IS `dskw_vstat_x` now (nothing near-called the body, so its
+two exits are `retf` and the thunk went, SPEC.md 2.6.1's shape: -4).
+`dskw_write_sys_x` and `dskw_append_sys_x` had no caller but their thunks:
+each `_sys` far entry is now one `mov byte [dskw_syswr], 1` falling into the
+plain entry's `call` (-6, -4).
+
 ## REFUSED
 
 (appended as decided)

@@ -311,10 +311,12 @@ dskw_wrp:
 ; and every save after that would be refused FERR_PROT by the very bits the
 ; first one set. Nothing else relaxes - a read-only SYSTEM.CFG, or a folder
 ; by that name, is still refused.
+;
+; It is the far entry dwf_dskw_write_sys and nothing else (size pass 10, -6):
+; one store, falling into dwf_dskw_write's call, where it was a thunk calling
+; a two-instruction body that jumped to the same place. [dskw_syswr] is
+; cleared again by dskw_wrp on the way out.
 ; -----------------------------------------------------------------------------
-dskw_write_sys_x:
-    mov byte [dskw_syswr], 1
-    jmp short dskw_write_x      ; ...which clears it again on the way out
 
 ; -----------------------------------------------------------------------------
 ; dskw_read - read a whole file by name (SPEC.md 18.4, slot 0x0109)
@@ -451,7 +453,10 @@ dskw_dfree_x:
 ; for both (SPEC.md 22.7).
 ; -----------------------------------------------------------------------------
 %ifndef KERN_SMALL                 ; kern_small's cell is a stub (18.4.7.4)
-dskw_vstat_x:
+dwf_dskw_vstat:                 ; THE FAR ENTRY IS THE BODY (SPEC.md 2.6.1):
+                                ; nothing near-calls it, so the thunk that
+                                ; called it went and both exits are far
+                                ; returns (size pass 10, -4)
     call dsk_free_clus_x        ; AX = free clusters; CF=1 = no volume - and
     jc .bad                     ; it banks every other register itself
     mov bx, ax
@@ -461,11 +466,11 @@ dskw_vstat_x:
     mov cx, 512                 ; mount rule 3
     mov dx, [dsk_maxclus]       ; CountOfClusters + 1 is what the mount stored
     dec dx                      ; (SPEC.md 19 rule 15), and the COUNT is what
-    ret                         ; the caller means
+    retf                        ; the caller means
 .bad:
     mov ax, FERR_NODISK
     stc
-    ret
+    retf
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -3214,8 +3219,9 @@ dws_hlose:
 ; bytes from past the CALLER's buffer over bytes the file owns. At or past
 ; the size the rounded tail lands on slack, so any count goes (18.4.7.2).
 ; -----------------------------------------------------------------------------
-dskw_append_sys_x:
-    mov byte [dskw_syswr], 1    ; ...which dskw_wrp clears on the way out
+; (The SYSTEM-file flavour, dskw_append_sys, is its far entry alone:
+; dwf_dskw_append_sys stores [dskw_syswr] = 1 and falls into dwf_dskw_append's
+; call, and dskw_wrp clears it on the way out - size pass 10, -4.)
 dskw_append_x:
     push bx
     push cx
@@ -5964,30 +5970,29 @@ section .cold                   ; far entries (SPEC.md 2.6): the resident
                                 ; thunks in kernel.asm far-call these, and
                                 ; these near-call the bodies above - so every
                                 ; routine here keeps its ordinary near `ret`
+                                ; (dwf_dskw_vstat, whose body nothing near-
+                                ; calls, is the one far entry that IS its
+                                ; body, above)
 dwf_dskw_delete:        call dskw_delete_x
                     retf
 dwf_dskw_dfree:         call dskw_dfree_x
                       retf
-%ifndef KERN_SMALL
-dwf_dskw_vstat:         call dskw_vstat_x
-                    retf
-%endif
 dwf_dskw_read:          call dskw_read_x
                     retf
 dwf_dskw_rename:        call dskw_rename_x
                     retf
 dwf_dskw_stat:          call dskw_stat_x
                     retf
-dwf_dskw_write:         call dskw_write_x
-                    retf
-dwf_dskw_write_sys:     call dskw_write_sys_x
+dwf_dskw_write_sys:     mov byte [dskw_syswr], 1    ; ...and the plain
+dwf_dskw_write:         call dskw_write_x           ; write, which clears it
                     retf
 dwf_dskw_mkdir:         call dskw_mkdir_x
                     retf
 dwf_dskw_read_at:       call dskw_read_at_x
                     retf
-dwf_dskw_append:        call dskw_append_x
-                    retf
+dwf_dskw_append_sys:    mov byte [dskw_syswr], 1    ; ...and the plain
+dwf_dskw_append:        call dskw_append_x          ; append (dskw_wrp
+                    retf                            ; clears it)
 %ifndef KERN_SMALL
 dwf_dskw_write_at:      call dskw_write_at_x
                     retf
@@ -6013,8 +6018,6 @@ dwf_dskw_write_at:  stc         ; the DOS box is the one caller (SPEC.md
                                 ; N cell reaches the far entry by name
                                 ; (SPEC.md 20.3.2)
 %endif
-dwf_dskw_append_sys:    call dskw_append_sys_x
-                    retf
 ; THE AL DISPATCH IS HERE, in the COLD far entry, and not in a second resident
 ; thunk: both bodies are already cold, so branching here costs one far entry
 ; and one `.text` thunk instead of two of each (SPEC.md 18.6).
