@@ -2587,11 +2587,9 @@ vga_blit_prow:
     mov di, si
     clc
 .shb:
-    mov al, [di]
-    rcr al, 1
-    mov [di], al
-    inc di
-    loop .shb
+    rcr byte [di], 1            ; in memory: 2 bytes and ~20 clocks where the
+    inc di                      ; load, the rcr and the store were 6 and ~29,
+    loop .shb                   ; and the carry chains through it the same
     add si, VGA_PB
     dec bp
     jnz .shp

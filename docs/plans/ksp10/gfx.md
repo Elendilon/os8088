@@ -47,6 +47,15 @@ an arm assembles out.)
 | `gfx_clip_run`: the primitive's rect is loaded and the fragment at SI is the isect block (intersection is symmetric) - no push/mov/pop of SI a fragment | -1 | -1 | ~25 clocks a fragment faster |
 | font: `es lodsb` for `mov al,[es:si] / inc si` in font_str_x, font_run_x's .p1, .cell, .cells, .cells_nx (every exit's SI is popped) | -10 | -8 | faster, per character |
 
+### Batch 4 — kern_big .text -16 (running -198), kern_small .text -2 (running -63)
+
+| item | big | small | speed |
+|---|---:|---:|---|
+| font_ch_cut's three byte loops (seam cut, two-card only): `es lodsb` | -6 | 0 | faster |
+| font_run_cell's row: `es lodsb` (per glyph ROW of a clipped/1bpp opaque cell) | -2 | -2 | faster: 1 instruction and ~5 clocks a row fewer |
+| fnt_rn_edge's two column loops: `lodsb` (DS is the kernel's) | -4 | 0 | faster |
+| vga_blit_prow's odd-x shift: `rcr byte [di], 1` in memory | -4 | 0 | faster (~29 -> ~20 clocks a byte) |
+
 ## REFUSED
 
 * `lea sp, [bp+18]` for `mov sp,bp / add sp,18` in gfx_blit1_x's `.noswap`
@@ -70,6 +79,9 @@ an arm assembles out.)
   path inside font_run's fallback on an extended desktop.
 * GFXDENTERCD's one-display test moved into gfx_disp_enter_cd (-14): a
   call/ret on every glyph of every one-card machine (the macro's own banner).
+* gfx_ls_box's unarmed copy (24 bytes) as the armed clamp run against a
+  constant whole-plane rect (-13 with the 8-byte constant): ~+128 clocks on
+  every gfx_points pass.
 * GFXCLIP_ARM's body pointer as an inline `dw` after a `call` (~-10): +40
   clocks on every clipped primitive.
 

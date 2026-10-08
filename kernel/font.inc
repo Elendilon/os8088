@@ -758,10 +758,9 @@ font_ch_cut:
     mov cx, bx                  ; seam, lifted to the far display's first. All
     mov ch, 8                   ; eight ROWS go: it runs its own y test, and
 .bxr:                           ; its height is its own
-    mov al, [es:si]
-    shl al, cl
+    es lodsb                    ; (DF = 0, SPEC.md 1: SI walks itself, and the
+    shl al, cl                  ; `sub si, 8` below puts it back either way)
     mov [ss:di], al
-    inc si
     inc di
     dec ch
     jnz .bxr
@@ -781,9 +780,8 @@ font_ch_cut:
     mov cx, 8                   ; COLUMNS go: it runs its own x test
     sub cx, bp
 .byr:
-    mov al, [es:si]
+    es lodsb
     mov [ss:di], al
-    inc si
     inc di
     loop .byr                   ; CX = 8 - bp, 1..7 (`jae .part` above proved
                                 ; bp < 8). A CX of 0 would run 65,536 times -
@@ -821,8 +819,7 @@ font_ch_cut:
     mov ah, al                  ; shift - which their `or al, al / jz` skips
     mov cx, 8                   ; already. k = 8 shifts the byte away and `not`
 .par:                           ; brings back FF, so no mask is no work
-    mov al, [es:si]
-    inc si
+    es lodsb
     and al, ah
     dec bp                      ; ONE loop over all eight rows: the first n
     jns .pkeep                  ; (BP = n, 1..8, counted down to -1) keep
@@ -2012,8 +2009,9 @@ fnt_rn_edge:
     out dx, ax                  ; register: DX is the port the line after
     mov cx, 8                   ; a fixed eight rows: `loop` is 2 bytes and 17
 .vrow:                          ; clocks where `inc bp / cmp bp,8 / jb` is 6
-    mov al, [si]                ; and ~22, and FONT_RN_NEXTROW touches only DI
-    inc si                      ; and the flags
+    lodsb                       ; and ~22, and FONT_RN_NEXTROW touches only DI
+                                ; and the flags. (`lodsb`: DS is the kernel's,
+                                ; the caller's push cs / pop ds, and DF = 0)
     xchg [es:di], al            ; the latches (the read), then AL (the write):
                                 ; the masked-out bits come back from them
                                 ; untouched. xchg is that read and that write
@@ -2030,8 +2028,7 @@ fnt_rn_edge:
     not bl                      ; BL = the bits that are NOT ours
     mov cx, 8                   ; ...and the same eight here
 .mrow:
-    mov al, [si]
-    inc si
+    lodsb
     and al, dl
     mov ah, [es:di]
     and ah, bl
@@ -2151,8 +2148,9 @@ font_run_cell:
     dec bl
     jnz .skip
 .row:
-    mov al, [es:si]             ; AL = the glyph row
-    inc si
+    es lodsb                    ; AL = the glyph row, and SI on to the next:
+                                ; 2 bytes and ~14 clocks where `mov al,[es:si]
+                                ; / inc si` was 4 and ~19 (size pass 10)
     and al, cl                  ; a set bit picks ink, a clear bit background
     xor al, ch                  ; - the same byte, three instructions fewer
 %ifdef KERN_BIG
