@@ -1523,39 +1523,30 @@ gfx_prevrow:
 ; gfx_ink - reduce a 16-colour index to a 1bpp ink (SPEC.md 39.4)
 ; in:       AL = colour 0..15
 ; out:      AL = 0x00 black, 0xFF white, 0x01 the 50% dither class
-; clobbers: AX, flags       <- AH, because `cbw` writes it. It was "AL"; every
-;           one of the six call sites was checked and reads only AL after the
-;           call (vga12.inc:1140, :1719, :1939, :2137, icons.inc:460,
-;           font.inc:884), so this widening documents the code rather than
-;           changing what any caller may do. BX is still preserved -
-;           vga12.inc:2137 depends on that and says so.
+; clobbers: flags. AH IS PRESERVED again since size pass 10 - it was
+;           "AX" while the body was `cbw`/`xchg ax, bx`, and every one of the
+;           six call sites was checked then and reads only AL after the call
+;           (vga12.inc:1140, :1719, :1939, :2137, icons.inc:460, font.inc:884),
+;           so narrowing it changes nothing any caller does. BX is still
+;           preserved - vga12.inc:2137 depends on that and says so.
 ;
 ; PER GLYPH CELL on the 1bpp adapters (font_ink's caller is font_char_bb), so
-; the accumulator form is worth its two bytes twice over: 7 bytes and 9 clocks
-; become 5 and 8, both fetch-bound on the 8088's max(clocks, 4.34 x bytes)
-; floor - 30.4 -> 21.7 clocks, ~143 us off a 78-cell row at 4.77 MHz.
-;
-; ...and `xchg ax, bx` for `mov bx, ax` took a further byte off the same
-; argument. MEASURED end to end on MartyPC's own cycle counter, entry to the
-; caller's return address, AL = 12, twenty samples: 91 -> 87 cycles on CGA
-; (os8088_5150_cga_gla) and 91 -> 87 on Hercules (os8088_5150_herc_gla), the
-; two distributions disjoint. `xchg` is a clock DEARER than `mov` and a byte
-; shorter, so the four cycles are the prefetch queue and nothing else - which
-; is the whole of why the fetch floor is worth designing to.
+; it is designed to the 8088's max(clocks, 4.34 x bytes) fetch floor. Size
+; pass 3 took the accumulator `and` and `cbw`/`xchg ax, bx` for the index
+; (MEASURED on MartyPC, AL = 12, twenty samples: 91 -> 87 cycles on CGA and
+; Hercules both, the distributions disjoint). Size pass 10 takes `xlatb`,
+; which is the whole lookup in one byte: 11 bytes -> 9, and by the book
+; 73 -> 66 clocks of execution under a fetch floor of ~48 -> ~39 - the
+; `[bx + disp16]` byte read was 17 clocks and four bytes on its own, xlatb is
+; 11 and one, and the 3-byte `mov bx, imm16` it needs costs 4.
 ; -----------------------------------------------------------------------------
 gfx_ink:
     push bx
+    mov bx, gfx_inktab
     and al, 15                  ; accumulator form: 2 bytes, not 3
-    cbw                         ; 0..15, so the sign bit is clear and AH
-    xchg ax, bx                 ; becomes 0 in one byte - and the xchg is
-                                ; `mov bx, ax` in one byte rather than two.
-                                ; AH ends holding the caller's old BH instead
-                                ; of 0, which is inside the "clobbers: AX" the
-                                ; header above widened to and re-checked all
-                                ; six call sites for
-    mov al, [bx + gfx_inktab]
-    pop bx
-    ret
+    xlatb                       ; AL = [DS:BX + AL], as `mov al, [bx +
+    pop bx                      ; gfx_inktab]` read it - DS is the same
+    ret                         ; segment either way
 
 section .text                   ; ...and back, so the next include lands right
 

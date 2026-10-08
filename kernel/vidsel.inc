@@ -2192,7 +2192,8 @@ vid_disp_relayout:
 ; -----------------------------------------------------------------------------
 vid_desk_union:
     push ax
-    push cx
+    push bx                     ; BX is not spent: it is banked so the exit is
+    push cx                     ; kret_di's ladder (SPEC.md 15.1.2), -2
     push dx
     push si
     push di
@@ -2225,11 +2226,6 @@ vid_desk_union:
     mov [vid_h], dx
     dec dx
     mov [vid_hm1], dx
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    ret
+    jmp kret_di
 
 %endif  ; KERN_BIG

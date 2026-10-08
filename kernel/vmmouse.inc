@@ -242,15 +242,9 @@ vmm_poll:
     jnz .pass
 .out:
     mov byte [vmm_busy], 0
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_es                 ; the eight-register ladder (SPEC.md 15.1.2):
+                                ; kern_emu runs on a 386, where the jump is
+                                ; nothing against the backdoor's own `in`
 
 %endif                          ; KERN_EMU
 
@@ -377,15 +371,7 @@ vmm_boot_x:
     je  .out                        ; has no tier test of its own - give it back
     call drv_release
 .out:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf                        ; FAR: kmain reaches this as
+    jmp kretfc_es               ; FAR, the far ladder: kmain reaches this as
                                 ; `call COLD_SEG:vmm_boot_x`, drv_notice_x's
                                 ; shape
 

@@ -27,6 +27,20 @@ Appended as decided. Bytes are `kernsize`'s section deltas at each batch.
 
 Batch 1 total: kern_big .text -50, .cold -10 (sum -60); kern_small .text -35.
 
+### Batch 2
+
+| where | what | big | small | emu |
+|---|---|---:|---:|---:|
+| vid_desk_union | banks BX too and leaves through `kret_di` | -2 | n/a | -2 |
+| gfx_ink | `mov bx, gfx_inktab / xlatb`: 11 bytes -> 9, AND faster (book: 73 -> 66 clocks, fetch floor ~48 -> ~39) and AH preserved again. PER GLYPH CELL on 1bpp | -2 | -2 | -2 |
+| vmm_poll / vmm_boot_x | the eight-register exits are `kret_es` / `kretfc_es` (kern_emu only; a 386) | 0 | 0 | -12 |
+
+Running total at batch 2: **kern_big .text -54, .cold -10 (sum -64); kern_small .text -37;
+kern_emu .text -60, .cold -16 (sum -76)**.
+
+docs/INDEX.md is regenerated in this branch only because this notes file is tracked
+(os88index lists every docs/plans/*.md); the coordinator regenerates it at the merge.
+
 ## REFUSED
 
 * **fsx_mine's range test** (~6 bytes): deliberately kept, its own header says why
@@ -43,7 +57,30 @@ Batch 1 total: kern_big .text -50, .cold -10 (sum -60); kern_small .text -35.
 * **hbf_paint/onclick/kinit thunks** sharing a body: they differ in a table index,
   and a register to carry it costs what it saves.
 * **clo_fnbuf to .bss**: same resident bytes either way.
+* **vid_ctx_act: `push di`/`pop di` round the copy instead of `sub si,32 / mov di,si`**
+  (-3): +~21 clocks on the display-crossing path under every drawing primitive of an
+  extended desktop. Hot enough to refuse.
+* **fsx_mode/fsx_run `.fail` at the foot** (CLC_OR_STC + one exit, -5 each): every
+  refusal jump is >127 bytes from the foot, which is why the trampolines exist.
+* **fsx_mode's `cmp al, FSXM_COUNT`** looks redundant with the caps shift (an id >= 9
+  shifts the mask to 0) - it is NOT on a 186+: the shift count is masked to 5 bits, so
+  id 32 would read as id 0. Kept.
+* **vid_cga_equip as an entry into vid_equip's store tail** (-1). Not worth it.
+* **hbm_kinit's work moved into hbm_open after the launch** (would delete hb_kinit's
+  .text thunk and hbf_kinit, 16 resident): KD_INIT runs BEFORE the window is visible
+  and sets the snap and the mouse-up hook; after the launch it is a behaviour change.
+* **vid_tab's EGA row as the VGA row + a height patch** (18 bytes of row against ~19
+  of code).
 
 ## CROSS-FILE
 
-(none yet)
+* **KD_INIT's .text thunks** (`fm_kinit`, `app_tmr_kinit`, `app_bounce_kinit` in
+  kernel.asm, `hb_kinit` in hiber.inc - 6 bytes each, `call COLD_SEG:x_x / ret`):
+  every one exists because inst_launch (instance.inc ~1570) does `call ax` near in
+  KERNEL_SEG, while every OTHER callback of a kernel window is dispatched into
+  `.cold` through `COLD_SEG:wm_cbd` (wm_pkgcall's `.near`). Dispatching KD_INIT the
+  same way (`push bp / mov bp, ax / call COLD_SEG:wm_cbd / pop bp`, +7) and pointing
+  the four KD_INIT words at the cold bodies (which then end in a near `ret`, i.e.
+  `kretc_*` instead of `kretfc_*`) is ~-24 +7 = **~-17 kern_big**, ~+1 kern_small
+  (fm_kinit only). The blocker is `cp_kinit` (ctrl.inc), which is a `.text` body:
+  it would need moving to `.cold` or a cold thunk of its own. ESTIMATE, not built.
