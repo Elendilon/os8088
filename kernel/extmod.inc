@@ -670,10 +670,10 @@ ui_drag_size:
     push ss                     ; they were: the four on the stack (X lowest,
     pop es                      ; the record's own order) against the record
     mov di, sp
+    cld                         ; BEFORE the scasw, which steps DI by DF too
     scasw                       ; (DI past the ES just banked; AX = 0 is not
     lea si, [bx+W_X]            ; read for anything)
     mov cx, 4
-    cld
     repe cmpsw
     pop es
     pop cx                      ; the four words, spent (pop touches no flag)
