@@ -6756,36 +6756,33 @@ cp_open_x:
     jc .failed                  ; KIND_CTRL` below and `mov al, 1` at .no do not
     mov al, KIND_CTRL
     call KERNEL_SEG:cw_app_launch
-    jc .beep                    ; the panel itself refused - no instance slot,
+    jnc .out                    ; the panel itself refused - no instance slot,
                                 ; no window. app_launch's own answer, and it
                                 ; is not about the disk, so it keeps the beep
                                 ; the three call sites used to give it
-    pop ax
-    ret
-.beep:
     call ct_cw_snd_beep         ; audible refusal (SPEC.md 34.3), which is
-    pop ax                      ; what every one of these call sites did with
-    stc                         ; a CF=1 from app_launch before cp_open owned
-    ret                         ; the decision
+                                ; what every one of these call sites did with
+                                ; a CF=1 from app_launch before cp_open owned
+                                ; the decision
 .failed:
-    pop ax
     stc
+.out:
+    pop ax                      ; (POP keeps CF: one epilogue for all three)
     ret
 
 cp_open_need:
     call cpf_need
-    jc .no
-    ret
-.no:
-    push ax
+    jnc .out
 %ifdef KERN_BIG
     call hbf_nodisk             ; ...but THIS one is about the disk, and a
-    pop ax                      ; beep cannot say which disk - and it is the
-    stc                         ; SAME sentence Hibernate's refusal says, out
-    ret                         ; of one table AND one body (hiber.inc).
+                                ; beep cannot say which disk - and it is the
+                                ; SAME sentence Hibernate's refusal says, out
+                                ; of one table AND one body (hiber.inc). It
+                                ; banks AX, BX and CX itself
 %else                           ; kern_small has no hiber.inc arm, so there it
-    push bx                     ; keeps the copy below - where it is the only
-    push cx                     ; one there is
+    push ax                     ; keeps the copy below - where it is the only
+    push bx                     ; one there is
+    push cx
     mov al, 1
     mov bx, cp_opentab
     mov cx, CP_NOPEN
@@ -6793,8 +6790,9 @@ cp_open_need:
     pop cx
     pop bx
     pop ax
-    stc
-    ret
 %endif
+    stc
+.out:
+    ret
 
 section .text

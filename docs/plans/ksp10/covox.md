@@ -59,6 +59,20 @@ SOUND.DRV (drivers/sound/):
 * `cvx_v_info`: `cmp ax, 1` gives CF for zero.
 * `inc byte [drv_up]` where it is known 0.
 
+### Batch 2 - resident: cp_open_x, cp_open_need, snd_release_inst
+
+kern_big `.text -4 .cold -8 (sum -12)`; kern_small `.text -4 .cold -6
+(sum -10)`.
+
+* `snd_release_inst` (.text, both): `or bp, bp / jz` before `drv_svc_call`
+  is that routine's own first test (BP = 0 refuses, CF = 1 AX = 0, no side
+  effect) and this routine restores AX and the flags: -4. Teardown, not hot.
+* `cp_open_x` (.cold): the beep falls into the refusal's `stc`, one
+  `pop ax / ret` epilogue for all three exits: -5.
+* `cp_open_need` (.cold): kern_big's `hbf_nodisk` banks AX itself (it ends
+  in `kretc_cx`), so the push/pop round it went; one shared `stc / ret`: -3
+  big, -1 small.
+
 ### BUG FIXED (its own paragraph in the commit)
 
 `snd_entry`'s DRVV_READY jumped to `.nosb` - written when that label was the
@@ -80,4 +94,6 @@ probes, which is what its comment always said. 0 bytes.
 
 ## CROSS-FILE
 
-(none yet)
+* docs/INDEX.md is regenerated in this branch for this notes file (one line);
+  every agent's branch will conflict on that line - re-run
+  `tools/os88index.py` after the merge rather than resolving by hand.

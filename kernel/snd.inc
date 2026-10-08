@@ -483,10 +483,10 @@ snd_release_inst:
     push bp                     ; channels and streams are stamped with the
     push dx                     ; same instance slot ours are (SPEC.md 34.3)
     mov bp, [drv_svc+DSV_RELINST]
-    or bp, bp
-    jz .nodrv
-    call drv_svc_call
-.nodrv:
+    call drv_svc_call           ; ...which refuses a BP of 0 itself (CF = 1,
+                                ; AX = 0), and this routine puts back AX and
+                                ; the flags: no test of its own (kernel size
+                                ; pass 10)
     pop dx
     pop bp
     pop ax
