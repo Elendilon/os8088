@@ -1126,94 +1126,6 @@ sch_wk_restart:
                                 ; the compactor's only way past a worker's own
                                 ; stack, and kern_small has no compactor
 
-; -----------------------------------------------------------------------------
-; task_yield - give up the rest of this time slice
-;
-; Fakes the hardware int 08h frame (FLAGS with the caller's IF, CS, IP) with
-; pushf / cli / push cs / near call, then saves registers exactly like the
-; ISR and drops into the common switch. The eventual iret lands on the ret
-; below with all registers and the caller's IF restored.
-;
-; in:       nothing
-; out:      nothing (returns later, after other tasks have run)
-; clobbers: flags only (arithmetic flags; IF preserved via the frame)
-; -----------------------------------------------------------------------------
-task_yield:
-%ifdef KERN_EMU
-    ; --- the VMware absolute pointer's service point (SPEC.md 9.11.3) --------
-    ; vmmouse is POLLED, not interrupt-driven, so every spin loop that waits on
-    ; the mouse - a drag, a grow, a menu track, the file manager's icon drag -
-    ; has to pump it or the button-release it is waiting for never arrives (a
-    ; freeze). They ALL call task_yield, so draining it here services every one,
-    ; present and future, near and far (the cold segment's cw_task_yield lands
-    ; here too).
-    ;
-    ; **WRITTEN OUT RATHER THAN VMM_POLL, and the difference is DS.** The macro
-    ; is for ui_task and menu_drop, which already hold the kernel's; this site
-    ; does not - task_yield is an OSAPI slot, so the caller may be a package
-    ; with its own DS. The GATE is still the macro's cs-relative compare, and
-    ; the segment load moves INSIDE the branch: a machine with no backdoor pays
-    ; 9 bytes and ~39 clocks (the 8088's fetch floor over the encoding,
-    ; PERFORMANCE.md Part 2) instead of 16 and 91 - 8.2 us against 19.1, or
-    ; 1.2% of a 693 us switch instead of 2.8%.
-    ;
-    ; THE TARGET MACHINE NO LONGER PAYS EVEN THAT, and this block is why the
-    ; guard is KERN_EMU and not KERN_BIG (SPEC.md 9.11.7). task_yield is the
-    ; hottest thing in the kernel - every drag, every grow, every menu track
-    ; and every worker goes through it - so 9 bytes and 39 clocks HERE were the
-    ; largest single share of what an XT was charged for a protocol it cannot
-    ; speak. On kern_big this now assembles to nothing at all; the arithmetic
-    ; above is kept because it is what the arrangement buys on the build that
-    ; DOES take the branch, where a hypervisor guest pays the 9-byte form on
-    ; every switch the backdoor is idle for.
-    ;
-    ; Before the cli/frame build: this is still the caller's task context with
-    ; IF as it left it, exactly as ui_task's own VMM_POLL - and vmm_poll takes
-    ; its own cli, and its own STACK, around the apply.
-    cmp byte [cs:vmm_on], 0
-    jz .noyvmm
-    push ds
-    push ax
-    mov ax, KERNEL_SEG
-    mov ds, ax
-    call vmm_poll
-    pop ax
-    pop ds
-.noyvmm:
-%endif
-    ; STKBALANCE-OK: fabricates the int 08h frame (pushf / push cs /
-    ; call .save), so the ret below is reached by the scheduler's iret and not
-    ; by .save returning - the depth at that ret is the frame, by design.
-    pushf                       ; FLAGS slot - carries the caller's IF
-    cli                         ; frame build + switch must be atomic
-    push cs                     ; CS slot
-    call .save                  ; IP slot; iret resumes at the ret below
-    ret
-
-.save:
-    push ax
-    push cx
-    push dx
-    push bx
-    push si
-    push di
-    push bp
-    push es
-    push ds
-    push cs                     ; caller's DS is on the stack; we need ours
-    pop ds
-                                ; NO sch_account HERE (SPEC.md 8.1.1). It used
-                                ; to charge the slice unconditionally, and on a
-                                ; machine with one runnable task that is 500
-                                ; cycles to bill a task and then go on running
-                                ; the same task - 1,048 times a second, 10.9%
-                                ; of an idle 8088. sch_switch charges at .pick
-                                ; instead, and only when the pick is a real
-                                ; change; the sch_resume branch below is a
-                                ; no-change by construction
-    cmp byte [sch_lock], 0      ; scheduler locked: resume self immediately
-    jne sch_resume
-    jmp sch_switch
 
 ; -----------------------------------------------------------------------------
 ; task_sleep - block this task for AX timer ticks (18 ~= 1 second)
@@ -1909,6 +1821,102 @@ ddg_div:    resb 1
 ddg_buf:    resb 40
 section .text
 %endif
+
+; -----------------------------------------------------------------------------
+; task_yield - give up the rest of this time slice
+;
+; Fakes the hardware int 08h frame (FLAGS with the caller's IF, CS, IP) with
+; pushf / cli / push cs / near call, then saves registers exactly like the
+; ISR and drops into the common switch. The eventual iret lands on the ret
+; below with all registers and the caller's IF restored.
+;
+; in:       nothing
+; out:      nothing (returns later, after other tasks have run)
+; clobbers: flags only (arithmetic flags; IF preserved via the frame)
+; -----------------------------------------------------------------------------
+task_yield:
+%ifdef KERN_EMU
+    ; --- the VMware absolute pointer's service point (SPEC.md 9.11.3) --------
+    ; vmmouse is POLLED, not interrupt-driven, so every spin loop that waits on
+    ; the mouse - a drag, a grow, a menu track, the file manager's icon drag -
+    ; has to pump it or the button-release it is waiting for never arrives (a
+    ; freeze). They ALL call task_yield, so draining it here services every one,
+    ; present and future, near and far (the cold segment's cw_task_yield lands
+    ; here too).
+    ;
+    ; **WRITTEN OUT RATHER THAN VMM_POLL, and the difference is DS.** The macro
+    ; is for ui_task and menu_drop, which already hold the kernel's; this site
+    ; does not - task_yield is an OSAPI slot, so the caller may be a package
+    ; with its own DS. The GATE is still the macro's cs-relative compare, and
+    ; the segment load moves INSIDE the branch: a machine with no backdoor pays
+    ; 9 bytes and ~39 clocks (the 8088's fetch floor over the encoding,
+    ; PERFORMANCE.md Part 2) instead of 16 and 91 - 8.2 us against 19.1, or
+    ; 1.2% of a 693 us switch instead of 2.8%.
+    ;
+    ; THE TARGET MACHINE NO LONGER PAYS EVEN THAT, and this block is why the
+    ; guard is KERN_EMU and not KERN_BIG (SPEC.md 9.11.7). task_yield is the
+    ; hottest thing in the kernel - every drag, every grow, every menu track
+    ; and every worker goes through it - so 9 bytes and 39 clocks HERE were the
+    ; largest single share of what an XT was charged for a protocol it cannot
+    ; speak. On kern_big this now assembles to nothing at all; the arithmetic
+    ; above is kept because it is what the arrangement buys on the build that
+    ; DOES take the branch, where a hypervisor guest pays the 9-byte form on
+    ; every switch the backdoor is idle for.
+    ;
+    ; Before the cli/frame build: this is still the caller's task context with
+    ; IF as it left it, exactly as ui_task's own VMM_POLL - and vmm_poll takes
+    ; its own cli, and its own STACK, around the apply.
+    cmp byte [cs:vmm_on], 0
+    jz .noyvmm
+    push ds
+    push ax
+    mov ax, KERNEL_SEG
+    mov ds, ax
+    call vmm_poll
+    pop ax
+    pop ds
+.noyvmm:
+%endif
+    ; STKBALANCE-OK: fabricates the int 08h frame (pushf / push cs /
+    ; call .save), so the ret below is reached by the scheduler's iret and not
+    ; by .save returning - the depth at that ret is the frame, by design.
+    pushf                       ; FLAGS slot - carries the caller's IF
+    cli                         ; frame build + switch must be atomic
+    push cs                     ; CS slot
+    call .save                  ; IP slot; iret resumes at the ret below
+    ret
+
+.save:
+    push ax
+    push cx
+    push dx
+    push bx
+    push si
+    push di
+    push bp
+    push es
+    push ds
+    push cs                     ; caller's DS is on the stack; we need ours
+    pop ds
+                                ; NO sch_account HERE (SPEC.md 8.1.1). It used
+                                ; to charge the slice unconditionally, and on a
+                                ; machine with one runnable task that is 500
+                                ; cycles to bill a task and then go on running
+                                ; the same task - 1,048 times a second, 10.9%
+                                ; of an idle 8088. sch_switch charges at .pick
+                                ; instead, and only when the pick is a real
+                                ; change; the sch_resume branch below is a
+                                ; no-change by construction
+    cmp byte [sch_lock], 0      ; scheduler locked: resume self immediately -
+    jne sch_isr.sres            ; through the ISR's own `jmp sch_resume`, which
+    jmp sch_switch              ; is why this routine sits HERE, in short reach
+                                ; of it (size pass 10): the `jne sch_resume`
+                                ; this was is five bytes on an 8086, an
+                                ; inverted short over a near jmp, and the
+                                ; UNLOCKED yield paid the taken short (16
+                                ; clocks) to get past it where it now pays the
+                                ; untaken one (4). The locked yield, the rare
+                                ; one, pays the extra jmp instead
 
 sch_isr:
     push ax                     ; frame layout documented at top of file

@@ -6158,27 +6158,13 @@ osapi_vol_stat equ osapi_snd_fm     ; DOS-only, and the DOS box is not on the
 ; drv_svc_call and drv_blk_call, deliberately do not and cannot reach here.
 ; -----------------------------------------------------------------------------
 ; DX and BL are the outputs; SPEC.md 1 makes everything else this routine's
-; to preserve, BH and AX included - so the slot walks the side table through
-; SI rather than through the BX it is about to answer in.
+; to preserve, BH and AX included.
 osapi_file_here:
-    push cx
-    push si
-    call inst_caller            ; DH = the calling instance; DX is an output,
-    mov si, dx                  ; so both halves of it are ours to spend
-    mov cl, 8
-    shr si, cl                  ; SI = the slot (8086: shifts go through CL)
-    cmp si, INST_MAX
-    jae .global
-    mov bl, [inst_fdrv+si]      ; the instance's drive...
-    shl si, 1
-    mov dx, [inst_fcwd+si]      ; ...and its directory
-    jmp short .out
-.global:
-    mov dx, [dsk_cwd]           ; no instance behind this call: the machine's
-    mov bl, [disk_drive]        ; own position, exactly as before
-.out:
-    pop si
-    pop cx
+    push ax                     ; the reading is instance.inc's inst_where (DL
+    call inst_where             ; = drive, AX = directory, the machine's own for
+    mov bl, dl                  ; no instance), which banks BX - so BH is still
+    mov dx, ax                  ; the caller's here - and spends only DH, an
+    pop ax                      ; output
     ret
 
 ; OSAPI_VOL_SYS (out BL = [dsk_bootvol], nothing else touched, flags

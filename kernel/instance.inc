@@ -541,28 +541,26 @@ inst_park_unlk:
     push ax
     mov al, 0
 inst_park_mk:
-    push bx
-    push ax                     ; AL = the value to mark; the test below
-                                ; spends AX. (The test was inst_park_me, a
-                                ; routine with this one caller - inline since
-                                ; size pass 9.) NO push cx: sch_currec
-                                ; clobbers BX only
+    push bx                     ; AL = the value to mark, kept in AL across the
+                                ; test, which works in AH: both entries bank
+                                ; AX, so AH is theirs to spend (it was a second
+                                ; push of AX round the test until size pass
+                                ; 10). (The test was inst_park_me, a routine
+                                ; with this one caller - inline since size pass
+                                ; 9.) NO push cx: sch_currec clobbers BX only
     call sch_currec             ; BX = the running task's record offset
-    mov al, [bx+sch_tasks+T_INST]
-    cmp al, INST_MAX
+    mov ah, [bx+sch_tasks+T_INST]
+    cmp ah, INST_MAX
     jae .no                     ; the UI task, or a task with no record
-    mov bl, al
+    mov bl, ah
     xor bh, bh
     cmp byte [bx+inst_parksafe], 0
     je .no                      ; never declared: park it at ALIVE and nowhere
                                 ; else (SPEC.md 66.5.4)
     mov bl, [sch_cur]           ; ...and the MARK is the running task's
     xor bh, bh
-    pop ax
     mov [bx+sch_parked], al
-    push ax                     ; (for the pop the refusals share)
 .no:
-    pop ax
     pop bx
     pop ax
     popf
@@ -1117,15 +1115,12 @@ inst_vol_enter:
     push si
     push di
     push es
-    call inst_caller            ; DH = the instance behind this call
-    cmp dh, INST_MAX
-    jae .out                    ; 0xFF: the kernel or a driver, which has no
-                                ; folder of its own and uses the machine's
-    mov bl, dh
-    xor bh, bh
-    mov dl, [inst_fdrv+bx]      ; dsk_chdir's arguments, loaded before the
-    shl bx, 1                   ; compare because they ARE the compare
-    mov ax, [inst_fcwd+bx]
+    call inst_where             ; DL:AX = where the instance behind this call
+                                ; is standing - dsk_chdir's arguments, loaded
+                                ; before the compare because they ARE the
+                                ; compare. The kernel or a driver, which has no
+                                ; folder of its own, gets the machine's, and the
+                                ; compare then finds it already there
     cmp dl, [disk_drive]
     jne .go
     cmp ax, [dsk_cwd]
@@ -1141,6 +1136,33 @@ inst_vol_enter:
     pop bx
     pop ax
     popf
+    ret
+
+; -----------------------------------------------------------------------------
+; inst_where - where the CALLING instance believes it is standing (19.2.1)
+; in:  nothing
+; out: DL = its drive, AX = its directory cluster (0 = the root) - or, with no
+;      instance behind the call (the kernel, a driver), the machine's own
+;      [disk_drive] and [dsk_cwd]
+; clobbers: DH, flags (BX is banked)
+;
+; inst_vol_enter's question and osapi_file_here's answer, which were two
+; copies of the side-table read until size pass 10.
+; -----------------------------------------------------------------------------
+inst_where:
+    push bx
+    call inst_caller            ; DH = the instance behind this call
+    mov dl, [disk_drive]        ; ...the machine's, until it says otherwise
+    mov ax, [dsk_cwd]
+    mov bl, dh
+    xor bh, bh
+    cmp bl, INST_MAX
+    jae .out                    ; 0xFF: nobody's
+    mov dl, [inst_fdrv+bx]
+    shl bx, 1
+    mov ax, [inst_fcwd+bx]
+.out:
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------

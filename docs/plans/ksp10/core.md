@@ -39,6 +39,24 @@ blessed baseline at 833f13e4 (big / small).
 * apps.inc: app_ball_fill sets its own black (-5); app_ball_step's two
   `neg` one (-4). kern_big only.
 
+### batch 2 (big -27, small -24; running total big -126, small -83)
+
+* loader.inc: ld_take's `.bad`/`.big` are near jmps to ld_hdr_size's
+  identical pair (-2 net, both).
+* sched.inc: task_yield moved beside sch_isr so its `jne sch_resume` is a
+  SHORT `jne sch_isr.sres` (the ISR's own `jmp sch_resume`) where it was the
+  5-byte inverted jcc (-3, both). Hot path got FASTER: unlocked yield 4
+  clocks for the untaken jne + the same near jmp, where it was a taken short
+  (16) over the near jmp; locked yield +15 (the extra jmp), the rare case.
+* instance.inc: inst_park_mk tests in AH, not a second AX push (-3).
+* loader.inc: ld_start's `.abort` block sits between step 9 and the re-home,
+  so step 8's `jc .abort` is short (-3, both).
+* instance.inc: inst_where - the caller instance's drive/dir (or the
+  machine's), shared by inst_vol_enter and kernel.asm's osapi_file_here
+  (-16, both).
+* docs/INDEX.md regenerated: os88index lists this notes file under plans,
+  and `make` fails docindex until it does.
+
 ## REFUSED
 
 * ct_cw_gfx_pen_cf / ct_cw_gfx_hline look dead from kernel/ (0 sites) but
@@ -49,6 +67,13 @@ blessed baseline at 833f13e4 (big / small).
   cp_kinit is `.text` near-ret, so it needs a 10-byte trampoline pair, plus
   9 bytes of far-pointer dispatch: +1 on big, worse on small.
 * app_launch `.show`'s lock-or-not as pushf/popf: -1, not worth the read.
+* inst_parksafe as an I_FLAGS bit (-11 big: 12 .bss, 4 in inst_alloc, +5
+  in the setter): I_FLAGS IS SSI_FLAGS in the published snapshot (SPEC.md
+  29.1.2), so a parksafe bit would leak into an ABI field documented as
+  "bit 0 = minimized" for every running declared package.
+* api_rxc/api_rsc/api_rn `call KERNEL_SEG:api_far` -> `push cs / call
+  api_far` (-3): os88ovlchk judges api_far by its retf and refuses a near
+  call to it; BLOBCALL (which it does understand) means an `.ovl` target.
 
 ## CROSS-FILE
 
