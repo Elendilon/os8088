@@ -517,7 +517,7 @@ app_tmr_onclick_x:
     ; itself down, and os88ui_btn's DIS outranks DOWN so it says "pressed"
     ; about nothing. The refusal stays at the release, where it always was.
     inc al                      ; 1-based, so 0 can mean "nothing is down"
-    xor ah, ah
+    cbw                         ; (1..3: AH = 0, a byte under the xor)
     call os88ui_arm  ; apps.inc is .text and the arm is .cold
     call app_tmr_setdown
 %else
@@ -566,7 +566,7 @@ app_tmr_track:
     call app_tmr_hit            ; is the pointer STILL on it?
     jc .off
     inc al                      ; 1-based, to compare against the arm
-    xor ah, ah
+    cbw                         ; (1..3: AH = 0)
     cmp ax, bp
     jne .off                    ; (falling out is EQUAL: CF = 0, and neither
     dec al                      ; `dec` nor `pop` writes it) ...and back to
@@ -744,7 +744,7 @@ app_tmr_btn:
 
 
 
-    xor ah, ah
+    cbw                         ; AH = 0: the index is 0..2
     mov bp, ax                  ; BP = the index for the whole routine, and a
                                 ; VALUE rather than an address (SS is not DS,
                                 ; SPEC.md 1 rule 3) - AX, BX, CX and DX are

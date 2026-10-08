@@ -2713,7 +2713,7 @@ mem_region_reloc:
     cli                         ; the frame below is what sch_switch resumes
                                 ; from, so it is built whole or not at all
     mov bp, dx                  ; BP = the segment, sch_frame's DS and CS
-    xor ah, ah                  ; AX = the slot
+    cbw                         ; AX = the slot (under MAX_TASKS: AH = 0)
     mov si, ax
     mov byte [si+sch_parked], 0 ; **IT MUST CLEAR [sch_parked].** The worker
                                 ; is standing in inst_park_hold or gfx_lock's

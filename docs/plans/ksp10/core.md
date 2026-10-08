@@ -107,6 +107,12 @@ blessed baseline at 833f13e4 (big / small).
   target in these files was checked for the same and banks nothing the
   cell holds.
 
+### batch 6 (big -7, small -3; running total big -253, small -158)
+
+* `cbw` for `mov ah, 0` / `xor ah, ah` where AL is provably under 0x80:
+  inst_ptr (an instance index), inst_launch_post and app_launch (a kind),
+  the inline restart's task slot, app_tmr_btn/onclick/track's button index.
+
 ## REFUSED
 
 * ct_cw_gfx_pen_cf / ct_cw_gfx_hline look dead from kernel/ (0 sites) but

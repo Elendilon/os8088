@@ -838,7 +838,8 @@ inst_task_park:                 ; 0x0410 - a driver worker's park point
 inst_ptr:
     push ax
     push cx
-    mov ah, 0
+    cbw                         ; AH = 0: an index is 0..INST_MAX-1 (a byte
+                                ; under `mov ah, 0`, size pass 10)
     mov di, ax
     mov cl, 5
     shl di, cl
@@ -1453,7 +1454,7 @@ app_launch:
     push es
 
     mov [inst_knd], al
-    mov ah, 0                   ; SI = kind descriptor. NOTHING IS BANKED HERE
+    cbw                         ; SI = kind descriptor. NOTHING IS BANKED HERE
     mov si, ax                  ; and nothing needs to be: AL is not written
     mov cl, 4                   ; (only AH is), AH is dead until the `mov ah, 0`
     shl si, cl                  ; beside KD_WFLAG far below, and CX is zeroed by
@@ -2208,7 +2209,7 @@ inst_pkg_alive:
 ; -----------------------------------------------------------------------------
 inst_launch_post:
     push ax
-    mov ah, 0
+    cbw                         ; AH = 0: a kind is under 0x80
     inc ax
     mov [inst_launch], ax
     inc byte [ui_post]          ; ...and SAY SO once (SPEC.md 13.13)
