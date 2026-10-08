@@ -3589,10 +3589,17 @@ gfx_fill_gray_raw:                              ; only renderer gfx_fill_gray ha
     not ah
     dec si
     jnz .irow
-.reset:                         ; vga_solid_rect's own teardown, which is the
-    jmp vga_solid_rect.reset    ; same GC reset and the same seven pops (size
-.done:                          ; pass 10: one taken jump a FILL, not a row)
-    jmp vga_solid_rect.done
+.reset:                         ; its OWN teardown, and not vga_solid_rect's
+    call vga_gc_reset           ; through a jump (-5) as gfx_fill_pat's is:
+.done:                          ; MEASURED at +0.29% on gfxbench's 64x64 gray
+    pop es                      ; fill on VGA, and this is the common fill -
+    pop di                      ; the desktop and every scrollbar trough
+    pop si                      ; (size pass 10)
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -3851,31 +3858,30 @@ gfx_xor_rect_d:
 ; intersection of its bounding rect with anything), and gfx_frame passes
 ; gfx_fill.
 ; -----------------------------------------------------------------------------
-gfx_xor_rect_clip:              ; the clipped head: each strip meets GFXCLIP
-    push bp
-    mov bp, gfx_xor_fill
-.go:                            ; (gfx_frame's head joins here, below)
-    call gfx_xor_strips
-    pop bp
-    ret
-
 ; -----------------------------------------------------------------------------
 ; gfx_frame - 1px outline rectangle in [gfx_color]
 ; in:       AX = x1, BX = y1, CX = x2, DX = y2  (x1<=x2, y1<=y2)
 ; out:      -
 ; clobbers: flags
 ;
-; The THIRD head, beside the clipped one it shares a tail with (size pass 10:
-; it was the same five instructions a screen up the file).
+; The THIRD head, and the clipped one below shares ITS tail (size pass 10: it
+; was the same five instructions a screen up the file). The frame FALLS
+; THROUGH and the clipped XOR outline - the rare one - pays the jump: the
+; other way round measured +0.19% on gfxbench's VGA GFX_FRAME 64x64.
 ; -----------------------------------------------------------------------------
 gfx_frame:
     push bp                     ; the SAME four strips gfx_xor_rect draws, and
     mov bp, gfx_fill            ; the same pixels this drew with two hlines and
-    jmp short gfx_xor_rect_clip.go ; two vlines: the strips' top and bottom
-                                ; are full width, so they cover the corners
-                                ; the verticals used to draw twice. Four calls
-                                ; either way, and gfx_fill is one wrapper
+.go:                            ; two vlines: the strips' top and bottom are
+    call gfx_xor_strips         ; full width, so they cover the corners the
+    pop bp                      ; verticals used to draw twice. Four calls
+    ret                         ; either way, and gfx_fill is one wrapper
                                 ; frame shallower than gfx_hline/gfx_vline
+
+gfx_xor_rect_clip:              ; the clipped head: each strip meets GFXCLIP
+    push bp
+    mov bp, gfx_xor_fill
+    jmp short gfx_frame.go
 
 gfx_xor_strips:
     push ax

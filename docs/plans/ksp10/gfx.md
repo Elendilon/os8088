@@ -17,11 +17,11 @@ read; nothing below changes its order of refusals.
 | `gfx_rect_hit` / `gfx_rect_isectcf` share one `stc/ret` and one `clc/ret` | -4 | -4 | identical branches |
 | `vgas_left` deleted: `[vgas_rows]` is the countdown (two copies of `mov ax,[rows] / mov [left],ax`) | -12 | -12 | faster (two loads/stores gone a scroll) |
 | `vgas_lincopy` inlined into `gfx_scroll` (one caller) | -4 | 0 (VGA only) | faster (call/ret gone) |
-| `gfx_fill_gray_raw` / `gfx_fill_pat_raw` teardown -> `vga_solid_rect.reset/.done` | -10 | 0 (VGA only) | +1 taken jmp a FILL |
+| `gfx_fill_pat_raw` teardown -> `vga_solid_rect.reset/.done` (gray's was taken too and GIVEN BACK in batch 5: +0.29% measured) | -5 | 0 (VGA only) | +1 taken jmp a pat FILL |
 | `gfx_fill_pat_raw`'s two edge columns -> one local `.col` | -21 | 0 (VGA only) | +2 call/ret a pat fill (rare: TaskMgr map) |
 | `gfx_restore`'s tail is `gfx_save`'s (`gfx_sr_tail`) | -6 | -3 | +1 jmp a restore (not the cursor's path) |
 | `vga_sr_on` inlined at its two callers | -3 | 0 | faster (call/ret and push/pop gone) |
-| `gfx_frame` shares `gfx_xor_rect_clip`'s tail | -3 | -3 | +1 short jmp a frame |
+| `gfx_frame` and `gfx_xor_rect_clip` share one tail (batch 5: the FRAME falls through, the clipped XOR outline jumps) | -3 | -3 | frame unchanged; +1 short jmp a clipped XOR outline |
 | `gfx_pt_resolve` reads each origin once, AX's short stores | -4 | 0 | faster |
 | `osapi_gfx_fill_pat`'s copy: `es lodsb` | -2 | -2 | faster |
 | font_run: `[font_rn_fg]`/`[font_rn_bg]` as ONE word, three sites (+ %if) | -12 | 0 | faster (per RUN) |
@@ -55,6 +55,27 @@ an arm assembles out.)
 | font_run_cell's row: `es lodsb` (per glyph ROW of a clipped/1bpp opaque cell) | -2 | -2 | faster: 1 instruction and ~5 clocks a row fewer |
 | fnt_rn_edge's two column loops: `lodsb` (DS is the kernel's) | -4 | 0 | faster |
 | vga_blit_prow's odd-x shift: `rcr byte [di], 1` in memory | -4 | 0 | faster (~29 -> ~20 clocks a byte) |
+
+### Batch 5 — measured, and two items re-cut (kern_big +5, running -193)
+
+gfxbench on MartyPC, base `833f13e4` against the tip of batch 4, one run per
+machine (VGA XT, 5150 Hercules GLaBIOS, 5150 CGA GLaBIOS), counts per row:
+
+* every FONT_RUN row 0.5-1.2% FASTER on all three adapters (the colour pair
+  as a word, `es lodsb` in the character loops); FONT_STR/PAIR -0.1 to -0.4%;
+  `one full-width row` -0.6 to -0.7%; GFX_FILL 64x64 clipped -0.15 to -0.2%
+  (gfx_clip_run's fragment loop); GFX_XOR_RECT -0.1 to -0.6%.
+* everything per-pixel, per-span and per-glyph flat to within 0.02%.
+* UP: VGA GFX_FILL_GRAY 64x64 +0.29% and GFX_FILL_PAT 64x64 +0.28% (the tail
+  jumps into vga_solid_rect, ~57 clocks a fill, more than the ~15 a jmp was
+  priced at); VGA GFX_FRAME +0.19% (the jmp short into the shared tail).
+  GFX_UNLOCK+LOCK VGA +2.7% and SET_COLOR VGA +1.9% are code this branch did
+  not touch (pass 9 recorded the same two rows as VGA noise); Herc/CGA flat.
+
+So: gfx_fill_gray_raw's own teardown is BACK (+5): it is the common fill. The
+frame/clip-outline tail is kept but turned round, so gfx_frame falls through
+and the rare clipped XOR outline takes the jump. gfx_fill_pat keeps its
++0.28%: the Task Manager's map and files.inc's one band, -26 bytes for it.
 
 ## REFUSED
 
