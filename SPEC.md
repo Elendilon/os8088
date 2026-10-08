@@ -55576,9 +55576,16 @@ own above the second map and read as *its* label.
   pool map's caption. The two caption lines are CAPS and the list's rows are
   mixed case, which is the whole of the distinction between a map's label and
   a row.
-- (16,62): header `"NAME     ADDR SIZE   HEAP"` (25 chars, the row width).
+- (16,62): header `"NAME     ADDR  SIZE  HEAP"` (25 chars, the row width).
   Two spaces of gap before HEAP, not one: two 150K figures side by side ran
-  together at the old 22-char width.
+  together at the old 22-char width. **Every figure ends under the last
+  letter of its heading**: SIZE at column 18 and HEAP at 24, because every
+  row is the 9-column name field, ADDR at 9-12, a space, and two five-wide
+  `tm_kcol` columns with a space between them. Two rows had drifted, and the
+  column map of a screenshot is the check: the heading read `ADDR SIZE   HEAP`,
+  one column left of the System and package rows' SIZE, and the three buffer
+  rows and the `Packages` heading padded to 13 rather than 14, which put
+  their HEAP dash one column left of every other row's.
   **The NAME field is eight columns plus a separator.** Seven of them are the
   name (`tm_copy7`) and the eighth is the indent a nested row carries, so the
   four builders line their addresses up whichever way they spend it: System

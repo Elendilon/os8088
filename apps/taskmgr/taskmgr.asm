@@ -241,7 +241,7 @@ TMM_XB_Y1   equ 42              ; the XMS bar's frame, directly under its
 TMM_XB_Y2   equ 51              ; figures - same shape as the RAM bar in the
                                 ; performance view, because it answers the
                                 ; same question about a different pool
-TMM_HDR_Y   equ 55              ; "NAME    ADDR SIZE   HEAP" header line
+TMM_HDR_Y   equ 55              ; "NAME     ADDR  SIZE  HEAP" header line
 
 ; --- ...and what all of that becomes on a machine with NO store above 1MB ----
 ; A bar whose scale is zero is not a reading, it is an empty rectangle: on the
@@ -1235,14 +1235,20 @@ tm_s_frtl:  db '  -     -', 0   ; free row's CPU + MEM columns
 
 %ifdef TMF_MEM
 ; --- memory view (SPEC.md 28) ------------------------------------------------
-tm_s_mhdr:  db 'NAME     ADDR SIZE   HEAP', 0 ; 25 chars, the row width. The
+tm_s_mhdr:  db 'NAME     ADDR  SIZE  HEAP', 0 ; 25 chars, the row width. The
                                 ; NAME field is EIGHT wide plus a separator:
                                 ; seven for the name and one for the indent a
                                 ; nested row carries, so a seven-character
                                 ; name still gets a gap before the address
                                 ; Two spaces of gap, not one: a 150K back
                                 ; buffer beside a 150K package ran the two
-                                ; figures together at the old width
+                                ; figures together at the old width.
+                                ; SIZE ends at column 18 and HEAP at 24,
+                                ; which is where every row's two tm_kcol
+                                ; figures end: ADDR 9-12, a space, then two
+                                ; five-wide KB columns with a space between.
+                                ; The heading said 17 for SIZE, so it sat one
+                                ; column left of every figure under it
 tm_s_heap:  db '  HEAP ', 0     ; + claimed/size KB (SPEC.md 50). The two
                                 ; leading spaces are the RAM line's gap, and
                                 ; the claim swatch is drawn into them
@@ -1259,7 +1265,9 @@ tm_s_bhdr:  db 'Builtins', 0     ; no figures: a built-in owns no band on
                                 ; either map - its code is inside Code+data
                                 ; and its memory is heap claims, billed to
                                 ; its own row
-tm_s_phdr:  db 'Packages     ', 0; + allocated/size KB of the pool
+tm_s_phdr:  db 'Packages      ', 0; + allocated/size KB of the pool:
+                                ; fourteen wide, so its tm_kcol lands in
+                                ; SIZE exactly where tm_buf_row's does
 tm_s_mfr:   db '   -    -', 0   ; the ADDR+SIZE pair a built-in has no answer
                                 ; for: it owns no region of its own
 tm_s_dash4: db '   -', 0        ; one empty KB column
@@ -3581,10 +3589,12 @@ tm_inst_row:
 ;
 ; The name is given the ADDR column's width as well as its own, because a
 ; buffer's segment is an implementation detail and its NAME is the thing worth
-; twelve characters. SIZE and CLM land exactly where row 0 puts them: the
-; System row above pads to 8, writes four ADDR characters and then two
-; five-wide KB columns, so padding to 12 and writing the same two columns
-; keeps every figure in this view in one pair of vertical rules.
+; fourteen characters. SIZE and CLM land exactly where row 0 puts them: the
+; System row pads its name to 9, writes four ADDR characters and a space, and
+; then two five-wide KB columns with a space between, so padding to 14 and
+; writing the same two columns keeps every figure in this view in one pair of
+; vertical rules. It padded to 13 for a while, which put every figure on these
+; rows one column left of System's and of the heading's.
 ;
 ; The CLM column is a dash on purpose. A buffer is not a claim - it is part of
 ; the kernel, present whether or not anything is running - and the whole point
@@ -3609,7 +3619,7 @@ tm_buf_row:
     push ax
     mov si, bx
     call tm_copy                ; the name carries its own two-space indent
-    mov cx, tm_str + 13         ; the NAME field plus its separator: a buffer
+    mov cx, tm_str + 14         ; the NAME field plus its separator: a buffer
     sub cx, di                  ; has no address, so the name spans both
     jle .size
 .pad:
