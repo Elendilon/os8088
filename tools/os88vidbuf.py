@@ -62,9 +62,10 @@ SND_KB, ENTRY_KB = 17, 4
 # 1 / the rate VIDDISK measured IDLE, which its other rows bear out (the
 # rate falls as the decode's share rises, as one CPU split two ways would)
 PIO = {"286-vga": 1000.0 / 1318.3, "486": 1000.0 / 4151.0}
-# the XMS copy, ms a KB: 286 ESTIMATED (int 15h AH=87h, ~2.5 MB/s with the
-# reset), 486 ESTIMATED (a dword move in unreal mode, ~20 MB/s)
-XCOPY = {"286-vga": 0.40, "486": 0.05}
+# the XMS copy, ms a KB: 286 MEASURED on the owner's real 286 (int 15h
+# AH=87h, 11.3 ms a 32 KB call: docs/reports/VIDDISK-XMS-286-2026-10-08.md),
+# 486 ESTIMATED (a dword move in unreal mode, ~20 MB/s)
+XCOPY = {"286-vga": 0.345, "486": 0.05}
 
 
 def stream(r):

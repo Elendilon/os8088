@@ -176,6 +176,17 @@ the host's): the check `ok`, every row reporting, the block freed, and with
 on the owner's 286 and 486** (`tests/vidbench/FIELDDISK.TXT` says how); its
 `XMS up 32K` row divided by 32,000 is `--xcopy` in ms/KB.
 
+**MEASURED on the owner's real 286, 2026-10-08**
+(docs/reports/VIDDISK-XMS-286-2026-10-08.md): **0.345 ms a KB**, up and down
+alike - ~0.45 ms fixed a call plus 0.339 a KB, so a 32 KB piece is 11.3 ms
+masked. The middle of the 0.25-0.40 range, and nowhere near the 1 ms/KB that
+would have made the bank a loss. Its disk streamed 736 KB/s idle (486 at a
+50% hook), and banking every chunk cost the fill 14%, not the copy's whole
+price. Re-run with that machine's figures, the lossless clip STALLS with the
+ring alone (the disk's ~0.9 ms of CPU a KB lands in the bursts) and plays
+cleanly with a 2-3 MB bank off a disk needing 420-485 KB/s - the report has
+the table, and its caveat: the decode is still priced at 86Box's mr286.
+
 ### 3.3 The encoder: what a bank lets a period-rate encode keep
 
 `os88vidbuf.py --deficit R ...` takes the lossless file's own super-packets
