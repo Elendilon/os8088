@@ -1500,6 +1500,18 @@ dsk_xfer:
     jne .unbounce               ; `jz` reach it short: at the foot it was two
     clc                         ; five-byte inverted pairs (-5 net). A bounced
     jmp .out                    ; sector arrives here too, its pass done
+                                ; ...and .unbounce right under it, so that
+                                ; `jne` is short too: at the foot it was
+                                ; five bytes, the jump relaxed (size pass 10)
+.unbounce:
+    mov al, 0x02
+    call .bcp                   ; a read's sector out to the caller
+    les bx, [dsk_bnc_bx]        ; the caller's ES:BX back
+    xor si, si
+    xchg si, [dsk_bnc_si]       ; the count back, and the flag down
+    add bx, 512                 ; DI was advanced by the bounced pass, and the
+    dec si                      ; notch counted it: only the caller's own
+    jmp .sector                 ; cursor and count are left to move
 
 .sector:
     test si, si
@@ -1674,7 +1686,46 @@ dsk_xfer:
     mov bp, ax
     call dsk_runcap             ; BP = min(BP, what the BUFFER allows)
     or bp, bp
-    jz .bounce                  ; ...which is NOTHING: see .bounce
+    jnz .runok                  ; ...0 is NOTHING, and it is staged IN LINE:
+                                ; at the foot `jz .bounce` was out of reach and
+                                ; NASM relaxed it to `jnz +3 / jmp`, five bytes
+                                ; whose taken `jnz` the hot path paid anyway -
+                                ; so this costs the run not one cycle, is four
+                                ; bytes shorter, and takes 29 bytes out from
+                                ; between `jbe .fail` and .fail, which then
+                                ; reaches it short as well (size pass 10)
+    ; --- ONE SECTOR THE 8237 CANNOT CARRY, through dsk_secbuf (18.91.4) ---
+    ; dsk_runcap answered 0: the caller's buffer is not 512-aligned and the
+    ; sector at ES:BX runs across a 64KB physical page, which int 13h answers
+    ; with 09h. SPEC.md 18.4.1 lets a caller hand the file layer a buffer at
+    ; any offset, and dskw_runadd stages this case for an append and a read
+    ; (18.4.2.1) - but WRITE_AT's inside arm and every dsk_read_chain caller
+    ; reach the transfer with the caller's ES:BX, so it is staged HERE, once,
+    ; for every BIOS volume - a DVK_DRV volume left for its driver above,
+    ; which bounds its own runs. The sector re-enters .sector as a
+    ; one-sector transfer of the scratch (512-aligned, so it cannot
+    ; straddle) and .success puts the caller's buffer back. NOT a recursive
+    ; dsk_xfer: its head calls fpg_busy, which may draw, and a draw inside
+    ; this sch_lock can wait on a gfx lock another task holds. dsk_secbuf
+    ; is free: no caller of a transfer on a buffer of its own holds a live
+    ; sector there across it.
+.bounce:
+    pop ax                      ; the head pushed for DH: .sector recomputes it
+    mov [dsk_bnc_bx], bx        ; the caller's ES:BX, as a far pointer
+    mov [dsk_bnc_es], es        ; (offset first: .bcp's lds, .unbounce's les)
+    mov [dsk_bnc_si], si        ; >= 1 here, so non-zero IS "bouncing"
+    mov al, 0x03
+    call .bcp                   ; a write's sector into the scratch
+    push ss
+    pop es                      ; ES:BX = LOW_SEG:dsk_secbuf, the sector's
+    mov bx, dsk_secbuf          ; new home for one pass
+    mov si, 1                   ; this one sector, then .success
+    jmp .nocache                ; NOT .sector: the cache missed this very LBA
+                                ; one pass ago, and at SI = 1 its gate would
+                                ; now FILL - re-entering dsk_xfer with
+                                ; [dsk_bnc_si] set, whose .success would then
+                                ; unbounce THIS transfer against its own state
+.runok:
 %ifdef FLOPPY_ONE
     mov bp, 1                   ; FLOPPY1=1: one sector a call, the pre-18.91
                                 ; transfer, for A/B-ing this on real iron
@@ -1855,46 +1906,6 @@ dsk_xfer:
     add bx, ax                  ; ...advances the destination
     jmp .sector
 
-    ; --- ONE SECTOR THE 8237 CANNOT CARRY, through dsk_secbuf (18.91.4) ---
-    ; dsk_runcap answered 0: the caller's buffer is not 512-aligned and the
-    ; sector at ES:BX runs across a 64KB physical page, which int 13h answers
-    ; with 09h. SPEC.md 18.4.1 lets a caller hand the file layer a buffer at
-    ; any offset, and dskw_runadd stages this case for an append and a read
-    ; (18.4.2.1) - but WRITE_AT's inside arm and every dsk_read_chain caller
-    ; reach the transfer with the caller's ES:BX, so it is staged HERE, once,
-    ; for every BIOS volume - a DVK_DRV volume left for its driver above,
-    ; which bounds its own runs. The sector re-enters .sector as a
-    ; one-sector transfer of the scratch (512-aligned, so it cannot
-    ; straddle) and .success puts the caller's buffer back. NOT a recursive
-    ; dsk_xfer: its head calls fpg_busy, which may draw, and a draw inside
-    ; this sch_lock can wait on a gfx lock another task holds. dsk_secbuf
-    ; is free: no caller of a transfer on a buffer of its own holds a live
-    ; sector there across it.
-.bounce:
-    pop ax                      ; the head pushed for DH: .sector recomputes it
-    mov [dsk_bnc_bx], bx        ; the caller's ES:BX, as a far pointer
-    mov [dsk_bnc_es], es        ; (offset first: .bcp's lds, .unbounce's les)
-    mov [dsk_bnc_si], si        ; >= 1 here, so non-zero IS "bouncing"
-    mov al, 0x03
-    call .bcp                   ; a write's sector into the scratch
-    push ss
-    pop es                      ; ES:BX = LOW_SEG:dsk_secbuf, the sector's
-    mov bx, dsk_secbuf          ; new home for one pass
-    mov si, 1                   ; this one sector, then .success
-    jmp .nocache                ; NOT .sector: the cache missed this very LBA
-                                ; one pass ago, and at SI = 1 its gate would
-                                ; now FILL - re-entering dsk_xfer with
-                                ; [dsk_bnc_si] set, whose .success would then
-                                ; unbounce THIS transfer against its own state
-.unbounce:
-    mov al, 0x02
-    call .bcp                   ; a read's sector out to the caller
-    les bx, [dsk_bnc_bx]        ; the caller's ES:BX back
-    xor si, si
-    xchg si, [dsk_bnc_si]       ; the count back, and the flag down
-    add bx, 512                 ; DI was advanced by the bounced pass, and the
-    dec si                      ; notch counted it: only the caller's own
-    jmp .sector                 ; cursor and count are left to move
 .bcp:                           ; AL = the op that copies at this end
     cmp [dsk_op], al
     jne .bret

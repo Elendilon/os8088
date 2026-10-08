@@ -611,15 +611,15 @@ dskw_mkbody:
                                 ; nothing else is using between here and the
                                 ; commit - all 32 bits of it (SPEC.md 18.7.5)
 
-    call dskw_dotents           ; '.' and '..' built in dsk_secbuf
-    push ss                     ; ES = LOW_SEG (SPEC.md 2.1), which is what SS names
-    pop es
+    call dskw_dotents           ; '.' and '..' built in dsk_secbuf, and ES =
+                                ; LOW_SEG (SPEC.md 2.1), which is what SS names
     DSK_WR1D dskw_clba
     jc .wfail
 
     call dskw_zerobuf           ; the cluster's remaining sectors
-    mov cl, [dsk_spc]
-    xor ch, ch
+    mov al, [dsk_spc]           ; (<= 64: cbw is a zero extension, and AX
+    cbw                         ; is dead until the flush's answer)
+    xchg ax, cx
     dec cx
     jcxz .zeroed
 .zsec:
@@ -698,16 +698,19 @@ dskw_zerobuf:
 ; -----------------------------------------------------------------------------
 ; dskw_dotents - build a new directory's first sector in dsk_secbuf
 ; in:  [dskw_first] = the new directory's own cluster
-; out: nothing (all registers preserved); dsk_secbuf holds '.' then '..'
-;      and 480 zero bytes
+; out: dsk_secbuf holds '.' then '..' and 480 zero bytes, and ES = LOW_SEG
+;      (SS's, SPEC.md 2.1) - which is what its one caller's write wants next
+; clobbers: AX, CX, SI, DI, ES, flags. dskw_mkbody holds nothing in any of
+;      them across the call, so the bank that was here went (size pass 10,
+;      -9 with the caller's own `push ss / pop es`). Written IN PLACE it was
+;      worse: 78 more bytes inside dskw_mkbody put four of its forward `jcc`s
+;      past short reach, and NASM relaxes each to five bytes
 ;
 ; '..' carries [dsk_cwd], the parent - and when the parent IS the root that
 ; is 0, which is both the FAT spec's convention and this kernel's own value
 ; for the root, so nothing has to translate.
 ; -----------------------------------------------------------------------------
 dskw_dotents:
-    call kentc_di               ; KENT: push ax..di
-    push es
     call dskw_zerobuf
     call dskw_now               ; [dskw_date] / [dskw_time] (SPEC.md 37)
     push ss
@@ -755,8 +758,7 @@ dskw_dotents:
     mov [es:dsk_secbuf+DSK_R_CLUS], ax
     mov ax, [dsk_cwd]           ; '..' -> the parent
     mov [es:dsk_secbuf+32+DSK_R_CLUS], ax
-    pop es
-    jmp kretc_di
+    ret
 
 ; -----------------------------------------------------------------------------
 ; dskw_rmdir - remove an EMPTY subdirectory of the current directory (18.6)

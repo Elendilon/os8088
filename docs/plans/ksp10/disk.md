@@ -93,10 +93,52 @@ two exits are `retf` and the thunk went, SPEC.md 2.6.1's shape: -4).
 each `_sys` far entry is now one `mov byte [dskw_syswr], 1` falling into the
 plain entry's `call` (-6, -4).
 
+### Batch 8 - dskw_dotents unbanked, dsk_xfer's bounce re-placed (kern_big .cold -20, kern_small .cold -20)
+
+* `dskw_dotents` (-10 with mkbody's cbw): its one caller holds nothing across
+  it, so it clobbers AX/CX/SI/DI and leaves ES = LOW_SEG, which the caller
+  wanted next. Inlining it was tried and was WORSE: 78 bytes inside
+  `dskw_mkbody` pushed four forward `jcc`s past short reach.
+* **NASM RELAXES AN OUT-OF-RANGE `jcc` SILENTLY** to `jncc +3 / jmp near`,
+  five bytes, even under `cpu 8086`. dsk_xfer had four. `.unbounce` now sits
+  under `.success` and the `.bounce` staging is in line after `dsk_runcap`
+  behind `jnz .runok`: -10, and the per-run path pays exactly what it did
+  (the relaxed form's `jnz +3` was already a taken jump). `jbe .fail` became
+  short as a side effect. Re-verified with the scratch bounce harness and
+  `soak -k dskwstage`.
+* Left relaxed (error paths, no cheap layout): `dsk_xfer`'s `je .fail`
+  (write-protect), `dskw_rbody`'s `jne .czbad`, `dskw_read_at_x`'s
+  `jz .badarg` / `jc .err`, and `dsk_fdd_probe` (`.ovlw`). ~12 bytes for
+  whoever re-lays those routines.
+
 ## REFUSED
 
-(appended as decided)
+| candidate | bytes | why refused |
+|---|---:|---|
+| `dsk_get_dir_x` / `dsk_put_dir` one body | ~-4 | `dsk_get_dir_x` is the Disk window's per-entry read on every repaint; sharing costs it a call and `kentc_di` |
+| `kentc_di` in `dskw_setfat` | -2 | per written cluster, twice; ~+90 cycles a call |
+| `kentc_di` in `dsk_rah_fill`, `dsk_ico_stage`, `dsk_get_dir_x` | - | SI is an OUTPUT of each, and `kretc_di` restores it |
+| `dsk_vol_drop_drv_x` dropping its kind test (`dsk_vol_del` re-tests) | -7 | `dsk_vol_del` zaps the BPB bank BEFORE its test, so a stale class byte on a free/BIOS row would add bank zaps - a behaviour change |
+| error-tail sharing (`mov al, FERR / jmp short tail` with `cbw/stc/ret`) | ~1 a site | rarely four sites in short reach of one tail |
+| `dskw_commit`'s zero loop as `rep stosw` | -1 | needs ES = DS; ES is the body's but not worth the audit |
+| `dskw_read_x` sharing `dskw_wrp`'s tail | - | read returns DX, which wrp's pop run restores |
+| the four remaining relaxed `jcc`s above | ~-12 | error paths; each needs a re-layout of a long routine |
+| `lz.inc` | 0 | per-literal / per-match code; every byte there is a cycle on load |
+| `mod.inc` | 0 | nothing found that is not already tight |
 
 ## CROSS-FILE
 
-(appended as found)
+* **A row for the DMA bounce** (HANDOFF-KERNEL-SIZE-P10 5 asked for one):
+  this pass's scratch harness is the shape - `tests/dskwstage.py`'s `Caller`,
+  a 200KB claim, a buffer 0xF0 short of a 64KB page; `dskw_write_at_x`
+  (inside arm) and `dskw_read_at_x` with `[dsk_rah_busy]` poked to 1 so the
+  read cache stands aside; breakpoints on `dsk_xfer.bounce`/`.unbounce`
+  (each must fire once); bytes compared in the guest and on the flushed
+  floppy with `t_image`. ~30 s on MartyPC. The script is in the agent's
+  report.
+* `tests/dskwstage.py` breakpoints `dskw_wdata.stg`/`dskw_rdata.stg`; both are
+  kept as `equ`s of `dskw_xclus.stg`. If the test is ever edited, point it at
+  `dskw_xclus.stg` and drop the two `equ`s.
+* SPEC.md still describes `dsk_relist` and `dsk_find_name` in prose (18.9,
+  37941, 55252...); both routines are gone. The table row for
+  `dskw_remount` was updated; the prose was left as history.
