@@ -1349,7 +1349,7 @@ FAST = [
         "drags eight times, which is minutes",
         ),
 
-    Row("stkclass", "fast", py("tests/unit/t_stkclass.py"), 5.0,
+    Row("stkclass", "fast", py("tests/unit/t_stkclass.py"), 5.5,
         "every package's DECLARED stack class (SPEC.md 8.7.2) covers its "
         "worker's deepest chain plus SPEC.md 8.7's 64-byte interrupt floor, at "
         "Frotz's 1.25x - the thinnest margin the tree already carries, so "
@@ -1363,8 +1363,11 @@ FAST = [
         "of 56, measured 180 of them with its heap page open beside PAINT, and "
         "went through the canary into sch_stkdie's cli/hlt on a real 5150. It "
         "reads the class out of the BUILT .o88's header byte, not out of the "
-        "source, so a packer that stops emitting the field fails this too",
-        ),
+        "source, so a packer that stops emitting the field fails this too. "
+        "Its 24 walks are a whole nasm assembly each and run four at a time "
+        "(t_stkclass.JOBS) - 20s of CPU in one lane was two thirds of the "
+        "tier's 30",
+        cpus=4),
 
     Row("stkwalker", "fast", py("tests/unit/t_stkbalance.py"), 0.6,
         "the stack walker itself, against eleven idioms it must stay QUIET "
