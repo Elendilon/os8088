@@ -5230,11 +5230,21 @@ section .cold
 ; table, or the cell for this verb is 0".
 drv_svc_none:
 drv_fs_call:
-drv_svc_call_x:
 drv_blk_call_x:
     xor ax, ax
     stc
     ret
+; ...but NOT drv_svc_call_x, which kernel.asm's `drv_svc_call` thunk reaches
+; with a FAR call - the live body's `.none` is a `retf` for exactly this
+; reason. Sharing the near tail above returned to the caller's OFFSET with
+; COLD_SEG still on the stack: a wild jump that every caller's own `or bp, bp
+; / jz` happened to keep anybody from taking, until kernel size pass 10's
+; snd_release_inst trusted the callee's refusal and every instance teardown
+; on this kernel took it (tests/fdlgdrop.py, dispclose-small, fdlgchsmall)
+drv_svc_call_x:
+    xor ax, ax
+    stc
+    retf
 
 section .text
 ; ...and OSAPI_DRV_CALL's body is `.text` on the live arm, because kernel.asm
