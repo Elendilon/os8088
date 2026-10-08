@@ -246,12 +246,7 @@ drv_find:
     jnz .no
     mov ax, cx                  ; CF = 0 from the `test`, which `mov` keeps
 .out:
-    pop es
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp dskw_isempty.out        ; the same five pops (size pass 10, -3)
 .no:
     stc
     jmp short .out

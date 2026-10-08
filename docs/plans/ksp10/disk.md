@@ -27,6 +27,28 @@ cut at `833f13e4`. Figures are `kernsize`'s section line, bytes.
 None is hot by the brief's definition. `dskw_flush_x` and `dsk_fat_window`
 are per FAT-window load/flush (each a disk transfer) and lose instructions.
 
+### Batch 2 - one cluster body for read and write (kern_big .cold -45, kern_small .cold -46)
+
+`dskw_wdata` and `dskw_rdata` were the same 29 instructions from the take to
+the last run, bar `dskw_wone`/`dskw_rone` (which `[dskw_fop]` already names:
+`dskw_one` asks it, once per STAGED sector) and the next-cluster step. That
+step is a continuation in BP now (`jmp bp`), and the shared body is
+`dskw_xclus`. **The read path's per-cluster cost went DOWN 18 cycles** (`jmp
+bp` 11 against `jmp .clus` 15 + `mov ax, [dskw_cur]` 14, the next-cluster code
+falling into the body); a write pays +11 (`jmp bp` + `jmp dskw_xclus` against
+`jmp .clus`) beside `dskw_alloc`'s FAT scan. `dskw_wdata.stg` /
+`dskw_rdata.stg` are kept as `equ`s of `dskw_xclus.stg`, which is what
+`tests/dskwstage.py` breakpoints; that row is green.
+
+### Batch 3 - prologue/epilogue sharing, a widget helper, the bounce (kern_big .cold -60, kern_small .cold -46)
+
+| item | bytes | note |
+|---|---:|---|
+| `kentc_di` / `kretc_di` in 11 routines | -29 | `dsk_synth_x`, `ico_key_doc`, `dsk_put_dir`, `ico_glyph_put`, `dsk_fat_window`, `dsk_fatw_want`, `dsk_fatw_claim`, `dsk_swapent`, `dskw_name83`, `dskw_dotents`, `dskw_free_chain`: each pushed a subset of AX..DI in ladder order and none returns SI/DI. NOT taken where SI is an output (`dsk_rah_fill` returns the slot in SI, `dsk_ico_stage`, `dsk_get_dir_x`) or a per-cluster path (`dskw_setfat`: ~+90 cycles a call, twice a written cluster) |
+| `dskw_fpgb` | -13 | `mov cx, [dskw_len] / mov dx, [dskw_lenhi] / call ct_fpg_begin` at three sites |
+| the DMA bounce (HANDOFF-KERNEL-SIZE-P10 3.1, SPEC.md 18.91.4) | -11 | `dsk_bnc_bx`/`dsk_bnc_es` reordered offset-then-segment (asserted), so `.bcp` is one `lds` and `.unbounce` one `les`; `.fail` clears the flag with `xchg` (AX is the frame's). Behaviour identical; the bounce path only |
+| shared pop tails | -7 | `dsk_dirw_get_x` and `dskw_flush_x` end on `dsk_next_clus_x.out` (that routine, the per-cluster walk, keeps its own tail and pays nothing); `drv_find` ends on `dskw_isempty.out` |
+
 ## REFUSED
 
 (appended as decided)

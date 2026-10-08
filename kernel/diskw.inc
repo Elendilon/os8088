@@ -700,10 +700,7 @@ dskw_zerobuf:
 ; for the root, so nothing has to translate.
 ; -----------------------------------------------------------------------------
 dskw_dotents:
-    push ax
-    push cx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di
     push es
     call dskw_zerobuf
     call dskw_now               ; [dskw_date] / [dskw_time] (SPEC.md 37)
@@ -753,11 +750,7 @@ dskw_dotents:
     mov ax, [dsk_cwd]           ; '..' -> the parent
     mov [es:dsk_secbuf+32+DSK_R_CLUS], ax
     pop es
-    pop di
-    pop si
-    pop cx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; dskw_rmdir - remove an EMPTY subdirectory of the current directory (18.6)
@@ -1411,9 +1404,9 @@ dskw_wbody:
     call dskw_norm              ; the source becomes seg:0..15 + a run, so the
                                 ; driver is handed a normalised (seg, offset)
                                 ; exactly as a read is
-    mov cx, [dskw_len]          ; ...and arm the widget as the FAT arm below
-    mov dx, [dskw_lenhi]        ; does (DX:CX = the job in BYTES, SPEC.md
-    call ct_fpg_begin               ; 12.8.1): the driver steps it from inside
+    call dskw_fpgb              ; ...and arm the widget as the FAT arm below
+                                ; does (DX:CX = the job in BYTES, SPEC.md
+                                ; 12.8.1): the driver steps it from inside
                                 ; FSV_WRITE through OSAPI_FS_PROG, and without
                                 ; this that report has nothing to report into.
                                 ; dskw_write_x ends it either way
@@ -1470,9 +1463,9 @@ dskw_wbody:
     ; a crash here costs nothing. The price is that a replace briefly needs
     ; room for both copies (SPEC.md 18.4).
 .data:
-    mov cx, [dskw_len]          ; arm the progress widget HERE and not up at
-    mov dx, [dskw_lenhi]        ; .sized, though the count is known there:
-    call ct_fpg_begin               ; (DX:CX = the job in BYTES, SPEC.md 12.8.1)
+    call dskw_fpgb              ; arm the progress widget HERE and not up at
+                                ; .sized, though the count is known there:
+                                ; (DX:CX = the job in BYTES, SPEC.md 12.8.1)
                                 ; dskw_find's directory scan sits between the
                                 ; two and its sectors are not part of the job
                                 ; the bar is measuring (SPEC.md 12.8).
@@ -1939,9 +1932,9 @@ dskw_rbody:
     call dskw_size32            ; [dskw_rem] / [dskw_tail], off [dskw_len]
     jc .czbad                   ; >= 32MB: impossible on this media, so the
                                 ; entry is hostile rather than merely large
-    mov cx, [dskw_len]          ; the widget's scale, in BYTES (SPEC.md
-    mov dx, [dskw_lenhi]        ; 12.8.1) - a 116KB module is a minute of
-    call ct_fpg_begin               ; frozen screen; dskw_read_x ends it
+    call dskw_fpgb              ; the widget's scale, in BYTES (SPEC.md
+                                ; 12.8.1) - a 116KB module is a minute of
+                                ; frozen screen; dskw_read_x ends it
 %ifdef OS88_REDIR
     cmp byte [dsk_vkind], DVK_FILE
     je .fsdata                  ; **THE ONE THING THE TRANSPORT DECIDES**
@@ -2195,6 +2188,18 @@ dskw_czexp:
     pop ds
     stc
     ret
+
+; -----------------------------------------------------------------------------
+; dskw_fpgb - arm the progress widget for the whole job (SPEC.md 12.8.1)
+; in:  [dskw_len]/[dskw_lenhi] = the job in BYTES
+; out: CX = [dskw_len], DX = [dskw_lenhi]; fpg_begin's own contract after
+;
+; Three bodies loaded the pair and called it (size pass 10, -13).
+; -----------------------------------------------------------------------------
+dskw_fpgb:
+    mov cx, [dskw_len]
+    mov dx, [dskw_lenhi]
+    jmp ct_fpg_begin
 
 ; -----------------------------------------------------------------------------
 ; dskw_norm - reduce [dskw_seg]:[dskw_src] to the same address with an offset
@@ -4222,10 +4227,7 @@ dskw_alloc:
 ; [sch_lock] raised.
 ; -----------------------------------------------------------------------------
 dskw_free_chain:
-    push ax
-    push cx
-    push dx
-    push si
+    call kentc_di               ; KENT: push ax..di
     mov cx, [dsk_maxclus]
     mov si, ax
 .loop:
@@ -4239,11 +4241,7 @@ dskw_free_chain:
     call dskw_setfat            ; free this one (it preserves AX..SI)
     loop .loop
 .done:
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; dskw_setfat - write one FAT entry into the snapshot (SPEC.md 18.4)
@@ -4419,11 +4417,7 @@ dskw_flush_x:
 .ioerr:
     call dskw_ioerr             ; ...which sets CF itself
 .out:
-    pop es
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp dsk_next_clus_x.out     ; the same four pops (size pass 10, -2)
 
 ; -----------------------------------------------------------------------------
 ; dskw_refat - roll the FAT snapshot back to what the disk says
@@ -4589,12 +4583,8 @@ dskw_now:
 ; deleted mark) and "." / ".." cannot be spelled at all.
 ; -----------------------------------------------------------------------------
 dskw_name83:
-    push ax
-    push bx
-    push cx
-    push dx                     ; DX banked only so the exit is kretc_di's
-    push si                     ; rung: one byte here against six of pops
-    push di
+    call kentc_di               ; KENT: push ax..di, so the exit is kretc_di's
+                                ; rung
     cld
     mov cx, 11                  ; the field starts as eleven spaces
     mov bx, di
