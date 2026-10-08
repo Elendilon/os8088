@@ -1145,9 +1145,8 @@ font_str_x:
     push cx
     push si
 .next:
-    mov al, [es:si]
-    inc si
-    or al, al
+    es lodsb                    ; ES:SI, and SI walks itself (DF = 0, SPEC.md
+    or al, al                   ; 1): 2 bytes where the load and `inc` were 4
     jz .done
     call font_char              ; out-of-range chars draw nothing; pen still
     add cx, 8                   ; advances, so they read as spaces
@@ -1461,14 +1460,13 @@ font_run_x:
     mov bx, font_rn_tab
     xor bp, bp                  ; BP = cells that will actually be drawn
 .p1:
-    mov al, [es:si]
-    or al, al
-    jz .p1end
+    es lodsb                    ; (SI past the character on EVERY exit below
+    or al, al                   ; as well, which none of them reads: .p1none
+    jz .p1end                   ; and .p1full both pop the string's start)
     cmp cx, [vid_cwm8]          ; the first cell off the right edge ends the
     ja .p1end                   ; run - x only grows, so the drawn cells are
     cmp bp, FONT_RN_MAX         ; a PREFIX, which is what lets stosb walk them
     jae .p1full
-    inc si
     add cx, 8
     cmp al, FONT_FIRST
     jb .p1blank
@@ -1777,14 +1775,13 @@ font_run_x:
 %endif
 
 .cell:                          ; the per-cell path: a clip-cut run, and the
-    mov al, [es:si]             ; overflow that cannot happen
-    or al, al
-%ifdef KERN_BIG
+    es lodsb                    ; overflow that cannot happen. (SI past the
+    or al, al                   ; NUL at the exit, which the ladder's pop
+%ifdef KERN_BIG                 ; replaces - and the same at the two below)
     jz .jout                    ; (the `jmp .out` just above: two bytes, not
 %else                           ; five, and 4 clocks a cell not-taken)
     jz .out
 %endif
-    inc si
     call font_run_cell          ; CX/DX/DI = this cell; preserves all three
     add cx, 8
     inc di                      ; an aligned cell is one byte wide, so the
@@ -1947,10 +1944,9 @@ font_run_x:
     call font_str_x
     jmp short .out
 .cells:
-    mov al, [es:si]
+    es lodsb
     or al, al
     jz .out
-    inc si
     call font_run_scell
     add cx, 8
     jmp short .cells
@@ -1972,10 +1968,9 @@ font_run_x:
     jmp kret_bp
 %ifdef KERN_BIG
 .cells_nx:                      ; SPEC.md 39.14.6: per cell and UNTRANSLATED,
-    mov al, [es:si]             ; so each font_char resolves its own display -
+    es lodsb                    ; so each font_char resolves its own display -
     or al, al                   ; and no GFXDLEAVE, because no enter was taken
     jz .outp
-    inc si
     call font_run_scell
     add cx, 8
     jmp short .cells_nx

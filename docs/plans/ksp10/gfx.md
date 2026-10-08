@@ -39,6 +39,14 @@ an arm assembles out.)
 | `gfx_blit4 .cut`: VX tested in memory, `mov di,[di+VID_CTX_*]` | -3 | 0 | faster, straddling blit only |
 | `gfx_sub_arm` derives every term in registers (the three result words were parking S.x1, S.x2, S.y2) | -19 | -19 | faster: 3 stores and 3 loads gone, once a sub-rect restore |
 
+### Batch 3 — kern_big .text -16 (running -182), kern_small .text -14 (running -61)
+
+| item | big | small | speed |
+|---|---:|---:|---|
+| `gfx_xor_rect` unclipped FALLS INTO `vga_xor_rect_vram`'s `call cur_unlazy` instead of its own call and a `jmp short` over it | -5 | -5 | faster (a jmp) |
+| `gfx_clip_run`: the primitive's rect is loaded and the fragment at SI is the isect block (intersection is symmetric) - no push/mov/pop of SI a fragment | -1 | -1 | ~25 clocks a fragment faster |
+| font: `es lodsb` for `mov al,[es:si] / inc si` in font_str_x, font_run_x's .p1, .cell, .cells, .cells_nx (every exit's SI is popped) | -10 | -8 | faster, per character |
+
 ## REFUSED
 
 * `lea sp, [bp+18]` for `mov sp,bp / add sp,18` in gfx_blit1_x's `.noswap`

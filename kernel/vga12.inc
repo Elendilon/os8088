@@ -912,14 +912,11 @@ gfx_clip_run:
     mov si, wm_clip_tab
     mov di, [wm_clip_n]
 .frag:
-    mov ax, [si+WCR_X1]         ; the fragment, clipped to the primitive's own
-    mov bx, [si+WCR_Y1]         ; rect - and gfx_cl_x1..y2 is laid out in the
-    mov cx, [si+WCR_X2]         ; same WCR order, so the helper reads it as
-    mov dx, [si+WCR_Y2]         ; one block
-    push si
-    mov si, gfx_cl_x1
-    call gfx_rect_isectcf
-    pop si
+    mov ax, [gfx_cl_x1]         ; the primitive's own rect, clipped to the
+    mov bx, [gfx_cl_y1]         ; fragment AT SI - an intersection is
+    mov cx, [gfx_cl_x2]         ; symmetric, so the cursor IS the helper's
+    mov dx, [gfx_cl_y2]         ; block and needs no push, swap and pop
+    call gfx_rect_isectcf       ; (size pass 10: -1, ~25 clocks a fragment)
     jc .next                    ; nothing of this fragment is inside
 %ifdef KERN_BIG
     cmp byte [gfx_dnest], 0     ; ...and the fragment back into the display the
@@ -3768,17 +3765,16 @@ gfx_xor_rect:
                                 ; (...and each strip meets GFXCLIP, whose
                                 ; clipped branch owes no hide: wm_clip_set
                                 ; already asked cur_lazyck - 7.1.4)
-    call cur_unlazy              ; UNCLIPPED: 7.1.4/7.1.5
-    jmp short gfx_xor_rect_d
-
+                                ; UNCLIPPED, it FALLS INTO the VRAM entry's
+                                ; own hide (7.1.4/7.1.5): it was its own
+                                ; `call cur_unlazy` and a `jmp short` over
+                                ; the identical call (size pass 10)
 vga_xor_rect_vram:
     call cur_unlazy              ; the drag outline bypasses the clip
                                 ; (SPEC.md 11.3): 7.1.4. VRAM body under its
                                 ; own name, which the transient overlays call
                                 ; direct - so it owes the hide on its own
-                                ; account. Reached from above the flag is
-                                ; already spent and this is three instructions
-                                ; (cur_unlazy is one-way within a hold)
+                                ; account
 
 ; SPEC.md 39.14.6: THE DISPLAY HOOK GOES ABOVE THE [vid_mono] DISPATCH, and
 ; the reason is the same one SPEC.md 11.3 gives for the clip hook - except
