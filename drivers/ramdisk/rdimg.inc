@@ -255,6 +255,19 @@ rd_mount:
     clc                         ; already up: idempotent, so the page's button
     ret                         ; can be pressed twice without a special case
 .go:
+    call rd_store_free          ; A STORE WITH NO VOLUME IS STALE, and it is
+                                ; not this Mount's: a Load that failed after
+                                ; claiming (a short arena read, no drive
+                                ; letter) leaves one behind holding the
+                                ; image's chain table and the image's
+                                ; geometry. rd_store_get would hand it back
+                                ; as it is - every extent that image used
+                                ; still marked taken under a cleared
+                                ; directory, and, if Size moved since (it is
+                                ; live while nothing is mounted), [rd_kb]
+                                ; disagreeing with the extents, so a
+                                ; Preserve walked [rd_kb] of arena past the
+                                ; end of the claim. Fresh, at the live size
     call rd_store_get           ; CF = 1 and AL = RDERR_MEM
     jc .out
     call rd_dir_clear

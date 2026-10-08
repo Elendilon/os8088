@@ -96473,6 +96473,14 @@ the rows. The image is **5,267 bytes, a 6KB claim** idle; a mounted 64KB disk
 is 6KB + a 3KB table claim where it was 8KB + 1KB, the same 9KB, and the
 largest store's table claim is 7KB (`RD_TABMAXKB`) where it was 4KB.
 
+**Mount frees a store that has no volume before it claims** (`rd_mount`'s
+`rd_store_free`). One exists only when a Load failed after claiming - a short
+arena read, no drive letter - and it holds that image's chain table and that
+image's geometry: reused, every extent the image used stayed marked taken
+under a cleared directory, and a Size changed in between left `[rd_kb]`
+disagreeing with the extents, so a Preserve walked `[rd_kb]` of arena past
+the end of the claim.
+
 Three things decided the shape:
 
 * **One claim, not a second.** The table's claim was already movable, already
