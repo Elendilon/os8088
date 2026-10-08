@@ -35,6 +35,58 @@ Base `833f13e4`. Bytes are `kernsize` section deltas, kern_big / kern_small.
   press, the title press and the right button each spelled out (17 bytes a
   copy) is one routine (-15 net).
 
+### batch 2 - driver.inc, assoc.inc, clock.inc, desksc.inc (big .cold -47, .bss -1, .text -1; small .text -1)
+
+driver.inc (.cold -25, kern_big only - OS88_DRIVERS):
+* `drv_row_x`: `mov ah, DRVR_SIZE / mul ah / xchg bx, ax` instead of a
+  CX-banked `shl ax, cl` (-5).
+* `drv_pub_seg`, `drv_row_ix_of`: the hit is an EQUAL compare, so CF = 0 is
+  already the answer - `je .out` replaces `je .yes / ... jmp / .yes: clc`
+  (-3 each).
+* `drv_cp_class_x .hit`, `osapi_drv_cfg_x .ok`, `drv_load_x` (two): a `clc`
+  the arriving branch had already guaranteed (-1 each, -4).
+* `drv_tier_x`: through `kentc_bp`/`kretc_es`, AL written over the banked
+  AX (`mov [bp+14], al`) so only AH comes back (-7).
+* `drv_task_x .spfail`: `jmp short .fail` shares `.fail`'s stc (-1).
+
+assoc.inc (.cold -22, kern_big only - OS88_ASSOC):
+* `assoc_glyph_di`: `mov al, 8 / mul bl` (-5), and AX is now preserved too.
+* `assoc_scan`: `repe cmpsb` with ES = DS banked, for the hand loop and its
+  `cmp ax, ax` (-5).
+* `assoc_reduce`: majority as `mov bh, -2 / adc x4 / cmp bh, 0x80 / rcl bl, 1`
+  - the carry IS the output bit, so the `xor bl,bl`, the `shl bl,1`, the
+  `jb` and the `or bl,1` go (-7). Per icon reduce (64 cells), not per pixel
+  drawn; about the same cycle count.
+* `assoc_locate`: the stem pointer is `assoc_glyph_di`'s answer at a fixed
+  distance (same 8-byte stride, asserted) (-3).
+* `assoc_app_new`: `mov [di], ah` for `mov byte [di], 0` (-1).
+* `asc_use_x`: `shr dx, cl` already sets ZF; the `or dx, dx` went (-2).
+
+clock.inc (.text -1, both): the AM/PM 'M' rides in AH of one word store.
+
+desksc.inc (.bss -1, big only): `sc_vol` was a dead byte - named nowhere.
+
 ## REFUSED
 
+* `drv_cp_count_x` falling into `drvf_drv_cp_class` (-4): it leaves the
+  routine with NO return in its own extent, so os88ovlchk's return-kind rule
+  stops classifying it, and a future NEAR call to it (it ends in a far frame)
+  would no longer be caught. Built, measured, reverted.
+* `drv_blk_call_x` through `drv_pkg_disp` instead of the staged
+  `drv_blkfp`/`drv_blkseg` far pointer (-9 with the 4 data bytes): it is the
+  per-transfer dispatch into a block driver (dsk_xfer's path), and the
+  synthesised frame is ~40 cycles more per call. A variant that keeps the
+  staged pointer and only loads DS from DI is -1 net - not worth the churn.
+* A `db 0x3D` skip-byte ladder for drv_load's four error codes (-3): no
+  precedent in the tree, and stkbalance/ovlchk read instructions.
+* `str_len` restructured: no saving once counted (both 14).
+* `ui_tdbl` reuse of AX across the two `.first` arrivals: 0 bytes.
+* `db_xor_ring`/`db_xor_body` merged on a CF selector: +2.
+
 ## CROSS-FILE
+
+* `docs/INDEX.md` is regenerated in this branch only because adding
+  `docs/plans/ksp10/shell.md` made `os88index` call it stale (the build
+  gate). Every agent's notes file will do the same: regenerate once after
+  the merge (`python3 tools/os88index.py`), and again when the directory is
+  deleted.

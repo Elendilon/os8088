@@ -1936,9 +1936,9 @@ clk_fmt:
     inc bx
     mov al, [clk_sn_hour]
     call clk_ampm               ; AL = 'A' or 'P'
-    mov [bx], al
-    inc bx
-    mov byte [bx], 'M'
+    mov ah, 'M'                 ; ...and the 'M' beside it in ONE word store:
+    mov [bx], ax                ; AH's [clk_h12] has been read for the last
+    inc bx                      ; time two lines up (-1)
     inc bx
 .end:
     mov byte [bx], 0
