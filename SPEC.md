@@ -30603,7 +30603,7 @@ the volume.
 | `dskw_mkdir` | in: SI → name. Creates a subdirectory in the current directory (§18.5). Out: CF/AX as above. Not an API slot — kernel-internal, because a package has no way to navigate. |
 | `dskw_rmdir` | in: SI → name. Removes an **empty** subdirectory of the current directory (§18.6): `FERR_PROT` if it holds anything, if it is not a directory, or if it is read-only/hidden/system/label. Out: CF/AX as above. Not an API slot, for `dskw_mkdir`'s reason. |
 | `dskw_sync` | in nothing. The coherence pass every successful write ends in: `fmv_mark` always, then `dskw_remount` only if `fmv_gneed` says something on screen is drawn from the global listing — otherwise `disk_nfiles` = 0 and `[dsk_lstale]` = 1, the §18.9 debt. Suppressed entirely by `[dskw_batch]`. Preserves all registers; CF is **not** propagated. |
-| `dskw_remount` | in nothing. The remount half on its own: `disk_mount` of `[disk_drive]` with `[dsk_keepcwd]` raised. Preserves all registers; CF not propagated. **`dsk_relist` calls this and never `dskw_sync`** — the payment must not be able to defer again (§18.9). |
+| `dskw_remount` | **Deleted in kernel size pass 10.** It was the remount half of `dskw_sync`, split out for `dsk_relist`; `dsk_relist` itself was deleted earlier and this routine had no caller left. |
 
 **Error codes (pinned; returned in AX with CF=1, mirrored as `FERR_*` in
 `apps/os88api.inc`):** 0 ok, 1 no mounted disk, 2 disk I/O error, 3 bad

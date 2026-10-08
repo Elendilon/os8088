@@ -897,21 +897,9 @@ dsk_batch_end_x:
 ; preserves every register and the flags
 dsk_bpb_flopzap:
     pushf
-    push bx
-    push cx
-    mov bx, dsk_bpbok
-    mov cx, DVOL_MAX
-.row:
-    cmp byte [bx], 2
-    jne .next
-    mov byte [bx], 0
-.next:
-    inc bx
-    loop .row
-    pop cx
-    pop bx
-    popf
-    ret
+    push ax
+    mov al, 2                   ; a batch-scoped bank is a 2...
+    jmp short dsk_bpb_zap
 
 ; -----------------------------------------------------------------------------
 ; dsk_bpb_bank_zap - forget every banked BPB (SPEC.md 18.9.2)
@@ -922,23 +910,31 @@ dsk_bpb_flopzap:
 ; boot sector, and both of those events break it: a partition can be formatted
 ; under us between an unmount and a mount, and an I/O error is exactly the
 ; shape "this is not the disk you think it is" arrives in.
+;
+; ONE LOOP FOR BOTH (size pass 10, -15): a row is 0, 1 or 2 and nothing
+; else (dsk_bpb_bank's one store is [dsk_vflop] + 1, and [dsk_vflop] is 0 or
+; 1), so "zero every row at or above AL" is the flop zap at AL = 2 and the
+; whole bank at AL = 1. The bank zap was a `rep stosb`, which wanted ES and
+; DF banked around it; the compare touches neither.
 ; -----------------------------------------------------------------------------
 dsk_bpb_bank_zap:
-    pushf                       ; AX and DF included: this is called at the TOP
-    push ax                     ; of dsk_vol_add/del, where AL is an argument
+    pushf                       ; AX included: this is called at the TOP of
+    push ax                     ; dsk_vol_add/del, where AL is an argument
+    mov al, 1                   ; ...and a bank of either kind is >= 1
+dsk_bpb_zap:
+    push bx
     push cx
-    push di
-    push es
-    push ds
-    pop es
-    mov di, dsk_bpbok
+    mov bx, dsk_bpbok
     mov cx, DVOL_MAX
-    xor al, al
-    cld
-    rep stosb
-    pop es
-    pop di
+.row:
+    cmp [bx], al
+    jb .next
+    mov byte [bx], 0
+.next:
+    inc bx
+    loop .row
     pop cx
+    pop bx
     pop ax
     popf
     ret
@@ -2544,11 +2540,11 @@ dsk_vol_fixed_x:
                                 ; `removable` - which is a floppy icon on the
                                 ; desktop for a network drive, decided by a
                                 ; number the kernel does not get to interpret
-    xor al, al                  ; ...and a BIOS one is fixed exactly when its
-    test byte [bx+DV_UNIT], 0x80    ; int 13h drive says so - disk_mount's own
-    jz .out                     ; test, in the one place that owns it
-    mov al, 1
-.out:
+    test byte [bx+DV_UNIT], 0x80    ; ...and a BIOS one is fixed exactly
+    jnz .out                    ; when its int 13h drive says so - disk_mount's
+    dec ax                      ; own test, in the one place that owns it.
+                                ; AL 1 -> 0 and AH (VT_BIOS) untouched: no
+.out:                           ; borrow out of a 1 (size pass 10, -3)
     pop bx
     clc
     ret
@@ -3127,26 +3123,20 @@ dsk_fat_window:
     mov ax, bx
 .have:
     mov word [dsk_fatw0], 0xFFFF
-    push ax
-    mov es, [dsk_fatseg]
-    mov cx, [dsk_fatwn]
-    xor bx, bx
-    add ax, [dsk_fatlba]
+    mov dx, ax                  ; DX = the window's start (the caller's DX is
+    mov es, [dsk_fatseg]        ; banked, and the sector it asked for is
+    mov cx, [dsk_fatwn]         ; spent): disk_read preserves EVERY register,
+    xor bx, bx                  ; so ES:BX, CX and AX all serve FAT2 as they
+    add ax, [dsk_fatlba]        ; stand (size pass 10, -11)
     call disk_read_x
-    pop ax
     jnc .ok
     cmp byte [dsk_nfats], 2     ; FAT1 unreadable: FAT2 is the redundancy the
     jne .out                    ; format gives for free (SPEC.md 18.3)
-    push ax
-    add ax, [dsk_fatlba]
     add ax, [dsk_fatsz]
-    mov cx, [dsk_fatwn]
-    xor bx, bx
     call disk_read_x
-    pop ax
     jc .out
 .ok:
-    mov [dsk_fatw0], ax
+    mov [dsk_fatw0], dx
 .out:
     pop es
     jmp kretc_dx
@@ -3474,10 +3464,9 @@ disk_mount_x:
                                 ; two undeletable oddities in every folder
     ; accepted: synthesize in kernel scratch, copy out (DS stays kernel)
     call dsk_synth_x              ; ES:SI raw entry -> dsk_ent (SPEC.md 19)
-    push ax
-    mov ax, bp
-    call dsk_put_dir            ; -> the listing, wherever it lives
-    pop ax
+    mov ax, bp                  ; (AX is dead here: .entry reloads AL and AH,
+    call dsk_put_dir            ; and nothing past .scan_done reads it) -> the
+                                ; listing, wherever it lives
     inc bp
     cmp bp, [dsk_nmax]
     jae .scan_done              ; the cap: extras are invisible
@@ -4576,10 +4565,9 @@ dsk_swapent:
     push di
     mov cx, DSK_DE_STRIDE
 .next:
-    mov al, [es:si]
-    mov ah, [es:di]
-    mov [es:si], ah
-    mov [es:di], al
+    mov al, [es:si]             ; one xchg where a second load and store were
+    xchg al, [es:di]            ; (size pass 10, -3)
+    mov [es:si], al
     inc si
     inc di
     loop .next
@@ -6616,16 +6604,17 @@ dsk_find_x:
     pop es                      ; 2.1): two bytes where the immediate was five
     call dsk_synth_x              ; ES:SI = the raw entry -> dsk_ent, and it
                                 ; banks DI itself
-    mov bx, si                  ; ...and the raw entry again, for the 32-bit
-    mov ax, [es:bx+DSK_R_SIZE]      ; size, which dsk_ent CLAMPS to a word
-    mov dx, [es:bx+DSK_R_SIZE+2]    ; and a copy cannot work from
+    mov bx, si                  ; ...and the raw entry again
+    mov al, [es:bx+DSK_R_CZM]   ; whether it is COMPRESSED, which is the +22
+    sub al, DSK_CZ_MARK         ; word: the mark LESS its format (20.14.2.4),
+    cmp al, LZ_LZB              ; so 0x5A and 0x5B both pass and nothing else.
+                                ; Asked FIRST, so the flags ride the four
+                                ; moves below and AX needs no bank around it
+                                ; (size pass 10, -2)
+    mov ax, [es:bx+DSK_R_SIZE]      ; the 32-bit size, which dsk_ent CLAMPS
+    mov dx, [es:bx+DSK_R_SIZE+2]    ; to a word and a copy cannot work from
     mov cl, [es:bx+DSK_R_ATTR]      ; ...and the attribute, for the caller
-    mov ch, 0                   ; ...and whether it is COMPRESSED, which is
-    push ax                     ; the +22 word, and which changes
-    mov al, [es:bx+DSK_R_CZM]   ; ...the mark LESS its format (20.14.2.4), so
-    sub al, DSK_CZ_MARK         ; 0x5A and 0x5B both pass and nothing else
-    cmp al, LZ_LZB
-    pop ax
+    mov ch, 0                   ; (`mov` writes no flag)
     ja .plain                   ; the SIZE this cell answers: an application
     mov ch, 1                   ; sizes its claim off +18 and must be told
     cmp byte [dsk_fdraw], 0     ; what the file becomes, not what it occupies
@@ -7440,9 +7429,10 @@ dsk_copy_in_x:
 ; out: CF=0 = equal; every register preserved
 ;
 ; The `.cold` segment's string compare, beside its counted copy and for the
-; same reason: this file is the first `.cold` %include, so fdlg.inc, files.inc
-; and dsk_find_name below all reach it with a backward near call. It was
-; fdlg_streq, which is what kept the other three writing it out again.
+; same reason: this file is the first `.cold` %include, so files.inc reaches
+; it with a backward near call. It was fdlg_streq, which is what kept the
+; others writing it out again. (dsk_find_name, another caller, had no caller
+; left of its own and went in size pass 10.)
 ; -----------------------------------------------------------------------------
 dsk_streq:
     push ax
@@ -7634,51 +7624,6 @@ dsk_get_dir_x:
     pop ax
     mov si, dsk_ent
     ret
-
-; -----------------------------------------------------------------------------
-; dsk_find_name - a display name's index in the mount snapshot (SPEC.md 18.3)
-; in:  SI -> a NUL display name, upper case as dsk_synth writes them
-; out: CF = 0 and AX = the directory index; CF = 1 not found
-; clobbers: AX (the output), flags
-;
-; The snapshot, not a directory walk: disk_mount has already synthesized every
-; entry in the current directory and dsk_get_dir stages one back into the
-; kernel segment, so this is a string compare against memory we own - no
-; floppy I/O at all.
-;
-; It answers the INDEX, because that is the currency every consumer speaks:
-; ld_run_body loads by index, dsk_get_dir reads by index, and a caller that
-; wants the size or the first cluster gets them by asking for the entry. The
-; callers are drv_load, finding a .DRV by the name in its table row; the chip
-; menu, finding SYSTEM and then TASKMGR.O88 inside it (SPEC.md 28.3); and the
-; file dialog, finding MEDIA to open on (SPEC.md 38.10). The last two want a
-; FOLDER, and take its first cluster out of the entry to navigate into.
-; -----------------------------------------------------------------------------
-dsk_find_name_x:
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    mov dx, si                  ; DX = the name wanted (SI is the walker's)
-    xor bx, bx                  ; BX = entry index
-.next:
-    cmp bx, [disk_nfiles]
-    jae .no
-    mov ax, bx
-    call dsk_get_dir_x            ; SI -> dsk_ent, in our own segment
-    mov di, dx
-    call dsk_streq              ; CF=0 = the same name, to the NUL - a FOURTH
-    jc .nextent                 ; copy of this compare until it had a home
-    mov ax, bx                  ; ...and that CF = 0 is the answer
-.out:
-    jmp dskw_find.pdi           ; the same five pops (a pop writes no flag)
-.nextent:
-    inc bx
-    jmp short .next
-.no:
-    stc
-    jmp short .out
 
 ; -----------------------------------------------------------------------------
 ; dsk_ent_ofs - one listing slot's offset (module internal)

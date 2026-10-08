@@ -2476,28 +2476,6 @@ dskw_sync_x:
     ret
 
 ; -----------------------------------------------------------------------------
-; dskw_remount_x - rebuild the global snapshot where we stand (SPEC.md 18.4)
-; in:  nothing
-; out: nothing (all registers preserved); CF is NOT propagated
-;
-; The remount half of dskw_sync, split out because dsk_relist has to be able
-; to FORCE it: dsk_relist used to tail-call dskw_sync, and once dskw_sync
-; learned to defer, that pair would have cleared the debt and then declined to
-; pay it - a listing that is never rebuilt, which is the one failure this
-; whole mechanism must not have.
-; -----------------------------------------------------------------------------
-dskw_remount_x:
-    push ax
-    push dx
-    mov dl, [disk_drive]
-    mov byte [dsk_keepcwd], 1   ; stay where the write happened (18.4)
-    call disk_mount_x
-    mov byte [dsk_keepcwd], 0
-    pop dx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; dskw_stat - does NAME exist in the current directory? (SPEC.md 18.4)
 ; in:  SI -> a NUL-terminated 8.3 name
 ; out: CF=0 = it exists, with AL = its raw attribute byte, BX = its first
@@ -3940,14 +3918,11 @@ dskw_find:
                                 ; which dsk_secbuf could be reused, so there
                                 ; is no invalidation anybody can forget.
 .free:
-    cmp word [DSKW_FNONE], 0xFFFF
-    jne .next                   ; an earlier slot already won
-    call dskw_mark_free
+    call dskw_mark_free         ; ...unless an earlier slot already won
     jmp short .next
 .endmark:
-    cmp word [DSKW_FNONE], 0xFFFF
-    jne .noent
     call dskw_mark_free
+    jne .noent                  ; ZF = 0: an earlier slot had won
     mov byte [dskw_fend], 1     ; this slot IS the end-of-directory marker
     jmp short .noent
 .next:
@@ -3990,18 +3965,23 @@ dskw_hit:
     jmp dsk_copy_in_x
 
 ; -----------------------------------------------------------------------------
-; dskw_mark_free - record the current scan position as the free slot
+; dskw_mark_free - record the current scan position as the free slot,
+;                  unless one is recorded already
 ; in:  [dskw_cursec] and [dsk_c2hi], SI -> the entry inside dsk_secbuf
-; out: [dskw_fsec] / [dskw_foff]
+; out: ZF = 1 and [dskw_fsec] / [dskw_foff] set; ZF = 0 = an earlier slot won
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
 dskw_mark_free:
+    cmp word [DSKW_FNONE], 0xFFFF   ; the FIRST free slot wins: both callers
+    jne .out                    ; asked this before calling (size pass 10, -3)
     push ax
     push di
     mov di, dskw_fsec
     call dskw_here
     pop di
     pop ax
+    cmp ax, ax                  ; ZF = 1: this slot was taken
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4170,8 +4150,7 @@ dskw_ent_store:
     mov byte [es:di], 0
 .write:
     DSK_WR1D dskw_dsec
-    jc .ioerr
-    jmp short .out              ; CF = 0 from the `jc`
+    jnc .out                    ; CF = 0, and the read's failure falls in:
 .ioerr:
     call dskw_ioerr             ; ...which sets CF itself
 .out:
@@ -4346,14 +4325,10 @@ dskw_setfat:
                                 ; what makes it absolute again
     mov ax, bx                  ; the sector holding the entry...
     mov cl, 9
-    shr ax, cl
-    add ax, [dsk_fatw0]
     call dskw_dirty
     mov ax, bx                  ; ...and the one holding its last byte
-    inc ax                      ; (CL is still 9: dskw_dirty reads AX and
-    shr ax, cl                  ; writes only memory and flags)
-    add ax, [dsk_fatw0]
-    call dskw_dirty
+    inc ax                      ; (CL is still 9: dskw_dirty shifts by it
+    call dskw_dirty             ; and writes only AX, memory and flags)
 .ok:
     clc
 .out:
@@ -4361,11 +4336,16 @@ dskw_setfat:
     jmp kretc_si
 
 ; -----------------------------------------------------------------------------
-; dskw_dirty - grow the dirty FAT sector range to include AX
-; in:  AX = sector index within one FAT
-; out: nothing (all registers preserved)
+; dskw_dirty - grow the dirty FAT sector range to include a window byte
+; in:  AX = a byte offset INTO the FAT window, CL = 9
+; out: nothing; AX clobbered (dskw_setfat, its one caller, banks it)
+;
+; The >>9 and the [dsk_fatw0] rebase were spelled at both of dskw_setfat's
+; call sites; they are here once (size pass 10, -6).
 ; -----------------------------------------------------------------------------
 dskw_dirty:
+    shr ax, cl                  ; the sector within the window...
+    add ax, [dsk_fatw0]         ; ...made absolute
     cmp ax, [dsk_fatd0]
     jae .hi
     mov [dsk_fatd0], ax
@@ -4417,25 +4397,19 @@ dskw_flush_x:
     jae .stale                  ; ...or ends above it
     sub cx, ax
     inc cx                      ; CX = sectors to write
-    mov dx, cx
     mov es, [dsk_fatseg]
-    mov bx, ax
-    sub bx, [dsk_fatw0]         ; the range's offset IN THE WINDOW
-    mov cl, 9
-    shl bx, cl
-    mov cx, dx
-    push ax
+    sub bx, ax                  ; BX was [dsk_fatw0]: the range's offset IN
+    neg bx                      ; THE WINDOW, in sectors (< DSK_FAT_SECS)...
+    mov bh, bl                  ; ...times 512, as bytes. The x256 is a byte
+    mov bl, 0                   ; move and the x2 one shift, and neither needs
+    shl bh, 1                   ; CL, so CX keeps the count
     add ax, [dsk_fatlba]        ; FAT1
-    call disk_write_x ; preserves BX: reusable for FAT2 below
-    pop ax
-    jc .ioerr
+    call disk_write_x           ; preserves EVERY register (dsk_xfer's
+    jc .ioerr                   ; contract): AX, BX, CX and ES serve FAT2 too
     cmp byte [dsk_nfats], 2
     jne .done
-    push ax
-    add ax, [dsk_fatlba]
     add ax, [dsk_fatsz]         ; FAT2 = FAT1 + FATSz16
     call disk_write_x
-    pop ax
     jc .ioerr
 .done:
     xor ax, ax                  ; (CF = 0 with it)
@@ -4639,35 +4613,32 @@ dskw_name83:
     inc bx
     loop .pad
     xor cx, cx                  ; CX = characters taken so far
+    mov dl, 8                   ; DL = this part's width: the stem's, then 3.
+                                ; ONE loop for both parts (size pass 10, -9):
+                                ; the extension's was this one with DI moved
+                                ; on by 8 and a width of 3
 .stem:
     lodsb
     test al, al
     jz .ext_end                 ; ...whose test - an empty name - is .ext_end's
     cmp al, '.'
     je .dot
-    call dskw_char_x            ; upcase + legality
+    call dskw_char_x            ; upcase + legality (AL and CF only)
     jc .bad
-    cmp cx, 8
-    jae .bad                    ; a ninth stem character
+    cmp cl, dl
+    jae .bad                    ; a ninth stem character, a fourth extension one
     mov bx, cx                  ; [bx+di]: the count IS the column
     mov [bx+di], al
     inc cx
     jmp short .stem
 .dot:
-    jcxz .bad                   ; ".TXT" has no stem
-    xor cx, cx
-.ext:
-    lodsb
-    test al, al
-    jz .ext_end
-    call dskw_char_x
-    jc .bad                     ; a second '.' lands here too
-    cmp cx, 3
-    jae .bad
-    mov bx, cx
-    mov [bx+di+8], al
-    inc cx
-    jmp short .ext
+    jcxz .bad                   ; ".TXT" has no stem, and "A..B" no extension
+    cmp dl, 3
+    je .bad                     ; a second '.' - which the extension's own
+    xor cx, cx                  ; loop used to refuse through dskw_char_x
+    mov dl, 3
+    add di, 8                   ; the extension's columns (kretc_di puts DI
+    jmp short .stem             ; back: it is not an output)
 .ext_end:
     jcxz .bad                   ; a trailing dot with no extension (or, from
     clc                         ; .stem, no name at all)
