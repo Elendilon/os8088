@@ -186,11 +186,10 @@ clip_put:
 ; corrupted anything.
 ; -----------------------------------------------------------------------------
 clip_get:
-    push bx
-    push dx
-    push si
-    push di
-    push ds
+    push si                     ; NO BX OR DX BANK: nothing below writes
+    push di                     ; either - clip_size spends AX alone and the
+    push ds                     ; copy CX/SI/DI - so the pair pushed for
+                                ; nobody (kernel size pass 10: 4 bytes)
     call clip_size              ; the slot below IS this test: it answers
     jc .empty                   ; CF=1 with AX=0 when empty and CF=0 with the
                                 ; length otherwise, which is the pair of facts
@@ -218,8 +217,6 @@ clip_get:
     pop ds
     pop di
     pop si
-    pop dx
-    pop bx
     ret
 
 ; -----------------------------------------------------------------------------

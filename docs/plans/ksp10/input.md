@@ -106,6 +106,19 @@ kern_big `.text -11 .bss -25` (running sum -301); kern_small `.text -6
 * `kbm_paint`: `[cur_dirty]` answered in AL and stored once. -5
 * `menu_relayout`: `[menu_nbar]` = 1 from the CX the rep left at 0. -1
 
+### Batch 5 - clip_get
+
+* `clip_get`: BX and DX were banked and nothing in it writes either. -4
+
+### At the tip
+
+kern_big `text 44,039 -269  bss 5,108 -25  cold 37,910 -11  (sum -305)`;
+kern_small `text 32,640 -264  bss 3,079 -25  cold 23,939 -11  (sum -300)`;
+kern_emu `(sum -305)`. kern_big's image rung uncrosses (97 -> 96 steps).
+
+Per file, kern_big (code / bss): mouse.inc + mouproto.inc -89, menu.inc
+-143 / -25, icons.inc -34, toast.inc -5, clip.inc -4, events.inc -5.
+
 ## REFUSED
 
 * `cur_lazyrect` / `cur_lazyck`: the hit arm could `call cur_unlazy` before the
