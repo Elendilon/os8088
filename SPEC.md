@@ -14357,6 +14357,53 @@ leaves the tail back at `0x3C` with the head untouched, and twelve consecutive
 overrun interrupts ask for a beep on the first three and none after — the
 counter back to zero on the next keystroke that finds the buffer empty.
 
+#### 9.8.1 `KBDDIAG=1` — what the keyboard sent, and what the ROM made of it
+
+A knob, for docs/FIELD-NOTES.md 63: a Pentium 4 whose keyboard (USB, through
+a USB-to-PS/2 converter) types on the desktop and cannot PAUSE MIDIRack's
+speaker play. That play is an `FSXF_RATE` bracket (§34.11, §105.8.3) whose key
+path is `mrk_input` polling the ROM's own `int 16h` — the desktop's path — so
+what differs is IRQ0, running at the sample rate with every keystroke's
+`int 09h` among thousands of nested pulses a second. Three links can break and
+each leaves a different picture, so the instrument records all three rather
+than guessing one. `make kbddiag` builds the four system disks; the API is
+unchanged, so they pair with the ordinary apps disks.
+
+**What it records** (`kernel/kbddiag.inc`), into a 64-record ring:
+
+| row | written by | when |
+|---|---|---|
+| `I` | `kbm_isr` | every IRQ1. `st` is port 64h BEFORE the ROM's handler, `>st` and `60` are port 64h and port 60h AFTER it, `tl>tl` the BIOS buffer tail either side, `key` the word the ROM stored (0 if the tail did not move) |
+| `S` | `sch_isr` | inside a bracket, a tick whose keyboard state CHANGED - OBF and AUX from port 64h, and IRQ1's bit in the PIC's ISR, IRR and IMR |
+| `E` / `L` | `fsx_run` | a bracket entered (`x` = its flags) / leaving, BEFORE `.restore` drains the BIOS buffer |
+
+Every row carries `[ticks]`, `f` (bit 0 a bracket is armed, bit 1
+`[sch_fast]`), the head `hd`, and the PIC's `is ir im` at the moment it was
+written. Two header lines count IRQ1s and IRQ1s-after-which-the-tail-moved,
+each total and in-bracket, the brackets entered, and per bracket tick how many
+saw OBF set, IRQ1 requested, in service, and masked.
+
+**How it is read**: between an `E` and its `L`,
+
+- **no `I` rows** — IRQ1 never reached `kbm_isr`; the `S` rows and the second
+  header line say whether the byte sat in the 8042 (OBF) or the PIC (IRR,
+  ISR, IMR);
+- **`I` rows whose tail never moves** — the ROM took the byte and stored
+  nothing; `60` is the byte it took;
+- **the tail moves and `L`'s head is short of its tail** — the ROM stored the
+  key and `int 16h` never handed it to the app.
+
+**What it changes**: only that `kbm_isr` CALLS the ROM's `int 09h`
+(`pushf`/`call far`) instead of jumping to it, so the aftermath can be read.
+Port 64h is a status read with no side effect, and port 60h is read only after
+the ROM has taken the byte, when a re-read returns the same byte and consumes
+nothing — so the ROM sees the hardware a plain kernel shows it. Port 64h is
+not read on an 8088 tier (an XT's PPI aliases port A there), and the column
+reads `FF`. The panel is drawn with `font_run` every ~0.5 s by `ui_task`, so
+it is not live DURING a bracket (`ui_task` is the bracket's caller) and fills
+in the moment one ends. It cannot be built with `MOUDIAG=1`, which draws in
+the same place.
+
 ### 9.9 The PS/2 mouse — the other socket, probed after the serial one
 
 An XT has one place to put a mouse and it is a serial port. Every machine

@@ -261,6 +261,9 @@ KNOBS = [
     # counters go round a lap instead of saturating, so it is the kernel's and
     # the default target is right.
     ("mouround",    ["MOUROUND=1"]),
+    # `KBDDIAG=1` (SPEC.md 9.8.1) records every IRQ1 and draws the ring on the
+    # desktop; kernel-only, so the default target is right.
+    ("kbddiag",     ["KBDDIAG=1"]),
     # `DPTROM=1` (SPEC.md 18.92) TAKES BOTH ARMS, for BOOTSTOP's reason: it
     # appends -DDPT_ROM to $(VIDDEF) *and* to $(BOOTDEF), so one target
     # assembles half of it. The kernel arm is the default and the sector arm

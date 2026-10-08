@@ -6541,6 +6541,8 @@ EXT_YLOW    equ 11              ; ui_ylow's arm, behind its caller's gate
 %include "bootprof.inc"       ; the boot phase table (SPEC.md 15.5), BOOTPROF=1
 %include "stkdiag.inc"        ; what an interrupt costs a task stack
                               ; (docs/plans/completed/STACK-SLOTS-PLAN.md), STKDIAG=1
+%include "kbddiag.inc"        ; what the keyboard sent (SPEC.md 9.8.1),
+                              ; KBDDIAG=1
 %include "moudiag.inc"        ; ...and what the identify window saw (SPEC.md
                                 ; 9.4.6), MOUDIAG=1. Both are knob-only and
                                 ; both draw on the finished desktop, because
