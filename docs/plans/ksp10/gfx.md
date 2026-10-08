@@ -30,6 +30,15 @@ read; nothing below changes its order of refusals.
 (kern_small's -28 is the rows marked; the per-row arithmetic is approximate where
 an arm assembles out.)
 
+### Batch 2 — kern_big .text -66 (running -166), kern_small .text -19 (running -47)
+
+| item | big | small | speed |
+|---|---:|---:|---|
+| `gfx_denter` deleted: its two callers (gfx_blit4's, gfx_blitp's hooks) already sit under `cmp [vid_ndisp],1 / jbe`, so they call `gfx_disp_enter` straight (+ macro GFXDENTER gone) | -11 | 0 | faster (a call and a compare a hooked blit) |
+| `gfx_disp_run`: the eight clamp compares are `call gfx_rect_isectcf / jc .next`; the loop test reuses `mov ax,bp` | -34 | 0 | extended desktop only: ~+40 clocks a display a primitive |
+| `gfx_blit4 .cut`: VX tested in memory, `mov di,[di+VID_CTX_*]` | -3 | 0 | faster, straddling blit only |
+| `gfx_sub_arm` derives every term in registers (the three result words were parking S.x1, S.x2, S.y2) | -19 | -19 | faster: 3 stores and 3 loads gone, once a sub-rect restore |
+
 ## REFUSED
 
 * `lea sp, [bp+18]` for `mov sp,bp / add sp,18` in gfx_blit1_x's `.noswap`
@@ -44,8 +53,24 @@ an arm assembles out.)
   dispatch it needs in sw_rect_pl costs what it saves, and touches the SOLID
   fill's path.
 * vga_seq+gc reset helper for gfx_blitp/vga_blit_prow: one beneficiary, +6 net.
+* gfx_ls_box's armed clamp through gfx_rect_isect (-24 there): needs gfx_ls_d1/d3
+  as real union words (gfx_pt_resolve +8 stores, union +1 .bss), net -15 for
+  ~+30 clocks on EVERY gfx_points pass and ~+50 on an armed re-resolve -
+  gfx_points is a per-call-cost primitive (GFX_POINTS 8 pts).
+* gfx_disp_enter / gfx_disp_enter_n sharing one head (-7): the shared order
+  calls vid_disp_find (a display loop) even when NESTED, which is font_char's
+  path inside font_run's fallback on an extended desktop.
+* GFXDENTERCD's one-display test moved into gfx_disp_enter_cd (-14): a
+  call/ret on every glyph of every one-card machine (the macro's own banner).
+* GFXCLIP_ARM's body pointer as an inline `dw` after a `call` (~-10): +40
+  clocks on every clipped primitive.
 
 ## CROSS-FILE (for the coordinator)
+
+* `kernel/wm.inc` wm_su_srect `.isect:` (around :9172): `cmp ax,cx / jg .none /
+  cmp bx,dx / jg .none` after two `gfx_rect_isect` calls is gfx_rect_isectcf's
+  tail; the second call could be `call gfx_rect_isectcf / jc .none` when the
+  visible-rect one is armed - a few bytes, the owner of wm.inc to judge.
 
 * `tools/stkbalance.py`: teach it `lea sp, [bp+N]` (= `mov sp,bp` + `add sp,N`).
   Then vga12.inc's gfx_blit1_x `.noswap` can take it: -2 .cold, faster.

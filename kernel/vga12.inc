@@ -601,26 +601,11 @@ gfx_disp_run:
 .disp:                          ; [si] as it was, now that SI is the rect. The
     mov ax, bp                  ; raw bodies and vid_ctx_act keep both
     call vid_ctx_rect           ; AX..DX = this display's virtual rect, DI = ctx
-    cmp ax, [si]
-    jge .x1
-    mov ax, [si]                ; x1 = max
-.x1:
-    cmp cx, [si+4]
-    jle .x2
-    mov cx, [si+4]              ; x2 = min
-.x2:
-    cmp ax, cx
-    jg .next                    ; nothing of the rect on this display
-    cmp bx, [si+2]
-    jge .y1
-    mov bx, [si+2]
-.y1:
-    cmp dx, [si+6]
-    jle .y2
-    mov dx, [si+6]
-.y2:
-    cmp bx, dx
-    jg .next
+    call gfx_rect_isectcf       ; ...cut to the banked rect at SI, which is in
+    jc .next                    ; WCR order: nothing of it on this display.
+                                ; It was these eight compares written out
+                                ; (size pass 10: -33, and ~40 clocks a display
+                                ; a primitive, on an extended desktop only)
     sub ax, [di+VID_CTX_VX]     ; ...and into the display's own coordinates
     sub cx, [di+VID_CTX_VX]
     sub bx, [di+VID_CTX_VY]
@@ -632,9 +617,8 @@ gfx_disp_run:
     call word [si+8]            ; [gfx_dfn]: the raw body keeps every register
 .next:
     inc bp
-    mov al, [vid_ndisp]
-    mov ah, 0
-    cmp bp, ax
+    mov ax, bp                  ; (AX is the next pass's `mov ax, bp` anyway)
+    cmp al, [vid_ndisp]
     jb .disp
     pop bp
     jmp kret_di                 ; the ladder: an extended desktop's +15 cycles
@@ -725,14 +709,12 @@ gfx_disp_enter_cd:
 ; which is the whole of what the conversion would otherwise have cost them.
 ; The one-display skip is shared: on a machine with one card [gfx_dnest] never
 ; leaves 0, so GFXDORG's own `cmp/jne` would have skipped anyway.
+;
+; gfx_denter ITSELF IS GONE (size pass 10). Its last two callers, gfx_blit4's
+; and gfx_blitp's hooks, each sit under their own `cmp byte [vid_ndisp], 1 /
+; jbe` - so its one-display test had already been answered at both, and they
+; call gfx_disp_enter straight. 11 bytes and a call a hooked blit.
 ; -----------------------------------------------------------------------------
-gfx_denter:
-    cmp byte [vid_ndisp], 1
-    jbe .one
-    jmp gfx_disp_enter          ; a tail jump: it returns to OUR caller
-.one:
-    ret
-
 gfx_denter_rect:
     cmp byte [vid_ndisp], 1
     jbe .one
@@ -755,16 +737,11 @@ gfx_dleave:
 
 %endif
 
-; GFXDENTER / GFXDLEAVE - the two above, with their one-display test inlined
-; so a single-card machine pays a compare rather than a near call. font_char
+; GFXDENTER (gone with gfx_denter) / GFXDLEAVE - with their one-display test
+; inlined so a single-card machine pays a compare rather than a near call. font_char
 ; is the reason: SPEC.md 6.1.1 prices a glyph cell at ~1ms on the target and
 ; a call/ret at ~11us, which is 1.2% of every character in the system for a
 ; branch that is never taken on any machine but one.
-%macro GFXDENTER 0
-%ifdef KERN_BIG
-    call gfx_denter
-%endif
-%endmacro
 
 ; ...and the RECT spelling: the enter above plus what GFXDORG used to be, for
 ; a routine holding a rect rather than a point. The enter translated the
@@ -1860,8 +1837,9 @@ gfx_blit4:
     jc .cut                     ; STRADDLING: cut it at the seam if it can be
 %endif                          ; cut, and only then fall back to 39.14.7's
     mov byte [gfx_blit_hk], 1
-    GFXDENTER                   ; ...one display, so the block is local now
-.hkdone:
+    call gfx_disp_enter         ; ...one display, so the block is local now -
+.hkdone:                        ; and straight to the enter: the `jbe` above
+                                ; already asked gfx_denter's one question
 %endif
 
     mov [gfx_blit_w], cx        ; lock-held scratch, like vga12's rect block:
@@ -2190,11 +2168,10 @@ gfx_blit4:
     push ax                     ; vid_ctx_ptr answers in DI and DI is the
     mov al, 1                   ; caller's, banked at entry. Display 1 is at
     call vid_ctx_ptr            ; (VX, MBAR_H) on the RIGHT layout and (0, VY)
-    mov ax, [di+VID_CTX_VX]     ; on BELOW, so a NON-ZERO VX names the axis
-    or ax, ax                   ; (39.19.2) and no mode byte has to be read
-    jz .cutv
-    mov di, ax                  ; ...and in DI, where the arithmetic wants it
-    pop ax
+    pop ax                      ; on BELOW, so a NON-ZERO VX names the axis
+    cmp word [di+VID_CTX_VX], 0 ; (39.19.2) and no mode byte has to be read -
+    je .cutv                    ; asked in memory, so AX comes back at once
+    mov di, [di+VID_CTX_VX]     ; ...and in DI, where the arithmetic wants it
 
     ; --- RIGHT: the seam is a COLUMN, and a column carries a nibble phase --
     sub di, ax                  ; DI = pixels of this block left of the seam
@@ -2225,9 +2202,7 @@ gfx_blit4:
     ; leaves the same low sixteen bits as `imul` would, which is all that is
     ; being added to SI.
 .cutv:
-    mov ax, [di+VID_CTX_VY]
-    mov di, ax
-    pop ax
+    mov di, [di+VID_CTX_VY]
     sub di, bx                  ; DI = rows of this block above the seam
     jle .cutd1
     cmp di, dx
@@ -2793,7 +2768,7 @@ gfx_blitp:
     jc .no                      ; STRADDLING: a plane byte carries no x, so
                                 ; there is nothing here to split
     mov byte [gfx_bp_hk], 1
-    GFXDENTER
+    call gfx_disp_enter         ; (the `jbe` above is gfx_denter's question)
 .hkdone:
 %endif
     ; --- ...AND ONLY NOW, HOW DEEP IS IT? (SPEC.md 5.4.3.4) ------------------
@@ -4173,35 +4148,29 @@ gfx_sub_arm:
     cmp bx, dx
     jg .no
 
-    ; The three words double as the scratch this arithmetic needs, so it costs
-    ; no .bss: every register is wanted, CL has to be the shift count (an 8086
-    ; shifts by 1 or by CL and nothing else), and both `mul`s eat DX.
-    mov [gfx_sub_st], ax        ; S.x1
-    mov [gfx_sub_rs], cx        ; S.x2
-    mov [gfx_sub_ps], dx        ; S.y2
+    ; EVERY TERM IS DERIVED IN REGISTERS (size pass 10). This parked S.x1, S.x2
+    ; and S.y2 in the three result words and read them back, because CL has
+    ; to be the shift count (an 8086 shifts by 1 or by CL) - but only CL, so
+    ; S.x2 moves to BX first, and DX, which holds S.y2, is not touched until
+    ; the first `mul`. 19 bytes, and three stores and three loads.
     push bx                     ; S.y1
+    mov bx, cx                  ; BX = S.x2, so CL is free for the count
     mov cl, 3
-
-    mov ax, [si+4]              ; DI = full_row, the buffer's bytes per row;
-    shr ax, cl                  ; BX = the saved rect's own left byte column
-    mov bx, [si]
+    shr ax, cl                  ; AX = S.x1's byte column
     shr bx, cl
-    mov di, ax
-    sub di, bx
-    inc di
-
-    mov ax, [gfx_sub_rs]        ; BP = sub_row, the bytes to move per row
-    shr ax, cl
-    mov bp, ax
-    mov ax, [gfx_sub_st]
-    shr ax, cl
+    mov bp, bx                  ; BP = sub_row, the bytes to move per row
     sub bp, ax
     inc bp
+    mov di, [si+4]              ; DI = full_row, the buffer's bytes per row;
+    shr di, cl                  ; BX = the saved rect's own left byte column
+    mov bx, [si]
+    shr bx, cl
     sub ax, bx                  ; AX = the sub-rect's byte column within a
-                                ; buffer row
+    sub di, bx                  ; buffer row
+    inc di
 
     pop bx                      ; CX = sub_rows, BX = the sub-rect's first row
-    mov cx, [gfx_sub_ps]        ; as an offset into the buffer. (CL was the
+    mov cx, dx                  ; as an offset into the buffer. (CL was the
     sub cx, bx                  ; shift count and every shift is done.)
     inc cx
     sub bx, [si+2]
