@@ -1543,7 +1543,17 @@ os88ui_btninit:
     cmp si, bx                  ; that is already linked loops the list -
     je .linked                  ; through itself at the head, cutting off
     or si, si                   ; every record behind it, so a click in a
-    jnz .seen                   ; dialog still open walked for ever
+    jz .push                    ; dialog still open walked for ever
+    cmp ax, [si+OS88UI_BT_WIN]  ; ...AND A RECORD AHEAD OF THIS ONE THAT
+    jne .seen                   ; NAMES THE SAME WINDOW LETS IT GO. A closed
+    mov word [si+OS88UI_BT_WIN], 0 ; dialog's record keeps its BT_WIN, and
+    jmp short .seen             ; wm_create hands the slot to the next window:
+                                ; os88ui_btnclick takes the FIRST match, so the
+                                ; stale one would answer this window's clicks.
+                                ; Pushing every init kept the newest first;
+                                ; linking once must clear the older instead
+                                ; (SPEC.md 20.5.1.3.3). No window is at 0
+.push:
     mov ax, bx                  ; ...and the record onto the package's list,
     xchg ax, [os88ui_btlist]    ; which os88ui_btnclick walks to find the one
     mov [bx+OS88UI_BT_NEXT], ax ; belonging to the window it was handed

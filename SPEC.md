@@ -39781,6 +39781,17 @@ off every record behind it: open one dialog, open a second, close and reopen
 the second, and a click in the first walked the list for ever with the gfx
 lock held.
 
+**...and the walk clears any record AHEAD of it that names the same window.**
+Pushing every init kept the newest record first, and `btnclick` takes the
+FIRST match. A closed dialog's record keeps its `OS88UI_BT_WIN`, and
+`wm_create` hands that slot to the next window, so once a record stays where
+it is, a stale one ahead of it would answer its clicks: open dialog A, close
+it, open B, close it, reopen A, and A's presses went to B's record — B's
+buttons drawn over A, or B's click proc run with B's window gone. The walk
+writes 0 to the stale record's window word (no window is at 0), so the record
+being adopted is the first match again. Records behind it are found after it
+and cannot shadow it.
+
 ##### 20.5.1.3.4 `OS88UI_NOGEST` — the install side, opted out of
 
 The gesture above is **226 bytes** of every image that includes `os88ui.inc`,
