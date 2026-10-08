@@ -984,6 +984,74 @@ _COLLISIONS = {
 }
 
 
+# Parsed once per (path, mtime) and shared by `scan` and `unmirrored`: t_mirror
+# runs the pair three times over ~800 host scripts, and parsing every one each
+# time - then visiting every EXPRESSION node of it with ast.walk, when an
+# assignment is a statement - was 16 of the fast tier's 30 seconds.
+_ASSIGNS = {}
+
+
+_TARGETISH = re.compile(r"\b([A-Za-z_]\w*)[ \t\\\r\n]*[,=)]")
+
+
+def _named(names):
+    """The names a file must spell as a target before it is worth parsing.
+
+    Every assignment target the callers count is a bare Name, so its spelling
+    is in the source followed by `=`, by the `,` of a tuple or by the `)` that
+    closes one. Most host scripts mention none of the constants that way, and
+    one regex pass over the text is far cheaper than ast.parse."""
+    return frozenset(names)
+
+
+def _assigns(path, named=None):
+    """[(lineno, targets, value)] for every `Assign` statement in `path` - or
+    [] at once when `named` is given and the text cannot hold one of them."""
+    import ast
+    import warnings
+
+    try:
+        key = (path, os.stat(path).st_mtime_ns)
+    except OSError:
+        return []
+    got = _ASSIGNS.get(key)
+    if got is None:
+        try:
+            text = open(path, "r", errors="replace").read()
+        except OSError:
+            return []
+        got = _ASSIGNS[key] = [text, frozenset(_TARGETISH.findall(text)), None]
+    text, words, found = got
+    if found is None:
+        if named is not None and named.isdisjoint(words):
+            return []
+        try:
+            with warnings.catch_warnings():
+                # Somebody's invalid escape in a docstring is not this
+                # module's business, and printing it is half of a parse.
+                warnings.simplefilter("ignore")
+                tree = ast.parse(text)
+        except SyntaxError:
+            tree = None
+        found = []
+        # Statements only: an Assign is a statement, so nothing below an
+        # expression can hold one, and skipping them is most of the tree.
+        todo = [tree] if tree is not None else []
+        while todo:
+            node = todo.pop()
+            if isinstance(node, ast.Assign):
+                found.append((node.lineno, node.targets, node.value))
+            for _, val in ast.iter_fields(node):
+                if isinstance(val, list):
+                    todo.extend(v for v in val
+                                if isinstance(v, (ast.stmt, ast.excepthandler,
+                                                  getattr(ast, "match_case",
+                                                          ()))))
+        found.sort(key=lambda r: r[0])
+        got[2] = found
+    return found
+
+
 def unmirrored(root=None, least=2):
     """Kernel constants host scripts hard-code that this record does NOT hold.
 
@@ -1019,6 +1087,8 @@ def unmirrored(root=None, least=2):
                     pass
 
     hits = {}
+    named = _named([k for k in kern if len(k) >= 4 and k.isupper()
+                    and k not in _MIRROR and k not in _COLLISIONS])
     for sub in ("tools", "tests", os.path.join("tests", "unit")):
         d = os.path.join(root, sub)
         if not os.path.isdir(d):
@@ -1026,21 +1096,13 @@ def unmirrored(root=None, least=2):
         for fn in sorted(os.listdir(d)):
             if not fn.endswith(".py") or fn == "os88geom.py":
                 continue
-            try:
-                tree = ast.parse(open(os.path.join(d, fn), "r",
-                                      errors="replace").read())
-            except SyntaxError:
-                continue
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.Assign):
-                    continue
-                for tgt in node.targets:
+            for lineno, targets, value in _assigns(os.path.join(d, fn), named):
+                for tgt in targets:
                     if (isinstance(tgt, ast.Name)
-                            and isinstance(node.value, ast.Constant)
-                            and isinstance(node.value.value, int)):
+                            and isinstance(value, ast.Constant)
+                            and isinstance(value.value, int)):
                         hits.setdefault(tgt.id, []).append(
-                            (os.path.join(sub, fn), node.lineno,
-                             node.value.value))
+                            (os.path.join(sub, fn), lineno, value.value))
 
     out = []
     for name, places in hits.items():
@@ -1069,6 +1131,7 @@ def scan(root=None):
 
     root = root or ROOT
     out = []
+    named = _named(_KNOWN)
     for sub in ("tools", "tests"):
         d = os.path.join(root, sub)
         if not os.path.isdir(d):
@@ -1077,30 +1140,24 @@ def scan(root=None):
             if not fn.endswith(".py") or fn == "os88geom.py":
                 continue
             path = os.path.join(d, fn)
-            try:
-                tree = ast.parse(open(path, "r", errors="replace").read())
-            except SyntaxError:
-                continue
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.Assign):
-                    continue
-                for tgt in node.targets:
+            for lineno, targets, value in _assigns(path, named):
+                for tgt in targets:
                     # NAME = 18, and NAME, OTHER = 18, 20 - the two spellings
                     # the harness actually uses.
                     pairs = []
                     if isinstance(tgt, ast.Name):
-                        pairs = [(tgt, node.value)]
+                        pairs = [(tgt, value)]
                     elif (isinstance(tgt, ast.Tuple)
-                          and isinstance(node.value, ast.Tuple)
-                          and len(tgt.elts) == len(node.value.elts)):
-                        pairs = list(zip(tgt.elts, node.value.elts))
+                          and isinstance(value, ast.Tuple)
+                          and len(tgt.elts) == len(value.elts)):
+                        pairs = list(zip(tgt.elts, value.elts))
                     for nm, val in pairs:
                         if not isinstance(nm, ast.Name) or nm.id not in _KNOWN:
                             continue
                         if not isinstance(val, ast.Constant) \
                                 or not isinstance(val.value, int):
                             continue
-                        out.append((os.path.join(sub, fn), node.lineno, nm.id,
+                        out.append((os.path.join(sub, fn), lineno, nm.id,
                                     val.value, _KNOWN[nm.id]))
     return sorted(out, key=lambda r: (r[3] == r[4], r[0], r[1]))
 

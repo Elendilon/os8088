@@ -46,10 +46,11 @@ def host():
     counts = [int(x) for x in re.findall(r'^\s+dd (\d+)', inc, re.M)]
     assert len(counts) == R.ROWS and counts == ref['workload_counts']
     assert all(0 < c < 0xFFFFFFFF for c in counts)
-    sym = R.symbols()
-    import hashlib
-    image = Path(at(str(ROOT / 'build/redline.bin'))).read_bytes()
-    assert hashlib.sha256(image[sym['rl_alu']:sym['rl_detect']]).hexdigest() == ref['workload_code_sha256'], 'baseline does not match workload code; recalibrate'
+    R.symbols()      # asserts the source still assembles to build/redline.bin
+    # The SHAPE and not the raw bytes (tools/redline_profile.workload_shape):
+    # the raw region also records where every variable sits, so a shared
+    # include growing failed this with not one workload instruction changed.
+    assert R.workload_shape() == ref['workload_shape_sha256'], 'baseline does not match workload code; recalibrate'
     assert len(ref['trials']) == 3
     for adapter in ('cga', 'herc', 'vga'):
         suffix = '' if adapter == 'cga' else '-' + adapter
@@ -59,6 +60,7 @@ def host():
         assert [int(x) for x in re.findall(r'^\s+dd (\d+)', table, re.M)] == expected
         assert all(0 < n <= 0xFFFFFFFF for n in record['workload_counts'])
         assert record['workload_code_sha256'] == ref['workload_code_sha256']
+        assert record['workload_shape_sha256'] == ref['workload_shape_sha256']
         assert record['adapter'] == adapter and record['runs_per_trial'] == R.RUNS
         assert record['canvas_height'] == (64 if adapter == 'cga' else 128)
         assert record['rotation_frames_per_row'] == 48

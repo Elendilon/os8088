@@ -14357,6 +14357,53 @@ leaves the tail back at `0x3C` with the head untouched, and twelve consecutive
 overrun interrupts ask for a beep on the first three and none after — the
 counter back to zero on the next keystroke that finds the buffer empty.
 
+#### 9.8.1 `KBDDIAG=1` — what the keyboard sent, and what the ROM made of it
+
+A knob, for docs/FIELD-NOTES.md 63: a Pentium 4 whose keyboard (USB, through
+a USB-to-PS/2 converter) types on the desktop and cannot PAUSE MIDIRack's
+speaker play. That play is an `FSXF_RATE` bracket (§34.11, §105.8.3) whose key
+path is `mrk_input` polling the ROM's own `int 16h` — the desktop's path — so
+what differs is IRQ0, running at the sample rate with every keystroke's
+`int 09h` among thousands of nested pulses a second. Three links can break and
+each leaves a different picture, so the instrument records all three rather
+than guessing one. `make kbddiag` builds the four system disks; the API is
+unchanged, so they pair with the ordinary apps disks.
+
+**What it records** (`kernel/kbddiag.inc`), into a 64-record ring:
+
+| row | written by | when |
+|---|---|---|
+| `I` | `kbm_isr` | every IRQ1. `st` is port 64h BEFORE the ROM's handler, `>st` and `60` are port 64h and port 60h AFTER it, `tl>tl` the BIOS buffer tail either side, `key` the word the ROM stored (0 if the tail did not move) |
+| `S` | `sch_isr` | inside a bracket, a tick whose keyboard state CHANGED - OBF and AUX from port 64h, and IRQ1's bit in the PIC's ISR, IRR and IMR |
+| `E` / `L` | `fsx_run` | a bracket entered (`x` = its flags) / leaving, BEFORE `.restore` drains the BIOS buffer |
+
+Every row carries `[ticks]`, `f` (bit 0 a bracket is armed, bit 1
+`[sch_fast]`), the head `hd`, and the PIC's `is ir im` at the moment it was
+written. Two header lines count IRQ1s and IRQ1s-after-which-the-tail-moved,
+each total and in-bracket, the brackets entered, and per bracket tick how many
+saw OBF set, IRQ1 requested, in service, and masked.
+
+**How it is read**: between an `E` and its `L`,
+
+- **no `I` rows** — IRQ1 never reached `kbm_isr`; the `S` rows and the second
+  header line say whether the byte sat in the 8042 (OBF) or the PIC (IRR,
+  ISR, IMR);
+- **`I` rows whose tail never moves** — the ROM took the byte and stored
+  nothing; `60` is the byte it took;
+- **the tail moves and `L`'s head is short of its tail** — the ROM stored the
+  key and `int 16h` never handed it to the app.
+
+**What it changes**: only that `kbm_isr` CALLS the ROM's `int 09h`
+(`pushf`/`call far`) instead of jumping to it, so the aftermath can be read.
+Port 64h is a status read with no side effect, and port 60h is read only after
+the ROM has taken the byte, when a re-read returns the same byte and consumes
+nothing — so the ROM sees the hardware a plain kernel shows it. Port 64h is
+not read on an 8088 tier (an XT's PPI aliases port A there), and the column
+reads `FF`. The panel is drawn with `font_run` every ~0.5 s by `ui_task`, so
+it is not live DURING a bracket (`ui_task` is the bracket's caller) and fills
+in the moment one ends. It cannot be built with `MOUDIAG=1`, which draws in
+the same place.
+
 ### 9.9 The PS/2 mouse — the other socket, probed after the serial one
 
 An XT has one place to put a mouse and it is a serial port. Every machine
@@ -39725,6 +39772,14 @@ before calling in.
 **Finding the record** is a walk of `OS88UI_BT_NEXT`, a list `btninit` pushes
 each record onto. A list rather than a fixed table because Sheet has five
 dialog windows and a table is a limit somebody eventually exceeds.
+
+**A record is linked ONCE.** `btninit` walks the list first and leaves a
+record that is already on it where it is, re-stamping only its window and
+click proc. Sheet re-inits a dialog's static record at every open and its
+dialogs are non-modal, so pushing again made the head point at itself and cut
+off every record behind it: open one dialog, open a second, close and reopen
+the second, and a click in the first walked the list for ever with the gfx
+lock held.
 
 ##### 20.5.1.3.4 `OS88UI_NOGEST` — the install side, opted out of
 
@@ -96510,6 +96565,14 @@ gets the store — `rd_load` calls `rd_store_get` before `rd_meta_apply` fills
 the rows. The image is **5,267 bytes, a 6KB claim** idle; a mounted 64KB disk
 is 6KB + a 3KB table claim where it was 8KB + 1KB, the same 9KB, and the
 largest store's table claim is 7KB (`RD_TABMAXKB`) where it was 4KB.
+
+**Mount frees a store that has no volume before it claims** (`rd_mount`'s
+`rd_store_free`). One exists only when a Load failed after claiming - a short
+arena read, no drive letter - and it holds that image's chain table and that
+image's geometry: reused, every extent the image used stayed marked taken
+under a cleared directory, and a Size changed in between left `[rd_kb]`
+disagreeing with the extents, so a Preserve walked `[rd_kb]` of arena past
+the end of the claim.
 
 Three things decided the shape:
 
@@ -157469,8 +157532,10 @@ frame (98.2.1.2.1): a whole 320 × 180 frame is 57,600 bytes.
 - every record's `len` against what is left of its super-packet and against
   6 + the audio bytes - and, in a flipped play (98.3.8), against the 31 KB
   copy `vp_flipdec` keeps of it, as the seam's already was: a longer record
-  would be copied past that claim. A RESIDENT block's records the same, at
-  its walk (98.1.7);
+  would be copied past that claim. In a BIGSP file (98.1.4.1) neither is
+  held to it - a longer record or seam is not kept but copied off the glass
+  (98.3.8.1), and the writer sets BIGSP for exactly that file. A RESIDENT
+  block's records the same, at its walk (98.1.7);
 - a keyframe's table entry (`vp_kent`) before anything trusts it: the entry
   is copied into `vp_ke` to be checked, so `[vp_kload]` is 0xFFFF from the
   copy until the checks pass, and an entry that fails leaves NO key in hand

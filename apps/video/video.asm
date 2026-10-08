@@ -1593,7 +1593,9 @@ vp_parse:
     jb .bad
     mov [vp_llen], ax
     cmp byte [vp_flip], 0           ; ...no longer than a flipped play's copy
-    je .lfl                         ; of the last record (98.3.8)...
+    je .lfl                         ; of the last record (98.3.8) - but a
+    cmp word [vp_msl], 1            ; BIGSP file's longer one is copied off
+    jne .lfl                        ; the glass instead (98.3.8.1)...
     cmp ax, VP_PREVKB * 1024
     ja .nolp
 .lfl:
@@ -6567,13 +6569,14 @@ vp_kres:
     ret
 
 ; vp_kwant - AX = the slots this play wants: the header's ring (98.1.1),
-; and 2 where it says nothing. Preserves all but AX
+; and never fewer than vp_sstart's .kfit takes - 2, or 3 for BIGSP (98.1.4.1),
+; whose header may well say 2. Preserves all but AX
 vp_kwant:
-    mov al, [vp_rneed]
-    xor ah, ah
-    cmp al, 2
+    mov ax, [vp_msl]
+    inc ax
+    cmp al, [vp_rneed]
     jae .r
-    mov al, 2
+    mov al, [vp_rneed]
 .r:
     ret
 
@@ -6959,7 +6962,8 @@ vp_spos:
     mov word [vp_lpar], 0           ; (a lead's paragraphs past the ring)
     mov word [vp_lsrc], 0xFFFF      ; no lead read (98.1.8), none staged,
     mov [vp_alst], ax               ; and the audio cursor before the ring
-    mov [va_pc], ax                 ; (vp_lfloor reads it from the first fill)
+    mov [va_pc], ax                 ; (vp_lfloor reads it from the first fill,
+    mov [vp_afr], ax                ; and its frame until vp_sopen sets it)
     mov ax, [vp_sp0]
     mov [vp_ssp], ax
     mov ax, [vp_sp0+2]
@@ -9641,13 +9645,25 @@ vp_upaus:
 ; vp_lfloor - BX = the lowest chunk a cursor still reads: the hook's, or with
 ; SOUND AHEAD the audio cursor's when that is lower - its record may sit up to
 ; A - 1 behind the picture's (98.1.8), where without it the picture never
-; overtakes the audio cursor (98.3.1) and the hook's chunk is the answer
+; overtakes the audio cursor (98.3.1) and the hook's chunk is the answer.
+; An audio cursor that has queued the LAST frame's sound reads nothing more
+; (vp_afill pads from there) and is parked A records short of the end, so
+; it no longer counts - or the picture's last A records, wider than the
+; ring on a small K or a heavy ending, would never be read
 vp_lfloor:
     mov bx, [vp_pc]
     cmp byte [vp_ahead], 0
     je .r
     cmp byte [vp_snd], 0
     je .r
+    cmp byte [vp_rep], 0            ; (repeating, it reads on: 98.3.9)
+    jne .lo
+    push ax
+    mov ax, [vp_afr]
+    cmp ax, [vp_frames]
+    pop ax
+    jae .r
+.lo:
     cmp bx, [va_pc]
     jbe .r
     mov bx, [va_pc]
@@ -11158,9 +11174,12 @@ vp_afill:
     sub si, [vp_abytes]
     jmp short .sput
 .sil:
-    xor dx, dx
+    xor dx, dx                      ; (a frame of the RING's: twice the
+    mov cx, [vp_rbytes]             ; file's when the player decodes, as
+    jmp short .sp2                  ; vp_aput's silence is not, 98.3.17.1)
 .sput:
     mov cx, [vp_abytes]
+.sp2:
     call vp_aput
     mov ax, [vp_wL]
     inc ax

@@ -262,7 +262,11 @@ rd_reloc:
     inc si
     inc si
     loop .next
-    pop si
+    cmp bx, [rd_wseg]           ; ...and the bounce's LOAN: rd_wbuf_get hands
+    jne .out                    ; [rd_bounce] out as [rd_wseg], and a file call
+    mov [rd_wseg], dx           ; inside Preserve or Load may compact. An owned
+.out:                           ; [rd_wseg] is a pinned claim, so only the loan
+    pop si                      ; can ever match a base that moved
     pop cx
     ret
 

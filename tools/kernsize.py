@@ -238,8 +238,11 @@ THEMES = (
     # shape rather than xmem.inc's: the whole file is inside %ifdef KERN_EMU,
     # so it weighs nothing on kern_big or kern_small and its bytes appear on
     # the emu variant's row alone.
+    # kbddiag.inc (SPEC.md 9.8.1) is moudiag.inc's shape for the keyboard:
+    # knob-only (`make KBDDIAG=1`), 0 in every shipped build, and what a byte
+    # it grows is is the input hardware's question.
     ("hardware: drivers, clock, mouse, sound, CPU, XMS",
-     ("mouse.inc", "mouproto.inc", "moudiag.inc", "vmmouse.inc", "clock.inc",
+     ("mouse.inc", "mouproto.inc", "moudiag.inc", "kbddiag.inc", "vmmouse.inc", "clock.inc",
       "driver.inc", "hiber.inc", "snd.inc", "cpudet.inc", "xmem.inc")),
     # mouproto.inc (SPEC.md 9.5) goes beside mouse.inc, and it always MEASURES
     # ZERO: it is the serial packet's arithmetic as a macro, so its bytes are

@@ -40,6 +40,7 @@ TWO THINGS IT DELIBERATELY DOES NOT DO.
     reported, not silently skipped.  A skip that nobody sees is how a gate
     stops being one.
 """
+import concurrent.futures
 import glob
 import os
 import re
@@ -214,8 +215,17 @@ def depth(asm, root):
     return int(m.group(1)), None
 
 
+# The row's registry entry declares this many (tests/suite.py, Row.cpus): the
+# budget charges a row its CPU divided by its declared width, so the two must
+# move together. Each walk is a whole nasm assembly of one package plus the
+# walker over its listing - ~0.9s apiece, twenty-four of them - and every one
+# is independent of the others.
+JOBS = 4
+
+
 def main():
     rows, unfound, unbuilt, cpkgs = [], [], [], []
+    todo = []
     for asm in sorted(glob.glob(os.path.join(ROOT, "apps", "*", "*.asm"))):
         app = os.path.basename(os.path.dirname(asm))
         root = worker_of(asm)
@@ -229,8 +239,10 @@ def main():
         if o88 is None:
             unbuilt.append(app)
             continue
-        cls = declared(o88)
-        got, why = depth(asm, root)
+        todo.append((app, asm, root, declared(o88)))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=JOBS) as ex:
+        walked = list(ex.map(lambda t: depth(t[1], t[2]), todo))
+    for (app, asm, root, cls), (got, why) in zip(todo, walked):
         if got is None:
             unfound.append("%s (%s): %s" % (app, root, why))
             continue

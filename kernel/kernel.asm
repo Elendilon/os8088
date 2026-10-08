@@ -6541,6 +6541,8 @@ EXT_YLOW    equ 11              ; ui_ylow's arm, behind its caller's gate
 %include "bootprof.inc"       ; the boot phase table (SPEC.md 15.5), BOOTPROF=1
 %include "stkdiag.inc"        ; what an interrupt costs a task stack
                               ; (docs/plans/completed/STACK-SLOTS-PLAN.md), STKDIAG=1
+%include "kbddiag.inc"        ; what the keyboard sent (SPEC.md 9.8.1),
+                              ; KBDDIAG=1
 %include "moudiag.inc"        ; ...and what the identify window saw (SPEC.md
                                 ; 9.4.6), MOUDIAG=1. Both are knob-only and
                                 ; both draw on the finished desktop, because
@@ -8106,6 +8108,17 @@ MODL_SIZE equ modl_end - $$
 
 %ifdef KERN_BIG
 section .modh
+%ifdef DOSR_MARK
+; DOSRMARK=1's trace (kernel/hbmark.inc, staged through hbstub.inc) is ~290
+; bytes of the IMAGE, and the bss below has to fit the KB rounding of the
+; claim the image sizes (MODULE-SELFCONTAIN-PLAN 3.2): the shipped image
+; leaves it 63 bytes of slack, so the knob overran it by 227 and the kernel
+; refused to assemble. The knob pads its own image to ONE byte past a KB
+; boundary instead, which leaves 1,023 bytes of rounding whatever either
+; side grows to - a disk-only cost, and only on a build that ships nowhere.
+    align 1024, db 0
+    db 0
+%endif
 modh_end:
 MODH_SIZE equ modh_end - $$
 section .modhb

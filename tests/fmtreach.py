@@ -54,7 +54,6 @@ mount, 80 x 2 x 9. The flushed file's SIZE is checked first, so a future
 mis-sized capture says so instead of looking like a missing marker.
 """
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -64,6 +63,7 @@ sys.path.insert(0, "tools")
 sys.path.insert(0, "tests/unit")
 import os88marty as M                                     # noqa: E402
 import os88flush                                          # noqa: E402
+import os88sym                                            # noqa: E402
 import os88ui                                             # noqa: E402
 from harness import check, done                           # noqa: E402
 
@@ -73,20 +73,18 @@ LAST = 1439                     # 720K: 2 x 80 x 9 sectors, the last LBA
 OK, BAD = "Formatted B:", "Made 360K, not 720K"
 
 
-def equ(path, name):
-    mm = re.search(r"^%s\s+equ\s+(\d+)" % name, open(path).read(), re.M)
-    if not mm:
-        sys.exit("%s: no `%s equ`" % (path, name))
-    return int(mm.group(1))
-
-
-FS_EDIT = equ("kernel/files.inc", "FS_EDIT")
-FS_SIZE = equ("kernel/files.inc", "FS_SIZE")
+# THE ASSEMBLER'S VALUES, not a regex over the source: FS_SIZE is
+# `FS_USEDH+2` (61) on kern_big and a literal 24 only in the kern_small arm,
+# so a first-digits match read the small build's stride and walked kern_big's
+# pool 24 bytes a slot - right for slot 0 alone, and the "every slot clear"
+# wait then read bytes out of slot 0's path and slot 1's head.
+EQ = os88sym.equates()
+FS_EDIT, FS_SIZE, FM_NSLOT = EQ["FS_EDIT"], EQ["FS_SIZE"], EQ["FM_NSLOT"]
 
 
 def edit(m):
     pool = m.sym("fm_pool")
-    for slot in range(4):
+    for slot in range(FM_NSLOT):
         b = m.read(pool + slot * FS_SIZE, FS_SIZE)
         if b[FS_EDIT]:
             return b[FS_EDIT]
