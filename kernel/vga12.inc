@@ -1249,14 +1249,20 @@ gfx_pt_resolve:
     mov ax, [vid_cwm1]          ; which spends it again. Each origin is read
     add ax, bx                  ; ONCE into BX and every store is AX's short
     mov [gfx_ls_d2], ax         ; form - size pass 10)
+    mov [gfx_ls_bx2], ax        ; ...and the UNARMED box is the display, so it
+    mov [gfx_ls_bx1], bx        ; is written here once a pass: gfx_ls_box's no-
+                                ; region arm used to copy all four at every
+                                ; call (size pass 10)
     sar bx, 1                   ; ...its BYTE column, which is exact: a
     sar bx, 1                   ; display origin is a multiple of 8 (39.19.3
     sar bx, 1                   ; puts it at the primary's own width)
     mov [gfx_pt_kx], bx
     mov bx, [vid_oy]
+    mov [gfx_ls_by1], bx
     mov ax, [vid_chm1]
     add ax, bx
     mov [gfx_ls_d4], ax
+    mov [gfx_ls_by2], ax
     mov ax, [vid_rowmax]
     add ax, bx
     mov [gfx_pt_rmax], ax
@@ -1528,10 +1534,21 @@ gfx_ls_box:
     push cx
     push di
     CLIPQ                   
-    jne .armed
     ; NO REGION: the box is the ACTIVE DISPLAY's own extent, in VIRTUAL space
     ; (SPEC.md 5.6.9.5) - which on display 0, and on every one-card machine,
     ; is the screen exactly as it always was.
+%ifdef KERN_BIG
+    je .oobck                   ; ...and on kern_big gfx_pt_resolve has ALREADY
+                                ; written it, at this pass's head (size pass
+                                ; 10: once a pass rather than at every call
+                                ; here). Nothing can have moved it since: a
+                                ; region's presence cannot change inside one
+                                ; gfx_points call - the hidden dock's hole is
+                                ; armed by the FIRST CLIPQ that sees it and
+                                ; stays armed - so an unarmed call follows only
+                                ; unarmed ones, none of which writes the box
+%else
+    jne .armed
     mov ax, [gfx_ls_d1]
     mov [gfx_ls_bx1], ax
     mov ax, [gfx_ls_d2]
@@ -1541,6 +1558,7 @@ gfx_ls_box:
     mov ax, [gfx_ls_d4]
     mov [gfx_ls_by2], ax
     jmp short .oobck
+%endif
 .armed:
     ; SPEC.md 5.6.9.5: THE POINT IS VIRTUAL AND SO IS wm_clip_tab, so the scan
     ; is a straight compare and the survivor needs no translating back. That

@@ -77,6 +77,18 @@ frame/clip-outline tail is kept but turned round, so gfx_frame falls through
 and the rare clipped XOR outline takes the jump. gfx_fill_pat keeps its
 +0.28%: the Task Manager's map and files.inc's one band, -26 bytes for it.
 
+### Batch 6 — kern_big .text -12 (running -205), kern_small +0 (running -63)
+
+| item | big | small | speed |
+|---|---:|---:|---|
+| gfx_ls_box's NO-REGION arm: the box is the display, and gfx_pt_resolve (once a pass) writes it; ls_box's unarmed arm is `je .oobck` (kern_small keeps the copy - it has no resolve) | -12 | 0 | faster unarmed (4 loads + 4 stores off every ls_box call, +4 stores a pass); +4 stores a pass armed |
+
+Why it is exact: a region's presence cannot change inside one gfx_points call
+(the hidden dock's hole is armed by the first CLIPQ that sees it and stays
+armed), so an unarmed ls_box call is preceded in its pass only by unarmed ones,
+none of which writes the box; and the second pass of a straddling array runs
+gfx_pt_resolve again for the other display. `gfxpoints` and `ptsext` green.
+
 ## REFUSED
 
 * `lea sp, [bp+18]` for `mov sp,bp / add sp,18` in gfx_blit1_x's `.noswap`
@@ -102,7 +114,7 @@ and the rare clipped XOR outline takes the jump. gfx_fill_pat keeps its
   call/ret on every glyph of every one-card machine (the macro's own banner).
 * gfx_ls_box's unarmed copy (24 bytes) as the armed clamp run against a
   constant whole-plane rect (-13 with the 8-byte constant): ~+128 clocks on
-  every gfx_points pass.
+  every gfx_points pass. (Batch 6 took the unarmed copy a better way.)
 * GFXCLIP_ARM's body pointer as an inline `dw` after a `call` (~-10): +40
   clocks on every clipped primitive.
 
