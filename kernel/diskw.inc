@@ -456,7 +456,8 @@ dskw_vstat_x:
     jc .bad                     ; it banks every other register itself
     mov bx, ax
     mov al, [dsk_spc]
-    xor ah, ah                  ; ...which also leaves CF=0 for the `ret`
+    cbw                         ; (<= 64, a zero extension; CF is 0 from the
+                                ; `jc` above and nothing below writes it)
     mov cx, 512                 ; mount rule 3
     mov dx, [dsk_maxclus]       ; CountOfClusters + 1 is what the mount stored
     dec dx                      ; (SPEC.md 19 rule 15), and the COUNT is what
@@ -1440,7 +1441,7 @@ dskw_wbody:
     jmp dskw_mkbody.dirfull
 .newslot:
     mov byte [dskw_new], 1      ; the slot dskw_find already spotted
-    mov word [dskw_oldclus], 0
+    and word [dskw_oldclus], 0
     jmp short .data
 .replace:
     mov byte [dskw_new], 0      ; dskw_find left the entry's 32 raw bytes in
@@ -1743,7 +1744,7 @@ dskw_take1:
     jc .out
     DSKW_CLBA_SET               ; ...all 32 bits of it (SPEC.md 18.7.5)
     mov al, [dsk_spc]           ; take = min(spc, sectors remaining)
-    xor ah, ah
+    cbw                         ; (<= 64: a zero extension, a byte shorter)
     cmp ax, [dskw_rem]
     jbe .take
     mov ax, [dskw_rem]
@@ -2052,7 +2053,7 @@ dskw_rbody:
 ; -----------------------------------------------------------------------------
 dskw_rdata:
     mov byte [dskw_fop], 0      ; the direction, set ONCE for the body
-    mov word [dskw_rlen], 0     ; no data run pending
+    and word [dskw_rlen], 0     ; no data run pending
     mov ax, [dskw_seg]
     mov [dskw_wseg], ax         ; the ADVANCING destination segment
     mov bp, .next               ; dskw_xclus's continuation (below)
@@ -2538,10 +2539,9 @@ dskw_stat_x:
 ; -----------------------------------------------------------------------------
 dskw_clbytes:
     push cx
-    mov al, [dsk_spc]
-    xor ah, ah
-    mov cl, 9
-    shl ax, cl
+    mov al, [dsk_spc]           ; AH is NOT cleared, and need not be: a shift
+    mov cl, 9                   ; by 9 takes all of it out the top, and its
+    shl ax, cl                  ; flags (CF is bit 7, in AL) are the same
     pop cx
     ret
 
@@ -3863,7 +3863,7 @@ dskw_find:
     push si
     push di
     push es
-    mov word [DSKW_FNONE], 0xFFFF   ; NONE, in the HIGH word: no directory
+    or word [DSKW_FNONE], -1        ; NONE, in the HIGH word: no directory
                                 ; sector's LBA reaches FFFFxxxxh, and a low
                                 ; word of FFFFh is an ordinary one past
                                 ; 32MB (SPEC.md 18.7.5)

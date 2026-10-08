@@ -49,6 +49,22 @@ falling into the body); a write pays +11 (`jmp bp` + `jmp dskw_xclus` against
 | the DMA bounce (HANDOFF-KERNEL-SIZE-P10 3.1, SPEC.md 18.91.4) | -11 | `dsk_bnc_bx`/`dsk_bnc_es` reordered offset-then-segment (asserted), so `.bcp` is one `lds` and `.unbounce` one `les`; `.fail` clears the flag with `xchg` (AX is the frame's). Behaviour identical; the bounce path only |
 | shared pop tails | -7 | `dsk_dirw_get_x` and `dskw_flush_x` end on `dsk_next_clus_x.out` (that routine, the per-cluster walk, keeps its own tail and pays nothing); `drv_find` ends on `dskw_isempty.out` |
 
+### Batch 4 - dead test, one name formatter loop, flag-dead word stores (kern_big .cold -61, kern_small .cold -60)
+
+| item | bytes | note |
+|---|---:|---|
+| `dsk_synth_name` one field routine | -35 | the KANJI test (05h -> E5h at byte 0) ran immediately before `dsk_sanit`, which folds BOTH to `_`: dead (-10). The stem and extension loops are one `.part`, BX = the field, CX = its width, a dot only before a non-blank extension |
+| `mov word [m], 0xFFFF / 0` -> `or [m], -1` / `and [m], 0` | -15 | fifteen sites where the next instruction writes the flags or nothing reads them; NOT taken where a comment or a caller relies on `mov` leaving CF alone (`dsk_lbahi`'s spend, `dskw_refat`/`dskw_fatclean`, `dsk_fatw_claim.none`, `ico_demote`, `dskw_sync_x`) |
+| `cbw` for `xor ah, ah` | -4 | after a load of `[dsk_spc]` (<= 64, validated) or `[dsk_nfats]` (1 or 2); `dskw_clbytes` drops it outright, a shift by 9 taking AH out the top (flags identical, CF being bit 7). `dskw_take1` and `dsk_read_chain_x`'s per-cluster step get a cycle faster |
+| `dsk_vol_add` | -5 | the no-label arm wrote its own terminator and jumped over the shared one |
+
+Verified on MartyPC by a scratch harness (tests/dskwstage.py's Caller):
+`dsk_synth_name` on twelve crafted raw entries and `dskw_name83` on
+seventeen strings, each against a Python model of the ORIGINAL routine - all
+equal. And the DMA bounce: WRITE_AT's inside arm and READ_AT (cache stood
+aside) through a buffer 0xF0 short of a 64KB page, `.bounce`/`.unbounce`
+each firing once, the bytes right in the guest and on the flushed floppy.
+
 ## REFUSED
 
 (appended as decided)

@@ -2705,7 +2705,7 @@ dsk_vol_add:
     lea di, [bx+DV_LBL]         ; the label is INLINE, so this is the copy
     mov cx, 7                   ; and there is nothing to point at
     or si, si
-    jz .noname
+    jz .named                   ; no label: desk_zone_label derives 'Disk X'
 .copy:
     mov ah, [es:si]
     mov [di], ah
@@ -2715,10 +2715,7 @@ dsk_vol_add:
     inc di
     loop .copy
 .named:
-    mov byte [di], 0
-    jmp short .live
-.noname:
-    mov byte [di], 0            ; no label: desk_zone_label derives 'Disk X'
+    mov byte [di], 0            ; (one terminator for all three ways here)
 .live:
     mov al, [dsk_vcls]          ; which CLASS serves this row - the fence
     mov [bx+DV_CLASS], al       ; matched the caller's segment against a
@@ -3118,7 +3115,7 @@ dsk_fat_window:
     jbe .have                   ; still has its second sector
     mov ax, bx
 .have:
-    mov word [dsk_fatw0], 0xFFFF
+    or word [dsk_fatw0], -1
     mov dx, ax                  ; DX = the window's start (the caller's DX is
     mov es, [dsk_fatseg]        ; banked, and the sector it asked for is
     mov cx, [dsk_fatwn]         ; spent): disk_read preserves EVERY register,
@@ -4054,7 +4051,7 @@ dsk_bpb_check:
     shr ax, cl                  ; RootDirSectors = RootEntCnt/16 (rule 7:
     mov [dsk_rootsecs], ax      ; an exact multiple), <= 32
     mov al, [dsk_nfats]
-    xor ah, ah
+    cbw                         ; (1 or 2: rule 4 above)
     mul word [dsk_fatsz]        ; AX = NumFATs*FATSz16: <= 18 on a floppy,
     jc .jfail2                  ; but a DRIVER volume's FATSz16 has no cap
                                 ; (rule 10), so a hostile one overflows the
@@ -4213,54 +4210,33 @@ dsk_ent_zero:
 ; carried its own 8.3 formatter once, and it was 69 bytes that could disagree.
 ; -----------------------------------------------------------------------------
 dsk_synth_name:
-    mov cx, 8                   ; stem length = last non-space index + 1
-.slen:
-    mov bx, si
-    add bx, cx
-    mov al, [es:bx-1]           ; raw name[cx-1]
-    cmp al, ' '
-    jne .sgot
-    loop .slen
-.sgot:                          ; CX = stem length (0 iff all spaces)
     mov di, dsk_ent
-    jcxz .stem_done
-    xor bx, bx
-.scopy:
+    xor bx, bx                  ; BX = the field's offset in the raw entry,
+    mov cx, 8                   ; CX = its width: the stem first...
+    call .part
+    mov bx, DSK_R_EXT           ; ...then the extension, whose `ret` is ours
+    mov cx, 3
+.part:                          ; one field, trimmed of trailing spaces
+    add bx, cx                  ; BX = one past the field's end, and BX - CX
+.trim:                          ; stays the field's start as both count down
+    cmp byte [es:bx+si-1], ' '
+    jne .live
+    dec bx
+    loop .trim
+    ret                         ; all spaces: nothing at all, not even a dot
+.live:
+    sub bx, cx                  ; BX = the field's start, CX = its length
+    or bx, bx
+    jz .copy                    ; the stem has no prefix...
+    mov byte [di], '.'          ; ...and a non-blank extension follows a dot
+    inc di
+.copy:
     mov al, [es:bx+si]
-    test bx, bx
-    jnz .nokanji
-    cmp al, 0x05                ; KANJI escape: first byte displays as 0xE5
-    jne .nokanji                ; (which the sanitizer then folds to '_')
-    mov al, 0xE5
-.nokanji:
-    call dsk_sanit
-    mov [di], al
-    inc di
-    inc bx
-    cmp bx, cx
-    jb .scopy
-.stem_done:
-    mov cx, 3                   ; ext length, same trailing-space trim
-.elen:
-    mov bx, si
-    add bx, cx
-    mov al, [es:bx+7]           ; raw ext[cx-1] = raw[8+cx-1]
-    cmp al, ' '
-    jne .egot
-    loop .elen
-    ret                         ; blank ext: the dot is omitted
-.egot:
-    mov byte [di], '.'
-    inc di
-    xor bx, bx
-.ecopy:
-    mov al, [es:bx+si+DSK_R_EXT]
-    call dsk_sanit
-    mov [di], al
-    inc di
-    inc bx
-    cmp bx, cx
-    jb .ecopy
+    call dsk_sanit              ; (a KANJI-escape 05h first byte, which this
+    mov [di], al                ; turned into E5h before the sanitizer until
+    inc di                      ; size pass 10, folds to '_' from either: the
+    inc bx                      ; test was dead, -10 of this routine's -25)
+    loop .copy
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4956,7 +4932,7 @@ dsk_fatw_want:
                                 ; flushes the outgoing volume at the top of
                                 ; every mount
     mov word [bx+DVOL_MAX*2], FAT_SEG
-    mov word [bx], 0xFFFF       ; nothing of OURS is in it yet, whatever the
+    or word [bx], -1            ; nothing of OURS is in it yet, whatever the
 .out:                           ; bytes hold
     jmp kretc_di
 
@@ -5006,8 +4982,8 @@ dsk_fatw_evict:
 .scan:
     cmp word [si], FAT_SEG
     jne .next
-    mov word [si], 0                    ; homeless: no claim, and...
-    mov word [si-DVOL_MAX*2], 0xFFFF    ; ...nothing of theirs resident
+    and word [si], 0                    ; homeless: no claim, and...
+    or word [si-DVOL_MAX*2], -1         ; ...nothing of theirs resident
 .next:
     inc si
     inc si
@@ -5053,7 +5029,7 @@ dsk_fatw_demote:
     jc .out
     xor ax, ax                  ; the claim that is going, read and zeroed
     xchg ax, [bx+DVOL_MAX*2]    ; in one - mem_pg_forget's own store, done here
-    mov word [bx], 0xFFFF       ; because it does not make the other two
+    or word [bx], -1            ; because it does not make the other two
     cmp ax, [dsk_fatseg]
     jne .out                    ; BANKED: no other word ever named it
     call dsk_fatw_evict         ; LIVE: take the pin off whoever holds it -
@@ -5108,7 +5084,7 @@ dsk_fatw_claim:
     mov bl, al
     call dsk_fatw_slot
     jc .out
-    mov word [bx], 0xFFFF       ; nothing resident in it yet
+    or word [bx], -1            ; nothing resident in it yet
     add bx, DVOL_MAX*2
     push bx
 %ifdef FATW_NONE
@@ -5169,7 +5145,7 @@ dsk_fatw_drop:
     mov bl, al
     call dsk_fatw_slot
     jc .out
-    mov word [bx], 0xFFFF
+    or word [bx], -1
     add bx, DVOL_MAX*2
     xor dx, dx                  ; the claim, read and zeroed in one `xchg`
     xchg dx, [bx]               ; (a 0 written over a 0 changes nothing)
@@ -5508,7 +5484,7 @@ DSK_DIRW_MAX equ 256             ; hostile-FAT guard: max sectors per walk
 
 dsk_dirw_start_x:
     mov [dsk_wclus], ax
-    mov word [dsk_wsec], 0
+    and word [dsk_wsec], 0
     mov word [dsk_wguard], DSK_DIRW_MAX
     ret
 
@@ -5539,7 +5515,7 @@ dsk_dirw_next_x:
     call dsk_next_clus_x          ; CF=1 only if the CURRENT link is invalid
     jc .end
     mov [dsk_wclus], ax         ; the new link is validated by clus2lba
-    mov word [dsk_wsec], 0
+    and word [dsk_wsec], 0
 .have:
     mov ax, [dsk_wclus]
     call dsk_clus2lba_x           ; CF=1 = outside [2, dsk_maxclus]: the end
@@ -5984,7 +5960,7 @@ dsk_rah_fill:
                                 ; == DSK_RAH_SECS making slot*512 it, with CL
                                 ; still the 9 the multiply was given
     pop dx                      ; DX = the chunk length again
-    mov word [si+RAH_N], 0      ; it holds nothing until the read works
+    and word [si+RAH_N], 0      ; it holds nothing until the read works
     mov [si+RAH_LBA], di
     mov cx, dx
     mov es, [dsk_rah_seg]
@@ -6025,7 +6001,7 @@ dsk_rah_flush:
     mov bx, dsk_rah_tab
     mov cx, DSK_RAH_RUNS
 .slot:
-    mov word [bx+RAH_N], 0
+    and word [bx+RAH_N], 0
     add bx, RAH_REC
     loop .slot
     pop cx
@@ -6077,7 +6053,7 @@ dsk_rah_wr:
     cmp di, cx
     jae .next                   ; ...or the chunk starts inside the write
 .drop:
-    mov word [bx+RAH_N], 0
+    and word [bx+RAH_N], 0
 .next:
     add bx, RAH_REC
     dec dl
@@ -7250,7 +7226,10 @@ dsk_read_chain_x:
     jc .fail2                   ; still wants of it: an out-of-range link is
     mov al, [dsk_spc]           ; corruption. The LBA is asked again at .flush.
                                 ; take = min(spc, sectors remaining) -
-    xor ah, ah                  ; the final cluster may be partial
+    cbw                         ; the final cluster may be partial (spc is a
+                                ; validated power of two <= 64, so the sign
+                                ; extension is a zero one: a byte and a
+                                ; cycle under `xor ah, ah`)
     cmp ax, dx
     jbe .take
     mov ax, dx
