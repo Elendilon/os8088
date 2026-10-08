@@ -4,6 +4,26 @@ Files: kernel/kernel.asm, memory.inc, sched.inc, instance.inc, apps.inc,
 loader.inc, cpudet.inc. Figures are `kernsize` section deltas against the
 blessed baseline at 833f13e4 (big / small).
 
+## AT THE TIP
+
+kern_big   text 44,196 -112  bss +0  cold 37,780 -141  lowbss +0  (sum -253)
+kern_small text 32,816 -88   bss +0  cold 23,880 -70   lowbss +0  (sum -158)
+kern_emu   text 44,461 -112  cold 37,904 -141  ovl 2,476 +0       (sum -253)
+
+Per file, kern_big code (.text + .cold): memory.inc -71 (it took
+sch_wk_restart's body in from sched.inc), sched.inc -65, kernel.asm -54,
+instance.inc -45, apps.inc -13, loader.inc -5, cpudet.inc 0. No .bss or
+.lowbss moved.
+
+Run: make + make small + fast tier (61/61) after every batch; make emu;
+KBDDIAG=1 and DOSRMARK=1 into private trees, both assemble; stkbalance over
+kernel/ + apps/ at base and tip: 64 -> 62 findings, the two gone being the
+mem_regrow / sch_wk_restart ladder tails, nothing new. Soak (one at a time):
+heapcheck ok, regwork ok, drvmove ok, regrowshed FAIL - identically at the
+base 833f13e4 (rebuilt and re-run: "the second document was FUNDED ...
+largest run 7168", leg nomem): the row's own staging no longer fills the
+128KB machine's 63.0KB heap; not this branch's.
+
 ## TAKEN
 
 ### batch 1 (big -99, small -59)
