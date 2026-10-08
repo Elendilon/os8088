@@ -523,43 +523,26 @@ fm_kinit_x:
                                 ; last tenant left (22.6.1). And the listing
                                 ; cache itself: VIEW_KB of the heap,
                                 ; owned by THIS instance so its teardown
-    push bx                     ; frees it (SPEC.md 50.2/50.4). ONE SIZE
-    push dx                     ; covers every volume, so this is the only
-%ifdef KERN_SMALL
-    call fmv_owner              ; MEM_P_VIEW + the slot, off DI (SPEC.md 50.6)
-%else
-    push di                     ; claim a window's cache ever needs (22.6).
-    mov di, si                  ; `(record - inst_tab) >> 5` is ld_slot, which
-    call ld_slot                ; is `.cold` like this and is where that
-    pop di                      ; arithmetic lives - it reads DI, and DI is the
-                                ; state block here and still owed below
-%endif
-    mov ax, VIEW_KB
-    call mem_claim_x
-    jc .nocache                 ; no room: the window still works, it just
-    mov [di+FS_VSEG], dx        ; re-reads the global snapshot to paint
-    mov byte [di+FS_VKB], VIEW_KB
-%ifndef KERN_SMALL
-    mov ax, fm_reloc            ; ...and it is MOVABLE (SPEC.md 66.5.6) - with
-    call mem_movable_x          ; the owner ALREADY IN BX, which is the whole
-                                ; fix (SPEC.md 66.5.6.2). fmv_movable derives
-                                ; it from [fm_vinst] instead, and fm_vp_set
-                                ; does not publish this window until 60-odd
-                                ; lines below - so the fence in mem_movable
-                                ; (`yours, or not at all') compared this
-                                ; claim's owner against the PREVIOUS acting
-                                ; window's slot, or 0 on the first one, and
-                                ; refused. fmv_movable throws its CF away in
-                                ; a popf, so every Disk window on a floppy
-                                ; volume has carried a PINNED 3KB cache in
-                                ; the arena's floor since 66.5.6 landed
-%endif                          ; ...and on kern_small it is PURGEABLE instead,
-                                ; so it is never moved and never declared:
-                                ; mem_can_move refuses a cache outright, and
-                                ; the shed is what gives this one back
-.nocache:
-    pop dx
-    pop bx
+                                ; frees it (SPEC.md 50.2/50.4). ONE SIZE
+                                ; covers every volume, so this is the only
+                                ; claim a window's cache ever needs (22.6)
+    call fm_vp_set              ; BX = the window: make it the acting one -
+    call fmv_fit                ; FIRST, so that fmv_fit's claim is owned by
+                                ; and declared for THIS record. fmv_owner
+                                ; reads [fm_vinst] on kern_big, which this
+                                ; publishes, and fm_settitle below finds the
+                                ; record the same way. No room: the window
+                                ; still works, it just re-reads the global
+                                ; snapshot to paint. On kern_big the claim is
+                                ; MOVABLE (SPEC.md 66.5.6), the owner off the
+                                ; record just published - which is 66.5.6.2's
+                                ; whole fix: the fence in mem_movable (`yours,
+                                ; or not at all') once compared the claim's
+                                ; owner against the PREVIOUS acting window's
+                                ; slot and refused. On kern_small it is
+                                ; PURGEABLE instead, so it is never moved and
+                                ; never declared: mem_can_move refuses a cache
+                                ; outright, and the shed gives it back
 
     mov ax, si
     add ax, I_NAME              ; the record's 16-byte name field, which
@@ -629,23 +612,14 @@ fm_kinit_x:
                                 ; app named 'Disk' - it just swaps Locator's
                                 ; desktop menus for its file-manager ones
 
-    call fm_vp_set              ; BX = the window: make it the acting one, so
-                                ; fm_settitle below finds its record
     mov al, [fm_seed_drv]
     mov dx, [fm_seed_cwd]
     call fmv_load               ; DI = block: mount, then fill its own cache
     mov si, [fm_seed_nam]       ; the folder's name when the caller knew it
 %ifdef KERN_BIG
-    lea bx, [di+FS_PATH]        ; a KD_POOL block is REUSED, so the path is
-                                ; cleared rather than assumed empty (.bss gets
-    call pth_clear              ; no image bytes and nothing zeroes it)
-    cmp word [di+FS_CWD], 0
-    je .noseed                  ; a root has no path, whatever it was asked for
-    or si, si
-    jz .noseed
-    call pth_push               ; a FRAGMENT: this window was PUT here rather
-.noseed:                        ; than walked here, so nothing above the seed
-%endif                          ; is recorded and going up reads 'Folder'
+    call fm_pthseed             ; a KD_POOL block is REUSED, so the path is
+%endif                          ; cleared rather than assumed empty (.bss gets
+                                ; no image bytes and nothing zeroes it)
     call fm_settitle
     mov word [fm_tdirty], 0     ; app_launch's wm_show draws this window whole
                                 ; a moment from now, caption included - do not
@@ -2497,18 +2471,10 @@ fm_choose:
     call fm_vp_set
     call fmv_load               ; AL = drive, DX = cwd, DI = block
 %ifdef KERN_BIG
-    push bx                     ; THE WINDOW, which `mov si, bx` below needs:
-    lea bx, [di+FS_PATH]        ; this window is being MOVED to a folder it
-                                ; did not walk to, so its path starts here -
-    call pth_clear              ; a fragment, exactly as fm_kinit's seed is
-    cmp word [di+FS_CWD], 0
-    je .nopath
-    or si, si
-    jz .nopath
-    call pth_push
-.nopath:
-    pop bx                      ; (the repaint was handed the PATH buffer as a
-%endif                          ; window from ea48c34 until this bank)
+    call fm_pthseed             ; this window is being MOVED to a folder it
+%endif                          ; did not walk to, so its path starts here -
+                                ; a fragment, exactly as fm_kinit's seed is.
+                                ; BX, the window `mov si, bx` wants, is kept
     call fm_settitle            ; SI = the name, still untouched
     mov si, bx
     call fm_repaint
@@ -4249,6 +4215,25 @@ fm_reload:
 ; in:  BX -> the path block
 ; out: nothing (all registers and flags preserved)
 ; -----------------------------------------------------------------------------
+; fm_pthseed - start block DI's path where it was PUT (SPEC.md 22): empty,
+; then SI's name when there is one and the folder is not a root - a FRAGMENT,
+; so nothing above the seed is recorded and going up reads 'Folder'. fm_kinit
+; and fm_choose's in-place move. BX is PRESERVED: the second caller's BX is
+; the window it repaints next, and an unbanked `lea` here handed that repaint
+; the path buffer instead. Flags clobbered.
+fm_pthseed:
+    push bx
+    lea bx, [di+FS_PATH]
+    call pth_clear
+    cmp word [di+FS_CWD], 0
+    je .out                     ; a root has no path, whatever it was asked for
+    or si, si
+    jz .out
+    call pth_push
+.out:
+    pop bx
+    ret
+
 %if PTH_LOST != 0 || PTH_BUF != 1
   %error "pth_clear empties PTH_LOST and the buffer's first byte with ONE word store"
 %endif
@@ -4259,7 +4244,9 @@ pth_clear:
 ; -----------------------------------------------------------------------------
 ; pth_lastsep - the last separator in the path (module-internal)
 ; in:  BX -> the path block
-; out: AX = its address, or 0 = the path has none (one component, or empty)
+; out: AX = its address, or BX = the path has none (one component, or empty):
+;      the byte BEFORE the buffer, so that AX+1 is where the last component
+;      starts either way (PTH_BUF is 1)
 ; clobbers: AX (the output), flags
 ;
 ; Bounded by PTH_MAX rather than by the NUL it is looking for. The buffer is
@@ -4267,10 +4254,13 @@ pth_clear:
 ; and a scan that trusts that would walk into the next window's block if it
 ; were ever untrue.
 ; -----------------------------------------------------------------------------
+%if PTH_BUF != 1
+  %error "pth_lastsep's no-separator answer is BX, one byte before the buffer"
+%endif
 pth_lastsep:
     push cx
     push di
-    xor ax, ax
+    mov ax, bx
     lea di, [bx+PTH_BUF]
     mov cx, PTH_MAX
 .s:
@@ -4288,6 +4278,39 @@ pth_lastsep:
     ret
 
 ; -----------------------------------------------------------------------------
+; pth_pop - the user has gone up one level
+; in:  BX -> the path block
+; out: SI -> the folder they arrive in, or 0 = it cannot be named
+; clobbers: SI (the output), flags
+;
+; Both arms END IN pth_leaf, which it falls into: a level the buffer never
+; held is one fewer, and if that was the LAST of them we are back AT the
+; buffer's own end, which IS named - pth_leaf answers 0 for every other
+; count, so the test is its and not this (answering 0 at zero would throw
+; away a name the buffer is holding, the one way this can be wrong in the
+; direction of saying LESS than it knows). A real level cuts the buffer at
+; its last separator - the parent is the prefix that is left - or, with
+; none, at its start: one component, so above it is the root, which names
+; itself out of FS_CWD and never out of this buffer (pth_leaf's empty arm;
+; docs/plans/completed/TITLE-PLAN.md 4.2).
+; -----------------------------------------------------------------------------
+pth_pop:
+    cmp byte [bx+PTH_LOST], 0
+    jne .lost
+    push ax
+    call pth_lastsep            ; AX = the cut, or BX with no separator...
+    mov si, ax
+    cmp ax, bx
+    jne .cut
+    inc si                      ; ...which cuts at the buffer's first byte
+.cut:
+    mov byte [si], 0
+    pop ax
+    jmp short pth_leaf
+.lost:
+    dec byte [bx+PTH_LOST]      ; one of the levels the buffer never held
+
+; -----------------------------------------------------------------------------
 ; pth_leaf - the name of the folder this path ends at
 ; in:  BX -> the path block
 ; out: SI -> a NUL-terminated name, or 0 = it cannot be named
@@ -4300,14 +4323,9 @@ pth_leaf:
     cmp byte [bx+PTH_BUF], 0
     je .none                    ; empty: a root, and a root names itself
     call pth_lastsep
-    or ax, ax
-    jz .whole
     mov si, ax
-    inc si                      ; the byte after the last separator
-    jmp short .out
-.whole:
-    lea si, [bx+PTH_BUF]        ; one component: the whole buffer is the name
-    jmp short .out
+    inc si                      ; the byte after the last separator - or,
+    jmp short .out              ; with none, the whole buffer is the name
 .none:
     xor si, si
 .out:
@@ -4319,11 +4337,18 @@ pth_leaf:
 ; in:  BX -> the path block, SI -> its NUL-terminated display name
 ; out: nothing (all registers preserved)
 ;
-; It MEASURES before it writes, and that is not tidiness: a push that ran out
-; of room half way would leave a partial component in the buffer, and every
-; later pop would then hand a window a name that is not any folder's. On a
-; refusal the buffer is left exactly as it was and PTH_LOST counts the level,
-; which is recoverable - the name comes back when the user climbs out again.
+; It writes TENTATIVELY and takes the write back, and that is not tidiness: a
+; push that ran out of room half way would leave a partial component in the
+; buffer, and every later pop would then hand a window a name that is not any
+; folder's. So every byte - the separator, the name, its NUL - is written only
+; while CX says there is room for it, and running out puts the NUL back where
+; the path ended: the PATH is left exactly as it was (what lies past its NUL
+; is nobody's) and PTH_LOST counts the level, which is recoverable - the name
+; comes back when the user climbs out again. It was a measuring pass and then
+; a copy, the same arithmetic twice (size pass 10): a push fits exactly when
+; separator + name + NUL <= CX, which is the copy's own bound. A 16-byte name
+; field is NUL-PADDED rather than terminated, and CX (<= PTH_MAX) is what
+; bounds the read, as the measuring pass's own PTH_MAX cap did.
 ; -----------------------------------------------------------------------------
 pth_push:
     call kentc_di
@@ -4336,78 +4361,32 @@ pth_push:
     cmp byte [di], 0
     je .atend
     inc di
-    dec cx
-    jnz .scan
+    loop .scan
     jmp short .lose             ; no terminator: cannot happen, and refusing
                                 ; beats writing past the block to prove it
 .atend:
-    xor dx, dx                  ; DX = what this push needs, in bytes
+    mov dx, di                  ; where the path ends, for the take-back
     cmp byte [bx+PTH_BUF], 0    ; DI is at the buffer's start exactly when
-    je .measure                 ; the path is EMPTY
-    inc dx                      ; ...a separator, unless the path is empty
-.measure:
-    push si
-.mlen:
-    lodsb                       ; DF=0 per SPEC.md 1
-    or al, al
-    jz .mdone
-    inc dx
-    cmp dx, PTH_MAX             ; bounded for pth_lastsep's reason: a 16-byte
-    jb .mlen                    ; name field is NUL-PADDED, not terminated
-    pop si
-    jmp short .lose
-.mdone:
-    pop si
-    inc dx                      ; ...and the NUL
-    cmp dx, cx
-    ja .lose                    ; it does not fit
-    cmp byte [bx+PTH_BUF], 0    ; ...the same question, the same way
-    je .copy
-    mov byte [di], '\'
-    inc di
+    mov al, '\'                 ; the path is EMPTY - and a separator goes
+    jne .put                    ; first unless it is (`mov` writes no flag)
 .copy:
-    lodsb
+    lodsb                       ; DF=0 per SPEC.md 1
+.put:
+    jcxz .undo                  ; no room for this byte: it does not fit
     mov [di], al
     inc di
+    dec cx
     or al, al
     jnz .copy
-    jmp short .out
+    jmp short .out              ; the NUL went in: it fitted
+.undo:
+    mov di, dx
+    mov byte [di], 0            ; the path as it was
 .lose:
     inc byte [bx+PTH_LOST]
 .out:
     jmp kretc_di
 
-; -----------------------------------------------------------------------------
-; pth_pop - the user has gone up one level
-; in:  BX -> the path block
-; out: SI -> the folder they arrive in, or 0 = it cannot be named
-; clobbers: SI (the output), flags
-; -----------------------------------------------------------------------------
-pth_pop:
-    cmp byte [bx+PTH_LOST], 0
-    je .real
-    dec byte [bx+PTH_LOST]      ; one of the levels the buffer never held...
-    jnz .stillost
-    jmp pth_leaf                ; ...and if that was the LAST of them we are
-.stillost:                      ; back AT the buffer's own end, which IS
-    xor si, si                  ; named. Answering 0 here would throw away a
-    ret                         ; name the buffer is holding, which is the one
-                                ; way this can be wrong in the direction of
-                                ; saying LESS than it knows
-.real:
-    push ax
-    call pth_lastsep
-    or ax, ax
-    jz .toroot
-    mov si, ax
-    mov byte [si], 0            ; the parent is the prefix that is left...
-    pop ax
-    jmp pth_leaf                ; ...and its name is that prefix's last part
-.toroot:
-    mov byte [bx+PTH_BUF], 0    ; one component, so above it is the root -
-    pop ax                      ; which names itself out of FS_CWD, and never
-    xor si, si                  ; out of this buffer (docs/plans/completed/TITLE-PLAN.md 4.2)
-    ret
 %endif                          ; KERN_BIG
 
 ; -----------------------------------------------------------------------------
@@ -6399,72 +6378,11 @@ fm_drag:
     mov [fm_dgidx], ax
     mov [fm_dgwin], si
     mov byte [fm_dgon], 0
-%ifdef OS88_SHORTCUTS
-    call fm_dgwait              ; the WAIT is a routine on this build, press,
-    jnc .begin                  ; mouse test and all: the desktop's items
-    jmp .click                  ; move by the same four pixels (SPEC.md 26.9)
-%else
-    mov [fm_startx], cx
-    mov [fm_starty], dx
-    cmp byte [mou_ptr], 0       ; ...but there is nothing to disambiguate with
-    je .wclick                  ; no mouse on the machine (SPEC.md 9.6.1). The
-                                ; keyboard's button is latched for the whole
-                                ; W_ONCLICK dispatch and the pointer cannot
-                                ; move until that returns, so this loop could
-                                ; only ever end on a SECOND press: an ordinary
-                                ; row click would cost two and a double-click
-                                ; four. Drag and drop wants a mouse, exactly
-                                ; as it did before the keyboard mouse existed
-
-.wait:                          ; not a drag until the pointer leaves the row
-    mov di, ui_ev
-    call KERNEL_SEG:cw_evq_mup  ; anything else is DISCARDED inside it, and a
-    jc .noev                    ; discard owes the wake bookkeeping (74.1.1).
-                                ; This drain and .track's were the two 1f1bd7e
-                                ; missed - far calls the wakedrain lint could
-                                ; not see - and a drag here during an FTP
-                                ; transfer deafened the server's window for
-                                ; the session. The MUP answer FALLS THROUGH
-                                ; into the trampoline below, so the branch
-                                ; that used to select it costs nothing
-.wclick:                        ; ...and the trampoline two other arms take
-    jmp .click                  ; rather than NASM's five-byte inverted pair
-.noev:
-    test byte [mouse_btn], 1
-    jz .wclick                  ; released without moving: an ordinary click
-    mov ax, [mouse_x]
-    sub ax, [fm_startx]
-    call fm_dgabs
-    cmp ax, FM_DRAGMIN
-    jae .begin
-    mov ax, [mouse_y]
-    sub ax, [fm_starty]
-    call fm_dgabs
-    cmp ax, FM_DRAGMIN
-    jae .begin
-    ; ...and wait out the tick with the lock FREE (SPEC.md 7.1.3). This pass
-    ; drew nothing, so every gfx_unlock/gfx_lock round trip it makes is a
-    ; cursor erase and redraw for no reason - ~1.9 ms of the field machine
-    ; each, and unpaced this loop turns over as fast as the CPU allows. Every
-    ; other loop of this shape already lingers (.track below, ui_drag,
-    ; ui_grow) and ui_drag's comment says why in as many words: without it
-    ; "the cursor blits inside gfx_unlock/gfx_lock dominate the loop". This
-    ; one was the exception, and the exception is what a held button costs.
-    ;
-    ; The linger sits BETWEEN the unlock and the lock rather than after both,
-    ; unlike .track's - .track holds the lock through its wait because its
-    ; outline is drawn and must stay lit. Nothing is drawn here, so the free
-    ; lock lets the mouse ISR move the cursor and background tasks paint.
-    call ct_cw_gfx_unlock         ; the lock may only drop with nothing drawn
-    mov ax, [ticks]
-.wlinger:
-    call ct_cw_task_yield
-    cmp ax, [ticks]
-    je .wlinger
-    call ct_cw_gfx_lock
-    jmp short .wait
-
-%endif
+    call fm_dgwait              ; the WAIT is a routine, press, mouse test and
+    jc .click                   ; all - on kern_big the desktop's items move
+                                ; by the same four pixels (SPEC.md 26.9), and
+                                ; kern_small's copy of it inline was the same
+                                ; loop over two words of .bss (size pass 10)
 .begin:
     mov bx, [fm_dgidx]          ; the drag IS a Cut, armed here rather than
     mov al, FCP_CUT             ; at the press, so an ordinary click never
@@ -6476,7 +6394,7 @@ fm_drag:
 .track:
     mov di, ui_ev
     call KERNEL_SEG:cw_evq_mup  ; the discard owes the wake bookkeeping
-    jnc .drop                   ; (74.1.1), exactly as .wait's above
+    jnc .drop                   ; (74.1.1), exactly as fm_dgwait's
 .nomup:
     test byte [mouse_btn], 1    ; the fallback ui_drag documents: a dropped
     jz .drop                    ; EVT_MUP still ends the drag by level
@@ -6486,11 +6404,7 @@ fm_drag:
     call ct_cw_gfx_lock
     call fm_dgmove              ; ...take the new one...
     call fm_dgxor               ; ...and draw there
-    mov ax, [ticks]
-.linger:
-    call ct_cw_task_yield
-    cmp ax, [ticks]
-    je .linger
+    call fm_linger
     jmp short .track
 
 .drop:
@@ -6503,7 +6417,6 @@ fm_drag:
     stc
     jmp short .out
 
-%ifdef OS88_SHORTCUTS
 ; -----------------------------------------------------------------------------
 ; fm_dgwait - fm_drag's wait, shared with the desktop's items (SPEC.md
 ;             26.9): has the pointer left the press point by FM_DRAGMIN?
@@ -6533,37 +6446,45 @@ fm_dgwait:
     mov ax, [mouse_x]
     sub ax, cx
     call fm_dgabs
-    cmp ax, FM_DRAGMIN
     jae .drag
     mov ax, [mouse_y]
     sub ax, dx
     call fm_dgabs
-    cmp ax, FM_DRAGMIN
     jae .drag
-    call ct_cw_gfx_unlock       ; the tick waited out with the lock FREE
-    mov ax, [ticks]             ; (fm_drag's .wait note: nothing is drawn,
-.wl:                            ; so the cursor may move)
-    call ct_cw_task_yield
-    cmp ax, [ticks]
-    je .wl
-    call ct_cw_gfx_lock
-    jmp short .wait
+    call ct_cw_gfx_unlock       ; the tick waited out with the lock FREE:
+    call fm_linger              ; nothing is drawn, so the cursor may move
+    call ct_cw_gfx_lock         ; (SPEC.md 7.1.3) - which every gfx_unlock/
+    jmp short .wait             ; gfx_lock round trip in an UNPACED loop
+                                ; would spend as a cursor erase and redraw,
+                                ; ~1.9 ms of the field machine each
 .click:
     stc
     ret
 .drag:
     clc
     ret
-%endif
+
+; fm_linger - yield until the tick turns over (fm_dgwait's wait, and the
+; drag outline's between two moves). Clobbers AX.
+fm_linger:
+    mov ax, [ticks]
+.l:
+    call ct_cw_task_yield
+    cmp ax, [ticks]
+    je .l
+    ret
 
 ; -----------------------------------------------------------------------------
-; fm_dgabs - |AX| (module-internal); out AX, clobbers flags
+; fm_dgabs - |AX| against FM_DRAGMIN (module-internal): out AX = |AX| and CF
+; = 0 when it is that far - the flags of `cmp ax, FM_DRAGMIN`, which both of
+; fm_dgwait's axes asked next
 ; -----------------------------------------------------------------------------
 fm_dgabs:
     or ax, ax
     jns .out
     neg ax
 .out:
+    cmp ax, FM_DRAGMIN
     ret
 
 ; -----------------------------------------------------------------------------
@@ -6861,25 +6782,25 @@ fmv_reload_all:
 .owed:
     push si
     mov si, [si+I_WIN]          ; a HIDDEN window has no pixels to correct -
-    mov bx, si                  ; fm_focus rebuilds those when it is shown
-    test byte [bx+W_FLAGS], 2
+    test byte [si+W_FLAGS], 2   ; fm_focus rebuilds those when it is shown
     jz .nopix
     call KERNEL_SEG:cw_wm_win_rect ; AX/BX/CX/DX = its frame, inclusive
-    cmp ax, [fmv_ux1]           ; ...grown into the pending union: screen
+    mov si, fmv_ux1             ; (the window is spent: SI is popped below)
+    cmp ax, [si]                ; ...grown into the pending union: screen
     jae .g1                     ; coordinates, so unsigned throughout
-    mov [fmv_ux1], ax
+    mov [si], ax
 .g1:
-    cmp bx, [fmv_uy1]
+    cmp bx, [si+2]
     jae .g2
-    mov [fmv_uy1], bx
+    mov [si+2], bx
 .g2:
-    cmp cx, [fmv_ux2]
+    cmp cx, [si+4]
     jbe .g3
-    mov [fmv_ux2], cx
+    mov [si+4], cx
 .g3:
-    cmp dx, [fmv_uy2]
+    cmp dx, [si+6]
     jbe .nopix
-    mov [fmv_uy2], dx
+    mov [si+6], dx
 .nopix:
     pop si
     call fmv_hload              ; resets FS_SEL/FS_SCRL, which is honest:
@@ -7316,30 +7237,32 @@ fm_draw_core:
     call fm_layout
 
     ; --- header line ---
+%if FS_MOK != FS_DRV + 1
+  %error "fm_draw_core reads the drive and its mount verdict as ONE word"
+%endif
     mov di, fm_hdrbuf
-    cmp byte [fm_lmok], 0
-    je .badhdr
-    mov si, fm_s_drive          ; "Drive X:  N files"
+    mov bx, [fm_ldrv]           ; BL = the drive, BH = [fm_lmok]
+    mov si, fm_s_nodisk         ; "No os8088 disk (X:)"...
+    or bh, bh
+    je .hdrlead
+    mov si, fm_s_drive          ; ...or "Drive X:  N files": ONE letter
+.hdrlead:                       ; between two leads and two tails
     call fm_scat
-    mov al, [fm_ldrv]
-    add al, 'A'
+    lea ax, [bx+'A']
     mov [di], al
     inc di
+    or bh, bh
+    je .badhdr
     mov si, fm_s_colsp
     call fm_scat
     call fm_nfiles              ; the listing MINUS its parent link (19.5):
     call fm_utoa                ; '..' is a way out, not a file
     mov si, fm_s_files
     call fm_scat
-    jmp .hdrtrunc
+    jmp short .hdrtrunc
 .badhdr:
-    mov si, fm_s_nodisk         ; "No os8088 disk (X:)"
-    call fm_scat
-    mov al, [fm_ldrv]
-    add al, 'A'
-    mov [di], al
-    mov word [di+1], ':' | (')' << 8)
-    mov byte [di+3], 0
+    mov word [di], ':' | (')' << 8)
+    mov byte [di+2], 0
 .hdrtrunc:
     ; truncate to (leftmost drawn button - 8)/8 chars (SPEC.md 22)
     mov ax, [fm_cw]
@@ -7861,13 +7784,16 @@ fm_sel_bar:                     ; comes back holding it)
     call kentc_di
     cmp ax, [fm_lnf]            ; 0xFFFF (none) also fails this
     jae .out
-    call fm_isicon
-    jne .icon
-
-    sub ax, [fm_lscr]           ; list: the whole row band, x 0 .. cw-16
+    xor dx, dx                  ; AX = grid row, DX = column - in BOTH views:
+    div word [fm_cols]          ; the list's cols is 1, so its row is the
+    mov cx, dx                  ; index and its column 0 (cols >= 1 per
+    sub ax, [fm_lscr]           ; fm_layout, so this cannot divide by zero)
     js .out
     cmp ax, [fm_fit]            ; fit = 0 (no row area) lands here too, and
     jae .out                    ; fit bounds shown, so it is the same test
+    call fm_isicon
+    jne .icon
+                                ; list: the whole row band, x 0 .. cw-16
     mov cx, FM_ROW_H
     mul cx
     call fm_rowy
@@ -7880,13 +7806,6 @@ fm_sel_bar:                     ; comes back holding it)
     jmp short .out
 
 .icon:
-    xor dx, dx
-    div word [fm_cols]          ; AX = grid row, DX = column (cols >= 1 per
-    mov cx, dx                  ; fm_layout, so this cannot divide by zero)
-    sub ax, [fm_lscr]
-    js .out
-    cmp ax, [fm_fit]
-    jae .out
     call fm_cellxy              ; the painter's own cell arithmetic
     mov bx, ax                  ; y1 = cell top
     mov dx, ax
@@ -8996,10 +8915,6 @@ fm_dvp:     resw 1              ; ...and whose. There can be FOUR Disk windows
 %endif
 fm_dgidx:   resw 1              ; fm_drag: the row it began on...
 fm_dgwin:   resw 1              ; ...the window it began in...
-%ifndef OS88_SHORTCUTS          ; (kern_big's wait holds the press in CX/DX)
-fm_startx:  resw 1              ; ...and where the button went down
-fm_starty:  resw 1
-%endif
 fm_dgx:     resw 1              ; where the outline is DRAWN (fm_dgxor)
 fm_dgy:     resw 1
 fm_dgon:    resb 1              ; 1 = the outline is on screen

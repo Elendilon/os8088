@@ -39,6 +39,53 @@ blessed base `833f13e4`; "big"/"small" are kern_big/kern_small resident.
 
 Batch 1 total: **big -116, small -98**.
 
+### BUG FIXED (own commit eb9407ac)
+
+* kern_big: `fm_choose .inplace` (four Disk windows up, a desktop drive icon
+  or ui.inc's fmf_files_open asks for a fifth folder) loaded BX with the
+  window's FS_PATH for the path seed and then did `mov si, bx / call
+  fm_repaint`: the repaint was handed the PATH BUFFER as a window (W_FLAGS
+  0 = PTH_LOST/buf[0] had a bit cleared, fm_cfill white-filled a rect read
+  out of the path bytes, the listing drew there). Since ea48c34. The seed
+  banks BX. +2 big.
+
+### Batch 2
+
+* `fm_pthseed`: fm_kinit's and fm_choose's identical path seeds, one proc
+  that preserves BX (the bug above). -12 big.
+* fm_drag on kern_small: its inline press-wait was fm_dgwait over two words
+  of .bss; fm_dgwait is unconditional now and `jc .click` reaches. -10
+  small code, -4 small bss, -2 big.
+* `fm_kinit_x` claims its cache through `fmv_fit` after `fm_vp_set` (moved
+  up from below the WM setup): fmv_fit is the claim, the movable declaration
+  and the fm_vseg mirror already, and with the record published first
+  fmv_owner's [fm_vinst] names THIS window - which is SPEC.md 66.5.6.2's
+  owner, exactly what the hand-rolled `ld_slot` off SI computed. -29 big,
+  -19 small.
+* fmv_reload_all's rect union through SI = fmv_ux1 (`[si+n]` forms are a
+  byte shorter each), and the `mov bx, si` before a test that can read SI.
+  -8 both.
+* fm_draw_core's header: one lead (nodisk/drive), the letter, one tail;
+  drive and mount verdict read as ONE word (`%error` pins FS_MOK =
+  FS_DRV+1). -8 both.
+* `fm_linger` (the tick wait) for fm_dgwait and the drag's .track; fm_dgabs
+  ends in `cmp ax, FM_DRAGMIN` for both its callers. -8 both.
+* pth_push writes tentatively and takes the write back on a miss instead of
+  measuring and then copying (same fit condition: sep + name + NUL <= CX;
+  CX <= PTH_MAX bounds the read as the old cap did). -24 big.
+* pth_lastsep answers BX (the byte before the buffer) for "no separator", so
+  pth_leaf's two arms are `mov si,ax / inc si`; pth_pop falls into pth_leaf
+  on both arms (pth_leaf already answers 0 for a LOST count and for an empty
+  buffer, which were pth_pop's own two `xor si,si` exits). -23 big.
+* fm_sel_bar divides by [fm_cols] in both views (the list's is 1) so the
+  visible-row test is written once. -12 both.
+
+Batch 2: big -124, small -65. Running: **big -240, small -163**.
+
+Checked on MartyPC (scratch script, not a row): B:/SYSTEM/APPDATA titles
+SYSTEM then APPDATA, Backspace -> SYSTEM, Backspace -> Disk; V toggles
+FS_VIEW, A/B mount 0/1, N arms mode 1 and Esc ends it, R re-lists.
+
 ## REFUSED
 
 * `fm_btn1`'s `[fdlg_gdis]` store (unpassed hunk): `test di,OS88UI_DEF` is
