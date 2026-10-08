@@ -10556,6 +10556,7 @@ vp_flipdec:
     jae .redec
 .copy:
     call vp_lcopy
+    call vo_lfix                    ; (the glass's text is not the picture)
     jmp short .cur
 .redec:
     mov dx, [vp_prevseg]

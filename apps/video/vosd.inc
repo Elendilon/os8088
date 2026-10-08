@@ -490,6 +490,39 @@ vo_flipon:
 .ret:
     ret
 
+; vo_lfix - FLIPPING, after vp_lcopy (98.3.8.1): the rows it copied off
+; the glass carry the box when the page on the glass has it, and the page
+; drawn next must hold PICTURE there, or vo_flipon saves the text as picture
+; and vo_unall bakes it into the frame when the toast ends. The glass page's
+; own save is that picture, as of the frame on the glass - which is the frame
+; the copy brings the other page to - so it goes onto the other page's box.
+; Nothing when the box is not on the glass or the copied rows miss it.
+; Clobbers all
+vo_lfix:
+    cmp byte [vo_mode], 0
+    je .ret
+    mov bl, 1                       ; the page on the glass
+    cmp word [vp_foff], 0
+    je .g
+    inc bl
+.g:
+    test [vo_drawn], bl
+    jz .ret
+    mov ax, [vo_yoff]               ; the box's rows against the copy's,
+    cmp ax, [vp_pry1]               ; both of the canvas
+    jae .ret
+    add ax, [vo_rows]
+    cmp ax, [vp_pry0]
+    jbe .ret
+    mov bh, bl                      ; BH = the glass page's save...
+    shr bh, 1                       ; (bit -> page index)
+    mov bl, bh                      ; ...BL = the page drawn next
+    xor bl, 1
+    mov al, 1
+    jmp vo_iox
+.ret:
+    ret
+
 ; vo_bparts - THROUGH THE SHADOW, vp_blit's row CX in three parts: [vb_n1]
 ; units copied, [vb_n2] skipped - the text's, while it is on the glass, so
 ; a copy never goes over it (98.3.13.1) - and [vb_n3] copied. Units are the
@@ -558,11 +591,15 @@ vo_addr:
 
 ; vo_io - AL = 0 keep what the box covers on page BL, 1 put it back: every
 ; plane, [vo_dn] characters wide. Clobbers all
+; vo_iox - the same, with BH naming the page whose SAVE is used and BL the
+; page written or read (vo_lfix's: one page's save onto the other)
 vo_io:
+    mov bh, bl
+vo_iox:
     mov [vo_dir], al
     call vo_page
     mov bp, vo_sav
-    or bl, bl
+    or bh, bh
     jz .b
     add bp, VO_SAV
 .b:

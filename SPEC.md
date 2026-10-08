@@ -160911,6 +160911,17 @@ byte's decode - ESTIMATED: the model prices a run of bytes into the VGA at
 choice. It is the field's number to settle, and `[vp_flcw]` (80 x VP_LCW)
 is a word a test may set 0 to take the copy on every frame.
 
+**The copy carries the TEXT BOX too** when the page on the glass has it up
+(98.3.13.1's toast, Pause): `vo_pre` has taken the box off the back page
+before the copy, and the copy puts the glass page's box back on, so
+`vo_flipon` would then keep the TEXT as what the box covers and `vo_unall`
+would bake it into the frame when the toast ends. `vo_lfix` runs after
+every `vp_lcopy`: when the glass page's box is drawn and the copied rows
+cross it, the glass page's own save - the picture under its box, as of the
+frame on the glass, which is the frame the copy brings the back page to -
+is written onto the back page's box (`vo_iox`, one page's save onto the
+other). Re-decoding never needed it: a record writes picture bytes only.
+
 **What it also buys: flipping with big records.** A record too long for
 `vp_prevseg`'s 31 KB is not kept at all (`[vp_prevn]` = FFFFh) and is always
 copied, so `--flip` now combines with `--frame-cap 48|63.5` (98.1.4.1); a
