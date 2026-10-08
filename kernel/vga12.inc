@@ -872,18 +872,16 @@ gfx_rect_isect:
 ; -----------------------------------------------------------------------------
 gfx_rect_hit:
     cmp ax, [si+4]
-    jg .no
+    jg gfx_rect_clc
     cmp cx, [si]
-    jl .no
+    jl gfx_rect_clc
     cmp bx, [si+6]
-    jg .no
+    jg gfx_rect_clc
     cmp dx, [si+2]
-    jl .no
-    stc
-    ret
-.no:
-    clc
-    ret
+    jl gfx_rect_clc
+gfx_rect_stc:                   ; (size pass 10: the two routines' answers are
+    stc                         ; one `stc`/`ret` and one `clc`/`ret` between
+    ret                         ; them, each reached by the other's branches)
 
 ; -----------------------------------------------------------------------------
 ; gfx_rect_isectcf - gfx_rect_isect, and CF = 1 if the answer is EMPTY
@@ -893,13 +891,11 @@ gfx_rect_hit:
 gfx_rect_isectcf:
     call gfx_rect_isect
     cmp ax, cx
-    jg .no
+    jg gfx_rect_stc
     cmp bx, dx
-    jg .no
+    jg gfx_rect_stc
+gfx_rect_clc:
     clc
-    ret
-.no:
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1270,29 +1266,30 @@ gfx_pt_miss:
 
 ; -----------------------------------------------------------------------------
 ; gfx_pt_resolve - SPEC.md 5.6.9.5: the ACTIVE display, in the space the loop
-; asks its questions in. Once a PASS, never per point. Preserves everything.
+; asks its questions in. Once a PASS, never per point. Preserves everything
+; but BX, which it spends - and always did, the header said otherwise.
 ; -----------------------------------------------------------------------------
 gfx_pt_resolve:
-    push ax
-    mov ax, [vid_ox]
-    sar ax, 1                   ; ...its BYTE column, which is exact: a
-    sar ax, 1                   ; display origin is a multiple of 8 (39.19.3
-    sar ax, 1                   ; puts it at the primary's own width)
-    mov [gfx_pt_kx], ax
-    mov ax, [vid_ox]
-    add ax, [vid_cwm1]
-    mov [gfx_ls_d2], ax
-    mov ax, [vid_oy]
-    add ax, [vid_chm1]
+    push ax                     ; (BX is SPENT, as it always was: the one
+    mov bx, [vid_ox]            ; caller's next use of it is gfx_ls_box's,
+    mov ax, [vid_cwm1]          ; which spends it again. Each origin is read
+    add ax, bx                  ; ONCE into BX and every store is AX's short
+    mov [gfx_ls_d2], ax         ; form - size pass 10)
+    sar bx, 1                   ; ...its BYTE column, which is exact: a
+    sar bx, 1                   ; display origin is a multiple of 8 (39.19.3
+    sar bx, 1                   ; puts it at the primary's own width)
+    mov [gfx_pt_kx], bx
+    mov bx, [vid_oy]
+    mov ax, [vid_chm1]
+    add ax, bx
     mov [gfx_ls_d4], ax
-    mov ax, [vid_oy]
-    add ax, [vid_rowmax]
+    mov ax, [vid_rowmax]
+    add ax, bx
     mov [gfx_pt_rmax], ax
-    mov ax, [vid_oy]
-    add ax, ax
-    mov bx, vid_rowtab
-    sub bx, ax
-    mov [gfx_pt_rtab], bx
+    mov ax, vid_rowtab
+    sub ax, bx
+    sub ax, bx
+    mov [gfx_pt_rtab], ax
     pop ax
     ret
 %endif
@@ -1488,17 +1485,11 @@ gfx_points:
 .out:
     mov ax, cs                  ; DS back, by reload rather than by pop: kernel
     mov ds, ax                  ; code always runs DS = CS = KERNEL_SEG, so
-    pop es                      ; there is nothing to remember. THE LEAVE IS
+    jmp kret_es                 ; there is nothing to remember. THE LEAVE IS
                                 ; NOT HERE - `.done` owns it, because only a
-                                ; pass can know whether another one follows
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+                                ; pass can know whether another one follows.
+                                ; The shared ladder (size pass 10): eight pops
+                                ; and the ret, once a CALL and not a point
 
 ; --- the two wrappers the cold paths go through -----------------------------
 ; Both exist because the loop has given DS away. gfx_ls_box reaches the clip
@@ -1933,9 +1924,14 @@ gfx_blit4:
     jmp short .slow             ; next instruction and the jump is not
 .vga:                           ; assembled)
     mov byte [gfx_blit_fst], 2  ; 2 = the planar SPAN writer, whose Enable
-    call vga_sr_on              ; Set/Reset is armed ONCE here and cleared at
-                                ; .out: only the colour and the bit mask
-                                ; change per run
+    push ax                     ; Set/Reset is armed ONCE here and cleared at
+    mov dx, VGA_GC              ; .out: only the colour and the bit mask
+    mov ax, 0x0F01              ; change per run. GC1 = enable Set/Reset on
+    out dx, ax                  ; all four planes, INLINE (size pass 10: it
+    pop ax                      ; was vga_sr_on, a routine for this `out`
+                                ; and one more). DX is dead here: the height
+                                ; is banked in [gfx_blit_h], and both paths
+                                ; below write DX before they read it
 %ifdef GFX_PLANE
     ; --- ...and MAY A ROW GO PLANAR INSTEAD? (SPEC.md 5.4.1.3) -------------
     ; The run writer is priced per RUN and the row decoder per PIXEL, so the
@@ -2275,28 +2271,10 @@ gfx_blit4:
 %ifdef GFX_VGA
 
 ; -----------------------------------------------------------------------------
-; vga_sr_on - internal: Enable Set/Reset on all four planes, and nothing else
-;
-; gfx_blit4's planar fast path arms this ONCE for the whole call and clears it
-; with vga_gc_reset at the end (SPEC.md 5.4.1). The fill's GC arm writes GC0
-; and GC1 together, which is right for a primitive that arrives once and is a
-; wasted `out` per RUN here - the colour is the only half that changes.
-; -----------------------------------------------------------------------------
-vga_sr_on:
-    push ax
-    push dx
-    mov dx, VGA_GC
-    mov ax, 0x0F01              ; GC1: enable Set/Reset on all planes
-    out dx, ax
-    pop dx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; vga_blit_span - gfx_blit_run's direct twin on VGA (SPEC.md 5.4.1)
 ; in:  DI = the run's first x, DX = one past its last pixel (row-relative),
 ;      AH = its colour, [gfx_blit_x] = the block's left edge, [gfx_blit_ro] =
-;      the row's base byte, GC1 already armed by vga_sr_on, ES = the CALLER's
+;      the row's base byte, GC1 already armed by gfx_blit4, ES = the CALLER's
 ;      source segment, DF clear
 ; out: nothing; every register preserved, ES included
 ;
@@ -2517,7 +2495,7 @@ vga_p4build:
 ;      CX    = pixels to draw (> 0), BX = ignored
 ;      [gfx_blit_ro] = the row's first framebuffer byte
 ; out: nothing; every register preserved, DS and ES included. Leaves Enable
-;      Set/Reset and the Map Mask as vga_sr_on left them, so a following run
+;      Set/Reset and the Map Mask as gfx_blit4 armed them, so a following run
 ;      needs no re-arming.
 ; -----------------------------------------------------------------------------
 vga_blit_prow:
@@ -2652,9 +2630,11 @@ vga_blit_prow:
     call vga_prow_emit          ; --- and out, four Map Masks and four rows
 
     mov dx, VGA_SEQ             ; --- and hand the card back as it was found
-    mov ax, 0x0F02
+    mov ax, 0x0F02              ; (Map Mask all four)...
     out dx, ax
-    call vga_sr_on
+    mov dl, VGA_GC & 0xFF       ; ...and Enable Set/Reset back on, for the run
+    mov ax, 0x0F01              ; path's next row: the SEQ and GC ports share
+    out dx, ax                  ; their high byte, and AX and DX are dead
     pop es
     pop ds                      ; ovlchk: DS restored
     jmp kret_bp
@@ -3319,21 +3299,6 @@ vga_solid_rect:
     ret
 %endif
 
-; -----------------------------------------------------------------------------
-; gfx_frame - 1px outline rectangle in [gfx_color]
-; in:       AX = x1, BX = y1, CX = x2, DX = y2  (x1<=x2, y1<=y2)
-; out:      -
-; clobbers: flags
-; -----------------------------------------------------------------------------
-gfx_frame:
-    push bp                     ; the SAME four strips gfx_xor_rect draws, and
-    mov bp, gfx_fill            ; the same pixels this drew with two hlines and
-    call gfx_xor_strips         ; two vlines: the strips' top and bottom are
-    pop bp                      ; full width, so they cover the corners the
-    ret                         ; verticals used to draw twice. Four calls
-                                ; either way, and gfx_fill is one wrapper
-                                ; frame shallower than gfx_hline/gfx_vline
-
 ; =============================================================================
 ; SPEC.md 5.10 - gfx_spans: a RUN OF SCAN LINES, one call
 ;
@@ -3475,16 +3440,8 @@ gfx_spans:
     call vga_gc_reset
 %endif
 .done:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    clc
-    ret
+    clc                         ; (pops write no flag: the ladder keeps CF)
+    jmp kret_es                 ; the shared ladder, once a span LIST
 
 ; -----------------------------------------------------------------------------
 ; gfx_sp_next - internal: the next span record, ready to write
@@ -3662,17 +3619,10 @@ gfx_fill_gray_raw:                              ; only renderer gfx_fill_gray ha
     not ah
     dec si
     jnz .irow
-.reset:
-    call vga_gc_reset
-.done:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+.reset:                         ; vga_solid_rect's own teardown, which is the
+    jmp vga_solid_rect.reset    ; same GC reset and the same seven pops (size
+.done:                          ; pass 10: one taken jump a FILL, not a row)
+    jmp vga_solid_rect.done
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -3729,10 +3679,9 @@ osapi_gfx_fill_pat:
                                 ; gfx_patbuf, and the one kernel caller of
                                 ; gfx_fill_pat (files.inc) names its own
 .copy:
-    mov al, [es:si]
-    mov [di], al
-    inc si
-    inc di
+    es lodsb                    ; ES:SI, and SI walks itself (DF = 0, SPEC.md
+    mov [di], al                ; 1 - gfx_pat_stage's movsw below leans on
+    inc di                      ; the same contract in the same call)
     loop .copy
     mov word [gfx_pat], gfx_patbuf
     pop di
@@ -3769,17 +3718,7 @@ gfx_fill_pat_raw:                              ; only renderer gfx_fill_pat has
     mov ax, [vga_m8l]           ; left edge column: AL = 8, AH = the mask
     out dx, ax
     mov di, [gfx_roff]
-    mov si, [gfx_rrows]
-    mov bx, [gfx_ry1]
-    and bx, 7
-.lcol:
-    mov ah, [gfx_patbuf+bx]     ; row byte first: the masked write must
-    xchg [es:di], ah            ; follow the latch load immediately
-    inc bx
-    and bx, 7
-    add di, ROW_BYTES
-    dec si
-    jnz .lcol
+    call .col
     mov cx, [gfx_rspan]
     or cx, cx
     jz .reset
@@ -3787,17 +3726,7 @@ gfx_fill_pat_raw:                              ; only renderer gfx_fill_pat has
     out dx, ax
     mov di, [gfx_roff]
     add di, cx
-    mov si, [gfx_rrows]
-    mov bx, [gfx_ry1]
-    and bx, 7
-.rcol:
-    mov ah, [gfx_patbuf+bx]
-    xchg [es:di], ah            ; latch load, then the row byte
-    inc bx
-    and bx, 7
-    add di, ROW_BYTES
-    dec si
-    jnz .rcol
+    call .col
     dec cx                      ; interior bytes per row
     jz .reset
     mov ax, 0xFF08              ; full bytes: latches irrelevant
@@ -3818,16 +3747,29 @@ gfx_fill_pat_raw:                              ; only renderer gfx_fill_pat has
     and bx, 7
     dec si
     jnz .irow
-.reset:
-    call vga_gc_reset
+.reset:                         ; vga_solid_rect's teardown, as gfx_fill_gray's
+    jmp vga_solid_rect.reset
 .done:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    jmp vga_solid_rect.done
+
+; ...and ONE masked edge column of [gfx_rrows] rows at ES:DI, the Bit Mask
+; already set - the left and the right were this loop written out twice (size
+; pass 10). A near call and ret twice a FILL, never per row: this is the rare
+; fill (the Task Manager's map, files.inc's one band), and gfx_fill_gray, the
+; common one, keeps its columns inline. Clobbers AH, BX, SI, DI; CX and DX
+; survive, which is what the caller's span test and its port need
+.col:
+    mov si, [gfx_rrows]
+    mov bx, [gfx_ry1]
+    and bx, 7
+.crow:
+    mov ah, [gfx_patbuf+bx]     ; row byte first: the masked write must
+    xchg [es:di], ah            ; follow the latch load immediately
+    inc bx
+    and bx, 7
+    add di, ROW_BYTES
+    dec si
+    jnz .crow
     ret
 %endif
 
@@ -3943,9 +3885,28 @@ gfx_xor_rect_d:
 gfx_xor_rect_clip:              ; the clipped head: each strip meets GFXCLIP
     push bp
     mov bp, gfx_xor_fill
+.go:                            ; (gfx_frame's head joins here, below)
     call gfx_xor_strips
     pop bp
     ret
+
+; -----------------------------------------------------------------------------
+; gfx_frame - 1px outline rectangle in [gfx_color]
+; in:       AX = x1, BX = y1, CX = x2, DX = y2  (x1<=x2, y1<=y2)
+; out:      -
+; clobbers: flags
+;
+; The THIRD head, beside the clipped one it shares a tail with (size pass 10:
+; it was the same five instructions a screen up the file).
+; -----------------------------------------------------------------------------
+gfx_frame:
+    push bp                     ; the SAME four strips gfx_xor_rect draws, and
+    mov bp, gfx_fill            ; the same pixels this drew with two hlines and
+    jmp short gfx_xor_rect_clip.go ; two vlines: the strips' top and bottom
+                                ; are full width, so they cover the corners
+                                ; the verticals used to draw twice. Four calls
+                                ; either way, and gfx_fill is one wrapper
+                                ; frame shallower than gfx_hline/gfx_vline
 
 gfx_xor_strips:
     push ax
@@ -4046,6 +4007,7 @@ gfx_bank_ok:                    ; unlocked caller banks the arrow and nothing
     GFXDENTERR                  ; ...and it reads it off ONE CARD (SPEC.md
                                 ; 39.14.8): a save is pixels, and pixels live
     call vga_save_vram          ; on a card rather than in a coordinate space,
+gfx_sr_tail:                    ; (gfx_restore's tail too - size pass 10)
     GFXDLEAVE                   ; so this is whole-shape like gfx_scroll and
     call gfx_1bpp_off           ; ...and a ONE-PLANE arm is spent (11.96.17)
     jmp kret_dx                 ; NOT split like a blit's runs. The caller owes
@@ -4308,9 +4270,10 @@ gfx_restore:
     GFXDENTERR                  ; ...onto the card it came off (SPEC.md
                                 ; 39.14.8) - gfx_save's twin, and it has to be
     call vga_restore_vram       ; the same hook or a rect banked on one display
-    GFXDLEAVE                   ; could be put back on the other
-    call gfx_1bpp_off           ; ...and a ONE-PLANE arm is spent (11.96.17)
-    jmp kret_dx
+    jmp gfx_sr_tail             ; could be put back on the other - and the
+                                ; leave, the ONE-PLANE arm spent (11.96.17)
+                                ; and the four pops are gfx_save's, word for
+                                ; word: one taken jump a restore (size pass 10)
 %ifndef GFX_VGA
     NOVGA_ARM vga_restore_vram, sw_restore
 %else                           ; renderer is not a branch - it is the
@@ -4927,36 +4890,16 @@ gfx_scroll:
     mov dx, 0x03CE              ; VRAM, via the latches
     mov ax, 0x0105              ; GC5: write mode 1 - a movsb read fills the
     out dx, ax                  ; latches, the write stores all four planes
-    mov dx, VGA_SEG
-    call vgas_lincopy
-    mov dx, 0x03CE
-    mov ax, 0x0005              ; write mode back to 0 (SPEC.md 1 rule 7)
-    out dx, ax
-    jmp short .ok
-%endif
-.mono:
-    call vgas_bankcopy           ; the framebuffer IS [vid_rseg] (SPEC.md 39)
-.ok:
-    clc
-.out:
-    GFXDLEAVE                   ; ...and it banks CF, which is this routine's
-    jmp kret_di
-%ifdef GFX_VGA
-
-; -----------------------------------------------------------------------------
-; vgas_lincopy - scroll one LINEAR segment (the VGA stride): a buffer plane,
-; or VRAM itself in write mode 1
-; in:       DX = target segment; the vgas_* geometry
-; clobbers: AX/BX/CX/DX/SI/DI, flags (gfx_scroll banked the caller's)
-; -----------------------------------------------------------------------------
-vgas_lincopy:                   ; (no DS bank: every row puts DS back to CS,
-    mov es, dx                  ; which is what it was on entry - kernel code
-                                ; runs with DS = CS - size pass 9)
+    mov ax, VGA_SEG
+    mov es, ax
+    ; --- THE LINEAR COPY, INLINE (size pass 10): it was vgas_lincopy, whose
+    ; only caller this is. No DS bank: every row puts DS back to CS, which is
+    ; what it was on entry - kernel code runs with DS = CS (size pass 9). Its
+    ; row countdown is [vgas_rows] itself, which nothing reads after the copy
+    ; (it was copied into a vgas_left first, for no reader)
 %ifdef SCROLL_ROWBASE           ; the reference form: two muls a row (SPEC 5.5.1)
-    mov ax, [vgas_rows]
-    mov [vgas_left], ax
     mov bx, [vgas_ydst]
-.r:
+.lr:
     mov ax, bx
     add ax, [vgas_sdy]
     mul word [vid_stride]       ; AX = src row * stride (DX:AX, DX = 0)
@@ -4974,16 +4917,14 @@ vgas_lincopy:                   ; (no DS bank: every row puts DS back to CS,
     push cs
     pop ds
     add bx, [vgas_step]
-    dec word [vgas_left]
-    jnz .r
+    dec word [vgas_rows]
+    jnz .lr
 %else
     ; --- SPEC.md 5.5.1: the row address ADVANCES, so derive it once ----------
     ; A linear framebuffer has one bank, so rowbase(y) is y * stride and the
     ; two ends of the copy are a CONSTANT dy * stride apart - for any dy, with
     ; no alignment precondition anywhere. Both products are taken here instead
     ; of twice a row.
-    mov ax, [vgas_rows]
-    mov [vgas_left], ax
     mov ax, [vgas_ydst]
     mul word [vid_stride]
     add ax, [vgas_col]
@@ -4995,9 +4936,9 @@ vgas_lincopy:                   ; (no DS bank: every row puts DS back to CS,
                                 ; the same reason DI itself may wrap
     mov bx, [vid_stride]        ; BX = the per-row step, in the walk's own
     cmp word [vgas_step], 0     ; direction (down: bottom-up, so backwards)
-    jg .fwd
+    jg .lfwd
     neg bx
-.fwd:
+.lfwd:
     sub bx, [vgas_nb]           ; ...LESS what the rep movsb will already have
                                 ; added to DI. SPEC.md 5.7.1's rule, and the
                                 ; A/B caught its absence: a string op advances
@@ -5005,7 +4946,7 @@ vgas_lincopy:                   ; (no DS bank: every row puts DS back to CS,
                                 ; to care because it recomputed DI every row.
                                 ; Folded into the increment, so it is free
     cld                         ; nothing in the loop touches DF
-.r:
+.lr:
     mov si, di
     add si, dx
     mov cx, [vgas_nb]
@@ -5015,11 +4956,21 @@ vgas_lincopy:                   ; (no DS bank: every row puts DS back to CS,
     push cs
     pop ds
     add di, bx
-    dec word [vgas_left]
-    jnz .r
+    dec word [vgas_rows]
+    jnz .lr
 %endif
-    ret
+    mov dx, 0x03CE
+    mov ax, 0x0005              ; write mode back to 0 (SPEC.md 1 rule 7)
+    out dx, ax
+    jmp short .ok
 %endif
+.mono:
+    call vgas_bankcopy           ; the framebuffer IS [vid_rseg] (SPEC.md 39)
+.ok:
+    clc
+.out:
+    GFXDLEAVE                   ; ...and it banks CF, which is this routine's
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; vgas_bankcopy - the mono twin: per-row copies through gfx_rowbase, which
@@ -5027,11 +4978,10 @@ vgas_lincopy:                   ; (no DS bank: every row puts DS back to CS,
 ; in:       the vgas_* geometry; target = [vid_rseg]
 ; clobbers: AX/BX/CX/DX/SI/DI, flags
 ; -----------------------------------------------------------------------------
-vgas_bankcopy:                  ; (no DS bank, for vgas_lincopy's reason)
+vgas_bankcopy:                  ; (no DS bank, for the linear copy's reason)
     mov es, [vid_rseg]
-    mov ax, [vgas_rows]
-    mov [vgas_left], ax
-    mov bx, [vgas_ydst]
+    mov bx, [vgas_ydst]         ; ([vgas_rows] IS the countdown: nothing reads
+                                ; it after the copy - size pass 10)
 %ifndef SCROLL_ROWBASE
     ; --- SPEC.md 5.5.1: a whole number of BANKS makes the delta constant -----
     ; rowbase(y) is banktab[y & bmask] + (y >> bshift) * stride, so the two ends
@@ -5073,7 +5023,7 @@ vgas_bankcopy:                  ; (no DS bank, for vgas_lincopy's reason)
                                 ; column-preserving, so it has to start from
                                 ; the column it is preserving (SPEC.md 5.7.1)
     call bp                     ; gfx_nextrow/gfx_prevrow: DI and flags only,
-    dec word [vgas_left]        ; and CS-relative reads, so it is safe
+    dec word [vgas_rows]        ; and CS-relative reads, so it is safe
     jnz .rup                    ; whatever DS was left at
     pop bp
     ret                         ; (.out is a bare `ret` since size pass 9)
@@ -5097,7 +5047,7 @@ vgas_bankcopy:                  ; (no DS bank, for vgas_lincopy's reason)
     push cs
     pop ds
     add bx, [vgas_step]
-    dec word [vgas_left]
+    dec word [vgas_rows]
     jnz .r
 .out:
     ret
@@ -5205,8 +5155,10 @@ vgas_nb          resw 1          ;   bytes per row
 vgas_sdy         resw 1          ;   signed dy (positive = content up)
 vgas_ydst        resw 1          ;   first destination row
 vgas_step        resw 1          ;   +1 (up: top-down) / -1 (down: bottom-up)
-vgas_rows        resw 1          ;   rows to copy = height - |dy|
-vgas_left        resw 1          ;   per-pass row countdown
+vgas_rows        resw 1          ;   rows to copy = height - |dy|, and the
+                                 ;   copy's own countdown (one pass, so the
+                                 ;   copy it used to be counted down in, a
+                                 ;   vgas_left, had no reader - size pass 10)
 gfx_u_scr:
 %if gfx_u_scr - gfx_u > gfx_u_end - gfx_u
   %error "gfx_scroll's working set no longer fits the primitive union"

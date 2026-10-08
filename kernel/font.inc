@@ -1314,8 +1314,10 @@ font_run_x:
     pop bx                      ; the test below is still vid_span_one's. The
     pop ax                      ; empty-string early-out arrives here with CF
     jnc .nosplit                ; already clear from its own `or ax,ax`, which
-    mov [font_rn_fg], al        ; is the answer that arm wants; and AX is
-    mov [font_rn_bg], ah        ; restored before it is read, as it was
+    mov [font_rn_fg], ax        ; is the answer that arm wants; and AX is
+                                ; restored before it is read, as it was. ONE
+                                ; word store: fg and bg are adjacent, fg first
+                                ; (the %if at the foot of this file)
     jmp .cells_nx
 .nosplit:
 %endif
@@ -1324,8 +1326,7 @@ font_run_x:
                                 ; gfx_fill + font_str, which the nesting count
                                 ; keeps from translating a second time
 
-    mov [font_rn_fg], al
-    mov [font_rn_bg], ah
+    mov [font_rn_fg], ax        ; AL = fg, AH = bg: one word (size pass 10)
     mov byte [font_rn_dt], 0    ; SPEC.md 6.1.12: no checkerboard unless the
                                 ; mono prologue below finds one. Set HERE and
                                 ; not there, so the planar prologue and every
@@ -1831,8 +1832,7 @@ font_run_x:
     push si                     ; .p1's frame (see .p1pre): the grouping spends
     push cx                     ; AX and BX only, but gfx_rowbase below spends
     push dx                     ; CX and DX
-    mov al, [font_rn_fg]
-    mov ah, [font_rn_bg]
+    mov ax, [font_rn_fg]        ; AL = fg, AH = bg, as one word
     and ax, 0x0F0F              ; a colour is four planes and nothing else
     mov bl, al
     xor bl, ah                  ; BL = the planes the two colours differ on
@@ -2011,13 +2011,10 @@ fnt_rn_edge:
 %ifdef KERN_BIG
     cmp byte [font_rn_pl], 0
     je .mono
-    push ax
-    mov dh, dl                  ; GC8 Bit Mask = the run's bits, once
-    mov al, 8
-    mov ah, dh
-    mov dx, VGA_GC
-    out dx, ax
-    pop ax
+    mov ah, dl                  ; GC8 Bit Mask = the run's bits, once. AX is
+    mov al, 8                   ; this routine's to clobber (the header), so
+    mov dx, VGA_GC              ; it is not banked - and DH is not a staging
+    out dx, ax                  ; register: DX is the port the line after
     mov cx, 8                   ; a fixed eight rows: `loop` is 2 bytes and 17
 .vrow:                          ; clocks where `inc bp / cmp bp,8 / jb` is 6
     mov al, [si]                ; and ~22, and FONT_RN_NEXTROW touches only DI
@@ -2412,6 +2409,9 @@ font_dith:      resb 1          ; 1 = this glyph is disabled text on a mono
                                 ; (font_dmask, the row's half of the
                                 ; checkerboard, is DL in font_char_bb now)
 
+%if (font_rn_bg - font_rn_fg) != 1
+  %error "font_run_x stores the run's two colours as ONE word (`mov [font_rn_fg],ax` -> AL = fg, AH = bg) and the planar prologue reads them back as one: they must stay adjacent, fg first"
+%endif
 %if (font_rn_bm - font_rn_xm) != 1
   %error "font_run_x's .rm and font_run_cell both read the run's masks as ONE word (`mov dx,[font_rn_xm]`, `mov cx,[font_rn_xm]` -> low = xm, high = bm): they must stay adjacent, xm first (SPEC.md 6.1.5)"
 %endif
