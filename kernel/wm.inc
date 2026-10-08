@@ -3015,19 +3015,16 @@ wm_zoom:
                                 ; of it, and not the chrome (SPEC.md 11.95.1)
 .go:
     ; --- it is not: bank where it stands, and go to the standard state -------
-    push si                     ; the standard y, which wm_zoom_slot spends SI on
-    lea si, [bx+W_ZOOMR]
     call wm_rz_bank             ; ...for the REPAINT as well as for the user
                                 ; state - and it has to happen here, before
                                 ; the origin moves, or wm_resize would bank
                                 ; the new x/y with the old w/h and the band
                                 ; the window VACATED would never be redrawn
-    push di                     ; ...and the user state, into the zoom bank
-    mov di, si
-    call wm_bank4
+    push di                     ; ...and the user state, into the zoom bank.
+    lea di, [bx+W_ZOOMR]        ; (SI, the standard y, is untouched: both
+    call wm_bank4               ; banks preserve it)
     pop di
     mov [bx+W_X], ax            ; the standard x
-    pop si                      ; ...and the standard y back
     mov [bx+W_Y], si            ; its DISPLAY's standard y (SPEC.md 39.17.2):
                                 ; wm_resize's y clamp only ever pushes a window
                                 ; UP OFF the dock, never down off the bar, so
@@ -5937,9 +5934,8 @@ wm_clip_set:
                                 ; the door 11.3 already makes every one of
                                 ; them come through. Not stacked: gfx_unlock
                                 ; clears it, which is [gfx_dis]'s lifetime
-    mov [wm_clipwin], bx        ; the window, because BX does not survive the
-                                ; occlusion walk - .done needs it for the drop
-                                ; below and, under CURFIX, for the frame test
+    mov [wm_clipwin], bx        ; the window, for the painters that ask after
+                                ; it later (BX itself survives to .done)
 
     mov ax, [bx+W_X]            ; seed with the content rect - the same one
     mov dx, [bx+W_Y]            ; wm_draw_win white-fills before W_PAINT
@@ -5996,11 +5992,8 @@ wm_clip_set:
                                 ; decision to wm_su_bank at the end of the
                                 ; draw, and a drop here would take it away
                                 ; from a window that never moved
-    push bx
-    mov bx, [wm_clipwin]
-    call wm_su_drop
-    pop bx
-.nodrop:
+    call wm_su_drop             ; BX is still the window: the seed, both
+.nodrop:                        ; border asks and the occlusion walk keep it
 
     ; The region is armed, and from here to gfx_unlock every clipped primitive
     ; is CONFINED to it - so if the cursor is outside THE REGION the deferred
@@ -6016,7 +6009,7 @@ wm_clip_set:
     ; The FAILURE path above deliberately does not check: with no region armed
     ; every primitive falls to its own unconditional cur_unlazy, which is the
     ; safe default and exactly what happened before any of this.
-    mov si, [wm_clipwin]
+    mov si, bx                  ; (the window, still in BX)
     call cur_lazyck
     clc
 .out:
@@ -6051,9 +6044,9 @@ wm_covered:
     push cx
     push dx
     push si
-    call wm_clip_clear
     call wm_seed_frame          ; the frame plus the 1px drop shadow, which
-    call wm_clip_occl           ; wm_draw_win draws
+    call wm_clip_occl           ; wm_draw_win draws. (No clear first: the seed
+                                ; sets [wm_clip_n] itself)
     jc .no
     cmp word [wm_clip_n], 1     ; CF = 1 EXACTLY WHEN IT IS 0 - wholly covered,
     jb .out                     ; and an empty list is already disarmed
@@ -8091,7 +8084,8 @@ wm_title_set:
     call wm_clip_occl           ; subtract every visible window above us
     jc .dmg                     ; overflowed: nothing about the list is valid
     cmp word [wm_clip_n], 0
-    je .clear                   ; wholly covered: not one pixel of it is ours
+    je .out                     ; wholly covered: not one pixel of it is ours
+                                ; (and an EMPTY list is already a disarmed one)
 
     call wm_ttl_rect            ; is the whole strip one fragment? wm_clip_test
                                 ; reads an empty list as "disarmed, draw
@@ -8104,9 +8098,6 @@ wm_title_set:
                                 ; BP = the frontmost visible window (or 0):
                                 ; the pinstripes and the two boxes are its
     call wm_draw_title          ; alone (SPEC.md 11.90)
-    jmp short .out
-.clear:
-    call wm_clip_clear
     jmp short .out
 .dmg:
     call wm_clip_clear

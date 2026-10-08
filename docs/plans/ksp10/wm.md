@@ -89,6 +89,22 @@ cumulative (-42).
   three `mov dx, bx / add dx, n` are `lea dx, [bx+n]` (with wm_grow_rect).
   Same primitive calls. -12.
 
+### Batch 5 - dead clears and a dead bank
+kern_big `.text` -226 cumulative (this batch -20), kern_small `.text` -202
+cumulative (-20).
+
+* **wm_clip_set** banked BX round wm_su_drop and reloaded the window from
+  [wm_clipwin] for it and for cur_lazyck, on a comment that BX "does not
+  survive the occlusion walk" - it does (the walk, the seed and both border
+  asks all preserve it, and did before this pass too). The store stays:
+  mouse.inc reads [wm_clipwin]. -8.
+* **wm_title_set's `.clear`** cleared a list it reached only when
+  [wm_clip_n] was already 0. -5.
+* **wm_covered's** opening wm_clip_clear: wm_seed_frame sets [wm_clip_n]
+  itself and nothing between reads the list. -3.
+* **wm_zoom's `.go`** banked SI round a `lea si` only to copy it to DI: `lea
+  di` straight. -4.
+
 ## REFUSED
 
 * **rect_get / rect_put at the damage-repaint and save-under sites - 138
