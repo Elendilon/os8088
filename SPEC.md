@@ -16917,7 +16917,9 @@ improved later: half a row of a cell is the thing the renderers cannot write,
 on a 1bpp adapter because the cell owns its framebuffer byte and on VGA
 because the glyph's bit mask is the whole cell's.
 
-**ONE fragment, never the union of several.** The region is a rect *list*, and
+**ONE fragment, never the union of several.** *(On `kern_big` §11.3.4.3
+grows the winner's rows through ADJACENT full-width fragments, which is a row
+range; the rest of this paragraph stands.)* The region is a rect *list*, and
 two fragments can offer disjoint slices of the same cell — which is not a row
 range. Taking the tallest single fragment can only ever return **fewer** rows
 than are strictly visible, so the answer is always safe to draw and can never
@@ -17233,6 +17235,92 @@ region, and letters through `font_char`, which masks to the WINNING fragment's
 columns. So a cell whose visible part is two side-by-side fragments is erased
 across both and lettered in one, until the next repaint. It never draws outside
 the region.
+
+##### 11.3.4.3 …and the winner's rows GROW through the fragments beside it
+
+Reported off the field Hercules with two photographs: a Disk window dragged
+over the Task Manager so its top edge crossed the caption and one side ran
+through the middle of it, once from the right and once from the left. The
+caption lost its bottom rows **along its whole length** — under the Disk
+window, which is right, and beside it, where every pixel was visible.
+
+**The cause is the fragment SHAPE meeting §11.3.2's one-fragment rule.**
+`wm_clip_split` cuts in horizontal strips: *above* and *below* span the whole
+rect, *left* and *right* only the occluder's band. A cell beside a window and
+straddling its top (or bottom) edge is therefore wholly visible and lies in
+TWO fragments — the strip above, holding its top rows, and the side piece,
+holding the rest — each covering its full width. `wm_clip_rows` answered the
+taller, and the rows the other held were dropped. Five rows against three in
+the photographs, so the strip won and the bottom three went.
+
+**The fix GROWS the winner's row range** through every fragment that covers
+the cell's full width and is adjacent to it, until none is, then clamps to the
+cell. Three properties make that the whole fix rather than a better guess:
+
+* **It is exact for every cell no occluder overlaps.** A strip boundary that
+  runs VERTICALLY is an occluder's own side edge, inside that occluder's band,
+  so a cell such a boundary crosses is one the occluder covers. Every
+  fragment a wholly visible cell meets covers its full width, and their rows
+  tile the cell, so the grow reaches all of them.
+* **It is safe for the rest.** Each merged fragment covers its whole row
+  extent at the cell's whole width, so the grown rows times the winner's
+  column mask never leave the region — §11.3.2's direction holds.
+* **ADJACENT is the whole test, not overlapping.** The fragments are
+  disjoint, so a full-width fragment that shared a row with the range would
+  share a pixel with the fragment that put that row there. The range is kept
+  as the two rows just outside it, and each side is one compare against
+  memory.
+
+What it does NOT fix is the cell a corner cuts: the one cell each side edge
+runs through, on the rows the top edge has reached. Its visible part is an
+**L**, which one row range and one column mask cannot say, so it keeps
+§11.3.4's accepted under-draw — 4 and 2 pixels in the two photographed
+layouts, against 4 and 8 before. Drawing that L exactly means drawing the
+cell once per fragment, which every renderer would have to loop for; it is
+not taken.
+
+**`kern_big` only**, for §11.3.4.1's and §39.27.4's reasons: `kern_small`'s
+`kernel.bin` is byte-identical to the one before (`cmp`ed). The bug is the
+same shape there for a line of text a window's corner reaches, and the same
+code would fix it for the same bytes.
+
+**+92 bytes of `.text`, no rung crossed** (image rung 336 → 244 left), and
+the cost is placed by **who pays it**, measured per `wm_clip_rows` call on
+`os8088_5150_herc_gla`, old kernel against new on the same scene — 600
+calls, the Task Manager under a Disk window whose top edge crosses a process
+row:
+
+| the call | calls | before | after | |
+|---|---:|---:|---:|---:|
+| refused (nothing visible) | 537 | 802 | 802 | **+0** |
+| the winner already spans the cell | 18 | 1,307 | 1,314 | +7 |
+| partly cut, nothing to grow into | 36 | 1,125 | 1,730 | +604 |
+| **grown — the defect** | 9 | 1,324 | 2,346 | +1,022, and 8 rows drawn where 6 were |
+
+(guest cycles, medians per cell.) The refusal, which is nine calls in ten
+here, is **free** because the grow is OUT OF LINE, below `.out`: inline, the
+refusal's `jz .none` fell out of a short jump's reach and paid a trampoline,
+**+37 cycles on the commonest call**, for 2 bytes saved. The spanning cell is
+one compare of the row count `BP` already holds. What is left is the
+partly-cut cell, which pays one walk of the fragment list before it can know
+there is nothing adjacent — a line of text's worth of cells per window edge.
+A running total of rows in the main walk would let it skip that walk;
+ESTIMATED at ~20 more bytes and a few dozen cycles on every overlapping
+fragment of every clipped cell, and not taken.
+
+**Why not `font_run` for the caption.** `font_run` asks the same question:
+a run the region cuts goes cell by cell through `font_run_cell` (aligned,
+1bpp) or `font_run_scell` (unaligned or planar, a fill and a `font_char`),
+and both ask `wm_clip_rows`. So it would have lost the same rows — and worse
+looking, since `font_run_scell` restricts its ground to the winner's band
+and the dropped rows would have kept STALE pixels rather than going blank.
+With this fix it is correct either way. Converting the caption is a separate
+question — the double-draw flash, docs/plans/completed/TEXT-PLAN.md §4.0 —
+and not this one.
+
+`tests/clipgrow.py` (`clipgrow`) is the gate: the Task Manager's whole title
+strip against itself uncovered, from both sides, the corner cell excused. The
+kernel before this FAILS it at **31 and 44** caption pixels.
 
 #### 11.3.5 An icon draws the part of it ONE fragment holds
 

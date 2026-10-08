@@ -6834,7 +6834,10 @@ wm_ttl_seen:
 ; fragments can offer disjoint slices of the same cell, which is not a row
 ; range. Taking the best single fragment can only ever return FEWER rows than
 ; are strictly visible, so the answer is always safe to draw and never draws
-; outside the region - which is the direction an error has to point.
+; outside the region - which is the direction an error has to point. On
+; kern_big the winner's rows then GROW through the fragments ADJACENT to it
+; that cover the cell's full width (SPEC.md 11.3.4.3) - still one row range,
+; and exact for any cell no occluder overlaps.
 ; -----------------------------------------------------------------------------
 wm_clip_rows:
     push ax
@@ -6910,14 +6913,16 @@ wm_clip_rows:
     cmp cx, bp
     jbe .frag_no
     mov bp, cx
-    sub ax, bx                  ; ...and where they start, from y1
-    mov [wm_clip_r0], al
 %ifdef KERN_BIG
     mov [wm_clip_wf], si        ; THE WINNER IS BANKED AND NOT MEASURED: its
                                 ; COLUMNS are wanted once, after the walk, and
                                 ; working them out per fragment cost 60 bytes
                                 ; to answer a question about fragments that
-                                ; lose (SPEC.md 11.3.4)
+                                ; lose (SPEC.md 11.3.4). Its ROWS are the
+                                ; grow's below, which writes [wm_clip_r0]
+%else
+    sub ax, bx                  ; ...and where they start, from y1
+    mov [wm_clip_r0], al
 %endif
 .frag_no:
     pop cx
@@ -6928,8 +6933,13 @@ wm_clip_rows:
     jnz .frag
     or bp, bp
     jz .none
-
 %ifdef KERN_BIG
+    mov si, dx                  ; SPEC.md 11.3.4.3: a winner that already
+    sub si, bx                  ; gives every row is the common clipped cell,
+    inc si                      ; and asks nothing more - the rows that could
+    cmp si, bp                  ; GROW are out of line, below `.out`, so the
+    jne .grow0                  ; refusal above pays nothing for them
+.mask:
     ; --- the winning fragment's COLUMNS, as a mask (SPEC.md 11.3.4) --------
     ; ONCE, here, and not per fragment: only the winner is ever asked, and
     ; working it out inside the walk cost 60 bytes to answer a question about
@@ -6984,6 +6994,81 @@ wm_clip_rows:
     stc
 .out:
     jmp kret_bp
+
+%ifdef KERN_BIG
+    ; --- the winner's ROWS, GROWN through its neighbours (SPEC.md 11.3.4.3) -
+    ; The region is a rect list cut in horizontal STRIPS - wm_clip_split's
+    ; above and below span the whole rect, its left and right only the
+    ; occluder's band - so a cell BESIDE a window and straddling that
+    ; window's top or bottom edge is wholly visible and is in TWO fragments,
+    ; the strip and the side piece, each covering its full width. The
+    ; tallest of them won and the other's rows were dropped: the caption
+    ; and every line of text along such an edge lost its top or its bottom.
+    ;
+    ; So the winner's row range takes in every fragment that covers the
+    ; cell's FULL width and is ADJACENT to it, until none is. That is exact
+    ; for every cell no occluder overlaps: a strip boundary that runs
+    ; VERTICALLY through a cell is an occluder's own edge, inside that
+    ; occluder's band, so a cell it crosses is one the occluder covers. It
+    ; stays safe for the rest: each merged fragment covers its whole row
+    ; extent at the cell's whole width, so rows x the winner's columns never
+    ; leave the region. ADJACENT and not overlapping, because the fragments
+    ; are disjoint - a full-width one sharing a row with the range would
+    ; share a pixel with the fragment that put that row there - so the
+    ; range is kept as the two rows just OUTSIDE it, and the test is one
+    ; compare against memory per side. It grows on the fragments' own
+    ; extents and is clamped to the cell once, at the end.
+.grow0:
+    mov si, [wm_clip_wf]
+    push bx                     ; y1 and y2, for the clamp
+    push dx
+    mov bx, [si+WCR_Y1]         ; BX = the row above the range,
+    dec bx
+    mov dx, [si+WCR_Y2]         ; DX = the row below it
+    inc dx
+.grow:
+    mov si, wm_clip_tab
+    mov di, [wm_clip_n]
+.g:
+    cmp ax, [si+WCR_X1]         ; the cell's FULL width, or it adds nothing
+    jl .gn
+    cmp cx, [si+WCR_X2]
+    jg .gn
+    cmp [si+WCR_Y1], dx
+    je .gdn                     ; starts on the row below: grow DOWN
+    cmp [si+WCR_Y2], bx
+    jne .gn
+    mov bx, [si+WCR_Y1]         ; ends on the row above: grow UP
+    dec bx
+    jmp short .grow             ; every jump back has taken in a whole
+.gdn:                           ; fragment, so it ends within n of them
+    mov dx, [si+WCR_Y2]
+    inc dx
+    jmp short .grow
+.gn:
+    add si, WCR_SZ
+    dec di
+    jnz .g
+    pop di                      ; DI = y2
+    pop si                      ; SI = y1
+    inc bx                      ; the range's own first and last rows,
+    dec dx                      ; clamped to the cell's
+    cmp bx, si
+    jge .gc0
+    mov bx, si
+.gc0:
+    cmp dx, di
+    jle .gc1
+    mov dx, di
+.gc1:
+    mov bp, dx                  ; BP = the rows, which the store below the
+    sub bp, bx                  ; mask block takes as it always has
+    inc bp
+    sub bx, si
+    mov [wm_clip_r0], bl        ; ...from here (BH is 0: a cell is at most
+                                ; 255 rows and the range is inside it now)
+    jmp .mask
+%endif
 
 ; -----------------------------------------------------------------------------
 ; rect_get / rect_put - AX,BX,CX,DX from / to four ADJACENT words, the words

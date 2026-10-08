@@ -11887,6 +11887,14 @@ SOAK = [
         py("tests/runclip.py", "--machine", "os8088_5150_cga_gla"), 20.0,
         "SPEC.md 11.3.4.2: runclip on the CGA 5150",
         needs=("marty",), serial=True),
+    Row("clipgrow", "soak", py("tests/clipgrow.py"), 30.0,
+        "SPEC.md 11.3.4.3: a caption beside a covering window's CORNER keeps "
+        "every row. The region is cut in horizontal strips, so a wholly "
+        "visible cell beside a window and straddling its top edge is in two "
+        "fragments, and wm_clip_rows answered the taller - the Task "
+        "Manager's caption lost its bottom rows beside a Disk window. The "
+        "whole title strip against itself uncovered, both sides. Hercules",
+        needs=("marty",), serial=True),
     Row("tmcol2", "soak", py("tests/tmcol2.py"), 21.0,
         "SPEC.md 28.1.2: on CGA the process list wraps into a SECOND COLUMN, "
         "and that column has to carry rows. It shipped EMPTY from the day "
