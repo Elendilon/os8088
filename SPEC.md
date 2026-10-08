@@ -157439,8 +157439,10 @@ frame (98.2.1.2.1): a whole 320 × 180 frame is 57,600 bytes.
 - every record's `len` against what is left of its super-packet and against
   6 + the audio bytes - and, in a flipped play (98.3.8), against the 31 KB
   copy `vp_flipdec` keeps of it, as the seam's already was: a longer record
-  would be copied past that claim. A RESIDENT block's records the same, at
-  its walk (98.1.7);
+  would be copied past that claim. In a BIGSP file (98.1.4.1) neither is
+  held to it - a longer record or seam is not kept but copied off the glass
+  (98.3.8.1), and the writer sets BIGSP for exactly that file. A RESIDENT
+  block's records the same, at its walk (98.1.7);
 - a keyframe's table entry (`vp_kent`) before anything trusts it: the entry
   is copied into `vp_ke` to be checked, so `[vp_kload]` is 0xFFFF from the
   copy until the checks pass, and an entry that fails leaves NO key in hand

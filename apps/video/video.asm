@@ -1593,7 +1593,9 @@ vp_parse:
     jb .bad
     mov [vp_llen], ax
     cmp byte [vp_flip], 0           ; ...no longer than a flipped play's copy
-    je .lfl                         ; of the last record (98.3.8)...
+    je .lfl                         ; of the last record (98.3.8) - but a
+    cmp word [vp_msl], 1            ; BIGSP file's longer one is copied off
+    jne .lfl                        ; the glass instead (98.3.8.1)...
     cmp ax, VP_PREVKB * 1024
     ja .nolp
 .lfl:
