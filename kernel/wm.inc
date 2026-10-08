@@ -6113,14 +6113,15 @@ wm_dmg_gray:
     call wm_occl_l              ; ...and every drop shadow's L, which the
     jc .frames                  ; window pass draws; then every touched ZONE,
     call COLD_SEG:desk_zones_r_x    ; DRAWN into what is left and taken out
-    jc .whole                   ; of it - a cell lays its own ground, and is
+                                ; of it - a cell lays its own ground, and is
                                 ; drawn only where it shows (SPEC.md 11.91.6).
-                                ; UNREACHABLE while desk_zones_r's pre-count
-                                ; matches wm_clip_split; the ONE entry to
-                                ; .whole after cells are drawn, which is what
-                                ; .whole's re-owe guards (SPEC.md 26.9.9). A
-                                ; new subtraction past here that overflows
-                                ; to .whole leans on that guard too
+                                ; It answers no CF: a zone whose subtraction
+                                ; could overflow the region is counted first
+                                ; and left owed, so nothing after cells are
+                                ; drawn reaches .whole (its `jc` here was dead
+                                ; and went in size pass 10). A new subtraction
+                                ; past here that overflows to .whole must
+                                ; re-owe the drawn cells, as .whole does
 %endif
 .cmpn:
     cmp word [wm_clip_n], 0

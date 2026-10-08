@@ -90248,9 +90248,9 @@ not the chooser never far-calls an image that may not be there.
 (the chooser's `W_ONMOUSEUP`, §38.3), `fdlg_win`/`fdlg_blk` and the
 strings. The image calls OUT through `fdx_go`, its own copy of
 `filecp.inc`'s `fcpx_go`, so a routine it reaches costs no resident thunk
-(§38.13.2). `os88ui.inc` and
-`ui_krect4` stay resident for the reason they always did: `apps.inc`,
-`ctrl.inc` and `files.inc` call them too.
+(§38.13.2). `os88ui.inc`
+stays resident for the reason it always did: `apps.inc`, `ctrl.inc` and
+`files.inc` use it too.
 
 **Refusal.** `fdlg_open` answers CF=1, which is already its published answer
 for "one is already up", and every caller treats it as *the command does

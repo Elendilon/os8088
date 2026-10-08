@@ -7262,8 +7262,9 @@ cw_inst_task_die equ inst_task_die  ; NEVER RETURNS (it ends in task_exit's
                                 ; body: the frame it leaves dies with the
                                 ; task's stack either way (size pass 9)
 %endif
-cw_mem_disp:            call bp
-                    retf
+cw_mem_disp equ spw_near        ; `call bp` / `retf` - viddet.inc's splash door
+                                ; is the same three bytes, and it stays where
+                                ; SPL_RESIDENT needs it (size pass 10)
 cw_menu_activate:       call menu_activate
                     retf
 ; ...and menu_kbnav's two, which went cold with it (SPEC.md 12.10)
