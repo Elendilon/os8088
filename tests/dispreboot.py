@@ -338,6 +338,14 @@ def main():
                     return show(m, "fm_layout ENTERED WITH DS != KERNEL_SEG")
                 hit = [n for n, a in watch.items()
                        if st["cs"] == KSEG and abs(st["ip"] - (a - 0x600)) <= 4]
+                # ui_cmd with AX = 0 is "nothing", by its own first compare:
+                # since kernel size pass 10 ui_task's posted-command step
+                # calls it WITHOUT a `jz` in front (ui.inc .chk_pcmd), so an
+                # entry with AX = 0 is that step being told no and not a
+                # command - the reboot's is CMD_REBOOT, never 0
+                if hit == ["ui_cmd"] and m.cmd(cmd="regs")["ax"] == 0:
+                    m.run()
+                    continue
                 if hit:
                     return show(m, "REACHED %s" % hit[0])
                 state["benign"] += 1
