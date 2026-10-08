@@ -1536,9 +1536,19 @@ os88ui_btninit:
     mov [bx+OS88UI_BT_WIN], ax
     mov [bx+OS88UI_BT_ONCLK], dx
     push ax                     ; the window, for the three slot calls
+    push si
+    mov si, os88ui_btlist - OS88UI_BT_NEXT
+.seen:                          ; ONCE ONLY: Sheet re-inits a dialog's static
+    mov si, [si+OS88UI_BT_NEXT] ; record at every open, and pushing a record
+    cmp si, bx                  ; that is already linked loops the list -
+    je .linked                  ; through itself at the head, cutting off
+    or si, si                   ; every record behind it, so a click in a
+    jnz .seen                   ; dialog still open walked for ever
     mov ax, bx                  ; ...and the record onto the package's list,
     xchg ax, [os88ui_btlist]    ; which os88ui_btnclick walks to find the one
     mov [bx+OS88UI_BT_NEXT], ax ; belonging to the window it was handed
+.linked:
+    pop si
     pop bx                      ; BX = the window, every slot call's argument
     mov ax, si                  ; - and every slot keeps every register it does
     call OSAPI_WM_ONMOUSEUP     ; not document (SPEC.md 20.3), so it is loaded

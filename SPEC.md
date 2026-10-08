@@ -39726,6 +39726,14 @@ before calling in.
 each record onto. A list rather than a fixed table because Sheet has five
 dialog windows and a table is a limit somebody eventually exceeds.
 
+**A record is linked ONCE.** `btninit` walks the list first and leaves a
+record that is already on it where it is, re-stamping only its window and
+click proc. Sheet re-inits a dialog's static record at every open and its
+dialogs are non-modal, so pushing again made the head point at itself and cut
+off every record behind it: open one dialog, open a second, close and reopen
+the second, and a click in the first walked the list for ever with the gfx
+lock held.
+
 ##### 20.5.1.3.4 `OS88UI_NOGEST` — the install side, opted out of
 
 The gesture above is **226 bytes** of every image that includes `os88ui.inc`,
