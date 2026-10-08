@@ -6567,13 +6567,14 @@ vp_kres:
     ret
 
 ; vp_kwant - AX = the slots this play wants: the header's ring (98.1.1),
-; and 2 where it says nothing. Preserves all but AX
+; and never fewer than vp_sstart's .kfit takes - 2, or 3 for BIGSP (98.1.4.1),
+; whose header may well say 2. Preserves all but AX
 vp_kwant:
-    mov al, [vp_rneed]
-    xor ah, ah
-    cmp al, 2
+    mov ax, [vp_msl]
+    inc ax
+    cmp al, [vp_rneed]
     jae .r
-    mov al, 2
+    mov al, [vp_rneed]
 .r:
     ret
 
