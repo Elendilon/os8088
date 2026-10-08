@@ -80,3 +80,32 @@ first change here.
    **anything viddet.inc's splash door reaches** - vid_apply, vid_setmode,
    vid_text: the helpers sit at the END of `.text`, and stage 2's loading
    screen calls those while the image is still arriving (SPL_RESIDENT).
+* **A `kent_si` (push ax..si, 19 `.text` runs)**: 18 bytes of helper for 2
+   a site. Of the 19, cur_lazyck / cur_lazyrect (cursor), vga_p4build
+   (primitive), fpg_busy (every sector through dsk_xfer passes it) and the
+   damage / save-under sites (wm_dmg_stale, wm_dmg_gray, wm_su_occl) are
+   ruled out, which leaves ~11 and a net of about **-4** - not worth an
+   extra call on every window-chrome paint.
+* **kent_bp / kent_di in viddet.inc** (vid_apply, vid_setmode, vid_text -
+   ~-11): the splash calls them through spw_near before the end of `.text`
+   is loaded (SPL_RESIDENT).
+* **The wm.inc `test word` sites** - see 4: 0 bytes, W_FLAGS is 0.
+
+## WHAT RAN
+
+* `make` (fast tier 61/61) and `make small` after every batch; `make emu`
+  at the tip (kernsize[emu] text 43,458, assembles).
+* `tools/stkbalance.py kernel/kernel.asm kernel/*.inc`: 0 unbalanced at
+  f57e5c9b and at the tip (14 declared banking routines against 13 - kent_di).
+* Soak, one at a time: `deskwhole` (wm_dmg_gray's zones and `.whole`),
+  `tmrup` (the Timer button's inlined rect), `dispfsx` (fsx_run / fsx_mode /
+  fsx_setbios), `wmchrome` (menu bar, chrome, the wm kent_bp sites). All
+  green.
+
+## TOTALS AT THE TIP (against the merged tree's own reading)
+
+* kern_big: text 43,250 -> 43,199 (**-51**), cold 36,894 -> 36,882
+  (**-12**); sum -2,123 -> -2,186 (**-63**).
+* kern_small: text 32,061 -> 32,016 (**-45**), cold 23,252 -> 23,228
+  (**-24**); sum -1,582 -> -1,651 (**-69**).
+* CTRL.DRV: -1 (module, not resident).
