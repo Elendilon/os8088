@@ -187,12 +187,10 @@ toast_scn:   dw 0               ; and how many cells it takes there - 0 meaning
 ; rep-less movsb is ~475 clocks, ~100 us against a 55 ms tick.
 ; -----------------------------------------------------------------------------
 toast_show:
-    push ax
-    push bx                     ; BX is not spent here - it is pushed to make
-    push cx                     ; ax..di the shared epilogue ladder's own run,
-    push dx                     ; which is what kret_di wants (+1 here buys 4
-    push si                     ; at the exit)
-    push di
+    call kent_di                ; = push ax/bx/cx/dx/si/di. BX is not spent
+                                ; here - it is banked to make ax..di the
+                                ; shared epilogue ladder's own run, which is
+                                ; what kret_di wants
     pushf
     cli
     cld                         ; the copy below is `es lodsb`, and OSAPI_SLOT

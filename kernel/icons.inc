@@ -150,13 +150,7 @@ icon_draw_x:
 ; -----------------------------------------------------------------------------
 icon_draw:
     GFXAUDIT_HOOK
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
     push es
     lodsw                       ; header: AL = wwords, AH = height, and SI ->
 .hdr:                           ; body (mask rows first). icon_draw16 joins
@@ -204,13 +198,7 @@ icon_draw16:
                                 ; header-carrying records were. The macro is
                                 ; empty in every shipped build, so this costs
                                 ; the machine nothing
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
     push es
     mov ax, (16 << 8) | 1       ; the header a 16x16 body does not carry -
     jmp short icon_draw.hdr     ; SI already points at the body - stored by
@@ -239,13 +227,7 @@ icon_draw16:
 icon_draw_ix:
     GFXAUDIT_HOOK               ; the same primitive as far as the audit is
                                 ; concerned; empty in every shipped build
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
     push es
     mov word [ico_ww], ICO_IBUF_WW  ; this kind is 32 px wide and only that,
                                 ; so the record does not say so (SPEC.md

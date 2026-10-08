@@ -762,8 +762,11 @@ app_tmr_btn:
     add dx, APP_TMR_BH - 1
     call ct_cw_wm_clip_test
     jc .out
-    call ui_krect4              ; the rect, staged whole - fdlg.inc's, `.cold`
-                                ; like this, so the call is near
+    mov [os88ui_krect+0], ax    ; the rect, staged whole into the kernel's
+    mov [os88ui_krect+2], bx    ; ONE button rect (os88ui.inc's .bss, every
+    mov [os88ui_krect+4], cx    ; writer on the UI task under the gfx lock -
+    mov [os88ui_krect+6], dx    ; SPEC.md 13). This was fdlg.inc's ui_krect4,
+                                ; whose only caller this was (size pass 10)
 
     mov si, bp                  ; the label for this index
     shl si, 1

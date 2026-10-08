@@ -1871,8 +1871,8 @@ te_ab5:     db 'mouse SCROLL LOCK is what gives them back.', 0
                                     ; eleven of SPEC.md 70.10.2's keys** - the
                                     ; arrows, Home, End, PgUp, PgDn, Ins, Del
                                     ; and Space - whenever [mou_ptr] is 0, and
-                                    ; kbm_slock is the ONLY escape hatch. A
-                                    ; board is unusable without them, so this
+                                    ; Scroll Lock (kbm_shf) is the ONLY escape
+                                    ; hatch. A board is unusable without them, so this
                                     ; is on the panel rather than in a document
                                     ; nobody has beside the machine
 te_ab6:     db 'Contributed by Elendilon', 0

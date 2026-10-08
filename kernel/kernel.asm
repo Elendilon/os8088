@@ -7262,8 +7262,9 @@ cw_inst_task_die equ inst_task_die  ; NEVER RETURNS (it ends in task_exit's
                                 ; body: the frame it leaves dies with the
                                 ; task's stack either way (size pass 9)
 %endif
-cw_mem_disp:            call bp
-                    retf
+cw_mem_disp equ spw_near        ; `call bp` / `retf` - viddet.inc's splash door
+                                ; is the same three bytes, and it stays where
+                                ; SPL_RESIDENT needs it (size pass 10)
 cw_menu_activate:       call menu_activate
                     retf
 ; ...and menu_kbnav's two, which went cold with it (SPEC.md 12.10)
@@ -7755,6 +7756,57 @@ desk_rowcalc:     call COLD_SEG:desk_rowcalc_x
 ; is the count that collapses, and making it exact costs duplicate lines
 ; wherever one shared tail is reached from several entries.
 ; =============================================================================
+; --- ...AND ITS PROLOGUE HALF, for `.text` (kernel size pass 10) ----------
+; `call kent_bp` IS `push ax / bx / cx / dx / si / di / bp`, and `call kent_di`
+; the same without BP: `.cold`'s kentc_bp / kentc_di, written again here
+; because a `.text` caller cannot reach those near. The words land exactly
+; where the pushes would put them, so the routine's own pops or a rung of the
+; ladder below end it unchanged. Stack only, so re-entrant; no flag moves. The
+; return address is moved out from under the banked registers by pushing a
+; copy and storing AX over the original: every write is at or above SP, so an
+; interrupt can land anywhere in here. It peaks one word above the pushes,
+; which is where the routine's own next `call` puts its return address anyway.
+; (kent_bp was wm.inc's wm_kent_bp, which the wm agent wrote for nine of its
+; own prologues; it moved here when it stopped being wm.inc's alone.)
+;
+; 3 bytes a site against 7 (kent_bp) or 6 (kent_di), for ~95 cycles (~20 us)
+; a call - so it is for routines entered per OPERATION, per window, per menu
+; or per icon, never per glyph, run, span or pixel, never in the mouse ISR,
+; the cursor, the scheduler or the API cell. wm_clip_rows (per glyph cell
+; under a clip) and the save-under cache (docs/plans/LAST-DROP-BYTES.md 7.10)
+; keep their pushes.
+;
+; AND NOTHING THE SPLASH CALLS MAY USE THEM: these sit at the END of `.text`,
+; and stage 2's loading screen calls vid_apply, vid_setmode and gfx_rowbase
+; (viddet.inc's spw_near) while the image is still arriving - SPL_RESIDENT's
+; first sectors are aboard and this one is not.
+kent_bp:
+    ; STKBALANCE-NET: +7 - banks AX..BP on the CALLER's stack; its epilogue pops them
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp                     ; [bp][di][si][dx][cx][bx][ret]
+    mov bp, sp
+    push word [bp+12]           ; [ret][bp]...[bx][ret]
+    mov [bp+12], ax             ; ...[bx][ax]
+    mov bp, [bp]                ; BP back
+    ret
+
+kent_di:
+    ; STKBALANCE-NET: +6 - banks AX..DI on the CALLER's stack; its epilogue pops them
+    push bx
+    push cx
+    push dx
+    push si
+    push di                     ; [di][si][dx][cx][bx][ret]
+    mov di, sp
+    push word [ss:di+10]        ; [ret][di][si][dx][cx][bx][ret]
+    mov [ss:di+10], ax          ; ...[bx][ax]
+    mov di, [ss:di]             ; DI back
+    ret
+
 kret_es:          pop es
 kret_bp:          pop bp
 kret_di:          pop di

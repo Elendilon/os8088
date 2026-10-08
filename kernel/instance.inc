@@ -1444,13 +1444,7 @@ inst_lkhd:  db 0
 ; task table: unpublish, destroy the window), then show the window.
 ; -----------------------------------------------------------------------------
 app_launch:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
     push es
 
     mov [inst_knd], al

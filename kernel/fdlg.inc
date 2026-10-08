@@ -1152,7 +1152,7 @@ section .cold                   ; far entries (SPEC.md 2.6): the resident
                                 ; routine here keeps its ordinary near `ret`
 
 ; --- os88ui.inc IS RESIDENT, and that is what makes the split possible ------
-; Its kernel copy is SHARED: apps.inc near-calls ui_krect4, files.inc and
+; Its kernel copy is SHARED: apps.inc stages os88ui_krect, files.inc and
 ; ctrl.inc draw with it, and os88ui_btn / _arm / _armed / _fire / _krect are
 ; used by five other files between them. Moving it into FDLG.DRV would take
 ; the standard controls off every one of them, so it stays here, the image
@@ -1169,23 +1169,6 @@ section .cold                   ; far entries (SPEC.md 2.6): the resident
 %if OS88UI_DEF != 2 || OS88UI_DIS != 1 || OS88UI_FILL & 3
   %error "fdlg_blabel adds OS88UI_DEF and OS88UI_DIS to OS88UI_FILL with inc"
 %endif
-
-; -----------------------------------------------------------------------------
-; ui_krect4 - stage a whole inclusive rect into the kernel's ONE button rect
-; in:  AX = x1, BX = y1, CX = x2, DX = y2
-; out: os88ui_krect filled; ALL registers preserved
-;
-; os88ui_krect is declared in .bss by os88ui.inc and there is exactly one of
-; it, which is legal because every writer is on the UI task under the gfx lock
-; (SPEC.md 13). apps.inc's Timer button stages a rect it already holds WHOLE
-; and follows it with `mov bx, os88ui_krect / call os88ui_kbtn`.
-; -----------------------------------------------------------------------------
-ui_krect4:
-    mov [os88ui_krect+0], ax
-    mov [os88ui_krect+2], bx
-    mov [os88ui_krect+4], cx
-    mov [os88ui_krect+6], dx
-    ret
 
 fdf_fdlg_open:          call fdlg_open_x
                     retf

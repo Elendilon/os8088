@@ -30746,7 +30746,9 @@ about what the snapshot **is**, never about how soon: `disk_dir`,
 or **nothing at all**, and never a patched one. So the deferral publishes
 the second of those — `disk_nfiles` = 0 with `[dsk_lstale]` raised, the
 identical state a quiet mount leaves (§18.9), because a wrong listing is
-worse than no listing. `dsk_relist` is the payment. No new staleness rule
+worse than no listing. `dsk_relist` was the payment (it is deleted: §22.6.3
+gave a listing to the caller that supplies its store, and no reader is left
+that collects the debt). No new staleness rule
 enters the kernel; the one §18.9 already had is simply also reachable from
 here.
 
@@ -32228,12 +32230,14 @@ in it. Measured on the reference copy (nine files, 175KB, HDD C to HDD D):
 buffer still holds the previous volume's entries, and a stale `disk_nfiles`
 is the one thing that could make a reader take them for this volume's — so
 it goes to 0, which is a state the whole kernel already handles, and
-`[dsk_lstale]` says the global snapshot is owed a rebuild. `dsk_relist` pays
-it, and it is idempotent so a caller may spend it without asking whether it
-switched.
+`[dsk_lstale]` says the global snapshot is owed a rebuild. `dsk_relist` paid
+it, idempotently, so a caller could spend it without asking whether it
+switched; it is deleted now, and a loud mount is what clears the flag.
 
-**`dsk_relist` pays through `dskw_remount`, NOT through `dskw_sync`, and
-those two are separate routines for exactly this reason.** It used to tail-
+**`dsk_relist` paid through `dskw_remount`, NOT through `dskw_sync`, and
+those two were separate routines for exactly this reason** (both are deleted
+now - `dskw_remount` in kernel size pass 10, with no caller left - and the
+paragraph is kept as the design record). It used to tail-
 call `dskw_sync`, which was then unconditional. Once `dskw_sync` learned to
 defer (§18.4), that pair would have cleared the debt and then declined to
 pay it — a listing that is never rebuilt, which is the one failure the whole
@@ -37938,14 +37942,16 @@ every view cache follow for free, and so does DOS.
 
 Two things do NOT follow, and both had to be arranged:
 
-- **`drv_find` may not use the listing.** It used `dsk_find_name`, which
+- **`drv_find` may not use the listing.** It used `dsk_find_name` (since
+  deleted, kernel size pass 10), which
   walks the mount *snapshot* — and the snapshot is the filtered display
   listing, so the moment a driver became hidden every driver on the disk read
   as "Not on the system disk" in the Control Panel, a long way from the
   cause. It uses `dskw_stat` now, which walks the directory sectors
   themselves and answers about a file whether or not it is meant to be shown.
-  `ui_tm_open` keeps `dsk_find_name`, correctly: `TASKMGR.O88` is visible on
-  purpose, and what that path needs is a directory *index* for the loader.
+  `ui_tm_open` kept `dsk_find_name` for a while, correctly - `TASKMGR.O88` is
+  visible on purpose, and that path needed a directory *index* for the
+  loader - until §21.4's `ld_run_name` took the need away (§28.3.1).
 - **The kernel must be able to rewrite its own config.** `DSKW_PROT` (§18.4)
   treats hidden and system as untouchable, so the first `SYSTEM.CFG` save
   would create the file and every save after it would be refused
@@ -55248,8 +55254,9 @@ before anything moved.
 
 **The chip menu's item stays live** (`ui_tm_open`, kernel/ui.inc). It banks
 the current volume and directory, mounts A:, steps into `SYSTEM`
-(`ui_tm_sysdir`, §28.3), finds `TASKMGR.O88` in that folder's snapshot with
-`dsk_find_name`, runs `ld_run_body`, and puts the volume back — the
+(`ui_tm_sysdir`, §28.3), loads `TASKMGR.O88` out of that folder by name
+(`ld_run_name`; it was `dsk_find_name` and `ld_run_body` off the folder's
+snapshot until §28.3.1), and puts the volume back — the
 `drv_boot` dance, and for the same reason: every file name resolves in the
 CURRENT directory (§19.2), which is wherever the user last browsed to.
 Greying the item would mean answering "can this be loaded?" without loading
@@ -90248,9 +90255,9 @@ not the chooser never far-calls an image that may not be there.
 (the chooser's `W_ONMOUSEUP`, §38.3), `fdlg_win`/`fdlg_blk` and the
 strings. The image calls OUT through `fdx_go`, its own copy of
 `filecp.inc`'s `fcpx_go`, so a routine it reaches costs no resident thunk
-(§38.13.2). `os88ui.inc` and
-`ui_krect4` stay resident for the reason they always did: `apps.inc`,
-`ctrl.inc` and `files.inc` call them too.
+(§38.13.2). `os88ui.inc`
+stays resident for the reason it always did: `apps.inc`, `ctrl.inc` and
+`files.inc` use it too.
 
 **Refusal.** `fdlg_open` answers CF=1, which is already its published answer
 for "one is already up", and every caller treats it as *the command does
@@ -149655,7 +149662,7 @@ fragmented to hand over.
    before DS is changed: both words are `KERNEL_SEG`'s, and loading DS first
    makes the second read come out of the poster's image at that offset.
 2. **Stand where `DOS.O88` is, and find it.** The name goes through
-   `api_name` — `dsk_find_name` compares `DS:SI` against `DS:DI`, so a name in
+   `api_name` — the kernel's name lookup compares through DS, so a name in
    the module's own image is read at that offset in the kernel's segment and
    matches nothing.
 3. **The extents.** `hbm_geomd` is `hbm_geom` with a floppy arm, because
