@@ -9010,7 +9010,12 @@ wm_su_sub:
 ; seam or along the desktop's own boundary and never along both.
 ; -----------------------------------------------------------------------------
 wm_su_vset:
-    call wm_kent_bp             ; = push ax/bx/cx/dx/si/di/bp
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
 %ifdef KERN_BIG
     mov si, ax                  ; SI = x1; vid_disp_of ANSWERS in AL
     call vid_disp_of
@@ -9080,7 +9085,7 @@ wm_su_vset:
 .no:
     stc
 .out:
-    jmp kret_bp
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 wm_su_srect:
@@ -9232,7 +9237,13 @@ wm_su_arm:
 %endif
 
 wm_su_flay:
-    call wm_kent_bp             ; = push ax/bx/cx/dx/si/di/bp
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
     call wm_su_rect
     mov [wm_su_x1], ax
     mov [wm_su_y1], bx
@@ -9440,7 +9451,12 @@ wm_su_frag:
 ; sizing read it from here, so the claim's size and the offsets inside it
 ; cannot disagree.
 wm_su_bytes:
-    call wm_kent_bp             ; = push ax/bx/cx/dx/si/di/bp
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
     mov si, cx
     mov di, ax
     mov cl, 3
@@ -9466,7 +9482,7 @@ wm_su_bytes:
 .big:
     stc
 .out:
-    jmp kret_bp
+    jmp kret_di
 
 ; wm_su_scrset - where the fragments end and 11.96.2's edge scratch begins
 ; out: [wm_su_scrb] = that offset, [wm_su_scrsz] = the scratch's own size;
@@ -9481,7 +9497,12 @@ wm_su_bytes:
 ; pixels. That is what a 605-pixel stripe down the middle of Paint's tool
 ; column turned out to be.
 wm_su_scrset:
-    call wm_kent_bp             ; = push ax/bx/cx/dx/si/di/bp
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
     xor di, di                  ; DI = the images together
     xor si, si                  ; SI = the tallest fragment's rows
     mov word [wm_su_fn], 0
@@ -9515,7 +9536,7 @@ wm_su_scrset:
 .big:
     stc
 .out:
-    jmp kret_bp
+    jmp kret_di
 
 ; wm_su_bget - CF = 0 if DI named any band at all (SPEC.md 11.96.11)
 ; clobbers: flags only
@@ -9848,7 +9869,12 @@ wm_su_tkout:
 wm_su_take:
     KFZ 19                      ; ...taking one cache
     CURLOG 'P'
-    call wm_kent_bp             ; = push ax/bx/cx/dx/si/di/bp
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
     push es
     call wm_dc_ok
     jc wm_su_tkout              ; it made no promise, so its pixels may be
@@ -9970,7 +9996,8 @@ wm_su_take:
     mov [si], ax                ; PUBLISHED LAST, so a cache that was only
                                 ; half taken can never be tried
 .out:
-    jmp kret_es
+    pop es
+    jmp kret_di
 
 ; wm_su_edge - make the banked buffer's two edge byte columns agree with the
 ;              screen OUTSIDE the window (SPEC.md 11.96.2)
@@ -10031,7 +10058,13 @@ wm_su_edge:
                                 ; one-plane cache safe (11.96.17): the merge
                                 ; is the only place a colour neighbour could
                                 ; reach a 1bpp buffer
-    call wm_kent_bp             ; the rect being restored, banked: every
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp                     ; the rect being restored, banked: every
     mov bp, sp                  ; register is wanted below, so it is read off
                                 ; the pushes above through BP - WSE_X1..Y2,
                                 ; which address SS with no override. FOUR
@@ -10336,7 +10369,12 @@ wm_su_tno:
 
 wm_su_try:
     KFZ 20                      ; the reveal, answered from a cache (11.96.18)
-    call wm_kent_bp             ; = push ax/bx/cx/dx/si/di/bp
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
     push es
 %ifdef DOCK_OPT
     call dock_hole_win          ; a restore is not clipped, so under the OPEN
@@ -10484,7 +10522,8 @@ wm_su_try:
                                 ; is the `cmp` above that does, which is what
                                 ; the pushf at .out is for
     popf
-    jmp kret_es
+    pop es
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; wm_draw_shadow - a window's drop shadow, the L at (+1,+1) (SPEC.md 11.91.4)

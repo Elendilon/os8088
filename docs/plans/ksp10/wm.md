@@ -57,23 +57,21 @@ As committed (146f7878) kern_big `.text` -207 and kern_small -203, of which
   wm_clip_split -1 each.
 
 ### Batch 3 - wm_kent_bp, and the rect_get/rect_put sites backed out
-kern_big `.text` -191 cumulative, kern_small `.text` -165 cumulative.
+kern_big `.text` -166 cumulative, kern_small `.text` -140 cumulative
+(1db2fbb7 had kent at 16 sites; the next commit took the seven save-under
+ones back out).
 
 * **wm_kent_bp** - `call wm_kent_bp` IS push ax..bp (kentc_bp's twin, in
   `.text`; that one is in `.cold` and no `.text` caller can reach it near).
-  18 bytes, then 4 a site at the eight seven-push prologues (wm_sz_notify,
-  wm_ask_close, wm_paint_dmg, wm_dmg_wins, wm_paint_all, wm_title_set,
-  wm_su_flay, wm_su_edge), 4 at wm_su_take and wm_su_try (`call; push es`,
-  epilogue `jmp kret_es` for `pop es / jmp kret_di`), and 3 at six six-push
-  routines that end on `kret_di` and now push BP too and end on `kret_bp`
-  (wm_dock_clear [kern_big], wm_cov_rect, wm_su_vset, wm_su_bytes,
-  wm_su_scrset, wm_anim). -40 big. ~95 cycles a call; none is per glyph, run
-  or pixel - **wm_clip_rows keeps its pushes**, being per glyph cell under a
-  clip. The six that gained a BP push are leaves or near-leaves (none reaches
-  W_PAINT), so the deepest stack in the machine - a package's paint under
-  wm_draw_win - is unchanged; wm_draw_win and wm_destroy (which reaches it)
-  were deliberately NOT given a BP push. stkbalance over kernel/*.inc: 0
-  unbalanced at base and tip.
+  18 bytes, then 4 a site at six seven-push prologues (wm_sz_notify,
+  wm_ask_close, wm_paint_dmg, wm_dmg_wins, wm_paint_all, wm_title_set) and 3
+  at three six-push routines that end on `kret_di` and now push BP too and
+  end on `kret_bp` (wm_dock_clear [kern_big], wm_cov_rect, wm_anim). -15 big
+  net. ~95 cycles a call, each entered once per operation. Not given it:
+  **wm_clip_rows** (per glyph cell under a clip - hot), **wm_draw_win and
+  wm_destroy** (a BP push there deepens the stack under a package's W_PAINT,
+  the deepest in the machine), and **the save-under routines** (see REFUSED).
+  stkbalance over kernel/kernel.asm kernel/*.inc: 0 unbalanced, base and tip.
 
 ## REFUSED
 
@@ -100,3 +98,12 @@ kern_big `.text` -191 cumulative, kern_small `.text` -165 cumulative.
   wm_sizable...): needs a mask register or an inline-word helper that
   discards its own return address under a pushf; the saving was ~10 bytes for
   a helper nobody could read.
+* **wm_kent_bp at the seven save-under routines - 25 bytes, kern_big and
+  kern_small alike, left for the owner with 7.10.** wm_su_flay, wm_su_edge
+  (4 each), wm_su_take, wm_su_try (4 each, `call; push es` + `jmp kret_es`),
+  wm_su_vset, wm_su_bytes, wm_su_scrset (3 each, BP pushed, `kret_bp`). It is
+  not rect_get, but it is the same trade in the same place: ~95 cycles a call
+  and ~12 calls a cached restore is ~1,100 cycles (~0.24 ms) a raise, which is
+  the size of the S3 cost 7.10 holds. Built and measured (in 1db2fbb7), then
+  backed out.
+
