@@ -55541,7 +55541,16 @@ full text cache would need. Three rules keep it honest:
   i = 0..`TM_GW`−1, rows 15..54. Column value v (0..40): white vline rows
   15..54−v, then black vline rows 55−v..54 (v=0 → all white, v=40 → all
   black). The column at tm_pos draws all white (the sweep gap).
-- (6,61): `"RAM uuuK/tttK"` (white-fill (6,61)-(167,68) first).
+- (6,61): `"RAM uuu/tttK  HEAP uuu/tttK"`, the memory view's caption line
+  (below) with the two-space gap left blank. **The HEAP half is on this page
+  too**, because this is the page a launch opens on and the ONLY page the
+  small build has (§28.12). `RAM` alone says how much of the machine is used
+  and not how much a program can still claim. On a 128KB machine those
+  differ by the whole kernel, so the reader was left to subtract `System`
+  from the RAM total and guess at the rounding. Both figures are already in
+  `[tm_kb]` on every sample (§20.9), so the line costs a string copy and a
+  `tm_kpair`. The claim swatch stays on the memory view, because it keys
+  that view's map texture and this page has no map.
 - RAM bar: 1px black frame (6,71)-(`TM_RW`,80); interior (7,72)-(`TM_RW`−1,79):
   black for barw pixels from the left, white for the remainder.
 - (`TM_PEN`,87): header `tm_s_hdr`, at the **pen** and not at the band's left
@@ -55590,7 +55599,7 @@ own above the second map and read as *its* label.
   characters per pair is what fits both on one line. **One string and one
   `font_str`**, not two draws — two would need two check words and a fill
   that belongs to neither, where one string is one exact key. The performance
-  view builds the same line without the HEAP half (`[tm_view]`).
+  view builds the same line, HEAP half included, and leaves the gap blank.
 - (`TMM_HSQ_X`,4): the claim legend square, drawn last, into the two-space
   gap the string just lettered white.
 - `tm_str` must hold the longest of these lines, and this is it:
@@ -57493,7 +57502,7 @@ the pages themselves:
 | flag | off in `APP_SMALL` | what goes with it |
 |---|---|---|
 | `TMF_HEAP` | the heap page (§28.4) | the per-claim table and its `TYPE`/`TIER` decode, the three captions, `tm_hsnap`'s `OSAPI_MEM_AVAIL` pair, the scroll bar (§13.10) and `TMH_ROWS`' share of `tm_rowck` |
-| `TMF_MEM` | the memory view (§28) | the conventional-memory map, the XMS bar, the `NAME/ADDR/SIZE/HEAP` re-columning, the legend squares and their textures, the RAM line's second pair — and the whole of §28.6/§28.8/§28.11's quiet-page machinery, which exists for these two pages and for nothing else |
+| `TMF_MEM` | the memory view (§28) | the conventional-memory map, the XMS bar, the `NAME/ADDR/SIZE/HEAP` re-columning, the legend squares and their textures (the claim swatch beside the RAM line's HEAP pair among them; the pair itself stays) — and the whole of §28.6/§28.8/§28.11's quiet-page machinery, which exists for these two pages and for nothing else |
 
 **The ladder is ORDERED and the guard says so.** The heap page borrows the
 memory view's row machinery whole — `tm_mrow_open` / `tm_mrow_close` /
@@ -57503,7 +57512,7 @@ silently different product.
 
 **Kept on purpose, so that the small build is still an instrument and not a
 splash screen:** the load gauge and its sweep graph, `RAM used/total` with its
-bar, and the process list entire — every instance, its CPU share, its `MEM`
+bar and `HEAP claimed/size` beside it, and the process list entire — every instance, its CPU share, its `MEM`
 and its `CLM`. The one question the floor machine most wants answered, *what
 is eating this machine*, is answered by the arm that ships there.
 

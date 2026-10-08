@@ -1209,6 +1209,10 @@ tm_s_pre:   db 'SCH preempt', 0 ; read-only scheduler-mode field, chars 9..19
 tm_s_coop:  db 'SCH coop   ', 0 ; both exactly 11: the padding erases the
                                 ; longer word when the mode changes
 tm_s_ram:   db 'RAM ', 0
+tm_s_heap:  db '  HEAP ', 0     ; + claimed/size KB (SPEC.md 50), on both
+                                ; pages. The two leading spaces are the RAM
+                                ; line's gap, and the memory view draws the
+                                ; claim swatch into them
 ; Each caption sits at the LEFT of the column the widths above name, and the
 ; gap after it is that column's width less the caption's own - so the header
 ; is derived from the layout rather than typed out beside it, and it cannot
@@ -1249,9 +1253,6 @@ tm_s_mhdr:  db 'NAME     ADDR  SIZE  HEAP', 0 ; 25 chars, the row width. The
                                 ; five-wide KB columns with a space between.
                                 ; The heading said 17 for SIZE, so it sat one
                                 ; column left of every figure under it
-tm_s_heap:  db '  HEAP ', 0     ; + claimed/size KB (SPEC.md 50). The two
-                                ; leading spaces are the RAM line's gap, and
-                                ; the claim swatch is drawn into them
 tm_s_t86:   db '8086  ', 0      ; the detected tier (SPEC.md 41.1), which
 tm_s_t286:  db '286   ', 0      ; nothing else in the UI says out loud. Each
 tm_s_t386:  db '386+  ', 0      ; name is padded to the SAME six columns, so
@@ -5877,14 +5878,21 @@ tm_txt_cpu:
 ; out: nothing
 ; clobbers: nothing (flags only)
 ;
-; **In the memory view it carries the HEAP figures too**, in ONE string and
-; one font_str, with the claim swatch drawn into the two-space gap between
-; the pairs. Two draws on one line would need two check words and a fill that
-; belongs to neither; as one string it is one key, and the key is exact.
+; **It carries the HEAP figures too**, in ONE string and one font_str. Two
+; draws on one line would need two check words and a fill that belongs to
+; neither; as one string it is one key, and the key is exact.
 ;
-; The heap has no map of its own and never will - a claim is drawn in the
-; conventional map at its real address - so its figures belong to that map's
-; caption, which is this line.
+; ON BOTH PAGES, and the first is the one that matters. It used to be the
+; memory view's alone, which left the process page - the one a launch opens
+; on, and the ONLY one on the small build (28.12) - saying how much of the
+; machine was used and not how much a program could still claim. On a 128KB
+; machine those are different questions by tens of KB: RAM's total is int
+; 12h, and the kernel is not heap. The figures are already in [tm_kb] on
+; every sample, so the line costs a string copy and a tm_kpair.
+;
+; The claim SWATCH in the two-space gap is the memory view's alone, because
+; it keys the claim texture of that view's map - the process page has no map,
+; so a square there would be a legend for nothing and the gap stays blank.
 ; -----------------------------------------------------------------------------
 tm_txt_ram:
     push ax
@@ -5910,19 +5918,14 @@ tm_txt_ram_y:
     call tm_kpair               ; 'nnn/nnnK' - one K, not two, because the
                                 ; memory view fits a second pair on this line
                                 ; and eight characters is what it costs
-%ifdef TMF_MEM
-    cmp byte [tm_view], 0
-    je .built
     mov si, tm_s_heap           ; ...whose two leading spaces are where the
-    call tm_copy                ; claim swatch goes
+    call tm_copy                ; memory view's claim swatch goes
     mov ax, [tm_kb+SK_CLAIM]    ; the claimed half EXCLUDES the purgeables,
     mov bx, [tm_kb+SK_HEAP]     ; because no row below shows one (28.4.1) -
     call tm_kpair               ; and it is SK_CLAIM that does the excluding
                                 ; now, so the two pairs on this one line
                                 ; cannot disagree about what claimed MEANS:
                                 ; RAM's used half is SK_KERN + this word
-.built:
-%endif
     mov bx, tm_elck + 2*TMC_LINE    ; neither view puts this line at the same
     mov ax, [tm_liny]           ; y, so the band comes off the variable the
     call tm_capline             ; draw reads (SPEC.md 28.10.2)
