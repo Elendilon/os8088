@@ -63677,7 +63677,9 @@ non-zero, or `fdlg_gate` finds the window gone while `[fdlg_win]` still names
 it, `fdlg_grab` swallows **every** press, the chooser's own included,
 **silently** and arming nothing - so its release is ignored too - and
 `fdlg_top` sends a key to no window at all. `fdlg_gate` tells the two
-not-up cases apart by `ZF` (none, or gone), which costs it nothing. Without
+not-up cases apart by `ZF` (none, or gone - and an ANSWERED chooser is
+"gone" to it, so both filters hold it with no test of their own), which
+costs it nothing; `fdlg_reap` takes the answer before it asks. Without
 this a press later in the same drain reached a live-looking machine: a click
 moved the folder or rewrote the name a posted Save would commit, a Cancel
 overwrote a posted commit, and a drive icon's double-click launched a Disk

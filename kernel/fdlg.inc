@@ -279,7 +279,8 @@ FDBODY fdlg_open_x
     jne fdlg_ref                ; no dialog ever opens on top of another
     mov [fdlg_rqcb], di
     mov [fdlg_rqwin], bx
-    mov [fdlg_mode], al
+    mov ah, 0                   ; [fdlg_act] = 0: no answer yet
+    mov [fdlg_mode], ax         ; (and the mode, the byte below it)
     mov cx, fdlg_s_topen        ; the caption fm_kinit puts on it - written
     or al, al                   ; before the fences below, like the three
     jz .ttl                     ; above: nothing reads any of them until
@@ -296,10 +297,8 @@ FDBODY fdlg_open_x
     mov ax, [di+I_SPTR]         ; inst_tab, and fdlg_hidx can never miss
     mov [fdlg_rqsp], ax
 
-    xor ax, ax
-    mov [fdlg_act], al          ; no answer yet
 %ifdef KERN_SMALL
-    mov [fdlg_down], al         ; a press the last chooser never saw released
+    mov byte [fdlg_down], 0     ; a press the last chooser never saw released
 %endif                          ; (an Escape mid-press) is not this one's
     or si, si                   ; the caller's default wins...
     jnz .setname
@@ -662,16 +661,14 @@ FDBODY fdlg_grab_x
     jc .notup
     push bx
     call KERNEL_SEG:cw_wm_hit   ; BX = the window this press would reach
-    pop ax
+    pop ax                      ; AX = the chooser, never 0
     cmp ax, bx
     je .out                     ; CF=0 from the compare
-    FDK cw_snd_beep
-.eat:
-    stc
-    jmp short .out
+    FDK cw_snd_beep             ; (which keeps AX)
+    neg ax                      ; CF=1 and ZF=0: swallowed (AX is popped)
 .notup:
-    jnz .eat                    ; ZF=0: gone or answered, and not yet reaped
-    clc                         ; ZF=1: there is none
+    jnz .out                    ; ZF=0: swallowed, CF=1
+    cmc                         ; ZF=1: there is none, CF=0
 .out:
     pop bx
     pop ax
@@ -708,14 +705,37 @@ FDBODY fdlg_top_x
 ;      because FDH_RECT answers in SI and DI), BX restored by fdlg_hook, AX
 ;      and the rest per handler
 ; -----------------------------------------------------------------------------
+%ifndef FDLG_MOD
+; fdlg_hook - files.inc's ONE door into the chooser (SPEC.md 38.1.1, 38.9)
+; in:  AL = FDH_*, the rest per event
+; out: CF=1 the acting Disk window IS the chooser and it took the event;
+;      CF=0 otherwise, with nothing changed
+;
+; kern_big's: the compare is the body's head, which it falls into, and the
+; image's resident copy below (kern_small) far-calls it. The compare is on
+; the resident side for 38.1.1's reason: fm_layout raises FDH_ARM on every
+; paint of every Disk window, and a window that is not the chooser must not
+; pay a far call to be told so. [fdlg_blk] is 0 with no chooser up, and no
+; pool block is at offset 0.
+fdlg_hook:
+    push bx
+    mov bx, [fm_vp]
+    cmp bx, [fdlg_blk]          ; ...and on a match BX IS the chooser's block,
+    clc                         ; which every handler takes
+    jne fdlg_hook_no
+%endif
 FDBODY fdlg_hook_x
     push bp
     push ax
-    mov ah, 0
+    cbw                         ; (every FDH_* is under 128)
     xchg ax, bp                 ; BP = the table offset...
     pop ax                      ; ...and AH, the handler's argument, back
     call [cs:fdlg_htab+bp]
     pop bp
+%ifndef FDLG_MOD
+fdlg_hook_no:
+    pop bx
+%endif
     FDRET
 
 fdlg_htab:
@@ -831,10 +851,9 @@ fdlg_h_sel:
 .open:
     push si
     push di
-    mov si, [fdlg_gdis]         ; what the glass shows...
     mov al, FM_BGO
-    call fdlg_blabel            ; ...against what it should
-    cmp si, di
+    call fdlg_blabel            ; what it should show...
+    cmp di, [fdlg_gdis]         ; ...against what the glass does
     pop di
     pop si                      ; (pop writes no flag)
     je fdlg_h_no                ; one file to another: not a pixel changes
@@ -1101,7 +1120,8 @@ section .bss
 fdlg_mode:  resb 1              ; 0 = Open, 1 = Save
 fdlg_act:   resb 1              ; the posted answer: 0, FDA_COMMIT, FDA_CANCEL;
                                 ; AFTER fdlg_mode, which fdlg_reap's commit
-                                ; reads as one word with this 0 for AH
+                                ; reads as one word with this 0 for AH and
+                                ; fdlg_open writes as one word
 fdlg_ttl:   resw 1              ; its caption, for fm_kinit to adopt
 fdlg_gdis:  resw 1              ; the Open button's flags as last drawn
 fdlg_rqwin: resw 1              ; the requester's window...
@@ -1162,16 +1182,10 @@ ui_krect4:
 fdf_fdlg_open:          call fdlg_open_x
                     retf
 
+%ifdef FDLG_MOD
 ; -----------------------------------------------------------------------------
-; fdlg_hook - files.inc's ONE door into the chooser (SPEC.md 38.1.1, 38.9)
-; in:  AL = FDH_*, the rest per event
-; out: CF=1 the acting Disk window IS the chooser and it took the event;
-;      CF=0 otherwise, with nothing changed
-;
-; RESIDENT ON BOTH BUILDS, and the compare is on this side for 38.1.1's
-; reason: fm_layout raises FDH_ARM on every paint of every Disk window, and a
-; window that is not the chooser must not pay a far call to be told so.
-; [fdlg_blk] is 0 with no chooser up, and no pool block is at offset 0.
+; fdlg_hook - kern_small's resident door into the image's body: kern_big's
+; is the body's own head, above, and says what it answers
 ; -----------------------------------------------------------------------------
 fdlg_hook:
     push bx
@@ -1179,14 +1193,11 @@ fdlg_hook:
     cmp bx, [fdlg_blk]          ; ...and on a match BX IS the chooser's block,
     clc                         ; which every handler takes (fdlg_hook_x)
     jne .no
-%ifdef FDLG_MOD
     call far [FDFP + FDE_HOOK*4]
-%else
-    call fdlg_hook_x
-%endif
 .no:
     pop bx
     ret
+%endif
 
 %ifdef FDLG_MOD
 ; =============================================================================
