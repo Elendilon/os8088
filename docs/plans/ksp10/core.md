@@ -95,6 +95,18 @@ blessed baseline at 833f13e4 (big / small).
   .tail` is short, and `.count2` reaches `.loop` through `.stay`'s jmp (-4).
   All kern_big (OS88_COMPACT).
 
+### batch 5 (big -9, small -9; running total big -246, small -155)
+
+* instance.inc: inst_bind_win asks wm_ptr2idx first so the AX bank goes
+  (-2); inst_caller tests the 0xFF stamp as `inc bl / jnz` (-1).
+* BANKS THE CELL ALREADY HOLDS. A body reached only through a rare OSAPI
+  cell need not bank what that cell banks: the cell's `push bp` and the
+  api_r* tail's `pop bp` hold BP, api_rsc/api_rs hold DS, api_x/api_rxc hold
+  DS and ES. inst_pkg_spawn's ES (RXCELL, -2), mmf_osapi_claim_snapshot's
+  DS (RCSLOT, -2), osapi_sys_snapshot_x's BP (RCSLOT, -2). Every other cell
+  target in these files was checked for the same and banks nothing the
+  cell holds.
+
 ## REFUSED
 
 * ct_cw_gfx_pen_cf / ct_cw_gfx_hline look dead from kernel/ (0 sites) but
@@ -126,7 +138,16 @@ blessed baseline at 833f13e4 (big / small).
 * inlining ld_res_name into ld_run_name_x: 0 bytes - it already FALLS
   THROUGH into ld_take, which is the same saving.
 
+* api_cpname banking ES/DI itself so its four callers stop doing it: -4
+  net (+8 wrapper, -12 callers, +2 for rename's second copy). Not worth
+  the churn in the API stubs.
+
 ## CROSS-FILE
+
+* THE CELL-BANK RULE ABOVE, everywhere else: any `_x` body reached only
+  through OSAPI_RSLOT/RCSLOT/RXCELL/RCXCELL/RNCELL that pushes BP (or DS,
+  or ES for an X cell) banks something the cell already holds. Worth a
+  sweep of the other owners' cell targets (2 bytes a register).
 
 * `test word [..], C` with C a high-byte constant is `test byte [..+1],
   C>>8`, a byte less: wm.inc:9938 (WF_STALE 0x8000), wm.inc:11129

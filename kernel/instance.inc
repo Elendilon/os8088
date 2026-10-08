@@ -1063,8 +1063,9 @@ inst_caller:
     cmp bh, [sch_cur]           ; that stamped it. A DIFFERENT task is running
     jne .task                   ; now, so it pre-empted that callback and the
     mov dh, bl                  ; callback's instance is not its to spend
-    cmp dh, 0xFF
-    jne .out
+    inc bl                      ; 0xFF (no stamp) is the one value `inc` takes
+    jnz .out                    ; to 0 - a byte under the compare, and BL is
+                                ; the banked BX's to lose
 .task:
     call sch_currec             ; not our callback: the running task's
     mov dh, [bx+sch_tasks+T_INST] ; instance (0xFF for the UI task)
@@ -1296,12 +1297,10 @@ inst_bind_win:
                                 ; INCLUDED", wm_ptr2idx "CX AND SI ARE
                                 ; PRESERVED and callers rely on it"
     mov [di+I_WIN], bx
-    call inst_idx               ; AX = this record's instance index
-    push ax
-    call wm_ptr2idx             ; AL = window index, AH = 0
-    mov si, ax
-    pop ax
-    mov [wm_owner+si], al
+    call wm_ptr2idx             ; AL = window index, AH = 0 - FIRST, so its
+    mov si, ax                  ; answer is in SI before inst_idx spends AX
+    call inst_idx               ; AX = this record's instance index (it was
+    mov [wm_owner+si], al       ; the other order and a bank, size pass 10)
     pop si
     pop ax
     ret
@@ -2078,11 +2077,15 @@ inst_pkg_spawn:
                                 ; and inst_fhome_idx banks AX itself
     mov bx, [di+I_SPTR]         ; the worker runs in the package's segment...
     push bx                     ; ...and ITS OWN HEADER says how much stack it
-    push es                     ; wants (SPEC.md 8.7). Byte +15, which padded
-    mov es, bx                  ; the dispatcher and is 0 on every package
-    mov bl, [es:LD_H_CLASS]     ; built before this - and 0 is "no opinion",
-    pop es                      ; which gets the largest class, so nothing has
-    xor bh, bh                  ; to be rebuilt to keep working
+    mov es, bx                  ; wants (SPEC.md 8.7). Byte +15, which padded
+    mov bl, [es:LD_H_CLASS]     ; the dispatcher and is 0 on every package
+    xor bh, bh                  ; built before this - and 0 is "no opinion",
+                                ; which gets the largest class, so nothing has
+                                ; to be rebuilt to keep working. ES IS NOT PUT
+                                ; BACK: the one door in is OSAPI's X cell,
+                                ; whose api_x banks and restores ES round this
+                                ; whole body, and inst_pkg_fence above was the
+                                ; last reader of the stamped value
     xor cx, cx                  ; task_spawn's own spelling of "no opinion"
     cmp bx, SCH_NCLASS          ; AN INDEX OUT OF RANGE IS NOT A REFUSAL: a
     jae .havecls                ; package with a byte we do not understand gets
@@ -2269,8 +2272,8 @@ section .cold                   ; COLD (SPEC.md 2.6, 29.9.1): 236 bytes of the
 osapi_sys_snapshot_x:
     push cx                     ; (no DX: nothing below writes it - not even
     push si                     ; mem_owned_kb, which banks its own)
-    push di
-    push bp
+    push di                     ; (no BP: the RCSLOT cell's own `push bp` /
+                                ; api_rsc's `pop bp` bank it round this body)
 
     mov bp, di                  ; BP = the buffer base, for life
 
@@ -2362,7 +2365,6 @@ osapi_sys_snapshot_x:
 
     mov ax, MAX_TASKS
     mov bx, INST_MAX
-    pop bp
     pop di
     pop si
     pop cx

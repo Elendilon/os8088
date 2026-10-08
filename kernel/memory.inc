@@ -4409,8 +4409,9 @@ mem_owner_of_x:
 %error "a claim record is no longer its own snapshot prefix - the copy below"
 %endif
 mmf_osapi_claim_snapshot:       ; (the cell's far entry, as mmf_osapi_mem_claim)
-    push ds
-    push cx
+    push cx                     ; NO DS BANK: the one door in is the RCSLOT
+                                ; cell, whose api_rsc banks and restores DS
+                                ; round this whole body (size pass 10)
     push si
     push di
     push ss                     ; DS = LOW_SEG for the duration: the claim map
@@ -4429,7 +4430,6 @@ mmf_osapi_claim_snapshot:       ; (the cell's far entry, as mmf_osapi_mem_claim)
     pop di
     pop si
     pop cx
-    pop ds
     mov ax, MEM_MAX
     retf
 
