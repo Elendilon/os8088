@@ -57,6 +57,26 @@ Running total at batch 3: **kern_big .text -59, .cold -10 (sum -69); kern_small 
 Running total at batch 4: **kern_big .text -61, .cold -10 (sum -71); kern_small .text -43
 (sum -43)**.
 
+### At the tip
+
+    kernsize[big]:   text 44,247 -61  bss 5,133 +0  cold 37,911 -10  lowbss 5,598 +0  vgabuf 336 +0  ovl 2,470 +0  ovlw 5,011 +0   (sum -71)
+    kernsize[small]: text 32,861 -43  bss 3,104 +0  cold 23,950 +0  lowbss 2,868 +0  vgabuf 0 +0    ovl 2,086 +0  ovlw 1,480 +0   (sum -43)
+    kernsize[emu]:   text 44,506 -67  bss 5,133 +0  cold 38,029 -16  lowbss 5,598 +0  vgabuf 336 +0  ovl 2,476 +0  ovlw 5,011 +0   (sum -83)
+
+Per file, kern_big code (`kernsize --modules`): fsx 961 -> 935 (-26), viddet 791 -> 770
+(-21), hiber 360 -> 350 (-10), vidsel 878 -> 871 (-7), xmem 242 -> 235 (-7). No `.bss`,
+`.lowbss` or `.vgabuf` byte moved.
+
+Run: `make` (fast tier 61/61 each batch), `make small`, `make emu`, the KBDDIAG=1 knob
+in a private tree (`tools/os88build.py build KBDDIAG=1`), stkbalance over
+kernel.asm + kernel/*.inc identical at base and tip; soak `dispfsxherc`, `hibernate`,
+`pixelstein-vga` (Mode X + OSAPI_FSX_PAGE + the retrace wait), `xmcheck` (QEMU) - all
+green; full-tier `bootsmoke` (both 1bpp adapters, after the 6845 change) green.
+
+Modules (HIBER.DRV, CLONE.DRV/compress, EXTD.DRV) were NOT worked: their claims are
+whole KB and none is near a step that bytes here could buy (hiber 5,489 bytes of
+image, clone 9,211 - five under 9KB, i.e. headroom only - extd 1,023).
+
 docs/INDEX.md is regenerated in this branch only because this notes file is tracked
 (os88index lists every docs/plans/*.md); the coordinator regenerates it at the merge.
 
@@ -96,14 +116,17 @@ docs/INDEX.md is regenerated in this branch only because this notes file is trac
   kernel.asm, `hb_kinit` in hiber.inc - 6 bytes each, `call COLD_SEG:x_x / ret`):
   every one exists because inst_launch (instance.inc ~1570) does `call ax` near in
   KERNEL_SEG, while every OTHER callback of a kernel window is dispatched into
-  `.cold` through `COLD_SEG:wm_cbd` (wm_pkgcall's `.near`). Dispatching KD_INIT the
-  same way (`push bp / mov bp, ax / call COLD_SEG:wm_cbd / pop bp`, +7) and pointing
-  the four KD_INIT words at the cold bodies (which then end in a near `ret`, i.e.
-  `kretc_*` instead of `kretfc_*`) is ~-24 +7 = **~-17 kern_big**, ~+1 kern_small
-  (fm_kinit only). The blocker is `cp_kinit` (ctrl.inc), which is a `.text` body:
-  it would need moving to `.cold` or a cold thunk of its own. ESTIMATE, not built.
+  `.cold` through `COLD_SEG:wm_cbd` (wm_pkgcall's `.near`). Dispatching KD_INIT that
+  way costs +6 at the site (BP is the instance record there, so it is
+  `push bp / xchg ax, bp / call COLD_SEG:wm_cbd / pop bp` beside the existing SI
+  bank), the four cold bodies end in a near `ret` instead (`kretc_*` for
+  `kretfc_*`, check each has no other far caller), and `cp_kinit` - a `.text` body
+  in ctrl.inc - needs a cold entry of its own (~+6). ESTIMATE: **~-12 kern_big,
+  ~+6 kern_small** (only fm_kinit is a thunk there). Probably NOT worth taking;
+  recorded so nobody re-derives it.
 * **`cw_mem_disp` (kernel.asm) IS `spw_near` (viddet.inc)**: both are `call bp /
   retf` in `.text`. `cw_mem_disp equ spw_near` and the three bytes go, both kernels
   (-3 / -3). spw_near must stay where it is (inside SPL_RESIDENT, the splash calls
-  it); cw_mem_disp's callers only need KERNEL_SEG:a `call bp/retf`. Check
-  os88ovlchk / tests/ovlrefs.txt for either name before taking it.
+  it); cw_mem_disp's callers only need KERNEL_SEG:a `call bp/retf`. ASSEMBLED in a
+  scratch copy: exactly -3 on both kernels. Check os88ovlchk / tests/ovlrefs.txt for
+  either name before taking it.
