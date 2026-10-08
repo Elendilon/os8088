@@ -595,10 +595,17 @@ Each is a decision of its own, and none is in this plan's waves:
 ### 10.8 Waves
 
 - **E0** (done): the MartyPC profile and VIDDISK `E`.
-- **E1**: `EMS.DRV` - the class, the row, the probe and both families, the
-  verbs, `DSV_RELINST` for the class; a gate on MartyPC's board (allocate,
-  map, a package's teardown frees its pages) and on 86Box's AboveBoard by
-  eye.
+- **E1 - BUILT (2026-10-08), SPEC.md 107**: `EMS.DRV`, class 7, row 6,
+  SYSTEM.CFG bit 7; the CONSECUTIVE family only, probed at E000h/D000h/C000h
+  x 260h-26Ch with no setting; nine verbs through `OSAPI_DRV_CALL`. Two
+  departures from 10.5, both cheaper: teardown is not `DSV_RELINST` but the
+  package door itself with ES = `KERNEL_SEG` (`EMSV_GONE`, from
+  `xm_release_rec`, so the loader's abort sweep is covered too), and the
+  caller's identity is the instance slot `drv_pkg_call_x` puts in BH for
+  this class alone. **113 resident bytes** where 10.5 estimated 95-100, no
+  rung crossed, `kern_small` +0; the driver 1,206 bytes, 813 on the floppy.
+  The gate is `tests/ems.py`, on MartyPC's board and on no board. The SPACED
+  family (and so 86Box's AboveBoard) is still to come.
 - **E2**: the video bank on EMS, the hybrid - section 4's policy with a free
   fill and a copied drain: the 286's design, and on an 8088 a measurement of
   what the copy costs a real play.

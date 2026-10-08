@@ -484,6 +484,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 103 | REDLINE — CPU and graphics benchmarks (`apps/redline/`) |
 | 105 | MIDIRack — a MIDI file player (`apps/midirack/`) |
 | 106 | PiXEL — an image viewer and editor (`apps/pixel/`) |
+| 107 | EMS.DRV — expanded memory on a LIM EMS board (`drivers/ems/`) |
 
 ## docs/
 

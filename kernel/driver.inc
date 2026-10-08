@@ -42,7 +42,7 @@
 ; =============================================================================
 
 %ifdef KERN_EMU
-DRV_MAX     equ 7               ; rows in drv_tab. The FIFTH is SPEC.md 72's
+DRV_MAX     equ 8               ; rows in drv_tab. The FIFTH is SPEC.md 72's
                                 ; Ethernet card and the SIXTH is SPEC.md
                                 ; 9.11's absolute mouse - the one DRVC_OVL row
                                 ; in the table, which takes no publication
@@ -53,11 +53,13 @@ DRV_MAX     equ 7               ; rows in drv_tab. The FIFTH is SPEC.md 72's
                                 ; exist on the other two. The SEVENTH is
                                 ; kern_big's sixth, the CH375 USB mouse
                                 ; (SPEC.md 9.12) - after the absolute mouse
-                                ; here so that row keeps index 5
+                                ; here so that row keeps index 5. The EIGHTH
+                                ; is kern_big's seventh, EMS.DRV (SPEC.md 107)
 %elifdef KERN_BIG
-DRV_MAX     equ 6               ; ...and kern_big stops at the CH375 USB mouse
-                                ; (SPEC.md 9.12), appended after the parallel
-                                ; link so rows 0-4 keep their indices.
+DRV_MAX     equ 7               ; ...and kern_big stops at EMS.DRV (SPEC.md
+                                ; 107), after the CH375 USB mouse (SPEC.md
+                                ; 9.12), appended after the parallel link so
+                                ; rows 0-4 keep their indices.
                                 ; The absolute mouse's row was HERE until
                                 ; SPEC.md 9.11.7 and the machine this project
                                 ; is calibrated against could never use it:
@@ -156,8 +158,18 @@ DRVC_POINT  equ 6               ; a POINTING DEVICE the kernel does not
                                 ; whether the caller is a PUBLISHED driver.
                                 ; APPENDED, never slotted into the retired 3:
                                 ; a class number is ABI (DRVC_RETIRED3 above)
+DRVC_EMS    equ 7               ; EXPANDED MEMORY: a LIM EMS board's page
+                                ; registers (SPEC.md 107). A real class with
+                                ; a copied table, because its door is
+                                ; DSV_PKGCALL. AFTER DRVC_POINT, which keeps
+                                ; no copy: the class->copy index skips it as
+                                ; it skips the retired 3 (drv_cls_svc_x,
+                                ; drv_pkg_call_x)
+EMSV_GONE   equ 8               ; ...and the one EMS verb the kernel sends:
+                                ; an instance is torn down (SPEC.md 107.1,
+                                ; xm_release_rec). Mirrored from os88api.inc
 %ifdef OS88_DRIVERS
-DRVC_MAX    equ 6               ; classes, and so publication slots
+DRVC_MAX    equ 7               ; classes, and so publication slots
 %else
 DRVC_MAX    equ 5               ; ...and FIVE where there is no driver layer at
                                 ; all (SPEC.md 51.0), because the only thing
@@ -817,13 +829,14 @@ DRV_CFG_MAPN equ 8
 ; the kernel at the image's offset.
 %1 %+ _bit:
 %ifdef KERN_EMU
-    db 0, 1, 4, 2, 3, 5, 6      ; sound, hdd, ether, ramdisk, net, vmmouse,
-                                ; usbmouse
+    db 0, 1, 4, 2, 3, 5, 6, 7   ; sound, hdd, ether, ramdisk, net, vmmouse,
+                                ; usbmouse, ems
 %elifdef KERN_BIG
-    db 0, 1, 4, 2, 3, 6         ; sound, hdd, ether, ramdisk, net, usbmouse -
-                                ; BIT 6 ON BOTH BUILDS, row 5 here and row 6
-                                ; there: bit 5 is the absolute mouse's even on
-                                ; a build that has no such row (SPEC.md 9.12)
+    db 0, 1, 4, 2, 3, 6, 7      ; sound, hdd, ether, ramdisk, net, usbmouse,
+                                ; ems - BIT 6 ON BOTH BUILDS, row 5 here and
+                                ; row 6 there: bit 5 is the absolute mouse's
+                                ; even on a build that has no such row (SPEC.md
+                                ; 9.12). And EMS is bit 7 on both (SPEC.md 107)
 %else
     db 0, 1, 3, 2               ; sound, hdd, ether, net
 %endif
@@ -929,6 +942,8 @@ drv_t_vmm:   db 'Absolute mouse', 0  ; ALONE (SPEC.md 9.11.7) - 27 bytes that
                                 ; mechanism and has no use for this driver
 %endif
 %ifdef KERN_BIG
+drv_f_ems:   db 'EMS.DRV', 0     ; SPEC.md 107's expanded memory: kern_big's
+drv_t_ems:   db 'EMS', 0         ; for the reason the USB mouse's line gives
 drv_f_usbm:  db 'USBMOUSE.DRV', 0 ; SPEC.md 9.12's CH375 mouse. kern_big's and
 drv_t_usbm:  db 'USB Mouse', 0  ; not kern_small's: the whole driver mechanism
                                 ; is OS88_DRIVERS already, and a 128KB machine
@@ -980,6 +995,8 @@ drv_fptr6:   dw PKG_DISP
 drv_fseg6:   dw 0               ; class 6 (DRVC_POINT). osapi_mou_feed's
                                 ; fence reads this segment word by name
                                 ; (SPEC.md 9.12.1)
+drv_fptr7:   dw PKG_DISP
+drv_fseg7:   dw 0               ; class 7 (DRVC_EMS, SPEC.md 107)
 
 drv_cfgname: db 'SYSTEM.CFG', 0
 drv_sysname: db 'KERNEL.SYS', 0 ; what makes a disk THE system disk (19.6): the
@@ -1165,6 +1182,14 @@ usbm_row:                       ; ...a label for tests/usbmouse.py, which finds
                                 ; else's card
     db DRVE_OK
     db 0
+    dw PKG_DISP, 0              ; row 6 (row 7 on kern_emu): EMS.DRV, a LIM
+    dw drv_f_ems, drv_t_ems     ; EMS board's page registers (SPEC.md 107)
+    dw 0, 0
+    db DRVC_EMS
+    db 0                        ; NOT wanted by default: its probe writes I/O
+                                ; ports, and 260h is the CH375's on a Book8088
+    db DRVE_OK
+    db 0
 %endif
 
 
@@ -1210,6 +1235,7 @@ DRVM_IMG_NET equ 5              ; ceil(build/net.drv     / 1024) - FIVE
                                 ; SPEC.md 26.7) included
 DRVM_IMG_VMM equ 1              ; ceil(build/vmmouse.drv / 1024)
 DRVM_IMG_USBM equ 2             ; ceil(build/usbmouse.drv / 1024)
+DRVM_IMG_EMS equ 2              ; ceil(build/ems.drv / 1024)
 
 DRVM_SND     equ DRVM_IMG_SND + 16        ; SBL_PLAYKB: what it holds PLAYING -
                                 ; a 16KB ring the card reads in place, and no
@@ -1243,6 +1269,8 @@ DRVM_RAM     equ (DRVM_IMG_RAM + 7 + 8) | DRVM_PLUS
 DRVM_VMM     equ DRVM_IMG_VMM   ; the absolute mouse claims nothing either: it
                                 ; hooks no vector, owns no port and keeps no
                                 ; buffer. The image IS the whole footprint
+DRVM_EMS     equ DRVM_IMG_EMS   ; EMS.DRV claims nothing: its tables are its
+                                ; bss, and the board's memory is not the heap's
 DRVM_USBM    equ DRVM_IMG_USBM  ; the USB mouse claims nothing: its one
                                 ; buffer is the 64-byte descriptor, in the
                                 ; image. Its worker's stack is SCH_DRV_STK of
@@ -1263,7 +1291,8 @@ drv_memk:                       ; one word per drv_tab row, in the same order
     dw DRVM_VMM                 ; row 5: the absolute mouse (kern_emu alone)
 %endif
 %ifdef KERN_BIG
-    dw DRVM_USBM                ; the CH375 USB mouse, last on both big builds
+    dw DRVM_USBM                ; the CH375 USB mouse, and
+    dw DRVM_EMS                 ; EMS.DRV, last on both big builds
 %endif
 %if ($ - drv_memk) / 2 != DRV_MAX
   %error "drv_memk has drifted from drv_tab: one word per row, same order"
@@ -1382,9 +1411,12 @@ drv_cls_svc_x:
     push ax
     call drv_cls_idx            ; ...same: CF = 1 on a refusal, and `pop`
     jc .out                     ; writes no flag
-    cmp al, DRVC_POINT          ; ...and the class with no copy: CF = 1 below
-    cmc                         ; it, so complemented CF = 1 AT it (it is the
-    jc .out                     ; last class, DRVC_MAX)
+    cmp al, DRVC_POINT          ; ...and the class with no copy: CF = 1 AT
+    jb .pt                      ; it, and the one class past it, DRVC_EMS,
+    stc                         ; is compacted past it too. (The `jb` comes
+    je .out                     ; FIRST: `stc` would be the CF it tested)
+    dec di
+.pt:
     cmp al, DRVC_RETIRED3       ; class 3 has no drv_svc slot: the index is
     jbe .lo                     ; COMPACTED past it (drv_fptr/drv_owner are
     dec di                      ; not - a class number is shipped ABI)
@@ -2516,7 +2548,7 @@ drv_cp_class_x:
     cmp al, DRVC_RETIRED3       ; ...whose compacted slot IS class 4's, so a
     je .skip                    ; walk that visits it counts ETHER.DRV twice
     call drv_cls_svc_x
-    jc .done
+    jc .skip                    ; DRVC_POINT keeps no copy: past it, to EMS
     cmp word [di+DSV_CPNAME], 0
     je .skip
     cmp bl, bh
@@ -4695,8 +4727,8 @@ drv_dlg_name: resb 14           ; the caller's default name, staged out of its
 %endif
 drv_owner:  resw DRVC_MAX       ; per class: the row whose services are
                                 ; published, or 0. Class 1 is index 0
-%if DRVC_POINT != DRVC_MAX
-%error "driver: drv_cls_svc refuses DRVC_POINT by `>= it`, so it must be the last class, and drv_svc stops short of it"
+%if DRVC_EMS != DRVC_MAX || DRVC_POINT + 1 != DRVC_EMS
+%error "driver: the class->copy index skips DRVC_POINT and then DRVC_EMS is the last copy (drv_cls_svc_x, drv_pkg_call_x)"
 %endif
 drv_svc:    resb DSV_SIZE*(DRVC_MAX-2) ; ...and a copy of each one's table, so
                                 ; every `[drv_svc+DSV_*]` in snd.inc still
@@ -5102,15 +5134,19 @@ drv_pkg_call_x:
     mov al, bh
     cmp al, 1
     jb .none
-    cmp al, DRVC_MAX            ; DRVC_POINT IS DRVC_MAX and has no drv_svc
-    jae .none                   ; slot (drv_cls_svc_x refuses it too): its
-                                ; index would be 4, past the table's four
+    cmp al, DRVC_MAX
+    ja .none
+    cmp al, DRVC_POINT          ; DRVC_POINT has no drv_svc slot (drv_cls_svc_x
+    je .none                    ; refuses it too)
     dec ax                      ; AL >= 1, so AH is not touched
     cmp al, DRVC_RETIRED3       ; ...the same compaction, inline
     jb .lo
     dec ax                      ; ...and AL >= 3 here
+    cmp al, DRVC_POINT - 1      ; ...and past DRVC_POINT: DRVC_EMS's copy is
+    jb .lo                      ; the one after DRVC_FILE's
+    dec ax
 .lo:
-    mov ah, DSV_SIZE            ; AL <= 3: the BYTE multiply, which leaves DX
+    mov ah, DSV_SIZE            ; AL <= 4: the BYTE multiply, which leaves DX
     mul ah                      ; alone - two bytes and ~70 cycles where the
     xchg ax, di                 ; word one with DX banked round it was eight
                                 ; and ~150 (kernel size pass 9)
@@ -5128,6 +5164,13 @@ drv_pkg_call_x:
     or ax, ax
     jz .none                    ; nothing attached, or attached and not yet
                                 ; published (SPEC.md 51.2.1)
+    cmp bh, DRVC_EMS            ; WHO IS ASKING (SPEC.md 107.1): EMS keys its
+    jne .who                    ; pages on the caller's INSTANCE, a package's
+    push dx                     ; segment being free to move (66). BH is its
+    call inst_caller            ; class, which the driver knows already, so it
+    mov bh, dh                  ; carries the slot instead - and EMS.DRV puts
+    pop dx                      ; the class back before it returns, so the BX
+.who:                           ; a package called with is the BX it gets
     mov ds, ax                  ; DS = the driver's segment, so DI can go back
     pop ax                      ; the caller's AX
     pop di                      ; ...and the caller's DI, which a verb taking

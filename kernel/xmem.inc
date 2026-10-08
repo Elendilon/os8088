@@ -647,6 +647,18 @@ xm_copy:
 ; slot and this will never free it. Claim from a callback (SPEC.md 41.5.1).
 ; -----------------------------------------------------------------------------
 xm_release_rec:
+    push ax                     ; FIRST, AND ON EVERY MACHINE: the instance's
+    push bx                     ; EXPANDED memory (SPEC.md 107.1), which an
+    push es                     ; 8088 can have and the store above 1MB it
+    call inst_idx               ; cannot - so before the test below that ends
+    push cs                     ; this on every machine with no XMEM.DRV.
+    pop es                      ; EMS.DRV's own door, with ES = the kernel
+    mov bx, DRVC_EMS * 256 + EMSV_GONE ; (a package's call never has it):
+    call drv_pkg_call_x         ; no driver, no door, CF = 1 and nothing
+    pop es                      ; done. The driver keeps every register but
+    pop bx                      ; AX and BX for this verb; it is HERE and
+    pop ax                      ; not in inst_rel_rec because this has the
+                                ; fourth caller, ld_unreserve's abort sweep
     call xm_have
     je .out                     ; no overlay, so no table and nothing to free
     push ax

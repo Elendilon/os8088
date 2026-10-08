@@ -3546,6 +3546,26 @@ SOAK = [
         "see is the datasheet read wrong in both halves at once",
         needs=("marty", "nasm"), serial=True, timeout=300,
         wants=("build/usbmsim.img", "build/usbmbusy.img", "build/apps360.img")),
+    Row("ems", "soak", py("tests/ems.py"), 45.0,
+        "EMS.DRV (SPEC.md 107), as a package sees it, on MartyPC's Lo-tech "
+        "2 MB board (os8088_5150_herc_hdd_sb_ems_gla) - an 8088 with expanded "
+        "memory. `make emstest`'s disk wants the driver (SYSTEM.CFG bit 7) "
+        "and carries EMSTEST.O88, whose every launch runs one sequence and "
+        "leaves its answers in its bss. The row is LOADED and DRVE_OK; the "
+        "first instance sees 128 pages and frame E000h, allocates, frames all "
+        "four quarters, signs three pages through the frame, sees page 0 "
+        "through a second quarter and maps page 1 by its OWN OUT from the "
+        "recipe (107.4) - and the frame is then READ OFF THE EMULATOR, not "
+        "taken from the package. A second instance is refused the quarters "
+        "(BUSY) and the first's handle (BAD) and gets its BX back as it went; "
+        "both are closed holding everything and a third finds it all free - "
+        "EMSV_GONE from xm_release_rec. Then the same disk on the machine "
+        "with NO board: the row is DRVE_HW and the package is told nobody "
+        "answered. Verified red with the GONE call out (the third instance is "
+        "a later one) and with drv_pkg_call_x's slot swap out (the second "
+        "FREEs the first's handle)",
+        needs=("marty", "nasm"), serial=True, timeout=300,
+        wants=("build/emstest.img",)),
     Row("wirezone", "soak", py("tests/wirezone.py"), 50.0,
         "Does the desktop SERVICE zone arrive with its driver and LEAVE with "
         "it? (SPEC.md 26.7) The kernel's half of the Wire is a generic zone a "

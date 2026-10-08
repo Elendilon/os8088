@@ -168789,3 +168789,151 @@ a look apart agree, and says so when they did not - and in five runs alone
 afterwards it said so in every one, the pixels that moved the status bar's
 `Memory:` digits (the CGA's 368-390 x 165-171, the VGA's 464-486 x 475-481)
 and the menu bar's clock: the cause, seen. All five passed.
+
+## 107. EMS.DRV — expanded memory on a LIM EMS board (`drivers/ems/`)
+
+**A driver for a LIM EMS board's page registers, so a package can hold
+megabytes on an 8088.** The design record is docs/plans/VIDEO-XMS-PLAN.md
+section 10, which costed it against XMS (§41) and measured it on MartyPC's
+Lo-tech board; this section is the contract.
+
+**Expanded memory is MAPPED, not copied.** A board has four page registers;
+writing one maps a 16 KB page of the board into one QUARTER of a 64 KB
+FRAME below 1 MB, and the CPU then reads and writes that page as ordinary
+memory. So, unlike `OSAPI_XMEM_COPY`, nothing here moves a byte: a package
+maps pages and uses the frame directly, and a disk read may land in it
+(VIDEO-XMS-PLAN 10.2: `READ_SEQ` into the frame at the disk's own rate). It
+is reached by OUT and needs no CPU above an 8088.
+
+### 107.1 What the kernel carries
+
+- **A class, `DRVC_EMS` = 7** (`apps/os88api.inc`), appended after
+  `DRVC_POINT` because a class number is ABI. It has a publication slot and a
+  copy of its service table; `DRVC_POINT` remains the one class with no copy,
+  and the class-to-copy arithmetic (`drv_cls_svc_x`, `drv_pkg_call_x`) skips
+  it as it skips the retired class 3.
+- **A row, `EMS.DRV`, "EMS"**, on `kern_big` and `kern_emu`, SYSTEM.CFG
+  **bit 7** on both, **not wanted by default** (§51.3): attach writes to
+  I/O ports, and on a machine without a board at that address they are
+  somebody else's - the Book8088's CH375 answers at 260h (§9.12).
+  `kern_small` has no driver layer (§51.0) and therefore no EMS.
+- **`OSAPI_DRV_CALL` hands a driver the CALLER'S INSTANCE in BH.** It was the
+  class, which a driver knows already, and no shipped driver read it.
+  `inst_caller`'s answer (§34.3): the instance slot, or 0xFF for the kernel,
+  a driver or the UI task outside a package callback. EMS ownership is keyed
+  on it, because a package's SEGMENT can move under compaction (§66).
+- **A dead instance's pages are returned.** `inst_rel_rec` - the teardown
+  that releases an instance's sound grants and XMS blocks - calls the EMS
+  class's package door with verb `EMSV_GONE` and `ES = KERNEL_SEG`, which no
+  package can send (its calls arrive with its own segment in ES).
+
+### 107.2 The board
+
+**One register family in this version, the CONSECUTIVE one**: four
+write-only page registers at *base* .. *base*+3, quarter *q*'s register at
+*base* + *q*, a page's value being its number (0..127 on a 2 MB board, to
+255 on a 4 MB one). The Lo-tech 2 MB board, MartyPC's model of it, 86Box's
+"Lo-tech EMS Board", and - through the Lo-tech driver - a PicoMEM's EMS. The
+SPACED family (Intel AboveBoard, AST RAMpage, BocaRAM, Everex: quarter *q*
+at *base* + *q* x 4000h, 80h + the page) is VIDEO-XMS-PLAN 10.4's second
+backend and is not here.
+
+**Attach probes; nothing is configured.** It tries the frames E000h, D000h
+and C000h in that order and, in each, the bases 260h, 264h, 268h and 26Ch:
+- **a frame holding an option ROM is skipped with no port written** - 55h
+  AAh at any 2 KB boundary inside it, the BIOS's own scan;
+- **260h is skipped while a `DRVC_POINT` driver is published**, that being
+  the CH375's address;
+- a base is a board when mapping page 0 into quarter 0 and page 1 into
+  quarter 1 makes two different bytes stick, and mapping page 0 into
+  quarter 1 then shows quarter 0's byte, and a write through quarter 1 is
+  read back through quarter 0. The four bytes it touches are put back;
+- the board is SIZED by a signature in each page's first four bytes,
+  written from page 255 DOWN and read UP until one is wrong: a smaller board
+  aliases, and the last write to a physical page is its own number. Fewer
+  than 4 pages is no board.
+
+A refusal is `DRVE_HW`. On success every quarter is mapped to page 0..3, so
+the frame reads as the board and nothing else.
+
+### 107.3 The verbs (`OSAPI_DRV_CALL`, BH = `DRVC_EMS`)
+
+UI-task context or a package's worker alike: no verb takes a lock or calls
+the kernel, and each runs with interrupts off for its few instructions.
+Answers are in AX, CX, DX and SI (DI is an argument, never an answer:
+§20.11). Errors: CF=1 with AX = `EMSE_ROOM` 1 (no run of pages that long),
+`EMSE_HND` 2 (no free handle, `EMS_NHND` = 8), `EMSE_BAD` 3 (not yours, or
+out of range), `EMSE_BUSY` 4 (a quarter is another instance's).
+
+| BL | verb | in | out |
+|---|---|---|---|
+| 0 | `EMSV_IDENT` | | AX = `'EM'` |
+| 1 | `EMSV_CAPS` | | AX = pages free, CX = pages on the board, DX = the frame's segment, SI = the quarters nobody holds (bits 0-3) |
+| 2 | `EMSV_ALLOC` | AX = pages (1..the board) | AX = a handle, 1..8: a CONTIGUOUS run, first fit |
+| 3 | `EMSV_FREE` | AX = a handle you own | |
+| 4 | `EMSV_FRAME` | AL = quarters (bits 0-3) | ALL of them yours, or none and `EMSE_BUSY`. DX = the frame's segment, CX = quarter 0's register, SI = the step to the next quarter's, AL = the bits to OR into a page's value - THE RECIPE (107.4) |
+| 5 | `EMSV_UNFRAME` | AL = quarters | the ones you held are free |
+| 6 | `EMSV_MAP` | AL = a quarter you hold, DX = a handle you own, CX = a page of it (0..its length-1) | that page is in that quarter |
+| 7 | `EMSV_BASE` | AX = a handle you own | AX = its first page on the board, CX = its length |
+| 8 | `EMSV_GONE` | ES = `KERNEL_SEG`, AL = an instance slot | its handles and quarters freed. The kernel's alone (107.1) |
+
+### 107.4 Mapping from an interrupt
+
+A hook - the video player's decode, §53.2.2 - may call nothing, so it cannot
+send `EMSV_MAP`. It maps for itself from **the recipe**: with `EMSV_FRAME`'s
+CX, SI and AL and `EMSV_BASE`'s AX, page *p* of a handle goes into quarter
+*q* with `OUT CX + q x SI, base + p OR AL` - one `out` a quarter, and
+correct on any family the driver supports. **Only quarters you hold**: the
+driver does not see these writes, and the board's registers cannot be read
+back, so a quarter is the holder's to map and nobody else's.
+
+### 107.5 What it costs
+
+Measured by `tools/kernsize.py`, the kernel built at the commit before
+against this one:
+
+| | `kern_big` | `kern_small` |
+|---|---|---|
+| `.text` | **+72**: the row, its two strings, `drv_memk`'s word and `drv_fptr7`'s pair (the tick, 34); `xm_release_rec`'s `EMSV_GONE` call (22); the slot swap in `drv_pkg_call_x` and the class arithmetic past `DRVC_POINT` there and in `drv_cls_svc_x` (16) | 0 |
+| `.bss` | **+38**: `DRVC_EMS`'s owner word and its copy of a service table | 0 |
+| `.cold` | **+3** | 0 |
+| `.ovl` | **+1**: `drv_cfgbit`'s byte (not resident) | 0 |
+| the footprint | **no rung crossed** | no rung |
+| the system disk | `EMS.DRV`, 1,206 bytes of image (176 of them zero bss, off the disk), **813 on the floppy** packed | none |
+
+113 resident bytes on every `kern_big` machine, board or none - the estimate
+in VIDEO-XMS-PLAN 10.5 was 95-100, short by the teardown call's banking.
+
+### 107.6 Not done
+
+- The SPACED family, and chipset EMS (NEAT, SCAT): VIDEO-XMS-PLAN 10.4.
+- A Control Panel page naming the port and frame: the probe has no setting
+  to take, and a board that is not at one of the twelve places it tries is
+  not found.
+- `int 67h` for DOS programs (VIDEO-XMS-PLAN 10.6).
+- A use: the video bank on EMS is VIDEO-XMS-PLAN waves E2 and E3.
+
+### 107.7 The gate
+
+`make emstest` builds the 360 KB system disk with `EMS.DRV` wanted (bit 7)
+and `EMSTEST.O88` (`tests/emstest/`, not shipped); `tests/ems.py` (soak row
+`ems`) boots it on MartyPC's `os8088_5150_herc_hdd_sb_ems_gla`, a Lo-tech
+2 MB board at 260h / E000h, and on the same machine with none:
+
+- the row LOADED and `DRVE_OK`; EMSTEST's first instance: IDENT, CAPS (128
+  pages free of 128, frame E000h, four quarters free), ALLOC 3 -> handle 1,
+  ALLOC 0 -> `EMSE_BAD`, ALLOC 129 -> `EMSE_ROOM`, FRAME all four (the
+  recipe 260h, step 1, OR 0), three pages signed through the frame, page 0
+  read through a second quarter, BASE (0, 3), page 1 mapped by the package's
+  own OUT and read there, CAPS after (125, no quarter);
+- the frame READ OFF THE EMULATOR, not reported by the package: E000:0000 is
+  page 0's signature and E000:C000 page 1's;
+- a second instance: FRAME 1 -> `EMSE_BUSY`, FREE 1 -> `EMSE_BAD`, BX back
+  as `DRVC_EMS`:verb;
+- both closed holding everything; a third instance sees 128 pages and four
+  quarters free and is handed handle 1 - `EMSV_GONE`;
+- no board: the row `DRVE_HW`, and the package told nobody answered.
+
+Broken on purpose: with `xm_release_rec`'s `EMSV_GONE` call removed the third
+instance finds 125 pages and no quarter free; with `drv_pkg_call_x`'s slot
+swap removed the second instance is GIVEN the first's quarter and its handle.

@@ -304,6 +304,9 @@ DSV_PKGCALL  equ 34             ; dw: near proc reached by OSAPI_DRV_CALL -
                                 ; can reach DSV_BLK and write a raw sector.
                                 ;
                                 ;   in  BL = a verb YOU define, BH = your class
+                                ;       - except DRVC_EMS, which gets the
+                                ;       CALLER'S INSTANCE SLOT there and puts
+                                ;       its class back (SPEC.md 107.1)
                                 ;       AX/CX/DX/SI/DI = yours to define
                                 ;       ES = THE CALLING PACKAGE'S SEGMENT, so
                                 ;            a buffer it hands you is ES:SI or
