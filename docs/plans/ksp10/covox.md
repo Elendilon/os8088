@@ -91,6 +91,18 @@ count). `snd_tone_req`'s two paths now share `inc [snd_gen] / mov al` at
 `.granted` (inside the same window). SPEC.md 34.3 updated: the owner's
 atomic grant is what makes the expiry its own.
 
+### Batch 4 - snd_town_off
+
+kern_big `.text -3`; kern_small `.text -3`. The zero is made once, before
+the test (`cmp [snd_town_act], al` is a byte shorter than against an
+immediate), and remade only on the path that called a sink, which may be a
+driver's and need not keep AX; `[snd_ch2mode]` is stored from AL. Reached
+from snd_tick's expiry (IRQ0): 9 instructions either way, 3 bytes fewer.
+
+Checked on MartyPC (base and tip alike): a tone record poked live with
+exp = 5 is silenced by snd_tick - act, exp and ch2mode all 0 after.
+`soak -k sndplay` ok.
+
 ### BUG FIXED (its own paragraph in the commit)
 
 `snd_entry`'s DRVV_READY jumped to `.nosb` - written when that label was the

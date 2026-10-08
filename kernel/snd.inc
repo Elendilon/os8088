@@ -349,14 +349,14 @@ snd_town_off:
     push bx
     push dx
     push si
-    cmp byte [snd_town_act], 0
+    xor ax, ax                  ; AX is banked: the zero every store below
+    cmp [snd_town_act], al      ; is made of, and the off frequency
     je .clear
-    xor ax, ax
     xor dl, dl
     call snd_tone_out           ; whichever sink granted it, silences it
-    mov byte [snd_ch2mode], 0
+    xor ax, ax                  ; (a driver's sink need not keep AX)
+    mov [snd_ch2mode], al
 .clear:
-    xor ax, ax                  ; AX is banked: two zero stores through it
     mov [snd_town_act], al
     mov [snd_town_exp], ax
     pop si
