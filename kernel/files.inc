@@ -2869,31 +2869,21 @@ fm_layout:
     ; fit = (listb - 22) / row_h, 0 when the window is too short
     sub ax, FM_ROW_Y0
     jg .roompos
-    xor ax, ax
-    jmp .fit
+    xor ax, ax                  ; ...which divides to 0 as well
 .roompos:
-    mov cx, FM_ROW_H
-    cmp byte [fm_lview], 0
-    je .fitdiv
-    mov cx, FMI_CELL_H
-.fitdiv:
-    xor dx, dx
-    div cx
-.fit:
+    call fm_rowdiv
     stosw                       ; fm_fit
 
     ; cols = 1 (list) or max(1, (cw-16)/FMI_CELL_W) (icons) - the constant and
     ; not a literal, because it moved 78 -> 80 (SPEC.md 22.11.1.1) and this
     ; comment said 78 for as long as it was true
     mov ax, 1
-    cmp byte [fm_lview], 0
+    call fm_isicon
     je .cols
     mov ax, [fm_cw]
     sub ax, 16
     jle .cols1
-    mov cx, FMI_CELL_W
-    xor dx, dx
-    div cx
+    call fm_div80
     or ax, ax
     jnz .cols
 .cols1:
@@ -2901,15 +2891,13 @@ fm_layout:
 .cols:
     stosw                       ; fm_cols
 
-    ; total rows = nfiles (list) or ceil(nfiles / cols) (icons)
+    ; total rows = ceil(nfiles / cols) - which is nfiles in the list, whose
+    ; cols is the 1 stored just above, so neither view needs a test
     mov ax, [fm_lnf]
-    cmp byte [fm_lview], 0
-    je .tot
     add ax, [fm_cols]
     dec ax
     xor dx, dx
     div word [fm_cols]
-.tot:
     stosw                       ; fm_total
 
     ; list-view name budget: (cw - 96)/8 chars, clamped 0..16 (the name
@@ -2932,12 +2920,10 @@ fm_layout:
                                 ; an 8.3 name is already being truncated
 %endif
     jg .nchpos
-    xor ax, ax
-    jmp .nchclamp
+    xor ax, ax                  ; ...which shifts to 0 as well
 .nchpos:
     mov cl, 3
     shr ax, cl
-.nchclamp:
     cmp ax, 16
     jbe .nch
     mov ax, 16
@@ -3075,7 +3061,7 @@ fm_btn1:
     cmp al, FM_BREFRESH
     je .lbl
     mov si, fm_s_icons          ; the view a click switches TO (SPEC.md 22)
-    cmp byte [fm_lview], 0
+    call fm_isicon
     je .lbl
     mov si, fm_s_list
 .lbl:
@@ -3475,9 +3461,9 @@ fm_onclick_x:
                                 ; window's own listing (a Cut left it) and
                                 ; may have armed the replace question
 
+    mov dx, [ui_click_t]        ; click birth tick (EV_C), not [ticks]:
     cmp ax, [bx+FS_SEL]         ; second click on the selected entry?
     jne .select
-    mov dx, [ui_click_t]        ; click birth tick (EV_C), not [ticks]:
     sub dx, [bx+FS_CLKT]        ; wrap-safe (SPEC.md 8); queued clicks
                                 ; must not collapse into double-clicks.
                                 ; PER WINDOW, or a click on row 3 here and
@@ -3500,13 +3486,12 @@ fm_onclick_x:
                                 ; its own answer
 
 .restamp:                       ; already selected, too slow to be a double
-    mov dx, [ui_click_t]        ; click: the entry does not move, so NOT ONE
+    add dx, [bx+FS_CLKT]        ; click: the entry does not move, so NOT ONE
     mov [bx+FS_CLKT], dx        ; PIXEL changes - all this click does is
-    jmp short .quiet            ; re-arm the double-click window (22.2)
-
+    jmp short .quiet            ; re-arm the double-click window (22.2). The
+                                ; `add` puts [ui_click_t] back in DX
 .select:
-    mov dx, [ui_click_t]
-    mov [bx+FS_CLKT], dx
+    mov [bx+FS_CLKT], dx        ; DX = [ui_click_t], loaded above the test
     jmp short .newsel
 
 .clear:                         ; off the rows: the selection goes away, which
@@ -3713,21 +3698,13 @@ fm_hit:
     mov ax, cx
     sub ax, FM_ROW_Y0           ; rebase y to row 0
     js .none                    ; the header band is not a row
-    mov cx, FM_ROW_H
-    cmp byte [fm_lview], 0
-    je .rowdiv
-    mov cx, FMI_CELL_H
-.rowdiv:
-    xor dx, dx
-    div cx                      ; AX = visible row
+    call fm_rowdiv              ; AX = visible row
     cmp ax, [fm_fit]
     jae .none                   ; below the row area
-    cmp byte [fm_lview], 0
+    call fm_isicon
     je .listidx
     xchg ax, di                 ; icon view: column from x (AX = x, DI the
-    mov cx, FMI_CELL_W          ; row, for the divide)
-    xor dx, dx
-    div cx
+    call fm_div80               ; row, for the divide)
     xchg ax, di                 ; DI = column, AX = the row again
     cmp di, [fm_cols]
     jae .none                   ; right of the last column
@@ -3805,18 +3782,13 @@ fm_onkey_x:
                                 ; (a bare scan code) stays 0 for the Delete
                                 ; word test; AH is untouched for the scroll
                                 ; keys; AL is pushed at entry
-    cmp al, 'V'
-    je .vtoggle
-    cmp al, 'N'
-    je .newfld
-    mov dl, 0
-    cmp al, 'A'
-    je .mount
-    mov dl, 1
-    cmp al, 'B'
-    je .mount
-    cmp al, 'R'
-    je .remount
+    mov bx, fm_keytab           ; V N A B R: one TABLE, five bodies that
+.kscan:                         ; each ARE a menu command's (fm_keytab) and
+    cmp al, [bx]                ; all end in the full repaint
+    je .khit
+    add bx, 3
+    cmp bx, fm_keytab_end
+    jb .kscan
     cmp ax, 0x5300              ; Delete, tested as the WHOLE word: AH is the
     je .delete                  ; scan and AL must be 0, because with NumLock
                                 ; ON this very key is '.' and a typed dot must
@@ -3826,8 +3798,8 @@ fm_onkey_x:
     ; 0x50, PgDn 0x51 - subtract 0x48 and the residues are 0, 1, 8 and 9, so
     ; bit 0 says "a PAGE" and bit 3 says "DOWNWARD", and every other scan code
     ; leaves a bit outside {1,8} set (checked over all 256). DL is free here:
-    ; the .mount path's `mov dl,` are earlier branches that never fall through,
-    ; fm_onkey_x pushes DX, and fm_layout preserves DX and AX
+    ; fm_onkey_x pushes DX, and fm_layout preserves DX and AX. BX is the
+    ; table walk's spent pointer, which nothing below reads
 .keys:
     mov dl, ah
     sub dl, 0x48
@@ -3859,22 +3831,12 @@ fm_onkey_x:
                                 ; ends the keystroke without drawing, and the
                                 ; ladder runs once per KEY, not per row
 
-.remount:
-    call fm_reload              ; r: re-list, without leaving the folder
-    jmp .redraw
-
-.mount:
-    call fm_mount               ; DL = drive; the same body the Refresh
-    jmp .redraw                 ; button and the Folder menu use
-
-.vtoggle:
-    call fm_vflip
-    jmp .redraw
-
 .updir:
-    push si                     ; the menu body clobbers SI, which .redraw
-    call fm_c_up                ; still needs as the window pointer
-    pop si
+    mov bx, fm_keyup - 1        ; Backspace: the table's sixth body, which
+.khit:                          ; no letter reaches (it is tested BEFORE the
+    push si                     ; fold). The bodies clobber SI - fm_c_up
+    call [bx+1]                 ; does - which .redraw still needs as the
+    pop si                      ; window pointer
     jmp .redraw
 
 %ifdef KERN_BIG
@@ -3883,14 +3845,10 @@ fm_onkey_x:
     ; DI = the block, SI = the window, the layout current. A ROW is one entry
     ; in the list and a grid row of fm_cols in the icon view, so Up and Down
     ; mean the same thing on the screen in both.
-.selmove:
-    push cx
+.selmove:                       ; (CX is scratch: kentc_di banked it)
     mov bl, dl
-    mov cx, 1
-    cmp byte [fm_lview], 0
-    je .srow
-    mov cx, [fm_cols]
-.srow:
+    mov cx, [fm_cols]           ; 1 in the list: fm_slayout stored it so
+
     push ax                     ; the old selection
     mov ax, cx
     test bl, 1
@@ -3935,9 +3893,7 @@ fm_onkey_x:
     or ax, ax
     jz .sbar
     call fm_scroll_by           ; the blit tier where it can (22.11)
-    jnc .sbar
-    pop cx
-    jmp .redraw                 ; a clip region: the whole window
+    jc .redraw                  ; a clip region: the whole window
 .sbar:
     mov ax, [di+FS_SEL]
     mov [fm_lsel], ax
@@ -3945,18 +3901,10 @@ fm_onkey_x:
     cmp byte [di+FS_EDIT], FM_ESAVE
     jne .sdone                  ; a Save box that took a name redraws its
     call fm_status_only         ; line, nothing else
-    jnc .sdone
-    pop cx
-    jmp .redraw
+    jc .redraw
 .sdone:
-    pop cx
     jmp .out
 %endif
-
-.newfld:
-    mov al, 1                   ; DI is still this window's block
-    call fm_edit_arm
-    jmp .redraw
 
 .cut:
     mov bx, FMC_CUT
@@ -4663,6 +4611,26 @@ fm_menu_base:
 ; files_open, files_refresh or ui_cmd would hang the machine permanently -
 ; no beep, no watchdog, no recovery. This is the single easiest mistake to
 ; make in this module, which is why the note is per line and not per file.
+; fm_onkey_x's bare letters (SPEC.md 22), each the body of the menu command
+; it shortcuts - and each ending in fm_onkey_x's own full repaint, which is
+; why they are called from there and not entered through fm_docmd (whose
+; FMD_LINE would draw N's prompt as a status line alone). Key, then body.
+; The word after the end is Backspace's, which is tested before the case fold.
+fm_keytab:
+    db 'V'
+    dw fm_vflip                 ; the view, toggled
+    db 'N'
+    dw fm_c_mkdir               ; New Folder's prompt
+    db 'A'
+    dw fm_c_drva                ; mount drive 0...
+    db 'B'
+    dw fm_c_drvb                ; ...or 1
+    db 'R'
+    dw fm_reload                ; re-list, without leaving the folder
+fm_keytab_end:
+fm_keyup:
+    dw fm_c_up
+
 fm_jmp:
     dw fm_c_open                ; inline (the loader is deferred; chdir is
                                 ;         disk I/O under the lock, like
@@ -5231,21 +5199,18 @@ fm_c_uncto:                     ; ...three times on kern_big (SPEC.md 22.23.6)
                                 ; reached this line through fm_sel_ok, which
                                 ; loaded it, and without the load the sync
                                 ; mounted a drive read off the stack
-    mov al, MOD_CLONE           ; the compressor rides in the cloner's image
-    call mod_need               ; (SPEC.md 20.15.3)
-    jc .nomod
+    call clo_need               ; the compressor rides in the cloner's image
+    jc .nomod                   ; (SPEC.md 20.15.3)
     mov dx, bx                  ; FMC_COMPRESS*2 or FMC_UNCOMP*2: the module
     call far [CMZFP]            ; reads DL - and makes the selection test
                                 ; itself, which is why there is none here
     pushf
     push ax
-    cmp word [clo_seg], 0       ; ...UNLESS a claim is live: an armed clone or
-    jne .held                   ; join owns the image (fm_clone_bad's rule)
-    mov al, MOD_CLONE
-    call mod_drop               ; ...and the image goes back on EVERY path,
-.held:                          ; including the ones that said nothing
-    pop ax
-    popf
+    call fm_cldrop              ; ...and the image goes back on EVERY path,
+    pop ax                      ; including the ones that said nothing -
+    popf                        ; UNLESS a claim is live: an armed clone or
+                                ; join owns the image (fm_clone_bad's rule,
+                                ; and its own tail)
     jnc .done
     or ax, ax
     jz .none                    ; it has already spoken
@@ -5322,6 +5287,7 @@ fm_clone_bad:
     call fm_saycl               ; a verdict about what just happened, so it is
                                 ; a toast (SPEC.md 59.5) - and nothing is
                                 ; armed, so the window is left as it was
+fm_cldrop:                      ; (fm_c_uncto's entry: AL and flags clobbered)
     cmp word [clo_seg], 0       ; ...and the image goes back HERE, because no
     jne .armed                  ; mode was armed and fm_edit_end will therefore
     jmp clo_drop               ; never be reached with one to drop it from
@@ -5955,23 +5921,24 @@ fm_rclick_x:
 fm_editkey:
     call kentc_di
     mov di, [fm_vp]
-    mov bl, [di+FS_EDIT]        ; the mode, once: BL is free until the text
-    cmp bl, 4                   ; arm loads the length into it
+    mov bl, [di+FS_EDIT]        ; the mode, once: BX is free until the text
+    xor bh, bh                  ; arm loads the length into it. Modes 3 to 7
+    sub bx, 3                   ; are a COUNT-DOWN, a `dec` each: BH = 0, so
+    je .confirm                 ; modes 0-2 borrow to 0FFFxh and mode 8 is 5,
+    dec bx                      ; and neither can reach zero in four steps
     je .replace
-    cmp bl, 7
-    je .clone                   ; the cloner (SPEC.md 22.21.2), and the ONE
-                                ; place in this file it is answered: four
-                                ; prompts, one FS_EDIT value, and the step
-                                ; lives in the cloner's own claim
-    cmp bl, 6
-    je .swap                    ; the disk-swap prompt (SPEC.md 2.8.5)
-    cmp bl, 5
+    dec bx
     je .confirmf                ; Format (SPEC.md 22.12) takes mode 3's
                                 ; asymmetry unchanged, and wants it more:
                                 ; there is no undo, and the operation is not
                                 ; one file but every one of them
-    cmp bl, 3
-    je .confirm
+    dec bx
+    je .swap                    ; the disk-swap prompt (SPEC.md 2.8.5)
+    dec bx
+    je .clone                   ; the cloner (SPEC.md 22.21.2), and the ONE
+                                ; place in this file it is answered: four
+                                ; prompts, one FS_EDIT value, and the step
+                                ; lives in the cloner's own claim
     cmp al, 13
     je .commit
     cmp al, 27
@@ -7457,7 +7424,7 @@ fm_draw_core:
     mov cx, ax
     add cx, 11                  ; "Icons" = 40px -> x1+11
     mov si, fm_s_icons
-    cmp byte [fm_lview], 0
+    call fm_isicon
     je .vlabel
     add cx, 4                   ; "List" = 32px -> x1+15
     mov si, fm_s_list
@@ -7515,7 +7482,7 @@ fm_draw_rows:
 .shok:
     mov [fm_shown], ax
 
-    cmp byte [fm_lview], 0
+    call fm_isicon
     jne .icons
 
     ; --- list rows ---
@@ -7686,15 +7653,8 @@ fm_more_mark:
     ; on the screen and not an offset from [fm_cx]. Whole tiles at both ends
     ; either way, which matters now that a mark has edges of its own - a
     ; truncated one is a stray tick rather than a texture running out.
-    mov ax, [fm_cx]
-    add ax, 7
-    and ax, 0xFFF8              ; x1, OUT to a tile boundary
-    mov cx, [fm_rgt]
-    sub cx, FM_SB_W-1           ; the bar's leftmost column...
-    and cx, 0xFFF8              ; ...back to a tile boundary...
-    dec cx                      ; ...and stop the column before it
-    cmp ax, cx
-    jg .out                     ; not one whole tile fits: nothing has ever
+    call fm_tiles               ; AX = x1 OUT to a tile boundary, CX = the
+    jg .out                     ; bar's leftmost column back to one, less 1                     ; not one whole tile fits: nothing has ever
                                 ; been drawn in these columns, so there is
                                 ; nothing stale to erase either
 
@@ -7899,7 +7859,7 @@ fm_sel_bar:                     ; comes back holding it)
     call kentc_di
     cmp ax, [fm_lnf]            ; 0xFFFF (none) also fails this
     jae .out
-    cmp byte [fm_lview], 0
+    call fm_isicon
     jne .icon
 
     sub ax, [fm_lscr]           ; list: the whole row band, x 0 .. cw-16
@@ -8090,7 +8050,7 @@ fm_scroll_by:
                                 ; line under it. The scroll still HAPPENED -
                                 ; it is committed above - and the caller's
                                 ; repaint is what puts it on screen
-    cmp byte [fm_lview], 0
+    call fm_isicon
     jne .rows                   ; the grid is 22.11.2's exception
     cwd                         ; |d|, the branchless way
     xor ax, dx
@@ -8137,14 +8097,12 @@ fm_rows_only:
     cmp word [fm_fit], 0
     je .done                    ; no row area: a scroll shows nowhere
 
-    mov ax, [fm_cx]             ; the row band: full content width (the bar
-    mov bx, [fm_cy]             ; is inside it and is redrawn with it), from
-    add bx, FM_ROW_Y0           ; the header's bottom to the status line's top
-    mov cx, [fm_rgt]
-    mov dx, [fm_cy]
+    mov bx, [fm_cy]             ; the row band: full content width (the bar
+    add bx, FM_ROW_Y0           ; is inside it and is redrawn with it), from
+    mov dx, [fm_cy]             ; the header's bottom to the status line's top
     add dx, [fm_listb]
     dec dx
-    cmp ax, cx
+    call fm_cxrgt
     jg .refuse                  ; degenerate content: nothing to draw into.
                                 ; The y span needs no test of its own - fit
                                 ; >= 1 puts fm_listb a row or more below 22
@@ -8204,15 +8162,10 @@ fm_rows_only:
 ; -----------------------------------------------------------------------------
 fm_scrollpaint:
     ; --- the band the blit may move ---
-    mov ax, [fm_cx]
-    add ax, 7
-    and ax, 0xFFF8              ; x1, IN to a byte column
-    mov [fm_bx1], ax
-    mov ax, [fm_rgt]
-    sub ax, FM_SB_W-1           ; the scroll bar's left column...
-    and ax, 0xFFF8
-    dec ax                      ; ...and x2, stopping short of it. A window
-    mov [fm_bx2], ax            ; too narrow to hold a whole byte column
+    call fm_tiles               ; x1, IN to a byte column, and x2, stopping
+    mov [fm_bx1], ax            ; short of the scroll bar's left column - the
+    mov [fm_bx2], cx            ; more-mark's band exactly. A window
+                                ; too narrow to hold a whole byte column
                                 ; needs no test of its own: it lands x1 > x2
                                 ; or x2 off the screen, and gfx_scroll's own
                                 ; contract refuses both
@@ -8226,10 +8179,10 @@ fm_scrollpaint:
     dec ax
     mov [fm_by2], ax
 
-    mov ax, [fm_cx]             ; the whole band, tested against an armed
+    call fm_cxrgt               ; the whole band, tested against an armed
     mov bx, [fm_by1]            ; clip region (11.3) - the blit tests its own
-    mov cx, [fm_rgt]            ; rect, but the exposed rows below are wider
-    mov dx, [fm_by2]            ; than it and are a fill plus glyphs
+    mov dx, [fm_by2]            ; rect, but the exposed rows below are wider
+                                ; than it and are a fill plus glyphs
     call ct_cw_wm_clip_test
     jc .refj
 
@@ -8405,27 +8358,31 @@ fm_draw_status:
     ;     truncation serves them all.
     mov di, fm_hdrbuf
     mov al, [fm_ledit]          ; 1. the input line, prompt and all - the
-    or al, al                   ;    editor IS the status line (SPEC.md 22)
-    jz .fs_st_space
-    cmp al, 3
+    cbw                         ;    editor IS the status line (SPEC.md 22).
+    dec ax                      ; The modes are 0..FM_ESAVE, so AH = 0 and
+    js .fs_st_space             ; the ladder is a COUNT-DOWN, a `dec` a rung
+    mov si, fm_s_newfld         ; (`mov` writes no flag: mode 1's ZF)
+    je .fs_st_prompt
+    dec ax
+    dec ax
     je .fs_st_del
-    cmp al, 4
+    dec ax
     je .fs_st_rep
-    cmp al, 5
+    dec ax
     je .fs_st_fmt
-    cmp al, 6
+    dec ax
     je .fs_st_swap              ; the disk-swap prompt (SPEC.md 2.8.5)
-    cmp al, 7
+    dec ax
     je .fs_st_clone             ; the cloner's four (SPEC.md 22.21.1), all of
                                 ; which the IMAGE composes: the ladder is
                                 ; code and the strings are data, so this is
                                 ; the half that can leave
     mov si, fm_s_saveas
-    cmp al, FM_ESAVE
-    je .fs_st_prompt
-    mov si, fm_s_newfld
-    cmp al, 1
-    je .fs_st_prompt
+    dec ax
+%if FM_ESAVE != 8
+  %error "fm_draw_status counts the modes down to FM_ESAVE = 8"
+%endif
+    je .fs_st_prompt            ; ...and what is left is mode 2:
     mov si, fm_s_renam          ; "Rename NAME to: NEW"
     call fm_scat_onam
     mov si, fm_s_rento
@@ -8663,9 +8620,37 @@ fm_cellxy:                      ; AX = a VISIBLE grid row, CX = its column ->
     mov [fm_celly], ax
     ret
 
+fm_isicon:                      ; ZF = 0 in the icon view: eight tests' byte
+    cmp byte [fm_lview], 0      ; compare, five bytes each
+    ret
+
+fm_rowdiv:                      ; AX = a pixel offset into the row area ->
+    mov cx, FM_ROW_H            ; AX = whole rows (a list row or an icon
+    call fm_isicon              ; cell's height); CX = that height, DX the
+    je fm_div                   ; remainder. fm_layout's fit and fm_hit's row
+    mov cx, FMI_CELL_H
+    jmp short fm_div
+fm_div80:                       ; AX / FMI_CELL_W: the icon grid's columns,
+    mov cx, FMI_CELL_W          ; for fm_layout and fm_hit alike
+fm_div:
+    xor dx, dx
+    div cx
+    ret
+
 fm_cxrgt:                       ; AX = the content's left, CX = its right, and
     mov ax, [fm_cx]             ; the flags of `cmp ax, cx` - a degenerate
     mov cx, [fm_rgt]            ; content is `jg` (four callers' opening)
+    cmp ax, cx
+    ret
+
+fm_tiles:                       ; AX = [fm_cx] rounded UP to a byte column,
+    mov ax, [fm_cx]             ; CX = the scroll bar's left column rounded
+    add ax, 7                   ; DOWN to one, less 1, and the flags of `cmp
+    and ax, 0xFFF8              ; ax, cx` - `jg` is not one whole column.
+    mov cx, [fm_rgt]            ; The band the scroll may blit and the
+    sub cx, FM_SB_W-1           ; more-mark may tile, which are one band
+    and cx, 0xFFF8
+    dec cx
     cmp ax, cx
     ret
 
