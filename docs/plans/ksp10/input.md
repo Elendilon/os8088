@@ -72,6 +72,28 @@ mouse.inc keyboard mouse (-14):
   SPEC.md's three `kbm_slock` mentions renamed. -11
 * `kbm_poll0` / `kbm_ui`: tail jumps into kbd_ovspend / kbm_p5spend. -3
 
+### Batch 3 - menu.inc again, mouse_unhook, evq_drain
+
+kern_big `.text -65` (running sum -265); kern_small `.text -70` (running -265).
+
+* `menu_setup`: menu_track's and menu_popup's shared head (count clamp to
+  `[vid_popmax]`, `[menu_cnt]`, `[menu_iptr]`). -10
+* `menu_save_kb` written into `menu_drop`, its one caller (no call/ret, no
+  BX/CX/DX bank - all reloaded before use), planes as `mul word [mem]`. -12
+* `menu_drop` .poll: `xchg ax, [menu_sel]` and `inc/jz/dec` for 0FFFFh. -3
+* `menu_relayout` .cell: the AMENU entry's three words copied with three
+  `movsw` and the segments swapped (layout asserted); SI steps by the copy. -17
+* `menu_bent`: `mov al, 12 / mul bl / add ax, menu_bar / xchg ax, si`. -2
+* `menu_bpadc`: the clamp of the target to `[menu_bn]` was subsumed by the
+  per-pass re-read below it. -10
+* `menu_draw_bar`: `[menu_bdirty]` take-and-clear by `xchg`. -2
+* `menu_bput`: `[menu_bcell+di]` directly - no BX copy or bank. -4
+* `menu_bar_text`: `lodsb` in the strip loop; the highlight-run scan as
+  `xor ah, al / jns`. -5
+* `mouse_unhook`: `or al, [bx+mou_masks]`. -2
+* `evq_drain` is `evq_mup` until the ring is empty (an MUP record is a no-op
+  to `wm_wake_eaten`). -5
+
 ## REFUSED
 
 * `cur_lazyrect` / `cur_lazyck`: the hit arm could `call cur_unlazy` before the
@@ -97,6 +119,11 @@ mouse.inc keyboard mouse (-14):
   would have to grow, vga12.inc's), and `fnt_unlazy` -> cursor_hide and the
   desk band path both reach other `gfx_u` users from inside an icon draw.
 * osapi_mouse's ivec index as shifts of `[mou_line]` (-1): obscure for a byte.
+* `evq_push`/`evq_pop`'s three `add al, 8 / and al, 7Fh / mov [..], al`
+  advances as a helper (-7): REFUSED, `evq_push` is on the mouse ISR's path
+  on the 128-byte private stack and this would make that path 2 bytes
+  deeper; on the 1bpp adapters the event path is near the ISR's deepest.
+* `menu_track`'s `[menu_cell]` counted from DI at the find (-1): no.
 * `menu_furniture`'s `[menu_bovr]` clear moved to the end to share AX = 0
   (-2): a `menu_force` from a pre-empting task during the draw would be lost.
 
@@ -104,6 +131,9 @@ mouse.inc keyboard mouse (-14):
 
 * `apps/telnet/telnet.asm:1874` - a comment names `kbm_slock`, which is
   `kbm_shf` now (comment only, no bytes).
+* `kernel/viddet.inc:554,562` - comments (and an %error string) name
+  `menu_save_kb`'s header, which is now a block comment in `menu_drop`;
+  wording only.
 * `docs/INDEX.md` is regenerated in this branch because this notes file is
   a new `docs/plans/` entry; every agent's branch will carry the same one-line
   change - take any of them, or regenerate after deleting `docs/plans/ksp10/`.

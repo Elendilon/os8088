@@ -1382,9 +1382,8 @@ mouse_unhook:
 .port:
     cmp word [bx+mou_bases], 0
     je .next
-    mov cl, [bx+mou_masks]      ; mask this port's IRQ...
-    in  al, 0x21
-    or  al, cl
+    in  al, 0x21                ; mask this port's IRQ, straight out of the
+    or  al, [bx+mou_masks]      ; table (size pass 10: 2 bytes)...
     out 0x21, al
     mov si, [bx+mou_ivecs]      ; ...and put its vector back
     mov ax, [bx+mou_old_off]

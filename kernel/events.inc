@@ -193,13 +193,13 @@ evq_push:
 ; near.
 ; -----------------------------------------------------------------------------
 evq_drain:
-.dl:
-    call evq_pop
-    jc .dend
-    call wm_wake_eaten          ; a package's wake is OWED, not dropped
-    jmp short .dl
-.dend:
-    ret
+    call evq_mup                ; evq_mup IS this loop with one record kept:
+    jnc evq_drain               ; it stops early only on an EVT_MUP, which it
+    ret                         ; has consumed - and wm_wake_eaten on an MUP
+                                ; would have done nothing (it acts on a WAKE
+                                ; alone) - so going round again until the ring
+                                ; is empty is the same drain, every wake still
+                                ; OWED (kernel size pass 10: 5 bytes)
 
 ; -----------------------------------------------------------------------------
 ; evq_mup - pop until an EVT_MUP arrives or the ring goes empty, owing every
