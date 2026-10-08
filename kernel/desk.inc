@@ -520,9 +520,8 @@ desk_rowcalc_x:
     neg ax                      ; AX = [desk_zh1] still, from .set
     add ax, [vid_dock_y0]
     sub ax, DESK_ZY0 + 1        ; AX = room below the first row
-    xor dx, dx
-    mov cx, bx                  ; BX still holds the pitch - nothing between
-    div cx                      ; .set and here writes it
+    xor dx, dx                  ; BX still holds the pitch - nothing between
+    div bx                      ; .set and here writes it
     inc ax                      ; ...and the first row itself
     mov [desk_rows], ax
 
@@ -660,8 +659,8 @@ desk_owner:
     stc
     jmp short .out
 .hit:
-    sub bx, desk_zslot          ; never borrows: CF stays 0
-    mov ah, bl
+    mov ah, DESK_NZ             ; the zone is how far along the count is:
+    sub ah, cl                  ; CL <= DESK_NZ, so CF stays 0
 .out:
     pop cx
     pop bx
@@ -821,10 +820,12 @@ desk_reflow:
     mov al, ah                  ; placed and gone: its cell goes bare and the
     call desk_cmark             ; item REMEMBERS it, to have back (pass 2)
 .rel:
-    or byte [di+desk_zslot], DSL_GONE
-    jmp short .an
+    mov al, DSL_GONE
+    jmp short .orit
 .forget:
-    mov byte [di+desk_zslot], 0xFF
+    mov al, 0xFF                ; (OR with all ones is the store)
+.orit:
+    or [di+desk_zslot], al
 .an:
     inc di
     cmp di, DESK_NZ
@@ -850,9 +851,8 @@ desk_reflow:
     jmp short .cset
 .first:
     call desk_free              ; ...else the first free one, FLOWING from
-    mov dh, 0xFF                ; here on - unless it is a shortcut, which is
-    jc .cset                    ; placed wherever it lands
-    mov dh, al
+    jc .none                    ; here on - unless it is a shortcut, which is
+    mov dh, al                  ; placed wherever it lands
 %ifdef OS88_SHORTCUTS
     cmp di, DESK_SC0
     jb .cset
@@ -862,6 +862,7 @@ desk_reflow:
 .cdead:
     test dl, DSL_PIN
     jnz .cset
+.none:
     mov dh, 0xFF                ; ...and a flowing one has nothing
 .cset:
     mov [di+desk_zslot], dh
@@ -947,18 +948,18 @@ desk_cell_xy:
     push bx
     push cx
     xor ah, ah
-    xor dx, dx
+    cwd                         ; (AX < 8000h: DX = 0)
     div word [desk_rows]        ; AX = column, DX = row within it
     mov cx, dx
     mov bx, DESK_PX
     mul bx                      ; AX = column * pitch (DX = 0)
     mov bx, [vid_desk_zx]
     sub bx, ax                  ; columns run LEFTWARDS from the right edge
-    mov ax, cx
+    xchg ax, cx                 ; (CX and BX are popped below)
     mul word [desk_zstep]
     add ax, DESK_ZY0
-    mov dx, ax
-    mov ax, bx
+    xchg ax, dx
+    xchg ax, bx
     pop cx
     pop bx
     ret
@@ -1065,9 +1066,8 @@ desk_caprect:
     pop ax
     call desk_zone_xy           ; AX = cell left, DX = cell top
     add ax, cx                  ; AX = the pen
-    lea cx, [bx-1]
-    add cx, ax
-    add cx, DESK_ZOVER          ; x2
+    lea cx, [bx+DESK_ZOVER-1]
+    add cx, ax                  ; x2
     sub ax, DESK_ZOVER          ; x1
     add dx, [desk_zh1]          ; y2 is the cell's bottom...
     mov bx, dx
@@ -1137,18 +1137,14 @@ desk_pm_body:
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 desk_zone_whole:
+    call desk_draw_zone         ; (the box is read by the window pass, after)
+    push ax
     push bx
     push cx
     push dx
-    push ax
     call desk_zone_rect
     call KERNEL_SEG:cw_wm_dmg_zadd
-    pop ax
-    call desk_draw_zone
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp kretc_dx
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -1534,9 +1530,7 @@ desk_draw_zone:
     pop word [gfx_b1ink]
     pop ax
     mov [gfx_color], ah
-    pop es
-    pop bp
-    jmp kretc_di
+    jmp kretc_es                ; ES, BP and DI, then the rest
 
 ; desk_colr - zone [desk_zdrv]'s PICTURE COLUMN: AX..CX its 32 columns, on the
 ; byte grid (DESKPIC), BX..DX the picture box and the gap under it - every row
@@ -1877,110 +1871,102 @@ DESK_TBSTR  equ 14              ; the widest rect, 100 px, off the byte grid.
 ; out: CF = 0 and the mask emptied but for a zone that would not fit (below) -
 ;      or, under Color, whose teal a band cannot say, the mask left whole and
 ;      the region untouched, for desk_paint_mask to draw each zone whole over
-;      the dither as it always did. CF = 1 the region overflowed.
+;      the dither as it always did. CF = 1 is never answered any more (the
+;      region cannot overflow here: below), and wm_dmg_gray's `jc` after the
+;      call is kept only as a guard.
 ;
 ; A zone whose subtraction would OVERFLOW the region is counted first and not
 ; drawn: it stays in the mask, for desk_paint_mask to draw whole over the
 ; dither the way Color's are, and the region stays intact for the rest. An
 ; overflow here took wm_dmg_gray's `.whole` - every cell already drawn dithered
 ; over and drawn again, and every window in the damage repainted on top of the
-; dither - and a cell column of five did it on an ordinary drag.
+; dither - and a cell column of five did it on an ordinary drag. The count is
+; a BOUND on wm_clip_subr's peak (each overlapped fragment split once, into at
+; most the pieces counted, and nothing it appends overlapping the zone), so a
+; zone it passes cannot overflow wm_clip_add, and the subtraction's CF is not
+; read. The same walk answers "is any of it revealed?" (DH, the fragments it
+; overlaps), which was a wm_clip_walk of its own.
 ; -----------------------------------------------------------------------------
 desk_zones_r_x:
     call kentc_bp
     call desk_bpat
     cmc
-    jnc .out                    ; Color: CF = 0, nothing done here
-    mov si, [desk_dmgm]
-    mov di, [desk_dmgm+2]       ; DI:SI = the mask, zone 0 at bit 31
-    xor ax, ax                  ; AL = the zone
+    jnc .ret                    ; Color: CF = 0, nothing done here
+    mov di, 33                  ; THE MASK IS A 33-BIT RING with CF: each
+    mov si, wm_cl_ox1           ; step rotates the last zone's verdict in at
+    mov al, -1                  ; bit 0 and the next zone's bit out of bit
+.n:                             ; 31, and 33 steps put every bit back where
+    clc                         ; it was - each zone's replaced by its
+.k:                             ; verdict, CF = 1 still owed. Bits past
+    rcl word [desk_dmgm], 1     ; DESK_NZ are nobody's (desk_dmg_zones) and
+    rcl word [desk_dmgm+2], 1   ; go back 0. AL = the zone whose bit is now
+    inc ax                      ; in CF (AH is nobody's); INC and DEC keep CF
+    dec di
+    jnz .z
+    clc                         ; (CF = 0)
+.ret:
+    jmp kretfc_bp
 .z:
-    shl si, 1
-    rcl di, 1
-    jnc .n
-    cmp word [wm_clip_n], 0
-    je .n                       ; nothing left uncovered: it shows nowhere
+    jnc .n                      ; not owed
+    cmp al, DESK_NZ
+    jae .n                      ; past the zones
+    mov cx, [wm_clip_n]
+    jcxz .n                     ; nothing left uncovered: it shows nowhere
     push ax
+    push cx
     call desk_zone_rect
-    mov [wm_cl_ox1], ax         ; (wm_clip_subr's, below: nothing a cell
-    mov [wm_cl_oy1], bx         ; draws builds a region)
-    mov [wm_cl_ox2], cx
-    mov [wm_cl_oy2], dx
-    xchg ax, cx                 ; containment with the corners exchanged IS
-    xchg bx, dx                 ; overlap (wm_clip_test's own idiom): is any
-    mov bp, wm_clip_walk        ; of it revealed?
-    call ct_cw_mem_disp
-    pop ax
-    jc .n                       ; no: drawn nowhere, and it takes nothing out
-    push ax
-    mov bx, wm_clip_tab         ; ...and would taking it out FIT? wm_clip_split
-    mov cx, [wm_clip_n]         ; puts a piece for each side a fragment reaches
-    mov dx, cx                  ; past it where the fragment was: DX = the most
-.f:                             ; the region can grow to, counted the same way
-    mov ax, [bx+WCR_X2]
-    cmp ax, [wm_cl_ox1]
+    mov [si], ax                ; wm_cl_ox1..oy2, wm_clip_subr's, below:
+    mov [si+2], bx              ; nothing a cell draws builds a region
+    mov [si+4], cx
+    mov [si+6], dx
+    pop cx
+    mov dx, cx                  ; DL = the most the region can grow to, DH
+    mov bx, wm_clip_tab         ; = how many fragments the zone overlaps.
+.f:                             ; wm_clip_split puts a piece for each side
+    push bx                     ; an overlapped fragment reaches past it,
+    push si                     ; where the fragment was. X, then Y: BX and
+    mov bp, 0xFF                ; SI each two bytes on
+.ax:
+    mov ax, [bx+WCR_X2]         ; (o.x1 .. o.y2 = [si] .. [si+6])
+    cmp ax, [si]
     jl .fk
-    mov ax, [bx+WCR_X1]
-    cmp ax, [wm_cl_ox2]
-    jg .fk
-    mov ax, [bx+WCR_Y2]
-    cmp ax, [wm_cl_oy1]
-    jl .fk
-    mov ax, [bx+WCR_Y1]
-    cmp ax, [wm_cl_oy2]
-    jg .fk
-    mov bp, -1                  ; overlapped: dropped (AX = its y1)...
-    cmp ax, [wm_cl_oy1]
-    jge .f1
-    inc bp                      ; ...a piece above,
+    cmp ax, [si+4]
+    jle .f1
+    inc bp                      ; a piece right (below),
 .f1:
-    mov ax, [bx+WCR_Y2]
-    cmp ax, [wm_cl_oy2]
-    jle .f2
-    inc bp                      ; below,
-.f2:
     mov ax, [bx+WCR_X1]
-    cmp ax, [wm_cl_ox1]
-    jge .f3
-    inc bp                      ; left
-.f3:
-    mov ax, [bx+WCR_X2]
-    cmp ax, [wm_cl_ox2]
-    jle .f4
-    inc bp                      ; and right
-.f4:
-    or bp, bp
-    js .fk                      ; none: it shrinks, but maybe not before the
-    add dx, bp                  ; others grow it - a bound counts only growth
-.fk:
+    cmp ax, [si+4]
+    jg .fk
+    cmp ax, [si]
+    jge .f2
+    inc bp                      ; left (above)
+.f2:
+    inc bx
+    inc bx
+    inc si
+    inc si
+    xor bp, 0x8000              ; bit 15: the Y pass is to come
+    js .ax
+    cmp bp, 0x100               ; overlapped: DH + 1, and DL + the pieces
+    adc dx, bp                  ; less the one it replaces - but + 0 for
+.fk:                            ; none: it shrinks, maybe not before the
+    pop si                      ; others grow it, and a bound counts only
+    pop bx                      ; growth
     add bx, WCR_SZ
     loop .f
     pop ax
-    cmp dx, WM_CLIP_MAX + 1
+    or dh, dh
+    jz .nn                      ; no fragment: drawn nowhere, takes nothing
+    cmp dl, WM_CLIP_MAX + 1
     cmc
-    jc .k                       ; it would not: still owed, and drawn whole
+    jc .kk                      ; it would not fit: still owed, drawn whole
     call desk_draw_zone
     mov bp, wm_clip_subr
-    call ct_cw_mem_disp
-    jc .out                     ; overflowed
-.n:
+    call ct_cw_mem_disp         ; CF = 0: the count above is its bound
+.nn:
     clc                         ; drawn, or shown nowhere: owed no more
-.k:                             ; (CF = 1 from `jc .k`: still owed)
-    rcl word [desk_dmgm], 1     ; the mask is REBUILT from the bits each zone
-    rcl word [desk_dmgm+2], 1   ; leaves, zone 0 rotated in first
-    inc ax
-    cmp al, DESK_NZ
-    jb .z
-%if DESK_NZ < 32
-    mov cx, 32 - DESK_NZ        ; ...and moved up to bit 31, where
-.up:                            ; desk_paint_mask reads it from
-    shl word [desk_dmgm], 1
-    rcl word [desk_dmgm+2], 1
-    loop .up
-%endif
-    clc
-.out:
-    jmp kretfc_bp
+.kk:
+    jmp .k
 
 %else
 desk_draw_zone:
@@ -1989,6 +1975,7 @@ desk_draw_zone:
     push cx
     push dx
     push si
+    push di                     ; for kretc_es's shape: nothing here spends it
     push bp
     push es
     mov ah, [gfx_color]         ; read ABOVE cw_thm_desk, which under
@@ -2035,9 +2022,7 @@ desk_draw_zone:
 .done:
     pop ax
     mov [gfx_color], ah
-    pop es
-    pop bp
-    jmp kretc_si
+    jmp kretc_es                ; ES, BP, DI (banked for this) and the rest
 %endif
 
 ; -----------------------------------------------------------------------------
