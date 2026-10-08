@@ -489,7 +489,8 @@ xm_alloc:
                                 ; to assemble the file
 .none:
     xor ax, ax
-    stc
+.stc:                           ; ...and xm_free's own refusal, which is these
+    stc                         ; two bytes and wants AX left alone
     ret
 
 ; -----------------------------------------------------------------------------
@@ -502,7 +503,7 @@ xm_alloc:
 ; -----------------------------------------------------------------------------
 xm_free:
     call xm_have
-    je .none
+    je xm_alloc.stc
     push bp
     mov bp, [xm_svc+XMV_FREE]
 .stamp:                         ; ...and xm_alloc arrives HERE, having pushed
@@ -516,9 +517,6 @@ xm_free:
     call xm_dsp
     pop bx                      ; pop leaves CF alone, and BX is no output
     pop bp
-    ret
-.none:
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -587,11 +585,10 @@ xm_copy:
                                 ; pops it.
     mov [si+XMC_DIR], al
     mov ax, es                  ; the conventional end, as linear ES*16 + SI,
-    mov dx, ax                  ; SI being the offset now parked in BP
-    mov cl, 4
-    shl ax, cl
-    mov cl, 12
-    shr dx, cl
+    mov dx, 16                  ; SI being the offset now parked in BP. ONE
+    mul dx                      ; mul where two shift pairs were (size pass
+                                ; 10, -5). Only a 286 or later reaches this
+                                ; line (xm_sniff), where a mul is ~21 clocks
     add ax, bp                  ; a REGISTER add, so SS-vs-DS does not reach it
     adc dx, 0
     mov [si+XMC_CONV], ax

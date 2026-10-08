@@ -3549,7 +3549,7 @@ rather than from the CPU byte, so a run is one `out` for the colour and then the
 identical masked-byte shape — left edge, `rep stosb`, right edge — and the
 interior can be a `rep stosb` of a byte whose *value* is irrelevant, exactly as
 `gfx_fill`'s own interior is. **Enable Set/Reset (GC1) is armed once a CALL**
-(`vga_sr_on`) and cleared at the end with `vga_gc_reset`, because it is the half
+(one `out` at `gfx_blit4`'s planar arm) and cleared at the end with `vga_gc_reset`, because it is the half
 that does not change between runs; the fill's GC arm writes both halves together,
 which is right for a primitive that arrives once and a wasted `out` per run
 here. It is a little behind the 1bpp figure for the obvious reason: a run costs
@@ -13463,7 +13463,7 @@ a second — and it now also raises the window under the pointer on the way in.
 first version got it wrong in a way that could never have worked. It is a
 shift *state*, not a keystroke: int 09h swallows it to toggle `KB_FLAG`, and
 int 16h never reports a key for it, so testing for scancode 46h waits for a
-byte that never arrives. `kbm_slock` tests bit 4 of **`0040:0017`** instead.
+byte that never arrives. `kbm_shf` reads bit 4 of **`0040:0017`** instead.
 The upside of being wrong there is that a level needs no state of its own, and
 on a keyboard with the lamp the machine says which mode it is in.
 
@@ -13683,7 +13683,7 @@ differing framebuffer bytes** of 128,000 across four captures. Cost:
 
 **The first version of the peek shipped a wrong segment and the trace is why
 it took minutes rather than a day.** It loaded `ES = 0` before testing
-`[es:0x17]` — the vector-install idiom four lines above, not `kbm_slock`'s —
+`[es:0x17]` — the vector-install idiom four lines above, not `kbm_shf`'s —
 so it read linear `0x17`, the middle of the IVT, which has bits in `0x30` set:
 the NumLock/ScrollLock gate therefore refused *every* press and the key stayed
 exactly as dead as before, with the port read working perfectly. **A gate that
@@ -30603,7 +30603,7 @@ the volume.
 | `dskw_mkdir` | in: SI → name. Creates a subdirectory in the current directory (§18.5). Out: CF/AX as above. Not an API slot — kernel-internal, because a package has no way to navigate. |
 | `dskw_rmdir` | in: SI → name. Removes an **empty** subdirectory of the current directory (§18.6): `FERR_PROT` if it holds anything, if it is not a directory, or if it is read-only/hidden/system/label. Out: CF/AX as above. Not an API slot, for `dskw_mkdir`'s reason. |
 | `dskw_sync` | in nothing. The coherence pass every successful write ends in: `fmv_mark` always, then `dskw_remount` only if `fmv_gneed` says something on screen is drawn from the global listing — otherwise `disk_nfiles` = 0 and `[dsk_lstale]` = 1, the §18.9 debt. Suppressed entirely by `[dskw_batch]`. Preserves all registers; CF is **not** propagated. |
-| `dskw_remount` | in nothing. The remount half on its own: `disk_mount` of `[disk_drive]` with `[dsk_keepcwd]` raised. Preserves all registers; CF not propagated. **`dsk_relist` calls this and never `dskw_sync`** — the payment must not be able to defer again (§18.9). |
+| `dskw_remount` | **Deleted in kernel size pass 10.** It was the remount half of `dskw_sync`, split out for `dsk_relist`; `dsk_relist` itself was deleted earlier and this routine had no caller left. |
 
 **Error codes (pinned; returned in AX with CF=1, mirrored as `FERR_*` in
 `apps/os88api.inc`):** 0 ok, 1 no mounted disk, 2 disk I/O error, 3 bad
@@ -30746,7 +30746,9 @@ about what the snapshot **is**, never about how soon: `disk_dir`,
 or **nothing at all**, and never a patched one. So the deferral publishes
 the second of those — `disk_nfiles` = 0 with `[dsk_lstale]` raised, the
 identical state a quiet mount leaves (§18.9), because a wrong listing is
-worse than no listing. `dsk_relist` is the payment. No new staleness rule
+worse than no listing. `dsk_relist` was the payment (it is deleted: §22.6.3
+gave a listing to the caller that supplies its store, and no reader is left
+that collects the debt). No new staleness rule
 enters the kernel; the one §18.9 already had is simply also reachable from
 here.
 
@@ -32228,12 +32230,14 @@ in it. Measured on the reference copy (nine files, 175KB, HDD C to HDD D):
 buffer still holds the previous volume's entries, and a stale `disk_nfiles`
 is the one thing that could make a reader take them for this volume's — so
 it goes to 0, which is a state the whole kernel already handles, and
-`[dsk_lstale]` says the global snapshot is owed a rebuild. `dsk_relist` pays
-it, and it is idempotent so a caller may spend it without asking whether it
-switched.
+`[dsk_lstale]` says the global snapshot is owed a rebuild. `dsk_relist` paid
+it, idempotently, so a caller could spend it without asking whether it
+switched; it is deleted now, and a loud mount is what clears the flag.
 
-**`dsk_relist` pays through `dskw_remount`, NOT through `dskw_sync`, and
-those two are separate routines for exactly this reason.** It used to tail-
+**`dsk_relist` paid through `dskw_remount`, NOT through `dskw_sync`, and
+those two were separate routines for exactly this reason** (both are deleted
+now - `dskw_remount` in kernel size pass 10, with no caller left - and the
+paragraph is kept as the design record). It used to tail-
 call `dskw_sync`, which was then unconditional. Once `dskw_sync` learned to
 defer (§18.4), that pair would have cleared the debt and then declined to
 pay it — a listing that is never rebuilt, which is the one failure the whole
@@ -37938,14 +37942,16 @@ every view cache follow for free, and so does DOS.
 
 Two things do NOT follow, and both had to be arranged:
 
-- **`drv_find` may not use the listing.** It used `dsk_find_name`, which
+- **`drv_find` may not use the listing.** It used `dsk_find_name` (since
+  deleted, kernel size pass 10), which
   walks the mount *snapshot* — and the snapshot is the filtered display
   listing, so the moment a driver became hidden every driver on the disk read
   as "Not on the system disk" in the Control Panel, a long way from the
   cause. It uses `dskw_stat` now, which walks the directory sectors
   themselves and answers about a file whether or not it is meant to be shown.
-  `ui_tm_open` keeps `dsk_find_name`, correctly: `TASKMGR.O88` is visible on
-  purpose, and what that path needs is a directory *index* for the loader.
+  `ui_tm_open` kept `dsk_find_name` for a while, correctly - `TASKMGR.O88` is
+  visible on purpose, and that path needed a directory *index* for the
+  loader - until §21.4's `ld_run_name` took the need away (§28.3.1).
 - **The kernel must be able to rewrite its own config.** `DSKW_PROT` (§18.4)
   treats hidden and system as untouchable, so the first `SYSTEM.CFG` save
   would create the file and every save after it would be refused
@@ -55253,8 +55259,9 @@ before anything moved.
 
 **The chip menu's item stays live** (`ui_tm_open`, kernel/ui.inc). It banks
 the current volume and directory, mounts A:, steps into `SYSTEM`
-(`ui_tm_sysdir`, §28.3), finds `TASKMGR.O88` in that folder's snapshot with
-`dsk_find_name`, runs `ld_run_body`, and puts the volume back — the
+(`ui_tm_sysdir`, §28.3), loads `TASKMGR.O88` out of that folder by name
+(`ld_run_name`; it was `dsk_find_name` and `ld_run_body` off the folder's
+snapshot until §28.3.1), and puts the volume back — the
 `drv_boot` dance, and for the same reason: every file name resolves in the
 CURRENT directory (§19.2), which is wherever the user last browsed to.
 Greying the item would mean answering "can this be loaded?" without loading
@@ -58251,7 +58258,8 @@ restore and by each tile it redraws. Taking the damage span instead would be a
 wrong **0** for a tile outside it, and a wrong 0 is the dock drawn through a
 window, where a wrong 1 is only a wasted repaint.
 
-Empty is `0x7FFF`..`0x8000`, `wm_dmg_bands`' empty-bounding-box idiom, so a
+Empty is `0x7FFF`..`0x8000`, the WM's empty-bounding-box idiom (`wm_rect_empty`
+seeds `-1` for the far corner, which refuses the same way), so a
 span nothing has painted refuses every rect through the signed compares rather
 than accepting all of them. In practice `[wm_dmg_dk]` already gates the call on
 `dock_paint` having answered CF = 1, so the span is non-empty wherever it is
@@ -61120,14 +61128,19 @@ entered, which read 0 before the fix.
 ### 34.3 Router — ownership, priority, generations
 
 - **Tone tier**: one logical channel, single owner. Owner record =
-  {instance byte, priority byte, generation byte, expiry ticks}. Steal
+  {instance byte, priority byte, expiry ticks}, beside one generation
+  counter that every grant and release bumps. Steal
   policy: a new request with priority ≥ the current owner's takes the
   channel (kernel UI beeps use priority 0C0h; the package default is
   040h); lower priority is refused CF=1. Tone-off (AX = 0) obeys the same
   compare, so background audio cannot silence an alert. Duration-limited
   tones (CX ≠ 0) self-expire via `snd_tick` — no task needed — and the
-  expiry is **generation-guarded**: the tick silences only if the owner
-  generation still matches the one stamped at grant. The sink is the
+  expiry is always the current owner's: a grant writes the record and its
+  expiry in one window (below), so the tick never needs to ask whose expiry
+  it is counting. Kernel size pass 10 took out the generation compare that
+  used to ask: its two bytes were stamped together, from one register, and
+  were equal on every tick that ever read them. The generation itself is
+  still the grant's answer (AL), bumped by every grant and release. The sink is the
   speaker; there is no other, so a grant can never fail to resolve one.
 - **Grant atomicity (binding)**: every grant, steal and release updates
   its owner record (generation, priority, expiry) *and* its ports inside a
@@ -61135,8 +61148,7 @@ entered, which read 0 before the fix.
   between any two task-context instructions; without this rule a tick
   landing between the generation stamp and the expiry store sees
   new-generation-with-stale-expiry and can silence a just-granted tone.
-  The generation guard is only sound because task-side writers are atomic
-  w.r.t. the tick. The same rule covers the PWM steal path: `snd_ch2mode`,
+  That atomicity is what makes the expiry the owner's without a guard. The same rule covers the PWM steal path: `snd_ch2mode`,
   the generation stamp and the silencing are one unit.
 - **Grant stamping is task-qualified (binding)**. Every grant records the
   instance that asked for it, and `snd_req_inst` is the single routine
@@ -62537,7 +62549,8 @@ driver has its DAC up, so it never claims one that is not sounding, which is
 `cp_snd_row`'s rule for the rows.
 
 **Siblings of `SND_RT_FM`, not rungs above `SND_RT_SB`**, so every test of
-them is `>= SND_RT_LPT`, made before any `>= SND_RT_SB`. A Covox tier keeps the AdLib (tones, `SND_FM_CLAIM`, MIDIRack's FM)
+them is `>= SND_RT_LPT`, made before any `>= SND_RT_SB` - or the
+Sound Blaster's own test is `== SND_RT_SB`, which is SOUND.DRV's `snd_tier`. A Covox tier keeps the AdLib (tones, `SND_FM_CLAIM`, MIDIRack's FM)
 and turns the Sound Blaster's DSP tier OFF - because a package that sees
 `SND_CAP_PCM_BG` streams to the card, and the user who picked the Covox
 asked for the other path. An AdLib and a Covox side by side was the period's
@@ -62556,7 +62569,7 @@ The two halves of the announcement are the two cells §34.8 already has:
 - **`DSV_TIERS` bits `SND_RT_LPT + n`** are set at attach, one for each of
   LPT1..LPT3 that answered, card or no card. They say which CHOICES are live,
   which is all a probe can say.
-- **`SND_CAP_LPTDAC` (0100h)** is set by `cvx_tier`, inside `DRVV_TIER`,
+- **`SND_CAP_LPTDAC` (0100h)** is set by `snd_tier`'s Covox tail, inside `DRVV_TIER`,
   only while the tier IS a Covox's and its port answered - so a package
   plays the DAC only when somebody said one is there. Every other tier
   withdraws it. A Covox tier on a machine whose port has gone is the AdLib
@@ -63727,7 +63740,9 @@ non-zero, or `fdlg_gate` finds the window gone while `[fdlg_win]` still names
 it, `fdlg_grab` swallows **every** press, the chooser's own included,
 **silently** and arming nothing - so its release is ignored too - and
 `fdlg_top` sends a key to no window at all. `fdlg_gate` tells the two
-not-up cases apart by `ZF` (none, or gone), which costs it nothing. Without
+not-up cases apart by `ZF` (none, or gone - and an ANSWERED chooser is
+"gone" to it, so both filters hold it with no test of their own), which
+costs it nothing; `fdlg_reap` takes the answer before it asks. Without
 this a press later in the same drain reached a live-looking machine: a click
 moved the folder or rewrote the name a posted Save would commit, a Cancel
 overwrote a posted commit, and a drive icon's double-click launched a Disk
@@ -90290,9 +90305,9 @@ not the chooser never far-calls an image that may not be there.
 (the chooser's `W_ONMOUSEUP`, §38.3), `fdlg_win`/`fdlg_blk` and the
 strings. The image calls OUT through `fdx_go`, its own copy of
 `filecp.inc`'s `fcpx_go`, so a routine it reaches costs no resident thunk
-(§38.13.2). `os88ui.inc` and
-`ui_krect4` stay resident for the reason they always did: `apps.inc`,
-`ctrl.inc` and `files.inc` call them too.
+(§38.13.2). `os88ui.inc`
+stays resident for the reason it always did: `apps.inc`, `ctrl.inc` and
+`files.inc` use it too.
 
 **Refusal.** `fdlg_open` answers CF=1, which is already its published answer
 for "one is already up", and every caller treats it as *the command does
@@ -100698,6 +100713,14 @@ hand, which is three bytes and no new mechanism. `fmv_movable` stays as it is
 for `fmv_fit`'s call, where `[fm_vinst]` *is* this window because the re-claim
 happens on the acting one.
 
+**Kernel size pass 10 took the other half of that sentence**: `fm_kinit_x`
+now calls `fm_vp_set` *before* the claim, so `[fm_vinst]` names the record it
+was handed by then, and claims through `fmv_fit` itself - the claim, the
+declaration and the `fm_vseg` mirror were already that routine's. The owner is
+right by construction rather than by a second copy of the claim, and the
+inline claim with its `mem_movable` call is gone (kern_big -29 bytes,
+kern_small -19, `.cold`).
+
 **What it cost, measured** (`os8088_xt_hdd`, 640KB, and the sequence is the
 point — two Disk windows opened *before* the drive is mounted, which is what a
 machine that has been used looks like):
@@ -107618,7 +107641,7 @@ say.
 for pointer movement and Ins, Del and Space for the buttons, whenever
 `[mou_ptr]` is 0 — *"these are the keys this takes, and an application does not
 see them"*. **ScrollLock is the escape hatch and it is the only one**
-(`kbm_slock`, bit 4 of `0040:0017`): with it on, the arrows are the
+(`kbm_shf`, bit 4 of `0040:0017`): with it on, the arrows are the
 application's again. A board is unusable without them, so the About panel says
 so and docs/TELNET-PLAN.md records that a per-window opt-out was judged and is
 not in this work.
@@ -149689,7 +149712,7 @@ fragmented to hand over.
    before DS is changed: both words are `KERNEL_SEG`'s, and loading DS first
    makes the second read come out of the poster's image at that offset.
 2. **Stand where `DOS.O88` is, and find it.** The name goes through
-   `api_name` — `dsk_find_name` compares `DS:SI` against `DS:DI`, so a name in
+   `api_name` — the kernel's name lookup compares through DS, so a name in
    the module's own image is read at that offset in the kernel's segment and
    matches nothing.
 3. **The extents.** `hbm_geomd` is `hbm_geom` with a floppy arm, because

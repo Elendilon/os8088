@@ -506,7 +506,9 @@ vid_mono_text:
     mov cx, 2000
     cld
     rep stosw
-    mov dx, 0x3B8               ; high-res text, video ON, blink on - IBM's own
+    mov dl, 0xB8                ; high-res text, video ON, blink on - IBM's own
+                                ; (3B8h: vid_6845_prog leaves DX at 3B4h, and
+                                ; rep stosw moves no DX)
     mov al, 0x29                ; mode 7 value, and the last write for the same
     out dx, al                  ; reason vid_setmode's is (39.6): onto a page
     pop es                      ; that is already blank
@@ -1360,12 +1362,12 @@ vid_ac_pal:
     cli
     mov dx, 0x3DA               ; Input Status 1: latch to INDEX...
     in al, dx
-    mov dx, 0x3C0
+    mov dl, 0xC0                ; (3C0h: DH is 3 from the move above)
     mov al, 0x32                ; ...AC 12h, Color Plane Enable, WITH BIT 5
     out dx, al
     mov al, ah
     out dx, al                  ; 0 = every pixel reads as attribute 0
-    mov dx, 0x3DA               ; leave the latch where every reader assumes
+    mov dl, 0xDA                ; leave the latch where every reader assumes
     in al, dx                   ; it, INDEX, and not mid-pair
     popf
     pop dx
@@ -1803,10 +1805,10 @@ vid_disp_planes:
     push di
     call vid_disp_of            ; AL = the display holding it...
     call vid_kind_of            ; ...and AL = that display's adapter
-    mov cx, 4
-    cmp al, VID_VGA
-    je .out
     mov cx, 1
+    cmp al, VID_VGA
+    jne .out
+    mov cl, 4
 .out:
     pop di
     pop ax
@@ -2128,9 +2130,12 @@ vid_span_one:
     jae .no                     ; x2 past this display's right edge
     mov ax, [di+VID_CTX_VY]
     add ax, [di+VID_CTX_CH]
-    cmp ax, dx                  ; ...or y2 past its bottom - compared THIS way
-    jbe .no                     ; round so that falling through IS CF = 0
-.out:                           ; (y2 < bottom), with no `clc` (size pass 9)
+    cmp dx, ax                  ; ...or y2 past its bottom: CF = 1 is y2 <
+    cmc                         ; bottom, the FIT, so one cmc is the answer and
+.out:                           ; the fit falls through with no `clc` (size
+                                ; pass 9) and no branch (size pass 10: a
+                                ; not-taken `jbe` was 2 bytes and 4 clocks,
+                                ; `cmc` is 1 and 2)
     pop di                      ; pop touches no flag, so the CF set above
     pop si                      ; survives all three
     pop ax
@@ -2188,11 +2193,9 @@ vid_disp_relayout:
 ; corner.
 ; -----------------------------------------------------------------------------
 vid_desk_union:
-    push ax
-    push cx
-    push dx
-    push si
-    push di
+    call kent_di                ; = push ax/bx/cx/dx/si/di. BX is not spent:
+                                ; it is banked so the exit is kret_di's
+                                ; ladder (SPEC.md 15.1.2)
     xor cx, cx                  ; CX/DX = the far corner, exclusive
     xor dx, dx
     xor si, si
@@ -2222,11 +2225,6 @@ vid_desk_union:
     mov [vid_h], dx
     dec dx
     mov [vid_hm1], dx
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    ret
+    jmp kret_di
 
 %endif  ; KERN_BIG

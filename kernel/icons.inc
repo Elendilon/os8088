@@ -150,16 +150,11 @@ icon_draw_x:
 ; -----------------------------------------------------------------------------
 icon_draw:
     GFXAUDIT_HOOK
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
     push es
     lodsw                       ; header: AL = wwords, AH = height, and SI ->
-    mov bl, ah                  ; body (mask rows first)
+.hdr:                           ; body (mask rows first). icon_draw16 joins
+    mov bl, ah                  ; HERE with its fixed header in AX
     xor ah, ah
     mov [ico_ww], ax
     mov bh, ah
@@ -203,18 +198,12 @@ icon_draw16:
                                 ; header-carrying records were. The macro is
                                 ; empty in every shipped build, so this costs
                                 ; the machine nothing
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
     push es
-    mov word [ico_ww], 1
-    mov word [ico_h], 16
-    jmp short ico_draw_common   ; SI already points at the body: a 16x16 body
-                                ; carries no header to step over
+    mov ax, (16 << 8) | 1       ; the header a 16x16 body does not carry -
+    jmp short icon_draw.hdr     ; SI already points at the body - stored by
+                                ; icon_draw's own four lines rather than two
+                                ; immediate word stores (kernel size pass 10: 9)
 
 ; -----------------------------------------------------------------------------
 ; icon_draw_ix - draw an INDEXED record: runs over the shared row pool
@@ -238,20 +227,15 @@ icon_draw16:
 icon_draw_ix:
     GFXAUDIT_HOOK               ; the same primitive as far as the audit is
                                 ; concerned; empty in every shipped build
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
     push es
     mov word [ico_ww], ICO_IBUF_WW  ; this kind is 32 px wide and only that,
                                 ; so the record does not say so (SPEC.md
                                 ; 25.7.3) - a plain record's first byte is
                                 ; its width, an indexed one's is its height
     lodsb                       ; AL = the height, SI -> the run bytes. DF = 0
-    mov ah, 0                   ; is the system contract (SPEC.md 1 rule 3)
+    cbw                         ; is the system contract (SPEC.md 1 rule 3).
+                                ; At most ICO_IBUF_H = 32, so `cbw` zeroes AH
     mov [ico_h], ax             ; and this file already rests on it three
                                 ; times - icon_draw_x's `es lodsb` and both
                                 ; passes' `lodsw`
@@ -377,15 +361,18 @@ ico_core:
     call fnt_unlazy             ; whole-shape clipped like a glyph (7.1.4)
     mov [ico_x], cx
     mov [ico_y], dx
+    mov ax, [ico_ww]            ; source/VRAM stride bookkeeping, FIRST now:
+    shl ax, 1                   ; the clip test below wants 16 * wwords, which
+    mov [ico_rb], ax            ; is this times 8 (kernel size pass 10: 7)
+                                ; bytes per icon row (= 2 * wwords)
 
     CLIPQ                        ; against an armed clip region (SPEC.md 11.3):
-    je .noclip                  ; whole-icon, the font_char rule (11.3.5)
-    mov ax, cx
+    je .noclip                  ; whole-icon, the font_char rule (11.3.5) -
+                                ; and CLIPQ preserves every register, AX too
     mov bx, dx
-    mov cx, [ico_ww]            ; CX = 16 * wwords = the body's pixel width
-    shl cx, 1                   ; (a "word" of an icon row is 16 pixels, not
-    shl cx, 1                   ; 8 - four shifts, not three)
-    shl cx, 1
+    xchg ax, cx                 ; AX = x, CX = 2 * wwords...
+    shl cx, 1                   ; ...x 8 = the body's pixel width (a "word" of
+    shl cx, 1                   ; an icon row is 16 pixels, not 8)
     shl cx, 1
     add cx, ax
     dec cx
@@ -400,9 +387,7 @@ ico_core:
     ret                         ; refusals above .rows_ok, where `.none` at the
 .noclip:                        ; foot was a relaxed five-byte jcc away
 
-    mov ax, [ico_ww]            ; source/VRAM stride bookkeeping
-    shl ax, 1
-    mov [ico_rb], ax            ; bytes per icon row (= 2 * wwords)
+    mov ax, [ico_rb]            ; (the clip test spent AX)
     mov bx, [vid_stride]
     sub bx, ax
     mov [ico_rowadv], bx        ; DI advance after a row's words (the planar
@@ -410,8 +395,8 @@ ico_core:
                                 ; gfx_nextrow instead)
 
     mov [ico_maskp], si         ; mask rows first, data rows after
-    mov ax, [ico_rb]            ; = 2 * wwords, set three lines up, so this is
-    mul word [ico_h]            ; the table's BYTES straight off (DX clobbered)
+    mul word [ico_h]            ; AX = 2 * wwords still, so this is the
+                                ; table's BYTES straight off (DX clobbered)
     add ax, si
     mov [ico_datap], ax
 
@@ -527,15 +512,12 @@ ico_core_bb:
                                 ; is below the stride, the stride is 90 at
                                 ; most, and the walk adds 2*ww <= 4 to it.
     mov al, [ico_c1]            ; SPEC.md 25.6: WHITE ors the rows in and
-    call ico_bbop_of            ; anything else ands them out - which is the
-    mov [ico_bbop], al          ; hardcoded pair's own behaviour, and gives a
-    mov si, [ico_maskp]         ; pressed control its black underlay and a
-    call ico_pass_bb            ; disabled one its stipple for free (the
-    mov al, [ico_c2]            ; CALLER dithers the data rows; a 1bpp op has
-    call ico_bbop_of            ; nowhere to put a grey)
-    mov [ico_bbop], al
-    mov si, [ico_datap]
-    jmp ico_pass_bb
+    mov si, [ico_maskp]         ; anything else ands them out - which is the
+    call ico_bbpass             ; hardcoded pair's own behaviour, and gives a
+    mov al, [ico_c2]            ; pressed control its black underlay and a
+    mov si, [ico_datap]         ; disabled one its stipple for free (the
+    jmp short ico_bbpass        ; CALLER dithers the data rows; a 1bpp op has
+                                ; nowhere to put a grey)
 
 
 %ifdef GFX_VGA
@@ -614,34 +596,39 @@ ico_pass:
     ret
 %endif                          ; ...end of the VGA icon pass
 
-; ico_bbop_of - AL = a colour -> AL = 0 (or) for white, 1 (and-not) otherwise
-; The 1bpp reduction is gfx_ink's (SPEC.md 39.4): only pure white lights a
-; pixel, and the dither class is a black stipple, so it ands out like black.
-ico_bbop_of:
+; ico_bbpass - AL = a colour, SI -> word rows: [ico_bbop] = 0 (or) for white,
+; 0FFh (and-not) otherwise, and FALL INTO ico_pass_bb with it. The 1bpp
+; reduction is gfx_ink's (SPEC.md 39.4): only pure white lights a pixel, and
+; the dither class is a black stipple, so it ands out like black. It was
+; ico_bbop_of, a value both passes stored and then called the pass with -
+; one entry for the three is 15 bytes (kernel size pass 10). gfx_ink keeps SI.
+ico_bbpass:
     call gfx_ink
-    cmp al, 0xFF
-    mov al, 0
-    je .out
-    inc al
-.out:
-    ret
+    cmp al, 0xFF                ; CF = 1 for anything but white...
+    sbb al, al                  ; ...so 0FFh is and-not and 0 is or
+    mov [ico_bbop], al
+.fall:
 
 ; -----------------------------------------------------------------------------
 ; ico_pass_bb - one masked pass over the renderer's single plane: the same
 ;               3-byte shifted window and edge clipping as ico_pass, with
-;               [ico_bbop] picking OR (0) or AND-NOT (1) per byte.
+;               [ico_bbop] picking OR (0) or AND-NOT (non-zero) per byte.
 ; in:       SI -> word rows, DI = row offset, CL = shift, CH = 8-shift,
-;           [ico_bbop] = 0/1, ico_* vars set
+;           [ico_bbop] = 0 / non-zero, ico_* vars set
 ; out:      none; preserves CX, DI; clobbers ax, bx, dx, si, bp, es
 ;           (DH is the row stride and DL the running byte column, for the
 ;            whole pass - gfx_nextrow and ico_bbop_byte both leave DX alone)
 ; -----------------------------------------------------------------------------
 ico_pass_bb:
+%if ico_pass_bb - ico_bbpass.fall != 0
+  %error "ico_bbpass falls into ico_pass_bb: nothing may sit between them"
+%endif
     push di
-    cmp word [ico_rows], 0
-    je .done                    ; degenerate record / fully clipped
+    mov bp, [ico_rows]
+    or bp, bp
+    jz .done                    ; degenerate record / fully clipped
     mov es, [vid_rseg]          ; ONE PLANE, SO NO LOOP (SPEC.md 39.26): this
-    mov bp, [ico_rows]          ; body is only ever entered with [vid_mono]
+                                ; body is only ever entered with [vid_mono]
                                 ; set, and vid_depth_set writes mono and
                                 ; planes TOGETHER - so [vid_planes] is 1 here
                                 ; and the walk never restarted. The two
@@ -1224,7 +1211,7 @@ ico_col     resw 1              ; running byte column inside ico_pass.
 ico_wleft   resw 1              ; words left in the current row
 ico_x       resw 1              ; requested x
 ico_y       resw 1              ; requested y, clamped to 0 after top clip
-ico_bbop    resb 1              ; bb pass: 0 = or (white), 1 = and-not (black)
+ico_bbop    resb 1              ; bb pass: 0 = or (white), 0FFh = and-not (black)
 %ifdef OS88_SHORTCUTS
 ; --- a desktop cell's COMPOSE band (SPEC.md 26.9.9) ---------------------------
 ; desk_col lays the ground into ico_band, sets [ico_bnd], draws its picture -

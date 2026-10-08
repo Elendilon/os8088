@@ -1654,7 +1654,10 @@ section .text
 ; clk_tick - advance the clock from the PIT tick counter
 ; in:  nothing (UI task only)
 ; out: AL = change mask (SPEC.md 37): bit0 = a second was added,
-;      bit1 = the MENU BAR'S TEXT changed and may be redrawn
+;      bit1 = the MENU BAR'S TEXT changed and may be redrawn - and ZF = 1
+;      exactly when AL = 0, which ui_task's one call reads instead of an
+;      `or al, al`: the `or al, ah` at .pend is the last flag-writer, and
+;      nothing that writes a flag may be put between it and the `ret`
 ; clobbers: AX only
 ;
 ; The SPEC.md 14 accumulator idiom verbatim, which is what makes 18.2 Hz add
@@ -1936,9 +1939,9 @@ clk_fmt:
     inc bx
     mov al, [clk_sn_hour]
     call clk_ampm               ; AL = 'A' or 'P'
-    mov [bx], al
-    inc bx
-    mov byte [bx], 'M'
+    mov ah, 'M'                 ; ...and the 'M' beside it in ONE word store:
+    mov [bx], ax                ; AH's [clk_h12] has been read for the last
+    inc bx                      ; time two lines up (-1)
     inc bx
 .end:
     mov byte [bx], 0

@@ -1458,15 +1458,12 @@ drv_pub_seg:
     or cx, cx
     jz .next
     cmp cx, bx
-    je .yes
+    je .out                     ; ...equal, so CF = 0 already: the answer
 .next:
     inc al
     cmp al, DRVC_MAX
     jbe .scan
     stc
-    jmp short .out
-.yes:
-    clc
 .out:
     pop di
     pop cx
@@ -1653,14 +1650,11 @@ osapi_drv_classk_x:
 ; -----------------------------------------------------------------------------
 drv_row_x:
     push ax
-    push cx
-    cbw                         ; AH banked above, so even the sign-extension
-    mov cl, 4                   ; is invisible - DRVR_SIZE = 16
-    shl ax, cl
-    mov bx, ax
-    add bx, drv_tab
-    pop cx
-    pop ax
+    mov ah, DRVR_SIZE           ; the BYTE multiply: AX = AL * DRVR_SIZE and
+    mul ah                      ; nothing else written, so CX needs no bank
+    add ax, drv_tab             ; and no shift count is loaded (kernel size
+    xchg bx, ax                 ; pass 10, -5) - and the xchg hands the old BX
+    pop ax                      ; to the pop that throws it away
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2258,11 +2252,9 @@ osapi_drv_cfg_x:
                                 ; teardown is the only thing that pays it -
                                 ; there is no reachable flush from here now
                                 ; (SPEC.md 31.8)
-.copied:
-    pop cx
-.ok:
-    clc
-.out:
+.copied:                        ; CF = 0 on both arms: the `or al, al` that
+    pop cx                      ; chose between them cleared it, and nothing
+.out:                           ; since writes a flag
     pop di
     pop si
     pop dx
@@ -2295,15 +2287,12 @@ drv_row_ix_of:
     cmp word [si+DRVR_SEG], 0
     je .next                    ; not loaded: a stale segment is not an owner,
     cmp [si+DRVR_SEG], bx       ; and 0 would match a zeroed caller
-    je .yes
+    je .out                     ; ...equal, which is CF = 0: the answer
 .next:
     inc al
     add si, DRVR_SIZE
     loop .scan
     stc
-    jmp short .out
-.yes:
-    clc
 .out:
     pop si
     pop cx
@@ -2541,9 +2530,8 @@ drv_cp_class_x:
     mov al, bh                  ; ...which is the COUNT, for the entry above.
     stc                         ; Both ctrl.inc callers test CF, so AL on the
     jmp short .out              ; refusal path changing is invisible
-.hit:
-    mov al, cl
-    clc
+.hit:                           ; (the `cmp bl, bh` that came here was equal,
+    mov al, cl                  ; so CF = 0 already, and `mov` keeps it)
 .out:
     pop di
     pop cx
@@ -2798,17 +2786,15 @@ drv_load_row:
     DDG 8
     call drv_attach             ; the far call into the driver itself
     jc .nohwal                  ; ...which may say WHY in AL (SPEC.md 51.2)
-    DDG 9
-    clc
+    DDG 9                       ; (a `mov`: CF = 0 from the `jc` stands)
     jmp short .out
 
 %ifdef KERN_BIG
-.ovl:
+.ovl:                           ; `je` here off an equal compare: CF = 0
     mov byte [bx+DRVR_ERR], DRVE_OK
 %endif
-.already:
-    clc
-    jmp short .out
+.already:                       ; ...and `jne` here off `cmp word [x], 0`,
+    jmp short .out              ; which cannot borrow: CF = 0 both ways in
 .nodisk:
     mov al, DRVE_DISK
     jmp short .fail
@@ -3079,14 +3065,8 @@ drv_attach:
 ; caller's requested tier is what it stores on the way out.
 ; -----------------------------------------------------------------------------
 drv_tier_x:
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kentc_bp               ; KENT: push ax..bp - AH, the tier, among them
     push es
-    push ax                     ; ...and the tier, which is AH
     cmp ah, SND_RT_AUTO
     je .ok                      ; unset: leave attach's answer alone
     mov bx, [drv_owner]
@@ -3100,17 +3080,12 @@ drv_tier_x:
 .ok:
     clc
 .no:
-.out:
-    pop bx                      ; the saved AX: AL is the output, so only AH
-    mov ah, bh                  ; comes back
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    mov bp, sp                  ; AL IS THE OUTPUT and only AH comes back: AL
+    mov [bp+14], al             ; is written over the banked AX's low byte
+    jmp kretc_es                ; (SS:SP+14, over es, bp, di, si, dx, cx and
+                                ; bx), and the ladder puts the rest back -
+                                ; `mov` and `pop` write no flag, so CF is the
+                                ; driver's (kernel size pass 10, -7)
 
 ; -----------------------------------------------------------------------------
 ; drv_publish - take a copy of an attached driver's service table
@@ -3459,8 +3434,7 @@ drv_task_x:
 .spfail:
     dec byte [drv_wcnt]         ; refused: no task was made
     popf
-    stc
-    jmp short .out
+    jmp short .fail             ; ...and .fail's `stc` is the answer
 .exit:
     call drv_owns_seg_x           ; CF = 0: ES is some loaded row's image
     jc .fail
@@ -4918,7 +4892,7 @@ cpc_fdtest:
     mov cl, 5
     shl bp, cl                  ; BP = T, a track in paragraphs
     mov cx, dx
-    and cx, 0x0FFF
+    and ch, 0x0F
     neg cx
     add cx, 0x1000              ; CX = R, paragraphs to the next 64KB page
     mov di, dx                  ; DI = the cylinder's segment
@@ -5256,11 +5230,21 @@ section .cold
 ; table, or the cell for this verb is 0".
 drv_svc_none:
 drv_fs_call:
-drv_svc_call_x:
 drv_blk_call_x:
     xor ax, ax
     stc
     ret
+; ...but NOT drv_svc_call_x, which kernel.asm's `drv_svc_call` thunk reaches
+; with a FAR call - the live body's `.none` is a `retf` for exactly this
+; reason. Sharing the near tail above returned to the caller's OFFSET with
+; COLD_SEG still on the stack: a wild jump that every caller's own `or bp, bp
+; / jz` happened to keep anybody from taking, until kernel size pass 10's
+; snd_release_inst trusted the callee's refusal and every instance teardown
+; on this kernel took it (tests/fdlgdrop.py, dispclose-small, fdlgchsmall)
+drv_svc_call_x:
+    xor ax, ax
+    stc
+    retf
 
 section .text
 ; ...and OSAPI_DRV_CALL's body is `.text` on the live arm, because kernel.asm
@@ -5273,13 +5257,6 @@ drv_pkg_call_x:
     ret
 section .cold
 
-; ...and the two that answer WITHOUT touching AX. drv_fs_has is the
-; unambiguous form of the above - CF = 1 means "drv_fs_call would refuse" -
-; and every register is preserved, which `ret` after `stc` already is.
-drv_fs_has:
-    stc
-    ret
-
 ; drv_cls_fp / drv_cls_svc: DI = 0 and CF = 1 is the out-of-range answer the
 ; live pair gives, and with no class ever published every class is that.
 drv_cls_fp_x:
@@ -5288,8 +5265,14 @@ drv_cls_svc_x:
     stc
     ret
 
-; drv_owns_seg: no segment belongs to a driver, because there is no driver.
-; CF = 1 is the live body's "no" (it falls out of drv_row_ix_of's own refusal).
+; ...and the two that answer WITHOUT touching AX, which are ONE BODY: two
+; labels over one `stc`/`ret`, the pair above's shape (kernel size pass 10,
+; -2). drv_fs_has is the unambiguous form of the dispatchers' refusal - CF = 1
+; means "drv_fs_call would refuse" - and every register is preserved, which
+; `ret` after `stc` already is. drv_owns_seg: no segment belongs to a driver,
+; because there is no driver - CF = 1 is the live body's "no" (it falls out
+; of drv_row_ix_of's own refusal).
+drv_fs_has:
 drv_owns_seg_x:
     stc
     ret

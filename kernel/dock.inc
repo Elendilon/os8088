@@ -489,14 +489,11 @@ db_paint:
                                 ; CF = 0, "nothing was drawn", which is what
                                 ; wm_dock_under needs to hear
 .go:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si                     ; SI IS ALREADY PRESERVED (nothing between
-    push di                     ; here and the exit touches it) - it is pushed
-                                ; to make ax..di the shared epilogue ladder's
-                                ; own run, which is what kret_di wants
+    call kent_di                ; = push ax/bx/cx/dx/si/di. SI IS ALREADY
+                                ; PRESERVED (nothing between here and the
+                                ; exit touches it) - it is banked to make
+                                ; ax..di the shared epilogue ladder's own
+                                ; run, which is what kret_di wants
 
     mov al, [gfx_color]         ; byte-only read: gfx_lock_flag lives next
     push ax                     ; door. ON THE STACK, not in .bss, and that

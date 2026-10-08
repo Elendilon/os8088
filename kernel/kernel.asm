@@ -4753,10 +4753,7 @@ api_rn:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the target
     push si
     push di
     push es
-    push cs
-    pop es                      ; ES = KERNEL for the copy destination
-    mov di, api_name
-    call api_copyname           ; caller DS:SI -> ES:DI, at most 13 bytes
+    call api_cpname             ; caller DS:SI -> KERNEL:api_name, <= 13 bytes
     pop es                      ; the caller's ES back: it is the buffer
     pop di                      ; and its DI, which the callee may need
     push cs
@@ -4794,12 +4791,9 @@ api_fdlg_open:
     push si
     push di
     push es
-    push cs
-    pop es                      ; ES = KERNEL for the copy destination
-    mov di, api_name
     or si, si
     jz .nodef                   ; "no default": the ZERO is the argument, so it
-    call api_copyname           ; must reach fdlg_open unstaged and unchanged
+    call api_cpname             ; must reach fdlg_open unstaged and unchanged
     mov si, api_name            ; a kernel offset, so it survives the DS switch
     jmp short .go
 .nodef:
@@ -4997,16 +4991,18 @@ api_file_path:
 ; api_file_append_sys - slot 0x02C2 - is the SAME cell with a different tail,
 ; and it shares this body rather than copying it because the fence is the
 ; whole of the interesting part and two copies of a fence is one that can be
-; got wrong. [api_sysap] picks which dskw_ entry point runs; it is written
-; through CS because DS is still the CALLER's here, and it is set on both
-; paths rather than only the append one - a byte left set by an append would
-; silently turn the next driver's write into an append.
+; got wrong. [api_sysfp] IS which dskw_ entry point runs - the offset half
+; of a COLD_SEG far pointer, so the tail is one `call far` and not a
+; compare between two (size pass 10: it was a byte flag, [api_sysap]); it is
+; written through CS because DS is still the CALLER's here, and it is set on
+; both paths rather than only the append one - a word left set by an append
+; would silently turn the next driver's write into an append.
 ; -----------------------------------------------------------------------------
 api_file_append_sys:
-    mov byte [cs:api_sysap], 1
-    jmp short api_file_sysc
+    mov word [cs:api_sysfp], dwf_dskw_append_sys    ; ...the same fence, the
+    jmp short api_file_sysc                         ; other verb (18.4.4)
 api_file_write_sys:
-    mov byte [cs:api_sysap], 0
+    mov word [cs:api_sysfp], dwf_dskw_write_sys
 api_file_sysc:
     push ds
     push si
@@ -5025,10 +5021,7 @@ api_file_sysc:
                                 ; touches DS; this one has to put it back
     pop bx
     jc .refuse
-    push cs
-    pop es                      ; ES = KERNEL for the copy destination
-    mov di, api_name
-    call api_copyname           ; caller DS:SI -> ES:DI, at most 13 bytes
+    call api_cpname             ; caller DS:SI -> KERNEL:api_name, <= 13 bytes
     pop es                      ; the caller's ES back: it is the buffer
     pop di
     push cs
@@ -5037,13 +5030,7 @@ api_file_sysc:
                                 ; the volume it is building and must not have
                                 ; its own instance's folder put underneath it
     mov si, api_name
-    cmp byte [api_sysap], 0
-    jne .append
-    call COLD_SEG:dwf_dskw_write_sys
-    jmp short .done
-.append:
-    call COLD_SEG:dwf_dskw_append_sys ; ...the same fence, the other verb (18.4.4)
-.done:
+    call far [api_sysfp]        ; COLD_SEG:the verb the entry chose
     pop si
     pop ds
     retf
@@ -5062,11 +5049,9 @@ api_file_rename:
     push si
     push di
     push es
-    push cs
-    pop es                      ; ES = KERNEL
     push di                     ; bank the new-name pointer across the first
-    mov di, api_name            ; copy, which needs DI itself
-    call api_copyname           ; old name
+    call api_cpname             ; copy, which needs DI itself - the old name,
+                                ; and ES = KERNEL for the second from here
     pop si                      ; SI = the caller's DI = the new name
     mov di, api_name2
     call api_copyname           ; new name
@@ -5184,6 +5169,10 @@ ovw_font_run_x:     call font_run_x     ; SPEC.md 15.6's status line composes
 ; (cw_clk_ns_put and cw_clk_tobcd went with them in kernel size pass 9: the
 ; port helpers are a copy in each image now, near-called - SPEC.md 37.94.)
 ; -----------------------------------------------------------------------------
+api_cpname:                     ; ...the same into KERNEL:api_name, which is
+    push cs                     ; what four of the five callers want, and the
+    pop es                      ; three instructions they each wrote out ahead
+    mov di, api_name            ; of it (ES = KERNEL on the way out)
 api_copyname:
     push ax                     ; AX and CX ONLY, and both are arguments the
     push cx                     ; caller is still carrying: AX is DX:AX's low
@@ -5243,11 +5232,11 @@ spl_fseg:   dw COLD_SEG
 spl_ifp:    dw mod_gone
 spl_ifseg:  dw COLD_SEG
 
-api_sysap:  db 0                ; which verb the shared fenced cell runs:
-                                ; 0 = dskw_write_sys, 1 = dskw_append_sys.
-                                ; .text for api_name's reason, and written
-                                ; through CS because the stub still has the
-                                ; caller's DS when it lands
+api_sysfp:  dw dwf_dskw_write_sys  ; which verb the shared fenced cell runs:
+            dw COLD_SEG         ; dskw_write_sys or dskw_append_sys, as the
+                                ; far pointer it calls. .text for api_name's
+                                ; reason, and written through CS because the
+                                ; stub still has the caller's DS when it lands
 
 ; =============================================================================
 ; Boot (SPEC.md 15)
@@ -6165,27 +6154,13 @@ osapi_vol_stat equ osapi_snd_fm     ; DOS-only, and the DOS box is not on the
 ; drv_svc_call and drv_blk_call, deliberately do not and cannot reach here.
 ; -----------------------------------------------------------------------------
 ; DX and BL are the outputs; SPEC.md 1 makes everything else this routine's
-; to preserve, BH and AX included - so the slot walks the side table through
-; SI rather than through the BX it is about to answer in.
+; to preserve, BH and AX included.
 osapi_file_here:
-    push cx
-    push si
-    call inst_caller            ; DH = the calling instance; DX is an output,
-    mov si, dx                  ; so both halves of it are ours to spend
-    mov cl, 8
-    shr si, cl                  ; SI = the slot (8086: shifts go through CL)
-    cmp si, INST_MAX
-    jae .global
-    mov bl, [inst_fdrv+si]      ; the instance's drive...
-    shl si, 1
-    mov dx, [inst_fcwd+si]      ; ...and its directory
-    jmp short .out
-.global:
-    mov dx, [dsk_cwd]           ; no instance behind this call: the machine's
-    mov bl, [disk_drive]        ; own position, exactly as before
-.out:
-    pop si
-    pop cx
+    push ax                     ; the reading is instance.inc's inst_where (DL
+    call inst_where             ; = drive, AX = directory, the machine's own for
+    mov bl, dl                  ; no instance), which banks BX - so BH is still
+    mov dx, ax                  ; the caller's here - and spends only DH, an
+    pop ax                      ; output
     ret
 
 ; OSAPI_VOL_SYS (out BL = [dsk_bootvol], nothing else touched, flags
@@ -7287,8 +7262,9 @@ cw_inst_task_die equ inst_task_die  ; NEVER RETURNS (it ends in task_exit's
                                 ; body: the frame it leaves dies with the
                                 ; task's stack either way (size pass 9)
 %endif
-cw_mem_disp:            call bp
-                    retf
+cw_mem_disp equ spw_near        ; `call bp` / `retf` - viddet.inc's splash door
+                                ; is the same three bytes, and it stays where
+                                ; SPL_RESIDENT needs it (size pass 10)
 cw_menu_activate:       call menu_activate
                     retf
 ; ...and menu_kbnav's two, which went cold with it (SPEC.md 12.10)
@@ -7780,6 +7756,57 @@ desk_rowcalc:     call COLD_SEG:desk_rowcalc_x
 ; is the count that collapses, and making it exact costs duplicate lines
 ; wherever one shared tail is reached from several entries.
 ; =============================================================================
+; --- ...AND ITS PROLOGUE HALF, for `.text` (kernel size pass 10) ----------
+; `call kent_bp` IS `push ax / bx / cx / dx / si / di / bp`, and `call kent_di`
+; the same without BP: `.cold`'s kentc_bp / kentc_di, written again here
+; because a `.text` caller cannot reach those near. The words land exactly
+; where the pushes would put them, so the routine's own pops or a rung of the
+; ladder below end it unchanged. Stack only, so re-entrant; no flag moves. The
+; return address is moved out from under the banked registers by pushing a
+; copy and storing AX over the original: every write is at or above SP, so an
+; interrupt can land anywhere in here. It peaks one word above the pushes,
+; which is where the routine's own next `call` puts its return address anyway.
+; (kent_bp was wm.inc's wm_kent_bp, which the wm agent wrote for nine of its
+; own prologues; it moved here when it stopped being wm.inc's alone.)
+;
+; 3 bytes a site against 7 (kent_bp) or 6 (kent_di), for ~95 cycles (~20 us)
+; a call - so it is for routines entered per OPERATION, per window, per menu
+; or per icon, never per glyph, run, span or pixel, never in the mouse ISR,
+; the cursor, the scheduler or the API cell. wm_clip_rows (per glyph cell
+; under a clip) and the save-under cache (docs/plans/LAST-DROP-BYTES.md 7.10)
+; keep their pushes.
+;
+; AND NOTHING THE SPLASH CALLS MAY USE THEM: these sit at the END of `.text`,
+; and stage 2's loading screen calls vid_apply, vid_setmode and gfx_rowbase
+; (viddet.inc's spw_near) while the image is still arriving - SPL_RESIDENT's
+; first sectors are aboard and this one is not.
+kent_bp:
+    ; STKBALANCE-NET: +7 - banks AX..BP on the CALLER's stack; its epilogue pops them
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp                     ; [bp][di][si][dx][cx][bx][ret]
+    mov bp, sp
+    push word [bp+12]           ; [ret][bp]...[bx][ret]
+    mov [bp+12], ax             ; ...[bx][ax]
+    mov bp, [bp]                ; BP back
+    ret
+
+kent_di:
+    ; STKBALANCE-NET: +6 - banks AX..DI on the CALLER's stack; its epilogue pops them
+    push bx
+    push cx
+    push dx
+    push si
+    push di                     ; [di][si][dx][cx][bx][ret]
+    mov di, sp
+    push word [ss:di+10]        ; [ret][di][si][dx][cx][bx][ret]
+    mov [ss:di+10], ax          ; ...[bx][ax]
+    mov di, [ss:di]             ; DI back
+    ret
+
 kret_es:          pop es
 kret_bp:          pop bp
 kret_di:          pop di
@@ -8093,6 +8120,18 @@ section .modc
 mods_end:
 MODS_SIZE equ mods_end - $$     ; the settings core: CTRL.DRV's first bytes
 section .modu
+%ifdef ANIMOFF
+; ANIMOFF=1 takes the zoom outline's callers out of the panel, and kernel size
+; pass 10 had already taken CTRL.DRV to 11,301 bytes: the knob's image came to
+; 11,177, so its claim rounded to 11KB and the 131 bytes of .modcb below did
+; not fit it (the MODC_BSS assertion). DOSRMARK=1's answer for HIBER.DRV (the
+; .modh block above): pad the knob's image to ONE byte past a KB boundary, so
+; the rounding leaves 1,023 bytes whatever either side grows to - a disk-only
+; cost, on a build that ships nowhere. `.modu` does not start KB-aligned, so
+; the pad is counted from the IMAGE's start (MODS_SIZE in), not `align`'s
+    times 1024 - ((MODS_SIZE + ($ - $$)) % 1024) db 0
+    db 0
+%endif
 modc_end:
 MODU_SIZE equ modc_end - $$     ; ...the panel behind it...
 MODC_SIZE equ MODS_SIZE + MODU_SIZE ; ...and the WHOLE image: align=1 on both
