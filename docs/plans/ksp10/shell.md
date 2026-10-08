@@ -149,3 +149,23 @@ desksc.inc (.bss -1, big only): `sc_vol` was a dead byte - named nowhere.
   gate). Every agent's notes file will do the same: regenerate once after
   the merge (`python3 tools/os88index.py`), and again when the directory is
   deleted.
+
+## WHAT RAN
+
+* `make` (fast tier inside it) after every batch: 61/61 each time.
+* `make small`, `make emu` at the tip: both assemble.
+* `tools/stkbalance.py kernel/kernel.asm kernel/*.inc`: 0 unbalanced at the
+  base and at every batch.
+* Soak rows, one at a time: `mouseup` (twice - after batch 3 and at the tip),
+  `tmload`, `assocopen`, `drvup`. All green.
+
+## TOTALS AT THE TIP
+
+* kern_big: text 44,153 -155, bss 5,132 -1, cold 37,874 -47 (sum -203); the
+  cold rung uncrosses 75 -> 74.
+* kern_small: text 32,751 -153, cold 23,948 -2 (sum -155).
+* kern_emu: text 44,418 -155, bss -1, cold -47 (sum -203).
+* Per file, kern_big (`kernsize --modules`, code = .text + .cold): ui.inc
+  2,826 -> 2,672 (-154), assoc.inc 2,360 -> 2,336 (-24), driver.inc 2,269 ->
+  2,246 (-23), clock.inc 491 -> 490 (-1), desksc.inc bss 4 -> 3 (-1). dock,
+  blank, shutdown, clockw, dockmod: 0.
