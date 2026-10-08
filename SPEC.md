@@ -96544,6 +96544,13 @@ the rows. The image is **5,267 bytes, a 6KB claim** idle; a mounted 64KB disk
 is 6KB + a 3KB table claim where it was 8KB + 1KB, the same 9KB, and the
 largest store's table claim is 7KB (`RD_TABMAXKB`) where it was 4KB.
 
+**`rd_dir_clear` zeroes all `RD_DIRB` bytes before it marks the rows free.**
+The image's directory was zeros; a heap claim is whatever was there, and a
+row's name is copied up to its NUL while `rd_meta_build` puts all 14 name
+bytes of every row into a Preserve, so the heap's bytes rode into the `.RAM`
+file and two Preserves of the same disk differed. Mount and `rd_meta_apply`
+both clear before a directory goes live.
+
 **Mount frees a store that has no volume before it claims** (`rd_mount`'s
 `rd_store_free`). One exists only when a Load failed after claiming - a short
 arena read, no drive letter - and it holds that image's chain table and that

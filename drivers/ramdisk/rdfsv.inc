@@ -32,10 +32,21 @@
 ; rd_dir_clear - every row free. A STORE MUST EXIST: [rd_dtab] is 0
 ; otherwise and this would write the interrupt vectors.
 ; out: ES = the directory, which every caller wants next
+;
+; ZEROED WHOLE FIRST: the directory is a heap claim now (SPEC.md 62.9.13.1),
+; not the image's own zeroed rd_dir, and a claim is not zeroed - and
+; rd_meta_build copies every row's 14 name bytes into a Preserve, so the
+; heap's bytes after each name's NUL went into the .RAM file
 rd_dir_clear:
+    push ax
     push cx
     push di
     mov es, [rd_dtab]
+    xor di, di
+    xor ax, ax
+    mov cx, RD_DIRB / 2
+    cld
+    rep stosw
     mov di, RDE_TYPE
     mov cx, RD_MAXENT
 .blank:
@@ -45,6 +56,7 @@ rd_dir_clear:
     mov byte [rd_cwd], 0
     pop di
     pop cx
+    pop ax
     ret
 
 ; rd_row - AL = a handle -> CF=0 and ES:SI = its row; CF=1 = no such handle
