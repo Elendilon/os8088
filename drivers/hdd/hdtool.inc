@@ -80,9 +80,9 @@ hd_tname:    db 'HDDTOOL.DRV', 0
 ; clobbers: flags
 ;
 ; BP IS SAVED HERE and that is not housekeeping. This calls four kernel slots
-; and then HDT_INIT, and it is called from hd_tool_open with the caller's verb
-; still to be dispatched - so a BP that comes back changed dispatches the
-; WRONG VERB. It did: the restore used to sit around the HDT_INIT call only,
+; and then HDT_INIT, and it is called from hd_cp_thunk with the page
+; callback's verb still to be dispatched - so a BP that comes back changed
+; dispatches the WRONG VERB. It did: the restore used to sit around the HDT_INIT call only,
 ; so it put back whatever the file read had left rather than what the caller
 ; had, the tool was re-sent HDT_INIT instead of HDT_FORMAT, and that answers
 ; CF = 0 having done nothing at all. No window, no error, nothing on screen to
@@ -249,50 +249,6 @@ hd_tool_call:
     call far [cs:hd_tfar]
     pop bp
     pop ds
-    ret
-
-; -----------------------------------------------------------------------------
-; hd_tool_open - bring the tool in and open one of its windows
-; in:  AL = HDT_FORMAT or HDT_INSTALL
-; out: CF = 0 a window is up; CF = 1 nothing opened and [hd_msg] says why
-; clobbers: flags
-;
-; The two Control Panel buttons, and the only place a load is triggered.
-;
-; IT ANSWERS CF BECAUSE ITS CAPTION WAS UNREACHABLE. Both callers repaint the
-; pane BEFORE this and never after - deliberately, because a page draws itself
-; unclipped and a repaint after wm_show paints over the window just put up
-; (page.inc's .dofmt) - so on the path where no window appears, the verdict
-; set here was stored and never drawn. Clicking Install with the wrong disk in
-; the drive did nothing visible at all, and the message surfaced later, on
-; whatever unrelated thing repainted the page next. A refusal explains itself
-; (SPEC.md 47 rule 5), so the caller needs to be able to tell the two apart.
-;
-; `pop` touches no flag, so the three pops below carry CF out unharmed.
-; -----------------------------------------------------------------------------
-hd_tool_open:
-    push ax
-    push bx
-    push bp
-    mov ah, al                  ; the verb, banked out of a register the load
-    call hd_tool_need           ; below is entitled to spend
-    jc .nofile
-    mov al, ah                  ; the verb back into AL, where hd_tool_call
-    call hd_tool_call           ; takes it
-    jc .norun
-    clc
-    jmp short .out
-.nofile:
-    mov byte [hd_msgc], HDM_NOSYS
-    stc
-    jmp short .out
-.norun:
-    mov byte [hd_msgc], HDM_NOTOOL
-    stc
-.out:
-    pop bp
-    pop bx
-    pop ax
     ret
 
 ; =============================================================================
