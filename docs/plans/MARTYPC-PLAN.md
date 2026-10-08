@@ -70,7 +70,7 @@ attribute controller, and leave the EGA's own copy of this code alone.
 read a brown pixel off `fbuf`: it must be the DAC's entry 0x14 (2A,15,00),
 not red. A real VGA and 86Box draw brown already.
 
-## 2. A key press lost now and then under parallel load - FIXED (`patches/10-keyboard-hold-scancode.patch`)
+## 2. A key press lost now and then under parallel load - FIXED (`patches/11-keyboard-hold-scancode.patch`)
 
 **Symptom, as it stood.** A key sent with `Marty.key` never reached the
 guest, about one run in five with four emulators at once and a busy guest
