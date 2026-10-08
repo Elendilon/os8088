@@ -820,10 +820,12 @@ desk_reflow:
     mov al, ah                  ; placed and gone: its cell goes bare and the
     call desk_cmark             ; item REMEMBERS it, to have back (pass 2)
 .rel:
-    or byte [di+desk_zslot], DSL_GONE
-    jmp short .an
+    mov al, DSL_GONE
+    jmp short .orit
 .forget:
-    mov byte [di+desk_zslot], 0xFF
+    mov al, 0xFF                ; (OR with all ones is the store)
+.orit:
+    or [di+desk_zslot], al
 .an:
     inc di
     cmp di, DESK_NZ
@@ -849,9 +851,8 @@ desk_reflow:
     jmp short .cset
 .first:
     call desk_free              ; ...else the first free one, FLOWING from
-    mov dh, 0xFF                ; here on - unless it is a shortcut, which is
-    jc .cset                    ; placed wherever it lands
-    mov dh, al
+    jc .none                    ; here on - unless it is a shortcut, which is
+    mov dh, al                  ; placed wherever it lands
 %ifdef OS88_SHORTCUTS
     cmp di, DESK_SC0
     jb .cset
@@ -861,6 +862,7 @@ desk_reflow:
 .cdead:
     test dl, DSL_PIN
     jnz .cset
+.none:
     mov dh, 0xFF                ; ...and a flowing one has nothing
 .cset:
     mov [di+desk_zslot], dh

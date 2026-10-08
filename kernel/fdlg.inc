@@ -288,10 +288,7 @@ FDBODY fdlg_open_x
 .ttl:
     mov [fdlg_ttl], cx
 
-    FDK cw_inst_win_owner       ; DI = the owning record, or 0; BX preserved
-    or di, di
-    jz fdlg_ref
-    cmp byte [di+I_STATE], 1
+    call fdlg_live              ; DI = the owning record; BX preserved
     jne fdlg_ref
     mov [fdlg_rqrec], di        ; ...so from here on it is a LIVE record in
     mov ax, [di+I_SPTR]         ; inst_tab, and fdlg_hidx can never miss
@@ -412,6 +409,20 @@ fdlg_hidx:
     ret
 
 ; -----------------------------------------------------------------------------
+; fdlg_live - does window BX belong to a LIVE instance record?
+; out: ZF=1 yes, DI = the record; ZF=0 no (DI garbage). BX kept
+; -----------------------------------------------------------------------------
+fdlg_live:
+    FDK cw_inst_win_owner       ; DI = the owning record, or 0
+    or di, di
+    jz .no
+    cmp byte [di+I_STATE], 1
+    ret
+.no:
+    inc di                      ; ZF=0
+    ret
+
+; -----------------------------------------------------------------------------
 ; fdlg_home_dir - record where the chooser stood as the app's folder
 ; in:  [fdlg_sdrv] / [fdlg_scwd], which fdlg_reap has turned from where the
 ;      chooser OPENED into where it STOOD; out: SI -> the row's inst_fname;
@@ -522,11 +533,8 @@ FDBODY fdlg_reap_x
     pop si
     pop bx
 .kept:
-    FDK cw_inst_win_owner       ; DI = the window's record, or 0
-    or di, di
-    jz .gone                    ; already torn down: the close box did it
-    cmp byte [di+I_STATE], 1
-    jne .gone
+    call fdlg_live              ; DI = the window's record...
+    jne .gone                   ; ...or torn down already: the close box did it
     cmp [di+I_SPTR], si         ; ...and it is still the CHOOSER's: a window
     jne .gone                   ; slot is reused, a pool block names one role
     call KERNEL_SEG:cw_app_close_win ; frees the cache claim with the record
