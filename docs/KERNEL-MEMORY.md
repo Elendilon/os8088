@@ -297,7 +297,7 @@ had added.
     "bss": 3073,
     "budget": 107520,
     "codemax": 65536,
-    "cold": 23228,
+    "cold": 23232,
     "coldpara": 1472,
     "fatpara": 64,
     "imgpara": 2208,

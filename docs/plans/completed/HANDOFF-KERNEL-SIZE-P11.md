@@ -38,7 +38,7 @@ Resident = `.text` + `.bss` + `.cold` + `.lowbss` + `.vgabuf`:
 | kern_big `.text` / `.bss` / `.cold` | 44,308 / 5,133 / 37,921 | 43,199 / 5,105 / 36,882 | -1,109 / -28 / -1,039 |
 | kern_big `KERN_SIZE` | 99,328 | **97,280** | **-2,048** (four rungs: 2 KB of heap on every machine) |
 | kern_big `.text`+`.bss` of `KERN_CODE_MAX` | 49,441 | 48,304 | 16,095 -> **17,232 left** |
-| **kern_small resident** | 62,826 | **61,185** | **-1,641** (-2.6%) |
+| **kern_small resident** | 62,826 | **61,189** | **-1,637** (-2.6%) |
 | kern_small `KERN_SIZE` | 65,024 | **63,488** | -1,536 |
 | kern_emu resident / `KERN_SIZE` | | | -2,188 / -2,560 (97,280) |
 | overlay (`.ovl`+`.ovlw`), big / small | | | -10 / -10 (`snd.inc`'s boot zeroing) |
@@ -50,8 +50,8 @@ Resident = `.text` + `.bss` + `.cold` + `.lowbss` + `.vgabuf`:
 
 **The merge reproduced the sum of the branches exactly**, on both kernels, at
 every one of the eleven merges (the kernsize line was read after each): no two
-agents touched the same bytes. The figures include four correctness fixes
-(§3), which together cost +2 resident.
+agents touched the same bytes. The figures include five correctness fixes
+(§3), which together cost +2 resident on `kern_big` and +6 on `kern_small`.
 
 ## 1. WHO TOOK WHAT
 
@@ -73,7 +73,8 @@ agent's file went on a cross-file list), merged `--no-ff`; then an eleventh,
 | **hw** | fsx, vidsel, viddet, xmem, hiber, hb*, clone, compress, extmod, vmmouse | -71 | -43 |
 | **xfile** | the cross-file lists, the `.text` entry ladder | -63 | -69 |
 | **covox** | ctrl, snd, `drivers/sound/` + #229's Covox | -41 | -39 |
-| **total** | | **-2,176** | **-1,641** |
+| coordinator | §3.7's stub | 0 | +4 |
+| **total** | | **-2,176** | **-1,637** |
 
 ### 1.1 The shapes that recurred
 
@@ -218,6 +219,26 @@ assertion). The knob now pads its image to one byte past a KB, which is
 **The assertion will fire again** the next time any build shrinks a module
 under a KB boundary with its bss on top; §5 has the general fix.
 
+### 3.7 kern_small's `drv_svc_call` far-called a NEAR stub
+
+**Latent since the kern_small arm was written; EXPOSED by this pass, and found
+by the integration soak.** `kernel.asm`'s `drv_svc_call` thunk reaches
+`drv_svc_call_x` with a FAR call - the live body's `.none` is a `retf` and its
+comment says why - but kern_small's stub block shared `drv_svc_none`'s near
+`ret`, so a call returned to the caller's offset with `COLD_SEG` still on the
+stack. Every caller tested BP = 0 first, so nothing took it - until the covox
+agent's `snd_release_inst` (`59dca542`, -4) trusted the callee's own refusal,
+and **every instance teardown on kern_small** then went wild: the Standard
+File chooser's FDLG.DRV was never given back and the pointer stuck
+(`fdlgdrop`, `dispclose-small` and `fdlgchsmall` red 3 of 3 at the close,
+green 3 of 3 at the base; `fdlgdrop` bisected to the covox branch, then to
+`59dca542`). The stub has its own `xor ax, ax / stc / retf` now: kern_small
++4, so the covox change nets 0 there and keeps its -4 on kern_big. The three
+rows are green with it. **The covox agent's own rows were all kern_big**, which
+is how a change correct against its callee's documented contract shipped a
+crash on the other kernel: the contract was the live body's, and the stub did
+not keep it.
+
 Two small races closed as a side effect (input): `toast_pass`'s
 `[toast_dirty]` and `menu_draw_bar`'s `[menu_bdirty]` were each tested and then
 cleared in two instructions; each is one `xchg` now.
@@ -262,8 +283,17 @@ number (the commit count, SPEC.md 14.2) and the source under the rows, and five
 rows then failed in `os88sym` with *"the map describes a DIFFERENT kernel"*.
 **Do not commit on the soak's checkout while it runs**; work in another
 worktree. Its two real findings were `buildmatrix` (§3.6) and `deskflash`,
-below. The soak was then re-run from the close; its result is in the commit
-that closes this pass.
+below.
+
+**The second run, on `fe770e8d`, was 240 of 246 green.** The six:
+`fdlgdrop`, `dispclose-small` and `fdlgchsmall` were §3.7, fixed, and green
+after it; `dispreboot` fingerprints `ui_task`'s step 0 byte for byte and
+watches `ui_cmd`'s entry, and the shell agent had shrunk the first (one
+`xchg`) and dropped the `jz` in front of the second (`ui_cmd` ignores AX = 0
+itself) - the row now reads the ten-byte head and lets an AX = 0 entry
+through, and is green in both of its arms; `regrowshed` and `mediadisk` are
+red at the base with the same output (`mediadisk` expects `media360.img`'s root
+to be `MEDIA`/`SYSTEM` and MIDIRack ships there now).
 
 **`deskflash` is intermittent, at the base and at the close, with the same
 signature.** Its CGA leg read *"3 px changed, 3 flashed"* (in-place repaint)
