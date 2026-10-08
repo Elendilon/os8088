@@ -58201,7 +58201,8 @@ restore and by each tile it redraws. Taking the damage span instead would be a
 wrong **0** for a tile outside it, and a wrong 0 is the dock drawn through a
 window, where a wrong 1 is only a wasted repaint.
 
-Empty is `0x7FFF`..`0x8000`, `wm_dmg_bands`' empty-bounding-box idiom, so a
+Empty is `0x7FFF`..`0x8000`, the WM's empty-bounding-box idiom (`wm_rect_empty`
+seeds `-1` for the far corner, which refuses the same way), so a
 span nothing has painted refuses every rect through the signed compares rather
 than accepting all of them. In practice `[wm_dmg_dk]` already gates the call on
 `dock_paint` having answered CF = 1, so the span is non-empty wherever it is
