@@ -40410,7 +40410,9 @@ running boundary happens to fall and not by anything about the buffer. A row
 that reports the machine's arithmetic rather than the machine is not a row,
 so it is retired: the 512 bytes are accumulated into `SKB_IMG` with the rest
 of `.lowbss`, which is the class they were always in, and the memory view
-gets back the row of window height VGA can least spare (§28).
+gets back the row of window height VGA can least spare (§28). §28's
+`IVT+BDA` row has since spent that row again, on 1.5K the page could not
+account for at all.
 
 **`SK_DSK` used to be the whole of the `SKB_IMG` leftover and read 6 KB for
 3,584 bytes of buffer.** It was defined as "the buffers less the FAT window
@@ -55539,7 +55541,16 @@ full text cache would need. Three rules keep it honest:
   i = 0..`TM_GW`−1, rows 15..54. Column value v (0..40): white vline rows
   15..54−v, then black vline rows 55−v..54 (v=0 → all white, v=40 → all
   black). The column at tm_pos draws all white (the sweep gap).
-- (6,61): `"RAM uuuK/tttK"` (white-fill (6,61)-(167,68) first).
+- (6,61): `"RAM uuu/tttK  HEAP uuu/tttK"`, the memory view's caption line
+  (below) with the two-space gap left blank. **The HEAP half is on this page
+  too**, because this is the page a launch opens on and the ONLY page the
+  small build has (§28.12). `RAM` alone says how much of the machine is used
+  and not how much a program can still claim. On a 128KB machine those
+  differ by the whole kernel, so the reader was left to subtract `System`
+  from the RAM total and guess at the rounding. Both figures are already in
+  `[tm_kb]` on every sample (§20.9), so the line costs a string copy and a
+  `tm_kpair`. The claim swatch stays on the memory view, because it keys
+  that view's map texture and this page has no map.
 - RAM bar: 1px black frame (6,71)-(`TM_RW`,80); interior (7,72)-(`TM_RW`−1,79):
   black for barw pixels from the left, white for the remainder.
 - (`TM_PEN`,87): header `tm_s_hdr`, at the **pen** and not at the band's left
@@ -55588,7 +55599,7 @@ own above the second map and read as *its* label.
   characters per pair is what fits both on one line. **One string and one
   `font_str`**, not two draws — two would need two check words and a fill
   that belongs to neither, where one string is one exact key. The performance
-  view builds the same line without the HEAP half (`[tm_view]`).
+  view builds the same line, HEAP half included, and leaves the gap blank.
 - (`TMM_HSQ_X`,4): the claim legend square, drawn last, into the two-space
   gap the string just lettered white.
 - `tm_str` must hold the longest of these lines, and this is it:
@@ -55629,9 +55640,16 @@ own above the second map and read as *its* label.
   pool map's caption. The two caption lines are CAPS and the list's rows are
   mixed case, which is the whole of the distinction between a map's label and
   a row.
-- (16,62): header `"NAME     ADDR SIZE   HEAP"` (25 chars, the row width).
+- (16,62): header `"NAME     ADDR  SIZE  HEAP"` (25 chars, the row width).
   Two spaces of gap before HEAP, not one: two 150K figures side by side ran
-  together at the old 22-char width.
+  together at the old 22-char width. **Every figure ends under the last
+  letter of its heading**: SIZE at column 18 and HEAP at 24, because every
+  row is the 9-column name field, ADDR at 9-12, a space, and two five-wide
+  `tm_kcol` columns with a space between them. Two rows had drifted, and the
+  column map of a screenshot is the check: the heading read `ADDR SIZE   HEAP`,
+  one column left of the System and package rows' SIZE, and the three buffer
+  rows and the `Packages` heading padded to 13 rather than 14, which put
+  their HEAP dash one column left of every other row's.
   **The NAME field is eight columns plus a separator.** Seven of them are the
   name (`tm_copy7`) and the eighth is the indent a nested row carries, so the
   four builders line their addresses up whichever way they spend it: System
@@ -55645,12 +55663,14 @@ own above the second map and read as *its* label.
   `"RAM uuu/tttK"`, the claim square and `"HEAP uuu/tttK"` land exactly on
   `TM_RW` = 223, which puts the template at 232 wide. `TM_GW` = `TM_RW` − 7
   follows it, so both map interiors always fill their frames edge to edge.
-- Rows at y = 74 + 11·r, `TMM_ROWS = INST_MAX + 6` of them — System, its
-  three buffer rows, the two group headings, and one per instance. **Free
-  slots are not drawn**: 18 rows at the 11px pitch is what decides both that
-  and the template's height. It was `INST_MAX + 7` while `Disk bufs` was a
-  row (§20.9), and `TM_PREF_H` is cut from this constant — so the window is
-  a row *shorter* for losing that row rather than a row emptier.
+- Rows at y = 74 + 11·r, `TMM_ROWS = INST_MAX + 7` of them — low memory,
+  System, its three buffer rows, the two group headings, and one per
+  instance. **Free slots are not drawn**: 19 rows at the 11px pitch is what
+  decides both that and the template's height. It was `INST_MAX + 7` while
+  `Disk bufs` was a row (§20.9), `INST_MAX + 6` once that row was retired,
+  and `INST_MAX + 7` again for `IVT+BDA` below. `TM_PREF_H` is cut from this
+  constant, so each of those moves made the window a row taller or shorter
+  rather than a row fuller or emptier.
   `tm_mrow_open` clamps to the **live** frame on top of that constant
   (`tm_view_begin`), for the screens where §39.7 shrinks the window — nothing
   in the kernel clips a draw to a window, and on a 200-row CGA this one is
@@ -55680,9 +55700,36 @@ own above the second map and read as *its* label.
   band and not merely a similar grey. A set bit is **white** (§5). A square
   is a **request**, `[tm_sqp]`, not a
   draw: the row's band is erased between composing it and lettering it.
-- Row 0 (System): legend square 50% gray, the kernel's band; ADDR `0600`
+- Row 0 (`IVT+BDA`): **everything below the kernel**, the one span of
+  conventional memory that is neither the kernel nor the heap. That is the
+  interrupt vector table (1K at `0000`), the BIOS data area (256 bytes at
+  `0400`) and the page at `0500`, which is the BIOS/DOS communication area
+  and also holds the diskette parameter table that boot/boot.asm points
+  `int 1Eh` at (`DPT_AT` = `0580`, §18.92). ADDR `0000`, SIZE **`1.5K`**,
+  CLM a dash, no square. It is the same 1,536 bytes on every machine and
+  every build, because `KERNEL_SEG` is an SDK constant rather than a ladder
+  rung, so the row is ONE LITERAL and an assembly-time `%error` fires if
+  `KERNEL_SEG` ever moves. The size is printed as `1.5K` and not through
+  `tm_kcol`, whose whole kilobytes would read 1K or 2K: either one is the
+  rounding this row exists to stop hiding. Without it, System plus `HEAP`
+  came to 1.5K short of the RAM total and the field asked where it went.
+  **The other half-kilobyte a reader can still find missing is real and is
+  not a row**: `HEAP`'s size is `([mem_top] − [mem_base])` rounded DOWN to
+  whole KB, and the heap's base is 512-aligned, not KB-aligned (`KERNEL_SEG`
+  is 1.5K up and `KERN_SIZE` is a multiple of 512). So whenever the base
+  lands on a half-KB, the heap is `n.5` KB. On VGA that happens whenever
+  `KERN_SIZE` is a whole number of KB, as it is today (99,328 bytes). On a
+  machine with no VGA the floor is one 512-byte `VGABUF` rung lower (§39.22),
+  so the cases swap. Since every claim is a whole number of KB
+  (§50.3), that last 512 bytes cannot be claimed by anything. The rounded-down
+  figure is therefore the true claimable size, and the 512 bytes are lost.
+  System's `TM_KERN_KB` rounds up, which can also absorb half a KB.
+- Row 1 (System): legend square 50% gray, the kernel's band; ADDR `0600`
   (where the kernel starts — `KERNEL_SEG`); SIZE = `TM_KERN_KB`; CLM = the
-  kernel's own heap claims.
+  kernel's own heap claims. The map's gray band runs from KB 0, so it covers
+  row 0 as well, and it ends at KB `SK_KERN` inclusive rather than
+  `SK_KERN − 1`, because the kernel starts 1.5K up. `SK_KERN` rounds up, so
+  that end never paints a free KB as kernel.
 - **Three indented buffer rows under it** — `Code+data`, `Stacks`,
   `FAT snap` — each with its size in the SIZE column and a dash
   in CLM, because a buffer is part of the kernel and not a claim. Between
@@ -57455,7 +57502,7 @@ the pages themselves:
 | flag | off in `APP_SMALL` | what goes with it |
 |---|---|---|
 | `TMF_HEAP` | the heap page (§28.4) | the per-claim table and its `TYPE`/`TIER` decode, the three captions, `tm_hsnap`'s `OSAPI_MEM_AVAIL` pair, the scroll bar (§13.10) and `TMH_ROWS`' share of `tm_rowck` |
-| `TMF_MEM` | the memory view (§28) | the conventional-memory map, the XMS bar, the `NAME/ADDR/SIZE/HEAP` re-columning, the legend squares and their textures, the RAM line's second pair — and the whole of §28.6/§28.8/§28.11's quiet-page machinery, which exists for these two pages and for nothing else |
+| `TMF_MEM` | the memory view (§28) | the conventional-memory map, the XMS bar, the `NAME/ADDR/SIZE/HEAP` re-columning, the legend squares and their textures (the claim swatch beside the RAM line's HEAP pair among them; the pair itself stays) — and the whole of §28.6/§28.8/§28.11's quiet-page machinery, which exists for these two pages and for nothing else |
 
 **The ladder is ORDERED and the guard says so.** The heap page borrows the
 memory view's row machinery whole — `tm_mrow_open` / `tm_mrow_close` /
@@ -57465,7 +57512,7 @@ silently different product.
 
 **Kept on purpose, so that the small build is still an instrument and not a
 splash screen:** the load gauge and its sweep graph, `RAM used/total` with its
-bar, and the process list entire — every instance, its CPU share, its `MEM`
+bar and `HEAP claimed/size` beside it, and the process list entire — every instance, its CPU share, its `MEM`
 and its `CLM`. The one question the floor machine most wants answered, *what
 is eating this machine*, is answered by the arm that ships there.
 
