@@ -434,15 +434,19 @@ fdlg_home_dir:
     ret
 
 ; -----------------------------------------------------------------------------
-; fdlg_gate - is the chooser still a USED and VISIBLE window? (SPEC.md 38.2)
+; fdlg_gate - is the chooser still a USED and VISIBLE window, and still
+; unanswered? (SPEC.md 38.2)
 ; out: CF=0 with BX = the chooser; CF=1 when there is none (ZF=1), or the one
-;      there was has gone (ZF=0: close box, minimize, anything). AL clobbered
-;      - all three callers bank AX - and nothing else is touched.
+;      there was has gone or ANSWERED (ZF=0: close box, minimize, anything,
+;      or a posted [fdlg_act]). AL clobbered - all three callers bank AX -
+;      and nothing else is touched.
 ;
 ; It ANSWERS and does nothing else: fdlg_reap - the same UI pass, because the
 ; wm_hide or wm_destroy that took the window posted [ui_post] through
-; wm_paint_dmg - is what cancels a chooser that has gone, and the two filters
-; hold everything still until it has (ZF is how they tell the cases apart).
+; wm_paint_dmg, and fdlg_post posts it itself - is what ends a chooser that has
+; gone or answered, and the two filters hold everything still until it has (ZF
+; is how they tell the cases apart). fdlg_reap takes the answer BEFORE it
+; asks, so what it hears is "gone" alone.
 ; -----------------------------------------------------------------------------
 %if W_FLAGS != 0
   %error "fdlg_gate reads bit 0 (used) and bit 1 (visible) at [bx]"
@@ -453,9 +457,10 @@ fdlg_gate:
     stc
     jz .ret                     ; no chooser at all: CF=1 and the `or`'s ZF=1
     mov al, [bx+W_FLAGS]
-    and al, 3
-    cmp al, 3                   ; CF=1 exactly when either bit is clear, and
-                                ; ZF=0 with it: gone
+    not al
+    and al, 3                   ; 0 exactly when both bits are set...
+    or al, [fdlg_act]           ; ...and nothing is posted: then CF=0, and
+    neg al                      ; CF=1 with ZF=0 for anything else
 .ret:
     ret
 
@@ -477,13 +482,13 @@ FDBODY fdlg_reap_x
     FDENT kentc_di
     cmp word [fdlg_win], 0
     je .done
-    call fdlg_gate              ; CF=1: it has gone, which is a cancel
-    mov al, 0
-    xchg al, [fdlg_act]         ; the posted answer, taken (CF untouched)
-    jnc .alive
-    mov al, FDA_CANCEL
+    mov ah, 0
+    xchg ah, [fdlg_act]         ; the posted answer, taken - FIRST, so that
+    call fdlg_gate              ; CF=1 here is "it has gone", which is a
+    jnc .alive                  ; cancel (the gate clobbers AL)
+    mov ah, FDA_CANCEL
 .alive:
-    or al, al
+    or ah, ah
     jz .done                    ; (BX = [fdlg_win] from the gate either way)
     push ax
     FDK cw_gfx_lock
@@ -531,8 +536,11 @@ FDBODY fdlg_reap_x
     call KERNEL_SEG:cw_menu_activate ; the bar goes back to the requester
     call KERNEL_SEG:cw_menu_draw_bar
     pop ax
-    cmp al, FDA_COMMIT
-    je .commit
+%if FDA_COMMIT != 1
+  %error "fdlg_reap tests the posted answer for FDA_COMMIT with dec"
+%endif
+    dec ah
+    jz .commit
 .unlk:
     FDK cw_gfx_unlock
 .done:
@@ -650,10 +658,8 @@ FDBODY fdlg_reap_x
 FDBODY fdlg_grab_x
     push ax
     push bx
-    call fdlg_gate
+    call fdlg_gate              ; answered or gone: CF=1 and ZF=0
     jc .notup
-    cmp byte [fdlg_act], 0
-    jne .eat                    ; answered: nothing more reaches it
     push bx
     call KERNEL_SEG:cw_wm_hit   ; BX = the window this press would reach
     pop ax
@@ -664,7 +670,7 @@ FDBODY fdlg_grab_x
     stc
     jmp short .out
 .notup:
-    jnz .eat                    ; ZF=0: gone, and not yet reaped
+    jnz .eat                    ; ZF=0: gone or answered, and not yet reaped
     clc                         ; ZF=1: there is none
 .out:
     pop bx
@@ -672,7 +678,8 @@ FDBODY fdlg_grab_x
     retf
 
 ; fdlg_top - in: BX = wm_top's answer; out: BX = the chooser instead, if up,
-; and 0 - the key goes nowhere - if it has gone and is not yet reaped
+; and 0 - the key goes nowhere - if it has gone or answered and is not yet
+; reaped (SPEC.md 38.2)
 FDBODY fdlg_top_x
     push ax
     push bx
@@ -680,7 +687,7 @@ FDBODY fdlg_top_x
     pop ax                      ; AX = wm_top's answer
     jnc .out
     jz .stand                   ; ZF=1: there is none
-    xor ax, ax                  ; ZF=0: gone (SPEC.md 38.2)
+    xor ax, ax                  ; ZF=0: gone or answered (SPEC.md 38.2)
 .stand:
     xchg ax, bx                 ; ...which stands
 .out:
