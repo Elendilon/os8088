@@ -186,6 +186,7 @@ with os88ui.boot(_T.img("small360.img"), machine=MACHINE, limit=180) as ui:
             run = max(run, (top - cur) * 16)
         print("    %-26s free %6d  largest run %6d  in caches %6d"
               % (label, free, run, purge))
+        heap.free = free
         return run, purge
 
     def npseg(win):
@@ -249,6 +250,15 @@ with os88ui.boot(_T.img("small360.img"), machine=MACHINE, limit=180) as ui:
             ui.chooser_gone(limit=60)   # the answer is POSTED (SPEC.md 38.6)
             M.settle(m, limit=180)      # ...and np_load runs after the reap
 
+        # The chooser's window is up before its LISTING is: the read behind
+        # it sheds caches first on a full heap, which is the state the nomem
+        # leg stages, so the rows are waited for and not read on arrival.
+        try:
+            M.until(m, lambda _m: rows(), "the chooser's listing",
+                    poll=0.05, guest=60.0)
+        except M.MartyError as e:
+            sys.exit("%s: the chooser came up and never listed anything - %s"
+                     % (tag, e))
         while rows()[:1] == [".."]:     # up to the volume root
             ui.chooser_select("..", ch)
             dive()
@@ -341,6 +351,31 @@ with os88ui.boot(_T.img("small360.img"), machine=MACHINE, limit=180) as ui:
     #    were opened before the first load (the docstring), and why there is
     #    nothing to stage here.
     run, purge = heap("before the second's load")
+    # ...UNLESS the machine has grown past the staging. The arithmetic in the
+    # docstring was struck against a 60.5KB heap and a File > Open that took
+    # FDLG.DRV's 4KB for the length of np_load; kern_small since has 63.0KB
+    # and a chooser that is a Disk window, and the second grow was simply
+    # FUNDED out of 14,336 free and 4,096 shed. So the leg stands up what it
+    # needs rather than hoping: while free + shed-able could still fund the
+    # second document, the next SMALL package on the disk takes some of it.
+    # Small, because the chooser File > Open puts up has to list a folder
+    # out of what is left: a third Note Pad's 14KB region was tried and left
+    # 3KB, and the chooser came up empty. And each launch's Disk window is
+    # shut behind it, because kern_small has six window slots (SPEC.md
+    # 11.102) and the chooser is a Disk window too; a listing holds only a
+    # purgeable cache, so closing one moves no figure the loop reads. If the
+    # list runs out the check below FAILS - it never passes vacuously.
+    for filler in ("CALC", "PIANO", "FRACTAL"):
+        if heap.free + purge < 16 * 1024:
+            break
+        print("    free + caches %d could fund a second 16KB document - "
+              "%s takes some of it" % (heap.free + purge, filler))
+        for w in [w for w in ui.windows() if w.title == "APPS"]:
+            ui.close(w)
+        ui.path("A:/APPS/%s.O88" % filler)
+        for w in [w for w in ui.windows() if w.title == "APPS"]:
+            ui.close(w)
+        run, purge = heap("%s standing" % filler)
     t = open_file(second, "README.TXT", "nomem")
     st = npstate(second)
     if st["np_capkb"] >= 16:

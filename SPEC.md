@@ -48544,10 +48544,13 @@ size, so today the folder has files in it anyway — and the Makefile passes
 something the last data file left on the disk happens to provide.
 
 **Nothing in the kernel changed for it and nothing had to.** It is an
-ordinary FAT12 data volume of the kind §24.1 already describes; it carries no
-package, so `os88disk.py` writes no `ASSOC.DAT` for it (§54.7 — a cache of
-nothing is nothing), and every mechanism it meets already covers "another
-volume has the file on it", which is what a removable disk is.
+ordinary FAT12 volume of the kind §24.1 already describes, and every
+mechanism it meets already covers "another volume has the file on it", which
+is what a removable disk is. It was a pure DATA volume until §105.10 put
+MIDIRack at its root - the player, `MIDIRACK.GFX` and the ten songs in
+`MEDIA\MIDI\`, at 360KB alone - so it now carries ONE package, on the disk
+whose subject is music already, and `os88disk.py`'s `ASSOC.DAT` for it is
+that package's (§54.7).
 
 **`tests/mediadisk.py` is the gate**, and it asks the guest rather than the
 host: two boots of the 360KB system disk, one per B: floppy, reading the

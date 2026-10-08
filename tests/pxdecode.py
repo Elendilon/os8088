@@ -41,6 +41,7 @@ os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, "tests"); sys.path.insert(0, "tools")
 import os88marty as M
 import os88ui, os88geom, heapmap, os88build
+import pxtmp
 import pixelsim as P
 import pixcorpus as C
 from pxsyms import pkg_syms, u16
@@ -68,8 +69,7 @@ if o88[:syms["op_table"]] != image[:syms["op_table"]]:
 corpus = C.corpus()
 if a.k:
     corpus = [c for c in corpus if a.k.upper() in c[0]]
-tmp = "build/pxcorpus"
-os.makedirs(tmp, exist_ok=True)
+tmp = pxtmp.private("pxcorpus", folder=True)      # in the run's tree, ours
 for name, data, _ in corpus:
     open(os.path.join(tmp, name), "wb").write(data)
 first = "C1.PCX"                    # PiXEL's own association opens it
@@ -79,7 +79,7 @@ open(os.path.join(tmp, first), "wb").write(
 # corpus is more. PA holds C1.PCX and the first fifty, PB the next, and so
 # on; the run moves PiXEL from one to the next by poking the record's
 # folder, which is exactly what File > Revert reads
-DISK = "build/pxdecode.img"
+DISK = pxtmp.private("pxdecode.img")     # dir_cluster reads it on the HOST
 names = sorted(set(n for n, _, _ in corpus) - {first})
 folder = {n: "P" + chr(ord("A") + i // 50) for i, n in enumerate(names)}
 folder[first] = "PA"
