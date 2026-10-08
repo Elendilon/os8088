@@ -89,6 +89,18 @@ desksc.inc (.bss -1, big only): `sc_vol` was a dead byte - named nowhere.
 * step 0's `[ui_rebootq]` is read-and-cleared with xchg (-5).
 * `ui_timer_pass`: `cmp word [si+W_TIMER], 0` (-1).
 
+### batch 4 - small items (big .text -10, small .text -10, small .cold -2)
+
+* ui_task's key dispatch reads W_ONKEY into BP and tests the register (-2).
+* `.title_bar`'s `mov bx, si` before the zoom: ui_tdbl clobbers AX alone,
+  so BX is still the window (-2).
+* `.chk_pcmd` calls ui_cmd with no `jz` in front: ui_cmd ignores 0 itself,
+  and the step sits behind [ui_post] (-4).
+* `.clock`: clk_tick's last flag-writer is `or al, ah`, so ZF already says
+  AL = 0 - the `or al, al` went, and clk_tick's header now promises it (-2).
+* kern_small's driver stubs: `drv_fs_has` and `drv_owns_seg_x` were two
+  copies of `stc / ret` - two labels over one now (small .cold -2).
+
 ## REFUSED
 
 * `drv_cp_count_x` falling into `drvf_drv_cp_class` (-4): it leaves the
@@ -110,10 +122,27 @@ desksc.inc (.bss -1, big only): `sc_vol` was a dead byte - named nowhere.
 * `ui_track` taking the step in BP instead of SI to drop its `push si`/
   `pop si` (-2): every callee in the loop is documented to keep SI and not
   all to keep BP. Left.
+* A shared "is this press on a menu bar" predicate for `.mdown` and
+  `ui_rdown` (wm_fs_vis, MBAR_H, [vid_pw]): kern_big -5 but kern_small +2,
+  because the [vid_pw] half that makes it pay is kern_big's alone. Not worth
+  an %ifdef for 5.
 * `ui_tdbl` reuse of AX across the two `.first` arrivals: 0 bytes.
 * `db_xor_ring`/`db_xor_body` merged on a CF selector: +2.
 
 ## CROSS-FILE
+
+* **A `.text` KENT** (`kent_di` / `kent_bp`, kernel.asm beside the
+  `kret_*` ladder): `kentc_di`/`kentc_bp` exist only in `.cold`, so a `.text`
+  routine banks AX..DI with six (or seven) pushes. There are ~70 such runs in
+  `.text` (a scan of `push ax / bx / cx / dx / si / di` at a routine head);
+  `kentc_di` is 15 bytes, so each non-hot site converted saves 3 (4 with BP),
+  and the break-even is five sites. Candidates that are NOT per-pixel or
+  per-glyph: wm.inc (~20 sites - repaint, geometry, z-order), menu.inc (6),
+  instance.inc (2), fsx.inc (3), toast.inc, ui.inc's `ui_sys_open`,
+  dock.inc's `db_paint`. ESTIMATED -60..-90 on kern_big after the helper,
+  ~60-80 cycles a call where converted (pass 6's figure for the cold one).
+  The drawing primitives (vga12, softgfx, font, icons, mouse) stay as they
+  are. This is the coordinator's: kernel.asm owns the ladder.
 
 * `docs/INDEX.md` is regenerated in this branch only because adding
   `docs/plans/ksp10/shell.md` made `os88index` call it stale (the build

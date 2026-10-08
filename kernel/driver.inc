@@ -5247,13 +5247,6 @@ drv_pkg_call_x:
     ret
 section .cold
 
-; ...and the two that answer WITHOUT touching AX. drv_fs_has is the
-; unambiguous form of the above - CF = 1 means "drv_fs_call would refuse" -
-; and every register is preserved, which `ret` after `stc` already is.
-drv_fs_has:
-    stc
-    ret
-
 ; drv_cls_fp / drv_cls_svc: DI = 0 and CF = 1 is the out-of-range answer the
 ; live pair gives, and with no class ever published every class is that.
 drv_cls_fp_x:
@@ -5262,8 +5255,14 @@ drv_cls_svc_x:
     stc
     ret
 
-; drv_owns_seg: no segment belongs to a driver, because there is no driver.
-; CF = 1 is the live body's "no" (it falls out of drv_row_ix_of's own refusal).
+; ...and the two that answer WITHOUT touching AX, which are ONE BODY: two
+; labels over one `stc`/`ret`, the pair above's shape (kernel size pass 10,
+; -2). drv_fs_has is the unambiguous form of the dispatchers' refusal - CF = 1
+; means "drv_fs_call would refuse" - and every register is preserved, which
+; `ret` after `stc` already is. drv_owns_seg: no segment belongs to a driver,
+; because there is no driver - CF = 1 is the live body's "no" (it falls out
+; of drv_row_ix_of's own refusal).
+drv_fs_has:
 drv_owns_seg_x:
     stc
     ret

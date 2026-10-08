@@ -195,11 +195,12 @@ ui_task:
     KFZ 6                       ; 6: the target window is resolved
     or bx, bx
     jz .key_done
-    cmp word [bx + W_ONKEY], 0  ; window may not take keys
-    je .key_done
     mov si, bx                  ; W_ONKEY contract: AL=ascii, AH=scan, SI=win
     mov bp, [si + W_ONKEY]      ; wm_pkgcall: record in SI (where the
-                                ; contract already puts it), offset in BP
+    or bp, bp                   ; contract already puts it), offset in BP -
+    jz .key_done                ; and 0 = the window may not take keys, asked
+                                ; of the register rather than of the record
+                                ; first (kernel size pass 10, -2)
     KFZ 7                       ; 7: about to far-call the package. HERE and
                                 ; not inside ui_bill: the ladder exists to
                                 ; locate a freeze that reaches no package, and
@@ -542,8 +543,8 @@ ui_task:
     test byte [si+W_FLAGS], WF_SIZABLE
     jz .tb_raise                ; ...if it is resizable. A fixed-layout window
                                 ; has nothing to zoom into, so the press stays
-                                ; an ordinary one and drags as before
-    mov bx, si
+                                ; an ordinary one and drags as before. BX is
+                                ; still the window: ui_tdbl clobbers AX alone
     mov bp, wm_zoom
     call ui_lcall               ; out to the desktop band, or back to wherever
                                 ; it was when it left
@@ -694,12 +695,13 @@ ui_task:
 .chk_pcmd:
     xor ax, ax                  ; a kernel menu command posted from under
     xchg ax, [ui_pcmd]          ; the lock (ui_post_cmd, SPEC.md 13)
-    or ax, ax
-    jz .chk_fmf                 ; every step's "nothing to do" names the NEXT
-                                ; step, so a step inserted below is a step
-                                ; this jump has to be pointed at
     call ui_cmd                 ; in: AX = CMD_*; takes its own locks, and
-                                ; CMD_REBOOT never comes back
+                                ; CMD_REBOOT never comes back. NO `jz` in
+                                ; front of it: ui_cmd's own first compare
+                                ; IGNORES 0 ("0 = nothing"), so the test was
+                                ; asked twice - and this is behind [ui_post],
+                                ; so the call is paid only on a pass that had
+                                ; something posted (kernel size pass 10, -4)
 .chk_fmf:
     shr byte [fm_fchk], 1       ; a file operation changed a folder, or the
     jnc .chk_cp                 ; active window changed (SPEC.md 22.8): the
@@ -812,9 +814,8 @@ ui_task:
                                 ; of them read zero on the machine the question
                                 ; is about
     call clk_tick               ; AL: bit0 = a second passed, bit1 = the bar
-    mov bl, al                  ; text changed
-    or al, al
-    jz .idle
+    mov bl, al                  ; text changed - and ZF = (AL = 0) already,
+    jz .idle                    ; clk_tick's last ALU op being on AL
     call wm_fs_vis              ; fullscreen (SPEC.md 11.2): the bar and any
     jc .idle                    ; Date/Time page are covered - time is kept,
                                 ; nothing is drawn. The predicate, 39.17.1
