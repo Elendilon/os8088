@@ -32,21 +32,13 @@ kern_big `.text` -82, kern_small `.text` -66.
   on CF = 1, so "nothing above" needs no test. -46 big, ~-40 small. Faster per
   window too: `call di` replaces a `cmp byte [mem],0` + branch + jmp.
 
-### Batch 2 - rect_get/rect_put at fourteen sites, the title bar, small ones
-kern_big `.text` -207 (cumulative -289), kern_small `.text` -203
-(cumulative -269).
+### Batch 2 - the title bar, the flay clamp, small ones
+As committed (146f7878) kern_big `.text` -207 and kern_small -203, of which
+138 / 138 were the rect_get/rect_put conversions batch 3 backs out: net
+-69 big, ~-65 small.
 
-* **rect_get / rect_put** (already in wm.inc, 5 bytes a site against 12 for
-  four `mov`s): wm_dmg_bands' store and load (both arms), wm_paint_dmg,
-  wm_dmg_gray's `.fill`, wm_su_owed (between gfx_rect_hit and its `jnc`:
-  neither helper writes a flag), wm_su_sub, wm_su_vset, wm_su_srect,
-  wm_su_flay, and wm_su_try's load and per-fragment store - and wm_su_try's
-  two four-word COPIES (sx -> bx before the walk, bx -> sx at `.out`, 24
-  bytes each) as a get+put pair, 10. -7 a site, -14 a copy. Each costs
-  ~140 cycles (~30 us) over the four movs; none is in a per-pixel loop, the
-  heaviest (wm_su_srect, wm_su_try's `.frag`) run per fragment/piece of a
-  restore, i.e. a few times per window. RECT4 asserts added for the three
-  newly addressed blocks.
+* **rect_get / rect_put at fourteen sites** - TAKEN IN THIS COMMIT AND BACKED
+  OUT IN THE NEXT, see REFUSED.
 * **wm_draw_title**: four `mov dx, [di+W_Y]` / `add dx, n` pairs become
   `lea dx, [bx+k]` off the BX the same block just loaded (gfx_fill, the pens
   and thm_tink preserve BX). -12. Same primitive calls, fewer instructions.
@@ -64,7 +56,42 @@ kern_big `.text` -207 (cumulative -289), kern_small `.text` -203
   -4; wm_an_lerp addresses wm_an_c as [si+16] (asserted) -6; wm_su_piece,
   wm_clip_split -1 each.
 
+### Batch 3 - wm_kent_bp, and the rect_get/rect_put sites backed out
+kern_big `.text` -191 cumulative, kern_small `.text` -165 cumulative.
+
+* **wm_kent_bp** - `call wm_kent_bp` IS push ax..bp (kentc_bp's twin, in
+  `.text`; that one is in `.cold` and no `.text` caller can reach it near).
+  18 bytes, then 4 a site at the eight seven-push prologues (wm_sz_notify,
+  wm_ask_close, wm_paint_dmg, wm_dmg_wins, wm_paint_all, wm_title_set,
+  wm_su_flay, wm_su_edge), 4 at wm_su_take and wm_su_try (`call; push es`,
+  epilogue `jmp kret_es` for `pop es / jmp kret_di`), and 3 at six six-push
+  routines that end on `kret_di` and now push BP too and end on `kret_bp`
+  (wm_dock_clear [kern_big], wm_cov_rect, wm_su_vset, wm_su_bytes,
+  wm_su_scrset, wm_anim). -40 big. ~95 cycles a call; none is per glyph, run
+  or pixel - **wm_clip_rows keeps its pushes**, being per glyph cell under a
+  clip. The six that gained a BP push are leaves or near-leaves (none reaches
+  W_PAINT), so the deepest stack in the machine - a package's paint under
+  wm_draw_win - is unchanged; wm_draw_win and wm_destroy (which reaches it)
+  were deliberately NOT given a BP push. stkbalance over kernel/*.inc: 0
+  unbalanced at base and tip.
+
 ## REFUSED
+
+* **rect_get / rect_put at the damage-repaint and save-under sites - 138
+  bytes on BOTH kernels, HELD BY THE OWNER, NOT MINE TO TAKE.** I converted
+  fourteen sites (wm_dmg_bands' store and load in both arms, wm_paint_dmg,
+  wm_dmg_gray's `.fill`, wm_su_owed, wm_su_sub, wm_su_vset, wm_su_srect,
+  wm_su_flay, wm_su_try x2 and wm_su_try's two four-word copies sx<->bx as
+  get+put pairs at -14 each) before reading rect_get's own header, which says
+  the damage-repaint and save-under sites stay inline on purpose, and
+  docs/plans/LAST-DROP-BYTES.md 7.10, which has them measured (S2 +1,088
+  cycles a damage repaint, S3 ~0.37% of a close) and HELD by the owner.
+  Backed out in batch 3. Measured here: kern_big `.text` -138, kern_small
+  -138. If the owner releases S2/S3 the sites are exactly the
+  `call rect_put/get` lines in commit 146f7878; S3's note prefers GET sites
+  (a put is 1.75x a get). The su_try copies are a new shape the 7.10 table
+  does not list (8-mov copies, -14 each as a get+put pair, or -13 each via
+  wm_cpy4 at ~+120 cycles).
 
 * **wm_rz_swap with `scasw`** (one more byte) and **wm_an_lerp with
   `cmpsw`**: both read ES:DI, and ES belongs to nobody - a stray read of
