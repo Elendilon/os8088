@@ -62487,7 +62487,8 @@ driver has its DAC up, so it never claims one that is not sounding, which is
 `cp_snd_row`'s rule for the rows.
 
 **Siblings of `SND_RT_FM`, not rungs above `SND_RT_SB`**, so every test of
-them is `>= SND_RT_LPT`, made before any `>= SND_RT_SB`. A Covox tier keeps the AdLib (tones, `SND_FM_CLAIM`, MIDIRack's FM)
+them is `>= SND_RT_LPT`, made before any `>= SND_RT_SB` - or the
+Sound Blaster's own test is `== SND_RT_SB`, which is SOUND.DRV's `snd_tier`. A Covox tier keeps the AdLib (tones, `SND_FM_CLAIM`, MIDIRack's FM)
 and turns the Sound Blaster's DSP tier OFF - because a package that sees
 `SND_CAP_PCM_BG` streams to the card, and the user who picked the Covox
 asked for the other path. An AdLib and a Covox side by side was the period's
@@ -62506,7 +62507,7 @@ The two halves of the announcement are the two cells §34.8 already has:
 - **`DSV_TIERS` bits `SND_RT_LPT + n`** are set at attach, one for each of
   LPT1..LPT3 that answered, card or no card. They say which CHOICES are live,
   which is all a probe can say.
-- **`SND_CAP_LPTDAC` (0100h)** is set by `cvx_tier`, inside `DRVV_TIER`,
+- **`SND_CAP_LPTDAC` (0100h)** is set by `snd_tier`'s Covox tail, inside `DRVV_TIER`,
   only while the tier IS a Covox's and its port answered - so a package
   plays the DAC only when somebody said one is there. Every other tier
   withdraws it. A Covox tier on a machine whose port has gone is the AdLib

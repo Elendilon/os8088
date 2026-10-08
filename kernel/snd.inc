@@ -72,6 +72,9 @@ SND_RT_LPT  equ 4               ; Covox on LPT1; + 1 LPT2, + 2 LPT3: FM, no
                                 ; resident byte reads it: snd_rt_card already
                                 ; sends a tone to the driver for anything but
                                 ; SND_RT_SPK, which is the AdLib here
+%if SND_RT_LPT != 4
+  %error "ctrl.inc's Sound page numbers a Covox port CPS_NROW + n = 4 + n, and that is its tier SND_RT_LPT + n"
+%endif
 SND_RT_CARD equ SND_RT_FM       ; the old two-value name, kept so a SYSTEM.CFG
                                 ; written before the split still reads as "a
                                 ; card" - and reads as the CHEAP card, which
