@@ -35,6 +35,18 @@
 ;    P is WRITE_SEQ PLAIN (committed every call) and H is W again; U, I, K
 ;    and F are the held stream's edge cases, for tests/viddisk.py.
 ; D  deletes STREAM.DAT again, so the disk gets its 12.5 MB back.
+; X  EXTENDED MEMORY (docs/plans/VIDEO-XMS-PLAN.md 3.2): what a stream's read-
+;    ahead BANK in XMS would cost this machine. OSAPI_XMEM_COPY up and down
+;    at 32, 16, 8 and 4 KB a call, PIT-timed with the copy's own interrupts-
+;    off window inside the span (on a 286 the copy is int 15h AH=87h, and the
+;    whole of it is masked) - after a CHECK that a 32 KB round trip comes back
+;    the same bytes, because a copy that times well and moves the wrong ones
+;    is not a measurement. Then, if the stream is there, the bank's FILL: 5 s
+;    of 32 KB READ_SEQ calls with nothing else, and 5 s of the same with each
+;    chunk copied up behind the last, KB/s x 10 - the two rows' ratio is
+;    what banking a byte costs over reading it, and the copy rows say how the
+;    copy's cost splits into a call's fixed part and its bytes. Saves
+;    VDXMS.TXT beside the bench; writes nothing else, and frees the block.
 ;
 ; With a STREAM.DAT, R also CHECKS the data at 12 MB, read by READ_AT and by
 ; READ_SEQ: a stream that times well and reads the wrong bytes is not a
@@ -88,7 +100,7 @@
 
     OS88_HEADER 'VIDDISK', vk_entry
 
-VK_NRES     equ 21
+VK_NRES     equ 23
 VK_BUFKB    equ 40                  ; 32 KB chunks, and a whole track
 VK_CHUNK    equ 32768
 %ifndef VK_WSUB
@@ -159,6 +171,8 @@ vk_onkey:
     je .write                       ; call must abandon the hold, not keep it
     cmp bl, 'd'
     je .del
+    cmp bl, 'x'                     ; X: extended memory (the header's X)
+    je .xms
     call bl_key
     jc .out
     call bl_paint
@@ -168,6 +182,9 @@ vk_onkey:
     jmp short .paint
 .del:
     call vk_drun
+    jmp short .paint
+.xms:
+    call vk_xmrun
     jmp short .paint
 .run:
     call vk_run
@@ -506,6 +523,7 @@ vk_ceilmain:
     call OSAPI_GET_TICKS
     sub ax, [vk_ct0]
     mov [vk_cticks], ax
+.kbs:                               ; (vk_xmfill's too)
     ; tenths of KB/s = bytes / ticks x 18.2065 x 10 / 1,024 - and bytes a
     ; tick x 182 stays inside 32 bits for any disk this side of 23 MB/s
     mov ax, [vk_cbytes]
@@ -1288,6 +1306,250 @@ vk_wrun:
     ret
 
 ; vk_drun - D: STREAM.DAT deleted, from where W wrote it
+
+; =============================================================================
+; vk_xmrun - X: OSAPI_XMEM_COPY on this machine (see the header)
+; =============================================================================
+VK_XMN      equ 8                   ; iterations of a copy row
+VK_XMKB     equ 64                  ; the block: two chunks, so the fill
+                                    ; rows alternate halves as a bank would
+
+vk_xmrun:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov word [vk_err], 0
+    mov word [bl_nrow], 0
+    mov word [vk_xmdone], 0
+    mov si, vk_s_xmtitle
+    call bl_sline
+    call vk_claim
+    jnc .buf
+    mov si, vk_s_fail
+    call bl_sline
+    jmp .save
+.buf:
+    call OSAPI_CPU_INFO             ; AL = the tier, AH = its bits
+    push ax
+    xor ah, ah
+    xor dx, dx
+    mov si, vk_r_xmtier
+    mov cx, 9
+    call bl_kv
+    pop ax
+    mov al, ah
+    xor ah, ah
+    mov si, vk_r_xmbits
+    call bl_kv
+    call OSAPI_XMEM_CAPS            ; AX = KB the pool can hand out (and
+    xor dx, dx                      ; DX:CX its base: the width again)
+    mov cx, 9
+    mov si, vk_r_xmfree
+    call bl_kv
+    cmp ax, VK_XMKB
+    jae .alloc
+    mov si, vk_s_xmnone
+    call bl_sline
+    jmp .save
+.alloc:
+    mov dx, VK_XMKB / 64            ; DX:AX = 64 KB
+    xor ax, ax
+    call OSAPI_XMEM_ALLOC
+    jnc .got
+    mov si, vk_s_xmnoalloc
+    call bl_sline
+    jmp .save
+.got:
+    mov [vk_xmb], ax
+    mov [vk_xmb + 2], dx
+    ; --- THE CHECK: chunk 3's pattern up into the block's second half, the
+    ; buffer overwritten with chunk 0's, and the half copied back down: it
+    ; must be chunk 3's again (vk_fill: high word 1, low words from 32768)
+    mov ax, 3
+    call vk_fill
+    mov word [vk_xmlen], VK_CHUNK
+    mov word [vk_xmhalf], VK_CHUNK
+    call vk_b_xmup
+    xor ax, ax
+    call vk_fill
+    call vk_b_xmdn
+    mov di, vk_s_dok
+    cmp word [vk_err], 0
+    jne .bad
+    push es
+    mov es, [vk_buf]
+    cmp word [es:0], 0x8000
+    jne .badp
+    cmp word [es:2], 1
+    jne .badp
+    cmp word [es:VK_CHUNK - 4], 0xFFFC
+    jne .badp
+    cmp word [es:VK_CHUNK - 2], 1
+    jne .badp
+    cmp word [es:VK_CHUNK / 2], 0xC000
+    jne .badp
+    pop es
+    jmp short .say
+.badp:
+    pop es
+.bad:
+    mov di, vk_s_xmbad
+.say:
+    mov si, vk_r_xmchk
+    call bl_kvs
+    cmp di, vk_s_dok
+    je .rows
+    jmp .free                       ; wrong bytes: nothing worth timing
+    ; --- the copy rows: up and down, at four sizes, into the first half
+.rows:
+    mov si, vk_s_xmhdr
+    call bl_sline
+    mov word [vk_xmhalf], 0
+    mov word [bl_n], VK_XMN
+    mov bx, vk_xmrows
+.row:
+    mov ax, [bx]
+    or ax, ax
+    jz .fill
+    mov [vk_xmlen], ax
+    mov word [bl_body], vk_b_xmup
+    mov si, [bx + 2]
+    xor al, al                      ; method P: PIT-timed, the copy inside
+    call bl_run
+    mov word [bl_body], vk_b_xmdn
+    mov si, [bx + 4]
+    xor al, al
+    call bl_run
+    add bx, 6
+    jmp short .row
+    ; --- the bank's fill: READ_SEQ alone, then READ_SEQ and a copy up
+.fill:
+    call vk_toc
+    jnc .look
+    mov si, vk_s_noc
+    call bl_sline
+    jmp short .free
+.look:
+    call vk_find
+    jnc .stream
+    mov si, vk_s_nostr
+    call bl_sline
+    jmp short .home
+.stream:
+    mov si, vk_s_using
+    mov di, [vk_fname]
+    call bl_kvs
+    mov si, vk_s_xmhdrf
+    call bl_sline
+    mov word [vk_ceilmb], 0
+    mov byte [vk_xmup], 0
+    mov bx, 21                      ; (19 and 20 are vk_mh's)
+    call vk_xmfill
+    mov si, vk_r_xmseq
+    call vk_kv
+    mov byte [vk_xmup], 1
+    mov bx, 22
+    call vk_xmfill
+    mov si, vk_r_xmbank
+    call vk_kv
+.home:
+    call vk_back
+.free:
+    mov ax, [vk_xmb]
+    mov dx, [vk_xmb + 2]
+    call OSAPI_XMEM_FREE
+.save:
+    mov si, vk_r_err
+    mov ax, [vk_err]
+    xor dx, dx
+    mov cx, 9
+    call bl_kv
+    call bl_operator
+    mov si, vk_f_xtxt               ; the report, beside the bench
+    call bl_save
+    inc word [vk_xmdone]            ; for a harness: X has finished
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; the copy bodies: [vk_xmlen] bytes between the buffer and the block at
+; [vk_xmhalf], up (DI = 0) or down (DI = 1)
+vk_b_xmup:
+    xor di, di
+    jmp short vk_xmcopy
+vk_b_xmdn:
+    mov di, 1
+vk_xmcopy:
+    push es
+    mov es, [vk_buf]
+    xor si, si
+    mov ax, [vk_xmb]
+    mov dx, [vk_xmb + 2]
+    add ax, [vk_xmhalf]
+    adc dx, 0
+    mov cx, [vk_xmlen]
+    call OSAPI_XMEM_COPY
+    jnc .ok
+    inc word [vk_err]
+.ok:
+    pop es
+    ret
+
+; vk_xmfill - BX = the result row: 5 s of 32 KB READ_SEQ calls from a fresh
+; 2 MB, each copied up into the block's next half when [vk_xmup] - the bank
+; filling behind the ring. KB/s x 10 into the row, as vk_ceilmain's
+vk_xmfill:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov [vk_ceilrow], bx
+    add word [vk_ceilmb], 1
+    mov dx, [vk_ceilmb]
+    mov cl, 5
+    shl dx, cl                      ; row n starts at 2n MB
+    call vk_seek
+    mov word [vk_cap], VK_CHUNK
+    call vk_b_seq                   ; the seek's walk, outside the timing
+    xor ax, ax
+    mov [vk_cbytes], ax
+    mov [vk_cbytes + 2], ax
+    mov word [vk_xmlen], VK_CHUNK
+    mov word [vk_xmhalf], 0
+    call OSAPI_GET_TICKS
+    mov [vk_ct0], ax
+.l:
+    call vk_b_seq
+    add [vk_cbytes], ax
+    adc word [vk_cbytes + 2], 0
+    or ax, ax
+    jz .done                        ; the end of the stream
+    cmp byte [vk_xmup], 0
+    je .t
+    call vk_b_xmup
+    xor word [vk_xmhalf], VK_CHUNK  ; the other half next
+.t:
+    call OSAPI_GET_TICKS
+    sub ax, [vk_ct0]
+    cmp ax, VK_CEILT
+    jb .l
+.done:
+    call OSAPI_GET_TICKS
+    sub ax, [vk_ct0]
+    mov [vk_cticks], ax
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    jmp vk_ceilmain.kbs             ; ...and the arithmetic is the ceiling's
+
 vk_drun:
     push ax
     push cx
@@ -1844,6 +2106,36 @@ vk_r_swfc:    db 'first wrong: cylinder', 0
 vk_r_swfh:    db '...head', 0
 vk_r_swfs:    db '...from sector', 0
 vk_r_swfn:    db '...sectors', 0
+
+vk_s_xmtitle: db 'VIDDISK X - extended memory: a stream bank (VIDEO-XMS-PLAN 3.2)', 0
+vk_s_xmnone:  db 'NO EXTENDED MEMORY (64 KB or more): nothing to time', 0
+vk_s_xmnoalloc: db 'OSAPI_XMEM_ALLOC REFUSED 64 KB', 0
+vk_s_xmbad:   db 'BAD - not the bytes copied up', 0
+vk_s_xmhdr:   db '-- OSAPI_XMEM_COPY, a call (us; on a 286 all of it masked) --', 0
+vk_s_xmhdrf:  db '-- the bank filling: 32 KB READ_SEQ for 5 s (KB/s x 10) --', 0
+vk_r_xmtier:  db 'CPU tier (1 286, 2 386)', 0
+vk_r_xmbits:  db 'CPU feature bits', 0
+vk_r_xmfree:  db 'XMS free (KB)', 0
+vk_r_xmchk:   db '32 KB up and back', 0
+vk_r_xmseq:   db 'READ_SEQ alone', 0
+vk_r_xmbank:  db 'READ_SEQ + copy up', 0
+vk_r_xu32:    db 'XMS up 32K', 0
+vk_r_xd32:    db 'XMS down 32K', 0
+vk_r_xu16:    db 'XMS up 16K', 0
+vk_r_xd16:    db 'XMS down 16K', 0
+vk_r_xu8:     db 'XMS up 8K', 0
+vk_r_xd8:     db 'XMS down 8K', 0
+vk_r_xu4:     db 'XMS up 4K', 0
+vk_r_xd4:     db 'XMS down 4K', 0
+vk_f_xtxt:    db 'VDXMS.TXT', 0
+vk_xmrows:    dw 32768, vk_r_xu32, vk_r_xd32, 16384, vk_r_xu16, vk_r_xd16
+              dw 8192, vk_r_xu8, vk_r_xd8, 4096, vk_r_xu4, vk_r_xd4, 0
+vk_xmb:       dw 0, 0           ; the block
+vk_xmlen:     dw 0              ; ...a copy's bytes
+vk_xmhalf:    dw 0              ; ...and where in the block
+vk_xmup:      db 0              ; vk_xmfill: copy each chunk up
+              db 0
+vk_xmdone:    dw 0              ; for a harness: X has finished
 
 vk_win:       dw 0
 vk_buf:       dw 0
