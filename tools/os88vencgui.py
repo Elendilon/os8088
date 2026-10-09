@@ -270,6 +270,12 @@ GROUPS = [
     ("Budget", "The machine's budget", ("disk", "avg", "peak", "owe",
                                         "reserve", "memory"), ALWAYS),
     ("Budget", "XMS bank (a 286 or better)", ("bank", "prefill"), _bank),
+    ("Budget", "Layer: for a faster disk too",
+     ("layer_disk", "layer_memory", "layer_prefill", "layer_seek"),
+     lambda c: _bank(c) or (
+         "A layer is what the base leaves unused on a better machine, and "
+         "is not made beside a bank." if c.get("bank") else
+         "A layer is played unflipped." if c.get("flip") else None)),
     ("Budget", "When a frame is cut", ("lookahead", "error", "cut",
                                        "frame_cap"), ALWAYS),
     ("Budget", "Aim: size", ("worth",),

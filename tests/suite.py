@@ -11270,6 +11270,17 @@ SOAK = [
         "pans (98.2.1.2.1), and --bands' writes never climbing back a band "
         "(98.2.1.2.2), each red with its mechanism taken out.",
         needs=("ffmpeg",)),
+    Row("vidlayer", "soak", py("tests/vidlayer.py"), 100.0,
+        "SPEC.md 98.1.9: THE LAYER, host-side - six seconds of a Mandelbrot "
+        "zoom encoded for a 60 KB/s 286, plain and with --layer-disk for 240 "
+        "KB/s, on VGA8's one plane and Mode X's four. The layered file's "
+        "frame and keyframe records must be the plain one's byte for byte, "
+        "verify_v88 must pass its layer, base then layer must decode to the "
+        "encoder's own enhanced screen exactly - and with the last layer "
+        "record left out it must NOT (the check bites) - and the layered "
+        "play must beat the base's error as seen (3.34% -> 0.93% on VGA8, "
+        "2.20% -> 0.08% on Mode X)",
+        needs=("ffmpeg",)),
     Row("mcperf", "soak", py("tests/mcperf.py"), 50.0,
         "SPEC.md 48.16.2: does Missile play the SAME GAME twice? A fixed"
         "seed, scripted shots and 400 frames back to back rather than one a"

@@ -158158,9 +158158,10 @@ key's reference), and four damaged files refused.
 
 #### 98.1.9 THE LAYER: one file, a better play on a better machine (IN PROGRESS)
 
-**Status: the format and its host reader and writer are written; the
-encoder pass (`os88venc.LayerEnc`) is written and NOT YET WIRED to any
-option, and no player reads a layer.** docs/plans/VIDEO-OVERAGE-PLAN.md 7
+**Status: the format, its host reader and writer and the encoder pass are
+BUILT (`os88venc --layer-disk`, `tests/vidlayer.py`); NO PLAYER READS A
+LAYER YET** - so a layered file plays its base everywhere, which is the
+half of the promise that needs nothing. docs/plans/VIDEO-OVERAGE-PLAN.md 7
 is the measurement behind it: a file made for a slow disk carries a second
 stream, encoded on top of the first, that a machine with disk and CPU to
 spare reads as well - 3.81% -> 2.48% error as seen on the owner's 286 for a
@@ -158181,12 +158182,25 @@ file made for 200 KB/s.
 - **The key table**: 8 bytes a kept key - the layer super-packet holding
   the key's NEXT frame, its sectors and the record's index - so a seek
   resumes the layer where the base resumes.
-- **A single-plane stream's only, for now**: not RESIDENT, Live, flipped,
-  Mode X or 16 colours, and not with a `--bank`.
+- **A stream's, played unflipped**: not RESIDENT, Live or flipped, and not
+  with a `--bank` - every layout and format otherwise, one plane or four.
+- **The encode** (`--layer-disk BYTES`, `--layer-memory KB` default 64,
+  `--layer-prefill KB|all`, `--layer-seek MS` default 10): a second encoder
+  (`LayerEnc`) whose screen is the enhanced player's, run `LAYER_LAG` (8 s)
+  behind the base. Its disk is what the base's bucket would CLIP on the
+  layer's machine - the ring full, the disk idle - less a seek each way per
+  32 KB of layer; its CPU is the shared bucket above what every base frame
+  in the window still needs, so no base frame runs late for it. The base
+  is encoded exactly as it would be alone, and the gate asserts it.
 
 `os88vid.Reader` checks every field and `verify_v88` every record by the
-writer's rules (`verify_layer`). What is open is the wiring, the gate and
-the player; this section is replaced when they land.
+writer's rules (`verify_layer`). `vidlayer` is the gate: the layered file's
+frame and keyframe records are the plain encode's byte for byte; base then
+layer decodes to the encoder's own enhanced screen exactly, and with the
+last layer record left out does not; and the layered play beats the base
+(six seconds of a Mandelbrot zoom made for 60 KB/s, the layer for 240:
+3.34% -> 0.93% on VGA8, 2.20% -> 0.08% on Mode X). What is open is the
+player; this section is replaced when it lands.
 
 ### 98.2 The host tools — `tools/os88vid.py`
 

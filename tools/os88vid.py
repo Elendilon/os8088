@@ -1833,8 +1833,10 @@ class Writer:
         if len(self.lrecs) >= len(self.recs):
             raise V88Error("a layer record for frame %d, which the stream "
                            "has not reached" % len(self.lrecs))
-        self.lrecs.append(record(ops, self.g, limit=SP_MAX * SECTOR -
-                                 LSP_HDR) if ops else L_EMPTY)
+        empty = not ops or (self.g.planes > 1 and
+                            not any(sub for m, sub in ops))
+        self.lrecs.append(L_EMPTY if empty else record(
+            ops, self.g, limit=SP_MAX * SECTOR - LSP_HDR))
 
     def frame(self, ops, surf, audio=b""):
         """`ops` are the frame's writes, already applied to `surf`."""

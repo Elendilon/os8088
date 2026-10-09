@@ -622,7 +622,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 11
+OPTS_VERSION = 12
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles")
@@ -636,7 +636,7 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     5: "85ea67f8ce1492a0", 6: "0d0af3901366a0c6",
                     7: "3c23376030acae01", 8: "a2cee436c2bd5178",
                     9: "566ce460b7bc0952", 10: "03033c94f4068ded",
-                    11: "92246fa491f53aee"}
+                    11: "92246fa491f53aee", 12: "27f0d558163b22db"}
 # THE VERSION MAPPER: MIGRATIONS[n] is what turns a version-n record into
 # version n+1, a list of steps applied in order:
 #   ("rename", old, new)          an option took a new name
@@ -678,6 +678,10 @@ MIGRATIONS = {
     # 11: --bank and --prefill (98.2.1.3.2) - a file made before it had no
     # bank - and --profile 286-pvga, a new choice that reads nothing older
     10: [("added", "bank", None), ("added", "prefill", None)],
+    # 12: THE LAYER (98.1.9) - a file made before it has none
+    11: [("added", "layer_disk", None), ("added", "layer_memory", 64.0),
+         ("added", "layer_prefill", None),
+         ("added", "layer_seek", 10.0)],
 }
 
 
@@ -3262,6 +3266,19 @@ class Encoder:
         a, n, c, b = span_arrays(sp, costs)
         return self.order((cs[a + n] - cs[a]) / per_budget(c, b, er, eb), a)
 
+    def put_ops(self, ops):
+        """Another encoder's writes on this one's screen - the LAYER's
+        (LayerEnc): the base's record, applied before its own"""
+        for a, bs, run in ops:
+            self.surf[a:a + len(bs)] = bs
+        self.screen = self.sv[self.idx]
+
+    def clone_screen(self, b):
+        """...and this encoder's screen made a COPY of `b`'s"""
+        self.surf = bytearray(b.surf)
+        self.sv = np.frombuffer(self.surf, dtype=np.uint8)
+        self.screen = self.sv[self.idx]
+
     def cost(self, rec):
         """A record's cycles in the model: its decode, and on a LIVE file
         (98.3.10.2) the blit of the runs the writer will give it. A pass is
@@ -3482,6 +3499,23 @@ class EncoderX(Flipped, Encoder):
                             wsum)
         return self.order(wsum / per_budget(c, b, er, eb), a)
 
+    def put_ops(self, ops):
+        g = self.g
+        for m, sub in ops:              # (mask, spans): a span's bytes are
+            for a, bs, run in sub:      # a pixel each on the mask's planes
+                ad = a + np.arange(len(bs))
+                ys = self.rowof[ad]
+                xs = (ad - self.base[ys]) * 4
+                v = np.frombuffer(bs, np.uint8)
+                for p in range(4):
+                    if m >> p & 1:
+                        self.screen[ys, xs + p] = v
+        g.put(self.surf, self.screen.tobytes())
+
+    def clone_screen(self, b):
+        self.surf = bytearray(b.surf)
+        self.screen = b.screen.copy()
+
     def cost(self, rec):
         """A record's cycles: its sub-records' (98.1.3.1)"""
         return vid.cycles_of(rec, True, table=self.ct, sub=self.csub)
@@ -3504,6 +3538,29 @@ class EncoderP(Flipped, Encoder):
         self.surf = g.surface()
         self.base = np.array(g.base, dtype=np.int64)
         self.rowof = np.array(g.rowof, dtype=np.int64)
+
+    def put_ops(self, ops):
+        g = self.g
+        for m, sub in ops:
+            for a, bs, run in sub:
+                ad = a + np.arange(len(bs))
+                ys = self.rowof[ad]
+                xs = ad - self.base[ys]
+                v = np.frombuffer(bs, np.uint8)
+                for p in range(4):
+                    if m >> p & 1:
+                        self.pl[p, ys, xs] = v
+        self.screen = sum(np.unpackbits(self.pl[p], axis=1)[:, :g.w]
+                          .astype(np.uint8) << p for p in range(4))
+        for p in range(4):
+            for y, b in enumerate(g.base):
+                self.surf[p * vid.PLANE + b:p * vid.PLANE + b + g.wb] = \
+                    self.pl[p, y].tobytes()
+
+    def clone_screen(self, b):
+        self.surf = bytearray(b.surf)
+        self.pl = b.pl.copy()
+        self.screen = b.screen.copy()
 
     def planes(self, cv):
         return np.stack([np.packbits((cv >> p) & 1, axis=1)
@@ -3678,10 +3735,9 @@ class LayerEnc(object):
     def __init__(self, base, rate, ram_kb, pre_kb, seek_ms=LAYER_SEEK_MS,
                  drop=0):
         import copy
-        if type(base) is not Encoder:
-            raise vid.V88Error("--layer is a single-plane stream's for now "
-                               "(98.1.9): not Mode X, 16 colours or "
-                               "flipped")
+        if getattr(base, "flip", False) or base.live:
+            raise vid.V88Error("--layer is a stream's played unflipped in "
+                               "the bracket (98.1.9): not --flip, not --live")
         if base.disk.per is None or base.bank:
             raise vid.V88Error("--layer is a budgeted stream's, with no "
                                "--bank: it is what the base cannot use")
@@ -3703,11 +3759,10 @@ class LayerEnc(object):
     def _clone(self, copy, ram_kb, pre_kb):
         b = self.b
         e = copy.copy(b)
-        e.surf = bytearray(b.surf)
-        e.sv = np.frombuffer(e.surf, dtype=np.uint8)
-        e.screen = e.sv[e.idx]
-        e.tsurf = bytearray(b.tsurf)
-        e.tv = np.frombuffer(e.tsurf, dtype=np.uint8)
+        e.clone_screen(b)
+        if hasattr(b, "tsurf"):
+            e.tsurf = bytearray(b.tsurf)
+            e.tv = np.frombuffer(e.tsurf, dtype=np.uint8)
         e.age = b.age.copy()
         e.wv = b.wv.copy()
         e.stats = {k: 0 for k in b.stats}
@@ -3722,12 +3777,6 @@ class LayerEnc(object):
         e.disk = Budget(0.0, ram_kb * 1024.0)
         e.disk.level = min(pre_kb, ram_kb) * 1024.0
         return e
-
-    @staticmethod
-    def _put(e, ops):
-        for a, bs, run in ops:          # the base's writes, on this screen
-            e.surf[a:a + len(bs)] = bs
-        e.screen = e.sv[e.idx]
 
     def push(self, target, ops, rec):
         """The base's frame, just encoded: returns the layer's ops for the
@@ -3755,7 +3804,7 @@ class LayerEnc(object):
         room = min(max(0.0, self.S - need), max(0.0, b.peak - c))
         e.future = [t[0] for t in self.buf[1:1 + b.look]]
         self.buf.pop(0)
-        self._put(e, ops)
+        e.put_ops(ops)                  # the base's writes, on this screen
         lops = []
         cl = 0.0
         if room > e.ct[0] * 2 and e.disk.level >= 64:
@@ -3763,7 +3812,7 @@ class LayerEnc(object):
             e.peak = room
             e.disk.per = 0.0
             lops, lrec = e.frame(target, b"")
-            if lops:
+            if lops and (b.g.planes == 1 or any(sub for m, sub in lops)):
                 cl = e.cost(lrec)
                 e.disk.spend(len(lrec))
                 self.S -= cl
@@ -3779,9 +3828,9 @@ class LayerEnc(object):
         if b.metric:
             e.measure(target)
         if self.d is not None:
-            self._put(self.d, ops)
+            self.d.put_ops(ops)
             if lops and (self.f + 1) % self.drop:
-                self._put(self.d, lops)
+                self.d.put_ops(lops)
             if b.metric:
                 self.d.measure(target)
         # THE DISK this frame on the better machine: the base's bucket at
@@ -4773,6 +4822,25 @@ def _encode(a, keep, tick, readers):
             search=jobs if a.adpcm == "search" else 0, join=join) \
             if afmt else None
         chunk = chunks.__getitem__ if afmt else None
+    lay = None
+    if getattr(a, "layer_disk", None):
+        # THE LAYER (98.1.9): made beside the base, LAYER_LAG behind it
+        if a.resident or a.live or enc.disk.per is None:
+            raise vid.V88Error("--layer-disk is a budgeted stream's: not "
+                               "--resident, --live or a lossless profile")
+        lmem = float(a.layer_memory)
+        lpre = lmem if a.layer_prefill == "all" else \
+            float(a.layer_prefill or 0)
+        if not 0 <= lpre <= lmem or not 16 <= lmem <= 65534:
+            raise vid.V88Error("--layer-memory %g KB, --layer-prefill %s: "
+                               "16 KB to 64 MB, and a prefill within it"
+                               % (lmem, a.layer_prefill))
+        lay = LayerEnc(enc, a.layer_disk, lmem, lpre, a.layer_seek)
+        wr.layer = (max(1, int(round(a.layer_disk / 1024.0))), int(lmem),
+                    vid.XPRE_ALL if a.layer_prefill == "all" else int(lpre))
+    elif getattr(a, "layer_prefill", None):
+        raise vid.V88Error("--layer-prefill fills a layer, and there is no "
+                           "--layer-disk")
     ahead = deque()
     sound = []
     f = -1
@@ -4804,6 +4872,9 @@ def _encode(a, keep, tick, readers):
         if enc.metric:
             enc.measure(target)
         wr.frame(ops, enc.surf, au)
+        if lay is not None:
+            for lops in lay.push(target, ops, rec):
+                wr.layer_frame(lops)
         if a.preview_png and f % max(1, round(fps)) == 0:
             out = os.path.join(a.preview_png, "f%05d.png" % f)
             if c512:                # what a composite monitor shows: the
@@ -4860,6 +4931,9 @@ def _encode(a, keep, tick, readers):
             print("   frame %d of %d" % (f + 1, nf if not stream else
                                          est + pre), file=sys.stderr)
     nf = f + 1
+    if lay is not None:
+        for lops in lay.flush():
+            wr.layer_frame(lops)
     if text and (a.text_ocr or a.text_ocr_large):
         say("   OCR: %d words drawn exact, %d crisp (a word counts once a "
             "frame)" % tuple(tm.ocr_used))
@@ -5022,6 +5096,22 @@ def _encode(a, keep, tick, readers):
             % (enc.bank // 1024, "all of it filled" if wr.xpre == vid.XPRE_ALL
                else "%d KB of it filled, ~%.0f s of the disk" % (
                    wr.xpre, wr.xpre * 1024.0 / prof["disk"])))
+    if lay is not None:
+        secs = max(1e-9, nf / fps)
+        say("   LAYER for %.0f KB/s (98.1.9): %.1f KB/s in %d of %d frames, "
+            "%.1f%% more of the CPU; %.0f KB banked%s%s"
+            % (a.layer_disk / 1024.0, lay.bytes / secs / 1024.0, lay.recs,
+               nf, 100.0 * lay.cycles / max(1.0, enc.cpu.per * nf),
+               wr.layer[1], ", %s of it before the first frame" % (
+                   "all" if a.layer_prefill == "all" else
+                   "%d KB" % wr.layer[2]) if wr.layer[2] else "",
+               "" if not enc.metric else
+               "; the play with it %.2f%% error as seen" % (
+                   100 * lay.e.q_vis / nf)))
+        res.update(layer=dict(kbs=lay.bytes / secs / 1024.0,
+                              q_vis=lay.e.q_vis / nf if enc.metric
+                              else None, recs=lay.recs,
+                              final=g.canvas(lay.e.surf)))
     if enc.metric:
         say("   picture: %.2f%% error as seen, %.2f%% of pixels wrong, "
             "%.0f pixels a frame flickering back (the source's own: %.0f)"
@@ -5136,6 +5226,27 @@ def parser():
                          "Buffering as it does, or 'all' for the whole bank "
                          "(98.3.18.3). The stream starts that much richer. "
                          "Default %g" % BANK_PREFILL)
+    ap.add_argument("--layer-disk", type=float, metavar="BYTES",
+                    help="THE LAYER (98.1.9): a second stream, encoded on "
+                         "top of this one, for a machine whose disk reads "
+                         "this many bytes a second - made of what the base "
+                         "leaves that machine's disk and CPU. Every player "
+                         "plays the base; one that reads the layer too "
+                         "plays better")
+    ap.add_argument("--layer-memory", type=float, metavar="KB",
+                    default=64.0,
+                    help="with --layer-disk: the memory the layer is banked "
+                         "in ahead of its frames - its read-ahead, and its "
+                         "prefill's room (default 64)")
+    ap.add_argument("--layer-prefill", metavar="KB|all",
+                    help="with --layer-disk: KB of the layer read before the "
+                         "first frame, or 'all' of --layer-memory (default "
+                         "none)")
+    ap.add_argument("--layer-seek", type=float, metavar="MS",
+                    default=LAYER_SEEK_MS,
+                    help="with --layer-disk: the seek, each way, that each "
+                         "32 KB of the layer costs the disk (default %g)"
+                    % LAYER_SEEK_MS)
     ap.add_argument("--lookahead", type=int, default=2, metavar="N",
                     help="WHEN A FRAME IS CUT, don't pay for pixels about "
                          "to change: a change is ranked by what it is worth "
