@@ -20,10 +20,14 @@ asserts, per arm:
     exact screen the encoder's layer model ended on - and with ONE layer
     record left out - the last, which nothing after it writes over - it
     does not (the negative control: the check bites);
-  - the layer buys something: records in most frames, and the enhanced
-    play's error as seen below the base's.
+  - the layer buys something: records in most frames (or fewer, where it
+    makes the picture exact), and the enhanced play's error as seen below
+    the base's.
 
-Arms: vga8 (LIN320, one plane) and modex (four planes, sub-records).
+Arms: vga8 (LIN320, one plane) and modex (four planes, sub-records), both
+for the 286 at 60 KB/s; and xt286, a CGA file for a 5150 at 20 KB/s whose
+layer is for the 286 (--layer-profile 286-pvga): the layer's machine is
+ANOTHER CPU, pricing the base's records at its own speed.
 """
 import os
 import shutil
@@ -55,15 +59,26 @@ def main():
         def run(name, *args):
             a = venc.parser().parse_args(
                 [src, os.path.join(tmp, name + ".V88"), "--quiet",
-                 "--profile", "286-pvga", "--disk", str(BASE_DISK),
                  "--audio", "none"] + list(args))
             return a.out, venc.encode(a)
 
-        for arm in ("vga8", "modex"):
+        # (arm, the base's options, the layer's)
+        arms = (("vga8", ["--preset", "vga8", "--profile", "286-pvga",
+                          "--disk", str(BASE_DISK)],
+                 ["--layer-disk", str(LAYER_DISK)]),
+                ("modex", ["--preset", "modex", "--profile", "286-pvga",
+                           "--disk", str(BASE_DISK)],
+                 ["--layer-disk", str(LAYER_DISK)]),
+                # A FILE FOR A 5150, ITS LAYER FOR A 286 (--layer-profile):
+                # the base's records repriced on the 286's CPU
+                ("xt286", ["--preset", "cga", "--profile", "5150-st225",
+                           "--disk", "20480"],
+                 ["--layer-profile", "286-pvga", "--layer-disk",
+                  str(LAYER_DISK)]))
+        for arm, bopt, lopt in arms:
             print("\n== arm %s" % arm)
-            plain, rp = run(arm + "p", "--preset", arm)
-            lay, rl = run(arm + "l", "--preset", arm, "--layer-disk",
-                          str(LAYER_DISK))
+            plain, rp = run(arm + "p", *bopt)
+            lay, rl = run(arm + "l", *(bopt + lopt))
             ra, rb = vid.Reader(plain), vid.Reader(lay)
             same = [x[0] for x in ra.records()] == \
                 [x[0] for x in rb.records()] and \
@@ -82,7 +97,7 @@ def main():
                   "%.2f%% -> %.2f%%"
                   % (L["kbs"], L["recs"], r.frames, 100 * rl["q_vis"],
                      100 * L["q_vis"]))
-            if L["recs"] < r.frames // 2:
+            if L["recs"] < r.frames // 2 and L["q_vis"] > 0:
                 bad.append("%s: the layer has records in %d of %d frames"
                            % (arm, L["recs"], r.frames))
             if not L["q_vis"] < rl["q_vis"]:

@@ -330,6 +330,15 @@ sketch, so it is not re-derived:
   encoder prices a seek each way per 32 KB (`--layer-seek`, 10 ms), which
   is a hard disk's figure; a floppy's is several times it.
 - **Open**: the layer's PREFILL (its header word is written; the player
-  fills only its slots before the first frame, not a bank), a layer beside
-  a `--bank` (refused by the encoder), and a layer encoded for a DIFFERENT
-  CPU than the base's (the encoder takes the base's profile).
+  fills only its slots before the first frame, not a bank) - BUILT since,
+  as `--layer-bank`/`--layer-prefill`; a layer beside a `--bank` (refused
+  by the encoder); and a layer for a DIFFERENT CPU - BUILT since, as
+  `--layer-profile`.
+- **For ONE machine, one stream wins** (SPEC.md 98.1.9's table): on the
+  owner's 286 a single stream for 448 KB/s with a 3 MB bank prefilled is
+  0.11% error as seen, against 0.32% for a base for 200 KB/s with a layer
+  for 448 and the same bank. The layer's price is that it cannot undo the
+  base's writes and that two records cost more CPU than one. So the layer
+  is a two-machine format, and `--layer-profile` (built) makes the second
+  machine another CPU: a 5150 CGA file with a layer for the 286 went 1.32%
+  -> 0.00% in `vidlayer`'s third arm.

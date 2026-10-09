@@ -158203,7 +158203,32 @@ XMS BANK and PREFILL.
   the bank together, started that full - VIDEO-OVERAGE-PLAN's "load the
   overage at prefill time", on the layer. While the bank holds anything the
   layer's disk is the profile's `xcopy` slower, the base bank's rule;
-- `--layer-seek MS` (default 10) prices a seek each way per 32 KB of layer.
+- `--layer-seek MS` (default 10) prices a seek each way per 32 KB of layer;
+- `--layer-profile NAME` makes the layer for ANOTHER MACHINE: its CPU, its
+  disk curve and (without `--layer-disk`) its disk. An encoder made for
+  that profile prices the base's records as IT decodes them and holds its
+  budget, so a CGA file for a 5150 carries a layer for a 286 - the same
+  canvas, the format being the base's. Not with the speaker's sound, whose
+  share is the base machine's.
+
+**WHEN NOT TO LAYER** - measured on the owner's Last Exile, 44 s of Mode X,
+silent, for the 286-pvga at 448 KB/s, error as seen:
+
+| the file | |
+|---|---|
+| a base made for 200 KB/s, alone | 1.36% |
+| ...with a layer for 448 KB/s | 0.55% |
+| ...with that layer's 3 MB bank prefilled | 0.32% |
+| ONE stream made for 448 KB/s | 0.26% |
+| ONE stream made for 448 KB/s, 3 MB `--bank` prefilled | **0.11%** |
+
+**A file for ONE machine is better made as one stream for it**, banked: the
+layer cannot undo a write the base chose, and a picture drawn as two
+records a frame costs more of the CPU than the same picture as one (the
+banked single stream was cut by the CPU 69 times and by the disk none). The
+layer is for ONE FILE ACROSS TWO MACHINES - a slow one that must play it
+and a fast one that should play it better - and `--layer-profile` is what
+lets those two be different CPUs.
 
 **The encode**: a second encoder
 (`LayerEnc`) whose screen is the enhanced player's, run `LAYER_LAG` (8 s)

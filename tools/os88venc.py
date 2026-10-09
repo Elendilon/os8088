@@ -557,6 +557,8 @@ CHOICE_HELP = {
         "vga": "Live on a VGA desktop",
     },
 }
+# the layer's machine is a profile like the base's: the same lines
+CHOICE_HELP["layer_profile"] = CHOICE_HELP["profile"]
 
 
 def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
@@ -622,7 +624,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 13
+OPTS_VERSION = 14
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles")
@@ -637,7 +639,7 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     7: "3c23376030acae01", 8: "a2cee436c2bd5178",
                     9: "566ce460b7bc0952", 10: "03033c94f4068ded",
                     11: "92246fa491f53aee", 12: "27f0d558163b22db",
-                    13: "23fa4d29a8c351cd"}
+                    13: "23fa4d29a8c351cd", 14: "6e5f168750f0b6b0"}
 # THE VERSION MAPPER: MIGRATIONS[n] is what turns a version-n record into
 # version n+1, a list of steps applied in order:
 #   ("rename", old, new)          an option took a new name
@@ -685,6 +687,8 @@ MIGRATIONS = {
          ("added", "layer_seek", 10.0)],
     # 13: --layer-bank (98.1.9) - a layer made before it has none
     12: [("added", "layer_bank", None)],
+    # 14: --layer-profile (98.1.9) - a layer made before it was the base's
+    13: [("added", "layer_profile", None)],
 }
 
 
@@ -3732,11 +3736,16 @@ class LayerEnc(object):
         it knows the base's next frames' costs, and takes only what stands
         above the least the bucket must hold to pay every one of them on
         time - so no base frame runs late for it.
+    THE BETTER MACHINE may be ANOTHER CPU (`mach`, --layer-profile): an
+    encoder made for its profile, which prices the base's records as IT
+    decodes them, holds its CPU budget and its disk's curve - so a file
+    made for a 5150 carries a layer for a 286. By default it is the base's
+    own, the same CPU with a faster disk.
     `drop` > 0 is a measurement: a third screen that leaves every drop-th
     layer record out, as a late player would"""
 
     def __init__(self, base, rate, ram_kb, pre_kb, seek_ms=LAYER_SEEK_MS,
-                 drop=0, bank=0.0, xcopy=0.0):
+                 drop=0, bank=0.0, xcopy=0.0, mach=None):
         import copy
         if getattr(base, "flip", False) or base.live:
             raise vid.V88Error("--layer is a stream's played unflipped in "
@@ -3745,12 +3754,16 @@ class LayerEnc(object):
             raise vid.V88Error("--layer is a budgeted stream's, with no "
                                "--bank: it is what the base cannot use")
         self.b = base
+        self.m = m = mach or base           # the layer's machine
+        if m.cpu.per is None:
+            raise vid.V88Error("--layer-profile names a machine with a "
+                               "budget, not the lossless profile")
         self.e = self._clone(copy, ram_kb, pre_kb)
         self.d = self._clone(copy, ram_kb, pre_kb) if drop else None
         self.drop = drop
         self.rate = float(rate)
         self.bl = base.disk.level           # the base's bucket, on THIS
-        self.S = base.cpu.level             # machine; the shared CPU bucket
+        self.S = m.cpu.level                # machine; the shared CPU bucket
         self.seek = seek_ms / 1000.0
         self.lag = max(2, round(LAYER_LAG * base.fps))
         self.buf = []
@@ -3768,7 +3781,7 @@ class LayerEnc(object):
 
     def _clone(self, copy, ram_kb, pre_kb):
         b = self.b
-        e = copy.copy(b)
+        e = copy.copy(self.m)               # (its tables; the base's screen)
         e.clone_screen(b)
         if hasattr(b, "tsurf"):
             e.tsurf = bytearray(b.tsurf)
@@ -3791,7 +3804,7 @@ class LayerEnc(object):
     def push(self, target, ops, rec):
         """The base's frame, just encoded: returns the layer's ops for the
         frames that are now LAYER_LAG behind it, in order"""
-        self.buf.append((target, ops, rec, self.b.cost(rec)))
+        self.buf.append((target, ops, rec, self.m.cost(rec)))
         out = []
         while len(self.buf) > self.lag:
             out.append(self._one(False))
@@ -3804,14 +3817,14 @@ class LayerEnc(object):
         return out
 
     def _one(self, end):
-        b, e = self.b, self.e
+        b, e, m = self.b, self.e, self.m
         target, ops, rec, c = self.buf[0]
-        per = b.cpu.per
-        need = 0.0 if end else b.cpu.cap    # (past the window: a full one)
+        per = m.cpu.per
+        need = 0.0 if end else m.cpu.cap    # (past the window: a full one)
         for t in reversed(self.buf[1:]):
             need = max(0.0, need + t[3] - per)
-        self.S = min(b.cpu.cap, self.S + per) - c     # the base's, first
-        room = min(max(0.0, self.S - need), max(0.0, b.peak - c))
+        self.S = min(m.cpu.cap, self.S + per) - c     # the base's, first
+        room = min(max(0.0, self.S - need), max(0.0, m.peak - c))
         e.future = [t[0] for t in self.buf[1:1 + b.look]]
         self.buf.pop(0)
         e.put_ops(ops)                  # the base's writes, on this screen
@@ -3847,9 +3860,9 @@ class LayerEnc(object):
         # its rate, the layer's decode in the hook's share - and what the
         # bucket would clip is the layer's
         rel = 1.0
-        if b.dcurve:
-            share = (c + cl + b.audio_cyc + HOOK_CYC) / b.q + b.spk
-            rel = b.disk_rel(share)
+        if m.dcurve:                        # (the layer's machine's curve)
+            share = (c + cl + m.audio_cyc + HOOK_CYC) / m.q + m.spk
+            rel = m.disk_rel(share)
         lvl = self.bl + (self.rate * rel * 0.99 - b.abps) / b.fps
         clip = max(0.0, lvl - b.disk.cap)
         if e.disk.level > self.lslots:      # (through the bank: copied)
@@ -4835,6 +4848,8 @@ def _encode(a, keep, tick, readers):
             if afmt else None
         chunk = chunks.__getitem__ if afmt else None
     lay = None
+    if getattr(a, "layer_profile", None) and not a.layer_disk:
+        a.layer_disk = PROFILES[a.layer_profile]["disk"]   # (its own disk)
     if getattr(a, "layer_disk", None):
         # THE LAYER (98.1.9): made beside the base, LAYER_LAG behind it
         if a.resident or a.live or enc.disk.per is None:
@@ -4851,8 +4866,32 @@ def _encode(a, keep, tick, readers):
                                "--layer-prefill %s: 64 to 128 KB of slots, a "
                                "bank to 65,000, and a prefill within the two"
                                % (lmem, lbank, a.layer_prefill))
+        mach, lprof = None, prof
+        if getattr(a, "layer_profile", None) and \
+                a.layer_profile != a.profile:
+            # THE LAYER FOR ANOTHER CPU: an encoder made for that profile,
+            # with every setting the base's but its machine's
+            lprof = dict(PROFILES[a.layer_profile])
+            if lprof["avg"] is None:
+                raise vid.V88Error("--layer-profile lossless: a layer is what "
+                                   "a budget leaves, and it has none")
+            if spk_share:
+                raise vid.V88Error("--layer-profile with the speaker's sound: "
+                                   "its share is the base's machine's")
+            lprof["disk"] = a.layer_disk
+            mach = type(enc)(*((g, lprof, fps, audio_cyc, audio_bps,
+                                palette and (palette[:48] if vga4 else
+                                             palette)) +
+                               ((False,) if type(enc) is not Encoder
+                                else ())))
+            for n in ("live", "spk", "look", "vis", "cut", "bands",
+                      "rec_max", "thr", "blur_r", "dmode", "ppb", "dpal",
+                      "metric"):
+                if hasattr(enc, n):
+                    setattr(mach, n, getattr(enc, n))
         lay = LayerEnc(enc, a.layer_disk, ltot, lpre, a.layer_seek,
-                       bank=lbank * 1024, xcopy=prof.get("xcopy") or 0.0)
+                       bank=lbank * 1024, xcopy=lprof.get("xcopy") or 0.0,
+                       mach=mach)
         wr.layer = (max(1, int(round(a.layer_disk / 1024.0))), int(lmem),
                     vid.XPRE_ALL if a.layer_prefill == "all" else int(lpre),
                     int(lbank))
@@ -5116,10 +5155,12 @@ def _encode(a, keep, tick, readers):
                    wr.xpre, wr.xpre * 1024.0 / prof["disk"])))
     if lay is not None:
         secs = max(1e-9, nf / fps)
-        say("   LAYER for %.0f KB/s (98.1.9): %.1f KB/s in %d of %d frames, "
-            "%.1f%% more of the CPU; %.0f KB banked%s%s"
-            % (a.layer_disk / 1024.0, lay.bytes / secs / 1024.0, lay.recs,
-               nf, 100.0 * lay.cycles / max(1.0, enc.cpu.per * nf),
+        say("   LAYER for %s%.0f KB/s (98.1.9): %.1f KB/s in %d of %d "
+            "frames, %.1f%% more of its CPU; %.0f KB banked%s%s"
+            % ("%s, " % a.layer_profile if getattr(a, "layer_profile", None)
+               else "", a.layer_disk / 1024.0, lay.bytes / secs / 1024.0,
+               lay.recs,
+               nf, 100.0 * lay.cycles / max(1.0, lay.m.cpu.per * nf),
                wr.layer[1] + wr.layer[3], ", %s of it before the first frame" % (
                    "all" if a.layer_prefill == "all" else
                    "%d KB" % wr.layer[2]) if wr.layer[2] else "",
@@ -5251,6 +5292,11 @@ def parser():
                          "leaves that machine's disk and CPU. Every player "
                          "plays the base; one that reads the layer too "
                          "plays better")
+    ap.add_argument("--layer-profile", choices=sorted(PROFILES),
+                    help="THE LAYER FOR ANOTHER MACHINE: its CPU and disk, "
+                         "where the base is made for --profile - a file for "
+                         "a 5150 that plays better on a 286. Its disk is "
+                         "--layer-disk if that is given (98.1.9)")
     ap.add_argument("--layer-memory", type=float, metavar="KB",
                     default=64.0,
                     help="with --layer-disk: the CONVENTIONAL memory the "
