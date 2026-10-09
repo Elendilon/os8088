@@ -235,6 +235,15 @@ def main():
             if rw("vp_done") != NF or rb("vp_err"):
                 bad.append("the play out of the bank drew %d of %d (error %d)"
                            % (rw("vp_done"), NF, rb("vp_err")))
+            # THE CARD SAYS WHICH (98.3.18.6): line 5 after a play names
+            # the bank it went through - the field's question, unanswered
+            # by the card until it did
+            kind = 2 if a.hybrid else 3
+            if rb("vp_lbk") != kind:
+                bad.append("the card's bank after the play is kind %d, not "
+                           "%d (%s)" % (rb("vp_lbk"), kind,
+                                        "EMS" if a.hybrid else
+                                        "EMS in place"))
             if a.wrap:
                 print("   the ring wrapped: %d chunks through 3 slots"
                       % rw("vp_lc"))

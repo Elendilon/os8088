@@ -162379,6 +162379,17 @@ again with B: still blank it fails. Broken on purpose - the drain's
 `rep movsw` out - frames 100 and 160 differ in 9,936 and 15,756 bytes.
 +462 bytes of the package (41,795 -> 42,257); no kernel byte.
 
+**After a play the card says which memory it went through** (2026-10-09),
+on line 5 in place of `Space plays and pauses; Esc stops` - which a play
+with an error or a message of its own keeps: `Banked in XMS, 3136 KB`,
+`Banked in EMS, 2048 KB`, `EMS in place, 2048 KB`, `Held whole in XMS`,
+`XMS bank idle: the speaker` (98.3.18.5), or `No bank: the disk alone`.
+`vp_bkind` decides it once, at the session's start, into `[vp_lbk]`. The
+player banks whenever it can, whatever the file asked (98.3.18.3), so the
+field's first question about a play that stalled - *was it EMS or XMS?* -
+had no answer anywhere on the machine until it did. `videms`, `videmshyb`
+and `vidbank`'s two arms assert the kind; +258 bytes of the package.
+
 ##### 98.3.18.7 The decode in place
 
 **With an EMS bank of all four quarters, the ring IS the board's pages and

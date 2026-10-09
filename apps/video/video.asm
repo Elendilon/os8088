@@ -930,6 +930,7 @@ vp_open:
     push es
     mov byte [vp_ok], 0
     mov byte [vp_played], 0
+    mov byte [vp_lbk], 0            ; (a resident play banks nothing)
     mov byte [vp_loaded], 0
 %ifdef VP_DIAG
     mov word [vp_mfre0], 0          ; (no play of this file's to report)
@@ -4605,6 +4606,55 @@ vp_einq:
     stc
     ret
 
+; vp_bkind - [vp_lbk] = the bank this session plays through, for the card
+; after it (vp_bksay): 0 none, 1 XMS, 2 EMS, 3 EMS in place, 4 the file held
+; whole in XMS, 5 an XMS bank the speaker keeps idle (vp_xquiet). Every
+; register kept
+vp_bkind:
+    push ax
+    xor al, al
+    cmp byte [vp_xon], 0
+    je .s
+    mov al, 3
+    cmp byte [vp_einp], 0
+    jne .s
+    mov al, 4
+    cmp byte [vp_xbank], 0
+    je .s
+    mov al, 2
+    cmp byte [vp_xems], 0
+    jne .s
+    mov al, 5
+    cmp byte [vp_snd], VP_SPK
+    je .s
+    mov al, 1
+.s:
+    mov [vp_lbk], al
+    pop ax
+    ret
+
+; vp_bksay - DI = a card line: what the last play banked in, and how much
+vp_bksay:
+    mov bl, [vp_lbk]
+    xor bh, bh
+    shl bx, 1
+    mov si, [vp_bknames + bx]
+    call vp_puts
+    cmp byte [vp_lbk], 3
+    ja .r
+    cmp byte [vp_lbk], 0
+    je .r
+    mov ax, [vp_xbn]
+    mov cl, 5
+    shl ax, cl
+    xor dx, dx
+    xor bl, bl
+    call vp_putn
+    mov si, vp_s_kb
+    call vp_puts
+.r:
+    ret
+
 ; vp_eend - the session is over: in place no more - the board's slots the
 ; hybrid's bank again, emptied. Every register kept
 vp_eend:
@@ -7664,6 +7714,7 @@ vp_sstart:
     mov cx, [vp_msl]                ; the stream's
     inc cx
 .knp:
+    call vp_bkind                   ; (what the card says after it)
     mov [vp_k], cx
     mov byte [vp_rshort], 0         ; A RING SHORT OF THE STREAM'S (98.1.1):
     push cx
@@ -14042,10 +14093,19 @@ vp_fmt:
 .kl:
     call vp_puts
 .msg:
-    ; 5: what Play does, or why not
+    ; 5: what Play does, or why not - or after a play with nothing to
+    ;    say, what it banked in (98.3.18.6)
     mov di, vp_lines + 5 * VP_LINE
     mov si, [vp_msg]
+    cmp byte [vp_played], 0
+    je .msg5
+    cmp si, vp_s_ready
+    jne .msg5
+    call vp_bksay
+    jmp short .msg6
+.msg5:
     call vp_puts
+.msg6:
     cmp byte [vp_played], 0
     jne .res
     call vp_xsay                    ; 6: the hold, until a play's figures
@@ -14467,6 +14527,13 @@ vp_s_file:    db 'File: ', 0
 vp_s_nofile:  db '(none) - File > Open...', 0
 vp_s_none:    db 'Open a .V88 to play it', 0
 vp_s_ready:   db 'Space plays and pauses; Esc stops', 0
+vp_bknames:   dw vp_s_bk0, vp_s_bk1, vp_s_bk2, vp_s_bk3, vp_s_bk4, vp_s_bk5
+vp_s_bk0:     db 'No bank: the disk alone', 0
+vp_s_bk1:     db 'Banked in XMS, ', 0
+vp_s_bk2:     db 'Banked in EMS, ', 0
+vp_s_bk3:     db 'EMS in place, ', 0
+vp_s_bk4:     db 'Held whole in XMS', 0
+vp_s_bk5:     db 'XMS bank idle: the speaker', 0
 vp_s_notv88:  db 'Not a .V88 video', 0
 vp_s_ver:     db 'A newer .V88 than this player', 0
 vp_s_bad:     db 'This .V88 is damaged', 0
@@ -15006,6 +15073,7 @@ vp_xtl:       dw 0                  ; ...the bytes of its last, with xbeof
 vp_xlo:       dd 0                  ; ...the file offset of its head
 vp_xems:      db 0                  ; 1: the bank is EMS pages (98.3.18.6)
 vp_einp:      db 0                  ; 1: this session decodes IN PLACE (98.3.18.7)
+vp_lbk:       db 0                  ; ...and the last play's bank (vp_bkind)
 vp_noinp:     db 0                  ; 1: never in place (a gate's A/B)
 vp_ekr:       dw 0                  ; the in-place ring's slots at most (a gate's)
 vp_eq:        db 0                  ; the frame's quarters held: 0Fh or 3

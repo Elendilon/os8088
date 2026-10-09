@@ -48,10 +48,12 @@
 ;    copy's cost splits into a call's fixed part and its bytes. Saves
 ;    VDXMS.TXT beside the bench; writes nothing else, and frees the block.
 ; E  EXPANDED MEMORY (docs/plans/VIDEO-XMS-PLAN.md 10): a LO-TECH-STYLE EMS
-;    board at its own defaults - four WRITE-ONLY page registers at 260h..263h,
-;    each mapping a 16 KB page into one quarter of a 64 KB frame at E000h -
-;    which is MartyPC's model, 86Box's "Lo-tech EMS Board", and what a
-;    PicoMEM's EMS answers through the Lo-tech driver. THE PROBE READS FIRST:
+;    board - four WRITE-ONLY page registers, each mapping a 16 KB page into
+;    one quarter of a 64 KB frame - found where EMS.DRV finds one (frames
+;    E000h, D000h, C000h at bases 260h, 264h, 268h, 26Ch and 288h): MartyPC's
+;    model, 86Box's "Lo-tech EMS Board", and a PicoMEM's EMS at its own
+;    defaults, D000h at 288h. The row after the title says where it answered.
+;    THE PROBE READS FIRST:
 ;    an option ROM anywhere in the frame (55h AAh on a 2 KB boundary) is
 ;    somebody else's, and E says so and writes NO PORT. Then it maps pages 0
 ;    and 1, writes each,
@@ -1577,8 +1579,6 @@ vk_xmfill:
 ; =============================================================================
 ; vk_emrun - E: a Lo-tech-style EMS board (see the header)
 ; =============================================================================
-VK_EPORT    equ 0x260               ; the board's defaults
-VK_EFRAME   equ 0xE000
 VK_EPAGES   equ 128                 ; 2 MB, the most its registers name
 VK_EMN      equ 8                   ; iterations of a timed row
 VK_ECOPY    equ 16384               ; a copy row's bytes: one page, and under
@@ -1608,6 +1608,15 @@ vk_emrun:
     call bl_kvs
     jmp .save
 .found:
+    mov di, vk_s_emwhere            ; '0288h, frame D000h'
+    mov ax, [vk_eport]
+    call vk_hex4
+    add di, 13
+    mov ax, [vk_efrm]
+    call vk_hex4
+    mov si, vk_s_emat
+    mov di, vk_s_emwhere
+    call bl_kvs
     mov ax, [vk_epages]
     xor dx, dx
     mov cx, 9
@@ -1690,6 +1699,35 @@ vk_emrun:
     pop ax
     ret
 
+; vk_hex4 - AX as four hex digits at DI (DS). Every register kept
+vk_hex4:
+    push ax
+    push bx
+    push cx
+    push di
+    mov bx, ax
+    mov cx, 4
+.d:
+    push cx
+    mov cl, 4
+    rol bx, cl
+    pop cx
+    mov al, bl
+    and al, 0x0F
+    add al, '0'
+    cmp al, '9'
+    jbe .p
+    add al, 'A' - '9' - 1
+.p:
+    mov [di], al
+    inc di
+    loop .d
+    pop di
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; vk_eout - AL = a page, DX = its register (the board's registers cannot be
 ; read back, so nothing here asks)
 vk_eout:
@@ -1699,61 +1737,107 @@ vk_eout:
 ; vk_emap4 - AX = a page: AX..AX+3 into the frame's four quarters
 vk_emap4:
     push ax
+    push cx
     push dx
-    mov dx, VK_EPORT
+    mov dx, [vk_eport]
+    mov cx, 4
 .l:
     out dx, al
     inc ax
     inc dx
-    cmp dx, VK_EPORT + 4
-    jb .l
+    loop .l
     pop dx
+    pop cx
     pop ax
     ret
 
-; vk_eprobe - CF=0 [vk_epages] = the board's 16 KB pages; CF=1 DI = why not
+; vk_etry - DX = a base, ES = a frame: CF=0 a paging board answers there
+; (EMS.DRV's em_try): pages 0 and 1 hold two bytes, page 0 into quarter 1
+; reads quarter 0's, and a write through one is seen through the other
+vk_etry:
+    push ax
+    push cx
+    mov cl, [es:0]
+    mov ch, [es:0x4000]
+    xor ax, ax                      ; page 0 -> quarter 0, page 1 -> 1
+    call vk_eout
+    inc dx
+    inc ax
+    call vk_eout
+    dec dx
+    mov byte [es:0], 0x5A
+    mov byte [es:0x4000], 0xA5
+    cmp byte [es:0], 0x5A
+    jne .no
+    cmp byte [es:0x4000], 0xA5
+    jne .no
+    inc dx
+    dec ax
+    call vk_eout                    ; page 0 into quarter 1 as well
+    dec dx
+    cmp byte [es:0x4000], 0x5A
+    jne .no
+    mov byte [es:0x4000], 0x3C
+    cmp byte [es:0], 0x3C
+    jne .no
+    pop cx
+    pop ax
+    clc
+    ret
+.no:
+    mov [es:0], cl
+    mov [es:0x4000], ch
+    pop cx
+    pop ax
+    stc
+    ret
+
+; vk_eprobe - CF=0 [vk_epages] = the board's 16 KB pages, [vk_eport] and
+; [vk_efrm] where it answered; CF=1 DI = why not. EMS.DRV's own search
+; (SPEC.md 107.2): frames E000h, D000h, C000h, each at bases 260h, 264h,
+; 268h, 26Ch and 288h - the Lo-tech's defaults, and a PicoMEM's (D000h at
+; 288h is its own default). A frame holding an option ROM is skipped and
+; no port is written for it; the two bytes a base's test writes are put
+; back when nothing pages, since then they may be somebody's RAM
 vk_eprobe:
     push ax
     push bx
     push cx
     push dx
+    push si
     push es
-    mov ax, VK_EFRAME
+    mov di, vk_s_emnone
+    mov si, vk_efrms
+.frame:
+    mov ax, [si]
+    add si, 2
+    or ax, ax
+    jz .none
     mov es, ax
-    ; --- read first: an OPTION ROM in the frame (55h AAh on a 2 KB
-    ; boundary, the BIOS's own scan) is somebody else's, and no port is
-    ; touched. RAM there cannot be told from a board's page until a page
-    ; register is written - which is what the paging test below does
-    mov di, vk_s_emused
     xor bx, bx
 .rom:
     cmp word [es:bx], 0xAA55
-    je .no
+    je .romf
     add bx, 2048
     jnz .rom
-.regs:
-    xor ax, ax                      ; page 0 -> quarter 0, page 1 -> quarter 1
-    mov dx, VK_EPORT
-    call vk_eout
-    inc ax
-    inc dx
-    call vk_eout
-    mov byte [es:0], 0x5A
-    mov byte [es:0x4000], 0xA5
-    mov di, vk_s_emnone
-    cmp byte [es:0], 0x5A
-    jne .no
-    cmp byte [es:0x4000], 0xA5
-    jne .no
-    xor ax, ax                      ; page 0 into quarter 1 as well: it must
-    call vk_eout                    ; read page 0's byte now
-    cmp byte [es:0x4000], 0x5A
-    jne .no
-    mov byte [es:0x4000], 0x3C      ; ...and a write through quarter 1 is a
-    cmp byte [es:0], 0x3C           ; write to page 0, seen through quarter 0
-    jne .no
+    mov bx, vk_ebases
+.base:
+    mov dx, [bx]
+    add bx, 2
+    or dx, dx
+    jz .frame
+    call vk_etry
+    jc .base
+    mov [vk_eport], dx
+    mov [vk_efrm], es
+    jmp short .size
+.romf:
+    mov di, vk_s_emused             ; (a frame was a ROM's: said if no
+    jmp short .frame                ; other one answers)
+.none:
+    jmp .no
     ; --- size it: a signature per page from the top DOWN, then read up
-    mov dx, VK_EPORT
+.size:
     mov cx, VK_EPAGES
 .wr:
     mov ax, cx
@@ -1786,6 +1870,7 @@ vk_eprobe:
     stc
 .out:
     pop es
+    pop si
     pop dx
     pop cx
     pop bx
@@ -1803,13 +1888,13 @@ vk_b_edn:                           ; frame -> RAM
     push ds
     push es
     mov es, [vk_buf]
-    mov ax, VK_EFRAME
+    mov ax, [vk_efrm]
     mov ds, ax
     jmp short vk_b_ecp
 vk_b_eup:                           ; RAM -> frame
     push ds
     push es
-    mov ax, VK_EFRAME
+    mov ax, [vk_efrm]
     mov es, ax
     mov ds, [vk_buf]
     jmp short vk_b_ecp
@@ -1895,7 +1980,7 @@ vk_b_efr:
     xor dx, dx
     div word [vk_epages]
     mov ax, dx                      ; AX = the chunk's first page
-    mov dx, VK_EPORT
+    mov dx, [vk_eport]
     test byte [vk_efk], 1
     jz .h
     add dx, 2                       ; the frame's upper half
@@ -1912,7 +1997,7 @@ vk_b_efr:
     xchg cx, dx
     push ds
     pop es
-    mov dx, VK_EFRAME               ; DX:BX = the frame
+    mov dx, [vk_efrm]               ; DX:BX = the frame
     mov cx, VK_CHUNK
     push di
     push si
@@ -1952,7 +2037,7 @@ vk_efchk:
     add dx, [vk_efmb]               ; offsets' high word is the row's 2n MB
     and ax, 1                       ; plus half that, and AX the first low
     shl ax, cl                      ; word
-    mov cx, VK_EFRAME
+    mov cx, [vk_efrm]
     mov es, cx
     cmp [es:bx], ax
     jne .bad
@@ -2556,9 +2641,15 @@ vk_xmhalf:    dw 0              ; ...and where in the block
 vk_xmup:      db 0              ; vk_xmfill: copy each chunk up
               db 0
 vk_xmdone:    dw 0              ; for a harness: X has finished
-vk_s_emtitle: db 'VIDDISK E - expanded memory: Lo-tech EMS at 260h, frame E000h', 0
-vk_s_emused:  db 'an option ROM is in the frame E000h', 0
-vk_s_emnone:  db 'no paging board at 260h / E000h', 0
+vk_s_emtitle: db 'VIDDISK E - expanded memory: a Lo-tech-style EMS board', 0
+vk_s_emused:  db 'none: a frame held an option ROM', 0
+vk_s_emnone:  db 'no board: E/D/C000h at 260h-26Ch, 288h', 0
+vk_s_emat:    db 'EMS board at', 0
+vk_s_emwhere: db '0000h, frame 0000h', 0
+vk_efrms:     dw 0xE000, 0xD000, 0xC000, 0    ; EMS.DRV's frames, in order
+vk_ebases:    dw 0x260, 0x264, 0x268, 0x26C, 0x288, 0     ; ...and bases
+vk_eport:     dw 0                  ; where the board answered
+vk_efrm:      dw 0
 vk_s_embad:   db 'BAD - not STREAM.DAT', 0
 vk_s_emhdr:   db '-- the board (us a row; 16 KB copies, rep movsw) --', 0
 vk_s_emhdrf:  db '-- 32 KB READ_SEQ for 5 s (KB/s x 10) --', 0

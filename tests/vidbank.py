@@ -282,6 +282,10 @@ def main():
             if most[0]:
                 bad.append("under the speaker's clock the bank held %d "
                            "slots at once" % most[0])
+            if rb("vp_lbk") != 5:       # the card: 'XMS bank idle: the
+                bad.append("the card's bank is kind %d, not 5 (idle for "
+                           "the speaker)" % rb("vp_lbk"))     # speaker'
+
             if rw("vp_done") != NF or rb("vp_err"):
                 bad.append("the speaker's play drew %d of %d (error %d)"
                            % (rw("vp_done"), NF, rb("vp_err")))
@@ -447,6 +451,9 @@ def main():
         wait(lambda: rb("vp_ready") == 0 and rb("vp_played") == 1,
              "the first play to end", 180)
         print("   first play: %s" % state())
+        if rb("vp_lbk") != 1:           # the card: 'Banked in XMS, ...'
+            bad.append("the card's bank is kind %d, not 1 (XMS)"
+                       % rb("vp_lbk"))
         if rw("vp_done") != NF or rb("vp_err"):
             bad.append("the play through the bank drew %d of %d (error %d)"
                        % (rw("vp_done"), NF, rb("vp_err")))
