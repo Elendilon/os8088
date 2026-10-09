@@ -158511,6 +158511,10 @@ python3 tools/os88venc.py IN OUT.V88 [--preset P | --layout L --box WxH]
 python3 tools/os88venc.py --profiles
 ```
 
+A WxH - `--box`, `--detail`, `--screen` - may be written W*H as well
+(`640*480`), and is recorded as WxH, so a file and the window show one
+spelling.
+
 **Any video ffmpeg reads, to a file the player plays.** ffmpeg and numpy are
 needed for this and for nothing else in the tree; the `videnc` row SKIPS
 without them (`ffmpeg` capability).

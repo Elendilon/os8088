@@ -313,6 +313,14 @@ def main():
                  / period, low[0], low[1]))
         if not cut:
             bad.append("the tight profile cut nothing: it tests nothing")
+        # --- 3a: W*H for WxH (98.2.1): accepted, and recorded as WxH
+        pa = venc.parser().parse_args([src, "o.V88", "--box", "640*480",
+                                       "--detail", "2*1", "--screen",
+                                       "320*240"])
+        print("   W*H: --box %s --detail %s --screen %s"
+              % (pa.box, pa.detail, pa.screen))
+        if (pa.box, pa.detail, pa.screen) != ("640x480", "2x1", "320x240"):
+            bad.append("W*H was not taken as WxH")
         # --- 3b: --avg auto (98.2.1.5) - the per-frame ceiling on a profile
         # with a disk curve, the profile's own average on one without, and
         # the record holds the SHARE it came to, never the word

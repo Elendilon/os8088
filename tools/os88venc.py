@@ -639,7 +639,7 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     7: "3c23376030acae01", 8: "a2cee436c2bd5178",
                     9: "566ce460b7bc0952", 10: "03033c94f4068ded",
                     11: "92246fa491f53aee", 12: "27f0d558163b22db",
-                    13: "23fa4d29a8c351cd", 14: "d753e363e6c323a8"}
+                    13: "23fa4d29a8c351cd", 14: "a712ea2b2ccb6fb7"}
 # THE VERSION MAPPER: MIGRATIONS[n] is what turns a version-n record into
 # version n+1, a list of steps applied in order:
 #   ("rename", old, new)          an option took a new name
@@ -689,9 +689,19 @@ MIGRATIONS = {
     12: [("added", "layer_bank", None)],
     # 14: --layer-profile (98.1.9) - a layer made before it was the base's;
     # and --avg takes AUTO (98.2.1.5), which the record never holds - it
-    # holds the share AUTO came to, so nothing older reads differently
+    # holds the share AUTO came to, so nothing older reads differently; and
+    # --box, --detail and --screen take W*H as well (98.2.1), stored as WxH
     13: [("added", "layer_profile", None)],
 }
+
+
+def dims(v):
+    """A WxH (--box, --detail, --screen): `*` for the x as well as `x`, as
+    in 640*480, and stored as WxH - so a file records one spelling"""
+    p = str(v).strip().lower().replace("*", "x").split("x")
+    if len(p) != 2 or not all(q.strip().isdigit() for q in p):
+        raise argparse.ArgumentTypeError("%r is not WxH (or W*H)" % (v,))
+    return "%dx%d" % tuple(int(q) for q in p)
 
 
 def avg_arg(v):
@@ -5347,7 +5357,8 @@ def parser():
                     type=vid.layout_name,
                     help="the screen memory the file is laid out for "
                          "(SPEC.md 98.1.2), overriding the preset's")
-    ap.add_argument("--box", help="WxH: the canvas's largest size")
+    ap.add_argument("--box", type=dims,
+                    help="WxH (or W*H): the canvas's largest size")
     ap.add_argument("--fit", choices=("fit", "fill", "stretch"),
                     default="fit",
                     help="fit: the whole picture, the canvas shrunk to its "
@@ -5705,7 +5716,7 @@ def parser():
                     help="modex: two pages, the player drawing one while "
                          "the other shows - no tearing, at twice the decode "
                          "(98.3.8)")
-    ap.add_argument("--detail",
+    ap.add_argument("--detail", type=dims,
                     help="vga8: WxH, the picture made at a W-th of the "
                          "width (1, 2, 4) and an H-th of the height (1, 2) "
                          "and shown at full size - W by repeating pixels, "
@@ -5724,7 +5735,7 @@ def parser():
     ap.add_argument("--vga8-stable", type=float, default=18.0,
                     help="vga8: how far, in RGB distance, the colour on "
                          "the screen may be from the source and stay")
-    ap.add_argument("--screen", choices=tuple(v[0] for v in
+    ap.add_argument("--screen", type=dims, choices=tuple(v[0] for v in
                                               vid.SCREENS.values()),
                     help="vga4: the screen it plays on - 640x480, mode 12h "
                          "and the desktop's own (the default, and the only "
