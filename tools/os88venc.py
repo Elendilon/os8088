@@ -2675,6 +2675,8 @@ class Encoder:
             self.dfloor = min(float(vid.SLOT), self.reserve / 4.0)
             self.drate, self.abps, self.fps = prof["disk"], audio_bps, fps
         self.bank = self.bankpre = 0    # the XMS bank's bytes (set_bank)
+        self.dslow = 1.0                # ...its copies' charge on the disk
+        self.drate0 = getattr(self, "drate", None)
         self.alead, self.arefill = 0, []    # the sound's lead (disk_floor)
         self.slead, self.srefill = 0, []    # ...what it WOULD be in step
                                             # (Auto's question, 98.2.1.3)
@@ -2736,19 +2738,31 @@ class Encoder:
         A banked byte is read, copied UP and copied DOWN (VIDEO-XMS-PLAN
         4.2): `xcopy` ms a KB a copy - the profile's VIDDISK `X` reading -
         is time the reader spends that it does not spend reading, and the
-        disk's rate is charged for it"""
+        disk's rate is charged for it WHILE THE BANK HOLDS ANYTHING: the
+        player's FIFO hands the ring its chunks through the bank only then,
+        and with the bank empty the disk reads into the ring as ever. The
+        bucket above the ring's reserve is the bank's share of it, so that
+        is the test (_drate)"""
         if self.disk.per is None or not bank:
             return
         self.bank, self.bankpre = bank, min(pre, bank)
         self.disk.cap = self.reserve + bank
         self.disk.level = self.reserve / 2 + self.bankpre
+        self.drate0 = self.drate
         if xcopy:
-            self.drate /= 1.0 + 2 * xcopy / 1000.0 * self.drate / 1024
-            self.disk.per = (self.drate * 0.99 - self.abps) / self.fps
-            if self.disk.per <= 0:
+            self.dslow = 1.0 + 2 * xcopy / 1000.0 * self.drate / 1024
+            if (self.drate / self.dslow) * 0.99 <= self.abps:
                 raise vid.V88Error("the bank's copies leave the disk %d bytes "
                                    "a second, and the sound is %d"
-                                   % (self.drate, self.abps))
+                                   % (self.drate / self.dslow, self.abps))
+
+    def _drate(self):
+        """The disk's rate this frame: the profile's, less the bank's copies
+        while the bank holds anything (set_bank)"""
+        if self.bank and self.dslow != 1.0 and \
+                self.disk.level > self.reserve:
+            return self.drate0 / self.dslow
+        return self.drate0
 
     def begin(self):
         """A frame starts: the buckets fill, and WHEN the player will
@@ -2763,6 +2777,8 @@ class Encoder:
         stricter of the two"""
         self.cpu.tick()
         if not self.dcurve:
+            if self.bank:               # (the bank's copies, while it holds)
+                self.disk.per = (self._drate() * 0.99 - self.abps) / self.fps
             self.disk.tick()
             self.refilled(self.disk.per)
         self.wascut, self.cpucut = self.cpucut, False
@@ -2843,8 +2859,8 @@ class Encoder:
         if self.dcurve:                 # (the speaker's pulses are the
                                         # reader's CPU too, 98.2.15)
             share = (c + self.audio_cyc + HOOK_CYC) / self.q + self.spk
-            per = (self.drate * self.disk_rel(share) * 0.99 - self.abps) \
-                / self.fps
+            per = ((self._drate() if self.bank else self.drate) *
+                   self.disk_rel(share) * 0.99 - self.abps) / self.fps
             self.disk.level = min(self.disk.cap, self.disk.level + per)
             self.refilled(per)
         if self.owe is None:

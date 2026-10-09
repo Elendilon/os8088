@@ -1,6 +1,10 @@
 # A stream's read-ahead in XMS — what it buys, what it costs a 286
 
-**Status: INVESTIGATION. Nothing in the player or the encoder is built.**
+**Status: BUILT through section 9's waves 1-4 and section 10's E1-E3**
+(SPEC.md 98.3.18.2-98.3.18.7, 98.2.1.3.2, 107). The rest of this file is the
+investigation it began as; docs/plans/VIDEO-OVERAGE-PLAN.md is the
+follow-on, banking only the overage, and it corrected the encoder's charge
+for the bank's copies.
 The owner's answers to section 8 are in it (2026-10-08), and **section 10
 is EXPANDED MEMORY** - what LIM EMS would cost the kernel, measured on
 MartyPC's Lo-tech board, and why it is the better store for an 8088 and a

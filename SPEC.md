@@ -158688,9 +158688,15 @@ a long calm stretch banks bytes a burst much later can spend.
 - **A banked byte costs the reader its two copies** (VIDEO-XMS-PLAN 4.2):
   read into a bounce, copied up, and later copied down into the ring. The
   profile's `xcopy` is VIDDISK `X`'s ms a KB a copy (0.345 on both 286s,
-  measured on the owner's; 0.05 on the 486), and with a bank the disk's
-  rate is charged `1 + 2 x xcopy x rate` - 12% of a 200 KB/s disk on a
-  286. A profile without it charges nothing.
+  measured on the owner's; 0.05 on the 486), and the disk's rate is charged
+  `1 + 2 x xcopy x rate` - 12% of a 200 KB/s disk on a 286 - **only on
+  frames where the bank holds something** (the bucket above the ring's
+  reserve, `Encoder._drate`): the player's FIFO passes the ring's chunks
+  through the bank only then. The first build charged it on every frame,
+  which made a bank barely prefilled ENCODE WORSE than none (4.22% against
+  3.81% below) for copies the player never makes
+  (docs/plans/VIDEO-OVERAGE-PLAN.md 3.2). A profile without it charges
+  nothing.
 - **The header's 472 and 474** say both, in KB (98.1.1), and nothing else
   marks the file: an older player plays it, and stalls where it was short.
   The host reader refuses a prefill with no bank, and a bank on a resident
@@ -158710,6 +158716,13 @@ disk at 200 KB/s:
 | 3 MB | 10 s (2,000 KB) | 298.5 | 428 | 3.60% |
 | 3 MB | all | 325.2 | 348 | 3.27% |
 | 8 MB | all | 399.3 | 0 | 1.73% |
+
+...taken with the copy charged on every frame. Charged only while the bank
+holds something, the 3 MB bank filled whole is **336.8 KB/s, 338 cut, 2.95%**,
+and 6 s of prefill 3.37% where it was 3.79%; the no-bank file is
+byte-identical (VIDEO-OVERAGE-PLAN 3.2, which has the prefill sweep: on this
+clip the bank's whole benefit is its prefill, about 0.2 points of error per
+3 s of it).
 
 The clip is a hard case (VIDEO-XMS-PLAN 6): few calm stretches, so a bank
 is worth what the PREFILL puts in it more than what it refills - and at 8
