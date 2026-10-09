@@ -482,7 +482,7 @@ def form_context(values):
                 live=g("live"), resident=g("resident") not in ("", "0",
                                                               "False"),
                 ahead=g("buffer_sound_ahead") or "auto",
-                screen=g("screen"))
+                screen=g("screen"), profile=g("profile"))
 
 
 def group_state(values):

@@ -420,6 +420,9 @@ CHOICE_HELP = {
                "(predicted)",
         "286-vga": "A 286 with VGA and IDE: 600 KB/s, four and a half "
                    "8088s of CPU",
+        "286-pvga": "The owner's 16 MHz 286 with the PVGA1A on its board: "
+                    "448 KB/s off its laptop IDE disk, the decode measured "
+                    "on the machine (12-29% slower than 86Box's 286)",
         "486": "A 486DX2/66 with an ISA VGA and IDE: 1.9 MB/s, ten 8088s "
                "of CPU, 65% of it on average - Mode X, the whole picture "
                "and 48 KB frames",
@@ -619,7 +622,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 10
+OPTS_VERSION = 11
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles")
@@ -632,7 +635,8 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     3: "b22b9c16beb1304b", 4: "2e284988ae6e8775",
                     5: "85ea67f8ce1492a0", 6: "0d0af3901366a0c6",
                     7: "3c23376030acae01", 8: "a2cee436c2bd5178",
-                    9: "566ce460b7bc0952", 10: "03033c94f4068ded"}
+                    9: "566ce460b7bc0952", 10: "03033c94f4068ded",
+                    11: "92246fa491f53aee"}
 # THE VERSION MAPPER: MIGRATIONS[n] is what turns a version-n record into
 # version n+1, a list of steps applied in order:
 #   ("rename", old, new)          an option took a new name
@@ -671,6 +675,9 @@ MIGRATIONS = {
     8: [("added", "palette", "auto")],
     # 10: --screen (98.2.5.1) - a file made before it was mode 12h's
     9: [("added", "screen", None)],
+    # 11: --bank and --prefill (98.2.1.3.2) - a file made before it had no
+    # bank - and --profile 286-pvga, a new choice that reads nothing older
+    10: [("added", "bank", None), ("added", "prefill", None)],
 }
 
 
