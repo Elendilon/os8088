@@ -10901,7 +10901,7 @@ SOAK = [
         "under the held play and the furthest key frame inside ring + bank "
         "is still right, while the play dies past the bank's end. Broken on "
         "purpose - vp_bstep out of the reader's loop - the bank stays empty; "
-        "vp_bfill's head left unmoved, the play errors at frame 100",
+        "vp_bfill's head left unmoved, the play errors at frame 100; vp_bpre out of the bracket, the prefill fills nothing. The clip asks a 4 MB bank and 256 KB first (98.3.18.3): 8 slots before the first frame and Low memory, and with the gate's hold on the prefill the box says Buffering 100%, Esc cancels and Space plays from the bank with B: blank",
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
     Row("vidxmsidle", "soak", py("tests/vidxms.py", "--arm", "idle"), 45.0,

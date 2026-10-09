@@ -718,6 +718,12 @@ F_KLEADS = 512                  # THE KEYS' LEADS APART (98.1.8.1): with
 H_KLEADS = 468                  # AHEAD, key i's lead is A x abytes at the
                                 # u32 at 468 + i x that, not its entry's
                                 # tail - so a key's read is its picture's
+H_XBANK = 472                   # THE BANK (98.3.18.3): u16, the XMS bank
+H_XPRE = 474                    # the encode assumed, KB, and u16 the prefill
+                                # it banked on before frame 0, KB (FFFFh the
+                                # whole bank, 0 the player's 10 s) - NO FLAG:
+                                # a player made before reads neither
+XPRE_ALL = 0xFFFF
 KLEADS_APART = True             # ...what write() does: False writes the
                                 # inline kind, every file before it (a test's)
 F_KNOWN = F_RESIDENT | F_LOOPREC | F_REPEAT | F_LIVE | F_RUNS | F_SPKPWM \
@@ -1710,6 +1716,7 @@ class Writer:
                            "bytes")
         self.live = live
         self.opts = None                # the options block, 98.1.1.4
+        self.xbank = self.xpre = 0      # the bank's ask (98.3.18.3), KB
         if ahead and (audio_fmt == AUD_NONE or live is not None or
                       not 1 <= ahead <= 255 or ahead * abytes > AHEAD_MAX):
             raise V88Error("sound ahead by %d frames: a streamed file with "
@@ -2073,6 +2080,8 @@ class Writer:
             struct.pack_into("<I", hdr, H_LEAD0, lead0_at)
         if klead_at:
             struct.pack_into("<I", hdr, H_KLEADS, klead_at)
+        struct.pack_into("<HH", hdr, H_XBANK, min(self.xbank, 0xFFFE),
+                         self.xpre)
         for off, size, text in ((32, 48, self.title), (80, 96, self.credits)):
             t = text.encode("ascii", "replace")[:size - 1]
             hdr[off:off + len(t)] = t
@@ -2637,13 +2646,19 @@ class Reader:
                            % self.kleadat)
         tail0 = H_KLEADS + 4 if flags & F_KLEADS else \
             H_LEAD0 + 4 if flags & F_AHEAD else LOOP_AT + 16
+        self.xbank, self.xpre = struct.unpack_from("<HH", d, H_XBANK)
+        if self.xpre and not self.xbank or self.xbank and self.resident:
+            raise V88Error("a prefill of %d KB with a bank of %d (98.3.18.3)"
+                           % (self.xpre, self.xbank))
+        # (the bank's two words are the tail's, and not zero)
+        dz = d[:H_XBANK] + bytes(4) + d[H_XBANK + 4:]
         self.loop = None
         blk = struct.unpack_from(LOOP_FMT, d, LOOP_AT)
         if flags & F_LOOPREC and self.resident:
             # RESIDENT: the seam is each block's record after the last
             # frame's, so the loop block names only L
             if not blk[0] + 1 < self.frames or any(blk[1:]) or \
-                    any(d[tail0:SECTOR]):
+                    any(dz[tail0:SECTOR]):
                 raise V88Error("a resident file's loop block is L alone, "
                                "L + 1 < frames")
             self.loop = (blk[0], 0, len(self._seam), 0, 0, 0)
@@ -2658,9 +2673,9 @@ class Reader:
                                "super-packet %d x %d, record %d) does not "
                                "fit the file" % (L, off, n, spo, secs, idx))
             self.loop = blk
-        elif any(blk) or any(d[tail0:SECTOR]):
+        elif any(blk) or any(dz[tail0:SECTOR]):
             raise V88Error("a loop block with no LOOPREC flag")
-        if flags & F_LOOPREC and any(d[tail0:SECTOR]):
+        if flags & F_LOOPREC and any(dz[tail0:SECTOR]):
             raise V88Error("bytes after the loop block that are not zero")
 
     @property

@@ -175,6 +175,9 @@ V88F_BIGSP  equ 256                 ; SUPER-PACKETS PAST 32 KB (98.1.4.1):
 V88F_KLEADS equ 512                 ; THE KEYS' LEADS APART (98.1.8.1): key i's
 V88_KLEADS  equ 468                 ; lead at this dword + i x A x abytes,
                                     ; not its entry's tail
+V88_XBANK   equ 472                 ; THE BANK (98.3.18.3): the XMS its encode
+V88_XPRE    equ 474                 ; assumed, KB, and the prefill it banked
+                                    ; on, KB - no flag, 0 none
 VP_KLRING   equ 96                  ; a key's read and its lead's, KB: what the
                                     ; least ring holds, two slots and a mirror
 V88F_KNOWN  equ V88F_RESIDENT | V88F_LOOPREC | V88F_REPEAT | V88F_LIVE \
@@ -1475,6 +1478,10 @@ vp_parse:
     cmp al, 3
     ja .bad
     mov [vp_target], al
+    mov ax, [es:V88_XBANK]          ; THE BANK IT ASKS FOR (98.3.18.3): in
+    mov [vp_hxb], ax                ; the header's zero tail, so a file made
+    mov ax, [es:V88_XPRE]           ; before says nothing and a player made
+    mov [vp_hxp], ax                ; before reads neither
     mov ax, [es:di+R_SLEN]    ; the stream's bytes, for its KB/s
     mov [vp_slen], ax
     mov ax, [es:di+R_SLEN+2]
@@ -4575,6 +4582,220 @@ vp_bbnc:
     pop ax
     ret
 
+; vp_bpre - THE PREFILL (SPEC.md 98.3.18.3): before a session's first frame,
+; the bank filled to what the file asks - [vp_hxp] KB, the bytes its encode
+; banked on, 0 meaning 10 s at the stream's mean and FFFFh the whole bank -
+; saying
+; `Buffering 37% ~24s` in the full screen's box as it goes. Space starts the
+; play with what is in; Esc cancels: out CF=1. The ring is full and the hook
+; idle throughout. Clobbers AX, BX, CX, DX, SI, DI
+vp_bpre:
+    cmp byte [vp_xbank], 0
+    je .done
+    cmp byte [vp_xon], 0
+    je .done
+    mov cx, [vp_xbn]                ; HOW FAR: the whole bank, or the ask
+    mov ax, [vp_hxp]                ; - the KB the encode banked on before
+    cmp ax, 0xFFFF                  ; its first frame
+    je .n
+    xor dx, dx
+    or ax, ax
+    jnz .kb
+    mov ax, [vp_slen]               ; none asked: 10 s at the stream's mean,
+    mov dx, [vp_slen+2]
+    mov cx, [vp_frames]
+    jcxz .done
+    call vp_div32
+    mov cx, [vp_rate]
+    call vp_mul32
+    mov cx, [vp_spf]
+    jcxz .done
+    call vp_div32
+    mov cx, 1024
+    call vp_div32                   ; AX = KB a second (DX 0: < 64 MB/s)
+    mov cx, 10
+    mul cx                          ; DX:AX = the KB the ask is
+.kb:
+    add ax, 31
+    adc dx, 0
+    mov cx, 32
+    call vp_div32                   ; ...in slots
+    mov cx, [vp_xbn]
+    or dx, dx
+    jnz .n
+    cmp ax, cx
+    jae .n
+    mov cx, ax
+.n:
+    jcxz .done
+    mov [vp_pfn], cx
+    call OSAPI_GET_TICKS
+    mov [vp_pft0], ax
+.lp:
+    mov ah, 1                       ; a key: Space plays now, Esc cancels,
+    int 0x16                        ; anything else is spent
+    jz .nk
+    xor ah, ah
+    int 0x16
+    cmp al, 27
+    je .esc
+    cmp al, ' '
+    je .done
+.nk:
+    call vp_pfsay
+    mov ax, [vp_xcnt]
+    cmp ax, [vp_pfn]
+    jae .full
+    call vp_bstep                   ; a chunk up, or nothing more to bank
+    jnc .lp
+.full:
+    cmp byte [vp_pfwait], 0         ; (the gate's hold, tests/vidbank.py)
+    jne .lp
+.done:
+    xor ax, ax
+    mov si, vo_s_none
+    call vo_show
+    clc
+    ret
+.esc:
+    xor ax, ax
+    mov si, vo_s_none
+    call vo_show
+    stc
+    ret
+
+; vp_bshort - a file whose encode banked on XMS ([vp_hxb] KB, 98.3.18.3)
+; and a machine whose bank is smaller - or none, the file not held whole
+; either: [vp_rshort], so the full screen says Low memory once. Preserves all
+vp_bshort:
+    push ax
+    mov ax, [vp_hxb]
+    or ax, ax
+    jz .out
+    cmp byte [vp_xon], 0
+    je .short
+    cmp byte [vp_xbank], 0
+    je .out                         ; held whole: better than any bank
+    push cx
+    mov cl, 5
+    push ax
+    mov ax, [vp_xbn]
+    shl ax, cl                      ; the bank's KB
+    pop cx
+    cmp ax, cx
+    pop cx
+    jae .out
+.short:
+    mov byte [vp_rshort], 1
+.out:
+    pop ax
+    ret
+
+; vp_pfsay - the prefill's line: `Buffering NN%`, and `~Ns` (or `~Nm`) left
+; at the rate the fill has read at so far, into the box. Clobbers AX, BX,
+; CX, DX, SI, DI
+vp_pfsay:
+    mov di, vp_pfbuf
+    mov si, vp_s_buf
+.c:
+    lodsb
+    or al, al
+    jz .pc
+    mov [di], al
+    inc di
+    jmp short .c
+.pc:
+    mov ax, [vp_xcnt]               ; per cent of the ask
+    mov bx, [vp_pfn]
+    cmp ax, bx
+    jb .pp
+    mov ax, bx
+.pp:
+    mov cx, 100
+    mul cx
+    div bx
+    call vp_pfnum
+    mov byte [di], '%'
+    inc di
+    mov cx, [vp_xcnt]               ; THE TIME LEFT: ticks so far x slots
+    jcxz .end                       ; left / slots so far, once there is a
+    mov ax, [vp_pfn]                ; rate to say it from
+    sub ax, cx
+    jbe .end
+    push ax
+    call OSAPI_GET_TICKS
+    sub ax, [vp_pft0]
+    pop bx
+    mul bx
+    mov cx, [vp_xcnt]
+    call vp_div32                   ; DX:AX = ticks left
+    mov cx, 10
+    call vp_mul32
+    mov cx, 182
+    call vp_div32                   ; ...seconds
+    mov bl, 's'
+    or dx, dx
+    jnz .m
+    cmp ax, 100
+    jb .s
+.m:
+    mov cx, 60
+    call vp_div32
+    mov bl, 'm'
+    or dx, dx
+    jnz .big
+    cmp ax, 100
+    jb .s
+.big:
+    mov ax, 99
+.s:
+    mov word [di], ' ~'
+    inc di
+    inc di
+    call vp_pfnum
+    mov [di], bl
+    inc di
+.end:
+    mov byte [di], 0
+    mov si, vp_pfbuf                ; DRAWN ONLY WHEN IT CHANGED: every pass
+    cmp byte [vo_kind], VOK_BUF     ; of the loop asks, and a box drawn again
+    jne .new                        ; is a box off the glass between (98.3.13)
+    mov di, vo_text
+.cmp:
+    lodsb
+    cmp al, [di]
+    jne .new
+    inc di
+    or al, al
+    jnz .cmp
+    ret
+.new:
+    mov si, vp_pfbuf
+    mov ax, VOK_BUF | 0x100         ; (drawn again: the same kind, moved)
+    jmp vo_show
+
+; vp_pfnum - AX (< 1000) in decimal at [DI], DI past it. Clobbers AX, CX, DX
+vp_pfnum:
+    xor cx, cx
+.d:
+    ; STKBALANCE-LOOP: a digit pushed a turn and the second loop pops them; the count is in CX
+    xor dx, dx
+    push bx
+    mov bx, 10
+    div bx
+    pop bx
+    push dx
+    inc cx
+    or ax, ax
+    jnz .d
+.o:
+    pop ax
+    add al, '0'
+    mov [di], al
+    inc di
+    loop .o
+    ret
+
 ; --- W_ONTIMER: SI = the window, lock held. The hold's next chunk, and the
 ; card's line that counts it. The next is armed as far off as this one took,
 ; so the loading has half the machine and the desktop the other half
@@ -6784,6 +7005,7 @@ vp_sstart:
     jae .rok                        ; which the full screen says once
     mov byte [vp_rshort], 1
 .rok:
+    call vp_bshort                  ; ...and a BANK short of the file's ask
     mov ax, cx
     add ax, [vp_msl]
     cmp byte [vp_xbank], 0          ; (+ the bank's bounce, vp_bbnc)
@@ -8075,6 +8297,7 @@ vp_main:
     ; for the fill; from a key the screen already shows, it is not needed
     ; at all - the key's writes are the bytes already there
     mov byte [vp_sfirst], 0
+    mov byte [vp_pfok], 1           ; (the bank's prefill, after the ring's)
     mov byte [vp_kblk], 1           ; (from frame 0: black after the fill)
     cmp word [vp_krec], 0xFFFF
     je .first
@@ -8120,6 +8343,16 @@ vp_main:
 .fill:                              ; fill the ring before the first frame: a
     call vp_fill                    ; stream that fits is read whole
     jnc .fill
+    cmp byte [vp_pfok], 0           ; ...and THE BANK, before a session's
+    je .npf                         ; first frame (98.3.18.3) - not after a
+    mov byte [vp_pfok], 0           ; seek, which wants the play now
+    call vp_bpre
+    jnc .npf
+    mov word [vp_dt], 0             ; ESC while it filled: nothing played
+    mov byte [vp_dtok], 1
+    mov al, VPX_STOP
+    jmp .leave
+.npf:
     mov cx, [vp_kidx]               ; ...then step over the records before
     jcxz .sk0                       ; frame k+1 in its super-packet, a len
 .sk:                                ; hop each (98.1.3) - all in the ring
@@ -14068,6 +14301,16 @@ vp_xhs:       dw 0                  ; ...the head's slot
 vp_xcnt:      dw 0                  ; ...the chunks in it
 vp_xtl:       dw 0                  ; ...the bytes of its last, with xbeof
 vp_xlo:       dd 0                  ; ...the file offset of its head
+vp_hxb:       dw 0                  ; THE FILE'S ASK (header 472): the bank its
+                                    ; encode assumed, KB, 0 none
+vp_hxp:       dw 0                  ; ...and its prefill, KB (0: 10 s at its
+                                    ; mean, FFFFh: the bank whole)
+vp_pfok:      db 0                  ; 1: the next ring fill is a session's first
+vp_pfwait:    db 0                  ; 1: the prefill holds when done (a gate's)
+vp_pfn:       dw 0                  ; the prefill's slots
+vp_pft0:      dw 0                  ; ...and the tick it began
+vp_s_buf:     db 'Buffering ', 0
+vp_pfbuf:     times VO_MAXC + 1 db 0
 
 %include "os88alt.inc"              ; Alt+Enter in the bracket (SPEC.md 11.2.1.1)
 %define OS88UI_ABOUT                ; the standard About card (SPEC.md 20.5.1)

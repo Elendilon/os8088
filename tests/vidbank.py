@@ -62,6 +62,9 @@ from pxswin import qpoke                                     # noqa: E402
 
 NF, FPS, WB, H = 300, 30.0, 80, 200
 HOLD0 = 20
+ASK_KB, PRE_KB = 4096, 256          # the header's bank and prefill
+VOK_LOWMEM = 7
+VOK_BUF = 10                    # vosd.inc: the box says the prefill
 CHUNK = 32768
 
 
@@ -81,6 +84,11 @@ def clip(tmp):
         paths.append(p)
     out = os.path.join(tmp, "CLIP.V88")
     vid.encode_frames(paths, out, FPS, None, "lin80", "vidbank clip")
+    # THE FILE'S ASK (98.3.18.3), as --bank 4096 --prefill would write it:
+    # a bank bigger than this machine's, and a prefill of PRE_KB
+    d = bytearray(open(out, "rb").read())
+    struct.pack_into("<HH", d, vid.H_XBANK, ASK_KB, PRE_KB)
+    open(out, "wb").write(d)
     vid.verify_v88(out)
     return out
 
@@ -206,6 +214,7 @@ def main():
         def hold_at(n, what, secs=60):
             wait(lambda: rb("vp_held") == 1 and rw("vp_done") == n,
                  "the hold before frame %d (%s)" % (n, what), secs)
+            wait(lambda: rb("vo_on") == 0, "the box to come down", 30)
 
         def check(n):
             got = screen()
@@ -221,18 +230,28 @@ def main():
             qpoke(q, [(base + syms["vp_stopat"], struct.pack("<H", nxt)),
                       (base + syms["vp_held"], b"\0")])
 
-        # --- 2: held early, the ring and then the bank fill
+        # --- 2: THE PREFILL fills the bank before frame 0 (98.3.18.3): the
+        # file asks nothing, so 10 s at its mean - more than the bank holds
         keys = [k[0] for k in rd88.keys if HOLD0 < k[0] < NF]
         poke("vp_stopat", HOLD0)
         q.hmp("sendkey p")
-        wait(lambda: rb("vp_ready") == 1, "the play to start", 30)
+        wait(lambda: rb("vp_ready") == 1, "the play to start", 60)
+        q.hmp("stop")
+        pfn, cnt0, done0 = rw("vp_pfn"), rw("vp_xcnt"), rw("vp_done")
+        ask = (rw("vp_hxb"), rw("vp_hxp"))
+        toast = rb("vo_toast")
+        q.hmp("cont")
+        print("   the first frame due: the file asks %d KB, %d first; the "
+              "prefill %d slots, the bank has %d, %d drawn, toast %d"
+              % (ask + (pfn, cnt0, done0, toast)))
+        if ask != (ASK_KB, PRE_KB) or pfn != PRE_KB // 32 or cnt0 < pfn:
+            bad.append("the file's ask %r: the prefill asked %d slots of %d "
+                       "and the bank had %d at the first frame"
+                       % (ask, pfn, bn, cnt0))
+        if toast != VOK_LOWMEM:
+            bad.append("a bank of %d KB under the file's %d did not say Low "
+                       "memory (toast %d)" % (bn * 32, ASK_KB, toast))
         hold_at(HOLD0, "the first")
-        wait(lambda: rw("vp_xcnt") == bn or rb("vp_xbeof"),
-             "the bank to fill behind the held hook", 120)
-        print("   held, the bank full: %s" % state())
-        if rw("vp_xcnt") < bn:
-            bad.append("the bank filled to %d of %d slots" % (rw("vp_xcnt"),
-                                                              bn))
         check(HOLD0)
         # --- 3: every key frame right
         for n in keys:
@@ -248,14 +267,39 @@ def main():
             bad.append("the play through the bank drew %d of %d (error %d)"
                        % (rw("vp_done"), NF, rb("vp_err")))
 
-        # --- 5: again, the bank full, then B: blank
-        qpoke(q, [(base + syms["vp_played"], b"\0")])
-        poke("vp_stopat", HOLD0)
-        q.hmp("sendkey p")
-        wait(lambda: rb("vp_ready") == 1, "the second play to start", 30)
-        hold_at(HOLD0, "the second")
-        wait(lambda: rw("vp_xcnt") == bn or rb("vp_xbeof"),
-             "the bank to fill again", 120)
+        def prefilled(what):
+            """Play with the gate's hold on the prefill's end: the bank
+            full, the box saying so, and no frame drawn yet"""
+            qpoke(q, [(base + syms["vp_played"], b"\0"),
+                      (base + syms["vp_pfwait"], b"\1"),
+                      (base + syms["vp_hxp"], b"\xff\xff"),
+                      (base + syms["vp_stopat"], struct.pack("<H", HOLD0))])
+            q.hmp("sendkey p")
+            wait(lambda: rb("vo_kind") == VOK_BUF and rw("vp_xcnt") == bn,
+                 what, 120)
+            q.hmp("stop")
+            txt = q.read(base + syms["vo_text"], 20).split(b"\0")[0]
+            st = (txt, rb("vo_on"), rb("vp_ready"), rw("vp_done"))
+            q.hmp("cont")
+            print("   %s: the box says %r (on %d), ready %d, %d drawn"
+                  % (what, txt.decode("ascii", "replace"), st[1], st[2],
+                     st[3]))
+            if st != (b"Buffering 100%", 1, 0, 0):
+                bad.append("the prefill's box was %r on %d, ready %d, %d "
+                           "drawn" % st)
+
+        # --- 5: Esc while it fills cancels the play, nothing drawn
+        prefilled("the prefill held")
+        q.hmp("sendkey esc")
+        wait(lambda: rb("vp_played") == 1 and rb("vp_sess") == 0,
+             "Esc to cancel", 30)
+        print("   Esc: %s" % state())
+        if rw("vp_done") != 0 or rb("vp_err"):
+            bad.append("Esc in the prefill drew %d (error %d)"
+                       % (rw("vp_done"), rb("vp_err")))
+
+        # --- 6: the prefill whole, B: blank, and Space plays from the bank
+        prefilled("the prefill held again")
         q.hmp("stop")
         lc, cnt = rw("vp_lc"), rw("vp_xcnt")
         q.hmp("change floppy1 %s raw" % blank)
@@ -277,9 +321,10 @@ def main():
             bad.append("no key frame lies past the ring and inside the bank "
                        "- the swap leg proves nothing")
         else:
-            # --- 6: the furthest such frame, with no disk under it
             n = fits[-1][0]
-            release(n)
+            qpoke(q, [(base + syms["vp_stopat"], struct.pack("<H", n))])
+            q.hmp("sendkey spc")
+            wait(lambda: rb("vp_ready") == 1, "Space to start the play", 30)
             hold_at(n, "past the swap", 120)
             check(n)
             # --- 7: what neither held is the blank disk's

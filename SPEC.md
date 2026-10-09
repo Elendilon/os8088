@@ -156967,7 +156967,9 @@ stream behind them is read sequentially.
 | 448 | 16 | the loop block, with LOOPREC (98.1.1.2); else 0 |
 | 464 | 4 | with AHEAD, the START's lead: frames 0 .. *A* - 1's sound (98.1.8); else 0 |
 | 468 | 4 | with KLEADS, the KEYS' LEADS: key *i*'s at this offset + *i* x *A* x `abytes` (98.1.8.1); else 0 |
-| 472 | 40 | 0 |
+| 472 | 2 | THE BANK its encode assumed, KB: an XMS bank ahead of the ring (98.3.18.2, 98.3.18.3); 0 none. NO FLAG - a player made before reads nothing past 472 and plays the file |
+| 474 | 2 | ...and the PREFILL it banked on before the first frame, KB; FFFFh the bank whole; 0 with a bank of 0 |
+| 476 | 36 | 0 |
 
 **The divisor is the host's arithmetic, not the player's.** `1,193,182 ×
 samples / rate` is a 38-bit product, which an 8086 would need two divides to
@@ -158668,6 +158670,50 @@ disk with a 192 KB reserve.
 - `vidplayring` (soak) plays a clip whose header asks 12 on MartyPC's 640
   KB 5150: held to 2 slots it says `Low memory`, and the second play takes
   all 12, says nothing, and draws 150 of 150 on time.
+
+###### 98.2.1.3.2 An XMS bank: `--bank` and `--prefill` (2026-10-09)
+
+**A stream made for a machine whose player will BANK it** (98.3.18.2): a
+286 or better with extended memory free keeps the stream up to that far
+ahead of its ring. The disk bucket is the ring's reserve PLUS the bank, so
+a long calm stretch banks bytes a burst much later can spend.
+
+- **`--bank KB`** is the bank the encode assumes: what the player will have
+  - the pool less 256 KB, in 32 KB slots - so a machine with 1, 2, 4 or 8
+  MB of extended memory free has 768, 1,792, 3,840 or 7,936 KB, which the
+  encoder window offers. The bucket's cap grows by it.
+- **`--prefill S`** is how much of it the player fills before the first
+  frame, in seconds of the profile's disk, capped at the bank; `all` is the
+  bank whole. The bucket STARTS that much fuller. Default 10 s.
+- **A banked byte costs the reader its two copies** (VIDEO-XMS-PLAN 4.2):
+  read into a bounce, copied up, and later copied down into the ring. The
+  profile's `xcopy` is VIDDISK `X`'s ms a KB a copy (0.345 on both 286s,
+  measured on the owner's; 0.05 on the 486), and with a bank the disk's
+  rate is charged `1 + 2 x xcopy x rate` - 12% of a 200 KB/s disk on a
+  286. A profile without it charges nothing.
+- **The header's 472 and 474** say both, in KB (98.1.1), and nothing else
+  marks the file: an older player plays it, and stalls where it was short.
+  The host reader refuses a prefill with no bank, and a bank on a resident
+  file.
+- **Refused with `--resident`, `--live` and a lossless profile**: none has
+  a disk the bank would stand in front of. `--prefill` without `--bank` is
+  refused too.
+
+Measured on the owner's Last Exile opening, 30 s of it (20-50 s) at
+`--preset vga8 --profile 286-pvga --disk 204800` - the owner's 286 with a
+disk at 200 KB/s:
+
+| bank | prefill | KB/s | frames cut by the disk | error as seen |
+|---|---|---|---|---|
+| none | - | 270.1 | 611 | 3.81% |
+| 1 MB | 10 s (all 1,024 KB) | 274.1 | 542 | 3.81% |
+| 3 MB | 10 s (2,000 KB) | 298.5 | 428 | 3.60% |
+| 3 MB | all | 325.2 | 348 | 3.27% |
+| 8 MB | all | 399.3 | 0 | 1.73% |
+
+The clip is a hard case (VIDEO-XMS-PLAN 6): few calm stretches, so a bank
+is worth what the PREFILL puts in it more than what it refills - and at 8
+MB the CPU's average is what binds (407 frames), the disk none.
 
 ##### 98.2.1.4 `--aim`: what a budget the video does not use is for
 
@@ -162140,10 +162186,9 @@ and `vp_bseed` points the stream's cursor at the head's offset.
 else - `vp_sstart`'s reader at a play's start or a seek, and `vp_warm` at a
 REPEAT's seam (§98.3.9): what it holds is the old place's.
 
-**Not yet built** (VIDEO-XMS-PLAN 9): the PREFILL before the first frame and
-its card line, the header's two words naming the bank the encode assumes and
-how much of it to fill first, the encoder's `--xms`/`--prefill`, and banking
-while paused or in the window's own play.
+**Not yet built** (VIDEO-XMS-PLAN 9, wave 4): banking while paused, a seek
+inside the bank, and the prefill's line in the window. The prefill and the
+file's ask are 98.3.18.3, the encoder's half 98.2.1.3.2.
 
 The gate is on QEMU (docs/TESTING.md's list, entry 1): `vidbank`, `-m 2`
 against a 1.33 MB LIN80 clip, so the hold cannot be taken and the bank is 18
@@ -162155,6 +162200,40 @@ the bank held between them is still right, and the play dies past the
 bank's end. Broken on purpose - `vp_bstep` out of the reader's loop, the
 bank stays empty; `vp_bfill`'s head left unmoved, the play errors at frame
 100 - `vidbank` FAILS.
+
+##### 98.3.18.3 The prefill, and what the file asks
+
+**A play that has a bank fills it before the first frame**, the full
+screen saying **`Buffering 37% ~24s`** in 98.3.13's box - the per cent of
+what it is filling, and the time left at the rate the fill has read at so
+far (minutes past 99 s, `~12m`). **Space starts the play** with what is in;
+**Esc cancels** it, nothing drawn. The box is redrawn only when the text
+changes: drawn every pass of the loop, it was off the glass between.
+
+- **How much is the file's** (98.1.1's 472 and 474, written by 98.2.1.3.2):
+  the prefill its encode banked on, in KB, or FFFFh for the whole bank. A
+  file that asks nothing - every file before - is filled for 10 s at its
+  own mean (its stream's bytes over its length, the card's line 3). The
+  player has no cap of its own (the owner, 2026-10-08), and the bank's size
+  is the only one.
+- **A bank smaller than the file's ask**, or none where the file is not
+  held whole either, plays and says **`Low memory`** in the full screen,
+  once at the first frame (`vp_bshort`, beside the ring's own check).
+- **Only before a session's first frame** (`[vp_pfok]`): a seek wants the
+  play now, and REPEAT's lap refills the bank behind the play.
+- **In the window it runs silently** for now: the box is the full
+  screen's, and the window's own line is VIDEO-XMS-PLAN 9's wave 4.
+- **The box is 18 characters** (`VO_MAXC`, was 10) and its save a page
+  1,920 bytes (`VO_SAV`, was 1,152): +1,536 bytes of the player's bss.
+
+The gate is `vidbank`'s own (98.3.18.2), which now reaches the first frame
+through the prefill: the clip asks a 4,096 KB bank and 256 KB first, so
+this machine's 576 KB bank fills 8 slots and says `Low memory`. With a
+gate's hold on the prefill's end (`[vp_pfwait]`) and the whole bank asked,
+the box reads `Buffering 100%` with nothing drawn; Esc then cancels with no
+frame and no error, and the second time B: is blanked before Space, and
+frame 180 - past the ring and inside the bank - is the decode's. Broken on
+purpose - `vp_bpre` out of the bracket - the prefill fills nothing.
 
 #### 98.3.19 Under memory pressure: the keeper given up, and the player moved
 

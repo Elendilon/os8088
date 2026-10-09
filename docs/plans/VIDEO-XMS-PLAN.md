@@ -444,10 +444,26 @@ bytes. That is the measurement to take before section 5 is built.
    blank floppy under QEMU does not make the stream's cursor refuse: it
    reads the blank disk's zeros, so past the bank's end the play errors
    rather than stalls, which is still the bite the gate needs.
-2. **The prefill and its line**, Space and Esc during it.
-3. **The encoder's `--xms` / `--prefill` and the header**, the player's ask,
-   `Low memory`; `tools/os88vidbuf.py --deficit` checked against a real
-   encode's cuts.
+2. **The prefill and its line**, Space and Esc during it - **BUILT (SPEC.md
+   98.3.18.3)**. The line is `Buffering 37% ~24s` rather than section 4.3's
+   `Buffering 1,234 of 8,192 KB, ~24 s`: the full screen's box held ten
+   characters, and every character more is 96 bytes of the player's bss
+   (a 13h glyph's 8 bytes by 12 rows, on two pages), so it went to 18 for
+   1,536 bytes and the KB went. The first build redrew the box on every pass
+   of the loop, which the gate caught as a box found mid-redraw - and which on
+   the glass is flicker.
+3. **The encoder's `--bank` / `--prefill` and the header**, the player's ask,
+   `Low memory` - **BUILT (SPEC.md 98.2.1.3.2)**. Two departures from section
+   5: `--xms` was already the encoder's (98.3.18.1's streamed Live file), so
+   the bank is `--bank`; and the header's prefill is in KB, not tenths of a
+   second - the encoder knows exactly what it banked on, the player only
+   the file's mean, and seconds at "the encode's rate" would have been two
+   different numbers at the two ends. The seconds are the encoder's option
+   and the player's estimate, which is what the owner asked for. The
+   profile's VIDDISK `X` reading went in as `xcopy` (section 5's last-but-
+   one point) - a banked byte's two copies charged to the disk's rate.
+   `--deficit` was not re-checked: the real encode is the better number now
+   (98.2.1.3.2's table, on the owner's source).
 4. **The window play, seeks inside the bank, a pause's banking.**
 
 ## 10. EXPANDED MEMORY: what LIM EMS would cost the kernel

@@ -171,7 +171,7 @@ PROFILES = {
     # VIDDISK run on build 458 or later says otherwise (the owner's own
     # VIDDISK286.TXT of 2026-10-07, track-bound, read 665.5 at 50%)
     "286-vga": dict(disk=616000, avg=2.25, peak=3.75, owe=1.6, speed=4.5,
-                    ring=8, lcopy_us=1.829, cyc_us=CYC_US_286,
+                    ring=8, xcopy=0.345, lcopy_us=1.829, cyc_us=CYC_US_286,
                     disk_at=((0.0, 1318.3 / 684.7), (0.25, 1023.9 / 684.7),
                              (0.5, 1.0), (0.75, 348.1 / 684.7), (1.0, 0.0)),
                     rate=22050, audio="pcm8", spk_us=(11.5, 6.5),
@@ -188,7 +188,7 @@ PROFILES = {
     # it. The shares are the mr286's - a profile with `cyc_us` prices in
     # microseconds, so `speed` is only the unit they are written in
     "286-pvga": dict(disk=448000, avg=2.25, peak=3.75, owe=1.6, speed=4.5,
-                     ring=8, lcopy_us=2.133, cyc_us=CYC_US_286PVGA,
+                     ring=8, xcopy=0.345, lcopy_us=2.133, cyc_us=CYC_US_286PVGA,
                      disk_at=((0.0, 729.5 / 486.3), (0.25, 684.7 / 486.3),
                               (0.5, 1.0), (0.75, 294.3 / 486.3), (1.0, 0.0)),
                      rate=22050, audio="pcm8", spk_us=(11.5, 6.5),
@@ -206,7 +206,7 @@ PROFILES = {
     # avg / peak: the owner's 86Box DX2/66 played 70% / 105% flipped with
     # nothing seen wrong and 80% / 115% with late frames counted (98.2.3.6);
     # these sit under that boundary, a real machine being slower or faster
-    "486": dict(disk=1950000, avg=6.50, peak=10.0, owe=1.6, speed=10,
+    "486": dict(disk=1950000, avg=6.50, peak=10.0, owe=1.6, speed=10, xcopy=0.05,
                 ring=8, lcopy_us=1.380, cyc_us=CYC_US_486,
                 disk_at=((0.0, 4151 / 2192.0), (0.25, 3157 / 2192.0),
                          (0.5, 1.0), (0.75, 1096 / 2192.0), (1.0, 0.0)),
@@ -840,6 +840,7 @@ FRAME_CAPS = {"32": 64, "48": 96, "63.5": 127}  # --frame-cap: KB -> its
 REC_MAX = 30 * 1024     # a frame record rides in a super-packet of 32 KB
                         # (98.1.4): whatever the budgets say, no more.
                         # Only VGA8 can reach it - a MONO1 canvas is 16 KB
+BANK_PREFILL = 10.0  # --prefill's default, seconds of the disk (98.3.18.3)
 DISK_LOOKAHEAD = 96 * 1024  # what the disk bucket may bank: THREE of the
                         # player's 32 KB ring slots (98.3), which it has
                         # read before the first frame. It was one second of
@@ -2666,6 +2667,7 @@ class Encoder:
             # reserve stalled 3 times in 20 s without it and 0 with it
             self.dfloor = min(float(vid.SLOT), self.reserve / 4.0)
             self.drate, self.abps, self.fps = prof["disk"], audio_bps, fps
+        self.bank = self.bankpre = 0    # the XMS bank's bytes (set_bank)
         self.alead, self.arefill = 0, []    # the sound's lead (disk_floor)
         self.slead, self.srefill = 0, []    # ...what it WOULD be in step
                                             # (Auto's question, 98.2.1.3)
@@ -2719,6 +2721,27 @@ class Encoder:
         self.q_vis = self.q_wrong = self.q_flick = self.q_tflick = 0.0
         self.q_prev = self.q_tprev = (None, None)
         self.tcache, self.scache = {}, None     # (tpix, spix)
+
+    def set_bank(self, bank, pre, xcopy=0.0):
+        """THE XMS BANK (SPEC.md 98.3.18.2): `bank` bytes ahead of the ring,
+        so the disk bucket is that much deeper, and `pre` of them filled
+        before the first frame (98.3.18.3), so it starts that much fuller.
+        A banked byte is read, copied UP and copied DOWN (VIDEO-XMS-PLAN
+        4.2): `xcopy` ms a KB a copy - the profile's VIDDISK `X` reading -
+        is time the reader spends that it does not spend reading, and the
+        disk's rate is charged for it"""
+        if self.disk.per is None or not bank:
+            return
+        self.bank, self.bankpre = bank, min(pre, bank)
+        self.disk.cap = self.reserve + bank
+        self.disk.level = self.reserve / 2 + self.bankpre
+        if xcopy:
+            self.drate /= 1.0 + 2 * xcopy / 1000.0 * self.drate / 1024
+            self.disk.per = (self.drate * 0.99 - self.abps) / self.fps
+            if self.disk.per <= 0:
+                raise vid.V88Error("the bank's copies leave the disk %d bytes "
+                                   "a second, and the sound is %d"
+                                   % (self.drate, self.abps))
 
     def begin(self):
         """A frame starts: the buckets fill, and WHEN the player will
@@ -4395,6 +4418,21 @@ def _encode(a, keep, tick, readers):
         Encoder(g, prof, fps, audio_cyc, audio_bps, palette)
     enc.live = bool(a.live)
     enc.spk = spk_share
+    a.bank = getattr(a, "bank", None)
+    a.prefill = getattr(a, "prefill", None)
+    if a.bank:
+        # THE XMS BANK (98.3.18.2): deeper, and fuller at the start by the
+        # prefill - in seconds of the profile's disk, or the bank whole
+        if a.resident or a.live or prof["disk"] is None:
+            raise vid.V88Error("--bank is a stream's, played off a disk: not "
+                               "with --resident, --live or a lossless "
+                               "profile")
+        bank = int(a.bank * 1024)
+        pre = bank if a.prefill == "all" else \
+            min(bank, int(float(a.prefill or BANK_PREFILL) * prof["disk"]))
+        enc.set_bank(bank, pre, prof.get("xcopy") or 0.0)
+    elif a.prefill:
+        raise vid.V88Error("--prefill fills a --bank, and there is none")
     if a.flip and prof["avg"] is not None:
         # the flip schedule's calls (98.2.1.1.1): half a period apart off a
         # card's sound, a period silent
@@ -4468,6 +4506,10 @@ def _encode(a, keep, tick, readers):
                     else None, ahead=ahead, kcap=KEY_PLAYER,
                     spcap=FRAME_CAPS[a.frame_cap], screen=scr)
     wr.opts = optsblk                   # (98.1.1.4)
+    if enc.bank:                        # THE BANK'S ASK (98.3.18.3)
+        wr.xbank = enc.bank // 1024
+        wr.xpre = vid.XPRE_ALL if a.prefill == "all" else \
+            max(1, -(-enc.bankpre // 1024))
     if not a.resident and enc.disk.per is not None:
         wr.ring = vid.ring_for(enc.reserve)     # (98.2.1.3)
         if wr.ring is None:
@@ -4794,6 +4836,12 @@ def _encode(a, keep, tick, readers):
                 % -(-(g.wb * 4 if L == vid.LAY_MODEX else
                       80 * 4 if g.bitplanes else g.wb) * g.h // 1024)
                 if a.flip else ""))
+    if enc.bank:
+        say("   XMS bank %d KB ahead of the ring, %s before the first frame "
+            "(98.3.18.2): a machine with less plays it and says Low memory"
+            % (enc.bank // 1024, "all of it filled" if wr.xpre == vid.XPRE_ALL
+               else "%d KB of it filled, ~%.0f s of the disk" % (
+                   wr.xpre, wr.xpre * 1024.0 / prof["disk"])))
     if enc.metric:
         say("   picture: %.2f%% error as seen, %.2f%% of pixels wrong, "
             "%.0f pixels a frame flickering back (the source's own: %.0f)"
@@ -4893,6 +4941,21 @@ def parser():
                          "memory and may pause in a burst. Not with "
                          "--reserve, which says the same thing in the "
                          "stream's KB")
+    ap.add_argument("--bank", type=float, metavar="KB",
+                    help="an XMS BANK on the machine that plays it: a 286 "
+                         "or better with that much extended memory free "
+                         "keeps the stream that far ahead of its ring, "
+                         "refilled in the calm stretches, so a burst can "
+                         "spend it (98.3.18.2). The disk bucket is that "
+                         "much deeper. The file says so in its header and "
+                         "still plays anywhere: with less, the player says "
+                         "Low memory and may pause in a burst")
+    ap.add_argument("--prefill", metavar="S|all",
+                    help="with --bank: seconds of the disk the player reads "
+                         "into the bank before the first frame, saying "
+                         "Buffering as it does, or 'all' for the whole bank "
+                         "(98.3.18.3). The stream starts that much richer. "
+                         "Default %g" % BANK_PREFILL)
     ap.add_argument("--lookahead", type=int, default=2, metavar="N",
                     help="WHEN A FRAME IS CUT, don't pay for pixels about "
                          "to change: a change is ranked by what it is worth "

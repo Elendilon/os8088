@@ -206,6 +206,17 @@ WAV_WHY = ("This file is a speaker WAV for Audio - the sound alone, shaped "
            "Save as a .V88 to use these.")
 # (tab, header, options, rule): a rule is None where the group applies,
 # else the reason it does not - the group's tooltip while it is greyed
+def _bank(c):
+    """The bank is a STREAM's, read off a disk: not a resident or Live
+    file's, and not a lossless profile's, which has no disk to budget"""
+    if c["resident"] or c["live"]:
+        return ("A bank reads a stream ahead off the disk, and this file is "
+                "%s." % ("Live" if c["live"] else "held whole in memory"))
+    if c["profile"] == "lossless":
+        return "The lossless profile has no disk budget for a bank to deepen."
+    return None
+
+
 GROUPS = [
     ("Basic", "Made for", ("preset", "pixfmt", "profile", "aim"), ALWAYS),
     ("Basic", "The clip", ("title", "credits", "start", "end", "fps"),
@@ -258,6 +269,7 @@ GROUPS = [
       "spk_drive", "spk_idle"), _shaping),
     ("Budget", "The machine's budget", ("disk", "avg", "peak", "owe",
                                         "reserve", "memory"), ALWAYS),
+    ("Budget", "XMS bank (a 286 or better)", ("bank", "prefill"), _bank),
     ("Budget", "When a frame is cut", ("lookahead", "error", "cut",
                                        "frame_cap"), ALWAYS),
     ("Budget", "Aim: size", ("worth",),
@@ -321,7 +333,12 @@ IMPLYING = ("preset", "pixfmt", "profile", "live")
 SUGGEST = {"rate": ["", "22050", "11025", "8000", "5512"],
            "owe": ["", "0", "1.6"],
            # FREE MEMORY TO PLAY (98.2.1.3.1): rings of 8, 10 and 12 slots
-           "memory": ["", "309", "373", "437"]}
+           "memory": ["", "309", "373", "437"],
+           # THE XMS BANK (98.3.18.2): what a 1, 2, 4 or 8 MB machine has
+           # left once the player's reserve for others is taken; the prefill
+           # in seconds of the disk, or the whole bank
+           "bank": ["", "768", "1792", "3840", "7936"],
+           "prefill": ["", "5", "10", "30", "all"]}
 # a free-text option that NAMES A FILE the encode writes: a Browse... beside
 # it, a Save dialog of that type, started beside the .V88 under its name
 SAVE_FILE = {"spk_preview": ("The speaker preview", ".wav",
