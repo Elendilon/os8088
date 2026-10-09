@@ -1932,6 +1932,15 @@ SOAK = [
         "A DECLARED extension's icon is right from a COLD mount (SPEC.md"
         "54.7.3).",
         needs=("marty",), serial=True),
+    Row("timerrace", "soak", py("tests/timerrace.py"), 30.0,
+        "SPEC.md 13.9.2: ui_timer_pass asks again, UNDER the gfx lock, "
+        "whether the window it is about to call still exists - gfx_lock can "
+        "block on a dying worker that destroys the record and frees its "
+        "region. Two breakpoints make that instant: stopped just after the "
+        "lock with a Disk window's timer due, W_FLAGS cleared there, and the "
+        "pass must reach .gone and never ui_bill",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-360.img", "build/apps360.img")),
     Row("assocwake", "soak", py("tests/assocwake.py"), 30.0,
         "SPEC.md 54.10: a document launch draws the PROGRAM'S WINDOW first, "
         "and only then reads the document. The instrument is a breakpoint on "

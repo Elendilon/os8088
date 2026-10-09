@@ -3325,6 +3325,6 @@ tell**: whether the keyboard lights still toggle (Num Lock) - lit means
 interrupts are alive and the UI task is stuck, dark means IRQ0 or IF is
 wedged, entry 61's signature on another 286 BIOS. A kernel race found on the
 way, which needs a WORKER and so not this file (the player hires one only
-for a Live play): `ui_timer_pass` tests `W_FLAGS` before `gfx_lock`, which can
-block while a dying worker frees the window, and calls the handler without
-testing again (kernel/ui.inc, the `.next` loop).
+for a Live play): `ui_timer_pass` tested `W_FLAGS` before `gfx_lock`, which can
+block while a dying worker frees the window, and called the handler without
+testing again - FIXED, SPEC.md 13.9.2, `tests/timerrace.py`.

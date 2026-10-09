@@ -1035,7 +1035,17 @@ ui_timer_pass:                  ; ui_task tests [wm_tarm] before calling
     xor cx, cx                  ; can do anything a window callback can
     xor dx, dx                  ; (a timer has no point - SPEC.md 13.9)
     call gfx_lock
+.locked:                        ; (tests/timerrace.py's breakpoint)
+    test byte [si+W_FLAGS], 1   ; ...AND ASKED AGAIN UNDER THE LOCK (13.9.2):
+    jz .gone                    ; gfx_lock can block on a dying WORKER, which
+    mov bp, [si+W_ONTIMER]      ; destroys this record under it and frees the
+    or bp, bp                   ; region straight after - the test above was
+    jz .gone                    ; then of a window that no longer exists, and
+                                ; the handler word is read again for the same
+                                ; reason (a record re-used meanwhile is
+                                ; another window's)
     call ui_bill
+.gone:
     call gfx_unlock
     pop si
     pop cx

@@ -25727,6 +25727,37 @@ already keeps (§37); an app needing finer pacing inside a frame is asking for
 closed is asking for a worker (§20.6). This is the cheap middle: a package
 that wants to be poked once, shortly, and then left alone.
 
+### 13.9.2 Asked again under the lock (2026-10-09)
+
+**`ui_timer_pass` tests the record twice: once to find a due timer, and
+again after `gfx_lock` returns, before the handler is called.** The first
+test is what makes the walk cheap; the second is what makes it safe,
+because `gfx_lock` can BLOCK - and the holder it waits on may be a package's
+dying WORKER. `inst_task_die` destroys the window under the lock
+(`inst_unwin`, `wm_destroy` writing `W_FLAGS` = 0) and frees the region the
+moment it lets go (`mem_free_rec`). The pass resumed and called the handler
+anyway, through a `W_SEG` that names memory the heap had already got back:
+a wild far call. The handler word is read again under the lock for the same
+reason - a record re-used meanwhile is another window's, and its
+`W_ONTIMER` may be 0.
+
+A task-less instance cannot reach it: `app_close_win` tears that down on the
+UI task itself, under the lock, between two passes. It wants a worker, a
+due timer and a close at once, which is why nothing had ever been seen to
+hit it (it was found reading the close path for docs/FIELD-NOTES.md 64,
+whose package hired no worker). A WAKE has no such window - `wm_wake_call`
+dispatches without the lock, so there is no wait between its test and its
+call.
+
+`timerrace` is the gate, on MartyPC, and it makes the instant rather than
+waiting for one: a Disk window's record is given a due timer, the guest is
+stopped at `ui_timer_pass.locked` (SI asserted to be that record), `W_FLAGS`
+bit 0 is cleared there as a worker's teardown leaves it, and the pass must
+reach `.gone` before `ui_bill`. Broken on purpose - the `jz .gone` after the
+re-test taken out - it stops at `ui_bill`. 12 bytes of `.text`, resident
+(the routine's span 76 -> 88), on kern_big only - kern_small has no
+window timer, and refuses the slot.
+
 ### 13.10 The SCROLL BAR — the second shared element
 
 `os88ui_btn` was five bodies that agreed. **A scroll bar was five private
