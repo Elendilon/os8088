@@ -162188,8 +162188,8 @@ else - `vp_sstart`'s reader at a play's start or a seek, and `vp_warm` at a
 REPEAT's seam (§98.3.9): what it holds is the old place's.
 
 The prefill and the file's ask are 98.3.18.3, the window, a pause and a seek
-98.3.18.4, the speaker 98.3.18.5, the bank in EMS 98.3.18.6, and the
-encoder's half 98.2.1.3.2.
+98.3.18.4, the speaker 98.3.18.5, the bank in EMS 98.3.18.6, the decode in
+place 98.3.18.7, and the encoder's half 98.2.1.3.2.
 
 The gate is on QEMU (docs/TESTING.md's list, entry 1): `vidbank`, `-m 2`
 against a 1.33 MB LIN80 clip, so the hold cannot be taken and the bank is 18
@@ -162316,10 +162316,16 @@ copies run while the count looks empty. +53 bytes.
 
 ##### 98.3.18.6 The bank in expanded memory
 
-**With no XMS pool and `EMS.DRV` answering (SPEC.md 107), the bank is the
-board's pages** - VIDEO-XMS-PLAN 10.8's wave E2, the hybrid: section 4's
-policy with a free fill and one copied drain. It is the 8088's only bank and
-the 286's better one when it has a board and no XMS.
+**With `EMS.DRV` answering (SPEC.md 107) and no XMS pool - or an XMS pool
+on a CPU below a 386 - the bank is the board's pages** - VIDEO-XMS-PLAN
+10.8's wave E2, the hybrid: section 4's policy with a free fill and one
+copied drain, and the store a session plays IN PLACE from where it can
+(98.3.18.7). **EMS is taken over XMS below a 386** (`vp_epref`): there XMS
+is `int 15h`'s block move, two copies a banked byte with interrupts off,
+where EMS is one copy with them on, or none in place; and `EMS.DRV` is only
+loaded when somebody ticked it, which is the request. A 386's unreal-mode
+copy, ~0.05 ms a KB, is faster than any copy out of an ISA board, so a 386
+keeps XMS.
 
 - **The block** (`vp_eopen`, `vp_xopen`'s `.ems`): `EMSV_CAPS`' free pages
   less `VP_XRES`'s 256 KB, no more than the file in whole 32 KB slots (an
@@ -162359,6 +162365,57 @@ play draws all 200 frames, the screen the decode's at three holds; played
 again with B: still blank it fails. Broken on purpose - the drain's
 `rep movsw` out - frames 100 and 160 differ in 9,936 and 15,756 bytes.
 +462 bytes of the package (41,795 -> 42,257); no kernel byte.
+
+##### 98.3.18.7 The decode in place
+
+**With an EMS bank of all four quarters, the ring IS the board's pages and
+nothing is copied at all** - VIDEO-XMS-PLAN 10.3's wave E3, the 8088's
+design. A session takes it at its start (`vp_einq`, in `vp_sstart` where
+the ring is sized):
+- **The ring's slots are the board's** (`[vp_kr]`, which `vp_slot`, the
+  reader's room and the seam's divide by): chunk *c* lives in slot *c* mod
+  `[vp_kr]`, a pair of pages. The conventional ring keeps its least - two
+  slots and a mirror - for a key's record, so a 640 KB machine gives back
+  what the ring of up to 15 slots held.
+- **The hook reads through the frame.** `vp_addr` maps the three pages from
+  the one under its pointer into quarters 0-2 with its OWN OUTs - the hook
+  is an ISR and may call nothing, so it uses the recipe `EMSV_FRAME`
+  answered (SPEC.md 107.4: quarter 0's register, the step, the bits ORed in)
+  and the handle's first page from `EMSV_BASE`. A super-packet or a record
+  of up to 32 KB from anywhere in a page is then contiguous, wherever its
+  pages are on the board, so there is no mirror and the ring's wrap needs
+  none.
+- **The reader has quarter 3**, a register the hook never writes, and reads
+  into it 16 KB a call (`vp_eread`): the hook mapping 0-2 and the reader 3
+  can never meet on one register.
+- **The prefill fills the ring itself** (98.3.18.3's loop, which counts the
+  ring's chunks here), to the ring's size; the bracket's own fill before it
+  stops at two chunks. A pause on the desktop reads the ring on (98.3.18.4).
+- **Not taken**, the hybrid (98.3.18.6) playing instead, for: BIGSP (five
+  pages, 98.1.4.1), sound ahead (98.1.8, its lead is read into the ring),
+  Repeat (98.3.9, its seam and key are read into the ring - and R pressed
+  mid-play ends the play at the file's end rather than repeating), a
+  cluster over 16 KB (the reader's call), Live, and a board where the
+  frame's four quarters are not all free. The session's end gives the
+  board's slots back to the hybrid's bank, emptied (`vp_eend`).
+
+**What it cost to find**: `vp_eopen` stored the recipe's register from CX
+AFTER popping the page count into it, so the hook wrote its page numbers to
+I/O ports 18-20 - the DMA controller's - and the board stayed at its
+power-on mapping. That mapping is pages 0-3, which is the stream's first
+three pages, so the first sixteen frames played perfectly and the
+seventeenth, the first record wholly past the first page, was garbage. The
+first look at a failure in this design is the frame read off the machine
+against the file (`VIDEMS_DBG=1` prints which file offset each quarter
+holds).
+
+`videms` plays in place by default: the clip in the board's 9 slots with a
+conventional ring of 2, B: blanked, all 200 frames right. `videmswrap`
+holds the ring to 3 of the board's slots (`[vp_ekr]`, a gate's), so 7
+chunks go round it with the reader filling quarter 3 off the disk while the
+hook decodes from 0-2. `videmshyb` is the hybrid's (`[vp_noinp]`). Broken on
+purpose - the hook's OUT taken out - the play errors before frame 40.
++592 bytes of the package over 98.3.18.6 (42,257 -> 42,849).
 
 #### 98.3.19 Under memory pressure: the keeper given up, and the player moved
 

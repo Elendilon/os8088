@@ -47,7 +47,7 @@ from cycweb import pkg_syms                                   # noqa: E402
 IMG = "build/emstest.img"
 BOARD = "os8088_5150_herc_hdd_sb_ems_gla"
 NF, FPS, WB, H = 200, 30.0, 80, 200
-STOPS = (40, 100, 160)
+STOPS = tuple(int(x) for x in os.environ.get("VIDEMS_STOPS", "40,100,160").split(","))
 VOK_BUF = 10
 
 
@@ -76,6 +76,18 @@ def clip(tmp):
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--hybrid", action="store_true",
+                    help="SPEC.md 98.3.18.6's hybrid (vp_noinp): a FIFO ahead "
+                         "of a conventional ring, copied down - where the "
+                         "default is 98.3.18.7's decode IN PLACE")
+    ap.add_argument("--wrap", action="store_true",
+                    help="in place, the ring held to 3 of the board's slots "
+                         "(vp_ekr): it WRAPS, and the reader fills quarter 3 "
+                         "while the hook reads 0-2 - so B: stays, the disk "
+                         "being what the play reads on from")
+    a = ap.parse_args()
     os.chdir(ROOT)
     for p in (IMG, "build/video.o88"):
         if not os.path.exists(os88build.at(p)):
@@ -117,11 +129,12 @@ def main():
 
             def state():
                 return ("done=%d err=%d ready=%d played=%d lc=%d pc=%d k=%d "
-                        "ems=%d bn=%d cnt=%d hs=%d beof=%d"
+                        "kr=%d inp=%d ems=%d bn=%d cnt=%d hs=%d beof=%d"
                         % (rw("vp_done"), rb("vp_err"), rb("vp_ready"),
                            rb("vp_played"), rw("vp_lc"), rw("vp_pc"),
-                           rw("vp_k"), rb("vp_xems"), rw("vp_xbn"),
-                           rw("vp_xcnt"), rw("vp_xhs"), rb("vp_xbeof")))
+                           rw("vp_k"), rw("vp_kr"), rb("vp_einp"),
+                           rb("vp_xems"), rw("vp_xbn"), rw("vp_xcnt"),
+                           rw("vp_xhs"), rb("vp_xbeof")))
 
             def until(cond, what, guest=120.0):
                 try:
@@ -129,6 +142,21 @@ def main():
                                     limit=900.0, guest=guest)
                 except os88marty.MartyError:
                     print("   TIMED OUT: %s\n     %s" % (what, state()))
+                    if os.environ.get("VIDEMS_DBG"):
+                        d = open(v88, "rb").read()
+                        fr = bytes(m.read(0xE0000, 65536))
+                        for q in range(4):
+                            blk = fr[q * 16384:q * 16384 + 64]
+                            print("     quarter %d: file offset %s" % (q, [
+                                i for i in range(0, len(d) - 64, 512)
+                                if d[i:i + 64] == blk][:3]))
+                        print("     pc %d po %d rofs %d psec %d"
+                              % (rw("vp_pc"), rw("vp_po"), rw("vp_rofs"),
+                                 rw("vp_psec")))
+                    if rb("vp_err"):
+                        em = m.read(base + rw("vp_errmsg"), 48)
+                        print("     its error: %r"
+                              % em.split(b"\0")[0].decode("ascii", "replace"))
                     raise
 
             until(lambda: rb("vp_loaded") == 1, "the clip's header", 30.0)
@@ -145,13 +173,25 @@ def main():
                 bad.append("the bank is %d KB for a file of %d"
                            % (bn * 32, size // 1024))
             m.write(base + syms["vp_nowin"], b"\1")     # the full screen
+            m.write(base + syms["vp_noinp"], b"\1" if a.hybrid else b"\0")
+            ww("vp_ekr", 3 if a.wrap else 0)
             ww("vp_kmax", 3)                            # the ring held small
             m.write(base + syms["vp_pfwait"], b"\1")
             ww("vp_stopat", STOPS[0])
             # --- 2: the prefill, held at its end
             m.type_text("p")
-            until(lambda: rb("vo_kind") == VOK_BUF and rb("vp_xbeof") == 1,
-                  "the prefill to bank the clip", 300.0)
+            def filled():                   # the prefill's own count at its
+                n = rw("vp_lc") if rb("vp_einp") else rw("vp_xcnt")
+                return rb("vo_kind") == VOK_BUF and rw("vp_pfn") and \
+                    n >= rw("vp_pfn")       # target: the file's end, the
+            until(filled, "the prefill to bank the clip", 300.0)  # ring's
+            inp = rb("vp_einp")
+            print("   in place %d: the ring %d slots (the conventional %d)"
+                  % (inp, rw("vp_kr"), rw("vp_k")))
+            if inp != (0 if a.hybrid else 1):
+                bad.append("the session played %s, the %s was asked"
+                           % ("IN PLACE" if inp else "the hybrid",
+                              "hybrid" if a.hybrid else "decode in place"))
             txt = m.read(base + syms["vo_text"], 20).split(b"\0")[0].rstrip()
             print("   prefilled: the box says %r, ready %d; %s"
                   % (txt.decode("ascii", "replace"), rb("vp_ready"),
@@ -162,8 +202,13 @@ def main():
             if rw("vp_k") > 3:
                 bad.append("the ring is %d slots, not the gate's 3"
                            % rw("vp_k"))
-            # --- 3: B: blank, Space, and the play out of the bank
-            m.mount(1, blank)
+            # --- 3: B: blank, Space, and the play out of the bank (or, the
+            # ring wrapping, off the disk as it plays)
+            if not a.wrap:
+                m.mount(1, blank)
+            elif rw("vp_kr") != 3:
+                bad.append("the in-place ring is %d slots, not the gate's 3"
+                           % rw("vp_kr"))
             m.type_text(" ")
             for i, n in enumerate(STOPS):
                 until(lambda: rb("vp_held") == 1 and rw("vp_done") == n,
@@ -182,10 +227,21 @@ def main():
                 m.write(base + syms["vp_held"], b"\0")
             until(lambda: rb("vp_played") == 1 and rb("vp_ready") == 0,
                   "the play to end", 120.0)
-            print("   the play, B: blank: %s" % state())
+            print("   the play%s: %s" % ("" if a.wrap else ", B: blank",
+                                         state()))
+            if rb("vp_err"):
+                em = m.read(base + rw("vp_errmsg"), 48).split(b"\0")[0]
+                print("   ...its error: %r" % em.decode("ascii", "replace"))
             if rw("vp_done") != NF or rb("vp_err"):
                 bad.append("the play out of the bank drew %d of %d (error %d)"
                            % (rw("vp_done"), NF, rb("vp_err")))
+            if a.wrap:
+                print("   the ring wrapped: %d chunks through 3 slots"
+                      % rw("vp_lc"))
+                if rw("vp_lc") <= 3:
+                    bad.append("the ring never wrapped (%d chunks)"
+                               % rw("vp_lc"))
+                return report(bad)
             # --- 4: again, B: still blank - the bank is behind the start
             m.write(base + syms["vp_played"], b"\0")
             m.write(base + syms["vp_pfwait"], b"\0")
@@ -197,6 +253,10 @@ def main():
                 bad.append("with B: blank and the bank behind the start the "
                            "play STILL reached the end - the swap does not "
                            "bite")
+    return report(bad)
+
+
+def report(bad):
     if bad:
         print("\nvidems: FAIL")
         for b in bad:

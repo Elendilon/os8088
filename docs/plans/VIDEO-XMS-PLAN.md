@@ -675,6 +675,12 @@ Each is a decision of its own, and none is in this plan's waves:
   first build read the file's size out of SI after the call, sizing every
   bank at 2 pages and refusing it. The 8088's cost of the drain is still to
   be measured on a real play.
-- **E3**: the in-place decode - the hook reading from the frame, the
-  three-quarter window, the reader's quarter, the sound cursor's answer: the
-  8088's design.
+- **E3 - BUILT (2026-10-09), SPEC.md 98.3.18.7**: the in-place decode -
+  the hook reading from the frame, the three-quarter window, the reader's
+  quarter. The sound cursor's answer turned out to be that there was no
+  question: it runs in the hook, between frames, so it maps the window as
+  the video cursor does, and no pointer is held across another's mapping.
+  Taken for the plain stream; BIGSP, sound ahead, Repeat and Live keep E2.
+  With it, EMS is preferred over XMS below a 386 (`vp_epref`). Still to
+  measure: the 8088's play at a period disk rate with the copy gone, which
+  is the number E3 exists for.

@@ -3567,7 +3567,8 @@ SOAK = [
         needs=("marty", "nasm"), serial=True, timeout=300,
         wants=("build/emstest.img",)),
     Row("videms", "soak", py("tests/videms.py"), 45.0,
-        "SPEC.md 98.3.18.6: VIDEO.O88'S BANK IN EXPANDED MEMORY, on MartyPC's "
+        "SPEC.md 98.3.18.6-7: VIDEO.O88'S BANK IN EXPANDED MEMORY, decoded IN "
+        "PLACE (the ring is the board's slots, the conventional ring 2), on MartyPC's "
         "8088 with the Lo-tech 2 MB board and no XMS - booted from `make "
         "emstest`'s disk, which wants EMS.DRV. A 264 KB Hercules clip opens "
         "with a bank of 9 slots in the board's pages; the ring held to 3 "
@@ -3577,8 +3578,26 @@ SOAK = [
         "B: is BLANKED and Space plays: the screen is the decode's at three "
         "holds and all 200 frames are drawn, every chunk past the ring's "
         "out of the board. Played again with B: still blank, it must fail. "
-        "Broken on purpose - the drain's rep movsw out - frames 100 and 160 "
-        "differ in 9,936 and 15,756 bytes",
+        "Broken on purpose - the hook's OUT out of vp_eaddr - the play errors "
+        "before frame 40 (the board's power-on mapping carried it 16 frames, "
+        "which is how a recipe stored from the wrong register looked)",
+        needs=("marty", "nasm"), serial=True, timeout=300,
+        wants=("build/emstest.img", "build/video.o88")),
+    Row("videmshyb", "soak", py("tests/videms.py", "--hybrid"), 45.0,
+        "SPEC.md 98.3.18.6: videms's play through the EMS HYBRID (vp_noinp) - "
+        "a FIFO of the board's pages ahead of a conventional ring of 3, "
+        "copied down by rep movsw - B: blanked after the prefill and all 200 "
+        "frames right. Kept beside the in-place default because a file that "
+        "cannot play in place (BIGSP, sound ahead, Repeat) plays this way",
+        needs=("marty", "nasm"), serial=True, timeout=300,
+        wants=("build/emstest.img", "build/video.o88")),
+    Row("videmswrap", "soak", py("tests/videms.py", "--wrap"), 45.0,
+        "SPEC.md 98.3.18.7: the DECODE IN PLACE with its ring held to 3 of "
+        "the board's slots (vp_ekr), so it WRAPS - 7 chunks through 3 slots, "
+        "the reader filling quarter 3 off the disk while the hook maps "
+        "quarters 0-2 and decodes there - and the screen the decode's at "
+        "three holds. videms's own clip fits the board whole, so without "
+        "this row the reader never runs during a play in place",
         needs=("marty", "nasm"), serial=True, timeout=300,
         wants=("build/emstest.img", "build/video.o88")),
     Row("wirezone", "soak", py("tests/wirezone.py"), 50.0,
