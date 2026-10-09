@@ -3601,6 +3601,14 @@ SOAK = [
         "cannot play in place (BIGSP, sound ahead, Repeat) plays this way",
         needs=("marty", "nasm"), serial=True, timeout=300,
         wants=("build/emstest.img", "build/video.o88")),
+    Row("videmsslow", "soak", py("tests/videms.py", "--slow"), 45.0,
+        "SPEC.md 98.3.18.8: the board's READ SPEED, measured at the open "
+        "against the package's RAM (MartyPC's board reads 1.0x, asserted), "
+        "then forced SLOW (vp_eslow 1, a PicoMEM v1's PSRAM): the session "
+        "takes the hybrid and never decodes in place, B: blanked and all "
+        "200 frames right, the card naming EMS",
+        needs=("marty", "nasm"), serial=True, timeout=300,
+        wants=("build/emstest.img", "build/video.o88")),
     Row("videmswrap", "soak", py("tests/videms.py", "--wrap"), 45.0,
         "SPEC.md 98.3.18.7: the DECODE IN PLACE with its ring held to 3 of "
         "the board's slots (vp_ekr), so it WRAPS - 7 chunks through 3 slots, "

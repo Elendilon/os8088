@@ -87,7 +87,14 @@ def main():
                          "(vp_ekr): it WRAPS, and the reader fills quarter 3 "
                          "while the hook reads 0-2 - so B: stays, the disk "
                          "being what the play reads on from")
+    ap.add_argument("--slow", action="store_true",
+                    help="SPEC.md 98.3.18.8: the board measured SLOW "
+                         "(vp_eslow 1, poked over what MartyPC's board "
+                         "measures) - so the session takes the hybrid and "
+                         "never decodes in place, the decode reading every "
+                         "record through the slow board")
     a = ap.parse_args()
+    a.hybrid = a.hybrid or a.slow
     os.chdir(ROOT)
     for p in (IMG, "build/video.o88"):
         if not os.path.exists(os88build.at(p)):
@@ -160,6 +167,13 @@ def main():
                     raise
 
             until(lambda: rb("vp_loaded") == 1, "the clip's header", 30.0)
+            # (the bank is opened AFTER the header is loaded - and since
+            # 98.3.18.8 the board's speed is measured first, ~6 ticks)
+            until(lambda: rb("vp_eslow") != 0xFF, "the board measured", 30.0)
+            try:
+                until(lambda: rb("vp_xbank") == 1, "the EMS bank", 5.0)
+            except Exception:
+                pass                # (said with its numbers below)
             if rb("vp_ok") != 1:
                 sys.exit("videms: the player will not play the clip here")
             # --- 1: an EMS bank
@@ -168,12 +182,26 @@ def main():
                   % (rb("vp_xbank"), rb("vp_xems"), bn, bn * 32,
                      rw("vp_eseg")))
             if rb("vp_xbank") != 1 or rb("vp_xems") != 1:
-                sys.exit("videms: no EMS bank was taken (%s)" % state())
+                sys.exit("videms: no EMS bank was taken (%s; the board "
+                         "measured %d tenths of RAM's time, slow %d)"
+                         % (state(), rw("vp_er10"), rb("vp_eslow")))
+            # THE BOARD'S SPEED (98.3.18.8): measured at the open, against
+            # this package's RAM - MartyPC's board is RAM's speed
+            print("   the board measured: %d.%d x RAM's time, slow %d"
+                  % (rw("vp_er10") // 10, rw("vp_er10") % 10,
+                     rb("vp_eslow")))
+            if rb("vp_eslow") != 0 or not 5 <= rw("vp_er10") <= 15:
+                bad.append("MartyPC's board measured %d tenths of RAM's "
+                           "time (slow %d), not RAM's own"
+                           % (rw("vp_er10"), rb("vp_eslow")))
+            if a.slow:
+                m.write(base + syms["vp_eslow"], b"\1")
             if bn * vid.SLOT < size:
                 bad.append("the bank is %d KB for a file of %d"
                            % (bn * 32, size // 1024))
             m.write(base + syms["vp_nowin"], b"\1")     # the full screen
-            m.write(base + syms["vp_noinp"], b"\1" if a.hybrid else b"\0")
+            m.write(base + syms["vp_noinp"],
+                    b"\1" if a.hybrid and not a.slow else b"\0")
             ww("vp_ekr", 3 if a.wrap else 0)
             ww("vp_kmax", 3)                            # the ring held small
             m.write(base + syms["vp_pfwait"], b"\1")

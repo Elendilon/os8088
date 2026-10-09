@@ -162370,7 +162370,8 @@ is `int 15h`'s block move, two copies a banked byte with interrupts off,
 where EMS is one copy with them on, or none in place; and `EMS.DRV` is only
 loaded when somebody ticked it, which is the request. A 386's unreal-mode
 copy, ~0.05 ms a KB, is faster than any copy out of an ISA board, so a 386
-keeps XMS.
+keeps XMS. **...and only when the board is as fast as RAM** (98.3.18.8): a
+slow board loses to XMS whatever the CPU.
 
 - **The block** (`vp_eopen`, `vp_xopen`'s `.ems`): `EMSV_CAPS`' free pages
   less `VP_XRES`'s 256 KB, no more than the file in whole 32 KB slots (an
@@ -162415,7 +162416,8 @@ again with B: still blank it fails. Broken on purpose - the drain's
 on line 5 in place of `Space plays and pauses; Esc stops` - which a play
 with an error or a message of its own keeps: `Banked in XMS, 3136 KB`,
 `Banked in EMS, 2048 KB`, `EMS in place, 2048 KB`, `Held whole in XMS`,
-`XMS bank idle: the speaker` (98.3.18.5), or `No bank: the disk alone`.
+`XMS bank idle: the speaker` (98.3.18.5), `EMS too slow: the disk alone`
+(98.3.18.8), or `No bank: the disk alone`.
 `vp_bkind` decides it once, at the session's start, into `[vp_lbk]`. The
 player banks whenever it can, whatever the file asked (98.3.18.3), so the
 field's first question about a play that stalled - *was it EMS or XMS?* -
@@ -162601,6 +162603,38 @@ the `vidfskeys*` rows cover it (`vidwinshd` is the keeper it still needs,
 the shadow): frame-exact at every hold, a click's pause
 with the stopped frame in the box byte for byte, and F out and back.
 VIDEO.O88 +735 bytes.
+
+##### 98.3.18.8 How fast the board is, measured (2026-10-09)
+
+**The board is TIMED at a file's open, once an instance, before anything
+is decided on it** (`vp_espeed`, `vp_erate`): 1 KB `rep lodsw` passes over
+the frame and over the package's own RAM, counted over two ticks each from
+a tick's edge, and the frame's time in tenths of RAM's goes in `[vp_er10]`.
+The field found why it has to be: the owner's PicoMEM v1 answers EMS at
+288h from PSRAM with **8 wait states**, and on their 286 an encode that
+plays clean out of XMS stalled 189 times and ran 131 frames late out of
+the board - each byte read through it once by the disk's write and once
+by the decode, every one of them at a fraction of RAM's speed. A Lo-tech
+board on an XT is RAM's speed (MartyPC's reads 1.0x); a PicoMEM v2, one
+wait state and QSPI, should be near it. So the speed, not the board's
+name, decides:
+
+| the frame's time | with an XMS pool | with none |
+|---|---|---|
+| to `VP_EFAST`, 1.5x RAM's | EMS below a 386 (98.3.18.6), in place where it can (98.3.18.7) | the same |
+| to `VP_ESLOW`, 4x | XMS | EMS, the hybrid: copied down, NEVER decoded in place |
+| slower | XMS | no bank: the card says `EMS too slow: the disk alone` |
+
+Never in place on a slow board because the decode is the HOOK's time: a
+record read through the board costs its frame's period, which is a late
+frame, and less of the period left for the reader, which is a stall. The
+hybrid's copy is the READER's, in the UI task, where it costs depth and
+not deadlines. The measurement is ~5 ticks at the open, and only where a
+board answers. `videmsslow` is the gate: MartyPC's board must measure
+RAM's speed, then forced slow (`vp_eslow` 1) the session takes the hybrid
+and plays all 200 frames right. What no emulator here can show is the
+choice of XMS over a slow board, MartyPC having no XMS and QEMU no EMS -
+that half is the 286's to confirm.
 
 ### 98.4 The window: the Preview (wave 6)
 

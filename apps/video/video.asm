@@ -74,6 +74,9 @@ VP_CHUNK    equ 32768               ; a ring slot, and a READ_SEQ call
 VP_XRES     equ 256                 ; THE BANK (docs/plans/VIDEO-XMS-PLAN.md
                                     ; 4.6): the pool's KB it leaves to others
 VP_XBMIN    equ 128                 ; ...and the least worth taking, KB
+VP_EFAST    equ 15                  ; THE EMS FRAME'S SPEED (98.3.18.8), in
+VP_ESLOW    equ 40                  ; tenths of RAM's time: EMS first and in
+                                    ; place to 1.5x, a bank with copies to 4x
 VP_RL       equ 16384               ; the audio ring (SPEC.md 98.3.1)...
 VP_RLCODE   equ 2                   ; ...4096 << 2
 VP_BLOCK    equ 2048                ; the card's block: one interrupt each
@@ -3945,7 +3948,11 @@ vp_xopen:
     mov byte [vp_xon], 1            ; (and NO timer: it fills while a play
     jmp short .out                  ; reads, VIDEO-XMS-PLAN 4.1)
 .ems:                               ; NO POOL, AN EMS BOARD (98.3.18.6): the
-    call vp_eopen                   ; bank in its pages, sized to the file
+    call vp_espeed                  ; bank in its pages, sized to the file -
+    cmp byte [vp_eslow], 2          ; unless the board is so slow that the
+    je .eno                         ; copies would cost more than the depth
+    call vp_eopen                   ; buys (98.3.18.8)
+.eno:
     jmp .out
 
 ; vp_xfree - the hold, if there is one
@@ -4433,9 +4440,93 @@ vp_epref:
     pop bx
     pop ax
     jae .no
-    jmp vp_eprobe
+    call vp_eprobe
+    jc .no
+    call vp_espeed                  ; ...and the board as fast as RAM: a
+    cmp byte [vp_eslow], 0          ; slow one's every byte costs more than
+    jne .no                         ; the pool's copies (98.3.18.8)
+    clc
+    ret
 .no:
     stc
+    ret
+
+; vp_espeed - [vp_eslow] (FFh until measured, once an instance): how the
+; EMS frame READS against this package's own RAM, 1 KB `rep lodsw` passes
+; counted over two ticks each - 0 within VP_EFAST tenths of RAM's time, 1
+; within VP_ESLOW, 2 slower; [vp_er10] the ratio in tenths. A PicoMEM v1's
+; PSRAM answers with 8 wait states and reads several times slower than a
+; 286's RAM, where a Lo-tech board on an XT is RAM's speed. No board: 0.
+; Every register kept
+vp_espeed:
+    cmp byte [vp_eslow], 0xFF
+    jne .r
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov byte [vp_eslow], 0
+    mov bx, (DRVC_EMS << 8) | EMSV_CAPS
+    call OSAPI_DRV_CALL             ; DX = the frame
+    jc .out
+    push dx
+    mov ax, ds
+    call vp_erate
+    pop ax
+    push bx                         ; RAM's passes
+    call vp_erate                   ; BX = the frame's
+    pop ax
+    mov dx, 10
+    mul dx                          ; DX:AX = RAM's x 10
+    or bx, bx
+    jz .slow
+    cmp dx, bx
+    jae .slow
+    div bx                          ; AX = the frame's time in RAM's tenths
+    mov [vp_er10], ax
+    cmp ax, VP_EFAST
+    jbe .out
+    mov byte [vp_eslow], 1
+    cmp ax, VP_ESLOW
+    jbe .out
+.slow:
+    mov byte [vp_eslow], 2
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.r:
+    ret
+
+; vp_erate - AX = a segment: BX = the 1 KB reads of it in two ticks, from
+; a tick's edge. Clobbers AX, CX, DX, SI
+vp_erate:
+    mov [vp_etseg], ax
+    call OSAPI_GET_TICKS
+    mov dx, ax
+.w:
+    call OSAPI_GET_TICKS
+    cmp ax, dx
+    je .w
+    mov dx, ax
+    xor bx, bx
+.l:
+    mov ax, [vp_etseg]
+    push ds
+    mov ds, ax
+    xor si, si
+    mov cx, 512
+    cld
+    rep lodsw                       ; (one prefix: an interrupt resumes it)
+    pop ds
+    inc bx
+    call OSAPI_GET_TICKS
+    sub ax, dx
+    cmp ax, 2
+    jb .l
     ret
 
 ; vp_eopen - SI = the file's KB, one over: the bank in EMS - the board's
@@ -4573,6 +4664,8 @@ vp_einq:
     je .no
     cmp byte [vp_xon], 0
     je .no
+    cmp byte [vp_eslow], 0          ; (a slow board: the decode would read
+    jne .no                         ; every record through it, 98.3.18.8)
     cmp byte [vp_eq], 0x0F
     jne .no
     cmp word [vp_msl], 1            ; (BIGSP: five pages)
@@ -4608,13 +4701,18 @@ vp_einq:
 
 ; vp_bkind - [vp_lbk] = the bank this session plays through, for the card
 ; after it (vp_bksay): 0 none, 1 XMS, 2 EMS, 3 EMS in place, 4 the file held
-; whole in XMS, 5 an XMS bank the speaker keeps idle (vp_xquiet). Every
-; register kept
+; whole in XMS, 5 an XMS bank the speaker keeps idle (vp_xquiet), 6 none
+; because the EMS board is too slow (98.3.18.8). Every register kept
 vp_bkind:
     push ax
     xor al, al
     cmp byte [vp_xon], 0
-    je .s
+    jne .on
+    cmp byte [vp_eslow], 2          ; (a board too slow to bank in, and no
+    jne .s                          ; pool: 98.3.18.8)
+    mov al, 6
+    jmp short .s
+.on:
     mov al, 3
     cmp byte [vp_einp], 0
     jne .s
@@ -14528,12 +14626,14 @@ vp_s_nofile:  db '(none) - File > Open...', 0
 vp_s_none:    db 'Open a .V88 to play it', 0
 vp_s_ready:   db 'Space plays and pauses; Esc stops', 0
 vp_bknames:   dw vp_s_bk0, vp_s_bk1, vp_s_bk2, vp_s_bk3, vp_s_bk4, vp_s_bk5
+              dw vp_s_bk6
 vp_s_bk0:     db 'No bank: the disk alone', 0
 vp_s_bk1:     db 'Banked in XMS, ', 0
 vp_s_bk2:     db 'Banked in EMS, ', 0
 vp_s_bk3:     db 'EMS in place, ', 0
 vp_s_bk4:     db 'Held whole in XMS', 0
 vp_s_bk5:     db 'XMS bank idle: the speaker', 0
+vp_s_bk6:     db 'EMS too slow: the disk alone', 0
 vp_s_notv88:  db 'Not a .V88 video', 0
 vp_s_ver:     db 'A newer .V88 than this player', 0
 vp_s_bad:     db 'This .V88 is damaged', 0
@@ -15074,6 +15174,10 @@ vp_xlo:       dd 0                  ; ...the file offset of its head
 vp_xems:      db 0                  ; 1: the bank is EMS pages (98.3.18.6)
 vp_einp:      db 0                  ; 1: this session decodes IN PLACE (98.3.18.7)
 vp_lbk:       db 0                  ; ...and the last play's bank (vp_bkind)
+vp_eslow:     db 0xFF               ; the board's speed (vp_espeed): FFh not
+                                    ; measured, 0 RAM's, 1 slow, 2 too slow
+vp_er10:      dw 0                  ; ...its time, in tenths of RAM's
+vp_etseg:     dw 0                  ; (vp_erate's segment)
 vp_noinp:     db 0                  ; 1: never in place (a gate's A/B)
 vp_ekr:       dw 0                  ; the in-place ring's slots at most (a gate's)
 vp_eq:        db 0                  ; the frame's quarters held: 0Fh or 3
