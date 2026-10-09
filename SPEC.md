@@ -162093,6 +162093,69 @@ disk, and after the same swap the same key REFUSED. Broken on purpose -
 `vp_xput` out of `vp_fill`, the hold short at the play's end (163,840 of
 973,312); `vp_xrdat` out of `vp_rdat`, the key refused - `vidxms` FAILS.
 
+##### 98.3.18.2 The bank: a file bigger than the pool
+
+**A streamed file the pool cannot hold whole is BANKED instead: a FIFO of
+32 KB chunks in XMS ahead of the ring, filled from the time the ring did
+not want** (docs/plans/VIDEO-XMS-PLAN.md 4). What the ring buys a play in
+seconds the bank buys in tens of them, so the disk has to keep up with the
+stream's MEAN rate rather than with its peaks - the 192 KB burst window is
+the bank's size instead. A machine with no pool is unchanged: the bank is
+never taken.
+
+**The block** (`vp_xopen`'s `.bank`, when `OSAPI_XMEM_CAPS` answers less
+than the file's KB): the pool less `VP_XRES` = 256 KB left for anyone else,
+cut to whole 32 KB slots, halved in slots until `OSAPI_XMEM_ALLOC` takes it
+and refused below `VP_XBMIN` = 128 KB. `[vp_xbank]` is 1 and `[vp_xon]` too,
+with nothing of the FILE held - `[vp_xhave]` and `[vp_xfull]` are zeroed, so
+`vp_xin`, `vp_xrdat` and `vp_canlive` all answer no. There is no timer: a
+bank fills only while a play reads. The ring's claim (`vp_sstart`) is one
+slot longer - the BOUNCE, after the ring's K slots and its mirror
+(`vp_bbnc`) - and `vp_kres` holds that slot back from K.
+
+**`[vp_xbn]` slots, `[vp_xcnt]` of them full from slot `[vp_xhs]`**, the
+head at file offset `[vp_xlo]`, are the chunks the ring takes next, in
+order:
+- **it fills** (`vp_bstep`) where the bracket's reader would otherwise give
+  the period to the hook - `vp_fill` has answered that the ring has no room
+  - one chunk a pass: `OSAPI_FILE_READ_SEQ` into the bounce, then
+  `OSAPI_XMEM_COPY` up to the tail slot. It stops at the file's end (a short
+  chunk, whose length is `[vp_xtl]`, or none at all) and on a disk error,
+  which the stream then meets after the banked chunks, as it would have;
+- **it drains** (`vp_bfill`, `vp_xfill`'s arm for a bank): the head slot
+  copied down into the ring slot `vp_fill` asked for, and the head moves on.
+  Every chunk the ring takes comes from the bank while it has one; with it
+  empty, the disk's.
+
+**Two cursors, HANDED OVER and never sought again.** A re-seed walks the
+chain from the file's front (§18.4.8), which a whole-file hold pays once and
+a bank, emptying and refilling all through a play, could not. So the bank's
+first chunk starts by COPYING the stream's cursor `[vp_cur]` into its own
+`[vp_xcur]`, and the copy that empties the bank copies it back: the stream
+goes on from where the bank's reads ended, with no walk on either side. The
+one re-seed is the failure path, a copy refused: `vp_xcopy` drops the block
+and `vp_bseed` points the stream's cursor at the head's offset.
+
+**Emptied** (`vp_bflush`) wherever the stream's cursor is seeded somewhere
+else - `vp_sstart`'s reader at a play's start or a seek, and `vp_warm` at a
+REPEAT's seam (§98.3.9): what it holds is the old place's.
+
+**Not yet built** (VIDEO-XMS-PLAN 9): the PREFILL before the first frame and
+its card line, the header's two words naming the bank the encode assumes and
+how much of it to fill first, the encoder's `--xms`/`--prefill`, and banking
+while paused or in the window's own play.
+
+The gate is on QEMU (docs/TESTING.md's list, entry 1): `vidbank`, `-m 2`
+against a 1.33 MB LIN80 clip, so the hold cannot be taken and the bank is 18
+slots. Held before frame 20, the ring fills and then the bank does, to every
+slot; held before each key frame, the picture read off A000 is the
+decode's. Then the same play held early again, the bank full, and drive B:
+changed to a BLANK floppy: the furthest key frame inside what the ring and
+the bank held between them is still right, and the play dies past the
+bank's end. Broken on purpose - `vp_bstep` out of the reader's loop, the
+bank stays empty; `vp_bfill`'s head left unmoved, the play errors at frame
+100 - `vidbank` FAILS.
+
 #### 98.3.19 Under memory pressure: the keeper given up, and the player moved
 
 **The keeper is the one claim a play can do without**, and only in the full

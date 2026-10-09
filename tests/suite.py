@@ -10891,6 +10891,19 @@ SOAK = [
         "refused",
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
+    Row("vidbank", "soak", py("tests/vidbank.py"), 60.0,
+        "docs/plans/VIDEO-XMS-PLAN.md 4, SPEC.md 98.3.18.2: a streamed .V88 "
+        "BIGGER than the XMS pool, played through a BANK - a FIFO of 32 KB "
+        "chunks ahead of the ring. WHY QEMU: docs/TESTING.md's closed list, "
+        "entry 1. `-m 2` against a 1.33 MB clip: the bank is 18 slots, it "
+        "fills to every one behind a held hook, and the picture is the "
+        "decode's at every key frame (read off A000). Then B: is blanked "
+        "under the held play and the furthest key frame inside ring + bank "
+        "is still right, while the play dies past the bank's end. Broken on "
+        "purpose - vp_bstep out of the reader's loop - the bank stays empty; "
+        "vp_bfill's head left unmoved, the play errors at frame 100",
+        needs=("qemu", "nasm"),
+        wants=("build/video.o88", "build/os8088.img")),
     Row("vidxmsidle", "soak", py("tests/vidxms.py", "--arm", "idle"), 45.0,
         "SPEC.md 98.3.18: vidxms with no play at the start - the window's "
         "timer alone loads the file to its end (a short last chunk is what "

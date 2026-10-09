@@ -427,12 +427,23 @@ bytes. That is the measurement to take before section 5 is built.
 
 0. **Measure** (this document): VIDDISK `X` on the 286 and the 486, and the
    source re-encoded at a period rate per bank size.
-1. **The bank in the full-screen play**: section 4.1-4.2, 4.5, 4.6 - a
-   file that does not fit plays with a bank, smoothing only (no header ask);
-   the gate is `vidxms`'s shape on QEMU with a pool smaller than the clip
-   (`-m 4` against a 6 MB clip): B: swapped BLANK after the prefill, and the
-   play must reach the frames the bank held and stall exactly where it ran
-   out - and with the bank's step 1 taken out, it must stall at once.
+1. **The bank in the full-screen play** - **BUILT (SPEC.md 98.3.18.2)**:
+   section 4.1-4.2, 4.5, 4.6 - a file that does not fit plays with a bank,
+   smoothing only (no header ask). The gate is `tests/vidbank.py` on QEMU,
+   and it came out a different shape from the one written here, for two
+   reasons: B: is a 1.44 MB floppy, so the clip is 1.33 MB against `-m 2`
+   rather than 6 MB against `-m 4`; and with no prefill yet, what fills the
+   bank before the swap is the gate's own HOLD (`vp_stopat`) - the hook
+   stopped, the ring full, and every idle pass of the reader a chunk up.
+   The picture is compared with the decode at every key frame, so a bank
+   that delivered chunks out of order or short is a wrong frame and not a
+   count. One defect worth writing down: `OSAPI_FILE_READ_SEQ` answers the
+   bytes in DX:AX, so the bounce segment held in DX across the call was
+   ZERO afterwards and the first build banked the interrupt table - the
+   ring's own `vp_fill` pushes DX for exactly this reason. Swapping to a
+   blank floppy under QEMU does not make the stream's cursor refuse: it
+   reads the blank disk's zeros, so past the bank's end the play errors
+   rather than stalls, which is still the bite the gate needs.
 2. **The prefill and its line**, Space and Esc during it.
 3. **The encoder's `--xms` / `--prefill` and the header**, the player's ask,
    `Low memory`; `tools/os88vidbuf.py --deficit` checked against a real

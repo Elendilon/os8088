@@ -71,6 +71,9 @@
     OS88_DOCGLYPH8_END
 
 VP_CHUNK    equ 32768               ; a ring slot, and a READ_SEQ call
+VP_XRES     equ 256                 ; THE BANK (docs/plans/VIDEO-XMS-PLAN.md
+                                    ; 4.6): the pool's KB it leaves to others
+VP_XBMIN    equ 128                 ; ...and the least worth taking, KB
 VP_RL       equ 16384               ; the audio ring (SPEC.md 98.3.1)...
 VP_RLCODE   equ 2                   ; ...4096 << 2
 VP_BLOCK    equ 2048                ; the card's block: one interrupt each
@@ -3862,7 +3865,7 @@ vp_xopen:
     mov si, dx                      ; SI = its KB, one over
     call OSAPI_XMEM_CAPS            ; AX = the KB the pool has (BL, DX:CX
     cmp ax, si                      ; its other answers)
-    jb .out
+    jb .bank
     mov ax, si
     mov cl, 10
     shl ax, cl
@@ -3891,6 +3894,41 @@ vp_xopen:
     pop bx
     pop ax
     ret
+.bank:                              ; THE FILE DOES NOT FIT: a BANK, a FIFO
+    sub ax, VP_XRES                 ; of chunks ahead of the ring (VIDEO-XMS-
+    jbe .out                        ; PLAN 4): the pool less what it leaves
+    and al, 0xE0                    ; others, in whole 32 KB slots
+.btry:
+    cmp ax, VP_XBMIN
+    jb .out
+    push ax
+    mov dx, ax
+    mov cl, 6
+    shr dx, cl
+    mov cl, 10
+    shl ax, cl                      ; DX:AX = its bytes
+    call OSAPI_XMEM_ALLOC
+    pop cx
+    jnc .bgot
+    shr cx, 1                       ; no run that long: half, in slots
+    and cl, 0xE0
+    mov ax, cx
+    jmp short .btry
+.bgot:
+    mov [vp_xbase], ax
+    mov [vp_xbase+2], dx
+    mov ax, cx
+    mov cl, 5
+    shr ax, cl
+    mov [vp_xbn], ax                ; its slots
+    xor ax, ax                      ; nothing of the FILE is held: vp_xin
+    mov [vp_xhave], ax              ; and vp_canlive answer no, whatever
+    mov [vp_xhave+2], ax            ; the last file's hold left here
+    mov [vp_xfull], al
+    call vp_bflush
+    mov byte [vp_xbank], 1
+    mov byte [vp_xon], 1            ; (and NO timer: it fills while a play
+    jmp short .out                  ; reads, VIDEO-XMS-PLAN 4.1)
 
 ; vp_xfree - the hold, if there is one
 vp_xfree:
@@ -3899,6 +3937,7 @@ vp_xfree:
     push ax
     push dx
     mov byte [vp_xon], 0
+    mov byte [vp_xbank], 0
     mov ax, [vp_xbase]
     mov dx, [vp_xbase+2]
     call OSAPI_XMEM_FREE
@@ -3997,6 +4036,8 @@ vp_xrdat:
 ; after it seeds again from the name (18.4.8); CF=1 the disk's. Every other
 ; register kept
 vp_xfill:
+    cmp byte [vp_xbank], 0          ; A BANK (VIDEO-XMS-PLAN 4.1): its head
+    jne vp_bfill                    ; chunk, if it has one
     cmp byte [vp_xon], 0
     je .no
     push bx
@@ -4063,6 +4104,18 @@ vp_xsay:
     cmp byte [vp_xon], 0
     je .r
     mov di, vp_lines + 6 * VP_LINE
+    cmp byte [vp_xbank], 0
+    je .hold
+    mov si, vp_s_xbank              ; 'XMS bank: 3136 KB'
+    call vp_puts
+    mov ax, [vp_xbn]
+    mov cl, 5
+    shl ax, cl
+    xor dx, dx
+    xor bl, bl
+    call vp_putn
+    jmp short .u
+.hold:
     mov si, vp_s_xheld
     cmp byte [vp_xfull], 0
     jne .h
@@ -4094,6 +4147,8 @@ vp_xsay:
 ; bytes, ES = its slot at 0: whatever of it lies at the front of the hold
 ; goes up behind what is there. Every register kept
 vp_xput:
+    cmp byte [vp_xbank], 0          ; (a bank keeps nothing behind the play)
+    jne .r
     cmp byte [vp_xon], 0
     je .r
     cmp byte [vp_xfull], 0
@@ -4174,6 +4229,8 @@ vp_xend:
 ; vp_xstep - the next chunk into the hold, through a claim of its own, on its
 ; own cursor. out CF=1 nothing is left to load (or the hold is gone)
 vp_xstep:
+    cmp byte [vp_xbank], 0          ; a bank fills while a play reads, not on
+    jne .done                       ; the timer
     cmp byte [vp_xon], 0
     je .done
     cmp byte [vp_xfull], 0
@@ -4256,6 +4313,266 @@ vp_xstep:
     ret
 .done:
     stc
+    ret
+
+; =============================================================================
+; THE BANK (docs/plans/VIDEO-XMS-PLAN.md 4): a file BIGGER than the pool. The
+; block is a FIFO of [vp_xbn] 32 KB slots holding the stream's chunks AHEAD
+; of the ring, in order: [vp_xcnt] of them from slot [vp_xhs], the head being
+; the chunk the ring takes next, at file offset [vp_xlo].
+;
+; Two cursors, and they are HANDED OVER, never sought again: while the bank
+; is empty the stream's cursor [vp_cur] reads the disk straight into the ring
+; as it always did; the bank starts by COPYING it into [vp_xcur] and reads on
+; from there, and when the bank drains the copy goes back. A re-seed walks
+; the chain from the file's front (18.4.8), which once a play is a cost the
+; whole-file hold could pay and a bank, which empties and refills many times,
+; could not. The one re-seed is the failure path: a copy refused, the block
+; dropped, and the stream's cursor sought to the head's offset.
+; =============================================================================
+
+; vp_bflush - empty the bank (a seek, a Repeat's seam, a new block: the
+; stream's cursor is about to be seeded somewhere else). Every register kept
+vp_bflush:
+    mov word [vp_xcnt], 0
+    mov word [vp_xhs], 0
+    mov byte [vp_xbeof], 0
+    ret
+
+; vp_bslot - AX = a slot -> DX:AX = its offset in the block. Clobbers nothing
+; else
+vp_bslot:
+    mov dx, ax
+    shr dx, 1                       ; slot x 32768: the high word is slot / 2
+    and ax, 1
+    ror ax, 1                       ; ...and the low word bit 15 its odd bit
+    ret
+
+; vp_bcur - the cursor at DS:SI copied over the one at DS:DI. Every register
+; kept
+vp_bcur:
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov cx, FSEQ_SIZE / 2
+    cld
+    rep movsw
+    pop es
+    pop di
+    pop si
+    pop cx
+    ret
+
+; vp_bfill - vp_xfill's arm for a bank: DX = the ring slot (BX = 0). out
+; CF=0 AX = the bytes (32 KB, or the file's last chunk's), the head moved
+; on; CF=1 the bank has nothing, and the disk reads - from the stream's
+; cursor, handed back the moment the bank emptied. Every other register kept
+vp_bfill:
+    cmp word [vp_xcnt], 0
+    jne .have
+    stc
+    ret
+.have:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov es, dx
+    mov cx, VP_CHUNK                ; ITS LENGTH: 32 KB, but the last chunk
+    cmp word [vp_xcnt], 1           ; when the bank's cursor met the end
+    jne .len
+    cmp byte [vp_xbeof], 0
+    je .len
+    mov cx, [vp_xtl]
+.len:
+    push cx
+    mov ax, [vp_xhs]
+    call vp_bslot                   ; DX:AX = the head's slot
+    inc cx
+    and cl, 0xFE                    ; (an even copy: the slot has the room)
+    xor si, si
+    mov di, 1                       ; DOWN
+    call vp_xcopy
+    pop cx
+    jc .lost
+    mov ax, [vp_xhs]                ; the head moves on
+    inc ax
+    cmp ax, [vp_xbn]
+    jb .h
+    xor ax, ax
+.h:
+    mov [vp_xhs], ax
+    add [vp_xlo], cx
+    adc word [vp_xlo+2], 0
+    dec word [vp_xcnt]
+    jnz .ok
+    mov si, vp_xcur                 ; EMPTY: the bank's cursor is where the
+    mov di, vp_cur                  ; stream goes on from - handed back, no
+    call vp_bcur                    ; walk
+.ok:
+    mov ax, cx
+    clc
+    jmp short .out
+.lost:                              ; THE COPY WAS REFUSED and vp_xcopy has
+    call vp_bseed                   ; dropped the block: the disk serves from
+    stc                             ; the head's offset, sought once
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; vp_bseed - the stream's cursor sought to the bank's head: [vp_cur] zeroed
+; but for its place, so the next READ_SEQ seeds from the name (18.4.8).
+; Every register kept
+vp_bseed:
+    push ax
+    push cx
+    push di
+    push es
+    push ds
+    pop es
+    mov di, vp_cur
+    xor ax, ax
+    mov cx, FSEQ_SIZE / 2
+    cld
+    rep stosw
+    mov ax, [vp_xlo]
+    mov [vp_cur+FSEQ_OFF], ax
+    mov ax, [vp_xlo+2]
+    mov [vp_cur+FSEQ_OFF+2], ax
+    call vp_bflush
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+
+; vp_bstep - THE BANK FILLS: one chunk off the disk at the bank's tail,
+; through the bounce slot after the ring's mirror, while the ring has no
+; room. out CF=0 a chunk went up; CF=1 nothing to do - no bank, a full one,
+; or the file's end. The bracket's reader calls it where it would otherwise
+; wait a period, so it fills only from time the ring did not want. UI task
+; (OSAPI_XMEM_COPY's rule, SPEC.md 41.8). Every register kept
+vp_bstep:
+    cmp byte [vp_xbank], 0
+    je .no
+    cmp byte [vp_xon], 0
+    je .no
+    cmp byte [vp_xbeof], 0
+    jne .no
+    cmp byte [vp_eof], 0
+    jne .no
+    push ax
+    mov ax, [vp_xcnt]
+    cmp ax, [vp_xbn]
+    pop ax
+    jb .go
+.no:
+    stc
+    ret
+.go:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    cmp word [vp_xcnt], 0           ; STARTING: the bank's cursor is the
+    jne .rd                         ; stream's, and its head the ring's next
+    mov si, vp_cur
+    mov di, vp_xcur
+    call vp_bcur
+    mov ax, [vp_cur+FSEQ_OFF]
+    mov [vp_xlo], ax
+    mov ax, [vp_cur+FSEQ_OFF+2]
+    mov [vp_xlo+2], ax
+.rd:
+    call vp_bbnc                    ; DX = the bounce slot
+    xor bx, bx
+    mov cx, VP_CHUNK
+    push ds
+    pop es
+    mov di, vp_xcur
+    mov si, vp_name
+    call OSAPI_FILE_READ_SEQ        ; DX:AX = the bytes (DX 0: a chunk)
+    jc .stop                        ; a disk error: the stream will meet it
+    or ax, ax
+    jz .end                         ; the file ended on a chunk's boundary
+    push ax
+    call vp_bbnc                    ; (DX:AX was the count: the bounce again)
+    mov es, dx                      ; the bounce, up to the tail's slot
+    mov ax, [vp_xhs]
+    add ax, [vp_xcnt]
+    cmp ax, [vp_xbn]
+    jb .t
+    sub ax, [vp_xbn]
+.t:
+    call vp_bslot
+    pop cx
+    push cx
+    inc cx
+    and cl, 0xFE
+    xor si, si
+    xor di, di                      ; UP
+    call vp_xcopy
+    pop cx
+    jc .lost
+    inc word [vp_xcnt]
+    cmp cx, VP_CHUNK
+    je .ok
+    mov [vp_xtl], cx                ; a short chunk: the file's last
+    mov byte [vp_xbeof], 1
+.ok:
+    clc
+    jmp short .out
+.end:                               ; the end on a chunk's boundary: the
+    mov word [vp_xtl], VP_CHUNK     ; last chunk banked was a whole one
+    mov byte [vp_xbeof], 1
+    clc
+    jmp short .out
+.stop:                              ; (no more banking this play: what is
+    mov word [vp_xtl], VP_CHUNK     ; banked is whole chunks, and the
+    mov byte [vp_xbeof], 1          ; stream meets the error after them)
+    stc
+    jmp short .out
+.lost:                              ; the copy refused: the block is gone,
+    call vp_bseed                   ; and with it what it held
+    stc
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; vp_bbnc - DX = the bounce slot: the claim's last, after the ring's K slots
+; and its mirror (vp_sstart claims it with them when there is a bank). From
+; [vp_ring] at its use, the claim being movable between brackets (98.3.19.2).
+; Every other register kept
+vp_bbnc:
+    push ax
+    push cx
+    mov ax, [vp_k]
+    add ax, [vp_msl]
+    mov cl, 11
+    shl ax, cl                      ; x 2,048 paragraphs a slot
+    add ax, [vp_ring]
+    mov dx, ax
+    pop cx
+    pop ax
     ret
 
 ; --- W_ONTIMER: SI = the window, lock held. The hold's next chunk, and the
@@ -6469,6 +6786,12 @@ vp_sstart:
 .rok:
     mov ax, cx
     add ax, [vp_msl]
+    cmp byte [vp_xbank], 0          ; (+ the bank's bounce, vp_bbnc)
+    je .rkb
+    cmp byte [vp_livem], 0
+    jne .rkb
+    inc ax
+.rkb:
     mov cl, 5
     shl ax, cl                      ; (K + the mirror) x 32 KB
     call OSAPI_MEM_CLAIM
@@ -6562,6 +6885,10 @@ vp_kres:
     jc .z
 .a:
     sub ax, [vp_kekb]
+    jc .z
+    cmp byte [vp_xbank], 0          ; ...and THE BANK'S BOUNCE, a slot after
+    je .r                           ; the mirror (vp_bbnc)
+    sub ax, VP_CHUNK / 1024
     jnc .r
 .z:
     xor ax, ax
@@ -7063,6 +7390,7 @@ vp_spos:
     mov [vp_lsrc], si
 .nl0:
     ; --- the reader: from the cluster boundary under the stream's start
+    call vp_bflush                  ; (a bank holds the old place's chunks)
     mov ax, [vp_clb]
     dec ax                          ; a cluster's mask
     mov bx, [vp_ssp]
@@ -7892,6 +8220,8 @@ vp_main:
                                     ; block was queued (98.3.1)
     call vp_fill
     jnc .loop                       ; a chunk arrived: poll, and try again
+    call vp_bstep                   ; THE RING IS FULL: the bank fills, a
+    jnc .loop                       ; chunk a pass (VIDEO-XMS-PLAN 4.1)
     call vp_wthumb                 ; (in the window, the thumb moves)
     mov al, FSXW_FRAME              ; nothing to read yet: give the period
     call OSAPI_FSX_WAIT             ; to the hook
@@ -9957,6 +10287,7 @@ vp_warm:
     mov byte [vp_wkind], 0
 .cont:
     ; the reader from the cluster under that super-packet, as vp_sstart's
+    call vp_bflush                  ; (the bank's chunks are the lap's end)
     mov ax, [vp_clb]
     dec ax
     mov bx, [vp_wpc]
@@ -13246,6 +13577,7 @@ vp_s_drew:    db 'Drew ', 0
 vp_s_of:      db ' of ', 0
 vp_s_xin:     db 'Into XMS: ', 0
 vp_s_xheld:   db 'Held in XMS: ', 0
+vp_s_xbank:   db 'XMS bank: ', 0
 vp_s_kb:      db ' KB', 0
 vp_s_stall:   db ', stalls ', 0
 vp_s_pause:   db ', pauses ', 0
@@ -13727,6 +14059,15 @@ vp_xon:       db 0                  ; there is one,
 vp_lwant:     db 0                  ; a live stream's worker wants a feed
 vp_bone:      db 0                  ; vp_buttons: this one only (0 all)
 vp_xfull:     db 0                  ; ...and all of the file is in it
+vp_xbank:     db 0                  ; THE BANK (VIDEO-XMS-PLAN 4): the block
+                                    ; is a FIFO of [vp_xbn] 32 KB slots ahead
+                                    ; of the ring, not the whole file
+vp_xbeof:     db 0                  ; ...its cursor has met the file's end
+vp_xbn:       dw 0                  ; ...its slots
+vp_xhs:       dw 0                  ; ...the head's slot
+vp_xcnt:      dw 0                  ; ...the chunks in it
+vp_xtl:       dw 0                  ; ...the bytes of its last, with xbeof
+vp_xlo:       dd 0                  ; ...the file offset of its head
 
 %include "os88alt.inc"              ; Alt+Enter in the bracket (SPEC.md 11.2.1.1)
 %define OS88UI_ABOUT                ; the standard About card (SPEC.md 20.5.1)
