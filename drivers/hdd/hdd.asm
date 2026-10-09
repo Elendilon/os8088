@@ -257,9 +257,13 @@ hd_geom:
     mov si, bx
     mov al, [si+HDV_DEV]
     call hd_dev_row             ; DI = its device
-    cmp byte [di+HDD_KIND], HDK_BIOS
-    jne .no
     mov dl, [di+HDD_UNIT]
+    cmp byte [di+HDD_KIND], HDK_BIOS
+    je .rom
+    mov dl, [di+HDD_BIOS]       ; an IDE row the ROM ALSO reads: rung 1 took
+    or dl, dl                   ; it from the BIOS (52.1.1), and the ROM is
+    jz .no                      ; the caller's reader
+.rom:
     mov bx, [si+HDV_BASE]
     mov cx, [si+HDV_BASE+2]
     mov ax, [di+HDD_SPT]
@@ -1101,7 +1105,16 @@ hd_at_channel:
     call hd_at_ident            ; CF = 0 and hd_idbuf holds IDENTIFY's answer
     jc .next
     call hd_at_dup              ; the BIOS's own row for this drive is the one
-    jnc .next                   ; to keep (SPEC.md 52.1)
+    jc .new                     ; to keep (SPEC.md 52.1) - but TAKEN by this
+    cmp word [di+HDD_HEADS], 16 ; rung if it is the same disk, which
+    ja .next                    ; hd_twins proves at DRVV_READY (52.1.1): the
+    pop cx                      ; unit and the port go in the BIOS row now, and
+    push cx                     ; a task file has four bits of head
+    inc cx
+    mov [di+HDD_BIOS], cl       ; 1 + the unit
+    mov [di+HDD_BASE], bx
+    jmp short .next
+.new:
     call hd_at_new
     jc .full
     pop cx
@@ -1234,6 +1247,8 @@ hd_ready:
     push di
     push es
 
+    call hd_twins               ; BEFORE the settings: a record names a
+                                ; device by what it IS (52.1.1)
     call OSAPI_FILE_HERE        ; DX = the directory, BL = its drive
     mov [hd_tcwd], dx
     mov [hd_tvol], bl
@@ -1392,6 +1407,105 @@ hd_svc_end:                     ; ...AND STOPS HERE, its length in the header
                                 ; here saying so - no package reaches a raw
                                 ; sector - and a cell added to DSV_* later is
                                 ; 0 for this driver until it writes one
+
+
+; -----------------------------------------------------------------------------
+; hd_twins - rung 1 TAKES a drive the BIOS also knows, once it is proved the
+;            same disk (SPEC.md 52.1.1). ATTACH-ONLY: hd_ready's, once
+; in:  BIOS rows that hd_at_channel paired, HDD_BIOS = 1 + the IDE unit and
+;      HDD_BASE its port
+; out: each such row an IDE row (HDD_BIOS = its int 13h drive), or a BIOS row
+;      again with both fields 0
+; clobbers: AX, BX, CX, DX, DI, ES, flags - hd_ready saved them
+;
+; WHY: an AT BIOS moves an IDE sector by PIO with interrupts OFF, so every
+; read it makes loses whatever IRQ0 was due inside it - the PC speaker's
+; clock is one a sample (SPEC.md 98.3.15), and a Video Player stream read
+; that way plays SLOW, tick for tick on its own clock. Rung 1's loop runs
+; with interrupts ON. Measured off the owner's 286 and 86Box's: PCWolf
+; (394 KB/s, 8 kHz on the speaker) played 15.1 s in ~17.5 through int 13h
+; and in 15.1, its sound clean, with the BIOS told there was no disk.
+;
+; PROVED, because geometry is not identity: hd_at_dup's own comment names
+; an MFM drive the BIOS knows beside an IDE drive it does not, of the same
+; heads and sectors. So LBA 0 is read through BOTH rungs, and the row is
+; taken only when both reads succeed, the BIOS's carries the 55AA signature
+; (two blank disks would otherwise agree) and the two are the same 512
+; bytes. Anything else leaves the BIOS row exactly as it was.
+; -----------------------------------------------------------------------------
+hd_twins:
+    xor ax, ax
+.row:
+    cmp al, [hd_ndev]
+    jae .out
+    push ax
+    call hd_dev_row             ; DI = the row
+    cmp byte [di+HDD_KIND], HDK_BIOS
+    jne .next
+    mov cl, [di+HDD_BIOS]
+    mov byte [di+HDD_BIOS], 0
+    or cl, cl
+    jz .next
+    push cx
+    mov ax, 1
+    mov cx, ax
+    call OSAPI_MEM_CLAIM_DMA    ; DX = 1 KB, int 13h's to fill
+    pop cx
+    jc .bios
+    mov es, dx
+    mov byte [hd_rawop], 0
+    push cx
+    xor ax, ax                  ; LBA 0 through the BIOS, into 0
+    cwd
+    xor bx, bx
+    mov cx, 1
+    call hd_raw
+    pop cx
+    jc .free
+    cmp word [es:510], 0xAA55
+    jne .free
+    mov al, [di+HDD_UNIT]       ; ...and through the task file, into 512
+    mov [di+HDD_BIOS], al
+    dec cx
+    mov [di+HDD_UNIT], cl
+    mov byte [di+HDD_KIND], HDK_IDE
+    call hd_ide_setparams       ; the geometry the BIOS reported, which is
+    xor ax, ax                  ; the drive's own (hd_at_dup's key)
+    cwd
+    mov bx, 512
+    mov cx, 1
+    call hd_raw
+    jc .back
+    push ds
+    push di
+    push es
+    pop ds
+    xor si, si
+    mov di, 512
+    mov cx, 256
+    cld
+    repe cmpsw
+    pop di
+    pop ds
+    je .free                    ; THE SAME DISK: rung 1 keeps it
+.back:
+    mov al, [di+HDD_BIOS]
+    mov [di+HDD_UNIT], al
+    mov byte [di+HDD_KIND], HDK_BIOS
+    mov byte [di+HDD_BIOS], 0
+.free:
+    mov dx, es
+    call OSAPI_MEM_FREE
+.bios:
+    cmp byte [di+HDD_KIND], HDK_BIOS
+    jne .next
+    mov word [di+HDD_BASE], 0   ; (a BIOS row names no port)
+.next:
+    pop ax
+    inc ax
+    jmp .row
+.out:
+    ret
 
 hd_pcnt:     db 0               ; how many fixed disks the BIOS said it has
 hd_dupd:     db 0               ; bit n = rung 0's row n is the same drive as

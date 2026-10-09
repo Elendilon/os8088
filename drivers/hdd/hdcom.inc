@@ -301,11 +301,12 @@ hd_part_ent:
 ; refuses one as an install TARGET (52.10.4.1). One is a duplicate icon and
 ; the other is formatting the volume the machine is running from.
 ;
-; **Only a BIOS row can be it.** The kernel's transport there is int 13h
-; (rung 0), so a device reached through the task file is by definition not
-; the drive the adoption named - and there is no int 13h number to offer for
-; one anyway. An IDE row therefore answers "not the kernel's", which is right
-; for the drive the BIOS does not know.
+; **Only a drive the BIOS knows can be it.** The kernel's transport there is
+; int 13h (rung 0), so a drive reached only through the task file is not the
+; drive the adoption named, and has no int 13h number to offer. An IDE row
+; TAKEN from the BIOS (SPEC.md 52.1.1) is the exception and keeps the number
+; in HDD_BIOS, so it is asked by that: the boot partition of an installed
+; machine stays the kernel's, and is never mounted a second time.
 ; -----------------------------------------------------------------------------
 hd_kvol:
     push bx
@@ -313,9 +314,13 @@ hd_kvol:
     push dx
     push di
     call hd_dev_row
-    cmp byte [di+HDD_KIND], HDK_BIOS
-    jne .no
     mov dl, [di+HDD_UNIT]       ; the int 13h drive, and the partition base as
+    cmp byte [di+HDD_KIND], HDK_BIOS
+    je .rom
+    mov dl, [di+HDD_BIOS]       ; ...or the one a drive rung 1 TOOK from the
+    or dl, dl                   ; BIOS still answers as (52.1.1): the kernel
+    jz .no                      ; may have booted from it
+.rom:
     mov cx, [si+HP_LBA]         ; the kernel keeps it: 32 bits, high word in BX
     mov bx, [si+HP_LBA+2]
     call OSAPI_VOL_AT           ; preserves everything but AL

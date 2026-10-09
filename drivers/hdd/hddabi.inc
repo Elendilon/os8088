@@ -52,7 +52,14 @@ HDF_CYLASK   equ 0x40           ; ...rung 0's ROM has been ASKED whether one
                                 ; int 13h may carry a read across a head
 HDF_CYLOK    equ 0x80           ; ...and it may (SPEC.md 18.91.5): hd_bios_run
                                 ; then bounds a read at the cylinder
-HDD_PAD      equ 3
+HDD_BIOS     equ 3              ; db: on an IDE row, the int 13h drive the
+                                ; SAME disk answers as (80h/81h) when rung 1
+                                ; took a drive the BIOS also knows (SPEC.md
+                                ; 52.1.1), else 0 - what DSV_GEOM and the
+                                ; kernel's boot-volume question still ask by.
+                                ; On a BIOS row during the probe: 1 + the IDE
+                                ; unit hd_at_dup paired it with, for
+                                ; hd_twins to prove at DRVV_READY
 HDD_CYL      equ 4              ; dw: cylinders
 HDD_HEADS    equ 6              ; dw: heads      } 1..255
 HDD_SPT      equ 8              ; dw: sectors    } 1..63

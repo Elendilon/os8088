@@ -86421,6 +86421,61 @@ drive and a CMOS type table that predates it. The page carries an editable
 C/H/S triple bounded by what CHS can carry (1..1024, 1..255, 1..63) and
 recomputes the size from it live, in the Date/Time page's field idiom (§31.5).
 
+#### 52.1.1 Rung 1 takes a drive the BIOS also knows (2026-10-09)
+
+**On a 286 or better, a drive both rungs answer for is read through the task
+file, once it is proved the same disk.** Rung 0 stays first for everything
+else, for the reasons above. The exception exists because **an AT BIOS moves
+an IDE sector by PIO with interrupts OFF**, so every int 13h read loses
+whatever IRQ0 fell due inside it - and a Video Player stream on the PC
+speaker, whose clock is one IRQ0 a SAMPLE (§98.3.15), plays slow by exactly
+what was lost, tick for tick on its own clock, with nothing late and nothing
+stalled. The owner's 286 and 86Box's `mr286` both played a 15.1 s, 394 KB/s,
+8 kHz file in ~17.5 s through the BIOS, with the speaker's sound breaking up,
+and in 15.1 with clean sound once the BIOS was told there was no disk and
+rung 1 found it instead. Rung 1's `in ax, dx` / `stosw` loop runs with
+interrupts ON. (§34.11.4 had already measured the 8088's version of this off
+an XT-IDE ROM, 15.4% of pulses lost while the ring refills; files made for a
+5150's speaker read 20 KB/s, which is why it never looked like this.)
+
+- **Paired at attach, proved at READY.** `hd_at_dup`'s match - heads and
+  sectors equal, the BIOS's cylinders no more than the drive's - no longer
+  only drops the IDE unit: on a drive of at most 16 heads (four bits of task
+  file) the BIOS row records the unit and the port, and `hd_twins`, first
+  thing in `hd_ready` (where `OSAPI_MEM_CLAIM_DMA` answers, and BEFORE the
+  settings blob is matched to devices by what each IS), reads LBA 0 through
+  int 13h and then through the task file into a 1 KB claim. The row becomes
+  an IDE row only when both reads succeed, the BIOS's sector carries the
+  55AA signature, and the two are the same 512 bytes. Geometry is not
+  identity: the comment above names an MFM drive the BIOS knows beside an
+  IDE drive it does not, of the same heads and sectors, and two blank disks
+  would agree on LBA 0. Anything short of proof leaves the BIOS row exactly
+  as it was.
+- **The row keeps its int 13h drive** in `HDD_BIOS` (offset 3, which was
+  padding), because two things still ask by it: `hd_kvol`, so the boot
+  partition of an installed machine is still recognised as the KERNEL'S
+  (§52.10.3.1) and never mounted a second time, and `DSV_GEOM` (`hd_geom`,
+  §87.5), so a hibernate image on such a drive is still one the resume
+  stub can read through the ROM - it is the same disk.
+- **The geometry is the BIOS's** - the one the partition table was written
+  against - told to the drive with `91h INITIALIZE DEVICE PARAMETERS`
+  before the proving read, as every IDE row's is.
+- **A settings record for the drive no longer matches** (it names a BIOS
+  row, 80h; the device is an IDE row now), so that drive's saved typed
+  geometry is ignored once; it is probed, the geometry is the BIOS's, and
+  the automount takes every probed device anyway (§52.6.1).
+- **Not the boot partition's own reads.** The kernel adopts the partition it
+  booted from as a `DVK_BIOS` row before any driver loads (§52.10.3), and
+  those stay int 13h - a machine booted from floppy, the owner's case, has
+  none.
+
+`hdtake` is the gate, on QEMU - the one emulator here with a 286-class CPU and
+a BIOS that knows an IDE disk: device row 0 must be IDE on 1F0h unit 0 with
+`HDD_BIOS` 80h, the only row, and C: must list a package and launch it
+through rung 1. +180 bytes of `HDD.DRV`'s image (3,584 -> 3,764 with 16 of
+bss, inside the 4 KB claim it already took), all of it in the attach-only
+run that `hd_mbr` is laid over and the 180 bytes past it.
+
 ### 52.2 The disk tool — one window, one button
 
 Partitioning and formatting are **one operation to the user and one window in

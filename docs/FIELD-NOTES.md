@@ -3328,3 +3328,31 @@ way, which needs a WORKER and so not this file (the player hires one only
 for a Live play): `ui_timer_pass` tested `W_FLAGS` before `gfx_lock`, which can
 block while a dying worker frees the window, and called the handler without
 testing again - FIXED, SPEC.md 13.9.2, `tests/timerrace.py`.
+
+
+## 65. 286, Video Player on the PC speaker: a disk-heavy file plays slow, "nothing late" (FIXED - SPEC.md 52.1.1)
+
+Reported by the owner on their **real 286** and reproduced identically on
+86Box's `mr286`: PCWolf.V88 (286-pvga, Mode X, 394 KB/s, 8 kHz on the
+speaker), booted from floppy with HDD.DRV and the file on a hard-disk
+partition, played its 15.1 s in ~17.5 s with the sound breaking up - and the
+card said nothing late, nothing stalled, and the ticks on target. Muted it
+played normally; held whole in XMS (a smaller encode) it played in time; a
+20 KB/s speaker file for the 5150 played fine.
+
+**The cause**: the drive is one the BIOS knows, so HDD.DRV read it on rung 0,
+the BIOS's int 13h - and an AT BIOS moves an IDE sector by PIO with
+interrupts OFF. Under the speaker IRQ0 is one a sample and the play's clock
+is the samples played, so every one due inside a read was lost, and the
+kernel tick the speaker's ISR chains with it: a play slow by exactly what
+was lost, tick for tick on a clock that was losing too. Ruled out on the way:
+the speaker's own cost (SPKBENCH on 86Box: 6.9% at 8 kHz, under the
+profile's 9.2%), fragmentation (the files are one run each), and the
+player's and the kernel's own interrupt-off windows. **The decisive test was
+the owner's**: MR BIOS told there was no hard disk, so rung 1 found the
+drive instead - and PCWolf played in 15.1 s with clean sound.
+
+**The fix**: rung 1 takes a drive the BIOS also knows on a 286 or better,
+once LBA 0 read through both rungs agrees (SPEC.md 52.1.1), so no BIOS
+setting is needed. `tests/hdtake.py` is the gate. The boot partition of an
+installed machine is still read through int 13h (52.10.3).

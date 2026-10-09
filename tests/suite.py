@@ -1932,6 +1932,22 @@ SOAK = [
         "A DECLARED extension's icon is right from a COLD mount (SPEC.md"
         "54.7.3).",
         needs=("marty",), serial=True),
+    Row("hdtake", "soak", py("tests/hdtake.py"), 15.0,
+        "SPEC.md 52.1.1: on QEMU's 386, HDD.DRV's own IDE rung TAKES a drive "
+        "SeaBIOS also knows once LBA 0 read through both rungs agrees - the "
+        "AT BIOS's PIO runs with interrupts off and the PC speaker's clock "
+        "loses every sample due inside it. Device row 0 must be IDE 1F0h "
+        "unit 0 carrying int 13h drive 80h, the only row, and C: must list "
+        "and launch CALC.O88 through it",
+        needs=("qemu", "nasm"), serial=True, timeout=300,
+        wants=("build/os8088.img", "build/apps.img", "build/hdd.bin",
+               "build/calc.o88")),
+    Row("hdtakeblank", "soak", py("tests/hdtake.py", "--blank"), 10.0,
+        "SPEC.md 52.1.1's refusal: the same disk with LBA 0's 55AA wiped - "
+        "what two blank disks of one geometry would share - and the BIOS's "
+        "row must stay exactly as it was",
+        needs=("qemu", "nasm"), serial=True, timeout=300,
+        wants=("build/os8088.img", "build/apps.img", "build/hdd.bin")),
     Row("timerrace", "soak", py("tests/timerrace.py"), 30.0,
         "SPEC.md 13.9.2: ui_timer_pass asks again, UNDER the gfx lock, "
         "whether the window it is about to call still exists - gfx_lock can "
