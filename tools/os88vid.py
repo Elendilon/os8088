@@ -724,6 +724,17 @@ H_XPRE = 474                    # the encode assumed, KB, and u16 the prefill
                                 # whole bank, 0 the player's 10 s) - NO FLAG:
                                 # a player made before reads neither
 XPRE_ALL = 0xFFFF
+H_LAYER = 476                   # THE LAYER (98.1.9): u32 its first super-
+LAYER_FMT = "<IHHHHIH"          # packet, u16 its sectors, u16 the disk it
+                                # was made for (KB a second), u16 the memory
+                                # it is banked in (KB), u16 the prefill (KB,
+                                # FFFFh all of it), u32 its key table, u16
+                                # its longest record - NO FLAG: a player made
+                                # before reads none of it and plays the base
+LAYER_LEN = struct.calcsize(LAYER_FMT)
+L_EMPTY = b"\x02\x00"           # a frame the layer has nothing for
+LSP_HDR = 8                     # a layer super-packet: first(32) frames(16)
+                                # next(16), then its records
 KLEADS_APART = True             # ...what write() does: False writes the
                                 # inline kind, every file before it (a test's)
 F_KNOWN = F_RESIDENT | F_LOOPREC | F_REPEAT | F_LIVE | F_RUNS | F_SPKPWM \
@@ -1811,6 +1822,19 @@ class Writer:
                            "state cannot join the seam; use PCM8")
         self.loop, self.repeat = loop, repeat
         self.loop_surf = self.loop_audio = self.last = None
+        self.lrecs = None               # THE LAYER (98.1.9): a record or
+        self.layer = None               # L_EMPTY a frame, and (kbs, ram, pre)
+
+    def layer_frame(self, ops):
+        """The layer's writes for the next frame in order - [] for none -
+        made on top of the base's record for the same frame (98.1.9)"""
+        if self.lrecs is None:
+            self.lrecs = []
+        if len(self.lrecs) >= len(self.recs):
+            raise V88Error("a layer record for frame %d, which the stream "
+                           "has not reached" % len(self.lrecs))
+        self.lrecs.append(record(ops, self.g, limit=SP_MAX * SECTOR -
+                                 LSP_HDR) if ops else L_EMPTY)
 
     def frame(self, ops, surf, audio=b""):
         """`ops` are the frame's writes, already applied to `surf`."""
@@ -1897,6 +1921,56 @@ class Writer:
             poster = min(range(len(kept)), key=lambda i: abs(
                 kept[i][0] - pk)) if kept else None
         return kept, poster
+
+    def write_layer(self, out, keys):
+        """THE LAYER (98.1.9) after the stream: its super-packets chained,
+        each naming its first frame, then the table of where each kept key's
+        next frame is in it - and the header's words for them"""
+        lr = self.lrecs
+        if len(lr) != len(self.recs) or self.layer is None:
+            raise V88Error("a layer of %d records for %d frames"
+                           % (len(lr), len(self.recs)))
+        if self.live is not None or self.flip:
+            raise V88Error("a layer is a stream's, played unflipped in the "
+                           "bracket: not Live, not flipped (98.1.9)")
+        sps, cur, size, first = [], [], LSP_HDR, 0
+        lwhere = []
+        for f, r in enumerate(lr):
+            if cur and size + len(r) > SP_MAX * SECTOR:
+                sps.append((first, cur))
+                first, cur, size = f, [], LSP_HDR
+            lwhere.append((len(sps), len(cur)))
+            cur.append(r)
+            size += len(r)
+        sps.append((first, cur))
+        secs = [-(-(LSP_HDR + sum(len(r) for r in sp)) // SECTOR)
+                for f0, sp in sps]
+        l0 = len(out)
+        offs, o = [], l0
+        for n in secs:
+            offs.append(o)
+            o += n * SECTOR
+        for i, (f0, sp) in enumerate(sps):
+            nxt = secs[i + 1] if i + 1 < len(sps) else 0
+            b = struct.pack("<IHH", f0, len(sp), nxt) + b"".join(sp)
+            out += b + bytes(secs[i] * SECTOR - len(b))
+        kat = 0
+        if keys:
+            kat = len(out)
+            kt = bytearray()
+            for k, r, c in keys:
+                if k + 1 < len(lr):
+                    spi, idx = lwhere[k + 1]
+                    kt += struct.pack("<IHH", offs[spi], secs[spi], idx)
+                else:
+                    kt += bytes(8)
+            out += kt + bytes(-len(kt) % SECTOR)
+        kbs, ram, pre = self.layer
+        struct.pack_into(LAYER_FMT, out, H_LAYER, l0, secs[0], kbs, ram,
+                         pre, kat, max(len(r) for r in lr))
+        return bytes(out), dict(bytes=len(out) - l0, sps=len(sps),
+                                stream=o - l0,
+                                recs=sum(r != L_EMPTY for r in lr))
 
     def write(self, path, poster=None):
         g = self.g
@@ -2109,9 +2183,12 @@ class Writer:
         out = front + kt + bytes(ktab - len(kt)) + kr + \
             bytes(oat - kbase - len(kr)) + opts + \
             bytes(s0 - oat - len(opts)) + stream
+        lstat = None
+        if self.lrecs is not None:
+            out, lstat = self.write_layer(bytearray(out), keys)
         write_whole(path, out)
         return dict(bytes=len(out), keys=nk, keybytes=ktab + len(kr),
-                    flags=flags,
+                    flags=flags, layer=lstat,
                     stream=len(stream), sps=len(sps), poster=poster,
                     seam=len(seam), ahead=A, kdropped=self.kdropped,
                     kleadcost=self.kleadcost, leadbytes=len(lead0) + sum(len(v) for v in
@@ -2652,6 +2729,26 @@ class Reader:
                            % (self.xpre, self.xbank))
         # (the bank's two words are the tail's, and not zero)
         dz = d[:H_XBANK] + bytes(4) + d[H_XBANK + 4:]
+        # THE LAYER (98.1.9): its words are the tail's too
+        (self.lsp0, self.lsp0n, self.lkbs, self.lram, self.lpre, self.lktab,
+         self.lmax) = struct.unpack_from(LAYER_FMT, d, H_LAYER)
+        dz = dz[:H_LAYER] + bytes(LAYER_LEN) + dz[H_LAYER + LAYER_LEN:]
+        if not self.lsp0:
+            if d[H_LAYER:H_LAYER + LAYER_LEN] != bytes(LAYER_LEN):
+                raise V88Error("a layer's words with no layer (98.1.9)")
+        elif (self.resident or self.live or self.lsp0 % SECTOR or
+              self.lsp0 < self.sp0 or not 1 <= self.lsp0n <= SP_MAX or
+              self.lsp0 + self.lsp0n * SECTOR > len(d) or not self.lkbs or
+              not self.lram or not 2 <= self.lmax <= SP_MAX * SECTOR -
+              LSP_HDR or (self.lpre != XPRE_ALL and self.lpre > self.lram)
+              or (self.nkeys and (not self.lktab or self.lktab % SECTOR or
+                                  self.lktab + 8 * self.nkeys > len(d)))
+              or (not self.nkeys and self.lktab)):
+            raise V88Error("a layer at %d, %d sectors, %d KB/s, %d KB "
+                           "(prefill %d), key table %d, longest %d: it does "
+                           "not fit the file (98.1.9)"
+                           % (self.lsp0, self.lsp0n, self.lkbs, self.lram,
+                              self.lpre, self.lktab, self.lmax))
         self.loop = None
         blk = struct.unpack_from(LOOP_FMT, d, LOOP_AT)
         if flags & F_LOOPREC and self.resident:
@@ -2720,7 +2817,56 @@ class Reader:
             skip = 0
             at, nsec = at + nsec * SECTOR, nxt
 
-    def apply(self, surf, rec, key=False, check=True):
+    def layer_key(self, i):
+        """Where key i's NEXT frame is in the layer: (super-packet, its
+        sectors, the record) - all 0 after the last frame (98.1.9)"""
+        o, n, idx = struct.unpack_from("<IHH", self.d, self.lktab + 8 * i)
+        return o, n, idx
+
+    def layer_records(self, at=None, nsec=None, skip=0):
+        """(frame, its layer record or None, the super-packet, its sectors,
+        the record's index) from layer super-packet `at`
+        on, following the chain; each super-packet names its first frame,
+        and they run on with no gap to the stream's last (98.1.9)"""
+        if not self.lsp0:
+            return
+        at = self.lsp0 if at is None else at
+        nsec = self.lsp0n if nsec is None else nsec
+        want = None
+        while nsec:
+            if not 1 <= nsec <= SP_MAX:
+                raise V88Error("a layer super-packet of %d sectors" % nsec)
+            sp = self.d[at:at + nsec * SECTOR]
+            if len(sp) != nsec * SECTOR:
+                raise V88Error("the layer super-packet at %d runs off the "
+                               "file" % at)
+            f0, nf, nxt = struct.unpack_from("<IHH", sp, 0)
+            if nf < 1 or (want is not None and f0 != want) or \
+                    f0 + nf > self.frames:
+                raise V88Error("the layer super-packet at %d holds frames "
+                               "%d+%d" % (at, f0, nf))
+            o = LSP_HDR
+            for i in range(nf):
+                if o + 2 > len(sp):
+                    raise V88Error("layer record %d at %d runs off it"
+                                   % (i, at))
+                n = struct.unpack_from("<H", sp, o)[0]
+                if not (n == 2 or n >= REC_HDR + 1) or o + n > len(sp) or \
+                        n > self.lmax:
+                    raise V88Error("layer record %d at %d says %d bytes"
+                                   % (i, at, n))
+                if i >= skip:
+                    yield f0 + i, None if n == 2 else sp[o:o + n], at, \
+                        nsec, i
+                o += n
+            if any(sp[o:]):
+                raise V88Error("the layer super-packet at %d does not end in "
+                               "padding" % at)
+            skip = 0
+            want = f0 + nf
+            at, nsec = at + nsec * SECTOR, nxt
+
+    def apply(self, surf, rec, key=False, check=True, layer=False):
         """Decode one record onto `surf`; with `check`, enforce the WRITER's
         rules too (SPEC.md 98.1.3): canvas-only, no byte written twice,
         rows inside y0..y1, audio exact."""
@@ -2776,7 +2922,8 @@ class Reader:
                             raise V88Error("a write at %04x is in no blit run"
                                            % a)
         tail = len(rec) - end
-        want = (1 if self.audio == AUD_ADPCM4 else 0) if key else self.abytes
+        want = (1 if self.audio == AUD_ADPCM4 else 0) if key else \
+            0 if layer else self.abytes
         if tail != want:
             raise V88Error("%d bytes follow the lists, not %d" % (tail, want))
         if check and not wrote[0] and y0 != y1:
@@ -3881,6 +4028,43 @@ def encode_canvases(canvases, g, out, fps, pixfmt=PF_MONO1, palette=None,
     return wr.write(out, poster)
 
 
+def v88_layered(r, check=True, drop=None):
+    """(frame, the ENHANCED surface after it) - the base's record then the
+    layer's, for every frame (98.1.9). `drop(f)` true leaves frame f's layer
+    record out, as a late player does"""
+    surf = r.g.surface()
+    lit = r.layer_records()
+    for f, (rec, at, i) in enumerate(r.records()):
+        r.apply(surf, rec, check=False)     # (verify_v88 checks the base)
+        lf, lrec = next(lit, (None, None))[:2]
+        if lf != f:
+            raise V88Error("the layer has no record for frame %d" % f)
+        if lrec is not None and not (drop and drop(f)):
+            r.apply(surf, lrec, check=check, layer=True)
+        yield f, surf
+
+
+def verify_layer(r):
+    """THE LAYER (98.1.9): a record for every frame, each by the writer's
+    rules, its super-packets within the header's sizes, and the key table
+    naming each key's next frame where the chain holds it"""
+    lpos = {}
+    n = 0
+    for f, lrec, at, ns, i in r.layer_records():
+        lpos[f] = (at, ns, i)
+        n += 1
+    if n != r.frames:
+        raise V88Error("the layer holds %d frames; the stream %d"
+                       % (n, r.frames))
+    for f, surf in v88_layered(r):
+        pass
+    for i, (k, off, ln, spo, spk, idx) in enumerate(r.keys):
+        want = lpos[k + 1] if k + 1 < r.frames else (0, 0, 0)
+        if r.layer_key(i) != want:
+            raise V88Error("layer key %d names %s; the layer holds frame %d "
+                           "at %s" % (i, r.layer_key(i), k + 1, want))
+
+
 def v88_frames(r, check=True):
     """(frame, surface after it) for every frame of the stream, checking
     each record; and the stream's own totals against the header's."""
@@ -4147,6 +4331,8 @@ def verify_v88(path, against=None, rend=None):
             if g.canvas(kb) != g.canvas(surf):
                 raise V88Error("keyframe %d is not the screen after frame %d"
                                % (kat[f], f))
+    if r.lsp0:
+        verify_layer(r)
     sp_secs = {}
     at, n = r.sp0, r.sp0n
     while n:

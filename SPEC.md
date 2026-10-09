@@ -158156,6 +158156,38 @@ PCM8 with a seam, ADPCM4 - and requires the same sound for every frame,
 a seek from every key that plays the stream's own (ADPCM4 decoded from the
 key's reference), and four damaged files refused.
 
+#### 98.1.9 THE LAYER: one file, a better play on a better machine (IN PROGRESS)
+
+**Status: the format and its host reader and writer are written; the
+encoder pass (`os88venc.LayerEnc`) is written and NOT YET WIRED to any
+option, and no player reads a layer.** docs/plans/VIDEO-OVERAGE-PLAN.md 7
+is the measurement behind it: a file made for a slow disk carries a second
+stream, encoded on top of the first, that a machine with disk and CPU to
+spare reads as well - 3.81% -> 2.48% error as seen on the owner's 286 for a
+file made for 200 KB/s.
+
+- **The header**, at 476 (`LAYER_FMT`): u32 the layer's first super-packet,
+  u16 its sectors, u16 the disk it was made for in KB a second, u16 the
+  memory it is banked in (KB), u16 its prefill (KB, FFFFh all of it), u32
+  its key table, u16 its longest record; all zero for no layer. **No flag**:
+  98.1.1's 472 precedent - a player made before reads nothing past 472 and
+  plays the base, which is the point of the format.
+- **The layer stream** follows the base's, in a region of its own so a
+  base-only machine never reads it: super-packets of at most 64 sectors,
+  `first(32) frames(16) next(16)` then a record for EVERY frame, chained by
+  `next`, each naming its first frame and running on from the last with no
+  gap. A record is 98.1.3's with no audio, applied AFTER the base's record
+  for the same frame; `len` 2 alone is a frame the layer has nothing for.
+- **The key table**: 8 bytes a kept key - the layer super-packet holding
+  the key's NEXT frame, its sectors and the record's index - so a seek
+  resumes the layer where the base resumes.
+- **A single-plane stream's only, for now**: not RESIDENT, Live, flipped,
+  Mode X or 16 colours, and not with a `--bank`.
+
+`os88vid.Reader` checks every field and `verify_v88` every record by the
+writer's rules (`verify_layer`). What is open is the wiring, the gate and
+the player; this section is replaced when they land.
+
 ### 98.2 The host tools — `tools/os88vid.py`
 
 | command | what it does |

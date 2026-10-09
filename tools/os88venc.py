@@ -3651,6 +3651,154 @@ class EncoderP(Flipped, Encoder):
 AHEAD = 256 << 20       # the most frames read ahead while a pass runs
 
 
+LAYER_LAG = 8.0         # seconds the layer is encoded behind the base: the
+                        # CPU bucket is a second deep, and a base at ~70% of
+                        # it frees a full one in ~3 s, so 8 is near exact
+LAYER_SEEK_MS = 10.0    # a seek each way per 32 KB of layer read (98.1.9)
+
+
+class LayerEnc(object):
+    """THE LAYER (SPEC.md 98.1.9; VIDEO-OVERAGE-PLAN 7): a second encoder
+    whose screen is the ENHANCED player's - each frame the base's writes go
+    on it first, then it spends its own budgets on the best further writes
+    toward the same target. Both budgets are what the base CANNOT use on
+    the better machine, so the base plays exactly as it would alone:
+      - THE DISK: the base's own bucket simulated at the better machine's
+        rate (the profile's curve at the hook's share, the layer's decode
+        in it); what that bucket CLIPS - its ring full and the disk idle -
+        is the layer's, banked in the layer's memory, less a seek each way
+        per 32 KB the layer reads;
+      - THE CPU: one bucket the two share. Run LAYER_LAG behind the base,
+        it knows the base's next frames' costs, and takes only what stands
+        above the least the bucket must hold to pay every one of them on
+        time - so no base frame runs late for it.
+    `drop` > 0 is a measurement: a third screen that leaves every drop-th
+    layer record out, as a late player would"""
+
+    def __init__(self, base, rate, ram_kb, pre_kb, seek_ms=LAYER_SEEK_MS,
+                 drop=0):
+        import copy
+        if type(base) is not Encoder:
+            raise vid.V88Error("--layer is a single-plane stream's for now "
+                               "(98.1.9): not Mode X, 16 colours or "
+                               "flipped")
+        if base.disk.per is None or base.bank:
+            raise vid.V88Error("--layer is a budgeted stream's, with no "
+                               "--bank: it is what the base cannot use")
+        self.b = base
+        self.e = self._clone(copy, ram_kb, pre_kb)
+        self.d = self._clone(copy, ram_kb, pre_kb) if drop else None
+        self.drop = drop
+        self.rate = float(rate)
+        self.bl = base.disk.level           # the base's bucket, on THIS
+        self.S = base.cpu.level             # machine; the shared CPU bucket
+        self.seek = seek_ms / 1000.0
+        self.lag = max(2, round(LAYER_LAG * base.fps))
+        self.buf = []
+        self.f = 0
+        self.bytes = self.recs = self.skipped = 0
+        self.cycles = 0.0
+        self.read = 0                       # layer bytes, for the seeks
+
+    def _clone(self, copy, ram_kb, pre_kb):
+        b = self.b
+        e = copy.copy(b)
+        e.surf = bytearray(b.surf)
+        e.sv = np.frombuffer(e.surf, dtype=np.uint8)
+        e.screen = e.sv[e.idx]
+        e.tsurf = bytearray(b.tsurf)
+        e.tv = np.frombuffer(e.tsurf, dtype=np.uint8)
+        e.age = b.age.copy()
+        e.wv = b.wv.copy()
+        e.stats = {k: 0 for k in b.stats}
+        e.q_vis = e.q_wrong = e.q_flick = e.q_tflick = 0.0
+        e.q_prev = e.q_tprev = (None, None)
+        e.cpu = Budget(0.0, 1e18)
+        e.dcurve = None
+        e.owe = None
+        e.bank, e.dslow = 0, 1.0
+        e.dfloor = 0
+        e.alead, e.arefill, e.slead, e.srefill = 0, [], 0, []
+        e.disk = Budget(0.0, ram_kb * 1024.0)
+        e.disk.level = min(pre_kb, ram_kb) * 1024.0
+        return e
+
+    @staticmethod
+    def _put(e, ops):
+        for a, bs, run in ops:          # the base's writes, on this screen
+            e.surf[a:a + len(bs)] = bs
+        e.screen = e.sv[e.idx]
+
+    def push(self, target, ops, rec):
+        """The base's frame, just encoded: returns the layer's ops for the
+        frames that are now LAYER_LAG behind it, in order"""
+        self.buf.append((target, ops, rec, self.b.cost(rec)))
+        out = []
+        while len(self.buf) > self.lag:
+            out.append(self._one(False))
+        return out
+
+    def flush(self):
+        out = []
+        while self.buf:
+            out.append(self._one(True))
+        return out
+
+    def _one(self, end):
+        b, e = self.b, self.e
+        target, ops, rec, c = self.buf[0]
+        per = b.cpu.per
+        need = 0.0 if end else b.cpu.cap    # (past the window: a full one)
+        for t in reversed(self.buf[1:]):
+            need = max(0.0, need + t[3] - per)
+        self.S = min(b.cpu.cap, self.S + per) - c     # the base's, first
+        room = min(max(0.0, self.S - need), max(0.0, b.peak - c))
+        e.future = [t[0] for t in self.buf[1:1 + b.look]]
+        self.buf.pop(0)
+        self._put(e, ops)
+        lops = []
+        cl = 0.0
+        if room > e.ct[0] * 2 and e.disk.level >= 64:
+            e.cpu.per, e.cpu.level = 0.0, room
+            e.peak = room
+            e.disk.per = 0.0
+            lops, lrec = e.frame(target, b"")
+            if lops:
+                cl = e.cost(lrec)
+                e.disk.spend(len(lrec))
+                self.S -= cl
+                self.cycles += cl
+                self.bytes += len(lrec)
+                self.recs += 1
+                k = self.read // vid.SLOT   # a 32 KB read of the layer:
+                self.read += len(lrec)      # a seek there and one back
+                e.disk.level -= (self.read // vid.SLOT - k) * 2 * \
+                    self.seek * self.rate
+        else:
+            self.skipped += 1
+        if b.metric:
+            e.measure(target)
+        if self.d is not None:
+            self._put(self.d, ops)
+            if lops and (self.f + 1) % self.drop:
+                self._put(self.d, lops)
+            if b.metric:
+                self.d.measure(target)
+        # THE DISK this frame on the better machine: the base's bucket at
+        # its rate, the layer's decode in the hook's share - and what the
+        # bucket would clip is the layer's
+        rel = 1.0
+        if b.dcurve:
+            share = (c + cl + b.audio_cyc + HOOK_CYC) / b.q + b.spk
+            rel = b.disk_rel(share)
+        lvl = self.bl + (self.rate * rel * 0.99 - b.abps) / b.fps
+        e.disk.level = min(e.disk.cap, e.disk.level +
+                           max(0.0, lvl - b.disk.cap))
+        self.bl = min(lvl, b.disk.cap) - (len(rec) - b.abps / b.fps)
+        self.f += 1
+        return lops
+
+
 class _Ahead(object):
     """ffmpeg_video's frames READ AHEAD: ffmpeg started now and its output
     read on a thread, up to `cap` bytes of frames, while this process does
