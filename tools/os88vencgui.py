@@ -338,6 +338,7 @@ IMPLYING = ("preset", "pixfmt", "profile", "live")
 # memory (98.1.7.2) - any other rate can still be typed. Owed time's 0 is
 # OFF, the fixed per-frame ceiling (98.2.1.1)
 SUGGEST = {"rate": ["", "22050", "11025", "8000", "5512"],
+           "avg": ["", "auto"],
            "owe": ["", "0", "1.6"],
            # FREE MEMORY TO PLAY (98.2.1.3.1): rings of 8, 10 and 12 slots
            "memory": ["", "309", "373", "437"],

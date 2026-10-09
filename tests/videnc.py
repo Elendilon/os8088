@@ -313,6 +313,18 @@ def main():
                  / period, low[0], low[1]))
         if not cut:
             bad.append("the tight profile cut nothing: it tests nothing")
+        # --- 3b: --avg auto (98.2.1.5) - the per-frame ceiling on a profile
+        # with a disk curve, the profile's own average on one without, and
+        # the record holds the SHARE it came to, never the word
+        for prof, want in (("5150-st225", 0.85), ("floppy", 0.50)):
+            p2, res2, k2 = run("auto-" + prof, "--preset", "herc",
+                               "--profile", prof, "--avg", "auto",
+                               "--end", "1")
+            got = vid.Reader(p2).options()["o"].get("avg")
+            print("   --avg auto on %s: %r (want %r)" % (prof, got, want))
+            if got != want:
+                bad.append("--avg auto on %s came to %r, not %r"
+                           % (prof, got, want))
         # ...and its FIRST PICTURE is whole before the keyframes start (the
         # pre-roll, SPEC.md 98.2.9): key 0 is exactly its frame's target -
         # a half-painted one is where a colour play starts

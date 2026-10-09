@@ -158979,6 +158979,54 @@ the owner's "maximize quality, minimize size":
 
   Bad Apple (Hercules, 30 s): 25.1 -> 22.8 KB/s at 0.11%.
 
+##### 98.2.1.5 `--avg auto`: the average that reserved the reader's CPU twice (2026-10-09)
+
+**On a profile with a measured disk curve, `--avg auto` is the per-frame
+ceiling, and the average stops binding.** The owner's question, after an
+XMS bank took most of the disk's work away and the CPU was left on the
+table: are `avg` and `peak` standing in for *how much CPU to leave the
+disk and the sound*? On those profiles, yes - and the encoder already
+charges every one of those costs on its own, frame by frame:
+- **the reader's CPU**, through `disk_at` (98.2.1.3): a frame refills the
+  disk's bucket at the rate the curve gives at that frame's own share, so
+  a heavy frame already reads less;
+- **the bank's copies**, as a slower disk (`xcopy`, 98.3.18.2);
+- **the sound's**: `audio_cyc` off every frame's CPU, and the speaker's
+  share off every budget (98.2.15).
+
+So an average under the ceiling reserves the same CPU a second time.
+`peak` stays: it is what keeps a frame inside its period. `speed` is not
+a budget at all - it is the profile's machine in 8088s, the unit `avg`
+and `peak` are written in (and with `cyc_us`, 98.2.3.3, only that unit).
+
+Measured on the owner's Last Exile (286-pvga, Mode X, a bank of 2,792 KB
+filled whole before the first frame), only `--avg` changed:
+
+| `--avg` | error as seen | its worst second | visibly broken | frames cut by the average |
+|---|---|---|---|---|
+| 2.25 (the profile's) | 0.15% | 3.20% | 1.0 s | many |
+| 3.375 | 0.01% | 0.15% | 0.0 s | 0 |
+| 3.75, the peak (= AUTO) | 0.01% | 0.15% | 0.0 s | 0 |
+
+The average CPU came to 46% of the machine, 100% at the worst frame; what
+was left was the peak's 2 frames and the 32 KB record's 17. The owner's
+3.375 encode played on the 286 with 0 late and 0 stalls, sound OFF - the
+case `auto` has not been played in is a Sound Blaster beside it.
+
+- **Without a curve** - `5150-picomem2`, `floppy`, `286` (a 6 MHz AT,
+  predicted) - the average is the ONLY thing that leaves the reader its
+  time, so `auto` there is the profile's own `avg`. Those want a curve
+  measured (VIDDISK on the machine) more than a number changed.
+- **A Live file keeps `LIVE_AVG`**: its share is the blit's and the
+  desktop's around it as well (98.2.7).
+- **The record holds the share `auto` came to**, never the word (98.2.17's
+  rule: what an option implied is stored as its value), so options version
+  14 reads as it did. With `--layer-profile`, the layer's machine takes its
+  own `auto`.
+- **Not the default.** `--avg` left out is the profile's average, as
+  before; the window offers `auto` in the field's list. `videnc` checks
+  both kinds of profile.
+
 #### 98.2.2 Composite colour from a video (`--pixfmt cgacomp`)
 
 **What a composite monitor shows is COMPUTED, not remembered.**

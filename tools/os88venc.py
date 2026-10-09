@@ -639,7 +639,7 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     7: "3c23376030acae01", 8: "a2cee436c2bd5178",
                     9: "566ce460b7bc0952", 10: "03033c94f4068ded",
                     11: "92246fa491f53aee", 12: "27f0d558163b22db",
-                    13: "23fa4d29a8c351cd", 14: "6e5f168750f0b6b0"}
+                    13: "23fa4d29a8c351cd", 14: "d753e363e6c323a8"}
 # THE VERSION MAPPER: MIGRATIONS[n] is what turns a version-n record into
 # version n+1, a list of steps applied in order:
 #   ("rename", old, new)          an option took a new name
@@ -687,9 +687,31 @@ MIGRATIONS = {
          ("added", "layer_seek", 10.0)],
     # 13: --layer-bank (98.1.9) - a layer made before it has none
     12: [("added", "layer_bank", None)],
-    # 14: --layer-profile (98.1.9) - a layer made before it was the base's
+    # 14: --layer-profile (98.1.9) - a layer made before it was the base's;
+    # and --avg takes AUTO (98.2.1.5), which the record never holds - it
+    # holds the share AUTO came to, so nothing older reads differently
     13: [("added", "layer_profile", None)],
 }
+
+
+def avg_arg(v):
+    """--avg's value: a share, or AUTO (98.2.1.5)"""
+    if str(v).strip().lower() == "auto":
+        return "auto"
+    return float(v)
+
+
+def avg_auto(prof):
+    """--avg auto (98.2.1.5): on a profile with a measured disk CURVE the
+    reader's CPU is already priced - every frame's disk refill is the rate
+    the curve gives at that frame's share - and so are the bank's copies
+    (xcopy) and the sound's (audio_cyc), so an average below the per-frame
+    ceiling only reserves the same CPU a second time: AUTO is the peak.
+    With no curve the average is the only thing that leaves the reader its
+    time, and stays the profile's"""
+    if prof.get("avg") is None or not prof.get("disk_at"):
+        return prof.get("avg")
+    return prof["peak"]
 
 
 def opts_actions():
@@ -4359,8 +4381,15 @@ def _encode(a, keep, tick, readers):
     if a.live and prof["avg"] is not None:
         prof["avg"] = LIVE_AVG          # (the decode and the blit: 98.2.7)
     for k in ("disk", "avg", "peak", "owe", "reserve"):
-        if getattr(a, k) is not None:
+        if getattr(a, k) is not None and getattr(a, k) != "auto":
             prof[k] = getattr(a, k)
+    # --avg auto (98.2.1.5): after --peak, which it follows, and sticky - a
+    # trial encode (--aim) is handed this namespace again - and the record
+    # holds the share it came to, not the word. A Live file's share is its
+    # blit's and the desktop's as well (98.2.7), so it keeps LIVE_AVG
+    a.avg_auto = getattr(a, "avg_auto", False) or a.avg == "auto"
+    if a.avg == "auto":
+        a.avg = prof["avg"] = prof["avg"] if a.live else avg_auto(prof)
     if a.memory is not None and prof["disk"] is not None and \
             not a.resident and not a.live:
         # FREE MEMORY TO PLAY (98.2.1.3.1): the ring it holds, and the
@@ -4931,6 +4960,8 @@ def _encode(a, keep, tick, readers):
             # THE LAYER FOR ANOTHER CPU: an encoder made for that profile,
             # with every setting the base's but its machine's
             lprof = dict(PROFILES[a.layer_profile])
+            if getattr(a, "avg_auto", False) and not a.live:
+                lprof["avg"] = avg_auto(lprof)  # (98.2.1.5: its machine's)
             if lprof["avg"] is None:
                 raise vid.V88Error("--layer-profile lossless: a layer is what "
                                    "a budget leaves, and it has none")
@@ -5337,7 +5368,8 @@ def parser():
                          "frame is fitted to (--profiles says what each is)")
     ap.add_argument("--disk", type=float, help="the profile's bytes a "
                     "second, overridden")
-    ap.add_argument("--avg", type=float, help="...its average CPU share")
+    ap.add_argument("--avg", type=avg_arg,
+                    help="...its average CPU share, or AUTO: the per-frame ceiling's, on a profile whose disk curve already prices the reader (98.2.1.5)")
     ap.add_argument("--peak", type=float, help="...its per-frame ceiling")
     ap.add_argument("--aim", choices=("asked", "quality", "size"),
                     default="asked",
