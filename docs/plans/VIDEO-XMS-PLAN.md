@@ -464,7 +464,19 @@ bytes. That is the measurement to take before section 5 is built.
    one point) - a banked byte's two copies charged to the disk's rate.
    `--deficit` was not re-checked: the real encode is the better number now
    (98.2.1.3.2's table, on the owner's source).
-4. **The window play, seeks inside the bank, a pause's banking.**
+4. **The window play, seeks inside the bank, a pause's banking** - **BUILT
+   (SPEC.md 98.3.18.4)**, and with them a defect the owner's 286 found in
+   wave 1 that no emulator here could: **the bank and the PC speaker cannot
+   both run** (SPEC.md 98.3.18.5). The speaker's clock is its own
+   interrupts and every copy masks them, so a banked play through the
+   speaker ran ~19% slow and said nothing late. Section 4.5's "calibrate,
+   don't guess" was about the RATE hook, which a copy only delays; the
+   speaker was the case it did not price. The window's line is the thumb
+   rather than section 4.3's text, the window having no text of its own in
+   a bracket. Not done: section 4.5's PIT-timed refusal of a bank whose copy
+   costs more than the read it replaces, and section 4.4's bank that
+   outlives a stop - a play from the same key again starts behind the
+   bank's head, which a FIFO ahead of the ring cannot serve.
 
 ## 10. EXPANDED MEMORY: what LIM EMS would cost the kernel
 

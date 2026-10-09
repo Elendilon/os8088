@@ -162061,8 +162061,9 @@ as it was read.
 
 **All of it is on the UI task** - the timer, the bracket's main loop, a
 callback - which is where §41.8 allows the copy. On a 286 the copy is
-`int 15h AH=87h` with interrupts off for its 32 KB; the rate hook and the
-speaker's ISR wait that long, a card's DMA does not.
+`int 15h AH=87h` with interrupts off for its 32 KB; the rate hook waits that
+long and a card's DMA does not - and the SPEAKER'S ISR loses it, which is
+why no copy runs under its clock (98.3.18.5).
 
 **+955 bytes of the package** (32,612 -> 33,567); no kernel byte, and on a
 machine with no pool the whole of it is one `OSAPI_XMEM_CAPS` at open and a
@@ -162186,9 +162187,8 @@ and `vp_bseed` points the stream's cursor at the head's offset.
 else - `vp_sstart`'s reader at a play's start or a seek, and `vp_warm` at a
 REPEAT's seam (§98.3.9): what it holds is the old place's.
 
-**Not yet built** (VIDEO-XMS-PLAN 9, wave 4): banking while paused, a seek
-inside the bank, and the prefill's line in the window. The prefill and the
-file's ask are 98.3.18.3, the encoder's half 98.2.1.3.2.
+The prefill and the file's ask are 98.3.18.3, the window, a pause and a seek
+98.3.18.4, the speaker 98.3.18.5, and the encoder's half 98.2.1.3.2.
 
 The gate is on QEMU (docs/TESTING.md's list, entry 1): `vidbank`, `-m 2`
 against a 1.33 MB LIN80 clip, so the hold cannot be taken and the bank is 18
@@ -162207,8 +162207,19 @@ bank stays empty; `vp_bfill`'s head left unmoved, the play errors at frame
 screen saying **`Buffering 37% ~24s`** in 98.3.13's box - the per cent of
 what it is filling, and the time left at the rate the fill has read at so
 far (minutes past 99 s, `~12m`). **Space starts the play** with what is in;
-**Esc cancels** it, nothing drawn. The box is redrawn only when the text
-changes: drawn every pass of the loop, it was off the glass between.
+**Esc cancels** it, nothing drawn.
+
+**The line must not flicker, and the first two builds did.** The first drew
+the box on every pass of the loop. The second drew it only when the text
+changed - and the owner's 286 still showed it flickering "like mad",
+because a changed text went through `vo_post`'s ordinary path: the save put
+back over the box (the text OFF the glass), the new one saved and drawn. A
+chunk a tenth of a second off a fast disk is a percentage a tenth of a
+second. So the line is padded to one width all through (the box's widest
+here, `vo_cmax`), and `vo_post` draws a new text AS WIDE as the one up
+straight over it - ground and glyph in one pass, nothing put back - on the
+one page, onto the screen. A flipping or shadowed play keeps the old path,
+which draws the new page off the glass or copies the box's rows whole.
 
 - **How much is the file's** (98.1.1's 472 and 474, written by 98.2.1.3.2):
   the prefill its encode banked on, in KB, or FFFFh for the whole bank. A
@@ -162234,6 +162245,73 @@ the box reads `Buffering 100%` with nothing drawn; Esc then cancels with no
 frame and no error, and the second time B: is blanked before Space, and
 frame 180 - past the ring and inside the bank - is the decode's. Broken on
 purpose - `vp_bpre` out of the bracket - the prefill fills nothing.
+
+##### 98.3.18.4 The window, a pause and a seek
+
+- **In the window the prefill's meter is the THUMB.** The full screen's box
+  is not the window's (98.3.13), and the window's bracket draws onto the
+  desktop's framebuffer itself, so `vp_pfsay` moves the play bar's thumb
+  (`vp_wmove`, one store a byte) across the bar as the bank fills; the first
+  frame asks for its place again (`[vp_wtk]` = FFFFh) and it goes back.
+  Space and Esc are the full screen's.
+- **A pause banks.** A session left paused on the desktop - Space in the
+  window, F from a play the window cannot host - arms the window's timer
+  (`vp_parm`, at `vp_srun`'s end), and `vp_ontimer` reads a chunk a tick into
+  the bank (`vp_pstep`, which is `vp_bstep`) and re-arms as far off as the
+  chunk took, as the hold's loader does. The time a user spends paused is
+  time the play has in hand. The card's line 6 says `XMS bank: 320 of 576
+  KB`. In the full screen Space pauses in place and the bracket's own loop
+  goes on banking, as it always did.
+- **A seek into the bank is the bank's.** `vp_spos` asks `vp_bseek` before
+  it seeds the reader: a new start at or past the bank's head and inside what
+  it holds drops the chunks before it and hands the ring the head as its
+  chunk 0, the start `[vp_po]` bytes in - up to 32 KB where it was up to a
+  cluster, a case the ring already met on a 32 KB-cluster disk. Neither
+  cursor moves, so no chain is walked and the disk is not touched. Behind
+  the head (what the ring had, or what has played), past what the bank
+  holds, or on a disk whose cluster is bigger than a chunk, the bank is
+  flushed and the reader seeded as ever. The key's own record is still read
+  from the disk, as every seek's is.
+
+`vidbank`'s full-screen arm reads all three in one play, with B: throttled
+to 64 KB/s (QEMU's `throttling.bps-total`) so the bank is SEEN filling: the
+box's mid-fill lines (`Buffering 25% ~1s`), F to the desktop with the bank
+at 12 of 18 and growing to 14 while paused, the picture right at frame 60
+after the resume, and Right from 60 - the player counts the presses it got,
+two for one QEMU key - landing on key 240, whose super-packet is in the
+bank: one seek the bank answered (`[vp_bskn]`), and the picture right at
+frame 299. `vidbankwin` is the window's: the thumb 0 -> 220 on a bar of 256,
+and back. Broken on purpose - `vp_parm` out, the bank stays at 12 paused;
+`vp_bseek` out, it answers no seek; the window's arm skipped, the thumb
+never moves.
+
+##### 98.3.18.5 No XMS copy under the speaker's clock
+
+**With no card the clock is the speaker's own interrupts** (98.3.15), one a
+sample, and EVERY transport holds interrupts off for a copy: tier 1's `int
+15h AH=87h` for the whole 32 KB - ~11 ms on the owner's 286, ~240 samples at
+22 kHz - and tier 2's for each 1 KB piece (`XM_UCHUNK`, ~0.3 ms on the
+slowest 386, still six periods). A sample lost is time lost, not a frame
+late: the clock is what slowed. **The owner's 286 played a banked file in
+slow motion through the speaker and reported nothing late** - two copies a
+32 KB chunk, ~19% of every second at 270 KB/s - where the same file muted,
+on the PIT's frame-rate clock that an 11 ms mask only delays, played clean.
+
+So while `[vp_snd]` is `VP_SPK` (the speaker, or a Covox, 98.3.15.1) the
+player makes no XMS copy at all: no prefill, no banking (`vp_bstep`), no copy
+up behind the stream (`vp_xput`), no copy down (`vp_xfill` answers
+`vp_xquiet`, which hands whatever the bank held back to the stream's cursor,
+sought once to the head's offset). The disk serves, as with no pool. A card's
+DMA does not stop for a mask, so a Sound Blaster play banks as before; and
+M, which turns the speaker off mid-play, gives the bank back with the PIT's
+clock. A key's read at a seek still copies once - a seek closes the speaker
+anyway (98.3.15).
+
+`vidbankspk` is the gate: QEMU has no card, so a PCM8 clip is the speaker's;
+the bank's count is WATCHED over the whole play and must never leave 0.
+Broken on purpose - `vp_bstep`'s test out - it reaches 13, and a single look
+had read 0: a chunk banked is handed straight back by the next fill, so the
+copies run while the count looks empty. +53 bytes.
 
 #### 98.3.19 Under memory pressure: the keeper given up, and the player moved
 

@@ -4043,6 +4043,8 @@ vp_xrdat:
 ; after it seeds again from the name (18.4.8); CF=1 the disk's. Every other
 ; register kept
 vp_xfill:
+    cmp byte [vp_snd], VP_SPK       ; THE SPEAKER'S CLOCK (vp_xquiet): the
+    je vp_xquiet                    ; disk serves, the bank handed back
     cmp byte [vp_xbank], 0          ; A BANK (VIDEO-XMS-PLAN 4.1): its head
     jne vp_bfill                    ; chunk, if it has one
     cmp byte [vp_xon], 0
@@ -4113,8 +4115,19 @@ vp_xsay:
     mov di, vp_lines + 6 * VP_LINE
     cmp byte [vp_xbank], 0
     je .hold
-    mov si, vp_s_xbank              ; 'XMS bank: 3136 KB'
+    mov si, vp_s_xbank              ; 'XMS bank: 3136 KB', or with a session
+    call vp_puts                    ; banking, 'XMS bank: 320 of 3136 KB'
+    mov ax, [vp_xcnt]
+    or ax, ax
+    jz .bz
+    mov cl, 5
+    shl ax, cl
+    xor dx, dx
+    xor bl, bl
+    call vp_putn
+    mov si, vp_s_of
     call vp_puts
+.bz:
     mov ax, [vp_xbn]
     mov cl, 5
     shl ax, cl
@@ -4156,6 +4169,8 @@ vp_xsay:
 vp_xput:
     cmp byte [vp_xbank], 0          ; (a bank keeps nothing behind the play)
     jne .r
+    cmp byte [vp_snd], VP_SPK       ; (nor does a copy run under the speaker's
+    je .r                           ; clock: vp_xquiet)
     cmp byte [vp_xon], 0
     je .r
     cmp byte [vp_xfull], 0
@@ -4338,6 +4353,25 @@ vp_xstep:
 ; dropped, and the stream's cursor sought to the head's offset.
 ; =============================================================================
 
+; vp_xquiet - NO XMS COPY UNDER THE SPEAKER'S CLOCK (98.3.18.5): its clock
+; is its own interrupts, a sample each, and every transport holds them off
+; for a copy - int 15h's block move for the whole 32 KB on a 286, ~11 ms or
+; ~240 samples at 22 kHz, and the 386's for each KB of it - so a copy is
+; time the play loses without a frame ever reading late: the owner's 286,
+; banking every chunk, played in slow motion and said nothing. So the disk
+; serves, as with no pool: whatever the bank held is handed back to the
+; stream's cursor, sought once to the head's offset. Answers vp_xfill's CF=1,
+; every other register kept
+vp_xquiet:
+    cmp byte [vp_xbank], 0
+    je .r
+    cmp word [vp_xcnt], 0
+    je .r
+    call vp_bseed
+.r:
+    stc
+    ret
+
 ; vp_bflush - empty the bank (a seek, a Repeat's seam, a new block: the
 ; stream's cursor is about to be seeded somewhere else). Every register kept
 vp_bflush:
@@ -4472,6 +4506,8 @@ vp_bseed:
 vp_bstep:
     cmp byte [vp_xbank], 0
     je .no
+    cmp byte [vp_snd], VP_SPK       ; (vp_xquiet: no copy under the speaker)
+    je .no
     cmp byte [vp_xon], 0
     je .no
     cmp byte [vp_xbeof], 0
@@ -4565,6 +4601,97 @@ vp_bstep:
     pop ax
     ret
 
+; vp_pstep - A PAUSE BANKS (98.3.18.4): a session paused on the desktop
+; reads its bank on, a chunk a timer tick, so the time a user spends paused
+; is time the play has in hand. CF=1 nothing to do. UI task (the timer's)
+vp_pstep:
+    cmp byte [vp_sess], 0
+    je .no
+    cmp byte [vp_lsess], 0
+    jne .no
+    cmp byte [vp_ready], 0          ; (a bracket running reads its own)
+    jne .no
+    jmp vp_bstep
+.no:
+    stc
+    ret
+
+; vp_parm - the bracket is over with the session still on: if it banks,
+; the window's timer carries the bank on from the next tick
+vp_parm:
+    cmp byte [vp_sess], 0
+    je .out
+    cmp byte [vp_xbank], 0
+    je .out
+    push ax
+    push bx
+    mov ax, 1
+    mov bx, [vp_win]
+    call OSAPI_WM_TIMER
+    pop bx
+    pop ax
+.out:
+    ret
+
+; vp_bseek - A SEEK INTO THE BANK (98.3.18.4): the stream's new start,
+; [vp_ssp], inside what the bank holds - the chunks before it dropped, the
+; head the ring's chunk 0 and BX how far into it the start is; the cursors
+; are not touched, so the disk is not either. CF=1 it is not (behind the
+; bank's head, past what it holds, or a cluster over a chunk): the caller
+; flushes and seeds the reader as ever. Clobbers AX, CX, DX
+vp_bseek:
+    cmp byte [vp_xbank], 0
+    je .no
+    cmp byte [vp_xon], 0
+    je .no
+    cmp word [vp_xcnt], 0
+    je .no
+    cmp word [vp_clb], VP_CHUNK     ; (a cluster no bigger than a chunk)
+    ja .no
+    cmp word [vp_clb], 0
+    je .no
+    mov ax, [vp_ssp]
+    mov dx, [vp_ssp+2]
+    sub ax, [vp_xlo]
+    sbb dx, [vp_xlo+2]
+    jb .no                          ; behind the head: the ring's, or gone
+    cmp dx, 0x8000
+    jae .no
+    mov bx, ax
+    and bx, VP_CHUNK - 1            ; BX = into its chunk
+    mov cx, dx
+    shl cx, 1
+    test ax, 0x8000
+    jz .n
+    inc cx                          ; CX = the chunks before it
+.n:
+    cmp cx, [vp_xcnt]
+    jae .no
+    sub [vp_xcnt], cx               ; DROPPED: the head moves on by CX
+    mov ax, cx
+    shr ax, 1
+    add [vp_xlo+2], ax
+    test cl, 1
+    jz .lo
+    add word [vp_xlo], 0x8000
+    adc word [vp_xlo+2], 0
+.lo:
+    mov ax, [vp_xhs]
+    add ax, cx
+.m:
+    cmp ax, [vp_xbn]
+    jb .h
+    sub ax, [vp_xbn]
+    jmp short .m
+.h:
+    mov [vp_xhs], ax
+    inc word [vp_bskn]              ; (a gate's count, tests/vidbank.py)
+    clc
+    ret
+.no:
+    stc
+    ret
+
 ; vp_bbnc - DX = the bounce slot: the claim's last, after the ring's K slots
 ; and its mirror (vp_sstart claims it with them when there is a bank). From
 ; [vp_ring] at its use, the claim being movable between brackets (98.3.19.2).
@@ -4591,6 +4718,8 @@ vp_bbnc:
 ; idle throughout. Clobbers AX, BX, CX, DX, SI, DI
 vp_bpre:
     cmp byte [vp_xbank], 0
+    je .done
+    cmp byte [vp_snd], VP_SPK       ; (vp_xquiet: nothing to fill it for)
     je .done
     cmp byte [vp_xon], 0
     je .done
@@ -4692,9 +4821,33 @@ vp_bshort:
     ret
 
 ; vp_pfsay - the prefill's line: `Buffering NN%`, and `~Ns` (or `~Nm`) left
-; at the rate the fill has read at so far, into the box. Clobbers AX, BX,
-; CX, DX, SI, DI
+; at the rate the fill has read at so far, into the box - or in the window,
+; whose box the full screen's text is not (98.3.13), THE THUMB as its meter:
+; it crosses the bar as the bank fills, and the first frame puts it back.
+; Clobbers AX, BX, CX, DX, SI, DI
 vp_pfsay:
+    cmp byte [vp_winm], 0
+    je .fs
+    mov ax, [vp_xcnt]
+    cmp ax, [vp_pfn]
+    jb .wp
+    mov ax, [vp_pfn]
+.wp:
+    mov cx, [vp_lbw]
+    sub cx, VP_THW
+    mul cx
+    div word [vp_pfn]               ; AX = the thumb's x in the bar
+    cmp ax, [vp_wtx]
+    je .wr
+    mov bx, [vp_wtx]
+    mov [vp_wtx], ax
+    add ax, [vp_tx1]
+    add bx, [vp_tx1]
+    call vp_wmove
+    mov word [vp_wtk], 0xFFFF       ; (the first frame asks it again)
+.wr:
+    ret
+.fs:
     mov di, vp_pfbuf
     mov si, vp_s_buf
 .c:
@@ -4756,6 +4909,20 @@ vp_pfsay:
     mov [di], bl
     inc di
 .end:
+    mov cl, [vo_cmax]               ; ONE WIDTH ALL THROUGH: padded to the
+    cmp cl, VO_MAXC                 ; widest the box takes here, so a change
+    jbe .pw                         ; is drawn over the last (vo_post)
+    mov cl, VO_MAXC
+.pw:
+    xor ch, ch
+    add cx, vp_pfbuf
+.pad:
+    cmp di, cx
+    jae .pz
+    mov byte [di], ' '
+    inc di
+    jmp short .pad
+.pz:
     mov byte [di], 0
     mov si, vp_pfbuf                ; DRAWN ONLY WHEN IT CHANGED: every pass
     cmp byte [vo_kind], VOK_BUF     ; of the loop asks, and a box drawn again
@@ -4806,7 +4973,10 @@ vp_ontimer:
     call OSAPI_GET_TICKS
     mov dx, ax
     call vp_xstep
+    jnc .tm
+    call vp_pstep                   ; ...or A PAUSED SESSION'S BANK, a chunk
     jc .said                        ; nothing left, or no hold: no next
+.tm:
     call OSAPI_GET_TICKS
     sub ax, dx
     jnz .arm
@@ -7612,6 +7782,8 @@ vp_spos:
     mov [vp_lsrc], si
 .nl0:
     ; --- the reader: from the cluster boundary under the stream's start
+    call vp_bseek                   ; ...or from INSIDE THE BANK, if it holds
+    jnc .inbank                     ; the place (98.3.18.4)
     call vp_bflush                  ; (a bank holds the old place's chunks)
     mov ax, [vp_clb]
     dec ax                          ; a cluster's mask
@@ -7629,6 +7801,7 @@ vp_spos:
     mov [vp_cur+FSEQ_OFF], ax
     mov ax, [vp_ssp+2]
     mov [vp_cur+FSEQ_OFF+2], ax
+.inbank:
     ; --- the hook's state: before the first super-packet
     xor ax, ax
     mov [vp_lc], ax
@@ -7819,6 +7992,7 @@ vp_srun:
     call vp_fmt                     ; now: Play resumes it)
     call vp_repaint
 .out:
+    call vp_parm                    ; (a session left paused banks on)
     pop di
     pop dx
     pop cx
@@ -14308,6 +14482,7 @@ vp_hxp:       dw 0                  ; ...and its prefill, KB (0: 10 s at its
 vp_pfok:      db 0                  ; 1: the next ring fill is a session's first
 vp_pfwait:    db 0                  ; 1: the prefill holds when done (a gate's)
 vp_pfn:       dw 0                  ; the prefill's slots
+vp_bskn:      dw 0                  ; seeks the bank answered (a gate's count)
 vp_pft0:      dw 0                  ; ...and the tick it began
 vp_s_buf:     db 'Buffering ', 0
 vp_pfbuf:     times VO_MAXC + 1 db 0

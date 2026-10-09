@@ -57,18 +57,20 @@ import os88ui                                               # noqa: E402
 import os88vid as vid                                       # noqa: E402
 import xmcheck                                              # noqa: E402
 from cycweb import pkg_syms                                 # noqa: E402
-from vidxms import Q, u16, u32                              # noqa: E402
+from vidxms import Q, u16, u32, live_clip                   # noqa: E402
 from pxswin import qpoke                                     # noqa: E402
 
 NF, FPS, WB, H = 300, 30.0, 80, 200
 HOLD0 = 20
+BPS = 64 * 1024                 # B:'s throttle: a slow period disk
 ASK_KB, PRE_KB = 4096, 256          # the header's bank and prefill
 VOK_LOWMEM = 7
+VP_SPK = 2                      # [vp_snd]: the speaker plays it
 VOK_BUF = 10                    # vosd.inc: the box says the prefill
 CHUNK = 32768
 
 
-def clip(tmp):
+def clip(tmp, sound=False):
     """300 frames of 640 x 200 at ~4.5 KB of change each: ~1.35 MB, which
     is more than `-m 2` has above 1 MB and less than a 1.44 MB floppy"""
     import random
@@ -76,14 +78,23 @@ def clip(tmp):
     cv = bytearray(WB * H)
     paths = []
     for f in range(NF):
-        for _ in range(490):
+        for _ in range(400 if sound else 490):
             a = rnd.randrange(WB * H - 8)
             cv[a:a + 8] = bytes(rnd.getrandbits(8) for _ in range(8))
         p = os.path.join(tmp, "f%03d.pbm" % f)
         vid._write_pbm(p, WB, H, bytes(cv))
         paths.append(p)
     out = os.path.join(tmp, "CLIP.V88")
-    vid.encode_frames(paths, out, FPS, None, "lin80", "vidbank clip")
+    wav = None
+    if sound:                   # (the speaker's arm: PCM8, and no card)
+        import math
+        rate = 8000
+        wav = os.path.join(tmp, "a.wav")
+        vid._write_wav(wav, rate, bytes(
+            128 + int(90 * math.sin(2 * math.pi * 440.0 * i / rate))
+            for i in range(int(NF / FPS * rate))))
+    vid.encode_frames(paths, out, FPS, wav, "lin80", "vidbank clip",
+                      audio_fmt=vid.AUD_PCM8)
     # THE FILE'S ASK (98.3.18.3), as --bank 4096 --prefill would write it:
     # a bank bigger than this machine's, and a prefill of PRE_KB
     d = bytearray(open(out, "rb").read())
@@ -95,6 +106,14 @@ def clip(tmp):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--arm", choices=("fs", "win", "spk"), default="fs",
+                    help="fs: the full screen's legs; win: the prefill in "
+                         "the WINDOW, where the thumb is its meter; spk: "
+                         "the PC SPEAKER as the clock, under which no XMS "
+                         "copy may run")
+    ap.add_argument("--bps", type=int, default=BPS,
+                    help="B:'s throttle, bytes a second (0 none): slow "
+                         "enough that the bank is seen filling")
     ap.add_argument("--mem", type=int, default=2,
                     help="QEMU -m (MB): the pool is what is above the first")
     a = ap.parse_args()
@@ -107,7 +126,8 @@ def main():
             sys.exit("vidbank: no %s - run `make`" % p)
     bad = []
     with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "build")) as tmp:
-        v88 = clip(tmp)
+        v88 = live_clip(tmp) if a.arm == "win" else \
+            clip(tmp, sound=a.arm == "spk")
         size = os.path.getsize(v88)
         rd88 = vid.Reader(v88)
         tg = vid.Geom(vid.LAY_LIN80, WB, 480)
@@ -123,7 +143,7 @@ def main():
             subprocess.run([sys.executable, "tools/os88disk.py", "-o", out,
                             "--size", "1440"] + files, check=True,
                            capture_output=True)
-        q = Q(tmp, sysimg, disk, a.mem)
+        q = Q(tmp, sysimg, disk, a.mem, bps=a.bps)
         for _ in range(150):
             if os.path.exists(q.sock):
                 break
@@ -134,8 +154,9 @@ def main():
 
         def wait(cond, what, secs):
             if not os88qemu.acted(q, cond, secs=secs, what=what, poll=0.05):
-                raise SystemExit("vidbank: timed out waiting for %s (%s)"
-                                 % (what, state()))
+                raise SystemExit("vidbank: timed out waiting for %s (%s, "
+                                 "bank seeks %d)" % (what, state(),
+                                                     rw("vp_bskn")))
 
         x, y = geom.drive_pt(q, "B", S)
         xmcheck.dblclick(q.sock, x, y)
@@ -230,12 +251,102 @@ def main():
             qpoke(q, [(base + syms["vp_stopat"], struct.pack("<H", nxt)),
                       (base + syms["vp_held"], b"\0")])
 
+        if a.arm == "spk":
+            # --- THE SPEAKER'S CLOCK (98.3.18.5): no card here, so a PCM8
+            # play is the speaker's, whose clock is its own interrupts - and
+            # every XMS copy holds them off. No prefill, and the bank stays
+            # empty while it plays; the disk serves
+            q.hmp("sendkey p")
+            wait(lambda: rb("vp_ready") == 1, "the play to start", 60)
+            wait(lambda: rw("vp_done") >= 120, "frame 120", 60)
+            q.hmp("stop")
+            st = (rb("vp_snd"), rw("vp_pfn"), rw("vp_xcnt"), rw("vp_lc"))
+            q.hmp("cont")
+            print("   the speaker playing: snd %d, prefill %d, the bank %d, "
+                  "%d chunks read (%s)" % (st + (state(),)))
+            if st[0] != VP_SPK:
+                bad.append("the play is not the speaker's (snd %d)" % st[0])
+            if st[1] or st[2]:
+                bad.append("under the speaker's clock the bank took %d "
+                           "slots and the prefill %d" % (st[2], st[1]))
+            most = [st[2]]              # the bank's count, ALL THROUGH: a
+                                        # chunk banked is handed straight
+            def ended():                # back by the next fill, so one look
+                most[0] = max(most[0], rw("vp_xcnt"))   # can read 0 with
+                return rb("vp_ready") == 0 and \
+                    rb("vp_played") == 1    # copies running all the while
+            wait(ended, "the play to end", 120)
+            print("   the play: %s; the bank's most %d" % (state(), most[0]))
+            if most[0]:
+                bad.append("under the speaker's clock the bank held %d "
+                           "slots at once" % most[0])
+            if rw("vp_done") != NF or rb("vp_err"):
+                bad.append("the speaker's play drew %d of %d (error %d)"
+                           % (rw("vp_done"), NF, rb("vp_err")))
+            q.close()
+            if bad:
+                print("\nvidbank (spk): FAIL")
+                for b in bad:
+                    print("  - " + b)
+                return 1
+            print("\nvidbank (spk): ok")
+            return 0
+
+        if a.arm == "win":
+            # --- THE WINDOW (98.3.18.4): a 160 x 120 stream the window
+            # hosts, bigger than the pool. The full screen's box is not the
+            # window's, so the THUMB is the prefill's meter: it crosses the
+            # bar as the bank fills, and the first frame puts it back
+            x0 = rw("vp_wtx")
+            q.hmp("sendkey p")
+            xs = []
+
+            def meter():
+                if rb("vp_winm") == 1 and rb("vp_ready") == 0 and \
+                        rw("vp_pfn"):
+                    xs.append(rw("vp_wtx"))
+                return rb("vp_ready") == 1
+            wait(meter, "the play to start in the window", 120)
+            q.hmp("stop")
+            st = (rb("vp_winm"), rw("vp_pfn"), rw("vp_xcnt"), rw("vp_lbw"))
+            q.hmp("cont")
+            ok = os88qemu.acted(q, lambda: rw("vp_wtx") < max(xs + [0]),
+                                secs=30, what="the thumb back", poll=0.05)
+            print("   in the window %d: the prefill %d slots, the bank %d; "
+                  "the thumb %d -> %d (%d samples) on a bar of %d, back to "
+                  "%d" % (st[0], st[1], st[2], x0, max(xs + [0]), len(xs),
+                          st[3], rw("vp_wtx")))
+            if st[0] != 1 or not st[1] or st[2] < st[1]:
+                bad.append("the window's play: window %d, prefill %d, bank "
+                           "%d" % st[:3])
+            if len(xs) < 3 or max(xs) < st[3] // 2:
+                bad.append("the thumb did not cross the bar as the bank "
+                           "filled: %r" % xs[-8:])
+            if not ok:
+                bad.append("the first frame did not put the thumb back")
+            q.hmp("sendkey esc")
+            q.close()
+            if bad:
+                print("\nvidbank (win): FAIL")
+                for b in bad:
+                    print("  - " + b)
+                return 1
+            print("\nvidbank (win): ok")
+            return 0
+
         # --- 2: THE PREFILL fills the bank before frame 0 (98.3.18.3): the
-        # file asks nothing, so 10 s at its mean - more than the bank holds
-        keys = [k[0] for k in rd88.keys if HOLD0 < k[0] < NF]
+        # file asks 256 KB, and the box says how far and how long, while
+        # B: reads at a period disk's rate
+        import re
         poke("vp_stopat", HOLD0)
         q.hmp("sendkey p")
-        wait(lambda: rb("vp_ready") == 1, "the play to start", 60)
+        said = set()
+
+        def filling():
+            if rb("vo_kind") == VOK_BUF:
+                said.add(q.read(base + syms["vo_text"], 20).split(b"\0")[0].rstrip())
+            return rb("vp_ready") == 1
+        wait(filling, "the play to start", 120)
         q.hmp("stop")
         pfn, cnt0, done0 = rw("vp_pfn"), rw("vp_xcnt"), rw("vp_done")
         ask = (rw("vp_hxb"), rw("vp_hxp"))
@@ -244,6 +355,8 @@ def main():
         print("   the first frame due: the file asks %d KB, %d first; the "
               "prefill %d slots, the bank has %d, %d drawn, toast %d"
               % (ask + (pfn, cnt0, done0, toast)))
+        print("   the box said: %s" % ", ".join(
+            sorted(t.decode("ascii", "replace") for t in said)))
         if ask != (ASK_KB, PRE_KB) or pfn != PRE_KB // 32 or cnt0 < pfn:
             bad.append("the file's ask %r: the prefill asked %d slots of %d "
                        "and the bank had %d at the first frame"
@@ -251,17 +364,82 @@ def main():
         if toast != VOK_LOWMEM:
             bad.append("a bank of %d KB under the file's %d did not say Low "
                        "memory (toast %d)" % (bn * 32, ASK_KB, toast))
-        hold_at(HOLD0, "the first")
-        check(HOLD0)
-        # --- 3: every key frame right
-        for n in keys:
-            release(n)
-            hold_at(n, "a key frame")
-            check(n)
-        # --- 4: to the end
+        if not any(re.match(rb"Buffering \d{1,2}% ~\d+[sm]$", t)
+                   for t in said):
+            bad.append("the box never said how far and how long: %r"
+                       % sorted(said))
+
+        # --- 3: F to the desktop, PAUSED: the window's timer banks on
+        # (98.3.18.4) - the clip cannot play in the window, so the session
+        # waits in it
+        wait(lambda: rb("vp_held") == 1 and rw("vp_done") == HOLD0,
+             "the hold before frame %d" % HOLD0, 60)
+        for _ in range(4):              # (pressed again only while the
+            if rb("vp_ready") == 0:     # bracket still runs: a key can be
+                break                   # lost, and a second press there
+            q.hmp("sendkey f")          # cannot toggle back)
+            os88qemu.acted(q, lambda: rb("vp_ready") == 0, secs=2,
+                           what="F", poll=0.05)
+        wait(lambda: rb("vp_sess") == 1 and rb("vp_ready") == 0,
+             "the session paused on the desktop", 30)
+        c0 = rw("vp_xcnt")
+        if c0 >= bn:
+            bad.append("the bank was full before the pause - the leg "
+                       "proves nothing (%s)" % state())
+        else:
+            ok = os88qemu.acted(q, lambda: rw("vp_xcnt") > c0 + 1, secs=30,
+                                what="the bank to fill paused", poll=0.1)
+            print("   paused on the desktop: the bank %d -> %d slots (%s)"
+                  % (c0, rw("vp_xcnt"), state()))
+            if not ok:
+                bad.append("paused on the desktop, the bank stayed at %d of "
+                           "%d" % (c0, bn))
+        wait(lambda: rw("vp_xcnt") == bn or rb("vp_xbeof"),
+             "the bank to fill while paused", 120)
+        # --- 4: Play again: on from where it paused, the bank's chunks first
+        release(60)
+        q.hmp("sendkey p")
+        hold_at(60, "after the pause")
+        check(60)
+        wait(lambda: rw("vp_xcnt") == bn or rb("vp_xbeof"),
+             "the bank to fill behind the hold", 120)
+        # --- 5: A SEEK INTO THE BANK: Right, held at frame 60. The player
+        # counts the presses it got (a QEMU key can repeat) and goes five
+        # seconds a press on from the frame on the glass, to the last key at
+        # or before - whose super-packet is in the bank, so the ring is
+        # handed the bank's chunk under it and nothing is read again. The
+        # target is read off the player in the half second before it seeks
+        q.hmp("stop")
+        xlo0, cnt1 = rd("vp_xlo"), rw("vp_xcnt")
+        q.hmp("cont")
+        q.hmp("sendkey right")
+        wait(lambda: rb("vo_skp") == 1, "the seek's press", 10)
+        q.hmp("stop")
+        skn = struct.unpack("<h", q.read(base + syms["vp_skn"], 2))[0]
+        skb = rw("vp_skb")
+        to = min(skb + skn * 5 * int(FPS), NF - 1)
+        kf = [k for k in rd88.keys if k[0] <= to][-1]
+        stop = next((k[0] for k in rd88.keys if k[0] > kf[0]), NF - 1)
+        qpoke(q, [(base + syms["vp_stopat"], struct.pack("<H", stop))])
+        q.hmp("cont")
+        inbank = xlo0 <= kf[3] < xlo0 + cnt1 * CHUNK
+        print("   the seek: %d press(es) from frame %d -> key %d, its "
+              "super-packet at %d; the bank holds %d..%d (%s)"
+              % (skn, skb, kf[0], kf[3], xlo0, xlo0 + cnt1 * CHUNK,
+                 "inside" if inbank else "OUTSIDE"))
+        if not inbank:
+            bad.append("key %d is not inside the bank - the seek leg "
+                       "proves nothing" % kf[0])
+        hold_at(stop, "after the seek", 120)
+        check(stop)
+        print("   seeks the bank answered: %d" % rw("vp_bskn"))
+        if rw("vp_bskn") != 1:
+            bad.append("the seek into the bank was answered %d times by it"
+                       % rw("vp_bskn"))
+        # --- 6: to the end
         release(0xFFFF)
         wait(lambda: rb("vp_ready") == 0 and rb("vp_played") == 1,
-             "the first play to end", 120)
+             "the first play to end", 180)
         print("   first play: %s" % state())
         if rw("vp_done") != NF or rb("vp_err"):
             bad.append("the play through the bank drew %d of %d (error %d)"
@@ -278,7 +456,7 @@ def main():
             wait(lambda: rb("vo_kind") == VOK_BUF and rw("vp_xcnt") == bn,
                  what, 120)
             q.hmp("stop")
-            txt = q.read(base + syms["vo_text"], 20).split(b"\0")[0]
+            txt = q.read(base + syms["vo_text"], 20).split(b"\0")[0].rstrip()
             st = (txt, rb("vo_on"), rb("vp_ready"), rw("vp_done"))
             q.hmp("cont")
             print("   %s: the box says %r (on %d), ready %d, %d drawn"

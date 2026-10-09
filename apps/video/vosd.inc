@@ -371,6 +371,16 @@ vo_post:
     je .un                          ; and every page it is on is put back
     cmp byte [vo_chg], 0
     je .dr
+    cmp byte [vp_flip], 0           ; ...unless it is A NEW TEXT AS WIDE as
+    jne .un                         ; the one up, on the one page: drawn
+    cmp byte [vo_drawn], 1          ; straight over it, ground and glyph in
+    jne .un                         ; one pass - put back first, the box
+    mov al, [vo_n]                  ; was off the glass between, which a
+    cmp al, [vo_dn]                 ; prefill's line changing every chunk
+    jne .un                         ; made a flicker (98.3.18.3)
+    mov byte [vo_chg], 0
+    xor bl, bl
+    jmp vo_draw
 .un:
     call vo_unall
     mov byte [vo_chg], 0

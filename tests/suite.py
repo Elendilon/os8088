@@ -10891,7 +10891,7 @@ SOAK = [
         "refused",
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
-    Row("vidbank", "soak", py("tests/vidbank.py"), 60.0,
+    Row("vidbank", "soak", py("tests/vidbank.py"), 150.0,
         "docs/plans/VIDEO-XMS-PLAN.md 4, SPEC.md 98.3.18.2: a streamed .V88 "
         "BIGGER than the XMS pool, played through a BANK - a FIFO of 32 KB "
         "chunks ahead of the ring. WHY QEMU: docs/TESTING.md's closed list, "
@@ -10902,6 +10902,27 @@ SOAK = [
         "is still right, while the play dies past the bank's end. Broken on "
         "purpose - vp_bstep out of the reader's loop - the bank stays empty; "
         "vp_bfill's head left unmoved, the play errors at frame 100; vp_bpre out of the bracket, the prefill fills nothing. The clip asks a 4 MB bank and 256 KB first (98.3.18.3): 8 slots before the first frame and Low memory, and with the gate's hold on the prefill the box says Buffering 100%, Esc cancels and Space plays from the bank with B: blank",
+        needs=("qemu", "nasm"),
+        wants=("build/video.o88", "build/os8088.img")),
+    Row("vidbankwin", "soak", py("tests/vidbank.py", "--arm", "win"), 75.0,
+        "SPEC.md 98.3.18.4: the bank's PREFILL IN THE WINDOW, where the full "
+        "screen's box is not the window's and the play bar's THUMB is the "
+        "meter. A 160 x 120 stream bigger than the pool, B: throttled to 64 "
+        "KB/s: the thumb crosses the bar as the bank fills (0 -> 220 of a "
+        "256 bar) and the first frame puts it back. Broken on purpose - "
+        "vp_pfsay's window arm skipped - the thumb never moves",
+        needs=("qemu", "nasm"),
+        wants=("build/video.o88", "build/os8088.img")),
+    Row("vidbankspk", "soak", py("tests/vidbank.py", "--arm", "spk"), 75.0,
+        "SPEC.md 98.3.18.5: NO XMS COPY UNDER THE SPEAKER'S CLOCK. QEMU has "
+        "no card, so a PCM8 play is the speaker's, whose clock is its own "
+        "interrupts and every transport holds them off for a copy - the "
+        "owner's 286 banked every chunk and played in slow motion with "
+        "nothing late. The prefill is skipped and the bank's count is "
+        "watched over the WHOLE play, and must never leave 0. Broken on "
+        "purpose - vp_bstep's speaker test out - it reaches 13: a single "
+        "look read 0, a chunk banked being handed straight back by the next "
+        "fill",
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
     Row("vidxmsidle", "soak", py("tests/vidxms.py", "--arm", "idle"), 45.0,
