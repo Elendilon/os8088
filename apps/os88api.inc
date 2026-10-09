@@ -1779,13 +1779,27 @@ CPU_F_X87           equ 0x08     ; an 8087/287/387 IS IN THE SOCKET, probed
                                  ; second drive icon on the same sectors.
                                  ;
                                  ; It answers about BIOS-transport volumes and
-                                 ; only those. Your own rows are yours to
+                                 ; only those - and one OSAPI_VOL_TAKE handed
+                                 ; to a driver, still the boot partition. Your own rows are yours to
                                  ; recognise: the kernel never learns their
                                  ; partition base (it hands you a
                                  ; volume-relative LBA and you add it), and a
                                  ; DV_UNIT that is your own volume handle would
                                  ; collide with an int 13h drive number for
                                  ; free. Unfenced, because it changes nothing
+%define OSAPI_VOL_TAKE      KERNEL_SEG:0x0467   ; DL, BX:CX = OSAPI_VOL_AT's
+                                 ; partition, AH = your own volume handle.
+                                 ; out CF=0 and AL = the volume index, which
+                                 ; YOU now read: the kernel's BIOS volume for
+                                 ; that partition, mounted as it is, handed to
+                                 ; your DSV_BLK (SPEC.md 52.1.1). For a disk
+                                 ; you have PROVED is the one that int 13h
+                                 ; drive reaches. OSAPI_VOL_DEL gives it BACK
+                                 ; to the BIOS rather than freeing it, so the
+                                 ; system volume survives your unload; and
+                                 ; OSAPI_VOL_AT still answers for it. CF=1 =
+                                 ; no BIOS volume is that partition, or you
+                                 ; are not a driver. DRVC_DISK drivers only
 
 ; --- a REDIRECTED volume's listing (SPEC.md 62.9.1) -------------------------
 ; A DRVC_FILE DRIVER's slot, and the narrowest fence in the table: it is legal

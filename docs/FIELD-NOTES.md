@@ -3354,5 +3354,6 @@ drive instead - and PCWolf played in 15.1 s with clean sound.
 
 **The fix**: rung 1 takes a drive the BIOS also knows on a 286 or better,
 once LBA 0 read through both rungs agrees (SPEC.md 52.1.1), so no BIOS
-setting is needed. `tests/hdtake.py` is the gate. The boot partition of an
-installed machine is still read through int 13h (52.10.3).
+setting is needed - and the boot partition of an installed machine (a video
+disk is one partition) is handed to the driver too, `OSAPI_VOL_TAKE`, and
+given back to the BIOS when the driver goes. `tests/hdtake.py` is the gate.

@@ -831,6 +831,8 @@ hd_bn_rst:   dw 0               ; ...and controller resets, which are retries
                                 ; probe that fills it (SPEC.md 52.13.6)
 
 hd_pslot:    db 0               ; the partition hd_mount is working on
+hd_take:     db 0               ; 1 while hd_mount_one TAKES the kernel's
+                                ; volume rather than adding one (52.1.1)
 hd_wantmnt:  db 0               ; bit n = mount device n at DRVV_READY: it
                                 ; was mounted last session, or the probe
                                 ; just found it (SPEC.md 52.6.1)

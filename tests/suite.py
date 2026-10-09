@@ -1942,6 +1942,17 @@ SOAK = [
         needs=("qemu", "nasm"), serial=True, timeout=300,
         wants=("build/os8088.img", "build/apps.img", "build/hdd.bin",
                "build/calc.o88")),
+    Row("hdtakeboot", "soak", py("tests/hdtake.py", "--boot"), 30.0,
+        "SPEC.md 52.1.1 on an INSTALLED machine (QEMU, booted from the IDE "
+        "disk): C:, the kernel's own int 13h boot volume, must be HANDED to "
+        "HDD.DRV by OSAPI_VOL_TAKE (row kind DVK_DRV, DV_BUNIT 80h) and a "
+        "package launch from it work; unticking the driver must GIVE C: "
+        "BACK to the BIOS rather than freeing the system volume, and "
+        "ticking it again take it again",
+        needs=("qemu", "nasm"), serial=True, timeout=400,
+        wants=("build/apps.img", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin", "build/hdd.drv", "build/ctrl.drv",
+               "build/calc.o88")),
     Row("hdtakeblank", "soak", py("tests/hdtake.py", "--blank"), 10.0,
         "SPEC.md 52.1.1's refusal: the same disk with LBA 0's 55AA wiped - "
         "what two blank disks of one geometry would share - and the BIOS's "

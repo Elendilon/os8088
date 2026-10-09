@@ -58,7 +58,16 @@ hd_mount:
     jnc .have                   ; this one is already mounted - by us...
     mov al, [hd_sel]            ; ...or by the KERNEL, which adopted the
     call hd_kvol                ; partition it booted from before we were
-    jnc .have                   ; loaded at all (SPEC.md 52.10.3). Mounting it
+    jc .mount                   ; loaded at all (SPEC.md 52.10.3). Mounting it
+    mov al, [hd_sel]            ; (hd_kvol answered in AL)
+    call hd_dev_row             ; ...unless rung 1 TOOK this drive from the
+    cmp byte [di+HDD_BIOS], 0   ; BIOS (52.1.1): then the kernel's volume is
+    je .have                    ; handed to us as it is, OSAPI_VOL_TAKE in
+    inc byte [hd_take]          ; hd_mount_one where it would add one
+    call hd_mount_one
+    dec byte [hd_take]
+    jmp short .next
+.mount:
                                 ; again is a second icon on the same sectors.
                                 ; It is hdcom.inc's and takes the DEVICE as an
                                 ; argument, because the installer asks the
@@ -143,6 +152,8 @@ hd_mount_one:
 .secs:                          ; OSAPI_VOL_ADD's CX: say 'unknown', which
     mov [bx+HDV_SECS], ax       ; the kernel's rule 13 accepts (SPEC.md 18.7.5)
 
+    cmp byte [hd_take], 0
+    jne .take
     mov cx, ax                  ; = [bx+HDV_SECS]
     mov al, [bx+HDV_VOLH]       ; our own handle IS the row index
     xor dx, dx                  ; no donated listing claim: the kernel's own
@@ -160,6 +171,19 @@ hd_mount_one:
 .badvol:
     call hd_unmount_row         ; typed FAT, is not FAT: give it all back and
     jmp short .out              ; leave the loop to try the next slot
+.take:                          ; THE KERNEL'S VOLUME, ours from here: mounted
+    push bx                     ; already, so nothing is listed again
+    mov ah, [bx+HDV_VOLH]
+    mov cx, [bx+HDV_BASE]
+    mov bx, [bx+HDV_BASE+2]
+    mov dl, [di+HDD_BIOS]       ; (DI: hd_mount's device row)
+    call OSAPI_VOL_TAKE
+    pop bx
+    jc .novol
+    mov [bx+HDV_VOL], al
+    mov byte [bx+HDV_USED], 1
+    inc byte [hd_nmnt]
+    jmp short .out
 .novol:
     mov byte [bx+HDV_USED], 0
 .full:

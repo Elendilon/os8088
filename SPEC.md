@@ -86464,17 +86464,44 @@ an XT-IDE ROM, 15.4% of pulses lost while the ring refills; files made for a
   row, 80h; the device is an IDE row now), so that drive's saved typed
   geometry is ignored once; it is probed, the geometry is the BIOS's, and
   the automount takes every probed device anyway (§52.6.1).
-- **Not the boot partition's own reads.** The kernel adopts the partition it
-  booted from as a `DVK_BIOS` row before any driver loads (§52.10.3), and
-  those stay int 13h - a machine booted from floppy, the owner's case, has
-  none.
+- **And the boot partition too: `OSAPI_VOL_TAKE`.** The kernel adopts the
+  partition it booted from as a `DVK_BIOS` row before any driver loads
+  (§52.10.3), and a video disk is one partition - so a driver that could not
+  take that row would leave every video on C: of an installed machine
+  playing slow, and the same file fine on D:. `hd_mount`, finding a
+  partition the kernel already carries (`hd_kvol`) on a drive it TOOK,
+  calls `hd_mount_one` with `[hd_take]` set, and that asks the kernel for
+  the row in place of adding one: slot 0x0467, an X cell behind
+  `osapi_vol_fence` (so the class stamped is the caller's), `OSAPI_VOL_AT`'s
+  arguments plus the driver's handle in AH. The row becomes `DVK_DRV`,
+  mounted as it is - nothing is listed again, and `dsk_xfer` reads the row
+  on every transfer, so the next one is the driver's.
+  - **It keeps its int 13h drive in `DV_BUNIT`** (row offset 14, one of the
+    two bytes DV_SEG's retirement left spare) and its base stays in
+    `dsk_vbase`, so `OSAPI_VOL_AT` still names it - the installer still
+    refuses the running volume, and `hd_mount` still finds it its own.
+  - **`dsk_vol_del` GIVES IT BACK** rather than freeing it: kind `DVK_BIOS`,
+    unit the BIOS's, class 0, at IF = 0. Both of the kernel's ways of
+    dropping a driver's volumes end there - an unmount's `OSAPI_VOL_DEL`
+    and `dsk_vol_drop_drv_x` at an unload, which is also a hibernate's
+    detach and the DOS box's handoff - and without it every one of them
+    FREES THE SYSTEM VOLUME: measured, the row went to `DVK_FREE` and the
+    driver could not even be loaded again off it.
+  - **+84 resident bytes of kernel** on both builds (`.text` +6, the cell;
+    `.cold` +78), and none of `HDD.DRV`'s image: the driver's half fits in
+    padding the image already had.
 
 `hdtake` is the gate, on QEMU - the one emulator here with a 286-class CPU and
 a BIOS that knows an IDE disk: device row 0 must be IDE on 1F0h unit 0 with
 `HDD_BIOS` 80h, the only row, and C: must list a package and launch it
-through rung 1. +180 bytes of `HDD.DRV`'s image (3,584 -> 3,764 with 16 of
-bss, inside the 4 KB claim it already took), all of it in the attach-only
-run that `hd_mbr` is laid over and the 180 bytes past it.
+through rung 1. `hdtakeblank` is the refusal, the signature wiped.
+`hdtakeboot` is the installed machine: C: handed over (`DVK_DRV`,
+`DV_BUNIT` 80h) and a package launched off it, the driver unticked and C:
+given back to the BIOS intact, ticked again and taken again. Broken on
+purpose - the take skipped, or the give-back - it goes red at B1, or at B3
+with the system volume freed. +180 bytes of `HDD.DRV`'s image (3,584 ->
+3,764 with 16 of bss, inside the 4 KB claim it already took), all of it in
+the attach-only run that `hd_mbr` is laid over and the 180 bytes past it.
 
 ### 52.2 The disk tool — one window, one button
 

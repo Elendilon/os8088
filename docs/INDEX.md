@@ -151,6 +151,7 @@ Read first: [§18 disk.inc — floppy I/O (BIOS int 13h) + the FAT driver](../SP
 | `0x01FE` | `OSAPI_VOL_DEL` | AL = a volume index this driver registered. Cannot fail |
 | `0x0204` | `OSAPI_VOL_MOUNT` | AL = a volume index; mount and list it. out CF=1 = not a readable FAT12/16 volume. UI-TASK CONTEXT ONLY, like every other file slot |
 | `0x02F6` | `OSAPI_VOL_AT` | DL = an int 13h drive number, BX:CX = a partition's 32-bit base LBA (BX = the high word)... |
+| `0x0467` | `OSAPI_VOL_TAKE` | DL, BX:CX = OSAPI_VOL_AT's partition, AH = your own volume handle... |
 | `0x02D9` | `OSAPI_FS_ENT` | ES:SI -> a DSK_DE_SIZE-byte staged SPEC.md 19.1 entry in YOUR OWN segment: name at 0 (NUL-terminated 8.3), type at 16 (0 file / 1 package / 2 folder... |
 | `0x02DF` | `OSAPI_FS_PROG` | AX = bytes moved SINCE YOUR LAST REPORT - a running total would advance the bar by the whole file every call... |
 | `0x0328` | `OSAPI_VOL_SYS` | out BL = the volume this machine BOOTED from - A: on a floppy machine, the installed partition on one that boots from its hard disk... |
