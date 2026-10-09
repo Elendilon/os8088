@@ -341,6 +341,8 @@ vp_entry:
     call OSAPI_WM_ONWAKE
     mov ax, vp_ontimer              ; the hold's loading (98.3.18); refused
     call OSAPI_WM_ONTIMER           ; on kern_small, which has no XMS anyway
+    mov ax, vp_onclose              ; THE CLOSE ENDS THE SESSION FIRST
+    call OSAPI_WM_ONCLOSE           ; (98.3.18.10)
     mov word [vp_msg], vp_s_none
     call vp_fmt
     mov bx, [vp_win]
@@ -9517,6 +9519,20 @@ vp_sstop:
     mov byte [vp_stopq], 0
     pop bx
     pop ax
+    ret
+
+; vp_onclose - W_ONCLOSE (SPEC.md 75.1), SI = the window, the lock held: the
+; close is let happen (CF=0), but a session left paused - an Esc out of the
+; bracket, still banking from the timer - is STOPPED first, by the same
+; vp_sstop a Stop takes, and the file's hold in XMS or EMS given back, so the
+; teardown finds nothing of a play alive (98.3.18.10)
+vp_onclose:
+    push ax
+    mov al, 2                       ; (the window is going: nothing painted)
+    call vp_stopfor
+    call vp_xfree
+    pop ax
+    clc
     ret
 
 ; vp_stopfor - AL = vp_sstop's mode: the session over, if there is one, for

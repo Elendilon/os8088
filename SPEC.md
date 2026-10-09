@@ -162903,6 +162903,41 @@ key 1, with `[vp_mwhy]` 3 and the bank's kind kept. `vidbankspkfast`, a
 yardstick of FFFFh, keeps the speaker from key 1. Broken on purpose - the
 compare's branch reversed - each fails the other's assertion.
 
+##### 98.3.18.10 The close box on a load still running (2026-10-09)
+
+**The player has a close negotiator (SPEC.md 75.1), and it stops what is
+running before the kernel frees the instance.** `vp_onclose` lets every
+close happen (CF=0), but first ends any session by the same `vp_sstop` a
+Stop takes (mode 2: the window is going, nothing is painted) and gives the
+file's hold back (`vp_xfree`: the XMS block, or the EMS pages and quarters).
+Before it, the close box tore the instance down with whatever was alive
+inside it.
+
+What is alive after an Esc is the point. **Esc ends the session**; what
+keeps the disk busy after it is the window's timer reading the rest of the
+file into its hold (`vp_ontimer` -> `vp_xstep`, 98.3.18). The field froze
+once in seven doing exactly that on the owner's 286 (XMS, EMS.DRV mounted
+and measured too slow): play, Esc, the close box while the disk still
+clicked - the pointer stopped and the disk with it.
+
+**This is not shown to be that freeze's cause.** The kernel's teardown
+already reclaims every piece of it - `inst_rel_rec` sends `EMSV_GONE`
+and `XMV_RELINST`, the claims go with the region, `wm_destroy` clears the
+record the timer pass tests - and `vidclose` without the negotiator still
+closes, still ticks, and leaves no XMS block owned. What the negotiator
+changes is the ORDER: the region freed holds nothing of a play or a load
+still alive, and the disk stops the moment the close is clicked. The
+freeze stays open (docs/FIELD-NOTES.md has the report) until it is seen
+again on a build with this.
+
+`vidclose` is the gate (QEMU, XMS, B: throttled to 64 KB/s): three rounds of
+play, Esc at a different frame, and the close box with the hold mid-load -
+which the row asserts, or it fails as a test of nothing. It reads
+`[vp_sess]` and `[vp_xon]` off the FREED region, which nothing has reused
+yet: both 0 only if the negotiator ran. Broken on purpose - the install
+taken out of `vp_entry` - every round fails on `[vp_xon]` 1. +25 bytes of
+the package.
+
 ### 98.4 The window: the Preview (wave 6)
 
 **The window IS the Preview** (VIDEO-PLAN 3.3): the file's poster in a

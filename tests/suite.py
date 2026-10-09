@@ -3649,6 +3649,15 @@ SOAK = [
         "stays, the bank idle under it as 98.3.18.5 has it",
         needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/video.o88")),
+    Row("vidclose", "soak", py("tests/vidclose.py"), 75.0,
+        "SPEC.md 98.3.18.10: THE CLOSE BOX ON A LOAD STILL RUNNING, on QEMU "
+        "with XMS and B: throttled - play, Esc, close while the window's "
+        "timer is still reading the file's hold into XMS, three rounds: the "
+        "player's close negotiator must have stopped the play and freed the "
+        "hold before the kernel freed the region (read off the freed "
+        "region), no XMS block left owned, and the machine still ticking",
+        needs=("qemu", "nasm"), serial=True, timeout=400,
+        wants=("build/os8088.img", "build/video.o88")),
     Row("vidlybank", "soak", py("tests/vidlybank.py"), 60.0,
         "SPEC.md 98.1.9: THE LAYER's XMS BANK and its PREFILL, on QEMU's "
         "386 - a Life clip held whole in XMS (the base) with --layer-bank "
