@@ -162188,7 +162188,8 @@ else - `vp_sstart`'s reader at a play's start or a seek, and `vp_warm` at a
 REPEAT's seam (§98.3.9): what it holds is the old place's.
 
 The prefill and the file's ask are 98.3.18.3, the window, a pause and a seek
-98.3.18.4, the speaker 98.3.18.5, and the encoder's half 98.2.1.3.2.
+98.3.18.4, the speaker 98.3.18.5, the bank in EMS 98.3.18.6, and the
+encoder's half 98.2.1.3.2.
 
 The gate is on QEMU (docs/TESTING.md's list, entry 1): `vidbank`, `-m 2`
 against a 1.33 MB LIN80 clip, so the hold cannot be taken and the bank is 18
@@ -162312,6 +162313,52 @@ the bank's count is WATCHED over the whole play and must never leave 0.
 Broken on purpose - `vp_bstep`'s test out - it reaches 13, and a single look
 had read 0: a chunk banked is handed straight back by the next fill, so the
 copies run while the count looks empty. +53 bytes.
+
+##### 98.3.18.6 The bank in expanded memory
+
+**With no XMS pool and `EMS.DRV` answering (SPEC.md 107), the bank is the
+board's pages** - VIDEO-XMS-PLAN 10.8's wave E2, the hybrid: section 4's
+policy with a free fill and one copied drain. It is the 8088's only bank and
+the 286's better one when it has a board and no XMS.
+
+- **The block** (`vp_eopen`, `vp_xopen`'s `.ems`): `EMSV_CAPS`' free pages
+  less `VP_XRES`'s 256 KB, no more than the file in whole 32 KB slots (an
+  EMS bank has no whole-file hold to prefer, so a file that fits is banked
+  whole), at least `VP_XBMIN`'s 128 KB, halved in slots until `EMSV_ALLOC`
+  takes it; and the frame's quarters 0 and 1 (`EMSV_FRAME`), a 32 KB window
+  held for the file's life. A slot is two pages, mapped by two `EMSV_MAP`s
+  (`vp_emap`). Freed with the file - pages and quarters both - and the
+  kernel's `EMSV_GONE` takes them at the close regardless.
+- **A fill is the disk's read and nothing else**: the tail's pages mapped
+  and `OSAPI_FILE_READ_SEQ` reading INTO the frame. No bounce, no copy up -
+  and so no bounce slot after the ring either, the ring keeping its 32 KB.
+- **A drain is one `rep movsw`** out of the frame into the ring's slot, with
+  interrupts ON: an XMS drain is two copies with them off.
+- **So the speaker's rule (98.3.18.5) does not apply to it**: under the
+  speaker's clock an EMS bank fills and drains as ever.
+- Everything else is the XMS bank's, unchanged: the FIFO and its cursors,
+  the prefill and its line, the pause, the seek, `Low memory`. The card's
+  line 6 says `EMS bank: ...`.
+
+What the drain costs an 8088 is the plan's question for wave E3: 2.75 ms a
+KB measured (VIDDISK `E`), so a play passing every byte through the bank at
+an ST-225's 119 KB/s spends a third of a 5150 on the copy. E2 does that in
+the UI task's reader, where the hook's decode still comes first; E3 is the
+in-place design that copies nothing.
+
+**The prefill's 100% is the file's end when that comes first**: once the
+bank holds the end of the file, what it holds is all there is to fill, and
+`vp_bpre` takes that as its target. The first build said `Buffering 44%`
+and stopped there, a short file being one the whole of which fits.
+
+`videms` is the gate, on MartyPC's 8088 with the Lo-tech 2 MB board,
+booted from `make emstest`'s disk: a 264 KB Hercules clip opens with a
+9-slot bank at frame E000h; with the ring held to three slots the prefill
+banks the rest of the file and says `Buffering 100%`; B: is BLANKED and the
+play draws all 200 frames, the screen the decode's at three holds; played
+again with B: still blank it fails. Broken on purpose - the drain's
+`rep movsw` out - frames 100 and 160 differ in 9,936 and 15,756 bytes.
++462 bytes of the package (41,795 -> 42,257); no kernel byte.
 
 #### 98.3.19 Under memory pressure: the keeper given up, and the player moved
 

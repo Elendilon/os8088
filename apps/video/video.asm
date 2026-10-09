@@ -3855,8 +3855,11 @@ vp_xopen:
     cmp byte [vp_resid], 0          ; RESIDENT: read whole into its blocks
     jne .out
     call OSAPI_XMEM_CAPS            ; no pool (every 8088): nothing more is
-    or ax, ax                       ; asked, not even the directory
-    jz .out
+    or ax, ax                       ; asked, not even the directory - unless
+    jnz .sz                         ; EXPANDED MEMORY answers (98.3.18.6)
+    call vp_eprobe
+    jc .out
+.sz:
     push ds
     pop es
     xor bx, bx
@@ -3871,7 +3874,9 @@ vp_xopen:
     jz .out
     mov si, dx                      ; SI = its KB, one over
     call OSAPI_XMEM_CAPS            ; AX = the KB the pool has (BL, DX:CX
-    cmp ax, si                      ; its other answers)
+    or ax, ax                       ; its other answers)
+    jz .ems
+    cmp ax, si
     jb .bank
     mov ax, si
     mov cl, 10
@@ -3936,6 +3941,9 @@ vp_xopen:
     mov byte [vp_xbank], 1
     mov byte [vp_xon], 1            ; (and NO timer: it fills while a play
     jmp short .out                  ; reads, VIDEO-XMS-PLAN 4.1)
+.ems:                               ; NO POOL, AN EMS BOARD (98.3.18.6): the
+    call vp_eopen                   ; bank in its pages, sized to the file
+    jmp .out
 
 ; vp_xfree - the hold, if there is one
 vp_xfree:
@@ -3945,9 +3953,23 @@ vp_xfree:
     push dx
     mov byte [vp_xon], 0
     mov byte [vp_xbank], 0
+    cmp byte [vp_xems], 0
+    jne .e
     mov ax, [vp_xbase]
     mov dx, [vp_xbase+2]
     call OSAPI_XMEM_FREE
+    jmp short .x
+.e:
+    mov byte [vp_xems], 0           ; EMS: the pages and the two quarters
+    push bx                         ; (EMSV_GONE would take both at the
+    mov ax, [vp_ehnd]               ; close; another file's open may want
+    mov bx, (DRVC_EMS << 8) | EMSV_FREE ; them now)
+    call OSAPI_DRV_CALL
+    mov al, 3
+    mov bx, (DRVC_EMS << 8) | EMSV_UNFRAME
+    call OSAPI_DRV_CALL
+    pop bx
+.x:
     pop dx
     pop ax
 .z:
@@ -4044,7 +4066,10 @@ vp_xrdat:
 ; register kept
 vp_xfill:
     cmp byte [vp_snd], VP_SPK       ; THE SPEAKER'S CLOCK (vp_xquiet): the
-    je vp_xquiet                    ; disk serves, the bank handed back
+    jne .nq                         ; disk serves, the bank handed back -
+    cmp byte [vp_xems], 0           ; unless it is EMS, whose copy is a
+    je vp_xquiet                    ; rep movsw with interrupts ON
+.nq:
     cmp byte [vp_xbank], 0          ; A BANK (VIDEO-XMS-PLAN 4.1): its head
     jne vp_bfill                    ; chunk, if it has one
     cmp byte [vp_xon], 0
@@ -4116,7 +4141,11 @@ vp_xsay:
     cmp byte [vp_xbank], 0
     je .hold
     mov si, vp_s_xbank              ; 'XMS bank: 3136 KB', or with a session
-    call vp_puts                    ; banking, 'XMS bank: 320 of 3136 KB'
+    cmp byte [vp_xems], 0           ; banking, 'XMS bank: 320 of 3136 KB' -
+    je .xs                          ; or 'EMS bank: ...'
+    mov si, vp_s_ebank
+.xs:
+    call vp_puts
     mov ax, [vp_xcnt]
     or ax, ax
     jz .bz
@@ -4353,6 +4382,131 @@ vp_xstep:
 ; dropped, and the stream's cursor sought to the head's offset.
 ; =============================================================================
 
+; =============================================================================
+; THE BANK IN EXPANDED MEMORY (SPEC.md 98.3.18.6, VIDEO-XMS-PLAN 10.3's E2):
+; with no XMS pool and EMS.DRV answering, the bank's slots are pairs of
+; 16 KB pages of one handle, and a slot is reached through the frame's first
+; two quarters, held for the file's life. A fill READS INTO the mapped pages
+; - the disk's read is the whole of it - and a drain is one rep movsw out of
+; the frame with interrupts on, where XMS reads into a bounce, copies up and
+; copies down with them off. Everything else - the FIFO, the cursors, the
+; prefill, the pause, the seek - is the XMS bank's, unchanged
+; =============================================================================
+
+; vp_eprobe - CF=0: EMS.DRV answers and the frame's quarters 0 and 1 are
+; free. Every register kept
+vp_eprobe:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov bx, (DRVC_EMS << 8) | EMSV_CAPS
+    call OSAPI_DRV_CALL             ; AX free, CX on the board, DX the frame,
+    jc .out                         ; SI the quarters nobody holds
+    and si, 3
+    cmp si, 3
+    je .out                         ; (CF=0: JE was on equal)
+    stc
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; vp_eopen - SI = the file's KB, one over: the bank in EMS - the board's
+; free pages less VP_XRES's worth, no more than the file in whole slots, at
+; least VP_XBMIN's; and the frame's quarters 0 and 1 for its window.
+; Clobbers AX, BX, CX, DX
+vp_eopen:
+    push si
+    mov bx, (DRVC_EMS << 8) | EMSV_CAPS
+    call OSAPI_DRV_CALL
+    jc .out
+    sub ax, VP_XRES / 16            ; (the reserve, as XMS's: in pages)
+    jbe .out
+    pop si                          ; (CAPS answered the quarters in SI)
+    push si
+    mov cx, si                      ; THE FILE in whole slots, one over
+    mov dx, cx
+    shr dx, 1
+    shr dx, 1
+    shr dx, 1
+    shr dx, 1
+    add dx, 2
+    and dl, 0xFE
+    cmp ax, dx
+    jbe .t
+    mov ax, dx
+.t:
+    and al, 0xFE                    ; whole slots: pages two at a time
+.try:
+    cmp ax, VP_XBMIN / 16
+    jb .out
+    push ax
+    mov bx, (DRVC_EMS << 8) | EMSV_ALLOC
+    call OSAPI_DRV_CALL             ; AX = the handle
+    pop cx
+    jnc .got
+    shr cx, 1                       ; no run that long: half, in slots
+    and cl, 0xFE
+    mov ax, cx
+    jmp short .try
+.got:
+    mov [vp_ehnd], ax
+    push cx
+    mov al, 3
+    mov bx, (DRVC_EMS << 8) | EMSV_FRAME
+    call OSAPI_DRV_CALL             ; DX = the frame's segment
+    pop cx
+    jc .nofr
+    mov [vp_eseg], dx
+    shr cx, 1
+    mov [vp_xbn], cx                ; its slots
+    xor ax, ax
+    mov [vp_xhave], ax
+    mov [vp_xhave+2], ax
+    mov [vp_xfull], al
+    call vp_bflush
+    mov byte [vp_xems], 1
+    mov byte [vp_xbank], 1
+    mov byte [vp_xon], 1
+.out:
+    pop si
+    ret
+.nofr:                              ; (taken since the probe: the pages back)
+    mov ax, [vp_ehnd]
+    mov bx, (DRVC_EMS << 8) | EMSV_FREE
+    call OSAPI_DRV_CALL
+    jmp short .out
+
+; vp_emap - AX = a slot: its two pages mapped into quarters 0 and 1. CF=1
+; the board refused. Every register kept
+vp_emap:
+    push ax
+    push bx
+    push cx
+    push dx
+    shl ax, 1
+    mov cx, ax                      ; CX = the slot's first page
+    mov dx, [vp_ehnd]
+    xor al, al
+    mov bx, (DRVC_EMS << 8) | EMSV_MAP
+    call OSAPI_DRV_CALL
+    jc .out
+    inc cx
+    mov al, 1
+    mov bx, (DRVC_EMS << 8) | EMSV_MAP
+    call OSAPI_DRV_CALL
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; vp_xquiet - NO XMS COPY UNDER THE SPEAKER'S CLOCK (98.3.18.5): its clock
 ; is its own interrupts, a sample each, and every transport holds them off
 ; for a copy - int 15h's block move for the whole 32 KB on a 286, ~11 ms or
@@ -4431,6 +4585,27 @@ vp_bfill:
     je .len
     mov cx, [vp_xtl]
 .len:
+    cmp byte [vp_xems], 0           ; EMS (98.3.18.6): the head's two pages
+    je .xd                          ; mapped, and copied out of the frame
+    mov ax, [vp_xhs]                ; with interrupts on - one copy, where
+    call vp_emap                    ; XMS takes two and holds them off
+    jc .elost
+    push cx
+    push ds
+    inc cx
+    shr cx, 1
+    xor si, si
+    xor di, di
+    mov ds, [vp_eseg]
+    cld
+    rep movsw
+    pop ds
+    pop cx
+    jmp short .moved
+.elost:
+    call vp_xfree                   ; (the board refused: the disk serves,
+    jmp short .lost                 ; as for a copy XMS refused)
+.xd:
     push cx
     mov ax, [vp_xhs]
     call vp_bslot                   ; DX:AX = the head's slot
@@ -4441,6 +4616,7 @@ vp_bfill:
     call vp_xcopy
     pop cx
     jc .lost
+.moved:
     mov ax, [vp_xhs]                ; the head moves on
     inc ax
     cmp ax, [vp_xbn]
@@ -4506,8 +4682,11 @@ vp_bseed:
 vp_bstep:
     cmp byte [vp_xbank], 0
     je .no
-    cmp byte [vp_snd], VP_SPK       ; (vp_xquiet: no copy under the speaker)
+    cmp byte [vp_snd], VP_SPK       ; (vp_xquiet: no copy under the speaker,
+    jne .sq                         ; EMS's aside)
+    cmp byte [vp_xems], 0
     je .no
+.sq:
     cmp byte [vp_xon], 0
     je .no
     cmp byte [vp_xbeof], 0
@@ -4540,6 +4719,33 @@ vp_bstep:
     mov ax, [vp_cur+FSEQ_OFF+2]
     mov [vp_xlo+2], ax
 .rd:
+    cmp byte [vp_xems], 0           ; EMS (98.3.18.6): the tail's two pages
+    je .xb                          ; mapped, and READ INTO - no bounce, no
+    mov ax, [vp_xhs]                ; copy up: a disk's read is the fill
+    add ax, [vp_xcnt]
+    cmp ax, [vp_xbn]
+    jb .et
+    sub ax, [vp_xbn]
+.et:
+    call vp_emap
+    jc .elost
+    mov dx, [vp_eseg]
+    xor bx, bx
+    mov cx, VP_CHUNK
+    push ds
+    pop es
+    mov di, vp_xcur
+    mov si, vp_name
+    call OSAPI_FILE_READ_SEQ        ; DX:AX = the bytes
+    jc .stop
+    or ax, ax
+    jz .end
+    mov cx, ax
+    jmp short .up
+.elost:                             ; (the board refused: as XMS's refusal -
+    call vp_xfree                   ; the block gone, the stream's cursor
+    jmp .lost                       ; sought to the head)
+.xb:
     call vp_bbnc                    ; DX = the bounce slot
     xor bx, bx
     mov cx, VP_CHUNK
@@ -4570,6 +4776,7 @@ vp_bstep:
     call vp_xcopy
     pop cx
     jc .lost
+.up:
     inc word [vp_xcnt]
     cmp cx, VP_CHUNK
     je .ok
@@ -4719,8 +4926,11 @@ vp_bbnc:
 vp_bpre:
     cmp byte [vp_xbank], 0
     je .done
-    cmp byte [vp_snd], VP_SPK       ; (vp_xquiet: nothing to fill it for)
+    cmp byte [vp_snd], VP_SPK       ; (vp_xquiet: nothing to fill it for,
+    jne .sq                         ; EMS's aside)
+    cmp byte [vp_xems], 0
     je .done
+.sq:
     cmp byte [vp_xon], 0
     je .done
     mov cx, [vp_xbn]                ; HOW FAR: the whole bank, or the ask
@@ -4733,17 +4943,20 @@ vp_bpre:
     mov ax, [vp_slen]               ; none asked: 10 s at the stream's mean,
     mov dx, [vp_slen+2]
     mov cx, [vp_frames]
-    jcxz .done
+    jcxz .dz
     call vp_div32
     mov cx, [vp_rate]
     call vp_mul32
     mov cx, [vp_spf]
-    jcxz .done
+    jcxz .dz
     call vp_div32
     mov cx, 1024
     call vp_div32                   ; AX = KB a second (DX 0: < 64 MB/s)
     mov cx, 10
     mul cx                          ; DX:AX = the KB the ask is
+    jmp short .kb
+.dz:
+    jmp .done
 .kb:
     add ax, 31
     adc dx, 0
@@ -4756,7 +4969,7 @@ vp_bpre:
     jae .n
     mov cx, ax
 .n:
-    jcxz .done
+    jcxz .dz
     mov [vp_pfn], cx
     call OSAPI_GET_TICKS
     mov [vp_pft0], ax
@@ -4771,6 +4984,15 @@ vp_bpre:
     cmp al, ' '
     je .done
 .nk:
+    cmp byte [vp_xbeof], 0          ; THE FILE'S END BANKED: the rest of it
+    je .ns                          ; is all there is to fill, so that is
+    mov ax, [vp_xcnt]               ; the 100% (a short file, or a bank as
+    or ax, ax                       ; big as what the ring left)
+    jz .ns
+    cmp ax, [vp_pfn]
+    jae .ns
+    mov [vp_pfn], ax
+.ns:
     call vp_pfsay
     mov ax, [vp_xcnt]
     cmp ax, [vp_pfn]
@@ -7180,6 +7402,8 @@ vp_sstart:
     add ax, [vp_msl]
     cmp byte [vp_xbank], 0          ; (+ the bank's bounce, vp_bbnc)
     je .rkb
+    cmp byte [vp_xems], 0
+    jne .rkb
     cmp byte [vp_livem], 0
     jne .rkb
     inc ax
@@ -7279,7 +7503,9 @@ vp_kres:
     sub ax, [vp_kekb]
     jc .z
     cmp byte [vp_xbank], 0          ; ...and THE BANK'S BOUNCE, a slot after
-    je .r                           ; the mirror (vp_bbnc)
+    je .r                           ; the mirror (vp_bbnc) - XMS's: EMS reads
+    cmp byte [vp_xems], 0           ; into its frame
+    jne .r
     sub ax, VP_CHUNK / 1024
     jnc .r
 .z:
@@ -13985,6 +14211,7 @@ vp_s_of:      db ' of ', 0
 vp_s_xin:     db 'Into XMS: ', 0
 vp_s_xheld:   db 'Held in XMS: ', 0
 vp_s_xbank:   db 'XMS bank: ', 0
+vp_s_ebank:   db 'EMS bank: ', 0
 vp_s_kb:      db ' KB', 0
 vp_s_stall:   db ', stalls ', 0
 vp_s_pause:   db ', pauses ', 0
@@ -14475,6 +14702,9 @@ vp_xhs:       dw 0                  ; ...the head's slot
 vp_xcnt:      dw 0                  ; ...the chunks in it
 vp_xtl:       dw 0                  ; ...the bytes of its last, with xbeof
 vp_xlo:       dd 0                  ; ...the file offset of its head
+vp_xems:      db 0                  ; 1: the bank is EMS pages (98.3.18.6)
+vp_ehnd:      dw 0                  ; ...their handle
+vp_eseg:      dw 0                  ; ...and the frame they are seen through
 vp_hxb:       dw 0                  ; THE FILE'S ASK (header 472): the bank its
                                     ; encode assumed, KB, 0 none
 vp_hxp:       dw 0                  ; ...and its prefill, KB (0: 10 s at its

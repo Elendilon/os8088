@@ -1,0 +1,210 @@
+#!/usr/bin/env python3
+"""VIDEO.O88's bank in EXPANDED MEMORY - SPEC.md 98.3.18.6, VIDEO-XMS-PLAN
+10.8's wave E2.
+
+    make && make emstest && python3 tests/videms.py
+
+ON MARTYPC'S 8088 WITH A LO-TECH 2 MB EMS BOARD
+(`os8088_5150_herc_hdd_sb_ems_gla`), booted from build/emstest.img, whose
+SYSTEM.CFG wants EMS.DRV - an 8088 with expanded memory and no XMS, the
+machine the EMS bank exists for. Nothing here is timed; every wait is on
+guest state.
+
+The instrument is tests/vidxms.py's, a DISK SWAP: the clip's floppy in B: is
+changed for a BLANK one once the prefill has filled the bank, so whatever the
+play still reads it can only have from the ring and the bank. The ring is
+held to three slots (`vp_kmax`, a gate's), so the bank is what carries it.
+
+  1. the file opens with an EMS bank - [vp_xbank] and [vp_xems] 1, slots
+     enough for the whole clip;
+  2. Play, the gate's hold on the prefill's end (`vp_pfwait`): the box says
+     `Buffering 100%`, nothing drawn, the bank holding the clip;
+  3. B: blank, Space: held before each of a handful of frames, the Hercules
+     screen is the reference decode's, and the play reaches the last frame
+     with no error - every chunk after the ring's three came out of the
+     board's pages;
+  4. Play again with B: still blank: the bank is behind the start, so the
+     reader must go to the disk, and the play must NOT reach the end. That
+     is what says the swap bites.
+
+VERIFIED TO FAIL: with vp_eopen's ALLOC skipped the player takes no bank
+(step 1); with vp_bfill's EMS copy left out the play's pictures differ.
+"""
+import os
+import random
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+sys.path[:0] = [HERE, os.path.join(ROOT, "tools")]
+import os88build, os88marty, os88ui, os88vid as vid, os88geom as geom  # noqa
+from cycweb import pkg_syms                                   # noqa: E402
+
+IMG = "build/emstest.img"
+BOARD = "os8088_5150_herc_hdd_sb_ems_gla"
+NF, FPS, WB, H = 200, 30.0, 80, 200
+STOPS = (40, 100, 160)
+VOK_BUF = 10
+
+
+def u16(b, i=0):
+    return struct.unpack_from("<H", b, i)[0]
+
+
+def clip(tmp):
+    """200 canvases 80 x 200 on the Hercules layout, ~1.2 KB of change a
+    frame: ~250 KB, eight chunks - three for the ring and the rest the bank's,
+    on a 360 KB floppy"""
+    rnd = random.Random(1077)
+    cv = bytearray(WB * H)
+    paths = []
+    for f in range(NF):
+        for _ in range(100):
+            a = rnd.randrange(WB * H - 8)
+            cv[a:a + 8] = bytes(rnd.getrandbits(8) for _ in range(8))
+        p = os.path.join(tmp, "f%03d.pbm" % f)
+        vid._write_pbm(p, WB, H, bytes(cv))
+        paths.append(p)
+    out = os.path.join(tmp, "CLIP.V88")
+    vid.encode_frames(paths, out, FPS, None, "herc", "videms clip")
+    vid.verify_v88(out)
+    return out
+
+
+def main():
+    os.chdir(ROOT)
+    for p in (IMG, "build/video.o88"):
+        if not os.path.exists(os88build.at(p)):
+            sys.exit("videms: no %s - run `make && make emstest`" % p)
+    syms, image = pkg_syms("apps/video/video.asm", ("apps/",))
+    bad = []
+    with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "build")) as tmp:
+        v88 = clip(tmp)
+        r = vid.Reader(v88)
+        size = os.path.getsize(v88)
+        print("   clip: %d frames, %d bytes (%d chunks)"
+              % (r.frames, size, -(-size // vid.SLOT)))
+        disk = os.path.join(tmp, "videms.img")
+        blank = os.path.join(tmp, "blank.img")
+        for out, files in ((disk, [os88build.at("build/video.o88"), v88]),
+                           (blank, [])):
+            subprocess.run([sys.executable, "tools/os88disk.py", "-o", out,
+                            "--size", "360"] + files, check=True,
+                           capture_output=True)
+        tg = vid.Geom(vid.LAY_HERC, WB, 348)
+        ty0 = (348 - H) // 2 // tg.banks * tg.banks
+        tx0 = (tg.stride - WB) // 2
+        rows_at = [tg.base[y + ty0] + tx0 for y in range(H)]
+        with os88ui.boot(os88build.at(IMG), apps=disk, machine=BOARD) as ui:
+            m = ui.m
+            w = ui.path("B:/CLIP.V88")
+            rec = m.read(ui._S("wm_wins") + w.i * geom.WIN_SIZE,
+                         geom.WIN_SIZE)
+            base = u16(rec, geom.W_SEG) << 4
+
+            def rw(n):
+                return u16(m.read(base + syms[n], 2))
+
+            def rb(n):
+                return m.read(base + syms[n], 1)[0]
+
+            def ww(n, v):
+                m.write(base + syms[n], struct.pack("<H", v))
+
+            def state():
+                return ("done=%d err=%d ready=%d played=%d lc=%d pc=%d k=%d "
+                        "ems=%d bn=%d cnt=%d hs=%d beof=%d"
+                        % (rw("vp_done"), rb("vp_err"), rb("vp_ready"),
+                           rb("vp_played"), rw("vp_lc"), rw("vp_pc"),
+                           rw("vp_k"), rb("vp_xems"), rw("vp_xbn"),
+                           rw("vp_xcnt"), rw("vp_xhs"), rb("vp_xbeof")))
+
+            def until(cond, what, guest=120.0):
+                try:
+                    os88marty.until(m, lambda mm: cond(), what, poll=0.2,
+                                    limit=900.0, guest=guest)
+                except os88marty.MartyError:
+                    print("   TIMED OUT: %s\n     %s" % (what, state()))
+                    raise
+
+            until(lambda: rb("vp_loaded") == 1, "the clip's header", 30.0)
+            if rb("vp_ok") != 1:
+                sys.exit("videms: the player will not play the clip here")
+            # --- 1: an EMS bank
+            bn = rw("vp_xbn")
+            print("   opened: xbank %d, ems %d, %d slots (%d KB), frame %04x"
+                  % (rb("vp_xbank"), rb("vp_xems"), bn, bn * 32,
+                     rw("vp_eseg")))
+            if rb("vp_xbank") != 1 or rb("vp_xems") != 1:
+                sys.exit("videms: no EMS bank was taken (%s)" % state())
+            if bn * vid.SLOT < size:
+                bad.append("the bank is %d KB for a file of %d"
+                           % (bn * 32, size // 1024))
+            m.write(base + syms["vp_nowin"], b"\1")     # the full screen
+            ww("vp_kmax", 3)                            # the ring held small
+            m.write(base + syms["vp_pfwait"], b"\1")
+            ww("vp_stopat", STOPS[0])
+            # --- 2: the prefill, held at its end
+            m.type_text("p")
+            until(lambda: rb("vo_kind") == VOK_BUF and rb("vp_xbeof") == 1,
+                  "the prefill to bank the clip", 300.0)
+            txt = m.read(base + syms["vo_text"], 20).split(b"\0")[0].rstrip()
+            print("   prefilled: the box says %r, ready %d; %s"
+                  % (txt.decode("ascii", "replace"), rb("vp_ready"),
+                     state()))
+            if txt != b"Buffering 100%" or rb("vp_ready"):
+                bad.append("the prefill's box said %r, ready %d"
+                           % (txt, rb("vp_ready")))
+            if rw("vp_k") > 3:
+                bad.append("the ring is %d slots, not the gate's 3"
+                           % rw("vp_k"))
+            # --- 3: B: blank, Space, and the play out of the bank
+            m.mount(1, blank)
+            m.type_text(" ")
+            for i, n in enumerate(STOPS):
+                until(lambda: rb("vp_held") == 1 and rw("vp_done") == n,
+                      "the hold before frame %d" % n, 120.0)
+                seg = bytes(m.read(0xB0000, 65536))
+                got = b"".join(seg[b:b + WB] for b in rows_at)
+                want = vid.decode_at(r, n - 1)
+                diff = sum(1 for j in range(len(got)) if got[j] != want[j])
+                print("   hold before frame %3d: %d bytes of %d differ  (%s)"
+                      % (n, diff, len(got), state()))
+                if diff:
+                    bad.append("the screen before frame %d differs in %d "
+                               "bytes" % (n, diff))
+                ww("vp_stopat", STOPS[i + 1] if i + 1 < len(STOPS)
+                   else 0xFFFF)
+                m.write(base + syms["vp_held"], b"\0")
+            until(lambda: rb("vp_played") == 1 and rb("vp_ready") == 0,
+                  "the play to end", 120.0)
+            print("   the play, B: blank: %s" % state())
+            if rw("vp_done") != NF or rb("vp_err"):
+                bad.append("the play out of the bank drew %d of %d (error %d)"
+                           % (rw("vp_done"), NF, rb("vp_err")))
+            # --- 4: again, B: still blank - the bank is behind the start
+            m.write(base + syms["vp_played"], b"\0")
+            m.write(base + syms["vp_pfwait"], b"\0")
+            m.type_text("p")
+            until(lambda: rb("vp_played") == 1 and rb("vp_ready") == 0,
+                  "the second play to stop", 180.0)
+            print("   the second play, B: blank: %s" % state())
+            if rw("vp_done") == NF and not rb("vp_err"):
+                bad.append("with B: blank and the bank behind the start the "
+                           "play STILL reached the end - the swap does not "
+                           "bite")
+    if bad:
+        print("\nvidems: FAIL")
+        for b in bad:
+            print("  - " + b)
+        return 1
+    print("\nvidems: ok")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

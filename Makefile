@@ -4343,7 +4343,7 @@ $(BUILD)/emstest.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(C
 .PHONY: emstest
 emstest: $(BUILD)/emstest.img
 	@echo "emstest: build/emstest.img - EMS.DRV wanted, EMSTEST.O88 at the root"
-	@echo "              wanted, over a CH375 model. Run: python3 tests/usbmouse.py"
+	@echo "              Run: python3 tests/ems.py, python3 tests/videms.py"
 
 # THEWIRETEST: the Wire's gate disks (SPEC.md 92.12), ethertest's shape and
 # for ethertest's reason - the driver is asked for by a SYSTEM.CFG that is ON

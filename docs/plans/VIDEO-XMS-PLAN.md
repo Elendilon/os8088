@@ -664,9 +664,17 @@ Each is a decision of its own, and none is in this plan's waves:
   rung crossed, `kern_small` +0; the driver 1,206 bytes, 813 on the floppy.
   The gate is `tests/ems.py`, on MartyPC's board and on no board. The SPACED
   family (and so 86Box's AboveBoard) is still to come.
-- **E2**: the video bank on EMS, the hybrid - section 4's policy with a free
-  fill and a copied drain: the 286's design, and on an 8088 a measurement of
-  what the copy costs a real play.
+- **E2 - BUILT (2026-10-09), SPEC.md 98.3.18.6**: the video bank on EMS,
+  the hybrid - section 4's policy with a free fill and a copied drain. The
+  fill reads into the frame and the drain is one `rep movsw` with interrupts
+  on, so the speaker's rule (98.3.18.5) does not bind it and no bounce slot
+  is claimed. Taken only where there is no XMS pool; a machine with both
+  keeps the XMS bank, which is the faster on a 286 for a card's play and the
+  wrong one under the speaker - choosing per play is a later question. One
+  defect worth keeping: `EMSV_CAPS` answers its quarters in SI, and the
+  first build read the file's size out of SI after the call, sizing every
+  bank at 2 pages and refusing it. The 8088's cost of the drain is still to
+  be measured on a real play.
 - **E3**: the in-place decode - the hook reading from the frame, the
   three-quarter window, the reader's quarter, the sound cursor's answer: the
   8088's design.

@@ -3566,6 +3566,21 @@ SOAK = [
         "FREEs the first's handle)",
         needs=("marty", "nasm"), serial=True, timeout=300,
         wants=("build/emstest.img",)),
+    Row("videms", "soak", py("tests/videms.py"), 45.0,
+        "SPEC.md 98.3.18.6: VIDEO.O88'S BANK IN EXPANDED MEMORY, on MartyPC's "
+        "8088 with the Lo-tech 2 MB board and no XMS - booted from `make "
+        "emstest`'s disk, which wants EMS.DRV. A 264 KB Hercules clip opens "
+        "with a bank of 9 slots in the board's pages; the ring held to 3 "
+        "slots (vp_kmax), the prefill fills the rest of the file into the "
+        "bank and the box says Buffering 100% - once the file's end is "
+        "banked that IS the 100%, which the first build said as 44%. Then "
+        "B: is BLANKED and Space plays: the screen is the decode's at three "
+        "holds and all 200 frames are drawn, every chunk past the ring's "
+        "out of the board. Played again with B: still blank, it must fail. "
+        "Broken on purpose - the drain's rep movsw out - frames 100 and 160 "
+        "differ in 9,936 and 15,756 bytes",
+        needs=("marty", "nasm"), serial=True, timeout=300,
+        wants=("build/emstest.img", "build/video.o88")),
     Row("wirezone", "soak", py("tests/wirezone.py"), 50.0,
         "Does the desktop SERVICE zone arrive with its driver and LEAVE with "
         "it? (SPEC.md 26.7) The kernel's half of the Wire is a generic zone a "
