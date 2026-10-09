@@ -24,6 +24,11 @@ LEG board (that machine):
      driver its instance slot in BH, and the driver put the class back;
   5. both closed WITHOUT freeing anything, then a THIRD instance finds every
      page and every quarter free again - EMSV_GONE, from xm_release_rec.
+LEG pico (`os8088_5150_herc_hdd_sb_ems288_gla`): leg board's checks with the
+  board where a PicoMEM puts its EMS by default - registers at 288h, the frame
+  at D000h. The owner's 286 answered `No hardware found` with its PicoMEM
+  there while the probe knew only 260h-26Ch; with 288h off the list this leg
+  reproduces it (DRVE_HW).
 LEG none (`os8088_5150_herc_hdd_sb_gla`, the same machine with no board):
   the row is not loaded, its error DRVE_HW, and EMSTEST says nobody answered.
 
@@ -46,6 +51,7 @@ from cycweb import pkg_syms                                   # noqa: E402
 IMG = "build/emstest.img"
 BOARD = "os8088_5150_herc_hdd_sb_ems_gla"
 NONE = "os8088_5150_herc_hdd_sb_gla"
+PICO = "os8088_5150_herc_hdd_sb_ems288_gla"  # the board at a PicoMEM's 288h
 ROW_EMS = 6                     # drv_tab's row on kern_big (SPEC.md 107.1)
 DRVR_SIZE, DRVR_SEG, DRVR_ERR = 16, 2, 14
 DRVE_OK, DRVE_HW = 0, 5
@@ -88,10 +94,10 @@ def row(ui, m):
     return u16(r, DRVR_SEG), r[DRVR_ERR]
 
 
-def leg_board(syms):
+def leg_board(syms, machine=BOARD, frame=0xE000, port=0x260):
     bad = []
-    print("\n== leg board: %s" % BOARD)
-    with os88ui.boot(IMG, machine=BOARD) as ui:
+    print("\n== leg board: %s" % machine)
+    with os88ui.boot(IMG, machine=machine) as ui:
         m = ui.m
         seg, err = row(ui, m)
         want(bad, "EMS.DRV loaded", seg != 0, True)
@@ -103,22 +109,24 @@ def leg_board(syms):
         want(bad, "CAPS: pages free / on the board", (r["FREE0"], r["TOTAL"]),
              (128, 128))
         want(bad, "CAPS: frame / quarters free", (r["FRAME"], r["QFREE0"]),
-             (0xE000, 0x0F))
+             (frame, 0x0F))
         want(bad, "ALLOC 3: CF / handle", (r["HCF"], r["HND"]), (0, 1))
         want(bad, "ALLOC 0 refused BAD", r["A0"], 0x100 | EMSE_BAD)
         want(bad, "ALLOC past the board refused ROOM", r["ABIG"],
              0x100 | EMSE_ROOM)
         want(bad, "FRAME 0Fh: CF / port / step / OR",
-             (r["FRCF"], r["PORT"], r["STEP"], r["OR"]), (0, 0x260, 1, 0))
+             (r["FRCF"], r["PORT"], r["STEP"], r["OR"]), (0, port, 1, 0))
         want(bad, "page 0 through quarter 3", r["ALIAS"], 1)
         want(bad, "BASE: first page / length", (r["BASE"], r["BLEN"]), (0, 3))
         want(bad, "the recipe: page 1 by the package's OUT", r["RECIPE"], 1)
         want(bad, "CAPS after: free / quarters free",
              (r["FREE1"], r["QFREE1"]), (125, 0))
-        q0 = u16(m.read(0xE0000, 2))
-        q3 = u16(m.read(0xEC000, 2))
-        want(bad, "E000:0000 read off the machine (page 0)", q0, 0xE500)
-        want(bad, "E000:C000 read off the machine (page 1)", q3, 0xE501)
+        q0 = u16(m.read(frame << 4, 2))
+        q3 = u16(m.read((frame << 4) + 0xC000, 2))
+        want(bad, "%04X:0000 read off the machine (page 0)" % frame, q0,
+             0xE500)
+        want(bad, "%04X:C000 read off the machine (page 1)" % frame, q3,
+             0xE501)
         w2, ph, r = instance(ui, m, syms, set(w.i for w in ui.windows()))
         want(bad, "second instance", ph, 2)
         want(bad, "...FRAME 1 refused BUSY", r["BUSY"], 0x100 | EMSE_BUSY)
@@ -152,7 +160,8 @@ def leg_none(syms):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--leg", choices=("board", "none", "both"), default="both")
+    ap.add_argument("--leg", choices=("board", "none", "pico", "both"),
+                    default="both")
     a = ap.parse_args()
     os.chdir(ROOT)
     if not os.path.exists(os88build.at(IMG)):
@@ -166,6 +175,8 @@ def main():
             bad += leg_board(syms)
         if a.leg in ("none", "both"):
             bad += leg_none(syms)
+        if a.leg == "pico":
+            bad += leg_board(syms, PICO, 0xD000, 0x288)
     except Fail as e:
         bad.append(str(e))
     if bad:

@@ -169164,7 +169164,10 @@ at *base* + *q* x 4000h, 80h + the page) is VIDEO-XMS-PLAN 10.4's second
 backend and is not here.
 
 **Attach probes; nothing is configured.** It tries the frames E000h, D000h
-and C000h in that order and, in each, the bases 260h, 264h, 268h and 26Ch:
+and C000h in that order and, in each, the bases 260h, 264h, 268h and 26Ch -
+the Lo-tech's - and 288h, a PicoMEM's default, which the owner's 286 found
+when the first list answered `No hardware found` with its PicoMEM at D000h
+and 288h:
 - **a frame holding an option ROM is skipped with no port written** - 55h
   AAh at any 2 KB boundary inside it, the BIOS's own scan;
 - **260h is skipped while a `DRVC_POINT` driver is published**, that being

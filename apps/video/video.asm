@@ -9136,8 +9136,11 @@ vp_main:
                                     ; block was queued (98.3.1)
     call vp_fill
     jnc .loop                       ; a chunk arrived: poll, and try again
+    cmp byte [vp_bhold], 0          ; (a gate's: the bracket banks no more)
+    jne .nbk
     call vp_bstep                   ; THE RING IS FULL: the bank fills, a
     jnc .loop                       ; chunk a pass (VIDEO-XMS-PLAN 4.1)
+.nbk:
     call vp_wthumb                 ; (in the window, the thumb moves)
     mov al, FSXW_FRAME              ; nothing to read yet: give the period
     call OSAPI_FSX_WAIT             ; to the hook
@@ -15020,6 +15023,8 @@ vp_hxp:       dw 0                  ; ...and its prefill, KB (0: 10 s at its
                                     ; mean, FFFFh: the bank whole)
 vp_pfok:      db 0                  ; 1: the next ring fill is a session's first
 vp_pfwait:    db 0                  ; 1: the prefill holds when done (a gate's)
+vp_bhold:     db 0                  ; 1: the bracket's loop banks no further,
+                                    ; the prefill and a pause still do (a gate's)
 vp_pfn:       dw 0                  ; the prefill's slots
 vp_bskn:      dw 0                  ; seeks the bank answered (a gate's count)
 vp_pft0:      dw 0                  ; ...and the tick it began

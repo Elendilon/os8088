@@ -63,7 +63,9 @@ from pxswin import qpoke                                     # noqa: E402
 NF, FPS, WB, H = 300, 30.0, 80, 200
 HOLD0 = 20
 BPS = 64 * 1024                 # B:'s throttle: a slow period disk
-ASK_KB, PRE_KB = 4096, 256          # the header's bank and prefill
+ASK_KB, PRE_KB = 4096, 64           # the header's bank and prefill: a
+                                    # small prefill, so the pause leg has
+                                    # the bank's room to watch filling
 VOK_LOWMEM = 7
 VP_SPK = 2                      # [vp_snd]: the speaker plays it
 VOK_BUF = 10                    # vosd.inc: the box says the prefill
@@ -339,6 +341,9 @@ def main():
         # B: reads at a period disk's rate
         import re
         poke("vp_stopat", HOLD0)
+        # (the bank HELD at the prefill's 2 slots until the pause: F can take
+        # guest seconds to land, and the bank must still have room then)
+        qpoke(q, [(base + syms["vp_bhold"], b"\1")])
         q.hmp("sendkey p")
         said = set()
 
@@ -383,6 +388,7 @@ def main():
         wait(lambda: rb("vp_sess") == 1 and rb("vp_ready") == 0,
              "the session paused on the desktop", 30)
         c0 = rw("vp_xcnt")
+        qpoke(q, [(base + syms["vp_bhold"], b"\0")])
         if c0 >= bn:
             bad.append("the bank was full before the pause - the leg "
                        "proves nothing (%s)" % state())

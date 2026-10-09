@@ -3566,6 +3566,16 @@ SOAK = [
         "FREEs the first's handle)",
         needs=("marty", "nasm"), serial=True, timeout=300,
         wants=("build/emstest.img",)),
+    Row("emspico", "soak", py("tests/ems.py", "--leg", "pico"), 45.0,
+        "SPEC.md 107.2: EMS.DRV finds a board where a PICOMEM puts its EMS by "
+        "default - registers at 288h, the frame at D000h - on a MartyPC "
+        "machine with the Lo-tech model moved there "
+        "(os8088_5150_herc_hdd_sb_ems288_gla), and every check of ems's "
+        "board leg holds. The owner's 286 said No hardware found with its "
+        "PicoMEM at D000h/288h when the probe knew only 260h-26Ch; with 288h "
+        "taken off the list this row reproduces exactly that (DRVE_HW)",
+        needs=("marty", "nasm"), serial=True, timeout=300,
+        wants=("build/emstest.img",)),
     Row("videms", "soak", py("tests/videms.py"), 45.0,
         "SPEC.md 98.3.18.6-7: VIDEO.O88'S BANK IN EXPANDED MEMORY, decoded IN "
         "PLACE (the ring is the board's slots, the conventional ring 2), on MartyPC's "

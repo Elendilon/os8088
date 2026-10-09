@@ -534,7 +534,8 @@ em_svc:
 em_svc_end:
 
 em_frames:  dw 0xE000, 0xD000, 0xC000, 0     ; the frames tried, in order
-em_bases:   dw 0x260, 0x264, 0x268, 0x26C, 0 ; ...and the bases, in each
+em_bases:   dw 0x260, 0x264, 0x268, 0x26C ; ...and the bases, in each: the
+            dw 0x288, 0               ; Lo-tech's, and a PicoMEM's default
 
 ; =============================================================================
 ; State. Zero-only below OS88_STATE, so it costs the file nothing
