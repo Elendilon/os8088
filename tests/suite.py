@@ -3629,6 +3629,23 @@ SOAK = [
         "every hold where none had been missed yet",
         needs=("marty", "nasm", "ffmpeg"), serial=True, timeout=600,
         wants=("build/os8088-360.img", "build/video.o88")),
+    Row("vidlybank", "soak", py("tests/vidlybank.py"), 60.0,
+        "SPEC.md 98.1.9: THE LAYER's XMS BANK and its PREFILL, on QEMU's "
+        "386 - a Life clip held whole in XMS (the base) with --layer-bank "
+        "512 --layer-prefill all: the prefill fills the slots and the bank "
+        "with the whole layer and holds (vp_pfwait), B: is BLANKED, and the "
+        "play must draw all 89 layer records with none missed, each slot "
+        "fed from the bank as the hook let it go",
+        needs=("qemu", "nasm", "ffmpeg"), serial=True, timeout=400,
+        wants=("build/os8088.img", "build/video.o88")),
+    Row("vidlybanknone", "soak", py("tests/vidlybank.py", "--arm",
+                                    "nobank"), 60.0,
+        "SPEC.md 98.1.9: vidlybank's NEGATIVE CONTROL - the bank zeroed "
+        "before Play, so the prefill fills the slots alone: after the swap "
+        "the layer's reader finds no disk and the play must draw FEWER "
+        "layer records than the file has (what the slots held, still drawn)",
+        needs=("qemu", "nasm", "ffmpeg"), serial=True, timeout=400,
+        wants=("build/os8088.img", "build/video.o88")),
     Row("videmswrap", "soak", py("tests/videms.py", "--wrap"), 45.0,
         "SPEC.md 98.3.18.7: the DECODE IN PLACE with its ring held to 3 of "
         "the board's slots (vp_ekr), so it WRAPS - 7 chunks through 3 slots, "

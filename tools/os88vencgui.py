@@ -271,7 +271,8 @@ GROUPS = [
                                         "reserve", "memory"), ALWAYS),
     ("Budget", "XMS bank (a 286 or better)", ("bank", "prefill"), _bank),
     ("Budget", "Layer: for a faster disk too",
-     ("layer_disk", "layer_memory", "layer_prefill", "layer_seek"),
+     ("layer_disk", "layer_memory", "layer_bank", "layer_prefill",
+      "layer_seek"),
      lambda c: _bank(c) or (
          "A layer is what the base leaves unused on a better machine, and "
          "is not made beside a bank." if c.get("bank") else

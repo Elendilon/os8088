@@ -3887,6 +3887,7 @@ vp_xopen:
     or dx, dx
     jz .out
     mov si, dx                      ; SI = its KB, one over
+    call vp_lyxopen                 ; THE LAYER's bank first (98.1.9)
     call vp_epref                   ; EMS FIRST below a 386 (98.3.18.6):
     jnc .ems                        ; no copy holds interrupts off there
     call OSAPI_XMEM_CAPS            ; AX = the KB the pool has (BL, DX:CX
@@ -3967,6 +3968,7 @@ vp_xopen:
 
 ; vp_xfree - the hold, if there is one
 vp_xfree:
+    call vp_lyxfree
     cmp byte [vp_xon], 0
     je .z
     push ax
@@ -4876,6 +4878,13 @@ vp_eaddr:
 ; filled (vp_pfc); a chunk more, CF=1 none (vp_pfst); ZF=0 the file's end is
 ; in (vp_pfeof)
 vp_pfc:
+    cmp byte [vp_pfly], 0           ; THE LAYER's prefill (vp_lypre): its
+    je .b                           ; slots and its bank
+    mov ax, [vp_lyrd]
+    sub ax, [vp_lyuse]
+    add ax, [vp_lyxc]
+    ret
+.b:
     mov ax, [vp_xcnt]
     cmp byte [vp_einp], 0
     je .r
@@ -7962,25 +7971,38 @@ vp_lyclaim:
     push dx
     cmp word [vp_lyseg], 0
     jne .out                        ; (held already)
-    call vp_lywant                  ; CX = the layer's KB, 0 none
+    call vp_lywant                  ; CX = its most slots, 0 none
     jcxz .out
+.try:
+    mov [vp_lyns], cx               ; THE SLOTS THE HEAP HAS (98.1.9): the
+    cmp word [vp_lyxn], 0           ; most, or two - a power of two, and the
+    je .nb                          ; bank's bounce besides, one more
+    inc cx
+.nb:
+    push cx
     call OSAPI_MEM_AVAIL
     call vp_kres                    ; AX = what the ring could have
     mov bx, ax
     call vp_kwant                   ; AX = the slots its stream asks for
     add ax, [vp_msl]
-    push cx
-    mov cl, 5
-    shl ax, cl                      ; ...in KB, with the mirror
     pop cx
     add ax, cx                      ; ...and the layer's
-    jc .out
+    mov dx, cx
+    mov cl, 5
+    shl ax, cl                      ; ...in KB, the mirror with them
+    jc .less
     cmp bx, ax
-    jb .out
-    mov ax, cx
+    jb .less
+    mov ax, dx
+    shl ax, cl
     call OSAPI_MEM_CLAIM
-    jc .out
+    jc .less
     mov [vp_lyseg], dx
+    jmp short .out
+.less:
+    mov cx, 2
+    cmp word [vp_lyns], 2
+    ja .try
 .out:
     pop dx
     pop cx
@@ -7988,10 +8010,10 @@ vp_lyclaim:
     pop ax
     ret
 
-; vp_lywant - CX = the KB the layer's slots take, [vp_lyns] its slots: 2
-; to VP_LYMAX by its header, a power of two - or 0, no layer this play
-; can read: none in the file, flipped, repeating (the seam would want the
-; layer's place again), Live, or clusters past 32 KB. Preserves all but CX
+; vp_lywant - CX = the most slots the layer's read-ahead would take,
+; VP_LYMAX - or 0, no layer this play can read: none in the file, flipped,
+; repeating (the seam would want the layer's place again), Live, or
+; clusters past 32 KB. Preserves all but CX
 vp_lywant:
     xor cx, cx
     push ax
@@ -8006,20 +8028,8 @@ vp_lywant:
     jne .o
     cmp word [vp_clb], VP_CHUNK
     ja .o
-    mov ax, [vp_lykb]
-    mov cl, 5
-    shr ax, cl
-    mov cx, 2
-    cmp ax, VP_LYMAX
-    jb .ns
-    mov cx, VP_LYMAX
-.ns:
-    mov [vp_lyns], cx
-    mov ax, cx
-    mov cl, 5
-    shl ax, cl
-    mov cx, ax
-.o:
+    mov cx, VP_LYMAX                ; THE PLAYER's choice, not the encode's:
+.o:                                 ; the most it would take
     pop ax
     ret
 
@@ -8606,6 +8616,8 @@ vp_lyparse:
     xor ax, ax
     mov [vp_lysp], ax
     mov [vp_lysp+2], ax
+    mov [vp_lybkb], ax
+    mov [vp_lypkb], ax
     mov ax, [es:V88_LAYER]
     test ax, VP_CHUNK - 1           ; (a 32 KB boundary)
     jnz .no
@@ -8623,8 +8635,12 @@ vp_lyparse:
     mov [vp_lykt], ax
     mov ax, [es:V88_LAYER+14]
     mov [vp_lykt+2], ax
-    mov ax, [es:V88_LAYER+8]        ; its memory, KB: 2 to VP_LYMAX slots
+    mov ax, [es:V88_LAYER+8]        ; its memory, KB (the encode's floor)
     mov [vp_lykb], ax
+    mov ax, [es:V88_LAYER+18]       ; its XMS bank, KB
+    mov [vp_lybkb], ax
+    mov ax, [es:V88_LAYER+10]       ; ...and its prefill, KB (FFFFh: all)
+    mov [vp_lypkb], ax
 .no:
     ret
 
@@ -8673,6 +8689,15 @@ vp_lypos:
     mov [vp_lygot], ax
     mov [vp_lyskp], ax
     mov [vp_lymis], ax
+    mov [vp_lyxh], ax               ; (the bank empty: what it held was the
+    mov [vp_lyxc], ax               ; old place's)
+    mov [vp_lyxq], al
+    cmp word [vp_lyxn], 0           ; THE BANK this session: not under the
+    je .nq                          ; speaker's clock, whose own interrupts
+    cmp byte [vp_snd], VP_SPK       ; every XMS copy holds off (98.3.18.5)
+    je .nq
+    mov byte [vp_lyxq], 1
+.nq:
     push ds
     pop es
     mov di, vp_lycur
@@ -8725,21 +8750,140 @@ vp_lypos:
     ret
 
 ; vp_lyread - THE DISK IS FREE (the ring full, the bank full or none): the
-; layer's next slot read, if one is empty. CF=0 a slot arrived; CF=1
-; nothing was read. A layer that cannot be read stops; the base plays on.
-; Clobbers AX, BX, CX, DX, SI, DI, ES
+; layer's next step - a slot fed from the layer's BANK if it holds any
+; (a copy, no disk), else the disk read into an empty slot, or with every
+; slot full into the bank through its bounce slot. CF=0 a step was taken;
+; CF=1 nothing to do. A layer that cannot be read stops; the base plays
+; on. Clobbers AX, BX, CX, DX, SI, DI, ES
 vp_lyread:
     cmp byte [vp_lyon], 0
     je .none
+    call vp_lydrain                 ; (the bank first: it is in order)
+    jnc .r
     cmp byte [vp_lyeof], 0
     jne .none
     mov ax, [vp_lyrd]
     sub ax, [vp_lyuse]
     cmp ax, [vp_lyns]
-    jae .none                       ; every slot is the hook's
+    jae .bank                       ; every slot is the hook's
+    cmp word [vp_lyxc], 0
+    jne .none                       ; (the bank holds the next: drained)
     mov bx, [vp_lyns]
     dec bx
     and bx, [vp_lyrd]
+    call vp_lyget                   ; the disk into slot BX
+    jc .r
+    inc word [vp_lyrd]              ; published LAST: the hook reads it
+    clc
+.r:
+    ret
+.bank:
+    cmp byte [vp_lyxq], 0
+    je .none
+    mov ax, [vp_lyxc]
+    cmp ax, [vp_lyxn]
+    jae .none                       ; the bank full too
+    mov bx, [vp_lyns]               ; THE BOUNCE: the slot after the ring of
+    call vp_lyget                   ; them, then up to the bank's tail
+    jc .r
+    mov ax, [vp_lyxh]
+    add ax, [vp_lyxc]
+    cmp ax, [vp_lyxn]
+    jb .t
+    sub ax, [vp_lyxn]
+.t:
+    mov si, [vp_lyns]
+    xor di, di                      ; UP
+    call vp_lyxcp
+    jc .r
+    inc word [vp_lyxc]
+    clc
+    ret
+.none:
+    stc
+    ret
+
+; vp_lyslots - the layer's SLOTS filled off the disk and nothing more: the
+; bank is the prefill's to fill (vp_lypre), and the ask it was made for.
+; Clobbers AX, BX, CX, DX, SI, DI, ES
+vp_lyslots:
+    mov al, [vp_lyxq]
+    push ax
+    mov byte [vp_lyxq], 0
+.l:
+    call vp_lyread
+    jnc .l
+    pop ax
+    mov [vp_lyxq], al
+    ret
+
+; vp_lydrain - a slot empty and the layer's bank holding its next: the
+; bank's head copied down into it. CF=0 one was; CF=1 nothing to drain.
+; Clobbers AX, BX, CX, DX, SI, DI, ES
+vp_lydrain:
+    cmp word [vp_lyxc], 0
+    je .no
+    mov ax, [vp_lyrd]
+    sub ax, [vp_lyuse]
+    cmp ax, [vp_lyns]
+    jae .no
+    mov si, [vp_lyns]
+    dec si
+    and si, [vp_lyrd]
+    mov ax, [vp_lyxh]
+    mov di, 1                       ; DOWN
+    call vp_lyxcp
+    jc .r
+    mov ax, [vp_lyxh]
+    inc ax
+    cmp ax, [vp_lyxn]
+    jb .h
+    xor ax, ax
+.h:
+    mov [vp_lyxh], ax
+    dec word [vp_lyxc]
+    inc word [vp_lyrd]              ; published LAST
+    clc
+.r:
+    ret
+.no:
+    stc
+    ret
+
+; vp_lyxcp - AX = a bank slot, SI = a layer slot, DI = 0 up into the bank /
+; 1 down out of it: its 32 KB copied (OSAPI_XMEM_COPY). CF=1 refused, and
+; the bank is dropped for the session - the disk serves the layer on from
+; where the bank's head was, and what the bank held is lost to it, the
+; hook stepping over those frames' records. Clobbers AX, BX, CX, DX, SI, ES
+vp_lyxcp:
+    mov dx, ax
+    shr dx, 1                       ; slot x 32768
+    and ax, 1
+    ror ax, 1
+    add ax, [vp_lyxb]
+    adc dx, [vp_lyxb+2]
+    mov bx, si
+    mov cl, 11
+    shl bx, cl
+    add bx, [vp_lyseg]
+    mov es, bx
+    xor si, si
+    mov cx, VP_CHUNK
+    call OSAPI_XMEM_COPY
+    push ds
+    pop es
+    jnc .ok
+    mov byte [vp_lyxq], 0
+    mov word [vp_lyxc], 0
+    stc
+.ok:
+    ret
+
+; vp_lyget - BX = a layer slot: the layer's next super-packet off the disk
+; into it, its header checked and its end noted. CF=1: none - and none
+; will be read after it, the layer playing on from what is in. Clobbers
+; AX, BX, CX, DX, SI, DI, ES
+vp_lyget:
     mov cl, 11
     shl bx, cl
     add bx, [vp_lyseg]
@@ -8766,16 +8910,150 @@ vp_lyread:
     jz .last
     cmp ax, VP_CHUNK / 512
     jne .off
-    jmp short .pub
+    clc
+    ret
 .last:
     mov byte [vp_lyeof], 1
-.pub:
-    inc word [vp_lyrd]              ; published LAST: the hook reads it
     clc
     ret
 .off:
-    mov byte [vp_lyon], 0
-.none:
+    mov byte [vp_lyeof], 1          ; (unread or unreadable: no more of it
+    stc                             ; is read - what the slots and the bank
+    ret                             ; hold is still drawn)
+
+; vp_lyxopen - a file's open, SI = its KB: THE LAYER's XMS BANK, ahead of
+; the base's (the base's bank takes what the pool has left): the header's
+; ask, or the pool less VP_XRES if that is less, in whole slots, two at
+; least. None on an EMS-only machine. Every register kept
+vp_lyxopen:
+    push ax
+    push cx
+    push dx
+    mov word [vp_lyxn], 0
+    mov ax, [vp_lysp]
+    or ax, [vp_lysp+2]
+    jz .out
+    cmp word [vp_lybkb], 0
+    je .out
+    push bx
+    call OSAPI_XMEM_CAPS            ; AX = the pool's KB (and DX:CX, BL
+    pop bx                          ; its other answers)
+    mov cx, [vp_lybkb]
+    sub ax, VP_XRES
+    jbe .out
+    cmp ax, cx
+    jbe .t
+    mov ax, cx
+.t:
+    mov cl, 5
+    shr ax, cl                      ; ...in slots
+.try:
+    cmp ax, 2
+    jb .out
+    push ax
+    mov dx, ax
+    shr dx, 1                       ; DX:AX = slots x 32 KB
+    and ax, 1
+    ror ax, 1
+    call OSAPI_XMEM_ALLOC
+    pop cx
+    jnc .got
+    shr cx, 1                       ; (no run that long: half)
+    mov ax, cx
+    jmp short .try
+.got:
+    mov [vp_lyxb], ax
+    mov [vp_lyxb+2], dx
+    mov [vp_lyxn], cx
+.out:
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; vp_lyxfree - the layer's bank, if there is one. Every register kept
+vp_lyxfree:
+    cmp word [vp_lyxn], 0
+    je .r
+    push ax
+    push dx
+    mov word [vp_lyxn], 0
+    mov byte [vp_lyxq], 0
+    mov ax, [vp_lyxb]
+    mov dx, [vp_lyxb+2]
+    call OSAPI_XMEM_FREE
+    pop dx
+    pop ax
+.r:
+    ret
+
+; vp_lypre - a session's first start, after the base's prefill: THE
+; LAYER's, the header's KB of it (FFFFh: every slot and the bank whole)
+; read before the first frame, saying `Buffering 37% ~24s` as the base's
+; does. Space plays with what is in; Esc cancels: CF=1. Clobbers AX, BX,
+; CX, DX, SI, DI
+vp_lypre:
+    cmp byte [vp_lyon], 0
+    je .done
+    mov ax, [vp_lypkb]
+    or ax, ax
+    jz .done
+    mov cx, [vp_lyns]               ; HOW FAR: the slots and the bank, or
+    cmp byte [vp_lyxq], 0           ; the ask, if less
+    je .c
+    add cx, [vp_lyxn]
+.c:
+    cmp ax, 0xFFFF
+    je .n
+    add ax, 31
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    cmp ax, cx
+    jae .n
+    mov cx, ax
+.n:
+    jcxz .done
+    mov [vp_pfn], cx
+    mov byte [vp_pfly], 1
+    call OSAPI_GET_TICKS
+    mov [vp_pft0], ax
+.lp:
+    mov ah, 1
+    int 0x16
+    jz .nk
+    xor ah, ah
+    int 0x16
+    cmp al, 27
+    je .esc
+    cmp al, ' '
+    je .done
+.nk:
+    call vp_pfc
+    cmp ax, [vp_pfn]
+    jae .full
+    cmp byte [vp_lyeof], 0          ; (the layer read to its end: all there
+    jne .full                       ; is to fill)
+    call vp_pfsay
+    call vp_lyread
+    jnc .lp
+.full:
+    cmp byte [vp_pfwait], 0         ; (the gate's hold, tests/vidlybank.py)
+    jne .lp
+.done:
+    mov byte [vp_pfly], 0
+    xor ax, ax
+    mov si, vo_s_none
+    call vo_show
+    clc
+    ret
+.esc:
+    mov byte [vp_pfly], 0
+    xor ax, ax
+    mov si, vo_s_none
+    call vo_show
     stc
     ret
 
@@ -9549,13 +9827,16 @@ vp_main:
     call vp_fill                    ; stream that fits is read whole
     jnc .fill
 .fld:
-    call vp_lyread                  ; ...THE LAYER's slots too, before the
-    jnc .fld                        ; first frame (98.1.9)
+    call vp_lyslots                 ; ...THE LAYER's slots too, before the
+                                    ; first frame (98.1.9)
     cmp byte [vp_pfok], 0           ; ...and THE BANK, before a session's
     je .npf                         ; first frame (98.3.18.3) - not after a
     mov byte [vp_pfok], 0           ; seek, which wants the play now
     call vp_bpre
+    jc .pfesc
+    call vp_lypre                   ; ...and THE LAYER's (98.1.9)
     jnc .npf
+.pfesc:
     mov word [vp_dt], 0             ; ESC while it filled: nothing played
     mov byte [vp_dtok], 1
     mov al, VPX_STOP
@@ -9653,6 +9934,10 @@ vp_main:
     mov [vp_lminf], ax
 .rl:
 %endif
+    cmp word [vp_lyxc], 0           ; THE LAYER's bank, drained into a slot
+    je .nld                         ; the hook let go, whatever the disk is
+    call vp_lydrain                 ; doing (98.1.9)
+.nld:
     call vp_skeep                   ; EVERY pass, not only an idle one: after
                                     ; an underrun the reader is catching up,
                                     ; so a chunk arrives each pass and the
@@ -15619,6 +15904,14 @@ vp_lygot:     dw 0                  ; ...records drawn, and left out behind
 vp_lyskp:     dw 0
 vp_lymis:     dw 0                  ; ...and stepped over, read too late
 vp_lycur:     times FSEQ_SIZE db 0  ; ...and its reader's cursor
+vp_lybkb:     dw 0                  ; ...its XMS bank, KB, as the file asks,
+vp_lypkb:     dw 0                  ; and its prefill (FFFFh: all)
+vp_lyxb:      dd 0                  ; ...the bank: its block,
+vp_lyxn:      dw 0                  ; its slots, 0 none,
+vp_lyxh:      dw 0                  ; the head's slot, the slots it holds,
+vp_lyxc:      dw 0
+vp_lyxq:      db 0                  ; and whether this session may copy
+vp_pfly:      db 0                  ; the prefill is the LAYER's (vp_lypre)
 vp_hxp:       dw 0                  ; ...and its prefill, KB (0: 10 s at its
                                     ; mean, FFFFh: the bank whole)
 vp_pfok:      db 0                  ; 1: the next ring fill is a session's first

@@ -622,7 +622,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 12
+OPTS_VERSION = 13
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles")
@@ -636,7 +636,8 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     5: "85ea67f8ce1492a0", 6: "0d0af3901366a0c6",
                     7: "3c23376030acae01", 8: "a2cee436c2bd5178",
                     9: "566ce460b7bc0952", 10: "03033c94f4068ded",
-                    11: "92246fa491f53aee", 12: "27f0d558163b22db"}
+                    11: "92246fa491f53aee", 12: "27f0d558163b22db",
+                    13: "23fa4d29a8c351cd"}
 # THE VERSION MAPPER: MIGRATIONS[n] is what turns a version-n record into
 # version n+1, a list of steps applied in order:
 #   ("rename", old, new)          an option took a new name
@@ -682,6 +683,8 @@ MIGRATIONS = {
     11: [("added", "layer_disk", None), ("added", "layer_memory", 64.0),
          ("added", "layer_prefill", None),
          ("added", "layer_seek", 10.0)],
+    # 13: --layer-bank (98.1.9) - a layer made before it has none
+    12: [("added", "layer_bank", None)],
 }
 
 
@@ -3733,7 +3736,7 @@ class LayerEnc(object):
     layer record out, as a late player would"""
 
     def __init__(self, base, rate, ram_kb, pre_kb, seek_ms=LAYER_SEEK_MS,
-                 drop=0):
+                 drop=0, bank=0.0, xcopy=0.0):
         import copy
         if getattr(base, "flip", False) or base.live:
             raise vid.V88Error("--layer is a stream's played unflipped in "
@@ -3755,6 +3758,13 @@ class LayerEnc(object):
         self.bytes = self.recs = self.skipped = 0
         self.cycles = 0.0
         self.read = 0                       # layer bytes, for the seeks
+        # A LAYER BANK (--layer-bank): its bytes are copied up and down, so
+        # while it holds anything the layer's disk is the profile's xcopy
+        # slower - the base bank's rule (set_bank)
+        self.lbank = float(bank)
+        self.lslots = ram_kb * 1024.0 - self.lbank
+        self.lslow = 1.0 + 2 * xcopy / 1000.0 * self.rate / 1024 \
+            if bank and xcopy else 1.0
 
     def _clone(self, copy, ram_kb, pre_kb):
         b = self.b
@@ -3841,8 +3851,10 @@ class LayerEnc(object):
             share = (c + cl + b.audio_cyc + HOOK_CYC) / b.q + b.spk
             rel = b.disk_rel(share)
         lvl = self.bl + (self.rate * rel * 0.99 - b.abps) / b.fps
-        e.disk.level = min(e.disk.cap, e.disk.level +
-                           max(0.0, lvl - b.disk.cap))
+        clip = max(0.0, lvl - b.disk.cap)
+        if e.disk.level > self.lslots:      # (through the bank: copied)
+            clip /= self.lslow
+        e.disk.level = min(e.disk.cap, e.disk.level + clip)
         self.bl = min(lvl, b.disk.cap) - (len(rec) - b.abps / b.fps)
         self.f += 1
         return lops
@@ -4829,15 +4841,21 @@ def _encode(a, keep, tick, readers):
             raise vid.V88Error("--layer-disk is a budgeted stream's: not "
                                "--resident, --live or a lossless profile")
         lmem = float(a.layer_memory)
-        lpre = lmem if a.layer_prefill == "all" else \
+        lbank = float(getattr(a, "layer_bank", None) or 0)
+        ltot = lmem + lbank
+        lpre = ltot if a.layer_prefill == "all" else \
             float(a.layer_prefill or 0)
-        if not 0 <= lpre <= lmem or not 16 <= lmem <= 65534:
-            raise vid.V88Error("--layer-memory %g KB, --layer-prefill %s: "
-                               "16 KB to 64 MB, and a prefill within it"
-                               % (lmem, a.layer_prefill))
-        lay = LayerEnc(enc, a.layer_disk, lmem, lpre, a.layer_seek)
+        if not 0 <= lpre <= ltot or not 64 <= lmem <= 128 or \
+                not 0 <= lbank <= 65000:
+            raise vid.V88Error("--layer-memory %g KB, --layer-bank %g KB, "
+                               "--layer-prefill %s: 64 to 128 KB of slots, a "
+                               "bank to 65,000, and a prefill within the two"
+                               % (lmem, lbank, a.layer_prefill))
+        lay = LayerEnc(enc, a.layer_disk, ltot, lpre, a.layer_seek,
+                       bank=lbank * 1024, xcopy=prof.get("xcopy") or 0.0)
         wr.layer = (max(1, int(round(a.layer_disk / 1024.0))), int(lmem),
-                    vid.XPRE_ALL if a.layer_prefill == "all" else int(lpre))
+                    vid.XPRE_ALL if a.layer_prefill == "all" else int(lpre),
+                    int(lbank))
     elif getattr(a, "layer_prefill", None):
         raise vid.V88Error("--layer-prefill fills a layer, and there is no "
                            "--layer-disk")
@@ -5102,7 +5120,7 @@ def _encode(a, keep, tick, readers):
             "%.1f%% more of the CPU; %.0f KB banked%s%s"
             % (a.layer_disk / 1024.0, lay.bytes / secs / 1024.0, lay.recs,
                nf, 100.0 * lay.cycles / max(1.0, enc.cpu.per * nf),
-               wr.layer[1], ", %s of it before the first frame" % (
+               wr.layer[1] + wr.layer[3], ", %s of it before the first frame" % (
                    "all" if a.layer_prefill == "all" else
                    "%d KB" % wr.layer[2]) if wr.layer[2] else "",
                "" if not enc.metric else
@@ -5235,13 +5253,21 @@ def parser():
                          "plays better")
     ap.add_argument("--layer-memory", type=float, metavar="KB",
                     default=64.0,
-                    help="with --layer-disk: the memory the layer is banked "
-                         "in ahead of its frames - its read-ahead, and its "
-                         "prefill's room (default 64)")
+                    help="with --layer-disk: the CONVENTIONAL memory the "
+                         "encode assumes the layer is read ahead into, 64 "
+                         "or 128 KB - the floor: a player takes more where "
+                         "the heap has it (default 64)")
+    ap.add_argument("--layer-bank", type=float, metavar="KB",
+                    help="with --layer-disk: an XMS BANK for the layer on "
+                         "the machine that plays it, ahead of its slots - "
+                         "the layer read further ahead in calm stretches, "
+                         "and before the first frame by --layer-prefill. A "
+                         "machine with less plays it and misses more of "
+                         "the layer (98.1.9)")
     ap.add_argument("--layer-prefill", metavar="KB|all",
                     help="with --layer-disk: KB of the layer read before the "
-                         "first frame, or 'all' of --layer-memory (default "
-                         "none)")
+                         "first frame, or 'all' of --layer-memory and "
+                         "--layer-bank (default none)")
     ap.add_argument("--layer-seek", type=float, metavar="MS",
                     default=LAYER_SEEK_MS,
                     help="with --layer-disk: the seek, each way, that each "

@@ -880,6 +880,9 @@ def leg12(tmp, bad):
     j.leftover(out)
     dt = time.time() - t0
     left = group(j.p.pid)
+    while left and time.time() - t0 < 2.0:  # (killed is not yet GONE: on a
+        time.sleep(0.05)                    # loaded box the group's last
+        left = group(j.p.pid)               # exits land a beat later)
     same = open(out, "rb").read() == old
     part = os.path.exists(out + ".part")
     print("  12: cancelled at %s: gone in %.2f s, %d process(es) of its group "

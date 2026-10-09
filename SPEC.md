@@ -158164,14 +158164,14 @@ the first, that a machine with disk and CPU to spare reads as well**
 better. docs/plans/VIDEO-OVERAGE-PLAN.md 7 is the measurement behind it -
 3.81% -> 2.48% error as seen on the owner's 286 for a file made for 200
 KB/s - and it is that plan's "made for this disk, better on a better one".
-The format, the encoder and the player are BUILT; the layer's PREFILL (its
-header word is written) is not yet played.
+The format, the encoder and the player are BUILT, with the layer's own
+XMS BANK and PREFILL.
 
 - **The header**, at 476 (`LAYER_FMT`): u32 the layer's first super-packet,
   u16 its sectors (64), u16 the disk it was made for in KB a second, u16
   the memory it is banked in (KB), u16 its prefill (KB, FFFFh all of it),
-  u32 its key table, u16 its longest record; all zero for no layer. **No
-  flag**: 98.1.1's 472 precedent - a player made before reads nothing past
+  u32 its key table, u16 its longest record, u16 its XMS bank (KB, at
+  494); all zero for no layer. **No flag**: 98.1.1's 472 precedent - a player made before reads nothing past
   472 and plays the base, which is the point of the format.
 - **The layer stream** follows the base's, in a region of its own so a
   base-only machine never reads it: super-packets `first(32) frames(16)
@@ -158192,8 +158192,20 @@ header word is written) is not yet played.
 - **A stream's, played unflipped**: not RESIDENT, Live or flipped, and not
   with a `--bank` - every layout and format otherwise, one plane or four.
 
-**The encode** (`--layer-disk BYTES`, `--layer-memory KB` default 64,
-`--layer-prefill KB|all`, `--layer-seek MS` default 10): a second encoder
+**The options**, which say two different things and are kept apart:
+- `--layer-disk BYTES` is the better machine's WHOLE disk, base included -
+  `458752` is a 448 KB/s machine; the layer is what the base leaves of it;
+- `--layer-memory KB`, 64 or 128, is the CONVENTIONAL read-ahead the encode
+  assumes - the floor. The player takes what the heap has, not this (below);
+- `--layer-bank KB` is an XMS BANK for the layer ahead of those slots, and
+  `--layer-prefill KB|all` how much of the layer is read before the first
+  frame, into the slots and the bank. The layer's bucket is the slots and
+  the bank together, started that full - VIDEO-OVERAGE-PLAN's "load the
+  overage at prefill time", on the layer. While the bank holds anything the
+  layer's disk is the profile's `xcopy` slower, the base bank's rule;
+- `--layer-seek MS` (default 10) prices a seek each way per 32 KB of layer.
+
+**The encode**: a second encoder
 (`LayerEnc`) whose screen is the enhanced player's, run `LAYER_LAG` (8 s)
 behind the base. Its disk is what the base's bucket would CLIP on the
 layer's machine - the ring full, the disk idle - less a seek each way per
@@ -158202,11 +158214,27 @@ the window still needs, so no base frame runs late for it. The base is
 encoded exactly as it would be alone, and the gate asserts it.
 
 **The play** (`vp_ly*`):
-- **Its slots are claimed BEFORE the ring is sized** (`vp_lyclaim`), two to
-  `VP_LYMAX` (4) by the header's memory, and only when the ring still gets
-  the slots its stream asks for beside them - the base first, always. The
-  ring takes every slot the heap offers, so a claim after it found
-  nothing; this order is the whole fix.
+- **Its slots are claimed BEFORE the ring is sized** (`vp_lyclaim`) and
+  the PLAYER decides how many: `VP_LYMAX` (4) if the heap has them beside
+  the slots the ring's stream asks for, else two, else none - the base
+  first, always. The header's memory is the encode's floor and not an ask:
+  a player with less plays the layer and misses more of it. (The ring takes
+  every slot the heap offers, so a claim after it found nothing; this order
+  is the whole fix.)
+- **Its XMS BANK is taken at the file's open** (`vp_lyxopen`), AHEAD of the
+  base's bank, which takes what the pool has left: the header's ask, or the
+  pool less `VP_XRES`, in whole slots. A bounce slot is claimed beside the
+  conventional ones. The reader's order is FIFO: a slot the hook let go is
+  fed from the bank's head if it holds anything (`vp_lydrain`, every pass of
+  the loop, disk or no disk), else read straight off the disk; with every
+  slot full the disk is read into the bounce and copied up behind the
+  bank's tail. Not under the speaker's clock (98.3.18.5), and not on an
+  EMS-only machine yet.
+- **Its PREFILL** (`vp_lypre`) runs after the base's at a session's first
+  start, in the same `Buffering 37% ~24s` box: the header's KB of the layer,
+  or every slot and the bank whole for `all`, Space playing with what is in.
+  The fill before the first frame takes the SLOTS only; the bank is the
+  prefill's.
 - **It is read when the disk is FREE**: the bracket's loop reads the
   layer's next slot (`vp_lyread`) where `vp_fill` answered that the ring is
   full and the bank had nothing to take - which is exactly the spare the
@@ -158223,8 +158251,9 @@ encoded exactly as it would be alone, and the gate asserts it.
   the cursor at its super-packet; the hook steps over the records before
   the play's first frame. Not with Repeat (the seam would want the layer's
   place again), a flipped play, Live, or clusters past 32 KB: those play
-  the base. A layer the player cannot read - a word wrong, a super-packet
-  that runs off its slot - stops, and the base plays on.
+  the base. A layer read that fails STOPS THE READING and keeps what the
+  slots and the bank hold, which is still drawn; a record that runs off its
+  slot turns the layer off. The base plays on either way.
 - **The card** says after such a play, on line 4, `Layer drew 812, 21
   missed, 0 late` - drawn, read too late for their frames, and left out
   for a hook behind.
@@ -158245,7 +158274,13 @@ writer's rules (`verify_layer`). **Three gates**:
 - `vidlyplaystream`: six seconds in two slots, refilled during the play
   off a floppy that cannot keep up (49 drawn, 21 read too late on the
   measured run) - the play ends with no error, exact at every hold before
-  the first miss.
+  the first miss;
+- `vidlybank` (QEMU's 386): a clip held whole in XMS, `--layer-bank 512
+  --layer-prefill all` - the prefill fills the slots and the bank with the
+  whole layer and holds, B: is BLANKED, and the play draws all 89 layer
+  records with none missed, every slot after the first four fed from the
+  bank. `vidlybanknone` is its control: the bank zeroed, the same play
+  draws only what the slots held (23).
 
 ### 98.2 The host tools — `tools/os88vid.py`
 

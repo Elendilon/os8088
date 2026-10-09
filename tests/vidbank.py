@@ -63,9 +63,14 @@ from pxswin import qpoke                                     # noqa: E402
 NF, FPS, WB, H = 300, 30.0, 80, 200
 HOLD0 = 20
 BPS = 64 * 1024                 # B:'s throttle: a slow period disk
-ASK_KB, PRE_KB = 4096, 64           # the header's bank and prefill: a
+ASK_KB, PRE_KB = 4096, 128          # the header's bank and prefill: a
                                     # small prefill, so the pause leg has
-                                    # the bank's room to watch filling
+                                    # the bank's room to watch filling -
+                                    # and four slots, not two: the box's
+                                    # "~Ns" shows only between the first
+                                    # slot and the last, and with two that
+                                    # was one half-second step a poll could
+                                    # miss (it failed 2 runs in 4)
 VOK_LOWMEM = 7
 VP_SPK = 2                      # [vp_snd]: the speaker plays it
 VOK_BUF = 10                    # vosd.inc: the box says the prefill
@@ -345,7 +350,7 @@ def main():
         # B: reads at a period disk's rate
         import re
         poke("vp_stopat", HOLD0)
-        # (the bank HELD at the prefill's 2 slots until the pause: F can take
+        # (the bank HELD at the prefill's slots until the pause: F can take
         # guest seconds to land, and the bank must still have room then)
         qpoke(q, [(base + syms["vp_bhold"], b"\1")])
         q.hmp("sendkey p")
