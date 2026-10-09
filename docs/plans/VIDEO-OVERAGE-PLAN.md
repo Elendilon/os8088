@@ -1,8 +1,10 @@
 # Banking only the overage — what it would buy over the bank we have
 
-**Status: INVESTIGATION (2026-10-09). One finding is BUILT** - the
-encoder's charge for the bank's copies, section 3.2 - **and the rest is a
-design and its arithmetic.** It follows docs/plans/VIDEO-XMS-PLAN.md, whose
+**Status: INVESTIGATION (2026-10-09). Two findings are BUILT** - the
+encoder's charge for the bank's copies (section 3.2) and a sign bug in its
+retry (7.2) - **and the layer is MEASURED (section 7): it works, recovers
+64-80% of the gap to a file made for the better machine, and on a 286 the
+CPU binds it past ~350 KB/s.** The rest is a design and its arithmetic. It follows docs/plans/VIDEO-XMS-PLAN.md, whose
 waves 1-4 and E1-E3 are built (SPEC.md 98.3.18.2-98.3.18.7).
 
 **The owner's question** (paraphrased): instead of cutting, put only the
@@ -187,11 +189,11 @@ together, and a format version in 98.1.
    bucket's history after the encode; no format change. Section 3.1 says
    the prefill IS the bank on a calm-less clip, so this is the knob that
    should not be a guess.
-3. **The layered format** (section 4), if the fallback - one file that plays
-   everywhere, better where there is a bank - is wanted, or if the 286's XMS
-   copies (section 3.3) are measured to cost a real play. Its first wave is
-   the encoder alone, which can report the enhancement's size on the
-   owner's clips before a byte of the player is written.
+3. **The layered format** (section 4), now that section 7 has measured it:
+   one file made for a slow disk that plays a third better on the owner's
+   286, fetched at the ring-full moment with no extra RAM (7.3). Its first
+   wave is the encoder's second pass, which `tools/os88vidlayer.py` already
+   is in outline; the player's three pieces follow.
 
 ## 6. Questions for the owner
 
@@ -202,3 +204,106 @@ together, and a format version in 98.1.
    10 s?
 3. The two-screen enhancement's size is the unknown that decides section 4;
    measure it first (an encoder-only wave) before deciding?
+
+## 7. Measured: the layer (2026-10-09, `tools/os88vidlayer.py`)
+
+The owner asked for section 6.3's measurement, with the idea widened: not
+only more RAM but a FASTER DISK - "encoded for this disk speed, able to play
+better if you have better", the player fetching the layer in real time when
+the disk has time to spare. Same clip, same settings; the BASE is the file
+made for 200 KB/s with no bank (3.81% error as seen), and each layer is
+encoded for one better machine.
+
+### 7.1 The wrong way to make a layer: the difference to a full encode
+
+The first measurement took the layer as whatever turns the base's screen
+into a SEPARATE full-quality encode's (the clip with the disk out of the
+way, 401 KB/s, 1.73%): **224 KB/s, 91% the size of the base**, and base +
+layer 470 KB/s against the full stream's 376. The two encodes chose
+differently from the first frame, so the layer spends most of its bytes
+undoing base writes that were themselves good. Layering that way costs more
+than not layering. Kept as the reason section 4's layer must be ENCODED,
+not diffed.
+
+### 7.2 The right way: a second encoder on top of the base
+
+The tool runs the base encode exactly as it ships and, beside it, a second
+`Encoder` per better machine whose screen is the enhanced player's: each
+frame the base's writes go onto it first, then it spends its own budget on
+the best further writes toward the same target - the encoder's own ranking,
+so a good base write is never undone. Both budgets are what the base cannot
+use on that machine, so the base plays exactly as it would without the
+layer:
+- **the disk**: the base's own bucket simulated at the machine's rate (the
+  profile's measured curve at the base's CPU share, as the base's encoder
+  prices it); what it would CLIP at the ring's depth - the ring full and the
+  disk idle - is the layer's, banked in the layer's memory;
+- **the CPU**: one bucket the two share. A first pass logs every base
+  record's cost; a backward pass gives the least the bucket must hold after
+  each frame to pay every later base frame on time, and the layer takes only
+  what stands above it. Exact: no base frame runs late, and nothing is
+  withheld that the base could not have used.
+
+| the machine's disk | layer | its CPU on top | layered play | one stream made for that disk |
+|---|---|---|---|---|
+| (the base's 200 KB/s) | - | - | 3.81% | 3.81% |
+| 250 KB/s | 46.0 KB/s | +13.6% | 3.34% | 3.08% |
+| 300 KB/s | 97.7 KB/s | +28.4% | 2.83% | 2.59% |
+| 350 KB/s | 118.7 KB/s | +34.2% | 2.55% | 2.19% |
+| 448 KB/s (the owner's 286) | 118.8 KB/s | +34.2% | 2.48% | 1.77% |
+| 448 KB/s, 3 MB for the layer | 118.9 KB/s | +34.2% | 2.48% | - |
+| unlimited | 118.9 KB/s | +34.2% | 2.48% | 1.73% |
+
+**What it says:**
+- **It works.** A file made for 200 KB/s plays 35% better on the owner's
+  286, and recovers 64-80% of the gap to a file made for that machine: 80% at
+  300 KB/s, 78% at 350, 65% at 448.
+- **Past ~350 KB/s the CPU binds, not the disk.** The base took ~68% of the
+  286's budget and the layer can have the rest, ~34% - and a picture drawn as
+  two records a frame costs more cycles than the same picture as one, so the
+  layer runs out before the single stream does. On a FASTER CPU the layer
+  would keep growing; a layer is encoded for one machine's CPU as well as its
+  disk.
+- **More RAM buys nothing on this clip** - no calm stretches to fill a bank
+  in, and the CPU binds first. A clip with calm in it would differ.
+- **The measurement's own bias**, both ways: it does not price the seek
+  between the base's place on the disk and the layer's (a few ms a switch, a
+  32 KB block every ~0.3 s at these rates: ~5-10% of the disk), which makes
+  the layer's disk rows optimistic; and the CPU is exact against the 286
+  profile, so the CPU rows are what they say.
+
+**A finding on the way, FIXED**: the encoder's retry, when a frame's CPU room
+was already overdrawn, scaled its estimate by a NEGATIVE ratio and came back
+with a large positive room - the layer spent 685K cycles a frame against a
+room of minus two million before it was found. `er` is clamped at 0 in all
+three encoders now; no shipped encode had met it (the no-bank and banked
+encodes are byte-identical before and after).
+
+### 7.3 Fetching it in real time: viable
+
+**Yes, and the signal already exists.** What the layer's disk budget models
+- the base's bucket clipping at the ring's depth - is in the player exactly
+the moment `vp_fill` answers that the ring is full: the bracket's loop today
+calls `vp_bstep` there to fill the bank (98.3.18.2). A layered player calls
+a layer reader there instead, reading the layer's next block from its region
+into the layer's memory, with no measurement of the disk's speed at all: a
+fast disk is simply one that finds the ring full more often. What it needs:
+- **somewhere to put it**: the layer's records wait from their read to their
+  frame. The table's 64 KB rows are a conventional claim of that size; a bank
+  is more, and buys nothing here (7.2);
+- **the CPU in real time too**: the encode prices the layer against ONE
+  machine's CPU, and a machine slower than that must drop layer records
+  rather than fall behind. The hook already knows when it is late (owed
+  time, 98.3); a layer record is skippable by construction - its writes are
+  values, not deltas, so a skipped one leaves those bytes at the base's, no
+  worse than the base, and later records go on improving the screen;
+- **the seek**: the layer in its own region costs a seek a block on the
+  machines that read it and nothing on the ones that do not - which is the
+  right way round. Interleaving it in the base's stream would remove the
+  seek and make every base-only machine read the layer's bytes too,
+  defeating the point.
+
+So "made for this disk, better on a better one" is three things in the
+player - a second cursor and region, a reader at the ring-full moment, the
+hook applying a layer record when it is not late - and the encoder's second
+pass, which this tool already is in outline.

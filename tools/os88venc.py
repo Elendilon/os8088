@@ -2940,7 +2940,10 @@ class Encoder:
             if best is not None:
                 chosen, rec = best
                 break
-            er *= min(0.97, cyc_room / mc)
+            # (never below 0: an overdrawn room made the ratio negative,
+            # and a negative estimate times it came back POSITIVE - a frame
+            # then spent what it did not have; VIDEO-OVERAGE-PLAN 4.2)
+            er *= max(0.0, min(0.97, cyc_room / mc))
             eb *= min(0.97, min(byte_room, self.rec_max - len(audio)) /
                       max(1, len(rec) - len(audio)))
         else:
@@ -3433,7 +3436,10 @@ class EncoderX(Flipped, Encoder):
             if best is not None:
                 chosen, ops, rec = best
                 break
-            er *= min(0.97, cyc_room / mc)
+            # (never below 0: an overdrawn room made the ratio negative,
+            # and a negative estimate times it came back POSITIVE - a frame
+            # then spent what it did not have; VIDEO-OVERAGE-PLAN 4.2)
+            er *= max(0.0, min(0.97, cyc_room / mc))
             eb *= min(0.97, min(byte_room, self.rec_max - len(audio)) /
                       max(1, len(rec) - len(audio)))
         else:
@@ -3593,7 +3599,10 @@ class EncoderP(Flipped, Encoder):
             if best is not None:
                 chosen, ops, rec = best
                 break
-            er *= min(0.97, cyc_room / mc)
+            # (never below 0: an overdrawn room made the ratio negative,
+            # and a negative estimate times it came back POSITIVE - a frame
+            # then spent what it did not have; VIDEO-OVERAGE-PLAN 4.2)
+            er *= max(0.0, min(0.97, cyc_room / mc))
             eb *= min(0.97, min(byte_room, self.rec_max - len(audio)) /
                       max(1, len(rec) - len(audio)))
         else:
