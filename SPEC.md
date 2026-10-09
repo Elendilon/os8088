@@ -158156,51 +158156,96 @@ PCM8 with a seam, ADPCM4 - and requires the same sound for every frame,
 a seek from every key that plays the stream's own (ADPCM4 decoded from the
 key's reference), and four damaged files refused.
 
-#### 98.1.9 THE LAYER: one file, a better play on a better machine (IN PROGRESS)
+#### 98.1.9 THE LAYER: one file, a better play on a better machine
 
-**Status: the format, its host reader and writer and the encoder pass are
-BUILT (`os88venc --layer-disk`, `tests/vidlayer.py`); NO PLAYER READS A
-LAYER YET** - so a layered file plays its base everywhere, which is the
-half of the promise that needs nothing. docs/plans/VIDEO-OVERAGE-PLAN.md 7
-is the measurement behind it: a file made for a slow disk carries a second
-stream, encoded on top of the first, that a machine with disk and CPU to
-spare reads as well - 3.81% -> 2.48% error as seen on the owner's 286 for a
-file made for 200 KB/s.
+**A file made for a slow disk carries a second stream, encoded on top of
+the first, that a machine with disk and CPU to spare reads as well**
+(2026-10-09). Every player plays the base; one that reads the layer plays
+better. docs/plans/VIDEO-OVERAGE-PLAN.md 7 is the measurement behind it -
+3.81% -> 2.48% error as seen on the owner's 286 for a file made for 200
+KB/s - and it is that plan's "made for this disk, better on a better one".
+The format, the encoder and the player are BUILT; the layer's PREFILL (its
+header word is written) is not yet played.
 
 - **The header**, at 476 (`LAYER_FMT`): u32 the layer's first super-packet,
-  u16 its sectors, u16 the disk it was made for in KB a second, u16 the
-  memory it is banked in (KB), u16 its prefill (KB, FFFFh all of it), u32
-  its key table, u16 its longest record; all zero for no layer. **No flag**:
-  98.1.1's 472 precedent - a player made before reads nothing past 472 and
-  plays the base, which is the point of the format.
+  u16 its sectors (64), u16 the disk it was made for in KB a second, u16
+  the memory it is banked in (KB), u16 its prefill (KB, FFFFh all of it),
+  u32 its key table, u16 its longest record; all zero for no layer. **No
+  flag**: 98.1.1's 472 precedent - a player made before reads nothing past
+  472 and plays the base, which is the point of the format.
 - **The layer stream** follows the base's, in a region of its own so a
-  base-only machine never reads it: super-packets of at most 64 sectors,
-  `first(32) frames(16) next(16)` then a record for EVERY frame, chained by
-  `next`, each naming its first frame and running on from the last with no
-  gap. A record is 98.1.3's with no audio, applied AFTER the base's record
-  for the same frame; `len` 2 alone is a frame the layer has nothing for.
+  base-only machine never reads it: super-packets `first(32) frames(16)
+  next(16)` then a record for EVERY frame, chained by `next`, each naming
+  its first frame and running on from the last with no gap. A record is
+  98.1.3's with no audio, applied AFTER the base's record for the same
+  frame; `len` 2 alone is a frame the layer has nothing for.
+- **Every layer super-packet is a whole 32 KB - 64 sectors - on a 32 KB
+  boundary of the file**, the last padded too. A `READ_SEQ` reads at a
+  cluster multiple (18.4.8), and a file cannot know the cluster of the
+  disk it will be played from: 32 KB is a multiple of every FAT volume's
+  cluster up to 32 KB, and it is a player's slot, so a layer read is one
+  call into one slot and needs no mirror. ~Half a record a super-packet of
+  padding is what it costs.
 - **The key table**: 8 bytes a kept key - the layer super-packet holding
   the key's NEXT frame, its sectors and the record's index - so a seek
   resumes the layer where the base resumes.
 - **A stream's, played unflipped**: not RESIDENT, Live or flipped, and not
   with a `--bank` - every layout and format otherwise, one plane or four.
-- **The encode** (`--layer-disk BYTES`, `--layer-memory KB` default 64,
-  `--layer-prefill KB|all`, `--layer-seek MS` default 10): a second encoder
-  (`LayerEnc`) whose screen is the enhanced player's, run `LAYER_LAG` (8 s)
-  behind the base. Its disk is what the base's bucket would CLIP on the
-  layer's machine - the ring full, the disk idle - less a seek each way per
-  32 KB of layer; its CPU is the shared bucket above what every base frame
-  in the window still needs, so no base frame runs late for it. The base
-  is encoded exactly as it would be alone, and the gate asserts it.
+
+**The encode** (`--layer-disk BYTES`, `--layer-memory KB` default 64,
+`--layer-prefill KB|all`, `--layer-seek MS` default 10): a second encoder
+(`LayerEnc`) whose screen is the enhanced player's, run `LAYER_LAG` (8 s)
+behind the base. Its disk is what the base's bucket would CLIP on the
+layer's machine - the ring full, the disk idle - less a seek each way per
+32 KB of layer; its CPU is the shared bucket above what every base frame in
+the window still needs, so no base frame runs late for it. The base is
+encoded exactly as it would be alone, and the gate asserts it.
+
+**The play** (`vp_ly*`):
+- **Its slots are claimed BEFORE the ring is sized** (`vp_lyclaim`), two to
+  `VP_LYMAX` (4) by the header's memory, and only when the ring still gets
+  the slots its stream asks for beside them - the base first, always. The
+  ring takes every slot the heap offers, so a claim after it found
+  nothing; this order is the whole fix.
+- **It is read when the disk is FREE**: the bracket's loop reads the
+  layer's next slot (`vp_lyread`) where `vp_fill` answered that the ring is
+  full and the bank had nothing to take - which is exactly the spare the
+  encode priced, with no measurement of the disk at all. A fast disk is one
+  that finds the ring full more often. Its own `READ_SEQ` cursor; before
+  the first frame its slots are filled as the ring is.
+- **It is decoded in the hook after the base's record** (`vp_lydec`), the
+  same `vp_decrec`: unless the hook is BEHIND (two frames a call,
+  `vp_lybh`), which leaves the record out. A record whose slot arrived
+  after its frame is stepped over, never played late. A layer record is
+  values, so one left out leaves the base's bytes until something writes
+  them again.
+- **A seek** reads the key's entry out of the layer's key table and puts
+  the cursor at its super-packet; the hook steps over the records before
+  the play's first frame. Not with Repeat (the seam would want the layer's
+  place again), a flipped play, Live, or clusters past 32 KB: those play
+  the base. A layer the player cannot read - a word wrong, a super-packet
+  that runs off its slot - stops, and the base plays on.
+- **The card** says after such a play, on line 4, `Layer drew 812, 21
+  missed, 0 late` - drawn, read too late for their frames, and left out
+  for a hook behind.
 
 `os88vid.Reader` checks every field and `verify_v88` every record by the
-writer's rules (`verify_layer`). `vidlayer` is the gate: the layered file's
-frame and keyframe records are the plain encode's byte for byte; base then
-layer decodes to the encoder's own enhanced screen exactly, and with the
-last layer record left out does not; and the layered play beats the base
-(six seconds of a Mandelbrot zoom made for 60 KB/s, the layer for 240:
-3.34% -> 0.93% on VGA8, 2.20% -> 0.08% on Mode X). What is open is the
-player; this section is replaced when it lands.
+writer's rules (`verify_layer`). **Three gates**:
+- `vidlayer` (host): the layered file's frame and keyframe records are the
+  plain encode's byte for byte; base then layer decodes to the encoder's
+  own enhanced screen exactly, and with the last layer record left out does
+  not; and the layered play beats the base (six seconds of a Mandelbrot
+  zoom made for 60 KB/s, the layer for 240: 3.34% -> 0.93% on VGA8, 2.20%
+  -> 0.08% on Mode X);
+- `vidlyplay` (MartyPC, a Hercules 5150 off a floppy): a Life clip made for
+  12 KB/s with a layer for 40, small enough to sit in the four slots -
+  held before frames, the screen is the host's base-then-layer decode byte
+  for byte with all 47 records drawn; with the layer's word zeroed it is
+  the BASE's and not the layered one; and from key 1 it is exact again;
+- `vidlyplaystream`: six seconds in two slots, refilled during the play
+  off a floppy that cannot keep up (49 drawn, 21 read too late on the
+  measured run) - the play ends with no error, exact at every hold before
+  the first miss.
 
 ### 98.2 The host tools — `tools/os88vid.py`
 

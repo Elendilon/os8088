@@ -1,10 +1,13 @@
 # Banking only the overage — what it would buy over the bank we have
 
-**Status: INVESTIGATION (2026-10-09). Two findings are BUILT** - the
-encoder's charge for the bank's copies (section 3.2) and a sign bug in its
-retry (7.2) - **and the layer is MEASURED (section 7): it works, recovers
-64-80% of the gap to a file made for the better machine, and on a 286 the
-CPU binds it past ~350 KB/s.** The rest is a design and its arithmetic. It follows docs/plans/VIDEO-XMS-PLAN.md, whose
+**Status: THE LAYER IS BUILT (2026-10-09, SPEC.md 98.1.9; section 8).**
+Measured first (section 7: it recovers 64-80% of the gap to a file made for
+the better machine, and on a 286 the CPU binds it past ~350 KB/s), then
+built end to end - format, encoder, player - with the layer read at the
+ring-full moment as 7.3 proposed. Two findings on the way are built too:
+the encoder's charge for the bank's copies (3.2) and a sign bug in its
+retry (7.2). The bank-only overage of sections 4-5 is not built: the
+layer is what it became. It follows docs/plans/VIDEO-XMS-PLAN.md, whose
 waves 1-4 and E1-E3 are built (SPEC.md 98.3.18.2-98.3.18.7).
 
 **The owner's question** (paraphrased): instead of cutting, put only the
@@ -307,3 +310,26 @@ So "made for this disk, better on a better one" is three things in the
 player - a second cursor and region, a reader at the ring-full moment, the
 hook applying a layer record when it is not late - and the encoder's second
 pass, which this tool already is in outline.
+
+## 8. Built (2026-10-09)
+
+SPEC.md 98.1.9 is the contract. What the build changed against 7.3's
+sketch, so it is not re-derived:
+
+- **Every layer super-packet is a whole 32 KB slot on a 32 KB boundary.**
+  `READ_SEQ` reads at a cluster multiple and the file cannot know the
+  cluster of the disk it will be played from; 32 KB is a multiple of every
+  FAT volume's up to 32 KB and is a player slot, so the reader is one call
+  into one slot and has no mirror. ~Half a record of padding a super-packet.
+- **The layer's slots are claimed before the ring is sized**, and only when
+  the ring still gets its stream's slots. Claimed after it they found
+  nothing: the ring takes every slot the heap offers (98.3's headroom).
+- **The "seek" cost is real on a floppy**: `vidlyplaystream` reads base and
+  layer alternately off a 5150's floppy and the layer falls behind (49
+  drawn, 21 read too late) - the degrade 7.3 promised, measured. The
+  encoder prices a seek each way per 32 KB (`--layer-seek`, 10 ms), which
+  is a hard disk's figure; a floppy's is several times it.
+- **Open**: the layer's PREFILL (its header word is written; the player
+  fills only its slots before the first frame, not a bank), a layer beside
+  a `--bank` (refused by the encoder), and a layer encoded for a DIFFERENT
+  CPU than the base's (the encoder takes the base's profile).

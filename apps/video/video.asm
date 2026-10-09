@@ -180,6 +180,11 @@ V88_KLEADS  equ 468                 ; lead at this dword + i x A x abytes,
                                     ; not its entry's tail
 V88_XBANK   equ 472                 ; THE BANK (98.3.18.3): the XMS its encode
 V88_XPRE    equ 474                 ; assumed, KB, and the prefill it banked
+V88_LAYER   equ 476                 ; THE LAYER (98.1.9): u32 its first
+                                    ; super-packet, u16 64, u16 KB/s, u16 KB,
+                                    ; u16 prefill, u32 its key table, u16 the
+                                    ; longest record - all 0 for none
+VP_LYMAX    equ 4                   ; the layer's slots at most
                                     ; on, KB - no flag, 0 none
 VP_KLRING   equ 96                  ; a key's read and its lead's, KB: what the
                                     ; least ring holds, two slots and a mirror
@@ -934,6 +939,10 @@ vp_open:
     mov byte [vp_ok], 0
     mov byte [vp_played], 0
     mov byte [vp_lbk], 0            ; (a resident play banks nothing)
+    xor ax, ax                      ; (nor reads a layer)
+    mov [vp_lygot], ax
+    mov [vp_lymis], ax
+    mov [vp_lyskp], ax
     mov byte [vp_loaded], 0
 %ifdef VP_DIAG
     mov word [vp_mfre0], 0          ; (no play of this file's to report)
@@ -1486,6 +1495,7 @@ vp_parse:
     mov [vp_hxb], ax                ; the header's zero tail, so a file made
     mov ax, [es:V88_XPRE]           ; before says nothing and a player made
     mov [vp_hxp], ax                ; before reads neither
+    call vp_lyparse                 ; THE LAYER (98.1.9), or none
     mov ax, [es:di+R_SLEN]    ; the stream's bytes, for its KB/s
     mov [vp_slen], ax
     mov ax, [es:di+R_SLEN+2]
@@ -7750,6 +7760,7 @@ vp_sstart:
     mov word [vp_msg], vp_s_mem
     jmp .fail
 .strm:
+    call vp_lyclaim                 ; THE LAYER's slots first (98.1.9)
     ; --- the ring: K slots and the mirror (SPEC.md 98.3). IN THE BRACKET,
     ;     as many as the machine has, 2..[vp_kmax]: every slot past the
     ;     header's ring is headroom the encode never counted on. LIVE plays
@@ -7840,6 +7851,7 @@ vp_sstart:
     mov word [vp_msg], vp_s_mem
     jmp .fail
 .ring:
+    call vp_lyopen                  ; THE LAYER's slots, if it plays one
     call vp_spos                    ; where it starts, the reader, the hook
     jnc .clk0                       ; (vp_spos, which a seek runs too)
     jmp .fail
@@ -7936,6 +7948,79 @@ vp_kres:
 .z:
     xor ax, ax
 .r:
+    ret
+
+; vp_lyclaim - a stream session's start, BEFORE its ring is sized: THE
+; LAYER's slots claimed (98.1.9) if the file has a layer this play can read
+; and the ring still gets the slots its stream asks for beside them - the
+; base first, always. The ring is then sized from what is left. Every
+; register kept
+vp_lyclaim:
+    push ax
+    push bx
+    push cx
+    push dx
+    cmp word [vp_lyseg], 0
+    jne .out                        ; (held already)
+    call vp_lywant                  ; CX = the layer's KB, 0 none
+    jcxz .out
+    call OSAPI_MEM_AVAIL
+    call vp_kres                    ; AX = what the ring could have
+    mov bx, ax
+    call vp_kwant                   ; AX = the slots its stream asks for
+    add ax, [vp_msl]
+    push cx
+    mov cl, 5
+    shl ax, cl                      ; ...in KB, with the mirror
+    pop cx
+    add ax, cx                      ; ...and the layer's
+    jc .out
+    cmp bx, ax
+    jb .out
+    mov ax, cx
+    call OSAPI_MEM_CLAIM
+    jc .out
+    mov [vp_lyseg], dx
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; vp_lywant - CX = the KB the layer's slots take, [vp_lyns] its slots: 2
+; to VP_LYMAX by its header, a power of two - or 0, no layer this play
+; can read: none in the file, flipped, repeating (the seam would want the
+; layer's place again), Live, or clusters past 32 KB. Preserves all but CX
+vp_lywant:
+    xor cx, cx
+    push ax
+    mov ax, [vp_lysp]
+    or ax, [vp_lysp+2]
+    jz .o
+    cmp byte [vp_flip], 0
+    jne .o
+    cmp byte [vp_rep], 0
+    jne .o
+    cmp byte [vp_livem], 0
+    jne .o
+    cmp word [vp_clb], VP_CHUNK
+    ja .o
+    mov ax, [vp_lykb]
+    mov cl, 5
+    shr ax, cl
+    mov cx, 2
+    cmp ax, VP_LYMAX
+    jb .ns
+    mov cx, VP_LYMAX
+.ns:
+    mov [vp_lyns], cx
+    mov ax, cx
+    mov cl, 5
+    shl ax, cl
+    mov cx, ax
+.o:
+    pop ax
     ret
 
 ; vp_kwant - AX = the slots this play wants: the header's ring (98.1.1),
@@ -8491,6 +8576,7 @@ vp_spos:
     mov ax, [vp_base]
     mov [vp_done], ax               ; frames before it count as drawn
     mov [vp_vseq], ax               ; ...and the clock's count starts there
+    call vp_lypos                   ; ...and THE LAYER's place (98.1.9)
     mov ax, [vp_ssec]
     mov [vp_psec], ax               ; the first super-packet, not yet entered
     cmp byte [vp_resid], 0          ; RESIDENT: the cursor on the block
@@ -8499,6 +8585,290 @@ vp_spos:
 .out:
     clc
     ret
+
+; =============================================================================
+; THE LAYER (SPEC.md 98.1.9): a second stream after the base's, encoded on
+; top of it for a machine with disk and CPU to spare. It is read into slots
+; of its own only when the base's ring - and its bank - are full, which is
+; the disk's spare time and needs no measurement of it; and it is decoded
+; after the base's record for the same frame, unless the hook is behind -
+; a layer record is values, so one left out leaves the base's bytes, and
+; the next carries on. A machine that cannot keep it up plays the base.
+; Every layer super-packet is a whole 32 KB slot on a 32 KB boundary, so a
+; read is one READ_SEQ of a slot, at a cluster multiple on any volume whose
+; clusters are 32 KB or less
+; =============================================================================
+
+; vp_lyparse - ES = the header: [vp_lysp], [vp_lykt] - 0 for no layer, or a
+; layer this player will not read (its words wrong, a stream that is not a
+; plain one). The base plays whatever the layer says. Clobbers AX
+vp_lyparse:
+    xor ax, ax
+    mov [vp_lysp], ax
+    mov [vp_lysp+2], ax
+    mov ax, [es:V88_LAYER]
+    test ax, VP_CHUNK - 1           ; (a 32 KB boundary)
+    jnz .no
+    or ax, [es:V88_LAYER+2]
+    jz .no
+    cmp word [es:V88_LAYER+4], VP_CHUNK / 512
+    jne .no
+    cmp word [es:V88_LAYER+16], VP_CHUNK - 8
+    ja .no
+    mov ax, [es:V88_LAYER]
+    mov [vp_lysp], ax
+    mov ax, [es:V88_LAYER+2]
+    mov [vp_lysp+2], ax
+    mov ax, [es:V88_LAYER+12]
+    mov [vp_lykt], ax
+    mov ax, [es:V88_LAYER+14]
+    mov [vp_lykt+2], ax
+    mov ax, [es:V88_LAYER+8]        ; its memory, KB: 2 to VP_LYMAX slots
+    mov [vp_lykb], ax
+.no:
+    ret
+
+; vp_lyopen - a stream session's start, after its ring: [vp_lyon] 1 if
+; vp_lyclaim claimed the layer's slots. Nothing is refused for the layer's
+; want: the base plays. Every register kept
+vp_lyopen:
+    push ax
+    push cx
+    push dx
+    mov byte [vp_lyon], 0
+    xor ax, ax                      ; (this play's counts, layer or none)
+    mov [vp_lygot], ax
+    mov [vp_lymis], ax
+    mov [vp_lyskp], ax
+.out:
+    cmp word [vp_lyseg], 0          ; (a seek's re-entry keeps it on)
+    je .r
+    mov byte [vp_lyon], 1
+.r:
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; vp_lypos - the session's start, or a seek's: the layer's cursor at the
+; super-packet holding frame [vp_base] - the first, or the picked key's
+; next frame, out of the layer's key table - and its slots empty. The hook
+; steps over the records before [vp_done] itself. Every register kept
+vp_lypos:
+    cmp byte [vp_lyon], 0
+    je .r
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    xor ax, ax
+    mov [vp_lyrd], ax
+    mov [vp_lyuse], ax
+    mov [vp_lyfn], ax
+    mov [vp_lyeof], al
+    mov [vp_lybeh], al
+    mov [vp_lygot], ax
+    mov [vp_lyskp], ax
+    mov [vp_lymis], ax
+    push ds
+    pop es
+    mov di, vp_lycur
+    mov cx, FSEQ_SIZE / 2
+    cld
+    rep stosw
+    mov ax, [vp_lysp]
+    mov dx, [vp_lysp+2]
+    cmp word [vp_base], 0
+    je .at
+    push word [vp_rdseg]            ; (the key's record is read there)
+    mov ax, [vp_lyseg]              ; FROM A KEY: its entry, read into the
+    mov [vp_rdseg], ax              ; layer's first slot before anything is
+    mov ax, [vp_kload]              ; (the key the ring was positioned on)
+    mov cx, 8
+    mul cx
+    add ax, [vp_lykt]
+    adc dx, [vp_lykt+2]
+    call vp_rdat                    ; [vp_rdseg]:SI = the entry
+    pop word [vp_rdseg]
+    jc .off
+    push ds
+    mov ds, [vp_lyseg]
+    mov ax, [si]
+    mov dx, [si+2]
+    mov cx, [si+4]
+    pop ds
+    cmp cx, VP_CHUNK / 512
+    jne .end                        ; (0: the key is on the last frame)
+    test ax, VP_CHUNK - 1
+    jnz .off
+.at:
+    mov [vp_lycur+FSEQ_OFF], ax
+    mov [vp_lycur+FSEQ_OFF+2], dx
+    jmp short .out
+.end:
+    mov byte [vp_lyeof], 1
+    jmp short .out
+.off:
+    mov byte [vp_lyon], 0           ; (unreadable: the base alone)
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.r:
+    ret
+
+; vp_lyread - THE DISK IS FREE (the ring full, the bank full or none): the
+; layer's next slot read, if one is empty. CF=0 a slot arrived; CF=1
+; nothing was read. A layer that cannot be read stops; the base plays on.
+; Clobbers AX, BX, CX, DX, SI, DI, ES
+vp_lyread:
+    cmp byte [vp_lyon], 0
+    je .none
+    cmp byte [vp_lyeof], 0
+    jne .none
+    mov ax, [vp_lyrd]
+    sub ax, [vp_lyuse]
+    cmp ax, [vp_lyns]
+    jae .none                       ; every slot is the hook's
+    mov bx, [vp_lyns]
+    dec bx
+    and bx, [vp_lyrd]
+    mov cl, 11
+    shl bx, cl
+    add bx, [vp_lyseg]
+    mov dx, bx                      ; DX:BX = the slot
+    xor bx, bx
+    push dx
+    push ds
+    pop es
+    mov di, vp_lycur
+    mov si, vp_name
+    mov cx, VP_CHUNK
+    call OSAPI_FILE_READ_SEQ
+    pop es                          ; (ES = the slot)
+    jc .off
+    or dx, dx
+    jnz .got
+    cmp ax, 8
+    jb .off                         ; (past the end: the header said more)
+.got:
+    cmp word [es:4], 0              ; a super-packet: frames >= 1, and its
+    je .off                         ; next 64 or the end's 0
+    mov ax, [es:6]
+    or ax, ax
+    jz .last
+    cmp ax, VP_CHUNK / 512
+    jne .off
+    jmp short .pub
+.last:
+    mov byte [vp_lyeof], 1
+.pub:
+    inc word [vp_lyrd]              ; published LAST: the hook reads it
+    clc
+    ret
+.off:
+    mov byte [vp_lyon], 0
+.none:
+    stc
+    ret
+
+; vp_lybh - in the hook, CX = the frames this call draws: two or more is
+; BEHIND, and the layer waits for the picture to catch up. Every register
+vp_lybh:
+    mov byte [vp_lybeh], 0
+    cmp cx, 1
+    jbe .r
+    mov byte [vp_lybeh], 1
+.r:
+    ret
+
+; vp_lydec - in the hook, frame [vp_done]'s base record just decoded: its
+; layer record decoded on top - or stepped over, the hook behind or the
+; frame's slot not read yet. Records before the frame are stepped over
+; too: a slot that arrives late is caught up through, never played late.
+; clobbers AX, BX, CX, DX, SI, DI, BP, ES
+vp_lydec:
+    cmp byte [vp_lyon], 0
+    je .r
+.cur:
+    cmp word [vp_lyfn], 0
+    jne .have
+    mov ax, [vp_lyuse]              ; the next super-packet, if it is in
+    cmp ax, [vp_lyrd]
+    jae .miss
+    mov bx, [vp_lyns]
+    dec bx
+    and bx, ax
+    mov cl, 11
+    shl bx, cl
+    add bx, [vp_lyseg]
+    mov [vp_lysg], bx
+    mov es, bx
+    mov ax, [es:0]                  ; its first frame
+    mov [vp_lynx], ax
+    mov ax, [es:4]
+    mov [vp_lyfn], ax
+    mov word [vp_lyo], 8
+.have:
+    mov ax, [vp_lynx]
+    cmp ax, [vp_done]
+    ja .r                           ; (ahead of the picture: it waits)
+    mov es, [vp_lysg]
+    mov si, [vp_lyo]
+    mov cx, [es:si]                 ; the record's length
+    cmp cx, 2
+    jb .bad
+    mov bx, si
+    add bx, cx
+    jc .bad
+    cmp bx, VP_CHUNK
+    ja .bad
+    cmp ax, [vp_done]               ; (an earlier frame's: stepped over,
+    jne .miss1                      ; its slot read too late for it)
+    cmp cx, 2                       ; THIS frame's: drawn, unless it is empty
+    je .adv                         ; or the hook is behind
+    cmp byte [vp_lybeh], 0
+    jne .late
+    push cx
+    mov dx, es
+    call vp_decrec                  ; (DX:SI = the record)
+    pop cx
+    inc word [vp_lygot]
+    call .next
+    ret
+.late:
+    inc word [vp_lyskp]
+    jmp short .adv
+.miss1:
+    cmp cx, 2
+    je .adv
+    cmp ax, [vp_base]               ; (before the play's first frame - a
+    jb .adv                         ; key's own, after a seek - is no miss)
+    inc word [vp_lymis]
+.adv:
+    call .next
+    jmp .cur
+.next:                              ; past the record: CX = its length
+    add [vp_lyo], cx
+    inc word [vp_lynx]
+    dec word [vp_lyfn]
+    jnz .nr
+    inc word [vp_lyuse]             ; its slot back to the reader
+.nr:
+    ret
+.miss:
+.r:
+    ret
+.bad:
+    mov byte [vp_lyon], 0           ; (a record that runs off its slot: the
+    ret                             ; base alone from here)
 
 ; vp_sfree - the session's claims, whichever it holds
 vp_sfree:
@@ -8511,7 +8881,11 @@ vp_sfree:
     call .f
     mov dx, [vp_prevseg]
     call .f
+    mov dx, [vp_lyseg]
+    call .f
     xor dx, dx
+    mov [vp_lyseg], dx
+    mov [vp_lyon], dl
     mov [vp_prevseg], dx
     mov [vp_ring], dx
     mov [vp_keep], dx
@@ -9175,6 +9549,8 @@ vp_main:
     call vp_fill                    ; stream that fits is read whole
     jnc .fill
 .fld:
+    call vp_lyread                  ; ...THE LAYER's slots too, before the
+    jnc .fld                        ; first frame (98.1.9)
     cmp byte [vp_pfok], 0           ; ...and THE BANK, before a session's
     je .npf                         ; first frame (98.3.18.3) - not after a
     mov byte [vp_pfok], 0           ; seek, which wants the play now
@@ -9290,6 +9666,8 @@ vp_main:
     call vp_bstep                   ; THE RING IS FULL: the bank fills, a
     jnc .loop                       ; chunk a pass (VIDEO-XMS-PLAN 4.1)
 .nbk:
+    call vp_lyread                  ; THE LAYER, with the disk free (98.1.9)
+    jnc .loop
     call vp_wthumb                 ; (in the window, the thumb moves)
     mov al, FSXW_FRAME              ; nothing to read yet: give the period
     call OSAPI_FSX_WAIT             ; to the hook
@@ -11473,6 +11851,7 @@ vp_hook:
     add [vp_owed], ax               ; decode catches up and the DISPLAY rate
     mov cx, [vp_fcap]               ; is what drops
 .n:
+    call vp_lybh                    ; (two frames a call: the layer waits)
     sti                             ; a disk's completion is not held behind a
     push cx                         ; frame (SPEC.md 53.2.2 allows it)
     call vo_pre                     ; the text off the page it decodes into
@@ -11513,6 +11892,7 @@ vp_hook:
     inc word [vp_late]              ; more behind the sound than a call draws
     mov cx, [vp_fcap]
 .n2:
+    call vp_lybh
     sti
     push cx
     call vo_pre
@@ -11890,6 +12270,7 @@ vp_frame:
     cmp byte [vp_flip], 0
     jne .flip
     call vp_decrec
+    call vp_lydec                   ; THE LAYER on top of it (98.1.9)
     inc word [vp_done]
     clc
     ret
@@ -14144,10 +14525,35 @@ vp_fmt:
     call vp_puts
 .nah:
     call vp_spkinfo
-    ; 4: where Play starts - or, a session waiting, where it is paused
+    ; 4: where Play starts - or, a session waiting, where it is paused -
+    ;    or after a play that read a LAYER, what it did with it (98.1.9)
     mov di, vp_lines + 4 * VP_LINE
     cmp byte [vp_sess], 0
+    jne .sess
+    cmp byte [vp_played], 0
     je .nos
+    mov ax, [vp_lygot]
+    or ax, [vp_lymis]
+    or ax, [vp_lyskp]
+    jz .nos
+    mov si, vp_s_lydrew             ; 'Layer drew 812, 21 missed, 0 late'
+    call vp_puts
+    xor dx, dx
+    xor bl, bl
+    mov ax, [vp_lygot]
+    call vp_putn
+    mov si, vp_s_lymis
+    call vp_puts
+    mov ax, [vp_lymis]
+    call vp_putn
+    mov si, vp_s_lylate
+    call vp_puts
+    mov ax, [vp_lyskp]
+    call vp_putn
+    mov si, vp_s_lylt
+    call vp_puts
+    jmp .msg
+.sess:
     mov si, vp_s_pausedat
     call vp_puts
     mov ax, [vp_done]
@@ -14634,6 +15040,10 @@ vp_s_bk3:     db 'EMS in place, ', 0
 vp_s_bk4:     db 'Held whole in XMS', 0
 vp_s_bk5:     db 'XMS bank idle: the speaker', 0
 vp_s_bk6:     db 'EMS too slow: the disk alone', 0
+vp_s_lydrew:  db 'Layer drew ', 0
+vp_s_lymis:   db ', ', 0
+vp_s_lylate:  db ' missed, ', 0
+vp_s_lylt:    db ' late', 0
 vp_s_notv88:  db 'Not a .V88 video', 0
 vp_s_ver:     db 'A newer .V88 than this player', 0
 vp_s_bad:     db 'This .V88 is damaged', 0
@@ -15191,6 +15601,24 @@ vp_ehnd:      dw 0                  ; ...their handle
 vp_eseg:      dw 0                  ; ...and the frame they are seen through
 vp_hxb:       dw 0                  ; THE FILE'S ASK (header 472): the bank its
                                     ; encode assumed, KB, 0 none
+vp_lysp:      dd 0                  ; THE LAYER (98.1.9): its first super-
+vp_lykt:      dd 0                  ; packet, 0 none; its key table; its KB
+vp_lykb:      dw 0
+vp_lyon:      db 0                  ; ...this session plays it
+vp_lyeof:     db 0                  ; ...its last super-packet is read
+vp_lybeh:     db 0                  ; ...the hook is behind: it waits
+vp_lyseg:     dw 0                  ; ...its slots' claim, [vp_lyns] of them
+vp_lyns:      dw 0
+vp_lyrd:      dw 0                  ; ...slots read, and the hook's done with
+vp_lyuse:     dw 0                  ; (both counts, the slot the low bits)
+vp_lysg:      dw 0                  ; ...the hook's slot, its records left,
+vp_lyfn:      dw 0                  ; the frame of the next and where it is
+vp_lynx:      dw 0
+vp_lyo:       dw 0
+vp_lygot:     dw 0                  ; ...records drawn, and left out behind
+vp_lyskp:     dw 0
+vp_lymis:     dw 0                  ; ...and stepped over, read too late
+vp_lycur:     times FSEQ_SIZE db 0  ; ...and its reader's cursor
 vp_hxp:       dw 0                  ; ...and its prefill, KB (0: 10 s at its
                                     ; mean, FFFFh: the bank whole)
 vp_pfok:      db 0                  ; 1: the next ring fill is a session's first

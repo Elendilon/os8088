@@ -1945,8 +1945,12 @@ class Writer:
             cur.append(r)
             size += len(r)
         sps.append((first, cur))
-        secs = [-(-(LSP_HDR + sum(len(r) for r in sp)) // SECTOR)
-                for f0, sp in sps]
+        # EVERY ONE A WHOLE SLOT, ON A 32 KB BOUNDARY (98.1.9): a READ_SEQ
+        # reads at a cluster multiple, and the file cannot know the cluster
+        # of the disk it will be played from - 32 KB is one of every FAT
+        # volume's up to 32 KB clusters, and a player's slot
+        secs = [SP_MAX for sp in sps]
+        out += bytes(-len(out) % SLOT)
         l0 = len(out)
         offs, o = [], l0
         for n in secs:
@@ -2738,8 +2742,8 @@ class Reader:
         if not self.lsp0:
             if d[H_LAYER:H_LAYER + LAYER_LEN] != bytes(LAYER_LEN):
                 raise V88Error("a layer's words with no layer (98.1.9)")
-        elif (self.resident or self.live or self.lsp0 % SECTOR or
-              self.lsp0 < self.sp0 or not 1 <= self.lsp0n <= SP_MAX or
+        elif (self.resident or self.live or self.lsp0 % SLOT or
+              self.lsp0 < self.sp0 or self.lsp0n != SP_MAX or
               self.lsp0 + self.lsp0n * SECTOR > len(d) or not self.lkbs or
               not self.lram or not 2 <= self.lmax <= SP_MAX * SECTOR -
               LSP_HDR or (self.lpre != XPRE_ALL and self.lpre > self.lram)
@@ -2836,8 +2840,10 @@ class Reader:
         nsec = self.lsp0n if nsec is None else nsec
         want = None
         while nsec:
-            if not 1 <= nsec <= SP_MAX:
-                raise V88Error("a layer super-packet of %d sectors" % nsec)
+            if nsec != SP_MAX or at % SLOT:
+                raise V88Error("a layer super-packet of %d sectors at %d: "
+                               "each is a whole 32 KB slot on a 32 KB "
+                               "boundary" % (nsec, at))
             sp = self.d[at:at + nsec * SECTOR]
             if len(sp) != nsec * SECTOR:
                 raise V88Error("the layer super-packet at %d runs off the "

@@ -3609,6 +3609,26 @@ SOAK = [
         "200 frames right, the card naming EMS",
         needs=("marty", "nasm"), serial=True, timeout=300,
         wants=("build/emstest.img", "build/video.o88")),
+    Row("vidlyplay", "soak", py("tests/vidlyplay.py"), 150.0,
+        "SPEC.md 98.1.9: the PLAYER reads a file's LAYER - a Life clip made "
+        "for a 12 KB/s 5150 with a layer for 40, on MartyPC's Hercules off a "
+        "floppy. Held before frames, the screen must be base-then-layer "
+        "decoded on the host byte for byte, all 47 layer records drawn and "
+        "none left out, the card saying so on line 4; with the layer's "
+        "header word zeroed the same holds must be the BASE's decode and "
+        "not the layered one; and from key 1 the layer's place comes out "
+        "of its key table and the holds are exact again",
+        needs=("marty", "nasm", "ffmpeg"), serial=True, timeout=600,
+        wants=("build/os8088-360.img", "build/video.o88")),
+    Row("vidlyplaystream", "soak", py("tests/vidlyplay.py", "--stream"),
+        150.0,
+        "SPEC.md 98.1.9: the layer STREAMED - six seconds banked in two "
+        "slots, so the reader refills them at the ring-full moment during "
+        "the play, off a floppy that cannot keep up: the play must end with "
+        "no error, the slots read over again, records drawn, and exact at "
+        "every hold where none had been missed yet",
+        needs=("marty", "nasm", "ffmpeg"), serial=True, timeout=600,
+        wants=("build/os8088-360.img", "build/video.o88")),
     Row("videmswrap", "soak", py("tests/videms.py", "--wrap"), 45.0,
         "SPEC.md 98.3.18.7: the DECODE IN PLACE with its ring held to 3 of "
         "the board's slots (vp_ekr), so it WRAPS - 7 chunks through 3 slots, "
