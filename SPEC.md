@@ -158171,7 +158171,9 @@ XMS BANK and PREFILL.
   u16 its sectors (64), u16 the disk it was made for in KB a second, u16
   the memory it is banked in (KB), u16 its prefill (KB, FFFFh all of it),
   u32 its key table, u16 its longest record, u16 its XMS bank (KB, at
-  494); all zero for no layer. **No flag**: 98.1.1's 472 precedent - a player made before reads nothing past
+  494), and at 496 and 498 THE YARDSTICK - key 0's decode modelled on the
+  layer's machine and on the base's, in 10 us; all zero for no layer.
+  **No flag**: 98.1.1's 472 precedent - a player made before reads nothing past
   472 and plays the base, which is the point of the format.
 - **The layer stream** follows the base's, in a region of its own so a
   base-only machine never reads it: super-packets `first(32) frames(16)
@@ -158189,8 +158191,9 @@ XMS BANK and PREFILL.
 - **The key table**: 8 bytes a kept key - the layer super-packet holding
   the key's NEXT frame, its sectors and the record's index - so a seek
   resumes the layer where the base resumes.
-- **A stream's, played unflipped**: not RESIDENT, Live or flipped, and not
-  with a `--bank` - every layout and format otherwise, one plane or four.
+- **A stream's, played unflipped**: not RESIDENT, Live or flipped - every
+  layout and format otherwise, one plane or four, with a `--bank` or
+  without.
 
 **The options**, which say two different things and are kept apart:
 - `--layer-disk BYTES` is the better machine's WHOLE disk, base included -
@@ -158210,6 +158213,33 @@ XMS BANK and PREFILL.
   budget, so a CGA file for a 5150 carries a layer for a 286 - the same
   canvas, the format being the base's. Not with the speaker's sound, whose
   share is the base machine's.
+
+**BANKED AND LAYERED, CHOSEN AT THE PLAY** (2026-10-09): one file for a
+286 and a 486 - the base made for the 286 with its `--bank` and
+`--prefill`, the layer for the 486 (`--layer-profile 486`) - and the player
+decides which machine it is on:
+- **The yardstick is the play's own work.** The encoder models key 0's
+  decode on both machines and writes the two times in the header. At a
+  session's first frame, the key just drawn, the player decodes the same
+  record again for eight ticks from a tick's edge (`vp_lybench`, ~0.45 s)
+  and reads the layer only if its time is under the line: the mean of the
+  two machines', or an eighth over the layer's where they are one. On
+  MartyPC's 5150 the measured decode was 27.46 ms against its model's
+  27.04 - the model is close enough to draw a line between two machines a
+  factor apart (the 286-pvga and the 486 are 39.1 and 12.4 ms for the
+  vidlayer clip's key).
+- **Under the line, it is the layered play**: the base banked as encoded,
+  the layer read on top. **Over it, it is the banked play**: the base
+  exactly as made for the 286, and the card says why - `Layer off: key 120
+  ms, its 49`. No key at the start (a one-bit file from frame 0) means no
+  bench, and the layer's own lateness skips its records as before.
+- **The base's bank comes first**: where a file asks for both, the base's
+  is held to its own ask (header 472) and the layer's takes what is left,
+  so the 286 that will not read the layer loses nothing to it.
+- **The encode**: `--bank` and `--layer-*` together. On the layer's machine
+  the base's bucket is the ring and the base's bank, and while the bank
+  holds anything its copies slow that machine's disk at THAT machine's
+  `xcopy`.
 
 **WHEN NOT TO LAYER** - measured on the owner's Last Exile, 44 s of Mode X,
 silent, for the 286-pvga at 448 KB/s, error as seen:
@@ -158300,6 +158330,12 @@ writer's rules (`verify_layer`). **Three gates**:
   off a floppy that cannot keep up (49 drawn, 21 read too late on the
   measured run) - the play ends with no error, exact at every hold before
   the first miss;
+- `vidlayer`'s fourth arm, BANKED AND LAYERED: a Mode X base for the 286
+  with a 512 KB bank prefilled, its layer for the 486 - 0.87% -> 0.01%, the
+  yardstick 12.36 ms for the 486 against 39.09 for the 286;
+- `vidlyplay`'s fifth leg: the yardstick poked impossibly fast, so the
+  bench must say no - nothing of the layer drawn, the screen the base's at
+  every hold, the card `Layer off: key 27 ms, its 0`;
 - `vidlybank` (QEMU's 386): a clip held whole in XMS, `--layer-bank 512
   --layer-prefill all` - the prefill fills the slots and the bank with the
   whole layer and holds, B: is BLANKED, and the play draws all 89 layer
@@ -158577,6 +158613,28 @@ cuts (Sonic 2 at the default profile, the others at a lower `--disk`):
 
 It costs the encoder about twice its time (Sonic 2's 10 s: 5.3 s -> 9.8 s).
 `--lookahead 0 --error bits` is the ranking before it, for the A/B.
+
+**THE MEAN HID WHAT A VIEWER SEES** (2026-10-09). The owner's Last Exile on
+the 286, banked, measured 0.15% error as seen and plays with scenes torn
+into horizontal bands - a cut leaves the rows it did not reach from the
+frames before, and a fast scene the CPU cannot redraw stays torn for two
+seconds. Two seconds of 44 is 0.15% of the clip's pixels. So the report
+says three things now, not one:
+- the MEAN, as before;
+- the WORST SECOND's mean, and when: `...at its WORST SECOND 3.20% (from
+  0:13.9)`;
+- the seconds VISIBLY BROKEN - frames with `VIS_AREA` (2%) of their area
+  off by `VIS_BAD` (15% of full scale) or more as seen - and where each
+  torn stretch starts: `1.0 s of 44.0 VISIBLY BROKEN` / `broken at
+  0:13.3 for 2.1 s, 0:32.4 for 0.2 s`.
+On that clip the per-second figure is 0.00% for 39 of its 44 seconds and
+the torn scene's second 3.12%; the two thresholds flag the two torn scenes
+and no clean second. Measured against the SOURCE rather than the target
+(the dither's own picture), a clean frame there is ~1.5% - the palette's
+and the dither's - so the report's figures are the ENCODE's error, which is
+what a budget decides; a scene the palette cannot hold is the palette's.
+The layer's line says the same three for the layered play.
+`OS88_VENC_QDUMP=FILE` writes the per-frame figures as JSON.
 
 ###### 98.2.1.2.1 `--cut`: which changes a cut frame keeps (2026-10-06)
 

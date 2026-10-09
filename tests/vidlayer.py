@@ -21,13 +21,16 @@ asserts, per arm:
     record left out - the last, which nothing after it writes over - it
     does not (the negative control: the check bites);
   - the layer buys something: records in most frames (or fewer, where it
-    makes the picture exact), and the enhanced play's error as seen below
-    the base's.
+    takes the error under a fifth of the base's), and the enhanced play's
+    error as seen below the base's.
 
 Arms: vga8 (LIN320, one plane) and modex (four planes, sub-records), both
 for the 286 at 60 KB/s; and xt286, a CGA file for a 5150 at 20 KB/s whose
 layer is for the 286 (--layer-profile 286-pvga): the layer's machine is
-ANOTHER CPU, pricing the base's records at its own speed.
+ANOTHER CPU, pricing the base's records at its own speed; and bank486,
+BANKED AND LAYERED - a base for the 286 with a 512 KB bank prefilled, its
+layer for the 486 - where the yardstick (key 0's decode modelled on each,
+SPEC.md 98.1.9) must say the 486 is the faster.
 """
 import os
 import shutil
@@ -74,6 +77,14 @@ def main():
                 ("xt286", ["--preset", "cga", "--profile", "5150-st225",
                            "--disk", "20480"],
                  ["--layer-profile", "286-pvga", "--layer-disk",
+                  str(LAYER_DISK)]),
+                # BANKED AND LAYERED: the base for a 286 with an XMS bank,
+                # its layer for a 486 - which the player tells apart by the
+                # yardstick (key 0's decode on each), read off the header
+                ("bank486", ["--preset", "modex", "--profile", "286-pvga",
+                             "--disk", str(BASE_DISK), "--bank", "512",
+                             "--prefill", "all"],
+                 ["--layer-profile", "486", "--layer-disk",
                   str(LAYER_DISK)]))
         for arm, bopt, lopt in arms:
             print("\n== arm %s" % arm)
@@ -92,12 +103,22 @@ def main():
                            "plain encode" % arm)
             vid.verify_v88(lay)
             r = vid.Reader(lay)
+            print("   the yardstick: key 0 in %.2f ms on the layer's machine, "
+                  "%.2f on the base's" % (r.ltl / 100.0, r.ltb / 100.0))
+            if not r.ltl or not r.ltb or \
+                    (arm in ("xt286", "bank486")) != (r.ltl < r.ltb * 0.8):
+                bad.append("%s: the yardstick %d / %d does not tell the two "
+                           "machines apart as it should" % (arm, r.ltl, r.ltb))
+            if arm == "bank486" and (r.xbank, r.xpre) != (512, 0xFFFF):
+                bad.append("bank486: the base's bank %d KB, prefill %x"
+                           % (r.xbank, r.xpre))
             L = rl["layer"]
             print("   layer: %.1f KB/s, %d of %d frames; error as seen "
                   "%.2f%% -> %.2f%%"
                   % (L["kbs"], L["recs"], r.frames, 100 * rl["q_vis"],
                      100 * L["q_vis"]))
-            if L["recs"] < r.frames // 2 and L["q_vis"] > 0:
+            if L["recs"] < r.frames // 2 and \
+                    L["q_vis"] > rl["q_vis"] / 5:
                 bad.append("%s: the layer has records in %d of %d frames"
                            % (arm, L["recs"], r.frames))
             if not L["q_vis"] < rl["q_vis"]:

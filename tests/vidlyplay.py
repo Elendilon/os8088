@@ -157,7 +157,11 @@ def main():
                                 limit=900.0, guest=guest)
 
             def state():
-                return ("done=%d err=%d on=%d got=%d skp=%d mis=%d rd=%d "
+                return ("bench %d/%d/%d off=%d " % (rw("vp_lytm"),
+                                                     rw("vp_lytl"),
+                                                     rw("vp_lytb"),
+                                                     rb("vp_lyoff")) +
+                        "done=%d err=%d on=%d got=%d skp=%d mis=%d rd=%d "
                         "use=%d ns=%d seg=%04x eof=%d sp=%08x kb=%d clb=%d k=%d" % (
                             rw("vp_done"), rb("vp_err"), rb("vp_lyon"),
                             rw("vp_lygot"), rw("vp_lyskp"), rw("vp_lymis"),
@@ -256,6 +260,40 @@ def main():
                 play("layered", "from key 1", ks)
                 if rw("vp_lygot") == 0:
                     bad.append("from key 1 the player drew no layer record")
+                print("   the bench: key 1 in %.2f ms, its model %.2f"
+                      % (rw("vp_lytm") / 100.0, rw("vp_lytl") / 100.0))
+                if rb("vp_lyoff") or not rw("vp_lytm"):
+                    bad.append("the bench did not pass this machine at its "
+                               "own model (%d against %d)"
+                               % (rw("vp_lytm"), rw("vp_lytl")))
+                # --- 5: THE BENCH SAYS NO (98.1.9): the layer's machine
+                # poked impossibly fast, so this CPU is the base's - the
+                # layer is not read, the screen is the BASE's, the card says
+                ytl = m.read(base + syms["vp_lytl"], 4)
+                ww("vp_lytl", 1)
+                ww("vp_lytb", 1)
+                n0 = rw("vp_ploads")
+                m.key("ArrowRight")
+                until(lambda: rw("vp_ploads") > n0, "Right to pick key 1 again")
+                if rw("vp_sel") != 1:
+                    m.key("ArrowLeft")
+                    until(lambda: rw("vp_sel") == 1, "back to key 1")
+                play("base", "the bench saying no", ks)
+                if not rb("vp_lyoff") or rw("vp_lygot"):
+                    bad.append("the bench said yes to a machine past its line "
+                               "(off %d, %d drawn)" % (rb("vp_lyoff"),
+                                                       rw("vp_lygot")))
+                want4 = "Layer off: key %d ms, its 0" % (rw("vp_lytm") // 100)
+                try:
+                    until(lambda: line4() == want4, "the card's bench line",
+                          20.0)
+                except Exception:
+                    pass
+                print("   the card's line 4: %r" % line4())
+                if line4() != want4:
+                    bad.append("the card's line 4 is %r, not %r"
+                               % (line4(), want4))
+                m.write(base + syms["vp_lytl"], ytl)
     if bad:
         print("\nvidlyplay: FAIL")
         for x in bad:

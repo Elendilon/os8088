@@ -2740,6 +2740,8 @@ class Encoder:
         self.blur_r = 1
         self.q_vis = self.q_wrong = self.q_flick = self.q_tflick = 0.0
         self.q_prev = self.q_tprev = (None, None)
+        self.q_frames, self.q_bad = [], []  # per frame: the mean, and the
+                                            # share VISIBLY wrong (measure)
         self.tcache, self.scache = {}, None     # (tpix, spix)
 
     def set_bank(self, bank, pre, xcopy=0.0):
@@ -3171,8 +3173,15 @@ class Encoder:
         if S is None:
             return
         T = self.tpix(target)[1]
-        self.q_vis += float(self.dist(self.sblur(), self.tblur(target))
-                            .mean())
+        ev = self.dist(self.sblur(), self.tblur(target))
+        m = float(ev.mean())
+        self.q_vis += m
+        # VISIBLY WRONG (2026-10-09): the share of the frame whose picture,
+        # as the eye averages it, is off by VIS_BAD or more - a band torn
+        # off a scene and left behind is most of a frame wrong by a lot,
+        # which the mean over a whole clip of pixels made 0.11%
+        self.q_frames.append(m)
+        self.q_bad.append(float((ev > VIS_BAD).mean()))
         ne = S != T
         if ne.ndim == 3:
             ne = ne.any(2)
@@ -3715,6 +3724,50 @@ class EncoderP(Flipped, Encoder):
 AHEAD = 256 << 20       # the most frames read ahead while a pass runs
 
 
+VIS_BAD = 0.15          # VISIBLY WRONG: the picture as seen off by 15% of
+VIS_AREA = 0.02         # full scale or more, over 2% or more of a frame:
+                        # on the owner's Last Exile, its two torn scenes
+                        # (0:13.3 for 2.1 s, 0:32.4) and no clean second
+
+
+def picture_report(q_frames, q_bad, fps):
+    """The picture's errors as a viewer meets them (2026-10-09): the mean
+    over the clip hides a scene torn apart for two seconds among forty that
+    play clean, so the worst second's mean and the seconds VISIBLY broken -
+    VIS_AREA of the frame off by VIS_BAD as seen - are said beside it.
+    (mean, worst second's mean, its frame, broken frames)"""
+    n = len(q_frames)
+    if not n:
+        return 0.0, 0.0, 0, 0
+    w = max(1, int(round(fps)))
+    best, at, run = -1.0, 0, 0.0
+    for i, v in enumerate(q_frames):
+        run += v
+        if i >= w:
+            run -= q_frames[i - w]
+        if i >= w - 1 and run > best:
+            best, at = run, i - w + 1
+    if best < 0:
+        best, at = run, 0
+    broken = sum(1 for b in q_bad if b >= VIS_AREA)
+    return sum(q_frames) / n, best / min(w, n), at, broken
+
+
+def broken_spans(q_bad, fps, most=8):
+    """Where the picture is VISIBLY BROKEN: (start s, length s) of each run
+    of frames past VIS_AREA, runs under a second apart joined - so a torn
+    scene is one entry to go and look at"""
+    out, gap = [], max(1, int(round(fps)))
+    for i, b in enumerate(q_bad):
+        if b < VIS_AREA:
+            continue
+        if out and i - out[-1][1] <= gap:
+            out[-1][1] = i
+        else:
+            out.append([i, i])
+    return [(a / fps, (b - a + 1) / fps) for a, b in out[:most]], len(out)
+
+
 LAYER_LAG = 8.0         # seconds the layer is encoded behind the base: the
                         # CPU bucket is a second deep, and a base at ~70% of
                         # it frees a full one in ~3 s, so 8 is near exact
@@ -3745,14 +3798,14 @@ class LayerEnc(object):
     layer record out, as a late player would"""
 
     def __init__(self, base, rate, ram_kb, pre_kb, seek_ms=LAYER_SEEK_MS,
-                 drop=0, bank=0.0, xcopy=0.0, mach=None):
+                 drop=0, bank=0.0, xcopy=0.0, mach=None, bxcopy=0.0):
         import copy
         if getattr(base, "flip", False) or base.live:
             raise vid.V88Error("--layer is a stream's played unflipped in "
                                "the bracket (98.1.9): not --flip, not --live")
-        if base.disk.per is None or base.bank:
-            raise vid.V88Error("--layer is a budgeted stream's, with no "
-                               "--bank: it is what the base cannot use")
+        if base.disk.per is None:
+            raise vid.V88Error("--layer is a budgeted stream's: it is what "
+                               "the base cannot use")
         self.b = base
         self.m = m = mach or base           # the layer's machine
         if m.cpu.per is None:
@@ -3778,6 +3831,10 @@ class LayerEnc(object):
         self.lslots = ram_kb * 1024.0 - self.lbank
         self.lslow = 1.0 + 2 * xcopy / 1000.0 * self.rate / 1024 \
             if bank and xcopy else 1.0
+        # ...and THE BASE's bank, if it has one, played on this machine: its
+        # bytes copied too while it holds anything, at THIS machine's xcopy
+        self.bslow = 1.0 + 2 * bxcopy / 1000.0 * self.rate / 1024 \
+            if base.bank and bxcopy else 1.0
 
     def _clone(self, copy, ram_kb, pre_kb):
         b = self.b
@@ -3791,6 +3848,7 @@ class LayerEnc(object):
         e.stats = {k: 0 for k in b.stats}
         e.q_vis = e.q_wrong = e.q_flick = e.q_tflick = 0.0
         e.q_prev = e.q_tprev = (None, None)
+        e.q_frames, e.q_bad = [], []
         e.cpu = Budget(0.0, 1e18)
         e.dcurve = None
         e.owe = None
@@ -3863,7 +3921,8 @@ class LayerEnc(object):
         if m.dcurve:                        # (the layer's machine's curve)
             share = (c + cl + m.audio_cyc + HOOK_CYC) / m.q + m.spk
             rel = m.disk_rel(share)
-        lvl = self.bl + (self.rate * rel * 0.99 - b.abps) / b.fps
+        rate = self.rate / (self.bslow if self.bl > b.reserve else 1.0)
+        lvl = self.bl + (rate * rel * 0.99 - b.abps) / b.fps
         clip = max(0.0, lvl - b.disk.cap)
         if e.disk.level > self.lslots:      # (through the bank: copied)
             clip /= self.lslow
@@ -4891,7 +4950,8 @@ def _encode(a, keep, tick, readers):
                     setattr(mach, n, getattr(enc, n))
         lay = LayerEnc(enc, a.layer_disk, ltot, lpre, a.layer_seek,
                        bank=lbank * 1024, xcopy=lprof.get("xcopy") or 0.0,
-                       mach=mach)
+                       mach=mach, bxcopy=lprof.get("xcopy") or 0.0)
+        lay.speeds = (lprof.get("speed") or 1, prof.get("speed") or 1)
         wr.layer = (max(1, int(round(a.layer_disk / 1024.0))), int(lmem),
                     vid.XPRE_ALL if a.layer_prefill == "all" else int(lpre),
                     int(lbank))
@@ -4991,6 +5051,16 @@ def _encode(a, keep, tick, readers):
     if lay is not None:
         for lops in lay.flush():
             wr.layer_frame(lops)
+        # THE PLAYER'S YARDSTICK (98.1.9): key 0's decode, modelled on the
+        # layer's machine and on the base's, in 10 us - the player times its
+        # own decode of the same record and reads the layer only on a CPU
+        # nearer the layer's machine than the base's
+        if wr.keys:
+            kr = wr.keys[0][1]
+            ts = tuple(min(65535, max(1, int(round(
+                mm.cost(kr) / (vid.HZ * sp) * 1e5))))
+                for mm, sp in ((lay.m, lay.speeds[0]), (enc, lay.speeds[1])))
+            wr.layer = wr.layer[:4] + ts
     if text and (a.text_ocr or a.text_ocr_large):
         say("   OCR: %d words drawn exact, %d crisp (a word counts once a "
             "frame)" % tuple(tm.ocr_used))
@@ -5165,8 +5235,12 @@ def _encode(a, keep, tick, readers):
                    "all" if a.layer_prefill == "all" else
                    "%d KB" % wr.layer[2]) if wr.layer[2] else "",
                "" if not enc.metric else
-               "; the play with it %.2f%% error as seen" % (
-                   100 * lay.e.q_vis / nf)))
+               "; the play with it %.2f%% error as seen, worst second "
+               "%.2f%%, %.1f s visibly broken" % (
+                   (100 * lay.e.q_vis / nf,) + tuple(
+                       x * y for x, y in zip(picture_report(
+                           lay.e.q_frames, lay.e.q_bad, fps)[1::2],
+                           (100, 1.0 / fps))))))
         res.update(layer=dict(kbs=lay.bytes / secs / 1024.0,
                               q_vis=lay.e.q_vis / nf if enc.metric
                               else None, recs=lay.recs,
@@ -5176,6 +5250,25 @@ def _encode(a, keep, tick, readers):
             "%.0f pixels a frame flickering back (the source's own: %.0f)"
             % (100 * enc.q_vis / nf, 100 * enc.q_wrong / nf,
                enc.q_flick / max(1, nf - 2), enc.q_tflick / max(1, nf - 2)))
+        pm, pw, pat, pbr = picture_report(enc.q_frames, enc.q_bad, fps)
+        say("   ...at its WORST SECOND %.2f%% (from %d:%04.1f), and %.1f s of "
+            "%.1f VISIBLY BROKEN - %d%% of the frame or more off by %d%% as "
+            "seen, the picture torn by a cut and left so" % (
+                100 * pw, int(pat / fps) // 60, pat / fps % 60, pbr / fps,
+                nf / fps, round(100 * VIS_AREA), round(100 * VIS_BAD)))
+        sp, nsp = broken_spans(enc.q_bad, fps)
+        if sp:
+            say("   ...broken at %s%s" % (", ".join(
+                "%d:%04.1f for %.1f s" % (int(a) // 60, a % 60, ln)
+                for a, ln in sp), " and %d more" % (nsp - len(sp))
+                if nsp > len(sp) else ""))
+        res.update(q_worst=pw, q_worst_at=pat / fps, q_broken=pbr / fps)
+        if os.environ.get("OS88_VENC_QDUMP"):  # (the per-frame figures, for
+            import json                        # a look at a clip's worst)
+            with open(os.environ["OS88_VENC_QDUMP"], "w") as fq:
+                json.dump(dict(fps=fps, mean=enc.q_frames, bad=enc.q_bad,
+                               layer=(lay.e.q_frames, lay.e.q_bad)
+                               if lay is not None else None), fq)
     res.update(q_vis=enc.q_vis / nf, q_wrong=enc.q_wrong / nf,
                q_flick=enc.q_flick / max(1, nf - 2), cutf=st["cut"] / nf)
     if st["skipped"]:

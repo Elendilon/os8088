@@ -725,11 +725,13 @@ H_XPRE = 474                    # the encode assumed, KB, and u16 the prefill
                                 # a player made before reads neither
 XPRE_ALL = 0xFFFF
 H_LAYER = 476                   # THE LAYER (98.1.9): u32 its first super-
-LAYER_FMT = "<IHHHHIHH"         # packet, u16 its sectors, u16 the disk it
+LAYER_FMT = "<IHHHHIHHHH"       # packet, u16 its sectors, u16 the disk it
                                 # was made for (KB a second), u16 the memory
                                 # it is banked in (KB), u16 the prefill (KB,
                                 # FFFFh all of it), u32 its key table, u16
-                                # its longest record, u16 its XMS bank (KB) -
+                                # its longest record, u16 its XMS bank (KB),
+                                # u16 x 2 key 0's decode modelled on the
+                                # layer's machine and the base's (10 us) -
                                 # NO FLAG: a player made before reads none of
                                 # it and plays the base
 LAYER_LEN = struct.calcsize(LAYER_FMT)
@@ -1972,10 +1974,10 @@ class Writer:
                 else:
                     kt += bytes(8)
             out += kt + bytes(-len(kt) % SECTOR)
-        kbs, ram, pre = self.layer[:3]
-        bank = self.layer[3] if len(self.layer) > 3 else 0
+        ly = tuple(self.layer) + (0,) * (6 - len(self.layer))
+        kbs, ram, pre, bank, tl, tb = ly[:6]
         struct.pack_into(LAYER_FMT, out, H_LAYER, l0, secs[0], kbs, ram,
-                         pre, kat, max(len(r) for r in lr), bank)
+                         pre, kat, max(len(r) for r in lr), bank, tl, tb)
         return bytes(out), dict(bytes=len(out) - l0, sps=len(sps),
                                 stream=o - l0,
                                 recs=sum(r != L_EMPTY for r in lr))
@@ -2739,7 +2741,8 @@ class Reader:
         dz = d[:H_XBANK] + bytes(4) + d[H_XBANK + 4:]
         # THE LAYER (98.1.9): its words are the tail's too
         (self.lsp0, self.lsp0n, self.lkbs, self.lram, self.lpre, self.lktab,
-         self.lmax, self.lbank) = struct.unpack_from(LAYER_FMT, d, H_LAYER)
+         self.lmax, self.lbank, self.ltl, self.ltb) = struct.unpack_from(
+             LAYER_FMT, d, H_LAYER)
         dz = dz[:H_LAYER] + bytes(LAYER_LEN) + dz[H_LAYER + LAYER_LEN:]
         if not self.lsp0:
             if d[H_LAYER:H_LAYER + LAYER_LEN] != bytes(LAYER_LEN):

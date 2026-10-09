@@ -3887,7 +3887,6 @@ vp_xopen:
     or dx, dx
     jz .out
     mov si, dx                      ; SI = its KB, one over
-    call vp_lyxopen                 ; THE LAYER's bank first (98.1.9)
     call vp_epref                   ; EMS FIRST below a 386 (98.3.18.6):
     jnc .ems                        ; no copy holds interrupts off there
     call OSAPI_XMEM_CAPS            ; AX = the KB the pool has (BL, DX:CX
@@ -3916,7 +3915,8 @@ vp_xopen:
     inc ax                          ; the first chunk on the next tick
     call OSAPI_WM_TIMER
 .out:
-    pop es
+    call vp_lyxopen                 ; ...and THE LAYER's, from what is left
+    pop es                          ; (98.1.9)
     pop si
     pop dx
     pop cx
@@ -3926,7 +3926,17 @@ vp_xopen:
 .bank:                              ; THE FILE DOES NOT FIT: a BANK, a FIFO
     sub ax, VP_XRES                 ; of chunks ahead of the ring (VIDEO-XMS-
     jbe .out                        ; PLAN 4): the pool less what it leaves
-    and al, 0xE0                    ; others, in whole 32 KB slots
+    cmp word [vp_lybkb], 0          ; others - and with a LAYER's bank asked
+    je .bnl                         ; for besides, no more than the base's
+    mov cx, [vp_hxb]                ; own ask, so the layer's has the rest
+    jcxz .bnl                       ; (98.1.9)
+    add cx, 31
+    and cl, 0xE0
+    cmp ax, cx
+    jbe .bnl
+    mov ax, cx
+.bnl:
+    and al, 0xE0                    ; in whole 32 KB slots
 .btry:
     cmp ax, VP_XBMIN
     jb .out
@@ -8618,6 +8628,8 @@ vp_lyparse:
     mov [vp_lysp+2], ax
     mov [vp_lybkb], ax
     mov [vp_lypkb], ax
+    mov [vp_lytl], ax
+    mov [vp_lytb], ax
     mov ax, [es:V88_LAYER]
     test ax, VP_CHUNK - 1           ; (a 32 KB boundary)
     jnz .no
@@ -8641,6 +8653,10 @@ vp_lyparse:
     mov [vp_lybkb], ax
     mov ax, [es:V88_LAYER+10]       ; ...and its prefill, KB (FFFFh: all)
     mov [vp_lypkb], ax
+    mov ax, [es:V88_LAYER+20]       ; ...and key 0's decode modelled on the
+    mov [vp_lytl], ax               ; layer's machine and on the base's, in
+    mov ax, [es:V88_LAYER+22]       ; 10 us (0: no yardstick)
+    mov [vp_lytb], ax
 .no:
     ret
 
@@ -8652,6 +8668,7 @@ vp_lyopen:
     push cx
     push dx
     mov byte [vp_lyon], 0
+    mov byte [vp_lyoff], 0
     xor ax, ax                      ; (this play's counts, layer or none)
     mov [vp_lygot], ax
     mov [vp_lymis], ax
@@ -8803,6 +8820,81 @@ vp_lyread:
     stc
     ret
 
+; vp_lybench - a session's first frame, the key just decoded: THIS CPU
+; TIMED AT THE PLAY'S OWN WORK - the same record decoded again for eight
+; ticks from a tick's edge, the screen unchanged by it (a key's writes are
+; the picture already there), and its time a decode against key 0's,
+; modelled on the layer's machine and on the base's (98.1.9). Nearer the
+; base's than the layer's - past the mean of the two, or an eighth past
+; the layer's where they are one machine - and the layer is not read: what
+; would be decoded on top of every frame would make them late. ~0.45 s,
+; and only for a file with a layer and a yardstick. [vp_lytm] its time,
+; [vp_lyoff] 1 when it said no. Clobbers AX, BX, CX, DX, SI, DI, BP, ES
+vp_lybench:
+    mov word [vp_lytm], 0
+    cmp byte [vp_lyon], 0
+    je .r
+    cmp word [vp_lytl], 0
+    je .r
+    cmp word [vp_krec], 0xFFFF
+    je .r
+    call OSAPI_GET_TICKS
+    mov bx, ax
+.w:
+    call OSAPI_GET_TICKS            ; (from a tick's edge)
+    cmp ax, bx
+    je .w
+    mov [vp_lyt0], ax
+    mov word [vp_lyn], 0
+.l:
+    mov si, [vp_krec]               ; the key's record, where it was read
+    mov dx, [vp_ring]
+    mov ax, si
+    mov cl, 4
+    shr ax, cl
+    add dx, ax
+    and si, 15
+    call vp_decboth
+    inc word [vp_lyn]
+    call OSAPI_GET_TICKS
+    sub ax, [vp_lyt0]
+    cmp ax, 8
+    jb .l
+    cmp ax, 11
+    ja .no                          ; (a decode near a second: too slow)
+    mov cx, 5493                    ; ticks x 54.93 ms, in 10 us
+    mul cx
+    div word [vp_lyn]               ; AX = a decode's time
+    mov [vp_lytm], ax
+    mov bx, [vp_lytl]               ; THE LINE: the mean of the layer's
+    mov cx, [vp_lytb]               ; machine's and the base's, or an eighth
+    mov dx, bx                      ; over the layer's where they are one
+    add dx, bx
+    shr dx, 1
+    shr dx, 1
+    shr dx, 1                       ; DX = a quarter of the layer's...
+    add dx, bx                      ; ...and it: 1.25x
+    cmp cx, dx
+    ja .two
+    mov dx, bx                      ; ONE MACHINE: 1.125x the layer's
+    shr dx, 1
+    shr dx, 1
+    shr dx, 1
+    add dx, bx
+    jmp short .cmp
+.two:
+    mov dx, bx
+    add dx, cx
+    rcr dx, 1                       ; (the mean, its carry kept)
+.cmp:
+    cmp ax, dx
+    jbe .r
+.no:
+    mov byte [vp_lyon], 0
+    mov byte [vp_lyoff], 1
+.r:
+    ret
+
 ; vp_lyslots - the layer's SLOTS filled off the disk and nothing more: the
 ; bank is the prefill's to fill (vp_lypre), and the ask it was made for.
 ; Clobbers AX, BX, CX, DX, SI, DI, ES
@@ -8921,10 +9013,11 @@ vp_lyget:
     stc                             ; is read - what the slots and the bank
     ret                             ; hold is still drawn)
 
-; vp_lyxopen - a file's open, SI = its KB: THE LAYER's XMS BANK, ahead of
-; the base's (the base's bank takes what the pool has left): the header's
-; ask, or the pool less VP_XRES if that is less, in whole slots, two at
-; least. None on an EMS-only machine. Every register kept
+; vp_lyxopen - a file's open, after the base's bank: THE LAYER's XMS BANK
+; out of what the pool has left - the header's ask, or that less VP_XRES
+; if it is less, in whole slots, two at least. The base's bank came first,
+; held to its own ask where the file asks for both. None on an EMS-only
+; machine. Every register kept
 vp_lyxopen:
     push ax
     push cx
@@ -9813,7 +9906,8 @@ vp_main:
     pop ds
     mov [vp_aref], al
 .kd:
-    cmp byte [vp_shadow], 0
+    call vp_lybench                 ; THE LAYER's CPU, timed on the key
+    cmp byte [vp_shadow], 0         ; (98.1.9)
     je .lead
     call vp_blit
 .lead:
@@ -14817,6 +14911,29 @@ vp_fmt:
     jne .sess
     cmp byte [vp_played], 0
     je .nos
+    cmp byte [vp_lyoff], 0          ; ...or why it read none
+    je .ly4
+    mov si, vp_s_lyoff              ; 'Layer off: key 120 ms, its 49'
+    call vp_puts
+    xor dx, dx
+    xor bl, bl
+    mov ax, [vp_lytm]
+    call .ms
+    mov si, vp_s_lyits
+    call vp_puts
+    mov ax, [vp_lytl]
+    call .ms
+    jmp .msg
+.ms:                                ; AX in 10 us, said in ms
+    push cx
+    xor dx, dx
+    mov cx, 100
+    div cx
+    pop cx
+    xor dx, dx
+    xor bl, bl
+    jmp vp_putn
+.ly4:
     mov ax, [vp_lygot]
     or ax, [vp_lymis]
     or ax, [vp_lyskp]
@@ -15326,6 +15443,8 @@ vp_s_bk4:     db 'Held whole in XMS', 0
 vp_s_bk5:     db 'XMS bank idle: the speaker', 0
 vp_s_bk6:     db 'EMS too slow: the disk alone', 0
 vp_s_lydrew:  db 'Layer drew ', 0
+vp_s_lyoff:   db 'Layer off: key ', 0
+vp_s_lyits:   db ' ms, its ', 0
 vp_s_lymis:   db ', ', 0
 vp_s_lylate:  db ' missed, ', 0
 vp_s_lylt:    db ' late', 0
@@ -15912,6 +16031,12 @@ vp_lyxh:      dw 0                  ; the head's slot, the slots it holds,
 vp_lyxc:      dw 0
 vp_lyxq:      db 0                  ; and whether this session may copy
 vp_pfly:      db 0                  ; the prefill is the LAYER's (vp_lypre)
+vp_lytl:      dw 0                  ; key 0's decode on the layer's machine,
+vp_lytb:      dw 0                  ; and on the base's (10 us): THE BENCH
+vp_lytm:      dw 0                  ; ...and on this one (vp_lybench),
+vp_lyt0:      dw 0                  ; from this tick, this many times
+vp_lyn:       dw 0
+vp_lyoff:     db 0                  ; ...and it said no
 vp_hxp:       dw 0                  ; ...and its prefill, KB (0: 10 s at its
                                     ; mean, FFFFh: the bank whole)
 vp_pfok:      db 0                  ; 1: the next ring fill is a session's first

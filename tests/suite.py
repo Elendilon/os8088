@@ -3616,8 +3616,11 @@ SOAK = [
         "decoded on the host byte for byte, all 47 layer records drawn and "
         "none left out, the card saying so on line 4; with the layer's "
         "header word zeroed the same holds must be the BASE's decode and "
-        "not the layered one; and from key 1 the layer's place comes out "
-        "of its key table and the holds are exact again",
+        "not the layered one; from key 1 the layer's place comes out of its "
+        "key table and the holds are exact again, the BENCH (key 1's decode "
+        "timed, 27.46 ms against its model's 27.04) passing this machine; "
+        "and with the yardstick poked impossibly fast the bench says no - "
+        "nothing of the layer drawn, the base's screen, the card saying why",
         needs=("marty", "nasm", "ffmpeg"), serial=True, timeout=600,
         wants=("build/os8088-360.img", "build/video.o88")),
     Row("vidlyplaystream", "soak", py("tests/vidlyplay.py", "--stream"),
@@ -11316,7 +11319,9 @@ SOAK = [
         "encoder's own enhanced screen exactly - and with the last layer "
         "record left out it must NOT (the check bites) - and the layered "
         "play must beat the base's error as seen (3.34% -> 0.93% on VGA8, "
-        "2.20% -> 0.08% on Mode X)",
+        "2.20% -> 0.08% on Mode X); a 5150 CGA file with its layer for the "
+        "286, and BANKED AND LAYERED - a 286 base with its bank, its layer "
+        "for the 486 - each with a yardstick that says which is faster",
         needs=("ffmpeg",)),
     Row("mcperf", "soak", py("tests/mcperf.py"), 50.0,
         "SPEC.md 48.16.2: does Missile play the SAME GAME twice? A fixed"
