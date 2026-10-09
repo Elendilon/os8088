@@ -3632,6 +3632,23 @@ SOAK = [
         "every hold where none had been missed yet",
         needs=("marty", "nasm", "ffmpeg"), serial=True, timeout=600,
         wants=("build/os8088-360.img", "build/video.o88")),
+    Row("vidbankspkbank", "soak", py("tests/vidbank.py", "--arm",
+                                     "spkbank"), 60.0,
+        "SPEC.md 98.3.18.9: THE SPEAKER AGAINST THE BANK on QEMU with no "
+        "card - a file asking for a bank whose yardstick (key 0's decode on "
+        "the machine it was made for) says this machine is not twice as "
+        "fast: the play is MUTED for the bank, from frame 0 (no key to time: "
+        "the bank wins) and from key 1 (the bench times it), the card's "
+        "reason 3 and the bank XMS's",
+        needs=("qemu", "nasm"), serial=True, timeout=400,
+        wants=("build/os8088.img", "build/video.o88")),
+    Row("vidbankspkfast", "soak", py("tests/vidbank.py", "--arm",
+                                     "spkfast"), 40.0,
+        "SPEC.md 98.3.18.9: the same file with a yardstick far slower than "
+        "this machine - the bench passes it twice over and the SPEAKER "
+        "stays, the bank idle under it as 98.3.18.5 has it",
+        needs=("qemu", "nasm"), serial=True, timeout=400,
+        wants=("build/os8088.img", "build/video.o88")),
     Row("vidlybank", "soak", py("tests/vidlybank.py"), 60.0,
         "SPEC.md 98.1.9: THE LAYER's XMS BANK and its PREFILL, on QEMU's "
         "386 - a Life clip held whole in XMS (the base) with --layer-bank "

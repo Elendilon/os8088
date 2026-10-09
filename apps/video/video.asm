@@ -180,6 +180,7 @@ V88_KLEADS  equ 468                 ; lead at this dword + i x A x abytes,
                                     ; not its entry's tail
 V88_XBANK   equ 472                 ; THE BANK (98.3.18.3): the XMS its encode
 V88_XPRE    equ 474                 ; assumed, KB, and the prefill it banked
+V88_YBASE   equ 500                 ; THE BASE'S YARDSTICK (98.3.18.9)
 V88_LAYER   equ 476                 ; THE LAYER (98.1.9): u32 its first
                                     ; super-packet, u16 64, u16 KB/s, u16 KB,
                                     ; u16 prefill, u32 its key table, u16 the
@@ -1495,6 +1496,9 @@ vp_parse:
     mov [vp_hxb], ax                ; the header's zero tail, so a file made
     mov ax, [es:V88_XPRE]           ; before says nothing and a player made
     mov [vp_hxp], ax                ; before reads neither
+    mov ax, [es:V88_YBASE]          ; THE BASE'S YARDSTICK (98.3.18.9): key
+    mov [vp_ytb], ax                ; 0's decode on the machine it was made
+                                    ; for, 10 us (0 none)
     call vp_lyparse                 ; THE LAYER (98.1.9), or none
     mov ax, [es:di+R_SLEN]    ; the stream's bytes, for its KB/s
     mov [vp_slen], ax
@@ -8832,12 +8836,34 @@ vp_lyread:
 ; [vp_lyoff] 1 when it said no. Clobbers AX, BX, CX, DX, SI, DI, BP, ES
 vp_lybench:
     mov word [vp_lytm], 0
+    mov byte [vp_ybq], 0
+    cmp byte [vp_snd], VP_SPK       ; THE SPEAKER AGAINST THE BANK (98.3.18.9)
+    jne .nsq                        ; - a file that asks for a bank, played
+    cmp word [vp_hxb], 0            ; on a machine with no card, whose PCM8
+    je .nsq                         ; was not encoded for the speaker: the
+    cmp byte [vp_spkpwm], 0         ; speaker's interrupts hold the bank
+    jne .nsq                        ; idle and take the CPU the encode spent
+    cmp word [vp_ytb], 0            ; on the picture - and that says what it
+    je .nsq                         ; was made for (an older file: as ever)
+    mov byte [vp_ybq], 1
+.nsq:
+    mov al, 0
     cmp byte [vp_lyon], 0
-    je .r
+    je .nly
     cmp word [vp_lytl], 0
-    je .r
+    je .nly
+    mov al, 1
+.nly:
+    or al, [vp_ybq]
+    jz .r0
     cmp word [vp_krec], 0xFFFF
-    je .r
+    jne .go
+    cmp byte [vp_ybq], 0            ; (no key to time: the bank wins - the
+    je .r0                          ; picture is what the file was made for)
+    call vp_ymute
+.r0:
+    ret
+.go:
     call OSAPI_GET_TICKS
     mov bx, ax
 .w:
@@ -8861,11 +8887,26 @@ vp_lybench:
     cmp ax, 8
     jb .l
     cmp ax, 11
-    ja .no                          ; (a decode near a second: too slow)
+    ja .slow                        ; (a decode near a second: too slow)
     mov cx, 5493                    ; ticks x 54.93 ms, in 10 us
     mul cx
     div word [vp_lyn]               ; AX = a decode's time
     mov [vp_lytm], ax
+    cmp byte [vp_ybq], 0            ; THE SPEAKER: kept only on a machine
+    je .ly                          ; twice as fast as the one the file was
+    mov cx, ax                      ; made for - roughly that machine, and
+    shl cx, 1                       ; the bank has the CPU (98.3.18.9)
+    jc .ym
+    cmp cx, [vp_ytb]
+    jb .ly
+.ym:
+    call vp_ymute
+.ly:
+    mov ax, [vp_lytm]
+    cmp byte [vp_lyon], 0
+    je .r
+    cmp word [vp_lytl], 0
+    je .r
     mov bx, [vp_lytl]               ; THE LINE: the mean of the layer's
     mov cx, [vp_lytb]               ; machine's and the base's, or an eighth
     mov dx, bx                      ; over the layer's where they are one
@@ -8893,6 +8934,26 @@ vp_lybench:
     mov byte [vp_lyon], 0
     mov byte [vp_lyoff], 1
 .r:
+    ret
+.slow:
+    cmp byte [vp_ybq], 0
+    je .sl
+    call vp_ymute
+.sl:
+    cmp byte [vp_lyon], 0           ; (a layer to turn off, or none)
+    jne .no
+    ret
+
+; vp_ymute - the bench's verdict for the speaker (98.3.18.9): MUTED, the
+; bank given what the speaker would have taken - [vp_mwhy] 3, which the
+; card says, M unmuting as ever. Every register kept
+vp_ymute:
+    push ax
+    mov byte [vp_mute], 1
+    mov byte [vp_mwhy], 3
+    call vp_sndoff
+    call vp_bkind                   ; (the bank is the session's now)
+    pop ax
     ret
 
 ; vp_lyslots - the layer's SLOTS filled off the disk and nothing more: the
@@ -9906,11 +9967,12 @@ vp_main:
     pop ds
     mov [vp_aref], al
 .kd:
-    call vp_lybench                 ; THE LAYER's CPU, timed on the key
-    cmp byte [vp_shadow], 0         ; (98.1.9)
+    cmp byte [vp_shadow], 0
     je .lead
     call vp_blit
 .lead:
+    call vp_lybench                 ; THIS CPU, timed on the key: the layer
+                                    ; and the speaker (98.1.9, 98.3.18.9)
     call vp_lstage                  ; (sound ahead: the lead out of the ring)
 .fill:                              ; fill the ring before the first frame: a
     cmp byte [vp_einp], 0           ; (IN PLACE the ring is the board's: two
@@ -11561,8 +11623,13 @@ vp_spkinfo:
     mov si, vp_s_mdsp
 .m2:
     cmp byte [vp_mwhy], 2           ; ...or too fast for this one's speaker
-    jne .p                          ; (34.11.4)
+    jne .m3                         ; (34.11.4)
     mov si, vp_s_spkfast
+    jmp short .p
+.m3:
+    cmp byte [vp_mwhy], 3           ; ...or the bank wanted the CPU
+    jne .p                          ; (98.3.18.9)
+    mov si, vp_s_mbank
     jmp short .p
 .on:
     call OSAPI_SND_CAPS
@@ -15483,6 +15550,7 @@ vp_s_cvx:     db ', Covox', 0
 vp_s_muted:   db ', muted', 0
 vp_s_mdsp:    db ', muted: DSP 4', 0         ; (35 columns: 16 left here)
 vp_s_spkfast: db ', muted: fast', 0
+vp_s_mbank:   db ', muted: the bank', 0
 vp_s_nokeys:  db 'No keyframes: plays from the start', 0
 vp_s_start:   db 'From the start; keys ', 0
 vp_s_fromk:   db 'From key ', 0
@@ -16037,6 +16105,8 @@ vp_lytm:      dw 0                  ; ...and on this one (vp_lybench),
 vp_lyt0:      dw 0                  ; from this tick, this many times
 vp_lyn:       dw 0
 vp_lyoff:     db 0                  ; ...and it said no
+vp_ytb:       dw 0                  ; THE BASE'S YARDSTICK (98.3.18.9), and
+vp_ybq:       db 0                  ; whether the speaker is on trial
 vp_hxp:       dw 0                  ; ...and its prefill, KB (0: 10 s at its
                                     ; mean, FFFFh: the bank whole)
 vp_pfok:      db 0                  ; 1: the next ring fill is a session's first

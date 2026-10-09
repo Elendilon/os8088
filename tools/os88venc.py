@@ -5048,6 +5048,12 @@ def _encode(a, keep, tick, readers):
             print("   frame %d of %d" % (f + 1, nf if not stream else
                                          est + pre), file=sys.stderr)
     nf = f + 1
+    if wr.keys and not a.resident and enc.cpu.per is not None:
+        # THE BASE'S YARDSTICK (98.3.18.9): key 0's decode on the machine
+        # this is made for - what a player on a machine with no card times
+        # itself against, to give the bank the CPU the speaker would take
+        wr.ybase = max(1, int(round(enc.cost(wr.keys[0][1]) / (
+            vid.HZ * (prof.get("speed") or 1)) * 1e5)))
     if lay is not None:
         for lops in lay.flush():
             wr.layer_frame(lops)

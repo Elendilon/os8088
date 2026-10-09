@@ -735,6 +735,9 @@ LAYER_FMT = "<IHHHHIHHHH"       # packet, u16 its sectors, u16 the disk it
                                 # NO FLAG: a player made before reads none of
                                 # it and plays the base
 LAYER_LEN = struct.calcsize(LAYER_FMT)
+H_YBASE = 500                   # THE BASE'S YARDSTICK (98.3.18.9): u16 key
+                                # 0's decode modelled on the machine the file
+                                # was made for, 10 us - 0 none. NO FLAG
 L_EMPTY = b"\x02\x00"           # a frame the layer has nothing for
 LSP_HDR = 8                     # a layer super-packet: first(32) frames(16)
                                 # next(16), then its records
@@ -1825,6 +1828,7 @@ class Writer:
                            "state cannot join the seam; use PCM8")
         self.loop, self.repeat = loop, repeat
         self.loop_surf = self.loop_audio = self.last = None
+        self.ybase = 0                  # (98.3.18.9)
         self.lrecs = None               # THE LAYER (98.1.9): a record or
         self.layer = None               # L_EMPTY a frame, and (kbs, ram, pre)
 
@@ -2166,6 +2170,7 @@ class Writer:
             struct.pack_into("<I", hdr, H_KLEADS, klead_at)
         struct.pack_into("<HH", hdr, H_XBANK, min(self.xbank, 0xFFFE),
                          self.xpre)
+        struct.pack_into("<H", hdr, H_YBASE, min(65535, self.ybase))
         for off, size, text in ((32, 48, self.title), (80, 96, self.credits)):
             t = text.encode("ascii", "replace")[:size - 1]
             hdr[off:off + len(t)] = t
@@ -2744,6 +2749,10 @@ class Reader:
          self.lmax, self.lbank, self.ltl, self.ltb) = struct.unpack_from(
              LAYER_FMT, d, H_LAYER)
         dz = dz[:H_LAYER] + bytes(LAYER_LEN) + dz[H_LAYER + LAYER_LEN:]
+        self.ybase = struct.unpack_from("<H", d, H_YBASE)[0]
+        dz = dz[:H_YBASE] + bytes(2) + dz[H_YBASE + 2:]
+        if self.ybase and self.resident:
+            raise V88Error("a yardstick in a resident file (98.3.18.9)")
         if not self.lsp0:
             if d[H_LAYER:H_LAYER + LAYER_LEN] != bytes(LAYER_LEN):
                 raise V88Error("a layer's words with no layer (98.1.9)")

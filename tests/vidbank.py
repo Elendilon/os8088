@@ -77,7 +77,7 @@ VOK_BUF = 10                    # vosd.inc: the box says the prefill
 CHUNK = 32768
 
 
-def clip(tmp, sound=False):
+def clip(tmp, sound=False, ybase=0):
     """300 frames of 640 x 200 at ~4.5 KB of change each: ~1.35 MB, which
     is more than `-m 2` has above 1 MB and less than a 1.44 MB floppy"""
     import random
@@ -106,6 +106,7 @@ def clip(tmp, sound=False):
     # a bank bigger than this machine's, and a prefill of PRE_KB
     d = bytearray(open(out, "rb").read())
     struct.pack_into("<HH", d, vid.H_XBANK, ASK_KB, PRE_KB)
+    struct.pack_into("<H", d, vid.H_YBASE, ybase)   # (98.3.18.9's yardstick)
     open(out, "wb").write(d)
     vid.verify_v88(out)
     return out
@@ -113,11 +114,15 @@ def clip(tmp, sound=False):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--arm", choices=("fs", "win", "spk"), default="fs",
+    ap.add_argument("--arm", choices=("fs", "win", "spk", "spkbank",
+                                      "spkfast"), default="fs",
                     help="fs: the full screen's legs; win: the prefill in "
                          "the WINDOW, where the thumb is its meter; spk: "
                          "the PC SPEAKER as the clock, under which no XMS "
-                         "copy may run")
+                         "copy may run; spkbank: the file says the machine "
+                         "it was made for is this one, and the BANK wins - "
+                         "muted, banked (98.3.18.9); spkfast: it says a "
+                         "machine far slower, and the speaker stays")
     ap.add_argument("--bps", type=int, default=BPS,
                     help="B:'s throttle, bytes a second (0 none): slow "
                          "enough that the bank is seen filling")
@@ -134,7 +139,8 @@ def main():
     bad = []
     with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "build")) as tmp:
         v88 = live_clip(tmp) if a.arm == "win" else \
-            clip(tmp, sound=a.arm == "spk")
+            clip(tmp, sound=a.arm.startswith("spk"),
+                 ybase={"spkbank": 1, "spkfast": 0xFFFF}.get(a.arm, 0))
         size = os.path.getsize(v88)
         rd88 = vid.Reader(v88)
         tg = vid.Geom(vid.LAY_LIN80, WB, 480)
@@ -257,6 +263,54 @@ def main():
         def release(nxt):
             qpoke(q, [(base + syms["vp_stopat"], struct.pack("<H", nxt)),
                       (base + syms["vp_held"], b"\0")])
+
+        if a.arm in ("spkbank", "spkfast"):
+            # --- THE SPEAKER AGAINST THE BANK (98.3.18.9): the file's
+            # yardstick says the machine it was made for decodes its key in
+            # 10 us (spkbank: this machine is not twice that fast - QEMU
+            # takes ~2 ms) or in 655 ms (spkfast: it is). The bench needs a key, so the play is
+            # from key 1 - Right first; spkbank also plays from frame 0,
+            # where there is no key to time and the bank wins regardless
+            fast = a.arm == "spkfast"
+            for leg in (("key 1",) if fast else ("frame 0", "key 1")):
+                if leg == "key 1":
+                    s0 = rw("vp_sel")
+                    q.hmp("sendkey right")
+                    wait(lambda: rw("vp_sel") != s0, "Right to key 1", 20)
+                qpoke(q, [(base + syms["vp_played"], b"\0")])
+                q.hmp("sendkey p")
+                wait(lambda: rb("vp_ready") == 1, "the play to start", 120)
+                wait(lambda: rw("vp_done") >= rw("vp_base") + 30,
+                     "30 frames", 60)
+                q.hmp("stop")
+                st = (rb("vp_snd"), rb("vp_mute"), rb("vp_mwhy"),
+                      rw("vp_lytm"), rw("vp_ytb"), rb("vp_lbk"))
+                q.hmp("cont")
+                print("   from %s: snd %d, mute %d why %d; bench %d against "
+                      "%d; the bank kind %d (%s)" % ((leg,) + st + (state(),)))
+                want = (VP_SPK, 0) if fast else (0, 1)
+                if st[:2] != want:
+                    bad.append("from %s the play's sound is %d, muted %d - "
+                               "not %r" % ((leg,) + st[:2] + (want,)))
+                if not fast and (st[2] != 3 or st[5] != 1):
+                    bad.append("from %s the mute's reason is %d and the bank "
+                               "kind %d, not 3 and XMS" % (leg, st[2], st[5]))
+                if leg == "key 1" and not st[3]:
+                    bad.append("from key 1 the bench timed nothing")
+                q.hmp("sendkey esc")
+                wait(lambda: rb("vp_ready") == 0 and rb("vp_played") == 1,
+                     "Esc", 60)
+                qpoke(q, [(base + syms["vp_mute"], b"\0"),
+                          (base + syms["vp_umute"], b"\0"),
+                          (base + syms["vp_mwhy"], b"\0")])
+            q.close()
+            if bad:
+                print("\nvidbank (%s): FAIL" % a.arm)
+                for b in bad:
+                    print("  - " + b)
+                return 1
+            print("\nvidbank (%s): ok" % a.arm)
+            return 0
 
         if a.arm == "spk":
             # --- THE SPEAKER'S CLOCK (98.3.18.5): no card here, so a PCM8

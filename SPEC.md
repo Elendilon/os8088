@@ -156969,7 +156969,9 @@ stream behind them is read sequentially.
 | 468 | 4 | with KLEADS, the KEYS' LEADS: key *i*'s at this offset + *i* x *A* x `abytes` (98.1.8.1); else 0 |
 | 472 | 2 | THE BANK its encode assumed, KB: an XMS bank ahead of the ring (98.3.18.2, 98.3.18.3); 0 none. NO FLAG - a player made before reads nothing past 472 and plays the file |
 | 474 | 2 | ...and the PREFILL it banked on before the first frame, KB; FFFFh the bank whole; 0 with a bank of 0 |
-| 476 | 36 | 0 |
+| 476 | 24 | THE LAYER, with one (98.1.9); else 0 |
+| 500 | 2 | THE BASE'S YARDSTICK: key 0's decode on the machine the encode is for, in 10 us, for any stream with keys (98.3.18.9); 0 none. NO FLAG, like 472 |
+| 502 | 10 | 0 |
 
 **The divisor is the host's arithmetic, not the player's.** `1,193,182 ×
 samples / rate` is a 38-bit product, which an 8086 would need two divides to
@@ -162812,6 +162814,46 @@ RAM's speed, then forced slow (`vp_eslow` 1) the session takes the hybrid
 and plays all 200 frames right. What no emulator here can show is the
 choice of XMS over a slow board, MartyPC having no XMS and QEMU no EMS -
 that half is the 286's to confirm.
+
+##### 98.3.18.9 The speaker against the bank (2026-10-09)
+
+**On a machine with no card, a file made for a bank plays MUTED when the
+machine is no faster than the one it was made for.** The field found it on
+the owner's 286: a banked encode with sound, played where the only sound
+is the PC speaker, took the speaker - and the speaker is the most
+expensive sound there is (98.3.1's interrupt a sample), so the decode the
+encode had priced at its machine's whole CPU ran late on a machine that
+had exactly that CPU and no more. The worse experience of the two was
+chosen by default. A file asks for a bank (472) precisely because its
+machine needs every byte and cycle of it, so the speaker is the one that
+gives way - but only where the machine is the file's, and the player
+measures that rather than guessing it.
+
+- **The encoder writes a yardstick** at 500: key 0's decode, modelled on
+  the profile's machine (`enc.cost` over `HZ` x the profile's speed), in
+  10 us, at least 1. Every stream with keys carries it; a resident file
+  and one with no keys carry 0. No flag - a player made before reads
+  nothing past 472.
+- **The player times its own decode of key 0** in `vp_lybench`, the same
+  bench the layer uses (98.1.9), which runs from `.lead` - so it is taken
+  from frame 0 and from any key. It is asked only when the play is on the
+  speaker, the file has a bank, the speaker is not the PWM one (34.11.4,
+  which costs no interrupt a sample) and the yardstick is not 0.
+- **The rule is one compare**: the speaker is kept only when this machine
+  decodes the key in under HALF the yardstick's time - twice the file's
+  machine or better, which is where the speaker's cost fits beside what
+  the encode spent. Otherwise, and when there is no key to time or the
+  bench overruns its 11 ticks, the play is muted (`vp_ymute`: `[vp_mute]`
+  1, `[vp_mwhy]` 3, the sound off, the bank kind re-read) and the card
+  says `, muted: the bank`. The user can still unmute; the default is what
+  changed.
+- **A yardstick of 0 is the old player's behaviour**, so a file encoded
+  before this plays as it did.
+
+`vidbankspkbank` is the gate: a yardstick of 1 mutes from frame 0 and from
+key 1, with `[vp_mwhy]` 3 and the bank's kind kept. `vidbankspkfast`, a
+yardstick of FFFFh, keeps the speaker from key 1. Broken on purpose - the
+compare's branch reversed - each fails the other's assertion.
 
 ### 98.4 The window: the Preview (wave 6)
 
