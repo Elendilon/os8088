@@ -323,7 +323,7 @@ um_attach:
 ; report that arrives between the hook and the enable is harmless - the
 ; fence refuses it, this driver not being DRVC_POINT's until attach returns.
 ;
-; The card's LINE is opened as SOUND.DRV's pm_bios opens it (SPEC.md 34.10.1):
+; The card's LINE is opened as SOUND.DRV's pm_init opens it (SPEC.md 34.10.1):
 ; function 0 re-hooks the card's vector when something took it but leaves a
 ; line it finds still hooked exactly as masked as it found it.
 ; -----------------------------------------------------------------------------
@@ -355,15 +355,13 @@ um_pmattach:
     xor ax, ax
     mov es, ax
     mov al, cl
-    add al, 8                   ; int 8+n's cell
     shl ax, 1
     shl ax, 1
-    xchg ax, si
-    cmp [es:si+2], bx           ; still the PM BIOS's multiplexer?
-    jne .hook                   ; ...then its line is open (pm_bios's rule)
-    mov ah, 1
-    shl ah, cl
-    not ah
+    xchg ax, si                 ; SI = 4n: int 8+n's cell is 20h past it
+    cmp [es:si+0x22], bx        ; still the PM BIOS's multiplexer?
+    jne .hook                   ; ...then its line is open (pm_init's rule)
+    mov ah, 0xFE
+    rol ah, cl                  ; every bit but line n's
     pushf
     cli
     in  al, 0x21

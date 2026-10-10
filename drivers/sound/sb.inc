@@ -705,17 +705,56 @@ sbl_isr:
 
     mov bl, [sbl_play]          ; the half that just finished...
     xor bh, bh
-    mov byte [sbl_valid+bx], 0  ; ...needs a refill
+    mov [sbl_valid+bx], bh      ; ...needs a refill (BH = 0: a register
+                                ; store, a byte shorter than the immediate)
     xor bl, 1
     mov [sbl_play], bl          ; the DSP is on the other half now
 
-    cmp byte [sbl_valid+bx], 0  ; was the next half ever refilled?
+    cmp [sbl_valid+bx], bh      ; was the next half ever refilled?
     je .under
     cmp byte [sbl_auto], 0      ; yes: auto-init needs nothing; single-cycle
     jne .eoi                    ; re-arms for the half now sounding
     mov al, bl
     call sbl_arm_half
     jmp .eoi
+
+                                ; THE LAYOUT FOLLOWS THE COMMON PATH (kernel
+                                ; size pass 11): .input sits straight after
+                                ; the output body and falls into .eoi, so
+                                ; `jne .input` is SHORT - it was a relaxed
+                                ; 5-byte pair whose skip every playback block
+                                ; IRQ took, 12 cycles - and .direct and .under
+                                ; follow .done, jumping back up to it. No path
+                                ; takes a jump it did not take before. `je
+                                ; .spur` stays a relaxed pair: moving .spur up
+                                ; as well pushes .direct out of short range
+.input:                         ; the mirror half-swap (SPEC.md 34.6): the
+    mov bl, [sbl_play]          ; half that just finished capturing...
+    xor bh, bh
+    mov byte [sbl_valid+bx], 1  ; ...holds data awaiting the drain task
+    xor bl, 1
+    mov [sbl_play], bl          ; the DSP captures into the other half now
+    cmp [sbl_valid+bx], bh      ; is the new capture half drained yet?
+    jne .under                  ; no - the drain starved: pause input rather
+                                ; than overwrite un-drained data (bounded loss
+                                ; + a visible status, the underrun contract's
+                                ; input mirror - the SAME halt and the same
+                                ; four stores as playback's, so the same code)
+    cmp byte [sbl_auto], 0      ; auto-init needs nothing; single-cycle
+    jne .eoi                    ; re-arms the half now capturing
+    mov al, bl
+    call sbl_arm_rec            ; ...and falls into .eoi
+
+.eoi:                           ; own EOI - nothing chains behind us. ONE
+    mov al, 0x20                ; copy, the stray's below included: every
+    out 0x20, al                ; path that EOIs falls or jumps here
+.done:
+    pop es
+    pop ds
+    pop dx
+    pop bx
+    pop ax
+    iret
 
 .direct:                        ; DIRECT (SPEC.md 34.5.2): one block of the
     mov ax, [sbl_half]          ; ring played, and the DMA has already gone on
@@ -744,35 +783,8 @@ sbl_isr:
     dec ax
     mov [sbl_expect], al
     inc word [sbl_under]
-    jmp .eoi
+    jmp short .eoi              ; back up: .eoi sits after .input
 
-.input:                         ; the mirror half-swap (SPEC.md 34.6): the
-    mov bl, [sbl_play]          ; half that just finished capturing...
-    xor bh, bh
-    mov byte [sbl_valid+bx], 1  ; ...holds data awaiting the drain task
-    xor bl, 1
-    mov [sbl_play], bl          ; the DSP captures into the other half now
-    cmp byte [sbl_valid+bx], 0  ; is the new capture half drained yet?
-    jne .under                  ; no - the drain starved: pause input rather
-                                ; than overwrite un-drained data (bounded loss
-                                ; + a visible status, the underrun contract's
-                                ; input mirror - the SAME halt and the same
-                                ; four stores as playback's, so the same code)
-    cmp byte [sbl_auto], 0      ; auto-init needs nothing; single-cycle
-    jne .eoi                    ; re-arms the half now capturing
-    mov al, bl
-    call sbl_arm_rec
-
-.eoi:                           ; own EOI - nothing chains behind us. ONE
-    mov al, 0x20                ; copy, the stray's below included: every
-    out 0x20, al                ; path that EOIs falls or jumps here
-.done:
-    pop es
-    pop ds
-    pop dx
-    pop bx
-    pop ax
-    iret
 .spur:
     cmp byte [sbl_irq], 7       ; line 7: real or spurious? only the 8259
     jne .eoi                    ; knows - a REAL IRQ 7 (the SB's factory
@@ -3169,16 +3181,12 @@ sbl_f_irqdisc:
 %ifdef PICOMEM
     cmp byte [pm_up], 0         ; a PicoMEM WE configured (SPEC.md 34.10.1):
     je .nopm                    ; the line is the one we told it, and the F2h
-    mov al, [pm_irq]            ; probe below would swap the card's own
-    xor bx, bx                  ; multiplexer vector for a stub and take its
-.pmf:                           ; request as the SB's - so no probe at all
-    cmp al, [sbl_dsc_irqn+bx]
-    je .mwin
-    inc bx
-    cmp bx, SBL_DSC_N
-    jb .pmf
-.nopm:
-%endif
+    mov bl, 7                   ; probe below would swap the card's own
+    sub bl, [pm_irq]            ; multiplexer vector for a stub and take its
+    shr bl, 1                   ; request as the SB's - so no probe at all.
+    jmp short .mwin             ; [pm_irq] is 7, 5 or 3 (picomem.inc's
+.nopm:                          ; pm_irqs), candidates 0, 1 and 2 of {7,5,3,2}
+%endif                          ; - so (7 - n) / 2 is the index outright
     cmp byte [sbl_verhi], 4     ; SB16-class DSP: the CT1745 mixer reads
     jb .probe                   ; the configured line back - register 80h
     mov dx, [sbl_base]          ; via index 2x4h / data 2x5h, magic bits

@@ -520,19 +520,17 @@ ne_memok:
     push di
     mov ax, NE_MEMPATN
     mov si, ne_mempat
-    call ne_dma_write
-    mov di, eth_rxb
-    call ne_dma_read
-    mov si, ne_mempat
-    mov di, eth_rxb
-    mov cx, NE_MEMPATN
+    call ne_dma_write           ; SI and DI each come back advanced past the
+    mov di, eth_rxb             ; AX bytes they moved, and AX comes back too,
+    call ne_dma_read            ; so the compare walks DOWN from the ends
+    mov cx, ax
 .cmp:
+    dec si
+    dec di
     mov al, [si]
     cmp al, [di]
+    loope .cmp                  ; ZF = 0 out of it is a byte that differed
     jne .no
-    inc si
-    inc di
-    loop .cmp
     CLC_OR_STC .no
 .out:
     pop di

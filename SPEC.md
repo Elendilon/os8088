@@ -15755,7 +15755,7 @@ same `SYSTEM.CFG` bit 6, same `OSAPI_MOUSE_FEED`, same halving and carry.
   taken) must answer `DX = AA55h` with **`CH` ≠ 0** — the card's own IRQ, without
   which no report can ever arrive, so attach refuses `DRVE_HW` rather than
   mount a mouse that will never move. Then the card's line is opened if its
-  vector is still the BIOS's (§34.10.1's rule, `pm_bios`'s code), `int 33h` is
+  vector is still the BIOS's (§34.10.1's rule, `pm_init`'s code), `int 33h` is
   hooked — answering `0060h` and chaining every other function to the vector
   it found — and **only then** does function 10h turn the card's mouse on.
 - **THE HOOK GOES IN BEFORE THE ENABLE, and the other order FROZE THE
@@ -62315,7 +62315,7 @@ choice anyone here can make correctly.
 Six things are load-bearing:
 
 - **Detection is READS ONLY, and that is what makes the knob safe to enable
-  on a machine that turns out not to have the card.** `pm_porttest` reads
+  on a machine that turns out not to have the card.** `pm_init`'s ramp reads
   2A3h a hundred times and requires every read to be exactly one more than
   the last, which is the card's test register counting. An empty ISA bus
   floats to FFh and fails on the second read. **Not one byte is written
@@ -62338,9 +62338,11 @@ Six things are load-bearing:
   The tick deadline is the real one — a poll is ~15us on a 4.77MHz 8088 and
   ~1us on anything newer, so a poll *count* is the wrong timeout on one of
   them (§62.10's rule). Interrupts are on at this call, measured rather than
-  assumed: an I/O breakpoint on 2A3h stops the guest inside `pm_porttest`'s
+  assumed: an I/O breakpoint on 2A3h stops the guest inside `pm_init`'s
   ramp, and the word `pushf` just pushed is the caller's — `FLAGS=F246`,
-  IF=1, return address inside `pm_init`. But that is a fact about today's
+  IF=1 (taken when the ramp was a routine of its own, `pm_porttest`, called
+  from `pm_init`). The clock is `OSAPI_GET_TICKS`, once per 256 status reads.
+  But that is a fact about today's
   `drv_boot` and not an invariant anything enforces, and a later change
   breaking it silently would cost the boot of every machine this driver loads
   on, so `PM_OUTERN` caps the batches as well. It is sized to fire only when
@@ -62369,7 +62371,7 @@ the figures when the tier was a knob; §34.10.3 has today's.)
 **What was NOT verified here, and could not be: the success path** — until
 the field ran it (§34.10.1, §34.10.2, docs/FIELD-NOTES.md 66). No emulator in
 this tree has a PicoMEM in it, so every measurement above is of the branch
-where `pm_porttest` refuses. Whether the card accepts the IRQ offered, whether
+where `pm_init`'s ramp refuses. Whether the card accepts the IRQ offered, whether
 `opl_probe` then finds the OPL2 the firmware installs beside the DSP, and
 whether `sbl_attach`'s F2h IRQ discovery agrees with the line the firmware
 took, are all the field machine's questions. The firmware reports DSP 2.1
@@ -62405,14 +62407,14 @@ ever copied and the card was never acknowledged.
 
 Three rules now, all in the tier:
 
-1. **The line is learned, and kept live.** After `pm_porttest` has seen the
-   ramp, `pm_bios` makes PMINIT's own detect — `int 13h` AX=6000h DX=1234h,
+1. **The line is learned, and kept live.** After `pm_init`'s ramp has
+   passed, it makes PMINIT's own detect — `int 13h` AX=6000h DX=1234h,
    answered DX=AA55h, BX = the BIOS segment, **CH = the card's IRQ**. §34.10
    refused that call as the *detection*, because on a machine with no
    PicoMEM it is an undefined `int 13h` function; it is not the detection
    here, it runs only on a machine already shown to have the card. The call
    also re-hooks the multiplexer if its vector no longer names the BIOS
-   segment, and `pm_bios` opens the line's mask bit when — and only when —
+   segment, and `pm_init` opens the line's mask bit when — and only when —
    the vector is the BIOS's.
 2. **That line is never offered to the Sound Blaster** (the firmware refuses
    it too; skipping it costs no command).
@@ -62437,13 +62439,14 @@ there**: the PicoMEM's own Devices page listed **CMS at 220h-22Fh**, and
 `dev_sbdsp_install` refuses a base another emulated device holds
 (`CMDERR_PORTUSED`, 10h; the firmware's port table is in 8-byte blocks and the
 DSP takes two). On DOS the `BLASTER` variable names a port and the user picks
-one that is free; nothing here asks the user, so `pm_snd_on` walks
+one that is free; nothing here asks the user, so `pm_init` walks
 `pm_sbports` — `PM_SB_PORT` (220h), then 240h, 230h, 250h, 260h, which is
 `sbl_bases`' own order less 210h (PMINIT does not offer it) — and moves on
 **only** on `PORTUSED`: a missing IRQ, memory or mixer is the same answer at
 every port. Whatever base is taken is one `sbl_f_probe` finds by its own scan,
-so nothing downstream learns the port from here; `[pm_sbport]` records it for
-the reader of a dump.
+so nothing downstream learns the port from here, and `[sbl_base]` is where a
+dump reads it (a `[pm_sbport]` that recorded it a second time, and that
+nothing read, went in kernel size pass 11).
 
 #### 34.10.3 Why it is the default: two port reads and no heap
 

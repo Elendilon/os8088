@@ -94,3 +94,93 @@ against a model of the card - unit 0/1 served or not, Restart warm-resets with
 1234h at 0040:0072 and FFFF:0000, the no-card machine parks both units and
 int 19h's) all ok. No emulator here has a PicoMEM, so the probe's new call
 site is proved by reading plus `fddpark` on MartyPC (the no-card path).
+
+### Batch 2 - the drivers (`drivers/sound/{picomem,sb}.inc`, `ne2000.inc`, `usbmouse.asm`)
+
+No kernel byte. Unpacked image + bss (what `drv_load` claims), and the
+shipped LZ4 file:
+
+| driver | base | tip | delta | claim | file (lz4) |
+|---|---:|---:|---:|---:|---:|
+| SOUND.DRV | 7,122 | 6,972 | **-150** | 7 KB -> 7 KB | 6,064 -> 5,950 |
+| ETHER.DRV | 16,896 | 16,889 | -7 | 17 KB | 11,084 -> 11,083 |
+| USBMOUSE.DRV | 1,410 | 1,406 | -4 | 2 KB | 1,366 -> 1,362 |
+
+No claim moves a KB (SOUND.DRV is 6,972 of 7,168), so what these buy today is
+disk and headroom, not heap; the bytes are real and the rung is not the point.
+The PicoMEM tier in SOUND.DRV goes from +485 to **+341** (6,637 without it).
+
+SOUND.DRV, the PicoMEM tier (`picomem.inc`), -137:
+* **pm_init's four zero stores and pm_sbport's** (27 bytes). The cells are 0
+  because the image was loaded a moment ago and ATTACH is the first verb it
+  gets - the guarantee `snd_entry`'s `[drv_up]` already rests on (os88drv.inc
+  OS88_STATE: a load zeroes, a re-arm does not, and a tier change re-runs
+  `sbl_attach`, never `pm_init`).
+* **`[pm_sbport]` deleted** (6 bytes with its store): written, never read by
+  any code. SPEC.md 34.10.2 kept it "for the reader of a dump", and
+  `[sbl_base]` is the same port - whatever base the card took is the one
+  `sbl_f_probe` finds by its own scan. `tests/picomem.py` reads the port off
+  the model's accepted `78h` command instead.
+* **`pm_porttest`, `pm_bios` and `pm_snd_on` written into `pm_init`**, their
+  one caller: one register save instead of four, three `call`/`ret` pairs
+  gone. `pm_sb_off` written into `pm_undo`, its one caller; `pm_undo` no
+  longer clears `[pm_up]` (the refusal frees the image).
+* **`pm_ticks` deleted**, `pm_wait` calls `OSAPI_GET_TICKS` (the cell is
+  `mov ax, [cs:ticks]` / `retf`, IRQ0-driven, and `sbl_f_irqdisc` already
+  times its F2h wait on it in the same attach): one far call per 256 status
+  reads, ~1% of a batch, attach only.
+* `pm_wait`'s status dispatch is three compares, not four (READY leaves on the
+  equal compare's CF = 0, BUSY polls, `ja` past NOCMD refuses, ERR/NOCMD
+  reset); `pm_cmd` keeps DX from `pm_wait` and builds the answer with
+  `mov ah, al` / `xchg al, ah` instead of through BX; the card's own line is
+  checked as `shr` of 54h (bits 2/4/6) after a `test al, F8h` (whose CF = 0
+  is what n = 0 reads), the cell is `[es:si+22h]` with no `add al, 8`, and the
+  unmask is `mov ah, FEh` / `rol ah, cl`; `lodsb`/`lodsw` walk the two tables.
+
+  **Proved by A/B under unicorn**, the old `picomem.inc` (`2a05e31f`) against
+  the new, both `%include`d as they are into one harness against a model of
+  the card: 4,322 scenarios - card or not; the card's own line CH = 0, 1, 2,
+  3, 4, 5, 6, 7, 8, 15, 23h, 83h; ten status scripts (READY, BUSY then READY,
+  ERR then READY, the reset budget spent, NOCMD, INIT, WAITCOM, an undefined
+  9, NOCMD for ever, and BUSY for ever against a clock that ticks, which
+  reaches the deadline); IRQ answers ok / refuse 7 / refuse all; port answers
+  ok / CMS on 220h-22Fh and 240h / an error; the multiplexer's vector the
+  BIOS's or not; and `pm_init` alone and followed by `pm_undo`. Compared: the
+  ORDERED trace of every port read and write, the final 8259 mask, all eight
+  registers on return (both routines preserve every one), `[pm_base]`,
+  `[pm_pmirq]`, `[pm_irq]`, `[pm_up]` and the int 13h call count. **0
+  differing**, `[pm_up]` after `pm_undo` excepted (no longer cleared, above).
+  The harness is not committed (it is scratch, the shipped row is
+  `tests/picomem.py`).
+
+SOUND.DRV, `sb.inc`, -13:
+* **`sbl_f_irqdisc`'s PicoMEM skip** (the concept's own hunk, -7): the
+  candidate index is `(7 - [pm_irq]) / 2` - `[pm_irq]` is 7, 5 or 3, taken
+  only from `pm_irqs` - instead of a search of `sbl_dsc_irqn`. Commented at
+  both ends.
+* **`sbl_isr` re-laid for the common path, a SPEED change (-6)** - pass 10's
+  `ksp10/covox.md` REFUSED entry, taken here because `sb.inc`'s PicoMEM hunk
+  is this concept's. `.input` sits straight after the output body and falls
+  into `.eoi`, `.direct` and `.under` follow `.done` and jump back up, so
+  `jne .input` is short; `mov [sbl_valid+bx], bh` and two `cmp [sbl_valid+bx],
+  bh` (BH = 0 from the `xor` above each) replace the immediates. 8088 clocks
+  per block IRQ: **output and direct playback -14 / -12** (the relaxed
+  `jne .input`'s taken skip, 16 -> 4, and a clock per register operand), an
+  underrun -12, auto-init capture -4, single-cycle capture -4; no path takes a
+  jump it did not take before. **`je .spur` stays relaxed**: every layout
+  that makes it short as well puts `.direct` or `.eoi` 2-5 bytes out of short
+  range (four were assembled), which would cost the common path what it gains.
+
+ETHER.DRV, `ne_memok`, -7: `ne_dma_write` and `ne_dma_read` hand SI and DI
+back advanced past the AX bytes they moved and keep AX, so the compare walks
+down from the ends with `loope` instead of reloading both pointers and the
+count. Attach only; the per-packet copy is untouched.
+
+USBMOUSE.DRV, `um_pmattach`, -4: `[es:si+22h]` with no `add al, 8`, and
+`mov ah, FEh` / `rol ah, cl` for the unmask. Attach only; `um_pm33` (the
+per-report path) is untouched.
+
+Rows: `soak -k picomem -k sndplay -k covoxdrv -k covoxauto -k covoxnolpt -k
+usbmouse` 6/6 ok. No row opens a capture stream, so the input arm of
+`sbl_isr` is proved by the listing: the same instructions in the same order
+(the `cmp` against BH, which the `xor bh, bh` four instructions up made 0).
