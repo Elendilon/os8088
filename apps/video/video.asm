@@ -181,6 +181,8 @@ V88_KLEADS  equ 468                 ; lead at this dword + i x A x abytes,
 V88_XBANK   equ 472                 ; THE BANK (98.3.18.3): the XMS its encode
 V88_XPRE    equ 474                 ; assumed, KB, and the prefill it banked
 V88_YBASE   equ 500                 ; THE BASE'S YARDSTICK (98.3.18.9)
+V88_LYORD   equ 502                 ; THE LAYER BEFORE THE BANK (98.1.9.1),
+V88_LYNEED  equ 504                 ; ...while the bank holds this KB
 V88_LAYER   equ 476                 ; THE LAYER (98.1.9): u32 its first
                                     ; super-packet, u16 64, u16 KB/s, u16 KB,
                                     ; u16 prefill, u32 its key table, u16 the
@@ -8651,6 +8653,8 @@ vp_spos:
 ; plain one). The base plays whatever the layer says. Clobbers AX
 vp_lyparse:
     xor ax, ax
+    mov [vp_lyord], al
+    mov [vp_lyneed], ax
     mov [vp_lysp], ax
     mov [vp_lysp+2], ax
     mov [vp_lybkb], ax
@@ -8684,6 +8688,10 @@ vp_lyparse:
     mov [vp_lytl], ax               ; layer's machine and on the base's, in
     mov ax, [es:V88_LAYER+22]       ; 10 us (0: no yardstick)
     mov [vp_lytb], ax
+    mov al, [es:V88_LYORD]          ; ...and whether it was made to be read
+    mov [vp_lyord], al              ; BEFORE the base's bank refills, while
+    mov ax, [es:V88_LYNEED]         ; the bank holds what this machine needs
+    mov [vp_lyneed], ax             ; to carry the base
 .no:
     ret
 
@@ -10143,10 +10151,20 @@ vp_main:
                                     ; block was queued (98.3.1)
     call vp_fill
     jnc .loop                       ; a chunk arrived: poll, and try again
+    cmp byte [vp_lyord], 0          ; THE RING IS FULL: the LAYER next, where
+    je .bk                          ; the file was made for it (98.1.9.1) and
+    mov ax, [vp_xcnt]               ; the base's bank holds what this machine
+    mov cl, 5                       ; needs to carry the base - the rest of
+    shl ax, cl                      ; the bank is the machine's slack
+    cmp ax, [vp_lyneed]
+    jb .bk
+    call vp_lyread
+    jnc .loop
+.bk:
     cmp byte [vp_bhold], 0          ; (a gate's: the bracket banks no more)
     jne .nbk
-    call vp_bstep                   ; THE RING IS FULL: the bank fills, a
-    jnc .loop                       ; chunk a pass (VIDEO-XMS-PLAN 4.1)
+    call vp_bstep                   ; ...then the bank fills, a chunk a pass
+    jnc .loop                       ; (VIDEO-XMS-PLAN 4.1)
 .nbk:
     call vp_lyread                  ; THE LAYER, with the disk free (98.1.9)
     jnc .loop
@@ -16171,6 +16189,8 @@ vp_lygot:     dw 0                  ; ...records drawn, and left out behind
 vp_lyskp:     dw 0
 vp_lymis:     dw 0                  ; ...and stepped over, read too late
 vp_lycur:     times FSEQ_SIZE db 0  ; ...and its reader's cursor
+vp_lyord:     db 0                  ; ...read before the base's bank (98.1.9.1)
+vp_lyneed:    dw 0                  ; ...while the bank holds this KB
 vp_lybkb:     dw 0                  ; ...its XMS bank, KB, as the file asks,
 vp_lypkb:     dw 0                  ; and its prefill (FFFFh: all)
 vp_lyxb:      dd 0                  ; ...the bank: its block,

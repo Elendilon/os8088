@@ -738,6 +738,16 @@ LAYER_LEN = struct.calcsize(LAYER_FMT)
 H_YBASE = 500                   # THE BASE'S YARDSTICK (98.3.18.9): u16 key
                                 # 0's decode modelled on the machine the file
                                 # was made for, 10 us - 0 none. NO FLAG
+H_LYORD = 502                   # THE LAYER BEFORE THE BANK (98.1.9.1): 1 -
+                                # the layer was made for a reader that fetches
+                                # it before refilling the base's bank while
+                                # the bank holds H_LYNEED's KB, which is how
+                                # the player reads; 0 (every file before it)
+                                # the bank first. NO FLAG: an older player
+                                # reads the bank first
+H_LYNEED = 504                  # ...u16: that KB, whole 32 KB slots - the
+                                # bank the layer's machine needs to carry
+                                # the base, 0 when its disk does alone
 L_EMPTY = b"\x02\x00"           # a frame the layer has nothing for
 LSP_HDR = 8                     # a layer super-packet: first(32) frames(16)
                                 # next(16), then its records
@@ -1982,6 +1992,9 @@ class Writer:
         kbs, ram, pre, bank, tl, tb = ly[:6]
         struct.pack_into(LAYER_FMT, out, H_LAYER, l0, secs[0], kbs, ram,
                          pre, kat, max(len(r) for r in lr), bank, tl, tb)
+        out[H_LYORD] = 1                # (98.1.9.1: read before the bank)
+        struct.pack_into("<H", out, H_LYNEED,
+                         min(0xFFE0, getattr(self, "lyneed", 0)))
         return bytes(out), dict(bytes=len(out) - l0, sps=len(sps),
                                 stream=o - l0,
                                 recs=sum(r != L_EMPTY for r in lr))
@@ -2751,6 +2764,15 @@ class Reader:
         dz = dz[:H_LAYER] + bytes(LAYER_LEN) + dz[H_LAYER + LAYER_LEN:]
         self.ybase = struct.unpack_from("<H", d, H_YBASE)[0]
         dz = dz[:H_YBASE] + bytes(2) + dz[H_YBASE + 2:]
+        self.lyord = d[H_LYORD]
+        self.lyneed = struct.unpack_from("<H", d, H_LYNEED)[0]
+        dz = dz[:H_LYORD] + bytes(4) + dz[H_LYORD + 4:]
+        if self.lyord > 1 or self.lyord and not struct.unpack_from(
+                "<I", d, H_LAYER)[0] or self.lyneed and not self.lyord \
+                or self.lyneed % 32 or d[H_LYORD + 1]:
+            raise V88Error("a layer-order byte %d with %s (98.1.9.1)"
+                           % (self.lyord, "no layer" if self.lyord == 1
+                              else "a value past 1"))
         if self.ybase and self.resident:
             raise V88Error("a yardstick in a resident file (98.3.18.9)")
         if not self.lsp0:

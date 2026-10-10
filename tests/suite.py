@@ -3704,6 +3704,22 @@ SOAK = [
         "region), no XMS block left owned, and the machine still ticking",
         needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/video.o88")),
+    Row("vidlyorder", "soak", py("tests/vidlyorder.py"), 90.0,
+        "SPEC.md 98.1.9.1: a file with a layer and a base bank, bigger than "
+        "-m 2's pool, is read RING, then the LAYER's slots, then the base's "
+        "BANK - held before frame 20 on a throttled B:, the bank never takes "
+        "a chunk while the layer's slots have room. Broken on purpose (the "
+        "reader's order put back) it FAILS; vidlyorderbank is its control",
+        needs=("qemu", "nasm", "ffmpeg"), serial=True,
+        wants=("build/video.o88", "build/os8088.img")),
+    Row("vidlyorderbank", "soak", py("tests/vidlyorder.py", "--arm",
+                                     "bank"), 90.0,
+        "SPEC.md 98.1.9.1's NEGATIVE CONTROL: [vp_lyneed] poked past the bank, the "
+        "bank short of what the base needs - the bank fills with the "
+        "layer's slots not full, so vidlyorder's instrument tells the two "
+        "orders apart",
+        needs=("qemu", "nasm", "ffmpeg"), serial=True,
+        wants=("build/video.o88", "build/os8088.img")),
     Row("vidlybank", "soak", py("tests/vidlybank.py"), 60.0,
         "SPEC.md 98.1.9: THE LAYER's XMS BANK and its PREFILL, on QEMU's "
         "386 - a Life clip held whole in XMS (the base) with --layer-bank "

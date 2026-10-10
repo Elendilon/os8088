@@ -159236,6 +159236,68 @@ writer's rules (`verify_layer`). **Three gates**:
   bank. `vidlybanknone` is its control: the bank zeroed, the same play
   draws only what the slots held (23).
 
+##### 98.1.9.1 The layer before the base's bank (2026-10-10)
+
+**What the layer is for**, in the owner's words: a file made for the
+`286-fast` with a bank, and a layer for a faster machine that **carries the
+base out of its own speed, without the bank, and still has room left for
+the layer**. The encoder had made the layer as if the faster machine read
+the base's bank FIRST - the player's order, ring then bank then layer - so
+the layer had the disk only once the whole bank was full again, and a
+machine whose disk could carry the base alone spent its spare time topping
+up a bank it did not need.
+
+**The player reads the layer before the base's bank, while the bank holds
+what this machine needs to carry the base** (`vp_main`): the ring first,
+always; then, if the header's layer-order byte is set and the bank holds
+at least `H_LYNEED` KB, the layer's slots and its own bank; then the base's
+bank. Below that much the bank comes first, as every file before was read.
+A machine with no XMS has no base bank and reads the layer whenever the
+ring is full.
+
+- **`H_LYNEED` is the bank the faster machine needs for the base**, worked
+  out by the encode (`LayerEnc`): the base's bucket on that disk with its
+  RING ALONE, what it falls short drawn from a bank that is paid back only
+  from what a full ring leaves - the most ever drawn, in whole 32 KB slots.
+  **0 means its disk carries the base with no bank at all**, which is the
+  owner's case, and then the layer always comes first.
+- **The encode models the same order**: each frame's disk on the faster
+  machine fills the ring, then the bank up to `H_LYNEED`, then the layer's
+  slots and its bank, and only then the rest of the base's bank - and a
+  layer record is spent only where the base's next eight seconds (the
+  layer's lag) still leave its bucket whole, so a refill the bank needs is
+  held back for it. The base never depends on the layer either way.
+- **The header**: byte 502 1 (the order), u16 at 504 the KB - both 0 in
+  every file before, and an older player, which reads neither, keeps the
+  bank first. `os88vid.Reader` refuses a set byte with no layer, a need
+  with no order, or a need that is not whole slots.
+- **The encoder says which**: after the layer's line, `...that machine
+  carries the base out of its own disk, no bank needed`, or `only with 2208
+  KB of the base's bank (515 frames past its ring alone)`, and how often
+  the layer was held back for the bank.
+
+**What it measured on the owner's Bebop** (VGA4 640 x 480 for `286-fast`,
+`--bank 2600 --prefill all --layer-bank 2600 --layer-prefill all`):
+for **`486-dx2-66`** the disk carries the base with NO bank, so the layer
+always comes first - 116.4 KB/s of layer, the play at 0.04% error, which
+is already near the picture's best, so the order changes nothing there.
+For **`286-speeddemon`** (602 KB/s) the answer is that it CANNOT carry this
+base without its bank: 2,208 KB of it, because a base made for a 2.6 MB bank
+spends it in bursts its disk alone does not cover. The layer comes first
+only in the calm stretches with the bank that full - 47.4 KB/s against the
+old order's 44.9, and the base's bank never runs dry there - and the
+encoder says so. A layer for a machine like it wants the base made with
+less bank, or a faster layer machine. (Read first with no threshold, the
+same encode left the base's bank dry in 77 frames: the eight seconds the
+layer is held back over is not enough warning for a 2 MB burst.)
+
+`vidlyorder` is the gate (QEMU): a layered clip with a base bank bigger
+than `-m 2`'s pool, held before frame 20 on a throttled B: with the bank
+part full, its layer's slots marked taken - the layer's slots are refilled
+before the bank takes more than the chunk it was reading (17 -> 18), where
+`vidlyorderbank`, `[vp_lyneed]` poked past the bank, fills the bank to the
+end first (18 -> 26). The player is 48 bytes larger.
+
 ### 98.2 The host tools — `tools/os88vid.py`
 
 | command | what it does |

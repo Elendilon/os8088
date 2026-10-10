@@ -3889,6 +3889,15 @@ class LayerEnc(object):
         self.rate = float(rate)
         self.bl = base.disk.level           # the base's bucket, on THIS
         self.S = m.cpu.level                # machine; the shared CPU bucket
+        # ...and the same bucket WITHOUT the base's bank, the ring alone:
+        # what it falls short there is the bank this machine needs to carry
+        # the base at all (98.1.9.1) - the layer cannot touch it, being read
+        # only when the ring is full
+        self.ul = base.reserve / 2.0
+        self.udef = self.uworst = 0.0
+        self.ushort = 0
+        self.held = 0                       # frames the layer was held back
+        self.bshort = 0                     # ...and the base short anyway
         self.seek = seek_ms / 1000.0
         self.lag = max(2, round(LAYER_LAG * base.fps))
         self.buf = []
@@ -3946,6 +3955,19 @@ class LayerEnc(object):
             out.append(self._one(True))
         return out
 
+    def _inflow(self, cl=0.0, c=None):
+        """The disk's bytes this frame on the better machine, the sound's
+        taken: the profile's curve at the hook's share, the base's bank's
+        copies while it holds anything"""
+        b, m = self.b, self.m
+        rel = 1.0
+        if m.dcurve:                        # (the layer's machine's curve)
+            share = ((c if c is not None else 0.0) + cl + m.audio_cyc +
+                     HOOK_CYC) / m.q + m.spk
+            rel = m.disk_rel(share)
+        rate = self.rate / (self.bslow if self.bl > b.reserve else 1.0)
+        return (rate * rel * 0.99 - b.abps) / b.fps
+
     def _one(self, end):
         b, e, m = self.b, self.e, self.m
         target, ops, rec, c = self.buf[0]
@@ -3953,6 +3975,15 @@ class LayerEnc(object):
         need = 0.0 if end else m.cpu.cap    # (past the window: a full one)
         for t in reversed(self.buf[1:]):
             need = max(0.0, need + t[3] - per)
+        # THE BASE'S NEXT FRAMES, on this disk (98.1.9.1): the least its
+        # bucket must hold now to pay every one of them - so a layer record
+        # the reader would fetch before refilling the base's bank never
+        # leaves the base short. The base's records past this one, against
+        # this frame's inflow
+        flow = self._inflow(c=c)
+        bneed = 0.0
+        for t in reversed(self.buf[1:]):
+            bneed = max(0.0, bneed + len(t[2]) - b.abps / b.fps - flow)
         self.S = min(m.cpu.cap, self.S + per) - c     # the base's, first
         room = min(max(0.0, self.S - need), max(0.0, m.peak - c))
         e.future = [t[0] for t in self.buf[1:1 + b.look]]
@@ -3960,6 +3991,14 @@ class LayerEnc(object):
         e.put_ops(ops)                  # the base's writes, on this screen
         lops = []
         cl = 0.0
+        have = e.disk.level                 # A REFILL THE BASE'S BANK NEEDS
+        use = len(rec) - b.abps / b.fps     # is held back: a layer byte
+        if b.bank:                          # spent now is one the reader
+            allow = max(0.0, self.bl + flow - use - bneed)  # fetches before
+            if allow < have:                # the bank's next. With no bank
+                self.held += 1              # the layer is read only with the
+                e.disk.level = allow        # ring full, and costs it nothing
+        spent = False
         if room > e.ct[0] * 2 and e.disk.level >= 64:
             e.cpu.per, e.cpu.level = 0.0, room
             e.peak = room
@@ -3967,6 +4006,8 @@ class LayerEnc(object):
             lops, lrec = e.frame(target, b"")
             if lops and (b.g.planes == 1 or any(sub for m, sub in lops)):
                 cl = e.cost(lrec)
+                e.disk.level = have
+                spent = True
                 e.disk.spend(len(lrec))
                 self.S -= cl
                 self.cycles += cl
@@ -3978,6 +4019,8 @@ class LayerEnc(object):
                     self.seek * self.rate
         else:
             self.skipped += 1
+        if not spent:
+            e.disk.level = have
         if b.metric:
             e.measure(target)
         if self.d is not None:
@@ -3986,20 +4029,42 @@ class LayerEnc(object):
                 self.d.put_ops(lops)
             if b.metric:
                 self.d.measure(target)
-        # THE DISK this frame on the better machine: the base's bucket at
-        # its rate, the layer's decode in the hook's share - and what the
-        # bucket would clip is the layer's
-        rel = 1.0
-        if m.dcurve:                        # (the layer's machine's curve)
-            share = (c + cl + m.audio_cyc + HOOK_CYC) / m.q + m.spk
-            rel = m.disk_rel(share)
-        rate = self.rate / (self.bslow if self.bl > b.reserve else 1.0)
-        lvl = self.bl + (rate * rel * 0.99 - b.abps) / b.fps
-        clip = max(0.0, lvl - b.disk.cap)
-        if e.disk.level > self.lslots:      # (through the bank: copied)
-            clip /= self.lslow
-        e.disk.level = min(e.disk.cap, e.disk.level + clip)
-        self.bl = min(lvl, b.disk.cap) - (len(rec) - b.abps / b.fps)
+        # THE DISK this frame on the better machine, in the order the
+        # player reads (98.1.9.1): the base's RING first, then the LAYER's
+        # slots and its bank, and only then the base's BANK - the layer's
+        # decode in the hook's share
+        flow = self._inflow(cl, c)
+        a = min(flow, max(0.0, b.reserve - self.bl))
+        self.bl += a
+        left = flow - a
+        if left > 0 and self.bl - b.reserve < self.uworst:
+            # THE BANK BELOW WHAT THIS MACHINE NEEDS FOR THE BASE: the bank
+            # first, as every file before was read, up to that much
+            fill = min(left, b.reserve + self.uworst - self.bl)
+            self.bl += fill
+            left -= fill
+        if left > 0:
+            slow = self.lslow if e.disk.level > self.lslots else 1.0
+            take = min(left, (e.disk.cap - e.disk.level) * slow)
+            e.disk.level += take / slow     # (through its bank: copied)
+            left -= take
+        self.bl = min(self.bl + max(0.0, left), b.disk.cap) - use
+        if self.bl < 0:                     # (the hold above is a window's:
+            self.bl = 0.0                   # caught, and said, not hidden)
+            self.bshort += 1
+        # ...and THE RING ALONE: what it falls short is drawn from a bank,
+        # and paid back only from what a full ring leaves - the most ever
+        # drawn is the bank this machine needs to carry the base
+        self.ul += flow
+        if self.ul > b.reserve:
+            self.udef = max(0.0, self.udef - (self.ul - b.reserve))
+            self.ul = float(b.reserve)
+        self.ul -= use
+        if self.ul < 0:
+            self.ushort += 1
+            self.udef -= self.ul
+            self.uworst = max(self.uworst, self.udef)
+            self.ul = 0.0
         self.f += 1
         return lops
 
@@ -5148,6 +5213,10 @@ def _encode(a, keep, tick, readers):
     if lay is not None:
         for lops in lay.flush():
             wr.layer_frame(lops)
+        # THE BANK THE LAYER'S MACHINE KEEPS FOR THE BASE (98.1.9.1), whole
+        # 32 KB slots: the player reads the layer before refilling the
+        # base's bank only while the bank holds this much
+        wr.lyneed = int(-(-lay.uworst // 32768)) * 32
         # THE PLAYER'S YARDSTICK (98.1.9): key 0's decode, modelled on the
         # layer's machine and on the base's, in 10 us - the player times its
         # own decode of the same record and reads the layer only on a CPU
@@ -5338,9 +5407,27 @@ def _encode(a, keep, tick, readers):
                        x * y for x, y in zip(picture_report(
                            lay.e.q_frames, lay.e.q_bad, fps)[1::2],
                            (100, 1.0 / fps))))))
+        # WHAT THE BETTER MACHINE NEEDS FOR THE BASE (98.1.9.1): with no
+        # bank at all its disk carries the base, or it wants this much of
+        # one - and the layer read ahead of that bank, held back where the
+        # base's next seconds needed it
+        bkb = lay.uworst / 1024.0
+        say("   ...that machine carries the base %s%s" % (
+            "out of its own disk, no bank needed" if not lay.ushort else
+            "only with %d KB of the base's bank (%d frames past its ring "
+            "alone)%s" % (-(-bkb // 32) * 32, lay.ushort,
+                          "" if enc.bank else ": the base has none, so "
+                          "they wait there"),
+            "; the layer held back in %d frames for the bank's refill"
+            % lay.held if lay.held else ""))
+        if lay.bshort:
+            say("   NOTE: the base's bank ran dry on the layer's machine in "
+                "%d frames: the layer was held back for too short a window"
+                % lay.bshort)
         res.update(layer=dict(kbs=lay.bytes / secs / 1024.0,
                               q_vis=lay.e.q_vis / nf if enc.metric
                               else None, recs=lay.recs,
+                              ubank=-(-bkb // 32) * 32 if lay.ushort else 0,
                               final=g.canvas(lay.e.surf)))
     if enc.metric:
         say("   picture: %.2f%% error as seen, %.2f%% of pixels wrong, "
