@@ -1600,17 +1600,24 @@ static void a2_reset_service(void)
 void os88_paint(void *win)
 {
     static struct os88_rect d;
-    int whole;
+    int whole, hit;
 
+    /* NESTED TESTS AND NOT `&&` / `||` IN THIS CALLBACK (apps size pass 1):
+     * SmallerC turns each operand of either into a 0/1 value and tests that,
+     * where a nested `if` is the compare and one branch. */
     whole = os88_wm_damage(win, &d);
-    if (!whole && d.x1 > d.x2)
-        return;                             /* nothing of us is exposed */
+    if (!whole)
+        if (d.x1 > d.x2)
+            return;                         /* nothing of us is exposed */
     if (a2_geom(win) < 0)
         return;
     a2_covered = 0;                         /* something of us IS exposed -
                                              * that is what a W_PAINT means */
 
-    if (whole || !a2_sh_ok)
+    if (whole)
+        a2_sh_ok = 0;                       /* ...which a2_sh_inval clears
+                                             * anyway: one test below, not two */
+    if (!a2_sh_ok)
         a2_sh_inval();
     else
         a2_blank_rect(d.x1, d.y1, d.x2, d.y2);
@@ -1635,8 +1642,12 @@ void os88_paint(void *win)
      * range emptied so the flush stops skipping rows for a panel that is not
      * on the glass, and the rect it held handed on as damage before the flush
      * below draws it. */
-    if (a2_abt_up && (!a2_ovl_ready(win) || !ovl_about_geom()))
-        a2_about_gone();
+    if (a2_abt_up) {
+        if (!a2_ovl_ready(win))
+            a2_about_gone();
+        else if (!ovl_about_geom())
+            a2_about_gone();
+    }
 
     a2_flush(win);
     /* THE PANEL OWNS ITS ROWS AND THE FLUSH SKIPPED THEM, so it is redrawn
@@ -1655,18 +1666,24 @@ void os88_paint(void *win)
      * hold range has to stay true between paints or the next wake's flush
      * composes and blits straight through the panel. a2_about_close is what
      * empties it, and it forces exactly those lines on the way out. */
-    if (a2_abt_up
-        && (whole || (d.x1 <= a2_abt_x + a2_abt_w - 1 && d.x2 >= a2_abt_x
-                      && d.y1 <= a2_abt_y + a2_abt_h - 1
-                      && d.y2 >= a2_abt_y))
-        && !ovl_about_paint(win)) {
+    if (a2_abt_up) {
+        hit = whole;
+        if (!hit)
+            if (d.x1 <= a2_abt_x + a2_abt_w - 1)
+                if (d.x2 >= a2_abt_x)
+                    if (d.y1 <= a2_abt_y + a2_abt_h - 1)
+                        if (d.y2 >= a2_abt_y)
+                            hit = 1;
+        if (hit)
+            if (!ovl_about_paint(win)) {
         /* ...AND THE SAME ANSWER ONE CALL LATER. The module can go between
          * the geom above and this - a compaction, a claim that could not be
          * made - and a refusal here means the panel's pixels were never
          * drawn. The rows it held are then owed to the next wake, which is
          * what a2_kick posts. */
-        a2_about_gone();
-        a2_kick = 1;
+                a2_about_gone();
+                a2_kick = 1;
+            }
     }
     /* ...AND THE FIRST WAKE HAS TO BE ASKED FOR. os88_wm_onwake INSTALLS the
      * handler; os88_wm_wake POSTS the kick, and without this line the machine
@@ -1680,6 +1697,8 @@ void os88_paint(void *win)
 
 void os88_onkey(int ascii, int scan, void *win)
 {
+    int k;
+
     if (a2_state == A2_ST_DEAD)
         return;
 
@@ -1717,8 +1736,19 @@ void os88_onkey(int ascii, int scan, void *win)
      * The pair is ahead of the About panel deliberately: 11.2.1's door is
      * unconditional, and a modal panel that swallowed it would be the same
      * trap with one more step in it. */
-    if ((ascii == 6)
-        || (ascii == 0 && (scan == KSC_ENTER || scan == KSC_ALT_ENTER))) {
+    k = 0;                                  /* the chord, as a flag set by
+                                             * nested tests rather than an
+                                             * `||` of `&&`s made into values
+                                             * (apps size pass 1) */
+    if (ascii == 6)
+        k = 1;
+    else if (ascii == 0) {
+        if (scan == KSC_ENTER)
+            k = 1;
+        else if (scan == KSC_ALT_ENTER)
+            k = 1;
+    }
+    if (k) {
         a2_fullscreen_toggle(win);
         return;
     }
@@ -1734,8 +1764,14 @@ void os88_onkey(int ascii, int scan, void *win)
              * had forgotten was behind a card - answers NO and dismisses. A
              * confirmation nobody can dismiss by accident is the whole point
              * of having one. */
-            a2_panel_close(win, (ascii == 13 || ascii == 'y' || ascii == 'Y')
-                                ? 1 : 0);
+            k = 0;
+            if (ascii == 13)
+                k = 1;
+            else if (ascii == 'y')
+                k = 1;
+            else if (ascii == 'Y')
+                k = 1;
+            a2_panel_close(win, k);
             return;
         }
         a2_about_close(win);
@@ -1747,6 +1783,8 @@ void os88_onkey(int ascii, int scan, void *win)
 
 void os88_onclick(int x, int y, void *win)
 {
+    int k;
+
     if (a2_state == A2_ST_DEAD)
         return;
     if (a2_abt_up) {
@@ -1761,10 +1799,13 @@ void os88_onclick(int x, int y, void *win)
              * border - answers NO and dismisses, for the same reason Esc
              * does. The one thing a data-loss box must not do is stay up with
              * no obvious way out. */
-            a2_panel_close(win,
-                           (y >= a2_cfm_by && y < a2_cfm_by + A2_CFM_BH
-                            && x >= a2_cfm_bx[0]
-                            && x < a2_cfm_bx[0] + A2_CFM_BW) ? 1 : 0);
+            k = 0;
+            if (y >= a2_cfm_by)
+                if (y < a2_cfm_by + A2_CFM_BH)
+                    if (x >= a2_cfm_bx[0])
+                        if (x < a2_cfm_bx[0] + A2_CFM_BW)
+                            k = 1;
+            a2_panel_close(win, k);
             return;
         }
         a2_about_close(win);
@@ -2353,17 +2394,13 @@ void *os88_main(void)
     os88_mem_regrow(a2_opbase,
                     (int)(((a2_m.romseg - a2_opbase) * 16u + A2_ROM_KEEP
                            + 1023u) >> 10));
-    for (i = 0; i < 128; i++) {
-        j = 0;
-        if (i & 0x01) j |= 0x40;
-        if (i & 0x02) j |= 0x20;
-        if (i & 0x04) j |= 0x10;
-        if (i & 0x08) j |= 0x08;
-        if (i & 0x10) j |= 0x04;
-        if (i & 0x20) j |= 0x02;
-        if (i & 0x40) j |= 0x01;
-        a2_rev[i] = (unsigned char)j;
-    }
+    /* ...built FROM ITSELF (apps size pass 1): i's low bit is the reversal's
+     * bit 6, and the reversal of the other six is the reversal of i >> 1
+     * shifted down one - whose bit 0 is i >> 1's bit 6, which is 0. One
+     * statement a byte where the bit-by-bit form was seven tests. */
+    a2_rev[0] = 0;
+    for (i = 1; i < 128; i++)
+        a2_rev[i] = (unsigned char)((a2_rev[i >> 1] >> 1) | ((i & 1) << 6));
 
     /* --- the interleaved row bases (section 7.2) -------------------------- */
     /* ...AND EDIT > COPY'S FOLD, HERE FOR THE SAME REASON ONE STEP ALONG.
@@ -2382,9 +2419,11 @@ void *os88_main(void)
     }
 
     for (i = 0; i < A2_ROWS; i++) {
-        a2_tbase[i] = (unsigned)(1024 + 256 * ((i / 2) % 4)
-                                      + 128 * (i % 2)
-                                      + A2_X40((i / 8) % 4));
+        /* SHIFTS AND MASKS AND NOT `/` AND `%`, which are signed IDIVs in
+         * this C (apps size pass 1); i is never negative, so they agree. */
+        a2_tbase[i] = (unsigned)(1024 + (((unsigned)i >> 1) & 3) * 256u
+                                      + ((unsigned)i & 1) * 128u
+                                      + A2_X40(((unsigned)i >> 3) & 3));
         a2_hbase[i] = a2_tbase[i] + 0x1C00u;        /* ...and the hi-res map,
                                                      * which IS that one plus
                                                      * $1C00 (section 7.2) */
