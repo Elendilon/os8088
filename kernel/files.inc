@@ -8213,20 +8213,16 @@ fm_mzero:
 ; needs no call of its own; .nm is the entry that skips it. All registers
 ; preserved
 fm_mdraw:
-    push ax
-    push dx
-    mov ax, 0FFFFh              ; 0FFFFh..0: no run, and draw only
-    xor dx, dx
+    call kentc_di               ; KENT: push ax..di (a gesture's, never a
+    mov ax, 0FFFFh              ; pixel's: kernel size pass 11) - and
+    xor dx, dx                  ; 0FFFFh..0: no run, and draw only
     jmp short fm_mset.go
 fm_mset:
     call fm_menter              ; FROM a single selection: fm_mone's three
 .nm:                            ; callers enter here, fm_mto (which entered
-    push ax                     ; already, and must not again - with nothing
-    push dx                     ; selected that would put back the 0FFh
-.go:                            ; anchor it has just replaced) at .nm
-    push bx
-    push cx
-    push si
+    call kentc_di               ; already, and must not again - with nothing
+.go:                            ; selected that would put back the 0FFh
+                                ; anchor it has just replaced) at .nm
     xchg ax, si                 ; SI..DX = the run
     xor ax, ax
 .l:
@@ -8251,12 +8247,7 @@ fm_mset:
     inc ax
     jmp short .l
 .out:
-    pop si
-    pop cx
-    pop bx
-    pop dx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; fm_menter - enter the bitmap from a single selection: the focus becomes its
 ; first bit - its band is already on the glass, so nothing is drawn - and the

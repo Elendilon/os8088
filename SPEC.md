@@ -48296,12 +48296,16 @@ wrap-safe difference is at least `FM_DBLCLK` and the click only re-stamps.
 
 ### 22.27 Multi-select (`kern_big`)
 
-**What it costs: 797 resident bytes** (`.cold` 739, `.text` 13, `.bss` 45),
-measured against `make MSELOFF=1`. It shipped at 1,418 and the size pass that
-took it under 800 is docs/plans/completed/MULTISELECT-PLAN.md §A.1: the rubber
-band became a DRAG SELECT of a run, and the single-selection code the feature
-already duplicated - a click's two bands, an arrow's, a right-click's, the
-single Delete - became the multi-selection's own.
+**What it costs: 755 resident bytes** (`.cold` 697, `.text` 13, `.bss` 45),
+measured against `make MSELOFF=1` at the same commit. It shipped at 1,418 and
+the size pass that took it under 800 is docs/plans/completed/MULTISELECT-PLAN.md
+§A.1: the rubber band became a DRAG SELECT of a run, and the single-selection
+code the feature already duplicated - a click's two bands, an arrow's, a
+right-click's, the single Delete - became the multi-selection's own. Kernel
+size pass 11 took 797 to 755 (docs/plans/ksp11/multisel.md), no behaviour
+changed. `MSELOFF=1` is no longer byte-identical to the kernel before the
+feature, because that pass also re-laid code the feature SHARES; every byte
+the feature adds is still inside `%ifdef FM_MSEL`.
 
 A Disk window can hold **more than one selected entry**, and Cut, Copy,
 Paste, Delete and a drag act on all of them. The design record, with what

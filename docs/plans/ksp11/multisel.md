@@ -119,6 +119,18 @@ Batch 2: **kern_big 92,433 -> 92,427 (-6)**, kern_small 61,435 -> 61,431
 Batch 3: **kern_big 92,427 -> 92,420 (-7)**, kern_small and MSELOFF
 unchanged. **The feature is 759** (cold 701, text 13, bss 45).
 
+### Batch 4 (concept)
+
+* **fm_mset and fm_mdraw bank through `kentc_di`/`kretc_di`** instead of
+  five pushes and five pops (fm_mdraw entered the frame with two of them
+  itself). The diff runs once per gesture - a click, an arrow, a drag
+  select's pointer move - never per pixel, and the prologue's ~95 cycles are
+  noise beside the walk's 64 indices and the bands it draws. **-4**.
+* SPEC.md 22.27's cost line: 797 -> 755, with the MSELOFF note above.
+
+Batch 4: **kern_big 92,420 -> 92,416 (-4)**. **The feature is 755** (cold
+697, text 13, bss 45).
+
 ## REFUSED
 
 * **One global bitmap instead of eight bytes a block** (`.bss` 40 -> 9). Only
