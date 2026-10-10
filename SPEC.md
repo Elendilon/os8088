@@ -118011,6 +118011,7 @@ old file deleted first, read every arm where it should be:
 | C: now, `2a0c848` | FTPDOLD | 32,055 B/s | 13,017 | 72 ms |
 | B: this branch before its merge, `c7617cc` | FTPDK8 | 34,292 B/s | 10,336 | 57 ms |
 | C: now | FTPDK8 | 34,292 B/s | 10,045 | 55 ms |
+| C: now | FTPDK32, kept 32 KB | **39,852 B/s** | 6,692 | 145 ms (46 commits) |
 
 So no kernel regressed - A and C carry the old server at the same rate, B
 and C the new one - and on an 8088 the kept 8 KB stream is ~7% faster than
@@ -118020,10 +118021,16 @@ and the disk the smaller. The first session's 192 ms a commit is not
 explained; what differed in it is not known, and the max commit there was
 880 ms against 122-191 here.
 
-The CPU tier is gone anyway: every machine claims the 32 KB STOR stage and a
-refused claim is the 8 KB server. That rests on the 286's measurement (32 KB
-92.2 KB/s against 8 KB's 81.9) and on the first session's FTPDK32 matching
-the clean FTPDK8; a clean FTPDK32 on the 8088 is the reading still to take.
+**And the 32 KB stage is the 8088's too**: clean, it is 39,852 B/s - 16%
+over the kept 8 KB stream and 25% over the per-chunk server it replaced, the
+drive's 6.7 s against 10.0 s for the same bytes. So the CPU tier is gone:
+every machine claims the 32 KB STOR stage, and a refused claim is the 8 KB
+server.
+
+These ran with FTPD's Setup **Root** set to `C:\`, so where each arm was
+launched from did not decide what it served (§77.12); without that setting it
+serves the folder it was launched from (§77.6), and only a fixed disk takes
+`WSEQF_KEEP` (§18.4.9.3).
 §77.21/§77.24's refusals were taken against commits costing a second each
 and a 1 KB receive window, and neither holds on the kept stream: the data
 connection's longest silence in every row above is `gap 0s`.
