@@ -189,6 +189,10 @@ _a2_opbase equ op_base              ; the carve's CLAIM base, which apple2.c
                                     ; (APPLE2-SPEC 7.3)
 %include "apple2/a2nib.inc"         ; the 6-and-2 encoder - a STUB until the
                                     ; Disk II follow-up PR (section 14)
+%define A2_HITAB_AT _a2_x2b + 1152  ; a2fsx.inc's artifact table, in the
+                                    ; last 128 bytes of the 1,280-byte doubled
+                                    ; band the bracket never uses (a2fsx.inc,
+                                    ; a2scr.c's a2_fsxbuf and its check)
 %include "apple2/a2fsx.inc"         ; THE FOREIGN-MODE RASTER WRITERS (section
                                     ; 13): a2_fsx_row's three-mode scan-line
                                     ; composer over a CELL RANGE - a masked
