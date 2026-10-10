@@ -1037,11 +1037,11 @@ ui_timer_pass:                  ; ui_task tests [wm_tarm] before calling
     js .armed                   ; MODULAR arithmetic between two free-running
                                 ; words, so the SIGN decides - sch_isr's wake
                                 ; scan, SPEC.md 45.15 and 59's toast
-    mov word [si+W_TIMER], 0    ; due: disarm FIRST, so the handler can re-arm
-    mov bp, [si+W_ONTIMER]
-    or bp, bp
-    jz .step                    ; armed with no handler: a legal no-op, and it
-                                ; is now disarmed
+    mov word [si+W_TIMER], 0    ; due: disarm FIRST, so the handler can re-arm.
+                                ; The handler word is read UNDER the lock and
+                                ; only there: armed with no handler is a legal
+                                ; no-op, and costs one lock round trip rather
+                                ; than a second read here (kernel size pass 11)
     push cx                     ; the loop counter and the walk cursor are the
     push si                     ; only things that must survive a callback that
     xor cx, cx                  ; can do anything a window callback can

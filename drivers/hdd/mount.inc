@@ -62,7 +62,7 @@ hd_mount:
     mov al, [hd_sel]            ; (hd_kvol answered in AL)
     call hd_dev_row             ; ...unless rung 1 TOOK this drive from the
     cmp byte [di+HDD_BIOS], 0   ; BIOS (52.1.1): then the kernel's volume is
-    je .have                    ; handed to us as it is, OSAPI_VOL_TAKE in
+    je .have                    ; handed to us as it is, OSAPI_VOL_ADD's take in
     inc byte [hd_take]          ; hd_mount_one where it would add one
     call hd_mount_one
     dec byte [hd_take]
@@ -172,13 +172,12 @@ hd_mount_one:
     call hd_unmount_row         ; typed FAT, is not FAT: give it all back and
     jmp short .out              ; leave the loop to try the next slot
 .take:                          ; THE KERNEL'S VOLUME, ours from here: mounted
-    push bx                     ; already, so nothing is listed again
-    mov ah, [bx+HDV_VOLH]
-    mov cx, [bx+HDV_BASE]
-    mov bx, [bx+HDV_BASE+2]
-    mov dl, [di+HDD_BIOS]       ; (DI: hd_mount's device row)
-    call OSAPI_VOL_TAKE
-    pop bx
+    mov al, [hd_sel]            ; already, so nothing is listed again. Its
+    call hd_kvol                ; index is asked again (hd_mount had it), and
+    jc .novol                   ; OSAPI_VOL_ADD with DX != 0 TAKES that BIOS
+    mov dl, al                  ; volume, DL its index - never 0 or 1, the
+    mov al, [bx+HDV_VOLH]       ; floppies' (SPEC.md 52.1.1)
+    call OSAPI_VOL_ADD
     jc .novol
     mov [bx+HDV_VOL], al
     mov byte [bx+HDV_USED], 1

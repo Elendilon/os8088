@@ -286,7 +286,7 @@ DV_LBL       equ 6               ; db[8]: the desktop label, NUL-terminated
                                  ;     the DS pointer font_str wants, with no
                                  ;     staging buffer behind it
 DV_BUNIT     equ 14              ; db: a row a DRIVER TOOK from the BIOS
-                                 ;     (osapi_vol_take, SPEC.md 52.1.1): the
+                                 ;     (osapi_vol_add's take, 52.1.1): the
                                  ;     int 13h drive it is given back to, 0
                                  ;     on every other row. One of the two
                                  ;     spare bytes DV_SEG's retirement left
@@ -2641,7 +2641,7 @@ dsk_vol_slot_x:
 ; mount, one from the BIOS.
 ;
 ; It answers about DVK_BIOS rows - and a row a driver TOOK from one (DV_BUNIT,
-; osapi_vol_take, 52.1.1), which is still the partition the kernel booted
+; osapi_vol_add's take, 52.1.1), which is still the partition the kernel booted
 ; from - and no others, which is not tidiness. A
 ; driver-backed row's DV_UNIT is the DRIVER's own volume handle - a small
 ; integer that would collide with an int 13h drive number for free - and its
@@ -2665,13 +2665,18 @@ osapi_vol_at_x:
     mov di, dsk_vbase           ; ...whose stride is 4 and not DV_SIZE: the
 .scan:                          ; base is a side table indexed by VOLUME
     cmp byte [si+DV_KIND], DVK_BIOS ; a free row is 0xFF, so this drops it too
+%ifdef OS88_DRIVERS
     jne .took
     cmp [si+DV_UNIT], dl
     jmp short .unit
 .took:
     cmp [si+DV_BUNIT], dl       ; ...or a row a driver TOOK (52.1.1): still
 .unit:                          ; the partition the kernel booted from, and
-    jne .next                   ; its base still in dsk_vbase
+%else                           ; its base still in dsk_vbase. (No driver, no
+    jne .next                   ; take: kern_small's rows are BIOS or free)
+    cmp [si+DV_UNIT], dl
+%endif
+    jne .next
     cmp [di], cx                ; the base, low word...
     jne .next
     cmp [di+2], bx              ; ...and high
@@ -2689,6 +2694,15 @@ osapi_vol_at_x:
     pop bx
     retf
 
+%ifdef OS88_DRIVERS            ; ...AND THE THREE ROUTINES THAT ADD AND DROP A
+                                ; DRIVER'S ROW are not on kern_small at all:
+                                ; their only callers are the fenced slots
+                                ; below and drv_release, and with no driver
+                                ; layer (SPEC.md 51.0) the fence refuses
+                                ; every caller for the life of the machine -
+                                ; so the slots are driver.inc's `stc / retf`
+                                ; stubs there and these are code nothing can
+                                ; reach (kernel size pass 11)
 ; -----------------------------------------------------------------------------
 ; dsk_vol_add - register a driver-backed volume (osapi_vol_add, SPEC.md 18.7)
 ; in:  AL = the driver's own volume handle, CX = the volume's sector count,
@@ -2830,13 +2844,10 @@ dsk_vol_del:
     mov ah, [bx+DV_BUNIT]       ; ...BUT A ROW THE DRIVER TOOK IS GIVEN BACK
     or ah, ah                   ; (52.1.1): the boot volume, mounted, and the
     jz .free                    ; BIOS reads it again - an unload, an unmount,
-    pushf                       ; a hibernate's detach or the DOS box's
-    cli                         ; handoff must never drop the system volume
-    mov [bx+DV_UNIT], ah
-    mov byte [bx+DV_CLASS], 0   ; (a BIOS row's class is 0)
-    mov byte [bx+DV_BUNIT], 0
-    mov byte [bx+DV_KIND], DVK_BIOS
-    popf
+    mov al, DVK_BIOS            ; a hibernate's detach or the DOS box's
+    mov [bx+DV_KIND], ax        ; handoff must never drop the system volume.
+    mov [bx+DV_CLASS], al       ; Kind and unit in ONE store (osapi_vol_add's
+    mov [bx+DV_BUNIT], al       ; take), then class and BUNIT back to 0
     jmp short .out
 .free:
     mov byte [bx+DV_KIND], DVK_FREE
@@ -2891,6 +2902,7 @@ dsk_vol_drop_drv_x:
     jb .next
     jmp kretc_cx
 
+%endif                          ; OS88_DRIVERS
 %endif                          ; KD_BUILD
 ; dsk_list_floor and dsk_list_pick lived here, and SPEC.md 22.6 deleted both.
 ; There were two homes for a listing - the `.lowbss` floor, and the claim a
@@ -2918,6 +2930,10 @@ dsk_vol_drop_drv_x:
                                 ; through, which are reachable only via the
                                 ; API table - and since 96.44.6 kern_dos has
                                 ; no table at all
+%ifdef OS88_DRIVERS            ; (kern_small: driver.inc's stubs - the fence
+                                ; is `stc / ret` and the three fenced slots
+                                ; `stc / retf`, the answer this code gives
+                                ; there anyway, kernel size pass 11)
 ; -----------------------------------------------------------------------------
 ; osapi_vol_fence - is the caller the published disk driver? (internal)
 ; in:  ES = the caller's segment (the slot's X stub, or the caller's own DS)
@@ -2953,61 +2969,66 @@ osapi_vol_fence:
 
 ; -----------------------------------------------------------------------------
 ; osapi_vol_add - slot 0x01F8 (X: ES = the caller's segment)
-; in:  AL = the driver's volume handle, CX = sectors, DX = a listing claim's
-;      segment (0 = the floor), ES:SI = a NUL label or SI = 0
+; in:  AL = the driver's volume handle, CX = sectors, ES:SI = a NUL label or
+;      SI = 0, DX = 0 (the listing claim it used to take, SPEC.md 22.6)
+;      ...OR DX != 0: TAKE the BIOS volume whose index is DL - the one
+;      OSAPI_VOL_AT answered - with AL the handle; CX and SI unread
 ; out: CF = 0 and AL = the volume index; CF = 1 refused
+;
+; THE TAKE (SPEC.md 52.1.1). The boot partition of an installed machine is a
+; DVK_BIOS row the kernel adopted before any driver loaded (52.10.3), and
+; int 13h is the BIOS's PIO with interrupts OFF on an AT - which loses the PC
+; speaker's samples. A DRVC_DISK driver that has proved it reaches the same
+; disk with interrupts on hands the row to itself: mounted as it is, nothing
+; re-read. Its int 13h drive goes to DV_BUNIT and its base STAYS in
+; dsk_vbase, so OSAPI_VOL_AT still names it and dsk_vol_del gives it BACK
+; rather than freeing it. dsk_xfer reads the row on every transfer, so the
+; next is the driver's. It was a slot of its own, 0x0467, for one cycle; DX
+; was RESERVED here, so a flag on this door is six resident bytes cheaper
+; and needs no second fence call (kernel size pass 11).
+;
+; KIND AND UNIT ARE ONE WORD (DV_KIND 0, DV_UNIT 1), so the row changes
+; transport in ONE store and needs no IF = 0 bracket: a transfer can never
+; see a driver's handle on a BIOS row, or the BIOS's drive on a driver's.
 ; -----------------------------------------------------------------------------
+%if DV_KIND != 0 || DV_UNIT != 1
+  %error "osapi_vol_add's take and dsk_vol_del's give-back store DV_KIND and DV_UNIT as one word"
+%endif
 osapi_vol_add_x:
     call osapi_vol_fence
     jc .no                      ; CF = 1 is the answer as it arrives, and
-    call dsk_vol_add            ; dsk_vol_add's is the answer otherwise
+    or dx, dx                   ; dsk_vol_add's is the answer otherwise
+    jnz .take
+    call dsk_vol_add
 .no:
     retf
-
-; -----------------------------------------------------------------------------
-; osapi_vol_take - slot 0x0467 (X: ES = the caller's segment), SPEC.md 52.1.1
-; in:  DL = an int 13h drive, BX:CX = a partition's base (OSAPI_VOL_AT's), AH =
-;      the driver's own volume handle
-; out: CF = 0 and AL = the volume index, whose TRANSPORT is now the caller's;
-;      CF = 1 = no BIOS row is that partition, or the caller is no driver
-;
-; The boot partition of an installed machine is a DVK_BIOS row the kernel
-; adopted before any driver loaded (52.10.3), and int 13h is the BIOS's PIO
-; with interrupts OFF on an AT - which loses the PC speaker's samples. A
-; DRVC_DISK driver that has proved it reaches the same disk with interrupts
-; on hands the row to itself here: mounted as it is, nothing re-read. Its
-; int 13h drive goes in DV_BUNIT and its base STAYS in dsk_vbase, so
-; OSAPI_VOL_AT still names it and dsk_vol_del gives it BACK rather than
-; freeing it. dsk_xfer reads the row on every transfer, so the next is the
-; driver's.
-; -----------------------------------------------------------------------------
-osapi_vol_take_x:
-    call osapi_vol_fence        ; [dsk_vcls] = the caller's class
-    jc .no
-    call COLD_SEG:osapi_vol_at_x    ; AL = the row covering DL, BX:CX
-    jc .no
-    push bx
-    mov bl, al
-    call dsk_vol_row_x          ; BX = the row
-    cmp byte [bx+DV_KIND], DVK_BIOS
+.tno:
     stc
-    jne .out                    ; taken already
-    pushf
-    cli
-    mov [bx+DV_BUNIT], dl
-    mov [bx+DV_UNIT], ah
-    push ax
-    mov al, [dsk_vcls]
-    mov [bx+DV_CLASS], al
-    pop ax
-    mov byte [bx+DV_KIND], DVK_DRV  ; published LAST
-    popf
-    clc
-.out:
+.tout:
     pop bx
-.no:
     retf
+.take:
+    push bx
+    mov bl, dl
+    call dsk_vol_row_x          ; BX = the row; CF = 1 = no such index
+    jc .tout
+    cmp byte [bx+DV_KIND], DVK_BIOS
+    jne .tno                    ; taken already, or not the BIOS's
+    mov ah, al                  ; AH = the driver's handle, the row's new unit
+    mov al, [bx+DV_UNIT]
+    mov [bx+DV_BUNIT], al       ; ...and the BIOS's drive, to give it back to
+    mov al, [dsk_vcls]          ; the fence's class serves it from here
+    mov [bx+DV_CLASS], al
+    mov al, DVK_DRV
+    mov [bx+DV_KIND], ax        ; kind and unit together: the row is the
+    mov al, dl                  ; driver's from this store on. AL = the index,
+    jmp short .tout             ; CF = 0 still from the equal compare
 
+%endif                          ; OS88_DRIVERS
+%ifdef OS88_REDIR               ; (kern_small: [dsk_fslist] is raised only by
+                                ; the OS88_REDIR arm of disk_mount, so this
+                                ; refuses every call there - driver.inc's
+                                ; `xor ax, ax / stc / retf` is the same answer)
 ; -----------------------------------------------------------------------------
 ; osapi_fs_ent - slot 0x02D9 (X: ES = the caller's segment), SPEC.md 62.9.1
 ; in:  ES:SI -> a DSK_DE_SIZE-byte staged SPEC.md 19.1 entry, in the DRIVER's
@@ -3075,6 +3096,8 @@ osapi_fs_ent_x:
     stc
     jmp short .out
 
+%endif                          ; OS88_REDIR
+%ifdef OS88_DRIVERS
 ; -----------------------------------------------------------------------------
 ; osapi_vol_del - slot 0x01FE (X).  in AL = volume index
 ; -----------------------------------------------------------------------------
@@ -3108,6 +3131,7 @@ osapi_vol_mount_x:
     pop bx                      ; arrives with the carry it returns (`pop`
 .nofence:                       ; writes no flag)
     retf
+%endif                          ; OS88_DRIVERS
 
 ; -----------------------------------------------------------------------------
 ; osapi_vol_paint - slot 0x0288: repaint the desktop's drive zones
@@ -9325,8 +9349,10 @@ dsk_fattype:  resb 1            ; 0 = FAT12, 1 = FAT16 (SPEC.md 19)
 dsk_fatwn:    resw 1            ; ...and how many are resident. On a floppy
                                 ; this is the whole FAT and the window never
                                 ; moves - the degenerate case, byte for byte
+%ifdef OS88_DRIVERS
 dsk_vcls:     resb 1            ; the class osapi_vol_fence matched, for
                                 ; dsk_vol_add to stamp into DV_CLASS
+%endif
 dsk_vkind:    resb 1            ; the mounted volume's DVK_* (SPEC.md 18.7):
                                 ; its TRANSPORT, which is what dsk_xfer needs
 dsk_vflop:    resb 1            ; ...and whether it is a FLOPPY, which is what
@@ -9336,6 +9362,7 @@ dsk_vflop:    resb 1            ; ...and whether it is a FLOPPY, which is what
                                 ; FAT, and rule 10 caps a floppy's at 9
 dsk_vsecs:    resw 1            ; ...and the sector count its driver declared,
                                 ; which is rule 13's replacement
+%ifdef OS88_REDIR
 dsk_fslist:   resb 1            ; --- a REDIRECTED volume's mount (SPEC.md
                                 ; 62.9.1) --- 1 = we are inside FSV_LIST, and
                                 ; that is the whole gate on OSAPI_FS_ENT: an
@@ -9346,6 +9373,7 @@ dsk_fsn:      resw 1            ; how many entries have been appended, parent
                                 ; link included. THE KERNEL COUNTS, because
                                 ; the count is disk_nfiles' and a driver has
                                 ; no business holding it
+%endif
 dsk_fsup:     resw 1            ; the current folder's PARENT handle, answered
                                 ; by FSV_CHDIR and spent by dsk_up_open.
                                 ; Opaque: only the driver knows what it means,

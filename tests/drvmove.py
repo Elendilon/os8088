@@ -178,10 +178,11 @@ def main():
         # move can actually get wrong is a word left holding the OLD segment,
         # so that is what this reads - every one of them, by name.
         words = {"drv_fseg": 0, "drv_fseg2": 0, "drv_fseg3": 0,
-                 "drv_fseg4": 0, "drv_fseg5": 0, "drv_blkseg": 0}
+                 "drv_fseg4": 0, "drv_fseg5": 0, "drv_fseg6": 0,
+                 "drv_fseg7": 0, "drv_blkseg": 0}
         for n in words:
             words[n] = u16(m.read(S(n), 2))
-        rows = {"drv_tab[%d]" % r: seg(r) for r in range(6)}
+        rows = {"drv_tab[%d]" % r: seg(r) for r in range(7)}
         owners = {"claim owner %04x" % o: o
                   for o in set(c[2] for c in claims(m, S))}
         stale = sorted(k for k, v in
