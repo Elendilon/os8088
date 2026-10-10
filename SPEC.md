@@ -140662,9 +140662,19 @@ is one of the two defects this corpus is credited with catching, that was the
 wrong mixer. Multiplying the accumulator by *x* modulo x^16 + x^12 + x^5 + 1
 instead has order **32767**, so a swap has to move `(j-i) * stride` a multiple
 of that before it can hide, which no picture this decoder accepts can reach.
-It is also four instructions where the rotate was seventeen. `it_cksum` and
-`tools/os88imgcase.py`'s `cksum()` are one algorithm written twice and must
-agree to the bit.
+It is also four instructions where the rotate was seventeen. The checksum in
+`it_entry` and `tools/os88imgcase.py`'s `cksum()` are one algorithm written
+twice and must agree to the bit.
+
+**The two claims are sized by what each is for.** The destination is a whole
+64KB because every case but `BIG.BMP` tells the decoder it owns the segment,
+so a decoder broken on purpose may write anywhere in it — and has to show up
+as a `FAIL` row rather than as somebody else's heap. The source is only ever
+read, so it starts at nothing and grows on `FERR_BIG`, whose `DX` is the KB
+the file needs (§18.4, §20.14.6.3): a plain run holds 1KB where it held a constant 64KB,
+and the grow path runs on the first case of every run. A case's verdict is
+written back over its own record's picture number, which nothing reads again,
+so the bss carries no result array.
 
 **`IMG_DSTMAX` is per case, and that is not a detail.** Every case handed the
 same 0 ("the whole 64KB") takes `img_setgeom`'s own `jz .fits` and leaves the
