@@ -605,8 +605,10 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
                "detail" in pdef else d.get("detail", "1x1"),
                frame_cap=pdef.get("frame_cap", "32"),
                disk=num(prof["disk"]),
-               avg=num(LIVE_AVG if live and prof["avg"] is not None
-                       else prof["avg"]),
+               # AUTO IS THE DEFAULT (98.2.1.5): the field says AUTO and
+               # the encode works the share out; profile_avg() is the
+               # number it used to be, which the window offers beside it
+               avg="" if prof["avg"] is None else "auto",
                peak=num(prof["peak"]),
                owe=num(None if live else prof["owe"]),
                reserve="" if live or prof["disk"] is None else
@@ -732,6 +734,17 @@ def avg_arg(v):
     if str(v).strip().lower() == "auto":
         return "auto"
     return float(v)
+
+
+def profile_avg(profile="5150-st225", live=None):
+    """The fixed average share a profile carried before AUTO was the
+    default (98.2.1.5): its own, or a Live file's (LIVE_AVG) - what the
+    encoder's window offers beside AUTO. "" for one with no budget"""
+    prof = PROFILES[profile_name(profile)]
+    if prof["avg"] is None:
+        return ""
+    v = LIVE_AVG if live else prof["avg"]
+    return "%d" % v if float(v).is_integer() else "%g" % v
 
 
 def avg_auto(prof):
@@ -5412,8 +5425,8 @@ def parser():
                          "frame is fitted to (--profiles says what each is)")
     ap.add_argument("--disk", type=float, help="the profile's bytes a "
                     "second, overridden")
-    ap.add_argument("--avg", type=avg_arg,
-                    help="...its average CPU share, or AUTO: the per-frame ceiling's, on a profile whose disk curve already prices the reader (98.2.1.5)")
+    ap.add_argument("--avg", type=avg_arg, default="auto",
+                    help="...its average CPU share, or AUTO (the default): the per-frame ceiling's on a profile whose disk curve already prices the reader, the profile's own share on one without (98.2.1.5)")
     ap.add_argument("--peak", type=float, help="...its per-frame ceiling")
     ap.add_argument("--aim", choices=("asked", "quality", "size"),
                     default="asked",

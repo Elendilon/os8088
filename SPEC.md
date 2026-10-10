@@ -159033,11 +159033,17 @@ XMS BANK and PREFILL.
   that profile prices the base's records as IT decodes them and holds its
   budget, so a CGA file for a 5150 carries a layer for a 286 - the same
   canvas, the format being the base's. Not with the speaker's sound, whose
-  share is the base machine's.
+  share is the base machine's. The encoder's window fills **Layer disk**
+  with that profile's disk when one is chosen - the number an empty field
+  would be budgeted for anyway, shown so it can be changed from - replacing
+  what was there, as the base's Disk is replaced by its profile; clearing
+  the profile clears the field only while it still holds what a profile
+  filled, because a Layer disk alone is a layer for THIS machine's CPU on a
+  faster disk.
 
 **BANKED AND LAYERED, CHOSEN AT THE PLAY** (2026-10-09): one file for a
 286 and a 486 - the base made for the 286 with its `--bank` and
-`--prefill`, the layer for the 486 (`--layer-profile 486`) - and the player
+`--prefill`, the layer for the 486 (`--layer-profile 486-dx2-66`) - and the player
 decides which machine it is on:
 - **The yardstick is the play's own work.** The encoder models key 0's
   decode on both machines and writes the two times in the header. At a
@@ -159860,9 +159866,17 @@ case `auto` has not been played in is a Sound Blaster beside it.
   rule: what an option implied is stored as its value), so options version
   14 reads as it did. With `--layer-profile`, the layer's machine takes its
   own `auto`.
-- **Not the default.** `--avg` left out is the profile's average, as
-  before; the window offers `auto` in the field's list. `videnc` checks
-  both kinds of profile.
+- **THE DEFAULT, since 2026-10-10**, once the owner had played `auto`
+  encodes on the 286 (Mode X, the speaker and sound ahead, after 52.1.2):
+  `--avg` left out IS `auto`, and the encoder window's field shows `auto`.
+  The old fixed share is one pick away - the field's list is `auto` and
+  then the chosen profile's own `avg` (`os88venc.profile_avg`, a Live
+  file's `LIVE_AVG` under Live), refilled as the profile changes, and a
+  profile with no budget offers `auto` alone. A file made before this
+  holds the share it was made with, so nothing older reads differently and
+  the options version does not move. `videnc` checks `auto` and no `--avg`
+  come to the same share on both kinds of profile (red with the default
+  taken out), and `vencgui` the default and the list per profile.
 
 #### 98.2.2 Composite colour from a video (`--pixfmt cgacomp`)
 

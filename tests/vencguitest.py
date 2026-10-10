@@ -259,6 +259,34 @@ def options_leg():
                        % ({k: o.get(k) for k in ("novel", "dither")}, notes))
     finally:
         V.OPTS_VERSION, V.MIGRATIONS = keep
+    # --avg AUTO IS THE DEFAULT (98.2.1.5): the parser's, what the profile
+    # implies, and the window's list - AUTO, then the profile's own old
+    # share (a Live file's for Live), nothing for a profile with no budget
+    if V.parser().get_default("avg") != "auto":
+        bad.append("--avg's default is %r, not auto"
+                   % V.parser().get_default("avg"))
+    for prof, live, want in (("286-fast", None, ["auto", "2.25"]),
+                             ("5150-st225", None, ["auto", "0.5"]),
+                             ("5150-st225", "cga", ["auto", "0.6"]),
+                             ("lossless", None, ["auto"])):
+        got = G.avg_choices(V.profile_avg(prof, live))
+        imp = V.implied(None, None, prof, live)["avg"]
+        if got != want or imp != ("" if prof == "lossless" else "auto"):
+            bad.append("--avg on %s%s: the list %r (want %r), implied %r"
+                       % (prof, " Live" if live else "", got, want, imp))
+    # A LAYER PROFILE FILLS LAYER DISK (98.1.9): with the field empty the
+    # encode budgets the layer for that profile's own disk, and the window
+    # shows that number when the profile is chosen - the base's Disk for the
+    # same profile, an old name as its new, nothing for none or lossless
+    for lp in sorted(V.PROFILES) + ["286", ""]:
+        got = G.layer_disk_of(lp)
+        want = V.implied(None, None, V.profile_name(lp))["disk"] if lp \
+            else ""
+        if got != want:
+            bad.append("--layer-profile %r fills Layer disk with %r, not "
+                       "its disk %r" % (lp, got, want))
+    if not G.layer_disk_of("286-fast"):
+        bad.append("--layer-profile 286-fast fills no Layer disk")
     # THE PROFILES' RENAME (98.2.3, options version 15): a record a version-14
     # encoder wrote names the OLD profiles, and must read as the new ones -
     # the field's files were made then. And the command line takes an old
