@@ -13,7 +13,7 @@ a fixed disk's and the boot partition is the one fixed volume QEMU gives a
 guest with no driver asked for. FTPD serves the folder it was launched from,
 so both arms sit in C:'s root.
 
-THREE LEGS, each on a freshly built image:
+FOUR LEGS, each on a freshly built image:
 
 1. KEPT (FTPD.O88, what ships). A 1.5 MB STOR, byte-exact back over RETR AND
    off the image by an independent FAT reader on the host, and the volume
@@ -28,10 +28,14 @@ THREE LEGS, each on a freshly built image:
    the two counts meet.
 3. A POWER CUT, KEPT. A 2 MB STOR, QEMU killed once ~1.2 MB has reached the
    disk. The file must be EXACTLY what the last checkpoint committed - its
-   size 8 KB (the create) plus a whole number of 256 KB checkpoints, its
+   size one stage (the create: 32 KB here, SPEC.md 77.50.2) plus a whole
+   number of 256 KB checkpoints, its
    bytes the blob's prefix - and the volume must still verify: the held
    chain past it is unreachable, so it is free space or lost clusters and
    never a wrong file.
+4. A WHOLE NUMBER OF STAGES, cut at the 226: 1 MB, and the machine killed
+   the moment the server says it is done. All of it must be on the disk -
+   the server once finished such a file without closing the stream.
 """
 import ftplib
 import io
@@ -222,9 +226,14 @@ def cut(data, fails):
     if got is None:
         fails.append("cut: UP.DAT is not on the disk at all")
         return
-    ok_size = size >= STG and (size - STG) % CKPT == 0 and size > STG
-    say("cut: UP.DAT is %d bytes after the cut (8 KB + %d checkpoints); "
-        "prefix %s" % (size, (size - STG) // CKPT,
+    # THE FIRST COMMIT IS ONE STAGE: 8 KB on an 8088, 32 KB on a 286 or
+    # better (SPEC.md 77.50.2) - and QEMU's CPU is a 386, so it is 32 here
+    first = [s0 for s0 in (32768, STG)
+             if size > s0 and (size - s0) % CKPT == 0]
+    ok_size = bool(first)
+    say("cut: UP.DAT is %d bytes after the cut (%s + %s checkpoints); "
+        "prefix %s" % (size, "%d KB" % (first[0] // 1024) if first else "?",
+                       (size - first[0]) // CKPT if first else "?",
                        "exact" if got == data[:size] else "WRONG"))
     if not ok_size:
         fails.append("cut: UP.DAT is %d bytes - not the create plus a whole "
@@ -237,6 +246,31 @@ def cut(data, fails):
     if r.returncode:
         fails.append("cut: the volume does not verify after the cut:\n"
                      + r.stdout + r.stderr)
+
+
+def exact(data, fails):
+    """A file that is a WHOLE NUMBER OF STAGES, and the power cut at the 226.
+
+    Such a file ends with nothing staged, and the server used to finish there
+    without the close - so the 226 went out with up to 256 KB still unlinked,
+    and only the kernel's next commit point saved it (SPEC.md 77.50.1, found
+    in the field's own A/B: `ck 2` where three were owed). Killing the
+    machine the moment the 226 arrives leaves the kernel no such point.
+    """
+    m, mo = boot()
+    try:
+        f = launch(m, mo, "FTPD.O88")
+        f.storbinary("STOR UP.DAT", io.BytesIO(data))
+    finally:
+        m.quit()                            # at the 226: nothing else ran
+        time.sleep(1.0)
+    got, size = fat_read(HDIMG, b"UP      DAT")
+    say("exact: %d bytes stored, %s on the disk at the 226"
+        % (len(data), size))
+    if got != data:
+        fails.append("exact: a %d-byte file reads back as %s bytes after a "
+                     "cut at the 226 - the stream was not closed before the "
+                     "server said it was done" % (len(data), size))
 
 
 def _stor_quietly(f, data):
@@ -258,6 +292,7 @@ def main():
         fails.append("the kept stream saved %d writes over %d chunks - it is "
                      "still committing per chunk" % (plain - kept, chunks))
     cut(blob(2048 * 1024, 78), fails)
+    exact(blob(1024 * 1024, 79), fails)
     say("")
     if fails:
         for f in fails:

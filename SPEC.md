@@ -117542,6 +117542,67 @@ runs all three. `FTPDBG=1` gains a fourth split line,
 disk shows in the worst commit and not in the total - and how many
 checkpoints and closes it sent.
 
+#### 77.50.1 The field's A/B, and the two defects it found
+
+On the owner's 286 (PicoMEM NE2000, the hard disk the 41 KB/s came off), one
+737,280-byte STOR per arm, the fourth split line in each:
+
+| arm | rate | `disk` | `net` | `idle` | `disk` a commit | `max` | clicking |
+|---|---|---|---|---|---|---|---|
+| FTPDP8 - per-chunk commit, 8 KB | 21 s, **35,108 B/s** | 17,085 | 3,193 | 1,637 | 190 ms | 1,550 | as before |
+| FTPDK8 - kept, 8 KB | 9 s, **81,920 B/s** | 5,546 | 3,118 | 239 | 62 ms | 1,544 | much less |
+| FTPDK32 - kept, 32 KB | 8 s, **92,160 B/s** | 3,963 | 3,137 | 1,085 | 172 ms per 32 KB | 1,582 | much less |
+
+**The kept stream is 2.33x on this machine, and the per-chunk commit was
+128 ms of every 190.** `net` did not move - the stack moves 720 KB in ~3.1 s
+whatever the disk does - so all of the gain is the disk's, as predicted. The
+32 KB stage writes at **5.4 ms a KB**, VIDDISK's held 32 KB stream on the same
+drive is ~5.1, so it is at the drive's own rate; the 8 KB stage's 7.7 ms a KB
+is a part-revolution lost per commit.
+
+Two defects the photographs show, both fixed:
+
+- **A file that is a whole number of chunks was never closed.** 737,280 is
+  exactly 90 x 8 KB, and `fd_recv_stage`'s `.fin` - the end of a transfer
+  with nothing staged - called `fd_xdone` without a commit. FTPDK8 read
+  `ck 2` where three were owed: two checkpoints and no close, so the `226`
+  went out with up to 256 KB still held, safe only because the kernel's next
+  commit point (§18.4.9.3) came before anything else. A held stream now
+  posts an EMPTY final commit there, which `fd_do_write` takes as the close
+  - one more wake, at the end of a transfer. `tests/ftpkeep.py` leg 4 is the
+  gate: a 1 MB file, the machine killed the moment the `226` arrives, all of
+  it on the disk.
+- **The split missed the commit that ends the transfer.** `fd_xdone`
+  letters the lines from inside `fd_do_write`, before its brackets closed,
+  so FTPDK32 read `cm 22` for 23 commits and `disk` without the last one.
+  Both brackets close before it now.
+
+**`max` is one commit of ~1.55 s in all three arms**, and nothing in the
+three arms differs about it, so it is the first commit - the CREATE, which
+replaced the previous run's 720 KB file. 17% of a 720 KB transfer, under 2%
+of a 12 MB one. Not yet bisected.
+
+#### 77.50.2 The STOR stage is 32 KB on a 286 or better, and 8 KB on an 8088
+
+A 32 KB stage was MEASURED AND REFUSED on the 5150 twice (§77.21, §77.24):
+no gain, and every silence on the data connection four times longer. Both
+readings were taken against a server whose commits cost over a second each -
+the chain walk, the standing `GOTO`s and `OSAPI_FILE_DFREE`, all since gone -
+and a 1 KB receive window. Nothing has re-measured it on the kept stream, so
+the 8088 keeps the 8 KB it was proven on, and the A/B to settle it is
+already on `make ftpspeed`'s disk (FTPDK8 against FTPDK32).
+
+On `CPU_286` or better (`OSAPI_CPU_INFO`), the entry proc claims a 32 KB
+heap block for STOR's stage, beside the 8 KB one in the package's own
+segment - which RETR and LIST keep naming, so only `fd_fillp`/`fd_commp`
+see the difference. A refused claim is the 8 KB server. A checkpoint is
+then every 8 stages, the same 256 KB. **Not 64 KB**: `[fd_sfill]`, the
+stage counters and the commit's `CX` are words, and the 32 KB stage already
+writes at the drive's rate - what is left above it is `net` and `idle`,
+which a larger stage makes no better (FTPDK32's `idle` is the higher of the
+two). `-DFD_NOBIG` pins the 8 KB stage; `make ftpspeed`'s three arms all
+pin theirs, so no arm changes under the CPU it runs on.
+
 ## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
 
 The demonstration §5.6.4.1 was built for, and the one that says out loud

@@ -4630,8 +4630,10 @@ ftpdtest: $(BUILD)/ether360.img $(BUILD)/ftpapps.img
 
 # FTPSPEED: the A/B for SPEC.md 77.50, ON DEMAND. Three FTPD arms, each with
 # FTPDBG=1's split and each a package of its own name so one session runs all
-# three: FTPDK8 (the new kept stream, 8KB stage - what ships), FTPDK32 (kept,
-# 32KB stage) and FTPDP8 (PLAIN, every chunk committed - what shipped before).
+# three, each with its stage PINNED (-DFD_NOBIG), so the CPU tier of SPEC.md
+# 77.50.2 cannot change an arm under the reader: FTPDK8 (kept, 8KB - what
+# ships on an 8088), FTPDK32 (kept, 32KB - what ships on a 286 or better) and
+# FTPDP8 (PLAIN, every chunk committed - what shipped before).
 # The fourth split line, `stage N cm N max N ck N`, is the reading. Boot the
 # os8088*.img built ALONGSIDE it: WSEQF_KEEP is a kernel flag, and an older
 # kernel ignores it and commits per chunk, which reads as "no difference".
@@ -4648,7 +4650,7 @@ $(FTPSPDIR):
 	mkdir -p $@
 
 $(FTPSPDIR)/FTPDK8.O88: $(FTPSPDEPS) $(PKGZSTAMP) | $(FTPSPDIR)
-	$(FTPSPNASM) -o $(FTPSPDIR)/k8.bin apps/ftpd/ftpd.asm
+	$(FTPSPNASM) -DFD_NOBIG -o $(FTPSPDIR)/k8.bin apps/ftpd/ftpd.asm
 	$(OS88PKG) $(FTPSPDIR)/k8.bin -o $@
 
 $(FTPSPDIR)/FTPDK32.O88: $(FTPSPDEPS) $(PKGZSTAMP) | $(FTPSPDIR)
@@ -4656,7 +4658,7 @@ $(FTPSPDIR)/FTPDK32.O88: $(FTPSPDEPS) $(PKGZSTAMP) | $(FTPSPDIR)
 	$(OS88PKG) $(FTPSPDIR)/k32.bin -o $@
 
 $(FTPSPDIR)/FTPDP8.O88: $(FTPSPDEPS) $(PKGZSTAMP) | $(FTPSPDIR)
-	$(FTPSPNASM) -DFTPPLAIN -o $(FTPSPDIR)/p8.bin apps/ftpd/ftpd.asm
+	$(FTPSPNASM) -DFTPPLAIN -DFD_NOBIG -o $(FTPSPDIR)/p8.bin apps/ftpd/ftpd.asm
 	$(OS88PKG) $(FTPSPDIR)/p8.bin -o $@
 
 $(FTPSPDIR)/FTPSPEED.TXT: apps/ftpd/ftpspeed.txt | $(FTPSPDIR)

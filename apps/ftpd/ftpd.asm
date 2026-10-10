@@ -369,7 +369,26 @@ FD_WSEQF    equ 0
 FD_WSEQF    equ WSEQF_HELD | WSEQF_KEEP
 %endif
 FD_CKPT     equ 262144              ; bytes between checkpoints
-FD_CKPTN    equ FD_CKPT / FD_STGSZ  ; ...in chunks: 32 at 8KB
+
+; --- FD_BIGSZ - A 286 COMMITS 32KB AT A TIME (SPEC.md 77.50.2) --------------
+; The field's A/B on a 286, 737,280 bytes to its hard disk: 8KB kept 81.9
+; KB/s, 32KB kept 92.2 - the bigger stage is the drive's own rate where the
+; 8KB one loses part of a revolution per commit. On an 8088 the same change
+; was MEASURED AND REFUSED twice (77.21, 77.24), against a server whose
+; commits cost a second each; nothing has re-measured it on the new stream,
+; so the 8088 keeps the 8KB it was proven on and a 286 or better claims a
+; 32KB stage beside it for STOR alone. RETR and LIST keep the 8KB one. A
+; refused claim is the 8KB server, which works. Not 64KB: [fd_sfill] and
+; the commit's CX are words, and 32KB's commits were already at the drive's
+; rate. `-DFD_NOBIG` (ftpspeed's 8KB arm) or a bigger FD_STGSZ turns it off.
+FD_BIGSZ    equ 32768
+%ifdef FD_NOBIG
+FD_TIER     equ 0
+%elif FD_STGSZ < FD_BIGSZ
+FD_TIER     equ 1
+%else
+FD_TIER     equ 0
+%endif
 
 ; --- FD_STG2 - AND IT IS 0, BECAUSE THE MACHINE CANNOT OVERLAP THEM ---------
 ; **THE SECOND STAGE WORKS AND BUYS NOTHING** (SPEC.md 77.41.2). The field ran
@@ -468,6 +487,21 @@ fd_entry:
     jc .nostage2
     mov [fd_stg2], dx
 .nostage2:
+%endif
+    mov word [fd_bigseg], 0         ; ...and STOR's stage, by CPU (77.50.2)
+    mov word [fd_wstg], FD_STGSZ
+    mov byte [fd_ckpn], FD_CKPT / FD_STGSZ
+%if FD_TIER
+    call OSAPI_CPU_INFO
+    cmp al, CPU_286
+    jb .nobig                       ; an 8088 keeps the 8KB it was proven on
+    mov ax, FD_BIGSZ / 1024
+    call OSAPI_MEM_CLAIM            ; a whole number of KB, so 512-aligned
+    jc .nobig                       ; refused: the 8KB server, which works
+    mov [fd_bigseg], dx
+    mov word [fd_wstg], FD_BIGSZ
+    mov byte [fd_ckpn], FD_CKPT / FD_BIGSZ
+.nobig:
 %endif
     mov bx, [fd_win]
     mov ax, fd_onup
@@ -1898,6 +1932,12 @@ fd_commp:
 fd_stgp:
     or al, al
     jnz .claim
+    mov dx, [fd_bigseg]             ; STOR's 32KB stage on a 286 (77.50.2):
+    or dx, dx                       ; only STOR reaches this pair, so RETR and
+    jz .own                         ; LIST, which name fd_stage, keep 8KB
+    xor ax, ax
+    ret
+.own:
     mov ax, fd_stage
     mov dx, ds
     ret
@@ -3067,7 +3107,7 @@ fd_log_split:
     mov di, fd_outb2
     mov si, fd_l_stg
     call fd_dcat
-    mov ax, FD_STGSZ
+    mov ax, [fd_wstg]
     xor dx, dx
     call fd_dnum32
     mov si, fd_l_cm
@@ -4120,8 +4160,13 @@ fd_recv_stage:
     cmp word [fd_sfill], 0
     jne .last
     cmp byte [fd_created], 0
-    jne .fin
-.last:
+    je .last
+%if FD_WSEQF
+    cmp byte [fd_noseq], 0          ; A HELD STREAM OWES ITS CLOSE (SPEC.md
+    je .last                        ; 77.50.1): a file that is a whole number
+%endif                              ; of chunks ends with nothing staged, and
+    jmp short .fin                  ; finishing here sent the 226 with the last
+.last:                              ; up-to-256KB still unlinked
     call fd_handoff                 ; the tail is a commit like any other
     mov al, FR_WCREATE
     cmp byte [fd_created], 0
@@ -4384,8 +4429,11 @@ fd_c_stor:
     mov word [fd_scnt], 0
     mov byte [fd_created], 0
     mov byte [fd_lmore], 0
+    push cx
+    mov cx, [fd_wstg]               ; STOR's stage, 32KB on a 286 (77.50.2)
     call fd_setchunk                ; the cluster-rounded commit size, for THIS
-    jc .noroom                      ; volume, now (SPEC.md 52.3)
+    pop cx                          ; volume, now (SPEC.md 52.3)
+    jc .noroom
     call fd_keepname
     mov si, fd_r150
     call fd_reply
@@ -4439,7 +4487,7 @@ fd_setchunk:
     mov bx, ax
     or bx, bx
     jz .no
-    mov ax, FD_STGSZ
+    mov ax, cx                      ; the STAGE's bytes, which differ by verb
     xor dx, dx
     div bx                          ; how many whole clusters fit the stage
     or ax, ax
@@ -5949,7 +5997,10 @@ fd_do_rdchk:
     mov ax, [fd_fbuf+20]
     mov [fd_fsize+2], ax
     call fd_unbank
+    push cx
+    mov cx, FD_STGSZ                ; RETR reads into fd_stage, always 8KB
     call fd_setchunk
+    pop cx
     jc .noroom
     mov si, fd_r150
     call fd_reply
@@ -6122,8 +6173,9 @@ fd_do_write:
     jmp short .ok
 .held:
 %if FD_WSEQF
-    inc byte [fd_ckn]               ; ...BUT EVERY FD_CKPTN CHUNKS, A
-    cmp byte [fd_ckn], FD_CKPTN     ; CHECKPOINT: the stream so far committed
+    inc byte [fd_ckn]               ; ...BUT EVERY [fd_ckpn] CHUNKS, A
+    mov al, [fd_ckn]                ; CHECKPOINT: the stream so far committed
+    cmp al, [fd_ckpn]
     jb .last                        ; and the token still hot, so what a crash
     mov al, FD_WSEQF | WSEQF_CKPT   ; can lose is bounded by FD_CKPT and not
     jmp short .seal                 ; by the file
@@ -6159,8 +6211,12 @@ fd_do_write:
     cmp byte [fd_lmore], 2          ; fd_recv_stage marks the final commit, so
     jne .out                        ; the transfer ends here rather than after
     mov byte [fd_lmore], 0          ; one more empty round trip
+%ifdef FTPDBG
+    call fd_cmax_end                ; ...and THIS commit is in the split it
+%endif                              ; prints: fd_xdone letters it, so both
+    FT_E FT_DISK                    ; brackets close first (SPEC.md 77.50.1)
     call fd_xdone
-    jmp short .out
+    jmp short .pops
 .nopath:
     call fd_unbank
     mov si, fd_r550                 ; a static 'No such file or directory'
@@ -6177,6 +6233,7 @@ fd_do_write:
     call fd_cmax_end
 %endif
     FT_E FT_DISK
+.pops:
     pop es
     pop di
     pop si
@@ -9100,6 +9157,10 @@ fd_noseq    equ fd_wtok + 2                    ; byte: the kernel has no
                                      ; WRITE_SEQ (kern_small): APPEND instead
 fd_ckn      equ fd_noseq + 1                    ; byte: chunks held since the
                                      ; last checkpoint (SPEC.md 77.50)
+fd_ckpn     equ fd_ckn + 1                      ; byte: ...and how many make one
+fd_bigseg   equ fd_ckpn + 1                     ; word: STOR's 32KB stage, 0 =
+                                     ; none (an 8088, or refused: 77.50.2)
+fd_wstg     equ fd_bigseg + 2                   ; word: STOR's stage in bytes
 ; -----------------------------------------------------------------------------
 ; THE TWO RECT TABLES - CONTIGUOUS, because os88ui_bfind strides an array
 ;
@@ -9114,7 +9175,7 @@ fd_ckn      equ fd_noseq + 1                    ; byte: chunks held since the
 ; the four Setup fields keep the press, because focusing a field is
 ; SELECTING and SPEC.md 13.8.8 keeps the press for exactly that.
 ; -----------------------------------------------------------------------------
-fd_rcur     equ fd_ckn + 1                      ; FSEQ_SIZE: RETR's READ_SEQ
+fd_rcur     equ fd_wstg + 2                     ; FSEQ_SIZE: RETR's READ_SEQ
                                      ; cursor (SPEC.md 18.4.8.1)
 fd_rects    equ fd_rcur + FSEQ_SIZE              ; 24: the LOG page's three
 fd_btn      equ fd_rects + 0                    ; ...Start/Stop
