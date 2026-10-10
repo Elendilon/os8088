@@ -152,12 +152,21 @@ TY_FIND_CL  equ 16
 ; looks, because every unqualified name the caller passes the file API
 ; afterwards resolves wherever this left it standing.
 ;
-; IT IS REAL FLOPPY I/O: five remounts and three listings, a couple of seconds
-; on the target machine, UI-TASK CONTEXT ONLY like every other file slot. So
-; call it when something is about to USE the list - the first time a Font menu
-; opens - and not at launch. A menu nobody opens should cost nothing, which is
-; the same argument SPEC.md 6.2 makes about a directory of faces nobody picks
-; from.
+; IT IS REAL FLOPPY I/O, UI-TASK CONTEXT ONLY like every other file slot. The
+; first visit WALKS - root, SYSTEM, FONTS, two FIND scans on the way - and
+; banks where FONTS is (ty_gofonts); every visit after that is one quiet
+; GOTO_QM to the bank. None of it is a display remount any more: every move
+; in this file is OSAPI_FILE_GOTO_QM (docs/plans/NAV-COST-PLAN.md, SPEC.md
+; 19.9.1), where it was OSAPI_FILE_GOTO - a remount with a sort and an icon
+; harvest, five of them a scan. Still, call this when something is about to
+; USE the list - the first time a Font menu opens - and not at launch. A menu
+; nobody opens should cost nothing, which is the same argument SPEC.md 6.2
+; makes about a directory of faces nobody picks from.
+;
+; A BANKED VISIT THAT LISTS NOTHING IS NOT BELIEVED: a cluster banked on one
+; system disk names some other folder - or no folder - on the disk that has
+; replaced it, so an empty listing through the bank drops the bank, walks, and
+; lists once more. An empty FONTS found by a WALK is the truth and is final.
 ;
 ; What it reads is the FILE NAME and not the family inside each header: the
 ; name is already in the directory entry being walked, and learning the header
@@ -180,14 +189,15 @@ ty_scan:
     mov [ty_bkcwd], dx
     mov [ty_bkdrv], bl
     call ty_gofonts                 ; ...and go to SYSTEM/FONTS on the system
-    jc .back                        ; disk, which is the whole of the walk
+    jc .back                        ; disk, by the bank or by the walk
 
+.list:
     xor cx, cx                      ; --- list the faces inside it -----------
 .f2:
     mov [ty_ord], cx
     mov di, ty_find
     call OSAPI_FILE_FIND
-    jc .back
+    jc .end
     mov [ty_ord], cx
     cmp word [ty_find + TY_FIND_TY], OSAPI_FT_DIR
     jae .f2n                        ; a folder, or the synthesized '..'
@@ -200,11 +210,18 @@ ty_scan:
     mov cx, [ty_ord]
     jmp short .f2
 
+.end:
+    cmp byte [ty_nfam], 0           ; nothing listed...
+    jne .back
+    cmp byte [ty_fresh], 0          ; ...by a WALK: that is the answer
+    jne .back
+    mov byte [ty_fdrv], 0xFF        ; ...by the BANK: drop it, walk to the
+    call ty_gofonts                 ; real FONTS and list once more. The walk
+    jnc .list                       ; sets [ty_fresh], so this cannot loop
+
 .back:
-    mov dx, [ty_bkcwd]              ; ...and put the caller back where it was,
-    mov bl, [ty_bkdrv]              ; on every path out of here
-    call OSAPI_FILE_GOTO
-    cmp byte [ty_nfam], 0
+    call ty_home                    ; ...and put the caller back where it was,
+    cmp byte [ty_nfam], 0           ; on every path out of here
     je .none
     clc
     jmp short .out
@@ -356,6 +373,15 @@ ty_upper:
 ; ty_famn - how many families did the scan find?  out AL, preserves the rest
 ; ty_famname - AL = a family index; out SI = its display name, a NUL string
 ; ty_openfam - AL = a family index; opens it, answering exactly as ty_open
+;
+; ty_openfam is the HOT one: a word processor calls it on every face pick and
+; the Font Viewer on every selection change. With the folder banked (see
+; ty_gofonts) a pick is a quiet stand in FONTS, the face's own read, and a
+; quiet stand home - two GOTO_QMs, each a word compare while the system disk
+; is the volume already mounted, where it was four OSAPI_FILE_GOTO remounts.
+; A read through the bank that answers FERR_NOENT is os88data.inc's od_read
+; case: the bank may name the wrong folder, so it is dropped, FONTS is walked
+; to, and the face is asked for ONCE more - a walked folder's NOENT is true.
 ; =============================================================================
 ty_famn:
     mov al, [ty_nfam]
@@ -402,18 +428,24 @@ ty_openfam:
     call ty_gofonts                 ; ...and the same walk, which is why it is
     jc .fail                        ; written once (SI is ours across it)
     call ty_open                    ; CF and AL are its answer, and ours
+    jnc .home
+    cmp al, TYE_READ                ; refused - and refused by the READ, as
+    jne .refused                    ; FERR_NOENT, through the BANK? Then the
+    cmp word [ty_rdlen], FERR_NOENT ; bank may name the wrong folder: drop
+    jne .refused                    ; it, walk to the real FONTS and ask once
+    cmp byte [ty_fresh], 0          ; more. ty_open keeps SI, the name
+    jne .refused
+    mov byte [ty_fdrv], 0xFF
+    call ty_gofonts
+    jc .fail
+    call ty_open
     jmp short .home
 .fail:
     mov al, TYE_READ
-    stc
-.home:
-    pushf                           ; the walk home cannot be allowed to
-    push ax                         ; change the answer
-    mov dx, [ty_bkcwd]
-    mov bl, [ty_bkdrv]
-    call OSAPI_FILE_GOTO
-    pop ax
-    popf
+.refused:
+    stc                             ; EXPLICITLY: the compares above leave CF
+.home:                              ; describing themselves, not the open
+    call ty_home                    ; flags and AX kept: the open's answer
 .out:
     pop es
     pop di
@@ -426,22 +458,43 @@ ty_openfam:
 ; =============================================================================
 ; ty_gofonts - stand in SYSTEM/FONTS on the system disk (SPEC.md 19.8)
 ; in:  -
-; out: CF=0 = standing in it. CF=1 = the system disk, SYSTEM/ or FONTS/ could
-;      not be reached, and this instance is left SOMEWHERE ON THE WAY THERE.
-;      Preserves every register - only CF is an answer.
+; out: CF=0 = standing in it, and [ty_fresh] = 1 if this call WALKED there
+;      rather than coming by the bank. CF=1 = the system disk, SYSTEM/ or
+;      FONTS/ could not be reached, and this instance is left SOMEWHERE ON THE
+;      WAY THERE. Preserves every register - only CF is an answer.
+;
+; EVERY MOVE IS OSAPI_FILE_GOTO_QM; the full OSAPI_FILE_GOTO survives only
+; on ty_home's failure path, for the reason given there. The full GOTO is a
+; remount prepared for DISPLAY - boot sector, directory scan, sort, icon
+; harvest, and the kernel's cached directory window dropped on the way past -
+; and nothing here shows a folder: it FINDs and it reads by name, both of
+; which go through the raw directory sectors. GOTO_QM is the same stand done
+; quietly - a word inside the volume already mounted, once the kernel's media
+; test has agreed the disk was not swapped, else a quiet mount - and it moves
+; the INSTANCE with it, so the FIND or READ that follows resolves here and not
+; back in the caller's folder (docs/plans/NAV-COST-PLAN.md, SPEC.md 19.9.1,
+; 74.1). GOTO_Q would not do: it leaves the instance where it was and the next
+; file cell re-stands it there.
+;
+; THE FOLDER IS BANKED. The first walk keeps FONTS' first cluster and the
+; volume it was found on ([ty_fclus], [ty_fdrv]); every later visit is ONE
+; GOTO_QM to it, and a face pick - ty_openfam, on every selection the Font
+; Viewer makes - stops paying for root -> SYSTEM -> FONTS and its two FIND
+; scans. It is the trust the kernel extends to an instance's own folder and
+; that os88data.inc extends to APPDATA, under the same media test inside
+; GOTO_QM. It is re-earned rather than assumed: the bank is only offered while
+; OSAPI_VOL_SYS still answers the volume it was banked on, a GOTO_QM that
+; refuses it falls through to the walk, and both callers treat an empty
+; listing or a FERR_NOENT reached by the bank as a reason to walk once more.
 ;
 ; TWO descents rather than one, because the faces live under SYSTEM/ and not
-; beside it (SPEC.md 19.8): the root gives SYSTEM, SYSTEM gives FONTS. It is
-; one listing more than the old flat layout cost, on a bracket that was four
-; remounts and two listings already - and it is spent ONCE, lazily, on the
-; first Font menu, so what it adds to that is a fraction of the read of the
-; first face the user then picks.
+; beside it (SPEC.md 19.8): the root gives SYSTEM, SYSTEM gives FONTS.
 ;
 ; THE CALLER OWNS THE BRACKET, and that is why this does not bank
 ; OSAPI_FILE_HERE itself: a failed descent leaves the instance standing in
 ; SYSTEM/ or on the system root, where every unqualified name it passes the
-; file API afterwards would resolve. Both callers bank first and GOTO home on
-; every path out, CF=1 included.
+; file API afterwards would resolve. Both callers bank first and go home
+; through ty_home on every path out, CF=1 included.
 ; =============================================================================
 ty_gofonts:
     push ax
@@ -455,14 +508,27 @@ ty_gofonts:
     pop es                          ; ES:DI = our own FIND buffer throughout
     call OSAPI_VOL_SYS              ; where the system disk is
     mov [ty_sysvol], bl
-    xor dx, dx                      ; ...and its ROOT
-    call OSAPI_FILE_GOTO
+    mov byte [ty_fresh], 0
+    cmp bl, [ty_fdrv]               ; banked, and on THIS system volume?
+    jne .walk                       ; (0xFF = nothing banked: never a volume)
+    mov dx, [ty_fclus]
+    call ty_qm                      ; one quiet stand, and done
+    jnc .out
+.walk:
+    mov byte [ty_fdrv], 0xFF        ; nothing is trusted until the walk lands
+    xor dx, dx                      ; the system disk's ROOT (BL is still
+    call ty_qm                      ; [ty_sysvol]: the kernel keeps BX)
     jc .out
     mov si, ty_s_system
     call ty_dive
     jc .out
     mov si, ty_s_fonts
-    call ty_dive
+    call ty_dive                    ; DX = FONTS' first cluster on CF=0
+    jc .out
+    mov [ty_fclus], dx              ; ...banked, with the volume it is on
+    mov al, [ty_sysvol]
+    mov [ty_fdrv], al
+    mov byte [ty_fresh], 1          ; (`mov` leaves the dive's CF=0)
 .out:
     pop es
     pop di
@@ -474,8 +540,9 @@ ty_gofonts:
     ret
 
 ; ty_dive - SI names a folder in the one we are standing in; stand in IT.
-; out: CF=0 done, CF=1 = no such folder here and we have not moved. Clobbers
-; AX, BX, CX, DX, DI and the FIND buffer; SI is preserved and ES must be DS.
+; out: CF=0 done and DX = its first cluster, CF=1 = no such folder here (or
+; the stand refused) and we have not moved. Clobbers AX, BX, CX, DX, DI and
+; the FIND buffer; SI is preserved and ES must be DS.
 ;
 ; OSAPI_FT_DIR exactly, never `jae`: the synthesized '..' (OSAPI_FT_UP) sorts
 ; above it and is a folder that a name compare could match on a disk somebody
@@ -497,10 +564,55 @@ ty_dive:
 .in:
     mov dx, [ty_find + TY_FIND_CL]
     mov bl, [ty_sysvol]
-    call OSAPI_FILE_GOTO
-    ret
+    jmp ty_qm                       ; CF is GOTO_QM's answer, DX survives it
 .no:
     stc
+    ret
+
+; ty_qm - OSAPI_FILE_GOTO_QM with CX, SI, DI and ES kept. On a REDIRECTED
+; volume the slot reaches the driver's FSV_CHDIR, and CX, SI and DI are then
+; the driver's (os88api.inc at OSAPI_FILE_GOTO_Q); BX and DX the kernel keeps.
+; Every caller here holds a name in SI or the FIND buffer's ES, and the old
+; OSAPI_FILE_GOTO kept all of them, so the bracket is written once.
+ty_qm:
+    push cx
+    push si
+    push di
+    push es
+    call OSAPI_FILE_GOTO_QM
+    pop es
+    pop di
+    pop si
+    pop cx
+    ret
+
+; ty_home - stand where ty_scan/ty_openfam found the caller ([ty_bkcwd] on
+; [ty_bkdrv]). Preserves every register AND THE FLAGS: the walk home cannot be
+; allowed to change the answer.
+;
+; A REFUSED GOTO_QM MOVES NOTHING, and that is the one place this differs from
+; the OSAPI_FILE_GOTO it replaced. The old failure left the volume at its root
+; with the write gate SHUT, so the caller's next by-name write refused; a
+; failed quiet stand would leave the instance in SYSTEM/FONTS, where the
+; caller's next unqualified save would land beside the faces. So a refusal
+; falls back to the full OSAPI_FILE_GOTO, which either gets home after all or
+; fails exactly the way the bracket always failed. The fast path is the quiet
+; one; the remount is paid only on a path that was already a failure.
+ty_home:
+    pushf
+    push ax
+    push bx
+    push dx
+    mov dx, [ty_bkcwd]
+    mov bl, [ty_bkdrv]
+    call ty_qm
+    jnc .home
+    call OSAPI_FILE_GOTO
+.home:
+    pop dx
+    pop bx
+    pop ax
+    popf
     ret
 
 ty_s_system: db 'SYSTEM', 0
@@ -547,6 +659,7 @@ ty_init:
     mov byte [ty_tab + TF_REF], 1
 
     mov word [ty_psseg], 0
+    mov byte [ty_fdrv], 0xFF        ; no SYSTEM/FONTS banked yet (ty_gofonts)
     mov byte [ty_psface], 0xFF
     mov byte [ty_psstyle], 0xFF
     mov byte [ty_ok], 1
@@ -630,7 +743,8 @@ ty_open:
     xor dx, dx
     call OSAPI_FILE_READ            ; SI is still the caller's name
     jnc .read
-    mov al, TYE_READ
+    mov [ty_rdlen], ax              ; the FERR_*, which is how ty_openfam
+    mov al, TYE_READ                ; tells a stale bank from a bad sector
     jmp .freefail
 .read:
     or dx, dx                       ; a face is never 64KB, so a non-zero high
@@ -1731,16 +1845,24 @@ ty_nfam     equ ty_shcnt + 1    ; byte: families ty_scan listed
 ty_bkcwd    equ ty_nfam + 1     ; word } where the caller was standing, so a
 ty_bkdrv    equ ty_bkcwd + 2    ; byte } visit to SYSTEM/FONTS can put it back
 ty_sysvol   equ ty_bkdrv + 1    ; byte: OSAPI_VOL_SYS's answer, banked across
-                                ; the three GOTOs that all need it
+                                ; the three GOTO_QMs of a walk that all need it
 ty_ord      equ ty_sysvol + 1   ; word: OSAPI_FILE_FIND's ordinal, in memory
                                 ; because the helpers between two of its calls
                                 ; are not all obliged to preserve CX
-ty_find     equ ty_ord + 2      ; the OSAPI_FIND_SZ record
+ty_fclus    equ ty_ord + 2      ; word } SYSTEM/FONTS' first cluster and the
+ty_fdrv     equ ty_fclus + 2    ; byte } volume it was walked on; 0xFF = none
+                                ; banked. ty_init sets it, so nothing rests
+                                ; on what the bss held when it arrived
+ty_fresh    equ ty_fdrv + 1     ; byte: 1 = the last ty_gofonts WALKED, so an
+                                ; empty FONTS or a FERR_NOENT there is true
+ty_find     equ ty_fresh + 1    ; the OSAPI_FIND_SZ record
 ty_fnames   equ ty_find + 24    ; TY_MAXFAM x TY_NAMSZ: the 8.3 names
 ty_dnames   equ ty_fnames + TY_MAXFAM * TY_NAMSZ    ; ...and the display ones
 %endmacro
 
 ; ...and its size, for the caller's OS88_BSS. The tail past the face table is
-; 25 bytes of scalars; 48 is that with the slack a new one would want.
+; 39 bytes of scalars (ty_curseg up to ty_find); 48 is that with the slack a
+; new one would want - so the SYSTEM/FONTS bank came out of the slack and no
+; including package's OS88_BSS line moved.
 TY_BSS_SIZE equ TY_BANDSZ + TY_NGLYPH + TY_MAXFACE * TF_SIZE + 48 \
                 + 24 + TY_MAXFAM * (TY_NAMSZ + TY_DISPSZ)

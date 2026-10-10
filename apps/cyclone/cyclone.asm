@@ -7364,177 +7364,19 @@ cy_hs_magic: db 'CY8', 1            ; the format, so a stale or foreign file is
 ; is the whole of how a user reaches an application here, so a data file in an
 ; app folder is a misclick waiting to happen and one more row to scroll past.
 ;
-; cy_data_enter stands us in SYSTEM\APPDATA on OUR OWN volume - the disk we
-; were launched from, which is in the drive by definition, where the boot
-; volume may well have been swapped out on a one-floppy machine - and
-; cy_data_leave puts us back. Every path out of a save or a load must call the
-; leave, or the app is left standing somewhere else and its next Save As opens
-; there (SPEC.md 38.10) and every unqualified name it passes the file API
-; afterwards resolves there.
+; apps/os88data.inc stands us in SYSTEM\APPDATA on OUR OWN volume - the disk
+; we were launched from, which is in the drive by definition, where the boot
+; volume may well have been swapped out on a one-floppy machine - and puts us
+; back on every path out, refusals included.
 ;
-; IT IS OSAPI_FILE_GOTO AND NOT ITS QUIET TWIN, and that is the whole of what
-; the first version got wrong. OSAPI_FILE_GOTO_Q moves the GLOBAL cwd and
-; deliberately NOT the instance's - its own contract says so: "this is where
-; the caller is standing to do a job, not where the application now believes
-; it lives" - while OSAPI_FILE_FIND, _READ and _WRITE every one resolve in the
-; INSTANCE's folder through inst_vol_enter. So the quiet move was undone by
-; the very next call: the walk listed GAMES, found no SYSTEM in it, and the
-; save wrote nothing at all. The load path appeared to work, which is worse
-; than failing - it was luck about which folder the globals happened to be
-; standing in, and luck does not repeat.
-;
-; The price is that each step is a REMOUNT: four for a save, four for the load
-; at first paint. That is affordable exactly here - a save is already seconds
-; of floppy and happens once per qualifying game over - and it is NOT cached,
-; because a cached cluster plus a swapped disk is a write into whatever
-; cluster 3 is on somebody else's floppy.
-cy_d_system: db 'SYSTEM', 0
-cy_d_appdat: db 'APPDATA', 0
-
-; cy_data_enter - bank where we are and go to SYSTEM\APPDATA on this volume.
-; out: CF=1 we did not get there and NOTHING was banked or moved - the caller
-;      does its file operation nowhere and must NOT call cy_data_leave.
-;      CF=0 and the banked pair is in [cy_dbdrv]/[cy_dbclus].
-; UI task only. Clobbers nothing the callers keep.
-cy_data_enter:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push es
-    push ds
-    pop es
-    call OSAPI_FILE_HERE            ; DX = our cwd cluster, BL = our drive
-    mov [cy_dbclus], dx
-    mov [cy_dbdrv], bl
-    xor dx, dx                      ; the ROOT of that same volume
-    call OSAPI_FILE_GOTO
-    jc .back
-    mov si, cy_d_system
-    call cy_data_dive
-    jc .back
-    mov si, cy_d_appdat
-    call cy_data_dive
-    jc .back
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    clc
-    ret
-.back:
-    ; A DISK WITHOUT THE FOLDER IS NOT AN ERROR - it is a user's own disk, or
-    ; one written by something else. Put the volume back and refuse: the caller
-    ; then does nothing, which is exactly what a refused write already did.
-    call cy_data_home
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    stc
-    ret
-
-; cy_data_leave / cy_data_home - back to the banked folder. Preserves
-; everything AND the flags: the caller's result is in CF and AX.
-cy_data_leave:
-    pushf
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    call cy_data_home
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    popf
-    ret
-
-cy_data_home:
-    push ax
-    push bx
-    push dx
-    mov dx, [cy_dbclus]
-    mov bl, [cy_dbdrv]
-    call OSAPI_FILE_GOTO
-    pop dx
-    pop bx
-    pop ax
-    ret
-
-; cy_data_dive - step into the folder named at SI, in the current directory.
-; out: CF=1 there is no such folder. ES = DS on entry.
-cy_data_dive:
-    push ax
-    push cx
-    push si
-    push di
-    xor cx, cx                      ; the walk's ordinal, 0 to start
-.each:
-    push ds                         ; ES EVERY TIME, not once: the buffer is
-    pop es                          ; ours and nothing promises ES survives a
-    mov di, cy_dfind                ; far call into the kernel
-    call OSAPI_FILE_FIND
-    jc .none
-    cmp word [cy_dfind + 14], OSAPI_FT_DIR
-    jne .each                       ; only a FOLDER can be dived into, and the
-                                    ; type word is the question to ask: type 1
-                                    ; is a PACKAGE and not "a file"
-    push cx
-    push si
-    mov di, cy_dfind
-    call cy_data_same
-    pop si
-    pop cx
-    jc .each
-    mov dx, [cy_dfind + 16]         ; its first cluster
-    mov bl, [cy_dbdrv]
-    call OSAPI_FILE_GOTO
-    jc .none
-    pop di
-    pop si
-    pop cx
-    pop ax
-    clc
-    ret
-.none:
-    pop di
-    pop si
-    pop cx
-    pop ax
-    stc
-    ret
-
-; cy_data_same - is the NUL name at SI the one at DI? CF=0 yes.
-cy_data_same:
-    push ax
-.n:
-    mov al, [si]
-    cmp al, [di]
-    jne .no
-    or al, al
-    jz .yes
-    inc si
-    inc di
-    jmp short .n
-.yes:
-    pop ax
-    clc
-    ret
-.no:
-    pop ax
-    stc
-    ret
+; This file carried its own walker until then, built out of OSAPI_FILE_GOTO
+; because the quiet twin GOTO_Q is undone by the next file cell. That reason
+; was right and the slot was wrong: GOTO_QM (SPEC.md 74.1) is the quiet move
+; that sticks, and FILE_GOTO was a REMOUNT FOR DISPLAY at every step - four a
+; save, and seconds of floppy (docs/plans/NAV-COST-PLAN.md). The include also
+; banks APPDATA's cluster and rewrites an unchanged-length file in one sector.
+%include "os88data.inc"
+cy_hs_ip: db 0                      ; os88data.inc's in-place stamp, CYCLONE.HS
 
 ; cy_hs_load - read the table, once, from the first paint. Anything wrong with
 ; the file leaves the built-in defaults standing: a high score table is not
@@ -7553,14 +7395,11 @@ cy_hs_load:
     push es
     push ds
     pop es
-    call cy_data_enter              ; SPEC.md 19.9: the table lives in
-    jc .done                        ; SYSTEM\APPDATA, not beside the games
-    mov si, cy_hs_file
-    mov bx, cy_hsbuf
+    mov si, cy_hs_file              ; SPEC.md 19.9: the table lives in
+    mov bx, cy_hsbuf                ; SYSTEM\APPDATA, not beside the games
     mov cx, CY_HSFSZ
     xor dx, dx
-    call OSAPI_FILE_READ
-    call cy_data_leave              ; ...and we stand where we started again,
+    call od_read                    ; ...and we stand where we started again,
     jc .done                        ; whatever the read answered
     or dx, dx
     jnz .done                       ; longer than a word: not ours
@@ -7621,15 +7460,11 @@ cy_hs_save:
     mov si, cy_hsn
     mov cx, CY_NHS * 3
     call cy_bcopy
-    call cy_data_enter
-    jc .gone
     mov si, cy_hs_file
     mov bx, cy_hsbuf
     mov cx, CY_HSFSZ
-    xor dx, dx
-    call OSAPI_FILE_WRITE
-    call cy_data_leave
-.gone:
+    mov di, cy_hs_ip
+    call od_write                   ; one sector, after the session's first
     pop es
     pop di
     pop si
@@ -8870,9 +8705,6 @@ CY_TWORDS equ 14
                                     ; os88_image_end and stays non-scalar, so
                                     ; the rounding past OS88_IMAGE_END cannot
                                     ; be written in terms of the label
-    CBUF  cy_dfind, OSAPI_FIND_SZ   ; one OSAPI_FILE_FIND record (SPEC.md 19.9)
-    CWORD cy_dbclus                 ; where we were standing before the visit
-    CBYTE cy_dbdrv
     CBUF  cy_ibuf2, CY_INITW + 2    ; ...and the prompt it is lettered from
 
 ; --- the embeddable graphics library (SPEC.md 5.12) ---------------------------

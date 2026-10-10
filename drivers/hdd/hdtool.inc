@@ -118,6 +118,7 @@ hd_tool_need:
     push cx
     push dx
     push si
+    push di                     ; hd_tool_back's GOTO_Q may spend it (there)
     push bp
     push es
 
@@ -126,8 +127,10 @@ hd_tool_need:
     mov [hd_tvsav], bl
     mov dx, [hd_tcwd]
     mov bl, [hd_tvol]
-    call OSAPI_FILE_GOTO        ; ...and off to the system volume
-    jc .fail
+    call OSAPI_FILE_GOTO_Q      ; ...and off to the system volume, QUIETLY
+    jc .fail                    ; (SPEC.md 19.2.2): a file read by name, no
+                                ; folder shown. CF=1 has moved NOTHING, so the
+                                ; read below never runs in the user's folder
 
     mov ax, HDTOOL_KB
     call OSAPI_MEM_CLAIM_HI     ; owner = our segment, so drv_release sweeps
@@ -199,6 +202,7 @@ hd_tool_need:
 .out:
     pop es
     pop bp
+    pop di
     pop si
     pop dx
     pop cx
@@ -209,11 +213,18 @@ hd_tool_need:
 ; -----------------------------------------------------------------------------
 ; hd_tool_back - put the user's volume back (module internal)
 ; in:  nothing
-; out: nothing (all registers AND the flags preserved)
+; out: nothing (BX, DX AND the flags preserved; AX, CX, SI, DI are GOTO_Q's)
 ;
 ; The flags, because every caller's answer is in CF and a failed remount must
 ; not read as a failed load - drv_vol_back's own rule (SPEC.md 51.5.2), and a
 ; failed restore is swallowed for the same reason it is there.
+;
+; QUIET, as drv_vol_back's own restore is: putting the user's volume back is
+; not showing it (SPEC.md 19.2.2). GOTO_Q answers in AX, and on a REDIRECTED
+; volume - the user's may be one - it reaches that driver's FSV_CHDIR, whose
+; to spend CX, SI and DI are (os88api.inc, at GOTO_Q). Both callers are
+; inside hd_tool_need, which banks all four (DI for exactly this), so they
+; are banked once there rather than twice.
 ; -----------------------------------------------------------------------------
 hd_tool_back:
     pushf
@@ -221,7 +232,7 @@ hd_tool_back:
     push dx
     mov dx, [hd_tcsav]
     mov bl, [hd_tvsav]
-    call OSAPI_FILE_GOTO
+    call OSAPI_FILE_GOTO_Q
     pop dx
     pop bx
     popf

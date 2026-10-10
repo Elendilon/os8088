@@ -912,16 +912,23 @@ sh_deferred_ld:
     push dx
     push si                           ; sh_paint takes SI as its window ptr
     push di                           ; the instruction after this returns -
-    push es                           ; OSAPI_FILE_GOTO documents no output
-    mov byte [sh_needld], 0           ; but promises nothing about SI either
-
-    mov dx, [sh_argdir]
-    mov bl, [sh_argdrv]
-    call OSAPI_FILE_GOTO
-    jc .out                           ; could not list it: the volume is back
-    call sh_doread                    ; at the root and sh_name still names a
-.out:                                 ; file that is not here - leave the
-    pop es                            ; sheet empty rather than half-read
+    push es                           ; OSAPI_FILE_GOTO_QM answers in AX and,
+    mov byte [sh_needld], 0           ; on a redirected volume, hands CX, SI
+                                      ; and DI to the driver (SPEC.md 62.9.1)
+    mov dx, [sh_argdir]               ; Stand in the document's folder QUIETLY
+    mov bl, [sh_argdrv]               ; and move the instance with it: nothing
+    call OSAPI_FILE_GOTO_QM           ; here lists the folder, so the remount's
+                                      ; scan, sort and icon harvest were ~0.5 s
+                                      ; of floppy bought for no reader
+                                      ; (docs/plans/NAV-COST-PLAN.md, SPEC.md
+                                      ; 19.9.1). sh_doread's by-name read then
+                                      ; resolves in the instance's folder,
+                                      ; which is now this one.
+    jc .out                           ; could not stand there, and NOTHING
+    call sh_doread                    ; moved: sh_name would resolve in the
+.out:                                 ; package's own folder and could find a
+    pop es                            ; same-named stranger - leave the sheet
+                                      ; empty rather than read the wrong file
     pop di
     pop si
     pop dx

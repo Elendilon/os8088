@@ -34353,6 +34353,42 @@ What it buys: the installer's copy has **no size limit left in it**,
 system-file path is exercised on a machine that has plenty of heap — which
 is every machine here, and is why that path had never run.
 
+#### 18.4.4.2 `READ_AT` takes whole SECTORS on `kern_big` (2026-10-10)
+
+**18.4.4's rule was a cluster, and a cluster is not a fixed size.** A hard
+disk's FAT16 takes the smallest cluster that keeps its count in range
+(52.3) - 8 KB past 256 MB, 16 KB past 512 MB, 32 KB to 2 GB - so a package
+reading a few bytes in the middle of a file read the cluster round them:
+the Video Player's keyframe of 60 KB needed 72 KB at 8 KB clusters, over
+the one 64 KB read it is held to, and a file made for a 286 on a 512 MB
+partition had no seek and no poster (98.1.7.6). A 1.8 KB sound lead
+cost 64 KB of disk and of RAM on a 2 GB volume.
+
+**On `kern_big` the offset and the capacity are each a whole number of
+SECTORS.** Nothing else moves: the read is still one `dsk_read_chain` call,
+which already ends mid-cluster on a file's last one, and now STARTS
+mid-cluster on its first - `dskw_read_at` hands it the sectors the offset is
+into its cluster in `[dsk_csk]`, the walk counts them as read (so the run's
+length and its last cluster come out exactly as the cluster read's), and the
+first run's flush starts that many sectors in and moves that many fewer. It
+is spent once a call, in the flush and never per cluster, and is cleared on
+every way out so no other caller's chain can inherit it. A chunk still ends
+where the next one starts - at a sector rather than a cluster - and a
+cluster-aligned caller is served exactly as before.
+
+**`READ_SEQ`'s cursor is a cache of the cluster after the last one read**,
+which a read ending mid-cluster would make one link wrong. The wrapper
+leaves the cursor COLD when the new offset is not a cluster's start, so the
+next call walks from the name; every streaming caller in the tree reads
+whole clusters and never pays it, and the end of a file - whose last chunk
+is short - costs one stat.
+
+`kern_small` keeps the cluster rule, byte-identical: the 128 KB machine has
+floppies, whose clusters are 1 KB at most. A package that wants sectors asks
+for them - one `READ_AT` of a file's second sector, refused `FERR_NAME` by a
+kernel that wants clusters - which is what `VIDEO.O88` does (98.1.7.6).
+**56 resident bytes** (`.cold` +55, `.bss` +1); `vidkeyclus` is the gate.
+
 ### 18.4.5 `OSAPI_FILE_DFREE` does no disk I/O, and that is not the same as cheap
 
 The slot has always said "no disk I/O", and `dskw_dfree` has always been
@@ -38793,22 +38829,28 @@ Four things about the convention:
   right behaviour there is the one a refused write already has: keep the state
   in memory and say nothing.
 - **Getting there is bank, go, act, go back** — `OSAPI_FILE_HERE`, then
-  `OSAPI_FILE_GOTO` per component, then the read or write by name, then
-  `OSAPI_FILE_GOTO` back to the banked pair. Leaving the instance somewhere
+  `OSAPI_FILE_GOTO_QM` per component, then the read or write by name, then
+  `OSAPI_FILE_GOTO_QM` back to the banked pair. Leaving the instance somewhere
   else would move where its next Save As opens (§38.10) and where every
-  unqualified name it passes the file API resolves.
+  unqualified name it passes the file API resolves. **An assembly package
+  does not write this: it includes `apps/os88data.inc` (§19.9.1).**
 
-  **IT IS `OSAPI_FILE_GOTO` AND NOT THE QUIET TWIN, and this bullet said the
-  opposite for two releases.** `GOTO_Q` looks right — this is a file operation
-  and not navigation, nothing is being *shown*, and it skips the scan, the sort
-  and the icon harvest. But it moves the GLOBAL cwd and deliberately **not**
-  the instance's, while `OSAPI_FILE_FIND`, `_READ` and `_WRITE` every one
-  resolve in the instance's folder through `inst_vol_enter` — so the quiet move
-  is undone by the very next call. Cyclone's `cy_data_enter` carries the
-  finding in its own header: the walk listed `GAMES`, found no `SYSTEM` in it,
-  and the save wrote nothing at all, while the load path *appeared* to work,
-  which is worse than failing. The price is that each step is a remount, which
-  is affordable exactly here.
+  **IT IS `OSAPI_FILE_GOTO_QM`, AND THIS BULLET HAS NOW NAMED ALL THREE
+  SLOTS.** It said `GOTO_Q` for two releases, which is wrong: `GOTO_Q` moves
+  the GLOBAL cwd and deliberately **not** the instance's, while
+  `OSAPI_FILE_FIND`, `_READ` and `_WRITE` every one resolve in the instance's
+  folder through `inst_vol_enter`, so the quiet move is undone by the very
+  next call — Cyclone's walk listed `GAMES`, found no `SYSTEM` in it, and the
+  save wrote nothing at all while the load path *appeared* to work. It then
+  said `OSAPI_FILE_GOTO`, which works and is a **remount for display** at
+  every step — the BPB, the scan, the sort, the icon harvest — and drops
+  §19.2.3's directory cache on the way past: Tank Attack took about six
+  seconds to save a 46-byte score file (docs/plans/NAV-COST-PLAN.md).
+  `GOTO_QM` (§74.1) is the quiet stand that MOVES THE INSTANCE, which is the
+  answer to the first refusal without the cost of the second: inside the
+  volume it is a word once `dsk_media_ok` has agreed the floppy cannot have
+  changed (§18.9.1.1), and otherwise a quiet mount that keeps the BPB, the FAT
+  window and the directory cache.
 - **`SYSTEM/` is found by walking, not assumed.** `OSAPI_FILE_FIND` (§19.7.1)
   from the root, matching `type == OSAPI_FT_DIR` — the folder is an ordinary
   visible directory, unlike the system *files* inside it (§19.6).
@@ -38825,6 +38867,39 @@ folder rule with nothing to tolerate: the default is the shipping
 configuration, and the file exists so that a gate can point one machine at a
 host server (`make thewiretest`) and a user can point theirs at a mirror.
 Nothing on the machine writes it.
+
+#### 19.9.1 `apps/os88data.inc` — the visit, written once
+
+Five packages carried a private copy of the walk — Cyclone, Tank Attack, Dot
+Delirium, Clear Skies and PIXELSTEIN 3D, the last two saying in their own
+headers that the shared include was the obvious next step. It is one file now,
+`od_read` and `od_write`, and it does three things the copies did not:
+
+- **Every step is `OSAPI_FILE_GOTO_QM`** (§19.9's bullet above).
+- **APPDATA's cluster is BANKED** after the first walk, and the next visit is
+  one `GOTO_QM` to it. That is the trust the kernel already extends to an
+  instance's own folder — `inst_vol_enter` is a word compare against a banked
+  cluster — under the same media test. A banked visit never *creates*: a full
+  `OSAPI_FILE_WRITE` is always preceded by a fresh walk in the same call, and a
+  read that answers `FERR_NOENT` at a banked folder walks and asks once more.
+- **A rewrite of unchanged length is ONE SECTOR.** `OSAPI_FILE_WRITE` replaces
+  — free the chain, allocate one, both FATs, the entry — where
+  `OSAPI_FILE_WRITE_AT` at offset 0 is §18.4.7's INSIDE arm: no cluster, no FAT
+  sector, and with the end exactly at the size no entry store either. Because
+  `WRITE_AT` is raw and leaves the compression hint alone (§20.14.4), the fast
+  arm is taken only for a file this session has itself written IN FULL since
+  the folder was last walked — the caller's `DI` byte holds the walk's
+  generation from that write, and any later walk makes every stamp stale. A
+  refused `WRITE_AT` is also the bank's witness: `FERR_NOENT` at a banked
+  folder means it is not the folder we banked, and the call falls back to a
+  walk and a full write. `kern_small` has no `WRITE_AT` (§18.4.7.4) and takes
+  the full arm every time, still with no display remount in it.
+
+So a save is: the first one of a session, a quiet mount if the motor has
+stopped plus a walk out of the cached window plus a full write; every one after
+it, a quiet mount if the motor has stopped plus one data sector. Weave and LOOM
+(C) walk with `os88_file_goto_q_mark` the same way and do not bank — a Weave
+state is not a fixed length.
 ### 19.10 The everything set — `apps-all-N.img`, every program on as many floppies as it takes
 
 The shipped apps floppy is built in four geometries (§19) and carries the
@@ -115049,7 +115124,7 @@ compatibility — a bump is for the day a key changes *meaning* rather than
 appears.
 
 **Getting to the folder is Cyclone's routine and Cyclone's trap** (§67.20):
-it is `OSAPI_FILE_GOTO` and **not** its quiet twin. `GOTO_Q` moves the global
+it is `OSAPI_FILE_GOTO_QM` and **not** its quiet twin. `GOTO_Q` moves the global
 cwd and deliberately not the instance's, while `OSAPI_FILE_FIND`, `_READ` and
 `_WRITE` each resolve in the instance's folder through `inst_vol_enter` — so a
 quiet move is undone by the very next call and the write lands wherever the app
@@ -123793,11 +123868,13 @@ screen before the `N`/`F` prompt appears.
 The shape is Cyclone's (§67.20) and so are its two rules, repeated in
 `apps/tank/tkhs.inc` because getting either wrong fails **quietly**: the file
 belongs in `SYSTEM\APPDATA` (§19.9) and not beside the game, where the file
-browser makes it a misclick waiting to happen; and it is `OSAPI_FILE_GOTO`
-and **not** its quiet twin, because `GOTO_Q` moves the global cwd and
-deliberately not the instance's, so a quiet move is undone by the very next
-`FILE_FIND` — the save then writes nothing at all while the load appears to
-work.
+browser makes it a misclick waiting to happen; and it is reached with
+`OSAPI_FILE_GOTO_QM`, through `apps/os88data.inc` (§19.9.1) — not `GOTO_Q`,
+which moves the global cwd and deliberately not the instance's, so a quiet
+move is undone by the very next `FILE_FIND` and the save writes nothing at
+all; and no longer `OSAPI_FILE_GOTO`, which is a remount for display at every
+step and made the save about six seconds of floppy. The first save of a session
+is a full write; every one after it is one sector.
 
 **The write happens inside the fsx bracket**, at the moment the initials are
 committed. That is legal — the file API is UI-task-context-only and a bracket
@@ -133749,10 +133826,10 @@ The shape is `apps/tank`'s `tkhs.inc` (§85.9), which is `apps/cyclone`'s
 (§67.20), down to its two hard-won rules — **`SYSTEM\APPDATA` on our own
 volume**, because the file browser is the whole of how a user reaches an
 application and a data file in an app folder is a misclick waiting to happen;
-and **`OSAPI_FILE_GOTO` and not its quiet twin**, because `GOTO_Q` moves the
-global cwd and deliberately not the instance's, so a quiet move is undone by
-the very next call and the save writes nothing at all while the load appears
-to work.
+and **`OSAPI_FILE_GOTO_QM` and not its quiet twin**, because `GOTO_Q` moves
+the global cwd and deliberately not the instance's, so a quiet move is undone
+by the very next call and the save writes nothing at all while the load
+appears to work. The walk is `apps/os88data.inc`'s now (§19.9.1).
 
 **WHEN it saves is this file's own choice, and it is not tank's.** Tank banks
 a score the moment the initials are typed, because a player expects a score to
@@ -140279,7 +140356,8 @@ a lost life; it sets `[dd_hudd]` and `[dd_boxd]` now.
 Two rules that fail *quietly* when they are got wrong, and are Cyclone's and
 Tank Attack's before they were this package's (§67.20, §85.9): the file lives
 in `SYSTEM\APPDATA` and not beside the game, and the move there is
-`OSAPI_FILE_GOTO` and **not** its quiet twin — `GOTO_Q` moves the global
+`OSAPI_FILE_GOTO_QM` (`apps/os88data.inc`, §19.9.1) and **not** its quiet
+twin — `GOTO_Q` moves the global
 directory and deliberately not the instance's, while `FILE_FIND`, `_READ` and
 `_WRITE` all resolve in the instance's, so a quiet move is undone by the very
 next call and the save writes nothing at all while the load appears to work.
@@ -155922,7 +156000,8 @@ the defaults stand) is apps/skies' `csset.inc` in its fifth copy: read once in t
 proc after `px_adapter` (so the Mode item is checked against what this
 display offers), every byte clamped to its row's range rather than
 refused, written from the menu handler and from the V key in a window —
-UI task, `OSAPI_FILE_GOTO` and never its quiet twin — and a V key inside
+UI task, `OSAPI_FILE_GOTO_QM` through `apps/os88data.inc` (§19.9.1) and
+never `GOTO_Q` — and a V key inside
 the bracket banks `px_cfgdirty` so the file is written when the bracket
 is left, never with the machine in a foreign mode. Each drawn frame is timed with
 `apps/os88pit.inc`'s `pit_now` (838 ns units, a latch read the bracket is
@@ -157077,8 +157156,8 @@ time in ticks; the switch adds 1,000; the score is a word (a sum past
 **The table** (`pxhs.inc`, apps/tank's `tkhs.inc` and apps/dotdel's
 `ddhs.inc` in shape): six rows of a score and three initials,
 `SYSTEM\APPDATA\PXSTEIN.HS` on the volume the game was launched from,
-magic `'PX8',1`, 34 bytes; **`OSAPI_FILE_GOTO`, never its quiet twin**, and
-reached through `pxset.inc`'s own `px_set_enter` / `px_set_leave`. **Only
+magic `'PX8',1`, 34 bytes; **`OSAPI_FILE_GOTO_QM`, never `GOTO_Q`**, and
+reached through `apps/os88data.inc` (§19.9.1), which `pxset.inc` includes. **Only
 the UI task touches it** (§20.6 rule 7): read once in the entry proc,
 written by ENTER's Enter — which is `W_ONKEY` in a window and the
 bracket's own `int 16h` loop in a bracket, the bracket being the UI task
@@ -158988,6 +159067,36 @@ system floppy on the Hercules 5150 - Play starts a session, the
 rendition's block lands byte for byte across two calls, frames are drawn.
 Broken on purpose (the player before it) it FAILS with the damaged-file
 sentence.
+
+##### 98.1.7.6 A read in SECTORS - a seek on any volume (2026-10-10)
+
+**A key is checked against one 64 KB read and that read was CLUSTERS**:
+the record and a cluster less a byte either side (98.1.7.5), so the largest
+key a file could carry was `VP_KMAXREC`'s 61,440 on clusters up to 4 KB,
+57,345 on 8 KB, 49,153 on 16 KB and 32,769 on 32 KB - and the check is the
+file's LARGEST key, so one past it dropped the whole table: no seek, no
+poster. The encoder leaves a key out against the 2 KB clusters of every
+disk it makes (`KEY_CLB`), which the owner's own 512 MB partition is not:
+an encode for `286-fast` with a key of 60,845 bytes answered every Left and
+Right with "No seeking".
+
+**`vp_rdat` reads in a GRANULE, `[vp_rgb]`**, and on a kernel whose
+`READ_AT` takes sectors (18.4.4.2) the granule is 512 - asked once at open,
+on a volume whose clusters are past 1 KB, with one read of the header's
+second sector. A key's read is then its record and less than a sector
+either side on every volume, `VP_KMAXREC` binds on all of them, and
+`vp_spankb`, `vp_bkkb`, `vp_bkrd` and `vp_ldstored` size what `vp_rdat`
+reads by the same granule. The STREAM is unchanged - `READ_SEQ` reads whole
+clusters from the one under its start, and `[vp_clb]` stays what positions
+it. On `kern_small`, or an older kernel, the granule is the cluster and
+98.1.7.5's limits stand. 35 bytes of `VIDEO.O88`.
+
+`vidkeyclus` is the gate: `vidbigclus`'s 32 KB-cluster disk with a VGA8
+clip whose keys are 39 KB - past a cluster read's 32,769 there and inside
+it at 16 KB, so the row tests exactly the cluster. It opens with its keys
+and its poster, a Right in the full screen reads a key 20 KB into its
+cluster and the record is the file's byte for byte, and the play goes on
+from it.
 
 #### 98.1.8 Sound ahead of the picture (`AHEAD`)
 

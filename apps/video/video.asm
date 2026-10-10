@@ -953,6 +953,10 @@ vp_open:
     call vp_pfree                   ; the last file's poster, and its keys
     call vp_rfree                   ; ...and its loaded block
     call vp_xfree                   ; ...and its hold in XMS (98.3.18)
+    push di
+    mov di, vp_rdcur                ; ...and vp_rdat's cursor, which names no
+    call os88_rseq_new              ; file and would trust the last one's
+    pop di
     xor ax, ax
     mov [vp_nkeys], ax
     mov [vp_kekb], ax               ; a keyless file reserves no entry read
@@ -990,6 +994,23 @@ vp_open:
     cmp ax, 512
     jb .short
 .have:
+    ; THE READ'S GRANULE (98.1.7.6): what vp_rdat reads in - a SECTOR where the
+    ; kernel's READ_AT takes one (SPEC.md 18.4.4.2), else the cluster. Asked
+    ; of a hard disk's volume alone, whose clusters are 2 KB and up: a key
+    ; read in 32 KB clusters is the record and up to two of them, so a 60 KB
+    ; key was past one 64 KB read and the file had no seek
+    mov ax, [vp_clb]
+    mov [vp_rgb], ax
+    cmp ax, 1024
+    jbe .gr
+    mov bx, 512                     ; (the header's second sector, over the
+    mov cx, bx                      ; copy of it the read above left there)
+    mov ax, bx
+    xor dx, dx
+    call OSAPI_FILE_READ_AT         ; CF=1: a kernel that wants clusters
+    jc .gr
+    mov word [vp_rgb], 512
+.gr:
     ; THE RENDITION (98.1.7), the best that plays here: 3 its layout the
     ; DESKTOP's own - the window with no shadow, and the full screen in its
     ; own mode; 2 a mode of its own on this display, full screen (a VGA has
@@ -1091,6 +1112,7 @@ vp_open:
 ; vp_parse - ES:0 = the header. CF=1 with [vp_msg] set when it refuses
 vp_parse:
     mov word [vp_nkeys], 0          ; no key in hand until the keyframes
+    mov byte [vp_nkwhy], VOK_NOKEY  ; (and none in the file, until they are)
     mov word [vp_msg], vp_s_notv88  ; pass: a refusal anywhere leaves none
     cmp word [es:0], 'V8'
     jne .bad
@@ -1519,8 +1541,10 @@ vp_parse:
     jae .bad
 .pok:
     mov [vp_poster], bx
-    or ax, ax
+    mov byte [vp_nkwhy], VOK_NOKEY  ; WHY THERE IS NO SEEK, if there is none:
+    or ax, ax                       ; the file has no keys...
     jz .nokeys
+    mov byte [vp_nkwhy], VOK_BIGKEY ; ...or has them, past one read here
     mov bx, [es:di+R_KTAB]
     test bx, 511
     jnz .bad
@@ -3733,6 +3757,19 @@ vp_zero:
 ; The buffer holds SI + CX rounded up to a cluster, which vp_spankb bounds.
 ; out: CF=0 SI = where the offset landed; CF=1 the disk failed, or the file
 ; stops short of them
+;
+; THE DISK ARM IS os88_rseq (apps/os88rseq.inc, SPEC.md 18.4.8.1) ON ITS OWN
+; CURSOR, [vp_rdcur], and not OSAPI_FILE_READ_AT: READ_AT re-walks the chain
+; from the front on every call, so vp_ldstored's 32 KB pieces of a block up to
+; 1 MB walked a chain that grew with every piece - and so did this routine's
+; own two or three calls for a wide span. A read that carries on from where
+; the last one stopped walks one link a cluster; any other offset re-seeds the
+; cursor, which is the walk READ_AT made anyway, so no caller pays more. The
+; cursor is NOT the stream's: vp_cur, vp_xcur and vp_lycur belong to the ring,
+; the hold and the layers, and a block can load while any of them is live.
+; It names no file, so vp_open starts it cold for every file. The HELD arm
+; (vp_xrdat) still comes first - a copy out of XMS beats any disk read - and
+; on kern_small the helper makes READ_AT's own call
 vp_rdat:
     push ax
     push bx
@@ -3740,7 +3777,7 @@ vp_rdat:
     push dx
     push di
     push es
-    mov bx, [vp_clb]
+    mov bx, [vp_rgb]
     dec bx                          ; BX = a cluster's mask, throughout
     mov si, ax
     and si, bx                      ; SI = into its cluster
@@ -3757,7 +3794,7 @@ vp_rdat:
 .disk:
     mov es, [vp_rdseg]
 .l:
-    mov di, [vp_clb]
+    mov di, [vp_rgb]
     neg di                          ; DI = a call's most, whole clusters
     mov cx, di                      ; CX = what this one must deliver
     cmp word [vp_rdend+2], 0
@@ -3779,7 +3816,10 @@ vp_rdat:
     mov cx, di
     xor bx, bx
     mov si, vp_name
-    call OSAPI_FILE_READ_AT         ; DX:AX = the bytes delivered
+    push di
+    mov di, vp_rdcur
+    call os88_rseq                  ; DX:AX = the bytes delivered
+    pop di
     pop cx
     pop bx
     pop si
@@ -3822,6 +3862,8 @@ vp_rdat:
     pop ax
     ret
 
+%include "os88rseq.inc"            ; os88_rseq, vp_rdat's disk arm
+
 ; vp_spankb - CX = bytes at any offset: AX = the KB vp_rdat's read of them
 ; can take - CX and a cluster less a byte, rounded up to whole clusters
 ; (the offset's own place in its cluster is the most it can be moved on)
@@ -3829,7 +3871,7 @@ vp_spankb:
     push bx
     push cx
     push dx
-    mov bx, [vp_clb]
+    mov bx, [vp_rgb]
     dec bx
     xor dx, dx
     mov ax, cx
@@ -6871,11 +6913,11 @@ vp_bkkb:
     push dx
     mov ax, [bx+BK_UNPACKED]
     mov dx, [bx+BK_UNPACKED+2]
-    add ax, [vp_clb]
+    add ax, [vp_rgb]
     adc dx, 0
     cmp byte [bx+BK_PACK], 0
     jne .pk
-    add ax, [vp_clb]
+    add ax, [vp_rgb]
     adc dx, 0
     jmp short .kb
 .pk:                                ; PACKED: or the READ, when that is
@@ -6911,14 +6953,14 @@ vp_bkkb:
 vp_bkrd:
     push ax
     push si
-    mov si, [vp_clb]
+    mov si, [vp_rgb]
     dec si
     and si, [bx+BK_OFF]             ; SI = into its cluster
     xor di, di
     mov cx, [bx+BK_PACKED]
     add cx, si
     adc di, 0
-    mov ax, [vp_clb]
+    mov ax, [vp_rgb]
     dec ax
     add cx, ax
     adc di, 0
@@ -6990,7 +7032,10 @@ vp_fits:
 
 ; vp_ldstored - BX = a STORED block's fields, [vp_ldseg] its claim: read in
 ; whole clusters from the one under its start, 32 KB a call (vp_rdat's
-; bound), each piece where it belongs - then the whole moved down by the
+; bound), each piece where it belongs and each one starting where the last
+; ended, so vp_rdat's cursor walks the chain ONCE for the block rather than
+; once a piece from the front (READ_AT's cost, which this paid until
+; docs/plans/NAV-COST-PLAN.md's sweep) - then the whole moved down by the
 ; start's place in its cluster, a forward copy (the source is above the
 ; destination) stepped 32 KB at a time across the segments. Any size under
 ; 1 MB (98.1.7.1). CF=1 the disk failed. Clobbers AX, CX, DX, SI, DI
@@ -6999,7 +7044,7 @@ vp_ldstored:
     push bp
     mov ax, [bx+BK_OFF]
     mov dx, [bx+BK_OFF+2]
-    mov si, [vp_clb]
+    mov si, [vp_rgb]
     dec si
     and si, ax                      ; SI = into its cluster
     sub ax, si                      ; DX:AX = the cluster's own offset
@@ -10634,8 +10679,8 @@ vp_skdue:
     call OSAPI_MEM_FREE
     jmp short .back
 .nokey:
-    mov al, VOK_NOKEY
-    call vo_toastk
+    mov al, [vp_nkwhy]              ; WHY (98.3.14): the file has no keys, or
+    call vo_toastk                  ; keys past one read on this volume
 .back:
     cmp byte [vp_snd], 0            ; AN UNMUTE's seek come to nothing
     je .bk                          ; (98.3.17): its ring claimed and no card
@@ -15062,6 +15107,10 @@ vp_fmt:
     jmp .msg
 .nos:
     mov si, vp_s_nokeys
+    cmp byte [vp_nkwhy], VOK_NOKEY
+    je .nk
+    mov si, vp_s_bigkeys
+.nk:
     mov cx, [vp_nkeys]
     jcxz .kl
     mov si, vp_s_start
@@ -15604,6 +15653,7 @@ vp_s_mdsp:    db ', muted: DSP 4', 0         ; (35 columns: 16 left here)
 vp_s_spkfast: db ', muted: fast', 0
 vp_s_mbank:   db ', muted: the bank', 0
 vp_s_nokeys:  db 'No keyframes: plays from the start', 0
+vp_s_bigkeys: db 'Keys too big here: from the start', 0
 vp_s_start:   db 'From the start; keys ', 0
 vp_s_fromk:   db 'From key ', 0
 vp_s_comma:   db ', at ', 0
@@ -15904,8 +15954,10 @@ vp_afr0:      dw 0                  ; the frame the audio cursor was set at
 vp_cx0:       dw 0                  ; the content's origin, as vp_track saw it
 vp_cy0:       dw 0
 vp_clb:       dw 0                  ; a cluster, bytes
+vp_rgb:       dw 0                  ; ...and vp_rdat's granule: it, or a sector
 vp_slen:      dw 0, 0               ; the stream's bytes
 vp_nkeys:     dw 0                  ; keyframes (0: no Preview, no seek)
+vp_nkwhy:     db VOK_NOKEY          ; ...and why 0: none, or past one read
 vp_ktab:      dw 0, 0
 vp_poster:    dw 0                  ; the header's poster, FFFFh none
 vp_kmaxb:     dw 0                  ; the largest keyframe record
@@ -16093,6 +16145,7 @@ vp_ptk0:      dw 0                  ; the tick it paused at
 vp_ptk:       dw 0                  ; ticks paused, this play
 vp_fsi:       times FSI_SIZE db 0
 vp_cur:       times FSEQ_SIZE db 0
+vp_rdcur:     times FSEQ_SIZE db 0  ; vp_rdat's own (os88_rseq), never the stream's
 vp_xcur:      times FSEQ_SIZE db 0  ; THE HOLD (98.3.18): its loader's cursor,
 vp_xbase:     dd 0                  ; the block's token,
 vp_xcap:      dd 0                  ; its bytes (a KB over the file),

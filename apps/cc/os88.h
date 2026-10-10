@@ -1075,7 +1075,10 @@ int os88_disk_cluster_sectors(void);             /* chunk sizes are multiples
 
 void os88_file_here(struct os88_place *p);       /* bank where you stand... */
 int  os88_file_goto(struct os88_place *p);       /* ...and come back. A
-                                                  * REMOUNT: real floppy I/O */
+                                                  * REMOUNT for DISPLAY - real
+                                                  * floppy I/O. To read or
+                                                  * write by name, stand with
+                                                  * os88_file_goto_q_mark() */
 
 /* os88_file_goto_q_mark - stand in another folder QUIETLY, and STAY there
  * (SPEC.md 74.1, 19.2.2). Inside the volume you are on it is a word - no disk

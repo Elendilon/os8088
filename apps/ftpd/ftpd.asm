@@ -7110,10 +7110,12 @@ fd_start:
 ; fd_onclose - W_ONCLOSE: the settings' last chance to reach the disk
 ;
 ; **MARK ON CLICK, WRITE ON CLOSE** is SPEC.md 31.8's rule for the Control
-; Panel and this is the same trade: a FTPD.CFG write is a mount, a data
-; sector, a FAT sector, a directory sector and a remount, which on the machine
-; this is for is seconds of frozen UI - unaffordable on the click of a check
-; box and entirely affordable once, on the way out.
+; Panel and this is the same trade: a FTPD.CFG write is a walk to
+; SYSTEM\APPDATA, a data sector, a FAT sector, a directory sector and a walk
+; back, which on the machine this is for is a second or more of frozen UI -
+; unaffordable on the click of a check box and entirely affordable once, on
+; the way out. (os88data.inc has made a REPEAT save a banked GOTO_QM and one
+; data sector, but the first of a session is still the full write.)
 ;
 ; It NEVER refuses. There is nothing here a user could lose by closing the
 ; window - the log is a log and a transfer in flight is the client's problem,
@@ -8346,125 +8348,35 @@ FC_RO       equ 'O'                 ; 1 byte: refuse every write
 
 fd_cfg_name: db 'FTPD.CFG', 0
 fd_cfg_sig:  db 'O88FTPD', 0        ; 8 bytes, and compared as 8
-fd_d_system: db 'SYSTEM', 0
-fd_d_appdat: db 'APPDATA', 0
-
-; --- fd_data_enter / fd_data_leave - stand in SYSTEM\APPDATA on OUR volume --
-; Cyclone's routine (SPEC.md 67.20) and its trap, which is worth repeating
-; where the next person will read it: **IT IS OSAPI_FILE_GOTO_QM AND NOT ITS
-; QUIET TWIN.** GOTO_Q moves the GLOBAL cwd and deliberately not the
-; INSTANCE's, while OSAPI_FILE_FIND, _READ and _WRITE every one resolve in the
-; instance's folder through inst_vol_enter - so a quiet move is undone by the
-; very next call and the write lands where the app was launched from. SPEC.md
-; 19.9's own prose says to use the quiet twin and is wrong about it.
-fd_data_enter:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push es
-    push ds
-    pop es
-    call OSAPI_FILE_HERE            ; DX = our cwd, BL = our drive
-    mov [fd_dbclus], dx
-    mov [fd_dbdrv], bl
-    xor dx, dx                      ; the ROOT of that same volume
-    call OSAPI_FILE_GOTO_QM
-    jc .back
-    mov si, fd_d_system
-    call fd_data_dive
-    jc .back
-    mov si, fd_d_appdat
-    call fd_data_dive
-    jc .back
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    clc
-    ret
-.back:
-    ; A DISK WITHOUT THE FOLDER IS NOT AN ERROR (SPEC.md 19.9) - it is a user's
-    ; own disk. Put the volume back and refuse; the caller then keeps its state
-    ; in memory and says nothing, which is what a refused write already did.
-    call fd_data_home
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    stc
-    ret
-
-fd_data_leave:
-    pushf                           ; the caller's result is in CF and AX
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    call fd_data_home
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    popf
-    ret
-
-fd_data_home:
-    push ax
-    push bx
-    push dx
-    mov dx, [fd_dbclus]
-    mov bl, [fd_dbdrv]
-    call OSAPI_FILE_GOTO_QM
-    pop dx
-    pop bx
-    pop ax
-    ret
-
-; --- fd_data_dive - step into the folder named at SI. CF=1 = no such folder --
-fd_data_dive:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    call fd_find                    ; the ordinal walk, fd_fbuf filled
-    jc .no
-    cmp word [fd_fbuf+14], OSAPI_FT_DIR
-    jne .no
-    mov dx, [fd_fbuf+16]
-    call OSAPI_FILE_HERE            ; BL = the drive; DX is spent by it...
-    mov dx, [fd_fbuf+16]            ; ...so the folder's cluster goes back
-    call OSAPI_FILE_GOTO_QM
-    jc .no
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    clc
-    ret
-.no:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    stc
-    ret
+; --- SYSTEM\APPDATA on OUR volume: apps/os88data.inc ---------------------------
+; od_read / od_write stand in SYSTEM\APPDATA on the instance's own volume with
+; OSAPI_FILE_GOTO_QM - the quiet stand that MOVES THE INSTANCE, so the
+; FIND/READ/WRITE after it resolve there (GOTO_Q moves only the global cwd and
+; the very next file cell would undo it; that was Cyclone's trap, SPEC.md
+; 67.20, and this file's own walker documented it) - and put us back where we
+; stood on every answer. What the shared walker adds over the copy this file
+; carried (docs/plans/NAV-COST-PLAN.md, SPEC.md 19.9.1):
+;
+;  - THE FOLDER IS BANKED after the first walk, so a later visit is one
+;    GOTO_QM and not root -> SYSTEM -> APPDATA. A banked visit that finds no
+;    FTPD.CFG walks once more and asks again, and a full OSAPI_FILE_WRITE -
+;    which creates or replaces - only ever goes where a FRESH walk says, never
+;    through a bank nothing has re-checked.
+;  - A SAVE CAN BE ONE SECTOR. The file is variable-length (at most FD_CFGSZ),
+;    and od_write's in-place arm is OSAPI_FILE_WRITE_AT at offset 0, which is
+;    still correct for us: the same length is SPEC.md 18.4.7's INSIDE arm,
+;    a LONGER one grows inside the cluster the file already owns (18.4.7.2,
+;    the size word set to the new end), and a SHORTER one is refused - a count
+;    below the size must be a multiple of 512, and ours never is - so it falls
+;    back to the full write that truncates. [fd_cfgip] is the per-file stamp
+;    that says this program wrote the file in full, plain, this session.
+;    kern_small has no WRITE_AT and every save there is the full write, with
+;    no display remount in it.
+;
+; A DISK WITHOUT THE FOLDER IS NOT AN ERROR (SPEC.md 19.9) - it is a user's
+; own disk. od_read / od_write refuse with FERR_NOENT and the volume back where
+; it was; the caller keeps its state in memory and says nothing.
+%include "os88data.inc"
 
 ; --- fd_cfg_load - read FTPD.CFG if it is there. Never fails visibly --------
 fd_cfg_load:
@@ -8477,22 +8389,18 @@ fd_cfg_load:
     push es
     push ds
     pop es
-    call fd_data_enter
-    jc .out
     mov si, fd_cfg_name
     mov bx, fd_cfgb
     mov cx, FD_CFGSZ
     xor dx, dx
-    call OSAPI_FILE_READ            ; DX:AX = the size
-    jc .leave
+    call od_read                    ; DX:AX = the size, and we stand where we
+    jc .out                         ; stood whatever it answered
     or dx, dx
-    jnz .leave                      ; longer than our buffer: not ours
+    jnz .out                        ; longer than our buffer: not ours
     cmp ax, 10
-    jb .leave                       ; too short to hold a header
+    jb .out                         ; too short to hold a header
     mov [fd_cfgn], ax
     call fd_cfg_parse
-.leave:
-    call fd_data_leave
 .out:
     call fd_pasv_str                ; the field shows whatever survived
     pop es
@@ -8741,13 +8649,10 @@ fd_cfg_save:
     inc di
     mov cx, di
     sub cx, fd_cfgb
-    call fd_data_enter
-    jc .out
     mov si, fd_cfg_name
     mov bx, fd_cfgb
-    xor dx, dx
-    call OSAPI_FILE_WRITE
-    call fd_data_leave
+    mov di, fd_cfgip                ; in place once a full write has landed
+    call od_write                   ; (a refusal is silent, as it always was)
 .out:
     pop es
     pop di
@@ -9147,9 +9052,9 @@ fd_bmlevel  equ fd_rowed + 1                    ; byte: ...banked with the
 fd_rdrv     equ fd_bmlevel + 1                  ; byte: the resolved root...
 fd_rclus    equ fd_rdrv + 1                     ; word: ...as (drive, cluster)
 fd_cfgb     equ fd_rclus + 2                    ; FD_CFGSZ: FTPD.CFG, whole
-fd_dbclus   equ fd_cfgb + FD_CFGSZ              ; word: the banked folder
-fd_dbdrv    equ fd_dbclus + 2                   ; byte: ...and its drive
-fd_cfgn     equ fd_dbdrv + 1                    ; word: bytes read
+fd_cfgip    equ fd_cfgb + FD_CFGSZ              ; byte: os88data.inc's in-place
+                                     ; stamp for FTPD.CFG (0 at load)
+fd_cfgn     equ fd_cfgip + 1                    ; word: bytes read
 fd_wtok     equ fd_cfgn + 2                     ; word: STOR's WRITE_SEQ token
                                      ; (SPEC.md 77.49), PLAIN: every chunk
                                      ; committed, as APPEND's were

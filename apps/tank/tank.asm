@@ -1026,9 +1026,6 @@ tk_tpl:
     ZBYTE tk_ient                   ; the initials prompt is up
     ZBYTE tk_ipos
     ZBUF  tk_ibuf, 4
-    ZWORD tk_dbclus                 ; where we were standing before a save
-    ZBYTE tk_dbdrv
-    ZBUF  tk_dfind, OSAPI_FIND_SZ
     ZWORD tk_frames                 ; frames rendered this session; the only
                                     ; instrument in the package, read from
                                     ; outside by tests/bzfps.py

@@ -207,6 +207,22 @@ hd_cfg_mark:
 ; this is the boot's path and the tick's path both. The volume and the panel's
 ; selection it borrows are banked on the STACK: hd_mount preserves it, and
 ; three bytes of image were the whole of what memory bought.
+;
+; **THE WAY BACK IS QUIET** (SPEC.md 19.2.2), on every boot that remounts a
+; hard disk. OSAPI_VOL_MOUNT left C: current; GOTO_Q puts the system disk
+; back with a quiet mount - the boot sector, the BPB and FAT window kept when
+; the signature matches, the directory cache kept - where OSAPI_FILE_GOTO
+; was the full remount. What the full one did NOT do is rebuild the global
+; listing for anybody after us: a caller with no dsk_dest_x store gets a
+; quiet listing whichever slot it calls (docs/plans/LISTING-HOME-PLAN.md 13),
+; so [dsk_lstale] was owed after the old restore too, and the kernel's own
+; drv_vol_back has always come back this way. Nothing later in the boot reads
+; that listing - the desktop draws volume icons, and a Disk window paints
+; from its own view cache - and every reader of it honours the flag. A
+; refused restore moves nothing and is swallowed, as before; on the tick's
+; path the user's volume may be REDIRECTED, so CX, SI and DI are banked
+; around it (os88api.inc, at GOTO_Q) - this answers the kernel with only the
+; flags spent.
 ; -----------------------------------------------------------------------------
 hd_cfg_automount:
     push ax
@@ -236,7 +252,13 @@ hd_cfg_automount:
     mov [hd_sel], al
     pop bx                      ; the boot goes on with the system disk as
     pop dx                      ; the current volume, exactly as it would
-    call OSAPI_FILE_GOTO        ; have without us
+    push cx                     ; have without us
+    push si
+    push di
+    call OSAPI_FILE_GOTO_Q      ; QUIET: see the header
+    pop di
+    pop si
+    pop cx
     mov byte [hd_msgc], HDM_PICK
 .out:
     pop dx

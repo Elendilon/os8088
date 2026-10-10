@@ -1182,9 +1182,6 @@ px_ab10:     db 'walks a frozen world at 9.9 fps.', 0  ; quoted a frozen
     ZBYTE px_mouse
     ZBYTE px_cfgdirty               ; a V key in the bracket: write on leaving
     ZBYTE px_setread                ; the file was read (once)
-    ZWORD px_sdclus                 ; px_set_enter's way home
-    ZBYTE px_sddrv
-    ZBUF  px_sdfind, 32             ; OSAPI_FILE_FIND's row
     ZBUF  px_setbuf, PX_SETFSZ      ; the file as last read or written
     ZBUF  px_setnew, PX_SETFSZ      ; ...and the record being written, until
                                     ; the write says it landed (pxset.inc)

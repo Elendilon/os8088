@@ -1402,8 +1402,17 @@ px_onwake:
     mov byte [px_argpend], 0
     mov dx, [px_argdir]             ; the DOCUMENT's folder, not ours (54.8:
     mov bl, [px_argvol]             ; the kernel stood in the program's)
-    call OSAPI_FILE_GOTO
-    jnc .there
+    push cx                         ; QUIETLY, and the instance with us:
+    call OSAPI_FILE_GOTO_QM         ; px_open reads by name and nothing here
+    pop cx                          ; lists the folder, so the remount's scan,
+                                    ; sort and icon harvest were ~0.5 s of
+                                    ; floppy for no reader (docs/plans/
+                                    ; NAV-COST-PLAN.md, SPEC.md 19.9.1). CX is
+                                    ; banked for a redirected volume's
+                                    ; FSV_CHDIR (SPEC.md 62.9.1; AX, SI and DI
+                                    ; are reloaded below) and `pop` keeps CF
+    jnc .there                      ; CF=1 moved NOTHING: px_open would find
+                                    ; the name in OUR folder, so refuse
     call OSAPI_GFX_LOCK             ; gone (a disk swapped): said, from inside
     mov si, px_s_notfile            ; the lock, where a toast reaches the
     call px_toast                   ; glass (54.10)
@@ -1617,9 +1626,21 @@ px_dlgdone:
     ret
 
 ; px_revert - File > Revert (Ctrl+R): the shown picture read again from its
-; file, in its folder. Lock held
+; file, in its folder. Lock held. Preserves all registers.
+;
+; It is also every zoom-out re-decode (pxview.inc), so the stand is
+; OSAPI_FILE_GOTO_QM: the picture's folder is almost always where the
+; instance already is, and QM is then a compare where the listing remount was
+; a boot sector, a directory scan, a sort and an icon read per file - ~0.5 s
+; of floppy per zoom step for no reader (docs/plans/NAV-COST-PLAN.md, SPEC.md
+; 19.9.1). QM moves the instance too, so px_open's by-name read resolves
+; there. CF=1 moved NOTHING, so the read would resolve in whatever folder we
+; were in and could find a same-named stranger: refuse. AX and CX are banked
+; for QM's answer and a redirected volume's FSV_CHDIR (SPEC.md 62.9.1).
 px_revert:
+    push ax
     push bx
+    push cx
     push dx
     push si
     push di
@@ -1627,7 +1648,7 @@ px_revert:
     je .out
     mov dx, [px_cur + PXR_DIR]
     mov bl, [px_cur + PXR_VOL]
-    call OSAPI_FILE_GOTO
+    call OSAPI_FILE_GOTO_QM
     jc .out
     mov si, px_cur + PXR_NAME
     mov di, px_oname
@@ -1637,7 +1658,9 @@ px_revert:
     pop di
     pop si
     pop dx
+    pop cx
     pop bx
+    pop ax
     ret
 
 ; px_infocard - File > Image Info...: Image Info's lines as a card, for the
@@ -1927,7 +1950,12 @@ px_pcall:
 ; is read out of PIXEL.O88, and the instance may be standing anywhere since
 ; File > Open moved it (SPEC.md 38.10) - so the fetch goes home to the folder
 ; the package was launched from and back again (SCRIBE's bracket, 95.8.6).
-; clobbers: AX, BX, CX, DX, SI, DI, ES
+; Both legs are OSAPI_FILE_GOTO_QM: op_fetch reads by name and nothing lists
+; either folder, so the remount's scan, sort and icon harvest were ~0.5 s of
+; floppy a leg for no reader (docs/plans/NAV-COST-PLAN.md, SPEC.md 19.9.1),
+; and QM moves the instance, which is what the read resolves through.
+; clobbers: AX, BX, CX, DX, SI, DI, ES - so QM's answer in AX and a
+; redirected volume's CX, SI and DI (SPEC.md 62.9.1) cost nothing to bank
 px_pfetch:
     mov al, [px_ppart]
     call op_seg
@@ -1947,12 +1975,13 @@ px_pfetch:
 .go:
     mov dx, [px_homedir]
     mov bl, [px_homevol]
-    call OSAPI_FILE_GOTO
+    call OSAPI_FILE_GOTO_QM
     jnc .moved                      ; home is gone (PiXEL's disk swapped
     mov si, px_s_diskback           ; out): no fetch at all, rather than a
     call px_toast                   ; part read out of whatever PIXEL.O88
     stc                             ; stands in this folder (wave-1 review
-    ret                             ; MIN-2)
+    ret                             ; MIN-2) - and QM moved nothing, so we
+                                    ; are still where the user was
 .moved:
     mov byte [px_pmoved], 1
 .here:
@@ -1963,7 +1992,13 @@ px_pfetch:
     je .back
     mov dx, [px_pwas]
     mov bl, [px_pwvol]
-    call OSAPI_FILE_GOTO
+    call OSAPI_FILE_GOTO_QM         ; CF unread, as it always was: a failure
+                                    ; moved nothing and leaves the instance at
+                                    ; home (the old GOTO's left it at the root
+                                    ; with the write gate shut), and Revert
+                                    ; and the save each stand in the
+                                    ; picture's own folder first (px_revert,
+                                    ; pu_goto). The popf is op_fetch's answer
 .back:
     popf
     ret

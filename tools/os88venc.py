@@ -1001,7 +1001,11 @@ def key_limit(clb):
 
 KEY_CLB = 2048          # the largest cluster of any disk this encoder makes:
                         # os88hdd's FAT16 is 4 sectors a cluster at 20 and
-                        # 32 MB, and every floppy is 1 KB or less
+                        # 32 MB, and every floppy is 1 KB or less. kern_big's
+                        # READ_AT takes whole SECTORS (SPEC.md 18.4.4.2), so
+                        # its player reads a key as key_limit(512) on ANY
+                        # volume - this binds kern_small, or an older kernel,
+                        # on a hard disk past 256 MB (98.1.7.6)
 KEY_PLAYER = key_limit(KEY_CLB)     # 61,440 - VP_KMAXREC itself, which
                         # clusters of 4 KB reach too; 32 KB ones (a volume
                         # near 2 GB) take 32,769

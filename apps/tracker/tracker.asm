@@ -501,7 +501,7 @@ trk_onwake:
 ;
 ; trk_argload's shape with nothing to look up: the name is already in OUR
 ; segment and the size is already banked, so trk_fdone's own copy is onto
-; itself and there is no OSAPI_FILE_GOTO to do - the folder never changed,
+; itself and there is no OSAPI_FILE_GOTO_QM to do - the folder never changed,
 ; this wake being one ui_task pass after the post.
 ;
 ; It re-asks plain OSAPI_MEM_AVAIL rather than trusting the what-if, because
@@ -556,8 +556,18 @@ trk_argload:
     mov byte [trk_argp], 0          ; once, whatever happens below
     mov dx, [trk_argclus]
     mov bl, [trk_argdrv]
-    call OSAPI_FILE_GOTO            ; the folder it was opened from
-    jc .out
+    call OSAPI_FILE_GOTO_QM         ; the folder it was opened from -
+    jc .out                         ; QUIETLY, and the instance with us, so
+                                    ; trk_fdone's by-name load resolves there.
+                                    ; Nothing here lists the folder, so the
+                                    ; remount's scan, sort and icon harvest
+                                    ; were ~0.5 s of floppy for no reader
+                                    ; (docs/plans/NAV-COST-PLAN.md, SPEC.md
+                                    ; 19.9.1). CF=1 moved NOTHING: the load
+                                    ; would look in Tracker's own folder, so
+                                    ; refuse. Every register is banked above
+                                    ; (QM's AX, and a redirected volume's CX,
+                                    ; SI and DI - SPEC.md 62.9.1)
     push ds
     pop es
     mov di, trk_argnm

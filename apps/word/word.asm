@@ -2843,8 +2843,9 @@ wd_tabw:
 ; in:  -
 ; out: the dropdown's items and its count set; preserves all registers
 ;
-; ONCE, and lazily. ty_scan is five remounts and three listings - a couple of
-; seconds on the target - so it runs the first time somebody opens this combo
+; ONCE, and lazily. ty_scan walks the system disk's SYSTEM/FONTS and lists it
+; - quiet stands now (os88type.inc), but still floppy reads of the folder and
+; a header read per face on the target - so it runs the first time somebody opens this combo
 ; and never again. A person who never opens it pays nothing, which is the same
 ; bargain SPEC.md 6.2 strikes with a directory of faces nobody picks from.
 ;
@@ -8747,7 +8748,8 @@ wd_save:
     call wd_stghold             ; ES = the staging claim, or a toast and out
     jc .out
     call wd_goto                ; the folder this document belongs to, if the
-                                ; volume has been moved since (SPEC.md 19.2)
+    jc .err                     ; volume has been moved since (SPEC.md 19.2);
+                                ; CF = we are not there, so write nothing
     call wd_isrtf               ; a .RTF name is the user naming a FORMAT,
     jnc .rtf                    ; and it is the one extension Save honours
     call wd_docimg              ; the whole Word file - FIB, text, FKPs,
@@ -8853,6 +8855,8 @@ wd_load:
     jc .nomem
     mov [wd_stgseg], dx
     call wd_goto                ; the folder dance on the way in
+    jc .err                     ; ...and a refusal, not a read of wd_name in
+                                ; whatever folder we were left standing in
     mov es, [wd_stgseg]
     xor bx, bx                  ; ES:BX = staging, DX:CX its capacity
     mov cx, WD_LSTGKB * 1024
@@ -11720,41 +11724,55 @@ wd_ondlg:
 
 ; -----------------------------------------------------------------------------
 ; wd_goto - put the volume back in this document's folder (SPEC.md 19.2)
-; out: nothing; preserves all registers
+; out: CF=0 and every register preserved; CF=1 = could not stand there, AX =
+;      FERR_* and every other register preserved - NOTHING MOVED, so the
+;      caller must not go on to resolve wd_name (it would find it, or a
+;      stranger of the same name, in the folder we were already in)
 ;
-; **THE KERNEL DOES THIS NOW, and this routine is kept as a no-op that costs
-; two compares** (SPEC.md 19.2.1). A file name used to resolve in the ONE
-; global current directory shared by every Disk window and by the file
-; dialog: right after Save As it still named the folder the user picked -
-; which is why saving into a folder worked - but by the next Save anything
-; that navigated had moved it, and the write landed in the root. Four
-; packages each carried their own copy of the six lines below, which is what
-; eventually said the kernel owed the feature rather than the SDK owing an
-; example. An instance owns its directory now, so OSAPI_FILE_HERE answers
-; this document's folder and the OSAPI_FILE_GOTO below never fires.
+; The kernel keeps an instance in its own folder now (SPEC.md 19.2.1), so
+; once a Save As has committed somewhere OSAPI_FILE_HERE answers that folder
+; and this is two compares. **It is NOT a no-op, though, and this comment
+; once said it was**: an instance is SEEDED at the folder its PACKAGE came
+; out of, while wd_arg copies a launch document's ARG folder into wd_dir. So
+; the first load of a .DOC double-clicked in any other folder is exactly the
+; case where HERE and wd_dir disagree and the move below fires.
 ;
-; It stays because the slots keep their contract (SPEC.md 20.8 rule 4) and
-; because a remount was always skipped when the volume was already there -
-; which is now every time. Deleting it would be correct and would also delete
-; the record of why it was ever needed.
+; It moves with OSAPI_FILE_GOTO_QM, not OSAPI_FILE_GOTO: the next thing done
+; is a by-name read or write, which resolves through the raw directory
+; sectors, and nothing here shows the folder - so the remount's scan, sort and
+; per-file icon harvest were ~0.5 s of floppy bought for no reader
+; (docs/plans/NAV-COST-PLAN.md, SPEC.md 19.9.1). QM moves the instance with
+; it, which is what makes the next file cell resolve there.
+;
+; The two differ on FAILURE and that is why CF is an output now: a failed
+; GOTO left the volume at the root with the write gate shut, so the file call
+; after it refused on its own; a failed QM moves nothing, so the caller has to
+; refuse. CX, SI and DI are banked because on a redirected volume QM reaches
+; the driver's FSV_CHDIR and those three are the driver's (SPEC.md 62.9.1).
 ; -----------------------------------------------------------------------------
 wd_goto:
     push ax
     push bx
+    push cx
     push dx
+    push si
+    push di
     cmp byte [wd_dirok], 0
-    je .out                     ; never saved anywhere in particular
+    je .out                     ; never saved anywhere in particular (CF=0)
     call OSAPI_FILE_HERE
     cmp dx, [wd_dir]
     jne .move
     cmp bl, [wd_drv]
-    je .out
+    je .out                     ; already there (equal: CF=0)
 .move:
     mov dx, [wd_dir]
     mov bl, [wd_drv]
-    call OSAPI_FILE_GOTO        ; CF = it could not be listed; the file call
-.out:                           ; that follows will say so in its own words
-    jmp wd_rdba
+    call OSAPI_FILE_GOTO_QM     ; quiet, and the instance follows
+    jnc .out
+    mov bx, sp                  ; CF=1: the FERR_* replaces the banked AX -
+    mov [ss:bx+10], ax          ; a mov touches no flag, so CF rides out
+.out:
+    jmp wd_rdisdcba
 
 ; -----------------------------------------------------------------------------
 ; wd_arg - BANK the document we were launched to open (SPEC.md 54.5/54.10)

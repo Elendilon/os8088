@@ -9580,6 +9580,17 @@ SOAK = [
         "the worker far-calls the old driver and no frame is ever drawn. "
         "Needs `make pxsmove`.",
         needs=("marty",), serial=True, wants=("build/pxsmove360.img",)),
+    Row("appdata", "soak", py("tests/appdata.py"), 30.0,
+        "SPEC.md 19.9.1: what apps/os88data.inc's SYSTEM\\APPDATA visit COSTS, "
+        "on PIXELSTEIN's two files. The loads at entry walk with "
+        "OSAPI_FILE_GOTO_QM and never OSAPI_FILE_GOTO (the display remount "
+        "that made Tank's score save ~6 s, docs/plans/NAV-COST-PLAN.md) and "
+        "read the floppy at most twice; every save is FILE_GOTO-free, and "
+        "every save after the first is ONE SECTOR written - WRITE_AT's "
+        "INSIDE arm. Kernel breakpoints and the floppy controller's own "
+        "counters, with the motor left to stop before each save. Broken on "
+        "purpose with the in-place arm cut: saves 2-4 write 6 sectors each.",
+        needs=("marty",)),
     Row("pxsstate", "soak", py("tests/pxsstate.py"), 70.0,
         "SPEC.md 97.13: PIXELSTEIN's seven states in BOTH worlds, walked by "
         "the keys a player presses and the world's own clocks (a guard's "
@@ -11377,6 +11388,16 @@ SOAK = [
         "byte for byte across two READ_AT calls, and frames are drawn. "
         "Broken on purpose (the player before it: one call and a 16-bit "
         "sum) it FAILS with 'This .V88 is damaged'",
+        needs=("marty", "nasm", "mtools"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidkeyclus", "soak", py("tests/vidkeyclus.py"), 120.0,
+        "SPEC.md 18.4.4.2, 98.1.7.6: a STREAMED .V88 keeps its seek and its "
+        "poster on a FAT16 C: with 32 KB clusters - vidbigclus's disk, a VGA8 "
+        "clip whose 39 KB keys a cluster-granular read refused there. "
+        "[vp_rgb] is a sector, every key is kept, a Right in the full screen "
+        "reads a key 20 KB into its cluster byte for byte, and the play goes "
+        "on from it. Broken on purpose (the player's probe taken out, or "
+        "dsk_read_chain's first-run skip) it FAILS",
         needs=("marty", "nasm", "mtools"), serial=True,
         wants=("build/video.o88",)),
     Row("vencgui", "soak", py("tests/vencguitest.py"), 90.0,
