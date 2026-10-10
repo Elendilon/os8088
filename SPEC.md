@@ -17391,6 +17391,27 @@ A running total of rows in the main walk would let it skip that walk;
 ESTIMATED at ~20 more bytes and a few dozen cycles on every overlapping
 fragment of every clipped cell, and not taken.
 
+**Kernel size pass 11 took 28 of the 92 back, and the grow is IN LINE now**
+(`kern_big` `.text` 43,428 → 43,400; `kern_small` −8, the shared half of
+it). What made the out-of-line placement necessary was where the EXIT was,
+not where the grow was: `.ok`/`.none`/`.out` sat below the mask block, so
+every refusal had to jump forward over everything after the walk. They sit
+ABOVE the walk now, beside `.all` - the refusal's `jb .out` is short
+backwards whatever follows it, both of §11.3.4's head trampolines are gone
+with the reason for them, and a grown cell falls into the mask block instead
+of jumping back to it. Three more things went with it: `r0` and `rn` are one
+word store at the single exit on `kern_big` (the grow packs them into `BP`,
+so the entry's `mov byte [wm_clip_r0], 0` is `kern_small`'s alone - a refusal
+no longer writes `r0`, which no caller reads under CF = 1); the refusal is
+`cmp bp, 1` / `jb .out`, whose carry IS the answer, so no `stc`; and the
+seed and the downward merge are one body. Every path runs fewer
+instructions, none takes more branches, and the answers are IDENTICAL:
+the old routine and the new were run side by side over 30,000 random and
+split-built regions (every arm - disarmed, culled, under a display hook,
+refused, spanning, cut, grown) with every register and the three answer
+bytes compared. Median instructions per call, old → new: refused 63 → 61,
+spanning 105 → 102, cut 223 → 218, disarmed 33 → 31, culled 78 → 75.
+
 **Why not `font_run` for the caption.** `font_run` asks the same question:
 a run the region cuts goes cell by cell through `font_run_cell` (aligned,
 1bpp) or `font_run_scell` (unaligned or planar, a fill and a `font_char`),
