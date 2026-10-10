@@ -850,6 +850,7 @@ static char a2_title[] = "Apple II Plus Emulator";   /* section 16.1's long
 
 /* --- what the parts define, declared here so no part declares it twice ---- */
 static void a2_say(const char *s);
+static void a2_kickw(void *win);            /* a2_kick = 1, then wake */
 static void a2_flush(void *win);
 static void a2_sh_inval(void);
 static void a2_dirty_all(void);
@@ -957,6 +958,16 @@ static int  ovl_a2_confirm(void *win);
  * os88_about and os88_onfile are all dispatched under the desktop's gfx lock,
  * which is the whole machine stopped. The WAKE holds no lock and may call the
  * file slots by contract (SPEC.md 74.1), so it is what loads it. */
+/* a2_kickw - the KICK and the post, which every route that owes the wake a
+ * pass makes together: a2_kick says the wake must run whatever a2_wants_wake
+ * answers, and os88_wm_wake posts it. ONE call rather than the pair at
+ * fourteen sites (apps size pass 1). */
+static void a2_kickw(void *win)
+{
+    a2_kick = 1;
+    os88_wm_wake(win);
+}
+
 static int a2_ovl_ready(void *win)
 {
     (void)win;
@@ -1731,8 +1742,7 @@ void os88_onkey(int ascii, int scan, void *win)
         return;
     }
     a2_key(ascii, scan, win);
-    a2_kick = 1;
-    os88_wm_wake(win);
+    a2_kickw(win);
 }
 
 void os88_onclick(int x, int y, void *win)
@@ -1764,8 +1774,7 @@ void os88_onclick(int x, int y, void *win)
     (void)y;
     /* A CLICK KICKS THE SLICE DRIVER, so a wake the event ring refused cannot
      * park a running machine (SPEC.md 74.1). */
-    a2_kick = 1;
-    os88_wm_wake(win);
+    a2_kickw(win);
 }
 
 /* The kernel's name pull-down. It arrives UNDER the gfx lock and with NO clip
@@ -1824,8 +1833,7 @@ void os88_onfile(int mode, const char *name,
     a2_fmode = mode;
     a2_fsize = size_lo;
     a2_fileq = 1;
-    a2_kick = 1;
-    os88_wm_wake(win);
+    a2_kickw(win);
 }
 
 /* ==========================================================================
@@ -1947,8 +1955,7 @@ void os88_ontimer(void *win)
     if (a2_state == A2_ST_DEAD)
         return;
     if (a2_flash_step(os88_ticks())) {
-        a2_kick = 1;
-        os88_wm_wake(win);
+        a2_kickw(win);
     }
     /* AND IT IS NOT RE-ARMED WHILE THE FEATURE IS OFF. Machine > Flashing
      * text is what arms it again (a2menu.c), so a user who turned the phase
@@ -1959,8 +1966,7 @@ void os88_ontimer(void *win)
                                              * the wake's poll takes it back
                                              * over rather than the phase
                                              * simply stopping */
-        a2_kick = 1;
-        os88_wm_wake(win);
+        a2_kickw(win);
     }
 }
 
@@ -2254,8 +2260,7 @@ void os88_onwake(void *win)
 
     a2_kick = 0;
     if (a2_wants_wake()) {
-        a2_kick = 1;
-        os88_wm_wake(win);
+        a2_kickw(win);
     }
 }
 

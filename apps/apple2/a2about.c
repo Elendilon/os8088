@@ -370,8 +370,7 @@ static void a2_panel_close(void *win, int yes)
                                              * gfx lock (apple2.c's
                                              * a2_reset_service) */
     a2_pan_kind = A2_PAN_ABOUT;
-    a2_kick = 1;
-    os88_wm_wake(win);
+    a2_kickw(win);
 }
 
 /* a2_about_close - the About panel's own route out, which is a2_panel_close

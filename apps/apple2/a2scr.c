@@ -2688,6 +2688,5 @@ static void a2_fsx_enter(void *win)
      * API call, no pixels. A window that was COVERED at step 4 got no paint,
      * a2_sh_ok is still 0 from the entry, and the first W_PAINT after it
      * uncovers does the repaint then. */
-    a2_kick = 1;
-    os88_wm_wake(win);
+    a2_kickw(win);
 }
