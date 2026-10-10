@@ -69520,7 +69520,8 @@ template really does move — content 320×180 on VGA becomes 320×136 on a CGA
 exists. Two things close that window at both ends and neither is new.
 `fr_redraw` runs from `W_PAINT`, an adapter change ends in `wm_paint_all`
 (§39.11.2), and a size that has moved falls through to `fr_kick`; and
-`fr_worker` calls `fr_setup` only when `[fr_restart]` is non-zero, so between
+`fr_worker` never calls `fr_setup` at all — since §40.8 only the UI task's
+`fr_kick` and `fr_redraw` do, under the lock — so between
 the switch and the repaint it keeps rendering at the width the cache was
 built for rather than half-way to the new one. **`tests/dispfrac.py` is the
 gate** — it asserts, on both adapters and after coming back, that `fr_ccw` /
@@ -70025,6 +70026,72 @@ from `z0` at the top of `frac_iter`, so a Julia (whose `z0` is the pixel) and
 a Mandelbrot (whose `z0` is zero) both start with a reference that is a real
 state of the orbit rather than a sentinel — which is what lets a period-1
 fixed point at the origin be caught on the first comparison.
+
+### 40.8 The first apps size pass — a 4 KB region, and the emit got faster
+
+Image **4,061 → 3,050** bytes, bss **425 → 464**, so the region is **4,486 →
+3,514** and the heap hands over **4 KB where it handed over 5**; the shipped
+LZ4 file is **3,365 → 2,827**. The run cache is the same claim it was (§40.1:
+4 KB first, doubling to 32 KB). Nothing the user can see changed: every frame
+end of a scripted session — five types, four palettes, zoom in and out, a
+click-recentre, a reset, a forced `W_PAINT` at rest and mid-render, the About
+card up and taken down — is **pixel-identical** to the build before, on the
+XT's VGA, and every whole frame lands **2–5% sooner** in guest time.
+
+**The routines §40.1–§40.7 name by name still exist as named BLOCKS.**
+`fr_twin` and `fr_rowcalc` are inline in `fr_worker`; `fr_emit_body`,
+`fr_cache_row`, `fr_cache_grow`, `fr_status_maybe` and `fr_advance` are
+inline in `fr_emit`, after its lock; `fr_replay` is inline in `fr_redraw`;
+`fr_cache_claim`, `fr_cache_reset` and `fr_clear` in `fr_kick`; `fr_clamp`
+in `fr_setup`. Each had one caller. A grep for the old name lands on a
+comment at the head of its block, so the paragraphs above read the same way
+they did; `[fr_ctlen]` (a length) became `[fr_cnext]` (the offset past the
+row), which the emit copies instead of adding.
+
+Where the bytes came from, roughly in order of size:
+
+- **Register preservation nobody used.** Only the callbacks keep the
+  kernel's contract now; an internal routine whose every caller reloads does
+  not save anything, and `fr_abdismiss` saves the two registers `fr_oncmd`
+  actually reads after it.
+- **The worker no longer re-derives the view.** It ran `fr_setup` again and
+  re-zeroed the pass on picking up `[fr_restart]` — the same pure function of
+  the same words the UI task had just run under the lock, before it set the
+  flag as its LAST store. The flag means "the row in hand is stale" and
+  nothing more, so 1 and 2 are one value.
+- **The palettes are their periods, two entries a byte**, expanded by
+  `fr_setup` into a 49-byte `fr_paltab` whose last entry is the interior's
+  `CBLACK` — so the compute loop indexes it with the escape count directly
+  and the interior's branch is gone with 134 bytes of ramp data.
+- **The run scans stop at a sentinel.** Whoever fills `fr_line` writes
+  `FR_SENT` (0FFh, never a colour) at `fr_line + cw`, so the emit's and the
+  cache's extend loops are `inc / cmp / je` with no bound test, and the band's
+  y pair, the run start and the x bias stay in registers across the two kernel
+  calls a run makes (both preserve every register). `fr_band` answers in
+  `BX`/`DX`, the registers `OSAPI_GFX_FILL` takes, with the extra rows computed
+  as `3 >> pass` rather than looked up.
+- **Both axes are one loop** wherever the code did the same thing twice — the
+  clamp-and-corner in `fr_setup`, the recentre in `fr_onclick` — because
+  `fr_cw`/`fr_ch`, `fr_cenx`/`fr_ceny` and `fr_x0`/`fr_y0` are word pairs.
+- **`fr_kick`'s reset is one string walk** over a bss block laid out in the
+  order it is written, `[fr_restart]` last; `fr_redraw`'s three-word cache key
+  is one `repe cmpsw`.
+- **Every string goes through `fr_text`/`fr_textxy`**, `'Zoom'` and its digit
+  are one run (`FR_X_ZNUM` is five cells on, so the space between them is a
+  white cell on the white ground), and `fr_status` letters the percentage
+  through `fr_status_pct` — two padding cells more than before, on the two
+  paths that redraw the whole strip.
+
+**The hot paths are cheaper, not merely no dearer.** On an 8088 (EU clocks
+or four a byte of fetch, whichever binds): a pixel's bookkeeping after
+`frac_iter` is ~155 cycles against ~225 (the palette lookup is `xchg` + one
+load, the column a pointer compared with `[fr_pend]` instead of an
+increment-in-memory reloaded and compared with `[fr_cw]`); the Mandelbrot
+path pays ~10 more before the call, the Julias ~7 fewer; an interior pixel
+claimed by `fr_inset` is ~183 against ~197. The emit's extend loop is ~34
+cycles a pixel against ~105, and a run's own overhead outside the two kernel
+calls falls by four memory operands. `frac_iter`, `fr_q12` and `fr_inset` are
+**byte-for-byte unchanged**.
 
 ### 39.26 The software renderer's plane loop is gone
 
@@ -101748,7 +101815,7 @@ proc with two compares rather than two procs, and a package that later adds a
 third adds a compare. Both editors declare the same proc for both claims.
 
 **Every one of these is one or two words because the cursors are OFFSETS.**
-Fractal's `[fr_cpos]`/`[fr_cn]`/`[fr_ctlen]`, Note Pad's `[np_len]`,
+Fractal's `[fr_cpos]`/`[fr_cn]`/`[fr_cnext]`, Note Pad's `[np_len]`,
 `[np_caret]`, the selection ends, `np_rows`' whole table and every undo
 record's blob position, ArtfulType's `[at_gs]`/`[at_ge]`/`[at_coff]` — all
 byte offsets into a claim, and a move does not change an offset. That is the
@@ -101759,7 +101826,7 @@ relocation proc exists to recompute.
 
 **Fractal is the cleanest park-safe case in the tree and shows where the
 rule's edge actually is.** Its worker's only lock site is `fr_emit`, which
-takes the lock and *then* calls `fr_emit_body`, which re-reads `[fr_cseg]`
+takes the lock and *then* runs `fr_emit_body`'s work (inline since §40.8), which re-reads `[fr_cseg]`
 rather than inheriting it — so the interval spent blocked in `gfx_lock` holds
 nothing at all. `fr_take` *does* hold the cache segment in `AX` for its whole
 walk and runs lock-free, and that is still safe, because §66.5.4 marks a task
