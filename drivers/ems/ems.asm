@@ -452,26 +452,17 @@ em_bases:   dw 0x260, 0x264, 0x268, 0x26C ; the bases tried in each frame: the
             dw 0x288, 0               ; Lo-tech's, and a PicoMEM's default
 
 ; =============================================================================
-; THE SERVICE TABLE IS THE HANDLE TABLE. The kernel reads a driver's service
-; table ONCE: drv_publish copies it the moment attach returns, and every
-; dispatch after that reads the kernel's copy (kernel/driver.inc, drv_load and
-; drv_publish). And attach is only ever sent to an image read off the disk a
-; moment before - drv_load_row refuses a row whose DRVR_SEG is set, which is
-; the fact HDD.DRV lays its attach code under hd_mbr on. So the 34 bytes
-; below DSV_PKGCALL, which the copy must find 0, are the handle tables while
-; they are still the zero the image declares: nothing allocates before a
-; package calls, and no package can call before the copy is taken.
+; THE SERVICE TABLE IS ONE CELL. DRVC_EMS keeps no copy of a driver's table:
+; drv_publish reads [SI + DSV_PKGCALL] alone, the moment attach returns, into
+; drv_fptr7's offset half (kernel/driver.inc, SPEC.md 107.1) - so em_svc is
+; whatever lies DSV_PKGCALL bytes ahead of the door, and the 34 bytes there
+; are code, never read as cells.
 ; =============================================================================
-em_svc:
-em_hlen:    times EMS_NHND dw 0 ; per handle (1..8, index 2 x (h - 1)): its
-                                ; length in pages, 0 = a free handle
-em_hbo:     times EMS_NHND dw 0 ; ...its first page (low byte) and its owner
-                                ; (high byte, the slot XOR EM_SLOTX)
-            dw 0                ; (the last cell below the door)
-            dw em_pkg           ; DSV_PKGCALL
-em_svc_end:
-%if em_svc_end - em_svc != DSV_PKGCALL + 2
-    %error "em_svc's door must be its last cell, DSV_PKGCALL"
+em_door:    dw em_pkg           ; DSV_PKGCALL
+em_svc      equ em_door - DSV_PKGCALL
+em_svc_end  equ em_door + 2     ; (OS88_DRIVER's +15 table length: DSV_SIZE)
+%if em_door - $$ < DSV_PKGCALL
+    %error "em_door must lie DSV_PKGCALL bytes into the image at least"
 %endif
 
 ; =============================================================================
@@ -483,5 +474,9 @@ em_frame:   dw 0                ; the frame's segment
 em_npg:     dw 0                ; the board's pages
 em_qown:    times 4 db 0        ; per quarter: its holder (XOR EM_SLOTX), 0 =
                                 ; nobody
+em_hlen:    times EMS_NHND dw 0 ; per handle (1..8, index 2 x (h - 1)): its
+                                ; length in pages, 0 = a free handle
+em_hbo:     times EMS_NHND dw 0 ; ...its first page (low byte) and its owner
+                                ; (high byte, the slot XOR EM_SLOTX)
 
     OS88_DRV_END

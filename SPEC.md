@@ -170526,7 +170526,7 @@ against this one:
 | `.cold` | **+3** | 0 |
 | `.ovl` | **+1**: `drv_cfgbit`'s byte (not resident) | 0 |
 | the footprint | **no rung crossed** | no rung |
-| the system disk | `EMS.DRV`, 704 bytes of image, **675 on the floppy** packed, and a **1 KB** claim when loaded (it was 1,206 bytes and two KB until kernel size pass 11: a 256-byte per-page owner table repeated what the handles say, and first fit now asks the eight handles - `docs/plans/ksp11/drivers.md`) | none |
+| the system disk | `EMS.DRV`, 702 bytes of image (32 of them zero state, off the disk), **670 on the floppy** packed, and a **1 KB** claim when loaded (it was 1,206 bytes and two KB until kernel size pass 11: a 256-byte per-page owner table repeated what the handles say, and first fit now asks the eight handles; and its service table is the one door cell, the kernel reading nothing else of it - `docs/plans/ksp11/drivers.md`) | none |
 
 113 resident bytes on every `kern_big` machine, board or none - the estimate
 in VIDEO-XMS-PLAN 10.5 was 95-100, short by the teardown call's banking.
