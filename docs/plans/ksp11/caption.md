@@ -17,6 +17,7 @@ assembled bytes, `tools/kernsize.py --json`, against the base's absolutes
 | kern_small `.text` | 32,022 | 32,014 | **-8** |
 | kern_small resident | 61,442 | 61,434 | **-8** |
 | `KERN_SIZE` big / small | 98,304 / 63,488 | same | no rung moved (image rung 44 -> 72 left on big) |
+| kern_emu `.text` | | 43,659 | **-28** (the same routine; `make emu` assembles at the tip) |
 | overlay, modules, drivers | | | 0 (nothing outside `wm_clip_rows` touched) |
 
 ## WHY KERN_SMALL WAS 0
@@ -99,6 +100,12 @@ Instructions per call (unicorn's count, includes `gfx_clip_query` and
 | disarmed | 1,502 | 33 | 31 | -8 |
 | culled | 3,007 | 78 | 75 | -9 |
 
+**kern_small and kern_emu were run through the same harness** (their own
+base and tip, assembled with `-DKERN_SMALL` / `-DKERN_EMU`): identical over
+30,000 and 5,000 cases. kern_small, median instructions old -> new: refused
+55 -> 54, spanning 64 -> 62, cut 101 -> 99, disarmed 26 -> 25, culled 69 ->
+67.
+
 Taken branches per path: refused 1 -> 1 (`jz` -> `jb`); spanning 2 -> 2
 (`jmp short .ok` + `jmp short .out` -> `je .mask` + `jmp .ok`); cut 4 -> 1
 (outside the grow loop itself);
@@ -141,6 +148,17 @@ is the upper bound.
 None found in the concept. The fix stands as 11.3.4.3 describes; the corner
 cell keeps its accepted under-draw.
 
+## OUTSIDE THE CONCEPT: pass 10's `dskwstage` leftover (0 bytes)
+
+Pass 10's record 5 asked for `tests/dskwstage.py` to breakpoint
+`dskw_xclus.stg` directly and for `kernel/diskw.inc`'s two `equ` aliases
+(`dskw_wdata.stg`, `dskw_rdata.stg`) and their comment to go. Done in its own
+commit: the test names the label once (`STG`), its messages say "the write's
+/ the read's staging arm", and `build/kernel.bin` is byte-identical before
+and after (`md5sum`). `diskw.inc` is the diskwrite agent's file - the hunk
+is the six lines at the old 2160-2165 and nothing else, so a merge conflict,
+if any, is "delete these lines". `dskwstage` green.
+
 ## CROSS-FILE
 
 None. Nothing outside `wm_clip_rows` changed, no contract another concept
@@ -153,4 +171,12 @@ the new store leans on) is the assertion already in `wm.inc`.
 * `tools/stkbalance.py kernel/kernel.asm kernel/*.inc`: 0 unbalanced, base
   and tip.
 * The unicorn side-by-side above (30,000 cases, identical).
-* Soak rows, one at a time: see the bottom of this file.
+* Soak rows at the tip (`82fd9ede` and on): `clipgrow` (the concept's own
+  gate, 11.3.4.3) ok; `runclip`, `runclipcga` (11.3.4.2), `clipkeep`,
+  `zonedmg`, `dmgcull` (11.3.3's cull arm) ok; `wmchrome` ok; `dskwstage`
+  ok. **`deskflash` 3 of 4**: the one red read *"cell repainted in place: 3
+  px changed, 3 flashed; cell (selected) ... 1 px changed, 1 flashed"*,
+  which is the row's own documented flake (its docstring: three alternating
+  CGA pixels in about one reading in six, on the kernel before as well) and
+  pass 10's record 4.1 signature at its base; re-run three times alone, all
+  three green.

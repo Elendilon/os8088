@@ -72,6 +72,12 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+# Both pipelines' staging arm, by name. dskw_wdata and dskw_rdata share one
+# cluster body since kernel size pass 10 (dskw_xclus), so the two arms are
+# one label; a write call reaches it only for a write and a read call only
+# for a read, so a count per call still says which pipeline staged.
+STG = "dskw_xclus.stg"
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 sys.path.insert(0, os.path.join(HERE, "unit"))
@@ -505,10 +511,10 @@ def run(img, apps, machine, want_bug, verbose):
         blast(m, safe_src, src_pat)
 
         # --- W1: the straddling write --------------------------------------
-        r, hits = c.call("dskw_write_x", watch=("dskw_wdata.stg",),
+        r, hits = c.call("dskw_write_x", watch=(STG,),
                          si=name_at(m, "STGW.TST"),
                          es=straddle_src >> 4, bx=0, cx=FSIZE, dx=0)
-        cf, ax, n = r["flags"] & 1, r["ax"], hits["dskw_wdata.stg"]
+        cf, ax, n = r["flags"] & 1, r["ax"], hits[STG]
         if want_bug:
             if not (cf and ax == FERR_IO):
                 bad.append("W1 --bug: the straddling write returned CF=%d "
@@ -516,7 +522,7 @@ def run(img, apps, machine, want_bug, verbose):
                            "CF=1 FERR_IO(%d). This image is FIXED."
                            % (cf, ax, FERR_IO))
             if n:
-                bad.append("W1 --bug: dskw_wdata.stg executed %d times, and "
+                bad.append("W1 --bug: the staging arm executed %d times, and "
                            "in a pre-18.4.2.1 kernel nothing can reach it at "
                            "all" % n)
             return bad
@@ -526,28 +532,28 @@ def run(img, apps, machine, want_bug, verbose):
                        "case went to the error arm - which is exactly the "
                        "defect SPEC.md 18.4.2.1 fixed" % (cf, ax, FERR_IO))
         if n != 1:
-            bad.append("W1: dskw_wdata.stg executed %d times, want 1. The "
+            bad.append("W1: the write's staging arm executed %d times, want 1. The "
                        "source starts %d bytes short of a 64KB page, so "
                        "exactly one sector stages and the rest go in runs"
                        % (n, NEAR_END))
 
         # --- W2: the same bytes, page-safe (control) -----------------------
-        r, hits = c.call("dskw_write_x", watch=("dskw_wdata.stg",),
+        r, hits = c.call("dskw_write_x", watch=(STG,),
                          si=name_at(m, "SAFEW.TST"),
                          es=safe_src >> 4, bx=0, cx=FSIZE, dx=0)
         if r["flags"] & 1 or r["ax"]:
             bad.append("W2 (control): an ORDINARY write failed, CF=%d AX=%d - "
                        "this row's machinery is broken, not the staging"
                        % (r["flags"] & 1, r["ax"]))
-        if hits["dskw_wdata.stg"]:
-            bad.append("W2 (control): dskw_wdata.stg fired %d times on a "
+        if hits[STG]:
+            bad.append("W2 (control): the write's staging arm fired %d times on a "
                        "PAGE-SAFE buffer, so the .stg counter above is not "
-                       "measuring the straddle" % hits["dskw_wdata.stg"])
+                       "measuring the straddle" % hits[STG])
 
         # --- R1/R2/R3: read it back ----------------------------------------
         def readback(tag, fname, dst, want_stg):
             m.write(dst, bytes([POISON]) * 4096)
-            r, hits = c.call("dskw_read_x", watch=("dskw_rdata.stg",),
+            r, hits = c.call("dskw_read_x", watch=(STG,),
                              si=name_at(m, fname),
                              es=dst >> 4, bx=0, cx=4096, dx=0)
             got = m.read(dst, 4096)
@@ -559,9 +565,9 @@ def run(img, apps, machine, want_bug, verbose):
             if size != FSIZE:
                 bad.append("%s: %s came back %d bytes, want %d"
                            % (tag, fname, size, FSIZE))
-            n = hits["dskw_rdata.stg"]
+            n = hits[STG]
             if n != want_stg:
-                bad.append("%s: dskw_rdata.stg executed %d times, want %d"
+                bad.append("%s: the read's staging arm executed %d times, want %d"
                            % (tag, n, want_stg))
             if got[:FSIZE] != src_pat:
                 first = next(i for i in range(FSIZE)
