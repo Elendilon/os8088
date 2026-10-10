@@ -93,19 +93,19 @@ TARGETS = [
      "herc-spk", "mono", "5150-st225"),
     ("IBM 5150/XT, a floppy - small and slow", "cga-small", "mono",
      "floppy"),
-    ("286, VGA - 16 colours in the window", "vga4", "vga4", "286-vga"),
-    ("286, VGA - 256 colours, full screen", "vga8", "vga8", "286-vga"),
+    ("286, VGA - 16 colours in the window", "vga4", "vga4", "286-fast"),
+    ("286, VGA - 256 colours, full screen", "vga8", "vga8", "286-fast"),
     ("286, VGA - Mode X, 256 colours, square pixels", "modex", None,
-     "286-vga"),
-    ("486, VGA - 16 colours in the window", "vga4-mid", "vga4", "486"),
+     "286-fast"),
+    ("486, VGA - 16 colours in the window", "vga4-mid", "vga4", "486-dx2-66"),
     ("486, VGA - Mode X, 256 colours, square pixels", "modex", None,
-     "486"),
+     "486-dx2-66"),
     ("Live on a CGA desktop - short, black and white, read whole", None,
      None, "5150-st225", {"live": "cga"}),
     ("Live on a Hercules desktop - short, black and white", None, None,
      "5150-st225", {"live": "herc"}),
     ("Live on a VGA desktop - short, black and white", None, None,
-     "286-vga", {"live": "vga"}),
+     "286-fast", {"live": "vga"}),
 ]
 TARGETS = [t + ({},) if len(t) == 4 else t for t in TARGETS]
 
@@ -1067,7 +1067,8 @@ DISKS = [
 DISK_LABELS = [d[0] for d in DISKS]
 # the disk a storage profile implies, until the person picks another
 DISK_OF_PROFILE = {"5150-st225": 4, "5150-picomem2": 4, "floppy": 0,
-                   "286": 6, "286-vga": 6, "486": 6, "lossless": 6}
+                   "286-slow": 6, "286-fast": 6, "286-speeddemon": 6,
+                   "486-dx2-66": 6, "lossless": 6}
 # what a hard disk needs out of build/ to BOOT - the kernel, its boot records
 # and HDD.DRV - and what a booting one takes besides when build/ has it.
 # Without HD_BOOT (the encoder shipped to people with no os8088 tree) the disk

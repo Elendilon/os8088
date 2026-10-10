@@ -86921,7 +86921,7 @@ every byte came through rung 1) against the same machine's BIOS run of
 | 75% | 294.3 | 300.7 |
 | 50%, interrupts off | 441.5 | 486.3 |
 
-Equal within the instrument, so the `286-pvga` profile's `disk_at` curve,
+Equal within the instrument, so the `286-fast` profile's `disk_at` curve,
 taken through the BIOS, describes rung 1 too and was left as it is. The
 short single-shot rows above the ceilings (READ_AT, READ_SEQ by chunk size)
 are whole PIT ticks over eight reads and moved both ways by one or two
@@ -159069,11 +159069,25 @@ without them (`ffmpeg` capability).
 | `5150-xtide` | 96,000 | 50% / 85% | PCM8 11,025 | an XT-IDE the CPU copies, measured on MartyPC under the cylinder bound (98.2.1.3; 91,000 under the track's) |
 | `5150-picomem2` | 150,000 | 40% / 80% | PCM8 22,050 | predicted |
 | `floppy` | 15,000 | 50% / 85% | PCM8 5,512 | predicted |
-| `286` | 150,000 | 150% / 250% of an 8088's | PCM8 22,050 | predicted |
-| `286-vga` | 616,000 | 225% / 375% of an 8088's | PCM8 22,050 | the owner's 86Box 286 (98.2.3, 98.2.3.2, 98.2.3.4) |
-| `286-pvga` | 448,000 | 225% / 375% of an 8088's, priced by its own table | PCM8 22,050 | the owner's REAL 16 MHz AMD 286 with a PVGA1A on the board: decodes 12-29% slower than the mr286 (docs/reports/VIDBENCH-PVGA286-2026-10-08.md) |
-| `486` | 1,950,000 | 650% / 1,000% of an 8088's | PCM8 22,050 | the owner's 86Box 486DX2/66, ISA VGA and IDE (98.2.3.2, 98.2.3.6) |
+| `286-slow` (was `286`) | 150,000 | 150% / 250% of an 8088's | PCM8 22,050 | predicted: a slow 6-8 MHz AT, a stand-in no machine has measured |
+| `286-fast` (was `286-pvga`) | 448,000 | 225% / 375% of an 8088's, priced by its own table | PCM8 22,050 | a fast 16 MHz 286 with VGA on the board, measured on a real one - the owner's AMD 286 with a PVGA1A, whose RAM has wait states: decodes 12-29% slower than `286-speeddemon` (docs/reports/VIDBENCH-PVGA286-2026-10-08.md) |
+| `286-speeddemon` (was `286-vga`) | 616,000 | 225% / 375% of an 8088's | PCM8 22,050 | a 286 at the top of its class - no RAM wait states and a fast IDE disk - measured on 86Box's mr286 (98.2.3, 98.2.3.2, 98.2.3.4) |
+| `486-dx2-66` (was `486`) | 1,950,000 | 650% / 1,000% of an 8088's | PCM8 22,050 | a 486DX2/66 with an ISA VGA and IDE, measured on 86Box (98.2.3.2, 98.2.3.6) |
 | `lossless` | none | none | PCM8 22,050 | every change |
+
+**A profile is named for the CLASS of machine it stands in for, not for the
+one it was measured on** (2026-10-10). The four above were `286`, `286-pvga`,
+`286-vga` and `486` until then - names that said which bench they came off
+and nothing about what a reader's 286 is like - and the sections below that
+date still say them. The numbers did not change, only the names: the
+command line, `tools/os88vidbuf.py` and a script still take an old name as
+its new (`PROFILE_RENAMED`), the window lists only the new, and a file's
+options record at version 14 or older reads its old name as the new one
+(options version 15's migration, 98.2.17). **The window's three "286, VGA"
+targets and its "Live on a VGA desktop" pick `286-fast`**, where they
+picked `286-vga`: a person choosing "286" is far likelier to have a real
+one than the best one there is, and a file made for the speed demon is
+too heavy for the rest.
 
 - **A frame that fits is exact.** One that does not commits its changed
   spans best first - pixels fixed per unit of whichever budget is scarcer,

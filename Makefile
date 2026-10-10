@@ -10497,7 +10497,7 @@ videnchd: $(VIDENC_BASE) $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 \
 	@ls -l $(BUILD)/VIDENC-*.VHD
 
 # THE 486 MEASUREMENT DISK (SPEC.md 98.2.3.1): what a new encoder profile
-# is made from, taken the way 286-vga's was (docs/reports/VIDEO-86BOX-286-
+# is made from, taken the way 286-speeddemon's (then 286-vga) was (docs/reports/VIDEO-86BOX-286-
 # 2026-09-26.md) but needing NOTHING from outside the tree - VIDBENCH's frames
 # are synth_frames() as an XDC stream, and VIDDISK writes its own stream (W).
 # A bootable IDE disk (17/15/VID486_CYLS, 31 MB - a volume is 32 MB at most

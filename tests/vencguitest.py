@@ -259,6 +259,23 @@ def options_leg():
                        % ({k: o.get(k) for k in ("novel", "dither")}, notes))
     finally:
         V.OPTS_VERSION, V.MIGRATIONS = keep
+    # THE PROFILES' RENAME (98.2.3, options version 15): a record a version-14
+    # encoder wrote names the OLD profiles, and must read as the new ones -
+    # the field's files were made then. And the command line takes an old
+    # name as its new
+    base = {d: V.parser().get_default(d) for d in V.opts_actions()}
+    for old, new in sorted(V.PROFILE_RENAMED.items()):
+        o, notes = V.opts_migrate({"v": 14, "o": dict(
+            base, profile=old, layer_profile=old)})
+        if o.get("profile") != new or o.get("layer_profile") != new:
+            bad.append("15: a version-14 record's --profile %s read as %r "
+                       "and --layer-profile as %r, not %s (notes %s)"
+                       % (old, o.get("profile"), o.get("layer_profile"),
+                          new, notes))
+        a = V.parser().parse_args(["in.mp4", "out.v88", "--profile", old])
+        if a.profile != new:
+            bad.append("15: --profile %s on the command line is %r, not %s"
+                       % (old, a.profile, new))
     # the container: a round trip, and damage refused where it is read
     doc = {"v": 1, "src": "x.mp4", "o": {"fps": 23.0}}
     if vid.unpack_options(vid.pack_options(doc)) != doc:
@@ -403,7 +420,7 @@ def main():
     eight = [G.target_fill(i, 30.0) for i, t in enumerate(G.TARGETS)
              if t[1] in ("vga8", "modex")]
     # ...the 486's whole picture (its profile's default, 98.2.3.5)
-    want8 = [("25", "1x1" if f["profile"] == "486" else "2x1") for f in eight]
+    want8 = [("25", "1x1" if f["profile"] == "486-dx2-66" else "2x1") for f in eight]
     print("   %d targets filled; the 256-colour ones at %s fps, detail %s"
           % (len(G.TARGETS), "/".join(f["fps"] for f in eight),
              "/".join(f["detail"] for f in eight)))
@@ -502,7 +519,7 @@ def main():
                         src30], check=True)
         out = os.path.join(tmp, "MX.V88")
         V.encode(V.parser().parse_args([src30, out, "--preset", "modex",
-                                        "--profile", "286-vga",
+                                        "--profile", "286-speeddemon",
                                         "--quiet"]))
         r = vid.Reader(out)
         import numpy as np
@@ -817,7 +834,7 @@ def leg10(tmp, bad):
     out = os.path.join(tmp, "PRE.V88")
     V.encode(V.parser().parse_args([src, out,
                                     "--preset", "vga8", "--detail", "1x1",
-                                    "--profile", "286-vga",
+                                    "--profile", "286-speeddemon",
                                     "--audio", "none", "--quiet"]))
     r, frames = G.preview_frames(out)
     k0 = r.keys[0][0]
@@ -874,7 +891,7 @@ def leg12(tmp, bad):
     with open(out, "wb") as f:
         f.write(old)
     j = G.EncodeJob([long_src, out, "--preset", "modex", "--profile",
-                     "286-vga"]).start()
+                     "286-speeddemon"]).start()
     seen = None
     for kind, val in j.events():
         if kind == "prog" and val[0] in ("read", "encode") and val[1] > 5:

@@ -143,10 +143,11 @@ PROFILES = {
                    ring=8,
                    rate=5512, audio="pcm8",
                    what="a 360 KB floppy, a cylinder a call (predicted)"),
-    "286": dict(disk=150000, avg=1.50, peak=2.50, owe=1.6, speed=3,
+    "286-slow": dict(disk=150000, avg=1.50, peak=2.50, owe=1.6, speed=3,
                 ring=8,
                 rate=22050, audio="pcm8", spk_us=(23.0, 13.0),
-                what="a 6 MHz 286: ~3x the 8088's cycles (predicted)"),
+                what="a slow 286, 6-8 MHz: ~3x the 8088's cycles (predicted - "
+                     "a stand-in no machine has measured)"),
     # MEASURED, both of them (docs/reports/VIDEO-86BOX-486-2026-10-07.md):
     # `speed` is VIDBENCH's frames decoded on the machine against this
     # model's cycles for them, taken on the frames heavy in bytes, which are
@@ -170,16 +171,17 @@ PROFILES = {
     # disk the CPU copies pays little a call - so this stays until a
     # VIDDISK run on build 458 or later says otherwise (the owner's own
     # VIDDISK286.TXT of 2026-10-07, track-bound, read 665.5 at 50%)
-    "286-vga": dict(disk=616000, avg=2.25, peak=3.75, owe=1.6, speed=4.5,
+    "286-speeddemon": dict(disk=616000, avg=2.25, peak=3.75, owe=1.6, speed=4.5,
                     ring=8, xcopy=0.345, lcopy_us=1.829, cyc_us=CYC_US_286,
                     disk_at=((0.0, 1318.3 / 684.7), (0.25, 1023.9 / 684.7),
                              (0.5, 1.0), (0.75, 348.1 / 684.7), (1.0, 0.0)),
                     rate=22050, audio="pcm8", spk_us=(11.5, 6.5),
-                    what="a 12-16 MHz 286 with a VGA, for VGA8: the VGA's "
-                         "bus binds, and it decodes ~4.5x as fast as the "
-                         "5150's CGA; its IDE disk 685 KB/s with half the "
-                         "period decoding (86Box's mr286, the owner's "
-                         "bench). An ST11R there: --disk 250000"),
+                    what="a 286 at the top of its class - RAM with no wait "
+                         "states and a fast IDE disk: the VGA's bus binds, "
+                         "and it decodes ~4.5x as fast as the 5150's CGA; "
+                         "the disk 685 KB/s with half the period decoding "
+                         "(measured on 86Box's mr286). An ST11R there: "
+                         "--disk 250000"),
     # THE OWNER'S REAL 286 (2026-10-08): the decode above, its latch row
     # (17.06 ms an 8,000 bytes), and its disk - a nearly full, fragmented
     # 2.5-inch IDE drive - at 0.9 x VIDDISK's 50% row (486.3 KB/s), its
@@ -187,26 +189,27 @@ PROFILES = {
     # on while the CPU is busy, so the curve holds up to 25% and falls past
     # it. The shares are the mr286's - a profile with `cyc_us` prices in
     # microseconds, so `speed` is only the unit they are written in
-    "286-pvga": dict(disk=448000, avg=2.25, peak=3.75, owe=1.6, speed=4.5,
+    "286-fast": dict(disk=448000, avg=2.25, peak=3.75, owe=1.6, speed=4.5,
                      ring=8, xcopy=0.345, lcopy_us=2.133, cyc_us=CYC_US_286PVGA,
                      disk_at=((0.0, 729.5 / 486.3), (0.25, 684.7 / 486.3),
                               (0.5, 1.0), (0.75, 294.3 / 486.3), (1.0, 0.0)),
                      rate=22050, audio="pcm8", spk_us=(11.5, 6.5),
-                     what="the owner's real 16 MHz AMD 286 with a PVGA1A on "
-                          "the board: decodes 12-29% slower than 86Box's "
-                          "mr286 (its RAM has wait states); its laptop IDE "
+                     what="a fast 286, 16 MHz, with VGA on the board and an "
+                          "IDE disk: decodes 12-29% slower than "
+                          "286-speeddemon (its RAM has wait states), the "
                           "disk 486 KB/s with half the period decoding "
-                          "(measured: VIDBENCH and VIDDISK on the machine)"),
+                          "(measured on a real one - the owner's AMD 286 "
+                          "with a PVGA1A - by VIDBENCH and VIDDISK)"),
     # VIDDISK's ceiling at its 50% row, 2,192 KB/s, x 0.9 - the 5150's
     # rule - and its other rows as the curve: an IDE disk the CPU copies.
-    # Track-bound, like 286-vga's, and for the same reason left as it is
+    # Track-bound, like 286-speeddemon's, and for the same reason left as it is
     # (SPEC.md 18.91.5): this machine's disk is not what binds it.
     # The "what" says 10x: that is its slices; its runs are 8x, which is
     # the table's to price, not speed's
     # avg / peak: the owner's 86Box DX2/66 played 70% / 105% flipped with
     # nothing seen wrong and 80% / 115% with late frames counted (98.2.3.6);
     # these sit under that boundary, a real machine being slower or faster
-    "486": dict(disk=1950000, avg=6.50, peak=10.0, owe=1.6, speed=10, xcopy=0.05,
+    "486-dx2-66": dict(disk=1950000, avg=6.50, peak=10.0, owe=1.6, speed=10, xcopy=0.05,
                 ring=8, lcopy_us=1.380, cyc_us=CYC_US_486,
                 disk_at=((0.0, 4151 / 2192.0), (0.25, 3157 / 2192.0),
                          (0.5, 1.0), (0.75, 1096 / 2192.0), (1.0, 0.0)),
@@ -219,7 +222,7 @@ PROFILES = {
                 what="a 486DX2/66 with an ISA VGA and IDE: the card's bus "
                      "binds, ~10x the 5150's decode (8x on runs, 11x on "
                      "pixels); the disk 2,192 KB/s with half the period "
-                     "decoding (86Box, the owner's bench)"),
+                     "decoding (measured on 86Box)"),
     "lossless": dict(disk=None, avg=None, peak=None, owe=None, speed=1,
                      ring=None,
                      rate=22050, audio="pcm8", what="no limits: every change, exactly"),
@@ -416,14 +419,15 @@ CHOICE_HELP = {
                          "sound (predicted)",
         "floppy": "Played off a floppy: 15 KB/s, 5.5 kHz sound - small and "
                   "slow",
-        "286": "A 286 with a hard disk: 150 KB/s, three 8088s of CPU "
-               "(predicted)",
-        "286-vga": "A 286 with VGA and IDE: 600 KB/s, four and a half "
-                   "8088s of CPU",
-        "286-pvga": "The owner's 16 MHz 286 with the PVGA1A on its board: "
-                    "448 KB/s off its laptop IDE disk, the decode measured "
-                    "on the machine (12-29% slower than 86Box's 286)",
-        "486": "A 486DX2/66 with an ISA VGA and IDE: 1.9 MB/s, ten 8088s "
+        "286-slow": "A slow 286 with a hard disk: 150 KB/s, three 8088s of "
+                    "CPU (predicted - a stand-in no machine has measured)",
+        "286-speeddemon": "The fastest 286: no RAM wait states and a fast "
+                          "IDE disk - 600 KB/s, four and a half 8088s of "
+                          "CPU (measured on 86Box)",
+        "286-fast": "A fast 16 MHz 286 with VGA on the board: 448 KB/s off "
+                    "an IDE disk, the decode measured on a real one "
+                    "(12-29% slower than 286-speeddemon)",
+        "486-dx2-66": "A 486DX2/66 with an ISA VGA and IDE: 1.9 MB/s, ten 8088s "
                "of CPU, 65% of it on average - Mode X, the whole picture "
                "and 48 KB frames",
         "lossless": "No budget: every change kept, whatever it costs",
@@ -624,7 +628,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 14
+OPTS_VERSION = 15
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles")
@@ -639,7 +643,21 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     7: "3c23376030acae01", 8: "a2cee436c2bd5178",
                     9: "566ce460b7bc0952", 10: "03033c94f4068ded",
                     11: "92246fa491f53aee", 12: "27f0d558163b22db",
-                    13: "23fa4d29a8c351cd", 14: "a712ea2b2ccb6fb7"}
+                    13: "23fa4d29a8c351cd", 14: "a712ea2b2ccb6fb7",
+                    15: "dfbf1586ebcab68e"}
+# THE PROFILES' OLD NAMES (98.2.3): named for the owner's machines until
+# they were named for the classes they stand in for. A command line or a
+# script may still say the old one, and gets the same profile
+PROFILE_RENAMED = {"286": "286-slow", "286-pvga": "286-fast",
+                   "286-vga": "286-speeddemon", "486": "486-dx2-66"}
+
+
+def profile_name(v):
+    """--profile / --layer-profile: a profile's name, an old one taken as
+    its new (PROFILE_RENAMED)"""
+    return PROFILE_RENAMED.get(v, v)
+
+
 # THE VERSION MAPPER: MIGRATIONS[n] is what turns a version-n record into
 # version n+1, a list of steps applied in order:
 #   ("rename", old, new)          an option took a new name
@@ -692,6 +710,11 @@ MIGRATIONS = {
     # holds the share AUTO came to, so nothing older reads differently; and
     # --box, --detail and --screen take W*H as well (98.2.1), stored as WxH
     13: [("added", "layer_profile", None)],
+    # 15: THE PROFILES ARE NAMED FOR THE MACHINES THEY STAND IN FOR (98.2.3),
+    # not for the one each was measured on - a record that names an old one
+    # reads as its new name, the same machine and the same numbers
+    14: [("revalue", "profile", PROFILE_RENAMED),
+         ("revalue", "layer_profile", PROFILE_RENAMED)],
 }
 
 
@@ -5383,7 +5406,7 @@ def parser():
                     help="frames a second (default: the source's, at most "
                          "30 - 15 for 256 colours, 25 for the vga8 and modex "
                          "presets)")
-    ap.add_argument("--profile", choices=sorted(PROFILES),
+    ap.add_argument("--profile", choices=sorted(PROFILES), type=profile_name,
                     default="5150-st225",
                     help="the machine's storage and CPU budget, which every "
                          "frame is fitted to (--profiles says what each is)")
@@ -5445,6 +5468,7 @@ def parser():
                          "plays the base; one that reads the layer too "
                          "plays better")
     ap.add_argument("--layer-profile", choices=sorted(PROFILES),
+                    type=profile_name,
                     help="THE LAYER FOR ANOTHER MACHINE: its CPU and disk, "
                          "where the base is made for --profile - a file for "
                          "a 5150 that plays better on a 286. Its disk is "

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """os88vidbuf - what a stream's read-ahead would buy, with and without XMS.
 
-    python3 tools/os88vidbuf.py CLIP.V88 [--profile 286-vga] [--media KB/s]
+    python3 tools/os88vidbuf.py CLIP.V88 [--profile 286-speeddemon] [--media KB/s]
         [--pio MS] [--xcopy MS] [--ring K] [--xms KB ...] [--wait S ...]
         [--minrate] [--deficit KB/s ...] [--cache FILE]
 
@@ -61,11 +61,11 @@ SND_KB, ENTRY_KB = 17, 4
 # what a profile's disk costs the CPU, ms a KB, when the CPU copies it:
 # 1 / the rate VIDDISK measured IDLE, which its other rows bear out (the
 # rate falls as the decode's share rises, as one CPU split two ways would)
-PIO = {"286-vga": 1000.0 / 1318.3, "486": 1000.0 / 4151.0}
+PIO = {"286-speeddemon": 1000.0 / 1318.3, "486-dx2-66": 1000.0 / 4151.0}
 # the XMS copy, ms a KB: 286 MEASURED on the owner's real 286 (int 15h
 # AH=87h, 11.3 ms a 32 KB call: docs/reports/VIDDISK-XMS-286-2026-10-08.md),
 # 486 ESTIMATED (a dword move in unreal mode, ~20 MB/s)
-XCOPY = {"286-vga": 0.345, "486": 0.05}
+XCOPY = {"286-speeddemon": 0.345, "486-dx2-66": 0.05}
 
 
 def stream(r):
@@ -259,11 +259,19 @@ def deficit(sps, fps, depth_kb, rate, prefill):
     return short / want
 
 
+def profile_name(v):
+    """an old profile name (286-vga, 486...) as its new one"""
+    import os88venc as venc
+    return venc.PROFILE_RENAMED.get(v, v)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("clip")
-    ap.add_argument("--profile", default="286-vga",
-                    help="the machine whose decode prices each frame")
+    ap.add_argument("--profile", default="286-speeddemon",
+                    type=profile_name,
+                    help="the machine whose decode prices each frame (an "
+                         "old name - 286-vga, 486 - is taken as its new)")
     ap.add_argument("--media", type=float, default=None,
                     help="the disk's own rate, KB/s (default: the "
                          "profile's idle VIDDISK row)")
