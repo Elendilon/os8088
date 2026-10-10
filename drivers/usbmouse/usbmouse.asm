@@ -312,6 +312,20 @@ um_attach:
 ; card's own IRQ must exist - CH = 0 means no jumper the card could find, and
 ; then no report can ever arrive, so attach refuses rather than mounting a
 ; mouse that is never going to move.
+;
+; THE VECTOR GOES IN BEFORE THE MOUSE IS TURNED ON, and that order is the
+; difference between a mouse and a frozen machine (docs/FIELD-NOTES.md 66).
+; The card's firmware sets its "a report is waiting" flag on EVERY USB report,
+; enabled or not, and only consults the enable when deciding to raise the
+; IRQ - so a mouse that has moved at all since power-on is a report raised the
+; instant function 10h returns, and its `int 33h` lands on whatever the vector
+; holds. On a 5150 that is 0000:0000: the CPU executes the vector table. A
+; report that arrives between the hook and the enable is harmless - the
+; fence refuses it, this driver not being DRVC_POINT's until attach returns.
+;
+; The card's LINE is opened as SOUND.DRV's pm_bios opens it (SPEC.md 34.10.1):
+; function 0 re-hooks the card's vector when something took it but leaves a
+; line it finds still hooked exactly as masked as it found it.
 ; -----------------------------------------------------------------------------
 um_pmattach:
     mov dx, 0x2A3
@@ -333,28 +347,47 @@ um_pmattach:
     int 0x13                    ; card's IRQ if anything took its vector
     cmp dx, 0xAA55
     jne .nobx
-    or ch, ch                   ; CH = the card's own IRQ
-    jz .nobx
-    mov ax, 0x6010              ; PM BIOS function 10h: enable the mouse
-    mov dx, 0x1234
-    int 0x13
-    pop bx
+    mov cl, ch                  ; CH = the card's own IRQ
+    dec ch                      ; 0 (no jumper the card found) wraps to FFh,
+    cmp ch, 7                   ; and a line past 7 is not one this vector
+    jae .nobx                   ; arithmetic reaches: neither ever reports
     push es
     xor ax, ax
     mov es, ax
+    mov al, cl
+    add al, 8                   ; int 8+n's cell
+    shl ax, 1
+    shl ax, 1
+    xchg ax, si
+    cmp [es:si+2], bx           ; still the PM BIOS's multiplexer?
+    jne .hook                   ; ...then its line is open (pm_bios's rule)
+    mov ah, 1
+    shl ah, cl
+    not ah
     pushf
     cli
-    mov ax, [es:0x33*4]         ; int 33h: ours, the rest chained
-    mov [um_old33], ax
+    in  al, 0x21
+    and al, ah
+    out 0x21, al
+    popf
+.hook:
+    xor ax, ax                  ; the halving's carries are um_scratch, which
+    mov [um_rx], ax             ; is attach's own code until now: from here
+    mov [um_ry], ax             ; on it is the ISR's
+    pushf
+    cli
+    mov ax, [es:0x33*4]         ; int 33h: ours, the rest chained - and in
+    mov [um_old33], ax          ; place BEFORE the card can call it
     mov ax, [es:0x33*4+2]
     mov [um_old33+2], ax
     mov word [es:0x33*4], um_pm33
     mov [es:0x33*4+2], cs
     popf
     pop es
-    xor ax, ax                  ; the halving's carries are um_scratch, which
-    mov [um_rx], ax             ; is attach's own code until now: from here
-    mov [um_ry], ax             ; on it is the ISR's
+    mov ax, 0x6010              ; PM BIOS function 10h: enable the mouse,
+    mov dx, 0x1234              ; LAST
+    int 0x13
+    pop bx
     inc byte [um_pm]
     clc
     ret

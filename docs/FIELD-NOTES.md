@@ -3409,7 +3409,7 @@ setting is needed - and the boot partition of an installed machine (a video
 disk is one partition) is handed to the driver too, `OSAPI_VOL_TAKE`, and
 given back to the BIOS when the driver goes. `tests/hdtake.py` is the gate.
 
-## 66. PicoMEM: the Sound Blaster plays nothing, and the NE2000 transmits but never receives - no DHCP (OPEN — the network is FIXED on a 1.x and a 2.x and the SB on the 2.x; the 1.x's SB, B:, Restart and the USB mouse await the field: SPEC.md 34.10, 72.2, 18.97.6, 18.100.1, 9.12.7)
+## 66. PicoMEM: the Sound Blaster plays nothing, and the NE2000 transmits but never receives - no DHCP (OPEN — the network is FIXED on a 1.x and a 2.x, and the SB, B: and Restart on the 2.x; the 1.x's SB and the USB mouse await the field: SPEC.md 34.10, 72.2, 18.97.6, 18.100.1, 9.12.7)
 
 Two machines, two cards: a **286 with a PicoMEM 1.x** and **5150 #2 with a
 PicoMEM 2.x** (docs/FIELD-MACHINES.md). On both, `ETHER.DRV` found the card,
@@ -3487,6 +3487,17 @@ awaiting the field:
   disks, which want it), with the card's USB host and mouse enabled in its own
   setup. Its reports reach us through the card's IRQ, so the IRQ 7 jumper
   matters here too.
+
+**Third run on the 2.x: B: and Restart are CONFIRMED** - B: appears with an
+image mounted, and Chip -> Restart comes back to the card's own floppies.
+**Ticking USB Mouse froze the machine** (off `os8088-360.img`). The attach
+turned the card's mouse on and THEN hooked `int 33h`, PMMOUSE's order - and
+the card's firmware flags a waiting report on every USB report whether the
+mouse is enabled or not, so any movement since power-on was an IRQ raised the
+instant the enable returned, delivered through an `int 33h` that on a 5150 is
+0000:0000. The hook goes in first now, and the card's line is opened as
+`SOUND.DRV` opens it (SPEC.md 9.12.7); `tests/picomem.py` reads the vector at
+the moment the card is told to enable and goes red on the old order.
 
 What to send back for the sound: whether Audio or Tracker plays through the
 Sound Blaster. **On the 2.x, the DMA jumper must be on 1.** If the

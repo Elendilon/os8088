@@ -583,13 +583,20 @@ def leg_mouse(tmp):
     for pm in (True, False):
         print("mouse: %s" % ("no CH375, a PicoMEM on IRQ 7" if pm else
                              "neither a CH375 nor a PicoMEM"))
-        st = {"ramp": 0x10, "fn": [], "feeds": [], "chained": 0}
+        st = {"ramp": 0x10, "fn": [], "feeds": [], "chained": 0,
+              "imr": 0xBC,      # a 5150 ROM's IMR: IRQ 7 among the masked
+              "vec10": None, "vec11": None}
         mu = Uc(UC_ARCH_X86, UC_MODE_16)
         mu.mem_map(0, 0x100000)
         mu.mem_write(DSEG * 16, image)
         mu.mem_write(FEED, b"\xcb")             # retf
         mu.mem_write(0x700, b"\xcf")            # the vector we chain to: iret
         mu.mem_write(0x33 * 4, (0x0700).to_bytes(2, "little") + bytes(2))
+        # IRQ 7's vector is the PM BIOS's multiplexer, and the line MASKED -
+        # function 0 leaves a hooked line as it finds it, so the driver must
+        # open it as SOUND.DRV's pm_bios does
+        mu.mem_write(0x0F * 4, (0x0100).to_bytes(2, "little") +
+                     BIOS.to_bytes(2, "little"))
         # far call to the header's dispatcher (+12: `call bp / retf`) with BP
         # = the entry, as drv_call does, then stop
         stub = b"\xbd" + syms["um_entry"].to_bytes(2, "little") + \
@@ -601,11 +608,20 @@ def leg_mouse(tmp):
         # treating `int` as a hook rather than a vector
         mu.mem_write(0x520, b"\x9c\x2e\xff\x1e\xcc\x00\xf4")
 
+        vec = lambda: (int.from_bytes(mu.mem_read(0xCC, 2), "little"),
+                       int.from_bytes(mu.mem_read(0xCE, 2), "little"))
+
         def hin(uc, port, size, ud):
             if pm and port == 0x2A3:
                 st["ramp"] = (st["ramp"] + 1) & 0xFF
                 return st["ramp"]
+            if port == 0x21:
+                return st["imr"]
             return 0xFF
+
+        def hout(uc, port, size, value, ud):
+            if port == 0x21:
+                st["imr"] = value & 0xFF
 
         def hint(uc, n, ud):
             if n != 0x13:
@@ -613,6 +629,11 @@ def leg_mouse(tmp):
             ax, dx = uc.reg_read(UC_X86_REG_AX), uc.reg_read(UC_X86_REG_DX)
             if pm and dx == 0x1234 and ax >> 8 == 0x60:
                 st["fn"].append(ax & 0xFF)
+                if ax in (0x6010, 0x6011):
+                    # what int 33h holds when the card's mouse goes on or
+                    # off: a report raised at that instant is delivered
+                    # through it (docs/FIELD-NOTES.md 66)
+                    st["vec%02x" % (ax & 0xFF)] = vec()
                 if ax == 0x6000:
                     uc.reg_write(UC_X86_REG_BX, BIOS)
                     uc.reg_write(UC_X86_REG_CX, 0x0700)
@@ -630,7 +651,7 @@ def leg_mouse(tmp):
             elif uc.mem_read(addr, 1) == b"\xf4":
                 uc.emu_stop()
         mu.hook_add(UC_HOOK_INSN, hin, None, 1, 0, UC_X86_INS_IN)
-        mu.hook_add(UC_HOOK_INSN, lambda *a: None, None, 1, 0, UC_X86_INS_OUT)
+        mu.hook_add(UC_HOOK_INSN, hout, None, 1, 0, UC_X86_INS_OUT)
         mu.hook_add(UC_HOOK_INTR, hint)
         mu.hook_add(UC_HOOK_CODE, hcode)
 
@@ -642,9 +663,6 @@ def leg_mouse(tmp):
             for r, v in regs.items():
                 mu.reg_write(r, v)
             mu.emu_start(at, 0xFFFFF, count=1_000_000)
-        vec = lambda: (int.from_bytes(mu.mem_read(0xCC, 2), "little"),
-                       int.from_bytes(mu.mem_read(0xCE, 2), "little"))
-
         run(0x500, {UC_X86_REG_AX: 0})              # DRVV_ATTACH
         cf = mu.reg_read(UC_X86_REG_EFLAGS) & 1
         if not pm:
@@ -653,11 +671,19 @@ def leg_mouse(tmp):
                   % (cf, mu.reg_read(UC_X86_REG_AX) & 0xFF))
             check(not st["fn"] and vec() == (0x700, 0),
                   "no PicoMEM call made and int 33h untouched")
+            check(st["imr"] == 0xBC, "and no IRQ line opened")
             continue
         check(cf == 0, "attached")
         check(st["fn"] == [0x00, 0x10], "PM BIOS detect then mouse ON (%s)"
               % ["%02Xh" % f for f in st["fn"]])
         check(vec() == (syms["um_pm33"], DSEG), "int 33h is the driver's")
+        check(st["vec10"] == (syms["um_pm33"], DSEG),
+              "...and was ALREADY when the card's mouse went on - a report "
+              "waiting since boot is raised at that instant, and 0000:0000 "
+              "is the vector table (int 33h then: %04X:%04X)"
+              % (st["vec10"][1], st["vec10"][0]))
+        check(st["imr"] == 0x3C, "the card's line, IRQ 7, opened and nothing "
+              "else touched (IMR %02Xh)" % st["imr"])
 
         def report(btn, dx, dy):
             run(0x520, {UC_X86_REG_AX: 0x0060, UC_X86_REG_DX: btn,
@@ -679,6 +705,9 @@ def leg_mouse(tmp):
               % ["%02Xh" % f for f in st["fn"]])
         check(st["feeds"][-1:] and st["feeds"][-1][:3] == (0, 0, 0),
               "...releases the held button")
+        check(st["vec11"] == (syms["um_pm33"], DSEG),
+              "...BEFORE int 33h is given back, so no report lands on the old "
+              "vector")
         check(vec() == (0x700, 0), "...and gives int 33h back")
 
 

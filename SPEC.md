@@ -15754,9 +15754,21 @@ same `SYSTEM.CFG` bit 6, same `OSAPI_MOUSE_FEED`, same halving and carry.
   BIOS function 0 (detect; it also re-hooks the card's IRQ if its vector was
   taken) must answer `DX = AA55h` with **`CH` ≠ 0** — the card's own IRQ, without
   which no report can ever arrive, so attach refuses `DRVE_HW` rather than
-  mount a mouse that will never move. Then function **10h turns the card's
-  mouse on** (what PMMOUSE does) and `int 33h` is hooked, answering `0060h`
-  and chaining every other function to the vector it found.
+  mount a mouse that will never move. Then the card's line is opened if its
+  vector is still the BIOS's (§34.10.1's rule, `pm_bios`'s code), `int 33h` is
+  hooked — answering `0060h` and chaining every other function to the vector
+  it found — and **only then** does function 10h turn the card's mouse on.
+- **THE HOOK GOES IN BEFORE THE ENABLE, and the other order FROZE THE
+  MACHINE** (docs/FIELD-NOTES.md 66). It is what PMMOUSE does and what this
+  driver first shipped, and it is wrong for a reason in the card's firmware:
+  every USB report sets the card's "report waiting" flag whether the mouse is
+  enabled or not, and the enable is consulted only when deciding to raise the
+  IRQ. So a mouse that has moved at all since power-on is an IRQ raised the
+  instant function 10h returns, delivered through whatever `int 33h` holds —
+  on a 5150, 0000:0000, which is the vector table executed as code. Ticking
+  USB Mouse in the Control Panel on a 2.x stopped the 5150 dead every time.
+  A report that lands between the hook and the enable is harmless: the feed's
+  fence refuses it, this driver not yet being `DRVC_POINT`'s published one.
 - **No worker.** `DRVV_READY` spawns nothing: the report arrives by interrupt.
   `um_pm33` writes it into `um_buf` in the boot report's layout and calls
   `um_report`, which feeds it as it feeds a CH375's — from the card's IRQ
@@ -15770,12 +15782,21 @@ same `SYSTEM.CFG` bit 6, same `OSAPI_MOUSE_FEED`, same halving and carry.
   hooked over us restores to us later, and with the card's mouse off nothing
   will call it.
 
-What it costs: `USBMOUSE.DRV` 1,151 → **1,375** bytes, **2 KB claimed either
+**Inside the DOS box (§96.10) the USB mouse does not move.** The box banks
+the vector table and points `int 33h` at its own `dos_int33` for the length of
+its bracket, so the card's `0060h` reaches the box and not this driver; the
+bank puts our vector back at the end. Nothing breaks, and a DOS program sees
+the pointer the box translates from the kernel's own state — which the card's
+reports are not reaching while it runs.
+
+What it costs: `USBMOUSE.DRV` 1,151 → **1,410** bytes, **2 KB claimed either
 way**, nothing resident, and on a machine with no CH375 and no PicoMEM two
 reads of 2A3h at attach. `tests/picomem.py`'s `mouse` leg runs the driver
-itself against a model of the card's BIOS and IRQ: attach, two reports fed
-halved with the carry, a still report not fed, another `int 33h` function
-chained, and the detach's off, release and restore.
+itself against a model of the card's BIOS and IRQ: attach, `int 33h` already
+ours at the moment function 10h is called, the card's line opened and no
+other, two reports fed halved with the carry, a still report not fed, another
+`int 33h` function chained, and the detach's off — while the vector is still
+ours — release and restore.
 
 **Not done.** The card's USB host and mouse must be enabled in its own setup
 (PMMOUSE needs the same). A DOS program in the DOS box (§96) that hooks
