@@ -4658,7 +4658,8 @@ FTPSPDIR := $(BUILD)/ftpspeed
 FTPSPARMS := $(FTPSPDIR)/FTPDK8.O88 $(FTPSPDIR)/FTPDK32.O88 $(FTPSPDIR)/FTPDP8.O88
 FTPSPDEPS := apps/ftpd/ftpd.asm apps/os88api.inc apps/os88ui.inc \
              apps/os88line.inc apps/os88sock.inc apps/os88pit.inc \
-             apps/os88rseq.inc drivers/net/netpkg.inc tools/os88pkg.py
+             apps/os88rseq.inc apps/os88data.inc drivers/net/netpkg.inc \
+             tools/os88pkg.py
 FTPSPNASM = $(NASM) -f bin -w+error -DFTPDBG -I apps/ -I apps/ftpd/ -I drivers/net/
 
 $(FTPSPDIR):
@@ -5174,7 +5175,7 @@ $(shell mkdir -p $(BUILD); \
                                       $(BUILD)/video.bin $(BUILD)/video.o88; \
                                 touch $(VPSTAMP); })
 $(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
-                    apps/os88ui.inc $(VPSTAMP) | $(BUILD)
+                    apps/os88ui.inc apps/os88rseq.inc $(VPSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ $(VPDEF) -o $@ apps/video/video.asm
 	@echo "video:  $(call FILESIZE,$@) bytes"
 
@@ -6201,7 +6202,8 @@ $(FTPDSTAMP): | $(BUILD)
 
 $(BUILD)/ftpd.bin: apps/ftpd/ftpd.asm apps/os88api.inc apps/os88ui.inc \
                    apps/os88line.inc apps/os88sock.inc apps/os88pit.inc \
-                   apps/os88rseq.inc drivers/net/netpkg.inc $(FTPDSTAMP) | $(BUILD)
+                   apps/os88rseq.inc apps/os88data.inc drivers/net/netpkg.inc \
+                   $(FTPDSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error $(FTPDSLOWDEF) -I apps/ -I apps/ftpd/ -I drivers/net/ -o $@ apps/ftpd/ftpd.asm
 	@echo "ftpd:   $(call FILESIZE,$@) bytes"
 
@@ -6366,7 +6368,8 @@ MIDIRACK_SRC := apps/midirack/midirack.asm apps/midirack/mrseq.inc \
                 apps/midirack/mrcb.inc apps/midirack/mrtab.inc \
                 apps/midirack/mrmid.inc apps/midirack/mrwt.inc \
                 apps/os88pit.inc apps/os88spk.inc apps/os88ui.inc \
-                apps/os88api.inc drivers/sound/sndpkg.inc
+                apps/os88api.inc apps/os88data.inc apps/os88rseq.inc \
+                drivers/sound/sndpkg.inc
 $(BUILD)/midirack.bin: $(MIDIRACK_SRC) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/midirack/ -I drivers/sound/ \
 	    -I drivers/ -o $@ apps/midirack/midirack.asm
@@ -10586,7 +10589,7 @@ videnchd: $(VIDENC_BASE) $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 \
 # `make 486-video` boots it in 86Box.
 VID486_CYLS ?= 250
 VID486CLIPS ?=
-$(BUILD)/videodiag.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc | $(BUILD)
+$(BUILD)/videodiag.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -DVP_DIAG -o $@ apps/video/video.asm
 $(BUILD)/videodiag.o88: $(BUILD)/videodiag.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/videodiag.bin -o $@

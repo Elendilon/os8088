@@ -309,12 +309,35 @@ tp_deferred_ld:
     mov byte [tp_needld], 0
     push ax
     push bx
+    push cx
     push dx
-    mov dx, [tp_dir]
-    mov bl, [tp_drv]
-    call OSAPI_FILE_GOTO
+    push si
+    push di
+    mov dx, [tp_dir]                ; the DOCUMENT's folder, stood in QUIETLY
+    mov bl, [tp_drv]                ; and the instance with it, so tp_load's
+    call OSAPI_FILE_GOTO_QM         ; by-name read resolves there. Nothing here
+                                    ; lists the folder, so the remount's scan,
+                                    ; sort and icon harvest were ~0.5 s of
+                                    ; floppy for no reader (docs/plans/
+                                    ; NAV-COST-PLAN.md, SPEC.md 19.9.1). CX, SI
+                                    ; and DI are banked for a redirected
+                                    ; volume's FSV_CHDIR (SPEC.md 62.9.1)
+    jnc .there
+    mov si, tp_s_err                ; CF WAS IGNORED HERE, and with the old
+    call tp_toast                   ; GOTO that was safe by accident: its
+    stc                             ; failure left the root with the write gate
+    jmp short .moved                ; shut and tp_load's read refused. QM's
+                                    ; failure moves NOTHING, so the read would
+                                    ; find tp_fname in TeXPad's own folder - a
+                                    ; same-named stranger loaded as this
+                                    ; document. Refuse in tp_load's own words
+.there:
     call tp_load
+.moved:
+    pop di
+    pop si
     pop dx
+    pop cx
     pop bx
     pop ax
     jnc .set

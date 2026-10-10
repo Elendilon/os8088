@@ -618,8 +618,17 @@ br_onwake:
     call OSAPI_GFX_LOCK
     mov dx, [br_argclus]
     mov bl, [br_argdrv]
-    call OSAPI_FILE_GOTO            ; stand in the document's folder
-    jc .unlock
+    call OSAPI_FILE_GOTO_QM         ; stand in the document's folder -
+    jc .unlock                      ; QUIETLY, and the instance with us, so
+                                    ; br_load's by-name read resolves there.
+                                    ; The listing remount's scan, sort and
+                                    ; icon harvest were ~0.5 s of floppy for
+                                    ; no reader (docs/plans/NAV-COST-PLAN.md,
+                                    ; SPEC.md 19.9.1). CF=1 moved NOTHING, so
+                                    ; the read would resolve in the Browser's
+                                    ; own folder and could find a same-named
+                                    ; page: refuse. Nothing is live in AX, CX,
+                                    ; SI or DI here (SPEC.md 62.9.1's clobbers)
     mov word [br_srclen], 0         ; unknown: br_load claims the ceiling
     call br_load
     jc .unlock

@@ -1856,10 +1856,24 @@ pu_start:
 
 ; pu_goto - stand in the folder the save goes to. CF = 1 it is gone (a disk
 ; taken out). Preserves all
+;
+; Called per pumped chunk, so the compare is what usually answers. When it
+; does not, the move is OSAPI_FILE_GOTO_QM: every write that follows is by
+; name and nothing lists the folder, so the remount's scan, sort and icon
+; harvest were ~0.5 s of floppy for no reader (docs/plans/NAV-COST-PLAN.md,
+; SPEC.md 19.9.1), and QM moves the instance, which the writes resolve
+; through. CF=1 moved NOTHING - not the old GOTO's root with the write gate
+; shut - so it is the callers' `jc` that keeps a chunk out of the wrong
+; folder, and they all have one. CX, SI and DI are banked because a
+; redirected volume's FSV_CHDIR owns them (SPEC.md 62.9.1); AX is QM's answer
+; and the pop puts the caller's back without touching CF.
 pu_goto:
     push ax
     push bx
+    push cx
     push dx
+    push si
+    push di
     call OSAPI_FILE_HERE
     cmp dx, [px_sdir]
     jne .go
@@ -1868,12 +1882,15 @@ pu_goto:
 .go:
     mov dx, [px_sdir]
     mov bl, [px_svol]
-    call OSAPI_FILE_GOTO
+    call OSAPI_FILE_GOTO_QM
     jc .x
 .ok:
     clc
 .x:
+    pop di
+    pop si
     pop dx
+    pop cx
     pop bx
     pop ax
     ret

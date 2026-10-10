@@ -249,15 +249,30 @@ tpl_play:
     call trk_play
     jmp short .out
 .fetch:
-    call OSAPI_FILE_HERE            ; already there? A GOTO is a REMOUNT - real
-    cmp bl, [si + TPL_E_DRV]        ; floppy I/O - so it is only paid for when
-    jne .go                         ; the entry is somewhere else
+    call OSAPI_FILE_HERE            ; already there? Then not even the quiet
+    cmp bl, [si + TPL_E_DRV]        ; stand below is paid - it is only for an
+    jne .go                         ; entry that lives somewhere else
     cmp dx, [si + TPL_E_CLU]
     je .here
 .go:
     mov bl, [si + TPL_E_DRV]
     mov dx, [si + TPL_E_CLU]
-    call OSAPI_FILE_GOTO
+    push si                         ; the entry, live below - and a redirected
+    call OSAPI_FILE_GOTO_QM         ; volume's FSV_CHDIR owns SI (SPEC.md
+    pop si                          ; 62.9.1); `pop` keeps CF
+                                    ;
+                                    ; OSAPI_FILE_GOTO_QM, as aplist.inc's
+                                    ; apl_goto_cur: trk_fdone's load resolves
+                                    ; the name in the INSTANCE's folder, and
+                                    ; QM is the quiet stand that moves it. The
+                                    ; listing remount (directory scan, sort, an
+                                    ; icon read per file - ~0.5 s on a 4.77 MHz
+                                    ; XT, docs/plans/NAV-COST-PLAN.md) was paid
+                                    ; here under the gfx lock at every song
+                                    ; change into another folder, for no
+                                    ; reader. CF=1 moved NOTHING, so the load
+                                    ; would find a same-named stranger where we
+                                    ; stand - refuse with the not-found line
     jnc .here
     push si
     mov si, trk_s_noent

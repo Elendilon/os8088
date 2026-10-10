@@ -70,6 +70,7 @@ MRS_GAIN    equ 10
     MRW mr_homedir                  ; the folder MIDIRack was launched from
     MRB mr_homevol
     MRW mr_bankkb                   ; the bank's size, read at entry
+    MRBUF mwt_cur, FSEQ_SIZE        ; mwt_load's READ_SEQ cursor (os88_rseq)
     MRBUF mwt_sseg, MWT_MAXV * 2    ; per voice: the sample's segment
     MRBUF mwt_end, MWT_MAXV * 2     ; ...the index it stops (or loops) at
     MRBUF mwt_llen, MWT_MAXV * 2    ; ...its loop's length (0: one-shot)
@@ -170,21 +171,29 @@ mwt_load:
     mov dx, [mr_homedir]
     mov bl, [mr_homevol]
     call OSAPI_FILE_GOTO_QM
-    ; IN 32 KB CHUNKS, with OSAPI_FILE_READ_AT: a chunk that size is a
-    ; multiple of every legal cluster (os88parts.inc's OP_CHUNK, for the same
-    ; reason), and a bank is far past what one OSAPI_FILE_READ is for. RAW, so
-    ; the bank ships unwrapped (SPEC.md 105.10)
-    mov di, [mwt_bseg]              ; DI = the chunk's segment
+    jc .rdfail                      ; NOTHING MOVED: a MIDIRACK.BNK read by
+                                    ; name here would be whatever folder we
+                                    ; stood in, so refuse as a read would
+    ; IN 32 KB CHUNKS: a chunk that size is a multiple of every legal cluster
+    ; (os88parts.inc's OP_CHUNK, for the same reason), and a bank is far past
+    ; what one OSAPI_FILE_READ is for. RAW, so the bank ships unwrapped
+    ; (SPEC.md 105.10). Through os88_rseq (apps/os88rseq.inc, SPEC.md
+    ; 18.4.8.1) and not OSAPI_FILE_READ_AT: READ_AT re-walks the chain from
+    ; the front on every call, so a bank of N chunks walked N(N+1)/2 chunks'
+    ; worth of links; the cursor walks each link once. On kern_small the
+    ; helper makes the same call as READ_AT, which is what this was
+    mov es, [mwt_bseg]              ; ES = the chunk's segment
+    mov si, mwt_bname
+    mov di, mwt_cur
+    call os88_rseq_new              ; the cursor names no file: start it cold
     xor ax, ax                      ; DX:AX = its offset in the file
     xor dx, dx
 .chunk:
     push ax
     push dx
-    mov es, di
     xor bx, bx
     mov cx, 32768
-    mov si, mwt_bname
-    call OSAPI_FILE_READ_AT         ; DX:AX = delivered
+    call os88_rseq                  ; DX:AX = delivered (BX CX SI DI ES kept)
     mov cx, ax
     pop dx
     pop ax
@@ -192,7 +201,9 @@ mwt_load:
     jcxz .done
     add ax, 32768
     adc dx, 0
-    add di, 32768 / 16
+    mov bx, es
+    add bx, 32768 / 16
+    mov es, bx
     cmp cx, 32768
     je .chunk
 .done:
@@ -239,6 +250,8 @@ mwt_load:
     pop bx
     pop ax
     ret
+
+%include "os88rseq.inc"            ; os88_rseq, for mwt_load
 
 ; mwt_free - the bank and the mix claim back (the window is closing)
 mwt_free:

@@ -135,7 +135,7 @@ ZI_DYNMAX    equ 0E000h
 ; name AND the pair that locates it, and the name alone is not enough: the
 ; entry proc runs while the kernel is standing in the PROGRAM's directory, so
 ; a story in B:\INFOCOM opened from the root is not found by name. frotz.asm
-; banks these two at entry and zi_openpend spends them on OSAPI_FILE_GOTO.
+; banks these two at entry and zi_openpend spends them on OSAPI_FILE_GOTO_QM.
 %define zi_argclus    (os88_image_end + ZIO_SLACK + 84)  ; word: its directory
 %define zi_argdrv     (os88_image_end + ZIO_SLACK + 86)  ; byte: and its volume
 %define zi_arghave    (os88_image_end + ZIO_SLACK + 87)  ; byte: ...and whether
@@ -2521,11 +2521,18 @@ zi_openpend:
     push di
     push es
 
-    ; THE GOTO GOES FIRST, before ES is set up, because it is a REMOUNT and
-    ; nothing promises what it leaves in ES. CF=1 is the folder no longer being
-    ; listable - a disk swapped between the double-click and this first paint -
-    ; and searching the wrong directory would report the wrong reason, so it
-    ; takes the not-found exit.
+    ; THE GOTO GOES FIRST, before ES is set up and with every register banked
+    ; above - it answers in AX, and on a redirected volume it reaches the
+    ; driver's FSV_CHDIR and CX, SI and DI are the driver's (SPEC.md 62.9.1).
+    ; It is OSAPI_FILE_GOTO_QM and not the listing remount OSAPI_FILE_GOTO:
+    ; the walk below is OSAPI_FILE_FIND over the raw directory sectors and the
+    ; read after it is by name, so the remount's scan, sort and icon harvest
+    ; were ~0.5 s of floppy for no reader (docs/plans/NAV-COST-PLAN.md, SPEC.md
+    ; 19.9.1); QM moves the instance with it, so both resolve THERE. CF=1 is
+    ; the folder not being reachable - a disk swapped between the double-click
+    ; and this first paint - and with QM NOTHING has moved, so searching on
+    ; would search the program's own folder and could find a same-named
+    ; stranger: it takes the not-found exit.
     ;
     ; Only when a locator actually came with the name. The harness build sets
     ; [zf_pend] itself and has none, and must go on searching where it already
@@ -2534,7 +2541,7 @@ zi_openpend:
     je .located
     mov dx, [zi_argclus]
     mov bl, [zi_argdrv]
-    call OSAPI_FILE_GOTO
+    call OSAPI_FILE_GOTO_QM
     jc .nofile
 .located:
 
@@ -2543,7 +2550,7 @@ zi_openpend:
     ; first version of this proc copied the name before setting ES and wrote
     ; thirteen bytes into the KERNEL's segment, which assembles cleanly, runs,
     ; and leaves [zi_name] empty so the search below finds nothing. It is set
-    ; here rather than at the top so that the remount above cannot come between
+    ; here rather than at the top so that the call above cannot come between
     ; the load and its use.
     push ds
     pop es

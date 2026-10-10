@@ -4635,7 +4635,9 @@ np_save:
     call np_stghold             ; ES = the staging claim, or a toast and out
     jc .out
     call np_goto                ; the folder this document belongs to, if the
-    mov ds, [np_dseg]           ; volume has been moved since (SPEC.md 19.2)
+    jc .err                     ; volume has been moved since (SPEC.md 19.2);
+                                ; CF = we are not there, so write nothing
+    mov ds, [np_dseg]
     xor si, si                  ; DS:SI = the note, ES:DI the expansion. NO
     xor di, di                  ; kernel variable is readable while DS is the
     mov cx, [cs:np_len]         ; document - through CS is how the counts are
@@ -4717,6 +4719,11 @@ np_load:
                                 ; big enough for this file, so a refusal is
                                 ; only news if the read then does not fit
     call np_goto                ; ...and the same folder dance on the way in
+    jc .say                     ; - and a refusal in ITS words (AX = FERR_*)
+                                ; rather than a read of np_name in whatever
+                                ; folder we were left standing in. .say and
+                                ; not .err: that one reads FERR_BIG as the
+                                ; READ's verdict on the resize above
     xor ax, ax                  ; PIN it across the read (SPEC.md 66.5.7.1):
     call np_dmov                ; ES:BX below is a pointer INTO this claim and
                                 ; OSAPI_FILE_READ holds it across the sector
@@ -6773,41 +6780,58 @@ np_ondlg:
 
 ; -----------------------------------------------------------------------------
 ; np_goto - put the volume back in this document's folder (SPEC.md 19.2)
-; out: nothing; preserves all registers
+; out: CF=0 and every register preserved; CF=1 = could not stand there, AX =
+;      FERR_* and every other register preserved - NOTHING MOVED, so the
+;      caller must not go on to resolve np_name (it would find it, or a
+;      stranger of the same name, in the folder we were already in)
 ;
-; **THE KERNEL DOES THIS NOW, and this routine is kept as a no-op that costs
-; two compares** (SPEC.md 19.2.1). A file name used to resolve in the ONE
-; global current directory shared by every Disk window and by the file
-; dialog: right after Save As it still named the folder the user picked -
-; which is why saving into a folder worked - but by the next Save anything
-; that navigated had moved it, and the write landed in the root. Four
-; packages each carried their own copy of the six lines below, which is what
-; eventually said the kernel owed the feature rather than the SDK owing an
-; example. An instance owns its directory now, so OSAPI_FILE_HERE answers
-; this document's folder and the OSAPI_FILE_GOTO below never fires.
+; The kernel keeps an instance in its own folder now (SPEC.md 19.2.1), so
+; once a Save As has committed somewhere OSAPI_FILE_HERE answers that folder
+; and this is two compares. **It is NOT a no-op, though, and this comment
+; once said it was**: an instance is SEEDED at the folder its PACKAGE came
+; out of, while np_arg copies a launch document's ARG folder into np_dir. So
+; the first load of a .TXT double-clicked in any other folder is exactly the
+; case where HERE and np_dir disagree and the move below fires.
 ;
-; It stays because the slots keep their contract (SPEC.md 20.8 rule 4) and
-; because a remount was always skipped when the volume was already there -
-; which is now every time. Deleting it would be correct and would also delete
-; the record of why it was ever needed.
+; It moves with OSAPI_FILE_GOTO_QM, not OSAPI_FILE_GOTO: the next thing done
+; is a by-name read or write, which resolves through the raw directory
+; sectors, and nothing here shows the folder - so the remount's scan, sort and
+; per-file icon harvest were ~0.5 s of floppy bought for no reader
+; (docs/plans/NAV-COST-PLAN.md, SPEC.md 19.9.1). QM moves the instance with
+; it, which is what makes the next file cell resolve there.
+;
+; The two differ on FAILURE and that is why CF is an output now: a failed
+; GOTO left the volume at the root with the write gate shut, so the file call
+; after it refused on its own; a failed QM moves nothing, so the caller has to
+; refuse. CX, SI and DI are banked because on a redirected volume QM reaches
+; the driver's FSV_CHDIR and those three are the driver's (SPEC.md 62.9.1).
 ; -----------------------------------------------------------------------------
 np_goto:
     push ax
     push bx
+    push cx
     push dx
+    push si
+    push di
     cmp byte [np_dirok], 0
-    je .out                     ; never saved anywhere in particular
+    je .out                     ; never saved anywhere in particular (CF=0)
     call OSAPI_FILE_HERE
     cmp dx, [np_dir]
     jne .move
     cmp bl, [np_drv]
-    je .out
+    je .out                     ; already there (equal: CF=0)
 .move:
     mov dx, [np_dir]
     mov bl, [np_drv]
-    call OSAPI_FILE_GOTO        ; CF = it could not be listed; the file call
-.out:                           ; that follows will say so in its own words
+    call OSAPI_FILE_GOTO_QM     ; quiet, and the instance follows
+    jnc .out
+    mov bx, sp                  ; CF=1: the FERR_* replaces the banked AX -
+    mov [ss:bx+10], ax          ; a mov touches no flag, so CF rides out
+.out:
+    pop di
+    pop si
     pop dx
+    pop cx
     pop bx
     pop ax
     ret

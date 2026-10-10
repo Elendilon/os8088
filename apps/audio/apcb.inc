@@ -409,10 +409,15 @@ ap_onwake:                         ; SI = window
 .noarg:
 
     ; 4. a would-be second instance may have queued a document for us
-    ;    (SPEC.md 86.11.1). OFF by default: the poll has to REMOUNT the system
-    ;    root to read APQUEUE.DAT (OSAPI_FILE_GOTO), and on a 4.77 MHz XT that
-    ;    is seconds - a playing ADPCM track polls often enough that the machine
-    ;    spends half its time remounting. Build with -DAP_HANDOFF to re-enable.
+    ;    (SPEC.md 86.11.1). OFF by default: the poll has to stand at the system
+    ;    root to read APQUEUE.DAT. It was turned off when that stand was
+    ;    OSAPI_FILE_GOTO - a full REMOUNT, seconds on a 4.77 MHz XT, so a
+    ;    playing ADPCM track polled often enough that the machine spent half
+    ;    its time remounting. ap_que_root is OSAPI_FILE_GOTO_QM now (a word on
+    ;    the mounted volume, a quiet mount across volumes), which is cheaper
+    ;    but still a stand and a read per poll and is not re-measured as
+    ;    affordable, so the default stands. Build with -DAP_HANDOFF to
+    ;    re-enable.
 %ifdef AP_HANDOFF
     call ap_que_poll
     jc .noque
