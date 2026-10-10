@@ -6847,27 +6847,42 @@ wm_clip_rows:
     push si
     push di
     push bp
-    mov byte [wm_clip_r0], 0
+%ifndef KERN_BIG
+    mov byte [wm_clip_r0], 0    ; (kern_big writes r0 and rn in ONE word
+%endif                          ; store at `.ok`, on every CF = 0 path)
     CLIPQ
-%ifdef KERN_BIG
-    je .allj                    ; disarmed: every row, the same answer
+    je .all                     ; disarmed: every row, the same answer
                                 ; wm_clip_free gives for the whole shape
     cmp byte [wm_dmg_cull], 0
     je .norows                  ; SPEC.md 11.3.3: under the cull a cell that
     call wm_clip_test           ; overlaps at all is drawn WHOLE, so the row
-    jc .nonej                   ; range is every row or none - the partial
-.allj:                          ; answer this routine exists to give is what
-    jmp .all                    ; the cull is defined not to need. (The two
-.nonej:                         ; trampolines are 11.3.4's alone: an 8086 has
-    jmp .none                   ; no near conditional jump and the mask block
-%else                           ; below puts both targets out of a short one's
-    je .all                     ; reach - on kern_small it is not there, so
-    cmp byte [wm_dmg_cull], 0   ; this arm is what shipped before 11.3.4 and
-    je .norows                  ; assembles byte for byte as it did)
-    call wm_clip_test
-    jc .none
-    jmp short .all
+    jc .out                     ; range is every row or none - the partial
+                                ; answer this routine exists to give is what
+                                ; the cull is defined not to need. CF = 1
+                                ; rides through the pops to the caller
+.all:
+%ifdef KERN_BIG
+    mov byte [wm_clip_cm], 0FFh ; every column (SPEC.md 11.3.4)
 %endif
+    mov ax, dx                  ; AL = every row (1..255, so AH = 0 - which
+    sub ax, bx                  ; on kern_big is r0 below)
+    inc ax
+    clc                         ; (the `sub` borrows when y1 < 0 <= y2)
+    ; --- the answer, and its ONE exit. CF = 0 on every arrival and nothing
+    ; here writes a flag: `.all` just said so, and the walk's arrival follows
+    ; a `jb` not taken and an `and`. kern_big's arrivals all bring AL = the
+    ; rows and AH = r0, so r0 and rn (adjacent by assertion) are one store
+    ; and no path needs the entry store kern_small's walk still relies on
+.ok:
+%ifdef KERN_BIG
+    xchg al, ah
+    mov [wm_clip_r0], ax        ; r0, rn
+%else
+    mov [wm_clip_rn], al        ; a BYTE: rn is a db, and a word store here
+%endif                          ; once put a zero over the next instruction
+.out:
+    jmp kret_bp
+
 .norows:
 %ifdef KERN_BIG
     cmp byte [gfx_dnest], 0     ; SPEC.md 39.14.4, exactly as wm_clip_test:
@@ -6919,7 +6934,7 @@ wm_clip_rows:
                                 ; working them out per fragment cost 60 bytes
                                 ; to answer a question about fragments that
                                 ; lose (SPEC.md 11.3.4). Its ROWS are the
-                                ; grow's below, which writes [wm_clip_r0]
+                                ; grow's below, or every row
 %else
     sub ax, bx                  ; ...and where they start, from y1
     mov [wm_clip_r0], al
@@ -6931,71 +6946,15 @@ wm_clip_rows:
     add si, WCR_SZ
     dec di
     jnz .frag
-    or bp, bp
-    jz .none
+    cmp bp, 1                   ; CF = 1 exactly when no fragment offered a
+    jb .out                     ; row: refused, and CF rides to the caller
 %ifdef KERN_BIG
     mov si, dx                  ; SPEC.md 11.3.4.3: a winner that already
     sub si, bx                  ; gives every row is the common clipped cell,
-    inc si                      ; and asks nothing more - the rows that could
-    cmp si, bp                  ; GROW are out of line, below `.out`, so the
-    jne .grow0                  ; refusal above pays nothing for them
-.mask:
-    ; --- the winning fragment's COLUMNS, as a mask (SPEC.md 11.3.4) --------
-    ; ONCE, here, and not per fragment: only the winner is ever asked, and
-    ; working it out inside the walk cost 60 bytes to answer a question about
-    ; fragments that lose. INLINE and clobbering freely - `.ok` below is four
-    ; pops and a `ret`, so AX, BX, CX and DX are all dead from here.
-    ;
-    ; The cell is 8 wide, so the two distances ARE the mask:
-    ;   d0 = frag.x1 - x1   clamped at 0 ...the columns cut off the LEFT
-    ;   d1 = x2 - frag.x2   clamped at 0 ...and off the RIGHT
-    ;   mask = (0FFh >> d0) & (0FFh << d1)
-    ; A fragment covering the cell gives 0 and 0, so 0FFh falls out with no
-    ; branch of its own - two shifts where a 9-byte table plus two
-    ; `[cs:tab+bx]` lookups and a `not` used to be.
-    mov bx, [wm_clip_wf]
-    mov dx, [bx+WCR_X1]
-    sub dx, ax
-    jns .c0                     ; negative: it starts left of the cell and
-    xor dx, dx                  ; cuts nothing
-.c0:
-    sub cx, [bx+WCR_X2]
-    jns .c1
-    xor cx, cx
-.c1:
-    mov ax, 0FFFFh
-    xchg cx, dx                 ; CL = d0 - the shifts want it there
-    shr al, cl
-    mov cl, dl
-    shl ah, cl
-    and al, ah
-    mov [wm_clip_cm], al
-%endif
+    inc si                      ; r0 = 0 and BP's high byte already says so,
+    cmp si, bp                  ; and it asks nothing more - one compare of
+    je .mask                    ; the count the walk holds
 
-    mov ax, bp                  ; a BYTE store: [wm_clip_rn] is a db, and
-    mov [wm_clip_rn], al        ; `mov [wm_clip_rn], bp` writes a WORD - it
-                                ; put BP's zero high byte over the first
-                                ; instruction of wm_clip_set, which is the
-                                ; next thing in .text. AX is dead here: it is
-                                ; restored from the stack four lines down
-    jmp short .ok
-.all:
-%ifdef KERN_BIG
-    mov byte [wm_clip_cm], 0FFh ; every column (SPEC.md 11.3.4)
-%endif
-    mov ax, dx
-    sub ax, bx
-    inc ax
-    mov [wm_clip_rn], al
-.ok:
-    clc                         ; POP leaves the flags alone, so the answer
-    jmp short .out              ; is set before the epilogue rather than after
-.none:
-    stc
-.out:
-    jmp kret_bp
-
-%ifdef KERN_BIG
     ; --- the winner's ROWS, GROWN through its neighbours (SPEC.md 11.3.4.3) -
     ; The region is a rect list cut in horizontal STRIPS - wm_clip_split's
     ; above and below span the whole rect, its left and right only the
@@ -7018,14 +6977,20 @@ wm_clip_rows:
     ; range is kept as the two rows just OUTSIDE it, and the test is one
     ; compare against memory per side. It grows on the fragments' own
     ; extents and is clamped to the cell once, at the end.
-.grow0:
+    ;
+    ; IN LINE, and the refusal still pays nothing for it: `.ok`/`.out` sit
+    ; ABOVE the walk, so the refusal's `jb .out` is short backwards however
+    ; long this is, and a grown cell falls into the mask block rather than
+    ; jumping back to it (size pass 11)
     mov si, [wm_clip_wf]
-    push bx                     ; y1 and y2, for the clamp
+    push bx                     ; y1, and y2 + 1, for the clamp
+    inc dx
     push dx
     mov bx, [si+WCR_Y1]         ; BX = the row above the range,
     dec bx
-    mov dx, [si+WCR_Y2]         ; DX = the row below it
-    inc dx
+.gdn:                           ; DX = the row below it - which is also what
+    mov dx, [si+WCR_Y2]         ; growing DOWN through fragment SI writes, so
+    inc dx                      ; the seed and that merge are one body
 .grow:
     mov si, wm_clip_tab
     mov di, [wm_clip_n]
@@ -7041,19 +7006,15 @@ wm_clip_rows:
     mov bx, [si+WCR_Y1]         ; ends on the row above: grow UP
     dec bx
     jmp short .grow             ; every jump back has taken in a whole
-.gdn:                           ; fragment, so it ends within n of them
-    mov dx, [si+WCR_Y2]
-    inc dx
-    jmp short .grow
+                                ; fragment, so it ends within n of them
 .gn:
     add si, WCR_SZ
     dec di
     jnz .g
-    pop di                      ; DI = y2
+    pop di                      ; DI = y2 + 1
     pop si                      ; SI = y1
-    inc bx                      ; the range's own first and last rows,
-    dec dx                      ; clamped to the cell's
-    cmp bx, si
+    inc bx                      ; BX = the range's first row, DX the row
+    cmp bx, si                  ; below its last - each clamped to the cell
     jge .gc0
     mov bx, si
 .gc0:
@@ -7061,14 +7022,44 @@ wm_clip_rows:
     jle .gc1
     mov dx, di
 .gc1:
-    mov bp, dx                  ; BP = the rows, which the store below the
-    sub bp, bx                  ; mask block takes as it always has
-    inc bp
-    sub bx, si
-    mov [wm_clip_r0], bl        ; ...from here (BH is 0: a cell is at most
-                                ; 255 rows and the range is inside it now)
-    jmp .mask
+    sub dx, bx                  ; DL = the rows,
+    sub bx, si                  ; BL = r0 (a cell is at most 255 rows and
+    mov dh, bl                  ; the range is inside it now),
+    mov bp, dx                  ; BP = rows | r0 << 8, the shape `.ok` takes
+.mask:
+    ; --- the winning fragment's COLUMNS, as a mask (SPEC.md 11.3.4) --------
+    ; ONCE, here, and not per fragment: only the winner is ever asked, and
+    ; working it out inside the walk cost 60 bytes to answer a question about
+    ; fragments that lose. INLINE and clobbering freely - `.ok` above is a
+    ; store and four pops, so AX, BX, CX and DX are all dead from here.
+    ;
+    ; The cell is 8 wide, so the two distances ARE the mask:
+    ;   d0 = frag.x1 - x1   clamped at 0 ...the columns cut off the LEFT
+    ;   d1 = x2 - frag.x2   clamped at 0 ...and off the RIGHT
+    ;   mask = (0FFh >> d0) & (0FFh << d1)
+    ; A fragment covering the cell gives 0 and 0, so 0FFh falls out with no
+    ; branch of its own - two shifts where a 9-byte table plus two
+    ; `[cs:tab+bx]` lookups and a `not` used to be. d1 is made in CX, where
+    ; the first shift wants it, and d0 in DX, so no exchange is needed.
+    mov bx, [wm_clip_wf]
+    sub cx, [bx+WCR_X2]
+    jns .c1                     ; negative: it ends right of the cell and
+    xor cx, cx                  ; cuts nothing
+.c1:
+    mov dx, [bx+WCR_X1]
+    sub dx, ax
+    jns .c0
+    xor dx, dx
+.c0:
+    mov ax, 0FFFFh
+    shl ah, cl                  ; d1
+    mov cl, dl
+    shr al, cl                  ; d0
+    and al, ah                  ; (CF = 0 for `.ok`)
+    mov [wm_clip_cm], al
 %endif
+    xchg ax, bp                 ; AL = the rows (kern_big: AH = r0). BP
+    jmp .ok                     ; is restored by the epilogue like the rest
 
 ; -----------------------------------------------------------------------------
 ; rect_get / rect_put - AX,BX,CX,DX from / to four ADJACENT words, the words

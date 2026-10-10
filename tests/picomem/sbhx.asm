@@ -18,6 +18,8 @@ start:
     hlt
 entry_disc:
     mov byte [sbl_verhi], 2     ; the DSP 2.01 the firmware reports
+    mov byte [res_ticks], 0     ; pm_wait's deadline reads it too: count
+                                ; discovery's alone
     call sbl_f_irqdisc
     mov [res_al], al
     hlt

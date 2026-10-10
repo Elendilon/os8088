@@ -102,6 +102,13 @@ JMP = re.compile(r"^jmp\s+(?:strict\s+)?(?:short\s+|near\s+|word\s+)?(\S+)", re.
 JCC = re.compile(r"^(j[a-z]{1,3}|loop|loope|loopne|loopz|loopnz)\s+"
                  r"(?:short\s+)?(\S+)$", re.I)
 SPADD = re.compile(r"^(add|sub)\s+sp\s*,\s*(\S+)$", re.I)
+# `lea sp, [bp+N]` - a frame's teardown in ONE instruction, where it was
+# `mov sp, bp` / `add sp, N` (gfx_blit1_x's `.noswap`). The walk has never
+# modelled `mov sp, bp`: it trusts the frame's own `mov bp, sp` and reads the
+# pair as its `add sp, N` half, so this is read exactly the same way - the
+# two spellings must give the same verdict, or a size pass that takes the
+# shorter one reads as a leak.
+LEASP = re.compile(r"^lea\s+sp\s*,\s*\[\s*bp\s*\+\s*([^\]\s]+)\s*\]$", re.I)
 GLOBAL = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):")
 LOCAL = re.compile(r"^(\.[A-Za-z0-9_]+):")
 IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -123,6 +130,11 @@ MACCALL = re.compile(r"^call\s+%1\s*$", re.I)
 # `jmp short $+2` and friends: a jump to the very next instruction, used all
 # over this tree to let an I/O port settle.  It is not a tail call.
 SETTLE = re.compile(r"^\$\s*\+\s*2$")
+# `jmp 0xFFFF:0x0000`: a far jump to a LITERAL address leaves every routine the
+# walk can see (a reset, a ROM entry), so the path simply ends there - the
+# stack it leaves is never popped by anything in the corpus.  A far jump to a
+# LABEL (`jmp KERNEL_SEG:sched_unhook`) is still a tail call and still walked.
+FARLIT = re.compile(r"^(?:0x[0-9a-f]+|[0-9][0-9a-f]*h?)\s*:\s*(?:0x[0-9a-f]+|[0-9][0-9a-f]*h?)$", re.I)
 # A table is not code.  `dbg_reg` is `dw TAG, handler` pairs and the walk used
 # to fall out of the bottom of it into whatever followed, reporting that
 # routine's `retf`.  Control flow never runs THROUGH a table, so a data
@@ -221,6 +233,12 @@ def delta(text):
         return 8 if text.lower().startswith("pusha") else 1
     if POP.match(text):
         return -8 if text.lower().startswith("popa") else -1
+    m = LEASP.match(text)
+    if m:
+        try:
+            return -(int(m.group(1), 0) // 2)
+        except ValueError:
+            return None
     m = SPADD.match(text)
     if m:
         try:
@@ -509,6 +527,12 @@ def walk(corp, name):
             tgt = m.group(1)
             if SETTLE.match(tgt):           # `jmp short $+2` - an I/O settle
                 push(u, i + 1, d, raw, (u, i))
+                continue
+            if FARLIT.match(tgt):
+                # `jmp 0xFFFF:0x0000` - the reset vector, or any LITERAL
+                # SEG:OFF.  No routine this walk can see is there, so nothing
+                # will ever pop what is left: the stack is the machine's, and
+                # abandoned with it (disk.inc's dsk_fdd_park_x warm reset)
                 continue
             where = corp.resolve(u, i, tgt)
             if where is None:

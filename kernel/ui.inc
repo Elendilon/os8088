@@ -356,8 +356,10 @@ ui_task:
 .wake:
     mov si, cx                  ; the window that asked; NO lock is taken -
 %ifdef KERN_BIG
-    mov byte [dws_inwk], 1      ; (a WSEQF_KEEP hold outlives a wake and
-%endif                          ; nothing else, SPEC.md 18.4.9.3)
+    inc byte [dws_inwk]         ; (a WSEQF_KEEP hold outlives a wake and
+%endif                          ; nothing else, SPEC.md 18.4.9.3; .bss is 0
+                                ; at boot, and a nested wake reads 2, which
+                                ; commits - the safe way to be wrong)
     call wm_wake_disp           ; the handler takes it itself for a stated
                                 ; burst, and may call the file slots (74.1)
 %ifdef KERN_BIG
@@ -366,7 +368,7 @@ ui_task:
     call gfx_lock               ; back, and the unlock's commit runs where
     call gfx_unlock             ; every other callback's does - a KEPT one
 .wkout:                         ; excepted, which is why the byte clears
-    mov byte [dws_inwk], 0      ; only after it
+    dec byte [dws_inwk]         ; only after it
 %endif
     jmp short .yj2
 
@@ -1035,11 +1037,11 @@ ui_timer_pass:                  ; ui_task tests [wm_tarm] before calling
     js .armed                   ; MODULAR arithmetic between two free-running
                                 ; words, so the SIGN decides - sch_isr's wake
                                 ; scan, SPEC.md 45.15 and 59's toast
-    mov word [si+W_TIMER], 0    ; due: disarm FIRST, so the handler can re-arm
-    mov bp, [si+W_ONTIMER]
-    or bp, bp
-    jz .step                    ; armed with no handler: a legal no-op, and it
-                                ; is now disarmed
+    mov word [si+W_TIMER], 0    ; due: disarm FIRST, so the handler can re-arm.
+                                ; The handler word is read UNDER the lock and
+                                ; only there: armed with no handler is a legal
+                                ; no-op, and costs one lock round trip rather
+                                ; than a second read here (kernel size pass 11)
     push cx                     ; the loop counter and the walk cursor are the
     push si                     ; only things that must survive a callback that
     xor cx, cx                  ; can do anything a window callback can
@@ -2858,6 +2860,7 @@ ui_cmd_reboot:
                                 ; so a failure still has a screen to have
                                 ; happened on
 .nosave:
+%ifdef OS88_DRIVERS             ; (kern_small loads none: driver.inc's note)
     call COLD_SEG:drv_shutdown_x ; detach every loaded driver (SPEC.md 51.2):
                                 ; int 19h resets no hardware, so a hooked
                                 ; card would ride the reboot with its vector
@@ -2867,6 +2870,7 @@ ui_cmd_reboot:
                                 ; the worker's death, which needs the
                                 ; scheduler alive - and before the lock,
                                 ; because that wait yields
+%endif
     call gfx_lock               ; never released - the GUI is done
     call vid_reboot             ; a text mode on the primary AND on whichever
                                 ; card int 10h is going to print on after the

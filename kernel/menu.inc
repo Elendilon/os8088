@@ -1494,12 +1494,7 @@ menu_draw_clock:
     push es
 
     call menu_clkcells          ; --- the field, in whole cells, clamped
-    mov bx, ax
-    or bx, bx                   ; ...and a field of no cells has nothing to
-    jz .out                     ; hash: `loop` with CX = 0 runs 65,536 times.
-                                ; Unreachable - the field is 25 cells on every
-                                ; width, both ends being derived from it - but
-                                ; this is the only routine that would find out
+    mov bx, ax                  ; (BX = 0 is refused at .hash, below)
     call clk_fmt                ; SI = the line in its live form and CX = its
                                 ; length (SPEC.md 37), ALWAYS - a toast covers
                                 ; only the cells it needs and the rest of the
@@ -1564,6 +1559,18 @@ menu_draw_clock:
     xor ax, ax                  ; --- one check word over the composed FIELD,
     mov si, menu_clkbuf         ; so a minute rolling over beside a live toast
     mov cx, bx                  ; is a difference like any other
+    jcxz .jout                  ; ...and a field of NO cells has nothing to
+                                ; hash: `loop` with CX = 0 runs 65,536 times.
+                                ; Unreachable - the field is 25 cells on every
+                                ; width, both ends being derived from it - but
+                                ; this is the only routine that would find
+                                ; out. Asked HERE and not at the top: with BX
+                                ; = 0 every step above clamps to an empty copy
+                                ; and writes one NUL into menu_clkbuf, and
+                                ; .jout is in short reach where .out is not
+                                ; (kernel size pass 11: -5, and the live path
+                                ; pays a 6-cycle jcxz for the 19 cycles of
+                                ; `or` plus the relaxed `jz` pair)
 .h:
     rol ax, 1                   ; position-sensitive: '10:23' and '23:10' are
     xor al, [si]                ; different times

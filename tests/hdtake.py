@@ -27,7 +27,9 @@ its root, and a system floppy whose SYSTEM.CFG wants HDD.DRV (bit 1).
      - the whole package read through rung 1 - opens the Calculator.
 `--blank` is the refusal: the same disk with LBA 0's 55AA wiped, which is
 what two BLANK disks would share - so geometry alone would pair them - and
-row 0 must stay the BIOS's, untouched (HDD_BIOS and HDD_BASE 0).
+row 0 must stay the BIOS's, untouched: unit 80h, HDD_BIOS 80h (every row
+the ROM reads carries its int 13h drive there since kernel size pass 11) and
+HDD_BASE 0.
 Break on purpose: hd_twins's call taken out of hd_ready, and row 0 stays a
 BIOS row (step 1 fails); its signature test taken out, and --blank fails.
 """
@@ -150,7 +152,7 @@ def vrow(q, S, v):
 def boot_leg(bad):
     """--boot: the INSTALLED machine. C: is the kernel's own boot volume,
     adopted through int 13h before any driver loads (52.10.3), and must be
-    HANDED to HDD.DRV (OSAPI_VOL_TAKE) - then GIVEN BACK when the driver goes,
+    HANDED to HDD.DRV (a take: OSAPI_VOL_ADD with DX != 0) - then GIVEN BACK when the driver goes,
     and taken again when it comes back"""
     import rdpreserve as rp
     import rdxms
@@ -294,7 +296,8 @@ def main():
                       struct.unpack_from("<H", r, 8)[0]))
         if blank:
             r = rows[0] if rows else None
-            if r is None or r[HDD_KIND] != HDK_BIOS or r[HDD_BIOS] or \
+            if r is None or r[HDD_KIND] != HDK_BIOS or \
+                    r[HDD_UNIT] != 0x80 or r[HDD_BIOS] != 0x80 or \
                     struct.unpack_from("<H", r, HDD_BASE)[0]:
                 bad.append("a disk with no 55AA at LBA 0 was taken, or its "
                            "BIOS row left changed")

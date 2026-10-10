@@ -531,36 +531,31 @@ hd_svc:
     push di
     push es
     mov es, [hd_tseg]
-    cmp al, HSV_RAW
-    je hd_svc_raw
-    cmp al, HSV_SYNC
-    je hd_svc_sync
-    cmp al, HSV_MOUNT
-    je hd_svc_mount
-    cmp al, HSV_UNMOUNT
-    je hd_svc_unmount
-    cmp al, HSV_CFGMARK
-    je hd_svc_cfgmark
-    cmp al, HSV_MSG
-    je hd_svc_msg
-    cmp al, HSV_STATE
-    je hd_svc_state
-    cmp al, HSV_SEL
-    je hd_svc_sel
-    cmp al, HSV_GEOM
-    je hd_svc_geom
-    cmp al, HSV_MOUNTDEV
-    je hd_svc_mountdev
-    cmp al, HSV_UNMOUNTDEV
-    je hd_svc_unmountdev
-    cmp al, HSV_VOLOF
-    je hd_svc_volof
-%ifdef INSTBENCH
-    cmp al, HSV_CTRS
-    je hd_svc_ctrs
-%endif
+    cmp al, HSV_LAST
+    ja hd_svc_unk
+    mov bl, al                  ; A TABLE, where twelve compares were - nine
+    mov bh, 0                   ; of whose `je`s had been relaxed into 5-byte
+    shl bx, 1                   ; pairs (kernel size pass 11). No verb takes
+    jmp [hd_svc_tab + bx]       ; BX: the request block is ES:SI, AH HSV_MSG's
+hd_svc_unk:
     stc                         ; a verb we do not know: refuse rather than
     jmp hd_svc_out              ; fall into one we do
+
+hd_svc_tab:
+    dw hd_svc_raw, hd_svc_sync, hd_svc_mount, hd_svc_unmount  ; 0..3
+    dw hd_svc_cfgmark, hd_svc_msg                             ; 4, 5
+    dw hd_svc_unk               ; 6 HSV_PAGE: allocated, unimplemented
+%ifdef INSTBENCH
+    dw hd_svc_ctrs              ; 7 HSV_CTRS
+%else
+    dw hd_svc_unk               ; 7 HSV_CTRS: INSTBENCH=1's alone
+%endif
+    dw hd_svc_sel, hd_svc_geom, hd_svc_mountdev, hd_svc_unmountdev ; 8..11
+    dw hd_svc_state, hd_svc_volof                             ; 12, 13
+HSV_LAST     equ 13
+%if HSV_RAW != 0 || HSV_SYNC != 1 || HSV_MOUNT != 2 || HSV_UNMOUNT != 3 || HSV_CFGMARK != 4 || HSV_MSG != 5 || HSV_PAGE != 6 || HSV_CTRS != 7 || HSV_SEL != 8 || HSV_GEOM != 9 || HSV_MOUNTDEV != 10 || HSV_UNMOUNTDEV != 11 || HSV_STATE != 12 || HSV_VOLOF != HSV_LAST
+    %error "hd_svc_tab is indexed by the HSV_* numbers"
+%endif
 
 ; --- HSV_RAW: a transfer to a DEVICE, outside any volume ---------------------
 ; The device comes as an INDEX and is resolved against OUR table, which is

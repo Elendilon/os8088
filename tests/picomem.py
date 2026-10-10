@@ -435,6 +435,8 @@ def leg_sb(tmp):
                 if v == 0x78 and arg > 1 and cms and \
                         0x220 >> 3 <= arg >> 3 <= 0x22F >> 3:
                     ans = 0x10      # dev_sbdsp_install: CMDERR_PORTUSED
+                if v == 0x78 and arg > 1 and ans == 0:
+                    st["sbport"] = arg  # where the card installed the DSP
                 st["args"] = [ans & 0xFF, ans >> 8]
 
         def int13(box):
@@ -473,8 +475,8 @@ def leg_sb(tmp):
         check(box.b("pm_irq") == sb_irq, "the SB took IRQ %d" % box.b("pm_irq"))
         check(st["pic"] & (1 << pmirq) == 0, "the card's line is UNMASKED")
         want = 0x240 if cms else 0x220
-        check(box.w("pm_sbport") == want, "the DSP installed at %03Xh (want "
-              "%03Xh; asked %s)" % (box.w("pm_sbport"), want,
+        check(st.get("sbport") == want, "the DSP installed at %03Xh (want "
+              "%03Xh; asked %s)" % (st.get("sbport", 0), want,
                                     ["%03X" % a for c, a in st["cmds"] if c == 0x78]))
 
         box.go("entry_disc")
@@ -500,7 +502,8 @@ def leg_sb(tmp):
 # leg kern - the kernel's two PicoMEM checks
 # =============================================================================
 def kslice(tmp):
-    """kernel/disk.inc's dsk_fdd_pmemu and dsk_fdd_park_x, cut out as they ship."""
+    """kernel/disk.inc's dsk_fdd_pmemu and dsk_fdd_park_x (and the DSK_PMEM_WARM
+    macro the park expands), cut out as they ship."""
     src = open(os.path.join(ROOT, "kernel", "disk.inc")).read().splitlines()
     out = []
 
@@ -508,6 +511,9 @@ def kslice(tmp):
         i = next(n for n, l in enumerate(src) if l.startswith(start))
         j = next(n for n in range(i + 1, len(src)) if stop(src[n]))
         out.extend(src[i:j])
+    # the ramp both restarts expand (the desktop's and kern_dos's kd_leave)
+    cut("%macro DSK_PMEM_WARM", lambda l: l.startswith("%endmacro"))
+    out.append("%endmacro")
     cut("dsk_fdd_pmemu:", lambda l: l.startswith("%endif"))
     cut("dsk_fdd_park_x:", lambda l: l.startswith("%endif"))
     with open(os.path.join(tmp, "kslice.inc"), "w") as f:
@@ -594,7 +600,7 @@ def leg_mouse(tmp):
         mu.mem_write(0x33 * 4, (0x0700).to_bytes(2, "little") + bytes(2))
         # IRQ 7's vector is the PM BIOS's multiplexer, and the line MASKED -
         # function 0 leaves a hooked line as it finds it, so the driver must
-        # open it as SOUND.DRV's pm_bios does
+        # open it as SOUND.DRV's pm_init does
         mu.mem_write(0x0F * 4, (0x0100).to_bytes(2, "little") +
                      BIOS.to_bytes(2, "little"))
         # far call to the header's dispatcher (+12: `call bp / retf`) with BP

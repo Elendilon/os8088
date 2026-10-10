@@ -15755,7 +15755,7 @@ same `SYSTEM.CFG` bit 6, same `OSAPI_MOUSE_FEED`, same halving and carry.
   taken) must answer `DX = AA55h` with **`CH` ≠ 0** — the card's own IRQ, without
   which no report can ever arrive, so attach refuses `DRVE_HW` rather than
   mount a mouse that will never move. Then the card's line is opened if its
-  vector is still the BIOS's (§34.10.1's rule, `pm_bios`'s code), `int 33h` is
+  vector is still the BIOS's (§34.10.1's rule, `pm_init`'s code), `int 33h` is
   hooked — answering `0060h` and chaining every other function to the vector
   it found — and **only then** does function 10h turn the card's mouse on.
 - **THE HOOK GOES IN BEFORE THE ENABLE, and the other order FROZE THE
@@ -17390,6 +17390,27 @@ there is nothing adjacent — a line of text's worth of cells per window edge.
 A running total of rows in the main walk would let it skip that walk;
 ESTIMATED at ~20 more bytes and a few dozen cycles on every overlapping
 fragment of every clipped cell, and not taken.
+
+**Kernel size pass 11 took 28 of the 92 back, and the grow is IN LINE now**
+(`kern_big` `.text` 43,428 → 43,400; `kern_small` −8, the shared half of
+it). What made the out-of-line placement necessary was where the EXIT was,
+not where the grow was: `.ok`/`.none`/`.out` sat below the mask block, so
+every refusal had to jump forward over everything after the walk. They sit
+ABOVE the walk now, beside `.all` - the refusal's `jb .out` is short
+backwards whatever follows it, both of §11.3.4's head trampolines are gone
+with the reason for them, and a grown cell falls into the mask block instead
+of jumping back to it. Three more things went with it: `r0` and `rn` are one
+word store at the single exit on `kern_big` (the grow packs them into `BP`,
+so the entry's `mov byte [wm_clip_r0], 0` is `kern_small`'s alone - a refusal
+no longer writes `r0`, which no caller reads under CF = 1); the refusal is
+`cmp bp, 1` / `jb .out`, whose carry IS the answer, so no `stc`; and the
+seed and the downward merge are one body. Every path runs fewer
+instructions, none takes more branches, and the answers are IDENTICAL:
+the old routine and the new were run side by side over 30,000 random and
+split-built regions (every arm - disarmed, culled, under a display hook,
+refused, spanning, cut, grown) with every register and the three answer
+bytes compared. Median instructions per call, old → new: refused 63 → 61,
+spanning 105 → 102, cut 223 → 218, disarmed 33 → 31, culled 78 → 75.
 
 **Why not `font_run` for the caption.** `font_run` asks the same question:
 a run the region cuts goes cell by cell through `font_run_cell` (aligned,
@@ -25827,7 +25848,9 @@ moment it lets go (`mem_free_rec`). The pass resumed and called the handler
 anyway, through a `W_SEG` that names memory the heap had already got back:
 a wild far call. The handler word is read again under the lock for the same
 reason - a record re-used meanwhile is another window's, and its
-`W_ONTIMER` may be 0.
+`W_ONTIMER` may be 0 - and since kernel size pass 11 it is read ONLY there:
+the walk's own test is `W_FLAGS` and `W_TIMER`, and a due timer with no
+handler (a legal no-op) costs one lock round trip instead of a second read.
 
 A task-less instance cannot reach it: `app_close_win` tears that down on the
 UI task itself, under the lock, between two passes. It wants a worker, a
@@ -33904,9 +33927,12 @@ except the one it exists to skip:
   menu, a timer, a repaint. So every moment the user can act still finds the
   hold committed, and 18.4.9's invariant - *no hold is pending where the user
   can reach the drive* - stands for everything but another package's wake;
-- **an unlock inside a wake whose FAT edits are BANKED** (§18.8.5): the
-  callback hopped off the volume, and a banked bank is the one a shed can
-  poison;
+- **an unlock inside a wake once its FAT edits have been BANKED** (§18.8.5)
+  since the hold's last write: the callback hopped off the volume, and a
+  banked bank is the one a shed can poison. `dws_hswap` clears `[dws_keep]`
+  whichever way it swaps, so `gfx_unlock` asks one word and the next write
+  sets the verdict again (kernel size pass 11; it used to ask `[dws_hd0]`
+  at the unlock, which kept a hold that had hopped off and back);
 - a posted restart or hibernate (`ui_task` step 0) - a hibernate zeroes the
   bank, and a restart would lose the stream - except the `NOFLUSH` restart,
   which goes near no disk at all;
@@ -33940,7 +33966,13 @@ Cost, measured against the kernel before it: **+108 resident bytes** on
 stores, `ui_task` step 0's commit), `.cold` +72 (the door's flags, the
 checkpoint arm, the fixed-disk verdict and `dsk_vol_del`'s commit), `.bss` +2
 (`dws_keep`, `dws_inwk`, adjacent so the unlock reads them as one word). No
-rung crossed. Not in `kern_small`, which has no WRITE_SEQ (18.4.9).
+rung crossed. Not in `kern_small`, which has no WRITE_SEQ (18.4.9). Kernel
+size pass 11 took **-31** of it back with nothing changed but the bank rule
+above: the checkpoint arm shares the door's hot test (`jcxz` tells a
+checkpoint from a write once the token is known hot), the verdict is one
+`and`, `dsk_vol_del` lets `dws_commit` ask `[dws_hold]` itself, and the
+wake arm's two stores are an `inc`/`dec` pair - `.text` -9, `.cold` -22
+(the bank's own clear is +5 of that).
 
 Gated by `tests/ftpkeep.py` (QEMU, a hard-disk boot): a STOR byte-exact on
 the host's own FAT reader and fsck-clean; the same STOR through the per-chunk
@@ -33966,13 +33998,23 @@ commit was the longest by 10x; the same STOR with the rover already past the
 used run read 36.
 
 **FAT16 searches the resident window with one `repne scasw`** for a zero
-word (`dskw_alloc16`): an entry is a word and free is zero, so the answer,
-the rover, the wrap, the window loads and the end bound (`[dsk_maxclus]`,
-because the last FAT sector's tail is zero PADDING) are all the per-cluster
-loop's, at a few clocks an entry instead of the three calls. A window that
-will not load hands its place back to the per-cluster loop, which asks
-again and answers as it always has. FAT12 - every floppy, whose whole FAT is
-resident and small - keeps the loop.
+word (`dskw_alloc`'s `.scan`): an entry is a word and free is zero, so the
+answer, the rover, the wrap, the window loads and the end bound
+(`[dsk_maxclus]`, because the last FAT sector's tail is zero PADDING) are all
+the per-cluster loop's, at a few clocks an entry instead of the three calls.
+A window that will not load asks that one cluster the per-cluster way, which
+retries the load, and the scan goes on from the next. FAT12 - every floppy,
+whose whole FAT is resident and small - keeps the loop.
+
+The scan is bounded by the window and the last cluster and NOT by the
+candidates left: those are only charged with what each window asked, and the
+first charge that reaches zero or borrows is the full volume. Past the last
+candidate lie only clusters the same search has already seen used, so an
+overrun can find nothing a bounded scan would not (checked in a Python model
+against the per-cluster loop over 20,000 random FATs, full ones among them).
+That and sharing the loop's wrap are kernel size pass 11's **-42** on both
+kernels; the scan was a routine of its own, `dskw_alloc16`, with a second
+copy of the wrap and both bounds.
 
 **Measured on MartyPC's 4.77 MHz 8088** (`os8088_5150_herc_hdd_sb_gla`, its
 XT-IDE volume filled to 1 MB free, VIDDISK's `f` writer, the first
@@ -37167,6 +37209,18 @@ register at 2A3h first, and on a PicoMEM sets the warm-boot flag and jumps to
 controller itself. Everything before it — the drivers' detaches, the text
 mode, the unhook — is unchanged, and a machine without the card reads 2A3h
 twice and parks and `int 19h`s exactly as before.
+
+**Leaving a DOS program takes the same path** (§96.40.2). `kern_dos`'s
+`kd_leave` ends in the same `int 19h` and so would hang the same way, so it
+expands the same ramp — `DSK_PMEM_WARM` in `kernel/disk.inc`, one source for
+both assemblies — between the exit message and its park: on a PicoMEM the
+warm reset, anywhere else a fall-through to the park and the `int 19h` on
+`KDL_UNIT` with IF back on. It costs `DOS.O88`'s kern_dos part 32 bytes and
+the kernel none. The exit code `kd_bda` posts at `0040:00F0` survives POST
+only where the BIOS leaves the intra-application area alone; a machine that
+restarts without it is the trade. Found by reading (kernel size pass 11) and
+taken on the owner's word; no emulator here has the card, so like the
+desktop's it is the field's to confirm.
 
 ## 19. FAT12/FAT16 — the data-disk format (data floppies)
 
@@ -48371,12 +48425,16 @@ wrap-safe difference is at least `FM_DBLCLK` and the click only re-stamps.
 
 ### 22.27 Multi-select (`kern_big`)
 
-**What it costs: 797 resident bytes** (`.cold` 739, `.text` 13, `.bss` 45),
-measured against `make MSELOFF=1`. It shipped at 1,418 and the size pass that
-took it under 800 is docs/plans/completed/MULTISELECT-PLAN.md §A.1: the rubber
-band became a DRAG SELECT of a run, and the single-selection code the feature
-already duplicated - a click's two bands, an arrow's, a right-click's, the
-single Delete - became the multi-selection's own.
+**What it costs: 755 resident bytes** (`.cold` 697, `.text` 13, `.bss` 45),
+measured against `make MSELOFF=1` at the same commit. It shipped at 1,418 and
+the size pass that took it under 800 is docs/plans/completed/MULTISELECT-PLAN.md
+§A.1: the rubber band became a DRAG SELECT of a run, and the single-selection
+code the feature already duplicated - a click's two bands, an arrow's, a
+right-click's, the single Delete - became the multi-selection's own. Kernel
+size pass 11 took 797 to 755 (docs/plans/completed/ksp11/multisel.md), no behaviour
+changed. `MSELOFF=1` is no longer byte-identical to the kernel before the
+feature, because that pass also re-laid code the feature SHARES; every byte
+the feature adds is still inside `%ifdef FM_MSEL`.
 
 A Disk window can hold **more than one selected entry**, and Cut, Copy,
 Paste, Delete and a drag act on all of them. The design record, with what
@@ -62390,7 +62448,7 @@ choice anyone here can make correctly.
 Six things are load-bearing:
 
 - **Detection is READS ONLY, and that is what makes the knob safe to enable
-  on a machine that turns out not to have the card.** `pm_porttest` reads
+  on a machine that turns out not to have the card.** `pm_init`'s ramp reads
   2A3h a hundred times and requires every read to be exactly one more than
   the last, which is the card's test register counting. An empty ISA bus
   floats to FFh and fails on the second read. **Not one byte is written
@@ -62413,9 +62471,11 @@ Six things are load-bearing:
   The tick deadline is the real one — a poll is ~15us on a 4.77MHz 8088 and
   ~1us on anything newer, so a poll *count* is the wrong timeout on one of
   them (§62.10's rule). Interrupts are on at this call, measured rather than
-  assumed: an I/O breakpoint on 2A3h stops the guest inside `pm_porttest`'s
+  assumed: an I/O breakpoint on 2A3h stops the guest inside `pm_init`'s
   ramp, and the word `pushf` just pushed is the caller's — `FLAGS=F246`,
-  IF=1, return address inside `pm_init`. But that is a fact about today's
+  IF=1 (taken when the ramp was a routine of its own, `pm_porttest`, called
+  from `pm_init`). The clock is `OSAPI_GET_TICKS`, once per 256 status reads.
+  But that is a fact about today's
   `drv_boot` and not an invariant anything enforces, and a later change
   breaking it silently would cost the boot of every machine this driver loads
   on, so `PM_OUTERN` caps the batches as well. It is sized to fire only when
@@ -62444,7 +62504,7 @@ the figures when the tier was a knob; §34.10.3 has today's.)
 **What was NOT verified here, and could not be: the success path** — until
 the field ran it (§34.10.1, §34.10.2, docs/FIELD-NOTES.md 66). No emulator in
 this tree has a PicoMEM in it, so every measurement above is of the branch
-where `pm_porttest` refuses. Whether the card accepts the IRQ offered, whether
+where `pm_init`'s ramp refuses. Whether the card accepts the IRQ offered, whether
 `opl_probe` then finds the OPL2 the firmware installs beside the DSP, and
 whether `sbl_attach`'s F2h IRQ discovery agrees with the line the firmware
 took, are all the field machine's questions. The firmware reports DSP 2.1
@@ -62480,14 +62540,14 @@ ever copied and the card was never acknowledged.
 
 Three rules now, all in the tier:
 
-1. **The line is learned, and kept live.** After `pm_porttest` has seen the
-   ramp, `pm_bios` makes PMINIT's own detect — `int 13h` AX=6000h DX=1234h,
+1. **The line is learned, and kept live.** After `pm_init`'s ramp has
+   passed, it makes PMINIT's own detect — `int 13h` AX=6000h DX=1234h,
    answered DX=AA55h, BX = the BIOS segment, **CH = the card's IRQ**. §34.10
    refused that call as the *detection*, because on a machine with no
    PicoMEM it is an undefined `int 13h` function; it is not the detection
    here, it runs only on a machine already shown to have the card. The call
    also re-hooks the multiplexer if its vector no longer names the BIOS
-   segment, and `pm_bios` opens the line's mask bit when — and only when —
+   segment, and `pm_init` opens the line's mask bit when — and only when —
    the vector is the BIOS's.
 2. **That line is never offered to the Sound Blaster** (the firmware refuses
    it too; skipping it costs no command).
@@ -62512,13 +62572,14 @@ there**: the PicoMEM's own Devices page listed **CMS at 220h-22Fh**, and
 `dev_sbdsp_install` refuses a base another emulated device holds
 (`CMDERR_PORTUSED`, 10h; the firmware's port table is in 8-byte blocks and the
 DSP takes two). On DOS the `BLASTER` variable names a port and the user picks
-one that is free; nothing here asks the user, so `pm_snd_on` walks
+one that is free; nothing here asks the user, so `pm_init` walks
 `pm_sbports` — `PM_SB_PORT` (220h), then 240h, 230h, 250h, 260h, which is
 `sbl_bases`' own order less 210h (PMINIT does not offer it) — and moves on
 **only** on `PORTUSED`: a missing IRQ, memory or mixer is the same answer at
 every port. Whatever base is taken is one `sbl_f_probe` finds by its own scan,
-so nothing downstream learns the port from here; `[pm_sbport]` records it for
-the reader of a dump.
+so nothing downstream learns the port from here, and `[sbl_base]` is where a
+dump reads it (a `[pm_sbport]` that recorded it a second time, and that
+nothing read, went in kernel size pass 11).
 
 #### 34.10.3 Why it is the default: two port reads and no heap
 
@@ -85577,10 +85638,14 @@ one of them rather than a reader:
 2. **A stub ends in the `ret` kind its callers use.** Six of them are
    far-called and end in `retf`; the overlay pair is entered through
    `call far [spl_fp]` and ends in `retf` too (§2.5.3).
-3. **`drv_svc` is `.text` with real zero bytes, not `.bss`.** `snd.inc` reads
-   `[drv_svc+DSV_TONE]` directly to ask whether a driver offered it a tone
-   proc, and nothing zeroes `.bss` on this assembler (§8) — the live build
-   gets its zeros from `drv_init_x`, which is inside the gate.
+3. **A reader of a driver table that cannot be published is gated with it,
+   not fed zeros.** `drv_svc` used to be `.text` with real zero bytes here so
+   `snd.inc` and the Sound page could read "no proc" out of it; since kernel
+   size pass 11 every such reader is `OS88_DRIVERS`'s (`snd_release_inst`'s
+   `DSV_RELINST` call, `cp_snd_rowok`/`cp_snd_row`, which state their
+   answers - the speaker's row, alone), and `drv_svc`, `drv_owner`,
+   `drv_memk` and `drv_blkcls` are gone from this build. Nothing zeroes
+   `.bss` on this assembler (§8), which is why the zeros had to be bytes.
 
 The Control Panel's Drivers page is **stubbed rather than gated**, and the
 row is taken out of `cp_items` so nothing can select it. `CTRL.DRV` is an
@@ -85591,6 +85656,29 @@ the Sound page, which stays. What the gate does reach is the item indices:
 rather than derived, because deriving them would hide the fact that makes
 them fragile — they are positions in a table one `%ifdef` above, and the two
 have to be read together.
+
+**The volume slots a driver mounts through are stubs too** (kernel size pass
+11): `OSAPI_VOL_ADD`, `_DEL` and `_MOUNT` are `stc / retf`, `OSAPI_FS_ENT`
+`xor ax,ax / stc / retf` and `osapi_vol_fence` itself was `stc / ret` until
+its last caller went (kernel size pass 11's second round), because
+the fence walks the PUBLISHED classes and none can be published here, so
+every one of them refused every caller already. The bodies behind them -
+`dsk_vol_add`, `dsk_vol_del`, `dsk_vol_drop_drv_x`, the take - go with them,
+as does `osapi_vol_at`'s arm for a TAKEN row (§52.1.1), which no row can be:
+-418 of `.cold` and -4 of `.bss`, `kern_big` byte-identical. `OSAPI_VOL_AT`
+itself stays, unfenced and live: it is the question an installer asks of
+the kernel's own boot volume. `osapi_desk_item`, the fence's other caller,
+takes its package arm as it always did.
+
+**And the fence's consequences one layer out** (kernel size pass 11): the
+two fenced FILE cells, `OSAPI_FILE_WRITE_SYS` and `_APPEND_SYS` (§19.6.1),
+are their refusal's answer and nothing else - `mov ax, FERR_PROT / stc /
+retf`, the registers the fenced body gave back untouched - and
+`OSAPI_FILE_FIND`'s fence is `xor al, al`, no caller being a driver. The
+resident lifecycle calls, `ui_cmd_reboot`'s `drv_shutdown` and the panel
+close's `drv_cp_closed`, are gated rather than stubbed (a far call is five
+bytes a site), `kmain`'s stays a stub call because it is boot overlay.
+`kern_small` -115 resident for those.
 
 ### 51.1 A driver is a package that is not an application
 
@@ -85898,10 +85986,14 @@ class in the middle would renumber every user's saved settings and turn "I
 had the hard disk on" into "I had the debug monitor on". Appending cannot.
 
 **One slot per class means one DRIVER per class at a time, and `drv_load`
-refuses the second.** Immediately before the attach it compares
-`[drv_owner]` for the row's class against the row itself: a slot held by a
-*different* row is `DRVE_TWICE`, the image goes straight back, and the row
-reads `Attached twice (bug)` beside its own name on the Drivers page.
+refuses the second.** First of all - before the disk is asked anything,
+since `DRVR_CLASS` is the row's own expectation and `drv_check` holds the
+header to it - it compares `[drv_owner]` for the row's class against the row
+itself: a slot held by a *different* row is `DRVE_TWICE`, no image is claimed
+or read, and the row reads `Attached twice (bug)` beside its own name on the
+Drivers page. (It sat immediately before the attach until kernel size pass
+11; ahead of the read it costs no disk work, and from there the five
+refusals after it reach their answers with two-byte jumps.)
 Without that test `drv_publish` overwrites the slot unconditionally — the
 first driver's volumes stay mounted and browsable while every verb on them
 dispatches into the SECOND driver, which is this section's own bug one level
@@ -87021,7 +87113,12 @@ an XT-IDE ROM, 15.4% of pulses lost while the ring refills; files made for a
   partition of an installed machine is still recognised as the KERNEL'S
   (§52.10.3.1) and never mounted a second time, and `DSV_GEOM` (`hd_geom`,
   §87.5), so a hibernate image on such a drive is still one the resume
-  stub can read through the ROM - it is the same disk.
+  stub can read through the ROM - it is the same disk. **Since kernel size
+  pass 11 every row the ROM reads carries it there, a BIOS row too**
+  (`HD_ABI_VER` 5), and rung 0's own int 13h asks by it: so both questions
+  are one load and a zero test, and the pairing at attach can park the IDE
+  unit in the BIOS row's `HDD_UNIT` (and the port in `HDD_BASE`) with the
+  BIOS read in `hd_twins` still finding its drive.
 - **The geometry is the BIOS's** - the one the partition table was written
   against - told to the drive with `91h INITIALIZE DEVICE PARAMETERS`
   before the proving read, as every IDE row's is.
@@ -87029,32 +87126,41 @@ an XT-IDE ROM, 15.4% of pulses lost while the ring refills; files made for a
   row, 80h; the device is an IDE row now), so that drive's saved typed
   geometry is ignored once; it is probed, the geometry is the BIOS's, and
   the automount takes every probed device anyway (§52.6.1).
-- **And the boot partition too: `OSAPI_VOL_TAKE`.** The kernel adopts the
-  partition it booted from as a `DVK_BIOS` row before any driver loads
-  (§52.10.3), and a video disk is one partition - so a driver that could not
-  take that row would leave every video on C: of an installed machine
-  playing slow, and the same file fine on D:. `hd_mount`, finding a
-  partition the kernel already carries (`hd_kvol`) on a drive it TOOK,
-  calls `hd_mount_one` with `[hd_take]` set, and that asks the kernel for
-  the row in place of adding one: slot 0x0467, an X cell behind
-  `osapi_vol_fence` (so the class stamped is the caller's), `OSAPI_VOL_AT`'s
-  arguments plus the driver's handle in AH. The row becomes `DVK_DRV`,
-  mounted as it is - nothing is listed again, and `dsk_xfer` reads the row
-  on every transfer, so the next one is the driver's.
+- **And the boot partition too: a TAKE, `OSAPI_VOL_ADD` with DX != 0.**
+  The kernel adopts the partition it booted from as a `DVK_BIOS` row before
+  any driver loads (§52.10.3), and a video disk is one partition - so a
+  driver that could not take that row would leave every video on C: of an
+  installed machine playing slow, and the same file fine on D:. `hd_mount`,
+  finding a partition the kernel already carries (`hd_kvol`) on a drive it
+  TOOK, calls `hd_mount_one` with `[hd_take]` set, and that asks the kernel
+  for the row in place of adding one: `OSAPI_VOL_ADD` behind its own
+  `osapi_vol_fence` (so the class stamped is the caller's), with DX - which
+  was RESERVED, pass 0, since §22.6 retired the listing claim it carried -
+  non-zero, DL the index `OSAPI_VOL_AT` answered and AL the driver's handle.
+  The row becomes `DVK_DRV`, mounted as it is - nothing is listed again, and
+  `dsk_xfer` reads the row on every transfer, so the next one is the
+  driver's. Kind and unit are one word (`DV_KIND` 0, `DV_UNIT` 1), so the
+  row changes transport in ONE store and no IF = 0 bracket is needed.
+  - **It was a slot of its own, 0x0467 `OSAPI_VOL_TAKE`, for one cycle**,
+    taking `OSAPI_VOL_AT`'s arguments and asking that question again
+    inside. It never reached `main`; kernel size pass 11 folded it into the
+    door the driver already uses, six resident bytes of cell and a second
+    fence call cheaper on both kernels.
   - **It keeps its int 13h drive in `DV_BUNIT`** (row offset 14, one of the
     two bytes DV_SEG's retirement left spare) and its base stays in
     `dsk_vbase`, so `OSAPI_VOL_AT` still names it - the installer still
     refuses the running volume, and `hd_mount` still finds it its own.
-  - **`dsk_vol_del` GIVES IT BACK** rather than freeing it: kind `DVK_BIOS`,
-    unit the BIOS's, class 0, at IF = 0. Both of the kernel's ways of
-    dropping a driver's volumes end there - an unmount's `OSAPI_VOL_DEL`
-    and `dsk_vol_drop_drv_x` at an unload, which is also a hibernate's
-    detach and the DOS box's handoff - and without it every one of them
-    FREES THE SYSTEM VOLUME: measured, the row went to `DVK_FREE` and the
-    driver could not even be loaded again off it.
-  - **+84 resident bytes of kernel** on both builds (`.text` +6, the cell;
-    `.cold` +78), and none of `HDD.DRV`'s image: the driver's half fits in
-    padding the image already had.
+  - **`dsk_vol_del` GIVES IT BACK** rather than freeing it: kind `DVK_BIOS`
+    and unit the BIOS's in one store, then class 0. Both of the kernel's
+    ways of dropping a driver's volumes end there - an unmount's
+    `OSAPI_VOL_DEL` and `dsk_vol_drop_drv_x` at an unload, which is also a
+    hibernate's detach and the DOS box's handoff - and without it every one
+    of them FREES THE SYSTEM VOLUME: measured, the row went to `DVK_FREE`
+    and the driver could not even be loaded again off it.
+  - **+84 resident bytes of kernel** on both builds as first shipped
+    (`.text` +6, the cell; `.cold` +78), and none of `HDD.DRV`'s image: the
+    driver's half fits in padding the image already had. After pass 11:
+    `.text` +0 and `.cold` +66.
 
 `hdtake` is the gate, on QEMU - the one emulator here with a 286-class CPU and
 a BIOS that knows an IDE disk: device row 0 must be IDE on 1F0h unit 0 with
@@ -87066,7 +87172,10 @@ given back to the BIOS intact, ticked again and taken again. Broken on
 purpose - the take skipped, or the give-back - it goes red at B1, or at B3
 with the system volume freed. +180 bytes of `HDD.DRV`'s image (3,584 ->
 3,764 with 16 of bss, inside the 4 KB claim it already took), all of it in
-the attach-only run that `hd_mbr` is laid over and the 180 bytes past it.
+the attach-only run that `hd_mbr` is laid over and the 180 bytes past it -
+**and back to 3,584 in kernel size pass 11**, `hd_twins` 164 -> 123 bytes
+and it and `hd_at_geom` moved out into the padding `hd_mbr`'s `align 512`
+spends on zeros, so the run is under 512 again (`docs/plans/completed/ksp11/drivers.md`).
 
 #### 52.1.2 Rung 1 reads with `rep insw` (2026-10-10)
 
@@ -96339,6 +96448,25 @@ bank it: the 128KB machine's `.cold` rung had 11 bytes left in it, and the
 mount's two redirected blocks alone are **115**. That does not uncross
 anything today; it makes the next thing that wants a rung cheaper, and it
 stops a build paying for a feature it is unable to use.
+
+**Kernel size pass 11 finished the gate the paragraph above describes.** The
+first round had gated the mount and the write bodies and left eleven arms
+assembled on `kern_small` that the same argument says are unreachable: the
+FAT reads (`dskw_rbody`, `dskw_stat_x`, `dskw_read_at_x`, `dwf_dskw_read_seq`,
+`dskw_wabody`, `dskw_rtbody`), `dsk_free_clus_x`, `dsk_up_open`, the
+directory enumerator's `FSV_ENUM`, `ld_take`'s handle test and `dsk_xfer`'s
+`DVK_DRV`/`DVK_FILE` dispatch (the last `OS88_DRIVERS`'s, since only a driver
+can stamp either kind), with `dskw_fsop`/`dskw_fsstat` and `[dsk_fsup]`
+behind them. **`kern_small` −331 resident** for those, and `kern_dos` - which
+defines neither symbol and has §96.44.9's fence - drops the same arms. Where
+a removed arm sat between an entry and its FAT path, the build without it
+takes a `jmp short` over the arm's relays, which is cheaper than the compare
+and taken branch it replaces. `fdlg.inc`'s two, in `FDLG.DRV`, went with
+the rest, and a second round took `filecp.inc`'s six (`FILECP.DRV` 1,936 ->
+1,770 bytes, and its resident chdir arm). With them went the last readers of
+the refusing dispatchers `drv_fs_call`/`drv_svc_none`/`drv_blk_call_x` and
+`drv_fs_has`, so those stubs are gone from this build: a redirected arm
+added here later fails to assemble instead of calling a refusal.
 
 #### 62.9.3 The branch sites, and the order to build them in
 
@@ -170504,10 +170632,14 @@ is reached by OUT and needs no CPU above an 8088.
 ### 107.1 What the kernel carries
 
 - **A class, `DRVC_EMS` = 7** (`apps/os88api.inc`), appended after
-  `DRVC_POINT` because a class number is ABI. It has a publication slot and a
-  copy of its service table; `DRVC_POINT` remains the one class with no copy,
-  and the class-to-copy arithmetic (`drv_cls_svc_x`, `drv_pkg_call_x`) skips
-  it as it skips the retired class 3.
+  `DRVC_POINT` because a class number is ABI. It has a publication slot and,
+  like `DRVC_POINT`, **no copy of its service table**: its one cell is
+  `DSV_PKGCALL`, and `drv_publish` puts that word in `drv_fptr7`'s OFFSET
+  half - which nothing reads for this class, `drv_pkg_disp` taking class
+  1's `PKG_DISP` for every far call - where `drv_pkg_call_x` reads it. So
+  `drv_cls_svc_x` refuses the two last classes by one `>= DRVC_POINT` test,
+  as it did before EMS. (It shipped for one cycle with a 36-byte copy for
+  that one word, and kernel size pass 11 took the copy out.)
 - **A row, `EMS.DRV`, "EMS"**, on `kern_big` and `kern_emu`, SYSTEM.CFG
   **bit 7** on both, **not wanted by default** (§51.3): attach writes to
   I/O ports, and on a machine without a board at that address they are
@@ -170518,8 +170650,10 @@ is reached by OUT and needs no CPU above an 8088.
   `inst_caller`'s answer (§34.3): the instance slot, or 0xFF for the kernel,
   a driver or the UI task outside a package callback. EMS ownership is keyed
   on it, because a package's SEGMENT can move under compaction (§66).
-- **A dead instance's pages are returned.** `inst_rel_rec` - the teardown
-  that releases an instance's sound grants and XMS blocks - calls the EMS
+- **A dead instance's pages are returned.** `xm_release_rec` - the
+  teardown that releases an instance's XMS blocks, entered from
+  `inst_rel_rec`'s tail after the sound grants and from `ld_unreserve`'s
+  abort sweep - calls the EMS
   class's package door with verb `EMSV_GONE` and `ES = KERNEL_SEG`, which no
   package can send (its calls arrive with its own segment in ES).
 
@@ -170598,10 +170732,18 @@ against this one:
 | `.cold` | **+3** | 0 |
 | `.ovl` | **+1**: `drv_cfgbit`'s byte (not resident) | 0 |
 | the footprint | **no rung crossed** | no rung |
-| the system disk | `EMS.DRV`, 1,206 bytes of image (176 of them zero bss, off the disk), **813 on the floppy** packed | none |
+| the system disk | `EMS.DRV`, 702 bytes of image (32 of them zero state, off the disk), **670 on the floppy** packed, and a **1 KB** claim when loaded (it was 1,206 bytes and two KB until kernel size pass 11: a 256-byte per-page owner table repeated what the handles say, and first fit now asks the eight handles; and its service table is the one door cell, the kernel reading nothing else of it - `docs/plans/completed/ksp11/drivers.md`) | none |
 
 113 resident bytes on every `kern_big` machine, board or none - the estimate
 in VIDEO-XMS-PLAN 10.5 was 95-100, short by the teardown call's banking.
+
+**Kernel size pass 11 took 30 bytes of it back**: the 36-byte table copy (the
+door is `drv_fptr7`'s offset half now, 107.1; `.bss` -36, `drv_publish` +10
+of `.cold`, `drv_pkg_call_x` +1 and no longer multiplies for EMS), and the
+teardown converting the record once for the EMS door and the XMEM dispatch
+(`.text` -5). A defect came out with it: `mem_rr_tab` relocated five class
+segments of seven, so a compaction that MOVED `EMS.DRV` left `drv_fseg7`
+naming freed memory (§66.6.3; the row counts `DRVC_MAX` now).
 
 ### 107.6 Not done
 
