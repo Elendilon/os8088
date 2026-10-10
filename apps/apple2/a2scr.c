@@ -729,15 +729,19 @@ static int a2_geom(void *win)
     avail = a2_gsty - org.y - A2_BORDER * 2;
     if (avail < 0)
         avail = 0;
+    /* NESTED TESTS, NOT `&&` OR A COMPARE BEHIND `?:` (apps size pass 1):
+     * SmallerC makes each such compare a 0/1 value and tests it. */
     a2_scw = 1;
     a2_sch = 1;
-    if (a2_full && !a2_tier_slow) {
-        if (sz.w >= A2_BANDW * 2)
-            a2_scw = 2;
-        if (a2_scw == 2 && avail >= A2_SCRH * 2)
-            a2_sch = 2;
-    }
-    a2_gbw = (a2_scw == 2) ? A2_BANDW * 2 : A2_BANDW;
+    a2_gbw = A2_BANDW;
+    if (a2_full)
+        if (!a2_tier_slow)
+            if (sz.w >= A2_BANDW * 2) {
+                a2_scw = 2;
+                a2_gbw = A2_BANDW * 2;
+                if (avail >= A2_SCRH * 2)
+                    a2_sch = 2;
+            }
 
     /* THE BORDER FLOOR IS A 1:1 THING AND MUST NOT SURVIVE INTO 2x
      * (apps/c64/c64scr.c's own note). At 1:1 the framed window is 336 wide
@@ -754,7 +758,9 @@ static int a2_geom(void *win)
     }
     a2_gsx = org.x + (d & ~7);
 
-    a2_gnl = (a2_sch == 2) ? (avail >> 1) : avail;
+    a2_gnl = avail;
+    if (a2_sch == 2)
+        a2_gnl = avail >> 1;
     if (a2_gnl > A2_SCRH)
         a2_gnl = A2_SCRH;
 
@@ -783,7 +789,9 @@ static int a2_geom(void *win)
              * move hid the banner one row up while showing thirteen blank
              * rows below - and the clamp turns the same arithmetic into
              * "line 0, show everything" for free. */
-            if (cl0 < ngl0 || cl0 + 8 > ngl0 + a2_gnl)
+            if (cl0 < ngl0)
+                ngl0 = cl0 + 8 - a2_gnl;
+            else if (cl0 + 8 > ngl0 + a2_gnl)
                 ngl0 = cl0 + 8 - a2_gnl;
             if (ngl0 > lim)
                 ngl0 = lim;
@@ -801,7 +809,9 @@ static int a2_geom(void *win)
                                              * different Apple line: a2_flush
                                              * turns this into a2_sh_inval */
     }
-    a2_gbh = (a2_sch == 2) ? (a2_gnl << 1) : a2_gnl;
+    a2_gbh = a2_gnl;
+    if (a2_sch == 2)
+        a2_gbh = a2_gnl << 1;
     a2_gsy = org.y + A2_BORDER + (avail - a2_gbh) / 2;
     return 0;
 }
@@ -813,16 +823,17 @@ static int a2_geom(void *win)
 static void a2_border_fill(void)
 {
     int sbot = a2_gsy + a2_gbh;
+    int xr = a2_gox + a2_gw - 1;            /* the content's right edge, once */
 
     os88_set_color(OS88_BLACK);
     if (a2_gsy > a2_goy) {
-        os88_gfx_fill(a2_gox, a2_goy, a2_gox + a2_gw - 1, a2_gsy - 1);
+        os88_gfx_fill(a2_gox, a2_goy, xr, a2_gsy - 1);
 #ifdef A2_HOST
         a2_n_fill++;
 #endif
     }
     if (sbot <= a2_gsty - 1) {
-        os88_gfx_fill(a2_gox, sbot, a2_gox + a2_gw - 1, a2_gsty - 1);
+        os88_gfx_fill(a2_gox, sbot, xr, a2_gsty - 1);
 #ifdef A2_HOST
         a2_n_fill++;
 #endif
@@ -834,9 +845,8 @@ static void a2_border_fill(void)
             a2_n_fill++;
 #endif
         }
-        if (a2_gsx + a2_gbw < a2_gox + a2_gw) {
-            os88_gfx_fill(a2_gsx + a2_gbw, a2_gsy,
-                          a2_gox + a2_gw - 1, sbot - 1);
+        if (a2_gsx + a2_gbw <= xr) {
+            os88_gfx_fill(a2_gsx + a2_gbw, a2_gsy, xr, sbot - 1);
 #ifdef A2_HOST
             a2_n_fill++;
 #endif
@@ -867,21 +877,35 @@ static void a2_border_fill(void)
  * The rect is in SCREEN coordinates, as the kernel gives it. */
 static void a2_blank_rect(int x1, int y1, int x2, int y2)
 {
-    int l0, l1, l, sbot, c0, c1, d;
+    int l0, l1, l, sbot, c0, c1, d, rb;
 
     sbot = a2_gsy + a2_gbh;                 /* one past the band's last line */
 
     /* the border strips, and only when the rect actually reaches one */
-    if (y1 < a2_gsy || y2 >= sbot
-        || x1 < a2_gsx || x2 >= a2_gsx + a2_gbw)
+    /* ONE TEST AN EDGE AND NOT `||` CHAINS, which SmallerC spells as four
+     * compares made into values (apps size pass 1). `rb` is one past the
+     * band's right edge. */
+    rb = a2_gsx + a2_gbw;
+    if (y1 < a2_gsy)
+        a2_border_dirty = 1;
+    else if (y2 >= sbot)
+        a2_border_dirty = 1;
+    else if (x1 < a2_gsx)
+        a2_border_dirty = 1;
+    else if (x2 >= rb)
         a2_border_dirty = 1;
     if (y2 >= a2_gsty)
         a2_st_ok = 0;                       /* the status row's pixels are no
                                              * longer ours */
 
-    if (y2 < a2_gsy || y1 >= sbot
-        || x2 < a2_gsx || x1 >= a2_gsx + a2_gbw)
+    if (y2 < a2_gsy)
         return;                             /* the rect misses the band */
+    if (y1 >= sbot)
+        return;
+    if (x2 < a2_gsx)
+        return;
+    if (x1 >= rb)
+        return;
 
     /* THE COLUMNS, IN BAND BYTES, UNIONED WITH ANY EARLIER RECT THIS FLUSH.
      * The letterbox is redrawn wherever the range reaches it, because the
@@ -1032,18 +1056,27 @@ static void a2_row_blank(int x, int y, int w, int rows)
  * ========================================================================*/
 static void a2_st_put(int col, const char *s)
 {
-    int i;
+    char *d;
 
-    for (i = 0; s[i] && col + i < A2_STCELLS; i++)
-        a2_st_now[col + i] = s[i];
+    /* A POINTER PAIR AND TWO TESTS, NOT `s[i] && col + i < A2_STCELLS`, which
+     * SmallerC spells as two compares made into values and an index add each
+     * (apps size pass 1). */
+    for (d = a2_st_now + col; d < a2_st_now + A2_STCELLS; d++) {
+        if (*s == 0)
+            break;
+        *d = *s++;
+    }
 }
 
 static void a2_status(void)
 {
     int i, f, l;
 
-    for (i = 0; i < A2_STCELLS; i++)
-        a2_st_now[i] = ' ';
+    /* THE THREE BYTE LOOPS IN THIS ROUTINE ARE THE SDK'S MOVERS (apps size
+     * pass 1): os88_memset and os88_memcpy are already in the image for other
+     * callers, and each is a `loop` where the C was ten instructions a cell -
+     * so the row is smaller AND cheaper on every flush that reaches it. */
+    os88_memset(a2_st_now, ' ', A2_STCELLS);
     a2_st_now[A2_STCELLS] = 0;
 
     /* the video mode, which is the live one and not a guess */
@@ -1164,17 +1197,14 @@ static void a2_status(void)
         f = 0;
         l = A2_STCELLS - 1;
     }
-    for (i = f; i <= l; i++)
-        a2_st_tmp[i - f] = a2_st_now[i];
+    os88_memcpy(a2_st_tmp, a2_st_now + f, (unsigned)(l - f + 1));
     a2_st_tmp[l - f + 1] = 0;
     os88_font_run(a2_gox + f * 8, a2_gsty, a2_st_tmp, OS88_WHITE, OS88_BLACK);
 #ifdef A2_HOST
     a2_n_run++;
     a2_n_cell += (unsigned)(l - f + 1);
 #endif
-    for (i = 0; i < A2_STCELLS; i++)
-        a2_st_glass[i] = a2_st_now[i];
-    a2_st_glass[A2_STCELLS] = 0;
+    os88_memcpy(a2_st_glass, a2_st_now, A2_STCELLS + 1);   /* ...and its 0 */
     a2_st_ok = 1;
     a2_st_dirty = 0;
 }
