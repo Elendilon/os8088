@@ -1683,12 +1683,14 @@ app_close_win:
                                 ; go now (SPEC.md 87.1)
     cmp byte [di+I_KIND], KIND_CTRL
     jne .noflush                ; the Control Panel defers its settings write
+%ifdef OS88_DRIVERS             ; (kern_small: there are none to tell)
     call COLD_SEG:drv_cp_closed_x ; ...and tell the drivers, which is where the
                                 ; hard disk's tool image goes back (SPEC.md
                                 ; 31.9.1). BEFORE the settings write, so a
                                 ; driver that stages something on the way out
                                 ; is staging it into the blob that is about to
                                 ; be written rather than the one after
+%endif
     call COLD_SEG:cpf_cp_flush_close ; to here (SPEC.md 31.8): one floppy write per
                                 ; session instead of one per click. Only the
                                 ; TASK-LESS branch needs it - the panel owns

@@ -85547,10 +85547,14 @@ one of them rather than a reader:
 2. **A stub ends in the `ret` kind its callers use.** Six of them are
    far-called and end in `retf`; the overlay pair is entered through
    `call far [spl_fp]` and ends in `retf` too (§2.5.3).
-3. **`drv_svc` is `.text` with real zero bytes, not `.bss`.** `snd.inc` reads
-   `[drv_svc+DSV_TONE]` directly to ask whether a driver offered it a tone
-   proc, and nothing zeroes `.bss` on this assembler (§8) — the live build
-   gets its zeros from `drv_init_x`, which is inside the gate.
+3. **A reader of a driver table that cannot be published is gated with it,
+   not fed zeros.** `drv_svc` used to be `.text` with real zero bytes here so
+   `snd.inc` and the Sound page could read "no proc" out of it; since kernel
+   size pass 11 every such reader is `OS88_DRIVERS`'s (`snd_release_inst`'s
+   `DSV_RELINST` call, `cp_snd_rowok`/`cp_snd_row`, which state their
+   answers - the speaker's row, alone), and `drv_svc`, `drv_owner`,
+   `drv_memk` and `drv_blkcls` are gone from this build. Nothing zeroes
+   `.bss` on this assembler (§8), which is why the zeros had to be bytes.
 
 The Control Panel's Drivers page is **stubbed rather than gated**, and the
 row is taken out of `cp_items` so nothing can select it. `CTRL.DRV` is an
@@ -85573,6 +85577,16 @@ as does `osapi_vol_at`'s arm for a TAKEN row (§52.1.1), which no row can be:
 itself stays, unfenced and live: it is the question an installer asks of
 the kernel's own boot volume. `osapi_desk_item`, the fence's other caller,
 takes its package arm as it always did.
+
+**And the fence's consequences one layer out** (kernel size pass 11): the
+two fenced FILE cells, `OSAPI_FILE_WRITE_SYS` and `_APPEND_SYS` (§19.6.1),
+are their refusal's answer and nothing else - `mov ax, FERR_PROT / stc /
+retf`, the registers the fenced body gave back untouched - and
+`OSAPI_FILE_FIND`'s fence is `xor al, al`, no caller being a driver. The
+resident lifecycle calls, `ui_cmd_reboot`'s `drv_shutdown` and the panel
+close's `drv_cp_closed`, are gated rather than stubbed (a far call is five
+bytes a site), `kmain`'s stays a stub call because it is boot overlay.
+`kern_small` -115 resident for those.
 
 ### 51.1 A driver is a package that is not an application
 

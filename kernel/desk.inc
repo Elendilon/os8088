@@ -2188,17 +2188,12 @@ osapi_desk_item_x:
     pop cx
     pop bx
     retf
-%else
-; -----------------------------------------------------------------------------
-; ...and kern_small's, which is the whole of it there. The CELL is in both
-; kernels because a slot that exists in one build and not another is an ABI
-; that depends on a knob (SPEC.md 20.8 rule 4, wm_noanim's precedent); no
-; driver on that kernel would register a zone, so the body is the refusal.
-; -----------------------------------------------------------------------------
-osapi_desk_item_x:
-    stc
-    retf
 %endif
+; ...and kern_small's is a LABEL on driver.inc's `stc / retf` stub block. The
+; CELL is in both kernels because a slot that exists in one build and not
+; another is an ABI that depends on a knob (SPEC.md 20.8 rule 4, wm_noanim's
+; precedent); no driver on that kernel can register a zone, so the body is the
+; refusal, and it was a second copy of two bytes (kernel size pass 11)
 
 section .text                   ; DATA, so back to the kernel segment (SPEC.md
                                 ; 2.6 rule 1). These labels carry NO COLON,

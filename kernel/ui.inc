@@ -2860,6 +2860,7 @@ ui_cmd_reboot:
                                 ; so a failure still has a screen to have
                                 ; happened on
 .nosave:
+%ifdef OS88_DRIVERS             ; (kern_small loads none: driver.inc's note)
     call COLD_SEG:drv_shutdown_x ; detach every loaded driver (SPEC.md 51.2):
                                 ; int 19h resets no hardware, so a hooked
                                 ; card would ride the reboot with its vector
@@ -2869,6 +2870,7 @@ ui_cmd_reboot:
                                 ; the worker's death, which needs the
                                 ; scheduler alive - and before the lock,
                                 ; because that wait yields
+%endif
     call gfx_lock               ; never released - the GUI is done
     call vid_reboot             ; a text mode on the primary AND on whichever
                                 ; card int 10h is going to print on after the

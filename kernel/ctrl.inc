@@ -1030,6 +1030,7 @@ cp_tick_due_x:
 ; is a thunk; module -> kernel is a cw_* shim; resident -> module for a
 ; five-instruction predicate is neither).
 ; -----------------------------------------------------------------------------
+%ifdef OS88_DRIVERS             ; (its one caller, drv_release, is)
 cp_drv_gone_x:
     push ax
     mov al, [cp_sel]
@@ -1043,6 +1044,7 @@ cp_drv_gone_x:
 .out:
     pop ax
     ret
+%endif
 
 section .modu                   ; ...and back to the panel's image
 

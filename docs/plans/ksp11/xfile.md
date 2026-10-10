@@ -102,3 +102,55 @@ a word). 27/27.
 
 At batch 2: kern_big text 43,369, cold 37,841 -> resident **92,298** (-21
 from start); kern_small text 31,935, cold 22,652 -> **60,522** (-410).
+
+### batch 3 - kern_small: what the driver fence answered for every caller (small -115; big byte-identical)
+
+The same audit as batch 1 one layer out: every resident caller, on
+kern_small, of a stub whose answer is fixed (a listing scan of the small
+build for assembled references to the stub block's labels).
+
+| item | kern_small |
+|---|---|
+| `OSAPI_FILE_WRITE_SYS` / `_APPEND_SYS` (`api_file_sysc`): the fence (`dvf_drv_owns_seg`, `stc / retf` here) refused every caller, so both cells are `.refuse`'s answer alone - `mov ax, FERR_PROT / stc / retf`, the registers `.refuse` restored untouched; `[api_sysfp]` goes with them | text |
+| `api_file_find`'s fence: `call far` + `sbb al, al` + `inc al` was always AL = 0 (CF is dsk_find's output, never its input - the routine's own note) -> `xor al, al` | text -7 |
+| kernel.asm's `drv_svc_call` thunk (6) and the `drv_svc_call_x` stub (4): no caller left after batch 1's `snd_release_inst` | text -6, cold -4 |
+| `ui_cmd_reboot`'s `call COLD_SEG:drv_shutdown_x` and `app_close_win`'s `drv_cp_closed_x` (resident far calls to a `retf`): gated. kmain's `drv_notice_x` call stays - kmain is boot overlay, so its site costs no resident byte, and the stub comment's readability argument still holds there | text -10 |
+| `cp_drv_gone_x` (its one caller, `drv_release`, is OS88_DRIVERS's) and the `drv_cp_class_x` stub it called | cold |
+| the `dvf_drv_owns_seg` stub (no caller left) | cold -2 |
+| `osapi_desk_item_x`'s own `stc / retf` -> a label on the stub block's `stc / retf` (the volume slots') | cold -2 |
+
+kern_small: text 31,935 -> 31,852 (-83), cold 22,652 -> 22,620 (-32):
+**resident 60,522 -> 60,407**. kern_big byte-identical (listing build
+`cmp`'d). SPEC.md 51.0.2 says so, and its rule 3 (`drv_svc` as zero bytes)
+is rewritten: a reader of a table nothing can publish is gated with it.
+`memory.inc`'s `drv_owns_seg_x` call (the compactor) is the one resident
+caller left, and it is on the cross-file list.
+
+## ITEM 2 - `ui.inc`'s two relaxed jumps: REFUSED, both
+
+Counts are 8088 clocks from PERFORMANCE.md Part 2's table, fetch ignored.
+
+* **`jne .evloop`** in `.yield` (`je $+5 / jmp near`, 290 bytes back). The
+  idle pass reaches `.yield` through `evq_pop`'s empty exit (`jc .yj2`, 16;
+  `jmp .yield`, 15) and then takes the relaxed pair's `je` (16). Two
+  re-layouts, neither a size win:
+  (a) put the drain test AT `.yj2`, falling into `.evloop`: the test is the
+  same 16 bytes with a near `jmp .tail` where the pair was, `.yj1`'s
+  trampoline goes near (+1) and `.drag` gains a `jmp short` - **21 -> 21
+  bytes**; (b) point `evq_pop`'s empty exit straight at `.tail`: **+3 bytes**
+  and ~65 clocks off an idle pass (17.7 passes a second, SPEC.md 8.1.2:
+  nothing), and dropping the `[evq_count]` compare would make every pass that
+  DISPATCHED pay one more `evq_pop`. A speed trade for bytes, out of scope.
+* **`jz .posted_done`** at the top of `.tail` (172 bytes forward over the
+  posted-flag ladder). Moving the ladder past the task's closing `jmp .loop`
+  makes `jnz .ladder` short (98 bytes) but the ladder's way back is a near
+  `jmp .posted_done` (3): **5 -> 5 bytes**, and the once-a-tick ladder pass
+  pays 15 clocks more. Shrinking the ladder by the 45 bytes a short `jz`
+  needs is not on offer.
+* Not touched, so `tests/dispreboot.py`'s step-0 fingerprint is unaffected
+  (and the row is green on this branch).
+* **Refused also: `[ui_drain]` as a byte** (-1 text, -1 bss, and `dec byte`
+  is 8 clocks cheaper than `dec word` on the 8088): the odd byte flips the
+  parity of every `.bss` word after `ui.inc`'s block, which costs a 286 a
+  wait state on whichever hot words land odd, and keeping parity with a pad
+  is 0 bytes.

@@ -5293,17 +5293,12 @@ drv_blk_call_x:
     xor ax, ax
     stc
     ret
-; ...but NOT drv_svc_call_x, which kernel.asm's `drv_svc_call` thunk reaches
-; with a FAR call - the live body's `.none` is a `retf` for exactly this
-; reason. Sharing the near tail above returned to the caller's OFFSET with
-; COLD_SEG still on the stack: a wild jump that every caller's own `or bp, bp
-; / jz` happened to keep anybody from taking, until kernel size pass 10's
-; snd_release_inst trusted the callee's refusal and every instance teardown
-; on this kernel took it (tests/fdlgdrop.py, dispclose-small, fdlgchsmall)
-drv_svc_call_x:
-    xor ax, ax
-    stc
-    retf
+; (drv_svc_call_x and kernel.asm's thunk to it are gone from this build:
+; their one caller here was snd_release_inst's DSV_RELINST, which is
+; OS88_DRIVERS's now - kernel size pass 11. The stub was a `retf` and NOT the
+; near tail above, because the thunk far-called it: sharing that tail
+; returned to the caller's OFFSET with COLD_SEG still on the stack, which
+; tests/fdlgdrop.py, dispclose-small and fdlgchsmall caught in pass 10)
 
 section .text
 ; ...and OSAPI_DRV_CALL's body is `.text` on the live arm, because kernel.asm
@@ -5332,10 +5327,14 @@ osapi_vol_fence:                ; ...and disk.inc's: the caller is no published
     stc                         ; driver, because none can be (osapi_desk_item
     ret                         ; takes its package arm; kernel size pass 11)
 
-; --- the lifecycle: four hooks kmain and ui.inc call unconditionally --------
-; Gating the CALL SITES would put four %ifdefs into the boot sequence to say
-; nothing; a `ret` says the same thing in one byte each and keeps kmain
-; readable as the ladder it is (SPEC.md 15).
+; --- the lifecycle: hooks kmain calls unconditionally -----------------------
+; Gating the CALL SITES would put %ifdefs into the boot sequence to say
+; nothing; a `retf` says the same thing and keeps kmain readable as the ladder
+; it is (SPEC.md 15) - and kmain is the boot OVERLAY, so its call sites cost
+; this build no resident byte. The two RESIDENT sites, ui_cmd_reboot's
+; drv_shutdown and app_close_win's drv_cp_closed, are gated instead: a far
+; call is five bytes of .text each, where the stub is one byte for all of
+; them (kernel size pass 11).
 ; ...and the four the live arm ends in `retf`, because their callers reach
 ; them with `call COLD_SEG:` from a module or from .text (SPEC.md 2.6.1).
 ; tools/os88ovlchk.py checks the pairing both ways and named all four.
@@ -5370,16 +5369,14 @@ section .cold
 ; feature refuses rather than moving the table under every package that was
 ; built against it) and CF = 1 is what a package already reads as "this
 ; kernel cannot".
-dvf_drv_owns_seg:
-    stc
-    retf
 osapi_drv_cfg_x:
 osapi_drv_dlg_x:
 osapi_vol_add_x:                ; ...and the three fenced volume slots (SPEC.md
 osapi_vol_del_x:                ; 51.8), whose fence refuses every caller here:
 osapi_vol_mount_x:              ; CF = 1 is what each answered, AL untouched
-    stc                         ; (kernel size pass 11)
-    retf
+osapi_desk_item_x:              ; (kernel size pass 11) - and desk.inc's item
+    stc                         ; door, whose driver arm is gone with them and
+    retf                        ; whose package arm is kern_big's (SPEC.md 26.9)
 
 ; ...and "what is this class holding" (SPEC.md 51.12), which on a machine with
 ; no driver layer is NOTHING, of no class, for ever. AX is the answer, so the
@@ -5409,9 +5406,6 @@ drvf_drv_unload:
     stc
     retf
 
-drv_cp_class_x:
-    stc
-    ret
 
 section .ovl
 ; drv_boot loads what SYSTEM.CFG asks for, and kmain's ladder calls it through
