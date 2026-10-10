@@ -122313,9 +122313,23 @@ division by zero with its **CF asserted, not just its bytes** — and those
 expected values are the posture of §84.2, marked as such, where a real double
 produces an infinity or a subnormal instead.
 
-It is built by the Makefile but put on **no disk** — a developer tool, and the
-360KB apps disk has nothing to spare — so a change that breaks it breaks the
-build rather than going unnoticed.
+It is put on **no disk** — a developer tool, and the 360KB apps disk has
+nothing to spare — and, being an instrument (`apps/RETIRED.txt`), it is **not
+built by `all` either**: `make build/fptest.o88` is its own target, so a change
+to `os88fp.inc` has to build it on purpose. This said *"breaks the build"*
+until the first apps size pass found `all` had stopped naming it.
+
+**The cases are POOLED, which is a size decision and not a weaker test.** The
+70 cases name only 68 distinct doubles, 29 of them zero below the top word, so
+`fpcases.inc` writes each double once and a case names it by a one-byte index
+that `fpt_ld` expands back into the same eight bytes; the operator rides in
+bit 7 of two index bytes, a case's name follows it inline, and a round trip
+whose output is its input says so with an empty string. The four kinds of case
+are one walk over that stream with a handler each. The image fell **7,164 ->
+5,813 bytes** and the bss 219 -> 169, a **6 KB** claim where it was 8, with the
+window drawn pixel for pixel as before and each kind of case — a low-bits-only
+miss, a CF-only miss on every division, a parse, a round trip — confirmed to
+go red when broken, on both the software and the coprocessor pass.
 
 ### 84.5 A design note worth keeping
 
