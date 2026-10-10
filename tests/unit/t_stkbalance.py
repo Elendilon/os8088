@@ -289,6 +289,20 @@ al_out:
     ret
 %endif
 """},
+
+    "a far jump to a LITERAL address leaves the program (disk.inc's warm reset)": {
+        "a.inc": """
+dsk_park:
+    pushf
+    cli
+    in al, dx
+    cmp al, 1
+    jne .park
+    jmp 0xFFFF:0x0000
+.park:
+    popf
+    ret
+"""},
 }
 
 
@@ -296,6 +310,17 @@ al_out:
 # LOUD: defect shapes a size pass produces.  Every one of these must be caught.
 # ---------------------------------------------------------------------------
 LOUD = {
+    "a far jump to a LABEL at depth is still a tail call carrying rubbish": {
+        "a.inc": """
+sch_unhook:
+    push ax
+    jmp KSEG:dsk_park
+""",
+        "b.inc": """
+dsk_park:
+    ret
+"""},
+
     "a `push` whose `pop` was deleted - the classic slip": {
         "a.inc": """
 leaky:

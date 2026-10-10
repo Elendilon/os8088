@@ -323,7 +323,7 @@ um_attach:
 ; report that arrives between the hook and the enable is harmless - the
 ; fence refuses it, this driver not being DRVC_POINT's until attach returns.
 ;
-; The card's LINE is opened as SOUND.DRV's pm_bios opens it (SPEC.md 34.10.1):
+; The card's LINE is opened as SOUND.DRV's pm_init opens it (SPEC.md 34.10.1):
 ; function 0 re-hooks the card's vector when something took it but leaves a
 ; line it finds still hooked exactly as masked as it found it.
 ; -----------------------------------------------------------------------------
@@ -354,34 +354,29 @@ um_pmattach:
     push es
     xor ax, ax
     mov es, ax
+    mov [um_rx], ax             ; the halving's carries are um_scratch, which
+    mov [um_ry], ax             ; is attach's own code until now: from here
+                                ; on it is the ISR's
     mov al, cl
-    add al, 8                   ; int 8+n's cell
     shl ax, 1
     shl ax, 1
-    xchg ax, si
-    cmp [es:si+2], bx           ; still the PM BIOS's multiplexer?
-    jne .hook                   ; ...then its line is open (pm_bios's rule)
-    mov ah, 1
-    shl ah, cl
-    not ah
+    xchg ax, si                 ; SI = 4n: int 8+n's cell is 20h past it
     pushf
-    cli
+    cli                         ; ONE window: the line, then int 33h
+    cmp [es:si+0x22], bx        ; still the PM BIOS's multiplexer?
+    jne .hook                   ; ...then its line is open (pm_init's rule)
+    mov ah, 0xFE
+    rol ah, cl                  ; every bit but line n's
     in  al, 0x21
     and al, ah
     out 0x21, al
-    popf
 .hook:
-    xor ax, ax                  ; the halving's carries are um_scratch, which
-    mov [um_rx], ax             ; is attach's own code until now: from here
-    mov [um_ry], ax             ; on it is the ISR's
-    pushf
-    cli
-    mov ax, [es:0x33*4]         ; int 33h: ours, the rest chained - and in
-    mov [um_old33], ax          ; place BEFORE the card can call it
-    mov ax, [es:0x33*4+2]
+    mov ax, um_pm33             ; int 33h: ours, the rest chained - and in
+    xchg ax, [es:0x33*4]        ; place BEFORE the card can call it. Each
+    mov [um_old33], ax          ; word swapped in one instruction, under
+    mov ax, cs                  ; the same cli as the line
+    xchg ax, [es:0x33*4+2]
     mov [um_old33+2], ax
-    mov word [es:0x33*4], um_pm33
-    mov [es:0x33*4+2], cs
     popf
     pop es
     mov ax, 0x6010              ; PM BIOS function 10h: enable the mouse,
