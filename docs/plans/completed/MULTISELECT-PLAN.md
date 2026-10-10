@@ -2,7 +2,7 @@
 
 **Status: BUILT, all three waves (SPEC.md 22.27 is the contract), and SIZED
 DOWN: 1,418 -> 797 resident bytes (§A.1), and 755 after kernel size pass 11
-(`docs/plans/ksp11/multisel.md`).** This file is the design record.
+(`docs/plans/completed/ksp11/multisel.md`).** This file is the design record.
 §A below is what the build MEASURED and where it left the plan, §A.1 the size
 pass that took it under the 800 the owner then set; everything after it is
 the plan as it was costed before a line was written, kept because its

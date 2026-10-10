@@ -48344,7 +48344,7 @@ the size pass that took it under 800 is docs/plans/completed/MULTISELECT-PLAN.md
 §A.1: the rubber band became a DRAG SELECT of a run, and the single-selection
 code the feature already duplicated - a click's two bands, an arrow's, a
 right-click's, the single Delete - became the multi-selection's own. Kernel
-size pass 11 took 797 to 755 (docs/plans/ksp11/multisel.md), no behaviour
+size pass 11 took 797 to 755 (docs/plans/completed/ksp11/multisel.md), no behaviour
 changed. `MSELOFF=1` is no longer byte-identical to the kernel before the
 feature, because that pass also re-laid code the feature SHARES; every byte
 the feature adds is still inside `%ifdef FM_MSEL`.
@@ -87088,7 +87088,7 @@ with the system volume freed. +180 bytes of `HDD.DRV`'s image (3,584 ->
 the attach-only run that `hd_mbr` is laid over and the 180 bytes past it -
 **and back to 3,584 in kernel size pass 11**, `hd_twins` 164 -> 123 bytes
 and it and `hd_at_geom` moved out into the padding `hd_mbr`'s `align 512`
-spends on zeros, so the run is under 512 again (`docs/plans/ksp11/drivers.md`).
+spends on zeros, so the run is under 512 again (`docs/plans/completed/ksp11/drivers.md`).
 
 #### 52.1.2 Rung 1 reads with `rep insw` (2026-10-10)
 
@@ -170611,7 +170611,7 @@ against this one:
 | `.cold` | **+3** | 0 |
 | `.ovl` | **+1**: `drv_cfgbit`'s byte (not resident) | 0 |
 | the footprint | **no rung crossed** | no rung |
-| the system disk | `EMS.DRV`, 702 bytes of image (32 of them zero state, off the disk), **670 on the floppy** packed, and a **1 KB** claim when loaded (it was 1,206 bytes and two KB until kernel size pass 11: a 256-byte per-page owner table repeated what the handles say, and first fit now asks the eight handles; and its service table is the one door cell, the kernel reading nothing else of it - `docs/plans/ksp11/drivers.md`) | none |
+| the system disk | `EMS.DRV`, 702 bytes of image (32 of them zero state, off the disk), **670 on the floppy** packed, and a **1 KB** claim when loaded (it was 1,206 bytes and two KB until kernel size pass 11: a 256-byte per-page owner table repeated what the handles say, and first fit now asks the eight handles; and its service table is the one door cell, the kernel reading nothing else of it - `docs/plans/completed/ksp11/drivers.md`) | none |
 
 113 resident bytes on every `kern_big` machine, board or none - the estimate
 in VIDEO-XMS-PLAN 10.5 was 95-100, short by the teardown call's banking.
