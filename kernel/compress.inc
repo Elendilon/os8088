@@ -1375,10 +1375,12 @@ cmz_verb:
 ; routine it replaced: the entry is already in hand.
 ; -----------------------------------------------------------------------------
 cmz_sizes:
+%ifdef OS88_REDIR               ; SPEC.md 62.9.2.3
     cmp byte [dsk_vkind], DVK_FILE
     je .nofs                    ; a REDIRECTED volume (SPEC.md 62.9): no entry
                                 ; to read a hint out of, and nothing on it is
                                 ; compressed
+%endif
     mov si, fm_onam
     call COLD_SEG:dwf_dskw_stat ; AL = attribute, BX = cluster, DX:CX = size
     jc .out
@@ -1400,10 +1402,12 @@ cmz_sizes:
     ret                         ; above is taken with CF SET for an LZ4 mark,
                                 ; and a `mov` carries it out - so an LZ4 file
                                 ; answered a FERR whose number was its own size
+%ifdef OS88_REDIR
 .nofs:
     mov ax, FERR_PROT
     stc
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; cmz_compress - File > Compress (SPEC.md 22.22)

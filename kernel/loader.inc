@@ -738,6 +738,7 @@ ld_take:
     or dx, dx
     jz .bad                     ; empty file
 .szok:
+%ifdef OS88_REDIR                   ; SPEC.md 62.9.2.3
     cmp byte [dsk_vkind], DVK_FILE  ; ...unless the cluster word is AN OPAQUE
     je .clusok                      ; HANDLE (SPEC.md 62.9.1), in which case
                                     ; the kernel has no opinion about its range
@@ -745,6 +746,7 @@ ld_take:
                                     ; volume's, so the test is not merely wrong
                                     ; here, it is answered by a number
                                     ; belonging to another disk
+%endif
     cmp bx, 2                   ; mount already validated (SPEC.md 21 step 1 -
     jb .bad                     ; this check stands alone if the mount code
     cmp bx, [dsk_maxclus]       ; ever changes)

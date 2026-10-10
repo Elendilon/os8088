@@ -5309,13 +5309,8 @@ drv_pkg_call_x:
     ret
 section .cold
 
-; drv_cls_fp / drv_cls_svc: DI = 0 and CF = 1 is the out-of-range answer the
-; live pair gives, and with no class ever published every class is that.
-drv_cls_fp_x:
-drv_cls_svc_x:
-    xor di, di
-    stc
-    ret
+; (drv_cls_fp / drv_cls_svc have no caller here: their two in disk.inc are
+; OS88_DRIVERS's - the fence and dsk_xfer's DVK_DRV arm - kernel size pass 11)
 
 ; ...and the two that answer WITHOUT touching AX, which are ONE BODY: two
 ; labels over one `stc`/`ret`, the pair above's shape (kernel size pass 10,
@@ -5426,35 +5421,15 @@ cp_cfg_save:
     ret                         ; SPEC.md 51.5.3's writer, with no file to write
 
 section .text
-; --- the DATA three other files still name ----------------------------------
-; drv_svc is the published SERVICE TABLE, and snd.inc reads two of its cells
-; directly - `cmp word [drv_svc+DSV_TONE], 0` is the sound layer asking
-; whether a driver has offered it a tone proc. ONE class' worth, and in
-; `.text` with real zero bytes rather than `.bss`: nothing zeroes .bss on this
-; assembler (SPEC.md 8), and the live build gets its zeros from
-; drv_init_x, which is inside the gate. So the answer is "no proc",
-; permanently and without an initialiser - which is what it would be.
-drv_svc:      times DSV_SIZE db 0
-drv_blkcls:   db 0              ; disk.inc writes it per volume and only
-                                ; drv_blk_call reads it, so it is write-only
-                                ; here - kept because disk.inc's store is on
-                                ; the mount path and gating one byte there
-                                ; would cost more than the byte
+; --- the DATA other files still name ----------------------------------------
+; drv_svc, drv_owner, drv_blkcls and drv_memk WERE here as zeros a reader
+; read to learn "no driver": the sound layer's release cell, the Sound page's
+; tier answers, dsk_xfer's class store and the Drivers page's heap figure.
+; Every one of those readers is OS88_DRIVERS's now and says so in assembly,
+; so the zeros went with them (kernel size pass 11).
 drv_e1_l:     db 'A:', 0        ; disk.inc's DRVE_DISK error string points at
                                 ; this, and that table is not the driver
                                 ; layer's (SPEC.md 52.10.3)
-drv_memk:     times DRV_MAX dw 0
-                                ; the per-row heap figure cp_drv_mem1 prints.
-                                ; Zero on every row, which is true
-drv_owner:    times DRVC_MAX dw 0
-                                ; per class, the row that published it. ALL
-                                ; ZERO for ever here, which is exactly what
-                                ; cp_snd_rowok reads it for - "nothing
-                                ; published: the speaker is all the machine
-                                ; has" (SPEC.md 34.8) is now a fact rather
-                                ; than a state
-                                ; (drv_s_off and drv_errstr went into the
-                                ; image with drv_errstg, kernel size pass 8)
 fdlg_s_drive: db 'Drive', 0     ; the Standard File dialog's own button
                                 ; caption. On kern_big it is the tail of
                                 ; drv_t_hdd's 'Hard Drive' and costs nothing;

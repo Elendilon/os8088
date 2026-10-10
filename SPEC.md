@@ -96339,6 +96339,22 @@ mount's two redirected blocks alone are **115**. That does not uncross
 anything today; it makes the next thing that wants a rung cheaper, and it
 stops a build paying for a feature it is unable to use.
 
+**Kernel size pass 11 finished the gate the paragraph above describes.** The
+first round had gated the mount and the write bodies and left eleven arms
+assembled on `kern_small` that the same argument says are unreachable: the
+FAT reads (`dskw_rbody`, `dskw_stat_x`, `dskw_read_at_x`, `dwf_dskw_read_seq`,
+`dskw_wabody`, `dskw_rtbody`), `dsk_free_clus_x`, `dsk_up_open`, the
+directory enumerator's `FSV_ENUM`, `ld_take`'s handle test and `dsk_xfer`'s
+`DVK_DRV`/`DVK_FILE` dispatch (the last `OS88_DRIVERS`'s, since only a driver
+can stamp either kind), with `dskw_fsop`/`dskw_fsstat` and `[dsk_fsup]`
+behind them. **`kern_small` −331 resident** for those, and `kern_dos` - which
+defines neither symbol and has §96.44.9's fence - drops the same arms. Where
+a removed arm sat between an entry and its FAT path, the build without it
+takes a `jmp short` over the arm's relays, which is cheaper than the compare
+and taken branch it replaces. What is still assembled is `filecp.inc`'s six
+sites, in `FILECP.DRV` (a module there); `fdlg.inc`'s two, in `FDLG.DRV`, went
+with the rest.
+
 #### 62.9.3 The branch sites, and the order to build them in
 
 Each is a test of `DV_KIND` at the top of a routine that already exists, so

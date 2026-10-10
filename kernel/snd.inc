@@ -476,6 +476,7 @@ snd_release_inst:
     cli
     cmp byte [snd_live], 0
     je .done
+%ifdef OS88_DRIVERS             ; (kern_small: no driver, so no grants)
     push ax                     ; a loaded driver's grants go first: its FM
     push bp                     ; channels and streams are stamped with the
     push dx                     ; same instance slot ours are (SPEC.md 34.3)
@@ -487,6 +488,7 @@ snd_release_inst:
     pop dx
     pop bp
     pop ax
+%endif
 .spk:                           ; (no clip to flag down: a clip holds the
                                 ; lock on its owner's own UI callback from
                                 ; GRANT to RELEASE, so nothing can release
