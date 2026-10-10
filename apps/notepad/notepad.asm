@@ -514,6 +514,10 @@ np_entry:
                                     ; gfx_fill_gray - a 50% dither of 15 and 0
                                     ; rather than a grey. Minesweeper, Piano
                                     ; and Solitaire all draw in real colours
+    push si                         ; ...and LARGER where the screen has the
+    mov si, np_pref                 ; room (SPEC.md 11.100.1): VGA/EGA and the
+    call OSAPI_WM_PREFER            ; Hercules open wider and a little taller,
+    pop si                          ; CGA keeps the template. Flags preserved
     mov al, 1
     call OSAPI_WM_SNAP              ; ...and snapped (SPEC.md 11.94), because
     pop ax                          ; every keystroke redraws a row of text and
@@ -11003,6 +11007,14 @@ np_abdismiss:
 np_tpl:
     dw 60, 60, 260, 180
     dw np_ttl, np_paint, np_onkey, np_onclick
+
+; --- the opening size per adapter (SPEC.md 11.100.1) ---------------------------
+; The template above is CGA's, whose 640x200 has no room to spare - and it is
+; the width tools/checkreadme.py lays the manual's tables out against. VGA/EGA
+; and the Hercules open 52 and 57 text cells wide where the template gives 29,
+; and the height is clamped to the desktop band like any template's. Both
+; widths are multiples of 8, so OSAPI_WM_SNAP has nothing to round.
+    OS88_PREFER np_pref, 440, 260,  480, 240,  0, 0
 
 np_ttl: db 'Note Pad', 0
 

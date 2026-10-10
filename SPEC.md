@@ -55308,6 +55308,25 @@ decides inside whether to letter, so counting its calls reads 2 on a build that
 letters 1. Legs B, D and F are what still say the screen is right, and they are
 unchanged — which is the property that made the three waves worth separating.
 
+### 27.20 The opening size is per ADAPTER
+
+`np_tpl`'s 260x180 frame is CGA's and stays CGA's: 640x200 has no room to
+spare, and it is the width `tools/checkreadme.py` lays README.TXT's tables
+out against (29 cells). The other two kinds open larger through §11.100.1's
+table, `np_pref`:
+
+| adapter | frame | text cells |
+|---|---|---|
+| VGA / EGA | 440 x 260 | 52 |
+| Hercules | 480 x 240 | 57 |
+| CGA | the template, 260 x 180 | 29 |
+
+Both widths are multiples of 8, so §11.94's snap has nothing to round, and
+the heights are clamped to the desktop band like any template's. What it
+costs is the larger window's own redraw and its §11.96 save-under (a 1bpp
+cache, about 14KB at 440x260 against about 6KB) - both bounded by the area the
+user sees, which is the area they asked for.
+
 ## 28. apps/taskmgr — the Task Manager
 
 **A package in the root of every shipped floppy** (`TASKMGR.O88`) — the
