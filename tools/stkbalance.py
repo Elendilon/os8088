@@ -123,6 +123,11 @@ MACCALL = re.compile(r"^call\s+%1\s*$", re.I)
 # `jmp short $+2` and friends: a jump to the very next instruction, used all
 # over this tree to let an I/O port settle.  It is not a tail call.
 SETTLE = re.compile(r"^\$\s*\+\s*2$")
+# `jmp 0xFFFF:0x0000`: a far jump to a LITERAL address leaves every routine the
+# walk can see (a reset, a ROM entry), so the path simply ends there - the
+# stack it leaves is never popped by anything in the corpus.  A far jump to a
+# LABEL (`jmp KERNEL_SEG:sched_unhook`) is still a tail call and still walked.
+FARLIT = re.compile(r"^(?:0x[0-9a-f]+|[0-9][0-9a-f]*h?)\s*:\s*(?:0x[0-9a-f]+|[0-9][0-9a-f]*h?)$", re.I)
 # A table is not code.  `dbg_reg` is `dw TAG, handler` pairs and the walk used
 # to fall out of the bottom of it into whatever followed, reporting that
 # routine's `retf`.  Control flow never runs THROUGH a table, so a data
@@ -509,6 +514,12 @@ def walk(corp, name):
             tgt = m.group(1)
             if SETTLE.match(tgt):           # `jmp short $+2` - an I/O settle
                 push(u, i + 1, d, raw, (u, i))
+                continue
+            if FARLIT.match(tgt):
+                # `jmp 0xFFFF:0x0000` - the reset vector, or any LITERAL
+                # SEG:OFF.  No routine this walk can see is there, so nothing
+                # will ever pop what is left: the stack is the machine's, and
+                # abandoned with it (disk.inc's dsk_fdd_park_x warm reset)
                 continue
             where = corp.resolve(u, i, tgt)
             if where is None:
