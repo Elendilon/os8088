@@ -81,6 +81,16 @@ except ImportError:                                           # pragma: no cover
 CYC_US_286 = dict(frame=28.07, seg=9.06, abs=0.392,
                   p=(2.090, 2.839, 4.120, 4.870, 5.887, 6.904),
                   slice=(2.453, 0.914), run=(3.047, 0.900), sub=1.5)
+# ...and the owner's REAL 286, measured 2026-10-08 (docs/reports/VIDBENCH-
+# PVGA286-2026-10-08.md): an AMD 286 at 16 MHz with a Paradise PVGA1A on
+# the board. Fitted the same way, to the same synthetic frames (the frame's
+# own cost held at the empty frame's), every row back within 0.6%. Its RAM has wait
+# states 86Box's mr286 has not (`rep movsw` to RAM 2.64 ms an 8,000 bytes
+# against 1.05), so it decodes 12-29% slower frame for frame - a slice
+# byte 1.23 us against 0.91, a run byte 1.06 against 0.90
+CYC_US_286PVGA = dict(frame=25.35, seg=10.274, abs=0.555,
+                      p=(2.370, 3.480, 4.866, 6.150, 7.481, 8.813),
+                      slice=(1.595, 1.227), run=(2.470, 1.065), sub=1.5)
 CYC_US_486 = dict(frame=2.51, seg=2.392, abs=0.109,
                   p=(0.552, 0.957, 1.396, 1.827, 2.259, 2.692),
                   slice=(0.474, 0.407), run=(0.618, 0.390), sub=1.5)
@@ -161,7 +171,7 @@ PROFILES = {
     # VIDDISK run on build 458 or later says otherwise (the owner's own
     # VIDDISK286.TXT of 2026-10-07, track-bound, read 665.5 at 50%)
     "286-vga": dict(disk=616000, avg=2.25, peak=3.75, owe=1.6, speed=4.5,
-                    ring=8, lcopy_us=1.829, cyc_us=CYC_US_286,
+                    ring=8, xcopy=0.345, lcopy_us=1.829, cyc_us=CYC_US_286,
                     disk_at=((0.0, 1318.3 / 684.7), (0.25, 1023.9 / 684.7),
                              (0.5, 1.0), (0.75, 348.1 / 684.7), (1.0, 0.0)),
                     rate=22050, audio="pcm8", spk_us=(11.5, 6.5),
@@ -170,6 +180,23 @@ PROFILES = {
                          "5150's CGA; its IDE disk 685 KB/s with half the "
                          "period decoding (86Box's mr286, the owner's "
                          "bench). An ST11R there: --disk 250000"),
+    # THE OWNER'S REAL 286 (2026-10-08): the decode above, its latch row
+    # (17.06 ms an 8,000 bytes), and its disk - a nearly full, fragmented
+    # 2.5-inch IDE drive - at 0.9 x VIDDISK's 50% row (486.3 KB/s), its
+    # other rows the curve. Not CPU-bound like the mr286's: the drive reads
+    # on while the CPU is busy, so the curve holds up to 25% and falls past
+    # it. The shares are the mr286's - a profile with `cyc_us` prices in
+    # microseconds, so `speed` is only the unit they are written in
+    "286-pvga": dict(disk=448000, avg=2.25, peak=3.75, owe=1.6, speed=4.5,
+                     ring=8, xcopy=0.345, lcopy_us=2.133, cyc_us=CYC_US_286PVGA,
+                     disk_at=((0.0, 729.5 / 486.3), (0.25, 684.7 / 486.3),
+                              (0.5, 1.0), (0.75, 294.3 / 486.3), (1.0, 0.0)),
+                     rate=22050, audio="pcm8", spk_us=(11.5, 6.5),
+                     what="the owner's real 16 MHz AMD 286 with a PVGA1A on "
+                          "the board: decodes 12-29% slower than 86Box's "
+                          "mr286 (its RAM has wait states); its laptop IDE "
+                          "disk 486 KB/s with half the period decoding "
+                          "(measured: VIDBENCH and VIDDISK on the machine)"),
     # VIDDISK's ceiling at its 50% row, 2,192 KB/s, x 0.9 - the 5150's
     # rule - and its other rows as the curve: an IDE disk the CPU copies.
     # Track-bound, like 286-vga's, and for the same reason left as it is
@@ -179,7 +206,7 @@ PROFILES = {
     # avg / peak: the owner's 86Box DX2/66 played 70% / 105% flipped with
     # nothing seen wrong and 80% / 115% with late frames counted (98.2.3.6);
     # these sit under that boundary, a real machine being slower or faster
-    "486": dict(disk=1950000, avg=6.50, peak=10.0, owe=1.6, speed=10,
+    "486": dict(disk=1950000, avg=6.50, peak=10.0, owe=1.6, speed=10, xcopy=0.05,
                 ring=8, lcopy_us=1.380, cyc_us=CYC_US_486,
                 disk_at=((0.0, 4151 / 2192.0), (0.25, 3157 / 2192.0),
                          (0.5, 1.0), (0.75, 1096 / 2192.0), (1.0, 0.0)),
@@ -393,6 +420,9 @@ CHOICE_HELP = {
                "(predicted)",
         "286-vga": "A 286 with VGA and IDE: 600 KB/s, four and a half "
                    "8088s of CPU",
+        "286-pvga": "The owner's 16 MHz 286 with the PVGA1A on its board: "
+                    "448 KB/s off its laptop IDE disk, the decode measured "
+                    "on the machine (12-29% slower than 86Box's 286)",
         "486": "A 486DX2/66 with an ISA VGA and IDE: 1.9 MB/s, ten 8088s "
                "of CPU, 65% of it on average - Mode X, the whole picture "
                "and 48 KB frames",
@@ -527,6 +557,8 @@ CHOICE_HELP = {
         "vga": "Live on a VGA desktop",
     },
 }
+# the layer's machine is a profile like the base's: the same lines
+CHOICE_HELP["layer_profile"] = CHOICE_HELP["profile"]
 
 
 def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
@@ -592,7 +624,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 10
+OPTS_VERSION = 14
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles")
@@ -605,7 +637,9 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     3: "b22b9c16beb1304b", 4: "2e284988ae6e8775",
                     5: "85ea67f8ce1492a0", 6: "0d0af3901366a0c6",
                     7: "3c23376030acae01", 8: "a2cee436c2bd5178",
-                    9: "566ce460b7bc0952", 10: "03033c94f4068ded"}
+                    9: "566ce460b7bc0952", 10: "03033c94f4068ded",
+                    11: "92246fa491f53aee", 12: "27f0d558163b22db",
+                    13: "23fa4d29a8c351cd", 14: "a712ea2b2ccb6fb7"}
 # THE VERSION MAPPER: MIGRATIONS[n] is what turns a version-n record into
 # version n+1, a list of steps applied in order:
 #   ("rename", old, new)          an option took a new name
@@ -644,7 +678,50 @@ MIGRATIONS = {
     8: [("added", "palette", "auto")],
     # 10: --screen (98.2.5.1) - a file made before it was mode 12h's
     9: [("added", "screen", None)],
+    # 11: --bank and --prefill (98.2.1.3.2) - a file made before it had no
+    # bank - and --profile 286-pvga, a new choice that reads nothing older
+    10: [("added", "bank", None), ("added", "prefill", None)],
+    # 12: THE LAYER (98.1.9) - a file made before it has none
+    11: [("added", "layer_disk", None), ("added", "layer_memory", 64.0),
+         ("added", "layer_prefill", None),
+         ("added", "layer_seek", 10.0)],
+    # 13: --layer-bank (98.1.9) - a layer made before it has none
+    12: [("added", "layer_bank", None)],
+    # 14: --layer-profile (98.1.9) - a layer made before it was the base's;
+    # and --avg takes AUTO (98.2.1.5), which the record never holds - it
+    # holds the share AUTO came to, so nothing older reads differently; and
+    # --box, --detail and --screen take W*H as well (98.2.1), stored as WxH
+    13: [("added", "layer_profile", None)],
 }
+
+
+def dims(v):
+    """A WxH (--box, --detail, --screen): `*` for the x as well as `x`, as
+    in 640*480, and stored as WxH - so a file records one spelling"""
+    p = str(v).strip().lower().replace("*", "x").split("x")
+    if len(p) != 2 or not all(q.strip().isdigit() for q in p):
+        raise argparse.ArgumentTypeError("%r is not WxH (or W*H)" % (v,))
+    return "%dx%d" % tuple(int(q) for q in p)
+
+
+def avg_arg(v):
+    """--avg's value: a share, or AUTO (98.2.1.5)"""
+    if str(v).strip().lower() == "auto":
+        return "auto"
+    return float(v)
+
+
+def avg_auto(prof):
+    """--avg auto (98.2.1.5): on a profile with a measured disk CURVE the
+    reader's CPU is already priced - every frame's disk refill is the rate
+    the curve gives at that frame's share - and so are the bank's copies
+    (xcopy) and the sound's (audio_cyc), so an average below the per-frame
+    ceiling only reserves the same CPU a second time: AUTO is the peak.
+    With no curve the average is the only thing that leaves the reader its
+    time, and stays the profile's"""
+    if prof.get("avg") is None or not prof.get("disk_at"):
+        return prof.get("avg")
+    return prof["peak"]
 
 
 def opts_actions():
@@ -813,6 +890,7 @@ FRAME_CAPS = {"32": 64, "48": 96, "63.5": 127}  # --frame-cap: KB -> its
 REC_MAX = 30 * 1024     # a frame record rides in a super-packet of 32 KB
                         # (98.1.4): whatever the budgets say, no more.
                         # Only VGA8 can reach it - a MONO1 canvas is 16 KB
+BANK_PREFILL = 10.0  # --prefill's default, seconds of the disk (98.3.18.3)
 DISK_LOOKAHEAD = 96 * 1024  # what the disk bucket may bank: THREE of the
                         # player's 32 KB ring slots (98.3), which it has
                         # read before the first frame. It was one second of
@@ -2639,6 +2717,9 @@ class Encoder:
             # reserve stalled 3 times in 20 s without it and 0 with it
             self.dfloor = min(float(vid.SLOT), self.reserve / 4.0)
             self.drate, self.abps, self.fps = prof["disk"], audio_bps, fps
+        self.bank = self.bankpre = 0    # the XMS bank's bytes (set_bank)
+        self.dslow = 1.0                # ...its copies' charge on the disk
+        self.drate0 = getattr(self, "drate", None)
         self.alead, self.arefill = 0, []    # the sound's lead (disk_floor)
         self.slead, self.srefill = 0, []    # ...what it WOULD be in step
                                             # (Auto's question, 98.2.1.3)
@@ -2691,7 +2772,42 @@ class Encoder:
         self.blur_r = 1
         self.q_vis = self.q_wrong = self.q_flick = self.q_tflick = 0.0
         self.q_prev = self.q_tprev = (None, None)
+        self.q_frames, self.q_bad = [], []  # per frame: the mean, and the
+                                            # share VISIBLY wrong (measure)
         self.tcache, self.scache = {}, None     # (tpix, spix)
+
+    def set_bank(self, bank, pre, xcopy=0.0):
+        """THE XMS BANK (SPEC.md 98.3.18.2): `bank` bytes ahead of the ring,
+        so the disk bucket is that much deeper, and `pre` of them filled
+        before the first frame (98.3.18.3), so it starts that much fuller.
+        A banked byte is read, copied UP and copied DOWN (VIDEO-XMS-PLAN
+        4.2): `xcopy` ms a KB a copy - the profile's VIDDISK `X` reading -
+        is time the reader spends that it does not spend reading, and the
+        disk's rate is charged for it WHILE THE BANK HOLDS ANYTHING: the
+        player's FIFO hands the ring its chunks through the bank only then,
+        and with the bank empty the disk reads into the ring as ever. The
+        bucket above the ring's reserve is the bank's share of it, so that
+        is the test (_drate)"""
+        if self.disk.per is None or not bank:
+            return
+        self.bank, self.bankpre = bank, min(pre, bank)
+        self.disk.cap = self.reserve + bank
+        self.disk.level = self.reserve / 2 + self.bankpre
+        self.drate0 = self.drate
+        if xcopy:
+            self.dslow = 1.0 + 2 * xcopy / 1000.0 * self.drate / 1024
+            if (self.drate / self.dslow) * 0.99 <= self.abps:
+                raise vid.V88Error("the bank's copies leave the disk %d bytes "
+                                   "a second, and the sound is %d"
+                                   % (self.drate / self.dslow, self.abps))
+
+    def _drate(self):
+        """The disk's rate this frame: the profile's, less the bank's copies
+        while the bank holds anything (set_bank)"""
+        if self.bank and self.dslow != 1.0 and \
+                self.disk.level > self.reserve:
+            return self.drate0 / self.dslow
+        return self.drate0
 
     def begin(self):
         """A frame starts: the buckets fill, and WHEN the player will
@@ -2706,6 +2822,8 @@ class Encoder:
         stricter of the two"""
         self.cpu.tick()
         if not self.dcurve:
+            if self.bank:               # (the bank's copies, while it holds)
+                self.disk.per = (self._drate() * 0.99 - self.abps) / self.fps
             self.disk.tick()
             self.refilled(self.disk.per)
         self.wascut, self.cpucut = self.cpucut, False
@@ -2786,8 +2904,8 @@ class Encoder:
         if self.dcurve:                 # (the speaker's pulses are the
                                         # reader's CPU too, 98.2.15)
             share = (c + self.audio_cyc + HOOK_CYC) / self.q + self.spk
-            per = (self.drate * self.disk_rel(share) * 0.99 - self.abps) \
-                / self.fps
+            per = ((self._drate() if self.bank else self.drate) *
+                   self.disk_rel(share) * 0.99 - self.abps) / self.fps
             self.disk.level = min(self.disk.cap, self.disk.level + per)
             self.refilled(per)
         if self.owe is None:
@@ -2867,7 +2985,10 @@ class Encoder:
             if best is not None:
                 chosen, rec = best
                 break
-            er *= min(0.97, cyc_room / mc)
+            # (never below 0: an overdrawn room made the ratio negative,
+            # and a negative estimate times it came back POSITIVE - a frame
+            # then spent what it did not have; VIDEO-OVERAGE-PLAN 4.2)
+            er *= max(0.0, min(0.97, cyc_room / mc))
             eb *= min(0.97, min(byte_room, self.rec_max - len(audio)) /
                       max(1, len(rec) - len(audio)))
         else:
@@ -3084,8 +3205,15 @@ class Encoder:
         if S is None:
             return
         T = self.tpix(target)[1]
-        self.q_vis += float(self.dist(self.sblur(), self.tblur(target))
-                            .mean())
+        ev = self.dist(self.sblur(), self.tblur(target))
+        m = float(ev.mean())
+        self.q_vis += m
+        # VISIBLY WRONG (2026-10-09): the share of the frame whose picture,
+        # as the eye averages it, is off by VIS_BAD or more - a band torn
+        # off a scene and left behind is most of a frame wrong by a lot,
+        # which the mean over a whole clip of pixels made 0.11%
+        self.q_frames.append(m)
+        self.q_bad.append(float((ev > VIS_BAD).mean()))
         ne = S != T
         if ne.ndim == 3:
             ne = ne.any(2)
@@ -3185,6 +3313,19 @@ class Encoder:
         cs = np.concatenate(([0.0], np.cumsum(self.wv)))
         a, n, c, b = span_arrays(sp, costs)
         return self.order((cs[a + n] - cs[a]) / per_budget(c, b, er, eb), a)
+
+    def put_ops(self, ops):
+        """Another encoder's writes on this one's screen - the LAYER's
+        (LayerEnc): the base's record, applied before its own"""
+        for a, bs, run in ops:
+            self.surf[a:a + len(bs)] = bs
+        self.screen = self.sv[self.idx]
+
+    def clone_screen(self, b):
+        """...and this encoder's screen made a COPY of `b`'s"""
+        self.surf = bytearray(b.surf)
+        self.sv = np.frombuffer(self.surf, dtype=np.uint8)
+        self.screen = self.sv[self.idx]
 
     def cost(self, rec):
         """A record's cycles in the model: its decode, and on a LIVE file
@@ -3360,7 +3501,10 @@ class EncoderX(Flipped, Encoder):
             if best is not None:
                 chosen, ops, rec = best
                 break
-            er *= min(0.97, cyc_room / mc)
+            # (never below 0: an overdrawn room made the ratio negative,
+            # and a negative estimate times it came back POSITIVE - a frame
+            # then spent what it did not have; VIDEO-OVERAGE-PLAN 4.2)
+            er *= max(0.0, min(0.97, cyc_room / mc))
             eb *= min(0.97, min(byte_room, self.rec_max - len(audio)) /
                       max(1, len(rec) - len(audio)))
         else:
@@ -3403,6 +3547,23 @@ class EncoderX(Flipped, Encoder):
                             wsum)
         return self.order(wsum / per_budget(c, b, er, eb), a)
 
+    def put_ops(self, ops):
+        g = self.g
+        for m, sub in ops:              # (mask, spans): a span's bytes are
+            for a, bs, run in sub:      # a pixel each on the mask's planes
+                ad = a + np.arange(len(bs))
+                ys = self.rowof[ad]
+                xs = (ad - self.base[ys]) * 4
+                v = np.frombuffer(bs, np.uint8)
+                for p in range(4):
+                    if m >> p & 1:
+                        self.screen[ys, xs + p] = v
+        g.put(self.surf, self.screen.tobytes())
+
+    def clone_screen(self, b):
+        self.surf = bytearray(b.surf)
+        self.screen = b.screen.copy()
+
     def cost(self, rec):
         """A record's cycles: its sub-records' (98.1.3.1)"""
         return vid.cycles_of(rec, True, table=self.ct, sub=self.csub)
@@ -3425,6 +3586,29 @@ class EncoderP(Flipped, Encoder):
         self.surf = g.surface()
         self.base = np.array(g.base, dtype=np.int64)
         self.rowof = np.array(g.rowof, dtype=np.int64)
+
+    def put_ops(self, ops):
+        g = self.g
+        for m, sub in ops:
+            for a, bs, run in sub:
+                ad = a + np.arange(len(bs))
+                ys = self.rowof[ad]
+                xs = ad - self.base[ys]
+                v = np.frombuffer(bs, np.uint8)
+                for p in range(4):
+                    if m >> p & 1:
+                        self.pl[p, ys, xs] = v
+        self.screen = sum(np.unpackbits(self.pl[p], axis=1)[:, :g.w]
+                          .astype(np.uint8) << p for p in range(4))
+        for p in range(4):
+            for y, b in enumerate(g.base):
+                self.surf[p * vid.PLANE + b:p * vid.PLANE + b + g.wb] = \
+                    self.pl[p, y].tobytes()
+
+    def clone_screen(self, b):
+        self.surf = bytearray(b.surf)
+        self.pl = b.pl.copy()
+        self.screen = b.screen.copy()
 
     def planes(self, cv):
         return np.stack([np.packbits((cv >> p) & 1, axis=1)
@@ -3520,7 +3704,10 @@ class EncoderP(Flipped, Encoder):
             if best is not None:
                 chosen, ops, rec = best
                 break
-            er *= min(0.97, cyc_room / mc)
+            # (never below 0: an overdrawn room made the ratio negative,
+            # and a negative estimate times it came back POSITIVE - a frame
+            # then spent what it did not have; VIDEO-OVERAGE-PLAN 4.2)
+            er *= max(0.0, min(0.97, cyc_room / mc))
             eb *= min(0.97, min(byte_room, self.rec_max - len(audio)) /
                       max(1, len(rec) - len(audio)))
         else:
@@ -3567,6 +3754,214 @@ class EncoderP(Flipped, Encoder):
 # the source
 # --------------------------------------------------------------------------
 AHEAD = 256 << 20       # the most frames read ahead while a pass runs
+
+
+VIS_BAD = 0.15          # VISIBLY WRONG: the picture as seen off by 15% of
+VIS_AREA = 0.02         # full scale or more, over 2% or more of a frame:
+                        # on the owner's Last Exile, its two torn scenes
+                        # (0:13.3 for 2.1 s, 0:32.4) and no clean second
+
+
+def picture_report(q_frames, q_bad, fps):
+    """The picture's errors as a viewer meets them (2026-10-09): the mean
+    over the clip hides a scene torn apart for two seconds among forty that
+    play clean, so the worst second's mean and the seconds VISIBLY broken -
+    VIS_AREA of the frame off by VIS_BAD as seen - are said beside it.
+    (mean, worst second's mean, its frame, broken frames)"""
+    n = len(q_frames)
+    if not n:
+        return 0.0, 0.0, 0, 0
+    w = max(1, int(round(fps)))
+    best, at, run = -1.0, 0, 0.0
+    for i, v in enumerate(q_frames):
+        run += v
+        if i >= w:
+            run -= q_frames[i - w]
+        if i >= w - 1 and run > best:
+            best, at = run, i - w + 1
+    if best < 0:
+        best, at = run, 0
+    broken = sum(1 for b in q_bad if b >= VIS_AREA)
+    return sum(q_frames) / n, best / min(w, n), at, broken
+
+
+def broken_spans(q_bad, fps, most=8):
+    """Where the picture is VISIBLY BROKEN: (start s, length s) of each run
+    of frames past VIS_AREA, runs under a second apart joined - so a torn
+    scene is one entry to go and look at"""
+    out, gap = [], max(1, int(round(fps)))
+    for i, b in enumerate(q_bad):
+        if b < VIS_AREA:
+            continue
+        if out and i - out[-1][1] <= gap:
+            out[-1][1] = i
+        else:
+            out.append([i, i])
+    return [(a / fps, (b - a + 1) / fps) for a, b in out[:most]], len(out)
+
+
+LAYER_LAG = 8.0         # seconds the layer is encoded behind the base: the
+                        # CPU bucket is a second deep, and a base at ~70% of
+                        # it frees a full one in ~3 s, so 8 is near exact
+LAYER_SEEK_MS = 10.0    # a seek each way per 32 KB of layer read (98.1.9)
+
+
+class LayerEnc(object):
+    """THE LAYER (SPEC.md 98.1.9; VIDEO-OVERAGE-PLAN 7): a second encoder
+    whose screen is the ENHANCED player's - each frame the base's writes go
+    on it first, then it spends its own budgets on the best further writes
+    toward the same target. Both budgets are what the base CANNOT use on
+    the better machine, so the base plays exactly as it would alone:
+      - THE DISK: the base's own bucket simulated at the better machine's
+        rate (the profile's curve at the hook's share, the layer's decode
+        in it); what that bucket CLIPS - its ring full and the disk idle -
+        is the layer's, banked in the layer's memory, less a seek each way
+        per 32 KB the layer reads;
+      - THE CPU: one bucket the two share. Run LAYER_LAG behind the base,
+        it knows the base's next frames' costs, and takes only what stands
+        above the least the bucket must hold to pay every one of them on
+        time - so no base frame runs late for it.
+    THE BETTER MACHINE may be ANOTHER CPU (`mach`, --layer-profile): an
+    encoder made for its profile, which prices the base's records as IT
+    decodes them, holds its CPU budget and its disk's curve - so a file
+    made for a 5150 carries a layer for a 286. By default it is the base's
+    own, the same CPU with a faster disk.
+    `drop` > 0 is a measurement: a third screen that leaves every drop-th
+    layer record out, as a late player would"""
+
+    def __init__(self, base, rate, ram_kb, pre_kb, seek_ms=LAYER_SEEK_MS,
+                 drop=0, bank=0.0, xcopy=0.0, mach=None, bxcopy=0.0):
+        import copy
+        if getattr(base, "flip", False) or base.live:
+            raise vid.V88Error("--layer is a stream's played unflipped in "
+                               "the bracket (98.1.9): not --flip, not --live")
+        if base.disk.per is None:
+            raise vid.V88Error("--layer is a budgeted stream's: it is what "
+                               "the base cannot use")
+        self.b = base
+        self.m = m = mach or base           # the layer's machine
+        if m.cpu.per is None:
+            raise vid.V88Error("--layer-profile names a machine with a "
+                               "budget, not the lossless profile")
+        self.e = self._clone(copy, ram_kb, pre_kb)
+        self.d = self._clone(copy, ram_kb, pre_kb) if drop else None
+        self.drop = drop
+        self.rate = float(rate)
+        self.bl = base.disk.level           # the base's bucket, on THIS
+        self.S = m.cpu.level                # machine; the shared CPU bucket
+        self.seek = seek_ms / 1000.0
+        self.lag = max(2, round(LAYER_LAG * base.fps))
+        self.buf = []
+        self.f = 0
+        self.bytes = self.recs = self.skipped = 0
+        self.cycles = 0.0
+        self.read = 0                       # layer bytes, for the seeks
+        # A LAYER BANK (--layer-bank): its bytes are copied up and down, so
+        # while it holds anything the layer's disk is the profile's xcopy
+        # slower - the base bank's rule (set_bank)
+        self.lbank = float(bank)
+        self.lslots = ram_kb * 1024.0 - self.lbank
+        self.lslow = 1.0 + 2 * xcopy / 1000.0 * self.rate / 1024 \
+            if bank and xcopy else 1.0
+        # ...and THE BASE's bank, if it has one, played on this machine: its
+        # bytes copied too while it holds anything, at THIS machine's xcopy
+        self.bslow = 1.0 + 2 * bxcopy / 1000.0 * self.rate / 1024 \
+            if base.bank and bxcopy else 1.0
+
+    def _clone(self, copy, ram_kb, pre_kb):
+        b = self.b
+        e = copy.copy(self.m)               # (its tables; the base's screen)
+        e.clone_screen(b)
+        if hasattr(b, "tsurf"):
+            e.tsurf = bytearray(b.tsurf)
+            e.tv = np.frombuffer(e.tsurf, dtype=np.uint8)
+        e.age = b.age.copy()
+        e.wv = b.wv.copy()
+        e.stats = {k: 0 for k in b.stats}
+        e.q_vis = e.q_wrong = e.q_flick = e.q_tflick = 0.0
+        e.q_prev = e.q_tprev = (None, None)
+        e.q_frames, e.q_bad = [], []
+        e.cpu = Budget(0.0, 1e18)
+        e.dcurve = None
+        e.owe = None
+        e.bank, e.dslow = 0, 1.0
+        e.dfloor = 0
+        e.alead, e.arefill, e.slead, e.srefill = 0, [], 0, []
+        e.disk = Budget(0.0, ram_kb * 1024.0)
+        e.disk.level = min(pre_kb, ram_kb) * 1024.0
+        return e
+
+    def push(self, target, ops, rec):
+        """The base's frame, just encoded: returns the layer's ops for the
+        frames that are now LAYER_LAG behind it, in order"""
+        self.buf.append((target, ops, rec, self.m.cost(rec)))
+        out = []
+        while len(self.buf) > self.lag:
+            out.append(self._one(False))
+        return out
+
+    def flush(self):
+        out = []
+        while self.buf:
+            out.append(self._one(True))
+        return out
+
+    def _one(self, end):
+        b, e, m = self.b, self.e, self.m
+        target, ops, rec, c = self.buf[0]
+        per = m.cpu.per
+        need = 0.0 if end else m.cpu.cap    # (past the window: a full one)
+        for t in reversed(self.buf[1:]):
+            need = max(0.0, need + t[3] - per)
+        self.S = min(m.cpu.cap, self.S + per) - c     # the base's, first
+        room = min(max(0.0, self.S - need), max(0.0, m.peak - c))
+        e.future = [t[0] for t in self.buf[1:1 + b.look]]
+        self.buf.pop(0)
+        e.put_ops(ops)                  # the base's writes, on this screen
+        lops = []
+        cl = 0.0
+        if room > e.ct[0] * 2 and e.disk.level >= 64:
+            e.cpu.per, e.cpu.level = 0.0, room
+            e.peak = room
+            e.disk.per = 0.0
+            lops, lrec = e.frame(target, b"")
+            if lops and (b.g.planes == 1 or any(sub for m, sub in lops)):
+                cl = e.cost(lrec)
+                e.disk.spend(len(lrec))
+                self.S -= cl
+                self.cycles += cl
+                self.bytes += len(lrec)
+                self.recs += 1
+                k = self.read // vid.SLOT   # a 32 KB read of the layer:
+                self.read += len(lrec)      # a seek there and one back
+                e.disk.level -= (self.read // vid.SLOT - k) * 2 * \
+                    self.seek * self.rate
+        else:
+            self.skipped += 1
+        if b.metric:
+            e.measure(target)
+        if self.d is not None:
+            self.d.put_ops(ops)
+            if lops and (self.f + 1) % self.drop:
+                self.d.put_ops(lops)
+            if b.metric:
+                self.d.measure(target)
+        # THE DISK this frame on the better machine: the base's bucket at
+        # its rate, the layer's decode in the hook's share - and what the
+        # bucket would clip is the layer's
+        rel = 1.0
+        if m.dcurve:                        # (the layer's machine's curve)
+            share = (c + cl + m.audio_cyc + HOOK_CYC) / m.q + m.spk
+            rel = m.disk_rel(share)
+        rate = self.rate / (self.bslow if self.bl > b.reserve else 1.0)
+        lvl = self.bl + (rate * rel * 0.99 - b.abps) / b.fps
+        clip = max(0.0, lvl - b.disk.cap)
+        if e.disk.level > self.lslots:      # (through the bank: copied)
+            clip /= self.lslow
+        e.disk.level = min(e.disk.cap, e.disk.level + clip)
+        self.bl = min(lvl, b.disk.cap) - (len(rec) - b.abps / b.fps)
+        self.f += 1
+        return lops
 
 
 class _Ahead(object):
@@ -3996,8 +4391,15 @@ def _encode(a, keep, tick, readers):
     if a.live and prof["avg"] is not None:
         prof["avg"] = LIVE_AVG          # (the decode and the blit: 98.2.7)
     for k in ("disk", "avg", "peak", "owe", "reserve"):
-        if getattr(a, k) is not None:
+        if getattr(a, k) is not None and getattr(a, k) != "auto":
             prof[k] = getattr(a, k)
+    # --avg auto (98.2.1.5): after --peak, which it follows, and sticky - a
+    # trial encode (--aim) is handed this namespace again - and the record
+    # holds the share it came to, not the word. A Live file's share is its
+    # blit's and the desktop's as well (98.2.7), so it keeps LIVE_AVG
+    a.avg_auto = getattr(a, "avg_auto", False) or a.avg == "auto"
+    if a.avg == "auto":
+        a.avg = prof["avg"] = prof["avg"] if a.live else avg_auto(prof)
     if a.memory is not None and prof["disk"] is not None and \
             not a.resident and not a.live:
         # FREE MEMORY TO PLAY (98.2.1.3.1): the ring it holds, and the
@@ -4119,6 +4521,16 @@ def _encode(a, keep, tick, readers):
     pd = PRESET_DEFAULTS.get(None if a.live else a.preset, {})
     audio = a.audio or pd.get("audio") or prof["audio"]
     spk = audio == "speaker"
+    if spk and (getattr(a, "bank", None) or getattr(a, "layer_disk", None)
+                or getattr(a, "layer_profile", None) or a.xms):
+        # NOTHING IN XMS UNDER THE SPEAKER (98.3.18.5): its clock is one
+        # interrupt a sample and every XMS copy holds them off, so the player
+        # reads the disk instead - a bank or a layer budgeted here would be
+        # disk the play never has
+        raise vid.V88Error("--audio speaker: no --bank, --layer-* or --xms - "
+                           "the player makes no XMS copy under the speaker's "
+                           "clock (SPEC.md 98.3.18.5), so the file would be "
+                           "made for disk it never gets")
     if spk:                             # PCM8, at a rate the speaker plays
         audio = "pcm8"
         r = a.rate or pd.get("rate") or SPK_RATE
@@ -4368,6 +4780,21 @@ def _encode(a, keep, tick, readers):
         Encoder(g, prof, fps, audio_cyc, audio_bps, palette)
     enc.live = bool(a.live)
     enc.spk = spk_share
+    a.bank = getattr(a, "bank", None)
+    a.prefill = getattr(a, "prefill", None)
+    if a.bank:
+        # THE XMS BANK (98.3.18.2): deeper, and fuller at the start by the
+        # prefill - in seconds of the profile's disk, or the bank whole
+        if a.resident or a.live or prof["disk"] is None:
+            raise vid.V88Error("--bank is a stream's, played off a disk: not "
+                               "with --resident, --live or a lossless "
+                               "profile")
+        bank = int(a.bank * 1024)
+        pre = bank if a.prefill == "all" else \
+            min(bank, int(float(a.prefill or BANK_PREFILL) * prof["disk"]))
+        enc.set_bank(bank, pre, prof.get("xcopy") or 0.0)
+    elif a.prefill:
+        raise vid.V88Error("--prefill fills a --bank, and there is none")
     if a.flip and prof["avg"] is not None:
         # the flip schedule's calls (98.2.1.1.1): half a period apart off a
         # card's sound, a period silent
@@ -4441,6 +4868,10 @@ def _encode(a, keep, tick, readers):
                     else None, ahead=ahead, kcap=KEY_PLAYER,
                     spcap=FRAME_CAPS[a.frame_cap], screen=scr)
     wr.opts = optsblk                   # (98.1.1.4)
+    if enc.bank:                        # THE BANK'S ASK (98.3.18.3)
+        wr.xbank = enc.bank // 1024
+        wr.xpre = vid.XPRE_ALL if a.prefill == "all" else \
+            max(1, -(-enc.bankpre // 1024))
     if not a.resident and enc.disk.per is not None:
         wr.ring = vid.ring_for(enc.reserve)     # (98.2.1.3)
         if wr.ring is None:
@@ -4524,6 +4955,60 @@ def _encode(a, keep, tick, readers):
             search=jobs if a.adpcm == "search" else 0, join=join) \
             if afmt else None
         chunk = chunks.__getitem__ if afmt else None
+    lay = None
+    if getattr(a, "layer_profile", None) and not a.layer_disk:
+        a.layer_disk = PROFILES[a.layer_profile]["disk"]   # (its own disk)
+    if getattr(a, "layer_disk", None):
+        # THE LAYER (98.1.9): made beside the base, LAYER_LAG behind it
+        if a.resident or a.live or enc.disk.per is None:
+            raise vid.V88Error("--layer-disk is a budgeted stream's: not "
+                               "--resident, --live or a lossless profile")
+        lmem = float(a.layer_memory)
+        lbank = float(getattr(a, "layer_bank", None) or 0)
+        ltot = lmem + lbank
+        lpre = ltot if a.layer_prefill == "all" else \
+            float(a.layer_prefill or 0)
+        if not 0 <= lpre <= ltot or not 64 <= lmem <= 128 or \
+                not 0 <= lbank <= 65000:
+            raise vid.V88Error("--layer-memory %g KB, --layer-bank %g KB, "
+                               "--layer-prefill %s: 64 to 128 KB of slots, a "
+                               "bank to 65,000, and a prefill within the two"
+                               % (lmem, lbank, a.layer_prefill))
+        mach, lprof = None, prof
+        if getattr(a, "layer_profile", None) and \
+                a.layer_profile != a.profile:
+            # THE LAYER FOR ANOTHER CPU: an encoder made for that profile,
+            # with every setting the base's but its machine's
+            lprof = dict(PROFILES[a.layer_profile])
+            if getattr(a, "avg_auto", False) and not a.live:
+                lprof["avg"] = avg_auto(lprof)  # (98.2.1.5: its machine's)
+            if lprof["avg"] is None:
+                raise vid.V88Error("--layer-profile lossless: a layer is what "
+                                   "a budget leaves, and it has none")
+            if spk_share:
+                raise vid.V88Error("--layer-profile with the speaker's sound: "
+                                   "its share is the base's machine's")
+            lprof["disk"] = a.layer_disk
+            mach = type(enc)(*((g, lprof, fps, audio_cyc, audio_bps,
+                                palette and (palette[:48] if vga4 else
+                                             palette)) +
+                               ((False,) if type(enc) is not Encoder
+                                else ())))
+            for n in ("live", "spk", "look", "vis", "cut", "bands",
+                      "rec_max", "thr", "blur_r", "dmode", "ppb", "dpal",
+                      "metric"):
+                if hasattr(enc, n):
+                    setattr(mach, n, getattr(enc, n))
+        lay = LayerEnc(enc, a.layer_disk, ltot, lpre, a.layer_seek,
+                       bank=lbank * 1024, xcopy=lprof.get("xcopy") or 0.0,
+                       mach=mach, bxcopy=lprof.get("xcopy") or 0.0)
+        lay.speeds = (lprof.get("speed") or 1, prof.get("speed") or 1)
+        wr.layer = (max(1, int(round(a.layer_disk / 1024.0))), int(lmem),
+                    vid.XPRE_ALL if a.layer_prefill == "all" else int(lpre),
+                    int(lbank))
+    elif getattr(a, "layer_prefill", None):
+        raise vid.V88Error("--layer-prefill fills a layer, and there is no "
+                           "--layer-disk")
     ahead = deque()
     sound = []
     f = -1
@@ -4555,6 +5040,9 @@ def _encode(a, keep, tick, readers):
         if enc.metric:
             enc.measure(target)
         wr.frame(ops, enc.surf, au)
+        if lay is not None:
+            for lops in lay.push(target, ops, rec):
+                wr.layer_frame(lops)
         if a.preview_png and f % max(1, round(fps)) == 0:
             out = os.path.join(a.preview_png, "f%05d.png" % f)
             if c512:                # what a composite monitor shows: the
@@ -4611,6 +5099,25 @@ def _encode(a, keep, tick, readers):
             print("   frame %d of %d" % (f + 1, nf if not stream else
                                          est + pre), file=sys.stderr)
     nf = f + 1
+    if wr.keys and not a.resident and enc.cpu.per is not None:
+        # THE BASE'S YARDSTICK (98.3.18.9): key 0's decode on the machine
+        # this is made for - what a player on a machine with no card times
+        # itself against, to give the bank the CPU the speaker would take
+        wr.ybase = max(1, int(round(enc.cost(wr.keys[0][1]) / (
+            vid.HZ * (prof.get("speed") or 1)) * 1e5)))
+    if lay is not None:
+        for lops in lay.flush():
+            wr.layer_frame(lops)
+        # THE PLAYER'S YARDSTICK (98.1.9): key 0's decode, modelled on the
+        # layer's machine and on the base's, in 10 us - the player times its
+        # own decode of the same record and reads the layer only on a CPU
+        # nearer the layer's machine than the base's
+        if wr.keys:
+            kr = wr.keys[0][1]
+            ts = tuple(min(65535, max(1, int(round(
+                mm.cost(kr) / (vid.HZ * sp) * 1e5))))
+                for mm, sp in ((lay.m, lay.speeds[0]), (enc, lay.speeds[1])))
+            wr.layer = wr.layer[:4] + ts
     if text and (a.text_ocr or a.text_ocr_large):
         say("   OCR: %d words drawn exact, %d crisp (a word counts once a "
             "frame)" % tuple(tm.ocr_used))
@@ -4767,11 +5274,58 @@ def _encode(a, keep, tick, readers):
                 % -(-(g.wb * 4 if L == vid.LAY_MODEX else
                       80 * 4 if g.bitplanes else g.wb) * g.h // 1024)
                 if a.flip else ""))
+    if enc.bank:
+        say("   XMS bank %d KB ahead of the ring, %s before the first frame "
+            "(98.3.18.2): a machine with less plays it and says Low memory"
+            % (enc.bank // 1024, "all of it filled" if wr.xpre == vid.XPRE_ALL
+               else "%d KB of it filled, ~%.0f s of the disk" % (
+                   wr.xpre, wr.xpre * 1024.0 / prof["disk"])))
+    if lay is not None:
+        secs = max(1e-9, nf / fps)
+        say("   LAYER for %s%.0f KB/s (98.1.9): %.1f KB/s in %d of %d "
+            "frames, %.1f%% more of its CPU; %.0f KB banked%s%s"
+            % ("%s, " % a.layer_profile if getattr(a, "layer_profile", None)
+               else "", a.layer_disk / 1024.0, lay.bytes / secs / 1024.0,
+               lay.recs,
+               nf, 100.0 * lay.cycles / max(1.0, lay.m.cpu.per * nf),
+               wr.layer[1] + wr.layer[3], ", %s of it before the first frame" % (
+                   "all" if a.layer_prefill == "all" else
+                   "%d KB" % wr.layer[2]) if wr.layer[2] else "",
+               "" if not enc.metric else
+               "; the play with it %.2f%% error as seen, worst second "
+               "%.2f%%, %.1f s visibly broken" % (
+                   (100 * lay.e.q_vis / nf,) + tuple(
+                       x * y for x, y in zip(picture_report(
+                           lay.e.q_frames, lay.e.q_bad, fps)[1::2],
+                           (100, 1.0 / fps))))))
+        res.update(layer=dict(kbs=lay.bytes / secs / 1024.0,
+                              q_vis=lay.e.q_vis / nf if enc.metric
+                              else None, recs=lay.recs,
+                              final=g.canvas(lay.e.surf)))
     if enc.metric:
         say("   picture: %.2f%% error as seen, %.2f%% of pixels wrong, "
             "%.0f pixels a frame flickering back (the source's own: %.0f)"
             % (100 * enc.q_vis / nf, 100 * enc.q_wrong / nf,
                enc.q_flick / max(1, nf - 2), enc.q_tflick / max(1, nf - 2)))
+        pm, pw, pat, pbr = picture_report(enc.q_frames, enc.q_bad, fps)
+        say("   ...at its WORST SECOND %.2f%% (from %d:%04.1f), and %.1f s of "
+            "%.1f VISIBLY BROKEN - %d%% of the frame or more off by %d%% as "
+            "seen, the picture torn by a cut and left so" % (
+                100 * pw, int(pat / fps) // 60, pat / fps % 60, pbr / fps,
+                nf / fps, round(100 * VIS_AREA), round(100 * VIS_BAD)))
+        sp, nsp = broken_spans(enc.q_bad, fps)
+        if sp:
+            say("   ...broken at %s%s" % (", ".join(
+                "%d:%04.1f for %.1f s" % (int(a) // 60, a % 60, ln)
+                for a, ln in sp), " and %d more" % (nsp - len(sp))
+                if nsp > len(sp) else ""))
+        res.update(q_worst=pw, q_worst_at=pat / fps, q_broken=pbr / fps)
+        if os.environ.get("OS88_VENC_QDUMP"):  # (the per-frame figures, for
+            import json                        # a look at a clip's worst)
+            with open(os.environ["OS88_VENC_QDUMP"], "w") as fq:
+                json.dump(dict(fps=fps, mean=enc.q_frames, bad=enc.q_bad,
+                               layer=(lay.e.q_frames, lay.e.q_bad)
+                               if lay is not None else None), fq)
     res.update(q_vis=enc.q_vis / nf, q_wrong=enc.q_wrong / nf,
                q_flick=enc.q_flick / max(1, nf - 2), cutf=st["cut"] / nf)
     if st["skipped"]:
@@ -4813,7 +5367,8 @@ def parser():
                     type=vid.layout_name,
                     help="the screen memory the file is laid out for "
                          "(SPEC.md 98.1.2), overriding the preset's")
-    ap.add_argument("--box", help="WxH: the canvas's largest size")
+    ap.add_argument("--box", type=dims,
+                    help="WxH (or W*H): the canvas's largest size")
     ap.add_argument("--fit", choices=("fit", "fill", "stretch"),
                     default="fit",
                     help="fit: the whole picture, the canvas shrunk to its "
@@ -4834,7 +5389,8 @@ def parser():
                          "frame is fitted to (--profiles says what each is)")
     ap.add_argument("--disk", type=float, help="the profile's bytes a "
                     "second, overridden")
-    ap.add_argument("--avg", type=float, help="...its average CPU share")
+    ap.add_argument("--avg", type=avg_arg,
+                    help="...its average CPU share, or AUTO: the per-frame ceiling's, on a profile whose disk curve already prices the reader (98.2.1.5)")
     ap.add_argument("--peak", type=float, help="...its per-frame ceiling")
     ap.add_argument("--aim", choices=("asked", "quality", "size"),
                     default="asked",
@@ -4866,6 +5422,55 @@ def parser():
                          "memory and may pause in a burst. Not with "
                          "--reserve, which says the same thing in the "
                          "stream's KB")
+    ap.add_argument("--bank", type=float, metavar="KB",
+                    help="an XMS BANK on the machine that plays it: a 286 "
+                         "or better with that much extended memory free "
+                         "keeps the stream that far ahead of its ring, "
+                         "refilled in the calm stretches, so a burst can "
+                         "spend it (98.3.18.2). The disk bucket is that "
+                         "much deeper. The file says so in its header and "
+                         "still plays anywhere: with less, the player says "
+                         "Low memory and may pause in a burst")
+    ap.add_argument("--prefill", metavar="S|all",
+                    help="with --bank: seconds of the disk the player reads "
+                         "into the bank before the first frame, saying "
+                         "Buffering as it does, or 'all' for the whole bank "
+                         "(98.3.18.3). The stream starts that much richer. "
+                         "Default %g" % BANK_PREFILL)
+    ap.add_argument("--layer-disk", type=float, metavar="BYTES",
+                    help="THE LAYER (98.1.9): a second stream, encoded on "
+                         "top of this one, for a machine whose disk reads "
+                         "this many bytes a second - made of what the base "
+                         "leaves that machine's disk and CPU. Every player "
+                         "plays the base; one that reads the layer too "
+                         "plays better")
+    ap.add_argument("--layer-profile", choices=sorted(PROFILES),
+                    help="THE LAYER FOR ANOTHER MACHINE: its CPU and disk, "
+                         "where the base is made for --profile - a file for "
+                         "a 5150 that plays better on a 286. Its disk is "
+                         "--layer-disk if that is given (98.1.9)")
+    ap.add_argument("--layer-memory", type=float, metavar="KB",
+                    default=64.0,
+                    help="with --layer-disk: the CONVENTIONAL memory the "
+                         "encode assumes the layer is read ahead into, 64 "
+                         "or 128 KB - the floor: a player takes more where "
+                         "the heap has it (default 64)")
+    ap.add_argument("--layer-bank", type=float, metavar="KB",
+                    help="with --layer-disk: an XMS BANK for the layer on "
+                         "the machine that plays it, ahead of its slots - "
+                         "the layer read further ahead in calm stretches, "
+                         "and before the first frame by --layer-prefill. A "
+                         "machine with less plays it and misses more of "
+                         "the layer (98.1.9)")
+    ap.add_argument("--layer-prefill", metavar="KB|all",
+                    help="with --layer-disk: KB of the layer read before the "
+                         "first frame, or 'all' of --layer-memory and "
+                         "--layer-bank (default none)")
+    ap.add_argument("--layer-seek", type=float, metavar="MS",
+                    default=LAYER_SEEK_MS,
+                    help="with --layer-disk: the seek, each way, that each "
+                         "32 KB of the layer costs the disk (default %g)"
+                    % LAYER_SEEK_MS)
     ap.add_argument("--lookahead", type=int, default=2, metavar="N",
                     help="WHEN A FRAME IS CUT, don't pay for pixels about "
                          "to change: a change is ranked by what it is worth "
@@ -5121,7 +5726,7 @@ def parser():
                     help="modex: two pages, the player drawing one while "
                          "the other shows - no tearing, at twice the decode "
                          "(98.3.8)")
-    ap.add_argument("--detail",
+    ap.add_argument("--detail", type=dims,
                     help="vga8: WxH, the picture made at a W-th of the "
                          "width (1, 2, 4) and an H-th of the height (1, 2) "
                          "and shown at full size - W by repeating pixels, "
@@ -5140,7 +5745,7 @@ def parser():
     ap.add_argument("--vga8-stable", type=float, default=18.0,
                     help="vga8: how far, in RGB distance, the colour on "
                          "the screen may be from the source and stay")
-    ap.add_argument("--screen", choices=tuple(v[0] for v in
+    ap.add_argument("--screen", type=dims, choices=tuple(v[0] for v in
                                               vid.SCREENS.values()),
                     help="vga4: the screen it plays on - 640x480, mode 12h "
                          "and the desktop's own (the default, and the only "

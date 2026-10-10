@@ -1932,6 +1932,42 @@ SOAK = [
         "A DECLARED extension's icon is right from a COLD mount (SPEC.md"
         "54.7.3).",
         needs=("marty",), serial=True),
+    Row("hdtake", "soak", py("tests/hdtake.py"), 15.0,
+        "SPEC.md 52.1.1: on QEMU's 386, HDD.DRV's own IDE rung TAKES a drive "
+        "SeaBIOS also knows once LBA 0 read through both rungs agrees - the "
+        "AT BIOS's PIO runs with interrupts off and the PC speaker's clock "
+        "loses every sample due inside it. Device row 0 must be IDE 1F0h "
+        "unit 0 carrying int 13h drive 80h, the only row, and C: must list "
+        "and launch CALC.O88 through it",
+        needs=("qemu", "nasm"), serial=True, timeout=300,
+        wants=("build/os8088.img", "build/apps.img", "build/hdd.bin",
+               "build/calc.o88")),
+    Row("hdtakeboot", "soak", py("tests/hdtake.py", "--boot"), 30.0,
+        "SPEC.md 52.1.1 on an INSTALLED machine (QEMU, booted from the IDE "
+        "disk): C:, the kernel's own int 13h boot volume, must be HANDED to "
+        "HDD.DRV by OSAPI_VOL_TAKE (row kind DVK_DRV, DV_BUNIT 80h) and a "
+        "package launch from it work; unticking the driver must GIVE C: "
+        "BACK to the BIOS rather than freeing the system volume, and "
+        "ticking it again take it again",
+        needs=("qemu", "nasm"), serial=True, timeout=400,
+        wants=("build/apps.img", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin", "build/hdd.drv", "build/ctrl.drv",
+               "build/calc.o88")),
+    Row("hdtakeblank", "soak", py("tests/hdtake.py", "--blank"), 10.0,
+        "SPEC.md 52.1.1's refusal: the same disk with LBA 0's 55AA wiped - "
+        "what two blank disks of one geometry would share - and the BIOS's "
+        "row must stay exactly as it was",
+        needs=("qemu", "nasm"), serial=True, timeout=300,
+        wants=("build/os8088.img", "build/apps.img", "build/hdd.bin")),
+    Row("timerrace", "soak", py("tests/timerrace.py"), 30.0,
+        "SPEC.md 13.9.2: ui_timer_pass asks again, UNDER the gfx lock, "
+        "whether the window it is about to call still exists - gfx_lock can "
+        "block on a dying worker that destroys the record and frees its "
+        "region. Two breakpoints make that instant: stopped just after the "
+        "lock with a Disk window's timer due, W_FLAGS cleared there, and the "
+        "pass must reach .gone and never ui_bill",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-360.img", "build/apps360.img")),
     Row("assocwake", "soak", py("tests/assocwake.py"), 30.0,
         "SPEC.md 54.10: a document launch draws the PROGRAM'S WINDOW first, "
         "and only then reads the document. The instrument is a breakpoint on "
@@ -3546,6 +3582,144 @@ SOAK = [
         "see is the datasheet read wrong in both halves at once",
         needs=("marty", "nasm"), serial=True, timeout=300,
         wants=("build/usbmsim.img", "build/usbmbusy.img", "build/apps360.img")),
+    Row("ems", "soak", py("tests/ems.py"), 45.0,
+        "EMS.DRV (SPEC.md 107), as a package sees it, on MartyPC's Lo-tech "
+        "2 MB board (os8088_5150_herc_hdd_sb_ems_gla) - an 8088 with expanded "
+        "memory. `make emstest`'s disk wants the driver (SYSTEM.CFG bit 7) "
+        "and carries EMSTEST.O88, whose every launch runs one sequence and "
+        "leaves its answers in its bss. The row is LOADED and DRVE_OK; the "
+        "first instance sees 128 pages and frame E000h, allocates, frames all "
+        "four quarters, signs three pages through the frame, sees page 0 "
+        "through a second quarter and maps page 1 by its OWN OUT from the "
+        "recipe (107.4) - and the frame is then READ OFF THE EMULATOR, not "
+        "taken from the package. A second instance is refused the quarters "
+        "(BUSY) and the first's handle (BAD) and gets its BX back as it went; "
+        "both are closed holding everything and a third finds it all free - "
+        "EMSV_GONE from xm_release_rec. Then the same disk on the machine "
+        "with NO board: the row is DRVE_HW and the package is told nobody "
+        "answered. Verified red with the GONE call out (the third instance is "
+        "a later one) and with drv_pkg_call_x's slot swap out (the second "
+        "FREEs the first's handle)",
+        needs=("marty", "nasm"), serial=True, timeout=300,
+        wants=("build/emstest.img",)),
+    Row("emspico", "soak", py("tests/ems.py", "--leg", "pico"), 45.0,
+        "SPEC.md 107.2: EMS.DRV finds a board where a PICOMEM puts its EMS by "
+        "default - registers at 288h, the frame at D000h - on a MartyPC "
+        "machine with the Lo-tech model moved there "
+        "(os8088_5150_herc_hdd_sb_ems288_gla), and every check of ems's "
+        "board leg holds. The owner's 286 said No hardware found with its "
+        "PicoMEM at D000h/288h when the probe knew only 260h-26Ch; with 288h "
+        "taken off the list this row reproduces exactly that (DRVE_HW)",
+        needs=("marty", "nasm"), serial=True, timeout=300,
+        wants=("build/emstest.img",)),
+    Row("videms", "soak", py("tests/videms.py"), 45.0,
+        "SPEC.md 98.3.18.6-7: VIDEO.O88'S BANK IN EXPANDED MEMORY, decoded IN "
+        "PLACE (the ring is the board's slots, the conventional ring 2), on MartyPC's "
+        "8088 with the Lo-tech 2 MB board and no XMS - booted from `make "
+        "emstest`'s disk, which wants EMS.DRV. A 264 KB Hercules clip opens "
+        "with a bank of 9 slots in the board's pages; the ring held to 3 "
+        "slots (vp_kmax), the prefill fills the rest of the file into the "
+        "bank and the box says Buffering 100% - once the file's end is "
+        "banked that IS the 100%, which the first build said as 44%. Then "
+        "B: is BLANKED and Space plays: the screen is the decode's at three "
+        "holds and all 200 frames are drawn, every chunk past the ring's "
+        "out of the board. Played again with B: still blank, it must fail. "
+        "Broken on purpose - the hook's OUT out of vp_eaddr - the play errors "
+        "before frame 40 (the board's power-on mapping carried it 16 frames, "
+        "which is how a recipe stored from the wrong register looked)",
+        needs=("marty", "nasm"), serial=True, timeout=300,
+        wants=("build/emstest.img", "build/video.o88")),
+    Row("videmshyb", "soak", py("tests/videms.py", "--hybrid"), 45.0,
+        "SPEC.md 98.3.18.6: videms's play through the EMS HYBRID (vp_noinp) - "
+        "a FIFO of the board's pages ahead of a conventional ring of 3, "
+        "copied down by rep movsw - B: blanked after the prefill and all 200 "
+        "frames right. Kept beside the in-place default because a file that "
+        "cannot play in place (BIGSP, sound ahead, Repeat) plays this way",
+        needs=("marty", "nasm"), serial=True, timeout=300,
+        wants=("build/emstest.img", "build/video.o88")),
+    Row("videmsslow", "soak", py("tests/videms.py", "--slow"), 45.0,
+        "SPEC.md 98.3.18.8: the board's READ SPEED, measured at the open "
+        "against the package's RAM (MartyPC's board reads 1.0x, asserted), "
+        "then forced SLOW (vp_eslow 1, a PicoMEM v1's PSRAM): the session "
+        "takes the hybrid and never decodes in place, B: blanked and all "
+        "200 frames right, the card naming EMS",
+        needs=("marty", "nasm"), serial=True, timeout=300,
+        wants=("build/emstest.img", "build/video.o88")),
+    Row("vidlyplay", "soak", py("tests/vidlyplay.py"), 150.0,
+        "SPEC.md 98.1.9: the PLAYER reads a file's LAYER - a Life clip made "
+        "for a 12 KB/s 5150 with a layer for 40, on MartyPC's Hercules off a "
+        "floppy. Held before frames, the screen must be base-then-layer "
+        "decoded on the host byte for byte, all 47 layer records drawn and "
+        "none left out, the card saying so on line 4; with the layer's "
+        "header word zeroed the same holds must be the BASE's decode and "
+        "not the layered one; from key 1 the layer's place comes out of its "
+        "key table and the holds are exact again, the BENCH (key 1's decode "
+        "timed, 27.46 ms against its model's 27.04) passing this machine; "
+        "and with the yardstick poked impossibly fast the bench says no - "
+        "nothing of the layer drawn, the base's screen, the card saying why",
+        needs=("marty", "nasm", "ffmpeg"), serial=True, timeout=600,
+        wants=("build/os8088-360.img", "build/video.o88")),
+    Row("vidlyplaystream", "soak", py("tests/vidlyplay.py", "--stream"),
+        150.0,
+        "SPEC.md 98.1.9: the layer STREAMED - six seconds banked in two "
+        "slots, so the reader refills them at the ring-full moment during "
+        "the play, off a floppy that cannot keep up: the play must end with "
+        "no error, the slots read over again, records drawn, and exact at "
+        "every hold where none had been missed yet",
+        needs=("marty", "nasm", "ffmpeg"), serial=True, timeout=600,
+        wants=("build/os8088-360.img", "build/video.o88")),
+    Row("vidbankspkbank", "soak", py("tests/vidbank.py", "--arm",
+                                     "spkbank"), 60.0,
+        "SPEC.md 98.3.18.9: THE SPEAKER AGAINST THE BANK on QEMU with no "
+        "card - a file asking for a bank whose yardstick (key 0's decode on "
+        "the machine it was made for) says this machine is not twice as "
+        "fast: the play is MUTED for the bank, from frame 0 (no key to time: "
+        "the bank wins) and from key 1 (the bench times it), the card's "
+        "reason 3 and the bank XMS's",
+        needs=("qemu", "nasm"), serial=True, timeout=400,
+        wants=("build/os8088.img", "build/video.o88")),
+    Row("vidbankspkfast", "soak", py("tests/vidbank.py", "--arm",
+                                     "spkfast"), 40.0,
+        "SPEC.md 98.3.18.9: the same file with a yardstick far slower than "
+        "this machine - the bench passes it twice over and the SPEAKER "
+        "stays, the bank idle under it as 98.3.18.5 has it",
+        needs=("qemu", "nasm"), serial=True, timeout=400,
+        wants=("build/os8088.img", "build/video.o88")),
+    Row("vidclose", "soak", py("tests/vidclose.py"), 75.0,
+        "SPEC.md 98.3.18.10: THE CLOSE BOX ON A LOAD STILL RUNNING, on QEMU "
+        "with XMS and B: throttled - play, Esc, close while the window's "
+        "timer is still reading the file's hold into XMS, three rounds: the "
+        "player's close negotiator must have stopped the play and freed the "
+        "hold before the kernel freed the region (read off the freed "
+        "region), no XMS block left owned, and the machine still ticking",
+        needs=("qemu", "nasm"), serial=True, timeout=400,
+        wants=("build/os8088.img", "build/video.o88")),
+    Row("vidlybank", "soak", py("tests/vidlybank.py"), 60.0,
+        "SPEC.md 98.1.9: THE LAYER's XMS BANK and its PREFILL, on QEMU's "
+        "386 - a Life clip held whole in XMS (the base) with --layer-bank "
+        "512 --layer-prefill all: the prefill fills the slots and the bank "
+        "with the whole layer and holds (vp_pfwait), B: is BLANKED, and the "
+        "play must draw all 89 layer records with none missed, each slot "
+        "fed from the bank as the hook let it go",
+        needs=("qemu", "nasm", "ffmpeg"), serial=True, timeout=400,
+        wants=("build/os8088.img", "build/video.o88")),
+    Row("vidlybanknone", "soak", py("tests/vidlybank.py", "--arm",
+                                    "nobank"), 60.0,
+        "SPEC.md 98.1.9: vidlybank's NEGATIVE CONTROL - the bank zeroed "
+        "before Play, so the prefill fills the slots alone: after the swap "
+        "the layer's reader finds no disk and the play must draw FEWER "
+        "layer records than the file has (what the slots held, still drawn)",
+        needs=("qemu", "nasm", "ffmpeg"), serial=True, timeout=400,
+        wants=("build/os8088.img", "build/video.o88")),
+    Row("videmswrap", "soak", py("tests/videms.py", "--wrap"), 45.0,
+        "SPEC.md 98.3.18.7: the DECODE IN PLACE with its ring held to 3 of "
+        "the board's slots (vp_ekr), so it WRAPS - 7 chunks through 3 slots, "
+        "the reader filling quarter 3 off the disk while the hook maps "
+        "quarters 0-2 and decodes there - and the screen the decode's at "
+        "three holds. videms's own clip fits the board whole, so without "
+        "this row the reader never runs during a play in place",
+        needs=("marty", "nasm"), serial=True, timeout=300,
+        wants=("build/emstest.img", "build/video.o88")),
     Row("wirezone", "soak", py("tests/wirezone.py"), 50.0,
         "Does the desktop SERVICE zone arrive with its driver and LEAVE with "
         "it? (SPEC.md 26.7) The kernel's half of the Wire is a generic zone a "
@@ -10871,6 +11045,40 @@ SOAK = [
         "refused",
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
+    Row("vidbank", "soak", py("tests/vidbank.py"), 150.0,
+        "docs/plans/VIDEO-XMS-PLAN.md 4, SPEC.md 98.3.18.2: a streamed .V88 "
+        "BIGGER than the XMS pool, played through a BANK - a FIFO of 32 KB "
+        "chunks ahead of the ring. WHY QEMU: docs/TESTING.md's closed list, "
+        "entry 1. `-m 2` against a 1.33 MB clip: the bank is 18 slots, it "
+        "fills to every one behind a held hook, and the picture is the "
+        "decode's at every key frame (read off A000). Then B: is blanked "
+        "under the held play and the furthest key frame inside ring + bank "
+        "is still right, while the play dies past the bank's end. Broken on "
+        "purpose - vp_bstep out of the reader's loop - the bank stays empty; "
+        "vp_bfill's head left unmoved, the play errors at frame 100; vp_bpre out of the bracket, the prefill fills nothing. The clip asks a 4 MB bank and 256 KB first (98.3.18.3): 8 slots before the first frame and Low memory, and with the gate's hold on the prefill the box says Buffering 100%, Esc cancels and Space plays from the bank with B: blank",
+        needs=("qemu", "nasm"),
+        wants=("build/video.o88", "build/os8088.img")),
+    Row("vidbankwin", "soak", py("tests/vidbank.py", "--arm", "win"), 75.0,
+        "SPEC.md 98.3.18.4: the bank's PREFILL IN THE WINDOW, where the full "
+        "screen's box is not the window's and the play bar's THUMB is the "
+        "meter. A 160 x 120 stream bigger than the pool, B: throttled to 64 "
+        "KB/s: the thumb crosses the bar as the bank fills (0 -> 220 of a "
+        "256 bar) and the first frame puts it back. Broken on purpose - "
+        "vp_pfsay's window arm skipped - the thumb never moves",
+        needs=("qemu", "nasm"),
+        wants=("build/video.o88", "build/os8088.img")),
+    Row("vidbankspk", "soak", py("tests/vidbank.py", "--arm", "spk"), 75.0,
+        "SPEC.md 98.3.18.5: NO XMS COPY UNDER THE SPEAKER'S CLOCK. QEMU has "
+        "no card, so a PCM8 play is the speaker's, whose clock is its own "
+        "interrupts and every transport holds them off for a copy - the "
+        "owner's 286 banked every chunk and played in slow motion with "
+        "nothing late. The prefill is skipped and the bank's count is "
+        "watched over the WHOLE play, and must never leave 0. Broken on "
+        "purpose - vp_bstep's speaker test out - it reaches 13: a single "
+        "look read 0, a chunk banked being handed straight back by the next "
+        "fill",
+        needs=("qemu", "nasm"),
+        wants=("build/video.o88", "build/os8088.img")),
     Row("vidxmsidle", "soak", py("tests/vidxms.py", "--arm", "idle"), 45.0,
         "SPEC.md 98.3.18: vidxms with no play at the start - the window's "
         "timer alone loads the file to its end (a short last chunk is what "
@@ -11163,6 +11371,19 @@ SOAK = [
         "its plan mixes it (98.2.5), --cut fill and tear on two Mode X "
         "pans (98.2.1.2.1), and --bands' writes never climbing back a band "
         "(98.2.1.2.2), each red with its mechanism taken out.",
+        needs=("ffmpeg",)),
+    Row("vidlayer", "soak", py("tests/vidlayer.py"), 100.0,
+        "SPEC.md 98.1.9: THE LAYER, host-side - six seconds of a Mandelbrot "
+        "zoom encoded for a 60 KB/s 286, plain and with --layer-disk for 240 "
+        "KB/s, on VGA8's one plane and Mode X's four. The layered file's "
+        "frame and keyframe records must be the plain one's byte for byte, "
+        "verify_v88 must pass its layer, base then layer must decode to the "
+        "encoder's own enhanced screen exactly - and with the last layer "
+        "record left out it must NOT (the check bites) - and the layered "
+        "play must beat the base's error as seen (3.34% -> 0.93% on VGA8, "
+        "2.20% -> 0.08% on Mode X); a 5150 CGA file with its layer for the "
+        "286, and BANKED AND LAYERED - a 286 base with its bank, its layer "
+        "for the 486 - each with a yardstick that says which is faster",
         needs=("ffmpeg",)),
     Row("mcperf", "soak", py("tests/mcperf.py"), 50.0,
         "SPEC.md 48.16.2: does Missile play the SAME GAME twice? A fixed"

@@ -174,7 +174,12 @@ def groups_leg():
             ("vga4", {"flip": "1", "screen": "640x400"}, "--flip",
              True),
             ("cga4", {"spk_pulses": "2"}, "--spk-pulses", False),
-            ("herc-spk", {"spk_pulses": "2"}, "--spk-pulses", True)):
+            ("herc-spk", {"spk_pulses": "2"}, "--spk-pulses", True),
+            # NOTHING IN XMS UNDER THE SPEAKER (98.3.18.5): a bank and a
+            # layer are greyed there, and kept with a card's sound
+            ("herc-spk", {"bank": "2048"}, "--bank", False),
+            ("herc-spk", {"layer_disk": "600000"}, "--layer-disk", False),
+            ("modex", {"bank": "2048"}, "--bank", True)):
         v = G.form_start()
         v.update(G.target_fill(tgt(pre), 30.0))
         v.update(sets)
@@ -880,6 +885,9 @@ def leg12(tmp, bad):
     j.leftover(out)
     dt = time.time() - t0
     left = group(j.p.pid)
+    while left and time.time() - t0 < 2.0:  # (killed is not yet GONE: on a
+        time.sleep(0.05)                    # loaded box the group's last
+        left = group(j.p.pid)               # exits land a beat later)
     same = open(out, "rb").read() == old
     part = os.path.exists(out + ".part")
     print("  12: cancelled at %s: gone in %.2f s, %d process(es) of its group "

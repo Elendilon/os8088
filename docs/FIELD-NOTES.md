@@ -19,7 +19,7 @@ Two rules the entries exist to serve:
   audio report sat here for months as a 5150 report and had come off PCem;
   the 5150 has no sound card.
 
-**Still open:** 3 (mechanism D), 10, 14, 19, 24.2, 28, 32, 43, 61, and one residual
+**Still open:** 3 (mechanism D), 10, 14, 19, 24.2, 28, 32, 43, 61, 63, 64, and one residual
 each in 33 and 37.
 
 ---
@@ -3290,3 +3290,70 @@ a CLICK (or let the song end), touch nothing, and photograph the panel under
 the menu bar. Esc and S in the bracket are worth trying too - if they also do
 nothing, it is not about Space.
 
+
+## 64. 286, Video Player: Esc, then the close box while the disk still clicks - the machine froze (OPEN - once in seven, not reproduced)
+
+Reported by the owner on their **real 286** (16 MHz AMD, PVGA1A on the
+board, laptop IDE disk, no sound card, `EMS.DRV` mounted and measured too
+slow, so the bank was XMS's - SPEC.md 98.3.18.8), playing a banked `.V88`
+full screen: Esc during the play, then quickly the window's close box while
+the hard disk was still clicking. **The machine froze**: the pointer stopped
+moving, the disk stopped, no progress bar in the menu bar. The keyboard
+lights were not tried. Six more tries did not freeze.
+
+What was running: Esc ENDS the session, and the disk after it is the
+window's timer reading the rest of the file into its hold in XMS
+(`vp_ontimer` -> `vp_xstep`, a 32 KB `READ_SEQ` and a 32 KB `int 15h AH=87h`
+a step). The player had no close negotiator, so the close tore it down with
+that load alive.
+
+**Ruled out, on reading the code**: the kernel's teardown reclaims it all
+(`inst_rel_rec`: `EMSV_GONE`, `XMV_RELINST`; the region's claims;
+`wm_destroy` clears the record `ui_timer_pass` tests, so the timer cannot
+fire into a freed segment); `READ_SEQ` keeps no read-ahead and the XMS copy
+is synchronous; the speaker's IRQ0 is bracket-bound. Every `pushf`/`cli` on
+the close path is balanced. **Not reproduced** on QEMU (XMS, no EMS board)
+in 26 tries, and three more per `tests/vidclose.py` run - though those 26
+never checked that the hold was still loading at the close, which
+`vidclose` now asserts. MartyPC has EMS and no XMS, so nothing here
+runs the owner's pairing.
+
+**What shipped** (SPEC.md 98.3.18.10): a close negotiator that stops the play
+and gives the hold back before the kernel frees anything. It changes the
+ORDER and is not shown to fix this. **What a recurrence on that build should
+tell**: whether the keyboard lights still toggle (Num Lock) - lit means
+interrupts are alive and the UI task is stuck, dark means IRQ0 or IF is
+wedged, entry 61's signature on another 286 BIOS. A kernel race found on the
+way, which needs a WORKER and so not this file (the player hires one only
+for a Live play): `ui_timer_pass` tested `W_FLAGS` before `gfx_lock`, which can
+block while a dying worker frees the window, and called the handler without
+testing again - FIXED, SPEC.md 13.9.2, `tests/timerrace.py`.
+
+
+## 65. 286, Video Player on the PC speaker: a disk-heavy file plays slow, "nothing late" (FIXED - SPEC.md 52.1.1)
+
+Reported by the owner on their **real 286** and reproduced identically on
+86Box's `mr286`: PCWolf.V88 (286-pvga, Mode X, 394 KB/s, 8 kHz on the
+speaker), booted from floppy with HDD.DRV and the file on a hard-disk
+partition, played its 15.1 s in ~17.5 s with the sound breaking up - and the
+card said nothing late, nothing stalled, and the ticks on target. Muted it
+played normally; held whole in XMS (a smaller encode) it played in time; a
+20 KB/s speaker file for the 5150 played fine.
+
+**The cause**: the drive is one the BIOS knows, so HDD.DRV read it on rung 0,
+the BIOS's int 13h - and an AT BIOS moves an IDE sector by PIO with
+interrupts OFF. Under the speaker IRQ0 is one a sample and the play's clock
+is the samples played, so every one due inside a read was lost, and the
+kernel tick the speaker's ISR chains with it: a play slow by exactly what
+was lost, tick for tick on a clock that was losing too. Ruled out on the way:
+the speaker's own cost (SPKBENCH on 86Box: 6.9% at 8 kHz, under the
+profile's 9.2%), fragmentation (the files are one run each), and the
+player's and the kernel's own interrupt-off windows. **The decisive test was
+the owner's**: MR BIOS told there was no hard disk, so rung 1 found the
+drive instead - and PCWolf played in 15.1 s with clean sound.
+
+**The fix**: rung 1 takes a drive the BIOS also knows on a 286 or better,
+once LBA 0 read through both rungs agrees (SPEC.md 52.1.1), so no BIOS
+setting is needed - and the boot partition of an installed machine (a video
+disk is one partition) is handed to the driver too, `OSAPI_VOL_TAKE`, and
+given back to the BIOS when the driver goes. `tests/hdtake.py` is the gate.

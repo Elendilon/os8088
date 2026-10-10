@@ -1779,13 +1779,27 @@ CPU_F_X87           equ 0x08     ; an 8087/287/387 IS IN THE SOCKET, probed
                                  ; second drive icon on the same sectors.
                                  ;
                                  ; It answers about BIOS-transport volumes and
-                                 ; only those. Your own rows are yours to
+                                 ; only those - and one OSAPI_VOL_TAKE handed
+                                 ; to a driver, still the boot partition. Your own rows are yours to
                                  ; recognise: the kernel never learns their
                                  ; partition base (it hands you a
                                  ; volume-relative LBA and you add it), and a
                                  ; DV_UNIT that is your own volume handle would
                                  ; collide with an int 13h drive number for
                                  ; free. Unfenced, because it changes nothing
+%define OSAPI_VOL_TAKE      KERNEL_SEG:0x0467   ; DL, BX:CX = OSAPI_VOL_AT's
+                                 ; partition, AH = your own volume handle.
+                                 ; out CF=0 and AL = the volume index, which
+                                 ; YOU now read: the kernel's BIOS volume for
+                                 ; that partition, mounted as it is, handed to
+                                 ; your DSV_BLK (SPEC.md 52.1.1). For a disk
+                                 ; you have PROVED is the one that int 13h
+                                 ; drive reaches. OSAPI_VOL_DEL gives it BACK
+                                 ; to the BIOS rather than freeing it, so the
+                                 ; system volume survives your unload; and
+                                 ; OSAPI_VOL_AT still answers for it. CF=1 =
+                                 ; no BIOS volume is that partition, or you
+                                 ; are not a driver. DRVC_DISK drivers only
 
 ; --- a REDIRECTED volume's listing (SPEC.md 62.9.1) -------------------------
 ; A DRVC_FILE DRIVER's slot, and the narrowest fence in the table: it is legal
@@ -2455,6 +2469,10 @@ DQ_MAXREC  equ 8                 ; the most records one call can write, so
                                  ; back yours, so a verb cannot answer in
                                  ; those.
                                  ;
+                                 ; (DRVC_EMS's driver is handed YOUR instance
+                                 ; slot in BH instead, by the kernel, and puts
+                                 ; the class back: BX returns as it went -
+                                 ; SPEC.md 107.1)
                                  ; **DI IS AN ARGUMENT AND NOT AN ANSWER**: it
                                  ; reaches the driver as you set it - a verb
                                  ; taking ES:DI is the ordinary shape for one
@@ -2555,6 +2573,36 @@ DRVC_POINT   equ 6              ; a pointing device the kernel does not
                                 ; drive itself - the CH375 USB mouse (SPEC.md
                                 ; 9.12). Publishes no package entry point; its
                                 ; one kernel call is OSAPI_MOUSE_FEED
+DRVC_EMS     equ 7              ; EXPANDED MEMORY - a LIM EMS board's page
+                                ; registers, EMS.DRV (SPEC.md 107). Pages are
+                                ; MAPPED into a 64 KB frame below 1 MB, never
+                                ; copied: an 8088 can have it. Its verbs, by
+                                ; OSAPI_DRV_CALL with BH = DRVC_EMS:
+EMSV_IDENT   equ 0              ; out AX = 'EM'
+EMSV_CAPS    equ 1              ; out AX = pages free, CX = pages on the
+                                ; board, DX = the frame's segment, SI = the
+                                ; quarters nobody holds (bits 0-3)
+EMSV_ALLOC   equ 2              ; AX = 16 KB pages -> AX = a handle (1..8),
+                                ; one CONTIGUOUS run of the board's pages
+EMSV_FREE    equ 3              ; AX = a handle of yours
+EMSV_FRAME   equ 4              ; AL = quarters (bits 0-3): ALL yours or
+                                ; none. out DX = the frame's segment, and THE
+                                ; RECIPE an interrupt maps with: CX = quarter
+                                ; 0's register, SI = the step to the next
+                                ; one's, AL = bits to OR into a page's value
+                                ; (SPEC.md 107.4)
+EMSV_UNFRAME equ 5              ; AL = quarters of yours to give back
+EMSV_MAP     equ 6              ; AL = a quarter you hold, DX = a handle of
+                                ; yours, CX = a page of it: mapped
+EMSV_BASE    equ 7              ; AX = a handle of yours -> AX = its first
+                                ; page on the board, CX = its length
+EMSV_GONE    equ 8              ; the KERNEL's: an instance is torn down
+EMSE_ROOM    equ 1              ; CF=1 AX = ...no run of pages that long
+EMSE_HND     equ 2              ; ...no free handle
+EMSE_BAD     equ 3              ; ...not yours, or out of range
+EMSE_BUSY    equ 4              ; ...a quarter is another instance's
+EMS_NHND     equ 8              ; handles on the whole machine
+EMS_PAGE     equ 16384          ; bytes a page, and a quarter of the frame
 %define OSAPI_FILE_HERE     KERNEL_SEG:0x01C1   ; out DX = YOUR instance's
                                  ; current directory (0 = the root), BL = its
                                  ; drive. No disk I/O.

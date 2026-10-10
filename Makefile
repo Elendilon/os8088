@@ -3019,6 +3019,11 @@ DRIVERS += $(BUILD)/saver.drv
 # every kern_big disk, and kern_small's $(SMALLDRIVERS) is a restatement that
 # never held it
 DRIVERS += $(BUILD)/usbmouse.drv
+# ...and SPEC.md 107's EMS.DRV, a LIM EMS board's page registers: a drv_tab
+# row with SYSTEM.CFG bit 7, not wanted by default (its probe writes ports),
+# so a disk that carries it costs a machine with no board one directory slot
+# and nothing read. kern_big's alone, like every row past the parallel link
+DRIVERS += $(BUILD)/ems.drv
 # ...and SPEC.md 9.11's absolute pointer is NOT HERE, which is the one entry
 # in this list that is an absence. Its code is 386 instructions and the target
 # machine is an 8088, so it is the one file in the tree that MUST NOT BE
@@ -3925,6 +3930,14 @@ $(BUILD)/usbmouse.bin: drivers/usbmouse/usbmouse.asm drivers/usbmouse/ch375sim.i
 $(BUILD)/usbmouse.drv: $(BUILD)/usbmouse.bin tools/os88drv.py $(PKGZSTAMP)
 	$(OS88DRV) $(BUILD)/usbmouse.bin -o $@
 
+# EMS.DRV - expanded memory on a LIM EMS board (SPEC.md 107)
+$(BUILD)/ems.bin: drivers/ems/ems.asm drivers/os88drv.inc apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I drivers/ -I apps/ -o $@ $<
+	@echo "ems: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/ems.drv: $(BUILD)/ems.bin tools/os88drv.py $(PKGZSTAMP)
+	$(OS88DRV) $(BUILD)/ems.bin -o $@
+
 # RAMDISK.DRV - a DRVC_FILE volume with no hardware behind it (SPEC.md 62.9),
 # and the FILE REDIRECTOR'S HARNESS: every branch site the redirector added to
 # the kernel runs on a cycle-accurate 8088 in a container, which is the one
@@ -4298,7 +4311,39 @@ $(BUILD)/usbmsim.img $(BUILD)/usbmbusy.img: $(BUILD)/usbm%.img: $(BUILD)/boot360
 .PHONY: usbmousetest
 usbmousetest: $(BUILD)/usbmsim.img $(BUILD)/usbmbusy.img
 	@echo "usbmousetest: build/usbmsim.img + build/usbmbusy.img - USBMOUSE.DRV"
-	@echo "              wanted, over a CH375 model. Run: python3 tests/usbmouse.py"
+
+# EMSTEST - SPEC.md 107.7's gate disk: the 360KB system disk with a SYSTEM.CFG
+# that wants EMS.DRV (bit 7) and EMSTEST.O88 in its root. MartyPC's
+# os8088_5150_herc_hdd_sb_ems_gla carries the Lo-tech board the driver finds;
+# tests/ems.py also boots it on a machine with NO board, where the driver must
+# refuse and the package must be told nobody is there. The SYSTEM.CFG in a
+# directory of its own for build/vmmcfg's reason: os88disk.py names a file on
+# the volume by its basename
+$(BUILD)/emstest.bin: tests/emstest/emstest.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/emstest/emstest.asm
+
+$(BUILD)/emstest.o88: $(BUILD)/emstest.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/emstest.bin -o $@
+
+$(BUILD)/emscfg/system.cfg: | $(BUILD)
+	@mkdir -p $(BUILD)/emscfg
+	python3 -c "import sys; sys.stdout.buffer.write(b'O88CFG\0\0' + \
+	  (3).to_bytes(2,'little') + b'DW' + bytes([1,2]) + \
+	  (1 << 7).to_bytes(2,'little') + b'\0\0')" > $@
+
+$(BUILD)/emstest.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(COREAPPS360) \
+            $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/emstest.o88 \
+            $(BUILD)/emscfg/system.cfg tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 \
+		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) $(COREAPPSARGS360) $(SYSDOC) \
+		$(SYSLOGOARG) $(FACESARG360) $(BUILD)/emscfg/system.cfg \
+		$(BUILD)/emstest.o88 $(APPDATAFOLDER)
+
+.PHONY: emstest
+emstest: $(BUILD)/emstest.img
+	@echo "emstest: build/emstest.img - EMS.DRV wanted, EMSTEST.O88 at the root"
+	@echo "              Run: python3 tests/ems.py, python3 tests/videms.py"
 
 # THEWIRETEST: the Wire's gate disks (SPEC.md 92.12), ethertest's shape and
 # for ethertest's reason - the driver is asked for by a SYSTEM.CFG that is ON
@@ -10445,6 +10490,30 @@ vid486: $(VIDENC_BASE) $(BUILD)/videodiag.o88 $(BUILD)/vidbench.o88 \
 	python3 tools/os88disk.py -o $(BUILD)/vid486out.img --size 1440
 	python3 tools/os88disk.py --verify $(BUILD)/vid486out.img
 	@ls -l $(BUILD)/VID486.VHD $(BUILD)/vid486out.img
+
+# THE 286 BENCH FLOPPY: vid486's bench half on a floppy, for a real 286 whose
+# hard disk has no room for a 31 MB image - VIDBENCH with the SAME synthetic
+# frames the 86Box 286 and 486 profiles were fitted from (synthxdv), so a real
+# machine's reading sets beside theirs; VIDDISK (X, E, R, W), VIDSND and the
+# VPDIAG player besides. 360 KB for a 5.25" drive and 720 KB for a 3.5" one.
+.PHONY: vid286
+vid286: $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 $(BUILD)/vidsnd.o88 \
+	$(BUILD)/videodiag.o88 tools/os88vid.py tools/os88disk.py \
+	tests/vidbench/FIELD286.TXT
+	rm -rf $(BUILD)/vid286 && mkdir -p $(BUILD)/vid286
+	python3 tools/os88vid.py synthxdv $(BUILD)/vid286/SYNTH.XDV >/dev/null
+	python3 tools/os88vid.py benchdat --synth $(BUILD)/vid286/VIDBENCH.DAT \
+	    $(BUILD)/vid286/SYNTH.XDV >/dev/null
+	cp tests/vidbench/FIELD286.TXT $(BUILD)/vid286/README.TXT
+	cp $(BUILD)/videodiag.o88 $(BUILD)/vid286/VIDEOD.O88
+	for k in 360 720; do \
+	    python3 tools/os88disk.py -o $(BUILD)/vid286-$$k.img --size $$k \
+	        $(BUILD)/vid286/README.TXT $(BUILD)/vidbench.o88 \
+	        $(BUILD)/vid286/VIDBENCH.DAT $(BUILD)/viddisk.o88 \
+	        $(BUILD)/vidsnd.o88 $(BUILD)/vid286/VIDEOD.O88 || exit 1; \
+	    python3 tools/os88disk.py --verify $(BUILD)/vid286-$$k.img || exit 1; \
+	done
+	@ls -l $(BUILD)/vid286-360.img $(BUILD)/vid286-720.img
 
 # THE DEMO VIDEO DISKS (SPEC.md 98.5): a whole os8088 install on a hard disk
 # with the demo videos in MEDIA/ beside a 00-VIDS.TXT that describes them -

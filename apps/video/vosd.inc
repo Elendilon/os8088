@@ -30,8 +30,9 @@
 ; =============================================================================
 VO_ROWS     equ 12                  ; the box: 2 rows of ground, the glyph's
 VO_YOFF     equ 4                   ; 8, 2 more - 4 rows into the canvas
-VO_MAXC     equ 10                  ; the longest line: "Repeat off"
-VO_SAV      equ 1152                ; a page's save at the widest: 96 x 12
+VO_MAXC     equ 18                  ; the longest line: "Buffering 37% ~24s"
+VO_SAV      equ (VO_MAXC + 2) * 8 * VO_ROWS ; a page's save at the widest: a
+                                    ; character and its ground at 8 bytes
 VO_TOASTT   equ 27                  ; a toast's ticks: 1.5 s
 VO_INK      equ 255                 ; 256 colours' brightest (the palette's
                                     ; order, SPEC.md 98.2.3)
@@ -44,6 +45,7 @@ VOK_SNDOFF  equ 6                   ; M, S: muted (98.3.17)
 VOK_LOWMEM  equ 7                   ; the ring short of the stream's
 VOK_SNDON   equ 8                   ; ...and on again
 VOK_SNDNX   equ 9                   ; ...from the next play (no key to seek)
+VOK_BUF     equ 10                  ; the bank's prefill (98.3.18.3)
 VOM_1       equ 1                   ; the renderers
 VOM_2       equ 2
 VOM_8       equ 3
@@ -369,6 +371,16 @@ vo_post:
     je .un                          ; and every page it is on is put back
     cmp byte [vo_chg], 0
     je .dr
+    cmp byte [vp_flip], 0           ; ...unless it is A NEW TEXT AS WIDE as
+    jne .un                         ; the one up, on the one page: drawn
+    cmp byte [vo_drawn], 1          ; straight over it, ground and glyph in
+    jne .un                         ; one pass - put back first, the box
+    mov al, [vo_n]                  ; was off the glass between, which a
+    cmp al, [vo_dn]                 ; prefill's line changing every chunk
+    jne .un                         ; made a flicker (98.3.18.3)
+    mov byte [vo_chg], 0
+    xor bl, bl
+    jmp vo_draw
 .un:
     call vo_unall
     mov byte [vo_chg], 0
@@ -1337,7 +1349,7 @@ vo_s_soff:    db 'Sound off', 0
 vo_s_son:     db 'Sound on', 0
 vo_s_snx:     db 'Next play', 0
 vo_s_nokey:   db 'No seeking', 0
-vo_s_lowmem:  db 'Low memory', 0    ; (VO_MAXC: ten at most)
+vo_s_lowmem:  db 'Low memory', 0    ; (VO_MAXC: eighteen at most)
 vo_mode:      db 0                  ; the renderer, 0 none
 vo_rows:      dw VO_ROWS            ; the box's rows of the canvas (TEXT's 1),
 vo_rows2:     dw VO_ROWS * 2        ; ...twice that,

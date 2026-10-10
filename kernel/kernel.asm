@@ -4542,7 +4542,16 @@ apic_inst_minimize:               ; DOCK.DRV's door (SPEC.md 30.4)
                                   ;          size once, at the close or when
                                   ;          the UI unlocks. kern_big; the
                                   ;          small door refuses
-osapi_table_end:                  ; 0x0467 today (0x05A8 before pass 4's
+    OSAPI_RCXCELL osapi_vol_take_x ; 0x0467 - X: DL = an int 13h drive,
+                                  ;          BX:CX = a partition's base (as
+                                  ;          OSAPI_VOL_AT), AH = the driver's
+                                  ;          own volume handle: the BIOS
+                                  ;          volume that IS that partition
+                                  ;          becomes this driver's to read,
+                                  ;          mounted as it is, and is GIVEN
+                                  ;          BACK at OSAPI_VOL_DEL. out CF=0
+                                  ;          AL = its index (SPEC.md 52.1.1)
+osapi_table_end:                  ; 0x046D today (0x05A8 before pass 4's
                                   ; renumber). TWO cells came off the tail in
                                   ; the size pass: OSAPI_MEM_COMPACT_WAKE
                                   ; (0x0598) is 0x0590's MEMC_POST verb
@@ -4560,8 +4569,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 43*8 + 11*7 + 98*6 + 6*3 + 6 + 12*5 + 3*6
-%error "os8088 API jump table must be exactly 0x0457 bytes: 43 SLOT (8), 11 XCELL (7), 98 rare (6), 6 JCELL (3), 1 FCELL (6), 15 ICELL (12 of 5, 3 of 6)"
+%if OSAPI_TABLE_LEN != 43*8 + 11*7 + 99*6 + 6*3 + 6 + 12*5 + 3*6
+%error "os8088 API jump table must be exactly 0x045D bytes: 43 SLOT (8), 11 XCELL (7), 99 rare (6), 6 JCELL (3), 1 FCELL (6), 15 ICELL (12 of 5, 3 of 6)"
 %endif
 
 ; =============================================================================

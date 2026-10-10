@@ -313,6 +313,34 @@ def main():
                  / period, low[0], low[1]))
         if not cut:
             bad.append("the tight profile cut nothing: it tests nothing")
+        # --- 3a: W*H for WxH (98.2.1): accepted, and recorded as WxH
+        pa = venc.parser().parse_args([src, "o.V88", "--box", "640*480",
+                                       "--detail", "2*1", "--screen",
+                                       "320*240"])
+        print("   W*H: --box %s --detail %s --screen %s"
+              % (pa.box, pa.detail, pa.screen))
+        if (pa.box, pa.detail, pa.screen) != ("640x480", "2x1", "320x240"):
+            bad.append("W*H was not taken as WxH")
+        # --- 3a': --audio speaker refuses a bank, a layer and Live from XMS
+        # (98.3.18.5): the player makes no XMS copy under the speaker
+        for extra in (["--bank", "2048"], ["--layer-disk", "600000"]):
+            try:
+                run("spkx", "--preset", "herc-spk", "--end", "1", *extra)
+                bad.append("--audio speaker took %s" % extra[0])
+            except vid.V88Error:
+                print("   --audio speaker refuses %s" % extra[0])
+        # --- 3b: --avg auto (98.2.1.5) - the per-frame ceiling on a profile
+        # with a disk curve, the profile's own average on one without, and
+        # the record holds the SHARE it came to, never the word
+        for prof, want in (("5150-st225", 0.85), ("floppy", 0.50)):
+            p2, res2, k2 = run("auto-" + prof, "--preset", "herc",
+                               "--profile", prof, "--avg", "auto",
+                               "--end", "1")
+            got = vid.Reader(p2).options()["o"].get("avg")
+            print("   --avg auto on %s: %r (want %r)" % (prof, got, want))
+            if got != want:
+                bad.append("--avg auto on %s came to %r, not %r"
+                           % (prof, got, want))
         # ...and its FIRST PICTURE is whole before the keyframes start (the
         # pre-roll, SPEC.md 98.2.9): key 0 is exactly its frame's target -
         # a half-painted one is where a colour play starts
@@ -731,7 +759,10 @@ def main():
     meas = {"286-vga": (28.1, 900.1, 92.6, 1199.9, 1291.3, 1516.3, 1427.1,
                         2606.7, 2376.8, 2662.8, 2379.6, 246.4),
             "486": (2.5, 232.8, 19.7, 394.7, 428.5, 557.8, 545.6, 1055.4,
-                    1010.3, 1035.5, 977.4, 60.1)}
+                    1010.3, 1035.5, 977.4, 60.1),
+            # the owner's REAL 286 (docs/reports/VIDBENCH-PVGA286-2026-10-08.md)
+            "286-pvga": (25.4, 1014.1, 101.4, 1458.5, 1516.1, 1901.2, 1808.4,
+                         3229.4, 3075.6, 2971.7, 2739.1, 274.3)}
     for name, us in meas.items():
         P = venc.PROFILES[name]
         k = vid.HZ / 1e6 * P["speed"]

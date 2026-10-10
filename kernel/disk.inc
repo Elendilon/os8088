@@ -285,6 +285,11 @@ DV_LBL       equ 6               ; db[8]: the desktop label, NUL-terminated
                                  ;     means `lea si, [bx+DV_LBL]` is already
                                  ;     the DS pointer font_str wants, with no
                                  ;     staging buffer behind it
+DV_BUNIT     equ 14              ; db: a row a DRIVER TOOK from the BIOS
+                                 ;     (osapi_vol_take, SPEC.md 52.1.1): the
+                                 ;     int 13h drive it is given back to, 0
+                                 ;     on every other row. One of the two
+                                 ;     spare bytes DV_SEG's retirement left
 DV_SIZE      equ 16
 
 DVK_BIOS     equ 0
@@ -2620,7 +2625,9 @@ dsk_vol_slot_x:
 ; SECOND volume and a second desktop icon on the same sectors: one from the
 ; mount, one from the BIOS.
 ;
-; It answers about DVK_BIOS rows and only those, which is not tidiness. A
+; It answers about DVK_BIOS rows - and a row a driver TOOK from one (DV_BUNIT,
+; osapi_vol_take, 52.1.1), which is still the partition the kernel booted
+; from - and no others, which is not tidiness. A
 ; driver-backed row's DV_UNIT is the DRIVER's own volume handle - a small
 ; integer that would collide with an int 13h drive number for free - and its
 ; partition base never reaches the kernel at all, dsk_xfer handing the driver
@@ -2629,7 +2636,8 @@ dsk_vol_slot_x:
 ; is the half it cannot see.
 ;
 ; dsk_vbase is written by dsk_boot_from ALONE and that row can never be freed
-; (dsk_vol_del takes only DVK_DRV and DVK_FILE), so a stale base cannot be
+; (dsk_vol_del takes only DVK_DRV and DVK_FILE, and gives a TAKEN row back
+; rather than freeing it), so a stale base cannot be
 ; inherited by a row somebody else later takes - which is what makes the
 ; comparison below safe with no clearing anywhere.
 ; -----------------------------------------------------------------------------
@@ -2642,9 +2650,13 @@ osapi_vol_at_x:
     mov di, dsk_vbase           ; ...whose stride is 4 and not DV_SIZE: the
 .scan:                          ; base is a side table indexed by VOLUME
     cmp byte [si+DV_KIND], DVK_BIOS ; a free row is 0xFF, so this drops it too
-    jne .next
+    jne .took
     cmp [si+DV_UNIT], dl
-    jne .next
+    jmp short .unit
+.took:
+    cmp [si+DV_BUNIT], dl       ; ...or a row a driver TOOK (52.1.1): still
+.unit:                          ; the partition the kernel booted from, and
+    jne .next                   ; its base still in dsk_vbase
     cmp [di], cx                ; the base, low word...
     jne .next
     cmp [di+2], bx              ; ...and high
@@ -2792,6 +2804,18 @@ dsk_vol_del:
                                 ; floppy is not (0 - 1 wraps high), and
                                 ; neither is a free row (0xFF - 1). One
                                 ; unsigned range test for the two kinds
+    mov ah, [bx+DV_BUNIT]       ; ...BUT A ROW THE DRIVER TOOK IS GIVEN BACK
+    or ah, ah                   ; (52.1.1): the boot volume, mounted, and the
+    jz .free                    ; BIOS reads it again - an unload, an unmount,
+    pushf                       ; a hibernate's detach or the DOS box's
+    cli                         ; handoff must never drop the system volume
+    mov [bx+DV_UNIT], ah
+    mov byte [bx+DV_CLASS], 0   ; (a BIOS row's class is 0)
+    mov byte [bx+DV_BUNIT], 0
+    mov byte [bx+DV_KIND], DVK_BIOS
+    popf
+    jmp short .out
+.free:
     mov byte [bx+DV_KIND], DVK_FREE
     mov byte [bx+DV_FLAGS], 0
     mov byte [bx+DV_LBL], 0
@@ -2914,6 +2938,50 @@ osapi_vol_add_x:
     call osapi_vol_fence
     jc .no                      ; CF = 1 is the answer as it arrives, and
     call dsk_vol_add            ; dsk_vol_add's is the answer otherwise
+.no:
+    retf
+
+; -----------------------------------------------------------------------------
+; osapi_vol_take - slot 0x0467 (X: ES = the caller's segment), SPEC.md 52.1.1
+; in:  DL = an int 13h drive, BX:CX = a partition's base (OSAPI_VOL_AT's), AH =
+;      the driver's own volume handle
+; out: CF = 0 and AL = the volume index, whose TRANSPORT is now the caller's;
+;      CF = 1 = no BIOS row is that partition, or the caller is no driver
+;
+; The boot partition of an installed machine is a DVK_BIOS row the kernel
+; adopted before any driver loaded (52.10.3), and int 13h is the BIOS's PIO
+; with interrupts OFF on an AT - which loses the PC speaker's samples. A
+; DRVC_DISK driver that has proved it reaches the same disk with interrupts
+; on hands the row to itself here: mounted as it is, nothing re-read. Its
+; int 13h drive goes in DV_BUNIT and its base STAYS in dsk_vbase, so
+; OSAPI_VOL_AT still names it and dsk_vol_del gives it BACK rather than
+; freeing it. dsk_xfer reads the row on every transfer, so the next is the
+; driver's.
+; -----------------------------------------------------------------------------
+osapi_vol_take_x:
+    call osapi_vol_fence        ; [dsk_vcls] = the caller's class
+    jc .no
+    call COLD_SEG:osapi_vol_at_x    ; AL = the row covering DL, BX:CX
+    jc .no
+    push bx
+    mov bl, al
+    call dsk_vol_row_x          ; BX = the row
+    cmp byte [bx+DV_KIND], DVK_BIOS
+    stc
+    jne .out                    ; taken already
+    pushf
+    cli
+    mov [bx+DV_BUNIT], dl
+    mov [bx+DV_UNIT], ah
+    push ax
+    mov al, [dsk_vcls]
+    mov [bx+DV_CLASS], al
+    pop ax
+    mov byte [bx+DV_KIND], DVK_DRV  ; published LAST
+    popf
+    clc
+.out:
+    pop bx
 .no:
     retf
 

@@ -24623,9 +24623,14 @@ payoff now — being at the door, it covers `fsx_mode` too.
 entered from the same hold has not had one, so a package that repaints its
 window through a region and then calls `OSAPI_FSX_RUN` clips the teardown to
 its own window: `[fpg_on]` goes to 0 and the bar stays on the glass for good.
-Audio did exactly that (§86.21.2). The rule for a package is the one Tracker
-and the Video Player already keep: **disarm with `OSAPI_WM_CLIP_CLEAR` when
-the window is drawn**. The kernel does not do it for the caller - clearing a
+Audio did exactly that (§86.21.2), and so did the Video Player: `vp_srun`
+draws the buttons and the box through the window's region before an
+in-window play, and a play from a KEY reads that key's record first, in the
+same hold - so the widget was up, the teardown clipped, and the bar frozen
+for the whole play (2026-10-10, the owner's Hercules; `vidwin` step 6). The
+rule for a package is the one Tracker keeps and the player now does, at the
+bracket's door: **disarm with `OSAPI_WM_CLIP_CLEAR` when the window is
+drawn**. The kernel does not do it for the caller - clearing a
 region the app armed at the door would change what a same-mode bracket's
 first frame is clipped to, for every bracket in the tree, to cover one
 package's omission.
@@ -25726,6 +25731,37 @@ already keeps (§37); an app needing finer pacing inside a frame is asking for
 §53's fullscreen bracket and `fsx_wait`, and one needing work done while it is
 closed is asking for a worker (§20.6). This is the cheap middle: a package
 that wants to be poked once, shortly, and then left alone.
+
+### 13.9.2 Asked again under the lock (2026-10-09)
+
+**`ui_timer_pass` tests the record twice: once to find a due timer, and
+again after `gfx_lock` returns, before the handler is called.** The first
+test is what makes the walk cheap; the second is what makes it safe,
+because `gfx_lock` can BLOCK - and the holder it waits on may be a package's
+dying WORKER. `inst_task_die` destroys the window under the lock
+(`inst_unwin`, `wm_destroy` writing `W_FLAGS` = 0) and frees the region the
+moment it lets go (`mem_free_rec`). The pass resumed and called the handler
+anyway, through a `W_SEG` that names memory the heap had already got back:
+a wild far call. The handler word is read again under the lock for the same
+reason - a record re-used meanwhile is another window's, and its
+`W_ONTIMER` may be 0.
+
+A task-less instance cannot reach it: `app_close_win` tears that down on the
+UI task itself, under the lock, between two passes. It wants a worker, a
+due timer and a close at once, which is why nothing had ever been seen to
+hit it (it was found reading the close path for docs/FIELD-NOTES.md 64,
+whose package hired no worker). A WAKE has no such window - `wm_wake_call`
+dispatches without the lock, so there is no wait between its test and its
+call.
+
+`timerrace` is the gate, on MartyPC, and it makes the instant rather than
+waiting for one: a Disk window's record is given a due timer, the guest is
+stopped at `ui_timer_pass.locked` (SI asserted to be that record), `W_FLAGS`
+bit 0 is cleared there as a worker's teardown leaves it, and the pass must
+reach `.gone` before `ui_bill`. Broken on purpose - the `jz .gone` after the
+re-test taken out - it stops at `ui_bill`. 12 bytes of `.text`, resident
+(the routine's span 76 -> 88), on kern_big only - kern_small has no
+window timer, and refuses the slot.
 
 ### 13.10 The SCROLL BAR — the second shared element
 
@@ -86409,6 +86445,137 @@ is an ordinary state rather than an exotic one: it is a 286 with an early IDE
 drive and a CMOS type table that predates it. The page carries an editable
 C/H/S triple bounded by what CHS can carry (1..1024, 1..255, 1..63) and
 recomputes the size from it live, in the Date/Time page's field idiom (§31.5).
+
+#### 52.1.1 Rung 1 takes a drive the BIOS also knows (2026-10-09)
+
+**On a 286 or better, a drive both rungs answer for is read through the task
+file, once it is proved the same disk.** Rung 0 stays first for everything
+else, for the reasons above. The exception exists because **an AT BIOS moves
+an IDE sector by PIO with interrupts OFF**, so every int 13h read loses
+whatever IRQ0 fell due inside it - and a Video Player stream on the PC
+speaker, whose clock is one IRQ0 a SAMPLE (§98.3.15), plays slow by exactly
+what was lost, tick for tick on its own clock, with nothing late and nothing
+stalled. The owner's 286 and 86Box's `mr286` both played a 15.1 s, 394 KB/s,
+8 kHz file in ~17.5 s through the BIOS, with the speaker's sound breaking up,
+and in 15.1 with clean sound once the BIOS was told there was no disk and
+rung 1 found it instead. Rung 1's `in ax, dx` / `stosw` loop runs with
+interrupts ON. (§34.11.4 had already measured the 8088's version of this off
+an XT-IDE ROM, 15.4% of pulses lost while the ring refills; files made for a
+5150's speaker read 20 KB/s, which is why it never looked like this.)
+
+- **Paired at attach, proved at READY.** `hd_at_dup`'s match - heads and
+  sectors equal, the BIOS's cylinders no more than the drive's - no longer
+  only drops the IDE unit: on a drive of at most 16 heads (four bits of task
+  file) the BIOS row records the unit and the port, and `hd_twins`, first
+  thing in `hd_ready` (where `OSAPI_MEM_CLAIM_DMA` answers, and BEFORE the
+  settings blob is matched to devices by what each IS), reads LBA 0 through
+  int 13h and then through the task file into a 1 KB claim. The row becomes
+  an IDE row only when both reads succeed, the BIOS's sector carries the
+  55AA signature, and the two are the same 512 bytes. Geometry is not
+  identity: the comment above names an MFM drive the BIOS knows beside an
+  IDE drive it does not, of the same heads and sectors, and two blank disks
+  would agree on LBA 0. Anything short of proof leaves the BIOS row exactly
+  as it was.
+- **The row keeps its int 13h drive** in `HDD_BIOS` (offset 3, which was
+  padding), because two things still ask by it: `hd_kvol`, so the boot
+  partition of an installed machine is still recognised as the KERNEL'S
+  (§52.10.3.1) and never mounted a second time, and `DSV_GEOM` (`hd_geom`,
+  §87.5), so a hibernate image on such a drive is still one the resume
+  stub can read through the ROM - it is the same disk.
+- **The geometry is the BIOS's** - the one the partition table was written
+  against - told to the drive with `91h INITIALIZE DEVICE PARAMETERS`
+  before the proving read, as every IDE row's is.
+- **A settings record for the drive no longer matches** (it names a BIOS
+  row, 80h; the device is an IDE row now), so that drive's saved typed
+  geometry is ignored once; it is probed, the geometry is the BIOS's, and
+  the automount takes every probed device anyway (§52.6.1).
+- **And the boot partition too: `OSAPI_VOL_TAKE`.** The kernel adopts the
+  partition it booted from as a `DVK_BIOS` row before any driver loads
+  (§52.10.3), and a video disk is one partition - so a driver that could not
+  take that row would leave every video on C: of an installed machine
+  playing slow, and the same file fine on D:. `hd_mount`, finding a
+  partition the kernel already carries (`hd_kvol`) on a drive it TOOK,
+  calls `hd_mount_one` with `[hd_take]` set, and that asks the kernel for
+  the row in place of adding one: slot 0x0467, an X cell behind
+  `osapi_vol_fence` (so the class stamped is the caller's), `OSAPI_VOL_AT`'s
+  arguments plus the driver's handle in AH. The row becomes `DVK_DRV`,
+  mounted as it is - nothing is listed again, and `dsk_xfer` reads the row
+  on every transfer, so the next one is the driver's.
+  - **It keeps its int 13h drive in `DV_BUNIT`** (row offset 14, one of the
+    two bytes DV_SEG's retirement left spare) and its base stays in
+    `dsk_vbase`, so `OSAPI_VOL_AT` still names it - the installer still
+    refuses the running volume, and `hd_mount` still finds it its own.
+  - **`dsk_vol_del` GIVES IT BACK** rather than freeing it: kind `DVK_BIOS`,
+    unit the BIOS's, class 0, at IF = 0. Both of the kernel's ways of
+    dropping a driver's volumes end there - an unmount's `OSAPI_VOL_DEL`
+    and `dsk_vol_drop_drv_x` at an unload, which is also a hibernate's
+    detach and the DOS box's handoff - and without it every one of them
+    FREES THE SYSTEM VOLUME: measured, the row went to `DVK_FREE` and the
+    driver could not even be loaded again off it.
+  - **+84 resident bytes of kernel** on both builds (`.text` +6, the cell;
+    `.cold` +78), and none of `HDD.DRV`'s image: the driver's half fits in
+    padding the image already had.
+
+`hdtake` is the gate, on QEMU - the one emulator here with a 286-class CPU and
+a BIOS that knows an IDE disk: device row 0 must be IDE on 1F0h unit 0 with
+`HDD_BIOS` 80h, the only row, and C: must list a package and launch it
+through rung 1. `hdtakeblank` is the refusal, the signature wiped.
+`hdtakeboot` is the installed machine: C: handed over (`DVK_DRV`,
+`DV_BUNIT` 80h) and a package launched off it, the driver unticked and C:
+given back to the BIOS intact, ticked again and taken again. Broken on
+purpose - the take skipped, or the give-back - it goes red at B1, or at B3
+with the system volume freed. +180 bytes of `HDD.DRV`'s image (3,584 ->
+3,764 with 16 of bss, inside the 4 KB claim it already took), all of it in
+the attach-only run that `hd_mbr` is laid over and the 180 bytes past it.
+
+#### 52.1.2 Rung 1 reads with `rep insw` (2026-10-10)
+
+**A read through the task file is `rep insw`**, emitted as `db 0xF3, 0x6D`
+because the tree is `cpu 8086`: rung 1 is reached on `CPU_286` and up only
+(§52.1), so the 186 instruction is always legal where it runs. It was
+`in ax, dx` / `stosw` / `loop`, about 16 clocks a word on a 286 against
+`rep insw`'s 4 (both before the bus's own I/O and memory cycles, which they
+share) - so the old loop cost a 384 KB/s stream ~196,000 words x 12
+clocks a second, **~15% of a 16 MHz 286**, which §52.1.1 had just made the
+VIDEO STREAM'S: once rung 1 took the owner's drive from the BIOS, whose own
+int 13h uses `rep insw`, the CPU the decode had been given became the disk
+the reader lacked. Measured on the owner's 286 with a `VPDIAG=1` player and
+a Mode X file on the speaker at 3.75 x 8088: `Lead 1 at f71`, 312 stalls,
+433 late, the speaker dry 73 times for 1.9 s - a reader that never got more
+than one chunk ahead.
+
+`rep insw` is interruptible like every REP string op: IRQ0 is taken between
+words with the count in CX, which is what keeps the speaker's samples
+(§52.1.1). A WRITE stays a word at a time - `rep outsw` wants DS:SI and SI
+is the transfer's sector count. 0 bytes: the two opcode bytes replace the
+four-instruction loop and the image is the same 3,764. `hdtake`,
+`hdtakeboot` and `hdtakeblank` are the function gates (QEMU; every read
+through rung 1).
+
+**Measured on the owner's 286 (2026-10-09), and it is the whole gap.**
+VIDDISK off C: with the drive taken (`int13 calls, 8 x 32K` reads **0**, so
+every byte came through rung 1) against the same machine's BIOS run of
+2026-10-08, the silent player's ceiling in KB/s:
+
+| hook holds | BIOS (`int 13h`) | rung 1, `rep insw` |
+|---|---|---|
+| 0% | 729.5 | 755.1 |
+| 25% | 684.7 | 684.7 |
+| 50% | 486.3 | 479.9 |
+| 75% | 294.3 | 300.7 |
+| 50%, interrupts off | 441.5 | 486.3 |
+
+Equal within the instrument, so the `286-pvga` profile's `disk_at` curve,
+taken through the BIOS, describes rung 1 too and was left as it is. The
+short single-shot rows above the ceilings (READ_AT, READ_SEQ by chunk size)
+are whole PIT ticks over eight reads and moved both ways by one or two
+ticks; the ceilings are the averaged rows and the ones the encoder prices.
+The rung-1 loop before this change was never put through VIDDISK, so its
+~15% is the arithmetic above and not a measurement. The field result is
+the plays: the sound-ahead file above, unchanged and not re-encoded, went
+from 312 stalls and 433 late to **361 of 361 drawn, 0 stalls, 0 late, 274
+ticks of 273, `Lead 5 at f84`, the speaker never dry**, and the same video
+encoded without sound ahead plays clean with it too.
 
 ### 52.2 The disk tool — one window, one button
 
@@ -156987,7 +157154,11 @@ stream behind them is read sequentially.
 | 448 | 16 | the loop block, with LOOPREC (98.1.1.2); else 0 |
 | 464 | 4 | with AHEAD, the START's lead: frames 0 .. *A* - 1's sound (98.1.8); else 0 |
 | 468 | 4 | with KLEADS, the KEYS' LEADS: key *i*'s at this offset + *i* x *A* x `abytes` (98.1.8.1); else 0 |
-| 472 | 40 | 0 |
+| 472 | 2 | THE BANK its encode assumed, KB: an XMS bank ahead of the ring (98.3.18.2, 98.3.18.3); 0 none. NO FLAG - a player made before reads nothing past 472 and plays the file |
+| 474 | 2 | ...and the PREFILL it banked on before the first frame, KB; FFFFh the bank whole; 0 with a bank of 0 |
+| 476 | 24 | THE LAYER, with one (98.1.9); else 0 |
+| 500 | 2 | THE BASE'S YARDSTICK: key 0's decode on the machine the encode is for, in 10 us, for any stream with keys (98.3.18.9); 0 none. NO FLAG, like 472 |
+| 502 | 10 | 0 |
 
 **The divisor is the host's arithmetic, not the player's.** `1,193,182 ×
 samples / rate` is a 38-bit product, which an 8086 would need two divides to
@@ -158174,6 +158345,193 @@ PCM8 with a seam, ADPCM4 - and requires the same sound for every frame,
 a seek from every key that plays the stream's own (ADPCM4 decoded from the
 key's reference), and four damaged files refused.
 
+#### 98.1.9 THE LAYER: one file, a better play on a better machine
+
+**A file made for a slow disk carries a second stream, encoded on top of
+the first, that a machine with disk and CPU to spare reads as well**
+(2026-10-09). Every player plays the base; one that reads the layer plays
+better. docs/plans/VIDEO-OVERAGE-PLAN.md 7 is the measurement behind it -
+3.81% -> 2.48% error as seen on the owner's 286 for a file made for 200
+KB/s - and it is that plan's "made for this disk, better on a better one".
+The format, the encoder and the player are BUILT, with the layer's own
+XMS BANK and PREFILL.
+
+- **The header**, at 476 (`LAYER_FMT`): u32 the layer's first super-packet,
+  u16 its sectors (64), u16 the disk it was made for in KB a second, u16
+  the memory it is banked in (KB), u16 its prefill (KB, FFFFh all of it),
+  u32 its key table, u16 its longest record, u16 its XMS bank (KB, at
+  494), and at 496 and 498 THE YARDSTICK - key 0's decode modelled on the
+  layer's machine and on the base's, in 10 us; all zero for no layer.
+  **No flag**: 98.1.1's 472 precedent - a player made before reads nothing past
+  472 and plays the base, which is the point of the format.
+- **The layer stream** follows the base's, in a region of its own so a
+  base-only machine never reads it: super-packets `first(32) frames(16)
+  next(16)` then a record for EVERY frame, chained by `next`, each naming
+  its first frame and running on from the last with no gap. A record is
+  98.1.3's with no audio, applied AFTER the base's record for the same
+  frame; `len` 2 alone is a frame the layer has nothing for.
+- **Every layer super-packet is a whole 32 KB - 64 sectors - on a 32 KB
+  boundary of the file**, the last padded too. A `READ_SEQ` reads at a
+  cluster multiple (18.4.8), and a file cannot know the cluster of the
+  disk it will be played from: 32 KB is a multiple of every FAT volume's
+  cluster up to 32 KB, and it is a player's slot, so a layer read is one
+  call into one slot and needs no mirror. ~Half a record a super-packet of
+  padding is what it costs.
+- **The key table**: 8 bytes a kept key - the layer super-packet holding
+  the key's NEXT frame, its sectors and the record's index - so a seek
+  resumes the layer where the base resumes.
+- **A stream's, played unflipped**: not RESIDENT, Live or flipped - every
+  layout and format otherwise, one plane or four, with a `--bank` or
+  without.
+
+**The options**, which say two different things and are kept apart:
+- `--layer-disk BYTES` is the better machine's WHOLE disk, base included -
+  `458752` is a 448 KB/s machine; the layer is what the base leaves of it;
+- `--layer-memory KB`, 64 or 128, is the CONVENTIONAL read-ahead the encode
+  assumes - the floor. The player takes what the heap has, not this (below);
+- `--layer-bank KB` is an XMS BANK for the layer ahead of those slots, and
+  `--layer-prefill KB|all` how much of the layer is read before the first
+  frame, into the slots and the bank. The layer's bucket is the slots and
+  the bank together, started that full - VIDEO-OVERAGE-PLAN's "load the
+  overage at prefill time", on the layer. While the bank holds anything the
+  layer's disk is the profile's `xcopy` slower, the base bank's rule;
+- `--layer-seek MS` (default 10) prices a seek each way per 32 KB of layer;
+- `--layer-profile NAME` makes the layer for ANOTHER MACHINE: its CPU, its
+  disk curve and (without `--layer-disk`) its disk. An encoder made for
+  that profile prices the base's records as IT decodes them and holds its
+  budget, so a CGA file for a 5150 carries a layer for a 286 - the same
+  canvas, the format being the base's. Not with the speaker's sound, whose
+  share is the base machine's.
+
+**BANKED AND LAYERED, CHOSEN AT THE PLAY** (2026-10-09): one file for a
+286 and a 486 - the base made for the 286 with its `--bank` and
+`--prefill`, the layer for the 486 (`--layer-profile 486`) - and the player
+decides which machine it is on:
+- **The yardstick is the play's own work.** The encoder models key 0's
+  decode on both machines and writes the two times in the header. At a
+  session's first frame, the key just drawn, the player decodes the same
+  record again for eight ticks from a tick's edge (`vp_lybench`, ~0.45 s)
+  and reads the layer only if its time is under the line: the mean of the
+  two machines', or an eighth over the layer's where they are one. On
+  MartyPC's 5150 the measured decode was 27.46 ms against its model's
+  27.04 - the model is close enough to draw a line between two machines a
+  factor apart (the 286-pvga and the 486 are 39.1 and 12.4 ms for the
+  vidlayer clip's key).
+- **Under the line, it is the layered play**: the base banked as encoded,
+  the layer read on top. **Over it, it is the banked play**: the base
+  exactly as made for the 286, and the card says why - `Layer off: key 120
+  ms, its 49`. No key at the start (a one-bit file from frame 0) means no
+  bench, and the layer's own lateness skips its records as before.
+- **The base's bank comes first**: where a file asks for both, the base's
+  is held to its own ask (header 472) and the layer's takes what is left,
+  so the 286 that will not read the layer loses nothing to it.
+- **The encode**: `--bank` and `--layer-*` together. On the layer's machine
+  the base's bucket is the ring and the base's bank, and while the bank
+  holds anything its copies slow that machine's disk at THAT machine's
+  `xcopy`.
+
+**WHEN NOT TO LAYER** - measured on the owner's Last Exile, 44 s of Mode X,
+silent, for the 286-pvga at 448 KB/s, error as seen:
+
+| the file | |
+|---|---|
+| a base made for 200 KB/s, alone | 1.36% |
+| ...with a layer for 448 KB/s | 0.55% |
+| ...with that layer's 3 MB bank prefilled | 0.32% |
+| ONE stream made for 448 KB/s | 0.26% |
+| ONE stream made for 448 KB/s, 3 MB `--bank` prefilled | **0.11%** |
+
+**A file for ONE machine is better made as one stream for it**, banked: the
+layer cannot undo a write the base chose, and a picture drawn as two
+records a frame costs more of the CPU than the same picture as one (the
+banked single stream was cut by the CPU 69 times and by the disk none). The
+layer is for ONE FILE ACROSS TWO MACHINES - a slow one that must play it
+and a fast one that should play it better - and `--layer-profile` is what
+lets those two be different CPUs.
+
+**The encode**: a second encoder
+(`LayerEnc`) whose screen is the enhanced player's, run `LAYER_LAG` (8 s)
+behind the base. Its disk is what the base's bucket would CLIP on the
+layer's machine - the ring full, the disk idle - less a seek each way per
+32 KB of layer; its CPU is the shared bucket above what every base frame in
+the window still needs, so no base frame runs late for it. The base is
+encoded exactly as it would be alone, and the gate asserts it.
+
+**The play** (`vp_ly*`):
+- **Its slots are claimed BEFORE the ring is sized** (`vp_lyclaim`) and
+  the PLAYER decides how many: `VP_LYMAX` (4) if the heap has them beside
+  the slots the ring's stream asks for, else two, else none - the base
+  first, always. The header's memory is the encode's floor and not an ask:
+  a player with less plays the layer and misses more of it. (The ring takes
+  every slot the heap offers, so a claim after it found nothing; this order
+  is the whole fix.)
+- **Its XMS BANK is taken at the file's open** (`vp_lyxopen`), AHEAD of the
+  base's bank, which takes what the pool has left: the header's ask, or the
+  pool less `VP_XRES`, in whole slots. A bounce slot is claimed beside the
+  conventional ones. The reader's order is FIFO: a slot the hook let go is
+  fed from the bank's head if it holds anything (`vp_lydrain`, every pass of
+  the loop, disk or no disk), else read straight off the disk; with every
+  slot full the disk is read into the bounce and copied up behind the
+  bank's tail. Not under the speaker's clock (98.3.18.5), and not on an
+  EMS-only machine yet.
+- **Its PREFILL** (`vp_lypre`) runs after the base's at a session's first
+  start, in the same `Buffering 37% ~24s` box: the header's KB of the layer,
+  or every slot and the bank whole for `all`, Space playing with what is in.
+  The fill before the first frame takes the SLOTS only; the bank is the
+  prefill's.
+- **It is read when the disk is FREE**: the bracket's loop reads the
+  layer's next slot (`vp_lyread`) where `vp_fill` answered that the ring is
+  full and the bank had nothing to take - which is exactly the spare the
+  encode priced, with no measurement of the disk at all. A fast disk is one
+  that finds the ring full more often. Its own `READ_SEQ` cursor; before
+  the first frame its slots are filled as the ring is.
+- **It is decoded in the hook after the base's record** (`vp_lydec`), the
+  same `vp_decrec`: unless the hook is BEHIND (two frames a call,
+  `vp_lybh`), which leaves the record out. A record whose slot arrived
+  after its frame is stepped over, never played late. A layer record is
+  values, so one left out leaves the base's bytes until something writes
+  them again.
+- **A seek** reads the key's entry out of the layer's key table and puts
+  the cursor at its super-packet; the hook steps over the records before
+  the play's first frame. Not with Repeat (the seam would want the layer's
+  place again), a flipped play, Live, or clusters past 32 KB: those play
+  the base. A layer read that fails STOPS THE READING and keeps what the
+  slots and the bank hold, which is still drawn; a record that runs off its
+  slot turns the layer off. The base plays on either way.
+- **The card** says after such a play, on line 4, `Layer drew 812, 21
+  missed, 0 late` - drawn, read too late for their frames, and left out
+  for a hook behind.
+
+`os88vid.Reader` checks every field and `verify_v88` every record by the
+writer's rules (`verify_layer`). **Three gates**:
+- `vidlayer` (host): the layered file's frame and keyframe records are the
+  plain encode's byte for byte; base then layer decodes to the encoder's
+  own enhanced screen exactly, and with the last layer record left out does
+  not; and the layered play beats the base (six seconds of a Mandelbrot
+  zoom made for 60 KB/s, the layer for 240: 3.34% -> 0.93% on VGA8, 2.20%
+  -> 0.08% on Mode X);
+- `vidlyplay` (MartyPC, a Hercules 5150 off a floppy): a Life clip made for
+  12 KB/s with a layer for 40, small enough to sit in the four slots -
+  held before frames, the screen is the host's base-then-layer decode byte
+  for byte with all 47 records drawn; with the layer's word zeroed it is
+  the BASE's and not the layered one; and from key 1 it is exact again;
+- `vidlyplaystream`: six seconds in two slots, refilled during the play
+  off a floppy that cannot keep up (49 drawn, 21 read too late on the
+  measured run) - the play ends with no error, exact at every hold before
+  the first miss;
+- `vidlayer`'s fourth arm, BANKED AND LAYERED: a Mode X base for the 286
+  with a 512 KB bank prefilled, its layer for the 486 - 0.87% -> 0.01%, the
+  yardstick 12.36 ms for the 486 against 39.09 for the 286;
+- `vidlyplay`'s fifth leg: the yardstick poked impossibly fast, so the
+  bench must say no - nothing of the layer drawn, the screen the base's at
+  every hold, the card `Layer off: key 27 ms, its 0`;
+- `vidlybank` (QEMU's 386): a clip held whole in XMS, `--layer-bank 512
+  --layer-prefill all` - the prefill fills the slots and the bank with the
+  whole layer and holds, B: is BLANKED, and the play draws all 89 layer
+  records with none missed, every slot after the first four fed from the
+  bank. `vidlybanknone` is its control: the bank zeroed, the same play
+  draws only what the slots held (23).
+
 ### 98.2 The host tools — `tools/os88vid.py`
 
 | command | what it does |
@@ -158226,6 +158584,10 @@ python3 tools/os88venc.py IN OUT.V88 [--preset P | --layout L --box WxH]
     [--text-detail D] [--text-sharpen S] [--text-busy B] [--text-stable E]
 python3 tools/os88venc.py --profiles
 ```
+
+A WxH - `--box`, `--detail`, `--screen` - may be written W*H as well
+(`640*480`), and is recorded as WxH, so a file and the window show one
+spelling.
 
 **Any video ffmpeg reads, to a file the player plays.** ffmpeg and numpy are
 needed for this and for nothing else in the tree; the `videnc` row SKIPS
@@ -158295,6 +158657,7 @@ without them (`ffmpeg` capability).
 | `floppy` | 15,000 | 50% / 85% | PCM8 5,512 | predicted |
 | `286` | 150,000 | 150% / 250% of an 8088's | PCM8 22,050 | predicted |
 | `286-vga` | 616,000 | 225% / 375% of an 8088's | PCM8 22,050 | the owner's 86Box 286 (98.2.3, 98.2.3.2, 98.2.3.4) |
+| `286-pvga` | 448,000 | 225% / 375% of an 8088's, priced by its own table | PCM8 22,050 | the owner's REAL 16 MHz AMD 286 with a PVGA1A on the board: decodes 12-29% slower than the mr286 (docs/reports/VIDBENCH-PVGA286-2026-10-08.md) |
 | `486` | 1,950,000 | 650% / 1,000% of an 8088's | PCM8 22,050 | the owner's 86Box 486DX2/66, ISA VGA and IDE (98.2.3.2, 98.2.3.6) |
 | `lossless` | none | none | PCM8 22,050 | every change |
 
@@ -158443,6 +158806,28 @@ cuts (Sonic 2 at the default profile, the others at a lower `--disk`):
 
 It costs the encoder about twice its time (Sonic 2's 10 s: 5.3 s -> 9.8 s).
 `--lookahead 0 --error bits` is the ranking before it, for the A/B.
+
+**THE MEAN HID WHAT A VIEWER SEES** (2026-10-09). The owner's Last Exile on
+the 286, banked, measured 0.15% error as seen and plays with scenes torn
+into horizontal bands - a cut leaves the rows it did not reach from the
+frames before, and a fast scene the CPU cannot redraw stays torn for two
+seconds. Two seconds of 44 is 0.15% of the clip's pixels. So the report
+says three things now, not one:
+- the MEAN, as before;
+- the WORST SECOND's mean, and when: `...at its WORST SECOND 3.20% (from
+  0:13.9)`;
+- the seconds VISIBLY BROKEN - frames with `VIS_AREA` (2%) of their area
+  off by `VIS_BAD` (15% of full scale) or more as seen - and where each
+  torn stretch starts: `1.0 s of 44.0 VISIBLY BROKEN` / `broken at
+  0:13.3 for 2.1 s, 0:32.4 for 0.2 s`.
+On that clip the per-second figure is 0.00% for 39 of its 44 seconds and
+the torn scene's second 3.12%; the two thresholds flag the two torn scenes
+and no clean second. Measured against the SOURCE rather than the target
+(the dither's own picture), a clean frame there is ~1.5% - the palette's
+and the dither's - so the report's figures are the ENCODE's error, which is
+what a budget decides; a scene the palette cannot hold is the palette's.
+The layer's line says the same three for the layered play.
+`OS88_VENC_QDUMP=FILE` writes the per-frame figures as JSON.
 
 ###### 98.2.1.2.1 `--cut`: which changes a cut frame keeps (2026-10-06)
 
@@ -158688,6 +159073,63 @@ disk with a 192 KB reserve.
   KB 5150: held to 2 slots it says `Low memory`, and the second play takes
   all 12, says nothing, and draws 150 of 150 on time.
 
+###### 98.2.1.3.2 An XMS bank: `--bank` and `--prefill` (2026-10-09)
+
+**A stream made for a machine whose player will BANK it** (98.3.18.2): a
+286 or better with extended memory free keeps the stream up to that far
+ahead of its ring. The disk bucket is the ring's reserve PLUS the bank, so
+a long calm stretch banks bytes a burst much later can spend.
+
+- **`--bank KB`** is the bank the encode assumes: what the player will have
+  - the pool less 256 KB, in 32 KB slots - so a machine with 1, 2, 4 or 8
+  MB of extended memory free has 768, 1,792, 3,840 or 7,936 KB, which the
+  encoder window offers. The bucket's cap grows by it.
+- **`--prefill S`** is how much of it the player fills before the first
+  frame, in seconds of the profile's disk, capped at the bank; `all` is the
+  bank whole. The bucket STARTS that much fuller. Default 10 s.
+- **A banked byte costs the reader its two copies** (VIDEO-XMS-PLAN 4.2):
+  read into a bounce, copied up, and later copied down into the ring. The
+  profile's `xcopy` is VIDDISK `X`'s ms a KB a copy (0.345 on both 286s,
+  measured on the owner's; 0.05 on the 486), and the disk's rate is charged
+  `1 + 2 x xcopy x rate` - 12% of a 200 KB/s disk on a 286 - **only on
+  frames where the bank holds something** (the bucket above the ring's
+  reserve, `Encoder._drate`): the player's FIFO passes the ring's chunks
+  through the bank only then. The first build charged it on every frame,
+  which made a bank barely prefilled ENCODE WORSE than none (4.22% against
+  3.81% below) for copies the player never makes
+  (docs/plans/VIDEO-OVERAGE-PLAN.md 3.2). A profile without it charges
+  nothing.
+- **The header's 472 and 474** say both, in KB (98.1.1), and nothing else
+  marks the file: an older player plays it, and stalls where it was short.
+  The host reader refuses a prefill with no bank, and a bank on a resident
+  file.
+- **Refused with `--resident`, `--live` and a lossless profile**: none has
+  a disk the bank would stand in front of. `--prefill` without `--bank` is
+  refused too.
+
+Measured on the owner's Last Exile opening, 30 s of it (20-50 s) at
+`--preset vga8 --profile 286-pvga --disk 204800` - the owner's 286 with a
+disk at 200 KB/s:
+
+| bank | prefill | KB/s | frames cut by the disk | error as seen |
+|---|---|---|---|---|
+| none | - | 270.1 | 611 | 3.81% |
+| 1 MB | 10 s (all 1,024 KB) | 274.1 | 542 | 3.81% |
+| 3 MB | 10 s (2,000 KB) | 298.5 | 428 | 3.60% |
+| 3 MB | all | 325.2 | 348 | 3.27% |
+| 8 MB | all | 399.3 | 0 | 1.73% |
+
+...taken with the copy charged on every frame. Charged only while the bank
+holds something, the 3 MB bank filled whole is **336.8 KB/s, 338 cut, 2.95%**,
+and 6 s of prefill 3.37% where it was 3.79%; the no-bank file is
+byte-identical (VIDEO-OVERAGE-PLAN 3.2, which has the prefill sweep: on this
+clip the bank's whole benefit is its prefill, about 0.2 points of error per
+3 s of it).
+
+The clip is a hard case (VIDEO-XMS-PLAN 6): few calm stretches, so a bank
+is worth what the PREFILL puts in it more than what it refills - and at 8
+MB the CPU's average is what binds (407 frames), the disk none.
+
 ##### 98.2.1.4 `--aim`: what a budget the video does not use is for
 
 **`asked`** (the default) encodes what the options say. The other two answer
@@ -158727,6 +159169,54 @@ the owner's "maximize quality, minimize size":
 | `--disk 20000` (asked) | 31.9 | 1.98% |
 
   Bad Apple (Hercules, 30 s): 25.1 -> 22.8 KB/s at 0.11%.
+
+##### 98.2.1.5 `--avg auto`: the average that reserved the reader's CPU twice (2026-10-09)
+
+**On a profile with a measured disk curve, `--avg auto` is the per-frame
+ceiling, and the average stops binding.** The owner's question, after an
+XMS bank took most of the disk's work away and the CPU was left on the
+table: are `avg` and `peak` standing in for *how much CPU to leave the
+disk and the sound*? On those profiles, yes - and the encoder already
+charges every one of those costs on its own, frame by frame:
+- **the reader's CPU**, through `disk_at` (98.2.1.3): a frame refills the
+  disk's bucket at the rate the curve gives at that frame's own share, so
+  a heavy frame already reads less;
+- **the bank's copies**, as a slower disk (`xcopy`, 98.3.18.2);
+- **the sound's**: `audio_cyc` off every frame's CPU, and the speaker's
+  share off every budget (98.2.15).
+
+So an average under the ceiling reserves the same CPU a second time.
+`peak` stays: it is what keeps a frame inside its period. `speed` is not
+a budget at all - it is the profile's machine in 8088s, the unit `avg`
+and `peak` are written in (and with `cyc_us`, 98.2.3.3, only that unit).
+
+Measured on the owner's Last Exile (286-pvga, Mode X, a bank of 2,792 KB
+filled whole before the first frame), only `--avg` changed:
+
+| `--avg` | error as seen | its worst second | visibly broken | frames cut by the average |
+|---|---|---|---|---|
+| 2.25 (the profile's) | 0.15% | 3.20% | 1.0 s | many |
+| 3.375 | 0.01% | 0.15% | 0.0 s | 0 |
+| 3.75, the peak (= AUTO) | 0.01% | 0.15% | 0.0 s | 0 |
+
+The average CPU came to 46% of the machine, 100% at the worst frame; what
+was left was the peak's 2 frames and the 32 KB record's 17. The owner's
+3.375 encode played on the 286 with 0 late and 0 stalls, sound OFF - the
+case `auto` has not been played in is a Sound Blaster beside it.
+
+- **Without a curve** - `5150-picomem2`, `floppy`, `286` (a 6 MHz AT,
+  predicted) - the average is the ONLY thing that leaves the reader its
+  time, so `auto` there is the profile's own `avg`. Those want a curve
+  measured (VIDDISK on the machine) more than a number changed.
+- **A Live file keeps `LIVE_AVG`**: its share is the blit's and the
+  desktop's around it as well (98.2.7).
+- **The record holds the share `auto` came to**, never the word (98.2.17's
+  rule: what an option implied is stored as its value), so options version
+  14 reads as it did. With `--layer-profile`, the layer's machine takes its
+  own `auto`.
+- **Not the default.** `--avg` left out is the profile's average, as
+  before; the window offers `auto` in the field's list. `videnc` checks
+  both kinds of profile.
 
 #### 98.2.2 Composite colour from a video (`--pixfmt cgacomp`)
 
@@ -160552,6 +161042,18 @@ not keep up; a lead that held and pauses that are not say the card did.
 Measured on MartyPC's 8088 with the owner's 358 KB/s VGA8 clip, which it
 cannot read fast enough: lead 1 at frame 25, 14 of 14 the stream's.
 
+**On the speaker the second line is the speaker's** (2026-10-10): `Spkr dry
+41 times, 2.3 s` is how often its ring ran dry and for how long - silence
+the speaker's clock did not count, so the play ran that much slower than
+its file, with nothing late and nothing stalled on its own clock. It is
+`os88spk.inc`'s, counted in `os88spk_grant`'s dry path behind
+`OS88SPK_DRYCNT`, which only a `VPDIAG=1` player defines - so every package
+built on the library without it, the shipped player among them, is
+byte-identical. Read with the line above it: a lead near 0 says the reader
+could not keep the sound queued; a lead that held says the sound's lead
+was too short for the hook (buffer sound ahead is the answer to that,
+98.1.8, and plays on the speaker as on a card).
+
 **Measured** (`tests/vidplay.py`, a 150-frame 30 fps clip the row makes,
 opened by double-clicking it):
 - **Frame-exact on CGA and on Hercules.** With the ring held to 2 slots the
@@ -162034,8 +162536,9 @@ as it was read.
 
 **All of it is on the UI task** - the timer, the bracket's main loop, a
 callback - which is where §41.8 allows the copy. On a 286 the copy is
-`int 15h AH=87h` with interrupts off for its 32 KB; the rate hook and the
-speaker's ISR wait that long, a card's DMA does not.
+`int 15h AH=87h` with interrupts off for its 32 KB; the rate hook waits that
+long and a card's DMA does not - and the SPEAKER'S ISR loses it, which is
+why no copy runs under its clock (98.3.18.5).
 
 **+955 bytes of the package** (32,612 -> 33,567); no kernel byte, and on a
 machine with no pool the whole of it is one `OSAPI_XMEM_CAPS` at open and a
@@ -162111,6 +162614,303 @@ loading the file to its end, the card's line drawn from the timer.
 disk, and after the same swap the same key REFUSED. Broken on purpose -
 `vp_xput` out of `vp_fill`, the hold short at the play's end (163,840 of
 973,312); `vp_xrdat` out of `vp_rdat`, the key refused - `vidxms` FAILS.
+
+##### 98.3.18.2 The bank: a file bigger than the pool
+
+**A streamed file the pool cannot hold whole is BANKED instead: a FIFO of
+32 KB chunks in XMS ahead of the ring, filled from the time the ring did
+not want** (docs/plans/VIDEO-XMS-PLAN.md 4). What the ring buys a play in
+seconds the bank buys in tens of them, so the disk has to keep up with the
+stream's MEAN rate rather than with its peaks - the 192 KB burst window is
+the bank's size instead. A machine with no pool is unchanged: the bank is
+never taken.
+
+**The block** (`vp_xopen`'s `.bank`, when `OSAPI_XMEM_CAPS` answers less
+than the file's KB): the pool less `VP_XRES` = 256 KB left for anyone else,
+cut to whole 32 KB slots, halved in slots until `OSAPI_XMEM_ALLOC` takes it
+and refused below `VP_XBMIN` = 128 KB. `[vp_xbank]` is 1 and `[vp_xon]` too,
+with nothing of the FILE held - `[vp_xhave]` and `[vp_xfull]` are zeroed, so
+`vp_xin`, `vp_xrdat` and `vp_canlive` all answer no. There is no timer: a
+bank fills only while a play reads. The ring's claim (`vp_sstart`) is one
+slot longer - the BOUNCE, after the ring's K slots and its mirror
+(`vp_bbnc`) - and `vp_kres` holds that slot back from K.
+
+**`[vp_xbn]` slots, `[vp_xcnt]` of them full from slot `[vp_xhs]`**, the
+head at file offset `[vp_xlo]`, are the chunks the ring takes next, in
+order:
+- **it fills** (`vp_bstep`) where the bracket's reader would otherwise give
+  the period to the hook - `vp_fill` has answered that the ring has no room
+  - one chunk a pass: `OSAPI_FILE_READ_SEQ` into the bounce, then
+  `OSAPI_XMEM_COPY` up to the tail slot. It stops at the file's end (a short
+  chunk, whose length is `[vp_xtl]`, or none at all) and on a disk error,
+  which the stream then meets after the banked chunks, as it would have;
+- **it drains** (`vp_bfill`, `vp_xfill`'s arm for a bank): the head slot
+  copied down into the ring slot `vp_fill` asked for, and the head moves on.
+  Every chunk the ring takes comes from the bank while it has one; with it
+  empty, the disk's.
+
+**Two cursors, HANDED OVER and never sought again.** A re-seed walks the
+chain from the file's front (§18.4.8), which a whole-file hold pays once and
+a bank, emptying and refilling all through a play, could not. So the bank's
+first chunk starts by COPYING the stream's cursor `[vp_cur]` into its own
+`[vp_xcur]`, and the copy that empties the bank copies it back: the stream
+goes on from where the bank's reads ended, with no walk on either side. The
+one re-seed is the failure path, a copy refused: `vp_xcopy` drops the block
+and `vp_bseed` points the stream's cursor at the head's offset.
+
+**Emptied** (`vp_bflush`) wherever the stream's cursor is seeded somewhere
+else - `vp_sstart`'s reader at a play's start or a seek, and `vp_warm` at a
+REPEAT's seam (§98.3.9): what it holds is the old place's.
+
+The prefill and the file's ask are 98.3.18.3, the window, a pause and a seek
+98.3.18.4, the speaker 98.3.18.5, the bank in EMS 98.3.18.6, the decode in
+place 98.3.18.7, and the encoder's half 98.2.1.3.2.
+
+The gate is on QEMU (docs/TESTING.md's list, entry 1): `vidbank`, `-m 2`
+against a 1.33 MB LIN80 clip, so the hold cannot be taken and the bank is 18
+slots. Held before frame 20, the ring fills and then the bank does, to every
+slot; held before each key frame, the picture read off A000 is the
+decode's. Then the same play held early again, the bank full, and drive B:
+changed to a BLANK floppy: the furthest key frame inside what the ring and
+the bank held between them is still right, and the play dies past the
+bank's end. Broken on purpose - `vp_bstep` out of the reader's loop, the
+bank stays empty; `vp_bfill`'s head left unmoved, the play errors at frame
+100 - `vidbank` FAILS.
+
+##### 98.3.18.3 The prefill, and what the file asks
+
+**A play that has a bank fills it before the first frame**, the full
+screen saying **`Buffering 37% ~24s`** in 98.3.13's box - the per cent of
+what it is filling, and the time left at the rate the fill has read at so
+far (minutes past 99 s, `~12m`). **Space starts the play** with what is in;
+**Esc cancels** it, nothing drawn.
+
+**The line must not flicker, and the first two builds did.** The first drew
+the box on every pass of the loop. The second drew it only when the text
+changed - and the owner's 286 still showed it flickering "like mad",
+because a changed text went through `vo_post`'s ordinary path: the save put
+back over the box (the text OFF the glass), the new one saved and drawn. A
+chunk a tenth of a second off a fast disk is a percentage a tenth of a
+second. So the line is padded to one width all through (the box's widest
+here, `vo_cmax`), and `vo_post` draws a new text AS WIDE as the one up
+straight over it - ground and glyph in one pass, nothing put back - on the
+one page, onto the screen. A flipping or shadowed play keeps the old path,
+which draws the new page off the glass or copies the box's rows whole.
+
+- **How much is the file's** (98.1.1's 472 and 474, written by 98.2.1.3.2):
+  the prefill its encode banked on, in KB, or FFFFh for the whole bank. A
+  file that asks nothing - every file before - is filled for 10 s at its
+  own mean (its stream's bytes over its length, the card's line 3). The
+  player has no cap of its own (the owner, 2026-10-08), and the bank's size
+  is the only one.
+- **A bank smaller than the file's ask**, or none where the file is not
+  held whole either, plays and says **`Low memory`** in the full screen,
+  once at the first frame (`vp_bshort`, beside the ring's own check).
+- **Only before a session's first frame** (`[vp_pfok]`): a seek wants the
+  play now, and REPEAT's lap refills the bank behind the play.
+- **In the window it runs silently** for now: the box is the full
+  screen's, and the window's own line is VIDEO-XMS-PLAN 9's wave 4.
+- **The box is 18 characters** (`VO_MAXC`, was 10) and its save a page
+  1,920 bytes (`VO_SAV`, was 1,152): +1,536 bytes of the player's bss.
+
+The gate is `vidbank`'s own (98.3.18.2), which now reaches the first frame
+through the prefill: the clip asks a 4,096 KB bank and 256 KB first, so
+this machine's 576 KB bank fills 8 slots and says `Low memory`. With a
+gate's hold on the prefill's end (`[vp_pfwait]`) and the whole bank asked,
+the box reads `Buffering 100%` with nothing drawn; Esc then cancels with no
+frame and no error, and the second time B: is blanked before Space, and
+frame 180 - past the ring and inside the bank - is the decode's. Broken on
+purpose - `vp_bpre` out of the bracket - the prefill fills nothing.
+
+##### 98.3.18.4 The window, a pause and a seek
+
+- **In the window the prefill's meter is the THUMB.** The full screen's box
+  is not the window's (98.3.13), and the window's bracket draws onto the
+  desktop's framebuffer itself, so `vp_pfsay` moves the play bar's thumb
+  (`vp_wmove`, one store a byte) across the bar as the bank fills; the first
+  frame asks for its place again (`[vp_wtk]` = FFFFh) and it goes back.
+  Space and Esc are the full screen's.
+- **A pause banks.** A session left paused on the desktop - Space in the
+  window, F from a play the window cannot host - arms the window's timer
+  (`vp_parm`, at `vp_srun`'s end), and `vp_ontimer` reads a chunk a tick into
+  the bank (`vp_pstep`, which is `vp_bstep`) and re-arms as far off as the
+  chunk took, as the hold's loader does. The time a user spends paused is
+  time the play has in hand. The card's line 6 says `XMS bank: 320 of 576
+  KB`. In the full screen Space pauses in place and the bracket's own loop
+  goes on banking, as it always did.
+- **A seek into the bank is the bank's.** `vp_spos` asks `vp_bseek` before
+  it seeds the reader: a new start at or past the bank's head and inside what
+  it holds drops the chunks before it and hands the ring the head as its
+  chunk 0, the start `[vp_po]` bytes in - up to 32 KB where it was up to a
+  cluster, a case the ring already met on a 32 KB-cluster disk. Neither
+  cursor moves, so no chain is walked and the disk is not touched. Behind
+  the head (what the ring had, or what has played), past what the bank
+  holds, or on a disk whose cluster is bigger than a chunk, the bank is
+  flushed and the reader seeded as ever. The key's own record is still read
+  from the disk, as every seek's is.
+
+`vidbank`'s full-screen arm reads all three in one play, with B: throttled
+to 64 KB/s (QEMU's `throttling.bps-total`) so the bank is SEEN filling: the
+box's mid-fill lines (`Buffering 25% ~1s`), F to the desktop with the bank
+at 12 of 18 and growing to 14 while paused, the picture right at frame 60
+after the resume, and Right from 60 - the player counts the presses it got,
+two for one QEMU key - landing on key 240, whose super-packet is in the
+bank: one seek the bank answered (`[vp_bskn]`), and the picture right at
+frame 299. `vidbankwin` is the window's: the thumb 0 -> 220 on a bar of 256,
+and back. Broken on purpose - `vp_parm` out, the bank stays at 12 paused;
+`vp_bseek` out, it answers no seek; the window's arm skipped, the thumb
+never moves.
+
+##### 98.3.18.5 No XMS copy under the speaker's clock
+
+**With no card the clock is the speaker's own interrupts** (98.3.15), one a
+sample, and EVERY transport holds interrupts off for a copy: tier 1's `int
+15h AH=87h` for the whole 32 KB - ~11 ms on the owner's 286, ~240 samples at
+22 kHz - and tier 2's for each 1 KB piece (`XM_UCHUNK`, ~0.3 ms on the
+slowest 386, still six periods). A sample lost is time lost, not a frame
+late: the clock is what slowed. **The owner's 286 played a banked file in
+slow motion through the speaker and reported nothing late** - two copies a
+32 KB chunk, ~19% of every second at 270 KB/s - where the same file muted,
+on the PIT's frame-rate clock that an 11 ms mask only delays, played clean.
+
+So while `[vp_snd]` is `VP_SPK` (the speaker, or a Covox, 98.3.15.1) the
+player makes no XMS copy at all: no prefill, no banking (`vp_bstep`), no copy
+up behind the stream (`vp_xput`), no copy down (`vp_xfill` answers
+`vp_xquiet`, which hands whatever the bank held back to the stream's cursor,
+sought once to the head's offset). The disk serves, as with no pool. A card's
+DMA does not stop for a mask, so a Sound Blaster play banks as before; and
+M, which turns the speaker off mid-play, gives the bank back with the PIT's
+clock. A key's read at a seek still copies once - a seek closes the speaker
+anyway (98.3.15).
+
+`vidbankspk` is the gate: QEMU has no card, so a PCM8 clip is the speaker's;
+the bank's count is WATCHED over the whole play and must never leave 0.
+Broken on purpose - `vp_bstep`'s test out - it reaches 13, and a single look
+had read 0: a chunk banked is handed straight back by the next fill, so the
+copies run while the count looks empty. +53 bytes.
+
+**The encoder will not make one for the speaker** (2026-10-10): with
+`--audio speaker`, `--bank`, any `--layer-*` and `--xms` are refused, since
+each budgets XMS copies the player will not make - a bank's depth the disk
+never has, a layer the play never reads. The window greys the XMS bank and
+Layer groups and Live's Xms with that reason (`_nospk`), so its command line
+carries none of them; `vencgui` and `videnc` check both halves.
+
+##### 98.3.18.6 The bank in expanded memory
+
+**With `EMS.DRV` answering (SPEC.md 107) and no XMS pool - or an XMS pool
+on a CPU below a 386 - the bank is the board's pages** - VIDEO-XMS-PLAN
+10.8's wave E2, the hybrid: section 4's policy with a free fill and one
+copied drain, and the store a session plays IN PLACE from where it can
+(98.3.18.7). **EMS is taken over XMS below a 386** (`vp_epref`): there XMS
+is `int 15h`'s block move, two copies a banked byte with interrupts off,
+where EMS is one copy with them on, or none in place; and `EMS.DRV` is only
+loaded when somebody ticked it, which is the request. A 386's unreal-mode
+copy, ~0.05 ms a KB, is faster than any copy out of an ISA board, so a 386
+keeps XMS. **...and only when the board is as fast as RAM** (98.3.18.8): a
+slow board loses to XMS whatever the CPU.
+
+- **The block** (`vp_eopen`, `vp_xopen`'s `.ems`): `EMSV_CAPS`' free pages
+  less `VP_XRES`'s 256 KB, no more than the file in whole 32 KB slots (an
+  EMS bank has no whole-file hold to prefer, so a file that fits is banked
+  whole), at least `VP_XBMIN`'s 128 KB, halved in slots until `EMSV_ALLOC`
+  takes it; and the frame's quarters 0 and 1 (`EMSV_FRAME`), a 32 KB window
+  held for the file's life. A slot is two pages, mapped by two `EMSV_MAP`s
+  (`vp_emap`). Freed with the file - pages and quarters both - and the
+  kernel's `EMSV_GONE` takes them at the close regardless.
+- **A fill is the disk's read and nothing else**: the tail's pages mapped
+  and `OSAPI_FILE_READ_SEQ` reading INTO the frame. No bounce, no copy up -
+  and so no bounce slot after the ring either, the ring keeping its 32 KB.
+- **A drain is one `rep movsw`** out of the frame into the ring's slot, with
+  interrupts ON: an XMS drain is two copies with them off.
+- **So the speaker's rule (98.3.18.5) does not apply to it**: under the
+  speaker's clock an EMS bank fills and drains as ever.
+- Everything else is the XMS bank's, unchanged: the FIFO and its cursors,
+  the prefill and its line, the pause, the seek, `Low memory`. The card's
+  line 6 says `EMS bank: ...`.
+
+What the drain costs an 8088 is the plan's question for wave E3: 2.75 ms a
+KB measured (VIDDISK `E`), so a play passing every byte through the bank at
+an ST-225's 119 KB/s spends a third of a 5150 on the copy. E2 does that in
+the UI task's reader, where the hook's decode still comes first; E3 is the
+in-place design that copies nothing.
+
+**The prefill's 100% is the file's end when that comes first**: once the
+bank holds the end of the file, what it holds is all there is to fill, and
+`vp_bpre` takes that as its target. The first build said `Buffering 44%`
+and stopped there, a short file being one the whole of which fits.
+
+`videms` is the gate, on MartyPC's 8088 with the Lo-tech 2 MB board,
+booted from `make emstest`'s disk: a 264 KB Hercules clip opens with a
+9-slot bank at frame E000h; with the ring held to three slots the prefill
+banks the rest of the file and says `Buffering 100%`; B: is BLANKED and the
+play draws all 200 frames, the screen the decode's at three holds; played
+again with B: still blank it fails. Broken on purpose - the drain's
+`rep movsw` out - frames 100 and 160 differ in 9,936 and 15,756 bytes.
++462 bytes of the package (41,795 -> 42,257); no kernel byte.
+
+**After a play the card says which memory it went through** (2026-10-09),
+on line 5 in place of `Space plays and pauses; Esc stops` - which a play
+with an error or a message of its own keeps: `Banked in XMS, 3136 KB`,
+`Banked in EMS, 2048 KB`, `EMS in place, 2048 KB`, `Held whole in XMS`,
+`XMS bank idle: the speaker` (98.3.18.5), `EMS too slow: the disk alone`
+(98.3.18.8), or `No bank: the disk alone`.
+`vp_bkind` decides it once, at the session's start, into `[vp_lbk]`. The
+player banks whenever it can, whatever the file asked (98.3.18.3), so the
+field's first question about a play that stalled - *was it EMS or XMS?* -
+had no answer anywhere on the machine until it did. `videms`, `videmshyb`
+and `vidbank`'s two arms assert the kind; +258 bytes of the package.
+
+##### 98.3.18.7 The decode in place
+
+**With an EMS bank of all four quarters, the ring IS the board's pages and
+nothing is copied at all** - VIDEO-XMS-PLAN 10.3's wave E3, the 8088's
+design. A session takes it at its start (`vp_einq`, in `vp_sstart` where
+the ring is sized):
+- **The ring's slots are the board's** (`[vp_kr]`, which `vp_slot`, the
+  reader's room and the seam's divide by): chunk *c* lives in slot *c* mod
+  `[vp_kr]`, a pair of pages. The conventional ring keeps its least - two
+  slots and a mirror - for a key's record, so a 640 KB machine gives back
+  what the ring of up to 15 slots held.
+- **The hook reads through the frame.** `vp_addr` maps the three pages from
+  the one under its pointer into quarters 0-2 with its OWN OUTs - the hook
+  is an ISR and may call nothing, so it uses the recipe `EMSV_FRAME`
+  answered (SPEC.md 107.4: quarter 0's register, the step, the bits ORed in)
+  and the handle's first page from `EMSV_BASE`. A super-packet or a record
+  of up to 32 KB from anywhere in a page is then contiguous, wherever its
+  pages are on the board, so there is no mirror and the ring's wrap needs
+  none.
+- **The reader has quarter 3**, a register the hook never writes, and reads
+  into it 16 KB a call (`vp_eread`): the hook mapping 0-2 and the reader 3
+  can never meet on one register.
+- **The prefill fills the ring itself** (98.3.18.3's loop, which counts the
+  ring's chunks here), to the ring's size; the bracket's own fill before it
+  stops at two chunks. A pause on the desktop reads the ring on (98.3.18.4).
+- **Not taken**, the hybrid (98.3.18.6) playing instead, for: BIGSP (five
+  pages, 98.1.4.1), sound ahead (98.1.8, its lead is read into the ring),
+  Repeat (98.3.9, its seam and key are read into the ring - and R pressed
+  mid-play ends the play at the file's end rather than repeating), a
+  cluster over 16 KB (the reader's call), Live, and a board where the
+  frame's four quarters are not all free. The session's end gives the
+  board's slots back to the hybrid's bank, emptied (`vp_eend`).
+
+**What it cost to find**: `vp_eopen` stored the recipe's register from CX
+AFTER popping the page count into it, so the hook wrote its page numbers to
+I/O ports 18-20 - the DMA controller's - and the board stayed at its
+power-on mapping. That mapping is pages 0-3, which is the stream's first
+three pages, so the first sixteen frames played perfectly and the
+seventeenth, the first record wholly past the first page, was garbage. The
+first look at a failure in this design is the frame read off the machine
+against the file (`VIDEMS_DBG=1` prints which file offset each quarter
+holds).
+
+`videms` plays in place by default: the clip in the board's 9 slots with a
+conventional ring of 2, B: blanked, all 200 frames right. `videmswrap`
+holds the ring to 3 of the board's slots (`[vp_ekr]`, a gate's), so 7
+chunks go round it with the reader filling quarter 3 off the disk while the
+hook decodes from 0-2. `videmshyb` is the hybrid's (`[vp_noinp]`). Broken on
+purpose - the hook's OUT taken out - the play errors before frame 40.
++592 bytes of the package over 98.3.18.6 (42,257 -> 42,849).
 
 #### 98.3.19 Under memory pressure: the keeper given up, and the player moved
 
@@ -162240,6 +163040,113 @@ the `vidfskeys*` rows cover it (`vidwinshd` is the keeper it still needs,
 the shadow): frame-exact at every hold, a click's pause
 with the stopped frame in the box byte for byte, and F out and back.
 VIDEO.O88 +735 bytes.
+
+##### 98.3.18.8 How fast the board is, measured (2026-10-09)
+
+**The board is TIMED at a file's open, once an instance, before anything
+is decided on it** (`vp_espeed`, `vp_erate`): 1 KB `rep lodsw` passes over
+the frame and over the package's own RAM, counted over two ticks each from
+a tick's edge, and the frame's time in tenths of RAM's goes in `[vp_er10]`.
+The field found why it has to be: the owner's PicoMEM v1 answers EMS at
+288h from PSRAM with **8 wait states**, and on their 286 an encode that
+plays clean out of XMS stalled 189 times and ran 131 frames late out of
+the board - each byte read through it once by the disk's write and once
+by the decode, every one of them at a fraction of RAM's speed. A Lo-tech
+board on an XT is RAM's speed (MartyPC's reads 1.0x); a PicoMEM v2, one
+wait state and QSPI, should be near it. So the speed, not the board's
+name, decides:
+
+| the frame's time | with an XMS pool | with none |
+|---|---|---|
+| to `VP_EFAST`, 1.5x RAM's | EMS below a 386 (98.3.18.6), in place where it can (98.3.18.7) | the same |
+| to `VP_ESLOW`, 4x | XMS | EMS, the hybrid: copied down, NEVER decoded in place |
+| slower | XMS | no bank: the card says `EMS too slow: the disk alone` |
+
+Never in place on a slow board because the decode is the HOOK's time: a
+record read through the board costs its frame's period, which is a late
+frame, and less of the period left for the reader, which is a stall. The
+hybrid's copy is the READER's, in the UI task, where it costs depth and
+not deadlines. The measurement is ~5 ticks at the open, and only where a
+board answers. `videmsslow` is the gate: MartyPC's board must measure
+RAM's speed, then forced slow (`vp_eslow` 1) the session takes the hybrid
+and plays all 200 frames right. What no emulator here can show is the
+choice of XMS over a slow board, MartyPC having no XMS and QEMU no EMS -
+that half is the 286's to confirm.
+
+##### 98.3.18.9 The speaker against the bank (2026-10-09)
+
+**On a machine with no card, a file made for a bank plays MUTED when the
+machine is no faster than the one it was made for.** The field found it on
+the owner's 286: a banked encode with sound, played where the only sound
+is the PC speaker, took the speaker - and the speaker is the most
+expensive sound there is (98.3.1's interrupt a sample), so the decode the
+encode had priced at its machine's whole CPU ran late on a machine that
+had exactly that CPU and no more. The worse experience of the two was
+chosen by default. A file asks for a bank (472) precisely because its
+machine needs every byte and cycle of it, so the speaker is the one that
+gives way - but only where the machine is the file's, and the player
+measures that rather than guessing it.
+
+- **The encoder writes a yardstick** at 500: key 0's decode, modelled on
+  the profile's machine (`enc.cost` over `HZ` x the profile's speed), in
+  10 us, at least 1. Every stream with keys carries it; a resident file
+  and one with no keys carry 0. No flag - a player made before reads
+  nothing past 472.
+- **The player times its own decode of key 0** in `vp_lybench`, the same
+  bench the layer uses (98.1.9), which runs from `.lead` - so it is taken
+  from frame 0 and from any key. It is asked only when the play is on the
+  speaker, the file has a bank, the speaker is not the PWM one (34.11.4,
+  which costs no interrupt a sample) and the yardstick is not 0.
+- **The rule is one compare**: the speaker is kept only when this machine
+  decodes the key in under HALF the yardstick's time - twice the file's
+  machine or better, which is where the speaker's cost fits beside what
+  the encode spent. Otherwise, and when there is no key to time or the
+  bench overruns its 11 ticks, the play is muted (`vp_ymute`: `[vp_mute]`
+  1, `[vp_mwhy]` 3, the sound off, the bank kind re-read) and the card
+  says `, muted: the bank`. The user can still unmute; the default is what
+  changed.
+- **A yardstick of 0 is the old player's behaviour**, so a file encoded
+  before this plays as it did.
+
+`vidbankspkbank` is the gate: a yardstick of 1 mutes from frame 0 and from
+key 1, with `[vp_mwhy]` 3 and the bank's kind kept. `vidbankspkfast`, a
+yardstick of FFFFh, keeps the speaker from key 1. Broken on purpose - the
+compare's branch reversed - each fails the other's assertion.
+
+##### 98.3.18.10 The close box on a load still running (2026-10-09)
+
+**The player has a close negotiator (SPEC.md 75.1), and it stops what is
+running before the kernel frees the instance.** `vp_onclose` lets every
+close happen (CF=0), but first ends any session by the same `vp_sstop` a
+Stop takes (mode 2: the window is going, nothing is painted) and gives the
+file's hold back (`vp_xfree`: the XMS block, or the EMS pages and quarters).
+Before it, the close box tore the instance down with whatever was alive
+inside it.
+
+What is alive after an Esc is the point. **Esc ends the session**; what
+keeps the disk busy after it is the window's timer reading the rest of the
+file into its hold (`vp_ontimer` -> `vp_xstep`, 98.3.18). The field froze
+once in seven doing exactly that on the owner's 286 (XMS, EMS.DRV mounted
+and measured too slow): play, Esc, the close box while the disk still
+clicked - the pointer stopped and the disk with it.
+
+**This is not shown to be that freeze's cause.** The kernel's teardown
+already reclaims every piece of it - `inst_rel_rec` sends `EMSV_GONE`
+and `XMV_RELINST`, the claims go with the region, `wm_destroy` clears the
+record the timer pass tests - and `vidclose` without the negotiator still
+closes, still ticks, and leaves no XMS block owned. What the negotiator
+changes is the ORDER: the region freed holds nothing of a play or a load
+still alive, and the disk stops the moment the close is clicked. The
+freeze stays open (docs/FIELD-NOTES.md has the report) until it is seen
+again on a build with this.
+
+`vidclose` is the gate (QEMU, XMS, B: throttled to 64 KB/s): three rounds of
+play, Esc at a different frame, and the close box with the hold mid-load -
+which the row asserts, or it fails as a test of nothing. It reads
+`[vp_sess]` and `[vp_xon]` off the FREED region, which nothing has reused
+yet: both 0 only if the negotiator ran. Broken on purpose - the install
+taken out of `vp_entry` - every round fails on `[vp_xon]` 1. +25 bytes of
+the package.
 
 ### 98.4 The window: the Preview (wave 6)
 
@@ -168809,3 +169716,154 @@ a look apart agree, and says so when they did not - and in five runs alone
 afterwards it said so in every one, the pixels that moved the status bar's
 `Memory:` digits (the CGA's 368-390 x 165-171, the VGA's 464-486 x 475-481)
 and the menu bar's clock: the cause, seen. All five passed.
+
+## 107. EMS.DRV — expanded memory on a LIM EMS board (`drivers/ems/`)
+
+**A driver for a LIM EMS board's page registers, so a package can hold
+megabytes on an 8088.** The design record is docs/plans/VIDEO-XMS-PLAN.md
+section 10, which costed it against XMS (§41) and measured it on MartyPC's
+Lo-tech board; this section is the contract.
+
+**Expanded memory is MAPPED, not copied.** A board has four page registers;
+writing one maps a 16 KB page of the board into one QUARTER of a 64 KB
+FRAME below 1 MB, and the CPU then reads and writes that page as ordinary
+memory. So, unlike `OSAPI_XMEM_COPY`, nothing here moves a byte: a package
+maps pages and uses the frame directly, and a disk read may land in it
+(VIDEO-XMS-PLAN 10.2: `READ_SEQ` into the frame at the disk's own rate). It
+is reached by OUT and needs no CPU above an 8088.
+
+### 107.1 What the kernel carries
+
+- **A class, `DRVC_EMS` = 7** (`apps/os88api.inc`), appended after
+  `DRVC_POINT` because a class number is ABI. It has a publication slot and a
+  copy of its service table; `DRVC_POINT` remains the one class with no copy,
+  and the class-to-copy arithmetic (`drv_cls_svc_x`, `drv_pkg_call_x`) skips
+  it as it skips the retired class 3.
+- **A row, `EMS.DRV`, "EMS"**, on `kern_big` and `kern_emu`, SYSTEM.CFG
+  **bit 7** on both, **not wanted by default** (§51.3): attach writes to
+  I/O ports, and on a machine without a board at that address they are
+  somebody else's - the Book8088's CH375 answers at 260h (§9.12).
+  `kern_small` has no driver layer (§51.0) and therefore no EMS.
+- **`OSAPI_DRV_CALL` hands a driver the CALLER'S INSTANCE in BH.** It was the
+  class, which a driver knows already, and no shipped driver read it.
+  `inst_caller`'s answer (§34.3): the instance slot, or 0xFF for the kernel,
+  a driver or the UI task outside a package callback. EMS ownership is keyed
+  on it, because a package's SEGMENT can move under compaction (§66).
+- **A dead instance's pages are returned.** `inst_rel_rec` - the teardown
+  that releases an instance's sound grants and XMS blocks - calls the EMS
+  class's package door with verb `EMSV_GONE` and `ES = KERNEL_SEG`, which no
+  package can send (its calls arrive with its own segment in ES).
+
+### 107.2 The board
+
+**One register family in this version, the CONSECUTIVE one**: four
+write-only page registers at *base* .. *base*+3, quarter *q*'s register at
+*base* + *q*, a page's value being its number (0..127 on a 2 MB board, to
+255 on a 4 MB one). The Lo-tech 2 MB board, MartyPC's model of it, 86Box's
+"Lo-tech EMS Board", and - through the Lo-tech driver - a PicoMEM's EMS. The
+SPACED family (Intel AboveBoard, AST RAMpage, BocaRAM, Everex: quarter *q*
+at *base* + *q* x 4000h, 80h + the page) is VIDEO-XMS-PLAN 10.4's second
+backend and is not here.
+
+**Attach probes; nothing is configured.** It tries the frames E000h, D000h
+and C000h in that order and, in each, the bases 260h, 264h, 268h and 26Ch -
+the Lo-tech's - and 288h, a PicoMEM's default, which the owner's 286 found
+when the first list answered `No hardware found` with its PicoMEM at D000h
+and 288h:
+- **a frame holding an option ROM is skipped with no port written** - 55h
+  AAh at any 2 KB boundary inside it, the BIOS's own scan;
+- **260h is skipped while a `DRVC_POINT` driver is published**, that being
+  the CH375's address;
+- a base is a board when mapping page 0 into quarter 0 and page 1 into
+  quarter 1 makes two different bytes stick, and mapping page 0 into
+  quarter 1 then shows quarter 0's byte, and a write through quarter 1 is
+  read back through quarter 0. The four bytes it touches are put back;
+- the board is SIZED by a signature in each page's first four bytes,
+  written from page 255 DOWN and read UP until one is wrong: a smaller board
+  aliases, and the last write to a physical page is its own number. Fewer
+  than 4 pages is no board.
+
+A refusal is `DRVE_HW`. On success every quarter is mapped to page 0..3, so
+the frame reads as the board and nothing else.
+
+### 107.3 The verbs (`OSAPI_DRV_CALL`, BH = `DRVC_EMS`)
+
+UI-task context or a package's worker alike: no verb takes a lock or calls
+the kernel, and each runs with interrupts off for its few instructions.
+Answers are in AX, CX, DX and SI (DI is an argument, never an answer:
+§20.11). Errors: CF=1 with AX = `EMSE_ROOM` 1 (no run of pages that long),
+`EMSE_HND` 2 (no free handle, `EMS_NHND` = 8), `EMSE_BAD` 3 (not yours, or
+out of range), `EMSE_BUSY` 4 (a quarter is another instance's).
+
+| BL | verb | in | out |
+|---|---|---|---|
+| 0 | `EMSV_IDENT` | | AX = `'EM'` |
+| 1 | `EMSV_CAPS` | | AX = pages free, CX = pages on the board, DX = the frame's segment, SI = the quarters nobody holds (bits 0-3) |
+| 2 | `EMSV_ALLOC` | AX = pages (1..the board) | AX = a handle, 1..8: a CONTIGUOUS run, first fit |
+| 3 | `EMSV_FREE` | AX = a handle you own | |
+| 4 | `EMSV_FRAME` | AL = quarters (bits 0-3) | ALL of them yours, or none and `EMSE_BUSY`. DX = the frame's segment, CX = quarter 0's register, SI = the step to the next quarter's, AL = the bits to OR into a page's value - THE RECIPE (107.4) |
+| 5 | `EMSV_UNFRAME` | AL = quarters | the ones you held are free |
+| 6 | `EMSV_MAP` | AL = a quarter you hold, DX = a handle you own, CX = a page of it (0..its length-1) | that page is in that quarter |
+| 7 | `EMSV_BASE` | AX = a handle you own | AX = its first page on the board, CX = its length |
+| 8 | `EMSV_GONE` | ES = `KERNEL_SEG`, AL = an instance slot | its handles and quarters freed. The kernel's alone (107.1) |
+
+### 107.4 Mapping from an interrupt
+
+A hook - the video player's decode, §53.2.2 - may call nothing, so it cannot
+send `EMSV_MAP`. It maps for itself from **the recipe**: with `EMSV_FRAME`'s
+CX, SI and AL and `EMSV_BASE`'s AX, page *p* of a handle goes into quarter
+*q* with `OUT CX + q x SI, base + p OR AL` - one `out` a quarter, and
+correct on any family the driver supports. **Only quarters you hold**: the
+driver does not see these writes, and the board's registers cannot be read
+back, so a quarter is the holder's to map and nobody else's.
+
+### 107.5 What it costs
+
+Measured by `tools/kernsize.py`, the kernel built at the commit before
+against this one:
+
+| | `kern_big` | `kern_small` |
+|---|---|---|
+| `.text` | **+72**: the row, its two strings, `drv_memk`'s word and `drv_fptr7`'s pair (the tick, 34); `xm_release_rec`'s `EMSV_GONE` call (22); the slot swap in `drv_pkg_call_x` and the class arithmetic past `DRVC_POINT` there and in `drv_cls_svc_x` (16) | 0 |
+| `.bss` | **+38**: `DRVC_EMS`'s owner word and its copy of a service table | 0 |
+| `.cold` | **+3** | 0 |
+| `.ovl` | **+1**: `drv_cfgbit`'s byte (not resident) | 0 |
+| the footprint | **no rung crossed** | no rung |
+| the system disk | `EMS.DRV`, 1,206 bytes of image (176 of them zero bss, off the disk), **813 on the floppy** packed | none |
+
+113 resident bytes on every `kern_big` machine, board or none - the estimate
+in VIDEO-XMS-PLAN 10.5 was 95-100, short by the teardown call's banking.
+
+### 107.6 Not done
+
+- The SPACED family, and chipset EMS (NEAT, SCAT): VIDEO-XMS-PLAN 10.4.
+- A Control Panel page naming the port and frame: the probe has no setting
+  to take, and a board that is not at one of the twelve places it tries is
+  not found.
+- `int 67h` for DOS programs (VIDEO-XMS-PLAN 10.6).
+- A use: the video bank on EMS is VIDEO-XMS-PLAN waves E2 and E3.
+
+### 107.7 The gate
+
+`make emstest` builds the 360 KB system disk with `EMS.DRV` wanted (bit 7)
+and `EMSTEST.O88` (`tests/emstest/`, not shipped); `tests/ems.py` (soak row
+`ems`) boots it on MartyPC's `os8088_5150_herc_hdd_sb_ems_gla`, a Lo-tech
+2 MB board at 260h / E000h, and on the same machine with none:
+
+- the row LOADED and `DRVE_OK`; EMSTEST's first instance: IDENT, CAPS (128
+  pages free of 128, frame E000h, four quarters free), ALLOC 3 -> handle 1,
+  ALLOC 0 -> `EMSE_BAD`, ALLOC 129 -> `EMSE_ROOM`, FRAME all four (the
+  recipe 260h, step 1, OR 0), three pages signed through the frame, page 0
+  read through a second quarter, BASE (0, 3), page 1 mapped by the package's
+  own OUT and read there, CAPS after (125, no quarter);
+- the frame READ OFF THE EMULATOR, not reported by the package: E000:0000 is
+  page 0's signature and E000:C000 page 1's;
+- a second instance: FRAME 1 -> `EMSE_BUSY`, FREE 1 -> `EMSE_BAD`, BX back
+  as `DRVC_EMS`:verb;
+- both closed holding everything; a third instance sees 128 pages and four
+  quarters free and is handed handle 1 - `EMSV_GONE`;
+- no board: the row `DRVE_HW`, and the package told nobody answered.
+
+Broken on purpose: with `xm_release_rec`'s `EMSV_GONE` call removed the third
+instance finds 125 pages and no quarter free; with `drv_pkg_call_x`'s slot
+swap removed the second instance is GIVEN the first's quarter and its handle.

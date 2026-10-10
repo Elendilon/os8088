@@ -206,6 +206,28 @@ WAV_WHY = ("This file is a speaker WAV for Audio - the sound alone, shaped "
            "Save as a .V88 to use these.")
 # (tab, header, options, rule): a rule is None where the group applies,
 # else the reason it does not - the group's tooltip while it is greyed
+def _bank(c):
+    """The bank is a STREAM's, read off a disk: not a resident or Live
+    file's, and not a lossless profile's, which has no disk to budget"""
+    if c["resident"] or c["live"]:
+        return ("A bank reads a stream ahead off the disk, and this file is "
+                "%s." % ("Live" if c["live"] else "held whole in memory"))
+    if c["profile"] == "lossless":
+        return "The lossless profile has no disk budget for a bank to deepen."
+    return _nospk(c)
+
+
+def _nospk(c):
+    """NOTHING IN XMS UNDER THE SPEAKER (98.3.18.5): the bank, the layer and
+    Live from XMS all ride XMS copies, and the player makes none while the
+    speaker's interrupts are its clock"""
+    if c["audio"] == "speaker":
+        return ("The sound is the PC speaker, whose clock is one interrupt a "
+                "sample - and an XMS copy holds interrupts off, so the "
+                "player reads the disk instead and makes none.")
+    return None
+
+
 GROUPS = [
     ("Basic", "Made for", ("preset", "pixfmt", "profile", "aim"), ALWAYS),
     ("Basic", "The clip", ("title", "credits", "start", "end", "fps"),
@@ -258,6 +280,14 @@ GROUPS = [
       "spk_drive", "spk_idle"), _shaping),
     ("Budget", "The machine's budget", ("disk", "avg", "peak", "owe",
                                         "reserve", "memory"), ALWAYS),
+    ("Budget", "XMS bank (a 286 or better)", ("bank", "prefill"), _bank),
+    ("Budget", "Layer: for a faster disk too",
+     ("layer_profile", "layer_disk", "layer_memory", "layer_bank",
+      "layer_prefill", "layer_seek"),
+     lambda c: _bank(c) or (
+         "A layer is what the base leaves unused on a better machine, and "
+         "is not made beside a bank." if c.get("bank") else
+         "A layer is played unflipped." if c.get("flip") else None)),
     ("Budget", "When a frame is cut", ("lookahead", "error", "cut",
                                        "frame_cap"), ALWAYS),
     ("Budget", "Aim: size", ("worth",),
@@ -296,7 +326,7 @@ FIELD_WHEN = {
     "This is the pattern dither's, and Comp dither is diffuse.",
     "levels_mix": lambda c: None if c["comp_dither"] == "pattern" else
     "This is the pattern dither's, and Comp dither is diffuse.",
-    "xms": lambda c: None if c["live"] else
+    "xms": lambda c: _nospk(c) if c["live"] else
     "This makes a LIVE file streamed from XMS, and Live is not chosen.",
     "rate": lambda c: None if c["audio"] != "none" else
     "The file has no sound.",
@@ -319,9 +349,15 @@ IMPLYING = ("preset", "pixfmt", "profile", "live")
 # memory (98.1.7.2) - any other rate can still be typed. Owed time's 0 is
 # OFF, the fixed per-frame ceiling (98.2.1.1)
 SUGGEST = {"rate": ["", "22050", "11025", "8000", "5512"],
+           "avg": ["", "auto"],
            "owe": ["", "0", "1.6"],
            # FREE MEMORY TO PLAY (98.2.1.3.1): rings of 8, 10 and 12 slots
-           "memory": ["", "309", "373", "437"]}
+           "memory": ["", "309", "373", "437"],
+           # THE XMS BANK (98.3.18.2): what a 1, 2, 4 or 8 MB machine has
+           # left once the player's reserve for others is taken; the prefill
+           # in seconds of the disk, or the whole bank
+           "bank": ["", "768", "1792", "3840", "7936"],
+           "prefill": ["", "5", "10", "30", "all"]}
 # a free-text option that NAMES A FILE the encode writes: a Browse... beside
 # it, a Save dialog of that type, started beside the .V88 under its name
 SAVE_FILE = {"spk_preview": ("The speaker preview", ".wav",
@@ -465,7 +501,7 @@ def form_context(values):
                 live=g("live"), resident=g("resident") not in ("", "0",
                                                               "False"),
                 ahead=g("buffer_sound_ahead") or "auto",
-                screen=g("screen"))
+                screen=g("screen"), profile=g("profile"))
 
 
 def group_state(values):

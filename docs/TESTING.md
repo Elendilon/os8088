@@ -23,6 +23,10 @@ need" is something you check rather than argue yourself into:
    §45.9.1). 86Box covers these too and models the machine rather than the
    CPU — prefer it where the question is about the machine and a person is
    watching.
+   **EXPANDED memory is NOT on this entry**: an EMS board sits in an 8088's
+   slot, and MartyPC models one - `os8088_5150_herc_hdd_sb_ems_gla`, a
+   Lo-tech 2 MB board at 260h / E000h, which `EMS.DRV` (SPEC.md 107) and
+   `tests/ems.py` run on.
 2. **Rung 1 of the hard-disk driver** (SPEC.md §52.1) — the IDE task file
    read directly, gated on `CPU_286` because an 8088's `in ax, dx` is two
    8-bit bus cycles at one port. QEMU has an ATA disk at 1F0h and a CPU that
