@@ -19,7 +19,7 @@ Two rules the entries exist to serve:
   audio report sat here for months as a 5150 report and had come off PCem;
   the 5150 has no sound card.
 
-**Still open:** 3 (mechanism D), 10, 14, 19, 24.2, 28, 32, 43, 61, 63, 64, and one residual
+**Still open:** 3 (mechanism D), 10, 14, 19, 24.2, 28, 32, 43, 61, 63, 64, 66, and one residual
 each in 33 and 37.
 
 ---
@@ -3357,3 +3357,36 @@ once LBA 0 read through both rungs agrees (SPEC.md 52.1.1), so no BIOS
 setting is needed - and the boot partition of an installed machine (a video
 disk is one partition) is handed to the driver too, `OSAPI_VOL_TAKE`, and
 given back to the BIOS when the driver goes. `tests/hdtake.py` is the gate.
+
+## 66. PicoMEM: the Sound Blaster plays nothing, and the NE2000 transmits but never receives - no DHCP (OPEN — the network is FIXED and confirmed on a PicoMEM 1.x; the Sound Blaster fix awaits the field: SPEC.md 34.10.1, 72.2)
+
+Two machines, two cards: a **286 with a PicoMEM 1.x** and **5150 #2 with a
+PicoMEM 2.x** (docs/FIELD-MACHINES.md). On both, `ETHER.DRV` found the card,
+called it an NE1000, counted transmits, never counted a receive and never got
+a DHCP lease; and the `PICOMEM=1` Sound Blaster (SPEC.md 34.10) came up and
+played nothing.
+
+**The network was the memory map.** The PicoMEM's emulated NE2000 answers its
+PROM un-doubled, so `ne_probe`'s pair test calls it 8-bit and the ring went at
+page 0x20 - and the card's packet RAM starts at 0x4000. Transmits went out
+from outside the card's buffer (counted, nonsense on the air) and receives
+were written outside it (never seen). `ne_memok` now tests the NE1000 map
+before using it (SPEC.md 72.2). `tests/picomem.py`'s `ne` leg runs the
+driver's own code against a model of the firmware's 8390 and reproduces the
+report exactly with the old `ne2000.inc`.
+
+**The sound was IRQ discovery taking the card's own vector.** A 1.x has one
+IRQ jumper, hooked by a multiplexer in its BIOS that copies every DMA block
+and raises the SB's IRQ as a software `int`; `sbl_f_irqdisc` swapped that
+vector for a stub. The PicoMEM build now learns the card's line (PM BIOS
+function 0), never offers it, keeps it unmasked, and hooks the SB on the line
+it configured without probing (SPEC.md 34.10.1).
+
+**The network is confirmed working on the 286's PicoMEM 1.x** (the owner,
+2026-10-10). The Sound Blaster is still untested there - that card's firmware
+has to be updated first - and it stays behind `PICOMEM=1` until it is.
+
+What to send back for the sound: whether Audio or Tracker plays through the
+Sound Blaster. **On the 2.x, the DMA jumper must be on 1.** If the
+1.x still plays nothing, the PicoMEM's IRQ jumper number and the line the
+Sound page reports for the card are the next two facts.

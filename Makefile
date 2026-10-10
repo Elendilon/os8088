@@ -4519,6 +4519,40 @@ covoxtest: $(BUILD)/covoxsys720.img $(BUILD)/covoxsys360.img
 	@echo "covoxtest: build/covoxsys720.img - SOUND.DRV wanted, the Covox tier"
 	@echo "           set. Run it with: python3 tests/covox.py --arm <arm>"
 
+# PICOMEMTEST - the PicoMEM field disks (SPEC.md 34.10.1, 72.2): covoxtest's
+# shape, with 'DW' = bit 0 (SOUND.DRV) | bit 4 (ETHER.DRV) so both drivers
+# attach before the first paint on a machine nobody has to click through.
+# 720KB for the 286 with a PicoMEM 1.x, 360KB for the 5150 with a 2.x. It is
+# MEANINGLESS without PICOMEM=1 - a stock SOUND.DRV never asks the card for
+# its Sound Blaster - so it refuses rather than shipping a disk that tests
+# nothing; build it in a tree of its own, since PICOMEM is a stamped knob:
+#     make BUILD=build/pm PICOMEM=1 picomemtest
+$(BUILD)/pmcfg/system.cfg: | $(BUILD)
+	@mkdir -p $(BUILD)/pmcfg
+	python3 -c "import sys; sys.stdout.buffer.write(b'O88CFG\0\0' + \
+	  (3).to_bytes(2,'little') + b'DW' + bytes([1,2]) + \
+	  ((1 << 0) | (1 << 4)).to_bytes(2,'little') + b'\0\0')" > $@
+
+$(BUILD)/pmsys720.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(BUILD)/pmcfg/system.cfg tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 720 \
+		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
+		$(BUILD)/pmcfg/system.cfg $(APPDATAFOLDER)
+
+$(BUILD)/pmsys360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/pmcfg/system.cfg tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 \
+		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
+		$(BUILD)/pmcfg/system.cfg $(APPDATAFOLDER)
+
+.PHONY: picomemtest
+picomemtest: $(BUILD)/pmsys720.img $(BUILD)/pmsys360.img
+ifeq ($(PICOMEM),)
+	$(error picomemtest needs PICOMEM=1: make BUILD=build/pm PICOMEM=1 picomemtest)
+endif
+	@echo "picomemtest: build/pmsys720.img (286, PicoMEM 1.x) and pmsys360.img"
+	@echo "             (5150, PicoMEM 2.x) - SOUND.DRV and ETHER.DRV wanted."
+
 # MRWTTEST - the WAVETABLE gate's apps disk (SPEC.md 105.8.6): MIDIRACK.O88
 # with tools/os88midbank.py's SYNTHETIC bank beside it - computed waveforms,
 # CC0, no network - and the 720KB disk's two songs. The bank is unwrapped:

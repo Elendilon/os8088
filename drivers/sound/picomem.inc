@@ -55,13 +55,29 @@
 ; has passed, so on a machine without the card this file costs a few hundred
 ; microseconds of port reads at attach and changes nothing.
 ;
-; There is deliberately no int 13h AH=60h detect, which is how PMINIT finds
-; the card. It is the documented way to learn a base port this code would
-; otherwise have to assume - but pmbios/pm_hw.asm assigns PM_BasePort 0x2A0
-; and nothing makes it a variable, so the call buys one constant we already
-; know in exchange for issuing an undefined int 13h function on every machine
-; that does NOT have a PicoMEM, which is every machine that builds this knob
-; by mistake. -DPM_BASE covers the day the firmware makes it configurable.
+; THE CARD'S OWN IRQ IS THE ONE LINE NOTHING ELSE MAY HAVE (SPEC.md 34.10.1).
+; A PicoMEM 1.x has ONE interrupt jumper, and its BIOS hooks that line with a
+; MULTIPLEXER: on it the card asks the CPU to copy each 128-byte DMA block
+; (a 1.x has no DMA line - "DMA emulation" is that copy), and from it the
+; card's other IRQs - the Sound Blaster's among them - are raised as SOFTWARE
+; interrupts, `int 8+n`, and only when line n's 8259 mask bit is clear.
+; sb.inc's IRQ discovery used to swap every candidate vector 7/5/3/2 for a
+; stub and fire F2h, so on a PicoMEM the multiplexer's own vector was
+; replaced, the stub took the card's request as the SB's, and sbl_isr was
+; hooked onto the PicoMEM's line for good: no block was ever copied and the
+; card was never acknowledged. That is the "it does not work" of the first
+; attempt. So the line is LEARNED here and discovery is SKIPPED on a card we
+; configured - we chose its IRQ, so there is nothing to discover.
+;
+; It is learned through int 13h AX=6000h DX=1234h, PMINIT's detect - which
+; this file refused while it was the DETECTION, because on a machine with no
+; PicoMEM it is an undefined int 13h function. It is not the detection now:
+; it runs only after pm_porttest has seen the ramp, on a machine that has the
+; card. The call also puts the multiplexer BACK if anything took its vector
+; (pmbios's PM BIOS function 0 re-hooks and unmasks the line when the vector
+; no longer names its segment). The base port stays 0x2A0 by assumption -
+; pmbios/pm_hw.asm assigns PM_BasePort 0x2A0 and nothing makes it a variable -
+; and -DPM_BASE covers the day the firmware makes it configurable.
 ;
 ; EVERY LOOP IS BOUNDED AND EVERY DEADLINE IS IN TICKS. The status poll is
 ; the one place a wedged card could hang the boot, and PMINIT's own version
@@ -80,7 +96,13 @@
   %define PM_SB_PORT 0x220      ; the head of sbl_bases (SPEC.md 34.2)
 %endif
 
-PM_SB_DMA    equ 1              ; NOT a choice - see the header
+PM_SB_DMA    equ 1              ; NOT a choice - see the header. On a
+                                ; PicoMEM 1.x it is not one for the card
+                                ; either: the BIOS's copy handler rewrites
+                                ; channel 1's address and count (ports 02h/
+                                ; 03h) and no other. A 2.x does real DMA on
+                                ; the channel its DMA JUMPER names, so that
+                                ; jumper must be on 1 (SPEC.md 34.10.1)
 
 ; Command status, read at base+0 (src/drivers/PMTOOLS/pm_lib.c)
 PM_ST_READY  equ 0x00           ; ready for a command
@@ -354,19 +376,22 @@ pm_snd_on:
     mov bl, [si]
     or bl, bl
     jz .no                      ; the card refused every line we can use
+    cmp bl, [pm_pmirq]          ; never the card's OWN line: the firmware
+    je .next                    ; refuses it too, but this costs no command
     mov bh, PM_SB_DMA
     mov al, PMC_SBIRQDMA
     call pm_cmd
     jc .no
     or ax, ax
     jz .got                     ; 0 = taken. Anything else is the firmware
-    inc si                      ; refusing this line - in practice because it
-    jmp short .irq              ; is the PicoMEM's own multiplexed IRQ
+.next:                          ; refusing this line - in practice because it
+    inc si                      ; is the PicoMEM's own multiplexed IRQ
+    jmp short .irq
 .got:
-    mov [pm_irq], bl            ; ...remembered for the report, not for sb.inc,
-                                ; which discovers the line itself by firing F2h
-                                ; at it (SPEC.md 34.5) and would be within its
-                                ; rights to disagree with us
+    mov [pm_irq], bl            ; ...and it is what sb.inc HOOKS: discovery's
+                                ; F2h stubs would take the multiplexer's own
+                                ; vector (header), so sbl_f_irqdisc skips the
+                                ; probe and takes this line when [pm_up]
     mov al, PMC_SBONOFF
     mov bx, PM_SB_PORT
     call pm_cmd
@@ -381,6 +406,72 @@ pm_snd_on:
     pop si
     pop bx
     stc
+    ret
+
+; -----------------------------------------------------------------------------
+; pm_bios - learn the PicoMEM's own IRQ line, and make sure it is live
+; in:  a card pm_porttest has already seen (NEVER call this before: see the
+;      header - on a machine with no PicoMEM AX=6000h is undefined)
+; out: [pm_pmirq] = the line, or 0 if the BIOS did not answer
+; clobbers: flags
+;
+; PM BIOS function 0 answers DX = AA55h, BX = the BIOS segment and CH =
+; BV_IRQ (pmbios.asm's PM_InstallIRQ13 table, checked against the shipped
+; ROM's disassembly). On the way it re-hooks the line if its vector no longer
+; names that segment, and unmasks it when it does. We then unmask it again
+; ourselves, but ONLY if the vector is the BIOS's: opening a line whose vector
+; is somebody else's is how a stray becomes a crash. Lines 3, 5 and 7 only -
+; a 1.x jumpers nothing else, and a 2.x's line 6 is the floppy's.
+; -----------------------------------------------------------------------------
+pm_bios:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov ax, 0x6000
+    mov dx, 0x1234
+    int 0x13
+    cmp dx, 0xAA55
+    jne .out                    ; no PM BIOS answering: line unknown
+    mov al, ch
+    cmp al, 3
+    je .line
+    cmp al, 5
+    je .line
+    cmp al, 7
+    jne .out
+.line:
+    mov [pm_pmirq], al
+    mov cl, al
+    add al, 8                   ; int 8+n's cell
+    xor ah, ah
+    shl ax, 1
+    shl ax, 1
+    mov si, ax
+    xor ax, ax
+    mov es, ax
+    cmp [es:si+2], bx           ; still the BIOS's multiplexer?
+    jne .out
+    mov ah, 1
+    shl ah, cl
+    not ah
+    pushf
+    cli
+    in al, 0x21
+    and al, ah                  ; ...then its line is open
+    out 0x21, al
+    popf
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -402,10 +493,12 @@ pm_init:
     mov word [pm_base], 0
     mov byte [pm_irq], 0
     mov byte [pm_up], 0
+    mov byte [pm_pmirq], 0
     mov dx, PM_BASE
     call pm_porttest
     jc .out                     ; no card: nothing has been written anywhere
     mov [pm_base], dx
+    call pm_bios                ; the card's own line, before any IRQ is offered
     call pm_snd_on
     jc .out
     mov byte [pm_up], 1
@@ -448,5 +541,6 @@ pm_irqs:    db 7, 5, 3, 0       ; sb.inc's own candidate order, less IRQ 2:
                                 ; PMINIT will not offer it and an XT's line 2
                                 ; is the one a card is least likely to own
 pm_base:    dw 0                ; the card's command port, 0 = no card found
+pm_pmirq:   db 0                ; the card's OWN (multiplexer) IRQ, 0 = unknown
 pm_irq:     db 0                ; the line the firmware accepted, 0 = none
 pm_up:      db 0                ; 1 = we turned the DSP on and owe an undo

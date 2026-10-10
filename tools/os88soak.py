@@ -217,6 +217,11 @@ def requirements():
                 "Pillow and used to FAIL on the ImportError.",
                 "make deps      (installs python3-pil)"))
 
+    req.append(("unicorn", os88build.have_unicorn(),
+                "picomem, which runs the PicoMEM-facing driver code against a "
+                "model of the card (SPEC.md 34.10.1, 72.2).",
+                "python3 -m pip install unicorn"))
+
     req.append(("ffmpeg", bool(shutil.which("ffmpeg"))
                 and bool(shutil.which("ffprobe"))
                 and os88build.have_numpy(),

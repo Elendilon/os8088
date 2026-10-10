@@ -62009,6 +62009,60 @@ took, are all the field machine's questions. The firmware reports DSP 2.1
 (`SBT_2`), which is the version gate `sb.inc` takes the auto-init `0x48`+`0x1C`
 path on, so that much is at least the path MartyPC's own DSP 2.01 exercises.
 
+#### 34.10.1 The card's own IRQ is the one line nothing else may have
+
+**The first field attempt brought the DSP up and played nothing, and the
+cause was §34.5's IRQ discovery rather than the card.** A PicoMEM 1.x has
+**one** interrupt jumper (3, 5 or 7) and no DMA line at all. Its BIOS hooks
+that one line with a *multiplexer* — read off the shipped ROM's disassembly,
+because `pmbios/*.asm` in the firmware repository is older than the
+`src/rom/pmbios.bin` the board carries:
+
+- it EOIs at once, runs with IF=0, and walks a request list the card writes
+  into its shared RAM (the BIOS segment + 16KB);
+- a **DMA copy** request is how "DMA emulation" works: the CPU copies the
+  next 128-byte block from the 8237 channel's address into the card's buffer
+  with `rep movsw`, then rewrites **channel 1's** address and count registers
+  (ports 02h/03h, hard-coded) so a program reading the count sees progress;
+- an **audio** or **NE2000** request is delivered as a *software* `int 8+n`
+  — and only if line *n*'s bit in the 8259 mask is **clear**;
+- the last thing it does is acknowledge itself to the card (`out 2A0h, 1`).
+
+So on a 1.x the Sound Blaster's IRQ never appears on the bus at all, and the
+card's own line carries every block of every sound. `sbl_f_irqdisc` swapped
+the vectors of 7, 5, 3 and 2 for stubs and fired F2h: on a PicoMEM whose
+jumper was one of those lines the multiplexer's vector was among the four
+swapped, its request arrived at a stub, the stub took it as the SB's, and
+`sbl_isr` was hooked onto the PicoMEM's line for the session. No block was
+ever copied and the card was never acknowledged.
+
+Three rules now, all in the `PICOMEM` build:
+
+1. **The line is learned, and kept live.** After `pm_porttest` has seen the
+   ramp, `pm_bios` makes PMINIT's own detect — `int 13h` AX=6000h DX=1234h,
+   answered DX=AA55h, BX = the BIOS segment, **CH = the card's IRQ**. §34.10
+   refused that call as the *detection*, because on a machine with no
+   PicoMEM it is an undefined `int 13h` function; it is not the detection
+   here, it runs only on a machine already shown to have the card. The call
+   also re-hooks the multiplexer if its vector no longer names the BIOS
+   segment, and `pm_bios` opens the line's mask bit when — and only when —
+   the vector is the BIOS's.
+2. **That line is never offered to the Sound Blaster** (the firmware refuses
+   it too; skipping it costs no command).
+3. **Discovery is skipped on a card we configured.** We chose the SB's line
+   and told the card, so there is nothing to discover: `sbl_f_irqdisc` takes
+   `[pm_irq]` straight to its winner path, which hooks `sbl_isr` and opens
+   the mask bit the multiplexer checks.
+
+A **PicoMEM 2.x** has a jumper per line (3, 5, 6, 7), takes the highest for
+itself, raises any other jumpered line directly and multiplexes the rest the
+1.x way — so the same three rules are right there too. It also does **real
+DMA, on the channel its DMA jumper selects**: `sb.inc` programs channel 1 and
+no other (§34.5), so that jumper must be on **1**. And a 2.x cannot DMA from
+memory it is itself emulating — a ring in PicoMEM-provided conventional RAM
+would be silent there. Neither is detectable from software, so both are
+setup facts rather than code.
+
 ### 34.11 PCM through the speaker, in a bracket — `OSAPI_FSX_SPK` and `apps/os88spk.inc` (`kern_big`)
 
 A machine with no card plays sampled sound the way 1980s games did: §34.4's
@@ -109496,6 +109550,23 @@ pair agrees it is a 16-bit card and the station address is bytes 0, 2, 4…; if
 any pair differs it is an NE1000 and the address is bytes 0..5. That is Linux
 `ne.c`'s test and it needs no signature byte, which matters because the
 signature is the one thing the clones disagree about.
+
+**An un-doubled PROM is a claim about the BUS, not about the MEMORY, so the
+NE1000 map is TESTED rather than assumed.** The PicoMEM's emulated NE2000
+(Freddy Vetele's firmware, `src/ne2000/ne2000.c`) answers the PROM read with
+the MAC at bytes 0..5 and zeroes after it, so the pair test calls it an
+NE1000 — but its packet memory is the NE2000's, 32KB from 0x4000, and a
+remote-DMA write below that is dropped while a read answers FFh. The ring went
+at page 0x20, so every frame sent was a page of nothing and every frame
+received was written outside the card's own buffer: the field report was a
+transmit counter that climbed and a receive counter that never moved, and no
+DHCP. So when the PROM says 8-bit, `ne_memok` writes eight bytes at 0x2000 and
+reads them back; only if that fails **and** the same pattern holds at 0x4000
+does `[eth_word]` become 1 — which from then on means the NE2000's MAP and
+nothing else, every transfer staying byte-wide. A real NE1000 passes the first
+test and nothing about it changes; a card that holds neither keeps the NE1000
+map it always had. The Ethernet page then names it `Ne2000`, which is what it
+is.
 
 Three things break silently and each has a rule:
 
