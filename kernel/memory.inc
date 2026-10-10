@@ -2793,9 +2793,13 @@ mem_rr_tab:
     ; (mem_reloc_call), and a block that is not a driver matches none of them.
 %ifdef OS88_DRIVERS
     MEM_RR_ROW drv_tab + DRVR_SEG, DRV_MAX, DRVR_SIZE
-    MEM_RR_ROW drv_fseg,           5,       4   ; the five published class fast
-%endif                                          ; paths, contiguous BY DESIGN
-                                                ; (driver.inc:841)
+    MEM_RR_ROW drv_fseg,    DRVC_MAX,       4   ; EVERY published class's fast
+%endif                                          ; path, contiguous BY DESIGN
+                                                ; (driver.inc:841). It said 5
+                                                ; through two appended classes
+                                                ; - DRVC_POINT's and DRVC_EMS's
+                                                ; segments went stale on a move
+                                                ; - so it names the ceiling now
     ; A DONATED listing claim had two rows here - dsk_vtab's DV_SEG and the
     ; live [dsk_dseg] - and SPEC.md 22.6 retired the donation, so DV_SEG can
     ; no longer name one.
