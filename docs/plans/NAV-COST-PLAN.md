@@ -1,9 +1,44 @@
 # WHAT NAVIGATION COSTS, AND THE SLOT THAT MAKES IT COST THAT
 
-**STATUS: OPEN. The finding is measured on ONE package and the audit is not
-done.** It is written now because it was found while planning the DOS box's
-path wave (docs/plans/DOS-EXEC-PLAN.md), and deviating to it there would have
-been the tail wagging the dog.
+**STATUS: §5 STEP 1 IS BUILT AND MEASURED, for every SYSTEM\APPDATA walker in
+the tree - steps 2 and 3 (`apps/os88type.inc` and the remaining sites) are
+still open.** It was written while planning the DOS box's path wave
+(docs/plans/DOS-EXEC-PLAN.md), and deviating to it there would have been the
+tail wagging the dog.
+
+**§0 is what was built.** Everything after it is the plan as it was written,
+kept because its reasoning is what the build stands on.
+
+## 0. Built: `apps/os88data.inc` (SPEC.md 19.9.1)
+
+The five private copies of the walk - Cyclone, Tank Attack, Dot Delirium,
+Clear Skies, PIXELSTEIN 3D - are one shared include, and Weave's and LOOM's C
+walks use `os88_file_goto_q_mark`. Three changes, each the answer to a
+section below:
+
+- every step is `OSAPI_FILE_GOTO_QM` (§1, §2) - no display remount, no
+  directory-cache flush;
+- APPDATA's cluster is BANKED after the first walk (§4's design, without
+  `OSAPI_VOL_SIG`: `GOTO_QM` already runs `dsk_media_ok`, and the in-place
+  write's own `FERR_NOENT` is §4.4's witness);
+- a rewrite of unchanged length is ONE SECTOR through `OSAPI_FILE_WRITE_AT`'s
+  INSIDE arm, taken only once this session has itself written the file in
+  full (the compression-hint rule in the include's header).
+
+MEASURED on MartyPC, an IBM 5150 on GLaBIOS with CGA, `games360.img`,
+PIXELSTEIN's `PXSTEIN.CFG`, the motor left to stop before each save
+(`tests/appdata.py` is the row; the base figures are the same script against
+the tree before the change):
+
+| | before | after |
+|---|---|---|
+| the two loads at launch | 8 `FILE_GOTO`, 9 reads / 24 sectors, **2,436 ms** | 0 `FILE_GOTO`, 1 read, **564 ms** |
+| first save of a session | 4 `FILE_GOTO`, 5 reads, 4 writes, **2,081 ms** | 0, 1 read, 4 writes, **1,384-1,506 ms** |
+| every save after it | 4 `FILE_GOTO`, 6 reads / 21 sectors, 6 writes, **2,716-2,805 ms** | 0, 1 read (the boot sector the media check owes), **1 write**, **720-876 ms** |
+
+`games360.img` is a small disk. The owner's six seconds for Tank were on a
+fuller one, and what this removes - four listings with a sort and an icon
+harvest each - grows with the folders' sizes, where what is left does not.
 
 **§4 carries a correction in place** - this document first refused the cached
 location outright, on §18.9.3's disk-swap argument, and that refusal was

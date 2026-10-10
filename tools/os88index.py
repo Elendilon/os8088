@@ -193,6 +193,12 @@ INCLUDES = [
      "yours and a cursor whose offset differs is re-seeded, so a seek needs "
      "nothing; the small kernel's `FERR_NAME` is retried as `READ_AT`. Zero "
      "the cursor with `os88_rseq_new` whenever the FILE changes."),
+    ("os88data.inc", "19.9.1",
+     "SYSTEM\\APPDATA on your own volume: `od_read` and `od_write`, which walk "
+     "there with `OSAPI_FILE_GOTO_QM` (never the display remount), bank the "
+     "folder's cluster, rewrite a file of unchanged length in ONE sector with "
+     "`OSAPI_FILE_WRITE_AT`, and put the instance back on every path out. For "
+     "a high-score table or a settings file; five packages carry it."),
     ("os88pit.inc", "72.15.1",
      "`pit_now`: a 32-bit clock in 838ns units off the 8253 and the BIOS tick, "
      "good for an hour before it wraps. Sub-tick timing for a profiler."),

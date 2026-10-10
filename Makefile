@@ -6584,7 +6584,7 @@ $(BUILD)/solitair.o88: $(BUILD)/solitair.bin tools/os88pkg.py $(PKGZSTAMP)
 $(BUILD)/tank.bin: apps/tank/tank.asm apps/tank/tkraster.inc \
                     apps/tank/tktmpl.inc \
                     apps/tank/tk3d.inc apps/tank/tkgame.inc \
-                    apps/tank/tkattr.inc apps/tank/tkhs.inc \
+                    apps/tank/tkattr.inc apps/tank/tkhs.inc apps/os88data.inc \
                     apps/tank/tksin.inc apps/tank/tkridge.inc \
                     apps/tank/tktan.inc apps/tank/tknib.inc \
                     apps/tank/tkover.inc apps/tank/tklogo.inc \
@@ -6617,7 +6617,7 @@ SKIES_SRC := apps/skies/skies.asm apps/skies/csraster.inc \
              apps/skies/cspanel.inc apps/skies/cssin.inc \
              apps/skies/cswmac.inc apps/skies/csvocab.inc \
              apps/skies/csart.inc apps/skies/csdiag.inc \
-             apps/skies/csset.inc $(CSWORLDS) \
+             apps/skies/csset.inc apps/os88data.inc $(CSWORLDS) \
              apps/skies/csload.asm apps/skies/csicon.inc \
              apps/os88api.inc apps/os88ui.inc \
              apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc \
@@ -6748,7 +6748,7 @@ DOTDEL_SRC := apps/dotdel/dotdel.asm apps/dotdel/ddlay.inc \
               apps/dotdel/ddmaze.inc apps/dotdel/ddmzdat.inc \
               apps/dotdel/ddspr.inc apps/dotdel/ddart.inc \
               apps/dotdel/ddgame.inc apps/dotdel/ddattr.inc \
-              apps/dotdel/ddhs.inc apps/dotdel/ddrend.inc \
+              apps/dotdel/ddhs.inc apps/os88data.inc apps/dotdel/ddrend.inc \
               apps/os88api.inc apps/os88ui.inc \
                   apps/os88alt.inc
 
@@ -6796,7 +6796,7 @@ PXGAME_SRC  := apps/pixelstein/pxgame.asm apps/pixelstein/pxicon.inc \
                apps/pixelstein/pxcast.inc apps/pixelstein/pxgen.inc \
                apps/pixelstein/pxcomp.inc apps/pixelstein/pxrast.inc \
                apps/pixelstein/pxwin.inc apps/pixelstein/pxgame.inc \
-               apps/pixelstein/pxset.inc apps/pixelstein/pxspr.inc \
+               apps/pixelstein/pxset.inc apps/os88data.inc apps/pixelstein/pxspr.inc \
                apps/pixelstein/pxact.inc apps/pixelstein/pxhud.inc \
                apps/pixelstein/pxhs.inc \
                $(PXSTEIN_GEN) apps/os88api.inc apps/os88ui.inc \
@@ -7000,7 +7000,7 @@ $(CYCSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.cycpkg*
 	@touch $@
 
-$(BUILD)/cyclone.bin: apps/cyclone/cyclone.asm apps/os88api.inc apps/os88gfx.inc \
+$(BUILD)/cyclone.bin: apps/cyclone/cyclone.asm apps/os88api.inc apps/os88data.inc apps/os88gfx.inc \
                       apps/os88alt.inc $(CYCSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ $(CYCFLAGS) -o $@ apps/cyclone/cyclone.asm
 	@echo "cyclone: $(call FILESIZE,$@) bytes"
@@ -11624,7 +11624,7 @@ $(SMALLAPPDIR)/solitair.o88: $(SMALLAPPDIR)/solitair.bin tools/os88pkg.py $(PKGZ
 $(SMALLAPPDIR)/tank.bin: apps/tank/tank.asm apps/tank/tkraster.inc \
                          apps/tank/tktmpl.inc \
                          apps/tank/tk3d.inc apps/tank/tkgame.inc \
-                         apps/tank/tkattr.inc apps/tank/tkhs.inc \
+                         apps/tank/tkattr.inc apps/tank/tkhs.inc apps/os88data.inc \
                          apps/tank/tksin.inc apps/tank/tkridge.inc \
                          apps/tank/tktan.inc apps/tank/tknib.inc \
                          apps/tank/tkover.inc apps/tank/tklogo.inc \

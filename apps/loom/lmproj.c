@@ -372,14 +372,17 @@ static int lm_nextslot(void)
 /* ============================================================================
  * SPEC.md 19.9's PREFERENCES - `SYSTEM/APPDATA/LOOM.CFG`
  *
- * The bank / GOTO / act / GOTO-back idiom, TOLERATING ABSENCE at every step.
+ * The bank / GOTO_QM / act / GOTO_QM-back idiom, TOLERATING ABSENCE at every
+ * step.
  * A disk without the folder is not an error: it is a user's own disk, or one
  * written by something else, and the volume goes back where it was.
  * apps/weave/wstate.c is the shape and its header carries the doctrine -
  * including the one that is easy to get wrong, that SYSTEM/ is FOUND BY
- * WALKING rather than assumed, and that it is os88_file_goto() and never the
- * quiet twin (which moves the global cwd and deliberately not the instance's,
- * so the quiet move is undone by the very next write).
+ * WALKING rather than assumed, and that every step is os88_file_goto_q_mark()
+ * - the quiet stand that moves the instance too, a word inside our own volume
+ * - and neither os88_file_goto(), a remount for DISPLAY at every step, nor
+ * GOTO_Q, which moves the global cwd only and is undone by the next write
+ * (docs/plans/NAV-COST-PLAN.md).
  *
  * NEVER FAIL A LAUNCH BECAUSE IT IS MISSING. The file holds the last
  * project's folder and the last slot, and both are conveniences: without them
@@ -394,7 +397,6 @@ static int lm_nextslot(void)
 #define LM_CFG_LEN    8
 
 static struct os88_place lm_here;
-static struct os88_place lm_there;
 static struct os88_find  lm_find;
 static unsigned char     lm_cfg[LM_CFG_LEN];
 
@@ -413,9 +415,7 @@ static int lm_dive(const char *name)
             continue;
         if (!lm_samename(lm_find.name, name))
             continue;
-        lm_there.clus = lm_find.clus;
-        lm_there.vol = lm_here.vol;
-        return os88_file_goto(&lm_there) == 0;
+        return os88_file_goto_q_mark(lm_find.clus, lm_here.vol) == 0;
     }
     return 0;
 }
@@ -423,12 +423,10 @@ static int lm_dive(const char *name)
 static int lm_data_enter(void)
 {
     os88_file_here(&lm_here);
-    lm_there.clus = 0;                  /* the ROOT of that same volume */
-    lm_there.vol = lm_here.vol;
-    if (os88_file_goto(&lm_there) != 0)
+    if (os88_file_goto_q_mark(0, lm_here.vol) != 0)    /* the ROOT of it */
         return 0;
     if (!lm_dive("SYSTEM") || !lm_dive("APPDATA")) {
-        os88_file_goto(&lm_here);
+        os88_file_goto_q_mark(lm_here.clus, lm_here.vol);
         return 0;
     }
     return 1;
@@ -436,7 +434,8 @@ static int lm_data_enter(void)
 
 static void lm_data_leave(void)
 {
-    os88_file_goto(&lm_here);           /* leaving the instance elsewhere would
+    os88_file_goto_q_mark(lm_here.clus, lm_here.vol);
+                                        /* leaving the instance elsewhere would
                                          * move where every unqualified name it
                                          * passes the file API resolves, and
                                          * where its next dialog opens (19.9) */
