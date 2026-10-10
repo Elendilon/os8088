@@ -365,6 +365,16 @@ MEM_P_VIEW_N equ 5              ; 22.1), kern_small only - the user's four
                                 ; way, so shedding one there would be paying
                                 ; floppy I/O for room it does not need
 %endif
+MEM_P_FLIST equ MEM_PG_MED<<8 | 0x30    ; the Disk window's MULTI-FILE
+                                ; CLIPBOARD (SPEC.md 22.27): the names a Cut
+                                ; or Copy of a whole selection put on it, 1KB.
+                                ; MED because losing it loses the user's
+                                ; clipboard - a gesture to repeat - and it is
+                                ; cleared on paste anyway. Its zero is "the
+                                ; clipboard is empty", which Paste already
+                                ; handles, and a paste raises the floor to
+                                ; this rank so its own copy buffer cannot
+                                ; take the list it is walking
 MEM_P_DIRW  equ MEM_PG_HIGH<<8 | 0x02   ; the directory read-ahead window:
                                 ; HIGH, because it is the difference between
                                 ; 316 int 13h calls and 114 on an install
@@ -1008,6 +1018,9 @@ mem_pg_own:
 mem_pg_fatwrow:                 ; NAMED: mem_pg_forget asks which ROW matched
     dw MEM_P_FATW,  dsk_fatwc,   MEM_P_FATW_N
     dw MEM_P_ICO,   ico_seg,     MEM_P_ICO_N
+%ifdef FM_MSEL
+    dw MEM_P_FLIST, fcp_lseg,    1
+%endif
 %ifdef KERN_SMALL
 mem_pg_viewrow:
     dw MEM_P_VIEW,  0,           MEM_P_VIEW_N

@@ -2072,6 +2072,7 @@ MEM_P_VIEW_N equ 5              ; RANGE, 0x10..0x14 with the window's fm_pool
                                 ; On kern_big that claim is an ordinary,
                                 ; movable, instance-owned one and this range
                                 ; simply matches nothing
+MEM_P_FLIST equ MEM_PG_MED<<8 | 0x30    ; the Disk window's multi-file clipboard (22.27), kern_big only
 MEM_P_DIRW  equ MEM_PG_HIGH<<8 | 0x02   ; the directory read-ahead window (18.95)
 
 ; --- OSAPI_SYS_KB's buffer, all in KB ----------------------------------------

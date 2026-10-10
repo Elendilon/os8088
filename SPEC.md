@@ -48035,6 +48035,109 @@ half a second opened row 4 - a package launched, or a chooser answered - on
 one click. Every later click is born at or after that `[ui_click_t]`, so the
 wrap-safe difference is at least `FM_DBLCLK` and the click only re-stamps.
 
+### 22.27 Multi-select (`kern_big`)
+
+**What it costs: 797 resident bytes** (`.cold` 739, `.text` 13, `.bss` 45),
+measured against `make MSELOFF=1`. It shipped at 1,418 and the size pass that
+took it under 800 is docs/plans/completed/MULTISELECT-PLAN.md §A.1: the rubber
+band became a DRAG SELECT of a run, and the single-selection code the feature
+already duplicated - a click's two bands, an arrow's, a right-click's, the
+single Delete - became the multi-selection's own.
+
+A Disk window can hold **more than one selected entry**, and Cut, Copy,
+Paste, Delete and a drag act on all of them. The design record, with what
+was weighed and refused, is docs/plans/completed/MULTISELECT-PLAN.md; `make MSELOFF=1`
+compiles the whole of it out, and that build is byte-identical to the kernel
+before it. `kern_small` has none of it, for 22.26's reason: there the copy
+engine is `FILECP.DRV`, so every operation on a set would ask for the system
+disk anyway.
+
+**The gestures.** The modifier keys are read out of the BIOS's shift state
+(0040:0017) when the click is dispatched - Ctrl is bit 2, Shift bits 0-1.
+
+| gesture | what it does |
+|---|---|
+| Ctrl+click | that entry in or out of the selection - one band, no text |
+| Shift+click | the run from the ANCHOR to the entry clicked, in index order (reading order in the icon grid) |
+| Shift+Up/Down/PgUp/PgDn | the focus moves by 22.26's arithmetic and the selection becomes the run from the anchor to it: away from the anchor selects, back towards it unselects |
+| Ctrl+A | every entry |
+| a press on empty space - or, in the LIST, right of the name column (x >= 120) - and a drag | a DRAG SELECT: the press selects the row it is on (or nothing, off the entries), which is the anchor, and as the pointer moves the selection is the run from it to the entry under the pointer, live |
+| a plain click, a plain arrow | back to one entry, as before |
+| a right-click | with a set up nothing changes, wherever the press is, and the menu - an entry's - acts on the set; with one entry it selects the row under the pointer, as before |
+
+The anchor is ONE byte for every window (`fm_anch`; only the front window
+takes a gesture): the entry a single selection had when a Shift gesture
+started, the last Ctrl+clicked one, or where a drag select was pressed. In a
+list row a name is at most twelve characters at x = 24, so the row right of
+x = 120 is background for the purpose of starting a drag select - **a file is
+clicked, double-clicked and dragged by its name, and no longer by its size
+column**. The drag select is a run in index order, not a rectangle, it has no
+outline (the bands ARE the feedback), it covers what is on the screen and
+does not scroll the view; off the entries the run holds where the pointer left
+it. It is not a tracking loop: the press arms `FM_BBAND` in `os88ui_armw`,
+the window's `W_ONDRAG` (SPEC.md 13.8.1) draws each movement, and the release's
+`os88ui_fire` spends it and matches no button. A Standard File chooser picks
+one file (SPEC.md 38), so in its block no modifier is seen and no drag select
+starts.
+
+**The representation.** Each block grows eight bytes, `FS_MSEL`, a bitmap of
+directory indices (`DSK_NENT` is 64). **An EMPTY bitmap means the selection is
+`FS_SEL` alone.** A gesture that wants more ENTERS the bitmap (`fm_menter`:
+the focus becomes its first bit, whose band is already on the glass), and
+from then on the bitmap is the whole selection and `FS_SEL` only the focus
+that Enter opens, Rename names and the arrows move. Any path that empties the
+set clears `FS_SEL` with it, because an empty bitmap would otherwise promote
+an unselected focus to "the selection".
+
+**Every change is a DIFF, and every target is ONE RUN.** `fm_mset` makes the
+selection the run AX..DX, inverting the band of each index whose bit CHANGES
+and no other, so an entry that stays selected is never drawn twice; the
+single-entry run is how a set collapses back to one entry (`fm_mone`), and the
+empty run 0FFFFh..0FFFFh is how it goes. On this build that is also how ONE
+entry's selection moves: a click's 22.2 pair of bands, a plain arrow's
+(22.26), and a right-click's are each `fm_menter` + `fm_mone`, so there is one
+selection-drawing path and not two. `fm_lsel_bar`'s three callers - the
+painter and the scroll's lift and relay (22.11) - each mean "the whole
+selection", so with a set up it draws the set (`fm_mdraw`, the same walk with
+the bits left alone). An arrow draws its new selection BEFORE the view
+follows, and the scroll carries it. `fmv_store` empties the bitmap with
+`FS_SEL` - unless `FS_SEL` is `FM_MKEEP`, which `fmv_sync_x` stores across its
+re-list in place, because a re-list that is not navigation repaints nothing
+and the bands are still on the glass. A sync that lands somewhere else - the
+folder was deleted under it and the mount fell back to the root - empties the
+bits after all, because their indices name the root's entries now.
+
+**Cut and Copy put a LIST on the clipboard.** A clipboard has to hold names,
+for 22.3's reason, so the set is copied into one purgeable 1KB claim,
+`MEM_P_FLIST` at MED: 16-byte records, each the operation record's own (type
+word, 13-byte 8.3 name) pair - `fm_ftype` and `fm_onam` are adjacent so that
+it is one move each way. The first entry is armed with `fcp_arm`, as one
+entry always is, so the paste starts exactly as a paste of one entry does,
+and `fcp_lnext` runs each further record through `fcp_run2` while the last one
+ended DONE - from the last record down, one counter (`fcp_lcnt`, in bytes);
+a listing is sorted, so the order of the writes is not seen. "A = replace
+all" holds for the whole paste, Esc at a question stops all of it, and a
+failure stops it and is said once (SPEC.md 59). **A list is cleared on paste,
+Copy or Cut alike**: the clipboard is spent and the claim freed when the paste
+ends. While it runs the task's purge floor is raised to MED (SPEC.md 50.6.6),
+so the copy buffer each entry claims cannot shed the list being walked; a list
+purged BEFORE its paste is an empty clipboard, and one purged UNDER it - by
+another task's claim while a question is up - ends the paste there. Arming one is refused while a
+paste is running, and one entry put on the clipboard ends any list.
+
+**Delete asks about "N items"** - `Delete 5 items +contents? Del=yes Esc=no`
+when a folder is among them - and commits through the single Delete's own
+`fmv_sync_x` (which keeps the bits, above), walking the set by name out of
+the window's own listing, each entry deleted by the routine one entry's
+Delete calls too (`fm_mw_del`). There is no write batch: a delete finds its
+name on the DISK, and each one's sync only marks and owes. A failure stops the
+walk and is said, and what WAS deleted is broadcast either way.
+
+**A drag** of a selected entry moves the whole set; of an unselected one, that
+entry alone. **Ctrl+drag copies**, and **a drop on another DRIVE copies** - the
+reason a drag was always a move, *"a modifier key it has no way to report"*,
+is gone.
+
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)
 
 Not kernel code: a .o88 package built with os88api.inc, org 0 (§20.1), all
