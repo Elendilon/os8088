@@ -2919,6 +2919,9 @@ dwr_stat:
 WSQF_HELD   equ 0x01            ; the caller's AL...
 WSQF_SYS    equ 0x02            ; ...and APPEND_SYS's permission (18.4.4):
                                 ; a hidden + system file may be grown
+WSQF_KEEP   equ 0x04            ; ...the hold outlives a WAKE (18.4.9.3), on a
+                                ; fixed disk: [dws_keep] is the verdict
+WSQF_CKPT   equ 0x08            ; ...and a close that keeps the token HOT
 WSQF_HOT    equ 0x40            ; the door's: the token names the record
 WSQF_IN     equ 0x80            ; ...and inside a call at all
 DWS_REC0    equ dskw_raw + DSK_R_CLUS   ; the record's run: the entry's head
@@ -2948,16 +2951,27 @@ dwsf_dskw_write_seq:
     retf
 %endif
 dwf_dskw_write_seq:
-    and al, WSQF_HELD | WSQF_SYS    ; the CALLER's bits: WSQF_HOT is the door's
-    or al, WSQF_IN
+    and al, WSQF_HELD | WSQF_SYS | WSQF_KEEP | WSQF_CKPT    ; the CALLER's
+    or al, WSQF_IN              ; bits: WSQF_HOT is the door's
     mov [dws_flg], al
-    jcxz .cold                  ; a CLOSE: the commit, and nothing more
+    jcxz .close                 ; a CLOSE: the commit, and nothing more
     cmp di, [dsk_mgen]          ; the token still names the record...
     jne .cold
     call dws_ours.vol           ; ...on this volume
     jne .cold
     or byte [dws_flg], WSQF_HOT
     jmp short .go
+.close:                         ; A CHECKPOINT (18.4.9.3) is a close whose
+    test byte [dws_flg], WSQF_CKPT  ; token survives it: the commit stamps the
+    jz .cold                    ; record (WSQF_IN), so after it the record
+    cmp di, [dsk_mgen]          ; names the file exactly as the disk does and
+    jne .cold                   ; the next call may start a NEW hold from it,
+    call dws_ours.vol           ; hot. Only for a HOT token: then the pending
+    jne .cold                   ; hold, if any, is this stream's and nobody's
+    call dws_commit             ; else (every other write moved [dsk_mgen])
+    jc .out
+    mov di, [dsk_mgen]          ; AX = 0 out of the commit
+    jmp short .out
 .cold:
     call dws_commit             ; a hold ends before a file is looked up
     jc .out                     ; again: its size IS the lookup's answer - and
@@ -2968,6 +2982,18 @@ dwf_dskw_write_seq:
     mov [dskw_syswr], al        ; so none can leak into the next write
     call dskw_append_x
     jc .out                     ; DI as it was: the record is untouched too
+    test byte [dws_flg], WSQF_KEEP  ; MAY THE HOLD OUTLIVE A WAKE (18.4.9.3)?
+    jz .keep                    ; Only on a FIXED disk: a floppy can be taken
+    push bx                     ; out between two callbacks, which is the whole
+    mov bl, [disk_drive]        ; reason a hold ends with the callback that
+    call dsk_vol_fixed_x        ; made it. AL = 1 fixed, 0 removable
+    pop bx
+    jnc .keep1
+.keep:
+    xor al, al
+.keep1:
+    mov [dws_keep], al
+    xor ax, ax                  ; the append's answer, which AL just spent
     mov di, [dsk_mgen]          ; THE TOKEN: what the call left (`mov`: CF
 .out:                           ; stays the answer)
     mov byte [dws_flg], 0       ; `mov`: CF stays the answer
@@ -4190,6 +4216,14 @@ dskw_alloc:
     mov cx, [dsk_maxclus]
     dec cx                      ; candidates: clusters 2..maxclus
     mov ax, [dsk_rover]
+    cmp byte [dsk_fattype], 0   ; FAT16: A WINDOW AT A TIME (SPEC.md 18.4.10)
+    je .try
+    call dskw_alloc16           ; out ZF=1 AX = the free cluster; ZF=0 = none
+    je .got1                    ; there, or a window that would not load -
+                                ; which the per-cluster loop below then asks
+                                ; again, AX and CX where the search stopped
+    jcxz .nospace               ; every candidate asked: the volume is full
+                                ; (and `loop` from CX = 0 would ask 65,536)
 .try:
     cmp ax, [dsk_maxclus]       ; wrap the rover into range: past the last
     ja .wrap                    ; cluster or below the first, both are 2
@@ -4210,6 +4244,7 @@ dskw_alloc:
     jmp short .nospace
 .got:
     pop ax                      ; AX = the free cluster
+.got1:
     mov dx, DSKW_EOC16          ; ...on FAT12 too: dskw_setfat keeps the low
                                 ; 12 bits there, which is DSKW_EOC12 exactly
     call dskw_setfat            ; the EOC mark. A cluster we could not MARK is
@@ -4230,6 +4265,89 @@ dskw_alloc:
     stc
 .out:
     jmp dskw_find.pdx           ; its pop run is ours (a pop writes no flag)
+
+; -----------------------------------------------------------------------------
+; dskw_alloc16 - dskw_alloc's search on FAT16, a WINDOW at a time (SPEC.md
+;                18.4.10)
+; in:  AX = the first candidate (the rover, maybe out of range), CX = how many
+;      candidates are left
+; out: ZF=1 with AX = a free cluster; ZF=0 with AX/CX where the search stopped
+;      - CX = 0 for a full volume, else a window that would not load, for the
+;      per-cluster loop to ask again
+; clobbers: AX, CX, DX, flags
+;
+; THE PER-CLUSTER LOOP IS THREE NESTED CALLS A CLUSTER - dsk_next_clus_x,
+; dsk_fat_ofs_x, dsk_fat_window and its KENT frame - to ask whether one word
+; is zero, and the rover goes back to 2 at every mount, so the first
+; allocation after one walks every USED cluster from the front. On a nearly
+; full 32MB volume that is 16,000 of them: the field measured the first
+; commit of an FTP upload at 1.55s against 62ms for the rest, on a 286
+; (SPEC.md 77.50.1). A FAT16 entry is a WORD and free is ZERO, so the
+; resident window is searched with one `repne scasw` - the same answer, the
+; same rover, the same window loads, a few clocks an entry.
+; -----------------------------------------------------------------------------
+dskw_alloc16:
+    push bx
+    push di
+    push es
+.win:
+    jcxz .none
+    cmp ax, [dsk_maxclus]       ; the rover's wrap, as the loop's
+    ja .wrap
+    cmp ax, 2
+    jae .in
+.wrap:
+    mov ax, 2
+.in:
+    call dsk_fat_ofs_x          ; BX = AX's entry in the window, now resident
+    jc .none                    ; (ZF=0 out of the carry's own `stc` path is
+                                ; not promised, so .none makes it)
+    mov dx, [dsk_fatw0]         ; the entries resident from AX on: to the
+    add dx, [dsk_fatwn]         ; window's end...
+    mov dh, dl                  ; ...x256, the cluster past the window. Its
+    mov dl, 0                   ; sector count is under 256 (FAT16 caps at
+    sub dx, ax                  ; 256 sectors), so the byte move IS the shift
+    push cx
+    mov cx, [dsk_maxclus]       ; ...and never past the last cluster: the
+    inc cx                      ; tail of the FAT's last sector is padding,
+    sub cx, ax                  ; and padding is zero
+    cmp dx, cx
+    jbe .lim
+    mov dx, cx
+.lim:
+    pop cx
+    cmp dx, cx                  ; ...nor past the candidates left
+    jbe .lim2
+    mov dx, cx
+.lim2:
+    sub cx, dx                  ; CX = what is left after this window
+    push cx
+    mov cx, dx
+    mov es, [dsk_fatseg]
+    mov di, bx
+    push ax
+    xor ax, ax
+    cld
+    repne scasw
+    pop ax
+    je .found
+    add ax, dx                  ; none here: the next window
+    pop cx
+    jmp short .win
+.found:
+    inc cx                      ; CX = entries NOT examined, the hit included
+    sub dx, cx
+    add ax, dx                  ; AX = the free cluster; ZF from the `sub`
+    pop cx                      ; is not ZF=1, so set it below
+    xor dx, dx                  ; ZF=1
+    jmp short .out
+.none:
+    or sp, sp                   ; ZF=0 (SP is never 0)
+.out:
+    pop es
+    pop di
+    pop bx
+    ret
 
 ; -----------------------------------------------------------------------------
 ; dskw_free_chain - zero every FAT entry of a chain
@@ -5835,6 +5953,11 @@ dws_hold:     resb 1            ; 1 = a HELD stream is pending (dws_commit),
 dws_flg:      resb 1            ; inside WRITE_SEQ: WSQF_*. ADJACENT to
                                 ; dws_hold: the gates read one word
 dws_hlink:    resw 1            ; the file's committed last cluster; 0 = empty
+dws_keep:     resb 1            ; 1 = the pending hold may outlive a WAKE
+                                ; (WSEQF_KEEP on a fixed disk, 18.4.9.3)...
+dws_inwk:     resb 1            ; ...and 1 = ui_task is inside one. ADJACENT,
+                                ; keep low: gfx_unlock reads the pair as one
+                                ; word and skips the commit at exactly 0101h
 %endif
 dskw_raw:     resb 32           ; one raw 32-byte entry, staged in the kernel
                                 ; segment (the write path's dsk_ent)

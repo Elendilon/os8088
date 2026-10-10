@@ -186,6 +186,9 @@ UNREGISTERED = {
     "ftpd.py": "needs `make ftpdtest` and QEMU with ETHFWD=1 - the FTP server "
                "LISTENS, so the client has to reach INTO the guest, and "
                "MartyPC has no NIC at all (SPEC.md 77)",
+    "ftpkeep.py": "needs `make ftpkeeptest` and QEMU with ETHFWD=1, for "
+                  "ftpd.py's reason, booting a HARD-DISK image (TESTHD=) "
+                  "because WSEQF_KEEP is a fixed disk's (SPEC.md 77.50)",
     "rczex.py": "needs the RunCPM fetch (`make runcpm-src`) and the C toolchain",
     "rczex_ocr.py": "needs the RunCPM fetch and an OCR dependency",
     "proxytest.py": "drives tools/os88proxy.py against a live network",

@@ -4643,6 +4643,82 @@ ftpdtest: $(BUILD)/ether360.img $(BUILD)/ftpapps.img
 	@echo "ftpdtest: build/ether360.img + build/ftpapps.img"
 	@echo "          Run it with: python3 tests/ftpd.py"
 
+# FTPSPEED: the A/B for SPEC.md 77.50, ON DEMAND. Three FTPD arms, each with
+# FTPDBG=1's split and each a package of its own name so one session runs all
+# three, each with its stage PINNED (-DFD_NOBIG), so the CPU tier of SPEC.md
+# 77.50.2 cannot change an arm under the reader: FTPDK8 (kept, 8KB - what
+# ships on an 8088), FTPDK32 (kept, 32KB - what ships on a 286 or better) and
+# FTPDP8 (PLAIN, every chunk committed - what shipped before).
+# The fourth split line, `stage N cm N max N ck N`, is the reading. Boot the
+# os8088*.img built ALONGSIDE it: WSEQF_KEEP is a kernel flag, and an older
+# kernel ignores it and commits per chunk, which reads as "no difference".
+# The server serves the folder it was launched from (SPEC.md 77.6), so for a
+# hard-disk reading the arms are copied there first; FTPSPEED.TXT says so.
+FTPSPDIR := $(BUILD)/ftpspeed
+FTPSPARMS := $(FTPSPDIR)/FTPDK8.O88 $(FTPSPDIR)/FTPDK32.O88 $(FTPSPDIR)/FTPDP8.O88
+FTPSPDEPS := apps/ftpd/ftpd.asm apps/os88api.inc apps/os88ui.inc \
+             apps/os88line.inc apps/os88sock.inc apps/os88pit.inc \
+             apps/os88rseq.inc drivers/net/netpkg.inc tools/os88pkg.py
+FTPSPNASM = $(NASM) -f bin -w+error -DFTPDBG -I apps/ -I apps/ftpd/ -I drivers/net/
+
+$(FTPSPDIR):
+	mkdir -p $@
+
+$(FTPSPDIR)/FTPDK8.O88: $(FTPSPDEPS) $(PKGZSTAMP) | $(FTPSPDIR)
+	$(FTPSPNASM) -DFD_NOBIG -o $(FTPSPDIR)/k8.bin apps/ftpd/ftpd.asm
+	$(OS88PKG) $(FTPSPDIR)/k8.bin -o $@
+
+$(FTPSPDIR)/FTPDK32.O88: $(FTPSPDEPS) $(PKGZSTAMP) | $(FTPSPDIR)
+	$(FTPSPNASM) -DFD_STGSZ=32768 -o $(FTPSPDIR)/k32.bin apps/ftpd/ftpd.asm
+	$(OS88PKG) $(FTPSPDIR)/k32.bin -o $@
+
+$(FTPSPDIR)/FTPDP8.O88: $(FTPSPDEPS) $(PKGZSTAMP) | $(FTPSPDIR)
+	$(FTPSPNASM) -DFTPPLAIN -DFD_NOBIG -o $(FTPSPDIR)/p8.bin apps/ftpd/ftpd.asm
+	$(OS88PKG) $(FTPSPDIR)/p8.bin -o $@
+
+$(FTPSPDIR)/FTPSPEED.TXT: apps/ftpd/ftpspeed.txt | $(FTPSPDIR)
+	python3 -c "import sys; d=open(sys.argv[1],'rb').read().replace(b'\r\n',b'\n').replace(b'\n',b'\r\n'); open(sys.argv[2],'wb').write(d)" $< $@
+
+FTPSPFILES := $(FTPSPARMS) $(FTPSPDIR)/FTPSPEED.TXT
+
+$(BUILD)/ftpspeed.img: $(FTPSPFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(FTPSPFILES)
+$(BUILD)/ftpspeed720.img: $(FTPSPFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 720 $(FTPSPFILES)
+$(BUILD)/ftpspeed360.img: $(FTPSPFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(FTPSPFILES)
+$(BUILD)/ftpspeed120.img: $(FTPSPFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1200 $(FTPSPFILES)
+
+# FTPKEEPTEST: tests/ftpkeep.py's hard disk (SPEC.md 77.50). A BOOTABLE
+# --hdd image, because WSEQF_KEEP is a FIXED disk's and the boot partition is
+# the one fixed volume QEMU gives a guest with no driver asked for: SYSTEM.CFG
+# wants ETHER.DRV, FTPD.O88 (the shipping kept stream) and FTPDP8.O88 (the
+# per-chunk commit, ftpspeed's arm) sit in the root the server serves. Two
+# blank floppies go in A: and B: so nothing the gate does can write to a disk
+# another row reads.
+$(BUILD)/ftpkeep.img: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
+                      $(DRIVERS) $(BUILD)/system.cfg $(BUILD)/ftpd.o88 \
+                      $(FTPSPDIR)/FTPDP8.O88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --hdd \
+	    --mbr $(BUILD)/mbr.bin --boot $(BUILD)/boothd.bin \
+	    --kernel $(KERNFILE) \
+	    $(DRIVERS) $(BUILD)/system.cfg $(BUILD)/ftpd.o88 \
+	    $(FTPSPDIR)/FTPDP8.O88 --folder SYSTEM/APPDATA
+	@python3 tools/os88disk.py --verify-hdd $@
+
+$(BUILD)/ftpkeepa.img $(BUILD)/ftpkeepb.img: tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 1440
+
+.PHONY: ftpkeeptest
+ftpkeeptest: $(BUILD)/ftpkeep.img $(BUILD)/ftpkeepa.img $(BUILD)/ftpkeepb.img
+	@echo "ftpkeeptest: build/ftpkeep.img - run it with: python3 tests/ftpkeep.py"
+
+.PHONY: ftpspeed
+ftpspeed: $(IMG) $(IMG720) $(IMG360) $(IMG120) $(BUILD)/ftpspeed.img \
+          $(BUILD)/ftpspeed720.img $(BUILD)/ftpspeed360.img $(BUILD)/ftpspeed120.img
+	@echo "ftpspeed: build/ftpspeed{,720,360,120}.img - FTPDK8/FTPDK32/FTPDP8.O88"
+
 # NETBENCH: the stage profiler's window (SPEC.md 72.15), on a disk WITH the FTP
 # server, because the two are used together - start the profiler, run a
 # transfer from a real client, stop, read. Three geometries like everything
@@ -13814,8 +13890,19 @@ ETHERDEV = -netdev user,id=n0$(ETHFWDS) -device ne2k_isa,netdev=n0,iobase=0x300,
            $(if $(ETHDUMP),-object filter-dump$(ETHCOMMA)id=fdump$(ETHCOMMA)netdev=n0$(ETHCOMMA)file=$(ETHDUMP))
 endif
 
+# TESTHD=<img> BOOTS A HARD-DISK IMAGE instead (C:, IDE 0) with the two
+# floppies still in A: and B:. A floppy-booted machine has no fixed volume
+# unless a driver mounts one, and a gate about a FIXED disk's behaviour
+# (tests/ftpkeep.py, SPEC.md 18.4.9.3) needs the boot volume to be one.
+ifneq ($(TESTHD),)
+HDDDEV = -drive file=$(TESTHD),format=raw,if=ide,index=0,media=disk
+TESTBOOT := c
+else
+TESTBOOT := a
+endif
+
 test: $(TESTIMG) $(TESTAPPS) $(HDDIMG)
-	$(QEMU) $(QEMUMACH) -drive file=$(TESTIMG),format=raw,if=floppy -boot a $(MOUSE) \
+	$(QEMU) $(QEMUMACH) -drive file=$(TESTIMG),format=raw,if=floppy -boot $(TESTBOOT) $(MOUSE) \
 		-drive file=$(TESTAPPS),format=raw,if=floppy,index=1 $(HDDDEV) \
 		-display none -qmp unix:build/qmp.sock,server,nowait -daemonize -pidfile build/qemu.pid \
 		$(CARDAUDIO) $(ADLIBDEV) $(SBDEV) $(DEVCARD) $(ETHERDEV)
