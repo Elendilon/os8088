@@ -335,6 +335,17 @@ drive's icon.
 
 ---
 
+## The PicoMEM 1.x's 286 — `Elendilon/os8088`'s
+
+**One of the owner's 286s carries a PicoMEM 1.x; which one has not been
+recorded** - ask before attributing a result to the Victory above or to any
+other. What is known: its disk is a 720 KB one, `make picomemtest`'s
+`build/pmsys720.img` (SOUND, ETHER and USB MOUSE wanted at boot); the card's
+network WORKS on the os8088 build of 2026-10-10; and its Sound Blaster and USB
+mouse are untested, waiting on the card being pulled for its firmware update.
+docs/FIELD-NOTES.md 66's *What is left: the 1.x* is the checklist for that
+day, written to need nothing else.
+
 ## The 86Box IBM PC 5150 — `vm/pc5150`, and where the bug reports come from
 
 **`make pc5150`.** This is not iron and it is not a fourth entry in the

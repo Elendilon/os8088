@@ -3409,7 +3409,7 @@ setting is needed - and the boot partition of an installed machine (a video
 disk is one partition) is handed to the driver too, `OSAPI_VOL_TAKE`, and
 given back to the BIOS when the driver goes. `tests/hdtake.py` is the gate.
 
-## 66. PicoMEM: the Sound Blaster plays nothing, and the NE2000 transmits but never receives - no DHCP (OPEN — the network is FIXED on a 1.x and a 2.x, and the SB, B: and Restart on the 2.x; the 1.x's SB and the USB mouse await the field: SPEC.md 34.10, 72.2, 18.97.6, 18.100.1, 9.12.7)
+## 66. PicoMEM: the Sound Blaster plays nothing, and the NE2000 transmits but never receives - no DHCP (OPEN, ON THE 1.x ONLY — the network is FIXED on both cards, and the SB, B:, Restart and the USB mouse on the 2.x; the 1.x's SB and USB mouse wait on that card's firmware update: SPEC.md 34.10, 72.2, 18.97.6, 18.100.1, 9.12.7)
 
 Two machines, two cards: a **286 with a PicoMEM 1.x** and **5150 #2 with a
 PicoMEM 2.x** (docs/FIELD-MACHINES.md). On both, `ETHER.DRV` found the card,
@@ -3499,7 +3499,67 @@ instant the enable returned, delivered through an `int 33h` that on a 5150 is
 `SOUND.DRV` opens it (SPEC.md 9.12.7); `tests/picomem.py` reads the vector at
 the moment the card is told to enable and goes red on the old order.
 
-What to send back for the sound: whether Audio or Tracker plays through the
-Sound Blaster. **On the 2.x, the DMA jumper must be on 1.** If the
-1.x still plays nothing, the PicoMEM's IRQ jumper number and the line the
-Sound page reports for the card are the next two facts.
+**Fourth run on the 2.x: the USB mouse WORKS** (2026-10-10) - ticked on the
+Drivers page off `os8088-360.img`, the driver loads and the pointer moves.
+That closes the 2.x: network, Sound Blaster, B:, Restart and mouse, all
+confirmed on the card.
+
+### What is left: the 1.x, after its firmware update
+
+This is written for whoever picks the 286 up again, possibly much later, and
+is meant to need nothing else from this session.
+
+**The firmware.** The 1.x's Sound Blaster first exists in
+**`PM_x_11_16_25_x`** (FreddyVRetro/ISA-PicoMEM, `firmware/README.md`: *"Sound
+Blaster emulation with DMA emulation (Not working on Slow PC/XT)"* - a 286 is
+not slow in that sense). Take the **`PM_W_`** build, the Pico W one, because
+the NE2000 that already works on this card needs it. Flashing is the Pico's
+BOOTSEL drag-and-drop; a **1.1 board** (not 1.11) must be in a powered PC
+while it is done. The firmware tree this work read was `be7b2e6`
+(2026-10-06). The card's own ROM, `src/rom/pmbios.bin`, is NEWER than the
+`pmbios/*.asm` beside it, which is why SPEC.md 34.10.1's multiplexer was read
+off a disassembly - re-read the new ROM the same way before trusting either.
+
+**The disk.** `make picomemtest` builds `build/pmsys720.img` for the 286 (and
+`pmsys360.img` for the 5150): `SYSTEM.CFG` wants SOUND, ETHER and USB MOUSE,
+so all three come up at boot with nothing to tick. The stock disks work too -
+the tier is in every `SOUND.DRV` - but need the rows ticked.
+
+**What to look at, in order, and what each answer means:**
+
+1. **The Sound page's Sound Blaster radio.** Greyed means `SOUND.DRV` found
+   no DSP: either the card refused the DSP command before any playback code
+   ran, or the tier never reached it. The glass cannot say which; the card's
+   own screens can - its boot screen (the IRQ it found must not read 0) and
+   its Devices page (what holds 220h: §34.10.2 walks past CMS to 240h, 230h,
+   250h, 260h, but a device a new firmware adds could hold the rest). On a
+   machine with a debugger, `picomem.inc`'s own record is five bytes:
+   `[pm_base]` (0 = the ramp failed), `[pm_pmirq]` (the card's line, 0 =
+   unknown), `[pm_irq]` (the line the firmware accepted for the SB, 0 = it
+   accepted none), `[pm_sbport]` (the base it took, 0 = none) and `[pm_up]`.
+2. **Selectable but silent.** The card's line and the SB's must differ
+   (§34.10.1 rule 2), and a 1.x's SB interrupt is a SOFTWARE `int 8+n` the
+   multiplexer issues only when line n's 8259 bit is CLEAR - rule 3 opens it.
+   So the 8259's mask (port 21h) against `[pm_irq]` and `[pm_pmirq]` is the
+   first thing to read, and the second is whether `int 8+[pm_pmirq]` still
+   names the card's BIOS segment (anything that took it starves every block).
+3. **Plays, but stutters or the clock drifts.** Every 128 bytes of sound is one
+   multiplexer interrupt that copies by CPU, so this is throughput, and the
+   firmware's own wiki says games' SB detection often fails for the same
+   reason (*"one interrupt to do 2 actions"*). One thing of OURS to suspect
+   there: `sbl_isr` ends in a non-specific EOI (`out 0x20, 20h`), and on a
+   1.x that EOI is a second one - the multiplexer already sent its own before
+   it issued the software `int`. With nothing else in service it is a no-op;
+   if the multiplexer interrupted a handler that had re-enabled interrupts
+   (the ROM's `int 08h` inside `sch_isr`'s chain), it ends THAT one's service
+   early. `[sch_chskip]` counting up during playback would be the sign.
+4. **The USB mouse** goes through an OTG adapter on a 1.x and uses the same
+   backend the 2.x confirmed (SPEC.md 9.12.7). The card's USB host and mouse
+   must be on in its setup. A mouse that loads and does not move, on a card
+   jumpered to **IRQ 3** with a COM2 UART in the machine, is the gap 9.12.7
+   names: the kernel's mouse contest masks IRQ 3 when a driver wins.
+
+Two things that are true of BOTH cards and are not defects: inside the DOS box
+the USB mouse does not move (the box owns `int 33h` for its bracket, SPEC.md
+9.12.7), and on a 2.x the Sound Blaster cannot DMA from memory the card is
+itself emulating (§34.10.1), with the DMA jumper on **1**.

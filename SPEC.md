@@ -15789,6 +15789,19 @@ bank puts our vector back at the end. Nothing breaks, and a DOS program sees
 the pointer the box translates from the kernel's own state — which the card's
 reports are not reaching while it runs.
 
+**Confirmed on a PicoMEM 2.x** (5150 #2, IRQ 7 jumper, 2026-10-10): ticked on
+the Drivers page, the driver loads and the pointer moves. The 1.x, whose mouse
+comes through an OTG adapter on the same backend, is untested.
+
+**A card jumpered to IRQ 3 on a machine with a COM2 UART is a known gap.**
+`OSAPI_MOUSE_FEED` settles the mouse contest with `[mou_line]` = `MOU_P2LINE`
+(on no serial line), and `mou_hotplug`'s retire then masks every serial
+port's line that is not the winner's - IRQ 3 for COM2 among them, which would
+be the card's own line and silence the mouse, the network's receive and the
+Sound Blaster with it. Neither field card is on 3 (the 2.x takes 7, the
+highest jumpered); the fix would be the feed passing the backend's line,
+which is a kernel change for a configuration nobody here has.
+
 What it costs: `USBMOUSE.DRV` 1,151 → **1,410** bytes, **2 KB claimed either
 way**, nothing resident, and on a machine with no CH375 and no PicoMEM two
 reads of 2A3h at attach. `tests/picomem.py`'s `mouse` leg runs the driver
@@ -62071,12 +62084,14 @@ Six things are load-bearing:
   the last, which is the card's test register counting. An empty ISA bus
   floats to FFh and fails on the second read. **Not one byte is written
   anywhere until that has passed.**
-- **There is deliberately no `int 13h` AH=60h detect**, which is how `PMINIT`
-  finds the card. It is the documented way to learn a base port this code
-  would otherwise assume — but `pmbios/pm_hw.asm` assigns `PM_BasePort 0x2A0`
-  and nothing makes it a variable, so the call buys one constant we already
-  know in exchange for issuing an undefined `int 13h` function on every
-  machine that does *not* have a PicoMEM.
+- **The `int 13h` AH=60h detect is not the DETECTION, and must never become
+  it.** It is how `PMINIT` finds the card, and on a machine with no PicoMEM it
+  is an undefined `int 13h` function - so it is asked only once the ramp has
+  proved the card is there, for the one fact the ramp cannot give: the card's
+  own IRQ (§34.10.1, rule 1). The base port it would also report is a
+  constant, `pmbios/pm_hw.asm`'s `PM_BasePort 0x2A0`. Every later PicoMEM
+  caller in the tree - `USBMOUSE.DRV` (§9.12.7) and the kernel's B: and
+  Restart checks (§18.97.6, §18.100.1) - keeps the same order.
 - **The argument and the answer are two explicit byte accesses, never `out
   dx, ax`.** Word I/O splits differently on the two CPUs this OS runs on — an
   8088 always makes two byte cycles at `dx` and `dx+1`, an 8086 makes a single
@@ -62152,7 +62167,7 @@ swapped, its request arrived at a stub, the stub took it as the SB's, and
 `sbl_isr` was hooked onto the PicoMEM's line for the session. No block was
 ever copied and the card was never acknowledged.
 
-Three rules now, all in the `PICOMEM` build:
+Three rules now, all in the tier:
 
 1. **The line is learned, and kept live.** After `pm_porttest` has seen the
    ramp, `pm_bios` makes PMINIT's own detect — `int 13h` AX=6000h DX=1234h,
