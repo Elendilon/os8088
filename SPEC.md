@@ -117968,6 +117968,10 @@ MartyPC's 8088.
 
 #### 77.50.2 The STOR stage is 32 KB on a 286 or better, and 8 KB on an 8088
 
+**§77.50.3 reverses the 8088 half**: the 5150 A/B has been taken and 32 KB
+won there by 1.73x, so the tier below is gone and every CPU claims the
+stage. What follows is the reasoning as it stood.
+
 A 32 KB stage was MEASURED AND REFUSED on the 5150 twice (§77.21, §77.24):
 no gain, and every silence on the data connection four times longer. Both
 readings were taken against a server whose commits cost over a second each -
@@ -117986,6 +117990,36 @@ writes at the drive's rate - what is left above it is `net` and `idle`,
 which a larger stage makes no better (FTPDK32's `idle` is the higher of the
 two). `-DFD_NOBIG` pins the 8 KB stage; `make ftpspeed`'s three arms all
 pin theirs, so no arm changes under the CPU it runs on.
+
+#### 77.50.3 ...and on an 8088 too: the A/B §77.50.2 said was owed
+
+The owner ran it on a 5150 (86Box, ST-225 on an ST11M), 1,474,560 bytes
+to C:, the fourth split line in each:
+
+| arm | rate | `disk` | commits | a commit | `net` |
+|---|---|---|---|---|---|
+| FTPDK8 - kept, 8 KB | 71 s, **20,768 B/s** | 34,722 | 181 | 192 ms | 31,210 |
+| FTPDK32 - kept, 32 KB | 41 s, **35,964 B/s** | 10,910 | 46 | 237 ms | 29,601 |
+
+**1.73x, and the 8 KB commit carries a fixed ~177 ms** that the 32 KB one
+pays a quarter as often: fitting `E + n.t` to the two gives E = 177 ms and
+t = 1.9 ms a KB. It is not this kernel's CPU - VIDDISK's held writer at 8 KB
+a call on MartyPC's 8088 costs ~10 ms a call more than at 32 KB (12.5 MB:
+203 guest s against 191), and FTPD's own per-commit path does no folder
+change when the name carries no `/` - so it is the drive's, a command and
+the rotation around it, and the only lever on it is fewer commands. `net`
+is the old 5150 profile's 21 ms a KB either way.
+
+So the CPU tier is gone: every machine claims the 32 KB STOR stage, and a
+refused claim is the 8 KB server. §77.21/§77.24's refusals were taken
+against commits costing a second each and a 1 KB receive window, and
+neither holds on the kept stream: the data connection's longest silence in
+both arms above is `gap 0s`.
+
+**Against the 31-36 KB/s the iron 5150 gave the PLAIN 8 KB server**: the
+two are different machines - an emulated ST-225 and a real one - and that
+figure was never taken on 86Box. `make ftpspeed`'s disk carries FTPDP8 (the
+per-chunk commit) for exactly that A/B on one machine.
 
 ## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
 

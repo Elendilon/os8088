@@ -370,17 +370,17 @@ FD_WSEQF    equ WSEQF_HELD | WSEQF_KEEP
 %endif
 FD_CKPT     equ 262144              ; bytes between checkpoints
 
-; --- FD_BIGSZ - A 286 COMMITS 32KB AT A TIME (SPEC.md 77.50.2) --------------
-; The field's A/B on a 286, 737,280 bytes to its hard disk: 8KB kept 81.9
-; KB/s, 32KB kept 92.2 - the bigger stage is the drive's own rate where the
-; 8KB one loses part of a revolution per commit. On an 8088 the same change
-; was MEASURED AND REFUSED twice (77.21, 77.24), against a server whose
-; commits cost a second each; nothing has re-measured it on the new stream,
-; so the 8088 keeps the 8KB it was proven on and a 286 or better claims a
-; 32KB stage beside it for STOR alone. RETR and LIST keep the 8KB one. A
-; refused claim is the 8KB server, which works. Not 64KB: [fd_sfill] and
-; the commit's CX are words, and 32KB's commits were already at the drive's
-; rate. `-DFD_NOBIG` (ftpspeed's 8KB arm) or a bigger FD_STGSZ turns it off.
+; --- FD_BIGSZ - STOR COMMITS 32KB AT A TIME (SPEC.md 77.50.2, 77.50.3) -----
+; Measured on both machines the field has. A 286, 737,280 bytes to its hard
+; disk: 8KB kept 81.9 KB/s, 32KB kept 92.2. A 5150 (86Box), 1,474,560 bytes:
+; 8KB kept 20,768 B/s, 32KB kept **35,964** - 1.73x, the 8KB commit carrying
+; a fixed ~177ms that the 32KB one pays a quarter as often. The 8088 had kept
+; 8KB on two refusals (77.21, 77.24), both taken against a server whose
+; commits cost a second each; this is the re-measurement they were owed, so
+; every CPU claims a 32KB stage for STOR alone. RETR and LIST keep the 8KB
+; one in our segment. A refused claim is the 8KB server, which works. Not
+; 64KB: [fd_sfill] and the commit's CX are words. `-DFD_NOBIG` (ftpspeed's
+; 8KB arms) or a bigger FD_STGSZ turns it off.
 FD_BIGSZ    equ 32768
 %ifdef FD_NOBIG
 FD_TIER     equ 0
@@ -488,13 +488,10 @@ fd_entry:
     mov [fd_stg2], dx
 .nostage2:
 %endif
-    mov word [fd_bigseg], 0         ; ...and STOR's stage, by CPU (77.50.2)
+    mov word [fd_bigseg], 0         ; ...and STOR's stage (77.50.2, 77.50.3)
     mov word [fd_wstg], FD_STGSZ
     mov byte [fd_ckpn], FD_CKPT / FD_STGSZ
 %if FD_TIER
-    call OSAPI_CPU_INFO
-    cmp al, CPU_286
-    jb .nobig                       ; an 8088 keeps the 8KB it was proven on
     mov ax, FD_BIGSZ / 1024
     call OSAPI_MEM_CLAIM            ; a whole number of KB, so 512-aligned
     jc .nobig                       ; refused: the 8KB server, which works
@@ -1932,7 +1929,7 @@ fd_commp:
 fd_stgp:
     or al, al
     jnz .claim
-    mov dx, [fd_bigseg]             ; STOR's 32KB stage on a 286 (77.50.2):
+    mov dx, [fd_bigseg]             ; STOR's 32KB stage (77.50.2, 77.50.3):
     or dx, dx                       ; only STOR reaches this pair, so RETR and
     jz .own                         ; LIST, which name fd_stage, keep 8KB
     xor ax, ax
@@ -4430,7 +4427,7 @@ fd_c_stor:
     mov byte [fd_created], 0
     mov byte [fd_lmore], 0
     push cx
-    mov cx, [fd_wstg]               ; STOR's stage, 32KB on a 286 (77.50.2)
+    mov cx, [fd_wstg]               ; STOR's stage, 32KB if claimed (77.50.3)
     call fd_setchunk                ; the cluster-rounded commit size, for THIS
     pop cx                          ; volume, now (SPEC.md 52.3)
     jc .noroom
@@ -9159,7 +9156,7 @@ fd_ckn      equ fd_noseq + 1                    ; byte: chunks held since the
                                      ; last checkpoint (SPEC.md 77.50)
 fd_ckpn     equ fd_ckn + 1                      ; byte: ...and how many make one
 fd_bigseg   equ fd_ckpn + 1                     ; word: STOR's 32KB stage, 0 =
-                                     ; none (an 8088, or refused: 77.50.2)
+                                     ; none (the claim refused: 77.50.3)
 fd_wstg     equ fd_bigseg + 2                   ; word: STOR's stage in bytes
 ; -----------------------------------------------------------------------------
 ; THE TWO RECT TABLES - CONTIGUOUS, because os88ui_bfind strides an array
