@@ -565,22 +565,22 @@ ct_expdlg:
     push si
     push di
     mov si, di
-    mov di, ct_name
-    mov cx, CT_NAMEMAX                  ; the count lives in CX - the loop
-.copy:                                  ; body writes AL, so AX cannot hold it
-    mov al, [es:si]
-    mov [di], al
-    or al, al
-    jz .copied
-    inc si
-    inc di
-    dec cx
+    mov di, ct_ntxt                     ; NOT ct_name: that is the file being
+    mov cx, CT_NAMEMAX                  ; CHARTED, and Data > Column re-reads
+.copy:                                  ; it - so an export that overwrote it
+    mov al, [es:si]                     ; left the next re-read parsing
+    mov [di], al                        ; CHART.BMP as SYLK ("No data in that
+    or al, al                           ; column.") and titled the chart with
+    jz .copied                          ; the BMP's name. ct_ntxt is
+    inc si                              ; ct_esatof's scratch and dead outside
+    inc di                              ; a read. The count lives in CX - the
+    dec cx                              ; loop body writes AL
     jnz .copy
     mov byte [di], 0
 .copied:
     mov es, [ct_chartseg]
     mov bx, [ct_stgseg]
-    mov si, ct_name
+    mov si, ct_ntxt
     call ch_bmp_write
     jnc .ok
     mov si, ct_s_experr
@@ -1854,6 +1854,9 @@ ct_bss_end  equ ct_abon + 1
 ; shortfall with opposite signs, so which one fired is what says whether the
 ; literal is too small or too large.
 ; -----------------------------------------------------------------------------
+%if CT_NTXT_MAX < CT_NAMEMAX
+    %error "ct_expdlg stages the export name in ct_ntxt, which is too short"
+%endif
 %define CT_BSS_NEED (ct_bss_end - os88_image_end)
     times (CT_BSS_NEED - OS88_BSS_SIZE) db 0
     times (OS88_BSS_SIZE - CT_BSS_NEED) db 0
