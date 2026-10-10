@@ -3292,7 +3292,7 @@ nothing, it is not about Space.
 
 
 
-## 64. PicoMEM: the Sound Blaster plays nothing, and the NE2000 transmits but never receives - no DHCP (OPEN — both fixed in code, awaiting the field: SPEC.md 34.10.1, 72.2)
+## 64. PicoMEM: the Sound Blaster plays nothing, and the NE2000 transmits but never receives - no DHCP (OPEN — the network is FIXED and confirmed on a PicoMEM 1.x; the Sound Blaster fix awaits the field: SPEC.md 34.10.1, 72.2)
 
 Two machines, two cards: a **286 with a PicoMEM 1.x** and **5150 #2 with a
 PicoMEM 2.x** (docs/FIELD-MACHINES.md). On both, `ETHER.DRV` found the card,
@@ -3316,8 +3316,11 @@ vector for a stub. The PicoMEM build now learns the card's line (PM BIOS
 function 0), never offers it, keeps it unmasked, and hooks the SB on the line
 it configured without probing (SPEC.md 34.10.1).
 
-What to send back: the Control Panel's Ethernet page after a boot (does it say
-`Ne2000`, get an address, and count rx?), and whether Audio or Tracker plays
-through the Sound Blaster. **On the 2.x, the DMA jumper must be on 1.** If the
+**The network is confirmed working on the 286's PicoMEM 1.x** (the owner,
+2026-10-10). The Sound Blaster is still untested there - that card's firmware
+has to be updated first - and it stays behind `PICOMEM=1` until it is.
+
+What to send back for the sound: whether Audio or Tracker plays through the
+Sound Blaster. **On the 2.x, the DMA jumper must be on 1.** If the
 1.x still plays nothing, the PicoMEM's IRQ jumper number and the line the
 Sound page reports for the card are the next two facts.
