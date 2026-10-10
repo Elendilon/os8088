@@ -55317,12 +55317,13 @@ table, `np_pref`:
 
 | adapter | frame | text cells |
 |---|---|---|
-| VGA / EGA | 440 x 260 | 52 |
-| Hercules | 480 x 240 | 57 |
+| VGA / EGA | 440 x 260, 442 x 260 snapped | 52 |
+| Hercules | 480 x 240, 482 x 240 snapped | 57 |
 | CGA | the template, 260 x 180 | 29 |
 
-Both widths are multiples of 8, so §11.94's snap has nothing to round, and
-the heights are clamped to the desktop band like any template's. What it
+§11.94's snap rounds the content to the cell grid, which is the +2 (measured
+on MartyPC, `os8088_xt_vga_144` and `os8088_5150_herc`), and the heights are
+clamped to the desktop band like any template's. What it
 costs is the larger window's own redraw and its §11.96 save-under (a 1bpp
 cache, about 14KB at 440x260 against about 6KB) - both bounded by the area the
 user sees, which is the area they asked for.

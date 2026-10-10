@@ -11012,8 +11012,9 @@ np_tpl:
 ; The template above is CGA's, whose 640x200 has no room to spare - and it is
 ; the width tools/checkreadme.py lays the manual's tables out against. VGA/EGA
 ; and the Hercules open 52 and 57 text cells wide where the template gives 29,
-; and the height is clamped to the desktop band like any template's. Both
-; widths are multiples of 8, so OSAPI_WM_SNAP has nothing to round.
+; and the height is clamped to the desktop band like any template's.
+; OSAPI_WM_SNAP then rounds the content to the cell grid, so the frames land
+; at 442 and 482 (measured on MartyPC).
     OS88_PREFER np_pref, 440, 260,  480, 240,  0, 0
 
 np_ttl: db 'Note Pad', 0
