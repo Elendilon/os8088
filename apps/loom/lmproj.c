@@ -284,8 +284,14 @@ static int lm_save(int slot)
 
     if (!lm_shave[slot] || !lm_smod[slot])
         return 0;
-    if (lm_projhave && os88_file_goto(&lm_projplace) != 0) {
-        lm_say("The project's folder is not listable - was the disk swapped?");
+    /* GOTO_QM and not os88_file_goto(): this is a by-name write, not a
+     * listing, and the display remount was ~0.5 s of motor per modified slot
+     * (docs/plans/NAV-COST-PLAN.md). A refusal moves NOTHING, so returning
+     * here is not optional - falling through would write a same-named file
+     * into whatever folder we happen to stand in. */
+    if (lm_projhave
+        && os88_file_goto_q_mark(lm_projplace.clus, lm_projplace.vol) != 0) {
+        lm_say("The project's folder is unreachable - was the disk swapped?");
         return -1;
     }
     if (os88_file_write_seg(lm_fname(slot), lm_sbase(slot),
@@ -646,11 +652,14 @@ static int ovl_openproj(void *win, const char *name)
 /* lm_open_pend - spend the banked launch document (SPEC.md 54.5, 54.8).
  * Called from the FIRST W_PAINT and exactly once.
  *
- * THE GOTO GOES FIRST. It is a REMOUNT - real floppy I/O - and a failure is
- * the folder no longer being listable, a disk swapped between the
- * double-click and this first paint. Searching the wrong directory would
- * report the wrong reason, so a refused GOTO takes the not-found exit rather
- * than falling through to a search where we happen to stand.
+ * THE GOTO GOES FIRST, and it is os88_file_goto_q_mark(): the open reads by
+ * name and never asks the kernel to list the folder, so the display remount
+ * os88_file_goto() would do is motor time bought for nothing
+ * (docs/plans/NAV-COST-PLAN.md). A failure is the folder no longer being
+ * reachable, a disk swapped between the double-click and this first paint,
+ * and a refused GOTO_QM MOVES NOTHING - so it takes the not-found exit rather
+ * than falling through to a search (and an open of a same-named file) where
+ * we happen to stand.
  *
  * Only when a locator actually came with the name: 0,0 is a REAL locator -
  * the root of volume A: - so lm_arghave is what says whether there was one.
@@ -670,10 +679,10 @@ static void lm_open_pend(void *win)
         lm_menusync();
         return;
     }
-    if (os88_file_goto(&lm_argplace) != 0) {
+    if (os88_file_goto_q_mark(lm_argplace.clus, lm_argplace.vol) != 0) {
         lm_l0();
         lm_ls(lm_argname);
-        lm_ls(" missing - the folder is not listable.");
+        lm_ls(" missing - the folder cannot be reached.");
         lm_say(lm_line);
         return;
     }
@@ -854,11 +863,16 @@ static void lm_pack(void)
 
     lm_packlen = lm_outlen();
     written = -1;
-    if (lm_projhave && os88_file_goto(&lm_projplace) == 0) {
-        lm_mkname(lm_stem, "WAB");
-        os88_strcpy(lm_amsg, lm_line, sizeof(lm_amsg));
+    lm_mkname(lm_stem, "WAB");          /* named BEFORE the stand, so a
+                                         * refusal below reports this file
+                                         * and not the last message's */
+    os88_strcpy(lm_amsg, lm_line, sizeof(lm_amsg));
+    /* GOTO_QM: a by-name write, so no display remount (NAV-COST-PLAN). A
+     * refused stand moves nothing and leaves `written` at -1 - the bundle is
+     * never written into the folder we merely happen to be in. */
+    if (lm_projhave
+        && os88_file_goto_q_mark(lm_projplace.clus, lm_projplace.vol) == 0)
         written = os88_file_write_seg(lm_amsg, lm_outseg, lm_packlen);
-    }
     lm_pack_free();                     /* 11.4: transient, and given back
                                          * BEFORE the report is drawn */
 

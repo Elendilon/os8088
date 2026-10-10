@@ -961,6 +961,17 @@ int os88_file_goto(struct os88_place *p)
     return h_goto_fail ? -1 : 0;
 }
 
+/* the arg folder's stand is the QUIET move now (docs/plans/NAV-COST-PLAN.md):
+ * the same counter and the same refusal switch, and the place os88_arg_file
+ * handed out is what it must be given */
+int os88_file_goto_q_mark(unsigned clus, int vol)
+{
+    if (clus != 7 || vol != 1)
+        return -1;
+    h_goto_n++;
+    return h_goto_fail ? -1 : 0;
+}
+
 int os88_file_dlg(int mode, void *win, const char *defname)
 {
     (void)win;

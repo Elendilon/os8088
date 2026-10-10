@@ -2060,11 +2060,16 @@ void os88_onwake(void *win)
         } else {
             a2_argp = 0;
             /* ...AND THE `goto` GETS ITS OWN ARM. It answers -1 when the
-             * folder could not be listed, and with no arm the whole launch
+             * folder could not be reached, and with no arm the whole launch
              * failed in silence - the window came up at `]` and a
              * double-click looked like it had done nothing, which is the trap
-             * cword.c:2650 records one package along. */
-            if (os88_file_goto(&a2_argplace) != 0)
+             * cword.c's os88_onwake records one package along. It is
+             * os88_file_goto_q_mark() and not os88_file_goto(): the load reads
+             * by name and never has the kernel list the folder, so a display
+             * remount is motor time for nothing (docs/plans/NAV-COST-PLAN.md)
+             * - and a refused GOTO_QM MOVES NOTHING, so this arm is also what
+             * stops a same-named program loading from where we stand. */
+            if (os88_file_goto_q_mark(a2_argplace.clus, a2_argplace.vol) != 0)
                 a2_say("Cannot open that folder.");
             else if (a2_ovl_ready(win))
                 ovl_a2_prog(OS88_FDLG_OPEN, a2_argname, 0, win);
