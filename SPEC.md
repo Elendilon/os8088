@@ -86530,7 +86530,32 @@ words with the count in CX, which is what keeps the speaker's samples
 is the transfer's sector count. 0 bytes: the two opcode bytes replace the
 four-instruction loop and the image is the same 3,764. `hdtake`,
 `hdtakeboot` and `hdtakeblank` are the function gates (QEMU; every read
-through rung 1); what it buys on the 286 is VIDDISK's to measure.
+through rung 1).
+
+**Measured on the owner's 286 (2026-10-09), and it is the whole gap.**
+VIDDISK off C: with the drive taken (`int13 calls, 8 x 32K` reads **0**, so
+every byte came through rung 1) against the same machine's BIOS run of
+2026-10-08, the silent player's ceiling in KB/s:
+
+| hook holds | BIOS (`int 13h`) | rung 1, `rep insw` |
+|---|---|---|
+| 0% | 729.5 | 755.1 |
+| 25% | 684.7 | 684.7 |
+| 50% | 486.3 | 479.9 |
+| 75% | 294.3 | 300.7 |
+| 50%, interrupts off | 441.5 | 486.3 |
+
+Equal within the instrument, so the `286-pvga` profile's `disk_at` curve,
+taken through the BIOS, describes rung 1 too and was left as it is. The
+short single-shot rows above the ceilings (READ_AT, READ_SEQ by chunk size)
+are whole PIT ticks over eight reads and moved both ways by one or two
+ticks; the ceilings are the averaged rows and the ones the encoder prices.
+The rung-1 loop before this change was never put through VIDDISK, so its
+~15% is the arithmetic above and not a measurement. The field result is
+the plays: the sound-ahead file above, unchanged and not re-encoded, went
+from 312 stalls and 433 late to **361 of 361 drawn, 0 stalls, 0 late, 274
+ticks of 273, `Lead 5 at f84`, the speaker never dry**, and the same video
+encoded without sound ahead plays clean with it too.
 
 ### 52.2 The disk tool — one window, one button
 

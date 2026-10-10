@@ -17,6 +17,11 @@ package on the machine pays it.
 written in chunks costs time quadratic in its length - which is FTPD's
 large-upload slowness - and there is no write-side `READ_SEQ` yet.
 
+**§7 is the STREAMING case, added 2026-10-10**: on a PIO disk the CPU a
+read costs IS the disk speed a video gets, so the read path's cycles a KB
+are a quality budget there and not an efficiency nicety. Nothing in it is
+built either; it is the list a CPU-usage round would start from.
+
 ## 1. How it was measured, which matters more than the numbers
 
 The instrument is a **sampling profiler built from outside the guest**.
@@ -292,3 +297,70 @@ instrument to point at this.
 Measure before building (§1's instrument; PERFORMANCE.md's rule 4): time an
 FTPD upload of 1, 2 and 4 MB and check the per-MB rate falls the way 6.2
 predicts before anybody writes a slot.
+
+## 7. The streaming case: where the CPU IS the disk (2026-10-10)
+
+The rest of this file is about a workload that WAITS on the CPU between
+reads. The Video Player on the owner's 16 MHz 286 is the other kind: an IDE
+drive moved by programmed I/O, a decode holding about half of every 30 Hz
+period, and a reader that gets what is left. There, every clock the read
+path spends a KB is a clock the decode does not get or a KB the stream does
+not get - **the CPU is the disk's speed**, which is the opposite regime to
+the 5150's, where the drive binds and spending CPU to issue fewer, larger
+transfers is free. This project has optimised for resident bytes and for
+peak speed; it has never had a round aimed at CYCLES A KB, and this case is
+why it may want one.
+
+### 7.1 What has been measured
+
+SPEC.md 52.1.2 is the only change made for it so far: HDD.DRV's rung 1 moved
+words with `in`/`stosw`/`loop` (~16 clocks a word) where the BIOS uses
+`rep insw` (~4), which is ~15% of the 286 at 384 KB/s, and taking it was the
+difference between a reader one chunk ahead with 312 stalls and a clean
+play. Its VIDDISK run matches the BIOS route's ceiling at every hook share,
+so after it the two routes cost the same CPU a KB, to within the
+instrument's resolution.
+
+That gives a BOUND and not an answer. VIDDISK's ceiling with the hook
+holding 75% is 300.7 KB/s: the reader had at most 25% of 16 MHz, ~4 million
+clocks a second, so the whole read path costs **at most ~13,300 clocks a KB,
+~26 a word**, all in. How much of that is the ISA bus's own I/O and memory
+cycles, which no code removes, and how much is ours (the kernel's READ_SEQ
+call, the driver's command and per-sector setup, any copy) is the first
+thing to measure, and it decides whether a round is worth anything.
+
+### 7.2 Candidates, none priced
+
+- **The kernel's per-call path.** READ_SEQ is already the cheap verb (§3.1's
+  re-walks do not apply to it), but a 32 KB call still crosses the API
+  cell, the volume and cursor checks and the driver's far entry. Measurable
+  on MartyPC through any disk route, since it is not the driver's.
+- **The driver's per-sector cost.** One `hd_ide_drq` poll and one
+  `hd_buf_step` per 512 bytes; small beside 256 words of transfer, but not
+  measured. ATA's READ MULTIPLE (0xC4, after SET MULTIPLE) hands the host
+  several sectors per DRQ and is the standard answer if the per-sector part
+  turns out to matter. It needs a drive that supports it, which is a probe.
+- **Polling against IRQ14.** `hd_ide_drq` spins on BSY while the drive
+  fetches. Whether that spin costs the decode anything depends on WHO runs
+  the decode: inside the bracket the decode is on the 30 Hz hook and
+  pre-empts the spin, so the spin only spends leftover time; a windowed play
+  whose decode is a task competing with the reader would pay it. Which of
+  the two shapes binds has to be read off the player before IRQ-driven
+  completion is costed (the AT BIOS's own answer is `int 15h` AH=90h/91h,
+  the "device busy" hooks a multitasking OS was meant to take).
+- **Any copy between the drive and the ring.** If a transfer lands in a
+  kernel buffer and is copied on (§3.2's `dsk_copy_seg_x` is that copy on
+  the floppy path), the copy is a second pass over every byte. Whether the
+  rung-1 stream reads straight into the caller's buffer is to be checked,
+  not assumed.
+
+### 7.3 The instrument
+
+The 286 is the only machine here that runs rung 1 and times it: MartyPC is
+an 8088 (rung 1 needs `CPU_286`) and QEMU counts instructions but not bus
+cycles. So the split is: the kernel's share on MartyPC, cycle-exact, through
+a route it can host; the driver's instruction count under QEMU; and the
+total on the 286 with VIDDISK, whose ceiling rows are the number the
+encoder's `disk_at` curve is made of. A change that moves the 75% row is a
+change the encoder can spend on picture.
+
