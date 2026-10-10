@@ -209,7 +209,7 @@ PROFILES = {
     # avg / peak: the owner's 86Box DX2/66 played 70% / 105% flipped with
     # nothing seen wrong and 80% / 115% with late frames counted (98.2.3.6);
     # these sit under that boundary, a real machine being slower or faster
-    "486-dx266": dict(disk=1950000, avg=6.50, peak=10.0, owe=1.6, speed=10, xcopy=0.05,
+    "486-dx2-66": dict(disk=1950000, avg=6.50, peak=10.0, owe=1.6, speed=10, xcopy=0.05,
                 ring=8, lcopy_us=1.380, cyc_us=CYC_US_486,
                 disk_at=((0.0, 4151 / 2192.0), (0.25, 3157 / 2192.0),
                          (0.5, 1.0), (0.75, 1096 / 2192.0), (1.0, 0.0)),
@@ -427,7 +427,7 @@ CHOICE_HELP = {
         "286-fast": "A fast 16 MHz 286 with VGA on the board: 448 KB/s off "
                     "an IDE disk, the decode measured on a real one "
                     "(12-29% slower than 286-speeddemon)",
-        "486-dx266": "A 486DX2/66 with an ISA VGA and IDE: 1.9 MB/s, ten 8088s "
+        "486-dx2-66": "A 486DX2/66 with an ISA VGA and IDE: 1.9 MB/s, ten 8088s "
                "of CPU, 65% of it on average - Mode X, the whole picture "
                "and 48 KB frames",
         "lossless": "No budget: every change kept, whatever it costs",
@@ -644,12 +644,12 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     9: "566ce460b7bc0952", 10: "03033c94f4068ded",
                     11: "92246fa491f53aee", 12: "27f0d558163b22db",
                     13: "23fa4d29a8c351cd", 14: "a712ea2b2ccb6fb7",
-                    15: "a80be68cb44e8d08"}
+                    15: "dfbf1586ebcab68e"}
 # THE PROFILES' OLD NAMES (98.2.3): named for the owner's machines until
 # they were named for the classes they stand in for. A command line or a
 # script may still say the old one, and gets the same profile
 PROFILE_RENAMED = {"286": "286-slow", "286-pvga": "286-fast",
-                   "286-vga": "286-speeddemon", "486": "486-dx266"}
+                   "286-vga": "286-speeddemon", "486": "486-dx2-66"}
 
 
 def profile_name(v):

@@ -420,7 +420,7 @@ def main():
     eight = [G.target_fill(i, 30.0) for i, t in enumerate(G.TARGETS)
              if t[1] in ("vga8", "modex")]
     # ...the 486's whole picture (its profile's default, 98.2.3.5)
-    want8 = [("25", "1x1" if f["profile"] == "486-dx266" else "2x1") for f in eight]
+    want8 = [("25", "1x1" if f["profile"] == "486-dx2-66" else "2x1") for f in eight]
     print("   %d targets filled; the 256-colour ones at %s fps, detail %s"
           % (len(G.TARGETS), "/".join(f["fps"] for f in eight),
              "/".join(f["detail"] for f in eight)))

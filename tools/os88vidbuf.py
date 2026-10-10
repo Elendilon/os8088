@@ -61,11 +61,11 @@ SND_KB, ENTRY_KB = 17, 4
 # what a profile's disk costs the CPU, ms a KB, when the CPU copies it:
 # 1 / the rate VIDDISK measured IDLE, which its other rows bear out (the
 # rate falls as the decode's share rises, as one CPU split two ways would)
-PIO = {"286-speeddemon": 1000.0 / 1318.3, "486-dx266": 1000.0 / 4151.0}
+PIO = {"286-speeddemon": 1000.0 / 1318.3, "486-dx2-66": 1000.0 / 4151.0}
 # the XMS copy, ms a KB: 286 MEASURED on the owner's real 286 (int 15h
 # AH=87h, 11.3 ms a 32 KB call: docs/reports/VIDDISK-XMS-286-2026-10-08.md),
 # 486 ESTIMATED (a dword move in unreal mode, ~20 MB/s)
-XCOPY = {"286-speeddemon": 0.345, "486-dx266": 0.05}
+XCOPY = {"286-speeddemon": 0.345, "486-dx2-66": 0.05}
 
 
 def stream(r):

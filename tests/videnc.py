@@ -67,7 +67,7 @@ tools/os88venc.py encodes it three ways. Four questions:
    be solid on the second frame; with the dead band holding past the clip,
    as it did, every dot of the first frame stays (the owner's Bad Carrot).
    5f. IS A MEASURED MACHINE PRICED AS IT WAS MEASURED? (98.2.3.3) Each
-   of VIDBENCH's synthetic frames, priced by `286-speeddemon`'s and `486-dx266`'s own
+   of VIDBENCH's synthetic frames, priced by `286-speeddemon`'s and `486-dx2-66`'s own
    tables, must come back within 1% of the microseconds the owner's 86Box
    machines decoded it in - and the wave 0 model scaled by `speed` must be
    10% or more under on a frame of runs (24% on the 286, 18% on the 486),
@@ -758,7 +758,7 @@ def main():
     # rows), priced back by each profile's own table
     meas = {"286-speeddemon": (28.1, 900.1, 92.6, 1199.9, 1291.3, 1516.3, 1427.1,
                         2606.7, 2376.8, 2662.8, 2379.6, 246.4),
-            "486-dx266": (2.5, 232.8, 19.7, 394.7, 428.5, 557.8, 545.6, 1055.4,
+            "486-dx2-66": (2.5, 232.8, 19.7, 394.7, 428.5, 557.8, 545.6, 1055.4,
                     1010.3, 1035.5, 977.4, 60.1),
             # the owner's REAL 286 (docs/reports/VIDBENCH-PVGA286-2026-10-08.md)
             "286-fast": (25.4, 1014.1, 101.4, 1458.5, 1516.1, 1901.2, 1808.4,
@@ -799,13 +799,13 @@ def main():
          "sine=frequency=440:sample_rate=22050:duration=3", "-vf",
          "crop=320:240:'mod(n*24,640)':0,noise=alls=40:allf=t",
          "-c:v", "ffv1", "-c:a", "pcm_s16le", noisy], check=True)
-    P = venc.PROFILES["486-dx266"]
+    P = venc.PROFILES["486-dx2-66"]
     t, sub = venc.profile_table(P, vid.LAY_MODEX)
     kk = P["lcopy_us"] * vid.HZ / 1e6 * P["speed"]
     for sched in (True, False):
         out = os.path.join(ftmp, "f%d.V88" % sched)
         args = venc.parser().parse_args(
-            [noisy, out, "--quiet", "--preset", "modex", "--profile", "486-dx266",
+            [noisy, out, "--quiet", "--preset", "modex", "--profile", "486-dx2-66",
              "--flip", "--rate", "22050", "--avg", "9", "--peak", "14",
              "--fit", "fill"])
         if not sched:                   # broken on purpose: no schedule

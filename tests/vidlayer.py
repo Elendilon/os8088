@@ -84,7 +84,7 @@ def main():
                 ("bank486", ["--preset", "modex", "--profile", "286-fast",
                              "--disk", str(BASE_DISK), "--bank", "512",
                              "--prefill", "all"],
-                 ["--layer-profile", "486-dx266", "--layer-disk",
+                 ["--layer-profile", "486-dx2-66", "--layer-disk",
                   str(LAYER_DISK)]))
         for arm, bopt, lopt in arms:
             print("\n== arm %s" % arm)
