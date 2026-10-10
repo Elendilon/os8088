@@ -8582,6 +8582,9 @@ vp_spos:
     mov [vp_astv], al
     mov [vp_pin], al
     mov word [vp_lmin], 0xFFFF
+    mov [os88spk_dryn], ax          ; (the speaker's, 34.11: this play's)
+    mov [os88spk_dryn+2], ax
+    mov [os88spk_dryg], ax
 %endif
     mov [vp_late], ax
     mov [vp_dt], ax
@@ -13646,6 +13649,9 @@ vp_aput:
 %define VD_C160                     ; ...and its C160 twin (98.3.12.1)
 %include "video/vdec.inc"
 %include "video/vosd.inc"           ; the full screen's text (98.3.13)
+%ifdef VP_DIAG
+%define OS88SPK_DRYCNT              ; (the speaker's dry stretches, counted)
+%endif
 %include "os88spk.inc"              ; the speaker's ring player (34.11)
 %include "os88spkfx.inc"            ; ...and its shaper (34.11.9)
 
@@ -15233,6 +15239,30 @@ vp_fmt:
     cmp byte [vp_msnd], 0
     je .out
     mov di, vp_lines + 11 * VP_LINE
+    cmp byte [vp_snd], VP_SPK       ; THE SPEAKER RAN DRY: how often, and for
+    jne .card                       ; how long - silence its clock did not
+    mov si, vp_s_sdry               ; count, so the play ran that much slow
+    call vp_puts                    ; (Spkr dry 41 times, 2.3 s)
+    xor dx, dx
+    xor bl, bl
+    mov ax, [os88spk_dryg]
+    call vp_putn
+    mov si, vp_s_sdt
+    call vp_puts
+    mov ax, [vp_rate]
+    xor dx, dx
+    mov cx, 10
+    div cx
+    mov cx, ax                      ; samples a tenth of a second
+    mov ax, [os88spk_dryn]
+    mov dx, [os88spk_dryn+2]
+    call vp_div32
+    mov bl, 1                       ; (in tenths)
+    call vp_putn
+    mov si, vp_s_ms
+    call vp_puts
+    jmp .out
+.card:
     mov si, vp_s_dry                ; Dry 9/11 stream; most 6t f480
     call vp_puts
     mov ax, [vp_pstrm]
@@ -15602,6 +15632,11 @@ vp_s_lead:    db 'Lead ', 0
 vp_s_atf:     db ' at f', 0
 vp_s_hgap:    db '; hook gap ', 0
 vp_s_dry:     db 'Dry ', 0
+%ifdef VP_DIAG
+vp_s_sdry:    db 'Spkr dry ', 0
+vp_s_sdt:     db ' times, ', 0
+vp_s_ms:      db ' s', 0
+%endif
 vp_s_most:    db ' stream; most ', 0
 vp_s_tf:      db 't f', 0
 %endif

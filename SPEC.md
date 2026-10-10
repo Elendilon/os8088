@@ -160973,6 +160973,18 @@ not keep up; a lead that held and pauses that are not say the card did.
 Measured on MartyPC's 8088 with the owner's 358 KB/s VGA8 clip, which it
 cannot read fast enough: lead 1 at frame 25, 14 of 14 the stream's.
 
+**On the speaker the second line is the speaker's** (2026-10-10): `Spkr dry
+41 times, 2.3 s` is how often its ring ran dry and for how long - silence
+the speaker's clock did not count, so the play ran that much slower than
+its file, with nothing late and nothing stalled on its own clock. It is
+`os88spk.inc`'s, counted in `os88spk_grant`'s dry path behind
+`OS88SPK_DRYCNT`, which only a `VPDIAG=1` player defines - so every package
+built on the library without it, the shipped player among them, is
+byte-identical. Read with the line above it: a lead near 0 says the reader
+could not keep the sound queued; a lead that held says the sound's lead
+was too short for the hook (buffer sound ahead is the answer to that,
+98.1.8, and plays on the speaker as on a card).
+
 **Measured** (`tests/vidplay.py`, a 150-frame 30 fps clip the row makes,
 opened by double-clicking it):
 - **Frame-exact on CGA and on Hercules.** With the ring held to 2 slots the
