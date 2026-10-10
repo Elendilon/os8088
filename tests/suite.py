@@ -11724,6 +11724,18 @@ SOAK = [
         "name for tests/ethernet.py's reason: MartyPC has no NIC, so this "
         "package's receive path cannot be reached on it at all",
         needs=("qemu",), serial=True, builds=True),
+    Row("picomem", "soak", py("tests/picomem.py"), 2.0,
+        "SPEC.md 34.10.1, 72.2: the driver code a PicoMEM talks to, AS IT "
+        "SHIPS, under unicorn against a model of the card written from its "
+        "firmware - ETHER.DRV's probe must put the PicoMEM's NE2000 (8-bit "
+        "PROM, 16KB-up memory) on the NE2000 map and LEAVE a real NE1000 on "
+        "its own, with frames byte-exact round the ring; SOUND.DRV's PicoMEM "
+        "attach must learn the card's own IRQ, never offer it, keep it "
+        "unmasked, and hook the SB without the F2h probe that used to take "
+        "the multiplexer's vector. Broken on purpose: the old ne2000.inc "
+        "reproduces the field report (tx counted, rx never); the "
+        "sbl_f_irqdisc skip taken out fails 11 checks",
+        needs=("nasm", "unicorn")),
     Row("ethernet", "soak", py("tests/ethernet.py"), 40.0,
         "SPEC.md 72.9: ETHER.DRV up before the first paint off a SYSTEM.CFG "
         "that asks for it, DHCP bound to slirp's address, and the browser "

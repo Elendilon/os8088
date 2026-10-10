@@ -3166,6 +3166,19 @@ sbl_f_irqdisc:
     push es
     xor ax, ax
     mov es, ax
+%ifdef PICOMEM
+    cmp byte [pm_up], 0         ; a PicoMEM WE configured (SPEC.md 34.10.1):
+    je .nopm                    ; the line is the one we told it, and the F2h
+    mov al, [pm_irq]            ; probe below would swap the card's own
+    xor bx, bx                  ; multiplexer vector for a stub and take its
+.pmf:                           ; request as the SB's - so no probe at all
+    cmp al, [sbl_dsc_irqn+bx]
+    je .mwin
+    inc bx
+    cmp bx, SBL_DSC_N
+    jb .pmf
+.nopm:
+%endif
     cmp byte [sbl_verhi], 4     ; SB16-class DSP: the CT1745 mixer reads
     jb .probe                   ; the configured line back - register 80h
     mov dx, [sbl_base]          ; via index 2x4h / data 2x5h, magic bits

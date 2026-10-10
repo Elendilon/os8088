@@ -1,0 +1,51 @@
+; tests/picomem/sbhx.asm - SOUND.DRV's PicoMEM attach and SB IRQ choice,
+; alone, for tests/picomem.py (SPEC.md 34.10, 34.10.1). picomem.inc is
+; %included AS IT SHIPS; sbl_f_irqdisc and its candidate tables are CUT OUT
+; of sb.inc by the row (sbslice.inc) rather than copied here, so the code
+; under test is the code that ships. Everything else is the minimum they
+; read - and every DSP or tick primitive is a stub that RECORDS being
+; called, because on a PicoMEM the probe must not run at all.
+cpu 8086
+bits 16
+org 0x100
+%define PICOMEM
+%macro CLC_OR_STC 1
+    db 0xA8
+%1: stc
+%endmacro
+start:
+    call pm_init
+    hlt
+entry_disc:
+    mov byte [sbl_verhi], 2     ; the DSP 2.01 the firmware reports
+    call sbl_f_irqdisc
+    mov [res_al], al
+    hlt
+%include "picomem.inc"
+%include "sbslice.inc"
+
+; --- stubs: any call here is the F2h probe running, which it must not ------
+sbl_dsp_wr:
+    inc byte [res_dspwr]
+    stc
+    ret
+OSAPI_GET_TICKS:
+    inc byte [res_ticks]
+    xor ax, ax
+    ret
+sbl_isr:    iret
+sbl_stub7:  iret
+sbl_stub5:  iret
+sbl_stub3:  iret
+sbl_stub2:  iret
+
+res_al:      db 0
+res_dspwr:   db 0
+res_ticks:   db 0
+sbl_verhi:   db 0
+sbl_base:    dw 0x220
+sbl_irq:     db 0xFF
+sbl_hooked:  db 0
+sbl_dsc_fired: db 0
+sbl_oldvec:  dw 0, 0
+sbl_dsc_mask: db 0

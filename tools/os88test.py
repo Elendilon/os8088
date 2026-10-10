@@ -241,6 +241,10 @@ def capabilities():
     # row as a traceback and a FAIL instead of a skip.
     if os88build.have_pil():
         caps.add("pil")
+    # unicorn, for the one row that runs driver code against a MODEL of a
+    # card no emulator here carries - the PicoMEM (tests/picomem.py).
+    if os88build.have_unicorn():
+        caps.add("unicorn")
     # ffmpeg AND numpy, the encoder front end's (tools/os88venc.py, SPEC.md
     # 98.2.1). Nothing in the build needs either, so they are a capability
     # and not a dependency, and `make deps` does not install ffmpeg's

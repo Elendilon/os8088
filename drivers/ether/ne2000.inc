@@ -112,7 +112,9 @@ NE_RST      equ 0x80
 ; what makes polling at 18.2 Hz safe (SPEC.md 72.2.1).
 ;
 ; **AN NE1000 HAS HALF OF IT**, 8KB at page 0x20..0x40, so the layout is
-; picked at probe time from what the PROM said the card was. Every constant
+; picked at probe time from what the PROM said the card was - and, when it
+; says 8-bit, from what the MEMORY says too (ne_memok, SPEC.md 72.2: the
+; PicoMEM's NE2000 has an 8-bit PROM and the 16KB map). Every constant
 ; below is therefore a variable in [eth_pstart]/[eth_pstop]/[eth_txpg] and the
 ; equs are the NE2000 case they are initialised to.
 NE_TXPAGE   equ 0x40
@@ -450,9 +452,70 @@ ne_probe:
     jz  .none                           ; all zero: nothing there
     cmp bh, 6
     je  .none                           ; all ones: a floating bus
+
+    ; --- an 8-bit PROM is a claim about the BUS, not about the MEMORY --------
+    ; (SPEC.md 72.2.) The PicoMEM's emulated NE2000 answers the PROM read
+    ; un-doubled - its bytes 0..5 are the MAC and 6..11 are zero - so the pair
+    ; test above calls it an NE1000 and the ring went at page 0x20. Its packet
+    ; memory is the NE2000's, 16KB up: a write below that is DROPPED and a
+    ; read answers FFh, so every frame we sent was a page of nothing and
+    ; every frame it received was written outside its own buffer. So the
+    ; NE1000 map is TESTED rather than assumed, and only a card whose 8KB at
+    ; 0x2000 does not hold a pattern while 0x4000 does is moved to the NE2000
+    ; map. A real NE1000 passes the first test and nothing about it changes;
+    ; a card that fails both keeps the NE1000 map it always had. Everything
+    ; stays BYTE-WIDE either way - [eth_word] decides the MAP from here on.
+    cmp byte [eth_word], 0
+    jne .ok
+    mov bx, NE1_TXPAGE << 8
+    call ne_memok
+    jnc .ok                             ; the NE1000's 8KB is really there
+    mov bx, NE_TXPAGE << 8
+    call ne_memok
+    jc  .ok                             ; neither holds: the NE1000 map, as ever
+    mov byte [eth_word], 1              ; 16KB at 0x4000: the NE2000's map
+.ok:
     CLC_OR_STC .none
 .out:
     jmp ep_di
+
+; -----------------------------------------------------------------------------
+; ne_memok - does the card's packet memory hold a pattern at address BX?
+; in:  BX = the card address (a page boundary)
+; out: CF = 0 the pattern read back; CF = 1 it did not
+; clobbers: flags. Uses eth_rxb as scratch, as ne_probe's PROM read does -
+; nothing is received before the card is found.
+; -----------------------------------------------------------------------------
+ne_memok:
+    push ax
+    push cx
+    push si
+    push di
+    mov ax, NE_MEMPATN
+    mov si, ne_mempat
+    call ne_dma_write
+    mov di, eth_rxb
+    call ne_dma_read
+    mov si, ne_mempat
+    mov di, eth_rxb
+    mov cx, NE_MEMPATN
+.cmp:
+    mov al, [si]
+    cmp al, [di]
+    jne .no
+    inc si
+    inc di
+    loop .cmp
+    CLC_OR_STC .no
+.out:
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+ne_mempat:  db 0x55, 0xAA, 0x0F, 0xF0, 0x3C, 0xC3, 0x01, 0x80
+NE_MEMPATN  equ $ - ne_mempat
 
 ; -----------------------------------------------------------------------------
 ; ne_init - bring the card up and start receiving
