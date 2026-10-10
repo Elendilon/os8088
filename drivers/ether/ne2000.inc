@@ -500,7 +500,8 @@ ne_probe:
     mov bx, NE_TXPAGE << 8
     call ne_memok
     jc  .ok                             ; neither holds: the NE1000 map, as ever
-    mov byte [eth_word], 1              ; 16KB at 0x4000: the NE2000's map
+    inc byte [eth_word]                 ; 0 -> 1, 16KB at 0x4000: the
+                                        ; NE2000's map
 .ok:
     CLC_OR_STC .none
 .out:

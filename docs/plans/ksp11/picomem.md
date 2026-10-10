@@ -106,6 +106,8 @@ shipped LZ4 file:
 | ETHER.DRV | 16,896 | 16,889 | -7 | 17 KB | 11,084 -> 11,083 |
 | USBMOUSE.DRV | 1,410 | 1,406 | -4 | 2 KB | 1,366 -> 1,362 |
 
+(Batch 3 below takes ETHER.DRV to 16,888 and USBMOUSE.DRV to 1,396.)
+
 No claim moves a KB (SOUND.DRV is 6,972 of 7,168), so what these buy today is
 disk and headroom, not heap; the bytes are real and the rung is not the point.
 The PicoMEM tier in SOUND.DRV goes from +485 to **+341** (6,637 without it).
@@ -184,3 +186,20 @@ Rows: `soak -k picomem -k sndplay -k covoxdrv -k covoxauto -k covoxnolpt -k
 usbmouse` 6/6 ok. No row opens a capture stream, so the input arm of
 `sbl_isr` is proved by the listing: the same instructions in the same order
 (the `cmp` against BH, which the `xor bh, bh` four instructions up made 0).
+
+### Batch 3 - USBMOUSE.DRV and ETHER.DRV again
+
+* **`um_pmattach`, -10** (USBMOUSE.DRV 1,406 -> 1,396; file 1,362 -> 1,353):
+  `um_rx`/`um_ry` cleared from the `xor ax, ax` that zeroes ES (the second
+  `xor` gone, and AH = 0 is what the cell arithmetic needs); the line's unmask
+  and the int 33h hook in ONE `pushf`/`cli` window instead of two - the line is
+  open before the vector either way, as it was, and the window is strictly
+  wider; the hook is `mov ax, um_pm33` / `xchg ax, [es:CCh]` / `mov
+  [um_old33], ax` and the same for CS, each word swapped by one instruction
+  under that `cli`, where it was a load, a store and an immediate store per
+  word. Attach only.
+* **`ne_probe`, -1** (ETHER.DRV 16,889 -> 16,888): `inc byte [eth_word]`
+  where the store of 1 is reached only past `cmp byte [eth_word], 0 / jne`.
+
+`soak -k picomem -k usbmouse` ok (the picomem `mouse` leg drives the whole
+PicoMEM backend: attach, reports through int 33h, chaining, detach).
