@@ -75,3 +75,30 @@ for it: no `pop` is duplicated across `%else`, and the redirected arms' relays
 stay inside their routines (two `equ`-aliased relays outside an entry were
 tried first; the walker reads an `equ` as an address taken and walked the
 relay from depth 0).
+
+### batch 2 - relaxed jumps, and `lea sp` (big -21, small -7; DOCK.DRV -12)
+
+The sweep (item 3) is a `nasm -l` listing of both kernels searched for the
+relaxed pair's signature, `7x 03 E9 lo hi` on a line whose source is a `jcc`
+(the diskwrite agent's method), each hit mapped back to its file. 83 hits on
+kern_big and 31 on kern_small at this branch's start, `files.inc` and
+`filecp.inc` (multisel's) excluded from action. Taken:
+
+| item | kern_big | kern_small | cycles |
+|---|---:|---:|---|
+| `drv_load_row`'s one-per-class check moved FIRST, ahead of the disk (it reads only `DRVR_CLASS`, the row's own expectation, and `[drv_owner]`): the five refusals under it (`jne .already`, `je .bad`, `jc .nodisk`, `jc .noent`, `jb .bad`) reach their answers short; its own exit becomes a near `jmp .fail` (+1) | cold -14 | (not built) | each refusal not taken is 12 cycles cheaper (a short `jcc` falls through in 4 where the relaxed one TOOK its `j!cc +3`, 16). A second driver in one class is now refused before a byte is read; the answer is the same DRVE_TWICE, and only a row that is BOTH a duplicate and, say, missing now reports TWICE where it reported NOENT. SPEC.md 51.2.1 says so |
+| `menu_draw_clock`'s "no cells" guard: `or bx, bx / jz .out` (2 + a relaxed 5) became `jcxz .jout` after `.hash`'s `mov cx, bx` (2). With BX = 0 every step above clamps to an empty copy and one NUL into `menu_clkbuf`, and `.jout` is in short reach where `.out` is not | text -5 | text -5 | the live path pays `jcxz` not taken (6) for `or` + `jnz +3` taken (19) |
+| `gfx_blit1_x`'s `.noswap`: `mov sp, bp / add sp, 18` -> `lea sp, [bp+18]` (pass 10's leftover, item 4) | cold -2 | cold -2 | 3 bytes to fetch where 5 were - on the 8088 both spellings are fetch-bound, ~20 -> ~12 cycles once per call |
+| DOCK.DRV `dk_pass`'s five refusals to `.off` share one relay `.offj: jmp .off` behind the `jmp short .count` | module -12 (`dock.drv` 2,246 -> 2,233 in os88mod's count) | - | a pass that finds nothing is 12 cycles a test faster; the `.off` path pays 12 more |
+
+**`tools/stkbalance.py` reads `lea sp, [bp+N]`** as the walk already reads
+`mov sp, bp` / `add sp, N` - it never modelled `mov sp, bp`, trusting the
+frame's `mov bp, sp`, so the one-instruction spelling is its `add sp, N`
+half. Eight lines. `tests/unit/t_stkbalance.py` gains a QUIET fixture (both
+spellings in one routine, on two paths that meet: the old walker reports the
+meet at two depths, which is how the fixture was checked to discriminate -
+26 passed, 1 FAILED with the tool reverted) and a LOUD one (a wrong N leaves
+a word). 27/27.
+
+At batch 2: kern_big text 43,369, cold 37,841 -> resident **92,298** (-21
+from start); kern_small text 31,935, cold 22,652 -> **60,522** (-410).

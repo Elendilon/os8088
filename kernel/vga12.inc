@@ -5769,8 +5769,11 @@ gfx_blit1_x:
     jmp short .rowi             ; the first pass counted down to
 %endif
 .noswap:
-    mov sp, bp
-    add sp, 18
+    lea sp, [bp+18]             ; the frame's 18 bytes, in one instruction
+                                ; where `mov sp, bp / add sp, 18` was two: -2,
+                                ; and 3 bytes to fetch where 5 were (kernel
+                                ; size pass 11; tools/stkbalance.py reads it
+                                ; as that pair, tests/unit/t_stkbalance.py)
 .done:
     pop ax
     pop bx

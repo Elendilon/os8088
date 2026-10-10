@@ -2706,6 +2706,29 @@ drv_load_row:
                                 ; without a word, because every label the
                                 ; guarded region defined was also inside it
     DDG 1
+    mov al, [bx+DRVR_CLASS]     ; ONE DRIVER PER CLASS AT A TIME, and this is
+    call drv_cls_idx            ; the only place that can say so: a class IS
+    jc .clsfree                 ; the publication slot (SPEC.md 51.2.1), so a
+    shl di, 1                   ; second driver in one class does not share the
+    mov ax, [di+drv_owner]      ; slot - drv_publish OVERWRITES it, and every
+    or ax, ax                   ; later dispatch goes to whoever attached last
+    jz .clsfree                 ; while the first driver's volumes stay mounted
+    cmp ax, bx                  ; and browsable. RAMDISK.DRV and NET.DRV are
+    je .clsfree                 ; both DRVC_FILE, so the user can ask for it
+    mov al, DRVE_TWICE          ; from the Drivers page. REFUSE AND SAY SO
+    jmp .fail                   ; instead: 'Attached twice (bug)' beside the
+                                ; second row, and the image never claimed.
+                                ; Genuine coexistence is a [drv_fscls]
+                                ; resolved from the VOLUME's row, which
+                                ; drv_fs_call's own header already names.
+                                ; FIRST, before the disk is asked anything:
+                                ; DRVR_CLASS is the ROW's expectation
+                                ; (drv_check holds the header to it), so the
+                                ; answer is known before a byte is read - and
+                                ; from up here the five refusals below reach
+                                ; their answers SHORT (kernel size pass 11). A
+                                ; DRVC_OVL row is out of drv_cls_idx's range
+.clsfree:                       ; and passes
     cmp word [bx+DRVR_SEG], 0
     jne .already
     cmp word [bx+DRVR_FILE], 0
@@ -2793,22 +2816,6 @@ drv_load_row:
                                 ; Its owner attaches it (drv_load_at above)
 %endif
 
-    mov al, [bx+DRVR_CLASS]     ; ONE DRIVER PER CLASS AT A TIME, and this is
-    call drv_cls_idx            ; the only place that can say so: a class IS
-    jc .clsfree                 ; the publication slot (SPEC.md 51.2.1), so a
-    shl di, 1                   ; second driver in one class does not share the
-    mov ax, [di+drv_owner]      ; slot - drv_publish OVERWRITES it, and every
-    or ax, ax                   ; later dispatch goes to whoever attached last
-    jz .clsfree                 ; while the first driver's volumes stay mounted
-    cmp ax, bx                  ; and browsable. RAMDISK.DRV and NET.DRV are
-    je .clsfree                 ; both DRVC_FILE, so the user can ask for it
-    mov al, DRVE_TWICE          ; from the Drivers page. REFUSE AND SAY SO
-    jmp short .fail             ; instead: 'Attached twice (bug)' beside the
-                                ; second row, and the image handed straight
-                                ; back. Genuine coexistence is a [drv_fscls]
-                                ; resolved from the VOLUME's row, which
-                                ; drv_fs_call's own header already names
-.clsfree:
     mov byte [bx+DRVR_ERR], DRVE_OK ; the previous attempt's code is cleared
                                 ; BEFORE the attach and not after it, because
                                 ; drv_attach may BANK one of its own off the

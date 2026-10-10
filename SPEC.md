@@ -85880,10 +85880,14 @@ class in the middle would renumber every user's saved settings and turn "I
 had the hard disk on" into "I had the debug monitor on". Appending cannot.
 
 **One slot per class means one DRIVER per class at a time, and `drv_load`
-refuses the second.** Immediately before the attach it compares
-`[drv_owner]` for the row's class against the row itself: a slot held by a
-*different* row is `DRVE_TWICE`, the image goes straight back, and the row
-reads `Attached twice (bug)` beside its own name on the Drivers page.
+refuses the second.** First of all - before the disk is asked anything,
+since `DRVR_CLASS` is the row's own expectation and `drv_check` holds the
+header to it - it compares `[drv_owner]` for the row's class against the row
+itself: a slot held by a *different* row is `DRVE_TWICE`, no image is claimed
+or read, and the row reads `Attached twice (bug)` beside its own name on the
+Drivers page. (It sat immediately before the attach until kernel size pass
+11; ahead of the read it costs no disk work, and from there the five
+refusals after it reach their answers with two-byte jumps.)
 Without that test `drv_publish` overwrites the slot unconditionally — the
 first driver's volumes stay mounted and browsable while every verb on them
 dispatches into the SECOND driver, which is this section's own bug one level

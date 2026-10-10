@@ -303,6 +303,28 @@ dsk_park:
     popf
     ret
 """},
+
+    "`lea sp, [bp+N]` tears a frame down as `mov sp, bp` + `add sp, N` does (gfx_blit1_x)": {
+        "a.inc": """
+blit:
+    push si
+    push di
+    sub sp, 4
+    push ax
+    push bx
+    mov bp, sp
+    or al, al
+    jz .noswap
+    lea sp, [bp+8]
+    jmp short .done
+.noswap:
+    mov sp, bp
+    add sp, 8
+.done:
+    pop di
+    pop si
+    ret
+"""},
 }
 
 
@@ -310,6 +332,21 @@ dsk_park:
 # LOUD: defect shapes a size pass produces.  Every one of these must be caught.
 # ---------------------------------------------------------------------------
 LOUD = {
+    "`lea sp, [bp+N]` with the wrong N - one word left on the stack": {
+        "a.inc": """
+blit:
+    push si
+    push di
+    sub sp, 4
+    push ax
+    push bx
+    mov bp, sp
+    lea sp, [bp+6]
+    pop di
+    pop si
+    ret
+"""},
+
     "a far jump to a LABEL at depth is still a tail call carrying rubbish": {
         "a.inc": """
 sch_unhook:
