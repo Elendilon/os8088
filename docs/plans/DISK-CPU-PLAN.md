@@ -329,7 +329,7 @@ cycles, which no code removes, and how much is ours (the kernel's READ_SEQ
 call, the driver's command and per-sector setup, any copy) is the first
 thing to measure, and it decides whether a round is worth anything.
 
-### 7.2 Candidates, none priced
+### 7.2 Candidates, as first listed (7.6 prices them)
 
 - **The kernel's per-call path.** READ_SEQ is already the cheap verb (§3.1's
   re-walks do not apply to it), but a 32 KB call still crosses the API
@@ -363,4 +363,114 @@ a route it can host; the driver's instruction count under QEMU; and the
 total on the 286 with VIDDISK, whose ceiling rows are the number the
 encoder's `disk_at` curve is made of. A change that moves the 75% row is a
 change the encoder can spend on picture.
+
+### 7.4 Parts 1 and 2, measured (2026-10-10)
+
+**A better bound first, off the VIDDISK run already in hand.** The four
+ceilings fit a two-term model - a read costs C clocks a KB of the reader's
+CPU plus D of drive time that does not overlap it - almost exactly: the 0%
+and 75% rows give **C = ~10,700 clocks a KB and D = ~0.66 ms a KB**, and that
+pair predicts the 50% row at 502 KB/s against 480 measured and the 25% row
+at 647 against 685. So the reader's CPU is ~10,700 clocks a KB (~21 a word),
+not 7.1's 13,300, which charged the drive's time to the CPU as well.
+
+**Part 2, the instruction count (QEMU, rung 1, `tests/viddiskcpu.py`'s
+fixture and a gdbstub single-stepper).** QEMU steps `rep insw` one word at
+a time, so the census is exact. One steady 32 KB READ_SEQ call:
+
+| where | instructions | what |
+|---|---|---|
+| `rep insw` | 16,384 | the transfer: 256 words a sector, 64 sectors |
+| HDD.DRV, the rest | 2,430 | per sector: `hd_ide_drq` 16, the loop around the transfer ~15, `hd_buf_step` 5; ~150 of command setup |
+| kernel `.cold` | 2,073 | the chain walk, ~90 a 2 KB cluster over 16 (`dsk_read_chain_x`, `dsk_next_clus_x`, `dsk_fat_ofs_x`, `dsk_clus2lba_x`, `dsk_fat_window`), the call wrappers, READ_SEQ and READ_AT's entries |
+| kernel `.text` | 402 | arming the progress widget and its one fill |
+
+The kernel coalesces the whole contiguous chain into **one driver call**,
+and the driver issues **one IDE command** for its 64 sectors. Nothing is
+copied: no `dsk_copy_seg_x` in the census, so rung 1 reads straight into
+the caller's buffer and 7.2's fourth candidate is answered NO. The first
+call after a seek reads 10 more sectors (a FAT window refill) and costs
+25,792 steps against the steady 21,289.
+
+Everything that is not the transfer is **~4,900 instructions a 32 KB call,
+~153 a KB**. At an ESTIMATED 4-6 clocks an instruction on a 286, plus the
+64 status reads that are ISA cycles themselves, that is ~700-1,000 clocks a
+KB: **~7-9% of C**. The other ~90% is `rep insw` against the bus, which no
+code removes.
+
+**Part 1, the cycle count (MartyPC, an XT with an XT-IDE, through the
+ROM's `int 13h`).** One 32 KB READ_SEQ call, single-stepped with the CPU's
+cycle counter read at every instruction:
+
+| where | windowed (VIDDISK's R) | inside an fsx bracket (its ceiling rows) |
+|---|---|---|
+| the XT-IDE ROM | 633,920 (62.2%) | 633,906 (86.9%) |
+| kernel `.cold` | 56,481 (5.5%) | 57,328 (7.9%) |
+| kernel `.text` | 327,439 (32.1%) | 36,068 (4.9%) |
+| the call | **1,019,794 = 213.7 ms** | **729,455 = 152.8 ms** |
+
+Two findings, both about the 8088 and neither about the 286's case:
+
+- **The progress widget is 29% of a windowed 32 KB read on an XT**
+  (~290,000 cycles, ~61 ms). Each READ_SEQ call is a job of its own to
+  fpg_begin, so a chunked reader on the desktop re-runs the WHOLE bar from
+  0 to 62 pixels on every chunk: ~62 `gfx_fill`s a call, through `sw_col`,
+  `fpg_step`, `gfx_rect_setup` and the cursor. The Video Player does not
+  pay it - every read it makes is inside a bracket, where fpg_arm refuses
+  (SPEC.md 12.8.5.2) - but a package reading a file in CHUNKS on the
+  desktop does, one bar per call: the hold the player fills into XMS from
+  its window timer after a play is one (SPEC.md 98.3.18). A package load or
+  a copy is a single job with one scale and redraws the bar once.
+- **A refused widget still costs ~2.2-3.4% of a bracketed read**, because
+  dsk_xfer's `.notch` loop calls `splf_step` and `fpg_step` through
+  `ct_cw_mem_disp` once per SECTOR and each answers "not armed" only after
+  its own `pushf`, `fpg_baron` and compare: ~22 instructions a sector,
+  ~25,000 cycles a 32 KB call on the XT. This loop is the BIOS path's only -
+  a DVK_DRV volume (rung 1) does not run it.
+
+Of the kernel's own 93,000 bracketed cycles, the chain walk is ~23,000,
+dsk_xfer's run loop 14,000, that notch loop ~16,000-25,000, the tick and the
+scheduler ~12,000 and the call wrappers ~8,000: **12.8% of an XT read is the
+kernel's, 87% the ROM's transfer**.
+
+### 7.5 Part 3: the 286 itself (VIDDISK C, VDCPU.TXT)
+
+The 286 runs rung 1 and no emulator here can time it, so VIDDISK grew a
+mode for it (C, `tests/viddiskcpu.py` its gate on QEMU). It answers, per
+sector and PIT-timed with interrupts off: the bus's own floor (`rep insw`
+of 256 words from a drive that already has the sector), the OLD loop's real
+price (`in`/`stosw`/`loop`, which closes 52.1.2's "~15%, arithmetic"), the
+drive's wait for DRQ and a command's first-sector latency; then 4 MB of
+32 KB READ_SEQ calls against 4 MB of the bench's own 64-sector commands,
+interrupts on, whose difference is the kernel's and HDD.DRV's CPU on the
+real machine. Parts 1 and 2 predict that difference at ~7-9% of the
+transfer; the photograph decides it.
+
+### 7.6 The candidates, priced against 7.4
+
+- **The driver's per-sector cost (READ MULTIPLE).** ~36 instructions a
+  sector, ~2,300 of a 32 KB call's 4,900: at most ~4% of the 286's read
+  CPU, and only on a drive that takes SET MULTIPLE. Not worth a probe and
+  a second command path until 7.5 says the driver's share is larger than
+  the census does.
+- **The kernel's chain walk.** ~1,450 instructions a 32 KB call on 2 KB
+  clusters, ~90 a cluster, ~2% on the 286. A run-length cache would take
+  most of it; bigger clusters would take it for free. Not worth bytes for
+  the 286.
+- **Polling against IRQ14.** Unpriced still, and not a CPU-a-KB question:
+  inside the bracket the decode pre-empts the poll, so the poll only spends
+  time nobody else wanted.
+- **A copy.** None (7.4).
+- **dsk_xfer's per-sector notch loop - the 8088's, and the cheapest row in
+  this file.** Asking once per RUN whether either bar is live
+  (`[spl_live]`, `[fpg_total]`) and skipping the loop when neither is,
+  ~10-12 bytes of `.cold`, ESTIMATED, would take ~25,000 cycles off every
+  bracketed 32 KB read on the XT, 3.4% of it: every Video Player stream
+  through the BIOS on a 5150. Not built.
+- **The windowed widget's per-chunk redraw - the 8088's, and the biggest
+  number here.** 29% of a desktop chunked read on an XT. The shape of a fix
+  is the widget's, not the disk's: a job that never moves the bar by a
+  whole pixel per chunk, or one scale across a caller's chunks, which
+  READ_SEQ's cursor could carry. Not designed, and it changes what the
+  user sees, so it is the owner's to decide.
 
