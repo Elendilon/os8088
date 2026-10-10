@@ -316,26 +316,20 @@ zi_yield:
 ;
 ; The Z-stack is native little-endian - it is our data structure, not the
 ; story's - so this is a plain word access and NOT zmem's business. DS has to
-; move to reach it and DS is where [zf_stkseg] lives, so the segment is loaded
-; into a register first.
+; move to reach it and DS is where [zf_stkseg] lives - which `mov ds, [m]`
+; does in one instruction, the operand being read through the DS it replaces.
 ; -----------------------------------------------------------------------------
 zi_zsw:
     push ds
-    push si
-    mov si, [zf_stkseg]
-    mov ds, si
+    mov ds, [zf_stkseg]
     mov ax, [bx]
-    pop si
     pop ds
     ret
 
 zi_zsp:
     push ds
-    push si
-    mov si, [zf_stkseg]
-    mov ds, si
+    mov ds, [zf_stkseg]
     mov [bx], ax
-    pop si
     pop ds
     ret
 
@@ -405,17 +399,13 @@ zi_rd:
 ; out: CF = 1 if they differ. SI/DI advanced, CX consumed.
 ;
 ; DS moves to the story claim so `repe cmpsb` can do the work in one
-; instruction; the story segment is loaded into AX first because [zf_sseg] is
-; unreachable once DS has moved.
+; instruction; `mov ds, [zf_sseg]` reads the word through the DS it replaces.
 ; -----------------------------------------------------------------------------
 zi_scmp:
-    push ax
     push ds
-    mov ax, [zf_sseg]
-    mov ds, ax
+    mov ds, [zf_sseg]
     repe cmpsb
     pop ds
-    pop ax
     jne .differ
     clc
     ret
@@ -783,7 +773,27 @@ zi_load:
     mov [zf_slen_h], dx
 
     call zm_setup                   ; CF=1 and AL = ZERR_* if unsupported
-    jc .badstory
+    jnc .story
+    ; The refusals sit HERE, in the middle, where the five jumps to them are
+    ; all short ones.
+.badstory:
+    mov si, zi_m_bad
+    jmp short .fail
+.ioerr:
+    mov si, zi_m_ioerr
+    jmp short .fail
+.nowin:
+    mov si, zi_m_nowin
+    jmp short .fail
+.nomem:
+    mov si, zi_m_nomem
+.fail:
+    call zw_notice
+    call zi_free_all
+    mov byte [zf_state], ZFS_NONE
+    stc
+    ret
+.story:
 
     mov dx, [zf_sseg]           ; ONLY NOW is it movable (SPEC.md 66.2/66.5.9)
     mov ax, zf_reloc            ; - not at the claim. OSAPI_FILE_READ above
@@ -803,8 +813,10 @@ zi_load:
     call OSAPI_MEM_MOVABLE      ; one word: every cursor into it - [zf_sp],
                                 ; [zf_fp], every frame's base - is a BYTE
                                 ; OFFSET, and zi_zsw/zi_zsp load ES per word
-    mov word [zf_sp], 0
-    mov word [zf_fp], 0FFFFh        ; no frame yet; zx_run pushes the dummy one
+    xor ax, ax
+    mov [zf_sp], ax
+    dec ax
+    mov [zf_fp], ax                 ; no frame yet; zx_run pushes the dummy one
 
     ; The staging buffer holds a whole Quetzal image: dynamic memory, the
     ; frame chain, and fifty-two bytes of chunk headers and pads. The chain is
@@ -837,10 +849,8 @@ zi_load:
     call OSAPI_MEM_CLAIM
     jc .noundo
     mov [zi_undoseg], dx
-    push ax
     mov ax, zf_reloc            ; one word too, and NOT a file target - a
     call OSAPI_MEM_MOVABLE      ; snapshot is a memory copy (Standard 6.1.2)
-    pop ax
     jmp short .win
 .noundo:
     mov si, zi_m_noundo
@@ -908,24 +918,6 @@ zi_load:
     ; repaint retries (SPEC.md 20.6).
     call zf_hire
     clc
-    ret
-
-.ioerr:
-    mov si, zi_m_ioerr
-    jmp short .fail
-.badstory:
-    mov si, zi_m_bad
-    jmp short .fail
-.nowin:
-    mov si, zi_m_nowin
-    jmp short .fail
-.nomem:
-    mov si, zi_m_nomem
-.fail:
-    call zw_notice
-    call zi_free_all
-    mov byte [zf_state], ZFS_NONE
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1532,13 +1524,10 @@ zi_ask_save:
 ; construction (Standard 1.1.1), so a single rep movsb reaches all of it.
 ; -----------------------------------------------------------------------------
 zi_scpy:
-    push ax
     push ds
-    mov ax, [zf_sseg]
-    mov ds, ax
+    mov ds, [zf_sseg]
     rep movsb
     pop ds
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1777,10 +1766,7 @@ zi_parse:
     jb .bad
     xor si, si
     call zi_rw
-    cmp ax, 4946h                   ; 'FO'... no: 'FORM' is 46 4F 52 4D
-    jmp short .form0
-.form0:
-    cmp ax, 464Fh
+    cmp ax, 464Fh                   ; 'FORM' is 46 4F 52 4D
     jne .bad
     call zi_rw
     cmp ax, 524Dh
@@ -1792,7 +1778,19 @@ zi_parse:
     jne .bad
     call zi_rw
     cmp ax, 5A53h
-    jne .bad
+    je .chunk
+    ; The two exits sit HERE, between the header checks and the chunk walk
+    ; that both reach them, so every jump to them is a short one.
+.bad:
+    mov si, zi_m_notsave
+    call zw_notice
+    stc
+    ret
+.walked:
+    cmp word [zi_umoff], 0
+    je .bad
+    clc
+    ret
 
 .chunk:
     mov ax, si
@@ -1853,17 +1851,6 @@ zi_parse:
     jmp .chunk                      ; near: the chunk walk grew past 128 bytes
 .stop:
     pop ax
-    stc
-    ret
-
-.walked:
-    cmp word [zi_umoff], 0
-    je .bad
-    clc
-    ret
-.bad:
-    mov si, zi_m_notsave
-    call zw_notice
     stc
     ret
 
@@ -2202,43 +2189,33 @@ zi_restore_undo:
 ; All preserve every register except SI/DI/CX, which they consume.
 ; -----------------------------------------------------------------------------
 zi_stkcpy:
-    push ax
     push ds
     push si
-    mov ax, [zf_stkseg]
-    mov ds, ax
+    mov ds, [zf_stkseg]
     xor si, si
     rep movsb
     pop si
     pop ds
-    pop ax
     ret
 
 zi_ucpy:
-    push ax
     push ds
-    mov ax, [zi_undoseg]
-    mov ds, ax
+    mov ds, [zi_undoseg]
     rep movsb
     pop ds
-    pop ax
     ret
 
 zi_ustk:
-    push ax
     push es
     push di
-    mov ax, [zf_stkseg]
-    mov es, ax
+    mov es, [zf_stkseg]
     xor di, di
     push ds
-    mov ax, [zi_undoseg]
-    mov ds, ax
+    mov ds, [zi_undoseg]
     rep movsb
     pop ds
     pop di
     pop es
-    pop ax
     ret
 
 ; =============================================================================

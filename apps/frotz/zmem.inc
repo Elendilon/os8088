@@ -620,7 +620,23 @@ zm_setup:
     cmp [zf_gvar], ax
     jae .bad
     cmp [zf_static], ax
-    ja .bad
+    jna .tabok
+    ; The refusals sit HERE, beside the eleven checks that reach them, rather
+    ; than after the last line: from there every one of those checks was the
+    ; five bytes NASM makes of an out-of-range jcc on an 8086, and from here
+    ; they are two.
+.bad:
+    mov al, ZERR_BAD
+    jmp short .fail
+.ever:
+    mov al, ZERR_VER
+    jmp short .fail
+.ebig:
+    mov al, ZERR_BIG
+.fail:
+    mov [zf_err], al
+    stc                             ; POP touches no flags, so CF is the answer
+    jmp .out
 .tabok:
 
     ; --- Flags 1 (Standard 11.1): what this interpreter can actually do -----
@@ -752,33 +768,22 @@ zm_setup:
     call zm_hgw                     ; word 0 = how many words follow
     cmp ax, 4
     jb .done
+    xchg ax, cx                     ; CX = that count
     mov bx, [zf_hdrext]
     add bx, 8                       ; word 4 = Flags 3
-    mov byte [es:bx], 0             ; 11.1.7.4.1: every unused bit cleared, and
-    mov byte [es:bx + 1], 0         ; bit 0 (transparency) is one we cannot do
-    cmp ax, 6
+    xor ax, ax
+    mov [es:bx], ax                 ; 11.1.7.4.1: every unused bit cleared, and
+                                    ; bit 0 (transparency) is one we cannot do
+    cmp cx, 6
     jb .done
-    mov byte [es:bx + 2], 0         ; word 5 = true default foreground, black
-    mov byte [es:bx + 3], 0
-    mov byte [es:bx + 4], 0x7F      ; word 6 = true default background, white
-    mov byte [es:bx + 5], 0xFF      ; ($7fff is white in sRGB, Standard 8.3.5)
+    mov [es:bx + 2], ax             ; word 5 = true default foreground, black
+    mov word [es:bx + 4], 0xFF7F    ; word 6 = true default background, white:
+                                    ; $7fff big-endian, white in sRGB (8.3.5)
 
 .done:
     mov al, ZERR_NONE
     mov [zf_err], al
     clc
-    jmp short .out
-.ever:
-    mov al, ZERR_VER
-    jmp short .fail
-.ebig:
-    mov al, ZERR_BIG
-    jmp short .fail
-.bad:
-    mov al, ZERR_BAD
-.fail:
-    mov [zf_err], al
-    stc                             ; POP touches no flags, so CF is the answer
 .out:
     pop es
     pop di

@@ -408,6 +408,39 @@ zx_step:
     shl bx, 1
     jmp word [zx_text + bx]
 
+; The decoder's two "no such opcode" arms, HERE in the middle of zx_step and
+; not after it: the three jumps above reach them with a 2-byte jcc that falls
+; through in 4 clocks when the PC is good, where from out of range each was
+; the 5-byte inverted jcc over a near jmp that NASM makes on an 8086 - TAKEN,
+; 16 clocks, twice on every instruction the story executes. Nothing falls
+; into them: the line above is an unconditional jump.
+;
+; zx_lost: the PC left the story image, and the instruction whose handler is
+; at fault is the one that JUST RAN - which is [zx_op], still holding the
+; opcode this guard is standing in front of. It used to report a separate
+; [zx_prevop], and that was one instruction too far back: the guard runs
+; BEFORE the decode that would have rolled the two over, so the name in the
+; halt was never the name of the culprit - it named the instruction before
+; it, every time. Both are jumped to from zx_step (or from a handler zx_step
+; jumped to), so the `ret` returns to zx_run, which sees [zf_err] and stops.
+;
+; `..@` labels, with the public names as aliases: an ordinary label here
+; would become the base of every `.local` below it, and zx_step's own
+; `.notext` is jumped to from above.
+..@zx_lost:
+    mov ax, es                      ; the segment we ended up in, which names
+    mov [zx_badseg], ax             ; the claim whose owner clobbered ES
+..@zx_bad:
+    mov al, [zx_op]
+    mov [zx_badop], al
+    call zm_pcaddr                  ; DX:AX = where we are, past the opcode
+    mov [zx_badpc_l], ax
+    mov [zx_badpc_h], dx
+    mov al, ZXE_BADOP
+    jmp zx_halt
+zx_lost equ ..@zx_lost
+zx_bad  equ ..@zx_bad
+
 .notext:
     cmp al, 0xC0
     jb .shortform
@@ -481,10 +514,8 @@ zx_step:
 .t2:
     call zx_getops
 .do2op:
-    mov bl, [zx_op]
-    cmp bl, 32
-    jae zx_bad
-    xor bh, bh
+    mov bl, [zx_op]                 ; < 32 on both ways in, each having masked
+    xor bh, bh                      ; it with 0x1F: no range check to make
     shl bx, 1
     jmp word [zx_t2op + bx]
 
@@ -591,6 +622,39 @@ zx_getops:
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
+; zx_pop - pop the evaluation stack (variable 0, read directly)
+; in:  nothing.  out: AX = the value, 0 and a halt on underflow
+;
+; Here, in front of zx_getvar, because zx_getvar's first test jumps to it: an
+; operand that is not the stack then falls through a 2-byte jz in 4 clocks,
+; where from 170 bytes away it was the 5 bytes an out-of-range jcc becomes on
+; an 8086 and was TAKEN, 16 clocks, on every variable operand.
+; -----------------------------------------------------------------------------
+zx_pop:
+    push bx
+    push cx
+    push es
+    call zx_ebase
+    mov cx, ax
+    mov bx, [zf_sp]
+    cmp bx, cx
+    jbe .under
+    sub bx, 2
+    mov [zf_sp], bx
+    mov es, [zf_stkseg]
+    mov ax, [es:bx]
+.out:
+    pop es
+    pop cx
+    pop bx
+    ret
+.under:
+    mov al, ZXE_USTACK
+    call zx_halt
+    xor ax, ax
+    jmp short .out
+
+; -----------------------------------------------------------------------------
 ; zx_getvar - read a variable, DIRECTLY (variable 0 pops)
 ; in:  AL = variable number.  out: AX = its value; all else preserved
 ; -----------------------------------------------------------------------------
@@ -605,10 +669,9 @@ zx_getvar:
     ja .nolocal                     ; illegal (4.2.2); answer 0, do not fault
     mov bl, al
     xor bh, bh
-    dec bx
     shl bx, 1
     add bx, [zf_fp]
-    add bx, ZXF_LOC
+    add bx, ZXF_LOC - 2             ; local N is word N-1 of the locals
     mov es, [zf_stkseg]
     mov ax, [es:bx]
     pop es
@@ -620,14 +683,10 @@ zx_getvar:
     pop bx
     ret
 .glob:
-    push bx
-    mov bl, al
-    xor bh, bh
-    sub bx, 0x10
-    shl bx, 1
-    add bx, [zf_gvar]
-    mov ax, bx
-    pop bx
+    xor ah, ah                      ; global N is word N-16 of the table: the
+    shl ax, 1                       ; arithmetic in AX, which the answer
+    add ax, [zf_gvar]               ; overwrites anyway, rather than in a BX
+    sub ax, 0x10 * 2                ; that has to be saved round it
     jmp zm_gw16
 
 ; -----------------------------------------------------------------------------
@@ -705,11 +764,10 @@ zx_setvar_body:
     jae .glob
     cmp al, [zf_nlocals]
     ja .out
-    dec ax
     shl ax, 1
     mov di, ax
     add di, [zf_fp]
-    add di, ZXF_LOC
+    add di, ZXF_LOC - 2             ; local N is word N-1 of the locals
     mov es, [zf_stkseg]
     mov [es:di], bx
 .out:
@@ -766,29 +824,6 @@ zx_push:
     pop ax
     jmp short .out
 
-zx_pop:
-    push bx
-    push cx
-    push es
-    call zx_ebase
-    mov cx, ax
-    mov bx, [zf_sp]
-    cmp bx, cx
-    jbe .under
-    sub bx, 2
-    mov [zf_sp], bx
-    mov es, [zf_stkseg]
-    mov ax, [es:bx]
-.out:
-    pop es
-    pop cx
-    pop bx
-    ret
-.under:
-    mov al, ZXE_USTACK
-    call zx_halt
-    xor ax, ax
-    jmp short .out
 
 ; -----------------------------------------------------------------------------
 ; zx_storeres - fetch this instruction's store byte and put a result in it
@@ -880,13 +915,9 @@ zx_branch:
     call zx_ret
     jmp short .no
 
-; Two shorthands: almost every branch opcode ends in one of these.
-zx_bt:
-    stc
-    jmp zx_branch
-zx_bf:
-    clc
-    jmp zx_branch
+; Two shorthands, zx_bt and zx_bf, which almost every branch opcode ends in:
+; they live in the middle of the 2OP block below (after zxo_dec_chk), where
+; the branch opcodes are.
 
 ; -----------------------------------------------------------------------------
 ; zx_jrel - move the PC by a signed byte count
@@ -1190,37 +1221,8 @@ zx_halt:
     mov [zf_err], al                ; zx_report reads the reason back out of
     ret                             ; this; nothing else is needed
 
-; The decoder's two "no such opcode" arms land here. They are jumped to from
-; zx_step, so the `ret` returns to zx_run, which sees [zf_err] and stops.
-; The PC left the story image, and the instruction whose handler is at fault
-; is the one that JUST RAN - which is [zx_op], still holding the opcode this
-; guard is standing in front of. It used to report a separate [zx_prevop], and
-; that was one instruction too far back: the guard runs BEFORE the decode that
-; would have rolled the two over, so the name in the halt was never the name
-; of the culprit - it named the instruction before it, every time.
-zx_lost:
-    mov al, [zx_op]
-    mov [zx_badop], al
-    mov ax, es                      ; the segment we ended up in, which names
-    mov [zx_badseg], ax             ; the claim whose owner clobbered ES
-    call zm_pcaddr
-    mov [zx_badpc_l], ax
-    mov [zx_badpc_h], dx
-    mov al, ZXE_BADOP
-    jmp zx_halt
-
-zx_bad:
-    push ax
-    push dx
-    mov al, [zx_op]
-    mov [zx_badop], al
-    call zm_pcaddr                  ; DX:AX = where we are, past the opcode
-    mov [zx_badpc_l], ax
-    mov [zx_badpc_h], dx
-    pop dx
-    pop ax
-    mov al, ZXE_BADOP
-    jmp zx_halt
+; zx_lost and zx_bad, the two "no such opcode" arms, are INSIDE zx_step,
+; which is where all but two of the jumps to them come from.
 
 
 ; -----------------------------------------------------------------------------
@@ -1465,7 +1467,19 @@ zxo_dec_chk:                        ; 2OP:4  dec_chk (variable) value ?(label)
     pop ax
     cmp ax, [zf_ops+2]
     jl zx_bt
-    jmp zx_bf
+    jmp short zx_bf
+
+; zx_bt / zx_bf - branch on true / on false. HERE, in the middle of the 2OP
+; block, and not beside zx_branch: every `jcc zx_bt` within 127 bytes of them
+; is a 2-byte short jump, where an out-of-range one is the 5 NASM makes on an
+; 8086 (the inverted condition over a near jmp) - and the taken path is one
+; jump shorter, not one longer.
+zx_bt:
+    stc
+    jmp zx_branch
+zx_bf:
+    clc
+    jmp zx_branch
 
 zxo_inc_chk:                        ; 2OP:5  inc_chk (variable) value ?(label)
     mov al, byte [zf_ops]
@@ -1824,9 +1838,7 @@ zxo_print_ret:                      ; 0OP:179 print_ret (literal-string)
     call zt_print_ret
     pop es
     mov al, 13
-    push es
     call zt_putc
-    pop es
     mov ax, 1
     jmp zx_ret
 
@@ -1929,9 +1941,7 @@ zxo_quit:                           ; 0OP:186 quit
 
 zxo_new_line:                       ; 0OP:187 new_line
     mov al, 13
-    push es
     call zt_putc ; through the stream, so stream 3 sees it
-    pop es
     ret
 
 zxo_show_status:                    ; 0OP:188 show_status
@@ -2129,16 +2139,12 @@ zxo_read:                           ; VAR:228 sread (v1-4) / aread (v5+)
 
 zxo_print_char:                     ; VAR:229 print_char output-character-code
     mov al, byte [zf_ops]
-    push es
     call zt_putc
-    pop es
     ret
 
 zxo_print_num:                      ; VAR:230 print_num value
     mov ax, [zf_ops]
-    push es
     call zt_num
-    pop es
     ret
 
 zxo_random:                         ; VAR:231 random range -> (result)
@@ -2586,9 +2592,7 @@ zxo_print_table:                    ; VAR:254 print_table text width height skip
     mov ax, [zx_tmp2]
     call zm_gb16
     inc word [zx_tmp2]
-    push es
     call zt_putc
-    pop es
     pop cx
     loop .cols
 .endrow:
@@ -2597,9 +2601,7 @@ zxo_print_table:                    ; VAR:254 print_table text width height skip
     dec word [zx_tmp0]
     jz .out
     mov al, 13
-    push es
     call zt_putc
-    pop es
     jmp short .rows
 .out:
     ret
@@ -2860,9 +2862,7 @@ zxe_print_unicode:                  ; EXT:11 print_unicode char-number
     jbe .ok
     mov al, '?'
 .ok:
-    push es
     call zt_putc
-    pop es
     ret
 
 zxe_check_unicode:                  ; EXT:12 check_unicode char -> (result)
@@ -3038,15 +3038,11 @@ zxe_print_form:                     ; EXT:26 print_form formatted-table
     mov ax, [zx_tmp2]
     call zm_gb16
     inc word [zx_tmp2]
-    push es
     call zt_putc
-    pop es
     pop cx
     loop .chars
     mov al, 13
-    push es
     call zt_putc
-    pop es
     jmp short .line
 .out:
     ret
@@ -3136,9 +3132,7 @@ zx_diag:
     pop es
     mov al, [zf_ver]
     xor ah, ah
-    push es
     call zt_num
-    pop es
     mov si, zxd_pc
     push es
     call zt_puts
@@ -3183,16 +3177,12 @@ zx_diag:
     xor ah, ah
     call zx_hex2
     mov al, ' '
-    push es
     call zt_putc
-    pop es
     inc bx
     pop cx
     loop .bytes
     mov al, 13
-    push es
     call zt_putc
-    pop es
     pop es
     jmp zf_pop5
 
@@ -3221,9 +3211,7 @@ zx_hex4lo:
     jbe .ok
     add al, 7
 .ok:
-    push es
     call zt_putc
-    pop es
     pop cx
     loop .d
     pop cx
@@ -3260,9 +3248,7 @@ zx_hex:
     jbe .ok
     add al, 7
 .ok:
-    push es
     call zt_putc
-    pop es
     pop cx
     loop .d
     pop dx
@@ -3295,9 +3281,7 @@ zx_trace:
     push si
     call zx_hex
     mov al, ':'
-    push es
     call zt_putc
-    pop es
     pop si
     pop es
     push es
@@ -3305,9 +3289,7 @@ zx_trace:
     mov ax, si
     call zx_hex
     mov al, ' '
-    push es
     call zt_putc
-    pop es
     pop si
     pop es
     mov al, [es:si]
@@ -3316,9 +3298,7 @@ zx_trace:
     push si
     call zx_hex2
     mov al, 13
-    push es
     call zt_putc
-    pop es
     pop si
     pop es
 .out:
